@@ -1,0 +1,16 @@
+[package]
+name = "bc-client-core"
+description = "Before Colony client state machine (no transport): handshake, clock, prediction, interpolation, world model"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+bc-proto.workspace = true
+bc-sim.workspace = true
+
+[lints]
+workspace = true
