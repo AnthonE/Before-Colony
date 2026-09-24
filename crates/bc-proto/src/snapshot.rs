@@ -493,7 +493,8 @@ impl<'a> SnapshotReader<'a> {
             self.check()?;
             return Ok(None);
         }
-        let mut z = ZeroInfo { source_jev: r.read_bool(), advice_age: r.read_bits(4) as u8, ..ZeroInfo::default() };
+        let mut z =
+            ZeroInfo { source_jev: r.read_bool(), advice_age: r.read_bits(4) as u8, ..ZeroInfo::default() };
         z.threat_count = (r.read_bits(2) as u8).min(ZERO_THREATS as u8);
         for t in &mut z.threats[..z.threat_count as usize] {
             t.slot = r.read_bits(SLOT_BITS) as u16;

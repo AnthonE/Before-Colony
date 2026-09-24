@@ -6,8 +6,8 @@ use bc_proto::events::Event;
 use bc_proto::quant::{self, VEL_MAX};
 use bc_proto::snapshot::{ENTITY_BITS, ZERO_HYPOTHESES, ZeroThreat, entity_pos_step};
 use bc_proto::{
-    EntityState, Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, OwnState, Part, PilotKind, SnapshotHeader,
-    SnapshotReader, SnapshotWriter, WeaponKind, ZeroInfo,
+    EntityState, Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, OwnState, Part, PilotKind,
+    SnapshotHeader, SnapshotReader, SnapshotWriter, WeaponKind, ZeroInfo,
 };
 use glam::{Quat, Vec3};
 use proptest::prelude::*;
@@ -21,11 +21,22 @@ fn unit() -> impl Strategy<Value = Vec3> {
 }
 
 fn quat() -> impl Strategy<Value = Quat> {
-    (unit(), -3.14f32..3.14).prop_map(|(axis, angle)| Quat::from_axis_angle(axis, angle))
+    (unit(), -core::f32::consts::PI..core::f32::consts::PI)
+        .prop_map(|(axis, angle)| Quat::from_axis_angle(axis, angle))
 }
 
 fn entity() -> impl Strategy<Value = EntityState> {
-    (0u16..1023, 0u8..4, 0u32..4, vec3(32_000.0), quat(), vec3(2000.0), unit(), 0u16..1024, prop::array::uniform6(0u8..8))
+    (
+        0u16..1023,
+        0u8..4,
+        0u32..4,
+        vec3(32_000.0),
+        quat(),
+        vec3(2000.0),
+        unit(),
+        0u16..1024,
+        prop::array::uniform6(0u8..8),
+    )
         .prop_map(|(slot, generation, frame, pos, rot, vel, aim, flags, parts)| EntityState {
             slot,
             generation,
@@ -141,6 +152,6 @@ proptest! {
 #[test]
 fn entity_budget_matches_plan() {
     // ~25.5 bytes per entity; ~30 fit in a datagram next to header, own state, ZERO and events.
-    assert!(ENTITY_BITS <= 206, "{ENTITY_BITS}");
-    assert_eq!(ZERO_HYPOTHESES, 7);
+    const { assert!(ENTITY_BITS <= 206) };
+    const { assert!(ZERO_HYPOTHESES == 7) };
 }

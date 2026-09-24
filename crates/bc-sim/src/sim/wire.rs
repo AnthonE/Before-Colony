@@ -1,0 +1,215 @@
+//! Conversions from simulation state to the wire structs in `bc-proto`.
+
+use bc_proto::snapshot::{
+    ZERO_THREATS as WIRE_THREATS, ZeroThreat, ent_flags, own_flags, part_buckets, zero_mode,
+};
+use bc_proto::{EntityState, OwnState, ZeroInfo};
+
+use super::Sim;
+use crate::config::VISUAL_RANGE;
+use crate::content::{frame, weapon};
+use crate::sensors;
+use crate::suits::{SaberPhase, SuitStats};
+
+impl Sim {
+    pub fn is_used(&self, i: usize) -> bool {
+        i < self.suits.cap && self.suits.used.get(i)
+    }
+
+    pub fn is_alive(&self, i: usize) -> bool {
+        self.suits.is_alive(i)
+    }
+
+    pub fn stats(&self, i: usize) -> SuitStats {
+        self.suits.stats[i]
+    }
+
+    /// Whether `viewer`'s sensors pick up suit `j` (alive or a fresh wreck).
+    pub fn visible_to(&self, viewer: usize, j: usize) -> bool {
+        let s = &self.suits;
+        if !s.used.get(j) || j == viewer {
+            return false;
+        }
+        let wreck = !s.alive.get(j);
+        if wreck
+            && s.respawn_at[j] != 0
+            && self.tick() + 60 < s.respawn_at[j] + 60
+            && s.pilot[j] != bc_proto::PilotKind::MobileDoll
+        {
+            // Dead pilots waiting to respawn vanish after their wreck has been seen for a moment.
+            if self.tick() > s.respawn_at[j].saturating_sub(crate::config::secs(self.cfg.respawn_secs) - 60) {
+                return false;
+            }
+        }
+        let vspec = frame(s.frame[viewer]);
+        let head_ok = s.part_hp[viewer][bc_proto::Part::Head as usize] > 0.0;
+        let range = vspec.sensor_range * if head_ok { 1.0 } else { 0.4 };
+        let sig = sensors::signature(
+            frame(s.frame[j]).signature,
+            s.boosting[j],
+            self.tick().saturating_sub(s.last_fired[j]) < 30,
+            wreck,
+        );
+        let d2 = (s.flight[j].pos - s.flight[viewer].pos).length_squared();
+        d2 <= VISUAL_RANGE * VISUAL_RANGE
+            || sensors::detects(s.flight[viewer].pos, range, s.flight[j].pos, sig)
+    }
+
+    /// Full-precision state of suit `i` for its own pilot.
+    pub fn own_state(&self, i: usize) -> OwnState {
+        let s = &self.suits;
+        let spec = frame(s.frame[i]);
+        let f = &s.flight[i];
+        let mods = self.flight_mods(i);
+        let t = self.tick();
+        let mut ready = 0u8;
+        for slot in 0..3 {
+            if let Some(m) = spec.loadout[slot] {
+                let w = weapon(m.weapon);
+                let ws = &s.weapons[i][slot];
+                if ws.cooldown == 0
+                    && s.energy[i] >= w.energy
+                    && (w.ammo == 0 || ws.ammo > 0)
+                    && !s.overheated[i]
+                {
+                    ready |= 1 << slot;
+                }
+            }
+        }
+        let charge = spec.loadout[0]
+            .map(|m| weapon(m.weapon))
+            .filter(|w| w.charge_ticks > 0)
+            .map_or(0.0, |w| f32::from(s.weapons[i][0].charge) / f32::from(w.charge_ticks));
+        let mut flags = 0u16;
+        if s.boosting[i] {
+            flags |= own_flags::BOOSTING;
+        }
+        if f.blackout {
+            flags |= own_flags::BLACKOUT;
+        }
+        if s.overheated[i] {
+            flags |= own_flags::OVERHEAT;
+        }
+        if charge > 0.0 {
+            flags |= own_flags::CHARGING;
+        }
+        if s.saber[i].phase != SaberPhase::Idle {
+            flags |= own_flags::SABER_ACTIVE;
+        }
+        if spec.zero || self.cfg.zero_on_all_frames {
+            flags |= own_flags::ZERO_CAPABLE;
+        }
+        if s.input[i].pressed(bc_proto::buttons::FLIGHT_ASSIST) {
+            flags |= own_flags::FLIGHT_ASSIST;
+        }
+        if s.alive.iter().any(|j| j != i && s.input[j].lock_target == i as u16) {
+            flags |= own_flags::LOCKED_ON;
+        }
+        let respawn_in =
+            if s.alive.get(i) { 0 } else { (s.respawn_at[i].saturating_sub(t) / 4).min(255) as u8 };
+        OwnState {
+            slot: i as u16,
+            generation: (s.generation[i] & 3) as u8,
+            frame: s.frame[i],
+            alive: s.alive.get(i),
+            pos: f.pos,
+            vel: f.vel,
+            rot: f.rot,
+            ang_vel: f.ang_vel,
+            propellant: f.propellant,
+            g_strain: f.g_strain,
+            heat: (s.heat[i] / spec.heat_cap).clamp(0.0, 1.0),
+            energy: (s.energy[i] / spec.energy_cap).clamp(0.0, 1.0),
+            ammo: [s.weapons[i][0].ammo, s.weapons[i][1].ammo],
+            weapon_ready: ready,
+            charge,
+            parts: s.part_fractions(i),
+            zero_strain: s.zero[i].strain,
+            zero_mode: s.zero[i].mode,
+            flags,
+            ambac_factor: mods.ambac,
+            thrust_factor: mods.thrust,
+            respawn_in,
+        }
+    }
+
+    /// Suit `j` as replicated to `viewer`.
+    pub fn entity_state(&self, j: usize, viewer: usize) -> EntityState {
+        let s = &self.suits;
+        let f = &s.flight[j];
+        let t = self.tick();
+        let mut flags = 0u16;
+        if t.saturating_sub(s.fired_primary[j]) < 4 && s.fired_primary[j] != 0 {
+            flags |= ent_flags::FIRING_PRIMARY;
+        }
+        if t.saturating_sub(s.fired_secondary[j]) < 4 && s.fired_secondary[j] != 0 {
+            flags |= ent_flags::FIRING_SECONDARY;
+        }
+        if matches!(s.saber[j].phase, SaberPhase::Windup | SaberPhase::Active) {
+            flags |= ent_flags::SABER;
+        }
+        if s.boosting[j] {
+            flags |= ent_flags::BOOST;
+        }
+        if s.weapons[j][0].charge > 0 {
+            flags |= ent_flags::CHARGING;
+        }
+        if s.zero[j].active() {
+            flags |= ent_flags::ZERO;
+        }
+        if s.zero[j].mode == zero_mode::SEIZED {
+            flags |= ent_flags::SEIZED;
+        }
+        if s.overheated[j] {
+            flags |= ent_flags::OVERHEAT;
+        }
+        if !s.alive.get(j) {
+            flags |= ent_flags::WRECK;
+        }
+        if s.input[j].lock_target == viewer as u16 && s.alive.get(j) {
+            flags |= ent_flags::LOCKED_ON_YOU;
+        }
+        EntityState {
+            slot: j as u16,
+            generation: (s.generation[j] & 3) as u8,
+            frame: s.frame[j],
+            faction: s.faction[j],
+            pilot: s.pilot[j],
+            pos: f.pos,
+            rot: f.rot,
+            vel: f.vel,
+            aim: s.aim[j],
+            flags,
+            parts: part_buckets(&s.part_fractions(j)),
+        }
+    }
+
+    /// What the ZERO System shows pilot `i` (only while engaged).
+    pub fn zero_info(&self, i: usize) -> Option<ZeroInfo> {
+        let z = &self.suits.zero[i];
+        if !z.active() || z.out.computed_at == 0 {
+            return None;
+        }
+        let o = &z.out;
+        let mut info = ZeroInfo {
+            source_jev: o.source_jev,
+            advice_age: o.advice_age,
+            threat_count: o.n_threats.min(WIRE_THREATS as u8),
+            rec_target: o.rec_target,
+            rec_target_p: o.rec_target_p,
+            rec_maneuver: o.rec_maneuver,
+            rec_maneuver_p: o.rec_maneuver_p,
+            threat_level: o.threat_level,
+            threat_confidence: o.threat_confidence,
+            flanked: o.flanked,
+            has_solution: o.has_solution,
+            solution: o.solution,
+            hit_p: o.hit_p,
+            ..ZeroInfo::default()
+        };
+        for k in 0..info.threat_count as usize {
+            info.threats[k] = ZeroThreat { slot: o.threats[k].slot, probs: o.threats[k].probs };
+        }
+        Some(info)
+    }
+}

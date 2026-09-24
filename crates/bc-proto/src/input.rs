@@ -136,7 +136,16 @@ impl InputCmd {
         let buttons = r.read_bits(buttons::BITS) as u16;
         let lock_target = r.read_bits(SLOT_BITS) as u16;
         let shot_seq = r.read_u8();
-        Self { tick, view_tick_q4: (tick << 4).saturating_sub(delta), aim, thrust, roll, buttons, lock_target, shot_seq }
+        Self {
+            tick,
+            view_tick_q4: (tick << 4).saturating_sub(delta),
+            aim,
+            thrust,
+            roll,
+            buttons,
+            lock_target,
+            shot_seq,
+        }
     }
 }
 

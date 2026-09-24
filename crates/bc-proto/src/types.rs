@@ -48,7 +48,8 @@ pub enum FrameId {
 impl FrameId {
     pub const BITS: u32 = 4;
     pub const COUNT: usize = 4;
-    pub const ALL: [FrameId; Self::COUNT] = [FrameId::Leo, FrameId::WingZero, FrameId::Taurus, FrameId::Virgo];
+    pub const ALL: [FrameId; Self::COUNT] =
+        [FrameId::Leo, FrameId::WingZero, FrameId::Taurus, FrameId::Virgo];
 
     pub fn from_bits(v: u32) -> Option<Self> {
         Self::ALL.get(v as usize).copied()
@@ -105,7 +106,8 @@ pub enum Part {
 impl Part {
     pub const COUNT: usize = 6;
     pub const BITS: u32 = 3;
-    pub const ALL: [Part; Self::COUNT] = [Part::Head, Part::Torso, Part::ArmL, Part::ArmR, Part::Legs, Part::Backpack];
+    pub const ALL: [Part; Self::COUNT] =
+        [Part::Head, Part::Torso, Part::ArmL, Part::ArmR, Part::Legs, Part::Backpack];
 
     pub fn from_bits(v: u32) -> Option<Self> {
         Self::ALL.get(v as usize).copied()

@@ -7,12 +7,7 @@ use bc_server::{Config, Mode};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn echo_round_trips() -> anyhow::Result<()> {
-    let cfg = Config {
-        mode: Mode::Echo,
-        wt_port: 0,
-        http_addr: "127.0.0.1:0".parse()?,
-        ..Config::default()
-    };
+    let cfg = Config { mode: Mode::Echo, wt_port: 0, http_addr: "127.0.0.1:0".parse()?, ..Config::default() };
     let server = bc_server::start(cfg).await?;
 
     // Discover exactly like the web loader does.

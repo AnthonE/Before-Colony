@@ -64,7 +64,15 @@ pub enum ControlMsg {
     /// Client → server, first frame. `pilot` must be honest: agents identify as [`PilotKind::Agent`].
     Hello { version: u16, pilot: PilotKind, frame: FrameId, faction: Faction, name: Name },
     /// Server → client: you're in.
-    Welcome { version: u16, client_slot: u16, tick: u32, tick_hz: u8, sector: u8, zero_allowed: bool, max_datagram: u16 },
+    Welcome {
+        version: u16,
+        client_slot: u16,
+        tick: u32,
+        tick_hz: u8,
+        sector: u8,
+        zero_allowed: bool,
+        max_datagram: u16,
+    },
     /// Server → client, then the stream closes.
     Reject { reason: RejectReason },
     /// Server → client: the pilot flying entity `slot`.
@@ -92,7 +100,15 @@ impl ControlMsg {
                 p.u8(faction as u8);
                 p.name(&name);
             }
-            ControlMsg::Welcome { version, client_slot, tick, tick_hz, sector, zero_allowed, max_datagram } => {
+            ControlMsg::Welcome {
+                version,
+                client_slot,
+                tick,
+                tick_hz,
+                sector,
+                zero_allowed,
+                max_datagram,
+            } => {
                 p.u8(2);
                 p.u16(version);
                 p.u16(client_slot);
@@ -168,8 +184,14 @@ impl ControlMsg {
                     _ => RejectReason::BadHello,
                 },
             },
-            4 => ControlMsg::Roster { slot: r.u16()?, pilot: PilotKind::from_bits(u32::from(r.u8()?)), name: r.name()? },
-            5 => ControlMsg::Respawn { frame: FrameId::from_bits(u32::from(r.u8()?)).ok_or(DecodeError::Invalid)? },
+            4 => ControlMsg::Roster {
+                slot: r.u16()?,
+                pilot: PilotKind::from_bits(u32::from(r.u8()?)),
+                name: r.name()?,
+            },
+            5 => ControlMsg::Respawn {
+                frame: FrameId::from_bits(u32::from(r.u8()?)).ok_or(DecodeError::Invalid)?,
+            },
             6 => ControlMsg::Bye { reason: r.u8()? },
             _ => return Err(DecodeError::WrongKind),
         };

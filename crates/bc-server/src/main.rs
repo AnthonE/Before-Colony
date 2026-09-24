@@ -39,7 +39,10 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let web_dir = args.web_dir.is_dir().then_some(args.web_dir.clone());
     if web_dir.is_none() {
-        tracing::warn!("{} not found: serving no web client (run scripts/build-web.sh)", args.web_dir.display());
+        tracing::warn!(
+            "{} not found: serving no web client (run scripts/build-web.sh)",
+            args.web_dir.display()
+        );
     }
     let cfg = Config {
         mode: args.mode,

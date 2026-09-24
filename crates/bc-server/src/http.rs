@@ -24,15 +24,16 @@ pub struct HttpState {
 
 pub fn router(state: HttpState) -> Router {
     let web_dir = state.web_dir.clone();
-    let mut router = Router::new()
-        .route("/cert-hash", get(cert_hash))
-        .route("/status", get(status))
-        .with_state(state);
+    let mut router =
+        Router::new().route("/cert-hash", get(cert_hash)).route("/status", get(status)).with_state(state);
     if let Some(dir) = web_dir {
         router = router.fallback_service(ServeDir::new(dir).precompressed_br().precompressed_gzip());
     }
     // Dev server: never let the browser run a stale wasm build.
-    router.layer(SetResponseHeaderLayer::overriding(header::CACHE_CONTROL, HeaderValue::from_static("no-cache")))
+    router.layer(SetResponseHeaderLayer::overriding(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-cache"),
+    ))
 }
 
 async fn cert_hash(State(s): State<HttpState>) -> Json<serde_json::Value> {

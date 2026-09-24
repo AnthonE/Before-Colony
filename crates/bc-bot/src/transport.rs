@@ -22,7 +22,8 @@ pub struct EndpointInfo {
 pub async fn discover(http_base: &str) -> anyhow::Result<EndpointInfo> {
     install_crypto_provider();
     let base = http_base.trim_end_matches('/');
-    let doc: serde_json::Value = reqwest::get(format!("{base}/cert-hash")).await?.error_for_status()?.json().await?;
+    let doc: serde_json::Value =
+        reqwest::get(format!("{base}/cert-hash")).await?.error_for_status()?.json().await?;
     let port = doc["port"].as_u64().ok_or_else(|| anyhow::anyhow!("/cert-hash: missing port"))?;
     let path = doc["path"].as_str().unwrap_or("/bc");
     let hex_hash = doc["hash"].as_str().ok_or_else(|| anyhow::anyhow!("/cert-hash: missing hash"))?;

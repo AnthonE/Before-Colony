@@ -209,7 +209,15 @@ mod tests {
 
     #[test]
     fn oct_round_trip() {
-        let dirs = [Vec3::X, Vec3::Y, Vec3::Z, -Vec3::X, -Vec3::Y, -Vec3::Z, Vec3::new(0.3, -0.8, -0.52).normalize()];
+        let dirs = [
+            Vec3::X,
+            Vec3::Y,
+            Vec3::Z,
+            -Vec3::X,
+            -Vec3::Y,
+            -Vec3::Z,
+            Vec3::new(0.3, -0.8, -0.52).normalize(),
+        ];
         for d in dirs {
             let back = quantize_dir(d, 16);
             assert!(back.dot(d) > 0.99999, "{d} -> {back}");

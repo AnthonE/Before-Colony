@@ -24,13 +24,15 @@ impl Transport {
     /// Connects to `url`, pinning the server's self-signed certificate by SHA-256 when given.
     pub async fn connect(url: &str, cert_hash: Option<Vec<u8>>) -> Result<Transport, String> {
         let url = url::Url::parse(url).map_err(|e| format!("bad url {url}: {e}"))?;
-        let builder = ClientBuilder::new().with_unreliable(true).with_congestion_control(CongestionControl::LowLatency);
+        let builder =
+            ClientBuilder::new().with_unreliable(true).with_congestion_control(CongestionControl::LowLatency);
         let client = match cert_hash {
             Some(hash) => builder.with_server_certificate_hashes(vec![hash]),
             None => builder.with_system_roots(),
         };
         let session = client.connect(url).await.map_err(|e| format!("connect: {e}"))?;
-        let (mut send, mut recv) = session.open_bi().await.map_err(|e| format!("open control stream: {e}"))?;
+        let (mut send, mut recv) =
+            session.open_bi().await.map_err(|e| format!("open control stream: {e}"))?;
 
         let closed = Rc::new(Cell::new(false));
         let (ctrl_tx, mut ctrl_rx) = mpsc::unbounded::<Vec<u8>>();

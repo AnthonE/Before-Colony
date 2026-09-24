@@ -72,12 +72,18 @@ impl Event {
         let head = (KIND_BITS + 8) as usize; // kind + tick age
         head + match self {
             Event::BeamSpawn { .. } => {
-                16 + SLOT_BITS as usize + WeaponKind::BITS as usize + 8 + 3 * quant::POS_BITS as usize
+                16 + SLOT_BITS as usize
+                    + WeaponKind::BITS as usize
+                    + 8
+                    + 3 * quant::POS_BITS as usize
                     + 2 * DIR_BITS as usize
                     + SPEED_BITS as usize
             }
             Event::Hit { .. } => {
-                16 + 2 * SLOT_BITS as usize + Part::BITS as usize + WeaponKind::BITS as usize + DAMAGE_BITS as usize
+                16 + 2 * SLOT_BITS as usize
+                    + Part::BITS as usize
+                    + WeaponKind::BITS as usize
+                    + DAMAGE_BITS as usize
             }
             Event::Kill { .. } | Event::Clash { .. } => 16 + 2 * SLOT_BITS as usize,
             Event::Leave { .. } => SLOT_BITS as usize,
@@ -150,7 +156,8 @@ impl Event {
             0 => {
                 let id = r.read_u16();
                 let shooter = slot(r);
-                let weapon = WeaponKind::from_bits(r.read_bits(WeaponKind::BITS)).ok_or(DecodeError::Invalid)?;
+                let weapon =
+                    WeaponKind::from_bits(r.read_bits(WeaponKind::BITS)).ok_or(DecodeError::Invalid)?;
                 let shot_seq = r.read_u8();
                 let origin = quant::read_pos(r);
                 let dir = quant::read_dir(r, DIR_BITS);
@@ -162,7 +169,8 @@ impl Event {
                 let target = slot(r);
                 let part = Part::from_bits(r.read_bits(Part::BITS)).ok_or(DecodeError::Invalid)?;
                 let shooter = slot(r);
-                let weapon = WeaponKind::from_bits(r.read_bits(WeaponKind::BITS)).ok_or(DecodeError::Invalid)?;
+                let weapon =
+                    WeaponKind::from_bits(r.read_bits(WeaponKind::BITS)).ok_or(DecodeError::Invalid)?;
                 let damage = dequantize_unit(r.read_bits(DAMAGE_BITS), DAMAGE_BITS);
                 Event::Hit { id, tick, target, part, shooter, weapon, damage }
             }

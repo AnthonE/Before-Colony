@@ -10,21 +10,20 @@ pub fn run() {
     let cfg = LaunchConfig::from_window();
     let echo = cfg.echo;
     let mut app = App::new();
-    app
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Before Colony".into(),
-                canvas: Some("#bc".into()),
-                fit_canvas_to_parent: true,
-                prevent_default_event_handling: true,
-                ..default()
-            }),
+    app.add_plugins(DefaultPlugins.set(WindowPlugin {
+        primary_window: Some(Window {
+            title: "Before Colony".into(),
+            canvas: Some("#bc".into()),
+            fit_canvas_to_parent: true,
+            prevent_default_event_handling: true,
             ..default()
-        }))
-        .insert_resource(LaunchConfigRes(cfg))
-        .add_plugins((DevHooksPlugin, NetPlugin))
-        .add_systems(Startup, setup)
-        .add_systems(Update, spin);
+        }),
+        ..default()
+    }))
+    .insert_resource(LaunchConfigRes(cfg))
+    .add_plugins((DevHooksPlugin, NetPlugin))
+    .add_systems(Startup, setup)
+    .add_systems(Update, spin);
     if echo {
         app.add_plugins(EchoPlugin);
     }
@@ -34,7 +33,11 @@ pub fn run() {
 #[derive(Component)]
 struct Spinner;
 
-fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
+fn setup(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
     commands.spawn((
         Camera3d::default(),
         bevy::camera::Hdr,
@@ -50,7 +53,10 @@ fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials
             ..default()
         })),
     ));
-    commands.spawn((DirectionalLight::default(), Transform::from_xyz(3.0, 5.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y)));
+    commands.spawn((
+        DirectionalLight::default(),
+        Transform::from_xyz(3.0, 5.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
 }
 
 fn spin(time: Res<Time>, mut q: Query<&mut Transform, With<Spinner>>) {
