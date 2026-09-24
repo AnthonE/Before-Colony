@@ -14,7 +14,10 @@ WebTransport (QUIC) between them. See `docs/ARCHITECTURE.md` and `docs/DESIGN.md
 - Determinism: use `bc_sim::math` (libm) for trig; never enable glam `fast-math` or wasm `simd128`.
 
 ## Commands
-- `cargo test --workspace` — all native tests (bc-client is a no-op natively).
+- `scripts/ci.sh` — everything CI runs (`BC_E2E=1` adds the browser tests).
+- `scripts/dev.sh` — build the web client, run a sector with Mobile Dolls and an AI agent.
+- `cargo test --workspace --release` — all native tests (bc-client is a no-op natively; release
+  because the simulation-heavy tests are slow unoptimised).
 - `cargo clippy --workspace --all-targets -- -D warnings` and
   `cargo clippy -p bc-client --target wasm32-unknown-unknown -- -D warnings`
 - `scripts/build-web.sh [webgl2] [webgpu]` — browser build into `web/dist/` (needs wasm-bindgen-cli 0.2.128).
