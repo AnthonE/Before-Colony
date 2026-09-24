@@ -1,6 +1,6 @@
 //! Ready-made agent brains.
 
-use bc_client_core::InputContext;
+use crate::InputContext;
 use bc_proto::InputCmd;
 use bc_proto::buttons::FLIGHT_ASSIST;
 use bc_sim::ai::{self, AiState, DOLL};
@@ -23,7 +23,8 @@ impl DollBrain {
     }
 
     pub fn decide(&mut self, ctx: &InputContext) -> InputCmd {
-        let Some(p) = ctx.world.perception(ctx.view_tick, ctx.predict) else {
+        // See targets where the server will judge the shots, not where the screen shows them.
+        let Some(p) = ctx.world.perception(ctx.resolve_tick, ctx.predict) else {
             return InputCmd { buttons: FLIGHT_ASSIST, ..InputCmd::default() };
         };
         let spec = frame(p.me.frame);

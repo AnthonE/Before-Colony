@@ -5,6 +5,7 @@
 
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
+use std::sync::atomic::Ordering;
 
 use bc_client_core::{ClientConfig, ClientCore, InputContext};
 use bc_proto::buttons::FLIGHT_ASSIST;
@@ -60,8 +61,19 @@ fn weaving_pilot(ctx: &InputContext) -> InputCmd {
     }
 }
 
-#[test]
-fn prediction_holds_up_over_a_bad_link() {
+struct Outcome {
+    client: ClientCore,
+    /// Own-suit prediction error at each snapshot after warm-up.
+    errors: Vec<f32>,
+    max_len: usize,
+    /// Ticks in the last 20 s for which the server had no command from this client.
+    missing_late: u64,
+}
+
+/// A real sector and a real client over a 100 ms-RTT, ±20 ms-jitter, 5 %-loss link for 40 s. The
+/// client takes datagrams as they arrive but only sends inputs every `input_period` seconds (a
+/// browser frame, or a slow agent's think cycle).
+fn run(input_period: f64) -> Outcome {
     let cfg = SectorConfig {
         sim: SimConfig { target_dolls: 0, seed: 1, ..SimConfig::default() },
         max_clients: 4,
@@ -79,7 +91,6 @@ fn prediction_holds_up_over_a_bad_link() {
             max_datagram: MAX_DATAGRAM as u16,
         })
         .unwrap();
-    // 100 ms RTT, ±20 ms jitter, 5 % loss each way.
     let mut up = Link::new(1, 0.05, 0.02, 0.05);
     let mut down = Link::new(2, 0.05, 0.02, 0.05);
     let mut client = ClientCore::new(ClientConfig {
@@ -91,20 +102,24 @@ fn prediction_holds_up_over_a_bad_link() {
 
     let mut t = 0.0f64;
     let mut next_tick = 0.0;
-    let mut next_frame = 0.0;
+    let mut next_input = 0.0;
     let mut buf = [0u8; 2048];
     let mut errors = Vec::new();
     let mut welcomed = false;
     let mut max_len = 0;
     let mut brain = weaving_pilot;
+    let mut missing_at_20s = None;
     while t < 40.0 {
+        for bytes in up.deliver(t) {
+            let packet = InputPacket::decode(&bytes).expect("input decodes");
+            let _ = lease.input.push(InputMsg { packet, recv_us: (t * 1e6) as u64 });
+        }
         if t >= next_tick {
             next_tick += 1.0 / 30.0;
-            for bytes in up.deliver(t) {
-                let packet = InputPacket::decode(&bytes).expect("input decodes");
-                let _ = lease.input.push(InputMsg { packet, recv_us: (t * 1e6) as u64 });
-            }
             sector.tick_at((t * 1e6) as u64);
+            if missing_at_20s.is_none() && t >= 20.0 {
+                missing_at_20s = Some(shared.metrics.inputs_missing.load(Ordering::Relaxed));
+            }
             if !welcomed && shared.slots[lease.slot as usize].state() == SlotState::Active {
                 welcomed = true;
                 let mut w = [0u8; 64];
@@ -126,26 +141,34 @@ fn prediction_holds_up_over_a_bad_link() {
                 down.send(t, buf[..n].to_vec());
             }
         }
-        if t >= next_frame {
-            next_frame += 1.0 / 60.0;
-            let before = client.stats.snapshots;
-            for bytes in down.deliver(t) {
-                client.on_datagram(&bytes, t);
-            }
-            if client.stats.snapshots > before && t > 5.0 {
-                errors.push(client.stats.prediction_error);
-            }
+        let before = client.stats.snapshots;
+        for bytes in down.deliver(t) {
+            client.on_datagram(&bytes, t);
+        }
+        if client.stats.snapshots > before && t > 5.0 {
+            errors.push(client.stats.prediction_error);
+        }
+        if t >= next_input {
+            next_input += input_period;
             for p in client.poll_inputs(t, &mut brain) {
                 up.send(t, p);
             }
-            client.frame(t, 1.0 / 60.0);
+            client.frame(t, input_period as f32);
         }
         t += 0.001;
     }
+    let missing_late =
+        shared.metrics.inputs_missing.load(Ordering::Relaxed) - missing_at_20s.expect("ran past 20 s");
+    Outcome { client, errors, max_len, missing_late }
+}
+
+#[test]
+fn prediction_holds_up_over_a_bad_link() {
+    let Outcome { client, mut errors, max_len, missing_late } = run(1.0 / 60.0);
     errors.sort_by(f32::total_cmp);
     let p = |q: f64| errors[((errors.len() - 1) as f64 * q) as usize];
     println!(
-        "snapshots {}  prediction error p50 {:.4} m  p99 {:.4} m  max {:.4} m  (lead {:.1} ticks, health {}, rtt {:.0} ms, max snapshot {max_len} B)",
+        "snapshots {}  prediction error p50 {:.4} m  p99 {:.4} m  max {:.4} m  (lead {:.1} ticks, health {}, rtt {:.0} ms, max snapshot {max_len} B, missing inputs {missing_late}/600)",
         client.stats.snapshots,
         p(0.5),
         p(0.99),
@@ -158,7 +181,27 @@ fn prediction_holds_up_over_a_bad_link() {
     assert!(p(0.99) < 0.25, "prediction error p99 {:.3} m", p(0.99));
     assert!(max_len <= MAX_DATAGRAM);
     assert!((client.clock.rtt - 0.1).abs() < 0.03, "rtt estimate {:.3}", client.clock.rtt);
+    assert!(missing_late <= 6, "{missing_late} of 600 ticks had no command");
     let own = client.world.own.expect("own state");
     assert!(own.alive);
     assert!((client.predict.state.pos - own.pos).length() < 200.0);
+}
+
+/// A client that sends inputs only twice a second (a slow agent, or a browser rendering at 2 fps):
+/// the server holds each input echo for up to 500 ms, past what the 8-bit hold field can say, so
+/// saturated echoes must not count as RTT samples. Its inputs must still arrive in time.
+#[test]
+fn bursty_inputs_keep_an_accurate_clock() {
+    let Outcome { client, missing_late, .. } = run(0.5);
+    println!(
+        "rtt {:.0} ms, lead {:.1} ticks, health {}, snapshots {}, missing inputs {missing_late}/600",
+        client.clock.rtt * 1000.0,
+        client.clock.lead,
+        client.clock.health,
+        client.stats.snapshots
+    );
+    assert!((client.clock.rtt - 0.1).abs() < 0.03, "rtt estimate {:.3}", client.clock.rtt);
+    // The commands still arrive before the server needs them, despite the bursts and the loss.
+    assert!(missing_late <= 6, "{missing_late} of 600 ticks had no command");
+    assert!(client.world.own.expect("own state").alive);
 }

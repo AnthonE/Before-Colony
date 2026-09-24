@@ -8,6 +8,7 @@
 //! [`ClientCore::on_control`] and datagrams to [`ClientCore::on_datagram`], and sends whatever
 //! [`ClientCore::poll_inputs`] returns.
 
+pub mod brains;
 pub mod clock;
 pub mod inputs;
 pub mod interp;
@@ -17,9 +18,11 @@ pub mod world;
 use bc_proto::buttons::FIRE_PRIMARY;
 use bc_proto::control::{ControlMsg, RejectReason};
 use bc_proto::{Faction, FrameId, InputCmd, InputPacket, PROTOCOL_VERSION, PilotKind, SnapshotReader};
+use bc_sim::config::MAX_REWIND_TICKS;
 use bc_sim::content::{frame, weapon};
 use glam::Vec3;
 
+pub use brains::DollBrain;
 pub use clock::Clock;
 pub use inputs::InputHistory;
 pub use predict::Predictor;
@@ -66,7 +69,12 @@ pub struct ClientStats {
 /// Inputs available to whoever produces the command for a tick (keyboard, autopilot, bot brain).
 pub struct InputContext<'a> {
     pub tick: u32,
+    /// Time (ticks) of the world this client is showing.
     pub view_tick: f64,
+    /// Time (ticks) the server will resolve this command's shots against: the view time, unless
+    /// that is further back than lag compensation reaches (`MAX_REWIND_TICKS`). Brains should aim
+    /// at targets as they are then.
+    pub resolve_tick: f64,
     pub now: f64,
     pub world: &'a World,
     pub predict: &'a Predictor,
@@ -195,7 +203,9 @@ impl ClientCore {
                 }
             }
         }
-        let rtt = (h.time_echo_ms != 0).then(|| {
+        // A hold of 255 ms is saturated (the client sent nothing for that long), so the true hold
+        // is unknown and the sample would overstate the RTT.
+        let rtt = (h.time_echo_ms != 0 && h.echo_hold_ms < u8::MAX).then(|| {
             let now_ms = (now * 1_000.0) as u64 as u16;
             f64::from(now_ms.wrapping_sub(h.time_echo_ms)) / 1_000.0 - f64::from(h.echo_hold_ms) / 1_000.0
         });
@@ -233,7 +243,15 @@ impl ClientCore {
         while self.next_cmd_tick <= target {
             let tick = self.next_cmd_tick;
             let view = self.clock.view_tick(now).min(f64::from(tick));
-            let ctx = InputContext { tick, view_tick: view, now, world: &self.world, predict: &self.predict };
+            let resolve = view.max(f64::from(tick.saturating_sub(MAX_REWIND_TICKS)));
+            let ctx = InputContext {
+                tick,
+                view_tick: view,
+                resolve_tick: resolve,
+                now,
+                world: &self.world,
+                predict: &self.predict,
+            };
             let mut cmd = brain(&ctx);
             cmd.tick = tick;
             cmd.view_tick_q4 = ((view.max(0.0) * 16.0) as u32).min(tick << 4);
@@ -245,7 +263,11 @@ impl ClientCore {
             self.last_cmd = q;
             self.next_cmd_tick += 1;
         }
+        // Each packet carries the newest command and the three before it. A burst (several ticks
+        // at once) is sent as overlapping windows, so every command still travels twice and a
+        // single lost packet costs nothing.
         let last = self.next_cmd_tick - 1;
+        let step = bc_proto::input::MAX_CMDS as u32 / 2;
         let mut packets = Vec::new();
         let mut newest = last;
         loop {
@@ -269,10 +291,10 @@ impl ClientCore {
                     packets.push(buf[..len].to_vec());
                 }
             }
-            if newest < first + bc_proto::input::MAX_CMDS as u32 {
+            if newest < first + step {
                 break;
             }
-            newest -= bc_proto::input::MAX_CMDS as u32;
+            newest -= step;
         }
         self.stats.packets_sent += packets.len() as u64;
         packets

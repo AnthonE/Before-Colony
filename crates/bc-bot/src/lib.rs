@@ -22,11 +22,11 @@
 //! # Ok(()) }
 //! ```
 
-pub mod brains;
 pub mod client;
 pub mod transport;
 
-pub use brains::DollBrain;
+/// The Mobile Doll brain (lives in `bc-client-core` so the browser autopilot uses it too).
+pub use bc_client_core::brains::{self, DollBrain};
 pub use client::{BotClient, BotConfig};
 pub use transport::{EndpointInfo, connect, discover, install_crypto_provider};
 
