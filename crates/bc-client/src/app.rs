@@ -1,9 +1,14 @@
 use bevy::prelude::*;
 
+use crate::assets::setup_assets;
 use crate::config::LaunchConfig;
-use crate::dev_hooks::DevHooksPlugin;
+use crate::dev_hooks::{DevHooksPlugin, publish_game};
 use crate::echo::EchoPlugin;
-use crate::net::{LaunchConfigRes, NetPlugin};
+use crate::fx::{FxState, setup_fx, update_fx};
+use crate::hud::{setup_hud, update_hud};
+use crate::input::{Aim, Controls, read_input};
+use crate::net::{LaunchConfigRes, NetPlugin, drive, game_client, start_net_loop};
+use crate::suits_vis::{SuitIndex, sync_suits, tag_parts};
 
 pub fn run() {
     console_error_panic_hook::set_once();
@@ -20,48 +25,43 @@ pub fn run() {
         }),
         ..default()
     }))
-    .insert_resource(LaunchConfigRes(cfg))
-    .add_plugins((DevHooksPlugin, NetPlugin))
-    .add_systems(Startup, setup)
-    .add_systems(Update, spin);
+    .insert_resource(LaunchConfigRes(cfg.clone()))
+    .insert_resource(ClearColor(Color::BLACK))
+    .add_plugins((DevHooksPlugin, NetPlugin));
     if echo {
-        app.add_plugins(EchoPlugin);
+        app.add_plugins(EchoPlugin).add_systems(Startup, crate::echo::setup_echo_scene);
+    } else {
+        app.insert_non_send(game_client(&cfg))
+            .init_resource::<Controls>()
+            .init_resource::<Aim>()
+            .init_resource::<SuitIndex>()
+            .init_resource::<FxState>()
+            .add_systems(
+                Startup,
+                (
+                    start_net_loop,
+                    (
+                        setup_assets,
+                        (crate::scene::setup_scene, crate::camera::spawn_camera, setup_fx, setup_hud),
+                    )
+                        .chain(),
+                ),
+            )
+            .add_systems(
+                Update,
+                (
+                    read_input,
+                    drive,
+                    sync_suits,
+                    tag_parts,
+                    crate::camera::follow,
+                    update_fx,
+                    update_hud,
+                    crate::zero_overlay::draw_ghosts,
+                    publish_game,
+                )
+                    .chain(),
+            );
     }
     app.run();
-}
-
-#[derive(Component)]
-struct Spinner;
-
-fn setup(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    commands.spawn((
-        Camera3d::default(),
-        bevy::camera::Hdr,
-        bevy::post_process::bloom::Bloom::NATURAL,
-        Transform::from_xyz(0.0, 2.0, 6.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
-    commands.spawn((
-        Spinner,
-        Mesh3d(meshes.add(Cuboid::new(1.5, 1.5, 1.5))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.9, 0.3, 0.2),
-            emissive: LinearRgba::rgb(4.0, 1.2, 0.4),
-            ..default()
-        })),
-    ));
-    commands.spawn((
-        DirectionalLight::default(),
-        Transform::from_xyz(3.0, 5.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
-}
-
-fn spin(time: Res<Time>, mut q: Query<&mut Transform, With<Spinner>>) {
-    for mut t in &mut q {
-        t.rotate_y(time.delta_secs() * 0.8);
-        t.rotate_x(time.delta_secs() * 0.3);
-    }
 }

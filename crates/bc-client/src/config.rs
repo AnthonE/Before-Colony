@@ -16,6 +16,8 @@ pub struct LaunchConfig {
     pub frame: String,
     /// `?mode=echo`: transport smoke test only.
     pub echo: bool,
+    /// `?quality=low`: no HDR/bloom/post effects (software rendering, old GPUs).
+    pub low_quality: bool,
 }
 
 fn get(obj: &JsValue, key: &str) -> JsValue {
@@ -23,7 +25,7 @@ fn get(obj: &JsValue, key: &str) -> JsValue {
 }
 
 fn decode_hex(s: &str) -> Option<Vec<u8>> {
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return None;
     }
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok()).collect()
@@ -39,6 +41,23 @@ impl LaunchConfig {
         let cert_hash = get(&cfg, "certHash").as_string().and_then(|h| decode_hex(&h));
         let name = Some(string("name")).filter(|s| !s.is_empty()).unwrap_or_else(|| "Pilot".into());
         let frame = Some(string("frame")).filter(|s| !s.is_empty()).unwrap_or_else(|| "wingzero".into());
-        Self { wt_url, cert_hash, autopilot: flag("autopilot"), name, frame, echo: flag("echo") }
+        Self {
+            wt_url,
+            cert_hash,
+            autopilot: flag("autopilot"),
+            name,
+            frame,
+            echo: flag("echo"),
+            low_quality: flag("lowQuality"),
+        }
+    }
+}
+
+/// `leo | wingzero` (anything else: None).
+pub fn parse_frame(s: &str) -> Option<bc_proto::FrameId> {
+    match s.to_ascii_lowercase().replace(['-', '_', ' '], "").as_str() {
+        "leo" => Some(bc_proto::FrameId::Leo),
+        "wingzero" | "wing" | "zero" => Some(bc_proto::FrameId::WingZero),
+        _ => None,
     }
 }

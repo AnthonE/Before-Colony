@@ -10,7 +10,7 @@ port="${BC_HTTP_PORT:-8080}"
 export BC_URL="http://127.0.0.1:${port}"
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/opt/pw-browsers}"
 
-cargo build --release -p bc-server -p bc-bot
+cargo build --release -p bc-server -p bc-bot --bins --examples
 pids=()
 cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; }
 trap cleanup EXIT

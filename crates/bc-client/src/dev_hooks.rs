@@ -65,3 +65,35 @@ fn hide_boot_overlay() {
         let _ = el.class_list().add_1("hidden");
     }
 }
+
+/// Game state for the E2E tests (and for curious humans at the devtools console).
+pub fn publish_game(game: NonSend<crate::net::GameClient>, mut dev: ResMut<DevStatus>) {
+    use bc_proto::PilotKind;
+    let game = game.borrow();
+    let core = &game.core;
+    let w = &core.world;
+    dev.set("mode", "game");
+    dev.set("welcomed", core.welcome.is_some());
+    dev.set("snapshots", core.stats.snapshots as f64);
+    dev.set("max_snapshot", core.stats.max_snapshot as u32);
+    dev.set("entities", w.entities.iter().flatten().count() as u32);
+    dev.set(
+        "agents_seen",
+        w.entities.iter().flatten().filter(|t| t.latest.pilot == PilotKind::Agent).count() as u32,
+    );
+    dev.set(
+        "dolls_seen",
+        w.entities.iter().flatten().filter(|t| t.latest.pilot == PilotKind::MobileDoll).count() as u32,
+    );
+    dev.set("my_hits", w.my_hits);
+    dev.set("my_kills", w.my_kills);
+    dev.set("my_deaths", w.my_deaths);
+    dev.set("hits_taken", w.hits_taken);
+    dev.set("alive", w.own.is_some_and(|o| o.alive));
+    dev.set("zero_active", w.zero.is_some());
+    dev.set("zero_jev", w.zero.is_some_and(|z| z.source_jev));
+    dev.set("rtt_ms", core.clock.rtt * 1_000.0);
+    dev.set("prediction_error_m", core.stats.prediction_error);
+    dev.set("beams", w.beams.len() as u32);
+    dev.set("autopilot", game.autopilot);
+}

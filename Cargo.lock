@@ -560,6 +560,7 @@ dependencies = [
  "bevy_ecs",
  "console_error_panic_hook",
  "futures",
+ "glam",
  "js-sys",
  "url",
  "wasm-bindgen",

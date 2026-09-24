@@ -1,16 +1,19 @@
 //! Browser WebTransport (via `web-transport-wasm`).
 //!
-//! Datagrams are polled every frame with a no-op waker. The crate keeps the underlying promise
-//! subscribed between polls, so nothing is lost and no task per datagram is needed. The rare
-//! control-stream traffic runs in two small `spawn_local` tasks.
+//! A `spawn_local` pump receives datagrams as they arrive and stamps each with its arrival time,
+//! so clock sync and RTT do not depend on the frame rate; the game loop drains them once per
+//! frame. The rare control-stream traffic runs in two more small tasks.
 
 use std::cell::{Cell, RefCell};
+use std::collections::VecDeque;
 use std::rc::Rc;
-use std::task::{Context, Poll, Waker};
 
 use futures::StreamExt;
 use futures::channel::mpsc;
 use web_transport_wasm::{ClientBuilder, CongestionControl, Session};
+
+/// Received datagrams with their arrival times (s).
+type Inbox = Rc<RefCell<VecDeque<(Vec<u8>, f64)>>>;
 
 #[derive(Clone)]
 pub struct Transport {
@@ -18,6 +21,9 @@ pub struct Transport {
     ctrl_tx: mpsc::UnboundedSender<Vec<u8>>,
     ctrl_in: Rc<RefCell<Vec<u8>>>,
     closed: Rc<Cell<bool>>,
+    /// Datagrams stamped with their arrival time (s), filled by an async task so timing does not
+    /// depend on the frame rate.
+    inbox: Inbox,
 }
 
 impl Transport {
@@ -59,7 +65,38 @@ impl Transport {
                 }
             }
         });
-        Ok(Transport { session, ctrl_tx, ctrl_in, closed })
+        let inbox = Rc::new(RefCell::new(VecDeque::new()));
+        Ok(Transport { session, ctrl_tx, ctrl_in, closed, inbox })
+    }
+
+    /// Starts receiving datagrams in the background; each is stamped with `clock()` on arrival.
+    pub fn start_pump(&self, clock: fn() -> f64) {
+        let session = self.session.clone();
+        let inbox = self.inbox.clone();
+        let closed = self.closed.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            loop {
+                match session.recv_datagram().await {
+                    Ok(bytes) => {
+                        let mut q = inbox.borrow_mut();
+                        q.push_back((bytes.to_vec(), clock()));
+                        // A stalled tab must not grow this without bound: old snapshots are useless.
+                        while q.len() > 512 {
+                            q.pop_front();
+                        }
+                    }
+                    Err(_) => {
+                        closed.set(true);
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    /// Takes every datagram the pump has received, with its arrival time.
+    pub fn drain(&self) -> Vec<(Vec<u8>, f64)> {
+        self.inbox.borrow_mut().drain(..).collect()
     }
 
     /// Hands a datagram to the browser; `false` if it had no room (the datagram is dropped).
@@ -73,22 +110,7 @@ impl Transport {
         }
     }
 
-    /// Calls `f` for every datagram that has arrived since the last call.
-    pub fn recv_datagrams(&self, mut f: impl FnMut(&[u8])) {
-        let mut cx = Context::from_waker(Waker::noop());
-        loop {
-            match self.session.poll_recv_datagram(&mut cx) {
-                Poll::Ready(Ok(bytes)) => f(&bytes),
-                Poll::Ready(Err(_)) => {
-                    self.closed.set(true);
-                    break;
-                }
-                Poll::Pending => break,
-            }
-        }
-    }
-
-    /// Awaits the next datagram (for async consumers; the game loop uses [`recv_datagrams`]).
+    /// Awaits the next datagram (for async consumers that do not use the pump, like the echo spike).
     pub async fn recv_datagram(&self) -> Option<Vec<u8>> {
         self.session.recv_datagram().await.ok().map(|b| b.to_vec())
     }

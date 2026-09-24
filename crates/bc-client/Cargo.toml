@@ -29,6 +29,7 @@ web-transport-wasm.workspace = true
 console_error_panic_hook.workspace = true
 futures.workspace = true
 url = "2"
+glam.workspace = true
 
 [lints]
 workspace = true

@@ -23,7 +23,7 @@ async function pickGraphics() {
 
 async function main() {
   if (!("WebTransport" in window)) {
-    status("this browser has no WebTransport (Chrome, Edge, Firefox or Safari 26.4+ required)");
+    status("this browser has no WebTransport: use Chrome or Edge");
     return;
   }
   const info = await (await fetch("/cert-hash")).json();
@@ -32,6 +32,7 @@ async function main() {
     certHash: info.hash,
     autopilot: params.get("autopilot") === "1",
     echo: params.get("mode") === "echo",
+    lowQuality: params.get("quality") === "low",
     name: params.get("name") || "",
     frame: params.get("frame") || "",
   };
