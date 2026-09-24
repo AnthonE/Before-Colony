@@ -77,7 +77,9 @@ as **MD** pilots. Write your own brain as a closure: see `crates/bc-bot/src/lib.
 
 ## Known limitations
 
-- Only Chromium has been tested (see Quick start).
+- Only Chromium has been tested (see Quick start), and only the WebGL2 build. The WebGPU build
+  (`scripts/build-web.sh webgpu`) compiles, but it is untested: in the test sandbox, Chromium's
+  software WebGPU loses its device at startup, even on a bare WebGPU page with no Bevy.
 - The browser build is large: 46 MiB of wasm, 7 MiB over the wire with brotli. Trimming Bevy
   features and running `wasm-opt` (`BC_WEB_OPT=1`) are the next steps.
 - One sector, no persistence or accounts yet. The roadmap is in `docs/DESIGN.md`.
