@@ -9,6 +9,7 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+bc-proto.workspace = true
 bc-sim = { workspace = true, features = ["deterministic", "canon-names"] }
 tokio.workspace = true
 reqwest.workspace = true
@@ -22,6 +23,7 @@ rtrb.workspace = true
 [dev-dependencies]
 axum.workspace = true
 anyhow.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

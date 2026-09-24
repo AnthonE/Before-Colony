@@ -16,7 +16,9 @@ rtrb.workspace = true
 
 [dev-dependencies]
 bc-alloc.workspace = true
+bc-client-core.workspace = true
 criterion.workspace = true
+glam.workspace = true
 
 [[bench]]
 name = "sector"

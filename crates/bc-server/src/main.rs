@@ -4,6 +4,11 @@ use std::path::PathBuf;
 use bc_server::{Config, Mode, OracleKind};
 use clap::Parser;
 
+/// Counts heap operations; the sector thread marks its ticks as hot regions, so any allocation
+/// inside a tick shows up as `hot_path_allocations` in /status.
+#[global_allocator]
+static ALLOC: bc_alloc::CountingAlloc = bc_alloc::CountingAlloc;
+
 /// Before Colony game server.
 #[derive(Parser, Debug)]
 #[command(name = "bc-server", version, about)]
@@ -53,6 +58,8 @@ fn main() -> anyhow::Result<()> {
         oracle: args.oracle,
         max_clients: args.max_clients,
         seed: args.seed,
+        jev_key: std::env::var("TYPESAFE_API_KEY").ok().filter(|k| !k.is_empty()),
+        jev_url: std::env::var("TYPESAFE_BASE_URL").ok().filter(|u| !u.is_empty()),
     };
     // Two workers are plenty: all game work happens on the dedicated sector thread.
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()?;

@@ -537,6 +537,7 @@ dependencies = [
  "bc-proto",
  "bc-sim",
  "clap",
+ "glam",
  "hex",
  "reqwest",
  "rustls",
@@ -573,6 +574,7 @@ version = "0.1.0"
 dependencies = [
  "bc-proto",
  "bc-sim",
+ "glam",
 ]
 
 [[package]]
@@ -589,10 +591,12 @@ name = "bc-sector"
 version = "0.1.0"
 dependencies = [
  "bc-alloc",
+ "bc-client-core",
  "bc-proto",
  "bc-sim",
  "criterion",
  "crossbeam-queue",
+ "glam",
  "rtrb",
 ]
 
@@ -642,6 +646,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "bc-proto",
  "bc-sim",
  "reqwest",
  "rtrb",

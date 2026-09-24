@@ -34,6 +34,10 @@ pub struct Config {
     pub max_clients: usize,
     /// Seed for the deterministic simulation.
     pub seed: u64,
+    /// TypeSafe API key (from `TYPESAFE_API_KEY`); never sent to clients.
+    pub jev_key: Option<String>,
+    /// Override for the Jev endpoint (`TYPESAFE_BASE_URL`), e.g. a proxy or a test mock.
+    pub jev_url: Option<String>,
 }
 
 impl Default for Config {
@@ -47,6 +51,8 @@ impl Default for Config {
             oracle: OracleKind::Local,
             max_clients: 64,
             seed: 0xBC_0195,
+            jev_key: None,
+            jev_url: None,
         }
     }
 }

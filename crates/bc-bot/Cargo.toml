@@ -23,6 +23,7 @@ serde.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true
 hex.workspace = true
+glam.workspace = true
 
 [lints]
 workspace = true

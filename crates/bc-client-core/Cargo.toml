@@ -11,6 +11,7 @@ repository.workspace = true
 [dependencies]
 bc-proto.workspace = true
 bc-sim.workspace = true
+glam.workspace = true
 
 [lints]
 workspace = true
