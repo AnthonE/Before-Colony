@@ -398,6 +398,8 @@ async fn in_game(
             sector: 1,
             zero_allowed: true,
             max_datagram: conn.max_datagram_size().unwrap_or(MAX_DATAGRAM).min(MAX_DATAGRAM) as u16,
+            field_seed: game.sector.field_seed,
+            field_rocks: game.sector.field_rocks,
         },
     )
     .await?;

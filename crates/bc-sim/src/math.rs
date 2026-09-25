@@ -35,6 +35,10 @@ pub fn exp(x: f32) -> f32 {
 pub fn floor(x: f32) -> f32 {
     libm::floorf(x)
 }
+#[inline]
+pub fn cbrt(x: f32) -> f32 {
+    libm::cbrtf(x)
+}
 
 /// Length that never divides by zero.
 #[inline]

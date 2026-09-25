@@ -15,6 +15,7 @@ use glam::{Quat, Vec3};
 
 use crate::config::G0;
 use crate::content::FrameSpec;
+use crate::field::Field;
 use crate::math::{atan2, integrate_rotation, length, normalize_or};
 
 /// Sustained G a trained human pilot tolerates before strain builds.
@@ -67,11 +68,14 @@ pub struct FlightMods {
     pub g_immune: bool,
     /// Beam saber lunge: full forward thrust at 1.5×.
     pub lunge: bool,
+    /// Mass beyond the frame's own (cargo, a chunk in hand) less the parts shot off, kg. Whole
+    /// kilograms, so prediction uses exactly the server's number.
+    pub extra_mass_kg: i32,
 }
 
 impl Default for FlightMods {
     fn default() -> Self {
-        Self { ambac: 1.0, thrust: 1.0, g_immune: false, lunge: false }
+        Self { ambac: 1.0, thrust: 1.0, g_immune: false, lunge: false, extra_mass_kg: 0 }
     }
 }
 
@@ -88,9 +92,27 @@ fn clamp_axis(f: f32, pos_max: f32, neg_max: f32) -> f32 {
     f.clamp(-neg_max, pos_max)
 }
 
+/// [`step`], then kept out of the rocks: what the server and the client's prediction both run.
+pub fn step_in(
+    field: &Field,
+    s: &mut FlightState,
+    cmd: &InputCmd,
+    spec: &FrameSpec,
+    mods: &FlightMods,
+    dt: f32,
+) -> FlightOut {
+    let prev = s.pos;
+    let out = step(s, cmd, spec, mods, dt);
+    field.collide(prev, s);
+    out
+}
+
 /// Advances one suit by `dt` under `cmd`.
 pub fn step(s: &mut FlightState, cmd: &InputCmd, spec: &FrameSpec, mods: &FlightMods, dt: f32) -> FlightOut {
-    let mass = spec.mass(s.propellant);
+    let own = spec.mass(s.propellant);
+    let mass = own + mods.extra_mass_kg as f32;
+    // Extra mass slows turns too (limbs and thrusters swing more); a lighter suit gains nothing.
+    let turn = (own / mass).min(1.0);
     let has_prop = s.propellant > 0.0;
     let authority = if s.blackout { 0.25 } else { 1.0 };
 
@@ -111,8 +133,8 @@ pub fn step(s: &mut FlightState, cmd: &InputCmd, spec: &FrameSpec, mods: &Flight
         Vec3::ZERO
     };
     w_des += fwd * (cmd.roll_f32() * spec.roll_rate * authority);
-    let ambac = spec.ambac_accel * mods.ambac * authority;
-    let rcs_accel = if rcs { spec.rcs_accel * authority } else { 0.0 };
+    let ambac = spec.ambac_accel * mods.ambac * authority * turn;
+    let rcs_accel = if rcs { spec.rcs_accel * authority * turn } else { 0.0 };
     let accel_cap = ambac + rcs_accel;
     let dw = w_des - s.ang_vel;
     let dw_len = length(dw);

@@ -9,7 +9,8 @@ use bc_proto::snapshot::own_flags;
 use bc_proto::{FrameId, InputCmd, OwnState};
 use bc_sim::DT;
 use bc_sim::content::frame;
-use bc_sim::flight::{FlightMods, FlightState, step};
+use bc_sim::field::Field;
+use bc_sim::flight::{FlightMods, FlightState, step_in};
 use glam::Vec3;
 
 const HISTORY: usize = 128;
@@ -32,6 +33,8 @@ pub struct Predictor {
     /// Server-side relocations (respawns) that no prediction could foresee.
     pub teleports: u32,
     pub initialized: bool,
+    /// The sector's debris field (from the Welcome), which the suit collides with as on the server.
+    pub field: std::sync::Arc<Field>,
 }
 
 impl Default for Predictor {
@@ -46,6 +49,7 @@ impl Default for Predictor {
             last_error: 0.0,
             teleports: 0,
             initialized: false,
+            field: std::sync::Arc::new(Field::empty()),
         }
     }
 }
@@ -69,7 +73,20 @@ impl Predictor {
             ambac: own.ambac_factor,
             thrust: own.thrust_factor,
             g_immune: false,
-            lunge: own.flags & own_flags::SABER_ACTIVE != 0,
+            lunge: own.flags & own_flags::LUNGE != 0,
+            extra_mass_kg: own.extra_mass_kg,
+        }
+    }
+
+    /// The sector's field, from the Welcome.
+    pub fn set_field(&mut self, field: Field) {
+        self.field = std::sync::Arc::new(field);
+    }
+
+    /// Rock `i` shattered (or grew back): the suit flies through where it was, as on the server.
+    pub fn set_rock_dead(&mut self, i: usize, dead: bool) {
+        if self.field.is_dead(i) != dead {
+            std::sync::Arc::make_mut(&mut self.field).set_dead(i, dead);
         }
     }
 
@@ -78,7 +95,7 @@ impl Predictor {
         if !self.initialized {
             return;
         }
-        step(&mut self.state, cmd, frame(self.frame), &self.mods, DT);
+        step_in(&self.field, &mut self.state, cmd, frame(self.frame), &self.mods, DT);
         self.tick = cmd.tick;
         self.predicted[cmd.tick as usize % HISTORY] = (cmd.tick, self.state.pos);
     }
@@ -113,7 +130,7 @@ impl Predictor {
             t += 1;
             match history.get(t) {
                 Some(cmd) => {
-                    step(&mut s, &cmd, spec, &self.mods, DT);
+                    step_in(&self.field, &mut s, &cmd, spec, &self.mods, DT);
                     self.predicted[t as usize % HISTORY] = (t, s.pos);
                 }
                 None => break,

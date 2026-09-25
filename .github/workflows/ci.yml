@@ -36,6 +36,8 @@ jobs:
         run: cargo install wasm-bindgen-cli --version 0.2.128 --locked
       - name: Clippy (wasm client)
         run: cargo clippy -p bc-client --target wasm32-unknown-unknown -- -D warnings
+      - name: Clippy (wasm client, WebGPU build)
+        run: cargo clippy -p bc-client --target wasm32-unknown-unknown --features webgpu -- -D warnings
       - name: Determinism on wasm32 (same golden hash as native)
         run: cargo test -p bc-sim --target wasm32-unknown-unknown --release --test determinism
       - name: Build the web client

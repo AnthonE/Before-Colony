@@ -13,6 +13,7 @@ pub mod clock;
 pub mod inputs;
 pub mod interp;
 pub mod predict;
+pub mod salvage;
 pub mod world;
 
 use bc_proto::buttons::FIRE_PRIMARY;
@@ -22,10 +23,11 @@ use bc_sim::config::MAX_REWIND_TICKS;
 use bc_sim::content::{frame, weapon};
 use glam::Vec3;
 
-pub use brains::DollBrain;
+pub use brains::{DollBrain, MinerBrain};
 pub use clock::Clock;
 pub use inputs::InputHistory;
 pub use predict::Predictor;
+pub use salvage::{LooseChunk, SalvageView};
 pub use world::{Beam, FeedLine, Ghost, HitMark, World};
 
 /// Who this client is.
@@ -44,6 +46,9 @@ pub struct Welcome {
     pub tick_hz: u8,
     pub zero_allowed: bool,
     pub max_datagram: u16,
+    /// The sector's debris field.
+    pub field_seed: u32,
+    pub field_rocks: u16,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,12 +158,29 @@ impl ClientCore {
 
     fn handle_control(&mut self, msg: ControlMsg) {
         match msg {
-            ControlMsg::Welcome { version, client_slot, tick_hz, zero_allowed, max_datagram, .. } => {
+            ControlMsg::Welcome {
+                version,
+                client_slot,
+                tick_hz,
+                zero_allowed,
+                max_datagram,
+                field_seed,
+                field_rocks,
+                ..
+            } => {
                 if version != PROTOCOL_VERSION {
                     self.phase = Phase::Rejected(RejectReason::VersionMismatch);
                     return;
                 }
-                self.welcome = Some(Welcome { client_slot, tick_hz, zero_allowed, max_datagram });
+                self.welcome = Some(Welcome {
+                    client_slot,
+                    tick_hz,
+                    zero_allowed,
+                    max_datagram,
+                    field_seed,
+                    field_rocks,
+                });
+                self.predict.set_field(bc_sim::field::Field::generate(field_seed, field_rocks));
                 self.phase = Phase::InGame;
             }
             ControlMsg::Reject { reason } => self.phase = Phase::Rejected(reason),
@@ -192,10 +214,25 @@ impl ClientCore {
         while let Ok(Some(e)) = r.next_event() {
             events.push(e);
         }
+        let mut rocks = Vec::new();
+        while let Ok(Some(rock)) = r.next_rock() {
+            rocks.push(rock);
+        }
         let mut ents = Vec::new();
         loop {
             match r.next_entity() {
                 Ok(Some(e)) => ents.push(e),
+                Ok(None) => break,
+                Err(_) => {
+                    self.stats.decode_errors += 1;
+                    break;
+                }
+            }
+        }
+        let mut objects = Vec::new();
+        loop {
+            match r.next_object() {
+                Ok(Some(o)) => objects.push(o),
                 Ok(None) => break,
                 Err(_) => {
                     self.stats.decode_errors += 1;
@@ -211,6 +248,10 @@ impl ClientCore {
         });
         self.clock.on_snapshot(h.tick, now, rtt, h.input_health);
         self.world.apply(h.tick, own, zero, &events, &ents);
+        self.world.apply_salvage(&rocks, &objects);
+        for r in &rocks {
+            self.predict.set_rock_dead(usize::from(r.id), r.destroyed);
+        }
         if let Some(own) = own {
             self.predict.reconcile(h.tick, &own, &self.inputs);
             self.stats.prediction_error = self.predict.last_error;

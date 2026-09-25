@@ -11,7 +11,10 @@
 //! | 1 / 2 | respawn as Leo / Wing Gundam Zero (when destroyed) |
 
 use bc_proto::FrameId;
-use bc_proto::buttons::{BOOST, BRAKE, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, MELEE, RCS_SHARP, ZERO};
+use bc_proto::buttons::{
+    BOOST, BRAKE, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, JETTISON, MELEE, RCS_SHARP, STOW, THROW,
+    ZERO,
+};
 use bc_proto::{InputCmd, NO_SLOT};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
@@ -42,6 +45,8 @@ pub struct Controls {
     pub buttons: u16,
     pub flight_assist: bool,
     pub zero: bool,
+    /// The free hand grabs whatever comes in reach (and holds it) while on.
+    pub grab: bool,
     pub locked: bool,
     swallow_click: bool,
 }
@@ -54,6 +59,7 @@ impl Default for Controls {
             buttons: 0,
             flight_assist: true,
             zero: false,
+            grab: false,
             locked: false,
             swallow_click: false,
         }
@@ -69,6 +75,9 @@ impl Controls {
         }
         if self.zero {
             buttons |= ZERO;
+        }
+        if self.grab {
+            buttons |= GRAB;
         }
         InputCmd {
             aim,
@@ -155,6 +164,23 @@ pub fn read_input(
     }
     if keys.pressed(KeyCode::KeyR) {
         b |= RCS_SHARP;
+    }
+    // Salvage: B puts what's in hand in the hold, T throws it (and lets go of the grab), J dumps
+    // the hold.
+    if keys.pressed(KeyCode::KeyB) {
+        b |= STOW;
+    }
+    if keys.pressed(KeyCode::KeyT) {
+        b |= THROW;
+    }
+    if keys.pressed(KeyCode::KeyJ) {
+        b |= JETTISON;
+    }
+    if keys.just_pressed(KeyCode::KeyT) {
+        controls.grab = false;
+    }
+    if keys.just_pressed(KeyCode::KeyG) {
+        controls.grab = !controls.grab;
     }
     controls.buttons = b;
     if keys.just_pressed(KeyCode::KeyV) {

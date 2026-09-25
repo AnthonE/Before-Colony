@@ -22,13 +22,13 @@
 | Crate | Kind | Role |
 |---|---|---|
 | `bc-proto` | `no_std`, **no `alloc`** | Wire format: bit packing, quantization, input/snapshot/event/control codecs. It *cannot* allocate. |
-| `bc-sim` | `no_std` + `alloc` at construction only | The simulation: flight, weapons, damage, lag comp, sensors, Mobile Doll AI, ZERO. Shared by the server and the browser. |
+| `bc-sim` | `no_std` + `alloc` at construction only | The simulation: flight, weapons, damage, lag comp, sensors, Mobile Doll AI, ZERO, the debris field, salvage and mining. Shared by the server and the browser. |
 | `bc-sector` | std, no tokio | The hot loop: a paced thread, lock-free queues, jitter buffers, interest, snapshot encoding, metrics. |
 | `bc-zero` | std + tokio | Tactical oracles off the hot path: the `TacticalOracle` trait, `JevOracle`, the worker. |
-| `bc-client-core` | std, no transport | Client state machine for the browser *and* bots: clock, inputs, prediction, interpolation, world model, `DollBrain`. |
+| `bc-client-core` | std, no transport | Client state machine for the browser *and* bots: clock, inputs, prediction, interpolation, world model, the salvage view, `DollBrain` and `MinerBrain`. |
 | `bc-server` | bin + lib | WebTransport sessions, egress thread, roster, dev HTTP, `/status`. |
-| `bc-bot` | lib + bins | Bot SDK (`BotClient`), `mobile_doll` example agent, `bc-swarm` load tester. |
-| `bc-client` | wasm32 bin | Bevy app: scene, suits, camera, input, HUD, FX, ZERO overlay. |
+| `bc-bot` | lib + bins | Bot SDK (`BotClient`), `mobile_doll` and `miner` example agents, `bc-swarm` load tester. |
+| `bc-client` | wasm32 bin | Bevy app: procedural jointed suits, sky, colony and field (custom shaders), particles and effects, camera, input, HUD, ZERO overlay, offline showcase scenes. |
 | `bc-alloc` | lib | Counting global allocator: proves the tick never allocates and counts violations in production. |
 
 ## The hot path: no locks, no allocations
@@ -62,14 +62,23 @@ network threads.
    cleared (the same view delay). After 8 silent ticks the suit goes hands-off.
 5. **`Sim::step`:**
    1. Mobile Doll AI (re-plans every 3rd tick, staggered). A ZERO seizure overrides the pilot.
-   2. Flight: AMBAC/RCS, thrust, propellant, G-strain. Wrecks drift.
-   3. Rebuild the spatial hash (counting sort, 128 m cells).
-   4. Record lag-comp history, so `history[T]` is exactly snapshot `T`.
-   5. Weapons: charge, heat, energy, arm cone, magnetism, spawn, lag-comp catch-up.
-   6. Projectile sweeps against per-part capsules. Saber arcs, 3 sub-steps per tick, with clashes.
-   7. Damage resolves in order; limbs are lost, overflow spills to the torso, suits die.
-   8. Heat, energy, ZERO strain (seizure and lockout), respawns.
-   9. ZERO rollouts (staggered every 3 ticks per pilot).
+   2. Flight: AMBAC/RCS, thrust, propellant, G-strain, swept against the rocks. Wrecks drift.
+   3. Chunks (loose ore, limbs, hulks): free ones drift on closed-form segments, bounce off the
+      colony and rocks, and expire.
+   4. Rebuild the spatial hash (counting sort, 128 m cells).
+   5. Record lag-comp history, so `history[T]` is exactly snapshot `T`.
+   6. Weapons: charge, heat, energy, arm cone, magnetism, spawn, lag-comp catch-up (rocks stop it,
+      and are worn down by it).
+   7. Projectile sweeps against per-part capsules (skipping parts that are gone) and rocks, which
+      shots wear down until they shatter into ore. Saber arcs, 3 sub-steps per tick, with clashes;
+      a stroke chips ore off a rock and cuts a part off a hulk.
+   8. Damage resolves in order: limbs come off as chunks, overflow spills to the torso, suits die
+      and leave hulks (spilling their holds).
+   9. Salvage: grab, stow, throw, jettison, and sales at the dock. Presses are edges against the
+      previous tick's buttons, so this runs before they're recorded.
+   10. Heat, energy, ZERO strain (seizure and lockout), respawns.
+   11. ZERO rollouts (staggered every 3 ticks per pilot).
+   12. Shattered rocks grow back once no suit is near (checked every 30 ticks).
 6. **Tactical pictures** for ZERO pilots (≈4 Hz), only when an external oracle is attached.
 7. **Snapshots** for each client, straight into its ring. The egress thread is unparked.
 
@@ -112,9 +121,21 @@ network threads.
 - **Snapshots.**
   - Every datagram fits in `min(1100 B, the connection's max datagram)`, never fragmented.
   - Contents: header, full-precision own state, ZERO info, events repeated until acked (beam spawns,
-    hits, kills, clashes, seizures, "left your sensors"), then as many entities as fit, chosen by a
-    per-client priority accumulator over what that client's sensors can see.
+    hits, kills, clashes, seizures, parts coming off, rocks shattering, "left your sensors"),
+    changed rocks, then as many entities as fit, chosen by a per-client priority accumulator over
+    what that client's sensors can see, then salvage chunks.
   - About 33 KB/s per client at 30 Hz.
+- **Chunks and rocks: dirty until acked.** Each snapshot's record lists the chunks (id, generation,
+  version) and rocks (id, version) it carried; an ack promotes them to what the client holds. A
+  chunk is sent whenever what the client holds differs from the server's (a new segment, a grab),
+  nearest first, and a Gone record when it leaves the client's range (3 km, or 3.3 km for one it
+  already has) or the world. A drifting chunk costs nothing after that: its segment is closed-form,
+  and the server moves it on exactly the quantized segment it sent, so every client computes the
+  same pose to the bit. Events and entities leave room for up to 16 rocks and 6 objects when some
+  are waiting.
+- **Wrecks become hulks.** A destroyed suit's wreck moves as its hulk does. Clients draw the wreck
+  (with its death blasts) while it's replicated, and the hulk after it leaves; the Kill event names
+  the hulk, so it isn't drawn twice.
 - **Beams** are one spawn event each: they fly straight at constant velocity, so every client draws
   the whole flight from it. The shooter draws its own shot immediately and matches the server's
   event by `shot_seq`.
@@ -158,9 +179,10 @@ on wasm32 (under Node, via `wasm-bindgen-test-runner`). Never enable glam's `fas
 |---|---|
 | `bc-proto/tests/roundtrip.rs` | Codecs round-trip within ½ LSB; decoders never panic on arbitrary bytes. |
 | `bc-sim/tests/no_alloc.rs`, `bc-sector/tests/no_alloc_sector.rs` | 0 heap operations per tick with 64 clients + 256 dolls. |
-| `bc-sim/tests/determinism.rs` | Identical state hash on native and wasm32. |
-| `bc-sim/tests/{flight,combat,fire_control,lagcomp,mobile_dolls,zero}.rs` | Rocket equation, FA, blackout, no tunnelling, arm loss, charge, sabers and clashes, lag comp (and its clamp), dolls fight to a kill, ZERO accuracy, calibration, seizure, magnetism. |
-| `bc-sector/tests/netcode.rs` | Over a simulated 100 ms / 5%-loss link: prediction error and clock sync, and a client that sends inputs only twice a second still has an accurate RTT and commands that arrive in time. |
+| `bc-sim/tests/determinism.rs` | Identical state hash on native and wasm32, for the reference scenario and for suits flying into rocks and firing through them; the generated debris field is identical too. |
+| `bc-sim/tests/{flight,combat,fire_control,lagcomp,mobile_dolls,zero,field,salvage}.rs` | Rocket equation, FA, blackout, no tunnelling, arm loss, charge, sabers and clashes, lag comp (and its clamp), dolls fight to a kill, ZERO accuracy, calibration, seizure, magnetism; suits stop at rocks at 2 km/s and rocks stop shots; limbs come off as chunks and shots pass where they were, hulks, bounces, expiry, lighter suits. |
+| `bc-sector/tests/salvage_net.rs` | Over the same link: chunks reach the client exactly as the server moves them, across bounces; chunks that go leave the client; a kill hands its wreck to its hulk; changed rocks arrive. |
+| `bc-sector/tests/netcode.rs` | Over a simulated 100 ms / 5%-loss link: prediction error and clock sync (in open flight, and ramming and sliding round a rock), and a client that sends inputs only twice a second still has an accurate RTT and commands that arrive in time. |
 | `bc-server/tests/{echo,duel,oracle}.rs` | A real server over real WebTransport: echo; two agents find and fight each other; Jev advice reaches a ZERO pilot. |
 | `bc-zero/tests/jev_mock.rs` | Jev request contract, parsing, timeout, 429/529 breaker, garbage. |
 | `bc-sim/benches/tick.rs` | Tick percentiles. |

@@ -1,11 +1,11 @@
 //! Suit storage: structure-of-arrays, fixed capacity, generational slots.
 
 use alloc::boxed::Box;
-use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, Part, PilotKind};
+use bc_proto::{CARGO_KINDS, Faction, FrameId, InputCmd, NO_CHUNK, NO_SLOT, Part, PilotKind};
 use glam::{Quat, Vec3};
 
 use crate::ai::AiState;
-use crate::content::frame;
+use crate::content::{ArmSlot, frame};
 use crate::flight::FlightState;
 use crate::handle::{Handle, SuitId};
 use crate::storage::{BitSet, FreeList, boxed};
@@ -41,6 +41,9 @@ pub struct SaberState {
     pub n_hits: u8,
     /// Lag-compensation view of the swing (1/16 ticks).
     pub view_q4: u32,
+    /// The rock, and the hulk, this swing has struck (each at most once).
+    pub rock: Option<u16>,
+    pub cut: Option<u16>,
 }
 
 /// Per-suit combat statistics (for `/status` and the kill feed).
@@ -86,6 +89,14 @@ pub struct Suits {
     /// Frame to respawn in.
     pub respawn_frame: Box<[FrameId]>,
     pub stats: Box<[SuitStats]>,
+    /// The hulk a dead suit became, and its generation: the wreck moves as the hulk does.
+    pub hulk: Box<[(u16, u8)]>,
+    /// The chunk in hand (id, generation) and which hand holds it (the right if true).
+    pub held: Box<[(u16, u8, bool)]>,
+    /// The hold's contents, kg per ore kind.
+    pub cargo_kg: Box<[[u16; CARGO_KINDS]]>,
+    /// Credits earned this session (kept across respawns).
+    pub credits: Box<[u32]>,
     free: FreeList,
 }
 
@@ -119,6 +130,10 @@ impl Suits {
             respawn_at: boxed(cap, 0u32),
             respawn_frame: boxed(cap, FrameId::Leo),
             stats: boxed(cap, SuitStats::default()),
+            hulk: boxed(cap, (NO_CHUNK, 0u8)),
+            held: boxed(cap, (NO_CHUNK, 0u8, false)),
+            cargo_kg: boxed(cap, [0u16; CARGO_KINDS]),
+            credits: boxed(cap, 0u32),
             free: FreeList::full(cap),
         }
     }
@@ -135,6 +150,7 @@ impl Suits {
         self.pilot[idx] = pilot;
         self.stats[idx] = SuitStats::default();
         self.ai[idx] = AiState::default();
+        self.credits[idx] = 0;
         Some(SuitId(Handle { idx: idx as u16, generation: self.generation[idx] }))
     }
 
@@ -163,6 +179,9 @@ impl Suits {
         self.part_hp[idx] = spec.part_hp;
         self.zero[idx] = ZeroState::default();
         self.respawn_at[idx] = 0;
+        self.hulk[idx] = (NO_CHUNK, 0);
+        self.held[idx] = (NO_CHUNK, 0, false);
+        self.cargo_kg[idx] = [0; CARGO_KINDS];
     }
 
     /// Frees a slot entirely (disconnect, or a Mobile Doll wreck clearing).
@@ -194,6 +213,46 @@ impl Suits {
     pub fn hull_fraction(&self, idx: usize) -> f32 {
         let spec = frame(self.frame[idx]);
         (self.part_hp[idx][Part::Torso as usize] / spec.part_hp[Part::Torso as usize]).clamp(0.0, 1.0)
+    }
+
+    /// The hand that grabs: the left, unless it's gone.
+    pub fn grab_hand(&self, idx: usize) -> Option<bool> {
+        let hp = &self.part_hp[idx];
+        if hp[Part::ArmL as usize] > 0.0 {
+            Some(false)
+        } else if hp[Part::ArmR as usize] > 0.0 {
+            Some(true)
+        } else {
+            None
+        }
+    }
+
+    /// Whether a mount's weapons can be used: its arm is there, and not holding anything.
+    pub fn arm_free(&self, idx: usize, arm: ArmSlot) -> bool {
+        let (chunk, _, right) = self.held[idx];
+        let busy = chunk != NO_CHUNK
+            && match arm {
+                ArmSlot::Left => !right,
+                ArmSlot::Right => right,
+                ArmSlot::Shoulder => false,
+            };
+        self.part_hp[idx][arm.part() as usize] > 0.0 && !busy
+    }
+
+    /// What's in the hold, kg.
+    pub fn cargo_total_kg(&self, idx: usize) -> u32 {
+        self.cargo_kg[idx].iter().map(|kg| u32::from(*kg)).sum()
+    }
+
+    /// Parts shot off (a bit per [`Part`]; the torso is the suit, so never).
+    pub fn gone_mask(&self, idx: usize) -> u8 {
+        let mut m = 0;
+        for p in crate::content::salvage::DETACHABLE {
+            if self.part_hp[idx][p as usize] <= 0.0 {
+                m |= 1 << p as u8;
+            }
+        }
+        m
     }
 
     /// Armour fraction per part.

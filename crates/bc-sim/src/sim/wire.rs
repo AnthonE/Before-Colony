@@ -3,11 +3,13 @@
 use bc_proto::snapshot::{
     ZERO_THREATS as WIRE_THREATS, ZeroThreat, ent_flags, own_flags, part_buckets, zero_mode,
 };
-use bc_proto::{EntityState, OwnState, ZeroInfo};
+use bc_proto::{EntityState, ObjectState, OwnState, RockState, ZeroInfo};
 
 use super::Sim;
+use crate::chunks::Motion;
 use crate::config::VISUAL_RANGE;
 use crate::content::{frame, weapon};
+use crate::rocks::{max_hp, max_ore_kg};
 use crate::sensors;
 use crate::suits::{SaberPhase, SuitStats};
 
@@ -71,6 +73,7 @@ impl Sim {
                     && s.energy[i] >= w.energy
                     && (w.ammo == 0 || ws.ammo > 0)
                     && !s.overheated[i]
+                    && s.arm_free(i, m.arm)
                 {
                     ready |= 1 << slot;
                 }
@@ -95,6 +98,12 @@ impl Sim {
         }
         if s.saber[i].phase != SaberPhase::Idle {
             flags |= own_flags::SABER_ACTIVE;
+        }
+        if mods.lunge {
+            flags |= own_flags::LUNGE;
+        }
+        if s.alive.get(i) && self.docked(i) {
+            flags |= own_flags::DOCKED;
         }
         if spec.zero || self.cfg.zero_on_all_frames {
             flags |= own_flags::ZERO_CAPABLE;
@@ -130,6 +139,10 @@ impl Sim {
             ambac_factor: mods.ambac,
             thrust_factor: mods.thrust,
             respawn_in,
+            extra_mass_kg: mods.extra_mass_kg,
+            cargo_kg: s.cargo_kg[i],
+            credits: s.credits[i],
+            held: self.held_chunk(i).map_or(bc_proto::NO_CHUNK, |k| k as u16),
         }
     }
 
@@ -182,6 +195,26 @@ impl Sim {
             flags,
             parts: part_buckets(&s.part_fractions(j)),
         }
+    }
+
+    /// Chunk `k` as replicated.
+    pub fn object_state(&self, k: usize) -> ObjectState {
+        let c = &self.chunks;
+        let (id, generation, desc) = (k as u16, c.generation[k] & 3, c.desc[k]);
+        match c.motion[k] {
+            Motion::Free(seg) => ObjectState::Free { id, generation, desc, seg },
+            Motion::Held { holder, right, rot, since } => {
+                ObjectState::Held { id, generation, desc, holder, right, rot, since }
+            }
+        }
+    }
+
+    /// Rock `i` as replicated.
+    pub fn rock_state(&self, i: usize) -> RockState {
+        let r = &self.field.rocks()[i];
+        let s = &self.rocks;
+        let ore = s.ore_kg[i] as f32 / max_ore_kg(r).max(1) as f32;
+        RockState::new(i as u16, s.destroyed.get(i), s.hp[i] / max_hp(r), ore)
     }
 
     /// What the ZERO System shows pilot `i` (only while engaged).

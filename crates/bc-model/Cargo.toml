@@ -1,0 +1,16 @@
+[package]
+name = "bc-model"
+description = "Before Colony procedural mobile-suit models: a modelling kit, the shared skeleton and each frame's design, as plain mesh data"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+bc-proto.workspace = true
+glam.workspace = true
+
+[lints]
+workspace = true

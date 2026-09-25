@@ -9,10 +9,12 @@
 extern crate alloc;
 
 pub mod ai;
+pub mod chunks;
 pub mod collide;
 pub mod config;
 pub mod content;
 pub mod events;
+pub mod field;
 pub mod flight;
 pub mod handle;
 pub mod hash;
@@ -20,6 +22,7 @@ pub mod lagcomp;
 pub mod math;
 pub mod perception;
 pub mod projectiles;
+pub mod rocks;
 pub mod sensors;
 pub mod sim;
 pub mod spatial;

@@ -2,6 +2,7 @@
 
 use bc_proto::{InputCmd, PilotKind};
 use bc_sim::SuitId;
+use bc_sim::chunks::MAX_CHUNKS;
 use bc_sim::storage::{BitSet, boxed};
 
 use crate::jitter::JitterBuffer;
@@ -10,6 +11,16 @@ use crate::jitter::JitterBuffer;
 pub(crate) const SENT_RING: usize = 64;
 /// Pending "left your sensors" notices per client.
 pub(crate) const LEAVE_QUEUE: usize = 64;
+/// Most objects and rocks one snapshot carries (its record remembers them for the ack).
+pub(crate) const OBJS_PER_SNAPSHOT: usize = 24;
+pub(crate) const ROCKS_PER_SNAPSHOT: usize = 16;
+/// A client holds nothing of a chunk.
+pub(crate) const NONE: u16 = u16::MAX;
+
+/// What a client holds of a chunk: its generation and version.
+pub(crate) fn packed(generation: u8, version: u8) -> u16 {
+    u16::from(generation & 0x7F) << 8 | u16::from(version)
+}
 
 #[derive(Clone, Copy, Default)]
 pub(crate) struct SentRecord {
@@ -18,6 +29,12 @@ pub(crate) struct SentRecord {
     pub events_done: u32,
     /// How many queued Leave notices it carried (from the front of the queue).
     pub leaves: u8,
+    /// Objects it carried: (chunk, what the client holds of it once it has this snapshot).
+    pub objs: [(u16, u16); OBJS_PER_SNAPSHOT],
+    pub n_objs: u8,
+    /// Rocks it carried: (rock, version).
+    pub rocks: [(u16, u8); ROCKS_PER_SNAPSHOT],
+    pub n_rocks: u8,
 }
 
 pub(crate) struct ClientState {
@@ -45,10 +62,16 @@ pub(crate) struct ClientState {
     /// Priority accumulator per entity.
     pub prio: Box<[f32]>,
     pub next_picture: u32,
+    /// Per chunk: what the client has acked of it (`packed`, or [`NONE`]).
+    pub obj_acked: Box<[u16]>,
+    /// How many chunks it holds something of.
+    pub obj_known: usize,
+    /// Per rock: the version the client has acked (0: as generated).
+    pub rock_acked: Box<[u8]>,
 }
 
 impl ClientState {
-    pub fn new(max_suits: usize) -> Self {
+    pub fn new(max_suits: usize, rocks: usize) -> Self {
         Self {
             active: false,
             suit: SuitId::NONE,
@@ -68,6 +91,9 @@ impl ClientState {
             known: BitSet::new(max_suits),
             prio: boxed(max_suits, 0.0f32),
             next_picture: 0,
+            obj_acked: boxed(MAX_CHUNKS, NONE),
+            obj_known: 0,
+            rock_acked: boxed(rocks, 0u8),
         }
     }
 
@@ -90,6 +116,9 @@ impl ClientState {
         self.known.clear();
         self.prio.fill(0.0);
         self.next_picture = 0;
+        self.obj_acked.fill(NONE);
+        self.obj_known = 0;
+        self.rock_acked.fill(0);
     }
 
     pub fn queue_leave(&mut self, slot: u16, tick: u32) {
@@ -110,6 +139,18 @@ impl ClientState {
             return;
         }
         self.event_acked = self.event_acked.max(rec.events_done);
+        for &(id, state) in &rec.objs[..rec.n_objs as usize] {
+            let had = &mut self.obj_acked[id as usize];
+            match (*had == NONE, state == NONE) {
+                (true, false) => self.obj_known += 1,
+                (false, true) => self.obj_known -= 1,
+                _ => {}
+            }
+            *had = state;
+        }
+        for &(id, version) in &rec.rocks[..rec.n_rocks as usize] {
+            self.rock_acked[id as usize] = version;
+        }
         let k = (rec.leaves as usize).min(self.n_leaves);
         if k > 0 {
             self.leaves.copy_within(k..self.n_leaves, 0);

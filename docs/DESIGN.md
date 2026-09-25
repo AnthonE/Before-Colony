@@ -49,6 +49,9 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
   *can* out-thrust your own body, as Zechs did in the Tallgeese. Mobile Dolls have no body, so no
   G limit. Agents are pilots, so they do have one.
 - **Hull contact.** The colony is solid: suits slide along the hull and beams splash against it.
+- **Rocks are solid too.** A suit that flies into one stops at its surface, losing its speed into
+  it, and slides along it; nothing tunnels, even at 2 km/s. Shots stop at rocks, so a rock is
+  cover. The field comes from a seed, so your browser predicts against the same rocks.
 
 | Frame | Role | Dry mass | Accel (boost) | Δv | Armour | Loadout |
 |---|---|---|---|---|---|---|
@@ -74,8 +77,14 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
 - **Per-part damage.**
   - Parts: head (sensors), torso (destroyed means dead), arms (their weapons), legs (AMBAC mass,
     some thrust), backpack (main thrusters).
-  - Hits on a destroyed limb carry through to the torso at half strength. A hit that blows a limb
-    off spills half its excess into the torso.
+  - A limb shot to nothing comes off: it drifts away as wreckage (a limb chunk, which can be
+    salvaged), and shots pass through where it was. A hit that blows a limb off spills half its
+    excess into the torso. (A second hit on the same limb in the same tick carries through to the
+    torso at half strength.)
+  - Each part weighs a share of the frame, so a suit that loses parts is lighter.
+  - A destroyed suit leaves a hulk: its hull and whatever parts are still on it, drifting on.
+  - Wreckage bounces off the colony and rocks, and is cleared after 60 s (Mobile Dolls') or 180 s
+    (pilots').
 - **Heat and energy.** Overheating locks all weapons until heat falls to 50%. Beam weapons draw from
   an energy pool that the reactor recharges.
 - **Lag compensation.** A shot resolves against the world as its shooter saw it, up to 8 ticks
@@ -125,7 +134,48 @@ can take.
 - **Agents** are external AI players on the Bot SDK (`bc-bot`). They run the same client state
   machine as the browser, get the same sensor-limited view and input rate, and obey the same G
   limits. They are labelled **MD** in-game. The bundled `DollBrain` flies an agent with the Mobile
-  Doll AI; write your own brain in a closure.
+  Doll AI. `MinerBrain` mines: it cuts rocks apart with its saber, stows the ore as its free hand
+  catches it, and sells it at the dock, flying round the colony to get there. Write your own brain
+  in a closure.
+
+## Salvage
+
+Battles leave wreckage, and wreckage is worth money. It lasts for the session: credits carry across
+respawns but not reconnects.
+
+- **Grab** (G toggles it): the free hand (the left, unless it's gone) closes on the nearest free
+  chunk within 8 m of reach that is moving at no more than 12 m/s relative to you, and holds it.
+  Weapons in that hand can't be used meanwhile: a Leo holding something can't use its machine
+  cannon or saber, and neither can a Wing Zero use its saber. Hauling makes you vulnerable.
+- **Stow** (B) puts loose ore, or a limb, of up to 2.5 t into the hold, if there's room: a Leo
+  carries 3 t, a Wing Zero 1.5 t, Mobile Dolls nothing. Anything heavier (a hulk) is towed in hand.
+- **Throw** (T) flings what's in hand along your aim: 60 kN·s of push, at most 40 m/s. You are
+  pushed back just as hard. **Jettison** (J) dumps the hold behind you.
+- **Mass matters.** Cargo and what's in hand add to the suit's mass: a fully fuelled Leo (9.5 t)
+  towing a 6 t hulk has about 60% of its usual acceleration, and turns slower too. Parts shot off
+  make it lighter.
+- **The dock** is just off the mouth of the docking hub at the colony's −X end, inside a ring of
+  amber lights. It tops up your propellant. Arrive slower than
+  25 m/s and the hold, and whatever is in hand, sells: nickel-iron 1 credit/kg, titanium 4,
+  volatiles 3, exotics 15. Suit parts sell as titanium, except a Gundam's (gundanium, sold with the
+  exotics).
+- **Dying** spills the hold and drops what you were holding; someone else can pick it up.
+
+## Mining
+
+The rocks hold ore: most are nickel-iron, some titanium or volatiles, a few exotics. Their veins
+show which, and thin as the ore is taken. A rock of radius r m has 60 + 25r of structure and
+200r kg of ore, so a 10 m rock takes two saber strokes and holds 2 t.
+
+- **Sabers mine best.** A stroke into a rock does double damage and chips off up to 200 kg of ore,
+  which drifts free, ready to grab. Machine cannon rounds wear a rock down at their usual damage.
+  Beams do 0.3× and boil off 4 kg of ore for each point of damage, so shooting a rock apart wastes
+  most of it.
+- **A rock with no structure left shatters**: whatever ore is left flies off as 2–8 chunks. Nothing
+  meets it until it grows back, 10 minutes later and only once no suit is within 1 km. Rocks crack
+  as they're worked.
+- **Hulks come apart.** A saber stroke through a hulk cuts off the part nearest the blade, which
+  drifts free as a limb small enough to stow.
 
 ## The world (EVE-lite, roadmap)
 
@@ -148,6 +198,7 @@ can take.
 | Shift · X · R | boost · brake · RCS (fast turns) |
 | LMB · RMB · F | primary · secondary · beam saber |
 | V · Z | flight assist · ZERO System |
+| G · B · T · J | grab (toggle) · stow · throw · jettison |
 | 1 / 2 | respawn as Leo / Wing Gundam Zero |
 
 ## Roadmap after Milestone 1
@@ -162,3 +213,5 @@ can take.
 - **Agents:** an MCP server so LLM agents can fly as squad commanders, and a Python gym on the
   headless simulation for RL.
 - **Earth:** atmosphere, gravity, re-entry heating (Wing's shield).
+- **Salvage:** credits that persist, a market with prices that move, repairs at the dock, chunks
+  that collide with each other, miners and pirates flown by the server.

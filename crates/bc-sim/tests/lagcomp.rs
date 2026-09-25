@@ -12,7 +12,7 @@ use glam::Vec3;
 /// A Leo fires once at a target crossing at 200 m/s, aiming from a view `view_age` ticks old.
 /// Returns whether the shot hit.
 fn duel(view_age: u32, compensate: bool) -> bool {
-    let mut sim = Sim::new(SimConfig { target_dolls: 0, ..SimConfig::default() });
+    let mut sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
     let shooter = sim
         .spawn_at(
             FrameId::Leo,

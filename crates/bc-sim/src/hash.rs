@@ -1,5 +1,6 @@
 //! Deterministic digest of the simulation state (FNV-1a), for golden tests across targets.
 
+use crate::chunks::Motion;
 use crate::sim::Sim;
 
 struct Fnv(u64);
@@ -39,6 +40,12 @@ pub fn state_hash(sim: &Sim) -> u64 {
         }
         h.f32(s.heat[i]);
         h.f32(s.energy[i]);
+        let (k, g, right) = s.held[i];
+        h.u32(u32::from(k) | u32::from(g) << 16 | u32::from(right) << 24);
+        for kg in s.cargo_kg[i] {
+            h.u32(u32::from(kg));
+        }
+        h.u32(s.credits[i]);
     }
     let p = &sim.projectiles;
     for k in p.alive.iter() {
@@ -46,6 +53,42 @@ pub fn state_hash(sim: &Sim) -> u64 {
         h.f32(p.pos[k].x);
         h.f32(p.pos[k].y);
         h.f32(p.pos[k].z);
+    }
+    let c = &sim.chunks;
+    for k in c.alive.iter() {
+        h.u32(k as u32);
+        h.u32(u32::from(c.generation[k]) | u32::from(c.version[k]) << 8 | u32::from(c.desc[k].seed) << 16);
+        h.u32(c.desc[k].mass_kg);
+        h.u32(c.expire[k]);
+        match c.motion[k] {
+            Motion::Free(s) => {
+                h.u32(s.t0);
+                for v in [s.pos, s.vel, s.spin] {
+                    h.f32(v.x);
+                    h.f32(v.y);
+                    h.f32(v.z);
+                }
+                for q in s.rot.to_array() {
+                    h.f32(q);
+                }
+            }
+            Motion::Held { holder, right, rot, since } => {
+                h.u32(u32::from(holder) | u32::from(right) << 16);
+                h.u32(since);
+                for q in rot.to_array() {
+                    h.f32(q);
+                }
+            }
+        }
+    }
+    let r = &sim.rocks;
+    for i in 0..r.version.len() {
+        if r.version[i] != 0 {
+            h.u32(i as u32 | u32::from(r.version[i]) << 16 | u32::from(r.destroyed.get(i)) << 24);
+            h.f32(r.hp[i]);
+            h.u32(r.ore_kg[i]);
+            h.u32(r.regrow_at[i]);
+        }
     }
     h.u32(sim.events.next_seq());
     h.0

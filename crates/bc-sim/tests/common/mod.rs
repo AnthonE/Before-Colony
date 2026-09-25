@@ -1,7 +1,9 @@
 //! Shared scenario builders for the bc-sim integration tests.
 #![allow(dead_code, clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
-use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, MELEE, RCS_SHARP, ZERO};
+use bc_proto::buttons::{
+    BOOST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, JETTISON, MELEE, RCS_SHARP, STOW, THROW, ZERO,
+};
 use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, PilotKind};
 use bc_sim::math::{hash01, look_rotation};
 use bc_sim::{Sim, SimConfig, SuitId};
@@ -59,6 +61,20 @@ pub fn scripted(sim: &Sim, id: SuitId, tick: u32) -> InputCmd {
     }
     if sim.suits.frame[id.idx()] == FrameId::WingZero {
         buttons |= ZERO;
+    }
+    // Salvage: the free hand reaches for wreckage in stretches; now and then stow, throw, or dump
+    // the hold.
+    if (tick / 60 + i).is_multiple_of(3) {
+        buttons |= GRAB;
+    }
+    if (tick + i * 7).is_multiple_of(53) {
+        buttons |= STOW;
+    }
+    if (tick + i * 5).is_multiple_of(89) {
+        buttons |= THROW;
+    }
+    if (tick + i * 3).is_multiple_of(149) {
+        buttons |= JETTISON;
     }
     let q = |v: f32| (v.clamp(-1.0, 1.0) * 127.0) as i8;
     InputCmd {

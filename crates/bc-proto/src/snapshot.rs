@@ -5,20 +5,26 @@
 //! | Section | Size | Notes |
 //! |---|---|---|
 //! | header | 116 bits | tick, input ack, input-buffer health, RTT echo, time dilation |
-//! | own state | 1 + ~486 bits | full precision: the client reconciles its prediction against it |
+//! | own state | 1 + 610 bits | full precision: the client reconciles its prediction against it |
 //! | ZERO | 1 + ~203 bits | only while the pilot's ZERO System is engaged |
 //! | events | `1+n` bits each, `0` ends | repeated until the client acks a snapshot containing them |
+//! | rocks | `1+18` bits each, `0` ends | debris-field rocks whose state changed, repeated until acked |
 //! | entities | `1+204` bits each, `0` ends | as many prioritised contacts as fit |
+//! | objects | `1+12..232` bits each, `0` ends | salvage chunks (ore, limbs, hulks) in range |
 //!
 //! Everything must fit in [`MAX_DATAGRAM`](crate::MAX_DATAGRAM) bytes. The writer checks the budget
-//! before every event or entity and never produces a partial item.
+//! before every record, counting the terminators still owed, and never produces a partial item.
 
 use glam::{Quat, Vec3};
 
 use crate::events::Event;
+use crate::objects::{ObjectState, ROCK_RECORD_BITS, RockState};
 use crate::quant::{self, dequantize_signed, dequantize_unit, quantize_signed, quantize_unit};
 use crate::types::{Faction, FrameId, Part, PilotKind};
-use crate::{BitReader, BitWriter, DecodeError, PACKET_KIND_BITS, PacketKind, SLOT_BITS};
+use crate::{
+    BitReader, BitWriter, CARGO_KINDS, CHUNK_BITS, DecodeError, NO_CHUNK, PACKET_KIND_BITS, PacketKind,
+    SLOT_BITS,
+};
 
 /// Maneuver hypotheses the ZERO System weighs per threat (see `bc_sim::zero`).
 pub const ZERO_HYPOTHESES: usize = 7;
@@ -59,6 +65,10 @@ pub mod own_flags {
     pub const FLIGHT_ASSIST: u16 = 1 << 6;
     /// Something has a weapons lock on you.
     pub const LOCKED_ON: u16 = 1 << 7;
+    /// In the colony's dock: cargo, and anything in hand, sells on arrival.
+    pub const DOCKED: u16 = 1 << 8;
+    /// Beam saber lunge (windup and swing): the flight model drives forward at full thrust.
+    pub const LUNGE: u16 = 1 << 9;
 }
 
 /// ZERO System state for [`OwnState::zero_mode`].
@@ -97,7 +107,7 @@ pub struct OwnState {
     pub weapon_ready: u8,
     /// 0..1 Twin Buster Rifle charge.
     pub charge: f32,
-    /// Armour left per [`Part`], 0..1.
+    /// Armour left per [`Part`], 0..1 (any left at all arrives as more than 0).
     pub parts: [f32; Part::COUNT],
     pub zero_strain: f32,
     pub zero_mode: u8,
@@ -107,7 +117,22 @@ pub struct OwnState {
     pub thrust_factor: f32,
     /// While dead: ticks until respawn, divided by 4.
     pub respawn_in: u8,
+    /// Mass beyond the frame's own: cargo and anything in hand, less the parts shot off, kg. The
+    /// flight model (and so prediction) uses exactly this.
+    pub extra_mass_kg: i32,
+    /// The hold's contents per ore kind, kg.
+    pub cargo_kg: [u16; CARGO_KINDS],
+    /// Credits earned this session.
+    pub credits: u32,
+    /// The chunk in hand ([`NO_CHUNK`] = none).
+    pub held: u16,
 }
+
+/// Encoded size of the own state (after its presence bit), in bits.
+pub const OWN_BITS: usize = 502 + 18 + 14 * CARGO_KINDS + 24 + CHUNK_BITS as usize;
+const EXTRA_MASS_BITS: u32 = 18;
+const CARGO_BITS: u32 = 14;
+const CREDIT_BITS: u32 = 24;
 
 impl Default for OwnState {
     fn default() -> Self {
@@ -134,6 +159,10 @@ impl Default for OwnState {
             ambac_factor: 1.0,
             thrust_factor: 1.0,
             respawn_in: 0,
+            extra_mass_kg: 0,
+            cargo_kg: [0; CARGO_KINDS],
+            credits: 0,
+            held: NO_CHUNK,
         }
     }
 }
@@ -249,16 +278,39 @@ fn read_p(r: &mut BitReader<'_>) -> f32 {
 // Writer
 // ---------------------------------------------------------------------------------------------
 
-/// Budget-aware snapshot encoder. Call `header`, `own`, `zero`, then `event`s, `end_events`, then
-/// `entity`s, then `finish`.
+/// The lists after the fixed part, in order. Each is closed by a `0` bit.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum List {
+    Events,
+    Rocks,
+    Entities,
+    Objects,
+    Done,
+}
+
+impl List {
+    fn next(self) -> Self {
+        match self {
+            List::Events => List::Rocks,
+            List::Rocks => List::Entities,
+            List::Entities => List::Objects,
+            List::Objects | List::Done => List::Done,
+        }
+    }
+}
+
+/// Budget-aware snapshot encoder. Call `header`, `own`, `zero`, then `event`s, `rock`s, `entity`s
+/// and `object`s in that order (starting a list closes the ones before it), then `finish`.
 pub struct SnapshotWriter<'a> {
     w: BitWriter<'a>,
     tick: u32,
+    /// The list being written; earlier ones are closed.
+    list: List,
 }
 
 impl<'a> SnapshotWriter<'a> {
     pub fn new(buf: &'a mut [u8], max_bytes: usize) -> Self {
-        Self { w: BitWriter::with_limit(buf, max_bytes), tick: 0 }
+        Self { w: BitWriter::with_limit(buf, max_bytes), tick: 0, list: List::Events }
     }
 
     pub fn header(&mut self, h: &SnapshotHeader) {
@@ -298,7 +350,9 @@ impl<'a> SnapshotWriter<'a> {
         w.write_bits(u32::from(o.weapon_ready), 3);
         w.write_bits(quantize_unit(o.charge, 6), 6);
         for p in o.parts {
-            w.write_bits(quantize_unit(p, 8), 8);
+            // A sliver of armour must not round to "gone".
+            let q = quantize_unit(p, 8);
+            w.write_bits(if p > 0.0 { q.max(1) } else { 0 }, 8);
         }
         w.write_bits(quantize_unit(o.zero_strain, 8), 8);
         w.write_bits(u32::from(o.zero_mode & 3), 2);
@@ -306,6 +360,13 @@ impl<'a> SnapshotWriter<'a> {
         w.write_bits(quantize_unit(o.ambac_factor, 8), 8);
         w.write_bits(quantize_unit(o.thrust_factor, 8), 8);
         w.write_u8(o.respawn_in);
+        let reach = (1 << (EXTRA_MASS_BITS - 1)) - 1;
+        w.write_i32(o.extra_mass_kg.clamp(-reach, reach), EXTRA_MASS_BITS);
+        for c in o.cargo_kg {
+            w.write_bits(u32::from(c).min((1 << CARGO_BITS) - 1), CARGO_BITS);
+        }
+        w.write_bits(o.credits.min((1 << CREDIT_BITS) - 1), CREDIT_BITS);
+        w.write_bits(u32::from(o.held.min(NO_CHUNK)), CHUNK_BITS);
     }
 
     pub fn zero(&mut self, zero: Option<&ZeroInfo>) {
@@ -337,30 +398,64 @@ impl<'a> SnapshotWriter<'a> {
         write_p(w, z.hit_p);
     }
 
-    /// Appends an event if it fits while leaving `keep_free_bits` for what follows. Returns whether
-    /// it was written.
-    pub fn event(&mut self, e: &Event, keep_free_bits: usize) -> bool {
-        // 1 continuation bit + the event + both section terminators must still fit.
-        let need = 1 + e.encoded_bits() + 2 + keep_free_bits;
-        if self.w.bits_remaining() < need {
+    /// Terminators still owed: the open list's and every later one's.
+    fn owed(&self) -> usize {
+        List::Done as usize - self.list as usize
+    }
+
+    /// Moves on to `list`, closing the lists before it. False if it's already closed.
+    fn open(&mut self, list: List) -> bool {
+        if self.list > list {
+            return false;
+        }
+        while self.list < list {
+            self.w.write_bool(false);
+            self.list = self.list.next();
+        }
+        true
+    }
+
+    /// Opens `list` and starts a record of `bits` if it fits, with `keep_free_bits` to spare
+    /// after it and the terminators still owed.
+    fn start(&mut self, list: List, bits: usize, keep_free_bits: usize) -> bool {
+        if !self.open(list) || self.w.bits_remaining() < 1 + bits + self.owed() + keep_free_bits {
             return false;
         }
         self.w.write_bool(true);
+        true
+    }
+
+    /// Appends an event if it fits while leaving `keep_free_bits` for what follows. Returns whether
+    /// it was written.
+    pub fn event(&mut self, e: &Event, keep_free_bits: usize) -> bool {
+        if !self.start(List::Events, e.encoded_bits(), keep_free_bits) {
+            return false;
+        }
         e.write(&mut self.w, self.tick);
         true
     }
 
+    /// Closes the event list (starting a later list does too).
     pub fn end_events(&mut self) {
-        self.w.write_bool(false);
+        self.open(List::Rocks);
     }
 
-    /// Appends an entity if it fits. Returns whether it was written.
-    pub fn entity(&mut self, e: &EntityState) -> bool {
-        if self.w.bits_remaining() < 1 + ENTITY_BITS + 1 {
+    /// Appends a rock's state if it fits while leaving `keep_free_bits`.
+    pub fn rock(&mut self, r: &RockState, keep_free_bits: usize) -> bool {
+        if !self.start(List::Rocks, ROCK_RECORD_BITS, keep_free_bits) {
+            return false;
+        }
+        r.write(&mut self.w);
+        true
+    }
+
+    /// Appends an entity if it fits while leaving `keep_free_bits` (for objects). Returns whether
+    /// it was written.
+    pub fn entity(&mut self, e: &EntityState, keep_free_bits: usize) -> bool {
+        if !self.start(List::Entities, ENTITY_BITS, keep_free_bits) {
             return false;
         }
         let w = &mut self.w;
-        w.write_bool(true);
         w.write_bits(u32::from(e.slot), SLOT_BITS);
         w.write_bits(u32::from(e.generation & 3), 2);
         w.write_bits(e.frame as u32, FrameId::BITS);
@@ -377,14 +472,23 @@ impl<'a> SnapshotWriter<'a> {
         true
     }
 
+    /// Appends a salvage object if it fits. Returns whether it was written.
+    pub fn object(&mut self, o: &ObjectState) -> bool {
+        if !self.start(List::Objects, o.encoded_bits(), 0) {
+            return false;
+        }
+        o.write(&mut self.w, self.tick);
+        true
+    }
+
     /// Bits still free (useful for budgeting).
     pub fn bits_remaining(&self) -> usize {
         self.w.bits_remaining()
     }
 
-    /// Terminates the entity list and returns the datagram length, or `None` on overflow.
+    /// Closes every list and returns the datagram length, or `None` on overflow.
     pub fn finish(mut self) -> Option<usize> {
-        self.w.write_bool(false);
+        self.open(List::Done);
         (!self.w.overflowed()).then(|| self.w.bytes_written())
     }
 }
@@ -398,7 +502,9 @@ enum Stage {
     Own,
     Zero,
     Events,
+    Rocks,
     Entities,
+    Objects,
     Done,
 }
 
@@ -439,6 +545,40 @@ impl<'a> SnapshotReader<'a> {
         if self.r.overflowed() { Err(DecodeError::Truncated) } else { Ok(()) }
     }
 
+    /// Reads (and drops) whatever comes before `stage`.
+    fn skip_to(&mut self, stage: Stage) -> Result<(), DecodeError> {
+        while self.stage < stage {
+            match self.stage {
+                Stage::Own | Stage::Zero => {
+                    self.zero()?;
+                }
+                Stage::Events => {
+                    self.next_event()?;
+                }
+                Stage::Rocks => {
+                    self.next_rock()?;
+                }
+                Stage::Entities => {
+                    self.next_entity()?;
+                }
+                Stage::Objects | Stage::Done => {
+                    self.next_object()?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Reads the continuation bit of a list: false (moving on to `after`) at its end.
+    fn more(&mut self, after: Stage) -> Result<bool, DecodeError> {
+        if self.r.read_bool() {
+            return Ok(true);
+        }
+        self.stage = after;
+        self.check()?;
+        Ok(false)
+    }
+
     pub fn own(&mut self) -> Result<Option<OwnState>, DecodeError> {
         if self.stage != Stage::Own {
             return Err(DecodeError::Invalid);
@@ -476,6 +616,12 @@ impl<'a> SnapshotReader<'a> {
         o.ambac_factor = dequantize_unit(r.read_bits(8), 8);
         o.thrust_factor = dequantize_unit(r.read_bits(8), 8);
         o.respawn_in = r.read_u8();
+        o.extra_mass_kg = r.read_i32(EXTRA_MASS_BITS);
+        for c in &mut o.cargo_kg {
+            *c = r.read_bits(CARGO_BITS) as u16;
+        }
+        o.credits = r.read_bits(CREDIT_BITS);
+        o.held = r.read_bits(CHUNK_BITS) as u16;
         self.check()?;
         Ok(Some(o))
     }
@@ -518,38 +664,31 @@ impl<'a> SnapshotReader<'a> {
 
     /// Next event, or `None` at the end of the event list.
     pub fn next_event(&mut self) -> Result<Option<Event>, DecodeError> {
-        if self.stage < Stage::Events {
-            self.zero()?;
-        }
-        if self.stage != Stage::Events {
-            return Ok(None);
-        }
-        if !self.r.read_bool() {
-            self.stage = Stage::Entities;
-            self.check()?;
+        self.skip_to(Stage::Events)?;
+        if self.stage != Stage::Events || !self.more(Stage::Rocks)? {
             return Ok(None);
         }
         Event::read(&mut self.r, self.header.tick).map(Some)
     }
 
-    /// Next entity, or `None` at the end of the packet.
-    pub fn next_entity(&mut self) -> Result<Option<EntityState>, DecodeError> {
-        while self.stage < Stage::Entities {
-            if self.stage < Stage::Events {
-                self.zero()?;
-            } else {
-                self.next_event()?;
-            }
+    /// Next changed rock, or `None` at the end of the rock list.
+    pub fn next_rock(&mut self) -> Result<Option<RockState>, DecodeError> {
+        self.skip_to(Stage::Rocks)?;
+        if self.stage != Stage::Rocks || !self.more(Stage::Entities)? {
+            return Ok(None);
         }
-        if self.stage != Stage::Entities {
+        let rock = RockState::read(&mut self.r);
+        self.check()?;
+        Ok(Some(rock))
+    }
+
+    /// Next entity, or `None` at the end of the entity list.
+    pub fn next_entity(&mut self) -> Result<Option<EntityState>, DecodeError> {
+        self.skip_to(Stage::Entities)?;
+        if self.stage != Stage::Entities || !self.more(Stage::Objects)? {
             return Ok(None);
         }
         let r = &mut self.r;
-        if !r.read_bool() {
-            self.stage = Stage::Done;
-            self.check()?;
-            return Ok(None);
-        }
         let mut e = EntityState {
             slot: r.read_bits(SLOT_BITS) as u16,
             generation: r.read_bits(2) as u8,
@@ -569,6 +708,17 @@ impl<'a> SnapshotReader<'a> {
         self.check()?;
         Ok(Some(e))
     }
+
+    /// Next salvage object, or `None` at the end of the packet.
+    pub fn next_object(&mut self) -> Result<Option<ObjectState>, DecodeError> {
+        self.skip_to(Stage::Objects)?;
+        if self.stage != Stage::Objects || !self.more(Stage::Done)? {
+            return Ok(None);
+        }
+        let o = ObjectState::read(&mut self.r, self.header.tick)?;
+        self.check()?;
+        Ok(Some(o))
+    }
 }
 
 /// Converts armour fractions to the 0..7 buckets used in [`EntityState::parts`].
@@ -587,4 +737,55 @@ pub fn entity_pos_step() -> f32 {
 
 pub fn round_trip_signed(v: f32, max_abs: f32, bits: u32) -> f32 {
     dequantize_signed(quantize_signed(v, max_abs, bits), max_abs, bits)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn own_state_is_exactly_own_bits() {
+        let mut buf = [0u8; 256];
+        let mut w = SnapshotWriter::new(&mut buf, 256);
+        w.own(Some(&OwnState::default()));
+        assert_eq!(w.w.bits_written(), 1 + OWN_BITS);
+    }
+
+    #[test]
+    fn a_sliver_of_armour_is_not_gone() {
+        let own = OwnState { parts: [1e-4, 0.0, 1.0, 0.5, 0.3, 1e-9], ..OwnState::default() };
+        let mut buf = [0u8; 256];
+        let mut w = SnapshotWriter::new(&mut buf, 256);
+        w.header(&SnapshotHeader::default());
+        w.own(Some(&own));
+        let n = w.finish().unwrap();
+        let back = SnapshotReader::new(&buf[..n]).unwrap().own().unwrap().unwrap();
+        assert!(back.parts[0] > 0.0 && back.parts[5] > 0.0);
+        assert_eq!(back.parts[1], 0.0);
+    }
+
+    #[test]
+    fn lists_close_in_order_and_skip_cleanly() {
+        let mut buf = [0u8; 1100];
+        let mut w = SnapshotWriter::new(&mut buf, 1100);
+        w.header(&SnapshotHeader { tick: 50, ..SnapshotHeader::default() });
+        w.own(None);
+        w.zero(None);
+        assert!(w.rock(&RockState::new(9, true, 0.0, 0.0), 0));
+        assert!(w.object(&ObjectState::Gone { id: 3 }));
+        // Lists already closed can't take more.
+        assert!(!w.rock(&RockState::default(), 0));
+        assert!(!w.entity(&EntityState::default(), 0));
+        let n = w.finish().unwrap();
+        let mut r = SnapshotReader::new(&buf[..n]).unwrap();
+        // Straight to the objects: everything before is skipped.
+        assert_eq!(r.next_object().unwrap(), Some(ObjectState::Gone { id: 3 }));
+        assert_eq!(r.next_object().unwrap(), None);
+        let mut r = SnapshotReader::new(&buf[..n]).unwrap();
+        assert_eq!(r.next_event().unwrap(), None);
+        assert_eq!(r.next_rock().unwrap().map(|x| x.id), Some(9));
+        assert_eq!(r.next_rock().unwrap(), None);
+        assert_eq!(r.next_entity().unwrap(), None);
+        assert_eq!(r.next_object().unwrap().map(|o| o.id()), Some(3));
+    }
 }

@@ -8,9 +8,11 @@ use glam::Vec3;
 
 use crate::quant::{self, dequantize_unit, quantize_unit};
 use crate::types::{Part, WeaponKind};
-use crate::{BitReader, BitWriter, DecodeError, SLOT_BITS};
+use crate::{BitReader, BitWriter, CHUNK_BITS, DecodeError, ROCK_BITS, SLOT_BITS};
 
 const KIND_BITS: u32 = 3;
+/// Kind 7 is an extension: a sub-kind follows (0 = rock break; the rest reserved).
+const EXT_BITS: u32 = 3;
 const DIR_BITS: u32 = 16;
 /// Beam speeds up to 16 384 m/s in 0.25 m/s steps.
 const SPEED_BITS: u32 = 16;
@@ -33,14 +35,19 @@ pub enum Event {
     },
     /// A hit landed on `target`'s `part`. `damage` is a fraction of that part's full armour.
     Hit { id: u16, tick: u32, target: u16, part: Part, shooter: u16, weapon: WeaponKind, damage: f32 },
-    /// `victim` was destroyed.
-    Kill { id: u16, tick: u32, victim: u16, killer: u16 },
+    /// `victim` was destroyed; its wreck is now the hulk chunk `hulk` (`NO_CHUNK` if none).
+    Kill { id: u16, tick: u32, victim: u16, killer: u16, hulk: u16 },
     /// `slot` left this client's sensor coverage. Idempotent, so it needs no `id`.
     Leave { tick: u32, slot: u16 },
     /// Two beam sabers met: both swings were parried.
     Clash { id: u16, tick: u32, a: u16, b: u16 },
     /// A pilot's ZERO System seized (or released) control.
     Seizure { id: u16, tick: u32, pilot: u16, active: bool },
+    /// `part` came off suit `source` (or, `from_hulk`, off hulk chunk `source`) and is now the limb
+    /// chunk `chunk`.
+    Detach { id: u16, tick: u32, source: u16, from_hulk: bool, part: Part, chunk: u16 },
+    /// Rock `rock` shattered (its ore scattered as chunks); `by` broke it.
+    RockBreak { id: u16, tick: u32, rock: u16, by: u16 },
 }
 
 impl Event {
@@ -51,7 +58,9 @@ impl Event {
             | Event::Kill { tick, .. }
             | Event::Leave { tick, .. }
             | Event::Clash { tick, .. }
-            | Event::Seizure { tick, .. } => tick,
+            | Event::Seizure { tick, .. }
+            | Event::Detach { tick, .. }
+            | Event::RockBreak { tick, .. } => tick,
         }
     }
 
@@ -62,7 +71,9 @@ impl Event {
             | Event::Hit { id, .. }
             | Event::Kill { id, .. }
             | Event::Clash { id, .. }
-            | Event::Seizure { id, .. } => Some(id),
+            | Event::Seizure { id, .. }
+            | Event::Detach { id, .. }
+            | Event::RockBreak { id, .. } => Some(id),
             Event::Leave { .. } => None,
         }
     }
@@ -85,9 +96,17 @@ impl Event {
                     + WeaponKind::BITS as usize
                     + DAMAGE_BITS as usize
             }
-            Event::Kill { .. } | Event::Clash { .. } => 16 + 2 * SLOT_BITS as usize,
+            Event::Kill { .. } => 16 + 2 * SLOT_BITS as usize + CHUNK_BITS as usize,
+            Event::Clash { .. } => 16 + 2 * SLOT_BITS as usize,
             Event::Leave { .. } => SLOT_BITS as usize,
             Event::Seizure { .. } => 16 + SLOT_BITS as usize + 1,
+            Event::Detach { from_hulk, .. } => {
+                16 + 1
+                    + if *from_hulk { CHUNK_BITS } else { SLOT_BITS } as usize
+                    + Part::BITS as usize
+                    + CHUNK_BITS as usize
+            }
+            Event::RockBreak { .. } => EXT_BITS as usize + 16 + ROCK_BITS as usize + SLOT_BITS as usize,
         }
     }
 
@@ -119,12 +138,13 @@ impl Event {
                 w.write_bits(weapon as u32, WeaponKind::BITS);
                 w.write_bits(quantize_unit(damage, DAMAGE_BITS), DAMAGE_BITS);
             }
-            Event::Kill { id, victim, killer, .. } => {
+            Event::Kill { id, victim, killer, hulk, .. } => {
                 w.write_bits(2, KIND_BITS);
                 w.write_u8(age as u8);
                 w.write_u16(id);
                 slot(w, victim);
                 slot(w, killer);
+                w.write_bits(u32::from(hulk), CHUNK_BITS);
             }
             Event::Leave { slot: s, .. } => {
                 w.write_bits(3, KIND_BITS);
@@ -144,6 +164,23 @@ impl Event {
                 w.write_u16(id);
                 slot(w, pilot);
                 w.write_bool(active);
+            }
+            Event::Detach { id, source, from_hulk, part, chunk, .. } => {
+                w.write_bits(6, KIND_BITS);
+                w.write_u8(age as u8);
+                w.write_u16(id);
+                w.write_bool(from_hulk);
+                w.write_bits(u32::from(source), if from_hulk { CHUNK_BITS } else { SLOT_BITS });
+                w.write_bits(part as u32, Part::BITS);
+                w.write_bits(u32::from(chunk), CHUNK_BITS);
+            }
+            Event::RockBreak { id, rock, by, .. } => {
+                w.write_bits(7, KIND_BITS);
+                w.write_u8(age as u8);
+                w.write_bits(0, EXT_BITS);
+                w.write_u16(id);
+                w.write_bits(u32::from(rock), ROCK_BITS);
+                slot(w, by);
             }
         }
     }
@@ -178,7 +215,8 @@ impl Event {
                 let id = r.read_u16();
                 let victim = slot(r);
                 let killer = slot(r);
-                Event::Kill { id, tick, victim, killer }
+                let hulk = r.read_bits(CHUNK_BITS) as u16;
+                Event::Kill { id, tick, victim, killer, hulk }
             }
             3 => Event::Leave { tick, slot: slot(r) },
             4 => {
@@ -193,8 +231,72 @@ impl Event {
                 let active = r.read_bool();
                 Event::Seizure { id, tick, pilot, active }
             }
+            6 => {
+                let id = r.read_u16();
+                let from_hulk = r.read_bool();
+                let source = r.read_bits(if from_hulk { CHUNK_BITS } else { SLOT_BITS }) as u16;
+                let part = Part::from_bits(r.read_bits(Part::BITS)).ok_or(DecodeError::Invalid)?;
+                let chunk = r.read_bits(CHUNK_BITS) as u16;
+                Event::Detach { id, tick, source, from_hulk, part, chunk }
+            }
+            7 => match r.read_bits(EXT_BITS) {
+                0 => {
+                    let id = r.read_u16();
+                    let rock = r.read_bits(ROCK_BITS) as u16;
+                    Event::RockBreak { id, tick, rock, by: slot(r) }
+                }
+                _ => return Err(DecodeError::Invalid),
+            },
             _ => return Err(DecodeError::Invalid),
         };
         if r.overflowed() { Err(DecodeError::Truncated) } else { Ok(e) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_kind_round_trips_at_its_stated_size() {
+        let all = [
+            Event::BeamSpawn {
+                id: 1,
+                tick: 90,
+                shooter: 4,
+                weapon: WeaponKind::TwinBusterRifle,
+                shot_seq: 9,
+                origin: Vec3::ZERO,
+                velocity: Vec3::new(0.0, 0.0, 8_000.0),
+            },
+            Event::Hit {
+                id: 2,
+                tick: 91,
+                target: 5,
+                part: Part::Legs,
+                shooter: 4,
+                weapon: WeaponKind::BeamSaber,
+                damage: 1.0,
+            },
+            Event::Kill { id: 3, tick: 92, victim: 5, killer: 4, hulk: 812 },
+            Event::Leave { tick: 93, slot: 1_000 },
+            Event::Clash { id: 4, tick: 94, a: 1, b: 2 },
+            Event::Seizure { id: 5, tick: 95, pilot: 7, active: true },
+            Event::Detach { id: 6, tick: 96, source: 5, from_hulk: false, part: Part::ArmL, chunk: 13 },
+            Event::Detach { id: 7, tick: 97, source: 812, from_hulk: true, part: Part::Head, chunk: 14 },
+            Event::RockBreak { id: 8, tick: 98, rock: 1_022, by: 4 },
+        ];
+        for e in all {
+            let mut buf = [0u8; 64];
+            let mut w = BitWriter::new(&mut buf);
+            e.write(&mut w, 100);
+            assert_eq!(w.bits_written(), e.encoded_bits());
+            let back = Event::read(&mut BitReader::new(&buf), 100).unwrap();
+            if matches!(e, Event::BeamSpawn { .. }) {
+                assert_eq!((back.id(), back.tick()), (e.id(), e.tick())); // (its vectors are quantized)
+            } else {
+                assert_eq!(back, e);
+            }
+        }
     }
 }

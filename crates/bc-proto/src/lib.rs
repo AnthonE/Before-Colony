@@ -6,8 +6,8 @@
 //!   - client → server [`InputPacket`]: the last up-to-4 [`InputCmd`]s, so one lost packet costs
 //!     nothing.
 //!   - server → client snapshot ([`SnapshotWriter`] / [`SnapshotReader`]): header, full-precision
-//!     own state, ZERO info, events repeated until acked, then as many prioritised entities as fit
-//!     in [`MAX_DATAGRAM`] bytes.
+//!     own state, ZERO info, events and changed rocks repeated until acked, then as many
+//!     prioritised entities and salvage objects as fit in [`MAX_DATAGRAM`] bytes.
 //! - Control stream (reliable, length-prefixed frames): [`control`] handshake and roster messages.
 //!
 //! Bit layouts are documented in `docs/PROTOCOL.md`.
@@ -19,6 +19,7 @@ pub mod bits;
 pub mod control;
 pub mod events;
 pub mod input;
+pub mod objects;
 pub mod quant;
 pub mod snapshot;
 pub mod types;
@@ -26,11 +27,12 @@ pub mod types;
 pub use bits::{BitReader, BitWriter};
 pub use events::Event;
 pub use input::{InputCmd, InputPacket, buttons};
+pub use objects::{ChunkDesc, ChunkKind, ObjectState, RockState, Segment};
 pub use snapshot::{EntityState, OwnState, SnapshotHeader, SnapshotReader, SnapshotWriter, ZeroInfo};
 pub use types::{Faction, FrameId, Part, PilotKind, WeaponKind};
 
 /// Bumped on any incompatible wire change; the handshake rejects mismatches.
-pub const PROTOCOL_VERSION: u16 = 1;
+pub const PROTOCOL_VERSION: u16 = 4;
 
 /// Upper bound for every datagram we send. 1200 bytes is the smallest UDP payload QUIC guarantees;
 /// the QUIC short header, AEAD tag and HTTP/3 datagram prefix need ~30–40 of those.
@@ -42,6 +44,15 @@ pub const SLOT_BITS: u32 = 10;
 pub const MAX_ENTITIES: usize = 1 << SLOT_BITS;
 /// "No entity" (e.g. no lock target).
 pub const NO_SLOT: u16 = (1 << SLOT_BITS) - 1;
+
+/// Salvage chunk ids (loose ore, limbs, hulks) on the wire use this many bits.
+pub const CHUNK_BITS: u32 = 10;
+/// "No chunk" (e.g. nothing in hand).
+pub const NO_CHUNK: u16 = (1 << CHUNK_BITS) - 1;
+/// Rock ids use this many bits (a field holds at most 1 023 rocks).
+pub const ROCK_BITS: u32 = 10;
+/// Kinds of ore, and so of cargo: nickel-iron, titanium, volatiles, exotics.
+pub const CARGO_KINDS: usize = 4;
 
 /// Sector-local coordinates span ±this many metres on every axis.
 pub const SECTOR_HALF_EXTENT: f32 = 32_768.0;

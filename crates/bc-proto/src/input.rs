@@ -27,9 +27,19 @@ pub mod buttons {
     pub const ZERO: u16 = 1 << 6;
     /// Hold: turn with RCS thrusters (fast, burns propellant) instead of AMBAC alone.
     pub const RCS_SHARP: u16 = 1 << 7;
+    /// State: the free hand closes on the nearest chunk in reach and holds it while set.
+    pub const GRAB: u16 = 1 << 8;
+    /// Press: put what's in hand into the hold.
+    pub const STOW: u16 = 1 << 9;
+    /// Press: fling what's in hand along the aim (and get pushed back).
+    pub const THROW: u16 = 1 << 10;
+    /// Press: dump the hold's contents.
+    pub const JETTISON: u16 = 1 << 11;
 
     pub const FIRE_MASK: u16 = FIRE_PRIMARY | FIRE_SECONDARY | MELEE;
-    pub const BITS: u32 = 8;
+    /// States that persist while a client is silent (see [`InputCmd::neutral`](super::InputCmd::neutral)).
+    pub const STATES: u16 = FLIGHT_ASSIST | ZERO | GRAB;
+    pub const BITS: u32 = 12;
 }
 
 /// Bits per axis for the aim direction (octahedral): ~0.005° precision.
@@ -76,13 +86,14 @@ impl Default for InputCmd {
 }
 
 impl InputCmd {
-    /// A "hands off" command for `tick` that keeps the given aim and toggle states.
+    /// A "hands off" command for `tick` that keeps the given aim and states (flight assist, ZERO,
+    /// and a grip on whatever is in hand).
     pub fn neutral(tick: u32, aim: Vec3, keep_buttons: u16) -> Self {
         Self {
             tick,
             view_tick_q4: tick << 4,
             aim,
-            buttons: keep_buttons & (buttons::FLIGHT_ASSIST | buttons::ZERO),
+            buttons: keep_buttons & buttons::STATES,
             ..Self::default()
         }
     }
@@ -168,7 +179,7 @@ impl Default for InputPacket {
 }
 
 impl InputPacket {
-    /// Encodes into `buf`, returning the byte length (≤ 64 for four commands).
+    /// Encodes into `buf`, returning the byte length (≤ 64 for four commands: 86 + 4 × 106 bits).
     pub fn encode(&self, buf: &mut [u8]) -> Option<usize> {
         let count = self.count.clamp(1, MAX_CMDS as u8);
         let mut w = BitWriter::new(buf);
@@ -219,7 +230,7 @@ mod tests {
                 aim: Vec3::new(0.2, -0.3, 0.93).normalize(),
                 thrust: [-127, 5, 127],
                 roll: -3,
-                buttons: buttons::FIRE_PRIMARY | buttons::ZERO,
+                buttons: buttons::FIRE_PRIMARY | buttons::ZERO | buttons::JETTISON,
                 lock_target: 17,
                 shot_seq: 250,
             }
@@ -235,5 +246,29 @@ mod tests {
         }
         assert_eq!(back.ack_snapshot, 991);
         assert_eq!(back.client_time_ms, 4242);
+    }
+
+    #[test]
+    fn four_commands_fit_in_64_bytes() {
+        let mut p =
+            InputPacket { ack_snapshot: u32::MAX, client_time_ms: u16::MAX, count: 4, ..Default::default() };
+        for i in 0..4 {
+            p.cmds[i] = InputCmd {
+                tick: u32::MAX - 8 - i as u32,
+                view_tick_q4: 0,
+                buttons: u16::MAX,
+                lock_target: u16::MAX,
+                shot_seq: u8::MAX,
+                ..InputCmd::default()
+            };
+        }
+        let mut buf = [0u8; 128];
+        assert_eq!(p.encode(&mut buf), Some(64));
+    }
+
+    #[test]
+    fn a_silent_client_keeps_its_grip() {
+        let n = InputCmd::neutral(9, Vec3::X, u16::MAX);
+        assert_eq!(n.buttons, buttons::FLIGHT_ASSIST | buttons::ZERO | buttons::GRAB);
     }
 }

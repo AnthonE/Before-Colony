@@ -6,6 +6,7 @@
 
 mod frames;
 mod names;
+pub mod salvage;
 mod weapons;
 
 pub use frames::{ArmSlot, Capsule, FrameSpec, Mount, frame};

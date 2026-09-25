@@ -87,6 +87,20 @@ impl EntityTrack {
         Pose { pos: e.pos, rot: e.rot, vel: e.vel, aim: e.aim }
     }
 
+    /// The replicated state (flags, armour) of the newest sample at or before `t` (ticks), so it
+    /// lines up with the pose drawn at `t`. Before the oldest sample: the oldest.
+    pub fn state_at(&self, t: f64) -> &EntityState {
+        let mut best = &self.get(0).1;
+        for k in 1..self.n {
+            let (tk, e) = self.get(k);
+            if f64::from(*tk) > t {
+                break;
+            }
+            best = e;
+        }
+        best
+    }
+
     /// Acceleration estimated from the two newest samples.
     pub fn accel_estimate(&self) -> Vec3 {
         if self.n < 2 {
@@ -103,4 +117,25 @@ fn hermite(p0: Vec3, m0: Vec3, p1: Vec3, m1: Vec3, u: f32) -> Vec3 {
     let u2 = u * u;
     let u3 = u2 * u;
     p0 * (2.0 * u3 - 3.0 * u2 + 1.0) + m0 * (u3 - 2.0 * u2 + u) + p1 * (-2.0 * u3 + 3.0 * u2) + m1 * (u3 - u2)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state(flags: u16) -> EntityState {
+        EntityState { flags, ..Default::default() }
+    }
+
+    #[test]
+    fn state_follows_the_drawn_time() {
+        let mut track = EntityTrack::new(10, state(1));
+        track.push(12, state(2));
+        track.push(14, state(4));
+        assert_eq!(track.state_at(9.0).flags, 1);
+        assert_eq!(track.state_at(11.5).flags, 1);
+        assert_eq!(track.state_at(12.0).flags, 2);
+        assert_eq!(track.state_at(13.9).flags, 2);
+        assert_eq!(track.state_at(20.0).flags, 4);
+    }
 }

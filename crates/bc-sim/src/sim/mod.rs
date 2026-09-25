@@ -5,35 +5,42 @@
 //!
 //! Pipeline for tick `T`:
 //! 1. Mobile Doll AI (and ZERO seizures) write `InputCmd`s (dolls re-plan every 3rd tick, staggered).
-//! 2. Flight: AMBAC/RCS attitude, thrust, propellant, G-strain; wrecks drift.
+//! 2. Flight: AMBAC/RCS attitude, thrust, propellant, G-strain; wrecks drift; rocks stop both.
 //! 3. Spatial hash rebuild, then lag-compensation history is recorded (`history[T]` = snapshot `T`).
 //! 4. Weapons fire: projectiles spawn and catch up through the history (≤ 8 ticks) for shots fired
 //!    by humans/agents; beams emit spawn events.
-//! 5. Projectiles sweep against per-part capsules; sabers sweep their arcs.
+//! 5. Projectiles sweep against per-part capsules (rocks stop them); sabers sweep their arcs.
 //! 6. Damage resolves in generation order; parts break; suits die.
 //! 7. Heat, energy, ZERO strain, respawns; staggered ZERO rollouts.
 
 use alloc::boxed::Box;
 
 mod combat;
+mod mining;
+mod salvage;
 mod wire;
 mod zero;
 
-use bc_proto::buttons::ZERO;
+use bc_proto::buttons::{GRAB, ZERO};
 use bc_proto::events::Event;
-use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, Part, PilotKind, WeaponKind};
+use bc_proto::quant::{dequantize_unit, quantize_unit};
+use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, Part, PilotKind, Segment, WeaponKind};
 use glam::{Quat, Vec3};
 
 use crate::ai::{self, DOLL, SEIZED};
-use crate::config::{DT, SimConfig, secs};
+use crate::chunks::{self, Chunks, Motion, held_pose, segment_pos, segment_rot};
+use crate::config::{DT, SECTOR_LIMIT, SimConfig, secs};
+use crate::content::salvage::{BOUNCE, mass_without};
 use crate::content::{frame, weapon};
 use crate::events::EventRing;
+use crate::field::Field;
 use crate::flight::{self, FlightMods};
 use crate::handle::SuitId;
 use crate::lagcomp::History;
 use crate::math::{Rng, length, look_rotation, normalize_or};
 use crate::perception::{Contact, Perception, SelfView};
 use crate::projectiles::Projectiles;
+use crate::rocks::RockStates;
 use crate::sensors;
 use crate::spatial::SpatialHash;
 use crate::storage::{BitSet, FixedVec, boxed};
@@ -49,6 +56,8 @@ pub(crate) struct DamageEvent {
     pub amount: f32,
     pub shooter: u16,
     pub weapon: WeaponKind,
+    /// Which way the blow struck (a part it destroys flies off that way).
+    pub dir: Vec3,
 }
 
 const MAX_SQUADS: usize = 32;
@@ -92,6 +101,12 @@ pub struct Sim {
     tick: u32,
     pub suits: Suits,
     pub projectiles: Projectiles,
+    /// The debris field (static: rocks are solid to suits and stop shots).
+    pub field: Field,
+    /// What mining has done to the field's rocks.
+    pub rocks: RockStates,
+    /// Salvage: loose ore, limbs shot off, hulks.
+    pub chunks: Chunks,
     pub history: History,
     spatial: SpatialHash,
     pub events: EventRing,
@@ -113,17 +128,24 @@ pub struct Sim {
     query_bits: BitSet,
     /// Scratch: live projectiles to iterate while killing some.
     proj_bits: BitSet,
+    /// Scratch: live chunks, likewise.
+    chunk_bits: BitSet,
 }
 
 impl Sim {
     /// Allocates all storage. Nothing grows afterwards.
     pub fn new(cfg: SimConfig) -> Self {
         let cap = cfg.max_suits.min(NO_SLOT as usize);
+        let field = Field::generate(cfg.field_seed, cfg.field_rocks);
+        let rocks = RockStates::new(&field);
         Self {
             cfg,
             tick: 0,
             suits: Suits::new(cap),
             projectiles: Projectiles::new(cfg.max_projectiles),
+            field,
+            rocks,
+            chunks: Chunks::new(),
             history: History::new(cap),
             spatial: SpatialHash::new(cap),
             events: EventRing::new(cfg.max_events),
@@ -135,6 +157,7 @@ impl Sim {
                     amount: 0.0,
                     shooter: 0,
                     weapon: WeaponKind::BeamRifle,
+                    dir: Vec3::Z,
                 },
             ),
             squads: [Squad { anchor: Vec3::ZERO, focus: NO_SLOT }; MAX_SQUADS],
@@ -149,6 +172,7 @@ impl Sim {
             iter_bits: BitSet::new(cap),
             query_bits: BitSet::new(cap),
             proj_bits: BitSet::new(cfg.max_projectiles),
+            chunk_bits: BitSet::new(chunks::MAX_CHUNKS),
         }
     }
 
@@ -197,9 +221,12 @@ impl Sim {
         Some(id)
     }
 
-    /// Removes a suit (disconnect).
+    /// Removes a suit (disconnect). What it carried is left behind.
     pub fn leave(&mut self, id: SuitId) {
         if self.suits.valid(id) {
+            if self.suits.alive.get(id.idx()) {
+                self.spill(id.idx(), self.tick, true);
+            }
             self.suits.release(id.idx());
         }
     }
@@ -237,14 +264,18 @@ impl Sim {
         }
         self.ai_step(t);
         self.flight_step(t);
+        self.chunk_step(t);
+        self.wrecks_follow_hulks();
         self.spatial_rebuild();
         self.record_history(t);
         self.weapons_step(t);
         self.projectile_step(t);
         self.melee_step(t);
         self.damage_step(t);
+        self.salvage_step(t);
         self.status_step(t);
         self.zero_step(t);
+        self.field_step(t);
         self.peak_projectiles = self.peak_projectiles.max(self.projectiles.count());
     }
 
@@ -358,7 +389,7 @@ impl Sim {
                 *r = ws.cooldown == 0
                     && s.energy[i] >= w.energy
                     && (w.ammo == 0 || ws.ammo > 0)
-                    && s.part_hp[i][m.arm.part() as usize] > 0.0;
+                    && s.arm_free(i, m.arm);
             }
         }
         SelfView {
@@ -436,7 +467,8 @@ impl Sim {
             let me = self.self_view(i);
             let mut cmd = ai::drive(&me, target.as_ref(), &mut ai_state, t, profile, spec);
             if seized {
-                cmd.buttons |= ZERO; // keep the System engaged while it holds the controls
+                // Keep the System engaged while it holds the controls, and the pilot's grip.
+                cmd.buttons |= ZERO | (self.suits.input[i].buttons & GRAB);
             }
             self.suits.ai[i] = ai_state;
             self.suits.input[i] = cmd;
@@ -472,11 +504,19 @@ impl Sim {
         if dead(Part::Legs) {
             thrust *= 0.9;
         }
+        // Rounded to the 8 bits the owner's client gets them in, so its prediction flies the same suit.
+        let wire = |x: f32| dequantize_unit(quantize_unit(x, 8), 8);
+        // Parts shot off lighten the suit; the hold and what's in hand weigh it down.
+        let fid = s.frame[i];
+        let held = self.held_chunk(i).map_or(0, |k| self.chunks.desc[k].mass_kg);
+        let extra_mass_kg = mass_without(fid, s.gone_mask(i)) as i32 - mass_without(fid, 0) as i32
+            + (s.cargo_total_kg(i) + held) as i32;
         FlightMods {
-            ambac: ambac.max(0.1),
-            thrust,
+            ambac: wire(ambac.max(0.1)),
+            thrust: wire(thrust),
             g_immune: s.pilot[i] == PilotKind::MobileDoll,
             lunge: matches!(s.saber[i].phase, SaberPhase::Windup | SaberPhase::Active),
+            extra_mass_kg,
         }
     }
 
@@ -488,14 +528,90 @@ impl Sim {
                 let mods = self.flight_mods(i);
                 let spec = frame(self.suits.frame[i]);
                 let cmd = self.suits.input[i];
-                let out = flight::step(&mut self.suits.flight[i], &cmd, spec, &mods, DT);
+                let out = flight::step_in(&self.field, &mut self.suits.flight[i], &cmd, spec, &mods, DT);
                 self.suits.boosting[i] = out.boosting;
                 self.suits.aim[i] = normalize_or(cmd.aim, self.suits.flight[i].rot * Vec3::Z);
             } else {
-                // Wrecks drift.
+                // Wrecks drift (and fetch up against rocks).
                 let f = &mut self.suits.flight[i];
+                let prev = f.pos;
                 f.pos += f.vel * DT;
+                self.field.collide(prev, f);
             }
+        }
+        self.iter_bits = used;
+    }
+
+    /// Free chunks drift, bounce off the colony and rocks, leave the sector or expire.
+    fn chunk_step(&mut self, t: u32) {
+        if self.chunks.count() == 0 {
+            return;
+        }
+        let mut live = core::mem::take(&mut self.chunk_bits);
+        live.copy_from(&self.chunks.alive);
+        for k in live.iter() {
+            let Motion::Free(seg) = self.chunks.motion[k] else { continue };
+            let b = segment_pos(&seg, f64::from(t));
+            if t >= self.chunks.expire[k] || b.abs().max_element() > SECTOR_LIMIT {
+                self.chunks.kill(k);
+                continue;
+            }
+            let a = segment_pos(&seg, f64::from(t - 1));
+            let r = chunks::radius(&self.chunks.desc[k]);
+            let contact = match self.field.sweep(a, b, r) {
+                Some((f, i)) => {
+                    let at = a + (b - a) * f;
+                    Some((at, self.field.rocks()[i].normal(at, r)))
+                }
+                None => crate::world::hull_contact(b, r),
+            };
+            let Some((at, n)) = contact else { continue };
+            let vn = seg.vel.dot(n);
+            if vn < 0.0 {
+                let bounced = Segment {
+                    t0: t,
+                    pos: at,
+                    vel: seg.vel - n * (vn * (1.0 + BOUNCE)),
+                    rot: segment_rot(&seg, f64::from(t)),
+                    spin: seg.spin * 0.7,
+                };
+                self.chunks.set_motion(k, Motion::Free(bounced.quantized()));
+            }
+        }
+        self.chunk_bits = live;
+    }
+
+    /// Where chunk `k` is now, how it's turned, and how fast it's going.
+    pub fn chunk_pose(&self, k: usize) -> (Vec3, Quat, Vec3) {
+        match self.chunks.motion[k] {
+            Motion::Free(seg) => {
+                let t = f64::from(self.tick);
+                (segment_pos(&seg, t), segment_rot(&seg, t), seg.vel)
+            }
+            Motion::Held { holder, right, rot, .. } => {
+                let f = &self.suits.flight[holder as usize];
+                let (pos, rot) = held_pose(f.pos, f.rot, right, rot, chunks::radius(&self.chunks.desc[k]));
+                (pos, rot, f.vel)
+            }
+        }
+    }
+
+    /// A wreck is its hulk: it keeps the hulk's pose, so the suit clients see die and the hulk
+    /// they see after it are one object.
+    fn wrecks_follow_hulks(&mut self) {
+        let mut used = core::mem::take(&mut self.iter_bits);
+        used.copy_from(&self.suits.used);
+        for i in used.iter() {
+            let (h, g) = self.suits.hulk[i];
+            if self.suits.alive.get(i) || !self.chunks.is_alive(h) || self.chunks.generation[h as usize] != g
+            {
+                continue;
+            }
+            let (pos, rot, vel) = self.chunk_pose(h as usize);
+            let f = &mut self.suits.flight[i];
+            f.pos = pos;
+            f.rot = rot;
+            f.vel = vel;
         }
         self.iter_bits = used;
     }

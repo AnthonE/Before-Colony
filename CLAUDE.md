@@ -15,7 +15,7 @@ WebTransport (QUIC) between them. See `docs/ARCHITECTURE.md` and `docs/DESIGN.md
 
 ## Commands
 - `scripts/ci.sh` — everything CI runs (`BC_E2E=1` adds the browser tests).
-- `scripts/dev.sh` — build the web client, run a sector with Mobile Dolls and an AI agent.
+- `scripts/dev.sh` — build the web client, run a sector with Mobile Dolls, an AI agent and a miner.
 - `cargo test --workspace --release` — all native tests (bc-client is a no-op natively; release
   because the simulation-heavy tests are slow unoptimised).
 - `cargo clippy --workspace --all-targets -- -D warnings` and
