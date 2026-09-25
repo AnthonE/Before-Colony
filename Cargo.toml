@@ -19,6 +19,7 @@ bc-sim = { path = "crates/bc-sim", default-features = false }
 bc-sector = { path = "crates/bc-sector" }
 bc-zero = { path = "crates/bc-zero" }
 bc-client-core = { path = "crates/bc-client-core" }
+bc-model = { path = "crates/bc-model" }
 bc-bot = { path = "crates/bc-bot" }
 
 # Math: glam 0.32 is the version Bevy 0.19 re-exports, so the client shares types with no conversion.

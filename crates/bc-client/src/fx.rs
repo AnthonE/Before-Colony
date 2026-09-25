@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 
+use bc_model::rig::Bone;
 use bc_proto::WeaponKind;
 use bc_proto::snapshot::ent_flags;
 use bc_sim::content::frame;
@@ -18,8 +19,9 @@ use crate::beams::{BeamMaterial, Ribbons, place_ribbon};
 use crate::blast::Blasts;
 use crate::camera::MainCamera;
 use crate::gfx::Gfx;
+use crate::model::SuitMeshLib;
 use crate::particles::{At, Particles};
-use crate::suits_vis::{SABER_DIR, SABER_HILT};
+use crate::suits_vis::{plume_power, rest_point};
 use crate::view::{BeamFeed, FxEvent, FxEvents, SuitDrive, VisTime};
 
 const BEAMS: usize = 96;
@@ -105,6 +107,7 @@ pub fn update_fx(
     time: Res<VisTime>,
     gfx: Res<Gfx>,
     ribbons: Res<Ribbons>,
+    lib: Res<SuitMeshLib>,
     feed: Res<BeamFeed>,
     mut events: ResMut<FxEvents>,
     suits: Query<&SuitDrive>,
@@ -183,6 +186,17 @@ pub fn update_fx(
         }
     }
 
+    // --- The main thrusters' fire, seen end-on (the plume ribbons vanish from straight behind). ---
+    for d in &suits {
+        let power = plume_power(d);
+        if power > 0.03 {
+            for &(pos, dir) in &lib.sockets(d.frame).nozzles {
+                let at = At { pos: rest_point(d, Bone::Backpack, pos + dir * 0.4), vel: d.vel };
+                particles.glow(cap, at, 0.6 + 1.2 * power, Vec3::new(2.0, 2.8, 5.0) * power);
+            }
+        }
+    }
+
     // --- Attitude jets: sideways and vertical thrust vents vapour the other way. ---
     for d in &suits {
         if d.flags & ent_flags::WRECK != 0 {
@@ -258,7 +272,13 @@ pub fn update_fx(
                     color: Color::srgb(1.0, 0.62, 0.3),
                 });
             }
-            FxEvent::Muzzle { pos, dir, vel, weapon } => {
+            FxEvent::Muzzle { pos, dir, vel, weapon, shooter } => {
+                // At the drawn muzzle when it's the shooter's main weapon (the simulation's is at
+                // the hand, inside the gun).
+                let pos = shooter
+                    .and_then(|slot| suits.iter().find(|d| d.slot == slot))
+                    .filter(|d| frame(d.frame).loadout[0].is_some_and(|m| m.weapon == weapon))
+                    .map_or(pos, |d| rest_point(d, Bone::Weapon, lib.sockets(d.frame).muzzle));
                 let look = ribbons.look(weapon);
                 let buster = weapon == WeaponKind::TwinBusterRifle;
                 let scale = if buster { 4.0 } else { 1.0 };
@@ -307,6 +327,7 @@ pub fn update_fx_lights(
     time: Res<VisTime>,
     gfx: Res<Gfx>,
     ribbons: Res<Ribbons>,
+    lib: Res<SuitMeshLib>,
     state: Res<FxState>,
     feed: Res<BeamFeed>,
     suits: Query<&SuitDrive>,
@@ -329,7 +350,8 @@ pub fn update_fx_lights(
         for d in &suits {
             if d.flags & ent_flags::SABER != 0 && d.flags & ent_flags::WRECK == 0 {
                 // The middle of the blade in the left hand.
-                let pos = d.pos + d.rot * (SABER_HILT + SABER_DIR * ribbons.saber.length * 0.5);
+                let (hilt, dir) = lib.sockets(d.frame).saber;
+                let pos = rest_point(d, Bone::HandL, hilt + dir * ribbons.saber.length * 0.5);
                 wishes.push(LightWish { pos, color: Color::srgb(1.0, 0.3, 0.65), lumens: 3.0e7 });
             }
         }

@@ -63,12 +63,14 @@ pub enum FxEvent {
     Kill {
         pos: Vec3,
     },
-    /// A beam leaving the muzzle.
+    /// A beam leaving the muzzle (`shooter`: the suit's slot, if it's known, so the flash can be
+    /// drawn at its weapon).
     Muzzle {
         pos: Vec3,
         dir: Vec3,
         vel: Vec3,
         weapon: WeaponKind,
+        shooter: Option<u16>,
     },
     /// Beam sabers meeting.
     Clash {

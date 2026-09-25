@@ -5,7 +5,11 @@
 // Everything that differs per piece rides in its `MeshTag`, so every suit shares one material
 // and identical pieces batch:
 //   bits 0-3 paint (palette index), 4-6 armour left (7 pristine .. 0 destroyed), 7-14 seed,
-//   15-19 heat (recent hits glow), 20 wreck, 21 bare metal.
+//   15-19 heat (recent hits glow), 20 wreck, 21 bare metal, 22-25 trim paint, 26-29 accent paint,
+//   30-31 eye colour.
+// Merged suit meshes (bc_model) also carry per-vertex data in their colour: r the paint slot
+// (0 body, 1 trim, 2 accent, 3 eye glow, 16+ a fixed paint, 32+ bare metal, 48+ glowing), g 1 on
+// bevels, b a panel seed.
 
 #import bevy_pbr::{
     pbr_fragment::pbr_input_from_standard_material,
@@ -25,6 +29,11 @@ struct Hull {
 };
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> hull: Hull;
+
+// Sensor glow, by the tag's eye colour: green, pink, amber, cyan.
+const EYES: array<vec3<f32>, 4> = array<vec3<f32>, 4>(
+    vec3(0.2, 6.0, 1.2), vec3(6.0, 0.4, 2.2), vec3(6.0, 3.0, 0.3), vec3(0.4, 3.5, 6.0),
+);
 
 // Brick-like plates on a plane: distance to the nearest seam (m), a hash per plate, and the
 // direction from that seam into the plate.
@@ -51,12 +60,38 @@ fn plates(uv: vec2<f32>, size: f32, seed: f32) -> vec4<f32> {
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
     var pbr = pbr_input_from_standard_material(in, is_front);
     let tag = get_tag(in.instance_index);
-    let paint = hull.palette[tag & 15u];
+    var slot = 0u;
+    var bevel = 0.0;
+    var vseed = 0.0;
+#ifdef VERTEX_COLORS
+    slot = u32(in.color.r * 255.0 + 0.5);
+    bevel = in.color.g;
+    vseed = in.color.b * 97.0;
+#endif
+    var index = tag & 15u;
+    var bare_metal = ((tag >> 21u) & 1u) == 1u;
+    var glow = vec3(0.0);
+    if (slot == 1u) {
+        index = (tag >> 22u) & 15u;
+    } else if (slot == 2u) {
+        index = (tag >> 26u) & 15u;
+    } else if (slot == 3u) {
+        index = 15u;
+        glow = EYES[(tag >> 30u) & 3u];
+    } else if (slot >= 48u) {
+        index = slot - 48u;
+        glow = hull.palette[index].rgb * 5.0;
+    } else if (slot >= 32u) {
+        index = slot - 32u;
+        bare_metal = true;
+    } else if (slot >= 16u) {
+        index = slot - 16u;
+    }
+    let paint = hull.palette[index];
     let armour = f32((tag >> 4u) & 7u) / 7.0;
-    let seed = f32((tag >> 7u) & 255u);
+    let seed = f32((tag >> 7u) & 255u) + vseed;
     let heat = f32((tag >> 15u) & 31u) / 31.0;
     let wreck = ((tag >> 20u) & 1u) == 1u;
-    let bare_metal = ((tag >> 21u) & 1u) == 1u;
 
     // The piece's own space, in metres (its transform's scale taken back out).
     let m = get_world_from_local(in.instance_index);
@@ -92,6 +127,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     var albedo = paint.rgb * (0.9 + 0.16 * pl.y);
     var rough = paint.a * (0.92 + 0.16 * mix(0.5, noise3(ps * 1.7 + seed), detail));
     var metallic = select(0.0, 0.85, bare_metal);
+    // Bevels catch the light: worn a shade brighter and smoother.
+    albedo = mix(albedo, min(albedo * 1.35 + vec3(0.04), vec3(1.0)), bevel * 0.55);
+    rough = mix(rough, rough * 0.7, bevel);
     albedo *= 1.0 - 0.4 * seam;
     rough = mix(rough, 0.8, seam);
     // Grime in broad, soft patches a few plates across.
@@ -101,7 +139,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // Battle damage grows as armour runs out: scorching, then burnt-through paint showing the
     // bare frame. Heat makes fresh scorch edges glow.
     let hurt = 1.0 - armour;
-    var emissive = vec3(0.0);
+    var emissive = glow;
     if (hurt > 0.01 || wreck) {
         let reach = select(hurt, 1.0, wreck);
         let n_scorch = fbm(p * 0.45 + seed * 3.1, 4);
@@ -114,7 +152,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         metallic = mix(metallic, 1.0, bare);
         rough = mix(rough, 0.45, bare);
         let edge = scorch * (1.0 - scorch) * 4.0;
-        emissive = vec3(6.0, 1.6, 0.3) * edge * heat;
+        emissive += vec3(6.0, 1.6, 0.3) * edge * heat;
         if (wreck) {
             let flicker = 0.6 + 0.4 * sin(hull.time.x * 7.0 + seed + p.x * 3.0);
             let embers = smoothstep(0.7, 0.9, fbm(p * 1.3 + seed, 3)) * scorch;

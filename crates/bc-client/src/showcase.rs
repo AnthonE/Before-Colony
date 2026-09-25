@@ -529,7 +529,13 @@ fn script(
                     beams.0.push(BeamView { head, dir, travelled: head.distance(muzzle), weapon: s.weapon });
                 }
                 if crossed(s.t) {
-                    events.0.push(FxEvent::Muzzle { pos: muzzle, dir, vel: Vec3::ZERO, weapon: s.weapon });
+                    events.0.push(FxEvent::Muzzle {
+                        pos: muzzle,
+                        dir,
+                        vel: Vec3::ZERO,
+                        weapon: s.weapon,
+                        shooter: Some(s.shooter as u16),
+                    });
                 }
                 if crossed(s.t + flight as f64) {
                     events.0.push(FxEvent::Hit { pos: duel_pos(s.target, t), weapon: s.weapon });
@@ -616,7 +622,13 @@ fn script(
                     });
                 }
                 if crossed(fired) {
-                    events.0.push(FxEvent::Muzzle { pos: from, dir, vel, weapon: WeaponKind::BeamRifle });
+                    events.0.push(FxEvent::Muzzle {
+                        pos: from,
+                        dir,
+                        vel,
+                        weapon: WeaponKind::BeamRifle,
+                        shooter: Some(1),
+                    });
                 }
                 if crossed(fired + flight) {
                     events.0.push(FxEvent::Hit { pos: own + Vec3::Y * 2.0, weapon: WeaponKind::BeamRifle });

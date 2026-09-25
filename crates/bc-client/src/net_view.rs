@@ -207,7 +207,13 @@ pub fn sync_view(
             } else {
                 world.pose(b.shooter, t_render).map_or(Vec3::ZERO, |p| p.vel)
             };
-            events.0.push(FxEvent::Muzzle { pos: b.origin, dir, vel, weapon: b.weapon });
+            events.0.push(FxEvent::Muzzle {
+                pos: b.origin,
+                dir,
+                vel,
+                weapon: b.weapon,
+                shooter: Some(b.shooter),
+            });
         }
         beams.0.push(BeamView { head, dir, travelled, weapon: b.weapon });
     }

@@ -19,29 +19,10 @@ pub type HullMaterial = ExtendedMaterial<StandardMaterial, HullExt>;
 pub type RockMaterial = ExtendedMaterial<StandardMaterial, RockExt>;
 
 /// Palette indices for [`HullTag::paint`].
-pub mod paint {
-    pub const WHITE: u8 = 0;
-    pub const BLUE: u8 = 1;
-    pub const RED: u8 = 2;
-    pub const YELLOW: u8 = 3;
-    /// Weapons, joints and inner frame.
-    pub const DARK: u8 = 4;
-    pub const OZ_GREEN: u8 = 5;
-    pub const OZ_GREY: u8 = 6;
-    pub const TAURUS_WHITE: u8 = 7;
-    pub const TAURUS_BLUE: u8 = 8;
-    pub const VIRGO_OLIVE: u8 = 9;
-    pub const ALLIANCE_TAN: u8 = 10;
-    /// Colony hull plating.
-    pub const HULL: u8 = 11;
-    /// Colony hull, darker service plating.
-    pub const HULL_DARK: u8 = 12;
-    /// The colony's mirrors: aluminised film on a frame.
-    pub const MIRROR: u8 = 13;
-}
+pub use bc_model::paint;
 
 /// sRGB colour and perceptual roughness of each paint.
-const PALETTE: [(f32, f32, f32, f32); 14] = [
+const PALETTE: [(f32, f32, f32, f32); paint::COUNT] = [
     (0.9, 0.91, 0.93, 0.38),
     (0.1, 0.22, 0.66, 0.4),
     (0.72, 0.08, 0.08, 0.4),
@@ -56,12 +37,19 @@ const PALETTE: [(f32, f32, f32, f32); 14] = [
     (0.62, 0.63, 0.64, 0.5),
     (0.3, 0.31, 0.33, 0.6),
     (0.66, 0.71, 0.8, 0.2),
+    (0.26, 0.28, 0.31, 0.32),
+    (0.02, 0.025, 0.03, 0.08),
 ];
 
 /// Per-piece parameters for [`HullMaterial`], packed into a `MeshTag`.
 #[derive(Clone, Copy, Debug)]
 pub struct HullTag {
     pub paint: u8,
+    /// A suit livery's trim and accent paints and eye colour (merged suit meshes pick among
+    /// them per vertex).
+    pub trim: u8,
+    pub accent: u8,
+    pub eye: u8,
     /// Armour left, 0 (destroyed) to 7 (pristine).
     pub armour: u8,
     pub seed: u8,
@@ -74,7 +62,11 @@ pub struct HullTag {
 
 impl HullTag {
     pub fn paint(paint: u8, seed: u8) -> Self {
-        Self { paint, armour: 7, seed, heat: 0, wreck: false, metal: false }
+        Self::livery(paint, paint, paint, 0, seed)
+    }
+
+    pub fn livery(paint: u8, trim: u8, accent: u8, eye: u8, seed: u8) -> Self {
+        Self { paint, trim, accent, eye, armour: 7, seed, heat: 0, wreck: false, metal: false }
     }
 
     pub fn tag(self) -> MeshTag {
@@ -84,7 +76,10 @@ impl HullTag {
                 | u32::from(self.seed) << 7
                 | u32::from(self.heat.min(31)) << 15
                 | u32::from(self.wreck) << 20
-                | u32::from(self.metal) << 21,
+                | u32::from(self.metal) << 21
+                | u32::from(self.trim & 15) << 22
+                | u32::from(self.accent & 15) << 26
+                | u32::from(self.eye & 3) << 30,
         )
     }
 }

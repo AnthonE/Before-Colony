@@ -13,7 +13,7 @@ use crate::net::{LaunchConfigRes, NetPlugin, drive, game_client, start_net_loop}
 use crate::net_view::{sync_view, tick_vis_time};
 use crate::particles::{setup_particles, update_particles};
 use crate::showcase::{Scene, ShowcasePlugin};
-use crate::suits_vis::{build_suits, pose_suits};
+use crate::suits_vis::{build_suits, pose_suits, suit_lod};
 use crate::view::{BeamFeed, CameraTarget, FxEvents, SuitIndex, Vis, VisTime};
 
 pub fn run() {
@@ -92,7 +92,12 @@ impl Plugin for VisualsPlugin {
             .add_systems(
                 Startup,
                 (
-                    (setup_assets, crate::materials::setup_materials, crate::beams::setup_ribbons),
+                    (
+                        setup_assets,
+                        crate::materials::setup_materials,
+                        crate::beams::setup_ribbons,
+                        crate::model::build_suit_meshes,
+                    ),
                     (
                         crate::colony::setup_colony,
                         crate::rocks::setup_field,
@@ -105,7 +110,7 @@ impl Plugin for VisualsPlugin {
                 )
                     .chain(),
             )
-            .add_systems(Update, (build_suits, pose_suits).chain().in_set(Vis::Suits))
+            .add_systems(Update, (build_suits, pose_suits, suit_lod).chain().in_set(Vis::Suits))
             .add_systems(
                 Update,
                 (

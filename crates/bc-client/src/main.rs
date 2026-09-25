@@ -31,6 +31,8 @@ mod input;
 #[cfg(target_arch = "wasm32")]
 mod materials;
 #[cfg(target_arch = "wasm32")]
+mod model;
+#[cfg(target_arch = "wasm32")]
 mod net;
 #[cfg(target_arch = "wasm32")]
 mod net_view;

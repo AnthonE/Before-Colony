@@ -1,6 +1,9 @@
-//! Mobile suits, built from primitives and posed from their [`SuitDrive`]: the network's
-//! interpolated or predicted state, or a showcase script.
+//! Mobile suits: each a tree of bone entities carrying its frame's meshes (`bc_model`, baked in
+//! `model`), posed from its [`SuitDrive`]: the network's interpolated or predicted state, or a
+//! showcase script.
 
+use bc_model::rig::{self, BONES, Bone};
+use bc_model::{Lod, paint};
 use bc_proto::snapshot::ent_flags;
 use bc_proto::{Faction, FrameId, PilotKind};
 use bevy::mesh::MeshTag;
@@ -8,213 +11,171 @@ use bevy::prelude::*;
 
 use crate::assets::{MeshLib, Palette};
 use crate::beams::{Ribbons, beam_tag, plume_tag};
-use crate::materials::{HullMaterial, HullTag, Surfaces, paint};
+use crate::camera::MainCamera;
+use crate::materials::{HullMaterial, HullTag, Surfaces};
+use crate::model::SuitMeshLib;
 use crate::view::{SuitDrive, VisTime};
 
-/// A suit root's built visual: which occupant it was built for, its armour pieces (with their
-/// paint, so the wreck state can be applied) and its toggled children.
+/// Suits switch to their far models beyond this distance (m), and back within `LOD_NEAR`.
+const LOD_FAR: f32 = 550.0;
+const LOD_NEAR: f32 = 450.0;
+
+/// A suit root's built visual: which occupant it was built for, its bones and livery, and its
+/// toggled children.
 #[derive(Component)]
 pub struct SuitVisual {
     generation: u8,
     frame: FrameId,
-    armour: Vec<(Entity, HullTag)>,
+    /// Bone entities, in [`Bone`] order.
+    pub bones: [Entity; BONES],
+    /// The livery, as every bone's hull tag (the wreck state is applied on top).
+    tag: HullTag,
     wreck: bool,
-    plume: Entity,
+    lod: Lod,
+    plumes: Vec<Entity>,
     saber: Entity,
     aura: Entity,
 }
 
-/// Marks the toggled children (thruster plume, saber, ZERO aura).
+/// One of a suit's bones (which is which: [`SuitVisual::bones`]).
+#[derive(Component)]
+pub struct SuitBone;
+
+/// Marks the toggled children (thruster plumes, saber, ZERO aura).
 #[derive(Component)]
 pub struct SuitPartMarker;
 
-fn part(
-    commands: &mut ChildSpawnerCommands,
-    mesh: &Handle<Mesh>,
-    mat: &Handle<StandardMaterial>,
-    t: Transform,
-) -> Entity {
-    commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone()), t)).id()
-}
+/// Eye colours (the hull shader's order).
+const EYE_GREEN: u8 = 0;
+const EYE_PINK: u8 = 1;
 
-/// An armour piece: shared hull material, painted by its tag.
-struct Armour<'a> {
-    hull: &'a Handle<HullMaterial>,
-    pieces: Vec<(Entity, HullTag)>,
-    seed: u8,
-}
-
-impl Armour<'_> {
-    fn piece(&mut self, c: &mut ChildSpawnerCommands, mesh: &Handle<Mesh>, paint: u8, t: Transform) {
-        self.seed = self.seed.wrapping_mul(31).wrapping_add(17);
-        let tag = HullTag::paint(paint, self.seed);
-        let e = c.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(self.hull.clone()), tag.tag(), t)).id();
-        self.pieces.push((e, tag));
-    }
-}
-
-/// Where the beam saber's blade starts, and which way it points, in the suit's frame.
-pub const SABER_HILT: Vec3 = Vec3::new(-3.6, 1.0, 3.2);
-pub const SABER_DIR: Vec3 = Vec3::new(0.0, 0.6216, 0.7833);
-
-fn at(x: f32, y: f32, z: f32) -> Transform {
-    Transform::from_xyz(x, y, z)
-}
-
-/// Body paint, trim paint and eye glow for a frame in a faction's livery.
-fn livery(pal: &Palette, frame: FrameId, faction: Faction) -> (u8, u8, Handle<StandardMaterial>) {
+/// Body, trim and accent paint, and eye colour, for a frame in a faction's livery.
+fn livery(frame: FrameId, faction: Faction) -> (u8, u8, u8, u8) {
+    use paint::*;
     match (frame, faction) {
-        (FrameId::WingZero, _) => (paint::WHITE, paint::BLUE, pal.eye_green.clone()),
-        (FrameId::Taurus, _) => (paint::TAURUS_WHITE, paint::TAURUS_BLUE, pal.eye_pink.clone()),
-        (FrameId::Virgo, _) => (paint::VIRGO_OLIVE, paint::OZ_GREY, pal.eye_pink.clone()),
-        (FrameId::Leo, Faction::Oz) => (paint::OZ_GREEN, paint::OZ_GREY, pal.eye_pink.clone()),
-        (FrameId::Leo, Faction::Colonies) => (paint::TAURUS_BLUE, paint::WHITE, pal.eye_green.clone()),
-        (FrameId::Leo, Faction::Alliance) => (paint::ALLIANCE_TAN, paint::DARK, pal.eye_pink.clone()),
+        (FrameId::WingZero, _) => (WHITE, BLUE, RED, EYE_GREEN),
+        (FrameId::Taurus, _) => (TAURUS_WHITE, TAURUS_BLUE, RED, EYE_PINK),
+        (FrameId::Virgo, _) => (VIRGO_OLIVE, OZ_GREY, DARK, EYE_PINK),
+        (FrameId::Leo, Faction::Oz) => (OZ_GREEN, OZ_GREY, DARK, EYE_PINK),
+        (FrameId::Leo, Faction::Colonies) => (TAURUS_BLUE, WHITE, RED, EYE_GREEN),
+        (FrameId::Leo, Faction::Alliance) => (ALLIANCE_TAN, DARK, RED, EYE_PINK),
     }
 }
 
-/// Builds a ~17 m humanoid under `root` (+Z forward, +Y up, origin at the torso centre, like the
-/// sim hitboxes).
+/// Where a point on a bone is in the world, with the suit at rest (bones unposed).
+pub fn rest_point(d: &SuitDrive, bone: Bone, local: Vec3) -> Vec3 {
+    d.pos + d.rot * (bone.def().joint + local)
+}
+
+/// How hard the main thrusters burn, 0..1: with forward thrust, hardest on boost.
+pub fn plume_power(d: &SuitDrive) -> f32 {
+    if d.flags & ent_flags::WRECK != 0 {
+        return 0.0;
+    }
+    let boost = if d.flags & ent_flags::BOOST != 0 { 0.45 } else { 0.0 };
+    (d.thrust.z.max(0.0) * 0.75 + boost).min(1.0)
+}
+
+/// Builds a suit's bones, meshes and toggled children under `root`.
+#[allow(clippy::too_many_arguments)]
 fn build_suit(
     commands: &mut Commands,
     root: Entity,
-    lib: &MeshLib,
+    lib: &SuitMeshLib,
+    shapes: &MeshLib,
     pal: &Palette,
     hull: &Handle<HullMaterial>,
     ribbons: &Ribbons,
     d: &SuitDrive,
 ) {
-    let frame = d.frame;
-    let (body, trim, eye) = livery(pal, frame, d.faction);
-    let mut armour = Armour { hull, pieces: Vec::new(), seed: (d.slot as u8).wrapping_mul(7) };
-    let mut ids = (Entity::PLACEHOLDER, Entity::PLACEHOLDER, Entity::PLACEHOLDER);
-    commands.entity(root).with_children(|c| {
-        let a = &mut armour;
-        let bulky = if frame == FrameId::Virgo { 1.2 } else { 1.0 };
-        // Torso, chest, waist.
-        a.piece(c, &lib.cube, body, at(0.0, 2.8, 0.0).with_scale(Vec3::new(4.6 * bulky, 4.2, 3.0 * bulky)));
-        a.piece(c, &lib.cube, trim, at(0.0, 3.4, 1.4).with_scale(Vec3::new(3.0, 1.8, 0.6)));
-        a.piece(c, &lib.cube, trim, at(0.0, 0.2, 0.0).with_scale(Vec3::new(3.2, 1.2, 2.2)));
-        // Head and sensor.
-        a.piece(c, &lib.sphere, body, at(0.0, 6.6, 0.2).with_scale(Vec3::splat(1.25)));
-        let visor = if frame == FrameId::WingZero { 1.4 } else { 0.7 };
-        part(c, &lib.cube, &eye, at(0.0, 6.7, 1.3).with_scale(Vec3::new(visor, 0.35, 0.2)));
-        // Shoulders, arms and legs.
-        for side in [-1.0f32, 1.0] {
-            a.piece(c, &lib.cube, trim, at(3.2 * side, 4.4, 0.0).with_scale(Vec3::new(2.0, 1.8, 2.4)));
-            a.piece(c, &lib.capsule, body, at(3.5 * side, 1.9, 0.5).with_scale(Vec3::new(1.9, 2.3, 1.9)));
-            a.piece(c, &lib.capsule, body, at(1.2 * side, -4.4, 0.0).with_scale(Vec3::new(2.3, 3.4, 2.3)));
-            a.piece(c, &lib.cube, trim, at(1.2 * side, -8.4, 0.5).with_scale(Vec3::new(1.8, 1.0, 3.0)));
+    let (body, trim, accent, eye) = livery(d.frame, d.faction);
+    let tag = HullTag::livery(body, trim, accent, eye, (d.slot as u8).wrapping_mul(37));
+    let model = lib.model(d.frame, Lod::Near);
+    let sockets = lib.sockets(d.frame);
+    let mut bones = [Entity::PLACEHOLDER; BONES];
+    for bone in rig::ALL {
+        let parent = bone.def().parent.map_or(root, |p| bones[p.index()]);
+        let mut e = commands.spawn((
+            SuitBone,
+            Transform::from_translation(bone.rest()),
+            Visibility::default(),
+            ChildOf(parent),
+        ));
+        if let Some(mesh) = &model.bones[bone.index()] {
+            e.insert((Mesh3d(mesh.clone()), MeshMaterial3d(hull.clone()), tag.tag()));
         }
-        // Backpack and its main thruster's plume, streaming back along −Z.
-        a.piece(c, &lib.cube, trim, at(0.0, 4.0, -2.4).with_scale(Vec3::new(3.0, 2.8, 1.8)));
-        let plume = c
-            .spawn((
-                Mesh3d(ribbons.mesh.clone()),
-                MeshMaterial3d(ribbons.plume.clone()),
-                plume_tag(0.0, d.slot as u8),
-                at(0.0, 3.4, -3.4)
-                    .with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2))
-                    .with_scale(Vec3::new(1.2, 8.0, 1.0)),
-                SuitPartMarker,
-                Visibility::Hidden,
-            ))
-            .id();
-        // Rifle in the right hand.
-        let rifle_len = match frame {
-            FrameId::WingZero => 11.0,
-            FrameId::Virgo => 9.0,
-            _ => 7.0,
-        };
-        a.piece(c, &lib.cube, paint::DARK, at(3.6, 0.5, 3.4).with_scale(Vec3::new(0.8, 1.0, rifle_len)));
-        // Beam saber in the left hand: a blade ribbon from the hilt, raised forward.
-        let blade = &ribbons.saber;
-        let saber = c
-            .spawn((
-                Mesh3d(ribbons.mesh.clone()),
-                MeshMaterial3d(blade.material.clone()),
-                beam_tag(d.slot as u8, true),
-                at(SABER_HILT.x, SABER_HILT.y, SABER_HILT.z)
-                    .with_rotation(Quat::from_rotation_arc(Vec3::Y, SABER_DIR))
-                    .with_scale(Vec3::new(blade.half_width, blade.length, 1.0)),
-                SuitPartMarker,
-                Visibility::Hidden,
-            ))
-            .id();
-        match frame {
-            FrameId::WingZero => {
-                // V-fin and the wing binders.
-                for side in [-1.0f32, 1.0] {
-                    a.piece(
-                        c,
-                        &lib.cube,
-                        paint::YELLOW,
-                        at(0.55 * side, 7.7, 0.9)
-                            .with_rotation(Quat::from_rotation_z(-0.55 * side))
-                            .with_scale(Vec3::new(0.25, 2.2, 0.25)),
-                    );
-                    for (k, h) in [(0.0f32, 6.0f32), (1.0, 4.4)] {
-                        a.piece(
-                            c,
-                            &lib.cube,
-                            paint::WHITE,
-                            at(2.6 * side, 5.6 + k * 1.4, -3.6)
-                                .with_rotation(Quat::from_rotation_z((0.65 + 0.25 * k) * side))
-                                .with_scale(Vec3::new(1.4, h, 0.35)),
-                        );
-                    }
-                }
-                a.piece(c, &lib.cube, paint::RED, at(0.0, 1.2, 1.6).with_scale(Vec3::new(1.2, 0.8, 0.4)));
-            }
-            FrameId::Leo | FrameId::Taurus => {
-                a.piece(c, &lib.cube, trim, at(-4.6, 2.4, 1.0).with_scale(Vec3::new(0.5, 5.2, 3.2)));
-            }
-            FrameId::Virgo => {
-                // Planet Defensor discs.
-                for k in 0..4 {
-                    let ang = k as f32 * std::f32::consts::FRAC_PI_2 + 0.785;
-                    a.piece(
-                        c,
-                        &lib.cylinder,
-                        paint::OZ_GREY,
-                        at(5.5 * ang.cos(), 3.0 + 2.5 * ang.sin(), -1.5)
-                            .with_rotation(Quat::from_rotation_x(1.2))
-                            .with_scale(Vec3::new(2.4, 0.3, 2.4)),
-                    );
-                }
-            }
-        }
-        // The ZERO aura: a shell glowing at its rim (its MeshTag sets how bright).
-        let aura = c
-            .spawn((
-                Mesh3d(lib.sphere.clone()),
-                MeshMaterial3d(pal.zero_aura.clone()),
-                MeshTag(170),
-                at(0.0, 0.0, 0.0).with_scale(Vec3::splat(11.0)),
-                SuitPartMarker,
-                Visibility::Hidden,
-            ))
-            .id();
-        ids = (plume, saber, aura);
-    });
+        bones[bone.index()] = e.id();
+    }
+    // A plume from every main nozzle, streaming out along its exhaust.
+    let plumes = sockets
+        .nozzles
+        .iter()
+        .map(|&(pos, dir)| {
+            commands
+                .spawn((
+                    Mesh3d(ribbons.mesh.clone()),
+                    MeshMaterial3d(ribbons.plume.clone()),
+                    plume_tag(0.0, d.slot as u8),
+                    Transform::from_translation(pos)
+                        .with_rotation(Quat::from_rotation_arc(Vec3::Y, dir))
+                        .with_scale(Vec3::new(1.0, 6.0, 1.0)),
+                    SuitPartMarker,
+                    Visibility::Hidden,
+                    ChildOf(bones[Bone::Backpack.index()]),
+                ))
+                .id()
+        })
+        .collect();
+    // The beam saber's blade, from the hilt in the left hand.
+    let (hilt, dir) = sockets.saber;
+    let blade = &ribbons.saber;
+    let saber = commands
+        .spawn((
+            Mesh3d(ribbons.mesh.clone()),
+            MeshMaterial3d(blade.material.clone()),
+            beam_tag(d.slot as u8, true),
+            Transform::from_translation(hilt)
+                .with_rotation(Quat::from_rotation_arc(Vec3::Y, dir))
+                .with_scale(Vec3::new(blade.half_width, blade.length, 1.0)),
+            SuitPartMarker,
+            Visibility::Hidden,
+            ChildOf(bones[Bone::HandL.index()]),
+        ))
+        .id();
+    // The ZERO aura: a shell glowing at its rim (its MeshTag sets how bright).
+    let aura = commands
+        .spawn((
+            Mesh3d(shapes.sphere.clone()),
+            MeshMaterial3d(pal.zero_aura.clone()),
+            MeshTag(170),
+            Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(11.0)),
+            SuitPartMarker,
+            Visibility::Hidden,
+            ChildOf(root),
+        ))
+        .id();
     commands.entity(root).insert((
         SuitVisual {
             generation: d.generation,
-            frame,
-            armour: armour.pieces,
+            frame: d.frame,
+            bones,
+            tag,
             wreck: false,
-            plume: ids.0,
-            saber: ids.1,
-            aura: ids.2,
+            lod: Lod::Near,
+            plumes,
+            saber,
+            aura,
         },
         Name::new(format!("suit-{}", d.slot)),
     ));
 }
 
 /// Builds visuals for new suit roots (and rebuilds them when the slot's occupant changes).
+#[allow(clippy::too_many_arguments)]
 pub fn build_suits(
     mut commands: Commands,
-    lib: Res<MeshLib>,
+    lib: Res<SuitMeshLib>,
+    shapes: Res<MeshLib>,
     pal: Res<Palette>,
     surfaces: Res<Surfaces>,
     ribbons: Res<Ribbons>,
@@ -225,14 +186,14 @@ pub fn build_suits(
             Some(v) if v.generation == d.generation && v.frame == d.frame => {}
             Some(_) => {
                 commands.entity(e).despawn_children();
-                build_suit(&mut commands, e, &lib, &pal, &surfaces.armour, &ribbons, d);
+                build_suit(&mut commands, e, &lib, &shapes, &pal, &surfaces.armour, &ribbons, d);
             }
-            None => build_suit(&mut commands, e, &lib, &pal, &surfaces.armour, &ribbons, d),
+            None => build_suit(&mut commands, e, &lib, &shapes, &pal, &surfaces.armour, &ribbons, d),
         }
     }
 }
 
-/// Poses every suit from its drive and switches its thruster, saber and ZERO aura.
+/// Poses every suit from its drive and switches its thrusters, saber and ZERO aura.
 pub fn pose_suits(
     time: Res<VisTime>,
     mut suits: Query<(&SuitDrive, &mut SuitVisual, &mut Transform), Without<SuitPartMarker>>,
@@ -248,23 +209,26 @@ pub fn pose_suits(
         // A wreck's armour chars and smoulders.
         if wreck != v.wreck {
             v.wreck = wreck;
-            for (e, tag) in &v.armour {
-                if let Ok(mut t) = tags.get_mut(*e) {
-                    *t = HullTag { wreck, ..*tag }.tag();
+            let t = HullTag { wreck, ..v.tag }.tag();
+            for e in v.bones {
+                if let Ok(mut m) = tags.get_mut(e) {
+                    *m = t.clone();
                 }
             }
         }
-        // The main thruster: longer and brighter with forward thrust, brightest on boost.
-        let power = (d.thrust.z.max(0.0) * 0.75 + if has(ent_flags::BOOST) { 0.45 } else { 0.0 }).min(1.0);
-        let lit = power > 0.03 && !wreck;
-        if let Ok((mut ptf, mut pv)) = parts.get_mut(v.plume) {
-            set_visible(&mut pv, lit);
-            if lit {
-                ptf.scale = Vec3::new(0.9 + 0.7 * power, 4.0 + 16.0 * power * flicker, 1.0);
+        // The main thrusters: longer and brighter with forward thrust, brightest on boost.
+        let power = plume_power(d);
+        let lit = power > 0.03;
+        for &p in &v.plumes {
+            if let Ok((mut ptf, mut pv)) = parts.get_mut(p) {
+                set_visible(&mut pv, lit);
+                if lit {
+                    ptf.scale = Vec3::new(0.6 + 0.5 * power, 3.0 + 12.0 * power * flicker, 1.0);
+                }
             }
-        }
-        if lit && let Ok(mut t) = tags.get_mut(v.plume) {
-            *t = plume_tag(power, d.slot as u8);
+            if lit && let Ok(mut t) = tags.get_mut(p) {
+                *t = plume_tag(power, d.slot as u8);
+            }
         }
         if let Ok((_, mut sv)) = parts.get_mut(v.saber) {
             set_visible(&mut sv, has(ent_flags::SABER) && !wreck);
@@ -274,6 +238,37 @@ pub fn pose_suits(
             set_visible(&mut av, aura);
             if aura {
                 atf.scale = Vec3::splat(11.0 + 0.6 * flicker);
+            }
+        }
+    }
+}
+
+/// Swaps suits between their near and far models by distance from the camera.
+pub fn suit_lod(
+    lib: Res<SuitMeshLib>,
+    cams: Query<&GlobalTransform, With<MainCamera>>,
+    mut suits: Query<(&SuitDrive, &mut SuitVisual)>,
+    mut meshes: Query<&mut Mesh3d, With<SuitBone>>,
+) {
+    let Ok(cam) = cams.single() else { return };
+    let eye = cam.translation();
+    for (d, mut v) in &mut suits {
+        let dist = if d.own { 0.0 } else { d.pos.distance(eye) };
+        let want = match v.lod {
+            Lod::Near if dist > LOD_FAR => Lod::Far,
+            Lod::Far if dist < LOD_NEAR => Lod::Near,
+            lod => lod,
+        };
+        if want == v.lod {
+            continue;
+        }
+        v.lod = want;
+        let model = lib.model(v.frame, want);
+        for bone in rig::ALL {
+            if let (Some(mesh), Ok(mut m)) =
+                (&model.bones[bone.index()], meshes.get_mut(v.bones[bone.index()]))
+            {
+                m.0 = mesh.clone();
             }
         }
     }

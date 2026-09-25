@@ -384,6 +384,21 @@ impl Particles {
         }
     }
 
+    /// A glow that lasts about a frame, renewed while it should show: a nozzle's fire seen end-on.
+    pub fn glow(&mut self, cap: usize, at: At, size: f32, color: Vec3) {
+        let p = Particle {
+            pos: at.pos,
+            vel: at.vel,
+            age: 0.0,
+            life: 0.035,
+            size: (size, size),
+            streak: 0.0,
+            core: 1.0,
+            ramp: Ramp::Glow(color),
+        };
+        self.spawn(cap, p);
+    }
+
     /// Energy drawn into a charging Twin Buster Rifle: sparks of it falling in toward the muzzle,
     /// where a glow gathers.
     pub fn charge(&mut self, cap: usize, at: At, dt: f32) {

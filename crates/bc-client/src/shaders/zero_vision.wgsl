@@ -38,10 +38,10 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let edge = smoothstep(0.05, 0.4, dot(d, d));
     let tint = edge * (on * (0.3 + 0.4 * zero.strain) + 0.5 * seizure);
     c = mix(c, c * vec3(1.3, 0.45, 1.0), tint);
-    c += vec3(0.35, 0.02, 0.22) * tint * 0.25;
+    c += vec3(0.35, 0.02, 0.22) * tint * 0.16;
     // A faint line scanning down the view.
     let scan = exp(-pow((uv.y - fract(t * 0.35)) * 40.0, 2.0));
-    c += vec3(0.4, 0.08, 0.35) * scan * 0.05 * on;
+    c += vec3(0.4, 0.08, 0.35) * scan * 0.035 * on;
     // A seizure flickers.
     let flicker = 1.0 - seizure * 0.3 * step(0.6, hash(floor(t * 17.0)));
     return vec4(c * flicker, 1.0);

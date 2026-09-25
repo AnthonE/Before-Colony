@@ -554,6 +554,7 @@ name = "bc-client"
 version = "0.1.0"
 dependencies = [
  "bc-client-core",
+ "bc-model",
  "bc-proto",
  "bc-sim",
  "bevy",
@@ -580,6 +581,14 @@ version = "0.1.0"
 dependencies = [
  "bc-proto",
  "bc-sim",
+ "glam",
+]
+
+[[package]]
+name = "bc-model"
+version = "0.1.0"
+dependencies = [
+ "bc-proto",
  "glam",
 ]
 
