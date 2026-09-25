@@ -161,6 +161,8 @@ pub struct Ribbons {
     pub glaive: Look,
     /// A heat shotel's edge, glowing as it cuts.
     pub heat: Look,
+    /// A missile motor's exhaust, streaming back from the nozzle.
+    pub exhaust: Look,
     pub plume: Handle<PlumeMaterial>,
     // Imported by the effect shaders; held so they stay loaded.
     _ribbon: Handle<Shader>,
@@ -182,7 +184,7 @@ impl Ribbons {
         }
     }
 
-    fn looks(&self) -> [&Look; 10] {
+    fn looks(&self) -> [&Look; 11] {
         [
             &self.rifle,
             &self.cannon,
@@ -194,6 +196,7 @@ impl Ribbons {
             &self.scythe,
             &self.glaive,
             &self.heat,
+            &self.exhaust,
         ]
     }
 
@@ -259,6 +262,7 @@ pub fn setup_ribbons(
         scythe: look(Vec3::new(3.0, 12.0, 5.0), 22.0, 0.28, 0.14, 0.0, 1.1, 12.0),
         glaive: look(Vec3::new(12.0, 5.0, 2.0), 22.0, 0.3, 0.12, 0.0, 1.0, 13.0),
         heat: look(Vec3::new(10.0, 2.6, 0.5), 6.0, 0.35, 0.2, 0.0, 0.3, 3.4),
+        exhaust: look(Vec3::new(9.0, 4.2, 1.1), 9.0, 0.3, 0.25, 0.0, 0.45, 35.0),
         plume: plumes.add(PlumeMaterial {
             style: PlumeStyle { core: Vec4::new(6.0, 8.0, 14.0, 0.0), glow: Vec4::new(0.6, 1.4, 5.0, 0.0) },
         }),

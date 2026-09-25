@@ -490,29 +490,18 @@ impl Particles {
 }
 
 impl Particles {
-    /// A missile motor burning, for `dt` s: a white-hot glow at the nozzle, and exhaust left
-    /// behind in space as an unbroken trail along the path it flew this frame (it doesn't follow
-    /// the missile), fire cooling to vapour.
-    pub fn exhaust(&mut self, cap: usize, at: At, back: Vec3, scale: f32, dt: f32) {
-        self.glow(cap, at, 0.6 * scale, Vec3::new(16.0, 9.0, 3.0));
+    /// A missile motor burning, for `dt` s: a white-hot glow at the nozzle, and smoke left behind
+    /// in space along the path it flew this frame (it doesn't follow the missile). The streak of
+    /// flame itself is a ribbon (`missiles_vis`).
+    pub fn exhaust(&mut self, cap: usize, at: At, scale: f32, dt: f32) {
+        self.glow(cap, at, 0.8 * scale, Vec3::new(16.0, 9.0, 3.0));
         let flown = at.vel * dt;
-        let fire = self.count(flown.length() / 2.5);
-        for _ in 0..fire.min(16) {
-            let pos = at.pos - flown * self.range(0.0, 1.0);
-            let vel = self.around(back, 0.2) * self.range(8.0, 20.0);
-            let life = self.range(0.15, 0.25);
-            let size = (0.35 * scale, 0.9 * scale);
-            self.spawn(
-                cap,
-                Particle { pos, vel, age: 0.0, life, size, streak: 0.0, core: 0.8, ramp: Ramp::Fire },
-            );
-        }
-        let smoke = self.count(flown.length() / 6.0);
-        for _ in 0..smoke.min(8) {
+        let smoke = self.count(flown.length() / 4.0);
+        for _ in 0..smoke.min(10) {
             let pos = at.pos - flown * self.range(0.0, 1.0);
             let vel = self.unit() * self.range(0.5, 2.0);
-            let life = self.range(0.9, 1.5);
-            let size = (0.5 * scale, 2.4 * scale);
+            let life = self.range(1.0, 1.8);
+            let size = (0.8 * scale, 3.0 * scale);
             self.spawn(
                 cap,
                 Particle { pos, vel, age: 0.0, life, size, streak: 0.0, core: 0.0, ramp: Ramp::Vapour },

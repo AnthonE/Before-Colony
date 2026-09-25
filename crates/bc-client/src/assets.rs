@@ -26,7 +26,7 @@ pub fn setup_assets(
 ) {
     commands.insert_resource(Palette {
         zero_aura: shells.add(ShockMaterial::new(Vec3::new(2.4, 0.25, 0.45), 2.5)),
-        jammer: shells.add(ShockMaterial::new(Vec3::new(0.2, 0.55, 1.1), 6.0)),
+        jammer: shells.add(ShockMaterial::new(Vec3::new(0.12, 0.34, 0.75), 7.0)),
     });
     commands.insert_resource(MeshLib {
         sphere: meshes.add(Sphere::new(1.0).mesh().ico(3).expect("icosphere")),
