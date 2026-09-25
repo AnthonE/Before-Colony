@@ -218,6 +218,17 @@ impl ClientCore {
         while let Ok(Some(rock)) = r.next_rock() {
             rocks.push(rock);
         }
+        let mut missiles = Vec::new();
+        loop {
+            match r.next_missile() {
+                Ok(Some(m)) => missiles.push(m),
+                Ok(None) => break,
+                Err(_) => {
+                    self.stats.decode_errors += 1;
+                    break;
+                }
+            }
+        }
         let mut ents = Vec::new();
         loop {
             match r.next_entity() {
@@ -247,6 +258,7 @@ impl ClientCore {
             f64::from(now_ms.wrapping_sub(h.time_echo_ms)) / 1_000.0 - f64::from(h.echo_hold_ms) / 1_000.0
         });
         self.clock.on_snapshot(h.tick, now, rtt, h.input_health);
+        self.world.apply_missiles(h.tick, &missiles);
         self.world.apply(h.tick, own, zero, &events, &ents);
         self.world.apply_salvage(&rocks, &objects);
         for r in &rocks {

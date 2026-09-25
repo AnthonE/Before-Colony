@@ -2,13 +2,14 @@
 //! panic a decoder.
 #![cfg(not(target_arch = "wasm32"))]
 
-use bc_proto::events::Event;
+use bc_proto::events::{BurstCause, Event};
+use bc_proto::missiles::{MISSILE_RECORD_BITS, MISSILE_VEL_BITS, MISSILE_VEL_MAX};
 use bc_proto::objects::{ROCK_RECORD_BITS, SPIN_MAX};
 use bc_proto::quant::{self, VEL_MAX};
 use bc_proto::snapshot::{ENTITY_BITS, OWN_BITS, ZERO_HYPOTHESES, ZeroThreat, entity_pos_step};
 use bc_proto::{
-    ChunkDesc, ChunkKind, EntityState, Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, NO_CHUNK,
-    ObjectState, OwnState, Part, PilotKind, RockState, Segment, SnapshotHeader, SnapshotReader,
+    ChunkDesc, ChunkKind, EntityState, Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, MissileState,
+    NO_CHUNK, ObjectState, OwnState, Part, PilotKind, RockState, Segment, SnapshotHeader, SnapshotReader,
     SnapshotWriter, WeaponKind, ZeroInfo,
 };
 use glam::{Quat, Vec3};
@@ -36,7 +37,7 @@ fn entity() -> impl Strategy<Value = EntityState> {
         quat(),
         vec3(2000.0),
         unit(),
-        0u16..1024,
+        0u16..4096,
         prop::array::uniform6(0u8..8),
     )
         .prop_map(|(slot, generation, frame, pos, rot, vel, aim, flags, parts)| EntityState {
@@ -51,6 +52,20 @@ fn entity() -> impl Strategy<Value = EntityState> {
             aim,
             flags,
             parts,
+        })
+}
+
+fn missile() -> impl Strategy<Value = MissileState> {
+    (0u16..1024, 0u8..4, 0u32..WeaponKind::COUNT as u32, any::<[bool; 3]>(), vec3(32_000.0), vec3(4_000.0))
+        .prop_map(|(id, generation, kind, [guided, targets_you, friendly], pos, vel)| MissileState {
+            id,
+            generation,
+            kind: WeaponKind::from_bits(kind).unwrap(),
+            guided,
+            targets_you,
+            friendly,
+            pos,
+            vel,
         })
 }
 
@@ -137,7 +152,7 @@ proptest! {
 
     #[test]
     fn input_packet_round_trip(aim in unit(), thrust in prop::array::uniform3(any::<i8>()), roll in any::<i8>(),
-                               buttons in 0u16..4096, tick in 16u32..u32::MAX / 32, view_back in 0u32..4000,
+                               buttons in any::<u16>(), tick in 16u32..u32::MAX / 32, view_back in 0u32..4000,
                                lock in 0u16..1024, shot in any::<u8>(), count in 1u8..=4) {
         let mut p = InputPacket { ack_snapshot: tick - 3, client_time_ms: 777, count, ..Default::default() };
         for i in 0..count as usize {
@@ -155,10 +170,13 @@ proptest! {
 
     #[test]
     fn snapshot_round_trip(ents in prop::collection::vec(entity(), 0..60), objs in prop::collection::vec(object(), 0..12),
-                           pos in vec3(30_000.0), rot in quat(), extra in -131_071i32..131_071, credits in 0u32..16_777_215) {
+                           missiles in prop::collection::vec(missile(), 0..=12),
+                           pos in vec3(30_000.0), rot in quat(), extra in -131_071i32..131_071, credits in 0u32..16_777_215,
+                           lock in 0u16..1024, progress in 0u8..16, special in any::<[u8; 2]>(), ready in 0u8..16) {
         let own = OwnState { slot: 5, alive: true, pos, vel: Vec3::new(10.0, -3.0, 250.0), rot, propellant: 812.5,
                              parts: [1.0, 0.5, 0.0, 1.0, 0.25, 0.75], extra_mass_kg: extra, cargo_kg: [0, 16_383, 2_500, 1],
-                             credits, held: 1_000, ..OwnState::default() };
+                             credits, held: 1_000, weapon_ready: ready, lock_target: lock, lock_progress: progress,
+                             special_timer: special[0], special_cooldown: special[1], ..OwnState::default() };
         let mut zero = ZeroInfo { threat_count: 2, has_solution: true, solution: Vec3::X, hit_p: 0.62, ..ZeroInfo::default() };
         zero.threats[0] = ZeroThreat { slot: 9, probs: [0.1, 0.2, 0.3, 0.1, 0.1, 0.1, 0.1] };
         let events = [
@@ -168,6 +186,7 @@ proptest! {
             Event::Kill { id: 9, tick: 9_999, victim: 9, killer: 3, hulk: NO_CHUNK },
             Event::Detach { id: 10, tick: 9_999, source: 9, from_hulk: false, part: Part::ArmL, chunk: 55 },
             Event::Leave { tick: 10_000, slot: 44 },
+            Event::MissileBurst { id: 11, tick: 10_000, missile: 12, pos: Vec3::ZERO, cause: BurstCause::Hit },
         ];
         let rocks = [RockState::new(0, false, 0.5, 0.9), RockState::new(1_022, true, 0.0, 0.0)];
         let header = SnapshotHeader { tick: 10_000, ack_input_tick: 999, input_health: 2, time_echo_ms: 42, echo_hold_ms: 7, tidi_pct: 100, flags: 0 };
@@ -178,8 +197,10 @@ proptest! {
         w.zero(Some(&zero));
         for e in &events { prop_assert!(w.event(e, 0)); }
         for r in &rocks { prop_assert!(w.rock(r, 0)); }
-        // Entities leave room for six of the largest objects.
+        // Missiles leave room for twenty entities and six of the largest objects.
         let reserve = 6 * (ObjectState::MAX_BITS + 1);
+        for m in &missiles { prop_assert!(w.missile(m, reserve + 20 * (ENTITY_BITS + 1))); }
+        // Entities leave room for six of the largest objects.
         let mut written = 0;
         for e in &ents { if w.entity(e, reserve) { written += 1 } else { break } }
         let mut objects_written = 0;
@@ -196,6 +217,8 @@ proptest! {
         prop_assert_eq!(o.pos, own.pos);
         prop_assert_eq!(o.propellant, own.propellant);
         prop_assert_eq!((o.extra_mass_kg, o.cargo_kg, o.credits, o.held), (extra, own.cargo_kg, credits, 1_000));
+        prop_assert_eq!((o.weapon_ready, o.lock_target, o.lock_progress), (ready, lock, progress));
+        prop_assert_eq!((o.special_timer, o.special_cooldown), (special[0], special[1]));
         prop_assert!(o.rot.dot(own.rot).abs() > 0.9999);
         let z = r.zero().unwrap().unwrap();
         prop_assert_eq!(z.threat_count, 2);
@@ -212,10 +235,20 @@ proptest! {
             got_rocks += 1;
         }
         prop_assert_eq!(got_rocks, rocks.len());
+        let mut got_missiles = 0;
+        while let Some(m) = r.next_missile().unwrap() {
+            let src = &missiles[got_missiles];
+            prop_assert_eq!((m.id, m.generation, m.kind), (src.id, src.generation, src.kind));
+            prop_assert_eq!((m.guided, m.targets_you, m.friendly), (src.guided, src.targets_you, src.friendly));
+            prop_assert!((m.pos - src.pos).abs().max_element() <= entity_pos_step() * 0.5 + 0.004);
+            prop_assert!((m.vel - src.vel).abs().max_element() <= quant::signed_step(MISSILE_VEL_MAX, MISSILE_VEL_BITS) * 0.5 + 1e-3);
+            got_missiles += 1;
+        }
+        prop_assert_eq!(got_missiles, missiles.len());
         let mut i = 0;
         while let Some(e) = r.next_entity().unwrap() {
             let src = &ents[i];
-            prop_assert_eq!(e.slot, src.slot);
+            prop_assert_eq!((e.slot, e.generation, e.frame), (src.slot, src.generation, src.frame));
             prop_assert!((e.pos - src.pos).abs().max_element() <= entity_pos_step() * 0.5 + 0.004);
             prop_assert!((e.vel - src.vel).abs().max_element() <= quant::signed_step(VEL_MAX, quant::VEL_BITS) * 0.5 + 1e-3);
             prop_assert!(e.rot.dot(src.rot).abs() > 0.999);
@@ -241,6 +274,7 @@ proptest! {
             let _ = r.zero();
             for _ in 0..64 { if !matches!(r.next_event(), Ok(Some(_))) { break } }
             for _ in 0..64 { if !matches!(r.next_rock(), Ok(Some(_))) { break } }
+            for _ in 0..64 { if !matches!(r.next_missile(), Ok(Some(_))) { break } }
             for _ in 0..64 { if !matches!(r.next_entity(), Ok(Some(_))) { break } }
             for _ in 0..64 { if !matches!(r.next_object(), Ok(Some(_))) { break } }
         }
@@ -248,16 +282,37 @@ proptest! {
         if let Ok(mut r) = SnapshotReader::new(&bytes) {
             for _ in 0..64 { if !matches!(r.next_object(), Ok(Some(_))) { break } }
         }
+        if let Ok(mut r) = SnapshotReader::new(&bytes) {
+            for _ in 0..64 { if !matches!(r.next_missile(), Ok(Some(_))) { break } }
+        }
         let _ = bc_proto::control::ControlMsg::decode(&bytes);
     }
 }
 
 #[test]
 fn record_budgets_match_plan() {
-    // ~25.5 bytes per entity; ~30 fit in a datagram next to header, own state, ZERO and events.
-    const { assert!(ENTITY_BITS <= 206) };
+    // ~26 bytes per entity; ~30 fit in a datagram next to header, own state, ZERO and events.
+    const { assert!(ENTITY_BITS == 206) };
     const { assert!(ZERO_HYPOTHESES == 7) };
-    const { assert!(OWN_BITS == 610) };
+    const { assert!(OWN_BITS == 641) };
     const { assert!(ROCK_RECORD_BITS == 18) };
+    const { assert!(MISSILE_RECORD_BITS == 119) };
     const { assert!(ObjectState::MAX_BITS <= 232) };
+}
+
+#[test]
+fn every_enum_value_round_trips_and_nothing_else_decodes() {
+    for (i, k) in WeaponKind::ALL.iter().enumerate() {
+        assert_eq!(WeaponKind::from_bits(i as u32), Some(*k));
+        assert_eq!(k.index(), i);
+    }
+    for v in WeaponKind::COUNT as u32..1 << WeaponKind::BITS {
+        assert_eq!(WeaponKind::from_bits(v), None);
+    }
+    for (i, f) in FrameId::ALL.iter().enumerate() {
+        assert_eq!(FrameId::from_bits(i as u32), Some(*f));
+    }
+    for v in FrameId::COUNT as u32..1 << FrameId::BITS {
+        assert_eq!(FrameId::from_bits(v), None);
+    }
 }

@@ -21,7 +21,7 @@ mod salvage;
 mod wire;
 mod zero;
 
-use bc_proto::buttons::{GRAB, ZERO};
+use bc_proto::buttons::{GRAB, MODE, ZERO};
 use bc_proto::events::Event;
 use bc_proto::quant::{dequantize_unit, quantize_unit};
 use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, Part, PilotKind, Segment, WeaponKind};
@@ -467,8 +467,9 @@ impl Sim {
             let me = self.self_view(i);
             let mut cmd = ai::drive(&me, target.as_ref(), &mut ai_state, t, profile, spec);
             if seized {
-                // Keep the System engaged while it holds the controls, and the pilot's grip.
-                cmd.buttons |= ZERO | (self.suits.input[i].buttons & GRAB);
+                // Keep the System engaged while it holds the controls, the pilot's grip, and the
+                // frame's mode (a seizure neither transforms the suit nor drops its jammer).
+                cmd.buttons |= ZERO | (self.suits.input[i].buttons & (GRAB | MODE));
             }
             self.suits.ai[i] = ai_state;
             self.suits.input[i] = cmd;

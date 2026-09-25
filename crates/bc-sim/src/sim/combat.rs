@@ -135,13 +135,11 @@ impl Sim {
             s.fired_secondary[i] = t;
         }
 
-        // Lag compensation for remote pilots: fly the shot through the world as they saw it.
-        let rewind = if s.pilot[i] == PilotKind::MobileDoll {
-            0
-        } else {
-            t.saturating_sub(cmd.view_tick_q4 >> 4).min(MAX_REWIND_TICKS)
-        };
-        let frac = if rewind > 0 { (cmd.view_tick_q4 & 15) as f32 / 16.0 } else { 0.0 };
+        // Lag compensation for remote pilots: fly the shot through the world as they saw it, but
+        // no further back than MAX_REWIND_TICKS (a view older than that counts as exactly that old).
+        let view_q4 = cmd.view_tick_q4.max(t.saturating_sub(MAX_REWIND_TICKS) << 4);
+        let rewind = if s.pilot[i] == PilotKind::MobileDoll { 0 } else { t.saturating_sub(view_q4 >> 4) };
+        let frac = if rewind > 0 { (view_q4 & 15) as f32 / 16.0 } else { 0.0 };
         let spawn_tick = t - rewind;
         let faction = s.faction[i];
         let mut p = muzzle;

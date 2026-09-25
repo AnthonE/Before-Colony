@@ -143,6 +143,10 @@ impl Sim {
             cargo_kg: s.cargo_kg[i],
             credits: s.credits[i],
             held: self.held_chunk(i).map_or(bc_proto::NO_CHUNK, |k| k as u16),
+            lock_target: s.input[i].lock_target.min(bc_proto::NO_SLOT),
+            lock_progress: 0,
+            special_timer: 0,
+            special_cooldown: 0,
         }
     }
 

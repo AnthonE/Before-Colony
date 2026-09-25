@@ -2,11 +2,11 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use bc_proto::events::Event;
+use bc_proto::events::{BurstCause, Event};
 use bc_proto::snapshot::{ent_flags, own_flags};
 use bc_proto::{
-    CHUNK_BITS, ChunkDesc, EntityState, Faction, FrameId, MAX_ENTITIES, NO_CHUNK, ObjectState, OwnState,
-    Part, PilotKind, RockState, Segment, WeaponKind, ZeroInfo,
+    CHUNK_BITS, ChunkDesc, EntityState, Faction, FrameId, MAX_ENTITIES, MISSILE_BITS, MissileState, NO_CHUNK,
+    ObjectState, OwnState, Part, PilotKind, RockState, Segment, WeaponKind, ZeroInfo,
 };
 use bc_sim::TICK_HZ;
 use bc_sim::chunks::{self, held_pose, segment_pos, segment_rot};
@@ -23,6 +23,36 @@ use crate::predict::Predictor;
 const HZ: f64 = TICK_HZ as f64;
 /// Tracks not refreshed for this long are dropped (ticks).
 const STALE_TICKS: u32 = 90;
+/// Missiles not listed for this long are dropped: out of range, or lost with their burst (ticks).
+const MISSILE_STALE_TICKS: u32 = 15;
+
+/// A missile in flight, as the client last heard of it.
+#[derive(Clone, Copy, Debug)]
+pub struct MissileTrack {
+    /// The newest record, and the tick it came in...
+    pub latest: MissileState,
+    pub latest_tick: u32,
+    /// ...and the one before it.
+    pub prev: Option<(u32, MissileState)>,
+}
+
+impl MissileTrack {
+    /// Where the missile is at tick `t`: between the two newest records, or extrapolated (a few
+    /// ticks at most: missiles steer) from the newest.
+    pub fn pos_at(&self, t: f64) -> Vec3 {
+        let latest = f64::from(self.latest_tick);
+        if let Some((pt, p)) = self.prev
+            && t < latest
+            && t >= f64::from(pt)
+            && self.latest_tick > pt
+        {
+            let u = ((t - f64::from(pt)) / (latest - f64::from(pt))) as f32;
+            return p.pos.lerp(self.latest.pos, u);
+        }
+        let dt = ((t - latest).clamp(-8.0, 8.0) / HZ) as f32;
+        self.latest.pos + self.latest.vel * dt
+    }
+}
 
 /// A beam in flight (straight line, constant velocity).
 #[derive(Clone, Debug)]
@@ -151,6 +181,10 @@ pub struct World {
     pub hulks: HashMap<u16, u16>,
     /// Rocks that shattered, newest last: (tick, rock).
     pub rock_breaks: VecDeque<(u32, u16)>,
+    /// Missiles in flight nearby, by pool id.
+    pub missiles: Vec<Option<MissileTrack>>,
+    /// Missiles that burst, newest last: (tick, pool id, where, how).
+    pub missile_bursts: VecDeque<(u32, u16, Vec3, BurstCause)>,
     seen: VecDeque<u16>,
     pub faction: Faction,
     pub my_hits: u32,
@@ -174,6 +208,8 @@ impl World {
             objects: vec![None; 1 << CHUNK_BITS],
             hulks: HashMap::new(),
             rock_breaks: VecDeque::new(),
+            missiles: vec![None; 1 << MISSILE_BITS],
+            missile_bursts: VecDeque::new(),
             seen: VecDeque::new(),
             faction,
             my_hits: 0,
@@ -211,6 +247,36 @@ impl World {
 
     pub fn entity(&self, slot: u16) -> Option<&EntityTrack> {
         self.entities.get(slot as usize).and_then(Option::as_ref)
+    }
+
+    /// Applies a snapshot's missile list (before its events, whose bursts end missiles).
+    pub fn apply_missiles(&mut self, tick: u32, list: &[MissileState]) {
+        if tick < self.tick {
+            return;
+        }
+        for m in list {
+            let slot = &mut self.missiles[usize::from(m.id) & ((1 << MISSILE_BITS) - 1)];
+            match slot {
+                Some(track) if track.latest.generation == m.generation => {
+                    if tick > track.latest_tick {
+                        track.prev = Some((track.latest_tick, track.latest));
+                        track.latest = *m;
+                        track.latest_tick = tick;
+                    }
+                }
+                other => *other = Some(MissileTrack { latest: *m, latest_tick: tick, prev: None }),
+            }
+        }
+        for slot in self.missiles.iter_mut() {
+            if slot.as_ref().is_some_and(|m| tick.saturating_sub(m.latest_tick) > MISSILE_STALE_TICKS) {
+                *slot = None;
+            }
+        }
+    }
+
+    /// Missiles in flight that the client knows of.
+    pub fn missiles(&self) -> impl Iterator<Item = &MissileTrack> {
+        self.missiles.iter().flatten()
     }
 
     /// Applies a decoded snapshot.
@@ -422,6 +488,19 @@ impl World {
                     self.rock_breaks.push_back((tick, rock));
                     while self.rock_breaks.len() > 32 {
                         self.rock_breaks.pop_front();
+                    }
+                }
+            }
+            Event::MissileBurst { id, tick, missile, pos, cause } => {
+                if self.first_time(id) {
+                    if let Some(slot) = self.missiles.get_mut(usize::from(missile))
+                        && slot.is_some_and(|m| m.latest_tick <= tick)
+                    {
+                        *slot = None;
+                    }
+                    self.missile_bursts.push_back((tick, missile, pos, cause));
+                    while self.missile_bursts.len() > 64 {
+                        self.missile_bursts.pop_front();
                     }
                 }
             }

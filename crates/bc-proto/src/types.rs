@@ -131,17 +131,23 @@ pub enum WeaponKind {
 }
 
 impl WeaponKind {
-    pub const BITS: u32 = 3;
+    /// Room for 32 kinds on the wire.
+    pub const BITS: u32 = 5;
+    pub const COUNT: usize = 5;
+    pub const ALL: [WeaponKind; Self::COUNT] = [
+        WeaponKind::BeamRifle,
+        WeaponKind::MachineCannon,
+        WeaponKind::BeamSaber,
+        WeaponKind::TwinBusterRifle,
+        WeaponKind::BeamCannon,
+    ];
 
     pub fn from_bits(v: u32) -> Option<Self> {
-        match v {
-            0 => Some(WeaponKind::BeamRifle),
-            1 => Some(WeaponKind::MachineCannon),
-            2 => Some(WeaponKind::BeamSaber),
-            3 => Some(WeaponKind::TwinBusterRifle),
-            4 => Some(WeaponKind::BeamCannon),
-            _ => None,
-        }
+        Self::ALL.get(v as usize).copied()
+    }
+
+    pub fn index(self) -> usize {
+        self as usize
     }
 
     /// Beam weapons are replicated as spawn events; cannon rounds are drawn from firing flags.

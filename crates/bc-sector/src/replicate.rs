@@ -43,6 +43,10 @@ fn relevant(sim: &Sim, me: usize, e: &Event) -> bool {
         Event::RockBreak { rock, .. } => sim.field.rocks().get(rock as usize).is_some_and(|r| {
             (r.pos - sim.suits.flight[me].pos).length_squared() < BEAM_NOTICE_RANGE * BEAM_NOTICE_RANGE
         }),
+        // So is a missile bursting.
+        Event::MissileBurst { pos, .. } => {
+            (pos - sim.suits.flight[me].pos).length_squared() < BEAM_NOTICE_RANGE * BEAM_NOTICE_RANGE
+        }
         Event::Leave { .. } => false,
     }
 }

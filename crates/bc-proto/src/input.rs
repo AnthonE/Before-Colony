@@ -8,8 +8,8 @@ use glam::Vec3;
 use crate::quant::{self, quantize_dir};
 use crate::{BitReader, BitWriter, DecodeError, NO_SLOT, PACKET_KIND_BITS, PacketKind, SLOT_BITS};
 
-/// Button and state bits. Toggles (flight assist, ZERO) are sent as **states**, never as presses,
-/// so a lost or duplicated packet can't flip them twice.
+/// Button and state bits. Toggles (flight assist, ZERO, the frame's mode) are sent as **states**,
+/// never as presses, so a lost or duplicated packet can't flip them twice.
 pub mod buttons {
     /// Left mouse: primary weapon (beam rifle / Twin Buster Rifle).
     pub const FIRE_PRIMARY: u16 = 1 << 0;
@@ -35,17 +35,24 @@ pub mod buttons {
     pub const THROW: u16 = 1 << 10;
     /// Press: dump the hold's contents.
     pub const JETTISON: u16 = 1 << 11;
+    /// State: the frame's mode is engaged (Wing Zero's Neo-Bird form, Deathscythe's Hyper Jammer).
+    pub const MODE: u16 = 1 << 12;
+    /// Press: the frame's special attack (Heavyarms' Full Open Attack, Sandrock's Cross Crusher).
+    pub const SPECIAL: u16 = 1 << 13;
 
-    pub const FIRE_MASK: u16 = FIRE_PRIMARY | FIRE_SECONDARY | MELEE;
+    /// Actions a silent client's repeated command must not keep performing.
+    pub const FIRE_MASK: u16 = FIRE_PRIMARY | FIRE_SECONDARY | MELEE | SPECIAL;
     /// States that persist while a client is silent (see [`InputCmd::neutral`](super::InputCmd::neutral)).
-    pub const STATES: u16 = FLIGHT_ASSIST | ZERO | GRAB;
-    pub const BITS: u32 = 12;
+    pub const STATES: u16 = FLIGHT_ASSIST | ZERO | GRAB | MODE;
+    pub const BITS: u32 = 16;
 }
 
 /// Bits per axis for the aim direction (octahedral): ~0.005° precision.
 pub const AIM_BITS: u32 = 16;
-/// How far behind its own tick a command may place its lag-compensation view (in 1/16 ticks).
-pub const VIEW_DELTA_BITS: u32 = 12;
+/// How far behind its own tick a command may place its lag-compensation view, in 1/16 ticks: up
+/// to 15.9 ticks, twice what lag compensation reaches back (8 ticks). An older view saturates, and
+/// the server treats it as 8 ticks old either way.
+pub const VIEW_DELTA_BITS: u32 = 8;
 pub const MAX_CMDS: usize = 4;
 
 /// One tick of control.
@@ -64,7 +71,8 @@ pub struct InputCmd {
     pub roll: i8,
     /// [`buttons`] bitset.
     pub buttons: u16,
-    /// Suit the pilot is locked on to ([`NO_SLOT`] = none). Used by ZERO and the saber lunge.
+    /// Suit the pilot designates as its target ([`NO_SLOT`] = none): missile locks, lock-on
+    /// warnings and replication priority. The server checks it before using it.
     pub lock_target: u16,
     /// Increments on every shot fired, so the shooter can match its predicted beams to the server's.
     pub shot_seq: u8,
@@ -87,7 +95,7 @@ impl Default for InputCmd {
 
 impl InputCmd {
     /// A "hands off" command for `tick` that keeps the given aim and states (flight assist, ZERO,
-    /// and a grip on whatever is in hand).
+    /// the frame's mode, and a grip on whatever is in hand).
     pub fn neutral(tick: u32, aim: Vec3, keep_buttons: u16) -> Self {
         Self {
             tick,
@@ -122,7 +130,7 @@ impl InputCmd {
         let delta = ((self.tick << 4).saturating_sub(self.view_tick_q4)).min((1 << VIEW_DELTA_BITS) - 1);
         c.view_tick_q4 = (self.tick << 4) - delta;
         c.lock_target = self.lock_target.min(NO_SLOT);
-        c.buttons &= (1 << buttons::BITS) - 1;
+        c.buttons = (u32::from(self.buttons) & ((1 << buttons::BITS) - 1)) as u16;
         c
     }
 
@@ -180,6 +188,8 @@ impl Default for InputPacket {
 
 impl InputPacket {
     /// Encodes into `buf`, returning the byte length (≤ 64 for four commands: 86 + 4 × 106 bits).
+    /// Each command is 8 + 32 + 24 + 8 + 16 + 10 + 8 bits: view delta, aim, thrust, roll, buttons,
+    /// lock target, shot sequence.
     pub fn encode(&self, buf: &mut [u8]) -> Option<usize> {
         let count = self.count.clamp(1, MAX_CMDS as u8);
         let mut w = BitWriter::new(buf);
@@ -267,8 +277,28 @@ mod tests {
     }
 
     #[test]
-    fn a_silent_client_keeps_its_grip() {
+    fn a_silent_client_keeps_its_states() {
         let n = InputCmd::neutral(9, Vec3::X, u16::MAX);
-        assert_eq!(n.buttons, buttons::FLIGHT_ASSIST | buttons::ZERO | buttons::GRAB);
+        assert_eq!(n.buttons, buttons::FLIGHT_ASSIST | buttons::ZERO | buttons::GRAB | buttons::MODE);
+        // Presses (fire, the special) are never repeated for a silent client.
+        const { assert!(buttons::STATES & buttons::FIRE_MASK == 0) };
+        const { assert!(buttons::FIRE_MASK & buttons::SPECIAL != 0) };
+    }
+
+    #[test]
+    fn an_old_view_saturates() {
+        // A view 20 ticks old is further back than lag compensation reaches: it goes out as the
+        // oldest the field can say (15.9 ticks), which the server treats as 8 ticks old.
+        let cmd = InputCmd { tick: 500, view_tick_q4: (500 - 20) << 4, ..InputCmd::default() };
+        let q = cmd.quantized();
+        assert_eq!(q.view_tick_q4, (500 << 4) - 255);
+        let mut p = InputPacket { count: 1, ..Default::default() };
+        p.cmds[0] = q;
+        let mut buf = [0u8; 64];
+        let n = p.encode(&mut buf).unwrap();
+        assert_eq!(InputPacket::decode(&buf[..n]).unwrap().cmds[0], q);
+        // A recent view is exact.
+        let fresh = InputCmd { tick: 500, view_tick_q4: (500 << 4) - 37, ..InputCmd::default() };
+        assert_eq!(fresh.quantized().view_tick_q4, (500 << 4) - 37);
     }
 }
