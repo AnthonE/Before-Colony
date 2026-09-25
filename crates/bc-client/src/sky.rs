@@ -7,7 +7,6 @@
 //! - Image-based lighting generated here from the same sky gives night sides their blue
 //!   Earthshine and metal something to reflect.
 
-use bc_sim::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS};
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::camera::Exposure;
 use bevy::camera::visibility::NoFrustumCulling;
@@ -221,46 +220,13 @@ fn apply_light_tier(
     }
 }
 
-/// Whether the ray from `p` toward the Sun is blocked by the colony (hull or end caps).
-fn colony_blocks(p: Vec3, s: Vec3) -> bool {
-    let rel = p - COLONY_CENTER;
-    // The hull: |(rel + t s).yz| = R.
-    let (oy, oz, dy, dz) = (rel.y, rel.z, s.y, s.z);
-    let a = dy * dy + dz * dz;
-    let b = 2.0 * (oy * dy + oz * dz);
-    let c = oy * oy + oz * oz - COLONY_RADIUS * COLONY_RADIUS;
-    if a > 1e-9 {
-        let disc = b * b - 4.0 * a * c;
-        if disc >= 0.0 {
-            let t = (-b - disc.sqrt()) / (2.0 * a);
-            if t > 0.0 && (rel.x + t * s.x).abs() <= COLONY_HALF_LENGTH {
-                return true;
-            }
-        }
-    }
-    // The end caps.
-    if s.x.abs() > 1e-6 {
-        for cap in [-COLONY_HALF_LENGTH, COLONY_HALF_LENGTH] {
-            let t = (cap - rel.x) / s.x;
-            if t > 0.0 {
-                let y = rel.y + t * s.y;
-                let z = rel.z + t * s.z;
-                if y * y + z * z <= COLONY_RADIUS * COLONY_RADIUS {
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
 /// How much of the Sun's disc the camera sees past the colony, 0..1, sampled over the disc.
 fn sun_visibility(p: Vec3) -> f32 {
     let u = SUN_DIR.any_orthonormal_vector();
     let v = SUN_DIR.cross(u);
     let r = SUN_RADIUS * 0.7;
     let samples = [SUN_DIR, SUN_DIR + u * r, SUN_DIR - u * r, SUN_DIR + v * r, SUN_DIR - v * r];
-    let seen = samples.iter().filter(|s| !colony_blocks(p, s.normalize())).count();
+    let seen = samples.iter().filter(|s| crate::colony::ray_hit(p, s.normalize()).is_none()).count();
     seen as f32 / samples.len() as f32
 }
 

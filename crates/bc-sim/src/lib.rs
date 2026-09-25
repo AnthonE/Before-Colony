@@ -13,6 +13,7 @@ pub mod collide;
 pub mod config;
 pub mod content;
 pub mod events;
+pub mod field;
 pub mod flight;
 pub mod handle;
 pub mod hash;

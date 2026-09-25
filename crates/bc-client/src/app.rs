@@ -75,10 +75,24 @@ impl Plugin for VisualsPlugin {
             .init_resource::<FxEvents>()
             .init_resource::<CameraTarget>()
             .init_resource::<FxState>()
-            .add_plugins(crate::sky::SkyPlugin)
+            .add_plugins((
+                crate::sky::SkyPlugin,
+                crate::materials::MaterialsPlugin,
+                crate::colony::ColonyPlugin,
+            ))
             .configure_sets(Update, (Vis::Drive, Vis::Suits, Vis::Camera, Vis::Fx, Vis::Hud).chain())
-            .add_systems(Startup, (setup_assets, (crate::scene::setup_scene, spawn_camera, setup_fx)).chain())
+            .add_systems(
+                Startup,
+                (
+                    (setup_assets, crate::materials::setup_materials),
+                    (crate::colony::setup_colony, crate::rocks::setup_field, spawn_camera, setup_fx),
+                )
+                    .chain(),
+            )
             .add_systems(Update, (build_suits, pose_suits).chain().in_set(Vis::Suits))
-            .add_systems(Update, (update_fx, update_fx_lights).chain().in_set(Vis::Fx));
+            .add_systems(
+                Update,
+                (update_fx, update_fx_lights, crate::rocks::rock_lod).chain().in_set(Vis::Fx),
+            );
     }
 }

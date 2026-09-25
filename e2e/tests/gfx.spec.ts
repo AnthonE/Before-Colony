@@ -25,11 +25,18 @@ for (const [scene, cam] of scenes) {
     test.setTimeout(240_000);
     const logs = collectConsole(page);
     await page.goto(`/?showcase=${scene}&cam=${cam}&t=6&quality=${quality}&gfx=${info.project.name}`);
-    // A few frames past start-up, so pipelines have compiled and effects are on screen.
-    await page.waitForFunction("(window.__bc?.showcase_frames ?? 0) >= 12", null, {
-      timeout: 200_000,
-      polling: 500,
-    });
+    // A few frames past start-up, so pipelines have compiled and effects are on screen. A GPU
+    // validation error or a panic stops the app, so fail on one at once rather than time out.
+    const broken = new Promise<string>((resolve) =>
+      page.on("console", (m) => {
+        if (/Caught rendering error|panicked/.test(m.text())) resolve(m.text());
+      }),
+    );
+    const ready = page
+      .waitForFunction("(window.__bc?.showcase_frames ?? 0) >= 12", null, { timeout: 200_000, polling: 500 })
+      .then(() => "");
+    const error = await Promise.race([ready, broken]);
+    expect(error.slice(0, 800)).toBe("");
     const status = await bc(page);
     console.log(`${scene}/${cam}: ${JSON.stringify(status)}`);
     expect(status.mode).toBe("showcase");

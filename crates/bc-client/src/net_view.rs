@@ -20,6 +20,8 @@ use crate::view::{
 pub struct Seen {
     hits: HashSet<(u32, u16, u8)>,
     kills: HashSet<(u32, u16)>,
+    /// Beams that have splashed on the colony's hull, by (shooter, shot).
+    splashes: HashSet<(u16, u8)>,
     /// Slot → (generation, time it was first seen as a wreck), so wrecks tumble from where they died.
     wrecked: HashMap<u16, (u8, f64)>,
 }
@@ -147,6 +149,8 @@ pub fn sync_view(
 
     // --- Beams: the own suit's on the input clock (drawn the moment they're fired), others on the
     // render clock. ---
+    // The server removes beams that strike the colony without telling anyone, so they end, and
+    // splash, at its hull here.
     beams.0.clear();
     for b in &world.beams {
         let t = if Some(b.shooter) == own_slot { t_input } else { t_render };
@@ -154,13 +158,20 @@ pub fn sync_view(
             continue;
         }
         let head = b.pos_at(t);
-        beams.0.push(BeamView {
-            head,
-            dir: b.velocity.normalize_or(Vec3::Z),
-            travelled: head.distance(b.origin),
-            weapon: b.weapon,
-        });
+        let dir = b.velocity.normalize_or(Vec3::Z);
+        let travelled = head.distance(b.origin);
+        if let Some(hull) = crate::colony::ray_hit(b.origin, dir)
+            && travelled >= hull
+        {
+            if seen.splashes.insert((b.shooter, b.shot_seq)) {
+                events.0.push(FxEvent::Hit { pos: b.origin + dir * hull, weapon: b.weapon });
+            }
+            continue;
+        }
+        beams.0.push(BeamView { head, dir, travelled, weapon: b.weapon });
     }
+    seen.splashes
+        .retain(|&(shooter, shot)| world.beams.iter().any(|b| b.shooter == shooter && b.shot_seq == shot));
 
     // --- One-shot effects. ---
     for h in &world.hits {
