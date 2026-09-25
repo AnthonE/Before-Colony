@@ -68,12 +68,16 @@ network threads.
       colony and rocks, and expire.
    5. Rebuild the spatial hash (counting sort, 128 m cells).
    6. Record lag-comp history, so `history[T]` is exactly snapshot `T`.
+      Then missile locks build or fall apart on each launcher-carrying suit's designation.
    7. Guns: charge, heat, energy, arm cone, magnetism, spawn, lag-comp catch-up (rocks stop it,
       and are worn down by it). The flamethrower (`sim/flame.rs`) burns what's in its cone every
       few ticks while it's lit, without lag compensation. A weapon on an arm the Dragon Fang has
       taken along waits.
    8. Projectile sweeps against per-part capsules (skipping parts that are gone) and rocks, which
-      shots wear down until they shatter into ore.
+      shots wear down until they shatter into ore. Then missiles (`sim/missile.rs`): the seeker
+      (every third tick), proportional navigation on the motor's Δv budget, and a proximity fuse
+      swept against enemy suits, rocks and the colony, each end a `MissileBurst`. A missile pool
+      of 1 024 is allocated with the sim; a launch into a full pool fizzles.
    9. Melee (`sim/melee.rs`), driven by each blade's `MeleeSpec`: swings sweep an arc (sub-steps
       per tick), the Dragon Fang's thrust drives its head out along the aim, twin weapons strike
       with a blade in each hand. Blades that parry clash; a stroke chips ore off a rock and cuts a
@@ -128,7 +132,8 @@ network threads.
   - Every datagram fits in `min(1100 B, the connection's max datagram)`, never fragmented.
   - Contents: header, full-precision own state, ZERO info, events repeated until acked (beam spawns,
     hits, kills, clashes, seizures, parts coming off, rocks shattering, "left your sensors"),
-    changed rocks, then as many entities as fit, chosen by a per-client priority accumulator over
+    changed rocks, missiles in flight (at most 12: those tracking the client, then the nearest
+    within 5 km), then as many entities as fit, chosen by a per-client priority accumulator over
     what that client's sensors can see, then salvage chunks.
   - About 33 KB/s per client at 30 Hz.
 - **Chunks and rocks: dirty until acked.** Each snapshot's record lists the chunks (id, generation,
@@ -187,8 +192,9 @@ on wasm32 (under Node, via `wasm-bindgen-test-runner`). Never enable glam's `fas
 | Test | Proves |
 |---|---|
 | `bc-proto/tests/roundtrip.rs` | Codecs round-trip within ½ LSB; decoders never panic on arbitrary bytes. |
-| `bc-sim/tests/no_alloc.rs`, `bc-sector/tests/no_alloc_sector.rs` | 0 heap operations per tick with 64 clients + 256 dolls, and with the Gundams duelling. |
+| `bc-sim/tests/no_alloc.rs`, `bc-sector/tests/no_alloc_sector.rs` | 0 heap operations per tick with 64 clients + 256 dolls, with the Gundams duelling, and with 32 missile boats keeping 500 missiles in the air. |
 | `bc-sim/tests/determinism.rs` | Identical state hash on native and wasm32, for the reference scenario, for suits flying into rocks and firing through them, for a salvage run, and for the Gundams duelling with every blade; the generated debris field is identical too. |
+| `bc-sim/tests/{missiles,full_open}.rs` | A lock builds in half a second in its cone and falls apart twice as fast; a guided salvo runs down a crossing target; a target faster than the motor's Δv outruns it; a jammer breaks the seeker's hold where a plain break doesn't; missiles pass friends and burst at the end of their life; a full pool swallows launches. Full Open fires everything for 3 s, then locks the suit out and cools down. |
 | `bc-sim/tests/jammer.rs` | A jamming Deathscythe leaves its enemies' sensors (past 400 m for eyes), Mobile Dolls and ZERO lose it, allies see it shimmer, locks on it drop and its own go unnoticed; firing or striking breaks it for 2 s; it drains energy and needs a fifth of it to engage. |
 | `bc-sim/tests/ranged.rs` | The flamethrower burns within its cone and reach only, a round a burn, and overheats its target; the Dragon Fang takes the flamethrower's arm along; stream weapons fire without spawn events; the buster shield flies at its speed. |
 | `bc-sim/tests/{content,melee}.rs` | Every table row sits at its id and the Gundams fly as designed; every blade reaches as far as its row says and mines, twin blades strike once each, the Dragon Fang thrusts where it's aimed, the Cross Crusher is Sandrock's special, and only blades that parry clash. |

@@ -126,8 +126,8 @@ pub fn gundam_arena(dolls: usize, seed: u64) -> (Sim, Vec<SuitId>) {
     (sim, pilots)
 }
 
-/// Deterministic input for a Gundam pilot duelling `foe`: aim at it, close in, strike with every
-/// blade and the special, fire in bursts.
+/// Deterministic input for a Gundam pilot duelling `foe`: aim at it and designate it, close in,
+/// strike with every blade and the special, fire in bursts.
 pub fn duel_scripted(sim: &Sim, id: SuitId, foe: SuitId, tick: u32) -> InputCmd {
     let i = id.idx() as u32;
     let me = sim.suits.flight[id.idx()].pos;
@@ -170,7 +170,7 @@ pub fn duel_scripted(sim: &Sim, id: SuitId, foe: SuitId, tick: u32) -> InputCmd 
         thrust: [q(local.x * pull + weave.x), q(local.y * pull + weave.y), q(local.z * pull + weave.z)],
         roll: 0,
         buttons,
-        lock_target: NO_SLOT,
+        lock_target: foe.idx() as u16,
         shot_seq: (tick / 10) as u8,
     }
     .quantized()

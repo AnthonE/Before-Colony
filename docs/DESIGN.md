@@ -57,6 +57,8 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
 |---|---|---|---|---|---|---|
 | Leo (OZ-06MS) | line suit | 7.1 t | 3.5 g (5.6 g) | ≈2.6 km/s | titanium | beam rifle · machine cannon · beam saber |
 | Wing Gundam Zero (XXXG-00W0) | hero suit | 8.0 t | 8 g (12 g) | ≈3.7 km/s | gundanium (×0.55 damage) | Twin Buster Rifle · machine cannons · beam saber · **ZERO System** |
+| Gundam Heavyarms (XXXG-01H) | gunship | 8.8 t | 5.2 g (7.3 g) | ≈2.8 km/s | gundanium (×0.55) | beam gatling · homing missiles · army knife · **Full Open Attack** |
+| Gundam Sandrock (XXXG-01SR) | brawler | 9.6 t | 4.6 g (6.9 g) | ≈2.4 km/s | gundanium (×0.45) | beam machine gun · homing missiles · heat shotels · **Cross Crusher** |
 | Gundam Deathscythe (XXXG-01D) | infiltrator | 7.3 t | 7 g (11.2 g) | ≈3.3 km/s | gundanium (×0.55) | buster shield · head vulcans · beam scythe · **Hyper Jammer** |
 | Shenlong Gundam (XXXG-01S) | duellist | 7.5 t | 7.4 g (11.8 g) | ≈3.3 km/s | gundanium (×0.55) | Dragon Fang · flamethrower · beam glaive |
 | Taurus (OZ-13MS) | Mobile Doll | 6.5 t | 5 g | | titanium | beam rifle |
@@ -75,6 +77,9 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
 | Buster shield (Deathscythe) | 450 m/s | 80 | 1 per 5 s | the shield's beam claw, fired: slow, so lead it |
 | Head vulcans (Deathscythe) | 1 km/s | 3 | 15/s | 300 rounds |
 | Beam machine gun (Sandrock) | 3.5 km/s | 12 | 6/s | |
+| Homing missiles (Heavyarms, Sandrock) | 120 m/s off the rail, then an 18 g motor | 32 each | salvos of 4, one per 2 s | guided when your lock is acquired; 24 rounds |
+| Chest gatlings (Heavyarms) | 1.2 km/s | 4 | 30/s | Full Open only; 300 rounds |
+| Micro-missiles (Heavyarms) | 150 m/s, then a 14 g motor | 16 each | volleys of 8 | Full Open only; 16 rounds |
 | Flamethrower (Shenlong) | – | 7 a burn | 5 burns/s | a 70 m cone, ±12°; each burn adds 10 heat to what it touches, enough to overheat it; 150 burns |
 
 - **Projectiles inherit the shooter's velocity** (it's space). Fire control solves the intercept in
@@ -99,6 +104,23 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
   shield) are events, and only those are predicted by the shooter's own client.
 - **Lag compensation.** A shot resolves against the world as its shooter saw it, up to 8 ticks
   (267 ms) back. Details are in `ARCHITECTURE.md`.
+
+### Missiles
+
+- **Locks.** Keep your designation inside 20° of your aim and within 2.8 km for half a second and
+  the lock is acquired; lose it and it falls apart twice as fast. The target is told (MISSILE
+  LOCK), unless it can't see you.
+- **Guidance.** A missile fired with the lock acquired is guided onto the locked suit by
+  proportional navigation; otherwise it flies blind along your aim. Its motor steers and speeds it
+  at up to 18 g, but its Δv is a budget (1.1 km/s): once spent the missile coasts and can't turn.
+  So a target can outrun it, make it burn its motor turning, or break late.
+- **Seekers** hold their target within 60° of the nose and 3.2 km times the target's signature,
+  so a jamming Deathscythe slips them. A missile bursts within 4 m of an enemy suit (friends are
+  safe), against a rock or the colony, or at the end of its 8 s life.
+- **Full Open Attack** (Heavyarms, SPECIAL): for three seconds every hatch opens and everything
+  fires along the aim, heat or not: the beam gatling, both launchers and the chest gatlings,
+  about 24 missiles. Then the suit is locked in an overheat for 5 s, and it's ready again 30 s
+  after it started.
 
 ### Melee
 
@@ -246,8 +268,8 @@ show which, and thin as the ore is taken. A rock of radius r m has 60 + 25r of s
   the hot path), accounts.
 - **Suits:**
   - Wing's bird-mode transformation.
-  - Heavyarms (missile spam), Sandrock, Tallgeese, Epyon (its own ZERO).
-  - Guided missiles, deployable Planet Defensors.
+  - Tallgeese, Epyon (its own ZERO).
+  - Shooting missiles down; deployable Planet Defensors.
 - **Agents:** an MCP server so LLM agents can fly as squad commanders, and a Python gym on the
   headless simulation for RL.
 - **Earth:** atmosphere, gravity, re-entry heating (Wing's shield).

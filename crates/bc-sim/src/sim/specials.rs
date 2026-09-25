@@ -1,23 +1,56 @@
 //! Frame specials: what they share (a cooldown), each one's step, and whether one is ready.
 
+use bc_proto::buttons::SPECIAL;
+
 use super::Sim;
 use crate::content::{SpecialKind, frame};
 use crate::suits::{MeleePhase, SPECIAL_MOUNT};
 
 impl Sim {
     /// Runs down the specials' cooldowns, and runs the ones that last (the jammer).
-    pub(super) fn specials_step(&mut self, _t: u32) {
+    pub(super) fn specials_step(&mut self, t: u32) {
         for sp in self.suits.special.iter_mut() {
             sp.cooldown = sp.cooldown.saturating_sub(1);
         }
         let mut alive = core::mem::take(&mut self.iter_bits);
         alive.copy_from(&self.suits.alive);
         for i in alive.iter() {
-            if let SpecialKind::HyperJammer { drain, min_energy, .. } = frame(self.suits.frame[i]).special {
-                self.jammer_step(i, drain, min_energy);
+            match frame(self.suits.frame[i]).special {
+                SpecialKind::HyperJammer { drain, min_energy, .. } => self.jammer_step(i, drain, min_energy),
+                SpecialKind::FullOpen { ticks, lockout, cooldown } => {
+                    self.full_open_step(i, ticks, lockout, cooldown, t)
+                }
+                SpecialKind::None | SpecialKind::Transform { .. } | SpecialKind::MeleeMove { .. } => {}
             }
         }
         self.iter_bits = alive;
+    }
+
+    /// Full Open Attack: a SPECIAL press opens every hatch for `ticks` (the weapons fire on their
+    /// own, heat or not); then the suit is forced into an overheat it can't fire through for
+    /// `lockout` ticks. Ready again `cooldown` ticks after it starts.
+    fn full_open_step(&mut self, i: usize, ticks: u16, lockout: u16, cooldown: u16, t: u32) {
+        let s = &mut self.suits;
+        let cap = frame(s.frame[i]).heat_cap;
+        let sp = &mut s.special[i];
+        sp.lockout = sp.lockout.saturating_sub(1);
+        if sp.active {
+            sp.timer = sp.timer.saturating_sub(1);
+            if sp.timer == 0 {
+                sp.active = false;
+                sp.lockout = lockout;
+                s.heat[i] = s.heat[i].max(cap);
+            }
+            return;
+        }
+        let pressed = s.input[i].pressed(SPECIAL) && s.prev_buttons[i] & SPECIAL == 0;
+        if pressed && sp.cooldown == 0 && !s.overheated[i] {
+            sp.active = true;
+            sp.timer = ticks;
+            sp.cooldown = cooldown;
+            s.stats[i].specials += 1;
+            self.break_jammer(i, t);
+        }
     }
 
     /// Whether suit `i`'s special can be used now.
@@ -31,7 +64,11 @@ impl Sim {
                 self.suits.special[i].active
                     || self.suits.energy[i] >= min_energy * frame(self.suits.frame[i]).energy_cap
             }
-            SpecialKind::None | SpecialKind::Transform { .. } | SpecialKind::FullOpen { .. } => false,
+            SpecialKind::FullOpen { .. } => {
+                let sp = &self.suits.special[i];
+                !sp.active && sp.cooldown == 0 && !self.suits.overheated[i]
+            }
+            SpecialKind::None | SpecialKind::Transform { .. } => false,
         }
     }
 }

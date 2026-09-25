@@ -12,7 +12,7 @@ use crate::config::{DT, MAX_REWIND_TICKS, secs};
 use crate::content::salvage::{DETACH_PUSH, DETACH_SPEED, mass_without, part_mass_kg, wreck_ttl};
 use crate::content::{Mount, Replication, WeaponClass, WeaponSpec, frame, weapon};
 use crate::math::{angle_between, cos, hash01, normalize_or, sin};
-use crate::suits::WeaponState;
+use crate::suits::{SPECIAL_SLOTS, WeaponState};
 use crate::world::inside_colony;
 
 /// ZERO fire-time magnetism: shots this close to the ZERO firing solution snap to it.
@@ -55,54 +55,84 @@ impl Sim {
         for i in alive.iter() {
             let spec = frame(self.suits.frame[i]);
             let cmd = self.suits.input[i];
+            // Full Open: everything fires along the aim, heat or not.
+            let full_open = self.full_open(i);
             for slot in 0..2 {
                 let Some(mount) = spec.loadout[slot] else { continue };
-                let w = weapon(mount.weapon);
-                match w.class {
-                    WeaponClass::Beam | WeaponClass::Ballistic => {}
-                    WeaponClass::Cone => {
-                        self.flame(i, slot, mount, w, &cmd, t);
-                        continue;
-                    }
-                    // Blades strike in `melee_step` (the Dragon Fang is a primary), and missile
-                    // launchers don't fire yet.
-                    WeaponClass::Melee | WeaponClass::Missile => continue,
-                }
                 let button = if slot == 0 { FIRE_PRIMARY } else { FIRE_SECONDARY };
-                let mut ws: WeaponState = self.suits.weapons[i][slot];
-                ws.cooldown = ws.cooldown.saturating_sub(1);
-                let arm_ok = self.suits.arm_free(i, mount.arm) && !self.arm_blocked(i, mount.arm);
-                let ready = ws.cooldown == 0
-                    && !self.suits.overheated[i]
-                    && self.suits.energy[i] >= w.energy
-                    && (w.ammo == 0 || ws.ammo > 0)
-                    && arm_ok;
-                let wants = cmd.pressed(button);
-                let fire = if w.charge_ticks > 0 {
-                    // Charged weapons: hold to charge, fires automatically when full; releasing early
-                    // cancels. The charge glow is replicated, so everyone sees it coming.
-                    if wants && ready {
-                        ws.charge += 1;
-                        if ws.charge >= w.charge_ticks {
-                            ws.charge = 0;
-                            true
-                        } else {
-                            false
-                        }
-                    } else {
-                        ws.charge = 0;
-                        false
+                let wants = full_open || cmd.pressed(button);
+                self.trigger(i, slot, mount, wants, full_open, &cmd, t);
+            }
+            if full_open {
+                for (k, mount) in spec.special_mounts.iter().enumerate() {
+                    if let Some(mount) = *mount {
+                        self.trigger(i, SPECIAL_SLOTS + k, mount, true, true, &cmd, t);
                     }
-                } else {
-                    wants && ready
-                };
-                self.suits.weapons[i][slot] = ws;
-                if fire {
-                    self.fire(i, slot, mount, w, &cmd, t);
                 }
             }
         }
         self.iter_bits = alive;
+    }
+
+    /// One weapon's tick: `slot` is a loadout slot (0, 1) or a special mount (from
+    /// [`SPECIAL_SLOTS`]). Its cooldown runs down; if `wants` and it's ready, a gun fires and a
+    /// launcher starts a salvo. `heedless` fires through an overheat (Full Open).
+    #[allow(clippy::too_many_arguments)]
+    fn trigger(
+        &mut self,
+        i: usize,
+        slot: usize,
+        mount: Mount,
+        wants: bool,
+        heedless: bool,
+        cmd: &InputCmd,
+        t: u32,
+    ) {
+        let w = weapon(mount.weapon);
+        match w.class {
+            WeaponClass::Beam | WeaponClass::Ballistic | WeaponClass::Missile => {}
+            WeaponClass::Cone => return self.flame(i, slot, mount, w, cmd, t),
+            // Blades strike in `melee_step` (the Dragon Fang is a primary).
+            WeaponClass::Melee => return,
+        }
+        let mut ws: WeaponState = *self.suits.weapon_state(i, slot);
+        ws.cooldown = ws.cooldown.saturating_sub(1);
+        let arm_ok = self.suits.arm_free(i, mount.arm) && !self.arm_blocked(i, mount.arm);
+        let ready = ws.cooldown == 0
+            && (heedless || !self.suits.overheated[i])
+            && self.suits.energy[i] >= w.energy
+            && (w.ammo == 0 || ws.ammo > 0)
+            && arm_ok;
+        if w.class == WeaponClass::Missile {
+            if wants && ready && ws.salvo == 0 {
+                self.start_salvo(i, &mut ws, w);
+            }
+            self.salvo_tick(i, slot, &mut ws, mount, w, cmd, t);
+            *self.suits.weapon_state(i, slot) = ws;
+            return;
+        }
+        let fire = if w.charge_ticks > 0 {
+            // Charged weapons: hold to charge, fires automatically when full; releasing early
+            // cancels. The charge glow is replicated, so everyone sees it coming.
+            if wants && ready {
+                ws.charge += 1;
+                if ws.charge >= w.charge_ticks {
+                    ws.charge = 0;
+                    true
+                } else {
+                    false
+                }
+            } else {
+                ws.charge = 0;
+                false
+            }
+        } else {
+            wants && ready
+        };
+        *self.suits.weapon_state(i, slot) = ws;
+        if fire {
+            self.fire(i, slot, mount, w, cmd, t);
+        }
     }
 
     fn fire(&mut self, i: usize, slot: usize, mount: Mount, w: &WeaponSpec, cmd: &InputCmd, t: u32) {
@@ -127,7 +157,7 @@ impl Sim {
         let vel = f.vel + dir * w.speed;
 
         let s = &mut self.suits;
-        let ws = &mut s.weapons[i][slot];
+        let ws = s.weapon_state(i, slot);
         ws.cooldown = w.cooldown;
         if w.ammo > 0 {
             ws.ammo -= 1;
@@ -136,9 +166,10 @@ impl Sim {
         s.energy[i] -= w.energy;
         s.last_fired[i] = t;
         s.stats[i].shots += 1;
+        // (The special mounts fire only in Full Open, which shows by itself.)
         if slot == 0 {
             s.fired_primary[i] = t;
-        } else {
+        } else if slot == 1 {
             s.fired_secondary[i] = t;
         }
         self.break_jammer(i, t);

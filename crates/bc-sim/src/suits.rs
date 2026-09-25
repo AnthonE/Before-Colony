@@ -20,6 +20,25 @@ pub struct WeaponState {
     pub ammo: u16,
     /// Ticks spent charging (Twin Buster Rifle), 0 = not charging.
     pub charge: u16,
+    /// Missiles still to leave in the salvo under way, and ticks until the next.
+    pub salvo: u8,
+    pub gap: u8,
+}
+
+/// A missile lock being built on the suit's designation.
+#[derive(Clone, Copy, Debug)]
+pub struct LockState {
+    /// The suit being locked (`NO_SLOT`: none).
+    pub target: u16,
+    /// Ticks it has been held (up to the launcher's `lock_ticks`; losing it counts down twice as
+    /// fast).
+    pub progress: u8,
+}
+
+impl Default for LockState {
+    fn default() -> Self {
+        Self { target: NO_SLOT, progress: 0 }
+    }
 }
 
 /// Phases of a melee strike (a saber swing, a scythe's reap, the Dragon Fang's thrust).
@@ -33,6 +52,8 @@ pub enum MeleePhase {
 }
 
 pub use crate::content::SPECIAL_MOUNT;
+/// Weapon slots from here on are the special mounts' (see [`Suits::weapon_state`]).
+pub const SPECIAL_SLOTS: usize = 3;
 /// Marks a hit by a twin weapon's second blade in [`MeleeState::hits`].
 pub const SECOND_BLADE: u16 = 1 << 15;
 
@@ -130,6 +151,11 @@ pub struct Suits {
     pub weapons: Box<[[WeaponState; 3]]>,
     pub melee: Box<[MeleeState]>,
     pub special: Box<[SpecialState]>,
+    /// The special mounts' weapons (Full Open's chest gatlings and micro-missiles).
+    pub special_weapons: Box<[[WeaponState; 2]]>,
+    pub lock: Box<[LockState]>,
+    /// Guided missiles tracking the suit (counted each tick).
+    pub incoming: Box<[u16]>,
     pub part_hp: Box<[[f32; Part::COUNT]]>,
     pub zero: Box<[ZeroState]>,
     pub ai: Box<[AiState]>,
@@ -176,6 +202,9 @@ impl Suits {
             weapons: boxed(cap, [WeaponState::default(); 3]),
             melee: boxed(cap, MeleeState::default()),
             special: boxed(cap, SpecialState::default()),
+            special_weapons: boxed(cap, [WeaponState::default(); 2]),
+            lock: boxed(cap, LockState::default()),
+            incoming: boxed(cap, 0u16),
             part_hp: boxed(cap, [0.0f32; Part::COUNT]),
             zero: boxed(cap, ZeroState::default()),
             ai: boxed(cap, AiState::default()),
@@ -230,8 +259,17 @@ impl Suits {
             }
         }
         self.weapons[idx] = ws;
+        let mut sw = [WeaponState::default(); 2];
+        for (w, m) in sw.iter_mut().zip(spec.special_mounts.iter()) {
+            if let Some(m) = m {
+                w.ammo = crate::content::weapon(m.weapon).ammo;
+            }
+        }
+        self.special_weapons[idx] = sw;
         self.melee[idx] = MeleeState::default();
         self.special[idx] = SpecialState::default();
+        self.lock[idx] = LockState::default();
+        self.incoming[idx] = 0;
         self.part_hp[idx] = spec.part_hp;
         self.zero[idx] = ZeroState::default();
         self.respawn_at[idx] = 0;
@@ -280,6 +318,15 @@ impl Suits {
             Some(true)
         } else {
             None
+        }
+    }
+
+    /// The state of weapon `slot`: a loadout slot (0..3), or a special mount (from
+    /// [`SPECIAL_SLOTS`]).
+    pub fn weapon_state(&mut self, idx: usize, slot: usize) -> &mut WeaponState {
+        match slot.checked_sub(SPECIAL_SLOTS) {
+            Some(k) => &mut self.special_weapons[idx][k],
+            None => &mut self.weapons[idx][slot],
         }
     }
 

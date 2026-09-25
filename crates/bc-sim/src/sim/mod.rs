@@ -20,6 +20,7 @@ mod detection;
 mod flame;
 mod melee;
 mod mining;
+mod missile;
 mod salvage;
 mod specials;
 mod wire;
@@ -42,6 +43,7 @@ use crate::flight::{self, FlightMods};
 use crate::handle::SuitId;
 use crate::lagcomp::History;
 use crate::math::{Rng, length, look_rotation, normalize_or};
+use crate::missiles::{MAX_MISSILES, Missiles};
 use crate::perception::{Contact, Perception, SelfView};
 use crate::projectiles::Projectiles;
 use crate::rocks::RockStates;
@@ -104,6 +106,8 @@ pub struct Sim {
     tick: u32,
     pub suits: Suits,
     pub projectiles: Projectiles,
+    /// Homing missiles in flight.
+    pub missiles: Missiles,
     /// The debris field (static: rocks are solid to suits and stop shots).
     pub field: Field,
     /// What mining has done to the field's rocks.
@@ -121,8 +125,9 @@ pub struct Sim {
     next_squad: usize,
     spawn_counter: u32,
     rng: Rng,
-    /// Live-projectile high-water mark (diagnostics).
+    /// Live-projectile and live-missile high-water marks (diagnostics).
     pub peak_projectiles: usize,
+    pub peak_missiles: usize,
     /// Suits alive after the last tick.
     alive_count: usize,
     /// Scratch: a copy of a membership set to iterate while mutating suits.
@@ -131,6 +136,8 @@ pub struct Sim {
     query_bits: BitSet,
     /// Scratch: live projectiles to iterate while killing some.
     proj_bits: BitSet,
+    /// Scratch: live missiles, likewise.
+    missile_bits: BitSet,
     /// Scratch: live chunks, likewise.
     chunk_bits: BitSet,
 }
@@ -146,6 +153,7 @@ impl Sim {
             tick: 0,
             suits: Suits::new(cap),
             projectiles: Projectiles::new(cfg.max_projectiles),
+            missiles: Missiles::new(),
             field,
             rocks,
             chunks: Chunks::new(),
@@ -171,10 +179,12 @@ impl Sim {
             spawn_counter: 0,
             rng: Rng::new(cfg.seed),
             peak_projectiles: 0,
+            peak_missiles: 0,
             alive_count: 0,
             iter_bits: BitSet::new(cap),
             query_bits: BitSet::new(cap),
             proj_bits: BitSet::new(cfg.max_projectiles),
+            missile_bits: BitSet::new(MAX_MISSILES),
             chunk_bits: BitSet::new(chunks::MAX_CHUNKS),
         }
     }
@@ -276,8 +286,10 @@ impl Sim {
         self.wrecks_follow_hulks();
         self.spatial_rebuild();
         self.record_history(t);
+        self.lock_step();
         self.weapons_step(t);
         self.projectile_step(t);
+        self.missile_step(t);
         self.melee_step(t);
         self.damage_step(t);
         self.salvage_step(t);
@@ -649,6 +661,10 @@ impl Sim {
                     s.overheated[i] = true;
                 } else if s.overheated[i] && s.heat[i] < spec.heat_cap * 0.5 {
                     s.overheated[i] = false;
+                }
+                // After Full Open, the weapons stay locked out however fast it cools.
+                if s.special[i].lockout > 0 {
+                    s.overheated[i] = true;
                 }
                 s.energy[i] = (s.energy[i] + spec.energy_regen * DT).min(spec.energy_cap);
                 let want = s.input[i].pressed(ZERO);

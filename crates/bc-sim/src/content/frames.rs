@@ -2,7 +2,7 @@ use bc_proto::snapshot::ent_flags;
 use bc_proto::{FrameId, Part, WeaponKind};
 use glam::Vec3;
 
-use super::{WeaponClass, weapon};
+use super::{MissileSpec, WeaponClass, weapon};
 use crate::config::G0;
 
 /// The mount of a frame's special melee move (the Cross Crusher), after the three loadout slots.
@@ -225,6 +225,12 @@ impl FrameSpec {
             self.side_thrust
         };
         f / m
+    }
+
+    /// The motor, seeker and lock of the frame's missiles (the first launcher in its loadout or
+    /// special mounts): whether it builds missile locks at all.
+    pub fn lock_spec(&self) -> Option<MissileSpec> {
+        self.loadout.iter().chain(self.special_mounts.iter()).flatten().find_map(|m| weapon(m.weapon).missile)
     }
 
     /// The melee weapon on mount `slot`: a loadout slot, or [`SPECIAL_MOUNT`] for a melee move.
@@ -485,7 +491,7 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
             mount(WeaponKind::ArmyKnife, LEFT),
         ],
         zero: false,
-        playable: false,
+        playable: true,
         special: SpecialKind::FullOpen { ticks: 90, lockout: 150, cooldown: 900 },
         special_mounts: [
             mount(WeaponKind::ChestGatling, ArmSlot::Chest),
@@ -572,7 +578,7 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
             mount(WeaponKind::HeatShotel, ArmSlot::Both),
         ],
         zero: false,
-        playable: false,
+        playable: true,
         special: SpecialKind::MeleeMove { cooldown: 240 },
         special_mounts: [mount(WeaponKind::CrossCrusher, ArmSlot::Both), None],
         ai: hints(1_200.0, false, 1.6),

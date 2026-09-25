@@ -88,6 +88,7 @@ Own-state notes:
   LOCK_ACQUIRED (your missile lock), MISSILE_LOCK (someone's missile lock is on you),
   MISSILE_INCOMING (a guided missile is tracking you).
 - The lock target is the designation the server accepted: alive, hostile and on your sensors.
+  Lock progress counts 0–15 toward a missile lock on it; LOCK_ACQUIRED says it's there.
   LOCKED_ON ignores locks by suits you can't see (a jamming suit's lock goes unnoticed).
 - The special timer counts ticks: of a change of form, of Full Open, or of the break until the
   Hyper Jammer hides the suit again.
@@ -103,7 +104,7 @@ under way comes from a ranged slot, the Dragon Fang).
 
 Missile record: pool id (10), generation (2), weapon kind (5), guided, targets you, friendly (1
 each), position (63, the entity grid), velocity (3 × 12 bits over ±4 096 m/s). A snapshot lists at
-most 12, those tracking the receiving pilot first, then the nearest on its sensors; clients
+most 12, those tracking the receiving pilot first, then the nearest within 5 km; clients
 extrapolate between snapshots.
 
 Events carry a 3-bit kind and an 8-bit age (ticks before the snapshot):

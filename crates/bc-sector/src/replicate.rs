@@ -7,6 +7,7 @@ use bc_proto::snapshot::{ENTITY_BITS, ent_flags};
 use bc_proto::{ObjectState, SnapshotHeader, SnapshotWriter};
 use bc_sim::Sim;
 use bc_sim::chunks::{MAX_CHUNKS, Motion};
+use bc_sim::missiles::MAX_MISSILES;
 use bc_sim::storage::boxed;
 use glam::Vec3;
 
@@ -24,6 +25,12 @@ const BEAM_NOTICE_RANGE: f32 = 5_000.0;
 const OBJECT_RANGE: f32 = 3_000.0;
 /// Room kept for objects when packing events and entities: up to this many of the largest.
 const OBJECT_RESERVE: usize = 6;
+/// Missiles a snapshot carries at most, and how far off they're shown (those tracking the client
+/// go first, wherever they are).
+const MISSILES_PER_SNAPSHOT: usize = 12;
+const MISSILE_RANGE: f32 = 5_000.0;
+/// Room missiles leave for entities.
+const MISSILE_KEEP_BITS: usize = (ENTITY_BITS + 1) * 12;
 
 fn relevant(sim: &Sim, me: usize, e: &Event) -> bool {
     let near = |j: u16| j as usize == me || sim.visible_to(me, j as usize);
@@ -72,6 +79,8 @@ pub(crate) struct Work {
     objects: Box<[(f32, u16)]>,
     /// Rock candidates: (distance², id).
     rocks: Box<[(f32, u16)]>,
+    /// Missile candidates: (key, id), those tracking the client keyed below all others.
+    missiles: Box<[(f32, u16)]>,
     /// Where each live chunk is this tick (found once per tick, for every client).
     chunk_pos: Box<[Vec3]>,
 }
@@ -82,6 +91,7 @@ impl Work {
             entities: boxed(max_suits, (0.0, 0)),
             objects: boxed(MAX_CHUNKS, (0.0, 0)),
             rocks: boxed(rocks, (0.0, 0)),
+            missiles: boxed(MAX_MISSILES, (0.0, 0)),
             chunk_pos: boxed(MAX_CHUNKS, Vec3::ZERO),
         }
     }
@@ -112,6 +122,27 @@ fn rock_candidates(sim: &Sim, client: &ClientState, at: Vec3, out: &mut [(f32, u
             out[n] = ((r.pos - at).length_squared(), i as u16);
             n += 1;
         }
+    }
+    n
+}
+
+/// Missiles near client suit `me`, or tracking it, keyed nearest first with those tracking it
+/// ahead of all.
+fn missile_candidates(sim: &Sim, me: usize, out: &mut [(f32, u16)]) -> usize {
+    let at = sim.suits.flight[me].pos;
+    let m = &sim.missiles;
+    let mut n = 0;
+    for k in m.alive.iter() {
+        let d2 = (m.pos[k] - at).length_squared();
+        let key = if m.target[k] == me as u16 {
+            d2 - 1e15
+        } else if d2 < MISSILE_RANGE * MISSILE_RANGE {
+            d2
+        } else {
+            continue;
+        };
+        out[n] = (key, k as u16);
+        n += 1;
     }
     n
 }
@@ -262,6 +293,14 @@ pub(crate) fn build_snapshot(
         }
         rec.rocks[rec.n_rocks as usize] = (i, sim.rocks.version[i as usize]);
         rec.n_rocks += 1;
+    }
+
+    // --- Missiles in flight: those tracking the client first, then the nearest. ---
+    let n_missiles = missile_candidates(sim, me, &mut work.missiles);
+    for &(_, k) in lowest(&mut work.missiles[..n_missiles], MISSILES_PER_SNAPSHOT) {
+        if !w.missile(&sim.missile_state(k as usize, me), MISSILE_KEEP_BITS + object_reserve) {
+            break;
+        }
     }
 
     // --- Entities, highest priority first. ---

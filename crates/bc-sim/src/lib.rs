@@ -20,6 +20,7 @@ pub mod handle;
 pub mod hash;
 pub mod lagcomp;
 pub mod math;
+pub mod missiles;
 pub mod perception;
 pub mod projectiles;
 pub mod rocks;

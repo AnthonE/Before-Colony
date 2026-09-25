@@ -72,7 +72,7 @@ fn only_pilots_frames_are_playable() {
             assert!(PLAYABLE_ORDER.contains(&f), "{f:?} is playable but has no respawn key");
         }
     }
-    for f in [FrameId::Leo, FrameId::WingZero, FrameId::Deathscythe, FrameId::Shenlong] {
+    for f in PLAYABLE_ORDER {
         assert!(playable(f), "{f:?} can be flown");
     }
     for f in [FrameId::Taurus, FrameId::Virgo, FrameId::WingZeroBird] {

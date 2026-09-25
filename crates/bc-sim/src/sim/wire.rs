@@ -110,12 +110,31 @@ impl Sim {
         if s.input[i].pressed(bc_proto::buttons::FLIGHT_ASSIST) {
             flags |= own_flags::FLIGHT_ASSIST;
         }
-        // Locked on by someone it can see (a jamming suit's lock goes unnoticed).
-        if s.alive.iter().any(|j| {
-            s.input[j].lock_target == i as u16 && self.designation(j) == Some(i) && !self.jammed_from(i, j)
-        }) {
-            flags |= own_flags::LOCKED_ON;
+        // Locked on by someone it can see (a jamming suit's lock goes unnoticed), perhaps with a
+        // missile lock acquired.
+        for j in s.alive.iter() {
+            if s.input[j].lock_target == i as u16 && self.designation(j) == Some(i) && !self.jammed_from(i, j)
+            {
+                flags |= own_flags::LOCKED_ON;
+                if self.missile_lock(j) == Some(i) {
+                    flags |= own_flags::MISSILE_LOCK;
+                }
+            }
         }
+        if s.incoming[i] > 0 {
+            flags |= own_flags::MISSILE_INCOMING;
+        }
+        if self.missile_lock(i).is_some() {
+            flags |= own_flags::LOCK_ACQUIRED;
+        }
+        let lock_progress = spec.lock_spec().map_or(0, |m| {
+            let l = &s.lock[i];
+            if l.target == bc_proto::NO_SLOT {
+                0
+            } else {
+                (u32::from(l.progress) * 15 / u32::from(m.lock_ticks)) as u8
+            }
+        });
         if s.special[i].active {
             flags |= own_flags::SPECIAL_ACTIVE;
         }
@@ -155,7 +174,7 @@ impl Sim {
             credits: s.credits[i],
             held: self.held_chunk(i).map_or(bc_proto::NO_CHUNK, |k| k as u16),
             lock_target: self.designation(i).map_or(bc_proto::NO_SLOT, |j| j as u16),
-            lock_progress: 0,
+            lock_progress,
             special_timer: special_timer.min(255) as u8,
             special_cooldown: s.special[i].cooldown.div_ceil(4).min(255) as u8,
         }
@@ -204,7 +223,8 @@ impl Sim {
             flags |= ent_flags::LOCKED_ON_YOU;
         }
         // Allies see a jamming suit's shimmer; its enemies (close enough to see it at all) don't.
-        if self.jamming(j).is_some() && s.faction[j] == s.faction[viewer] {
+        // Full Open shows to everyone.
+        if (self.jamming(j).is_some() && s.faction[j] == s.faction[viewer]) || self.full_open(j) {
             flags |= ent_flags::SPECIAL;
         }
         EntityState {
