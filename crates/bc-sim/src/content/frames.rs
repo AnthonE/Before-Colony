@@ -611,7 +611,7 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
             mount(WeaponKind::BeamGlaive, LEFT),
         ],
         zero: false,
-        playable: false,
+        playable: true,
         special: SpecialKind::None,
         special_mounts: [None, None],
         ai: hints(0.0, true, 1.7),

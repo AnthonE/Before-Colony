@@ -45,6 +45,15 @@ impl Sim {
         }
     }
 
+    /// Whether `arm` is out with a strike that takes the arm with it (the Dragon Fang), so the
+    /// arm's other weapons wait.
+    pub(super) fn arm_blocked(&self, i: usize, arm: ArmSlot) -> bool {
+        let st = &self.suits.melee[i];
+        st.phase != MeleePhase::Idle
+            && weapon(st.weapon).blocks_arm
+            && self.melee_mount(i, st.slot).is_some_and(|m| m.arm.part() == arm.part())
+    }
+
     /// Whether a strike from `slot` could start now: arms, cooldown, energy and heat (a strike
     /// already under way aside).
     pub(super) fn melee_ready(&self, i: usize, slot: u8) -> bool {

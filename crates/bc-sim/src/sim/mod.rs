@@ -16,6 +16,7 @@
 use alloc::boxed::Box;
 
 mod combat;
+mod flame;
 mod melee;
 mod mining;
 mod salvage;

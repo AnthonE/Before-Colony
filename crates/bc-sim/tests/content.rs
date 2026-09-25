@@ -72,7 +72,9 @@ fn only_pilots_frames_are_playable() {
             assert!(PLAYABLE_ORDER.contains(&f), "{f:?} is playable but has no respawn key");
         }
     }
-    assert!(playable(FrameId::Leo) && playable(FrameId::WingZero));
+    for f in [FrameId::Leo, FrameId::WingZero, FrameId::Shenlong] {
+        assert!(playable(f), "{f:?} can be flown");
+    }
     for f in [FrameId::Taurus, FrameId::Virgo, FrameId::WingZeroBird] {
         assert!(!playable(f), "{f:?} must not be chosen");
     }

@@ -90,8 +90,11 @@ Own-state notes:
 
 Entity record: slot (10), generation (2), frame (4), faction (3), pilot kind (2), position (63),
 rotation (32), velocity (42), aim (18), flags (12), and 6 part-armour buckets (3 bits each, 0–7).
-The last two flags are SPECIAL (the frame's special is engaged; a jamming suit is only replicated
-to allies) and MELEE_ALT (the melee strike under way comes from a ranged slot, the Dragon Fang).
+FIRING_PRIMARY and FIRING_SECONDARY say the slot fired in the last 4 ticks: clients draw a
+stream weapon's tracers from them (its shots send no BeamSpawn), and a flamethrower's flag is set
+while it's lit. SABER says a melee strike is out. The last two flags are SPECIAL (the frame's
+special is engaged; a jamming suit is only replicated to allies) and MELEE_ALT (the melee strike
+under way comes from a ranged slot, the Dragon Fang).
 
 Missile record: pool id (10), generation (2), weapon kind (5), guided, targets you, friendly (1
 each), position (63, the entity grid), velocity (3 × 12 bits over ±4 096 m/s). A snapshot lists at

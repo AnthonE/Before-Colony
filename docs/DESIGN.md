@@ -57,6 +57,7 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
 |---|---|---|---|---|---|---|
 | Leo (OZ-06MS) | line suit | 7.1 t | 3.5 g (5.6 g) | ≈2.6 km/s | titanium | beam rifle · machine cannon · beam saber |
 | Wing Gundam Zero (XXXG-00W0) | hero suit | 8.0 t | 8 g (12 g) | ≈3.7 km/s | gundanium (×0.55 damage) | Twin Buster Rifle · machine cannons · beam saber · **ZERO System** |
+| Shenlong Gundam (XXXG-01S) | duellist | 7.5 t | 7.4 g (11.8 g) | ≈3.3 km/s | gundanium (×0.55) | Dragon Fang · flamethrower · beam glaive |
 | Taurus (OZ-13MS) | Mobile Doll | 6.5 t | 5 g | | titanium | beam rifle |
 | Virgo (OZ-02MD) | Mobile Doll | 9.5 t | 3 g | | heavy (×0.8) | beam cannon, Planet Defensors (visual) |
 
@@ -69,6 +70,11 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
 | Beam saber | – | 90 | swing | 9 m arc sweep with a lunge; blades clash (both parried) |
 | Twin Buster Rifle | 8 km/s | 220 | 1 per 5 s | 0.6 s charge, visible to everyone; 5 m beam engulfs the whole suit |
 | Beam cannon (Virgo) | 3.5 km/s | 70 | 0.8/s | |
+| Beam gatling (Heavyarms) | 3 km/s | 7 | 10/s | a stream of beam rounds |
+| Buster shield (Deathscythe) | 450 m/s | 80 | 1 per 5 s | the shield's beam claw, fired: slow, so lead it |
+| Head vulcans (Deathscythe) | 1 km/s | 3 | 15/s | 300 rounds |
+| Beam machine gun (Sandrock) | 3.5 km/s | 12 | 6/s | |
+| Flamethrower (Shenlong) | – | 7 a burn | 5 burns/s | a 70 m cone, ±12°; each burn adds 10 heat to what it touches, enough to overheat it; 150 burns |
 
 - **Projectiles inherit the shooter's velocity** (it's space). Fire control solves the intercept in
   the shooter's frame.
@@ -87,6 +93,9 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
     (pilots').
 - **Heat and energy.** Overheating locks all weapons until heat falls to 50%. Beam weapons draw from
   an energy pool that the reactor recharges.
+- **Streams.** Rapid-fire weapons (gatlings, machine guns, vulcans) aren't sent shot by shot: every
+  client draws their tracers from the firing flags. Only single shots (rifles, cannons, the buster
+  shield) are events, and only those are predicted by the shooter's own client.
 - **Lag compensation.** A shot resolves against the world as its shooter saw it, up to 8 ticks
   (267 ms) back. Details are in `ARCHITECTURE.md`.
 

@@ -32,9 +32,9 @@ fn golden_hash_wasm() {
 }
 
 /// Hash after 450 ticks of the Gundams duelling in pairs among Mobile Dolls: every blade, the
-/// Cross Crusher, the Dragon Fang, and the Gundams' guns (changes deliberately as their mechanics
-/// arrive).
-const GUNDAMS_GOLDEN: u64 = 0xdea0_5f74_c803_5982;
+/// Cross Crusher, the Dragon Fang, the flamethrower and the Gundams' guns (changes deliberately as
+/// their mechanics arrive).
+const GUNDAMS_GOLDEN: u64 = 0xa22e_cfac_f3a2_f545;
 
 fn gundams_hash() -> u64 {
     use bc_proto::WeaponKind;
@@ -70,6 +70,10 @@ fn gundams_hash() -> u64 {
         WeaponKind::CrossCrusher,
         WeaponKind::DragonFang,
         WeaponKind::BeamGlaive,
+        WeaponKind::Flamethrower,
+        WeaponKind::BeamGatling,
+        WeaponKind::BusterShield,
+        WeaponKind::BeamMachineGun,
     ] {
         assert!(landed[k as usize], "no {k:?} hit in the Gundams' scenario");
     }

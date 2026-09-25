@@ -77,6 +77,7 @@ impl Sim {
                         && (w.ammo == 0 || ws.ammo > 0)
                         && !s.overheated[i]
                         && s.arm_free(i, m.arm)
+                        && !self.arm_blocked(i, m.arm)
                 };
                 if ok {
                     ready |= 1 << slot;

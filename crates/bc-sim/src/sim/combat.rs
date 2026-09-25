@@ -58,15 +58,20 @@ impl Sim {
             for slot in 0..2 {
                 let Some(mount) = spec.loadout[slot] else { continue };
                 let w = weapon(mount.weapon);
-                // Guns only: blades strike in `melee_step` (the Dragon Fang is a primary), and the
-                // flamethrower and missile launchers don't fire yet.
-                if !matches!(w.class, WeaponClass::Beam | WeaponClass::Ballistic) {
-                    continue;
+                match w.class {
+                    WeaponClass::Beam | WeaponClass::Ballistic => {}
+                    WeaponClass::Cone => {
+                        self.flame(i, slot, mount, w, &cmd, t);
+                        continue;
+                    }
+                    // Blades strike in `melee_step` (the Dragon Fang is a primary), and missile
+                    // launchers don't fire yet.
+                    WeaponClass::Melee | WeaponClass::Missile => continue,
                 }
                 let button = if slot == 0 { FIRE_PRIMARY } else { FIRE_SECONDARY };
                 let mut ws: WeaponState = self.suits.weapons[i][slot];
                 ws.cooldown = ws.cooldown.saturating_sub(1);
-                let arm_ok = self.suits.arm_free(i, mount.arm);
+                let arm_ok = self.suits.arm_free(i, mount.arm) && !self.arm_blocked(i, mount.arm);
                 let ready = ws.cooldown == 0
                     && !self.suits.overheated[i]
                     && self.suits.energy[i] >= w.energy
