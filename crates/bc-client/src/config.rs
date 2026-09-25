@@ -82,11 +82,7 @@ impl LaunchConfig {
     }
 }
 
-/// `leo | wingzero` (anything else: None).
+/// A frame pilots may fly, by its slug (`leo`, `wingzero`, `heavyarms`…); anything else: None.
 pub fn parse_frame(s: &str) -> Option<bc_proto::FrameId> {
-    match s.to_ascii_lowercase().replace(['-', '_', ' '], "").as_str() {
-        "leo" => Some(bc_proto::FrameId::Leo),
-        "wingzero" | "wing" | "zero" => Some(bc_proto::FrameId::WingZero),
-        _ => None,
-    }
+    bc_proto::FrameId::from_slug(s).filter(|f| bc_sim::content::playable(*f))
 }

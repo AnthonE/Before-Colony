@@ -4,7 +4,7 @@ use bc_proto::{CARGO_KINDS, ChunkDesc, ChunkKind, FrameId, Part, WeaponKind};
 use glam::Vec3;
 
 use crate::config::secs;
-use crate::content::frame;
+use crate::content::{WeaponClass, frame, weapon};
 use crate::math::floor;
 use crate::world::{COLONY_CENTER, COLONY_HALF_LENGTH};
 
@@ -62,12 +62,13 @@ pub const DOCK_SPEED: f32 = 25.0;
 /// Credits per kg of each material: nickel-iron, titanium, volatiles, exotics.
 pub const PRICE: [u32; CARGO_KINDS] = [1, 4, 3, 15];
 
-/// How hard each weapon works a rock: sabers cut it, cannon rounds chip it, beams mostly glance off.
+/// How hard each weapon works a rock: blades cut it, solid rounds chip it, beams (and missile
+/// blasts and flame) mostly glance off.
 pub fn rock_multiplier(kind: WeaponKind) -> f32 {
-    match kind {
-        WeaponKind::BeamSaber => 2.0,
-        WeaponKind::MachineCannon => 1.0,
-        _ => 0.3,
+    match weapon(kind).class {
+        WeaponClass::Melee => 2.0,
+        WeaponClass::Ballistic => 1.0,
+        WeaponClass::Beam | WeaponClass::Missile | WeaponClass::Cone => 0.3,
     }
 }
 
@@ -85,9 +86,25 @@ pub const SABER_DIG: f32 = 2.5;
 pub fn hold_kg(frame_id: FrameId) -> u32 {
     match frame_id {
         FrameId::Leo => 3_000,
-        FrameId::WingZero => 1_500,
+        FrameId::WingZero | FrameId::WingZeroBird | FrameId::Deathscythe | FrameId::Shenlong => 1_500,
+        // Heavyarms' magazines and Sandrock's desert kit leave a little less room.
+        FrameId::Heavyarms => 1_000,
+        FrameId::Sandrock => 2_000,
         FrameId::Taurus | FrameId::Virgo => 0,
     }
+}
+
+/// The Gundams: built of gundanium, which only zero-G can make.
+pub fn is_gundam(frame_id: FrameId) -> bool {
+    matches!(
+        frame_id,
+        FrameId::WingZero
+            | FrameId::WingZeroBird
+            | FrameId::Heavyarms
+            | FrameId::Deathscythe
+            | FrameId::Sandrock
+            | FrameId::Shenlong
+    )
 }
 
 /// How long loose ore lasts (jettisoned, spilled or mined).
@@ -101,7 +118,7 @@ pub fn material(kind: ChunkKind) -> usize {
     match kind {
         ChunkKind::Ore { ore } => usize::from(ore) % CARGO_KINDS,
         ChunkKind::Limb { frame: f, .. } | ChunkKind::Hulk { frame: f, .. } => {
-            if f == FrameId::WingZero {
+            if is_gundam(f) {
                 3
             } else {
                 1

@@ -443,7 +443,7 @@ impl World {
                     self.hits_taken += 1;
                 }
                 // The beam that hit stops being drawn (its direction places the sparks).
-                let beam = if w.is_beam() {
+                let beam = if weapon(w).replication == bc_sim::content::Replication::PerShot {
                     self.beams.iter().position(|b| b.shooter == shooter && b.alive_at(f64::from(tick)))
                 } else {
                     None

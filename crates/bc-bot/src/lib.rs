@@ -31,16 +31,10 @@ pub use bc_client_core::brains::{self, DollBrain, MinerBrain};
 pub use client::{BotClient, BotConfig};
 pub use transport::{EndpointInfo, connect, discover, install_crypto_provider};
 
-/// Parses `leo | wingzero | taurus | virgo`.
+/// Parses a frame an agent may fly, by its slug (`leo`, `wingzero`, `heavyarms`…; see
+/// [`FrameId::slug`](bc_proto::FrameId::slug)). Mobile Dolls' frames are the server's alone.
 pub fn parse_frame(s: &str) -> Option<bc_proto::FrameId> {
-    use bc_proto::FrameId;
-    match s.to_ascii_lowercase().replace(['-', '_', ' '], "").as_str() {
-        "leo" => Some(FrameId::Leo),
-        "wingzero" | "wing" | "zero" => Some(FrameId::WingZero),
-        "taurus" => Some(FrameId::Taurus),
-        "virgo" => Some(FrameId::Virgo),
-        _ => None,
-    }
+    bc_proto::FrameId::from_slug(s).filter(|f| bc_sim::content::playable(*f))
 }
 
 /// Parses `colonies | oz | alliance`.

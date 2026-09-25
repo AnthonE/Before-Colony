@@ -9,10 +9,10 @@ use glam::Vec3;
 use super::Sim;
 use crate::chunks::{self, Motion, segment_pos};
 use crate::config::secs;
-use crate::content::frame;
 use crate::content::salvage::{
     BEAM_WASTE_KG, CHIP_KG, REGROW_CLEAR, ore_ttl, part_mass_kg, rock_multiplier, wreck_ttl,
 };
+use crate::content::{WeaponClass, frame, weapon};
 use crate::math::{hash01, normalize_or};
 use crate::rocks::{max_hp, max_ore_kg};
 
@@ -41,11 +41,12 @@ impl Sim {
         let r = &mut self.rocks;
         r.hp[i] -= amount * rock_multiplier(kind);
         // Beams boil off some of the ore they strike.
-        if kind.is_beam() {
+        let class = weapon(kind).class;
+        if class == WeaponClass::Beam {
             r.ore_kg[i] = r.ore_kg[i].saturating_sub((amount * BEAM_WASTE_KG) as u32);
         }
-        // A saber chips a piece off, ore and all.
-        if kind == WeaponKind::BeamSaber {
+        // A blade chips a piece off, ore and all.
+        if class == WeaponClass::Melee {
             let chip = r.ore_kg[i].min(CHIP_KG) / 10 * 10;
             if chip > 0 {
                 r.ore_kg[i] -= chip;

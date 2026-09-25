@@ -227,16 +227,25 @@ impl Suits {
         }
     }
 
-    /// Whether a mount's weapons can be used: its arm is there, and not holding anything.
+    /// Whether a mount's weapons can be used: its arm (or other part) is there, and not holding
+    /// anything. A two-handed mount needs both arms, and both free.
     pub fn arm_free(&self, idx: usize, arm: ArmSlot) -> bool {
         let (chunk, _, right) = self.held[idx];
-        let busy = chunk != NO_CHUNK
+        let holding = chunk != NO_CHUNK;
+        let busy = holding
             && match arm {
                 ArmSlot::Left => !right,
-                ArmSlot::Right => right,
-                ArmSlot::Shoulder => false,
+                ArmSlot::Right | ArmSlot::Nose => right,
+                ArmSlot::Both => true,
+                ArmSlot::Shoulder
+                | ArmSlot::Head
+                | ArmSlot::Pods
+                | ArmSlot::Chest
+                | ArmSlot::LegPods
+                | ArmSlot::NoseGuns => false,
             };
-        self.part_hp[idx][arm.part() as usize] > 0.0 && !busy
+        let both = arm != ArmSlot::Both || self.part_hp[idx][Part::ArmL as usize] > 0.0;
+        self.part_hp[idx][arm.part() as usize] > 0.0 && both && !busy
     }
 
     /// What's in the hold, kg.

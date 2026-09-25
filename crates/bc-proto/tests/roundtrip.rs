@@ -32,7 +32,7 @@ fn entity() -> impl Strategy<Value = EntityState> {
     (
         0u16..1023,
         0u8..4,
-        0u32..4,
+        0u32..FrameId::COUNT as u32,
         vec3(32_000.0),
         quat(),
         vec3(2000.0),
@@ -70,8 +70,8 @@ fn missile() -> impl Strategy<Value = MissileState> {
 }
 
 fn desc() -> impl Strategy<Value = ChunkDesc> {
-    (0u32..3, 0u8..4, 0u32..4, 0u32..3, 0u32..6, 0u8..64, any::<u8>(), 0u32..4096).prop_map(
-        |(class, ore, frame, faction, part, parts, seed, tens)| {
+    (0u32..3, 0u8..4, 0u32..FrameId::COUNT as u32, 0u32..3, 0u32..6, 0u8..64, any::<u8>(), 0u32..4096)
+        .prop_map(|(class, ore, frame, faction, part, parts, seed, tens)| {
             let frame = FrameId::from_bits(frame).unwrap();
             let faction = Faction::from_bits(faction);
             let kind = match class {
@@ -80,8 +80,7 @@ fn desc() -> impl Strategy<Value = ChunkDesc> {
                 _ => ChunkKind::Hulk { frame, faction, parts },
             };
             ChunkDesc { kind, seed, mass_kg: tens * 10 }
-        },
-    )
+        })
 }
 
 fn object() -> impl Strategy<Value = ObjectState> {

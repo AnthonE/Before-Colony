@@ -112,10 +112,10 @@ pub(crate) fn threat_line(t: &ThreatBrief) -> String {
 
 /// The `state` document for one pilot.
 pub(crate) fn state(p: &TacticalPicture) -> Value {
-    let frame = if p.frame == FrameId::WingZero {
-        "Wing Gundam Zero (gundanium armour, ZERO System)"
-    } else {
-        frame_name(p.frame)
+    let frame = match p.frame {
+        FrameId::WingZero => "Wing Gundam Zero (gundanium armour, ZERO System)",
+        FrameId::WingZeroBird => "Wing Gundam Zero in Neo-Bird flight form (gundanium armour, ZERO System)",
+        f => frame_name(f),
     };
     let threats: Vec<Value> = p
         .threats()

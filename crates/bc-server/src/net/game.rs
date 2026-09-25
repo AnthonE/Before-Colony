@@ -328,6 +328,10 @@ async fn session(conn: Connection, game: GameShared, stats: Arc<NetStats>) -> an
         send_control(&mut tx, ControlMsg::Reject { reason: RejectReason::VersionMismatch }).await?;
         anyhow::bail!("protocol version {version}");
     }
+    if !bc_sim::content::playable(frame) {
+        send_control(&mut tx, ControlMsg::Reject { reason: RejectReason::FrameNotAllowed }).await?;
+        anyhow::bail!("frame {frame:?} is not flyable");
+    }
     // Only the Bot SDK may claim to be an agent; nobody may claim to be a server-side doll.
     let pilot = if pilot == PilotKind::MobileDoll { PilotKind::Agent } else { pilot };
     let Some(mut lease) = game.sector.leases.pop() else {

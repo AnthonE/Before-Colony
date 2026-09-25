@@ -10,16 +10,13 @@ use crate::chunks::Motion;
 use crate::collide::{capsule_world, segment_near_point, segment_segment, sweep_capsules};
 use crate::config::{DT, MAX_REWIND_TICKS, secs};
 use crate::content::salvage::{DETACH_PUSH, DETACH_SPEED, SABER_DIG, mass_without, part_mass_kg, wreck_ttl};
-use crate::content::{Mount, WeaponSpec, frame, weapon};
+use crate::content::{Mount, Replication, WeaponSpec, frame, weapon};
 use crate::math::{angle_between, cos, hash01, normalize_or, sin};
 use crate::suits::{SaberPhase, WeaponState};
 use crate::world::inside_colony;
 
 /// ZERO fire-time magnetism: shots this close to the ZERO firing solution snap to it.
 pub const MAGNET_ANGLE: f32 = 0.026; // 1.5°
-
-/// Beams at least this wide engulf a suit and always hit the torso, m.
-const WIDE_BEAM_RADIUS: f32 = 3.0;
 
 /// Clamps `dir` into a cone of half-angle `cone` around `axis`.
 fn clamp_to_cone(dir: Vec3, axis: Vec3, cone: f32) -> Vec3 {
@@ -161,7 +158,7 @@ impl Sim {
             }
             p = b;
         }
-        if w.kind.is_beam() {
+        if w.replication == Replication::PerShot {
             self.events.push(Event::BeamSpawn {
                 id: 0,
                 tick: spawn_tick,
@@ -367,7 +364,7 @@ impl Sim {
                 && let Some((at, rock)) = self.field.sweep(hand, tip, w.radius + SABER_DIG)
             {
                 self.suits.saber[i].rock = Some(rock as u16);
-                self.rock_hit(rock, w.damage, WeaponKind::BeamSaber, hand + (tip - hand) * at, stroke, i, t);
+                self.rock_hit(rock, w.damage, w.kind, hand + (tip - hand) * at, stroke, i, t);
             }
             if self.suits.saber[i].cut.is_none()
                 && let Some(k) = self.hulk_in_blade(hand, tip, w.radius)
@@ -427,7 +424,7 @@ impl Sim {
                 st.hits[st.n_hits as usize] = j as u16;
                 st.n_hits += 1;
             }
-            self.queue_damage(j, Part::ALL[ci], w.damage, i, WeaponKind::BeamSaber, stroke);
+            self.queue_damage(j, Part::ALL[ci], w.damage, i, w.kind, stroke);
         }
     }
 
@@ -442,7 +439,7 @@ impl Sim {
             let mut part = d.part;
             let mut amount = d.amount * spec.armor;
             // A beam wider than a limb engulfs the whole suit: it lands on the torso.
-            if weapon(d.weapon).radius >= WIDE_BEAM_RADIUS {
+            if weapon(d.weapon).engulfs {
                 part = Part::Torso;
             }
             // Hits on a destroyed limb carry through to the torso at half strength.

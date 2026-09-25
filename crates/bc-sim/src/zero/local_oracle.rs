@@ -2,7 +2,7 @@
 //! with a softmax, and the same confidence statistic Jev reports. It runs inside the tick,
 //! deterministically and without allocating, so the ZERO System works with no network at all.
 
-use bc_proto::{FrameId, NO_SLOT};
+use bc_proto::NO_SLOT;
 use glam::Vec3;
 
 use super::advice::THREAT_LEVELS;
@@ -27,11 +27,7 @@ pub fn threat_score(c: &Contact) -> f32 {
     if c.firing {
         intent += 0.5;
     }
-    let lethality = match c.frame {
-        FrameId::WingZero => 2.0,
-        FrameId::Virgo => 1.3,
-        _ => 1.0,
-    };
+    let lethality = frame(c.frame).ai.threat;
     proximity * intent * lethality * (0.3 + 0.7 * c.hull)
 }
 

@@ -32,6 +32,12 @@ pub fn design(frame: FrameId, d: &mut Designer) {
         FrameId::Leo => leo(d),
         FrameId::Taurus => taurus(d),
         FrameId::Virgo => virgo(d),
+        // Stand-ins until each Gundam has its own design.
+        FrameId::Heavyarms
+        | FrameId::Deathscythe
+        | FrameId::Sandrock
+        | FrameId::Shenlong
+        | FrameId::WingZeroBird => wing_zero(d),
     }
 }
 

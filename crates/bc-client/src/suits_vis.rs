@@ -61,7 +61,11 @@ const EYE_PINK: u8 = 1;
 pub fn livery(frame: FrameId, faction: Faction) -> (u8, u8, u8, u8) {
     use paint::*;
     match (frame, faction) {
-        (FrameId::WingZero, _) => (WHITE, BLUE, RED, EYE_GREEN),
+        (FrameId::WingZero | FrameId::WingZeroBird, _) => (WHITE, BLUE, RED, EYE_GREEN),
+        (FrameId::Heavyarms, _) => (WHITE, RED, DARK, EYE_GREEN),
+        (FrameId::Deathscythe, _) => (DARK, BLUE, RED, EYE_GREEN),
+        (FrameId::Sandrock, _) => (ALLIANCE_TAN, WHITE, RED, EYE_GREEN),
+        (FrameId::Shenlong, _) => (WHITE, OZ_GREEN, YELLOW, EYE_GREEN),
         (FrameId::Taurus, _) => (TAURUS_WHITE, TAURUS_BLUE, RED, EYE_PINK),
         (FrameId::Virgo, _) => (VIRGO_OLIVE, OZ_GREY, DARK, EYE_PINK),
         (FrameId::Leo, Faction::Oz) => (OZ_GREEN, OZ_GREY, DARK, EYE_PINK),

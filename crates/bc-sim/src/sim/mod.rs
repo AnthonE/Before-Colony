@@ -192,8 +192,12 @@ impl Sim {
         self.alive_count
     }
 
-    /// Adds a player or agent suit at its faction's spawn point.
+    /// Adds a player or agent suit at its faction's spawn point. `None` if the sector is full, or
+    /// the frame isn't one pilots may fly.
     pub fn join(&mut self, frame_id: FrameId, faction: Faction, pilot: PilotKind) -> Option<SuitId> {
+        if !frame(frame_id).playable {
+            return None;
+        }
         let id = self.suits.allocate(frame_id, faction, pilot)?;
         self.spawn_counter += 1;
         let (pos, rot) = spawn_point(faction, self.spawn_counter);
@@ -240,7 +244,7 @@ impl Sim {
 
     /// Asks for the next respawn to use `frame_id`.
     pub fn set_respawn_frame(&mut self, id: SuitId, frame_id: FrameId) {
-        if self.suits.valid(id) {
+        if self.suits.valid(id) && frame(frame_id).playable {
             self.suits.respawn_frame[id.idx()] = frame_id;
         }
     }
