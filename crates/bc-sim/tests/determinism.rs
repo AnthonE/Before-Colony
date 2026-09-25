@@ -32,13 +32,13 @@ fn golden_hash_wasm() {
 }
 
 /// Hash after 450 ticks of the Gundams duelling in pairs among Mobile Dolls: every blade, the
-/// Cross Crusher, the Dragon Fang, the flamethrower and the Gundams' guns (changes deliberately as
-/// their mechanics arrive).
-const GUNDAMS_GOLDEN: u64 = 0xa22e_cfac_f3a2_f545;
+/// Cross Crusher, the Dragon Fang, the flamethrower, the Hyper Jammer and the Gundams' guns
+/// (changes deliberately as their mechanics arrive).
+const GUNDAMS_GOLDEN: u64 = 0xdca3_7207_a338_a8ba;
 
 fn gundams_hash() -> u64 {
-    use bc_proto::WeaponKind;
     use bc_proto::events::Event;
+    use bc_proto::{FrameId, WeaponKind};
 
     let (mut sim, pilots) = common::gundam_arena(12, 7);
     let mut landed = [false; WeaponKind::COUNT];
@@ -76,6 +76,12 @@ fn gundams_hash() -> u64 {
         WeaponKind::BeamMachineGun,
     ] {
         assert!(landed[k as usize], "no {k:?} hit in the Gundams' scenario");
+    }
+    for id in &pilots {
+        let f = sim.suits.frame[id.idx()];
+        if matches!(f, FrameId::Sandrock | FrameId::Deathscythe) {
+            assert!(sim.stats(id.idx()).specials > 0, "{f:?} never used its special");
+        }
     }
     sim.state_hash()
 }

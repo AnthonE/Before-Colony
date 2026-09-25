@@ -62,7 +62,7 @@ network threads.
    cleared (the same view delay). After 8 silent ticks the suit goes hands-off.
 5. **`Sim::step`:**
    1. Mobile Doll AI (re-plans every 3rd tick, staggered). A ZERO seizure overrides the pilot.
-   2. Specials: their cooldowns run down.
+   2. Specials: their cooldowns run down, and the Hyper Jammer follows MODE and drains energy.
    3. Flight: AMBAC/RCS, thrust, propellant, G-strain, swept against the rocks. Wrecks drift.
    4. Chunks (loose ore, limbs, hulks): free ones drift on closed-form segments, bounce off the
       colony and rocks, and expire.
@@ -146,7 +146,10 @@ network threads.
   the whole flight from it. The shooter draws its own shot immediately and matches the server's
   event by `shot_seq`.
 - **Interest management** is the sensor model: clients only learn about what their suit can
-  detect.
+  detect. One question, `Sim::detects(viewer, j)`, answers it for replication, for Mobile Doll and
+  ZERO perception and for locks, so the Hyper Jammer hides a suit from all of them at once.
+  Designations (lock targets) are raw client input, so they're read through `Sim::designation`,
+  which keeps only a live hostile on the designator's sensors.
 
 ## AI layers
 
@@ -186,6 +189,7 @@ on wasm32 (under Node, via `wasm-bindgen-test-runner`). Never enable glam's `fas
 | `bc-proto/tests/roundtrip.rs` | Codecs round-trip within ½ LSB; decoders never panic on arbitrary bytes. |
 | `bc-sim/tests/no_alloc.rs`, `bc-sector/tests/no_alloc_sector.rs` | 0 heap operations per tick with 64 clients + 256 dolls, and with the Gundams duelling. |
 | `bc-sim/tests/determinism.rs` | Identical state hash on native and wasm32, for the reference scenario, for suits flying into rocks and firing through them, for a salvage run, and for the Gundams duelling with every blade; the generated debris field is identical too. |
+| `bc-sim/tests/jammer.rs` | A jamming Deathscythe leaves its enemies' sensors (past 400 m for eyes), Mobile Dolls and ZERO lose it, allies see it shimmer, locks on it drop and its own go unnoticed; firing or striking breaks it for 2 s; it drains energy and needs a fifth of it to engage. |
 | `bc-sim/tests/ranged.rs` | The flamethrower burns within its cone and reach only, a round a burn, and overheats its target; the Dragon Fang takes the flamethrower's arm along; stream weapons fire without spawn events; the buster shield flies at its speed. |
 | `bc-sim/tests/{content,melee}.rs` | Every table row sits at its id and the Gundams fly as designed; every blade reaches as far as its row says and mines, twin blades strike once each, the Dragon Fang thrusts where it's aimed, the Cross Crusher is Sandrock's special, and only blades that parry clash. |
 | `bc-sim/tests/{flight,combat,fire_control,lagcomp,mobile_dolls,zero,field,salvage}.rs` | Rocket equation, FA, blackout, no tunnelling, arm loss, charge, sabers and clashes, lag comp (and its clamp), dolls fight to a kill, ZERO accuracy, calibration, seizure, magnetism; suits stop at rocks at 2 km/s and rocks stop shots; limbs come off as chunks and shots pass where they were, hulks, bounces, expiry, lighter suits. |

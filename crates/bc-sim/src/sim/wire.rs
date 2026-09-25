@@ -7,10 +7,8 @@ use bc_proto::{EntityState, ObjectState, OwnState, RockState, ZeroInfo};
 
 use super::Sim;
 use crate::chunks::Motion;
-use crate::config::VISUAL_RANGE;
-use crate::content::{WeaponClass, frame, weapon};
+use crate::content::{SpecialKind, WeaponClass, frame, weapon};
 use crate::rocks::{max_hp, max_ore_kg};
-use crate::sensors;
 use crate::suits::{MeleePhase, SPECIAL_MOUNT, SuitStats};
 
 impl Sim {
@@ -43,18 +41,7 @@ impl Sim {
                 return false;
             }
         }
-        let vspec = frame(s.frame[viewer]);
-        let head_ok = s.part_hp[viewer][bc_proto::Part::Head as usize] > 0.0;
-        let range = vspec.sensor_range * if head_ok { 1.0 } else { 0.4 };
-        let sig = sensors::signature(
-            frame(s.frame[j]).signature,
-            s.boosting[j],
-            self.tick().saturating_sub(s.last_fired[j]) < 30,
-            wreck,
-        );
-        let d2 = (s.flight[j].pos - s.flight[viewer].pos).length_squared();
-        d2 <= VISUAL_RANGE * VISUAL_RANGE
-            || sensors::detects(s.flight[viewer].pos, range, s.flight[j].pos, sig)
+        self.detects(viewer, j)
     }
 
     /// Full-precision state of suit `i` for its own pilot.
@@ -123,9 +110,21 @@ impl Sim {
         if s.input[i].pressed(bc_proto::buttons::FLIGHT_ASSIST) {
             flags |= own_flags::FLIGHT_ASSIST;
         }
-        if s.alive.iter().any(|j| j != i && s.input[j].lock_target == i as u16) {
+        // Locked on by someone it can see (a jamming suit's lock goes unnoticed).
+        if s.alive.iter().any(|j| {
+            s.input[j].lock_target == i as u16 && self.designation(j) == Some(i) && !self.jammed_from(i, j)
+        }) {
             flags |= own_flags::LOCKED_ON;
         }
+        if s.special[i].active {
+            flags |= own_flags::SPECIAL_ACTIVE;
+        }
+        // The special's timer: a change of form, Full Open, or (the jammer) the break until it
+        // hides the suit again.
+        let special_timer = match spec.special {
+            SpecialKind::HyperJammer { .. } => s.special[i].break_until.saturating_sub(t),
+            _ => u32::from(s.special[i].timer),
+        };
         let respawn_in =
             if s.alive.get(i) { 0 } else { (s.respawn_at[i].saturating_sub(t) / 4).min(255) as u8 };
         OwnState {
@@ -155,9 +154,9 @@ impl Sim {
             cargo_kg: s.cargo_kg[i],
             credits: s.credits[i],
             held: self.held_chunk(i).map_or(bc_proto::NO_CHUNK, |k| k as u16),
-            lock_target: s.input[i].lock_target.min(bc_proto::NO_SLOT),
+            lock_target: self.designation(i).map_or(bc_proto::NO_SLOT, |j| j as u16),
             lock_progress: 0,
-            special_timer: s.special[i].timer.min(255) as u8,
+            special_timer: special_timer.min(255) as u8,
             special_cooldown: s.special[i].cooldown.div_ceil(4).min(255) as u8,
         }
     }
@@ -201,8 +200,12 @@ impl Sim {
         if !s.alive.get(j) {
             flags |= ent_flags::WRECK;
         }
-        if s.input[j].lock_target == viewer as u16 && s.alive.get(j) {
+        if s.input[j].lock_target == viewer as u16 && self.designation(j) == Some(viewer) {
             flags |= ent_flags::LOCKED_ON_YOU;
+        }
+        // Allies see a jamming suit's shimmer; its enemies (close enough to see it at all) don't.
+        if self.jamming(j).is_some() && s.faction[j] == s.faction[viewer] {
+            flags |= ent_flags::SPECIAL;
         }
         EntityState {
             slot: j as u16,

@@ -55,7 +55,9 @@ impl Sim {
         if !burn {
             return;
         }
+        self.break_jammer(i, t);
 
+        let s = &self.suits;
         let f = s.flight[i];
         let fwd = f.rot * Vec3::Z;
         let dir = clamp_to_cone(normalize_or(cmd.aim, fwd), fwd, mount.arm.cone());

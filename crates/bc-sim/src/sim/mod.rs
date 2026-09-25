@@ -16,6 +16,7 @@
 use alloc::boxed::Box;
 
 mod combat;
+mod detection;
 mod flame;
 mod melee;
 mod mining;
@@ -44,7 +45,6 @@ use crate::math::{Rng, length, look_rotation, normalize_or};
 use crate::perception::{Contact, Perception, SelfView};
 use crate::projectiles::Projectiles;
 use crate::rocks::RockStates;
-use crate::sensors;
 use crate::spatial::SpatialHash;
 use crate::storage::{BitSet, FixedVec, boxed};
 use crate::suits::{MeleePhase, Suits};
@@ -371,14 +371,8 @@ impl Sim {
                 continue;
             }
             // Cheap sensor test first; only detected suits get a full contact built.
-            let sig = sensors::signature(
-                frame(self.suits.frame[j]).signature,
-                self.suits.boosting[j],
-                t.saturating_sub(self.suits.last_fired[j]) < 30,
-                false,
-            );
             let pos = self.suits.flight[j].pos;
-            if sensors::detects(me.pos, range, pos, sig) && out.would_keep(length(pos - me.pos)) {
+            if self.detects(i, j) && out.would_keep(length(pos - me.pos)) {
                 out.offer(self.contact_of(j, i, t));
             }
         }
@@ -470,8 +464,11 @@ impl Sim {
                 ai::think(&scratch, &mut ai_state, t, profile, range);
                 ai_state.think_at = t + interval;
             }
-            let target = (ai_state.target != NO_SLOT && self.suits.is_alive(ai_state.target as usize))
-                .then(|| self.contact_of(ai_state.target as usize, i, t));
+            // Its target, followed between thinks, unless it has gone behind a jammer.
+            let target = (ai_state.target != NO_SLOT
+                && self.suits.is_alive(ai_state.target as usize)
+                && !self.jammed_from(i, ai_state.target as usize))
+            .then(|| self.contact_of(ai_state.target as usize, i, t));
             let me = self.self_view(i);
             let mut cmd = ai::drive(&me, target.as_ref(), &mut ai_state, t, profile, spec);
             if seized {

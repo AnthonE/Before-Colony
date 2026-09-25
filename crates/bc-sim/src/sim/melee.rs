@@ -157,6 +157,7 @@ impl Sim {
             s.weapons[i][slot as usize].cooldown = w.cooldown + m.duration();
         }
         s.last_fired[i] = t;
+        self.break_jammer(i, t);
     }
 
     /// Sweeps the strike's blades through this tick (`sub_steps` samples) against rocks, hulks and

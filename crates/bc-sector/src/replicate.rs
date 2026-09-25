@@ -55,7 +55,7 @@ fn relevant(sim: &Sim, me: usize, e: &Event) -> bool {
 fn weight(sim: &Sim, me: usize, j: usize) -> f32 {
     let d = (sim.suits.flight[j].pos - sim.suits.flight[me].pos).length();
     let mut w = 1.0 / (1.0 + d / 800.0);
-    if sim.suits.input[j].lock_target == me as u16 || sim.suits.input[me].lock_target == j as u16 {
+    if sim.designation(j) == Some(me) || sim.designation(me) == Some(j) {
         w *= 3.0;
     }
     if !sim.suits.alive.get(j) {

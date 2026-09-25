@@ -57,6 +57,7 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
 |---|---|---|---|---|---|---|
 | Leo (OZ-06MS) | line suit | 7.1 t | 3.5 g (5.6 g) | ≈2.6 km/s | titanium | beam rifle · machine cannon · beam saber |
 | Wing Gundam Zero (XXXG-00W0) | hero suit | 8.0 t | 8 g (12 g) | ≈3.7 km/s | gundanium (×0.55 damage) | Twin Buster Rifle · machine cannons · beam saber · **ZERO System** |
+| Gundam Deathscythe (XXXG-01D) | infiltrator | 7.3 t | 7 g (11.2 g) | ≈3.3 km/s | gundanium (×0.55) | buster shield · head vulcans · beam scythe · **Hyper Jammer** |
 | Shenlong Gundam (XXXG-01S) | duellist | 7.5 t | 7.4 g (11.8 g) | ≈3.3 km/s | gundanium (×0.55) | Dragon Fang · flamethrower · beam glaive |
 | Taurus (OZ-13MS) | Mobile Doll | 6.5 t | 5 g | | titanium | beam rifle |
 | Virgo (OZ-02MD) | Mobile Doll | 9.5 t | 3 g | | heavy (×0.8) | beam cannon, Planet Defensors (visual) |
@@ -126,7 +127,14 @@ timings, arc and reach in its row of the weapon table.
 Each frame has a sensor range, and each suit a signature. Boosting multiplies the signature by 1.5
 and firing by 1.8 (for 1 s). Anything within 1.5 km is always visible. Losing the head cuts sensor
 range to 40%. **The server only replicates what your sensors see**, so fog of war is also the
-anti-wallhack. (Deathscythe's Hyper Jammer will plug straight into this model.)
+anti-wallhack.
+
+**Deathscythe's Hyper Jammer** (held on MODE) defeats this model. To its enemies a jamming suit
+shows a twentieth of its signature, and their eyes see it only within 400 m. So it leaves their
+screens, and Mobile Dolls, the ZERO System and locks lose it too. Allies still see it, as a
+shimmer. The jammer engages with a fifth of the energy pool and drains 30 energy/s against a
+recharge of 18, so it runs about 12 s from full. Firing, striking or using a special shows
+through it for 2 s.
 
 ## The ZERO System
 
@@ -238,8 +246,7 @@ show which, and thin as the ore is taken. A rock of radius r m has 60 + 25r of s
   the hot path), accounts.
 - **Suits:**
   - Wing's bird-mode transformation.
-  - Heavyarms (missile spam), Deathscythe (Hyper Jammer against the sensor model), Sandrock,
-    Shenlong, Tallgeese, Epyon (its own ZERO).
+  - Heavyarms (missile spam), Sandrock, Tallgeese, Epyon (its own ZERO).
   - Guided missiles, deployable Planet Defensors.
 - **Agents:** an MCP server so LLM agents can fly as squad commanders, and a Python gym on the
   headless simulation for RL.

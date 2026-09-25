@@ -141,6 +141,8 @@ impl Sim {
         } else {
             s.fired_secondary[i] = t;
         }
+        self.break_jammer(i, t);
+        let s = &mut self.suits;
 
         // Lag compensation for remote pilots: fly the shot through the world as they saw it, but
         // no further back than MAX_REWIND_TICKS (a view older than that counts as exactly that old).

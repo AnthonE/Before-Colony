@@ -527,7 +527,7 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
             mount(WeaponKind::BeamScythe, RIGHT),
         ],
         zero: false,
-        playable: false,
+        playable: true,
         special: SpecialKind::HyperJammer {
             drain: 30.0,
             min_energy: 0.2,

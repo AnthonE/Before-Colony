@@ -83,17 +83,22 @@ Own-state notes:
 - `weapon_ready` has a bit each for the primary, secondary, melee weapon and the frame's special.
 - Flags: BOOSTING, BLACKOUT, OVERHEAT, CHARGING, SABER_ACTIVE, ZERO_CAPABLE, FLIGHT_ASSIST,
   LOCKED_ON, DOCKED (in the colony's dock), LUNGE (saber windup and swing: the flight model's
-  lunge), SPECIAL_ACTIVE, TRANSFORMING (the special timer counts the change of form down),
+  lunge), SPECIAL_ACTIVE (the jammer is on, a melee move is out), TRANSFORMING (the special
+  timer counts the change of form down),
   LOCK_ACQUIRED (your missile lock), MISSILE_LOCK (someone's missile lock is on you),
   MISSILE_INCOMING (a guided missile is tracking you).
 - The lock target is the designation the server accepted: alive, hostile and on your sensors.
+  LOCKED_ON ignores locks by suits you can't see (a jamming suit's lock goes unnoticed).
+- The special timer counts ticks: of a change of form, of Full Open, or of the break until the
+  Hyper Jammer hides the suit again.
 
 Entity record: slot (10), generation (2), frame (4), faction (3), pilot kind (2), position (63),
 rotation (32), velocity (42), aim (18), flags (12), and 6 part-armour buckets (3 bits each, 0–7).
 FIRING_PRIMARY and FIRING_SECONDARY say the slot fired in the last 4 ticks: clients draw a
 stream weapon's tracers from them (its shots send no BeamSpawn), and a flamethrower's flag is set
 while it's lit. SABER says a melee strike is out. The last two flags are SPECIAL (the frame's
-special is engaged; a jamming suit is only replicated to allies) and MELEE_ALT (the melee strike
+special is engaged; a jamming suit shows it only to its allies, and its enemies' sensors lose it
+past 400 m) and MELEE_ALT (the melee strike
 under way comes from a ranged slot, the Dragon Fang).
 
 Missile record: pool id (10), generation (2), weapon kind (5), guided, targets you, friendly (1
