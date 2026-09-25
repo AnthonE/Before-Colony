@@ -74,6 +74,8 @@ for (const [slug, server, client, what] of frames) {
     }
     const [final, status] = await me();
     console.log(`${slug}: server ${JSON.stringify(final)}`);
+    const g = status.game;
+    console.log(`${slug}: inputs ${g.inputs}, stale ${g.inputs_stale}, missing ${g.inputs_missing}`);
     console.log(`${slug}: client ${JSON.stringify(seen)}`);
     if (!done) console.log(logs.slice(-30).join("\n"));
     expect(final?.frame === slug || (slug === "wingzero" && final?.frame === "neobird")).toBe(true);

@@ -9,7 +9,7 @@ use std::cell::{Ref, RefCell, RefMut};
 use std::rc::Rc;
 
 use bc_client_core::{ClientConfig, ClientCore, DollBrain};
-use bc_proto::buttons::{FLIGHT_ASSIST, ZERO};
+use bc_proto::buttons::ZERO;
 use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
 use bc_sim::content::frame;
 use bevy::prelude::*;
@@ -186,9 +186,11 @@ fn pump(g: &mut Game, t: &Transport, now: f64) {
     }
     let packets = if g.autopilot {
         let brain = &mut g.brain;
+        // ZERO stays engaged; flight assist is the brain's call (it flies unassisted to spare
+        // its pilot G-strain).
         g.core.poll_inputs(now, &mut |ctx| {
             let mut cmd = brain.decide(ctx);
-            cmd.buttons |= ZERO | FLIGHT_ASSIST;
+            cmd.buttons |= ZERO;
             cmd
         })
     } else {
