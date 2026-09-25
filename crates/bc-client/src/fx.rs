@@ -274,6 +274,8 @@ pub fn update_fx(
                     color: color(look.color),
                 });
             }
+            // The camera shakes and flashes for this one (see `camera`).
+            FxEvent::Struck { .. } => {}
             FxEvent::Clash { pos } => {
                 particles.clash(cap, At { pos, vel: Vec3::ZERO });
                 state.flashes.push(Flash {

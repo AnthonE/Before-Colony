@@ -74,6 +74,10 @@ pub enum FxEvent {
     Clash {
         pos: Vec3,
     },
+    /// The pilot's own suit taking a hit (as well as its [`FxEvent::Hit`]).
+    Struck {
+        weapon: WeaponKind,
+    },
 }
 
 #[derive(Resource, Default)]
@@ -83,13 +87,21 @@ pub struct FxEvents(pub Vec<FxEvent>);
 #[derive(Resource, Default)]
 pub struct CameraTarget(pub Option<ChaseTarget>);
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct ChaseTarget {
     pub pos: Vec3,
+    pub vel: Vec3,
     pub up: Vec3,
     pub aim: Vec3,
-    /// Pilot G-strain, 0..1 (drives the gray-out vignette).
+    /// Boosting: the field of view widens.
+    pub boost: bool,
+    /// Pilot G-strain, 0..1: greys the view out, then closes it to a tunnel.
     pub g_strain: f32,
+    /// The pilot has blacked out (G-LOC).
+    pub blackout: bool,
+    /// The ZERO System is engaged, and how close it is to seizing control (0..1).
+    pub zero: bool,
+    pub zero_strain: f32,
     /// A ZERO seizure has the controls.
     pub seized: bool,
 }

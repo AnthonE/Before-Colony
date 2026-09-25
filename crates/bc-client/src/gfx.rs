@@ -8,13 +8,15 @@ use bevy::anti_alias::smaa::Smaa;
 use bevy::camera::Hdr;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::post_process::bloom::Bloom;
-use bevy::post_process::effect_stack::{ChromaticAberration, Vignette};
+use bevy::post_process::effect_stack::{ChromaticAberration, LensDistortion, Vignette};
 use bevy::prelude::*;
+use bevy::render::view::ColorGrading;
 use bevy::window::PrimaryWindow;
 
 use crate::camera::MainCamera;
 use crate::config::LaunchConfig;
 use crate::dev_hooks::DevStatus;
+use crate::zero_vision::ZeroVision;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GfxTier {
@@ -125,7 +127,8 @@ pub struct TierSettings {
     pub msaa: u32,
     /// Post-process anti-aliasing (SMAA) when multisampling is off.
     pub smaa: bool,
-    /// Gameplay post effects: the G-strain vignette and the ZERO seizure's aberration.
+    /// The pilot's post effects: G-strain grey-out and tunnel vision, hit flashes, ZERO's vision
+    /// and its seizure's warp and fringes (see `camera::pilot_effects`).
     pub post: bool,
     /// Highest device-pixel ratio the backbuffer is rendered at; the browser upscales the rest.
     pub max_dpr: f32,
@@ -155,6 +158,7 @@ pub struct Gfx {
     pub settings: TierSettings,
     /// Which build was loaded: "webgl2" or "webgpu".
     pub backend: &'static str,
+    pub tonemapping: Tonemapping,
 }
 
 impl Gfx {
@@ -162,7 +166,12 @@ impl Gfx {
         let fallback = if cfg.low_quality { GfxTier::Low } else { GfxTier::High };
         let tier = GfxTier::parse(&cfg.quality).unwrap_or(fallback);
         let backend = if cfg!(feature = "webgpu") { "webgpu" } else { "webgl2" };
-        Self { tier, settings: tier.settings(), backend }
+        let tonemapping = match cfg.tonemap.to_ascii_lowercase().as_str() {
+            "agx" => Tonemapping::AgX,
+            "aces" => Tonemapping::AcesFitted,
+            _ => Tonemapping::TonyMcMapface,
+        };
+        Self { tier, settings: tier.settings(), backend, tonemapping }
     }
 
     fn set_tier(&mut self, tier: GfxTier) {
@@ -215,7 +224,7 @@ fn apply_camera_tier(
             e.remove::<Smaa>();
         }
         if s.hdr {
-            e.insert((Hdr, Tonemapping::TonyMcMapface, Bloom::NATURAL));
+            e.insert((Hdr, gfx.tonemapping, Bloom::NATURAL));
         } else {
             e.remove::<(Hdr, Bloom)>();
         }
@@ -223,9 +232,12 @@ fn apply_camera_tier(
             e.insert((
                 Vignette { intensity: 0.0, ..default() },
                 ChromaticAberration { intensity: 0.0, ..default() },
+                LensDistortion { intensity: 0.0, ..default() },
+                ColorGrading::default(),
+                ZeroVision::default(),
             ));
         } else {
-            e.remove::<(Vignette, ChromaticAberration)>();
+            e.remove::<(Vignette, ChromaticAberration, LensDistortion, ColorGrading, ZeroVision)>();
         }
     }
 }

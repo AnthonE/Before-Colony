@@ -59,10 +59,10 @@ fn fragment(in: Out) -> @location(0) vec4<f32> {
         a = pow(1.0 - r, 3.0) * 0.6;
     } else if (in.ghost % 3u == 1u) {
         // A faint ring.
-        a = exp(-pow((r - 0.8) * 12.0, 2.0)) * 0.12;
+        a = exp(-pow((r - 0.8) * 12.0, 2.0)) * 0.06;
     } else {
         // A soft disc, brightest at its rim.
-        a = smoothstep(1.0, 0.6, r) * (0.3 + 0.7 * r * r) * 0.07;
+        a = smoothstep(1.0, 0.6, r) * (0.3 + 0.7 * r * r) * 0.035;
     }
     let rgb = COLOR[in.ghost] * a * flare.sun.w * 3.0;
     return vec4(glow_out(rgb), 0.0);

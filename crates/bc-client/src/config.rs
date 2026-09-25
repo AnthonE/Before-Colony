@@ -33,6 +33,10 @@ pub struct LaunchConfig {
     pub showcase_hold: u64,
     /// `?perf=1`: frame-time overlay.
     pub perf: bool,
+    /// `?calm=1`, or the browser's reduced-motion setting: camera shake, kicks and warps turned down.
+    pub calm: bool,
+    /// `?tonemap=tony|agx|aces`: the tonemapper, for comparing them (default TonyMcMapface).
+    pub tonemap: String,
 }
 
 fn get(obj: &JsValue, key: &str) -> JsValue {
@@ -72,6 +76,8 @@ impl LaunchConfig {
             showcase_realtime: flag("realtime"),
             showcase_hold: number("hold").map_or(0, |n| n.max(0.0) as u64),
             perf: flag("perf"),
+            calm: flag("calm"),
+            tonemap: string("tonemap"),
         }
     }
 }

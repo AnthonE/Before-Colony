@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use crate::assets::setup_assets;
-use crate::camera::{follow, spawn_camera};
+use crate::camera::{Chase, follow, pilot_effects, spawn_camera};
 use crate::config::LaunchConfig;
 use crate::dev_hooks::{DevHooksPlugin, publish_game};
 use crate::echo::EchoPlugin;
@@ -56,7 +56,7 @@ pub fn run() {
             .init_resource::<Aim>()
             .add_systems(Startup, (start_net_loop, setup_hud))
             .add_systems(Update, (read_input, drive, tick_vis_time, sync_view).chain().in_set(Vis::Drive))
-            .add_systems(Update, follow.in_set(Vis::Camera))
+            .add_systems(Update, (follow, pilot_effects).chain().in_set(Vis::Camera))
             .add_systems(
                 Update,
                 (update_hud, crate::zero_overlay::draw_ghosts, publish_game).chain().in_set(Vis::Hud),
@@ -77,6 +77,7 @@ impl Plugin for VisualsPlugin {
             .init_resource::<FxEvents>()
             .init_resource::<CameraTarget>()
             .init_resource::<FxState>()
+            .init_resource::<Chase>()
             .add_plugins((
                 crate::sky::SkyPlugin,
                 crate::materials::MaterialsPlugin,
@@ -85,6 +86,7 @@ impl Plugin for VisualsPlugin {
                 crate::beams::BeamsPlugin,
                 crate::blast::BlastPlugin,
                 crate::ambience::AmbiencePlugin,
+                crate::zero_vision::ZeroVisionPlugin,
             ))
             .configure_sets(Update, (Vis::Drive, Vis::Suits, Vis::Camera, Vis::Fx, Vis::Hud).chain())
             .add_systems(

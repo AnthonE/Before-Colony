@@ -1,5 +1,6 @@
 //! `?showcase=<scene>`: offline, scripted scenes for building and reviewing visuals. No server; the
-//! scene drives the same view model the network does ([`SuitDrive`], [`BeamFeed`], [`FxEvents`]).
+//! scene drives the same view model the network does ([`SuitDrive`], [`BeamFeed`], [`FxEvents`],
+//! and in the chase scene the [`CameraTarget`]).
 //!
 //! Time runs on a fixed 60 Hz step from `?t=` (unless `?realtime=1`), so a screenshot after N frames
 //! is the same on any machine; `?hold=N` stops the clock after N frames. Controls: drag to orbit, wheel to zoom, WASD/Space/C to move,
@@ -12,10 +13,10 @@ use bc_sim::world::{COLONY_CENTER, COLONY_RADIUS};
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
 
-use crate::camera::MainCamera;
+use crate::camera::{MainCamera, follow, pilot_effects};
 use crate::dev_hooks::DevStatus;
 use crate::gfx::Gfx;
-use crate::view::{BeamFeed, BeamView, FxEvent, FxEvents, SuitDrive, VisTime};
+use crate::view::{BeamFeed, BeamView, CameraTarget, ChaseTarget, FxEvent, FxEvents, SuitDrive, VisTime};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scene {
@@ -29,6 +30,10 @@ pub enum Scene {
     Field,
     /// The sky: presets look at Earth, the Moon, the Sun and the galactic core.
     Sky,
+    /// The pilot's view: the chase camera over Wing Zero through the field, and what the pilot's
+    /// body puts on the picture. Every 20 s: a boost (2-5 s), two hits (6 s), a hard turn that
+    /// greys out to a blackout (8-12.5 s), then ZERO (from 13 s) and its seizure (17-19 s).
+    Chase,
 }
 
 impl Scene {
@@ -39,6 +44,7 @@ impl Scene {
             "colony" => Some(Self::Colony),
             "field" | "salvage" => Some(Self::Field),
             "sky" => Some(Self::Sky),
+            "chase" | "pilot" => Some(Self::Chase),
             _ => None,
         }
     }
@@ -50,6 +56,7 @@ impl Scene {
             Self::Colony => "colony",
             Self::Field => "field",
             Self::Sky => "sky",
+            Self::Chase => "chase",
         }
     }
 
@@ -60,6 +67,8 @@ impl Scene {
             Self::Duel => DUEL_CAMS.to_vec(),
             Self::Colony => COLONY_CAMS.to_vec(),
             Self::Field => FIELD_CAMS.to_vec(),
+            // The chase camera places itself; this only seeds the orbit state.
+            Self::Chase => vec![orbit(CHASE, 0.0, 0.3, 900.0)],
             Self::Sky => {
                 let eye = Vec3::new(0.0, 2_000.0, 0.0);
                 let core = crate::sky::GALAXY_NORMAL.cross(Vec3::Z).normalize();
@@ -112,6 +121,10 @@ const LINEUP: Vec3 = Vec3::new(0.0, 1_200.0, 0.0);
 const DUEL: Vec3 = Vec3::new(0.0, 1_500.0, 0.0);
 const SQUAD_START: Vec3 = Vec3::new(-3_000.0, COLONY_CENTER.y + COLONY_RADIUS + 45.0, 0.0);
 const FIELD: Vec3 = Vec3::new(2_600.0, 900.0, 1_400.0);
+/// The chase scene's circle through the field, and its cycle (s).
+const CHASE: Vec3 = Vec3::new(2_600.0, 1_050.0, 1_400.0);
+const CHASE_RADIUS: f32 = 500.0;
+const CHASE_CYCLE: f64 = 20.0;
 const STEP: f64 = 1.0 / 60.0;
 
 /// An orbit camera: looks at `target` from `dist` away.
@@ -176,7 +189,12 @@ impl Plugin for ShowcasePlugin {
         })
         .add_systems(Startup, spawn_showcase)
         .add_systems(Update, (advance_clock, controls, script).chain().in_set(crate::view::Vis::Drive))
-        .add_systems(Update, (place_camera, overlay).chain().in_set(crate::view::Vis::Camera));
+        .add_systems(Update, overlay.in_set(crate::view::Vis::Camera));
+        if self.scene == Scene::Chase {
+            app.add_systems(Update, (follow, pilot_effects).chain().in_set(crate::view::Vis::Camera));
+        } else {
+            app.add_systems(Update, place_camera.in_set(crate::view::Vis::Camera));
+        }
     }
 }
 
@@ -197,6 +215,7 @@ fn cast(scene: Scene) -> Vec<(FrameId, Faction)> {
         Scene::Colony => vec![(Taurus, Faction::Oz), (Taurus, Faction::Oz), (Taurus, Faction::Oz)],
         Scene::Field => vec![(Leo, Faction::Oz), (Leo, Faction::Colonies)],
         Scene::Sky => vec![],
+        Scene::Chase => vec![(WingZero, Faction::Colonies), (Leo, Faction::Oz), (Taurus, Faction::Oz)],
     }
 }
 
@@ -334,6 +353,36 @@ fn overlay(
     }
 }
 
+/// 0 before `lo`, 1 after `hi`, easing between.
+fn smooth(lo: f64, hi: f64, x: f64) -> f32 {
+    let t = ((x - lo) / (hi - lo)).clamp(0.0, 1.0);
+    (t * t * (3.0 - 2.0 * t)) as f32
+}
+
+/// The pilot's path in the chase scene: a wide circle through the field.
+fn chase_pos(t: f64) -> Vec3 {
+    let a = chase_angle(t) as f32;
+    CHASE + Vec3::new(CHASE_RADIUS * a.cos(), 40.0 * (2.0 * a).sin(), CHASE_RADIUS * a.sin())
+}
+
+/// How far round the chase circle the pilot is by `t` (radians): 0.24 rad/s (120 m/s), plus a
+/// boost from 2 s to 5 s of each cycle that eases off by 8 s.
+fn chase_angle(t: f64) -> f64 {
+    let extra = |u: f64| {
+        if u < 2.0 {
+            0.0
+        } else if u < 5.0 {
+            0.05 * (u - 2.0).powi(2)
+        } else if u < 8.0 {
+            0.45 + 0.3 * (u - 5.0) - 0.05 * (u - 5.0).powi(2)
+        } else {
+            0.9
+        }
+    };
+    let cycles = (t / CHASE_CYCLE).floor();
+    0.24 * t + cycles * extra(CHASE_CYCLE) + extra(t - cycles * CHASE_CYCLE)
+}
+
 /// Faces `rot` toward `dir` with +Y roughly up.
 fn facing(dir: Vec3) -> Quat {
     Transform::IDENTITY.looking_to(-dir.normalize_or(Vec3::Z), Vec3::Y).rotation
@@ -393,6 +442,7 @@ fn script(
     mut suits: Query<&mut SuitDrive>,
     mut beams: ResMut<BeamFeed>,
     mut events: ResMut<FxEvents>,
+    mut target: ResMut<CameraTarget>,
 ) {
     let t = vis.now;
     let crossed = |at: f64| at > show.prev && at <= t;
@@ -510,6 +560,82 @@ fn script(
             }
         }
         Scene::Sky => {}
+        Scene::Chase => {
+            let u = t % CHASE_CYCLE;
+            let cycle = t - u;
+            let own = chase_pos(t);
+            let vel = (chase_pos(t + 0.05) - chase_pos(t - 0.05)) * 10.0;
+            let heading = vel.normalize_or(Vec3::Z);
+            let boost = (2.0..5.0).contains(&u);
+            let g = smooth(8.0, 10.5, u) * (1.0 - smooth(12.0, 14.0, u));
+            // Banked into the turn, harder while pulling G.
+            let rot = facing(heading) * Quat::from_rotation_z(-0.2 - 0.9 * g);
+            set(0, &mut |d| {
+                d.own = true;
+                d.pos = own;
+                d.vel = vel;
+                d.rot = rot;
+                d.aim = heading;
+                d.flags = if boost { ent_flags::BOOST } else { 0 };
+                d.thrust = if boost { Vec3::Z } else { Vec3::new(0.0, 0.6 * g, 0.3) };
+            });
+            // A Leo ahead, turned back to fire at the pilot, and a Taurus crossing.
+            let leo = chase_pos(t + 1.6) + Vec3::new(0.0, 25.0, 0.0);
+            set(1, &mut |d| {
+                d.pos = leo;
+                d.vel = vel;
+                d.rot = facing(own - leo);
+                d.aim = (own - leo).normalize_or(Vec3::Z);
+                d.flags = 0;
+                d.thrust = Vec3::ZERO;
+            });
+            let a = (u * 0.15) as f32;
+            set(2, &mut |d| {
+                d.pos = CHASE + Vec3::new(-600.0 + 1_200.0 * a, 120.0, 200.0);
+                d.vel = Vec3::new(180.0, 0.0, 0.0);
+                d.rot = facing(Vec3::X);
+                d.aim = Vec3::X;
+                d.flags = ent_flags::BOOST;
+                d.thrust = Vec3::Z;
+            });
+            // The Leo's two rifle shots strike home.
+            for shot in [6.0, 6.4] {
+                let fired = cycle + shot;
+                let from = chase_pos(fired + 1.6) + Vec3::new(0.0, 25.0, 0.0);
+                let to = chase_pos(fired);
+                let dir = (to - from).normalize_or(Vec3::Z);
+                let flight = (from.distance(to) / 4_000.0) as f64;
+                let age = t - fired;
+                if (0.0..=flight).contains(&age) {
+                    let head = from + dir * 4_000.0 * age as f32;
+                    beams.0.push(BeamView {
+                        head,
+                        dir,
+                        travelled: head.distance(from),
+                        weapon: WeaponKind::BeamRifle,
+                    });
+                }
+                if crossed(fired) {
+                    events.0.push(FxEvent::Muzzle { pos: from, dir, vel, weapon: WeaponKind::BeamRifle });
+                }
+                if crossed(fired + flight) {
+                    events.0.push(FxEvent::Hit { pos: own + Vec3::Y * 2.0, weapon: WeaponKind::BeamRifle });
+                    events.0.push(FxEvent::Struck { weapon: WeaponKind::BeamRifle });
+                }
+            }
+            target.0 = Some(ChaseTarget {
+                pos: own,
+                vel,
+                up: rot * Vec3::Y,
+                aim: heading,
+                boost,
+                g_strain: g,
+                blackout: (10.5..12.5).contains(&u),
+                zero: u >= 13.0,
+                zero_strain: smooth(13.0, 17.0, u),
+                seized: (17.0..19.0).contains(&u),
+            });
+        }
         Scene::Field => {
             for i in 0..2 {
                 let a = 0.08 * t as f32 + i as f32 * 2.8;

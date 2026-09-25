@@ -50,4 +50,8 @@ test("fly, fight, see agents and ZERO futures", async ({ page, request }, info) 
   const status = await bc(page);
   console.log(`final: ${JSON.stringify(status)}`);
   expect(status.max_snapshot).toBeLessThanOrEqual(1100);
+  // Bevy logs its errors (a shader that won't compile among them) through console.log.
+  const errors = logs.filter((l) => /%cERROR|\[pageerror\]|panicked/.test(l));
+  if (errors.length) console.log(errors.join("\n"));
+  expect(errors).toEqual([]);
 });

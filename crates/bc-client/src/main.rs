@@ -54,6 +54,8 @@ mod transport;
 mod view;
 #[cfg(target_arch = "wasm32")]
 mod zero_overlay;
+#[cfg(target_arch = "wasm32")]
+mod zero_vision;
 
 #[cfg(target_arch = "wasm32")]
 fn main() {

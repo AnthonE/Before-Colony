@@ -220,6 +220,9 @@ pub fn sync_view(
     for h in &world.hits {
         if seen.hits.insert((h.tick, h.target, h.part as u8)) {
             events.0.push(FxEvent::Hit { pos: h.pos, weapon: h.weapon });
+            if Some(h.target) == own_slot {
+                events.0.push(FxEvent::Struck { weapon: h.weapon });
+            }
         }
     }
     for line in &world.feed {
@@ -271,9 +274,14 @@ pub fn sync_view(
     // --- Camera. ---
     target.0 = world.own.map(|own| ChaseTarget {
         pos: if own.alive { core.predict.render_pos() } else { own.pos },
+        vel: if own.alive { core.predict.state.vel } else { own.vel },
         up: core.predict.state.rot * Vec3::Y,
         aim: aim.dir,
+        boost: own.alive && own.flags & own_flags::BOOSTING != 0,
         g_strain: own.g_strain.clamp(0.0, 1.0),
-        seized: own.zero_mode == zero_mode::SEIZED,
+        blackout: own.alive && own.flags & own_flags::BLACKOUT != 0,
+        zero: own.alive && own.zero_mode == zero_mode::ACTIVE,
+        zero_strain: own.zero_strain.clamp(0.0, 1.0),
+        seized: own.alive && own.zero_mode == zero_mode::SEIZED,
     });
 }

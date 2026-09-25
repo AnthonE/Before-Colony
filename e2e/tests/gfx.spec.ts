@@ -26,10 +26,16 @@ const scenes: Array<[string, number, number, number]> = [
   ["sky", 2, 6, 12],
   ["sky", 3, 6, 12],
   ["sky", 4, 6, 12],
+  // The pilot's view: boosting; hit; greying out; ZERO engaged; ZERO's seizure.
+  ["chase", 1, 4.5, 12],
+  ["chase", 1, 5.95, 12],
+  ["chase", 1, 9.9, 12],
+  ["chase", 1, 15.5, 12],
+  ["chase", 1, 17.8, 12],
 ];
 
 for (const [scene, cam, t, frames] of scenes) {
-  test(`showcase ${scene} cam ${cam} (${quality})`, async ({ page }, info) => {
+  test(`showcase ${scene} cam ${cam} t ${t} (${quality})`, async ({ page }, info) => {
     test.setTimeout(240_000);
     const logs = collectConsole(page);
     await page.goto(
@@ -37,9 +43,10 @@ for (const [scene, cam, t, frames] of scenes) {
     );
     // A few frames past start-up, so pipelines have compiled and effects are on screen. A GPU
     // validation error or a panic stops the app, so fail on one at once rather than time out.
+    // (Bevy logs its errors, a shader that won't compile among them, through console.log.)
     const broken = new Promise<string>((resolve) =>
       page.on("console", (m) => {
-        if (/Caught rendering error|panicked/.test(m.text())) resolve(m.text());
+        if (/Caught rendering error|panicked|%cERROR/.test(m.text())) resolve(m.text());
       }),
     );
     const ready = page
@@ -54,9 +61,10 @@ for (const [scene, cam, t, frames] of scenes) {
     console.log(`${scene}/${cam}: ${JSON.stringify(status)}`);
     expect(status.mode).toBe("showcase");
     expect(status.gfx_tier).toBe(quality);
-    const shot = await page.screenshot({ path: `artifacts/gfx-${info.project.name}-${quality}-${scene}-${cam}.png` });
+    const name = `gfx-${info.project.name}-${quality}-${scene}-${cam}-t${t}.png`;
+    const shot = await page.screenshot({ path: `artifacts/${name}` });
     expect(luminanceStdDev(shot)).toBeGreaterThan(3);
-    const bad = logs.filter((l) => /\[error\]|\[pageerror\]|panicked|wgpu error|validation error/i.test(l));
+    const bad = logs.filter((l) => /\[error\]|\[pageerror\]|%cERROR|panicked|wgpu error|validation error/i.test(l));
     if (bad.length) console.log(bad.join("\n"));
     expect(bad).toEqual([]);
   });

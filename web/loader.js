@@ -61,6 +61,8 @@ async function main() {
     realtime: params.get("realtime") === "1",
     hold: Number(params.get("hold") || 0),
     perf: params.get("perf") === "1",
+    calm: params.get("calm") === "1" || matchMedia("(prefers-reduced-motion: reduce)").matches,
+    tonemap: params.get("tonemap") || "",
   };
   if (!showcase) {
     if (!("WebTransport" in window)) {
