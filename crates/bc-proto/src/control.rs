@@ -57,6 +57,8 @@ pub enum RejectReason {
     VersionMismatch = 1,
     ServerFull = 2,
     BadHello = 3,
+    /// The frame asked for isn't one pilots may fly (a Mobile Doll's, or a form like Neo-Bird).
+    FrameNotAllowed = 4,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -168,13 +170,28 @@ impl ControlMsg {
         }
         let mut r = Reader { buf: &buf[2..2 + payload], pos: 0 };
         let msg = match r.u8()? {
-            1 => ControlMsg::Hello {
-                version: r.u16()?,
-                pilot: PilotKind::from_bits(u32::from(r.u8()?)),
-                frame: FrameId::from_bits(u32::from(r.u8()?)).ok_or(DecodeError::Invalid)?,
-                faction: Faction::from_bits(u32::from(r.u8()?)),
-                name: r.name()?,
-            },
+            1 => {
+                let version = r.u16()?;
+                if version == PROTOCOL_VERSION {
+                    ControlMsg::Hello {
+                        version,
+                        pilot: PilotKind::from_bits(u32::from(r.u8()?)),
+                        frame: FrameId::from_bits(u32::from(r.u8()?)).ok_or(DecodeError::Invalid)?,
+                        faction: Faction::from_bits(u32::from(r.u8()?)),
+                        name: r.name()?,
+                    }
+                } else {
+                    // Another protocol's Hello may not parse as ours (a frame this build doesn't
+                    // know): keep only its version, so the server can answer VersionMismatch.
+                    ControlMsg::Hello {
+                        version,
+                        pilot: PilotKind::Human,
+                        frame: FrameId::Leo,
+                        faction: Faction::Oz,
+                        name: Name::default(),
+                    }
+                }
+            }
             2 => ControlMsg::Welcome {
                 version: r.u16()?,
                 client_slot: r.u16()?,
@@ -190,6 +207,7 @@ impl ControlMsg {
                 reason: match r.u8()? {
                     1 => RejectReason::VersionMismatch,
                     2 => RejectReason::ServerFull,
+                    4 => RejectReason::FrameNotAllowed,
                     _ => RejectReason::BadHello,
                 },
             },
@@ -291,6 +309,8 @@ mod tests {
                 field_seed: 0xDEB12,
                 field_rocks: 160,
             },
+            ControlMsg::Reject { reason: RejectReason::FrameNotAllowed },
+            ControlMsg::Reject { reason: RejectReason::VersionMismatch },
             ControlMsg::Roster { slot: 77, pilot: PilotKind::Human, name: Name::new("Zechs") },
             ControlMsg::Respawn { frame: FrameId::Leo },
             ControlMsg::Bye { reason: 0 },
@@ -309,6 +329,19 @@ mod tests {
             pos += used;
         }
         assert_eq!(pos, len);
+    }
+
+    #[test]
+    fn another_versions_hello_still_gives_its_version() {
+        // Version 99 asking for a frame this build has never heard of.
+        let frame = [8u8, 0, 1, 99, 0, 0, 200, 1, 0, 0];
+        let (msg, used) = ControlMsg::decode(&frame).unwrap().unwrap();
+        assert_eq!(used, frame.len());
+        assert!(matches!(msg, ControlMsg::Hello { version: 99, .. }));
+        // Our own version still validates the frame.
+        let mut ours = frame;
+        ours[3..5].copy_from_slice(&PROTOCOL_VERSION.to_le_bytes());
+        assert_eq!(ControlMsg::decode(&ours), Err(DecodeError::Invalid));
     }
 
     #[test]

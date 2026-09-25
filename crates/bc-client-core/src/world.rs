@@ -2,16 +2,16 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use bc_proto::events::Event;
+use bc_proto::events::{BurstCause, Event};
 use bc_proto::snapshot::{ent_flags, own_flags};
 use bc_proto::{
-    CHUNK_BITS, ChunkDesc, EntityState, Faction, FrameId, MAX_ENTITIES, NO_CHUNK, ObjectState, OwnState,
-    Part, PilotKind, RockState, Segment, WeaponKind, ZeroInfo,
+    CHUNK_BITS, ChunkDesc, EntityState, Faction, FrameId, MAX_ENTITIES, MISSILE_BITS, MissileState, NO_CHUNK,
+    ObjectState, OwnState, Part, PilotKind, RockState, Segment, WeaponKind, ZeroInfo,
 };
 use bc_sim::TICK_HZ;
 use bc_sim::chunks::{self, held_pose, segment_pos, segment_rot};
-use bc_sim::content::{frame, frame_name, weapon};
-use bc_sim::perception::{Contact, Perception, SelfView};
+use bc_sim::content::{SpecialKind, WeaponClass, frame, frame_name, weapon};
+use bc_sim::perception::{Contact, KitView, Perception, SelfView};
 use bc_sim::zero::N_HYP;
 use bc_sim::zero::hypotheses::{self, Maneuver};
 use bc_sim::zero::rollout::{STEPS, rollout};
@@ -23,6 +23,48 @@ use crate::predict::Predictor;
 const HZ: f64 = TICK_HZ as f64;
 /// Tracks not refreshed for this long are dropped (ticks).
 const STALE_TICKS: u32 = 90;
+/// Missiles not listed for this long are dropped: out of range, or lost with their burst (ticks).
+const MISSILE_STALE_TICKS: u32 = 15;
+
+/// A missile in flight, as the client last heard of it.
+#[derive(Clone, Copy, Debug)]
+pub struct MissileTrack {
+    /// The newest record, and the tick it came in...
+    pub latest: MissileState,
+    pub latest_tick: u32,
+    /// ...and the one before it.
+    pub prev: Option<(u32, MissileState)>,
+}
+
+impl MissileTrack {
+    /// Where the missile is at tick `t`: between the two newest records, or extrapolated (a few
+    /// ticks at most: missiles steer) from the newest.
+    pub fn pos_at(&self, t: f64) -> Vec3 {
+        let latest = f64::from(self.latest_tick);
+        if let Some((pt, p)) = self.prev
+            && t < latest
+            && t >= f64::from(pt)
+            && self.latest_tick > pt
+        {
+            let u = ((t - f64::from(pt)) / (latest - f64::from(pt))) as f32;
+            return p.pos.lerp(self.latest.pos, u);
+        }
+        let dt = ((t - latest).clamp(-8.0, 8.0) / HZ) as f32;
+        self.latest.pos + self.latest.vel * dt
+    }
+}
+
+/// A missile's burst, for the effects.
+#[derive(Clone, Copy, Debug)]
+pub struct MissileBurstMark {
+    pub tick: u32,
+    /// The missile's pool id.
+    pub id: u16,
+    pub pos: Vec3,
+    pub cause: BurstCause,
+    /// What kind of missile it was, if the client saw it fly.
+    pub kind: Option<WeaponKind>,
+}
 
 /// A beam in flight (straight line, constant velocity).
 #[derive(Clone, Debug)]
@@ -133,6 +175,34 @@ pub struct Ghost {
     pub paths: [[Vec3; STEPS]; N_HYP],
 }
 
+/// What the pilot's kit has done and what the client has seen of the Gundams' mechanics, counted
+/// as snapshots arrive (so the counts don't depend on how fast the page renders).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct KitStats {
+    /// The pilot's own hits, by `WeaponClass`.
+    pub hits_by_class: [u32; 5],
+    /// Times the own suit's special engaged: a change of form, the jammer, Full Open, the Cross
+    /// Crusher.
+    pub specials: u32,
+    /// Changes of the own suit's form that completed (Wing Zero ↔ Neo-Bird).
+    pub transforms: u32,
+    /// Missile locks the own suit acquired.
+    pub locks: u32,
+    /// Distinct missiles seen in flight, and missile bursts.
+    pub missiles_seen: u32,
+    pub bursts_seen: u32,
+    /// Snapshots in which some suit (the own included) was seen jamming, burning with a
+    /// flamethrower, or striking with the Dragon Fang.
+    pub jamming: u32,
+    pub flame: u32,
+    pub fang: u32,
+}
+
+/// Lock assist picks a target within this angle of the reticle (rad)...
+pub const LOCK_PICK: f32 = 0.175; // 10°
+/// ...and keeps it while it stays within this.
+pub const LOCK_KEEP: f32 = 0.262; // 15°
+
 pub struct World {
     /// Newest snapshot tick.
     pub tick: u32,
@@ -151,12 +221,17 @@ pub struct World {
     pub hulks: HashMap<u16, u16>,
     /// Rocks that shattered, newest last: (tick, rock).
     pub rock_breaks: VecDeque<(u32, u16)>,
+    /// Missiles in flight nearby, by pool id.
+    pub missiles: Vec<Option<MissileTrack>>,
+    /// Missiles that burst, newest last.
+    pub missile_bursts: VecDeque<MissileBurstMark>,
     seen: VecDeque<u16>,
     pub faction: Faction,
     pub my_hits: u32,
     pub my_kills: u32,
     pub my_deaths: u32,
     pub hits_taken: u32,
+    pub kit: KitStats,
 }
 
 impl World {
@@ -174,12 +249,15 @@ impl World {
             objects: vec![None; 1 << CHUNK_BITS],
             hulks: HashMap::new(),
             rock_breaks: VecDeque::new(),
+            missiles: vec![None; 1 << MISSILE_BITS],
+            missile_bursts: VecDeque::new(),
             seen: VecDeque::new(),
             faction,
             my_hits: 0,
             my_kills: 0,
             my_deaths: 0,
             hits_taken: 0,
+            kit: KitStats::default(),
         }
     }
 
@@ -213,6 +291,62 @@ impl World {
         self.entities.get(slot as usize).and_then(Option::as_ref)
     }
 
+    /// Lock assist: the hostile the pilot is pointing at, seen from `from` along `aim` at time `t`
+    /// (ticks): the one nearest the reticle within [`LOCK_PICK`], kept while within [`LOCK_KEEP`].
+    pub fn lock_assist(&self, from: Vec3, aim: Vec3, current: Option<u16>, t: f64) -> Option<u16> {
+        let off = |slot: u16| {
+            let track = self.entity(slot)?;
+            let e = &track.latest;
+            if e.faction == self.faction || e.flags & ent_flags::WRECK != 0 {
+                return None;
+            }
+            let to = track.sample(t).pos - from;
+            Some(aim.angle_between(to))
+        };
+        if let Some(slot) = current
+            && off(slot).is_some_and(|a| a <= LOCK_KEEP)
+        {
+            return Some(slot);
+        }
+        (0..self.entities.len() as u16)
+            .filter_map(|slot| off(slot).filter(|a| *a <= LOCK_PICK).map(|a| (a, slot)))
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, slot)| slot)
+    }
+
+    /// Applies a snapshot's missile list (before its events, whose bursts end missiles).
+    pub fn apply_missiles(&mut self, tick: u32, list: &[MissileState]) {
+        if tick < self.tick {
+            return;
+        }
+        for m in list {
+            let slot = &mut self.missiles[usize::from(m.id) & ((1 << MISSILE_BITS) - 1)];
+            match slot {
+                Some(track) if track.latest.generation == m.generation => {
+                    if tick > track.latest_tick {
+                        track.prev = Some((track.latest_tick, track.latest));
+                        track.latest = *m;
+                        track.latest_tick = tick;
+                    }
+                }
+                other => {
+                    *other = Some(MissileTrack { latest: *m, latest_tick: tick, prev: None });
+                    self.kit.missiles_seen += 1;
+                }
+            }
+        }
+        for slot in self.missiles.iter_mut() {
+            if slot.as_ref().is_some_and(|m| tick.saturating_sub(m.latest_tick) > MISSILE_STALE_TICKS) {
+                *slot = None;
+            }
+        }
+    }
+
+    /// Missiles in flight that the client knows of.
+    pub fn missiles(&self) -> impl Iterator<Item = &MissileTrack> {
+        self.missiles.iter().flatten()
+    }
+
     /// Applies a decoded snapshot.
     pub fn apply(
         &mut self,
@@ -230,22 +364,30 @@ impl World {
         self.own = own;
         self.zero = zero;
         let me = own.map(|o| o.slot);
-        if let (Some(now), Some(before)) = (own, prev_own)
-            && before.alive
-            && !now.alive
-        {
-            // Our own death is counted from the Kill event below; nothing else to do here.
+        if let Some(now) = own {
+            self.count_own(now, prev_own);
         }
+        let mut seen = (false, false, false);
         for e in ents {
             if Some(e.slot) == me {
                 continue;
             }
+            let (jamming, flame, fang) = kit_seen(e);
+            seen = (seen.0 | jamming, seen.1 | flame, seen.2 | fang);
             let slot = e.slot as usize;
             match &mut self.entities[slot] {
                 Some(track) if track.latest.generation == e.generation => track.push(tick, *e),
                 other => *other = Some(EntityTrack::new(tick, *e)),
             }
         }
+        let own_jamming = own.is_some_and(|o| {
+            o.alive
+                && o.flags & own_flags::SPECIAL_ACTIVE != 0
+                && matches!(frame(o.frame).special, SpecialKind::HyperJammer { .. })
+        });
+        self.kit.jamming += u32::from(seen.0 || own_jamming);
+        self.kit.flame += u32::from(seen.1);
+        self.kit.fang += u32::from(seen.2);
         for ev in events {
             self.apply_event(ev, me);
         }
@@ -254,6 +396,23 @@ impl World {
             if slot.as_ref().is_some_and(|t| tick.saturating_sub(t.latest_tick) > STALE_TICKS) {
                 *slot = None;
             }
+        }
+    }
+
+    /// Counts the own suit's special engaging, changes of form, and locks acquired.
+    fn count_own(&mut self, now: OwnState, before: Option<OwnState>) {
+        let Some(before) = before.filter(|b| b.alive && now.alive && b.generation == now.generation) else {
+            return;
+        };
+        let rose = |f: u16| now.flags & f != 0 && before.flags & f == 0;
+        if rose(own_flags::SPECIAL_ACTIVE) || rose(own_flags::TRANSFORMING) {
+            self.kit.specials += 1;
+        }
+        if rose(own_flags::LOCK_ACQUIRED) {
+            self.kit.locks += 1;
+        }
+        if now.frame != before.frame {
+            self.kit.transforms += 1;
         }
     }
 
@@ -372,12 +531,13 @@ impl World {
                 let on_me = Some(target) == me;
                 if by_me {
                     self.my_hits += 1;
+                    self.kit.hits_by_class[weapon(w).class as usize] += 1;
                 }
                 if on_me {
                     self.hits_taken += 1;
                 }
                 // The beam that hit stops being drawn (its direction places the sparks).
-                let beam = if w.is_beam() {
+                let beam = if weapon(w).replication == bc_sim::content::Replication::PerShot {
                     self.beams.iter().position(|b| b.shooter == shooter && b.alive_at(f64::from(tick)))
                 } else {
                     None
@@ -422,6 +582,22 @@ impl World {
                     self.rock_breaks.push_back((tick, rock));
                     while self.rock_breaks.len() > 32 {
                         self.rock_breaks.pop_front();
+                    }
+                }
+            }
+            Event::MissileBurst { id, tick, missile, pos, cause } => {
+                if self.first_time(id) {
+                    let slot = self.missiles.get_mut(usize::from(missile));
+                    let kind = slot.as_ref().and_then(|m| m.map(|m| m.latest.kind));
+                    if let Some(slot) = slot
+                        && slot.is_some_and(|m| m.latest_tick <= tick)
+                    {
+                        *slot = None;
+                    }
+                    self.missile_bursts.push_back(MissileBurstMark { tick, id: missile, pos, cause, kind });
+                    self.kit.bursts_seen += 1;
+                    while self.missile_bursts.len() > 64 {
+                        self.missile_bursts.pop_front();
                     }
                 }
             }
@@ -490,6 +666,13 @@ impl World {
             g_strain: s.g_strain,
             ready: [own.weapon_ready & 1 != 0, own.weapon_ready & 2 != 0, own.weapon_ready & 4 != 0],
             overheated: own.flags & own_flags::OVERHEAT != 0,
+            kit: KitView {
+                lock_acquired: own.flags & own_flags::LOCK_ACQUIRED != 0,
+                missile_incoming: own.flags & own_flags::MISSILE_INCOMING != 0,
+                special_ready: own.weapon_ready & 8 != 0,
+                special_active: own.flags & own_flags::SPECIAL_ACTIVE != 0,
+                transforming: own.flags & own_flags::TRANSFORMING != 0,
+            },
         };
         let mut p = Perception::default();
         p.reset(me);
@@ -547,5 +730,53 @@ impl World {
             return self.own.map(|o| o.frame);
         }
         self.entity(slot).map(|t| t.latest.frame)
+    }
+}
+
+/// What a contact shows of the Gundams' mechanics: (jamming, a flamethrower burning, the Dragon
+/// Fang striking).
+fn kit_seen(e: &EntityState) -> (bool, bool, bool) {
+    if e.flags & ent_flags::WRECK != 0 {
+        return (false, false, false);
+    }
+    let spec = frame(e.frame);
+    let jamming =
+        e.flags & ent_flags::SPECIAL != 0 && matches!(spec.special, SpecialKind::HyperJammer { .. });
+    let burning = |slot: usize, bit: u16| {
+        e.flags & bit != 0 && spec.loadout[slot].is_some_and(|m| weapon(m.weapon).class == WeaponClass::Cone)
+    };
+    let flame = burning(0, ent_flags::FIRING_PRIMARY) || burning(1, ent_flags::FIRING_SECONDARY);
+    let fang = e.flags & (ent_flags::SABER | ent_flags::MELEE_ALT) == ent_flags::SABER | ent_flags::MELEE_ALT;
+    (jamming, flame, fang)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::interp::EntityTrack;
+
+    fn hostile_at(world: &mut World, slot: u16, pos: Vec3) {
+        let e = EntityState { slot, faction: Faction::Oz, pos, ..EntityState::default() };
+        world.entities[usize::from(slot)] = Some(EntityTrack::new(10, e));
+    }
+
+    #[test]
+    fn lock_assist_picks_what_the_reticle_is_on_and_keeps_it() {
+        let mut world = World::new(Faction::Colonies);
+        let deg = |a: f32| Vec3::new(a.to_radians().sin(), 0.0, a.to_radians().cos()) * 1_000.0;
+        hostile_at(&mut world, 3, deg(6.0));
+        hostile_at(&mut world, 4, deg(-3.0));
+        hostile_at(&mut world, 5, deg(20.0));
+        // The nearest the reticle.
+        assert_eq!(world.lock_assist(Vec3::ZERO, Vec3::Z, None, 10.0), Some(4));
+        // A lock is kept while it's within 15°, even with another closer to the reticle.
+        let aim = deg(12.0).normalize();
+        assert_eq!(world.lock_assist(Vec3::ZERO, aim, Some(4), 10.0), Some(4));
+        assert_eq!(world.lock_assist(Vec3::ZERO, aim, None, 10.0), Some(3));
+        // Nothing within 10°: no lock.
+        assert_eq!(world.lock_assist(Vec3::ZERO, -Vec3::Z, None, 10.0), None);
+        // Friends and wrecks aren't locked.
+        world.faction = Faction::Oz;
+        assert_eq!(world.lock_assist(Vec3::ZERO, Vec3::Z, None, 10.0), None);
     }
 }

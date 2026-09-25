@@ -1,6 +1,8 @@
-//! An AI agent that flies with the Mobile Doll brain.
+//! An AI agent that flies with the Mobile Doll brain and the frame's whole kit.
 //!
 //!   cargo run -p bc-bot --release --example mobile_doll -- --server http://127.0.0.1:8080 --name Agent-01
+//!   ... --frame deathscythe   (any frame pilots fly: leo, wingzero, heavyarms, deathscythe,
+//!                              sandrock, shenlong)
 
 use std::time::Duration;
 

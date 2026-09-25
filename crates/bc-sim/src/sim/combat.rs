@@ -1,28 +1,25 @@
-//! Weapons, projectiles, beam sabers and damage.
+//! Guns, projectiles and damage (blades are in `melee`).
 
-use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, MELEE};
+use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY};
 use bc_proto::events::Event;
 use bc_proto::{ChunkDesc, ChunkKind, InputCmd, NO_CHUNK, Part, PilotKind, Segment, WeaponKind};
 use glam::Vec3;
 
 use super::{DamageEvent, Sim};
 use crate::chunks::Motion;
-use crate::collide::{capsule_world, segment_near_point, segment_segment, sweep_capsules};
+use crate::collide::{segment_near_point, sweep_capsules};
 use crate::config::{DT, MAX_REWIND_TICKS, secs};
-use crate::content::salvage::{DETACH_PUSH, DETACH_SPEED, SABER_DIG, mass_without, part_mass_kg, wreck_ttl};
-use crate::content::{Mount, WeaponSpec, frame, weapon};
+use crate::content::salvage::{DETACH_PUSH, DETACH_SPEED, mass_without, part_mass_kg, wreck_ttl};
+use crate::content::{Mount, Replication, WeaponClass, WeaponSpec, frame, weapon};
 use crate::math::{angle_between, cos, hash01, normalize_or, sin};
-use crate::suits::{SaberPhase, WeaponState};
+use crate::suits::{SPECIAL_SLOTS, WeaponState};
 use crate::world::inside_colony;
 
 /// ZERO fire-time magnetism: shots this close to the ZERO firing solution snap to it.
 pub const MAGNET_ANGLE: f32 = 0.026; // 1.5°
 
-/// Beams at least this wide engulf a suit and always hit the torso, m.
-const WIDE_BEAM_RADIUS: f32 = 3.0;
-
 /// Clamps `dir` into a cone of half-angle `cone` around `axis`.
-fn clamp_to_cone(dir: Vec3, axis: Vec3, cone: f32) -> Vec3 {
+pub(super) fn clamp_to_cone(dir: Vec3, axis: Vec3, cone: f32) -> Vec3 {
     let a = angle_between(axis, dir);
     if a <= cone {
         return dir;
@@ -58,44 +55,88 @@ impl Sim {
         for i in alive.iter() {
             let spec = frame(self.suits.frame[i]);
             let cmd = self.suits.input[i];
+            // Weapons are down while the suit changes form.
+            if self.transforming(i) {
+                continue;
+            }
+            // Full Open: everything fires along the aim, heat or not.
+            let full_open = self.full_open(i);
             for slot in 0..2 {
                 let Some(mount) = spec.loadout[slot] else { continue };
-                let w = weapon(mount.weapon);
                 let button = if slot == 0 { FIRE_PRIMARY } else { FIRE_SECONDARY };
-                let mut ws: WeaponState = self.suits.weapons[i][slot];
-                ws.cooldown = ws.cooldown.saturating_sub(1);
-                let arm_ok = self.suits.arm_free(i, mount.arm);
-                let ready = ws.cooldown == 0
-                    && !self.suits.overheated[i]
-                    && self.suits.energy[i] >= w.energy
-                    && (w.ammo == 0 || ws.ammo > 0)
-                    && arm_ok;
-                let wants = cmd.pressed(button);
-                let fire = if w.charge_ticks > 0 {
-                    // Charged weapons: hold to charge, fires automatically when full; releasing early
-                    // cancels. The charge glow is replicated, so everyone sees it coming.
-                    if wants && ready {
-                        ws.charge += 1;
-                        if ws.charge >= w.charge_ticks {
-                            ws.charge = 0;
-                            true
-                        } else {
-                            false
-                        }
-                    } else {
-                        ws.charge = 0;
-                        false
+                let wants = full_open || cmd.pressed(button);
+                self.trigger(i, slot, mount, wants, full_open, &cmd, t);
+            }
+            if full_open {
+                for (k, mount) in spec.special_mounts.iter().enumerate() {
+                    if let Some(mount) = *mount {
+                        self.trigger(i, SPECIAL_SLOTS + k, mount, true, true, &cmd, t);
                     }
-                } else {
-                    wants && ready
-                };
-                self.suits.weapons[i][slot] = ws;
-                if fire {
-                    self.fire(i, slot, mount, w, &cmd, t);
                 }
             }
         }
         self.iter_bits = alive;
+    }
+
+    /// One weapon's tick: `slot` is a loadout slot (0, 1) or a special mount (from
+    /// [`SPECIAL_SLOTS`]). Its cooldown runs down; if `wants` and it's ready, a gun fires and a
+    /// launcher starts a salvo. `heedless` fires through an overheat (Full Open).
+    #[allow(clippy::too_many_arguments)]
+    fn trigger(
+        &mut self,
+        i: usize,
+        slot: usize,
+        mount: Mount,
+        wants: bool,
+        heedless: bool,
+        cmd: &InputCmd,
+        t: u32,
+    ) {
+        let w = weapon(mount.weapon);
+        match w.class {
+            WeaponClass::Beam | WeaponClass::Ballistic | WeaponClass::Missile => {}
+            WeaponClass::Cone => return self.flame(i, slot, mount, w, cmd, t),
+            // Blades strike in `melee_step` (the Dragon Fang is a primary).
+            WeaponClass::Melee => return,
+        }
+        let mut ws: WeaponState = *self.suits.weapon_state(i, slot);
+        ws.cooldown = ws.cooldown.saturating_sub(1);
+        let arm_ok = self.suits.arm_free(i, mount.arm) && !self.arm_blocked(i, mount.arm);
+        let ready = ws.cooldown == 0
+            && (heedless || !self.suits.overheated[i])
+            && self.suits.energy[i] >= w.energy
+            && (w.ammo == 0 || ws.ammo > 0)
+            && arm_ok;
+        if w.class == WeaponClass::Missile {
+            if wants && ready && ws.salvo == 0 {
+                self.start_salvo(i, &mut ws, w);
+            }
+            self.salvo_tick(i, slot, &mut ws, mount, w, cmd, t);
+            *self.suits.weapon_state(i, slot) = ws;
+            return;
+        }
+        let fire = if w.charge_ticks > 0 {
+            // Charged weapons: hold to charge, fires automatically when full; releasing early
+            // cancels. The charge glow is replicated, so everyone sees it coming.
+            if wants && ready {
+                ws.charge += 1;
+                if ws.charge >= w.charge_ticks {
+                    ws.charge = 0;
+                    true
+                } else {
+                    false
+                }
+            } else {
+                ws.charge = 0;
+                false
+            }
+        } else {
+            wants && ready
+        };
+        *self.suits.weapon_state(i, slot) = ws;
+        if fire {
+            self.fire(i, slot, mount, w, cmd, t);
+        }
     }
 
     fn fire(&mut self, i: usize, slot: usize, mount: Mount, w: &WeaponSpec, cmd: &InputCmd, t: u32) {
@@ -120,7 +161,7 @@ impl Sim {
         let vel = f.vel + dir * w.speed;
 
         let s = &mut self.suits;
-        let ws = &mut s.weapons[i][slot];
+        let ws = s.weapon_state(i, slot);
         ws.cooldown = w.cooldown;
         if w.ammo > 0 {
             ws.ammo -= 1;
@@ -129,19 +170,20 @@ impl Sim {
         s.energy[i] -= w.energy;
         s.last_fired[i] = t;
         s.stats[i].shots += 1;
+        // (The special mounts fire only in Full Open, which shows by itself.)
         if slot == 0 {
             s.fired_primary[i] = t;
-        } else {
+        } else if slot == 1 {
             s.fired_secondary[i] = t;
         }
+        self.break_jammer(i, t);
+        let s = &mut self.suits;
 
-        // Lag compensation for remote pilots: fly the shot through the world as they saw it.
-        let rewind = if s.pilot[i] == PilotKind::MobileDoll {
-            0
-        } else {
-            t.saturating_sub(cmd.view_tick_q4 >> 4).min(MAX_REWIND_TICKS)
-        };
-        let frac = if rewind > 0 { (cmd.view_tick_q4 & 15) as f32 / 16.0 } else { 0.0 };
+        // Lag compensation for remote pilots: fly the shot through the world as they saw it, but
+        // no further back than MAX_REWIND_TICKS (a view older than that counts as exactly that old).
+        let view_q4 = cmd.view_tick_q4.max(t.saturating_sub(MAX_REWIND_TICKS) << 4);
+        let rewind = if s.pilot[i] == PilotKind::MobileDoll { 0 } else { t.saturating_sub(view_q4 >> 4) };
+        let frac = if rewind > 0 { (view_q4 & 15) as f32 / 16.0 } else { 0.0 };
         let spawn_tick = t - rewind;
         let faction = s.faction[i];
         let mut p = muzzle;
@@ -163,7 +205,7 @@ impl Sim {
             }
             p = b;
         }
-        if w.kind.is_beam() {
+        if w.replication == Replication::PerShot {
             self.events.push(Event::BeamSpawn {
                 id: 0,
                 tick: spawn_tick,
@@ -279,160 +321,6 @@ impl Sim {
         self.proj_bits = live;
     }
 
-    pub(super) fn melee_step(&mut self, t: u32) {
-        let mut alive = core::mem::take(&mut self.iter_bits);
-        alive.copy_from(&self.suits.alive);
-        for i in alive.iter() {
-            let spec = frame(self.suits.frame[i]);
-            let Some(mount) = spec.loadout[2] else { continue };
-            let w = weapon(mount.weapon);
-            let s = &mut self.suits;
-            s.weapons[i][2].cooldown = s.weapons[i][2].cooldown.saturating_sub(1);
-            let mut st = s.saber[i];
-            let cmd = s.input[i];
-            let pressed = cmd.pressed(MELEE) && s.prev_buttons[i] & MELEE == 0;
-            match st.phase {
-                SaberPhase::Idle => {
-                    let arm_ok = s.arm_free(i, mount.arm);
-                    if pressed
-                        && arm_ok
-                        && s.weapons[i][2].cooldown == 0
-                        && s.energy[i] >= w.energy
-                        && !s.overheated[i]
-                    {
-                        st.phase = SaberPhase::Windup;
-                        st.timer = 4;
-                        st.n_hits = 0;
-                        st.rock = None;
-                        st.cut = None;
-                        st.view_q4 = cmd.view_tick_q4;
-                        s.heat[i] += w.heat;
-                        s.energy[i] -= w.energy;
-                        s.weapons[i][2].cooldown = w.cooldown + 18;
-                        s.last_fired[i] = t;
-                    }
-                }
-                SaberPhase::Windup => {
-                    st.timer -= 1;
-                    if st.timer == 0 {
-                        st.phase = SaberPhase::Active;
-                        st.timer = 6;
-                    }
-                }
-                SaberPhase::Active => {
-                    s.saber[i] = st;
-                    self.saber_sweep(i, mount, w, t);
-                    st = self.suits.saber[i];
-                    if st.phase == SaberPhase::Active {
-                        st.timer -= 1;
-                        if st.timer == 0 {
-                            st.phase = SaberPhase::Recovery;
-                            st.timer = 8;
-                        }
-                    }
-                }
-                SaberPhase::Recovery => {
-                    st.timer -= 1;
-                    if st.timer == 0 {
-                        st.phase = SaberPhase::Idle;
-                    }
-                }
-            }
-            self.suits.saber[i] = st;
-        }
-        self.iter_bits = alive;
-    }
-
-    /// Sweeps the blade arc (3 sub-steps this tick) against nearby suits.
-    fn saber_sweep(&mut self, i: usize, mount: Mount, w: &WeaponSpec, t: u32) {
-        let f = self.suits.flight[i];
-        let st = self.suits.saber[i];
-        let hand = f.pos + f.rot * mount.arm.muzzle();
-        let rewind = if self.suits.pilot[i] == PilotKind::MobileDoll {
-            0
-        } else {
-            t.saturating_sub(st.view_q4 >> 4).min(MAX_REWIND_TICKS)
-        };
-        let when = t - rewind;
-        let faction = self.suits.faction[i];
-        // The blade sweeps from the right shoulder across to the left hip.
-        let stroke = f.rot * normalize_or(Vec3::new(-1.5, -1.1, 0.2), Vec3::X);
-        for sub in 0..3u32 {
-            let progress = ((6 - u32::from(st.timer)) * 3 + sub) as f32 / 18.0;
-            let local = normalize_or(
-                Vec3::new(0.75, 0.65, 0.35).lerp(Vec3::new(-0.75, -0.45, 0.55), progress),
-                Vec3::Z,
-            );
-            let tip = hand + f.rot * local * w.range;
-            // It works a rock, and cuts a hulk, once each a swing.
-            if self.suits.saber[i].rock.is_none()
-                && let Some((at, rock)) = self.field.sweep(hand, tip, w.radius + SABER_DIG)
-            {
-                self.suits.saber[i].rock = Some(rock as u16);
-                self.rock_hit(rock, w.damage, WeaponKind::BeamSaber, hand + (tip - hand) * at, stroke, i, t);
-            }
-            if self.suits.saber[i].cut.is_none()
-                && let Some(k) = self.hulk_in_blade(hand, tip, w.radius)
-            {
-                self.suits.saber[i].cut = Some(k as u16);
-                self.cut_hulk(k, hand, tip, t);
-            }
-            let mut found: Option<(usize, usize, f32)> = None;
-            let (spatial, suits, history, ff) =
-                (&mut self.spatial, &self.suits, &self.history, self.cfg.friendly_fire);
-            spatial.query_sphere(hand, w.range + 16.0, |j| {
-                if j == i || (!ff && suits.faction[j] == faction) {
-                    return;
-                }
-                let already = suits.saber[i].hits[..suits.saber[i].n_hits as usize].contains(&(j as u16));
-                if already {
-                    return;
-                }
-                let (pos, rot) = if rewind > 0 {
-                    match history.pose(when, j) {
-                        Some(p) => p,
-                        None => return,
-                    }
-                } else {
-                    (suits.flight[j].pos, suits.flight[j].rot)
-                };
-                let spec = frame(suits.frame[j]);
-                let gone = suits.gone_mask(j);
-                for (ci, c) in spec.capsules.iter().enumerate() {
-                    if gone & (1 << ci) != 0 {
-                        continue;
-                    }
-                    let (ca, cb, cr) = capsule_world(c, pos, rot);
-                    let (_, _, d2) = segment_segment(hand, tip, ca, cb);
-                    let rr = w.radius + cr;
-                    if d2 <= rr * rr && found.is_none_or(|(_, _, bd)| d2 < bd) {
-                        found = Some((j, ci, d2));
-                    }
-                }
-            });
-            let Some((j, ci, _)) = found else { continue };
-            // Saber clash: both blades live and the target faces us: parried, no damage.
-            let tj = self.suits.saber[j];
-            let facing = (self.suits.flight[j].rot * Vec3::Z)
-                .dot(normalize_or(f.pos - self.suits.flight[j].pos, Vec3::Z))
-                > 0.5;
-            if tj.phase == SaberPhase::Active && facing {
-                for k in [i, j] {
-                    self.suits.saber[k].phase = SaberPhase::Recovery;
-                    self.suits.saber[k].timer = 10;
-                }
-                self.events.push(Event::Clash { id: 0, tick: t, a: i as u16, b: j as u16 });
-                return;
-            }
-            let st = &mut self.suits.saber[i];
-            if (st.n_hits as usize) < st.hits.len() {
-                st.hits[st.n_hits as usize] = j as u16;
-                st.n_hits += 1;
-            }
-            self.queue_damage(j, Part::ALL[ci], w.damage, i, WeaponKind::BeamSaber, stroke);
-        }
-    }
-
     pub(super) fn damage_step(&mut self, t: u32) {
         for k in 0..self.damage.len() {
             let d = self.damage.as_slice()[k];
@@ -444,7 +332,7 @@ impl Sim {
             let mut part = d.part;
             let mut amount = d.amount * spec.armor;
             // A beam wider than a limb engulfs the whole suit: it lands on the torso.
-            if weapon(d.weapon).radius >= WIDE_BEAM_RADIUS {
+            if weapon(d.weapon).engulfs {
                 part = Part::Torso;
             }
             // Hits on a destroyed limb carry through to the torso at half strength.
@@ -470,6 +358,7 @@ impl Sim {
             let shooter = d.shooter as usize;
             if shooter < self.suits.cap {
                 self.suits.stats[shooter].hits += 1;
+                self.suits.stats[shooter].hits_by_class[weapon(d.weapon).class as usize] += 1;
                 self.suits.stats[shooter].damage_dealt += dealt;
             }
             self.events.push(Event::Hit {

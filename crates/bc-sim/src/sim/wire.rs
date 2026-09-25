@@ -7,11 +7,9 @@ use bc_proto::{EntityState, ObjectState, OwnState, RockState, ZeroInfo};
 
 use super::Sim;
 use crate::chunks::Motion;
-use crate::config::VISUAL_RANGE;
-use crate::content::{frame, weapon};
+use crate::content::{SpecialKind, WeaponClass, frame, weapon};
 use crate::rocks::{max_hp, max_ore_kg};
-use crate::sensors;
-use crate::suits::{SaberPhase, SuitStats};
+use crate::suits::{MeleePhase, SPECIAL_MOUNT, SuitStats};
 
 impl Sim {
     pub fn is_used(&self, i: usize) -> bool {
@@ -43,18 +41,7 @@ impl Sim {
                 return false;
             }
         }
-        let vspec = frame(s.frame[viewer]);
-        let head_ok = s.part_hp[viewer][bc_proto::Part::Head as usize] > 0.0;
-        let range = vspec.sensor_range * if head_ok { 1.0 } else { 0.4 };
-        let sig = sensors::signature(
-            frame(s.frame[j]).signature,
-            s.boosting[j],
-            self.tick().saturating_sub(s.last_fired[j]) < 30,
-            wreck,
-        );
-        let d2 = (s.flight[j].pos - s.flight[viewer].pos).length_squared();
-        d2 <= VISUAL_RANGE * VISUAL_RANGE
-            || sensors::detects(s.flight[viewer].pos, range, s.flight[j].pos, sig)
+        self.detects(viewer, j)
     }
 
     /// Full-precision state of suit `i` for its own pilot.
@@ -69,15 +56,23 @@ impl Sim {
             if let Some(m) = spec.loadout[slot] {
                 let w = weapon(m.weapon);
                 let ws = &s.weapons[i][slot];
-                if ws.cooldown == 0
-                    && s.energy[i] >= w.energy
-                    && (w.ammo == 0 || ws.ammo > 0)
-                    && !s.overheated[i]
-                    && s.arm_free(i, m.arm)
-                {
+                let ok = if w.class == WeaponClass::Melee {
+                    self.melee_ready(i, slot as u8)
+                } else {
+                    ws.cooldown == 0
+                        && s.energy[i] >= w.energy
+                        && (w.ammo == 0 || ws.ammo > 0)
+                        && !s.overheated[i]
+                        && s.arm_free(i, m.arm)
+                        && !self.arm_blocked(i, m.arm)
+                };
+                if ok {
                     ready |= 1 << slot;
                 }
             }
+        }
+        if self.special_ready(i) {
+            ready |= 1 << 3;
         }
         let charge = spec.loadout[0]
             .map(|m| weapon(m.weapon))
@@ -96,8 +91,12 @@ impl Sim {
         if charge > 0.0 {
             flags |= own_flags::CHARGING;
         }
-        if s.saber[i].phase != SaberPhase::Idle {
+        let melee = &s.melee[i];
+        if melee.phase != MeleePhase::Idle {
             flags |= own_flags::SABER_ACTIVE;
+            if melee.slot == SPECIAL_MOUNT {
+                flags |= own_flags::SPECIAL_ACTIVE;
+            }
         }
         if mods.lunge {
             flags |= own_flags::LUNGE;
@@ -111,9 +110,43 @@ impl Sim {
         if s.input[i].pressed(bc_proto::buttons::FLIGHT_ASSIST) {
             flags |= own_flags::FLIGHT_ASSIST;
         }
-        if s.alive.iter().any(|j| j != i && s.input[j].lock_target == i as u16) {
-            flags |= own_flags::LOCKED_ON;
+        // Locked on by someone it can see (a jamming suit's lock goes unnoticed), perhaps with a
+        // missile lock acquired.
+        for j in s.alive.iter() {
+            if s.input[j].lock_target == i as u16 && self.designation(j) == Some(i) && !self.jammed_from(i, j)
+            {
+                flags |= own_flags::LOCKED_ON;
+                if self.missile_lock(j) == Some(i) {
+                    flags |= own_flags::MISSILE_LOCK;
+                }
+            }
         }
+        if s.incoming[i] > 0 {
+            flags |= own_flags::MISSILE_INCOMING;
+        }
+        if self.missile_lock(i).is_some() {
+            flags |= own_flags::LOCK_ACQUIRED;
+        }
+        let lock_progress = spec.lock_spec().map_or(0, |m| {
+            let l = &s.lock[i];
+            if l.target == bc_proto::NO_SLOT {
+                0
+            } else {
+                (u32::from(l.progress) * 15 / u32::from(m.lock_ticks)) as u8
+            }
+        });
+        if s.special[i].active {
+            flags |= own_flags::SPECIAL_ACTIVE;
+        }
+        if self.transforming(i) {
+            flags |= own_flags::TRANSFORMING;
+        }
+        // The special's timer: a change of form, Full Open, or (the jammer) the break until it
+        // hides the suit again.
+        let special_timer = match spec.special {
+            SpecialKind::HyperJammer { .. } => s.special[i].break_until.saturating_sub(t),
+            _ => u32::from(s.special[i].timer),
+        };
         let respawn_in =
             if s.alive.get(i) { 0 } else { (s.respawn_at[i].saturating_sub(t) / 4).min(255) as u8 };
         OwnState {
@@ -143,6 +176,10 @@ impl Sim {
             cargo_kg: s.cargo_kg[i],
             credits: s.credits[i],
             held: self.held_chunk(i).map_or(bc_proto::NO_CHUNK, |k| k as u16),
+            lock_target: self.designation(i).map_or(bc_proto::NO_SLOT, |j| j as u16),
+            lock_progress,
+            special_timer: special_timer.min(255) as u8,
+            special_cooldown: s.special[i].cooldown.div_ceil(4).min(255) as u8,
         }
     }
 
@@ -158,8 +195,14 @@ impl Sim {
         if t.saturating_sub(s.fired_secondary[j]) < 4 && s.fired_secondary[j] != 0 {
             flags |= ent_flags::FIRING_SECONDARY;
         }
-        if matches!(s.saber[j].phase, SaberPhase::Windup | SaberPhase::Active) {
+        let melee = &s.melee[j];
+        if melee.striking() {
             flags |= ent_flags::SABER;
+            if melee.slot < 2 {
+                flags |= ent_flags::MELEE_ALT;
+            } else if melee.slot == SPECIAL_MOUNT {
+                flags |= ent_flags::SPECIAL;
+            }
         }
         if s.boosting[j] {
             flags |= ent_flags::BOOST;
@@ -179,8 +222,16 @@ impl Sim {
         if !s.alive.get(j) {
             flags |= ent_flags::WRECK;
         }
-        if s.input[j].lock_target == viewer as u16 && s.alive.get(j) {
+        if s.input[j].lock_target == viewer as u16 && self.designation(j) == Some(viewer) {
             flags |= ent_flags::LOCKED_ON_YOU;
+        }
+        // Allies see a jamming suit's shimmer; its enemies (close enough to see it at all) don't.
+        // Full Open shows to everyone.
+        if (self.jamming(j).is_some() && s.faction[j] == s.faction[viewer])
+            || self.full_open(j)
+            || self.transforming(j)
+        {
+            flags |= ent_flags::SPECIAL;
         }
         EntityState {
             slot: j as u16,

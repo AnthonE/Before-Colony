@@ -40,6 +40,17 @@ const scenes: Array<[string, number, number, number]> = [
   ["chase", 1, 9.9, 12],
   ["chase", 1, 15.5, 12],
   ["chase", 1, 17.8, 12],
+  // The Gundams: all in a row (Full Open's salvo bursting, Shenlong's flame); Heavyarms in Full
+  // Open; Deathscythe jamming, mid-reap; Sandrock's shotels, then its Cross Crusher; Shenlong's
+  // fang at full reach, then its flamethrower; Neo-Bird on full burn.
+  ["gundams", 1, 7.95, 12],
+  ["gundams", 2, 7.95, 12],
+  ["gundams", 3, 6.75, 12],
+  ["gundams", 4, 6.45, 12],
+  ["gundams", 4, 9.45, 12],
+  ["gundams", 5, 6.63, 12],
+  ["gundams", 5, 7.9, 12],
+  ["gundams", 6, 6, 12],
 ];
 
 for (const [scene, cam, t, frames] of scenes) {

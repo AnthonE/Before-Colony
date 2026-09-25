@@ -1,13 +1,17 @@
-//! Cockpit HUD: flight and armour readouts, weapons, target brackets, kill feed, the ZERO System's
-//! recommendations and alerts. Plain ASCII so the embedded font renders everything.
+//! Cockpit HUD: flight and armour readouts, weapons and the frame's special, missile lock, target
+//! brackets and markers on missiles tracking you, kill feed, the ZERO System's recommendations and
+//! alerts. Plain ASCII so the embedded font renders everything.
 
 use bc_client_core::FeedLine;
 use bc_client_core::world::ObjectMotion;
+use bc_proto::buttons::MODE;
 use bc_proto::snapshot::{ent_flags, own_flags, zero_mode};
-use bc_proto::{ChunkKind, NO_CHUNK, Part, PilotKind, WeaponKind};
+use bc_proto::{ChunkKind, NO_CHUNK, NO_SLOT, OwnState, Part, PilotKind, WeaponKind};
 use bc_sim::chunks;
 use bc_sim::content::salvage::{CATCH_SPEED, DOCK_CENTER, PRICE, REACH, hold_kg, material};
-use bc_sim::content::{ArmSlot, frame, frame_name, weapon, weapon_name};
+use bc_sim::content::{
+    ArmSlot, FrameSpec, PLAYABLE_ORDER, SpecialKind, frame, frame_name, weapon, weapon_name,
+};
 use bc_sim::zero::hypotheses::Maneuver;
 use bevy::prelude::*;
 
@@ -21,7 +25,9 @@ const AMBER: Color = Color::srgb(1.0, 0.75, 0.25);
 const RED: Color = Color::srgb(1.0, 0.3, 0.3);
 const GREEN: Color = Color::srgb(0.45, 1.0, 0.55);
 const ZERO_PINK: Color = Color::srgb(1.0, 0.45, 0.8);
+/// Target brackets on suits, then markers on missiles tracking the pilot.
 const BRACKETS: usize = 24;
+const MISSILE_MARKERS: usize = 8;
 
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 pub enum HudText {
@@ -117,19 +123,8 @@ pub fn setup_hud(mut commands: Commands) {
             p.spawn((HudText::Flight, label(13.0, CYAN, abs(Some(14.0), None, None, Some(12.0)))));
             p.spawn((HudText::Armor, label(13.0, CYAN, abs(Some(250.0), None, None, Some(12.0)))));
             p.spawn((HudText::Weapons, label(13.0, CYAN, abs(None, Some(14.0), None, Some(12.0)))));
-            p.spawn((
-                HudText::Salvage,
-                label(
-                    13.0,
-                    AMBER,
-                    Node {
-                        position_type: PositionType::Absolute,
-                        bottom: Val::Px(12.0),
-                        left: Val::Percent(38.0),
-                        ..default()
-                    },
-                ),
-            ));
+            // Above the armour readout, clear of the weapons panel however narrow the window.
+            p.spawn((HudText::Salvage, label(13.0, AMBER, abs(Some(250.0), None, None, Some(136.0)))));
             p.spawn((
                 GrabMarker,
                 label(13.0, GREEN, abs(Some(0.0), None, Some(0.0), None)),
@@ -185,7 +180,7 @@ pub fn setup_hud(mut commands: Commands) {
                 label(16.0, ZERO_PINK, abs(Some(0.0), None, Some(0.0), None)),
                 Visibility::Hidden,
             ));
-            for i in 0..BRACKETS {
+            for i in 0..BRACKETS + MISSILE_MARKERS {
                 p.spawn((
                     Bracket(i),
                     label(11.0, RED, abs(Some(0.0), None, Some(0.0), None)),
@@ -202,6 +197,61 @@ fn bar(f: f32, n: usize) -> String {
 
 fn km(d: f32) -> String {
     if d < 1_000.0 { format!("{d:.0} m") } else { format!("{:.1} km", d / 1_000.0) }
+}
+
+/// Seconds, from ticks.
+fn secs(ticks: f32) -> f32 {
+    ticks / bc_sim::TICK_HZ as f32
+}
+
+/// The frame's special on the H key, and its state: `asked` is whether MODE is held.
+fn special_line(spec: &FrameSpec, o: &OwnState, asked: bool) -> Option<String> {
+    let active = o.flags & own_flags::SPECIAL_ACTIVE != 0;
+    let ready = o.weapon_ready & 8 != 0;
+    let cooling = || format!("{:.0} s", secs(f32::from(o.special_cooldown) * 4.0).ceil());
+    let timer = secs(f32::from(o.special_timer));
+    let (name, state) = match spec.special {
+        SpecialKind::None => return None,
+        SpecialKind::Transform { to, .. } => {
+            let name = if to == bc_proto::FrameId::WingZeroBird { "NEO-BIRD" } else { "MS MODE" };
+            let state = if o.flags & own_flags::TRANSFORMING != 0 {
+                format!("CHANGING {timer:.1} s")
+            } else {
+                "READY".into()
+            };
+            (name, state)
+        }
+        SpecialKind::HyperJammer { .. } => {
+            let state = match (active, asked) {
+                (true, _) => "JAMMING",
+                // Held, but broken by firing, or short of energy.
+                (false, true) => "SUPPRESSED",
+                (false, false) => "OFF",
+            };
+            ("HYPER JAMMER", state.into())
+        }
+        SpecialKind::FullOpen { .. } => {
+            let state = if active {
+                format!("FIRING {timer:.1} s")
+            } else if ready {
+                "READY".into()
+            } else {
+                cooling()
+            };
+            ("FULL OPEN ATTACK", state)
+        }
+        SpecialKind::MeleeMove { .. } => {
+            let state = if active {
+                "STRIKING".into()
+            } else if ready {
+                "READY".into()
+            } else {
+                cooling()
+            };
+            ("CROSS CRUSHER", state)
+        }
+    };
+    Some(format!("H   {name:<18} {state}\n"))
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -251,7 +301,9 @@ pub fn update_hud(
     };
 
     // --- Status (top left). ---
-    let fa = if controls.flight_assist { "FA ON" } else { "FA OFF" };
+    // As the server applies it (the autopilot flies unassisted when G-strain builds).
+    let assisted = own.map_or(controls.flight_assist, |o| o.flags & own_flags::FLIGHT_ASSIST != 0);
+    let fa = if assisted { "FA ON" } else { "FA OFF" };
     let mode = if game.autopilot { "AUTOPILOT (Mobile Doll brain)" } else { "MANUAL" };
     set(
         HudText::Status,
@@ -278,14 +330,16 @@ pub fn update_hud(
 
     // --- Flight, armour, weapons (bottom). ---
     if let Some(o) = own {
-        let spec = frame(o.frame);
+        // The form the prediction flies (a change of form shows as soon as it's made).
+        let form = if o.alive { core.predict.frame() } else { o.frame };
+        let spec = frame(form);
         let s = &core.predict.state;
         set(
             HudText::Flight,
             format!(
                 "{} {}\nSPD {:>6.0} m/s\nPROP {} {:>3.0}%\nHEAT {} {:>3.0}%\nENGY {} {:>3.0}%\nG   {:>4.1} g  STRAIN {}",
-                bc_sim::content::frame_designation(o.frame),
-                frame_name(o.frame).to_uppercase(),
+                bc_sim::content::frame_designation(form),
+                frame_name(form).to_uppercase(),
                 s.vel.length(),
                 bar(s.propellant / spec.propellant_cap, 10),
                 100.0 * s.propellant / spec.propellant_cap,
@@ -328,6 +382,21 @@ pub fn update_hud(
                     extra
                 ));
             }
+        }
+        if let Some(line) = special_line(spec, &o, core.last_cmd.buttons & MODE != 0) {
+            w.push_str(&line);
+        }
+        if let Some(lock) = spec.lock_spec() {
+            let line = if o.lock_target == NO_SLOT {
+                "LOCK --  aim at a hostile".to_string()
+            } else if o.flags & own_flags::LOCK_ACQUIRED != 0 {
+                format!("LOCK {}  ACQUIRED", world.name_of(o.lock_target))
+            } else {
+                let progress = f32::from(o.lock_progress) / f32::from(lock.lock_ticks);
+                format!("LOCK {}  {}", world.name_of(o.lock_target), bar(progress, 8))
+            };
+            w.push_str(&line);
+            w.push('\n');
         }
         if o.flags & own_flags::ZERO_CAPABLE != 0 {
             let z = match o.zero_mode {
@@ -443,29 +512,58 @@ pub fn update_hud(
                 if active { "ZERO SEIZURE" } else { "released" }
             )),
             FeedLine::Clash { a, b, .. } => {
-                feed.push_str(&format!("{} x {} SABER CLASH\n", world.name_of(a), world.name_of(b)))
+                feed.push_str(&format!("{} x {} CLASH\n", world.name_of(a), world.name_of(b)))
             }
         }
     }
     set(HudText::Feed, feed, None);
 
     // --- Alerts. ---
-    let alert = match own {
-        _ if game.disconnected => "LINK LOST".to_string(),
-        Some(o) if !o.alive => format!(
-            "DESTROYED\nrespawn in {:.0} s   [1] Leo  [2] Wing Zero",
-            f32::from(o.respawn_in) * 4.0 / 30.0
-        ),
-        Some(o) if o.zero_mode == zero_mode::SEIZED => "ZERO HAS THE CONTROLS".into(),
-        Some(o) if o.flags & own_flags::BLACKOUT != 0 => "G-LOC  BLACKOUT".into(),
-        Some(o) if o.flags & own_flags::LOCKED_ON != 0 => "LOCK WARNING".into(),
-        _ => String::new(),
+    let own_pos = core.predict.render_pos();
+    // Missiles tracking the pilot, nearest first.
+    let mut incoming: Vec<(f32, Vec3)> = world
+        .missiles()
+        .filter(|m| m.latest.targets_you)
+        .map(|m| {
+            let p = m.pos_at(t);
+            (p.distance(own_pos), p)
+        })
+        .collect();
+    incoming.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let (alert, alert_color) = match own {
+        _ if game.disconnected => ("LINK LOST".to_string(), RED),
+        Some(o) if !o.alive => {
+            let menu: Vec<String> = PLAYABLE_ORDER
+                .iter()
+                .enumerate()
+                .map(|(k, f)| format!("[{}] {}", k + 1, frame_name(*f)))
+                .collect();
+            let respawn = f32::from(o.respawn_in) * 4.0 / 30.0;
+            (
+                format!(
+                    "DESTROYED\nrespawn in {respawn:.0} s\n{}\n{}",
+                    menu[..3].join("  "),
+                    menu[3..].join("  ")
+                ),
+                RED,
+            )
+        }
+        Some(o) if o.zero_mode == zero_mode::SEIZED => ("ZERO HAS THE CONTROLS".into(), RED),
+        Some(o) if o.flags & own_flags::BLACKOUT != 0 => ("G-LOC  BLACKOUT".into(), RED),
+        Some(o) if o.flags & own_flags::MISSILE_INCOMING != 0 => {
+            let near = incoming.first().map_or(String::new(), |(d, _)| format!("  {}", km(*d)));
+            (format!("MISSILE{near}"), RED)
+        }
+        Some(o) if o.flags & own_flags::MISSILE_LOCK != 0 => ("MISSILE LOCK".into(), RED),
+        Some(o) if o.flags & own_flags::LOCKED_ON != 0 => ("LOCK WARNING".into(), RED),
+        Some(o) if o.flags & own_flags::TRANSFORMING != 0 => ("TRANSFORMING".into(), CYAN),
+        _ => (String::new(), RED),
     };
-    set(HudText::Alert, alert, None);
+    set(HudText::Alert, alert, Some(alert_color));
     let help = if game.autopilot || controls.locked || own.is_none() {
         String::new()
     } else {
-        "CLICK TO TAKE CONTROL   WASD/Space/C thrust  Q/E roll  Shift boost  X brake\nLMB/RMB fire  F saber  V flight assist  Z ZERO System  R RCS\nG grab  B stow  T throw  J jettison  (sell at the colony's -X end)".into()
+        "CLICK TO TAKE CONTROL   WASD/Space/C thrust  Q/E roll  Shift boost  X brake\nLMB/RMB fire  F melee  H special  V flight assist  Z ZERO System  R RCS\nG grab  B stow  T throw  J jettison  (sell at the colony's -X end)".into()
     };
     set(HudText::Help, help, None);
     if let Ok(mut r) = reticle.single_mut() {
@@ -474,7 +572,6 @@ pub fn update_hud(
 
     // --- Screen-space markers. ---
     let Ok((cam, cam_tf)) = camera.single() else { return };
-    let own_pos = core.predict.render_pos();
     if let Ok((mut node, mut text, mut vis)) = lead.single_mut() {
         match (zero, own) {
             (Some(z), Some(o)) if z.has_solution && o.alive => {
@@ -568,7 +665,22 @@ pub fn update_hud(
         .filter_map(|(slot, tr)| tr.as_ref().map(|tr| (tr.sample(t).pos.distance(own_pos), slot as u16)))
         .collect();
     shown.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let lock = own.filter(|o| o.alive && o.lock_target != NO_SLOT);
     for (b, mut node, mut text, mut color, mut vis) in &mut brackets {
+        if b.0 >= BRACKETS {
+            // A missile tracking the pilot.
+            match incoming.get(b.0 - BRACKETS).map(|&(d, p)| (d, cam.world_to_viewport(cam_tf, p))) {
+                Some((d, Ok(p))) => {
+                    node.left = Val::Px(p.x - 12.0);
+                    node.top = Val::Px(p.y - 8.0);
+                    text.0 = format!("<!> MSL {}", km(d));
+                    color.0 = RED;
+                    *vis = Visibility::Visible;
+                }
+                _ => *vis = Visibility::Hidden,
+            }
+            continue;
+        }
         let Some(&(dist, slot)) = shown.get(b.0) else {
             *vis = Visibility::Hidden;
             continue;
@@ -583,17 +695,31 @@ pub fn update_hud(
                 let zero_target = zero.is_some_and(|z| z.rec_target == slot);
                 node.left = Val::Px(p.x - 30.0);
                 node.top = Val::Px(p.y - 26.0);
-                let lock = if e.flags & ent_flags::LOCKED_ON_YOU != 0 { " !LOCK" } else { "" };
+                let warn = if e.flags & ent_flags::LOCKED_ON_YOU != 0 { " !LOCK" } else { "" };
+                // The pilot's own missile lock on it: building, or acquired.
+                let locking = lock.filter(|o| o.lock_target == slot).map(|o| {
+                    let spec = frame(o.frame).lock_spec();
+                    match spec {
+                        _ if o.flags & own_flags::LOCK_ACQUIRED != 0 => "\n<< LOCKED >>".to_string(),
+                        Some(l) => {
+                            format!("\n<{}>", bar(f32::from(o.lock_progress) / f32::from(l.lock_ticks), 6))
+                        }
+                        None => String::new(),
+                    }
+                });
                 text.0 = format!(
-                    "{}{}{}\n{}{}",
+                    "{}{}{}\n{}{}{}",
                     world.name_of(slot),
                     pilot_tag(e.pilot),
-                    lock,
+                    warn,
                     km(dist),
-                    if e.pilot == PilotKind::Agent { " agent" } else { "" }
+                    if e.pilot == PilotKind::Agent { " agent" } else { "" },
+                    locking.as_deref().unwrap_or("")
                 );
                 color.0 = if wreck {
                     Color::srgb(0.5, 0.5, 0.5)
+                } else if locking.is_some() {
+                    AMBER
                 } else if zero_target {
                     ZERO_PINK
                 } else if hostile {

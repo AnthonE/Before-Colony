@@ -22,7 +22,7 @@ All art is procedural.
 
 ## Setting
 
-After Colony 195–196, Earth Sphere. Milestone 1 takes place in **Sector L1: the L1 Colony Cluster**.
+After Colony 195–196, Earth Sphere. The milestones so far take place in **Sector L1: the L1 Colony Cluster**.
 An O'Neill cylinder (3.2 km radius, 32 km long) lies below the combat zone, with a debris field
 around it and OZ Mobile Doll patrols circling above. The sector is a ±32.768 km cube, and suits are
 kept within ±30 km.
@@ -40,7 +40,7 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
 - **Attitude.** The suit turns toward your aim.
   - **AMBAC** (Active Mass Balance Auto Control) swings the limbs to rotate the suit. It costs no
     propellant but has modest authority. Losing arms or legs reduces it, and so does firing or
-    swinging a saber, because the limbs are busy.
+    striking with a blade, because the limbs are busy.
   - **RCS** (hold R) adds strong attitude thrusters that burn propellant.
 - **Flight assist** (V) turns the stick into a velocity command: it brakes to a stop when you let
   go. With it off you are fully Newtonian. **Brake** (X) always retro-burns.
@@ -57,6 +57,11 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
 |---|---|---|---|---|---|---|
 | Leo (OZ-06MS) | line suit | 7.1 t | 3.5 g (5.6 g) | ≈2.6 km/s | titanium | beam rifle · machine cannon · beam saber |
 | Wing Gundam Zero (XXXG-00W0) | hero suit | 8.0 t | 8 g (12 g) | ≈3.7 km/s | gundanium (×0.55 damage) | Twin Buster Rifle · machine cannons · beam saber · **ZERO System** |
+| Neo-Bird (Wing Zero's other form) | interceptor | 8.0 t | 8.5 g (11.9 g) | ≈3.7 km/s | as Wing Zero | Twin Buster Rifle (fixed forward) · machine cannons · **ZERO System** |
+| Gundam Heavyarms (XXXG-01H) | gunship | 8.8 t | 5.2 g (7.3 g) | ≈2.8 km/s | gundanium (×0.55) | beam gatling · homing missiles · army knife · **Full Open Attack** |
+| Gundam Sandrock (XXXG-01SR) | brawler | 9.6 t | 4.6 g (6.9 g) | ≈2.4 km/s | gundanium (×0.45) | beam machine gun · homing missiles · heat shotels · **Cross Crusher** |
+| Gundam Deathscythe (XXXG-01D) | infiltrator | 7.3 t | 7 g (11.2 g) | ≈3.3 km/s | gundanium (×0.55) | buster shield · head vulcans · beam scythe · **Hyper Jammer** |
+| Shenlong Gundam (XXXG-01S) | duellist | 7.5 t | 7.4 g (11.8 g) | ≈3.3 km/s | gundanium (×0.55) | Dragon Fang · flamethrower · beam glaive |
 | Taurus (OZ-13MS) | Mobile Doll | 6.5 t | 5 g | | titanium | beam rifle |
 | Virgo (OZ-02MD) | Mobile Doll | 9.5 t | 3 g | | heavy (×0.8) | beam cannon, Planet Defensors (visual) |
 
@@ -69,6 +74,14 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
 | Beam saber | – | 90 | swing | 9 m arc sweep with a lunge; blades clash (both parried) |
 | Twin Buster Rifle | 8 km/s | 220 | 1 per 5 s | 0.6 s charge, visible to everyone; 5 m beam engulfs the whole suit |
 | Beam cannon (Virgo) | 3.5 km/s | 70 | 0.8/s | |
+| Beam gatling (Heavyarms) | 3 km/s | 7 | 10/s | a stream of beam rounds |
+| Buster shield (Deathscythe) | 450 m/s | 80 | 1 per 5 s | the shield's beam claw, fired: slow, so lead it |
+| Head vulcans (Deathscythe) | 1 km/s | 3 | 15/s | 300 rounds |
+| Beam machine gun (Sandrock) | 3.5 km/s | 12 | 6/s | |
+| Homing missiles (Heavyarms, Sandrock) | 120 m/s off the rail, then an 18 g motor | 32 each | salvos of 4, one per 2 s | guided when your lock is acquired; 24 rounds |
+| Chest gatlings (Heavyarms) | 1.2 km/s | 4 | 30/s | Full Open only; 300 rounds |
+| Micro-missiles (Heavyarms) | 150 m/s, then a 14 g motor | 16 each | volleys of 8 | Full Open only; 16 rounds |
+| Flamethrower (Shenlong) | – | 7 a burn | 5 burns/s | a 70 m cone, ±12°; each burn adds 10 heat to what it touches, enough to overheat it; 150 burns |
 
 - **Projectiles inherit the shooter's velocity** (it's space). Fire control solves the intercept in
   the shooter's frame.
@@ -87,15 +100,75 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
     (pilots').
 - **Heat and energy.** Overheating locks all weapons until heat falls to 50%. Beam weapons draw from
   an energy pool that the reactor recharges.
+- **Streams.** Rapid-fire weapons (gatlings, machine guns, vulcans) aren't sent shot by shot: every
+  client draws their tracers from the firing flags. Only single shots (rifles, cannons, the buster
+  shield) are events, and only those are predicted by the shooter's own client.
 - **Lag compensation.** A shot resolves against the world as its shooter saw it, up to 8 ticks
   (267 ms) back. Details are in `ARCHITECTURE.md`.
+
+### Neo-Bird
+
+Wing Zero holds MODE to fold into **Neo-Bird**, and lets go to unfold. A change takes 0.8 s with
+the weapons down and thrust cut to 30%, and once started it runs its course (a strike or a charge
+under way is lost). The bird is the same suit, armour, energy, heat and tank, reshaped: faster in a
+straight line (it cruises at 600 m/s under flight assist) but slower to turn, its rifles fixed
+within 2° of the nose, no saber, and aircraft-shaped hitboxes with wide wings. ZERO stays engaged
+through it, and a Wing Zero always respawns unfolded. The owner's client predicts the change
+exactly.
+
+### Missiles
+
+- **Locks.** Keep your designation inside 20° of your aim and within 2.8 km for half a second and
+  the lock is acquired; lose it and it falls apart twice as fast. The target is told (MISSILE
+  LOCK), unless it can't see you.
+- **Guidance.** A missile fired with the lock acquired is guided onto the locked suit by
+  proportional navigation; otherwise it flies blind along your aim. Its motor steers and speeds it
+  at up to 18 g, but its Δv is a budget (1.1 km/s): once spent the missile coasts and can't turn.
+  So a target can outrun it, make it burn its motor turning, or break late.
+- **Seekers** hold their target within 60° of the nose and 3.2 km times the target's signature,
+  so a jamming Deathscythe slips them. A missile bursts within 4 m of an enemy suit (friends are
+  safe), against a rock or the colony, or at the end of its 8 s life.
+- **Full Open Attack** (Heavyarms, SPECIAL): for three seconds every hatch opens and everything
+  fires along the aim, heat or not: the beam gatling, both launchers and the chest gatlings,
+  about 24 missiles. Then the suit is locked in an overheat for 5 s, and it's ready again 30 s
+  after it started.
+
+### Melee
+
+Every blade strikes the same way: a windup, the stroke (when it can hit), and a recovery, with the
+timings, arc and reach in its row of the weapon table.
+
+| Blade | Suit (key) | Damage | Reach | Windup · stroke · recovery (ticks) | Notes |
+|---|---|---|---|---|---|
+| Beam saber | Leo, Wing Zero (F) | 90 | 9 m | 4 · 6 · 8 | right shoulder to left hip |
+| Army knife | Heavyarms (F) | 55 | 5 m | 3 · 4 · 6 | quick |
+| Beam scythe | Deathscythe (F) | 120 | 12 m | 6 · 6 · 10 | wide reaping arc |
+| Heat shotels | Sandrock (F) | 70 a blade | 8 m | 5 · 6 · 8 | one in each hand, sweeping inward |
+| Cross Crusher | Sandrock (H) | 100 a blade | 9 m | 8 · 5 · 15 | the shotels as a pincer; both arms; 8 s cooldown |
+| Dragon Fang | Shenlong (LMB) | 85 | 35 m | 4 · 6 · 10 | thrust along the aim; no lunge; can't be parried |
+| Beam glaive | Shenlong (F) | 110 | 13 m | 5 · 6 · 10 | overhead chop |
+
+- **A blade hits a suit at most once a strike**; each of a twin weapon's blades hits it once. A lost
+  arm loses its blade (the Cross Crusher needs both).
+- **Blades lunge**: through the windup and the stroke the suit drives forward at 1.5× main thrust,
+  which adds several metres to the reach. The Dragon Fang is Shenlong's arm, so it doesn't.
+- **Clashes.** A stroke that meets a suit whose own blade is out and facing it is parried: neither
+  does damage, and each recovers for its blade's clash time. The Dragon Fang can't be parried.
 
 ## Sensors and visibility
 
 Each frame has a sensor range, and each suit a signature. Boosting multiplies the signature by 1.5
 and firing by 1.8 (for 1 s). Anything within 1.5 km is always visible. Losing the head cuts sensor
 range to 40%. **The server only replicates what your sensors see**, so fog of war is also the
-anti-wallhack. (Deathscythe's Hyper Jammer will plug straight into this model.)
+anti-wallhack.
+
+**Deathscythe's Hyper Jammer** (held on MODE) defeats this model. To its enemies a jamming suit
+shows a fiftieth of its signature, and their eyes see it only within 150 m. So it leaves their
+screens, and Mobile Dolls, the ZERO System, locks and missile seekers lose it too, until it's all
+but within reach of its scythe. Allies still see it, as a
+shimmer. The jammer engages with a fifth of the energy pool and drains 30 energy/s against a
+recharge of 18, so it runs about 12 s from full. Firing, striking or using a special shows
+through it for 2 s.
 
 ## The ZERO System
 
@@ -134,9 +207,22 @@ can take.
 - **Agents** are external AI players on the Bot SDK (`bc-bot`). They run the same client state
   machine as the browser, get the same sensor-limited view and input rate, and obey the same G
   limits. They are labelled **MD** in-game. The bundled `DollBrain` flies an agent with the Mobile
-  Doll AI. `MinerBrain` mines: it cuts rocks apart with its saber, stows the ore as its free hand
+  Doll's judgement and the frame's whole kit (below). `MinerBrain` mines: it cuts rocks apart with its saber, stows the ore as its free hand
   catches it, and sells it at the dock, flying round the colony to get there. Write your own brain
   in a closure.
+- **The kit-aware pilot** (`DollBrain`, and the browser's autopilot) picks targets and maneuvers
+  like a Mobile Doll, then flies the frame it's in:
+  - guns inside their reach, leading with the one that fits; launchers once the lock is acquired;
+    the flamethrower close in; the Dragon Fang from a third of its reach; blades timed so the
+    target is well inside their reach mid-stroke, lunge included;
+  - a melee-first frame (Deathscythe, Shenlong) pursues: its main engine pointed where its
+    velocity has to go, weaving on the way in, closing no faster than it can brake from, to just
+    outside a blade's length;
+  - Neo-Bird for the long haul; the jammer while closing, holding fire so as not to break it;
+    Full Open with a lock inside 1.2 km; the Cross Crusher at arm's length;
+  - it breaks sideways from a missile tracking it, and minds its pilot's G: strained, it flies
+    unassisted at 5 g, which a pilot bears for good.
+  The server's own Mobile Dolls, and a ZERO seizure, keep the plain doll's reflexes.
 
 ## Salvage
 
@@ -167,14 +253,14 @@ The rocks hold ore: most are nickel-iron, some titanium or volatiles, a few exot
 show which, and thin as the ore is taken. A rock of radius r m has 60 + 25r of structure and
 200r kg of ore, so a 10 m rock takes two saber strokes and holds 2 t.
 
-- **Sabers mine best.** A stroke into a rock does double damage and chips off up to 200 kg of ore,
+- **Blades mine best.** A stroke into a rock does double damage and chips off up to 200 kg of ore,
   which drifts free, ready to grab. Machine cannon rounds wear a rock down at their usual damage.
   Beams do 0.3× and boil off 4 kg of ore for each point of damage, so shooting a rock apart wastes
   most of it.
 - **A rock with no structure left shatters**: whatever ore is left flies off as 2–8 chunks. Nothing
   meets it until it grows back, 10 minutes later and only once no suit is within 1 km. Rocks crack
   as they're worked.
-- **Hulks come apart.** A saber stroke through a hulk cuts off the part nearest the blade, which
+- **Hulks come apart.** A blade's stroke through a hulk cuts off the part nearest the blade, which
   drifts free as a limb small enough to stow.
 
 ## The world (EVE-lite, roadmap)
@@ -196,20 +282,29 @@ show which, and thin as the ore is taken. A rock of radius r m has 60 + 25r of s
 | W/S · A/D · Space/C | thrust forward/back · left/right · up/down |
 | Q/E | roll |
 | Shift · X · R | boost · brake · RCS (fast turns) |
-| LMB · RMB · F | primary · secondary · beam saber |
+| LMB · RMB · F | primary · secondary · melee |
+| H | the frame's special: a toggle for Neo-Bird and the Hyper Jammer, a press for Full Open Attack and the Cross Crusher |
 | V · Z | flight assist · ZERO System |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
-| 1 / 2 | respawn as Leo / Wing Gundam Zero |
+| 1–6 | respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
 
-## Roadmap after Milestone 1
+**Lock assist.** A frame with missiles designates the hostile nearest the reticle (within 10°) and
+keeps it while it stays within 15°. Its bracket fills as the lock builds and reads LOCKED when it's
+acquired. The HUD shows the special's state (READY, JAMMING, FIRING, the cooldown), the lock, and
+MISSILE LOCK and MISSILE warnings, with a marker on each missile tracking you.
+
+## Roadmap after Milestone 2
+
+Milestone 1 was the playable slice; Milestone 2 the five Gundams (Heavyarms, Deathscythe, Sandrock,
+Shenlong, and Wing Zero's Neo-Bird), each flown by pilots and agents.
 
 - **Sectors:** multiple sectors with handoff, transfer orbits, TiDi, persistence (Postgres, off
   the hot path), accounts.
 - **Suits:**
-  - Wing's bird-mode transformation.
-  - Heavyarms (missile spam), Deathscythe (Hyper Jammer against the sensor model), Sandrock,
-    Shenlong, Tallgeese, Epyon (its own ZERO).
-  - Guided missiles, deployable Planet Defensors.
+  - Tallgeese, Epyon (its own ZERO).
+  - Shooting missiles down; deployable Planet Defensors.
+  - Wing Zero's fold drawn as it happens (today the model swaps, with a flash); Heavyarms'
+    hatches opening for Full Open.
 - **Agents:** an MCP server so LLM agents can fly as squad commanders, and a Python gym on the
   headless simulation for RL.
 - **Earth:** atmosphere, gravity, re-entry heating (Wing's shield).
