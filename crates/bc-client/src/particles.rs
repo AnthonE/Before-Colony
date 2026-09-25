@@ -489,6 +489,75 @@ impl Particles {
     }
 }
 
+impl Particles {
+    /// A missile motor burning, for `dt` s: a white-hot glow at the nozzle, and exhaust left
+    /// behind in space as an unbroken trail along the path it flew this frame (it doesn't follow
+    /// the missile), fire cooling to vapour.
+    pub fn exhaust(&mut self, cap: usize, at: At, back: Vec3, scale: f32, dt: f32) {
+        self.glow(cap, at, 0.6 * scale, Vec3::new(16.0, 9.0, 3.0));
+        let flown = at.vel * dt;
+        let fire = self.count(flown.length() / 2.5);
+        for _ in 0..fire.min(16) {
+            let pos = at.pos - flown * self.range(0.0, 1.0);
+            let vel = self.around(back, 0.2) * self.range(8.0, 20.0);
+            let life = self.range(0.15, 0.25);
+            let size = (0.35 * scale, 0.9 * scale);
+            self.spawn(
+                cap,
+                Particle { pos, vel, age: 0.0, life, size, streak: 0.0, core: 0.8, ramp: Ramp::Fire },
+            );
+        }
+        let smoke = self.count(flown.length() / 6.0);
+        for _ in 0..smoke.min(8) {
+            let pos = at.pos - flown * self.range(0.0, 1.0);
+            let vel = self.unit() * self.range(0.5, 2.0);
+            let life = self.range(0.9, 1.5);
+            let size = (0.5 * scale, 2.4 * scale);
+            self.spawn(
+                cap,
+                Particle { pos, vel, age: 0.0, life, size, streak: 0.0, core: 0.0, ramp: Ramp::Vapour },
+            );
+        }
+    }
+
+    /// A flamethrower's jet along `dir`, for `dt` s: burning propellant billowing out to `range`
+    /// m inside a cone of `half_angle`, cooling from white-yellow through orange to dark.
+    pub fn flame(&mut self, cap: usize, at: At, dir: Vec3, range: f32, half_angle: f32, dt: f32) {
+        let n = self.count(320.0 * dt);
+        // `around` spreads over about 1.4 × `spread` radians.
+        let spread = half_angle / 1.4;
+        for _ in 0..n {
+            let d = self.around(dir, spread);
+            let life = self.range(0.3, 0.5);
+            let speed = range / 0.45 * self.range(0.75, 1.05);
+            let p = Particle {
+                pos: at.pos + d * self.range(0.0, 2.0),
+                vel: at.vel + d * speed,
+                age: 0.0,
+                life,
+                size: (0.6, range * self.range(0.06, 0.12)),
+                streak: 0.0,
+                core: 0.5,
+                ramp: Ramp::Fire,
+            };
+            self.spawn(cap, p);
+        }
+        let embers = self.count(40.0 * dt);
+        self.shower(
+            cap,
+            embers,
+            at,
+            Some((dir, spread)),
+            (range * 1.5, range * 2.5),
+            (0.3, 0.6),
+            (0.2, 0.1),
+            0.03,
+            Ramp::Spark,
+        );
+        self.glow(cap, at, 1.8, Vec3::new(14.0, 7.0, 1.6));
+    }
+}
+
 /// Spawns the particle mesh (empty to start) and the pool.
 pub fn setup_particles(
     mut commands: Commands,

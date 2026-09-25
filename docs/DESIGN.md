@@ -282,10 +282,16 @@ show which, and thin as the ore is taken. A rock of radius r m has 60 + 25r of s
 | W/S · A/D · Space/C | thrust forward/back · left/right · up/down |
 | Q/E | roll |
 | Shift · X · R | boost · brake · RCS (fast turns) |
-| LMB · RMB · F | primary · secondary · beam saber |
+| LMB · RMB · F | primary · secondary · melee |
+| H | the frame's special: a toggle for Neo-Bird and the Hyper Jammer, a press for Full Open Attack and the Cross Crusher |
 | V · Z | flight assist · ZERO System |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
-| 1 / 2 | respawn as Leo / Wing Gundam Zero |
+| 1–6 | respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
+
+**Lock assist.** A frame with missiles designates the hostile nearest the reticle (within 10°) and
+keeps it while it stays within 15°. Its bracket fills as the lock builds and reads LOCKED when it's
+acquired. The HUD shows the special's state (READY, JAMMING, FIRING, the cooldown), the lock, and
+MISSILE LOCK and MISSILE warnings, with a marker on each missile tracking you.
 
 ## Roadmap after Milestone 1
 

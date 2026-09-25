@@ -124,6 +124,14 @@ impl SpecialKind {
     pub fn is_toggle(self) -> bool {
         matches!(self, SpecialKind::Transform { .. } | SpecialKind::HyperJammer { .. })
     }
+
+    /// The form a transformation changes into.
+    pub fn transforms_to(self) -> Option<FrameId> {
+        match self {
+            SpecialKind::Transform { to, .. } => Some(to),
+            _ => None,
+        }
+    }
 }
 
 /// How the kit-aware AI (agents, the browser autopilot) flies a frame.

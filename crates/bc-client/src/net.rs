@@ -11,6 +11,7 @@ use std::rc::Rc;
 use bc_client_core::{ClientConfig, ClientCore, DollBrain};
 use bc_proto::buttons::{FLIGHT_ASSIST, ZERO};
 use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
+use bc_sim::content::frame;
 use bevy::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
@@ -45,6 +46,8 @@ pub struct Game {
     pub autopilot: bool,
     pub brain: DollBrain,
     pub respawn_request: Option<FrameId>,
+    /// The suit lock assist has designated.
+    pub lock: Option<u16>,
     pub disconnected: bool,
     /// The pilot's controls as of the last rendered frame; the timer repeats them until the next.
     pub controls: InputCmd,
@@ -154,6 +157,7 @@ pub fn game_client(cfg: &LaunchConfig) -> GameClient {
         autopilot: cfg.autopilot,
         brain: DollBrain::new(0x5EED),
         respawn_request: None,
+        lock: None,
         disconnected: false,
         controls: InputCmd::default(),
     })))
@@ -208,7 +212,15 @@ pub fn drive(
     let Some(t) = net.get() else { return };
     let now = now_s();
     let mut g = game.borrow_mut();
-    g.controls = controls.command(aim.dir);
+    // Lock assist, for frames with missiles to guide: the hostile the reticle is on.
+    let launcher = g.core.world.own.is_some_and(|o| o.alive && frame(o.frame).lock_spec().is_some());
+    g.lock = if launcher {
+        let (from, t) = (g.core.predict.state.pos, g.core.render_tick(now));
+        g.core.world.lock_assist(from, aim.dir, g.lock, t)
+    } else {
+        None
+    };
+    g.controls = controls.command(aim.dir, g.lock);
     pump(&mut g, &t, now);
     if g.autopilot && g.core.inputs.newest != 0 {
         aim.dir = g.core.last_cmd.aim;

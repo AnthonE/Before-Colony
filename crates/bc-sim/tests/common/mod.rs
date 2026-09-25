@@ -129,6 +129,27 @@ pub fn gundam_arena(dolls: usize, seed: u64) -> (Sim, Vec<SuitId>) {
     (sim, pilots)
 }
 
+/// A busy sector of Gundams: `pairs` duels round a ring (the Colonies side cycling through every
+/// playable frame, each meeting its own kind, or a Taurus for Sandrock), and `dolls` Mobile Dolls.
+pub fn gundam_crowd(pairs: usize, dolls: usize, seed: u64) -> (Sim, Vec<(SuitId, SuitId)>) {
+    let (mut sim, _) = arena(0, dolls, seed);
+    let mut duels = Vec::new();
+    for k in 0..pairs {
+        let f = bc_sim::content::PLAYABLE_ORDER[k % bc_sim::content::PLAYABLE_ORDER.len()];
+        let foe = if f == FrameId::Sandrock { FrameId::Taurus } else { f };
+        let a = k as f32 * 0.43;
+        let at = Vec3::new(a.cos() * 2_000.0, 1_000.0 + (k % 4) as f32 * 90.0, a.sin() * 2_000.0);
+        let out = at.normalize();
+        let mut spawn = |f: FrameId, faction: Faction, pos: Vec3, facing: Vec3| {
+            sim.spawn_at(f, faction, PilotKind::Human, pos, look_rotation(facing, Vec3::Y)).expect("slot")
+        };
+        let x = spawn(f, Faction::Colonies, at, out);
+        let y = spawn(foe, Faction::Oz, at + out * 300.0, -out);
+        duels.push((x, y));
+    }
+    (sim, duels)
+}
+
 /// Deterministic input for a Gundam pilot duelling `foe`: aim at it and designate it, close in,
 /// strike with every blade and the special, fire in bursts.
 pub fn duel_scripted(sim: &Sim, id: SuitId, foe: SuitId, tick: u32) -> InputCmd {

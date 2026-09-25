@@ -6,16 +6,17 @@
 //! | W/S, A/D, Space/C | thrust forward/back, left/right, up/down |
 //! | Q/E | roll |
 //! | Shift | boost · X brake · R RCS (fast turns, burns propellant) |
-//! | LMB / RMB / F | primary / secondary / beam saber |
+//! | LMB / RMB / F | primary / secondary / melee |
+//! | H | the frame's special: Neo-Bird or the Hyper Jammer on/off, or held: Full Open, Cross Crusher |
 //! | V | flight assist on/off · Z ZERO System on/off |
-//! | 1 / 2 | respawn as Leo / Wing Gundam Zero (when destroyed) |
+//! | 1–6 | respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock, Shenlong (when destroyed) |
 
-use bc_proto::FrameId;
 use bc_proto::buttons::{
-    BOOST, BRAKE, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, JETTISON, MELEE, RCS_SHARP, STOW, THROW,
-    ZERO,
+    BOOST, BRAKE, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, JETTISON, MELEE, MODE, RCS_SHARP,
+    SPECIAL, STOW, THROW, ZERO,
 };
 use bc_proto::{InputCmd, NO_SLOT};
+use bc_sim::content::{PLAYABLE_ORDER, frame};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
@@ -47,6 +48,8 @@ pub struct Controls {
     pub zero: bool,
     /// The free hand grabs whatever comes in reach (and holds it) while on.
     pub grab: bool,
+    /// The frame's toggled special (Neo-Bird, the Hyper Jammer) is asked for.
+    pub mode: bool,
     pub locked: bool,
     swallow_click: bool,
 }
@@ -60,6 +63,7 @@ impl Default for Controls {
             flight_assist: true,
             zero: false,
             grab: false,
+            mode: false,
             locked: false,
             swallow_click: false,
         }
@@ -67,7 +71,8 @@ impl Default for Controls {
 }
 
 impl Controls {
-    pub fn command(&self, aim: Vec3) -> InputCmd {
+    /// The command, aimed along `aim`, designating `lock` for a missile lock.
+    pub fn command(&self, aim: Vec3, lock: Option<u16>) -> InputCmd {
         let q = |v: f32| (v.clamp(-1.0, 1.0) * 127.0) as i8;
         let mut buttons = self.buttons;
         if self.flight_assist {
@@ -79,12 +84,15 @@ impl Controls {
         if self.grab {
             buttons |= GRAB;
         }
+        if self.mode {
+            buttons |= MODE;
+        }
         InputCmd {
             aim,
             thrust: [q(self.thrust.x), q(self.thrust.y), q(self.thrust.z)],
             roll: q(self.roll),
             buttons,
-            lock_target: NO_SLOT,
+            lock_target: lock.unwrap_or(NO_SLOT),
             ..InputCmd::default()
         }
     }
@@ -108,6 +116,8 @@ pub fn read_input(
     {
         aim.dir = own.rot * Vec3::Z;
         aim.initialized_for = Some((own.slot, own.generation));
+        // A fresh suit comes out in its first form, jammer off.
+        controls.mode = false;
     }
     if game.autopilot {
         return;
@@ -156,6 +166,16 @@ pub fn read_input(
     if keys.pressed(KeyCode::KeyF) {
         b |= MELEE;
     }
+    // H: a toggled special flips MODE; the others are pressed.
+    if let Some(own) = game.core.world.own {
+        if frame(own.frame).special.is_toggle() {
+            if keys.just_pressed(KeyCode::KeyH) {
+                controls.mode = !controls.mode;
+            }
+        } else if keys.pressed(KeyCode::KeyH) {
+            b |= SPECIAL;
+        }
+    }
     if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
         b |= BOOST;
     }
@@ -190,10 +210,17 @@ pub fn read_input(
         controls.zero = !controls.zero;
     }
     let dead = game.core.world.own.is_some_and(|o| !o.alive);
-    if dead && keys.just_pressed(KeyCode::Digit1) {
-        game.respawn_request = Some(FrameId::Leo);
-    }
-    if dead && keys.just_pressed(KeyCode::Digit2) {
-        game.respawn_request = Some(FrameId::WingZero);
+    let digits = [
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+        KeyCode::Digit5,
+        KeyCode::Digit6,
+    ];
+    for (key, f) in digits.into_iter().zip(PLAYABLE_ORDER) {
+        if dead && keys.just_pressed(key) {
+            game.respawn_request = Some(f);
+        }
     }
 }

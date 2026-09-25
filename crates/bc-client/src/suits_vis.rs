@@ -5,13 +5,14 @@
 use bc_model::rig::{self, BONES, Bone};
 use bc_model::{Lod, paint};
 use bc_proto::snapshot::ent_flags;
-use bc_proto::{Faction, FrameId, Part, PilotKind};
+use bc_proto::{Faction, FrameId, Part, PilotKind, WeaponKind};
+use bc_sim::content::{SpecialKind, frame};
 use bevy::mesh::MeshTag;
 use bevy::prelude::*;
 
-use crate::anim::Anim;
+use crate::anim::{Anim, striking};
 use crate::assets::{MeshLib, Palette};
-use crate::beams::{Ribbons, beam_tag, plume_tag};
+use crate::beams::{BeamMaterial, Ribbons, beam_tag, plume_tag};
 use crate::camera::MainCamera;
 use crate::damage::Damage;
 use crate::materials::{HullMaterial, HullTag, Surfaces};
@@ -34,8 +35,13 @@ pub struct SuitVisual {
     tag: HullTag,
     lod: Lod,
     plumes: Vec<Entity>,
-    saber: Entity,
+    /// Blade glows: in the left hand, and on the right hand's weapon.
+    blades: [Entity; 2],
+    /// The Dragon Fang's cable, from the wrist to the head (on the right forearm).
+    pub cable: Option<Entity>,
     aura: Entity,
+    /// The Hyper Jammer's shimmer.
+    shimmer: Entity,
 }
 
 impl SuitVisual {
@@ -49,7 +55,7 @@ impl SuitVisual {
 #[derive(Component)]
 pub struct SuitBone;
 
-/// Marks the toggled children (thruster plumes, saber, ZERO aura).
+/// Marks the toggled children (thruster plumes, blades, ZERO aura, jammer shimmer).
 #[derive(Component)]
 pub struct SuitPartMarker;
 
@@ -80,6 +86,39 @@ pub fn bone_point(d: &SuitDrive, anim: Option<&Anim>, bone: Bone, local: Vec3) -
     match anim {
         Some(a) => a.point(d, bone, local),
         None => d.pos + d.rot * (bone.def().joint + local),
+    }
+}
+
+/// The blades a suit is striking with, as drawn: each glowing blade's hilt and tip in the world,
+/// and its colour.
+pub fn drawn_blades(
+    d: &SuitDrive,
+    anim: Option<&Anim>,
+    lib: &SuitMeshLib,
+    ribbons: &Ribbons,
+) -> [Option<(Vec3, Vec3, Vec3)>; 2] {
+    let strike =
+        if d.flags & ent_flags::SABER != 0 && d.flags & ent_flags::WRECK == 0 { striking(d) } else { None };
+    let sockets = lib.sockets(d.frame);
+    [false, true].map(|right| {
+        let (weapon, ..) = strike.filter(|s| s.2.holds(right))?;
+        let (bone, (hilt, dir)) = match (right, weapon) {
+            (false, WeaponKind::BeamSaber) => (Bone::HandL, sockets.saber),
+            (false, _) => (Bone::HandL, sockets.blade_left?),
+            (true, _) => (Bone::Weapon, sockets.blade_right?),
+        };
+        let look = ribbons.blade(weapon)?;
+        let a = bone_point(d, anim, bone, hilt);
+        let b = bone_point(d, anim, bone, hilt + dir * look.length);
+        Some((a, b, look.color))
+    })
+}
+
+/// Where the flamethrower's nozzle is (the dragon's mouth, as drawn), or the simulation's muzzle.
+pub fn flame_nozzle(d: &SuitDrive, anim: Option<&Anim>, lib: &SuitMeshLib, sim_muzzle: Vec3) -> Vec3 {
+    match lib.sockets(d.frame).flame {
+        Some((p, _)) => bone_point(d, anim, Bone::HandR, p),
+        None => d.pos + d.rot * sim_muzzle,
     }
 }
 
@@ -142,22 +181,33 @@ fn build_suit(
                 .id()
         })
         .collect();
-    // The beam saber's blade, from the hilt in the left hand.
-    let (hilt, dir) = sockets.saber;
-    let blade = &ribbons.saber;
-    let saber = commands
-        .spawn((
-            Mesh3d(ribbons.mesh.clone()),
-            MeshMaterial3d(blade.material.clone()),
-            beam_tag(d.slot as u8, true),
-            Transform::from_translation(hilt)
-                .with_rotation(Quat::from_rotation_arc(Vec3::Y, dir))
-                .with_scale(Vec3::new(blade.half_width, blade.length, 1.0)),
-            SuitPartMarker,
-            Visibility::Hidden,
-            ChildOf(bones[Bone::HandL.index()]),
-        ))
-        .id();
+    // Blade glows (placed and dressed as each strike begins: `pose_suits`), from the left hand and
+    // the right hand's weapon.
+    let blades = [Bone::HandL, Bone::Weapon].map(|bone| {
+        commands
+            .spawn((
+                Mesh3d(ribbons.mesh.clone()),
+                MeshMaterial3d(ribbons.saber.material.clone()),
+                beam_tag(d.slot as u8, true),
+                Transform::default(),
+                SuitPartMarker,
+                Visibility::Hidden,
+                ChildOf(bones[bone.index()]),
+            ))
+            .id()
+    });
+    // The Dragon Fang's cable, drawn out as the head flies (`anim`).
+    let cable = sockets.fang.map(|_| {
+        commands
+            .spawn((
+                Mesh3d(shapes.cylinder.clone()),
+                MeshMaterial3d(hull.clone()),
+                HullTag::paint(bc_model::paint::DARK, d.slot as u8).tag(),
+                Transform::from_translation(Bone::HandR.rest()).with_scale(Vec3::new(0.25, 0.001, 0.25)),
+                ChildOf(bones[Bone::ForearmR.index()]),
+            ))
+            .id()
+    });
     // The ZERO aura: a shell glowing at its rim (its MeshTag sets how bright).
     let aura = commands
         .spawn((
@@ -165,6 +215,17 @@ fn build_suit(
             MeshMaterial3d(pal.zero_aura.clone()),
             MeshTag(170),
             Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(11.0)),
+            SuitPartMarker,
+            Visibility::Hidden,
+            ChildOf(root),
+        ))
+        .id();
+    let shimmer = commands
+        .spawn((
+            Mesh3d(shapes.sphere.clone()),
+            MeshMaterial3d(pal.jammer.clone()),
+            MeshTag(0),
+            Transform::from_scale(Vec3::splat(10.0)),
             SuitPartMarker,
             Visibility::Hidden,
             ChildOf(root),
@@ -178,8 +239,10 @@ fn build_suit(
             tag,
             lod: Lod::Near,
             plumes,
-            saber,
+            blades,
+            cable,
             aura,
+            shimmer,
         },
         Anim::default(),
         Damage::new(d.slot),
@@ -213,8 +276,11 @@ pub fn build_suits(
 /// Poses every suit from its drive and switches its thrusters, saber and ZERO aura.
 pub fn pose_suits(
     time: Res<VisTime>,
+    lib: Res<SuitMeshLib>,
+    ribbons: Res<Ribbons>,
     mut suits: Query<(&SuitDrive, &SuitVisual, &mut Transform), Without<SuitPartMarker>>,
     mut parts: Query<(&mut Transform, &mut Visibility), With<SuitPartMarker>>,
+    mut looks: Query<&mut MeshMaterial3d<BeamMaterial>, With<SuitPartMarker>>,
     mut tags: Query<&mut MeshTag>,
 ) {
     let flicker = 0.8 + 0.2 * ((time.now * 40.0).sin() as f32);
@@ -238,14 +304,54 @@ pub fn pose_suits(
                 *t = plume_tag(power, d.slot as u8);
             }
         }
-        if let Ok((_, mut sv)) = parts.get_mut(v.saber) {
-            set_visible(&mut sv, has(ent_flags::SABER) && !wreck && intact(Part::ArmL));
+        // The blades glow while they strike.
+        let strike = if has(ent_flags::SABER) && !wreck { striking(d) } else { None };
+        let sockets = lib.sockets(d.frame);
+        for (k, &blade) in v.blades.iter().enumerate() {
+            let right = k == 1;
+            let arm = if right { Part::ArmR } else { Part::ArmL };
+            let lit =
+                strike.filter(|(_, _, hands)| hands.holds(right) && intact(arm)).and_then(|(weapon, ..)| {
+                    let socket = match (right, weapon) {
+                        (false, WeaponKind::BeamSaber) => Some(sockets.saber),
+                        (false, _) => sockets.blade_left,
+                        (true, _) => sockets.blade_right,
+                    };
+                    Some((socket?, ribbons.blade(weapon)?))
+                });
+            if let Ok((mut btf, mut bv)) = parts.get_mut(blade) {
+                set_visible(&mut bv, lit.is_some());
+                if let Some(((hilt, dir), look)) = lit {
+                    *btf = Transform::from_translation(hilt)
+                        .with_rotation(Quat::from_rotation_arc(Vec3::Y, dir))
+                        .with_scale(Vec3::new(look.half_width, look.length, 1.0));
+                    if let Ok(mut m) = looks.get_mut(blade)
+                        && m.0 != look.material
+                    {
+                        m.0 = look.material.clone();
+                    }
+                }
+            }
         }
         let aura = !d.own && has(ent_flags::ZERO | ent_flags::SEIZED) && !wreck;
         if let Ok((mut atf, mut av)) = parts.get_mut(v.aura) {
             set_visible(&mut av, aura);
             if aura {
                 atf.scale = Vec3::splat(11.0 + 0.6 * flicker);
+            }
+        }
+        // Jamming: a restless shimmer, brightening and fading as it crawls.
+        let jamming = has(ent_flags::SPECIAL)
+            && !wreck
+            && matches!(frame(d.frame).special, SpecialKind::HyperJammer { .. });
+        if let Ok((mut stf, mut sv)) = parts.get_mut(v.shimmer) {
+            set_visible(&mut sv, jamming);
+            if jamming {
+                let phase = time.now * 7.0 + f64::from(d.slot);
+                stf.scale = Vec3::new(9.5, 10.5, 9.5) * (1.0 + 0.04 * phase.sin() as f32);
+                if let Ok(mut t) = tags.get_mut(v.shimmer) {
+                    *t = MeshTag((150.0 + 90.0 * (phase * 2.3).sin()) as u32);
+                }
             }
         }
     }

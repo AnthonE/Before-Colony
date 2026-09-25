@@ -11,6 +11,12 @@ pub struct PilotStats {
     pub hits: AtomicU64,
     pub kills: AtomicU64,
     pub deaths: AtomicU64,
+    /// The kit at work: hits by weapon class (beam, ballistic, missile, melee, cone), specials
+    /// used, missiles launched, and the frame flown (`FrameId` as a number).
+    pub hits_by_class: [AtomicU64; 5],
+    pub specials: AtomicU64,
+    pub missiles: AtomicU64,
+    pub frame: AtomicU64,
     /// Suit entity slot + 1 (0 = none).
     pub suit: AtomicU64,
 }

@@ -30,9 +30,10 @@ scripts/dev.sh          # builds the client, starts a sector with 24 Mobile Doll
 ```
 
 Open <http://127.0.0.1:8080> in Chrome or Edge, then click to take control. Add `?autopilot=1` to
-watch the Mobile Doll brain fly your Wing Zero with the ZERO System engaged, or `?frame=leo` to fly
-a Leo. `?quality=low|medium|high|ultra` picks a graphics tier (F10 cycles them). Without a server,
-`?showcase=lineup|duel|colony|field|sky|chase|salvage|mining` plays an offline scene.
+watch the kit-aware Mobile Doll brain fly your suit with the ZERO System engaged, and
+`?frame=leo|wingzero|heavyarms|deathscythe|sandrock|shenlong` to pick it. `?quality=low|medium|high|ultra`
+picks a graphics tier (F10 cycles them). Without a server,
+`?showcase=gundams|lineup|duel|colony|field|sky|chase|salvage|mining` plays an offline scene.
 
 Only Chromium has been tested. Firefox and Safari 26.4+ also ship WebTransport, but the dev server's
 self-signed certificate depends on `serverCertificateHashes` pinning, and that may not work there.
@@ -42,10 +43,14 @@ self-signed certificate depends on `serverCertificateHashes` pinning, and that m
 | Mouse | aim (click locks the pointer, Esc releases it) |
 | W/S · A/D · Space/C · Q/E | thrust forward/back · left/right · up/down · roll |
 | Shift · X · R | boost · brake · RCS fast turns |
-| LMB · RMB · F | primary · secondary · beam saber |
+| LMB · RMB · F | primary · secondary · melee (saber, scythe, shotels, glaive, knife) |
+| H | the frame's special: Neo-Bird or the Hyper Jammer on/off; Full Open Attack or the Cross Crusher |
 | V · Z | flight assist · ZERO System |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
-| 1 / 2 | respawn as Leo / Wing Gundam Zero |
+| 1–6 | respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
+
+Frames with missiles lock on by themselves: hold the reticle on a hostile until its bracket reads
+LOCKED, then fire.
 
 Server flags: `--mobile-dolls N`, `--max-clients N`, `--oracle local|jev`, `--mode echo`.
 

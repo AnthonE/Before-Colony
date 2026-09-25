@@ -28,7 +28,8 @@
 | `bc-client-core` | std, no transport | Client state machine for the browser *and* bots: clock, inputs, prediction, interpolation, world model, the salvage view, `DollBrain` and `MinerBrain`. |
 | `bc-server` | bin + lib | WebTransport sessions, egress thread, roster, dev HTTP, `/status`. |
 | `bc-bot` | lib + bins | Bot SDK (`BotClient`), `mobile_doll` and `miner` example agents, `bc-swarm` load tester. |
-| `bc-client` | wasm32 bin | Bevy app: procedural jointed suits, sky, colony and field (custom shaders), particles and effects, camera, input, HUD, ZERO overlay, offline showcase scenes. |
+| `bc-client` | wasm32 bin | Bevy app: procedural jointed suits (every frame's kit, animated from its `MeleeSpec`s), sky, colony and field (custom shaders), particles and effects (missiles, stream tracers, flame, jammer shimmer), camera, input with lock assist, HUD, ZERO overlay, offline showcase scenes. |
+| `bc-model` | lib | The suits' procedural designs on a shared 24-bone rig, and the sockets their kits are drawn from (muzzles, blades, the Dragon Fang, missile hatches), checked against each frame's hit capsules. |
 | `bc-alloc` | lib | Counting global allocator: proves the tick never allocates and counts violations in production. |
 
 ## The hot path: no locks, no allocations
@@ -161,6 +162,12 @@ network threads.
 - **Beams** are one spawn event each: they fly straight at constant velocity, so every client draws
   the whole flight from it. The shooter draws its own shot immediately and matches the server's
   event by `shot_seq`.
+- **Stream weapons** (gatlings, machine guns, vulcans) and the flamethrower send nothing per round:
+  clients draw tracers and flame from the firing flags, at each weapon's speed and colour. What
+  they hit arrives as Hit events.
+- **Missiles** are listed in each snapshot (those tracking the viewer first) and interpolated;
+  their bursts are events. The client counts what it sees of each kit (`World::kit`) as snapshots
+  arrive, so tests don't depend on how fast the page renders.
 - **Interest management** is the sensor model: clients only learn about what their suit can
   detect. One question, `Sim::detects(viewer, j)`, answers it for replication, for Mobile Doll and
   ZERO perception and for locks, so the Hyper Jammer hides a suit from all of them at once.
@@ -218,6 +225,9 @@ on wasm32 (under Node, via `wasm-bindgen-test-runner`). Never enable glam's `fas
 | `bc-zero/tests/jev_mock.rs` | Jev request contract, parsing, timeout, 429/529 breaker, garbage. |
 | `bc-sim/benches/tick.rs` | Tick percentiles. |
 | `e2e/tests/{spike,slice}.spec.ts` | The Bevy wasm client in Chromium: transport, then the full slice (autopilot flies, fights, sees agents and ZERO futures; the server confirms hits and 0 hot-path allocations). |
+| `e2e/tests/frames.spec.ts` | Each Gundam in the browser against the server's dolls: the autopilot flies its kit until the server's per-pilot counters (`/status`) and the client's (`window.__bc`) show it: Heavyarms' Full Open and missiles, Deathscythe jamming and reaping, Sandrock's missiles and shotels, Shenlong's fang or flame, Wing Zero out as Neo-Bird and back. |
+| `e2e/tests/gfx.spec.ts` | Every showcase scene renders cleanly, `gundams` included (Full Open's salvo, the jammer, the shotels and Cross Crusher, the fang at full reach, the flamethrower, Neo-Bird). |
+| `bc-model` tests | Every design stays within 2.6 m of its hit capsules (Neo-Bird's own), no two frames share a mesh, every kit has the sockets it's drawn from, and the triangle budgets. |
 
 ## Scaling path
 

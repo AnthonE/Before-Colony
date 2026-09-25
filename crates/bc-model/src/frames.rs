@@ -1,6 +1,7 @@
-//! The four frames, built from the kit on the shared skeleton. Each is described for the suit's
-//! right side and mirrored for the left; coordinates are the suit's frame at rest, in metres (x
-//! right, y up, z forward, origin at the torso; about 17 m from sole to crown).
+//! The frames, built from the kit on the shared skeleton: Wing Zero and the Oz suits here, the
+//! other Gundams and Neo-Bird in `gundams`. Each is described for the suit's right side and
+//! mirrored for the left; coordinates are the suit's frame at rest, in metres (x right, y up, z
+//! forward, origin at the torso; about 17 m from sole to crown).
 //!
 //! Paint slots: `Body`, `Trim` and `Accent` take the livery's colours, `Eye` its sensor glow; the
 //! inner frame, weapons and details use fixed paints.
@@ -8,23 +9,23 @@
 use bc_proto::FrameId;
 use glam::{Affine3A, Quat, Vec2, Vec3};
 
-use crate::Designer;
 use crate::kit::{Paint, mirrored};
 use crate::paint;
 use crate::rig::{Bone, Side};
+use crate::{Designer, gundams};
 
-const BODY: Paint = Paint::Body;
-const TRIM: Paint = Paint::Trim;
-const ACCENT: Paint = Paint::Accent;
-const EYE: Paint = Paint::Eye;
+pub(crate) const BODY: Paint = Paint::Body;
+pub(crate) const TRIM: Paint = Paint::Trim;
+pub(crate) const ACCENT: Paint = Paint::Accent;
+pub(crate) const EYE: Paint = Paint::Eye;
 /// The inner frame: joints, abdomen, hands.
-const FRAME: Paint = Paint::Fixed(paint::DARK);
-const GUN: Paint = Paint::Fixed(paint::GUNMETAL);
-const STEEL: Paint = Paint::Metal(paint::GUNMETAL);
-const YELLOW: Paint = Paint::Fixed(paint::YELLOW);
-const GLASS: Paint = Paint::Fixed(paint::GLASS);
+pub(crate) const FRAME: Paint = Paint::Fixed(paint::DARK);
+pub(crate) const GUN: Paint = Paint::Fixed(paint::GUNMETAL);
+pub(crate) const STEEL: Paint = Paint::Metal(paint::GUNMETAL);
+pub(crate) const YELLOW: Paint = Paint::Fixed(paint::YELLOW);
+pub(crate) const GLASS: Paint = Paint::Fixed(paint::GLASS);
 /// Hot nozzle throats.
-const THROAT: Paint = Paint::Glow(paint::YELLOW);
+pub(crate) const THROAT: Paint = Paint::Glow(paint::YELLOW);
 
 pub fn design(frame: FrameId, d: &mut Designer) {
     match frame {
@@ -32,68 +33,67 @@ pub fn design(frame: FrameId, d: &mut Designer) {
         FrameId::Leo => leo(d),
         FrameId::Taurus => taurus(d),
         FrameId::Virgo => virgo(d),
-        // Stand-ins until each Gundam has its own design.
-        FrameId::Heavyarms
-        | FrameId::Deathscythe
-        | FrameId::Sandrock
-        | FrameId::Shenlong
-        | FrameId::WingZeroBird => wing_zero(d),
+        FrameId::Heavyarms => gundams::heavyarms(d),
+        FrameId::Deathscythe => gundams::deathscythe(d),
+        FrameId::Sandrock => gundams::sandrock(d),
+        FrameId::Shenlong => gundams::shenlong(d),
+        FrameId::WingZeroBird => gundams::neo_bird(d),
     }
 }
 
 // --- Placement helpers. ---
 
-fn j(b: Bone) -> Vec3 {
+pub(crate) fn j(b: Bone) -> Vec3 {
     b.def().joint
 }
 
-fn place(pos: Vec3, rot: Quat) -> Affine3A {
+pub(crate) fn place(pos: Vec3, rot: Quat) -> Affine3A {
     Affine3A::from_rotation_translation(rot, pos)
 }
 
-fn at(x: f32, y: f32, z: f32) -> Affine3A {
+pub(crate) fn at(x: f32, y: f32, z: f32) -> Affine3A {
     Affine3A::from_translation(Vec3::new(x, y, z))
 }
 
 /// Centred between `a` and `b`, local +y running from `a` to `b`.
-fn along(a: Vec3, b: Vec3) -> Affine3A {
+pub(crate) fn along(a: Vec3, b: Vec3) -> Affine3A {
     place((a + b) * 0.5, Quat::from_rotation_arc(Vec3::Y, (b - a).normalize_or(Vec3::Y)))
 }
 
 /// A placement described for the right side, on side `s`.
-fn sided(s: Side, xf: Affine3A) -> Affine3A {
+pub(crate) fn sided(s: Side, xf: Affine3A) -> Affine3A {
     if s == Side::L { mirrored(xf) } else { xf }
 }
 
 /// A point described for the right side, on side `s`.
-fn sp(s: Side, p: Vec3) -> Vec3 {
+pub(crate) fn sp(s: Side, p: Vec3) -> Vec3 {
     Vec3::new(p.x * s.sign(), p.y, p.z)
 }
 
-fn v(x: f32, y: f32, z: f32) -> Vec3 {
+pub(crate) fn v(x: f32, y: f32, z: f32) -> Vec3 {
     Vec3::new(x, y, z)
 }
 
-fn v2(x: f32, y: f32) -> Vec2 {
+pub(crate) fn v2(x: f32, y: f32) -> Vec2 {
     Vec2::new(x, y)
 }
 
-fn rx(a: f32) -> Quat {
+pub(crate) fn rx(a: f32) -> Quat {
     Quat::from_rotation_x(a)
 }
 
-fn ry(a: f32) -> Quat {
+pub(crate) fn ry(a: f32) -> Quat {
     Quat::from_rotation_y(a)
 }
 
-fn rz(a: f32) -> Quat {
+pub(crate) fn rz(a: f32) -> Quat {
     Quat::from_rotation_z(a)
 }
 
 // --- Parts every frame shares. ---
 
 /// The inner frame showing between armour: ball joints, knee and elbow barrels, neck, abdomen.
-fn inner_frame(d: &mut Designer, waist_r: f32) {
+pub(crate) fn inner_frame(d: &mut Designer, waist_r: f32) {
     d.on(Bone::Torso).seed(0.11).lathe(
         &[
             (0.0, -0.1),
@@ -146,7 +146,7 @@ fn inner_frame(d: &mut Designer, waist_r: f32) {
 }
 
 /// Hands: a palm and four fingers curled round a grip, and a thumb.
-fn hands(d: &mut Designer, paint: Paint) {
+pub(crate) fn hands(d: &mut Designer, paint: Paint) {
     for s in Side::BOTH {
         let bone = s.pick(Bone::HandL, Bone::HandR);
         let w = j(Bone::HandR);
@@ -170,7 +170,7 @@ fn hands(d: &mut Designer, paint: Paint) {
 }
 
 /// A thruster bell at `pos` exhausting along `dir`, with its glowing throat; returns it as a socket.
-fn nozzle(d: &mut Designer, bone: Bone, pos: Vec3, dir: Vec3, r: f32) {
+pub(crate) fn nozzle(d: &mut Designer, bone: Bone, pos: Vec3, dir: Vec3, r: f32) {
     let rot = Quat::from_rotation_arc(Vec3::Y, dir.normalize());
     let xf = place(pos, rot);
     d.on(bone).lathe(
@@ -192,7 +192,7 @@ fn nozzle(d: &mut Designer, bone: Bone, pos: Vec3, dir: Vec3, r: f32) {
 }
 
 /// The beam saber's hilt, in the left hand, blade forward and up.
-fn saber_hilt(d: &mut Designer) {
+pub(crate) fn saber_hilt(d: &mut Designer) {
     let w = j(Bone::HandL);
     let hilt = v(w.x - 0.1, w.y - 0.55, w.z + 0.2);
     let dir = v(0.0, 0.62, 0.78).normalize();
@@ -201,7 +201,7 @@ fn saber_hilt(d: &mut Designer) {
 }
 
 /// A rifle in the right hand: stock, body, barrel to the muzzle at `length` ahead of the grip.
-fn rifle(d: &mut Designer, length: f32, bore: f32, body: Paint, trim: Paint) {
+pub(crate) fn rifle(d: &mut Designer, length: f32, bore: f32, body: Paint, trim: Paint) {
     let g = j(Bone::Weapon);
     let mut w = d.on(Bone::Weapon);
     w.seed(0.61);
@@ -244,7 +244,7 @@ fn rifle(d: &mut Designer, length: f32, bore: f32, body: Paint, trim: Paint) {
 
 /// A plate hung on a bone: size, place, and a gentle taper toward its lower edge.
 #[allow(clippy::too_many_arguments)]
-fn plate(
+pub(crate) fn plate(
     d: &mut Designer,
     bone: Bone,
     s: Side,
@@ -452,7 +452,7 @@ fn wing_zero(d: &mut Designer) {
 }
 
 /// Upper arms and forearms, with a cuff band at the wrist.
-fn arm_segments(d: &mut Designer, upper: Vec3, fore: Vec3, paint: Paint, cuff: Paint) {
+pub(crate) fn arm_segments(d: &mut Designer, upper: Vec3, fore: Vec3, paint: Paint, cuff: Paint) {
     for s in Side::BOTH {
         let (up, fo) = s.pick((Bone::UpperArmL, Bone::ForearmL), (Bone::UpperArmR, Bone::ForearmR));
         let (sh, el, wr) = (j(Bone::UpperArmR), j(Bone::ForearmR), j(Bone::HandR));
@@ -479,7 +479,7 @@ fn arm_segments(d: &mut Designer, upper: Vec3, fore: Vec3, paint: Paint, cuff: P
 }
 
 /// A shield outline (in its own x-y, y along the forearm) with a spine, on the left forearm facing out.
-fn shield(d: &mut Designer, outline: &[(f32, f32)], face: Paint, spine: Paint) {
+pub(crate) fn shield(d: &mut Designer, outline: &[(f32, f32)], face: Paint, spine: Paint) {
     let o: Vec<Vec2> = outline.iter().map(|&(x, y)| Vec2::new(x, y)).collect();
     let pos = j(Bone::Shield);
     // Face outward (-x), long axis down the forearm and forward.

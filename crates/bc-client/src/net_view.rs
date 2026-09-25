@@ -6,17 +6,19 @@ use std::collections::{HashMap, HashSet};
 
 use bc_client_core::FeedLine;
 use bc_client_core::world::ObjectMotion;
-use bc_proto::buttons::FIRE_SECONDARY;
+use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, MELEE};
+use bc_proto::events::BurstCause;
 use bc_proto::snapshot::{ent_flags, own_flags, zero_mode};
 use bc_sim::TICK_HZ;
-use bc_sim::content::frame;
+use bc_sim::content::{SpecialKind, frame};
 use bc_sim::world::COLONY_CENTER;
 use bevy::prelude::*;
 
 use crate::input::Aim;
 use crate::net::{GameClient, now_s};
 use crate::view::{
-    BeamFeed, BeamView, CameraTarget, ChaseTarget, FxEvent, FxEvents, SuitDrive, SuitIndex, VisTime,
+    BeamFeed, BeamView, CameraTarget, ChaseTarget, FxEvent, FxEvents, MissileFeed, MissileView, SuitDrive,
+    SuitIndex, VisTime,
 };
 
 /// Remembers which one-shot events were already turned into effects.
@@ -30,6 +32,10 @@ pub struct Seen {
     fired: HashSet<(u16, u8)>,
     clashes: HashSet<(u32, u16, u16)>,
     rock_breaks: HashSet<(u32, u16)>,
+    /// Missile bursts shown, by (tick, missile).
+    bursts: HashSet<(u32, u16)>,
+    /// Each suit's form last frame, by slot (a change of form flashes).
+    forms: HashMap<u16, (u8, bc_proto::FrameId)>,
     /// Smoothed thrust estimates for other suits, by slot.
     thrust: HashMap<u16, Vec3>,
 }
@@ -61,6 +67,7 @@ pub fn sync_view(
     mut index: ResMut<SuitIndex>,
     mut drives: Query<&mut SuitDrive>,
     mut beams: ResMut<BeamFeed>,
+    mut missiles: ResMut<MissileFeed>,
     mut events: ResMut<FxEvents>,
     mut target: ResMut<CameraTarget>,
     mut seen: Local<Seen>,
@@ -97,8 +104,28 @@ pub fn sync_view(
                 flags |= ent_bit;
             }
         }
-        if core.last_cmd.buttons & FIRE_SECONDARY != 0 && own.weapon_ready & 2 != 0 {
+        let spec = frame(own.frame);
+        let buttons = core.last_cmd.buttons;
+        if buttons & FIRE_PRIMARY != 0 && own.weapon_ready & 1 != 0 {
+            flags |= ent_flags::FIRING_PRIMARY;
+        }
+        if buttons & FIRE_SECONDARY != 0 && own.weapon_ready & 2 != 0 {
             flags |= ent_flags::FIRING_SECONDARY;
+        }
+        if own.flags & (own_flags::SPECIAL_ACTIVE | own_flags::TRANSFORMING) != 0 {
+            flags |= ent_flags::SPECIAL;
+            // Full Open Attack fires everything.
+            if matches!(spec.special, SpecialKind::FullOpen { .. }) {
+                flags |= ent_flags::FIRING_PRIMARY | ent_flags::FIRING_SECONDARY;
+            }
+        }
+        // A strike from a blade in a gun slot (the Dragon Fang), not the F weapon.
+        let alt = |slot: u8, button: u16| buttons & button != 0 && spec.melee_mount(slot).is_some();
+        if own.flags & own_flags::SABER_ACTIVE != 0
+            && buttons & MELEE == 0
+            && (alt(0, FIRE_PRIMARY) || alt(1, FIRE_SECONDARY))
+        {
+            flags |= ent_flags::MELEE_ALT;
         }
         let (pos, rot, vel) = if own.alive {
             let s = &core.predict.state;
@@ -170,6 +197,15 @@ pub fn sync_view(
     let mut keep: HashSet<u16> = HashSet::with_capacity(want.len());
     for d in want {
         keep.insert(d.slot);
+        // The same occupant in its other form: it just changed.
+        let before = seen.forms.insert(d.slot, (d.generation, d.frame));
+        if let Some((generation, frame_before)) = before
+            && generation == d.generation
+            && frame_before != d.frame
+            && frame(frame_before).special.transforms_to() == Some(d.frame)
+        {
+            events.0.push(FxEvent::Transform { pos: d.pos, vel: d.vel, rot: d.rot });
+        }
         let existing = index.0.get(&d.slot).copied();
         match existing.and_then(|e| drives.get_mut(e).ok().map(|x| (e, x))) {
             // Same occupant: update in place.
@@ -184,6 +220,7 @@ pub fn sync_view(
             }
         }
     }
+    seen.forms.retain(|slot, _| keep.contains(slot));
     index.0.retain(|slot, e| {
         let alive = keep.contains(slot);
         if !alive {
@@ -247,6 +284,27 @@ pub fn sync_view(
         .retain(|&(shooter, shot)| world.beams.iter().any(|b| b.shooter == shooter && b.shot_seq == shot));
     seen.splashes
         .retain(|&(shooter, shot)| world.beams.iter().any(|b| b.shooter == shooter && b.shot_seq == shot));
+
+    // --- Missiles, on the render clock, and their bursts. ---
+    missiles.0.clear();
+    for m in world.missiles() {
+        missiles.0.push(MissileView {
+            pos: m.pos_at(t_render),
+            vel: m.latest.vel,
+            kind: m.latest.kind,
+            targets_you: m.latest.targets_you,
+        });
+    }
+    for b in &world.missile_bursts {
+        if seen.bursts.insert((b.tick, b.id)) {
+            events.0.push(FxEvent::MissileBurst {
+                pos: b.pos,
+                kind: b.kind.unwrap_or(bc_proto::WeaponKind::HomingMissile),
+                struck: matches!(b.cause, BurstCause::Hit | BurstCause::Proximity),
+            });
+        }
+    }
+    seen.bursts.retain(|&(tick, id)| world.missile_bursts.iter().any(|b| b.tick == tick && b.id == id));
 
     // --- One-shot effects. ---
     for h in &world.hits {

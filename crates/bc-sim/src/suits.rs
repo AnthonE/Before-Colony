@@ -130,6 +130,8 @@ pub struct SuitStats {
     pub hits_by_class: [u32; 5],
     /// Specials used: transformations, Full Open Attacks, Cross Crushers, jammer engagements.
     pub specials: u32,
+    /// Missiles launched.
+    pub missiles: u32,
 }
 
 pub struct Suits {

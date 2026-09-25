@@ -254,6 +254,12 @@ impl Sector {
             Metrics::set(&ps.hits, u64::from(st.hits));
             Metrics::set(&ps.kills, u64::from(st.kills));
             Metrics::set(&ps.deaths, u64::from(st.deaths));
+            for (c, n) in ps.hits_by_class.iter().zip(st.hits_by_class) {
+                Metrics::set(c, u64::from(n));
+            }
+            Metrics::set(&ps.specials, u64::from(st.specials));
+            Metrics::set(&ps.missiles, u64::from(st.missiles));
+            Metrics::set(&ps.frame, self.sim.suits.frame[client.suit.idx()] as u64);
         }
     }
 

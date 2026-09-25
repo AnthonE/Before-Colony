@@ -35,6 +35,8 @@ mod input;
 #[cfg(target_arch = "wasm32")]
 mod materials;
 #[cfg(target_arch = "wasm32")]
+mod missiles_vis;
+#[cfg(target_arch = "wasm32")]
 mod model;
 #[cfg(target_arch = "wasm32")]
 mod net;

@@ -22,5 +22,5 @@ WebTransport (QUIC) between them. See `docs/ARCHITECTURE.md` and `docs/DESIGN.md
   `cargo clippy -p bc-client --target wasm32-unknown-unknown -- -D warnings`
 - `scripts/build-web.sh [webgl2] [webgpu]` — browser build into `web/dist/` (needs wasm-bindgen-cli 0.2.128).
 - `cargo run -p bc-server --release` then open http://127.0.0.1:8080
-- `scripts/e2e.sh spike|slice [webgl2|webgpu]` — Playwright against a real server.
+- `scripts/e2e.sh spike|slice|gfx|frames [webgl2|webgpu]` — Playwright against a real server (`frames`: the autopilot flies each Gundam; `gfx`: every showcase scene, screenshots in `e2e/artifacts/`).
 - Never set `RUSTFLAGS` (it would drop the `web_sys_unstable_apis` cfg from `.cargo/config.toml`).

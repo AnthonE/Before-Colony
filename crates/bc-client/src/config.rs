@@ -12,7 +12,8 @@ pub struct LaunchConfig {
     pub autopilot: bool,
     /// `?name=` pilot name.
     pub name: String,
-    /// `?frame=wingzero|leo`.
+    /// `?frame=`: a playable frame's slug (`leo`, `wingzero`, `heavyarms`, `deathscythe`,
+    /// `sandrock`, `shenlong`).
     pub frame: String,
     /// `?mode=echo`: transport smoke test only.
     pub echo: bool,
