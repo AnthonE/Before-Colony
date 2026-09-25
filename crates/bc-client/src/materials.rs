@@ -41,6 +41,17 @@ const PALETTE: [(f32, f32, f32, f32); paint::COUNT] = [
     (0.02, 0.025, 0.03, 0.08),
 ];
 
+/// Each ore kind's colour (sRGB) and how metallic it is: nickel-iron, titanium, volatiles, exotics.
+pub const ORES: [([f32; 3], f32); 4] =
+    [([0.42, 0.36, 0.3], 0.6), ([0.8, 0.82, 0.86], 1.0), ([0.7, 0.85, 0.95], 0.0), ([0.3, 0.95, 0.85], 1.0)];
+
+/// An ore kind's colour, linear.
+pub fn ore_colour(kind: usize) -> Vec3 {
+    let [r, g, b] = ORES[kind % 4].0;
+    let c = Color::srgb(r, g, b).to_linear();
+    Vec3::new(c.red, c.green, c.blue)
+}
+
 /// Per-piece parameters for [`HullMaterial`], packed into a `MeshTag`.
 #[derive(Clone, Copy, Debug)]
 pub struct HullTag {
@@ -84,9 +95,20 @@ impl HullTag {
     }
 }
 
-/// A rock's `MeshTag`: its ore kind and a seed.
+/// A pristine rock's `MeshTag`: its ore kind and a seed.
 pub fn rock_tag(ore: u8, seed: u8) -> MeshTag {
-    MeshTag(u32::from(ore & 3) | u32::from(seed) << 2)
+    rock_state_tag(ore, seed, 7, 15)
+}
+
+/// A rock's `MeshTag`: its ore kind, a seed, its structure left (eighths: cracks) and its ore left
+/// (sixteenths: veins).
+pub fn rock_state_tag(ore: u8, seed: u8, hp: u8, ore_left: u8) -> MeshTag {
+    MeshTag(
+        u32::from(ore & 3)
+            | u32::from(seed) << 2
+            | u32::from(hp.min(7)) << 10
+            | u32::from(ore_left.min(15)) << 13,
+    )
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
@@ -184,10 +206,7 @@ pub fn setup_materials(
     mut hulls: ResMut<Assets<HullMaterial>>,
     mut rocks: ResMut<Assets<RockMaterial>>,
 ) {
-    let ore = |r: f32, g: f32, b: f32, metal: f32| {
-        let c = Color::srgb(r, g, b).to_linear();
-        Vec4::new(c.red, c.green, c.blue, metal)
-    };
+    let ore = |kind: usize| ore_colour(kind).extend(ORES[kind].1);
     commands.insert_resource(Surfaces {
         armour: hulls.add(hull(Vec4::new(1.1, 0.035, 0.6, 0.35))),
         colony: hulls.add(hull(Vec4::new(42.0, 0.6, 0.5, 0.35))),
@@ -196,12 +215,7 @@ pub fn setup_materials(
             base: StandardMaterial { perceptual_roughness: 0.9, ..default() },
             extension: RockExt {
                 rock: RockParams {
-                    ore: [
-                        ore(0.42, 0.36, 0.3, 0.6),
-                        ore(0.8, 0.82, 0.86, 1.0),
-                        ore(0.7, 0.85, 0.95, 0.0),
-                        ore(0.3, 0.95, 0.85, 1.0),
-                    ],
+                    ore: [ore(0), ore(1), ore(2), ore(3)],
                     detail: Vec4::new(gfx.settings.sky_detail, 0.0, 0.0, 0.0),
                 },
             },

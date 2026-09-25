@@ -156,6 +156,11 @@ impl Chunks {
     /// Sets a chunk's motion, telling clients.
     pub fn set_motion(&mut self, k: usize, motion: Motion) {
         self.motion[k] = motion;
+        self.touch(k);
+    }
+
+    /// Marks chunk `k` changed (a hulk that lost a part), telling clients.
+    pub fn touch(&mut self, k: usize) {
         self.version[k] = self.version[k].wrapping_add(1);
     }
 

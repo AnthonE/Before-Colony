@@ -247,6 +247,9 @@ impl ClientCore {
         self.clock.on_snapshot(h.tick, now, rtt, h.input_health);
         self.world.apply(h.tick, own, zero, &events, &ents);
         self.world.apply_salvage(&rocks, &objects);
+        for r in &rocks {
+            self.predict.set_rock_dead(usize::from(r.id), r.destroyed);
+        }
         if let Some(own) = own {
             self.predict.reconcile(h.tick, &own, &self.inputs);
             self.stats.prediction_error = self.predict.last_error;

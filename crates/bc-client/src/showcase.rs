@@ -10,7 +10,7 @@ use bc_client_core::world::{ObjectMotion, ObjectTrack};
 use bc_proto::snapshot::ent_flags;
 use bc_proto::{ChunkDesc, ChunkKind, Faction, FrameId, Part, Segment, WeaponKind};
 use bc_sim::content::frame;
-use bc_sim::field::Field;
+use bc_sim::field::{Field, Rock};
 use bc_sim::world::{COLONY_CENTER, COLONY_RADIUS};
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
@@ -39,6 +39,9 @@ pub enum Scene {
     /// After a fight by a rock: hulks, limbs shot off and loose ore tumbling, and a Leo come to
     /// pick through them.
     Salvage,
+    /// A Leo mining: every 1.5 s its saber cuts into a rock, which cracks as it's worked while
+    /// chips of ore drift off, until it shatters (at 9.75 s of every 12) and grows back.
+    Mining,
 }
 
 impl Scene {
@@ -49,6 +52,7 @@ impl Scene {
             "colony" => Some(Self::Colony),
             "field" => Some(Self::Field),
             "salvage" => Some(Self::Salvage),
+            "mining" => Some(Self::Mining),
             "sky" => Some(Self::Sky),
             "chase" | "pilot" => Some(Self::Chase),
             _ => None,
@@ -64,6 +68,7 @@ impl Scene {
             Self::Sky => "sky",
             Self::Chase => "chase",
             Self::Salvage => "salvage",
+            Self::Mining => "mining",
         }
     }
 
@@ -85,6 +90,23 @@ impl Scene {
                     orbit(c, 2.9, -0.1, 160.0),
                 ]
             }
+            Self::Mining => {
+                let field = Field::generate(Field::DEFAULT_SEED, Field::DEFAULT_ROCKS);
+                let (_, rock, side) = mining_site(&field);
+                let (face, stance) = mining_stance(&rock, side);
+                let across = side.cross(Vec3::Y).normalize();
+                vec![
+                    // Beside the Leo and a little below, so the sky is behind the cut (the colony is
+                    // under the field).
+                    orbit_from((face + stance) * 0.5, across + side * 0.5 - Vec3::Y * 0.4, 38.0),
+                    // Further back, to see the rock whole as it shatters.
+                    orbit_from(
+                        rock.pos + side * rock.radius * 0.5,
+                        across * 0.7 + side - Vec3::Y * 0.45,
+                        65.0,
+                    ),
+                ]
+            }
             Self::Sky => {
                 let eye = Vec3::new(0.0, 2_000.0, 0.0);
                 let core = crate::sky::GALAXY_NORMAL.cross(Vec3::Z).normalize();
@@ -102,6 +124,12 @@ impl Scene {
 
 const fn orbit(target: Vec3, yaw: f32, pitch: f32, dist: f32) -> Orbit {
     Orbit { target, yaw, pitch, dist }
+}
+
+/// An orbit about `target`, seen from along `from` (out of the target).
+fn orbit_from(target: Vec3, from: Vec3, dist: f32) -> Orbit {
+    let d = from.normalize();
+    orbit(target, d.x.atan2(d.z), d.y.clamp(-1.0, 1.0).asin(), dist)
 }
 
 /// An orbit whose eye sits at `eye`, looking along `dir`.
@@ -203,9 +231,15 @@ impl Plugin for ShowcasePlugin {
             preset: preset as u32,
             suits: Vec::new(),
         })
-        .add_systems(Startup, (spawn_showcase, spawn_wreckage.after(crate::rocks::setup_field)))
-        .add_systems(Update, drift_wreckage.in_set(crate::view::Vis::Drive))
-        .add_systems(Update, (advance_clock, controls, script).chain().in_set(crate::view::Vis::Drive))
+        .add_systems(
+            Startup,
+            (spawn_showcase, (spawn_wreckage, spawn_chips).after(crate::rocks::setup_field)),
+        )
+        .add_systems(Update, (drift_wreckage, drift_chips).in_set(crate::view::Vis::Drive))
+        .add_systems(
+            Update,
+            (advance_clock, controls, script, work_rock).chain().in_set(crate::view::Vis::Drive),
+        )
         .add_systems(Update, overlay.in_set(crate::view::Vis::Camera));
         if self.scene == Scene::Chase {
             app.add_systems(Update, (follow, pilot_effects).chain().in_set(crate::view::Vis::Camera));
@@ -234,6 +268,7 @@ fn cast(scene: Scene) -> Vec<(FrameId, Faction)> {
         Scene::Sky => vec![],
         Scene::Chase => vec![(WingZero, Faction::Colonies), (Leo, Faction::Oz), (Taurus, Faction::Oz)],
         Scene::Salvage => vec![(Leo, Faction::Colonies)],
+        Scene::Mining => vec![(Leo, Faction::Colonies)],
     }
 }
 
@@ -343,6 +378,129 @@ fn wreckage() -> Vec<(ChunkKind, u32, Vec3, Vec3, Vec3)> {
             Vec3::new(0.7, 0.4, 0.1),
         ),
     ]
+}
+
+/// The mining scene's cycle (s), when each stroke starts, how long after it the blade is in the
+/// rock, and when the rock shatters (on the last stroke).
+const MINING_CYCLE: f64 = 12.0;
+const STROKES: [f64; 7] = [0.5, 2.0, 3.5, 5.0, 6.5, 8.0, 9.5];
+const LAND: f64 = 0.25;
+const MINING_BREAK: f64 = 9.75;
+
+/// The mining scene: a rock about a suit's size near the field scene, and the side of it the Leo
+/// works (out of the rock, toward the sun).
+fn mining_site(field: &Field) -> (usize, Rock, Vec3) {
+    let (i, rock) = field
+        .rocks()
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| (14.0..24.0).contains(&r.radius))
+        .min_by(|(_, a), (_, b)| a.pos.distance(FIELD).total_cmp(&b.pos.distance(FIELD)))
+        .map_or((0, Rock::default()), |(i, r)| (i, *r));
+    (i, rock, (crate::sky::SUN_DIR + Vec3::new(0.0, -0.2, 0.6)).normalize())
+}
+
+/// The face of the rock the Leo cuts, and where it holds station off it.
+fn mining_stance(rock: &Rock, side: Vec3) -> (Vec3, Vec3) {
+    let face = rock.surface(rock.pos + side * 1_000.0, 0.0);
+    (face, face + side * 7.5)
+}
+
+/// A piece of ore the mining scene knocks loose: from `born` s into the cycle it drifts and turns
+/// from where it starts, until the cycle ends.
+#[derive(Component)]
+struct Chip {
+    born: f64,
+    pos: Vec3,
+    vel: Vec3,
+    rot: Quat,
+    spin: Vec3,
+}
+
+/// Builds the ore the mining scene's strokes chip off and its shattering scatters.
+fn spawn_chips(
+    mut commands: Commands,
+    show: Res<Show>,
+    field: Res<crate::rocks::VisField>,
+    lib: Res<crate::model::SuitMeshLib>,
+    rocks: Res<crate::rocks::RockMeshes>,
+    surfaces: Res<crate::materials::Surfaces>,
+) {
+    if show.scene != Scene::Mining {
+        return;
+    }
+    let (_, rock, side) = mining_site(&field.0);
+    let (face, _) = mining_stance(&rock, side);
+    let across = side.cross(Vec3::Y).normalize();
+    let up = across.cross(side);
+    let mut pieces = Vec::new();
+    // A chip off each stroke but the last, from where the blade went in.
+    for (k, s) in STROKES[..STROKES.len() - 1].iter().enumerate() {
+        let a = k as f32 * 2.1;
+        let off = across * a.cos() + up * a.sin();
+        pieces.push((s + LAND, 200, face + off * 2.0 + side * 1.5, side * 2.5 + off * 1.2));
+    }
+    // What's left, scattered as it shatters.
+    for k in 0..6 {
+        let a = k as f32 * 1.05;
+        let dir = (side * 0.8 + across * a.cos() + up * a.sin()).normalize();
+        pieces.push((MINING_BREAK, 900, rock.pos + dir * rock.radius * 0.5, dir * 4.5));
+    }
+    for (k, (born, mass_kg, pos, vel)) in pieces.into_iter().enumerate() {
+        let track = ObjectTrack {
+            generation: 1,
+            desc: ChunkDesc {
+                kind: ChunkKind::Ore { ore: rock.ore },
+                seed: (k as u8).wrapping_mul(37),
+                mass_kg,
+            },
+            motion: ObjectMotion::Free(Segment::default()),
+            prev: None,
+        };
+        let rot = Quat::from_euler(EulerRot::YXZ, k as f32 * 1.7, k as f32 * 0.9, k as f32 * 0.3);
+        let tf = Transform::from_translation(pos).with_rotation(rot);
+        let e = crate::salvage_vis::spawn_chunk(&mut commands, &track, tf, &lib, &rocks, &surfaces);
+        let spin = Vec3::new(0.4 + 0.1 * k as f32, 0.7, 0.2);
+        commands.entity(e).insert((Chip { born, pos, vel, rot, spin }, Visibility::Hidden));
+    }
+}
+
+/// Shows the mining scene's ore once it's knocked loose, drifting on the scene clock.
+fn drift_chips(vis: Res<VisTime>, mut chips: Query<(&Chip, &mut Transform, &mut Visibility)>) {
+    let u = vis.now.rem_euclid(MINING_CYCLE);
+    for (c, mut tf, mut v) in &mut chips {
+        let age = (u - c.born) as f32;
+        let want = if age >= 0.0 { Visibility::Inherited } else { Visibility::Hidden };
+        if *v != want {
+            *v = want;
+        }
+        tf.translation = c.pos + c.vel * age.max(0.0);
+        tf.rotation = Quat::from_scaled_axis(c.spin * age.max(0.0)) * c.rot;
+    }
+}
+
+/// Works the mining scene's rock: cracked and worked out a stroke at a time, gone once it
+/// shatters, whole again each cycle.
+fn work_rock(
+    show: Res<Show>,
+    vis: Res<VisTime>,
+    mut lods: Query<&mut crate::rocks::RockLod>,
+    mut shown: Query<&mut Visibility>,
+    mut tags: Query<&mut bevy::mesh::MeshTag>,
+    mut field: ResMut<crate::rocks::VisField>,
+) {
+    if show.scene != Scene::Mining {
+        return;
+    }
+    let (i, ..) = mining_site(&field.0);
+    let u = vis.now.rem_euclid(MINING_CYCLE);
+    let k = STROKES.iter().filter(|&&s| s + LAND <= u).count() as u8;
+    let state = (u >= MINING_BREAK, 7u8.saturating_sub(k).max(1), 15u8.saturating_sub(2 * k));
+    for mut lod in &mut lods {
+        if usize::from(lod.id()) == i {
+            crate::rocks::set_rock_state(&mut lod, state, &mut shown, &mut tags, &mut field);
+        }
+    }
 }
 
 /// Builds the salvage scene's wreckage with the game's own chunk visuals.
@@ -605,6 +763,7 @@ fn script(
     mut beams: ResMut<BeamFeed>,
     mut events: ResMut<FxEvents>,
     mut target: ResMut<CameraTarget>,
+    field: Res<crate::rocks::VisField>,
 ) {
     let t = vis.now;
     let crossed = |at: f64| at > show.prev && at <= t;
@@ -858,6 +1017,25 @@ fn script(
                 d.flags = 0;
                 d.thrust = Vec3::new(0.0, 0.1, 0.0);
             });
+        }
+        Scene::Mining => {
+            let (_, rock, side) = mining_site(&field.0);
+            let (face, stance) = mining_stance(&rock, side);
+            let u = t.rem_euclid(MINING_CYCLE);
+            let swinging = STROKES.iter().any(|&s| (s..s + 0.6).contains(&u));
+            set(0, &mut |d| {
+                // Holding station off the face, bobbing a little.
+                d.pos = stance + Vec3::Y * (0.3 * (t * 0.8).sin()) as f32;
+                d.vel = Vec3::ZERO;
+                d.rot = facing(face - stance);
+                d.aim = d.rot * Vec3::Z;
+                d.flags = if swinging { ent_flags::SABER } else { 0 };
+                d.thrust = Vec3::new(0.0, 0.0, 0.1);
+            });
+            if crossed((t / MINING_CYCLE).floor() * MINING_CYCLE + MINING_BREAK) {
+                let ore = crate::materials::ore_colour(usize::from(rock.ore));
+                events.0.push(FxEvent::RockBreak { pos: rock.pos, radius: rock.radius, ore });
+            }
         }
         Scene::Field => {
             for i in 0..2 {

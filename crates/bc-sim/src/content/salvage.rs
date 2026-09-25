@@ -1,6 +1,6 @@
 //! Salvage and mining tunables: what suits are made of, how long wreckage lasts.
 
-use bc_proto::{CARGO_KINDS, ChunkDesc, ChunkKind, FrameId, Part};
+use bc_proto::{CARGO_KINDS, ChunkDesc, ChunkKind, FrameId, Part, WeaponKind};
 use glam::Vec3;
 
 use crate::config::secs;
@@ -55,6 +55,25 @@ pub const DOCK_RADIUS: f32 = 300.0;
 pub const DOCK_SPEED: f32 = 25.0;
 /// Credits per kg of each material: nickel-iron, titanium, volatiles, exotics.
 pub const PRICE: [u32; CARGO_KINDS] = [1, 4, 3, 15];
+
+/// How hard each weapon works a rock: sabers cut it, cannon rounds chip it, beams mostly glance off.
+pub fn rock_multiplier(kind: WeaponKind) -> f32 {
+    match kind {
+        WeaponKind::BeamSaber => 2.0,
+        WeaponKind::MachineCannon => 1.0,
+        _ => 0.3,
+    }
+}
+
+/// Ore a beam boils off per point of damage, kg.
+pub const BEAM_WASTE_KG: f32 = 4.0;
+/// Most ore one saber stroke chips off a rock, kg.
+pub const CHIP_KG: u32 = 200;
+/// A shattered rock grows back only when no suit is this close, m.
+pub const REGROW_CLEAR: f32 = 1_000.0;
+/// How far past its blade a saber digs into rock, m: a suit keeps 8 m off a rock's surface, and
+/// the blade has to reach it.
+pub const SABER_DIG: f32 = 2.5;
 
 /// Each frame's hold, kg (Mobile Dolls carry nothing).
 pub fn hold_kg(frame_id: FrameId) -> u32 {

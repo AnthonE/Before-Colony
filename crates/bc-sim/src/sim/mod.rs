@@ -16,6 +16,7 @@
 use alloc::boxed::Box;
 
 mod combat;
+mod mining;
 mod salvage;
 mod wire;
 mod zero;
@@ -274,6 +275,7 @@ impl Sim {
         self.salvage_step(t);
         self.status_step(t);
         self.zero_step(t);
+        self.field_step(t);
         self.peak_projectiles = self.peak_projectiles.max(self.projectiles.count());
     }
 

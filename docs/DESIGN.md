@@ -157,6 +157,22 @@ respawns but not reconnects.
   as titanium, except a Gundam's (gundanium, sold with the exotics).
 - **Dying** spills the hold and drops what you were holding; someone else can pick it up.
 
+## Mining
+
+The rocks hold ore: most are nickel-iron, some titanium or volatiles, a few exotics. Their veins
+show which, and thin as the ore is taken. A rock of radius r m has 60 + 25r of structure and
+200r kg of ore, so a 10 m rock takes two saber strokes and holds 2 t.
+
+- **Sabers mine best.** A stroke into a rock does double damage and chips off up to 200 kg of ore,
+  which drifts free, ready to grab. Machine cannon rounds wear a rock down at their usual damage.
+  Beams do 0.3× and boil off 4 kg of ore for each point of damage, so shooting a rock apart wastes
+  most of it.
+- **A rock with no structure left shatters**: whatever ore is left flies off as 2–8 chunks. Nothing
+  meets it until it grows back, 10 minutes later and only once no suit is within 1 km. Rocks crack
+  as they're worked.
+- **Hulks come apart.** A saber stroke through a hulk cuts off the part nearest the blade, which
+  drifts free as a limb small enough to stow.
+
 ## The world (EVE-lite, roadmap)
 
 - The Earth Sphere is split into **sectors**: L1–L5 colony clusters, lunar orbit, Earth orbit, and

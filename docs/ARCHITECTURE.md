@@ -67,15 +67,18 @@ network threads.
       colony and rocks, and expire.
    4. Rebuild the spatial hash (counting sort, 128 m cells).
    5. Record lag-comp history, so `history[T]` is exactly snapshot `T`.
-   6. Weapons: charge, heat, energy, arm cone, magnetism, spawn, lag-comp catch-up (rocks stop it).
-   7. Projectile sweeps against per-part capsules (skipping parts that are gone) and rocks. Saber
-      arcs, 3 sub-steps per tick, with clashes.
+   6. Weapons: charge, heat, energy, arm cone, magnetism, spawn, lag-comp catch-up (rocks stop it,
+      and are worn down by it).
+   7. Projectile sweeps against per-part capsules (skipping parts that are gone) and rocks, which
+      shots wear down until they shatter into ore. Saber arcs, 3 sub-steps per tick, with clashes;
+      a stroke chips ore off a rock and cuts a part off a hulk.
    8. Damage resolves in order: limbs come off as chunks, overflow spills to the torso, suits die
       and leave hulks (spilling their holds).
    9. Salvage: grab, stow, throw, jettison, and sales at the dock. Presses are edges against the
       previous tick's buttons, so this runs before they're recorded.
    10. Heat, energy, ZERO strain (seizure and lockout), respawns.
    11. ZERO rollouts (staggered every 3 ticks per pilot).
+   12. Shattered rocks grow back once no suit is near (checked every 30 ticks).
 6. **Tactical pictures** for ZERO pilots (≈4 Hz), only when an external oracle is attached.
 7. **Snapshots** for each client, straight into its ring. The egress thread is unparked.
 

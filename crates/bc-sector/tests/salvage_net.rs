@@ -1,6 +1,7 @@
 //! Wreckage and rocks over the network: a real `Sector` and a real `ClientCore` on a simulated
 //! lossy link. Chunks reach the client exactly as the server moves them (across bounces), go away
-//! when they're gone, a kill hands its wreck to its hulk, and changed rocks arrive.
+//! when they're gone, a kill hands its wreck to its hulk, changed rocks arrive, and a shattered rock
+//! is gone for prediction too.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
 use std::cmp::Reverse;
@@ -321,6 +322,7 @@ fn changed_rocks_reach_the_client() {
         r.ore_kg[3] /= 4;
         r.touch(3);
         r.destroyed.set(5, true);
+        r.regrow_at[5] = u32::MAX;
         r.touch(5);
     });
     for i in [3u16, 5] {
@@ -377,4 +379,65 @@ fn towing_is_predicted() {
     let p99 = errors[errors.len() * 99 / 100];
     println!("towing: prediction error p99 {p99:.4} m over {} ticks", errors.len());
     assert!(p99 < 0.25, "prediction error p99 {p99:.3} m while towing");
+}
+
+/// A shattered rock is gone for the client's prediction too: coasting straight through where it
+/// was mispredicts no more than open flight does.
+#[test]
+fn a_shattered_rock_is_flown_through() {
+    use bc_sim::collide::segment_near_point;
+    use bc_sim::field::{Field, SUIT_CLEARANCE};
+    let cfg = SimConfig::default();
+    let field = Field::generate(cfg.field_seed, cfg.field_rocks);
+    // A big rock well clear of the colony, with nothing else near a run through it along +X.
+    let run_of = |r: &bc_sim::field::Rock| {
+        let d = Vec3::X * (r.radius + SUIT_CLEARANCE + 150.0);
+        (r.pos - d, r.pos + d)
+    };
+    let (i, rock) = (0..field.len())
+        .map(|i| (i, field.rocks()[i]))
+        .find(|(i, r)| {
+            let (a, b) = run_of(r);
+            r.radius > 15.0
+                && r.pos.y > 0.0
+                && field.rocks().iter().enumerate().all(|(j, o)| {
+                    j == *i || !segment_near_point(a, b, o.pos, o.radius + SUIT_CLEARANCE + 20.0)
+                })
+        })
+        .expect("a rock with a clear run through it");
+    let mut coast = |_: &InputContext| InputCmd { aim: Vec3::X, ..InputCmd::default() };
+    let mut shattered_at = None;
+    let mut errors = Vec::new();
+    let (sector, client) = run(12.0, &mut coast, &mut |sector, client, me| {
+        let Some(me) = me else { return };
+        let sim = &mut sector.sim;
+        let t = sim.tick();
+        match shattered_at {
+            None if t >= 60 => {
+                shattered_at = Some(t);
+                let f = &mut sim.suits.flight[me];
+                f.pos = run_of(&rock).0;
+                f.vel = Vec3::X * 60.0;
+                sim.rocks.destroyed.set(i, true);
+                sim.rocks.regrow_at[i] = t + 90_000;
+                sim.rocks.touch(i);
+                sim.field.set_dead(i, true);
+            }
+            Some(s) if t > s + 30 => errors.push(client.stats.prediction_error),
+            _ => {}
+        }
+    });
+    errors.sort_by(f32::total_cmp);
+    let p99 = errors[errors.len() * 99 / 100];
+    println!("through a shattered rock: prediction error p99 {p99:.4} m over {} ticks", errors.len());
+    let me = client.world.own.expect("own state");
+    let pos = sector.sim.suits.flight[me.slot as usize].pos;
+    assert!(
+        pos.x > rock.pos.x + rock.radius + SUIT_CLEARANCE,
+        "never got through: {pos:?}, rock at {:?}",
+        rock.pos
+    );
+    assert!(client.world.rocks.get(&(i as u16)).is_some_and(|r| r.destroyed), "the client never heard");
+    assert!(client.predict.field.is_dead(i), "the client's prediction still has the rock");
+    assert!(p99 < 0.25, "prediction error p99 {p99:.3} m");
 }

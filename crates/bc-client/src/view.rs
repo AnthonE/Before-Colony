@@ -82,6 +82,12 @@ pub enum FxEvent {
     Clash {
         pos: Vec3,
     },
+    /// A rock shattering: where, how big it was, and the colour of its ore.
+    RockBreak {
+        pos: Vec3,
+        radius: f32,
+        ore: Vec3,
+    },
     /// The pilot's own suit taking a hit (as well as its [`FxEvent::Hit`]).
     Struck {
         weapon: WeaponKind,

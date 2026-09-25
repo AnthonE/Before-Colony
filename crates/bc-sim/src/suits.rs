@@ -41,6 +41,9 @@ pub struct SaberState {
     pub n_hits: u8,
     /// Lag-compensation view of the swing (1/16 ticks).
     pub view_q4: u32,
+    /// The rock, and the hulk, this swing has struck (each at most once).
+    pub rock: Option<u16>,
+    pub cut: Option<u16>,
 }
 
 /// Per-suit combat statistics (for `/status` and the kill feed).

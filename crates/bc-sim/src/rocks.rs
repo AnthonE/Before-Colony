@@ -1,6 +1,6 @@
 //! What has happened to the debris field's rocks: the field itself (`crate::field`) never
-//! changes, so this is their mutable side. Nothing mines them yet; clients are sent whatever has
-//! changed.
+//! changes, so this is their mutable side. Mining (`sim::mining`) wears them down and shatters
+//! them; clients are sent whatever has changed.
 
 use alloc::boxed::Box;
 

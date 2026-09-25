@@ -83,6 +83,13 @@ impl Predictor {
         self.field = std::sync::Arc::new(field);
     }
 
+    /// Rock `i` shattered (or grew back): the suit flies through where it was, as on the server.
+    pub fn set_rock_dead(&mut self, i: usize, dead: bool) {
+        if self.field.is_dead(i) != dead {
+            std::sync::Arc::make_mut(&mut self.field).set_dead(i, dead);
+        }
+    }
+
     /// Steps the prediction with a newly generated command.
     pub fn advance(&mut self, cmd: &InputCmd) {
         if !self.initialized {

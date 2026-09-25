@@ -25,6 +25,9 @@ const scenes: Array<[string, number, number, number]> = [
   // Wreckage after a fight: hulks, limbs shot off, loose ore.
   ["salvage", 1, 6, 12],
   ["salvage", 2, 6, 12],
+  // Mining: a saber cutting into a cracked rock; the rock shattering into ore.
+  ["mining", 1, 7.95, 18],
+  ["mining", 2, 9.7, 12],
   ["sky", 1, 6, 12],
   ["sky", 2, 6, 12],
   ["sky", 3, 6, 12],

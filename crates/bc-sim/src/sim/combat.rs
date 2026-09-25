@@ -9,7 +9,7 @@ use super::{DamageEvent, Sim};
 use crate::chunks::Motion;
 use crate::collide::{capsule_world, segment_near_point, segment_segment, sweep_capsules};
 use crate::config::{DT, MAX_REWIND_TICKS, secs};
-use crate::content::salvage::{DETACH_PUSH, DETACH_SPEED, mass_without, part_mass_kg, wreck_ttl};
+use crate::content::salvage::{DETACH_PUSH, DETACH_SPEED, SABER_DIG, mass_without, part_mass_kg, wreck_ttl};
 use crate::content::{Mount, WeaponSpec, frame, weapon};
 use crate::math::{angle_between, cos, hash01, normalize_or, sin};
 use crate::suits::{SaberPhase, WeaponState};
@@ -146,17 +146,17 @@ impl Sim {
         let faction = s.faction[i];
         let mut p = muzzle;
         let mut hit = None;
-        let mut blocked = false;
+        let mut blocked = None;
         for k in 0..rewind {
             let b = p + vel * DT;
-            let rock = self.field.sweep(p, b, w.radius).map(|(t, _)| t);
+            let rock = self.field.sweep(p, b, w.radius);
             match self.sweep_history(p, b, w.radius, i, faction, spawn_tick + k, frac) {
-                Some((s, j, part)) if rock.is_none_or(|t| s <= t) => {
+                Some((s, j, part)) if rock.is_none_or(|(t, _)| s <= t) => {
                     hit = Some((j, part));
                     break;
                 }
                 _ if rock.is_some() => {
-                    blocked = true;
+                    blocked = rock.map(|(f, r)| (r, p + (b - p) * f));
                     break;
                 }
                 _ => {}
@@ -174,15 +174,15 @@ impl Sim {
                 velocity: vel,
             });
         }
-        match hit {
-            Some((target, part)) => self.queue_damage(target, part, w.damage, i, w.kind, dir),
-            None if !blocked => {
+        match (hit, blocked) {
+            (Some((target, part)), _) => self.queue_damage(target, part, w.damage, i, w.kind, dir),
+            (None, Some((rock, at))) => self.rock_hit(rock, w.damage, w.kind, at, dir, i, t),
+            (None, None) => {
                 let ttl = w.ttl_ticks().saturating_sub(rewind);
                 if ttl > 0 {
                     self.projectiles.spawn(w.kind, i as u16, faction, p, vel, t + ttl, w.damage, w.radius);
                 }
             }
-            None => {} // a rock took it
         }
     }
 
@@ -257,17 +257,20 @@ impl Sim {
                     best = Some((s, j, cap));
                 }
             });
-            // Rocks stop shots: whichever is met first along this tick's path.
-            let rock = self.field.sweep(a, b, r).map(|(t, _)| t);
-            match best {
-                Some((s, j, cap)) if rock.is_none_or(|t| s <= t) => {
-                    let kind = self.projectiles.kind[k];
-                    let dmg = self.projectiles.damage[k];
-                    let dir = normalize_or(self.projectiles.vel[k], Vec3::Z);
+            // Rocks stop shots, and are worked by them: whichever is met first along this tick's path.
+            let rock = self.field.sweep(a, b, r);
+            let kind = self.projectiles.kind[k];
+            let dmg = self.projectiles.damage[k];
+            let dir = normalize_or(self.projectiles.vel[k], Vec3::Z);
+            match (best, rock) {
+                (Some((s, j, cap)), _) if rock.is_none_or(|(t, _)| s <= t) => {
                     self.queue_damage(j, Part::ALL[cap], dmg, owner, kind, dir);
                     self.projectiles.kill(k);
                 }
-                _ if rock.is_some() => self.projectiles.kill(k),
+                (_, Some((f, which))) => {
+                    self.rock_hit(which, dmg, kind, a + (b - a) * f, dir, owner, t);
+                    self.projectiles.kill(k);
+                }
                 _ => self.projectiles.pos[k] = b,
             }
         }
@@ -298,6 +301,8 @@ impl Sim {
                         st.phase = SaberPhase::Windup;
                         st.timer = 4;
                         st.n_hits = 0;
+                        st.rock = None;
+                        st.cut = None;
                         st.view_q4 = cmd.view_tick_q4;
                         s.heat[i] += w.heat;
                         s.energy[i] -= w.energy;
@@ -348,6 +353,8 @@ impl Sim {
         };
         let when = t - rewind;
         let faction = self.suits.faction[i];
+        // The blade sweeps from the right shoulder across to the left hip.
+        let stroke = f.rot * normalize_or(Vec3::new(-1.5, -1.1, 0.2), Vec3::X);
         for sub in 0..3u32 {
             let progress = ((6 - u32::from(st.timer)) * 3 + sub) as f32 / 18.0;
             let local = normalize_or(
@@ -355,6 +362,19 @@ impl Sim {
                 Vec3::Z,
             );
             let tip = hand + f.rot * local * w.range;
+            // It works a rock, and cuts a hulk, once each a swing.
+            if self.suits.saber[i].rock.is_none()
+                && let Some((at, rock)) = self.field.sweep(hand, tip, w.radius + SABER_DIG)
+            {
+                self.suits.saber[i].rock = Some(rock as u16);
+                self.rock_hit(rock, w.damage, WeaponKind::BeamSaber, hand + (tip - hand) * at, stroke, i, t);
+            }
+            if self.suits.saber[i].cut.is_none()
+                && let Some(k) = self.hulk_in_blade(hand, tip, w.radius)
+            {
+                self.suits.saber[i].cut = Some(k as u16);
+                self.cut_hulk(k, hand, tip, t);
+            }
             let mut found: Option<(usize, usize, f32)> = None;
             let (spatial, suits, history, ff) =
                 (&mut self.spatial, &self.suits, &self.history, self.cfg.friendly_fire);
@@ -407,9 +427,7 @@ impl Sim {
                 st.hits[st.n_hits as usize] = j as u16;
                 st.n_hits += 1;
             }
-            // The blade sweeps from the right shoulder across to the left hip.
-            let dir = f.rot * normalize_or(Vec3::new(-1.5, -1.1, 0.2), Vec3::X);
-            self.queue_damage(j, Part::ALL[ci], w.damage, i, WeaponKind::BeamSaber, dir);
+            self.queue_damage(j, Part::ALL[ci], w.damage, i, WeaponKind::BeamSaber, stroke);
         }
     }
 

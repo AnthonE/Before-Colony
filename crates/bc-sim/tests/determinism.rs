@@ -57,11 +57,12 @@ fn field_hash() -> u64 {
     h
 }
 
-/// Hash after suits have flown into rocks and fired through them.
-const ROCKS_GOLDEN: u64 = 0xde59_7fae_6fd8_6b47;
+/// Hash after suits have flown into rocks and fired into them, wearing them down, while a Leo cuts
+/// a small one apart with its saber.
+const ROCKS_GOLDEN: u64 = 0x72b1_ae0c_faaf_9bc7;
 
 fn rocks_hash() -> u64 {
-    use bc_proto::buttons::FIRE_PRIMARY;
+    use bc_proto::buttons::{FIRE_PRIMARY, MELEE};
     use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
     use bc_sim::math::{cos, look_rotation, sin};
     use glam::Vec3;
@@ -82,8 +83,32 @@ fn rocks_hash() -> u64 {
         sim.suits.flight[id.idx()].vel = dir * (300.0 + 340.0 * k as f32);
         ids.push((id, dir));
     }
+    let k = sim.field.rocks().iter().position(|r| r.radius > 8.0 && r.radius < 12.0).unwrap();
+    let small = sim.field.rocks()[k];
+    let dir = Vec3::new(1.0, 0.1, 0.3).normalize();
+    let face = small.surface(small.pos - dir * (small.radius + 50.0), 0.0);
+    let miner = sim
+        .spawn_at(
+            FrameId::Leo,
+            Faction::Colonies,
+            PilotKind::Human,
+            face - dir * bc_sim::field::SUIT_CLEARANCE,
+            look_rotation(dir, Vec3::Y),
+        )
+        .unwrap();
     for _ in 0..150 {
         let t = sim.next_tick();
+        let cut = if t % 45 < 3 { MELEE } else { 0 };
+        let aim = (small.pos - sim.suits.flight[miner.idx()].pos).normalize();
+        let cmd = InputCmd {
+            tick: t,
+            view_tick_q4: t << 4,
+            aim,
+            thrust: [0, 0, 20],
+            buttons: cut,
+            ..InputCmd::default()
+        };
+        sim.set_input(miner, cmd);
         for &(id, dir) in &ids {
             sim.set_input(
                 id,
@@ -98,6 +123,7 @@ fn rocks_hash() -> u64 {
         }
         sim.step();
     }
+    assert!(sim.rocks.destroyed.get(k), "the miner never broke its rock");
     sim.state_hash()
 }
 

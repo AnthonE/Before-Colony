@@ -122,6 +122,7 @@ pub fn update_fx(
         Without<TracerVis>,
     >,
     mut tracers: Query<(&TracerVis, &mut Transform, &mut Visibility), Without<BeamVis>>,
+    field: Option<Res<crate::rocks::VisField>>,
 ) {
     let now = time.now;
     let cap = gfx.settings.particles;
@@ -225,6 +226,31 @@ pub fn update_fx(
         }
     }
 
+    // --- Sabers cutting rock: sparks and molten rock spray from where a blade goes in. ---
+    if let Some(field) = &field {
+        for (d, anim) in &suits {
+            if d.flags & ent_flags::SABER == 0 || d.flags & ent_flags::WRECK != 0 {
+                continue;
+            }
+            let (hilt, dir) = lib.sockets(d.frame).saber;
+            let a = bone_point(d, anim, Bone::HandL, hilt);
+            let b = bone_point(d, anim, Bone::HandL, hilt + dir * ribbons.saber.length);
+            if let Some((f, i)) = field.0.sweep(a, b, 0.4) {
+                let rock = field.0.rocks()[i];
+                let at = a + (b - a) * f;
+                let ore = crate::materials::ore_colour(usize::from(rock.ore));
+                particles.cutting(cap, At { pos: at, vel: Vec3::ZERO }, rock.normal(at, 0.0), ore, time.dt);
+                state.flashes.push(Flash {
+                    pos: at,
+                    born: now,
+                    life: 0.05,
+                    lumens: 5.0e7,
+                    color: Color::srgb(1.0, 0.55, 0.2),
+                });
+            }
+        }
+    }
+
     // --- The Twin Buster Rifle drawing in energy while it charges. ---
     for (d, anim) in &suits {
         if d.flags & ent_flags::CHARGING != 0 && d.flags & ent_flags::WRECK == 0 {
@@ -296,6 +322,16 @@ pub fn update_fx(
             }
             // The camera shakes and flashes for this one (see `camera`).
             FxEvent::Struck { .. } => {}
+            FxEvent::RockBreak { pos, radius, ore } => {
+                particles.rock_burst(cap, At { pos, vel: Vec3::ZERO }, radius, ore);
+                state.flashes.push(Flash {
+                    pos,
+                    born: now,
+                    life: 0.6,
+                    lumens: 4.0e8,
+                    color: Color::srgb(1.0, 0.8, 0.55),
+                });
+            }
             FxEvent::Clash { pos } => {
                 particles.clash(cap, At { pos, vel: Vec3::ZERO });
                 state.flashes.push(Flash {

@@ -149,6 +149,8 @@ pub struct World {
     pub objects: Vec<Option<ObjectTrack>>,
     /// The hulk each destroyed suit became, by slot (from the kill events).
     pub hulks: HashMap<u16, u16>,
+    /// Rocks that shattered, newest last: (tick, rock).
+    pub rock_breaks: VecDeque<(u32, u16)>,
     seen: VecDeque<u16>,
     pub faction: Faction,
     pub my_hits: u32,
@@ -171,6 +173,7 @@ impl World {
             rocks: HashMap::new(),
             objects: vec![None; 1 << CHUNK_BITS],
             hulks: HashMap::new(),
+            rock_breaks: VecDeque::new(),
             seen: VecDeque::new(),
             faction,
             my_hits: 0,
@@ -413,7 +416,15 @@ impl World {
                 }
             }
             // The chunks a limb or a shattered rock leaves arrive in the objects list.
-            Event::Detach { .. } | Event::RockBreak { .. } => {}
+            Event::Detach { .. } => {}
+            Event::RockBreak { id, tick, rock, .. } => {
+                if self.first_time(id) {
+                    self.rock_breaks.push_back((tick, rock));
+                    while self.rock_breaks.len() > 32 {
+                        self.rock_breaks.pop_front();
+                    }
+                }
+            }
         }
     }
 

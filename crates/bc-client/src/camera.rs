@@ -132,6 +132,7 @@ pub fn follow(
             }
             FxEvent::Muzzle { pos, weapon: WeaponKind::TwinBusterRifle, .. } => 0.6 * near(pos, 60.0, 900.0),
             FxEvent::Clash { pos } => 0.4 * near(pos, 40.0, 400.0),
+            FxEvent::RockBreak { pos, radius, .. } => 0.7 * near(pos, radius * 2.0, radius * 40.0),
             _ => 0.0,
         };
     }

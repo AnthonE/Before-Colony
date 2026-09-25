@@ -97,6 +97,8 @@ pub enum Ramp {
     Flash,
     /// Grey-blue vapour, alpha-blended.
     Vapour,
+    /// Rock dust, alpha-blended: slow to clear.
+    Dust,
     /// A glow of the given colour that fades out (beam plasma, saber, charge).
     Glow(Vec3),
 }
@@ -125,12 +127,13 @@ impl Ramp {
             }
             Ramp::Flash => (Vec3::new(40.0, 36.0, 30.0), (1.0 - t).powi(3)),
             Ramp::Vapour => (Vec3::new(0.32, 0.35, 0.4), 0.35 * (1.0 - t) * (1.0 - t)),
+            Ramp::Dust => (Vec3::new(0.3, 0.26, 0.22), 0.5 * (1.0 - t)),
             Ramp::Glow(c) => (c, (1.0 - t) * (1.0 - t)),
         }
     }
 
     fn puff(self) -> bool {
-        matches!(self, Ramp::Vapour)
+        matches!(self, Ramp::Vapour | Ramp::Dust)
     }
 }
 
@@ -252,6 +255,56 @@ impl Particles {
             Ramp::Glow(color),
         );
         self.shower(cap, 5, at, Some((n, 0.8)), (5.0, 25.0), (0.8, 1.8), (0.35, 0.2), 0.0, Ramp::Ember);
+    }
+
+    /// A rock coming apart: a brief flash, a slow cloud of its dust, sparks, and glints of its ore.
+    pub fn rock_burst(&mut self, cap: usize, at: At, radius: f32, ore: Vec3) {
+        let r = radius.max(4.0);
+        let flash = Particle {
+            pos: at.pos,
+            vel: at.vel,
+            age: 0.0,
+            life: 0.15,
+            size: (r * 0.25, r * 0.7),
+            streak: 0.0,
+            core: 1.0,
+            ramp: Ramp::Flash,
+        };
+        self.spawn(cap, flash);
+        self.shower(cap, 36, at, None, (2.0, 10.0), (3.0, 7.0), (r * 0.35, r * 1.1), 0.0, Ramp::Dust);
+        self.shower(cap, 40, at, None, (20.0, 90.0), (0.4, 1.2), (0.3, 0.15), 0.04, Ramp::Spark);
+        self.shower(cap, 24, at, None, (4.0, 18.0), (2.0, 5.0), (0.8, 0.4), 0.0, Ramp::Glow(ore * 3.0));
+    }
+
+    /// A saber blade in rock, for `dt` s: sparks and molten rock spraying off the cut, and glints
+    /// of its ore.
+    pub fn cutting(&mut self, cap: usize, at: At, normal: Vec3, ore: Vec3, dt: f32) {
+        let n = normal.normalize_or(Vec3::Y);
+        let sparks = self.count(600.0 * dt);
+        self.shower(
+            cap,
+            sparks,
+            at,
+            Some((n, 0.8)),
+            (20.0, 90.0),
+            (0.3, 0.9),
+            (0.25, 0.1),
+            0.04,
+            Ramp::Spark,
+        );
+        let melt = self.count(80.0 * dt);
+        self.shower(cap, melt, at, Some((n, 0.6)), (3.0, 14.0), (0.6, 1.6), (0.4, 0.2), 0.0, Ramp::Ember);
+        let dust = self.count(20.0 * dt);
+        self.shower(cap, dust, at, Some((n, 0.7)), (2.0, 6.0), (1.5, 3.0), (1.0, 3.5), 0.0, Ramp::Dust);
+        let glints = self.count(16.0 * dt);
+        let glint = Ramp::Glow(ore * 2.5);
+        self.shower(cap, glints, at, Some((n, 0.5)), (2.0, 8.0), (0.8, 1.8), (0.5, 0.25), 0.0, glint);
+        self.glow(cap, at, 3.0, Vec3::new(6.0, 2.4, 0.7));
+    }
+
+    /// A whole number of particles, `expected` on average.
+    fn count(&mut self, expected: f32) -> u32 {
+        expected as u32 + u32::from(self.rng.next_f32() < expected.fract())
     }
 
     /// A shot leaving the muzzle.

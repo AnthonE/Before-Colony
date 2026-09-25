@@ -63,6 +63,7 @@ pub fn run() {
                     tick_vis_time,
                     sync_view,
                     crate::rocks::follow_server_field,
+                    crate::rocks::follow_rock_states,
                     crate::salvage_vis::sync_chunks,
                 )
                     .chain()

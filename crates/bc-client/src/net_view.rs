@@ -28,6 +28,7 @@ pub struct Seen {
     /// Beams whose muzzle flash has been shown, by (shooter, shot).
     fired: HashSet<(u16, u8)>,
     clashes: HashSet<(u32, u16, u16)>,
+    rock_breaks: HashSet<(u32, u16)>,
     /// Smoothed thrust estimates for other suits, by slot.
     thrust: HashMap<u16, Vec3>,
 }
@@ -267,6 +268,14 @@ pub fn sync_view(
             }
         }
     }
+    for &(tick, rock) in &world.rock_breaks {
+        if seen.rock_breaks.insert((tick, rock))
+            && let Some(r) = core.predict.field.rocks().get(usize::from(rock))
+        {
+            let ore = crate::materials::ore_colour(usize::from(r.ore));
+            events.0.push(FxEvent::RockBreak { pos: r.pos, radius: r.radius, ore });
+        }
+    }
     for line in &world.feed {
         if let FeedLine::Clash { tick, a, b } = *line
             && seen.clashes.insert((tick, a, b))
@@ -282,6 +291,7 @@ pub fn sync_view(
             }
         }
     }
+    seen.rock_breaks.retain(|k| world.rock_breaks.contains(k));
     seen.clashes.retain(|&(tick, a, b)| {
         world
             .feed

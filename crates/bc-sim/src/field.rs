@@ -11,7 +11,7 @@ use glam::{Quat, Vec3};
 
 use crate::flight::FlightState;
 use crate::math::{Rng, floor, length, normalize_or, quat_axis_angle, sqrt};
-use crate::storage::boxed;
+use crate::storage::{BitSet, boxed};
 use crate::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS};
 
 /// Ore kinds: nickel-iron (common), titanium, volatiles (ices), and exotic metals, the feedstock of
@@ -122,11 +122,14 @@ fn bucket(x: i32, y: i32, z: i32) -> usize {
 }
 
 /// The field: `len()` rocks, and a grid listing each in every cell its bounds touch.
+#[derive(Clone)]
 pub struct Field {
     rocks: Box<[Rock]>,
     n: usize,
     bucket_start: Box<[u32]>,
     items: Box<[u16]>,
+    /// Rocks shattered (by mining): nothing meets them until they grow back.
+    dead: BitSet,
 }
 
 impl core::fmt::Debug for Field {
@@ -223,7 +226,18 @@ impl Field {
                 }
             }
         }
-        Self { rocks, n, bucket_start, items }
+        Self { rocks, n, bucket_start, items, dead: BitSet::new(n.max(1)) }
+    }
+
+    /// Marks rock `i` shattered (or grown back).
+    pub fn set_dead(&mut self, i: usize, dead: bool) {
+        if i < self.n {
+            self.dead.set(i, dead);
+        }
+    }
+
+    pub fn is_dead(&self, i: usize) -> bool {
+        i < self.n && self.dead.get(i)
     }
 
     /// Whether a rock of `radius` at `pos` would sit inside a keep-out zone.
@@ -291,6 +305,9 @@ impl Field {
         let pad = Vec3::splat(r);
         let mut best: Option<(f32, usize)> = None;
         self.for_each_in_box(a.min(b) - pad, a.max(b) + pad, |i| {
+            if self.dead.get(i) {
+                return;
+            }
             if let Some(t) = self.rocks[i].sweep(a, b, r)
                 && best.is_none_or(|(bt, _)| t < bt)
             {
@@ -310,6 +327,9 @@ impl Field {
         let end = s.pos;
         let mut first: Option<(f32, usize)> = None;
         self.for_each_in_box(prev.min(end) - pad, prev.max(end) + pad, |i| {
+            if self.dead.get(i) {
+                return;
+            }
             let rock = &self.rocks[i];
             let t = match rock.sweep(prev, end, r) {
                 Some(t) if t > 0.0 => t,
