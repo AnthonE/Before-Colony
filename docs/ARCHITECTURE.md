@@ -133,6 +133,9 @@ network threads.
   flown through the recorded history from that time to now, at most 8 ticks. During catch-up, flight
   step `k` is tested against `history[view + k]`; afterwards it continues against the present.
   Either way, it meets targets where the shooter saw them.
+  - A melee strike samples the world over its stroke, each sample rewound by the pilot's latency
+    when the strike began (not frozen at that moment, which would leave a fast target behind).
+    Its broad phase is widened by how far a suit can move in the rewind, as a shot's is.
   - Brains (the Mobile Doll brain in bots and the browser autopilot) aim at targets as they will
     be at the tick the server resolves the shot against (`InputContext::resolve_tick`), which is
     later than the view when the view is more than 8 ticks old.
@@ -168,7 +171,7 @@ network threads.
 
 | Layer | Rate | Where | What |
 |---|---|---|---|
-| Reflex | every tick | `bc-sim` (deterministic, allocation-free) | Mobile Doll utility AI, fire control, ZERO rollouts and the local oracle |
+| Reflex | every tick | `bc-sim` (deterministic, allocation-free) | Mobile Doll utility AI, fire control, ZERO rollouts and the local oracle; the kit-aware pilot (`ai::kit`, profile `PILOT`) that agents and the autopilot fly with |
 | Tactical | ≈4 Hz per ZERO pilot | `bc-zero` worker (async) | `TacticalOracle`: typed advice with probabilities. `JevOracle` runs a batched Jev call |
 | Strategic | seconds | external agents | Bot SDK today; MCP and a Python gym on the roadmap |
 
@@ -202,10 +205,11 @@ on wasm32 (under Node, via `wasm-bindgen-test-runner`). Never enable glam's `fas
 | `bc-proto/tests/roundtrip.rs` | Codecs round-trip within ½ LSB; decoders never panic on arbitrary bytes. |
 | `bc-sim/tests/no_alloc.rs`, `bc-sector/tests/no_alloc_sector.rs` | 0 heap operations per tick with 64 clients + 256 dolls, with the Gundams duelling, and with 32 missile boats keeping 500 missiles in the air. |
 | `bc-sim/tests/determinism.rs` | Identical state hash on native and wasm32, for the reference scenario, for suits flying into rocks and firing through them, for a salvage run, and for the Gundams duelling with every blade; the generated debris field is identical too. |
+| `bc-sim/tests/kit_ai.rs` | The kit-aware pilot, each Gundam against three Taurus and a Virgo: Heavyarms locks on and opens fire, Deathscythe closes jammed and reaps, Sandrock fires missiles, Shenlong lands its fang and flame, Wing Zero flies out as Neo-Bird and fights unfolded. |
 | `bc-sim/tests/{missiles,full_open}.rs` | A lock builds in half a second in its cone and falls apart twice as fast; a guided salvo runs down a crossing target; a target faster than the motor's Δv outruns it; a jammer breaks the seeker's hold where a plain break doesn't; missiles pass friends and burst at the end of their life; a full pool swallows launches. Full Open fires everything for 3 s, then locks the suit out and cools down. |
-| `bc-sim/tests/jammer.rs` | A jamming Deathscythe leaves its enemies' sensors (past 400 m for eyes), Mobile Dolls and ZERO lose it, allies see it shimmer, locks on it drop and its own go unnoticed; firing or striking breaks it for 2 s; it drains energy and needs a fifth of it to engage. |
+| `bc-sim/tests/jammer.rs` | A jamming Deathscythe leaves its enemies' sensors (past 150 m for eyes), Mobile Dolls and ZERO lose it, allies see it shimmer, locks on it drop and its own go unnoticed; firing or striking breaks it for 2 s; it drains energy and needs a fifth of it to engage. |
 | `bc-sim/tests/ranged.rs` | The flamethrower burns within its cone and reach only, a round a burn, and overheats its target; the Dragon Fang takes the flamethrower's arm along; stream weapons fire without spawn events; the buster shield flies at its speed. |
-| `bc-sim/tests/{content,melee}.rs` | Every table row sits at its id and the Gundams fly as designed; every blade reaches as far as its row says and mines, twin blades strike once each, the Dragon Fang thrusts where it's aimed, the Cross Crusher is Sandrock's special, and only blades that parry clash. |
+| `bc-sim/tests/{content,melee}.rs` | Every table row sits at its id and the Gundams fly as designed; every blade reaches as far as its row says and mines, twin blades strike once each, the Dragon Fang thrusts where it's aimed, the Cross Crusher is Sandrock's special, only blades that parry clash, and a blade meets a target it chases at speed as its pilot sees it. |
 | `bc-sim/tests/{flight,combat,fire_control,lagcomp,mobile_dolls,zero,field,salvage}.rs` | Rocket equation, FA, blackout, no tunnelling, arm loss, charge, sabers and clashes, lag comp (and its clamp), dolls fight to a kill, ZERO accuracy, calibration, seizure, magnetism; suits stop at rocks at 2 km/s and rocks stop shots; limbs come off as chunks and shots pass where they were, hulks, bounces, expiry, lighter suits. |
 | `bc-sector/tests/salvage_net.rs` | Over the same link: chunks reach the client exactly as the server moves them, across bounces; chunks that go leave the client; a kill hands its wreck to its hulk; changed rocks arrive. |
 | `bc-sector/tests/netcode.rs` | Over a simulated 100 ms / 5%-loss link: prediction error and clock sync (in open flight, ramming and sliding round a rock, damaged, and changing into Neo-Bird and back every 3 s), and a client that sends inputs only twice a second still has an accurate RTT and commands that arrive in time. |

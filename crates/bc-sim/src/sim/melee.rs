@@ -23,6 +23,9 @@ use crate::content::{ArmSlot, MeleeSpec, Mount, SpecialKind, Stroke, WeaponClass
 use crate::math::normalize_or;
 use crate::suits::{MeleePhase, MeleeState, SECOND_BLADE, SPECIAL_MOUNT};
 
+/// How far a suit can move within the lag-compensation window, m (as for shots).
+const REWIND_PAD: f32 = 170.0;
+
 /// A suit-frame direction mirrored left-right: the second blade of a twin weapon.
 fn mirror(v: Vec3) -> Vec3 {
     Vec3::new(-v.x, v.y, v.z)
@@ -144,7 +147,7 @@ impl Sim {
             weapon: w.kind,
             slot,
             dir,
-            view_q4: cmd.view_tick_q4,
+            lag_q4: (t << 4).saturating_sub(cmd.view_tick_q4),
             ..MeleeState::default()
         };
         s.heat[i] += w.heat;
@@ -169,13 +172,18 @@ impl Sim {
         let w = weapon(st.weapon);
         let Some(m) = w.melee else { return };
         let f = self.suits.flight[i];
+        // As the pilot saw it: the others as they were its latency ago (not frozen at the start of
+        // the strike, which would leave a fast target behind).
         let rewind = if self.suits.pilot[i] == PilotKind::MobileDoll {
             0
         } else {
-            t.saturating_sub(st.view_q4 >> 4).min(MAX_REWIND_TICKS)
+            (st.lag_q4 >> 4).min(MAX_REWIND_TICKS)
         };
         let when = t - rewind;
         let faction = self.suits.faction[i];
+        // Suits are found where they are now, but met where they were: widen the search by how far
+        // one can have moved since.
+        let search = w.range + 16.0 + if rewind > 0 { REWIND_PAD } else { 0.0 };
         let (active, subs) = (u32::from(m.active), u32::from(m.sub_steps));
         for sub in 0..subs {
             let step = (active - u32::from(st.timer)) * subs + sub;
@@ -236,7 +244,7 @@ impl Sim {
                 let (spatial, suits, history, ff) =
                     (&mut self.spatial, &self.suits, &self.history, self.cfg.friendly_fire);
                 let hits = &suits.melee[i];
-                spatial.query_sphere(hand, w.range + 16.0, |j| {
+                spatial.query_sphere(hand, search, |j| {
                     if j == i || (!ff && suits.faction[j] == faction) {
                         return;
                     }

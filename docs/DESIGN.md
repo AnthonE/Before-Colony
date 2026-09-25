@@ -163,8 +163,9 @@ range to 40%. **The server only replicates what your sensors see**, so fog of wa
 anti-wallhack.
 
 **Deathscythe's Hyper Jammer** (held on MODE) defeats this model. To its enemies a jamming suit
-shows a twentieth of its signature, and their eyes see it only within 400 m. So it leaves their
-screens, and Mobile Dolls, the ZERO System and locks lose it too. Allies still see it, as a
+shows a fiftieth of its signature, and their eyes see it only within 150 m. So it leaves their
+screens, and Mobile Dolls, the ZERO System, locks and missile seekers lose it too, until it's all
+but within reach of its scythe. Allies still see it, as a
 shimmer. The jammer engages with a fifth of the energy pool and drains 30 energy/s against a
 recharge of 18, so it runs about 12 s from full. Firing, striking or using a special shows
 through it for 2 s.
@@ -206,9 +207,22 @@ can take.
 - **Agents** are external AI players on the Bot SDK (`bc-bot`). They run the same client state
   machine as the browser, get the same sensor-limited view and input rate, and obey the same G
   limits. They are labelled **MD** in-game. The bundled `DollBrain` flies an agent with the Mobile
-  Doll AI. `MinerBrain` mines: it cuts rocks apart with its saber, stows the ore as its free hand
+  Doll's judgement and the frame's whole kit (below). `MinerBrain` mines: it cuts rocks apart with its saber, stows the ore as its free hand
   catches it, and sells it at the dock, flying round the colony to get there. Write your own brain
   in a closure.
+- **The kit-aware pilot** (`DollBrain`, and the browser's autopilot) picks targets and maneuvers
+  like a Mobile Doll, then flies the frame it's in:
+  - guns inside their reach, leading with the one that fits; launchers once the lock is acquired;
+    the flamethrower close in; the Dragon Fang from a third of its reach; blades timed so the
+    target is well inside their reach mid-stroke, lunge included;
+  - a melee-first frame (Deathscythe, Shenlong) pursues: its main engine pointed where its
+    velocity has to go, weaving on the way in, closing no faster than it can brake from, to just
+    outside a blade's length;
+  - Neo-Bird for the long haul; the jammer while closing, holding fire so as not to break it;
+    Full Open with a lock inside 1.2 km; the Cross Crusher at arm's length;
+  - it breaks sideways from a missile tracking it, and minds its pilot's G: strained, it flies
+    unassisted at 5 g, which a pilot bears for good.
+  The server's own Mobile Dolls, and a ZERO seizure, keep the plain doll's reflexes.
 
 ## Salvage
 

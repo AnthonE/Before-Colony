@@ -71,8 +71,9 @@ pub struct MeleeState {
     /// [`SECOND_BLADE`]).
     pub hits: [u16; 4],
     pub n_hits: u8,
-    /// Lag-compensation view of the strike (1/16 ticks).
-    pub view_q4: u32,
+    /// How far behind the present the pilot's view was when the strike began (1/16 ticks): each of
+    /// its samples meets the other suits that far back (lag compensation).
+    pub lag_q4: u32,
     /// The rock, and the hulk, this strike has struck (each at most once).
     pub rock: Option<u16>,
     pub cut: Option<u16>,
@@ -88,7 +89,7 @@ impl Default for MeleeState {
             dir: Vec3::Z,
             hits: [0; 4],
             n_hits: 0,
-            view_q4: 0,
+            lag_q4: 0,
             rock: None,
             cut: None,
         }

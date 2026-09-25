@@ -7,7 +7,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use bc_bot::{BotClient, BotConfig, DollBrain};
-use bc_proto::{Faction, FrameId};
+use bc_proto::Faction;
+use bc_sim::content::PLAYABLE_ORDER;
 use clap::Parser;
 
 #[derive(Parser)]
@@ -45,7 +46,8 @@ async fn main() -> anyhow::Result<()> {
             let cfg = BotConfig {
                 server,
                 name: format!("Swarm-{k:03}"),
-                frame: if k % 4 == 0 { FrameId::WingZero } else { FrameId::Leo },
+                // Every frame pilots can fly, in turn.
+                frame: PLAYABLE_ORDER[k % PLAYABLE_ORDER.len()],
                 faction: if k % 2 == 0 { Faction::Colonies } else { Faction::Alliance },
             };
             let mut bot = match BotClient::connect(&cfg).await {

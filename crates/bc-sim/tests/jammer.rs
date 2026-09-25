@@ -49,8 +49,9 @@ fn enemies_lose_a_jamming_deathscythe_and_allies_see_it_shimmer() {
     let mut sim = empty();
     let ds = suit(&mut sim, FrameId::Deathscythe, Faction::Colonies, AT, Vec3::Z);
     let far = suit(&mut sim, FrameId::Leo, Faction::Oz, AT + Vec3::Z * 2_000.0, -Vec3::Z);
-    let close = suit(&mut sim, FrameId::Leo, Faction::Oz, AT + Vec3::X * 350.0, -Vec3::X);
-    let past_eyes = suit(&mut sim, FrameId::Leo, Faction::Oz, AT - Vec3::X * 450.0, Vec3::X);
+    let (_, _, _, _, visual) = jammer();
+    let close = suit(&mut sim, FrameId::Leo, Faction::Oz, AT + Vec3::X * (visual - 30.0), -Vec3::X);
+    let past_eyes = suit(&mut sim, FrameId::Leo, Faction::Oz, AT - Vec3::X * (visual + 50.0), Vec3::X);
     let ally = suit(&mut sim, FrameId::Leo, Faction::Colonies, AT - Vec3::Z * 2_000.0, Vec3::Z);
     // (Past the first second, when every suit still counts as having just fired.)
     for _ in 0..40 {
@@ -63,8 +64,8 @@ fn enemies_lose_a_jamming_deathscythe_and_allies_see_it_shimmer() {
     hold(&mut sim, ds, MODE);
     sim.step();
     assert!(!sim.visible_to(far.idx(), ds.idx()), "2 km off, a jammer is gone");
-    assert!(!sim.visible_to(past_eyes.idx(), ds.idx()), "450 m off, eyes lose it");
-    assert!(sim.visible_to(close.idx(), ds.idx()), "350 m off, eyes still see it");
+    assert!(!sim.visible_to(past_eyes.idx(), ds.idx()), "past the jammer's range, eyes lose it");
+    assert!(sim.visible_to(close.idx(), ds.idx()), "inside it, eyes still see it");
     assert!(sim.visible_to(ally.idx(), ds.idx()), "allies' sensors aren't jammed");
     assert_ne!(
         sim.entity_state(ds.idx(), ally.idx()).flags & ent_flags::SPECIAL,

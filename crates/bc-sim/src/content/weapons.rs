@@ -321,9 +321,10 @@ static WEAPONS: [WeaponSpec; WeaponKind::COUNT] = [
             active: 6,
             recovery: 10,
             clash_recovery: 12,
-            arc_from: v(-0.6, 0.8, 0.3),
-            arc_to: v(0.6, -0.5, 0.6),
-            cut_dir: v(1.2, -1.3, 0.3),
+            // A wide reap across the front, chest-high, from the left.
+            arc_from: v(-0.85, 0.25, 0.45),
+            arc_to: v(0.75, -0.2, 0.65),
+            cut_dir: v(1.6, -0.45, 0.2),
             sub_steps: 4,
             ..SABER
         }),

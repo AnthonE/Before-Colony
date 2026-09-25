@@ -297,3 +297,37 @@ fn every_blade_mines() {
         }
     }
 }
+
+/// A blade meets what it chases at speed: striking a Leo 12 m ahead that flies with it at 170 m/s,
+/// each sample meets the Leo as the pilot sees it (its latency ago), not where it was when the
+/// strike began (by the stroke, 30 m behind).
+#[test]
+fn a_blade_meets_what_it_chases_at_speed() {
+    for lag in [0, 3] {
+        let mut sim = empty();
+        let a = suit(&mut sim, FrameId::Leo, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
+        let b = suit(&mut sim, FrameId::Leo, Faction::Oz, Vec3::new(0.0, 1_000.0, 12.0), -Vec3::Z);
+        let vel = Vec3::Z * 170.0;
+        let from = sim.events.next_seq();
+        // (After a few ticks, so there's history to look back into.)
+        for k in 0..40u32 {
+            let t = sim.next_tick();
+            let buttons = if k == 10 { MELEE } else { 0 };
+            let cmd = InputCmd {
+                tick: t,
+                view_tick_q4: (t - lag) << 4,
+                aim: Vec3::Z,
+                buttons,
+                ..InputCmd::default()
+            };
+            sim.set_input(a, cmd);
+            // Both fly on together (the lunge aside); the Leo keeps 12 m ahead as its pilot sees it.
+            let at = sim.suits.flight[a.idx()].pos;
+            sim.suits.flight[a.idx()].vel = vel;
+            sim.suits.flight[b.idx()].vel = vel;
+            sim.suits.flight[b.idx()].pos = at + Vec3::Z * 12.0 + vel * (lag as f32 / 30.0);
+            sim.step();
+        }
+        assert!(hits_by(&sim, from, a, WeaponKind::BeamSaber) > 0, "missed with a {lag}-tick lag");
+    }
+}

@@ -44,7 +44,7 @@ use crate::handle::SuitId;
 use crate::lagcomp::History;
 use crate::math::{Rng, length, look_rotation, normalize_or};
 use crate::missiles::{MAX_MISSILES, Missiles};
-use crate::perception::{Contact, Perception, SelfView};
+use crate::perception::{Contact, KitView, Perception, SelfView};
 use crate::projectiles::Projectiles;
 use crate::rocks::RockStates;
 use crate::spatial::SpatialHash;
@@ -422,6 +422,13 @@ impl Sim {
             g_strain: f.g_strain,
             ready,
             overheated: s.overheated[i],
+            kit: KitView {
+                lock_acquired: self.missile_lock(i).is_some(),
+                missile_incoming: s.incoming[i] > 0,
+                special_ready: self.special_ready(i),
+                special_active: s.special[i].active,
+                transforming: self.transforming(i),
+            },
         }
     }
 

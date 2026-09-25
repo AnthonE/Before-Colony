@@ -34,7 +34,7 @@ fn golden_hash_wasm() {
 /// Hash after 450 ticks of the Gundams duelling in pairs among Mobile Dolls: every blade, the
 /// Cross Crusher, the Dragon Fang, the flamethrower, the Hyper Jammer, guided missiles, Full Open,
 /// Neo-Bird and the Gundams' guns (changes deliberately as their mechanics arrive).
-const GUNDAMS_GOLDEN: u64 = 0x89b1_8f37_125a_cd88;
+const GUNDAMS_GOLDEN: u64 = 0xbd17_fa1f_3cb6_6e34;
 
 fn gundams_hash() -> u64 {
     use bc_proto::events::Event;

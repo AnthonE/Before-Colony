@@ -4,7 +4,7 @@ use crate::InputContext;
 use crate::salvage::route;
 use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, GRAB, MELEE, STOW};
 use bc_proto::{ChunkKind, FrameId, InputCmd, Part};
-use bc_sim::ai::{self, AiState, DOLL};
+use bc_sim::ai::{self, AiState, DollProfile, PILOT};
 use bc_sim::content::salvage::{DOCK_CENTER, stowable};
 use bc_sim::content::{ArmSlot, frame, weapon};
 use bc_sim::field::SUIT_CLEARANCE;
@@ -13,9 +13,10 @@ use glam::Vec3;
 /// Where the fighting is (the Mobile Doll patrol ring around the colony).
 pub const COMBAT_ZONE: Vec3 = Vec3::new(0.0, 900.0, 0.0);
 
-/// The Mobile Doll brain from `bc-sim`, running on the agent's own sensor view. It picks targets
-/// and maneuvers by utility and leads them linearly. With nothing on sensors it heads for the
-/// combat zone.
+/// The Mobile Doll brain from `bc-sim`, running on the agent's own sensor view, flying the frame's
+/// whole kit (`bc_sim::ai::kit`): it picks targets and maneuvers by utility, leads them linearly,
+/// and uses every weapon and the frame's special. With nothing on sensors it heads for the combat
+/// zone.
 pub struct DollBrain {
     ai: AiState,
 }
@@ -32,12 +33,17 @@ impl DollBrain {
         };
         let spec = frame(p.me.frame);
         let range = spec.loadout[0].map_or(3_000.0, |m| weapon(m.weapon).range);
+        // Fights at the frame's preferred distance.
+        let profile = match spec.ai.engage_range {
+            r if r > 0.0 => DollProfile { preferred_range: r, ..PILOT },
+            _ => PILOT,
+        };
         if ctx.tick >= self.ai.think_at {
-            ai::think(&p, &mut self.ai, ctx.tick, &DOLL, range);
+            ai::think(&p, &mut self.ai, ctx.tick, &profile, range);
             self.ai.think_at = ctx.tick + 3;
         }
         let target = p.get(self.ai.target).copied();
-        ai::drive(&p.me, target.as_ref(), &mut self.ai, ctx.tick, &DOLL, spec)
+        ai::drive(&p.me, target.as_ref(), &mut self.ai, ctx.tick, &profile, spec)
     }
 
     /// Current target slot, if any.

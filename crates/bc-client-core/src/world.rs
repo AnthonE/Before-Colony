@@ -11,7 +11,7 @@ use bc_proto::{
 use bc_sim::TICK_HZ;
 use bc_sim::chunks::{self, held_pose, segment_pos, segment_rot};
 use bc_sim::content::{frame, frame_name, weapon};
-use bc_sim::perception::{Contact, Perception, SelfView};
+use bc_sim::perception::{Contact, KitView, Perception, SelfView};
 use bc_sim::zero::N_HYP;
 use bc_sim::zero::hypotheses::{self, Maneuver};
 use bc_sim::zero::rollout::{STEPS, rollout};
@@ -569,6 +569,13 @@ impl World {
             g_strain: s.g_strain,
             ready: [own.weapon_ready & 1 != 0, own.weapon_ready & 2 != 0, own.weapon_ready & 4 != 0],
             overheated: own.flags & own_flags::OVERHEAT != 0,
+            kit: KitView {
+                lock_acquired: own.flags & own_flags::LOCK_ACQUIRED != 0,
+                missile_incoming: own.flags & own_flags::MISSILE_INCOMING != 0,
+                special_ready: own.weapon_ready & 8 != 0,
+                special_active: own.flags & own_flags::SPECIAL_ACTIVE != 0,
+                transforming: own.flags & own_flags::TRANSFORMING != 0,
+            },
         };
         let mut p = Perception::default();
         p.reset(me);

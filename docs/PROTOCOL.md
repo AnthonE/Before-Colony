@@ -99,7 +99,7 @@ FIRING_PRIMARY and FIRING_SECONDARY say the slot fired in the last 4 ticks: clie
 stream weapon's tracers from them (its shots send no BeamSpawn), and a flamethrower's flag is set
 while it's lit. SABER says a melee strike is out. The last two flags are SPECIAL (the frame's
 special is engaged; a jamming suit shows it only to its allies, and its enemies' sensors lose it
-past 400 m) and MELEE_ALT (the melee strike
+past 150 m) and MELEE_ALT (the melee strike
 under way comes from a ranged slot, the Dragon Fang).
 
 Missile record: pool id (10), generation (2), weapon kind (5), guided, targets you, friendly (1
