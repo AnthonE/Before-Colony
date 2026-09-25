@@ -14,6 +14,10 @@ const scenes: Array<[string, number]> = [
   ["colony", 1],
   ["colony", 2],
   ["field", 1],
+  ["sky", 1],
+  ["sky", 2],
+  ["sky", 3],
+  ["sky", 4],
 ];
 
 for (const [scene, cam] of scenes) {

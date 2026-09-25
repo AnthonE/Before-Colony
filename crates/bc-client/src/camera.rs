@@ -9,7 +9,7 @@ use crate::view::{CameraTarget, VisTime};
 #[derive(Component)]
 pub struct MainCamera;
 
-pub fn spawn_camera(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+pub fn spawn_camera(mut commands: Commands) {
     let mut cam = commands.spawn((
         MainCamera,
         Camera3d::default(),
@@ -20,7 +20,6 @@ pub fn spawn_camera(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
             ..default()
         }),
         Transform::from_xyz(-6_000.0, 2_500.0, -6_000.0).looking_at(Vec3::new(0.0, 900.0, 0.0), Vec3::Y),
-        crate::scene::skybox(&mut images),
     ));
     // A fill light that travels with the camera, so the pilot's own suit (and anything close) reads
     // against black space. A point light, because WebGL2 allows one directional light: the sun.

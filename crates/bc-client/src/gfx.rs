@@ -55,13 +55,48 @@ impl GfxTier {
     }
 
     pub fn settings(self) -> TierSettings {
+        // WebGL2 allows one shadow cascade; the WebGPU build gets more reach.
+        let (cascades, reach) = if cfg!(feature = "webgpu") { (3, 3_000.0) } else { (1, 500.0) };
+        let base = TierSettings {
+            hdr: true,
+            msaa: 4,
+            smaa: false,
+            post: true,
+            max_dpr: 1.5,
+            ibl: true,
+            shadows: true,
+            shadow_map: 2048,
+            cascades,
+            shadow_distance: reach,
+            sky_detail: 1.0,
+            fx_lights: 12,
+        };
         match self {
-            // Software rasterisers and weak GPUs: plain LDR, no multisampling, no post effects.
-            Self::Low => TierSettings { hdr: false, msaa: 1, smaa: false, post: false, max_dpr: 1.0 },
-            // HDR and bloom, with the cheaper post-process anti-aliasing.
-            Self::Medium => TierSettings { hdr: true, msaa: 1, smaa: true, post: true, max_dpr: 1.0 },
-            Self::High => TierSettings { hdr: true, msaa: 4, smaa: false, post: true, max_dpr: 1.5 },
-            Self::Ultra => TierSettings { hdr: true, msaa: 4, smaa: false, post: true, max_dpr: 4.0 },
+            // Software rasterisers and weak GPUs: plain LDR, no multisampling, no post effects,
+            // no shadows or image-based lighting, the cheapest sky.
+            Self::Low => TierSettings {
+                hdr: false,
+                msaa: 1,
+                post: false,
+                max_dpr: 1.0,
+                ibl: false,
+                shadows: false,
+                sky_detail: 0.0,
+                fx_lights: 0,
+                ..base
+            },
+            // HDR and bloom with the cheaper post-process anti-aliasing; no shadows.
+            Self::Medium => TierSettings {
+                msaa: 1,
+                smaa: true,
+                max_dpr: 1.0,
+                shadows: false,
+                sky_detail: 0.5,
+                fx_lights: 4,
+                ..base
+            },
+            Self::High => base,
+            Self::Ultra => TierSettings { max_dpr: 4.0, shadow_map: 4096, fx_lights: 24, ..base },
         }
     }
 }
@@ -79,6 +114,17 @@ pub struct TierSettings {
     pub post: bool,
     /// Highest device-pixel ratio the backbuffer is rendered at; the browser upscales the rest.
     pub max_dpr: f32,
+    /// Image-based lighting from the sky (Earthshine on night sides, reflections on metal).
+    pub ibl: bool,
+    /// Sun shadows: map size, cascades and reach (m).
+    pub shadows: bool,
+    pub shadow_map: usize,
+    pub cascades: usize,
+    pub shadow_distance: f32,
+    /// Sky shader detail, 0 (cheapest) to 1.
+    pub sky_detail: f32,
+    /// Point lights for effects (muzzle flashes, hits, blasts, sabers).
+    pub fx_lights: usize,
 }
 
 /// The active tier.

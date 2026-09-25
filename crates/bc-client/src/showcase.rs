@@ -27,6 +27,8 @@ pub enum Scene {
     Colony,
     /// Inside the debris field.
     Field,
+    /// The sky: presets look at Earth, the Moon, the Sun and the galactic core.
+    Sky,
 }
 
 impl Scene {
@@ -36,6 +38,7 @@ impl Scene {
             "duel" => Some(Self::Duel),
             "colony" => Some(Self::Colony),
             "field" | "salvage" => Some(Self::Field),
+            "sky" => Some(Self::Sky),
             _ => None,
         }
     }
@@ -46,22 +49,42 @@ impl Scene {
             Self::Duel => "duel",
             Self::Colony => "colony",
             Self::Field => "field",
+            Self::Sky => "sky",
         }
     }
 
     /// Camera presets 1..: orbit target, yaw, pitch (radians) and distance.
-    fn presets(self) -> &'static [Orbit] {
+    fn presets(self) -> Vec<Orbit> {
         match self {
-            Self::Lineup => &LINEUP_CAMS,
-            Self::Duel => &DUEL_CAMS,
-            Self::Colony => &COLONY_CAMS,
-            Self::Field => &FIELD_CAMS,
+            Self::Lineup => LINEUP_CAMS.to_vec(),
+            Self::Duel => DUEL_CAMS.to_vec(),
+            Self::Colony => COLONY_CAMS.to_vec(),
+            Self::Field => FIELD_CAMS.to_vec(),
+            Self::Sky => {
+                let eye = Vec3::new(0.0, 2_000.0, 0.0);
+                let core = crate::sky::GALAXY_NORMAL.cross(Vec3::Z).normalize();
+                vec![
+                    look(eye, crate::sky::EARTH_DIR),
+                    look(eye, crate::sky::MOON_DIR),
+                    look(eye, crate::sky::SUN_DIR),
+                    look(eye, core),
+                    look(eye, (crate::sky::EARTH_DIR + crate::sky::SUN_DIR).normalize()),
+                ]
+            }
         }
     }
 }
 
 const fn orbit(target: Vec3, yaw: f32, pitch: f32, dist: f32) -> Orbit {
     Orbit { target, yaw, pitch, dist }
+}
+
+/// An orbit whose eye sits at `eye`, looking along `dir`.
+fn look(eye: Vec3, dir: Vec3) -> Orbit {
+    let back = -dir.normalize();
+    let pitch = back.y.clamp(-1.0, 1.0).asin();
+    let yaw = back.x.atan2(back.z);
+    Orbit { target: eye + dir.normalize() * 1_000.0, yaw, pitch, dist: 1_000.0 }
 }
 
 const LINEUP_CAMS: [Orbit; 5] = [
@@ -75,7 +98,7 @@ const DUEL_CAMS: [Orbit; 3] =
     [orbit(DUEL, 0.8, 0.3, 380.0), orbit(DUEL, -1.2, 0.1, 260.0), orbit(DUEL, 2.4, -0.25, 320.0)];
 const COLONY_CAMS: [Orbit; 4] = [
     orbit(COLONY_CENTER, 0.9, 0.35, 42_000.0),
-    orbit(SQUAD_START, 2.2, 0.15, 260.0),
+    orbit(SQUAD_START, 2.2, 0.35, 190.0),
     orbit(Vec3::new(16_000.0, -4_200.0, 0.0), -1.8, 0.3, 14_000.0),
     orbit(Vec3::new(0.0, -700.0, 0.0), -0.4, -0.05, 6_000.0),
 ];
@@ -87,7 +110,7 @@ const FIELD_CAMS: [Orbit; 3] = [
 
 const LINEUP: Vec3 = Vec3::new(0.0, 1_200.0, 0.0);
 const DUEL: Vec3 = Vec3::new(0.0, 1_500.0, 0.0);
-const SQUAD_START: Vec3 = Vec3::new(-3_000.0, COLONY_CENTER.y + COLONY_RADIUS + 300.0, 0.0);
+const SQUAD_START: Vec3 = Vec3::new(-3_000.0, COLONY_CENTER.y + COLONY_RADIUS + 45.0, 0.0);
 const FIELD: Vec3 = Vec3::new(2_600.0, 900.0, 1_400.0);
 const STEP: f64 = 1.0 / 60.0;
 
@@ -169,6 +192,7 @@ fn cast(scene: Scene) -> Vec<(FrameId, Faction)> {
         Scene::Duel => vec![(WingZero, Faction::Colonies), (Leo, Faction::Oz), (Taurus, Faction::Oz)],
         Scene::Colony => vec![(Taurus, Faction::Oz), (Taurus, Faction::Oz), (Taurus, Faction::Oz)],
         Scene::Field => vec![(Leo, Faction::Oz), (Leo, Faction::Colonies)],
+        Scene::Sky => vec![],
     }
 }
 
@@ -469,6 +493,7 @@ fn script(
                 });
             }
         }
+        Scene::Sky => {}
         Scene::Field => {
             for i in 0..2 {
                 let a = 0.08 * t as f32 + i as f32 * 2.8;

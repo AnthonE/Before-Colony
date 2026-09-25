@@ -9,11 +9,15 @@ use bc_sim::content::frame;
 use bevy::prelude::*;
 
 use crate::assets::{MeshLib, Palette};
+use crate::camera::MainCamera;
+use crate::gfx::Gfx;
 use crate::view::{BeamFeed, FxEvent, FxEvents, SuitDrive, VisTime};
 
 const BEAMS: usize = 96;
 const TRACERS: usize = 96;
 const FLASHES: usize = 48;
+/// Point lights for effects (the most any tier uses).
+const LIGHTS: usize = 24;
 
 #[derive(Component)]
 pub struct BeamVis(usize);
@@ -21,6 +25,8 @@ pub struct BeamVis(usize);
 pub struct TracerVis(usize);
 #[derive(Component)]
 pub struct FlashVis(usize);
+#[derive(Component)]
+pub struct FxLight(usize);
 
 struct Tracer {
     origin: Vec3,
@@ -67,6 +73,14 @@ pub fn setup_fx(mut commands: Commands, lib: Res<MeshLib>, pal: Res<Palette>) {
             FlashVis(i),
             Mesh3d(lib.sphere.clone()),
             MeshMaterial3d(pal.spark.clone()),
+            Transform::default(),
+            Visibility::Hidden,
+        ));
+    }
+    for i in 0..LIGHTS {
+        commands.spawn((
+            FxLight(i),
+            PointLight { intensity: 0.0, range: 1.0, shadow_maps_enabled: false, ..default() },
             Transform::default(),
             Visibility::Hidden,
         ));
@@ -189,6 +203,73 @@ pub fn update_fx(
                 show(&mut v, true);
             }
             None => show(&mut v, false),
+        }
+    }
+}
+
+/// A light an effect wants this frame.
+pub struct LightWish {
+    pos: Vec3,
+    color: Color,
+    /// Luminous power, lm. Illuminance at distance d is `lumens / (4π d²)` lux; full sunlight is
+    /// 100,000 lux.
+    lumens: f32,
+}
+
+/// Lights the suits around hits, blasts, sabers and Twin Buster beams: the pooled point lights go to
+/// the effects nearest the camera, up to the tier's budget.
+#[allow(clippy::too_many_arguments)]
+pub fn update_fx_lights(
+    time: Res<VisTime>,
+    gfx: Res<Gfx>,
+    state: Res<FxState>,
+    feed: Res<BeamFeed>,
+    suits: Query<&SuitDrive>,
+    cams: Query<&GlobalTransform, With<MainCamera>>,
+    mut lights: Query<(&FxLight, &mut PointLight, &mut Transform, &mut Visibility)>,
+    mut wishes: Local<Vec<LightWish>>,
+) {
+    let budget = gfx.settings.fx_lights.min(LIGHTS);
+    wishes.clear();
+    if budget > 0 {
+        let now = time.now;
+        for f in &state.flashes {
+            let age = ((now - f.born) / f.life).clamp(0.0, 1.0) as f32;
+            let fade = (1.0 - age) * (1.0 - age);
+            wishes.push(if f.blast {
+                LightWish { pos: f.pos, color: Color::srgb(1.0, 0.62, 0.3), lumens: 1.4e9 * fade }
+            } else {
+                LightWish { pos: f.pos, color: Color::srgb(1.0, 0.85, 0.6), lumens: 1.2e8 * fade }
+            });
+        }
+        for d in &suits {
+            if d.flags & ent_flags::SABER != 0 && d.flags & ent_flags::WRECK == 0 {
+                // The middle of the blade in the left hand.
+                let pos = d.pos + d.rot * Vec3::new(-3.6, 8.6, 6.5);
+                wishes.push(LightWish { pos, color: Color::srgb(1.0, 0.3, 0.65), lumens: 3.0e7 });
+            }
+        }
+        for b in &feed.0 {
+            if b.weapon == WeaponKind::TwinBusterRifle {
+                wishes.push(LightWish { pos: b.head, color: Color::srgb(0.95, 0.75, 1.0), lumens: 8.0e8 });
+            }
+        }
+        if let Ok(cam) = cams.single() {
+            let eye = cam.translation();
+            wishes.sort_by(|a, b| a.pos.distance_squared(eye).total_cmp(&b.pos.distance_squared(eye)));
+        }
+    }
+    for (l, mut light, mut tf, mut vis) in &mut lights {
+        match wishes.get(l.0).filter(|_| l.0 < budget) {
+            Some(w) => {
+                light.intensity = w.lumens;
+                light.color = w.color;
+                // Out to where it adds about 1% of full sunlight.
+                light.range = (w.lumens / (4.0 * std::f32::consts::PI * 1_000.0)).sqrt().max(1.0);
+                tf.translation = w.pos;
+                show(&mut vis, true);
+            }
+            None => show(&mut vis, false),
         }
     }
 }
