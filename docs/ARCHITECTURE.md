@@ -22,13 +22,13 @@
 | Crate | Kind | Role |
 |---|---|---|
 | `bc-proto` | `no_std`, **no `alloc`** | Wire format: bit packing, quantization, input/snapshot/event/control codecs. It *cannot* allocate. |
-| `bc-sim` | `no_std` + `alloc` at construction only | The simulation: flight, weapons, damage, lag comp, sensors, Mobile Doll AI, ZERO. Shared by the server and the browser. |
+| `bc-sim` | `no_std` + `alloc` at construction only | The simulation: flight, weapons, damage, lag comp, sensors, Mobile Doll AI, ZERO, the debris field, salvage and mining. Shared by the server and the browser. |
 | `bc-sector` | std, no tokio | The hot loop: a paced thread, lock-free queues, jitter buffers, interest, snapshot encoding, metrics. |
 | `bc-zero` | std + tokio | Tactical oracles off the hot path: the `TacticalOracle` trait, `JevOracle`, the worker. |
-| `bc-client-core` | std, no transport | Client state machine for the browser *and* bots: clock, inputs, prediction, interpolation, world model, `DollBrain`. |
+| `bc-client-core` | std, no transport | Client state machine for the browser *and* bots: clock, inputs, prediction, interpolation, world model, the salvage view, `DollBrain` and `MinerBrain`. |
 | `bc-server` | bin + lib | WebTransport sessions, egress thread, roster, dev HTTP, `/status`. |
-| `bc-bot` | lib + bins | Bot SDK (`BotClient`), `mobile_doll` example agent, `bc-swarm` load tester. |
-| `bc-client` | wasm32 bin | Bevy app: scene, suits, camera, input, HUD, FX, ZERO overlay. |
+| `bc-bot` | lib + bins | Bot SDK (`BotClient`), `mobile_doll` and `miner` example agents, `bc-swarm` load tester. |
+| `bc-client` | wasm32 bin | Bevy app: procedural jointed suits, sky, colony and field (custom shaders), particles and effects, camera, input, HUD, ZERO overlay, offline showcase scenes. |
 | `bc-alloc` | lib | Counting global allocator: proves the tick never allocates and counts violations in production. |
 
 ## The hot path: no locks, no allocations

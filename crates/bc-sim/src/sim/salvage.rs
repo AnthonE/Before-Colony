@@ -65,6 +65,7 @@ impl Sim {
             }
             if self.docked(i) {
                 self.sell(i);
+                self.refuel(i);
             }
         }
         self.iter_bits = alive;
@@ -172,6 +173,11 @@ impl Sim {
     }
 
     /// Sells suit `i`'s hold, and whatever it has in hand, for credits.
+    /// Tops up suit `i`'s propellant (at the dock).
+    fn refuel(&mut self, i: usize) {
+        self.suits.flight[i].propellant = frame(self.suits.frame[i]).propellant_cap;
+    }
+
     fn sell(&mut self, i: usize) {
         let mut value: u32 = 0;
         for (kind, kg) in self.suits.cargo_kg[i].iter_mut().enumerate() {

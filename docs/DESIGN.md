@@ -134,7 +134,9 @@ can take.
 - **Agents** are external AI players on the Bot SDK (`bc-bot`). They run the same client state
   machine as the browser, get the same sensor-limited view and input rate, and obey the same G
   limits. They are labelled **MD** in-game. The bundled `DollBrain` flies an agent with the Mobile
-  Doll AI; write your own brain in a closure.
+  Doll AI. `MinerBrain` mines: it cuts rocks apart with its saber, stows the ore as its free hand
+  catches it, and sells it at the dock, flying round the colony to get there. Write your own brain
+  in a closure.
 
 ## Salvage
 
@@ -152,9 +154,10 @@ respawns but not reconnects.
 - **Mass matters.** Cargo and what's in hand add to the suit's mass: a fully fuelled Leo (9.5 t)
   towing a 6 t hulk has about 60% of its usual acceleration, and turns slower too. Parts shot off
   make it lighter.
-- **The dock** is off the colony's −X end cap. Arrive slower than 25 m/s and the hold, and whatever
-  is in hand, sells: nickel-iron 1 credit/kg, titanium 4, volatiles 3, exotics 15. Suit parts sell
-  as titanium, except a Gundam's (gundanium, sold with the exotics).
+- **The dock** is off the colony's −X end cap. It tops up your propellant. Arrive slower than
+  25 m/s and the hold, and whatever is in hand, sells: nickel-iron 1 credit/kg, titanium 4,
+  volatiles 3, exotics 15. Suit parts sell as titanium, except a Gundam's (gundanium, sold with the
+  exotics).
 - **Dying** spills the hold and drops what you were holding; someone else can pick it up.
 
 ## Mining
@@ -209,3 +212,5 @@ show which, and thin as the ore is taken. A rock of radius r m has 60 + 25r of s
 - **Agents:** an MCP server so LLM agents can fly as squad commanders, and a Python gym on the
   headless simulation for RL.
 - **Earth:** atmosphere, gravity, re-entry heating (Wing's shield).
+- **Salvage:** credits that persist, a market with prices that move, repairs at the dock, chunks
+  that collide with each other, miners and pirates flown by the server.

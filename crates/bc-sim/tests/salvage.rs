@@ -461,6 +461,16 @@ fn the_dock_buys_everything() {
 }
 
 #[test]
+fn the_dock_refuels() {
+    let mut sim = sim(false);
+    let leo = pilot(&mut sim, FrameId::Leo, DOCK_CENTER + Vec3::new(0.0, 0.0, 50.0));
+    sim.suits.flight[leo.idx()].propellant = 100.0;
+    hold_buttons(&mut sim, leo, 0, 1);
+    let full = bc_sim::content::frame(FrameId::Leo).propellant_cap;
+    assert_eq!(sim.suits.flight[leo.idx()].propellant, full);
+}
+
+#[test]
 fn dying_spills_everything_but_credits() {
     let mut sim = sim(false);
     // An OZ pilot, so the Colonies' Leo in `shoot_through` may shoot it.

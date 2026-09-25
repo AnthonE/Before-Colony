@@ -13,6 +13,7 @@ pub mod clock;
 pub mod inputs;
 pub mod interp;
 pub mod predict;
+pub mod salvage;
 pub mod world;
 
 use bc_proto::buttons::FIRE_PRIMARY;
@@ -22,10 +23,11 @@ use bc_sim::config::MAX_REWIND_TICKS;
 use bc_sim::content::{frame, weapon};
 use glam::Vec3;
 
-pub use brains::DollBrain;
+pub use brains::{DollBrain, MinerBrain};
 pub use clock::Clock;
 pub use inputs::InputHistory;
 pub use predict::Predictor;
+pub use salvage::{LooseChunk, SalvageView};
 pub use world::{Beam, FeedLine, Ghost, HitMark, World};
 
 /// Who this client is.

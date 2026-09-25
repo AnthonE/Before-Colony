@@ -1,7 +1,7 @@
 //! Wreckage and rocks over the network: a real `Sector` and a real `ClientCore` on a simulated
 //! lossy link. Chunks reach the client exactly as the server moves them (across bounces), go away
-//! when they're gone, a kill hands its wreck to its hulk, changed rocks arrive, and a shattered rock
-//! is gone for prediction too.
+//! when they're gone, a kill hands its wreck to its hulk, changed rocks arrive, a shattered rock is
+//! gone for prediction too, and a miner agent earns its living.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
 use std::cmp::Reverse;
@@ -440,4 +440,31 @@ fn a_shattered_rock_is_flown_through() {
     assert!(client.world.rocks.get(&(i as u16)).is_some_and(|r| r.destroyed), "the client never heard");
     assert!(client.predict.field.is_dead(i), "the client's prediction still has the rock");
     assert!(p99 < 0.25, "prediction error p99 {p99:.3} m");
+}
+
+/// A miner agent left to itself in an empty sector, over the lossy link: it cuts rocks apart with
+/// its saber, stows the ore, and sells it at the dock (round the colony) within ten minutes.
+#[test]
+fn a_miner_earns_credits() {
+    use bc_client_core::MinerBrain;
+    let mut brain = MinerBrain::new();
+    let (mut broke, mut most_kg, mut sold_at) = (0, 0u32, None);
+    let (sector, client) = run(600.0, &mut |ctx| brain.decide(ctx), &mut |sector, _, me| {
+        let Some(me) = me else { return };
+        let sim = &sector.sim;
+        most_kg = most_kg.max(sim.suits.cargo_kg[me].iter().map(|&kg| u32::from(kg)).sum());
+        broke = sim.rocks.destroyed.iter().count();
+        if sold_at.is_none() && sim.suits.credits[me] > 0 {
+            sold_at = Some(sim.tick());
+        }
+    });
+    let me = client.world.own.expect("own state");
+    println!(
+        "miner: {broke} rocks broken, hold up to {most_kg} kg, first sale at {:?} s, {} credits in 10 min",
+        sold_at.map(|t| t / 30),
+        me.credits
+    );
+    assert!(broke > 0, "never broke a rock");
+    assert!(sold_at.is_some(), "never sold anything (hold up to {most_kg} kg)");
+    assert_eq!(me.credits, sector.sim.suits.credits[me.slot as usize]);
 }

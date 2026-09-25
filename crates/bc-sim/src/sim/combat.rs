@@ -259,15 +259,17 @@ impl Sim {
             });
             // Rocks stop shots, and are worked by them: whichever is met first along this tick's path.
             let rock = self.field.sweep(a, b, r);
-            let kind = self.projectiles.kind[k];
-            let dmg = self.projectiles.damage[k];
-            let dir = normalize_or(self.projectiles.vel[k], Vec3::Z);
+            let shot = |p: &crate::projectiles::Projectiles| {
+                (p.kind[k], p.damage[k], normalize_or(p.vel[k], Vec3::Z))
+            };
             match (best, rock) {
                 (Some((s, j, cap)), _) if rock.is_none_or(|(t, _)| s <= t) => {
+                    let (kind, dmg, dir) = shot(&self.projectiles);
                     self.queue_damage(j, Part::ALL[cap], dmg, owner, kind, dir);
                     self.projectiles.kill(k);
                 }
                 (_, Some((f, which))) => {
+                    let (kind, dmg, dir) = shot(&self.projectiles);
                     self.rock_hit(which, dmg, kind, a + (b - a) * f, dir, owner, t);
                     self.projectiles.kill(k);
                 }

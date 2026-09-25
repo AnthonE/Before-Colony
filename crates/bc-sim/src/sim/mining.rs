@@ -7,7 +7,7 @@ use bc_proto::{ChunkDesc, ChunkKind, NO_CHUNK, Part, Segment, WeaponKind};
 use glam::Vec3;
 
 use super::Sim;
-use crate::chunks::{self, Motion};
+use crate::chunks::{self, Motion, segment_pos};
 use crate::config::secs;
 use crate::content::frame;
 use crate::content::salvage::{
@@ -175,16 +175,20 @@ impl Sim {
         self.events.push(Event::Detach { id: 0, tick: t, source: k as u16, from_hulk: true, part, chunk });
     }
 
-    /// Hulks a saber blade (`hand` to `tip`, radius `r`) passes through.
+    /// A hulk a saber blade (`hand` to `tip`, radius `r`) passes through.
     pub(super) fn hulk_in_blade(&self, hand: Vec3, tip: Vec3, r: f32) -> Option<usize> {
+        let t = f64::from(self.tick());
+        let blade = (tip - hand).length();
         self.chunks.alive.iter().find(|&k| {
-            matches!(self.chunks.desc[k].kind, ChunkKind::Hulk { .. })
-                && matches!(self.chunks.motion[k], Motion::Free(_))
-                && {
-                    let (pos, ..) = self.chunk_pose(k);
-                    let reach = chunks::radius(&self.chunks.desc[k]) + r;
-                    crate::collide::segment_near_point(hand, tip, pos, reach)
-                }
+            let desc = &self.chunks.desc[k];
+            let (ChunkKind::Hulk { .. }, Motion::Free(seg)) = (desc.kind, self.chunks.motion[k]) else {
+                return false;
+            };
+            let pos = segment_pos(&seg, t);
+            let reach = chunks::radius(desc) + r;
+            // Most are nowhere near the hand.
+            (pos - hand).length_squared() <= (blade + reach) * (blade + reach)
+                && crate::collide::segment_near_point(hand, tip, pos, reach)
         })
     }
 }
