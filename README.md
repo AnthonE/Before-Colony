@@ -88,24 +88,28 @@ write your own brain as a closure: see `crates/bc-bot/src/lib.rs`.
 
 | Claim | Result |
 |---|---|
-| The sector tick never allocates | 0 heap operations over 1,000 ticks of 64 pilots + 256 Mobile Dolls, in tests and in the live server under a 64-bot swarm (`/status` → `hot_path_allocations`) |
-| Tick cost (64 pilots + 256 dolls in a dense fight) | p50 1.1 ms, p99 2.1–2.7 ms across runs (budget 33 ms) |
-| Native and browser simulate identically | the same golden state hash on x86_64 and wasm32 |
-| Own-suit prediction over a bad link (100 ms RTT, 5% loss) | error p99 0.2 mm |
+| The sector tick never allocates | 0 heap operations over 1,000 ticks of 64 pilots + 256 Mobile Dolls, with the Gundams duelling (jammers, Neo-Birds, Full Opens), and with 500 missiles in the air; and in the live server under a 64-bot swarm (`/status` → `hot_path_allocations`) |
+| Tick cost (64 pilots + 256 dolls in a dense fight) | p50 1.1 ms, p99 2.1–3.0 ms across runs (budget 33 ms) |
+| Tick cost with 64 Gundam pilots duelling in every playable frame (about 200 missiles in the air) + 256 dolls | p50 0.84 ms, p99 2.5 ms |
+| Native and browser simulate identically | the same golden state hashes on x86_64 and wasm32, for the slice and for a duel of every Gundam |
+| Own-suit prediction over a bad link (100 ms RTT, 5% loss) | error p99 0.2 mm, changing into Neo-Bird and back included |
 | Clock sync when inputs come in bursts (sent twice a second, same link) | RTT estimate within 10 ms of true; 1 of 600 ticks without a command |
 | Salvage on the same link | chunks drawn exactly where the server has them (bit-identical at every tick, across bounces); towing a 6 t hulk, prediction error p99 0.1 mm; coasting through a shattered rock, p99 below 0.1 mm |
 | A miner agent on the same link | breaks a rock with its saber, stows the ore, and sells it at the dock 178 s after spawning |
 | ZERO reads Mobile Dolls | top-1 maneuver prediction 87% (chance 14%); calibration error 0.06 |
-| Swarm: 64 agents vs 256 dolls over real WebTransport | 30 snapshots/s each, 0 drops, ≤ 1,100 B datagrams, tick p99 ≤ 4 ms |
-| The browser client, end to end (headless Chromium, software rendering at ~1.4 fps) | connects, sees 20+ contacts and the MD agent, draws ZERO futures; the autopilot lands server-confirmed hits and kills within 30 s; 0 hot-path allocations |
+| The kit-aware pilot flies each Gundam (simulation, against three Taurus and a Virgo) | Heavyarms: Full Open, 22 missiles in the air at once, 32 missile hits; Deathscythe: jams 9 times, 3 scythe hits; Sandrock: 23 missile hits; Shenlong: 7 fang and glaive hits, 24 flame hits; Wing Zero: out as Neo-Bird and back, hits with both |
+| Swarm: 64 agents (all six frames) vs 256 dolls over real WebTransport | 30 snapshots/s each, ≤ 1,100 B datagrams, tick p99 ≤ 4 ms, 0 hot-path allocations; 0–53 of 115,200 snapshots dropped at the egress ring across three runs, with the server and all 64 bots sharing 4 cores |
+| The browser client, end to end (headless Chromium, software rendering) | connects, sees 20+ contacts and the MD agent, draws ZERO futures; the autopilot lands server-confirmed hits within 30 s; 0 hot-path allocations. Each Gundam, flown by the autopilot against 24 dolls, shows its mechanics to the server and the client: Heavyarms in 22 s, Deathscythe 23 s, Sandrock 12 s, Shenlong 41 s, Wing Zero (out as Neo-Bird and back) 1.6 min |
 
 ## Known limitations
 
 - Only Chromium has been tested (see Quick start), and only the WebGL2 build. The WebGPU build
   (`scripts/build-web.sh webgpu`) compiles, but it is untested: in the test sandbox, Chromium's
   software WebGPU loses its device at startup, even on a bare WebGPU page with no Bevy.
-- The browser build is large: 48 MiB of wasm, 7 MiB over the wire with brotli. Trimming Bevy
+- The browser build is large: 49 MiB of wasm, 7 MiB over the wire with brotli. Trimming Bevy
   features and running `wasm-opt` (`BC_WEB_OPT=1`) are the next steps.
+- Wing Zero's change into Neo-Bird isn't animated yet (the model swaps, with a flash), and
+  missiles can't be shot down yet.
 - One sector, no persistence or accounts yet. The roadmap is in `docs/DESIGN.md`.
 
 ## Repository

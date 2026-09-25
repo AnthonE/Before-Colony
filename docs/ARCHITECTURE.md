@@ -49,10 +49,14 @@ quinn, rustls and tokio allocate and lock internally. That is fine, because they
 network threads.
 
 **Measured:**
-- Tick with 64 pilots (32 running ZERO) and 256 Mobile Dolls in a dense fight: p50 1.15 ms, p99
-  2.9 ms, against a 33 ms budget at 30 Hz.
-- Live server under a 64-bot swarm (bots on the same 4-core machine): histogram p99 ≤ 4 ms, worst
-  tick 18 ms, 0 overruns.
+- Tick with 64 pilots (32 running ZERO) and 256 Mobile Dolls in a dense fight: p50 1.1 ms, p99
+  2.1–3.0 ms across runs, against a 33 ms budget at 30 Hz.
+- Tick with 64 Gundam pilots duelling in every playable frame (jammers, Neo-Birds, Full Opens,
+  about 200 missiles in the air) and 256 dolls: p50 0.84 ms, p99 2.5 ms.
+- Live server under a 64-bot swarm flying all six frames (bots on the same 4-core machine):
+  histogram p99 ≤ 4 ms, 0 hot-path allocations; worst tick 8–11 ms in most runs, and one run
+  with a single 60 ms tick (1 overrun), when the machine stalled the sector thread. 0–53 of
+  115,200 snapshots were dropped at a full egress ring across three runs.
 
 ## Tick pipeline (`Sector::tick`)
 
@@ -147,7 +151,7 @@ network threads.
     changed rocks, missiles in flight (at most 12: those tracking the client, then the nearest
     within 5 km), then as many entities as fit, chosen by a per-client priority accumulator over
     what that client's sensors can see, then salvage chunks.
-  - About 33 KB/s per client at 30 Hz.
+  - About 31 KB/s per client at 30 Hz (measured under the swarm).
 - **Chunks and rocks: dirty until acked.** Each snapshot's record lists the chunks (id, generation,
   version) and rocks (id, version) it carried; an ack promotes them to what the client holds. A
   chunk is sent whenever what the client holds differs from the server's (a new segment, a grab),
