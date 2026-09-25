@@ -10,7 +10,7 @@
 //! | events | `1+n` bits each, `0` ends | repeated until the client acks a snapshot containing them |
 //! | rocks | `1+18` bits each, `0` ends | debris-field rocks whose state changed, repeated until acked |
 //! | entities | `1+204` bits each, `0` ends | as many prioritised contacts as fit |
-//! | objects | `1+12..229` bits each, `0` ends | salvage chunks (ore, limbs, hulks) in range |
+//! | objects | `1+12..232` bits each, `0` ends | salvage chunks (ore, limbs, hulks) in range |
 //!
 //! Everything must fit in [`MAX_DATAGRAM`](crate::MAX_DATAGRAM) bytes. The writer checks the budget
 //! before every record, counting the terminators still owed, and never produces a partial item.

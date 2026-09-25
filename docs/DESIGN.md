@@ -77,8 +77,14 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
 - **Per-part damage.**
   - Parts: head (sensors), torso (destroyed means dead), arms (their weapons), legs (AMBAC mass,
     some thrust), backpack (main thrusters).
-  - Hits on a destroyed limb carry through to the torso at half strength. A hit that blows a limb
-    off spills half its excess into the torso.
+  - A limb shot to nothing comes off: it drifts away as wreckage (a limb chunk, which can be
+    salvaged), and shots pass through where it was. A hit that blows a limb off spills half its
+    excess into the torso. (A second hit on the same limb in the same tick carries through to the
+    torso at half strength.)
+  - Each part weighs a share of the frame, so a suit that loses parts is lighter.
+  - A destroyed suit leaves a hulk: its hull and whatever parts are still on it, drifting on.
+  - Wreckage bounces off the colony and rocks, and is cleared after 60 s (Mobile Dolls') or 180 s
+    (pilots').
 - **Heat and energy.** Overheating locks all weapons until heat falls to 50%. Beam weapons draw from
   an energy pool that the reactor recharges.
 - **Lag compensation.** A shot resolves against the world as its shooter saw it, up to 8 ticks

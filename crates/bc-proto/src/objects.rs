@@ -10,7 +10,7 @@
 use glam::{Quat, Vec3};
 
 use crate::quant;
-use crate::types::{FrameId, Part};
+use crate::types::{Faction, FrameId, Part};
 use crate::{BitReader, BitWriter, CARGO_KINDS, CHUNK_BITS, DecodeError, ROCK_BITS, SLOT_BITS};
 
 /// One rock's state (sent when it changes).
@@ -57,10 +57,10 @@ impl RockState {
 pub enum ChunkKind {
     /// Loose ore of kind `ore` (`0..CARGO_KINDS`).
     Ore { ore: u8 },
-    /// A limb blown off a suit.
-    Limb { frame: FrameId, part: Part },
+    /// A limb blown off a suit (of `faction`'s livery).
+    Limb { frame: FrameId, faction: Faction, part: Part },
     /// What's left of a destroyed suit: `parts` has a bit per [`Part`] still on it.
-    Hulk { frame: FrameId, parts: u8 },
+    Hulk { frame: FrameId, faction: Faction, parts: u8 },
 }
 
 /// A chunk's identity and build: what it is, a seed for its look, and its mass.
@@ -85,8 +85,8 @@ impl ChunkDesc {
     pub fn encoded_bits(&self) -> usize {
         2 + match self.kind {
             ChunkKind::Ore { .. } => 2,
-            ChunkKind::Limb { .. } => (FrameId::BITS + Part::BITS) as usize,
-            ChunkKind::Hulk { .. } => FrameId::BITS as usize + Part::COUNT,
+            ChunkKind::Limb { .. } => (FrameId::BITS + Faction::BITS + Part::BITS) as usize,
+            ChunkKind::Hulk { .. } => (FrameId::BITS + Faction::BITS) as usize + Part::COUNT,
         } + 8
             + MASS_BITS as usize
     }
@@ -97,14 +97,16 @@ impl ChunkDesc {
                 w.write_bits(0, 2);
                 w.write_bits(u32::from(ore) % CARGO_KINDS as u32, 2);
             }
-            ChunkKind::Limb { frame, part } => {
+            ChunkKind::Limb { frame, faction, part } => {
                 w.write_bits(1, 2);
                 w.write_bits(frame as u32, FrameId::BITS);
+                w.write_bits(faction as u32, Faction::BITS);
                 w.write_bits(part as u32, Part::BITS);
             }
-            ChunkKind::Hulk { frame, parts } => {
+            ChunkKind::Hulk { frame, faction, parts } => {
                 w.write_bits(2, 2);
                 w.write_bits(frame as u32, FrameId::BITS);
+                w.write_bits(faction as u32, Faction::BITS);
                 w.write_bits(u32::from(parts), Part::COUNT as u32);
             }
         }
@@ -120,12 +122,15 @@ impl ChunkDesc {
             0 => ChunkKind::Ore { ore: r.read_bits(2) as u8 },
             1 => {
                 let frame = frame(r)?;
-                ChunkKind::Limb {
-                    frame,
-                    part: Part::from_bits(r.read_bits(Part::BITS)).ok_or(DecodeError::Invalid)?,
-                }
+                let faction = Faction::from_bits(r.read_bits(Faction::BITS));
+                let part = Part::from_bits(r.read_bits(Part::BITS)).ok_or(DecodeError::Invalid)?;
+                ChunkKind::Limb { frame, faction, part }
             }
-            2 => ChunkKind::Hulk { frame: frame(r)?, parts: r.read_bits(Part::COUNT as u32) as u8 },
+            2 => {
+                let frame = frame(r)?;
+                let faction = Faction::from_bits(r.read_bits(Faction::BITS));
+                ChunkKind::Hulk { frame, faction, parts: r.read_bits(Part::COUNT as u32) as u8 }
+            }
             _ => return Err(DecodeError::Invalid),
         };
         Ok(Self { kind, seed: r.read_u8(), mass_kg: r.read_bits(MASS_BITS) * MASS_STEP })
@@ -213,9 +218,9 @@ pub enum ObjectState {
     Gone { id: u16 },
     /// Drifting free.
     Free { id: u16, generation: u8, desc: ChunkDesc, seg: Segment },
-    /// In suit `holder`'s hand (the right one if `right`, else the left), turned by `rot`
-    /// relative to the holder.
-    Held { id: u16, generation: u8, desc: ChunkDesc, holder: u16, right: bool, rot: Quat },
+    /// In suit `holder`'s hand (the right one if `right`, else the left) since tick `since`,
+    /// turned by `rot` relative to the holder.
+    Held { id: u16, generation: u8, desc: ChunkDesc, holder: u16, right: bool, rot: Quat, since: u32 },
 }
 
 impl ObjectState {
@@ -232,13 +237,18 @@ impl ObjectState {
                 ObjectState::Gone { .. } => 0,
                 ObjectState::Free { desc, .. } => 2 + desc.encoded_bits() + SEGMENT_BITS,
                 ObjectState::Held { desc, .. } => {
-                    2 + desc.encoded_bits() + SLOT_BITS as usize + 1 + 2 + 3 * HELD_ROT_BITS as usize
+                    2 + desc.encoded_bits()
+                        + SLOT_BITS as usize
+                        + 1
+                        + 2
+                        + 3 * HELD_ROT_BITS as usize
+                        + AGE_BITS as usize
                 }
             }
     }
 
     /// The largest record (a free hulk).
-    pub const MAX_BITS: usize = 2 + CHUNK_BITS as usize + 2 + (2 + 4 + 6 + 8 + 12) + SEGMENT_BITS;
+    pub const MAX_BITS: usize = 2 + CHUNK_BITS as usize + 2 + (2 + 4 + 3 + 6 + 8 + 12) + SEGMENT_BITS;
 
     pub(crate) fn write(&self, w: &mut BitWriter<'_>, snapshot_tick: u32) {
         let id = |w: &mut BitWriter<'_>, id: u16| w.write_bits(u32::from(id), CHUNK_BITS);
@@ -254,7 +264,7 @@ impl ObjectState {
                 desc.write(w);
                 seg.write(w, snapshot_tick);
             }
-            ObjectState::Held { id: i, generation, desc, holder, right, rot } => {
+            ObjectState::Held { id: i, generation, desc, holder, right, rot, since } => {
                 w.write_bits(2, 2);
                 id(w, i);
                 w.write_bits(u32::from(generation & 3), 2);
@@ -262,6 +272,7 @@ impl ObjectState {
                 w.write_bits(u32::from(holder), SLOT_BITS);
                 w.write_bool(right);
                 quant::write_quat(w, rot, HELD_ROT_BITS);
+                w.write_bits(snapshot_tick.saturating_sub(since).min((1 << AGE_BITS) - 1), AGE_BITS);
             }
         }
     }
@@ -281,14 +292,9 @@ impl ObjectState {
                 let desc = ChunkDesc::read(r)?;
                 let holder = r.read_bits(SLOT_BITS) as u16;
                 let right = r.read_bool();
-                ObjectState::Held {
-                    id,
-                    generation,
-                    desc,
-                    holder,
-                    right,
-                    rot: quant::read_quat(r, HELD_ROT_BITS),
-                }
+                let rot = quant::read_quat(r, HELD_ROT_BITS);
+                let since = snapshot_tick.wrapping_sub(r.read_bits(AGE_BITS));
+                ObjectState::Held { id, generation, desc, holder, right, rot, since }
             }
             _ => return Err(DecodeError::Invalid),
         })
@@ -318,7 +324,7 @@ mod tests {
     #[test]
     fn records_round_trip() {
         let desc = ChunkDesc {
-            kind: ChunkKind::Hulk { frame: FrameId::Virgo, parts: 0b10_1011 },
+            kind: ChunkKind::Hulk { frame: FrameId::Virgo, faction: Faction::Alliance, parts: 0b10_1011 },
             seed: 200,
             mass_kg: 9_310,
         };
@@ -337,13 +343,18 @@ mod tests {
             id: 4,
             generation: 1,
             desc: ChunkDesc {
-                kind: ChunkKind::Limb { frame: FrameId::WingZero, part: Part::ArmR },
+                kind: ChunkKind::Limb {
+                    frame: FrameId::WingZero,
+                    faction: Faction::Colonies,
+                    part: Part::ArmR,
+                },
                 seed: 7,
                 mass_kg: 720,
             },
             holder: 311,
             right: false,
             rot: quantize_held_rot(Quat::from_rotation_x(0.4)),
+            since: 9_321,
         };
         assert_eq!(round_trip_object(&held, 9_500), held);
         let gone = ObjectState::Gone { id: 77 };

@@ -1,4 +1,4 @@
-# Before Colony wire protocol (v3)
+# Before Colony wire protocol (v4)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
@@ -60,7 +60,7 @@ presses (STOW, THROW, JETTISON, MELEE) act on the tick they first appear.
 | events | repeated `[1][event]`, closed by `[0]` |
 | rocks | repeated `[1][rock]` (18 bits each), closed by `[0]` |
 | entities | repeated `[1][entity]` (204 bits each), closed by `[0]` |
-| objects | repeated `[1][object]` (12–229 bits each), closed by `[0]` |
+| objects | repeated `[1][object]` (12–232 bits each), closed by `[0]` |
 
 The writer reserves room for every list terminator still owed before it writes a record, so a
 snapshot is never cut off mid-list.
@@ -102,10 +102,11 @@ Object record: a 2-bit kind, the chunk id (10), then:
 |---|---|
 | 0 Gone | nothing: forget the chunk (it's gone, or out of range) |
 | 1 Free | generation (2), chunk, segment: age (16 bits of ticks), position (63), velocity (42), rotation (32), spin (3 × 10 bits over ±4 rad/s) |
-| 2 Held | generation (2), chunk, holder slot (10), right hand (1), rotation relative to the holder (29) |
+| 2 Held | generation (2), chunk, holder slot (10), right hand (1), rotation relative to the holder (29), when it was grabbed (16 bits of age) |
 
-Chunk: class (2 bits: ore, limb, hulk), then ore kind (2), or frame (4) and part (3), or frame (4)
-and a mask of parts still on it (6); a seed (8); mass in 10 kg steps (12). A free chunk moves on
+Chunk: class (2 bits: ore, limb, hulk), then ore kind (2), or frame (4), faction (3, for the
+livery) and part (3), or frame (4), faction (3) and a mask of parts still on it (6); a seed (8);
+mass in 10 kg steps (12). A free chunk moves on
 its segment: `pos(t) = pos + vel · (t − t0)·DT`, spinning at `spin`. The server moves chunks on
 exactly the quantized segment it sends, so clients evaluating it at the same tick get the same
 answer to the bit.

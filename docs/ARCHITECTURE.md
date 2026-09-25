@@ -62,14 +62,18 @@ network threads.
    cleared (the same view delay). After 8 silent ticks the suit goes hands-off.
 5. **`Sim::step`:**
    1. Mobile Doll AI (re-plans every 3rd tick, staggered). A ZERO seizure overrides the pilot.
-   2. Flight: AMBAC/RCS, thrust, propellant, G-strain. Wrecks drift.
-   3. Rebuild the spatial hash (counting sort, 128 m cells).
-   4. Record lag-comp history, so `history[T]` is exactly snapshot `T`.
-   5. Weapons: charge, heat, energy, arm cone, magnetism, spawn, lag-comp catch-up.
-   6. Projectile sweeps against per-part capsules. Saber arcs, 3 sub-steps per tick, with clashes.
-   7. Damage resolves in order; limbs are lost, overflow spills to the torso, suits die.
-   8. Heat, energy, ZERO strain (seizure and lockout), respawns.
-   9. ZERO rollouts (staggered every 3 ticks per pilot).
+   2. Flight: AMBAC/RCS, thrust, propellant, G-strain, swept against the rocks. Wrecks drift.
+   3. Chunks (loose ore, limbs, hulks): free ones drift on closed-form segments, bounce off the
+      colony and rocks, and expire.
+   4. Rebuild the spatial hash (counting sort, 128 m cells).
+   5. Record lag-comp history, so `history[T]` is exactly snapshot `T`.
+   6. Weapons: charge, heat, energy, arm cone, magnetism, spawn, lag-comp catch-up (rocks stop it).
+   7. Projectile sweeps against per-part capsules (skipping parts that are gone) and rocks. Saber
+      arcs, 3 sub-steps per tick, with clashes.
+   8. Damage resolves in order: limbs come off as chunks, overflow spills to the torso, suits die
+      and leave hulks.
+   9. Heat, energy, ZERO strain (seizure and lockout), respawns.
+   10. ZERO rollouts (staggered every 3 ticks per pilot).
 6. **Tactical pictures** for ZERO pilots (≈4 Hz), only when an external oracle is attached.
 7. **Snapshots** for each client, straight into its ring. The egress thread is unparked.
 
@@ -159,7 +163,7 @@ on wasm32 (under Node, via `wasm-bindgen-test-runner`). Never enable glam's `fas
 | `bc-proto/tests/roundtrip.rs` | Codecs round-trip within ½ LSB; decoders never panic on arbitrary bytes. |
 | `bc-sim/tests/no_alloc.rs`, `bc-sector/tests/no_alloc_sector.rs` | 0 heap operations per tick with 64 clients + 256 dolls. |
 | `bc-sim/tests/determinism.rs` | Identical state hash on native and wasm32, for the reference scenario and for suits flying into rocks and firing through them; the generated debris field is identical too. |
-| `bc-sim/tests/{flight,combat,fire_control,lagcomp,mobile_dolls,zero,field}.rs` | Rocket equation, FA, blackout, no tunnelling, arm loss, charge, sabers and clashes, lag comp (and its clamp), dolls fight to a kill, ZERO accuracy, calibration, seizure, magnetism; suits stop at rocks at 2 km/s and rocks stop shots. |
+| `bc-sim/tests/{flight,combat,fire_control,lagcomp,mobile_dolls,zero,field,salvage}.rs` | Rocket equation, FA, blackout, no tunnelling, arm loss, charge, sabers and clashes, lag comp (and its clamp), dolls fight to a kill, ZERO accuracy, calibration, seizure, magnetism; suits stop at rocks at 2 km/s and rocks stop shots; limbs come off as chunks and shots pass where they were, hulks, bounces, expiry, lighter suits. |
 | `bc-sector/tests/netcode.rs` | Over a simulated 100 ms / 5%-loss link: prediction error and clock sync (in open flight, and ramming and sliding round a rock), and a client that sends inputs only twice a second still has an accurate RTT and commands that arrive in time. |
 | `bc-server/tests/{echo,duel,oracle}.rs` | A real server over real WebTransport: echo; two agents find and fight each other; Jev advice reaches a ZERO pilot. |
 | `bc-zero/tests/jev_mock.rs` | Jev request contract, parsing, timeout, 429/529 breaker, garbage. |

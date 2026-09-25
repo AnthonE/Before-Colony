@@ -9,6 +9,7 @@
 extern crate alloc;
 
 pub mod ai;
+pub mod chunks;
 pub mod collide;
 pub mod config;
 pub mod content;

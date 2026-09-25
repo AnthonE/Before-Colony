@@ -42,6 +42,22 @@ pub fn constrain(s: &mut FlightState) {
     }
 }
 
+/// Whether a sphere of radius `r` at `p` touches the colony's hull: if so, the point straight out
+/// from it on the hull (grown by `r`) and the outward normal there.
+pub fn hull_contact(p: Vec3, r: f32) -> Option<(Vec3, Vec3)> {
+    let rel = p - COLONY_CENTER;
+    if rel.x.abs() > COLONY_HALF_LENGTH {
+        return None;
+    }
+    let radial = Vec3::new(0.0, rel.y, rel.z);
+    let limit = COLONY_RADIUS + r;
+    if radial.length_squared() >= limit * limit {
+        return None;
+    }
+    let n = crate::math::normalize_or(radial, Vec3::Y);
+    Some((COLONY_CENTER + Vec3::new(rel.x, 0.0, 0.0) + n * limit, n))
+}
+
 /// Whether a point is inside the colony's solid hull.
 pub fn inside_colony(p: Vec3) -> bool {
     let rel = p - COLONY_CENTER;

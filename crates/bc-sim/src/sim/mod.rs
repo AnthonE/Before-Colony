@@ -22,11 +22,13 @@ mod zero;
 use bc_proto::buttons::{GRAB, ZERO};
 use bc_proto::events::Event;
 use bc_proto::quant::{dequantize_unit, quantize_unit};
-use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, Part, PilotKind, WeaponKind};
+use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, Part, PilotKind, Segment, WeaponKind};
 use glam::{Quat, Vec3};
 
 use crate::ai::{self, DOLL, SEIZED};
-use crate::config::{DT, SimConfig, secs};
+use crate::chunks::{self, Chunks, Motion, segment_pos, segment_rot};
+use crate::config::{DT, SECTOR_LIMIT, SimConfig, secs};
+use crate::content::salvage::{BOUNCE, mass_without};
 use crate::content::{frame, weapon};
 use crate::events::EventRing;
 use crate::field::Field;
@@ -51,6 +53,8 @@ pub(crate) struct DamageEvent {
     pub amount: f32,
     pub shooter: u16,
     pub weapon: WeaponKind,
+    /// Which way the blow struck (a part it destroys flies off that way).
+    pub dir: Vec3,
 }
 
 const MAX_SQUADS: usize = 32;
@@ -96,6 +100,8 @@ pub struct Sim {
     pub projectiles: Projectiles,
     /// The debris field (static: rocks are solid to suits and stop shots).
     pub field: Field,
+    /// Salvage: loose ore, limbs shot off, hulks.
+    pub chunks: Chunks,
     pub history: History,
     spatial: SpatialHash,
     pub events: EventRing,
@@ -117,6 +123,8 @@ pub struct Sim {
     query_bits: BitSet,
     /// Scratch: live projectiles to iterate while killing some.
     proj_bits: BitSet,
+    /// Scratch: live chunks, likewise.
+    chunk_bits: BitSet,
 }
 
 impl Sim {
@@ -129,6 +137,7 @@ impl Sim {
             suits: Suits::new(cap),
             projectiles: Projectiles::new(cfg.max_projectiles),
             field: Field::generate(cfg.field_seed, cfg.field_rocks),
+            chunks: Chunks::new(),
             history: History::new(cap),
             spatial: SpatialHash::new(cap),
             events: EventRing::new(cfg.max_events),
@@ -140,6 +149,7 @@ impl Sim {
                     amount: 0.0,
                     shooter: 0,
                     weapon: WeaponKind::BeamRifle,
+                    dir: Vec3::Z,
                 },
             ),
             squads: [Squad { anchor: Vec3::ZERO, focus: NO_SLOT }; MAX_SQUADS],
@@ -154,6 +164,7 @@ impl Sim {
             iter_bits: BitSet::new(cap),
             query_bits: BitSet::new(cap),
             proj_bits: BitSet::new(cfg.max_projectiles),
+            chunk_bits: BitSet::new(chunks::MAX_CHUNKS),
         }
     }
 
@@ -242,6 +253,7 @@ impl Sim {
         }
         self.ai_step(t);
         self.flight_step(t);
+        self.chunk_step(t);
         self.spatial_rebuild();
         self.record_history(t);
         self.weapons_step(t);
@@ -480,11 +492,15 @@ impl Sim {
         }
         // Rounded to the 8 bits the owner's client gets them in, so its prediction flies the same suit.
         let wire = |x: f32| dequantize_unit(quantize_unit(x, 8), 8);
+        // Parts shot off lighten the suit.
+        let fid = s.frame[i];
+        let extra_mass_kg = mass_without(fid, s.gone_mask(i)) as i32 - mass_without(fid, 0) as i32;
         FlightMods {
             ambac: wire(ambac.max(0.1)),
             thrust: wire(thrust),
             g_immune: s.pilot[i] == PilotKind::MobileDoll,
             lunge: matches!(s.saber[i].phase, SaberPhase::Windup | SaberPhase::Active),
+            extra_mass_kg,
         }
     }
 
@@ -508,6 +524,45 @@ impl Sim {
             }
         }
         self.iter_bits = used;
+    }
+
+    /// Free chunks drift, bounce off the colony and rocks, leave the sector or expire.
+    fn chunk_step(&mut self, t: u32) {
+        if self.chunks.count() == 0 {
+            return;
+        }
+        let mut live = core::mem::take(&mut self.chunk_bits);
+        live.copy_from(&self.chunks.alive);
+        for k in live.iter() {
+            let Motion::Free(seg) = self.chunks.motion[k] else { continue };
+            let b = segment_pos(&seg, f64::from(t));
+            if t >= self.chunks.expire[k] || b.abs().max_element() > SECTOR_LIMIT {
+                self.chunks.kill(k);
+                continue;
+            }
+            let a = segment_pos(&seg, f64::from(t - 1));
+            let r = chunks::radius(&self.chunks.desc[k]);
+            let contact = match self.field.sweep(a, b, r) {
+                Some((f, i)) => {
+                    let at = a + (b - a) * f;
+                    Some((at, self.field.rocks()[i].normal(at, r)))
+                }
+                None => crate::world::hull_contact(b, r),
+            };
+            let Some((at, n)) = contact else { continue };
+            let vn = seg.vel.dot(n);
+            if vn < 0.0 {
+                let bounced = Segment {
+                    t0: t,
+                    pos: at,
+                    vel: seg.vel - n * (vn * (1.0 + BOUNCE)),
+                    rot: segment_rot(&seg, f64::from(t)),
+                    spin: seg.spin * 0.7,
+                };
+                self.chunks.set_motion(k, Motion::Free(bounced.quantized()));
+            }
+        }
+        self.chunk_bits = live;
     }
 
     fn spatial_rebuild(&mut self) {

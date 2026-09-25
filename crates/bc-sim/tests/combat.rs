@@ -42,7 +42,7 @@ fn fast_shots_never_tunnel() {
         let step = d * 3_000.0 * DT;
         let mut hit = false;
         for _ in 0..40 {
-            if sweep_capsules(p, p + step, 0.1, &caps, Vec3::ZERO, Quat::IDENTITY).is_some() {
+            if sweep_capsules(p, p + step, 0.1, &caps, Vec3::ZERO, Quat::IDENTITY, 0).is_some() {
                 hit = true;
                 break;
             }

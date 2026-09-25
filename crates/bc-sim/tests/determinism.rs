@@ -7,11 +7,13 @@
 mod common;
 
 /// Hash after 600 ticks of the reference scenario (update deliberately when the sim changes).
-const GOLDEN: u64 = 0xcb82_4c54_6b13_4cfb;
+const GOLDEN: u64 = 0x06e1_3c01_bfae_0563;
 
 fn scenario_hash() -> u64 {
     let (mut sim, players) = common::arena(8, 24, 42);
     common::run(&mut sim, &players, 600);
+    // The hash covers wreckage too, so the scenario must leave some.
+    assert!(sim.chunks.count() > 0, "no limbs or hulks after the battle");
     sim.state_hash()
 }
 

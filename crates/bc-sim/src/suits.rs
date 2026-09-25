@@ -196,6 +196,17 @@ impl Suits {
         (self.part_hp[idx][Part::Torso as usize] / spec.part_hp[Part::Torso as usize]).clamp(0.0, 1.0)
     }
 
+    /// Parts shot off (a bit per [`Part`]; the torso is the suit, so never).
+    pub fn gone_mask(&self, idx: usize) -> u8 {
+        let mut m = 0;
+        for p in crate::content::salvage::DETACHABLE {
+            if self.part_hp[idx][p as usize] <= 0.0 {
+                m |= 1 << p as u8;
+            }
+        }
+        m
+    }
+
     /// Armour fraction per part.
     pub fn part_fractions(&self, idx: usize) -> [f32; Part::COUNT] {
         let spec = frame(self.frame[idx]);

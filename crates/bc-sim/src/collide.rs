@@ -55,8 +55,9 @@ pub fn capsule_world(c: &Capsule, pos: Vec3, rot: Quat) -> (Vec3, Vec3, f32) {
 }
 
 /// First contact of a swept sphere (segment `a→b`, radius `r`) with a set of capsules posed at
-/// `pos`/`rot`. Returns `(param along the segment, capsule index)`. The closest-approach parameter
-/// is used as the contact point, which is accurate for thin, fast projectiles.
+/// `pos`/`rot`, skipping those whose bit is set in `gone`. Returns `(param along the segment,
+/// capsule index)`. The closest-approach parameter is used as the contact point, which is accurate
+/// for thin, fast projectiles.
 pub fn sweep_capsules(
     a: Vec3,
     b: Vec3,
@@ -64,9 +65,13 @@ pub fn sweep_capsules(
     caps: &[Capsule],
     pos: Vec3,
     rot: Quat,
+    gone: u8,
 ) -> Option<(f32, usize)> {
     let mut best: Option<(f32, usize)> = None;
     for (i, c) in caps.iter().enumerate() {
+        if gone & (1 << i) != 0 {
+            continue;
+        }
         let (ca, cb, cr) = capsule_world(c, pos, rot);
         let (s, _, d2) = segment_segment(a, b, ca, cb);
         let rr = r + cr;

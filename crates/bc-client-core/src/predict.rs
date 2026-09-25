@@ -74,6 +74,7 @@ impl Predictor {
             thrust: own.thrust_factor,
             g_immune: false,
             lunge: own.flags & own_flags::LUNGE != 0,
+            extra_mass_kg: own.extra_mass_kg,
         }
     }
 

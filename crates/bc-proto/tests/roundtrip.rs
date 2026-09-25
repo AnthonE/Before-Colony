@@ -55,13 +55,14 @@ fn entity() -> impl Strategy<Value = EntityState> {
 }
 
 fn desc() -> impl Strategy<Value = ChunkDesc> {
-    (0u32..3, 0u8..4, 0u32..4, 0u32..6, 0u8..64, any::<u8>(), 0u32..4096).prop_map(
-        |(class, ore, frame, part, parts, seed, tens)| {
+    (0u32..3, 0u8..4, 0u32..4, 0u32..3, 0u32..6, 0u8..64, any::<u8>(), 0u32..4096).prop_map(
+        |(class, ore, frame, faction, part, parts, seed, tens)| {
             let frame = FrameId::from_bits(frame).unwrap();
+            let faction = Faction::from_bits(faction);
             let kind = match class {
                 0 => ChunkKind::Ore { ore },
-                1 => ChunkKind::Limb { frame, part: Part::from_bits(part).unwrap() },
-                _ => ChunkKind::Hulk { frame, parts },
+                1 => ChunkKind::Limb { frame, faction, part: Part::from_bits(part).unwrap() },
+                _ => ChunkKind::Hulk { frame, faction, parts },
             };
             ChunkDesc { kind, seed, mass_kg: tens * 10 }
         },
@@ -78,7 +79,15 @@ fn object() -> impl Strategy<Value = ObjectState> {
                 desc,
                 seg: Segment { t0: 10_000 - age, pos, vel, rot, spin },
             },
-            _ => ObjectState::Held { id, generation, desc, holder: id % 1000, right: age % 2 == 0, rot },
+            _ => ObjectState::Held {
+                id,
+                generation,
+                desc,
+                holder: id % 1000,
+                right: age % 2 == 0,
+                rot,
+                since: 10_000 - age,
+            },
         })
 }
 
@@ -102,14 +111,15 @@ fn object_close(back: &ObjectState, sent: &ObjectState) -> bool {
                 && *seg == s2.quantized()
         }
         (
-            ObjectState::Held { id, generation, desc, holder, right, rot },
-            ObjectState::Held { id: i2, generation: g2, desc: d2, holder: h2, right: r2, rot: q2 },
+            ObjectState::Held { id, generation, desc, holder, right, rot, since },
+            ObjectState::Held { id: i2, generation: g2, desc: d2, holder: h2, right: r2, rot: q2, since: s2 },
         ) => {
             id == i2
                 && generation == g2
                 && desc == d2
                 && holder == h2
                 && right == r2
+                && since == s2
                 && rot.dot(*q2).abs() > 0.995
         }
         _ => false,
@@ -249,5 +259,5 @@ fn record_budgets_match_plan() {
     const { assert!(ZERO_HYPOTHESES == 7) };
     const { assert!(OWN_BITS == 610) };
     const { assert!(ROCK_RECORD_BITS == 18) };
-    const { assert!(ObjectState::MAX_BITS <= 229) };
+    const { assert!(ObjectState::MAX_BITS <= 232) };
 }

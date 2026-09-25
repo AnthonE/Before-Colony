@@ -36,5 +36,6 @@ fn busy_sector_ticks_without_allocating() {
     assert_eq!(ticks, 1_000);
     assert!(sim.projectiles.count() > 0 || sim.peak_projectiles > 100, "the fight should be real");
     assert!(sim.events.next_seq() > 1_000, "events should flow: {}", sim.events.next_seq());
+    assert!(sim.chunks.count() > 10, "wreckage should pile up: {} chunks", sim.chunks.count());
     assert_eq!(total, 0, "heap operations inside the tick: {total}");
 }

@@ -133,6 +133,7 @@ impl Sim {
             ambac_factor: mods.ambac,
             thrust_factor: mods.thrust,
             respawn_in,
+            extra_mass_kg: mods.extra_mass_kg,
             ..OwnState::default()
         }
     }
