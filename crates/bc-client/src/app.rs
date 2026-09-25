@@ -110,7 +110,10 @@ impl Plugin for VisualsPlugin {
                 )
                     .chain(),
             )
-            .add_systems(Update, (build_suits, pose_suits, suit_lod).chain().in_set(Vis::Suits))
+            .add_systems(
+                Update,
+                (build_suits, pose_suits, crate::anim::animate_suits, suit_lod).chain().in_set(Vis::Suits),
+            )
             .add_systems(
                 Update,
                 (

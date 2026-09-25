@@ -477,7 +477,9 @@ fn script(
                     } else {
                         Quat::from_rotation_y(sway)
                     };
-                    d.aim = d.rot * Vec3::Z;
+                    // Each aims somewhere of its own, for the arms and heads to follow.
+                    let a = (t * 0.5 + i as f64 * 1.3) as f32;
+                    d.aim = d.rot * Vec3::new(0.45 * a.sin(), 0.3 * (a * 0.7).cos(), 1.0).normalize();
                     d.flags = f;
                     d.thrust = if f == ent_flags::BOOST { Vec3::Z } else { Vec3::ZERO };
                 });

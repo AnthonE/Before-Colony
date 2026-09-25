@@ -9,6 +9,7 @@ use bc_proto::{Faction, FrameId, PilotKind};
 use bevy::mesh::MeshTag;
 use bevy::prelude::*;
 
+use crate::anim::Anim;
 use crate::assets::{MeshLib, Palette};
 use crate::beams::{Ribbons, beam_tag, plume_tag};
 use crate::camera::MainCamera;
@@ -62,9 +63,13 @@ fn livery(frame: FrameId, faction: Faction) -> (u8, u8, u8, u8) {
     }
 }
 
-/// Where a point on a bone is in the world, with the suit at rest (bones unposed).
-pub fn rest_point(d: &SuitDrive, bone: Bone, local: Vec3) -> Vec3 {
-    d.pos + d.rot * (bone.def().joint + local)
+/// Where a point on a bone is in the world: on the posed bones when the suit has been animated,
+/// else at rest.
+pub fn bone_point(d: &SuitDrive, anim: Option<&Anim>, bone: Bone, local: Vec3) -> Vec3 {
+    match anim {
+        Some(a) => a.point(d, bone, local),
+        None => d.pos + d.rot * (bone.def().joint + local),
+    }
 }
 
 /// How hard the main thrusters burn, 0..1: with forward thrust, hardest on boost.
@@ -166,6 +171,7 @@ fn build_suit(
             saber,
             aura,
         },
+        Anim::default(),
         Name::new(format!("suit-{}", d.slot)),
     ));
 }
