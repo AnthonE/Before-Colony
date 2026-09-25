@@ -22,7 +22,7 @@ All art is procedural.
 
 ## Setting
 
-After Colony 195–196, Earth Sphere. Milestone 1 takes place in **Sector L1: the L1 Colony Cluster**.
+After Colony 195–196, Earth Sphere. The milestones so far take place in **Sector L1: the L1 Colony Cluster**.
 An O'Neill cylinder (3.2 km radius, 32 km long) lies below the combat zone, with a debris field
 around it and OZ Mobile Doll patrols circling above. The sector is a ±32.768 km cube, and suits are
 kept within ±30 km.
@@ -293,13 +293,18 @@ keeps it while it stays within 15°. Its bracket fills as the lock builds and re
 acquired. The HUD shows the special's state (READY, JAMMING, FIRING, the cooldown), the lock, and
 MISSILE LOCK and MISSILE warnings, with a marker on each missile tracking you.
 
-## Roadmap after Milestone 1
+## Roadmap after Milestone 2
+
+Milestone 1 was the playable slice; Milestone 2 the five Gundams (Heavyarms, Deathscythe, Sandrock,
+Shenlong, and Wing Zero's Neo-Bird), each flown by pilots and agents.
 
 - **Sectors:** multiple sectors with handoff, transfer orbits, TiDi, persistence (Postgres, off
   the hot path), accounts.
 - **Suits:**
   - Tallgeese, Epyon (its own ZERO).
   - Shooting missiles down; deployable Planet Defensors.
+  - Wing Zero's fold drawn as it happens (today the model swaps, with a flash); Heavyarms'
+    hatches opening for Full Open.
 - **Agents:** an MCP server so LLM agents can fly as squad commanders, and a Python gym on the
   headless simulation for RL.
 - **Earth:** atmosphere, gravity, re-entry heating (Wing's shield).

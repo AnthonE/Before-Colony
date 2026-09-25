@@ -12,11 +12,20 @@ A Gundam Wing mobile-suit MMO prototype.
 - **Client:** Bevy 0.19 compiled to WebAssembly, in the browser (WebGL2 or WebGPU).
 - **Transport:** WebTransport, HTTP/3 over QUIC. Unreliable datagrams carry inputs and snapshots.
 
-**Status:** Milestone 1, a playable vertical slice. One sector (L1 Colony Cluster), Leo and Wing
-Gundam Zero for pilots, Taurus and Virgo Mobile Dolls, beam rifles, machine cannons, beam sabers,
-the Twin Buster Rifle, the ZERO System, salvage and mining, and agents via the Bot SDK. The suits
-are procedural, jointed models whose armour and limbs come off. The sky, colony and asteroid field
-are drawn with custom shaders.
+**Status:** Milestone 2, the five Gundams. One sector (L1 Colony Cluster). Pilots and agents fly
+the Leo, Wing Gundam Zero (which folds into Neo-Bird), Heavyarms, Deathscythe, Sandrock and
+Shenlong, against Taurus and Virgo Mobile Dolls. Each Gundam brings its kit and its signature:
+- **Heavyarms:** lock-on homing missiles, and the Full Open Attack.
+- **Deathscythe:** the Hyper Jammer, which hides it from enemy sensors, dolls, ZERO and missile
+  seekers, and a beam scythe.
+- **Sandrock:** twin heat shotels, and the Cross Crusher.
+- **Shenlong:** the Dragon Fang, a claw that strikes 35 m out, and a flamethrower that overheats its
+  target.
+- **Wing Zero:** Neo-Bird, and the Twin Buster Rifle; the ZERO System in both forms.
+
+Salvage and mining, and agents via the Bot SDK, carry over from Milestone 1. The suits are
+procedural, jointed models whose armour and limbs come off. The sky, colony and asteroid field are
+drawn with custom shaders.
 
 ## Quick start
 
@@ -110,6 +119,7 @@ crates/bc-client-core  client state machine shared by the browser and bots
 crates/bc-server       WebTransport server, dev HTTP (/cert-hash, /status)
 crates/bc-bot          Bot SDK, mobile_doll and miner agents, bc-swarm
 crates/bc-client       Bevy browser client (wasm32)
+crates/bc-model        the suits' procedural designs and their sockets
 crates/bc-alloc        counting allocator for the zero-allocation proofs
 docs/                  DESIGN.md · ARCHITECTURE.md · PROTOCOL.md
 web/, scripts/, e2e/   page shell, build and dev scripts, Playwright tests
