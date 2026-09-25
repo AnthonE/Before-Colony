@@ -5,7 +5,7 @@
 use bc_model::rig::{self, BONES, Bone};
 use bc_model::{Lod, paint};
 use bc_proto::snapshot::ent_flags;
-use bc_proto::{Faction, FrameId, PilotKind};
+use bc_proto::{Faction, FrameId, Part, PilotKind};
 use bevy::mesh::MeshTag;
 use bevy::prelude::*;
 
@@ -13,6 +13,7 @@ use crate::anim::Anim;
 use crate::assets::{MeshLib, Palette};
 use crate::beams::{Ribbons, beam_tag, plume_tag};
 use crate::camera::MainCamera;
+use crate::damage::Damage;
 use crate::materials::{HullMaterial, HullTag, Surfaces};
 use crate::model::SuitMeshLib;
 use crate::view::{SuitDrive, VisTime};
@@ -29,13 +30,19 @@ pub struct SuitVisual {
     frame: FrameId,
     /// Bone entities, in [`Bone`] order.
     pub bones: [Entity; BONES],
-    /// The livery, as every bone's hull tag (the wreck state is applied on top).
+    /// The livery, as every bone's hull tag (damage is applied on top: `damage`).
     tag: HullTag,
-    wreck: bool,
     lod: Lod,
     plumes: Vec<Entity>,
     saber: Entity,
     aura: Entity,
+}
+
+impl SuitVisual {
+    /// The livery's hull tag.
+    pub fn tag(&self) -> HullTag {
+        self.tag
+    }
 }
 
 /// One of a suit's bones (which is which: [`SuitVisual::bones`]).
@@ -165,13 +172,13 @@ fn build_suit(
             frame: d.frame,
             bones,
             tag,
-            wreck: false,
             lod: Lod::Near,
             plumes,
             saber,
             aura,
         },
         Anim::default(),
+        Damage::new(d.slot),
         Name::new(format!("suit-{}", d.slot)),
     ));
 }
@@ -202,29 +209,20 @@ pub fn build_suits(
 /// Poses every suit from its drive and switches its thrusters, saber and ZERO aura.
 pub fn pose_suits(
     time: Res<VisTime>,
-    mut suits: Query<(&SuitDrive, &mut SuitVisual, &mut Transform), Without<SuitPartMarker>>,
+    mut suits: Query<(&SuitDrive, &SuitVisual, &mut Transform), Without<SuitPartMarker>>,
     mut parts: Query<(&mut Transform, &mut Visibility), With<SuitPartMarker>>,
     mut tags: Query<&mut MeshTag>,
 ) {
     let flicker = 0.8 + 0.2 * ((time.now * 40.0).sin() as f32);
-    for (d, mut v, mut tf) in &mut suits {
+    for (d, v, mut tf) in &mut suits {
         tf.translation = d.pos;
         tf.rotation = d.rot;
         let has = |f: u16| d.flags & f != 0;
         let wreck = has(ent_flags::WRECK);
-        // A wreck's armour chars and smoulders.
-        if wreck != v.wreck {
-            v.wreck = wreck;
-            let t = HullTag { wreck, ..v.tag }.tag();
-            for e in v.bones {
-                if let Ok(mut m) = tags.get_mut(e) {
-                    *m = t.clone();
-                }
-            }
-        }
+        let intact = |p: Part| d.parts[p as usize] > 0;
         // The main thrusters: longer and brighter with forward thrust, brightest on boost.
         let power = plume_power(d);
-        let lit = power > 0.03;
+        let lit = power > 0.03 && intact(Part::Backpack);
         for &p in &v.plumes {
             if let Ok((mut ptf, mut pv)) = parts.get_mut(p) {
                 set_visible(&mut pv, lit);
@@ -237,7 +235,7 @@ pub fn pose_suits(
             }
         }
         if let Ok((_, mut sv)) = parts.get_mut(v.saber) {
-            set_visible(&mut sv, has(ent_flags::SABER) && !wreck);
+            set_visible(&mut sv, has(ent_flags::SABER) && !wreck && intact(Part::ArmL));
         }
         let aura = !d.own && has(ent_flags::ZERO | ent_flags::SEIZED) && !wreck;
         if let Ok((mut atf, mut av)) = parts.get_mut(v.aura) {

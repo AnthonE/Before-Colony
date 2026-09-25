@@ -111,7 +111,7 @@ pub struct Chip {
 #[derive(Resource)]
 pub struct Blasts {
     shocks: Vec<Shock>,
-    chips: Vec<(Vec3, Vec3, u32)>,
+    chips: Vec<(Vec3, Vec3, u32, HullTag)>,
     sphere: Handle<Mesh>,
     disc: Handle<Mesh>,
     fire: Handle<ShockMaterial>,
@@ -134,9 +134,9 @@ impl Blasts {
         self.shocks.push(Shock { live: true, pos, vel, born: 0.0, life: 0.4, radius, ring: true, rot });
     }
 
-    /// `n` chips of armour flung from `pos`, inheriting `vel`.
-    pub fn chips(&mut self, pos: Vec3, vel: Vec3, n: u32) {
-        self.chips.push((pos, vel, n));
+    /// `n` chips of armour flung from `pos`, inheriting `vel`, painted by `tag`.
+    pub fn chips(&mut self, pos: Vec3, vel: Vec3, n: u32, tag: HullTag) {
+        self.chips.push((pos, vel, n, tag));
     }
 }
 
@@ -204,7 +204,7 @@ pub fn update_blasts(
         ),
         Without<Chip>,
     >,
-    mut chips: Query<(&mut Chip, &mut Transform, &mut Visibility), Without<Shock>>,
+    mut chips: Query<(&mut Chip, &mut Transform, &mut Visibility, &mut MeshTag), Without<Shock>>,
 ) {
     let now = time.now;
     let dt = time.dt;
@@ -222,7 +222,7 @@ pub fn update_blasts(
         }
         b.next_shock += 1;
     }
-    for (pos, vel, n) in b.chips.drain(..) {
+    for (pos, vel, n, paint) in b.chips.drain(..) {
         for _ in 0..n {
             let dir = Vec3::new(b.rng.signed(), b.rng.signed(), b.rng.signed()).normalize_or(Vec3::Y);
             let size = Vec3::new(
@@ -240,8 +240,9 @@ pub fn update_blasts(
                 life: 3.0 + b.rng.next_f32() * 3.0,
                 size,
             };
-            if let Some((mut c, ..)) = chips.iter_mut().nth(b.next_chip % CHIPS) {
+            if let Some((mut c, _, _, mut tag)) = chips.iter_mut().nth(b.next_chip % CHIPS) {
                 *c = chip;
+                *tag = paint.tag();
             }
             b.next_chip += 1;
         }
@@ -259,7 +260,7 @@ pub fn update_blasts(
             *tag = MeshTag(((1.0 - age) * 255.0) as u32 | if s.ring { RING } else { 0 });
         }
     }
-    for (mut c, mut tf, mut vis) in &mut chips {
+    for (mut c, mut tf, mut vis, _) in &mut chips {
         let age = (now - c.born) as f32;
         let on = c.live && age < c.life;
         set_visible(&mut vis, on);

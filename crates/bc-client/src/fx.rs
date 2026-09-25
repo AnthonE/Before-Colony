@@ -20,6 +20,7 @@ use crate::beams::{BeamMaterial, Ribbons, place_ribbon};
 use crate::blast::Blasts;
 use crate::camera::MainCamera;
 use crate::gfx::Gfx;
+use crate::materials::{HullTag, paint};
 use crate::model::SuitMeshLib;
 use crate::particles::{At, Particles};
 use crate::suits_vis::{bone_point, plume_power};
@@ -243,11 +244,11 @@ pub fn update_fx(
     // --- One-shot effects. ---
     for ev in events.0.drain(..) {
         match ev {
-            FxEvent::Hit { pos, weapon } => {
+            FxEvent::Hit { pos, weapon, normal, .. } => {
                 let look = ribbons.look(weapon);
                 let big = weapon == WeaponKind::TwinBusterRifle;
-                // Sparks fly back toward the camera's side of the target.
-                let normal = (eye - pos).normalize_or(Vec3::Y);
+                // Sparks fly off the struck surface (or back toward the camera's side of it).
+                let normal = normal.unwrap_or_else(|| (eye - pos).normalize_or(Vec3::Y));
                 let scale = if big { 3.0 } else { 1.0 };
                 particles.impact(cap, At { pos, vel: Vec3::ZERO }, normal, look.color, scale);
                 state.flashes.push(Flash {
@@ -262,7 +263,7 @@ pub fn update_fx(
                 let at = At { pos, vel: Vec3::ZERO };
                 particles.explosion(cap, at, 1.0);
                 blasts.shockwave(pos, Vec3::ZERO, 70.0);
-                blasts.chips(pos, Vec3::ZERO, 14);
+                blasts.chips(pos, Vec3::ZERO, 14, HullTag { heat: 20, ..HullTag::paint(paint::DARK, 0) });
                 state.flashes.push(Flash {
                     pos,
                     born: now,

@@ -13,7 +13,7 @@ use bc_sim::perception::{Contact, Perception, SelfView};
 use bc_sim::zero::N_HYP;
 use bc_sim::zero::hypotheses::{self, Maneuver};
 use bc_sim::zero::rollout::{STEPS, rollout};
-use glam::Vec3;
+use glam::{Quat, Vec3};
 
 use crate::interp::{EntityTrack, Pose};
 use crate::predict::Predictor;
@@ -57,6 +57,21 @@ pub struct HitMark {
     pub weapon: WeaponKind,
     pub by_me: bool,
     pub on_me: bool,
+    pub shooter: u16,
+    /// The shot's direction, when it was a beam this client saw.
+    pub dir: Option<Vec3>,
+}
+
+impl HitMark {
+    /// Where the shot met the hit part's armour on a target of `frame` posed at `pos`/`rot`, and
+    /// the surface normal there. Without the shot's line, it comes from `from` (the shooter).
+    pub fn impact(&self, frame: FrameId, pos: Vec3, rot: Quat, from: Option<Vec3>) -> (Vec3, Vec3) {
+        let cap = bc_sim::content::frame(frame).capsules[self.part as usize];
+        let (a, b, r) = bc_sim::collide::capsule_world(&cap, pos, rot);
+        let dir =
+            self.dir.or_else(|| from.map(|f| (pos - f).normalize_or(Vec3::NEG_Z))).unwrap_or(Vec3::NEG_Z);
+        bc_sim::collide::capsule_impact((a + b) * 0.5, dir, a, b, r)
+    }
 }
 
 /// Kill feed and other notices.
@@ -238,12 +253,15 @@ impl World {
                 if on_me {
                     self.hits_taken += 1;
                 }
-                self.hits.push(HitMark { pos, tick, target, part, weapon: w, by_me, on_me });
-                // The beam that hit stops being drawn.
-                if w.is_beam()
-                    && let Some(k) =
-                        self.beams.iter().position(|b| b.shooter == shooter && b.alive_at(f64::from(tick)))
-                {
+                // The beam that hit stops being drawn (its direction places the sparks).
+                let beam = if w.is_beam() {
+                    self.beams.iter().position(|b| b.shooter == shooter && b.alive_at(f64::from(tick)))
+                } else {
+                    None
+                };
+                let dir = beam.map(|k| self.beams[k].velocity.normalize_or(Vec3::NEG_Z));
+                self.hits.push(HitMark { pos, tick, target, part, weapon: w, by_me, on_me, shooter, dir });
+                if let Some(k) = beam {
                     self.beams.remove(k);
                 }
             }

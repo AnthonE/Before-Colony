@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use bc_proto::{Faction, FrameId, WeaponKind};
+use bc_proto::{Faction, FrameId, Part, WeaponKind};
 use bevy::prelude::*;
 
 /// The clock every visual system animates with, in seconds. Game mode: the page's clock.
@@ -33,6 +33,8 @@ pub struct SuitDrive {
     /// Thrust demand in the suit's frame, each axis -1..1 (x right, y up, z forward): the pilot's
     /// for the own suit, estimated from acceleration for everyone else.
     pub thrust: Vec3,
+    /// Armour per part in eighths (0 destroyed .. 7 pristine), by `Part`.
+    pub parts: [u8; Part::COUNT],
 }
 
 /// Suit visual roots by entity slot.
@@ -56,9 +58,13 @@ pub struct BeamFeed(pub Vec<BeamView>);
 /// One-shot visual events. Producers push each event exactly once; the effects drain them.
 #[derive(Clone, Copy, Debug)]
 pub enum FxEvent {
+    /// A shot striking something: where, the surface's normal if known, and the suit and part
+    /// it hit (none for the colony's hull).
     Hit {
         pos: Vec3,
         weapon: WeaponKind,
+        normal: Option<Vec3>,
+        target: Option<(u16, Part)>,
     },
     Kill {
         pos: Vec3,

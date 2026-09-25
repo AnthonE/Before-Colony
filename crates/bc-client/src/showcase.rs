@@ -7,7 +7,7 @@
 //! 1-9 camera presets, P to pause, F10 to cycle the graphics tier.
 
 use bc_proto::snapshot::ent_flags;
-use bc_proto::{Faction, FrameId, WeaponKind};
+use bc_proto::{Faction, FrameId, Part, WeaponKind};
 use bc_sim::content::frame;
 use bc_sim::world::{COLONY_CENTER, COLONY_RADIUS};
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
@@ -236,6 +236,7 @@ fn spawn_showcase(mut commands: Commands, mut show: ResMut<Show>) {
                 aim: Vec3::Z,
                 flags: 0,
                 thrust: Vec3::ZERO,
+                parts: [7; Part::COUNT],
             };
             commands.spawn((d, Transform::from_translation(LINEUP), Visibility::default())).id()
         })
@@ -482,6 +483,12 @@ fn script(
                     d.aim = d.rot * Vec3::new(0.45 * a.sin(), 0.3 * (a * 0.7).cos(), 1.0).normalize();
                     d.flags = f;
                     d.thrust = if f == ent_flags::BOOST { Vec3::Z } else { Vec3::ZERO };
+                    // The Alliance Leo has lost its left arm and is badly hurt; the wreck is gone.
+                    d.parts = match i {
+                        3 => [5, 3, 0, 4, 2, 7],
+                        6 => [0; Part::COUNT],
+                        _ => [7; Part::COUNT],
+                    };
                 });
             }
         }
@@ -499,6 +506,16 @@ fn script(
                     d.aim = (foe - p).normalize_or(Vec3::Z);
                     d.rot = if i == 2 { facing(vel) } else { facing(foe - p) };
                     d.thrust = if dead { Vec3::ZERO } else { Vec3::new(0.3, 0.0, 0.7) };
+                    // The Taurus is worn down until it dies; the Leo is hurt by the Twin Buster.
+                    let u = t % 10.0;
+                    d.parts = match i {
+                        2 => {
+                            let k = u.min(6.0) as u8;
+                            [7, 7 - k, 7, 7 - k / 2, 7 - k / 2, 7]
+                        }
+                        1 if u >= 2.05 => [7, 5, 7, 3, 6, 7],
+                        _ => [7; Part::COUNT],
+                    };
                     d.flags = if dead {
                         ent_flags::WRECK
                     } else {
@@ -540,7 +557,12 @@ fn script(
                     });
                 }
                 if crossed(s.t + flight as f64) {
-                    events.0.push(FxEvent::Hit { pos: duel_pos(s.target, t), weapon: s.weapon });
+                    events.0.push(FxEvent::Hit {
+                        pos: duel_pos(s.target, t),
+                        weapon: s.weapon,
+                        normal: None,
+                        target: Some((s.target as u16, Part::Torso)),
+                    });
                 }
             }
             if crossed((t / 10.0).floor() * 10.0 + 7.0) {
@@ -586,6 +608,14 @@ fn script(
                 d.aim = heading;
                 d.flags = if boost { ent_flags::BOOST } else { 0 };
                 d.thrust = if boost { Vec3::Z } else { Vec3::new(0.0, 0.6 * g, 0.3) };
+                let torso = if u >= 6.45 {
+                    5
+                } else if u >= 6.05 {
+                    6
+                } else {
+                    7
+                };
+                d.parts = [7, torso, 7, 7, 7, 7];
             });
             // A Leo ahead, turned back to fire at the pilot, and a Taurus crossing.
             let leo = chase_pos(t + 1.6) + Vec3::new(0.0, 25.0, 0.0);
@@ -633,7 +663,12 @@ fn script(
                     });
                 }
                 if crossed(fired + flight) {
-                    events.0.push(FxEvent::Hit { pos: own + Vec3::Y * 2.0, weapon: WeaponKind::BeamRifle });
+                    events.0.push(FxEvent::Hit {
+                        pos: own + Vec3::Y * 2.0,
+                        weapon: WeaponKind::BeamRifle,
+                        normal: Some((from - own).normalize_or(Vec3::Z)),
+                        target: Some((0, Part::Torso)),
+                    });
                     events.0.push(FxEvent::Struck { weapon: WeaponKind::BeamRifle });
                 }
             }

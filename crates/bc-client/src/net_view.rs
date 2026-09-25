@@ -9,6 +9,7 @@ use bc_proto::buttons::FIRE_SECONDARY;
 use bc_proto::snapshot::{ent_flags, own_flags, zero_mode};
 use bc_sim::TICK_HZ;
 use bc_sim::content::frame;
+use bc_sim::world::COLONY_CENTER;
 use bevy::prelude::*;
 
 use crate::input::Aim;
@@ -115,11 +116,14 @@ pub fn sync_view(
             aim: if own.alive { aim.dir } else { own.rot * Vec3::Z },
             flags,
             thrust,
+            // Eighths, like everyone else's: any armour left shows as at least one.
+            parts: own.parts.map(|p| if p <= 0.0 { 0 } else { (p * 7.0).ceil().clamp(1.0, 7.0) as u8 }),
         });
     }
     for (slot, track) in world.entities.iter().enumerate() {
         let Some(track) = track else { continue };
         let e = &track.latest;
+        let state = track.state_at(t_render);
         let p = track.sample(t_render);
         let before = track.sample(t_render - 1.0);
         let raw = thrust_estimate(e.frame, p.rot, p.vel, before.vel);
@@ -136,7 +140,9 @@ pub fn sync_view(
             rot: p.rot,
             vel: p.vel,
             aim: p.aim,
-            flags: e.flags,
+            // Flags and armour as of the drawn moment, not the newest snapshot's.
+            flags: state.flags,
+            parts: state.parts,
             thrust,
         });
     }
@@ -197,7 +203,10 @@ pub fn sync_view(
             && travelled >= hull
         {
             if seen.splashes.insert((b.shooter, b.shot_seq)) {
-                events.0.push(FxEvent::Hit { pos: b.origin + dir * hull, weapon: b.weapon });
+                let at = b.origin + dir * hull;
+                let rel = at - COLONY_CENTER;
+                let normal = Vec3::new(0.0, rel.y, rel.z).normalize_or(Vec3::Y);
+                events.0.push(FxEvent::Hit { pos: at, weapon: b.weapon, normal: Some(normal), target: None });
             }
             continue;
         }
@@ -225,7 +234,25 @@ pub fn sync_view(
     // --- One-shot effects. ---
     for h in &world.hits {
         if seen.hits.insert((h.tick, h.target, h.part as u8)) {
-            events.0.push(FxEvent::Hit { pos: h.pos, weapon: h.weapon });
+            // On the hit part's armour where the shot's line meets it, as drawn now.
+            let posed = |slot: u16| {
+                if Some(slot) == own_slot {
+                    world.own.map(|o| (o.frame, core.predict.render_pos(), core.predict.state.rot))
+                } else {
+                    world.entity(slot).map(|t| {
+                        let p = t.sample(t_render);
+                        (t.latest.frame, p.pos, p.rot)
+                    })
+                }
+            };
+            let (pos, normal) = match posed(h.target) {
+                Some((f, pos, rot)) => {
+                    let (at, n) = h.impact(f, pos, rot, posed(h.shooter).map(|(_, p, _)| p));
+                    (at, Some(n))
+                }
+                None => (h.pos, None),
+            };
+            events.0.push(FxEvent::Hit { pos, weapon: h.weapon, normal, target: Some((h.target, h.part)) });
             if Some(h.target) == own_slot {
                 events.0.push(FxEvent::Struck { weapon: h.weapon });
             }

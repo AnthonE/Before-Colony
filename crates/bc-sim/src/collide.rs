@@ -77,6 +77,25 @@ pub fn sweep_capsules(
     best
 }
 
+/// Where a shot along `dir`, on the line through `through`, strikes a capsule (`a`–`b`, radius
+/// `r`), and the surface normal there. A line that misses grazes the nearest point of the surface
+/// instead (hits are decided by the server; this only places the sparks).
+pub fn capsule_impact(through: Vec3, dir: Vec3, a: Vec3, b: Vec3, r: f32) -> (Vec3, Vec3) {
+    const REACH: f32 = 1_000.0;
+    let (p, q) = (through - dir * REACH, through + dir * REACH);
+    let (s, t, d2) = segment_segment(p, q, a, b);
+    let on_line = p + (q - p) * s;
+    let on_axis = a + (b - a) * t;
+    let toward = if d2 < r * r {
+        // Back up the line from its closest approach to where it enters the armour.
+        on_line - dir * crate::math::sqrt(r * r - d2) - on_axis
+    } else {
+        on_line - on_axis
+    };
+    let n = crate::math::normalize_or(toward, -dir);
+    (on_axis + n * r, n)
+}
+
 /// Whether segment `a→b` passes within `radius` of point `p`.
 pub fn segment_near_point(a: Vec3, b: Vec3, p: Vec3, radius: f32) -> bool {
     let (_, _, d2) = segment_segment(a, b, p, p);
@@ -86,6 +105,20 @@ pub fn segment_near_point(a: Vec3, b: Vec3, p: Vec3, radius: f32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn impact_on_a_capsule() {
+        let (a, b, r) = (Vec3::new(0.0, -1.0, 0.0), Vec3::new(0.0, 1.0, 0.0), 1.0);
+        // Straight in from +z through the middle: the front of the capsule.
+        let (p, n) = capsule_impact(Vec3::ZERO, Vec3::NEG_Z, a, b, r);
+        assert!((p - Vec3::new(0.0, 0.0, 1.0)).length() < 1e-4 && (n - Vec3::Z).length() < 1e-4);
+        // A line passing wide grazes the nearest side.
+        let (p, n) = capsule_impact(Vec3::new(3.0, 0.5, 0.0), Vec3::NEG_Z, a, b, r);
+        assert!((p - Vec3::new(1.0, 0.5, 0.0)).length() < 1e-4 && (n - Vec3::X).length() < 1e-4);
+        // Off-centre but through: enters on the near face, the normal leaning toward the line.
+        let (p, n) = capsule_impact(Vec3::new(0.5, 0.0, 0.0), Vec3::NEG_Z, a, b, r);
+        assert!((p.length() - 1.0).abs() < 1e-4 && p.z > 0.8 && n.x > 0.4);
+    }
 
     #[test]
     fn crossing_segments() {

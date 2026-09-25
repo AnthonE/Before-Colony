@@ -19,6 +19,8 @@ mod colony;
 #[cfg(target_arch = "wasm32")]
 mod config;
 #[cfg(target_arch = "wasm32")]
+mod damage;
+#[cfg(target_arch = "wasm32")]
 mod dev_hooks;
 #[cfg(target_arch = "wasm32")]
 mod echo;

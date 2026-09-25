@@ -17,6 +17,7 @@ use bc_proto::snapshot::ent_flags;
 use bc_sim::content::frame;
 use bevy::prelude::*;
 
+use crate::damage::Damage;
 use crate::model::SuitMeshLib;
 use crate::suits_vis::SuitVisual;
 use crate::view::{FxEvent, FxEvents, SuitDrive, VisTime};
@@ -70,6 +71,17 @@ impl Anim {
         }
         d.pos + d.rot * p
     }
+
+    /// How `bone` is turned relative to the suit, posed.
+    pub fn world_rot(&self, bone: Bone) -> Quat {
+        let mut q = Quat::from_scaled_axis(self.rot[bone.index()]);
+        let mut b = bone.def().parent;
+        while let Some(k) = b {
+            q = Quat::from_scaled_axis(self.rot[k.index()]) * q;
+            b = k.def().parent;
+        }
+        q
+    }
 }
 
 /// The rotation taking `from` to `to`, as a scaled axis, limited to `max` radians.
@@ -97,11 +109,11 @@ pub fn animate_suits(
     time: Res<VisTime>,
     lib: Res<SuitMeshLib>,
     events: Res<FxEvents>,
-    mut suits: Query<(&SuitDrive, &SuitVisual, &mut Anim)>,
+    mut suits: Query<(&SuitDrive, &SuitVisual, &mut Anim, Option<&Damage>)>,
     mut bones: Query<&mut Transform>,
 ) {
     let dt = time.dt.min(0.1);
-    for (d, v, mut a) in &mut suits {
+    for (d, v, mut a, damage) in &mut suits {
         let a = &mut *a;
         let has = |f: u16| d.flags & f != 0;
         let wreck = has(ent_flags::WRECK);
@@ -216,6 +228,9 @@ pub fn animate_suits(
         a.rot[Bone::Props.index()] = Vec3::new(0.0, a.orbit, 0.0);
 
         for (i, e) in v.bones.iter().enumerate() {
+            if damage.is_some_and(|dmg| dmg.lost[i]) {
+                continue; // broken off: no longer this suit's to pose
+            }
             if let Ok(mut tf) = bones.get_mut(*e) {
                 tf.rotation = Quat::from_scaled_axis(a.rot[i]);
             }
