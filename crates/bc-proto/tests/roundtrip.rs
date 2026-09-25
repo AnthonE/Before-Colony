@@ -3,11 +3,13 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use bc_proto::events::Event;
+use bc_proto::objects::{ROCK_RECORD_BITS, SPIN_MAX};
 use bc_proto::quant::{self, VEL_MAX};
-use bc_proto::snapshot::{ENTITY_BITS, ZERO_HYPOTHESES, ZeroThreat, entity_pos_step};
+use bc_proto::snapshot::{ENTITY_BITS, OWN_BITS, ZERO_HYPOTHESES, ZeroThreat, entity_pos_step};
 use bc_proto::{
-    EntityState, Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, OwnState, Part, PilotKind,
-    SnapshotHeader, SnapshotReader, SnapshotWriter, WeaponKind, ZeroInfo,
+    ChunkDesc, ChunkKind, EntityState, Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, NO_CHUNK,
+    ObjectState, OwnState, Part, PilotKind, RockState, Segment, SnapshotHeader, SnapshotReader,
+    SnapshotWriter, WeaponKind, ZeroInfo,
 };
 use glam::{Quat, Vec3};
 use proptest::prelude::*;
@@ -52,6 +54,68 @@ fn entity() -> impl Strategy<Value = EntityState> {
         })
 }
 
+fn desc() -> impl Strategy<Value = ChunkDesc> {
+    (0u32..3, 0u8..4, 0u32..4, 0u32..6, 0u8..64, any::<u8>(), 0u32..4096).prop_map(
+        |(class, ore, frame, part, parts, seed, tens)| {
+            let frame = FrameId::from_bits(frame).unwrap();
+            let kind = match class {
+                0 => ChunkKind::Ore { ore },
+                1 => ChunkKind::Limb { frame, part: Part::from_bits(part).unwrap() },
+                _ => ChunkKind::Hulk { frame, parts },
+            };
+            ChunkDesc { kind, seed, mass_kg: tens * 10 }
+        },
+    )
+}
+
+fn object() -> impl Strategy<Value = ObjectState> {
+    (0u32..3, 0u16..1023, 0u8..4, desc(), 0u32..9_000, vec3(30_000.0), vec3(2_000.0), quat(), vec3(SPIN_MAX))
+        .prop_map(|(kind, id, generation, desc, age, pos, vel, rot, spin)| match kind {
+            0 => ObjectState::Gone { id },
+            1 => ObjectState::Free {
+                id,
+                generation,
+                desc,
+                seg: Segment { t0: 10_000 - age, pos, vel, rot, spin },
+            },
+            _ => ObjectState::Held { id, generation, desc, holder: id % 1000, right: age % 2 == 0, rot },
+        })
+}
+
+/// A decoded object matches what was sent within half a step of each quantity.
+fn object_close(back: &ObjectState, sent: &ObjectState) -> bool {
+    match (back, sent) {
+        (ObjectState::Gone { id: a }, ObjectState::Gone { id: b }) => a == b,
+        (
+            ObjectState::Free { id, generation, desc, seg },
+            ObjectState::Free { id: i2, generation: g2, desc: d2, seg: s2 },
+        ) => {
+            id == i2
+                && generation == g2
+                && desc == d2
+                && seg.t0 == s2.t0
+                && (seg.pos - s2.pos).abs().max_element() <= entity_pos_step() * 0.5 + 0.004
+                && (seg.vel - s2.vel).abs().max_element()
+                    <= quant::signed_step(VEL_MAX, quant::VEL_BITS) * 0.5 + 1e-3
+                && seg.rot.dot(s2.rot).abs() > 0.999
+                && (seg.spin - s2.spin).abs().max_element() <= quant::signed_step(SPIN_MAX, 10) * 0.5 + 1e-4
+                && *seg == s2.quantized()
+        }
+        (
+            ObjectState::Held { id, generation, desc, holder, right, rot },
+            ObjectState::Held { id: i2, generation: g2, desc: d2, holder: h2, right: r2, rot: q2 },
+        ) => {
+            id == i2
+                && generation == g2
+                && desc == d2
+                && holder == h2
+                && right == r2
+                && rot.dot(*q2).abs() > 0.995
+        }
+        _ => false,
+    }
+}
+
 proptest! {
     #[test]
     fn positions_within_half_lsb(v in -32_760.0f32..32_760.0) {
@@ -63,7 +127,7 @@ proptest! {
 
     #[test]
     fn input_packet_round_trip(aim in unit(), thrust in prop::array::uniform3(any::<i8>()), roll in any::<i8>(),
-                               buttons in 0u16..256, tick in 16u32..u32::MAX / 32, view_back in 0u32..4000,
+                               buttons in 0u16..4096, tick in 16u32..u32::MAX / 32, view_back in 0u32..4000,
                                lock in 0u16..1024, shot in any::<u8>(), count in 1u8..=4) {
         let mut p = InputPacket { ack_snapshot: tick - 3, client_time_ms: 777, count, ..Default::default() };
         for i in 0..count as usize {
@@ -72,6 +136,7 @@ proptest! {
         }
         let mut buf = [0u8; 128];
         let n = p.encode(&mut buf).unwrap();
+        prop_assert!(n <= 64, "{} bytes", n);
         let back = InputPacket::decode(&buf[..n]).unwrap();
         for i in 0..count as usize {
             prop_assert_eq!(back.cmds[i], p.cmds[i]);
@@ -79,38 +144,48 @@ proptest! {
     }
 
     #[test]
-    fn snapshot_round_trip(ents in prop::collection::vec(entity(), 0..60), pos in vec3(30_000.0), rot in quat()) {
+    fn snapshot_round_trip(ents in prop::collection::vec(entity(), 0..60), objs in prop::collection::vec(object(), 0..12),
+                           pos in vec3(30_000.0), rot in quat(), extra in -131_071i32..131_071, credits in 0u32..16_777_215) {
         let own = OwnState { slot: 5, alive: true, pos, vel: Vec3::new(10.0, -3.0, 250.0), rot, propellant: 812.5,
-                             parts: [1.0, 0.5, 0.0, 1.0, 0.25, 0.75], ..OwnState::default() };
+                             parts: [1.0, 0.5, 0.0, 1.0, 0.25, 0.75], extra_mass_kg: extra, cargo_kg: [0, 16_383, 2_500, 1],
+                             credits, held: 1_000, ..OwnState::default() };
         let mut zero = ZeroInfo { threat_count: 2, has_solution: true, solution: Vec3::X, hit_p: 0.62, ..ZeroInfo::default() };
         zero.threats[0] = ZeroThreat { slot: 9, probs: [0.1, 0.2, 0.3, 0.1, 0.1, 0.1, 0.1] };
         let events = [
-            Event::BeamSpawn { id: 7, tick: 995, shooter: 3, weapon: WeaponKind::BeamRifle, shot_seq: 4,
+            Event::BeamSpawn { id: 7, tick: 9_995, shooter: 3, weapon: WeaponKind::BeamRifle, shot_seq: 4,
                                origin: Vec3::new(100.0, 200.0, -300.0), velocity: Vec3::new(0.0, 0.0, 4000.0) },
-            Event::Hit { id: 8, tick: 998, target: 9, part: Part::ArmR, shooter: 3, weapon: WeaponKind::BeamRifle, damage: 0.25 },
-            Event::Kill { id: 9, tick: 999, victim: 9, killer: 3 },
-            Event::Leave { tick: 1000, slot: 44 },
+            Event::Hit { id: 8, tick: 9_998, target: 9, part: Part::ArmR, shooter: 3, weapon: WeaponKind::BeamRifle, damage: 0.25 },
+            Event::Kill { id: 9, tick: 9_999, victim: 9, killer: 3, hulk: NO_CHUNK },
+            Event::Detach { id: 10, tick: 9_999, source: 9, from_hulk: false, part: Part::ArmL, chunk: 55 },
+            Event::Leave { tick: 10_000, slot: 44 },
         ];
-        let header = SnapshotHeader { tick: 1000, ack_input_tick: 999, input_health: 2, time_echo_ms: 42, echo_hold_ms: 7, tidi_pct: 100, flags: 0 };
+        let rocks = [RockState::new(0, false, 0.5, 0.9), RockState::new(1_022, true, 0.0, 0.0)];
+        let header = SnapshotHeader { tick: 10_000, ack_input_tick: 999, input_health: 2, time_echo_ms: 42, echo_hold_ms: 7, tidi_pct: 100, flags: 0 };
         let mut buf = [0u8; 1500];
         let mut w = SnapshotWriter::new(&mut buf, MAX_DATAGRAM);
         w.header(&header);
         w.own(Some(&own));
         w.zero(Some(&zero));
         for e in &events { prop_assert!(w.event(e, 0)); }
-        w.end_events();
+        for r in &rocks { prop_assert!(w.rock(r, 0)); }
+        // Entities leave room for six of the largest objects.
+        let reserve = 6 * (ObjectState::MAX_BITS + 1);
         let mut written = 0;
-        for e in &ents { if w.entity(e) { written += 1 } else { break } }
+        for e in &ents { if w.entity(e, reserve) { written += 1 } else { break } }
+        let mut objects_written = 0;
+        for o in &objs { if w.object(o) { objects_written += 1 } else { break } }
         let n = w.finish().unwrap();
         prop_assert!(n <= MAX_DATAGRAM);
-        // The budget must still allow a healthy number of entities.
-        prop_assert!(written == ents.len() || written >= 25, "only {} entities fit", written);
+        // The budget must still allow a healthy number of entities, and the objects reserved for.
+        prop_assert!(written == ents.len() || written >= 20, "only {} entities fit", written);
+        prop_assert!(objects_written >= objs.len().min(6), "only {} objects fit", objects_written);
 
         let mut r = SnapshotReader::new(&buf[..n]).unwrap();
         prop_assert_eq!(*r.header(), header);
         let o = r.own().unwrap().unwrap();
         prop_assert_eq!(o.pos, own.pos);
         prop_assert_eq!(o.propellant, own.propellant);
+        prop_assert_eq!((o.extra_mass_kg, o.cargo_kg, o.credits, o.held), (extra, own.cargo_kg, credits, 1_000));
         prop_assert!(o.rot.dot(own.rot).abs() > 0.9999);
         let z = r.zero().unwrap().unwrap();
         prop_assert_eq!(z.threat_count, 2);
@@ -121,6 +196,12 @@ proptest! {
             got_events += 1;
         }
         prop_assert_eq!(got_events, events.len());
+        let mut got_rocks = 0;
+        while let Some(rock) = r.next_rock().unwrap() {
+            prop_assert_eq!(rock, rocks[got_rocks]);
+            got_rocks += 1;
+        }
+        prop_assert_eq!(got_rocks, rocks.len());
         let mut i = 0;
         while let Some(e) = r.next_entity().unwrap() {
             let src = &ents[i];
@@ -134,6 +215,12 @@ proptest! {
             i += 1;
         }
         prop_assert_eq!(i, written);
+        let mut k = 0;
+        while let Some(o) = r.next_object().unwrap() {
+            prop_assert!(object_close(&o, &objs[k]), "{:?} vs {:?}", o, objs[k]);
+            k += 1;
+        }
+        prop_assert_eq!(k, objects_written);
     }
 
     #[test]
@@ -143,15 +230,24 @@ proptest! {
             let _ = r.own();
             let _ = r.zero();
             for _ in 0..64 { if !matches!(r.next_event(), Ok(Some(_))) { break } }
+            for _ in 0..64 { if !matches!(r.next_rock(), Ok(Some(_))) { break } }
             for _ in 0..64 { if !matches!(r.next_entity(), Ok(Some(_))) { break } }
+            for _ in 0..64 { if !matches!(r.next_object(), Ok(Some(_))) { break } }
+        }
+        // Straight to a later list, skipping the earlier ones.
+        if let Ok(mut r) = SnapshotReader::new(&bytes) {
+            for _ in 0..64 { if !matches!(r.next_object(), Ok(Some(_))) { break } }
         }
         let _ = bc_proto::control::ControlMsg::decode(&bytes);
     }
 }
 
 #[test]
-fn entity_budget_matches_plan() {
+fn record_budgets_match_plan() {
     // ~25.5 bytes per entity; ~30 fit in a datagram next to header, own state, ZERO and events.
     const { assert!(ENTITY_BITS <= 206) };
     const { assert!(ZERO_HYPOTHESES == 7) };
+    const { assert!(OWN_BITS == 610) };
+    const { assert!(ROCK_RECORD_BITS == 18) };
+    const { assert!(ObjectState::MAX_BITS <= 229) };
 }

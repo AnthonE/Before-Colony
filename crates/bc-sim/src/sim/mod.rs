@@ -19,8 +19,9 @@ mod combat;
 mod wire;
 mod zero;
 
-use bc_proto::buttons::ZERO;
+use bc_proto::buttons::{GRAB, ZERO};
 use bc_proto::events::Event;
+use bc_proto::quant::{dequantize_unit, quantize_unit};
 use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, Part, PilotKind, WeaponKind};
 use glam::{Quat, Vec3};
 
@@ -440,7 +441,8 @@ impl Sim {
             let me = self.self_view(i);
             let mut cmd = ai::drive(&me, target.as_ref(), &mut ai_state, t, profile, spec);
             if seized {
-                cmd.buttons |= ZERO; // keep the System engaged while it holds the controls
+                // Keep the System engaged while it holds the controls, and the pilot's grip.
+                cmd.buttons |= ZERO | (self.suits.input[i].buttons & GRAB);
             }
             self.suits.ai[i] = ai_state;
             self.suits.input[i] = cmd;
@@ -476,9 +478,11 @@ impl Sim {
         if dead(Part::Legs) {
             thrust *= 0.9;
         }
+        // Rounded to the 8 bits the owner's client gets them in, so its prediction flies the same suit.
+        let wire = |x: f32| dequantize_unit(quantize_unit(x, 8), 8);
         FlightMods {
-            ambac: ambac.max(0.1),
-            thrust,
+            ambac: wire(ambac.max(0.1)),
+            thrust: wire(thrust),
             g_immune: s.pilot[i] == PilotKind::MobileDoll,
             lunge: matches!(s.saber[i].phase, SaberPhase::Windup | SaberPhase::Active),
         }

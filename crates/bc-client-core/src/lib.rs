@@ -212,10 +212,25 @@ impl ClientCore {
         while let Ok(Some(e)) = r.next_event() {
             events.push(e);
         }
+        let mut rocks = Vec::new();
+        while let Ok(Some(rock)) = r.next_rock() {
+            rocks.push(rock);
+        }
         let mut ents = Vec::new();
         loop {
             match r.next_entity() {
                 Ok(Some(e)) => ents.push(e),
+                Ok(None) => break,
+                Err(_) => {
+                    self.stats.decode_errors += 1;
+                    break;
+                }
+            }
+        }
+        let mut objects = Vec::new();
+        loop {
+            match r.next_object() {
+                Ok(Some(o)) => objects.push(o),
                 Ok(None) => break,
                 Err(_) => {
                     self.stats.decode_errors += 1;
@@ -231,6 +246,7 @@ impl ClientCore {
         });
         self.clock.on_snapshot(h.tick, now, rtt, h.input_health);
         self.world.apply(h.tick, own, zero, &events, &ents);
+        self.world.apply_salvage(&rocks, &objects);
         if let Some(own) = own {
             self.predict.reconcile(h.tick, &own, &self.inputs);
             self.stats.prediction_error = self.predict.last_error;

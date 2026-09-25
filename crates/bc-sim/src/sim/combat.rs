@@ -2,7 +2,7 @@
 
 use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, MELEE};
 use bc_proto::events::Event;
-use bc_proto::{InputCmd, Part, PilotKind, WeaponKind};
+use bc_proto::{InputCmd, NO_CHUNK, Part, PilotKind, WeaponKind};
 use glam::Vec3;
 
 use super::{DamageEvent, Sim};
@@ -451,7 +451,13 @@ impl Sim {
                 if shooter < self.suits.cap && shooter != j {
                     self.suits.stats[shooter].kills += 1;
                 }
-                self.events.push(Event::Kill { id: 0, tick: t, victim: j as u16, killer: d.shooter });
+                self.events.push(Event::Kill {
+                    id: 0,
+                    tick: t,
+                    victim: j as u16,
+                    killer: d.shooter,
+                    hulk: NO_CHUNK,
+                });
                 let wait = if self.suits.pilot[j] == PilotKind::MobileDoll {
                     secs(3.0)
                 } else {

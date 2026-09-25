@@ -96,6 +96,9 @@ impl Sim {
         if s.saber[i].phase != SaberPhase::Idle {
             flags |= own_flags::SABER_ACTIVE;
         }
+        if mods.lunge {
+            flags |= own_flags::LUNGE;
+        }
         if spec.zero || self.cfg.zero_on_all_frames {
             flags |= own_flags::ZERO_CAPABLE;
         }
@@ -130,6 +133,7 @@ impl Sim {
             ambac_factor: mods.ambac,
             thrust_factor: mods.thrust,
             respawn_in,
+            ..OwnState::default()
         }
     }
 

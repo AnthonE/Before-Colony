@@ -27,6 +27,11 @@ fn relevant(sim: &Sim, me: usize, e: &Event) -> bool {
         Event::Kill { .. } => true,
         Event::Clash { a, b, .. } => near(a) || near(b),
         Event::Seizure { pilot, .. } => near(pilot),
+        Event::Detach { source, from_hulk, .. } => from_hulk || near(source),
+        // A rock shattering is seen from as far off as a beam.
+        Event::RockBreak { rock, .. } => sim.field.rocks().get(rock as usize).is_some_and(|r| {
+            (r.pos - sim.suits.flight[me].pos).length_squared() < BEAM_NOTICE_RANGE * BEAM_NOTICE_RANGE
+        }),
         Event::Leave { .. } => false,
     }
 }
@@ -145,7 +150,7 @@ pub(crate) fn build_snapshot(
         if !sim.suits.alive.get(j) {
             e.flags |= ent_flags::WRECK;
         }
-        if !w.entity(&e) {
+        if !w.entity(&e, 0) {
             break;
         }
         client.prio[j] = 0.0;

@@ -10,7 +10,7 @@ use std::sync::atomic::Ordering;
 use bc_client_core::{ClientConfig, ClientCore, InputContext};
 use bc_proto::buttons::FLIGHT_ASSIST;
 use bc_proto::control::ControlMsg;
-use bc_proto::{Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, PilotKind};
+use bc_proto::{Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, Part, PilotKind};
 use bc_sector::{Control, InputMsg, SectorConfig, SlotState, read_packet};
 use bc_sim::SimConfig;
 use bc_sim::field::SUIT_CLEARANCE;
@@ -97,6 +97,11 @@ struct Outcome {
 /// client takes datagrams as they arrive but only sends inputs every `input_period` seconds (a
 /// browser frame, or a slow agent's think cycle).
 fn run(input_period: f64, brain: &mut dyn FnMut(&InputContext) -> InputCmd) -> Outcome {
+    run_with(input_period, brain, &[])
+}
+
+/// [`run`], with the client's suit missing `lost` parts from the start.
+fn run_with(input_period: f64, brain: &mut dyn FnMut(&InputContext) -> InputCmd, lost: &[Part]) -> Outcome {
     let cfg = SectorConfig {
         sim: SimConfig { target_dolls: 0, seed: 1, ..SimConfig::default() },
         max_clients: 4,
@@ -132,7 +137,14 @@ fn run(input_period: f64, brain: &mut dyn FnMut(&InputContext) -> InputCmd) -> O
     let mut welcomed = false;
     let mut max_len = 0;
     let mut missing_at_20s = None;
+    let mut damaged = lost.is_empty();
     while t < 40.0 {
+        if !damaged && let Some(own) = client.world.own {
+            for p in lost {
+                sector.sim.suits.part_hp[own.slot as usize][*p as usize] = 0.0;
+            }
+            damaged = true;
+        }
         for bytes in up.deliver(t) {
             let packet = InputPacket::decode(&bytes).expect("input decodes");
             let _ = lease.input.push(InputMsg { packet, recv_us: (t * 1e6) as u64 });
@@ -258,4 +270,17 @@ fn prediction_holds_up_against_rocks() {
     assert!(percentile(&mut touching, 0.99) < 0.25, "p99 {:.3} m", percentile(&mut touching, 0.99));
     assert!(all < 0.25, "prediction error p99 {all:.3} m");
     assert!(client.world.own.expect("own state").alive);
+}
+
+/// A suit with parts shot off flies with weaker AMBAC and thrust. The client predicts it with the
+/// factors the server sends, which the server rounds the same way before flying with them.
+#[test]
+fn prediction_holds_up_for_a_damaged_suit() {
+    let lost = [Part::ArmR, Part::Legs, Part::Backpack];
+    let Outcome { client, mut errors, .. } = run_with(1.0 / 60.0, &mut weaving_pilot, &lost);
+    let own = client.world.own.expect("own state");
+    assert!(own.thrust_factor < 0.5 && own.ambac_factor < 0.75, "the damage took: {own:?}");
+    let p99 = percentile(&mut errors, 0.99);
+    println!("damaged suit: prediction error p50 {:.4} m  p99 {p99:.4} m", percentile(&mut errors, 0.5));
+    assert!(p99 < 0.01, "prediction error p99 {p99:.3} m");
 }

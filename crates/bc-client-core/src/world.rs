@@ -5,7 +5,8 @@ use std::collections::{HashMap, VecDeque};
 use bc_proto::events::Event;
 use bc_proto::snapshot::{ent_flags, own_flags};
 use bc_proto::{
-    EntityState, Faction, FrameId, MAX_ENTITIES, OwnState, Part, PilotKind, WeaponKind, ZeroInfo,
+    CHUNK_BITS, EntityState, Faction, FrameId, MAX_ENTITIES, ObjectState, OwnState, Part, PilotKind,
+    RockState, WeaponKind, ZeroInfo,
 };
 use bc_sim::TICK_HZ;
 use bc_sim::content::{frame, frame_name, weapon};
@@ -100,6 +101,10 @@ pub struct World {
     pub hits: Vec<HitMark>,
     pub feed: VecDeque<FeedLine>,
     pub roster: HashMap<u16, (String, PilotKind)>,
+    /// Rocks whose state differs from the generated field's (mined, shattered), by id.
+    pub rocks: HashMap<u16, RockState>,
+    /// Salvage chunks in range, by id.
+    pub objects: Vec<Option<ObjectState>>,
     seen: VecDeque<u16>,
     pub faction: Faction,
     pub my_hits: u32,
@@ -119,6 +124,8 @@ impl World {
             hits: Vec::new(),
             feed: VecDeque::new(),
             roster: HashMap::new(),
+            rocks: HashMap::new(),
+            objects: vec![None; 1 << CHUNK_BITS],
             seen: VecDeque::new(),
             faction,
             my_hits: 0,
@@ -202,6 +209,21 @@ impl World {
         }
     }
 
+    /// Applies a snapshot's rock and object lists (each record is the thing's whole current state).
+    pub fn apply_salvage(&mut self, rocks: &[RockState], objects: &[ObjectState]) {
+        for r in rocks {
+            self.rocks.insert(r.id, *r);
+        }
+        for o in objects {
+            if let Some(slot) = self.objects.get_mut(o.id() as usize) {
+                *slot = match o {
+                    ObjectState::Gone { .. } => None,
+                    other => Some(*other),
+                };
+            }
+        }
+    }
+
     fn apply_event(&mut self, ev: &Event, me: Option<u16>) {
         match *ev {
             Event::Leave { tick, slot } => {
@@ -265,7 +287,7 @@ impl World {
                     self.beams.remove(k);
                 }
             }
-            Event::Kill { id, tick, victim, killer } => {
+            Event::Kill { id, tick, victim, killer, .. } => {
                 if !self.first_time(id) {
                     return;
                 }
@@ -287,6 +309,8 @@ impl World {
                     self.push_feed(FeedLine::Seizure { tick, pilot, active });
                 }
             }
+            // The chunks a limb or a shattered rock leaves arrive in the objects list.
+            Event::Detach { .. } | Event::RockBreak { .. } => {}
         }
     }
 

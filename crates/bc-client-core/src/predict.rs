@@ -73,7 +73,7 @@ impl Predictor {
             ambac: own.ambac_factor,
             thrust: own.thrust_factor,
             g_immune: false,
-            lunge: own.flags & own_flags::SABER_ACTIVE != 0,
+            lunge: own.flags & own_flags::LUNGE != 0,
         }
     }
 
