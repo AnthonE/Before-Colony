@@ -1,21 +1,29 @@
-//! Beams, machine-cannon tracers, hit sparks and explosions (pooled entities, no per-frame spawns),
-//! drawn from the view model: the [`BeamFeed`], [`FxEvent`]s and the suits' [`SuitDrive`]s.
+//! Weapons and battle effects, drawn from the view model (the [`BeamFeed`], [`FxEvent`]s and the
+//! suits' [`SuitDrive`]s):
+//! - beams and machine-cannon tracers as glowing ribbons (pooled, see `beams`);
+//! - muzzle flashes, impacts, saber clashes, the Twin Buster Rifle's charge, ring and ionised
+//!   trail, attitude jets and suits exploding, as particles (`particles`), shells and armour
+//!   chips (`blast`);
+//! - and the point lights those effects cast on the suits around them.
 
 use std::collections::HashMap;
 
 use bc_proto::WeaponKind;
 use bc_proto::snapshot::ent_flags;
 use bc_sim::content::frame;
+use bevy::mesh::MeshTag;
 use bevy::prelude::*;
 
-use crate::assets::{MeshLib, Palette};
+use crate::beams::{BeamMaterial, Ribbons, place_ribbon};
+use crate::blast::Blasts;
 use crate::camera::MainCamera;
 use crate::gfx::Gfx;
+use crate::particles::{At, Particles};
+use crate::suits_vis::{SABER_DIR, SABER_HILT};
 use crate::view::{BeamFeed, FxEvent, FxEvents, SuitDrive, VisTime};
 
 const BEAMS: usize = 96;
 const TRACERS: usize = 96;
-const FLASHES: usize = 48;
 /// Point lights for effects (the most any tier uses).
 const LIGHTS: usize = 24;
 
@@ -23,8 +31,6 @@ const LIGHTS: usize = 24;
 pub struct BeamVis(usize);
 #[derive(Component)]
 pub struct TracerVis(usize);
-#[derive(Component)]
-pub struct FlashVis(usize);
 #[derive(Component)]
 pub struct FxLight(usize);
 
@@ -34,12 +40,13 @@ struct Tracer {
     born: f64,
 }
 
+/// A burst of light from an effect (muzzle, hit, blast, clash), fading over `life`.
 struct Flash {
     pos: Vec3,
     born: f64,
-    size: f32,
     life: f64,
-    blast: bool,
+    lumens: f32,
+    color: Color,
 }
 
 #[derive(Resource, Default)]
@@ -49,12 +56,13 @@ pub struct FxState {
     last_tracer: HashMap<u16, f64>,
 }
 
-pub fn setup_fx(mut commands: Commands, lib: Res<MeshLib>, pal: Res<Palette>) {
+pub fn setup_fx(mut commands: Commands, ribbons: Res<Ribbons>) {
     for i in 0..BEAMS {
         commands.spawn((
             BeamVis(i),
-            Mesh3d(lib.capsule.clone()),
-            MeshMaterial3d(pal.beam_rifle.clone()),
+            Mesh3d(ribbons.mesh.clone()),
+            MeshMaterial3d(ribbons.rifle.material.clone()),
+            MeshTag(i as u32 * 37 % 256),
             Transform::default(),
             Visibility::Hidden,
         ));
@@ -62,17 +70,9 @@ pub fn setup_fx(mut commands: Commands, lib: Res<MeshLib>, pal: Res<Palette>) {
     for i in 0..TRACERS {
         commands.spawn((
             TracerVis(i),
-            Mesh3d(lib.capsule.clone()),
-            MeshMaterial3d(pal.tracer.clone()),
-            Transform::default(),
-            Visibility::Hidden,
-        ));
-    }
-    for i in 0..FLASHES {
-        commands.spawn((
-            FlashVis(i),
-            Mesh3d(lib.sphere.clone()),
-            MeshMaterial3d(pal.spark.clone()),
+            Mesh3d(ribbons.mesh.clone()),
+            MeshMaterial3d(ribbons.tracer.material.clone()),
+            MeshTag(i as u32 * 53 % 256),
             Transform::default(),
             Visibility::Hidden,
         ));
@@ -87,20 +87,6 @@ pub fn setup_fx(mut commands: Commands, lib: Res<MeshLib>, pal: Res<Palette>) {
     }
 }
 
-fn beam_style(pal: &Palette, w: WeaponKind) -> (Handle<StandardMaterial>, f32, f32) {
-    match w {
-        WeaponKind::TwinBusterRifle => (pal.buster.clone(), 4.5, 420.0),
-        WeaponKind::BeamCannon => (pal.beam_cannon.clone(), 1.1, 120.0),
-        _ => (pal.beam_rifle.clone(), 0.55, 90.0),
-    }
-}
-
-fn place_streak(tf: &mut Transform, head: Vec3, dir: Vec3, len: f32, radius: f32) {
-    tf.translation = head - dir * (len * 0.5);
-    tf.rotation = Quat::from_rotation_arc(Vec3::Y, dir);
-    tf.scale = Vec3::new(radius * 2.0, len * 0.5, radius * 2.0);
-}
-
 /// Shows or hides a pooled entity, writing only on change (no change-detection churn).
 fn show(v: &mut Visibility, on: bool) {
     let want = if on { Visibility::Visible } else { Visibility::Hidden };
@@ -109,36 +95,47 @@ fn show(v: &mut Visibility, on: bool) {
     }
 }
 
+fn color(v: Vec3) -> Color {
+    let m = v.max_element().max(1e-3);
+    Color::linear_rgb(v.x / m, v.y / m, v.z / m)
+}
+
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub fn update_fx(
     time: Res<VisTime>,
-    pal: Res<Palette>,
+    gfx: Res<Gfx>,
+    ribbons: Res<Ribbons>,
     feed: Res<BeamFeed>,
     mut events: ResMut<FxEvents>,
     suits: Query<&SuitDrive>,
+    cams: Query<&GlobalTransform, With<MainCamera>>,
     mut state: ResMut<FxState>,
+    mut particles: ResMut<Particles>,
+    mut blasts: ResMut<Blasts>,
     mut beams: Query<
-        (&BeamVis, &mut Transform, &mut Visibility, &mut MeshMaterial3d<StandardMaterial>),
-        (Without<TracerVis>, Without<FlashVis>),
+        (&BeamVis, &mut Transform, &mut Visibility, &mut MeshMaterial3d<BeamMaterial>),
+        Without<TracerVis>,
     >,
-    mut tracers: Query<(&TracerVis, &mut Transform, &mut Visibility), (Without<BeamVis>, Without<FlashVis>)>,
-    mut flashes: Query<
-        (&FlashVis, &mut Transform, &mut Visibility, &mut MeshMaterial3d<StandardMaterial>),
-        (Without<BeamVis>, Without<TracerVis>),
-    >,
+    mut tracers: Query<(&TracerVis, &mut Transform, &mut Visibility), Without<BeamVis>>,
 ) {
     let now = time.now;
+    let cap = gfx.settings.particles;
+    let eye = cams.single().map_or(Vec3::ZERO, |c| c.translation());
 
     // --- Beams. ---
     for (vis, mut tf, mut v, mut mat) in &mut beams {
         match feed.0.get(vis.0) {
             Some(b) => {
-                let (m, r, len) = beam_style(&pal, b.weapon);
-                place_streak(&mut tf, b.head, b.dir, len.min(b.travelled.max(1.0)), r);
-                if mat.0 != m {
-                    mat.0 = m;
+                let look = ribbons.look(b.weapon);
+                let length = look.length.min(b.travelled.max(1.0));
+                place_ribbon(&mut tf, b.head, b.dir, length, look.half_width);
+                if mat.0 != look.material {
+                    mat.0 = look.material.clone();
                 }
                 show(&mut v, true);
+                if b.weapon == WeaponKind::TwinBusterRifle {
+                    particles.trail(cap, b.head, b.dir, length, look.color, time.dt);
+                }
             }
             None => show(&mut v, false),
         }
@@ -154,7 +151,16 @@ pub fn update_fx(
         if now - last > 0.1 {
             state.last_tracer.insert(d.slot, now);
             let origin = d.pos + d.rot * m.arm.muzzle();
-            state.tracers.push(Tracer { origin, vel: d.vel + d.aim * 1_200.0, born: now });
+            let dir = d.aim.normalize_or(d.rot * Vec3::Z);
+            state.tracers.push(Tracer { origin, vel: d.vel + dir * 1_200.0, born: now });
+            particles.muzzle(cap, At { pos: origin, vel: d.vel }, dir, ribbons.tracer.color, 0.7);
+            state.flashes.push(Flash {
+                pos: origin,
+                born: now,
+                life: 0.06,
+                lumens: 2.0e7,
+                color: color(ribbons.tracer.color),
+            });
         }
     }
     state.tracers.retain(|tr| now - tr.born < 1.2);
@@ -163,48 +169,124 @@ pub fn update_fx(
     if n > TRACERS {
         state.tracers.drain(..n - TRACERS);
     }
+    let tracer = &ribbons.tracer;
     for (vis, mut tf, mut v) in &mut tracers {
         match state.tracers.get(vis.0) {
             Some(tr) => {
                 let head = tr.origin + tr.vel * (now - tr.born) as f32;
-                place_streak(&mut tf, head, tr.vel.normalize_or(Vec3::Z), 18.0, 0.25);
+                let travelled = head.distance(tr.origin);
+                let dir = tr.vel.normalize_or(Vec3::Z);
+                place_ribbon(&mut tf, head, dir, tracer.length.min(travelled.max(1.0)), tracer.half_width);
                 show(&mut v, true);
             }
             None => show(&mut v, false),
         }
     }
 
-    // --- Sparks on hits, blasts on kills. ---
-    for ev in events.0.drain(..) {
-        let flash = match ev {
-            FxEvent::Hit { pos, weapon } => {
-                let size = if weapon == WeaponKind::TwinBusterRifle { 26.0 } else { 6.0 };
-                Flash { pos, born: now, size, life: 0.35, blast: false }
+    // --- Attitude jets: sideways and vertical thrust vents vapour the other way. ---
+    for d in &suits {
+        if d.flags & ent_flags::WRECK != 0 {
+            continue;
+        }
+        let at = |local: Vec3| At { pos: d.pos + d.rot * local, vel: d.vel };
+        let (x, y) = (d.thrust.x, d.thrust.y);
+        if x.abs() > 0.25 {
+            let s = x.signum();
+            particles.jet(
+                cap,
+                at(Vec3::new(-s * 4.4, 4.4, 0.0)),
+                d.rot * Vec3::X * -s,
+                30.0 * x.abs(),
+                time.dt,
+            );
+        }
+        if y.abs() > 0.25 {
+            let s = y.signum();
+            for side in [-1.0, 1.0] {
+                let nozzle = at(Vec3::new(side * 3.2, 4.4 - s * 1.2, 0.0));
+                particles.jet(cap, nozzle, d.rot * Vec3::Y * -s, 15.0 * y.abs(), time.dt);
             }
-            FxEvent::Kill { pos } => Flash { pos, born: now, size: 55.0, life: 1.4, blast: true },
-        };
-        state.flashes.push(flash);
-    }
-    state.flashes.retain(|f| now - f.born < f.life);
-    let n = state.flashes.len();
-    if n > FLASHES {
-        state.flashes.drain(..n - FLASHES);
-    }
-    for (vis, mut tf, mut v, mut mat) in &mut flashes {
-        match state.flashes.get(vis.0) {
-            Some(f) => {
-                let age = ((now - f.born) / f.life) as f32;
-                tf.translation = f.pos;
-                tf.scale = Vec3::splat(f.size * (0.3 + age) * (1.0 - age * 0.5));
-                let m = if f.blast { &pal.blast } else { &pal.spark };
-                if mat.0 != *m {
-                    mat.0 = m.clone();
-                }
-                show(&mut v, true);
-            }
-            None => show(&mut v, false),
         }
     }
+
+    // --- The Twin Buster Rifle drawing in energy while it charges. ---
+    for d in &suits {
+        if d.flags & ent_flags::CHARGING != 0
+            && d.flags & ent_flags::WRECK == 0
+            && let Some(m) = frame(d.frame).loadout[0]
+        {
+            let muzzle = d.pos + d.rot * (m.arm.muzzle() + Vec3::Z * 5.0);
+            particles.charge(cap, At { pos: muzzle, vel: d.vel }, time.dt);
+            state.flashes.push(Flash {
+                pos: muzzle,
+                born: now,
+                life: 0.05,
+                lumens: 6.0e7,
+                color: Color::linear_rgb(0.9, 0.6, 1.0),
+            });
+        }
+    }
+
+    // --- One-shot effects. ---
+    for ev in events.0.drain(..) {
+        match ev {
+            FxEvent::Hit { pos, weapon } => {
+                let look = ribbons.look(weapon);
+                let big = weapon == WeaponKind::TwinBusterRifle;
+                // Sparks fly back toward the camera's side of the target.
+                let normal = (eye - pos).normalize_or(Vec3::Y);
+                let scale = if big { 3.0 } else { 1.0 };
+                particles.impact(cap, At { pos, vel: Vec3::ZERO }, normal, look.color, scale);
+                state.flashes.push(Flash {
+                    pos,
+                    born: now,
+                    life: if big { 0.4 } else { 0.25 },
+                    lumens: if big { 6.0e8 } else { 1.2e8 },
+                    color: Color::srgb(1.0, 0.85, 0.6),
+                });
+            }
+            FxEvent::Kill { pos } => {
+                let at = At { pos, vel: Vec3::ZERO };
+                particles.explosion(cap, at, 1.0);
+                blasts.shockwave(pos, Vec3::ZERO, 70.0);
+                blasts.chips(pos, Vec3::ZERO, 14);
+                state.flashes.push(Flash {
+                    pos,
+                    born: now,
+                    life: 1.4,
+                    lumens: 1.6e9,
+                    color: Color::srgb(1.0, 0.62, 0.3),
+                });
+            }
+            FxEvent::Muzzle { pos, dir, vel, weapon } => {
+                let look = ribbons.look(weapon);
+                let buster = weapon == WeaponKind::TwinBusterRifle;
+                let scale = if buster { 4.0 } else { 1.0 };
+                particles.muzzle(cap, At { pos, vel }, dir, look.color, scale);
+                if buster {
+                    blasts.ring(pos + dir * 6.0, vel, dir, 28.0);
+                }
+                state.flashes.push(Flash {
+                    pos,
+                    born: now,
+                    life: 0.1 * f64::from(scale),
+                    lumens: 8.0e7 * scale,
+                    color: color(look.color),
+                });
+            }
+            FxEvent::Clash { pos } => {
+                particles.clash(cap, At { pos, vel: Vec3::ZERO });
+                state.flashes.push(Flash {
+                    pos,
+                    born: now,
+                    life: 0.3,
+                    lumens: 2.5e8,
+                    color: Color::srgb(1.0, 0.4, 0.75),
+                });
+            }
+        }
+    }
+    state.flashes.retain(|f| now - f.born < f.life);
 }
 
 /// A light an effect wants this frame.
@@ -216,12 +298,13 @@ pub struct LightWish {
     lumens: f32,
 }
 
-/// Lights the suits around hits, blasts, sabers and Twin Buster beams: the pooled point lights go to
-/// the effects nearest the camera, up to the tier's budget.
+/// Lights the suits around flashes, blasts, sabers and Twin Buster beams: the pooled point lights
+/// go to the effects nearest the camera, up to the tier's budget.
 #[allow(clippy::too_many_arguments)]
 pub fn update_fx_lights(
     time: Res<VisTime>,
     gfx: Res<Gfx>,
+    ribbons: Res<Ribbons>,
     state: Res<FxState>,
     feed: Res<BeamFeed>,
     suits: Query<&SuitDrive>,
@@ -235,17 +318,16 @@ pub fn update_fx_lights(
         let now = time.now;
         for f in &state.flashes {
             let age = ((now - f.born) / f.life).clamp(0.0, 1.0) as f32;
-            let fade = (1.0 - age) * (1.0 - age);
-            wishes.push(if f.blast {
-                LightWish { pos: f.pos, color: Color::srgb(1.0, 0.62, 0.3), lumens: 1.4e9 * fade }
-            } else {
-                LightWish { pos: f.pos, color: Color::srgb(1.0, 0.85, 0.6), lumens: 1.2e8 * fade }
+            wishes.push(LightWish {
+                pos: f.pos,
+                color: f.color,
+                lumens: f.lumens * (1.0 - age) * (1.0 - age),
             });
         }
         for d in &suits {
             if d.flags & ent_flags::SABER != 0 && d.flags & ent_flags::WRECK == 0 {
                 // The middle of the blade in the left hand.
-                let pos = d.pos + d.rot * Vec3::new(-3.6, 8.6, 6.5);
+                let pos = d.pos + d.rot * (SABER_HILT + SABER_DIR * ribbons.saber.length * 0.5);
                 wishes.push(LightWish { pos, color: Color::srgb(1.0, 0.3, 0.65), lumens: 3.0e7 });
             }
         }

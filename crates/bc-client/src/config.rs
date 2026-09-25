@@ -29,6 +29,8 @@ pub struct LaunchConfig {
     pub showcase_cam: u32,
     /// `?realtime=1`: run the showcase on the wall clock instead of a fixed 60 Hz step.
     pub showcase_realtime: bool,
+    /// `?hold=N`: stop the showcase clock after N frames (0: never), for exact screenshots.
+    pub showcase_hold: u64,
     /// `?perf=1`: frame-time overlay.
     pub perf: bool,
 }
@@ -68,6 +70,7 @@ impl LaunchConfig {
             showcase_t: number("t").unwrap_or(0.0),
             showcase_cam: number("cam").map_or(1, |c| c.clamp(1.0, 9.0) as u32),
             showcase_realtime: flag("realtime"),
+            showcase_hold: number("hold").map_or(0, |n| n.max(0.0) as u64),
             perf: flag("perf"),
         }
     }

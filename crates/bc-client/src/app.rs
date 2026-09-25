@@ -11,6 +11,7 @@ use crate::hud::{setup_hud, update_hud};
 use crate::input::{Aim, Controls, read_input};
 use crate::net::{LaunchConfigRes, NetPlugin, drive, game_client, start_net_loop};
 use crate::net_view::{sync_view, tick_vis_time};
+use crate::particles::{setup_particles, update_particles};
 use crate::showcase::{Scene, ShowcasePlugin};
 use crate::suits_vis::{build_suits, pose_suits};
 use crate::view::{BeamFeed, CameraTarget, FxEvents, SuitIndex, Vis, VisTime};
@@ -45,6 +46,7 @@ pub fn run() {
                 t0: cfg.showcase_t,
                 cam: cfg.showcase_cam,
                 realtime: cfg.showcase_realtime,
+                hold: cfg.showcase_hold,
             },
         ));
     } else {
@@ -79,20 +81,41 @@ impl Plugin for VisualsPlugin {
                 crate::sky::SkyPlugin,
                 crate::materials::MaterialsPlugin,
                 crate::colony::ColonyPlugin,
+                crate::particles::ParticlesPlugin,
+                crate::beams::BeamsPlugin,
+                crate::blast::BlastPlugin,
+                crate::ambience::AmbiencePlugin,
             ))
             .configure_sets(Update, (Vis::Drive, Vis::Suits, Vis::Camera, Vis::Fx, Vis::Hud).chain())
             .add_systems(
                 Startup,
                 (
-                    (setup_assets, crate::materials::setup_materials),
-                    (crate::colony::setup_colony, crate::rocks::setup_field, spawn_camera, setup_fx),
+                    (setup_assets, crate::materials::setup_materials, crate::beams::setup_ribbons),
+                    (
+                        crate::colony::setup_colony,
+                        crate::rocks::setup_field,
+                        spawn_camera,
+                        setup_fx,
+                        setup_particles,
+                        crate::blast::setup_blasts,
+                        crate::ambience::setup_ambience,
+                    ),
                 )
                     .chain(),
             )
             .add_systems(Update, (build_suits, pose_suits).chain().in_set(Vis::Suits))
             .add_systems(
                 Update,
-                (update_fx, update_fx_lights, crate::rocks::rock_lod).chain().in_set(Vis::Fx),
+                (
+                    update_fx,
+                    update_fx_lights,
+                    update_particles,
+                    crate::blast::update_blasts,
+                    crate::ambience::update_ambience,
+                    crate::rocks::rock_lod,
+                )
+                    .chain()
+                    .in_set(Vis::Fx),
             );
     }
 }

@@ -7,24 +7,34 @@ import { bc, collectConsole, luminanceStdDev } from "./util";
 //
 //   BC_GFX_QUALITY=high (default) | low | medium | ultra
 const quality = process.env.BC_GFX_QUALITY ?? "high";
-const scenes: Array<[string, number]> = [
-  ["lineup", 1],
-  ["lineup", 2],
-  ["duel", 1],
-  ["colony", 1],
-  ["colony", 2],
-  ["field", 1],
-  ["sky", 1],
-  ["sky", 2],
-  ["sky", 3],
-  ["sky", 4],
+// [scene, camera preset, start time (s), frames to run]. The clock stops after the last frame
+// (`hold`), so each screenshot shows one exact moment; effects need their triggering event inside
+// the run.
+const scenes: Array<[string, number, number, number]> = [
+  ["lineup", 1, 6, 12],
+  ["lineup", 2, 6, 12],
+  // The Taurus exploding as Wing Zero's shot lands, with the Leo's machine-cannon tracers.
+  ["duel", 1, 6.75, 30],
+  // The Twin Buster Rifle mid-shot.
+  ["duel", 2, 1.85, 12],
+  // Beam sabers clashing.
+  ["duel", 3, 4.4, 12],
+  ["colony", 1, 6, 12],
+  ["colony", 2, 6, 12],
+  ["field", 1, 6, 12],
+  ["sky", 1, 6, 12],
+  ["sky", 2, 6, 12],
+  ["sky", 3, 6, 12],
+  ["sky", 4, 6, 12],
 ];
 
-for (const [scene, cam] of scenes) {
+for (const [scene, cam, t, frames] of scenes) {
   test(`showcase ${scene} cam ${cam} (${quality})`, async ({ page }, info) => {
     test.setTimeout(240_000);
     const logs = collectConsole(page);
-    await page.goto(`/?showcase=${scene}&cam=${cam}&t=6&quality=${quality}&gfx=${info.project.name}`);
+    await page.goto(
+      `/?showcase=${scene}&cam=${cam}&t=${t}&hold=${frames}&quality=${quality}&gfx=${info.project.name}`,
+    );
     // A few frames past start-up, so pipelines have compiled and effects are on screen. A GPU
     // validation error or a panic stops the app, so fail on one at once rather than time out.
     const broken = new Promise<string>((resolve) =>
@@ -33,7 +43,10 @@ for (const [scene, cam] of scenes) {
       }),
     );
     const ready = page
-      .waitForFunction("(window.__bc?.showcase_frames ?? 0) >= 12", null, { timeout: 200_000, polling: 500 })
+      .waitForFunction(`(window.__bc?.showcase_frames ?? 0) >= ${frames}`, null, {
+        timeout: 200_000,
+        polling: 500,
+      })
       .then(() => "");
     const error = await Promise.race([ready, broken]);
     expect(error.slice(0, 800)).toBe("");

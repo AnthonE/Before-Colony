@@ -7,6 +7,7 @@ use bevy::mesh::MeshTag;
 use bevy::prelude::*;
 
 use crate::assets::{MeshLib, Palette};
+use crate::beams::{Ribbons, beam_tag, plume_tag};
 use crate::materials::{HullMaterial, HullTag, Surfaces, paint};
 use crate::view::{SuitDrive, VisTime};
 
@@ -18,13 +19,12 @@ pub struct SuitVisual {
     frame: FrameId,
     armour: Vec<(Entity, HullTag)>,
     wreck: bool,
-    thruster: Entity,
+    plume: Entity,
     saber: Entity,
-    charge: Entity,
     aura: Entity,
 }
 
-/// Marks the toggled children (thruster, saber, charge glow, ZERO aura).
+/// Marks the toggled children (thruster plume, saber, ZERO aura).
 #[derive(Component)]
 pub struct SuitPartMarker;
 
@@ -53,17 +53,9 @@ impl Armour<'_> {
     }
 }
 
-/// A child shown only in some states; it starts hidden.
-fn toggled(
-    commands: &mut ChildSpawnerCommands,
-    mesh: &Handle<Mesh>,
-    mat: &Handle<StandardMaterial>,
-    t: Transform,
-) -> Entity {
-    commands
-        .spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone()), t, SuitPartMarker, Visibility::Hidden))
-        .id()
-}
+/// Where the beam saber's blade starts, and which way it points, in the suit's frame.
+pub const SABER_HILT: Vec3 = Vec3::new(-3.6, 1.0, 3.2);
+pub const SABER_DIR: Vec3 = Vec3::new(0.0, 0.6216, 0.7833);
 
 fn at(x: f32, y: f32, z: f32) -> Transform {
     Transform::from_xyz(x, y, z)
@@ -89,12 +81,13 @@ fn build_suit(
     lib: &MeshLib,
     pal: &Palette,
     hull: &Handle<HullMaterial>,
+    ribbons: &Ribbons,
     d: &SuitDrive,
 ) {
     let frame = d.frame;
     let (body, trim, eye) = livery(pal, frame, d.faction);
     let mut armour = Armour { hull, pieces: Vec::new(), seed: (d.slot as u8).wrapping_mul(7) };
-    let mut ids = (Entity::PLACEHOLDER, Entity::PLACEHOLDER, Entity::PLACEHOLDER, Entity::PLACEHOLDER);
+    let mut ids = (Entity::PLACEHOLDER, Entity::PLACEHOLDER, Entity::PLACEHOLDER);
     commands.entity(root).with_children(|c| {
         let a = &mut armour;
         let bulky = if frame == FrameId::Virgo { 1.2 } else { 1.0 };
@@ -113,16 +106,20 @@ fn build_suit(
             a.piece(c, &lib.capsule, body, at(1.2 * side, -4.4, 0.0).with_scale(Vec3::new(2.3, 3.4, 2.3)));
             a.piece(c, &lib.cube, trim, at(1.2 * side, -8.4, 0.5).with_scale(Vec3::new(1.8, 1.0, 3.0)));
         }
-        // Backpack and its thruster glow.
+        // Backpack and its main thruster's plume, streaming back along −Z.
         a.piece(c, &lib.cube, trim, at(0.0, 4.0, -2.4).with_scale(Vec3::new(3.0, 2.8, 1.8)));
-        let thruster = toggled(
-            c,
-            &lib.cone,
-            &pal.thruster,
-            at(0.0, 3.2, -4.6)
-                .with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2))
-                .with_scale(Vec3::new(1.4, 3.0, 1.4)),
-        );
+        let plume = c
+            .spawn((
+                Mesh3d(ribbons.mesh.clone()),
+                MeshMaterial3d(ribbons.plume.clone()),
+                plume_tag(0.0, d.slot as u8),
+                at(0.0, 3.4, -3.4)
+                    .with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2))
+                    .with_scale(Vec3::new(1.2, 8.0, 1.0)),
+                SuitPartMarker,
+                Visibility::Hidden,
+            ))
+            .id();
         // Rifle in the right hand.
         let rifle_len = match frame {
             FrameId::WingZero => 11.0,
@@ -130,19 +127,20 @@ fn build_suit(
             _ => 7.0,
         };
         a.piece(c, &lib.cube, paint::DARK, at(3.6, 0.5, 3.4).with_scale(Vec3::new(0.8, 1.0, rifle_len)));
-        let charge = toggled(
-            c,
-            &lib.sphere,
-            &pal.charge,
-            at(3.6, 0.5, 3.4 + rifle_len * 0.5).with_scale(Vec3::splat(1.6)),
-        );
-        // Beam saber in the left hand.
-        let saber = toggled(
-            c,
-            &lib.capsule,
-            &pal.saber,
-            at(-3.6, 5.0, 3.0).with_rotation(Quat::from_rotation_x(0.9)).with_scale(Vec3::new(1.0, 9.0, 1.0)),
-        );
+        // Beam saber in the left hand: a blade ribbon from the hilt, raised forward.
+        let blade = &ribbons.saber;
+        let saber = c
+            .spawn((
+                Mesh3d(ribbons.mesh.clone()),
+                MeshMaterial3d(blade.material.clone()),
+                beam_tag(d.slot as u8, true),
+                at(SABER_HILT.x, SABER_HILT.y, SABER_HILT.z)
+                    .with_rotation(Quat::from_rotation_arc(Vec3::Y, SABER_DIR))
+                    .with_scale(Vec3::new(blade.half_width, blade.length, 1.0)),
+                SuitPartMarker,
+                Visibility::Hidden,
+            ))
+            .id();
         match frame {
             FrameId::WingZero => {
                 // V-fin and the wing binders.
@@ -186,8 +184,18 @@ fn build_suit(
                 }
             }
         }
-        let aura = toggled(c, &lib.sphere, &pal.zero_aura, at(0.0, 0.0, 0.0).with_scale(Vec3::splat(11.0)));
-        ids = (thruster, saber, charge, aura);
+        // The ZERO aura: a shell glowing at its rim (its MeshTag sets how bright).
+        let aura = c
+            .spawn((
+                Mesh3d(lib.sphere.clone()),
+                MeshMaterial3d(pal.zero_aura.clone()),
+                MeshTag(170),
+                at(0.0, 0.0, 0.0).with_scale(Vec3::splat(11.0)),
+                SuitPartMarker,
+                Visibility::Hidden,
+            ))
+            .id();
+        ids = (plume, saber, aura);
     });
     commands.entity(root).insert((
         SuitVisual {
@@ -195,10 +203,9 @@ fn build_suit(
             frame,
             armour: armour.pieces,
             wreck: false,
-            thruster: ids.0,
+            plume: ids.0,
             saber: ids.1,
-            charge: ids.2,
-            aura: ids.3,
+            aura: ids.2,
         },
         Name::new(format!("suit-{}", d.slot)),
     ));
@@ -210,6 +217,7 @@ pub fn build_suits(
     lib: Res<MeshLib>,
     pal: Res<Palette>,
     surfaces: Res<Surfaces>,
+    ribbons: Res<Ribbons>,
     roots: Query<(Entity, &SuitDrive, Option<&SuitVisual>)>,
 ) {
     for (e, d, vis) in &roots {
@@ -217,14 +225,14 @@ pub fn build_suits(
             Some(v) if v.generation == d.generation && v.frame == d.frame => {}
             Some(_) => {
                 commands.entity(e).despawn_children();
-                build_suit(&mut commands, e, &lib, &pal, &surfaces.armour, d);
+                build_suit(&mut commands, e, &lib, &pal, &surfaces.armour, &ribbons, d);
             }
-            None => build_suit(&mut commands, e, &lib, &pal, &surfaces.armour, d),
+            None => build_suit(&mut commands, e, &lib, &pal, &surfaces.armour, &ribbons, d),
         }
     }
 }
 
-/// Poses every suit from its drive and switches its thruster, saber, charge glow and ZERO aura.
+/// Poses every suit from its drive and switches its thruster, saber and ZERO aura.
 pub fn pose_suits(
     time: Res<VisTime>,
     mut suits: Query<(&SuitDrive, &mut SuitVisual, &mut Transform), Without<SuitPartMarker>>,
@@ -246,27 +254,35 @@ pub fn pose_suits(
                 }
             }
         }
-        let toggles = [
-            (v.thruster, has(ent_flags::BOOST) && !wreck, Vec3::new(1.4, 3.0 + 3.0 * flicker, 1.4)),
-            (v.saber, has(ent_flags::SABER) && !wreck, Vec3::new(1.0, 9.0, 1.0)),
-            (v.charge, has(ent_flags::CHARGING) && !wreck, Vec3::splat(1.2 + 1.8 * flicker)),
-            (
-                v.aura,
-                !d.own && has(ent_flags::ZERO | ent_flags::SEIZED) && !wreck,
-                Vec3::splat(11.0 + 0.6 * flicker),
-            ),
-        ];
-        for (child, on, scale) in toggles {
-            if let Ok((mut ctf, mut cv)) = parts.get_mut(child) {
-                let want = if on { Visibility::Inherited } else { Visibility::Hidden };
-                if *cv != want {
-                    *cv = want;
-                }
-                if on {
-                    ctf.scale = scale;
-                }
+        // The main thruster: longer and brighter with forward thrust, brightest on boost.
+        let power = (d.thrust.z.max(0.0) * 0.75 + if has(ent_flags::BOOST) { 0.45 } else { 0.0 }).min(1.0);
+        let lit = power > 0.03 && !wreck;
+        if let Ok((mut ptf, mut pv)) = parts.get_mut(v.plume) {
+            set_visible(&mut pv, lit);
+            if lit {
+                ptf.scale = Vec3::new(0.9 + 0.7 * power, 4.0 + 16.0 * power * flicker, 1.0);
             }
         }
+        if lit && let Ok(mut t) = tags.get_mut(v.plume) {
+            *t = plume_tag(power, d.slot as u8);
+        }
+        if let Ok((_, mut sv)) = parts.get_mut(v.saber) {
+            set_visible(&mut sv, has(ent_flags::SABER) && !wreck);
+        }
+        let aura = !d.own && has(ent_flags::ZERO | ent_flags::SEIZED) && !wreck;
+        if let Ok((mut atf, mut av)) = parts.get_mut(v.aura) {
+            set_visible(&mut av, aura);
+            if aura {
+                atf.scale = Vec3::splat(11.0 + 0.6 * flicker);
+            }
+        }
+    }
+}
+
+fn set_visible(v: &mut Visibility, on: bool) {
+    let want = if on { Visibility::Inherited } else { Visibility::Hidden };
+    if *v != want {
+        *v = want;
     }
 }
 

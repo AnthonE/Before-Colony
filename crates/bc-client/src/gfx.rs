@@ -70,6 +70,9 @@ impl GfxTier {
             shadow_distance: reach,
             sky_detail: 1.0,
             fx_lights: 12,
+            particles: 4_000,
+            dust: 1_500,
+            flare: true,
         };
         match self {
             // Software rasterisers and weak GPUs: plain LDR, no multisampling, no post effects,
@@ -83,6 +86,9 @@ impl GfxTier {
                 shadows: false,
                 sky_detail: 0.0,
                 fx_lights: 0,
+                particles: 300,
+                dust: 0,
+                flare: false,
                 ..base
             },
             // HDR and bloom with the cheaper post-process anti-aliasing; no shadows.
@@ -93,10 +99,19 @@ impl GfxTier {
                 shadows: false,
                 sky_detail: 0.5,
                 fx_lights: 4,
+                particles: 1_500,
+                dust: 600,
                 ..base
             },
             Self::High => base,
-            Self::Ultra => TierSettings { max_dpr: 4.0, shadow_map: 4096, fx_lights: 24, ..base },
+            Self::Ultra => TierSettings {
+                max_dpr: 4.0,
+                shadow_map: 4096,
+                fx_lights: 24,
+                particles: 10_000,
+                dust: 2_500,
+                ..base
+            },
         }
     }
 }
@@ -125,6 +140,12 @@ pub struct TierSettings {
     pub sky_detail: f32,
     /// Point lights for effects (muzzle flashes, hits, blasts, sabers).
     pub fx_lights: usize,
+    /// Effect particles alive at once.
+    pub particles: usize,
+    /// Dust motes around the camera (0: none).
+    pub dust: usize,
+    /// The Sun's lens flare.
+    pub flare: bool,
 }
 
 /// The active tier.

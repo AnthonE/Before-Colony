@@ -1,9 +1,15 @@
 //! Before Colony browser client (Bevy 0.19 → wasm32).
 
 #[cfg(target_arch = "wasm32")]
+mod ambience;
+#[cfg(target_arch = "wasm32")]
 mod app;
 #[cfg(target_arch = "wasm32")]
 mod assets;
+#[cfg(target_arch = "wasm32")]
+mod beams;
+#[cfg(target_arch = "wasm32")]
+mod blast;
 #[cfg(target_arch = "wasm32")]
 mod camera;
 #[cfg(target_arch = "wasm32")]
@@ -30,6 +36,8 @@ mod net;
 mod net_view;
 #[cfg(target_arch = "wasm32")]
 mod noise;
+#[cfg(target_arch = "wasm32")]
+mod particles;
 #[cfg(target_arch = "wasm32")]
 mod perf;
 #[cfg(target_arch = "wasm32")]

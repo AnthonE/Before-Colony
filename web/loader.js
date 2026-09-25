@@ -59,6 +59,7 @@ async function main() {
     t: Number(params.get("t") || 0),
     cam: Number(params.get("cam") || 1),
     realtime: params.get("realtime") === "1",
+    hold: Number(params.get("hold") || 0),
     perf: params.get("perf") === "1",
   };
   if (!showcase) {

@@ -30,6 +30,9 @@ pub struct SuitDrive {
     pub aim: Vec3,
     /// `bc_proto::snapshot::ent_flags` bits (the own suit's state is mapped onto them).
     pub flags: u16,
+    /// Thrust demand in the suit's frame, each axis -1..1 (x right, y up, z forward): the pilot's
+    /// for the own suit, estimated from acceleration for everyone else.
+    pub thrust: Vec3,
 }
 
 /// Suit visual roots by entity slot.
@@ -53,8 +56,24 @@ pub struct BeamFeed(pub Vec<BeamView>);
 /// One-shot visual events. Producers push each event exactly once; the effects drain them.
 #[derive(Clone, Copy, Debug)]
 pub enum FxEvent {
-    Hit { pos: Vec3, weapon: WeaponKind },
-    Kill { pos: Vec3 },
+    Hit {
+        pos: Vec3,
+        weapon: WeaponKind,
+    },
+    Kill {
+        pos: Vec3,
+    },
+    /// A beam leaving the muzzle.
+    Muzzle {
+        pos: Vec3,
+        dir: Vec3,
+        vel: Vec3,
+        weapon: WeaponKind,
+    },
+    /// Beam sabers meeting.
+    Clash {
+        pos: Vec3,
+    },
 }
 
 #[derive(Resource, Default)]

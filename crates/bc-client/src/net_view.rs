@@ -7,6 +7,8 @@ use std::collections::{HashMap, HashSet};
 use bc_client_core::FeedLine;
 use bc_proto::buttons::FIRE_SECONDARY;
 use bc_proto::snapshot::{ent_flags, own_flags, zero_mode};
+use bc_sim::TICK_HZ;
+use bc_sim::content::frame;
 use bevy::prelude::*;
 
 use crate::input::Aim;
@@ -24,6 +26,23 @@ pub struct Seen {
     splashes: HashSet<(u16, u8)>,
     /// Slot → (generation, time it was first seen as a wreck), so wrecks tumble from where they died.
     wrecked: HashMap<u16, (u8, f64)>,
+    /// Beams whose muzzle flash has been shown, by (shooter, shot).
+    fired: HashSet<(u16, u8)>,
+    clashes: HashSet<(u32, u16, u16)>,
+    /// Smoothed thrust estimates for other suits, by slot.
+    thrust: HashMap<u16, Vec3>,
+}
+
+/// A suit's thrust demand in its own frame (-1..1 per axis), estimated from its acceleration
+/// between two interpolated samples a tick apart.
+fn thrust_estimate(frame_id: bc_proto::FrameId, rot: Quat, vel_now: Vec3, vel_before: Vec3) -> Vec3 {
+    let spec = frame(frame_id);
+    let mass = spec.dry_mass + spec.propellant_cap * 0.5;
+    let accel = (vel_now - vel_before) * TICK_HZ as f32;
+    let local = rot.inverse() * accel;
+    let forward = if local.z >= 0.0 { spec.main_thrust } else { spec.retro_thrust };
+    Vec3::new(local.x * mass / spec.side_thrust, local.y * mass / spec.side_thrust, local.z * mass / forward)
+        .clamp(Vec3::splat(-1.0), Vec3::splat(1.0))
 }
 
 /// Game mode's clock: the page's.
@@ -78,6 +97,12 @@ pub fn sync_view(
             flags = ent_flags::WRECK;
             (own.pos, own.rot, own.vel)
         };
+        let t = core.last_cmd.thrust;
+        let thrust = if own.alive {
+            Vec3::new(f32::from(t[0]), f32::from(t[1]), f32::from(t[2])) / 127.0
+        } else {
+            Vec3::ZERO
+        };
         want.push(SuitDrive {
             slot: own.slot,
             frame: own.frame,
@@ -89,12 +114,18 @@ pub fn sync_view(
             vel,
             aim: if own.alive { aim.dir } else { own.rot * Vec3::Z },
             flags,
+            thrust,
         });
     }
     for (slot, track) in world.entities.iter().enumerate() {
         let Some(track) = track else { continue };
         let e = &track.latest;
         let p = track.sample(t_render);
+        let before = track.sample(t_render - 1.0);
+        let raw = thrust_estimate(e.frame, p.rot, p.vel, before.vel);
+        let smooth = seen.thrust.entry(slot as u16).or_insert(raw);
+        *smooth += (raw - *smooth) * (1.0 - (-vis.dt * 8.0).exp());
+        let thrust = if e.flags & ent_flags::WRECK != 0 { Vec3::ZERO } else { *smooth };
         want.push(SuitDrive {
             slot: slot as u16,
             frame: e.frame,
@@ -106,8 +137,10 @@ pub fn sync_view(
             vel: p.vel,
             aim: p.aim,
             flags: e.flags,
+            thrust,
         });
     }
+    seen.thrust.retain(|slot, _| world.entities.get(*slot as usize).is_some_and(Option::is_some));
     // Wrecks tumble from the moment they died, not from a global phase.
     seen.wrecked.retain(|slot, _| want.iter().any(|d| d.slot == *slot && d.flags & ent_flags::WRECK != 0));
     for d in &mut want {
@@ -168,8 +201,18 @@ pub fn sync_view(
             }
             continue;
         }
+        if seen.fired.insert((b.shooter, b.shot_seq)) {
+            let vel = if Some(b.shooter) == own_slot {
+                core.predict.state.vel
+            } else {
+                world.pose(b.shooter, t_render).map_or(Vec3::ZERO, |p| p.vel)
+            };
+            events.0.push(FxEvent::Muzzle { pos: b.origin, dir, vel, weapon: b.weapon });
+        }
         beams.0.push(BeamView { head, dir, travelled, weapon: b.weapon });
     }
+    seen.fired
+        .retain(|&(shooter, shot)| world.beams.iter().any(|b| b.shooter == shooter && b.shot_seq == shot));
     seen.splashes
         .retain(|&(shooter, shot)| world.beams.iter().any(|b| b.shooter == shooter && b.shot_seq == shot));
 
@@ -192,6 +235,27 @@ pub fn sync_view(
             }
         }
     }
+    for line in &world.feed {
+        if let FeedLine::Clash { tick, a, b } = *line
+            && seen.clashes.insert((tick, a, b))
+        {
+            let at = |slot: u16| {
+                world
+                    .pose(slot, t_render)
+                    .map(|p| p.pos)
+                    .or(world.own.filter(|o| o.slot == slot).map(|o| o.pos))
+            };
+            if let (Some(pa), Some(pb)) = (at(a), at(b)) {
+                events.0.push(FxEvent::Clash { pos: (pa + pb) * 0.5 });
+            }
+        }
+    }
+    seen.clashes.retain(|&(tick, a, b)| {
+        world
+            .feed
+            .iter()
+            .any(|l| matches!(*l, FeedLine::Clash { tick: t, a: x, b: y } if t == tick && x == a && y == b))
+    });
     // Forget keys the world no longer holds (it keeps 2 s of hits and 8 feed lines), so the sets
     // stay small without ever replaying an effect.
     seen.hits.retain(|&(tick, target, part)| {

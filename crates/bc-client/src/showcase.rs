@@ -2,7 +2,7 @@
 //! scene drives the same view model the network does ([`SuitDrive`], [`BeamFeed`], [`FxEvents`]).
 //!
 //! Time runs on a fixed 60 Hz step from `?t=` (unless `?realtime=1`), so a screenshot after N frames
-//! is the same on any machine. Controls: drag to orbit, wheel to zoom, WASD/Space/C to move,
+//! is the same on any machine; `?hold=N` stops the clock after N frames. Controls: drag to orbit, wheel to zoom, WASD/Space/C to move,
 //! 1-9 camera presets, P to pause, F10 to cycle the graphics tier.
 
 use bc_proto::snapshot::ent_flags;
@@ -140,6 +140,8 @@ struct Show {
     frames: u64,
     realtime: bool,
     paused: bool,
+    /// Stop the clock after this many frames (0: never).
+    hold: u64,
     cam: Orbit,
     preset: u32,
     suits: Vec<Entity>,
@@ -153,6 +155,7 @@ pub struct ShowcasePlugin {
     pub t0: f64,
     pub cam: u32,
     pub realtime: bool,
+    pub hold: u64,
 }
 
 impl Plugin for ShowcasePlugin {
@@ -166,6 +169,7 @@ impl Plugin for ShowcasePlugin {
             frames: 0,
             realtime: self.realtime,
             paused: false,
+            hold: self.hold,
             cam: presets[preset - 1],
             preset: preset as u32,
             suits: Vec::new(),
@@ -212,6 +216,7 @@ fn spawn_showcase(mut commands: Commands, mut show: ResMut<Show>) {
                 vel: Vec3::ZERO,
                 aim: Vec3::Z,
                 flags: 0,
+                thrust: Vec3::ZERO,
             };
             commands.spawn((d, Transform::from_translation(LINEUP), Visibility::default())).id()
         })
@@ -232,7 +237,8 @@ fn advance_clock(
     real: Res<Time<Real>>,
     mut dev: ResMut<DevStatus>,
 ) {
-    let dt = if show.paused {
+    let held = show.hold > 0 && show.frames >= show.hold;
+    let dt = if show.paused || held {
         0.0
     } else if show.realtime {
         real.delta_secs_f64()
@@ -423,6 +429,7 @@ fn script(
                     };
                     d.aim = d.rot * Vec3::Z;
                     d.flags = f;
+                    d.thrust = if f == ent_flags::BOOST { Vec3::Z } else { Vec3::ZERO };
                 });
             }
         }
@@ -439,6 +446,7 @@ fn script(
                     d.vel = vel;
                     d.aim = (foe - p).normalize_or(Vec3::Z);
                     d.rot = if i == 2 { facing(vel) } else { facing(foe - p) };
+                    d.thrust = if dead { Vec3::ZERO } else { Vec3::new(0.3, 0.0, 0.7) };
                     d.flags = if dead {
                         ent_flags::WRECK
                     } else {
@@ -470,12 +478,19 @@ fn script(
                     let head = muzzle + dir * s.speed() * age;
                     beams.0.push(BeamView { head, dir, travelled: head.distance(muzzle), weapon: s.weapon });
                 }
+                if crossed(s.t) {
+                    events.0.push(FxEvent::Muzzle { pos: muzzle, dir, vel: Vec3::ZERO, weapon: s.weapon });
+                }
                 if crossed(s.t + flight as f64) {
                     events.0.push(FxEvent::Hit { pos: duel_pos(s.target, t), weapon: s.weapon });
                 }
             }
             if crossed((t / 10.0).floor() * 10.0 + 7.0) {
                 events.0.push(FxEvent::Kill { pos: duel_pos(2, t) });
+            }
+            // Blades crossing, for the effect (the duellists stay far apart).
+            if crossed((t / 10.0).floor() * 10.0 + 4.5) {
+                events.0.push(FxEvent::Clash { pos: DUEL + Vec3::new(0.0, 30.0, 0.0) });
             }
         }
         Scene::Colony => {
@@ -490,6 +505,7 @@ fn script(
                     d.rot = facing(heading);
                     d.aim = heading;
                     d.flags = ent_flags::BOOST;
+                    d.thrust = Vec3::new(0.0, 0.0, 0.8);
                 });
             }
         }
@@ -503,6 +519,7 @@ fn script(
                     d.rot = facing(d.vel) * Quat::from_rotation_z(0.2);
                     d.aim = d.rot * Vec3::Z;
                     d.flags = if i == 0 { ent_flags::BOOST } else { 0 };
+                    d.thrust = if i == 0 { Vec3::new(0.0, 0.0, 0.6) } else { Vec3::new(0.0, 0.3, 0.0) };
                 });
             }
         }
