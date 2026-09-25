@@ -64,7 +64,7 @@ impl Sim {
                 let button = if slot == 0 { FIRE_PRIMARY } else { FIRE_SECONDARY };
                 let mut ws: WeaponState = self.suits.weapons[i][slot];
                 ws.cooldown = ws.cooldown.saturating_sub(1);
-                let arm_ok = self.suits.part_hp[i][mount.arm.part() as usize] > 0.0;
+                let arm_ok = self.suits.arm_free(i, mount.arm);
                 let ready = ws.cooldown == 0
                     && !self.suits.overheated[i]
                     && self.suits.energy[i] >= w.energy
@@ -288,7 +288,7 @@ impl Sim {
             let pressed = cmd.pressed(MELEE) && s.prev_buttons[i] & MELEE == 0;
             match st.phase {
                 SaberPhase::Idle => {
-                    let arm_ok = s.part_hp[i][mount.arm.part() as usize] > 0.0;
+                    let arm_ok = s.arm_free(i, mount.arm);
                     if pressed
                         && arm_ok
                         && s.weapons[i][2].cooldown == 0
@@ -468,6 +468,7 @@ impl Sim {
                     self.suits.stats[shooter].kills += 1;
                 }
                 let hulk = self.wreck(j, t);
+                self.spill(j, t, true);
                 self.events.push(Event::Kill { id: 0, tick: t, victim: j as u16, killer: d.shooter, hulk });
                 let wait = if self.suits.pilot[j] == PilotKind::MobileDoll {
                     secs(3.0)

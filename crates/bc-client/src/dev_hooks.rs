@@ -102,5 +102,11 @@ pub fn publish_game(game: NonSend<crate::net::GameClient>, mut dev: ResMut<DevSt
         chunks().filter(|c| matches!(c.desc.kind, bc_proto::ChunkKind::Hulk { .. })).count() as u32,
     );
     dev.set("rocks", core.predict.field.len() as u32);
+    if let Some(o) = w.own {
+        dev.set("attached", o.held != bc_proto::NO_CHUNK);
+        dev.set("cargo_kg", o.cargo_kg.iter().map(|kg| u32::from(*kg)).sum::<u32>());
+        dev.set("credits", o.credits);
+        dev.set("extra_mass_kg", o.extra_mass_kg as f64);
+    }
     dev.set("autopilot", game.autopilot);
 }

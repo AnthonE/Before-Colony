@@ -40,6 +40,12 @@ pub fn state_hash(sim: &Sim) -> u64 {
         }
         h.f32(s.heat[i]);
         h.f32(s.energy[i]);
+        let (k, g, right) = s.held[i];
+        h.u32(u32::from(k) | u32::from(g) << 16 | u32::from(right) << 24);
+        for kg in s.cargo_kg[i] {
+            h.u32(u32::from(kg));
+        }
+        h.u32(s.credits[i]);
     }
     let p = &sim.projectiles;
     for k in p.alive.iter() {

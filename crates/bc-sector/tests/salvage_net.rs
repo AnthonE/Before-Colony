@@ -329,3 +329,52 @@ fn changed_rocks_reach_the_client() {
     assert!(client.world.rocks[&5].destroyed);
     assert_eq!(client.world.rocks.len(), 2, "only changed rocks are sent");
 }
+
+/// A pilot towing a 6 t hulk: the extra mass reaches the client in its own state, and its
+/// prediction flies the heavier suit.
+#[test]
+fn towing_is_predicted() {
+    use bc_proto::buttons::GRAB;
+    use bc_sim::content::ArmSlot;
+    let mut placed = false;
+    let mut errors = Vec::new();
+    let mut weave = |ctx: &InputContext| {
+        let t = f64::from(ctx.tick) / 30.0;
+        let q = |v: f64| (v.clamp(-1.0, 1.0) * 127.0) as i8;
+        InputCmd {
+            aim: Vec3::new((t * 0.4).sin() as f32 * 0.6, (t * 0.23).cos() as f32 * 0.3, 1.0).normalize(),
+            thrust: [q((t * 0.9).sin()), q((t * 0.5).cos() * 0.5), q(0.6 + (t * 0.3).sin() * 0.4)],
+            buttons: FLIGHT_ASSIST | GRAB,
+            ..InputCmd::default()
+        }
+    };
+    let (sector, client) = run(30.0, &mut weave, &mut |sector, client, me| {
+        let Some(me) = me else { return };
+        let sim = &mut sector.sim;
+        if !placed {
+            placed = true;
+            let f = sim.suits.flight[me];
+            let hand = f.pos + f.rot * ArmSlot::Left.muzzle();
+            let desc = ChunkDesc {
+                kind: ChunkKind::Hulk { frame: FrameId::Leo, faction: Faction::Oz, parts: 0b11_1111 },
+                seed: 1,
+                mass_kg: 6_000,
+            };
+            let at = hand - f.rot * Vec3::X * (bc_sim::chunks::radius(&desc) + 1.0);
+            let t = sim.tick();
+            let seg = Segment { t0: t, pos: at, vel: f.vel, ..Segment::default() }.quantized();
+            sim.chunks.spawn(desc, Motion::Free(seg), t + 9_000, t).unwrap();
+        }
+        if sim.tick() > 150 && client.world.own.is_some_and(|o| o.extra_mass_kg >= 6_000) {
+            errors.push(client.stats.prediction_error);
+        }
+    });
+    let me = client.world.own.expect("own state");
+    assert!(sector.sim.held_chunk(me.slot as usize).is_some(), "the hulk isn't in tow");
+    assert_eq!(me.extra_mass_kg, 6_000);
+    assert!(errors.len() > 500, "towing for only {} ticks", errors.len());
+    errors.sort_by(f32::total_cmp);
+    let p99 = errors[errors.len() * 99 / 100];
+    println!("towing: prediction error p99 {p99:.4} m over {} ticks", errors.len());
+    assert!(p99 < 0.25, "prediction error p99 {p99:.3} m while towing");
+}

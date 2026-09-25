@@ -73,6 +73,7 @@ impl Sim {
                     && s.energy[i] >= w.energy
                     && (w.ammo == 0 || ws.ammo > 0)
                     && !s.overheated[i]
+                    && s.arm_free(i, m.arm)
                 {
                     ready |= 1 << slot;
                 }
@@ -100,6 +101,9 @@ impl Sim {
         }
         if mods.lunge {
             flags |= own_flags::LUNGE;
+        }
+        if s.alive.get(i) && self.docked(i) {
+            flags |= own_flags::DOCKED;
         }
         if spec.zero || self.cfg.zero_on_all_frames {
             flags |= own_flags::ZERO_CAPABLE;
@@ -136,7 +140,9 @@ impl Sim {
             thrust_factor: mods.thrust,
             respawn_in,
             extra_mass_kg: mods.extra_mass_kg,
-            ..OwnState::default()
+            cargo_kg: s.cargo_kg[i],
+            credits: s.credits[i],
+            held: self.held_chunk(i).map_or(bc_proto::NO_CHUNK, |k| k as u16),
         }
     }
 

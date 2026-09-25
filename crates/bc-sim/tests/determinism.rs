@@ -7,7 +7,7 @@
 mod common;
 
 /// Hash after 600 ticks of the reference scenario (update deliberately when the sim changes).
-const GOLDEN: u64 = 0x06e1_3c01_bfae_0563;
+const GOLDEN: u64 = 0xd10e_d123_9a15_0766;
 
 fn scenario_hash() -> u64 {
     let (mut sim, players) = common::arena(8, 24, 42);
@@ -58,7 +58,7 @@ fn field_hash() -> u64 {
 }
 
 /// Hash after suits have flown into rocks and fired through them.
-const ROCKS_GOLDEN: u64 = 0x15ca_6f25_2a91_5b07;
+const ROCKS_GOLDEN: u64 = 0xde59_7fae_6fd8_6b47;
 
 fn rocks_hash() -> u64 {
     use bc_proto::buttons::FIRE_PRIMARY;
@@ -115,4 +115,100 @@ fn field_and_rocks_golden_native() {
 fn field_and_rocks_golden_wasm() {
     assert_eq!(field_hash(), FIELD_GOLDEN);
     assert_eq!(rocks_hash(), ROCKS_GOLDEN);
+}
+
+/// Hash after a salvage run: pilots gather ore, stow it, tow a hulk, throw, jettison, and sell.
+const SALVAGE_GOLDEN: u64 = 0x2606_6641_1ee4_3581;
+
+fn salvage_hash() -> u64 {
+    use bc_proto::buttons::{FLIGHT_ASSIST, GRAB, JETTISON, STOW, THROW};
+    use bc_proto::{ChunkDesc, ChunkKind, Faction, FrameId, InputCmd, Part, PilotKind, Segment};
+    use bc_sim::chunks::{self, Motion};
+    use bc_sim::content::ArmSlot;
+    use bc_sim::content::salvage::DOCK_CENTER;
+    use bc_sim::math::look_rotation;
+    use glam::{Quat, Vec3};
+
+    let mut sim = bc_sim::Sim::new(bc_sim::SimConfig { target_dolls: 0, ..bc_sim::SimConfig::default() });
+    let mut ids = Vec::new();
+    for k in 0..4 {
+        let pos =
+            if k == 3 { DOCK_CENTER + Vec3::X * 40.0 } else { Vec3::new(k as f32 * 150.0, 1_000.0, 0.0) };
+        let id = sim
+            .spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, pos, look_rotation(Vec3::Z, Vec3::Y))
+            .unwrap();
+        ids.push(id);
+    }
+    let t = sim.tick();
+    let chunk = |sim: &mut bc_sim::Sim, kind: ChunkKind, kg: u32, pos: Vec3, seed: u8| {
+        let desc = ChunkDesc { kind, seed, mass_kg: kg };
+        let seg =
+            Segment { t0: t, pos, vel: Vec3::ZERO, rot: Quat::IDENTITY, spin: Vec3::new(0.0, 0.2, 0.1) }
+                .quantized();
+        sim.chunks.spawn(desc, Motion::Free(seg), t + 9_000, t).unwrap();
+    };
+    // Ore strung out ahead of each pilot's left hand, and a hulk for the second pilot to tow.
+    for (k, id) in ids.iter().enumerate() {
+        let f = sim.suits.flight[id.idx()];
+        let hand = f.pos + f.rot * ArmSlot::Left.muzzle();
+        for n in 0..4u8 {
+            let desc =
+                ChunkDesc { kind: ChunkKind::Ore { ore: n % 4 }, seed: n, mass_kg: 300 + 100 * u32::from(n) };
+            let at = hand + Vec3::new(-chunks::radius(&desc) - 1.0, 0.0, 12.0 * f32::from(n));
+            chunk(&mut sim, desc.kind, desc.mass_kg, at, n + 10 * k as u8);
+        }
+    }
+    let hulk = ChunkKind::Hulk { frame: FrameId::Taurus, faction: Faction::Oz, parts: 0b10_1111 };
+    let tow = sim.suits.flight[ids[1].idx()].pos + Vec3::new(-12.0, 0.0, 70.0);
+    chunk(&mut sim, hulk, 5_600, tow, 99);
+    let arm = ChunkKind::Limb { frame: FrameId::WingZero, faction: Faction::Colonies, part: Part::ArmL };
+    let f3 = sim.suits.flight[ids[3].idx()];
+    chunk(&mut sim, arm, 640, f3.pos + f3.rot * ArmSlot::Left.muzzle() + Vec3::new(-4.0, 0.0, 0.0), 77);
+
+    for _ in 0..360 {
+        let t = sim.next_tick();
+        for (k, &id) in ids.iter().enumerate() {
+            let k = k as u32;
+            let mut buttons = FLIGHT_ASSIST | GRAB;
+            if (t + k * 7).is_multiple_of(30) && t < 250 {
+                buttons |= STOW;
+            }
+            if k == 0 && t == 300 {
+                buttons |= THROW;
+            }
+            if k == 2 && t == 320 {
+                buttons |= JETTISON;
+            }
+            // Creeping forward (5/127 of a Leo's 220 m/s cruise), slow enough to catch what's ahead.
+            let cmd = InputCmd {
+                tick: t,
+                view_tick_q4: t << 4,
+                aim: Vec3::Z,
+                thrust: [0, 0, 5],
+                buttons,
+                ..InputCmd::default()
+            };
+            sim.set_input(id, cmd.quantized());
+        }
+        sim.step();
+    }
+    let stowed: u32 = ids.iter().map(|id| sim.suits.cargo_total_kg(id.idx())).sum();
+    assert!(stowed > 0, "nothing was stowed");
+    assert!(ids.iter().any(|id| sim.held_chunk(id.idx()).is_some()), "nobody is holding anything");
+    assert!(sim.suits.credits[ids[3].idx()] > 0, "nothing sold at the dock");
+    sim.state_hash()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn salvage_golden_native() {
+    let h = salvage_hash();
+    assert_eq!(h, salvage_hash(), "must be reproducible within a process");
+    assert_eq!(h, SALVAGE_GOLDEN, "salvage hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn salvage_golden_wasm() {
+    assert_eq!(salvage_hash(), SALVAGE_GOLDEN);
 }

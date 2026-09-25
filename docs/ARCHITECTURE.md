@@ -71,9 +71,11 @@ network threads.
    7. Projectile sweeps against per-part capsules (skipping parts that are gone) and rocks. Saber
       arcs, 3 sub-steps per tick, with clashes.
    8. Damage resolves in order: limbs come off as chunks, overflow spills to the torso, suits die
-      and leave hulks.
-   9. Heat, energy, ZERO strain (seizure and lockout), respawns.
-   10. ZERO rollouts (staggered every 3 ticks per pilot).
+      and leave hulks (spilling their holds).
+   9. Salvage: grab, stow, throw, jettison, and sales at the dock. Presses are edges against the
+      previous tick's buttons, so this runs before they're recorded.
+   10. Heat, energy, ZERO strain (seizure and lockout), respawns.
+   11. ZERO rollouts (staggered every 3 ticks per pilot).
 6. **Tactical pictures** for ZERO pilots (≈4 Hz), only when an external oracle is attached.
 7. **Snapshots** for each client, straight into its ring. The egress thread is unparked.
 

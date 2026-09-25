@@ -24,17 +24,8 @@ pub fn constrain(s: &mut FlightState) {
             s.vel[i] = s.vel[i].max(0.0);
         }
     }
-    let rel = s.pos - COLONY_CENTER;
-    if rel.x.abs() > COLONY_HALF_LENGTH {
-        return;
-    }
-    let radial = Vec3::new(0.0, rel.y, rel.z);
-    let r2 = radial.length_squared();
-    let limit = COLONY_RADIUS + HULL_MARGIN;
-    if r2 < limit * limit {
-        let r = crate::math::sqrt(r2);
-        let n = if r > 1e-3 { radial / r } else { Vec3::Y };
-        s.pos = COLONY_CENTER + Vec3::new(rel.x, 0.0, 0.0) + n * limit;
+    if let Some((at, n)) = hull_contact(s.pos, HULL_MARGIN) {
+        s.pos = at;
         let vn = s.vel.dot(n);
         if vn < 0.0 {
             s.vel -= n * vn;
@@ -42,19 +33,27 @@ pub fn constrain(s: &mut FlightState) {
     }
 }
 
-/// Whether a sphere of radius `r` at `p` touches the colony's hull: if so, the point straight out
-/// from it on the hull (grown by `r`) and the outward normal there.
+/// Whether a sphere of radius `r` at `p` touches the colony: if so, the nearest point out of it (on
+/// the hull or an end cap, grown by `r`) and the outward normal there.
 pub fn hull_contact(p: Vec3, r: f32) -> Option<(Vec3, Vec3)> {
     let rel = p - COLONY_CENTER;
-    if rel.x.abs() > COLONY_HALF_LENGTH {
+    let cap = COLONY_HALF_LENGTH + r;
+    if rel.x.abs() >= cap {
         return None;
     }
     let radial = Vec3::new(0.0, rel.y, rel.z);
+    let r2 = radial.length_squared();
     let limit = COLONY_RADIUS + r;
-    if radial.length_squared() >= limit * limit {
+    if r2 >= limit * limit {
         return None;
     }
-    let n = crate::math::normalize_or(radial, Vec3::Y);
+    let d = crate::math::sqrt(r2);
+    // Out through the nearer face: the curved hull, or an end cap.
+    if cap - rel.x.abs() < limit - d {
+        let n = if rel.x < 0.0 { -Vec3::X } else { Vec3::X };
+        return Some((Vec3::new(COLONY_CENTER.x + n.x * cap, p.y, p.z), n));
+    }
+    let n = if d > 1e-3 { radial / d } else { Vec3::Y };
     Some((COLONY_CENTER + Vec3::new(rel.x, 0.0, 0.0) + n * limit, n))
 }
 

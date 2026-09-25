@@ -16,6 +16,7 @@
 use alloc::boxed::Box;
 
 mod combat;
+mod salvage;
 mod wire;
 mod zero;
 
@@ -219,9 +220,12 @@ impl Sim {
         Some(id)
     }
 
-    /// Removes a suit (disconnect).
+    /// Removes a suit (disconnect). What it carried is left behind.
     pub fn leave(&mut self, id: SuitId) {
         if self.suits.valid(id) {
+            if self.suits.alive.get(id.idx()) {
+                self.spill(id.idx(), self.tick, true);
+            }
             self.suits.release(id.idx());
         }
     }
@@ -267,6 +271,7 @@ impl Sim {
         self.projectile_step(t);
         self.melee_step(t);
         self.damage_step(t);
+        self.salvage_step(t);
         self.status_step(t);
         self.zero_step(t);
         self.peak_projectiles = self.peak_projectiles.max(self.projectiles.count());
@@ -382,7 +387,7 @@ impl Sim {
                 *r = ws.cooldown == 0
                     && s.energy[i] >= w.energy
                     && (w.ammo == 0 || ws.ammo > 0)
-                    && s.part_hp[i][m.arm.part() as usize] > 0.0;
+                    && s.arm_free(i, m.arm);
             }
         }
         SelfView {
@@ -499,9 +504,11 @@ impl Sim {
         }
         // Rounded to the 8 bits the owner's client gets them in, so its prediction flies the same suit.
         let wire = |x: f32| dequantize_unit(quantize_unit(x, 8), 8);
-        // Parts shot off lighten the suit.
+        // Parts shot off lighten the suit; the hold and what's in hand weigh it down.
         let fid = s.frame[i];
-        let extra_mass_kg = mass_without(fid, s.gone_mask(i)) as i32 - mass_without(fid, 0) as i32;
+        let held = self.held_chunk(i).map_or(0, |k| self.chunks.desc[k].mass_kg);
+        let extra_mass_kg = mass_without(fid, s.gone_mask(i)) as i32 - mass_without(fid, 0) as i32
+            + (s.cargo_total_kg(i) + held) as i32;
         FlightMods {
             ambac: wire(ambac.max(0.1)),
             thrust: wire(thrust),

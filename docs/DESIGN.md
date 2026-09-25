@@ -136,6 +136,27 @@ can take.
   limits. They are labelled **MD** in-game. The bundled `DollBrain` flies an agent with the Mobile
   Doll AI; write your own brain in a closure.
 
+## Salvage
+
+Battles leave wreckage, and wreckage is worth money. It lasts for the session: credits carry across
+respawns but not reconnects.
+
+- **Grab** (G toggles it): the free hand (the left, unless it's gone) closes on the nearest free
+  chunk within 8 m of reach that is moving at no more than 12 m/s relative to you, and holds it.
+  Weapons in that hand can't be used meanwhile: a Leo holding something can't use its machine
+  cannon or saber, and neither can a Wing Zero use its saber. Hauling makes you vulnerable.
+- **Stow** (B) puts loose ore, or a limb, of up to 2.5 t into the hold, if there's room: a Leo
+  carries 3 t, a Wing Zero 1.5 t, Mobile Dolls nothing. Anything heavier (a hulk) is towed in hand.
+- **Throw** (T) flings what's in hand along your aim: 60 kN·s of push, at most 40 m/s. You are
+  pushed back just as hard. **Jettison** (J) dumps the hold behind you.
+- **Mass matters.** Cargo and what's in hand add to the suit's mass: a fully fuelled Leo (9.5 t)
+  towing a 6 t hulk has about 60% of its usual acceleration, and turns slower too. Parts shot off
+  make it lighter.
+- **The dock** is off the colony's −X end cap. Arrive slower than 25 m/s and the hold, and whatever
+  is in hand, sells: nickel-iron 1 credit/kg, titanium 4, volatiles 3, exotics 15. Suit parts sell
+  as titanium, except a Gundam's (gundanium, sold with the exotics).
+- **Dying** spills the hold and drops what you were holding; someone else can pick it up.
+
 ## The world (EVE-lite, roadmap)
 
 - The Earth Sphere is split into **sectors**: L1–L5 colony clusters, lunar orbit, Earth orbit, and
@@ -157,6 +178,7 @@ can take.
 | Shift · X · R | boost · brake · RCS (fast turns) |
 | LMB · RMB · F | primary · secondary · beam saber |
 | V · Z | flight assist · ZERO System |
+| G · B · T · J | grab (toggle) · stow · throw · jettison |
 | 1 / 2 | respawn as Leo / Wing Gundam Zero |
 
 ## Roadmap after Milestone 1

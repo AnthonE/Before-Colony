@@ -2,9 +2,12 @@
 //! recommendations and alerts. Plain ASCII so the embedded font renders everything.
 
 use bc_client_core::FeedLine;
+use bc_client_core::world::ObjectMotion;
 use bc_proto::snapshot::{ent_flags, own_flags, zero_mode};
-use bc_proto::{Part, PilotKind, WeaponKind};
-use bc_sim::content::{frame, frame_name, weapon, weapon_name};
+use bc_proto::{ChunkKind, NO_CHUNK, Part, PilotKind, WeaponKind};
+use bc_sim::chunks;
+use bc_sim::content::salvage::{CATCH_SPEED, DOCK_CENTER, PRICE, REACH, hold_kg, material};
+use bc_sim::content::{ArmSlot, frame, frame_name, weapon, weapon_name};
 use bc_sim::zero::hypotheses::Maneuver;
 use bevy::prelude::*;
 
@@ -30,6 +33,39 @@ pub enum HudText {
     Zero,
     Alert,
     Help,
+    Salvage,
+}
+
+/// The screen marker on the chunk nearest the free hand.
+#[derive(Component)]
+pub struct GrabMarker;
+/// The screen marker on the colony's dock (while there is something to sell).
+#[derive(Component)]
+pub struct DockMarker;
+
+/// Credits seen last frame, and the last sale: (amount, when).
+#[derive(Default)]
+pub struct Sales {
+    credits: Option<u32>,
+    last: Option<(u32, f64)>,
+}
+
+const ORES: [&str; 4] = ["NI-FE", "TITANIUM", "VOLATILES", "EXOTICS"];
+
+/// A chunk's name on the HUD.
+fn chunk_name(kind: ChunkKind) -> String {
+    match kind {
+        ChunkKind::Ore { ore } => format!("{} ORE", ORES[usize::from(ore) % 4]),
+        ChunkKind::Limb { frame: f, part, .. } => {
+            let part = ["HEAD", "TORSO", "L-ARM", "R-ARM", "LEGS", "BACKPACK"][part as usize];
+            format!("{} {part}", frame_name(f).to_uppercase())
+        }
+        ChunkKind::Hulk { frame: f, .. } => format!("{} HULK", frame_name(f).to_uppercase()),
+    }
+}
+
+fn tonnes(kg: u32) -> String {
+    if kg < 1_000 { format!("{kg} kg") } else { format!("{:.1} t", kg as f32 / 1_000.0) }
 }
 
 #[derive(Component)]
@@ -81,6 +117,29 @@ pub fn setup_hud(mut commands: Commands) {
             p.spawn((HudText::Flight, label(13.0, CYAN, abs(Some(14.0), None, None, Some(12.0)))));
             p.spawn((HudText::Armor, label(13.0, CYAN, abs(Some(250.0), None, None, Some(12.0)))));
             p.spawn((HudText::Weapons, label(13.0, CYAN, abs(None, Some(14.0), None, Some(12.0)))));
+            p.spawn((
+                HudText::Salvage,
+                label(
+                    13.0,
+                    AMBER,
+                    Node {
+                        position_type: PositionType::Absolute,
+                        bottom: Val::Px(12.0),
+                        left: Val::Percent(38.0),
+                        ..default()
+                    },
+                ),
+            ));
+            p.spawn((
+                GrabMarker,
+                label(13.0, GREEN, abs(Some(0.0), None, Some(0.0), None)),
+                Visibility::Hidden,
+            ));
+            p.spawn((
+                DockMarker,
+                label(13.0, AMBER, abs(Some(0.0), None, Some(0.0), None)),
+                Visibility::Hidden,
+            ));
             p.spawn((
                 HudText::Alert,
                 label(
@@ -161,6 +220,17 @@ pub fn update_hud(
         (Without<HudText>, Without<LeadMarker>, Without<Reticle>),
     >,
     camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    mut markers: Query<
+        (&mut Node, &mut Text, &mut TextColor, &mut Visibility, Has<GrabMarker>),
+        (
+            Or<(With<GrabMarker>, With<DockMarker>)>,
+            Without<HudText>,
+            Without<LeadMarker>,
+            Without<Bracket>,
+            Without<Reticle>,
+        ),
+    >,
+    mut sales: Local<Sales>,
 ) {
     let game = game.borrow();
     let core = &game.core;
@@ -269,6 +339,61 @@ pub fn update_hud(
             w.push_str(&format!("ZERO {z}  STRAIN {}", bar(o.zero_strain, 8)));
         }
         set(HudText::Weapons, w, None);
+
+        // --- Salvage (bottom middle). ---
+        let hold = hold_kg(o.frame);
+        let cargo: u32 = o.cargo_kg.iter().map(|kg| u32::from(*kg)).sum();
+        let mut sv = String::new();
+        if hold > 0 {
+            sv.push_str(&format!(
+                "HOLD {} {}/{}",
+                bar(cargo as f32 / hold as f32, 10),
+                tonnes(cargo),
+                tonnes(hold)
+            ));
+        } else {
+            sv.push_str("NO HOLD");
+        }
+        sv.push_str(&format!("   CR {}\n", o.credits));
+        if let Some(before) = sales.credits
+            && o.credits > before
+        {
+            sales.last = Some((o.credits - before, now));
+        }
+        sales.credits = Some(o.credits);
+        let base = spec.mass(core.predict.state.propellant);
+        let accel = base / (base + o.extra_mass_kg as f32);
+        match world.objects.get(usize::from(o.held)).and_then(Option::as_ref).filter(|_| o.held != NO_CHUNK) {
+            Some(c) => {
+                let fits = !matches!(c.desc.kind, ChunkKind::Hulk { .. })
+                    && c.desc.mass_kg <= 2_500
+                    && cargo + c.desc.mass_kg <= hold;
+                sv.push_str(&format!(
+                    "{} {} {}  {}T throw{}\n",
+                    if fits { "IN HAND" } else { "TOWING" },
+                    chunk_name(c.desc.kind),
+                    tonnes(c.desc.mass_kg),
+                    if fits { "B stow  " } else { "" },
+                    if accel < 0.995 { format!("   accel {:.0}%", accel * 100.0) } else { String::new() }
+                ));
+            }
+            None => sv.push_str(if controls.grab {
+                "GRAB ON (G)  free hand reaching\n"
+            } else {
+                "G grab   J jettison\n"
+            }),
+        }
+        if let Some((amount, at)) = sales.last
+            && now - at < 5.0
+        {
+            sv.push_str(&format!("SOLD +{amount} cr\n"));
+        }
+        if o.flags & own_flags::DOCKED != 0 {
+            sv.push_str("DOCKED  colony salvage yard\n");
+        }
+        set(HudText::Salvage, sv, None);
+    } else {
+        set(HudText::Salvage, String::new(), None);
     }
 
     // --- ZERO panel. ---
@@ -340,7 +465,7 @@ pub fn update_hud(
     let help = if game.autopilot || controls.locked || own.is_none() {
         String::new()
     } else {
-        "CLICK TO TAKE CONTROL   WASD/Space/C thrust  Q/E roll  Shift boost  X brake\nLMB/RMB fire  F saber  V flight assist  Z ZERO System  R RCS".into()
+        "CLICK TO TAKE CONTROL   WASD/Space/C thrust  Q/E roll  Shift boost  X brake\nLMB/RMB fire  F saber  V flight assist  Z ZERO System  R RCS\nG grab  B stow  T throw  J jettison  (sell at the colony's -X end)".into()
     };
     set(HudText::Help, help, None);
     if let Ok(mut r) = reticle.single_mut() {
@@ -368,6 +493,74 @@ pub fn update_hud(
         }
     }
     let _ = aim;
+    // The chunk nearest the free hand: green when it can be grabbed.
+    let mut grab_at: Option<(Vec3, String, Color)> = None;
+    let mut dock_at: Option<(Vec3, String)> = None;
+    if let Some(o) = own.filter(|o| o.alive) {
+        let rot = core.predict.state.rot;
+        let right = o.parts[Part::ArmL as usize] <= 0.0;
+        let hand = own_pos + rot * if right { ArmSlot::Right } else { ArmSlot::Left }.muzzle();
+        let vel = core.predict.state.vel;
+        let mut best: Option<(f32, u16)> = None;
+        if o.held == NO_CHUNK {
+            for (id, c) in world.objects.iter().enumerate() {
+                let Some(c) = c else { continue };
+                if !matches!(c.motion, ObjectMotion::Free(_)) {
+                    continue;
+                }
+                let Some((p, _)) = world.object_pose(id as u16, t, &core.predict) else { continue };
+                let gap = p.distance(hand) - chunks::radius(&c.desc);
+                if gap < 150.0 && best.is_none_or(|(g, _)| gap < g) {
+                    best = Some((gap, id as u16));
+                }
+            }
+        }
+        if let Some((gap, id)) = best
+            && let (Some(c), Some((p, _))) =
+                (world.objects[usize::from(id)].as_ref(), world.object_pose(id, t, &core.predict))
+        {
+            let ObjectMotion::Free(seg) = c.motion else { unreachable!() };
+            let catchable = gap <= REACH && (seg.vel - vel).length() <= CATCH_SPEED;
+            let color = if catchable { GREEN } else { AMBER };
+            grab_at = Some((
+                p,
+                format!(
+                    "[{}] {} {}  {:.0} m",
+                    if catchable { "G" } else { " " },
+                    chunk_name(c.desc.kind),
+                    tonnes(c.desc.mass_kg),
+                    gap.max(0.0)
+                ),
+                color,
+            ));
+        }
+        let cargo_value: u32 = o.cargo_kg.iter().enumerate().map(|(k, kg)| u32::from(*kg) * PRICE[k]).sum();
+        let held_value = world
+            .objects
+            .get(usize::from(o.held))
+            .and_then(Option::as_ref)
+            .filter(|_| o.held != NO_CHUNK)
+            .map_or(0, |c| c.desc.mass_kg * PRICE[material(c.desc.kind)]);
+        if cargo_value + held_value > 0 {
+            dock_at = Some((
+                DOCK_CENTER,
+                format!("DOCK {}  ~{} cr", km(DOCK_CENTER.distance(own_pos)), cargo_value + held_value),
+            ));
+        }
+    }
+    for (mut node, mut text, mut color, mut vis, grab) in &mut markers {
+        let what = if grab { grab_at.clone() } else { dock_at.clone().map(|(p, s)| (p, s, AMBER)) };
+        match what.map(|(p, s, c)| (cam.world_to_viewport(cam_tf, p), s, c)) {
+            Some((Ok(p), s, c)) => {
+                node.left = Val::Px(p.x - 20.0);
+                node.top = Val::Px(p.y - 8.0);
+                text.0 = s;
+                color.0 = c;
+                *vis = Visibility::Visible;
+            }
+            _ => *vis = Visibility::Hidden,
+        }
+    }
     let mut shown: Vec<(f32, u16)> = world
         .entities
         .iter()
