@@ -1,19 +1,23 @@
 use bevy::prelude::*;
 
 use crate::assets::setup_assets;
+use crate::camera::{follow, spawn_camera};
 use crate::config::LaunchConfig;
 use crate::dev_hooks::{DevHooksPlugin, publish_game};
 use crate::echo::EchoPlugin;
 use crate::fx::{FxState, setup_fx, update_fx};
+use crate::gfx::{Gfx, GfxPlugin};
 use crate::hud::{setup_hud, update_hud};
 use crate::input::{Aim, Controls, read_input};
 use crate::net::{LaunchConfigRes, NetPlugin, drive, game_client, start_net_loop};
-use crate::suits_vis::{SuitIndex, sync_suits, tag_parts};
+use crate::net_view::{sync_view, tick_vis_time};
+use crate::showcase::{Scene, ShowcasePlugin};
+use crate::suits_vis::{build_suits, pose_suits};
+use crate::view::{BeamFeed, CameraTarget, FxEvents, SuitIndex, Vis, VisTime};
 
 pub fn run() {
     console_error_panic_hook::set_once();
     let cfg = LaunchConfig::from_window();
-    let echo = cfg.echo;
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
@@ -27,41 +31,53 @@ pub fn run() {
     }))
     .insert_resource(LaunchConfigRes(cfg.clone()))
     .insert_resource(ClearColor(Color::BLACK))
-    .add_plugins((DevHooksPlugin, NetPlugin));
-    if echo {
-        app.add_plugins(EchoPlugin).add_systems(Startup, crate::echo::setup_echo_scene);
+    .add_plugins((DevHooksPlugin, GfxPlugin(Gfx::from_config(&cfg))));
+    if cfg.perf {
+        app.add_plugins(crate::perf::PerfPlugin);
+    }
+    if cfg.echo {
+        app.add_plugins((NetPlugin, EchoPlugin)).add_systems(Startup, crate::echo::setup_echo_scene);
+    } else if let Some(scene) = cfg.showcase.as_deref() {
+        app.add_plugins((
+            VisualsPlugin,
+            ShowcasePlugin {
+                scene: Scene::parse(scene).unwrap_or(Scene::Lineup),
+                t0: cfg.showcase_t,
+                cam: cfg.showcase_cam,
+                realtime: cfg.showcase_realtime,
+            },
+        ));
     } else {
-        app.insert_non_send(game_client(&cfg))
+        app.add_plugins((NetPlugin, VisualsPlugin))
+            .insert_non_send(game_client(&cfg))
             .init_resource::<Controls>()
             .init_resource::<Aim>()
-            .init_resource::<SuitIndex>()
-            .init_resource::<FxState>()
-            .add_systems(
-                Startup,
-                (
-                    start_net_loop,
-                    (
-                        setup_assets,
-                        (crate::scene::setup_scene, crate::camera::spawn_camera, setup_fx, setup_hud),
-                    )
-                        .chain(),
-                ),
-            )
+            .add_systems(Startup, (start_net_loop, setup_hud))
+            .add_systems(Update, (read_input, drive, tick_vis_time, sync_view).chain().in_set(Vis::Drive))
+            .add_systems(Update, follow.in_set(Vis::Camera))
             .add_systems(
                 Update,
-                (
-                    read_input,
-                    drive,
-                    sync_suits,
-                    tag_parts,
-                    crate::camera::follow,
-                    update_fx,
-                    update_hud,
-                    crate::zero_overlay::draw_ghosts,
-                    publish_game,
-                )
-                    .chain(),
+                (update_hud, crate::zero_overlay::draw_ghosts, publish_game).chain().in_set(Vis::Hud),
             );
     }
     app.run();
+}
+
+/// The world as drawn, shared by game mode and the showcase: the scene, the suits, effects and the
+/// camera, all driven by the view model (`view`).
+struct VisualsPlugin;
+
+impl Plugin for VisualsPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<VisTime>()
+            .init_resource::<SuitIndex>()
+            .init_resource::<BeamFeed>()
+            .init_resource::<FxEvents>()
+            .init_resource::<CameraTarget>()
+            .init_resource::<FxState>()
+            .configure_sets(Update, (Vis::Drive, Vis::Suits, Vis::Camera, Vis::Fx, Vis::Hud).chain())
+            .add_systems(Startup, (setup_assets, (crate::scene::setup_scene, spawn_camera, setup_fx)).chain())
+            .add_systems(Update, (build_suits, pose_suits).chain().in_set(Vis::Suits))
+            .add_systems(Update, update_fx.in_set(Vis::Fx));
+    }
 }

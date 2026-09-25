@@ -16,8 +16,21 @@ pub struct LaunchConfig {
     pub frame: String,
     /// `?mode=echo`: transport smoke test only.
     pub echo: bool,
-    /// `?quality=low`: no HDR/bloom/post effects (software rendering, old GPUs).
+    /// `?quality=low`: no HDR/bloom/post effects (software rendering, old GPUs). Kept for old links;
+    /// `quality` below supersedes it.
     pub low_quality: bool,
+    /// `?quality=low|medium|high|ultra`, already resolved by the loader when it was `auto`.
+    pub quality: String,
+    /// `?showcase=<scene>`: an offline, scripted scene for building and reviewing visuals.
+    pub showcase: Option<String>,
+    /// `?t=`: showcase start time, seconds.
+    pub showcase_t: f64,
+    /// `?cam=`: showcase camera preset (1-9).
+    pub showcase_cam: u32,
+    /// `?realtime=1`: run the showcase on the wall clock instead of a fixed 60 Hz step.
+    pub showcase_realtime: bool,
+    /// `?perf=1`: frame-time overlay.
+    pub perf: bool,
 }
 
 fn get(obj: &JsValue, key: &str) -> JsValue {
@@ -37,6 +50,7 @@ impl LaunchConfig {
         let cfg = get(&window, "BC_CONFIG");
         let string = |k: &str| get(&cfg, k).as_string().unwrap_or_default();
         let flag = |k: &str| get(&cfg, k).as_bool().unwrap_or(false);
+        let number = |k: &str| get(&cfg, k).as_f64();
         let wt_url = string("wtUrl");
         let cert_hash = get(&cfg, "certHash").as_string().and_then(|h| decode_hex(&h));
         let name = Some(string("name")).filter(|s| !s.is_empty()).unwrap_or_else(|| "Pilot".into());
@@ -49,6 +63,12 @@ impl LaunchConfig {
             frame,
             echo: flag("echo"),
             low_quality: flag("lowQuality"),
+            quality: string("quality"),
+            showcase: Some(string("showcase")).filter(|s| !s.is_empty()),
+            showcase_t: number("t").unwrap_or(0.0),
+            showcase_cam: number("cam").map_or(1, |c| c.clamp(1.0, 9.0) as u32),
+            showcase_realtime: flag("realtime"),
+            perf: flag("perf"),
         }
     }
 }

@@ -15,17 +15,27 @@ mod echo;
 #[cfg(target_arch = "wasm32")]
 mod fx;
 #[cfg(target_arch = "wasm32")]
+mod gfx;
+#[cfg(target_arch = "wasm32")]
 mod hud;
 #[cfg(target_arch = "wasm32")]
 mod input;
 #[cfg(target_arch = "wasm32")]
 mod net;
 #[cfg(target_arch = "wasm32")]
+mod net_view;
+#[cfg(target_arch = "wasm32")]
+mod perf;
+#[cfg(target_arch = "wasm32")]
 mod scene;
+#[cfg(target_arch = "wasm32")]
+mod showcase;
 #[cfg(target_arch = "wasm32")]
 mod suits_vis;
 #[cfg(target_arch = "wasm32")]
 mod transport;
+#[cfg(target_arch = "wasm32")]
+mod view;
 #[cfg(target_arch = "wasm32")]
 mod zero_overlay;
 

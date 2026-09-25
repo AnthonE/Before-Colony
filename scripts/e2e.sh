@@ -2,6 +2,7 @@
 # Runs a Playwright suite against a freshly started server.
 #   scripts/e2e.sh spike [project]   # transport smoke test (server in echo mode)
 #   scripts/e2e.sh slice [project]   # the vertical slice (game mode, dolls + an agent bot)
+#   scripts/e2e.sh gfx [project]     # every showcase scene renders cleanly (BC_GFX_QUALITY=high)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 suite="${1:-slice}"
@@ -16,7 +17,8 @@ cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; }
 trap cleanup EXIT
 
 case "$suite" in
-  spike)
+  spike|gfx)
+    # The showcase runs offline; the echo server just serves the page.
     ./target/release/bc-server --mode echo --http "127.0.0.1:${port}" --web-dir web/dist &
     pids+=($!)
     ;;

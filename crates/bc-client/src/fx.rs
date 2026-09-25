@@ -1,15 +1,15 @@
-//! Beams, machine-cannon tracers, hit sparks and explosions (pooled entities, no per-frame spawns).
+//! Beams, machine-cannon tracers, hit sparks and explosions (pooled entities, no per-frame spawns),
+//! drawn from the view model: the [`BeamFeed`], [`FxEvent`]s and the suits' [`SuitDrive`]s.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 
-use bc_client_core::FeedLine;
 use bc_proto::WeaponKind;
-use bc_proto::snapshot::{ent_flags, own_flags};
+use bc_proto::snapshot::ent_flags;
 use bc_sim::content::frame;
 use bevy::prelude::*;
 
 use crate::assets::{MeshLib, Palette};
-use crate::net::{GameClient, now_s};
+use crate::view::{BeamFeed, FxEvent, FxEvents, SuitDrive, VisTime};
 
 const BEAMS: usize = 96;
 const TRACERS: usize = 96;
@@ -40,9 +40,7 @@ struct Flash {
 pub struct FxState {
     tracers: Vec<Tracer>,
     flashes: Vec<Flash>,
-    seen_hits: HashSet<(u32, u16, u8)>,
-    seen_kills: HashSet<(u32, u16)>,
-    last_tracer: std::collections::HashMap<u16, f64>,
+    last_tracer: HashMap<u16, f64>,
 }
 
 pub fn setup_fx(mut commands: Commands, lib: Res<MeshLib>, pal: Res<Palette>) {
@@ -89,10 +87,21 @@ fn place_streak(tf: &mut Transform, head: Vec3, dir: Vec3, len: f32, radius: f32
     tf.scale = Vec3::new(radius * 2.0, len * 0.5, radius * 2.0);
 }
 
-#[allow(clippy::type_complexity)]
+/// Shows or hides a pooled entity, writing only on change (no change-detection churn).
+fn show(v: &mut Visibility, on: bool) {
+    let want = if on { Visibility::Visible } else { Visibility::Hidden };
+    if *v != want {
+        *v = want;
+    }
+}
+
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub fn update_fx(
-    game: NonSend<GameClient>,
+    time: Res<VisTime>,
     pal: Res<Palette>,
+    feed: Res<BeamFeed>,
+    mut events: ResMut<FxEvents>,
+    suits: Query<&SuitDrive>,
     mut state: ResMut<FxState>,
     mut beams: Query<
         (&BeamVis, &mut Transform, &mut Visibility, &mut MeshMaterial3d<StandardMaterial>),
@@ -104,71 +113,38 @@ pub fn update_fx(
         (Without<BeamVis>, Without<TracerVis>),
     >,
 ) {
-    let game = game.borrow();
-    let core = &game.core;
-    let world = &core.world;
-    let now = now_s();
-    let t_render = core.render_tick(now);
-    let t_input = core.clock.server_now(now) + core.clock.lead;
-    let own_slot = world.own_slot();
+    let now = time.now;
 
     // --- Beams. ---
-    let live: Vec<_> = world
-        .beams
-        .iter()
-        .filter_map(|b| {
-            let t = if Some(b.shooter) == own_slot { t_input } else { t_render };
-            b.alive_at(t).then_some((b, t))
-        })
-        .take(BEAMS)
-        .collect();
     for (vis, mut tf, mut v, mut mat) in &mut beams {
-        match live.get(vis.0) {
-            Some((b, t)) => {
+        match feed.0.get(vis.0) {
+            Some(b) => {
                 let (m, r, len) = beam_style(&pal, b.weapon);
-                let head = b.pos_at(*t);
-                let dir = b.velocity.normalize_or(Vec3::Z);
-                let travelled = head.distance(b.origin);
-                place_streak(&mut tf, head, dir, len.min(travelled.max(1.0)), r);
-                mat.0 = m;
-                *v = Visibility::Visible;
+                place_streak(&mut tf, b.head, b.dir, len.min(b.travelled.max(1.0)), r);
+                if mat.0 != m {
+                    mat.0 = m;
+                }
+                show(&mut v, true);
             }
-            None => *v = Visibility::Hidden,
+            None => show(&mut v, false),
         }
     }
 
     // --- Machine-cannon tracers from anyone firing their secondary. ---
-    let mut shooters: Vec<(u16, Vec3, Vec3, Vec3)> = Vec::new();
-    if let Some(own) = world.own
-        && own.alive
-        && core.last_cmd.buttons & bc_proto::buttons::FIRE_SECONDARY != 0
-        && own.weapon_ready & 2 != 0
-    {
-        let spec = frame(own.frame);
-        if let Some(m) = spec.loadout[1] {
-            let s = &core.predict.state;
-            shooters.push((own.slot, s.pos + s.rot * m.arm.muzzle(), s.vel, core.last_cmd.aim));
-        }
-    }
-    let _ = own_flags::BOOSTING;
-    for (slot, track) in world.entities.iter().enumerate() {
-        let Some(track) = track else { continue };
-        if track.latest.flags & ent_flags::FIRING_SECONDARY == 0 {
+    for d in &suits {
+        if d.flags & ent_flags::FIRING_SECONDARY == 0 {
             continue;
         }
-        let p = track.sample(t_render);
-        if let Some(m) = frame(track.latest.frame).loadout[1] {
-            shooters.push((slot as u16, p.pos + p.rot * m.arm.muzzle(), p.vel, p.aim));
-        }
-    }
-    for (slot, muzzle, vel, aim) in shooters {
-        let last = state.last_tracer.get(&slot).copied().unwrap_or(0.0);
+        let Some(m) = frame(d.frame).loadout[1] else { continue };
+        let last = state.last_tracer.get(&d.slot).copied().unwrap_or(f64::NEG_INFINITY);
         if now - last > 0.1 {
-            state.last_tracer.insert(slot, now);
-            state.tracers.push(Tracer { origin: muzzle, vel: vel + aim * 1_200.0, born: now });
+            state.last_tracer.insert(d.slot, now);
+            let origin = d.pos + d.rot * m.arm.muzzle();
+            state.tracers.push(Tracer { origin, vel: d.vel + d.aim * 1_200.0, born: now });
         }
     }
     state.tracers.retain(|tr| now - tr.born < 1.2);
+    state.last_tracer.retain(|_, t| now - *t < 1.0);
     let n = state.tracers.len();
     if n > TRACERS {
         state.tracers.drain(..n - TRACERS);
@@ -178,34 +154,22 @@ pub fn update_fx(
             Some(tr) => {
                 let head = tr.origin + tr.vel * (now - tr.born) as f32;
                 place_streak(&mut tf, head, tr.vel.normalize_or(Vec3::Z), 18.0, 0.25);
-                *v = Visibility::Visible;
+                show(&mut v, true);
             }
-            None => *v = Visibility::Hidden,
+            None => show(&mut v, false),
         }
     }
 
     // --- Sparks on hits, blasts on kills. ---
-    for h in &world.hits {
-        if state.seen_hits.insert((h.tick, h.target, h.part as u8)) {
-            let size = if h.weapon == WeaponKind::TwinBusterRifle { 26.0 } else { 6.0 };
-            state.flashes.push(Flash { pos: h.pos, born: now, size, life: 0.35, blast: false });
-        }
-    }
-    for line in &world.feed {
-        if let FeedLine::Kill { tick, victim, .. } = *line
-            && state.seen_kills.insert((tick, victim))
-        {
-            let pos = world
-                .pose(victim, t_render)
-                .map(|p| p.pos)
-                .or(world.own.filter(|o| o.slot == victim).map(|o| o.pos));
-            if let Some(pos) = pos {
-                state.flashes.push(Flash { pos, born: now, size: 55.0, life: 1.4, blast: true });
+    for ev in events.0.drain(..) {
+        let flash = match ev {
+            FxEvent::Hit { pos, weapon } => {
+                let size = if weapon == WeaponKind::TwinBusterRifle { 26.0 } else { 6.0 };
+                Flash { pos, born: now, size, life: 0.35, blast: false }
             }
-        }
-    }
-    if state.seen_hits.len() > 4_000 {
-        state.seen_hits.clear();
+            FxEvent::Kill { pos } => Flash { pos, born: now, size: 55.0, life: 1.4, blast: true },
+        };
+        state.flashes.push(flash);
     }
     state.flashes.retain(|f| now - f.born < f.life);
     let n = state.flashes.len();
@@ -218,10 +182,13 @@ pub fn update_fx(
                 let age = ((now - f.born) / f.life) as f32;
                 tf.translation = f.pos;
                 tf.scale = Vec3::splat(f.size * (0.3 + age) * (1.0 - age * 0.5));
-                mat.0 = if f.blast { pal.blast.clone() } else { pal.spark.clone() };
-                *v = Visibility::Visible;
+                let m = if f.blast { &pal.blast } else { &pal.spark };
+                if mat.0 != *m {
+                    mat.0 = m.clone();
+                }
+                show(&mut v, true);
             }
-            None => *v = Visibility::Hidden,
+            None => show(&mut v, false),
         }
     }
 }

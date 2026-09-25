@@ -7,6 +7,7 @@ step() { echo; echo "==> $*"; }
 step "format";               cargo fmt --all -- --check
 step "clippy (native)";      cargo clippy --workspace --all-targets -- -D warnings
 step "clippy (wasm client)"; cargo clippy -p bc-client --target wasm32-unknown-unknown -- -D warnings
+step "clippy (wasm, webgpu)"; cargo clippy -p bc-client --target wasm32-unknown-unknown --features webgpu -- -D warnings
 step "tests";                cargo test --workspace --release
 step "determinism on wasm";  cargo test -p bc-sim --target wasm32-unknown-unknown --release --test determinism
 step "tick benchmark";       cargo bench -p bc-sim --bench tick -- --warm-up-time 1 --measurement-time 2
@@ -14,5 +15,6 @@ if [ "${BC_E2E:-0}" = "1" ]; then
   step "web build";          ./scripts/build-web.sh webgl2
   step "e2e: transport";     ./scripts/e2e.sh spike webgl2
   step "e2e: vertical slice"; ./scripts/e2e.sh slice webgl2
+  step "e2e: graphics";      ./scripts/e2e.sh gfx webgl2
 fi
 echo; echo "all green"

@@ -1,19 +1,15 @@
 //! Third-person chase camera looking along the pilot's aim, with G-strain gray-out and the ZERO
-//! seizure's chromatic aberration.
+//! seizure's chromatic aberration. The tier's post-processing is attached by `gfx`.
 
-use bc_proto::snapshot::zero_mode;
-use bevy::core_pipeline::tonemapping::Tonemapping;
-use bevy::post_process::bloom::Bloom;
 use bevy::post_process::effect_stack::{ChromaticAberration, Vignette};
 use bevy::prelude::*;
 
-use crate::input::Aim;
-use crate::net::{GameClient, LaunchConfigRes};
+use crate::view::{CameraTarget, VisTime};
 
 #[derive(Component)]
 pub struct MainCamera;
 
-pub fn spawn_camera(mut commands: Commands, mut images: ResMut<Assets<Image>>, cfg: Res<LaunchConfigRes>) {
+pub fn spawn_camera(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     let mut cam = commands.spawn((
         MainCamera,
         Camera3d::default(),
@@ -40,57 +36,38 @@ pub fn spawn_camera(mut commands: Commands, mut images: ResMut<Assets<Image>>, c
             Transform::default(),
         ));
     });
-    if cfg.0.low_quality {
-        // Weak GPUs: no multisampling and no post-processing.
-        cam.insert(Msaa::Off);
-    } else {
-        cam.insert((
-            bevy::camera::Hdr,
-            Tonemapping::TonyMcMapface,
-            Bloom::NATURAL,
-            Vignette { intensity: 0.0, ..default() },
-            ChromaticAberration { intensity: 0.0, ..default() },
-        ));
-    }
 }
 
 #[allow(clippy::type_complexity)]
 pub fn follow(
-    game: NonSend<GameClient>,
-    aim: Res<Aim>,
-    time: Res<Time>,
+    target: Res<CameraTarget>,
+    time: Res<VisTime>,
     mut cam: Query<
         (&mut Transform, Option<&mut Vignette>, Option<&mut ChromaticAberration>),
         With<MainCamera>,
     >,
 ) {
     let Ok((mut tf, vignette, aberration)) = cam.single_mut() else { return };
-    let game = game.borrow();
-    let core = &game.core;
-    let Some(own) = core.world.own else {
+    let Some(t) = target.0 else {
         // Before spawning: a slow establishing shot of the colony.
-        let a = time.elapsed_secs() * 0.03;
+        let a = (time.now * 0.03) as f32;
         *tf = Transform::from_xyz(6_500.0 * a.cos(), 2_600.0, 6_500.0 * a.sin())
             .looking_at(Vec3::new(0.0, 600.0, 0.0), Vec3::Y);
         return;
     };
-    let base = if own.alive { core.predict.render_pos() } else { own.pos };
-    let up = core.predict.state.rot * Vec3::Y;
-    let dir = aim.dir;
-    let target_pos = base - dir * 42.0 + up * 10.0;
-    let k = 1.0 - (-time.delta_secs() * 14.0).exp();
+    let target_pos = t.pos - t.aim * 42.0 + t.up * 10.0;
+    let k = 1.0 - (-time.dt * 14.0).exp();
     tf.translation = if tf.translation.distance(target_pos) > 500.0 {
         target_pos
     } else {
         tf.translation.lerp(target_pos, k)
     };
-    tf.look_at(base + dir * 800.0, up);
+    tf.look_at(t.pos + t.aim * 800.0, t.up);
     if let Some(mut v) = vignette {
-        let strain = own.g_strain.clamp(0.0, 1.0);
-        v.intensity = (strain * 1.1).min(1.0);
-        v.radius = 0.9 - 0.5 * strain;
+        v.intensity = (t.g_strain * 1.1).min(1.0);
+        v.radius = 0.9 - 0.5 * t.g_strain;
     }
     if let Some(mut c) = aberration {
-        c.intensity = if own.zero_mode == zero_mode::SEIZED { 0.06 } else { 0.0 };
+        c.intensity = if t.seized { 0.06 } else { 0.0 };
     }
 }
