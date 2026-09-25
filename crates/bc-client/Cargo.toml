@@ -1,0 +1,35 @@
+[package]
+name = "bc-client"
+description = "Before Colony browser client: Bevy 0.19 compiled to wasm32"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[features]
+# Bevy's webgpu feature overrides webgl2, so the WebGPU build is a separate variant.
+webgpu = ["bevy/webgpu"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+bc-client-core.workspace = true
+bc-proto.workspace = true
+bc-sim = { workspace = true, features = ["canon-names"] }
+bevy = { workspace = true, features = ["3d", "ui"] }
+# Bevy's derive macros resolve `bevy` by reading only [dependencies]; since ours is target-specific
+# they fall back to `bevy_ecs::…`, so name the (already-built) crate directly.
+bevy_ecs = { version = "0.19.1", default-features = false }
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+js-sys.workspace = true
+web-sys = { workspace = true, features = ["Window", "Location", "UrlSearchParams", "Document", "Element", "HtmlElement", "Performance", "DomTokenList", "console"] }
+web-transport-wasm.workspace = true
+console_error_panic_hook.workspace = true
+futures.workspace = true
+url = "2"
+glam.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,38 @@
+[package]
+name = "bc-sim"
+description = "Before Colony simulation core: no_std, allocation-free tick, shared by server and client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[features]
+default = ["canon-names"]
+# Gundam Wing names (Sotsu/Sunrise IP) live only behind this feature; without it generic names are used.
+canon-names = []
+# Native crates enable this so glam uses the same scalar math as the (non-SIMD) wasm client.
+deterministic = ["glam/scalar-math"]
+
+[dependencies]
+bc-proto.workspace = true
+glam.workspace = true
+libm.workspace = true
+
+[dev-dependencies]
+bc-alloc.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test.workspace = true
+
+[[bench]]
+name = "tick"
+harness = false
+
+[lints]
+workspace = true

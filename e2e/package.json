@@ -1,0 +1,13 @@
+{
+  "name": "bc-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@types/node": "^22.0.0",
+    "pngjs": "^7.0.0"
+  }
+}

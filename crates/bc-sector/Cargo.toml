@@ -1,0 +1,28 @@
+[package]
+name = "bc-sector"
+description = "Before Colony sector runtime: the hot loop (no tokio, no locks, no allocations after startup)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+bc-proto.workspace = true
+bc-sim = { workspace = true, features = ["deterministic", "canon-names"] }
+crossbeam-queue.workspace = true
+rtrb.workspace = true
+
+[dev-dependencies]
+bc-alloc.workspace = true
+bc-client-core.workspace = true
+criterion.workspace = true
+glam.workspace = true
+
+[[bench]]
+name = "sector"
+harness = false
+
+[lints]
+workspace = true

@@ -1,0 +1,37 @@
+[package]
+name = "bc-server"
+description = "Before Colony game server: WebTransport sessions, sector threads, dev HTTP"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+bc-alloc.workspace = true
+bc-proto.workspace = true
+bc-sim = { workspace = true, features = ["deterministic", "canon-names"] }
+bc-sector.workspace = true
+bc-zero.workspace = true
+tokio.workspace = true
+wtransport.workspace = true
+axum.workspace = true
+tower-http.workspace = true
+rustls.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+hex.workspace = true
+crossbeam-queue.workspace = true
+rtrb.workspace = true
+
+[dev-dependencies]
+bc-bot.workspace = true
+bc-client-core.workspace = true
+
+[lints]
+workspace = true
