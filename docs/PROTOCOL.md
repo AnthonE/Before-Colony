@@ -1,4 +1,4 @@
-# Before Colony wire protocol (v1)
+# Before Colony wire protocol (v2)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
@@ -82,10 +82,14 @@ Frames are `[u16 LE payload length][u8 tag][payload]`, byte-aligned.
 | Tag | Message | Direction |
 |---|---|---|
 | 1 | Hello {version, pilot kind, frame, faction, name ≤ 16 B} | client → server (first frame) |
-| 2 | Welcome {version, client slot, tick, tick_hz, sector, zero_allowed, max_datagram} | server → client |
+| 2 | Welcome {version, client slot, tick, tick_hz, sector, zero_allowed, max_datagram, field_seed, field_rocks} | server → client |
 | 3 | Reject {reason: version / full / bad hello} | server → client |
 | 4 | Roster {entity slot, pilot kind, name (empty = left)} | server → client |
 | 5 | Respawn {frame} | client → server |
 | 6 | Bye {reason} | either |
 
 Pilots claiming to be a server-side Mobile Doll are downgraded to `Agent`.
+
+The Welcome's `field_seed` (u32) and `field_rocks` (u16) name the sector's debris field: clients
+build it with `bc_sim::field::Field::generate(field_seed, field_rocks)`, identical to the
+server's, and predict their suit against it.

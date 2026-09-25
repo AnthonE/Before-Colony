@@ -9,7 +9,7 @@ use glam::Vec3;
 
 #[test]
 fn doll_squads_fight_to_a_kill() {
-    let mut sim = Sim::new(SimConfig { target_dolls: 0, seed: 11, ..SimConfig::default() });
+    let mut sim = Sim::new(SimConfig { target_dolls: 0, seed: 11, field_rocks: 0, ..SimConfig::default() });
     for k in 0..3 {
         let a = Vec3::new(-1_250.0, 1_000.0 + k as f32 * 60.0, k as f32 * 80.0);
         let b = Vec3::new(1_250.0, 1_000.0 + k as f32 * 60.0, k as f32 * 80.0);
@@ -42,7 +42,7 @@ fn doll_squads_fight_to_a_kill() {
 
 #[test]
 fn spawner_keeps_the_patrols_topped_up() {
-    let mut sim = Sim::new(SimConfig { target_dolls: 12, ..SimConfig::default() });
+    let mut sim = Sim::new(SimConfig { target_dolls: 12, field_rocks: 0, ..SimConfig::default() });
     for _ in 0..(20 * 30) {
         sim.step();
     }

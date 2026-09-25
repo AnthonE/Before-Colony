@@ -158,9 +158,9 @@ on wasm32 (under Node, via `wasm-bindgen-test-runner`). Never enable glam's `fas
 |---|---|
 | `bc-proto/tests/roundtrip.rs` | Codecs round-trip within ½ LSB; decoders never panic on arbitrary bytes. |
 | `bc-sim/tests/no_alloc.rs`, `bc-sector/tests/no_alloc_sector.rs` | 0 heap operations per tick with 64 clients + 256 dolls. |
-| `bc-sim/tests/determinism.rs` | Identical state hash on native and wasm32. |
-| `bc-sim/tests/{flight,combat,fire_control,lagcomp,mobile_dolls,zero}.rs` | Rocket equation, FA, blackout, no tunnelling, arm loss, charge, sabers and clashes, lag comp (and its clamp), dolls fight to a kill, ZERO accuracy, calibration, seizure, magnetism. |
-| `bc-sector/tests/netcode.rs` | Over a simulated 100 ms / 5%-loss link: prediction error and clock sync, and a client that sends inputs only twice a second still has an accurate RTT and commands that arrive in time. |
+| `bc-sim/tests/determinism.rs` | Identical state hash on native and wasm32, for the reference scenario and for suits flying into rocks and firing through them; the generated debris field is identical too. |
+| `bc-sim/tests/{flight,combat,fire_control,lagcomp,mobile_dolls,zero,field}.rs` | Rocket equation, FA, blackout, no tunnelling, arm loss, charge, sabers and clashes, lag comp (and its clamp), dolls fight to a kill, ZERO accuracy, calibration, seizure, magnetism; suits stop at rocks at 2 km/s and rocks stop shots. |
+| `bc-sector/tests/netcode.rs` | Over a simulated 100 ms / 5%-loss link: prediction error and clock sync (in open flight, and ramming and sliding round a rock), and a client that sends inputs only twice a second still has an accurate RTT and commands that arrive in time. |
 | `bc-server/tests/{echo,duel,oracle}.rs` | A real server over real WebTransport: echo; two agents find and fight each other; Jev advice reaches a ZERO pilot. |
 | `bc-zero/tests/jev_mock.rs` | Jev request contract, parsing, timeout, 429/529 breaker, garbage. |
 | `bc-sim/benches/tick.rs` | Tick percentiles. |

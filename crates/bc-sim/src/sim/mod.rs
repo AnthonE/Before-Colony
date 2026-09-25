@@ -5,11 +5,11 @@
 //!
 //! Pipeline for tick `T`:
 //! 1. Mobile Doll AI (and ZERO seizures) write `InputCmd`s (dolls re-plan every 3rd tick, staggered).
-//! 2. Flight: AMBAC/RCS attitude, thrust, propellant, G-strain; wrecks drift.
+//! 2. Flight: AMBAC/RCS attitude, thrust, propellant, G-strain; wrecks drift; rocks stop both.
 //! 3. Spatial hash rebuild, then lag-compensation history is recorded (`history[T]` = snapshot `T`).
 //! 4. Weapons fire: projectiles spawn and catch up through the history (≤ 8 ticks) for shots fired
 //!    by humans/agents; beams emit spawn events.
-//! 5. Projectiles sweep against per-part capsules; sabers sweep their arcs.
+//! 5. Projectiles sweep against per-part capsules (rocks stop them); sabers sweep their arcs.
 //! 6. Damage resolves in generation order; parts break; suits die.
 //! 7. Heat, energy, ZERO strain, respawns; staggered ZERO rollouts.
 
@@ -28,6 +28,7 @@ use crate::ai::{self, DOLL, SEIZED};
 use crate::config::{DT, SimConfig, secs};
 use crate::content::{frame, weapon};
 use crate::events::EventRing;
+use crate::field::Field;
 use crate::flight::{self, FlightMods};
 use crate::handle::SuitId;
 use crate::lagcomp::History;
@@ -92,6 +93,8 @@ pub struct Sim {
     tick: u32,
     pub suits: Suits,
     pub projectiles: Projectiles,
+    /// The debris field (static: rocks are solid to suits and stop shots).
+    pub field: Field,
     pub history: History,
     spatial: SpatialHash,
     pub events: EventRing,
@@ -124,6 +127,7 @@ impl Sim {
             tick: 0,
             suits: Suits::new(cap),
             projectiles: Projectiles::new(cfg.max_projectiles),
+            field: Field::generate(cfg.field_seed, cfg.field_rocks),
             history: History::new(cap),
             spatial: SpatialHash::new(cap),
             events: EventRing::new(cfg.max_events),
@@ -488,13 +492,15 @@ impl Sim {
                 let mods = self.flight_mods(i);
                 let spec = frame(self.suits.frame[i]);
                 let cmd = self.suits.input[i];
-                let out = flight::step(&mut self.suits.flight[i], &cmd, spec, &mods, DT);
+                let out = flight::step_in(&self.field, &mut self.suits.flight[i], &cmd, spec, &mods, DT);
                 self.suits.boosting[i] = out.boosting;
                 self.suits.aim[i] = normalize_or(cmd.aim, self.suits.flight[i].rot * Vec3::Z);
             } else {
-                // Wrecks drift.
+                // Wrecks drift (and fetch up against rocks).
                 let f = &mut self.suits.flight[i];
+                let prev = f.pos;
                 f.pos += f.vel * DT;
+                self.field.collide(prev, f);
             }
         }
         self.iter_bits = used;

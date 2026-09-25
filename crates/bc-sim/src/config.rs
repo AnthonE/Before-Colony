@@ -41,6 +41,10 @@ pub struct SimConfig {
     pub friendly_fire: bool,
     /// Test hook: the ZERO System is available on every frame.
     pub zero_on_all_frames: bool,
+    /// The debris field: its seed and how many rocks (≤ `Field::MAX_ROCKS`; 0 for none). Clients
+    /// are told both in their Welcome and build the identical field.
+    pub field_seed: u32,
+    pub field_rocks: u16,
 }
 
 impl Default for SimConfig {
@@ -56,6 +60,8 @@ impl Default for SimConfig {
             zero_interval: 3,
             friendly_fire: false,
             zero_on_all_frames: false,
+            field_seed: crate::field::Field::DEFAULT_SEED,
+            field_rocks: crate::field::Field::DEFAULT_ROCKS,
         }
     }
 }

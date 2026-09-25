@@ -13,7 +13,7 @@ use bc_sim::{Sim, SimConfig, SuitId};
 use glam::{Quat, Vec3};
 
 fn sim() -> Sim {
-    Sim::new(SimConfig { target_dolls: 0, ..SimConfig::default() })
+    Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() })
 }
 
 fn zero_pilot(sim: &mut Sim, pos: Vec3, facing: Vec3) -> SuitId {

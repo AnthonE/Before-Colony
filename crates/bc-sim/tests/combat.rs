@@ -11,7 +11,7 @@ use bc_sim::{DT, Sim, SimConfig, SuitId};
 use glam::{Quat, Vec3};
 
 fn empty() -> Sim {
-    Sim::new(SimConfig { target_dolls: 0, ..SimConfig::default() })
+    Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() })
 }
 
 fn human(sim: &mut Sim, frame: FrameId, faction: Faction, pos: Vec3, facing: Vec3) -> SuitId {

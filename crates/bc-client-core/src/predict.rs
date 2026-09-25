@@ -9,7 +9,8 @@ use bc_proto::snapshot::own_flags;
 use bc_proto::{FrameId, InputCmd, OwnState};
 use bc_sim::DT;
 use bc_sim::content::frame;
-use bc_sim::flight::{FlightMods, FlightState, step};
+use bc_sim::field::Field;
+use bc_sim::flight::{FlightMods, FlightState, step_in};
 use glam::Vec3;
 
 const HISTORY: usize = 128;
@@ -32,6 +33,8 @@ pub struct Predictor {
     /// Server-side relocations (respawns) that no prediction could foresee.
     pub teleports: u32,
     pub initialized: bool,
+    /// The sector's debris field (from the Welcome), which the suit collides with as on the server.
+    pub field: std::sync::Arc<Field>,
 }
 
 impl Default for Predictor {
@@ -46,6 +49,7 @@ impl Default for Predictor {
             last_error: 0.0,
             teleports: 0,
             initialized: false,
+            field: std::sync::Arc::new(Field::empty()),
         }
     }
 }
@@ -73,12 +77,17 @@ impl Predictor {
         }
     }
 
+    /// The sector's field, from the Welcome.
+    pub fn set_field(&mut self, field: Field) {
+        self.field = std::sync::Arc::new(field);
+    }
+
     /// Steps the prediction with a newly generated command.
     pub fn advance(&mut self, cmd: &InputCmd) {
         if !self.initialized {
             return;
         }
-        step(&mut self.state, cmd, frame(self.frame), &self.mods, DT);
+        step_in(&self.field, &mut self.state, cmd, frame(self.frame), &self.mods, DT);
         self.tick = cmd.tick;
         self.predicted[cmd.tick as usize % HISTORY] = (cmd.tick, self.state.pos);
     }
@@ -113,7 +122,7 @@ impl Predictor {
             t += 1;
             match history.get(t) {
                 Some(cmd) => {
-                    step(&mut s, &cmd, spec, &self.mods, DT);
+                    step_in(&self.field, &mut s, &cmd, spec, &self.mods, DT);
                     self.predicted[t as usize % HISTORY] = (t, s.pos);
                 }
                 None => break,

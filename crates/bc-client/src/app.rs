@@ -55,7 +55,12 @@ pub fn run() {
             .init_resource::<Controls>()
             .init_resource::<Aim>()
             .add_systems(Startup, (start_net_loop, setup_hud))
-            .add_systems(Update, (read_input, drive, tick_vis_time, sync_view).chain().in_set(Vis::Drive))
+            .add_systems(
+                Update,
+                (read_input, drive, tick_vis_time, sync_view, crate::rocks::follow_server_field)
+                    .chain()
+                    .in_set(Vis::Drive),
+            )
             .add_systems(Update, (follow, pilot_effects).chain().in_set(Vis::Camera))
             .add_systems(
                 Update,

@@ -15,6 +15,7 @@ use glam::{Quat, Vec3};
 
 use crate::config::G0;
 use crate::content::FrameSpec;
+use crate::field::Field;
 use crate::math::{atan2, integrate_rotation, length, normalize_or};
 
 /// Sustained G a trained human pilot tolerates before strain builds.
@@ -86,6 +87,21 @@ pub struct FlightOut {
 #[inline]
 fn clamp_axis(f: f32, pos_max: f32, neg_max: f32) -> f32 {
     f.clamp(-neg_max, pos_max)
+}
+
+/// [`step`], then kept out of the rocks: what the server and the client's prediction both run.
+pub fn step_in(
+    field: &Field,
+    s: &mut FlightState,
+    cmd: &InputCmd,
+    spec: &FrameSpec,
+    mods: &FlightMods,
+    dt: f32,
+) -> FlightOut {
+    let prev = s.pos;
+    let out = step(s, cmd, spec, mods, dt);
+    field.collide(prev, s);
+    out
 }
 
 /// Advances one suit by `dt` under `cmd`.

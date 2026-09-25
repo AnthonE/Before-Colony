@@ -49,6 +49,9 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
   *can* out-thrust your own body, as Zechs did in the Tallgeese. Mobile Dolls have no body, so no
   G limit. Agents are pilots, so they do have one.
 - **Hull contact.** The colony is solid: suits slide along the hull and beams splash against it.
+- **Rocks are solid too.** A suit that flies into one stops at its surface, losing its speed into
+  it, and slides along it; nothing tunnels, even at 2 km/s. Shots stop at rocks, so a rock is
+  cover. The field comes from a seed, so your browser predicts against the same rocks.
 
 | Frame | Role | Dry mass | Accel (boost) | Δv | Armour | Loadout |
 |---|---|---|---|---|---|---|

@@ -141,11 +141,20 @@ impl Sim {
         let faction = s.faction[i];
         let mut p = muzzle;
         let mut hit = None;
+        let mut blocked = false;
         for k in 0..rewind {
             let b = p + vel * DT;
-            if let Some(h) = self.sweep_history(p, b, w.radius, i, faction, spawn_tick + k, frac) {
-                hit = Some(h);
-                break;
+            let rock = self.field.sweep(p, b, w.radius).map(|(t, _)| t);
+            match self.sweep_history(p, b, w.radius, i, faction, spawn_tick + k, frac) {
+                Some((s, j, part)) if rock.is_none_or(|t| s <= t) => {
+                    hit = Some((j, part));
+                    break;
+                }
+                _ if rock.is_some() => {
+                    blocked = true;
+                    break;
+                }
+                _ => {}
             }
             p = b;
         }
@@ -162,12 +171,13 @@ impl Sim {
         }
         match hit {
             Some((target, part)) => self.queue_damage(target, part, w.damage, i, w.kind),
-            None => {
+            None if !blocked => {
                 let ttl = w.ttl_ticks().saturating_sub(rewind);
                 if ttl > 0 {
                     self.projectiles.spawn(w.kind, i as u16, faction, p, vel, t + ttl, w.damage, w.radius);
                 }
             }
+            None => {} // a rock took it
         }
     }
 
@@ -182,7 +192,7 @@ impl Sim {
         faction: bc_proto::Faction,
         when: u32,
         frac: f32,
-    ) -> Option<(usize, Part)> {
+    ) -> Option<(f32, usize, Part)> {
         let (spatial, suits, history, ff) =
             (&mut self.spatial, &self.suits, &self.history, self.cfg.friendly_fire);
         // Suits move ≲ 150 m within the rewind window; widen the broad phase by that.
@@ -203,7 +213,7 @@ impl Sim {
                 best = Some((s, j, cap));
             }
         });
-        best.map(|(_, j, cap)| (j, Part::ALL[cap]))
+        best.map(|(s, j, cap)| (s, j, Part::ALL[cap]))
     }
 
     pub(super) fn projectile_step(&mut self, t: u32) {
@@ -241,14 +251,17 @@ impl Sim {
                     best = Some((s, j, cap));
                 }
             });
+            // Rocks stop shots: whichever is met first along this tick's path.
+            let rock = self.field.sweep(a, b, r).map(|(t, _)| t);
             match best {
-                Some((_, j, cap)) => {
+                Some((s, j, cap)) if rock.is_none_or(|t| s <= t) => {
                     let kind = self.projectiles.kind[k];
                     let dmg = self.projectiles.damage[k];
                     self.queue_damage(j, Part::ALL[cap], dmg, owner, kind);
                     self.projectiles.kill(k);
                 }
-                None => self.projectiles.pos[k] = b,
+                _ if rock.is_some() => self.projectiles.kill(k),
+                _ => self.projectiles.pos[k] = b,
             }
         }
         self.proj_bits = live;

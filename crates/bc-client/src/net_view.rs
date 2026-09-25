@@ -23,7 +23,7 @@ use crate::view::{
 pub struct Seen {
     hits: HashSet<(u32, u16, u8)>,
     kills: HashSet<(u32, u16)>,
-    /// Beams that have splashed on the colony's hull, by (shooter, shot).
+    /// Beams that have splashed on the colony's hull or a rock, by (shooter, shot).
     splashes: HashSet<(u16, u8)>,
     /// Slot → (generation, time it was first seen as a wreck), so wrecks tumble from where they died.
     wrecked: HashMap<u16, (u8, f64)>,
@@ -188,8 +188,8 @@ pub fn sync_view(
 
     // --- Beams: the own suit's on the input clock (drawn the moment they're fired), others on the
     // render clock. ---
-    // The server removes beams that strike the colony without telling anyone, so they end, and
-    // splash, at its hull here.
+    // The server removes beams that strike the colony or a rock without telling anyone, so they
+    // end, and splash, there.
     beams.0.clear();
     for b in &world.beams {
         let t = if Some(b.shooter) == own_slot { t_input } else { t_render };
@@ -199,13 +199,24 @@ pub fn sync_view(
         let head = b.pos_at(t);
         let dir = b.velocity.normalize_or(Vec3::Z);
         let travelled = head.distance(b.origin);
-        if let Some(hull) = crate::colony::ray_hit(b.origin, dir)
-            && travelled >= hull
-        {
-            if seen.splashes.insert((b.shooter, b.shot_seq)) {
-                let at = b.origin + dir * hull;
+        let field = &core.predict.field;
+        let radius = bc_sim::content::weapon(b.weapon).radius;
+        let rock = field.sweep(b.origin, head, radius).map(|(t, i)| (t * travelled, i));
+        let hull = crate::colony::ray_hit(b.origin, dir).filter(|d| travelled >= *d);
+        let stop = match (rock, hull) {
+            (Some((d, i)), h) if h.is_none_or(|h| d <= h) => {
+                let at = b.origin + dir * d;
+                Some((at, field.rocks()[i].normal(at, radius)))
+            }
+            (_, Some(h)) => {
+                let at = b.origin + dir * h;
                 let rel = at - COLONY_CENTER;
-                let normal = Vec3::new(0.0, rel.y, rel.z).normalize_or(Vec3::Y);
+                Some((at, Vec3::new(0.0, rel.y, rel.z).normalize_or(Vec3::Y)))
+            }
+            _ => None,
+        };
+        if let Some((at, normal)) = stop {
+            if seen.splashes.insert((b.shooter, b.shot_seq)) {
                 events.0.push(FxEvent::Hit { pos: at, weapon: b.weapon, normal: Some(normal), target: None });
             }
             continue;

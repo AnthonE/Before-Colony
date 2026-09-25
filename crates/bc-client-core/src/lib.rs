@@ -44,6 +44,9 @@ pub struct Welcome {
     pub tick_hz: u8,
     pub zero_allowed: bool,
     pub max_datagram: u16,
+    /// The sector's debris field.
+    pub field_seed: u32,
+    pub field_rocks: u16,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,12 +156,29 @@ impl ClientCore {
 
     fn handle_control(&mut self, msg: ControlMsg) {
         match msg {
-            ControlMsg::Welcome { version, client_slot, tick_hz, zero_allowed, max_datagram, .. } => {
+            ControlMsg::Welcome {
+                version,
+                client_slot,
+                tick_hz,
+                zero_allowed,
+                max_datagram,
+                field_seed,
+                field_rocks,
+                ..
+            } => {
                 if version != PROTOCOL_VERSION {
                     self.phase = Phase::Rejected(RejectReason::VersionMismatch);
                     return;
                 }
-                self.welcome = Some(Welcome { client_slot, tick_hz, zero_allowed, max_datagram });
+                self.welcome = Some(Welcome {
+                    client_slot,
+                    tick_hz,
+                    zero_allowed,
+                    max_datagram,
+                    field_seed,
+                    field_rocks,
+                });
+                self.predict.set_field(bc_sim::field::Field::generate(field_seed, field_rocks));
                 self.phase = Phase::InGame;
             }
             ControlMsg::Reject { reason } => self.phase = Phase::Rejected(reason),

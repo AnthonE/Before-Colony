@@ -72,6 +72,9 @@ pub enum ControlMsg {
         sector: u8,
         zero_allowed: bool,
         max_datagram: u16,
+        /// The debris field: build it with `bc_sim::field::Field::generate(field_seed, field_rocks)`.
+        field_seed: u32,
+        field_rocks: u16,
     },
     /// Server → client, then the stream closes.
     Reject { reason: RejectReason },
@@ -108,6 +111,8 @@ impl ControlMsg {
                 sector,
                 zero_allowed,
                 max_datagram,
+                field_seed,
+                field_rocks,
             } => {
                 p.u8(2);
                 p.u16(version);
@@ -117,6 +122,8 @@ impl ControlMsg {
                 p.u8(sector);
                 p.u8(u8::from(zero_allowed));
                 p.u16(max_datagram);
+                p.u32(field_seed);
+                p.u16(field_rocks);
             }
             ControlMsg::Reject { reason } => {
                 p.u8(3);
@@ -176,6 +183,8 @@ impl ControlMsg {
                 sector: r.u8()?,
                 zero_allowed: r.u8()? != 0,
                 max_datagram: r.u16()?,
+                field_seed: r.u32()?,
+                field_rocks: r.u16()?,
             },
             3 => ControlMsg::Reject {
                 reason: match r.u8()? {
@@ -279,6 +288,8 @@ mod tests {
                 sector: 1,
                 zero_allowed: true,
                 max_datagram: 1100,
+                field_seed: 0xDEB12,
+                field_rocks: 160,
             },
             ControlMsg::Roster { slot: 77, pilot: PilotKind::Human, name: Name::new("Zechs") },
             ControlMsg::Respawn { frame: FrameId::Leo },
