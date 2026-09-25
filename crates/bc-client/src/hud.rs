@@ -123,19 +123,8 @@ pub fn setup_hud(mut commands: Commands) {
             p.spawn((HudText::Flight, label(13.0, CYAN, abs(Some(14.0), None, None, Some(12.0)))));
             p.spawn((HudText::Armor, label(13.0, CYAN, abs(Some(250.0), None, None, Some(12.0)))));
             p.spawn((HudText::Weapons, label(13.0, CYAN, abs(None, Some(14.0), None, Some(12.0)))));
-            p.spawn((
-                HudText::Salvage,
-                label(
-                    13.0,
-                    AMBER,
-                    Node {
-                        position_type: PositionType::Absolute,
-                        bottom: Val::Px(12.0),
-                        left: Val::Percent(38.0),
-                        ..default()
-                    },
-                ),
-            ));
+            // Above the armour readout, clear of the weapons panel however narrow the window.
+            p.spawn((HudText::Salvage, label(13.0, AMBER, abs(Some(250.0), None, None, Some(136.0)))));
             p.spawn((
                 GrabMarker,
                 label(13.0, GREEN, abs(Some(0.0), None, Some(0.0), None)),
@@ -312,7 +301,9 @@ pub fn update_hud(
     };
 
     // --- Status (top left). ---
-    let fa = if controls.flight_assist { "FA ON" } else { "FA OFF" };
+    // As the server applies it (the autopilot flies unassisted when G-strain builds).
+    let assisted = own.map_or(controls.flight_assist, |o| o.flags & own_flags::FLIGHT_ASSIST != 0);
+    let fa = if assisted { "FA ON" } else { "FA OFF" };
     let mode = if game.autopilot { "AUTOPILOT (Mobile Doll brain)" } else { "MANUAL" };
     set(
         HudText::Status,
