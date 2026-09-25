@@ -25,6 +25,9 @@ pub struct MeleeSpec {
     /// Blade direction at the start and the end of a swing, suit frame (x right, y up, z forward).
     pub arc_from: Vec3,
     pub arc_to: Vec3,
+    /// The way a hit drives what it strikes, suit frame (a limb cut off flies off this way). A
+    /// thrust drives along its own direction instead.
+    pub cut_dir: Vec3,
     /// Samples along the stroke per active tick (a long blade's tip travels far in a tick).
     pub sub_steps: u8,
     /// A second blade, from the other hand, mirrored left-right (heat shotels).

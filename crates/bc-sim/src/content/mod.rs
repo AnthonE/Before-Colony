@@ -10,7 +10,9 @@ mod names;
 pub mod salvage;
 mod weapons;
 
-pub use frames::{AiHints, ArmSlot, Capsule, FrameSpec, Mount, PLAYABLE_ORDER, SpecialKind, frame};
+pub use frames::{
+    AiHints, ArmSlot, Capsule, FrameSpec, Mount, PLAYABLE_ORDER, SPECIAL_MOUNT, SpecialKind, frame,
+};
 pub use melee::{ConeSpec, MeleeSpec, MissileSpec, Stroke};
 pub use names::{frame_designation, frame_name, weapon_name};
 pub use weapons::{Replication, WeaponClass, WeaponSpec, weapon};

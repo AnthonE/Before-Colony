@@ -31,6 +31,65 @@ fn golden_hash_wasm() {
     assert_eq!(scenario_hash(), GOLDEN);
 }
 
+/// Hash after 450 ticks of the Gundams duelling in pairs among Mobile Dolls: every blade, the
+/// Cross Crusher, the Dragon Fang, and the Gundams' guns (changes deliberately as their mechanics
+/// arrive).
+const GUNDAMS_GOLDEN: u64 = 0xdea0_5f74_c803_5982;
+
+fn gundams_hash() -> u64 {
+    use bc_proto::WeaponKind;
+    use bc_proto::events::Event;
+
+    let (mut sim, pilots) = common::gundam_arena(12, 7);
+    let mut landed = [false; WeaponKind::COUNT];
+    let mut clashes = 0;
+    for _ in 0..450 {
+        let t = sim.next_tick();
+        let from = sim.events.next_seq();
+        for pair in pilots.chunks(2) {
+            let (a, b) = (pair[0], pair[1]);
+            let (ca, cb) = (common::duel_scripted(&sim, a, b, t), common::duel_scripted(&sim, b, a, t));
+            sim.set_input(a, ca);
+            sim.set_input(b, cb);
+        }
+        sim.step();
+        for s in from..sim.events.next_seq() {
+            match sim.events.get(s) {
+                Some(Event::Hit { weapon, .. }) => landed[*weapon as usize] = true,
+                Some(Event::Clash { .. }) => clashes += 1,
+                _ => {}
+            }
+        }
+    }
+    assert!(clashes > 0, "no blades met in the Gundams' scenario");
+    for k in [
+        WeaponKind::BeamSaber,
+        WeaponKind::ArmyKnife,
+        WeaponKind::BeamScythe,
+        WeaponKind::HeatShotel,
+        WeaponKind::CrossCrusher,
+        WeaponKind::DragonFang,
+        WeaponKind::BeamGlaive,
+    ] {
+        assert!(landed[k as usize], "no {k:?} hit in the Gundams' scenario");
+    }
+    sim.state_hash()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn gundams_golden_native() {
+    let h = gundams_hash();
+    assert_eq!(h, gundams_hash(), "must be reproducible within a process");
+    assert_eq!(h, GUNDAMS_GOLDEN, "Gundams' scenario hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn gundams_golden_wasm() {
+    assert_eq!(gundams_hash(), GUNDAMS_GOLDEN);
+}
+
 /// Hash of the generated debris field (clients build it from the Welcome's seed and count).
 const FIELD_GOLDEN: u64 = 0x8631_3a1b_8b14_b993;
 

@@ -4,8 +4,8 @@
 //! - AMBAC, as physics: the limbs swing against the suit's rotation (less with busy arms).
 //! - Thrust posture: legs trail in forward burns and swing forward when braking, and swing away
 //!   from sideways thrust; wing binders flare on boost.
-//! - The beam saber sweeps the simulation's arc on its timing: 4 ticks of windup, 6 of cut, 8 of
-//!   recovery.
+//! - A blade sweeps the simulation's arc on its timing (windup, cut, recovery), both from the
+//!   weapon's `MeleeSpec`.
 //! - Weapons kick when they fire; the Virgo's Planet Defensors circle.
 //! - Wrecks go limp.
 //!
@@ -14,21 +14,14 @@
 
 use bc_model::rig::{BONES, Bone};
 use bc_proto::snapshot::ent_flags;
-use bc_sim::content::frame;
+use bc_sim::config::DT;
+use bc_sim::content::{MeleeSpec, frame, weapon};
 use bevy::prelude::*;
 
 use crate::damage::Damage;
 use crate::model::SuitMeshLib;
 use crate::suits_vis::SuitVisual;
 use crate::view::{FxEvent, FxEvents, SuitDrive, VisTime};
-
-/// The simulation's saber timing (s): windup, cut, recovery.
-const WINDUP: f32 = 4.0 / 30.0;
-const CUT: f32 = 6.0 / 30.0;
-const RECOVERY: f32 = 8.0 / 30.0;
-/// The blade's sweep, relative to the hand, in the suit's frame (bc-sim's `saber_sweep`).
-const SWEEP_FROM: Vec3 = Vec3::new(0.75, 0.65, 0.35);
-const SWEEP_TO: Vec3 = Vec3::new(-0.75, -0.45, 0.55);
 
 /// A suit's pose and what it's doing, between frames.
 #[derive(Component)]
@@ -39,8 +32,8 @@ pub struct Anim {
     prev_rot: Option<Quat>,
     /// Smoothed angular velocity in the suit's frame (rad/s).
     spin: Vec3,
-    /// Seconds into the current saber swing.
-    swing: Option<f32>,
+    /// Seconds into the current melee strike, and its motion.
+    swing: Option<(f32, MeleeSpec)>,
     saber_flag: bool,
     /// The Planet Defensors' angle.
     orbit: f32,
@@ -128,15 +121,19 @@ pub fn animate_suits(
         }
         a.prev_rot = Some(d.rot);
 
-        // The saber: a swing starts on the flag's rising edge.
+        // A melee strike starts on the flag's rising edge.
         let saber = has(ent_flags::SABER) && !wreck;
         if saber && !a.saber_flag {
-            a.swing = Some(0.0);
+            let spec = frame(d.frame);
+            a.swing = spec
+                .melee_mount(spec.striking_slot(d.flags))
+                .and_then(|m| weapon(m.weapon).melee)
+                .map(|m| (0.0, m));
         }
         a.saber_flag = saber;
-        if let Some(s) = &mut a.swing {
+        if let Some((s, m)) = &mut a.swing {
             *s += dt;
-            if *s > WINDUP + CUT + RECOVERY {
+            if *s > f32::from(m.duration()) * DT {
                 a.swing = None;
             }
         }
@@ -199,15 +196,18 @@ pub fn animate_suits(
             target[Bone::WingR.index()] = Vec3::new(0.0, 0.0, -flare);
             target[Bone::WingL.index()] = Vec3::new(0.0, 0.0, flare);
 
-            // The saber's arc, carried by the whole left arm.
-            if let Some(s) = a.swing {
+            // The blade's arc, carried by the whole left arm.
+            if let Some((s, m)) = a.swing {
                 let rest = lib.sockets(d.frame).saber.1;
-                let want = if s < WINDUP {
-                    rest.lerp(SWEEP_FROM.normalize(), smooth(0.0, WINDUP, s))
-                } else if s < WINDUP + CUT {
-                    SWEEP_FROM.normalize().lerp(SWEEP_TO.normalize(), (s - WINDUP) / CUT)
+                let (windup, cut, recovery) =
+                    (f32::from(m.windup) * DT, f32::from(m.active) * DT, f32::from(m.recovery) * DT);
+                let (from, to) = (m.arc_from.normalize(), m.arc_to.normalize());
+                let want = if s < windup {
+                    rest.lerp(from, smooth(0.0, windup, s))
+                } else if s < windup + cut {
+                    from.lerp(to, (s - windup) / cut)
                 } else {
-                    SWEEP_TO.normalize().lerp(rest, smooth(0.0, RECOVERY, s - WINDUP - CUT))
+                    to.lerp(rest, smooth(0.0, recovery, s - windup - cut))
                 };
                 let r = turn(rest, want, 2.6);
                 target[Bone::UpperArmL.index()] = r * 0.55;

@@ -39,3 +39,29 @@ fn busy_sector_ticks_without_allocating() {
     assert!(sim.chunks.count() > 10, "wreckage should pile up: {} chunks", sim.chunks.count());
     assert_eq!(total, 0, "heap operations inside the tick: {total}");
 }
+
+#[test]
+fn gundams_duel_without_allocating() {
+    // Every Gundam's blades, twin blades, the fang and the Cross Crusher, among Mobile Dolls.
+    let (mut sim, pilots) = common::gundam_arena(64, 11);
+    let mut total = 0;
+    for _ in 0..600 {
+        let t = sim.next_tick();
+        let mut cmds = [bc_proto::InputCmd::default(); 12];
+        for (k, pair) in pilots.chunks(2).enumerate() {
+            cmds[2 * k] = common::duel_scripted(&sim, pair[0], pair[1], t);
+            cmds[2 * k + 1] = common::duel_scripted(&sim, pair[1], pair[0], t);
+        }
+        let ((), n) = bc_alloc::count(|| {
+            for (k, &id) in pilots.iter().enumerate() {
+                sim.set_input(id, cmds[k]);
+            }
+            sim.step();
+        });
+        total += n;
+    }
+    let melee = bc_sim::content::WeaponClass::Melee as usize;
+    let melee_hits: u32 = pilots.iter().map(|id| sim.stats(id.idx()).hits_by_class[melee]).sum();
+    assert!(melee_hits > 10, "the blades should connect: {melee_hits} hits");
+    assert_eq!(total, 0, "heap operations inside the tick: {total}");
+}

@@ -62,22 +62,26 @@ network threads.
    cleared (the same view delay). After 8 silent ticks the suit goes hands-off.
 5. **`Sim::step`:**
    1. Mobile Doll AI (re-plans every 3rd tick, staggered). A ZERO seizure overrides the pilot.
-   2. Flight: AMBAC/RCS, thrust, propellant, G-strain, swept against the rocks. Wrecks drift.
-   3. Chunks (loose ore, limbs, hulks): free ones drift on closed-form segments, bounce off the
+   2. Specials: their cooldowns run down.
+   3. Flight: AMBAC/RCS, thrust, propellant, G-strain, swept against the rocks. Wrecks drift.
+   4. Chunks (loose ore, limbs, hulks): free ones drift on closed-form segments, bounce off the
       colony and rocks, and expire.
-   4. Rebuild the spatial hash (counting sort, 128 m cells).
-   5. Record lag-comp history, so `history[T]` is exactly snapshot `T`.
-   6. Weapons: charge, heat, energy, arm cone, magnetism, spawn, lag-comp catch-up (rocks stop it,
+   5. Rebuild the spatial hash (counting sort, 128 m cells).
+   6. Record lag-comp history, so `history[T]` is exactly snapshot `T`.
+   7. Guns: charge, heat, energy, arm cone, magnetism, spawn, lag-comp catch-up (rocks stop it,
       and are worn down by it).
-   7. Projectile sweeps against per-part capsules (skipping parts that are gone) and rocks, which
-      shots wear down until they shatter into ore. Saber arcs, 3 sub-steps per tick, with clashes;
-      a stroke chips ore off a rock and cuts a part off a hulk.
-   8. Damage resolves in order: limbs come off as chunks, overflow spills to the torso, suits die
+   8. Projectile sweeps against per-part capsules (skipping parts that are gone) and rocks, which
+      shots wear down until they shatter into ore.
+   9. Melee (`sim/melee.rs`), driven by each blade's `MeleeSpec`: swings sweep an arc (sub-steps
+      per tick), the Dragon Fang's thrust drives its head out along the aim, twin weapons strike
+      with a blade in each hand. Blades that parry clash; a stroke chips ore off a rock and cuts a
+      part off a hulk.
+   10. Damage resolves in order: limbs come off as chunks, overflow spills to the torso, suits die
       and leave hulks (spilling their holds).
-   9. Salvage: grab, stow, throw, jettison, and sales at the dock. Presses are edges against the
-      previous tick's buttons, so this runs before they're recorded.
-   10. Heat, energy, ZERO strain (seizure and lockout), respawns.
-   11. ZERO rollouts (staggered every 3 ticks per pilot).
+   11. Salvage: grab, stow, throw, jettison, and sales at the dock. Presses are edges against the
+       previous tick's buttons, so this runs before they're recorded.
+   12. Heat, energy, ZERO strain (seizure and lockout), respawns.
+   13. ZERO rollouts (staggered every 3 ticks per pilot).
    12. Shattered rocks grow back once no suit is near (checked every 30 ticks).
 6. **Tactical pictures** for ZERO pilots (≈4 Hz), only when an external oracle is attached.
 7. **Snapshots** for each client, straight into its ring. The egress thread is unparked.
@@ -178,8 +182,9 @@ on wasm32 (under Node, via `wasm-bindgen-test-runner`). Never enable glam's `fas
 | Test | Proves |
 |---|---|
 | `bc-proto/tests/roundtrip.rs` | Codecs round-trip within ½ LSB; decoders never panic on arbitrary bytes. |
-| `bc-sim/tests/no_alloc.rs`, `bc-sector/tests/no_alloc_sector.rs` | 0 heap operations per tick with 64 clients + 256 dolls. |
-| `bc-sim/tests/determinism.rs` | Identical state hash on native and wasm32, for the reference scenario and for suits flying into rocks and firing through them; the generated debris field is identical too. |
+| `bc-sim/tests/no_alloc.rs`, `bc-sector/tests/no_alloc_sector.rs` | 0 heap operations per tick with 64 clients + 256 dolls, and with the Gundams duelling. |
+| `bc-sim/tests/determinism.rs` | Identical state hash on native and wasm32, for the reference scenario, for suits flying into rocks and firing through them, for a salvage run, and for the Gundams duelling with every blade; the generated debris field is identical too. |
+| `bc-sim/tests/{content,melee}.rs` | Every table row sits at its id and the Gundams fly as designed; every blade reaches as far as its row says and mines, twin blades strike once each, the Dragon Fang thrusts where it's aimed, the Cross Crusher is Sandrock's special, and only blades that parry clash. |
 | `bc-sim/tests/{flight,combat,fire_control,lagcomp,mobile_dolls,zero,field,salvage}.rs` | Rocket equation, FA, blackout, no tunnelling, arm loss, charge, sabers and clashes, lag comp (and its clamp), dolls fight to a kill, ZERO accuracy, calibration, seizure, magnetism; suits stop at rocks at 2 km/s and rocks stop shots; limbs come off as chunks and shots pass where they were, hulks, bounces, expiry, lighter suits. |
 | `bc-sector/tests/salvage_net.rs` | Over the same link: chunks reach the client exactly as the server moves them, across bounces; chunks that go leave the client; a kill hands its wreck to its hulk; changed rocks arrive. |
 | `bc-sector/tests/netcode.rs` | Over a simulated 100 ms / 5%-loss link: prediction error and clock sync (in open flight, and ramming and sliding round a rock), and a client that sends inputs only twice a second still has an accurate RTT and commands that arrive in time. |

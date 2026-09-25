@@ -40,7 +40,7 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
 - **Attitude.** The suit turns toward your aim.
   - **AMBAC** (Active Mass Balance Auto Control) swings the limbs to rotate the suit. It costs no
     propellant but has modest authority. Losing arms or legs reduces it, and so does firing or
-    swinging a saber, because the limbs are busy.
+    striking with a blade, because the limbs are busy.
   - **RCS** (hold R) adds strong attitude thrusters that burn propellant.
 - **Flight assist** (V) turns the stick into a velocity command: it brakes to a stop when you let
   go. With it off you are fully Newtonian. **Brake** (X) always retro-burns.
@@ -89,6 +89,28 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
   an energy pool that the reactor recharges.
 - **Lag compensation.** A shot resolves against the world as its shooter saw it, up to 8 ticks
   (267 ms) back. Details are in `ARCHITECTURE.md`.
+
+### Melee
+
+Every blade strikes the same way: a windup, the stroke (when it can hit), and a recovery, with the
+timings, arc and reach in its row of the weapon table.
+
+| Blade | Suit (key) | Damage | Reach | Windup · stroke · recovery (ticks) | Notes |
+|---|---|---|---|---|---|
+| Beam saber | Leo, Wing Zero (F) | 90 | 9 m | 4 · 6 · 8 | right shoulder to left hip |
+| Army knife | Heavyarms (F) | 55 | 5 m | 3 · 4 · 6 | quick |
+| Beam scythe | Deathscythe (F) | 120 | 12 m | 6 · 6 · 10 | wide reaping arc |
+| Heat shotels | Sandrock (F) | 70 a blade | 8 m | 5 · 6 · 8 | one in each hand, sweeping inward |
+| Cross Crusher | Sandrock (H) | 100 a blade | 9 m | 8 · 5 · 15 | the shotels as a pincer; both arms; 8 s cooldown |
+| Dragon Fang | Shenlong (LMB) | 85 | 35 m | 4 · 6 · 10 | thrust along the aim; no lunge; can't be parried |
+| Beam glaive | Shenlong (F) | 110 | 13 m | 5 · 6 · 10 | overhead chop |
+
+- **A blade hits a suit at most once a strike**; each of a twin weapon's blades hits it once. A lost
+  arm loses its blade (the Cross Crusher needs both).
+- **Blades lunge**: through the windup and the stroke the suit drives forward at 1.5× main thrust,
+  which adds several metres to the reach. The Dragon Fang is Shenlong's arm, so it doesn't.
+- **Clashes.** A stroke that meets a suit whose own blade is out and facing it is parried: neither
+  does damage, and each recovers for its blade's clash time. The Dragon Fang can't be parried.
 
 ## Sensors and visibility
 
@@ -167,14 +189,14 @@ The rocks hold ore: most are nickel-iron, some titanium or volatiles, a few exot
 show which, and thin as the ore is taken. A rock of radius r m has 60 + 25r of structure and
 200r kg of ore, so a 10 m rock takes two saber strokes and holds 2 t.
 
-- **Sabers mine best.** A stroke into a rock does double damage and chips off up to 200 kg of ore,
+- **Blades mine best.** A stroke into a rock does double damage and chips off up to 200 kg of ore,
   which drifts free, ready to grab. Machine cannon rounds wear a rock down at their usual damage.
   Beams do 0.3× and boil off 4 kg of ore for each point of damage, so shooting a rock apart wastes
   most of it.
 - **A rock with no structure left shatters**: whatever ore is left flies off as 2–8 chunks. Nothing
   meets it until it grows back, 10 minutes later and only once no suit is within 1 km. Rocks crack
   as they're worked.
-- **Hulks come apart.** A saber stroke through a hulk cuts off the part nearest the blade, which
+- **Hulks come apart.** A blade's stroke through a hulk cuts off the part nearest the blade, which
   drifts free as a limb small enough to stow.
 
 ## The world (EVE-lite, roadmap)

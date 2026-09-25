@@ -1,7 +1,12 @@
+use bc_proto::snapshot::ent_flags;
 use bc_proto::{FrameId, Part, WeaponKind};
 use glam::Vec3;
 
+use super::{WeaponClass, weapon};
 use crate::config::G0;
+
+/// The mount of a frame's special melee move (the Cross Crusher), after the three loadout slots.
+pub const SPECIAL_MOUNT: u8 = 3;
 
 /// A capsule in the suit's local frame (x right, y up, z forward; origin at the torso centre).
 #[derive(Clone, Copy, Debug)]
@@ -220,6 +225,30 @@ impl FrameSpec {
             self.side_thrust
         };
         f / m
+    }
+
+    /// The melee weapon on mount `slot`: a loadout slot, or [`SPECIAL_MOUNT`] for a melee move.
+    pub fn melee_mount(&self, slot: u8) -> Option<Mount> {
+        let mount = match slot {
+            SPECIAL_MOUNT => match self.special {
+                SpecialKind::MeleeMove { .. } => self.special_mounts[0],
+                _ => None,
+            },
+            _ => self.loadout.get(usize::from(slot)).copied().flatten(),
+        };
+        mount.filter(|m| weapon(m.weapon).class == WeaponClass::Melee)
+    }
+
+    /// Which mount a strike seen in entity `flags` comes from: the special's melee move (SPECIAL),
+    /// a blade in a gun slot (MELEE_ALT: the Dragon Fang), or the melee slot.
+    pub fn striking_slot(&self, flags: u16) -> u8 {
+        if flags & ent_flags::SPECIAL != 0 && self.melee_mount(SPECIAL_MOUNT).is_some() {
+            SPECIAL_MOUNT
+        } else if flags & ent_flags::MELEE_ALT != 0 {
+            if self.melee_mount(0).is_some() { 0 } else { 1 }
+        } else {
+            2
+        }
     }
 }
 

@@ -1,7 +1,7 @@
 //! Suit storage: structure-of-arrays, fixed capacity, generational slots.
 
 use alloc::boxed::Box;
-use bc_proto::{CARGO_KINDS, Faction, FrameId, InputCmd, NO_CHUNK, NO_SLOT, Part, PilotKind};
+use bc_proto::{CARGO_KINDS, Faction, FrameId, InputCmd, NO_CHUNK, NO_SLOT, Part, PilotKind, WeaponKind};
 use glam::{Quat, Vec3};
 
 use crate::ai::AiState;
@@ -22,9 +22,9 @@ pub struct WeaponState {
     pub charge: u16,
 }
 
-/// Beam saber swing phases.
+/// Phases of a melee strike (a saber swing, a scythe's reap, the Dragon Fang's thrust).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum SaberPhase {
+pub enum MeleePhase {
     #[default]
     Idle,
     Windup,
@@ -32,18 +32,67 @@ pub enum SaberPhase {
     Recovery,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
-pub struct SaberState {
-    pub phase: SaberPhase,
+pub use crate::content::SPECIAL_MOUNT;
+/// Marks a hit by a twin weapon's second blade in [`MeleeState::hits`].
+pub const SECOND_BLADE: u16 = 1 << 15;
+
+#[derive(Clone, Copy, Debug)]
+pub struct MeleeState {
+    pub phase: MeleePhase,
     pub timer: u8,
-    /// Suits already hit this swing (each at most once).
+    /// The weapon striking, and its mount: a loadout slot, or [`SPECIAL_MOUNT`].
+    pub weapon: WeaponKind,
+    pub slot: u8,
+    /// A thrust's direction, suit frame.
+    pub dir: Vec3,
+    /// Suits already hit this strike, each at most once per blade (a second blade's hits carry
+    /// [`SECOND_BLADE`]).
     pub hits: [u16; 4],
     pub n_hits: u8,
-    /// Lag-compensation view of the swing (1/16 ticks).
+    /// Lag-compensation view of the strike (1/16 ticks).
     pub view_q4: u32,
-    /// The rock, and the hulk, this swing has struck (each at most once).
+    /// The rock, and the hulk, this strike has struck (each at most once).
     pub rock: Option<u16>,
     pub cut: Option<u16>,
+}
+
+impl Default for MeleeState {
+    fn default() -> Self {
+        Self {
+            phase: MeleePhase::Idle,
+            timer: 0,
+            weapon: WeaponKind::BeamSaber,
+            slot: 2,
+            dir: Vec3::Z,
+            hits: [0; 4],
+            n_hits: 0,
+            view_q4: 0,
+            rock: None,
+            cut: None,
+        }
+    }
+}
+
+impl MeleeState {
+    /// Windup or the stroke itself (not recovering).
+    pub fn striking(&self) -> bool {
+        matches!(self.phase, MeleePhase::Windup | MeleePhase::Active)
+    }
+}
+
+/// A frame's special (see [`SpecialKind`](crate::content::SpecialKind)).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SpecialState {
+    /// Engaged: the jammer on, Full Open firing.
+    pub active: bool,
+    /// Ticks left in what's under way: a transformation, Full Open.
+    pub timer: u16,
+    /// Ticks until the special can be used again.
+    pub cooldown: u16,
+    /// Ticks of forced overheat left after Full Open.
+    pub lockout: u16,
+    /// The jammer is broken (by firing, striking) until this tick.
+    pub break_until: u32,
 }
 
 /// Per-suit combat statistics (for `/status` and the kill feed).
@@ -54,6 +103,10 @@ pub struct SuitStats {
     pub kills: u32,
     pub deaths: u32,
     pub damage_dealt: f32,
+    /// Hits landed, by weapon class (beam, ballistic, missile, melee, cone).
+    pub hits_by_class: [u32; 5],
+    /// Specials used: transformations, Full Open Attacks, Cross Crushers, jammer engagements.
+    pub specials: u32,
 }
 
 pub struct Suits {
@@ -75,7 +128,8 @@ pub struct Suits {
     pub overheated: Box<[bool]>,
     pub energy: Box<[f32]>,
     pub weapons: Box<[[WeaponState; 3]]>,
-    pub saber: Box<[SaberState]>,
+    pub melee: Box<[MeleeState]>,
+    pub special: Box<[SpecialState]>,
     pub part_hp: Box<[[f32; Part::COUNT]]>,
     pub zero: Box<[ZeroState]>,
     pub ai: Box<[AiState]>,
@@ -120,7 +174,8 @@ impl Suits {
             overheated: boxed(cap, false),
             energy: boxed(cap, 0.0f32),
             weapons: boxed(cap, [WeaponState::default(); 3]),
-            saber: boxed(cap, SaberState::default()),
+            melee: boxed(cap, MeleeState::default()),
+            special: boxed(cap, SpecialState::default()),
             part_hp: boxed(cap, [0.0f32; Part::COUNT]),
             zero: boxed(cap, ZeroState::default()),
             ai: boxed(cap, AiState::default()),
@@ -175,7 +230,8 @@ impl Suits {
             }
         }
         self.weapons[idx] = ws;
-        self.saber[idx] = SaberState::default();
+        self.melee[idx] = MeleeState::default();
+        self.special[idx] = SpecialState::default();
         self.part_hp[idx] = spec.part_hp;
         self.zero[idx] = ZeroState::default();
         self.respawn_at[idx] = 0;

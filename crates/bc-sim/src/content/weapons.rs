@@ -118,6 +118,7 @@ const SABER: MeleeSpec = MeleeSpec {
     clash_recovery: 10,
     arc_from: v(0.75, 0.65, 0.35),
     arc_to: v(-0.75, -0.45, 0.55),
+    cut_dir: v(-1.5, -1.1, 0.2),
     sub_steps: 3,
     twin: false,
     both_arms: false,
@@ -241,6 +242,7 @@ static WEAPONS: [WeaponSpec; WeaponKind::COUNT] = [
             clash_recovery: 8,
             arc_from: v(0.6, 0.5, 0.6),
             arc_to: v(-0.6, -0.3, 0.75),
+            cut_dir: v(-1.2, -0.8, 0.15),
             ..SABER
         }),
         ..BLADE
@@ -321,6 +323,7 @@ static WEAPONS: [WeaponSpec; WeaponKind::COUNT] = [
             clash_recovery: 12,
             arc_from: v(-0.6, 0.8, 0.3),
             arc_to: v(0.6, -0.5, 0.6),
+            cut_dir: v(1.2, -1.3, 0.3),
             sub_steps: 4,
             ..SABER
         }),
@@ -351,6 +354,7 @@ static WEAPONS: [WeaponSpec; WeaponKind::COUNT] = [
             clash_recovery: 10,
             arc_from: v(0.9, 0.4, 0.3),
             arc_to: v(-0.2, -0.3, 0.95),
+            cut_dir: v(-1.1, -0.7, 0.65),
             twin: true,
             ..SABER
         }),
@@ -370,6 +374,7 @@ static WEAPONS: [WeaponSpec; WeaponKind::COUNT] = [
             clash_recovery: 15,
             arc_from: v(1.0, 0.25, 0.25),
             arc_to: v(0.1, 0.0, 1.0),
+            cut_dir: v(-0.9, -0.25, 0.75),
             twin: true,
             both_arms: true,
             ..SABER
@@ -393,6 +398,7 @@ static WEAPONS: [WeaponSpec; WeaponKind::COUNT] = [
             clash_recovery: 10,
             arc_from: v(0.0, 0.0, 1.0),
             arc_to: v(0.0, 0.0, 1.0),
+            cut_dir: v(0.0, 0.0, 1.0),
             sub_steps: 4,
             lunge: false,
             clashable: false,
@@ -427,6 +433,7 @@ static WEAPONS: [WeaponSpec; WeaponKind::COUNT] = [
             clash_recovery: 10,
             arc_from: v(0.1, 1.0, 0.1),
             arc_to: v(0.0, -0.5, 0.85),
+            cut_dir: v(-0.1, -1.5, 0.75),
             sub_steps: 4,
             ..SABER
         }),
@@ -441,7 +448,18 @@ const _: () = {
         let w = &WEAPONS[i];
         assert!(w.kind as usize == i, "WEAPONS row out of order");
         match w.class {
-            WeaponClass::Melee => assert!(w.melee.is_some() && w.speed == 0.0),
+            WeaponClass::Melee => match w.melee {
+                // Every phase lasts, and the stroke is sampled (its progress divides by both).
+                Some(m) => assert!(
+                    w.speed == 0.0
+                        && m.windup > 0
+                        && m.active > 0
+                        && m.recovery > 0
+                        && m.clash_recovery > 0
+                        && m.sub_steps > 0
+                ),
+                None => panic!("a blade without its motion"),
+            },
             WeaponClass::Missile => {
                 assert!(w.missile.is_some() && matches!(w.replication, Replication::List))
             }

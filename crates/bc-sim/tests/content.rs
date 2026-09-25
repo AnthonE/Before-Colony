@@ -98,6 +98,8 @@ fn every_mount_fits_its_weapon() {
                 }
             }
         }
+        // The melee slot holds a blade (guns fire from the other two).
+        assert!(s.loadout[2].is_none_or(|m| weapon(m.weapon).class == WeaponClass::Melee), "{f:?}");
         // A frame with a special that uses a mount has that mount.
         match s.special {
             SpecialKind::MeleeMove { .. } => {

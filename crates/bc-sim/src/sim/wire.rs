@@ -8,10 +8,10 @@ use bc_proto::{EntityState, ObjectState, OwnState, RockState, ZeroInfo};
 use super::Sim;
 use crate::chunks::Motion;
 use crate::config::VISUAL_RANGE;
-use crate::content::{frame, weapon};
+use crate::content::{WeaponClass, frame, weapon};
 use crate::rocks::{max_hp, max_ore_kg};
 use crate::sensors;
-use crate::suits::{SaberPhase, SuitStats};
+use crate::suits::{MeleePhase, SPECIAL_MOUNT, SuitStats};
 
 impl Sim {
     pub fn is_used(&self, i: usize) -> bool {
@@ -69,15 +69,22 @@ impl Sim {
             if let Some(m) = spec.loadout[slot] {
                 let w = weapon(m.weapon);
                 let ws = &s.weapons[i][slot];
-                if ws.cooldown == 0
-                    && s.energy[i] >= w.energy
-                    && (w.ammo == 0 || ws.ammo > 0)
-                    && !s.overheated[i]
-                    && s.arm_free(i, m.arm)
-                {
+                let ok = if w.class == WeaponClass::Melee {
+                    self.melee_ready(i, slot as u8)
+                } else {
+                    ws.cooldown == 0
+                        && s.energy[i] >= w.energy
+                        && (w.ammo == 0 || ws.ammo > 0)
+                        && !s.overheated[i]
+                        && s.arm_free(i, m.arm)
+                };
+                if ok {
                     ready |= 1 << slot;
                 }
             }
+        }
+        if self.special_ready(i) {
+            ready |= 1 << 3;
         }
         let charge = spec.loadout[0]
             .map(|m| weapon(m.weapon))
@@ -96,8 +103,12 @@ impl Sim {
         if charge > 0.0 {
             flags |= own_flags::CHARGING;
         }
-        if s.saber[i].phase != SaberPhase::Idle {
+        let melee = &s.melee[i];
+        if melee.phase != MeleePhase::Idle {
             flags |= own_flags::SABER_ACTIVE;
+            if melee.slot == SPECIAL_MOUNT {
+                flags |= own_flags::SPECIAL_ACTIVE;
+            }
         }
         if mods.lunge {
             flags |= own_flags::LUNGE;
@@ -145,8 +156,8 @@ impl Sim {
             held: self.held_chunk(i).map_or(bc_proto::NO_CHUNK, |k| k as u16),
             lock_target: s.input[i].lock_target.min(bc_proto::NO_SLOT),
             lock_progress: 0,
-            special_timer: 0,
-            special_cooldown: 0,
+            special_timer: s.special[i].timer.min(255) as u8,
+            special_cooldown: s.special[i].cooldown.div_ceil(4).min(255) as u8,
         }
     }
 
@@ -162,8 +173,14 @@ impl Sim {
         if t.saturating_sub(s.fired_secondary[j]) < 4 && s.fired_secondary[j] != 0 {
             flags |= ent_flags::FIRING_SECONDARY;
         }
-        if matches!(s.saber[j].phase, SaberPhase::Windup | SaberPhase::Active) {
+        let melee = &s.melee[j];
+        if melee.striking() {
             flags |= ent_flags::SABER;
+            if melee.slot < 2 {
+                flags |= ent_flags::MELEE_ALT;
+            } else if melee.slot == SPECIAL_MOUNT {
+                flags |= ent_flags::SPECIAL;
+            }
         }
         if s.boosting[j] {
             flags |= ent_flags::BOOST;

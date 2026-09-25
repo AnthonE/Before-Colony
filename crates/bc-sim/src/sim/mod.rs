@@ -16,8 +16,10 @@
 use alloc::boxed::Box;
 
 mod combat;
+mod melee;
 mod mining;
 mod salvage;
+mod specials;
 mod wire;
 mod zero;
 
@@ -44,7 +46,7 @@ use crate::rocks::RockStates;
 use crate::sensors;
 use crate::spatial::SpatialHash;
 use crate::storage::{BitSet, FixedVec, boxed};
-use crate::suits::{SaberPhase, Suits};
+use crate::suits::{MeleePhase, Suits};
 use crate::zero::TacticalAdvice;
 use crate::zero::strain::StrainEvent;
 
@@ -267,6 +269,7 @@ impl Sim {
             self.squad_logic();
         }
         self.ai_step(t);
+        self.specials_step(t);
         self.flight_step(t);
         self.chunk_step(t);
         self.wrecks_follow_hulks();
@@ -501,7 +504,7 @@ impl Sim {
         if dead(Part::Legs) {
             ambac -= 0.3;
         }
-        let busy = s.saber[i].phase != SaberPhase::Idle || self.tick.saturating_sub(s.last_fired[i]) < 6;
+        let busy = s.melee[i].phase != MeleePhase::Idle || self.tick.saturating_sub(s.last_fired[i]) < 6;
         if busy {
             ambac *= 0.6;
         }
@@ -520,7 +523,7 @@ impl Sim {
             ambac: wire(ambac.max(0.1)),
             thrust: wire(thrust),
             g_immune: s.pilot[i] == PilotKind::MobileDoll,
-            lunge: matches!(s.saber[i].phase, SaberPhase::Windup | SaberPhase::Active),
+            lunge: s.melee[i].striking() && weapon(s.melee[i].weapon).melee.is_some_and(|m| m.lunge),
             extra_mass_kg,
         }
     }

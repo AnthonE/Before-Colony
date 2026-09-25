@@ -60,6 +60,7 @@ pub mod own_flags {
     pub const OVERHEAT: u16 = 1 << 2;
     /// Twin Buster Rifle charging.
     pub const CHARGING: u16 = 1 << 3;
+    /// A melee strike is under way, recovery included (any blade, the Dragon Fang).
     pub const SABER_ACTIVE: u16 = 1 << 4;
     /// This frame carries the ZERO System.
     pub const ZERO_CAPABLE: u16 = 1 << 5;
@@ -69,7 +70,8 @@ pub mod own_flags {
     pub const LOCKED_ON: u16 = 1 << 7;
     /// In the colony's dock: cargo, and anything in hand, sells on arrival.
     pub const DOCKED: u16 = 1 << 8;
-    /// Beam saber lunge (windup and swing): the flight model drives forward at full thrust.
+    /// Melee lunge (the windup and stroke of a blade that lunges): the flight model drives
+    /// forward at full thrust.
     pub const LUNGE: u16 = 1 << 9;
     /// The frame's special is engaged: the Hyper Jammer, Full Open Attack, Cross Crusher.
     pub const SPECIAL_ACTIVE: u16 = 1 << 10;
@@ -199,6 +201,8 @@ impl Default for OwnState {
 pub mod ent_flags {
     pub const FIRING_PRIMARY: u16 = 1 << 0;
     pub const FIRING_SECONDARY: u16 = 1 << 1;
+    /// Striking in melee (windup or stroke): the F weapon, unless MELEE_ALT or SPECIAL says
+    /// otherwise.
     pub const SABER: u16 = 1 << 2;
     pub const BOOST: u16 = 1 << 3;
     pub const CHARGING: u16 = 1 << 4;
