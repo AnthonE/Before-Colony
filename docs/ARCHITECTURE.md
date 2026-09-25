@@ -62,7 +62,9 @@ network threads.
    cleared (the same view delay). After 8 silent ticks the suit goes hands-off.
 5. **`Sim::step`:**
    1. Mobile Doll AI (re-plans every 3rd tick, staggered). A ZERO seizure overrides the pilot.
-   2. Specials: their cooldowns run down, and the Hyper Jammer follows MODE and drains energy.
+   2. Specials: their cooldowns run down; the Hyper Jammer follows MODE and drains energy; Full
+      Open runs; a transformable frame changes form on MODE (`bc_sim::transform`, which the
+      client's predictor runs too).
    3. Flight: AMBAC/RCS, thrust, propellant, G-strain, swept against the rocks. Wrecks drift.
    4. Chunks (loose ore, limbs, hulks): free ones drift on closed-form segments, bounce off the
       colony and rocks, and expire.
@@ -119,6 +121,12 @@ network threads.
 - **Prediction.** The own suit is stepped with `bc_sim::flight` and reconciled on every snapshot by
   replaying the unacknowledged commands. Corrections are blended out visually; respawns snap.
   Measured error over a 100 ms-RTT, 5%-loss link: p99 **0.2 mm**.
+  - A change of form is predicted too. The predictor seeds the form from the snapshot (its frame,
+    and the special timer counting a change down), then steps it with each replayed command before
+    flying it, as the server does. The thrust cut is applied on top of the replicated thrust
+    factor on both sides, so a Wing Zero changing form every 3 s still predicts to p99 0.2 mm.
+  - Lag compensation resolves shots against the capsules of the form a suit has now, not the one
+    it had at the shooter's view time (a change takes 24 ticks; the rewind is at most 8).
 - **Interpolation.** Everyone else is drawn `interp_delay` ticks (2–6, adaptive) in the past, with
   Hermite interpolation of position and velocity and normalised lerp of rotation.
 - **Lag compensation.** A shot carries the shooter's view time (`view_tick_q4`). The projectile is
@@ -200,7 +208,8 @@ on wasm32 (under Node, via `wasm-bindgen-test-runner`). Never enable glam's `fas
 | `bc-sim/tests/{content,melee}.rs` | Every table row sits at its id and the Gundams fly as designed; every blade reaches as far as its row says and mines, twin blades strike once each, the Dragon Fang thrusts where it's aimed, the Cross Crusher is Sandrock's special, and only blades that parry clash. |
 | `bc-sim/tests/{flight,combat,fire_control,lagcomp,mobile_dolls,zero,field,salvage}.rs` | Rocket equation, FA, blackout, no tunnelling, arm loss, charge, sabers and clashes, lag comp (and its clamp), dolls fight to a kill, ZERO accuracy, calibration, seizure, magnetism; suits stop at rocks at 2 km/s and rocks stop shots; limbs come off as chunks and shots pass where they were, hulks, bounces, expiry, lighter suits. |
 | `bc-sector/tests/salvage_net.rs` | Over the same link: chunks reach the client exactly as the server moves them, across bounces; chunks that go leave the client; a kill hands its wreck to its hulk; changed rocks arrive. |
-| `bc-sector/tests/netcode.rs` | Over a simulated 100 ms / 5%-loss link: prediction error and clock sync (in open flight, and ramming and sliding round a rock), and a client that sends inputs only twice a second still has an accurate RTT and commands that arrive in time. |
+| `bc-sector/tests/netcode.rs` | Over a simulated 100 ms / 5%-loss link: prediction error and clock sync (in open flight, ramming and sliding round a rock, damaged, and changing into Neo-Bird and back every 3 s), and a client that sends inputs only twice a second still has an accurate RTT and commands that arrive in time. |
+| `bc-sim/tests/transform.rs` | MODE folds Wing Zero into Neo-Bird and back over 24 ticks, weapons down (a charge is lost) and thrust cut; the bird cruises faster; ZERO stays engaged; a bird that dies respawns as Wing Zero. |
 | `bc-server/tests/{echo,duel,oracle}.rs` | A real server over real WebTransport: echo; two agents find and fight each other; Jev advice reaches a ZERO pilot. |
 | `bc-zero/tests/jev_mock.rs` | Jev request contract, parsing, timeout, 429/529 breaker, garbage. |
 | `bc-sim/benches/tick.rs` | Tick percentiles. |

@@ -144,7 +144,7 @@ pub fn duel_scripted(sim: &Sim, id: SuitId, foe: SuitId, tick: u32) -> InputCmd 
     if ahead && to.length() < 14.0 && (tick + 3 * i).is_multiple_of(11) {
         buttons |= bc_proto::buttons::SPECIAL;
     }
-    // The frame's mode (the Hyper Jammer) for stretches of three seconds.
+    // The frame's mode (the Hyper Jammer, Neo-Bird) for stretches of three seconds.
     if (tick / 90 + i).is_multiple_of(2) {
         buttons |= bc_proto::buttons::MODE;
     }

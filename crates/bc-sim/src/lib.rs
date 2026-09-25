@@ -29,6 +29,7 @@ pub mod sim;
 pub mod spatial;
 pub mod storage;
 pub mod suits;
+pub mod transform;
 pub mod world;
 pub mod zero;
 

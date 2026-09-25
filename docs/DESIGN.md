@@ -57,6 +57,7 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
 |---|---|---|---|---|---|---|
 | Leo (OZ-06MS) | line suit | 7.1 t | 3.5 g (5.6 g) | ≈2.6 km/s | titanium | beam rifle · machine cannon · beam saber |
 | Wing Gundam Zero (XXXG-00W0) | hero suit | 8.0 t | 8 g (12 g) | ≈3.7 km/s | gundanium (×0.55 damage) | Twin Buster Rifle · machine cannons · beam saber · **ZERO System** |
+| Neo-Bird (Wing Zero's other form) | interceptor | 8.0 t | 8.5 g (11.9 g) | ≈3.7 km/s | as Wing Zero | Twin Buster Rifle (fixed forward) · machine cannons · **ZERO System** |
 | Gundam Heavyarms (XXXG-01H) | gunship | 8.8 t | 5.2 g (7.3 g) | ≈2.8 km/s | gundanium (×0.55) | beam gatling · homing missiles · army knife · **Full Open Attack** |
 | Gundam Sandrock (XXXG-01SR) | brawler | 9.6 t | 4.6 g (6.9 g) | ≈2.4 km/s | gundanium (×0.45) | beam machine gun · homing missiles · heat shotels · **Cross Crusher** |
 | Gundam Deathscythe (XXXG-01D) | infiltrator | 7.3 t | 7 g (11.2 g) | ≈3.3 km/s | gundanium (×0.55) | buster shield · head vulcans · beam scythe · **Hyper Jammer** |
@@ -104,6 +105,16 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
   shield) are events, and only those are predicted by the shooter's own client.
 - **Lag compensation.** A shot resolves against the world as its shooter saw it, up to 8 ticks
   (267 ms) back. Details are in `ARCHITECTURE.md`.
+
+### Neo-Bird
+
+Wing Zero holds MODE to fold into **Neo-Bird**, and lets go to unfold. A change takes 0.8 s with
+the weapons down and thrust cut to 30%, and once started it runs its course (a strike or a charge
+under way is lost). The bird is the same suit, armour, energy, heat and tank, reshaped: faster in a
+straight line (it cruises at 600 m/s under flight assist) but slower to turn, its rifles fixed
+within 2° of the nose, no saber, and aircraft-shaped hitboxes with wide wings. ZERO stays engaged
+through it, and a Wing Zero always respawns unfolded. The owner's client predicts the change
+exactly.
 
 ### Missiles
 
@@ -267,7 +278,6 @@ show which, and thin as the ore is taken. A rock of radius r m has 60 + 25r of s
 - **Sectors:** multiple sectors with handoff, transfer orbits, TiDi, persistence (Postgres, off
   the hot path), accounts.
 - **Suits:**
-  - Wing's bird-mode transformation.
   - Tallgeese, Epyon (its own ZERO).
   - Shooting missiles down; deployable Planet Defensors.
 - **Agents:** an MCP server so LLM agents can fly as squad commanders, and a Python gym on the

@@ -79,6 +79,7 @@ impl Sim {
                 }
             }
             match self.suits.melee[i].phase {
+                MeleePhase::Idle if self.transforming(i) => {}
                 MeleePhase::Idle => {
                     let (cmd, prev) = (self.suits.input[i], self.suits.prev_buttons[i]);
                     let edge = |b: u16| cmd.pressed(b) && prev & b == 0;

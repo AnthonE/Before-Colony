@@ -9,6 +9,7 @@ use crate::content::{ArmSlot, frame};
 use crate::flight::FlightState;
 use crate::handle::{Handle, SuitId};
 use crate::storage::{BitSet, FreeList, boxed};
+use crate::transform::Form;
 use crate::zero::ZeroState;
 
 /// Per-weapon runtime state.
@@ -328,6 +329,16 @@ impl Suits {
             Some(k) => &mut self.special_weapons[idx][k],
             None => &mut self.weapons[idx][slot],
         }
+    }
+
+    /// The suit's form: its frame, and the change under way (a transformable frame's special
+    /// timer).
+    pub fn form(&self, idx: usize) -> Form {
+        let timer = match frame(self.frame[idx]).special {
+            crate::content::SpecialKind::Transform { .. } => self.special[idx].timer,
+            _ => 0,
+        };
+        Form { frame: self.frame[idx], timer }
     }
 
     /// Whether a mount's weapons can be used: its arm (or other part) is there, and not holding

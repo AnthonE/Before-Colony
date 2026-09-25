@@ -55,6 +55,10 @@ impl Sim {
         for i in alive.iter() {
             let spec = frame(self.suits.frame[i]);
             let cmd = self.suits.input[i];
+            // Weapons are down while the suit changes form.
+            if self.transforming(i) {
+                continue;
+            }
             // Full Open: everything fires along the aim, heat or not.
             let full_open = self.full_open(i);
             for slot in 0..2 {

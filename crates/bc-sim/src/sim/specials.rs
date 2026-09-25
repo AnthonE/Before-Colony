@@ -1,10 +1,11 @@
 //! Frame specials: what they share (a cooldown), each one's step, and whether one is ready.
 
-use bc_proto::buttons::SPECIAL;
+use bc_proto::buttons::{MODE, SPECIAL};
 
 use super::Sim;
 use crate::content::{SpecialKind, frame};
-use crate::suits::{MeleePhase, SPECIAL_MOUNT};
+use crate::suits::{MeleePhase, MeleeState, SPECIAL_MOUNT};
+use crate::transform::transform_step;
 
 impl Sim {
     /// Runs down the specials' cooldowns, and runs the ones that last (the jammer).
@@ -20,10 +21,32 @@ impl Sim {
                 SpecialKind::FullOpen { ticks, lockout, cooldown } => {
                     self.full_open_step(i, ticks, lockout, cooldown, t)
                 }
-                SpecialKind::None | SpecialKind::Transform { .. } | SpecialKind::MeleeMove { .. } => {}
+                SpecialKind::Transform { .. } => self.transform(i),
+                SpecialKind::None | SpecialKind::MeleeMove { .. } => {}
             }
         }
         self.iter_bits = alive;
+    }
+
+    /// The suit's form follows MODE (see `transform`). A change drops any strike or charge under
+    /// way; at its end the suit is the other frame.
+    fn transform(&mut self, i: usize) {
+        let s = &mut self.suits;
+        let mut form = s.form(i);
+        if transform_step(&mut form, s.input[i].pressed(MODE)) {
+            s.melee[i] = MeleeState::default();
+            for ws in s.weapons[i].iter_mut() {
+                ws.charge = 0;
+            }
+            s.stats[i].specials += 1;
+        }
+        s.special[i].timer = form.timer;
+        s.frame[i] = form.frame;
+    }
+
+    /// Whether suit `i` is changing form.
+    pub fn transforming(&self, i: usize) -> bool {
+        self.suits.form(i).changing()
     }
 
     /// Full Open Attack: a SPECIAL press opens every hatch for `ticks` (the weapons fire on their
@@ -68,7 +91,8 @@ impl Sim {
                 let sp = &self.suits.special[i];
                 !sp.active && sp.cooldown == 0 && !self.suits.overheated[i]
             }
-            SpecialKind::None | SpecialKind::Transform { .. } => false,
+            SpecialKind::Transform { .. } => !self.transforming(i),
+            SpecialKind::None => false,
         }
     }
 }

@@ -116,7 +116,8 @@ pub fn sync_view(
         };
         want.push(SuitDrive {
             slot: own.slot,
-            frame: own.frame,
+            // The form the prediction flies (a change of form shows as soon as it's made).
+            frame: if own.alive { core.predict.frame() } else { own.frame },
             faction: core.cfg.faction,
             generation: own.generation,
             own: true,
@@ -253,7 +254,10 @@ pub fn sync_view(
             // On the hit part's armour where the shot's line meets it, as drawn now.
             let posed = |slot: u16| {
                 if Some(slot) == own_slot {
-                    world.own.map(|o| (o.frame, core.predict.render_pos(), core.predict.state.rot))
+                    world.own.map(|o| {
+                        let frame = if o.alive { core.predict.frame() } else { o.frame };
+                        (frame, core.predict.render_pos(), core.predict.state.rot)
+                    })
                 } else {
                     world.entity(slot).map(|t| {
                         let p = t.sample(t_render);

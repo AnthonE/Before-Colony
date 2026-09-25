@@ -32,9 +32,9 @@ fn golden_hash_wasm() {
 }
 
 /// Hash after 450 ticks of the Gundams duelling in pairs among Mobile Dolls: every blade, the
-/// Cross Crusher, the Dragon Fang, the flamethrower, the Hyper Jammer, guided missiles, Full Open
-/// and the Gundams' guns (changes deliberately as their mechanics arrive).
-const GUNDAMS_GOLDEN: u64 = 0x2449_e1d8_4842_dad5;
+/// Cross Crusher, the Dragon Fang, the flamethrower, the Hyper Jammer, guided missiles, Full Open,
+/// Neo-Bird and the Gundams' guns (changes deliberately as their mechanics arrive).
+const GUNDAMS_GOLDEN: u64 = 0x89b1_8f37_125a_cd88;
 
 fn gundams_hash() -> u64 {
     use bc_proto::events::Event;
@@ -82,7 +82,14 @@ fn gundams_hash() -> u64 {
     }
     for id in &pilots {
         let f = sim.suits.frame[id.idx()];
-        if matches!(f, FrameId::Heavyarms | FrameId::Sandrock | FrameId::Deathscythe) {
+        if matches!(
+            f,
+            FrameId::WingZero
+                | FrameId::WingZeroBird
+                | FrameId::Heavyarms
+                | FrameId::Sandrock
+                | FrameId::Deathscythe
+        ) {
             assert!(sim.stats(id.idx()).specials > 0, "{f:?} never used its special");
         }
     }

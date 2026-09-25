@@ -8,7 +8,7 @@ use std::collections::BinaryHeap;
 use std::sync::atomic::Ordering;
 
 use bc_client_core::{ClientConfig, ClientCore, InputContext};
-use bc_proto::buttons::FLIGHT_ASSIST;
+use bc_proto::buttons::{FLIGHT_ASSIST, MODE};
 use bc_proto::control::ControlMsg;
 use bc_proto::{Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, Part, PilotKind};
 use bc_sector::{Control, InputMsg, SectorConfig, SlotState, read_packet};
@@ -91,6 +91,8 @@ struct Outcome {
     max_len: usize,
     /// Ticks in the last 20 s for which the server had no command from this client.
     missing_late: u64,
+    /// Snapshots after warm-up that found the suit in another form than it joined in.
+    other_form: usize,
 }
 
 /// A real sector and a real client over a 100 ms-RTT, ±20 ms-jitter, 5 %-loss link for 40 s. The
@@ -102,6 +104,16 @@ fn run(input_period: f64, brain: &mut dyn FnMut(&InputContext) -> InputCmd) -> O
 
 /// [`run`], with the client's suit missing `lost` parts from the start.
 fn run_with(input_period: f64, brain: &mut dyn FnMut(&InputContext) -> InputCmd, lost: &[Part]) -> Outcome {
+    run_as(FrameId::Leo, input_period, brain, lost)
+}
+
+/// [`run_with`], flying `frame`.
+fn run_as(
+    frame: FrameId,
+    input_period: f64,
+    brain: &mut dyn FnMut(&InputContext) -> InputCmd,
+    lost: &[Part],
+) -> Outcome {
     let cfg = SectorConfig {
         sim: SimConfig { target_dolls: 0, seed: 1, ..SimConfig::default() },
         max_clients: 4,
@@ -114,7 +126,7 @@ fn run_with(input_period: f64, brain: &mut dyn FnMut(&InputContext) -> InputCmd,
         .push(Control::Join {
             slot: lease.slot,
             pilot: PilotKind::Human,
-            frame: FrameId::Leo,
+            frame,
             faction: Faction::Colonies,
             max_datagram: MAX_DATAGRAM as u16,
         })
@@ -124,7 +136,7 @@ fn run_with(input_period: f64, brain: &mut dyn FnMut(&InputContext) -> InputCmd,
     let mut client = ClientCore::new(ClientConfig {
         name: "Heero".into(),
         pilot: PilotKind::Human,
-        frame: FrameId::Leo,
+        frame,
         faction: Faction::Colonies,
     });
 
@@ -138,6 +150,7 @@ fn run_with(input_period: f64, brain: &mut dyn FnMut(&InputContext) -> InputCmd,
     let mut max_len = 0;
     let mut missing_at_20s = None;
     let mut damaged = lost.is_empty();
+    let mut other_form = 0;
     while t < 40.0 {
         if !damaged && let Some(own) = client.world.own {
             for p in lost {
@@ -184,10 +197,11 @@ fn run_with(input_period: f64, brain: &mut dyn FnMut(&InputContext) -> InputCmd,
         }
         if client.stats.snapshots > before && t > 5.0 {
             errors.push(client.stats.prediction_error);
-            let own = client.world.own.expect("own state").pos;
-            if client.predict.field.rocks().iter().any(|r| r.touches(own, SUIT_CLEARANCE + 1.0)) {
+            let own = client.world.own.expect("own state");
+            if client.predict.field.rocks().iter().any(|r| r.touches(own.pos, SUIT_CLEARANCE + 1.0)) {
                 touching.push(client.stats.prediction_error);
             }
+            other_form += usize::from(own.frame != frame);
         }
         if t >= next_input {
             next_input += input_period;
@@ -200,7 +214,7 @@ fn run_with(input_period: f64, brain: &mut dyn FnMut(&InputContext) -> InputCmd,
     }
     let missing_late =
         shared.metrics.inputs_missing.load(Ordering::Relaxed) - missing_at_20s.expect("ran past 20 s");
-    Outcome { client, errors, touching, max_len, missing_late }
+    Outcome { client, errors, touching, max_len, missing_late, other_form }
 }
 
 fn percentile(errors: &mut [f32], q: f64) -> f32 {
@@ -283,4 +297,28 @@ fn prediction_holds_up_for_a_damaged_suit() {
     let p99 = percentile(&mut errors, 0.99);
     println!("damaged suit: prediction error p50 {:.4} m  p99 {p99:.4} m", percentile(&mut errors, 0.5));
     assert!(p99 < 0.01, "prediction error p99 {p99:.3} m");
+}
+
+/// A Wing Zero weaving and changing into Neo-Bird and back every 3 s over the bad link. The client
+/// steps each change as the server does, so its prediction stays exact through them.
+#[test]
+fn prediction_holds_up_through_changes_of_form() {
+    let mut brain = |ctx: &InputContext| {
+        let mut cmd = weaving_pilot(ctx);
+        if (ctx.tick / 90) % 2 == 1 {
+            cmd.buttons |= MODE;
+        }
+        cmd
+    };
+    let Outcome { client, mut errors, other_form, .. } =
+        run_as(FrameId::WingZero, 1.0 / 60.0, &mut brain, &[]);
+    let p99 = percentile(&mut errors, 0.99);
+    println!(
+        "changing form: {other_form} of {} snapshots as Neo-Bird, prediction error p50 {:.4} m  p99 {p99:.4} m",
+        errors.len(),
+        percentile(&mut errors, 0.5)
+    );
+    assert!(other_form > 200, "it was a bird for {other_form} snapshots");
+    assert!(p99 < 0.01, "prediction error p99 {p99:.3} m");
+    assert!(client.world.own.expect("own state").alive);
 }

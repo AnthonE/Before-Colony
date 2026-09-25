@@ -138,6 +138,9 @@ impl Sim {
         if s.special[i].active {
             flags |= own_flags::SPECIAL_ACTIVE;
         }
+        if self.transforming(i) {
+            flags |= own_flags::TRANSFORMING;
+        }
         // The special's timer: a change of form, Full Open, or (the jammer) the break until it
         // hides the suit again.
         let special_timer = match spec.special {
@@ -224,7 +227,10 @@ impl Sim {
         }
         // Allies see a jamming suit's shimmer; its enemies (close enough to see it at all) don't.
         // Full Open shows to everyone.
-        if (self.jamming(j).is_some() && s.faction[j] == s.faction[viewer]) || self.full_open(j) {
+        if (self.jamming(j).is_some() && s.faction[j] == s.faction[viewer])
+            || self.full_open(j)
+            || self.transforming(j)
+        {
             flags |= ent_flags::SPECIAL;
         }
         EntityState {

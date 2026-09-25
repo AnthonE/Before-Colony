@@ -50,6 +50,7 @@ use crate::rocks::RockStates;
 use crate::spatial::SpatialHash;
 use crate::storage::{BitSet, FixedVec, boxed};
 use crate::suits::{MeleePhase, Suits};
+use crate::transform::transform_thrust;
 use crate::zero::TacticalAdvice;
 use crate::zero::strain::StrainEvent;
 
@@ -543,7 +544,13 @@ impl Sim {
         used.copy_from(&self.suits.used);
         for i in used.iter() {
             if self.suits.alive.get(i) {
-                let mods = self.flight_mods(i);
+                let mut mods = self.flight_mods(i);
+                // Changing form cuts thrust (applied here, not in the replicated factor: the owner's
+                // client applies it the same way as it predicts the change).
+                let form = self.suits.form(i);
+                if form.changing() {
+                    mods.thrust *= transform_thrust(&form);
+                }
                 let spec = frame(self.suits.frame[i]);
                 let cmd = self.suits.input[i];
                 let out = flight::step_in(&self.field, &mut self.suits.flight[i], &cmd, spec, &mods, DT);
