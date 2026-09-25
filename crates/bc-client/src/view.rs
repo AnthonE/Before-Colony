@@ -35,6 +35,8 @@ pub struct SuitDrive {
     pub thrust: Vec3,
     /// Armour per part in eighths (0 destroyed .. 7 pristine), by `Part`.
     pub parts: [u8; Part::COUNT],
+    /// Holding a chunk: in the right hand (true) or the left.
+    pub holding: Option<bool>,
 }
 
 /// Suit visual roots by entity slot.

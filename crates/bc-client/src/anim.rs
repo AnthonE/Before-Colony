@@ -145,7 +145,8 @@ pub fn animate_suits(
         let mut stiff = [9.0f32; BONES];
         let aim_local = d.rot.inverse() * d.aim;
         let arms_busy = has(ent_flags::FIRING_PRIMARY | ent_flags::FIRING_SECONDARY | ent_flags::CHARGING)
-            || a.swing.is_some();
+            || a.swing.is_some()
+            || d.holding.is_some();
 
         if wreck {
             // Limp: every joint drifts to a loose pose of its own.
@@ -161,8 +162,17 @@ pub fn animate_suits(
             let aim = turn(Vec3::Z, aim_local, 50f32.to_radians());
             let chest = Vec3::new(0.0, aim.y * 0.25, 0.0);
             target[Bone::Chest.index()] = chest;
-            target[Bone::UpperArmR.index()] = (aim - chest) * 0.45;
-            target[Bone::ForearmR.index()] = (aim - chest) * 0.55;
+            // An arm holding a chunk holds still in the suit's frame, undoing the chest's turn: the
+            // chunk rides the suit, just in front of the hand.
+            if let Some(right) = d.holding {
+                let arm = if right { Bone::UpperArmR } else { Bone::UpperArmL };
+                target[arm.index()] = -chest;
+                stiff[arm.index()] = 20.0;
+            }
+            if d.holding != Some(true) {
+                target[Bone::UpperArmR.index()] = (aim - chest) * 0.45;
+                target[Bone::ForearmR.index()] = (aim - chest) * 0.55;
+            }
             target[Bone::Head.index()] = turn(Vec3::Z, aim_local, 1.0) * 0.7 - chest;
             stiff[Bone::UpperArmR.index()] = 14.0;
             stiff[Bone::ForearmR.index()] = 14.0;

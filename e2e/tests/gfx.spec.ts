@@ -21,6 +21,8 @@ const scenes: Array<[string, number, number, number]> = [
   ["duel", 3, 4.4, 12],
   ["colony", 1, 6, 12],
   ["colony", 2, 6, 12],
+  // The dock's ring of lights, off the docking hub.
+  ["colony", 5, 6, 12],
   ["field", 1, 6, 12],
   // Wreckage after a fight: hulks, limbs shot off, loose ore.
   ["salvage", 1, 6, 12],

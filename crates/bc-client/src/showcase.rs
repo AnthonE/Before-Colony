@@ -10,6 +10,7 @@ use bc_client_core::world::{ObjectMotion, ObjectTrack};
 use bc_proto::snapshot::ent_flags;
 use bc_proto::{ChunkDesc, ChunkKind, Faction, FrameId, Part, Segment, WeaponKind};
 use bc_sim::content::frame;
+use bc_sim::content::salvage::DOCK_CENTER;
 use bc_sim::field::{Field, Rock};
 use bc_sim::world::{COLONY_CENTER, COLONY_RADIUS};
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
@@ -149,11 +150,13 @@ const LINEUP_CAMS: [Orbit; 5] = [
 ];
 const DUEL_CAMS: [Orbit; 3] =
     [orbit(DUEL, 0.8, 0.3, 380.0), orbit(DUEL, -1.2, 0.1, 260.0), orbit(DUEL, 2.4, -0.25, 320.0)];
-const COLONY_CAMS: [Orbit; 4] = [
+const COLONY_CAMS: [Orbit; 5] = [
     orbit(COLONY_CENTER, 0.9, 0.35, 42_000.0),
     orbit(SQUAD_START, 2.2, 0.35, 190.0),
     orbit(Vec3::new(16_000.0, -4_200.0, 0.0), -1.8, 0.3, 14_000.0),
     orbit(Vec3::new(0.0, -700.0, 0.0), -0.4, -0.05, 6_000.0),
+    // The dock, off the docking hub's mouth at the −X end.
+    orbit(Vec3::new(DOCK_CENTER.x + 300.0, DOCK_CENTER.y, DOCK_CENTER.z), -0.6, 0.12, 1_100.0),
 ];
 const FIELD_CAMS: [Orbit; 3] = [
     orbit(FIELD, 0.3, 0.1, 400.0),
@@ -556,6 +559,7 @@ fn spawn_showcase(mut commands: Commands, mut show: ResMut<Show>) {
                 flags: 0,
                 thrust: Vec3::ZERO,
                 parts: [7; Part::COUNT],
+                holding: None,
             };
             commands.spawn((d, Transform::from_translation(LINEUP), Visibility::default())).id()
         })

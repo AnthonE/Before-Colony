@@ -154,7 +154,8 @@ respawns but not reconnects.
 - **Mass matters.** Cargo and what's in hand add to the suit's mass: a fully fuelled Leo (9.5 t)
   towing a 6 t hulk has about 60% of its usual acceleration, and turns slower too. Parts shot off
   make it lighter.
-- **The dock** is off the colony's −X end cap. It tops up your propellant. Arrive slower than
+- **The dock** is just off the mouth of the docking hub at the colony's −X end, inside a ring of
+  amber lights. It tops up your propellant. Arrive slower than
   25 m/s and the hold, and whatever is in hand, sells: nickel-iron 1 credit/kg, titanium 4,
   volatiles 3, exotics 15. Suit parts sell as titanium, except a Gundam's (gundanium, sold with the
   exotics).

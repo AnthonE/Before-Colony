@@ -75,12 +75,12 @@ write your own brain as a closure: see `crates/bc-bot/src/lib.rs`.
 | Claim | Result |
 |---|---|
 | The sector tick never allocates | 0 heap operations over 1,000 ticks of 64 pilots + 256 Mobile Dolls, in tests and in the live server under a 64-bot swarm (`/status` → `hot_path_allocations`) |
-| Tick cost (64 pilots + 256 dolls in a dense fight) | p50 1.1 ms, p99 2.2 ms (budget 33 ms) |
+| Tick cost (64 pilots + 256 dolls in a dense fight) | p50 1.1 ms, p99 2.1–2.7 ms across runs (budget 33 ms) |
 | Native and browser simulate identically | the same golden state hash on x86_64 and wasm32 |
 | Own-suit prediction over a bad link (100 ms RTT, 5% loss) | error p99 0.2 mm |
 | Clock sync when inputs come in bursts (sent twice a second, same link) | RTT estimate within 10 ms of true; 1 of 600 ticks without a command |
 | Salvage on the same link | chunks drawn exactly where the server has them (bit-identical at every tick, across bounces); towing a 6 t hulk, prediction error p99 0.1 mm; coasting through a shattered rock, p99 below 0.1 mm |
-| A miner agent on the same link | breaks a rock with its saber, stows the ore, and sells it at the dock 181 s after spawning |
+| A miner agent on the same link | breaks a rock with its saber, stows the ore, and sells it at the dock 178 s after spawning |
 | ZERO reads Mobile Dolls | top-1 maneuver prediction 87% (chance 14%); calibration error 0.06 |
 | Swarm: 64 agents vs 256 dolls over real WebTransport | 30 snapshots/s each, 0 drops, ≤ 1,100 B datagrams, tick p99 ≤ 4 ms |
 | The browser client, end to end (headless Chromium, software rendering at ~1.4 fps) | connects, sees 20+ contacts and the MD agent, draws ZERO futures; the autopilot lands server-confirmed hits and kills within 30 s; 0 hot-path allocations |

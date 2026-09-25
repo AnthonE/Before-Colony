@@ -5,6 +5,7 @@
 use std::collections::{HashMap, HashSet};
 
 use bc_client_core::FeedLine;
+use bc_client_core::world::ObjectMotion;
 use bc_proto::buttons::FIRE_SECONDARY;
 use bc_proto::snapshot::{ent_flags, own_flags, zero_mode};
 use bc_sim::TICK_HZ;
@@ -73,6 +74,16 @@ pub fn sync_view(
     let own_slot = world.own_slot();
 
     // --- Suits. ---
+    // Who is holding a chunk, and in which hand (true: the right), as drawn.
+    let holders: HashMap<u16, bool> = world
+        .objects
+        .iter()
+        .flatten()
+        .filter_map(|o| match o.motion_at(t_render) {
+            ObjectMotion::Held { holder, right, .. } => Some((holder, right)),
+            ObjectMotion::Free(_) => None,
+        })
+        .collect();
     let mut want: Vec<SuitDrive> = Vec::with_capacity(world.entities.len().min(64) + 1);
     if let Some(own) = world.own {
         let mut flags = 0;
@@ -117,6 +128,13 @@ pub fn sync_view(
             thrust,
             // Eighths, like everyone else's: any armour left shows as at least one.
             parts: own.parts.map(|p| if p <= 0.0 { 0 } else { (p * 7.0).ceil().clamp(1.0, 7.0) as u8 }),
+            // The own hand, as of the newest news (the suit is drawn in the present).
+            holding: world.objects.get(usize::from(own.held)).and_then(Option::as_ref).and_then(|o| match o
+                .motion
+            {
+                ObjectMotion::Held { holder, right, .. } if holder == own.slot => Some(right),
+                _ => None,
+            }),
         });
     }
     for (slot, track) in world.entities.iter().enumerate() {
@@ -143,6 +161,7 @@ pub fn sync_view(
             flags: state.flags,
             parts: state.parts,
             thrust,
+            holding: holders.get(&(slot as u16)).copied(),
         });
     }
     seen.thrust.retain(|slot, _| world.entities.get(*slot as usize).is_some_and(Option::is_some));

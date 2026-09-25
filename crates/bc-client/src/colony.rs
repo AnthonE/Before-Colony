@@ -8,6 +8,7 @@
 
 use std::f32::consts::{FRAC_PI_3, FRAC_PI_6, TAU};
 
+use bc_sim::content::salvage::{DOCK_CENTER, DOCK_HUB_LENGTH, DOCK_RADIUS};
 use bc_sim::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS};
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::light::NotShadowCaster;
@@ -245,6 +246,16 @@ pub fn setup_colony(
         ..default()
     });
     let hull = |paint: u8, seed: u8| HullTag::paint(paint, seed).tag();
+    let beacon_amber = standard.add(StandardMaterial {
+        base_color: Color::BLACK,
+        emissive: LinearRgba::rgb(40.0, 16.0, 2.0),
+        ..default()
+    });
+    let marker_amber = standard.add(StandardMaterial {
+        base_color: Color::BLACK,
+        emissive: LinearRgba::rgb(6.0, 2.4, 0.3),
+        ..default()
+    });
     let beacon_mesh = meshes.add(Sphere::new(6.0).mesh().ico(1).expect("icosphere"));
 
     let root = commands
@@ -337,14 +348,14 @@ pub fn setup_colony(
                     NotShadowCaster,
                 ));
             }
-            for (side, hub_radius, hub_length) in [(-1.0f32, 340.0, 900.0), (1.0, 520.0, 500.0)] {
+            for (side, hub_radius, hub_length) in [(-1.0f32, 340.0, DOCK_HUB_LENGTH), (1.0, 520.0, 500.0)] {
                 c.spawn((
                     Mesh3d(meshes.add(cap(side))),
                     MeshMaterial3d(surfaces.colony.clone()),
                     hull(paint::HULL_DARK, if side < 0.0 { 90 } else { 91 }),
                     NotShadowCaster,
                 ));
-                // The docking hub (−X; the future sell dock) and the mirror hub (+X).
+                // The docking hub (−X; the dock is off its mouth) and the mirror hub (+X).
                 c.spawn((
                     Mesh3d(meshes.add(Cylinder::new(hub_radius, hub_length).mesh().resolution(48))),
                     MeshMaterial3d(surfaces.colony.clone()),
@@ -376,6 +387,19 @@ pub fn setup_colony(
                         Beacon { phase: 0.5 + i as f32 * 0.07 },
                     ));
                 }
+            }
+            // The dock, off the hub's mouth: a ring of amber lights round the edge of where to stop,
+            // with brighter ones chasing round it.
+            for i in 0..24 {
+                let a = TAU * i as f32 / 24.0;
+                let at = Transform::from_translation(around(a, DOCK_RADIUS, DOCK_CENTER.x - COLONY_CENTER.x));
+                c.spawn((Mesh3d(beacon_mesh.clone()), MeshMaterial3d(marker_amber.clone()), at));
+                c.spawn((
+                    Mesh3d(beacon_mesh.clone()),
+                    MeshMaterial3d(beacon_amber.clone()),
+                    at.with_scale(Vec3::splat(1.6)),
+                    Beacon { phase: i as f32 / 24.0 },
+                ));
             }
         })
         .id();
