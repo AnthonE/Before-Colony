@@ -57,7 +57,14 @@ pub fn run() {
             .add_systems(Startup, (start_net_loop, setup_hud))
             .add_systems(
                 Update,
-                (read_input, drive, tick_vis_time, sync_view, crate::rocks::follow_server_field)
+                (
+                    read_input,
+                    drive,
+                    tick_vis_time,
+                    sync_view,
+                    crate::rocks::follow_server_field,
+                    crate::salvage_vis::sync_chunks,
+                )
                     .chain()
                     .in_set(Vis::Drive),
             )

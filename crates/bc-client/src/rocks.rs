@@ -73,6 +73,13 @@ pub struct RockMeshes {
     far: Vec<Handle<Mesh>>,
 }
 
+impl RockMeshes {
+    /// A shape's coarse mesh (small pieces: loose ore).
+    pub fn coarse(&self, shape: usize) -> Handle<Mesh> {
+        self.far[shape % self.far.len()].clone()
+    }
+}
+
 /// Which field is on screen: (seed, rocks).
 #[derive(Resource, Clone, Copy, PartialEq, Eq)]
 pub struct ShownField(pub u32, pub u16);

@@ -6,9 +6,11 @@
 //! is the same on any machine; `?hold=N` stops the clock after N frames. Controls: drag to orbit, wheel to zoom, WASD/Space/C to move,
 //! 1-9 camera presets, P to pause, F10 to cycle the graphics tier.
 
+use bc_client_core::world::{ObjectMotion, ObjectTrack};
 use bc_proto::snapshot::ent_flags;
-use bc_proto::{Faction, FrameId, Part, WeaponKind};
+use bc_proto::{ChunkDesc, ChunkKind, Faction, FrameId, Part, Segment, WeaponKind};
 use bc_sim::content::frame;
+use bc_sim::field::Field;
 use bc_sim::world::{COLONY_CENTER, COLONY_RADIUS};
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
@@ -34,6 +36,9 @@ pub enum Scene {
     /// body puts on the picture. Every 20 s: a boost (2-5 s), two hits (6 s), a hard turn that
     /// greys out to a blackout (8-12.5 s), then ZERO (from 13 s) and its seizure (17-19 s).
     Chase,
+    /// After a fight by a rock: hulks, limbs shot off and loose ore tumbling, and a Leo come to
+    /// pick through them.
+    Salvage,
 }
 
 impl Scene {
@@ -42,7 +47,8 @@ impl Scene {
             "lineup" => Some(Self::Lineup),
             "duel" => Some(Self::Duel),
             "colony" => Some(Self::Colony),
-            "field" | "salvage" => Some(Self::Field),
+            "field" => Some(Self::Field),
+            "salvage" => Some(Self::Salvage),
             "sky" => Some(Self::Sky),
             "chase" | "pilot" => Some(Self::Chase),
             _ => None,
@@ -57,6 +63,7 @@ impl Scene {
             Self::Field => "field",
             Self::Sky => "sky",
             Self::Chase => "chase",
+            Self::Salvage => "salvage",
         }
     }
 
@@ -69,6 +76,15 @@ impl Scene {
             Self::Field => FIELD_CAMS.to_vec(),
             // The chase camera places itself; this only seeds the orbit state.
             Self::Chase => vec![orbit(CHASE, 0.0, 0.3, 900.0)],
+            Self::Salvage => {
+                let c = salvage_site();
+                vec![
+                    // From below, so the sky is behind the wreckage (the colony is under it).
+                    orbit(c + Vec3::new(4.0, 2.0, 0.0), 0.7, -0.22, 62.0),
+                    orbit(c + Vec3::new(8.0, 4.0, -6.0), -2.2, -0.3, 30.0),
+                    orbit(c, 2.9, -0.1, 160.0),
+                ]
+            }
             Self::Sky => {
                 let eye = Vec3::new(0.0, 2_000.0, 0.0);
                 let core = crate::sky::GALAXY_NORMAL.cross(Vec3::Z).normalize();
@@ -187,7 +203,8 @@ impl Plugin for ShowcasePlugin {
             preset: preset as u32,
             suits: Vec::new(),
         })
-        .add_systems(Startup, spawn_showcase)
+        .add_systems(Startup, (spawn_showcase, spawn_wreckage.after(crate::rocks::setup_field)))
+        .add_systems(Update, drift_wreckage.in_set(crate::view::Vis::Drive))
         .add_systems(Update, (advance_clock, controls, script).chain().in_set(crate::view::Vis::Drive))
         .add_systems(Update, overlay.in_set(crate::view::Vis::Camera));
         if self.scene == Scene::Chase {
@@ -216,6 +233,150 @@ fn cast(scene: Scene) -> Vec<(FrameId, Faction)> {
         Scene::Field => vec![(Leo, Faction::Oz), (Leo, Faction::Colonies)],
         Scene::Sky => vec![],
         Scene::Chase => vec![(WingZero, Faction::Colonies), (Leo, Faction::Oz), (Taurus, Faction::Oz)],
+        Scene::Salvage => vec![(Leo, Faction::Colonies)],
+    }
+}
+
+/// Where the salvage scene is: beside the biggest rock near the field scene.
+fn salvage_site() -> Vec3 {
+    let field = Field::generate(Field::DEFAULT_SEED, Field::DEFAULT_ROCKS);
+    let rock = field
+        .rocks()
+        .iter()
+        .filter(|r| r.radius > 20.0)
+        .min_by(|a, b| a.pos.distance(FIELD).total_cmp(&b.pos.distance(FIELD)))
+        .copied()
+        .unwrap_or_default();
+    rock.pos + Vec3::new(1.0, 0.25, 0.6).normalize() * (rock.radius + 45.0)
+}
+
+/// A piece of the salvage scene's wreckage, drifting and turning from where it starts.
+#[derive(Component)]
+struct Wreckage {
+    pos: Vec3,
+    vel: Vec3,
+    rot: Quat,
+    spin: Vec3,
+}
+
+/// The salvage scene's wreckage: (what, where from the site, drift, spin).
+fn wreckage() -> Vec<(ChunkKind, u32, Vec3, Vec3, Vec3)> {
+    use FrameId::*;
+    let all: u8 = (1 << Part::COUNT) - 1;
+    let without = |parts: &[Part]| parts.iter().fold(all, |m, p| m & !(1 << *p as u8));
+    vec![
+        (
+            ChunkKind::Hulk { frame: Leo, faction: Faction::Oz, parts: without(&[Part::ArmR, Part::Head]) },
+            6_000,
+            Vec3::ZERO,
+            Vec3::new(0.1, 0.0, -0.05),
+            Vec3::new(0.05, 0.12, 0.03),
+        ),
+        (
+            ChunkKind::Hulk { frame: Taurus, faction: Faction::Oz, parts: without(&[Part::Legs]) },
+            4_800,
+            Vec3::new(38.0, -9.0, 28.0),
+            Vec3::new(-0.1, 0.05, 0.0),
+            Vec3::new(0.1, -0.06, 0.08),
+        ),
+        (
+            ChunkKind::Limb { frame: Leo, faction: Faction::Oz, part: Part::ArmR },
+            570,
+            Vec3::new(13.0, 5.0, -10.0),
+            Vec3::new(0.6, 0.2, -0.2),
+            Vec3::new(0.4, 0.9, 0.1),
+        ),
+        (
+            ChunkKind::Limb { frame: Leo, faction: Faction::Oz, part: Part::Head },
+            280,
+            Vec3::new(5.0, 13.0, 5.0),
+            Vec3::new(0.1, 0.3, 0.2),
+            Vec3::new(1.1, 0.3, 0.5),
+        ),
+        (
+            ChunkKind::Limb { frame: Taurus, faction: Faction::Oz, part: Part::Legs },
+            1_170,
+            Vec3::new(52.0, -22.0, 12.0),
+            Vec3::new(0.2, -0.1, 0.1),
+            Vec3::new(0.2, 0.3, 0.1),
+        ),
+        (
+            ChunkKind::Ore { ore: 0 },
+            2_400,
+            Vec3::new(-14.0, -6.0, 18.0),
+            Vec3::new(0.1, 0.0, 0.1),
+            Vec3::new(0.1, 0.2, 0.0),
+        ),
+        (
+            ChunkKind::Ore { ore: 1 },
+            900,
+            Vec3::new(-6.0, 9.0, 24.0),
+            Vec3::new(0.0, 0.1, 0.1),
+            Vec3::new(0.3, 0.1, 0.2),
+        ),
+        (
+            ChunkKind::Ore { ore: 2 },
+            500,
+            Vec3::new(20.0, -3.0, -22.0),
+            Vec3::new(-0.1, 0.0, 0.0),
+            Vec3::new(0.2, 0.5, 0.1),
+        ),
+        (
+            ChunkKind::Ore { ore: 3 },
+            300,
+            Vec3::new(26.0, 8.0, 6.0),
+            Vec3::new(0.0, -0.1, 0.1),
+            Vec3::new(0.6, 0.2, 0.4),
+        ),
+        (
+            ChunkKind::Ore { ore: 0 },
+            1_200,
+            Vec3::new(-28.0, 3.0, -8.0),
+            Vec3::new(0.1, 0.0, 0.0),
+            Vec3::new(0.1, 0.1, 0.3),
+        ),
+        (
+            ChunkKind::Ore { ore: 1 },
+            150,
+            Vec3::new(-10.0, -12.0, -16.0),
+            Vec3::new(0.0, 0.1, 0.0),
+            Vec3::new(0.7, 0.4, 0.1),
+        ),
+    ]
+}
+
+/// Builds the salvage scene's wreckage with the game's own chunk visuals.
+fn spawn_wreckage(
+    mut commands: Commands,
+    show: Res<Show>,
+    lib: Res<crate::model::SuitMeshLib>,
+    rocks: Res<crate::rocks::RockMeshes>,
+    surfaces: Res<crate::materials::Surfaces>,
+) {
+    if show.scene != Scene::Salvage {
+        return;
+    }
+    let site = salvage_site();
+    for (i, (kind, mass_kg, at, vel, spin)) in wreckage().into_iter().enumerate() {
+        let track = ObjectTrack {
+            generation: 1,
+            desc: ChunkDesc { kind, seed: (i as u8).wrapping_mul(53), mass_kg },
+            motion: ObjectMotion::Free(Segment::default()),
+            prev: None,
+        };
+        let rot = Quat::from_euler(EulerRot::YXZ, i as f32 * 1.3, i as f32 * 0.7, i as f32 * 0.4);
+        let tf = Transform::from_translation(site + at).with_rotation(rot);
+        let e = crate::salvage_vis::spawn_chunk(&mut commands, &track, tf, &lib, &rocks, &surfaces);
+        commands.entity(e).insert(Wreckage { pos: site + at, vel, rot, spin });
+    }
+}
+
+/// Drifts and turns the salvage scene's wreckage on the scene clock.
+fn drift_wreckage(vis: Res<VisTime>, mut pieces: Query<(&Wreckage, &mut Transform)>) {
+    let t = vis.now as f32;
+    for (w, mut tf) in &mut pieces {
+        tf.translation = w.pos + w.vel * t;
+        tf.rotation = Quat::from_scaled_axis(w.spin * t) * w.rot;
     }
 }
 
@@ -683,6 +844,19 @@ fn script(
                 zero: u >= 13.0,
                 zero_strain: smooth(13.0, 17.0, u),
                 seized: (17.0..19.0).contains(&u),
+            });
+        }
+        Scene::Salvage => {
+            // The Leo hangs off the Leo hulk, looking it over.
+            let site = salvage_site();
+            let hulk = site + Vec3::new(0.1, 0.0, -0.05) * t as f32;
+            set(0, &mut |d| {
+                d.pos = site + Vec3::new(-24.0, 6.0, 14.0) + Vec3::new(0.3, 0.05, -0.1) * t as f32;
+                d.vel = Vec3::new(0.3, 0.05, -0.1);
+                d.rot = facing(hulk - d.pos);
+                d.aim = d.rot * Vec3::Z;
+                d.flags = 0;
+                d.thrust = Vec3::new(0.0, 0.1, 0.0);
             });
         }
         Scene::Field => {

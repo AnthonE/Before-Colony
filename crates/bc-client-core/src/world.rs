@@ -5,10 +5,11 @@ use std::collections::{HashMap, VecDeque};
 use bc_proto::events::Event;
 use bc_proto::snapshot::{ent_flags, own_flags};
 use bc_proto::{
-    CHUNK_BITS, EntityState, Faction, FrameId, MAX_ENTITIES, ObjectState, OwnState, Part, PilotKind,
-    RockState, WeaponKind, ZeroInfo,
+    CHUNK_BITS, ChunkDesc, EntityState, Faction, FrameId, MAX_ENTITIES, NO_CHUNK, ObjectState, OwnState,
+    Part, PilotKind, RockState, Segment, WeaponKind, ZeroInfo,
 };
 use bc_sim::TICK_HZ;
+use bc_sim::chunks::{self, held_pose, segment_pos, segment_rot};
 use bc_sim::content::{frame, frame_name, weapon};
 use bc_sim::perception::{Contact, Perception, SelfView};
 use bc_sim::zero::N_HYP;
@@ -83,6 +84,47 @@ pub enum FeedLine {
     Clash { tick: u32, a: u16, b: u16 },
 }
 
+/// How a chunk moves, as the client knows it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ObjectMotion {
+    /// Drifting on a segment (from `seg.t0`).
+    Free(Segment),
+    /// In `holder`'s hand since tick `since`.
+    Held { holder: u16, right: bool, rot: Quat, since: u32 },
+}
+
+impl ObjectMotion {
+    /// The tick this motion began.
+    pub fn starts(&self) -> u32 {
+        match *self {
+            ObjectMotion::Free(s) => s.t0,
+            ObjectMotion::Held { since, .. } => since,
+        }
+    }
+}
+
+/// A salvage chunk the client knows of.
+#[derive(Clone, Copy, Debug)]
+pub struct ObjectTrack {
+    pub generation: u8,
+    pub desc: ChunkDesc,
+    /// Its newest motion...
+    pub motion: ObjectMotion,
+    /// ...and the one before it, still in force until the newest begins (news of a bounce or a
+    /// grab arrives before the moment the client draws).
+    pub prev: Option<ObjectMotion>,
+}
+
+impl ObjectTrack {
+    /// The motion in force at tick `t`.
+    pub fn motion_at(&self, t: f64) -> ObjectMotion {
+        match self.prev {
+            Some(p) if f64::from(self.motion.starts()) > t => p,
+            _ => self.motion,
+        }
+    }
+}
+
 /// One threat's predicted futures, for the ZERO overlay.
 #[derive(Clone, Debug)]
 pub struct Ghost {
@@ -104,7 +146,9 @@ pub struct World {
     /// Rocks whose state differs from the generated field's (mined, shattered), by id.
     pub rocks: HashMap<u16, RockState>,
     /// Salvage chunks in range, by id.
-    pub objects: Vec<Option<ObjectState>>,
+    pub objects: Vec<Option<ObjectTrack>>,
+    /// The hulk each destroyed suit became, by slot (from the kill events).
+    pub hulks: HashMap<u16, u16>,
     seen: VecDeque<u16>,
     pub faction: Faction,
     pub my_hits: u32,
@@ -126,6 +170,7 @@ impl World {
             roster: HashMap::new(),
             rocks: HashMap::new(),
             objects: vec![None; 1 << CHUNK_BITS],
+            hulks: HashMap::new(),
             seen: VecDeque::new(),
             faction,
             my_hits: 0,
@@ -215,13 +260,66 @@ impl World {
             self.rocks.insert(r.id, *r);
         }
         for o in objects {
-            if let Some(slot) = self.objects.get_mut(o.id() as usize) {
-                *slot = match o {
-                    ObjectState::Gone { .. } => None,
-                    other => Some(*other),
-                };
+            let (generation, desc, motion) = match *o {
+                ObjectState::Gone { id } => {
+                    if let Some(slot) = self.objects.get_mut(id as usize) {
+                        *slot = None;
+                    }
+                    continue;
+                }
+                ObjectState::Free { generation, desc, seg, .. } => {
+                    (generation, desc, ObjectMotion::Free(seg))
+                }
+                ObjectState::Held { generation, desc, holder, right, rot, since, .. } => {
+                    (generation, desc, ObjectMotion::Held { holder, right, rot, since })
+                }
+            };
+            let Some(slot) = self.objects.get_mut(o.id() as usize) else { continue };
+            match slot {
+                // The same chunk (a hulk's parts may have changed): keep what it did before.
+                Some(t)
+                    if t.generation == generation
+                        && core::mem::discriminant(&t.desc.kind) == core::mem::discriminant(&desc.kind) =>
+                {
+                    if t.motion != motion {
+                        t.prev = Some(t.motion);
+                        t.motion = motion;
+                    }
+                    t.desc = desc;
+                }
+                _ => *slot = Some(ObjectTrack { generation, desc, motion, prev: None }),
             }
         }
+    }
+
+    /// Where chunk `id` is at tick `t`, and how it's turned. A chunk in the own suit's hand
+    /// rides the predicted suit.
+    pub fn object_pose(&self, id: u16, t: f64, predict: &Predictor) -> Option<(Vec3, Quat)> {
+        let track = self.objects.get(id as usize)?.as_ref()?;
+        match track.motion_at(t) {
+            ObjectMotion::Free(seg) => Some((segment_pos(&seg, t), segment_rot(&seg, t))),
+            ObjectMotion::Held { holder, right, rot, .. } => {
+                let (pos, turn) = if Some(holder) == self.own_slot() {
+                    (predict.render_pos(), predict.state.rot)
+                } else {
+                    let p = self.pose(holder, t)?;
+                    (p.pos, p.rot)
+                };
+                Some(held_pose(pos, turn, right, rot, chunks::radius(&track.desc)))
+            }
+        }
+    }
+
+    /// Whether hulk `id` is still on show as its suit's wreck (so it isn't drawn twice).
+    pub fn wreck_on_show(&self, id: u16) -> bool {
+        self.hulks.iter().any(|(&slot, &hulk)| {
+            hulk == id
+                && if Some(slot) == self.own_slot() {
+                    self.own.is_some_and(|o| !o.alive)
+                } else {
+                    self.entity(slot).is_some_and(|e| e.latest.flags & ent_flags::WRECK != 0)
+                }
+        })
     }
 
     fn apply_event(&mut self, ev: &Event, me: Option<u16>) {
@@ -287,9 +385,14 @@ impl World {
                     self.beams.remove(k);
                 }
             }
-            Event::Kill { id, tick, victim, killer, .. } => {
+            Event::Kill { id, tick, victim, killer, hulk } => {
                 if !self.first_time(id) {
                     return;
+                }
+                if hulk == NO_CHUNK {
+                    self.hulks.remove(&victim);
+                } else {
+                    self.hulks.insert(victim, hulk);
                 }
                 if Some(killer) == me && killer != victim {
                     self.my_kills += 1;

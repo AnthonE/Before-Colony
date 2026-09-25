@@ -1,11 +1,18 @@
-//! Snapshot building: sensor-filtered interest, priority accumulation, events repeated until acked.
+//! Snapshot building: sensor-filtered interest, priority accumulation, events and changed rocks
+//! repeated until acked, and salvage chunks kept in step with what each client has acked.
 
 use bc_proto::events::Event;
+use bc_proto::objects::ROCK_RECORD_BITS;
 use bc_proto::snapshot::{ENTITY_BITS, ent_flags};
-use bc_proto::{SnapshotHeader, SnapshotWriter};
+use bc_proto::{ObjectState, SnapshotHeader, SnapshotWriter};
 use bc_sim::Sim;
+use bc_sim::chunks::{MAX_CHUNKS, Motion};
+use bc_sim::storage::boxed;
+use glam::Vec3;
 
-use crate::clients::{ClientState, SENT_RING, SentRecord};
+use crate::clients::{
+    ClientState, NONE, OBJS_PER_SNAPSHOT, ROCKS_PER_SNAPSHOT, SENT_RING, SentRecord, packed,
+};
 
 /// Events older than this are no longer worth re-sending (ticks).
 const EVENT_MAX_AGE: u32 = 45;
@@ -13,6 +20,10 @@ const EVENT_MAX_AGE: u32 = 45;
 const ENTITY_RESERVE_BITS: usize = (ENTITY_BITS + 1) * 6;
 /// Beams whose origin is this close are shown even if the shooter isn't on sensors.
 const BEAM_NOTICE_RANGE: f32 = 5_000.0;
+/// Free chunks within this range are sent; a client that has one keeps it until a tenth further.
+const OBJECT_RANGE: f32 = 3_000.0;
+/// Room kept for objects when packing events and entities: up to this many of the largest.
+const OBJECT_RESERVE: usize = 6;
 
 fn relevant(sim: &Sim, me: usize, e: &Event) -> bool {
     let near = |j: u16| j as usize == me || sim.visible_to(me, j as usize);
@@ -49,14 +60,109 @@ fn weight(sim: &Sim, me: usize, j: usize) -> f32 {
     w
 }
 
+/// Scratch the snapshot builder works in, sized at construction.
+pub(crate) struct Work {
+    /// Entity candidates: (priority, slot).
+    entities: Box<[(f32, u16)]>,
+    /// Object candidates: (distance², id), or -1 for a Gone record.
+    objects: Box<[(f32, u16)]>,
+    /// Rock candidates: (distance², id).
+    rocks: Box<[(f32, u16)]>,
+    /// Where each live chunk is this tick (found once per tick, for every client).
+    chunk_pos: Box<[Vec3]>,
+}
+
+impl Work {
+    pub fn new(max_suits: usize, rocks: usize) -> Self {
+        Self {
+            entities: boxed(max_suits, (0.0, 0)),
+            objects: boxed(MAX_CHUNKS, (0.0, 0)),
+            rocks: boxed(rocks, (0.0, 0)),
+            chunk_pos: boxed(MAX_CHUNKS, Vec3::ZERO),
+        }
+    }
+
+    /// Notes where every live chunk is at the simulation's current tick.
+    pub fn locate_chunks(&mut self, sim: &Sim) {
+        for k in sim.chunks.alive.iter() {
+            self.chunk_pos[k] = sim.chunk_pose(k).0;
+        }
+    }
+}
+
+/// The `k` lowest-keyed candidates, in order.
+fn lowest(cand: &mut [(f32, u16)], k: usize) -> &[(f32, u16)] {
+    if cand.len() > k {
+        cand.select_nth_unstable_by(k, |a, b| a.0.total_cmp(&b.0));
+    }
+    let n = cand.len().min(k);
+    cand[..n].sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
+    &cand[..n]
+}
+
+/// Rocks whose state the client hasn't acked, keyed by distance.
+fn rock_candidates(sim: &Sim, client: &ClientState, at: Vec3, out: &mut [(f32, u16)]) -> usize {
+    let mut n = 0;
+    for (i, r) in sim.field.rocks().iter().enumerate() {
+        if client.rock_acked[i] != sim.rocks.version[i] {
+            out[n] = ((r.pos - at).length_squared(), i as u16);
+            n += 1;
+        }
+    }
+    n
+}
+
+/// Whether client suit `me` should have chunk `k`: free ones in range (a little further for one it
+/// already has), held ones in its own hand or a hand it can see.
+fn wants(sim: &Sim, me: usize, k: usize, pos: Vec3, has: bool) -> bool {
+    match sim.chunks.motion[k] {
+        Motion::Free(_) => {
+            let r = if has { OBJECT_RANGE * 1.1 } else { OBJECT_RANGE };
+            (pos - sim.suits.flight[me].pos).length_squared() < r * r
+        }
+        Motion::Held { holder, .. } => holder as usize == me || sim.visible_to(me, holder as usize),
+    }
+}
+
+/// Chunks whose state the client lacks (keyed by distance), and ones it has but no longer should
+/// (keyed -1: their Gone records go first).
+fn object_candidates(
+    sim: &Sim,
+    client: &ClientState,
+    me: usize,
+    pos: &[Vec3],
+    out: &mut [(f32, u16)],
+) -> usize {
+    if sim.chunks.count() == 0 && client.obj_known == 0 {
+        return 0;
+    }
+    let at = sim.suits.flight[me].pos;
+    let mut n = 0;
+    for (k, (&acked, &p)) in client.obj_acked.iter().zip(pos).enumerate() {
+        let has = acked != NONE;
+        let key = if sim.chunks.alive.get(k) && wants(sim, me, k, p, has) {
+            if acked == packed(sim.chunks.generation[k], sim.chunks.version[k]) {
+                continue;
+            }
+            (p - at).length_squared()
+        } else if has {
+            -1.0
+        } else {
+            continue;
+        };
+        out[n] = (key, k as u16);
+        n += 1;
+    }
+    n
+}
+
 /// Writes one snapshot for `client` into `buf`; returns its length.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_snapshot(
     sim: &Sim,
     client: &mut ClientState,
     header: &SnapshotHeader,
     buf: &mut [u8],
-    candidates: &mut [(f32, u16)],
+    work: &mut Work,
 ) -> Option<usize> {
     let me = client.suit.idx();
     let t = header.tick;
@@ -68,6 +174,7 @@ pub(crate) fn build_snapshot(
     w.zero(zero.as_ref());
 
     // --- Interest: update the known set first so fresh Leave notices go out in this snapshot. ---
+    let candidates = &mut work.entities;
     let mut n_cand = 0;
     for j in sim.suits.used.iter() {
         if j == me {
@@ -94,11 +201,18 @@ pub(crate) fn build_snapshot(
         }
     }
 
+    // --- What rocks and objects need sending, so events and entities leave room for them. ---
+    let n_rocks = rock_candidates(sim, client, sim.suits.flight[me].pos, &mut work.rocks);
+    let n_objs = object_candidates(sim, client, me, &work.chunk_pos, &mut work.objects);
+    let object_reserve = n_objs.min(OBJECT_RESERVE) * (ObjectState::MAX_BITS + 1);
+    let rock_reserve = n_rocks.min(ROCKS_PER_SNAPSHOT) * (ROCK_RECORD_BITS + 1);
+    let keep_for_events = ENTITY_RESERVE_BITS + rock_reserve + object_reserve;
+
     // --- Events: Leave notices first, then simulation events in sequence order. ---
     let mut leaves_sent = 0u8;
     for k in 0..client.n_leaves {
         let (slot, tick) = client.leaves[k];
-        if !w.event(&Event::Leave { tick, slot }, ENTITY_RESERVE_BITS) {
+        if !w.event(&Event::Leave { tick, slot }, keep_for_events) {
             break;
         }
         leaves_sent += 1;
@@ -119,7 +233,7 @@ pub(crate) fn build_snapshot(
     while seq < next {
         if let Some(e) = sim.events.get(seq) {
             if relevant(sim, me, e) {
-                if w.event(e, ENTITY_RESERVE_BITS) {
+                if w.event(e, keep_for_events) {
                     if contiguous {
                         done = seq + 1;
                     }
@@ -136,8 +250,18 @@ pub(crate) fn build_snapshot(
     }
     w.end_events();
 
+    // --- Changed rocks, nearest first. ---
+    let mut rec = SentRecord { tick: t, events_done: done, leaves: leaves_sent, ..SentRecord::default() };
+    for &(_, i) in lowest(&mut work.rocks[..n_rocks], ROCKS_PER_SNAPSHOT) {
+        if !w.rock(&sim.rock_state(i as usize), ENTITY_RESERVE_BITS + object_reserve) {
+            break;
+        }
+        rec.rocks[rec.n_rocks as usize] = (i, sim.rocks.version[i as usize]);
+        rec.n_rocks += 1;
+    }
+
     // --- Entities, highest priority first. ---
-    let cand = &mut candidates[..n_cand];
+    let cand = &mut work.entities[..n_cand];
     const TOP: usize = 48;
     if cand.len() > TOP {
         cand.select_nth_unstable_by(TOP, |a, b| b.0.total_cmp(&a.0));
@@ -150,13 +274,28 @@ pub(crate) fn build_snapshot(
         if !sim.suits.alive.get(j) {
             e.flags |= ent_flags::WRECK;
         }
-        if !w.entity(&e, 0) {
+        if !w.entity(&e, object_reserve) {
             break;
         }
         client.prio[j] = 0.0;
         client.known.set(j, true);
     }
+
+    // --- Objects: what the client should forget first, then the nearest. ---
+    for &(key, k) in lowest(&mut work.objects[..n_objs], OBJS_PER_SNAPSHOT) {
+        let (state, holds) = if key < 0.0 {
+            (ObjectState::Gone { id: k }, NONE)
+        } else {
+            let c = &sim.chunks;
+            (sim.object_state(k as usize), packed(c.generation[k as usize], c.version[k as usize]))
+        };
+        if !w.object(&state) {
+            break;
+        }
+        rec.objs[rec.n_objs as usize] = (k, holds);
+        rec.n_objs += 1;
+    }
     let n = w.finish()?;
-    client.sent[t as usize % SENT_RING] = SentRecord { tick: t, events_done: done, leaves: leaves_sent };
+    client.sent[t as usize % SENT_RING] = rec;
     Some(n)
 }

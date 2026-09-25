@@ -95,5 +95,12 @@ pub fn publish_game(game: NonSend<crate::net::GameClient>, mut dev: ResMut<DevSt
     dev.set("rtt_ms", core.clock.rtt * 1_000.0);
     dev.set("prediction_error_m", core.stats.prediction_error);
     dev.set("beams", w.beams.len() as u32);
+    let chunks = || w.objects.iter().flatten();
+    dev.set("chunks", chunks().count() as u32);
+    dev.set(
+        "hulks",
+        chunks().filter(|c| matches!(c.desc.kind, bc_proto::ChunkKind::Hulk { .. })).count() as u32,
+    );
+    dev.set("rocks", core.predict.field.len() as u32);
     dev.set("autopilot", game.autopilot);
 }

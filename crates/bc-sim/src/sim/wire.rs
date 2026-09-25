@@ -3,11 +3,13 @@
 use bc_proto::snapshot::{
     ZERO_THREATS as WIRE_THREATS, ZeroThreat, ent_flags, own_flags, part_buckets, zero_mode,
 };
-use bc_proto::{EntityState, OwnState, ZeroInfo};
+use bc_proto::{EntityState, ObjectState, OwnState, RockState, ZeroInfo};
 
 use super::Sim;
+use crate::chunks::Motion;
 use crate::config::VISUAL_RANGE;
 use crate::content::{frame, weapon};
+use crate::rocks::{max_hp, max_ore_kg};
 use crate::sensors;
 use crate::suits::{SaberPhase, SuitStats};
 
@@ -187,6 +189,26 @@ impl Sim {
             flags,
             parts: part_buckets(&s.part_fractions(j)),
         }
+    }
+
+    /// Chunk `k` as replicated.
+    pub fn object_state(&self, k: usize) -> ObjectState {
+        let c = &self.chunks;
+        let (id, generation, desc) = (k as u16, c.generation[k] & 3, c.desc[k]);
+        match c.motion[k] {
+            Motion::Free(seg) => ObjectState::Free { id, generation, desc, seg },
+            Motion::Held { holder, right, rot, since } => {
+                ObjectState::Held { id, generation, desc, holder, right, rot, since }
+            }
+        }
+    }
+
+    /// Rock `i` as replicated.
+    pub fn rock_state(&self, i: usize) -> RockState {
+        let r = &self.field.rocks()[i];
+        let s = &self.rocks;
+        let ore = s.ore_kg[i] as f32 / max_ore_kg(r).max(1) as f32;
+        RockState::new(i as u16, s.destroyed.get(i), s.hp[i] / max_hp(r), ore)
     }
 
     /// What the ZERO System shows pilot `i` (only while engaged).

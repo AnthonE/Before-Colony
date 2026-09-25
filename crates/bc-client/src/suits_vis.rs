@@ -58,7 +58,7 @@ const EYE_GREEN: u8 = 0;
 const EYE_PINK: u8 = 1;
 
 /// Body, trim and accent paint, and eye colour, for a frame in a faction's livery.
-fn livery(frame: FrameId, faction: Faction) -> (u8, u8, u8, u8) {
+pub fn livery(frame: FrameId, faction: Faction) -> (u8, u8, u8, u8) {
     use paint::*;
     match (frame, faction) {
         (FrameId::WingZero, _) => (WHITE, BLUE, RED, EYE_GREEN),

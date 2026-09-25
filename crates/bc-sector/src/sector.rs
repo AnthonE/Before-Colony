@@ -10,7 +10,7 @@ use bc_sim::{Sim, SimConfig};
 use crate::clients::ClientState;
 use crate::metrics::Metrics;
 use crate::queues::{Control, SectorEnds, SectorShared, SlotState};
-use crate::replicate::build_snapshot;
+use crate::replicate::{Work, build_snapshot};
 
 /// Ticks between tactical pictures per ZERO pilot when an external oracle is attached (≈3.75 Hz).
 const PICTURE_INTERVAL: u32 = 8;
@@ -41,7 +41,7 @@ pub struct Sector {
     ends: SectorEnds,
     clients: Box<[ClientState]>,
     scratch: Box<[u8]>,
-    candidates: Box<[(f32, u16)]>,
+    work: Work,
     picture: TacticalPicture,
 }
 
@@ -51,10 +51,11 @@ impl Sector {
     pub(crate) fn new(cfg: SectorConfig, shared: Arc<SectorShared>, ends: SectorEnds) -> Self {
         let sim = Sim::new(cfg.sim);
         let max_suits = sim.suits.cap;
+        let rocks = sim.field.len();
         Self {
-            clients: (0..cfg.max_clients).map(|_| ClientState::new(max_suits)).collect(),
+            clients: (0..cfg.max_clients).map(|_| ClientState::new(max_suits, rocks)).collect(),
             scratch: vec![0u8; MAX_DATAGRAM + 64].into_boxed_slice(),
-            candidates: vec![(0.0f32, 0u16); max_suits].into_boxed_slice(),
+            work: Work::new(max_suits, rocks),
             picture: TacticalPicture::default(),
             sim,
             cfg,
@@ -217,6 +218,7 @@ impl Sector {
     fn replicate(&mut self, now_us: u64) {
         let t = self.sim.tick();
         let m = &self.shared.metrics;
+        self.work.locate_chunks(&self.sim);
         for (s, client) in self.clients.iter_mut().enumerate() {
             if !client.active {
                 continue;
@@ -231,7 +233,7 @@ impl Sector {
                 tidi_pct: 100,
                 flags: 0,
             };
-            let Some(n) = build_snapshot(&self.sim, client, &header, &mut self.scratch, &mut self.candidates)
+            let Some(n) = build_snapshot(&self.sim, client, &header, &mut self.scratch, &mut self.work)
             else {
                 continue;
             };

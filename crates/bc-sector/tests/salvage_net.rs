@@ -1,0 +1,331 @@
+//! Wreckage and rocks over the network: a real `Sector` and a real `ClientCore` on a simulated
+//! lossy link. Chunks reach the client exactly as the server moves them (across bounces), go away
+//! when they're gone, a kill hands its wreck to its hulk, and changed rocks arrive.
+#![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
+
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
+
+use bc_client_core::world::ObjectMotion;
+use bc_client_core::{ClientConfig, ClientCore, InputContext};
+use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST};
+use bc_proto::control::ControlMsg;
+use bc_proto::{
+    ChunkDesc, ChunkKind, Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, Part,
+    PilotKind, Segment,
+};
+use bc_sector::{Control, InputMsg, Sector, SectorConfig, SlotState, read_packet};
+use bc_sim::SimConfig;
+use bc_sim::chunks::Motion;
+use bc_sim::math::{Rng, look_rotation};
+use glam::{Quat, Vec3};
+
+/// One direction of a lossy link: packets delivered at `send + base ± jitter`, some dropped.
+struct Link {
+    rng: Rng,
+    base: f64,
+    jitter: f64,
+    loss: f32,
+    queue: BinaryHeap<Reverse<(u64, u64, Vec<u8>)>>,
+    seq: u64,
+}
+
+impl Link {
+    fn new(seed: u64, base: f64, jitter: f64, loss: f32) -> Self {
+        Self { rng: Rng::new(seed), base, jitter, loss, queue: BinaryHeap::new(), seq: 0 }
+    }
+    fn send(&mut self, now: f64, bytes: Vec<u8>) {
+        if self.rng.next_f32() < self.loss {
+            return;
+        }
+        let at = now + self.base + f64::from(self.rng.signed()) * self.jitter;
+        self.seq += 1;
+        self.queue.push(Reverse(((at * 1e6) as u64, self.seq, bytes)));
+    }
+    fn deliver(&mut self, now: f64) -> Vec<Vec<u8>> {
+        let mut out = Vec::new();
+        while let Some(Reverse((at, _, _))) = self.queue.peek() {
+            if *at as f64 / 1e6 > now {
+                break;
+            }
+            out.push(self.queue.pop().unwrap().0.2);
+        }
+        out
+    }
+}
+
+/// A sector with one client (a Leo) over a 100 ms-RTT, 5 %-loss link, run for `secs`. `each_tick`
+/// runs after every server tick, with the client's suit slot once it has one.
+fn run(
+    secs: f64,
+    brain: &mut dyn FnMut(&InputContext) -> InputCmd,
+    each_tick: &mut dyn FnMut(&mut Sector, &ClientCore, Option<usize>),
+) -> (Sector, ClientCore) {
+    let cfg = SectorConfig {
+        sim: SimConfig { target_dolls: 0, seed: 5, ..SimConfig::default() },
+        max_clients: 4,
+        ..SectorConfig::default()
+    };
+    let (mut sector, shared, mut egress, _oracle) = bc_sector::build(cfg);
+    let mut lease = shared.leases.pop().expect("lease");
+    shared
+        .control
+        .push(Control::Join {
+            slot: lease.slot,
+            pilot: PilotKind::Human,
+            frame: FrameId::Leo,
+            faction: Faction::Colonies,
+            max_datagram: MAX_DATAGRAM as u16,
+        })
+        .unwrap();
+    let mut up = Link::new(11, 0.05, 0.02, 0.05);
+    let mut down = Link::new(12, 0.05, 0.02, 0.05);
+    let mut client = ClientCore::new(ClientConfig {
+        name: "Duo".into(),
+        pilot: PilotKind::Human,
+        frame: FrameId::Leo,
+        faction: Faction::Colonies,
+    });
+    let (mut t, mut next_tick, mut next_input) = (0.0f64, 0.0, 0.0);
+    let mut buf = [0u8; 2048];
+    let mut welcomed = false;
+    while t < secs {
+        for bytes in up.deliver(t) {
+            let packet = InputPacket::decode(&bytes).expect("input decodes");
+            let _ = lease.input.push(InputMsg { packet, recv_us: (t * 1e6) as u64 });
+        }
+        if t >= next_tick {
+            next_tick += 1.0 / 30.0;
+            sector.tick_at((t * 1e6) as u64);
+            if !welcomed && shared.slots[lease.slot as usize].state() == SlotState::Active {
+                welcomed = true;
+                let mut w = [0u8; 64];
+                let n = ControlMsg::Welcome {
+                    version: PROTOCOL_VERSION,
+                    client_slot: lease.slot,
+                    tick: sector.sim.tick(),
+                    tick_hz: 30,
+                    sector: 1,
+                    zero_allowed: true,
+                    max_datagram: MAX_DATAGRAM as u16,
+                    field_seed: shared.field_seed,
+                    field_rocks: shared.field_rocks,
+                }
+                .encode(&mut w)
+                .unwrap();
+                client.on_control(&w[..n]);
+            }
+            let me = client.world.own.map(|o| o.slot as usize);
+            each_tick(&mut sector, &client, me);
+            while let Some(n) = read_packet(&mut egress.rings[lease.slot as usize], &mut buf) {
+                assert!(n <= MAX_DATAGRAM, "snapshot of {n} bytes");
+                down.send(t, buf[..n].to_vec());
+            }
+        }
+        for bytes in down.deliver(t) {
+            client.on_datagram(&bytes, t);
+        }
+        if t >= next_input {
+            next_input += 1.0 / 60.0;
+            for p in client.poll_inputs(t, brain) {
+                up.send(t, p);
+            }
+            client.frame(t, 1.0 / 60.0);
+        }
+        t += 0.001;
+    }
+    (sector, client)
+}
+
+fn hold_still(_: &InputContext) -> InputCmd {
+    InputCmd { buttons: FLIGHT_ASSIST, ..InputCmd::default() }
+}
+
+fn ore(seed: u8) -> ChunkDesc {
+    ChunkDesc { kind: ChunkKind::Ore { ore: seed % 4 }, seed, mass_kg: 300 + 10 * u32::from(seed) }
+}
+
+#[test]
+fn chunks_reach_the_client_exactly_across_bounces() {
+    // Every segment each chunk has had on the server, in order.
+    let mut history: Vec<(usize, Vec<Motion>)> = Vec::new();
+    let (sector, client) = run(20.0, &mut hold_still, &mut |sector, _, me| {
+        let Some(me) = me else { return };
+        let sim = &mut sector.sim;
+        if history.is_empty() {
+            let at = sim.suits.flight[me].pos;
+            let t = sim.tick();
+            // Chunks thrown at the rock nearest the pilot from all round (they bounce off), and
+            // some drifting nearby.
+            let rock = *sim
+                .field
+                .rocks()
+                .iter()
+                .min_by(|a, b| a.pos.distance(at).total_cmp(&b.pos.distance(at)))
+                .unwrap();
+            assert!(rock.pos.distance(at) < 2_600.0, "nearest rock {} m off", rock.pos.distance(at));
+            for k in 0..12u8 {
+                let a = f32::from(k) * 0.52;
+                let dir = Vec3::new(a.cos(), 0.2, a.sin()).normalize();
+                let pos = rock.pos - dir * (rock.radius + 60.0 + 5.0 * f32::from(k));
+                let vel = dir * (20.0 + f32::from(k));
+                let seg = Segment { t0: t, pos, vel, rot: Quat::IDENTITY, spin: Vec3::new(0.1, 0.4, 0.0) }
+                    .quantized();
+                let id = sim.chunks.spawn(ore(k), Motion::Free(seg), t + 9_000, t).unwrap();
+                history.push((id as usize, vec![Motion::Free(seg)]));
+            }
+            for k in 0..6u8 {
+                let pos = at + Vec3::new(200.0 + 40.0 * f32::from(k), 30.0, 100.0);
+                let seg =
+                    Segment { t0: t, pos, vel: Vec3::new(-3.0, 0.5, 1.0), ..Segment::default() }.quantized();
+                let id = sim.chunks.spawn(ore(100 + k), Motion::Free(seg), t + 9_000, t).unwrap();
+                history.push((id as usize, vec![Motion::Free(seg)]));
+            }
+        }
+        for (k, motions) in &mut history {
+            if motions.last() != Some(&sim.chunks.motion[*k]) {
+                motions.push(sim.chunks.motion[*k]);
+            }
+        }
+    });
+    let sim = &sector.sim;
+    let mut bounced = 0;
+    for (k, motions) in &history {
+        assert!(sim.chunks.alive.get(*k), "chunk {k} went");
+        let track = client.world.objects[*k].as_ref().unwrap_or_else(|| panic!("the client lacks chunk {k}"));
+        let as_client = |m: &Motion| match *m {
+            Motion::Free(seg) => ObjectMotion::Free(seg),
+            Motion::Held { holder, right, rot, since } => ObjectMotion::Held { holder, right, rot, since },
+        };
+        // The newest segment, and the one before it, are the server's to the bit, so every pose
+        // at every tick agrees.
+        assert_eq!(track.motion, as_client(motions.last().unwrap()), "chunk {k}");
+        if motions.len() > 1 {
+            bounced += 1;
+            assert_eq!(
+                track.prev,
+                Some(as_client(&motions[motions.len() - 2])),
+                "chunk {k} before its bounce"
+            );
+        }
+        let ObjectMotion::Free(seg) = track.motion else { unreachable!() };
+        let Motion::Free(server) = sim.chunks.motion[*k] else { unreachable!() };
+        for dt in 0..300 {
+            let t = f64::from(sim.tick() + dt);
+            assert_eq!(bc_sim::chunks::segment_pos(&seg, t), bc_sim::chunks::segment_pos(&server, t));
+        }
+    }
+    assert!(bounced >= 8, "only {bounced} of 12 chunks bounced off the rock");
+}
+
+#[test]
+fn gone_chunks_leave_the_client() {
+    let mut spawned = false;
+    let mut most = 0;
+    let (_, client) = run(15.0, &mut hold_still, &mut |sector, client, me| {
+        most = most.max(client.world.objects.iter().flatten().count());
+        let Some(me) = me else { return };
+        if spawned {
+            return;
+        }
+        spawned = true;
+        let sim = &mut sector.sim;
+        let (at, t) = (sim.suits.flight[me].pos, sim.tick());
+        for k in 0..20u8 {
+            let pos = at + Vec3::new(f32::from(k) * 15.0 - 150.0, 60.0, 250.0);
+            let seg = Segment { t0: t, pos, ..Segment::default() };
+            sim.chunks.spawn(ore(k), Motion::Free(seg.quantized()), t + 150, t).unwrap();
+        }
+    });
+    assert_eq!(most, 20, "the client saw {most} of the 20 chunks");
+    let left = client.world.objects.iter().flatten().count();
+    assert_eq!(left, 0, "{left} chunks outlived their expiry on the client");
+}
+
+#[test]
+fn a_kill_hands_the_wreck_to_its_hulk() {
+    use std::cell::Cell;
+    use std::rc::Rc;
+    let target: Rc<Cell<Option<u16>>> = Rc::new(Cell::new(None));
+    let aim_at = target.clone();
+    // The pilot fires at the target whenever it can see it.
+    let mut brain = move |ctx: &InputContext| {
+        let me = ctx.predict.state.pos;
+        let Some(slot) = aim_at.get() else { return hold_still(ctx) };
+        let Some(p) = ctx.world.pose(slot, ctx.resolve_tick) else { return hold_still(ctx) };
+        InputCmd {
+            aim: (p.pos - me).normalize(),
+            buttons: FLIGHT_ASSIST | FIRE_PRIMARY,
+            ..InputCmd::default()
+        }
+    };
+    let mut hulk = None;
+    let (mut hidden_while_wreck, mut shown_after) = (false, false);
+    let (sector, client) = run(12.0, &mut brain, &mut |sector, client, me| {
+        let Some(me) = me else { return };
+        let sim = &mut sector.sim;
+        if target.get().is_none() {
+            let f = sim.suits.flight[me];
+            let pos = f.pos + f.rot * Vec3::new(0.0, 0.0, 400.0);
+            let id = sim
+                .spawn_at(
+                    FrameId::Taurus,
+                    Faction::Oz,
+                    PilotKind::Human,
+                    pos,
+                    look_rotation(f.pos - pos, Vec3::Y),
+                )
+                .unwrap();
+            sim.suits.part_hp[id.idx()] = [1.0; Part::COUNT];
+            target.set(Some(id.idx() as u16));
+        }
+        let slot = target.get().unwrap();
+        if let Some(&k) = client.world.hulks.get(&slot) {
+            hulk = Some(k);
+            if client.world.objects[k as usize].is_some() {
+                let wreck = client.world.entity(slot).is_some();
+                if wreck {
+                    hidden_while_wreck |= client.world.wreck_on_show(k);
+                } else {
+                    shown_after |= !client.world.wreck_on_show(k);
+                }
+            }
+        }
+        // The server's wreck sits where its hulk is.
+        let j = slot as usize;
+        if !sim.suits.alive.get(j) && sim.suits.used.get(j) {
+            let (h, _) = sim.suits.hulk[j];
+            if sim.chunks.is_alive(h) {
+                assert!(sim.chunk_pose(h as usize).0.distance(sim.suits.flight[j].pos) < 1e-3);
+            }
+        }
+    });
+    let k = hulk.expect("the client heard of the kill and its hulk");
+    let track = client.world.objects[k as usize].expect("the client has the hulk");
+    assert!(matches!(track.desc.kind, ChunkKind::Hulk { frame: FrameId::Taurus, faction: Faction::Oz, .. }));
+    assert!(sector.sim.chunks.is_alive(k));
+    assert!(hidden_while_wreck, "the hulk was drawn on top of the wreck");
+    assert!(shown_after, "the hulk never took over from the wreck");
+}
+
+#[test]
+fn changed_rocks_reach_the_client() {
+    let mut done = false;
+    let (sector, client) = run(8.0, &mut hold_still, &mut |sector, _, me| {
+        if me.is_none() || done || sector.sim.tick() < 60 {
+            return;
+        }
+        done = true;
+        let r = &mut sector.sim.rocks;
+        r.hp[3] *= 0.5;
+        r.ore_kg[3] /= 4;
+        r.touch(3);
+        r.destroyed.set(5, true);
+        r.touch(5);
+    });
+    for i in [3u16, 5] {
+        assert_eq!(client.world.rocks.get(&i), Some(&sector.sim.rock_state(i as usize)), "rock {i}");
+    }
+    assert!(client.world.rocks[&5].destroyed);
+    assert_eq!(client.world.rocks.len(), 2, "only changed rocks are sent");
+}

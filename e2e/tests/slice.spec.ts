@@ -45,6 +45,9 @@ test("fly, fight, see agents and ZERO futures", async ({ page, request }, info) 
     console.log(logs.slice(-40).join("\n"));
   }
   expect(hits).toBeGreaterThanOrEqual(1);
+  // Battle wreckage (limbs shot off, hulks) comes down the wire, and the field is the server's.
+  await step("wreckage on the wire", "window.__bc?.chunks >= 1", 90_000);
+  expect((await bc(page)).rocks).toBeGreaterThanOrEqual(100);
   const shot = await page.screenshot({ path: `artifacts/slice-${info.project.name}.png` });
   expect(luminanceStdDev(shot)).toBeGreaterThan(5);
   const status = await bc(page);

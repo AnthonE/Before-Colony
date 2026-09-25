@@ -49,6 +49,8 @@ mod perf;
 #[cfg(target_arch = "wasm32")]
 mod rocks;
 #[cfg(target_arch = "wasm32")]
+mod salvage_vis;
+#[cfg(target_arch = "wasm32")]
 mod showcase;
 #[cfg(target_arch = "wasm32")]
 mod sky;

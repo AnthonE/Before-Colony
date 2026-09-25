@@ -22,6 +22,9 @@ const scenes: Array<[string, number, number, number]> = [
   ["colony", 1, 6, 12],
   ["colony", 2, 6, 12],
   ["field", 1, 6, 12],
+  // Wreckage after a fight: hulks, limbs shot off, loose ore.
+  ["salvage", 1, 6, 12],
+  ["salvage", 2, 6, 12],
   ["sky", 1, 6, 12],
   ["sky", 2, 6, 12],
   ["sky", 3, 6, 12],

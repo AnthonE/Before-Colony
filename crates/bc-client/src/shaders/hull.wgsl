@@ -139,7 +139,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // Battle damage grows as armour runs out: scorching, then burnt-through paint showing the
     // bare frame. Heat makes fresh scorch edges glow.
     let hurt = 1.0 - armour;
-    var emissive = glow;
+    // A wreck's sensors are dark.
+    var emissive = select(glow, vec3(0.0), wreck);
     if (hurt > 0.01 || wreck) {
         let reach = select(hurt, 1.0, wreck);
         let n_scorch = fbm(p * 0.45 + seed * 3.1, 4);

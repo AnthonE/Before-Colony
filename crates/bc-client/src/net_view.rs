@@ -18,15 +18,13 @@ use crate::view::{
     BeamFeed, BeamView, CameraTarget, ChaseTarget, FxEvent, FxEvents, SuitDrive, SuitIndex, VisTime,
 };
 
-/// Remembers which one-shot events were already turned into effects, and when each wreck died.
+/// Remembers which one-shot events were already turned into effects.
 #[derive(Default)]
 pub struct Seen {
     hits: HashSet<(u32, u16, u8)>,
     kills: HashSet<(u32, u16)>,
     /// Beams that have splashed on the colony's hull or a rock, by (shooter, shot).
     splashes: HashSet<(u16, u8)>,
-    /// Slot → (generation, time it was first seen as a wreck), so wrecks tumble from where they died.
-    wrecked: HashMap<u16, (u8, f64)>,
     /// Beams whose muzzle flash has been shown, by (shooter, shot).
     fired: HashSet<(u16, u8)>,
     clashes: HashSet<(u32, u16, u16)>,
@@ -147,19 +145,6 @@ pub fn sync_view(
         });
     }
     seen.thrust.retain(|slot, _| world.entities.get(*slot as usize).is_some_and(Option::is_some));
-    // Wrecks tumble from the moment they died, not from a global phase.
-    seen.wrecked.retain(|slot, _| want.iter().any(|d| d.slot == *slot && d.flags & ent_flags::WRECK != 0));
-    for d in &mut want {
-        if d.flags & ent_flags::WRECK == 0 {
-            continue;
-        }
-        let entry = seen.wrecked.entry(d.slot).or_insert((d.generation, now));
-        if entry.0 != d.generation {
-            *entry = (d.generation, now);
-        }
-        let since = (now - entry.1) as f32;
-        d.rot *= Quat::from_rotation_x(since * 0.7) * Quat::from_rotation_z(since * 0.23);
-    }
 
     let mut keep: HashSet<u16> = HashSet::with_capacity(want.len());
     for d in want {

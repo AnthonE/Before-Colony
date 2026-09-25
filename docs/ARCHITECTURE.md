@@ -116,9 +116,21 @@ network threads.
 - **Snapshots.**
   - Every datagram fits in `min(1100 B, the connection's max datagram)`, never fragmented.
   - Contents: header, full-precision own state, ZERO info, events repeated until acked (beam spawns,
-    hits, kills, clashes, seizures, "left your sensors"), then as many entities as fit, chosen by a
-    per-client priority accumulator over what that client's sensors can see.
+    hits, kills, clashes, seizures, parts coming off, rocks shattering, "left your sensors"),
+    changed rocks, then as many entities as fit, chosen by a per-client priority accumulator over
+    what that client's sensors can see, then salvage chunks.
   - About 33 KB/s per client at 30 Hz.
+- **Chunks and rocks: dirty until acked.** Each snapshot's record lists the chunks (id, generation,
+  version) and rocks (id, version) it carried; an ack promotes them to what the client holds. A
+  chunk is sent whenever what the client holds differs from the server's (a new segment, a grab),
+  nearest first, and a Gone record when it leaves the client's range (3 km, or 3.3 km for one it
+  already has) or the world. A drifting chunk costs nothing after that: its segment is closed-form,
+  and the server moves it on exactly the quantized segment it sent, so every client computes the
+  same pose to the bit. Events and entities leave room for up to 16 rocks and 6 objects when some
+  are waiting.
+- **Wrecks become hulks.** A destroyed suit's wreck moves as its hulk does. Clients draw the wreck
+  (with its death blasts) while it's replicated, and the hulk after it leaves; the Kill event names
+  the hulk, so it isn't drawn twice.
 - **Beams** are one spawn event each: they fly straight at constant velocity, so every client draws
   the whole flight from it. The shooter draws its own shot immediately and matches the server's
   event by `shot_seq`.
@@ -164,6 +176,7 @@ on wasm32 (under Node, via `wasm-bindgen-test-runner`). Never enable glam's `fas
 | `bc-sim/tests/no_alloc.rs`, `bc-sector/tests/no_alloc_sector.rs` | 0 heap operations per tick with 64 clients + 256 dolls. |
 | `bc-sim/tests/determinism.rs` | Identical state hash on native and wasm32, for the reference scenario and for suits flying into rocks and firing through them; the generated debris field is identical too. |
 | `bc-sim/tests/{flight,combat,fire_control,lagcomp,mobile_dolls,zero,field,salvage}.rs` | Rocket equation, FA, blackout, no tunnelling, arm loss, charge, sabers and clashes, lag comp (and its clamp), dolls fight to a kill, ZERO accuracy, calibration, seizure, magnetism; suits stop at rocks at 2 km/s and rocks stop shots; limbs come off as chunks and shots pass where they were, hulks, bounces, expiry, lighter suits. |
+| `bc-sector/tests/salvage_net.rs` | Over the same link: chunks reach the client exactly as the server moves them, across bounces; chunks that go leave the client; a kill hands its wreck to its hulk; changed rocks arrive. |
 | `bc-sector/tests/netcode.rs` | Over a simulated 100 ms / 5%-loss link: prediction error and clock sync (in open flight, and ramming and sliding round a rock), and a client that sends inputs only twice a second still has an accurate RTT and commands that arrive in time. |
 | `bc-server/tests/{echo,duel,oracle}.rs` | A real server over real WebTransport: echo; two agents find and fight each other; Jev advice reaches a ZERO pilot. |
 | `bc-zero/tests/jev_mock.rs` | Jev request contract, parsing, timeout, 429/529 breaker, garbage. |

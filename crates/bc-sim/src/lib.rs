@@ -22,6 +22,7 @@ pub mod lagcomp;
 pub mod math;
 pub mod perception;
 pub mod projectiles;
+pub mod rocks;
 pub mod sensors;
 pub mod sim;
 pub mod spatial;

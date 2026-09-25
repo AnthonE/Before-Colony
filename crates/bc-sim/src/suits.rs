@@ -1,7 +1,7 @@
 //! Suit storage: structure-of-arrays, fixed capacity, generational slots.
 
 use alloc::boxed::Box;
-use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, Part, PilotKind};
+use bc_proto::{Faction, FrameId, InputCmd, NO_CHUNK, NO_SLOT, Part, PilotKind};
 use glam::{Quat, Vec3};
 
 use crate::ai::AiState;
@@ -86,6 +86,8 @@ pub struct Suits {
     /// Frame to respawn in.
     pub respawn_frame: Box<[FrameId]>,
     pub stats: Box<[SuitStats]>,
+    /// The hulk a dead suit became, and its generation: the wreck moves as the hulk does.
+    pub hulk: Box<[(u16, u8)]>,
     free: FreeList,
 }
 
@@ -119,6 +121,7 @@ impl Suits {
             respawn_at: boxed(cap, 0u32),
             respawn_frame: boxed(cap, FrameId::Leo),
             stats: boxed(cap, SuitStats::default()),
+            hulk: boxed(cap, (NO_CHUNK, 0u8)),
             free: FreeList::full(cap),
         }
     }
@@ -163,6 +166,7 @@ impl Suits {
         self.part_hp[idx] = spec.part_hp;
         self.zero[idx] = ZeroState::default();
         self.respawn_at[idx] = 0;
+        self.hulk[idx] = (NO_CHUNK, 0);
     }
 
     /// Frees a slot entirely (disconnect, or a Mobile Doll wreck clearing).

@@ -75,6 +75,15 @@ pub fn state_hash(sim: &Sim) -> u64 {
             }
         }
     }
+    let r = &sim.rocks;
+    for i in 0..r.version.len() {
+        if r.version[i] != 0 {
+            h.u32(i as u32 | u32::from(r.version[i]) << 16 | u32::from(r.destroyed.get(i)) << 24);
+            h.f32(r.hp[i]);
+            h.u32(r.ore_kg[i]);
+            h.u32(r.regrow_at[i]);
+        }
+    }
     h.u32(sim.events.next_seq());
     h.0
 }

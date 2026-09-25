@@ -26,7 +26,7 @@ use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, Part, PilotKind, Segment, We
 use glam::{Quat, Vec3};
 
 use crate::ai::{self, DOLL, SEIZED};
-use crate::chunks::{self, Chunks, Motion, segment_pos, segment_rot};
+use crate::chunks::{self, Chunks, Motion, held_pose, segment_pos, segment_rot};
 use crate::config::{DT, SECTOR_LIMIT, SimConfig, secs};
 use crate::content::salvage::{BOUNCE, mass_without};
 use crate::content::{frame, weapon};
@@ -38,6 +38,7 @@ use crate::lagcomp::History;
 use crate::math::{Rng, length, look_rotation, normalize_or};
 use crate::perception::{Contact, Perception, SelfView};
 use crate::projectiles::Projectiles;
+use crate::rocks::RockStates;
 use crate::sensors;
 use crate::spatial::SpatialHash;
 use crate::storage::{BitSet, FixedVec, boxed};
@@ -100,6 +101,8 @@ pub struct Sim {
     pub projectiles: Projectiles,
     /// The debris field (static: rocks are solid to suits and stop shots).
     pub field: Field,
+    /// What mining has done to the field's rocks.
+    pub rocks: RockStates,
     /// Salvage: loose ore, limbs shot off, hulks.
     pub chunks: Chunks,
     pub history: History,
@@ -131,12 +134,15 @@ impl Sim {
     /// Allocates all storage. Nothing grows afterwards.
     pub fn new(cfg: SimConfig) -> Self {
         let cap = cfg.max_suits.min(NO_SLOT as usize);
+        let field = Field::generate(cfg.field_seed, cfg.field_rocks);
+        let rocks = RockStates::new(&field);
         Self {
             cfg,
             tick: 0,
             suits: Suits::new(cap),
             projectiles: Projectiles::new(cfg.max_projectiles),
-            field: Field::generate(cfg.field_seed, cfg.field_rocks),
+            field,
+            rocks,
             chunks: Chunks::new(),
             history: History::new(cap),
             spatial: SpatialHash::new(cap),
@@ -254,6 +260,7 @@ impl Sim {
         self.ai_step(t);
         self.flight_step(t);
         self.chunk_step(t);
+        self.wrecks_follow_hulks();
         self.spatial_rebuild();
         self.record_history(t);
         self.weapons_step(t);
@@ -563,6 +570,41 @@ impl Sim {
             }
         }
         self.chunk_bits = live;
+    }
+
+    /// Where chunk `k` is now, how it's turned, and how fast it's going.
+    pub fn chunk_pose(&self, k: usize) -> (Vec3, Quat, Vec3) {
+        match self.chunks.motion[k] {
+            Motion::Free(seg) => {
+                let t = f64::from(self.tick);
+                (segment_pos(&seg, t), segment_rot(&seg, t), seg.vel)
+            }
+            Motion::Held { holder, right, rot, .. } => {
+                let f = &self.suits.flight[holder as usize];
+                let (pos, rot) = held_pose(f.pos, f.rot, right, rot, chunks::radius(&self.chunks.desc[k]));
+                (pos, rot, f.vel)
+            }
+        }
+    }
+
+    /// A wreck is its hulk: it keeps the hulk's pose, so the suit clients see die and the hulk
+    /// they see after it are one object.
+    fn wrecks_follow_hulks(&mut self) {
+        let mut used = core::mem::take(&mut self.iter_bits);
+        used.copy_from(&self.suits.used);
+        for i in used.iter() {
+            let (h, g) = self.suits.hulk[i];
+            if self.suits.alive.get(i) || !self.chunks.is_alive(h) || self.chunks.generation[h as usize] != g
+            {
+                continue;
+            }
+            let (pos, rot, vel) = self.chunk_pose(h as usize);
+            let f = &mut self.suits.flight[i];
+            f.pos = pos;
+            f.rot = rot;
+            f.vel = vel;
+        }
+        self.iter_bits = used;
     }
 
     fn spatial_rebuild(&mut self) {

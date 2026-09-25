@@ -536,6 +536,13 @@ impl Sim {
             mass_kg: mass_without(fid, gone),
         };
         let doll = self.suits.pilot[j] == PilotKind::MobileDoll;
-        self.chunks.spawn(desc, Motion::Free(seg), t + wreck_ttl(doll), t).unwrap_or(NO_CHUNK)
+        let Some(hulk) = self.chunks.spawn(desc, Motion::Free(seg), t + wreck_ttl(doll), t) else {
+            return NO_CHUNK;
+        };
+        self.suits.hulk[j] = (hulk, self.chunks.generation[hulk as usize]);
+        // From now on the wreck is where its hulk is (on the wire's grid).
+        let f = &mut self.suits.flight[j];
+        (f.pos, f.rot, f.vel) = (seg.pos, seg.rot, seg.vel);
+        hulk
     }
 }

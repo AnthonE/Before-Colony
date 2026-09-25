@@ -12,13 +12,13 @@ repository.workspace = true
 bc-proto.workspace = true
 bc-sim = { workspace = true, features = ["deterministic", "canon-names"] }
 crossbeam-queue.workspace = true
+glam.workspace = true
 rtrb.workspace = true
 
 [dev-dependencies]
 bc-alloc.workspace = true
 bc-client-core.workspace = true
 criterion.workspace = true
-glam.workspace = true
 
 [[bench]]
 name = "sector"
