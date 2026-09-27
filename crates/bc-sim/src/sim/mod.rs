@@ -16,12 +16,17 @@
 use alloc::boxed::Box;
 
 mod combat;
+mod detection;
+mod flame;
+mod melee;
 mod mining;
+mod missile;
 mod salvage;
+mod specials;
 mod wire;
 mod zero;
 
-use bc_proto::buttons::{GRAB, ZERO};
+use bc_proto::buttons::{GRAB, MODE, ZERO};
 use bc_proto::events::Event;
 use bc_proto::quant::{dequantize_unit, quantize_unit};
 use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, Part, PilotKind, Segment, WeaponKind};
@@ -38,13 +43,14 @@ use crate::flight::{self, FlightMods};
 use crate::handle::SuitId;
 use crate::lagcomp::History;
 use crate::math::{Rng, length, look_rotation, normalize_or};
-use crate::perception::{Contact, Perception, SelfView};
+use crate::missiles::{MAX_MISSILES, Missiles};
+use crate::perception::{Contact, KitView, Perception, SelfView};
 use crate::projectiles::Projectiles;
 use crate::rocks::RockStates;
-use crate::sensors;
 use crate::spatial::SpatialHash;
 use crate::storage::{BitSet, FixedVec, boxed};
-use crate::suits::{SaberPhase, Suits};
+use crate::suits::{MeleePhase, Suits};
+use crate::transform::transform_thrust;
 use crate::zero::TacticalAdvice;
 use crate::zero::strain::StrainEvent;
 
@@ -101,6 +107,8 @@ pub struct Sim {
     tick: u32,
     pub suits: Suits,
     pub projectiles: Projectiles,
+    /// Homing missiles in flight.
+    pub missiles: Missiles,
     /// The debris field (static: rocks are solid to suits and stop shots).
     pub field: Field,
     /// What mining has done to the field's rocks.
@@ -118,8 +126,9 @@ pub struct Sim {
     next_squad: usize,
     spawn_counter: u32,
     rng: Rng,
-    /// Live-projectile high-water mark (diagnostics).
+    /// Live-projectile and live-missile high-water marks (diagnostics).
     pub peak_projectiles: usize,
+    pub peak_missiles: usize,
     /// Suits alive after the last tick.
     alive_count: usize,
     /// Scratch: a copy of a membership set to iterate while mutating suits.
@@ -128,6 +137,8 @@ pub struct Sim {
     query_bits: BitSet,
     /// Scratch: live projectiles to iterate while killing some.
     proj_bits: BitSet,
+    /// Scratch: live missiles, likewise.
+    missile_bits: BitSet,
     /// Scratch: live chunks, likewise.
     chunk_bits: BitSet,
 }
@@ -143,6 +154,7 @@ impl Sim {
             tick: 0,
             suits: Suits::new(cap),
             projectiles: Projectiles::new(cfg.max_projectiles),
+            missiles: Missiles::new(),
             field,
             rocks,
             chunks: Chunks::new(),
@@ -168,10 +180,12 @@ impl Sim {
             spawn_counter: 0,
             rng: Rng::new(cfg.seed),
             peak_projectiles: 0,
+            peak_missiles: 0,
             alive_count: 0,
             iter_bits: BitSet::new(cap),
             query_bits: BitSet::new(cap),
             proj_bits: BitSet::new(cfg.max_projectiles),
+            missile_bits: BitSet::new(MAX_MISSILES),
             chunk_bits: BitSet::new(chunks::MAX_CHUNKS),
         }
     }
@@ -192,8 +206,12 @@ impl Sim {
         self.alive_count
     }
 
-    /// Adds a player or agent suit at its faction's spawn point.
+    /// Adds a player or agent suit at its faction's spawn point. `None` if the sector is full, or
+    /// the frame isn't one pilots may fly.
     pub fn join(&mut self, frame_id: FrameId, faction: Faction, pilot: PilotKind) -> Option<SuitId> {
+        if !frame(frame_id).playable {
+            return None;
+        }
         let id = self.suits.allocate(frame_id, faction, pilot)?;
         self.spawn_counter += 1;
         let (pos, rot) = spawn_point(faction, self.spawn_counter);
@@ -240,7 +258,7 @@ impl Sim {
 
     /// Asks for the next respawn to use `frame_id`.
     pub fn set_respawn_frame(&mut self, id: SuitId, frame_id: FrameId) {
-        if self.suits.valid(id) {
+        if self.suits.valid(id) && frame(frame_id).playable {
             self.suits.respawn_frame[id.idx()] = frame_id;
         }
     }
@@ -263,13 +281,16 @@ impl Sim {
             self.squad_logic();
         }
         self.ai_step(t);
+        self.specials_step(t);
         self.flight_step(t);
         self.chunk_step(t);
         self.wrecks_follow_hulks();
         self.spatial_rebuild();
         self.record_history(t);
+        self.lock_step();
         self.weapons_step(t);
         self.projectile_step(t);
+        self.missile_step(t);
         self.melee_step(t);
         self.damage_step(t);
         self.salvage_step(t);
@@ -363,14 +384,8 @@ impl Sim {
                 continue;
             }
             // Cheap sensor test first; only detected suits get a full contact built.
-            let sig = sensors::signature(
-                frame(self.suits.frame[j]).signature,
-                self.suits.boosting[j],
-                t.saturating_sub(self.suits.last_fired[j]) < 30,
-                false,
-            );
             let pos = self.suits.flight[j].pos;
-            if sensors::detects(me.pos, range, pos, sig) && out.would_keep(length(pos - me.pos)) {
+            if self.detects(i, j) && out.would_keep(length(pos - me.pos)) {
                 out.offer(self.contact_of(j, i, t));
             }
         }
@@ -407,6 +422,13 @@ impl Sim {
             g_strain: f.g_strain,
             ready,
             overheated: s.overheated[i],
+            kit: KitView {
+                lock_acquired: self.missile_lock(i).is_some(),
+                missile_incoming: s.incoming[i] > 0,
+                special_ready: self.special_ready(i),
+                special_active: s.special[i].active,
+                transforming: self.transforming(i),
+            },
         }
     }
 
@@ -462,13 +484,17 @@ impl Sim {
                 ai::think(&scratch, &mut ai_state, t, profile, range);
                 ai_state.think_at = t + interval;
             }
-            let target = (ai_state.target != NO_SLOT && self.suits.is_alive(ai_state.target as usize))
-                .then(|| self.contact_of(ai_state.target as usize, i, t));
+            // Its target, followed between thinks, unless it has gone behind a jammer.
+            let target = (ai_state.target != NO_SLOT
+                && self.suits.is_alive(ai_state.target as usize)
+                && !self.jammed_from(i, ai_state.target as usize))
+            .then(|| self.contact_of(ai_state.target as usize, i, t));
             let me = self.self_view(i);
             let mut cmd = ai::drive(&me, target.as_ref(), &mut ai_state, t, profile, spec);
             if seized {
-                // Keep the System engaged while it holds the controls, and the pilot's grip.
-                cmd.buttons |= ZERO | (self.suits.input[i].buttons & GRAB);
+                // Keep the System engaged while it holds the controls, the pilot's grip, and the
+                // frame's mode (a seizure neither transforms the suit nor drops its jammer).
+                cmd.buttons |= ZERO | (self.suits.input[i].buttons & (GRAB | MODE));
             }
             self.suits.ai[i] = ai_state;
             self.suits.input[i] = cmd;
@@ -496,7 +522,7 @@ impl Sim {
         if dead(Part::Legs) {
             ambac -= 0.3;
         }
-        let busy = s.saber[i].phase != SaberPhase::Idle || self.tick.saturating_sub(s.last_fired[i]) < 6;
+        let busy = s.melee[i].phase != MeleePhase::Idle || self.tick.saturating_sub(s.last_fired[i]) < 6;
         if busy {
             ambac *= 0.6;
         }
@@ -515,7 +541,7 @@ impl Sim {
             ambac: wire(ambac.max(0.1)),
             thrust: wire(thrust),
             g_immune: s.pilot[i] == PilotKind::MobileDoll,
-            lunge: matches!(s.saber[i].phase, SaberPhase::Windup | SaberPhase::Active),
+            lunge: s.melee[i].striking() && weapon(s.melee[i].weapon).melee.is_some_and(|m| m.lunge),
             extra_mass_kg,
         }
     }
@@ -525,7 +551,13 @@ impl Sim {
         used.copy_from(&self.suits.used);
         for i in used.iter() {
             if self.suits.alive.get(i) {
-                let mods = self.flight_mods(i);
+                let mut mods = self.flight_mods(i);
+                // Changing form cuts thrust (applied here, not in the replicated factor: the owner's
+                // client applies it the same way as it predicts the change).
+                let form = self.suits.form(i);
+                if form.changing() {
+                    mods.thrust *= transform_thrust(&form);
+                }
                 let spec = frame(self.suits.frame[i]);
                 let cmd = self.suits.input[i];
                 let out = flight::step_in(&self.field, &mut self.suits.flight[i], &cmd, spec, &mods, DT);
@@ -643,6 +675,10 @@ impl Sim {
                     s.overheated[i] = true;
                 } else if s.overheated[i] && s.heat[i] < spec.heat_cap * 0.5 {
                     s.overheated[i] = false;
+                }
+                // After Full Open, the weapons stay locked out however fast it cools.
+                if s.special[i].lockout > 0 {
+                    s.overheated[i] = true;
                 }
                 s.energy[i] = (s.energy[i] + spec.energy_regen * DT).min(spec.energy_cap);
                 let want = s.input[i].pressed(ZERO);

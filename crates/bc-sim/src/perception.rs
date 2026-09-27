@@ -53,6 +53,20 @@ impl Default for Contact {
     }
 }
 
+/// What a kit-aware brain knows of its own suit beyond the basics.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct KitView {
+    /// Its missile lock on its designation is acquired.
+    pub lock_acquired: bool,
+    /// A guided missile is tracking it.
+    pub missile_incoming: bool,
+    /// Its special can be used now, and whether it's engaged (the jammer on, Full Open).
+    pub special_ready: bool,
+    pub special_active: bool,
+    /// It's changing form.
+    pub transforming: bool,
+}
+
 /// The perceiving suit itself.
 #[derive(Clone, Copy, Debug)]
 pub struct SelfView {
@@ -73,6 +87,7 @@ pub struct SelfView {
     /// Primary, secondary, melee ready to fire.
     pub ready: [bool; 3],
     pub overheated: bool,
+    pub kit: KitView,
 }
 
 impl Default for SelfView {
@@ -92,6 +107,7 @@ impl Default for SelfView {
             g_strain: 0.0,
             ready: [true; 3],
             overheated: false,
+            kit: KitView::default(),
         }
     }
 }

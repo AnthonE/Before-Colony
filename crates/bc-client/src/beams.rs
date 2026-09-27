@@ -151,7 +151,18 @@ pub struct Ribbons {
     pub cannon: Look,
     pub buster: Look,
     pub tracer: Look,
+    /// Short beam bolts from rapid-fire beam guns (Heavyarms' gatling, Sandrock's machine gun).
+    pub bolt: Look,
+    /// Deathscythe's buster shield's slow beam.
+    pub shield: Look,
     pub saber: Look,
+    /// Deathscythe's beam scythe, and Shenlong's beam glaive.
+    pub scythe: Look,
+    pub glaive: Look,
+    /// A heat shotel's edge, glowing as it cuts.
+    pub heat: Look,
+    /// A missile motor's exhaust, streaming back from the nozzle.
+    pub exhaust: Look,
     pub plume: Handle<PlumeMaterial>,
     // Imported by the effect shaders; held so they stay loaded.
     _ribbon: Handle<Shader>,
@@ -163,8 +174,40 @@ impl Ribbons {
         match weapon {
             WeaponKind::TwinBusterRifle => &self.buster,
             WeaponKind::BeamCannon => &self.cannon,
-            WeaponKind::MachineCannon => &self.tracer,
+            WeaponKind::MachineCannon | WeaponKind::HeadVulcan | WeaponKind::ChestGatling => &self.tracer,
+            WeaponKind::BeamGatling | WeaponKind::BeamMachineGun => &self.bolt,
+            WeaponKind::BusterShield => &self.shield,
+            WeaponKind::BeamScythe => &self.scythe,
+            WeaponKind::BeamGlaive => &self.glaive,
+            WeaponKind::BeamSaber => &self.saber,
             _ => &self.rifle,
+        }
+    }
+
+    fn looks(&self) -> [&Look; 11] {
+        [
+            &self.rifle,
+            &self.cannon,
+            &self.buster,
+            &self.tracer,
+            &self.bolt,
+            &self.shield,
+            &self.saber,
+            &self.scythe,
+            &self.glaive,
+            &self.heat,
+            &self.exhaust,
+        ]
+    }
+
+    /// The glow along a blade as it strikes (none for the army knife, or the Dragon Fang).
+    pub fn blade(&self, weapon: WeaponKind) -> Option<&Look> {
+        match weapon {
+            WeaponKind::BeamSaber => Some(&self.saber),
+            WeaponKind::BeamScythe => Some(&self.scythe),
+            WeaponKind::BeamGlaive => Some(&self.glaive),
+            WeaponKind::HeatShotel | WeaponKind::CrossCrusher => Some(&self.heat),
+            _ => None,
         }
     }
 }
@@ -213,7 +256,13 @@ pub fn setup_ribbons(
         cannon: look(Vec3::new(1.2, 7.0, 2.4), 16.0, 0.22, 0.1, 0.0, 2.0, 140.0),
         buster: look(Vec3::new(9.0, 4.0, 12.0), 30.0, 0.3, 0.15, 0.35, 12.0, 480.0),
         tracer: look(Vec3::new(8.0, 3.5, 0.8), 8.0, 0.3, 0.0, 0.0, 0.35, 22.0),
+        bolt: look(Vec3::new(9.0, 5.5, 1.2), 14.0, 0.25, 0.1, 0.0, 0.7, 30.0),
+        shield: look(Vec3::new(3.0, 9.0, 4.0), 18.0, 0.25, 0.15, 0.2, 1.8, 50.0),
         saber: look(Vec3::new(14.0, 2.4, 7.0), 22.0, 0.3, 0.12, 0.0, 1.0, 14.0),
+        scythe: look(Vec3::new(3.0, 12.0, 5.0), 22.0, 0.28, 0.14, 0.0, 1.1, 12.0),
+        glaive: look(Vec3::new(12.0, 5.0, 2.0), 22.0, 0.3, 0.12, 0.0, 1.0, 13.0),
+        heat: look(Vec3::new(10.0, 2.6, 0.5), 6.0, 0.35, 0.2, 0.0, 0.3, 3.4),
+        exhaust: look(Vec3::new(9.0, 4.2, 1.1), 9.0, 0.3, 0.25, 0.0, 0.45, 35.0),
         plume: plumes.add(PlumeMaterial {
             style: PlumeStyle { core: Vec4::new(6.0, 8.0, 14.0, 0.0), glow: Vec4::new(0.6, 1.4, 5.0, 0.0) },
         }),
@@ -250,7 +299,7 @@ fn tick_ribbons(
 ) {
     let Some(r) = ribbons else { return };
     let t = (time.now % 1_000.0) as f32;
-    for look in [&r.rifle, &r.cannon, &r.buster, &r.tracer, &r.saber] {
+    for look in r.looks() {
         if let Some(mut m) = beams.get_mut(&look.material) {
             m.style.params.z = t;
         }

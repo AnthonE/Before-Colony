@@ -72,6 +72,8 @@ pub struct DollProfile {
     /// Seconds between strafe reversals: min + random span.
     pub strafe_min_s: f32,
     pub strafe_span_s: f32,
+    /// Flies the frame's whole kit (see `kit`); otherwise only the primary, like a Mobile Doll.
+    pub kit: bool,
 }
 
 /// OZ Mobile Doll defaults.
@@ -81,6 +83,7 @@ pub const DOLL: DollProfile = DollProfile {
     fire_range_frac: 0.8,
     strafe_min_s: 2.0,
     strafe_span_s: 3.0,
+    kit: false,
 };
 
 /// A ZERO seizure: closer, sharper, relentless.
@@ -90,6 +93,18 @@ pub const SEIZED: DollProfile = DollProfile {
     fire_range_frac: 0.9,
     strafe_min_s: 1.0,
     strafe_span_s: 1.0,
+    kit: false,
+};
+
+/// Agents and the browser autopilot: the doll's judgement flying the whole kit (its preferred range
+/// is the frame's, see [`AiHints`](crate::content::AiHints)).
+pub const PILOT: DollProfile = DollProfile {
+    preferred_range: 1_200.0,
+    aim_error: 0.0015,
+    fire_range_frac: 0.85,
+    strafe_min_s: 1.5,
+    strafe_span_s: 2.0,
+    kit: true,
 };
 
 fn rng_of(ai: &AiState, tick: u32) -> Rng {
@@ -192,6 +207,9 @@ pub fn drive(
     profile: &DollProfile,
     spec: &FrameSpec,
 ) -> InputCmd {
+    if profile.kit {
+        return super::kit::drive_kit(me, target, ai, tick, profile, spec);
+    }
     let mut buttons = FLIGHT_ASSIST | RCS_SHARP;
     let fwd = me.forward();
     let primary = spec.loadout[0];

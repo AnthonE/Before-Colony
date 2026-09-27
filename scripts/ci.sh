@@ -16,5 +16,6 @@ if [ "${BC_E2E:-0}" = "1" ]; then
   step "e2e: transport";     ./scripts/e2e.sh spike webgl2
   step "e2e: vertical slice"; ./scripts/e2e.sh slice webgl2
   step "e2e: graphics";      ./scripts/e2e.sh gfx webgl2
+  step "e2e: the Gundams";   ./scripts/e2e.sh frames webgl2
 fi
 echo; echo "all green"

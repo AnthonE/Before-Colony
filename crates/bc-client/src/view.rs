@@ -57,6 +57,20 @@ pub struct BeamView {
 #[derive(Resource, Default)]
 pub struct BeamFeed(pub Vec<BeamView>);
 
+/// A missile as drawn this frame.
+#[derive(Clone, Copy, Debug)]
+pub struct MissileView {
+    pub pos: Vec3,
+    pub vel: Vec3,
+    pub kind: WeaponKind,
+    /// It is tracking the pilot's own suit.
+    pub targets_you: bool,
+}
+
+/// Every missile in flight this frame.
+#[derive(Resource, Default)]
+pub struct MissileFeed(pub Vec<MissileView>);
+
 /// One-shot visual events. Producers push each event exactly once; the effects drain them.
 #[derive(Clone, Copy, Debug)]
 pub enum FxEvent {
@@ -93,6 +107,19 @@ pub enum FxEvent {
     /// The pilot's own suit taking a hit (as well as its [`FxEvent::Hit`]).
     Struck {
         weapon: WeaponKind,
+    },
+    /// A suit changing form (Wing Zero ↔ Neo-Bird), the moment it does.
+    Transform {
+        pos: Vec3,
+        vel: Vec3,
+        rot: Quat,
+    },
+    /// A missile's warhead going off: against a suit (`struck`), or at the end of its flight or
+    /// against rock or hull.
+    MissileBurst {
+        pos: Vec3,
+        kind: WeaponKind,
+        struck: bool,
     },
 }
 

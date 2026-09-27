@@ -14,7 +14,7 @@ use crate::net_view::{sync_view, tick_vis_time};
 use crate::particles::{setup_particles, update_particles};
 use crate::showcase::{Scene, ShowcasePlugin};
 use crate::suits_vis::{build_suits, pose_suits, suit_lod};
-use crate::view::{BeamFeed, CameraTarget, FxEvents, SuitIndex, Vis, VisTime};
+use crate::view::{BeamFeed, CameraTarget, FxEvents, MissileFeed, SuitIndex, Vis, VisTime};
 
 pub fn run() {
     console_error_panic_hook::set_once();
@@ -87,6 +87,7 @@ impl Plugin for VisualsPlugin {
         app.init_resource::<VisTime>()
             .init_resource::<SuitIndex>()
             .init_resource::<BeamFeed>()
+            .init_resource::<MissileFeed>()
             .init_resource::<FxEvents>()
             .init_resource::<CameraTarget>()
             .init_resource::<FxState>()
@@ -117,6 +118,7 @@ impl Plugin for VisualsPlugin {
                         spawn_camera,
                         setup_fx,
                         setup_particles,
+                        crate::missiles_vis::setup_missiles,
                         crate::blast::setup_blasts,
                         crate::ambience::setup_ambience,
                     ),
@@ -140,6 +142,7 @@ impl Plugin for VisualsPlugin {
                 Update,
                 (
                     update_fx,
+                    crate::missiles_vis::update_missiles,
                     update_fx_lights,
                     update_particles,
                     crate::blast::update_blasts,

@@ -51,8 +51,8 @@ impl Default for SimConfig {
     fn default() -> Self {
         Self {
             max_suits: 512,
-            max_projectiles: 4096,
-            max_events: 4096,
+            max_projectiles: 8192,
+            max_events: 8192,
             target_dolls: 24,
             seed: 0xBC_0195,
             respawn_secs: 5.0,

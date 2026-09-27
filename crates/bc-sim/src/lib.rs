@@ -20,6 +20,7 @@ pub mod handle;
 pub mod hash;
 pub mod lagcomp;
 pub mod math;
+pub mod missiles;
 pub mod perception;
 pub mod projectiles;
 pub mod rocks;
@@ -28,6 +29,7 @@ pub mod sim;
 pub mod spatial;
 pub mod storage;
 pub mod suits;
+pub mod transform;
 pub mod world;
 pub mod zero;
 

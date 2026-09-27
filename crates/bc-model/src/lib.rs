@@ -4,6 +4,7 @@
 //! broken apart.
 
 pub mod frames;
+mod gundams;
 pub mod kit;
 pub mod paint;
 pub mod rig;
@@ -25,7 +26,8 @@ pub enum Lod {
 
 pub const LODS: [Lod; 2] = [Lod::Near, Lod::Far];
 
-/// Where things attach to a frame, in their bone's space.
+/// Where things attach to a frame, in their bone's space. Directions are unit vectors; what a
+/// frame's kit lacks stays at its default (None, or empty).
 #[derive(Clone, Debug, Default)]
 pub struct Sockets {
     /// The main weapon's muzzle, on [`Bone::Weapon`].
@@ -34,6 +36,22 @@ pub struct Sockets {
     pub nozzles: Vec<(Vec3, Vec3)>,
     /// The beam saber's hilt on [`Bone::HandL`], and the blade's direction.
     pub saber: (Vec3, Vec3),
+    /// A blade in the left hand, on [`Bone::HandL`]: where it starts (the top of its hilt, or a
+    /// polearm's emitter) and the way it points. Heavyarms' army knife, Sandrock's left heat
+    /// shotel, Shenlong's beam glaive.
+    pub blade_left: Option<(Vec3, Vec3)>,
+    /// A blade in the right hand, on [`Bone::Weapon`]: where it starts (the top of its hilt, or
+    /// the beam emitter) and the way it points. Deathscythe's beam scythe, Sandrock's right heat
+    /// shotel.
+    pub blade_right: Option<(Vec3, Vec3)>,
+    /// Shenlong's Dragon Fang, on [`Bone::HandR`]: the tip of the dragon head's snout and the way
+    /// it faces (where the head flies out on its cable).
+    pub fang: Option<(Vec3, Vec3)>,
+    /// The flamethrower's nozzle in the dragon's mouth, on [`Bone::HandR`], and the way it fires.
+    pub flame: Option<(Vec3, Vec3)>,
+    /// Missile launch points (the pods' hatches), each on the bone it rides: shoulder pods, leg
+    /// pods.
+    pub missiles: Vec<(Bone, Vec3)>,
 }
 
 /// One frame at one level of detail.
@@ -169,7 +187,8 @@ impl On<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bc_proto::Part;
+    use bc_proto::WeaponKind;
+    use bc_sim::content::{ArmSlot, Capsule, WeaponClass, weapon};
 
     #[test]
     fn every_frame_builds_within_budget() {
@@ -194,20 +213,14 @@ mod tests {
     /// Whatever a bone carries stays near its hit capsule, so what's drawn is what's hit.
     #[test]
     fn armour_stays_near_its_hitbox() {
-        // The simulation's humanoid capsules (bc_sim::content::frames), by part.
-        let caps: [(Vec3, Vec3, f32); Part::COUNT] = [
-            (Vec3::new(0.0, 6.4, 0.0), Vec3::new(0.0, 7.6, 0.2), 1.3),
-            (Vec3::new(0.0, 0.8, 0.0), Vec3::new(0.0, 4.6, 0.0), 2.5),
-            (Vec3::new(-3.3, 4.6, 0.0), Vec3::new(-3.5, 0.2, 1.2), 1.1),
-            (Vec3::new(3.3, 4.6, 0.0), Vec3::new(3.5, 0.2, 1.2), 1.1),
-            (Vec3::new(0.0, 0.2, 0.0), Vec3::new(0.0, -8.4, 0.3), 2.1),
-            (Vec3::new(0.0, 3.0, -2.4), Vec3::new(0.0, 5.2, -2.8), 1.5),
-        ];
-        let dist = |p: Vec3, (a, b, r): (Vec3, Vec3, f32)| {
-            let t = ((p - a).dot(b - a) / (b - a).length_squared()).clamp(0.0, 1.0);
-            (p - (a + (b - a) * t)).length() - r
+        let dist = |p: Vec3, c: &Capsule| {
+            let t = ((p - c.a).dot(c.b - c.a) / (c.b - c.a).length_squared()).clamp(0.0, 1.0);
+            (p - (c.a + (c.b - c.a) * t)).length() - c.r
         };
         for frame in FrameId::ALL {
+            // The simulation's capsules for this frame (bc_sim::content::frames), by part: the
+            // humanoid ones, or Neo-Bird's as an aircraft.
+            let caps = &bc_sim::content::frame(frame).capsules;
             let m = build(frame, Lod::Near);
             for bone in rig::ALL {
                 // Weapons, shields, wings and props reach well beyond the body by design.
@@ -215,13 +228,95 @@ mod tests {
                     continue;
                 }
                 let Some(mesh) = &m.bones[bone.index()] else { continue };
-                let cap = caps[bone.def().part as usize];
+                let cap = &caps[bone.def().part as usize];
                 let worst = mesh
                     .positions
                     .iter()
                     .map(|p| dist(Vec3::from(*p) + bone.def().joint, cap))
                     .fold(f32::MIN, f32::max);
                 assert!(worst < 2.6, "{frame:?} {bone:?} reaches {worst:.1} m outside its hitbox");
+            }
+        }
+    }
+
+    /// Every frame is drawn as itself: no two build the same mesh.
+    #[test]
+    fn every_frame_has_its_own_design() {
+        let models = FrameId::ALL.map(|f| (f, build(f, Lod::Near)));
+        for (i, (a, ma)) in models.iter().enumerate() {
+            for (b, mb) in &models[i + 1..] {
+                let same = ma.bones.iter().zip(&mb.bones).all(|pair| match pair {
+                    (Some(x), Some(y)) => {
+                        x.positions == y.positions && x.indices == y.indices && x.colors == y.colors
+                    }
+                    (None, None) => true,
+                    _ => false,
+                });
+                assert!(!same, "{a:?} and {b:?} build the same mesh");
+            }
+        }
+    }
+
+    /// A frame whose kit (the simulation's loadout and special mounts) has blades, a fang, a
+    /// flamethrower or missiles says where they are, and every socket sits on its bone's mesh.
+    #[test]
+    fn kits_have_their_sockets() {
+        let unit = |d: Vec3| (d.length() - 1.0).abs() < 1e-3;
+        for frame in FrameId::ALL {
+            let m = build(frame, Lod::Near);
+            let s = &m.sockets;
+            // Within half a metre of the bone's mesh bounds (sockets are in the bone's space).
+            let on = |bone: Bone, p: Vec3| {
+                m.bones[bone.index()].as_ref().is_some_and(|mesh| {
+                    let (lo, hi) = mesh.positions.iter().fold((Vec3::MAX, Vec3::MIN), |(lo, hi), q| {
+                        (lo.min(Vec3::from(*q)), hi.max(Vec3::from(*q)))
+                    });
+                    let margin = Vec3::splat(0.5);
+                    p.cmpge(lo - margin).all() && p.cmple(hi + margin).all()
+                })
+            };
+            let placed = |bone: Bone, socket: Option<(Vec3, Vec3)>| {
+                socket.is_some_and(|(p, d)| on(bone, p) && unit(d))
+            };
+            let spec = bc_sim::content::frame(frame);
+            for mount in spec.loadout.iter().chain(&spec.special_mounts).flatten() {
+                let has = match (weapon(mount.weapon).class, mount.weapon, mount.arm) {
+                    (WeaponClass::Melee, WeaponKind::BeamSaber, _) => {
+                        on(Bone::HandL, s.saber.0) && unit(s.saber.1)
+                    }
+                    (WeaponClass::Melee, WeaponKind::DragonFang, _) => placed(Bone::HandR, s.fang),
+                    (WeaponClass::Melee, _, ArmSlot::Left) => placed(Bone::HandL, s.blade_left),
+                    (WeaponClass::Melee, _, ArmSlot::Right) => placed(Bone::Weapon, s.blade_right),
+                    (WeaponClass::Melee, _, ArmSlot::Both) => {
+                        placed(Bone::HandL, s.blade_left) && placed(Bone::Weapon, s.blade_right)
+                    }
+                    (WeaponClass::Cone, ..) => placed(Bone::HandR, s.flame),
+                    // Leg pods on the legs; the others elsewhere (the shoulders).
+                    (WeaponClass::Missile, _, arm) => s.missiles.iter().any(|&(bone, p)| {
+                        (bone.def().part == bc_proto::Part::Legs) == (arm == ArmSlot::LegPods) && on(bone, p)
+                    }),
+                    _ => true,
+                };
+                assert!(has, "{frame:?} has no socket on its model for its {:?}", mount.weapon);
+            }
+            // The client turns the left arm from the saber's rest direction, whatever the kit.
+            assert!(unit(s.saber.1), "{frame:?} saber direction");
+            assert!(on(Bone::Weapon, s.muzzle), "{frame:?} muzzle");
+            for &(p, d) in &s.nozzles {
+                assert!(on(Bone::Backpack, p) && unit(d), "{frame:?} nozzle at {p}");
+            }
+            for &(bone, p) in &s.missiles {
+                assert!(on(bone, p), "{frame:?} missile hatch at {p} is off {bone:?}");
+            }
+            for (bone, socket) in [
+                (Bone::HandL, s.blade_left),
+                (Bone::Weapon, s.blade_right),
+                (Bone::HandR, s.fang),
+                (Bone::HandR, s.flame),
+            ] {
+                if let Some((p, d)) = socket {
+                    assert!(on(bone, p) && unit(d), "{frame:?} socket at {p} is off {bone:?}");
+                }
             }
         }
     }

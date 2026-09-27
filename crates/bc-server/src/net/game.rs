@@ -217,6 +217,16 @@ impl StatusView {
                 "hits": l(&p.hits),
                 "kills": l(&p.kills),
                 "deaths": l(&p.deaths),
+                "frame": bc_proto::FrameId::ALL.get(l(&p.frame) as usize).map_or("", |f| f.slug()),
+                "hits_by_class": {
+                    "beam": l(&p.hits_by_class[0]),
+                    "ballistic": l(&p.hits_by_class[1]),
+                    "missile": l(&p.hits_by_class[2]),
+                    "melee": l(&p.hits_by_class[3]),
+                    "cone": l(&p.hits_by_class[4]),
+                },
+                "specials": l(&p.specials),
+                "missiles": l(&p.missiles),
             }));
         }
         serde_json::json!({
@@ -327,6 +337,10 @@ async fn session(conn: Connection, game: GameShared, stats: Arc<NetStats>) -> an
     if version != PROTOCOL_VERSION {
         send_control(&mut tx, ControlMsg::Reject { reason: RejectReason::VersionMismatch }).await?;
         anyhow::bail!("protocol version {version}");
+    }
+    if !bc_sim::content::playable(frame) {
+        send_control(&mut tx, ControlMsg::Reject { reason: RejectReason::FrameNotAllowed }).await?;
+        anyhow::bail!("frame {frame:?} is not flyable");
     }
     // Only the Bot SDK may claim to be an agent; nobody may claim to be a server-side doll.
     let pilot = if pilot == PilotKind::MobileDoll { PilotKind::Agent } else { pilot };

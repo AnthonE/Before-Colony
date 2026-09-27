@@ -6,8 +6,9 @@
 //!   - client → server [`InputPacket`]: the last up-to-4 [`InputCmd`]s, so one lost packet costs
 //!     nothing.
 //!   - server → client snapshot ([`SnapshotWriter`] / [`SnapshotReader`]): header, full-precision
-//!     own state, ZERO info, events and changed rocks repeated until acked, then as many
-//!     prioritised entities and salvage objects as fit in [`MAX_DATAGRAM`] bytes.
+//!     own state, ZERO info, events and changed rocks repeated until acked, the missiles in flight
+//!     nearby, then as many prioritised entities and salvage objects as fit in [`MAX_DATAGRAM`]
+//!     bytes.
 //! - Control stream (reliable, length-prefixed frames): [`control`] handshake and roster messages.
 //!
 //! Bit layouts are documented in `docs/PROTOCOL.md`.
@@ -19,20 +20,22 @@ pub mod bits;
 pub mod control;
 pub mod events;
 pub mod input;
+pub mod missiles;
 pub mod objects;
 pub mod quant;
 pub mod snapshot;
 pub mod types;
 
 pub use bits::{BitReader, BitWriter};
-pub use events::Event;
+pub use events::{BurstCause, Event};
 pub use input::{InputCmd, InputPacket, buttons};
+pub use missiles::MissileState;
 pub use objects::{ChunkDesc, ChunkKind, ObjectState, RockState, Segment};
 pub use snapshot::{EntityState, OwnState, SnapshotHeader, SnapshotReader, SnapshotWriter, ZeroInfo};
 pub use types::{Faction, FrameId, Part, PilotKind, WeaponKind};
 
 /// Bumped on any incompatible wire change; the handshake rejects mismatches.
-pub const PROTOCOL_VERSION: u16 = 4;
+pub const PROTOCOL_VERSION: u16 = 5;
 
 /// Upper bound for every datagram we send. 1200 bytes is the smallest UDP payload QUIC guarantees;
 /// the QUIC short header, AEAD tag and HTTP/3 datagram prefix need ~30–40 of those.
@@ -51,6 +54,8 @@ pub const CHUNK_BITS: u32 = 10;
 pub const NO_CHUNK: u16 = (1 << CHUNK_BITS) - 1;
 /// Rock ids use this many bits (a field holds at most 1 023 rocks).
 pub const ROCK_BITS: u32 = 10;
+/// Missile ids (the simulation's missile pool index) use this many bits.
+pub const MISSILE_BITS: u32 = 10;
 /// Kinds of ore, and so of cargo: nickel-iron, titanium, volatiles, exotics.
 pub const CARGO_KINDS: usize = 4;
 

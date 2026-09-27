@@ -19,7 +19,10 @@ use bevy::prelude::*;
 use crate::camera::{MainCamera, follow, pilot_effects};
 use crate::dev_hooks::DevStatus;
 use crate::gfx::Gfx;
-use crate::view::{BeamFeed, BeamView, CameraTarget, ChaseTarget, FxEvent, FxEvents, SuitDrive, VisTime};
+use crate::view::{
+    BeamFeed, BeamView, CameraTarget, ChaseTarget, FxEvent, FxEvents, MissileFeed, MissileView, SuitDrive,
+    VisTime,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scene {
@@ -43,6 +46,11 @@ pub enum Scene {
     /// A Leo mining: every 1.5 s its saber cuts into a rock, which cracks as it's worked while
     /// chips of ore drift off, until it shatters (at 9.75 s of every 12) and grows back.
     Mining,
+    /// The pilots' frames side by side, each at its signature, on a 6 s loop: a Leo's machine
+    /// cannon, Wing Zero charging, Heavyarms' Full Open Attack (missile salvos from its pods),
+    /// Deathscythe jamming and reaping, Sandrock's shotels and Cross Crusher, Shenlong's Dragon
+    /// Fang and flamethrower, and Neo-Bird on full burn.
+    Gundams,
 }
 
 impl Scene {
@@ -56,6 +64,7 @@ impl Scene {
             "mining" => Some(Self::Mining),
             "sky" => Some(Self::Sky),
             "chase" | "pilot" => Some(Self::Chase),
+            "gundams" => Some(Self::Gundams),
             _ => None,
         }
     }
@@ -70,12 +79,27 @@ impl Scene {
             Self::Chase => "chase",
             Self::Salvage => "salvage",
             Self::Mining => "mining",
+            Self::Gundams => "gundams",
         }
     }
 
     /// Camera presets 1..: orbit target, yaw, pitch (radians) and distance.
     fn presets(self) -> Vec<Orbit> {
         match self {
+            Self::Gundams => {
+                let at = |i: usize, up: f32| gundam_pos(i) + Vec3::new(0.0, up, 8.0);
+                vec![
+                    orbit(GUNDAMS + Vec3::new(0.0, 0.0, 15.0), 0.3, 0.12, 150.0),
+                    // Heavyarms in Full Open, from ahead and below its salvos.
+                    orbit(at(2, 2.0), 0.55, 0.05, 48.0),
+                    orbit(at(3, 2.0), -0.6, 0.12, 40.0),
+                    orbit(at(4, 0.0), 0.7, 0.1, 38.0),
+                    // Shenlong from the side, to see the fang go out its 35 m.
+                    orbit(gundam_pos(5) + Vec3::new(0.0, 0.0, 18.0), 1.35, 0.1, 55.0),
+                    orbit(at(6, 0.0), 0.9, 0.25, 36.0),
+                    orbit(at(1, 0.0), 0.4, 0.1, 40.0),
+                ]
+            }
             Self::Lineup => LINEUP_CAMS.to_vec(),
             Self::Duel => DUEL_CAMS.to_vec(),
             Self::Colony => COLONY_CAMS.to_vec(),
@@ -165,6 +189,9 @@ const FIELD_CAMS: [Orbit; 3] = [
 ];
 
 const LINEUP: Vec3 = Vec3::new(0.0, 1_200.0, 0.0);
+const GUNDAMS: Vec3 = Vec3::new(0.0, 1_300.0, 600.0);
+/// The gundams scene's loop (s).
+const GUNDAMS_CYCLE: f64 = 6.0;
 const DUEL: Vec3 = Vec3::new(0.0, 1_500.0, 0.0);
 const SQUAD_START: Vec3 = Vec3::new(-3_000.0, COLONY_CENTER.y + COLONY_RADIUS + 45.0, 0.0);
 const FIELD: Vec3 = Vec3::new(2_600.0, 900.0, 1_400.0);
@@ -272,7 +299,53 @@ fn cast(scene: Scene) -> Vec<(FrameId, Faction)> {
         Scene::Chase => vec![(WingZero, Faction::Colonies), (Leo, Faction::Oz), (Taurus, Faction::Oz)],
         Scene::Salvage => vec![(Leo, Faction::Colonies)],
         Scene::Mining => vec![(Leo, Faction::Colonies)],
+        Scene::Gundams => vec![
+            (Leo, Faction::Colonies),
+            (WingZero, Faction::Colonies),
+            (Heavyarms, Faction::Colonies),
+            (Deathscythe, Faction::Colonies),
+            (Sandrock, Faction::Colonies),
+            (Shenlong, Faction::Colonies),
+            (WingZeroBird, Faction::Colonies),
+        ],
     }
+}
+
+/// Where each of the gundams scene's suits stands.
+fn gundam_pos(i: usize) -> Vec3 {
+    GUNDAMS + Vec3::new(-90.0 + 30.0 * i as f32, 0.0, 0.0)
+}
+
+/// Whether a strike of `weapon` begun every `period` s (at `phase`) is under way at `t`: the
+/// simulation's windup and stroke, and its recovery.
+fn striking(t: f64, period: f64, phase: f64, weapon: WeaponKind) -> bool {
+    let d = bc_sim::content::weapon(weapon).melee.map_or(0.0, |m| f64::from(m.duration()) / 30.0);
+    (t - phase).rem_euclid(period) < d
+}
+
+/// Heavyarms' scripted missiles: one leaves a pod every 0.2 s for the first 3 s of each loop, flies
+/// out and up for 1.8 s, and bursts. (born, from, heading)
+fn salvo(t: f64) -> impl Iterator<Item = (f64, Vec3, Vec3)> {
+    let loop0 = (t / GUNDAMS_CYCLE).floor() * GUNDAMS_CYCLE;
+    [loop0 - GUNDAMS_CYCLE, loop0].into_iter().flat_map(|l| {
+        (0..15).map(move |k| {
+            let born = l + 0.2 * k as f64;
+            let side = if k % 2 == 0 { 1.0 } else { -1.0 };
+            let from = gundam_pos(2) + Vec3::new(3.45 * side, 6.2, 1.2);
+            let spread = (k as f32 * 1.7).sin() * 0.35;
+            let heading = Vec3::new(0.25 * side + spread * 0.5, 0.35 + spread * 0.3, 1.0).normalize();
+            (born, from, heading)
+        })
+    })
+}
+
+/// A scripted missile `age` s out: off the rail at 120 m/s, the motor pushing it to 600 m/s, curving
+/// round toward +z.
+fn missile_at(from: Vec3, heading: Vec3, age: f32) -> (Vec3, Vec3) {
+    let dist = 120.0 * age + 135.0 * age * age;
+    let bend = Vec3::new(-heading.x * 0.6, -heading.y * 0.3, 0.0) * age * age * 0.4;
+    let dir = (heading + bend).normalize();
+    (from + dir * dist, dir * (120.0 + 270.0 * age))
 }
 
 /// Where the salvage scene is: beside the biggest rock near the field scene.
@@ -760,11 +833,13 @@ fn duel_shots(t: f64) -> impl Iterator<Item = Shot> {
         .filter(move |s| t - s.t < 1.5)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn script(
     show: Res<Show>,
     vis: Res<VisTime>,
     mut suits: Query<&mut SuitDrive>,
     mut beams: ResMut<BeamFeed>,
+    mut missiles: ResMut<MissileFeed>,
     mut events: ResMut<FxEvents>,
     mut target: ResMut<CameraTarget>,
     field: Res<crate::rocks::VisField>,
@@ -772,6 +847,7 @@ fn script(
     let t = vis.now;
     let crossed = |at: f64| at > show.prev && at <= t;
     beams.0.clear();
+    missiles.0.clear();
     let mut set = |i: usize, f: &mut dyn FnMut(&mut SuitDrive)| {
         if let Some(mut d) = show.suits.get(i).and_then(|e| suits.get_mut(*e).ok()) {
             f(&mut d);
@@ -1039,6 +1115,74 @@ fn script(
             if crossed((t / MINING_CYCLE).floor() * MINING_CYCLE + MINING_BREAK) {
                 let ore = crate::materials::ore_colour(usize::from(rock.ore));
                 events.0.push(FxEvent::RockBreak { pos: rock.pos, radius: rock.radius, ore });
+            }
+        }
+        Scene::Gundams => {
+            let u = t.rem_euclid(GUNDAMS_CYCLE);
+            for i in 0..7 {
+                let flags = match i {
+                    0 => ent_flags::FIRING_SECONDARY,
+                    1 => ent_flags::CHARGING,
+                    // Full Open for half the loop, the gatling otherwise.
+                    2 if u < 3.0 => {
+                        ent_flags::SPECIAL | ent_flags::FIRING_PRIMARY | ent_flags::FIRING_SECONDARY
+                    }
+                    2 => ent_flags::FIRING_PRIMARY,
+                    // Jamming (as its side sees it), and reaping every 2 s.
+                    3 => {
+                        let reap = striking(t, 2.0, 0.5, WeaponKind::BeamScythe);
+                        ent_flags::SPECIAL | if reap { ent_flags::SABER } else { 0 }
+                    }
+                    // The shotels, and the Cross Crusher every other time.
+                    4 if striking(t, 3.0, 0.2, WeaponKind::CrossCrusher)
+                        && (t / 3.0).floor() as i64 % 2 == 1 =>
+                    {
+                        ent_flags::SABER | ent_flags::SPECIAL
+                    }
+                    4 if striking(t, 3.0, 0.2, WeaponKind::HeatShotel) => ent_flags::SABER,
+                    // The fang, then the flame.
+                    5 if striking(t, 3.0, 0.3, WeaponKind::DragonFang) => {
+                        ent_flags::SABER | ent_flags::MELEE_ALT
+                    }
+                    5 if (1.6..2.8).contains(&t.rem_euclid(3.0)) => ent_flags::FIRING_SECONDARY,
+                    6 => ent_flags::BOOST,
+                    _ => 0,
+                };
+                set(i, &mut |d| {
+                    let bird = d.frame == FrameId::WingZeroBird;
+                    let bob = (t * 0.7 + i as f64).sin() as f32;
+                    d.pos = gundam_pos(i) + Vec3::new(0.0, bob * 0.8, 0.0);
+                    d.rot = if bird {
+                        Quat::from_rotation_z(bob * 0.25) * Quat::from_rotation_x(-0.1)
+                    } else {
+                        Quat::from_rotation_y(bob * 0.08)
+                    };
+                    let a = (t * 0.5 + i as f64 * 1.3) as f32;
+                    d.aim = d.rot * Vec3::new(0.2 * a.sin(), 0.12 * (a * 0.7).cos(), 1.0).normalize();
+                    d.flags = flags;
+                    d.thrust = if flags & ent_flags::BOOST != 0 { Vec3::Z } else { Vec3::ZERO };
+                });
+            }
+            // Heavyarms' salvos.
+            for (born, from, heading) in salvo(t) {
+                let age = (t - born) as f32;
+                if (0.0..1.8).contains(&age) {
+                    let (pos, vel) = missile_at(from, heading, age);
+                    missiles.0.push(MissileView {
+                        pos,
+                        vel,
+                        kind: WeaponKind::HomingMissile,
+                        targets_you: false,
+                    });
+                }
+                if crossed(born + 1.8) {
+                    let (pos, _) = missile_at(from, heading, 1.8);
+                    events.0.push(FxEvent::MissileBurst {
+                        pos,
+                        kind: WeaponKind::HomingMissile,
+                        struck: false,
+                    });
+                }
             }
         }
         Scene::Field => {

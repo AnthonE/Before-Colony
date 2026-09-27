@@ -69,6 +69,7 @@ fn hide_boot_overlay() {
 /// Game state for the E2E tests (and for curious humans at the devtools console).
 pub fn publish_game(game: NonSend<crate::net::GameClient>, mut dev: ResMut<DevStatus>) {
     use bc_proto::PilotKind;
+    use bc_sim::content::WeaponClass;
     let game = game.borrow();
     let core = &game.core;
     let w = &core.world;
@@ -103,7 +104,31 @@ pub fn publish_game(game: NonSend<crate::net::GameClient>, mut dev: ResMut<DevSt
     );
     dev.set("rocks", core.predict.field.len() as u32);
     dev.set("rocks_destroyed", w.rocks.values().filter(|r| r.destroyed).count() as u32);
+    // The Gundams' mechanics, as this client saw them (counted per snapshot in `World`).
+    let kit = &w.kit;
+    for (key, class) in [
+        ("hits_beam", WeaponClass::Beam),
+        ("hits_ballistic", WeaponClass::Ballistic),
+        ("hits_missile", WeaponClass::Missile),
+        ("hits_melee", WeaponClass::Melee),
+        ("hits_cone", WeaponClass::Cone),
+    ] {
+        dev.set(key, kit.hits_by_class[class as usize]);
+    }
+    dev.set("specials", kit.specials);
+    dev.set("transforms", kit.transforms);
+    dev.set("locks_acquired", kit.locks);
+    dev.set("missiles_seen", kit.missiles_seen);
+    dev.set("bursts_seen", kit.bursts_seen);
+    dev.set("jamming_seen", kit.jamming);
+    dev.set("flame_seen", kit.flame);
+    dev.set("fang_seen", kit.fang);
+    dev.set("missiles", w.missiles().count() as u32);
     if let Some(o) = w.own {
+        dev.set("frame", o.frame.slug());
+        dev.set("bird", o.frame == bc_proto::FrameId::WingZeroBird);
+        dev.set("special_active", o.flags & bc_proto::snapshot::own_flags::SPECIAL_ACTIVE != 0);
+        dev.set("lock_progress", u32::from(o.lock_progress));
         dev.set("attached", o.held != bc_proto::NO_CHUNK);
         dev.set("cargo_kg", o.cargo_kg.iter().map(|kg| u32::from(*kg)).sum::<u32>());
         dev.set("credits", o.credits);

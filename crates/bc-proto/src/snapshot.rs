@@ -5,11 +5,12 @@
 //! | Section | Size | Notes |
 //! |---|---|---|
 //! | header | 116 bits | tick, input ack, input-buffer health, RTT echo, time dilation |
-//! | own state | 1 + 610 bits | full precision: the client reconciles its prediction against it |
-//! | ZERO | 1 + ~203 bits | only while the pilot's ZERO System is engaged |
+//! | own state | 1 + 641 bits | full precision: the client reconciles its prediction against it |
+//! | ZERO | 1 + ≤200 bits | only while the pilot's ZERO System is engaged |
 //! | events | `1+n` bits each, `0` ends | repeated until the client acks a snapshot containing them |
 //! | rocks | `1+18` bits each, `0` ends | debris-field rocks whose state changed, repeated until acked |
-//! | entities | `1+204` bits each, `0` ends | as many prioritised contacts as fit |
+//! | missiles | `1+119` bits each, `0` ends | missiles in flight nearby, those tracking you first |
+//! | entities | `1+206` bits each, `0` ends | as many prioritised contacts as fit |
 //! | objects | `1+12..232` bits each, `0` ends | salvage chunks (ore, limbs, hulks) in range |
 //!
 //! Everything must fit in [`MAX_DATAGRAM`](crate::MAX_DATAGRAM) bytes. The writer checks the budget
@@ -18,6 +19,7 @@
 use glam::{Quat, Vec3};
 
 use crate::events::Event;
+use crate::missiles::{MISSILE_RECORD_BITS, MissileState};
 use crate::objects::{ObjectState, ROCK_RECORD_BITS, RockState};
 use crate::quant::{self, dequantize_signed, dequantize_unit, quantize_signed, quantize_unit};
 use crate::types::{Faction, FrameId, Part, PilotKind};
@@ -58,6 +60,7 @@ pub mod own_flags {
     pub const OVERHEAT: u16 = 1 << 2;
     /// Twin Buster Rifle charging.
     pub const CHARGING: u16 = 1 << 3;
+    /// A melee strike is under way, recovery included (any blade, the Dragon Fang).
     pub const SABER_ACTIVE: u16 = 1 << 4;
     /// This frame carries the ZERO System.
     pub const ZERO_CAPABLE: u16 = 1 << 5;
@@ -67,8 +70,20 @@ pub mod own_flags {
     pub const LOCKED_ON: u16 = 1 << 7;
     /// In the colony's dock: cargo, and anything in hand, sells on arrival.
     pub const DOCKED: u16 = 1 << 8;
-    /// Beam saber lunge (windup and swing): the flight model drives forward at full thrust.
+    /// Melee lunge (the windup and stroke of a blade that lunges): the flight model drives
+    /// forward at full thrust.
     pub const LUNGE: u16 = 1 << 9;
+    /// The frame's special is engaged: the Hyper Jammer, Full Open Attack, Cross Crusher.
+    pub const SPECIAL_ACTIVE: u16 = 1 << 10;
+    /// Changing form (Wing Zero ↔ Neo-Bird): weapons are down and thrust is reduced until
+    /// [`OwnState::special_timer`] runs out.
+    pub const TRANSFORMING: u16 = 1 << 11;
+    /// Your missile lock on [`OwnState::lock_target`] is acquired: guided missiles will follow it.
+    pub const LOCK_ACQUIRED: u16 = 1 << 12;
+    /// A hostile has acquired a missile lock on you.
+    pub const MISSILE_LOCK: u16 = 1 << 13;
+    /// A guided missile is tracking you.
+    pub const MISSILE_INCOMING: u16 = 1 << 14;
 }
 
 /// ZERO System state for [`OwnState::zero_mode`].
@@ -103,7 +118,7 @@ pub struct OwnState {
     pub energy: f32,
     /// Rounds left: primary, secondary.
     pub ammo: [u16; 2],
-    /// Bits 0..3: primary, secondary, melee ready.
+    /// Bits 0..4: primary, secondary, melee, special ready.
     pub weapon_ready: u8,
     /// 0..1 Twin Buster Rifle charge.
     pub charge: f32,
@@ -126,10 +141,21 @@ pub struct OwnState {
     pub credits: u32,
     /// The chunk in hand ([`NO_CHUNK`] = none).
     pub held: u16,
+    /// The designated target the server accepted ([`NO_SLOT`](crate::NO_SLOT) = none).
+    pub lock_target: u16,
+    /// Missile lock progress on it, 0..15 (15 = acquired).
+    pub lock_progress: u8,
+    /// Ticks left in the special under way: the transformation, Full Open Attack.
+    pub special_timer: u8,
+    /// Until the special is ready again, in ticks divided by 4.
+    pub special_cooldown: u8,
 }
 
-/// Encoded size of the own state (after its presence bit), in bits.
-pub const OWN_BITS: usize = 502 + 18 + 14 * CARGO_KINDS + 24 + CHUNK_BITS as usize;
+/// Encoded size of the own state (after its presence bit), in bits: the flight and combat state
+/// (503), salvage (18 + 14 per cargo kind + 24 + a chunk id), then lock and special (10 + 4 + 8 + 8).
+pub const OWN_BITS: usize =
+    503 + 18 + 14 * CARGO_KINDS + 24 + CHUNK_BITS as usize + SLOT_BITS as usize + 4 + 8 + 8;
+const LOCK_PROGRESS_BITS: u32 = 4;
 const EXTRA_MASS_BITS: u32 = 18;
 const CARGO_BITS: u32 = 14;
 const CREDIT_BITS: u32 = 24;
@@ -163,6 +189,10 @@ impl Default for OwnState {
             cargo_kg: [0; CARGO_KINDS],
             credits: 0,
             held: NO_CHUNK,
+            lock_target: crate::NO_SLOT,
+            lock_progress: 0,
+            special_timer: 0,
+            special_cooldown: 0,
         }
     }
 }
@@ -171,6 +201,8 @@ impl Default for OwnState {
 pub mod ent_flags {
     pub const FIRING_PRIMARY: u16 = 1 << 0;
     pub const FIRING_SECONDARY: u16 = 1 << 1;
+    /// Striking in melee (windup or stroke): the F weapon, unless MELEE_ALT or SPECIAL says
+    /// otherwise.
     pub const SABER: u16 = 1 << 2;
     pub const BOOST: u16 = 1 << 3;
     pub const CHARGING: u16 = 1 << 4;
@@ -181,7 +213,13 @@ pub mod ent_flags {
     pub const WRECK: u16 = 1 << 8;
     /// This suit is locked on to the receiving pilot.
     pub const LOCKED_ON_YOU: u16 = 1 << 9;
-    pub const BITS: u32 = 10;
+    /// The frame's special is engaged: jamming (seen only by allies), Full Open Attack,
+    /// transforming, Cross Crusher.
+    pub const SPECIAL: u16 = 1 << 10;
+    /// The melee strike under way comes from a ranged slot (Shenlong's Dragon Fang), not the F
+    /// weapon.
+    pub const MELEE_ALT: u16 = 1 << 11;
+    pub const BITS: u32 = 12;
 }
 
 /// Another suit as seen by the receiving pilot's sensors.
@@ -283,6 +321,7 @@ fn read_p(r: &mut BitReader<'_>) -> f32 {
 enum List {
     Events,
     Rocks,
+    Missiles,
     Entities,
     Objects,
     Done,
@@ -292,15 +331,17 @@ impl List {
     fn next(self) -> Self {
         match self {
             List::Events => List::Rocks,
-            List::Rocks => List::Entities,
+            List::Rocks => List::Missiles,
+            List::Missiles => List::Entities,
             List::Entities => List::Objects,
             List::Objects | List::Done => List::Done,
         }
     }
 }
 
-/// Budget-aware snapshot encoder. Call `header`, `own`, `zero`, then `event`s, `rock`s, `entity`s
-/// and `object`s in that order (starting a list closes the ones before it), then `finish`.
+/// Budget-aware snapshot encoder. Call `header`, `own`, `zero`, then `event`s, `rock`s,
+/// `missile`s, `entity`s and `object`s in that order (starting a list closes the ones before it),
+/// then `finish`.
 pub struct SnapshotWriter<'a> {
     w: BitWriter<'a>,
     tick: u32,
@@ -347,7 +388,7 @@ impl<'a> SnapshotWriter<'a> {
         w.write_bits(quantize_unit(o.energy, 10), 10);
         w.write_bits(u32::from(o.ammo[0].min(1023)), 10);
         w.write_bits(u32::from(o.ammo[1].min(1023)), 10);
-        w.write_bits(u32::from(o.weapon_ready), 3);
+        w.write_bits(u32::from(o.weapon_ready & 15), 4);
         w.write_bits(quantize_unit(o.charge, 6), 6);
         for p in o.parts {
             // A sliver of armour must not round to "gone".
@@ -367,6 +408,10 @@ impl<'a> SnapshotWriter<'a> {
         }
         w.write_bits(o.credits.min((1 << CREDIT_BITS) - 1), CREDIT_BITS);
         w.write_bits(u32::from(o.held.min(NO_CHUNK)), CHUNK_BITS);
+        w.write_bits(u32::from(o.lock_target.min(crate::NO_SLOT)), SLOT_BITS);
+        w.write_bits(u32::from(o.lock_progress.min(15)), LOCK_PROGRESS_BITS);
+        w.write_u8(o.special_timer);
+        w.write_u8(o.special_cooldown);
     }
 
     pub fn zero(&mut self, zero: Option<&ZeroInfo>) {
@@ -449,6 +494,15 @@ impl<'a> SnapshotWriter<'a> {
         true
     }
 
+    /// Appends a missile if it fits while leaving `keep_free_bits` (for entities and objects).
+    pub fn missile(&mut self, m: &MissileState, keep_free_bits: usize) -> bool {
+        if !self.start(List::Missiles, MISSILE_RECORD_BITS, keep_free_bits) {
+            return false;
+        }
+        m.write(&mut self.w);
+        true
+    }
+
     /// Appends an entity if it fits while leaving `keep_free_bits` (for objects). Returns whether
     /// it was written.
     pub fn entity(&mut self, e: &EntityState, keep_free_bits: usize) -> bool {
@@ -503,6 +557,7 @@ enum Stage {
     Zero,
     Events,
     Rocks,
+    Missiles,
     Entities,
     Objects,
     Done,
@@ -558,6 +613,9 @@ impl<'a> SnapshotReader<'a> {
                 Stage::Rocks => {
                     self.next_rock()?;
                 }
+                Stage::Missiles => {
+                    self.next_missile()?;
+                }
                 Stage::Entities => {
                     self.next_entity()?;
                 }
@@ -605,7 +663,7 @@ impl<'a> SnapshotReader<'a> {
             ..OwnState::default()
         };
         o.ammo = [r.read_bits(10) as u16, r.read_bits(10) as u16];
-        o.weapon_ready = r.read_bits(3) as u8;
+        o.weapon_ready = r.read_bits(4) as u8;
         o.charge = dequantize_unit(r.read_bits(6), 6);
         for p in &mut o.parts {
             *p = dequantize_unit(r.read_bits(8), 8);
@@ -622,6 +680,10 @@ impl<'a> SnapshotReader<'a> {
         }
         o.credits = r.read_bits(CREDIT_BITS);
         o.held = r.read_bits(CHUNK_BITS) as u16;
+        o.lock_target = r.read_bits(SLOT_BITS) as u16;
+        o.lock_progress = r.read_bits(LOCK_PROGRESS_BITS) as u8;
+        o.special_timer = r.read_u8();
+        o.special_cooldown = r.read_u8();
         self.check()?;
         Ok(Some(o))
     }
@@ -674,12 +736,23 @@ impl<'a> SnapshotReader<'a> {
     /// Next changed rock, or `None` at the end of the rock list.
     pub fn next_rock(&mut self) -> Result<Option<RockState>, DecodeError> {
         self.skip_to(Stage::Rocks)?;
-        if self.stage != Stage::Rocks || !self.more(Stage::Entities)? {
+        if self.stage != Stage::Rocks || !self.more(Stage::Missiles)? {
             return Ok(None);
         }
         let rock = RockState::read(&mut self.r);
         self.check()?;
         Ok(Some(rock))
+    }
+
+    /// Next missile in flight, or `None` at the end of the missile list.
+    pub fn next_missile(&mut self) -> Result<Option<MissileState>, DecodeError> {
+        self.skip_to(Stage::Missiles)?;
+        if self.stage != Stage::Missiles || !self.more(Stage::Entities)? {
+            return Ok(None);
+        }
+        let m = MissileState::read(&mut self.r)?;
+        self.check()?;
+        Ok(Some(m))
     }
 
     /// Next entity, or `None` at the end of the entity list.
@@ -772,9 +845,12 @@ mod tests {
         w.own(None);
         w.zero(None);
         assert!(w.rock(&RockState::new(9, true, 0.0, 0.0), 0));
+        let missile = MissileState { id: 77, guided: true, ..MissileState::default() };
+        assert!(w.missile(&missile, 0));
         assert!(w.object(&ObjectState::Gone { id: 3 }));
         // Lists already closed can't take more.
         assert!(!w.rock(&RockState::default(), 0));
+        assert!(!w.missile(&missile, 0));
         assert!(!w.entity(&EntityState::default(), 0));
         let n = w.finish().unwrap();
         let mut r = SnapshotReader::new(&buf[..n]).unwrap();
@@ -782,9 +858,13 @@ mod tests {
         assert_eq!(r.next_object().unwrap(), Some(ObjectState::Gone { id: 3 }));
         assert_eq!(r.next_object().unwrap(), None);
         let mut r = SnapshotReader::new(&buf[..n]).unwrap();
+        assert_eq!(r.next_missile().unwrap(), Some(missile.quantized()));
+        let mut r = SnapshotReader::new(&buf[..n]).unwrap();
         assert_eq!(r.next_event().unwrap(), None);
         assert_eq!(r.next_rock().unwrap().map(|x| x.id), Some(9));
         assert_eq!(r.next_rock().unwrap(), None);
+        assert_eq!(r.next_missile().unwrap().map(|m| m.id), Some(77));
+        assert_eq!(r.next_missile().unwrap(), None);
         assert_eq!(r.next_entity().unwrap(), None);
         assert_eq!(r.next_object().unwrap().map(|o| o.id()), Some(3));
     }

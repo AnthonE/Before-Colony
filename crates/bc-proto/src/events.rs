@@ -8,16 +8,44 @@ use glam::Vec3;
 
 use crate::quant::{self, dequantize_unit, quantize_unit};
 use crate::types::{Part, WeaponKind};
-use crate::{BitReader, BitWriter, CHUNK_BITS, DecodeError, ROCK_BITS, SLOT_BITS};
+use crate::{BitReader, BitWriter, CHUNK_BITS, DecodeError, MISSILE_BITS, ROCK_BITS, SLOT_BITS};
 
 const KIND_BITS: u32 = 3;
-/// Kind 7 is an extension: a sub-kind follows (0 = rock break; the rest reserved).
+/// Kind 7 is an extension: a sub-kind follows (0 = rock break, 1 = missile burst; the rest
+/// reserved).
 const EXT_BITS: u32 = 3;
 const DIR_BITS: u32 = 16;
 /// Beam speeds up to 16 384 m/s in 0.25 m/s steps.
 const SPEED_BITS: u32 = 16;
 const SPEED_MAX: f32 = 16_384.0;
 const DAMAGE_BITS: u32 = 10;
+
+/// How a missile's flight ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum BurstCause {
+    /// It struck a suit.
+    Hit = 0,
+    /// Its proximity fuse went off beside a suit.
+    Proximity = 1,
+    /// Its flight time ran out.
+    Expired = 2,
+    /// It met the colony or a rock.
+    Blocked = 3,
+}
+
+impl BurstCause {
+    pub const BITS: u32 = 2;
+
+    pub fn from_bits(v: u32) -> Self {
+        match v {
+            0 => BurstCause::Hit,
+            1 => BurstCause::Proximity,
+            2 => BurstCause::Expired,
+            _ => BurstCause::Blocked,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Event {
@@ -48,6 +76,9 @@ pub enum Event {
     Detach { id: u16, tick: u32, source: u16, from_hulk: bool, part: Part, chunk: u16 },
     /// Rock `rock` shattered (its ore scattered as chunks); `by` broke it.
     RockBreak { id: u16, tick: u32, rock: u16, by: u16 },
+    /// Missile `missile` (a pool id, see [`MissileState`](crate::MissileState)) ended at `pos`.
+    /// Any damage it did arrives as `Hit` events.
+    MissileBurst { id: u16, tick: u32, missile: u16, pos: Vec3, cause: BurstCause },
 }
 
 impl Event {
@@ -60,7 +91,8 @@ impl Event {
             | Event::Clash { tick, .. }
             | Event::Seizure { tick, .. }
             | Event::Detach { tick, .. }
-            | Event::RockBreak { tick, .. } => tick,
+            | Event::RockBreak { tick, .. }
+            | Event::MissileBurst { tick, .. } => tick,
         }
     }
 
@@ -73,7 +105,8 @@ impl Event {
             | Event::Clash { id, .. }
             | Event::Seizure { id, .. }
             | Event::Detach { id, .. }
-            | Event::RockBreak { id, .. } => Some(id),
+            | Event::RockBreak { id, .. }
+            | Event::MissileBurst { id, .. } => Some(id),
             Event::Leave { .. } => None,
         }
     }
@@ -107,6 +140,13 @@ impl Event {
                     + CHUNK_BITS as usize
             }
             Event::RockBreak { .. } => EXT_BITS as usize + 16 + ROCK_BITS as usize + SLOT_BITS as usize,
+            Event::MissileBurst { .. } => {
+                EXT_BITS as usize
+                    + 16
+                    + MISSILE_BITS as usize
+                    + 3 * quant::POS_BITS as usize
+                    + BurstCause::BITS as usize
+            }
         }
     }
 
@@ -182,6 +222,15 @@ impl Event {
                 w.write_bits(u32::from(rock), ROCK_BITS);
                 slot(w, by);
             }
+            Event::MissileBurst { id, missile, pos, cause, .. } => {
+                w.write_bits(7, KIND_BITS);
+                w.write_u8(age as u8);
+                w.write_bits(1, EXT_BITS);
+                w.write_u16(id);
+                w.write_bits(u32::from(missile), MISSILE_BITS);
+                quant::write_pos(w, pos);
+                w.write_bits(cause as u32, BurstCause::BITS);
+            }
         }
     }
 
@@ -245,6 +294,13 @@ impl Event {
                     let rock = r.read_bits(ROCK_BITS) as u16;
                     Event::RockBreak { id, tick, rock, by: slot(r) }
                 }
+                1 => {
+                    let id = r.read_u16();
+                    let missile = r.read_bits(MISSILE_BITS) as u16;
+                    let pos = quant::read_pos(r);
+                    let cause = BurstCause::from_bits(r.read_bits(BurstCause::BITS));
+                    Event::MissileBurst { id, tick, missile, pos, cause }
+                }
                 _ => return Err(DecodeError::Invalid),
             },
             _ => return Err(DecodeError::Invalid),
@@ -285,6 +341,13 @@ mod tests {
             Event::Detach { id: 6, tick: 96, source: 5, from_hulk: false, part: Part::ArmL, chunk: 13 },
             Event::Detach { id: 7, tick: 97, source: 812, from_hulk: true, part: Part::Head, chunk: 14 },
             Event::RockBreak { id: 8, tick: 98, rock: 1_022, by: 4 },
+            Event::MissileBurst {
+                id: 9,
+                tick: 99,
+                missile: 1_000,
+                pos: Vec3::new(1_000.0, -2_000.0, 3_000.0),
+                cause: BurstCause::Proximity,
+            },
         ];
         for e in all {
             let mut buf = [0u8; 64];
@@ -292,11 +355,23 @@ mod tests {
             e.write(&mut w, 100);
             assert_eq!(w.bits_written(), e.encoded_bits());
             let back = Event::read(&mut BitReader::new(&buf), 100).unwrap();
-            if matches!(e, Event::BeamSpawn { .. }) {
+            if matches!(e, Event::BeamSpawn { .. } | Event::MissileBurst { .. }) {
                 assert_eq!((back.id(), back.tick()), (e.id(), e.tick())); // (its vectors are quantized)
             } else {
                 assert_eq!(back, e);
             }
+        }
+    }
+
+    #[test]
+    fn unknown_extension_sub_kinds_are_invalid() {
+        for sub in 2..8u32 {
+            let mut buf = [0u8; 16];
+            let mut w = BitWriter::new(&mut buf);
+            w.write_bits(7, KIND_BITS);
+            w.write_u8(0);
+            w.write_bits(sub, EXT_BITS);
+            assert_eq!(Event::read(&mut BitReader::new(&buf), 10), Err(DecodeError::Invalid));
         }
     }
 }

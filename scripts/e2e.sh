@@ -3,6 +3,7 @@
 #   scripts/e2e.sh spike [project]   # transport smoke test (server in echo mode)
 #   scripts/e2e.sh slice [project]   # the vertical slice (game mode, dolls + an agent bot)
 #   scripts/e2e.sh gfx [project]     # every showcase scene renders cleanly (BC_GFX_QUALITY=high)
+#   scripts/e2e.sh frames [project]  # the autopilot flies each Gundam's kit against the dolls
 set -euo pipefail
 cd "$(dirname "$0")/.."
 suite="${1:-slice}"
@@ -27,6 +28,10 @@ case "$suite" in
     pids+=($!)
     sleep 1
     ./target/release/examples/mobile_doll --server "$BC_URL" --name "Agent-01" &
+    pids+=($!)
+    ;;
+  frames)
+    ./target/release/bc-server --mode game --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls "${BC_DOLLS:-24}" &
     pids+=($!)
     ;;
   *) echo "unknown suite $suite" >&2; exit 1 ;;

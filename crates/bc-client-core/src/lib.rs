@@ -20,7 +20,7 @@ use bc_proto::buttons::FIRE_PRIMARY;
 use bc_proto::control::{ControlMsg, RejectReason};
 use bc_proto::{Faction, FrameId, InputCmd, InputPacket, PROTOCOL_VERSION, PilotKind, SnapshotReader};
 use bc_sim::config::MAX_REWIND_TICKS;
-use bc_sim::content::{frame, weapon};
+use bc_sim::content::{Replication, frame, weapon};
 use glam::Vec3;
 
 pub use brains::{DollBrain, MinerBrain};
@@ -218,6 +218,17 @@ impl ClientCore {
         while let Ok(Some(rock)) = r.next_rock() {
             rocks.push(rock);
         }
+        let mut missiles = Vec::new();
+        loop {
+            match r.next_missile() {
+                Ok(Some(m)) => missiles.push(m),
+                Ok(None) => break,
+                Err(_) => {
+                    self.stats.decode_errors += 1;
+                    break;
+                }
+            }
+        }
         let mut ents = Vec::new();
         loop {
             match r.next_entity() {
@@ -247,6 +258,7 @@ impl ClientCore {
             f64::from(now_ms.wrapping_sub(h.time_echo_ms)) / 1_000.0 - f64::from(h.echo_hold_ms) / 1_000.0
         });
         self.clock.on_snapshot(h.tick, now, rtt, h.input_health);
+        self.world.apply_missiles(h.tick, &missiles);
         self.world.apply(h.tick, own, zero, &events, &ents);
         self.world.apply_salvage(&rocks, &objects);
         for r in &rocks {
@@ -342,7 +354,8 @@ impl ClientCore {
     }
 
     /// If this command fires the primary weapon and the weapon should be ready, draw the beam now
-    /// (the server's spawn event confirms it via `shot_seq`).
+    /// (the server's spawn event confirms it via `shot_seq`). Only weapons whose every shot is an
+    /// event are drawn this way: a stream's tracers, a blade or a flame have nothing to confirm.
     fn maybe_predict_shot(&mut self, cmd: &mut InputCmd, tick: u32) {
         let Some(own) = self.world.own else { return };
         if !own.alive || cmd.buttons & FIRE_PRIMARY == 0 || own.weapon_ready & 1 == 0 {
@@ -351,7 +364,10 @@ impl ClientCore {
         let spec = frame(own.frame);
         let Some(mount) = spec.loadout[0] else { return };
         let w = weapon(mount.weapon);
-        if w.charge_ticks > 0 || tick < self.last_shot_tick + u32::from(w.cooldown) {
+        if w.replication != Replication::PerShot
+            || w.charge_ticks > 0
+            || tick < self.last_shot_tick + u32::from(w.cooldown)
+        {
             return;
         }
         self.last_shot_tick = tick;

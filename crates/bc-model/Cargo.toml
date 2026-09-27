@@ -12,5 +12,9 @@ repository.workspace = true
 bc-proto.workspace = true
 glam.workspace = true
 
+[dev-dependencies]
+# The tests check each design against its frame's simulation hitboxes and kit.
+bc-sim.workspace = true
+
 [lints]
 workspace = true

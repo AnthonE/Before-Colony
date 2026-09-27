@@ -8,9 +8,16 @@ use crate::config::VISUAL_RANGE;
 /// Whether an observer with `sensor_range` detects a target with effective `signature`.
 #[inline]
 pub fn detects(observer: Vec3, sensor_range: f32, target: Vec3, signature: f32) -> bool {
+    detects_within(observer, sensor_range, target, signature, VISUAL_RANGE)
+}
+
+/// [`detects`], with eyes that see `visual` m rather than [`VISUAL_RANGE`] (a jamming suit is only
+/// a shimmer further off).
+#[inline]
+pub fn detects_within(observer: Vec3, sensor_range: f32, target: Vec3, signature: f32, visual: f32) -> bool {
     let d2 = (target - observer).length_squared();
     let r = sensor_range * signature;
-    d2 <= VISUAL_RANGE * VISUAL_RANGE || d2 <= r * r
+    d2 <= visual * visual || d2 <= r * r
 }
 
 /// Signature multiplier from what a suit is doing.

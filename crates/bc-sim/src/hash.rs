@@ -54,6 +54,16 @@ pub fn state_hash(sim: &Sim) -> u64 {
         h.f32(p.pos[k].y);
         h.f32(p.pos[k].z);
     }
+    let m = &sim.missiles;
+    for k in m.alive.iter() {
+        h.u32(k as u32 | u32::from(m.target[k]) << 16);
+        for v in [m.pos[k], m.vel[k]] {
+            h.f32(v.x);
+            h.f32(v.y);
+            h.f32(v.z);
+        }
+        h.f32(m.dv_left[k]);
+    }
     let c = &sim.chunks;
     for k in c.alive.iter() {
         h.u32(k as u32);

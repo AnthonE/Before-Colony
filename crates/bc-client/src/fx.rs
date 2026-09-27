@@ -1,9 +1,10 @@
 //! Weapons and battle effects, drawn from the view model (the [`BeamFeed`], [`FxEvent`]s and the
 //! suits' [`SuitDrive`]s):
-//! - beams and machine-cannon tracers as glowing ribbons (pooled, see `beams`);
-//! - muzzle flashes, impacts, saber clashes, the Twin Buster Rifle's charge, ring and ionised
-//!   trail, attitude jets and suits exploding, as particles (`particles`), shells and armour
-//!   chips (`blast`);
+//! - beams, and the tracers of stream weapons (gatlings, machine guns, vulcans: drawn from the
+//!   firing flags at each weapon's speed and colour), as glowing ribbons (pooled, see `beams`);
+//! - muzzle flashes, impacts, blade clashes, the Twin Buster Rifle's charge, ring and ionised
+//!   trail, the flamethrower's jet, missile bursts, attitude jets and suits exploding, as
+//!   particles (`particles`), shells and armour chips (`blast`);
 //! - and the point lights those effects cast on the suits around them.
 
 use std::collections::HashMap;
@@ -11,7 +12,8 @@ use std::collections::HashMap;
 use bc_model::rig::Bone;
 use bc_proto::WeaponKind;
 use bc_proto::snapshot::ent_flags;
-use bc_sim::content::frame;
+use bc_sim::config::DT;
+use bc_sim::content::{ArmSlot, Mount, Replication, SpecialKind, WeaponClass, frame, weapon};
 use bevy::mesh::MeshTag;
 use bevy::prelude::*;
 
@@ -23,8 +25,8 @@ use crate::gfx::Gfx;
 use crate::materials::{HullTag, paint};
 use crate::model::SuitMeshLib;
 use crate::particles::{At, Particles};
-use crate::suits_vis::{bone_point, plume_power};
-use crate::view::{BeamFeed, FxEvent, FxEvents, SuitDrive, VisTime};
+use crate::suits_vis::{bone_point, drawn_blades, flame_nozzle, plume_power};
+use crate::view::{BeamFeed, FxEvent, FxEvents, MissileFeed, SuitDrive, VisTime};
 
 const BEAMS: usize = 96;
 const TRACERS: usize = 96;
@@ -42,6 +44,8 @@ struct Tracer {
     origin: Vec3,
     vel: Vec3,
     born: f64,
+    life: f64,
+    weapon: WeaponKind,
 }
 
 /// A burst of light from an effect (muzzle, hit, blast, clash), fading over `life`.
@@ -57,7 +61,25 @@ struct Flash {
 pub struct FxState {
     tracers: Vec<Tracer>,
     flashes: Vec<Flash>,
-    last_tracer: HashMap<u16, f64>,
+    /// When each suit's mount last put out a tracer, by (slot, mount).
+    last_tracer: HashMap<(u16, u8), f64>,
+}
+
+/// A suit's ranged mounts firing this frame: the loadout's guns by their firing flags, and during
+/// Full Open Attack every gun, the special mounts' too. Mounts are numbered like the simulation's
+/// (0, 1: the loadout's guns; 3, 4: the special mounts).
+pub fn firing_mounts(d: &SuitDrive) -> impl Iterator<Item = (u8, Mount)> + '_ {
+    let spec = frame(d.frame);
+    let wreck = d.flags & ent_flags::WRECK != 0;
+    let full_open = d.flags & ent_flags::SPECIAL != 0 && matches!(spec.special, SpecialKind::FullOpen { .. });
+    let loadout =
+        [(0u8, ent_flags::FIRING_PRIMARY), (1, ent_flags::FIRING_SECONDARY)].into_iter().filter_map(
+            move |(k, bit)| spec.loadout[usize::from(k)].filter(|_| d.flags & bit != 0).map(|m| (k, m)),
+        );
+    let special = (0..2u8).filter_map(move |k| spec.special_mounts[usize::from(k)].map(|m| (k + 3, m)));
+    loadout
+        .chain(special.filter(move |_| full_open))
+        .filter(move |(_, m)| !wreck && weapon(m.weapon).class != WeaponClass::Melee)
 }
 
 pub fn setup_fx(mut commands: Commands, ribbons: Res<Ribbons>) {
@@ -121,7 +143,10 @@ pub fn update_fx(
         (&BeamVis, &mut Transform, &mut Visibility, &mut MeshMaterial3d<BeamMaterial>),
         Without<TracerVis>,
     >,
-    mut tracers: Query<(&TracerVis, &mut Transform, &mut Visibility), Without<BeamVis>>,
+    mut tracers: Query<
+        (&TracerVis, &mut Transform, &mut Visibility, &mut MeshMaterial3d<BeamMaterial>),
+        Without<BeamVis>,
+    >,
     field: Option<Res<crate::rocks::VisField>>,
 ) {
     let now = time.now;
@@ -147,42 +172,73 @@ pub fn update_fx(
         }
     }
 
-    // --- Machine-cannon tracers from anyone firing their secondary. ---
-    for (d, _) in &suits {
-        if d.flags & ent_flags::FIRING_SECONDARY == 0 {
-            continue;
-        }
-        let Some(m) = frame(d.frame).loadout[1] else { continue };
-        let last = state.last_tracer.get(&d.slot).copied().unwrap_or(f64::NEG_INFINITY);
-        if now - last > 0.1 {
-            state.last_tracer.insert(d.slot, now);
-            let origin = d.pos + d.rot * m.arm.muzzle();
+    // --- Stream weapons: tracers at each weapon's own speed and colour, from the firing flags
+    // (the simulation sends no event per round). The flamethrower's jet. ---
+    for (d, anim) in &suits {
+        let sockets = lib.sockets(d.frame);
+        for (k, m) in firing_mounts(d) {
+            let w = weapon(m.weapon);
+            let main = k == 0 && m.arm == ArmSlot::Right;
+            // The main weapon's drawn muzzle (the simulation's is at the hand, inside the gun), the
+            // dragon's mouth for the flamethrower.
+            let origin = if main {
+                bone_point(d, anim, Bone::Weapon, sockets.muzzle)
+            } else if w.cone.is_some() {
+                flame_nozzle(d, anim, &lib, m.arm.muzzle())
+            } else {
+                d.pos + d.rot * m.arm.muzzle()
+            };
             let dir = d.aim.normalize_or(d.rot * Vec3::Z);
-            state.tracers.push(Tracer { origin, vel: d.vel + dir * 1_200.0, born: now });
-            particles.muzzle(cap, At { pos: origin, vel: d.vel }, dir, ribbons.tracer.color, 0.7);
+            if let Some(cone) = w.cone {
+                particles.flame(cap, At { pos: origin, vel: d.vel }, dir, w.range, cone.half_angle, time.dt);
+                continue;
+            }
+            if w.replication != Replication::Stream {
+                continue;
+            }
+            // About as often as it fires, but no more than every other frame at 30 fps.
+            let every = (f64::from(w.cooldown) * f64::from(DT)).max(0.06);
+            let last = state.last_tracer.get(&(d.slot, k)).copied().unwrap_or(f64::NEG_INFINITY);
+            if now - last < every {
+                continue;
+            }
+            state.last_tracer.insert((d.slot, k), now);
+            let look = ribbons.look(m.weapon);
+            let life = f64::from(w.range / w.speed).min(1.5);
+            state.tracers.push(Tracer {
+                origin,
+                vel: d.vel + dir * w.speed,
+                born: now,
+                life,
+                weapon: m.weapon,
+            });
+            particles.muzzle(cap, At { pos: origin, vel: d.vel }, dir, look.color, 0.7);
             state.flashes.push(Flash {
                 pos: origin,
                 born: now,
                 life: 0.06,
                 lumens: 2.0e7,
-                color: color(ribbons.tracer.color),
+                color: color(look.color),
             });
         }
     }
-    state.tracers.retain(|tr| now - tr.born < 1.2);
+    state.tracers.retain(|tr| now - tr.born < tr.life);
     state.last_tracer.retain(|_, t| now - *t < 1.0);
     let n = state.tracers.len();
     if n > TRACERS {
         state.tracers.drain(..n - TRACERS);
     }
-    let tracer = &ribbons.tracer;
-    for (vis, mut tf, mut v) in &mut tracers {
+    for (vis, mut tf, mut v, mut mat) in &mut tracers {
         match state.tracers.get(vis.0) {
             Some(tr) => {
+                let look = ribbons.look(tr.weapon);
                 let head = tr.origin + tr.vel * (now - tr.born) as f32;
                 let travelled = head.distance(tr.origin);
                 let dir = tr.vel.normalize_or(Vec3::Z);
-                place_ribbon(&mut tf, head, dir, tracer.length.min(travelled.max(1.0)), tracer.half_width);
+                place_ribbon(&mut tf, head, dir, look.length.min(travelled.max(1.0)), look.half_width);
+                if mat.0 != look.material {
+                    mat.0 = look.material.clone();
+                }
                 show(&mut v, true);
             }
             None => show(&mut v, false),
@@ -226,16 +282,11 @@ pub fn update_fx(
         }
     }
 
-    // --- Sabers cutting rock: sparks and molten rock spray from where a blade goes in. ---
+    // --- Blades cutting rock: sparks and molten rock spray from where a blade goes in. ---
     if let Some(field) = &field {
         for (d, anim) in &suits {
-            if d.flags & ent_flags::SABER == 0 || d.flags & ent_flags::WRECK != 0 {
-                continue;
-            }
-            let (hilt, dir) = lib.sockets(d.frame).saber;
-            let a = bone_point(d, anim, Bone::HandL, hilt);
-            let b = bone_point(d, anim, Bone::HandL, hilt + dir * ribbons.saber.length);
-            if let Some((f, i)) = field.0.sweep(a, b, 0.4) {
+            for (a, b, _) in drawn_blades(d, anim, &lib, &ribbons).into_iter().flatten() {
+                let Some((f, i)) = field.0.sweep(a, b, 0.4) else { continue };
                 let rock = field.0.rocks()[i];
                 let at = a + (b - a) * f;
                 let ore = crate::materials::ore_colour(usize::from(rock.ore));
@@ -303,7 +354,10 @@ pub fn update_fx(
                 // the hand, inside the gun).
                 let pos = shooter
                     .and_then(|slot| suits.iter().find(|(d, _)| d.slot == slot))
-                    .filter(|(d, _)| frame(d.frame).loadout[0].is_some_and(|m| m.weapon == weapon))
+                    .filter(|(d, _)| {
+                        frame(d.frame).loadout[0]
+                            .is_some_and(|m| m.weapon == weapon && m.arm == ArmSlot::Right)
+                    })
                     .map_or(pos, |(d, anim)| bone_point(d, anim, Bone::Weapon, lib.sockets(d.frame).muzzle));
                 let look = ribbons.look(weapon);
                 let buster = weapon == WeaponKind::TwinBusterRifle;
@@ -330,6 +384,33 @@ pub fn update_fx(
                     life: 0.6,
                     lumens: 4.0e8,
                     color: Color::srgb(1.0, 0.8, 0.55),
+                });
+            }
+            FxEvent::Transform { pos, vel, rot } => {
+                // A flash of feathers and a ring round the waist as the frame folds or unfolds.
+                let at = At { pos, vel };
+                particles.muzzle(cap, at, rot * Vec3::Y, Vec3::new(6.0, 7.0, 9.0), 5.0);
+                blasts.ring(pos, vel, rot * Vec3::Z, 16.0);
+                state.flashes.push(Flash {
+                    pos,
+                    born: now,
+                    life: 0.3,
+                    lumens: 1.5e8,
+                    color: Color::srgb(0.85, 0.9, 1.0),
+                });
+            }
+            FxEvent::MissileBurst { pos, kind, struck } => {
+                let at = At { pos, vel: Vec3::ZERO };
+                // A micro-missile's warhead is half a homing missile's.
+                let scale = if kind == WeaponKind::MicroMissile { 0.12 } else { 0.2 };
+                particles.explosion(cap, at, if struck { scale * 1.4 } else { scale });
+                blasts.shockwave(pos, Vec3::ZERO, if struck { 16.0 } else { 10.0 });
+                state.flashes.push(Flash {
+                    pos,
+                    born: now,
+                    life: 0.35,
+                    lumens: if struck { 4.0e8 } else { 2.0e8 },
+                    color: Color::srgb(1.0, 0.7, 0.35),
                 });
             }
             FxEvent::Clash { pos } => {
@@ -366,6 +447,7 @@ pub fn update_fx_lights(
     lib: Res<SuitMeshLib>,
     state: Res<FxState>,
     feed: Res<BeamFeed>,
+    missiles: Res<MissileFeed>,
     suits: Query<(&SuitDrive, Option<&Anim>)>,
     cams: Query<&GlobalTransform, With<MainCamera>>,
     mut lights: Query<(&FxLight, &mut PointLight, &mut Transform, &mut Visibility)>,
@@ -384,12 +466,21 @@ pub fn update_fx_lights(
             });
         }
         for (d, anim) in &suits {
-            if d.flags & ent_flags::SABER != 0 && d.flags & ent_flags::WRECK == 0 {
-                // The middle of the blade in the left hand.
-                let (hilt, dir) = lib.sockets(d.frame).saber;
-                let pos = bone_point(d, anim, Bone::HandL, hilt + dir * ribbons.saber.length * 0.5);
-                wishes.push(LightWish { pos, color: Color::srgb(1.0, 0.3, 0.65), lumens: 3.0e7 });
+            // The middle of each glowing blade.
+            for (a, b, c) in drawn_blades(d, anim, &lib, &ribbons).into_iter().flatten() {
+                wishes.push(LightWish { pos: (a + b) * 0.5, color: color(c), lumens: 3.0e7 });
             }
+            for (_, m) in firing_mounts(d) {
+                if weapon(m.weapon).cone.is_some() {
+                    // The middle of the flame.
+                    let pos =
+                        flame_nozzle(d, anim, &lib, m.arm.muzzle()) + d.aim * weapon(m.weapon).range * 0.4;
+                    wishes.push(LightWish { pos, color: Color::srgb(1.0, 0.55, 0.2), lumens: 2.5e8 });
+                }
+            }
+        }
+        for m in &missiles.0 {
+            wishes.push(LightWish { pos: m.pos, color: Color::srgb(1.0, 0.7, 0.4), lumens: 1.5e7 });
         }
         for b in &feed.0 {
             if b.weapon == WeaponKind::TwinBusterRifle {

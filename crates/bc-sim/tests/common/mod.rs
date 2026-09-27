@@ -101,3 +101,101 @@ pub fn run(sim: &mut Sim, players: &[SuitId], ticks: u32) {
         sim.step();
     }
 }
+
+/// The Gundams' arena: every pilots' frame in pairs (one per side) 12 m apart, spread along x,
+/// among `dolls` Mobile Dolls. Returns the sim and the pilots, partners adjacent.
+pub fn gundam_arena(dolls: usize, seed: u64) -> (Sim, Vec<SuitId>) {
+    let (mut sim, _) = arena(0, dolls, seed);
+    // Pairs (Colonies, OZ). Sandrock meets a Taurus: two Sandrocks parry each other's every stroke.
+    let pairs = [
+        (FrameId::WingZero, FrameId::WingZero),
+        (FrameId::Heavyarms, FrameId::Heavyarms),
+        (FrameId::Deathscythe, FrameId::Deathscythe),
+        (FrameId::Sandrock, FrameId::Taurus),
+        (FrameId::Shenlong, FrameId::Shenlong),
+        (FrameId::Leo, FrameId::Leo),
+    ];
+    let mut pilots = Vec::new();
+    for (k, pair) in pairs.iter().enumerate() {
+        for (side, (f, faction)) in
+            [(pair.0, Faction::Colonies), (pair.1, Faction::Oz)].into_iter().enumerate()
+        {
+            let pos = Vec3::new(k as f32 * 400.0 - 1_000.0, 1_100.0, side as f32 * 12.0);
+            let facing = if side == 0 { Vec3::Z } else { -Vec3::Z };
+            let id = sim.spawn_at(f, faction, PilotKind::Human, pos, look_rotation(facing, Vec3::Y));
+            pilots.push(id.expect("slot"));
+        }
+    }
+    (sim, pilots)
+}
+
+/// A busy sector of Gundams: `pairs` duels round a ring (the Colonies side cycling through every
+/// playable frame, each meeting its own kind, or a Taurus for Sandrock), and `dolls` Mobile Dolls.
+pub fn gundam_crowd(pairs: usize, dolls: usize, seed: u64) -> (Sim, Vec<(SuitId, SuitId)>) {
+    let (mut sim, _) = arena(0, dolls, seed);
+    let mut duels = Vec::new();
+    for k in 0..pairs {
+        let f = bc_sim::content::PLAYABLE_ORDER[k % bc_sim::content::PLAYABLE_ORDER.len()];
+        let foe = if f == FrameId::Sandrock { FrameId::Taurus } else { f };
+        let a = k as f32 * 0.43;
+        let at = Vec3::new(a.cos() * 2_000.0, 1_000.0 + (k % 4) as f32 * 90.0, a.sin() * 2_000.0);
+        let out = at.normalize();
+        let mut spawn = |f: FrameId, faction: Faction, pos: Vec3, facing: Vec3| {
+            sim.spawn_at(f, faction, PilotKind::Human, pos, look_rotation(facing, Vec3::Y)).expect("slot")
+        };
+        let x = spawn(f, Faction::Colonies, at, out);
+        let y = spawn(foe, Faction::Oz, at + out * 300.0, -out);
+        duels.push((x, y));
+    }
+    (sim, duels)
+}
+
+/// Deterministic input for a Gundam pilot duelling `foe`: aim at it and designate it, close in,
+/// strike with every blade and the special, fire in bursts.
+pub fn duel_scripted(sim: &Sim, id: SuitId, foe: SuitId, tick: u32) -> InputCmd {
+    let i = id.idx() as u32;
+    let me = sim.suits.flight[id.idx()].pos;
+    let wobble =
+        Vec3::new(hash01(tick / 15, i) - 0.5, hash01(tick / 15, i + 5) - 0.5, hash01(tick / 15, i + 9) - 0.5);
+    let to = sim.suits.flight[foe.idx()].pos - me;
+    let aim = to.normalize_or(Vec3::Z) + wobble * 0.1;
+    let mut buttons = FLIGHT_ASSIST;
+    // Blades and the special when the foe is near and ahead, now and then.
+    let ahead = (sim.suits.flight[id.idx()].rot * Vec3::Z).dot(to.normalize_or(Vec3::Z)) > 0.8;
+    if ahead && to.length() < 16.0 && (tick + i).is_multiple_of(7) {
+        buttons |= MELEE;
+    }
+    if ahead && to.length() < 14.0 && (tick + 3 * i).is_multiple_of(11) {
+        buttons |= bc_proto::buttons::SPECIAL;
+    }
+    // The frame's mode (the Hyper Jammer, Neo-Bird) for stretches of three seconds.
+    if (tick / 90 + i).is_multiple_of(2) {
+        buttons |= bc_proto::buttons::MODE;
+    }
+    if (tick / 10 + i).is_multiple_of(3) {
+        buttons |= FIRE_PRIMARY;
+    }
+    if (tick / 7 + i).is_multiple_of(4) {
+        buttons |= FIRE_SECONDARY;
+    }
+    if to.length() > 60.0 && (tick / 30 + i).is_multiple_of(2) {
+        buttons |= BOOST;
+    }
+    let q = |v: f32| (v.clamp(-1.0, 1.0) * 127.0) as i8;
+    // Flight assist holds the velocity the stick asks for (suit frame): toward the foe, slower as
+    // it closes, and a little weave.
+    let local = sim.suits.flight[id.idx()].rot.inverse() * to.normalize_or(Vec3::Z);
+    let pull = ((to.length() - 6.0) / 300.0).clamp(0.0, 0.5);
+    let weave = wobble * 0.05;
+    InputCmd {
+        tick,
+        view_tick_q4: (tick << 4).saturating_sub(40 + (i % 50)),
+        aim: aim.normalize_or(Vec3::Z),
+        thrust: [q(local.x * pull + weave.x), q(local.y * pull + weave.y), q(local.z * pull + weave.z)],
+        roll: 0,
+        buttons,
+        lock_target: foe.idx() as u16,
+        shot_seq: (tick / 10) as u8,
+    }
+    .quantized()
+}

@@ -589,6 +589,7 @@ name = "bc-model"
 version = "0.1.0"
 dependencies = [
  "bc-proto",
+ "bc-sim",
  "glam",
 ]
 

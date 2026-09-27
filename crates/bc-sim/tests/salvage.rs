@@ -527,7 +527,7 @@ fn weapons_wait_while_their_arm_holds_something() {
     let shots = sim.stats(leo.idx()).shots;
     hold_buttons(&mut sim, leo, GRAB | FIRE_SECONDARY | MELEE, 30);
     assert_eq!(sim.stats(leo.idx()).shots, shots, "the left hand fired while holding");
-    assert_eq!(sim.suits.saber[leo.idx()].phase, bc_sim::suits::SaberPhase::Idle);
+    assert_eq!(sim.suits.melee[leo.idx()].phase, bc_sim::suits::MeleePhase::Idle);
     assert_eq!(sim.own_state(leo.idx()).weapon_ready & 0b110, 0);
     hold_buttons(&mut sim, leo, GRAB | FIRE_PRIMARY, 30);
     assert!(sim.stats(leo.idx()).shots > shots, "the rifle should fire");
