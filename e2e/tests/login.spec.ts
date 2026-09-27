@@ -7,12 +7,13 @@ import { bc, collectConsole } from "./util";
 // Wallet sign-in in the browser. A stub wallet (window.ethereum) signs with a throwaway test key,
 // through the same path a real one takes: personal_sign over the text the game writes, checked
 // by the server. Then the resume token (a dropped link and a reload come back without asking the
-// wallet again), and a second tab taking the pilot over.
+// wallet again), a second tab taking the pilot over, and sleeping in the cockpit: leaving signed
+// in keeps the suit in the sector, and coming back wakes in it.
 const SIGNER = resolve(dirname(fileURLToPath(import.meta.url)), "../../target/release/examples/sign");
 // Test key 1's address.
 const ADDRESS = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf";
 
-test("sign in with a wallet, come back on the token, and get taken over", async ({ context, page, request }, info) => {
+test("sign in with a wallet, come back on the token, get taken over, sleep and wake", async ({ context, page, request }, info) => {
   test.setTimeout(300_000);
   let signatures = 0;
   let decline = true;
@@ -101,6 +102,36 @@ test("sign in with a wallet, come back on the token, and get taken over", async 
   await expect(page.locator("#link-message")).toContainText("signed in somewhere else");
   await page.waitForTimeout(3_000);
   expect((await bc(page)).link).toBe("failed");
+
+  // The other tab took over the same suit: the first tab's went to sleep, and it woke in it.
+  expect((await bc(other)).woke).toBe(true);
+  const suit = async (p: Page) => {
+    const b = await bc(p);
+    return [b.own_slot, b.own_generation];
+  };
+  const mine = await suit(other);
+  expect(mine[0]).toBeGreaterThanOrEqual(0);
+
+  // Leaving signed in: the suit stays in the sector, its pilot asleep in the cockpit.
+  await other.keyboard.press("Escape");
+  await expect(other.locator("#pause")).toBeVisible();
+  await expect(other.locator("#disconnect-button")).toHaveText("SLEEP & DISCONNECT");
+  await other.locator("#disconnect-button").click();
+  await waitOn(other, "the title", "window.__bc?.link === 'idle'");
+  const asleep = async () => {
+    const status = await (await request.get("/status")).json();
+    return (status.game?.sleepers ?? []).find((p: any) => p.name === "E2E-Wallet");
+  };
+  await expect.poll(asleep, { timeout: 10_000 }).toBeTruthy();
+  expect((await asleep()).suit).toBe(mine[0]);
+
+  // Back: awake in the same suit, without the wallet asked again.
+  await other.locator("#launch-button").click();
+  await waitOn(other, "awake", "window.__bc?.link === 'ingame' && window.__bc?.woke === true");
+  await expect(other.locator("#toast")).toContainText("YOU WAKE IN YOUR COCKPIT");
+  await expect.poll(() => suit(other)).toEqual(mine);
+  expect(await asleep()).toBeUndefined();
+  expect(signatures).toBe(2);
   await other.close();
 
   const errors = logs.filter((l) => /%cERROR|\[pageerror\]|panicked/.test(l));

@@ -19,6 +19,8 @@ pub struct PilotStats {
     pub frame: AtomicU64,
     /// Suit entity slot + 1 (0 = none).
     pub suit: AtomicU64,
+    /// Credits the pilot has earned (a signed-in pilot keeps them).
+    pub credits: AtomicU64,
 }
 
 pub struct Metrics {
@@ -36,6 +38,11 @@ pub struct Metrics {
     pub inputs_missing: AtomicU64,
     pub clients: AtomicU64,
     pub suits_alive: AtomicU64,
+    /// Suits whose pilots are offline, asleep in the cockpit; and those of them parked on a rock.
+    pub sleepers: AtomicU64,
+    pub parked: AtomicU64,
+    /// Sleepers' fates the server wasn't reading fast enough to hear.
+    pub notes_dropped: AtomicU64,
     pub projectiles: AtomicU64,
     pub events: AtomicU64,
     pub pictures: AtomicU64,
@@ -62,6 +69,9 @@ impl Metrics {
             inputs_missing: AtomicU64::new(0),
             clients: AtomicU64::new(0),
             suits_alive: AtomicU64::new(0),
+            sleepers: AtomicU64::new(0),
+            parked: AtomicU64::new(0),
+            notes_dropped: AtomicU64::new(0),
             projectiles: AtomicU64::new(0),
             events: AtomicU64::new(0),
             pictures: AtomicU64::new(0),

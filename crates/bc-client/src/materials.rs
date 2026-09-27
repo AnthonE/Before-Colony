@@ -64,9 +64,11 @@ pub struct HullTag {
     /// Armour left, 0 (destroyed) to 7 (pristine).
     pub armour: u8,
     pub seed: u8,
-    /// Recent-hit glow, 0 to 31.
+    /// Recent-hit glow, 0 to 31 (kept to 16 steps).
     pub heat: u8,
     pub wreck: bool,
+    /// The sensors are dark: nobody at the controls (its pilot is asleep).
+    pub dark: bool,
     /// Bare metal instead of paint.
     pub metal: bool,
 }
@@ -77,7 +79,7 @@ impl HullTag {
     }
 
     pub fn livery(paint: u8, trim: u8, accent: u8, eye: u8, seed: u8) -> Self {
-        Self { paint, trim, accent, eye, armour: 7, seed, heat: 0, wreck: false, metal: false }
+        Self { paint, trim, accent, eye, armour: 7, seed, heat: 0, wreck: false, dark: false, metal: false }
     }
 
     pub fn tag(self) -> MeshTag {
@@ -85,7 +87,8 @@ impl HullTag {
             u32::from(self.paint & 15)
                 | u32::from(self.armour.min(7)) << 4
                 | u32::from(self.seed) << 7
-                | u32::from(self.heat.min(31)) << 15
+                | u32::from(self.heat.min(31) >> 1) << 15
+                | u32::from(self.dark) << 19
                 | u32::from(self.wreck) << 20
                 | u32::from(self.metal) << 21
                 | u32::from(self.trim & 15) << 22

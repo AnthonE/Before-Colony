@@ -96,7 +96,7 @@ impl Sim {
     }
 
     /// Lets go of chunk `k` where it is, moving as the hand was plus `push`.
-    fn release(&mut self, i: usize, k: usize, push: Vec3, t: u32) {
+    pub(super) fn release(&mut self, i: usize, k: usize, push: Vec3, t: u32) {
         let (pos, rot, vel) = self.chunk_pose(k);
         let lim = Vec3::splat(SPIN_MAX);
         let spin = self.suits.flight[i].ang_vel.clamp(-lim, lim);

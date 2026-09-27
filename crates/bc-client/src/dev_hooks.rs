@@ -106,6 +106,18 @@ pub fn publish_game(
     dev.set("my_deaths", w.my_deaths);
     dev.set("hits_taken", w.hits_taken);
     dev.set("alive", w.own.is_some_and(|o| o.alive));
+    // The own suit: which entity slot (and generation) it is, and whether it could park.
+    dev.set("own_slot", w.own.map_or(-1, |o| i32::from(o.slot)));
+    dev.set("own_generation", w.own.map_or(-1, |o| i32::from(o.generation)));
+    dev.set("parkable", w.own.is_some_and(|o| o.flags & bc_proto::snapshot::own_flags::PARKABLE != 0));
+    dev.set(
+        "sleepers_seen",
+        w.entities
+            .iter()
+            .flatten()
+            .filter(|t| t.latest.flags & bc_proto::snapshot::ent_flags::ASLEEP != 0)
+            .count() as u32,
+    );
     dev.set("zero_active", w.zero.is_some());
     dev.set("zero_jev", w.zero.is_some_and(|z| z.source_jev));
     dev.set("rtt_ms", core.clock.rtt * 1_000.0);

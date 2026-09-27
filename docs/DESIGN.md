@@ -226,8 +226,8 @@ can take.
 
 ## Salvage
 
-Battles leave wreckage, and wreckage is worth money. It lasts for the session: credits carry across
-respawns but not reconnects.
+Battles leave wreckage, and wreckage is worth money. Credits carry across respawns, and a
+signed-in pilot keeps them from one session to the next (a guest's go with them).
 
 - **Grab** (G toggles it): the free hand (the left, unless it's gone) closes on the nearest free
   chunk within 8 m of reach that is moving at no more than 12 m/s relative to you, and holds it.
@@ -301,6 +301,23 @@ older than the server, a wallet that declined), offers Retry, and redials by its
 when a link that was in the world drops. A signed-in redial doesn't ask the wallet again, and
 signing in from a second window takes the pilot over (the first lets go and doesn't fight back). Esc (or the browser taking the pointer back) opens the menu: Resume, Controls,
 Disconnect. The sector doesn't pause. Menus are HTML over the live scene; the cockpit HUD is Bevy's.
+
+**Sleeping in the cockpit.** A signed-in pilot who leaves (SLEEP & DISCONNECT in the menu, closing
+the tab, a link that stays down, a minute without input) doesn't take the suit along: it stays in
+the sector with its pilot asleep in the cockpit, and they wake in it when they're back.
+- *Drifting.* Nobody flies a sleeping suit: no flight assist, no attitude hold. It carries on at the
+  velocity and spin it had, fully Newtonian, and fetches up against rocks and the colony as a wreck
+  would. Its eyes go dark, and brackets read ASLEEP.
+- *Parking.* A suit resting against an asteroid (within 1.5 m of its surface, under 3 m/s) when its
+  pilot leaves is parked instead: held where it sat, cold and still. Sensors don't find it; eyes
+  do, inside 400 m. The HUD reads PARKED while you're somewhere you could park. Shatter the rock
+  and the suit floats free. Moon craters are next (one more kind of `Body` to rest on).
+- *Hunted.* Mobile Dolls leave sleepers alone; other pilots can shoot them down and salvage what's
+  left. A sleeper destroyed stays gone, and its pilot is told by whom when they're back. Parked is
+  safer than drifting.
+- *Room.* At most 256 sleepers a sector; past that, or when the sector's suits run out, the longest
+  asleep is cleared, and its pilot is told. A server restart clears them all.
+- A suit that's already a wreck when its pilot leaves is gone, as a guest's suit always is.
 
 **Settings** (from the title or the menu) are kept in the browser: mouse sensitivity, invert Y,
 field of view, camera shake, first-flight hints and graphics quality, along with the last callsign

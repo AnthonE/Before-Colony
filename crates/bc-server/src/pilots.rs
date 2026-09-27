@@ -5,6 +5,10 @@
 //! Mongo store implements the same two methods, and a [`PilotRecord`] is plain serde data so it
 //! can be kept as-is. None of this is on the sector's hot path: sessions call it around the
 //! handshake and teardown.
+//!
+//! A signed-in pilot who leaves stays in the sector, asleep in the cockpit: the record keeps which
+//! suit. Sleepers live as long as this server run, and so does the news of what became of one
+//! (destroyed, or cleared for room), kept here until its pilot is back.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -43,9 +47,11 @@ pub struct Sleeper {
 }
 
 /// What happened to a sleeping suit, to tell its pilot when they're back.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Fate {
+    /// Shot down (`by`: who, if they were a pilot).
     Destroyed { by: String },
+    /// Cleared to make room, or the server restarted.
     Lost,
 }
 
@@ -61,8 +67,6 @@ pub struct PilotRecord {
     pub credits: u32,
     /// The suit asleep in the sector, if any.
     pub sleeper: Option<Sleeper>,
-    /// What became of it, if the pilot hasn't been told yet.
-    pub fate: Option<Fate>,
     pub created_unix: u64,
     pub seen_unix: u64,
 }
@@ -76,7 +80,6 @@ impl PilotRecord {
             frame: String::new(),
             credits: 0,
             sleeper: None,
-            fate: None,
             created_unix: now,
             seen_unix: now,
         }
@@ -129,6 +132,10 @@ pub struct Pilots {
     pub run: u64,
     online: Mutex<HashMap<Address, Online>>,
     tokens: Mutex<HashMap<[u8; TOKEN_BYTES], Token>>,
+    /// Signed-in pilots' suits, flying or asleep, by (entity slot, generation).
+    suits: Mutex<HashMap<(u16, u16), Address>>,
+    /// What became of pilots' sleepers while they were away, until they're back.
+    news: Mutex<HashMap<Address, Fate>>,
     next_session: AtomicU64,
     ttl: Duration,
 }
@@ -153,6 +160,8 @@ impl Pilots {
             run: u64::from_le_bytes(run),
             online: Mutex::new(HashMap::new()),
             tokens: Mutex::new(HashMap::new()),
+            suits: Mutex::new(HashMap::new()),
+            news: Mutex::new(HashMap::new()),
             next_session: AtomicU64::new(1),
             ttl,
         }
@@ -230,6 +239,30 @@ impl Pilots {
         t.expires.is_none_or(|e| e > Instant::now()).then_some(t.address)
     }
 
+    /// The pilot flies (or sleeps in) this suit.
+    pub fn bind_suit(&self, suit: (u16, u16), address: Address) {
+        if let Ok(mut suits) = self.suits.lock() {
+            suits.insert(suit, address);
+        }
+    }
+
+    /// The suit is gone: whose it was, if anyone's.
+    pub fn suit_gone(&self, suit: (u16, u16)) -> Option<Address> {
+        self.suits.lock().ok()?.remove(&suit)
+    }
+
+    /// News for a pilot who's away (the latest replaces any before it).
+    pub fn tell(&self, address: Address, fate: Fate) {
+        if let Ok(mut news) = self.news.lock() {
+            news.insert(address, fate);
+        }
+    }
+
+    /// The news waiting for a pilot, taken.
+    pub fn take_news(&self, address: &Address) -> Option<Fate> {
+        self.news.lock().ok()?.remove(address)
+    }
+
     pub async fn load_or_new(&self, address: &Address) -> PilotRecord {
         match self.store.load(&key(address)).await {
             Ok(Some(r)) => r,
@@ -301,6 +334,19 @@ mod tests {
         p.release(a, claim.session);
         tokio::time::sleep(Duration::from_millis(300)).await;
         assert_eq!(p.redeem(&t3), None, "expired");
+    }
+
+    #[test]
+    fn a_sleepers_end_is_news_for_its_pilot() {
+        let p = pilots();
+        let a = Address([5; 20]);
+        p.bind_suit((12, 3), a);
+        assert_eq!(p.suit_gone((12, 2)), None, "another occupant of the slot");
+        assert_eq!(p.suit_gone((12, 3)), Some(a));
+        assert_eq!(p.suit_gone((12, 3)), None, "once");
+        p.tell(a, Fate::Destroyed { by: "Zechs".into() });
+        assert_eq!(p.take_news(&a), Some(Fate::Destroyed { by: "Zechs".into() }));
+        assert_eq!(p.take_news(&a), None);
     }
 
     #[tokio::test]

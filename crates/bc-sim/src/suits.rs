@@ -181,6 +181,12 @@ pub struct Suits {
     pub cargo_kg: Box<[[u16; CARGO_KINDS]]>,
     /// Credits earned this session (kept across respawns).
     pub credits: Box<[u32]>,
+    /// Offline: the pilot sleeps in the cockpit (`sim::sleep`).
+    pub sleeping: BitSet,
+    /// When each sleeper fell asleep (tick).
+    pub slept_at: Box<[u32]>,
+    /// What each sleeper is parked on.
+    pub anchor: Box<[crate::sim::Anchor]>,
     free: FreeList,
 }
 
@@ -222,6 +228,9 @@ impl Suits {
             held: boxed(cap, (NO_CHUNK, 0u8, false)),
             cargo_kg: boxed(cap, [0u16; CARGO_KINDS]),
             credits: boxed(cap, 0u32),
+            sleeping: BitSet::new(cap),
+            slept_at: boxed(cap, 0u32),
+            anchor: boxed(cap, crate::sim::Anchor::default()),
             free: FreeList::full(cap),
         }
     }
@@ -239,6 +248,8 @@ impl Suits {
         self.stats[idx] = SuitStats::default();
         self.ai[idx] = AiState::default();
         self.credits[idx] = 0;
+        self.sleeping.set(idx, false);
+        self.anchor[idx] = crate::sim::Anchor::default();
         Some(SuitId(Handle { idx: idx as u16, generation: self.generation[idx] }))
     }
 
@@ -287,6 +298,7 @@ impl Suits {
         if self.used.get(idx) {
             self.used.set(idx, false);
             self.alive.set(idx, false);
+            self.sleeping.set(idx, false);
             self.generation[idx] = self.generation[idx].wrapping_add(1).max(1);
             self.free.push(idx as u16);
         }

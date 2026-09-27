@@ -11,7 +11,7 @@ use bc_client_core::{ClientConfig, ClientCore, InputContext};
 use bc_proto::buttons::{FLIGHT_ASSIST, MODE};
 use bc_proto::control::ControlMsg;
 use bc_proto::{Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, Part, PilotKind};
-use bc_sector::{Control, InputMsg, SectorConfig, SlotState, read_packet};
+use bc_sector::{Comeback, Control, InputMsg, SectorConfig, SlotState, read_packet};
 use bc_sim::SimConfig;
 use bc_sim::field::SUIT_CLEARANCE;
 use bc_sim::math::Rng;
@@ -129,6 +129,7 @@ fn run_as(
             frame,
             faction: Faction::Colonies,
             max_datagram: MAX_DATAGRAM as u16,
+            comeback: Comeback::default(),
         })
         .unwrap();
     let mut up = Link::new(1, 0.05, 0.02, 0.05);

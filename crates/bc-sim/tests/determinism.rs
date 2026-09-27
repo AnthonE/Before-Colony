@@ -318,3 +318,105 @@ fn salvage_golden_native() {
 fn salvage_golden_wasm() {
     assert_eq!(salvage_hash(), SALVAGE_GOLDEN);
 }
+
+/// Hash after sleepers' lives: a pilot at rest against a rock parks there until the rock is
+/// shattered under it; others tumble off on what they had; one is shot down asleep; the longest
+/// asleep are cleared past the cap; one wakes and flies; Mobile Dolls look on.
+const SLEEPERS_GOLDEN: u64 = 0xdcb7_3e61_b2e7_b20f;
+
+fn sleepers_hash() -> u64 {
+    use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST};
+    use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
+    use bc_sim::field::SUIT_CLEARANCE;
+    use bc_sim::math::look_rotation;
+    use bc_sim::sim::Gone;
+    use glam::Vec3;
+
+    let mut sim = bc_sim::Sim::new(bc_sim::SimConfig {
+        target_dolls: 6,
+        max_sleepers: 4,
+        ..bc_sim::SimConfig::default()
+    });
+    let (r, rock) =
+        sim.field.rocks().iter().copied().enumerate().find(|(_, r)| r.radius > 20.0).expect("a big rock");
+    let spawn = |sim: &mut bc_sim::Sim, frame: FrameId, faction: Faction, pos: Vec3, facing: Vec3| {
+        sim.spawn_at(frame, faction, PilotKind::Human, pos, look_rotation(facing, Vec3::Y)).unwrap()
+    };
+    // Resting on the rock.
+    let out = Vec3::new(-1.0, 0.1, -0.3).normalize();
+    let surface = rock.surface(rock.pos + out * (rock.radius + 50.0), 0.0);
+    let parked =
+        spawn(&mut sim, FrameId::Leo, Faction::Colonies, surface + out * (SUIT_CLEARANCE + 0.5), out);
+    // Drifting and tumbling, out in the open.
+    let open = Vec3::new(0.0, 4_000.0, 8_000.0);
+    let drifters: Vec<_> = (0..3)
+        .map(|k| {
+            let id = spawn(&mut sim, FrameId::Leo, Faction::Oz, open + Vec3::X * 60.0 * k as f32, Vec3::Z);
+            let f = &mut sim.suits.flight[id.idx()];
+            f.vel = Vec3::new(3.0 * k as f32, -2.0, 7.5);
+            f.ang_vel = Vec3::new(0.1, 0.3 * k as f32, -0.2);
+            id
+        })
+        .collect();
+    // A Wing Zero with the last of them in its sights.
+    let target = sim.suits.flight[drifters[2].idx()].pos;
+    let zero = spawn(&mut sim, FrameId::WingZero, Faction::Colonies, target - Vec3::Z * 1_200.0, Vec3::Z);
+
+    for _ in 0..450 {
+        let t = sim.next_tick();
+        match t {
+            5 => {
+                for &d in &drifters {
+                    assert!(sim.sleep(d));
+                }
+            }
+            10 => assert!(sim.sleep(parked) && sim.is_parked(parked.idx())),
+            // A fifth sleeper: the longest asleep goes.
+            40 => {
+                assert!(sim.sleep(zero) && sim.wake(zero));
+                assert!(!sim.suits.valid(drifters[0]), "the longest asleep is cleared");
+            }
+            120 => sim.field.set_dead(r, true),
+            130 => assert!(sim.is_sleeping(parked.idx()) && !sim.is_parked(parked.idx()), "adrift"),
+            200 => assert!(sim.wake(drifters[1])),
+            _ => {}
+        }
+        let aim = (sim.suits.flight[drifters[2].idx()].pos - sim.suits.flight[zero.idx()].pos)
+            .normalize_or(Vec3::Z);
+        let fire = if (60..160).contains(&t) { FIRE_PRIMARY } else { 0 };
+        let cmd = InputCmd {
+            tick: t,
+            view_tick_q4: t << 4,
+            aim,
+            buttons: FLIGHT_ASSIST | fire,
+            ..InputCmd::default()
+        };
+        if !sim.is_sleeping(zero.idx()) {
+            sim.set_input(zero, cmd.quantized());
+        }
+        if t > 200 && sim.suits.valid(drifters[1]) && !sim.is_sleeping(drifters[1].idx()) {
+            let fly = InputCmd { thrust: [0, 40, 90], aim: Vec3::Z, buttons: FLIGHT_ASSIST, ..cmd };
+            sim.set_input(drifters[1], fly.quantized());
+        }
+        sim.step();
+    }
+    let mut fates = Vec::new();
+    sim.drain_fates(|f| fates.push((f.suit as usize, f.gone)));
+    assert!(fates.contains(&(drifters[0].idx(), Gone::Evicted)), "{fates:?}");
+    assert!(fates.contains(&(drifters[2].idx(), Gone::Destroyed { killer: zero.idx() as u16 })), "{fates:?}");
+    sim.state_hash()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn sleepers_golden_native() {
+    let h = sleepers_hash();
+    assert_eq!(h, sleepers_hash(), "must be reproducible within a process");
+    assert_eq!(h, SLEEPERS_GOLDEN, "sleepers hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn sleepers_golden_wasm() {
+    assert_eq!(sleepers_hash(), SLEEPERS_GOLDEN);
+}

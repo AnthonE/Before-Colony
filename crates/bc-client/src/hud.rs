@@ -546,6 +546,10 @@ pub fn update_hud(
         Some(o) if o.flags & own_flags::MISSILE_LOCK != 0 => ("MISSILE LOCK".into(), RED),
         Some(o) if o.flags & own_flags::LOCKED_ON != 0 => ("LOCK WARNING".into(), RED),
         Some(o) if o.flags & own_flags::TRANSFORMING != 0 => ("TRANSFORMING".into(), CYAN),
+        // Resting on a rock, signed in: leave now and the suit stays parked here, hidden.
+        Some(o) if o.flags & own_flags::PARKABLE != 0 && core.welcome.is_some_and(|w| w.signed_in) => {
+            ("PARKED · safe to log off here".into(), GREEN)
+        }
         _ => (String::new(), RED),
     };
     set(HudText::Alert, alert, Some(alert_color));
@@ -675,6 +679,8 @@ pub fn update_hud(
             Ok(p) => {
                 let hostile = e.faction != core.cfg.faction;
                 let wreck = e.flags & ent_flags::WRECK != 0;
+                // Its pilot is offline, asleep in the cockpit.
+                let asleep = e.flags & ent_flags::ASLEEP != 0 && !wreck;
                 let zero_target = zero.is_some_and(|z| z.rec_target == slot);
                 node.left = Val::Px(p.x - 30.0);
                 node.top = Val::Px(p.y - 26.0);
@@ -691,12 +697,13 @@ pub fn update_hud(
                     }
                 });
                 text.0 = format!(
-                    "{}{}{}\n{}{}{}",
+                    "{}{}{}\n{}{}{}{}",
                     world.name_of(slot),
                     pilot_tag(e.pilot),
                     warn,
                     km(dist),
                     if e.pilot == PilotKind::Agent { " agent" } else { "" },
+                    if asleep { " ASLEEP" } else { "" },
                     locking.as_deref().unwrap_or("")
                 );
                 color.0 = if wreck {
@@ -705,6 +712,8 @@ pub fn update_hud(
                     AMBER
                 } else if zero_target {
                     ZERO_PINK
+                } else if asleep {
+                    Color::srgb(0.55, 0.66, 0.8)
                 } else if hostile {
                     RED
                 } else {

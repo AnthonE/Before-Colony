@@ -33,6 +33,11 @@ impl Sim {
             sig *= jam_sig;
             visual = jam_visual;
         }
+        // A suit parked asleep on a rock is cold and still: eyes find it close in, sensors don't.
+        if self.is_parked(j) {
+            sig = 0.0;
+            visual = visual.min(super::PARKED_VISUAL);
+        }
         sensors::detects_within(s.flight[viewer].pos, range, s.flight[j].pos, sig, visual)
     }
 

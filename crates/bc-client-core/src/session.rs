@@ -95,6 +95,10 @@ impl LinkError {
                 RejectReason::ResumeExpired => "Your sign-in has expired. Sign in again.".into(),
                 RejectReason::AuthTimeout => "The wallet took too long to sign. Try again.".into(),
             },
+            LinkError::ServerBye(bc_proto::control::bye::IDLE) => {
+                "Nothing reached the server for a minute, so it closed the link.".into()
+            }
+            LinkError::ServerBye(bc_proto::control::bye::SHUTDOWN) => "The server is shutting down.".into(),
             LinkError::ServerBye(_) => "The server closed the connection.".into(),
             LinkError::TakenOver => {
                 "You signed in somewhere else, so this window let go of your suit.".into()

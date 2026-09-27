@@ -5,7 +5,8 @@
 //!
 //! - inputs: one `rtrb` SPSC ring per client slot. The producer end travels inside a [`SlotLease`]
 //!   that the session task holds.
-//! - control (join/leave/respawn): a crossbeam `ArrayQueue`.
+//! - control (join/leave/sleep/respawn): a crossbeam `ArrayQueue`; sleepers' fates go back the
+//!   same way.
 //! - outbound packets: one `rtrb` byte ring per slot, drained by the egress thread. The sector
 //!   `unpark()`s that thread once per tick (a futex wake; waking tokio would take a mutex).
 //! - tactical pictures and advice: an SPSC ring each way, to the ZERO oracle worker.
@@ -24,7 +25,8 @@ mod sector;
 pub use jitter::JitterBuffer;
 pub use metrics::Metrics;
 pub use queues::{
-    Control, EgressEnds, InputMsg, OracleEnds, SectorShared, SlotLease, SlotState, build, read_packet,
+    Comeback, Control, EgressEnds, InputMsg, NOTES, OracleEnds, Outcome, SectorShared, SlotLease, SlotState,
+    build, read_packet,
 };
 pub use runtime::{SectorThread, spawn};
 pub use sector::{Sector, SectorConfig};

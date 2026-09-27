@@ -194,6 +194,15 @@ The server logs addresses shortened (`0x1234…abcd`), and never signatures or t
 
 `--require-auth` turns guests (human ones) away with Reject 6.
 
+### Leaving and coming back
+
+A signed-in pilot's suit outlives the session: when it ends (a Bye, the link dropping, or a
+minute without input, which the server ends with `Bye {idle}`), the suit stays in the sector,
+asleep. Everyone's roster shows it with ASLEEP (and snapshots with the entity flag). The pilot's
+next session wakes in it: the Welcome sets WOKE. If it's gone, the pilot starts in a new suit and a
+Notice says why: destroyed while they slept (and by whom), or lost (cleared to make room, or the
+server restarted). A suit that was already a wreck is simply gone. Guests' suits go when they do.
+
 ### Setting up the sector
 
 The Welcome's `field_seed` (u32) and `field_rocks` (u16) name the sector's debris field: clients

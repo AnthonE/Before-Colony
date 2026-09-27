@@ -192,9 +192,13 @@
     }
 
     show($("pause"), s === "playing" && v.panel === "pause");
-    $("pause-who").textContent = v.signedIn && address
-      ? `Signed in as ${short(address)}.`
-      : "Flying as a guest: your suit is lost when you leave.";
+    // Signed in, leaving puts the pilot to sleep in the cockpit; a guest's suit goes with them.
+    $("disconnect-button").textContent = v.signedIn ? "SLEEP & DISCONNECT" : "DISCONNECT";
+    $("pause-who").textContent = !v.signedIn
+      ? "Flying as a guest: your suit is lost when you leave."
+      : (address ? `Signed in as ${short(address)}. ` : "Signed in. ") + (v.parkable
+        ? "You're resting on an asteroid: your suit stays parked here while you sleep, hidden from sensors beyond 400 m."
+        : "Your suit stays out here while you sleep, drifting on as it was. Rest against an asteroid to park it.");
     show($("settings"), v.panel === "settings");
     const hint = $("hint");
     hint.textContent = v.hint || "";

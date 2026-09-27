@@ -45,6 +45,8 @@ pub struct SimConfig {
     /// are told both in their Welcome and build the identical field.
     pub field_seed: u32,
     pub field_rocks: u16,
+    /// The most suits asleep at once (offline pilots'); past it the longest asleep is cleared.
+    pub max_sleepers: usize,
 }
 
 impl Default for SimConfig {
@@ -62,6 +64,7 @@ impl Default for SimConfig {
             zero_on_all_frames: false,
             field_seed: crate::field::Field::DEFAULT_SEED,
             field_rocks: crate::field::Field::DEFAULT_ROCKS,
+            max_sleepers: 256,
         }
     }
 }

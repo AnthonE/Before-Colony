@@ -48,6 +48,10 @@ pub struct Config {
     pub sign_wait: Duration,
     /// How long a resume token lasts after its session ends.
     pub resume_ttl: Duration,
+    /// Suits left asleep by signed-in pilots, at most; past it the longest asleep are cleared.
+    pub max_sleepers: usize,
+    /// A session with no input for this long is ended (its suit sleeps, or goes, as on leaving).
+    pub idle_timeout: Duration,
 }
 
 impl Default for Config {
@@ -67,6 +71,8 @@ impl Default for Config {
             require_auth: false,
             sign_wait: Duration::from_secs(60),
             resume_ttl: Duration::from_secs(15 * 60),
+            max_sleepers: 256,
+            idle_timeout: Duration::from_secs(60),
         }
     }
 }

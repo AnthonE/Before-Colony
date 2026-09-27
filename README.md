@@ -70,6 +70,11 @@ that proves the address is yours; it authorizes nothing and moves no funds. Gues
 only a signed-in pilot's suit is theirs to come back to. A dropped link, or a reload, reconnects
 without asking the wallet again; signing in from a second window takes the pilot over.
 
+**Logging off.** Signed in, SLEEP & DISCONNECT (or just closing the tab) leaves your Gundam in the
+sector with you asleep in the cockpit, drifting on as it was; you wake in it when you're back. Rest
+against an asteroid first (the HUD reads PARKED) and it stays put there, hidden from sensors beyond
+400 m. Mobile Dolls leave sleepers alone, but other pilots can hunt them.
+
 Server flags: `--mobile-dolls N`, `--max-clients N`, `--oracle local|jev`, `--mode echo`,
 `--siwe-domain HOST` (the host pages are served from, which wallets sign in to; defaults to
 `--http`), `--require-auth` (no human guests). Pilot records are kept in memory for now, behind a
@@ -122,7 +127,9 @@ write your own brain as a closure: see `crates/bc-bot/src/lib.rs`.
   features and running `wasm-opt` (`BC_WEB_OPT=1`) are the next steps.
 - Wing Zero's change into Neo-Bird isn't animated yet (the model swaps, with a flash), and
   missiles can't be shot down yet.
-- One sector, no persistence or accounts yet. The roadmap is in `docs/DESIGN.md`.
+- One sector. Pilot records (wallet, credits, the suit left asleep) are kept in memory, so a
+  server restart forgets them; a Redis or Mongo `PilotStore` is the next step. The roadmap is in
+  `docs/DESIGN.md`.
 
 ## Repository
 

@@ -114,6 +114,8 @@ pub struct Ui {
     pub signing: bool,
     /// Flying signed in (the suit stays when the pilot leaves).
     pub signed_in: bool,
+    /// At rest against an asteroid: leaving now parks the suit there.
+    pub parkable: bool,
     /// What the link screens say.
     pub message: String,
     pub retryable: bool,
@@ -255,6 +257,7 @@ pub struct View {
     hint: String,
     signing: bool,
     signed_in: bool,
+    parkable: bool,
 }
 
 impl View {
@@ -279,6 +282,7 @@ impl View {
             hint: ui.hint.clone(),
             signing: ui.signing,
             signed_in: ui.signed_in,
+            parkable: ui.parkable,
         }
     }
 
@@ -299,6 +303,7 @@ impl View {
         set(&o, "hint", self.hint.as_str());
         set(&o, "signing", self.signing);
         set(&o, "signedIn", self.signed_in);
+        set(&o, "parkable", self.parkable);
         o
     }
 }

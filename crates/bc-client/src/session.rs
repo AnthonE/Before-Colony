@@ -378,7 +378,7 @@ pub fn drive_link(
                 notice::SLEEPER_DESTROYED => {
                     ui.toast(format!("YOUR SUIT WAS DESTROYED WHILE YOU SLEPT, BY {}", name.to_uppercase()));
                 }
-                notice::SLEEPER_LOST => ui.toast("YOUR SUIT IS GONE: THE SECTOR WAS RESET"),
+                notice::SLEEPER_LOST => ui.toast("YOUR SUIT WAS CLEARED FROM THE SECTOR WHILE YOU SLEPT"),
                 _ => {}
             }
         }
@@ -403,7 +403,12 @@ pub fn drive_link(
         LinkState::Failed(_) => Screen::Failed,
     };
     ui.signing = matches!(l.state, LinkState::Signing { .. });
-    ui.signed_in = l.in_game() && game.borrow().core.welcome.is_some_and(|w| w.signed_in);
+    {
+        let g = game.borrow();
+        ui.signed_in = l.in_game() && g.core.welcome.is_some_and(|w| w.signed_in);
+        ui.parkable = ui.signed_in
+            && g.core.world.own.is_some_and(|o| o.flags & bc_proto::snapshot::own_flags::PARKABLE != 0);
+    }
     ui.attempt = l.attempt();
     ui.retry_in = match l.state {
         LinkState::Retrying { at, .. } => (at - now).max(0.0).ceil() as u32,

@@ -4,6 +4,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use bc_proto::{Faction, FrameId, InputPacket, PilotKind};
+use bc_sim::SuitId;
+use bc_sim::sim::SleeperFate;
 use bc_sim::zero::{TacticalAdvice, TacticalPicture};
 use crossbeam_queue::ArrayQueue;
 
@@ -19,12 +21,39 @@ pub struct InputMsg {
     pub recv_us: u64,
 }
 
+/// A signed-in pilot coming back: the suit they left asleep, and what they'd earned.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Comeback {
+    /// The sleeping suit to wake (entity slot, generation).
+    pub sleeper: Option<(u16, u16)>,
+    /// Credits a new suit starts with.
+    pub credits: u32,
+}
+
 /// Network → sector commands.
 #[derive(Clone, Copy, Debug)]
 pub enum Control {
-    Join { slot: u16, pilot: PilotKind, frame: FrameId, faction: Faction, max_datagram: u16 },
-    Leave { slot: u16 },
-    Respawn { slot: u16, frame: FrameId },
+    /// Seats a pilot: in the suit they left asleep, if it's still there, else a new one.
+    Join {
+        slot: u16,
+        pilot: PilotKind,
+        frame: FrameId,
+        faction: Faction,
+        max_datagram: u16,
+        comeback: Comeback,
+    },
+    /// The pilot left: the suit goes too.
+    Leave {
+        slot: u16,
+    },
+    /// A signed-in pilot left: the suit stays, its pilot asleep in the cockpit (a wreck goes).
+    Sleep {
+        slot: u16,
+    },
+    Respawn {
+        slot: u16,
+        frame: FrameId,
+    },
 }
 
 /// Lifecycle of a client slot, published by the sector through an atomic.
@@ -37,14 +66,29 @@ pub enum SlotState {
     Refused = 2,
 }
 
+/// How a slot's last join or departure went.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum Outcome {
+    /// Seated in a new suit.
+    Fresh = 0,
+    /// Seated in the suit they'd left asleep.
+    Woke = 1,
+    /// Left, and the suit sleeps on ([`SlotStatus::suit_id`] says which).
+    Asleep = 2,
+    /// Left, and the suit is gone.
+    Released = 3,
+}
+
 /// Per-slot status visible to the network side.
 pub struct SlotStatus {
     state: AtomicU32,
-    /// Entity slot of the pilot's suit.
+    /// The pilot's suit: generation << 16 | entity slot.
     suit: AtomicU32,
     /// Bumped every time the slot is (re)joined, so a waiter can tell its join apart from an
     /// earlier session's.
     epoch: AtomicU32,
+    outcome: AtomicU32,
 }
 
 impl SlotStatus {
@@ -53,6 +97,7 @@ impl SlotStatus {
             state: AtomicU32::new(SlotState::Free as u32),
             suit: AtomicU32::new(u32::MAX),
             epoch: AtomicU32::new(0),
+            outcome: AtomicU32::new(Outcome::Fresh as u32),
         }
     }
 
@@ -64,17 +109,34 @@ impl SlotStatus {
         }
     }
 
+    /// The suit's entity slot.
     pub fn suit(&self) -> Option<u16> {
+        self.suit_id().map(|(idx, _)| idx)
+    }
+
+    /// The suit's entity slot and generation.
+    pub fn suit_id(&self) -> Option<(u16, u16)> {
         let s = self.suit.load(Ordering::Acquire);
-        (s != u32::MAX).then_some(s as u16)
+        (s != u32::MAX).then_some((s as u16, (s >> 16) as u16))
     }
 
     pub fn epoch(&self) -> u32 {
         self.epoch.load(Ordering::Acquire)
     }
 
-    pub(crate) fn publish(&self, state: SlotState, suit: Option<u16>) {
-        self.suit.store(suit.map_or(u32::MAX, u32::from), Ordering::Release);
+    pub fn outcome(&self) -> Outcome {
+        match self.outcome.load(Ordering::Acquire) {
+            1 => Outcome::Woke,
+            2 => Outcome::Asleep,
+            3 => Outcome::Released,
+            _ => Outcome::Fresh,
+        }
+    }
+
+    pub(crate) fn publish(&self, state: SlotState, suit: Option<SuitId>, outcome: Outcome) {
+        let packed = suit.map_or(u32::MAX, |id| u32::from(id.0.generation) << 16 | u32::from(id.0.idx));
+        self.suit.store(packed, Ordering::Release);
+        self.outcome.store(outcome as u32, Ordering::Release);
         if state != SlotState::Free {
             self.epoch.fetch_add(1, Ordering::AcqRel);
         }
@@ -92,6 +154,9 @@ pub struct SlotLease {
 /// Shared between the sector thread and the network side.
 pub struct SectorShared {
     pub control: ArrayQueue<Control>,
+    /// What became of sleeping suits (destroyed, or cleared for room), for the server to tell
+    /// their pilots. Whose each was is the server's to know.
+    pub notes: ArrayQueue<SleeperFate>,
     /// Free slot leases. A session pops one, and pushes it back once the sector has freed the slot.
     pub leases: ArrayQueue<SlotLease>,
     pub slots: Box<[SlotStatus]>,
@@ -136,6 +201,8 @@ pub(crate) struct SectorEnds {
 pub const OUT_RING_BYTES: usize = 16 * 1024;
 /// Input messages buffered per client.
 pub const IN_RING: usize = 64;
+/// Sleepers' fates waiting for the server.
+pub const NOTES: usize = 256;
 
 /// Allocates every queue and the simulation. Returns the sector itself plus the ends the network
 /// side needs. This is the only place the runtime allocates.
@@ -159,6 +226,7 @@ pub fn build(cfg: SectorConfig) -> (crate::Sector, Arc<SectorShared>, EgressEnds
     let (adv_p, adv_c) = rtrb::RingBuffer::new(256);
     let shared = Arc::new(SectorShared {
         control,
+        notes: ArrayQueue::new(NOTES),
         leases,
         slots: (0..n).map(|_| SlotStatus::new()).collect(),
         metrics: Metrics::new(n),

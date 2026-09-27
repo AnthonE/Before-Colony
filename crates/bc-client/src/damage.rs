@@ -66,6 +66,8 @@ pub struct Damage {
     /// Bones that have come away (they're no longer the suit's to pose).
     pub lost: [bool; BONES],
     wreck: bool,
+    /// Its pilot is asleep in the cockpit.
+    asleep: bool,
     /// Whether the suit's state when first seen has been taken in: a suit that turns up already
     /// damaged just looks it, without its losses playing out again.
     primed: bool,
@@ -82,6 +84,7 @@ impl Damage {
             heat: [0.0; Part::COUNT],
             lost: [false; BONES],
             wreck: false,
+            asleep: false,
             primed: false,
             blasts: Vec::new(),
             stumps: Vec::new(),
@@ -249,6 +252,12 @@ pub fn damage_suits(
             dmg.wreck = wreck;
             changed = true;
         }
+        // Its pilot asleep: the eyes go dark (and light again when they wake).
+        let asleep = d.flags & ent_flags::ASLEEP != 0;
+        if asleep != dmg.asleep {
+            dmg.asleep = asleep;
+            changed = true;
+        }
         let blasts_due: Vec<Bone> = dmg.blasts.iter().filter(|(t, _)| *t <= now).map(|(_, b)| *b).collect();
         dmg.blasts.retain(|(t, _)| *t > now);
         for bone in blasts_due {
@@ -273,6 +282,7 @@ pub fn damage_suits(
                     armour: dmg.parts[part],
                     heat: (dmg.heat[part] * 31.0) as u8,
                     wreck,
+                    dark: asleep,
                     ..v.tag()
                 };
                 if let Ok(mut m) = tags.get_mut(v.bones[bone.index()]) {

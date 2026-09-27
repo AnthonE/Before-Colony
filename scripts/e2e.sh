@@ -36,8 +36,13 @@ case "$suite" in
     ./target/release/bc-server --mode game --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls "${BC_DOLLS:-24}" &
     pids+=($!)
     ;;
-  ui|login)
+  ui)
     ./target/release/bc-server --mode game --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls "${BC_DOLLS:-4}" &
+    pids+=($!)
+    ;;
+  login)
+    # No dolls: an idle pilot shot down can't sleep (a wreck is simply gone).
+    ./target/release/bc-server --mode game --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls 0 &
     pids+=($!)
     ;;
   *) echo "unknown suite $suite" >&2; exit 1 ;;

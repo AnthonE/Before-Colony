@@ -15,7 +15,7 @@ use bc_proto::{
     ChunkDesc, ChunkKind, Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, Part,
     PilotKind, Segment,
 };
-use bc_sector::{Control, InputMsg, Sector, SectorConfig, SlotState, read_packet};
+use bc_sector::{Comeback, Control, InputMsg, Sector, SectorConfig, SlotState, read_packet};
 use bc_sim::SimConfig;
 use bc_sim::chunks::Motion;
 use bc_sim::math::{Rng, look_rotation};
@@ -77,6 +77,7 @@ fn run(
             frame: FrameId::Leo,
             faction: Faction::Colonies,
             max_datagram: MAX_DATAGRAM as u16,
+            comeback: Comeback::default(),
         })
         .unwrap();
     let mut up = Link::new(11, 0.05, 0.02, 0.05);

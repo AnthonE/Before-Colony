@@ -62,7 +62,9 @@ network threads.
 
 ## Tick pipeline (`Sector::tick`)
 
-1. **Control:** Join (claim a suit at the faction's spawn), Leave (release it), Respawn frame.
+1. **Control:** Join (wake the suit a signed-in pilot left asleep, if it's still there; else claim a
+   suit at the faction's spawn, clearing the longest-asleep sleeper if the sector is full), Leave
+   (release it), Sleep (a signed-in pilot left: the suit stays, asleep), Respawn frame.
 2. **Inputs:** drain each slot's ring into a 64-slot jitter buffer, and process acks.
 3. **Oracle advice** in, with a 15-tick time-to-live.
 4. **Apply inputs** for tick `T`: the client's command if it arrived; otherwise the last one with fire
@@ -72,7 +74,8 @@ network threads.
    2. Specials: their cooldowns run down; the Hyper Jammer follows MODE and drains energy; Full
       Open runs; a transformable frame changes form on MODE (`bc_sim::transform`, which the
       client's predictor runs too).
-   3. Flight: AMBAC/RCS, thrust, propellant, G-strain, swept against the rocks. Wrecks drift.
+   3. Flight: AMBAC/RCS, thrust, propellant, G-strain, swept against the rocks. Wrecks drift, and
+      so do sleepers (`sim/sleep.rs`: no flight assist, no attitude hold), unless parked on a rock.
    4. Chunks (loose ore, limbs, hulks): free ones drift on closed-form segments, bounce off the
       colony and rocks, and expire.
    5. Rebuild the spatial hash (counting sort, 128 m cells).
@@ -98,8 +101,10 @@ network threads.
    12. Heat, energy, ZERO strain (seizure and lockout), respawns.
    13. ZERO rollouts (staggered every 3 ticks per pilot).
    12. Shattered rocks grow back once no suit is near (checked every 30 ticks).
-6. **Tactical pictures** for ZERO pilots (≈4 Hz), only when an external oracle is attached.
-7. **Snapshots** for each client, straight into its ring. The egress thread is unparked.
+6. **Sleepers' fates** (destroyed, or cleared for room) onto the notes queue, for the server to tell
+   their pilots.
+7. **Tactical pictures** for ZERO pilots (≈4 Hz), only when an external oracle is attached.
+8. **Snapshots** for each client, straight into its ring. The egress thread is unparked.
 
 ## Netcode
 
@@ -184,6 +189,11 @@ network threads.
   (`bc-server/src/pilots.rs`) before the sector hears of the pilot, so none of it touches the tick.
   Records go through the `PilotStore` trait: in memory today, plain serde data so a Redis or Mongo
   store can keep them as they are. One session per wallet: a new one takes the pilot over.
+- **Sleepers.** A signed-in pilot's session ends with `Control::Sleep` instead of `Leave`, and the
+  record keeps which suit (slot and generation, for this server run). The next session's Join
+  carries it back (`Comeback`), and the sector wakes it if it's still there. The sector reports
+  sleepers destroyed or cleared on a lock-free queue; a server task turns them into news for their
+  pilots (`pilots.rs`), read out as a Notice when they're back.
 
 ## AI layers
 

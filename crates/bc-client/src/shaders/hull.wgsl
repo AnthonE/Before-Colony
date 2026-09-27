@@ -5,8 +5,8 @@
 // Everything that differs per piece rides in its `MeshTag`, so every suit shares one material
 // and identical pieces batch:
 //   bits 0-3 paint (palette index), 4-6 armour left (7 pristine .. 0 destroyed), 7-14 seed,
-//   15-19 heat (recent hits glow), 20 wreck, 21 bare metal, 22-25 trim paint, 26-29 accent paint,
-//   30-31 eye colour.
+//   15-18 heat (recent hits glow), 19 dark (nobody at the controls), 20 wreck, 21 bare metal,
+//   22-25 trim paint, 26-29 accent paint, 30-31 eye colour.
 // Merged suit meshes (bc_model) also carry per-vertex data in their colour: r the paint slot
 // (0 body, 1 trim, 2 accent, 3 eye glow, 16+ a fixed paint, 32+ bare metal, 48+ glowing), g 1 on
 // bevels, b a panel seed.
@@ -90,7 +90,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let paint = hull.palette[index];
     let armour = f32((tag >> 4u) & 7u) / 7.0;
     let seed = f32((tag >> 7u) & 255u) + vseed;
-    let heat = f32((tag >> 15u) & 31u) / 31.0;
+    let heat = f32((tag >> 15u) & 15u) / 15.0;
+    let dark = ((tag >> 19u) & 1u) == 1u;
     let wreck = ((tag >> 20u) & 1u) == 1u;
 
     // The piece's own space, in metres (its transform's scale taken back out).
@@ -139,8 +140,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // Battle damage grows as armour runs out: scorching, then burnt-through paint showing the
     // bare frame. Heat makes fresh scorch edges glow.
     let hurt = 1.0 - armour;
-    // A wreck's sensors are dark.
-    var emissive = select(glow, vec3(0.0), wreck);
+    // A wreck's sensors are dark, and so are those of a suit whose pilot is asleep.
+    var emissive = select(glow, vec3(0.0), wreck || dark);
     if (hurt > 0.01 || wreck) {
         let reach = select(hurt, 1.0, wreck);
         let n_scorch = fbm(p * 0.45 + seed * 3.1, 4);
