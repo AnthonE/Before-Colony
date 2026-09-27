@@ -59,6 +59,8 @@ mod salvage_vis;
 #[cfg(target_arch = "wasm32")]
 mod session;
 #[cfg(target_arch = "wasm32")]
+mod settings;
+#[cfg(target_arch = "wasm32")]
 mod showcase;
 #[cfg(target_arch = "wasm32")]
 mod sky;

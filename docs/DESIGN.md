@@ -298,6 +298,12 @@ older than the server), offers Retry, and redials by itself, with backoff, when 
 the world drops. Esc (or the browser taking the pointer back) opens the menu: Resume, Controls,
 Disconnect. The sector doesn't pause. Menus are HTML over the live scene; the cockpit HUD is Bevy's.
 
+**Settings** (from the title or the menu) are kept in the browser: mouse sensitivity, invert Y,
+field of view, camera shake, first-flight hints and graphics quality, along with the last callsign
+and frame launched. `bc_client_core::settings` defines them, their ranges and the stored text (a
+key this build doesn't know is kept, for the build that wrote it). A new pilot gets one hint at a
+time (thrust, boost, fire, flight assist, salvage, the menu), each gone once it's been done.
+
 **Lock assist.** A frame with missiles designates the hostile nearest the reticle (within 10°) and
 keeps it while it stays within 15°. Its bracket fills as the lock builds and reads LOCKED when it's
 acquired. The HUD shows the special's state (READY, JAMMING, FIRING, the cooldown), the lock, and

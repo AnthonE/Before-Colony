@@ -26,6 +26,10 @@ pub struct LaunchConfig {
     pub low_quality: bool,
     /// `?quality=low|medium|high|ultra`, already resolved by the loader when it was `auto`.
     pub quality: String,
+    /// The loader's pick for this GPU, whatever the URL said.
+    pub quality_auto: String,
+    /// `?quality=` as given (empty when absent): it overrides the saved setting for this visit.
+    pub quality_param: String,
     /// `?showcase=<scene>`: an offline, scripted scene for building and reviewing visuals.
     pub showcase: Option<String>,
     /// `?t=`: showcase start time, seconds.
@@ -65,7 +69,7 @@ impl LaunchConfig {
         let wt_url = string("wtUrl");
         let cert_hash = get(&cfg, "certHash").as_string().and_then(|h| decode_hex(&h));
         let name = string("name");
-        let frame = Some(string("frame")).filter(|s| !s.is_empty()).unwrap_or_else(|| "wingzero".into());
+        let frame = string("frame");
         Self {
             wt_url,
             cert_hash,
@@ -77,6 +81,8 @@ impl LaunchConfig {
             echo: flag("echo"),
             low_quality: flag("lowQuality"),
             quality: string("quality"),
+            quality_auto: string("qualityAuto"),
+            quality_param: string("qualityParam"),
             showcase: Some(string("showcase")).filter(|s| !s.is_empty()),
             showcase_t: number("t").unwrap_or(0.0),
             showcase_cam: number("cam").map_or(1, |c| c.clamp(1.0, 9.0) as u32),

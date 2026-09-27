@@ -111,6 +111,10 @@
     }
 
     show($("pause"), s === "playing" && v.panel === "pause");
+    show($("settings"), v.panel === "settings");
+    const hint = $("hint");
+    hint.textContent = v.hint || "";
+    show(hint, s === "playing" && !!v.hint && v.panel === "none");
     show($("help"), v.help);
     show($("prompt"), s === "playing" && v.clickToFly && !v.help);
     $("prompt-main").textContent = v.refused ? "CLICK AGAIN TO FLY" : "CLICK TO FLY";
@@ -138,12 +142,83 @@
     if (!autoplay) $("callsign").focus();
   }
 
-  window.bcUi = { init, update };
+  // --- Settings: built once, then only the values change (so a dragged slider isn't rebuilt
+  // under the pointer). ---
+  const settingRows = new Map();
+  function renderSettings(data) {
+    const box = $("settings-list");
+    if (!settingRows.size) {
+      let group = null;
+      let table = null;
+      for (const r of data.rows) {
+        if (r.group !== group) {
+          group = r.group;
+          const section = document.createElement("section");
+          const h = document.createElement("h3");
+          h.textContent = group;
+          table = document.createElement("div");
+          table.className = "setting-rows";
+          section.append(h, table);
+          box.append(section);
+        }
+        const row = document.createElement("label");
+        row.className = "setting";
+        const name = document.createElement("span");
+        name.textContent = r.label;
+        const value = document.createElement("span");
+        value.className = "value";
+        let input;
+        if (r.kind === "range") {
+          input = document.createElement("input");
+          input.type = "range";
+          input.min = r.min;
+          input.max = r.max;
+          input.step = r.step;
+          input.addEventListener("input", () => send("set", { key: r.key, value: input.value }));
+        } else if (r.kind === "toggle") {
+          input = document.createElement("input");
+          input.type = "checkbox";
+          input.addEventListener("change", () => send("set", { key: r.key, value: String(input.checked) }));
+        } else {
+          input = document.createElement("select");
+          for (const c of r.choices) {
+            const o = document.createElement("option");
+            o.value = c;
+            o.textContent = c.toUpperCase();
+            input.append(o);
+          }
+          input.addEventListener("change", () => send("set", { key: r.key, value: input.value }));
+        }
+        input.dataset.key = r.key;
+        row.append(name, input, value);
+        table.append(row);
+        settingRows.set(r.key, { input, value, kind: r.kind });
+      }
+    }
+    for (const r of data.rows) {
+      const row = settingRows.get(r.key);
+      if (!row) continue;
+      if (row.kind === "range") {
+        if (document.activeElement !== row.input) row.input.value = r.value;
+        const n = Number(r.value);
+        row.value.textContent = r.key === "fov" ? `${n}°` : r.max <= 1 ? `${Math.round(n * 100)}%` : `${n.toFixed(2)}×`;
+      } else if (row.kind === "toggle") {
+        row.input.checked = r.value === "true";
+        row.value.textContent = r.value === "true" ? "ON" : "OFF";
+      } else {
+        row.input.value = r.value;
+        row.value.textContent = "";
+      }
+    }
+  }
+
+  window.bcUi = { init, update, settings: renderSettings };
 
   // --- What the player does. ---
   document.addEventListener("DOMContentLoaded", () => {
     $("launch").addEventListener("submit", launch);
     $("title-controls").addEventListener("click", () => send("help", { show: true }));
+    $("title-settings").addEventListener("click", () => send("settings", { show: true }));
     $("reload").addEventListener("click", () => location.reload());
     $("cancel").addEventListener("click", () => send("cancel"));
     for (const b of document.querySelectorAll("[data-cmd]")) {
@@ -151,6 +226,8 @@
         const cmd = b.dataset.cmd;
         if (cmd === "controls") send("help", { show: true });
         else if (cmd === "help-close") send("help", { show: false });
+        else if (cmd === "settings") send("settings", { show: true });
+        else if (cmd === "settings-close") send("settings", { show: false });
         else send(cmd);
         if (cmd === "resume" || cmd === "help-close") canvas()?.focus();
       });

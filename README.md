@@ -43,7 +43,7 @@ Click the game to take control; Esc opens the menu and F1 lists the controls. `?
 the title screen. Add `?autopilot=1` to
 watch the kit-aware Mobile Doll brain fly your suit with the ZERO System engaged, and
 `?frame=leo|wingzero|heavyarms|deathscythe|sandrock|shenlong` to pick it. `?quality=low|medium|high|ultra`
-picks a graphics tier (F10 cycles them). Without a server,
+picks a graphics tier for the visit (F10 cycles them; the settings keep the choice). Without a server,
 `?showcase=gundams|lineup|duel|colony|field|sky|chase|salvage|mining` plays an offline scene.
 
 Only Chromium has been tested. Firefox and Safari 26.4+ also ship WebTransport, but the dev server's

@@ -1,8 +1,9 @@
 //! Graphics quality tiers: every rendering knob in one place.
 //!
-//! The tier comes from `?quality=low|medium|high|ultra`; with `auto` (the default) `web/loader.js`
-//! picks Low for software rasterisers (SwiftShader, llvmpipe) and High otherwise. F10 cycles it in
-//! game. Later milestones add their knobs to [`TierSettings`].
+//! The tier comes from `?quality=low|medium|high|ultra`, else the pilot's saved choice (game mode),
+//! else `web/loader.js`'s pick for the GPU: Low for software rasterisers (SwiftShader, llvmpipe),
+//! High otherwise. F10 cycles it in game, and the settings keep the choice. Later milestones add
+//! their knobs to [`TierSettings`].
 
 use bevy::anti_alias::smaa::Smaa;
 use bevy::camera::Hdr;
@@ -159,6 +160,8 @@ pub struct Gfx {
     /// Which build was loaded: "webgl2" or "webgpu".
     pub backend: &'static str,
     pub tonemapping: Tonemapping,
+    /// The page's pick for this GPU (what the "auto" setting means).
+    pub auto: GfxTier,
 }
 
 impl Gfx {
@@ -171,10 +174,11 @@ impl Gfx {
             "aces" => Tonemapping::AcesFitted,
             _ => Tonemapping::TonyMcMapface,
         };
-        Self { tier, settings: tier.settings(), backend, tonemapping }
+        let auto = GfxTier::parse(&cfg.quality_auto).unwrap_or(tier);
+        Self { tier, settings: tier.settings(), backend, tonemapping, auto }
     }
 
-    fn set_tier(&mut self, tier: GfxTier) {
+    pub fn set_tier(&mut self, tier: GfxTier) {
         self.tier = tier;
         self.settings = tier.settings();
     }
@@ -188,14 +192,22 @@ impl Plugin for GfxPlugin {
     }
 }
 
-/// F10: next tier.
-fn cycle_tier(keys: Res<ButtonInput<KeyCode>>, mut gfx: ResMut<Gfx>, ui: Option<ResMut<crate::page::Ui>>) {
+/// F10: next tier (kept in the settings, in game mode).
+fn cycle_tier(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut gfx: ResMut<Gfx>,
+    ui: Option<ResMut<crate::page::Ui>>,
+    settings: Option<ResMut<crate::settings::SettingsRes>>,
+) {
     if keys.just_pressed(KeyCode::F10) {
         let next = gfx.tier.next();
         gfx.set_tier(next);
         info!("graphics tier: {}", next.name());
         if let Some(mut ui) = ui {
             ui.toast(format!("GRAPHICS: {}", next.name().to_uppercase()));
+        }
+        if let Some(mut s) = settings {
+            s.0.set("gfx", next.name());
         }
     }
 }

@@ -82,3 +82,48 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   if (errors.length) console.log(errors.join("\n"));
   expect(errors).toEqual([]);
 });
+
+// Settings: changed on the panel, kept in this browser across reloads, with keys a newer build
+// wrote left alone; and the last launch (callsign, frame) remembered for the title.
+test("settings persist across a reload", async ({ page }, info) => {
+  test.setTimeout(180_000);
+  const saved = () => page.evaluate(() => localStorage.getItem("bc.settings") ?? "");
+  await page.goto(`/?gfx=${info.project.name}`);
+  await expect(page.locator("#title")).toBeVisible({ timeout: 60_000 });
+  await page.evaluate(() => localStorage.setItem("bc.settings", "version = 1\nfov = 70\nfuture_knob = 42\n"));
+  await page.reload();
+  await expect(page.locator("#title")).toBeVisible({ timeout: 60_000 });
+
+  await page.locator("#title-settings").click();
+  await expect(page.locator("#settings")).toBeVisible();
+  await page.locator('#settings input[data-key="fov"]').evaluate((el: HTMLInputElement) => {
+    el.value = "88";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.locator('#settings input[data-key="invert_y"]').check();
+  await page.locator('#settings select[data-key="gfx"]').selectOption("medium");
+  await page.locator('#settings [data-cmd="settings-close"]').click();
+  await expect(page.locator("#settings")).toBeHidden();
+  await expect.poll(saved, { timeout: 10_000 }).toContain("fov = 88");
+  const text = await saved();
+  expect(text).toContain("invert_y = true");
+  expect(text).toContain("gfx = medium");
+  expect(text).toContain("future_knob = 42");
+
+  await page.reload();
+  await expect(page.locator("#title")).toBeVisible({ timeout: 60_000 });
+  await page.locator("#title-settings").click();
+  await expect(page.locator('#settings input[data-key="fov"]')).toHaveValue("88");
+  await expect.poll(async () => (await bc(page)).gfx_tier).toBe("medium");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#settings")).toBeHidden();
+
+  await page.locator("#callsign").fill("E2E-Settings");
+  await page.locator('#frames .frame[data-slug="sandrock"]').click();
+  await page.locator("#launch-button").click();
+  await page.waitForFunction("window.__bc?.link === 'ingame'", null, { timeout: 60_000 });
+  await expect.poll(saved, { timeout: 10_000 }).toContain("name = E2E-Settings");
+  await page.reload();
+  await expect(page.locator("#callsign")).toHaveValue("E2E-Settings", { timeout: 60_000 });
+  await expect(page.locator("#frames .frame.chosen")).toHaveAttribute("data-slug", "sandrock");
+});

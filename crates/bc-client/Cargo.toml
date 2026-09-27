@@ -33,7 +33,7 @@ half = "2.7"
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
 js-sys.workspace = true
-web-sys = { workspace = true, features = ["Window", "Location", "UrlSearchParams", "Document", "Element", "HtmlElement", "Performance", "DomTokenList", "console"] }
+web-sys = { workspace = true, features = ["Window", "Location", "UrlSearchParams", "Document", "Element", "HtmlElement", "Performance", "DomTokenList", "Storage", "console"] }
 web-transport-wasm.workspace = true
 console_error_panic_hook.workspace = true
 futures.workspace = true

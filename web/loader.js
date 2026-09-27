@@ -43,10 +43,11 @@ function rendererName() {
   }
 }
 
-// `?quality=low|medium|high|ultra`, or `auto` (default): Low on software rasterisers, else High.
-function pickQuality(renderer) {
-  const q = (params.get("quality") || "auto").toLowerCase();
-  if (["low", "medium", "high", "ultra"].includes(q)) return q;
+const TIERS = ["low", "medium", "high", "ultra"];
+
+// The tier for this GPU: Low on software rasterisers, else High. (`?quality=` overrides it, and in
+// game mode so does the pilot's saved setting.)
+function autoQuality(renderer) {
   if (renderer === "none" || /swiftshader|llvmpipe|softpipe|software|basic render/i.test(renderer)) {
     return "low";
   }
@@ -56,12 +57,16 @@ function pickQuality(renderer) {
 async function main() {
   const showcase = params.get("showcase") || "";
   const renderer = rendererName();
+  const qualityParam = (params.get("quality") || "").toLowerCase();
+  const qualityAuto = autoQuality(renderer);
   const config = {
     autopilot: params.get("autopilot") === "1",
     autoplay: params.get("autoplay") === "1",
     echo: params.get("mode") === "echo",
     lowQuality: params.get("quality") === "low",
-    quality: pickQuality(renderer),
+    quality: TIERS.includes(qualityParam) ? qualityParam : qualityAuto,
+    qualityAuto,
+    qualityParam: TIERS.includes(qualityParam) ? qualityParam : "",
     renderer,
     name: params.get("name") || "",
     frame: params.get("frame") || "",

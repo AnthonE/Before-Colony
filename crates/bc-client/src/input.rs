@@ -28,6 +28,7 @@ use crate::net::GameClient;
 use crate::page::Ui;
 use crate::pointer::PointerRes;
 use crate::session::Pilot;
+use crate::settings::SettingsRes;
 
 const SENSITIVITY: f32 = 0.0022;
 
@@ -113,6 +114,7 @@ pub fn read_input(
     mut aim: ResMut<Aim>,
     pointer: Res<PointerRes>,
     ui: Res<Ui>,
+    settings: Res<SettingsRes>,
     mut pilot: ResMut<Pilot>,
     game: NonSend<GameClient>,
 ) {
@@ -148,7 +150,10 @@ pub fn read_input(
 
     let up = game.core.predict.state.rot * Vec3::Y;
     if controls.locked && motion.delta != Vec2::ZERO {
-        let d = motion.delta * SENSITIVITY;
+        let mut d = motion.delta * SENSITIVITY * settings.0.sensitivity;
+        if settings.0.invert_y {
+            d.y = -d.y;
+        }
         let right = aim.dir.cross(up).normalize_or(Vec3::X);
         let dir = Quat::from_axis_angle(up, -d.x) * (Quat::from_axis_angle(right, -d.y) * aim.dir);
         // Don't let the aim flip over the suit's head.

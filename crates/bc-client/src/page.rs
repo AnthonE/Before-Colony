@@ -33,6 +33,10 @@ pub enum UiCmd {
     Back,
     /// F1: show or hide the controls sheet (`None`: toggle).
     Help(Option<bool>),
+    /// Open (`true`) or close the settings panel.
+    Settings(bool),
+    /// A setting changed on the panel: its key and new value, as text.
+    Set { key: String, value: String },
     /// Dev hook: drop the link as if the network had failed (tests the reconnect path).
     DropLink,
 }
@@ -75,12 +79,16 @@ impl Screen {
     }
 }
 
-/// A modal panel over the world (it frees the pointer and holds the controls).
+/// A modal panel (it frees the pointer and holds the controls).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Panel {
     #[default]
     None,
     Pause,
+    /// Settings, over the menu (`from_pause`) or the title screen.
+    Settings {
+        from_pause: bool,
+    },
 }
 
 /// The page's state, as Rust decides it.
@@ -97,6 +105,8 @@ pub struct Ui {
     pub click_to_fly: bool,
     /// The browser refused to lock the pointer; the prompt says to click again.
     pub refused: bool,
+    /// A first-flight hint (empty: none).
+    pub hint: String,
     /// What the link screens say.
     pub message: String,
     pub retryable: bool,
@@ -122,6 +132,10 @@ impl Ui {
             self.panel = Panel::Pause;
             self.paused_at = now_s();
         }
+    }
+
+    fn close_settings(&mut self, from_pause: bool) {
+        self.panel = if from_pause && self.playing() { Panel::Pause } else { Panel::None };
     }
 
     /// A short message at the top of the screen.
@@ -150,6 +164,8 @@ fn parse(v: &JsValue) -> Option<UiCmd> {
         "disconnect" => UiCmd::Disconnect,
         "back" => UiCmd::Back,
         "help" => UiCmd::Help(get(v, "show").as_bool()),
+        "settings" => UiCmd::Settings(get(v, "show").as_bool().unwrap_or(true)),
+        "set" => UiCmd::Set { key: s("key"), value: s("value") },
         "drop_link" => UiCmd::DropLink,
         _ => return None,
     })
@@ -175,13 +191,14 @@ pub fn apply_ui_cmds(cmds: Res<UiCmds>, mut ui: ResMut<Ui>) {
             UiCmd::Back => {
                 if ui.help {
                     ui.help = false;
-                } else if ui.playing() {
+                } else {
                     match ui.panel {
-                        Panel::None => ui.open_pause(),
+                        Panel::Settings { from_pause } => ui.close_settings(from_pause),
+                        Panel::None if ui.playing() => ui.open_pause(),
                         // Esc that belonged to the browser dropping the lock (which opened the
                         // menu) must not close it again.
                         Panel::Pause if now_s() - ui.paused_at > 0.4 => ui.panel = Panel::None,
-                        Panel::Pause => {}
+                        _ => {}
                     }
                 }
             }
@@ -191,11 +208,24 @@ pub fn apply_ui_cmds(cmds: Res<UiCmds>, mut ui: ResMut<Ui>) {
                 ui.help = false;
             }
             UiCmd::Help(show) => ui.help = show.unwrap_or(!ui.help),
+            UiCmd::Settings(true) => {
+                let from_pause = ui.panel == Panel::Pause;
+                ui.panel = Panel::Settings { from_pause };
+            }
+            UiCmd::Settings(false) => {
+                if let Panel::Settings { from_pause } = ui.panel {
+                    ui.close_settings(from_pause);
+                }
+            }
             _ => {}
         }
     }
-    if !ui.playing() {
+    // The menu is the world's; settings may open over the title too.
+    if !ui.playing() && ui.panel == Panel::Pause {
         ui.panel = Panel::None;
+    }
+    if !ui.playing() && ui.panel == (Panel::Settings { from_pause: true }) {
+        ui.panel = Panel::Settings { from_pause: false };
     }
 }
 
@@ -214,6 +244,7 @@ pub struct View {
     retry_in: u32,
     toast_seq: u32,
     toast: String,
+    hint: String,
 }
 
 impl View {
@@ -223,6 +254,7 @@ impl View {
             panel: match ui.panel {
                 Panel::None => "none",
                 Panel::Pause => "pause",
+                Panel::Settings { .. } => "settings",
             },
             help: ui.help,
             click_to_fly: ui.click_to_fly,
@@ -234,6 +266,7 @@ impl View {
             retry_in: ui.retry_in,
             toast_seq: ui.toast_seq,
             toast: ui.toast.clone(),
+            hint: ui.hint.clone(),
         }
     }
 
@@ -251,6 +284,7 @@ impl View {
         set(&o, "retryIn", self.retry_in);
         set(&o, "toastSeq", self.toast_seq);
         set(&o, "toast", self.toast.as_str());
+        set(&o, "hint", self.hint.as_str());
         o
     }
 }
@@ -292,8 +326,13 @@ fn special_name(kind: SpecialKind) -> Option<&'static str> {
     }
 }
 
-/// Once: the frames to choose from, the controls sheet, and the pilot the URL asked for.
-pub fn init_page(cfg: Res<LaunchConfigRes>, mut done: Local<bool>) {
+/// Once: the frames to choose from, the controls sheet, and the pilot to prefill (the URL's, else
+/// the last one launched).
+pub fn init_page(
+    cfg: Res<LaunchConfigRes>,
+    settings: Option<Res<crate::settings::SettingsRes>>,
+    mut done: Local<bool>,
+) {
     if *done {
         return;
     }
@@ -337,8 +376,12 @@ pub fn init_page(cfg: Res<LaunchConfigRes>, mut done: Local<bool>) {
     let init = Object::new();
     set(&init, "frames", frames);
     set(&init, "controls", controls);
-    set(&init, "name", cfg.0.name.as_str());
-    set(&init, "frame", cfg.0.frame.as_str());
+    let saved = settings.as_ref().map(|s| &s.0);
+    let pick = |url: &str, saved: Option<&str>| {
+        if url.is_empty() { saved.unwrap_or_default().to_string() } else { url.to_string() }
+    };
+    set(&init, "name", pick(&cfg.0.name, saved.map(|s| s.name.as_str())));
+    set(&init, "frame", pick(&cfg.0.frame, saved.map(|s| s.frame.as_str())));
     set(&init, "autoplay", cfg.0.autoplay);
     call_ui("init", &init);
 }

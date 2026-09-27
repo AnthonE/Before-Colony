@@ -30,6 +30,7 @@
         <div class="row">
           <button id="launch-button" type="submit" class="primary">LAUNCH</button>
           <button id="title-controls" type="button">CONTROLS</button>
+          <button id="title-settings" type="button">SETTINGS</button>
         </div>
       </form>
       <div id="link" class="link-state hidden">
@@ -48,6 +49,7 @@
       <h2>MENU</h2>
       <button data-cmd="resume" class="primary">RESUME</button>
       <button data-cmd="controls">CONTROLS</button>
+      <button data-cmd="settings">SETTINGS</button>
       <button data-cmd="disconnect">DISCONNECT</button>
       <div class="note">The sector keeps running while this menu is open.</div>
     </div>
@@ -62,6 +64,16 @@
     </div>
   </div>
 
+  <!-- Settings: drawn from the game's list of them (bc_client_core::settings::KNOBS). -->
+  <div id="settings" class="overlay dim hidden">
+    <div class="card wide">
+      <h2>SETTINGS</h2>
+      <div id="settings-list" class="settings"></div>
+      <div class="row"><button data-cmd="settings-close" class="primary">BACK</button><span class="note">Kept in this browser.</span></div>
+    </div>
+  </div>
+
+  <div id="hint" class="hint hidden"></div>
   <div id="banner" class="banner hidden">
     <div id="banner-text"></div>
     <div class="row"><button data-cmd="retry" class="primary">RECONNECT NOW</button><button data-cmd="cancel">TITLE</button></div>

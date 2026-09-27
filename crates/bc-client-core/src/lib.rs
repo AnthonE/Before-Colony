@@ -11,12 +11,14 @@
 pub mod brains;
 pub mod clock;
 pub mod controls;
+pub mod hints;
 pub mod inputs;
 pub mod interp;
 pub mod pointer;
 pub mod predict;
 pub mod salvage;
 pub mod session;
+pub mod settings;
 pub mod world;
 
 use bc_proto::buttons::FIRE_PRIMARY;
