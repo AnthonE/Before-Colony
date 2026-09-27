@@ -189,11 +189,14 @@ impl Plugin for GfxPlugin {
 }
 
 /// F10: next tier.
-fn cycle_tier(keys: Res<ButtonInput<KeyCode>>, mut gfx: ResMut<Gfx>) {
+fn cycle_tier(keys: Res<ButtonInput<KeyCode>>, mut gfx: ResMut<Gfx>, ui: Option<ResMut<crate::page::Ui>>) {
     if keys.just_pressed(KeyCode::F10) {
         let next = gfx.tier.next();
         gfx.set_tier(next);
         info!("graphics tier: {}", next.name());
+        if let Some(mut ui) = ui {
+            ui.toast(format!("GRAPHICS: {}", next.name().to_uppercase()));
+        }
     }
 }
 

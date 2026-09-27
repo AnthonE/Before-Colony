@@ -38,9 +38,12 @@ pub enum HudText {
     Feed,
     Zero,
     Alert,
-    Help,
     Salvage,
 }
+
+/// The HUD's root: shown only in the world.
+#[derive(Component)]
+pub struct HudRoot;
 
 /// The screen marker on the chunk nearest the free hand.
 #[derive(Component)]
@@ -98,12 +101,16 @@ fn abs(left: Option<f32>, right: Option<f32>, top: Option<f32>, bottom: Option<f
 
 pub fn setup_hud(mut commands: Commands) {
     commands
-        .spawn(Node {
-            width: Val::Percent(100.0),
-            height: Val::Percent(100.0),
-            position_type: PositionType::Absolute,
-            ..default()
-        })
+        .spawn((
+            HudRoot,
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                position_type: PositionType::Absolute,
+                ..default()
+            },
+            Visibility::Hidden,
+        ))
         .with_children(|p| {
             p.spawn((HudText::Status, label(13.0, CYAN, abs(Some(14.0), None, Some(10.0), None))));
             p.spawn((
@@ -144,19 +151,6 @@ pub fn setup_hud(mut commands: Commands) {
                         position_type: PositionType::Absolute,
                         top: Val::Percent(30.0),
                         left: Val::Percent(40.0),
-                        ..default()
-                    },
-                ),
-            ));
-            p.spawn((
-                HudText::Help,
-                label(
-                    12.0,
-                    Color::srgba(0.7, 0.9, 1.0, 0.7),
-                    Node {
-                        position_type: PositionType::Absolute,
-                        bottom: Val::Px(90.0),
-                        left: Val::Percent(34.0),
                         ..default()
                     },
                 ),
@@ -305,18 +299,14 @@ pub fn update_hud(
     let assisted = own.map_or(controls.flight_assist, |o| o.flags & own_flags::FLIGHT_ASSIST != 0);
     let fa = if assisted { "FA ON" } else { "FA OFF" };
     let mode = if game.autopilot { "AUTOPILOT (Mobile Doll brain)" } else { "MANUAL" };
+    // The ping is a default until the first snapshot measures it.
+    let ping =
+        if core.clock.synced() { format!("{:.0} ms", core.clock.rtt * 1_000.0) } else { "--".to_string() };
     set(
         HudText::Status,
         format!(
-            "BEFORE COLONY  L1 COLONY CLUSTER\n{}  ping {:.0} ms  tick {}\n{}  {}\ncontacts {}  hits {}  kills {}  deaths {}",
-            if game.disconnected {
-                "LINK LOST"
-            } else if core.welcome.is_some() {
-                "LINK OK"
-            } else {
-                "CONNECTING"
-            },
-            core.clock.rtt * 1_000.0,
+            "BEFORE COLONY  L1 COLONY CLUSTER\nLINK OK  ping {}  tick {}\n{}  {}\ncontacts {}  hits {}  kills {}  deaths {}",
+            ping,
             world.tick,
             mode,
             fa,
@@ -531,7 +521,6 @@ pub fn update_hud(
         .collect();
     incoming.sort_by(|a, b| a.0.total_cmp(&b.0));
     let (alert, alert_color) = match own {
-        _ if game.disconnected => ("LINK LOST".to_string(), RED),
         Some(o) if !o.alive => {
             let menu: Vec<String> = PLAYABLE_ORDER
                 .iter()
@@ -560,12 +549,6 @@ pub fn update_hud(
         _ => (String::new(), RED),
     };
     set(HudText::Alert, alert, Some(alert_color));
-    let help = if game.autopilot || controls.locked || own.is_none() {
-        String::new()
-    } else {
-        "CLICK TO TAKE CONTROL   WASD/Space/C thrust  Q/E roll  Shift boost  X brake\nLMB/RMB fire  F melee  H special  V flight assist  Z ZERO System  R RCS\nG grab  B stow  T throw  J jettison  (sell at the colony's -X end)".into()
-    };
-    set(HudText::Help, help, None);
     if let Ok(mut r) = reticle.single_mut() {
         r.0 = "+".into();
     }
@@ -731,5 +714,13 @@ pub fn update_hud(
             }
             Err(_) => *vis = Visibility::Hidden,
         }
+    }
+}
+
+/// The HUD is the cockpit's: hidden on the title and while the link is down.
+pub fn show_hud(ui: Res<crate::page::Ui>, mut root: Query<&mut Visibility, With<HudRoot>>) {
+    let want = if ui.playing() { Visibility::Inherited } else { Visibility::Hidden };
+    for mut v in &mut root {
+        v.set_if_neq(want);
     }
 }

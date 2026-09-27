@@ -12,6 +12,67 @@
     <div class="title">BEFORE COLONY</div>
     <div class="sub" id="boot-status">loading…</div>
   </div>
+
+  <!-- The title screen: callsign, mobile suit, launch; and the link's state while connecting. -->
+  <div id="title" class="overlay hidden">
+    <div class="card title-card">
+      <h1>BEFORE COLONY</h1>
+      <div class="tagline">AFTER COLONY 195 · L1 COLONY CLUSTER</div>
+      <form id="launch" autocomplete="off">
+        <label class="field">
+          <span>CALLSIGN</span>
+          <input id="callsign" maxlength="16" spellcheck="false" placeholder="Pilot">
+        </label>
+        <div class="field">
+          <span>MOBILE SUIT</span>
+          <div id="frames" class="frames" role="radiogroup" aria-label="Mobile suit"></div>
+        </div>
+        <div class="row">
+          <button id="launch-button" type="submit" class="primary">LAUNCH</button>
+          <button id="title-controls" type="button">CONTROLS</button>
+        </div>
+      </form>
+      <div id="link" class="link-state hidden">
+        <div id="link-message" class="message"></div>
+        <div class="row">
+          <button id="reload" type="button" class="primary">RELOAD</button>
+          <button id="cancel" type="button">CANCEL</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Esc in flight. The sector keeps running: nothing pauses in an MMO. -->
+  <div id="pause" class="overlay dim hidden">
+    <div class="card menu">
+      <h2>MENU</h2>
+      <button data-cmd="resume" class="primary">RESUME</button>
+      <button data-cmd="controls">CONTROLS</button>
+      <button data-cmd="disconnect">DISCONNECT</button>
+      <div class="note">The sector keeps running while this menu is open.</div>
+    </div>
+  </div>
+
+  <!-- F1: the controls sheet (not modal: flying goes on under it). -->
+  <div id="help" class="overlay hidden">
+    <div class="card wide">
+      <h2>CONTROLS</h2>
+      <div id="controls-list" class="controls"></div>
+      <div class="row"><button data-cmd="help-close">CLOSE</button><span class="note">F1 or Esc</span></div>
+    </div>
+  </div>
+
+  <div id="banner" class="banner hidden">
+    <div id="banner-text"></div>
+    <div class="row"><button data-cmd="retry" class="primary">RECONNECT NOW</button><button data-cmd="cancel">TITLE</button></div>
+  </div>
+  <div id="prompt" class="prompt hidden">
+    <div id="prompt-main">CLICK TO FLY</div>
+    <div class="sub">Esc menu · F1 controls</div>
+  </div>
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="ui.js"></script>
   <script type="module" src="loader.js"></script>
 </body>
 </html>

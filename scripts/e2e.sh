@@ -4,6 +4,7 @@
 #   scripts/e2e.sh slice [project]   # the vertical slice (game mode, dolls + an agent bot)
 #   scripts/e2e.sh gfx [project]     # every showcase scene renders cleanly (BC_GFX_QUALITY=high)
 #   scripts/e2e.sh frames [project]  # the autopilot flies each Gundam's kit against the dolls
+#   scripts/e2e.sh ui [project]      # the title screen, the menu, reconnecting, disconnecting
 set -euo pipefail
 cd "$(dirname "$0")/.."
 suite="${1:-slice}"
@@ -34,6 +35,10 @@ case "$suite" in
     ./target/release/bc-server --mode game --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls "${BC_DOLLS:-24}" &
     pids+=($!)
     ;;
+  ui)
+    ./target/release/bc-server --mode game --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls "${BC_DOLLS:-4}" &
+    pids+=($!)
+    ;;
   *) echo "unknown suite $suite" >&2; exit 1 ;;
 esac
 
@@ -43,4 +48,4 @@ cd e2e
 mkdir -p artifacts
 runner=()
 [ "$project" = "webgpu" ] && runner=(xvfb-run -a)
-"${runner[@]}" pnpm exec playwright test "$suite" --project="$project"
+"${runner[@]}" pnpm exec playwright test "${suite}.spec" --project="$project"

@@ -7,11 +7,14 @@ use crate::dev_hooks::{DevHooksPlugin, publish_game};
 use crate::echo::EchoPlugin;
 use crate::fx::{FxState, setup_fx, update_fx, update_fx_lights};
 use crate::gfx::{Gfx, GfxPlugin};
-use crate::hud::{setup_hud, update_hud};
+use crate::hud::{setup_hud, show_hud, update_hud};
 use crate::input::{Aim, Controls, read_input};
 use crate::net::{LaunchConfigRes, NetPlugin, drive, game_client, start_net_loop};
 use crate::net_view::{sync_view, tick_vis_time};
+use crate::page::{Ui, UiCmds, apply_ui_cmds, drain_inbox, init_page, publish_view};
 use crate::particles::{setup_particles, update_particles};
+use crate::pointer::{PointerRes, update_pointer};
+use crate::session::{Pilot, SessionPlugin, drive_link};
 use crate::showcase::{Scene, ShowcasePlugin};
 use crate::suits_vis::{build_suits, pose_suits, suit_lod};
 use crate::view::{BeamFeed, CameraTarget, FxEvents, MissileFeed, SuitIndex, Vis, VisTime};
@@ -37,7 +40,8 @@ pub fn run() {
         app.add_plugins(crate::perf::PerfPlugin);
     }
     if cfg.echo {
-        app.add_plugins((NetPlugin, EchoPlugin)).add_systems(Startup, crate::echo::setup_echo_scene);
+        app.add_plugins((NetPlugin { dial_at_startup: true }, EchoPlugin))
+            .add_systems(Startup, crate::echo::setup_echo_scene);
     } else if let Some(scene) = cfg.showcase.as_deref() {
         app.add_plugins((
             VisualsPlugin,
@@ -50,14 +54,23 @@ pub fn run() {
             },
         ));
     } else {
-        app.add_plugins((NetPlugin, VisualsPlugin))
+        let frame = crate::config::parse_frame(&cfg.frame).unwrap_or(bc_proto::FrameId::WingZero);
+        app.add_plugins((NetPlugin { dial_at_startup: false }, VisualsPlugin, SessionPlugin))
             .insert_non_send(game_client(&cfg))
+            .insert_resource(Pilot { name: cfg.name.clone(), frame })
             .init_resource::<Controls>()
             .init_resource::<Aim>()
+            .init_resource::<Ui>()
+            .init_resource::<UiCmds>()
+            .init_resource::<PointerRes>()
+            .add_systems(First, drain_inbox)
             .add_systems(Startup, (start_net_loop, setup_hud))
             .add_systems(
                 Update,
                 (
+                    drive_link,
+                    apply_ui_cmds,
+                    update_pointer,
                     read_input,
                     drive,
                     tick_vis_time,
@@ -72,8 +85,11 @@ pub fn run() {
             .add_systems(Update, (follow, pilot_effects).chain().in_set(Vis::Camera))
             .add_systems(
                 Update,
-                (update_hud, crate::zero_overlay::draw_ghosts, publish_game).chain().in_set(Vis::Hud),
-            );
+                (show_hud, update_hud, crate::zero_overlay::draw_ghosts, publish_game)
+                    .chain()
+                    .in_set(Vis::Hud),
+            )
+            .add_systems(Last, (init_page, publish_view));
     }
     app.run();
 }

@@ -67,9 +67,21 @@ fn hide_boot_overlay() {
 }
 
 /// Game state for the E2E tests (and for curious humans at the devtools console).
-pub fn publish_game(game: NonSend<crate::net::GameClient>, mut dev: ResMut<DevStatus>) {
+pub fn publish_game(
+    game: NonSend<crate::net::GameClient>,
+    link: Res<crate::session::LinkRes>,
+    ui: Res<crate::page::Ui>,
+    mut dev: ResMut<DevStatus>,
+) {
     use bc_proto::PilotKind;
     use bc_sim::content::WeaponClass;
+    dev.set("link", link.0.name());
+    dev.set("reconnects", link.0.reconnects);
+    dev.set("last_error", link.0.last_error.as_ref().map(|e| e.text()).unwrap_or_default());
+    dev.set("screen", format!("{:?}", ui.screen).to_lowercase());
+    dev.set("panel", format!("{:?}", ui.panel).to_lowercase());
+    dev.set("help", ui.help);
+    dev.set("click_to_fly", ui.click_to_fly);
     let game = game.borrow();
     let core = &game.core;
     let w = &core.world;

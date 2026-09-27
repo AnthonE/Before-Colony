@@ -10,10 +10,13 @@
 
 pub mod brains;
 pub mod clock;
+pub mod controls;
 pub mod inputs;
 pub mod interp;
+pub mod pointer;
 pub mod predict;
 pub mod salvage;
+pub mod session;
 pub mod world;
 
 use bc_proto::buttons::FIRE_PRIMARY;
@@ -127,6 +130,13 @@ impl ClientCore {
         let n = ControlMsg::hello(self.cfg.pilot, self.cfg.frame, self.cfg.faction, &self.cfg.name)
             .encode(&mut buf)
             .unwrap_or(0);
+        buf[..n].to_vec()
+    }
+
+    /// Says goodbye (the pilot is leaving on purpose).
+    pub fn bye(&self, reason: u8) -> Vec<u8> {
+        let mut buf = [0u8; bc_proto::control::MAX_FRAME];
+        let n = ControlMsg::Bye { reason }.encode(&mut buf).unwrap_or(0);
         buf[..n].to_vec()
     }
 

@@ -1,8 +1,12 @@
 //! Keyboard and mouse: pointer-lock free aim, 6DOF thrust, weapons, and state toggles.
 //!
+//! The same list, for players, is `bc_client_core::controls::BINDINGS` (the title screen and F1
+//! show it); keep them together. Esc and F1 belong to the page (`page.rs`), and the pointer's lock
+//! to `pointer.rs`.
+//!
 //! | Key | Action |
 //! |---|---|
-//! | mouse | aim (click to lock the pointer, Esc to release) |
+//! | mouse | aim (click to lock the pointer, Esc for the menu) |
 //! | W/S, A/D, Space/C | thrust forward/back, left/right, up/down |
 //! | Q/E | roll |
 //! | Shift | boost · X brake · R RCS (fast turns, burns propellant) |
@@ -19,9 +23,11 @@ use bc_proto::{InputCmd, NO_SLOT};
 use bc_sim::content::{PLAYABLE_ORDER, frame};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
-use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 
 use crate::net::GameClient;
+use crate::page::Ui;
+use crate::pointer::PointerRes;
+use crate::session::Pilot;
 
 const SENSITIVITY: f32 = 0.0022;
 
@@ -105,7 +111,9 @@ pub fn read_input(
     motion: Res<AccumulatedMouseMotion>,
     mut controls: ResMut<Controls>,
     mut aim: ResMut<Aim>,
-    mut cursor: Single<&mut CursorOptions, With<PrimaryWindow>>,
+    pointer: Res<PointerRes>,
+    ui: Res<Ui>,
+    mut pilot: ResMut<Pilot>,
     game: NonSend<GameClient>,
 ) {
     let mut game = game.borrow_mut();
@@ -122,18 +130,20 @@ pub fn read_input(
     if game.autopilot {
         return;
     }
-    if mouse.just_pressed(MouseButton::Left) && cursor.grab_mode != CursorGrabMode::Locked {
-        cursor.grab_mode = CursorGrabMode::Locked;
-        cursor.visible = false;
+    // A click that takes the pointer doesn't also fire.
+    if mouse.just_pressed(MouseButton::Left) && !pointer.0.flying() {
         controls.swallow_click = true;
     }
-    if keys.just_pressed(KeyCode::Escape) {
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
-    }
-    controls.locked = cursor.grab_mode == CursorGrabMode::Locked;
     if !mouse.pressed(MouseButton::Left) {
         controls.swallow_click = false;
+    }
+    controls.locked = pointer.0.flying();
+    if !ui.playing() || ui.panel_open() {
+        // Hands off the stick in menus; the toggles stay as they were.
+        controls.thrust = Vec3::ZERO;
+        controls.roll = 0.0;
+        controls.buttons = 0;
+        return;
     }
 
     let up = game.core.predict.state.rot * Vec3::Y;
@@ -221,6 +231,8 @@ pub fn read_input(
     for (key, f) in digits.into_iter().zip(PLAYABLE_ORDER) {
         if dead && keys.just_pressed(key) {
             game.respawn_request = Some(f);
+            // A reconnect brings back the frame being flown.
+            pilot.frame = f;
         }
     }
 }

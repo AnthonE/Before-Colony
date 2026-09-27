@@ -287,6 +287,16 @@ show which, and thin as the ore is taken. A rock of radius r m has 60 + 25r of s
 | V · Z | flight assist · ZERO System |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
 | 1–6 | respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
+| Esc · F1 · F10 | menu · the controls sheet · graphics quality |
+
+The list players see (the title screen's controls sheet and F1) is
+`bc_client_core::controls::BINDINGS`; keep it in step with this table.
+
+**The page around the game.** The title screen takes a callsign and a mobile suit and launches.
+The link says what went wrong in words (a server that's down or unreachable, a full sector, a page
+older than the server), offers Retry, and redials by itself, with backoff, when a link that was in
+the world drops. Esc (or the browser taking the pointer back) opens the menu: Resume, Controls,
+Disconnect. The sector doesn't pause. Menus are HTML over the live scene; the cockpit HUD is Bevy's.
 
 **Lock assist.** A frame with missiles designates the hostile nearest the reticle (within 10°) and
 keeps it while it stays within 15°. Its bracket fills as the lock builds and reads LOCKED when it's

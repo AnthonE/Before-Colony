@@ -48,9 +48,27 @@ pub struct Game {
     pub respawn_request: Option<FrameId>,
     /// The suit lock assist has designated.
     pub lock: Option<u16>,
-    pub disconnected: bool,
     /// The pilot's controls as of the last rendered frame; the timer repeats them until the next.
     pub controls: InputCmd,
+}
+
+impl Game {
+    fn new(name: &str, frame: FrameId, autopilot: bool) -> Self {
+        Self {
+            core: ClientCore::new(ClientConfig {
+                name: name.to_string(),
+                pilot: PilotKind::Human,
+                frame,
+                faction: Faction::Colonies,
+            }),
+            hello_sent: false,
+            autopilot,
+            brain: DollBrain::new(0x5EED),
+            respawn_request: None,
+            lock: None,
+            controls: InputCmd::default(),
+        }
+    }
 }
 
 /// Non-send resource: the game state, shared by the render systems and the network timer.
@@ -58,6 +76,12 @@ pub struct Game {
 pub struct GameClient(Rc<RefCell<Game>>);
 
 impl GameClient {
+    /// Starts over for a new session (a dial, or the link going down): an empty world.
+    pub fn reset(&self, name: &str, frame: FrameId) {
+        let autopilot = self.0.borrow().autopilot;
+        *self.0.borrow_mut() = Game::new(name, frame, autopilot);
+    }
+
     pub fn borrow(&self) -> Ref<'_, Game> {
         self.0.borrow()
     }
@@ -75,11 +99,18 @@ pub fn now_s() -> f64 {
     web_sys::window().and_then(|w| w.performance()).map_or(0.0, |p| p.now()) / 1_000.0
 }
 
-pub struct NetPlugin;
+/// The transport slot and its status hooks. `dial_at_startup`: connect once at startup (the echo
+/// spike); game mode dials through `session` instead.
+pub struct NetPlugin {
+    pub dial_at_startup: bool,
+}
 
 impl Plugin for NetPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_non_send(NetState::default()).add_systems(Startup, connect).add_systems(Update, report);
+        app.insert_non_send(NetState::default()).add_systems(Update, report);
+        if self.dial_at_startup {
+            app.add_systems(Startup, connect);
+        }
     }
 }
 
@@ -146,28 +177,13 @@ fn report(net: NonSend<NetState>, mut dev: ResMut<DevStatus>) {
 
 pub fn game_client(cfg: &LaunchConfig) -> GameClient {
     let frame = crate::config::parse_frame(&cfg.frame).unwrap_or(FrameId::WingZero);
-    GameClient(Rc::new(RefCell::new(Game {
-        core: ClientCore::new(ClientConfig {
-            name: cfg.name.clone(),
-            pilot: PilotKind::Human,
-            frame,
-            faction: Faction::Colonies,
-        }),
-        hello_sent: false,
-        autopilot: cfg.autopilot,
-        brain: DollBrain::new(0x5EED),
-        respawn_request: None,
-        lock: None,
-        disconnected: false,
-        controls: InputCmd::default(),
-    })))
+    GameClient(Rc::new(RefCell::new(Game::new(&cfg.name, frame, cfg.autopilot))))
 }
 
 /// One pass of the network loop: receives everything that arrived, then sends the commands that
 /// are due.
 fn pump(g: &mut Game, t: &Transport, now: f64) {
     if t.is_closed() {
-        g.disconnected = true;
         return;
     }
     if !g.hello_sent {

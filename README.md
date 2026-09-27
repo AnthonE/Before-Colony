@@ -38,7 +38,9 @@ Prerequisites:
 scripts/dev.sh          # builds the client, starts a sector with 24 Mobile Dolls, an AI agent and a miner
 ```
 
-Open <http://127.0.0.1:8080> in Chrome or Edge, then click to take control. Add `?autopilot=1` to
+Open <http://127.0.0.1:8080> in Chrome or Edge, enter a callsign, pick a mobile suit and LAUNCH.
+Click the game to take control; Esc opens the menu and F1 lists the controls. `?autoplay=1` skips
+the title screen. Add `?autopilot=1` to
 watch the kit-aware Mobile Doll brain fly your suit with the ZERO System engaged, and
 `?frame=leo|wingzero|heavyarms|deathscythe|sandrock|shenlong` to pick it. `?quality=low|medium|high|ultra`
 picks a graphics tier (F10 cycles them). Without a server,
@@ -57,6 +59,7 @@ self-signed certificate depends on `serverCertificateHashes` pinning, and that m
 | V · Z | flight assist · ZERO System |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
 | 1–6 | respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
+| Esc · F1 · F10 | menu · controls · graphics quality |
 
 Frames with missiles lock on by themselves: hold the reticle on a hostile until its bracket reads
 LOCKED, then fire.

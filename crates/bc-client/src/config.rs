@@ -10,6 +10,10 @@ pub struct LaunchConfig {
     pub cert_hash: Option<Vec<u8>>,
     /// `?autopilot=1`: the Mobile Doll AI flies this pilot (used by the E2E test).
     pub autopilot: bool,
+    /// `?autoplay=1` (implied by `?autopilot=1`): skip the title screen and launch straight away.
+    pub autoplay: bool,
+    /// The browser has no WebTransport (the page still loads, to say so).
+    pub no_web_transport: bool,
     /// `?name=` pilot name.
     pub name: String,
     /// `?frame=`: a playable frame's slug (`leo`, `wingzero`, `heavyarms`, `deathscythe`,
@@ -44,7 +48,7 @@ fn get(obj: &JsValue, key: &str) -> JsValue {
     js_sys::Reflect::get(obj, &JsValue::from_str(key)).unwrap_or(JsValue::UNDEFINED)
 }
 
-fn decode_hex(s: &str) -> Option<Vec<u8>> {
+pub(crate) fn decode_hex(s: &str) -> Option<Vec<u8>> {
     if !s.len().is_multiple_of(2) {
         return None;
     }
@@ -60,12 +64,14 @@ impl LaunchConfig {
         let number = |k: &str| get(&cfg, k).as_f64();
         let wt_url = string("wtUrl");
         let cert_hash = get(&cfg, "certHash").as_string().and_then(|h| decode_hex(&h));
-        let name = Some(string("name")).filter(|s| !s.is_empty()).unwrap_or_else(|| "Pilot".into());
+        let name = string("name");
         let frame = Some(string("frame")).filter(|s| !s.is_empty()).unwrap_or_else(|| "wingzero".into());
         Self {
             wt_url,
             cert_hash,
             autopilot: flag("autopilot"),
+            autoplay: flag("autopilot") || flag("autoplay"),
+            no_web_transport: flag("noWebTransport"),
             name,
             frame,
             echo: flag("echo"),
