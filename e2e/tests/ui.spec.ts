@@ -42,7 +42,7 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   await page.locator("#launch-button").click();
   await wait("in the world", "window.__bc?.link === 'ingame' && window.__bc?.snapshots >= 30");
   await expect(page.locator("#title")).toBeHidden();
-  expect((await bc(page)).frame).toBe("heavyarms");
+  await expect.poll(async () => (await bc(page)).frame).toBe("heavyarms");
   // Headless Chromium can't lock the pointer, so the prompt stays up.
   await expect(page.locator("#prompt")).toBeVisible();
   const me = async () => {
@@ -50,6 +50,14 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
     return (status.game?.pilots ?? []).find((p: any) => p.name === "E2E-Title");
   };
   expect(await me()).toBeTruthy();
+
+  // Sound: the whole bank is built, the context runs (the test browser allows autoplay), and
+  // the cockpit has started sounds (the launch, the engines' loop).
+  await wait(
+    "the sound bank",
+    "window.__bc?.audio_state === 'running' && window.__bc?.audio_built === window.__bc?.audio_cues",
+  );
+  await wait("a sound", "window.__bc?.audio_started > 0");
 
   // F1: the controls sheet, over the world.
   await page.keyboard.press("F1");
@@ -60,7 +68,8 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   // Esc: the menu; Resume closes it.
   await page.keyboard.press("Escape");
   await expect(page.locator("#pause")).toBeVisible();
-  expect((await bc(page)).panel).toBe("pause");
+  // window.__bc is published four times a second: poll it.
+  await expect.poll(async () => (await bc(page)).panel).toBe("pause");
   await page.locator('#pause [data-cmd="resume"]').click();
   await expect(page.locator("#pause")).toBeHidden();
 

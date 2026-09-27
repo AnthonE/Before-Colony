@@ -74,6 +74,10 @@ pub const KNOBS: &[Knob] = &[
     range("shake", "Camera shake and screen effects", "VIEW", 0.0, 1.0, 0.05),
     toggle("hints", "Hints for new pilots", "VIEW"),
     Knob { key: "gfx", label: "Graphics quality", group: "GRAPHICS", kind: Kind::Choice(&GfxChoice::NAMES) },
+    range("vol_master", "Master volume", "SOUND", 0.0, 1.0, 0.05),
+    range("vol_effects", "Weapons and impacts", "SOUND", 0.0, 1.0, 0.05),
+    range("vol_cockpit", "Cockpit, alarms and menus", "SOUND", 0.0, 1.0, 0.05),
+    range("vol_music", "Music", "SOUND", 0.0, 1.0, 0.05),
 ];
 
 /// The pilot's settings.
@@ -95,6 +99,11 @@ pub struct Settings {
     pub hints: bool,
     /// The hints already shown (bits of `hints::Hint`).
     pub hints_seen: u32,
+    /// Volumes, 0..1.
+    pub vol_master: f32,
+    pub vol_effects: f32,
+    pub vol_cockpit: f32,
+    pub vol_music: f32,
 }
 
 impl Default for Settings {
@@ -109,6 +118,10 @@ impl Default for Settings {
             gfx: GfxChoice::Auto,
             hints: true,
             hints_seen: 0,
+            vol_master: 0.8,
+            vol_effects: 0.9,
+            vol_cockpit: 0.8,
+            vol_music: 0.5,
         }
     }
 }
@@ -160,6 +173,10 @@ impl Settings {
             "gfx" => self.gfx.name().to_string(),
             "hints" => self.hints.to_string(),
             "hints_seen" => self.hints_seen.to_string(),
+            "vol_master" => self.vol_master.to_string(),
+            "vol_effects" => self.vol_effects.to_string(),
+            "vol_cockpit" => self.vol_cockpit.to_string(),
+            "vol_music" => self.vol_music.to_string(),
             _ => return None,
         })
     }
@@ -170,13 +187,17 @@ impl Settings {
         match key {
             "name" => self.name = clean(value, 16),
             "frame" => self.frame = clean(value, 16),
-            "sensitivity" | "fov" | "shake" => {
+            "sensitivity" | "fov" | "shake" | "vol_master" | "vol_effects" | "vol_cockpit" | "vol_music" => {
                 let Some(v) = parse_num(value) else { return false };
                 let v = clamp_to(key, v);
                 match key {
                     "sensitivity" => self.sensitivity = v,
                     "fov" => self.fov = v,
-                    _ => self.shake = v,
+                    "shake" => self.shake = v,
+                    "vol_master" => self.vol_master = v,
+                    "vol_effects" => self.vol_effects = v,
+                    "vol_cockpit" => self.vol_cockpit = v,
+                    _ => self.vol_music = v,
                 }
             }
             "invert_y" | "hints" => {
@@ -201,8 +222,21 @@ impl Settings {
     }
 
     /// Every key, in the order the file lists them.
-    const KEYS: [&'static str; 9] =
-        ["name", "frame", "sensitivity", "invert_y", "fov", "shake", "gfx", "hints", "hints_seen"];
+    const KEYS: [&'static str; 13] = [
+        "name",
+        "frame",
+        "sensitivity",
+        "invert_y",
+        "fov",
+        "shake",
+        "gfx",
+        "hints",
+        "hints_seen",
+        "vol_master",
+        "vol_effects",
+        "vol_cockpit",
+        "vol_music",
+    ];
 }
 
 /// Settings read from text, with what the file had that this build doesn't know.
@@ -280,6 +314,10 @@ mod tests {
             gfx: GfxChoice::Medium,
             hints: false,
             hints_seen: 0b1011,
+            vol_master: 0.6,
+            vol_effects: 1.0,
+            vol_cockpit: 0.35,
+            vol_music: 0.0,
         };
         let text = serialize(&s, SETTINGS_VERSION, &[]);
         let back = parse(&text, Settings::default());
@@ -290,17 +328,17 @@ mod tests {
 
     #[test]
     fn a_newer_builds_keys_survive_in_order() {
-        let text = "version = 7\nvol_music = 0.3\nfov = 90\nzoom_style = \"snappy\"\nvol_music = 0.4\n";
+        let text = "version = 7\nvoice_chat = 0.3\nfov = 90\nzoom_style = \"snappy\"\nvoice_chat = 0.4\n";
         let loaded = parse(text, Settings::default());
         assert_eq!(loaded.settings.fov, 90.0);
         assert_eq!(
             loaded.unknown,
-            vec!["zoom_style = \"snappy\"".to_string(), "vol_music = 0.4".to_string()]
+            vec!["zoom_style = \"snappy\"".to_string(), "voice_chat = 0.4".to_string()]
         );
         let written = serialize(&loaded.settings, loaded.version, &loaded.unknown);
         assert!(written.contains("version = 7\n"), "a newer file stays marked newer");
-        assert!(written.contains("zoom_style = \"snappy\"\n") && written.contains("vol_music = 0.4\n"));
-        assert!(!written.contains("vol_music = 0.3"), "the last value wins");
+        assert!(written.contains("zoom_style = \"snappy\"\n") && written.contains("voice_chat = 0.4\n"));
+        assert!(!written.contains("voice_chat = 0.3"), "the last value wins");
     }
 
     #[test]

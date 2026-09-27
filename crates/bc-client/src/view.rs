@@ -114,6 +114,11 @@ pub enum FxEvent {
         vel: Vec3,
         rot: Quat,
     },
+    /// A missile leaving its launcher (`own`: the pilot's).
+    MissileLaunch {
+        pos: Vec3,
+        own: bool,
+    },
     /// A missile's warhead going off: against a suit (`struck`), or at the end of its flight or
     /// against rock or hull.
     MissileBurst {
@@ -172,6 +177,8 @@ pub enum Vis {
     Drive,
     Suits,
     Camera,
+    /// Sound: after the camera (the listener) moves, before the effects drain the events.
+    Audio,
     Fx,
     Hud,
 }

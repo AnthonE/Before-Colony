@@ -557,6 +557,7 @@ dependencies = [
  "bc-model",
  "bc-proto",
  "bc-sim",
+ "bc-sound",
  "bevy",
  "bevy_asset",
  "bevy_ecs",
@@ -654,6 +655,13 @@ dependencies = [
  "libm",
  "proptest",
  "wasm-bindgen-test",
+]
+
+[[package]]
+name = "bc-sound"
+version = "0.1.0"
+dependencies = [
+ "bc-alloc",
 ]
 
 [[package]]

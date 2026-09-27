@@ -25,7 +25,7 @@ Shenlong, against Taurus and Virgo Mobile Dolls. Each Gundam brings its kit and 
 
 Salvage and mining, and agents via the Bot SDK, carry over from Milestone 1. The suits are
 procedural, jointed models whose armour and limbs come off. The sky, colony and asteroid field are
-drawn with custom shaders.
+drawn with custom shaders, and every sound is synthesised at boot (`bc-sound`).
 
 ## Quick start
 
@@ -127,6 +127,7 @@ crates/bc-server       WebTransport server, dev HTTP (/cert-hash, /status)
 crates/bc-bot          Bot SDK, mobile_doll and miner agents, bc-swarm
 crates/bc-client       Bevy browser client (wasm32)
 crates/bc-model        the suits' procedural designs and their sockets
+crates/bc-sound        the generated sound bank, mixer, cockpit sounds and music
 crates/bc-alloc        counting allocator for the zero-allocation proofs
 docs/                  DESIGN.md · ARCHITECTURE.md · PROTOCOL.md
 web/, scripts/, e2e/   page shell, build and dev scripts, Playwright tests

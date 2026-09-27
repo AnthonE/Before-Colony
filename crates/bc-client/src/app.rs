@@ -101,6 +101,9 @@ pub fn run() {
                     .in_set(Vis::Drive),
             )
             .add_systems(Update, (follow, pilot_effects).chain().in_set(Vis::Camera))
+            .add_plugins(crate::audio::AudioPlugin)
+            .add_systems(First, crate::audio::build_bank)
+            .add_systems(Update, crate::audio::play_sound.in_set(Vis::Audio))
             .add_systems(
                 Update,
                 (show_hud, update_hud, crate::zero_overlay::draw_ghosts, publish_game)
@@ -136,7 +139,10 @@ impl Plugin for VisualsPlugin {
                 crate::ambience::AmbiencePlugin,
                 crate::zero_vision::ZeroVisionPlugin,
             ))
-            .configure_sets(Update, (Vis::Drive, Vis::Suits, Vis::Camera, Vis::Fx, Vis::Hud).chain())
+            .configure_sets(
+                Update,
+                (Vis::Drive, Vis::Suits, Vis::Camera, Vis::Audio, Vis::Fx, Vis::Hud).chain(),
+            )
             .add_systems(
                 Startup,
                 (

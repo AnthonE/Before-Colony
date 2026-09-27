@@ -375,7 +375,7 @@ pub fn update_fx(
                 });
             }
             // The camera shakes and flashes for this one (see `camera`).
-            FxEvent::Struck { .. } => {}
+            FxEvent::Struck { .. } | FxEvent::MissileLaunch { .. } => {}
             FxEvent::RockBreak { pos, radius, ore } => {
                 particles.rock_burst(cap, At { pos, vel: Vec3::ZERO }, radius, ore);
                 state.flashes.push(Flash {

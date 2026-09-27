@@ -77,6 +77,7 @@
 
   function launch(e) {
     if (e) e.preventDefault();
+    send("sfx", { cue: "confirm" });
     send("play", { name: $("callsign").value.trim(), frame: chosen });
     canvas()?.focus();
   }
@@ -233,6 +234,30 @@
       });
     }
   });
+
+  // Sound: the game makes the AudioContext (window.bcAudio). Browsers start it only from a
+  // gesture, so any click or key wakes it; it sleeps while the tab is hidden (the game's frames
+  // stop, and an engine loop would drone on).
+  const wakeAudio = () => {
+    const a = window.bcAudio;
+    if (a && a.state === "suspended" && !document.hidden) a.resume().catch(() => {});
+  };
+  window.addEventListener("pointerdown", wakeAudio, true);
+  window.addEventListener("keydown", wakeAudio, true);
+  document.addEventListener("visibilitychange", () => {
+    const a = window.bcAudio;
+    if (!a) return;
+    (document.hidden ? a.suspend() : a.resume()).catch(() => {});
+  });
+  // Every menu button clicks (Launch confirms, above).
+  document.addEventListener(
+    "click",
+    (e) => {
+      const b = e.target instanceof Element ? e.target.closest("button") : null;
+      if (b && b.id !== "launch-button") send("sfx", { cue: "click" });
+    },
+    true,
+  );
 
   // Esc and F1 are the page's (Chrome keeps the Esc that ends a pointer lock to itself; the game
   // notices the lock going instead). Capture phase, so the game's canvas can't swallow them.

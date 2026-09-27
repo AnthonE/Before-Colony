@@ -304,6 +304,15 @@ and frame launched. `bc_client_core::settings` defines them, their ranges and th
 key this build doesn't know is kept, for the build that wrote it). A new pilot gets one hint at a
 time (thrust, boost, fire, flight assist, salvage, the menu), each gone once it's been done.
 
+**Sound.** Every sound is generated at boot (`bc-sound`, no audio files): weapons, impacts,
+explosions, the engines worked by the throttle, RCS puffs, the lock tone quickening as a lock
+builds, missile and low-propellant alarms, the pilot's heartbeat under G, the ZERO System's drone,
+the dock and the sale, and a score that crossfades from calm to combat with the fight. There's no
+air in space, so it's the cockpit's sound: the suit's own machinery, and the world as the sensors
+render it, quieter with distance and gone beyond each cue's range. A blackout muffles everything.
+The browser plays it through Web Audio; volumes are settings (master, weapons, cockpit, music).
+`cargo run -p bc-sound --release --example reel -- reel.wav` writes a reel to listen to.
+
 **Lock assist.** A frame with missiles designates the hostile nearest the reticle (within 10°) and
 keeps it while it stays within 15°. Its bracket fills as the lock builds and reads LOCKED when it's
 acquired. The HUD shows the special's state (READY, JAMMING, FIRING, the cooldown), the lock, and

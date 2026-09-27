@@ -37,6 +37,8 @@ pub enum UiCmd {
     Settings(bool),
     /// A setting changed on the panel: its key and new value, as text.
     Set { key: String, value: String },
+    /// A menu sound: `click` or `confirm`.
+    Sfx(String),
     /// Dev hook: drop the link as if the network had failed (tests the reconnect path).
     DropLink,
 }
@@ -167,6 +169,7 @@ fn parse(v: &JsValue) -> Option<UiCmd> {
         "settings" => UiCmd::Settings(get(v, "show").as_bool().unwrap_or(true)),
         "set" => UiCmd::Set { key: s("key"), value: s("value") },
         "drop_link" => UiCmd::DropLink,
+        "sfx" => UiCmd::Sfx(s("cue")),
         _ => return None,
     })
 }

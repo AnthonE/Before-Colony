@@ -1,0 +1,15 @@
+[package]
+name = "bc-sound"
+description = "Before Colony sound: a generated bank, the mixer, the cockpit model and the music director (no Bevy, no I/O)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dev-dependencies]
+bc-alloc.workspace = true
+
+[lints]
+workspace = true
