@@ -25,7 +25,7 @@ Shenlong, against Taurus and Virgo Mobile Dolls. Each Gundam brings its kit and 
 
 Salvage and mining, and agents via the Bot SDK, carry over from Milestone 1. The suits are
 procedural, jointed models whose armour and limbs come off. The sky, colony and asteroid field are
-drawn with custom shaders.
+drawn with custom shaders, and every sound is synthesised at boot (`bc-sound`).
 
 ## Quick start
 
@@ -38,10 +38,12 @@ Prerequisites:
 scripts/dev.sh          # builds the client, starts a sector with 24 Mobile Dolls, an AI agent and a miner
 ```
 
-Open <http://127.0.0.1:8080> in Chrome or Edge, then click to take control. Add `?autopilot=1` to
+Open <http://127.0.0.1:8080> in Chrome or Edge, enter a callsign, pick a mobile suit and LAUNCH.
+Click the game to take control; Esc opens the menu and F1 lists the controls. `?autoplay=1` skips
+the title screen. Add `?autopilot=1` to
 watch the kit-aware Mobile Doll brain fly your suit with the ZERO System engaged, and
 `?frame=leo|wingzero|heavyarms|deathscythe|sandrock|shenlong` to pick it. `?quality=low|medium|high|ultra`
-picks a graphics tier (F10 cycles them). Without a server,
+picks a graphics tier for the visit (F10 cycles them; the settings keep the choice). Without a server,
 `?showcase=gundams|lineup|duel|colony|field|sky|chase|salvage|mining` plays an offline scene.
 
 Only Chromium has been tested. Firefox and Safari 26.4+ also ship WebTransport, but the dev server's
@@ -57,11 +59,26 @@ self-signed certificate depends on `serverCertificateHashes` pinning, and that m
 | V · Z | flight assist · ZERO System |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
 | 1–6 | respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
+| Esc · F1 · F10 | menu · controls · graphics quality |
 
 Frames with missiles lock on by themselves: hold the reticle on a hostile until its bracket reads
 LOCKED, then fire.
 
-Server flags: `--mobile-dolls N`, `--max-clients N`, `--oracle local|jev`, `--mode echo`.
+**Signing in.** CONNECT WALLET on the title screen signs you in with an Ethereum wallet (MetaMask
+or any `window.ethereum` extension). The wallet shows a Sign-In with Ethereum message (EIP-4361)
+that proves the address is yours; it authorizes nothing and moves no funds. Guests can fly too, but
+only a signed-in pilot's suit is theirs to come back to. A dropped link, or a reload, reconnects
+without asking the wallet again; signing in from a second window takes the pilot over.
+
+**Logging off.** Signed in, SLEEP & DISCONNECT (or just closing the tab) leaves your Gundam in the
+sector with you asleep in the cockpit, drifting on as it was; you wake in it when you're back. Rest
+against an asteroid first (the HUD reads PARKED) and it stays put there, hidden from sensors beyond
+400 m. Mobile Dolls leave sleepers alone, but other pilots can hunt them.
+
+Server flags: `--mobile-dolls N`, `--max-clients N`, `--oracle local|jev`, `--mode echo`,
+`--siwe-domain HOST` (the host pages are served from, which wallets sign in to; defaults to
+`--http`), `--require-auth` (no human guests). Pilot records are kept in memory for now, behind a
+`PilotStore` trait a Redis or Mongo store can implement.
 
 ### The ZERO System with TypeSafe Jev
 
@@ -110,7 +127,9 @@ write your own brain as a closure: see `crates/bc-bot/src/lib.rs`.
   features and running `wasm-opt` (`BC_WEB_OPT=1`) are the next steps.
 - Wing Zero's change into Neo-Bird isn't animated yet (the model swaps, with a flash), and
   missiles can't be shot down yet.
-- One sector, no persistence or accounts yet. The roadmap is in `docs/DESIGN.md`.
+- One sector. Pilot records (wallet, credits, the suit left asleep) are kept in memory, so a
+  server restart forgets them; a Redis or Mongo `PilotStore` is the next step. The roadmap is in
+  `docs/DESIGN.md`.
 
 ## Repository
 
@@ -124,6 +143,7 @@ crates/bc-server       WebTransport server, dev HTTP (/cert-hash, /status)
 crates/bc-bot          Bot SDK, mobile_doll and miner agents, bc-swarm
 crates/bc-client       Bevy browser client (wasm32)
 crates/bc-model        the suits' procedural designs and their sockets
+crates/bc-sound        the generated sound bank, mixer, cockpit sounds and music
 crates/bc-alloc        counting allocator for the zero-allocation proofs
 docs/                  DESIGN.md · ARCHITECTURE.md · PROTOCOL.md
 web/, scripts/, e2e/   page shell, build and dev scripts, Playwright tests

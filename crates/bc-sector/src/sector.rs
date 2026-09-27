@@ -4,12 +4,13 @@ use std::sync::Arc;
 
 use bc_proto::buttons::FIRE_MASK;
 use bc_proto::{InputCmd, MAX_DATAGRAM, SnapshotHeader};
+use bc_sim::handle::Handle;
 use bc_sim::zero::TacticalPicture;
-use bc_sim::{Sim, SimConfig};
+use bc_sim::{Sim, SimConfig, SuitId};
 
 use crate::clients::ClientState;
 use crate::metrics::Metrics;
-use crate::queues::{Control, SectorEnds, SectorShared, SlotState};
+use crate::queues::{Control, Outcome, SectorEnds, SectorShared, SlotState};
 use crate::replicate::{Work, build_snapshot};
 
 /// Ticks between tactical pictures per ZERO pilot when an external oracle is attached (≈3.75 Hz).
@@ -85,6 +86,7 @@ impl Sector {
         self.drain_advice();
         self.apply_inputs();
         self.sim.step();
+        self.pass_on_fates();
         if self.cfg.oracle {
             self.send_pictures();
         }
@@ -95,7 +97,7 @@ impl Sector {
     fn drain_control(&mut self) {
         while let Some(msg) = self.shared.control.pop() {
             match msg {
-                Control::Join { slot, pilot, frame, faction, max_datagram } => {
+                Control::Join { slot, pilot, frame, faction, max_datagram, comeback } => {
                     let s = slot as usize;
                     if s >= self.clients.len() {
                         continue;
@@ -103,28 +105,52 @@ impl Sector {
                     if self.clients[s].active {
                         self.sim.leave(self.clients[s].suit);
                     }
-                    match self.sim.join(frame, faction, pilot) {
-                        Some(id) => {
+                    // Back in the suit they left asleep, if it's still there.
+                    let woke = comeback
+                        .sleeper
+                        .map(|(idx, generation)| SuitId(Handle { idx, generation }))
+                        .filter(|&id| self.sim.wake(id));
+                    let seated = match woke {
+                        Some(id) => Some((id, Outcome::Woke)),
+                        None => {
+                            // A full sector makes room: the longest asleep go first.
+                            self.sim.ensure_free_suits(1);
+                            let id = self.sim.join(frame, faction, pilot);
+                            if let Some(id) = id {
+                                self.sim.set_credits(id, comeback.credits);
+                            }
+                            id.map(|id| (id, Outcome::Fresh))
+                        }
+                    };
+                    match seated {
+                        Some((id, outcome)) => {
                             let seq = self.sim.events.next_seq();
                             self.clients[s].seat(id, pilot, max_datagram as usize, seq);
                             Metrics::set(&self.shared.metrics.pilots[s].suit, id.idx() as u64 + 1);
-                            self.shared.slots[s].publish(SlotState::Active, Some(id.0.idx));
+                            self.shared.slots[s].publish(SlotState::Active, Some(id), outcome);
                         }
-                        None => self.shared.slots[s].publish(SlotState::Refused, None),
+                        None => self.shared.slots[s].publish(SlotState::Refused, None, Outcome::Fresh),
                     }
                 }
-                Control::Leave { slot } => {
+                Control::Leave { slot } | Control::Sleep { slot } => {
                     let s = slot as usize;
                     if s >= self.clients.len() {
                         continue;
                     }
+                    let mut asleep = None;
                     if self.clients[s].active {
-                        self.sim.leave(self.clients[s].suit);
+                        let id = self.clients[s].suit;
+                        if matches!(msg, Control::Sleep { .. }) && self.sim.sleep(id) {
+                            asleep = Some(id);
+                        } else {
+                            self.sim.leave(id);
+                        }
                         self.clients[s].active = false;
                     }
                     while self.ends.inputs[s].pop().is_ok() {}
                     Metrics::set(&self.shared.metrics.pilots[s].suit, 0);
-                    self.shared.slots[s].publish(SlotState::Free, None);
+                    let outcome = if asleep.is_some() { Outcome::Asleep } else { Outcome::Released };
+                    self.shared.slots[s].publish(SlotState::Free, asleep, outcome);
                 }
                 Control::Respawn { slot, frame } => {
                     if let Some(c) = self.clients.get(slot as usize).filter(|c| c.active) {
@@ -156,6 +182,16 @@ impl Sector {
                 client.time_echo_recv_us = msg.recv_us;
             }
         }
+    }
+
+    /// Sleepers destroyed or cleared this tick, on to the server.
+    fn pass_on_fates(&mut self) {
+        let shared = &self.shared;
+        self.sim.drain_fates(|fate| {
+            if shared.notes.push(fate).is_err() {
+                Metrics::add(&shared.metrics.notes_dropped, 1);
+            }
+        });
     }
 
     fn drain_advice(&mut self) {
@@ -260,6 +296,7 @@ impl Sector {
             Metrics::set(&ps.specials, u64::from(st.specials));
             Metrics::set(&ps.missiles, u64::from(st.missiles));
             Metrics::set(&ps.frame, self.sim.suits.frame[client.suit.idx()] as u64);
+            Metrics::set(&ps.credits, u64::from(self.sim.suits.credits[client.suit.idx()]));
         }
     }
 
@@ -267,6 +304,8 @@ impl Sector {
         let m = &self.shared.metrics;
         Metrics::set(&m.clients, self.clients.iter().filter(|c| c.active).count() as u64);
         Metrics::set(&m.suits_alive, self.sim.alive_count() as u64);
+        Metrics::set(&m.sleepers, self.sim.sleepers() as u64);
+        Metrics::set(&m.parked, self.sim.parked() as u64);
         Metrics::set(&m.projectiles, self.sim.projectiles.count() as u64);
         Metrics::set(&m.events, u64::from(self.sim.events.next_seq()));
     }

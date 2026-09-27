@@ -13,6 +13,7 @@
 pub mod config;
 pub mod http;
 pub mod net;
+pub mod pilots;
 pub mod telemetry;
 
 use std::net::SocketAddr;
@@ -70,14 +71,15 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
     let stats = Arc::new(net::NetStats::default());
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
-    let game = match cfg.mode {
-        Mode::Echo => None,
-        Mode::Game => Some(net::game::GameRuntime::start(&cfg, stats.clone())?),
-    };
-    let shared = game.as_ref().map(|g| g.shared());
-
     let listener = tokio::net::TcpListener::bind(cfg.http_addr).await?;
     let http_addr = listener.local_addr()?;
+    // What wallets sign in to: where the pages come from.
+    let domain = cfg.siwe_domain.clone().unwrap_or_else(|| http_addr.to_string());
+    let game = match cfg.mode {
+        Mode::Echo => None,
+        Mode::Game => Some(net::game::GameRuntime::start(&cfg, stats.clone(), domain)?),
+    };
+    let shared = game.as_ref().map(|g| g.shared());
     let status_stats = stats.clone();
     let status_view = game.as_ref().map(|g| g.status_view());
     let status_game = status_view.clone();

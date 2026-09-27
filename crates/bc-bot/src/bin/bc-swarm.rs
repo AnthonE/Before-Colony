@@ -78,7 +78,7 @@ async fn main() -> anyhow::Result<()> {
             totals.hits.fetch_add(u64::from(bot.world().my_hits), Ordering::Relaxed);
             totals.kills.fetch_add(u64::from(bot.world().my_kills), Ordering::Relaxed);
             totals.pred_err_mm_max.fetch_max((worst * 1000.0) as u64, Ordering::Relaxed);
-            bot.close();
+            bot.close().await;
         }));
     }
     for t in tasks {

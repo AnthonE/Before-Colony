@@ -25,8 +25,10 @@
 | `bc-sim` | `no_std` + `alloc` at construction only | The simulation: flight, weapons, damage, lag comp, sensors, Mobile Doll AI, ZERO, the debris field, salvage and mining. Shared by the server and the browser. |
 | `bc-sector` | std, no tokio | The hot loop: a paced thread, lock-free queues, jitter buffers, interest, snapshot encoding, metrics. |
 | `bc-zero` | std + tokio | Tactical oracles off the hot path: the `TacticalOracle` trait, `JevOracle`, the worker. |
-| `bc-client-core` | std, no transport | Client state machine for the browser *and* bots: clock, inputs, prediction, interpolation, world model, the salvage view, `DollBrain` and `MinerBrain`. |
-| `bc-server` | bin + lib | WebTransport sessions, egress thread, roster, dev HTTP, `/status`. |
+| `bc-client-core` | std, no transport | Client state machine for the browser *and* bots: clock, inputs, prediction, interpolation, world model, the salvage view, `DollBrain` and `MinerBrain`; the link state machine (dial, sign in, redial), the pointer, settings, first-flight hints. |
+| `bc-auth` | `no_std` | Wallet sign-in: the EIP-4361 message both sides build, EIP-55 addresses, and (features) the server's signature check and a local wallet for agents and tests. The browser builds only the message. |
+| `bc-sound` | lib | The sound bank, generated in code (no audio files): cues, the mixer (culling, cooldowns, voices, panning), the cockpit's loops and alarms, the score. Pure Rust; the browser plays it through Web Audio. |
+| `bc-server` | bin + lib | WebTransport sessions, sign-in and the pilot registry (`pilots`: records behind a `PilotStore`, one session per wallet, resume tokens), egress thread, roster, dev HTTP, `/status`. |
 | `bc-bot` | lib + bins | Bot SDK (`BotClient`), `mobile_doll` and `miner` example agents, `bc-swarm` load tester. |
 | `bc-client` | wasm32 bin | Bevy app: procedural jointed suits (every frame's kit, animated from its `MeleeSpec`s), sky, colony and field (custom shaders), particles and effects (missiles, stream tracers, flame, jammer shimmer), camera, input with lock assist, HUD, ZERO overlay, offline showcase scenes. |
 | `bc-model` | lib | The suits' procedural designs on a shared 24-bone rig, and the sockets their kits are drawn from (muzzles, blades, the Dragon Fang, missile hatches), checked against each frame's hit capsules. |
@@ -60,7 +62,9 @@ network threads.
 
 ## Tick pipeline (`Sector::tick`)
 
-1. **Control:** Join (claim a suit at the faction's spawn), Leave (release it), Respawn frame.
+1. **Control:** Join (wake the suit a signed-in pilot left asleep, if it's still there; else claim a
+   suit at the faction's spawn, clearing the longest-asleep sleeper if the sector is full), Leave
+   (release it), Sleep (a signed-in pilot left: the suit stays, asleep), Respawn frame.
 2. **Inputs:** drain each slot's ring into a 64-slot jitter buffer, and process acks.
 3. **Oracle advice** in, with a 15-tick time-to-live.
 4. **Apply inputs** for tick `T`: the client's command if it arrived; otherwise the last one with fire
@@ -70,7 +74,8 @@ network threads.
    2. Specials: their cooldowns run down; the Hyper Jammer follows MODE and drains energy; Full
       Open runs; a transformable frame changes form on MODE (`bc_sim::transform`, which the
       client's predictor runs too).
-   3. Flight: AMBAC/RCS, thrust, propellant, G-strain, swept against the rocks. Wrecks drift.
+   3. Flight: AMBAC/RCS, thrust, propellant, G-strain, swept against the rocks. Wrecks drift, and
+      so do sleepers (`sim/sleep.rs`: no flight assist, no attitude hold), unless parked on a rock.
    4. Chunks (loose ore, limbs, hulks): free ones drift on closed-form segments, bounce off the
       colony and rocks, and expire.
    5. Rebuild the spatial hash (counting sort, 128 m cells).
@@ -96,13 +101,15 @@ network threads.
    12. Heat, energy, ZERO strain (seizure and lockout), respawns.
    13. ZERO rollouts (staggered every 3 ticks per pilot).
    12. Shattered rocks grow back once no suit is near (checked every 30 ticks).
-6. **Tactical pictures** for ZERO pilots (≈4 Hz), only when an external oracle is attached.
-7. **Snapshots** for each client, straight into its ring. The egress thread is unparked.
+6. **Sleepers' fates** (destroyed, or cleared for room) onto the notes queue, for the server to tell
+   their pilots.
+7. **Tactical pictures** for ZERO pilots (≈4 Hz), only when an external oracle is attached.
+8. **Snapshots** for each client, straight into its ring. The egress thread is unparked.
 
 ## Netcode
 
 - **Transport.** WebTransport (HTTP/3 over QUIC). Unreliable datagrams carry inputs and snapshots;
-  one reliable bidirectional stream carries the handshake, roster and respawns.
+  one reliable bidirectional stream carries the handshake (and wallet sign-in), roster and respawns.
   - Dev servers use a self-signed ECDSA P-256 certificate, valid 14 days. Browsers pin it with
     `serverCertificateHashes`, served at `/cert-hash`. Production should use a real certificate.
 - **Inputs.** One `InputCmd` per tick. Each packet repeats the last 4 commands, so a single loss
@@ -177,6 +184,16 @@ network threads.
   ZERO perception and for locks, so the Hyper Jammer hides a suit from all of them at once.
   Designations (lock targets) are raw client input, so they're read through `Sim::designation`,
   which keeps only a live hostile on the designator's sensors.
+- **Sign-in and pilots.** A Hello may ask to sign in with a wallet (SIWE; see `PROTOCOL.md`). The
+  session task does the challenge, the signature check and the pilot registry's bookkeeping
+  (`bc-server/src/pilots.rs`) before the sector hears of the pilot, so none of it touches the tick.
+  Records go through the `PilotStore` trait: in memory today, plain serde data so a Redis or Mongo
+  store can keep them as they are. One session per wallet: a new one takes the pilot over.
+- **Sleepers.** A signed-in pilot's session ends with `Control::Sleep` instead of `Leave`, and the
+  record keeps which suit (slot and generation, for this server run). The next session's Join
+  carries it back (`Comeback`), and the sector wakes it if it's still there. The sector reports
+  sleepers destroyed or cleared on a lock-free queue; a server task turns them into news for their
+  pilots (`pilots.rs`), read out as a Notice when they're back.
 
 ## AI layers
 

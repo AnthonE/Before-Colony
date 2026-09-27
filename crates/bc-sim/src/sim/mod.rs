@@ -22,6 +22,7 @@ mod melee;
 mod mining;
 mod missile;
 mod salvage;
+mod sleep;
 mod specials;
 mod wire;
 mod zero;
@@ -53,6 +54,8 @@ use crate::suits::{MeleePhase, Suits};
 use crate::transform::transform_thrust;
 use crate::zero::TacticalAdvice;
 use crate::zero::strain::StrainEvent;
+
+pub use sleep::{Anchor, Body, Gone, PARK_SPEED, PARKED_VISUAL, SleeperFate};
 
 /// A pending hit, applied in the damage phase.
 #[derive(Clone, Copy, Debug)]
@@ -141,6 +144,8 @@ pub struct Sim {
     missile_bits: BitSet,
     /// Scratch: live chunks, likewise.
     chunk_bits: BitSet,
+    /// Sleepers lost since the server last asked (`drain_fates`).
+    fates: FixedVec<SleeperFate>,
 }
 
 impl Sim {
@@ -187,6 +192,7 @@ impl Sim {
             proj_bits: BitSet::new(cfg.max_projectiles),
             missile_bits: BitSet::new(MAX_MISSILES),
             chunk_bits: BitSet::new(chunks::MAX_CHUNKS),
+            fates: FixedVec::new(64, SleeperFate { suit: 0, generation: 0, gone: Gone::Evicted, tick: 0 }),
         }
     }
 
@@ -253,6 +259,13 @@ impl Sim {
     pub fn set_input(&mut self, id: SuitId, cmd: InputCmd) {
         if self.suits.valid(id) {
             self.suits.input[id.idx()] = cmd;
+        }
+    }
+
+    /// Sets what a suit's pilot has earned (a signed-in pilot, back in a new suit, keeps theirs).
+    pub fn set_credits(&mut self, id: SuitId, credits: u32) {
+        if self.suits.valid(id) {
+            self.suits.credits[id.idx()] = credits;
         }
     }
 
@@ -339,12 +352,12 @@ impl Sim {
         }
     }
 
-    /// Every second: each squad focuses the hostile nearest its anchor.
+    /// Every second: each squad focuses the hostile nearest its anchor (sleepers are left alone).
     fn squad_logic(&mut self) {
         for (s, squad) in self.squads.iter_mut().enumerate() {
             let mut best = (f32::MAX, NO_SLOT);
             for j in self.suits.alive.iter() {
-                if self.suits.faction[j] == Faction::Oz {
+                if self.suits.faction[j] == Faction::Oz || self.suits.sleeping.get(j) {
                     continue;
                 }
                 let d = length(self.suits.flight[j].pos - squad.anchor);
@@ -379,8 +392,10 @@ impl Sim {
         let mut found = core::mem::take(&mut self.query_bits);
         found.clear();
         self.spatial.query_sphere(me.pos, range * 1.3, |j| found.set(j, true));
+        // Mobile Dolls don't hunt sleeping pilots.
+        let doll = self.suits.pilot[i] == PilotKind::MobileDoll;
         for j in found.iter() {
-            if j == i || !self.suits.alive.get(j) {
+            if j == i || !self.suits.alive.get(j) || (doll && self.suits.sleeping.get(j)) {
                 continue;
             }
             // Cheap sensor test first; only detected suits get a full contact built.
@@ -487,6 +502,7 @@ impl Sim {
             // Its target, followed between thinks, unless it has gone behind a jammer.
             let target = (ai_state.target != NO_SLOT
                 && self.suits.is_alive(ai_state.target as usize)
+                && !(doll_ignores(self, i, ai_state.target as usize))
                 && !self.jammed_from(i, ai_state.target as usize))
             .then(|| self.contact_of(ai_state.target as usize, i, t));
             let me = self.self_view(i);
@@ -550,7 +566,10 @@ impl Sim {
         let mut used = core::mem::take(&mut self.iter_bits);
         used.copy_from(&self.suits.used);
         for i in used.iter() {
-            if self.suits.alive.get(i) {
+            if self.suits.sleeping.get(i) && self.suits.alive.get(i) {
+                // Nobody's flying it (`sleep`).
+                self.sleeper_drift(i);
+            } else if self.suits.alive.get(i) {
                 let mut mods = self.flight_mods(i);
                 // Changing form cuts thrust (applied here, not in the replicated factor: the owner's
                 // client applies it the same way as it predicts the change).
@@ -696,7 +715,8 @@ impl Sim {
                 }
                 self.suits.prev_buttons[i] = self.suits.input[i].buttons;
             } else if self.suits.respawn_at[i] != 0 && t >= self.suits.respawn_at[i] {
-                if self.suits.pilot[i] == PilotKind::MobileDoll {
+                // A sleeper destroyed is gone: nobody is there to respawn.
+                if self.suits.pilot[i] == PilotKind::MobileDoll || self.suits.sleeping.get(i) {
                     self.suits.release(i);
                 } else {
                     self.spawn_counter += 1;
@@ -713,4 +733,9 @@ impl Sim {
     pub fn state_hash(&self) -> u64 {
         crate::hash::state_hash(self)
     }
+}
+
+/// A Mobile Doll's target that's asleep is no target.
+fn doll_ignores(sim: &Sim, i: usize, j: usize) -> bool {
+    sim.suits.pilot[i] == PilotKind::MobileDoll && sim.suits.sleeping.get(j)
 }

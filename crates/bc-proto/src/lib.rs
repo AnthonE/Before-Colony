@@ -16,6 +16,7 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
+pub mod auth;
 pub mod bits;
 pub mod control;
 pub mod events;
@@ -35,7 +36,7 @@ pub use snapshot::{EntityState, OwnState, SnapshotHeader, SnapshotReader, Snapsh
 pub use types::{Faction, FrameId, Part, PilotKind, WeaponKind};
 
 /// Bumped on any incompatible wire change; the handshake rejects mismatches.
-pub const PROTOCOL_VERSION: u16 = 5;
+pub const PROTOCOL_VERSION: u16 = 6;
 
 /// Upper bound for every datagram we send. 1200 bytes is the smallest UDP payload QUIC guarantees;
 /// the QUIC short header, AEAD tag and HTTP/3 datagram prefix need ~30–40 of those.

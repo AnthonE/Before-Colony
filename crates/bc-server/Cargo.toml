@@ -10,6 +10,7 @@ repository.workspace = true
 
 [dependencies]
 bc-alloc.workspace = true
+bc-auth = { workspace = true, features = ["verify"] }
 bc-proto.workspace = true
 bc-sim = { workspace = true, features = ["deterministic", "canon-names"] }
 bc-sector.workspace = true
@@ -28,8 +29,11 @@ tracing-subscriber.workspace = true
 hex.workspace = true
 crossbeam-queue.workspace = true
 rtrb.workspace = true
+futures.workspace = true
+getrandom = "0.3"
 
 [dev-dependencies]
+bc-auth = { workspace = true, features = ["sign"] }
 bc-bot.workspace = true
 bc-client-core.workspace = true
 

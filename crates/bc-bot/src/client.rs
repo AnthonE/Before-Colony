@@ -3,7 +3,8 @@
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
-use bc_client_core::{ClientConfig, ClientCore, InputContext, Phase, World};
+use bc_auth::LocalWallet;
+use bc_client_core::{ClientConfig, ClientCore, Identity, InputContext, Phase, World};
 use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
 use tokio::sync::mpsc;
 use wtransport::{Connection, SendStream};
@@ -31,8 +32,26 @@ pub struct BotClient {
 }
 
 impl BotClient {
-    /// Connects, sends the handshake (as [`PilotKind::Agent`]) and waits for the Welcome.
+    /// Connects as a guest, sends the handshake (as [`PilotKind::Agent`]) and waits for the Welcome.
     pub async fn connect(cfg: &BotConfig) -> anyhow::Result<Self> {
+        Self::connect_as(cfg, None).await
+    }
+
+    /// Connects signed in with `wallet` (its suit sleeps in the sector when it leaves, and wakes
+    /// when it comes back), or as a guest.
+    pub async fn connect_as(cfg: &BotConfig, wallet: Option<&LocalWallet>) -> anyhow::Result<Self> {
+        let identity =
+            wallet.map_or(Identity::Guest, |w| Identity::Wallet { address: w.address(), resume: None });
+        Self::connect_with(cfg, identity, wallet).await
+    }
+
+    /// Connects as `identity`, signing with `wallet` if the server asks (a resume token in the
+    /// identity reconnects without signing).
+    pub async fn connect_with(
+        cfg: &BotConfig,
+        identity: Identity,
+        wallet: Option<&LocalWallet>,
+    ) -> anyhow::Result<Self> {
         let info = if cfg.server.starts_with("http://") {
             discover(&cfg.server).await.context("discovering the server")?
         } else {
@@ -45,7 +64,8 @@ impl BotClient {
             pilot: PilotKind::Agent,
             frame: cfg.frame,
             faction: cfg.faction,
-        });
+        })
+        .with_identity(identity);
         tx.write_all(&core.hello()).await?;
         let (ctrl_in, ctrl_rx) = mpsc::unbounded_channel();
         tokio::spawn(async move {
@@ -58,9 +78,15 @@ impl BotClient {
         });
         let mut bot = Self { conn, ctrl_tx: tx, ctrl_rx, core, epoch: Instant::now() };
         let deadline = Instant::now() + Duration::from_secs(5);
-        while bot.core.phase == Phase::Handshake {
+        while matches!(bot.core.phase, Phase::Handshake | Phase::Signing(_)) {
             if Instant::now() > deadline {
                 bail!("no Welcome within 5 s");
+            }
+            if let (Phase::Signing(c), Some(w)) = (bot.core.phase, wallet) {
+                let signature = w.sign_in(c.domain.as_str(), &c.nonce, c.issued_at);
+                let auth = bot.core.auth(signature);
+                bot.ctrl_tx.write_all(&auth).await?;
+                continue;
             }
             match tokio::time::timeout(Duration::from_millis(100), bot.ctrl_rx.recv()).await {
                 Ok(Some(bytes)) => bot.core.on_control(&bytes),
@@ -93,7 +119,11 @@ impl BotClient {
         loop {
             tokio::select! {
                 d = self.conn.receive_datagram() => {
-                    let d = d.context("connection lost")?;
+                    let Ok(d) = d else {
+                        // What the server said last (a goodbye, and why) still counts.
+                        self.drain_control().await;
+                        bail!("connection lost ({:?})", self.core.phase);
+                    };
                     let now = self.now();
                     self.core.on_datagram(&d, now);
                 }
@@ -116,6 +146,15 @@ impl BotClient {
         Ok(())
     }
 
+    /// Takes whatever the control stream still has to say (briefly waiting for it).
+    async fn drain_control(&mut self) {
+        while let Ok(Some(bytes)) =
+            tokio::time::timeout(Duration::from_millis(100), self.ctrl_rx.recv()).await
+        {
+            self.core.on_control(&bytes);
+        }
+    }
+
     /// Runs `brain` for `duration`.
     pub async fn run_for<F>(&mut self, duration: Duration, brain: &mut F) -> anyhow::Result<()>
     where
@@ -135,7 +174,15 @@ impl BotClient {
         Ok(())
     }
 
-    pub fn close(self) {
+    /// Says goodbye and closes the connection.
+    pub async fn close(mut self) {
+        let _ = self.ctrl_tx.write_all(&self.core.bye(bc_proto::control::bye::LEAVE)).await;
+        let _ = tokio::time::timeout(Duration::from_millis(200), self.ctrl_tx.finish()).await;
         self.conn.close(0u32.into(), b"bye");
+    }
+
+    /// Drops the connection without a goodbye (as a crashed client or a lost network would).
+    pub fn drop_link(self) {
+        self.conn.close(0u32.into(), b"");
     }
 }

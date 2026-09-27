@@ -114,6 +114,11 @@ pub enum FxEvent {
         vel: Vec3,
         rot: Quat,
     },
+    /// A missile leaving its launcher (`own`: the pilot's).
+    MissileLaunch {
+        pos: Vec3,
+        own: bool,
+    },
     /// A missile's warhead going off: against a suit (`struck`), or at the end of its flight or
     /// against rock or hull.
     MissileBurst {
@@ -125,6 +130,22 @@ pub enum FxEvent {
 
 #[derive(Resource, Default)]
 pub struct FxEvents(pub Vec<FxEvent>);
+
+/// How the pilot likes the view (their settings in game mode; the defaults, or `?calm=1`, in the
+/// showcase).
+#[derive(Resource, Clone, Copy, Debug, PartialEq)]
+pub struct ViewPrefs {
+    /// Field of view cruising, degrees (boost widens it).
+    pub fov: f32,
+    /// How much of the camera shake, kicks and warps to keep, 0..1.
+    pub shake: f32,
+}
+
+impl Default for ViewPrefs {
+    fn default() -> Self {
+        Self { fov: 70.0, shake: 1.0 }
+    }
+}
 
 /// What the chase camera follows; `None` before spawning (an establishing shot instead).
 #[derive(Resource, Default)]
@@ -156,6 +177,8 @@ pub enum Vis {
     Drive,
     Suits,
     Camera,
+    /// Sound: after the camera (the listener) moves, before the effects drain the events.
+    Audio,
     Fx,
     Hud,
 }

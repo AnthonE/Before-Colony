@@ -4,7 +4,7 @@
 use bc_alloc::CountingAlloc;
 use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, ZERO};
 use bc_proto::{Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, PilotKind};
-use bc_sector::{Control, InputMsg, SectorConfig, read_packet};
+use bc_sector::{Comeback, Control, InputMsg, Outcome, SectorConfig, read_packet};
 use bc_sim::SimConfig;
 use glam::Vec3;
 
@@ -31,6 +31,7 @@ fn sector_tick_never_allocates() {
                 frame,
                 faction: Faction::Colonies,
                 max_datagram: MAX_DATAGRAM as u16,
+                comeback: Comeback::default(),
             })
             .unwrap();
         leases.push(l);
@@ -38,7 +39,28 @@ fn sector_tick_never_allocates() {
     let mut buf = [0u8; 2048];
     let mut total = 0u64;
     let mut snapshots = 0u64;
+    // Pilots come and go signed in: every 20 ticks one leaves (its suit sleeps where it is) and
+    // the one who left before comes back and wakes in theirs.
+    let mut asleep: Option<(u16, (u16, u16))> = None;
+    let (mut slept, mut woke) = (0, 0);
     for step in 0..1_300u32 {
+        let leaving = (step >= 300 && step.is_multiple_of(20)).then_some(((step / 20) % 64) as u16);
+        let mut returning = None;
+        if let Some(slot) = leaving {
+            if let Some((back, id)) = asleep.take() {
+                returning = Some(back);
+                let join = Control::Join {
+                    slot: back,
+                    pilot: PilotKind::Human,
+                    frame: FrameId::Leo,
+                    faction: Faction::Colonies,
+                    max_datagram: MAX_DATAGRAM as u16,
+                    comeback: Comeback { sleeper: Some(id), credits: 500 },
+                };
+                shared.control.push(join).unwrap();
+            }
+            shared.control.push(Control::Sleep { slot }).unwrap();
+        }
         // Network side (outside the counted region): inputs in, packets out, oracle ring drained.
         let next = sector.sim.next_tick();
         for l in &mut leases {
@@ -64,6 +86,18 @@ fn sector_tick_never_allocates() {
         if step >= 300 {
             total += n; // the first 300 ticks let the doll spawner fill the sector
         }
+        if let Some(slot) = leaving {
+            let st = &shared.slots[slot as usize];
+            if st.outcome() == Outcome::Asleep {
+                slept += 1;
+                asleep = st.suit_id().map(|id| (slot, id));
+            }
+        }
+        if let Some(back) = returning
+            && shared.slots[back as usize].outcome() == Outcome::Woke
+        {
+            woke += 1;
+        }
         for ring in &mut egress.rings {
             while let Some(len) = read_packet(ring, &mut buf) {
                 assert!(len <= MAX_DATAGRAM);
@@ -71,7 +105,9 @@ fn sector_tick_never_allocates() {
             }
         }
         while oracle.pictures.pop().is_ok() {}
+        while shared.notes.pop().is_some() {}
     }
+    assert!(slept > 40 && woke > 40, "slept {slept}, woke {woke}");
     let m = &shared.metrics;
     println!(
         "snapshots {snapshots}, max {} B, pictures {}, alive {}",
@@ -108,6 +144,7 @@ fn a_missile_barrage_never_allocates() {
                 frame,
                 faction: Faction::Colonies,
                 max_datagram: MAX_DATAGRAM as u16,
+                comeback: Comeback::default(),
             })
             .unwrap();
         leases.push(l);

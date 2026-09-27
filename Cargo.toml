@@ -14,6 +14,7 @@ repository = "https://github.com/AnthonE/Before-Colony"
 [workspace.dependencies]
 # Internal crates
 bc-alloc = { path = "crates/bc-alloc" }
+bc-auth = { path = "crates/bc-auth", default-features = false }
 bc-proto = { path = "crates/bc-proto" }
 bc-sim = { path = "crates/bc-sim", default-features = false }
 bc-sector = { path = "crates/bc-sector" }
@@ -21,6 +22,7 @@ bc-zero = { path = "crates/bc-zero" }
 bc-client-core = { path = "crates/bc-client-core" }
 bc-model = { path = "crates/bc-model" }
 bc-bot = { path = "crates/bc-bot" }
+bc-sound = { path = "crates/bc-sound" }
 
 # Math: glam 0.32 is the version Bevy 0.19 re-exports, so the client shares types with no conversion.
 glam = { version = "0.32.1", default-features = false, features = ["libm"] }

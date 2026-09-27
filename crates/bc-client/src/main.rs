@@ -9,6 +9,8 @@ mod app;
 #[cfg(target_arch = "wasm32")]
 mod assets;
 #[cfg(target_arch = "wasm32")]
+mod audio;
+#[cfg(target_arch = "wasm32")]
 mod beams;
 #[cfg(target_arch = "wasm32")]
 mod blast;
@@ -45,13 +47,21 @@ mod net_view;
 #[cfg(target_arch = "wasm32")]
 mod noise;
 #[cfg(target_arch = "wasm32")]
+mod page;
+#[cfg(target_arch = "wasm32")]
 mod particles;
 #[cfg(target_arch = "wasm32")]
 mod perf;
 #[cfg(target_arch = "wasm32")]
+mod pointer;
+#[cfg(target_arch = "wasm32")]
 mod rocks;
 #[cfg(target_arch = "wasm32")]
 mod salvage_vis;
+#[cfg(target_arch = "wasm32")]
+mod session;
+#[cfg(target_arch = "wasm32")]
+mod settings;
 #[cfg(target_arch = "wasm32")]
 mod showcase;
 #[cfg(target_arch = "wasm32")]

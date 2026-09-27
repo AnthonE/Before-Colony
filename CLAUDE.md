@@ -12,6 +12,8 @@ WebTransport (QUIC) between them. See `docs/ARCHITECTURE.md` and `docs/DESIGN.md
   The sector thread never wakes tokio; it `unpark()`s the egress thread.
 - Proof: the `no_alloc` tests count heap operations with `bc-alloc::CountingAlloc` and must stay at 0.
 - Determinism: use `bc_sim::math` (libm) for trig; never enable glam `fast-math` or wasm `simd128`.
+- Never log signatures or resume tokens (addresses shortened: `pilots::short`). `bc_proto::auth::Signature`'s
+  `Debug` hides its bytes on purpose.
 
 ## Commands
 - `scripts/ci.sh` — everything CI runs (`BC_E2E=1` adds the browser tests).
@@ -22,5 +24,5 @@ WebTransport (QUIC) between them. See `docs/ARCHITECTURE.md` and `docs/DESIGN.md
   `cargo clippy -p bc-client --target wasm32-unknown-unknown -- -D warnings`
 - `scripts/build-web.sh [webgl2] [webgpu]` — browser build into `web/dist/` (needs wasm-bindgen-cli 0.2.128).
 - `cargo run -p bc-server --release` then open http://127.0.0.1:8080
-- `scripts/e2e.sh spike|slice|gfx|frames [webgl2|webgpu]` — Playwright against a real server (`frames`: the autopilot flies each Gundam; `gfx`: every showcase scene, screenshots in `e2e/artifacts/`).
+- `scripts/e2e.sh spike|slice|gfx|frames|ui|login [webgl2|webgpu]` — Playwright against a real server (`frames`: the autopilot flies each Gundam; `gfx`: every showcase scene, screenshots in `e2e/artifacts/`; `ui`: the page around the game; `login`: wallet sign-in with a stub wallet).
 - Never set `RUSTFLAGS` (it would drop the `web_sys_unstable_apis` cfg from `.cargo/config.toml`).

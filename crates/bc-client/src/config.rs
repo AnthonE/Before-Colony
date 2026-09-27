@@ -10,6 +10,10 @@ pub struct LaunchConfig {
     pub cert_hash: Option<Vec<u8>>,
     /// `?autopilot=1`: the Mobile Doll AI flies this pilot (used by the E2E test).
     pub autopilot: bool,
+    /// `?autoplay=1` (implied by `?autopilot=1`): skip the title screen and launch straight away.
+    pub autoplay: bool,
+    /// The browser has no WebTransport (the page still loads, to say so).
+    pub no_web_transport: bool,
     /// `?name=` pilot name.
     pub name: String,
     /// `?frame=`: a playable frame's slug (`leo`, `wingzero`, `heavyarms`, `deathscythe`,
@@ -22,6 +26,10 @@ pub struct LaunchConfig {
     pub low_quality: bool,
     /// `?quality=low|medium|high|ultra`, already resolved by the loader when it was `auto`.
     pub quality: String,
+    /// The loader's pick for this GPU, whatever the URL said.
+    pub quality_auto: String,
+    /// `?quality=` as given (empty when absent): it overrides the saved setting for this visit.
+    pub quality_param: String,
     /// `?showcase=<scene>`: an offline, scripted scene for building and reviewing visuals.
     pub showcase: Option<String>,
     /// `?t=`: showcase start time, seconds.
@@ -44,7 +52,7 @@ fn get(obj: &JsValue, key: &str) -> JsValue {
     js_sys::Reflect::get(obj, &JsValue::from_str(key)).unwrap_or(JsValue::UNDEFINED)
 }
 
-fn decode_hex(s: &str) -> Option<Vec<u8>> {
+pub(crate) fn decode_hex(s: &str) -> Option<Vec<u8>> {
     if !s.len().is_multiple_of(2) {
         return None;
     }
@@ -60,17 +68,21 @@ impl LaunchConfig {
         let number = |k: &str| get(&cfg, k).as_f64();
         let wt_url = string("wtUrl");
         let cert_hash = get(&cfg, "certHash").as_string().and_then(|h| decode_hex(&h));
-        let name = Some(string("name")).filter(|s| !s.is_empty()).unwrap_or_else(|| "Pilot".into());
-        let frame = Some(string("frame")).filter(|s| !s.is_empty()).unwrap_or_else(|| "wingzero".into());
+        let name = string("name");
+        let frame = string("frame");
         Self {
             wt_url,
             cert_hash,
             autopilot: flag("autopilot"),
+            autoplay: flag("autopilot") || flag("autoplay"),
+            no_web_transport: flag("noWebTransport"),
             name,
             frame,
             echo: flag("echo"),
             low_quality: flag("lowQuality"),
             quality: string("quality"),
+            quality_auto: string("qualityAuto"),
+            quality_param: string("qualityParam"),
             showcase: Some(string("showcase")).filter(|s| !s.is_empty()),
             showcase_t: number("t").unwrap_or(0.0),
             showcase_cam: number("cam").map_or(1, |c| c.clamp(1.0, 9.0) as u32),

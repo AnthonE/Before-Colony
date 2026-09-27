@@ -386,6 +386,9 @@ impl Sim {
                 };
                 self.suits.respawn_at[j] = t + wait.max(1);
                 self.suits.zero[j] = Default::default();
+                if self.suits.sleeping.get(j) {
+                    self.note_fate(j, super::Gone::Destroyed { killer: d.shooter }, t);
+                }
             }
         }
     }

@@ -8,23 +8,23 @@
 //! - a hit flashes the edges red;
 //! - ZERO tints the view while it's engaged (`zero_vision`); a seizure warps, fringes and tears it.
 //!
-//! `?calm=1`, or the browser's reduced-motion setting, turns the shake, kicks and warps down.
+//! The field of view and how much shake, kicks and warps to keep are the pilot's (`ViewPrefs`);
+//! `?calm=1`, or the browser's reduced-motion setting, starts them turned down.
 
 use bc_proto::WeaponKind;
 use bevy::post_process::effect_stack::{ChromaticAberration, LensDistortion, Vignette};
 use bevy::prelude::*;
 use bevy::render::view::ColorGrading;
 
-use crate::net::LaunchConfigRes;
-use crate::view::{CameraTarget, FxEvent, FxEvents, VisTime};
+use crate::view::{CameraTarget, FxEvent, FxEvents, ViewPrefs, VisTime};
 use crate::zero_vision::ZeroVision;
 
 #[derive(Component)]
 pub struct MainCamera;
 
-/// Field of view (degrees) cruising, and on boost.
+/// Field of view (degrees) at the default setting; boost widens it by [`BOOST_WIDEN`].
 const FOV: f32 = 70.0;
-const BOOST_FOV: f32 = 77.0;
+const BOOST_WIDEN: f32 = 7.0;
 /// The chase spring (rad/s): the camera trails by acceleration / ω², about 5 m under 10 g.
 const OMEGA: f32 = 4.5;
 /// The furthest the spring lets the camera stray from its place behind the suit (m).
@@ -77,9 +77,15 @@ pub fn spawn_camera(mut commands: Commands) {
     });
 }
 
-/// How much a reduced-motion setting leaves of shakes, kicks and warps.
-fn motion(cfg: &LaunchConfigRes) -> f32 {
-    if cfg.0.calm { 0.25 } else { 1.0 }
+/// How much of shakes, kicks and warps the pilot keeps.
+fn motion(prefs: &ViewPrefs) -> f32 {
+    prefs.shake.clamp(0.0, 1.0)
+}
+
+/// The field of view the camera eases to.
+fn fov_for(prefs: &ViewPrefs, boost: bool) -> f32 {
+    let fov = prefs.fov.clamp(40.0, 120.0);
+    if boost { fov + BOOST_WIDEN * motion(prefs) } else { fov }
 }
 
 /// Places the chase camera, shakes it and sets its field of view.
@@ -88,7 +94,7 @@ pub fn follow(
     target: Res<CameraTarget>,
     time: Res<VisTime>,
     events: Res<FxEvents>,
-    cfg: Res<LaunchConfigRes>,
+    prefs: Res<ViewPrefs>,
     mut chase: ResMut<Chase>,
     mut cam: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
 ) {
@@ -110,7 +116,7 @@ pub fn follow(
     let coast = c.pos + c.vel * dt;
     if !c.placed || coast.distance(ideal) > 300.0 {
         // Spawning, respawning or a teleport: cut.
-        let fov = if t.boost { FOV + (BOOST_FOV - FOV) * motion(&cfg) } else { FOV };
+        let fov = fov_for(&prefs, t.boost);
         *c = Chase { placed: true, cut: true, pos: ideal, vel: t.vel, fov, ..*c };
     } else {
         let x = coast - ideal;
@@ -141,7 +147,7 @@ pub fn follow(
 
     tf.translation = c.pos;
     tf.look_at(t.pos + t.aim * 800.0, t.up);
-    let shake = c.trauma * c.trauma * motion(&cfg);
+    let shake = c.trauma * c.trauma * motion(&prefs);
     if shake > 0.0 {
         // Smooth pseudo-noise per axis: two incommensurate sines.
         let n = |f: f64, p: f64| {
@@ -152,7 +158,7 @@ pub fn follow(
     }
 
     // Wider on boost.
-    let want = if t.boost { FOV + (BOOST_FOV - FOV) * motion(&cfg) } else { FOV };
+    let want = fov_for(&prefs, t.boost);
     c.fov += (want - c.fov) * (1.0 - (-4.0 * dt).exp());
     if let Projection::Perspective(p) = &mut *projection {
         p.fov = c.fov.to_radians();
@@ -171,7 +177,7 @@ fn smoothstep(lo: f32, hi: f32, x: f32) -> f32 {
 pub fn pilot_effects(
     target: Res<CameraTarget>,
     time: Res<VisTime>,
-    cfg: Res<LaunchConfigRes>,
+    prefs: Res<ViewPrefs>,
     mut chase: ResMut<Chase>,
     mut cam: Query<
         (
@@ -186,7 +192,7 @@ pub fn pilot_effects(
 ) {
     let Ok((vignette, aberration, lens, grading, zero)) = cam.single_mut() else { return };
     let dt = time.dt.min(0.1);
-    let calm = motion(&cfg);
+    let calm = motion(&prefs);
     let t = target.0.unwrap_or_default();
     let c = &mut *chase;
     let cut = std::mem::take(&mut c.cut);

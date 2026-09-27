@@ -226,8 +226,8 @@ can take.
 
 ## Salvage
 
-Battles leave wreckage, and wreckage is worth money. It lasts for the session: credits carry across
-respawns but not reconnects.
+Battles leave wreckage, and wreckage is worth money. Credits carry across respawns, and a
+signed-in pilot keeps them from one session to the next (a guest's go with them).
 
 - **Grab** (G toggles it): the free hand (the left, unless it's gone) closes on the nearest free
   chunk within 8 m of reach that is moving at no more than 12 m/s relative to you, and holds it.
@@ -287,6 +287,52 @@ show which, and thin as the ore is taken. A rock of radius r m has 60 + 25r of s
 | V · Z | flight assist · ZERO System |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
 | 1–6 | respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
+| Esc · F1 · F10 | menu · the controls sheet · graphics quality |
+
+The list players see (the title screen's controls sheet and F1) is
+`bc_client_core::controls::BINDINGS`; keep it in step with this table.
+
+**The page around the game.** The title screen takes a callsign and a mobile suit and launches,
+as a guest or signed in with a wallet (Sign-In with Ethereum: the wallet proves the address, and
+nothing is authorized or spent). A signed-in pilot is someone the sector can remember; a guest's
+suit goes when they do.
+The link says what went wrong in words (a server that's down or unreachable, a full sector, a page
+older than the server, a wallet that declined), offers Retry, and redials by itself, with backoff,
+when a link that was in the world drops. A signed-in redial doesn't ask the wallet again, and
+signing in from a second window takes the pilot over (the first lets go and doesn't fight back). Esc (or the browser taking the pointer back) opens the menu: Resume, Controls,
+Disconnect. The sector doesn't pause. Menus are HTML over the live scene; the cockpit HUD is Bevy's.
+
+**Sleeping in the cockpit.** A signed-in pilot who leaves (SLEEP & DISCONNECT in the menu, closing
+the tab, a link that stays down, a minute without input) doesn't take the suit along: it stays in
+the sector with its pilot asleep in the cockpit, and they wake in it when they're back.
+- *Drifting.* Nobody flies a sleeping suit: no flight assist, no attitude hold. It carries on at the
+  velocity and spin it had, fully Newtonian, and fetches up against rocks and the colony as a wreck
+  would. Its eyes go dark, and brackets read ASLEEP.
+- *Parking.* A suit resting against an asteroid (within 1.5 m of its surface, under 3 m/s) when its
+  pilot leaves is parked instead: held where it sat, cold and still. Sensors don't find it; eyes
+  do, inside 400 m. The HUD reads PARKED while you're somewhere you could park. Shatter the rock
+  and the suit floats free. Moon craters are next (one more kind of `Body` to rest on).
+- *Hunted.* Mobile Dolls leave sleepers alone; other pilots can shoot them down and salvage what's
+  left. A sleeper destroyed stays gone, and its pilot is told by whom when they're back. Parked is
+  safer than drifting.
+- *Room.* At most 256 sleepers a sector; past that, or when the sector's suits run out, the longest
+  asleep is cleared, and its pilot is told. A server restart clears them all.
+- A suit that's already a wreck when its pilot leaves is gone, as a guest's suit always is.
+
+**Settings** (from the title or the menu) are kept in the browser: mouse sensitivity, invert Y,
+field of view, camera shake, first-flight hints and graphics quality, along with the last callsign
+and frame launched. `bc_client_core::settings` defines them, their ranges and the stored text (a
+key this build doesn't know is kept, for the build that wrote it). A new pilot gets one hint at a
+time (thrust, boost, fire, flight assist, salvage, the menu), each gone once it's been done.
+
+**Sound.** Every sound is generated at boot (`bc-sound`, no audio files): weapons, impacts,
+explosions, the engines worked by the throttle, RCS puffs, the lock tone quickening as a lock
+builds, missile and low-propellant alarms, the pilot's heartbeat under G, the ZERO System's drone,
+the dock and the sale, and a score that crossfades from calm to combat with the fight. There's no
+air in space, so it's the cockpit's sound: the suit's own machinery, and the world as the sensors
+render it, quieter with distance and gone beyond each cue's range. A blackout muffles everything.
+The browser plays it through Web Audio; volumes are settings (master, weapons, cockpit, music).
+`cargo run -p bc-sound --release --example reel -- reel.wav` writes a reel to listen to.
 
 **Lock assist.** A frame with missiles designates the hostile nearest the reticle (within 10°) and
 keeps it while it stays within 15°. Its bracket fills as the lock builds and reads LOCKED when it's
@@ -298,8 +344,8 @@ MISSILE LOCK and MISSILE warnings, with a marker on each missile tracking you.
 Milestone 1 was the playable slice; Milestone 2 the five Gundams (Heavyarms, Deathscythe, Sandrock,
 Shenlong, and Wing Zero's Neo-Bird), each flown by pilots and agents.
 
-- **Sectors:** multiple sectors with handoff, transfer orbits, TiDi, persistence (Postgres, off
-  the hot path), accounts.
+- **Sectors:** multiple sectors with handoff, transfer orbits, TiDi, persistence (a Redis or Mongo
+  `PilotStore`, off the hot path).
 - **Suits:**
   - Tallgeese, Epyon (its own ZERO).
   - Shooting missiles down; deployable Planet Defensors.

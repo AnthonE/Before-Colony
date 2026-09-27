@@ -67,14 +67,29 @@ fn hide_boot_overlay() {
 }
 
 /// Game state for the E2E tests (and for curious humans at the devtools console).
-pub fn publish_game(game: NonSend<crate::net::GameClient>, mut dev: ResMut<DevStatus>) {
+pub fn publish_game(
+    game: NonSend<crate::net::GameClient>,
+    link: Res<crate::session::LinkRes>,
+    ui: Res<crate::page::Ui>,
+    mut dev: ResMut<DevStatus>,
+) {
     use bc_proto::PilotKind;
     use bc_sim::content::WeaponClass;
+    dev.set("link", link.0.name());
+    dev.set("reconnects", link.0.reconnects);
+    dev.set("last_error", link.0.last_error.as_ref().map(|e| e.text()).unwrap_or_default());
+    dev.set("screen", format!("{:?}", ui.screen).to_lowercase());
+    dev.set("panel", format!("{:?}", ui.panel).to_lowercase());
+    dev.set("help", ui.help);
+    dev.set("click_to_fly", ui.click_to_fly);
     let game = game.borrow();
     let core = &game.core;
     let w = &core.world;
     dev.set("mode", "game");
     dev.set("welcomed", core.welcome.is_some());
+    dev.set("signed_in", core.welcome.is_some_and(|w| w.signed_in));
+    dev.set("woke", core.welcome.is_some_and(|w| w.woke));
+    dev.set("resume_token", core.resume_token.is_some());
     dev.set("snapshots", core.stats.snapshots as f64);
     dev.set("max_snapshot", core.stats.max_snapshot as u32);
     dev.set("entities", w.entities.iter().flatten().count() as u32);
@@ -91,6 +106,18 @@ pub fn publish_game(game: NonSend<crate::net::GameClient>, mut dev: ResMut<DevSt
     dev.set("my_deaths", w.my_deaths);
     dev.set("hits_taken", w.hits_taken);
     dev.set("alive", w.own.is_some_and(|o| o.alive));
+    // The own suit: which entity slot (and generation) it is, and whether it could park.
+    dev.set("own_slot", w.own.map_or(-1, |o| i32::from(o.slot)));
+    dev.set("own_generation", w.own.map_or(-1, |o| i32::from(o.generation)));
+    dev.set("parkable", w.own.is_some_and(|o| o.flags & bc_proto::snapshot::own_flags::PARKABLE != 0));
+    dev.set(
+        "sleepers_seen",
+        w.entities
+            .iter()
+            .flatten()
+            .filter(|t| t.latest.flags & bc_proto::snapshot::ent_flags::ASLEEP != 0)
+            .count() as u32,
+    );
     dev.set("zero_active", w.zero.is_some());
     dev.set("zero_jev", w.zero.is_some_and(|z| z.source_jev));
     dev.set("rtt_ms", core.clock.rtt * 1_000.0);

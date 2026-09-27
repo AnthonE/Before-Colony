@@ -104,6 +104,9 @@ impl Sim {
         if s.alive.get(i) && self.docked(i) {
             flags |= own_flags::DOCKED;
         }
+        if self.parkable(i).is_some() {
+            flags |= own_flags::PARKABLE;
+        }
         if spec.zero || self.cfg.zero_on_all_frames {
             flags |= own_flags::ZERO_CAPABLE;
         }
@@ -221,6 +224,9 @@ impl Sim {
         }
         if !s.alive.get(j) {
             flags |= ent_flags::WRECK;
+        }
+        if s.sleeping.get(j) {
+            flags |= ent_flags::ASLEEP;
         }
         if s.input[j].lock_target == viewer as u16 && self.designation(j) == Some(viewer) {
             flags |= ent_flags::LOCKED_ON_YOU;

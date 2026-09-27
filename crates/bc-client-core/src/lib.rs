@@ -10,14 +10,20 @@
 
 pub mod brains;
 pub mod clock;
+pub mod controls;
+pub mod hints;
 pub mod inputs;
 pub mod interp;
+pub mod pointer;
 pub mod predict;
 pub mod salvage;
+pub mod session;
+pub mod settings;
 pub mod world;
 
+use bc_proto::auth::{Address, Domain, NONCE_BYTES, Signature, TOKEN_BYTES};
 use bc_proto::buttons::FIRE_PRIMARY;
-use bc_proto::control::{ControlMsg, RejectReason};
+use bc_proto::control::{ControlMsg, RejectReason, hello_flags, roster_flags, welcome_flags};
 use bc_proto::{Faction, FrameId, InputCmd, InputPacket, PROTOCOL_VERSION, PilotKind, SnapshotReader};
 use bc_sim::config::MAX_REWIND_TICKS;
 use bc_sim::content::{Replication, frame, weapon};
@@ -39,6 +45,16 @@ pub struct ClientConfig {
     pub faction: Faction,
 }
 
+/// Who the pilot is to the server.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Identity {
+    /// No sign-in: the suit goes when the pilot does.
+    #[default]
+    Guest,
+    /// A wallet: sign in (or, with a resume token, reconnect without signing again).
+    Wallet { address: Address, resume: Option<[u8; TOKEN_BYTES]> },
+}
+
 /// What the server told us at the handshake.
 #[derive(Clone, Copy, Debug)]
 pub struct Welcome {
@@ -49,13 +65,28 @@ pub struct Welcome {
     /// The sector's debris field.
     pub field_seed: u32,
     pub field_rocks: u16,
+    /// Signed in: the suit sleeps in the world when the pilot leaves.
+    pub signed_in: bool,
+    /// The pilot woke in the suit they'd left.
+    pub woke: bool,
+}
+
+/// The server's sign-in challenge.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Challenge {
+    pub nonce: [u8; NONCE_BYTES],
+    pub issued_at: u64,
+    pub domain: Domain,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
     Handshake,
+    /// The server asked the wallet to sign ([`ClientCore::sign_in_text`], then [`ClientCore::auth`]).
+    Signing(Challenge),
     InGame,
     Rejected(RejectReason),
+    /// The server closed the session (its [`ControlMsg::Bye`] reason, or 0).
     Closed,
 }
 
@@ -87,7 +118,15 @@ pub struct InputContext<'a> {
 
 pub struct ClientCore {
     pub cfg: ClientConfig,
+    pub identity: Identity,
     pub phase: Phase,
+    /// The server's goodbye reason, if it said goodbye.
+    pub bye_reason: Option<u8>,
+    /// Reconnect with this rather than signing again (signed-in pilots).
+    pub resume_token: Option<[u8; TOKEN_BYTES]>,
+    /// What the server wanted the pilot to know: `bc_proto::control::notice` codes and their
+    /// detail. Taken by the UI.
+    pub notices: Vec<(u8, String)>,
     ctrl_buf: Vec<u8>,
     pub welcome: Option<Welcome>,
     pub clock: Clock,
@@ -106,7 +145,11 @@ impl ClientCore {
         let faction = cfg.faction;
         Self {
             cfg,
+            identity: Identity::Guest,
             phase: Phase::Handshake,
+            bye_reason: None,
+            resume_token: None,
+            notices: Vec::new(),
             ctrl_buf: Vec::new(),
             welcome: None,
             clock: Clock::default(),
@@ -121,20 +164,53 @@ impl ClientCore {
         }
     }
 
+    /// Signs in as `identity` (before [`ClientCore::hello`]).
+    pub fn with_identity(mut self, identity: Identity) -> Self {
+        self.identity = identity;
+        self
+    }
+
     /// The first control-stream frame.
     pub fn hello(&self) -> Vec<u8> {
-        let mut buf = [0u8; bc_proto::control::MAX_FRAME];
-        let n = ControlMsg::hello(self.cfg.pilot, self.cfg.frame, self.cfg.faction, &self.cfg.name)
-            .encode(&mut buf)
-            .unwrap_or(0);
-        buf[..n].to_vec()
+        let mut msg = ControlMsg::hello(self.cfg.pilot, self.cfg.frame, self.cfg.faction, &self.cfg.name);
+        if let ControlMsg::Hello { flags, resume, .. } = &mut msg {
+            match self.identity {
+                Identity::Guest => {}
+                Identity::Wallet { resume: Some(token), .. } => {
+                    *flags = hello_flags::RESUME;
+                    *resume = token;
+                }
+                Identity::Wallet { resume: None, .. } => *flags = hello_flags::SIGN_IN,
+            }
+        }
+        encode(msg)
+    }
+
+    /// The text the wallet must sign, while [`Phase::Signing`].
+    pub fn sign_in_text(&self) -> Option<String> {
+        let (Phase::Signing(c), Identity::Wallet { address, .. }) = (self.phase, self.identity) else {
+            return None;
+        };
+        let mut out = [0u8; bc_auth::SIWE_MAX];
+        let n = bc_auth::siwe_message(c.domain.as_str(), &address, &c.nonce, c.issued_at, &mut out);
+        core::str::from_utf8(&out[..n]).ok().map(str::to_string)
+    }
+
+    /// Answers the challenge with the wallet's signature; the Welcome comes next.
+    pub fn auth(&mut self, signature: Signature) -> Vec<u8> {
+        let Identity::Wallet { address, .. } = self.identity else { return Vec::new() };
+        self.phase = Phase::Handshake;
+        encode(ControlMsg::Auth { address, signature })
+    }
+
+    /// Says goodbye (the pilot is leaving on purpose).
+    pub fn bye(&self, reason: u8) -> Vec<u8> {
+        encode(ControlMsg::Bye { reason })
     }
 
     /// Asks to respawn in `frame` (after death).
     pub fn respawn(&self, frame: FrameId) -> Vec<u8> {
-        let mut buf = [0u8; bc_proto::control::MAX_FRAME];
-        let n = ControlMsg::Respawn { frame }.encode(&mut buf).unwrap_or(0);
-        buf[..n].to_vec()
+        encode(ControlMsg::Respawn { frame })
     }
 
     /// Feeds bytes read from the control stream.
@@ -166,6 +242,7 @@ impl ClientCore {
                 max_datagram,
                 field_seed,
                 field_rocks,
+                flags,
                 ..
             } => {
                 if version != PROTOCOL_VERSION {
@@ -179,20 +256,39 @@ impl ClientCore {
                     max_datagram,
                     field_seed,
                     field_rocks,
+                    signed_in: flags & welcome_flags::SIGNED_IN != 0,
+                    woke: flags & welcome_flags::WOKE != 0,
                 });
                 self.predict.set_field(bc_sim::field::Field::generate(field_seed, field_rocks));
                 self.phase = Phase::InGame;
             }
             ControlMsg::Reject { reason } => self.phase = Phase::Rejected(reason),
-            ControlMsg::Roster { slot, pilot, name } => {
+            ControlMsg::Roster { slot, pilot, name, flags } => {
                 if name.is_empty() {
                     self.world.roster.remove(&slot);
+                    self.world.roster_flags.remove(&slot);
                 } else {
                     self.world.roster.insert(slot, (name.as_str().to_string(), pilot));
+                    self.world.roster_flags.insert(slot, flags);
                 }
             }
-            ControlMsg::Bye { .. } => self.phase = Phase::Closed,
-            ControlMsg::Hello { .. } | ControlMsg::Respawn { .. } => {}
+            ControlMsg::Bye { reason } => {
+                self.bye_reason = Some(reason);
+                self.phase = Phase::Closed;
+            }
+            ControlMsg::Challenge { nonce, issued_at, domain } => {
+                if self.phase == Phase::Handshake && matches!(self.identity, Identity::Wallet { .. }) {
+                    self.phase = Phase::Signing(Challenge { nonce, issued_at, domain });
+                }
+            }
+            ControlMsg::Token { token } => {
+                self.resume_token = Some(token);
+                if let Identity::Wallet { resume, .. } = &mut self.identity {
+                    *resume = Some(token);
+                }
+            }
+            ControlMsg::Notice { code, name } => self.notices.push((code, name.as_str().to_string())),
+            ControlMsg::Hello { .. } | ControlMsg::Respawn { .. } | ControlMsg::Auth { .. } => {}
         }
     }
 
@@ -396,4 +492,16 @@ impl ClientCore {
         let t = self.render_tick(now);
         self.world.prune(t);
     }
+}
+
+/// One control frame as bytes.
+fn encode(msg: ControlMsg) -> Vec<u8> {
+    let mut buf = [0u8; bc_proto::control::MAX_FRAME];
+    let n = msg.encode(&mut buf).unwrap_or(0);
+    buf[..n].to_vec()
+}
+
+/// Roster flags as the world keeps them.
+pub fn asleep(world: &World, slot: u16) -> bool {
+    world.roster_flags.get(&slot).is_some_and(|f| f & roster_flags::ASLEEP != 0)
 }

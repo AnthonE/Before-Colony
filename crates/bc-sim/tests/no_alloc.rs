@@ -65,3 +65,53 @@ fn gundams_duel_without_allocating() {
     assert!(melee_hits > 0, "the blades should connect");
     assert_eq!(total, 0, "heap operations inside the tick: {total}");
 }
+
+#[test]
+fn sleepers_never_allocate() {
+    // 64 pilots among 256 Mobile Dolls. Every tick a pilot falls asleep, and every third tick a
+    // sleeper wakes, well past the cap on sleepers (so the longest asleep are cleared); sleepers
+    // are shot down among the fighting; pilots whose suits are gone come back in new ones; the
+    // fates are read out every tick. None of it may touch the heap.
+    let (mut sim, mut players) = common::arena(64, 256, 9);
+    sim.cfg.max_sleepers = 12;
+    common::run(&mut sim, &players, 120);
+    let mut total = 0;
+    let (mut slept, mut woke, mut rejoined, mut fates) = (0u32, 0u32, 0u32, 0u32);
+    for n in 0..900usize {
+        let t = sim.next_tick();
+        let mut cmds = [bc_proto::InputCmd::default(); 64];
+        for (k, &id) in players.iter().enumerate() {
+            cmds[k] = common::scripted(&sim, id, t);
+        }
+        let ((), heap) = bc_alloc::count(|| {
+            if sim.sleep(players[(n * 7) % 64]) {
+                slept += 1;
+            }
+            if n % 3 == 0 && sim.wake(players[(n * 13) % 64]) {
+                woke += 1;
+            }
+            for (k, id) in players.iter_mut().enumerate() {
+                if !sim.suits.valid(*id) {
+                    sim.ensure_free_suits(1);
+                    if let Some(new) = sim.join(
+                        bc_proto::FrameId::Leo,
+                        bc_proto::Faction::Colonies,
+                        bc_proto::PilotKind::Human,
+                    ) {
+                        *id = new;
+                        rejoined += 1;
+                    }
+                } else if !sim.is_sleeping(id.idx()) {
+                    sim.set_input(*id, cmds[k]);
+                }
+            }
+            sim.step();
+            sim.drain_fates(|_| fates += 1);
+        });
+        total += heap;
+    }
+    assert!(slept > 300 && woke > 30, "slept {slept}, woke {woke}");
+    assert!(fates > 100 && rejoined > 100, "{fates} fates, {rejoined} back in new suits");
+    assert!(sim.sleepers() <= 12);
+    assert_eq!(total, 0, "heap operations inside the tick: {total}");
+}

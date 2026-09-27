@@ -71,8 +71,8 @@ async fn two_agents_find_each_other_and_fight() -> anyhow::Result<()> {
     let ((a, bot_a), (b, bot_b)) = (a?, b?);
     // Read the server's view while both are still connected.
     let status = server.status();
-    bot_a.close();
-    bot_b.close();
+    bot_a.close().await;
+    bot_b.close().await;
     println!(
         "A: saw {} hits {} snaps {} max {} B pred-err {:.4} m | B: saw {} hits {} snaps {} | server tick p99 ≤{} µs",
         a.saw_agent,

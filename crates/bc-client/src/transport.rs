@@ -15,10 +15,17 @@ use web_transport_wasm::{ClientBuilder, CongestionControl, Session};
 /// Received datagrams with their arrival times (s).
 type Inbox = Rc<RefCell<VecDeque<(Vec<u8>, f64)>>>;
 
+/// What the control-stream writer does next.
+enum CtrlOut {
+    Bytes(Vec<u8>),
+    /// Close the session once everything before this is written (a goodbye).
+    Close,
+}
+
 #[derive(Clone)]
 pub struct Transport {
     session: Session,
-    ctrl_tx: mpsc::UnboundedSender<Vec<u8>>,
+    ctrl_tx: mpsc::UnboundedSender<CtrlOut>,
     ctrl_in: Rc<RefCell<Vec<u8>>>,
     closed: Rc<Cell<bool>>,
     /// Datagrams stamped with their arrival time (s), filled by an async task so timing does not
@@ -41,13 +48,23 @@ impl Transport {
             session.open_bi().await.map_err(|e| format!("open control stream: {e}"))?;
 
         let closed = Rc::new(Cell::new(false));
-        let (ctrl_tx, mut ctrl_rx) = mpsc::unbounded::<Vec<u8>>();
+        let (ctrl_tx, mut ctrl_rx) = mpsc::unbounded::<CtrlOut>();
         let writer_closed = closed.clone();
+        let writer_session = session.clone();
         wasm_bindgen_futures::spawn_local(async move {
-            while let Some(bytes) = ctrl_rx.next().await {
-                if send.write(&bytes).await.is_err() {
-                    writer_closed.set(true);
-                    break;
+            while let Some(out) = ctrl_rx.next().await {
+                match out {
+                    CtrlOut::Bytes(bytes) => {
+                        if send.write(&bytes).await.is_err() {
+                            writer_closed.set(true);
+                            break;
+                        }
+                    }
+                    CtrlOut::Close => {
+                        writer_closed.set(true);
+                        writer_session.close(0, "bye");
+                        break;
+                    }
                 }
             }
         });
@@ -116,7 +133,21 @@ impl Transport {
     }
 
     pub fn send_control(&self, bytes: Vec<u8>) {
-        let _ = self.ctrl_tx.unbounded_send(bytes);
+        let _ = self.ctrl_tx.unbounded_send(CtrlOut::Bytes(bytes));
+    }
+
+    /// Sends `bye` on the control stream, then closes the session.
+    pub fn close_with(&self, bye: Vec<u8>) {
+        self.send_control(bye);
+        if self.ctrl_tx.unbounded_send(CtrlOut::Close).is_err() {
+            self.close();
+        }
+    }
+
+    /// Closes the session now.
+    pub fn close(&self) {
+        self.closed.set(true);
+        self.session.close(0, "");
     }
 
     /// Takes all control-stream bytes received so far.

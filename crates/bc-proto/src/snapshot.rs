@@ -84,6 +84,8 @@ pub mod own_flags {
     pub const MISSILE_LOCK: u16 = 1 << 13;
     /// A guided missile is tracking you.
     pub const MISSILE_INCOMING: u16 = 1 << 14;
+    /// At rest against an asteroid: a signed-in pilot who leaves now stays parked here.
+    pub const PARKABLE: u16 = 1 << 15;
 }
 
 /// ZERO System state for [`OwnState::zero_mode`].
@@ -219,7 +221,9 @@ pub mod ent_flags {
     /// The melee strike under way comes from a ranged slot (Shenlong's Dragon Fang), not the F
     /// weapon.
     pub const MELEE_ALT: u16 = 1 << 11;
-    pub const BITS: u32 = 12;
+    /// Its pilot is offline, asleep in the cockpit.
+    pub const ASLEEP: u16 = 1 << 12;
+    pub const BITS: u32 = 13;
 }
 
 /// Another suit as seen by the receiving pilot's sensors.

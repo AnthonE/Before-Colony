@@ -1,7 +1,16 @@
-// Boots the Bevy client: asks the dev server for the WebTransport port and certificate hash,
-// picks the WebGPU or WebGL2 build and a graphics tier, and hands the launch config to Rust via
-// window.BC_CONFIG. `?showcase=<scene>` runs an offline scene and needs no game server.
+// Boots the Bevy client: picks the WebGPU or WebGL2 build and a graphics tier, and hands the
+// launch config to Rust via window.BC_CONFIG. The game asks window.bcDiscover() for the server's
+// WebTransport port and certificate hash on every dial (a restarted dev server has a new
+// certificate). `?showcase=<scene>` runs an offline scene and needs no game server.
 const params = new URLSearchParams(location.search);
+
+// Where to connect, fresh from the server that served this page.
+window.bcDiscover = async () => {
+  const res = await fetch("/cert-hash", { cache: "no-store" });
+  if (!res.ok) throw new Error(`the server answered ${res.status}`);
+  const info = await res.json();
+  return { wtUrl: `https://${location.hostname}:${info.port}${info.path}`, certHash: info.hash };
+};
 const status = (msg) => {
   const el = document.getElementById("boot-status");
   if (el) el.textContent = msg;
@@ -34,10 +43,11 @@ function rendererName() {
   }
 }
 
-// `?quality=low|medium|high|ultra`, or `auto` (default): Low on software rasterisers, else High.
-function pickQuality(renderer) {
-  const q = (params.get("quality") || "auto").toLowerCase();
-  if (["low", "medium", "high", "ultra"].includes(q)) return q;
+const TIERS = ["low", "medium", "high", "ultra"];
+
+// The tier for this GPU: Low on software rasterisers, else High. (`?quality=` overrides it, and in
+// game mode so does the pilot's saved setting.)
+function autoQuality(renderer) {
   if (renderer === "none" || /swiftshader|llvmpipe|softpipe|software|basic render/i.test(renderer)) {
     return "low";
   }
@@ -47,11 +57,16 @@ function pickQuality(renderer) {
 async function main() {
   const showcase = params.get("showcase") || "";
   const renderer = rendererName();
+  const qualityParam = (params.get("quality") || "").toLowerCase();
+  const qualityAuto = autoQuality(renderer);
   const config = {
     autopilot: params.get("autopilot") === "1",
+    autoplay: params.get("autoplay") === "1",
     echo: params.get("mode") === "echo",
     lowQuality: params.get("quality") === "low",
-    quality: pickQuality(renderer),
+    quality: TIERS.includes(qualityParam) ? qualityParam : qualityAuto,
+    qualityAuto,
+    qualityParam: TIERS.includes(qualityParam) ? qualityParam : "",
     renderer,
     name: params.get("name") || "",
     frame: params.get("frame") || "",
@@ -66,12 +81,15 @@ async function main() {
   };
   if (!showcase) {
     if (!("WebTransport" in window)) {
-      status("this browser has no WebTransport: use Chrome or Edge");
-      return;
+      // The game still loads (the title screen says what's wrong); the echo spike can't.
+      if (config.echo) {
+        status("this browser has no WebTransport: use Chrome or Edge");
+        return;
+      }
+      config.noWebTransport = true;
+    } else if (config.echo) {
+      Object.assign(config, await window.bcDiscover());
     }
-    const info = await (await fetch("/cert-hash")).json();
-    config.wtUrl = `https://${location.hostname}:${info.port}${info.path}`;
-    config.certHash = info.hash;
   }
   window.BC_CONFIG = config;
   const gfx = await pickGraphics();

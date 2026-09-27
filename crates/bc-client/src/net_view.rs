@@ -34,6 +34,8 @@ pub struct Seen {
     rock_breaks: HashSet<(u32, u16)>,
     /// Missile bursts shown, by (tick, missile).
     bursts: HashSet<(u32, u16)>,
+    /// Missiles already seen in flight, by (id, generation): a new one was just launched.
+    missiles: HashSet<(u16, u8)>,
     /// Each suit's form last frame, by slot (a change of form flashes).
     forms: HashMap<u16, (u8, bc_proto::FrameId)>,
     /// Smoothed thrust estimates for other suits, by slot.
@@ -295,6 +297,19 @@ pub fn sync_view(
             targets_you: m.latest.targets_you,
         });
     }
+    // Launches: a missile not seen before. The pilot's own are those that start at their suit.
+    let own_pos = world.own.filter(|o| o.alive).map(|_| core.predict.render_pos());
+    for m in world.missiles() {
+        let key = (m.latest.id, m.latest.generation);
+        if seen.missiles.insert(key) {
+            let pos = m.pos_at(t_render);
+            let own = m.latest.friendly && own_pos.is_some_and(|p| p.distance(pos) < 80.0);
+            events.0.push(FxEvent::MissileLaunch { pos, own });
+        }
+    }
+    seen.missiles.retain(|&(id, generation)| {
+        world.missiles().any(|m| m.latest.id == id && m.latest.generation == generation)
+    });
     for b in &world.missile_bursts {
         if seen.bursts.insert((b.tick, b.id)) {
             events.0.push(FxEvent::MissileBurst {
