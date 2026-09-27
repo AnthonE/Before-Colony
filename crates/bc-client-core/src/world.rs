@@ -213,6 +213,8 @@ pub struct World {
     pub hits: Vec<HitMark>,
     pub feed: VecDeque<FeedLine>,
     pub roster: HashMap<u16, (String, PilotKind)>,
+    /// `bc_proto::control::roster_flags` by entity slot (signed in, asleep).
+    pub roster_flags: HashMap<u16, u8>,
     /// Rocks whose state differs from the generated field's (mined, shattered), by id.
     pub rocks: HashMap<u16, RockState>,
     /// Salvage chunks in range, by id.
@@ -245,6 +247,7 @@ impl World {
             hits: Vec::new(),
             feed: VecDeque::new(),
             roster: HashMap::new(),
+            roster_flags: HashMap::new(),
             rocks: HashMap::new(),
             objects: vec![None; 1 << CHUNK_BITS],
             hulks: HashMap::new(),

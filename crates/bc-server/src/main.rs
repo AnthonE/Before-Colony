@@ -37,6 +37,12 @@ struct Args {
     /// Simulation seed.
     #[arg(long, default_value_t = 0xBC_0195)]
     seed: u64,
+    /// The host (and port) wallets sign in to: where pages are served from. Default: --http.
+    #[arg(long)]
+    siwe_domain: Option<String>,
+    /// Admit signed-in pilots only (agents excepted).
+    #[arg(long)]
+    require_auth: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -60,6 +66,9 @@ fn main() -> anyhow::Result<()> {
         seed: args.seed,
         jev_key: std::env::var("TYPESAFE_API_KEY").ok().filter(|k| !k.is_empty()),
         jev_url: std::env::var("TYPESAFE_BASE_URL").ok().filter(|u| !u.is_empty()),
+        siwe_domain: args.siwe_domain,
+        require_auth: args.require_auth,
+        ..Config::default()
     };
     // Two workers are plenty: all game work happens on the dedicated sector thread.
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()?;

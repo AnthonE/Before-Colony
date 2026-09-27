@@ -17,8 +17,9 @@ use crate::net::{LaunchConfigRes, now_s};
 /// A command from the page (or from keys the page forwards).
 #[derive(Clone, Debug, PartialEq)]
 pub enum UiCmd {
-    /// Launch with this callsign and frame slug.
-    Play { name: String, frame: String },
+    /// Launch with this callsign and frame slug, signed in with the wallet at `address` (`0x…`)
+    /// or as a guest (empty).
+    Play { name: String, frame: String, address: String },
     /// Dial again (after a failure, or before the next scheduled redial).
     Retry,
     /// Stop connecting and go back to the title.
@@ -109,6 +110,10 @@ pub struct Ui {
     pub refused: bool,
     /// A first-flight hint (empty: none).
     pub hint: String,
+    /// The wallet is being asked to sign the pilot in.
+    pub signing: bool,
+    /// Flying signed in (the suit stays when the pilot leaves).
+    pub signed_in: bool,
     /// What the link screens say.
     pub message: String,
     pub retryable: bool,
@@ -158,7 +163,7 @@ fn set(obj: &Object, key: &str, value: impl Into<JsValue>) {
 fn parse(v: &JsValue) -> Option<UiCmd> {
     let s = |k: &str| get(v, k).as_string().unwrap_or_default();
     Some(match s("cmd").as_str() {
-        "play" => UiCmd::Play { name: s("name"), frame: s("frame") },
+        "play" => UiCmd::Play { name: s("name"), frame: s("frame"), address: s("address") },
         "retry" => UiCmd::Retry,
         "cancel" => UiCmd::Cancel,
         "resume" => UiCmd::Resume,
@@ -248,6 +253,8 @@ pub struct View {
     toast_seq: u32,
     toast: String,
     hint: String,
+    signing: bool,
+    signed_in: bool,
 }
 
 impl View {
@@ -270,6 +277,8 @@ impl View {
             toast_seq: ui.toast_seq,
             toast: ui.toast.clone(),
             hint: ui.hint.clone(),
+            signing: ui.signing,
+            signed_in: ui.signed_in,
         }
     }
 
@@ -288,6 +297,8 @@ impl View {
         set(&o, "toastSeq", self.toast_seq);
         set(&o, "toast", self.toast.as_str());
         set(&o, "hint", self.hint.as_str());
+        set(&o, "signing", self.signing);
+        set(&o, "signedIn", self.signed_in);
         o
     }
 }

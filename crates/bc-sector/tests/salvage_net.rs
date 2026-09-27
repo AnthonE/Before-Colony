@@ -111,6 +111,7 @@ fn run(
                     max_datagram: MAX_DATAGRAM as u16,
                     field_seed: shared.field_seed,
                     field_rocks: shared.field_rocks,
+                    flags: 0,
                 }
                 .encode(&mut w)
                 .unwrap();

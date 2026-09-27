@@ -24,6 +24,14 @@
           <input id="callsign" maxlength="16" spellcheck="false" placeholder="Pilot">
         </label>
         <div class="field">
+          <span>PILOT</span>
+          <div class="row wallet-row">
+            <button id="wallet-button" type="button">CONNECT WALLET</button>
+            <button id="guest-button" type="button" class="hidden">PLAY AS GUEST</button>
+            <span id="wallet-account" class="note"></span>
+          </div>
+        </div>
+        <div class="field">
           <span>MOBILE SUIT</span>
           <div id="frames" class="frames" role="radiogroup" aria-label="Mobile suit"></div>
         </div>
@@ -50,7 +58,8 @@
       <button data-cmd="resume" class="primary">RESUME</button>
       <button data-cmd="controls">CONTROLS</button>
       <button data-cmd="settings">SETTINGS</button>
-      <button data-cmd="disconnect">DISCONNECT</button>
+      <button data-cmd="disconnect" id="disconnect-button">DISCONNECT</button>
+      <div class="note" id="pause-who"></div>
       <div class="note">The sector keeps running while this menu is open.</div>
     </div>
   </div>

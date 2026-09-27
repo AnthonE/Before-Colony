@@ -9,17 +9,21 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
 
-use bc_proto::control::{ControlMsg, MAX_FRAME, Name, RejectReason};
+use bc_proto::auth::{Address, Domain, NONCE_BYTES};
+use bc_proto::control::{
+    ControlMsg, MAX_FRAME, Name, RejectReason, bye, hello_flags, roster_flags, welcome_flags,
+};
 use bc_proto::{InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, PacketKind, PilotKind, packet_kind};
 use bc_sector::{
     Control, EgressEnds, InputMsg, Metrics, SectorConfig, SectorShared, SectorThread, SlotState, read_packet,
 };
 use bc_sim::SimConfig;
 use crossbeam_queue::ArrayQueue;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, oneshot};
 use wtransport::{Connection, RecvStream, SendStream};
 
 use super::NetStats;
+use crate::pilots::{self, Claim, MemoryStore, Pilots};
 use crate::{Config, OracleKind};
 
 /// Commands for the egress thread.
@@ -33,6 +37,10 @@ pub struct RosterEntry {
     pub name: String,
     pub pilot: PilotKind,
     pub client_slot: u16,
+    /// `roster_flags` (signed in, asleep).
+    pub flags: u8,
+    /// A signed-in pilot's wallet, shortened (`0x1234…abcd`).
+    pub address: Option<String>,
 }
 
 /// Change to the roster, fanned out to every session.
@@ -43,6 +51,18 @@ pub struct RosterUpdate {
     pub pilot: PilotKind,
     /// Empty = the pilot left.
     pub name: String,
+    pub flags: u8,
+}
+
+/// Wallet sign-in settings.
+#[derive(Clone)]
+pub struct SignIn {
+    /// What wallets sign in to (the pages' host).
+    pub domain: Arc<str>,
+    pub required: bool,
+    pub wait: Duration,
+    /// At most this many sign-ins wait on wallets at once.
+    pub waiting: Arc<tokio::sync::Semaphore>,
 }
 
 /// What each session task needs to reach the sector.
@@ -53,6 +73,8 @@ pub struct GameShared {
     egress_thread: thread::Thread,
     roster: Arc<RwLock<HashMap<u16, RosterEntry>>>,
     roster_tx: broadcast::Sender<RosterUpdate>,
+    pub pilots: Arc<Pilots>,
+    sign_in: SignIn,
 }
 
 /// Read-only view for `/status`.
@@ -74,7 +96,7 @@ pub struct GameRuntime {
 }
 
 impl GameRuntime {
-    pub fn start(cfg: &Config, stats: Arc<NetStats>) -> anyhow::Result<Self> {
+    pub fn start(cfg: &Config, stats: Arc<NetStats>, domain: String) -> anyhow::Result<Self> {
         let jev_key = cfg.jev_key.clone();
         let use_jev = cfg.oracle == OracleKind::Jev && jev_key.is_some();
         if cfg.oracle == OracleKind::Jev && !use_jev {
@@ -126,6 +148,13 @@ impl GameRuntime {
                 egress_thread,
                 roster: Arc::new(RwLock::new(HashMap::new())),
                 roster_tx,
+                pilots: Arc::new(Pilots::new(Arc::new(MemoryStore::default()), cfg.resume_ttl)),
+                sign_in: SignIn {
+                    domain: domain.into(),
+                    required: cfg.require_auth,
+                    wait: cfg.sign_wait,
+                    waiting: Arc::new(tokio::sync::Semaphore::new(128)),
+                },
             },
             oracle,
             _oracle_worker: oracle_worker,
@@ -212,6 +241,8 @@ impl StatusView {
                 "client_slot": slot,
                 "suit": suit,
                 "name": entry.map(|e| e.name.clone()).unwrap_or_default(),
+                "verified": entry.is_some_and(|e| e.flags & roster_flags::VERIFIED != 0),
+                "address": entry.and_then(|e| e.address.clone()),
                 "pilot": entry.map(|e| format!("{:?}", e.pilot)).unwrap_or_default(),
                 "shots": l(&p.shots),
                 "hits": l(&p.hits),
@@ -326,28 +357,111 @@ pub async fn run_session(conn: Connection, game: GameShared, stats: Arc<NetStats
     }
 }
 
+async fn reject(tx: &mut SendStream, reason: RejectReason) -> anyhow::Result<()> {
+    send_control(tx, ControlMsg::Reject { reason }).await?;
+    anyhow::bail!("rejected: {reason:?}")
+}
+
+/// Who a Hello says the pilot is: a wallet proved by a signature (or a resume token), or a guest.
+async fn identify(
+    game: &GameShared,
+    tx: &mut SendStream,
+    rx: &mut RecvStream,
+    pending: &mut Vec<u8>,
+    flags: u8,
+    resume: &[u8; bc_proto::auth::TOKEN_BYTES],
+    pilot: PilotKind,
+) -> anyhow::Result<Option<Address>> {
+    let sign_in = &game.sign_in;
+    if flags & hello_flags::RESUME != 0 {
+        return match game.pilots.redeem(resume) {
+            Some(address) => Ok(Some(address)),
+            None => reject(tx, RejectReason::ResumeExpired).await.map(|_| None),
+        };
+    }
+    if flags & hello_flags::SIGN_IN == 0 {
+        if sign_in.required && pilot == PilotKind::Human {
+            reject(tx, RejectReason::AuthRequired).await?;
+        }
+        return Ok(None);
+    }
+    // Only so many sign-ins may wait on a wallet at once.
+    let Ok(_permit) = sign_in.waiting.clone().try_acquire_owned() else {
+        return reject(tx, RejectReason::ServerFull).await.map(|_| None);
+    };
+    let mut nonce = [0u8; NONCE_BYTES];
+    getrandom::fill(&mut nonce).map_err(|e| anyhow::anyhow!("no randomness: {e}"))?;
+    let issued_at = pilots::unix_now();
+    let domain = Domain::new(&sign_in.domain);
+    send_control(tx, ControlMsg::Challenge { nonce, issued_at, domain }).await?;
+    let answer = match tokio::time::timeout(sign_in.wait, read_control(rx, pending)).await {
+        Ok(answer) => answer?,
+        Err(_) => return reject(tx, RejectReason::AuthTimeout).await.map(|_| None),
+    };
+    let ControlMsg::Auth { address, signature } = answer else {
+        return reject(tx, RejectReason::BadHello).await.map(|_| None);
+    };
+    match bc_auth::verify(domain.as_str(), &nonce, issued_at, &address, &signature) {
+        Ok(()) => Ok(Some(address)),
+        Err(e) => {
+            tracing::info!(address = %pilots::short(&address), "sign-in refused: {e:?}");
+            reject(tx, RejectReason::AuthFailed).await.map(|_| None)
+        }
+    }
+}
+
 async fn session(conn: Connection, game: GameShared, stats: Arc<NetStats>) -> anyhow::Result<()> {
     let (mut tx, mut rx) = tokio::time::timeout(Duration::from_secs(5), conn.accept_bi()).await??;
     let mut pending = Vec::new();
     let hello = tokio::time::timeout(Duration::from_secs(5), read_control(&mut rx, &mut pending)).await??;
-    let ControlMsg::Hello { version, pilot, frame, faction, name } = hello else {
-        send_control(&mut tx, ControlMsg::Reject { reason: RejectReason::BadHello }).await?;
-        anyhow::bail!("first frame was not Hello");
+    let ControlMsg::Hello { version, pilot, frame, faction, name, flags, resume } = hello else {
+        return reject(&mut tx, RejectReason::BadHello).await;
     };
     if version != PROTOCOL_VERSION {
-        send_control(&mut tx, ControlMsg::Reject { reason: RejectReason::VersionMismatch }).await?;
-        anyhow::bail!("protocol version {version}");
+        return reject(&mut tx, RejectReason::VersionMismatch).await;
     }
     if !bc_sim::content::playable(frame) {
-        send_control(&mut tx, ControlMsg::Reject { reason: RejectReason::FrameNotAllowed }).await?;
-        anyhow::bail!("frame {frame:?} is not flyable");
+        return reject(&mut tx, RejectReason::FrameNotAllowed).await;
     }
     // Only the Bot SDK may claim to be an agent; nobody may claim to be a server-side doll.
     let pilot = if pilot == PilotKind::MobileDoll { PilotKind::Agent } else { pilot };
+    let address = identify(&game, &mut tx, &mut rx, &mut pending, flags, &resume, pilot).await?;
+    // A pilot flies in one place at a time: a newer session takes over.
+    let (held, kicked) = match address {
+        Some(a) => {
+            let Claim { address, session, kicked } = game.pilots.claim(a).await;
+            (Some((address, session)), Some(kicked))
+        }
+        None => (None, None),
+    };
+    let result =
+        seated(&conn, &game, &stats, &mut tx, &mut rx, pending, pilot, frame, faction, name, address, kicked)
+            .await;
+    if let Some((address, session)) = held {
+        game.pilots.release(address, session);
+    }
+    result
+}
+
+/// Takes a slot in the sector, flies, and gives the slot back.
+#[allow(clippy::too_many_arguments)]
+async fn seated(
+    conn: &Connection,
+    game: &GameShared,
+    stats: &NetStats,
+    tx: &mut SendStream,
+    rx: &mut RecvStream,
+    pending: Vec<u8>,
+    pilot: PilotKind,
+    frame: bc_proto::FrameId,
+    faction: bc_proto::Faction,
+    name: Name,
+    address: Option<Address>,
+    kicked: Option<oneshot::Receiver<()>>,
+) -> anyhow::Result<()> {
     let Some(mut lease) = game.sector.leases.pop() else {
         NetStats::add(&stats.sessions_rejected, 1);
-        send_control(&mut tx, ControlMsg::Reject { reason: RejectReason::ServerFull }).await?;
-        anyhow::bail!("server full");
+        return reject(tx, RejectReason::ServerFull).await;
     };
     let slot = lease.slot;
     let max_datagram = conn.max_datagram_size().unwrap_or(MAX_DATAGRAM).min(MAX_DATAGRAM) as u16;
@@ -363,12 +477,11 @@ async fn session(conn: Connection, game: GameShared, stats: Arc<NetStats>) -> an
         _ => {
             let _ = game.sector.leases.push(lease);
             NetStats::add(&stats.sessions_rejected, 1);
-            send_control(&mut tx, ControlMsg::Reject { reason: RejectReason::ServerFull }).await?;
-            anyhow::bail!("sector refused the pilot");
+            return reject(tx, RejectReason::ServerFull).await;
         }
     };
     let result =
-        in_game(&conn, &game, &stats, &mut tx, &mut rx, pending, &mut lease, suit, pilot, name).await;
+        in_game(conn, game, stats, tx, rx, pending, &mut lease, suit, pilot, name, address, kicked).await;
 
     // Tear down in the order that keeps the slot race-free: stop sending, forget the name, let the
     // sector release the suit, and only then hand the lease back.
@@ -377,7 +490,7 @@ async fn session(conn: Connection, game: GameShared, stats: Arc<NetStats>) -> an
     if let Ok(mut r) = game.roster.write() {
         r.remove(&suit);
     }
-    let _ = game.roster_tx.send(RosterUpdate { suit, pilot, name: String::new() });
+    let _ = game.roster_tx.send(RosterUpdate { suit, pilot, name: String::new(), flags: 0 });
     let mut leave = Control::Leave { slot };
     while let Err(back) = game.sector.control.push(leave) {
         leave = back;
@@ -400,8 +513,11 @@ async fn in_game(
     suit: u16,
     pilot: PilotKind,
     name: Name,
+    address: Option<Address>,
+    mut kicked: Option<oneshot::Receiver<()>>,
 ) -> anyhow::Result<()> {
     let slot = lease.slot;
+    let flags = if address.is_some() { roster_flags::VERIFIED } else { 0 };
     send_control(
         tx,
         ControlMsg::Welcome {
@@ -414,20 +530,37 @@ async fn in_game(
             max_datagram: conn.max_datagram_size().unwrap_or(MAX_DATAGRAM).min(MAX_DATAGRAM) as u16,
             field_seed: game.sector.field_seed,
             field_rocks: game.sector.field_rocks,
+            flags: if address.is_some() { welcome_flags::SIGNED_IN } else { 0 },
         },
     )
     .await?;
+    if let Some(a) = address {
+        send_control(tx, ControlMsg::Token { token: game.pilots.issue_token(a) }).await?;
+    }
     let callsign = if name.is_empty() { format!("Pilot-{slot}") } else { name.as_str().to_string() };
     tracing::info!(slot, suit, ?pilot, name = %callsign, "pilot joined");
     let mut roster_rx = game.roster_tx.subscribe();
     let everyone: Vec<(u16, RosterEntry)> = {
         let mut r = game.roster.write().map_err(|_| anyhow::anyhow!("roster poisoned"))?;
-        r.insert(suit, RosterEntry { name: callsign.clone(), pilot, client_slot: slot });
+        r.insert(
+            suit,
+            RosterEntry {
+                name: callsign.clone(),
+                pilot,
+                client_slot: slot,
+                flags,
+                address: address.as_ref().map(pilots::short),
+            },
+        );
         r.iter().map(|(k, v)| (*k, v.clone())).collect()
     };
-    let _ = game.roster_tx.send(RosterUpdate { suit, pilot, name: callsign });
+    let _ = game.roster_tx.send(RosterUpdate { suit, pilot, name: callsign, flags });
     for (s, e) in everyone {
-        send_control(tx, ControlMsg::Roster { slot: s, pilot: e.pilot, name: Name::new(&e.name) }).await?;
+        send_control(
+            tx,
+            ControlMsg::Roster { slot: s, pilot: e.pilot, name: Name::new(&e.name), flags: e.flags },
+        )
+        .await?;
     }
     let _ = game.egress.push(EgressCmd::Attach(slot, conn.clone()));
     game.egress_thread.unpark();
@@ -468,15 +601,20 @@ async fn in_game(
             }
             u = roster_rx.recv() => {
                 match u {
-                    Ok(u) => send_control(tx, ControlMsg::Roster { slot: u.suit, pilot: u.pilot, name: Name::new(&u.name) }).await?,
+                    Ok(u) => send_control(tx, ControlMsg::Roster { slot: u.suit, pilot: u.pilot, name: Name::new(&u.name), flags: u.flags }).await?,
                     Err(broadcast::error::RecvError::Lagged(_)) => {
                         let everyone: Vec<(u16, RosterEntry)> = game.roster.read().map(|r| r.iter().map(|(k, v)| (*k, v.clone())).collect()).unwrap_or_default();
                         for (s, e) in everyone {
-                            send_control(tx, ControlMsg::Roster { slot: s, pilot: e.pilot, name: Name::new(&e.name) }).await?;
+                            send_control(tx, ControlMsg::Roster { slot: s, pilot: e.pilot, name: Name::new(&e.name), flags: e.flags }).await?;
                         }
                     }
                     Err(_) => return Ok(()),
                 }
+            }
+            _ = async { match kicked.as_mut() { Some(k) => { let _ = k.await; } None => std::future::pending::<()>().await } } => {
+                // Signed in somewhere else: that session has the pilot now.
+                let _ = send_control(tx, ControlMsg::Bye { reason: bye::TAKEN_OVER }).await;
+                return Ok(());
             }
         }
     }

@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::time::Duration;
 
 /// What the server runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
@@ -38,6 +39,15 @@ pub struct Config {
     pub jev_key: Option<String>,
     /// Override for the Jev endpoint (`TYPESAFE_BASE_URL`), e.g. a proxy or a test mock.
     pub jev_url: Option<String>,
+    /// The name wallets sign in to: the host (and port) pages are served from. Defaults to the
+    /// HTTP address; a deployment behind a domain must set it, or wallets warn about a mismatch.
+    pub siwe_domain: Option<String>,
+    /// Admit signed-in pilots only (agents excepted).
+    pub require_auth: bool,
+    /// How long a wallet may take to sign (people read the message first).
+    pub sign_wait: Duration,
+    /// How long a resume token lasts after its session ends.
+    pub resume_ttl: Duration,
 }
 
 impl Default for Config {
@@ -53,6 +63,10 @@ impl Default for Config {
             seed: 0xBC_0195,
             jev_key: None,
             jev_url: None,
+            siwe_domain: None,
+            require_auth: false,
+            sign_wait: Duration::from_secs(60),
+            resume_ttl: Duration::from_secs(15 * 60),
         }
     }
 }

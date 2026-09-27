@@ -292,10 +292,14 @@ show which, and thin as the ore is taken. A rock of radius r m has 60 + 25r of s
 The list players see (the title screen's controls sheet and F1) is
 `bc_client_core::controls::BINDINGS`; keep it in step with this table.
 
-**The page around the game.** The title screen takes a callsign and a mobile suit and launches.
+**The page around the game.** The title screen takes a callsign and a mobile suit and launches,
+as a guest or signed in with a wallet (Sign-In with Ethereum: the wallet proves the address, and
+nothing is authorized or spent). A signed-in pilot is someone the sector can remember; a guest's
+suit goes when they do.
 The link says what went wrong in words (a server that's down or unreachable, a full sector, a page
-older than the server), offers Retry, and redials by itself, with backoff, when a link that was in
-the world drops. Esc (or the browser taking the pointer back) opens the menu: Resume, Controls,
+older than the server, a wallet that declined), offers Retry, and redials by itself, with backoff,
+when a link that was in the world drops. A signed-in redial doesn't ask the wallet again, and
+signing in from a second window takes the pilot over (the first lets go and doesn't fight back). Esc (or the browser taking the pointer back) opens the menu: Resume, Controls,
 Disconnect. The sector doesn't pause. Menus are HTML over the live scene; the cockpit HUD is Bevy's.
 
 **Settings** (from the title or the menu) are kept in the browser: mouse sensitivity, invert Y,
@@ -323,8 +327,8 @@ MISSILE LOCK and MISSILE warnings, with a marker on each missile tracking you.
 Milestone 1 was the playable slice; Milestone 2 the five Gundams (Heavyarms, Deathscythe, Sandrock,
 Shenlong, and Wing Zero's Neo-Bird), each flown by pilots and agents.
 
-- **Sectors:** multiple sectors with handoff, transfer orbits, TiDi, persistence (Postgres, off
-  the hot path), accounts.
+- **Sectors:** multiple sectors with handoff, transfer orbits, TiDi, persistence (a Redis or Mongo
+  `PilotStore`, off the hot path).
 - **Suits:**
   - Tallgeese, Epyon (its own ZERO).
   - Shooting missiles down; deployable Planet Defensors.

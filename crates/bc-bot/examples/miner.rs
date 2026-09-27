@@ -69,6 +69,6 @@ async fn main() -> anyhow::Result<()> {
             break;
         }
     }
-    bot.close();
+    bot.close().await;
     Ok(())
 }

@@ -64,7 +64,16 @@ self-signed certificate depends on `serverCertificateHashes` pinning, and that m
 Frames with missiles lock on by themselves: hold the reticle on a hostile until its bracket reads
 LOCKED, then fire.
 
-Server flags: `--mobile-dolls N`, `--max-clients N`, `--oracle local|jev`, `--mode echo`.
+**Signing in.** CONNECT WALLET on the title screen signs you in with an Ethereum wallet (MetaMask
+or any `window.ethereum` extension). The wallet shows a Sign-In with Ethereum message (EIP-4361)
+that proves the address is yours; it authorizes nothing and moves no funds. Guests can fly too, but
+only a signed-in pilot's suit is theirs to come back to. A dropped link, or a reload, reconnects
+without asking the wallet again; signing in from a second window takes the pilot over.
+
+Server flags: `--mobile-dolls N`, `--max-clients N`, `--oracle local|jev`, `--mode echo`,
+`--siwe-domain HOST` (the host pages are served from, which wallets sign in to; defaults to
+`--http`), `--require-auth` (no human guests). Pilot records are kept in memory for now, behind a
+`PilotStore` trait a Redis or Mongo store can implement.
 
 ### The ZERO System with TypeSafe Jev
 

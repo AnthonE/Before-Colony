@@ -94,6 +94,9 @@ button.primary:hover, button.primary:focus-visible { background: #d4f6ff; }
 button:disabled { opacity: 0.4; cursor: default; }
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
 .note { font-size: 11px; opacity: 0.6; letter-spacing: 0.05em; }
+.note.error { color: var(--red); opacity: 0.95; }
+.wallet-row { margin-top: 0; }
+.wallet-row .note { flex: 1 1 220px; line-height: 1.4; }
 .frames { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
 .frame {
   text-align: left;

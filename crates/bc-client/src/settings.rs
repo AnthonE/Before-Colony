@@ -98,7 +98,7 @@ pub fn update_settings(
                     gfx.set_tier(t);
                 }
             }
-            UiCmd::Play { name, frame } => {
+            UiCmd::Play { name, frame, .. } => {
                 // The next visit starts where this one launched.
                 settings.0.set("name", name);
                 settings.0.set("frame", frame);

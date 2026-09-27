@@ -8,7 +8,7 @@
 use std::cell::{Ref, RefCell, RefMut};
 use std::rc::Rc;
 
-use bc_client_core::{ClientConfig, ClientCore, DollBrain};
+use bc_client_core::{ClientConfig, ClientCore, DollBrain, Identity};
 use bc_proto::buttons::ZERO;
 use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
 use bc_sim::content::frame;
@@ -53,14 +53,15 @@ pub struct Game {
 }
 
 impl Game {
-    fn new(name: &str, frame: FrameId, autopilot: bool) -> Self {
+    fn new(name: &str, frame: FrameId, autopilot: bool, identity: Identity) -> Self {
         Self {
             core: ClientCore::new(ClientConfig {
                 name: name.to_string(),
                 pilot: PilotKind::Human,
                 frame,
                 faction: Faction::Colonies,
-            }),
+            })
+            .with_identity(identity),
             hello_sent: false,
             autopilot,
             brain: DollBrain::new(0x5EED),
@@ -77,9 +78,9 @@ pub struct GameClient(Rc<RefCell<Game>>);
 
 impl GameClient {
     /// Starts over for a new session (a dial, or the link going down): an empty world.
-    pub fn reset(&self, name: &str, frame: FrameId) {
+    pub fn reset(&self, name: &str, frame: FrameId, identity: Identity) {
         let autopilot = self.0.borrow().autopilot;
-        *self.0.borrow_mut() = Game::new(name, frame, autopilot);
+        *self.0.borrow_mut() = Game::new(name, frame, autopilot, identity);
     }
 
     pub fn borrow(&self) -> Ref<'_, Game> {
@@ -177,7 +178,7 @@ fn report(net: NonSend<NetState>, mut dev: ResMut<DevStatus>) {
 
 pub fn game_client(cfg: &LaunchConfig) -> GameClient {
     let frame = crate::config::parse_frame(&cfg.frame).unwrap_or(FrameId::WingZero);
-    GameClient(Rc::new(RefCell::new(Game::new(&cfg.name, frame, cfg.autopilot))))
+    GameClient(Rc::new(RefCell::new(Game::new(&cfg.name, frame, cfg.autopilot, Identity::Guest))))
 }
 
 /// One pass of the network loop: receives everything that arrived, then sends the commands that

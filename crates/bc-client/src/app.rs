@@ -73,7 +73,7 @@ pub fn run() {
             .insert_resource(store)
             .init_resource::<HintState>()
             .insert_non_send(game_client(&cfg))
-            .insert_resource(Pilot { name: cfg.name.clone(), frame })
+            .insert_resource(Pilot::new(cfg.name.clone(), frame))
             .init_resource::<Controls>()
             .init_resource::<Aim>()
             .init_resource::<Ui>()

@@ -87,6 +87,9 @@ pub fn publish_game(
     let w = &core.world;
     dev.set("mode", "game");
     dev.set("welcomed", core.welcome.is_some());
+    dev.set("signed_in", core.welcome.is_some_and(|w| w.signed_in));
+    dev.set("woke", core.welcome.is_some_and(|w| w.woke));
+    dev.set("resume_token", core.resume_token.is_some());
     dev.set("snapshots", core.stats.snapshots as f64);
     dev.set("max_snapshot", core.stats.max_snapshot as u32);
     dev.set("entities", w.entities.iter().flatten().count() as u32);

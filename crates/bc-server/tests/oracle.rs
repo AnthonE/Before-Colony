@@ -79,7 +79,7 @@ async fn jev_advice_reaches_the_zero_pilot() -> anyhow::Result<()> {
     assert!(status["game"]["pictures"].as_u64().unwrap() > 0, "sector sent no pictures");
     assert!(status["game"]["advice"].as_u64().unwrap() > 0, "no advice came back");
     assert!(saw_jev, "the pilot's ZERO display never showed Jev-blended advice");
-    bot.close();
+    bot.close().await;
     server.shutdown();
     Ok(())
 }

@@ -11,6 +11,7 @@
   const canvas = () => $("bc");
 
   let view = { screen: "title", panel: "none", help: false };
+  const SIGNING = "APPROVE THE SIGN-IN IN YOUR WALLET…\nIt proves the address is yours. It authorizes nothing and moves no funds.";
   let frames = [];
   let chosen = "wingzero";
   let autoplay = false;
@@ -75,10 +76,88 @@
     }
   }
 
+  // --- The wallet: the same three calls as Gates' page (has, connect, sign). The page never writes
+  // the sign-in text: the game does (bc-auth), because the server rebuilds the same bytes to
+  // verify them. This only hands a finished string to the wallet, which shows it to the person
+  // approving it. ---
+  const short = (a) => String(a).slice(0, 6) + "…" + String(a).slice(-4);
+  const WALLET_KEY = "bc.wallet";
+  const wallet = {
+    has: () => !!window.ethereum,
+    async accounts() {
+      if (!wallet.has()) return [];
+      try {
+        return (await window.ethereum.request({ method: "eth_accounts" })) || [];
+      } catch {
+        return [];
+      }
+    },
+    async connect() {
+      if (!wallet.has()) throw new Error("this browser has no wallet extension");
+      const a = await window.ethereum.request({ method: "eth_requestAccounts" });
+      if (!a || !a[0]) throw new Error("the wallet gave no account");
+      return a[0];
+    },
+    // A wallet switched to another account since Connect would otherwise fail with an error
+    // naming nothing anyone can act on.
+    async sign(message, address) {
+      const want = String(address || "").toLowerCase();
+      const have = (await wallet.accounts()).map((a) => String(a).toLowerCase());
+      if (want && have.length && !have.includes(want)) {
+        throw new Error(`your wallet is on ${short(have[0])}, and this asks ${short(want)} to sign. ` +
+          "Switch the wallet to that account and try again.");
+      }
+      if (want && !have.length) throw new Error("the wallet is locked or not connected to this page. Open it and try again.");
+      const hex = "0x" + Array.from(new TextEncoder().encode(message))
+        .map((b) => b.toString(16).padStart(2, "0")).join("");
+      return window.ethereum.request({ method: "personal_sign", params: [hex, address] });
+    },
+  };
+  window.bcWallet = wallet;
+
+  let address = null; // the connected wallet, or null: a guest
+  const remember = (on) => {
+    try {
+      if (on) localStorage.setItem(WALLET_KEY, "on");
+      else localStorage.removeItem(WALLET_KEY);
+    } catch {}
+  };
+
+  function showWallet(note) {
+    const account = $("wallet-account");
+    const button = $("wallet-button");
+    if (!wallet.has()) {
+      button.disabled = true;
+      account.textContent = note || "No wallet extension here: you can fly as a guest (your suit is lost when you leave).";
+    } else if (address) {
+      account.textContent = note || `${short(address)} · signed in, your suit stays in the sector when you leave`;
+      button.textContent = "CHANGE WALLET";
+    } else {
+      account.textContent = note || "Flying as a guest: your suit is lost when you leave.";
+      button.textContent = "CONNECT WALLET";
+    }
+    account.classList.toggle("error", !!note);
+    show($("guest-button"), !!address);
+  }
+
+  async function connectWallet() {
+    const button = $("wallet-button");
+    button.disabled = true;
+    try {
+      address = await wallet.connect();
+      remember(true);
+      showWallet();
+    } catch (e) {
+      // The extension talking about its own prompt: its words are the useful thing to show.
+      showWallet(e && e.message ? e.message : String(e));
+    }
+    button.disabled = !wallet.has();
+  }
+
   function launch(e) {
     if (e) e.preventDefault();
     send("sfx", { cue: "confirm" });
-    send("play", { name: $("callsign").value.trim(), frame: chosen });
+    send("play", { name: $("callsign").value.trim(), frame: chosen, address: address || "" });
     canvas()?.focus();
   }
 
@@ -94,7 +173,8 @@
     show($("link"), linkBox);
     const msg = $("link-message");
     msg.classList.toggle("error", s === "failed");
-    if (s === "connecting") msg.textContent = "CONNECTING TO THE SECTOR…";
+    if (s === "connecting" && v.signing) msg.textContent = SIGNING;
+    else if (s === "connecting") msg.textContent = "CONNECTING TO THE SECTOR…";
     else if (s === "failed") msg.textContent = v.message || "The link is down.";
     else msg.textContent = "";
     show($("reload"), s === "failed" && v.reload);
@@ -108,10 +188,13 @@
     if (s === "reconnecting") {
       const when = v.retryIn > 0 ? `reconnecting in ${v.retryIn} s` : "reconnecting…";
       $("banner-text").textContent = `LINK LOST · ${when} (attempt ${Math.max(1, v.attempt)})` +
-        (v.message ? `\n${v.message}` : "");
+        (v.signing ? `\n${SIGNING}` : v.message ? `\n${v.message}` : "");
     }
 
     show($("pause"), s === "playing" && v.panel === "pause");
+    $("pause-who").textContent = v.signedIn && address
+      ? `Signed in as ${short(address)}.`
+      : "Flying as a guest: your suit is lost when you leave.";
     show($("settings"), v.panel === "settings");
     const hint = $("hint");
     hint.textContent = v.hint || "";
@@ -218,6 +301,34 @@
   // --- What the player does. ---
   document.addEventListener("DOMContentLoaded", () => {
     $("launch").addEventListener("submit", launch);
+    $("wallet-button").addEventListener("click", connectWallet);
+    $("guest-button").addEventListener("click", () => {
+      address = null;
+      remember(false);
+      showWallet();
+    });
+    showWallet();
+    // A wallet connected on an earlier visit is picked up without a prompt (eth_accounts asks
+    // nothing); signing still waits for Launch.
+    let wanted = false;
+    try {
+      wanted = localStorage.getItem(WALLET_KEY) === "on";
+    } catch {}
+    if (wanted) {
+      wallet.accounts().then((a) => {
+        if (a && a[0] && !address) {
+          address = a[0];
+          showWallet();
+        }
+      });
+    }
+    // Somebody switches account in the extension while the page is open.
+    if (wallet.has() && typeof window.ethereum.on === "function") {
+      window.ethereum.on("accountsChanged", (a) => {
+        address = (a && a[0]) || null;
+        showWallet();
+      });
+    }
     $("title-controls").addEventListener("click", () => send("help", { show: true }));
     $("title-settings").addEventListener("click", () => send("settings", { show: true }));
     $("reload").addEventListener("click", () => location.reload());

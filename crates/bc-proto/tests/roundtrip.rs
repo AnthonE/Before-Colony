@@ -37,7 +37,7 @@ fn entity() -> impl Strategy<Value = EntityState> {
         quat(),
         vec3(2000.0),
         unit(),
-        0u16..4096,
+        0u16..8192,
         prop::array::uniform6(0u8..8),
     )
         .prop_map(|(slot, generation, frame, pos, rot, vel, aim, flags, parts)| EntityState {
@@ -291,7 +291,7 @@ proptest! {
 #[test]
 fn record_budgets_match_plan() {
     // ~26 bytes per entity; ~30 fit in a datagram next to header, own state, ZERO and events.
-    const { assert!(ENTITY_BITS == 206) };
+    const { assert!(ENTITY_BITS == 207) };
     const { assert!(ZERO_HYPOTHESES == 7) };
     const { assert!(OWN_BITS == 641) };
     const { assert!(ROCK_RECORD_BITS == 18) };

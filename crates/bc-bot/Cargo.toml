@@ -9,6 +9,7 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+bc-auth = { workspace = true, features = ["sign"] }
 bc-client-core.workspace = true
 bc-proto.workspace = true
 bc-sim = { workspace = true, features = ["deterministic", "canon-names"] }

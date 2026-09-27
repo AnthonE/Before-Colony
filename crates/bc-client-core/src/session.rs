@@ -11,6 +11,8 @@ use bc_proto::control::RejectReason;
 pub const DIAL_TIMEOUT: f64 = 10.0;
 /// How long the server may take to answer Hello, s.
 pub const HANDSHAKE_TIMEOUT: f64 = 10.0;
+/// How long the wallet may take to sign (people read what they sign), s.
+pub const SIGN_TIMEOUT: f64 = 60.0;
 /// Waits between automatic redials after a link that was in game drops, s. One entry per attempt.
 pub const BACKOFF: [f64; 6] = [1.0, 2.0, 4.0, 8.0, 15.0, 15.0];
 
@@ -29,6 +31,12 @@ pub enum LinkError {
     Rejected(RejectReason),
     /// The server said goodbye.
     ServerBye(u8),
+    /// The same pilot signed in somewhere else.
+    TakenOver,
+    /// The wallet didn't sign (with its words).
+    WalletDeclined(String),
+    /// The wallet didn't answer in [`SIGN_TIMEOUT`].
+    WalletTimeout,
     /// The link dropped.
     Lost,
 }
@@ -37,10 +45,24 @@ impl LinkError {
     /// Whether redialing could help (a server that's down may come back; a refusal won't change).
     pub fn retryable(&self) -> bool {
         match self {
-            LinkError::NoWebTransport => false,
+            LinkError::NoWebTransport
+            | LinkError::TakenOver
+            | LinkError::WalletDeclined(_)
+            | LinkError::WalletTimeout => false,
             LinkError::Rejected(r) => matches!(r, RejectReason::ServerFull),
             _ => true,
         }
+    }
+
+    /// Whether the pilot has to sign in again (a redial with the resume token won't do).
+    pub fn needs_sign_in(&self) -> bool {
+        matches!(
+            self,
+            LinkError::Rejected(
+                RejectReason::ResumeExpired | RejectReason::AuthFailed | RejectReason::AuthTimeout
+            ) | LinkError::WalletDeclined(_)
+                | LinkError::WalletTimeout
+        )
     }
 
     /// Whether only reloading the page can help (the page is older than the server).
@@ -66,8 +88,19 @@ impl LinkError {
                 RejectReason::ServerFull => "The sector is full. Try again in a moment.".into(),
                 RejectReason::BadHello => "The server didn't understand this client.".into(),
                 RejectReason::FrameNotAllowed => "That frame isn't flyable here. Pick another.".into(),
+                RejectReason::AuthFailed => "The signature didn't check out. Sign in again.".into(),
+                RejectReason::AuthRequired => {
+                    "This server is for signed-in pilots: connect a wallet to launch.".into()
+                }
+                RejectReason::ResumeExpired => "Your sign-in has expired. Sign in again.".into(),
+                RejectReason::AuthTimeout => "The wallet took too long to sign. Try again.".into(),
             },
             LinkError::ServerBye(_) => "The server closed the connection.".into(),
+            LinkError::TakenOver => {
+                "You signed in somewhere else, so this window let go of your suit.".into()
+            }
+            LinkError::WalletDeclined(why) => format!("The wallet didn't sign: {why}"),
+            LinkError::WalletTimeout => "The wallet didn't answer. Open it and try again.".into(),
             LinkError::Lost => "The link to the server dropped.".into(),
         }
     }
@@ -82,6 +115,8 @@ pub enum LinkState {
     Dialing { attempt: u32, since: f64 },
     /// Transport up, waiting for the server's Welcome.
     Handshake { attempt: u32, since: f64 },
+    /// The server asked for a signature; the wallet has it.
+    Signing { attempt: u32, since: f64 },
     /// In the world.
     InGame { since: f64 },
     /// Down; redialing at `at`.
@@ -146,6 +181,36 @@ impl Link {
         }
     }
 
+    /// The server asked the wallet to sign.
+    pub fn signing(&mut self, now: f64) {
+        if let LinkState::Handshake { attempt, .. } = self.state {
+            self.state = LinkState::Signing { attempt, since: now };
+        }
+    }
+
+    /// The signature went to the server: waiting for the Welcome again.
+    pub fn signed(&mut self, now: f64) {
+        if let LinkState::Signing { attempt, .. } = self.state {
+            self.state = LinkState::Handshake { attempt, since: now };
+        }
+    }
+
+    /// Mid-handshake, dial again straight away as the same attempt (the server didn't know the
+    /// resume token: sign in afresh).
+    pub fn redial(&mut self, now: f64) -> Option<LinkAction> {
+        let LinkState::Handshake { attempt, .. } = self.state else { return None };
+        self.state = LinkState::Dialing { attempt, since: now };
+        Some(LinkAction::Dial)
+    }
+
+    /// The wallet refused, or failed.
+    pub fn wallet_failed(&mut self, why: String) -> Option<LinkAction> {
+        matches!(self.state, LinkState::Signing { .. }).then(|| {
+            self.fail(LinkError::WalletDeclined(why));
+            LinkAction::Close
+        })
+    }
+
     /// The server's Welcome arrived.
     pub fn welcomed(&mut self, now: f64) {
         if let LinkState::Handshake { attempt, .. } = self.state {
@@ -159,7 +224,7 @@ impl Link {
     /// The dial failed.
     pub fn dial_failed(&mut self, now: f64, why: String) -> Option<LinkAction> {
         match self.state {
-            LinkState::Dialing { .. } | LinkState::Handshake { .. } => {
+            LinkState::Dialing { .. } | LinkState::Handshake { .. } | LinkState::Signing { .. } => {
                 Some(self.down(now, LinkError::Unreachable(why)))
             }
             _ => None,
@@ -169,9 +234,10 @@ impl Link {
     /// The server refused the session.
     pub fn rejected(&mut self, now: f64, reason: RejectReason) -> Option<LinkAction> {
         match self.state {
-            LinkState::Dialing { .. } | LinkState::Handshake { .. } | LinkState::InGame { .. } => {
-                Some(self.down(now, LinkError::Rejected(reason)))
-            }
+            LinkState::Dialing { .. }
+            | LinkState::Handshake { .. }
+            | LinkState::Signing { .. }
+            | LinkState::InGame { .. } => Some(self.down(now, LinkError::Rejected(reason))),
             _ => None,
         }
     }
@@ -179,8 +245,13 @@ impl Link {
     /// The server said goodbye.
     pub fn server_bye(&mut self, now: f64, reason: u8) -> Option<LinkAction> {
         match self.state {
-            LinkState::Handshake { .. } | LinkState::InGame { .. } => {
-                Some(self.down(now, LinkError::ServerBye(reason)))
+            LinkState::Handshake { .. } | LinkState::Signing { .. } | LinkState::InGame { .. } => {
+                let why = if reason == bc_proto::control::bye::TAKEN_OVER {
+                    LinkError::TakenOver
+                } else {
+                    LinkError::ServerBye(reason)
+                };
+                Some(self.down(now, why))
             }
             _ => None,
         }
@@ -189,9 +260,10 @@ impl Link {
     /// The transport closed under us.
     pub fn lost(&mut self, now: f64) -> Option<LinkAction> {
         match self.state {
-            LinkState::Dialing { .. } | LinkState::Handshake { .. } | LinkState::InGame { .. } => {
-                Some(self.down(now, LinkError::Lost))
-            }
+            LinkState::Dialing { .. }
+            | LinkState::Handshake { .. }
+            | LinkState::Signing { .. }
+            | LinkState::InGame { .. } => Some(self.down(now, LinkError::Lost)),
             _ => None,
         }
     }
@@ -204,6 +276,10 @@ impl Link {
             }
             LinkState::Handshake { since, .. } if now - since > HANDSHAKE_TIMEOUT => {
                 Some(self.down(now, LinkError::HandshakeTimeout))
+            }
+            LinkState::Signing { since, .. } if now - since > SIGN_TIMEOUT => {
+                self.fail(LinkError::WalletTimeout);
+                Some(LinkAction::Close)
             }
             LinkState::Retrying { attempt, at, .. } if now >= at => {
                 self.state = LinkState::Dialing { attempt, since: now };
@@ -224,6 +300,7 @@ impl Link {
             LinkState::Idle => "idle",
             LinkState::Dialing { .. } => "dialing",
             LinkState::Handshake { .. } => "handshake",
+            LinkState::Signing { .. } => "signing",
             LinkState::InGame { .. } => "ingame",
             LinkState::Retrying { .. } => "retrying",
             LinkState::Failed(_) => "failed",
@@ -235,6 +312,7 @@ impl Link {
         match self.state {
             LinkState::Dialing { attempt, .. }
             | LinkState::Handshake { attempt, .. }
+            | LinkState::Signing { attempt, .. }
             | LinkState::Retrying { attempt, .. } => attempt,
             _ => 0,
         }
@@ -255,6 +333,8 @@ impl Link {
             LinkState::Dialing { attempt, .. } | LinkState::Handshake { attempt, .. } if attempt > 0 => {
                 Some(attempt)
             }
+            // A signature is the player's to give: never redial into one.
+            LinkState::Signing { .. } => None,
             _ => None,
         };
         self.state = match next {
@@ -379,6 +459,53 @@ mod tests {
     }
 
     #[test]
+    fn signing_waits_for_the_wallet_and_never_redials() {
+        let mut link = Link::default();
+        link.play(0.0);
+        link.dialed(0.5);
+        link.signing(1.0);
+        assert_eq!(link.name(), "signing");
+        // Longer than a handshake may take: people read what they sign.
+        assert_eq!(link.tick(1.0 + HANDSHAKE_TIMEOUT + 5.0), None);
+        link.signed(20.0);
+        link.welcomed(20.5);
+        assert!(link.in_game());
+        // A declined signature is final.
+        let mut link = Link::default();
+        link.play(0.0);
+        link.dialed(0.1);
+        link.signing(0.2);
+        assert_eq!(link.wallet_failed("User rejected the request.".into()), Some(LinkAction::Close));
+        assert!(matches!(&link.state, LinkState::Failed(e) if e.needs_sign_in() && !e.retryable()));
+        // And a wallet that never answers times out.
+        let mut link = Link::default();
+        link.play(0.0);
+        link.dialed(0.1);
+        link.signing(0.2);
+        assert_eq!(link.tick(0.2 + SIGN_TIMEOUT + 0.1), Some(LinkAction::Close));
+        assert_eq!(link.state, LinkState::Failed(LinkError::WalletTimeout));
+    }
+
+    #[test]
+    fn a_stale_token_redials_as_the_same_attempt() {
+        let mut link = Link::default();
+        link.play(0.0);
+        assert_eq!(link.redial(0.2), None, "only mid-handshake");
+        link.dialed(0.5);
+        assert_eq!(link.redial(0.6), Some(LinkAction::Dial));
+        assert_eq!(link.state, LinkState::Dialing { attempt: 0, since: 0.6 });
+    }
+
+    #[test]
+    fn taken_over_is_final() {
+        let mut link = Link::default();
+        in_game(&mut link, 0.0);
+        link.server_bye(5.0, bc_proto::control::bye::TAKEN_OVER);
+        assert_eq!(link.state, LinkState::Failed(LinkError::TakenOver));
+        assert_eq!(link.tick(100.0), None, "no redial fights the other window");
+    }
+
+    #[test]
     fn every_error_has_words() {
         for e in [
             LinkError::NoWebTransport,
@@ -389,7 +516,14 @@ mod tests {
             LinkError::Rejected(RejectReason::ServerFull),
             LinkError::Rejected(RejectReason::BadHello),
             LinkError::Rejected(RejectReason::FrameNotAllowed),
+            LinkError::Rejected(RejectReason::AuthFailed),
+            LinkError::Rejected(RejectReason::AuthRequired),
+            LinkError::Rejected(RejectReason::ResumeExpired),
+            LinkError::Rejected(RejectReason::AuthTimeout),
             LinkError::ServerBye(0),
+            LinkError::TakenOver,
+            LinkError::WalletDeclined("no".into()),
+            LinkError::WalletTimeout,
             LinkError::Lost,
         ] {
             assert!(e.text().len() > 10, "{e:?}");

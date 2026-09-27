@@ -5,6 +5,7 @@
 #   scripts/e2e.sh gfx [project]     # every showcase scene renders cleanly (BC_GFX_QUALITY=high)
 #   scripts/e2e.sh frames [project]  # the autopilot flies each Gundam's kit against the dolls
 #   scripts/e2e.sh ui [project]      # the title screen, the menu, reconnecting, disconnecting
+#   scripts/e2e.sh login [project]   # wallet sign-in (a stub wallet with a test key), resume, take-over
 set -euo pipefail
 cd "$(dirname "$0")/.."
 suite="${1:-slice}"
@@ -13,7 +14,7 @@ port="${BC_HTTP_PORT:-8080}"
 export BC_URL="http://127.0.0.1:${port}"
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/opt/pw-browsers}"
 
-cargo build --release -p bc-server -p bc-bot --bins --examples
+cargo build --release -p bc-server -p bc-bot -p bc-auth --bins --examples
 pids=()
 cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; }
 trap cleanup EXIT
@@ -35,7 +36,7 @@ case "$suite" in
     ./target/release/bc-server --mode game --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls "${BC_DOLLS:-24}" &
     pids+=($!)
     ;;
-  ui)
+  ui|login)
     ./target/release/bc-server --mode game --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls "${BC_DOLLS:-4}" &
     pids+=($!)
     ;;
