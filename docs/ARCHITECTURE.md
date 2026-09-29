@@ -126,13 +126,32 @@ network threads.
     it lengthens `lead` at once when the buffer runs low, and shortens it slowly. A steady sender
     ends up with a short lead. A bursty one (a slow agent, a tab rendering at 2 fps) gets a long
     enough lead that its commands still arrive in time.
+  - Snapshots stamped late by a page that stalled arrive in a burst, so a late one moves the
+    estimate back at most 0.05 tick; only 15 far-late ones in a row (the server's clock really
+    moved) move it back all the way.
+  - What is drawn runs on eased clocks. The time the own suit is drawn at (the input clock) and the
+    time everyone else is (the view) follow their estimates on a critically damped spring,
+    snapping only when more than 4 ticks off, so a correction never makes anything on screen
+    lurch. Commands are scheduled on the raw estimate; the view time they carry for lag
+    compensation is the eased one that was drawn.
 - **Browser network loop.** The browser runs the network loop on an 8 ms timer as well as once per
   rendered frame. Receiving, clock sync, the autopilot and sending inputs therefore keep their
   30 Hz cadence even when rendering is slow. Datagrams are stamped with their arrival time by a
   receive task, so timing never depends on the frame rate.
 - **Prediction.** The own suit is stepped with `bc_sim::flight` and reconciled on every snapshot by
-  replaying the unacknowledged commands. Corrections are blended out visually; respawns snap.
-  Measured error over a 100 ms-RTT, 5%-loss link: p99 **0.2 mm**.
+  replaying the unacknowledged commands. Measured error over a 100 ms-RTT, 5%-loss link: p99
+  **0.2 mm**.
+  - A tick the client sent nothing for (a stall) is flown on the server's stand-in for it
+    (`InputCmd::stand_in`: the last command again without firing, then hands-off), in the replay
+    and as it goes.
+  - Every tick flown is kept, and the own suit is drawn between the last two, a tick behind the
+    input clock: position and velocity lerped (exact for the integrator), rotation nlerped. Drawn
+    tick by tick instead, a suit at 540 m/s would jump 18 m at a time against the smoothly moving
+    camera.
+  - A correction is measured where the suit was drawn, and blended out on a critically damped
+    spring in position and rotation, so the drawn suit keeps its place and its pace at the moment
+    of the news and bends onto the new path. Only a new life, or a relocation of more than 150 m,
+    cuts (and cuts the camera).
   - A change of form is predicted too. The predictor seeds the form from the snapshot (its frame,
     and the special timer counting a change down), then steps it with each replayed command before
     flying it, as the server does. The thrust cut is applied on top of the replicated thrust
@@ -240,7 +259,7 @@ on wasm32 (under Node, via `wasm-bindgen-test-runner`). Never enable glam's `fas
 | `bc-sim/tests/{content,melee}.rs` | Every table row sits at its id and the Gundams fly as designed; every blade reaches as far as its row says and mines, twin blades strike once each, the Dragon Fang thrusts where it's aimed, the Cross Crusher is Sandrock's special, only blades that parry clash, and a blade meets a target it chases at speed as its pilot sees it. |
 | `bc-sim/tests/{flight,combat,fire_control,lagcomp,mobile_dolls,zero,field,salvage}.rs` | Rocket equation, FA, blackout, no tunnelling, arm loss, charge, sabers and clashes, lag comp (and its clamp), dolls fight to a kill, ZERO accuracy, calibration, seizure, magnetism; suits stop at rocks at 2 km/s and rocks stop shots; limbs come off as chunks and shots pass where they were, hulks, bounces, expiry, lighter suits. |
 | `bc-sector/tests/salvage_net.rs` | Over the same link: chunks reach the client exactly as the server moves them, across bounces; chunks that go leave the client; a kill hands its wreck to its hulk; changed rocks arrive. |
-| `bc-sector/tests/netcode.rs` | Over a simulated 100 ms / 5%-loss link: prediction error and clock sync (in open flight, ramming and sliding round a rock, damaged, and changing into Neo-Bird and back every 3 s), and a client that sends inputs only twice a second still has an accurate RTT and commands that arrive in time. |
+| `bc-sector/tests/netcode.rs` | Over a simulated 100 ms / 5%-loss link: prediction error and clock sync (in open flight, ramming and sliding round a rock, damaged, changing into Neo-Bird and back every 3 s, and after a 1.5 s stall); a client that sends inputs only twice a second still has an accurate RTT and commands that arrive in time; and drawn like the browser at 60 and 144 Hz, a Wing Zero sprinting and stopping never steps back along its flight, changes pace only as its acceleration does, and doesn't surge against the chase camera. |
 | `bc-sim/tests/transform.rs` | MODE folds Wing Zero into Neo-Bird and back over 24 ticks, weapons down (a charge is lost) and thrust cut; the bird cruises faster; ZERO stays engaged; a bird that dies respawns as Wing Zero. |
 | `bc-server/tests/{echo,duel,oracle}.rs` | A real server over real WebTransport: echo; two agents find and fight each other; Jev advice reaches a ZERO pilot. |
 | `bc-zero/tests/jev_mock.rs` | Jev request contract, parsing, timeout, 429/529 breaker, garbage. |

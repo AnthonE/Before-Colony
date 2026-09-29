@@ -10,9 +10,9 @@ use bc_proto::{InputCmd, Part};
 use glam::Vec3;
 
 use super::Sim;
-use super::combat::clamp_to_cone;
 use crate::collide::{capsule_world, segment_segment};
 use crate::content::{Mount, WeaponSpec, frame};
+use crate::math::clamp_to_cone;
 use crate::math::{cos, normalize_or, sin};
 
 /// Suits one burn can reach.

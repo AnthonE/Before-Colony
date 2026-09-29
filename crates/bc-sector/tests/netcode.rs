@@ -7,8 +7,9 @@ use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use std::sync::atomic::Ordering;
 
-use bc_client_core::{ClientConfig, ClientCore, InputContext};
-use bc_proto::buttons::{FLIGHT_ASSIST, MODE};
+use bc_client_core::chase::{self, ChaseRig, Follow};
+use bc_client_core::{ClientConfig, ClientCore, InputContext, OwnView};
+use bc_proto::buttons::{BOOST, FLIGHT_ASSIST, MODE};
 use bc_proto::control::ControlMsg;
 use bc_proto::{Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, Part, PilotKind};
 use bc_sector::{Comeback, Control, InputMsg, SectorConfig, SlotState, read_packet};
@@ -94,7 +95,23 @@ struct Outcome {
     missing_late: u64,
     /// Snapshots after warm-up that found the suit in another form than it joined in.
     other_form: usize,
+    /// With a render rate: every frame after warm-up, its time, the own suit as drawn, and where
+    /// the newest prediction had it.
+    drawn: Vec<(f64, OwnView, Vec3)>,
 }
+
+/// One direction of a link: base delay, ± jitter (s), and the share of packets lost.
+#[derive(Clone, Copy)]
+struct LinkSpec {
+    base: f64,
+    jitter: f64,
+    loss: f32,
+}
+
+/// 100 ms round trip, ±20 ms of jitter each way, 5 % loss.
+const BAD: LinkSpec = LinkSpec { base: 0.05, jitter: 0.02, loss: 0.05 };
+/// The same delays with nothing lost.
+const CLEAN: LinkSpec = LinkSpec { loss: 0.0, ..BAD };
 
 /// What a run flies and how the client behaves.
 struct Scenario<'a> {
@@ -105,11 +122,22 @@ struct Scenario<'a> {
     lost: &'a [Part],
     /// No polls in this window (s): a background tab, or a long hitch. Datagrams still arrive.
     stall: Option<(f64, f64)>,
+    /// Render like the browser at this rate (Hz): each frame polls inputs, then draws; the 8 ms
+    /// network timer polls between frames. Without one, inputs are polled every `input_period`.
+    render_hz: Option<f64>,
+    link: LinkSpec,
 }
 
 impl Default for Scenario<'_> {
     fn default() -> Self {
-        Self { frame: FrameId::Leo, input_period: 1.0 / 60.0, lost: &[], stall: None }
+        Self {
+            frame: FrameId::Leo,
+            input_period: 1.0 / 60.0,
+            lost: &[],
+            stall: None,
+            render_hz: None,
+            link: BAD,
+        }
     }
 }
 
@@ -136,7 +164,7 @@ fn run_as(
 }
 
 fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd) -> Outcome {
-    let Scenario { frame, input_period, lost, stall } = *sc;
+    let Scenario { frame, input_period, lost, stall, render_hz, link } = *sc;
     let cfg = SectorConfig {
         sim: SimConfig { target_dolls: 0, seed: 1, ..SimConfig::default() },
         max_clients: 4,
@@ -155,8 +183,8 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
             comeback: Comeback::default(),
         })
         .unwrap();
-    let mut up = Link::new(1, 0.05, 0.02, 0.05);
-    let mut down = Link::new(2, 0.05, 0.02, 0.05);
+    let mut up = Link::new(1, link.base, link.jitter, link.loss);
+    let mut down = Link::new(2, link.base, link.jitter, link.loss);
     let mut client = ClientCore::new(ClientConfig {
         name: "Heero".into(),
         pilot: PilotKind::Human,
@@ -167,6 +195,8 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
     let mut t = 0.0f64;
     let mut next_tick = 0.0;
     let mut next_input = 0.0;
+    let (mut next_frame, mut next_timer) = (0.0, 0.0);
+    let mut drawn = Vec::new();
     let mut buf = [0u8; 2048];
     let mut errors = Vec::new();
     let mut error_times = Vec::new();
@@ -232,6 +262,24 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
         }
         if stall.is_some_and(|(from, to)| (from..to).contains(&t)) {
             next_input = t + input_period;
+        } else if let Some(hz) = render_hz {
+            if t >= next_frame {
+                next_frame += 1.0 / hz;
+                for p in client.poll_inputs(t, brain) {
+                    up.send(t, p);
+                }
+                client.frame(t, (1.0 / hz) as f32);
+                if let Some(v) = client.own_view().filter(|_| t > 5.0) {
+                    drawn.push((t, *v, client.predict.state.pos));
+                }
+            } else if t >= next_timer {
+                for p in client.poll_inputs(t, brain) {
+                    up.send(t, p);
+                }
+            }
+            if t >= next_timer {
+                next_timer += 0.008;
+            }
         } else if t >= next_input {
             next_input += input_period;
             for p in client.poll_inputs(t, brain) {
@@ -243,7 +291,7 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
     }
     let missing_late =
         shared.metrics.inputs_missing.load(Ordering::Relaxed) - missing_at_20s.expect("ran past 20 s");
-    Outcome { client, errors, error_times, touching, max_len, missing_late, other_form }
+    Outcome { client, errors, error_times, touching, max_len, missing_late, other_form, drawn }
 }
 
 fn percentile(errors: &mut [f32], q: f64) -> f32 {
@@ -312,6 +360,80 @@ fn a_stall_keeps_prediction_on_the_timeline() {
     assert!(since < 0.01, "prediction error after the stall p99 {since:.4} m");
     assert!(all < 0.25, "prediction error p99 {all:.3} m");
     assert_eq!(client.predict.tick, client.inputs.newest, "the prediction is at the newest command");
+}
+
+/// Keyboard flying in a 9 s cycle, flight assist on, aiming along +z: W and Shift for 3 s, W alone
+/// for 1 s, then hands off. The suit sprints, eases back to cruise, and stops.
+fn sprinter(ctx: &InputContext) -> InputCmd {
+    let t = f64::from(ctx.tick) / 30.0 % 9.0;
+    let (forward, boost) = if t < 3.0 {
+        (127, BOOST)
+    } else if t < 4.0 {
+        (127, 0)
+    } else {
+        (0, 0)
+    };
+    InputCmd { aim: Vec3::Z, thrust: [0, 0, forward], buttons: FLIGHT_ASSIST | boost, ..InputCmd::default() }
+}
+
+/// Flying fast and stopping, as the browser draws it at 60 and 144 Hz. The own suit is drawn
+/// between the ticks it has flown, so along its flight it never steps back (no rubber band), how
+/// fast it moves changes only as its acceleration changes it, and seen from the chase camera it
+/// doesn't surge toward and away at the tick rate.
+#[test]
+fn sprint_and_stop_draws_smoothly() {
+    // A Wing Zero boosting on a light tank: no more than 16 g.
+    const MOST: f32 = 16.0 * 9.806_65;
+    const TICK: f32 = 1.0 / 30.0;
+    for hz in [60.0, 144.0] {
+        let sc =
+            Scenario { frame: FrameId::WingZero, render_hz: Some(hz), link: CLEAN, ..Scenario::default() };
+        let Outcome { drawn, mut errors, .. } = run_scenario(&sc, &mut sprinter);
+        assert!(drawn.len() > (30.0 * hz) as usize, "{} frames drawn", drawn.len());
+        // How fast the drawn suit moves over each frame: it steps back, or changes by more than a
+        // tick of acceleration, only if it's drawn in steps (or corrected).
+        let (mut back, mut kink, mut lag, mut top) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+        for w in drawn.windows(3) {
+            let [(ta, a, _), (tb, b, _), (tc, c, newest)] = w else { unreachable!() };
+            back = back.max(b.pos.z - c.pos.z);
+            let before = (b.pos - a.pos) / (tb - ta) as f32;
+            let after = (c.pos - b.pos) / (tc - tb) as f32;
+            kink = kink.max(after.distance(before));
+            lag = lag.max(c.pos.distance(*newest) - 2.0 * c.flight_vel.length() * TICK);
+            top = top.max(c.flight_vel.length());
+        }
+        // Seen from the chase camera: how much nearer or further the suit is from one frame to the
+        // next. The camera trails by acceleration / ω², so that changes no faster than the
+        // acceleration does.
+        let mut rig = ChaseRig::default();
+        let (mut surge, mut prev): (f32, Option<(f64, f32)>) = (0.0, None);
+        for (t, v, _) in &drawn {
+            let dt = prev.map_or(1.0 / hz, |(p, _)| t - p) as f32;
+            let f = Follow { pos: v.pos, vel: v.vel, aim: Vec3::Z, up: v.rot * Vec3::Y, cut: v.cut };
+            let cut = rig.step(&f, dt);
+            let gap = (v.pos - rig.pos).dot(Vec3::Z);
+            if let (Some((_, p)), false) = (prev, cut) {
+                surge = surge.max((gap - p).abs() / dt);
+            }
+            prev = Some((*t, gap));
+        }
+        let p99 = percentile(&mut errors, 0.99);
+        println!(
+            "{hz} Hz, top speed {top:.0} m/s: stepped back {back:.4} m, pace changed {kink:.2} m/s a frame, lagged {lag:.3} m, surged {surge:.2} m/s; prediction p99 {p99:.4} m"
+        );
+        // Fast enough that a suit drawn tick by tick would step 5 m at a time.
+        assert!(top > 150.0, "sprinted to only {top:.0} m/s");
+        assert!(back < 0.01, "the drawn suit stepped back {back:.3} m at {hz} Hz");
+        let most_kink = MOST * TICK + 0.5;
+        assert!(
+            kink < most_kink,
+            "the drawn suit's pace changed {kink:.2} m/s in a frame at {hz} Hz (at most {most_kink:.2})"
+        );
+        assert!(lag < 0.5, "drawn {lag:.2} m further behind the newest prediction than two ticks");
+        let most_surge = MOST / chase::OMEGA + 1.0;
+        assert!(surge < most_surge, "the suit surged at {surge:.1} m/s against the camera at {hz} Hz");
+        assert!(p99 < 0.01, "prediction error p99 {p99:.4} m on a clean link");
+    }
 }
 
 /// The client predicts its suit against the same rocks as the server: ramming one and sliding round

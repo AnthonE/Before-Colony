@@ -30,8 +30,8 @@ pub struct SuitDrive {
     pub aim: Vec3,
     /// `bc_proto::snapshot::ent_flags` bits (the own suit's state is mapped onto them).
     pub flags: u16,
-    /// Thrust demand in the suit's frame, each axis -1..1 (x right, y up, z forward): the pilot's
-    /// for the own suit, estimated from acceleration for everyone else.
+    /// Thrust in the suit's frame, each axis -1..1 (x right, y up, z forward): what the own suit's
+    /// thrusters are doing, estimated from acceleration for everyone else.
     pub thrust: Vec3,
     /// Armour per part in eighths (0 destroyed .. 7 pristine), by `Part`.
     pub parts: [u8; Part::COUNT],
@@ -154,9 +154,12 @@ pub struct CameraTarget(pub Option<ChaseTarget>);
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ChaseTarget {
     pub pos: Vec3,
+    /// How fast the suit moves as drawn (what the camera keeps pace with).
     pub vel: Vec3,
     pub up: Vec3,
     pub aim: Vec3,
+    /// The suit jumped (spawn, respawn, a relocation): cut rather than chase.
+    pub cut: bool,
     /// Boosting: the field of view widens.
     pub boost: bool,
     /// Pilot G-strain, 0..1: greys the view out, then closes it to a tunnel.

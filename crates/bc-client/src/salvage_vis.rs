@@ -121,6 +121,8 @@ pub fn sync_chunks(
     let core = &game.core;
     let world = &core.world;
     let t = core.render_tick(vis.now);
+    // What's in the own suit's hand rides the suit as drawn.
+    let held_by = core.own_view().map(|v| (v.pos, v.rot));
     let eye = camera.single().map_or(Vec3::ZERO, |c| c.translation());
     // Visuals for chunks that are gone, or are now something else, go.
     shown.retain(|id, e| {
@@ -135,7 +137,7 @@ pub fn sync_chunks(
     for (id, track) in world.objects.iter().enumerate() {
         let Some(track) = track else { continue };
         let id = id as u16;
-        let Some((pos, rot)) = world.object_pose(id, t, &core.predict) else { continue };
+        let Some((pos, rot)) = world.object_pose(id, t, held_by) else { continue };
         let on = !world.wreck_on_show(id);
         let Some(&e) = shown.get(&id) else {
             let tf = Transform::from_translation(pos).with_rotation(rot);

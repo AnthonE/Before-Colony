@@ -15,11 +15,11 @@ use bc_proto::{Part, PilotKind};
 use glam::Vec3;
 
 use super::Sim;
-use super::combat::clamp_to_cone;
 use crate::collide::{capsule_world, segment_segment};
 use crate::config::MAX_REWIND_TICKS;
 use crate::content::salvage::SABER_DIG;
 use crate::content::{ArmSlot, MeleeSpec, Mount, SpecialKind, Stroke, WeaponClass, frame, weapon};
+use crate::math::clamp_to_cone;
 use crate::math::normalize_or;
 use crate::suits::{MeleePhase, MeleeState, SECOND_BLADE, SPECIAL_MOUNT};
 

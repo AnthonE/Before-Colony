@@ -85,6 +85,12 @@ pub struct FlightOut {
     pub boosting: bool,
     /// World-frame acceleration applied, m/s².
     pub accel: Vec3,
+    /// Thrust applied along each local axis (x right, y up, z forward), as a fraction of that
+    /// axis' unboosted maximum: what the thrusters are actually doing, whatever the stick says.
+    /// Boost and a lunge take it past 1.
+    pub throttle: Vec3,
+    /// Flight assist held the pilot's G down this tick.
+    pub g_limited: bool,
 }
 
 #[inline]
@@ -180,6 +186,8 @@ pub fn step(s: &mut FlightState, cmd: &InputCmd, spec: &FrameSpec, mods: &Flight
     }
     let burn = (f_local.x.abs() + f_local.y.abs() + f_local.z.abs()) * dt / spec.exhaust_velocity();
     s.propellant = (s.propellant - burn).max(0.0);
+    let axial = if f_local.z >= 0.0 { spec.main_thrust } else { spec.retro_thrust };
+    let throttle = f_local / Vec3::new(side, side, axial).max(Vec3::ONE);
     let accel = (s.rot * f_local) / mass;
     s.vel += accel * dt;
     s.pos += s.vel * dt;
@@ -205,7 +213,7 @@ pub fn step(s: &mut FlightState, cmd: &InputCmd, spec: &FrameSpec, mods: &Flight
     }
 
     crate::world::constrain(s);
-    FlightOut { boosting, accel }
+    FlightOut { boosting, accel, throttle, g_limited: false }
 }
 
 #[cfg(test)]

@@ -39,11 +39,11 @@ pub fn draw_ghosts(game: NonSend<GameClient>, mut gizmos: Gizmos, mut dev: ResMu
         }
     }
     // The firing solution: a line from the own suit along the ZERO aim.
-    if let (Some(z), Some(own)) = (core.world.zero, core.world.own)
+    if let (Some(z), Some(view)) = (core.world.zero, core.own_view())
         && z.has_solution
-        && own.alive
+        && view.alive
     {
-        let from = core.predict.render_pos();
+        let from = view.pos;
         gizmos.line(from, from + z.solution * 900.0, Color::srgba(1.0, 0.85, 0.3, 0.5));
     }
     dev.set("zero_ghosts", drawn);
