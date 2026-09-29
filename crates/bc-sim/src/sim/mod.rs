@@ -18,6 +18,7 @@ use alloc::boxed::Box;
 mod combat;
 mod detection;
 mod flame;
+mod launch;
 mod melee;
 mod mining;
 mod missile;
@@ -56,6 +57,7 @@ use crate::transform::transform_thrust;
 use crate::zero::TacticalAdvice;
 use crate::zero::strain::StrainEvent;
 
+pub use launch::{Homecoming, Loadout};
 pub use sleep::{Anchor, Body, Gone, PARK_SPEED, PARKED_VISUAL, SleeperFate};
 
 /// A pending hit, applied in the damage phase.

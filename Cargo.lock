@@ -604,6 +604,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "bc-econ"
+version = "0.1.0"
+dependencies = [
+ "bc-proto",
+ "bc-sim",
+ "proptest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "bc-model"
 version = "0.1.0"
 dependencies = [
