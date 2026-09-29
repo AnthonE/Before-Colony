@@ -22,6 +22,7 @@ use glam::Vec3;
 use super::mobile_doll::{Action, AiState, DollProfile};
 use crate::config::{DT, G0};
 use crate::content::{FrameSpec, SpecialKind, WeaponClass, weapon};
+use crate::flight::{FA_BOOST_CRUISE, FA_RESPONSE};
 use crate::math::{angle_between, floor, length, normalize_or, sin, sqrt};
 use crate::perception::{Contact, SelfView};
 use crate::zero::fire_control;
@@ -86,7 +87,7 @@ pub fn drive_kit(
                 })
             });
             let desired = footwork(me, t, los, ai, tick, profile, spec, &mut buttons);
-            let cruise = spec.fa_speed * if buttons & BOOST != 0 { 1.8 } else { 1.0 };
+            let cruise = spec.fa_speed * if buttons & BOOST != 0 { FA_BOOST_CRUISE } else { 1.0 };
             let push = desired * cruise - me.vel;
             let aim = match gun.and_then(|s| spec.loadout[s]) {
                 _ if spec.ai.melee_first && t.dist > FACE_RANGE && length(push) > 40.0 => {
@@ -143,9 +144,9 @@ pub fn drive_kit(
         desired = normalize_or(across.cross(me.rot * Vec3::Y), Vec3::X) * ai.strafe_sign;
         buttons |= BOOST;
     }
-    // Flight assist closes any gap to the velocity it's asked for at full thrust, which a Gundam's
-    // pilot can't bear for long. Strained, it flies unassisted instead, accelerating toward the
-    // same velocity at what a pilot bears for good.
+    // Flight assist spares a pilot's body unless they boost, and boosting a Gundam is more than a
+    // pilot bears for long. Strained, it flies unassisted instead, accelerating toward the same
+    // velocity at what a pilot bears for good, and doesn't boost.
     let ease = if hostile.is_some_and(|t| t.dist < CLOSE_RANGE) { STRAIN_EASE_CLOSE } else { STRAIN_EASE };
     let local = if me.g_strain > ease {
         buttons &= !(BOOST | FLIGHT_ASSIST);
@@ -275,11 +276,14 @@ fn footwork(
         let reach = spec.loadout[2].map_or(10.0, |m| weapon(m.weapon).range);
         let gap = (t.dist - (reach * 0.7 + 5.0)).max(0.0);
         let boost = t.dist > BOOST_RANGE;
-        let cruise = spec.fa_speed.max(1.0) * if boost { 1.8 } else { 1.0 };
+        let cruise = spec.fa_speed.max(1.0) * if boost { FA_BOOST_CRUISE } else { 1.0 };
         if boost {
             *buttons |= BOOST;
         }
-        let closing = sqrt(2.0 * PURSUIT_BRAKING * gap).min((1.5 * gap).max(40.0)).min(cruise);
+        // Flight assist takes a moment to answer, so ask for what the braking curve will want by
+        // then: otherwise it arrives too fast and flies past.
+        let braking = (sqrt(2.0 * PURSUIT_BRAKING * gap) - PURSUIT_BRAKING * FA_RESPONSE).max(0.0);
+        let closing = braking.min((1.5 * gap).max(40.0)).min(cruise);
         let mut v = t.vel + los * closing;
         if t.dist > WEAVE_RANGE {
             let lateral = normalize_or(los.cross(me.rot * Vec3::Y), Vec3::X);

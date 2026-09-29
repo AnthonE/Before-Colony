@@ -37,13 +37,21 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
 - **Thrust** is limited per axis: main (forward), side (lateral and vertical) and retro. Boost
   multiplies main thrust. Every newton burns propellant at `|F| / (Isp·g0)`, so mass falls as you
   burn and delta-v follows the rocket equation (tested to within 1%).
-- **Attitude.** The suit turns toward your aim.
+- **Attitude.** The suit turns toward your aim, never faster than it can stop from, so it settles
+  on the aim instead of swinging past it (even while firing or a blade takes AMBAC's limbs).
   - **AMBAC** (Active Mass Balance Auto Control) swings the limbs to rotate the suit. It costs no
     propellant but has modest authority. Losing arms or legs reduces it, and so does firing or
     striking with a blade, because the limbs are busy.
   - **RCS** (hold R) adds strong attitude thrusters that burn propellant.
 - **Flight assist** (V) turns the stick into a velocity command: it brakes to a stop when you let
   go. With it off you are fully Newtonian. **Brake** (X) always retro-burns.
+  - It eases onto the velocity asked for over about a fifth of a second, so G fades in and out
+    instead of switching on and off, and a stop settles rather than slamming.
+  - It spares the pilot's body: short of boost, it never pulls more than just under 6 g, whatever
+    the thrusters could do, so flying with it never blacks you out. Boost, or flight assist off,
+    gives you everything the thrusters have. (A Mobile Doll's flight assist snaps at full thrust.)
+  - Held through a blackout, boost keeps flight assist aiming at the boosted cruise, so it doesn't
+    brake while you're out.
 - **Pilot G.** Sustained load above 6 g builds G-strain. At 100% the pilot blacks out and control
   authority collapses until strain falls below 50%. A Wing Zero on boost pulls about 12 g, so you
   *can* out-thrust your own body, as Zechs did in the Tallgeese. Mobile Dolls have no body, so no
@@ -150,8 +158,9 @@ timings, arc and reach in its row of the weapon table.
 
 - **A blade hits a suit at most once a strike**; each of a twin weapon's blades hits it once. A lost
   arm loses its blade (the Cross Crusher needs both).
-- **Blades lunge**: through the windup and the stroke the suit drives forward at 1.5× main thrust,
-  which adds several metres to the reach. The Dragon Fang is Shenlong's arm, so it doesn't.
+- **Blades lunge**: through the windup and the stroke the suit drives forward at 1.5× main thrust
+  (never boosted: holding Shift through a swing doesn't black the pilot out), which adds several
+  metres to the reach. The Dragon Fang is Shenlong's arm, so it doesn't.
 - **Clashes.** A stroke that meets a suit whose own blade is out and facing it is parried: neither
   does damage, and each recovers for its blade's clash time. The Dragon Fang can't be parried.
 

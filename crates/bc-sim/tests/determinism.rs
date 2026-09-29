@@ -7,7 +7,7 @@
 mod common;
 
 /// Hash after 600 ticks of the reference scenario (update deliberately when the sim changes).
-const GOLDEN: u64 = 0xd10e_d123_9a15_0766;
+const GOLDEN: u64 = 0x37c3_7843_bcdf_6ef1;
 
 fn scenario_hash() -> u64 {
     let (mut sim, players) = common::arena(8, 24, 42);
@@ -34,7 +34,7 @@ fn golden_hash_wasm() {
 /// Hash after 450 ticks of the Gundams duelling in pairs among Mobile Dolls: every blade, the
 /// Cross Crusher, the Dragon Fang, the flamethrower, the Hyper Jammer, guided missiles, Full Open,
 /// Neo-Bird and the Gundams' guns (changes deliberately as their mechanics arrive).
-const GUNDAMS_GOLDEN: u64 = 0xbd17_fa1f_3cb6_6e34;
+const GUNDAMS_GOLDEN: u64 = 0xd1a0_1145_c01e_ac92;
 
 fn gundams_hash() -> u64 {
     use bc_proto::events::Event;
@@ -138,7 +138,7 @@ fn field_hash() -> u64 {
 
 /// Hash after suits have flown into rocks and fired into them, wearing them down, while a Leo cuts
 /// a small one apart with its saber.
-const ROCKS_GOLDEN: u64 = 0x72b1_ae0c_faaf_9bc7;
+const ROCKS_GOLDEN: u64 = 0x5eaf_38c9_e443_00fb;
 
 fn rocks_hash() -> u64 {
     use bc_proto::buttons::{FIRE_PRIMARY, MELEE};
@@ -224,7 +224,7 @@ fn field_and_rocks_golden_wasm() {
 
 /// Hash after a salvage run: pilots gather ore, stow it, tow a hulk, throw, jettison, and sell (and
 /// refuel) at the dock.
-const SALVAGE_GOLDEN: u64 = 0x10cc_d0c7_aa3c_92a4;
+const SALVAGE_GOLDEN: u64 = 0xc072_d7d8_13de_e986;
 
 fn salvage_hash() -> u64 {
     use bc_proto::buttons::{FLIGHT_ASSIST, GRAB, JETTISON, STOW, THROW};
@@ -322,7 +322,7 @@ fn salvage_golden_wasm() {
 /// Hash after sleepers' lives: a pilot at rest against a rock parks there until the rock is
 /// shattered under it; others tumble off on what they had; one is shot down asleep; the longest
 /// asleep are cleared past the cap; one wakes and flies; Mobile Dolls look on.
-const SLEEPERS_GOLDEN: u64 = 0xdcb7_3e61_b2e7_b20f;
+const SLEEPERS_GOLDEN: u64 = 0x10ad_54a4_3a16_f4ed;
 
 fn sleepers_hash() -> u64 {
     use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST};

@@ -6,6 +6,9 @@
 //!   reduce it. **RCS** (held) adds much more authority at a propellant cost.
 //! - **Flight assist** turns the thrust stick into a velocity command (it brakes to a stop when
 //!   released); off, the stick is raw thrust and velocity persists. **Brake** always retro-burns.
+//!   A pilot's flight assist eases onto the velocity asked for (a fifth of a second) and spares
+//!   their body: short of boost, it never pulls more G than they bear for good. A Mobile Doll's
+//!   snaps onto it at full thrust.
 //! - **Pilot G**: sustained load above tolerance builds G-strain. At 1.0 the pilot blacks out and
 //!   control authority collapses until it recovers below 0.5. Mobile Dolls have no body to protect.
 
@@ -16,7 +19,7 @@ use glam::{Quat, Vec3};
 use crate::config::G0;
 use crate::content::FrameSpec;
 use crate::field::Field;
-use crate::math::{atan2, integrate_rotation, length, normalize_or};
+use crate::math::{atan2, integrate_rotation, length, normalize_or, sqrt};
 
 /// Sustained G a trained human pilot tolerates before strain builds.
 pub const HUMAN_G_TOLERANCE: f32 = 6.0;
@@ -25,6 +28,20 @@ const STRAIN_GAIN_DIV: f32 = 4.0;
 const STRAIN_RECOVERY: f32 = 0.35;
 /// How hard the attitude controller chases the aim (1/s).
 const AIM_GAIN: f32 = 3.0;
+/// The share of its turning authority the attitude controller plans to brake with: it never turns
+/// faster than it can stop from in time, so it settles on the aim instead of swinging past.
+const ATTITUDE_BRAKE: f32 = 0.8;
+/// How long a pilot's flight assist takes to close a gap in velocity (s): short of full thrust, it
+/// eases onto the velocity asked for rather than snapping, so G fades in and out.
+pub const FA_RESPONSE: f32 = 0.2;
+/// A gap this small (m/s) flight assist closes in one tick: the last of it, not a trickle forever.
+const FA_SETTLE: f32 = 0.005;
+/// Holding boost raises flight assist's cruise speed by this much.
+pub const FA_BOOST_CRUISE: f32 = 1.8;
+/// Flight assist holds a pilot just under what they bear for good, g, unless they boost.
+pub const FA_G_CAP: f32 = HUMAN_G_TOLERANCE - 0.03;
+/// A blade's lunge drives forward at this much of full main thrust (never boosted).
+pub const LUNGE_THRUST: f32 = 1.5;
 
 /// Kinematic and pilot state of a suit.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -66,7 +83,7 @@ pub struct FlightMods {
     pub thrust: f32,
     /// Mobile Dolls: no G-strain.
     pub g_immune: bool,
-    /// Beam saber lunge: full forward thrust at 1.5×.
+    /// Beam saber lunge: full forward thrust at [`LUNGE_THRUST`]×.
     pub lunge: bool,
     /// Mass beyond the frame's own (cargo, a chunk in hand) less the parts shot off, kg. Whole
     /// kilograms, so prediction uses exactly the server's number.
@@ -131,17 +148,21 @@ pub fn step(s: &mut FlightState, cmd: &InputCmd, spec: &FrameSpec, mods: &Flight
     let angle = atan2(sin_a, cos_a);
     let rcs = cmd.pressed(RCS_SHARP) && has_prop;
     let max_rate = if rcs { spec.rcs_rate } else { spec.ambac_rate } * authority;
+    let ambac = spec.ambac_accel * mods.ambac * authority * turn;
+    let rcs_accel = if rcs { spec.rcs_accel * authority * turn } else { 0.0 };
+    let accel_cap = ambac + rcs_accel;
+    // Toward the aim, but never faster than it can stop from in time: arms busy firing or with a
+    // blade take AMBAC's limbs, not its top rate, and it mustn't swing past the aim for it.
+    let rate =
+        |angle: f32| (angle * AIM_GAIN).min(max_rate).min(sqrt(2.0 * ATTITUDE_BRAKE * accel_cap * angle));
     let mut w_des = if sin_a > 1e-6 {
-        axis * ((angle * AIM_GAIN).min(max_rate) / sin_a)
+        axis * (rate(angle) / sin_a)
     } else if cos_a < 0.0 {
-        (s.rot * Vec3::Y) * max_rate // exactly behind: pitch over
+        (s.rot * Vec3::Y) * rate(angle) // exactly behind: pitch over
     } else {
         Vec3::ZERO
     };
     w_des += fwd * (cmd.roll_f32() * spec.roll_rate * authority);
-    let ambac = spec.ambac_accel * mods.ambac * authority * turn;
-    let rcs_accel = if rcs { spec.rcs_accel * authority * turn } else { 0.0 };
-    let accel_cap = ambac + rcs_accel;
     let dw = w_des - s.ang_vel;
     let dw_len = length(dw);
     let max_dw = accel_cap * dt;
@@ -154,17 +175,20 @@ pub fn step(s: &mut FlightState, cmd: &InputCmd, spec: &FrameSpec, mods: &Flight
 
     // --- Translation. ---
     let boosting = cmd.pressed(BOOST) && has_prop && !s.blackout;
-    let main =
-        spec.main_thrust * if boosting { spec.boost_mult } else { 1.0 } * if mods.lunge { 1.5 } else { 1.0 };
+    let main = spec.main_thrust * if boosting { spec.boost_mult } else { 1.0 };
     let side = spec.side_thrust;
     let retro = spec.retro_thrust;
     let brake = cmd.pressed(BRAKE);
     let assisted = brake || cmd.pressed(FLIGHT_ASSIST);
     let stick = if brake { Vec3::ZERO } else { cmd.thrust_vec() };
     let mut f_local = if assisted {
-        let cruise = spec.fa_speed * if boosting { 1.8 } else { 1.0 };
+        // Boost's cruise while the pilot holds it, even through a blackout that cuts the boost
+        // itself (flight assist mustn't brake them for it).
+        let cruise = spec.fa_speed * if cmd.pressed(BOOST) { FA_BOOST_CRUISE } else { 1.0 };
         let v_local = s.rot.conjugate() * s.vel;
-        let f_req = (stick * cruise - v_local) * (mass / dt);
+        let gap = stick * cruise - v_local;
+        let response = if mods.g_immune || length(gap) < FA_SETTLE { dt } else { FA_RESPONSE.max(dt) };
+        let f_req = gap * (mass / response);
         Vec3::new(
             clamp_axis(f_req.x, side, side),
             clamp_axis(f_req.y, side, side),
@@ -178,11 +202,20 @@ pub fn step(s: &mut FlightState, cmd: &InputCmd, spec: &FrameSpec, mods: &Flight
         )
     };
     if mods.lunge {
-        f_local.z = main;
+        f_local.z = spec.main_thrust * LUNGE_THRUST;
     }
     f_local *= mods.thrust * authority;
     if !has_prop {
         f_local = Vec3::ZERO;
+    }
+    // Flight assist spares its pilot's body: short of boost (or a blade's lunge), it holds them
+    // under what they bear for good, whatever their tank and the thrusters could do.
+    let guard = assisted && !boosting && !mods.lunge && !mods.g_immune;
+    let most = FA_G_CAP * G0 * mass;
+    let pull = length(f_local);
+    let g_limited = guard && pull > most;
+    if g_limited {
+        f_local *= most / pull;
     }
     let burn = (f_local.x.abs() + f_local.y.abs() + f_local.z.abs()) * dt / spec.exhaust_velocity();
     s.propellant = (s.propellant - burn).max(0.0);
@@ -213,7 +246,7 @@ pub fn step(s: &mut FlightState, cmd: &InputCmd, spec: &FrameSpec, mods: &Flight
     }
 
     crate::world::constrain(s);
-    FlightOut { boosting, accel, throttle, g_limited: false }
+    FlightOut { boosting, accel, throttle, g_limited }
 }
 
 #[cfg(test)]
