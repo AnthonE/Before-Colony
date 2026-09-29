@@ -1,11 +1,12 @@
 //! Conversions from simulation state to the wire structs in `bc-proto`.
 
 use bc_proto::snapshot::{
-    ZERO_THREATS as WIRE_THREATS, ZeroThreat, ent_flags, own_flags, part_buckets, zero_mode,
+    OwnArms, ZERO_THREATS as WIRE_THREATS, ZeroThreat, ent_flags, own_flags, part_buckets, zero_mode,
 };
 use bc_proto::{EntityState, ObjectState, OwnState, RockState, ZeroInfo};
 
 use super::Sim;
+use crate::arms::phase_to_wire;
 use crate::chunks::Motion;
 use crate::content::{SpecialKind, WeaponClass, frame, weapon};
 use crate::rocks::{max_hp, max_ore_kg};
@@ -172,7 +173,7 @@ impl Sim {
             zero_strain: s.zero[i].strain,
             zero_mode: s.zero[i].mode,
             flags,
-            ambac_factor: mods.ambac,
+            ambac_factor: self.idle_ambac(i),
             thrust_factor: mods.thrust,
             respawn_in,
             extra_mass_kg: mods.extra_mass_kg,
@@ -183,7 +184,61 @@ impl Sim {
             lock_progress,
             special_timer: special_timer.min(255) as u8,
             special_cooldown: s.special[i].cooldown.div_ceil(4).min(255) as u8,
+            arms: self.own_arms(i),
         }
+    }
+
+    /// Suit `i`'s arms for its own pilot's client, which rolls them on tick by tick
+    /// (`crate::arms::ArmsClock`). A mount waits for its cooldown; one that can't fire or strike
+    /// for a reason the client can't see run out (an arm gone, energy or rounds short) waits
+    /// [`OwnArms::NEVER`]. Heat goes in the flags.
+    fn own_arms(&self, i: usize) -> OwnArms {
+        let s = &self.suits;
+        let spec = frame(s.frame[i]);
+        let mut arms = OwnArms {
+            phase: phase_to_wire(s.melee[i].phase),
+            timer: s.melee[i].timer,
+            slot: s.melee[i].slot,
+            fired_ago: self.tick().saturating_sub(s.last_fired[i]).min(u32::from(OwnArms::LONG_AGO)) as u8,
+            ..OwnArms::default()
+        };
+        for (slot, mount) in spec.loadout.iter().enumerate() {
+            let Some(mount) = *mount else { continue };
+            let w = weapon(mount.weapon);
+            let ws = &s.weapons[i][slot];
+            let arm = s.arm_free(i, mount.arm);
+            let can = s.energy[i] >= w.energy
+                && match w.class {
+                    WeaponClass::Melee => w.melee.is_some_and(|m| self.melee_arms_ok(i, mount, &m)),
+                    // A flame is lit while fire is held, whatever its cooldown.
+                    WeaponClass::Cone => arm && ws.ammo > 0,
+                    WeaponClass::Beam | WeaponClass::Ballistic | WeaponClass::Missile => {
+                        arm && (w.ammo == 0 || ws.ammo > 0)
+                    }
+                };
+            if can {
+                arms.wait[slot] = if w.class == WeaponClass::Cone { 0 } else { OwnArms::wait(ws.cooldown) };
+            }
+            // A salvo under way runs on until it's out of rounds or the arm's gone.
+            if w.class == WeaponClass::Missile && slot < 2 && arm && ws.ammo > 0 {
+                (arms.salvo[slot], arms.salvo_gap[slot]) = (ws.salvo, ws.gap);
+            }
+        }
+        let cooldown = OwnArms::wait(s.special[i].cooldown);
+        arms.wait[3] = match spec.special {
+            SpecialKind::MeleeMove { .. } => spec
+                .melee_mount(SPECIAL_MOUNT)
+                .map(|mount| (mount, weapon(mount.weapon)))
+                .filter(|(mount, w)| {
+                    s.energy[i] >= w.energy && w.melee.is_some_and(|m| self.melee_arms_ok(i, *mount, &m))
+                })
+                .map_or(OwnArms::NEVER, |_| cooldown),
+            SpecialKind::FullOpen { .. } => cooldown,
+            SpecialKind::HyperJammer { .. } | SpecialKind::Transform { .. } | SpecialKind::None => {
+                OwnArms::NEVER
+            }
+        };
+        arms
     }
 
     /// Suit `j` as replicated to `viewer`.

@@ -234,7 +234,8 @@ pub fn drive(
     // Lock assist, for frames with missiles to guide: the hostile the reticle is on.
     let launcher = g.core.world.own.is_some_and(|o| o.alive && frame(o.frame).lock_spec().is_some());
     g.lock = if launcher {
-        let (from, t) = (g.core.predict.state.pos, g.core.render_tick(now));
+        let from = g.core.own_view().map_or(g.core.predict.state.pos, |v| v.pos);
+        let t = g.core.render_tick(now);
         g.core.world.lock_assist(from, aim.dir, g.lock, t)
     } else {
         None

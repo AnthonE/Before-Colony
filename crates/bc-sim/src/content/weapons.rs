@@ -1,4 +1,5 @@
 use bc_proto::WeaponKind;
+use bc_proto::snapshot::{ARMS_MAX_SALVO, ARMS_MAX_SALVO_GAP, ARMS_MAX_TIMER};
 use glam::Vec3;
 
 use super::melee::{ConeSpec, MeleeSpec, MissileSpec, Stroke};
@@ -467,6 +468,19 @@ const _: () = {
             WeaponClass::Cone => assert!(w.cone.is_some()),
             WeaponClass::Beam | WeaponClass::Ballistic => assert!(w.speed > 0.0 && w.range > 0.0),
         }
+        // The owner's client rolls its arms on from what the snapshot carries (`crate::arms`): a
+        // strike's phases, a salvo's rounds and gaps must fit it, and a charge (sent as 6 bits of
+        // fraction) must come back to the tick.
+        if let Some(m) = w.melee {
+            let longest = [m.windup, m.active, m.recovery, m.clash_recovery];
+            let mut k = 0;
+            while k < longest.len() {
+                assert!(longest[k] <= ARMS_MAX_TIMER, "a strike phase too long for the arms record");
+                k += 1;
+            }
+        }
+        assert!(w.salvo <= ARMS_MAX_SALVO + 1 && w.salvo_gap <= ARMS_MAX_SALVO_GAP + 1);
+        assert!(w.charge_ticks < 63, "a charge too long to come back to the tick");
         i += 1;
     }
 };

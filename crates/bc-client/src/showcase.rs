@@ -1077,6 +1077,7 @@ fn script(
                 vel,
                 up: rot * Vec3::Y,
                 aim: heading,
+                cut: false,
                 boost,
                 g_strain: g,
                 blackout: (10.5..12.5).contains(&u),

@@ -6,11 +6,11 @@ use std::collections::{HashMap, HashSet};
 
 use bc_client_core::FeedLine;
 use bc_client_core::world::ObjectMotion;
-use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, MELEE};
+use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY};
 use bc_proto::events::BurstCause;
 use bc_proto::snapshot::{ent_flags, own_flags, zero_mode};
 use bc_sim::TICK_HZ;
-use bc_sim::content::{SpecialKind, frame};
+use bc_sim::content::{SPECIAL_MOUNT, SpecialKind, frame};
 use bc_sim::world::COLONY_CENTER;
 use bevy::prelude::*;
 
@@ -79,7 +79,9 @@ pub fn sync_view(
     let world = &core.world;
     let now = vis.now;
     let t_render = core.render_tick(now);
-    let t_input = core.clock.server_now(now) + core.clock.lead;
+    // The own suit as drawn this frame (between the ticks predicted), and the time it's drawn at.
+    let drawn = core.own_view().copied();
+    let t_own = drawn.map_or(core.clock.own_tick(now) - 1.0, |v| v.t);
     let own_slot = world.own_slot();
 
     // --- Suits. ---
@@ -94,19 +96,20 @@ pub fn sync_view(
         })
         .collect();
     let mut want: Vec<SuitDrive> = Vec::with_capacity(world.entities.len().min(64) + 1);
-    if let Some(own) = world.own {
+    if let (Some(own), Some(view)) = (world.own, drawn) {
         let mut flags = 0;
-        for (own_bit, ent_bit) in [
-            (own_flags::BOOSTING, ent_flags::BOOST),
-            (own_flags::SABER_ACTIVE, ent_flags::SABER),
-            (own_flags::CHARGING, ent_flags::CHARGING),
-            (own_flags::OVERHEAT, ent_flags::OVERHEAT),
-        ] {
+        // Boost shows while the boosted main thrusters are actually burning.
+        if view.boosting && view.throttle.z > 0.05 {
+            flags |= ent_flags::BOOST;
+        }
+        for (own_bit, ent_bit) in
+            [(own_flags::CHARGING, ent_flags::CHARGING), (own_flags::OVERHEAT, ent_flags::OVERHEAT)]
+        {
             if own.flags & own_bit != 0 {
                 flags |= ent_bit;
             }
         }
-        let spec = frame(own.frame);
+        let spec = frame(view.frame);
         let buttons = core.last_cmd.buttons;
         if buttons & FIRE_PRIMARY != 0 && own.weapon_ready & 1 != 0 {
             flags |= ent_flags::FIRING_PRIMARY;
@@ -114,45 +117,42 @@ pub fn sync_view(
         if buttons & FIRE_SECONDARY != 0 && own.weapon_ready & 2 != 0 {
             flags |= ent_flags::FIRING_SECONDARY;
         }
-        if own.flags & (own_flags::SPECIAL_ACTIVE | own_flags::TRANSFORMING) != 0 {
+        // The strike as predicted, so the swing starts with the lunge: the special's melee move,
+        // a blade in a gun slot (the Dragon Fang), or the F weapon.
+        flags |= match view.strike {
+            Some(SPECIAL_MOUNT) => ent_flags::SABER | ent_flags::SPECIAL,
+            Some(0 | 1) => ent_flags::SABER | ent_flags::MELEE_ALT,
+            Some(_) => ent_flags::SABER,
+            None => 0,
+        };
+        // Any other special engaged (the melee move is the strike's): the jammer, Full Open, a
+        // change of form.
+        if own.flags & (own_flags::SPECIAL_ACTIVE | own_flags::TRANSFORMING) != 0
+            && spec.melee_mount(SPECIAL_MOUNT).is_none()
+        {
             flags |= ent_flags::SPECIAL;
             // Full Open Attack fires everything.
             if matches!(spec.special, SpecialKind::FullOpen { .. }) {
                 flags |= ent_flags::FIRING_PRIMARY | ent_flags::FIRING_SECONDARY;
             }
         }
-        // A strike from a blade in a gun slot (the Dragon Fang), not the F weapon.
-        let alt = |slot: u8, button: u16| buttons & button != 0 && spec.melee_mount(slot).is_some();
-        if own.flags & own_flags::SABER_ACTIVE != 0
-            && buttons & MELEE == 0
-            && (alt(0, FIRE_PRIMARY) || alt(1, FIRE_SECONDARY))
-        {
-            flags |= ent_flags::MELEE_ALT;
-        }
-        let (pos, rot, vel) = if own.alive {
-            let s = &core.predict.state;
-            (core.predict.render_pos(), s.rot, s.vel)
-        } else {
-            // The own wreck, where the server says it drifts.
+        if !view.alive {
+            // The own wreck, drifting where the server says.
             flags = ent_flags::WRECK;
-            (own.pos, own.rot, own.vel)
-        };
-        let t = core.last_cmd.thrust;
-        let thrust = if own.alive {
-            Vec3::new(f32::from(t[0]), f32::from(t[1]), f32::from(t[2])) / 127.0
-        } else {
-            Vec3::ZERO
-        };
+        }
+        // What the thrusters are doing (not what the stick says: flight assist brakes by itself).
+        let thrust =
+            if view.alive { view.throttle.clamp(Vec3::splat(-1.0), Vec3::splat(1.0)) } else { Vec3::ZERO };
         want.push(SuitDrive {
             slot: own.slot,
-            // The form the prediction flies (a change of form shows as soon as it's made).
-            frame: if own.alive { core.predict.frame() } else { own.frame },
+            // The form drawn (a change of form shows as the suit reaches it).
+            frame: view.frame,
             faction: core.cfg.faction,
             generation: own.generation,
             own: true,
-            pos,
-            rot,
-            vel,
+            pos: view.pos,
+            rot: view.rot,
+            vel: view.flight_vel,
             aim: if own.alive { aim.dir } else { own.rot * Vec3::Z },
             flags,
             thrust,
@@ -231,13 +231,13 @@ pub fn sync_view(
         alive
     });
 
-    // --- Beams: the own suit's on the input clock (drawn the moment they're fired), others on the
-    // render clock. ---
+    // --- Beams: the own suit's on its own clock (leaving the muzzle as the suit is drawn there),
+    // others on the render clock. ---
     // The server removes beams that strike the colony or a rock without telling anyone, so they
     // end, and splash, there.
     beams.0.clear();
     for b in &world.beams {
-        let t = if Some(b.shooter) == own_slot { t_input } else { t_render };
+        let t = if Some(b.shooter) == own_slot { t_own } else { t_render };
         if !b.alive_at(t) {
             continue;
         }
@@ -268,7 +268,7 @@ pub fn sync_view(
         }
         if seen.fired.insert((b.shooter, b.shot_seq)) {
             let vel = if Some(b.shooter) == own_slot {
-                core.predict.state.vel
+                drawn.map_or(Vec3::ZERO, |v| v.flight_vel)
             } else {
                 world.pose(b.shooter, t_render).map_or(Vec3::ZERO, |p| p.vel)
             };
@@ -298,7 +298,7 @@ pub fn sync_view(
         });
     }
     // Launches: a missile not seen before. The pilot's own are those that start at their suit.
-    let own_pos = world.own.filter(|o| o.alive).map(|_| core.predict.render_pos());
+    let own_pos = drawn.filter(|v| v.alive).map(|v| v.pos);
     for m in world.missiles() {
         let key = (m.latest.id, m.latest.generation);
         if seen.missiles.insert(key) {
@@ -327,10 +327,7 @@ pub fn sync_view(
             // On the hit part's armour where the shot's line meets it, as drawn now.
             let posed = |slot: u16| {
                 if Some(slot) == own_slot {
-                    world.own.map(|o| {
-                        let frame = if o.alive { core.predict.frame() } else { o.frame };
-                        (frame, core.predict.render_pos(), core.predict.state.rot)
-                    })
+                    drawn.map(|v| (v.frame, v.pos, v.rot))
                 } else {
                     world.entity(slot).map(|t| {
                         let p = t.sample(t_render);
@@ -380,7 +377,7 @@ pub fn sync_view(
                 world
                     .pose(slot, t_render)
                     .map(|p| p.pos)
-                    .or(world.own.filter(|o| o.slot == slot).map(|o| o.pos))
+                    .or(drawn.filter(|_| Some(slot) == own_slot).map(|v| v.pos))
             };
             if let (Some(pa), Some(pb)) = (at(a), at(b)) {
                 events.0.push(FxEvent::Clash { pos: (pa + pb) * 0.5 });
@@ -406,15 +403,16 @@ pub fn sync_view(
             .any(|l| matches!(*l, FeedLine::Kill { tick: t, victim: v, .. } if t == tick && v == victim))
     });
 
-    // --- Camera. ---
-    target.0 = world.own.map(|own| ChaseTarget {
-        pos: if own.alive { core.predict.render_pos() } else { own.pos },
-        vel: if own.alive { core.predict.state.vel } else { own.vel },
-        up: core.predict.state.rot * Vec3::Y,
+    // --- Camera: on the suit as drawn, and the pilot's body as predicted. ---
+    target.0 = world.own.zip(drawn).map(|(own, view)| ChaseTarget {
+        pos: view.pos,
+        vel: view.vel,
+        up: view.rot * Vec3::Y,
         aim: aim.dir,
-        boost: own.alive && own.flags & own_flags::BOOSTING != 0,
-        g_strain: own.g_strain.clamp(0.0, 1.0),
-        blackout: own.alive && own.flags & own_flags::BLACKOUT != 0,
+        cut: view.cut,
+        boost: view.alive && view.boosting,
+        g_strain: view.g_strain.clamp(0.0, 1.0),
+        blackout: view.alive && view.blackout,
         zero: own.alive && own.zero_mode == zero_mode::ACTIVE,
         zero_strain: own.zero_strain.clamp(0.0, 1.0),
         seized: own.alive && own.zero_mode == zero_mode::SEIZED,

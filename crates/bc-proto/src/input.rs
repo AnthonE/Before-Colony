@@ -54,6 +54,8 @@ pub const AIM_BITS: u32 = 16;
 /// the server treats it as 8 ticks old either way.
 pub const VIEW_DELTA_BITS: u32 = 8;
 pub const MAX_CMDS: usize = 4;
+/// A client silent for more than this many ticks goes hands-off (see [`InputCmd::stand_in`]).
+pub const NEUTRAL_AFTER: u32 = 8;
 
 /// One tick of control.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -103,6 +105,24 @@ impl InputCmd {
             aim,
             buttons: keep_buttons & buttons::STATES,
             ..Self::default()
+        }
+    }
+
+    /// What the server flies for `tick` when a client's command for it never arrived, `missing`
+    /// ticks (1, 2, …) after `last`, the last one that did: `last` again without firing, on the same
+    /// view delay, then hands-off ([`InputCmd::neutral`]) once the client has been silent for more
+    /// than [`NEUTRAL_AFTER`] ticks. The owner's prediction flies the same through gaps in what it
+    /// sent.
+    pub fn stand_in(last: &InputCmd, tick: u32, missing: u32) -> Self {
+        if missing > NEUTRAL_AFTER {
+            return Self::neutral(tick, last.aim, last.buttons);
+        }
+        let delta = (last.tick << 4).saturating_sub(last.view_tick_q4);
+        Self {
+            tick,
+            view_tick_q4: (tick << 4).saturating_sub(delta),
+            buttons: last.buttons & !buttons::FIRE_MASK,
+            ..*last
         }
     }
 
@@ -283,6 +303,31 @@ mod tests {
         // Presses (fire, the special) are never repeated for a silent client.
         const { assert!(buttons::STATES & buttons::FIRE_MASK == 0) };
         const { assert!(buttons::FIRE_MASK & buttons::SPECIAL != 0) };
+    }
+
+    #[test]
+    fn a_missing_command_repeats_the_last_then_lets_go() {
+        let last = InputCmd {
+            tick: 100,
+            view_tick_q4: (100 << 4) - 37,
+            aim: Vec3::X,
+            thrust: [12, -40, 127],
+            roll: 9,
+            buttons: buttons::FIRE_PRIMARY | buttons::BOOST | buttons::FLIGHT_ASSIST | buttons::MELEE,
+            lock_target: 7,
+            shot_seq: 3,
+        };
+        // Repeated without firing, on the same view delay.
+        let r = InputCmd::stand_in(&last, 103, 3);
+        assert_eq!(r.tick, 103);
+        assert_eq!(r.view_tick_q4, (103 << 4) - 37);
+        assert_eq!(r.thrust, last.thrust);
+        assert_eq!(r.buttons, buttons::BOOST | buttons::FLIGHT_ASSIST);
+        assert_eq!(InputCmd::stand_in(&last, 108, NEUTRAL_AFTER).thrust, last.thrust);
+        // Silent for longer: hands off, keeping the aim and the states.
+        let n = InputCmd::stand_in(&last, 109, NEUTRAL_AFTER + 1);
+        assert_eq!(n, InputCmd::neutral(109, Vec3::X, last.buttons));
+        assert_eq!(n.thrust, [0; 3]);
     }
 
     #[test]

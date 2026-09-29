@@ -9,11 +9,13 @@
 //! [`ClientCore::poll_inputs`] returns.
 
 pub mod brains;
+pub mod chase;
 pub mod clock;
 pub mod controls;
 pub mod hints;
 pub mod inputs;
 pub mod interp;
+pub mod own;
 pub mod pointer;
 pub mod predict;
 pub mod salvage;
@@ -24,15 +26,19 @@ pub mod world;
 use bc_proto::auth::{Address, Domain, NONCE_BYTES, Signature, TOKEN_BYTES};
 use bc_proto::buttons::FIRE_PRIMARY;
 use bc_proto::control::{ControlMsg, RejectReason, hello_flags, roster_flags, welcome_flags};
+use bc_proto::snapshot::{own_flags, zero_mode};
 use bc_proto::{Faction, FrameId, InputCmd, InputPacket, PROTOCOL_VERSION, PilotKind, SnapshotReader};
-use bc_sim::config::MAX_REWIND_TICKS;
-use bc_sim::content::{Replication, frame, weapon};
+use bc_sim::DT;
+use bc_sim::config::{G0, MAX_REWIND_TICKS};
+use bc_sim::content::{Mount, Replication, frame, weapon};
+use bc_sim::math::{clamp_to_cone, integrate_rotation, normalize_or};
 use glam::Vec3;
 
 pub use brains::{DollBrain, MinerBrain};
 pub use clock::Clock;
 pub use inputs::InputHistory;
-pub use predict::Predictor;
+pub use own::OwnView;
+pub use predict::{OwnPose, Predictor};
 pub use salvage::{LooseChunk, SalvageView};
 pub use world::{Beam, FeedLine, Ghost, HitMark, World};
 
@@ -138,6 +144,11 @@ pub struct ClientCore {
     last_shot_tick: u32,
     pub stats: ClientStats,
     pub last_cmd: InputCmd,
+    /// The own suit as drawn, between frames.
+    drawn: own::Drawn,
+    /// Felt acceleration between the last two snapshots, g: the reading while ZERO flies the suit
+    /// (and the prediction, flying the pilot's commands, is beside the point).
+    heard_g: f32,
 }
 
 impl ClientCore {
@@ -161,6 +172,8 @@ impl ClientCore {
             last_shot_tick: 0,
             stats: ClientStats::default(),
             last_cmd: InputCmd::default(),
+            drawn: own::Drawn::default(),
+            heard_g: 0.0,
         }
     }
 
@@ -347,6 +360,10 @@ impl ClientCore {
                 }
             }
         }
+        // The own suit where it was last drawn, from what it was drawn from, before this news.
+        let drawn_at = self.drawn.recent(now);
+        let before = drawn_at.and_then(|t| self.own_source(t)).map(|(p, _)| p);
+        let life_before = self.world.own.map(|o| (o.slot, o.generation, o.alive));
         // A hold of 255 ms is saturated (the client sent nothing for that long), so the true hold
         // is unknown and the sample would overstate the RTT.
         let rtt = (h.time_echo_ms != 0 && h.echo_hold_ms < u8::MAX).then(|| {
@@ -354,6 +371,10 @@ impl ClientCore {
             f64::from(now_ms.wrapping_sub(h.time_echo_ms)) / 1_000.0 - f64::from(h.echo_hold_ms) / 1_000.0
         });
         self.clock.on_snapshot(h.tick, now, rtt, h.input_health);
+        let heard = self.world.own.filter(|o| o.alive).map(|o| (self.world.tick, o.vel));
+        if let (Some(own), Some((t0, v0))) = (own.filter(|o| o.alive), heard) {
+            self.heard_g = (own.vel - v0).length() / ((h.tick - t0) as f32 * DT) / G0;
+        }
         self.world.apply_missiles(h.tick, &missiles);
         self.world.apply(h.tick, own, zero, &events, &ents);
         self.world.apply_salvage(&rocks, &objects);
@@ -361,8 +382,23 @@ impl ClientCore {
             self.predict.set_rock_dead(usize::from(r.id), r.destroyed);
         }
         if let Some(own) = own {
+            // A new life (a respawn, or the first): nothing before it is to be drawn from.
+            let new_life = own.alive
+                && life_before.is_none_or(|(slot, generation, alive)| {
+                    !alive || slot != own.slot || generation != own.generation
+                });
+            if new_life {
+                self.predict.forget_before(h.tick);
+            }
             self.predict.reconcile(h.tick, &own, &self.inputs);
             self.stats.prediction_error = self.predict.last_error;
+            // Keep the suit where it was drawn, and blend what the news changed out.
+            let after = drawn_at.and_then(|t| self.own_source(t)).map(|(p, _)| p);
+            if new_life || drawn_at.is_none() {
+                self.drawn.cut();
+            } else {
+                self.drawn.correct(before, after);
+            }
         }
         self.stats.snapshots += 1;
         self.stats.bytes += bytes.len() as u64;
@@ -404,11 +440,14 @@ impl ClientCore {
             let mut cmd = brain(&ctx);
             cmd.tick = tick;
             cmd.view_tick_q4 = ((view.max(0.0) * 16.0) as u32).min(tick << 4);
-            self.maybe_predict_shot(&mut cmd, tick);
+            let shot = self.shot_due(&cmd, tick);
             cmd.shot_seq = self.shot_seq;
             let q = cmd.quantized();
             self.inputs.push(q);
-            self.predict.advance(&q);
+            self.predict.advance(&q, &self.inputs);
+            if let Some(mount) = shot {
+                self.predict_shot(mount, &q);
+            }
             self.last_cmd = q;
             self.next_cmd_tick += 1;
         }
@@ -449,36 +488,82 @@ impl ClientCore {
         packets
     }
 
-    /// If this command fires the primary weapon and the weapon should be ready, draw the beam now
-    /// (the server's spawn event confirms it via `shot_seq`). Only weapons whose every shot is an
-    /// event are drawn this way: a stream's tracers, a blade or a flame have nothing to confirm.
-    fn maybe_predict_shot(&mut self, cmd: &mut InputCmd, tick: u32) {
-        let Some(own) = self.world.own else { return };
+    /// Whether this command fires the primary weapon, which should be ready: if so, the shot takes
+    /// the next `shot_seq` and is drawn now (the server's spawn event confirms it). Only weapons
+    /// whose every shot is an event are drawn this way: a stream's tracers, a blade or a flame
+    /// have nothing to confirm.
+    fn shot_due(&mut self, cmd: &InputCmd, tick: u32) -> Option<Mount> {
+        let own = self.world.own?;
         if !own.alive || cmd.buttons & FIRE_PRIMARY == 0 || own.weapon_ready & 1 == 0 {
-            return;
+            return None;
         }
-        let spec = frame(own.frame);
-        let Some(mount) = spec.loadout[0] else { return };
+        let mount = frame(own.frame).loadout[0]?;
         let w = weapon(mount.weapon);
         if w.replication != Replication::PerShot
             || w.charge_ticks > 0
             || tick < self.last_shot_tick + u32::from(w.cooldown)
         {
-            return;
+            return None;
         }
         self.last_shot_tick = tick;
         self.shot_seq = self.shot_seq.wrapping_add(1);
+        Some(mount)
+    }
+
+    /// Draws the shot `cmd` fires from `mount`, as the server fires it: from the suit after that
+    /// tick's flight, within the arm's reach off the nose.
+    fn predict_shot(&mut self, mount: Mount, cmd: &InputCmd) {
+        let Some(own) = self.world.own else { return };
+        let w = weapon(mount.weapon);
         let s = &self.predict.state;
+        let fwd = s.rot * Vec3::Z;
+        let dir = clamp_to_cone(normalize_or(cmd.aim, fwd), fwd, mount.arm.cone());
         let muzzle = s.pos + s.rot * mount.arm.muzzle();
-        let dir = cmd.aim.normalize_or(s.rot * Vec3::Z);
         self.world.predict_beam(
             own.slot,
             w.kind,
             self.shot_seq,
             muzzle,
             s.vel + dir * w.speed,
-            f64::from(tick),
+            f64::from(cmd.tick),
         );
+    }
+
+    /// What the own suit is drawn from at `t` (input-clock ticks), and whether it's alive: the
+    /// prediction, between the ticks it has flown; or, for the wreck and while ZERO flies the suit
+    /// (not the pilot's commands), the server's word carried on at its velocity and spin.
+    fn own_source(&self, t: f64) -> Option<(OwnPose, bool)> {
+        let own = self.world.own?;
+        let seized = own.zero_mode == zero_mode::SEIZED;
+        if own.alive
+            && !seized
+            && self.predict.initialized
+            && let Some(p) = self.predict.pose_at(t)
+        {
+            return Some((p, true));
+        }
+        let ahead = (t - f64::from(self.world.tick)).clamp(0.0, 15.0) as f32 * DT;
+        let pose = OwnPose {
+            pos: own.pos + own.vel * ahead,
+            // (A wreck drifts without turning.)
+            rot: if own.alive { integrate_rotation(own.rot, own.ang_vel, ahead) } else { own.rot },
+            vel: own.vel,
+            dpos: own.vel,
+            g_load: if own.alive { self.heard_g } else { 0.0 },
+            g_strain: own.g_strain,
+            blackout: own.flags & own_flags::BLACKOUT != 0,
+            boosting: own.alive && own.flags & own_flags::BOOSTING != 0,
+            throttle: Vec3::ZERO,
+            g_limited: false,
+            frame: own.frame,
+            strike: (own.alive && matches!(own.arms.phase, 1 | 2)).then_some(own.arms.slot),
+        };
+        Some((pose, own.alive))
+    }
+
+    /// The own suit as drawn this frame (after [`ClientCore::frame`]).
+    pub fn own_view(&self) -> Option<&OwnView> {
+        self.drawn.view.as_ref()
     }
 
     /// Time (ticks) to render remote entities at.
@@ -486,11 +571,19 @@ impl ClientCore {
         self.clock.view_tick(now)
     }
 
-    /// Per-frame housekeeping (visual correction decay, pruning).
+    /// Per-frame housekeeping: draws the own suit for this frame ([`ClientCore::own_view`]) and
+    /// prunes what's done.
     pub fn frame(&mut self, now: f64, frame_dt: f32) {
-        self.predict.decay(frame_dt);
-        let t = self.render_tick(now);
-        self.world.prune(t);
+        self.world.prune(self.render_tick(now));
+        // A tick behind the input clock, between the last two ticks predicted.
+        let own_t = self.clock.own_tick(now) - 1.0;
+        match self.own_source(own_t) {
+            Some((src, alive)) => {
+                let rate = self.clock.own_rate(now) as f32;
+                self.drawn.draw(own_t, now, &src, alive, frame_dt, rate);
+            }
+            None => self.drawn.view = None,
+        }
     }
 }
 

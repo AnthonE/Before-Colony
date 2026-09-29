@@ -59,6 +59,17 @@ pub fn angle_between(a: Vec3, b: Vec3) -> f32 {
     atan2(length(a.cross(b)), a.dot(b))
 }
 
+/// Clamps `dir` into a cone of half-angle `cone` around `axis` (all unit vectors): how far off a
+/// suit's nose an arm can point its weapon.
+pub fn clamp_to_cone(dir: Vec3, axis: Vec3, cone: f32) -> Vec3 {
+    let a = angle_between(axis, dir);
+    if a <= cone {
+        return dir;
+    }
+    let perp = normalize_or(dir - axis * axis.dot(dir), Vec3::Y);
+    normalize_or(axis * cos(cone) + perp * sin(cone), axis)
+}
+
 /// Normalizes a quaternion with our sqrt.
 #[inline]
 pub fn quat_normalize(q: Quat) -> Quat {

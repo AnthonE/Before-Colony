@@ -11,22 +11,12 @@ use crate::collide::{segment_near_point, sweep_capsules};
 use crate::config::{DT, MAX_REWIND_TICKS, secs};
 use crate::content::salvage::{DETACH_PUSH, DETACH_SPEED, mass_without, part_mass_kg, wreck_ttl};
 use crate::content::{Mount, Replication, WeaponClass, WeaponSpec, frame, weapon};
-use crate::math::{angle_between, cos, hash01, normalize_or, sin};
+use crate::math::{angle_between, clamp_to_cone, hash01, normalize_or};
 use crate::suits::{SPECIAL_SLOTS, WeaponState};
 use crate::world::inside_colony;
 
 /// ZERO fire-time magnetism: shots this close to the ZERO firing solution snap to it.
 pub const MAGNET_ANGLE: f32 = 0.026; // 1.5°
-
-/// Clamps `dir` into a cone of half-angle `cone` around `axis`.
-pub(super) fn clamp_to_cone(dir: Vec3, axis: Vec3, cone: f32) -> Vec3 {
-    let a = angle_between(axis, dir);
-    if a <= cone {
-        return dir;
-    }
-    let perp = normalize_or(dir - axis * axis.dot(dir), Vec3::Y);
-    normalize_or(axis * cos(cone) + perp * sin(cone), axis)
-}
 
 impl Sim {
     /// Queues a hit on `target`'s `part`, struck along `dir`.

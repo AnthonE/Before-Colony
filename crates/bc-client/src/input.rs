@@ -148,7 +148,8 @@ pub fn read_input(
         return;
     }
 
-    let up = game.core.predict.state.rot * Vec3::Y;
+    // Turn the aim about the suit's up as drawn (as the camera shows it).
+    let up = game.core.own_view().map_or(game.core.predict.state.rot, |v| v.rot) * Vec3::Y;
     if controls.locked && motion.delta != Vec2::ZERO {
         let mut d = motion.delta * SENSITIVITY * settings.0.sensitivity;
         if settings.0.invert_y {

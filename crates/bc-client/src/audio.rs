@@ -240,8 +240,9 @@ fn cockpit_in(game: &GameClient, in_world: bool) -> CockpitIn {
     let core = &g.core;
     let Some(o) = core.world.own.filter(|_| in_world) else { return CockpitIn::default() };
     let spec = frame(o.frame);
-    let t = core.last_cmd.thrust;
-    let thrust = t.iter().map(|v| (f32::from(*v) / 127.0).abs()).fold(0.0f32, f32::max);
+    // The suit as drawn: what its thrusters are doing and what the pilot's body feels, now.
+    let view = core.own_view().copied();
+    let thrust = view.map_or(0.0, |v| v.throttle.abs().max_element().min(1.0));
     let lock_progress = match spec.lock_spec() {
         Some(lock) if o.lock_target != NO_SLOT => {
             f32::from(o.lock_progress) / f32::from(lock.lock_ticks).max(1.0)
@@ -253,13 +254,14 @@ fn cockpit_in(game: &GameClient, in_world: bool) -> CockpitIn {
         in_world: true,
         alive: o.alive,
         thrust,
-        boost: o.flags & own_flags::BOOSTING != 0,
+        boost: view.is_some_and(|v| v.boosting && v.throttle.z > 0.05),
         rcs: core.last_cmd.buttons & RCS_SHARP != 0,
         propellant: core.predict.state.propellant / spec.propellant_cap.max(1.0),
-        g_strain: o.g_strain.clamp(0.0, 1.0),
-        blackout: o.flags & own_flags::BLACKOUT != 0,
+        g_strain: view.map_or(o.g_strain, |v| v.g_strain).clamp(0.0, 1.0),
+        blackout: view.is_some_and(|v| v.blackout),
         charge: o.charge,
-        saber: o.flags & own_flags::SABER_ACTIVE != 0,
+        // As predicted: the blade lights as the swing starts.
+        saber: view.is_some_and(|v| v.strike.is_some()),
         lock_progress,
         locked: o.flags & own_flags::LOCK_ACQUIRED != 0,
         warned: o.flags & own_flags::MISSILE_LOCK != 0,

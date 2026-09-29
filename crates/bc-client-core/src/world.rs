@@ -458,14 +458,14 @@ impl World {
     }
 
     /// Where chunk `id` is at tick `t`, and how it's turned. A chunk in the own suit's hand
-    /// rides the predicted suit.
-    pub fn object_pose(&self, id: u16, t: f64, predict: &Predictor) -> Option<(Vec3, Quat)> {
+    /// rides the own suit as drawn (`own`: its place and turn).
+    pub fn object_pose(&self, id: u16, t: f64, own: Option<(Vec3, Quat)>) -> Option<(Vec3, Quat)> {
         let track = self.objects.get(id as usize)?.as_ref()?;
         match track.motion_at(t) {
             ObjectMotion::Free(seg) => Some((segment_pos(&seg, t), segment_rot(&seg, t))),
             ObjectMotion::Held { holder, right, rot, .. } => {
                 let (pos, turn) = if Some(holder) == self.own_slot() {
-                    (predict.render_pos(), predict.state.rot)
+                    own?
                 } else {
                     let p = self.pose(holder, t)?;
                     (p.pos, p.rot)

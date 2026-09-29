@@ -5,7 +5,7 @@
 //! | Section | Size | Notes |
 //! |---|---|---|
 //! | header | 116 bits | tick, input ack, input-buffer health, RTT echo, time dilation |
-//! | own state | 1 + 641 bits | full precision: the client reconciles its prediction against it |
+//! | own state | 1 + 703 bits | full precision: the client reconciles its prediction against it |
 //! | ZERO | 1 + ≤200 bits | only while the pilot's ZERO System is engaged |
 //! | events | `1+n` bits each, `0` ends | repeated until the client acks a snapshot containing them |
 //! | rocks | `1+18` bits each, `0` ends | debris-field rocks whose state changed, repeated until acked |
@@ -112,7 +112,7 @@ pub struct OwnState {
     pub ang_vel: Vec3,
     /// Remaining propellant, kg.
     pub propellant: f32,
-    /// 0..1; ≥1 means blackout.
+    /// G-strain, exact: 0 is none, and a pilot blacks out at 1.
     pub g_strain: f32,
     /// 0..1 of the overheat threshold.
     pub heat: f32,
@@ -129,7 +129,8 @@ pub struct OwnState {
     pub zero_strain: f32,
     pub zero_mode: u8,
     pub flags: u16,
-    /// Flight-model modifiers from damage and busy arms (0..1), so prediction matches the server.
+    /// Flight-model modifiers from damage (0..1), so prediction matches the server. AMBAC's is
+    /// with the arms idle: the client works out when they're busy from [`OwnState::arms`].
     pub ambac_factor: f32,
     pub thrust_factor: f32,
     /// While dead: ticks until respawn, divided by 4.
@@ -151,12 +152,79 @@ pub struct OwnState {
     pub special_timer: u8,
     /// Until the special is ready again, in ticks divided by 4.
     pub special_cooldown: u8,
+    /// What the arms are doing, for the client to roll on tick by tick.
+    pub arms: OwnArms,
 }
 
+/// The own suit's arms, which its client rolls on from each snapshot as the server does
+/// (`bc_sim::arms`): busy arms slow AMBAC's turning, and a blade's lunge drives the suit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OwnArms {
+    /// The strike under way: 0 none, 1 windup, 2 stroke, 3 recovery.
+    pub phase: u8,
+    /// Ticks left in its phase.
+    pub timer: u8,
+    /// Its mount: a loadout slot, or 3 for the special's melee move.
+    pub slot: u8,
+    /// Ticks since a weapon fired or a strike began, up to [`OwnArms::LONG_AGO`].
+    pub fired_ago: u8,
+    /// Per mount (the loadout's three, then the special's): ticks until it could fire or strike
+    /// but for heat (see [`own_flags::OVERHEAT`]), or [`OwnArms::NEVER`] until something the
+    /// client can't foresee: an arm shot off, energy or ammunition run out.
+    pub wait: [u8; 4],
+    /// Each gun slot's missile salvo under way: rounds still to launch...
+    pub salvo: [u8; 2],
+    /// ...and ticks until the next.
+    pub salvo_gap: [u8; 2],
+}
+
+impl OwnArms {
+    pub const NEVER: u8 = 63;
+    /// [`OwnArms::fired_ago`] stops counting here: long enough ago that the arms are free.
+    pub const LONG_AGO: u8 = 7;
+
+    /// A mount's wait of `ticks` as sent: at most one short of [`OwnArms::NEVER`] (longer is all
+    /// the same to a client rolling on a few ticks from each snapshot).
+    pub fn wait(ticks: u16) -> u8 {
+        ticks.min(u16::from(Self::NEVER - 1)) as u8
+    }
+}
+
+impl Default for OwnArms {
+    fn default() -> Self {
+        Self {
+            phase: 0,
+            timer: 0,
+            slot: 0,
+            fired_ago: Self::LONG_AGO,
+            wait: [Self::NEVER; 4],
+            salvo: [0; 2],
+            salvo_gap: [0; 2],
+        }
+    }
+}
+
+const ARMS_TIMER_BITS: u32 = 5;
+const ARMS_WAIT_BITS: u32 = 6;
+const SALVO_BITS: u32 = 3;
+const SALVO_GAP_BITS: u32 = 2;
+/// Encoded size of [`OwnArms`], in bits.
+const ARMS_BITS: usize = 2
+    + ARMS_TIMER_BITS as usize
+    + 2
+    + 3
+    + 4 * ARMS_WAIT_BITS as usize
+    + 2 * (SALVO_BITS + SALVO_GAP_BITS) as usize;
+/// The longest strike phase, salvo and gap between rounds [`OwnArms`] carries.
+pub const ARMS_MAX_TIMER: u8 = (1 << ARMS_TIMER_BITS) - 1;
+pub const ARMS_MAX_SALVO: u8 = (1 << SALVO_BITS) - 1;
+pub const ARMS_MAX_SALVO_GAP: u8 = (1 << SALVO_GAP_BITS) - 1;
+
 /// Encoded size of the own state (after its presence bit), in bits: the flight and combat state
-/// (503), salvage (18 + 14 per cargo kind + 24 + a chunk id), then lock and special (10 + 4 + 8 + 8).
+/// (519), salvage (18 + 14 per cargo kind + 24 + a chunk id), lock and special (10 + 4 + 8 + 8),
+/// then the arms.
 pub const OWN_BITS: usize =
-    503 + 18 + 14 * CARGO_KINDS + 24 + CHUNK_BITS as usize + SLOT_BITS as usize + 4 + 8 + 8;
+    519 + 18 + 14 * CARGO_KINDS + 24 + CHUNK_BITS as usize + SLOT_BITS as usize + 4 + 8 + 8 + ARMS_BITS;
 const LOCK_PROGRESS_BITS: u32 = 4;
 const EXTRA_MASS_BITS: u32 = 18;
 const CARGO_BITS: u32 = 14;
@@ -195,6 +263,7 @@ impl Default for OwnState {
             lock_progress: 0,
             special_timer: 0,
             special_cooldown: 0,
+            arms: OwnArms::default(),
         }
     }
 }
@@ -387,7 +456,7 @@ impl<'a> SnapshotWriter<'a> {
         quant::write_quat(w, o.rot, 16);
         quant::write_vec(w, o.ang_vel, 8.0, 16);
         w.write_f32(o.propellant);
-        w.write_bits(quantize_unit(o.g_strain, 16), 16);
+        w.write_f32(o.g_strain);
         w.write_bits(quantize_unit(o.heat, 10), 10);
         w.write_bits(quantize_unit(o.energy, 10), 10);
         w.write_bits(u32::from(o.ammo[0].min(1023)), 10);
@@ -416,6 +485,18 @@ impl<'a> SnapshotWriter<'a> {
         w.write_bits(u32::from(o.lock_progress.min(15)), LOCK_PROGRESS_BITS);
         w.write_u8(o.special_timer);
         w.write_u8(o.special_cooldown);
+        let a = &o.arms;
+        w.write_bits(u32::from(a.phase & 3), 2);
+        w.write_bits(u32::from(a.timer.min(ARMS_MAX_TIMER)), ARMS_TIMER_BITS);
+        w.write_bits(u32::from(a.slot & 3), 2);
+        w.write_bits(u32::from(a.fired_ago.min(OwnArms::LONG_AGO)), 3);
+        for wait in a.wait {
+            w.write_bits(u32::from(wait.min(OwnArms::NEVER)), ARMS_WAIT_BITS);
+        }
+        for k in 0..2 {
+            w.write_bits(u32::from(a.salvo[k].min(ARMS_MAX_SALVO)), SALVO_BITS);
+            w.write_bits(u32::from(a.salvo_gap[k].min(ARMS_MAX_SALVO_GAP)), SALVO_GAP_BITS);
+        }
     }
 
     pub fn zero(&mut self, zero: Option<&ZeroInfo>) {
@@ -661,7 +742,7 @@ impl<'a> SnapshotReader<'a> {
             rot: quant::read_quat(r, 16),
             ang_vel: quant::read_vec(r, 8.0, 16),
             propellant: r.read_f32(),
-            g_strain: dequantize_unit(r.read_bits(16), 16),
+            g_strain: r.read_f32(),
             heat: dequantize_unit(r.read_bits(10), 10),
             energy: dequantize_unit(r.read_bits(10), 10),
             ..OwnState::default()
@@ -688,6 +769,18 @@ impl<'a> SnapshotReader<'a> {
         o.lock_progress = r.read_bits(LOCK_PROGRESS_BITS) as u8;
         o.special_timer = r.read_u8();
         o.special_cooldown = r.read_u8();
+        let a = &mut o.arms;
+        a.phase = r.read_bits(2) as u8;
+        a.timer = r.read_bits(ARMS_TIMER_BITS) as u8;
+        a.slot = r.read_bits(2) as u8;
+        a.fired_ago = r.read_bits(3) as u8;
+        for wait in &mut a.wait {
+            *wait = r.read_bits(ARMS_WAIT_BITS) as u8;
+        }
+        for k in 0..2 {
+            a.salvo[k] = r.read_bits(SALVO_BITS) as u8;
+            a.salvo_gap[k] = r.read_bits(SALVO_GAP_BITS) as u8;
+        }
         self.check()?;
         Ok(Some(o))
     }

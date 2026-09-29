@@ -1,7 +1,8 @@
 //! Third-person chase camera looking along the pilot's aim, and the post effects that stand in for
 //! the pilot's body:
-//! - a critically damped spring holds the camera behind the suit in the suit's moving frame, so it
-//!   sits still at any cruising speed and swings only with acceleration and turns;
+//! - a critically damped spring holds the camera behind the suit, in the frame moving with the suit
+//!   as drawn, so it sits still at any cruising speed and swings only with acceleration and turns
+//!   (`bc_client_core::chase`, exact at any frame rate);
 //! - the field of view widens on boost, and blasts, hits and the Twin Buster Rifle shake it;
 //! - G-strain greys the view out and closes it to a tunnel, and a blackout (G-LOC) takes it to
 //!   black;
@@ -11,6 +12,7 @@
 //! The field of view and how much shake, kicks and warps to keep are the pilot's (`ViewPrefs`);
 //! `?calm=1`, or the browser's reduced-motion setting, starts them turned down.
 
+use bc_client_core::chase::{ChaseRig, Follow};
 use bc_proto::WeaponKind;
 use bevy::post_process::effect_stack::{ChromaticAberration, LensDistortion, Vignette};
 use bevy::prelude::*;
@@ -25,19 +27,13 @@ pub struct MainCamera;
 /// Field of view (degrees) at the default setting; boost widens it by [`BOOST_WIDEN`].
 const FOV: f32 = 70.0;
 const BOOST_WIDEN: f32 = 7.0;
-/// The chase spring (rad/s): the camera trails by acceleration / ω², about 5 m under 10 g.
-const OMEGA: f32 = 4.5;
-/// The furthest the spring lets the camera stray from its place behind the suit (m).
-const SLACK: f32 = 25.0;
 
 /// The chase camera and the pilot effects, between frames.
 #[derive(Resource, Clone, Copy, Default)]
 pub struct Chase {
-    placed: bool,
+    rig: ChaseRig,
     /// The camera just cut (spawn, respawn, teleport): eased effects start where they belong.
     cut: bool,
-    pos: Vec3,
-    vel: Vec3,
     fov: f32,
     /// Shake, 0..1: kicked by events, decaying; the camera shakes by its square.
     trauma: f32,
@@ -106,27 +102,20 @@ pub fn follow(
         let a = (time.now * 0.03) as f32;
         *tf = Transform::from_xyz(6_500.0 * a.cos(), 2_600.0, 6_500.0 * a.sin())
             .looking_at(Vec3::new(0.0, 600.0, 0.0), Vec3::Y);
-        c.placed = false;
+        c.rig.placed = false;
         return;
     };
 
-    // Behind and above the suit, on a spring in the suit's moving frame: coast at the camera's own
-    // velocity, then pull toward the ideal place and the suit's velocity.
-    let ideal = t.pos - t.aim * 42.0 + t.up * 10.0;
-    let coast = c.pos + c.vel * dt;
-    if !c.placed || coast.distance(ideal) > 300.0 {
-        // Spawning, respawning or a teleport: cut.
-        let fov = fov_for(&prefs, t.boost);
-        *c = Chase { placed: true, cut: true, pos: ideal, vel: t.vel, fov, ..*c };
-    } else {
-        let x = coast - ideal;
-        let a = -OMEGA * OMEGA * x - 2.0 * OMEGA * (c.vel - t.vel);
-        c.vel += a * dt;
-        c.pos = ideal + (x + a * dt * dt).clamp_length_max(SLACK);
+    // Behind and above the suit, on a spring in the frame moving with the suit as drawn.
+    let follow = Follow { pos: t.pos, vel: t.vel, aim: t.aim, up: t.up, cut: t.cut };
+    if c.rig.step(&follow, dt) {
+        // Spawning, respawning or a teleport: the eased effects cut too.
+        c.cut = true;
+        c.fov = fov_for(&prefs, t.boost);
     }
 
     // Shake from blasts, hits and big guns nearby.
-    let eye = c.pos;
+    let eye = c.rig.pos;
     let near =
         |p: Vec3, full: f32, none: f32| 1.0 - ((p.distance(eye) - full) / (none - full)).clamp(0.0, 1.0);
     for ev in &events.0 {
@@ -145,8 +134,8 @@ pub fn follow(
     c.trauma = (c.trauma.min(1.0) - 0.9 * dt).max(0.0);
     c.flash = (c.flash - 2.5 * dt).max(0.0);
 
-    tf.translation = c.pos;
-    tf.look_at(t.pos + t.aim * 800.0, t.up);
+    tf.translation = c.rig.pos;
+    tf.look_at(follow.look_at(), t.up);
     let shake = c.trauma * c.trauma * motion(&prefs);
     if shake > 0.0 {
         // Smooth pseudo-noise per axis: two incommensurate sines.

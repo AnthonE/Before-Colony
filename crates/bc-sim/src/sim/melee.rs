@@ -9,17 +9,17 @@
 //! move (the Cross Crusher), the MELEE press for the melee slot, then fire held on a melee weapon in
 //! a gun slot (the Dragon Fang is Shenlong's primary).
 
-use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, MELEE, SPECIAL};
 use bc_proto::events::Event;
 use bc_proto::{Part, PilotKind};
 use glam::Vec3;
 
 use super::Sim;
-use super::combat::clamp_to_cone;
+use crate::arms::{next_phase, strike_slot};
 use crate::collide::{capsule_world, segment_segment};
 use crate::config::MAX_REWIND_TICKS;
 use crate::content::salvage::SABER_DIG;
 use crate::content::{ArmSlot, MeleeSpec, Mount, SpecialKind, Stroke, WeaponClass, frame, weapon};
+use crate::math::clamp_to_cone;
 use crate::math::normalize_or;
 use crate::suits::{MeleePhase, MeleeState, SECOND_BLADE, SPECIAL_MOUNT};
 
@@ -40,7 +40,7 @@ impl Sim {
 
     /// Whether suit `i` has the arms to strike from `mount`: a twin weapon strikes with the blades
     /// it has an arm for, unless it needs both.
-    fn melee_arms_ok(&self, i: usize, mount: Mount, m: &MeleeSpec) -> bool {
+    pub(super) fn melee_arms_ok(&self, i: usize, mount: Mount, m: &MeleeSpec) -> bool {
         if m.twin && !m.both_arms {
             self.suits.arm_free(i, ArmSlot::Right) || self.suits.arm_free(i, ArmSlot::Left)
         } else {
@@ -85,16 +85,7 @@ impl Sim {
                 MeleePhase::Idle if self.transforming(i) => {}
                 MeleePhase::Idle => {
                     let (cmd, prev) = (self.suits.input[i], self.suits.prev_buttons[i]);
-                    let edge = |b: u16| cmd.pressed(b) && prev & b == 0;
-                    let wants = [
-                        (edge(SPECIAL), SPECIAL_MOUNT),
-                        (edge(MELEE), 2),
-                        (cmd.pressed(FIRE_PRIMARY), 0),
-                        (cmd.pressed(FIRE_SECONDARY), 1),
-                    ];
-                    if let Some(&(_, slot)) =
-                        wants.iter().find(|&&(want, slot)| want && self.melee_ready(i, slot))
-                    {
+                    if let Some(slot) = strike_slot(&cmd, prev, |slot| self.melee_ready(i, slot)) {
                         self.start_strike(i, slot, t);
                     }
                 }
@@ -110,14 +101,7 @@ impl Sim {
                     let st = &mut self.suits.melee[i];
                     // (A clash may have just sent an active strike into recovery.)
                     if st.phase == phase {
-                        st.timer -= 1;
-                        if st.timer == 0 {
-                            (st.phase, st.timer) = match phase {
-                                MeleePhase::Windup => (MeleePhase::Active, m.active),
-                                MeleePhase::Active => (MeleePhase::Recovery, m.recovery),
-                                _ => (MeleePhase::Idle, 0),
-                            };
-                        }
+                        (st.phase, st.timer) = next_phase(phase, st.timer, &m);
                     }
                 }
             }

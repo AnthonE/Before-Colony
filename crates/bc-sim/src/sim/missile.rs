@@ -17,10 +17,10 @@ use bc_proto::{InputCmd, MissileState, NO_SLOT, Part};
 use glam::Vec3;
 
 use super::Sim;
-use super::combat::clamp_to_cone;
 use crate::collide::{segment_near_point, sweep_capsules};
 use crate::config::DT;
 use crate::content::{MissileSpec, Mount, SpecialKind, WeaponSpec, frame, weapon};
+use crate::math::clamp_to_cone;
 use crate::math::{angle_between, hash01, length, normalize_or, sqrt};
 use crate::sensors;
 use crate::suits::WeaponState;

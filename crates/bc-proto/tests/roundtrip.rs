@@ -6,7 +6,7 @@ use bc_proto::events::{BurstCause, Event};
 use bc_proto::missiles::{MISSILE_RECORD_BITS, MISSILE_VEL_BITS, MISSILE_VEL_MAX};
 use bc_proto::objects::{ROCK_RECORD_BITS, SPIN_MAX};
 use bc_proto::quant::{self, VEL_MAX};
-use bc_proto::snapshot::{ENTITY_BITS, OWN_BITS, ZERO_HYPOTHESES, ZeroThreat, entity_pos_step};
+use bc_proto::snapshot::{ENTITY_BITS, OWN_BITS, OwnArms, ZERO_HYPOTHESES, ZeroThreat, entity_pos_step};
 use bc_proto::{
     ChunkDesc, ChunkKind, EntityState, Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, MissileState,
     NO_CHUNK, ObjectState, OwnState, Part, PilotKind, RockState, Segment, SnapshotHeader, SnapshotReader,
@@ -52,6 +52,27 @@ fn entity() -> impl Strategy<Value = EntityState> {
             aim,
             flags,
             parts,
+        })
+}
+
+fn arms() -> impl Strategy<Value = OwnArms> {
+    (
+        0u8..4,
+        0u8..32,
+        0u8..4,
+        0u8..8,
+        prop::array::uniform4(0u8..64),
+        prop::array::uniform2(0u8..8),
+        prop::array::uniform2(0u8..4),
+    )
+        .prop_map(|(phase, timer, slot, fired_ago, wait, salvo, salvo_gap)| OwnArms {
+            phase,
+            timer,
+            slot,
+            fired_ago,
+            wait,
+            salvo,
+            salvo_gap,
         })
 }
 
@@ -171,11 +192,12 @@ proptest! {
     fn snapshot_round_trip(ents in prop::collection::vec(entity(), 0..60), objs in prop::collection::vec(object(), 0..12),
                            missiles in prop::collection::vec(missile(), 0..=12),
                            pos in vec3(30_000.0), rot in quat(), extra in -131_071i32..131_071, credits in 0u32..16_777_215,
-                           lock in 0u16..1024, progress in 0u8..16, special in any::<[u8; 2]>(), ready in 0u8..16) {
+                           lock in 0u16..1024, progress in 0u8..16, special in any::<[u8; 2]>(), ready in 0u8..16,
+                           arms in arms(), g_strain in 0.0f32..3.0) {
         let own = OwnState { slot: 5, alive: true, pos, vel: Vec3::new(10.0, -3.0, 250.0), rot, propellant: 812.5,
-                             parts: [1.0, 0.5, 0.0, 1.0, 0.25, 0.75], extra_mass_kg: extra, cargo_kg: [0, 16_383, 2_500, 1],
+                             g_strain, parts: [1.0, 0.5, 0.0, 1.0, 0.25, 0.75], extra_mass_kg: extra, cargo_kg: [0, 16_383, 2_500, 1],
                              credits, held: 1_000, weapon_ready: ready, lock_target: lock, lock_progress: progress,
-                             special_timer: special[0], special_cooldown: special[1], ..OwnState::default() };
+                             special_timer: special[0], special_cooldown: special[1], arms, ..OwnState::default() };
         let mut zero = ZeroInfo { threat_count: 2, has_solution: true, solution: Vec3::X, hit_p: 0.62, ..ZeroInfo::default() };
         zero.threats[0] = ZeroThreat { slot: 9, probs: [0.1, 0.2, 0.3, 0.1, 0.1, 0.1, 0.1] };
         let events = [
@@ -215,6 +237,9 @@ proptest! {
         let o = r.own().unwrap().unwrap();
         prop_assert_eq!(o.pos, own.pos);
         prop_assert_eq!(o.propellant, own.propellant);
+        // The strain comes back exact, so the client blacks out on the same tick as the server.
+        prop_assert_eq!(o.g_strain, g_strain);
+        prop_assert_eq!(o.arms, arms);
         prop_assert_eq!((o.extra_mass_kg, o.cargo_kg, o.credits, o.held), (extra, own.cargo_kg, credits, 1_000));
         prop_assert_eq!((o.weapon_ready, o.lock_target, o.lock_progress), (ready, lock, progress));
         prop_assert_eq!((o.special_timer, o.special_cooldown), (special[0], special[1]));
@@ -293,7 +318,7 @@ fn record_budgets_match_plan() {
     // ~26 bytes per entity; ~30 fit in a datagram next to header, own state, ZERO and events.
     const { assert!(ENTITY_BITS == 207) };
     const { assert!(ZERO_HYPOTHESES == 7) };
-    const { assert!(OWN_BITS == 641) };
+    const { assert!(OWN_BITS == 703) };
     const { assert!(ROCK_RECORD_BITS == 18) };
     const { assert!(MISSILE_RECORD_BITS == 119) };
     const { assert!(ObjectState::MAX_BITS <= 232) };

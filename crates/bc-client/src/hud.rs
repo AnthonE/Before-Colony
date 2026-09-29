@@ -4,7 +4,7 @@
 
 use bc_client_core::FeedLine;
 use bc_client_core::world::ObjectMotion;
-use bc_proto::buttons::MODE;
+use bc_proto::buttons::{FLIGHT_ASSIST, MODE};
 use bc_proto::snapshot::{ent_flags, own_flags, zero_mode};
 use bc_proto::{ChunkKind, NO_CHUNK, NO_SLOT, OwnState, Part, PilotKind, WeaponKind};
 use bc_sim::chunks;
@@ -295,8 +295,13 @@ pub fn update_hud(
     };
 
     // --- Status (top left). ---
-    // As the server applies it (the autopilot flies unassisted when G-strain builds).
-    let assisted = own.map_or(controls.flight_assist, |o| o.flags & own_flags::FLIGHT_ASSIST != 0);
+    // As flown: the command the prediction flies (the autopilot's too, which flies unassisted when
+    // G-strain builds); the server's word while ZERO has the controls.
+    let assisted = match own {
+        Some(o) if o.zero_mode == zero_mode::SEIZED => o.flags & own_flags::FLIGHT_ASSIST != 0,
+        Some(_) if core.inputs.newest != 0 => core.last_cmd.buttons & FLIGHT_ASSIST != 0,
+        _ => controls.flight_assist,
+    };
     let fa = if assisted { "FA ON" } else { "FA OFF" };
     let mode = if game.autopilot { "AUTOPILOT (Mobile Doll brain)" } else { "MANUAL" };
     // The ping is a default until the first snapshot measures it.
@@ -320,25 +325,31 @@ pub fn update_hud(
 
     // --- Flight, armour, weapons (bottom). ---
     if let Some(o) = own {
-        // The form the prediction flies (a change of form shows as soon as it's made).
-        let form = if o.alive { core.predict.frame() } else { o.frame };
+        // The suit as drawn: its form, speed and the pilot's body, all at the same moment.
+        let view = core.own_view().copied();
+        let form = view.map_or(o.frame, |v| v.frame);
         let spec = frame(form);
         let s = &core.predict.state;
+        let (speed, g, strain, limited) = view.map_or((o.vel.length(), 0.0, o.g_strain, false), |v| {
+            (v.flight_vel.length(), v.g, v.g_strain, v.g_limited)
+        });
         set(
             HudText::Flight,
             format!(
-                "{} {}\nSPD {:>6.0} m/s\nPROP {} {:>3.0}%\nHEAT {} {:>3.0}%\nENGY {} {:>3.0}%\nG   {:>4.1} g  STRAIN {}",
+                "{} {}\nSPD {:>6.0} m/s\nPROP {} {:>3.0}%\nHEAT {} {:>3.0}%\nENGY {} {:>3.0}%\nG   {:>4.1} g {:<3} STRAIN {}",
                 bc_sim::content::frame_designation(form),
                 frame_name(form).to_uppercase(),
-                s.vel.length(),
+                speed,
                 bar(s.propellant / spec.propellant_cap, 10),
                 100.0 * s.propellant / spec.propellant_cap,
                 bar(o.heat, 10),
                 o.heat * 100.0,
                 bar(o.energy, 10),
                 o.energy * 100.0,
-                s.g_load,
-                bar(o.g_strain, 8),
+                g,
+                // Flight assist holding the pilot under their G tolerance.
+                if limited { "LIM" } else { "" },
+                bar(strain, 8),
             ),
             None,
         );
@@ -509,7 +520,8 @@ pub fn update_hud(
     set(HudText::Feed, feed, None);
 
     // --- Alerts. ---
-    let own_pos = core.predict.render_pos();
+    let drawn = core.own_view().copied();
+    let own_pos = drawn.map_or(Vec3::ZERO, |v| v.pos);
     // Missiles tracking the pilot, nearest first.
     let mut incoming: Vec<(f32, Vec3)> = world
         .missiles()
@@ -538,7 +550,7 @@ pub fn update_hud(
             )
         }
         Some(o) if o.zero_mode == zero_mode::SEIZED => ("ZERO HAS THE CONTROLS".into(), RED),
-        Some(o) if o.flags & own_flags::BLACKOUT != 0 => ("G-LOC  BLACKOUT".into(), RED),
+        Some(o) if o.alive && drawn.is_some_and(|v| v.blackout) => ("G-LOC  BLACKOUT".into(), RED),
         Some(o) if o.flags & own_flags::MISSILE_INCOMING != 0 => {
             let near = incoming.first().map_or(String::new(), |(d, _)| format!("  {}", km(*d)));
             (format!("MISSILE{near}"), RED)
@@ -580,11 +592,12 @@ pub fn update_hud(
     // The chunk nearest the free hand: green when it can be grabbed.
     let mut grab_at: Option<(Vec3, String, Color)> = None;
     let mut dock_at: Option<(Vec3, String)> = None;
-    if let Some(o) = own.filter(|o| o.alive) {
-        let rot = core.predict.state.rot;
+    if let (Some(o), Some(view)) = (own.filter(|o| o.alive), drawn) {
+        let rot = view.rot;
         let right = o.parts[Part::ArmL as usize] <= 0.0;
         let hand = own_pos + rot * if right { ArmSlot::Right } else { ArmSlot::Left }.muzzle();
-        let vel = core.predict.state.vel;
+        let vel = view.flight_vel;
+        let held_by = Some((view.pos, view.rot));
         let mut best: Option<(f32, u16)> = None;
         if o.held == NO_CHUNK {
             for (id, c) in world.objects.iter().enumerate() {
@@ -592,7 +605,7 @@ pub fn update_hud(
                 if !matches!(c.motion, ObjectMotion::Free(_)) {
                     continue;
                 }
-                let Some((p, _)) = world.object_pose(id as u16, t, &core.predict) else { continue };
+                let Some((p, _)) = world.object_pose(id as u16, t, held_by) else { continue };
                 let gap = p.distance(hand) - chunks::radius(&c.desc);
                 if gap < 150.0 && best.is_none_or(|(g, _)| gap < g) {
                     best = Some((gap, id as u16));
@@ -601,7 +614,7 @@ pub fn update_hud(
         }
         if let Some((gap, id)) = best
             && let (Some(c), Some((p, _))) =
-                (world.objects[usize::from(id)].as_ref(), world.object_pose(id, t, &core.predict))
+                (world.objects[usize::from(id)].as_ref(), world.object_pose(id, t, held_by))
         {
             let ObjectMotion::Free(seg) = c.motion else { unreachable!() };
             let catchable = gap <= REACH && (seg.vel - vel).length() <= CATCH_SPEED;

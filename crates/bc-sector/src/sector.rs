@@ -2,7 +2,6 @@
 
 use std::sync::Arc;
 
-use bc_proto::buttons::FIRE_MASK;
 use bc_proto::{InputCmd, MAX_DATAGRAM, SnapshotHeader};
 use bc_sim::handle::Handle;
 use bc_sim::zero::TacticalPicture;
@@ -15,8 +14,6 @@ use crate::replicate::{Work, build_snapshot};
 
 /// Ticks between tactical pictures per ZERO pilot when an external oracle is attached (≈3.75 Hz).
 const PICTURE_INTERVAL: u32 = 8;
-/// After this many ticks without input the suit goes hands-off.
-const NEUTRAL_AFTER: u32 = 8;
 
 #[derive(Clone, Copy, Debug)]
 pub struct SectorConfig {
@@ -212,21 +209,11 @@ impl Sector {
                     cmd
                 }
                 None => {
+                    // The last command again without firing, then hands-off: the rule the owner's
+                    // prediction flies through its own gaps too.
                     client.missing += 1;
                     Metrics::add(&self.shared.metrics.inputs_missing, 1);
-                    let last = client.last_cmd;
-                    if client.missing > NEUTRAL_AFTER {
-                        InputCmd::neutral(next, last.aim, last.buttons)
-                    } else {
-                        // Repeat the last command (without firing) on the same view delay.
-                        let delta = (last.tick << 4).saturating_sub(last.view_tick_q4);
-                        InputCmd {
-                            tick: next,
-                            view_tick_q4: (next << 4).saturating_sub(delta),
-                            buttons: last.buttons & !FIRE_MASK,
-                            ..last
-                        }
-                    }
+                    InputCmd::stand_in(&client.last_cmd, next, client.missing)
                 }
             };
             self.sim.set_input(client.suit, cmd);
