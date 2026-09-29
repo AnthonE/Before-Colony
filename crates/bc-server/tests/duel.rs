@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use bc_bot::{BotClient, BotConfig, DollBrain};
 use bc_proto::{Faction, FrameId, MAX_DATAGRAM, PilotKind};
-use bc_server::{Config, Mode};
+use bc_server::{Config, Mode, Ruleset};
 
 struct Outcome {
     saw_agent: bool,
@@ -55,6 +55,7 @@ async fn fly(
 async fn two_agents_find_each_other_and_fight() -> anyhow::Result<()> {
     let cfg = Config {
         mode: Mode::Game,
+        rules: Ruleset::Arcade,
         wt_port: 0,
         http_addr: "127.0.0.1:0".parse()?,
         mobile_dolls: 0,

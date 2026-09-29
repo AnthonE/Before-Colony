@@ -10,7 +10,7 @@ use bc_bot::{BotClient, BotConfig};
 use bc_client_core::Identity;
 use bc_proto::control::notice;
 use bc_proto::{Faction, FrameId};
-use bc_server::{Config, Mode};
+use bc_server::{Config, Mode, Ruleset};
 
 fn wallet(k: u8) -> LocalWallet {
     let mut secret = [0u8; 32];
@@ -25,6 +25,7 @@ fn bot(http: &str, name: &str) -> BotConfig {
 fn config(max_sleepers: usize) -> anyhow::Result<Config> {
     Ok(Config {
         mode: Mode::Game,
+        rules: Ruleset::Arcade,
         wt_port: 0,
         http_addr: "127.0.0.1:0".parse()?,
         mobile_dolls: 0,

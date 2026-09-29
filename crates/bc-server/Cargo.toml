@@ -14,6 +14,7 @@ bc-auth = { workspace = true, features = ["verify"] }
 bc-proto.workspace = true
 bc-sim = { workspace = true, features = ["deterministic", "canon-names"] }
 bc-sector.workspace = true
+bc-econ.workspace = true
 bc-zero.workspace = true
 tokio.workspace = true
 wtransport.workspace = true

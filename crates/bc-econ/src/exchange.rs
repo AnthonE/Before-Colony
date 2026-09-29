@@ -165,7 +165,7 @@ struct Stock {
 }
 
 /// The exchange.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Exchange {
     books: BTreeMap<Item, Book>,
     colony: BTreeMap<Item, Stock>,
@@ -180,6 +180,13 @@ pub struct Exchange {
     pub fees: u64,
     pub colony_paid: u64,
     pub colony_took: u64,
+}
+
+impl Default for Exchange {
+    /// A new exchange ([`Exchange::new`]).
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// The colony's price for `side` of `item` with `held` in stock: its bid (it buys) or its ask
@@ -202,13 +209,23 @@ fn colony_step(d: &Desk) -> u64 {
 impl Exchange {
     /// A new exchange, the colony holding what it wants of everything.
     pub fn new() -> Self {
-        let mut ex = Self { next_id: 1, ..Self::default() };
-        for item in Item::all() {
-            if let Some(d) = desk(item) {
-                ex.colony.insert(item, Stock { held: d.target as f64 });
-            }
+        let colony = Item::all()
+            .into_iter()
+            .filter_map(|item| desk(item).map(|d| (item, Stock { held: d.target as f64 })))
+            .collect();
+        Self {
+            books: BTreeMap::new(),
+            colony,
+            accounts: BTreeMap::new(),
+            tapes: BTreeMap::new(),
+            next_id: 1,
+            seq: 0,
+            clock: 0.0,
+            next_sample: 0.0,
+            fees: 0,
+            colony_paid: 0,
+            colony_took: 0,
         }
-        ex
     }
 
     /// Credits a buy order must hold in escrow.

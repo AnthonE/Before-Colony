@@ -550,6 +550,7 @@ dependencies = [
  "anyhow",
  "bc-auth",
  "bc-client-core",
+ "bc-econ",
  "bc-proto",
  "bc-sim",
  "clap",
@@ -598,6 +599,7 @@ name = "bc-client-core"
 version = "0.1.0"
 dependencies = [
  "bc-auth",
+ "bc-econ",
  "bc-proto",
  "bc-sim",
  "glam",
@@ -656,6 +658,7 @@ dependencies = [
  "bc-auth",
  "bc-bot",
  "bc-client-core",
+ "bc-econ",
  "bc-proto",
  "bc-sector",
  "bc-sim",

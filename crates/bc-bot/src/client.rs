@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, bail};
 use bc_auth::LocalWallet;
 use bc_client_core::{ClientConfig, ClientCore, Identity, InputContext, Phase, World};
+use bc_econ::wire::{Place, Request};
 use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
 use tokio::sync::mpsc;
 use wtransport::{Connection, SendStream};
@@ -165,6 +166,79 @@ impl BotClient {
             self.step(brain).await?;
         }
         Ok(())
+    }
+
+    /// Survival rules: where the pilot is (`None`: arcade rules).
+    pub fn place(&self) -> Option<Place> {
+        self.core.hangar.place
+    }
+
+    /// Whether the server plays survival rules (the pilot flies the suit in their hangar).
+    pub fn survival(&self) -> bool {
+        self.core.welcome.is_some_and(|w| w.survival)
+    }
+
+    /// Asks the hangar for something (survival rules); its answer comes as a note
+    /// (`core.hangar.notes`) and a new view of the hangar.
+    pub async fn request(&mut self, req: &Request) -> anyhow::Result<()> {
+        let bytes = self.core.request(req);
+        self.ctrl_tx.write_all(&bytes).await?;
+        Ok(())
+    }
+
+    /// Steps, hands off, until `done` holds; fails after `secs`, or if the hangar refuses
+    /// something meanwhile (with its reason).
+    pub async fn wait_until(
+        &mut self,
+        secs: f64,
+        what: &str,
+        done: impl Fn(&ClientCore) -> bool,
+    ) -> anyhow::Result<()> {
+        let refusals = self.core.hangar.notes.iter().filter(|(_, ok)| !ok).count();
+        let end = Instant::now() + Duration::from_secs_f64(secs);
+        while !done(&self.core) {
+            if let Some((why, _)) = self.core.hangar.notes.iter().filter(|(_, ok)| !ok).nth(refusals) {
+                bail!("{what}: refused: {why}");
+            }
+            if Instant::now() > end {
+                bail!("timed out waiting for {what}");
+            }
+            self.step(&mut |_| InputCmd::default()).await?;
+        }
+        Ok(())
+    }
+
+    /// Survival rules: boards the suit in the bay and launches it. Returns once the pilot is out
+    /// in the sector, flying it.
+    pub async fn launch(&mut self) -> anyhow::Result<()> {
+        self.request(&Request::Launch).await?;
+        self.wait_until(10.0, "the launch", |c| {
+            c.hangar.place == Some(Place::Space) && c.world.own.is_some_and(|o| o.alive)
+        })
+        .await
+    }
+
+    /// Gets the agent flying, whatever the rules: under survival rules, a pilot in the hangar
+    /// launches the suit in the bay (`false` if there isn't one: it was lost); under arcade
+    /// rules, or already out, there's nothing to do.
+    pub async fn sortie(&mut self) -> anyhow::Result<bool> {
+        if !self.survival() || self.place() == Some(Place::Space) {
+            return Ok(true);
+        }
+        self.wait_until(5.0, "the hangar", |c| c.hangar.view.is_some()).await?;
+        let suit =
+            self.core.hangar.view.as_ref().is_some_and(|v| matches!(v.bay, bc_econ::Bay::Docked { .. }));
+        if suit {
+            self.launch().await?;
+        }
+        Ok(suit)
+    }
+
+    /// Survival rules: takes the suit into the bay (it has to be at rest in the dock). Returns
+    /// once the pilot is back in the hangar.
+    pub async fn dock(&mut self) -> anyhow::Result<()> {
+        self.request(&Request::Dock).await?;
+        self.wait_until(5.0, "docking", |c| c.hangar.place == Some(Place::Hangar)).await
     }
 
     /// Requests a respawn in `frame` (after death).

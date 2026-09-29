@@ -37,21 +37,19 @@ async fn main() -> anyhow::Result<()> {
         frame: parse_frame(&a.frame).ok_or_else(|| anyhow::anyhow!("unknown frame {}", a.frame))?,
         faction: parse_faction(&a.faction).ok_or_else(|| anyhow::anyhow!("unknown faction {}", a.faction))?,
     };
-    let mut bot = loop {
-        match BotClient::connect(&cfg).await {
-            Ok(b) => break b,
-            Err(e) => {
-                tracing::warn!("connect failed ({e:#}); retrying");
-                tokio::time::sleep(Duration::from_secs(1)).await;
-            }
-        }
-    };
+    let mut bot = connect(&cfg).await;
     tracing::info!(name = %a.name, "connected as a mining agent");
     let mut brain = MinerBrain::new();
     let started = std::time::Instant::now();
     let mut last_report = started;
     loop {
         bot.step(&mut |ctx| brain.decide(ctx)).await?;
+        // Survival: back in the hangar without a suit (it was lost). A guest's bay is stocked
+        // afresh each visit, so the agent comes back for another.
+        if bot.survival() && bot.place() == Some(bc_econ::wire::Place::Hangar) && !bot.sortie().await? {
+            bot.close().await;
+            bot = connect(&cfg).await;
+        }
         if last_report.elapsed() > Duration::from_secs(10) {
             last_report = std::time::Instant::now();
             if let Some(v) = bot.world().salvage_view() {
@@ -71,4 +69,18 @@ async fn main() -> anyhow::Result<()> {
     }
     bot.close().await;
     Ok(())
+}
+
+/// Connects (retrying until the server's there) and gets flying.
+async fn connect(cfg: &BotConfig) -> BotClient {
+    loop {
+        match BotClient::connect(cfg).await {
+            Ok(mut b) => match b.sortie().await {
+                Ok(_) => return b,
+                Err(e) => tracing::warn!("launch failed ({e:#}); retrying"),
+            },
+            Err(e) => tracing::warn!("connect failed ({e:#}); retrying"),
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
 }

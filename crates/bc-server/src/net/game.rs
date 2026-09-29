@@ -10,23 +10,19 @@ use std::thread;
 use std::time::Duration;
 
 use bc_proto::auth::{Address, Domain, NONCE_BYTES};
-use bc_proto::control::{
-    ControlMsg, MAX_FRAME, Name, RejectReason, bye, hello_flags, notice, roster_flags, welcome_flags,
-};
-use bc_proto::{InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, PacketKind, PilotKind, packet_kind};
-use bc_sector::{
-    Comeback, Control, EgressEnds, InputMsg, Metrics, Outcome, SectorConfig, SectorShared, SectorThread,
-    SlotState, read_packet,
-};
+use bc_proto::control::{ControlMsg, Frame, MAX_FRAME, RejectReason, hello_flags, roster_flags};
+use bc_proto::{MAX_DATAGRAM, PROTOCOL_VERSION, PilotKind};
+use bc_sector::{EgressEnds, Metrics, SectorConfig, SectorShared, SectorThread, SlotState, read_packet};
 use bc_sim::SimConfig;
 use bc_sim::sim::Gone;
 use crossbeam_queue::ArrayQueue;
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::broadcast;
 use wtransport::{Connection, RecvStream, SendStream};
 
 use super::NetStats;
-use crate::pilots::{self, Claim, Fate, MemoryStore, Pilots, Sleeper};
-use crate::{Config, OracleKind};
+use crate::market::Market;
+use crate::pilots::{self, Claim, Fate, FileStore, MemoryStore, PilotStore, Pilots};
+use crate::{Config, OracleKind, Ruleset};
 
 /// Commands for the egress thread.
 pub enum EgressCmd {
@@ -67,18 +63,45 @@ pub struct SignIn {
     pub waiting: Arc<tokio::sync::Semaphore>,
 }
 
+/// A pilot in their hangar bay (survival rules), as `/status` lists them.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct HangarEntry {
+    pub name: String,
+    pub address: Option<String>,
+    /// `hangar` or `space`.
+    pub place: &'static str,
+    pub credits: u64,
+    /// `empty`, `docked` or `out`, and the suit's line.
+    pub bay: &'static str,
+    pub line: Option<&'static str>,
+    /// Parts fitted, and jobs queued at both stations.
+    pub parts: usize,
+    pub jobs: usize,
+    /// What the stores hold: kilograms of bulk goods, pieces of everything else.
+    pub stores_kg: u64,
+    pub stores_pieces: u64,
+}
+
 /// What each session task needs to reach the sector.
 #[derive(Clone)]
 pub struct GameShared {
     pub sector: Arc<SectorShared>,
-    egress: Arc<ArrayQueue<EgressCmd>>,
-    egress_thread: thread::Thread,
-    roster: Arc<RwLock<HashMap<u16, RosterEntry>>>,
-    roster_tx: broadcast::Sender<RosterUpdate>,
+    pub(super) egress: Arc<ArrayQueue<EgressCmd>>,
+    pub(super) egress_thread: thread::Thread,
+    pub(super) roster: Arc<RwLock<HashMap<u16, RosterEntry>>>,
+    pub(super) roster_tx: broadcast::Sender<RosterUpdate>,
     pub pilots: Arc<Pilots>,
     sign_in: SignIn,
-    /// A session with no input for this long ends.
-    idle: Duration,
+    /// A session with no input for this long ends (in the sector: a pilot in their hangar sends
+    /// nothing while they walk about).
+    pub(super) idle: Duration,
+    /// Survival rules (else arcade).
+    pub survival: bool,
+    /// The Colony Exchange.
+    pub market: Arc<Market>,
+    pub econ: bc_econ::Rules,
+    /// Pilots' hangars, by client slot, for `/status`.
+    pub(super) hangars: Arc<RwLock<HashMap<u16, HangarEntry>>>,
 }
 
 /// Read-only view for `/status`.
@@ -87,6 +110,9 @@ pub struct StatusView {
     sector: Arc<SectorShared>,
     roster: Arc<RwLock<HashMap<u16, RosterEntry>>>,
     oracle: &'static str,
+    survival: bool,
+    market: Arc<Market>,
+    hangars: Arc<RwLock<HashMap<u16, HangarEntry>>>,
 }
 
 /// Owns the sector and egress threads.
@@ -108,11 +134,13 @@ impl GameRuntime {
                 "--oracle jev requested but TYPESAFE_API_KEY is not set: using the local oracle only"
             );
         }
+        let survival = cfg.rules == Ruleset::Survival;
         let sector_cfg = SectorConfig {
             sim: SimConfig {
                 target_dolls: cfg.mobile_dolls,
                 seed: cfg.seed,
                 max_sleepers: cfg.max_sleepers,
+                survival,
                 ..SimConfig::default()
             },
             max_clients: cfg.max_clients,
@@ -145,15 +173,21 @@ impl GameRuntime {
             dolls = cfg.mobile_dolls,
             max_clients = cfg.max_clients,
             oracle,
+            rules = ?cfg.rules,
             "sector running at 30 Hz"
         );
+        let store: Arc<dyn PilotStore> = match &cfg.data_dir {
+            Some(dir) => Arc::new(FileStore::new(dir.join("pilots"))?),
+            None => Arc::new(MemoryStore::default()),
+        };
+        let market = Arc::new(Market::open(cfg.data_dir.as_ref().map(|d| d.join("exchange.json"))));
         let game = GameShared {
             sector: shared,
             egress: queue,
             egress_thread,
             roster: Arc::new(RwLock::new(HashMap::new())),
             roster_tx,
-            pilots: Arc::new(Pilots::new(Arc::new(MemoryStore::default()), cfg.resume_ttl)),
+            pilots: Arc::new(Pilots::new(store, cfg.resume_ttl)),
             sign_in: SignIn {
                 domain: domain.into(),
                 required: cfg.require_auth,
@@ -161,7 +195,29 @@ impl GameRuntime {
                 waiting: Arc::new(tokio::sync::Semaphore::new(128)),
             },
             idle: cfg.idle_timeout,
+            survival,
+            market,
+            econ: bc_econ::Rules { craft_speed: cfg.craft_speed },
+            hangars: Arc::new(RwLock::new(HashMap::new())),
         };
+        // The exchange's clock, and its file.
+        if survival {
+            let market = game.market.clone();
+            let sector = game.sector.clone();
+            tokio::spawn(async move {
+                let mut every = tokio::time::interval(Duration::from_secs(1));
+                let mut n = 0u64;
+                while !sector.stop.load(Ordering::Acquire) {
+                    every.tick().await;
+                    market.tick(1.0);
+                    n += 1;
+                    if n.is_multiple_of(60) {
+                        market.save().await;
+                    }
+                }
+                market.save().await;
+            });
+        }
         // What became of sleepers: news for their pilots, a few times a second.
         let notes = game.clone();
         tokio::spawn(async move {
@@ -190,12 +246,20 @@ impl GameRuntime {
             sector: self.shared.sector.clone(),
             roster: self.shared.roster.clone(),
             oracle: self.oracle,
+            survival: self.shared.survival,
+            market: self.shared.market.clone(),
+            hangars: self.shared.hangars.clone(),
         }
     }
 
     pub fn stop(mut self) {
         if let Some(s) = self.sector.take() {
             s.stop();
+        }
+        // The exchange's last word goes to its file.
+        let market = self.shared.market.clone();
+        if let Ok(rt) = tokio::runtime::Handle::try_current() {
+            rt.spawn(async move { market.save().await });
         }
         self.egress_stop.store(true, Ordering::Release);
         if let Some(e) = self.egress.take() {
@@ -290,10 +354,27 @@ impl StatusView {
             .filter(|(_, e)| e.flags & roster_flags::ASLEEP != 0)
             .map(|(suit, e)| serde_json::json!({ "suit": suit, "name": e.name, "address": e.address }))
             .collect();
+        let hangars: Vec<HangarEntry> =
+            self.hangars.read().map(|h| h.values().cloned().collect()).unwrap_or_default();
+        let exchange = self.market.with(|ex| {
+            let (escrow, goods) = ex.escrowed();
+            serde_json::json!({
+                "fees": ex.fees,
+                "colony_paid": ex.colony_paid,
+                "colony_took": ex.colony_took,
+                "escrow_credits": escrow,
+                "escrow_items": goods.len(),
+                "traded_items": ex.quotes().iter().filter(|q| q.volume > 0).count(),
+            })
+        });
         serde_json::json!({
             "tick": s.tick.load(Ordering::Acquire),
             "tick_hz": bc_sim::TICK_HZ,
             "oracle": self.oracle,
+            "rules": if self.survival { "survival" } else { "arcade" },
+            // Survival: pilots in their hangar bays (and out of them), and the exchange's ledger.
+            "hangars": hangars,
+            "exchange": exchange,
             "clients": l(&m.clients),
             "suits_alive": l(&m.suits_alive),
             "sleepers_parked": l(&m.parked),
@@ -326,7 +407,7 @@ impl StatusView {
     }
 }
 
-async fn send_control(tx: &mut SendStream, msg: ControlMsg) -> anyhow::Result<()> {
+pub(super) async fn send_control(tx: &mut SendStream, msg: ControlMsg) -> anyhow::Result<()> {
     let mut buf = [0u8; MAX_FRAME];
     let n = msg.encode(&mut buf).ok_or_else(|| anyhow::anyhow!("control frame too large"))?;
     tx.write_all(&buf[..n]).await?;
@@ -336,11 +417,17 @@ async fn send_control(tx: &mut SendStream, msg: ControlMsg) -> anyhow::Result<()
 async fn read_control(rx: &mut RecvStream, pending: &mut Vec<u8>) -> anyhow::Result<ControlMsg> {
     let mut buf = [0u8; 256];
     loop {
-        if let Some((msg, used)) =
-            ControlMsg::decode(pending).map_err(|e| anyhow::anyhow!("bad control frame: {e}"))?
-        {
-            pending.drain(..used);
-            return Ok(msg);
+        match Frame::decode(pending).map_err(|e| anyhow::anyhow!("bad control frame: {e}"))? {
+            Some((Frame::Msg(msg), used)) => {
+                pending.drain(..used);
+                return Ok(msg);
+            }
+            // A hangar message before the handshake is done means nothing yet.
+            Some((Frame::Hangar(_), used)) => {
+                pending.drain(..used);
+                continue;
+            }
+            None => {}
         }
         match rx.read(&mut buf).await? {
             Some(n) => pending.extend_from_slice(&buf[..n]),
@@ -349,7 +436,7 @@ async fn read_control(rx: &mut RecvStream, pending: &mut Vec<u8>) -> anyhow::Res
     }
 }
 
-async fn wait_slot(
+pub(super) async fn wait_slot(
     sector: &SectorShared,
     slot: u16,
     until: impl Fn(SlotState, u32) -> bool,
@@ -366,13 +453,13 @@ async fn wait_slot(
 }
 
 /// Simple token bucket: inputs are ~30/s; allow bursts, drop floods.
-struct RateLimit {
-    tokens: f64,
-    last: std::time::Instant,
+pub(super) struct RateLimit {
+    pub(super) tokens: f64,
+    pub(super) last: std::time::Instant,
 }
 
 impl RateLimit {
-    fn allow(&mut self) -> bool {
+    pub(super) fn allow(&mut self) -> bool {
         let now = std::time::Instant::now();
         self.tokens = (self.tokens + now.duration_since(self.last).as_secs_f64() * 120.0).min(240.0);
         self.last = now;
@@ -391,7 +478,7 @@ pub async fn run_session(conn: Connection, game: GameShared, stats: Arc<NetStats
     }
 }
 
-async fn reject(tx: &mut SendStream, reason: RejectReason) -> anyhow::Result<()> {
+pub(super) async fn reject(tx: &mut SendStream, reason: RejectReason) -> anyhow::Result<()> {
     send_control(tx, ControlMsg::Reject { reason }).await?;
     anyhow::bail!("rejected: {reason:?}")
 }
@@ -454,7 +541,8 @@ async fn session(conn: Connection, game: GameShared, stats: Arc<NetStats>) -> an
     if version != PROTOCOL_VERSION {
         return reject(&mut tx, RejectReason::VersionMismatch).await;
     }
-    if !bc_sim::content::playable(frame) {
+    // (Under survival rules the frame asked for doesn't matter: pilots fly what they built.)
+    if !game.survival && !bc_sim::content::playable(frame) {
         return reject(&mut tx, RejectReason::FrameNotAllowed).await;
     }
     // Only the Bot SDK may claim to be an agent; nobody may claim to be a server-side doll.
@@ -468,136 +556,16 @@ async fn session(conn: Connection, game: GameShared, stats: Arc<NetStats>) -> an
         }
         None => (None, None),
     };
-    let result =
-        seated(&conn, &game, &stats, &mut tx, &mut rx, pending, pilot, frame, faction, name, address, kicked)
-            .await;
+    let who = super::session::Who { pilot, frame, faction, name, address };
+    let result = super::session::run(&conn, &game, &stats, &mut tx, &mut rx, pending, who, kicked).await;
     if let Some((address, session)) = held {
         game.pilots.release(address, session);
     }
     result
 }
 
-/// Takes a slot in the sector, flies, and gives the slot back. A signed-in pilot wakes in the suit
-/// they left asleep, if it's still there, and leaves it asleep again.
-#[allow(clippy::too_many_arguments)]
-async fn seated(
-    conn: &Connection,
-    game: &GameShared,
-    stats: &NetStats,
-    tx: &mut SendStream,
-    rx: &mut RecvStream,
-    pending: Vec<u8>,
-    pilot: PilotKind,
-    frame: bc_proto::FrameId,
-    faction: bc_proto::Faction,
-    name: Name,
-    address: Option<Address>,
-    kicked: Option<oneshot::Receiver<()>>,
-) -> anyhow::Result<()> {
-    let Some(mut lease) = game.sector.leases.pop() else {
-        NetStats::add(&stats.sessions_rejected, 1);
-        return reject(tx, RejectReason::ServerFull).await;
-    };
-    let slot = lease.slot;
-    let callsign = if name.is_empty() { format!("Pilot-{slot}") } else { name.as_str().to_string() };
-    // A signed-in pilot's record: the suit they left asleep, and what they'd earned.
-    let mut record = match address {
-        Some(a) => Some(game.pilots.load_or_new(&a).await),
-        None => None,
-    };
-    let left = record.as_ref().and_then(|r| r.sleeper);
-    let comeback = Comeback {
-        // A sleeper from before the server restarted is long gone.
-        sleeper: left.filter(|s| s.run == game.pilots.run).map(|s| (s.suit, s.generation)),
-        credits: record.as_ref().map_or(0, |r| r.credits),
-    };
-    let max_datagram = conn.max_datagram_size().unwrap_or(MAX_DATAGRAM).min(MAX_DATAGRAM) as u16;
-    let epoch = game.sector.slots[slot as usize].epoch();
-    let mut join = Control::Join { slot, pilot, frame, faction, max_datagram, comeback, launch: None };
-    while let Err(back) = game.sector.control.push(join) {
-        join = back;
-        tokio::time::sleep(Duration::from_millis(2)).await;
-    }
-    let state = wait_slot(&game.sector, slot, |s, e| e != epoch && s != SlotState::Free).await;
-    let status = &game.sector.slots[slot as usize];
-    let (suit, generation) = match (state, status.suit_id()) {
-        (Some(SlotState::Active), Some(id)) => id,
-        _ => {
-            let _ = game.sector.leases.push(lease);
-            NetStats::add(&stats.sessions_rejected, 1);
-            return reject(tx, RejectReason::ServerFull).await;
-        }
-    };
-    let woke = status.outcome() == Outcome::Woke;
-    // What became of the suit they left, if they didn't wake in it.
-    let news = match (address, left) {
-        (Some(a), Some(_)) if !woke => {
-            // The sector reports a sleeper's end before it can find it gone: it's in by now.
-            process_notes(game);
-            Some(game.pilots.take_news(&a).unwrap_or(Fate::Lost))
-        }
-        (Some(a), _) => {
-            // News without a sleeper to go with it is stale.
-            let _ = game.pilots.take_news(&a);
-            None
-        }
-        (None, _) => None,
-    };
-    if let (Some(a), Some(r)) = (address, record.as_mut()) {
-        game.pilots.bind_suit((suit, generation), a);
-        r.sleeper = None;
-        r.name = callsign.clone();
-        r.frame = frame.slug().to_string();
-        r.seen_unix = pilots::unix_now();
-        game.pilots.save(r.clone()).await;
-    }
-    let result = in_game(
-        conn, game, stats, tx, rx, pending, &mut lease, suit, pilot, &callsign, address, kicked, woke, news,
-    )
-    .await;
-
-    // Tear down in the order that keeps the slot race-free: stop sending, settle the roster, let
-    // the sector put the suit to sleep (or release it), and only then hand the lease back.
-    let _ = game.egress.push(EgressCmd::Detach(slot));
-    game.egress_thread.unpark();
-    let credits =
-        u32::try_from(Metrics::load(&game.sector.metrics.pilots[slot as usize].credits)).unwrap_or(0);
-    if address.is_some() {
-        // The suit stays, its pilot asleep in the cockpit: marked so in the roster before it
-        // sleeps, so news of its end finds it marked.
-        set_roster_flags(game, suit, pilot, &callsign, roster_flags::VERIFIED | roster_flags::ASLEEP);
-    } else {
-        forget(game, suit, pilot);
-    }
-    let mut bye = if address.is_some() { Control::Sleep { slot } } else { Control::Leave { slot } };
-    while let Err(back) = game.sector.control.push(bye) {
-        bye = back;
-        tokio::time::sleep(Duration::from_millis(2)).await;
-    }
-    let _ = wait_slot(&game.sector, slot, |s, _| s == SlotState::Free).await;
-    if let (Some(a), Some(r)) = (address, record.as_mut()) {
-        let now = pilots::unix_now();
-        r.credits = credits;
-        r.seen_unix = now;
-        match (status.outcome(), status.suit_id()) {
-            (Outcome::Asleep, Some((s, g))) => {
-                r.sleeper = Some(Sleeper { run: game.pilots.run, suit: s, generation: g, since_unix: now });
-                tracing::info!(address = %pilots::short(&a), suit = s, "asleep in the cockpit");
-            }
-            // A wreck doesn't sleep: it's gone.
-            _ => {
-                let _ = game.pilots.suit_gone((suit, generation));
-                forget(game, suit, pilot);
-            }
-        }
-        game.pilots.save(r.clone()).await;
-    }
-    let _ = game.sector.leases.push(lease);
-    result
-}
-
 /// Sets a pilot's roster entry's flags (and tells everyone).
-fn set_roster_flags(game: &GameShared, suit: u16, pilot: PilotKind, name: &str, flags: u8) {
+pub(super) fn set_roster_flags(game: &GameShared, suit: u16, pilot: PilotKind, name: &str, flags: u8) {
     if let Ok(mut r) = game.roster.write()
         && let Some(e) = r.get_mut(&suit)
     {
@@ -607,7 +575,7 @@ fn set_roster_flags(game: &GameShared, suit: u16, pilot: PilotKind, name: &str, 
 }
 
 /// The roster forgets a suit's pilot (and tells everyone).
-fn forget(game: &GameShared, suit: u16, pilot: PilotKind) {
+pub(super) fn forget(game: &GameShared, suit: u16, pilot: PilotKind) {
     if let Ok(mut r) = game.roster.write() {
         r.remove(&suit);
     }
@@ -639,152 +607,6 @@ pub fn process_notes(game: &GameShared) {
             .is_some_and(|r| r.get(&fate.suit).is_some_and(|e| e.flags & roster_flags::ASLEEP != 0));
         if asleep {
             forget(game, fate.suit, PilotKind::Human);
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn in_game(
-    conn: &Connection,
-    game: &GameShared,
-    stats: &NetStats,
-    tx: &mut SendStream,
-    rx: &mut RecvStream,
-    mut pending: Vec<u8>,
-    lease: &mut bc_sector::SlotLease,
-    suit: u16,
-    pilot: PilotKind,
-    callsign: &str,
-    address: Option<Address>,
-    mut kicked: Option<oneshot::Receiver<()>>,
-    woke: bool,
-    news: Option<Fate>,
-) -> anyhow::Result<()> {
-    let slot = lease.slot;
-    let flags = if address.is_some() { roster_flags::VERIFIED } else { 0 };
-    let mut welcome = 0;
-    if address.is_some() {
-        welcome |= welcome_flags::SIGNED_IN;
-    }
-    if woke {
-        welcome |= welcome_flags::WOKE;
-    }
-    send_control(
-        tx,
-        ControlMsg::Welcome {
-            version: PROTOCOL_VERSION,
-            client_slot: slot,
-            tick: game.sector.tick.load(Ordering::Acquire),
-            tick_hz: bc_sim::TICK_HZ as u8,
-            sector: 1,
-            zero_allowed: true,
-            max_datagram: conn.max_datagram_size().unwrap_or(MAX_DATAGRAM).min(MAX_DATAGRAM) as u16,
-            field_seed: game.sector.field_seed,
-            field_rocks: game.sector.field_rocks,
-            flags: welcome,
-        },
-    )
-    .await?;
-    if let Some(a) = address {
-        send_control(tx, ControlMsg::Token { token: game.pilots.issue_token(a) }).await?;
-    }
-    match news {
-        Some(Fate::Destroyed { by }) => {
-            send_control(tx, ControlMsg::Notice { code: notice::SLEEPER_DESTROYED, name: Name::new(&by) })
-                .await?;
-        }
-        Some(Fate::Lost) => {
-            send_control(tx, ControlMsg::Notice { code: notice::SLEEPER_LOST, name: Name::new("") }).await?;
-        }
-        None => {}
-    }
-    tracing::info!(slot, suit, ?pilot, name = %callsign, woke, "pilot joined");
-    let mut roster_rx = game.roster_tx.subscribe();
-    let everyone: Vec<(u16, RosterEntry)> = {
-        let mut r = game.roster.write().map_err(|_| anyhow::anyhow!("roster poisoned"))?;
-        r.insert(
-            suit,
-            RosterEntry {
-                name: callsign.to_string(),
-                pilot,
-                client_slot: slot,
-                flags,
-                address: address.as_ref().map(pilots::short),
-            },
-        );
-        r.iter().map(|(k, v)| (*k, v.clone())).collect()
-    };
-    let _ = game.roster_tx.send(RosterUpdate { suit, pilot, name: callsign.to_string(), flags });
-    for (s, e) in everyone {
-        send_control(
-            tx,
-            ControlMsg::Roster { slot: s, pilot: e.pilot, name: Name::new(&e.name), flags: e.flags },
-        )
-        .await?;
-    }
-    let _ = game.egress.push(EgressCmd::Attach(slot, conn.clone()));
-    game.egress_thread.unpark();
-
-    let mut rate = RateLimit { tokens: 240.0, last: std::time::Instant::now() };
-    let mut buf = [0u8; 512];
-    // When the client last sent input: a session that goes quiet for too long is ended.
-    let mut heard = tokio::time::Instant::now();
-    loop {
-        tokio::select! {
-            d = conn.receive_datagram() => {
-                let d = d?;
-                NetStats::add(&stats.datagrams_in, 1);
-                NetStats::add(&stats.bytes_in, d.len() as u64);
-                if packet_kind(&d) != Some(PacketKind::Input) {
-                    NetStats::add(&stats.malformed, 1);
-                    continue;
-                }
-                match InputPacket::decode(&d) {
-                    Ok(packet) if rate.allow() => {
-                        heard = tokio::time::Instant::now();
-                        let _ = lease.input.push(InputMsg { packet, recv_us: game.sector.now_us() });
-                    }
-                    Ok(_) => {}
-                    Err(_) => NetStats::add(&stats.malformed, 1),
-                }
-            }
-            r = rx.read(&mut buf) => {
-                match r? {
-                    Some(n) => pending.extend_from_slice(&buf[..n]),
-                    None => return Ok(()),
-                }
-                while let Some((msg, used)) = ControlMsg::decode(&pending).map_err(|e| anyhow::anyhow!("{e}"))? {
-                    pending.drain(..used);
-                    match msg {
-                        ControlMsg::Respawn { frame } => { let _ = game.sector.control.push(Control::Respawn { slot, frame }); }
-                        ControlMsg::Bye { .. } => return Ok(()),
-                        _ => {}
-                    }
-                }
-            }
-            u = roster_rx.recv() => {
-                match u {
-                    Ok(u) => send_control(tx, ControlMsg::Roster { slot: u.suit, pilot: u.pilot, name: Name::new(&u.name), flags: u.flags }).await?,
-                    Err(broadcast::error::RecvError::Lagged(_)) => {
-                        let everyone: Vec<(u16, RosterEntry)> = game.roster.read().map(|r| r.iter().map(|(k, v)| (*k, v.clone())).collect()).unwrap_or_default();
-                        for (s, e) in everyone {
-                            send_control(tx, ControlMsg::Roster { slot: s, pilot: e.pilot, name: Name::new(&e.name), flags: e.flags }).await?;
-                        }
-                    }
-                    Err(_) => return Ok(()),
-                }
-            }
-            _ = async { match kicked.as_mut() { Some(k) => { let _ = k.await; } None => std::future::pending::<()>().await } } => {
-                // Signed in somewhere else: that session has the pilot now.
-                let _ = send_control(tx, ControlMsg::Bye { reason: bye::TAKEN_OVER }).await;
-                return Ok(());
-            }
-            _ = tokio::time::sleep_until(heard + game.idle) => {
-                // Nobody at the controls (the tab is frozen, or the client hung): as if they'd left.
-                tracing::info!(slot, name = %callsign, "idle: ending the session");
-                let _ = send_control(tx, ControlMsg::Bye { reason: bye::IDLE }).await;
-                return Ok(());
-            }
         }
     }
 }

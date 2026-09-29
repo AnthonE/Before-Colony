@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use bc_server::{Config, Mode, OracleKind};
+use bc_server::{Config, Mode, OracleKind, Ruleset};
 use clap::Parser;
 
 /// Counts heap operations; the sector thread marks its ticks as hot regions, so any allocation
@@ -43,6 +43,16 @@ struct Args {
     /// Admit signed-in pilots only (agents excepted).
     #[arg(long)]
     require_auth: bool,
+    /// `survival`: pilots build and keep their suits, and trade on the exchange; `arcade`: any
+    /// frame, free respawns.
+    #[arg(long, value_enum, default_value_t = Ruleset::Survival)]
+    rules: Ruleset,
+    /// The fabricator and foundry work this many times faster than their recipes say.
+    #[arg(long, default_value_t = 1.0)]
+    craft_speed: f64,
+    /// Keep pilot records and the exchange in this directory (otherwise they last one run).
+    #[arg(long)]
+    data_dir: Option<PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -68,6 +78,9 @@ fn main() -> anyhow::Result<()> {
         jev_url: std::env::var("TYPESAFE_BASE_URL").ok().filter(|u| !u.is_empty()),
         siwe_domain: args.siwe_domain,
         require_auth: args.require_auth,
+        rules: args.rules,
+        craft_speed: args.craft_speed.max(0.01),
+        data_dir: args.data_dir,
         ..Config::default()
     };
     // Two workers are plenty: all game work happens on the dedicated sector thread.

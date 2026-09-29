@@ -8,7 +8,7 @@ use bc_bot::{BotClient, BotConfig};
 use bc_client_core::{Identity, Phase};
 use bc_proto::control::bye;
 use bc_proto::{Faction, FrameId};
-use bc_server::{Config, Mode};
+use bc_server::{Config, Mode, Ruleset};
 
 fn wallet(k: u8) -> LocalWallet {
     let mut secret = [0u8; 32];
@@ -32,6 +32,7 @@ async fn idle(b: &mut BotClient, secs: f64) -> anyhow::Result<()> {
 async fn wallets_sign_in_resume_and_take_over() -> anyhow::Result<()> {
     let cfg = Config {
         mode: Mode::Game,
+        rules: Ruleset::Arcade,
         wt_port: 0,
         http_addr: "127.0.0.1:0".parse()?,
         mobile_dolls: 0,

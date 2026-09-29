@@ -10,7 +10,7 @@ cargo build --release -p bc-server -p bc-bot --bins --examples
 pids=()
 cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; }
 trap cleanup EXIT INT TERM
-./target/release/bc-server --mobile-dolls "${BC_DOLLS:-24}" --oracle "${BC_ORACLE:-local}" &
+./target/release/bc-server --mobile-dolls "${BC_DOLLS:-24}" --oracle "${BC_ORACLE:-local}" --rules "${BC_RULES:-arcade}" &
 pids+=($!)
 sleep 1
 for i in $(seq 1 "${BC_AGENTS:-1}"); do
