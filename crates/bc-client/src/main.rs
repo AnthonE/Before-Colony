@@ -31,6 +31,8 @@ mod fx;
 #[cfg(target_arch = "wasm32")]
 mod gfx;
 #[cfg(target_arch = "wasm32")]
+mod hangar;
+#[cfg(target_arch = "wasm32")]
 mod hud;
 #[cfg(target_arch = "wasm32")]
 mod input;

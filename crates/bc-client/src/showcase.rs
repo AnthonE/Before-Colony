@@ -51,6 +51,10 @@ pub enum Scene {
     /// Deathscythe jamming and reaping, Sandrock's shotels and Cross Crusher, Shenlong's Dragon
     /// Fang and flamethrower, and Neo-Bird on full burn.
     Gundams,
+    /// A hangar bay in the docking hub, on foot: the suit in its gantry (`?frame=`), the catwalk
+    /// across its chest, the stations. Every 14 s the bay cycles: the alarm turns and the doors
+    /// part (4-7.5 s), stand open, and close again (10.5-14 s).
+    Hangar,
 }
 
 impl Scene {
@@ -65,6 +69,7 @@ impl Scene {
             "sky" => Some(Self::Sky),
             "chase" | "pilot" => Some(Self::Chase),
             "gundams" => Some(Self::Gundams),
+            "hangar" | "bay" => Some(Self::Hangar),
             _ => None,
         }
     }
@@ -80,12 +85,36 @@ impl Scene {
             Self::Salvage => "salvage",
             Self::Mining => "mining",
             Self::Gundams => "gundams",
+            Self::Hangar => "hangar",
         }
     }
 
     /// Camera presets 1..: orbit target, yaw, pitch (radians) and distance.
     fn presets(self) -> Vec<Orbit> {
         match self {
+            Self::Hangar => {
+                use bc_client_core::bay::{HATCH, SPAWN, SUIT_AT, Spot};
+                let o = crate::hangar::BAY_ORIGIN;
+                let eye = |p: Vec3| o + p + Vec3::Y * bc_client_core::walker::EYE;
+                let toward = |from: Vec3, to: Vec3| look(from, (to - from).normalize());
+                let chest = o + SUIT_AT + Vec3::Y * 3.0;
+                let (cockpit, _) = Spot::Cockpit.stand();
+                let (console, _) = Spot::Suit.stand();
+                vec![
+                    // Just in from the airlock, looking up at the suit.
+                    toward(eye(SPAWN), chest),
+                    // On the catwalk by the cockpit hatch.
+                    toward(eye(cockpit + Vec3::new(-3.0, 0.0, -0.8)), o + HATCH + Vec3::Y * 1.5),
+                    // On the deck between the suit and the doors, looking up at its face.
+                    toward(o + Vec3::new(2.0, 1.6, -10.0), o + SUIT_AT + Vec3::Y * 6.5),
+                    // The whole bay from its back corner, the doors beyond.
+                    toward(o + Vec3::new(14.0, 20.0, 22.0), o + Vec3::new(-2.0, 6.0, -12.0)),
+                    // From the cockpit: out through the doors, down the launch tunnel.
+                    look(o + HATCH + Vec3::new(0.0, 0.2, -0.5), -Vec3::Z),
+                    // The fabricator and the stores, from the suit's console.
+                    toward(eye(console), o + Vec3::new(14.0, 2.0, 4.0)),
+                ]
+            }
             Self::Gundams => {
                 let at = |i: usize, up: f32| gundam_pos(i) + Vec3::new(0.0, up, 8.0);
                 vec![
@@ -232,6 +261,7 @@ struct Show {
     cam: Orbit,
     preset: u32,
     suits: Vec<Entity>,
+    frame: FrameId,
 }
 
 #[derive(Component)]
@@ -243,6 +273,8 @@ pub struct ShowcasePlugin {
     pub cam: u32,
     pub realtime: bool,
     pub hold: u64,
+    /// The frame a scene features (the hangar's suit).
+    pub frame: FrameId,
 }
 
 impl Plugin for ShowcasePlugin {
@@ -260,6 +292,7 @@ impl Plugin for ShowcasePlugin {
             cam: presets[preset - 1],
             preset: preset as u32,
             suits: Vec::new(),
+            frame: self.frame,
         })
         .add_systems(
             Startup,
@@ -271,6 +304,9 @@ impl Plugin for ShowcasePlugin {
             (advance_clock, controls, script, work_rock).chain().in_set(crate::view::Vis::Drive),
         )
         .add_systems(Update, overlay.in_set(crate::view::Vis::Camera));
+        if self.scene == Scene::Hangar {
+            app.add_systems(Update, hangar_script.after(script).in_set(crate::view::Vis::Drive));
+        }
         if self.scene == Scene::Chase {
             app.add_systems(Update, (follow, pilot_effects).chain().in_set(crate::view::Vis::Camera));
         } else {
@@ -308,6 +344,7 @@ fn cast(scene: Scene) -> Vec<(FrameId, Faction)> {
             (Shenlong, Faction::Colonies),
             (WingZeroBird, Faction::Colonies),
         ],
+        Scene::Hangar => vec![],
     }
 }
 
@@ -1118,6 +1155,8 @@ fn script(
                 events.0.push(FxEvent::RockBreak { pos: rock.pos, radius: rock.radius, ore });
             }
         }
+        // The bay is driven by `hangar_script`.
+        Scene::Hangar => {}
         Scene::Gundams => {
             let u = t.rem_euclid(GUNDAMS_CYCLE);
             for i in 0..7 {
@@ -1200,4 +1239,29 @@ fn script(
             }
         }
     }
+}
+
+/// The hangar scene: the pilot's view indoors, the suit in its gantry, and the bay cycling.
+fn hangar_script(
+    show: Res<Show>,
+    vis: Res<VisTime>,
+    mut indoors: ResMut<crate::hangar::Indoors>,
+    mut bay: ResMut<crate::hangar::BayState>,
+) {
+    if !indoors.0 {
+        indoors.0 = true;
+    }
+    if bay.suit.as_ref().is_none_or(|s| s.line != show.frame) {
+        bay.suit = Some(bc_econ::Suit::complete(show.frame));
+    }
+    let t = vis.now.rem_euclid(14.0) as f32;
+    let secs = crate::hangar::DOOR_SECS;
+    bay.doors = match t {
+        t if t < 4.0 => 0.0,
+        t if t < 7.5 => ((t - 4.0) / secs).min(1.0),
+        t if t < 10.5 => 1.0,
+        t => (1.0 - (t - 10.5) / secs).max(0.0),
+    };
+    bay.alarm = (4.0..7.5).contains(&t) || t >= 10.5;
+    bay.boarded = (4.0..12.0).contains(&t);
 }

@@ -16,6 +16,7 @@ webgpu = ["bevy/webgpu"]
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 bc-auth.workspace = true
 bc-client-core.workspace = true
+bc-econ.workspace = true
 bc-model.workspace = true
 bc-proto.workspace = true
 bc-sim = { workspace = true, features = ["canon-names"] }

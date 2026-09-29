@@ -136,6 +136,8 @@ pub const DOOR_HALF_WIDTH: f32 = 12.0;
 pub const DOOR_HEIGHT: f32 = 26.0;
 /// The catwalk's floor.
 pub const CATWALK_Y: f32 = 11.4;
+/// The gantry's pillars reach this high.
+pub const GANTRY_TOP: f32 = 24.0;
 /// Where the suit stands: its origin (the torso) above the floor, facing the bay doors (−z).
 pub const SUIT_AT: Vec3 = Vec3::new(0.0, 9.6, 6.0);
 /// The cockpit hatch, in the front of the suit's chest.
@@ -202,6 +204,11 @@ impl Layout {
             Block::new([1.3, CATWALK_Y, CATWALK_Z[1]], [9.0, CATWALK_Y + 1.1, CATWALK_Z[1] + 0.15], Rail),
             Block::new([-13.2, 0.0, 1.7], [-12.8, CATWALK_Y - 0.4, 2.1], Pillar),
             Block::new([8.4, 0.0, 1.7], [8.8, CATWALK_Y - 0.4, 2.1], Pillar),
+            // The gantry the suit stands in: a pillar at each corner, up to the crane's rail.
+            Block::new([-6.8, 0.0, 4.2], [-6.2, GANTRY_TOP, 4.8], Pillar),
+            Block::new([6.2, 0.0, 4.2], [6.8, GANTRY_TOP, 4.8], Pillar),
+            Block::new([-6.8, 0.0, 8.8], [-6.2, GANTRY_TOP, 9.4], Pillar),
+            Block::new([6.2, 0.0, 8.8], [6.8, GANTRY_TOP, 9.4], Pillar),
             // The suit: its legs and its body, so nobody walks through it.
             Block::new([-2.7, 0.0, 4.3], [-0.2, 9.2, 7.6], Suit),
             Block::new([0.2, 0.0, 4.3], [2.7, 9.2, 7.6], Suit),

@@ -169,6 +169,7 @@ fn setup_sky(
 fn apply_light_tier(
     mut commands: Commands,
     gfx: Res<Gfx>,
+    indoors: Res<crate::hangar::Indoors>,
     maps: Res<SkyMaps>,
     cams: Query<Entity, With<MainCamera>>,
     added: Query<(), Added<MainCamera>>,
@@ -177,14 +178,16 @@ fn apply_light_tier(
     mut skies: Query<&SkyDome>,
     mut sky_materials: ResMut<Assets<SkyMaterial>>,
 ) {
-    if !gfx.is_changed() && added.is_empty() {
+    if !gfx.is_changed() && added.is_empty() && !indoors.is_changed() {
         return;
     }
     let s = gfx.settings;
+    // In the hangar bay: lamps, not the Sun; no sky to reflect.
+    let inside = indoors.0;
     for cam in &cams {
         let mut e = commands.entity(cam);
-        e.insert(Exposure { ev100: EV100 });
-        if s.ibl {
+        e.insert(Exposure { ev100: if inside { crate::hangar::INDOOR_EV100 } else { EV100 } });
+        if s.ibl && !inside {
             e.insert(EnvironmentMapLight {
                 diffuse_map: maps.diffuse.clone(),
                 specular_map: maps.specular.clone(),
@@ -199,6 +202,10 @@ fn apply_light_tier(
     // lighting, a stronger, Earth-blue fill stands in for it.
     ambient.color = Color::srgb(0.55, 0.65, 0.9);
     ambient.brightness = if s.ibl { 250.0 } else { 1_500.0 };
+    if inside {
+        ambient.color = Color::srgb(0.8, 0.85, 0.95);
+        ambient.brightness = crate::hangar::INDOOR_AMBIENT;
+    }
     for (e, mut light) in &mut suns {
         light.shadow_maps_enabled = s.shadows;
         commands.entity(e).insert(
@@ -234,12 +241,13 @@ fn sun_visibility(p: Vec3) -> f32 {
 /// lit by its beams, blasts and Earthshine.
 fn eclipse(
     time: Res<VisTime>,
+    indoors: Res<crate::hangar::Indoors>,
     cams: Query<&Transform, With<MainCamera>>,
     mut suns: Query<&mut DirectionalLight, With<Sun>>,
     mut vis: Local<Option<f32>>,
 ) {
     let Ok(cam) = cams.single() else { return };
-    let target = sun_visibility(cam.translation);
+    let target = if indoors.0 { 0.0 } else { sun_visibility(cam.translation) };
     let k = 1.0 - (-time.dt * 6.0).exp();
     let v = match *vis {
         Some(v) => v + (target - v) * k,

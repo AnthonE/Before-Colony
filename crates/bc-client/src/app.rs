@@ -62,6 +62,7 @@ pub fn run() {
                 cam: cfg.showcase_cam,
                 realtime: cfg.showcase_realtime,
                 hold: cfg.showcase_hold,
+                frame: crate::config::parse_frame(&cfg.frame).unwrap_or(bc_proto::FrameId::WingZero),
             },
         ));
     } else if let Some((settings, store)) = saved {
@@ -138,6 +139,7 @@ impl Plugin for VisualsPlugin {
                 crate::blast::BlastPlugin,
                 crate::ambience::AmbiencePlugin,
                 crate::zero_vision::ZeroVisionPlugin,
+                crate::hangar::HangarPlugin,
             ))
             .configure_sets(
                 Update,
@@ -161,6 +163,7 @@ impl Plugin for VisualsPlugin {
                         crate::missiles_vis::setup_missiles,
                         crate::blast::setup_blasts,
                         crate::ambience::setup_ambience,
+                        crate::hangar::setup_bay,
                     ),
                 )
                     .chain(),

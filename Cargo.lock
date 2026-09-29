@@ -572,6 +572,7 @@ version = "0.1.0"
 dependencies = [
  "bc-auth",
  "bc-client-core",
+ "bc-econ",
  "bc-model",
  "bc-proto",
  "bc-sim",
