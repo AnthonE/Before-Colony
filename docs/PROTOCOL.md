@@ -1,4 +1,4 @@
-# Before Colony wire protocol (v6)
+# Before Colony wire protocol (v7)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
@@ -11,7 +11,7 @@ of every datagram give the packet kind: `1` = input, `2` = snapshot.
 | Entity position | 3 × 21 bits over ±32 768 m (3.1 cm steps) |
 | Entity velocity | 3 × 14 bits over ±2 048 m/s (0.25 m/s) |
 | Entity rotation | smallest-three: 2-bit index + 3 × 10 bits |
-| Own position, velocity, propellant | raw `f32` (lossless: the client re-simulates from them) |
+| Own position, velocity, propellant, G-strain | raw `f32` (lossless: the client re-simulates from them) |
 | Own rotation | smallest-three at 16 bits per component |
 | Aim (input) | octahedral 2 × 16 bits (≈0.005°) |
 | Probabilities | 7 bits |
@@ -58,7 +58,7 @@ exactly `tick − 8`, so the 8-bit field's saturation at 15.9 ticks loses nothin
 | Section | Content |
 |---|---|
 | header (116 bits) | kind=2, tick, ack_input_tick, input_health (i8), time_echo_ms, echo_hold_ms, tidi_pct, flags |
-| own (1 + 641 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain, heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, ambac/thrust factors, respawn_in, extra mass (kg, i18), cargo ×4 (kg, 14 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special cooldown (8, ticks ÷ 4) |
+| own (1 + 703 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, ambac/thrust factors, respawn_in, extra mass (kg, i18), cargo ×4 (kg, 14 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special cooldown (8, ticks ÷ 4), arms (46, below) |
 | ZERO (1 + ≤200 bits) | source_jev, advice_age, threat_count, per threat {slot, 7 × p}, rec_target + p, rec_maneuver + p, threat_level + confidence, flanked, has_solution, solution (oct 2×12), hit_p |
 | events | repeated `[1][event]`, closed by `[0]` |
 | rocks | repeated `[1][rock]` (18 bits each), closed by `[0]` |
@@ -79,7 +79,16 @@ Header notes:
 Own-state notes:
 - A part with any armour left encodes as at least 1/255: 0 means it is gone.
 - The server flies the suit with the ambac and thrust factors rounded to the same 8 bits, and with
-  exactly `extra_mass_kg`, so prediction matches it.
+  exactly `extra_mass_kg`, so prediction matches it. The ambac factor is the one with the arms
+  idle; busy arms take 0.6 of it, which the client works out tick by tick from the arms.
+- The arms record lets the client roll its suit's arms on from the snapshot as the server does
+  (`bc_sim::arms`), so its prediction lunges, and turns with busy arms, on the same ticks:
+  the strike under way (phase 2: none, windup, stroke, recovery; timer 5; mount 2, 3 being the
+  special's melee move), ticks since a weapon fired or a strike began (3, saturating at 7), per
+  mount (the loadout's three, then the special's) the ticks until it could fire or strike but
+  for heat (6 bits each; 63 = not until something the client can't foresee changes: an arm shot
+  off, energy or rounds run out), and each gun slot's missile salvo under way (rounds left, 3;
+  ticks to the next, 2). Heat is the OVERHEAT flag, and the lockout after Full Open follows it.
 - `weapon_ready` has a bit each for the primary, secondary, melee weapon and the frame's special.
 - Flags: BOOSTING, BLACKOUT, OVERHEAT, CHARGING, SABER_ACTIVE, ZERO_CAPABLE, FLIGHT_ASSIST,
   LOCKED_ON, DOCKED (in the colony's dock), LUNGE (saber windup and swing: the flight model's

@@ -9,11 +9,14 @@
 //! where the suit was drawn; the client blends it out (`own`).
 //!
 //! A change of form (Wing Zero ↔ Neo-Bird) is predicted too: each command steps the form as the
-//! server does (`bc_sim::transform`), which sets the frame flown and cuts thrust mid-change.
+//! server does (`bc_sim::transform`), which sets the frame flown and cuts thrust mid-change. So are
+//! the arms (`bc_sim::arms`): a blade's lunge drives the suit, and busy arms slow its turning, on
+//! the very ticks they do on the server.
 
 use bc_proto::buttons::MODE;
 use bc_proto::snapshot::own_flags;
 use bc_proto::{FrameId, InputCmd, OwnState};
+use bc_sim::arms::{ArmsClock, busy_ambac};
 use bc_sim::content::frame;
 use bc_sim::field::Field;
 use bc_sim::flight::{FlightMods, FlightOut, FlightState, step_in};
@@ -51,6 +54,8 @@ pub struct Sample {
     pub g_limited: bool,
     /// The frame flown.
     pub frame: FrameId,
+    /// The mount of a strike in its windup or stroke after the tick.
+    pub strike: Option<u8>,
 }
 
 impl Sample {
@@ -67,9 +72,10 @@ impl Sample {
         throttle: Vec3::ZERO,
         g_limited: false,
         frame: FrameId::Leo,
+        strike: None,
     };
 
-    fn of(tick: u32, s: &FlightState, out: &FlightOut, frame: FrameId) -> Self {
+    fn of(tick: u32, s: &FlightState, out: &FlightOut, frame: FrameId, arms: &ArmsClock) -> Self {
         Self {
             tick,
             pos: s.pos,
@@ -83,6 +89,7 @@ impl Sample {
             throttle: out.throttle,
             g_limited: out.g_limited,
             frame,
+            strike: arms.striking(),
         }
     }
 }
@@ -103,6 +110,8 @@ pub struct OwnPose {
     pub throttle: Vec3,
     pub g_limited: bool,
     pub frame: FrameId,
+    /// The mount of a strike in its windup or stroke.
+    pub strike: Option<u8>,
 }
 
 impl OwnPose {
@@ -123,6 +132,7 @@ impl OwnPose {
             throttle: a.throttle.lerp(b.throttle, u),
             g_limited: b.g_limited,
             frame: b.frame,
+            strike: b.strike,
         }
     }
 
@@ -140,6 +150,7 @@ impl OwnPose {
             throttle: a.throttle,
             g_limited: a.g_limited,
             frame: a.frame,
+            strike: a.strike,
         }
     }
 }
@@ -151,6 +162,9 @@ pub struct Predictor {
     pub tick: u32,
     /// The form flown after the newest generated command (its frame, and a change under way).
     pub form: Form,
+    /// The arms after the newest generated command: a strike under way, how lately a weapon fired.
+    pub arms: ArmsClock,
+    /// The server's flight modifiers (AMBAC's with the arms idle).
     mods: FlightMods,
     /// The ticks flown, by tick: what the suit is drawn from, and what the server's state for the
     /// same tick is checked against.
@@ -172,6 +186,7 @@ impl Default for Predictor {
             state: FlightState::default(),
             tick: 0,
             form: Form { frame: FrameId::Leo, timer: 0 },
+            arms: ArmsClock::default(),
             mods: FlightMods::default(),
             samples: Box::new([Sample::NONE; HISTORY]),
             first: 0,
@@ -202,7 +217,7 @@ impl Predictor {
             ambac: own.ambac_factor,
             thrust: own.thrust_factor,
             g_immune: false,
-            lunge: own.flags & own_flags::LUNGE != 0,
+            lunge: false,
             extra_mass_kg: own.extra_mass_kg,
         }
     }
@@ -212,26 +227,37 @@ impl Predictor {
         self.form.frame
     }
 
-    /// One command's tick: the form steps first (as on the server), then the flight.
+    /// One command's tick, in the server's order: the form steps (a change drops a strike), the
+    /// suit flies with the arms as they stood, then the arms move on.
     fn step(
         field: &Field,
         s: &mut FlightState,
         form: &mut Form,
+        arms: &mut ArmsClock,
         mods: &FlightMods,
         cmd: &InputCmd,
     ) -> FlightOut {
-        transform_step(form, cmd.pressed(MODE));
+        if transform_step(form, cmd.pressed(MODE)) {
+            arms.drop_strike();
+        }
+        let spec = frame(form.frame);
         let mut mods = *mods;
         if form.changing() {
             mods.thrust *= transform_thrust(form);
         }
-        step_in(field, s, cmd, frame(form.frame), &mods, DT)
+        if arms.busy(cmd.tick) {
+            mods.ambac = busy_ambac(mods.ambac);
+        }
+        mods.lunge = arms.lunging(spec);
+        let out = step_in(field, s, cmd, spec, &mods, DT);
+        arms.tick(spec, cmd, form.changing(), cmd.tick);
+        out
     }
 
     /// Flies `cmd` from the newest state and keeps the tick.
     fn fly(&mut self, cmd: &InputCmd) {
-        let out = Self::step(&self.field, &mut self.state, &mut self.form, &self.mods, cmd);
-        self.keep(Sample::of(cmd.tick, &self.state, &out, self.form.frame));
+        let out = Self::step(&self.field, &mut self.state, &mut self.form, &mut self.arms, &self.mods, cmd);
+        self.keep(Sample::of(cmd.tick, &self.state, &out, self.form.frame, &self.arms));
     }
 
     fn keep(&mut self, s: Sample) {
@@ -288,6 +314,14 @@ impl Predictor {
         }
         self.form = form;
         self.mods = Self::mods_from(own);
+        // The command the server flew that tick (the prediction's, or the stand-in it flew).
+        let mut last = history.last_at_or_before(server_tick).unwrap_or_default();
+        let flown = if last.tick == server_tick {
+            last
+        } else {
+            InputCmd::stand_in(&last, server_tick, server_tick - last.tick)
+        };
+        self.arms = ArmsClock::from_own(own, server_tick, flown.buttons);
         if !own.alive {
             self.state = flight_from(own);
             self.tick = server_tick;
@@ -315,10 +349,9 @@ impl Predictor {
             g_limited: done.g_limited,
             ..FlightOut::default()
         };
-        self.keep(Sample::of(server_tick, &s, &out, self.form.frame));
+        self.keep(Sample::of(server_tick, &s, &out, self.form.frame, &self.arms));
         self.state = s;
         let target = self.tick.max(server_tick);
-        let mut last = history.last_at_or_before(server_tick).unwrap_or_default();
         for t in server_tick + 1..=target {
             let cmd = match history.get(t) {
                 Some(cmd) => {
@@ -374,6 +407,7 @@ mod tests {
     fn server_flies(own: &OwnState, history: &InputHistory, to: u32) -> FlightState {
         let (mut s, mods, field) = (flight_from(own), Predictor::mods_from(own), Field::empty());
         let mut form = Form { frame: own.frame, timer: 0 };
+        let mut arms = ArmsClock::from_own(own, 100, 0);
         let mut last = InputCmd::default();
         for t in 101..=to {
             let c = match history.get(t) {
@@ -383,7 +417,7 @@ mod tests {
                 }
                 None => InputCmd::stand_in(&last, t, t - last.tick),
             };
-            Predictor::step(&field, &mut s, &mut form, &mods, &c);
+            Predictor::step(&field, &mut s, &mut form, &mut arms, &mods, &c);
         }
         s
     }

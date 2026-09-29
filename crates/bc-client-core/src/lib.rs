@@ -26,12 +26,12 @@ pub mod world;
 use bc_proto::auth::{Address, Domain, NONCE_BYTES, Signature, TOKEN_BYTES};
 use bc_proto::buttons::FIRE_PRIMARY;
 use bc_proto::control::{ControlMsg, RejectReason, hello_flags, roster_flags, welcome_flags};
-use bc_proto::snapshot::own_flags;
+use bc_proto::snapshot::{own_flags, zero_mode};
 use bc_proto::{Faction, FrameId, InputCmd, InputPacket, PROTOCOL_VERSION, PilotKind, SnapshotReader};
 use bc_sim::DT;
-use bc_sim::config::MAX_REWIND_TICKS;
+use bc_sim::config::{G0, MAX_REWIND_TICKS};
 use bc_sim::content::{Mount, Replication, frame, weapon};
-use bc_sim::math::{clamp_to_cone, normalize_or};
+use bc_sim::math::{clamp_to_cone, integrate_rotation, normalize_or};
 use glam::Vec3;
 
 pub use brains::{DollBrain, MinerBrain};
@@ -146,6 +146,9 @@ pub struct ClientCore {
     pub last_cmd: InputCmd,
     /// The own suit as drawn, between frames.
     drawn: own::Drawn,
+    /// Felt acceleration between the last two snapshots, g: the reading while ZERO flies the suit
+    /// (and the prediction, flying the pilot's commands, is beside the point).
+    heard_g: f32,
 }
 
 impl ClientCore {
@@ -170,6 +173,7 @@ impl ClientCore {
             stats: ClientStats::default(),
             last_cmd: InputCmd::default(),
             drawn: own::Drawn::default(),
+            heard_g: 0.0,
         }
     }
 
@@ -367,6 +371,10 @@ impl ClientCore {
             f64::from(now_ms.wrapping_sub(h.time_echo_ms)) / 1_000.0 - f64::from(h.echo_hold_ms) / 1_000.0
         });
         self.clock.on_snapshot(h.tick, now, rtt, h.input_health);
+        let heard = self.world.own.filter(|o| o.alive).map(|o| (self.world.tick, o.vel));
+        if let (Some(own), Some((t0, v0))) = (own.filter(|o| o.alive), heard) {
+            self.heard_g = (own.vel - v0).length() / ((h.tick - t0) as f32 * DT) / G0;
+        }
         self.world.apply_missiles(h.tick, &missiles);
         self.world.apply(h.tick, own, zero, &events, &ents);
         self.world.apply_salvage(&rocks, &objects);
@@ -522,11 +530,13 @@ impl ClientCore {
     }
 
     /// What the own suit is drawn from at `t` (input-clock ticks), and whether it's alive: the
-    /// prediction, between the ticks it has flown; or, for the wreck, the server's word carried
-    /// on at its velocity.
+    /// prediction, between the ticks it has flown; or, for the wreck and while ZERO flies the suit
+    /// (not the pilot's commands), the server's word carried on at its velocity and spin.
     fn own_source(&self, t: f64) -> Option<(OwnPose, bool)> {
         let own = self.world.own?;
+        let seized = own.zero_mode == zero_mode::SEIZED;
         if own.alive
+            && !seized
             && self.predict.initialized
             && let Some(p) = self.predict.pose_at(t)
         {
@@ -535,16 +545,18 @@ impl ClientCore {
         let ahead = (t - f64::from(self.world.tick)).clamp(0.0, 15.0) as f32 * DT;
         let pose = OwnPose {
             pos: own.pos + own.vel * ahead,
-            rot: own.rot,
+            // (A wreck drifts without turning.)
+            rot: if own.alive { integrate_rotation(own.rot, own.ang_vel, ahead) } else { own.rot },
             vel: own.vel,
             dpos: own.vel,
-            g_load: 0.0,
+            g_load: if own.alive { self.heard_g } else { 0.0 },
             g_strain: own.g_strain,
             blackout: own.flags & own_flags::BLACKOUT != 0,
-            boosting: false,
+            boosting: own.alive && own.flags & own_flags::BOOSTING != 0,
             throttle: Vec3::ZERO,
             g_limited: false,
             frame: own.frame,
+            strike: (own.alive && matches!(own.arms.phase, 1 | 2)).then_some(own.arms.slot),
         };
         Some((pose, own.alive))
     }

@@ -6,11 +6,11 @@ use std::collections::{HashMap, HashSet};
 
 use bc_client_core::FeedLine;
 use bc_client_core::world::ObjectMotion;
-use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, MELEE};
+use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY};
 use bc_proto::events::BurstCause;
 use bc_proto::snapshot::{ent_flags, own_flags, zero_mode};
 use bc_sim::TICK_HZ;
-use bc_sim::content::{SpecialKind, frame};
+use bc_sim::content::{SPECIAL_MOUNT, SpecialKind, frame};
 use bc_sim::world::COLONY_CENTER;
 use bevy::prelude::*;
 
@@ -102,16 +102,14 @@ pub fn sync_view(
         if view.boosting && view.throttle.z > 0.05 {
             flags |= ent_flags::BOOST;
         }
-        for (own_bit, ent_bit) in [
-            (own_flags::SABER_ACTIVE, ent_flags::SABER),
-            (own_flags::CHARGING, ent_flags::CHARGING),
-            (own_flags::OVERHEAT, ent_flags::OVERHEAT),
-        ] {
+        for (own_bit, ent_bit) in
+            [(own_flags::CHARGING, ent_flags::CHARGING), (own_flags::OVERHEAT, ent_flags::OVERHEAT)]
+        {
             if own.flags & own_bit != 0 {
                 flags |= ent_bit;
             }
         }
-        let spec = frame(own.frame);
+        let spec = frame(view.frame);
         let buttons = core.last_cmd.buttons;
         if buttons & FIRE_PRIMARY != 0 && own.weapon_ready & 1 != 0 {
             flags |= ent_flags::FIRING_PRIMARY;
@@ -119,20 +117,24 @@ pub fn sync_view(
         if buttons & FIRE_SECONDARY != 0 && own.weapon_ready & 2 != 0 {
             flags |= ent_flags::FIRING_SECONDARY;
         }
-        if own.flags & (own_flags::SPECIAL_ACTIVE | own_flags::TRANSFORMING) != 0 {
+        // The strike as predicted, so the swing starts with the lunge: the special's melee move,
+        // a blade in a gun slot (the Dragon Fang), or the F weapon.
+        flags |= match view.strike {
+            Some(SPECIAL_MOUNT) => ent_flags::SABER | ent_flags::SPECIAL,
+            Some(0 | 1) => ent_flags::SABER | ent_flags::MELEE_ALT,
+            Some(_) => ent_flags::SABER,
+            None => 0,
+        };
+        // Any other special engaged (the melee move is the strike's): the jammer, Full Open, a
+        // change of form.
+        if own.flags & (own_flags::SPECIAL_ACTIVE | own_flags::TRANSFORMING) != 0
+            && spec.melee_mount(SPECIAL_MOUNT).is_none()
+        {
             flags |= ent_flags::SPECIAL;
             // Full Open Attack fires everything.
             if matches!(spec.special, SpecialKind::FullOpen { .. }) {
                 flags |= ent_flags::FIRING_PRIMARY | ent_flags::FIRING_SECONDARY;
             }
-        }
-        // A strike from a blade in a gun slot (the Dragon Fang), not the F weapon.
-        let alt = |slot: u8, button: u16| buttons & button != 0 && spec.melee_mount(slot).is_some();
-        if own.flags & own_flags::SABER_ACTIVE != 0
-            && buttons & MELEE == 0
-            && (alt(0, FIRE_PRIMARY) || alt(1, FIRE_SECONDARY))
-        {
-            flags |= ent_flags::MELEE_ALT;
         }
         if !view.alive {
             // The own wreck, drifting where the server says.

@@ -7,7 +7,7 @@
 mod common;
 
 /// Hash after 600 ticks of the reference scenario (update deliberately when the sim changes).
-const GOLDEN: u64 = 0x37c3_7843_bcdf_6ef1;
+const GOLDEN: u64 = 0xc25f_ae81_af32_6278;
 
 fn scenario_hash() -> u64 {
     let (mut sim, players) = common::arena(8, 24, 42);
@@ -34,7 +34,7 @@ fn golden_hash_wasm() {
 /// Hash after 450 ticks of the Gundams duelling in pairs among Mobile Dolls: every blade, the
 /// Cross Crusher, the Dragon Fang, the flamethrower, the Hyper Jammer, guided missiles, Full Open,
 /// Neo-Bird and the Gundams' guns (changes deliberately as their mechanics arrive).
-const GUNDAMS_GOLDEN: u64 = 0xd1a0_1145_c01e_ac92;
+const GUNDAMS_GOLDEN: u64 = 0xffcc_95bd_ee89_b0c0;
 
 fn gundams_hash() -> u64 {
     use bc_proto::events::Event;

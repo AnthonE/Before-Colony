@@ -140,7 +140,7 @@ network threads.
   receive task, so timing never depends on the frame rate.
 - **Prediction.** The own suit is stepped with `bc_sim::flight` and reconciled on every snapshot by
   replaying the unacknowledged commands. Measured error over a 100 ms-RTT, 5%-loss link: p99
-  **0.2 mm**.
+  **0.1 mm**.
   - A tick the client sent nothing for (a stall) is flown on the server's stand-in for it
     (`InputCmd::stand_in`: the last command again without firing, then hands-off), in the replay
     and as it goes.
@@ -155,9 +155,22 @@ network threads.
   - A change of form is predicted too. The predictor seeds the form from the snapshot (its frame,
     and the special timer counting a change down), then steps it with each replayed command before
     flying it, as the server does. The thrust cut is applied on top of the replicated thrust
-    factor on both sides, so a Wing Zero changing form every 3 s still predicts to p99 0.2 mm.
+    factor on both sides, so a Wing Zero changing form every 3 s still predicts to p99 0.1 mm.
   - Lag compensation resolves shots against the capsules of the form a suit has now, not the one
     it had at the shooter's view time (a change takes 24 ticks; the rewind is at most 8).
+  - The arms are predicted too (`bc_sim::arms`). A blade's lunge drives the suit, and busy arms (a
+    strike under way, or a weapon fired in the last 6 ticks) cut AMBAC's turning to 0.6 of what
+    damage leaves it. The snapshot carries the arms: the strike's phase and timer, how lately a
+    weapon fired, each mount's wait and a missile salvo under way. The predictor rolls them on
+    with each command as the server's specials, weapons and melee steps do (choosing and advancing
+    a strike are the same functions on both sides). So the ticks it flies ahead of any news lunge,
+    and turn, as the server's suit will: over the bad link, a pilot swinging every 2 s and firing
+    bursts between is first predicted to p99 0.5 mm, where carrying the snapshot's arms over the
+    ticks flown ahead missed by 2–4 m on every swing.
+  - G-strain arrives exactly (`f32`), so a blackout starts on the same tick on both sides.
+  - While ZERO flies the suit (a seizure) the pilot's commands aren't what it flies, so it's drawn
+    from the server's state carried on at its velocity and spin, and each snapshot's correction
+    blends out.
 - **Interpolation.** Everyone else is drawn `interp_delay` ticks (2–6, adaptive) in the past, with
   Hermite interpolation of position and velocity and normalised lerp of rotation.
 - **Lag compensation.** A shot carries the shooter's view time (`view_tick_q4`). The projectile is
@@ -259,7 +272,8 @@ on wasm32 (under Node, via `wasm-bindgen-test-runner`). Never enable glam's `fas
 | `bc-sim/tests/{content,melee}.rs` | Every table row sits at its id and the Gundams fly as designed; every blade reaches as far as its row says and mines, twin blades strike once each, the Dragon Fang thrusts where it's aimed, the Cross Crusher is Sandrock's special, only blades that parry clash, and a blade meets a target it chases at speed as its pilot sees it. |
 | `bc-sim/tests/{flight,combat,fire_control,lagcomp,mobile_dolls,zero,field,salvage}.rs` | Rocket equation, FA, blackout, no tunnelling, arm loss, charge, sabers and clashes, lag comp (and its clamp), dolls fight to a kill, ZERO accuracy, calibration, seizure, magnetism; suits stop at rocks at 2 km/s and rocks stop shots; limbs come off as chunks and shots pass where they were, hulks, bounces, expiry, lighter suits. |
 | `bc-sector/tests/salvage_net.rs` | Over the same link: chunks reach the client exactly as the server moves them, across bounces; chunks that go leave the client; a kill hands its wreck to its hulk; changed rocks arrive. |
-| `bc-sector/tests/netcode.rs` | Over a simulated 100 ms / 5%-loss link: prediction error and clock sync (in open flight, ramming and sliding round a rock, damaged, changing into Neo-Bird and back every 3 s, and after a 1.5 s stall); a client that sends inputs only twice a second still has an accurate RTT and commands that arrive in time; and drawn like the browser at 60 and 144 Hz, a Wing Zero sprinting and stopping never steps back along its flight, changes pace only as its acceleration does, and doesn't surge against the chase camera. |
+| `bc-sector/tests/netcode.rs` | Over a simulated 100 ms / 5%-loss link: prediction error and clock sync (in open flight, ramming and sliding round a rock, damaged, changing into Neo-Bird and back every 3 s, striking and firing, and after a 1.5 s stall), and for the strikes the ticks flown ahead of any news too; a client that sends inputs only twice a second still has an accurate RTT and commands that arrive in time; and drawn like the browser at 60 and 144 Hz, a Wing Zero sprinting and stopping never steps back along its flight, changes pace only as its acceleration does, and doesn't surge against the chase camera. |
+| `bc-client-core/tests/arms.rs` | Seeded from any snapshot of a Gundam striking, firing, launching salvos, opening fire in Full Open or changing form, the client's prediction keeps its arms in step with the server's (the strike, busy arms, the lunge) tick for tick, and flies to within millimetres of it. |
 | `bc-sim/tests/transform.rs` | MODE folds Wing Zero into Neo-Bird and back over 24 ticks, weapons down (a charge is lost) and thrust cut; the bird cruises faster; ZERO stays engaged; a bird that dies respawns as Wing Zero. |
 | `bc-server/tests/{echo,duel,oracle}.rs` | A real server over real WebTransport: echo; two agents find and fight each other; Jev advice reaches a ZERO pilot. |
 | `bc-zero/tests/jev_mock.rs` | Jev request contract, parsing, timeout, 429/529 breaker, garbage. |

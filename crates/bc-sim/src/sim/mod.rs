@@ -34,6 +34,7 @@ use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, Part, PilotKind, Segment, We
 use glam::{Quat, Vec3};
 
 use crate::ai::{self, DOLL, SEIZED};
+use crate::arms::{BUSY_FIRE_TICKS, busy_ambac};
 use crate::chunks::{self, Chunks, Motion, held_pose, segment_pos, segment_rot};
 use crate::config::{DT, SECTOR_LIMIT, SimConfig, secs};
 use crate::content::salvage::{BOUNCE, mass_without};
@@ -523,10 +524,41 @@ impl Sim {
     // Flight
     // ---------------------------------------------------------------------------------------------
 
-    /// Damage and busy-arm modifiers for the flight model (also replicated to the owner).
+    /// Damage and busy-arm modifiers for the flight model, for this tick's flight.
     pub fn flight_mods(&self, i: usize) -> FlightMods {
+        self.flight_mods_at(i, self.tick)
+    }
+
+    /// Damage and busy-arm modifiers for the flight of tick `t`, from the arms as they stand. The
+    /// owner's client gets the damage's (rounded to the 8 bits it gets them in, so its prediction
+    /// flies the same suit) and works out the arms' tick by tick (`crate::arms`).
+    pub fn flight_mods_at(&self, i: usize, t: u32) -> FlightMods {
         let s = &self.suits;
-        let hp = &s.part_hp[i];
+        let busy =
+            s.melee[i].phase != MeleePhase::Idle || t.saturating_sub(s.last_fired[i]) < BUSY_FIRE_TICKS;
+        let idle = self.idle_ambac(i);
+        let dead = |p: Part| s.part_hp[i][p as usize] <= 0.0;
+        let mut thrust: f32 = if dead(Part::Backpack) { 0.35 } else { 1.0 };
+        if dead(Part::Legs) {
+            thrust *= 0.9;
+        }
+        // Parts shot off lighten the suit; the hold and what's in hand weigh it down.
+        let fid = s.frame[i];
+        let held = self.held_chunk(i).map_or(0, |k| self.chunks.desc[k].mass_kg);
+        let extra_mass_kg = mass_without(fid, s.gone_mask(i)) as i32 - mass_without(fid, 0) as i32
+            + (s.cargo_total_kg(i) + held) as i32;
+        FlightMods {
+            ambac: if busy { busy_ambac(idle) } else { idle },
+            thrust: wire(thrust),
+            g_immune: s.pilot[i] == PilotKind::MobileDoll,
+            lunge: s.melee[i].striking() && weapon(s.melee[i].weapon).melee.is_some_and(|m| m.lunge),
+            extra_mass_kg,
+        }
+    }
+
+    /// AMBAC's authority with the arms idle: what the limbs shot off leave of it.
+    pub fn idle_ambac(&self, i: usize) -> f32 {
+        let hp = &self.suits.part_hp[i];
         let dead = |p: Part| hp[p as usize] <= 0.0;
         let mut ambac: f32 = 1.0;
         if dead(Part::ArmL) {
@@ -538,28 +570,7 @@ impl Sim {
         if dead(Part::Legs) {
             ambac -= 0.3;
         }
-        let busy = s.melee[i].phase != MeleePhase::Idle || self.tick.saturating_sub(s.last_fired[i]) < 6;
-        if busy {
-            ambac *= 0.6;
-        }
-        let mut thrust: f32 = if dead(Part::Backpack) { 0.35 } else { 1.0 };
-        if dead(Part::Legs) {
-            thrust *= 0.9;
-        }
-        // Rounded to the 8 bits the owner's client gets them in, so its prediction flies the same suit.
-        let wire = |x: f32| dequantize_unit(quantize_unit(x, 8), 8);
-        // Parts shot off lighten the suit; the hold and what's in hand weigh it down.
-        let fid = s.frame[i];
-        let held = self.held_chunk(i).map_or(0, |k| self.chunks.desc[k].mass_kg);
-        let extra_mass_kg = mass_without(fid, s.gone_mask(i)) as i32 - mass_without(fid, 0) as i32
-            + (s.cargo_total_kg(i) + held) as i32;
-        FlightMods {
-            ambac: wire(ambac.max(0.1)),
-            thrust: wire(thrust),
-            g_immune: s.pilot[i] == PilotKind::MobileDoll,
-            lunge: s.melee[i].striking() && weapon(s.melee[i].weapon).melee.is_some_and(|m| m.lunge),
-            extra_mass_kg,
-        }
+        wire(ambac.max(0.1))
     }
 
     fn flight_step(&mut self, _t: u32) {
@@ -733,6 +744,11 @@ impl Sim {
     pub fn state_hash(&self) -> u64 {
         crate::hash::state_hash(self)
     }
+}
+
+/// A flight modifier rounded to the 8 bits its owner's client gets it in.
+fn wire(x: f32) -> f32 {
+    dequantize_unit(quantize_unit(x, 8), 8)
 }
 
 /// A Mobile Doll's target that's asleep is no target.

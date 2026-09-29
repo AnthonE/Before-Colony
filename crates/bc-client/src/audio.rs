@@ -260,7 +260,8 @@ fn cockpit_in(game: &GameClient, in_world: bool) -> CockpitIn {
         g_strain: view.map_or(o.g_strain, |v| v.g_strain).clamp(0.0, 1.0),
         blackout: view.is_some_and(|v| v.blackout),
         charge: o.charge,
-        saber: o.flags & own_flags::SABER_ACTIVE != 0,
+        // As predicted: the blade lights as the swing starts.
+        saber: view.is_some_and(|v| v.strike.is_some()),
         lock_progress,
         locked: o.flags & own_flags::LOCK_ACQUIRED != 0,
         warned: o.flags & own_flags::MISSILE_LOCK != 0,

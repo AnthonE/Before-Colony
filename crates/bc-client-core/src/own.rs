@@ -43,6 +43,9 @@ pub struct OwnView {
     pub g_limited: bool,
     /// The form drawn.
     pub frame: FrameId,
+    /// The mount of a strike in its windup or stroke, as predicted: the swing starts with the
+    /// lunge.
+    pub strike: Option<u8>,
     pub alive: bool,
     /// The drawn suit jumped (spawn, respawn, a relocation): a camera should cut, not chase.
     pub cut: bool,
@@ -112,6 +115,7 @@ impl Drawn {
             throttle: src.throttle,
             g_limited: src.g_limited,
             frame: src.frame,
+            strike: src.strike,
             alive,
             cut,
         };
@@ -138,6 +142,7 @@ mod tests {
             throttle: Vec3::ZERO,
             g_limited: false,
             frame: FrameId::Leo,
+            strike: None,
         }
     }
 

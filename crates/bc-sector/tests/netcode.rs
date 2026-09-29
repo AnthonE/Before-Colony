@@ -4,12 +4,12 @@
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
 use std::cmp::Reverse;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashMap};
 use std::sync::atomic::Ordering;
 
 use bc_client_core::chase::{self, ChaseRig, Follow};
 use bc_client_core::{ClientConfig, ClientCore, InputContext, OwnView};
-use bc_proto::buttons::{BOOST, FLIGHT_ASSIST, MODE};
+use bc_proto::buttons::{BOOST, FIRE_SECONDARY, FLIGHT_ASSIST, MELEE, MODE};
 use bc_proto::control::ControlMsg;
 use bc_proto::{Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, Part, PilotKind};
 use bc_sector::{Comeback, Control, InputMsg, SectorConfig, SlotState, read_packet};
@@ -88,6 +88,9 @@ struct Outcome {
     /// Own-suit prediction error at each snapshot after warm-up, with the time it arrived.
     errors: Vec<f32>,
     error_times: Vec<f64>,
+    /// At each snapshot after warm-up, how far from the server's suit the prediction first had it
+    /// (flying the tick ahead of any news of it): what the drawn suit is corrected by.
+    ahead: Vec<f32>,
     /// The same, at the snapshots whose own suit was touching a rock.
     touching: Vec<f32>,
     max_len: usize,
@@ -200,6 +203,17 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
     let mut buf = [0u8; 2048];
     let mut errors = Vec::new();
     let mut error_times = Vec::new();
+    let mut ahead = Vec::new();
+    // Each tick's position as the prediction first flew it.
+    let mut first: HashMap<u32, Vec3> = HashMap::new();
+    let note = |client: &ClientCore, first: &mut HashMap<u32, Vec3>| {
+        let newest = client.predict.tick;
+        for tick in newest.saturating_sub(40)..=newest {
+            if let Some(s) = client.predict.sample(tick) {
+                first.entry(tick).or_insert(s.pos);
+            }
+        }
+    };
     let mut touching = Vec::new();
     let mut welcomed = false;
     let mut max_len = 0;
@@ -255,6 +269,9 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
             errors.push(client.stats.prediction_error);
             error_times.push(t);
             let own = client.world.own.expect("own state");
+            if let Some(p) = first.get(&client.world.tick) {
+                ahead.push(p.distance(own.pos));
+            }
             if client.predict.field.rocks().iter().any(|r| r.touches(own.pos, SUIT_CLEARANCE + 1.0)) {
                 touching.push(client.stats.prediction_error);
             }
@@ -268,6 +285,7 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
                 for p in client.poll_inputs(t, brain) {
                     up.send(t, p);
                 }
+                note(&client, &mut first);
                 client.frame(t, (1.0 / hz) as f32);
                 if let Some(v) = client.own_view().filter(|_| t > 5.0) {
                     drawn.push((t, *v, client.predict.state.pos));
@@ -276,6 +294,7 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
                 for p in client.poll_inputs(t, brain) {
                     up.send(t, p);
                 }
+                note(&client, &mut first);
             }
             if t >= next_timer {
                 next_timer += 0.008;
@@ -285,13 +304,14 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
             for p in client.poll_inputs(t, brain) {
                 up.send(t, p);
             }
+            note(&client, &mut first);
             client.frame(t, input_period as f32);
         }
         t += 0.001;
     }
     let missing_late =
         shared.metrics.inputs_missing.load(Ordering::Relaxed) - missing_at_20s.expect("ran past 20 s");
-    Outcome { client, errors, error_times, touching, max_len, missing_late, other_form, drawn }
+    Outcome { client, errors, error_times, ahead, touching, max_len, missing_late, other_form, drawn }
 }
 
 fn percentile(errors: &mut [f32], q: f64) -> f32 {
@@ -491,4 +511,39 @@ fn prediction_holds_up_through_changes_of_form() {
     assert!(other_form > 200, "it was a bird for {other_form} snapshots");
     assert!(p99 < 0.01, "prediction error p99 {p99:.3} m");
     assert!(client.world.own.expect("own state").alive);
+}
+
+/// Weaves, strikes every two seconds (the blade's lunge drives the suit on) and fires the secondary
+/// in bursts between, so the arms are busy much of the time and the turns slow with them.
+fn swordsman(ctx: &InputContext) -> InputCmd {
+    let mut cmd = weaving_pilot(ctx);
+    let k = ctx.tick % 60;
+    if k < 2 {
+        cmd.buttons |= MELEE;
+    }
+    if (20..35).contains(&k) {
+        cmd.buttons |= FIRE_SECONDARY;
+    }
+    cmd
+}
+
+/// Strikes lunge, and busy arms slow AMBAC's turning. The client rolls its suit's arms on tick by
+/// tick as the server does, so even the ticks it flies ahead of any news (what's drawn) are where
+/// the server's suit turns out to be, over the bad link.
+#[test]
+fn prediction_holds_up_through_strikes_and_fire() {
+    for frame in [FrameId::Leo, FrameId::Deathscythe, FrameId::Sandrock] {
+        let Outcome { client, mut errors, mut ahead, .. } = run_as(frame, 1.0 / 60.0, &mut swordsman, &[]);
+        let p99 = percentile(&mut errors, 0.99);
+        let ahead_p99 = percentile(&mut ahead, 0.99);
+        println!(
+            "{frame:?} striking and firing: prediction error p99 {p99:.4} m; flown ahead p50 {:.4} m  p99 {ahead_p99:.4} m  max {:.4} m",
+            percentile(&mut ahead, 0.5),
+            ahead[ahead.len() - 1],
+        );
+        assert!(ahead.len() > 800, "snapshots measured: {}", ahead.len());
+        assert!(p99 < 0.01, "{frame:?}: prediction error p99 {p99:.3} m");
+        assert!(ahead_p99 < 0.01, "{frame:?}: flown ahead, p99 {ahead_p99:.3} m off");
+        assert!(client.world.own.expect("own state").alive);
+    }
 }
