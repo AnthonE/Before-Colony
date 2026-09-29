@@ -78,6 +78,7 @@ fn run(
             faction: Faction::Colonies,
             max_datagram: MAX_DATAGRAM as u16,
             comeback: Comeback::default(),
+            launch: None,
         })
         .unwrap();
     let mut up = Link::new(11, 0.05, 0.02, 0.05);

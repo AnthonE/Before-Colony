@@ -47,6 +47,11 @@ pub struct SimConfig {
     pub field_rocks: u16,
     /// The most suits asleep at once (offline pilots'); past it the longest asleep is cleared.
     pub max_sleepers: usize,
+    /// Survival rules: pilots fly the suits they built (`Sim::launch`), bring them home
+    /// (`Sim::dock`) and don't respawn; the dock neither buys nor refuels (the hangar does); the
+    /// colony pays bounties for Mobile Dolls. Off: arcade rules (any frame, free respawns, sell
+    /// and refuel at the dock).
+    pub survival: bool,
 }
 
 impl Default for SimConfig {
@@ -65,6 +70,7 @@ impl Default for SimConfig {
             field_seed: crate::field::Field::DEFAULT_SEED,
             field_rocks: crate::field::Field::DEFAULT_ROCKS,
             max_sleepers: 256,
+            survival: false,
         }
     }
 }

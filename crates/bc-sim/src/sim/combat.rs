@@ -9,7 +9,7 @@ use super::{DamageEvent, Sim};
 use crate::chunks::Motion;
 use crate::collide::{segment_near_point, sweep_capsules};
 use crate::config::{DT, MAX_REWIND_TICKS, secs};
-use crate::content::salvage::{DETACH_PUSH, DETACH_SPEED, mass_without, part_mass_kg, wreck_ttl};
+use crate::content::salvage::{DETACH_PUSH, DETACH_SPEED, bounty, mass_without, part_mass_kg, wreck_ttl};
 use crate::content::{Mount, Replication, WeaponClass, WeaponSpec, frame, weapon};
 use crate::math::{angle_between, clamp_to_cone, hash01, normalize_or};
 use crate::suits::{SPECIAL_SLOTS, WeaponState};
@@ -91,7 +91,9 @@ impl Sim {
         }
         let mut ws: WeaponState = *self.suits.weapon_state(i, slot);
         ws.cooldown = ws.cooldown.saturating_sub(1);
-        let arm_ok = self.suits.arm_free(i, mount.arm) && !self.arm_blocked(i, mount.arm);
+        let arm_ok = self.suits.fitted(i, slot)
+            && self.suits.arm_free(i, mount.arm)
+            && !self.arm_blocked(i, mount.arm);
         let ready = ws.cooldown == 0
             && (heedless || !self.suits.overheated[i])
             && self.suits.energy[i] >= w.energy
@@ -365,6 +367,14 @@ impl Sim {
                 self.suits.stats[j].deaths += 1;
                 if shooter < self.suits.cap && shooter != j {
                     self.suits.stats[shooter].kills += 1;
+                    // Survival: the colony pays for every Mobile Doll a pilot brings down.
+                    if self.cfg.survival
+                        && self.suits.pilot[j] == PilotKind::MobileDoll
+                        && self.suits.pilot[shooter] != PilotKind::MobileDoll
+                    {
+                        let c = &mut self.suits.credits[shooter];
+                        *c = c.saturating_add(bounty(self.suits.frame[j]));
+                    }
                 }
                 let hulk = self.wreck(j, t);
                 self.spill(j, t, true);

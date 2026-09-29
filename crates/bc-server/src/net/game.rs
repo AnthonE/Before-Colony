@@ -513,7 +513,7 @@ async fn seated(
     };
     let max_datagram = conn.max_datagram_size().unwrap_or(MAX_DATAGRAM).min(MAX_DATAGRAM) as u16;
     let epoch = game.sector.slots[slot as usize].epoch();
-    let mut join = Control::Join { slot, pilot, frame, faction, max_datagram, comeback };
+    let mut join = Control::Join { slot, pilot, frame, faction, max_datagram, comeback, launch: None };
     while let Err(back) = game.sector.control.push(join) {
         join = back;
         tokio::time::sleep(Duration::from_millis(2)).await;

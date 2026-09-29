@@ -68,6 +68,8 @@ pub(crate) struct ClientState {
     pub obj_known: usize,
     /// Per rock: the version the client has acked (0: as generated).
     pub rock_acked: Box<[u8]>,
+    /// Its suit's loss has been reported (survival rules).
+    pub lost: bool,
 }
 
 impl ClientState {
@@ -94,6 +96,7 @@ impl ClientState {
             obj_acked: boxed(MAX_CHUNKS, NONE),
             obj_known: 0,
             rock_acked: boxed(rocks, 0u8),
+            lost: false,
         }
     }
 
@@ -119,6 +122,7 @@ impl ClientState {
         self.obj_acked.fill(NONE);
         self.obj_known = 0;
         self.rock_acked.fill(0);
+        self.lost = false;
     }
 
     pub fn queue_leave(&mut self, slot: u16, tick: u32) {

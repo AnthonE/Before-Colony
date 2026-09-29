@@ -1,7 +1,9 @@
 //! Control stream: one reliable, ordered, bidirectional WebTransport stream per session.
 //!
 //! Frame: `[u16 LE payload length][u8 tag][payload]`. Frames are small and rare (handshake, sign-in,
-//! roster changes, respawn requests), so they're byte-aligned for simplicity.
+//! roster changes, respawn requests), so they're byte-aligned for simplicity. A [`HANGAR`] frame
+//! carries a hangar message instead (JSON, defined by `bc_econ::wire`, up to [`MAX_HANGAR_FRAME`]):
+//! read the stream with [`Frame::decode`].
 
 use crate::auth::{Address, Domain, MAX_DOMAIN, NONCE_BYTES, Signature, TOKEN_BYTES};
 use crate::types::{Faction, FrameId, PilotKind};
@@ -11,6 +13,10 @@ use crate::{DecodeError, PROTOCOL_VERSION};
 pub const MAX_NAME: usize = 16;
 /// Largest control frame (prefix included).
 pub const MAX_FRAME: usize = 256;
+/// The tag of a hangar frame, whose payload is a hangar message (JSON).
+pub const HANGAR: u8 = 11;
+/// Largest hangar frame (prefix and tag included).
+pub const MAX_HANGAR_FRAME: usize = 2 + u16::MAX as usize;
 
 /// [`ControlMsg::Hello`] flags.
 pub mod hello_flags {
@@ -26,6 +32,9 @@ pub mod welcome_flags {
     pub const SIGNED_IN: u8 = 1 << 0;
     /// The pilot woke in the suit they left.
     pub const WOKE: u8 = 1 << 1;
+    /// Survival rules: the pilot starts in their hangar bay, flies the suit they built, and
+    /// launches and docks it with hangar messages. (Otherwise, arcade rules: in a suit at once.)
+    pub const SURVIVAL: u8 = 1 << 2;
 }
 
 /// [`ControlMsg::Roster`] flags.
@@ -364,6 +373,48 @@ impl ControlMsg {
     }
 }
 
+/// One frame off the control stream.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Frame<'a> {
+    Msg(ControlMsg),
+    /// A hangar message's payload (JSON).
+    Hangar(&'a [u8]),
+}
+
+impl<'a> Frame<'a> {
+    /// Decodes the first complete frame in `buf`. `Ok(None)` means more bytes are needed; on
+    /// success returns the frame and how many bytes it took.
+    pub fn decode(buf: &'a [u8]) -> Result<Option<(Frame<'a>, usize)>, DecodeError> {
+        if buf.len() < 3 {
+            return Ok(None);
+        }
+        if buf[2] != HANGAR {
+            return ControlMsg::decode(buf).map(|m| m.map(|(msg, used)| (Frame::Msg(msg), used)));
+        }
+        let payload = u16::from_le_bytes([buf[0], buf[1]]) as usize;
+        if payload == 0 {
+            return Err(DecodeError::Invalid);
+        }
+        if buf.len() < payload + 2 {
+            return Ok(None);
+        }
+        Ok(Some((Frame::Hangar(&buf[3..payload + 2]), payload + 2)))
+    }
+}
+
+/// Writes a hangar frame carrying `payload` into `out`. Its length, or `None` if it's too long for
+/// a frame or for `out`.
+pub fn encode_hangar(payload: &[u8], out: &mut [u8]) -> Option<usize> {
+    let len = payload.len() + 1;
+    if len > u16::MAX as usize || out.len() < len + 2 {
+        return None;
+    }
+    out[..2].copy_from_slice(&(len as u16).to_le_bytes());
+    out[2] = HANGAR;
+    out[3..len + 2].copy_from_slice(payload);
+    Some(len + 2)
+}
+
 struct Cursor<'a> {
     buf: &'a mut [u8],
     pos: usize,
@@ -558,6 +609,41 @@ mod tests {
             .unwrap();
         // Tag, version, pilot, frame, faction, an empty name, flags.
         assert_eq!(n, 2 + 1 + 2 + 3 + 1 + 1);
+    }
+
+    #[test]
+    fn hangar_frames_ride_between_control_frames() {
+        let json = br#"{"t":"craft","item":"mat.steel","batches":3}"#;
+        let big = [b'x'; 40_000];
+        let mut stream = [0u8; 50_000];
+        let mut len = ControlMsg::Bye { reason: bye::LEAVE }.encode(&mut stream).unwrap();
+        len += encode_hangar(json, &mut stream[len..]).unwrap();
+        len += encode_hangar(&big, &mut stream[len..]).unwrap();
+        len += ControlMsg::Respawn { frame: FrameId::Leo }.encode(&mut stream[len..]).unwrap();
+        let mut pos = 0;
+        let mut frames = 0;
+        while let Some((frame, used)) = Frame::decode(&stream[pos..len]).unwrap() {
+            match (frames, frame) {
+                (0, Frame::Msg(ControlMsg::Bye { .. })) | (3, Frame::Msg(ControlMsg::Respawn { .. })) => {}
+                (1, Frame::Hangar(p)) => assert_eq!(p, json),
+                (2, Frame::Hangar(p)) => assert_eq!(p, big),
+                other => panic!("{other:?}"),
+            }
+            frames += 1;
+            pos += used;
+            // Every cut short of the whole frame asks for more.
+            if frames == 2 {
+                for cut in 0..used {
+                    assert_eq!(Frame::decode(&stream[pos - used..pos - used + cut]).unwrap(), None);
+                }
+            }
+        }
+        assert_eq!((frames, pos), (4, len));
+        // Too long for a frame, or for the buffer.
+        assert_eq!(encode_hangar(&[0u8; 70_000], &mut [0u8; 80_000]), None);
+        assert_eq!(encode_hangar(json, &mut [0u8; 8]), None);
+        // An empty payload is no frame.
+        assert_eq!(Frame::decode(&[0, 0, HANGAR]), Err(DecodeError::Invalid));
     }
 
     #[test]

@@ -310,6 +310,7 @@ proptest! {
             for _ in 0..64 { if !matches!(r.next_missile(), Ok(Some(_))) { break } }
         }
         let _ = bc_proto::control::ControlMsg::decode(&bytes);
+        let _ = bc_proto::control::Frame::decode(&bytes);
     }
 }
 

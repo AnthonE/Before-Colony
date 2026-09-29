@@ -55,6 +55,8 @@ pub enum MeleePhase {
 pub use crate::content::SPECIAL_MOUNT;
 /// Weapon slots from here on are the special mounts' (see [`Suits::weapon_state`]).
 pub const SPECIAL_SLOTS: usize = 3;
+/// Every loadout slot's weapon fitted.
+pub const ALL_MOUNTS: u8 = 0b111;
 /// Marks a hit by a twin weapon's second blade in [`MeleeState::hits`].
 pub const SECOND_BLADE: u16 = 1 << 15;
 
@@ -179,6 +181,9 @@ pub struct Suits {
     pub held: Box<[(u16, u8, bool)]>,
     /// The hold's contents, kg per ore kind.
     pub cargo_kg: Box<[[u16; CARGO_KINDS]]>,
+    /// A bit per loadout slot whose weapon is fitted (all of them, but for a suit its pilot
+    /// built without them: `sim::launch`).
+    pub mounts: Box<[u8]>,
     /// Credits earned this session (kept across respawns).
     pub credits: Box<[u32]>,
     /// Offline: the pilot sleeps in the cockpit (`sim::sleep`).
@@ -227,6 +232,7 @@ impl Suits {
             hulk: boxed(cap, (NO_CHUNK, 0u8)),
             held: boxed(cap, (NO_CHUNK, 0u8, false)),
             cargo_kg: boxed(cap, [0u16; CARGO_KINDS]),
+            mounts: boxed(cap, ALL_MOUNTS),
             credits: boxed(cap, 0u32),
             sleeping: BitSet::new(cap),
             slept_at: boxed(cap, 0u32),
@@ -291,6 +297,7 @@ impl Suits {
         self.hulk[idx] = (NO_CHUNK, 0);
         self.held[idx] = (NO_CHUNK, 0, false);
         self.cargo_kg[idx] = [0; CARGO_KINDS];
+        self.mounts[idx] = ALL_MOUNTS;
     }
 
     /// Frees a slot entirely (disconnect, or a Mobile Doll wreck clearing).
@@ -354,6 +361,13 @@ impl Suits {
             _ => 0,
         };
         Form { frame: self.frame[idx], timer }
+    }
+
+    /// Whether weapon `slot` (a loadout slot, or a special mount, from [`SPECIAL_SLOTS`]) is fitted.
+    /// A special's own mounts come with the suit.
+    #[inline]
+    pub fn fitted(&self, idx: usize, slot: usize) -> bool {
+        slot >= SPECIAL_SLOTS || self.mounts[idx] & (1 << slot) != 0
     }
 
     /// Whether a mount's weapons can be used: its arm (or other part) is there, and not holding

@@ -9,7 +9,7 @@ use bc_sim::{Sim, SimConfig, SuitId};
 
 use crate::clients::ClientState;
 use crate::metrics::Metrics;
-use crate::queues::{Control, Outcome, SectorEnds, SectorShared, SlotState};
+use crate::queues::{Control, Outcome, Report, SectorEnds, SectorShared, SlotState};
 use crate::replicate::{Work, build_snapshot};
 
 /// Ticks between tactical pictures per ZERO pilot when an external oracle is attached (≈3.75 Hz).
@@ -84,6 +84,9 @@ impl Sector {
         self.apply_inputs();
         self.sim.step();
         self.pass_on_fates();
+        if self.cfg.sim.survival {
+            self.watch_losses();
+        }
         if self.cfg.oracle {
             self.send_pictures();
         }
@@ -94,7 +97,7 @@ impl Sector {
     fn drain_control(&mut self) {
         while let Some(msg) = self.shared.control.pop() {
             match msg {
-                Control::Join { slot, pilot, frame, faction, max_datagram, comeback } => {
+                Control::Join { slot, pilot, frame, faction, max_datagram, comeback, launch } => {
                     let s = slot as usize;
                     if s >= self.clients.len() {
                         continue;
@@ -107,9 +110,16 @@ impl Sector {
                         .sleeper
                         .map(|(idx, generation)| SuitId(Handle { idx, generation }))
                         .filter(|&id| self.sim.wake(id));
-                    let seated = match woke {
-                        Some(id) => Some((id, Outcome::Woke)),
-                        None => {
+                    let seated = match (woke, launch) {
+                        (Some(id), _) => Some((id, Outcome::Woke)),
+                        // Survival: the suit its pilot built, out of the docking hub.
+                        (None, Some(loadout)) => {
+                            self.sim.ensure_free_suits(1);
+                            self.sim.launch(frame, faction, pilot, &loadout).map(|id| (id, Outcome::Fresh))
+                        }
+                        // Survival: nothing to wake and nothing launched, no suit.
+                        (None, None) if self.cfg.sim.survival => None,
+                        (None, None) => {
                             // A full sector makes room: the longest asleep go first.
                             self.sim.ensure_free_suits(1);
                             let id = self.sim.join(frame, faction, pilot);
@@ -149,6 +159,24 @@ impl Sector {
                     let outcome = if asleep.is_some() { Outcome::Asleep } else { Outcome::Released };
                     self.shared.slots[s].publish(SlotState::Free, asleep, outcome);
                 }
+                Control::Dock { slot } => {
+                    let s = slot as usize;
+                    let Some(c) = self.clients.get_mut(s) else { continue };
+                    let home = if c.active { self.sim.dock(c.suit) } else { None };
+                    let report = match home {
+                        Some(home) => {
+                            c.active = false;
+                            while self.ends.inputs[s].pop().is_ok() {}
+                            Metrics::set(&self.shared.metrics.pilots[s].suit, 0);
+                            self.shared.slots[s].publish(SlotState::Free, None, Outcome::Docked);
+                            Report::Home(home)
+                        }
+                        None => Report::DockRefused,
+                    };
+                    if self.ends.reports[s].push(report).is_err() {
+                        Metrics::add(&self.shared.metrics.notes_dropped, 1);
+                    }
+                }
                 Control::Respawn { slot, frame } => {
                     if let Some(c) = self.clients.get(slot as usize).filter(|c| c.active) {
                         self.sim.set_respawn_frame(c.suit, frame);
@@ -177,6 +205,28 @@ impl Sector {
                 client.on_ack(p.ack_snapshot);
                 client.time_echo_ms = p.client_time_ms;
                 client.time_echo_recv_us = msg.recv_us;
+            }
+        }
+    }
+
+    /// Survival: a pilot whose suit is destroyed hears of it at once (with the bounties it had
+    /// earned), and is let go when its wreck is cleared (the pilot is back in the hangar).
+    fn watch_losses(&mut self) {
+        for (s, c) in self.clients.iter_mut().enumerate() {
+            if !c.active {
+                continue;
+            }
+            if !self.sim.suits.valid(c.suit) {
+                c.active = false;
+                while self.ends.inputs[s].pop().is_ok() {}
+                Metrics::set(&self.shared.metrics.pilots[s].suit, 0);
+                self.shared.slots[s].publish(SlotState::Free, None, Outcome::Lost);
+            } else if !c.lost && !self.sim.is_alive(c.suit.idx()) {
+                c.lost = true;
+                let bounty = self.sim.suits.credits[c.suit.idx()];
+                if self.ends.reports[s].push(Report::Lost { bounty }).is_err() {
+                    Metrics::add(&self.shared.metrics.notes_dropped, 1);
+                }
             }
         }
     }

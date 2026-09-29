@@ -184,6 +184,7 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
             faction: Faction::Colonies,
             max_datagram: MAX_DATAGRAM as u16,
             comeback: Comeback::default(),
+            launch: None,
         })
         .unwrap();
     let mut up = Link::new(1, link.base, link.jitter, link.loss);

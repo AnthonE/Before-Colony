@@ -9,7 +9,8 @@
 //!     own state, ZERO info, events and changed rocks repeated until acked, the missiles in flight
 //!     nearby, then as many prioritised entities and salvage objects as fit in [`MAX_DATAGRAM`]
 //!     bytes.
-//! - Control stream (reliable, length-prefixed frames): [`control`] handshake and roster messages.
+//! - Control stream (reliable, length-prefixed frames): [`control`] handshake and roster messages,
+//!   and hangar frames (JSON, `bc_econ::wire`) that this crate only frames.
 //!
 //! Bit layouts are documented in `docs/PROTOCOL.md`.
 
@@ -36,7 +37,7 @@ pub use snapshot::{EntityState, OwnState, SnapshotHeader, SnapshotReader, Snapsh
 pub use types::{Faction, FrameId, Part, PilotKind, WeaponKind};
 
 /// Bumped on any incompatible wire change; the handshake rejects mismatches.
-pub const PROTOCOL_VERSION: u16 = 7;
+pub const PROTOCOL_VERSION: u16 = 8;
 
 /// Upper bound for every datagram we send. 1200 bytes is the smallest UDP payload QUIC guarantees;
 /// the QUIC short header, AEAD tag and HTTP/3 datagram prefix need ~30–40 of those.

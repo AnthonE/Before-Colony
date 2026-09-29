@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use bc_proto::{Faction, FrameId, InputPacket, PilotKind};
 use bc_sim::SuitId;
-use bc_sim::sim::SleeperFate;
+use bc_sim::sim::{Homecoming, Loadout, SleeperFate};
 use bc_sim::zero::{TacticalAdvice, TacticalPicture};
 use crossbeam_queue::ArrayQueue;
 
@@ -33,7 +33,9 @@ pub struct Comeback {
 /// Network → sector commands.
 #[derive(Clone, Copy, Debug)]
 pub enum Control {
-    /// Seats a pilot: in the suit they left asleep, if it's still there, else a new one.
+    /// Seats a pilot: in the suit they left asleep, if it's still there; else, under survival
+    /// rules, in the suit they `launch` (none: they aren't seated); under arcade rules, a new
+    /// `frame` at their faction's spawn.
     Join {
         slot: u16,
         pilot: PilotKind,
@@ -41,6 +43,11 @@ pub enum Control {
         faction: Faction,
         max_datagram: u16,
         comeback: Comeback,
+        launch: Option<Loadout>,
+    },
+    /// Takes the pilot's suit into the hangar, if it's at rest in the dock (survival rules).
+    Dock {
+        slot: u16,
     },
     /// The pilot left: the suit goes too.
     Leave {
@@ -78,6 +85,22 @@ pub enum Outcome {
     Asleep = 2,
     /// Left, and the suit is gone.
     Released = 3,
+    /// The suit docked: the pilot is in the hangar ([`Report::Home`] says with what).
+    Docked = 4,
+    /// The suit was destroyed and its wreck is gone: the pilot is back in the hangar.
+    Lost = 5,
+}
+
+/// What the sector tells a slot's session about its suit (survival rules), through the slot's
+/// report ring.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Report {
+    /// The suit docked, bringing this home.
+    Home(Homecoming),
+    /// It asked to dock, but it isn't at rest in the dock.
+    DockRefused,
+    /// The suit was destroyed; the bounties it had earned.
+    Lost { bounty: u32 },
 }
 
 /// Per-slot status visible to the network side.
@@ -129,6 +152,8 @@ impl SlotStatus {
             1 => Outcome::Woke,
             2 => Outcome::Asleep,
             3 => Outcome::Released,
+            4 => Outcome::Docked,
+            5 => Outcome::Lost,
             _ => Outcome::Fresh,
         }
     }
@@ -145,10 +170,11 @@ impl SlotStatus {
 }
 
 /// The right to use one client slot: owned by exactly one session task at a time. Carries the
-/// producer end of that slot's input ring.
+/// producer end of that slot's input ring, and the consumer end of its report ring.
 pub struct SlotLease {
     pub slot: u16,
     pub input: rtrb::Producer<InputMsg>,
+    pub reports: rtrb::Consumer<Report>,
 }
 
 /// Shared between the sector thread and the network side.
@@ -192,6 +218,7 @@ pub struct OracleEnds {
 /// Sector-side ends (moved into the sector thread).
 pub(crate) struct SectorEnds {
     pub inputs: Vec<rtrb::Consumer<InputMsg>>,
+    pub reports: Vec<rtrb::Producer<Report>>,
     pub outputs: Vec<rtrb::Producer<u8>>,
     pub pictures: rtrb::Producer<TacticalPicture>,
     pub advice: rtrb::Consumer<TacticalAdvice>,
@@ -203,6 +230,8 @@ pub const OUT_RING_BYTES: usize = 16 * 1024;
 pub const IN_RING: usize = 64;
 /// Sleepers' fates waiting for the server.
 pub const NOTES: usize = 256;
+/// Reports waiting for a slot's session.
+pub const REPORTS: usize = 8;
 
 /// Allocates every queue and the simulation. Returns the sector itself plus the ends the network
 /// side needs. This is the only place the runtime allocates.
@@ -212,12 +241,15 @@ pub fn build(cfg: SectorConfig) -> (crate::Sector, Arc<SectorShared>, EgressEnds
     let control = ArrayQueue::new(n * 4 + 16);
     let leases = ArrayQueue::new(n);
     let mut inputs = Vec::new();
+    let mut reports = Vec::new();
     let mut outputs = Vec::new();
     let mut egress = Vec::new();
     for slot in 0..n {
         let (p, c) = rtrb::RingBuffer::<InputMsg>::new(IN_RING);
         inputs.push(c);
-        let _ = leases.push(SlotLease { slot: slot as u16, input: p });
+        let (rp, rc) = rtrb::RingBuffer::<Report>::new(REPORTS);
+        reports.push(rp);
+        let _ = leases.push(SlotLease { slot: slot as u16, input: p, reports: rc });
         let (op, oc) = rtrb::RingBuffer::<u8>::new(OUT_RING_BYTES);
         outputs.push(op);
         egress.push(oc);
@@ -237,7 +269,7 @@ pub fn build(cfg: SectorConfig) -> (crate::Sector, Arc<SectorShared>, EgressEnds
         field_rocks: cfg.sim.field_rocks,
         started: std::time::Instant::now(),
     });
-    let ends = SectorEnds { inputs, outputs, pictures: pic_p, advice: adv_c };
+    let ends = SectorEnds { inputs, reports, outputs, pictures: pic_p, advice: adv_c };
     let sector = crate::Sector::new(cfg, shared.clone(), ends);
     (sector, shared, EgressEnds { rings: egress }, OracleEnds { pictures: pic_c, advice: adv_p })
 }

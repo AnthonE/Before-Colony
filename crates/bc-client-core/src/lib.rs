@@ -25,7 +25,7 @@ pub mod world;
 
 use bc_proto::auth::{Address, Domain, NONCE_BYTES, Signature, TOKEN_BYTES};
 use bc_proto::buttons::FIRE_PRIMARY;
-use bc_proto::control::{ControlMsg, RejectReason, hello_flags, roster_flags, welcome_flags};
+use bc_proto::control::{ControlMsg, Frame, RejectReason, hello_flags, roster_flags, welcome_flags};
 use bc_proto::snapshot::{own_flags, zero_mode};
 use bc_proto::{Faction, FrameId, InputCmd, InputPacket, PROTOCOL_VERSION, PilotKind, SnapshotReader};
 use bc_sim::DT;
@@ -230,10 +230,13 @@ impl ClientCore {
     pub fn on_control(&mut self, bytes: &[u8]) {
         self.ctrl_buf.extend_from_slice(bytes);
         loop {
-            match ControlMsg::decode(&self.ctrl_buf) {
-                Ok(Some((msg, used))) => {
+            match Frame::decode(&self.ctrl_buf) {
+                Ok(Some((frame, used))) => {
+                    match frame {
+                        Frame::Msg(msg) => self.handle_control(msg),
+                        Frame::Hangar(_) => {}
+                    }
                     self.ctrl_buf.drain(..used);
-                    self.handle_control(msg);
                 }
                 Ok(None) => break,
                 Err(_) => {
