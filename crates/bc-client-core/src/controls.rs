@@ -5,6 +5,8 @@
 /// A group of bindings, in the order they're shown.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Group {
+    /// In the hangar bay, on foot.
+    OnFoot,
     Flight,
     Weapons,
     Salvage,
@@ -12,10 +14,11 @@ pub enum Group {
 }
 
 impl Group {
-    pub const ALL: [Group; 4] = [Group::Flight, Group::Weapons, Group::Salvage, Group::System];
+    pub const ALL: [Group; 5] = [Group::OnFoot, Group::Flight, Group::Weapons, Group::Salvage, Group::System];
 
     pub fn title(self) -> &'static str {
         match self {
+            Group::OnFoot => "IN THE HANGAR",
             Group::Flight => "FLIGHT",
             Group::Weapons => "COMBAT",
             Group::Salvage => "SALVAGE",
@@ -39,6 +42,11 @@ const fn b(group: Group, keys: &'static str, action: &'static str) -> Binding {
 
 /// Every binding the pilot has.
 pub const BINDINGS: &[Binding] = &[
+    b(Group::OnFoot, "Mouse", "Look (click the game to take control)"),
+    b(Group::OnFoot, "W / A / S / D", "Walk"),
+    b(Group::OnFoot, "Shift", "Run"),
+    b(Group::OnFoot, "Space", "Jump"),
+    b(Group::OnFoot, "E", "Use: the fabricator, the stores, the exchange, the suit's console, the cockpit"),
     b(Group::Flight, "Mouse", "Aim (click the game to take control)"),
     b(Group::Flight, "W / S", "Thrust forward / back"),
     b(Group::Flight, "A / D", "Thrust left / right"),
@@ -58,14 +66,18 @@ pub const BINDINGS: &[Binding] = &[
     b(Group::Salvage, "B", "Stow what's in hand"),
     b(Group::Salvage, "T", "Throw"),
     b(Group::Salvage, "J", "Jettison the hold"),
-    b(Group::Salvage, "Dock", "Sell at the colony's dock (its -X end, below 25 m/s)"),
+    b(
+        Group::Salvage,
+        "Enter",
+        "Dock: at rest inside the dock's ring of lights (the colony's -X end), into your bay",
+    ),
     b(Group::System, "Esc", "Menu"),
     b(Group::System, "F1", "This list"),
     b(Group::System, "F10", "Graphics quality"),
     b(
         Group::System,
         "1 - 6",
-        "When destroyed: relaunch as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock, Shenlong",
+        "Arcade rules, when destroyed: relaunch as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock, Shenlong",
     ),
 ];
 

@@ -8,6 +8,7 @@
 //! [`ClientCore::on_control`] and datagrams to [`ClientCore::on_datagram`], and sends whatever
 //! [`ClientCore::poll_inputs`] returns.
 
+pub mod bay;
 pub mod brains;
 pub mod chase;
 pub mod clock;
@@ -22,6 +23,7 @@ pub mod predict;
 pub mod salvage;
 pub mod session;
 pub mod settings;
+pub mod walker;
 pub mod world;
 
 use bc_proto::auth::{Address, Domain, NONCE_BYTES, Signature, TOKEN_BYTES};

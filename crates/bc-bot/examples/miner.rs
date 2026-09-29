@@ -1,5 +1,6 @@
-//! An AI agent that mines: it cuts rocks apart with its saber, stows the ore and sells it at the
-//! dock.
+//! An AI agent that mines: it cuts rocks apart with its saber, stows the ore and takes it to the
+//! dock. Under arcade rules the dock buys it; under survival rules the agent docks, sells the ore
+//! on the Colony Exchange, tops its tank up and goes back out.
 //!
 //!   cargo run -p bc-bot --release --example miner -- --server http://127.0.0.1:8080 --name Miner-01
 
@@ -44,6 +45,12 @@ async fn main() -> anyhow::Result<()> {
     let mut last_report = started;
     loop {
         bot.step(&mut |ctx| brain.decide(ctx)).await?;
+        if bot.survival() && brain.ready_to_dock(bot.world()) {
+            match bring_it_home(&mut bot).await {
+                Ok(()) => brain.unloaded(),
+                Err(e) => tracing::warn!("docking: {e:#}"),
+            }
+        }
         // Survival: back in the hangar without a suit (it was lost). A guest's bay is stocked
         // afresh each visit, so the agent comes back for another.
         if bot.survival() && bot.place() == Some(bc_econ::wire::Place::Hangar) && !bot.sortie().await? {
@@ -83,4 +90,33 @@ async fn connect(cfg: &BotConfig) -> BotClient {
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
+}
+
+/// Docks, sells the haul, buys propellant for the next trip, and launches again.
+async fn bring_it_home(bot: &mut BotClient) -> anyhow::Result<()> {
+    use bc_econ::item::{Item, Material, Ore};
+    bot.dock().await?;
+    if let Some((_, text)) = bot.core.hangar.sorties.last() {
+        tracing::info!("home: {text}");
+    }
+    for ore in Ore::ALL {
+        if let Some(text) = bot.sell_all(Item::Ore(ore)).await? {
+            tracing::info!("{text}");
+        }
+    }
+    let propellant = Item::Material(Material::Propellant);
+    let have = bot
+        .core
+        .hangar
+        .view
+        .as_ref()
+        .map_or(0, |v| v.stock.iter().find(|(i, _)| *i == propellant).map_or(0, |(_, q)| *q));
+    if have < 2_000
+        && let Err(e) = bot.buy(propellant, 2_000 - have, 2_000).await
+    {
+        tracing::warn!("no propellant: {e:#}");
+    }
+    tracing::info!(credits = bot.core.hangar.credits(), "back out");
+    bot.sortie().await?;
+    Ok(())
 }

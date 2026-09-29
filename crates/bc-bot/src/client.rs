@@ -234,6 +234,42 @@ impl BotClient {
         Ok(suit)
     }
 
+    /// Asks the hangar for something and waits for its answer: what it said, or why it refused.
+    pub async fn ask(&mut self, req: &Request) -> anyhow::Result<String> {
+        let n = self.core.hangar.notes.len();
+        self.request(req).await?;
+        let end = Instant::now() + Duration::from_secs(5);
+        while self.core.hangar.notes.len() <= n {
+            if Instant::now() > end {
+                bail!("no answer to {req:?}");
+            }
+            self.step(&mut |_| InputCmd::default()).await?;
+        }
+        let (text, ok) = self.core.hangar.notes[n].clone();
+        if ok { Ok(text) } else { bail!("{text}") }
+    }
+
+    /// Survival rules: sells everything the stores hold of `item` to whoever pays best right now.
+    pub async fn sell_all(&mut self, item: bc_econ::Item) -> anyhow::Result<Option<String>> {
+        let have = self
+            .core
+            .hangar
+            .view
+            .as_ref()
+            .map_or(0, |v| v.stock.iter().find(|(i, _)| *i == item).map_or(0, |(_, q)| *q));
+        if have == 0 {
+            return Ok(None);
+        }
+        let req = Request::Order { item, side: bc_econ::Side::Sell, price: 1, qty: have, rest: false };
+        self.ask(&req).await.map(Some)
+    }
+
+    /// Survival rules: buys up to `qty` of `item` at no more than `price` (credits a tonne, or a
+    /// piece), whatever fills now.
+    pub async fn buy(&mut self, item: bc_econ::Item, qty: u64, price: u64) -> anyhow::Result<String> {
+        self.ask(&Request::Order { item, side: bc_econ::Side::Buy, price, qty, rest: false }).await
+    }
+
     /// Survival rules: takes the suit into the bay (it has to be at rest in the dock). Returns
     /// once the pilot is back in the hangar.
     pub async fn dock(&mut self) -> anyhow::Result<()> {
