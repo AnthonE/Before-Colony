@@ -408,7 +408,7 @@ impl ClientCore {
             cmd.shot_seq = self.shot_seq;
             let q = cmd.quantized();
             self.inputs.push(q);
-            self.predict.advance(&q);
+            self.predict.advance(&q, &self.inputs);
             self.last_cmd = q;
             self.next_cmd_tick += 1;
         }

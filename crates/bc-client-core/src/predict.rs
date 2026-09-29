@@ -18,9 +18,14 @@ use bc_sim::flight::{FlightMods, FlightState, step_in};
 use bc_sim::transform::{Form, transform_step, transform_thrust};
 use glam::Vec3;
 
+use crate::inputs::InputHistory;
+
 const HISTORY: usize = 128;
 /// Jumps larger than this are server relocations (respawns), not prediction error, m.
 const TELEPORT: f32 = 25.0;
+/// The longest gap in the commands sent (a stall) that the prediction flies through on the
+/// server's stand-ins as it goes; a longer one waits for the next snapshot.
+const MAX_GAP: u32 = 32;
 
 #[derive(Clone, Debug)]
 pub struct Predictor {
@@ -111,18 +116,28 @@ impl Predictor {
         }
     }
 
-    /// Steps the prediction with a newly generated command.
-    pub fn advance(&mut self, cmd: &InputCmd) {
-        if !self.initialized {
-            return;
+    /// Steps the prediction with a newly generated command (already in `history`). Ticks skipped
+    /// since the last one (the client stalled) are flown on the server's stand-ins first.
+    pub fn advance(&mut self, cmd: &InputCmd, history: &InputHistory) {
+        if !self.initialized || cmd.tick <= self.tick {
+            return; // for a tick the server has already been heard from
+        }
+        if cmd.tick - self.tick <= MAX_GAP {
+            let last = history.last_at_or_before(self.tick).unwrap_or_default();
+            for t in self.tick + 1..cmd.tick {
+                let stand_in = InputCmd::stand_in(&last, t, t - last.tick);
+                Self::step(&self.field, &mut self.state, &mut self.form, &self.mods, &stand_in);
+                self.predicted[t as usize % HISTORY] = (t, self.state.pos);
+            }
         }
         Self::step(&self.field, &mut self.state, &mut self.form, &self.mods, cmd);
         self.tick = cmd.tick;
         self.predicted[cmd.tick as usize % HISTORY] = (cmd.tick, self.state.pos);
     }
 
-    /// Reconciles with the server's state at `server_tick`, replaying commands after it.
-    pub fn reconcile(&mut self, server_tick: u32, own: &OwnState, history: &crate::inputs::InputHistory) {
+    /// Reconciles with the server's state at `server_tick`, replaying commands after it. A tick the
+    /// client sent nothing for is flown as the server flies it: on a stand-in.
+    pub fn reconcile(&mut self, server_tick: u32, own: &OwnState, history: &InputHistory) {
         // The server's form at that tick: a transformable frame's special timer is its change.
         let mut form = Form { frame: own.frame, timer: 0 };
         if matches!(frame(own.frame).special, bc_sim::content::SpecialKind::Transform { .. }) {
@@ -149,20 +164,21 @@ impl Predictor {
         let before = self.state.pos;
         let had = self.initialized;
         let mut s = flight_from(own);
-        let mut t = server_tick;
         let target = self.tick.max(server_tick);
-        while t < target {
-            t += 1;
-            match history.get(t) {
+        let mut last = history.last_at_or_before(server_tick).unwrap_or_default();
+        for t in server_tick + 1..=target {
+            let cmd = match history.get(t) {
                 Some(cmd) => {
-                    Self::step(&self.field, &mut s, &mut self.form, &self.mods, &cmd);
-                    self.predicted[t as usize % HISTORY] = (t, s.pos);
+                    last = cmd;
+                    cmd
                 }
-                None => break,
-            }
+                None => InputCmd::stand_in(&last, t, t - last.tick),
+            };
+            Self::step(&self.field, &mut s, &mut self.form, &self.mods, &cmd);
+            self.predicted[t as usize % HISTORY] = (t, s.pos);
         }
         self.state = s;
-        self.tick = t;
+        self.tick = target;
         self.initialized = true;
         if had {
             let jump = before - self.state.pos;
@@ -179,5 +195,63 @@ impl Predictor {
     /// Position to render the own suit at.
     pub fn render_pos(&self) -> Vec3 {
         self.state.pos + self.error
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bc_proto::buttons::FLIGHT_ASSIST;
+
+    fn own_at(pos: Vec3) -> OwnState {
+        OwnState { alive: true, frame: FrameId::Leo, pos, propellant: 2_400.0, ..OwnState::default() }
+    }
+
+    fn cmd(tick: u32, forward: i8) -> InputCmd {
+        let aim = Vec3::new(0.3, 0.1, 1.0).normalize();
+        InputCmd { tick, aim, thrust: [0, 0, forward], buttons: FLIGHT_ASSIST, ..InputCmd::default() }
+            .quantized()
+    }
+
+    /// The server's flight from `own` at tick 100 through `to`, on stand-ins where `history` has no
+    /// command.
+    fn server_flies(own: &OwnState, history: &InputHistory, to: u32) -> FlightState {
+        let (mut s, mods, field) = (flight_from(own), Predictor::mods_from(own), Field::empty());
+        let mut form = Form { frame: own.frame, timer: 0 };
+        let mut last = InputCmd::default();
+        for t in 101..=to {
+            let c = match history.get(t) {
+                Some(c) => {
+                    last = c;
+                    c
+                }
+                None => InputCmd::stand_in(&last, t, t - last.tick),
+            };
+            Predictor::step(&field, &mut s, &mut form, &mods, &c);
+        }
+        s
+    }
+
+    #[test]
+    fn prediction_flies_the_servers_stand_ins_through_a_gap() {
+        let own = own_at(Vec3::new(0.0, 2_000.0, 0.0));
+        let mut history = InputHistory::default();
+        let mut p = Predictor::default();
+        p.reconcile(100, &own, &history);
+        // Commands for 101..=105, nothing for 106..=118 (a stall: repeats, then hands-off), then
+        // 119..=121.
+        for t in (101..=105).chain(119..=121) {
+            let c = cmd(t, if t < 104 { 127 } else { -60 });
+            history.push(c);
+            p.advance(&c, &history);
+        }
+        let server = server_flies(&own, &history, 121);
+        assert_eq!(p.tick, 121);
+        assert_eq!(p.state, server, "advancing across the gap");
+        // A snapshot from before the gap: the replay flies through it rather than stopping there.
+        p.reconcile(100, &own, &history);
+        assert_eq!(p.tick, 121);
+        assert_eq!(p.state, server, "replaying across the gap");
+        assert_eq!(p.predicted[121 % HISTORY], (121, server.pos));
     }
 }

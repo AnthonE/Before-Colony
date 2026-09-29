@@ -84,8 +84,9 @@ fn rock_rammer() -> impl FnMut(&InputContext) -> InputCmd {
 
 struct Outcome {
     client: ClientCore,
-    /// Own-suit prediction error at each snapshot after warm-up.
+    /// Own-suit prediction error at each snapshot after warm-up, with the time it arrived.
     errors: Vec<f32>,
+    error_times: Vec<f64>,
     /// The same, at the snapshots whose own suit was touching a rock.
     touching: Vec<f32>,
     max_len: usize,
@@ -95,16 +96,33 @@ struct Outcome {
     other_form: usize,
 }
 
+/// What a run flies and how the client behaves.
+struct Scenario<'a> {
+    frame: FrameId,
+    /// Seconds between input polls (a browser frame, or a slow agent's think cycle).
+    input_period: f64,
+    /// Parts the client's suit is missing from the start.
+    lost: &'a [Part],
+    /// No polls in this window (s): a background tab, or a long hitch. Datagrams still arrive.
+    stall: Option<(f64, f64)>,
+}
+
+impl Default for Scenario<'_> {
+    fn default() -> Self {
+        Self { frame: FrameId::Leo, input_period: 1.0 / 60.0, lost: &[], stall: None }
+    }
+}
+
 /// A real sector and a real client over a 100 ms-RTT, ±20 ms-jitter, 5 %-loss link for 40 s. The
 /// client takes datagrams as they arrive but only sends inputs every `input_period` seconds (a
 /// browser frame, or a slow agent's think cycle).
 fn run(input_period: f64, brain: &mut dyn FnMut(&InputContext) -> InputCmd) -> Outcome {
-    run_with(input_period, brain, &[])
+    run_scenario(&Scenario { input_period, ..Scenario::default() }, brain)
 }
 
 /// [`run`], with the client's suit missing `lost` parts from the start.
 fn run_with(input_period: f64, brain: &mut dyn FnMut(&InputContext) -> InputCmd, lost: &[Part]) -> Outcome {
-    run_as(FrameId::Leo, input_period, brain, lost)
+    run_scenario(&Scenario { input_period, lost, ..Scenario::default() }, brain)
 }
 
 /// [`run_with`], flying `frame`.
@@ -114,6 +132,11 @@ fn run_as(
     brain: &mut dyn FnMut(&InputContext) -> InputCmd,
     lost: &[Part],
 ) -> Outcome {
+    run_scenario(&Scenario { frame, input_period, lost, ..Scenario::default() }, brain)
+}
+
+fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd) -> Outcome {
+    let Scenario { frame, input_period, lost, stall } = *sc;
     let cfg = SectorConfig {
         sim: SimConfig { target_dolls: 0, seed: 1, ..SimConfig::default() },
         max_clients: 4,
@@ -146,6 +169,7 @@ fn run_as(
     let mut next_input = 0.0;
     let mut buf = [0u8; 2048];
     let mut errors = Vec::new();
+    let mut error_times = Vec::new();
     let mut touching = Vec::new();
     let mut welcomed = false;
     let mut max_len = 0;
@@ -199,13 +223,16 @@ fn run_as(
         }
         if client.stats.snapshots > before && t > 5.0 {
             errors.push(client.stats.prediction_error);
+            error_times.push(t);
             let own = client.world.own.expect("own state");
             if client.predict.field.rocks().iter().any(|r| r.touches(own.pos, SUIT_CLEARANCE + 1.0)) {
                 touching.push(client.stats.prediction_error);
             }
             other_form += usize::from(own.frame != frame);
         }
-        if t >= next_input {
+        if stall.is_some_and(|(from, to)| (from..to).contains(&t)) {
+            next_input = t + input_period;
+        } else if t >= next_input {
             next_input += input_period;
             for p in client.poll_inputs(t, brain) {
                 up.send(t, p);
@@ -216,7 +243,7 @@ fn run_as(
     }
     let missing_late =
         shared.metrics.inputs_missing.load(Ordering::Relaxed) - missing_at_20s.expect("ran past 20 s");
-    Outcome { client, errors, touching, max_len, missing_late, other_form }
+    Outcome { client, errors, error_times, touching, max_len, missing_late, other_form }
 }
 
 fn percentile(errors: &mut [f32], q: f64) -> f32 {
@@ -266,6 +293,25 @@ fn bursty_inputs_keep_an_accurate_clock() {
     // The commands still arrive before the server needs them, despite the bursts and the loss.
     assert!(missing_late <= 6, "{missing_late} of 600 ticks had no command");
     assert!(client.world.own.expect("own state").alive);
+}
+
+/// A client that stops sending for 1.5 s (a background tab) comes back on the timeline: the server
+/// flew its suit on stand-ins through the silence (the last command again, then hands-off), and
+/// the prediction flies the same through the gap in what it sent instead of stopping there.
+#[test]
+fn a_stall_keeps_prediction_on_the_timeline() {
+    let sc = Scenario { stall: Some((20.0, 21.5)), ..Scenario::default() };
+    let Outcome { client, mut errors, error_times, .. } = run_scenario(&sc, &mut weaving_pilot);
+    // Once the first commands after the stall have reached the server (a round trip, plus the
+    // lead's worth of commands it had already flown on stand-ins).
+    let mut after: Vec<f32> =
+        errors.iter().zip(&error_times).filter(|(_, t)| **t > 22.0).map(|(e, _)| *e).collect();
+    let (all, since) = (percentile(&mut errors, 0.99), percentile(&mut after, 0.99));
+    println!("stalled 1.5 s: prediction error p99 {all:.4} m overall, {since:.4} m after it");
+    // As exact as a damaged suit's or a change of form's: nothing the prediction can't foresee.
+    assert!(since < 0.01, "prediction error after the stall p99 {since:.4} m");
+    assert!(all < 0.25, "prediction error p99 {all:.3} m");
+    assert_eq!(client.predict.tick, client.inputs.newest, "the prediction is at the newest command");
 }
 
 /// The client predicts its suit against the same rocks as the server: ramming one and sliding round
