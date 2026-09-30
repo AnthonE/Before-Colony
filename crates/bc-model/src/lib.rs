@@ -52,7 +52,16 @@ pub struct Sockets {
     /// Missile launch points (the pods' hatches), each on the bone it rides: shoulder pods, leg
     /// pods.
     pub missiles: Vec<(Bone, Vec3)>,
+    /// The cockpit view's eye, on [`Bone::Head`]: the head's main camera, whose picture is what the
+    /// cockpit's monitors show (Neo-Bird's looks out over its nose from the canopy).
+    pub eye: Vec3,
+    /// The eye is inside the head, so the cockpit view doesn't draw the head.
+    pub eye_in_head: bool,
 }
+
+/// Where a humanoid head's main camera sits, in the suit's frame at rest: between the eyes, at
+/// the face.
+const HEAD_EYE: Vec3 = Vec3::new(0.0, 6.75, 1.1);
 
 /// One frame at one level of detail.
 #[derive(Clone, Debug)]
@@ -86,7 +95,9 @@ pub struct Designer {
 
 impl Designer {
     fn new(lod: Lod) -> Self {
-        Self { bones: (0..BONES).map(|_| Builder::default()).collect(), lod, sockets: Sockets::default() }
+        let sockets =
+            Sockets { eye: Self::local(Bone::Head, HEAD_EYE), eye_in_head: true, ..Sockets::default() };
+        Self { bones: (0..BONES).map(|_| Builder::default()).collect(), lod, sockets }
     }
 
     /// Shapes on `bone`.
@@ -239,6 +250,94 @@ mod tests {
         }
     }
 
+    /// The closest point to `p` on triangle `abc` (Ericson, Real-Time Collision Detection 5.1.5).
+    fn closest_on_triangle(p: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
+        let (ab, ac, ap) = (b - a, c - a, p - a);
+        let (d1, d2) = (ab.dot(ap), ac.dot(ap));
+        if d1 <= 0.0 && d2 <= 0.0 {
+            return a;
+        }
+        let bp = p - b;
+        let (d3, d4) = (ab.dot(bp), ac.dot(bp));
+        if d3 >= 0.0 && d4 <= d3 {
+            return b;
+        }
+        let vc = d1 * d4 - d3 * d2;
+        if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+            return a + ab * (d1 / (d1 - d3));
+        }
+        let cp = p - c;
+        let (d5, d6) = (ab.dot(cp), ac.dot(cp));
+        if d6 >= 0.0 && d5 <= d6 {
+            return c;
+        }
+        let vb = d5 * d2 - d1 * d6;
+        if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+            return a + ac * (d2 / (d2 - d6));
+        }
+        let va = d3 * d6 - d5 * d4;
+        if va <= 0.0 && d4 - d3 >= 0.0 && d5 - d6 >= 0.0 {
+            return b + (c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
+        }
+        let k = 1.0 / (va + vb + vc);
+        a + ab * (vb * k) + ac * (vc * k)
+    }
+
+    /// Whether the ray from `o` along `d` meets triangle `abc` (Möller-Trumbore).
+    fn ray_meets(o: Vec3, d: Vec3, a: Vec3, b: Vec3, c: Vec3) -> bool {
+        let (e1, e2) = (b - a, c - a);
+        let p = d.cross(e2);
+        let det = e1.dot(p);
+        if det.abs() < 1e-9 {
+            return false;
+        }
+        let s = o - a;
+        let u = s.dot(p) / det;
+        let q = s.cross(e1);
+        let v = d.dot(q) / det;
+        (0.0..=1.0).contains(&u) && v >= 0.0 && u + v <= 1.0 && e2.dot(q) / det > 0.0
+    }
+
+    /// The cockpit view sees out: from each frame's eye, nothing the view still draws (all of the
+    /// suit but a head the eye is inside) comes within the camera's near plane, or stands in the way
+    /// of the aim's central cone. The camera looks along the aim, which the suit turns to face.
+    #[test]
+    fn the_cockpit_sees_out() {
+        // The camera's near plane (m), and the cone round the crosshair that must be clear.
+        const NEAR: f32 = 0.5;
+        let cone = 15f32.to_radians();
+        let mut rays = vec![Vec3::Z];
+        for ring in 1..=3 {
+            let tilt = cone * ring as f32 / 3.0;
+            for k in 0..16 {
+                let spin = std::f32::consts::TAU * k as f32 / 16.0;
+                rays.push(Vec3::new(tilt.sin() * spin.cos(), tilt.sin() * spin.sin(), tilt.cos()));
+            }
+        }
+        for frame in FrameId::ALL {
+            let m = build(frame, Lod::Near);
+            let eye = m.sockets.eye + Bone::Head.def().joint;
+            for bone in rig::ALL {
+                if bone == Bone::Head && m.sockets.eye_in_head {
+                    continue;
+                }
+                let Some(mesh) = &m.bones[bone.index()] else { continue };
+                let at = |k: u32| Vec3::from(mesh.positions[k as usize]) + bone.def().joint;
+                for tri in mesh.indices.as_chunks::<3>().0 {
+                    let (a, b, c) = (at(tri[0]), at(tri[1]), at(tri[2]));
+                    if (b - a).cross(c - a).length_squared() < 1e-10 {
+                        continue;
+                    }
+                    let near = eye.distance(closest_on_triangle(eye, a, b, c));
+                    assert!(near >= NEAR, "{frame:?} {bone:?} is {near:.2} m from the cockpit's eye");
+                    if let Some(d) = rays.iter().find(|&&d| ray_meets(eye, d, a, b, c)) {
+                        panic!("{frame:?} {bone:?} blocks the cockpit's view along {d}");
+                    }
+                }
+            }
+        }
+    }
+
     /// Every frame is drawn as itself: no two build the same mesh.
     #[test]
     fn every_frame_has_its_own_design() {
@@ -301,6 +400,7 @@ mod tests {
             }
             // The client turns the left arm from the saber's rest direction, whatever the kit.
             assert!(unit(s.saber.1), "{frame:?} saber direction");
+            assert!(!s.eye_in_head || on(Bone::Head, s.eye), "{frame:?} cockpit eye is off its head");
             assert!(on(Bone::Weapon, s.muzzle), "{frame:?} muzzle");
             for &(p, d) in &s.nozzles {
                 assert!(on(Bone::Backpack, p) && unit(d), "{frame:?} nozzle at {p}");

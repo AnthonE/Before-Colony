@@ -65,6 +65,21 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   await page.keyboard.press("F1");
   await expect(page.locator("#help")).toBeHidden();
 
+  // Tab: into the cockpit and back out to the chase camera. The view is a setting, kept for the
+  // next sortie. (A suit shot down meanwhile is watched from behind whatever the setting.)
+  const saved = () => page.evaluate(() => localStorage.getItem("bc.settings") ?? "");
+  const camera = async () => {
+    const s = await bc(page);
+    return `${s.camera_view}/${s.alive ? s.camera : s.camera_view}`;
+  };
+  await page.focus("#bc");
+  await page.keyboard.press("Tab");
+  await expect.poll(camera).toBe("cockpit/cockpit");
+  await expect.poll(saved, { timeout: 10_000 }).toContain("camera = cockpit");
+  await page.keyboard.press("Tab");
+  await expect.poll(camera).toBe("chase/chase");
+  await expect.poll(saved, { timeout: 10_000 }).toContain("camera = chase");
+
   // Esc: the menu; Resume closes it.
   await page.keyboard.press("Escape");
   await expect(page.locator("#pause")).toBeVisible();
@@ -111,18 +126,21 @@ test("settings persist across a reload", async ({ page }, info) => {
   });
   await page.locator('#settings input[data-key="invert_y"]').check();
   await page.locator('#settings select[data-key="gfx"]').selectOption("medium");
+  await page.locator('#settings select[data-key="camera"]').selectOption("cockpit");
   await page.locator('#settings [data-cmd="settings-close"]').click();
   await expect(page.locator("#settings")).toBeHidden();
   await expect.poll(saved, { timeout: 10_000 }).toContain("fov = 88");
   const text = await saved();
   expect(text).toContain("invert_y = true");
   expect(text).toContain("gfx = medium");
+  expect(text).toContain("camera = cockpit");
   expect(text).toContain("future_knob = 42");
 
   await page.reload();
   await expect(page.locator("#title")).toBeVisible({ timeout: 60_000 });
   await page.locator("#title-settings").click();
   await expect(page.locator('#settings input[data-key="fov"]')).toHaveValue("88");
+  await expect(page.locator('#settings select[data-key="camera"]')).toHaveValue("cockpit");
   await expect.poll(async () => (await bc(page)).gfx_tier).toBe("medium");
   await page.keyboard.press("Escape");
   await expect(page.locator("#settings")).toBeHidden();

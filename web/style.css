@@ -169,7 +169,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .settings { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px 28px; }
 .setting-rows { display: flex; flex-direction: column; gap: 8px; }
 .setting { display: grid; grid-template-columns: 1fr 150px 52px; align-items: center; gap: 10px; font-size: 12px; cursor: pointer; }
-.setting .value { color: var(--amber); text-align: right; font-size: 12px; }
+.setting .value { color: var(--amber); text-align: right; font-size: 12px; white-space: pre-line; }
 .setting input[type="range"] { width: 150px; accent-color: var(--cyan); }
 .setting input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--cyan); justify-self: start; }
 .setting select {

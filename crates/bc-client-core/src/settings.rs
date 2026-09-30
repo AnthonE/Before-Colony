@@ -34,6 +34,37 @@ impl GfxChoice {
     }
 }
 
+/// Where the camera sits in flight: behind the suit, or in its cockpit (first person, through the
+/// head's cameras).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CameraView {
+    #[default]
+    Chase,
+    Cockpit,
+}
+
+impl CameraView {
+    pub const ALL: [CameraView; 2] = [CameraView::Chase, CameraView::Cockpit];
+    pub const NAMES: [&'static str; 2] = ["chase", "cockpit"];
+
+    pub fn name(self) -> &'static str {
+        Self::NAMES[self as usize]
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        let s = s.trim().to_ascii_lowercase();
+        Self::NAMES.iter().position(|n| *n == s).map(|i| Self::ALL[i])
+    }
+
+    /// The other view (the key that switches them).
+    pub fn toggled(self) -> Self {
+        match self {
+            CameraView::Chase => CameraView::Cockpit,
+            CameraView::Cockpit => CameraView::Chase,
+        }
+    }
+}
+
 /// How a knob is edited.
 #[derive(Clone, Copy, Debug)]
 pub enum Kind {
@@ -70,6 +101,7 @@ const fn toggle(key: &'static str, label: &'static str, group: &'static str) -> 
 pub const KNOBS: &[Knob] = &[
     range("sensitivity", "Mouse sensitivity", "CONTROLS", 0.25, 3.0, 0.05),
     toggle("invert_y", "Invert mouse Y", "CONTROLS"),
+    Knob { key: "camera", label: "Flight camera", group: "VIEW", kind: Kind::Choice(&CameraView::NAMES) },
     range("fov", "Field of view", "VIEW", 60.0, 100.0, 1.0),
     range("shake", "Camera shake and screen effects", "VIEW", 0.0, 1.0, 0.05),
     toggle("hints", "Hints for new pilots", "VIEW"),
@@ -90,6 +122,8 @@ pub struct Settings {
     /// A multiplier on the base mouse sensitivity.
     pub sensitivity: f32,
     pub invert_y: bool,
+    /// Where the camera sits in flight.
+    pub camera: CameraView,
     /// Field of view, degrees.
     pub fov: f32,
     /// How much of the camera shake, kicks and warps to keep, 0..1.
@@ -113,6 +147,7 @@ impl Default for Settings {
             frame: String::new(),
             sensitivity: 1.0,
             invert_y: false,
+            camera: CameraView::Chase,
             fov: 70.0,
             shake: 1.0,
             gfx: GfxChoice::Auto,
@@ -168,6 +203,7 @@ impl Settings {
             "frame" => self.frame.clone(),
             "sensitivity" => self.sensitivity.to_string(),
             "invert_y" => self.invert_y.to_string(),
+            "camera" => self.camera.name().to_string(),
             "fov" => self.fov.to_string(),
             "shake" => self.shake.to_string(),
             "gfx" => self.gfx.name().to_string(),
@@ -212,6 +248,10 @@ impl Settings {
                 let Some(g) = GfxChoice::parse(value) else { return false };
                 self.gfx = g;
             }
+            "camera" => {
+                let Some(c) = CameraView::parse(value) else { return false };
+                self.camera = c;
+            }
             "hints_seen" => {
                 let Ok(n) = value.trim().parse() else { return false };
                 self.hints_seen = n;
@@ -222,11 +262,12 @@ impl Settings {
     }
 
     /// Every key, in the order the file lists them.
-    const KEYS: [&'static str; 13] = [
+    const KEYS: [&'static str; 14] = [
         "name",
         "frame",
         "sensitivity",
         "invert_y",
+        "camera",
         "fov",
         "shake",
         "gfx",
@@ -309,6 +350,7 @@ mod tests {
             frame: "wingzero".into(),
             sensitivity: 1.35,
             invert_y: true,
+            camera: CameraView::Cockpit,
             fov: 85.0,
             shake: 0.25,
             gfx: GfxChoice::Medium,
@@ -361,7 +403,23 @@ mod tests {
         assert!(!s.set("gfx", "potato"));
         assert!(s.set("gfx", "ULTRA"));
         assert_eq!(s.gfx, GfxChoice::Ultra);
+        assert!(!s.set("camera", "helicopter"));
+        assert_eq!(s.camera, CameraView::Chase);
+        assert!(s.set("camera", " Cockpit "));
+        assert_eq!(s.camera, CameraView::Cockpit);
         assert!(!s.set("nope", "1"));
+    }
+
+    #[test]
+    fn the_camera_toggles_between_its_two_views() {
+        for c in CameraView::ALL {
+            assert_ne!(c.toggled(), c);
+            assert_eq!(c.toggled().toggled(), c);
+            assert_eq!(CameraView::parse(c.name()), Some(c));
+        }
+        // An older build's file has no camera line: the chase camera, as before.
+        let loaded = parse("version = 1\nfov = 80\n", Settings::default());
+        assert_eq!(loaded.settings.camera, CameraView::Chase);
     }
 
     #[test]

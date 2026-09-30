@@ -13,15 +13,19 @@
 //! | LMB / RMB / F | primary / secondary / melee |
 //! | H | the frame's special: Neo-Bird or the Hyper Jammer on/off, or held: Full Open, Cross Crusher |
 //! | V | flight assist on/off · Z ZERO System on/off |
+//! | Tab, mouse wheel | the chase camera or the cockpit (wheel in: the cockpit, out: chasing) |
 //! | 1–6 | respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock, Shenlong (when destroyed) |
+//!
+//! Down is C alone: Left Ctrl held with W would be Ctrl+W, which closes the browser's tab.
 
+use bc_client_core::settings::CameraView;
 use bc_proto::buttons::{
     BOOST, BRAKE, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, JETTISON, MELEE, MODE, RCS_SHARP,
     SPECIAL, STOW, THROW, ZERO,
 };
 use bc_proto::{InputCmd, NO_SLOT};
 use bc_sim::content::{PLAYABLE_ORDER, frame};
-use bevy::input::mouse::AccumulatedMouseMotion;
+use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::prelude::*;
 
 use crate::net::GameClient;
@@ -31,6 +35,11 @@ use crate::session::Pilot;
 use crate::settings::SettingsRes;
 
 const SENSITIVITY: f32 = 0.0022;
+
+/// Switches the flight camera between the chase camera and the cockpit.
+pub const CAMERA_KEY: KeyCode = KeyCode::Tab;
+/// A trackpad's scroll this small (pixels in a frame) is a brush, not a turn of the wheel.
+const SCROLL_PX: f32 = 8.0;
 
 /// Where the pilot is aiming (world direction; the camera looks along it).
 #[derive(Resource)]
@@ -105,6 +114,40 @@ impl Controls {
     }
 }
 
+/// [`CAMERA_KEY`] switches between the chase camera and the cockpit; the mouse wheel goes in (the
+/// cockpit) or out (chasing). Kept in the settings, so the next sortie starts in the same view.
+pub fn toggle_camera(
+    keys: Res<ButtonInput<KeyCode>>,
+    scroll: Res<AccumulatedMouseScroll>,
+    pointer: Res<PointerRes>,
+    mut ui: ResMut<Ui>,
+    mut settings: ResMut<SettingsRes>,
+    indoors: Res<crate::hangar::Indoors>,
+) {
+    if !ui.playing() || ui.panel_open() || indoors.0 {
+        return;
+    }
+    let now = settings.0.camera;
+    let wheel = match scroll.unit {
+        MouseScrollUnit::Line => scroll.delta.y,
+        MouseScrollUnit::Pixel if scroll.delta.y.abs() >= SCROLL_PX => scroll.delta.y,
+        MouseScrollUnit::Pixel => 0.0,
+    };
+    let view = if keys.just_pressed(CAMERA_KEY) {
+        now.toggled()
+    } else if pointer.0.flying() && wheel > 0.0 {
+        CameraView::Cockpit
+    } else if pointer.0.flying() && wheel < 0.0 {
+        CameraView::Chase
+    } else {
+        now
+    };
+    if view != now {
+        settings.0.camera = view;
+        ui.toast(format!("CAMERA: {}", view.name().to_uppercase()));
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn read_input(
     keys: Res<ButtonInput<KeyCode>>,
@@ -113,7 +156,7 @@ pub fn read_input(
     mut controls: ResMut<Controls>,
     mut aim: ResMut<Aim>,
     pointer: Res<PointerRes>,
-    ui: Res<Ui>,
+    mut ui: ResMut<Ui>,
     settings: Res<SettingsRes>,
     indoors: Res<crate::hangar::Indoors>,
     mut pilot: ResMut<Pilot>,
@@ -169,8 +212,7 @@ pub fn read_input(
     let axis = |pos: KeyCode, neg: KeyCode| (keys.pressed(pos) as i32 - keys.pressed(neg) as i32) as f32;
     controls.thrust = Vec3::new(
         axis(KeyCode::KeyD, KeyCode::KeyA),
-        (keys.pressed(KeyCode::Space) as i32
-            - (keys.pressed(KeyCode::KeyC) || keys.pressed(KeyCode::ControlLeft)) as i32) as f32,
+        axis(KeyCode::Space, KeyCode::KeyC),
         axis(KeyCode::KeyW, KeyCode::KeyS),
     );
     controls.roll = axis(KeyCode::KeyE, KeyCode::KeyQ);
@@ -223,6 +265,13 @@ pub fn read_input(
     controls.buttons = b;
     if keys.just_pressed(KeyCode::KeyV) {
         controls.flight_assist = !controls.flight_assist;
+        // Loud: V is the camera key in other games, and flying unassisted by mistake is no small
+        // thing.
+        ui.toast(if controls.flight_assist {
+            "FLIGHT ASSIST ON"
+        } else {
+            "FLIGHT ASSIST OFF: fully Newtonian (V)"
+        });
     }
     if keys.just_pressed(KeyCode::KeyZ) {
         controls.zero = !controls.zero;

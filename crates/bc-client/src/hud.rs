@@ -1,6 +1,12 @@
 //! Cockpit HUD: flight and armour readouts, weapons and the frame's special, missile lock, target
 //! brackets and markers on missiles tracking you, kill feed, the ZERO System's recommendations and
 //! alerts. Plain ASCII so the embedded font renders everything.
+//!
+//! The crosshair is the aim. A weapon bears only within its mount's reach of the body's axis (a
+//! hand's 50°, Neo-Bird's nose 2°), so while the suit is still turning onto the aim the crosshair
+//! dims and a second marker shows where the primary weapon would fire. The velocity vector shows
+//! which way the suit is drifting (`-o-`), or, moving backwards, the way it's drifting from
+//! (`-x-`).
 
 use bc_client_core::FeedLine;
 use bc_client_core::world::ObjectMotion;
@@ -15,7 +21,7 @@ use bc_sim::content::{
 use bc_sim::zero::hypotheses::Maneuver;
 use bevy::prelude::*;
 
-use crate::camera::MainCamera;
+use crate::camera::{Chase, MainCamera};
 use crate::input::{Aim, Controls};
 use crate::net::{GameClient, now_s};
 use crate::suits_vis::pilot_tag;
@@ -51,6 +57,16 @@ pub struct GrabMarker;
 /// The screen marker on the colony's dock (while there is something to sell).
 #[derive(Component)]
 pub struct DockMarker;
+/// Where the primary weapon would fire, while the aim is beyond its reach.
+#[derive(Component)]
+pub struct BoreMarker;
+/// The velocity vector.
+#[derive(Component)]
+pub struct VelocityMarker;
+
+/// The velocity vector's colour, and the speed below which it isn't shown (m/s).
+const PALE_GREEN: Color = Color::srgb(0.75, 1.0, 0.85);
+const DRIFT: f32 = 2.0;
 
 /// Credits seen last frame, and the last sale: (amount, when).
 #[derive(Default)]
@@ -140,6 +156,16 @@ pub fn setup_hud(mut commands: Commands) {
             p.spawn((
                 DockMarker,
                 label(13.0, AMBER, abs(Some(0.0), None, Some(0.0), None)),
+                Visibility::Hidden,
+            ));
+            p.spawn((
+                BoreMarker,
+                label(18.0, CYAN, abs(Some(0.0), None, Some(0.0), None)),
+                Visibility::Hidden,
+            ));
+            p.spawn((
+                VelocityMarker,
+                label(16.0, PALE_GREEN, abs(Some(0.0), None, Some(0.0), None)),
                 Visibility::Hidden,
             ));
             p.spawn((
@@ -253,8 +279,12 @@ pub fn update_hud(
     game: NonSend<GameClient>,
     controls: Res<Controls>,
     aim: Res<Aim>,
+    chase: Res<Chase>,
     mut texts: Query<(&HudText, &mut Text, &mut TextColor)>,
-    mut reticle: Query<&mut Text, (With<Reticle>, Without<HudText>, Without<LeadMarker>, Without<Bracket>)>,
+    mut reticle: Query<
+        (&mut Text, &mut TextColor),
+        (With<Reticle>, Without<HudText>, Without<LeadMarker>, Without<Bracket>),
+    >,
     mut lead: Query<
         (&mut Node, &mut Text, &mut Visibility),
         (With<LeadMarker>, Without<HudText>, Without<Bracket>, Without<Reticle>),
@@ -265,9 +295,17 @@ pub fn update_hud(
     >,
     camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     mut markers: Query<
-        (&mut Node, &mut Text, &mut TextColor, &mut Visibility, Has<GrabMarker>),
         (
-            Or<(With<GrabMarker>, With<DockMarker>)>,
+            &mut Node,
+            &mut Text,
+            &mut TextColor,
+            &mut Visibility,
+            Has<GrabMarker>,
+            Has<BoreMarker>,
+            Has<VelocityMarker>,
+        ),
+        (
+            Or<(With<GrabMarker>, With<DockMarker>, With<BoreMarker>, With<VelocityMarker>)>,
             Without<HudText>,
             Without<LeadMarker>,
             Without<Bracket>,
@@ -359,7 +397,13 @@ pub fn update_hud(
         let mut armor = String::from("ARMOR\n");
         for (i, n) in names.iter().enumerate() {
             let f = o.parts[i];
-            armor.push_str(&format!("{n:<6}{} {}\n", bar(f, 8), if f <= 0.0 { "LOST" } else { "" }));
+            // Without the head's main camera the cockpit sees through the sub-camera.
+            let lost = match f <= 0.0 {
+                true if i == Part::Head as usize && chase.sub_camera() => "LOST  SUB-CAM",
+                true => "LOST",
+                false => "",
+            };
+            armor.push_str(&format!("{n:<6}{} {lost}\n", bar(f, 8)));
         }
         let hull_color = if o.parts[Part::Torso as usize] < 0.3 { RED } else { CYAN };
         set(HudText::Armor, armor, Some(hull_color));
@@ -581,8 +625,19 @@ pub fn update_hud(
         _ => (String::new(), RED),
     };
     set(HudText::Alert, alert, Some(alert_color));
-    if let Ok(mut r) = reticle.single_mut() {
+    // Where the primary weapon would fire: the aim, held within its mount's reach of the body's
+    // axis (as the server fires it). Off the aim while the suit is still turning onto it; none
+    // once the part carrying it is shot off.
+    let bore = match (own, drawn) {
+        (Some(o), Some(v)) if o.alive && v.alive => frame(v.frame).loadout[0]
+            .filter(|m| o.parts[m.arm.part() as usize] > 0.0)
+            .map(|m| bc_sim::math::clamp_to_cone(aim.dir, v.rot * Vec3::Z, m.arm.cone())),
+        _ => None,
+    }
+    .filter(|b| b.angle_between(aim.dir) > 1f32.to_radians());
+    if let Ok((mut r, mut color)) = reticle.single_mut() {
         r.0 = "+".into();
+        color.0 = if bore.is_some() { Color::srgba(0.55, 0.92, 1.0, 0.35) } else { CYAN };
     }
 
     // --- Screen-space markers. ---
@@ -604,7 +659,6 @@ pub fn update_hud(
             _ => *vis = Visibility::Hidden,
         }
     }
-    let _ = aim;
     // The chunk nearest the free hand: green when it can be grabbed.
     let mut grab_at: Option<(Vec3, String, Color)> = None;
     let mut dock_at: Option<(Vec3, String)> = None;
@@ -670,12 +724,32 @@ pub fn update_hud(
             ));
         }
     }
-    for (mut node, mut text, mut color, mut vis, grab) in &mut markers {
-        let what = if grab { grab_at.clone() } else { dock_at.clone().map(|(p, s)| (p, s, AMBER)) };
+    // Which way the suit drifts: ahead of the camera, or behind it (then the way it comes from).
+    let velocity = match (own, drawn) {
+        (Some(o), Some(v)) if o.alive && v.alive && v.flight_vel.length() > DRIFT => {
+            let dir = v.flight_vel.normalize();
+            let ahead = dir.dot(cam_tf.forward().as_vec3()) >= 0.0;
+            Some(if ahead { (dir, "-o-") } else { (-dir, "-x-") })
+        }
+        _ => None,
+    };
+    for (mut node, mut text, mut color, mut vis, grab, is_bore, is_velocity) in &mut markers {
+        let centred = is_bore || is_velocity;
+        let what = if is_bore {
+            bore.map(|b| (own_pos + b * 1_500.0, "( )".to_string(), CYAN))
+        } else if is_velocity {
+            velocity.map(|(d, s)| (cam_tf.translation() + d * 1_500.0, s.to_string(), PALE_GREEN))
+        } else if grab {
+            grab_at.clone()
+        } else {
+            dock_at.clone().map(|(p, s)| (p, s, AMBER))
+        };
         match what.map(|(p, s, c)| (cam.world_to_viewport(cam_tf, p), s, c)) {
             Some((Ok(p), s, c)) => {
-                node.left = Val::Px(p.x - 20.0);
-                node.top = Val::Px(p.y - 8.0);
+                // Symbols are centred on their point; labels start just left of theirs.
+                let (dx, dy) = if centred { (-13.0, -10.0) } else { (-20.0, -8.0) };
+                node.left = Val::Px(p.x + dx);
+                node.top = Val::Px(p.y + dy);
                 text.0 = s;
                 color.0 = c;
                 *vis = Visibility::Visible;

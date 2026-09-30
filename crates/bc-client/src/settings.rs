@@ -6,7 +6,9 @@
 //! First-flight hints live here too: which ones the pilot has seen is a setting.
 
 use bc_client_core::hints::{HintInput, Hints};
-use bc_client_core::settings::{self, GfxChoice, KNOBS, Kind, Loaded, SETTINGS_VERSION, Settings};
+use bc_client_core::settings::{
+    self, CameraView, GfxChoice, KNOBS, Kind, Loaded, SETTINGS_VERSION, Settings,
+};
 use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FIRE_SECONDARY, MELEE};
 use bevy::prelude::*;
 use js_sys::{Array, Function, Object, Reflect};
@@ -76,7 +78,7 @@ pub fn apply_saved_tier(gfx: &mut Gfx, cfg: &LaunchConfig, s: &Settings) {
 
 /// The view's preferences from the settings.
 pub fn view_prefs(s: &Settings) -> ViewPrefs {
-    ViewPrefs { fov: s.fov, shake: s.shake }
+    ViewPrefs { fov: s.fov, shake: s.shake, cockpit: s.camera == CameraView::Cockpit }
 }
 
 /// Applies the page's changes, saves when due, and hands the view its preferences.
@@ -174,6 +176,7 @@ pub fn publish_settings(settings: Res<SettingsRes>, mut sent: Local<bool>) {
 pub struct HintState {
     hints: Hints,
     last_assist: Option<bool>,
+    last_camera: Option<CameraView>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -199,6 +202,8 @@ pub fn update_hints(
     let walking = live && ui.on_foot;
     let toggled = state.last_assist.is_some_and(|a| a != controls.flight_assist);
     state.last_assist = Some(controls.flight_assist);
+    let switched = state.last_camera.is_some_and(|c| c != settings.0.camera);
+    state.last_camera = Some(settings.0.camera);
     let used = keys.just_pressed(KeyCode::KeyE) || cmds.has(&UiCmd::Use);
     let walk_keys = [KeyCode::KeyW, KeyCode::KeyA, KeyCode::KeyS, KeyCode::KeyD];
     let input = HintInput {
@@ -207,6 +212,7 @@ pub fn update_hints(
         boosting: controls.buttons & BOOST != 0,
         firing: controls.buttons & (FIRE_PRIMARY | FIRE_SECONDARY | MELEE) != 0,
         toggled_assist: toggled,
+        switched_camera: switched,
         grabbing: controls.grab,
         survival,
         walking,

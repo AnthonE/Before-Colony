@@ -27,7 +27,7 @@ pub fn run() {
     // The pilot's settings (game mode): the graphics tier and the view start from them.
     let saved = game_mode.then(|| crate::settings::load(&cfg));
     let mut gfx = Gfx::from_config(&cfg);
-    let mut prefs = ViewPrefs { fov: 70.0, shake: if cfg.calm { 0.25 } else { 1.0 } };
+    let mut prefs = ViewPrefs { shake: if cfg.calm { 0.25 } else { 1.0 }, ..ViewPrefs::default() };
     if let Some((s, _)) = &saved {
         crate::settings::apply_saved_tier(&mut gfx, &cfg, &s.0);
         prefs = crate::settings::view_prefs(&s.0);
@@ -89,6 +89,7 @@ pub fn run() {
                 (
                     drive_link,
                     apply_ui_cmds,
+                    crate::input::toggle_camera,
                     update_settings,
                     update_pointer,
                     read_input,

@@ -389,16 +389,34 @@ for bulk goods, a piece for everything else.
 | LMB · RMB · F | primary · secondary · melee |
 | H | the frame's special: a toggle for Neo-Bird and the Hyper Jammer, a press for Full Open Attack and the Cross Crusher |
 | V · Z | flight assist · ZERO System |
+| Tab · mouse wheel | the camera: the cockpit (first person) or the chase camera (wheel in: the cockpit; out: chasing) |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
 | Enter | dock (survival): at rest inside the dock's ring of lights |
 | 1–6 | arcade rules: respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
+| Esc · F1 · F10 | menu · the controls sheet · graphics quality |
 
 On foot in the hangar bay: the mouse looks, W/A/S/D walk, Shift runs, Space jumps, E uses what's
 in view (E again, or Esc, steps away from a terminal).
-| Esc · F1 · F10 | menu · the controls sheet · graphics quality |
 
 The list players see (the title screen's controls sheet and F1) is
-`bc_client_core::controls::BINDINGS`; keep it in step with this table.
+`bc_client_core::controls::BINDINGS`; keep it in step with this table. Down is C alone: Left Ctrl
+held with W is Ctrl+W, which closes the browser's tab. Turning flight assist on or off says so in
+the middle of the screen, because V is the camera key in other games. `docs/CONTROLS.md` compares
+this scheme with what players of other games expect, and lists what they'll ask for.
+
+**The cockpit.** Tab (or the mouse wheel) switches between the chase camera and the cockpit: the
+view from the head's main camera, which is what a mobile suit's cockpit monitors show. It looks
+along the aim, as the chase camera does, so the crosshair is the aim either way and the suit turns
+after it. The head isn't drawn from inside it; the rest of the suit is, so a blade stroke, the
+Dragon Fang or a shoulder coming round shows. Neo-Bird's view is from over its canopy, along its
+nose. With the head shot off the picture comes from the sub-camera, greyer and fringed. A wreck is
+watched from the chase camera. The view is a setting, so the next sortie starts in it; the chase
+camera is the default.
+
+**Where the guns point.** A hand weapon fires only within 50° of the body's axis (Neo-Bird's rifles
+within 2° of the nose), so until the suit has turned onto the aim the crosshair dims and `( )` marks
+where the primary weapon would fire. `-o-` is the velocity vector, the way the suit is drifting
+(`-x-`: the way it's drifting from, moving backwards).
 
 **The page around the game.** The title screen takes a callsign (and, under arcade rules, a
 mobile suit) and launches,
@@ -429,11 +447,11 @@ the sector with its pilot asleep in the cockpit, and they wake in it when they'r
 - A suit that's already a wreck when its pilot leaves is gone, as a guest's suit always is.
 
 **Settings** (from the title or the menu) are kept in the browser: mouse sensitivity, invert Y,
-field of view, camera shake, first-flight hints and graphics quality, along with the last callsign
-and frame launched. `bc_client_core::settings` defines them, their ranges and the stored text (a
+the flight camera, field of view (vertical; the panel gives the horizontal too), camera shake,
+first-flight hints and graphics quality, along with the last callsign and frame launched. `bc_client_core::settings` defines them, their ranges and the stored text (a
 key this build doesn't know is kept, for the build that wrote it). A new pilot gets one hint at a
-time (on foot in the bay: walking, using a terminal, boarding; flying: thrust, boost, fire,
-flight assist, salvage, docking, the menu), each gone once it's been done.
+time (on foot in the bay: walking, using a terminal, boarding; flying: thrust, boost, fire, the
+cockpit view, flight assist, salvage, docking, the menu), each gone once it's been done.
 
 **Sound.** Every sound is generated at boot (`bc-sound`, no audio files): weapons, impacts,
 explosions, the engines worked by the throttle, RCS puffs, the lock tone quickening as a lock

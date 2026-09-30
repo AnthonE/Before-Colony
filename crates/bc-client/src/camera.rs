@@ -1,8 +1,13 @@
-//! Third-person chase camera looking along the pilot's aim, and the post effects that stand in for
-//! the pilot's body:
-//! - a critically damped spring holds the camera behind the suit, in the frame moving with the suit
-//!   as drawn, so it sits still at any cruising speed and swings only with acceleration and turns
-//!   (`bc_client_core::chase`, exact at any frame rate);
+//! The flight camera, looking along the pilot's aim from behind the suit or from its cockpit, and
+//! the post effects that stand in for the pilot's body:
+//! - the chase camera: a critically damped spring holds it behind the suit, in the frame moving
+//!   with the suit as drawn, so it sits still at any cruising speed and swings only with
+//!   acceleration and turns (`bc_client_core::chase`, exact at any frame rate);
+//! - the cockpit (first person): the view from the head's main camera, which is what the cockpit's
+//!   monitors show, riding the head as it turns (the head itself isn't drawn; Neo-Bird's looks out
+//!   over its nose). A wreck is watched from the chase camera, which keeps pace all along so the
+//!   switch between them is a clean cut. With the head shot off, the sub-camera's picture is
+//!   duller;
 //! - the field of view widens on boost, and blasts, hits and the Twin Buster Rifle shake it;
 //! - G-strain greys the view out and closes it to a tunnel, and a blackout (G-LOC) takes it to
 //!   black;
@@ -12,13 +17,19 @@
 //! The field of view and how much shake, kicks and warps to keep are the pilot's (`ViewPrefs`);
 //! `?calm=1`, or the browser's reduced-motion setting, starts them turned down.
 
-use bc_client_core::chase::{ChaseRig, Follow};
-use bc_proto::WeaponKind;
+use bc_client_core::chase::{self, ChaseRig, Follow};
+use bc_model::rig::Bone;
+use bc_proto::snapshot::ent_flags;
+use bc_proto::{Part, WeaponKind};
 use bevy::post_process::effect_stack::{ChromaticAberration, LensDistortion, Vignette};
 use bevy::prelude::*;
 use bevy::render::view::ColorGrading;
 
-use crate::view::{CameraTarget, FxEvent, FxEvents, ViewPrefs, VisTime};
+use crate::anim::Anim;
+use crate::damage::Damage;
+use crate::model::SuitMeshLib;
+use crate::suits_vis::{SuitBone, SuitVisual};
+use crate::view::{CameraTarget, FxEvent, FxEvents, SuitDrive, ViewPrefs, VisTime};
 use crate::zero_vision::ZeroVision;
 
 #[derive(Component)]
@@ -47,6 +58,23 @@ pub struct Chase {
     black: f32,
     zero: f32,
     seizure: f32,
+    /// Looking out of the cockpit this frame, and whether the head (its main camera) is gone.
+    cockpit: bool,
+    head_lost: bool,
+    /// The sub-camera's duller picture, eased 0..1.
+    sub: f32,
+}
+
+impl Chase {
+    /// The pilot sees out of the cockpit this frame.
+    pub fn cockpit(&self) -> bool {
+        self.cockpit
+    }
+
+    /// The cockpit's picture comes from the sub-camera: the head is gone.
+    pub fn sub_camera(&self) -> bool {
+        self.cockpit && self.head_lost
+    }
 }
 
 pub fn spawn_camera(mut commands: Commands) {
@@ -89,19 +117,47 @@ fn fov_for(prefs: &ViewPrefs, boost: bool) -> f32 {
     if boost { fov + BOOST_WIDEN * motion(prefs) } else { fov }
 }
 
-/// Places the chase camera, shakes it and sets its field of view.
-#[allow(clippy::type_complexity)]
+/// Places the camera (chasing the suit, or in its cockpit), shakes it and sets its field of view.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub fn follow(
     target: Res<CameraTarget>,
     time: Res<VisTime>,
     events: Res<FxEvents>,
     prefs: Res<ViewPrefs>,
+    lib: Res<SuitMeshLib>,
     mut chase: ResMut<Chase>,
+    suits: Query<(&SuitDrive, &Anim, &SuitVisual, Option<&Damage>)>,
+    mut bones: Query<&mut Visibility, With<SuitBone>>,
     mut cam: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
+    mut fill: Query<&mut Transform, (With<FillLight>, Without<MainCamera>)>,
 ) {
     let Ok((mut tf, mut projection)) = cam.single_mut() else { return };
     let c = &mut *chase;
     let dt = time.dt.min(0.1);
+    let own = suits.iter().find(|(d, ..)| d.own);
+    // The cockpit's eye: the own suit's head camera as posed (none for a wreck).
+    let cockpit = own
+        .filter(|(d, ..)| prefs.cockpit && target.0.is_some() && d.flags & ent_flags::WRECK == 0)
+        .map(|(d, anim, ..)| anim.point(d, Bone::Head, lib.sockets(d.frame).eye));
+    c.cockpit = cockpit.is_some();
+    c.head_lost = own.is_some_and(|(d, ..)| d.parts[Part::Head as usize] == 0);
+    // The eye is inside a humanoid's head, which isn't drawn meanwhile (unless it's been shot off,
+    // which is the damage's to show).
+    if let Some((d, _, v, damage)) = own
+        && !damage.is_some_and(|dmg| dmg.lost[Bone::Head.index()])
+        && let Ok(mut vis) = bones.get_mut(v.bones[Bone::Head.index()])
+    {
+        let hide = c.cockpit && lib.sockets(d.frame).eye_in_head;
+        vis.set_if_neq(if hide { Visibility::Hidden } else { Visibility::Inherited });
+    }
+    // The fill light stays where the chase camera would be, lighting what's near without glaring
+    // off the suit's own shoulders.
+    let light = if c.cockpit { Vec3::new(0.0, chase::RISE, chase::BACK) } else { Vec3::ZERO };
+    for mut l in &mut fill {
+        if l.translation != light {
+            l.translation = light;
+        }
+    }
     let Some(t) = target.0 else {
         // Before spawning: a slow establishing shot of the colony.
         let a = (time.now * 0.03) as f32;
@@ -111,7 +167,8 @@ pub fn follow(
         return;
     };
 
-    // Behind and above the suit, on a spring in the frame moving with the suit as drawn.
+    // Behind and above the suit, on a spring in the frame moving with the suit as drawn. It keeps
+    // pace in the cockpit too, ready for the switch back.
     let follow = Follow { pos: t.pos, vel: t.vel, aim: t.aim, up: t.up, cut: t.cut };
     if c.rig.step(&follow, dt) {
         // Spawning, respawning or a teleport: the eased effects cut too.
@@ -120,7 +177,7 @@ pub fn follow(
     }
 
     // Shake from blasts, hits and big guns nearby.
-    let eye = c.rig.pos;
+    let eye = cockpit.unwrap_or(c.rig.pos);
     let near =
         |p: Vec3, full: f32, none: f32| 1.0 - ((p.distance(eye) - full) / (none - full)).clamp(0.0, 1.0);
     for ev in &events.0 {
@@ -139,8 +196,17 @@ pub fn follow(
     c.trauma = (c.trauma.min(1.0) - 0.9 * dt).max(0.0);
     c.flash = (c.flash - 2.5 * dt).max(0.0);
 
-    tf.translation = c.rig.pos;
-    tf.look_at(follow.look_at(), t.up);
+    match cockpit {
+        // Looking along the aim, rolled with the suit.
+        Some(at) => {
+            tf.translation = at;
+            tf.look_to(t.aim, t.up);
+        }
+        None => {
+            tf.translation = c.rig.pos;
+            tf.look_at(follow.look_at(), t.up);
+        }
+    }
     let shake = c.trauma * c.trauma * motion(&prefs);
     if shake > 0.0 {
         // Smooth pseudo-noise per axis: two incommensurate sines.
@@ -196,12 +262,14 @@ pub fn pilot_effects(
     ease(&mut c.black, if t.blackout { 1.0 } else { 0.0 }, if t.blackout { 3.0 } else { 0.8 });
     ease(&mut c.zero, if t.zero || t.seized { 1.0 } else { 0.0 }, 2.0);
     ease(&mut c.seizure, if t.seized { 1.0 } else { 0.0 }, 5.0);
+    let sub = if c.sub_camera() { 1.0 } else { 0.0 };
+    ease(&mut c.sub, sub, 4.0);
 
-    let grey = smoothstep(0.35, 0.85, t.g_strain).max(c.black);
+    let grey = smoothstep(0.35, 0.85, t.g_strain).max(c.black).max(0.5 * c.sub);
     let tunnel = smoothstep(0.6, 1.0, t.g_strain).max(c.black);
     if let Some(mut v) = vignette {
         let red = c.flash * c.flash;
-        v.intensity = (0.1 * t.g_strain + 0.9 * tunnel).max(0.5 * red).min(1.0);
+        v.intensity = (0.1 * t.g_strain + 0.9 * tunnel).max(0.5 * red).max(0.4 * c.sub).min(1.0);
         v.radius = 1.05 - 0.85 * tunnel;
         v.smoothness = 2.5;
         // Black for the tunnel; red while a hit's flash outweighs it.
@@ -213,7 +281,7 @@ pub fn pilot_effects(
         g.global.exposure = -1.2 * grey - 8.0 * c.black * c.black;
     }
     if let Some(mut a) = aberration {
-        a.intensity = (0.05 * c.seizure + 0.008 * c.zero * t.zero_strain) * calm;
+        a.intensity = (0.05 * c.seizure + 0.008 * c.zero * t.zero_strain + 0.02 * c.sub) * calm;
     }
     if let Some(mut l) = lens {
         // In a seizure the view breathes in and out.

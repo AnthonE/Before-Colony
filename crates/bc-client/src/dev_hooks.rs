@@ -71,6 +71,8 @@ pub fn publish_game(
     game: NonSend<crate::net::GameClient>,
     link: Res<crate::session::LinkRes>,
     ui: Res<crate::page::Ui>,
+    chase: Res<crate::camera::Chase>,
+    prefs: Res<crate::view::ViewPrefs>,
     mut dev: ResMut<DevStatus>,
 ) {
     use bc_proto::PilotKind;
@@ -82,6 +84,9 @@ pub fn publish_game(
     dev.set("panel", format!("{:?}", ui.panel).to_lowercase());
     dev.set("help", ui.help);
     dev.set("click_to_fly", ui.click_to_fly);
+    // The camera as placed (a wreck is always watched from behind), and as the pilot chose it.
+    dev.set("camera", if chase.cockpit() { "cockpit" } else { "chase" });
+    dev.set("camera_view", if prefs.cockpit { "cockpit" } else { "chase" });
     let game = game.borrow();
     let core = &game.core;
     let w = &core.world;
