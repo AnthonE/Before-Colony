@@ -42,6 +42,9 @@ pub const FA_BOOST_CRUISE: f32 = 1.8;
 pub const FA_G_CAP: f32 = HUMAN_G_TOLERANCE - 0.03;
 /// A blade's lunge drives forward at this much of full main thrust (never boosted).
 pub const LUNGE_THRUST: f32 = 1.5;
+/// How hard roll-level turns the feet toward a surface (1/s): the roll rate asked for per radian
+/// of roll still to go, up to the frame's roll rate.
+pub const ROLL_LEVEL_GAIN: f32 = 2.0;
 
 /// Kinematic and pilot state of a suit.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -88,12 +91,39 @@ pub struct FlightMods {
     /// Mass beyond the frame's own (cargo, a chunk in hand) less the parts shot off, kg. Whole
     /// kilograms, so prediction uses exactly the server's number.
     pub extra_mass_kg: i32,
+    /// Rolls the suit's feet toward a surface, in place of the pilot's roll: its up turns about the
+    /// nose toward this direction (the surface's outward normal, in the frame flown), at up to the
+    /// roll rate. The nose stays on the aim.
+    pub roll_level: Option<Vec3>,
+    /// Flight assist aloft over a surface that grips the suit ([`HopAssist`]).
+    pub hop: Option<HopAssist>,
 }
 
 impl Default for FlightMods {
     fn default() -> Self {
-        Self { ambac: 1.0, thrust: 1.0, g_immune: false, lunge: false, extra_mass_kg: 0 }
+        Self {
+            ambac: 1.0,
+            thrust: 1.0,
+            g_immune: false,
+            lunge: false,
+            extra_mass_kg: 0,
+            roll_level: None,
+            hop: None,
+        }
     }
+}
+
+/// Flight assist aloft over a surface that grips the suit: it holds the stick's speed along the
+/// surface, but along the normal only what the pilot asks for (up or down on the stick). Otherwise
+/// it leaves the normal speed alone, never holding altitude: grip gravity brings the suit down.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HopAssist {
+    /// The surface's outward normal, in the suit's own frame.
+    pub up: Vec3,
+    /// Speed along the surface at full stick, m/s.
+    pub cruise: f32,
+    /// Speed along the normal at full up or down stick, m/s.
+    pub climb: f32,
 }
 
 /// What the step did (for visuals and signatures).
@@ -130,8 +160,22 @@ pub fn step_in(
     out
 }
 
-/// Advances one suit by `dt` under `cmd`.
+/// Advances one suit by `dt` under `cmd`, kept inside the sector and out of the colony hull.
 pub fn step(s: &mut FlightState, cmd: &InputCmd, spec: &FrameSpec, mods: &FlightMods, dt: f32) -> FlightOut {
+    let out = integrate(s, cmd, spec, mods, dt);
+    crate::world::constrain(s);
+    out
+}
+
+/// Advances one suit by `dt` under `cmd` with nothing in its way: attitude, thrust, propellant and
+/// pilot G. The frame is whatever `s` is in: the sector's, or a body's for a suit in its grip.
+pub fn integrate(
+    s: &mut FlightState,
+    cmd: &InputCmd,
+    spec: &FrameSpec,
+    mods: &FlightMods,
+    dt: f32,
+) -> FlightOut {
     let own = spec.mass(s.propellant);
     let mass = own + mods.extra_mass_kg as f32;
     // Extra mass slows turns too (limbs and thrusters swing more); a lighter suit gains nothing.
@@ -139,7 +183,7 @@ pub fn step(s: &mut FlightState, cmd: &InputCmd, spec: &FrameSpec, mods: &Flight
     let has_prop = s.propellant > 0.0;
     let authority = if s.blackout { 0.25 } else { 1.0 };
 
-    // --- Attitude: chase the aim direction, plus commanded roll. ---
+    // --- Attitude: chase the aim direction, plus commanded roll (or roll-level). ---
     let fwd = s.rot * Vec3::Z;
     let aim = normalize_or(cmd.aim, fwd);
     let axis = fwd.cross(aim);
@@ -162,7 +206,22 @@ pub fn step(s: &mut FlightState, cmd: &InputCmd, spec: &FrameSpec, mods: &Flight
     } else {
         Vec3::ZERO
     };
-    w_des += fwd * (cmd.roll_f32() * spec.roll_rate * authority);
+    match mods.roll_level {
+        None => w_des += fwd * (cmd.roll_f32() * spec.roll_rate * authority),
+        Some(n) => {
+            // The roll from up to `n`, both seen along the nose (none if `n` is along the nose).
+            let up_s = s.rot * Vec3::Y;
+            let u_p = up_s - fwd * up_s.dot(fwd);
+            let n_p = n - fwd * n.dot(fwd);
+            let roll = if n_p.length_squared() > 0.01 {
+                let ang = atan2(fwd.dot(u_p.cross(n_p)), u_p.dot(n_p));
+                (ROLL_LEVEL_GAIN * ang).clamp(-spec.roll_rate * authority, spec.roll_rate * authority)
+            } else {
+                0.0
+            };
+            w_des += fwd * roll;
+        }
+    }
     let dw = w_des - s.ang_vel;
     let dw_len = length(dw);
     let max_dw = accel_cap * dt;
@@ -186,7 +245,17 @@ pub fn step(s: &mut FlightState, cmd: &InputCmd, spec: &FrameSpec, mods: &Flight
         // itself (flight assist mustn't brake them for it).
         let cruise = spec.fa_speed * if cmd.pressed(BOOST) { FA_BOOST_CRUISE } else { 1.0 };
         let v_local = s.rot.conjugate() * s.vel;
-        let gap = stick * cruise - v_local;
+        let gap = match mods.hop {
+            None => stick * cruise - v_local,
+            Some(h) => {
+                // Along the surface, the stick's speed; along the normal, the climb asked for, or
+                // else the speed it has (so no force at all that way).
+                let (s_n, v_n) = (stick.dot(h.up), v_local.dot(h.up));
+                let s_t = stick - h.up * s_n;
+                let t_n = if cmd.thrust[1] == 0 { v_n } else { s_n * h.climb };
+                s_t * h.cruise + h.up * t_n - v_local
+            }
+        };
         let response = if mods.g_immune || length(gap) < FA_SETTLE { dt } else { FA_RESPONSE.max(dt) };
         let f_req = gap * (mass / response);
         Vec3::new(
@@ -226,9 +295,17 @@ pub fn step(s: &mut FlightState, cmd: &InputCmd, spec: &FrameSpec, mods: &Flight
     s.pos += s.vel * dt;
 
     // --- Pilot G. ---
+    pilot_g(s, accel, mods.g_immune, dt);
+    FlightOut { boosting, accel, throttle, g_limited }
+}
+
+/// Pilot G: the suit felt `accel` (m/s²) for `dt`. Above what a pilot bears for good, strain
+/// builds; below it, strain eases. At 1.0 they black out, until it falls under 0.5. A Mobile Doll
+/// (`g_immune`) feels nothing.
+pub fn pilot_g(s: &mut FlightState, accel: Vec3, g_immune: bool, dt: f32) {
     let g = length(accel) / G0;
     s.g_load = g;
-    if mods.g_immune {
+    if g_immune {
         s.g_strain = 0.0;
         s.blackout = false;
     } else {
@@ -244,15 +321,15 @@ pub fn step(s: &mut FlightState, cmd: &InputCmd, spec: &FrameSpec, mods: &Flight
             s.blackout = false;
         }
     }
-
-    crate::world::constrain(s);
-    FlightOut { boosting, accel, throttle, g_limited }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{DT, SECTOR_LIMIT};
     use crate::content::frame;
+    use crate::math::{Rng, cos, quat_normalize, sin};
+    use crate::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS};
     use bc_proto::FrameId;
 
     fn state() -> FlightState {
@@ -280,5 +357,336 @@ mod tests {
         }
         assert!((s.rot * Vec3::Z).dot(Vec3::X) > 0.99);
         assert_eq!(s.propellant, 2_400.0);
+    }
+
+    /// The flight model as it stood in protocol v8, verbatim: what the refactor into [`integrate`],
+    /// [`pilot_g`] and `world::constrain` is held to, bit for bit.
+    mod v8 {
+        use super::super::*;
+
+        pub fn step(
+            s: &mut FlightState,
+            cmd: &InputCmd,
+            spec: &FrameSpec,
+            mods: &FlightMods,
+            dt: f32,
+        ) -> FlightOut {
+            let own = spec.mass(s.propellant);
+            let mass = own + mods.extra_mass_kg as f32;
+            // Extra mass slows turns too (limbs and thrusters swing more); a lighter suit gains nothing.
+            let turn = (own / mass).min(1.0);
+            let has_prop = s.propellant > 0.0;
+            let authority = if s.blackout { 0.25 } else { 1.0 };
+
+            // --- Attitude: chase the aim direction, plus commanded roll. ---
+            let fwd = s.rot * Vec3::Z;
+            let aim = normalize_or(cmd.aim, fwd);
+            let axis = fwd.cross(aim);
+            let sin_a = length(axis);
+            let cos_a = fwd.dot(aim);
+            let angle = atan2(sin_a, cos_a);
+            let rcs = cmd.pressed(RCS_SHARP) && has_prop;
+            let max_rate = if rcs { spec.rcs_rate } else { spec.ambac_rate } * authority;
+            let ambac = spec.ambac_accel * mods.ambac * authority * turn;
+            let rcs_accel = if rcs { spec.rcs_accel * authority * turn } else { 0.0 };
+            let accel_cap = ambac + rcs_accel;
+            // Toward the aim, but never faster than it can stop from in time: arms busy firing or with a
+            // blade take AMBAC's limbs, not its top rate, and it mustn't swing past the aim for it.
+            let rate = |angle: f32| {
+                (angle * AIM_GAIN).min(max_rate).min(sqrt(2.0 * ATTITUDE_BRAKE * accel_cap * angle))
+            };
+            let mut w_des = if sin_a > 1e-6 {
+                axis * (rate(angle) / sin_a)
+            } else if cos_a < 0.0 {
+                (s.rot * Vec3::Y) * rate(angle) // exactly behind: pitch over
+            } else {
+                Vec3::ZERO
+            };
+            w_des += fwd * (cmd.roll_f32() * spec.roll_rate * authority);
+            let dw = w_des - s.ang_vel;
+            let dw_len = length(dw);
+            let max_dw = accel_cap * dt;
+            let applied = if dw_len > max_dw && dw_len > 0.0 { dw * (max_dw / dw_len) } else { dw };
+            s.ang_vel += applied;
+            if rcs_accel > 0.0 {
+                s.propellant -= spec.rcs_propellant * length(applied) * (rcs_accel / accel_cap);
+            }
+            s.rot = integrate_rotation(s.rot, s.ang_vel, dt);
+
+            // --- Translation. ---
+            let boosting = cmd.pressed(BOOST) && has_prop && !s.blackout;
+            let main = spec.main_thrust * if boosting { spec.boost_mult } else { 1.0 };
+            let side = spec.side_thrust;
+            let retro = spec.retro_thrust;
+            let brake = cmd.pressed(BRAKE);
+            let assisted = brake || cmd.pressed(FLIGHT_ASSIST);
+            let stick = if brake { Vec3::ZERO } else { cmd.thrust_vec() };
+            let mut f_local = if assisted {
+                // Boost's cruise while the pilot holds it, even through a blackout that cuts the boost
+                // itself (flight assist mustn't brake them for it).
+                let cruise = spec.fa_speed * if cmd.pressed(BOOST) { FA_BOOST_CRUISE } else { 1.0 };
+                let v_local = s.rot.conjugate() * s.vel;
+                let gap = stick * cruise - v_local;
+                let response =
+                    if mods.g_immune || length(gap) < FA_SETTLE { dt } else { FA_RESPONSE.max(dt) };
+                let f_req = gap * (mass / response);
+                Vec3::new(
+                    clamp_axis(f_req.x, side, side),
+                    clamp_axis(f_req.y, side, side),
+                    clamp_axis(f_req.z, main, retro),
+                )
+            } else {
+                Vec3::new(
+                    stick.x * side,
+                    stick.y * side,
+                    if stick.z >= 0.0 { stick.z * main } else { stick.z * retro },
+                )
+            };
+            if mods.lunge {
+                f_local.z = spec.main_thrust * LUNGE_THRUST;
+            }
+            f_local *= mods.thrust * authority;
+            if !has_prop {
+                f_local = Vec3::ZERO;
+            }
+            // Flight assist spares its pilot's body: short of boost (or a blade's lunge), it holds them
+            // under what they bear for good, whatever their tank and the thrusters could do.
+            let guard = assisted && !boosting && !mods.lunge && !mods.g_immune;
+            let most = FA_G_CAP * G0 * mass;
+            let pull = length(f_local);
+            let g_limited = guard && pull > most;
+            if g_limited {
+                f_local *= most / pull;
+            }
+            let burn = (f_local.x.abs() + f_local.y.abs() + f_local.z.abs()) * dt / spec.exhaust_velocity();
+            s.propellant = (s.propellant - burn).max(0.0);
+            let axial = if f_local.z >= 0.0 { spec.main_thrust } else { spec.retro_thrust };
+            let throttle = f_local / Vec3::new(side, side, axial).max(Vec3::ONE);
+            let accel = (s.rot * f_local) / mass;
+            s.vel += accel * dt;
+            s.pos += s.vel * dt;
+
+            // --- Pilot G. ---
+            let g = length(accel) / G0;
+            s.g_load = g;
+            if mods.g_immune {
+                s.g_strain = 0.0;
+                s.blackout = false;
+            } else {
+                if g > HUMAN_G_TOLERANCE {
+                    s.g_strain += (g - HUMAN_G_TOLERANCE) / STRAIN_GAIN_DIV * dt;
+                } else {
+                    s.g_strain -= STRAIN_RECOVERY * dt;
+                }
+                s.g_strain = s.g_strain.clamp(0.0, 1.2);
+                if s.g_strain >= 1.0 {
+                    s.blackout = true;
+                } else if s.g_strain < 0.5 {
+                    s.blackout = false;
+                }
+            }
+
+            crate::world::constrain(s);
+            FlightOut { boosting, accel, throttle, g_limited }
+        }
+
+        /// The pilot-G block of v8's `step`, verbatim.
+        pub fn pilot_g(s: &mut FlightState, accel: Vec3, g_immune: bool, dt: f32) {
+            let mods = FlightMods { g_immune, ..FlightMods::default() };
+            let g = length(accel) / G0;
+            s.g_load = g;
+            if mods.g_immune {
+                s.g_strain = 0.0;
+                s.blackout = false;
+            } else {
+                if g > HUMAN_G_TOLERANCE {
+                    s.g_strain += (g - HUMAN_G_TOLERANCE) / STRAIN_GAIN_DIV * dt;
+                } else {
+                    s.g_strain -= STRAIN_RECOVERY * dt;
+                }
+                s.g_strain = s.g_strain.clamp(0.0, 1.2);
+                if s.g_strain >= 1.0 {
+                    s.blackout = true;
+                } else if s.g_strain < 0.5 {
+                    s.blackout = false;
+                }
+            }
+        }
+    }
+
+    /// Every bit of a flight state (`==` would take -0.0 for 0.0, and never NaN for NaN).
+    fn bits(s: &FlightState) -> [u32; 17] {
+        [
+            s.pos.x.to_bits(),
+            s.pos.y.to_bits(),
+            s.pos.z.to_bits(),
+            s.vel.x.to_bits(),
+            s.vel.y.to_bits(),
+            s.vel.z.to_bits(),
+            s.rot.x.to_bits(),
+            s.rot.y.to_bits(),
+            s.rot.z.to_bits(),
+            s.rot.w.to_bits(),
+            s.ang_vel.x.to_bits(),
+            s.ang_vel.y.to_bits(),
+            s.ang_vel.z.to_bits(),
+            s.propellant.to_bits(),
+            s.g_load.to_bits(),
+            s.g_strain.to_bits(),
+            u32::from(s.blackout),
+        ]
+    }
+
+    fn out_bits(o: &FlightOut) -> [u32; 8] {
+        [
+            u32::from(o.boosting),
+            o.accel.x.to_bits(),
+            o.accel.y.to_bits(),
+            o.accel.z.to_bits(),
+            o.throttle.x.to_bits(),
+            o.throttle.y.to_bits(),
+            o.throttle.z.to_bits(),
+            u32::from(o.g_limited),
+        ]
+    }
+
+    fn random_vec(rng: &mut Rng, scale: f32) -> Vec3 {
+        Vec3::new(rng.signed(), rng.signed(), rng.signed()) * scale
+    }
+
+    /// A random suit, command, frame and modifiers. A third of the suits are out in the sector, a
+    /// third skim the colony's hull and a third its edge, so `constrain` has work to do; tanks run
+    /// dry, pilots black out, and a quarter of the stick axes are idle.
+    fn random_case(rng: &mut Rng) -> (FlightState, InputCmd, &'static FrameSpec, FlightMods) {
+        let pos = match rng.next_u32() % 3 {
+            0 => random_vec(rng, SECTOR_LIMIT),
+            1 => {
+                let a = rng.signed() * core::f32::consts::PI;
+                let r = COLONY_RADIUS + rng.signed() * 20.0;
+                let x = rng.signed() * (COLONY_HALF_LENGTH + 20.0);
+                COLONY_CENTER + Vec3::new(x, r * cos(a), r * sin(a))
+            }
+            _ => {
+                let mut p = random_vec(rng, SECTOR_LIMIT);
+                let side = if rng.next_u32().is_multiple_of(2) { 1.0 } else { -1.0 };
+                p[(rng.next_u32() % 3) as usize] = (SECTOR_LIMIT + rng.signed() * 20.0) * side;
+                p
+            }
+        };
+        let rot = quat_normalize(Quat::from_xyzw(rng.signed(), rng.signed(), rng.signed(), rng.signed()));
+        let s = FlightState {
+            pos,
+            vel: random_vec(rng, 300.0),
+            rot,
+            ang_vel: random_vec(rng, 2.0),
+            propellant: if rng.next_u32().is_multiple_of(5) { 0.0 } else { rng.next_f32() * 3_000.0 },
+            g_load: rng.next_f32() * 10.0,
+            g_strain: rng.next_f32() * 1.2,
+            blackout: rng.next_u32().is_multiple_of(4),
+        };
+        let axis = |rng: &mut Rng| if rng.next_u32().is_multiple_of(4) { 0 } else { rng.next_u32() as i8 };
+        let cmd = InputCmd {
+            aim: if rng.next_u32().is_multiple_of(10) { Vec3::ZERO } else { random_vec(rng, 1.0) },
+            thrust: [axis(rng), axis(rng), axis(rng)],
+            roll: axis(rng),
+            buttons: rng.next_u32() as u16,
+            ..InputCmd::default()
+        };
+        let spec = frame(FrameId::ALL[rng.next_u32() as usize % FrameId::COUNT]);
+        let mods = FlightMods {
+            ambac: rng.next_f32(),
+            thrust: rng.next_f32(),
+            g_immune: rng.next_u32().is_multiple_of(2),
+            lunge: rng.next_u32().is_multiple_of(8),
+            extra_mass_kg: (rng.next_u32() % 30_000) as i32 - 5_000,
+            ..FlightMods::default()
+        };
+        (s, cmd, spec, mods)
+    }
+
+    #[test]
+    fn step_is_integrate_then_constrain() {
+        let mut rng = Rng::new(0xF11E);
+        let mut constrained = 0;
+        for n in 0..10_000 {
+            let (s0, cmd, spec, mods) = random_case(&mut rng);
+            let (mut a, mut b) = (s0, s0);
+            let out_a = step(&mut a, &cmd, spec, &mods, DT);
+            let out_b = integrate(&mut b, &cmd, spec, &mods, DT);
+            constrained += u32::from(crate::world::constrain(&mut b));
+            assert_eq!(bits(&a), bits(&b), "case {n}: {s0:?} {cmd:?}");
+            assert_eq!(out_bits(&out_a), out_bits(&out_b), "case {n}");
+            // Pilot G on its own, against the block it was lifted from.
+            let accel = random_vec(&mut rng, 150.0);
+            let g_immune = rng.next_u32().is_multiple_of(2);
+            let (mut p, mut q) = (s0, s0);
+            pilot_g(&mut p, accel, g_immune, DT);
+            v8::pilot_g(&mut q, accel, g_immune, DT);
+            assert_eq!(bits(&p), bits(&q), "case {n}: {s0:?} felt {accel}");
+        }
+        assert!(constrained > 3_000, "only {constrained} of the cases met the hull or the edge");
+    }
+
+    #[test]
+    fn none_mods_are_the_old_expressions() {
+        let mut rng = Rng::new(0x0008);
+        let (mut rolled, mut hopped) = (0, 0);
+        for n in 0..10_000 {
+            let (s0, cmd, spec, mods) = random_case(&mut rng);
+            assert!(mods.roll_level.is_none() && mods.hop.is_none());
+            let (mut a, mut b) = (s0, s0);
+            let out_a = step(&mut a, &cmd, spec, &mods, DT);
+            let out_b = v8::step(&mut b, &cmd, spec, &mods, DT);
+            assert_eq!(bits(&a), bits(&b), "case {n}: {s0:?} {cmd:?}");
+            assert_eq!(out_bits(&out_a), out_bits(&out_b), "case {n}");
+            // Set, they are wired in: the same case flies otherwise.
+            let up = random_vec(&mut rng, 1.0).normalize_or(Vec3::Y);
+            let (mut c, mut d) = (s0, s0);
+            step(&mut c, &cmd, spec, &FlightMods { roll_level: Some(up), ..mods }, DT);
+            let hop = HopAssist { up, cruise: 8.0, climb: 20.0 };
+            step(&mut d, &cmd, spec, &FlightMods { hop: Some(hop), ..mods }, DT);
+            rolled += u32::from(bits(&c) != bits(&a));
+            hopped += u32::from(bits(&d) != bits(&a));
+        }
+        assert!(rolled > 5_000 && hopped > 1_000, "roll-level changed {rolled}, hop assist {hopped}");
+    }
+
+    #[test]
+    fn roll_level_rolls_the_feet_down_and_keeps_the_nose() {
+        let spec = frame(FrameId::Leo);
+        // Lying on its side (up along +X) over a surface below it (its normal +Y), rolling hard
+        // the other way: roll-level flies instead of the roll command.
+        let mut s = FlightState { rot: crate::math::look_rotation(Vec3::Z, Vec3::X), ..state() };
+        let cmd = InputCmd { aim: Vec3::Z, roll: 127, ..InputCmd::default() };
+        let mods = FlightMods { roll_level: Some(Vec3::Y), ..FlightMods::default() };
+        for _ in 0..90 {
+            step(&mut s, &cmd, spec, &mods, DT);
+        }
+        let (up, nose) = (s.rot * Vec3::Y, s.rot * Vec3::Z);
+        assert!(up.dot(Vec3::Y) > 0.999, "up {up}");
+        assert!(nose.dot(Vec3::Z) > 0.999_99, "the nose left the aim: {nose}");
+    }
+
+    #[test]
+    fn hop_assist_never_holds_altitude_and_climbs_when_asked() {
+        let spec = frame(FrameId::Leo);
+        let hop = HopAssist { up: Vec3::Y, cruise: 8.0, climb: 20.0 };
+        let fly = |thrust: [i8; 3], hop: Option<HopAssist>| {
+            let mut s = FlightState { vel: Vec3::new(0.0, -5.0, 0.0), ..state() };
+            let cmd = InputCmd { aim: Vec3::Z, thrust, buttons: FLIGHT_ASSIST, ..InputCmd::default() };
+            for _ in 0..90 {
+                step(&mut s, &cmd, spec, &FlightMods { hop, ..FlightMods::default() }, DT);
+            }
+            s.vel
+        };
+        // Stick forward: it runs at the cruise speed, and falls on as it was falling.
+        let v = fly([0, 0, 127], Some(hop));
+        assert!((v.z - 8.0).abs() < 0.05, "{v}");
+        assert_eq!(v.y, -5.0, "flight assist pushed along the normal");
+        // Plain flight assist would have stopped the fall.
+        assert!(fly([0, 0, 127], None).y.abs() < 0.05);
+        // Up on the stick, it climbs at the climb speed.
+        let v = fly([0, 127, 0], Some(hop));
+        assert!((v.y - 20.0).abs() < 0.05 && v.x.abs() < 1e-3 && v.z.abs() < 1e-3, "{v}");
     }
 }

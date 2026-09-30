@@ -5,6 +5,7 @@ use bc_proto::buttons::{
     BOOST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, JETTISON, MELEE, RCS_SHARP, STOW, THROW, ZERO,
 };
 use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, PilotKind};
+use bc_sim::field::{Rock, SUIT_CLEARANCE};
 use bc_sim::math::{hash01, look_rotation};
 use bc_sim::{Sim, SimConfig, SuitId};
 use glam::Vec3;
@@ -198,4 +199,35 @@ pub fn duel_scripted(sim: &Sim, id: SuitId, foe: SuitId, tick: u32) -> InputCmd 
         shot_seq: (tick / 10) as u8,
     }
     .quantized()
+}
+
+/// The smallest rock bigger than `min` m with nothing else within `clear` m of it.
+pub fn lone_rock(sim: &Sim, min: f32, clear: f32) -> (usize, Rock) {
+    let rocks = sim.field.rocks();
+    rocks
+        .iter()
+        .enumerate()
+        .filter(|(i, r)| {
+            r.radius > min
+                && rocks
+                    .iter()
+                    .enumerate()
+                    .all(|(j, o)| j == *i || o.pos.distance(r.pos) > r.radius + o.radius + clear)
+        })
+        .min_by(|a, b| a.1.radius.total_cmp(&b.1.radius))
+        .map(|(i, r)| (i, *r))
+        .expect("a lone rock")
+}
+
+/// A Colonies Leo at rest against rock `r`, just off its surface and facing away from it, and the
+/// way out from the rock there.
+pub fn resting_on(sim: &mut Sim, r: &Rock) -> (SuitId, Vec3) {
+    let dir = Vec3::new(1.0, 0.1, 0.3).normalize();
+    let surface = r.surface(r.pos - dir * (r.radius + 50.0), 0.0);
+    let out = -dir;
+    let pos = surface + out * (SUIT_CLEARANCE + 0.5);
+    let id = sim
+        .spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, pos, look_rotation(out, Vec3::Y))
+        .expect("slot");
+    (id, out)
 }

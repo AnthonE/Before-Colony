@@ -213,3 +213,32 @@ fn a_saber_cuts_limbs_off_a_hulk() {
         "mass went missing"
     );
 }
+
+#[test]
+fn a_sleeper_900_m_off_keeps_a_shattered_rock_from_growing_back() {
+    // PIN: flips in WP5. Regrowth waits on any suit within 1 km, asleep or awake: a sleeper
+    // drifting nowhere near the rock's place keeps it from growing back for as long as it sleeps.
+    let mut sim = sim();
+    let (i, rock) = lone_rock(&sim, 8.0, 60.0);
+    sim.rocks.hp[i] = 1.0;
+    let leo = miner(&mut sim, &rock, 0.0);
+    work(&mut sim, leo, rock.pos, 40, |t| if t % 30 < 3 { MELEE } else { 0 });
+    assert!(sim.rocks.destroyed.get(i));
+    sim.leave(leo);
+    let at = rock.pos + Vec3::new(0.3, 1.0, -0.2).normalize() * 900.0;
+    let facing = look_rotation(Vec3::Z, Vec3::Y);
+    let sleeper = sim.spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, at, facing).unwrap();
+    assert!(sim.sleep(sleeper));
+    // Well past the ten minutes it takes, it hasn't grown back...
+    for _ in 0..(11 * 60 * 30) {
+        sim.step();
+    }
+    assert!(sim.suits.flight[sleeper.idx()].pos.distance(rock.pos) < 1_000.0);
+    assert!(sim.rocks.destroyed.get(i), "grew back beside a sleeper 900 m off");
+    // ...until the sleeper is gone.
+    sim.leave(sleeper);
+    for _ in 0..(40 * 30) {
+        sim.step();
+    }
+    assert!(!sim.rocks.destroyed.get(i), "never grew back");
+}

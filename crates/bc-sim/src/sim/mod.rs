@@ -556,6 +556,8 @@ impl Sim {
             g_immune: s.pilot[i] == PilotKind::MobileDoll,
             lunge: s.melee[i].striking() && weapon(s.melee[i].weapon).melee.is_some_and(|m| m.lunge),
             extra_mass_kg,
+            roll_level: None,
+            hop: None,
         }
     }
 

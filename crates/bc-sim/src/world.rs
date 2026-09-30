@@ -13,15 +13,19 @@ pub const COLONY_HALF_LENGTH: f32 = 16_000.0;
 /// Hull clearance for suits, m.
 const HULL_MARGIN: f32 = 12.0;
 
-/// Keeps a suit inside the sector and outside the colony hull (inelastic contact).
-pub fn constrain(s: &mut FlightState) {
+/// Keeps a suit inside the sector and outside the colony hull (inelastic contact). Whether it had
+/// to move it.
+pub fn constrain(s: &mut FlightState) -> bool {
+    let mut moved = false;
     for i in 0..3 {
         if s.pos[i] > SECTOR_LIMIT {
             s.pos[i] = SECTOR_LIMIT;
             s.vel[i] = s.vel[i].min(0.0);
+            moved = true;
         } else if s.pos[i] < -SECTOR_LIMIT {
             s.pos[i] = -SECTOR_LIMIT;
             s.vel[i] = s.vel[i].max(0.0);
+            moved = true;
         }
     }
     if let Some((at, n)) = hull_contact(s.pos, HULL_MARGIN) {
@@ -30,7 +34,9 @@ pub fn constrain(s: &mut FlightState) {
         if vn < 0.0 {
             s.vel -= n * vn;
         }
+        moved = true;
     }
+    moved
 }
 
 /// Whether a sphere of radius `r` at `p` touches the colony: if so, the nearest point out of it (on

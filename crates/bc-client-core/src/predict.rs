@@ -219,6 +219,8 @@ impl Predictor {
             g_immune: false,
             lunge: false,
             extra_mass_kg: own.extra_mass_kg,
+            roll_level: None,
+            hop: None,
         }
     }
 

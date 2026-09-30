@@ -320,14 +320,19 @@ impl Field {
     /// Keeps a suit out of the rocks. Its move this tick (from `prev`) is swept: meeting a rock
     /// stops it there; ending inside one it was already touching, it slides along the surface. The
     /// first contact wins (a rock the suit is leaving is none). Either way the speed into the rock
-    /// is lost (inelastic, like the colony's hull).
-    pub fn collide(&self, prev: Vec3, s: &mut FlightState) {
+    /// is lost (inelastic, like the colony's hull). Whether it met a rock.
+    pub fn collide(&self, prev: Vec3, s: &mut FlightState) -> bool {
+        self.collide_except(prev, s, None)
+    }
+
+    /// [`Field::collide`], passing through rock `except` (the one a suit stands on).
+    pub fn collide_except(&self, prev: Vec3, s: &mut FlightState, except: Option<usize>) -> bool {
         let r = SUIT_CLEARANCE;
         let pad = Vec3::splat(r);
         let end = s.pos;
         let mut first: Option<(f32, usize)> = None;
         self.for_each_in_box(prev.min(end) - pad, prev.max(end) + pad, |i| {
-            if self.dead.get(i) {
+            if self.dead.get(i) || except == Some(i) {
                 return;
             }
             let rock = &self.rocks[i];
@@ -340,7 +345,7 @@ impl Field {
                 first = Some((t, i));
             }
         });
-        let Some((t, i)) = first else { return };
+        let Some((t, i)) = first else { return false };
         let rock = &self.rocks[i];
         let at = if t > 0.0 { prev + (end - prev) * t } else { rock.surface(end, r) };
         let n = rock.normal(at, r);
@@ -349,6 +354,7 @@ impl Field {
         if vn < 0.0 {
             s.vel -= n * vn;
         }
+        true
     }
 }
 

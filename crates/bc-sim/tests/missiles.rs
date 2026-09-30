@@ -4,6 +4,8 @@
 //! that finds nothing bursts at the end of its life; a full pool swallows launches.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
+mod common;
+
 use bc_proto::buttons::{FIRE_SECONDARY, MODE};
 use bc_proto::events::{BurstCause, Event};
 use bc_proto::snapshot::own_flags;
@@ -12,6 +14,7 @@ use bc_sim::content::{WeaponClass, frame, weapon};
 use bc_sim::math::look_rotation;
 use bc_sim::missiles::MAX_MISSILES;
 use bc_sim::{Sim, SimConfig, SuitId};
+use common::{lone_rock, resting_on};
 use glam::Vec3;
 
 fn empty() -> Sim {
@@ -256,4 +259,44 @@ fn a_full_pool_swallows_launches() {
     }
     assert_eq!(sim.suits.weapons[ha.idx()][1].ammo, ammo, "rounds spent on missiles that never left");
     assert_eq!(sim.missiles.count(), MAX_MISSILES);
+}
+
+#[test]
+fn a_guided_missile_keeps_homing_on_a_suit_that_parks() {
+    // PIN: flips in WP5. The seeker never asks whether its target parked and went dark: a salvo
+    // fired at a suit that then parks against a rock runs it down all the same.
+    let mut sim = Sim::new(SimConfig { target_dolls: 0, ..SimConfig::default() });
+    let (_, rock) = lone_rock(&sim, 20.0, 1_500.0);
+    let (leo, out) = resting_on(&mut sim, &rock);
+    // Ten seconds on the clock, so its sleep can be backdated by that much.
+    for _ in 0..300 {
+        sim.step();
+    }
+    let at = sim.suits.flight[leo.idx()].pos;
+    let ha = suit(&mut sim, FrameId::Heavyarms, Faction::Oz, at + out * 1_500.0, -out);
+    // Heavyarms crosses at 150 m/s: its missiles leave with that, so only homing brings them in.
+    let across = out.cross(Vec3::Y).normalize() * 150.0;
+    for _ in 0..LOCK_TICKS {
+        sim.suits.flight[ha.idx()].vel = across;
+        press(&mut sim, ha, 0, leo);
+        sim.step();
+    }
+    assert!(sim.missile_lock(ha.idx()).is_some());
+    let salvo = usize::from(weapon(WeaponKind::HomingMissile).salvo);
+    let from = sim.events.next_seq();
+    let mut k = 0;
+    while sim.missiles.count() < salvo {
+        press(&mut sim, ha, if k == 0 { FIRE_SECONDARY } else { 0 }, leo);
+        sim.step();
+        k += 1;
+        assert!(k < 30, "the salvo never left");
+    }
+    // The whole salvo away and homing, its target parks, as if it had slept for 10 s.
+    let i = leo.idx();
+    assert!(sim.sleep(leo) && sim.is_parked(i));
+    sim.suits.slept_at[i] = sim.tick() - 300;
+    for _ in 0..8 * 30 {
+        sim.step();
+    }
+    assert!(missile_hits(&sim, from, leo) > 0, "the seekers lost a parked suit");
 }
