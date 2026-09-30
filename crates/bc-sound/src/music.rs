@@ -1,8 +1,10 @@
 //! The score: two generated loops, and a director that crossfades them with the fight.
 //!
-//! - **Calm** (the title screen, cruising, mining): slow pads through Am9, Fmaj7, Cmaj7, Em7, six
-//!   seconds each, with a few soft plucks, drenched in reverb.
+//! - **Calm** (cruising, mining): slow pads through Am9, Fmaj7, Cmaj7, Em7, six seconds each,
+//!   with a few soft plucks, drenched in reverb.
 //! - **Combat**: 120 BPM, a pulsing bass ostinato, drums on the beat, a tense pad under it.
+//!
+//! The title screen has its own theme ([`crate::title`]), which gives way to them at launch.
 //!
 //! Each loop is rendered a little long and its tail folded back onto its head, so it repeats
 //! seamlessly (the reverb tail of the last bar rings into the first, as it would live). Oscillators
@@ -47,7 +49,7 @@ impl Table {
 }
 
 /// A note's frequency from its MIDI number.
-fn midi(n: f32) -> f32 {
+pub(crate) fn midi(n: f32) -> f32 {
     440.0 * 2f32.powf((n - 69.0) / 12.0)
 }
 
@@ -201,19 +203,28 @@ pub struct MusicIn {
     pub threatened: bool,
 }
 
-/// The two loops' gains.
+/// The loops' gains.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct MusicOut {
+    pub title: f32,
     pub calm: f32,
     pub combat: f32,
 }
 
 /// Follows the fight: intensity rises with combat and ebbs over tens of seconds, and the loops
 /// crossfade on it slowly (music that flips with every shot is noise).
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct Director {
     pub intensity: f32,
     out: MusicOut,
+}
+
+impl Default for Director {
+    /// The game opens on the title screen, its theme already up (its opening hits shouldn't fade
+    /// in).
+    fn default() -> Self {
+        Self { intensity: 0.0, out: MusicOut { title: 1.0, ..Default::default() } }
+    }
 }
 
 impl Director {
@@ -228,13 +239,14 @@ impl Director {
         let fight = ((self.intensity - 0.25) / 0.35).clamp(0.0, 1.0);
         let fight = fight * fight * (3.0 - 2.0 * fight);
         let target = if i.in_world {
-            MusicOut { calm: 0.7 * (1.0 - fight), combat: fight }
+            MusicOut { title: 0.0, calm: 0.7 * (1.0 - fight), combat: fight }
         } else {
-            // The title screen: the calm loop, full.
-            MusicOut { calm: 1.0, combat: 0.0 }
+            // The title screen: its theme, full.
+            MusicOut { title: 1.0, calm: 0.0, combat: 0.0 }
         };
         // Glide toward the target over a few seconds.
         let k = 1.0 - (-dt / 2.5).exp();
+        self.out.title += (target.title - self.out.title) * k;
         self.out.calm += (target.calm - self.out.calm) * k;
         self.out.combat += (target.combat - self.out.combat) * k;
         self.out
@@ -277,9 +289,14 @@ mod tests {
     }
 
     #[test]
-    fn the_title_plays_the_calm_loop() {
+    fn the_title_screen_plays_its_theme_until_launch() {
         let mut d = Director::default();
+        let out = d.frame(1.0 / 30.0, &MusicIn::default());
+        assert_eq!(out, MusicOut { title: 1.0, calm: 0.0, combat: 0.0 }, "up from the first frame");
         let out = run(&mut d, 10.0, MusicIn::default());
-        assert!(out.calm > 0.95 && out.combat < 0.01);
+        assert!(out.title > 0.99 && out.calm < 0.01 && out.combat < 0.01);
+        // Launching hands over to the calm loop.
+        let out = run(&mut d, 10.0, MusicIn { in_world: true, ..Default::default() });
+        assert!(out.title < 0.05 && out.calm > 0.6, "{out:?}");
     }
 }

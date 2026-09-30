@@ -1,7 +1,8 @@
 //! Before Colony's sound. Every cue is synthesised at boot from arithmetic ([`synth`]); there are
 //! no audio assets. The [`mixer`] picks which of a frame's requests get a voice and where they sit
 //! in the stereo field, [`cockpit`] turns the pilot's state into engine loops, lock tones and
-//! alarms, and [`music`] follows the fight.
+//! alarms, and [`music`] follows the fight. The title theme ([`title`]) plays on the Super
+//! Famicom's sound chip, in software ([`spc`]).
 //!
 //! Pure Rust: no Bevy, no clock, no I/O. The browser client plays what this decides through Web
 //! Audio (`bc-client/src/audio.rs`), and every rule here is a native test.
@@ -13,7 +14,9 @@
 pub mod cockpit;
 pub mod mixer;
 pub mod music;
+pub mod spc;
 pub mod synth;
+pub mod title;
 
 /// The bank's sample rate. The browser resamples to its own.
 pub const SAMPLE_RATE: u32 = 48_000;
@@ -126,6 +129,7 @@ cues!(
     CockpitHum,
     MusicCalm,
     MusicCombat,
+    MusicTitle,
 );
 
 /// How many cues there are.
@@ -208,6 +212,7 @@ impl Cue {
             Cue::CockpitHum => looped(Cockpit, 0.12),
             Cue::MusicCalm => looped(Music, 0.5),
             Cue::MusicCombat => looped(Music, 0.5),
+            Cue::MusicTitle => looped(Music, 0.5),
         }
     }
 
@@ -217,12 +222,19 @@ impl Cue {
     }
 }
 
-/// The sample rate a cue is rendered at: [`SAMPLE_RATE`], or the score's lower one.
+/// The sample rate a cue is rendered at: [`SAMPLE_RATE`], the score's lower one, or the sound
+/// chip's for the title theme.
 pub fn sample_rate(cue: Cue) -> u32 {
     match cue {
         Cue::MusicCalm | Cue::MusicCombat => music::MUSIC_RATE,
+        Cue::MusicTitle => spc::RATE,
         _ => SAMPLE_RATE,
     }
+}
+
+/// A cue's channels: the title theme is stereo, the rest mono.
+pub fn channels(cue: Cue) -> usize {
+    if cue == Cue::MusicTitle { 2 } else { 1 }
 }
 
 /// How much of a positional cue reaches the pilot from `dist` m away: 1 up close, falling off with
