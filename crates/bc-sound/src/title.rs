@@ -1,13 +1,16 @@
 //! The title theme: an original piece in the manner of a mid-90s anime opening as a Super Famicom
-//! game played it, at 143 BPM in E minor, 28 bars (about 47 s) that loop. It plays on the
+//! game played it, at 143 BPM in E minor, 36 bars (about 60 s) that loop. It plays on the
 //! [`crate::spc`] chip: eight voices, instruments stored as BRR, the chip's echo.
 //!
 //! - **Intro** (bars 1-4): orchestra hits, brass, power chords and bass on a 3-3-2, a tom fill.
 //! - **Hook** (5-8): the guitar lead over the full groove, Em C D B, open hats on the off-beats.
 //! - **Verse** (9-16): Em C D, sparser, a choir and eighth-note arpeggios.
-//! - **Pre-chorus** (17-20): Am Bm C B, brass climbing over muted chugs, a snare roll.
-//! - **Chorus** (21-28): C D Bm Em (J-pop's "royal road"), power chords in eighths, a second
-//!   guitar in harmony, and a fill back to the top.
+//! - **Pre-chorus** (17-20): Am Bm C B, brass climbing over muted chugs, then the band stops dead
+//!   and a snare roll and the lead carry it into...
+//! - **Chorus** (21-28): C D Bm Em (J-pop's "royal road") with sevenths in a falling string line,
+//!   power chords in eighths, a second guitar in harmony, the melody's high notes leaning on the
+//!   chord before they resolve.
+//! - **Last chorus** (29-36): a whole step up, with the choir, turning back to E minor for the top.
 //!
 //! The score is MML (music macro language, the way SNES composers wrote), a string a voice, with
 //! the drums as step grids. The instruments are the kinds the era's anime games carried (an
@@ -23,7 +26,7 @@ use crate::synth::{Lp, Rng};
 /// Beats a minute.
 pub const BPM: f64 = 143.0;
 /// Bars before it loops.
-pub const BARS: u32 = 28;
+pub const BARS: u32 = 36;
 /// Ticks a bar of 4/4 (an MML whole note), as sound drivers count them.
 const BAR: u32 = 192;
 /// Samples a tick.
@@ -406,7 +409,7 @@ fn gated(len: u32, q: u32) -> u32 {
 /// Reads MML: `o4` octave (o4 c is middle C), `<` `>` down and up one; notes `c d e f g a b` with
 /// `+` sharp or `-` flat, then a length (`4` a quarter, `8.` a dotted eighth, none: the `l`
 /// default); `^` ties more on, `r` rests; `@n` instrument, `v` volume (0-127), `y` pan (0 left,
-/// 10 centre, 20 right), `q` gate (sounds q/8 of a note); `[...]n` repeats; `|` a bar line, which
+/// 10 centre, 20 right), `q` gate (sounds q/8 of a note), `k` transpose (semitones up); `[...]n` repeats; `|` a bar line, which
 /// is checked; `;` a comment to the end of the line.
 ///
 /// The score is a constant, so a mistake in it panics (and the tests play it).
@@ -421,6 +424,7 @@ fn mml(src: &str) -> Part {
         vol: 64,
         pan: 10,
         gate: 8,
+        transpose: 0,
         notes: Vec::new(),
         tied: None,
     };
@@ -441,6 +445,8 @@ struct Mml<'a> {
     notes: Vec<Note>,
     /// The last note's full length and gate, while a `^` may still lengthen it.
     tied: Option<(u32, u32)>,
+    /// Semitones every note is moved by (`k`).
+    transpose: i32,
 }
 
 impl Mml<'_> {
@@ -468,6 +474,7 @@ impl Mml<'_> {
                 b'v' => self.vol = self.number() as u8,
                 b'y' => self.pan = self.number() as u8,
                 b'q' => self.gate = self.number(),
+                b'k' => self.transpose = self.number() as i32,
                 b'[' => {
                     let body = self.at;
                     self.seq(depth + 1);
@@ -503,7 +510,8 @@ impl Mml<'_> {
     }
 
     fn note(&mut self, name: u8) {
-        let mut key = 12 * (self.octave + 1)
+        let mut key = self.transpose
+            + 12 * (self.octave + 1)
             + match name {
                 b'c' => 0,
                 b'd' => 2,
@@ -627,6 +635,18 @@ fn steps(grid: &str) -> Part {
     Part { notes, ticks: tick }
 }
 
+/// A melodic voice's whole part: up to the chorus, the chorus turning on B, then the last chorus a
+/// whole step up (the lift of an anime opening's last chorus: E minor to F# minor, `last` setting
+/// anything it adds) turning back down on B to E minor at the top.
+fn song(verse: &str, chorus: &str, turn: &str, last: &str) -> String {
+    format!("{verse}{chorus}{turn} k2 {last} {chorus} k0 {turn}")
+}
+
+/// A drum voice's: the same shape, untransposed.
+fn beat(verse: &str, chorus: &str, turn: &str) -> String {
+    format!("{verse}{chorus}{turn}{chorus}{turn}")
+}
+
 const LEAD: &str = "
 @0 v31 y8 q7 o5
 ; Intro: the orchestra has it.
@@ -645,21 +665,26 @@ r8 b8 b8 >e8 g8. f+8. e8 |
 d8. e8. d8 <b2 |
 r8 >c8 e8 g8 a8. g8. e8 |
 f+8. e8. d8 <a2 |
-; Pre-chorus: Am Bm C B, climbing.
+; Pre-chorus: Am Bm C B, climbing, then alone over the band's stop.
 >e4. d8 c4 <a4 |
 >f+4. e8 d4 <b4 |
 >g4. e8 g4 >c4 |
 <b2 a4 f+8 d+8 |
-; Chorus: C D | Bm Em | C D | Em, then again to B.
+";
+
+/// C D | Bm Em | C D | Em, and again; the Em's C falls to B (a sigh over the chord).
+const LEAD_CHORUS: &str = "
+o5
 g4. e8 f+4 g8 a8 |
 b4. a8 g4 f+8 e8 |
 e8 e8 g8 >c8< a4 f+8 a8 |
-b2^8 a8 g8 f+8 |
+>c4< b2. |
 g4. e8 f+4 g8 a8 |
 b4. >d8 e4 d8 <b8 |
 >c4< b8 g8 a4 f+8 a8 |
-b4. a8 f+4 d+4 |
 ";
+
+const LEAD_TURN: &str = "o5 b4. a8 f+4 d+4 |";
 
 /// The chords' upper voice.
 const HIGH: &str = "
@@ -673,14 +698,21 @@ b1 | g1 | a1 | f+1 |
 ; Verse: choir.
 @12 v14
 b1 | ^1 | g1 | a1 | b1 | ^1 | g1 | a1 |
-; Pre-chorus: brass, climbing.
+; Pre-chorus: brass, climbing, then the stop.
 @3 v15 q3 o5
 e4. e4. e4 | f+4. f+4. f+4 | g4. g4. g4 |
-q8 f+1 |
-; Chorus: strings, two chords a bar.
-@2 v13 o4
-g2 a2 | f+2 b2 | g2 a2 | b1 | g2 a2 | f+2 b2 | g2 a2 | f+1 |
+q4 f+4 r2. |
+@2 v13 q8
 ";
+
+/// A line falling through the chords' sevenths (Cmaj7 D Bm7 Em7), then rising.
+const HIGH_CHORUS: &str = "
+o4
+b2 a2 | a2 g2 | g2 f+2 | e1 |
+b2 a2 | b2 >d2< | >e2 f+2< |
+";
+
+const HIGH_TURN: &str = "o5 d+1 |";
 
 /// The chords' lower voice: guitar power chords, strings and choir.
 const LOW: &str = "
@@ -694,14 +726,19 @@ g1 | e1 | f+1 | d+1 |
 ; Verse: choir.
 @12 v14
 g1 | ^1 | e1 | f+1 | g1 | ^1 | e1 | f+1 |
-; Pre-chorus: muted chugs on the roots.
+; Pre-chorus: muted chugs on the roots, then the stop.
 @11 v22 q3 o3
-[a8]8 | [b8]8 | >[c8]8< | q8 b1 |
-; Chorus: power chords in eighths, two chords a bar.
-q4
-[c8]4 [d8]4 | <[b8]4> [e8]4 | [c8]4 [d8]4 | [e8]8 |
-[c8]4 [d8]4 | <[b8]4> [e8]4 | [c8]4 [d8]4 | q8 <b1> |
+[a8]8 | [b8]8 | >[c8]8< | q4 b4 r2. |
 ";
+
+/// Power chords in eighths, two chords a bar.
+const LOW_CHORUS: &str = "
+@11 v22 q4 o3
+[c8]4 [d8]4 | <[b8]4> [e8]4 | [c8]4 [d8]4 | [e8]8 |
+[c8]4 [d8]4 | <[b8]4> [e8]4 | [c8]4 [d8]4 |
+";
+
+const LOW_TURN: &str = "q8 o2 b1 |";
 
 const BASS: &str = "
 @1 v40 y10 q6
@@ -718,9 +755,12 @@ d8 d8 d8 d8 d8 d8 >d8< d8 |
 [e8 e8 e8 e8 e8 e8 >e8< e8 |]2
 c8 c8 c8 c8 c8 c8 >c8< c8 |
 d8 d8 d8 d8 d8 d8 >d8< d8 |
-; Pre-chorus: climbing.
-o2 [a8 >a8<]4 | [b8 >b8<]4 | o3 [c8 >c8<]4 | o2 [b8 >b8<]4 |
-; Chorus: two chords a bar.
+; Pre-chorus: climbing, then the stop.
+o2 [a8 >a8<]4 | [b8 >b8<]4 | o3 [c8 >c8<]4 | o2 b4 r2. |
+";
+
+/// Octaves, two chords a bar.
+const BASS_CHORUS: &str = "
 o2 [c8 >c8<]2 [d8 >d8<]2 |
 o1 [b8 >b8<]2 o2 [e8 >e8<]2 |
 [c8 >c8<]2 [d8 >d8<]2 |
@@ -728,10 +768,11 @@ o1 [b8 >b8<]2 o2 [e8 >e8<]2 |
 [c8 >c8<]2 [d8 >d8<]2 |
 o1 [b8 >b8<]2 o2 [e8 >e8<]2 |
 [c8 >c8<]2 [d8 >d8<]2 |
-o1 [b8 >b8<]4 |
 ";
 
-/// Orchestra hits, arpeggios, then the chorus's harmony.
+const BASS_TURN: &str = "o1 [b8 >b8<]4 |";
+
+/// Orchestra hits, arpeggios, then the chorus's second guitar.
 const COLOUR: &str = "
 ; Intro: orchestra hits.
 @5 v33 y11 q8 o4
@@ -751,23 +792,27 @@ f+ a > d f+ d < a f+ a |
 [e g b > e < b g e g |]2
 e g > c e c < g e g |
 f+ a > d f+ d < a f+ a |
-; Pre-chorus: sixteenths.
+; Pre-chorus: sixteenths, then an orchestra hit on the stop.
 l16
 [e a > c e c < a e a]2 |
 [f+ b > d f+ d < b f+ b]2 |
 [e g > c e c < g e g]2 |
-[f+ b > d+ f+ d+ < b f+ b]2 |
-; Chorus: a harmony under the lead.
+@5 v33 q8 o3 b4 r2. |
+";
+
+/// A harmony a third or so under the lead.
+const COLOUR_CHORUS: &str = "
 @0 v19 y14 q7 l8 o5
 e4. c8 d4 e8 f+8 |
 f+4. f+8 e4 d8 <b8 |
 >c8 c8 e8 g8 f+4 d8 f+8 |
-g2^8 f+8 e8 d8 |
+a4 g2. |
 e4. c8 d4 e8 f+8 |
 f+4. b8 b4 b8 g8 |
 g4 g8 e8 f+4 d8 f+8 |
-f+4. f+8 d+4 <b4 |
 ";
+
+const COLOUR_TURN: &str = "o5 f+4. f+8 d+4 <b4 |";
 
 const KICKS: &str = "
 ; Intro
@@ -777,12 +822,16 @@ k...k...k...k... | k...k...k...k... | k...k...k...k... | k...k...k...k... |
 ; Verse
 k.....k.k....... | k.....k.k....... | k.....k.k....... | k.....k.k....... |
 k.....k.k....... | k.....k.k....... | k.....k.k....... | k.....k.k...k.k. |
-; Pre-chorus
-k...k...k...k... | k...k...k...k... | k...k...k...k... | k...k...k.k.k.k. |
-; Chorus
-k...k...k...k... | k...k...k...k... | k...k...k...k... | k...k...k...k... |
-k...k...k...k... | k...k...k...k... | k...k...k...k... | k...k...k.k.k.k. |
+; Pre-chorus, and the stop.
+k...k...k...k... | k...k...k...k... | k...k...k...k... | k............... |
 ";
+
+const KICKS_CHORUS: &str = "
+k...k...k...k... | k...k...k...k... | k...k...k...k... | k...k...k...k... |
+k...k...k...k... | k...k...k...k... | k...k...k...k... |
+";
+
+const KICKS_TURN: &str = "k...k...k.k.k.k. |";
 
 const SNARES: &str = "
 ; Intro: on the hits, then a fill.
@@ -792,12 +841,16 @@ S.....S.....S... | S.....S.....S... | S.....S.....S... | ....s...ttmmffSS |
 ; Verse
 ....s.......s... | ....s.......s... | ....s.......s... | ....s.......s... |
 ....s.......s... | ....s.......s... | ....s.......s... | ....s.......s.ss |
-; Pre-chorus: a roll into the chorus.
+; Pre-chorus: a roll through the stop into the chorus.
 ....s.......s... | ....s.......s... | ....s.......s... | s.s.s.s.ssssSSSS |
-; Chorus
-....S.......S... | ....S.......S... | ....S.......S... | ....S.......S... |
-....S.......S... | ....S.......S... | ....S.......S... | ....S...ttmmffSS |
 ";
+
+const SNARES_CHORUS: &str = "
+....S.......S... | ....S.......S... | ....S.......S... | ....S.......S... |
+....S.......S... | ....S.......S... | ....S.......S... |
+";
+
+const SNARES_TURN: &str = "....S...ttmmffSS |";
 
 const CYMBALS: &str = "
 ; Intro: a crash on each bar.
@@ -807,25 +860,29 @@ x.......h.o.h.o. | h.o.h.o.h.o.h.o. | h.o.h.o.h.o.h.o. | h.o.h.o.h.o.h.o. |
 ; Verse
 x.......h.h.h.h. | h.h.h.h.h.h.h.h. | h.h.h.h.h.h.h.h. | h.h.h.h.h.h.h.h. |
 h.h.h.h.h.h.h.h. | h.h.h.h.h.h.h.h. | h.h.h.h.h.h.h.h. | h.h.h.h.h.h.h.h. |
-; Pre-chorus
-x.......hhhhhhhh | hhhhhhhhhhhhhhhh | hhhhhhhhhhhhhhhh | hhhhhhhhhhhhhhhh |
-; Chorus
-x.......h.o.h.o. | h.o.h.o.h.o.h.o. | h.o.h.o.h.o.h.o. | h.o.h.o.h.o.h.o. |
-x.......h.o.h.o. | h.o.h.o.h.o.h.o. | h.o.h.o.h.o.h.o. | x............... |
+; Pre-chorus, and a crash on the stop.
+x.......hhhhhhhh | hhhhhhhhhhhhhhhh | hhhhhhhhhhhhhhhh | x............... |
 ";
 
+const CYMBALS_CHORUS: &str = "
+x.......h.o.h.o. | h.o.h.o.h.o.h.o. | h.o.h.o.h.o.h.o. | h.o.h.o.h.o.h.o. |
+x.......h.o.h.o. | h.o.h.o.h.o.h.o. | h.o.h.o.h.o.h.o. |
+";
+
+const CYMBALS_TURN: &str = "x............... |";
+
 /// The eight voices' parts, and whether each goes to the echo (the bass, kick and cymbals stay
-/// dry).
+/// dry). The last chorus's upper voice is the choir.
 fn score() -> [(Part, bool); spc::VOICES] {
     [
-        (mml(LEAD), true),
-        (mml(HIGH), true),
-        (mml(LOW), true),
-        (mml(BASS), false),
-        (mml(COLOUR), true),
-        (steps(KICKS), false),
-        (steps(SNARES), true),
-        (steps(CYMBALS), false),
+        (mml(&song(LEAD, LEAD_CHORUS, LEAD_TURN, "")), true),
+        (mml(&song(HIGH, HIGH_CHORUS, HIGH_TURN, "@12 v15")), true),
+        (mml(&song(LOW, LOW_CHORUS, LOW_TURN, "")), true),
+        (mml(&song(BASS, BASS_CHORUS, BASS_TURN, "")), false),
+        (mml(&song(COLOUR, COLOUR_CHORUS, COLOUR_TURN, "")), true),
+        (steps(&beat(KICKS, KICKS_CHORUS, KICKS_TURN)), false),
+        (steps(&beat(SNARES, SNARES_CHORUS, SNARES_TURN)), true),
+        (steps(&beat(CYMBALS, CYMBALS_CHORUS, CYMBALS_TURN)), false),
     ]
 }
 
@@ -947,12 +1004,14 @@ mod tests {
     }
 
     #[test]
-    fn the_notes_are_in_e_minor() {
-        // E natural minor, and D# for the B major chords (the drums are unpitched).
+    fn the_notes_are_in_key() {
+        // E natural minor, and D# for the B major chords (the drums are unpitched); the last
+        // chorus (bars 29-35) a whole step up.
         let scale = [4, 6, 7, 9, 11, 0, 2, 3];
         for (p, _) in score().into_iter().take(5) {
             for n in &p.notes {
-                assert!(scale.contains(&(n.key % 12)), "key {} at tick {}", n.key, n.on);
+                let up = if (28 * BAR..35 * BAR).contains(&n.on) { 2 } else { 0 };
+                assert!(scale.contains(&((n.key - up) % 12)), "key {} at tick {}", n.key, n.on);
             }
         }
     }
