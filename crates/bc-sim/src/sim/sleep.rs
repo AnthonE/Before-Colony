@@ -11,17 +11,18 @@
 //! the longest asleep is cleared.
 //!
 //! What a suit can rest on is a [`Body`] (`crate::bodies`): an asteroid of the field, or a
-//! landmark. Its pose is in [`Sim::body_pose`].
+//! landmark. Its pose is in [`Bodies::pose`].
 
 use bc_proto::InputCmd;
 use glam::{Quat, Vec3};
 
 use super::Sim;
-use crate::bodies::{Body, landmark_pose};
+use crate::bodies::{Bodies, Body};
 use crate::config::DT;
-use crate::field::SUIT_CLEARANCE;
+use crate::field::{Field, SUIT_CLEARANCE};
 use crate::handle::SuitId;
 use crate::math::{integrate_rotation, length, normalize_or};
+use crate::suits::Suits;
 
 /// The fastest a suit can be moving and still park, m/s.
 pub const PARK_SPEED: f32 = 3.0;
@@ -61,22 +62,6 @@ pub struct SleeperFate {
 }
 
 impl Sim {
-    /// The pose of `body` now (rocks don't move; landmarks do).
-    fn body_pose(&self, body: Body) -> Option<(Vec3, Quat)> {
-        match body {
-            Body::None => None,
-            Body::Rock(r) => {
-                let i = usize::from(r);
-                let rock = self.field.rocks().get(i)?;
-                (!self.field.is_dead(i)).then_some((rock.pos, rock.rot))
-            }
-            Body::Landmark(k) => {
-                let p = landmark_pose(self.landmarks().get(usize::from(k))?, self.tick(), 0.0);
-                Some((p.pos, p.rot))
-            }
-        }
-    }
-
     /// The rock suit `i` is resting against, if it could park there now.
     pub fn parkable(&self, i: usize) -> Option<u16> {
         let f = &self.suits.flight[i];
@@ -207,46 +192,46 @@ impl Sim {
         }
         self.fates.clear();
     }
+}
 
-    /// A sleeper's tick of motion: held to its body, or drifting.
-    pub(crate) fn sleeper_drift(&mut self, i: usize) {
-        let anchor = self.suits.anchor[i];
-        if anchor.body != Body::None {
-            match self.body_pose(anchor.body) {
-                Some((pos, rot)) => {
-                    let f = &mut self.suits.flight[i];
-                    f.pos = pos + rot * anchor.local;
-                    f.rot = rot * anchor.rot;
-                    f.vel = Vec3::ZERO;
-                    f.ang_vel = Vec3::ZERO;
-                    return;
-                }
-                None => {
-                    // The rock is gone: float off it.
-                    let away = anchor_normal(self.suits.flight[i].pos, anchor, self);
-                    self.suits.flight[i].vel = away * UNPARK_SPEED;
-                    self.suits.anchor[i] = Anchor::default();
-                }
+/// A sleeper's tick of motion: held to its body, or drifting (and fetching up against rocks, the
+/// colony and the landmarks, as a free suit does).
+pub(crate) fn sleeper_drift(suits: &mut Suits, bodies: &Bodies, i: usize) {
+    let anchor = suits.anchor[i];
+    if anchor.body != Body::None {
+        match bodies.pose(anchor.body).filter(|_| bodies.alive(anchor.body)) {
+            Some(p) => {
+                let f = &mut suits.flight[i];
+                f.pos = p.pos + p.rot * anchor.local;
+                f.rot = p.rot * anchor.rot;
+                f.vel = Vec3::ZERO;
+                f.ang_vel = Vec3::ZERO;
+                return;
+            }
+            None => {
+                // The rock is gone: float off it.
+                let away = anchor_normal(suits.flight[i].pos, anchor, bodies.field);
+                suits.flight[i].vel = away * UNPARK_SPEED;
+                suits.anchor[i] = Anchor::default();
             }
         }
-        let f = &mut self.suits.flight[i];
-        let prev = f.pos;
-        f.pos += f.vel * DT;
-        f.rot = integrate_rotation(f.rot, f.ang_vel, DT);
-        self.field.collide(prev, f);
-        crate::world::constrain(f);
-        self.suits.boosting[i] = false;
     }
+    let f = &mut suits.flight[i];
+    let prev = f.pos;
+    f.pos += f.vel * DT;
+    f.rot = integrate_rotation(f.rot, f.ang_vel, DT);
+    bodies.field.collide(prev, f);
+    crate::world::constrain(f);
+    bodies.collide_landmarks(prev, f, None);
+    suits.boosting[i] = false;
 }
 
 /// Which way is off the (now shattered) rock a suit was parked on.
-fn anchor_normal(pos: Vec3, anchor: Anchor, sim: &Sim) -> Vec3 {
+fn anchor_normal(pos: Vec3, anchor: Anchor, field: &Field) -> Vec3 {
     match anchor.body {
-        Body::Rock(r) => sim
-            .field
-            .rocks()
-            .get(usize::from(r))
-            .map_or(Vec3::Y, |rock| normalize_or(pos - rock.pos, Vec3::Y)),
+        Body::Rock(r) => {
+            field.rocks().get(usize::from(r)).map_or(Vec3::Y, |rock| normalize_or(pos - rock.pos, Vec3::Y))
+        }
         // Landmarks never go away.
         Body::Landmark(_) | Body::None => Vec3::Y,
     }

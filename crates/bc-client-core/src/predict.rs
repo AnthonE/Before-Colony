@@ -17,7 +17,9 @@ use bc_proto::buttons::MODE;
 use bc_proto::snapshot::own_flags;
 use bc_proto::{FrameId, InputCmd, OwnState};
 use bc_sim::arms::{ArmsClock, busy_ambac};
+use bc_sim::bodies::Bodies;
 use bc_sim::content::frame;
+use bc_sim::content::landmarks::LANDMARKS;
 use bc_sim::field::Field;
 use bc_sim::flight::{FlightMods, FlightOut, FlightState, step_in};
 use bc_sim::math::integrate_rotation;
@@ -251,7 +253,11 @@ impl Predictor {
             mods.ambac = busy_ambac(mods.ambac);
         }
         mods.lunge = arms.lunging(spec);
+        let prev = s.pos;
         let out = step_in(field, s, cmd, spec, &mods, DT);
+        // The landmarks are as solid here as on the server. Every one of them, until the Welcome
+        // says how many the sector has.
+        Bodies::at(field, &LANDMARKS, cmd.tick).collide_landmarks(prev, s, None);
         arms.tick(spec, cmd, form.changing(), cmd.tick);
         out
     }

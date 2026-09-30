@@ -5,6 +5,8 @@ use bc_proto::buttons::{
     BOOST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, JETTISON, MELEE, RCS_SHARP, STOW, THROW, ZERO,
 };
 use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, PilotKind};
+use bc_sim::bodies::{Bodies, Body, BodyPose, Probe};
+use bc_sim::content::landmarks::LANDMARKS;
 use bc_sim::field::{Rock, SUIT_CLEARANCE};
 use bc_sim::math::{hash01, look_rotation};
 use bc_sim::{Sim, SimConfig, SuitId};
@@ -230,4 +232,22 @@ pub fn resting_on(sim: &mut Sim, r: &Rock) -> (SuitId, Vec3) {
         .spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, pos, look_rotation(out, Vec3::Y))
         .expect("slot");
     (id, out)
+}
+
+/// Landmark `k` as it is now (whether or not the sector has it): its pose, and the probe of its surface at `p` (sector frame; the
+/// normal is turned into the sector's frame too).
+pub fn landmark_probe(sim: &Sim, k: u8, p: Vec3) -> (BodyPose, Probe) {
+    let bodies = Bodies::at(&sim.field, &LANDMARKS, sim.tick());
+    let pose = bodies.pose(Body::Landmark(k)).expect("a landmark");
+    let pr = bodies.shape(Body::Landmark(k)).expect("a landmark").probe(pose.to_local(p));
+    (pose, Probe { dist: pr.dist, normal: pose.rot * pr.normal })
+}
+
+/// The outer surface of landmark `k` straight out from its origin along `dir` (its frame), as it
+/// is now (whether or not the sector has it): the point and the outward normal, in the sector's frame.
+pub fn landmark_surface(sim: &Sim, k: u8, dir: Vec3) -> (Vec3, Vec3) {
+    let bodies = Bodies::at(&sim.field, &LANDMARKS, sim.tick());
+    let pose = bodies.pose(Body::Landmark(k)).expect("a landmark");
+    let (p, n) = bodies.surface_along(Body::Landmark(k), dir).expect("a surface");
+    (pose.to_world(p), pose.rot * n)
 }

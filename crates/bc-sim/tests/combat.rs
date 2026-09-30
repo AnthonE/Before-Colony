@@ -151,9 +151,9 @@ fn saber_cuts_and_clashes() {
 }
 
 #[test]
-fn a_suit_skimming_the_colony_is_not_hit_by_a_shot_aimed_at_it() {
-    // PIN: flips in WP3. A shot dies the tick its path ends inside the colony, before anything
-    // along that path is tested: a suit skimming the hull is shielded by the hull behind it.
+fn a_suit_skimming_the_colony_is_hit_by_a_shot_aimed_at_it() {
+    // A shot whose tick ends inside the colony meets whatever is first along that path: a suit
+    // skimming the hull is hit before the hull behind it stops the shot.
     let mut sim = empty();
     let top = COLONY_CENTER + Vec3::Y * (COLONY_RADIUS + 12.5);
     let target = human(&mut sim, FrameId::Taurus, Faction::Oz, top, Vec3::Z);
@@ -184,9 +184,9 @@ fn a_suit_skimming_the_colony_is_not_hit_by_a_shot_aimed_at_it() {
     let caps = &frame(FrameId::Taurus).capsules;
     assert!(sweep_capsules(a, b, r, caps, t.pos, t.rot, 0).is_some(), "the shot's path missed the suit");
     assert!(inside_colony(b));
-    // ...and the suit was never hit.
+    // ...and it hit the suit.
     let hit = events_since(&sim, from)
         .iter()
         .any(|e| matches!(e, Event::Hit { target: j, .. } if *j as usize == target.idx()));
-    assert!(!hit, "the shot reached the suit before the hull");
+    assert!(hit, "the hull stopped the shot before the suit");
 }

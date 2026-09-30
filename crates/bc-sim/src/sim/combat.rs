@@ -6,6 +6,7 @@ use bc_proto::{ChunkDesc, ChunkKind, InputCmd, NO_CHUNK, Part, PilotKind, Segmen
 use glam::Vec3;
 
 use super::{DamageEvent, Sim};
+use crate::bodies::sweep_landmarks;
 use crate::chunks::Motion;
 use crate::collide::{segment_near_point, sweep_capsules};
 use crate::config::{DT, MAX_REWIND_TICKS, secs};
@@ -13,7 +14,18 @@ use crate::content::salvage::{DETACH_PUSH, DETACH_SPEED, bounty, mass_without, p
 use crate::content::{Mount, Replication, WeaponClass, WeaponSpec, frame, weapon};
 use crate::math::{angle_between, clamp_to_cone, hash01, normalize_or};
 use crate::suits::{SPECIAL_SLOTS, WeaponState};
-use crate::world::inside_colony;
+use crate::world::colony_sweep;
+
+/// What stops a shot, a missile or a flame short of a suit ([`Sim::first_blocker`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Blocker {
+    /// An asteroid of the field, by index (a shot works it: `rock_hit`).
+    Rock(usize),
+    /// A landmark, by index.
+    Landmark(u8),
+    /// The colony's hull, or an end cap.
+    Colony,
+}
 
 /// ZERO fire-time magnetism: shots this close to the ZERO firing solution snap to it.
 pub const MAGNET_ANGLE: f32 = 0.026; // 1.5°
@@ -178,19 +190,21 @@ impl Sim {
         let frac = if rewind > 0 { (view_q4 & 15) as f32 / 16.0 } else { 0.0 };
         let spawn_tick = t - rewind;
         let faction = s.faction[i];
+        // Rocks, landmarks and the colony stop it too, the landmarks where they were then.
         let mut p = muzzle;
         let mut hit = None;
         let mut blocked = None;
         for k in 0..rewind {
             let b = p + vel * DT;
-            let rock = self.field.sweep(p, b, w.radius);
-            match self.sweep_history(p, b, w.radius, i, faction, spawn_tick + k, frac) {
-                Some((s, j, part)) if rock.is_none_or(|(t, _)| s <= t) => {
+            let when = spawn_tick + k;
+            let blocker = self.first_blocker(p, b, w.radius, when, frac);
+            match self.sweep_history(p, b, w.radius, i, faction, when, frac) {
+                Some((s, j, part)) if blocker.is_none_or(|(t, _)| s <= t) => {
                     hit = Some((j, part));
                     break;
                 }
-                _ if rock.is_some() => {
-                    blocked = rock.map(|(f, r)| (r, p + (b - p) * f));
+                _ if blocker.is_some() => {
+                    blocked = blocker.map(|(f, what)| (what, p + (b - p) * f));
                     break;
                 }
                 _ => {}
@@ -210,7 +224,9 @@ impl Sim {
         }
         match (hit, blocked) {
             (Some((target, part)), _) => self.queue_damage(target, part, w.damage, i, w.kind, dir),
-            (None, Some((rock, at))) => self.rock_hit(rock, w.damage, w.kind, at, dir, i, t),
+            (None, Some((Blocker::Rock(rock), at))) => self.rock_hit(rock, w.damage, w.kind, at, dir, i, t),
+            // A landmark or the colony just takes it.
+            (None, Some(_)) => {}
             (None, None) => {
                 let ttl = w.ttl_ticks().saturating_sub(rewind);
                 if ttl > 0 {
@@ -218,6 +234,33 @@ impl Sim {
                 }
             }
         }
+    }
+
+    /// The first thing other than a suit that a sphere of radius `r` meets moving from `a` to `b`:
+    /// a rock, a landmark as it was at tick `t` plus `frac` of the next, or the colony. How far
+    /// along (0..1), and which. A tie goes to the rock, then the landmark. Shots, missiles and
+    /// flame all stop at it; a suit before it, or level with it, is hit.
+    pub(crate) fn first_blocker(
+        &self,
+        a: Vec3,
+        b: Vec3,
+        r: f32,
+        t: u32,
+        frac: f32,
+    ) -> Option<(f32, Blocker)> {
+        let mut first = self.field.sweep(a, b, r).map(|(s, i)| (s, Blocker::Rock(i)));
+        let mut meet = |s: f32, what: Blocker| {
+            if first.is_none_or(|(f, _)| s < f) {
+                first = Some((s, what));
+            }
+        };
+        if let Some((s, k)) = sweep_landmarks(self.landmarks(), a, b, r, t, frac) {
+            meet(s, Blocker::Landmark(k));
+        }
+        if let Some(s) = colony_sweep(a, b, r) {
+            meet(s, Blocker::Colony);
+        }
+        first
     }
 
     /// Swept test against suits as they were at `when + frac` (lag compensation).
@@ -265,10 +308,6 @@ impl Sim {
             }
             let a = self.projectiles.pos[k];
             let b = a + self.projectiles.vel[k] * DT;
-            if inside_colony(b) {
-                self.projectiles.kill(k);
-                continue;
-            }
             let r = self.projectiles.radius[k];
             let owner = self.projectiles.owner[k] as usize;
             let of = self.projectiles.owner_faction[k];
@@ -291,20 +330,23 @@ impl Sim {
                     best = Some((s, j, cap));
                 }
             });
-            // Rocks stop shots, and are worked by them: whichever is met first along this tick's path.
-            let rock = self.field.sweep(a, b, r);
+            // Rocks, landmarks and the colony stop shots (rocks are worked by them): whichever is
+            // met first along this tick's path, a suit included. A suit skimming the hull is hit.
+            let blocker = self.first_blocker(a, b, r, t, 0.0);
             let shot = |p: &crate::projectiles::Projectiles| {
                 (p.kind[k], p.damage[k], normalize_or(p.vel[k], Vec3::Z))
             };
-            match (best, rock) {
-                (Some((s, j, cap)), _) if rock.is_none_or(|(t, _)| s <= t) => {
+            match (best, blocker) {
+                (Some((s, j, cap)), _) if blocker.is_none_or(|(t, _)| s <= t) => {
                     let (kind, dmg, dir) = shot(&self.projectiles);
                     self.queue_damage(j, Part::ALL[cap], dmg, owner, kind, dir);
                     self.projectiles.kill(k);
                 }
-                (_, Some((f, which))) => {
-                    let (kind, dmg, dir) = shot(&self.projectiles);
-                    self.rock_hit(which, dmg, kind, a + (b - a) * f, dir, owner, t);
+                (_, Some((f, what))) => {
+                    if let Blocker::Rock(which) = what {
+                        let (kind, dmg, dir) = shot(&self.projectiles);
+                        self.rock_hit(which, dmg, kind, a + (b - a) * f, dir, owner, t);
+                    }
                     self.projectiles.kill(k);
                 }
                 _ => self.projectiles.pos[k] = b,

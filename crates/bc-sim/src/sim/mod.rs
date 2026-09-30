@@ -5,11 +5,13 @@
 //!
 //! Pipeline for tick `T`:
 //! 1. Mobile Doll AI (and ZERO seizures) write `InputCmd`s (dolls re-plan every 3rd tick, staggered).
-//! 2. Flight: AMBAC/RCS attitude, thrust, propellant, G-strain; wrecks drift; rocks stop both.
+//! 2. Flight: AMBAC/RCS attitude, thrust, propellant, G-strain; wrecks drift; rocks and landmarks
+//!    stop both.
 //! 3. Spatial hash rebuild, then lag-compensation history is recorded (`history[T]` = snapshot `T`).
 //! 4. Weapons fire: projectiles spawn and catch up through the history (≤ 8 ticks) for shots fired
 //!    by humans/agents; beams emit spawn events.
-//! 5. Projectiles sweep against per-part capsules (rocks stop them); sabers sweep their arcs.
+//! 5. Projectiles sweep against per-part capsules (rocks, landmarks and the colony stop them,
+//!    whichever comes first); sabers sweep their arcs.
 //! 6. Damage resolves in generation order; parts break; suits die.
 //! 7. Heat, energy, ZERO strain, respawns; staggered ZERO rollouts.
 
@@ -36,7 +38,7 @@ use glam::{Quat, Vec3};
 
 use crate::ai::{self, DOLL, SEIZED};
 use crate::arms::{BUSY_FIRE_TICKS, busy_ambac};
-use crate::bodies::MAX_LANDMARKS;
+use crate::bodies::{Bodies, MAX_LANDMARKS, landmark_pose, landmark_touching, sweep_landmarks};
 use crate::chunks::{self, Chunks, Motion, held_pose, segment_pos, segment_rot};
 use crate::config::{DT, SECTOR_LIMIT, SimConfig, secs};
 use crate::content::landmarks::{LANDMARKS, LandmarkDef};
@@ -587,13 +589,15 @@ impl Sim {
         wire(ambac.max(0.1))
     }
 
-    fn flight_step(&mut self, _t: u32) {
+    fn flight_step(&mut self, t: u32) {
         let mut used = core::mem::take(&mut self.iter_bits);
         used.copy_from(&self.suits.used);
+        // Every body where it is this tick. It borrows only the field, so the suits can move.
+        let bodies = Bodies::at(&self.field, self.landmarks(), t);
         for i in used.iter() {
             if self.suits.sleeping.get(i) && self.suits.alive.get(i) {
                 // Nobody's flying it (`sleep`).
-                self.sleeper_drift(i);
+                sleep::sleeper_drift(&mut self.suits, &bodies, i);
             } else if self.suits.alive.get(i) {
                 let mut mods = self.flight_mods(i);
                 // Changing form cuts thrust (applied here, not in the replicated factor: the owner's
@@ -604,25 +608,33 @@ impl Sim {
                 }
                 let spec = frame(self.suits.frame[i]);
                 let cmd = self.suits.input[i];
-                let out = flight::step_in(&self.field, &mut self.suits.flight[i], &cmd, spec, &mods, DT);
+                let f = &mut self.suits.flight[i];
+                let prev = f.pos;
+                let out = flight::step_in(&self.field, f, &cmd, spec, &mods, DT);
+                // The landmarks are as solid as the rocks (nothing to do far from them).
+                bodies.collide_landmarks(prev, f, None);
                 self.suits.boosting[i] = out.boosting;
                 self.suits.aim[i] = normalize_or(cmd.aim, self.suits.flight[i].rot * Vec3::Z);
             } else {
-                // Wrecks drift (and fetch up against rocks).
+                // Wrecks drift (and fetch up against rocks and landmarks).
                 let f = &mut self.suits.flight[i];
                 let prev = f.pos;
                 f.pos += f.vel * DT;
                 self.field.collide(prev, f);
+                bodies.collide_landmarks(prev, f, None);
             }
         }
         self.iter_bits = used;
     }
 
-    /// Free chunks drift, bounce off the colony and rocks, leave the sector or expire.
+    /// Free chunks drift, bounce off the colony, rocks and landmarks, leave the sector or expire.
+    /// A landmark's bounce is off its surface as it moves: the chunk leaves it as fast as it came
+    /// in, less the bounce's loss, relative to the surface where it struck.
     fn chunk_step(&mut self, t: u32) {
         if self.chunks.count() == 0 {
             return;
         }
+        let landmarks = self.landmarks();
         let mut live = core::mem::take(&mut self.chunk_bits);
         live.copy_from(&self.chunks.alive);
         for k in live.iter() {
@@ -634,15 +646,32 @@ impl Sim {
             }
             let a = segment_pos(&seg, f64::from(t - 1));
             let r = chunks::radius(&self.chunks.desc[k]);
-            let contact = match self.field.sweep(a, b, r) {
-                Some((f, i)) => {
+            // The first of a rock and a landmark along the way (a tie goes to the rock), else a
+            // landmark or the colony where it ends up (a landmark's surface moves into what's
+            // still). Each with the velocity of its surface there.
+            let rock = self.field.sweep(a, b, r);
+            let landmark = sweep_landmarks(landmarks, a, b, r, t, 0.0)
+                .or_else(|| landmark_touching(landmarks, b, r, t).map(|m| (1.0, m)));
+            let contact = match (rock, landmark) {
+                (Some((f, i)), _) if landmark.is_none_or(|(s, _)| f <= s) => {
                     let at = a + (b - a) * f;
-                    Some((at, self.field.rocks()[i].normal(at, r)))
+                    Some((at, self.field.rocks()[i].normal(at, r), Vec3::ZERO))
                 }
-                None => crate::world::hull_contact(b, r),
+                (_, Some((f, m))) => {
+                    let d = &landmarks[usize::from(m)];
+                    let pose = landmark_pose(d, t, 0.0);
+                    let mut local = pose.to_local(a + (b - a) * f);
+                    let pr = d.shape.probe(local);
+                    if pr.dist < r {
+                        local += pr.normal * (r - pr.dist);
+                    }
+                    let at = pose.to_world(local);
+                    Some((at, pose.rot * pr.normal, pose.point_vel(at)))
+                }
+                _ => crate::world::hull_contact(b, r).map(|(at, n)| (at, n, Vec3::ZERO)),
             };
-            let Some((at, n)) = contact else { continue };
-            let vn = seg.vel.dot(n);
+            let Some((at, n, surface)) = contact else { continue };
+            let vn = (seg.vel - surface).dot(n);
             if vn < 0.0 {
                 let bounced = Segment {
                     t0: t,

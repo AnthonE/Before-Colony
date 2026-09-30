@@ -9,14 +9,16 @@
 //!   sight's rotation (`a = N·Vc·(Ω × r̂)`, capped at the motor's acceleration) and spends what's
 //!   left of its thrust closing in. Its Δv is a budget: spent, the missile coasts and can't steer.
 //!   The seeker checks every third tick that it still sees its target (a jamming one it loses).
-//! - **Ends.** A proximity fuse against enemy suits, rocks and the colony, or its life running out:
-//!   each is a `MissileBurst` event. There's no lag compensation: missiles fly in the present.
+//! - **Ends.** A proximity fuse against enemy suits, or meeting a rock, a landmark or the colony
+//!   (whichever comes first along its path), or its life running out: each is a `MissileBurst`
+//!   event. There's no lag compensation: missiles fly in the present.
 
 use bc_proto::events::{BurstCause, Event};
 use bc_proto::{InputCmd, MissileState, NO_SLOT, Part};
 use glam::Vec3;
 
 use super::Sim;
+use super::combat::Blocker;
 use crate::collide::{segment_near_point, sweep_capsules};
 use crate::config::DT;
 use crate::content::{MissileSpec, Mount, SpecialKind, WeaponSpec, frame, weapon};
@@ -24,9 +26,8 @@ use crate::math::clamp_to_cone;
 use crate::math::{angle_between, hash01, length, normalize_or, sqrt};
 use crate::sensors;
 use crate::suits::WeaponState;
-use crate::world::inside_colony;
 
-/// A missile's body, for direct hits and rocks (m).
+/// A missile's body, for direct hits and what blocks it (m).
 const BODY_RADIUS: f32 = 0.5;
 
 impl Sim {
@@ -220,11 +221,8 @@ impl Sim {
             self.missiles.vel[k] = vel;
             let owner = usize::from(self.missiles.owner[k]);
             let of = self.missiles.owner_faction[k];
-            if inside_colony(next) {
-                self.burst(k, pos, BurstCause::Blocked, t);
-                continue;
-            }
-            // The first thing along this tick's path: an enemy suit within the fuse, or a rock.
+            // The first thing along this tick's path: an enemy suit within the fuse, or a rock, a
+            // landmark or the colony (it bursts where it meets them).
             let (spatial, suits, ff) = (&mut self.spatial, &self.suits, self.cfg.friendly_fire);
             let pad = Vec3::splat(spec.fuse + 14.0);
             let mut best: Option<(f32, usize, usize)> = None;
@@ -244,18 +242,20 @@ impl Sim {
                     best = Some((s, j, cap));
                 }
             });
-            let rock = self.field.sweep(pos, next, BODY_RADIUS);
+            let blocker = self.first_blocker(pos, next, BODY_RADIUS, t, 0.0);
             let dir = normalize_or(vel, Vec3::Z);
-            match (best, rock) {
-                (Some((s, j, cap)), _) if rock.is_none_or(|(r, _)| s <= r) => {
+            match (best, blocker) {
+                (Some((s, j, cap)), _) if blocker.is_none_or(|(b, _)| s <= b) => {
                     let at = pos + (next - pos) * s;
                     self.queue_damage(j, Part::ALL[cap], w.damage, owner, w.kind, dir);
                     let cause = if target == Some(j) { BurstCause::Hit } else { BurstCause::Proximity };
                     self.burst(k, at, cause, t);
                 }
-                (_, Some((s, which))) => {
+                (_, Some((s, what))) => {
                     let at = pos + (next - pos) * s;
-                    self.rock_hit(which, w.damage, w.kind, at, dir, owner, t);
+                    if let Blocker::Rock(which) = what {
+                        self.rock_hit(which, w.damage, w.kind, at, dir, owner, t);
+                    }
                     self.burst(k, at, BurstCause::Blocked, t);
                 }
                 _ => self.missiles.pos[k] = next,

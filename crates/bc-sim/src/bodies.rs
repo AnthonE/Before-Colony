@@ -38,6 +38,9 @@ pub const TRACE_EPS: f32 = 0.02;
 /// within [`TRACE_ITERS`], so on a segment of `len` they can be `len / TRACE_ITERS` long, and this
 /// is where that reaches the 6 m of the thinnest feature. Callers split longer segments.
 pub const TRACE_MAX_LEN: f32 = TRACE_ITERS as f32 * 6.0;
+/// The most pieces [`Shape::trace_long`] cuts a segment into (18 km of them; a tick of the
+/// fastest shot is 267 m).
+pub const TRACE_MAX_PIECES: u32 = 64;
 
 /// What a suit can stand on, fly in the grip of, or park on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -321,6 +324,21 @@ impl Shape {
         }
     }
 
+    /// [`Shape::trace`] for a segment of any length: one longer than [`TRACE_MAX_LEN`] is traced
+    /// in equal pieces, in order, so a union's steps never skip a feature however far it goes (up
+    /// to [`TRACE_MAX_PIECES`] pieces). As [`Shape::trace`] itself when it is short enough.
+    pub fn trace_long(&self, a: Vec3, b: Vec3, r: f32) -> Option<f32> {
+        let n = ((length(b - a) / TRACE_MAX_LEN) as u32 + 1).min(TRACE_MAX_PIECES);
+        if n == 1 {
+            return self.trace(a, b, r);
+        }
+        let at = |k: u32| k as f32 / n as f32;
+        (0..n).find_map(|k| {
+            let (s0, s1) = (at(k), at(k + 1));
+            self.trace(a + (b - a) * s0, a + (b - a) * s1, r).map(|f| s0 + (s1 - s0) * f)
+        })
+    }
+
     /// The ellipsoid's sweep, solved: the segment's interval in the grown ellipsoid, less its
     /// intervals in the shrunk cuts. The hit is the first point of what's left: where it enters
     /// the ellipsoid, or where it leaves a cut inside it.
@@ -398,6 +416,58 @@ pub fn landmark_pose(d: &LandmarkDef, t: u32, frac: f32) -> BodyPose {
         )
     };
     BodyPose { pos, rot, vel, ang_vel, moving: d.orbit_radius != 0.0 || d.spin_period != 0 }
+}
+
+/// The first of `landmarks` a sphere of radius `r` meets moving from `a` to `b`, with each where it
+/// was at tick `t` plus `frac` of the next: how far along (0..1), and which. A landmark is posed
+/// only if the move comes near where it could be, so a shot nowhere near one costs a distance
+/// test each. [`Bodies::sweep_landmarks`] for a caller that has none at hand.
+pub fn sweep_landmarks(
+    landmarks: &[LandmarkDef],
+    a: Vec3,
+    b: Vec3,
+    r: f32,
+    t: u32,
+    frac: f32,
+) -> Option<(f32, u8)> {
+    sweep_posed(landmarks, a, b, r, |_, d| landmark_pose(d, t, frac))
+}
+
+/// The first of `landmarks` a sphere of radius `r` at `p` overlaps, with each where it is at tick
+/// `t`. What a sweep can't see: a landmark's own motion carries its surface into what it sweeps
+/// as though still.
+pub fn landmark_touching(landmarks: &[LandmarkDef], p: Vec3, r: f32, t: u32) -> Option<u8> {
+    landmarks
+        .iter()
+        .position(|d| {
+            length(p - d.center) <= d.bound + d.orbit_radius + r
+                && d.shape.probe(landmark_pose(d, t, 0.0).to_local(p)).dist < r
+        })
+        .map(|k| k as u8)
+}
+
+/// [`sweep_landmarks`], with each landmark posed by `pose` (its index, and it) once the move is
+/// near it. The earliest wins; a tie goes to the lower index.
+fn sweep_posed(
+    landmarks: &[LandmarkDef],
+    a: Vec3,
+    b: Vec3,
+    r: f32,
+    pose: impl Fn(usize, &LandmarkDef) -> BodyPose,
+) -> Option<(f32, u8)> {
+    let mut best: Option<(f32, u8)> = None;
+    for (k, d) in landmarks.iter().enumerate() {
+        if !segment_near_point(a, b, d.center, d.bound + d.orbit_radius + r) {
+            continue;
+        }
+        let p = pose(k, d);
+        if let Some(s) = d.shape.trace_long(p.to_local(a), p.to_local(b), r)
+            && best.is_none_or(|(bs, _)| s < bs)
+        {
+            best = Some((s, k as u8));
+        }
+    }
+    best
 }
 
 /// The nearest grippable surface to a suit ([`Bodies::nearest_grippable`]).
@@ -532,19 +602,8 @@ impl<'a> Bodies<'a> {
     /// The first landmark a sphere of radius `r` meets moving from `a` to `b`, with the landmarks
     /// where they were at tick `t` plus `frac` of the next: how far along (0..1), and which.
     pub fn sweep_landmarks(&self, a: Vec3, b: Vec3, r: f32, t: u32, frac: f32) -> Option<(f32, u8)> {
-        let mut best: Option<(f32, u8)> = None;
-        for (k, d) in self.landmarks.iter().enumerate() {
-            if !segment_near_point(a, b, d.center, d.bound + d.orbit_radius + r) {
-                continue;
-            }
-            let pose = if t == self.t && frac == 0.0 { self.now[k] } else { landmark_pose(d, t, frac) };
-            if let Some(s) = d.shape.trace(pose.to_local(a), pose.to_local(b), r)
-                && best.is_none_or(|(bs, _)| s < bs)
-            {
-                best = Some((s, k as u8));
-            }
-        }
-        best
+        let now = t == self.t && frac == 0.0;
+        sweep_posed(self.landmarks, a, b, r, |k, d| if now { self.now[k] } else { landmark_pose(d, t, frac) })
     }
 
     /// Keeps a suit out of the landmarks (all but `except`, the one it rides), as
@@ -1090,6 +1149,57 @@ mod tests {
     }
 
     #[test]
+    fn long_traces_go_in_pieces() {
+        let mut rng = Rng::new(9);
+        let radii = [0.0, 0.5, 2.0, 8.0];
+        // Up to TRACE_MAX_LEN it is the trace itself, bit for bit.
+        for shape in [mo_ii(), hermit()] {
+            let reach = if matches!(shape.base, Base::Union(_)) { 400.0 } else { 1_000.0 };
+            for _ in 0..2_000 {
+                let r = radii[(rng.next_u32() % 4) as usize];
+                let a = unit(&mut rng) * reach;
+                let b = a + unit(&mut rng) * (rng.next_f32() * (TRACE_MAX_LEN - 1.0));
+                assert_eq!(
+                    shape.trace_long(a, b, r).map(f32::to_bits),
+                    shape.trace(a, b, r).map(f32::to_bits),
+                    "{a} → {b} r {r}"
+                );
+            }
+        }
+        // Longer, skimming MO-II's core, pylons and modules end to end: in pieces of at most
+        // TRACE_MAX_LEN, whose steps are at most 6 m, it steps over no contact longer than that,
+        // and a hit is at most a step late. In one go its steps would be up to 25 m.
+        let shape = mo_ii();
+        let (mut hits, mut past) = (0, 0);
+        for _ in 0..600 {
+            let r = radii[(rng.next_u32() % 4) as usize];
+            let a = loop {
+                let (th, rho) = (rng.signed() * PI, 55.0 + rng.next_f32() * 40.0);
+                let a = Vec3::new(-900.0 + rng.next_f32() * 400.0, rho * cos(th), rho * sin(th));
+                if shape.probe(a).dist - r > 0.5 {
+                    break a;
+                }
+            };
+            let dir = normalize_or(Vec3::X + unit(&mut rng) * 0.1, Vec3::X);
+            let b = a + dir * (TRACE_MAX_LEN + rng.next_f32() * 900.0);
+            let len = length(b - a);
+            let long = sampled_long_contact(&shape, a, b, r, 6.1);
+            match shape.trace_long(a, b, r) {
+                Some(f) => {
+                    hits += 1;
+                    let gap = shape.probe(a + (b - a) * f).dist - r;
+                    assert!(gap <= TRACE_EPS + 1e-3, "{a} → {b} r {r}: hit at {f} is {gap} m clear");
+                    if let Some(s) = long {
+                        assert!(f * len <= s + 6.06, "{a} → {b} r {r}: hit at {} m, touches at {s}", f * len);
+                    }
+                    past += usize::from(f * len > TRACE_MAX_LEN);
+                }
+                None => assert!(long.is_none(), "{a} → {b} r {r}: missed a contact at {long:?} m"),
+            }
+        }
+        assert!(hits > 300 && past > 100, "{hits} hits, {past} past the first piece");
+    }
+    #[test]
     fn a_trace_that_starts_touching_goes_in_or_leaves() {
         // On Hermit's +X pole and on MO-II's +Y pylon, standing off by the sphere's radius.
         for (shape, at, n) in
@@ -1285,7 +1395,7 @@ mod tests {
             );
             assert_eq!(
                 Some((f, 0)),
-                LANDMARKS[0].shape.trace(mo.to_local(a), mo.to_local(c), 0.5).map(|f| (f, 0))
+                LANDMARKS[0].shape.trace_long(mo.to_local(a), mo.to_local(c), 0.5).map(|f| (f, 0))
             );
         }
         // A kilometre off, nothing; and nothing where there are no landmarks.
