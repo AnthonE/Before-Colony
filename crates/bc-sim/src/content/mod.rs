@@ -8,6 +8,7 @@ mod frames;
 pub mod melee;
 mod names;
 pub mod salvage;
+pub mod systems;
 mod weapons;
 
 pub use frames::{
@@ -15,6 +16,7 @@ pub use frames::{
 };
 pub use melee::{ConeSpec, MeleeSpec, MissileSpec, Stroke};
 pub use names::{frame_designation, frame_name, weapon_name};
+pub use systems::{System, Systems};
 pub use weapons::{Replication, WeaponClass, WeaponSpec, weapon};
 
 /// Whether pilots and agents may fly `id` (the server refuses the rest).

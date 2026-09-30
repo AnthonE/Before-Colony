@@ -5,12 +5,12 @@
 //! | Section | Size | Notes |
 //! |---|---|---|
 //! | header | 116 bits | tick, input ack, input-buffer health, RTT echo, time dilation |
-//! | own state | 1 + 703 bits | full precision: the client reconciles its prediction against it |
+//! | own state | 1 + 756 bits | full precision: the client reconciles its prediction against it |
 //! | ZERO | 1 + ≤200 bits | only while the pilot's ZERO System is engaged |
 //! | events | `1+n` bits each, `0` ends | repeated until the client acks a snapshot containing them |
 //! | rocks | `1+18` bits each, `0` ends | debris-field rocks whose state changed, repeated until acked |
 //! | missiles | `1+119` bits each, `0` ends | missiles in flight nearby, those tracking you first |
-//! | entities | `1+206` bits each, `0` ends | as many prioritised contacts as fit |
+//! | entities | `1+210` bits each, `0` ends | as many prioritised contacts as fit |
 //! | objects | `1+12..232` bits each, `0` ends | salvage chunks (ore, limbs, hulks) in range |
 //!
 //! Everything must fit in [`MAX_DATAGRAM`](crate::MAX_DATAGRAM) bytes. The writer checks the budget
@@ -129,10 +129,17 @@ pub struct OwnState {
     pub zero_strain: f32,
     pub zero_mode: u8,
     pub flags: u16,
-    /// Flight-model modifiers from damage (0..1), so prediction matches the server. AMBAC's is
-    /// with the arms idle: the client works out when they're busy from [`OwnState::arms`].
-    pub ambac_factor: f32,
-    pub thrust_factor: f32,
+    /// Each system's level inside the parts, 2 bits each (`bc_sim::content::Systems`): with the
+    /// parts, what the client builds the suit's stat sheet from, as the server does.
+    pub systems: u32,
+    /// The equipment fitted, 4 bits a slot (`bc_sim::content::modules`).
+    pub modules: u32,
+    /// Ticks the reactor stays scrammed, and the pilot concussed.
+    pub scram: u8,
+    pub concussed: u8,
+    /// The system damage control is restoring (15: none), and ticks left divided by 8.
+    pub repairing: u8,
+    pub repair_left: u8,
     /// While dead: ticks until respawn, divided by 4.
     pub respawn_in: u8,
     /// Mass beyond the frame's own: cargo and anything in hand, less the parts shot off, kg. The
@@ -221,10 +228,28 @@ pub const ARMS_MAX_SALVO: u8 = (1 << SALVO_BITS) - 1;
 pub const ARMS_MAX_SALVO_GAP: u8 = (1 << SALVO_GAP_BITS) - 1;
 
 /// Encoded size of the own state (after its presence bit), in bits: the flight and combat state
-/// (519), salvage (18 + 14 per cargo kind + 24 + a chunk id), lock and special (10 + 4 + 8 + 8),
-/// then the arms.
-pub const OWN_BITS: usize =
-    519 + 18 + 14 * CARGO_KINDS + 24 + CHUNK_BITS as usize + SLOT_BITS as usize + 4 + 8 + 8 + ARMS_BITS;
+/// (503), systems and equipment (24 + 20 + 7 + 7 + 4 + 7), salvage (18 + 14 per cargo kind + 24
+/// + a chunk id), lock and special (10 + 4 + 8 + 8), then the arms.
+pub const OWN_BITS: usize = 503
+    + SYSTEMS_BITS as usize
+    + MODULES_BITS as usize
+    + 2 * STATUS_TICK_BITS as usize
+    + 4
+    + STATUS_TICK_BITS as usize
+    + 18
+    + 14 * CARGO_KINDS
+    + 24
+    + CHUNK_BITS as usize
+    + SLOT_BITS as usize
+    + 4
+    + 8
+    + 8
+    + ARMS_BITS;
+/// Bits for [`OwnState::systems`] (2 per system) and [`OwnState::modules`] (4 per slot).
+pub const SYSTEMS_BITS: u32 = 24;
+pub const MODULES_BITS: u32 = 20;
+/// Bits for a status timer (ticks, or ticks / 8 for a repair).
+const STATUS_TICK_BITS: u32 = 7;
 const LOCK_PROGRESS_BITS: u32 = 4;
 const EXTRA_MASS_BITS: u32 = 18;
 const CARGO_BITS: u32 = 14;
@@ -252,8 +277,12 @@ impl Default for OwnState {
             zero_strain: 0.0,
             zero_mode: zero_mode::OFF,
             flags: 0,
-            ambac_factor: 1.0,
-            thrust_factor: 1.0,
+            systems: 0,
+            modules: 0,
+            scram: 0,
+            concussed: 0,
+            repairing: 15,
+            repair_left: 0,
             respawn_in: 0,
             extra_mass_kg: 0,
             cargo_kg: [0; CARGO_KINDS],
@@ -292,7 +321,13 @@ pub mod ent_flags {
     pub const MELEE_ALT: u16 = 1 << 11;
     /// Its pilot is offline, asleep in the cockpit.
     pub const ASLEEP: u16 = 1 << 12;
-    pub const BITS: u32 = 13;
+    /// A system inside it is damaged: it sparks.
+    pub const SPARKING: u16 = 1 << 13;
+    /// A system inside it has failed: it smokes.
+    pub const SMOKING: u16 = 1 << 14;
+    /// Its tank is holed: it vents propellant.
+    pub const VENTING: u16 = 1 << 15;
+    pub const BITS: u32 = 16;
 }
 
 /// Another suit as seen by the receiving pilot's sensors.
@@ -471,8 +506,13 @@ impl<'a> SnapshotWriter<'a> {
         w.write_bits(quantize_unit(o.zero_strain, 8), 8);
         w.write_bits(u32::from(o.zero_mode & 3), 2);
         w.write_u16(o.flags);
-        w.write_bits(quantize_unit(o.ambac_factor, 8), 8);
-        w.write_bits(quantize_unit(o.thrust_factor, 8), 8);
+        w.write_bits(o.systems & ((1 << SYSTEMS_BITS) - 1), SYSTEMS_BITS);
+        w.write_bits(o.modules & ((1 << MODULES_BITS) - 1), MODULES_BITS);
+        let tick_max = (1 << STATUS_TICK_BITS) - 1;
+        w.write_bits(u32::from(o.scram).min(tick_max), STATUS_TICK_BITS);
+        w.write_bits(u32::from(o.concussed).min(tick_max), STATUS_TICK_BITS);
+        w.write_bits(u32::from(o.repairing.min(15)), 4);
+        w.write_bits(u32::from(o.repair_left).min(tick_max), STATUS_TICK_BITS);
         w.write_u8(o.respawn_in);
         let reach = (1 << (EXTRA_MASS_BITS - 1)) - 1;
         w.write_i32(o.extra_mass_kg.clamp(-reach, reach), EXTRA_MASS_BITS);
@@ -756,8 +796,12 @@ impl<'a> SnapshotReader<'a> {
         o.zero_strain = dequantize_unit(r.read_bits(8), 8);
         o.zero_mode = r.read_bits(2) as u8;
         o.flags = r.read_u16();
-        o.ambac_factor = dequantize_unit(r.read_bits(8), 8);
-        o.thrust_factor = dequantize_unit(r.read_bits(8), 8);
+        o.systems = r.read_bits(SYSTEMS_BITS);
+        o.modules = r.read_bits(MODULES_BITS);
+        o.scram = r.read_bits(STATUS_TICK_BITS) as u8;
+        o.concussed = r.read_bits(STATUS_TICK_BITS) as u8;
+        o.repairing = r.read_bits(4) as u8;
+        o.repair_left = r.read_bits(STATUS_TICK_BITS) as u8;
         o.respawn_in = r.read_u8();
         o.extra_mass_kg = r.read_i32(EXTRA_MASS_BITS);
         for c in &mut o.cargo_kg {

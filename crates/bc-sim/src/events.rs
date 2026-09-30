@@ -23,7 +23,8 @@ fn with_id(mut e: Event, id: u16) -> Event {
         | Event::Seizure { id: i, .. }
         | Event::Detach { id: i, .. }
         | Event::RockBreak { id: i, .. }
-        | Event::MissileBurst { id: i, .. } => *i = id,
+        | Event::MissileBurst { id: i, .. }
+        | Event::SystemHit { id: i, .. } => *i = id,
         Event::Leave { .. } => {}
     }
     e

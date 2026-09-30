@@ -541,6 +541,7 @@ mod tests {
             mounts: l.mounts,
             ammo: l.ammo,
             propellant: l.propellant,
+            systems: l.systems,
             cargo_kg: [0; 4],
             held: None,
             bounty: 0,

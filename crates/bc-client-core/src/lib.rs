@@ -563,7 +563,14 @@ impl ClientCore {
         let w = weapon(mount.weapon);
         let s = &self.predict.state;
         let fwd = s.rot * Vec3::Z;
-        let dir = clamp_to_cone(normalize_or(cmd.aim, fwd), fwd, mount.arm.cone());
+        // Within what its actuators leave of the arm's reach, wandering if the pilot's concussed
+        // (the server counts the concussion down after each tick's shots).
+        let tuned = bc_sim::tuning::own_tuning(&own);
+        let mut dir = clamp_to_cone(normalize_or(cmd.aim, fwd), fwd, bc_sim::tuning::cone(mount.arm, &tuned));
+        let since = cmd.tick.saturating_sub(self.world.tick).saturating_sub(1);
+        if u32::from(own.concussed) > since {
+            dir = bc_sim::tuning::wobble(dir, cmd.tick, own.slot, 0);
+        }
         let muzzle = s.pos + s.rot * mount.arm.muzzle();
         self.world.predict_beam(
             own.slot,

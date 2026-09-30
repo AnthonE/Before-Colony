@@ -88,6 +88,9 @@ pub struct SelfView {
     pub ready: [bool; 3],
     pub overheated: bool,
     pub kit: KitView,
+    /// The suit's stat sheet (damaged actuators narrow where its guns point, a hurt pilot bears
+    /// less G).
+    pub tuning: crate::tuning::Tuning,
 }
 
 impl Default for SelfView {
@@ -108,6 +111,7 @@ impl Default for SelfView {
             ready: [true; 3],
             overheated: false,
             kit: KitView::default(),
+            tuning: crate::tuning::Tuning::default(),
         }
     }
 }

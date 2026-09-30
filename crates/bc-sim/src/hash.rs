@@ -40,6 +40,10 @@ pub fn state_hash(sim: &Sim) -> u64 {
         }
         h.f32(s.heat[i]);
         h.f32(s.energy[i]);
+        h.u32(s.systems[i].0);
+        let st = &s.status[i];
+        h.u32(u32::from(st.scram) | u32::from(st.concussed) << 8 | u32::from(st.repairing) << 16);
+        h.u32(u32::from(st.repair_left));
         let (k, g, right) = s.held[i];
         h.u32(u32::from(k) | u32::from(g) << 16 | u32::from(right) << 24);
         for kg in s.cargo_kg[i] {

@@ -10,9 +10,11 @@ use crate::chunks::Motion;
 use crate::collide::{segment_near_point, sweep_capsules};
 use crate::config::{DT, MAX_REWIND_TICKS, secs};
 use crate::content::salvage::{DETACH_PUSH, DETACH_SPEED, bounty, mass_without, part_mass_kg, wreck_ttl};
-use crate::content::{Mount, Replication, WeaponClass, WeaponSpec, frame, weapon};
+use crate::content::systems::{self, FAILED, System};
+use crate::content::{ArmSlot, Mount, Replication, WeaponClass, WeaponSpec, frame, weapon};
 use crate::math::{angle_between, clamp_to_cone, hash01, normalize_or};
 use crate::suits::{SPECIAL_SLOTS, WeaponState};
+use crate::tuning;
 use crate::world::inside_colony;
 
 /// ZERO fire-time magnetism: shots this close to the ZERO firing solution snap to it.
@@ -37,6 +39,12 @@ impl Sim {
             weapon,
             dir,
         });
+    }
+
+    /// A blow from nowhere in particular: `amount` on `target`'s `part`, as if `shooter`'s `weapon`
+    /// had landed it, resolved with this tick's other hits (tools and tests).
+    pub fn strike(&mut self, target: usize, part: Part, amount: f32, shooter: usize, weapon: WeaponKind) {
+        self.queue_damage(target, part, amount, shooter, weapon, Vec3::Z);
     }
 
     pub(super) fn weapons_step(&mut self, t: u32) {
@@ -134,9 +142,11 @@ impl Sim {
     fn fire(&mut self, i: usize, slot: usize, mount: Mount, w: &WeaponSpec, cmd: &InputCmd, t: u32) {
         let f = self.suits.flight[i];
         let fwd = f.rot * Vec3::Z;
-        let mut dir = clamp_to_cone(normalize_or(cmd.aim, fwd), fwd, mount.arm.cone());
+        let mut dir = clamp_to_cone(normalize_or(cmd.aim, fwd), fwd, self.cone(i, mount.arm));
         let z = &self.suits.zero[i];
-        if z.active()
+        // ZERO's pull needs the fire control that aims by it.
+        if self.suits.tuning[i].magnetism
+            && z.active()
             && z.out.has_solution
             && t.saturating_sub(z.out.computed_at) <= 6
             && angle_between(dir, z.out.solution) <= MAGNET_ANGLE
@@ -148,6 +158,10 @@ impl Sim {
             let n =
                 Vec3::new(hash01(t, seed) - 0.5, hash01(t ^ 0x55, seed) - 0.5, hash01(t ^ 0xAA, seed) - 0.5);
             dir = normalize_or(dir + n * (2.0 * w.spread), dir);
+        }
+        // A concussed pilot's hands shake.
+        if self.suits.status[i].concussed > 0 {
+            dir = tuning::wobble(dir, t, i as u16, slot);
         }
         let muzzle = f.pos + f.rot * mount.arm.muzzle();
         let vel = f.vel + dir * w.speed;
@@ -322,7 +336,7 @@ impl Sim {
             }
             let spec = frame(self.suits.frame[j]);
             let mut part = d.part;
-            let mut amount = d.amount * spec.armor;
+            let mut amount = d.amount * spec.armor * self.suits.tuning[j].armor;
             // A beam wider than a limb engulfs the whole suit: it lands on the torso.
             if weapon(d.weapon).engulfs {
                 part = Part::Torso;
@@ -336,6 +350,7 @@ impl Sim {
             let before = *hp;
             *hp = (*hp - amount).max(0.0);
             let mut dealt = before - *hp;
+            let on_part = dealt;
             if part != Part::Torso && before > 0.0 && *hp <= 0.0 {
                 self.detach(j, part, d.dir, t);
             }
@@ -362,6 +377,10 @@ impl Sim {
                 weapon: d.weapon,
                 damage: (amount / spec.part_hp[part as usize]).clamp(0.0, 1.0),
             });
+            // Through thinned armour, a blow can reach what's inside the part.
+            if self.suits.part_hp[j][Part::Torso as usize] > 0.0 {
+                self.critical(j, part, on_part, k, t);
+            }
             if self.suits.part_hp[j][Part::Torso as usize] <= 0.0 {
                 self.suits.alive.set(j, false);
                 self.suits.stats[j].deaths += 1;
@@ -389,6 +408,69 @@ impl Sim {
                 if self.suits.sleeping.get(j) {
                     self.note_fate(j, super::Gone::Destroyed { killer: d.shooter }, t);
                 }
+            }
+        }
+    }
+
+    /// Whether the blow `on_part` (armour points) that the `k`th hit of this tick dealt to suit
+    /// `j`'s `part` got through to one of the part's systems, and if so what it did.
+    fn critical(&mut self, j: usize, part: Part, on_part: f32, k: usize, t: u32) {
+        let max = frame(self.suits.frame[j]).part_hp[part as usize];
+        let left = self.suits.part_hp[j][part as usize];
+        if left <= 0.0 || max <= 0.0 || on_part <= 0.0 {
+            return;
+        }
+        let doll = self.suits.pilot[j] == PilotKind::MobileDoll;
+        let blow = on_part / max;
+        let salt = (j as u32) << 11 | k as u32;
+        if hash01(t ^ 0xC417, salt) >= systems::crit_chance(blow, left / max, doll) {
+            return;
+        }
+        // Which of the part's working systems it finds (a Mobile Doll has no pilot to hurt).
+        let now = self.suits.systems[j];
+        let open = |s: &System| now.get(*s) < FAILED && !(doll && *s == System::Cockpit);
+        let total: u32 = System::of_part(part).filter(open).map(System::weight).sum();
+        if total == 0 {
+            return;
+        }
+        let mut pick = ((hash01(t ^ 0x7E1D, salt) * total as f32) as u32).min(total - 1);
+        let Some(sys) = System::of_part(part).filter(open).find(|s| {
+            let w = s.weight();
+            if pick < w {
+                true
+            } else {
+                pick -= w;
+                false
+            }
+        }) else {
+            return;
+        };
+        let level = (now.get(sys) + if blow >= systems::CRIT_DOUBLE { 2 } else { 1 }).min(FAILED);
+        self.suits.systems[j].set(sys, level);
+        let st = &mut self.suits.status[j];
+        match sys {
+            System::Reactor => st.scram = systems::SCRAM_TICKS,
+            System::Cockpit => st.concussed = systems::CONCUSSION_TICKS,
+            System::ActuatorL | System::ActuatorR => self.jam(j, sys == System::ActuatorR),
+            _ => {}
+        }
+        self.events.push(Event::SystemHit { id: 0, tick: t, target: j as u16, system: sys as u8, level });
+    }
+
+    /// The weapons on an arm whose actuators were struck jam for a while.
+    fn jam(&mut self, j: usize, right: bool) {
+        let spec = frame(self.suits.frame[j]);
+        for (slot, mount) in spec.loadout.iter().enumerate() {
+            let Some(m) = mount else { continue };
+            let on = match m.arm {
+                ArmSlot::Left => !right,
+                ArmSlot::Right | ArmSlot::Nose => right,
+                ArmSlot::Both => true,
+                _ => false,
+            };
+            if on {
+                let ws = &mut self.suits.weapons[j][slot];
+                ws.cooldown = ws.cooldown.max(systems::JAM_TICKS);
             }
         }
     }

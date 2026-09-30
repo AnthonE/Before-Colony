@@ -291,7 +291,6 @@ impl Sim {
     pub fn step(&mut self) {
         self.tick += 1;
         let t = self.tick;
-        self.damage.clear();
         self.spawn_dolls(t);
         if t.is_multiple_of(30) {
             self.squad_logic();
@@ -309,6 +308,8 @@ impl Sim {
         self.missile_step(t);
         self.melee_step(t);
         self.damage_step(t);
+        // (Emptied after, not before: a blow struck between ticks lands with this tick's.)
+        self.damage.clear();
         self.salvage_step(t);
         self.status_step(t);
         self.zero_step(t);
@@ -389,8 +390,7 @@ impl Sim {
         let me = self.self_view(i);
         out.reset(me);
         let spec = frame(self.suits.frame[i]);
-        let head_ok = self.suits.part_hp[i][Part::Head as usize] > 0.0;
-        let range = spec.sensor_range * if head_ok { 1.0 } else { 0.4 };
+        let range = spec.sensor_range * self.suits.tuning[i].sensor;
         let t = self.tick;
         let mut found = core::mem::take(&mut self.query_bits);
         found.clear();
@@ -436,8 +436,8 @@ impl Sim {
             aim: s.aim[i],
             parts: s.part_fractions(i),
             heat: s.heat[i] / spec.heat_cap,
-            energy: s.energy[i] / spec.energy_cap,
-            propellant: f.propellant / spec.propellant_cap,
+            energy: s.energy[i] / (spec.energy_cap * s.tuning[i].energy_cap),
+            propellant: f.propellant / tuning::tank_cap(spec, &s.tuning[i]),
             g_strain: f.g_strain,
             ready,
             overheated: s.overheated[i],
@@ -448,6 +448,7 @@ impl Sim {
                 special_active: s.special[i].active,
                 transforming: self.transforming(i),
             },
+            tuning: s.tuning[i],
         }
     }
 
@@ -544,8 +545,9 @@ impl Sim {
         let held = self.held_chunk(i).map_or(0, |k| self.chunks.desc[k].mass_kg);
         let extra_mass_kg = mass_without(fid, s.gone_mask(i)) as i32 - mass_without(fid, 0) as i32
             + (s.cargo_total_kg(i) + held) as i32;
-        let mut mods =
-            tuning::flight_mods(&self.tuning(i), s.pilot[i] == PilotKind::MobileDoll, extra_mass_kg);
+        let tuned = self.tuning(i);
+        let mut mods = tuning::flight_mods(&tuned, s.pilot[i] == PilotKind::MobileDoll, extra_mass_kg);
+        mods.main *= tuning::sputter(&tuned, t, i as u16);
         if busy {
             mods.ambac = busy_ambac(mods.ambac);
         }
@@ -553,9 +555,17 @@ impl Sim {
         mods
     }
 
-    /// Suit `i`'s stat sheet as it stands.
+    /// Suit `i`'s stat sheet, as rebuilt at the top of this tick's flight.
+    #[inline]
     pub fn tuning(&self, i: usize) -> Tuning {
-        tuning::tuning(self.suits.gone_mask(i))
+        self.suits.tuning[i]
+    }
+
+    /// How far off suit `i`'s axis a weapon on `arm` can point, radians: its reach, less what
+    /// damaged actuators take.
+    #[inline]
+    pub fn cone(&self, i: usize, arm: crate::content::ArmSlot) -> f32 {
+        tuning::cone(arm, &self.suits.tuning[i])
     }
 
     /// AMBAC's authority with the arms idle: what the limbs shot off leave of it.
@@ -566,6 +576,11 @@ impl Sim {
     fn flight_step(&mut self, _t: u32) {
         let mut used = core::mem::take(&mut self.iter_bits);
         used.copy_from(&self.suits.used);
+        // Every stat sheet from the suits as they stood at the end of the last tick: what their
+        // pilots' clients were just told, and fly the next tick with.
+        for i in used.iter() {
+            self.suits.retune(i);
+        }
         for i in used.iter() {
             if self.suits.sleeping.get(i) && self.suits.alive.get(i) {
                 // Nobody's flying it (`sleep`).
@@ -690,7 +705,8 @@ impl Sim {
             let spec = frame(self.suits.frame[i]);
             if self.suits.alive.get(i) {
                 let s = &mut self.suits;
-                s.heat[i] = (s.heat[i] - spec.heat_dissipation * DT).max(0.0);
+                let tuned = s.tuning[i];
+                s.heat[i] = (s.heat[i] - spec.heat_dissipation * tuned.heat * DT).max(0.0);
                 if s.heat[i] >= spec.heat_cap {
                     s.overheated[i] = true;
                 } else if s.overheated[i] && s.heat[i] < spec.heat_cap * 0.5 {
@@ -700,7 +716,12 @@ impl Sim {
                 if s.special[i].lockout > 0 {
                     s.overheated[i] = true;
                 }
-                s.energy[i] = (s.energy[i] + spec.energy_regen * DT).min(spec.energy_cap);
+                // A scrammed reactor gives nothing until it's back.
+                let st = &mut s.status[i];
+                let regen = if st.scram > 0 { 0.0 } else { spec.energy_regen * tuned.regen };
+                st.scram = st.scram.saturating_sub(1);
+                st.concussed = st.concussed.saturating_sub(1);
+                s.energy[i] = (s.energy[i] + regen * DT).min(spec.energy_cap * tuned.energy_cap);
                 let want = s.input[i].pressed(ZERO);
                 let capable = spec.zero || self.cfg.zero_on_all_frames;
                 let g = s.flight[i].g_strain;

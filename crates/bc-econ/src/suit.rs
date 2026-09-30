@@ -134,7 +134,13 @@ impl Suit {
                 mounts |= 1 << m;
             }
         }
-        Loadout { parts, mounts, ammo: self.ammo, propellant: self.propellant as f32 }
+        Loadout {
+            parts,
+            mounts,
+            ammo: self.ammo,
+            propellant: self.propellant as f32,
+            systems: Default::default(),
+        }
     }
 
     /// The suit as it came home: parts worn or gone (a weapon goes with the part it hung on),
@@ -206,6 +212,7 @@ mod tests {
             mounts: l.mounts,
             ammo: l.ammo,
             propellant: l.propellant,
+            systems: l.systems,
             cargo_kg: [0; 4],
             held: None,
             bounty: 0,

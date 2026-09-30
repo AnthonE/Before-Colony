@@ -5,11 +5,12 @@ use bc_proto::{CARGO_KINDS, Faction, FrameId, InputCmd, NO_CHUNK, NO_SLOT, Part,
 use glam::{Quat, Vec3};
 
 use crate::ai::AiState;
-use crate::content::{ArmSlot, frame};
+use crate::content::{ArmSlot, Systems, frame};
 use crate::flight::FlightState;
 use crate::handle::{Handle, SuitId};
 use crate::storage::{BitSet, FreeList, boxed};
 use crate::transform::Form;
+use crate::tuning::Tuning;
 use crate::zero::ZeroState;
 
 /// Per-weapon runtime state.
@@ -120,6 +121,27 @@ pub struct SpecialState {
     pub break_until: u32,
 }
 
+/// Timed conditions a suit is under (see `content::systems`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Status {
+    /// Ticks the reactor stays scrammed (no energy comes back).
+    pub scram: u8,
+    /// Ticks the pilot stays concussed (their shots wander).
+    pub concussed: u8,
+    /// The system the damage-control gear is restoring ([`NO_REPAIR`]: none), and ticks left.
+    pub repairing: u8,
+    pub repair_left: u16,
+}
+
+/// [`Status::repairing`]: nothing under repair.
+pub const NO_REPAIR: u8 = 15;
+
+impl Default for Status {
+    fn default() -> Self {
+        Self { scram: 0, concussed: 0, repairing: NO_REPAIR, repair_left: 0 }
+    }
+}
+
 /// Per-suit combat statistics (for `/status` and the kill feed).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SuitStats {
@@ -163,6 +185,12 @@ pub struct Suits {
     /// Guided missiles tracking the suit (counted each tick).
     pub incoming: Box<[u16]>,
     pub part_hp: Box<[[f32; Part::COUNT]]>,
+    /// What's inside the parts: each system's level (a part shot off fails its own on top).
+    pub systems: Box<[Systems]>,
+    /// Timed conditions: a scram, a concussion, a repair under way.
+    pub status: Box<[Status]>,
+    /// The stat sheet, rebuilt at the top of each tick's flight (`crate::tuning`).
+    pub tuning: Box<[Tuning]>,
     pub zero: Box<[ZeroState]>,
     pub ai: Box<[AiState]>,
     /// Tick the suit last fired (signature bloom, "firing" flags).
@@ -221,6 +249,9 @@ impl Suits {
             lock: boxed(cap, LockState::default()),
             incoming: boxed(cap, 0u16),
             part_hp: boxed(cap, [0.0f32; Part::COUNT]),
+            systems: boxed(cap, Systems::OK),
+            status: boxed(cap, Status::default()),
+            tuning: boxed(cap, Tuning::default()),
             zero: boxed(cap, ZeroState::default()),
             ai: boxed(cap, AiState::default()),
             last_fired: boxed(cap, 0u32),
@@ -292,6 +323,9 @@ impl Suits {
         self.lock[idx] = LockState::default();
         self.incoming[idx] = 0;
         self.part_hp[idx] = spec.part_hp;
+        self.systems[idx] = Systems::OK;
+        self.status[idx] = Status::default();
+        self.tuning[idx] = Tuning::default();
         self.zero[idx] = ZeroState::default();
         self.respawn_at[idx] = 0;
         self.hulk[idx] = (NO_CHUNK, 0);
@@ -332,16 +366,26 @@ impl Suits {
         (self.part_hp[idx][Part::Torso as usize] / spec.part_hp[Part::Torso as usize]).clamp(0.0, 1.0)
     }
 
-    /// The hand that grabs: the left, unless it's gone.
+    /// The hand that grabs: the left, unless it's gone or its actuators have failed.
     pub fn grab_hand(&self, idx: usize) -> Option<bool> {
-        let hp = &self.part_hp[idx];
-        if hp[Part::ArmL as usize] > 0.0 {
+        if self.hand_works(idx, false) {
             Some(false)
-        } else if hp[Part::ArmR as usize] > 0.0 {
+        } else if self.hand_works(idx, true) {
             Some(true)
         } else {
             None
         }
+    }
+
+    /// Whether a hand (the right, or the left) can hold anything: its arm is on and its actuators
+    /// work.
+    pub fn hand_works(&self, idx: usize, right: bool) -> bool {
+        crate::tuning::hand_works(self.gone_mask(idx), self.systems[idx], right)
+    }
+
+    /// Rebuilds suit `idx`'s stat sheet from its parts and systems as they stand.
+    pub fn retune(&mut self, idx: usize) {
+        self.tuning[idx] = crate::tuning::tuning(self.gone_mask(idx), self.systems[idx]);
     }
 
     /// The state of weapon `slot`: a loadout slot (0..3), or a special mount (from
