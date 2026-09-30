@@ -432,7 +432,8 @@ the sector with its pilot asleep in the cockpit, and they wake in it when they'r
 field of view, camera shake, first-flight hints and graphics quality, along with the last callsign
 and frame launched. `bc_client_core::settings` defines them, their ranges and the stored text (a
 key this build doesn't know is kept, for the build that wrote it). A new pilot gets one hint at a
-time (thrust, boost, fire, flight assist, salvage, the menu), each gone once it's been done.
+time (on foot in the bay: walking, using a terminal, boarding; flying: thrust, boost, fire,
+flight assist, salvage, docking, the menu), each gone once it's been done.
 
 **Sound.** Every sound is generated at boot (`bc-sound`, no audio files): weapons, impacts,
 explosions, the engines worked by the throttle, RCS puffs, the lock tone quickening as a lock

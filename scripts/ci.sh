@@ -19,5 +19,6 @@ if [ "${BC_E2E:-0}" = "1" ]; then
   step "e2e: the Gundams";   ./scripts/e2e.sh frames webgl2
   step "e2e: the page";      ./scripts/e2e.sh ui webgl2
   step "e2e: sign-in";       ./scripts/e2e.sh login webgl2
+  step "e2e: survival";      ./scripts/e2e.sh hangar webgl2
 fi
 echo; echo "all green"
