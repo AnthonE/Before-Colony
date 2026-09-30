@@ -27,7 +27,8 @@ pub fn run() {
     // The pilot's settings (game mode): the graphics tier and the view start from them.
     let saved = game_mode.then(|| crate::settings::load(&cfg));
     let mut gfx = Gfx::from_config(&cfg);
-    let mut prefs = ViewPrefs { shake: if cfg.calm { 0.25 } else { 1.0 }, ..ViewPrefs::default() };
+    let mut prefs =
+        ViewPrefs { shake: if cfg.calm { 0.25 } else { 1.0 }, flashing: !cfg.calm, ..ViewPrefs::default() };
     if let Some((s, _)) = &saved {
         crate::settings::apply_saved_tier(&mut gfx, &cfg, &s.0);
         prefs = crate::settings::view_prefs(&s.0);
@@ -47,6 +48,9 @@ pub fn run() {
     .insert_resource(ClearColor(Color::BLACK))
     .insert_resource(prefs)
     .add_plugins((DevHooksPlugin, GfxPlugin(gfx)));
+    // The page's font, for everything Bevy writes on the screen.
+    let font = crate::hud::UiFont::load(&mut app.world_mut().resource_mut::<Assets<Font>>());
+    app.insert_resource(font);
     if cfg.perf {
         app.add_plugins(crate::perf::PerfPlugin);
     }
@@ -61,6 +65,7 @@ pub fn run() {
                 t0: cfg.showcase_t,
                 cam: cfg.showcase_cam,
                 realtime: cfg.showcase_realtime,
+                hz: cfg.showcase_hz,
                 hold: cfg.showcase_hold,
                 frame: crate::config::parse_frame(&cfg.frame).unwrap_or(bc_proto::FrameId::WingZero),
             },
@@ -156,6 +161,7 @@ impl Plugin for VisualsPlugin {
                 crate::ambience::AmbiencePlugin,
                 crate::zero_vision::ZeroVisionPlugin,
                 crate::hangar::HangarPlugin,
+                crate::shade::ShadePlugin,
             ))
             .configure_sets(
                 Update,

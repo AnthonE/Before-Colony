@@ -18,11 +18,12 @@ impl Plugin for PerfPlugin {
 #[derive(Component)]
 struct PerfText;
 
-fn setup(mut commands: Commands) {
+fn setup(mut commands: Commands, font: Res<crate::hud::UiFont>) {
     commands.spawn((
         PerfText,
         Text::new(""),
-        TextFont { font_size: FontSize::Px(12.0), ..default() },
+        font.text(12.0),
+        crate::hud::SHADOW,
         TextColor(Color::srgb(0.6, 1.0, 0.6)),
         Node {
             position_type: PositionType::Absolute,

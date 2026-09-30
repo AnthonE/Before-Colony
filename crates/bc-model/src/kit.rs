@@ -1,10 +1,13 @@
 //! The modelling kit: procedural shapes for building mobile suits, placed in a bone's own space and
 //! baked into one mesh per bone.
 //!
-//! Every vertex carries three numbers in its colour, which the client's hull shader reads: r, the
+//! Every vertex carries four numbers in its colour, which the client's hull shader reads: r, the
 //! paint slot ([`Paint`]); g, 1 on a bevel (worn edges catch the light there); b, a panel seed (so
-//! neighbouring pieces don't share a plate layout). Normals are flat on every face and bevel, and
-//! smooth only round the axis of a turned shape, so edges stay crisp.
+//! neighbouring pieces don't share a plate layout); a, its ambient occlusion (1 open, less where
+//! other pieces crowd it: see [`crate::ao`]). Normals are flat on every face and bevel, and smooth
+//! only round the axis of a turned shape, so edges stay crisp.
+//!
+//! Each shape also leaves a simple stand-in for its volume (a [`Proxy`]) for the occlusion bake.
 
 use glam::{Affine3A, Mat3, Vec2, Vec3};
 
@@ -47,6 +50,67 @@ pub struct MeshData {
     pub indices: Vec<u32>,
 }
 
+/// A shape's volume, roughly, for the occlusion bake: a box (centre, orthonormal axes and half
+/// extents) or a capsule (a segment and a radius).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Proxy {
+    Box { centre: Vec3, axes: [Vec3; 3], half: Vec3 },
+    Capsule { a: Vec3, b: Vec3, r: f32 },
+}
+
+impl Proxy {
+    /// Signed distance from `p` to its surface (negative inside).
+    pub fn distance(&self, p: Vec3) -> f32 {
+        match *self {
+            Proxy::Box { centre, axes, half } => {
+                let d = p - centre;
+                let q = Vec3::new(axes[0].dot(d).abs(), axes[1].dot(d).abs(), axes[2].dot(d).abs()) - half;
+                q.max(Vec3::ZERO).length() + q.max_element().min(0.0)
+            }
+            Proxy::Capsule { a, b, r } => {
+                let ab = b - a;
+                let t = ((p - a).dot(ab) / ab.length_squared().max(1e-9)).clamp(0.0, 1.0);
+                (p - (a + ab * t)).length() - r
+            }
+        }
+    }
+
+    /// A sphere round it: its centre and radius.
+    pub fn bounds(&self) -> (Vec3, f32) {
+        match *self {
+            Proxy::Box { centre, half, .. } => (centre, half.length()),
+            Proxy::Capsule { a, b, r } => ((a + b) * 0.5, (b - a).length() * 0.5 + r),
+        }
+    }
+
+    /// Moved by `offset`.
+    pub fn shifted(self, offset: Vec3) -> Self {
+        match self {
+            Proxy::Box { centre, axes, half } => Proxy::Box { centre: centre + offset, axes, half },
+            Proxy::Capsule { a, b, r } => Proxy::Capsule { a: a + offset, b: b + offset, r },
+        }
+    }
+
+    /// The box round 8 corners indexed `x + 2y + 4z` (a hexahedron's), with axes along its mean
+    /// edges.
+    fn from_corners(c: &[Vec3; 8]) -> Option<Self> {
+        let centre = c.iter().copied().sum::<Vec3>() / 8.0;
+        let edge =
+            |bit: usize| (0..8).filter(|i| i & bit == 0).map(|i| c[i | bit] - c[i]).sum::<Vec3>() / 4.0;
+        let (ex, ey) = (edge(1), edge(2));
+        let x = ex.try_normalize()?;
+        let y = (ey - x * ey.dot(x)).try_normalize()?;
+        let z = x.cross(y);
+        let axes = [x, y, z];
+        let mut half = Vec3::ZERO;
+        for p in c {
+            let d = *p - centre;
+            half = half.max(Vec3::new(x.dot(d).abs(), y.dot(d).abs(), z.dot(d).abs()));
+        }
+        Some(Proxy::Box { centre, axes, half })
+    }
+}
+
 /// A mesh being built.
 #[derive(Default)]
 pub struct Builder {
@@ -54,6 +118,8 @@ pub struct Builder {
     nrm: Vec<[f32; 3]>,
     col: Vec<[f32; 4]>,
     idx: Vec<u32>,
+    /// Each shape's first vertex and its volume, in order.
+    prims: Vec<(usize, Proxy)>,
     /// Panel seed for the shapes that follow (0..1).
     pub seed: f32,
 }
@@ -75,6 +141,35 @@ impl Builder {
 
     pub fn triangles(&self) -> usize {
         self.idx.len() / 3
+    }
+
+    /// The shapes' volumes, in the bone's space.
+    pub fn proxies(&self) -> impl Iterator<Item = Proxy> + '_ {
+        self.prims.iter().map(|(_, p)| *p)
+    }
+
+    /// Which shape each vertex belongs to (an index into [`Builder::proxies`]).
+    pub fn vertex_shapes(&self) -> Vec<usize> {
+        let mut out = vec![0; self.pos.len()];
+        for (k, w) in self.prims.iter().enumerate() {
+            let end = self.prims.get(k + 1).map_or(self.pos.len(), |n| n.0);
+            for s in &mut out[w.0..end] {
+                *s = k;
+            }
+        }
+        out
+    }
+
+    /// Every vertex's position and normal.
+    pub fn vertices(&self) -> impl Iterator<Item = (Vec3, Vec3)> + '_ {
+        self.pos.iter().zip(&self.nrm).map(|(p, n)| (Vec3::from(*p), Vec3::from(*n)))
+    }
+
+    /// Sets each vertex's ambient occlusion (the colour's alpha).
+    pub fn set_occlusion(&mut self, ao: &[f32]) {
+        for (c, a) in self.col.iter_mut().zip(ao) {
+            c[3] = *a;
+        }
     }
 
     /// A flat polygon (convex, in order round its edge), wound to face away from `inside`.
@@ -112,6 +207,9 @@ impl Builder {
     /// side, 1 for the high side), already placed. Any convex shape with planar faces works:
     /// boxes, tapers, wedges, sheared plates.
     pub fn hexa(&mut self, c: [Vec3; 8], chamfer: f32, paint: Paint) {
+        if let Some(proxy) = Proxy::from_corners(&c) {
+            self.prims.push((self.pos.len(), proxy));
+        }
         let centre = c.iter().copied().sum::<Vec3>() / 8.0;
         // The inset vertex of face (axis a) at corner i: moved in along the face's two edges there.
         let inset = |i: usize, a: usize| {
@@ -185,6 +283,19 @@ impl Builder {
     /// of 0 closes that end. Smooth round the axis, faceted along the profile.
     pub fn lathe(&mut self, profile: &[(f32, f32)], segments: u32, paint: Paint, xf: Affine3A) {
         let lin = Mat3::from(xf.matrix3);
+        if let (Some(lo), Some(hi)) =
+            (profile.iter().map(|p| p.1).reduce(f32::min), profile.iter().map(|p| p.1).reduce(f32::max))
+        {
+            // A capsule down the axis, as wide as the shape's widest (scaled as placed).
+            let r = profile.iter().map(|p| p.0).fold(0.0, f32::max);
+            let scale = (lin.x_axis.length() + lin.z_axis.length()) * 0.5;
+            let (a, b) = (xf.transform_point3(Vec3::Y * lo), xf.transform_point3(Vec3::Y * hi));
+            // The capsule's caps round off past the ends: pull them in by the radius.
+            let dir = (b - a).normalize_or_zero();
+            let r = r * scale;
+            let inset = (r).min((b - a).length() * 0.5);
+            self.prims.push((self.pos.len(), Proxy::Capsule { a: a + dir * inset, b: b - dir * inset, r }));
+        }
         let normal_m = lin.inverse().transpose();
         let mirrored = lin.determinant() < 0.0;
         let seg = segments.max(3);
@@ -251,6 +362,16 @@ impl Builder {
             if area < 0.0 { outline.iter().rev().copied().collect() } else { outline.to_vec() };
         let h = depth * 0.5;
         let place = |p: Vec2, z: f32| xf.transform_point3(p.extend(z));
+        // Its volume: the outline's bounds, the plate's depth.
+        let (lo, hi) = ring.iter().fold((ring[0], ring[0]), |(lo, hi), p| (lo.min(*p), hi.max(*p)));
+        let corners = [0usize, 1, 2, 3, 4, 5, 6, 7].map(|i| {
+            let x = if i & 1 != 0 { hi.x } else { lo.x };
+            let y = if i & 2 != 0 { hi.y } else { lo.y };
+            place(Vec2::new(x, y), if i & 4 != 0 { h } else { -h })
+        });
+        if let Some(proxy) = Proxy::from_corners(&corners) {
+            self.prims.push((self.pos.len(), proxy));
+        }
         for tri in ear_clip(&ring) {
             let mid = (ring[tri[0]] + ring[tri[1]] + ring[tri[2]]) / 3.0;
             for z in [h, -h] {

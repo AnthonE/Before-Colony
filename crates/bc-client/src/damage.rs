@@ -28,6 +28,8 @@ use crate::view::{FxEvent, FxEvents, SuitDrive, VisTime};
 
 /// Seconds a part stays hot after a hit.
 const HEAT_SECS: f32 = 1.6;
+/// Seconds a wreck burns after it's destroyed.
+const BURN_SECS: f64 = 20.0;
 /// Seconds a broken-off piece flies before it's gone, and a stump sparks.
 const DEBRIS_SECS: f32 = 30.0;
 const STUMP_SECS: f64 = 5.0;
@@ -74,6 +76,8 @@ pub struct Damage {
     /// Secondary blasts still to come, and stumps still sparking: (until when, where).
     blasts: Vec<(f64, Bone)>,
     stumps: Vec<(f64, Bone)>,
+    /// Burning from when it was destroyed until then (a wreck seen already dead doesn't).
+    burn_until: f64,
     rng: Rng,
 }
 
@@ -88,6 +92,7 @@ impl Damage {
             primed: false,
             blasts: Vec::new(),
             stumps: Vec::new(),
+            burn_until: 0.0,
             rng: Rng::new(0xDA3A_6E00 ^ u64::from(slot)),
         }
     }
@@ -246,6 +251,7 @@ pub fn damage_suits(
             for (k, bone) in [Bone::Backpack, Bone::ShoulderR, Bone::Chest].into_iter().enumerate() {
                 dmg.blasts.push((now + 0.12 + 0.2 * k as f64, bone));
             }
+            dmg.burn_until = now + BURN_SECS;
             changed = true;
         }
         if wreck != dmg.wreck {
@@ -263,6 +269,16 @@ pub fn damage_suits(
         for bone in blasts_due {
             let at = bone_point(d, Some(anim), bone, Vec3::ZERO);
             particles.explosion(cap, At { pos: at, vel: d.vel }, 0.35);
+        }
+        // A wreck burns on for a while, from its chest and backpack while they're still on it.
+        if dmg.burn_until > now {
+            let strength = ((dmg.burn_until - now) / BURN_SECS) as f32;
+            for bone in [Bone::Chest, Bone::Backpack] {
+                if !dmg.lost[bone.index()] {
+                    let at = bone_point(d, Some(anim), bone, Vec3::ZERO);
+                    particles.burn(cap, At { pos: at, vel: d.vel }, strength * strength.sqrt(), dt);
+                }
+            }
         }
         // Stumps spark and arc.
         dmg.stumps.retain(|(until, _)| *until > now);

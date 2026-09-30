@@ -448,7 +448,8 @@ the sector with its pilot asleep in the cockpit, and they wake in it when they'r
 
 **Settings** (from the title or the menu) are kept in the browser: mouse sensitivity, invert Y,
 the flight camera, field of view (vertical; the panel gives the horizontal too), camera shake,
-first-flight hints and graphics quality, along with the last callsign and frame launched. `bc_client_core::settings` defines them, their ranges and the stored text (a
+flashing effects (a ZERO seizure's flicker; off to start with when the browser asks for reduced
+motion), first-flight hints and graphics quality, along with the last callsign and frame launched. `bc_client_core::settings` defines them, their ranges and the stored text (a
 key this build doesn't know is kept, for the build that wrote it). A new pilot gets one hint at a
 time (on foot in the bay: walking, using a terminal, boarding; flying: thrust, boost, fire, the
 cockpit view, flight assist, salvage, docking, the menu), each gone once it's been done.

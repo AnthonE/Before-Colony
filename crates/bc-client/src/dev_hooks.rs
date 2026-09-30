@@ -1,7 +1,7 @@
 //! `window.__bc`: a small status object the Playwright tests (and curious humans) can read.
 
 use bevy::prelude::*;
-use wasm_bindgen::JsValue;
+use wasm_bindgen::{JsCast, JsValue};
 
 /// Fields published to `window.__bc` a few times a second.
 #[derive(Resource, Default)]
@@ -58,10 +58,16 @@ fn publish(
     let _ = js_sys::Reflect::set(&window, &JsValue::from_str("__bc"), &obj);
 }
 
-/// Fades out the HTML "loading" overlay once Bevy renders its first frame.
+/// Fades out the HTML "loading" overlay once Bevy renders its first frame (the page's
+/// `bcHideBoot`, which hides it once it has faded; or at once, without it).
 fn hide_boot_overlay() {
-    let boot = web_sys::window().and_then(|w| w.document()).and_then(|d| d.get_element_by_id("boot"));
-    if let Some(el) = boot {
+    let Some(window) = web_sys::window() else { return };
+    let fade = js_sys::Reflect::get(&window, &JsValue::from_str("bcHideBoot"))
+        .ok()
+        .and_then(|f| f.dyn_into::<js_sys::Function>().ok());
+    if let Some(f) = fade {
+        let _ = f.call0(&window);
+    } else if let Some(el) = window.document().and_then(|d| d.get_element_by_id("boot")) {
         let _ = el.class_list().add_1("hidden");
     }
 }

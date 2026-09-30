@@ -1,6 +1,7 @@
 //! Cockpit HUD: flight and armour readouts, weapons and the frame's special, missile lock, target
 //! brackets and markers on missiles tracking you, kill feed, the ZERO System's recommendations and
-//! alerts. Plain ASCII so the embedded font renders everything.
+//! alerts. Drawn in the page's font (`UiFont`) and palette (`bc_client_core::palette`), each line
+//! with a soft shadow so it reads over the sunlit hull, Earth or a blast.
 //!
 //! The crosshair is the aim. A weapon bears only within its mount's reach of the body's axis (a
 //! hand's 50°, Neo-Bird's nose 2°), so while the suit is still turning onto the aim the crosshair
@@ -9,6 +10,7 @@
 //! (`-x-`).
 
 use bc_client_core::FeedLine;
+use bc_client_core::palette;
 use bc_client_core::world::ObjectMotion;
 use bc_proto::buttons::{FLIGHT_ASSIST, MODE};
 use bc_proto::snapshot::{ent_flags, own_flags, zero_mode};
@@ -26,11 +28,16 @@ use crate::input::{Aim, Controls};
 use crate::net::{GameClient, now_s};
 use crate::suits_vis::pilot_tag;
 
-const CYAN: Color = Color::srgb(0.55, 0.92, 1.0);
-const AMBER: Color = Color::srgb(1.0, 0.75, 0.25);
-const RED: Color = Color::srgb(1.0, 0.3, 0.3);
-const GREEN: Color = Color::srgb(0.45, 1.0, 0.55);
-const ZERO_PINK: Color = Color::srgb(1.0, 0.45, 0.8);
+const fn colour(hex: palette::Hex) -> Color {
+    let [r, g, b] = hex.srgb();
+    Color::srgb(r, g, b)
+}
+
+const CYAN: Color = colour(palette::CYAN);
+const AMBER: Color = colour(palette::AMBER);
+const RED: Color = colour(palette::RED);
+const GREEN: Color = colour(palette::GREEN);
+const ZERO_PINK: Color = colour(palette::PINK);
 /// Target brackets on suits, then markers on missiles tracking the pilot.
 const BRACKETS: usize = 24;
 const MISSILE_MARKERS: usize = 8;
@@ -100,8 +107,50 @@ pub struct LeadMarker;
 #[derive(Component)]
 pub struct Bracket(usize);
 
-fn label(size: f32, color: Color, node: Node) -> (Text, TextFont, TextColor, Node) {
-    (Text::new(""), TextFont { font_size: FontSize::Px(size), ..default() }, TextColor(color), node)
+/// The font the HUD (and the page) is set in: Share Tech Mono (`web/fonts`, SIL OFL).
+#[derive(Resource, Clone)]
+pub struct UiFont(pub Handle<Font>);
+
+impl UiFont {
+    /// Adds the font the page loads to the app's fonts.
+    pub fn load(fonts: &mut Assets<Font>) -> Self {
+        let bytes = include_bytes!("../../../web/fonts/ShareTechMono-Regular.ttf");
+        Self(fonts.add(Font::from_bytes(bytes.to_vec())))
+    }
+
+    pub fn text(&self, size: f32) -> TextFont {
+        TextFont { font: self.0.clone().into(), font_size: FontSize::Px(size), ..default() }
+    }
+}
+
+/// A soft shadow under HUD text, so it reads over anything bright.
+pub const SHADOW: TextShadow =
+    TextShadow { offset: Vec2::new(1.0, 1.0), color: Color::srgba(0.0, 0.0, 0.0, 0.75) };
+
+fn label(
+    font: &UiFont,
+    size: f32,
+    color: Color,
+    node: Node,
+) -> (Text, TextFont, TextColor, TextShadow, Node) {
+    (Text::new(""), font.text(size), TextColor(color), SHADOW, node)
+}
+
+/// A full-width row at `top`, centring what's in it.
+fn banner(top: Val) -> Node {
+    Node {
+        position_type: PositionType::Absolute,
+        top,
+        left: Val::Px(0.0),
+        right: Val::Px(0.0),
+        justify_content: JustifyContent::Center,
+        ..default()
+    }
+}
+
+/// Centres a node on its `left`/`top` point (a symbol on the spot it marks).
+fn centred() -> UiTransform {
+    UiTransform { translation: Val2::percent(-50.0, -50.0), ..default() }
 }
 
 fn abs(left: Option<f32>, right: Option<f32>, top: Option<f32>, bottom: Option<f32>) -> Node {
@@ -115,7 +164,8 @@ fn abs(left: Option<f32>, right: Option<f32>, top: Option<f32>, bottom: Option<f
     }
 }
 
-pub fn setup_hud(mut commands: Commands) {
+pub fn setup_hud(mut commands: Commands, font: Res<UiFont>) {
+    let f = &*font;
     commands
         .spawn((
             HudRoot,
@@ -128,82 +178,75 @@ pub fn setup_hud(mut commands: Commands) {
             Visibility::Hidden,
         ))
         .with_children(|p| {
-            p.spawn((HudText::Status, label(13.0, CYAN, abs(Some(14.0), None, Some(10.0), None))));
-            p.spawn((
-                HudText::Zero,
-                label(
-                    14.0,
-                    ZERO_PINK,
-                    Node {
-                        position_type: PositionType::Absolute,
-                        top: Val::Px(10.0),
-                        left: Val::Percent(36.0),
-                        ..default()
-                    },
-                ),
-            ));
-            p.spawn((HudText::Feed, label(13.0, AMBER, abs(None, Some(14.0), Some(10.0), None))));
-            p.spawn((HudText::Flight, label(13.0, CYAN, abs(Some(14.0), None, None, Some(12.0)))));
-            p.spawn((HudText::Armor, label(13.0, CYAN, abs(Some(250.0), None, None, Some(12.0)))));
-            p.spawn((HudText::Weapons, label(13.0, CYAN, abs(None, Some(14.0), None, Some(12.0)))));
+            p.spawn((HudText::Status, label(f, 13.0, CYAN, abs(Some(14.0), None, Some(10.0), None))));
+            // ZERO's panel, centred across the top.
+            p.spawn(banner(Val::Px(10.0))).with_children(|row| {
+                row.spawn((
+                    HudText::Zero,
+                    label(f, 14.0, ZERO_PINK, Node::default()),
+                    TextLayout::justify(Justify::Center),
+                ));
+            });
+            p.spawn((HudText::Feed, label(f, 13.0, AMBER, abs(None, Some(14.0), Some(10.0), None))));
+            p.spawn((HudText::Flight, label(f, 13.0, CYAN, abs(Some(14.0), None, None, Some(12.0)))));
+            p.spawn((HudText::Armor, label(f, 13.0, CYAN, abs(Some(250.0), None, None, Some(12.0)))));
+            p.spawn((HudText::Weapons, label(f, 13.0, CYAN, abs(None, Some(14.0), None, Some(12.0)))));
             // Above the armour readout, clear of the weapons panel however narrow the window.
-            p.spawn((HudText::Salvage, label(13.0, AMBER, abs(Some(250.0), None, None, Some(136.0)))));
+            p.spawn((HudText::Salvage, label(f, 13.0, AMBER, abs(Some(250.0), None, None, Some(136.0)))));
             p.spawn((
                 GrabMarker,
-                label(13.0, GREEN, abs(Some(0.0), None, Some(0.0), None)),
+                label(f, 13.0, GREEN, abs(Some(0.0), None, Some(0.0), None)),
                 Visibility::Hidden,
             ));
             p.spawn((
                 DockMarker,
-                label(13.0, AMBER, abs(Some(0.0), None, Some(0.0), None)),
+                label(f, 13.0, AMBER, abs(Some(0.0), None, Some(0.0), None)),
                 Visibility::Hidden,
             ));
             p.spawn((
                 BoreMarker,
-                label(18.0, CYAN, abs(Some(0.0), None, Some(0.0), None)),
+                label(f, 18.0, CYAN, abs(Some(0.0), None, Some(0.0), None)),
+                centred(),
                 Visibility::Hidden,
             ));
             p.spawn((
                 VelocityMarker,
-                label(16.0, PALE_GREEN, abs(Some(0.0), None, Some(0.0), None)),
+                label(f, 16.0, PALE_GREEN, abs(Some(0.0), None, Some(0.0), None)),
+                centred(),
                 Visibility::Hidden,
             ));
-            p.spawn((
-                HudText::Alert,
-                label(
-                    22.0,
-                    RED,
-                    Node {
-                        position_type: PositionType::Absolute,
-                        top: Val::Percent(30.0),
-                        left: Val::Percent(40.0),
-                        ..default()
-                    },
-                ),
-            ));
+            // Alerts, centred a third of the way down.
+            p.spawn(banner(Val::Percent(30.0))).with_children(|row| {
+                row.spawn((
+                    HudText::Alert,
+                    label(f, 22.0, RED, Node::default()),
+                    TextLayout::justify(Justify::Center),
+                ));
+            });
             p.spawn((
                 Reticle,
                 label(
+                    f,
                     26.0,
                     CYAN,
                     Node {
                         position_type: PositionType::Absolute,
                         left: Val::Percent(50.0),
                         top: Val::Percent(50.0),
-                        margin: UiRect { left: Val::Px(-7.0), top: Val::Px(-16.0), ..default() },
                         ..default()
                     },
                 ),
+                centred(),
             ));
             p.spawn((
                 LeadMarker,
-                label(16.0, ZERO_PINK, abs(Some(0.0), None, Some(0.0), None)),
+                label(f, 16.0, ZERO_PINK, abs(Some(0.0), None, Some(0.0), None)),
                 Visibility::Hidden,
             ));
             for i in 0..BRACKETS + MISSILE_MARKERS {
                 p.spawn((
                     Bracket(i),
-                    label(11.0, RED, abs(Some(0.0), None, Some(0.0), None)),
+                    label(f, 11.0, RED, abs(Some(0.0), None, Some(0.0), None)),
                     Visibility::Hidden,
                 ));
             }
@@ -746,8 +789,9 @@ pub fn update_hud(
         };
         match what.map(|(p, s, c)| (cam.world_to_viewport(cam_tf, p), s, c)) {
             Some((Ok(p), s, c)) => {
-                // Symbols are centred on their point; labels start just left of theirs.
-                let (dx, dy) = if centred { (-13.0, -10.0) } else { (-20.0, -8.0) };
+                // Symbols are centred on their point (their `UiTransform`); labels start just left
+                // of theirs.
+                let (dx, dy) = if centred { (0.0, 0.0) } else { (-20.0, -8.0) };
                 node.left = Val::Px(p.x + dx);
                 node.top = Val::Px(p.y + dy);
                 text.0 = s;

@@ -16,7 +16,8 @@ struct Plume {
 
 @vertex
 fn vertex(@builtin(instance_index) instance: u32, @location(0) position: vec3<f32>) -> RibbonOut {
-    return ribbon_vertex(instance, position);
+    // A distant suit's fire stays a thin line of light rather than vanishing.
+    return ribbon_vertex(instance, position, 0.8);
 }
 
 @fragment
@@ -34,5 +35,5 @@ fn fragment(in: RibbonOut) -> @location(0) vec4<f32> {
     let glow = exp(-r * r * 3.0) * (1.0 - y) * (1.0 - y);
     let flicker = 0.85 + 0.15 * sin(t * 57.0 + seed + y * 9.0);
     let rgb = (plume.core.rgb * core * diamonds + plume.glow.rgb * glow) * flicker * power;
-    return vec4(glow_out(rgb), 0.0);
+    return vec4(glow_out(rgb * in.dim), 0.0);
 }

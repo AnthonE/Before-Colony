@@ -1,8 +1,9 @@
 //! Procedural mobile suits as plain mesh data: a modelling kit (`kit`), one skeleton for every
 //! frame (`rig`) and each frame's design (`frames`). The client bakes each frame into one mesh per
 //! bone, per level of detail, and builds a suit as a tree of bone entities, so it can be posed and
-//! broken apart.
+//! broken apart. Each vertex carries its ambient occlusion, baked from the whole suit at rest (`ao`).
 
+mod ao;
 pub mod frames;
 mod gundams;
 pub mod kit;
@@ -81,6 +82,8 @@ impl Model {
 pub fn build(frame: FrameId, lod: Lod) -> Model {
     let mut d = Designer::new(lod);
     frames::design(frame, &mut d);
+    let joints: Vec<Vec3> = rig::ALL.iter().map(|b| b.def().joint).collect();
+    ao::bake(&mut d.bones, &joints);
     let bones = d.bones.into_iter().map(|b| (!b.is_empty()).then(|| b.finish())).collect();
     Model { bones, sockets: d.sockets }
 }

@@ -42,11 +42,13 @@ fn storage() -> Option<web_sys::Storage> {
     web_sys::window()?.local_storage().ok().flatten()
 }
 
-/// Reads the saved settings. A first visit starts calm if the browser asks for reduced motion.
+/// Reads the saved settings. A first visit starts calm, without flashing, if the browser asks for
+/// reduced motion.
 pub fn load(cfg: &LaunchConfig) -> (SettingsRes, SettingsStore) {
     let mut defaults = Settings::default();
     if cfg.calm {
         defaults.shake = 0.25;
+        defaults.flashing = false;
     }
     let loaded = match storage().and_then(|s| s.get_item(KEY).ok().flatten()) {
         Some(text) => settings::parse(&text, defaults),
@@ -78,7 +80,7 @@ pub fn apply_saved_tier(gfx: &mut Gfx, cfg: &LaunchConfig, s: &Settings) {
 
 /// The view's preferences from the settings.
 pub fn view_prefs(s: &Settings) -> ViewPrefs {
-    ViewPrefs { fov: s.fov, shake: s.shake, cockpit: s.camera == CameraView::Cockpit }
+    ViewPrefs { fov: s.fov, shake: s.shake, cockpit: s.camera == CameraView::Cockpit, flashing: s.flashing }
 }
 
 /// Applies the page's changes, saves when due, and hands the view its preferences.

@@ -67,6 +67,8 @@ mod session;
 #[cfg(target_arch = "wasm32")]
 mod settings;
 #[cfg(target_arch = "wasm32")]
+mod shade;
+#[cfg(target_arch = "wasm32")]
 mod showcase;
 #[cfg(target_arch = "wasm32")]
 mod sky;

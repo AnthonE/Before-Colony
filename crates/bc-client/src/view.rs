@@ -76,56 +76,26 @@ pub struct MissileFeed(pub Vec<MissileView>);
 pub enum FxEvent {
     /// A shot striking something: where, the surface's normal if known, and the suit and part
     /// it hit (none for the colony's hull).
-    Hit {
-        pos: Vec3,
-        weapon: WeaponKind,
-        normal: Option<Vec3>,
-        target: Option<(u16, Part)>,
-    },
-    Kill {
-        pos: Vec3,
-    },
+    Hit { pos: Vec3, weapon: WeaponKind, normal: Option<Vec3>, target: Option<(u16, Part)> },
+    /// A suit destroyed: where, how fast its wreck is going (the blast goes with it), and whose
+    /// it was (for the colour of its armour flying off).
+    Kill { pos: Vec3, vel: Vec3, victim: Option<u16> },
     /// A beam leaving the muzzle (`shooter`: the suit's slot, if it's known, so the flash can be
     /// drawn at its weapon).
-    Muzzle {
-        pos: Vec3,
-        dir: Vec3,
-        vel: Vec3,
-        weapon: WeaponKind,
-        shooter: Option<u16>,
-    },
-    /// Beam sabers meeting.
-    Clash {
-        pos: Vec3,
-    },
+    Muzzle { pos: Vec3, dir: Vec3, vel: Vec3, weapon: WeaponKind, shooter: Option<u16> },
+    /// Beam sabers meeting, and how fast the pair of them are going.
+    Clash { pos: Vec3, vel: Vec3 },
     /// A rock shattering: where, how big it was, and the colour of its ore.
-    RockBreak {
-        pos: Vec3,
-        radius: f32,
-        ore: Vec3,
-    },
+    RockBreak { pos: Vec3, radius: f32, ore: Vec3 },
     /// The pilot's own suit taking a hit (as well as its [`FxEvent::Hit`]).
-    Struck {
-        weapon: WeaponKind,
-    },
+    Struck { weapon: WeaponKind },
     /// A suit changing form (Wing Zero ↔ Neo-Bird), the moment it does.
-    Transform {
-        pos: Vec3,
-        vel: Vec3,
-        rot: Quat,
-    },
+    Transform { pos: Vec3, vel: Vec3, rot: Quat },
     /// A missile leaving its launcher (`own`: the pilot's).
-    MissileLaunch {
-        pos: Vec3,
-        own: bool,
-    },
+    MissileLaunch { pos: Vec3, own: bool },
     /// A missile's warhead going off: against a suit (`struck`), or at the end of its flight or
     /// against rock or hull.
-    MissileBurst {
-        pos: Vec3,
-        kind: WeaponKind,
-        struck: bool,
-    },
+    MissileBurst { pos: Vec3, kind: WeaponKind, struck: bool },
 }
 
 #[derive(Resource, Default)]
@@ -141,11 +111,13 @@ pub struct ViewPrefs {
     pub shake: f32,
     /// Flying from the cockpit (first person) rather than the chase camera.
     pub cockpit: bool,
+    /// Full-screen flicker and flashes are allowed (off for photosensitive pilots).
+    pub flashing: bool,
 }
 
 impl Default for ViewPrefs {
     fn default() -> Self {
-        Self { fov: 70.0, shake: 1.0, cockpit: false }
+        Self { fov: 70.0, shake: 1.0, cockpit: false, flashing: true }
     }
 }
 

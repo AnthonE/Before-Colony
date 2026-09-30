@@ -182,14 +182,17 @@ pub fn follow(
         |p: Vec3, full: f32, none: f32| 1.0 - ((p.distance(eye) - full) / (none - full)).clamp(0.0, 1.0);
     for ev in &events.0 {
         c.trauma += match *ev {
-            FxEvent::Kill { pos } => 0.9 * near(pos, 120.0, 1_500.0),
+            FxEvent::Kill { pos, .. } => 0.9 * near(pos, 120.0, 1_500.0),
             FxEvent::Struck { weapon } => {
                 c.flash = 1.0;
                 if weapon == WeaponKind::TwinBusterRifle { 0.9 } else { 0.35 }
             }
             FxEvent::Muzzle { pos, weapon: WeaponKind::TwinBusterRifle, .. } => 0.6 * near(pos, 60.0, 900.0),
-            FxEvent::Clash { pos } => 0.4 * near(pos, 40.0, 400.0),
+            FxEvent::Clash { pos, .. } => 0.4 * near(pos, 40.0, 400.0),
             FxEvent::RockBreak { pos, radius, .. } => 0.7 * near(pos, radius * 2.0, radius * 40.0),
+            FxEvent::MissileBurst { pos, struck, .. } => {
+                (if struck { 0.35 } else { 0.2 }) * near(pos, 30.0, 400.0)
+            }
             _ => 0.0,
         };
     }
@@ -235,6 +238,7 @@ fn smoothstep(lo: f32, hi: f32, x: f32) -> f32 {
 /// post effects (the components are there only then).
 #[allow(clippy::type_complexity)]
 pub fn pilot_effects(
+    gfx: Res<crate::gfx::Gfx>,
     target: Res<CameraTarget>,
     time: Res<VisTime>,
     prefs: Res<ViewPrefs>,
@@ -269,7 +273,10 @@ pub fn pilot_effects(
     let tunnel = smoothstep(0.6, 1.0, t.g_strain).max(c.black);
     if let Some(mut v) = vignette {
         let red = c.flash * c.flash;
-        v.intensity = (0.1 * t.g_strain + 0.9 * tunnel).max(0.5 * red).max(0.4 * c.sub).min(1.0);
+        // The lens's own vignette, deepened by the pilot's body.
+        let base = crate::gfx::base_vignette(gfx.look);
+        let body = (0.1 * t.g_strain + 0.9 * tunnel).max(0.5 * red).max(0.4 * c.sub);
+        v.intensity = (base + body).min(1.0);
         v.radius = 1.05 - 0.85 * tunnel;
         v.smoothness = 2.5;
         // Black for the tunnel; red while a hit's flash outweighs it.
@@ -277,8 +284,10 @@ pub fn pilot_effects(
         v.color = Color::linear_rgb(0.35 * share, 0.01 * share, 0.015 * share);
     }
     if let Some(mut g) = grading {
-        g.global.post_saturation = 1.0 - 0.85 * grey;
-        g.global.exposure = -1.2 * grey - 8.0 * c.black * c.black;
+        // The picture's own grade, greyed out and darkened by G.
+        let base = crate::gfx::base_grading(gfx.look).global;
+        g.global.post_saturation = base.post_saturation * (1.0 - 0.85 * grey);
+        g.global.exposure = base.exposure - 1.2 * grey - 8.0 * c.black * c.black;
     }
     if let Some(mut a) = aberration {
         a.intensity = (0.05 * c.seizure + 0.008 * c.zero * t.zero_strain + 0.02 * c.sub) * calm;
@@ -294,5 +303,6 @@ pub fn pilot_effects(
         z.strain = t.zero_strain;
         z.seizure = c.seizure * calm;
         z.time = (time.now % 1_000.0) as f32;
+        z.flicker = if prefs.flashing { 1.0 } else { 0.0 };
     }
 }

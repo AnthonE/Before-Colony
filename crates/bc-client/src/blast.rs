@@ -16,8 +16,10 @@ use bevy::shader::ShaderRef;
 use crate::materials::{HullTag, Surfaces, paint};
 use crate::view::VisTime;
 
-const SHOCKS: usize = 8;
+const SHOCKS: usize = 12;
 const CHIPS: usize = 64;
+/// Seconds a chip takes to cool from red-hot.
+const CHIP_COOL: f32 = 1.5;
 
 pub struct BlastPlugin;
 
@@ -93,6 +95,8 @@ pub struct Shock {
     /// A flat ring square to local z (else a sphere), and its orientation.
     ring: bool,
     rot: Quat,
+    /// A ring's look: a Twin Buster shot's plasma, or (pale) the feathers of a Neo-Bird changing.
+    pale: bool,
 }
 
 #[derive(Component, Default)]
@@ -105,6 +109,9 @@ pub struct Chip {
     born: f64,
     life: f32,
     size: Vec3,
+    /// Its livery, and how hot it was torn off (the tag's heat) and is now.
+    paint: HullTag,
+    heat: u8,
 }
 
 /// Blasts waiting to be placed (shells and chip bursts), and the shells' looks.
@@ -116,6 +123,7 @@ pub struct Blasts {
     disc: Handle<Mesh>,
     fire: Handle<ShockMaterial>,
     plasma: Handle<ShockMaterial>,
+    feather: Handle<ShockMaterial>,
     next_shock: usize,
     next_chip: usize,
     rng: Rng,
@@ -125,13 +133,24 @@ impl Blasts {
     /// A shockwave of `radius` (m) at the end of its expansion.
     pub fn shockwave(&mut self, pos: Vec3, vel: Vec3, radius: f32) {
         let rot = Quat::IDENTITY;
-        self.shocks.push(Shock { live: true, pos, vel, born: 0.0, life: 0.8, radius, ring: false, rot });
+        let shock =
+            Shock { live: true, pos, vel, born: 0.0, life: 0.8, radius, ring: false, rot, pale: false };
+        self.shocks.push(shock);
     }
 
     /// An energy ring thrown off round a muzzle, square to the shot along `dir`.
     pub fn ring(&mut self, pos: Vec3, vel: Vec3, dir: Vec3, radius: f32) {
         let rot = Quat::from_rotation_arc(Vec3::Z, dir.normalize_or(Vec3::Z));
-        self.shocks.push(Shock { live: true, pos, vel, born: 0.0, life: 0.4, radius, ring: true, rot });
+        let shock =
+            Shock { live: true, pos, vel, born: 0.0, life: 0.4, radius, ring: true, rot, pale: false };
+        self.shocks.push(shock);
+    }
+
+    /// A pale ring of light round a frame changing form, square to `axis`.
+    pub fn feather_ring(&mut self, pos: Vec3, vel: Vec3, axis: Vec3, radius: f32) {
+        let rot = Quat::from_rotation_arc(Vec3::Z, axis.normalize_or(Vec3::Z));
+        let shock = Shock { live: true, pos, vel, born: 0.0, life: 0.5, radius, ring: true, rot, pale: true };
+        self.shocks.push(shock);
     }
 
     /// `n` chips of armour flung from `pos`, inheriting `vel`, painted by `tag`.
@@ -149,8 +168,9 @@ pub fn setup_blasts(
     let sphere = meshes.add(Sphere::new(1.0).mesh().ico(4).expect("icosphere"));
     let disc = meshes.add(Plane3d::new(Vec3::Z, Vec2::ONE));
     // In vacuum there's no air to carry a shock: what glows is a thin, fast shell of hot gas.
-    let fire = shocks.add(ShockMaterial::new(Vec3::new(1.8, 1.1, 0.6), 8.0));
+    let fire = shocks.add(ShockMaterial::new(Vec3::new(1.6, 0.95, 0.45), 18.0));
     let plasma = shocks.add(ShockMaterial::new(Vec3::new(7.0, 4.0, 12.0), 1.0));
+    let feather = shocks.add(ShockMaterial::new(Vec3::new(5.0, 6.5, 9.0), 1.0));
     for _ in 0..SHOCKS {
         commands.spawn((
             Shock::default(),
@@ -182,6 +202,7 @@ pub fn setup_blasts(
         disc,
         fire,
         plasma,
+        feather,
         next_shock: 0,
         next_chip: 0,
         rng: Rng::new(0xB1A5_7000),
@@ -211,7 +232,11 @@ pub fn update_blasts(
     let b = &mut *blasts;
     for order in b.shocks.drain(..) {
         if let Some((mut s, _, _, _, mut mesh, mut mat)) = shocks.iter_mut().nth(b.next_shock % SHOCKS) {
-            let (want_mesh, want_mat) = if order.ring { (&b.disc, &b.plasma) } else { (&b.sphere, &b.fire) };
+            let (want_mesh, want_mat) = match (order.ring, order.pale) {
+                (true, true) => (&b.disc, &b.feather),
+                (true, false) => (&b.disc, &b.plasma),
+                _ => (&b.sphere, &b.fire),
+            };
             if mesh.0 != *want_mesh {
                 mesh.0 = want_mesh.clone();
             }
@@ -239,10 +264,11 @@ pub fn update_blasts(
                 born: now,
                 life: 3.0 + b.rng.next_f32() * 3.0,
                 size,
+                paint,
+                heat: u8::MAX,
             };
-            if let Some((mut c, _, _, mut tag)) = chips.iter_mut().nth(b.next_chip % CHIPS) {
+            if let Some((mut c, _, _, _)) = chips.iter_mut().nth(b.next_chip % CHIPS) {
                 *c = chip;
-                *tag = paint.tag();
             }
             b.next_chip += 1;
         }
@@ -260,11 +286,17 @@ pub fn update_blasts(
             *tag = MeshTag(((1.0 - age) * 255.0) as u32 | if s.ring { RING } else { 0 });
         }
     }
-    for (mut c, mut tf, mut vis, _) in &mut chips {
+    for (mut c, mut tf, mut vis, mut tag) in &mut chips {
         let age = (now - c.born) as f32;
         let on = c.live && age < c.life;
         set_visible(&mut vis, on);
         if on {
+            // Torn off hot, cooling over a second and a half.
+            let heat = (f32::from(c.paint.heat) * (1.0 - age / CHIP_COOL)).max(0.0) as u8;
+            if heat != c.heat {
+                c.heat = heat;
+                *tag = HullTag { heat, ..c.paint }.tag();
+            }
             let (spin, vel) = (c.spin * dt, c.vel);
             c.pos += vel * dt;
             c.rot = (Quat::from_scaled_axis(spin) * c.rot).normalize();
