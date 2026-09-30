@@ -34,6 +34,10 @@ pub const STANCE: f32 = 9.125;
 pub const TRACE_ITERS: u32 = 48;
 pub const TRACE_MIN_STEP: f32 = 1.0;
 pub const TRACE_EPS: f32 = 0.02;
+/// The longest segment a union trace is sure to skip no feature of, m: its steps must reach `b`
+/// within [`TRACE_ITERS`], so on a segment of `len` they can be `len / TRACE_ITERS` long, and this
+/// is where that reaches the 6 m of the thinnest feature. Callers split longer segments.
+pub const TRACE_MAX_LEN: f32 = TRACE_ITERS as f32 * 6.0;
 
 /// What a suit can stand on, fly in the grip of, or park on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -282,7 +286,9 @@ impl Shape {
     ///
     /// An ellipsoid's is exact: the ellipsoid grown by `r` less the cuts shrunk by `r`, solved in
     /// closed form. A union's is sphere tracing on its distance, which is conservative: it can
-    /// step over a graze shorter than [`TRACE_MIN_STEP`], and report a hit up to that late.
+    /// step over a graze shorter than a step, and report a hit up to a step late. A step is at
+    /// least [`TRACE_MIN_STEP`], and at least what spreads the rest of the segment over the steps
+    /// left, so the trace always reaches `b`; up to [`TRACE_MAX_LEN`] that is at most 6 m.
     pub fn trace(&self, a: Vec3, b: Vec3, r: f32) -> Option<f32> {
         let len = length(b - a);
         if len < 1e-6 {
@@ -299,7 +305,7 @@ impl Shape {
             Base::Ellipsoid(axes) => self.solve(axes, a, b, r),
             Base::Union(_) => {
                 let mut s = d0;
-                for _ in 0..TRACE_ITERS {
+                for i in 0..TRACE_ITERS {
                     if s >= len {
                         break;
                     }
@@ -307,7 +313,8 @@ impl Shape {
                     if d <= TRACE_EPS {
                         return Some(s / len);
                     }
-                    s += d.max(TRACE_MIN_STEP);
+                    let spread = (len - s) / (TRACE_ITERS - i) as f32;
+                    s += d.max(TRACE_MIN_STEP).max(spread);
                 }
                 (self.bound(b) - r <= 0.0).then_some(1.0)
             }
@@ -626,6 +633,7 @@ mod tests {
     use crate::content::landmarks::LANDMARKS;
     use crate::field::Rock;
     use crate::math::{Rng, angle_between};
+    use core::f32::consts::PI;
 
     fn mo_ii() -> Shape {
         LANDMARKS[0].shape
@@ -880,6 +888,25 @@ mod tests {
         first.map(|f| (f, len - f + STEP))
     }
 
+    /// Where along `a→b` the first contact at least `min` long begins, sampled every 5 cm.
+    fn sampled_long_contact(shape: &Shape, a: Vec3, b: Vec3, r: f32, min: f32) -> Option<f32> {
+        const STEP: f32 = 0.05;
+        let len = length(b - a);
+        let n = (len / STEP) as u32 + 1;
+        let mut run: Option<f32> = None;
+        for k in 0..=n {
+            let s = len * k as f32 / n as f32;
+            let touching = shape.probe(a + (b - a) * (s / len)).dist - r <= 0.0;
+            match (touching, run) {
+                (true, None) => run = Some(s),
+                (true, Some(f)) if s - f >= min => return Some(f),
+                (false, Some(_)) => run = None,
+                _ => {}
+            }
+        }
+        run.filter(|&f| len - f + STEP >= min)
+    }
+
     /// Whether `q` is in Hermit's model for a sphere of radius `r`: the ellipsoid grown by `r`,
     /// less the cuts shrunk by it (in f64).
     fn in_grown_hermit(q: [f64; 3], r: f64) -> bool {
@@ -944,6 +971,55 @@ mod tests {
             }
         }
         assert!(hits > 3_000 && grazes < 200, "MO-II: {hits} hits, {grazes} grazes missed");
+
+        // Long segments, up to TRACE_MAX_LEN (a tick of the fastest shot is 267 m), skimming the
+        // core, the pylons and the modules: the steps spread to reach b, so the trace still steps
+        // over no contact longer than a step (at most 6 m), and a hit is at most a step late. A
+        // graze it steps over can come before the contact it reports, so that is measured from
+        // the first contact at least a step long.
+        let skims = [
+            (Vec3::new(0.0, 44.5, 44.5), Vec3::new(266.7, 44.5, 44.5), 0.5),
+            (Vec3::new(50.0, 63.0, 0.0), Vec3::new(338.0, 63.0, 0.0), 0.5),
+            (Vec3::new(50.0, 0.0, -65.0), Vec3::new(338.0, 0.0, -65.0), 2.0),
+        ];
+        let (mut hits, mut far) = (0, 0);
+        for k in 0..6_000 {
+            let (a, b, r) = if let Some(&skim) = skims.get(k) {
+                skim
+            } else {
+                let r = radii[(rng.next_u32() % 4) as usize];
+                let a = loop {
+                    let (th, rho) = (rng.signed() * PI, 55.0 + rng.next_f32() * 40.0);
+                    let a = Vec3::new(-320.0 + rng.next_f32() * 320.0, rho * cos(th), rho * sin(th));
+                    if shape.probe(a).dist - r > 0.5 {
+                        break a;
+                    }
+                };
+                let dir = normalize_or(Vec3::X + unit(&mut rng) * 0.15, Vec3::X);
+                (a, a + dir * (45.0 + rng.next_f32() * (TRACE_MAX_LEN - 45.0)), r)
+            };
+            assert!(shape.probe(a).dist - r > 0.5, "{a} r {r} starts touching");
+            let len = length(b - a);
+            let step = TRACE_MIN_STEP.max(len / TRACE_ITERS as f32);
+            let long = sampled_long_contact(&shape, a, b, r, step + 0.1);
+            match shape.trace(a, b, r) {
+                Some(f) => {
+                    hits += 1;
+                    let gap = shape.probe(a + (b - a) * f).dist - r;
+                    assert!(gap <= TRACE_EPS + 1e-3, "{a} → {b} r {r}: hit at {f} is {gap} m clear");
+                    if let Some(s) = long {
+                        assert!(
+                            f * len <= s + step + 0.06,
+                            "{a} → {b} r {r}: hit at {} m, touches for a step at {s}",
+                            f * len
+                        );
+                    }
+                    far += usize::from(f * len > 48.0);
+                }
+                None => assert!(long.is_none(), "{a} → {b} r {r}: missed a contact at {long:?} m"),
+            }
+        }
+        assert!(hits > 2_500 && far > 1_000, "MO-II, long: {hits} hits, {far} past 48 m");
 
         // Hermit: solved exactly, so it matches the sampled model (refined by bisection) to 1e-4.
         let shape = hermit();
