@@ -283,6 +283,8 @@ pub fn update_hud(
     let t = core.render_tick(now);
     let own = world.own;
     let zero = world.zero;
+    // Survival rules: the pilot flies what they built, and docks to go home.
+    let survival = core.welcome.is_some_and(|w| w.survival);
     let mut set = |which: HudText, s: String, color: Option<Color>| {
         for (h, mut text, mut c) in &mut texts {
             if *h == which {
@@ -424,13 +426,22 @@ pub fn update_hud(
         } else {
             sv.push_str("NO HOLD");
         }
-        sv.push_str(&format!("   CR {}\n", o.credits));
-        if let Some(before) = sales.credits
-            && o.credits > before
-        {
-            sales.last = Some((o.credits - before, now));
+        if survival {
+            // The hangar's credits; what this sortie has earned in bounties is paid on docking.
+            sv.push_str(&format!("   CR {}", core.hangar.credits()));
+            if o.credits > 0 {
+                sv.push_str(&format!("  +{} bounty", o.credits));
+            }
+            sv.push('\n');
+        } else {
+            sv.push_str(&format!("   CR {}\n", o.credits));
+            if let Some(before) = sales.credits
+                && o.credits > before
+            {
+                sales.last = Some((o.credits - before, now));
+            }
+            sales.credits = Some(o.credits);
         }
-        sales.credits = Some(o.credits);
         let base = spec.mass(core.predict.state.propellant);
         let accel = base / (base + o.extra_mass_kg as f32);
         match world.objects.get(usize::from(o.held)).and_then(Option::as_ref).filter(|_| o.held != NO_CHUNK) {
@@ -459,7 +470,11 @@ pub fn update_hud(
             sv.push_str(&format!("SOLD +{amount} cr\n"));
         }
         if o.flags & own_flags::DOCKED != 0 {
-            sv.push_str("DOCKED  colony salvage yard\n");
+            sv.push_str(if survival {
+                "IN THE DOCK  ENTER: into your bay\n"
+            } else {
+                "DOCKED  colony salvage yard\n"
+            });
         }
         set(HudText::Salvage, sv, None);
     } else {
@@ -533,6 +548,7 @@ pub fn update_hud(
         .collect();
     incoming.sort_by(|a, b| a.0.total_cmp(&b.0));
     let (alert, alert_color) = match own {
+        Some(o) if !o.alive && survival => ("SUIT LOST\nthe colony's rescue boat is on its way".into(), RED),
         Some(o) if !o.alive => {
             let menu: Vec<String> = PLAYABLE_ORDER
                 .iter()
@@ -638,7 +654,16 @@ pub fn update_hud(
             .and_then(Option::as_ref)
             .filter(|_| o.held != NO_CHUNK)
             .map_or(0, |c| c.desc.mass_kg * PRICE[material(c.desc.kind)]);
-        if cargo_value + held_value > 0 {
+        if survival {
+            // Home is always marked: at rest inside the dock's ring of lights, Enter.
+            let d = km(DOCK_CENTER.distance(own_pos));
+            let text = if o.flags & own_flags::DOCKED != 0 {
+                format!("DOCK {d}  ENTER: home")
+            } else {
+                format!("DOCK {d}")
+            };
+            dock_at = Some((DOCK_CENTER, text));
+        } else if cargo_value + held_value > 0 {
             dock_at = Some((
                 DOCK_CENTER,
                 format!("DOCK {}  ~{} cr", km(DOCK_CENTER.distance(own_pos)), cargo_value + held_value),
@@ -740,8 +765,13 @@ pub fn update_hud(
 }
 
 /// The HUD is the cockpit's: hidden on the title and while the link is down.
-pub fn show_hud(ui: Res<crate::page::Ui>, mut root: Query<&mut Visibility, With<HudRoot>>) {
-    let want = if ui.playing() { Visibility::Inherited } else { Visibility::Hidden };
+pub fn show_hud(
+    ui: Res<crate::page::Ui>,
+    indoors: Res<crate::hangar::Indoors>,
+    mut root: Query<&mut Visibility, With<HudRoot>>,
+) {
+    // On foot in the bay the page draws what the pilot needs.
+    let want = if ui.playing() && !indoors.0 { Visibility::Inherited } else { Visibility::Hidden };
     for mut v in &mut root {
         v.set_if_neq(want);
     }

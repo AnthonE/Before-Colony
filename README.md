@@ -5,14 +5,22 @@ A Gundam Wing mobile-suit MMO prototype.
 - Mobile Doll AI, and AI agents that play by the same rules as humans.
 - The **ZERO System**: a combat AI in your cockpit that predicts the fight's futures (optionally
   asking TypeSafe's **Jev**) and seizes the controls when its pilot can't take any more.
-- Salvage and mining: shoot limbs off and tow the hulks, cut rocks apart with a beam saber, and sell
-  the ore at the colony's dock.
+- Salvage and mining: shoot limbs off and tow the hulks, cut rocks apart with a beam saber, and
+  bring it all home.
+- **Survival:** you build your own suit. You start on foot in your hangar bay in the colony's
+  docking hub, with a worn-out Leo. Walk the bay in first person, fabricate parts from what you
+  mine and salvage, and trade on the **Colony Exchange** (order books, with the colony as a market
+  maker whose prices follow its stock). A Gundam takes tonnes of exotic metals and gundanium that
+  only the colony's zero-G foundry can make. Launch through the bay doors, dock to come home; a suit
+  destroyed out there is gone.
 
 - **Server:** Rust. One allocation-free, lock-free simulation thread per sector at 30 Hz.
 - **Client:** Bevy 0.19 compiled to WebAssembly, in the browser (WebGL2 or WebGPU).
 - **Transport:** WebTransport, HTTP/3 over QUIC. Unreliable datagrams carry inputs and snapshots.
 
-**Status:** Milestone 2, the five Gundams. One sector (L1 Colony Cluster). Pilots and agents fly
+**Status:** Milestone 3, survival: the hangar bay on foot, building suits, and the Colony
+Exchange (see `docs/DESIGN.md`). Milestone 2 brought the five Gundams. One sector (L1 Colony
+Cluster). Pilots and agents fly
 the Leo, Wing Gundam Zero (which folds into Neo-Bird), Heavyarms, Deathscythe, Sandrock and
 Shenlong, against Taurus and Virgo Mobile Dolls. Each Gundam brings its kit and its signature:
 - **Heavyarms:** lock-on homing missiles, and the Full Open Attack.
@@ -35,16 +43,21 @@ Prerequisites:
 - Node 18+ (compresses the wasm)
 
 ```sh
-scripts/dev.sh          # builds the client, starts a sector with 24 Mobile Dolls, an AI agent and a miner
+scripts/dev.sh                   # builds the client, starts a survival sector with 24 Mobile Dolls, an AI agent and a miner
+BC_RULES=arcade scripts/dev.sh   # the arcade rules instead: any frame, free respawns
 ```
 
-Open <http://127.0.0.1:8080> in Chrome or Edge, enter a callsign, pick a mobile suit and LAUNCH.
-Click the game to take control; Esc opens the menu and F1 lists the controls. `?autoplay=1` skips
-the title screen. Add `?autopilot=1` to
-watch the kit-aware Mobile Doll brain fly your suit with the ZERO System engaged, and
-`?frame=leo|wingzero|heavyarms|deathscythe|sandrock|shenlong` to pick it. `?quality=low|medium|high|ultra`
-picks a graphics tier for the visit (F10 cycles them; the settings keep the choice). Without a server,
-`?showcase=gundams|lineup|duel|colony|field|sky|chase|salvage|mining` plays an offline scene.
+Open <http://127.0.0.1:8080> in Chrome or Edge, enter a callsign and LAUNCH. You come in through
+your bay's airlock: click the game to look around, walk with W/A/S/D, and press E at the
+fabricator, the stores' racks, the exchange terminal, the suit's console or (up the stairs, on the
+catwalk) the cockpit hatch, which launches you. Out there, come to rest inside the dock's ring of
+lights and press Enter to go home. Esc opens the menu and F1 lists the controls. `?autoplay=1`
+skips the title screen. Add `?autopilot=1` to watch the kit-aware Mobile Doll brain fly your suit
+with the ZERO System engaged (it walks to the cockpit and launches first), and, under arcade rules,
+`?frame=leo|wingzero|heavyarms|deathscythe|sandrock|shenlong` to pick it.
+`?quality=low|medium|high|ultra` picks a graphics tier for the visit (F10 cycles them; the settings
+keep the choice). Without a server,
+`?showcase=gundams|lineup|duel|colony|field|sky|chase|salvage|mining|hangar` plays an offline scene.
 
 Only Chromium has been tested. Firefox and Safari 26.4+ also ship WebTransport, but the dev server's
 self-signed certificate depends on `serverCertificateHashes` pinning, and that may not work there.
@@ -58,8 +71,11 @@ self-signed certificate depends on `serverCertificateHashes` pinning, and that m
 | H | the frame's special: Neo-Bird or the Hyper Jammer on/off; Full Open Attack or the Cross Crusher |
 | V · Z | flight assist · ZERO System |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
-| 1–6 | respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
+| Enter | dock: at rest inside the dock's ring of lights, into your bay |
+| 1–6 | arcade rules: respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
 | Esc · F1 · F10 | menu · controls · graphics quality |
+
+On foot: the mouse looks, W/A/S/D walk, Shift runs, Space jumps, E uses what you look at.
 
 Frames with missiles lock on by themselves: hold the reticle on a hostile until its bracket reads
 LOCKED, then fire.
@@ -67,7 +83,7 @@ LOCKED, then fire.
 **Signing in.** CONNECT WALLET on the title screen signs you in with an Ethereum wallet (MetaMask
 or any `window.ethereum` extension). The wallet shows a Sign-In with Ethereum message (EIP-4361)
 that proves the address is yours; it authorizes nothing and moves no funds. Guests can fly too, but
-only a signed-in pilot's suit is theirs to come back to. A dropped link, or a reload, reconnects
+only a signed-in pilot's hangar (and suit) is theirs to come back to. A dropped link, or a reload, reconnects
 without asking the wallet again; signing in from a second window takes the pilot over.
 
 **Logging off.** Signed in, SLEEP & DISCONNECT (or just closing the tab) leaves your Gundam in the
@@ -75,9 +91,11 @@ sector with you asleep in the cockpit, drifting on as it was; you wake in it whe
 against an asteroid first (the HUD reads PARKED) and it stays put there, hidden from sensors beyond
 400 m. Mobile Dolls leave sleepers alone, but other pilots can hunt them.
 
-Server flags: `--mobile-dolls N`, `--max-clients N`, `--oracle local|jev`, `--mode echo`,
-`--siwe-domain HOST` (the host pages are served from, which wallets sign in to; defaults to
-`--http`), `--require-auth` (no human guests). Pilot records are kept in memory for now, behind a
+Server flags: `--rules survival|arcade` (default survival), `--data-dir DIR` (keep pilot records,
+their hangars, and the exchange in files there; otherwise they last one run), `--craft-speed X`
+(the fabricator works X times faster, for testing), `--mobile-dolls N`, `--max-clients N`,
+`--oracle local|jev`, `--mode echo`, `--siwe-domain HOST` (the host pages are served from, which
+wallets sign in to; defaults to `--http`), `--require-auth` (no human guests). Records go through a
 `PilotStore` trait a Redis or Mongo store can implement.
 
 ### The ZERO System with TypeSafe Jev
@@ -93,7 +111,7 @@ Without a key the in-sim local oracle runs alone, and the System works fully off
 
 ```sh
 cargo run -p bc-bot --release --example mobile_doll -- --name Agent-01 --faction colonies
-cargo run -p bc-bot --release --example miner -- --name Miner-01   # mines, and sells at the dock
+cargo run -p bc-bot --release --example miner -- --name Miner-01   # mines, docks, and sells its ore on the exchange
 cargo run -p bc-bot --release --bin bc-swarm -- --bots 64 --secs 60   # load test
 ```
 
@@ -127,9 +145,10 @@ write your own brain as a closure: see `crates/bc-bot/src/lib.rs`.
   features and running `wasm-opt` (`BC_WEB_OPT=1`) are the next steps.
 - Wing Zero's change into Neo-Bird isn't animated yet (the model swaps, with a flash), and
   missiles can't be shot down yet.
-- One sector. Pilot records (wallet, credits, the suit left asleep) are kept in memory, so a
-  server restart forgets them; a Redis or Mongo `PilotStore` is the next step. The roadmap is in
-  `docs/DESIGN.md`.
+- One sector, and one colony (one exchange). Without `--data-dir`, pilot records and hangars are
+  kept in memory, so a server restart forgets them; a Redis or Mongo `PilotStore` is the next step.
+  Suits left asleep in the sector don't survive a restart (their pilots' suits are towed home).
+  The roadmap is in `docs/DESIGN.md`.
 
 ## Repository
 
@@ -138,7 +157,8 @@ crates/bc-proto        wire protocol (no_std, no alloc)
 crates/bc-sim          simulation core (no_std): flight, combat, lag comp, Mobile Dolls, ZERO
 crates/bc-sector       the hot loop: sector thread, lock-free queues, replication
 crates/bc-zero         tactical oracles: TypeSafe Jev, worker
-crates/bc-client-core  client state machine shared by the browser and bots
+crates/bc-client-core  client state machine shared by the browser and bots (and the bay's walker)
+crates/bc-econ         the economy: items, recipes, stores, suit builds, jobs, the Colony Exchange
 crates/bc-server       WebTransport server, dev HTTP (/cert-hash, /status)
 crates/bc-bot          Bot SDK, mobile_doll and miner agents, bc-swarm
 crates/bc-client       Bevy browser client (wasm32)

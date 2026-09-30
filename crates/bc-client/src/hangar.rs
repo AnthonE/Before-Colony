@@ -27,6 +27,7 @@ use bc_sim::content::{ArmSlot, frame};
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
+use crate::camera::FillLight;
 use crate::materials::{HullMaterial, HullTag, Surfaces};
 use crate::suits_vis::SuitVisual;
 use crate::view::{SuitDrive, VisTime};
@@ -36,7 +37,7 @@ pub const BAY_ORIGIN: Vec3 = Vec3::new(0.0, 20_000.0, 0.0);
 /// The entity slot the suit in the bay is drawn under (no suit in the sector has it).
 pub const BAY_SLOT: u16 = 1_022;
 /// Camera exposure indoors (lamps, not the Sun).
-pub const INDOOR_EV100: f32 = 7.0;
+pub const INDOOR_EV100: f32 = 8.0;
 /// How long the bay doors take to open or close, s.
 pub const DOOR_SECS: f32 = 3.5;
 /// How far the launch tunnel runs past the bay doors, m.
@@ -45,7 +46,7 @@ const TUNNEL: f32 = 220.0;
 const LAMP: f32 = 3.0e6;
 const FLOOD: f32 = 1.2e6;
 /// Light that bounces round the bay, indoors (the ambient fill).
-pub const INDOOR_AMBIENT: f32 = 15.0;
+pub const INDOOR_AMBIENT: f32 = 120.0;
 
 /// Whether the pilot is in the bay (and the view with them).
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
@@ -62,6 +63,15 @@ pub struct BayState {
     pub doors: f32,
     /// The bay is cycling (venting or pressurising): the alarm beacons turn, the lamps go red.
     pub alarm: bool,
+    /// The airlock's door, 0 shut .. 1 open.
+    pub airlock: f32,
+    /// Where the suit is, from its place in the gantry (a launch throws it down the tunnel; a
+    /// homecoming glides it in), m, and how fast it's going.
+    pub offset: Vec3,
+    pub vel: Vec3,
+    /// What its thrusters are doing, in its own frame (-1..1 each axis), and whether it's boosting.
+    pub thrust: Vec3,
+    pub boost: bool,
 }
 
 /// The bay's moving parts.
@@ -69,6 +79,7 @@ pub struct BayState {
 pub struct BayScene {
     pub root: Entity,
     doors: [Entity; 2],
+    airlock: Entity,
     alarms: Vec<Entity>,
     lamps: Vec<(Entity, f32)>,
     suit: Entity,
@@ -241,20 +252,34 @@ pub fn setup_bay(
         }
     }
 
-    // The airlock's door in the left wall, framed, with its lamp.
+    // The airlock's door in the left wall, framed, with its lamp; the chamber behind it, and its
+    // outer door onto the concourse.
     let airlock = Vec3::new(-HALF_WIDTH - 0.3, 1.5, -20.0);
-    commands.spawn((
-        Mesh3d(cube.clone()),
-        MeshMaterial3d(plating.clone()),
-        HullTag::paint(paint::DARK, 30).tag(),
-        Transform::from_translation(airlock).with_scale(Vec3::new(0.4, 3.0, 2.6)),
-        ChildOf(root),
-    ));
+    let airlock_door = commands
+        .spawn((
+            Mesh3d(cube.clone()),
+            MeshMaterial3d(plating.clone()),
+            HullTag::paint(paint::DARK, 30).tag(),
+            Transform::from_translation(airlock).with_scale(Vec3::new(0.4, 3.0, 2.6)),
+            ChildOf(root),
+        ))
+        .id();
     for (dy, dz, h, w) in [(1.65, 0.0, 0.3, 3.2), (0.0, 1.45, 3.3, 0.3), (0.0, -1.45, 3.3, 0.3)] {
         let tag = HullTag::paint(paint::YELLOW, 31).tag();
         piece(&mut commands, airlock + Vec3::new(0.25, dy, dz), Vec3::new(0.2, h, w), tag);
     }
     glow(&mut commands, airlock + Vec3::new(0.35, 2.05, 0.0), Vec3::new(0.1, 0.18, 0.5), &green);
+    let chamber = HullTag::paint(paint::HULL, 32).tag();
+    for (at, size) in [
+        (Vec3::new(-19.8, -0.25, -20.0), Vec3::new(4.0, 0.5, 3.6)),
+        (Vec3::new(-19.8, 3.25, -20.0), Vec3::new(4.0, 0.5, 3.6)),
+        (Vec3::new(-19.8, 1.5, -21.55), Vec3::new(4.0, 3.0, 0.5)),
+        (Vec3::new(-19.8, 1.5, -18.45), Vec3::new(4.0, 3.0, 0.5)),
+        (Vec3::new(-21.55, 1.5, -20.0), Vec3::new(0.5, 3.0, 2.6)),
+    ] {
+        piece(&mut commands, at, size, chamber.clone());
+    }
+    glow(&mut commands, Vec3::new(-19.8, 2.95, -20.0), Vec3::new(2.0, 0.08, 0.6), &lamp);
 
     // Deck markings: the suit's footprint, and walkways to the stations.
     let mark = |commands: &mut Commands, a: Vec3, b: Vec3| {
@@ -391,7 +416,7 @@ pub fn setup_bay(
         }
         let e = commands
             .spawn((
-                PointLight { intensity: LAMP, range: 70.0, shadow_maps_enabled: false, ..default() },
+                PointLight { intensity: LAMP, range: 50.0, shadow_maps_enabled: false, ..default() },
                 Transform::from_xyz(0.0, HEIGHT - 3.0, z),
                 ChildOf(root),
             ))
@@ -403,7 +428,7 @@ pub fn setup_bay(
             .spawn((
                 SpotLight {
                     intensity: FLOOD,
-                    range: 80.0,
+                    range: 60.0,
                     outer_angle: 0.42,
                     inner_angle: 0.25,
                     shadow_maps_enabled: false,
@@ -431,7 +456,7 @@ pub fn setup_bay(
                 PointLight {
                     intensity: 0.0,
                     color: Color::srgb(1.0, 0.1, 0.05),
-                    range: 40.0,
+                    range: 30.0,
                     shadow_maps_enabled: false,
                     ..default()
                 },
@@ -447,19 +472,43 @@ pub fn setup_bay(
     let suit = commands
         .spawn((Name::new("bay-suit"), Transform::from_translation(BAY_ORIGIN + SUIT_AT), Visibility::Hidden))
         .id();
-    commands.insert_resource(BayScene { root, doors, alarms, lamps, suit, built: None, generation: 0 });
+    commands.insert_resource(BayScene {
+        root,
+        doors,
+        airlock: airlock_door,
+        alarms,
+        lamps,
+        suit,
+        built: None,
+        generation: 0,
+    });
 }
 
-/// Shows the bay (and hides the space view's sky lights) when the pilot is in it.
-fn show_bay(indoors: Res<Indoors>, scene: Option<Res<BayScene>>, mut vis: Query<&mut Visibility>) {
+/// Shows the bay when the pilot is in it (and puts out the camera's fill light, which is for
+/// space: a metre from a wall it would blind them).
+fn show_bay(
+    indoors: Res<Indoors>,
+    scene: Option<Res<BayScene>>,
+    fill: Query<Entity, With<FillLight>>,
+    mut vis: Query<&mut Visibility>,
+) {
     let Some(scene) = scene else { return };
     if !indoors.is_changed() {
         return;
     }
-    let want = if indoors.0 { Visibility::Inherited } else { Visibility::Hidden };
+    let (inside, outside) = if indoors.0 {
+        (Visibility::Inherited, Visibility::Hidden)
+    } else {
+        (Visibility::Hidden, Visibility::Inherited)
+    };
     for e in [scene.root, scene.suit] {
         if let Ok(mut v) = vis.get_mut(e) {
-            *v = want;
+            *v = inside;
+        }
+    }
+    for e in &fill {
+        if let Ok(mut v) = vis.get_mut(e) {
+            *v = outside;
         }
     }
 }
@@ -497,6 +546,11 @@ fn drive_bay(
         if let Ok(mut tf) = transforms.get_mut(door) {
             tf.translation.x = side * (DOOR_HALF_WIDTH / 2.0 + ease * (DOOR_HALF_WIDTH + 1.0));
         }
+    }
+    // The airlock's door slides aside into the wall.
+    let open = state.airlock.clamp(0.0, 1.0);
+    if let Ok(mut tf) = transforms.get_mut(scene.airlock) {
+        tf.translation.z = -20.0 + 2.7 * open * open * (3.0 - 2.0 * open);
     }
     // Cycling: the beacons turn, the lamps dim to let the red read.
     for &e in &scene.alarms {
@@ -556,9 +610,16 @@ fn drive_bay(
         return;
     }
     if let Ok(mut d) = drives.get_mut(scene.suit) {
-        let flags = if state.boarded { 0 } else { ent_flags::ASLEEP };
-        if d.flags != flags {
+        let mut flags = if state.boarded { 0 } else { ent_flags::ASLEEP };
+        if state.boost {
+            flags |= ent_flags::BOOST;
+        }
+        let pos = BAY_ORIGIN + SUIT_AT + state.offset;
+        if d.flags != flags || d.pos != pos || d.thrust != state.thrust {
             d.flags = flags;
+            d.pos = pos;
+            d.vel = state.vel;
+            d.thrust = state.thrust;
         }
     }
     // The main weapon (in the right hand) shows only if it's fitted.

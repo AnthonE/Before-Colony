@@ -25,12 +25,13 @@
 | `bc-sim` | `no_std` + `alloc` at construction only | The simulation: flight, weapons, damage, lag comp, sensors, Mobile Doll AI, ZERO, the debris field, salvage and mining. Shared by the server and the browser. |
 | `bc-sector` | std, no tokio | The hot loop: a paced thread, lock-free queues, jitter buffers, interest, snapshot encoding, metrics. |
 | `bc-zero` | std + tokio | Tactical oracles off the hot path: the `TacticalOracle` trait, `JevOracle`, the worker. |
-| `bc-client-core` | std, no transport | Client state machine for the browser *and* bots: clock, inputs, prediction, interpolation, world model, the salvage view, `DollBrain` and `MinerBrain`; the link state machine (dial, sign in, redial), the pointer, settings, first-flight hints. |
+| `bc-client-core` | std, no transport | Client state machine for the browser *and* bots: clock, inputs, prediction, interpolation, world model, the salvage view, `DollBrain` and `MinerBrain`; the link state machine (dial, sign in, redial), the pointer, settings, first-flight hints; survival: the hangar as the server tells it (`hangar`), the bay's layout (`bay`) and the first-person walker and its guide (`walker`). |
+| `bc-econ` | std | The economy, off the hot path: items (ores, materials, each line's parts, weapons), recipes and the colony's valuations (`catalogue`), stores, the suit in the bay and what it launches as (`suit`), the fabricator's and foundry's job queues on the wall clock (`fab`), the Colony Exchange's order books with the colony as a market maker (`exchange`), a pilot's hangar and every request it takes (`hangar`), and the JSON messages (`wire`). |
 | `bc-auth` | `no_std` | Wallet sign-in: the EIP-4361 message both sides build, EIP-55 addresses, and (features) the server's signature check and a local wallet for agents and tests. The browser builds only the message. |
 | `bc-sound` | lib | The sound bank, generated in code (no audio files): cues, the mixer (culling, cooldowns, voices, panning), the cockpit's loops and alarms, the score. Pure Rust; the browser plays it through Web Audio. |
-| `bc-server` | bin + lib | WebTransport sessions, sign-in and the pilot registry (`pilots`: records behind a `PilotStore`, one session per wallet, resume tokens), egress thread, roster, dev HTTP, `/status`. |
+| `bc-server` | bin + lib | WebTransport sessions (`net/session.rs`: a pilot's session from slot to goodbye, and survival's hangar, sorties and requests), sign-in and the pilot registry (`pilots`: records behind a `PilotStore`, in memory or files, one session per wallet, resume tokens), the colony's exchange (`market`), egress thread, roster, dev HTTP, `/status`. |
 | `bc-bot` | lib + bins | Bot SDK (`BotClient`), `mobile_doll` and `miner` example agents, `bc-swarm` load tester. |
-| `bc-client` | wasm32 bin | Bevy app: procedural jointed suits (every frame's kit, animated from its `MeleeSpec`s), sky, colony and field (custom shaders), particles and effects (missiles, stream tracers, flame, jammer shimmer), camera, input with lock assist, HUD, ZERO overlay, offline showcase scenes. |
+| `bc-client` | wasm32 bin | Bevy app: procedural jointed suits (every frame's kit, animated from its `MeleeSpec`s), sky, colony and field (custom shaders), particles and effects (missiles, stream tracers, flame, jammer shimmer), camera, input with lock assist, HUD, ZERO overlay, offline showcase scenes; the hangar bay drawn (`hangar`), on foot in it with the launch and homecoming sequences (`onfoot`), and its terminals' data for the page (`terminal`). |
 | `bc-model` | lib | The suits' procedural designs on a shared 24-bone rig, and the sockets their kits are drawn from (muzzles, blades, the Dragon Fang, missile hatches), checked against each frame's hit capsules. |
 | `bc-alloc` | lib | Counting global allocator: proves the tick never allocates and counts violations in production. |
 
@@ -227,6 +228,19 @@ network threads.
   sleepers destroyed or cleared on a lock-free queue; a server task turns them into news for their
   pilots (`pilots.rs`), read out as a Notice when they're back.
 
+- **Survival: the hangar, off the tick.** A pilot's hangar (credits, stores, the suit in the bay,
+  job queues) lives in their record and in their session task, never in the sector. Its messages
+  ride the control stream as JSON frames of their own (`bc_econ::wire`, frame tag 11): requests
+  up, and the hangar, the exchange and the watched book down whenever they change (the market at
+  most every 2 s). A launch hands the sector a `Loadout` on the Join (`Control::Join { launch }`):
+  the suit enters the sector as it was built, at the docking hub's mouth. Docking is
+  `Control::Dock`; the sector answers on the slot's report ring (`SlotLease::reports`, an
+  `ArrayQueue` of 8, preallocated) with a `Homecoming` (what's left of the suit, its hold, what it
+  held, its bounties) or a refusal, and reports a suit lost the same way. The session applies them
+  to the hangar and saves the record. The exchange is one `bc_econ::Exchange` behind a mutex in the
+  server (`market.rs`): the tick never sees it. With `--data-dir`, records and the exchange are
+  files (written atomically; the exchange every minute and on shutdown).
+
 ## AI layers
 
 | Layer | Rate | Where | What |
@@ -271,7 +285,11 @@ on wasm32 (under Node, via `wasm-bindgen-test-runner`). Never enable glam's `fas
 | `bc-sim/tests/ranged.rs` | The flamethrower burns within its cone and reach only, a round a burn, and overheats its target; the Dragon Fang takes the flamethrower's arm along; stream weapons fire without spawn events; the buster shield flies at its speed. |
 | `bc-sim/tests/{content,melee}.rs` | Every table row sits at its id and the Gundams fly as designed; every blade reaches as far as its row says and mines, twin blades strike once each, the Dragon Fang thrusts where it's aimed, the Cross Crusher is Sandrock's special, only blades that parry clash, and a blade meets a target it chases at speed as its pilot sees it. |
 | `bc-sim/tests/{flight,combat,fire_control,lagcomp,mobile_dolls,zero,field,salvage}.rs` | Rocket equation, FA, blackout, no tunnelling, arm loss, charge, sabers and clashes, lag comp (and its clamp), dolls fight to a kill, ZERO accuracy, calibration, seizure, magnetism; suits stop at rocks at 2 km/s and rocks stop shots; limbs come off as chunks and shots pass where they were, hulks, bounces, expiry, lighter suits. |
-| `bc-sector/tests/salvage_net.rs` | Over the same link: chunks reach the client exactly as the server moves them, across bounces; chunks that go leave the client; a kill hands its wreck to its hulk; changed rocks arrive. |
+| `bc-sector/tests/salvage_net.rs` | Over the same link: chunks reach the client exactly as the server moves them, across bounces; chunks that go leave the client; a kill hands its wreck to its hulk; changed rocks arrive; a miner under survival rules docks and brings its haul home. |
+| `bc-sim/tests/survival.rs`, `bc-sector/tests/survival_net.rs` | A suit launches as it was built (parts missing, worn, weapons not fitted that don't fire, what's in the tank); it docks only at rest in the dock, awake, and goes home with its hold and what it holds; the colony pays bounties on Mobile Dolls; a pilot shot down stays down. Through the sector: no loadout, no suit; launch, dock and home with the hold on the slot's report ring; a suit lost is reported, then its pilot goes home. The `no_alloc` tests cover survival ticks too. |
+| `bc-econ` tests (`tests/ledger.rs`) | Recipes, fitting and stripping, repairs and scrap, jobs on the clock, the exchange's matching, escrow and the colony's desk; a property test that no sequence of trades, cancels and colony drift makes or loses a credit or a kilogram. |
+| `bc-server/tests/hangar.rs` | A real server under survival rules: a pilot starts in their bay, fabricates, fits, trades, launches, docks and comes home; a signed-in pilot's hangar outlives the server (`--data-dir`); a suit left out there is woken in, or towed home. |
+| `bc-client-core` walker tests | The first-person body stands, walks, runs into walls, jumps and falls from the catwalk; the guide walks from the airlock to every place in the bay and back. |
 | `bc-sector/tests/netcode.rs` | Over a simulated 100 ms / 5%-loss link: prediction error and clock sync (in open flight, ramming and sliding round a rock, damaged, changing into Neo-Bird and back every 3 s, striking and firing, and after a 1.5 s stall), and for the strikes the ticks flown ahead of any news too; a client that sends inputs only twice a second still has an accurate RTT and commands that arrive in time; and drawn like the browser at 60 and 144 Hz, a Wing Zero sprinting and stopping never steps back along its flight, changes pace only as its acceleration does, and doesn't surge against the chase camera. |
 | `bc-client-core/tests/arms.rs` | Seeded from any snapshot of a Gundam striking, firing, launching salvos, opening fire in Full Open or changing form, the client's prediction keeps its arms in step with the server's (the strike, busy arms, the lunge) tick for tick, and flies to within millimetres of it. |
 | `bc-sim/tests/transform.rs` | MODE folds Wing Zero into Neo-Bird and back over 24 ticks, weapons down (a charge is lost) and thrust cut; the bird cruises faster; ZERO stays engaged; a bird that dies respawns as Wing Zero. |
@@ -280,7 +298,8 @@ on wasm32 (under Node, via `wasm-bindgen-test-runner`). Never enable glam's `fas
 | `bc-sim/benches/tick.rs` | Tick percentiles. |
 | `e2e/tests/{spike,slice}.spec.ts` | The Bevy wasm client in Chromium: transport, then the full slice (autopilot flies, fights, sees agents and ZERO futures; the server confirms hits and 0 hot-path allocations). |
 | `e2e/tests/frames.spec.ts` | Each Gundam in the browser against the server's dolls: the autopilot flies its kit until the server's per-pilot counters (`/status`) and the client's (`window.__bc`) show it: Heavyarms' Full Open and missiles, Deathscythe jamming and reaping, Sandrock's missiles and shotels, Shenlong's fang or flame, Wing Zero out as Neo-Bird and back. |
-| `e2e/tests/gfx.spec.ts` | Every showcase scene renders cleanly, `gundams` included (Full Open's salvo, the jammer, the shotels and Cross Crusher, the fang at full reach, the flamethrower, Neo-Bird). |
+| `e2e/tests/gfx.spec.ts` | Every showcase scene renders cleanly, `gundams` included (Full Open's salvo, the jammer, the shotels and Cross Crusher, the fang at full reach, the flamethrower, Neo-Bird), and the hangar bay. |
+| `e2e/tests/hangar.spec.ts` | Survival in the browser: the pilot comes in through the airlock, walks to each terminal and uses it, fabricates and trades through the panels, boards at the hatch, launches through the bay doors into space, and docks home again. |
 | `bc-model` tests | Every design stays within 2.6 m of its hit capsules (Neo-Bird's own), no two frames share a mesh, every kit has the sockets it's drawn from, and the triangle budgets. |
 
 ## Scaling path

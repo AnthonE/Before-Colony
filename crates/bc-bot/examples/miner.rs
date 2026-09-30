@@ -60,11 +60,13 @@ async fn main() -> anyhow::Result<()> {
         if last_report.elapsed() > Duration::from_secs(10) {
             last_report = std::time::Instant::now();
             if let Some(v) = bot.world().salvage_view() {
+                // Survival: the hangar's credits (the suit's own are this sortie's bounties).
+                let credits = if bot.survival() { bot.core.hangar.credits() } else { u64::from(v.credits) };
                 tracing::info!(
                     hold_kg = v.cargo_total_kg(),
                     of_kg = v.capacity_kg,
                     in_hand = v.held.is_some(),
-                    credits = v.credits,
+                    credits,
                     hauling = brain.hauling(),
                     "status"
                 );

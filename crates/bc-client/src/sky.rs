@@ -10,6 +10,7 @@
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::camera::Exposure;
 use bevy::camera::visibility::NoFrustumCulling;
+use bevy::light::cluster::ClusterConfig;
 use bevy::light::{
     CascadeShadowConfigBuilder, DirectionalLightShadowMap, EnvironmentMapLight, NotShadowCaster,
     NotShadowReceiver,
@@ -187,6 +188,9 @@ fn apply_light_tier(
     for cam in &cams {
         let mut e = commands.entity(cam);
         e.insert(Exposure { ev100: if inside { crate::hangar::INDOOR_EV100 } else { EV100 } });
+        // The bay's few lamps reach all of it: one light cluster (WebGL2's per-cluster light
+        // lists overflow when every lamp covers every cluster, and tiles of the screen go dark).
+        e.insert(if inside { ClusterConfig::Single } else { ClusterConfig::default() });
         if s.ibl && !inside {
             e.insert(EnvironmentMapLight {
                 diffuse_map: maps.diffuse.clone(),
@@ -207,7 +211,7 @@ fn apply_light_tier(
         ambient.brightness = crate::hangar::INDOOR_AMBIENT;
     }
     for (e, mut light) in &mut suns {
-        light.shadow_maps_enabled = s.shadows;
+        light.shadow_maps_enabled = s.shadows && !inside;
         commands.entity(e).insert(
             CascadeShadowConfigBuilder {
                 num_cascades: s.cascades,
@@ -250,8 +254,9 @@ fn eclipse(
     let target = if indoors.0 { 0.0 } else { sun_visibility(cam.translation) };
     let k = 1.0 - (-time.dt * 6.0).exp();
     let v = match *vis {
-        Some(v) => v + (target - v) * k,
-        None => target,
+        // Going in or out of the bay is a cut: the light changes at once.
+        Some(v) if !indoors.is_changed() => v + (target - v) * k,
+        _ => target,
     };
     *vis = Some(v);
     for mut light in &mut suns {

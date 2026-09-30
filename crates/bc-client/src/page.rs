@@ -1,11 +1,14 @@
 //! The page around the game. The title screen, the pause menu, the controls sheet, the reconnect
-//! banner, the "click to fly" prompt and toasts are HTML (`web/ui.js`), drawn over the live scene;
-//! the cockpit HUD stays in Bevy. This module is the bridge, and Rust owns every decision:
+//! banner, the "click to fly" prompt, toasts, and (survival rules) the hangar's terminals and the
+//! prompt on foot are HTML (`web/ui.js`), drawn over the live scene; the cockpit HUD stays in
+//! Bevy. This module is the bridge, and Rust owns every decision:
 //! - the page pushes commands onto `window.bcInbox` (an array), drained once a frame into
 //!   [`UiCmds`];
 //! - Rust sends what the page should show through `window.bcUi.update(view)`, whenever it changes,
-//!   and the static lists (the frames, the controls) once through `window.bcUi.init(...)`.
+//!   and the static lists (the frames, the controls) once through `window.bcUi.init(...)`. The
+//!   hangar's terminals get their data through `terminal.rs`.
 
+use bc_client_core::bay::Spot;
 use bc_client_core::controls::{BINDINGS, Group};
 use bc_sim::content::{PLAYABLE_ORDER, SpecialKind, frame, frame_designation, frame_name, weapon_name};
 use bevy::prelude::*;
@@ -19,7 +22,11 @@ use crate::net::{LaunchConfigRes, now_s};
 pub enum UiCmd {
     /// Launch with this callsign and frame slug, signed in with the wallet at `address` (`0x…`)
     /// or as a guest (empty).
-    Play { name: String, frame: String, address: String },
+    Play {
+        name: String,
+        frame: String,
+        address: String,
+    },
     /// Dial again (after a failure, or before the next scheduled redial).
     Retry,
     /// Stop connecting and go back to the title.
@@ -37,11 +44,21 @@ pub enum UiCmd {
     /// Open (`true`) or close the settings panel.
     Settings(bool),
     /// A setting changed on the panel: its key and new value, as text.
-    Set { key: String, value: String },
+    Set {
+        key: String,
+        value: String,
+    },
     /// A menu sound: `click` or `confirm`.
     Sfx(String),
     /// Dev hook: drop the link as if the network had failed (tests the reconnect path).
     DropLink,
+    /// Something asked of the hangar from one of its terminals (survival rules).
+    Hangar(bc_econ::Request),
+    /// Dev hooks, on foot: walk to a place in the bay (by its slug), use what's in view, skip a
+    /// launch or homecoming sequence.
+    WalkTo(String),
+    Use,
+    Skip,
 }
 
 /// This frame's commands.
@@ -92,6 +109,8 @@ pub enum Panel {
     Settings {
         from_pause: bool,
     },
+    /// One of the hangar bay's terminals (survival rules).
+    Terminal(Spot),
 }
 
 /// The page's state, as Rust decides it.
@@ -125,6 +144,21 @@ pub struct Ui {
     pub retry_in: u32,
     toast_seq: u32,
     toast: String,
+    /// Survival rules: where the pilot is (`hangar`, `space`, or empty: arcade, or not yet told),
+    /// and whether they're walking about the bay (no sequence going on).
+    pub place: &'static str,
+    pub on_foot: bool,
+    /// A launch or homecoming is playing (nothing to click, nothing to fly).
+    pub sequence: bool,
+    /// On foot: what the pilot can use where they stand ("E  FABRICATOR"), and their bay's line
+    /// (its number, their credits).
+    pub prompt: String,
+    pub bay_line: String,
+    /// A sortie's news, shown large for a few seconds.
+    news_seq: u32,
+    news: String,
+    /// Whether the news is bad (a suit lost).
+    news_bad: bool,
 }
 
 impl Ui {
@@ -152,9 +186,24 @@ impl Ui {
         self.toast_seq += 1;
         self.toast = text.into();
     }
+
+    /// A sortie's news, large, in the middle of the screen (`bad`: in red).
+    pub fn news(&mut self, text: impl Into<String>, bad: bool) {
+        self.news_seq += 1;
+        self.news = text.into();
+        self.news_bad = bad;
+    }
+
+    /// The terminal open, if one is.
+    pub fn terminal(&self) -> Option<Spot> {
+        match self.panel {
+            Panel::Terminal(spot) => Some(spot),
+            _ => None,
+        }
+    }
 }
 
-fn get(obj: &JsValue, key: &str) -> JsValue {
+pub fn get(obj: &JsValue, key: &str) -> JsValue {
     Reflect::get(obj, &JsValue::from_str(key)).unwrap_or(JsValue::UNDEFINED)
 }
 
@@ -177,6 +226,14 @@ fn parse(v: &JsValue) -> Option<UiCmd> {
         "set" => UiCmd::Set { key: s("key"), value: s("value") },
         "drop_link" => UiCmd::DropLink,
         "sfx" => UiCmd::Sfx(s("cue")),
+        "hangar" => {
+            // The request as the page wrote it, read back as the wire's JSON.
+            let json = js_sys::JSON::stringify(&get(v, "req")).ok()?.as_string()?;
+            UiCmd::Hangar(bc_econ::wire::decode(json.as_bytes())?)
+        }
+        "walk_to" => UiCmd::WalkTo(s("spot")),
+        "use" => UiCmd::Use,
+        "skip" => UiCmd::Skip,
         _ => return None,
     })
 }
@@ -204,6 +261,7 @@ pub fn apply_ui_cmds(cmds: Res<UiCmds>, mut ui: ResMut<Ui>) {
                 } else {
                     match ui.panel {
                         Panel::Settings { from_pause } => ui.close_settings(from_pause),
+                        Panel::Terminal(_) => ui.panel = Panel::None,
                         Panel::None if ui.playing() => ui.open_pause(),
                         // Esc that belonged to the browser dropping the lock (which opened the
                         // menu) must not close it again.
@@ -230,8 +288,8 @@ pub fn apply_ui_cmds(cmds: Res<UiCmds>, mut ui: ResMut<Ui>) {
             _ => {}
         }
     }
-    // The menu is the world's; settings may open over the title too.
-    if !ui.playing() && ui.panel == Panel::Pause {
+    // The menu and the terminals are the world's; settings may open over the title too.
+    if !ui.playing() && matches!(ui.panel, Panel::Pause | Panel::Terminal(_)) {
         ui.panel = Panel::None;
     }
     if !ui.playing() && ui.panel == (Panel::Settings { from_pause: true }) {
@@ -258,6 +316,15 @@ pub struct View {
     signing: bool,
     signed_in: bool,
     parkable: bool,
+    terminal: &'static str,
+    place: &'static str,
+    on_foot: bool,
+    sequence: bool,
+    prompt: String,
+    bay_line: String,
+    news_seq: u32,
+    news: String,
+    news_bad: bool,
 }
 
 impl View {
@@ -268,6 +335,7 @@ impl View {
                 Panel::None => "none",
                 Panel::Pause => "pause",
                 Panel::Settings { .. } => "settings",
+                Panel::Terminal(_) => "terminal",
             },
             help: ui.help,
             click_to_fly: ui.click_to_fly,
@@ -283,6 +351,15 @@ impl View {
             signing: ui.signing,
             signed_in: ui.signed_in,
             parkable: ui.parkable,
+            terminal: ui.terminal().map_or("", Spot::slug),
+            place: ui.place,
+            on_foot: ui.on_foot,
+            sequence: ui.sequence,
+            prompt: ui.prompt.clone(),
+            bay_line: ui.bay_line.clone(),
+            news_seq: ui.news_seq,
+            news: ui.news.clone(),
+            news_bad: ui.news_bad,
         }
     }
 
@@ -304,11 +381,20 @@ impl View {
         set(&o, "signing", self.signing);
         set(&o, "signedIn", self.signed_in);
         set(&o, "parkable", self.parkable);
+        set(&o, "terminal", self.terminal);
+        set(&o, "place", self.place);
+        set(&o, "onFoot", self.on_foot);
+        set(&o, "sequence", self.sequence);
+        set(&o, "prompt", self.prompt.as_str());
+        set(&o, "bayLine", self.bay_line.as_str());
+        set(&o, "newsSeq", self.news_seq);
+        set(&o, "news", self.news.as_str());
+        set(&o, "newsBad", self.news_bad);
         o
     }
 }
 
-fn call_ui(method: &str, arg: &JsValue) {
+pub fn call_ui(method: &str, arg: &JsValue) {
     let Some(w) = web_sys::window() else { return };
     let ui = get(&w, "bcUi");
     if let Ok(f) = get(&ui, method).dyn_into::<Function>() {

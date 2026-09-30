@@ -80,8 +80,10 @@ pub fn run() {
             .init_resource::<Ui>()
             .init_resource::<UiCmds>()
             .init_resource::<PointerRes>()
+            .init_resource::<crate::onfoot::OnFoot>()
+            .init_resource::<crate::terminal::TerminalLog>()
             .add_systems(First, drain_inbox)
-            .add_systems(Startup, (start_net_loop, setup_hud))
+            .add_systems(Startup, (start_net_loop, setup_hud, crate::onfoot::setup_onfoot))
             .add_systems(
                 Update,
                 (
@@ -94,6 +96,7 @@ pub fn run() {
                     drive,
                     tick_vis_time,
                     sync_view,
+                    crate::onfoot::drive_onfoot,
                     crate::rocks::follow_server_field,
                     crate::rocks::follow_rock_states,
                     crate::salvage_vis::sync_chunks,
@@ -101,17 +104,29 @@ pub fn run() {
                     .chain()
                     .in_set(Vis::Drive),
             )
-            .add_systems(Update, (follow, pilot_effects).chain().in_set(Vis::Camera))
+            .add_systems(
+                Update,
+                (follow, pilot_effects, crate::onfoot::onfoot_camera).chain().in_set(Vis::Camera),
+            )
             .add_plugins(crate::audio::AudioPlugin)
             .add_systems(First, crate::audio::build_bank)
             .add_systems(Update, crate::audio::play_sound.in_set(Vis::Audio))
             .add_systems(
                 Update,
-                (show_hud, update_hud, crate::zero_overlay::draw_ghosts, publish_game)
+                (
+                    show_hud,
+                    update_hud,
+                    crate::zero_overlay::draw_ghosts,
+                    publish_game,
+                    crate::onfoot::publish_onfoot,
+                )
                     .chain()
                     .in_set(Vis::Hud),
             )
-            .add_systems(Last, (init_page, publish_view, publish_settings));
+            .add_systems(
+                Last,
+                (init_page, publish_view, publish_settings, crate::terminal::publish_terminal),
+            );
     }
     app.run();
 }

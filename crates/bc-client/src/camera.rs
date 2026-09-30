@@ -24,6 +24,10 @@ use crate::zero_vision::ZeroVision;
 #[derive(Component)]
 pub struct MainCamera;
 
+/// The fill light that travels with the camera, for space (off indoors: the bay has its lamps).
+#[derive(Component)]
+pub struct FillLight;
+
 /// Field of view (degrees) at the default setting; boost widens it by [`BOOST_WIDEN`].
 const FOV: f32 = 70.0;
 const BOOST_WIDEN: f32 = 7.0;
@@ -61,6 +65,7 @@ pub fn spawn_camera(mut commands: Commands) {
     // against black space. A point light, because WebGL2 allows one directional light: the sun.
     cam.with_children(|c| {
         c.spawn((
+            FillLight,
             PointLight {
                 // About 2,500 lux on the own suit, 43 m ahead: E = Φ / (4π d²).
                 intensity: 6.0e7,

@@ -115,6 +115,7 @@ pub fn read_input(
     pointer: Res<PointerRes>,
     ui: Res<Ui>,
     settings: Res<SettingsRes>,
+    indoors: Res<crate::hangar::Indoors>,
     mut pilot: ResMut<Pilot>,
     game: NonSend<GameClient>,
 ) {
@@ -140,8 +141,9 @@ pub fn read_input(
         controls.swallow_click = false;
     }
     controls.locked = pointer.0.flying();
-    if !ui.playing() || ui.panel_open() {
-        // Hands off the stick in menus; the toggles stay as they were.
+    if !ui.playing() || ui.panel_open() || indoors.0 {
+        // Hands off the stick in menus, and on foot (or while the bay launches the suit); the
+        // toggles stay as they were.
         controls.thrust = Vec3::ZERO;
         controls.roll = 0.0;
         controls.buttons = 0;

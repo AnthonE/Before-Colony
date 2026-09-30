@@ -297,6 +297,9 @@ pub fn play_sound(
     drives: Query<&crate::view::SuitDrive>,
     camera: Query<&GlobalTransform, With<MainCamera>>,
     time: Res<Time<Real>>,
+    indoors: Res<crate::hangar::Indoors>,
+    onfoot: Res<crate::onfoot::OnFoot>,
+    mut last_seq: Local<crate::onfoot::Seq>,
     mut dev: ResMut<DevStatus>,
 ) {
     let Some(mut audio) = audio else { return };
@@ -387,8 +390,17 @@ pub fn play_sound(
     }
     sound.sabers.retain(|slot, _| drives.iter().any(|d| d.slot == *slot));
 
-    // The cockpit.
-    let cin = cockpit_in(&game, ui.playing());
+    // The bay: the suit coming home. (Its launch sounds as it leaves the tunnel, when the cockpit
+    // below finds itself in the world.)
+    if onfoot.seq != *last_seq {
+        if onfoot.seq == crate::onfoot::Seq::Arriving {
+            sound.mixer.request(Request::own(Cue::Dock));
+        }
+        *last_seq = onfoot.seq;
+    }
+
+    // The cockpit (not while the view is in the bay).
+    let cin = cockpit_in(&game, ui.playing() && !indoors.0);
     let mixer = &mut sound.mixer;
     let out = sound.cockpit.frame(now, &cin, &mut |c| {
         mixer.request(Request::own(c));

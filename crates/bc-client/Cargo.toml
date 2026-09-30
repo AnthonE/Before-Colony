@@ -22,6 +22,8 @@ bc-proto.workspace = true
 bc-sim = { workspace = true, features = ["canon-names"] }
 bc-sound.workspace = true
 bevy = { workspace = true, features = ["3d", "ui"] }
+# The hangar's terminals get their data as JSON (terminal.rs).
+serde_json.workspace = true
 # Bevy's derive macros resolve `bevy` by reading only [dependencies]; since ours is target-specific
 # they fall back to `bevy_ecs::…`, `bevy_render::…` and so on, so name the (already-built) crates
 # directly.

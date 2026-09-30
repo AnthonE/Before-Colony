@@ -588,6 +588,7 @@ dependencies = [
  "glam",
  "half",
  "js-sys",
+ "serde_json",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
