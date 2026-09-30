@@ -10,13 +10,14 @@
 //! respawn) and its pilot is told when they're back ([`SleeperFate`]). When suit slots run short,
 //! the longest asleep is cleared.
 //!
-//! What a suit can rest on is a [`Body`]: asteroids today; crater floors in a lunar sector are one
-//! more variant, with its pose in [`Sim::body_pose`].
+//! What a suit can rest on is a [`Body`] (`crate::bodies`): an asteroid of the field, or a
+//! landmark. Its pose is in [`Sim::body_pose`].
 
 use bc_proto::InputCmd;
 use glam::{Quat, Vec3};
 
 use super::Sim;
+use crate::bodies::{Body, landmark_pose};
 use crate::config::DT;
 use crate::field::SUIT_CLEARANCE;
 use crate::handle::SuitId;
@@ -30,16 +31,6 @@ pub const PARK_REACH: f32 = 1.5;
 pub const UNPARK_SPEED: f32 = 1.5;
 /// Parked sleepers are seen within this range, and not on sensors beyond it, m.
 pub const PARKED_VISUAL: f32 = 400.0;
-
-/// What a sleeping suit rests on.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum Body {
-    /// Nothing: it drifts.
-    #[default]
-    None,
-    /// An asteroid of the field, by index.
-    Rock(u16),
-}
 
 /// Where a parked suit sits, relative to its body.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
@@ -70,7 +61,7 @@ pub struct SleeperFate {
 }
 
 impl Sim {
-    /// The pose of `body` (rocks don't move; a moving body would, here).
+    /// The pose of `body` now (rocks don't move; landmarks do).
     fn body_pose(&self, body: Body) -> Option<(Vec3, Quat)> {
         match body {
             Body::None => None,
@@ -78,6 +69,10 @@ impl Sim {
                 let i = usize::from(r);
                 let rock = self.field.rocks().get(i)?;
                 (!self.field.is_dead(i)).then_some((rock.pos, rock.rot))
+            }
+            Body::Landmark(k) => {
+                let p = landmark_pose(self.landmarks().get(usize::from(k))?, self.tick(), 0.0);
+                Some((p.pos, p.rot))
             }
         }
     }
@@ -252,6 +247,7 @@ fn anchor_normal(pos: Vec3, anchor: Anchor, sim: &Sim) -> Vec3 {
             .rocks()
             .get(usize::from(r))
             .map_or(Vec3::Y, |rock| normalize_or(pos - rock.pos, Vec3::Y)),
-        Body::None => Vec3::Y,
+        // Landmarks never go away.
+        Body::Landmark(_) | Body::None => Vec3::Y,
     }
 }

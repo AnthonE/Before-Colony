@@ -49,10 +49,7 @@ pub fn state_hash(sim: &Sim) -> u64 {
         if s.sleeping.get(i) {
             h.u32(s.slept_at[i]);
             let a = &s.anchor[i];
-            h.u32(match a.body {
-                crate::sim::Body::None => u32::MAX,
-                crate::sim::Body::Rock(r) => u32::from(r),
-            });
+            h.u32(a.body.code());
             for v in [a.local.x, a.local.y, a.local.z] {
                 h.f32(v);
             }

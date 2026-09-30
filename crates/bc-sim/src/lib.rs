@@ -10,6 +10,7 @@ extern crate alloc;
 
 pub mod ai;
 pub mod arms;
+pub mod bodies;
 pub mod chunks;
 pub mod collide;
 pub mod config;

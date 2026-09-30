@@ -25,7 +25,7 @@ pub const SUIT_CLEARANCE: f32 = 8.0;
 /// Centre of the field (the combat zone above the colony).
 pub const FIELD_CENTER: Vec3 = Vec3::new(0.0, 900.0, 0.0);
 /// Keep-out zones: the faction spawn bases (see `sim::spawn_point`), and room around the colony.
-const SPAWN_BASES: [Vec3; 3] = [
+pub(crate) const SPAWN_BASES: [Vec3; 3] = [
     Vec3::new(-4_200.0, 700.0, -3_200.0),
     Vec3::new(4_200.0, 700.0, -3_200.0),
     Vec3::new(0.0, 2_200.0, 4_200.0),

@@ -45,6 +45,9 @@ pub struct SimConfig {
     /// are told both in their Welcome and build the identical field.
     pub field_seed: u32,
     pub field_rocks: u16,
+    /// Landmarks in the sector: the first `landmarks` of `content::landmarks::LANDMARKS` (0 for
+    /// none; at most `bodies::MAX_LANDMARKS`).
+    pub landmarks: u8,
     /// The most suits asleep at once (offline pilots'); past it the longest asleep is cleared.
     pub max_sleepers: usize,
     /// Survival rules: pilots fly the suits they built (`Sim::launch`), bring them home
@@ -69,6 +72,7 @@ impl Default for SimConfig {
             zero_on_all_frames: false,
             field_seed: crate::field::Field::DEFAULT_SEED,
             field_rocks: crate::field::Field::DEFAULT_ROCKS,
+            landmarks: crate::content::landmarks::LANDMARKS.len() as u8,
             max_sleepers: 256,
             survival: false,
         }

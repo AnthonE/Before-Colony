@@ -36,8 +36,10 @@ use glam::{Quat, Vec3};
 
 use crate::ai::{self, DOLL, SEIZED};
 use crate::arms::{BUSY_FIRE_TICKS, busy_ambac};
+use crate::bodies::MAX_LANDMARKS;
 use crate::chunks::{self, Chunks, Motion, held_pose, segment_pos, segment_rot};
 use crate::config::{DT, SECTOR_LIMIT, SimConfig, secs};
+use crate::content::landmarks::{LANDMARKS, LandmarkDef};
 use crate::content::salvage::{BOUNCE, mass_without};
 use crate::content::{frame, weapon};
 use crate::events::EventRing;
@@ -57,8 +59,9 @@ use crate::transform::transform_thrust;
 use crate::zero::TacticalAdvice;
 use crate::zero::strain::StrainEvent;
 
+pub use crate::bodies::Body;
 pub use launch::{Homecoming, LAUNCH_GATE, LAUNCH_SPEED, Loadout};
-pub use sleep::{Anchor, Body, Gone, PARK_SPEED, PARKED_VISUAL, SleeperFate};
+pub use sleep::{Anchor, Gone, PARK_SPEED, PARKED_VISUAL, SleeperFate};
 
 /// A pending hit, applied in the damage phase.
 #[derive(Clone, Copy, Debug)]
@@ -203,6 +206,12 @@ impl Sim {
     #[inline]
     pub fn tick(&self) -> u32 {
         self.tick
+    }
+
+    /// The sector's landmarks (`cfg.landmarks` of them), by id.
+    pub fn landmarks(&self) -> &'static [LandmarkDef] {
+        let n = usize::from(self.cfg.landmarks).min(LANDMARKS.len()).min(MAX_LANDMARKS);
+        &LANDMARKS[..n]
     }
 
     /// The tick the next [`step`](Self::step) will simulate (inputs should target it).
