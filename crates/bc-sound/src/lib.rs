@@ -107,6 +107,10 @@ cues!(
     Seizure,
     Destroyed,
     Launch,
+    // The hangar bay: its klaxon, its doors, the airlock.
+    Klaxon,
+    DoorRumble,
+    AirlockHiss,
     // Menus.
     UiClick,
     UiConfirm,
@@ -188,6 +192,9 @@ impl Cue {
             Cue::Seizure => def(Cockpit, 9, 0.0, 1.0, 0.7, 0.0),
             Cue::Destroyed => def(Cockpit, 10, 0.0, 1.0, 0.9, 0.0),
             Cue::Launch => def(Cockpit, 8, 0.0, 1.0, 0.6, 0.0),
+            Cue::Klaxon => def(Cockpit, 7, 0.0, 1.0, 0.4, 0.0),
+            Cue::DoorRumble => def(Cockpit, 6, 0.0, 1.0, 0.55, 0.0),
+            Cue::AirlockHiss => def(Cockpit, 5, 0.0, 0.5, 0.35, 0.05),
             Cue::UiClick => def(Ui, 5, 0.0, 0.04, 0.35, 0.03),
             Cue::UiConfirm => def(Ui, 6, 0.0, 0.2, 0.45, 0.0),
             Cue::ThrusterLoop => looped(Cockpit, 0.35),

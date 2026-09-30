@@ -59,8 +59,9 @@ pub struct BayState {
     pub suit: Option<Suit>,
     /// Its pilot is aboard: its eyes are lit.
     pub boarded: bool,
-    /// The bay doors, 0 shut .. 1 open (the cycle eases them).
+    /// The bay doors, and the launch tunnel's outer doors, 0 shut .. 1 open (the cycle eases them).
     pub doors: f32,
+    pub outer: f32,
     /// The bay is cycling (venting or pressurising): the alarm beacons turn, the lamps go red.
     pub alarm: bool,
     /// The airlock's door, 0 shut .. 1 open.
@@ -79,6 +80,8 @@ pub struct BayState {
 pub struct BayScene {
     pub root: Entity,
     doors: [Entity; 2],
+    /// The launch tunnel's outer doors.
+    outer: [Entity; 2],
     airlock: Entity,
     alarms: Vec<Entity>,
     lamps: Vec<(Entity, f32)>,
@@ -186,16 +189,15 @@ pub fn setup_bay(
             .id()
     };
 
-    // The bay doors: two halves meeting in the middle, striped where they meet.
-    let door_z = -HALF_LENGTH - 0.8;
-    let doors = [-1.0f32, 1.0].map(|side| {
+    // A pressure door's half (`side` −1: the left), striped where the halves meet and across its
+    // foot.
+    let door_half = |commands: &mut Commands, at: Vec3, size: Vec3, side: f32| {
         let half = commands
             .spawn((
                 Mesh3d(cube.clone()),
                 MeshMaterial3d(plating.clone()),
                 HullTag::paint(paint::OZ_GREY, if side < 0.0 { 11 } else { 12 }).tag(),
-                Transform::from_xyz(side * DOOR_HALF_WIDTH / 2.0, DOOR_HEIGHT / 2.0, door_z)
-                    .with_scale(Vec3::new(DOOR_HALF_WIDTH, DOOR_HEIGHT, 0.8)),
+                Transform::from_translation(at).with_scale(size),
                 ChildOf(root),
             ))
             .id();
@@ -226,6 +228,12 @@ pub fn setup_bay(
             ));
         }
         half
+    };
+    // The bay doors: two halves meeting in the middle.
+    let door_z = -HALF_LENGTH - 0.8;
+    let doors = [-1.0f32, 1.0].map(|side| {
+        let at = Vec3::new(side * DOOR_HALF_WIDTH / 2.0, DOOR_HEIGHT / 2.0, door_z);
+        door_half(&mut commands, at, Vec3::new(DOOR_HALF_WIDTH, DOOR_HEIGHT, 0.8), side)
     });
 
     // The launch tunnel beyond the doors: open to space at its far end, lit along its floor.
@@ -238,6 +246,27 @@ pub fn setup_bay(
         (Vec3::new(tw + 0.5, th / 2.0, tz), Vec3::new(1.0, th + 2.0, TUNNEL)),
     ] {
         piece(&mut commands, at, size, HullTag::paint(paint::HULL_DARK, 21).tag());
+    }
+    // Its outer doors, at the far end: the tunnel is the bay's airlock.
+    let outer_z = door_z - 0.5 - TUNNEL + 0.6;
+    let outer = [-1.0f32, 1.0].map(|side| {
+        let at = Vec3::new(side * tw / 2.0, th / 2.0, outer_z);
+        door_half(&mut commands, at, Vec3::new(tw, th, 1.0), side)
+    });
+    // Pressure frames along it, striped.
+    for k in 1..4 {
+        let z = door_z - 55.0 * k as f32;
+        for (at, size) in [
+            (Vec3::new(-tw + 0.8, th / 2.0, z), Vec3::new(1.6, th, 1.6)),
+            (Vec3::new(tw - 0.8, th / 2.0, z), Vec3::new(1.6, th, 1.6)),
+        ] {
+            piece(&mut commands, at, size, HullTag::paint(paint::HULL_DARK, 60 + k as u8).tag());
+        }
+        for j in 0..16 {
+            let tag = if j % 2 == 0 { stripe_yellow } else { stripe_dark }.tag();
+            let x = -tw + (j as f32 + 0.5) * (2.0 * tw / 16.0);
+            piece(&mut commands, Vec3::new(x, th - 0.8, z), Vec3::new(2.0 * tw / 16.0, 1.6, 1.6), tag);
+        }
     }
     for k in 0..22 {
         let z = door_z - 6.0 - k as f32 * 10.0;
@@ -269,6 +298,21 @@ pub fn setup_bay(
         piece(&mut commands, airlock + Vec3::new(0.25, dy, dz), Vec3::new(0.2, h, w), tag);
     }
     glow(&mut commands, airlock + Vec3::new(0.35, 2.05, 0.0), Vec3::new(0.1, 0.18, 0.5), &green);
+    // The bay's control room looks down through a window above the airlock: its consoles lit.
+    let glass = emissive(&mut materials, [0.05, 0.14, 0.2]);
+    glow(&mut commands, Vec3::new(-HALF_WIDTH + 0.05, 6.4, -17.0), Vec3::new(0.1, 2.4, 9.0), &glass);
+    for (k, z) in [-20.2, -18.4, -15.6, -13.8].into_iter().enumerate() {
+        let y = if k % 2 == 0 { 5.9 } else { 6.2 };
+        glow(&mut commands, Vec3::new(-HALF_WIDTH + 0.1, y, z), Vec3::new(0.05, 0.5, 0.9), &screen);
+    }
+    for (at, size) in [
+        (Vec3::new(-HALF_WIDTH + 0.2, 7.75, -17.0), Vec3::new(0.3, 0.3, 9.6)),
+        (Vec3::new(-HALF_WIDTH + 0.2, 5.05, -17.0), Vec3::new(0.3, 0.3, 9.6)),
+        (Vec3::new(-HALF_WIDTH + 0.2, 6.4, -21.65), Vec3::new(0.3, 2.9, 0.3)),
+        (Vec3::new(-HALF_WIDTH + 0.2, 6.4, -12.35), Vec3::new(0.3, 2.9, 0.3)),
+    ] {
+        piece(&mut commands, at, size, HullTag::paint(paint::YELLOW, 33).tag());
+    }
     let chamber = HullTag::paint(paint::HULL, 32).tag();
     for (at, size) in [
         (Vec3::new(-19.8, -0.25, -20.0), Vec3::new(4.0, 0.5, 3.6)),
@@ -475,6 +519,7 @@ pub fn setup_bay(
     commands.insert_resource(BayScene {
         root,
         doors,
+        outer,
         airlock: airlock_door,
         alarms,
         lamps,
@@ -545,6 +590,15 @@ fn drive_bay(
         let side = if k == 0 { -1.0 } else { 1.0 };
         if let Ok(mut tf) = transforms.get_mut(door) {
             tf.translation.x = side * (DOOR_HALF_WIDTH / 2.0 + ease * (DOOR_HALF_WIDTH + 1.0));
+        }
+    }
+    let open = state.outer.clamp(0.0, 1.0);
+    let ease = open * open * (3.0 - 2.0 * open);
+    let tw = DOOR_HALF_WIDTH + 4.0;
+    for (k, &door) in scene.outer.iter().enumerate() {
+        let side = if k == 0 { -1.0 } else { 1.0 };
+        if let Ok(mut tf) = transforms.get_mut(door) {
+            tf.translation.x = side * (tw / 2.0 + ease * (tw + 1.0));
         }
     }
     // The airlock's door slides aside into the wall.

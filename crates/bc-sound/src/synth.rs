@@ -63,6 +63,13 @@ pub fn render(cue: Cue) -> Vec<f32> {
         Cue::Seizure => seizure(&mut r),
         Cue::Destroyed => destroyed(&mut r),
         Cue::Launch => launch(&mut r),
+        Cue::Klaxon => klaxon(),
+        Cue::DoorRumble => door_rumble(&mut r),
+        Cue::AirlockHiss => {
+            let mut h = whoosh(&mut r, 1.1, 5_200.0, 1_400.0);
+            mix_in(&mut h, &impact(&mut r, 0.3, 95.0, 0.08, 0.02, 1_200.0, 150.0), 0, 0.6);
+            h
+        }
         Cue::UiClick => click(&mut r),
         Cue::UiConfirm => chime(&[(880.0, 0.0, 0.12), (1_318.5, 0.07, 0.2)]),
         Cue::ThrusterLoop => thruster_loop(&mut r),
@@ -436,6 +443,49 @@ fn chime(notes: &[(f32, f32, f32)]) -> Vec<f32> {
     for (i, v) in out.iter_mut().enumerate() {
         *v *= edges(i, n);
     }
+    out
+}
+
+/// The bay's klaxon: a harsh horn alternating two tones, four times over.
+fn klaxon() -> Vec<f32> {
+    const TONE: f32 = 0.42;
+    let n = samples(TONE * 4.0);
+    let mut lp = Lp::new(2_200.0);
+    let mut phase = 0.0f32;
+    (0..n)
+        .map(|i| {
+            let t = i as f32 / SR;
+            let k = (t / TONE) as u32;
+            let hz = if k.is_multiple_of(2) { 640.0 } else { 505.0 };
+            phase = (phase + hz / SR).fract();
+            let saw = 2.0 * phase - 1.0;
+            let x = lp.run(0.6 * saw + 0.4 * square(phase));
+            // Each tone swells in and cuts off short of the next.
+            let u = t - k as f32 * TONE;
+            let env = attack(u, 0.03) * ((TONE - 0.03 - u) / 0.03).clamp(0.0, 1.0);
+            x * env * edges(i, n)
+        })
+        .collect()
+}
+
+/// The bay doors (or the tunnel's) on the move: a motor's hum and a grinding rumble, with a clank
+/// as they start and as they seat.
+fn door_rumble(r: &mut Rng) -> Vec<f32> {
+    const DUR: f32 = 3.6;
+    let n = samples(DUR);
+    let mut lp = Lp::new(170.0);
+    let mut lp2 = Lp::new(110.0);
+    let mut out: Vec<f32> = (0..n)
+        .map(|i| {
+            let t = i as f32 / SR;
+            let grind = lp2.run(lp.run(r.noise()) * 3.0) * 3.0;
+            let motor = (TAU * 55.0 * t).sin() * 0.35 + (TAU * 110.0 * t).sin() * 0.12;
+            let swell = attack(t, 0.5) * ((DUR - t) / 0.6).clamp(0.0, 1.0);
+            (grind + motor) * swell * edges(i, n)
+        })
+        .collect();
+    mix_in(&mut out, &impact(r, 0.45, 70.0, 0.12, 0.03, 1_800.0, 200.0), 0, 0.8);
+    mix_in(&mut out, &impact(r, 0.45, 60.0, 0.14, 0.03, 1_600.0, 180.0), samples(DUR - 0.45), 1.0);
     out
 }
 

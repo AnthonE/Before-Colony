@@ -171,6 +171,11 @@ impl OnFoot {
         self.walker = Walker::at(Vec3::new(0.8, CATWALK_Y, 1.9), -Vec3::X);
     }
 
+    /// Until when the airlock's door stands open (it opens when the pilot comes in or leaves).
+    pub fn airlock_until(&self) -> f64 {
+        self.airlock_until
+    }
+
     fn t(&self, now: f64) -> f32 {
         (now - self.since) as f32
     }
@@ -499,6 +504,13 @@ pub fn drive_onfoot(
         Seq::Venting => ((t - KLAXON_SECS) / DOOR_SECS).clamp(0.0, 1.0),
         Seq::Catapult => 1.0,
         Seq::Arriving => 1.0 - ((t - GLIDE_SECS * 0.72) / DOOR_SECS).clamp(0.0, 1.0),
+        _ => 0.0,
+    };
+    // The tunnel's outer doors open after the bay's, and shut behind a suit coming in.
+    bay.outer = match me.seq {
+        Seq::Venting => ((t - KLAXON_SECS - 0.5) / DOOR_SECS).clamp(0.0, 1.0),
+        Seq::Catapult => 1.0,
+        Seq::Arriving => 1.0 - ((t - 0.3) / DOOR_SECS).clamp(0.0, 1.0),
         _ => 0.0,
     };
     bay.alarm =

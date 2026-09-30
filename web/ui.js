@@ -613,7 +613,20 @@
     return `<div class="split"><div>${left}</div><div>${right}${orders}</div></div>`;
   }
 
+  // Replacing a focused field blurs it, and a blur can fire events that would render again from
+  // inside this render: once at a time.
+  let rendering = false;
   function renderTerminal() {
+    if (rendering) return;
+    rendering = true;
+    try {
+      drawTerminal();
+    } finally {
+      rendering = false;
+    }
+  }
+
+  function drawTerminal() {
     for (const b of document.querySelectorAll("[data-tab]")) b.classList.toggle("active", b.dataset.tab === tab);
     $("term-credits").textContent = hangar?.view ? `${fmt(hangar.view.credits)} CR` : "";
     // Keep the field being typed in.
@@ -769,7 +782,6 @@
     // The terminals: one listener for all their buttons and fields.
     $("term-body").addEventListener("click", onTerminalClick);
     $("term-body").addEventListener("input", onTerminalInput);
-    $("term-body").addEventListener("change", onTerminalInput);
     for (const b of document.querySelectorAll("[data-tab]")) {
       b.addEventListener("click", () => openTab(b.dataset.tab));
     }

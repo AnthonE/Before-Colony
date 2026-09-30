@@ -1262,6 +1262,7 @@ fn hangar_script(
         t if t < 10.5 => 1.0,
         t => (1.0 - (t - 10.5) / secs).max(0.0),
     };
+    bay.outer = bay.doors;
     bay.alarm = (4.0..7.5).contains(&t) || t >= 10.5;
     bay.boarded = (4.0..12.0).contains(&t);
 }

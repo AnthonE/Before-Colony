@@ -300,6 +300,7 @@ pub fn play_sound(
     indoors: Res<crate::hangar::Indoors>,
     onfoot: Res<crate::onfoot::OnFoot>,
     mut last_seq: Local<crate::onfoot::Seq>,
+    mut airlock_at: Local<f64>,
     mut dev: ResMut<DevStatus>,
 ) {
     let Some(mut audio) = audio else { return };
@@ -390,13 +391,26 @@ pub fn play_sound(
     }
     sound.sabers.retain(|slot, _| drives.iter().any(|d| d.slot == *slot));
 
-    // The bay: the suit coming home. (Its launch sounds as it leaves the tunnel, when the cockpit
-    // below finds itself in the world.)
+    // The bay: the klaxon and the doors as it cycles, the airlock's hiss. (The launch itself sounds
+    // as the suit leaves the tunnel, when the cockpit below finds itself in the world.)
     if onfoot.seq != *last_seq {
-        if onfoot.seq == crate::onfoot::Seq::Arriving {
-            sound.mixer.request(Request::own(Cue::Dock));
+        use crate::onfoot::Seq;
+        let cues: &[Cue] = match onfoot.seq {
+            Seq::Venting => &[Cue::Klaxon, Cue::DoorRumble],
+            Seq::Arriving => &[Cue::Klaxon, Cue::DoorRumble, Cue::Dock],
+            Seq::Entering => &[Cue::AirlockHiss],
+            _ => &[],
+        };
+        for &c in cues {
+            sound.mixer.request(Request::own(c));
         }
         *last_seq = onfoot.seq;
+    }
+    if onfoot.airlock_until() > *airlock_at {
+        *airlock_at = onfoot.airlock_until();
+        if onfoot.seq == crate::onfoot::Seq::Walking {
+            sound.mixer.request(Request::own(Cue::AirlockHiss));
+        }
     }
 
     // The cockpit (not while the view is in the bay).
