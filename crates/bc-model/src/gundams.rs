@@ -676,6 +676,9 @@ pub(crate) fn neo_bird(d: &mut Designer) {
         h.cube(v(0.3, 0.1, 0.08), 0.02, EYE, sided(s, at(0.35, 1.2, 5.65)));
         h.cylinder(0.14, 1.2, 8, GUN, sided(s, place(v(0.55, 0.8, 7.2), rx(FRAC_PI_2))));
     }
+    // The cockpit view looks out from over the canopy, along the nose.
+    d.sockets.eye = Designer::local(Bone::Head, v(0.0, 2.4, 4.6));
+    d.sockets.eye_in_head = false;
 
     // Wings: swept, on the arms, with the arm armour folded along their roots.
     for s in Side::BOTH {

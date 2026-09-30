@@ -139,11 +139,13 @@ pub struct ViewPrefs {
     pub fov: f32,
     /// How much of the camera shake, kicks and warps to keep, 0..1.
     pub shake: f32,
+    /// Flying from the cockpit (first person) rather than the chase camera.
+    pub cockpit: bool,
 }
 
 impl Default for ViewPrefs {
     fn default() -> Self {
-        Self { fov: 70.0, shake: 1.0 }
+        Self { fov: 70.0, shake: 1.0, cockpit: false }
     }
 }
 

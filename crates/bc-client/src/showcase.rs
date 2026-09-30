@@ -21,7 +21,7 @@ use crate::dev_hooks::DevStatus;
 use crate::gfx::Gfx;
 use crate::view::{
     BeamFeed, BeamView, CameraTarget, ChaseTarget, FxEvent, FxEvents, MissileFeed, MissileView, SuitDrive,
-    VisTime,
+    ViewPrefs, VisTime,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,9 +36,10 @@ pub enum Scene {
     Field,
     /// The sky: presets look at Earth, the Moon, the Sun and the galactic core.
     Sky,
-    /// The pilot's view: the chase camera over Wing Zero through the field, and what the pilot's
-    /// body puts on the picture. Every 20 s: a boost (2-5 s), two hits (6 s), a hard turn that
-    /// greys out to a blackout (8-12.5 s), then ZERO (from 13 s) and its seizure (17-19 s).
+    /// The pilot's view: the chase camera over Wing Zero through the field (preset 2: from its
+    /// cockpit), and what the pilot's body puts on the picture. Every 20 s: a boost (2-5 s), two
+    /// hits (6 s), a hard turn that greys out to a blackout (8-12.5 s), then ZERO (from 13 s) and
+    /// its seizure (17-19 s).
     Chase,
     /// After a fight by a rock: hulks, limbs shot off and loose ore tumbling, and a Leo come to
     /// pick through them.
@@ -133,8 +134,8 @@ impl Scene {
             Self::Duel => DUEL_CAMS.to_vec(),
             Self::Colony => COLONY_CAMS.to_vec(),
             Self::Field => FIELD_CAMS.to_vec(),
-            // The chase camera places itself; this only seeds the orbit state.
-            Self::Chase => vec![orbit(CHASE, 0.0, 0.3, 900.0)],
+            // The camera places itself (1: chasing, 2: the cockpit); these only seed the orbit.
+            Self::Chase => vec![orbit(CHASE, 0.0, 0.3, 900.0); 2],
             Self::Salvage => {
                 let c = salvage_site();
                 vec![
@@ -308,7 +309,10 @@ impl Plugin for ShowcasePlugin {
             app.add_systems(Update, hangar_script.after(script).in_set(crate::view::Vis::Drive));
         }
         if self.scene == Scene::Chase {
-            app.add_systems(Update, (follow, pilot_effects).chain().in_set(crate::view::Vis::Camera));
+            app.add_systems(
+                Update,
+                (chase_view, follow, pilot_effects).chain().in_set(crate::view::Vis::Camera),
+            );
         } else {
             app.add_systems(Update, place_camera.in_set(crate::view::Vis::Camera));
         }
@@ -760,6 +764,14 @@ fn controls(
     if mv != Vec3::ZERO {
         let boost = if keys.pressed(KeyCode::ShiftLeft) { 5.0 } else { 1.0 };
         cam.target += mv * cam.dist * 0.6 * boost * real.delta_secs();
+    }
+}
+
+/// The pilot's view in the chase scene: preset 2 looks out of the cockpit.
+fn chase_view(show: Res<Show>, mut prefs: ResMut<ViewPrefs>) {
+    let cockpit = show.preset == 2;
+    if prefs.cockpit != cockpit {
+        prefs.cockpit = cockpit;
     }
 }
 

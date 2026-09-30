@@ -6,8 +6,8 @@
 //!   panel on the page, the airlock the menu (the way out of the bay is through it), and the
 //!   cockpit boards the suit and launches it.
 //! - Launching: the pilot climbs in and flight control is asked; the bay vents, its doors open
-//!   and the catapult throws the suit down the launch tunnel into space, where the chase camera
-//!   picks it up.
+//!   and the catapult throws the suit down the launch tunnel into space, where the flight camera
+//!   (chasing, or the cockpit) picks it up.
 //! - Coming home (Enter, at rest inside the dock's ring of lights): the suit glides in down the
 //!   tunnel, the doors shut behind it and the pilot climbs out onto the catwalk. After a suit is
 //!   lost the pilot comes back in through the airlock, to an empty gantry.

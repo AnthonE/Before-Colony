@@ -17,17 +17,20 @@ pub enum Hint {
     Launch,
     /// Survival rules, flying: docking to go home.
     Dock,
+    /// Flying: the cockpit view (players from other games press V, which is flight assist here).
+    Camera,
 }
 
 impl Hint {
     /// In the order they're shown.
-    pub const ALL: [Hint; 10] = [
+    pub const ALL: [Hint; 11] = [
         Hint::Walk,
         Hint::Use,
         Hint::Launch,
         Hint::Thrust,
         Hint::Boost,
         Hint::Fire,
+        Hint::Camera,
         Hint::FlightAssist,
         Hint::Salvage,
         Hint::Dock,
@@ -62,6 +65,7 @@ impl Hint {
                 "Up the stairs to the catwalk: E at the cockpit hatch boards the suit and launches."
             }
             Hint::Dock => "To go home, come to rest inside the dock's ring of lights and press Enter.",
+            Hint::Camera => "Tab (or the mouse wheel) switches between the cockpit and the chase camera.",
         }
     }
 
@@ -70,7 +74,7 @@ impl Hint {
         match self {
             Hint::Thrust | Hint::Fire | Hint::Walk => 20.0,
             Hint::Use | Hint::Launch => 30.0,
-            Hint::Dock => 15.0,
+            Hint::Dock | Hint::Camera => 15.0,
             _ => 9.0,
         }
     }
@@ -85,6 +89,8 @@ pub struct HintInput {
     pub boosting: bool,
     pub firing: bool,
     pub toggled_assist: bool,
+    /// Switched between the chase camera and the cockpit.
+    pub switched_camera: bool,
     pub grabbing: bool,
     /// Survival rules (the hangar's hints, and docking's).
     pub survival: bool,
@@ -135,10 +141,13 @@ impl Hints {
                 Hint::Use => i.using,
                 Hint::Launch => i.boarding,
                 Hint::Dock => i.docking,
+                Hint::Camera => i.switched_camera,
             };
             self.doing = if acting { self.doing + dt } else { self.doing };
-            let at_once =
-                matches!(h, Hint::FlightAssist | Hint::Salvage | Hint::Use | Hint::Launch | Hint::Dock);
+            let at_once = matches!(
+                h,
+                Hint::FlightAssist | Hint::Camera | Hint::Salvage | Hint::Use | Hint::Launch | Hint::Dock
+            );
             let done = self.doing >= DOING || (acting && at_once);
             if done || now - since > h.max_secs() {
                 *seen |= h.bit();
@@ -183,6 +192,20 @@ mod tests {
         run(&mut h, &mut seen, &mut t, 1.2, HintInput { thrusting: true, ..flying });
         assert!(seen & Hint::Thrust.bit() != 0);
         assert_eq!(run(&mut h, &mut seen, &mut t, GAP + 0.2, flying), Some(Hint::Boost));
+    }
+
+    #[test]
+    fn switching_the_camera_clears_its_hint() {
+        let (mut h, mut seen, mut t) = (Hints::default(), 0u32, 0.0);
+        let flying = HintInput { flying: true, ..Default::default() };
+        // Everything before it already seen.
+        for x in [Hint::Thrust, Hint::Boost, Hint::Fire] {
+            seen |= x.bit();
+        }
+        assert_eq!(run(&mut h, &mut seen, &mut t, 0.1, flying), Some(Hint::Camera));
+        run(&mut h, &mut seen, &mut t, 0.05, HintInput { switched_camera: true, ..flying });
+        assert!(seen & Hint::Camera.bit() != 0);
+        assert_eq!(run(&mut h, &mut seen, &mut t, GAP + 0.2, flying), Some(Hint::FlightAssist));
     }
 
     #[test]

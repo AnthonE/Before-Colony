@@ -40,6 +40,10 @@ const scenes: Array<[string, number, number, number]> = [
   ["chase", 1, 9.9, 12],
   ["chase", 1, 15.5, 12],
   ["chase", 1, 17.8, 12],
+  // The same from the cockpit (the head's main camera): boosting; hit; ZERO engaged.
+  ["chase", 2, 4.5, 12],
+  ["chase", 2, 5.95, 12],
+  ["chase", 2, 15.5, 12],
   // The Gundams: all in a row (Full Open's salvo bursting, Shenlong's flame); Heavyarms in Full
   // Open; Deathscythe jamming, mid-reap; Sandrock's shotels, then its Cross Crusher; Shenlong's
   // fang at full reach, then its flamethrower; Neo-Bird on full burn.

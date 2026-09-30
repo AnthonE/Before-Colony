@@ -327,13 +327,20 @@
         settingRows.set(r.key, { input, value, kind: r.kind });
       }
     }
+    // The game's field of view is vertical; other games mostly quote the horizontal one, so give
+    // both (horizontal at this window's shape).
+    const fovText = (v) => {
+      const aspect = window.innerWidth / Math.max(1, window.innerHeight);
+      const h = (2 * Math.atan(Math.tan((v * Math.PI) / 360) * aspect) * 180) / Math.PI;
+      return `${v}° V\n${Math.round(h)}° H`;
+    };
     for (const r of data.rows) {
       const row = settingRows.get(r.key);
       if (!row) continue;
       if (row.kind === "range") {
         if (document.activeElement !== row.input) row.input.value = r.value;
         const n = Number(r.value);
-        row.value.textContent = r.key === "fov" ? `${n}°` : r.max <= 1 ? `${Math.round(n * 100)}%` : `${n.toFixed(2)}×`;
+        row.value.textContent = r.key === "fov" ? fovText(n) : r.max <= 1 ? `${Math.round(n * 100)}%` : `${n.toFixed(2)}×`;
       } else if (row.kind === "toggle") {
         row.input.checked = r.value === "true";
         row.value.textContent = r.value === "true" ? "ON" : "OFF";

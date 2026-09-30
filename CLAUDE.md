@@ -1,7 +1,8 @@
 # Before Colony — notes for AI assistants
 
 A Gundam Wing space MMO (free aim, Newtonian 6DOF). Rust server, Bevy 0.19 client compiled to wasm,
-WebTransport (QUIC) between them. See `docs/ARCHITECTURE.md` and `docs/DESIGN.md`.
+WebTransport (QUIC) between them. See `docs/ARCHITECTURE.md` and `docs/DESIGN.md`; `docs/CONTROLS.md`
+surveys what players of similar games expect of the controls (read it before changing a binding).
 
 ## Hot-path rules (non-negotiable)
 - The sector tick (`bc-sim` step + `bc-sector` input drain/encode) must not allocate or lock.

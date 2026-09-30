@@ -1,13 +1,21 @@
 //! The ZERO System's predicted futures: for each tracked threat, every maneuver hypothesis drawn as
 //! a ghost trail 1.5 s ahead, opacity proportional to its probability. The client re-runs the
-//! server's rollout code from its own view; the server only sends the probabilities.
+//! server's rollout code from its own view; the server only sends the probabilities. Chasing, a
+//! line runs from the suit along the firing solution; from the cockpit, where it would rise from
+//! below the view, the HUD's lead marker is the solution.
 
 use bevy::prelude::*;
 
+use crate::camera::Chase;
 use crate::dev_hooks::DevStatus;
 use crate::net::{GameClient, now_s};
 
-pub fn draw_ghosts(game: NonSend<GameClient>, mut gizmos: Gizmos, mut dev: ResMut<DevStatus>) {
+pub fn draw_ghosts(
+    game: NonSend<GameClient>,
+    chase: Res<Chase>,
+    mut gizmos: Gizmos,
+    mut dev: ResMut<DevStatus>,
+) {
     let game = game.borrow();
     let core = &game.core;
     let t = core.render_tick(now_s());
@@ -42,6 +50,7 @@ pub fn draw_ghosts(game: NonSend<GameClient>, mut gizmos: Gizmos, mut dev: ResMu
     if let (Some(z), Some(view)) = (core.world.zero, core.own_view())
         && z.has_solution
         && view.alive
+        && !chase.cockpit()
     {
         let from = view.pos;
         gizmos.line(from, from + z.solution * 900.0, Color::srgba(1.0, 0.85, 0.3, 0.5));
