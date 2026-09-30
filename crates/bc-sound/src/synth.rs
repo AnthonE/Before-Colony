@@ -16,7 +16,8 @@ pub const PEAK: f32 = 0.9;
 
 const SR: f32 = SAMPLE_RATE as f32;
 
-/// A cue's samples, mono, at [`crate::sample_rate`]`(cue)`, normalized to [`PEAK`].
+/// A cue's samples at [`crate::sample_rate`]`(cue)`, normalized to [`PEAK`]: mono, or for a stereo
+/// cue ([`crate::channels`]) the left channel's samples then the right's.
 pub fn render(cue: Cue) -> Vec<f32> {
     let mut r = Rng::new(0x9E37_79B9 ^ (cue as u32 + 1).wrapping_mul(0x85EB_CA6B));
     let mut out = match cue {
@@ -83,6 +84,7 @@ pub fn render(cue: Cue) -> Vec<f32> {
         Cue::CockpitHum => cockpit_hum(&mut r),
         Cue::MusicCalm => crate::music::calm(),
         Cue::MusicCombat => crate::music::combat(),
+        Cue::MusicTitle => crate::title::title(),
     };
     normalize(&mut out, PEAK);
     out
@@ -927,8 +929,8 @@ mod tests {
     #[test]
     fn every_cue_is_a_sound() {
         for &cue in Cue::ALL {
-            if matches!(cue, Cue::MusicCalm | Cue::MusicCombat) {
-                continue; // long: `music`'s own tests
+            if matches!(cue, Cue::MusicCalm | Cue::MusicCombat | Cue::MusicTitle) {
+                continue; // long: `music`'s and `title`'s own tests
             }
             let b = render(cue);
             assert!(!b.is_empty(), "{cue:?}");

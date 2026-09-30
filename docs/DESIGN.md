@@ -444,6 +444,15 @@ render it, quieter with distance and gone beyond each cue's range. A blackout mu
 The browser plays it through Web Audio; volumes are settings (master, weapons, cockpit, music).
 `cargo run -p bc-sound --release --example reel -- reel.wav` writes a reel to listen to.
 
+**The title theme** is a mid-90s anime opening as a Super Famicom game would have played it: an
+original piece at 143 BPM in E minor (orchestra hits on a 3-3-2, a hook, verse, pre-chorus and a
+"royal road" chorus, 47 s that loop). It's written in MML, one string a voice as SNES composers
+wrote, and plays on the console's sound chip in software (`bc_sound::spc`): eight voices,
+instruments generated in code and stored as 4-bit BRR in the chip's 64 KB (bank and echo buffer
+fit, with room for a driver), the chip's Gaussian interpolation, its ADSR rates and its echo with
+the 8-tap FIR, stereo at 32 kHz. `cargo run -p bc-sound --release --example title -- title.wav`
+writes it out.
+
 **Lock assist.** A frame with missiles designates the hostile nearest the reticle (within 10°) and
 keeps it while it stays within 15°. Its bracket fills as the lock builds and reads LOCKED when it's
 acquired. The HUD shows the special's state (READY, JAMMING, FIRING, the cooldown), the lock, and

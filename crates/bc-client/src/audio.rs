@@ -40,7 +40,7 @@ const BUILD_BUDGET_MS: f64 = 6.0;
 /// The order the bank is built in: what the title and the first seconds need, first.
 fn build_order() -> Vec<Cue> {
     let first =
-        [Cue::UiClick, Cue::UiConfirm, Cue::MusicCalm, Cue::CockpitHum, Cue::ThrusterLoop, Cue::Launch];
+        [Cue::UiClick, Cue::UiConfirm, Cue::MusicTitle, Cue::CockpitHum, Cue::ThrusterLoop, Cue::Launch];
     let mut order: Vec<Cue> = first.to_vec();
     order.extend(Cue::ALL.iter().copied().filter(|c| !first.contains(c)));
     order
@@ -125,8 +125,15 @@ impl WebAudio {
             self.built += 1;
             let samples = bc_sound::synth::render(cue);
             let rate = bc_sound::sample_rate(cue) as f32;
-            let Ok(buf) = self.ctx.create_buffer(1, samples.len() as u32, rate) else { continue };
-            if buf.copy_to_channel(&samples, 0).is_err() {
+            // A stereo cue comes planar: the left channel's samples, then the right's.
+            let channels = bc_sound::channels(cue);
+            let frames = samples.len() / channels;
+            let Ok(buf) = self.ctx.create_buffer(channels as u32, frames as u32, rate) else { continue };
+            if samples
+                .chunks_exact(frames)
+                .enumerate()
+                .any(|(c, s)| buf.copy_to_channel(s, c as i32).is_err())
+            {
                 continue;
             }
             if cue.def().looped {
@@ -436,6 +443,7 @@ pub fn play_sound(
         &MusicIn { in_world: ui.playing(), heat, threatened: cin.warned || cin.incoming },
     );
     let music = mix.music * mix.master;
+    audio.set_loop(Cue::MusicTitle, m.title * Cue::MusicTitle.def().gain * music, 1.0);
     audio.set_loop(Cue::MusicCalm, m.calm * Cue::MusicCalm.def().gain * music, 1.0);
     audio.set_loop(Cue::MusicCombat, m.combat * Cue::MusicCombat.def().gain * music, 1.0);
 

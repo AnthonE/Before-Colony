@@ -7,11 +7,18 @@
 //! The title music, then a fight: engines, beams and guns, missiles, hits, a kill, the cockpit's
 //! alarms and the ZERO System, then the salvage run home.
 
-use bc_sound::{Cue, SAMPLE_RATE, sample_rate, synth};
+mod wav;
 
-/// A cue's samples at the reel's rate (the score is rendered at a lower one).
+use bc_sound::{Cue, SAMPLE_RATE, channels, sample_rate, synth};
+
+/// A cue's samples at the reel's rate, in mono (the score is rendered at other rates, and the
+/// title theme in stereo).
 fn at_reel_rate(cue: Cue) -> Vec<f32> {
-    let src = synth::render(cue);
+    let mut src = synth::render(cue);
+    if channels(cue) == 2 {
+        let (left, right) = src.split_at(src.len() / 2);
+        src = left.iter().zip(right).map(|(l, r)| 0.5 * (l + r)).collect();
+    }
     let ratio = sample_rate(cue) as f32 / SAMPLE_RATE as f32;
     if (ratio - 1.0).abs() < 1e-6 {
         return src;
@@ -54,7 +61,7 @@ fn main() {
     let path = std::env::args().nth(1).unwrap_or_else(|| "reel.wav".into());
     let mut r = Reel { out: Vec::new() };
     // The title screen.
-    r.add(Cue::MusicCalm, 0.0, 0.8, 12.0);
+    r.add(Cue::MusicTitle, 0.0, 0.8, 12.0);
     r.add(Cue::UiClick, 9.0, 1.0, 0.0);
     r.add(Cue::UiConfirm, 10.5, 1.0, 0.0);
     // Launch and cruise.
@@ -99,28 +106,9 @@ fn main() {
     r.add(Cue::Sale, 44.4, 1.0, 0.0);
     r.add(Cue::MusicCalm, 44.0, 0.6, 6.0);
 
-    // Normalize the mix and write 16-bit mono WAV.
+    // Normalize the mix.
     let peak = r.out.iter().fold(0.0f32, |m, v| m.max(v.abs())).max(1e-6);
-    let k = 0.9 / peak;
-    let data: Vec<u8> = r
-        .out
-        .iter()
-        .flat_map(|v| (((v * k).clamp(-1.0, 1.0) * i16::MAX as f32) as i16).to_le_bytes())
-        .collect();
-    let mut wav = Vec::with_capacity(44 + data.len());
-    wav.extend_from_slice(b"RIFF");
-    wav.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
-    wav.extend_from_slice(b"WAVEfmt ");
-    wav.extend_from_slice(&16u32.to_le_bytes());
-    wav.extend_from_slice(&1u16.to_le_bytes());
-    wav.extend_from_slice(&1u16.to_le_bytes());
-    wav.extend_from_slice(&SAMPLE_RATE.to_le_bytes());
-    wav.extend_from_slice(&(SAMPLE_RATE * 2).to_le_bytes());
-    wav.extend_from_slice(&2u16.to_le_bytes());
-    wav.extend_from_slice(&16u16.to_le_bytes());
-    wav.extend_from_slice(b"data");
-    wav.extend_from_slice(&(data.len() as u32).to_le_bytes());
-    wav.extend_from_slice(&data);
-    std::fs::write(&path, wav).expect("write the reel");
+    let mix: Vec<f32> = r.out.iter().map(|v| v * 0.9 / peak).collect();
+    wav::write(&path, SAMPLE_RATE, 1, &mix);
     println!("wrote {path}: {:.1} s", r.out.len() as f32 / SAMPLE_RATE as f32);
 }
