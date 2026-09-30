@@ -30,7 +30,6 @@ mod zero;
 
 use bc_proto::buttons::{GRAB, MODE, ZERO};
 use bc_proto::events::Event;
-use bc_proto::quant::{dequantize_unit, quantize_unit};
 use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, Part, PilotKind, Segment, WeaponKind};
 use glam::{Quat, Vec3};
 
@@ -54,6 +53,7 @@ use crate::spatial::SpatialHash;
 use crate::storage::{BitSet, FixedVec, boxed};
 use crate::suits::{MeleePhase, Suits};
 use crate::transform::transform_thrust;
+use crate::tuning::{self, Tuning};
 use crate::zero::TacticalAdvice;
 use crate::zero::strain::StrainEvent;
 
@@ -533,47 +533,34 @@ impl Sim {
     }
 
     /// Damage and busy-arm modifiers for the flight of tick `t`, from the arms as they stand. The
-    /// owner's client gets the damage's (rounded to the 8 bits it gets them in, so its prediction
-    /// flies the same suit) and works out the arms' tick by tick (`crate::arms`).
+    /// owner's client builds the damage's from its snapshot with the same code (`crate::tuning`),
+    /// and works out the arms' tick by tick (`crate::arms`).
     pub fn flight_mods_at(&self, i: usize, t: u32) -> FlightMods {
         let s = &self.suits;
         let busy =
             s.melee[i].phase != MeleePhase::Idle || t.saturating_sub(s.last_fired[i]) < BUSY_FIRE_TICKS;
-        let idle = self.idle_ambac(i);
-        let dead = |p: Part| s.part_hp[i][p as usize] <= 0.0;
-        let mut thrust: f32 = if dead(Part::Backpack) { 0.35 } else { 1.0 };
-        if dead(Part::Legs) {
-            thrust *= 0.9;
-        }
         // Parts shot off lighten the suit; the hold and what's in hand weigh it down.
         let fid = s.frame[i];
         let held = self.held_chunk(i).map_or(0, |k| self.chunks.desc[k].mass_kg);
         let extra_mass_kg = mass_without(fid, s.gone_mask(i)) as i32 - mass_without(fid, 0) as i32
             + (s.cargo_total_kg(i) + held) as i32;
-        FlightMods {
-            ambac: if busy { busy_ambac(idle) } else { idle },
-            thrust: wire(thrust),
-            g_immune: s.pilot[i] == PilotKind::MobileDoll,
-            lunge: s.melee[i].striking() && weapon(s.melee[i].weapon).melee.is_some_and(|m| m.lunge),
-            extra_mass_kg,
+        let mut mods =
+            tuning::flight_mods(&self.tuning(i), s.pilot[i] == PilotKind::MobileDoll, extra_mass_kg);
+        if busy {
+            mods.ambac = busy_ambac(mods.ambac);
         }
+        mods.lunge = s.melee[i].striking() && weapon(s.melee[i].weapon).melee.is_some_and(|m| m.lunge);
+        mods
+    }
+
+    /// Suit `i`'s stat sheet as it stands.
+    pub fn tuning(&self, i: usize) -> Tuning {
+        tuning::tuning(self.suits.gone_mask(i))
     }
 
     /// AMBAC's authority with the arms idle: what the limbs shot off leave of it.
     pub fn idle_ambac(&self, i: usize) -> f32 {
-        let hp = &self.suits.part_hp[i];
-        let dead = |p: Part| hp[p as usize] <= 0.0;
-        let mut ambac: f32 = 1.0;
-        if dead(Part::ArmL) {
-            ambac -= 0.2;
-        }
-        if dead(Part::ArmR) {
-            ambac -= 0.2;
-        }
-        if dead(Part::Legs) {
-            ambac -= 0.3;
-        }
-        wire(ambac.max(0.1))
+        self.tuning(i).ambac
     }
 
     fn flight_step(&mut self, _t: u32) {
@@ -751,11 +738,6 @@ impl Sim {
     pub fn state_hash(&self) -> u64 {
         crate::hash::state_hash(self)
     }
-}
-
-/// A flight modifier rounded to the 8 bits its owner's client gets it in.
-fn wire(x: f32) -> f32 {
-    dequantize_unit(quantize_unit(x, 8), 8)
 }
 
 /// A Mobile Doll's target that's asleep is no target.
