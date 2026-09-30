@@ -7,7 +7,7 @@ use crate::dev_hooks::{DevHooksPlugin, publish_game};
 use crate::echo::EchoPlugin;
 use crate::fx::{FxState, setup_fx, update_fx, update_fx_lights};
 use crate::gfx::{Gfx, GfxPlugin};
-use crate::hud::{setup_hud, show_hud, update_hud};
+use crate::hud::{place_instruments, setup_hud, show_hud, update_hud, update_marks, update_panels};
 use crate::input::{Aim, Controls, read_input};
 use crate::net::{LaunchConfigRes, NetPlugin, drive, game_client, start_net_loop};
 use crate::net_view::{sync_view, tick_vis_time};
@@ -122,6 +122,9 @@ pub fn run() {
                 (
                     show_hud,
                     update_hud,
+                    update_marks,
+                    update_panels,
+                    place_instruments,
                     crate::zero_overlay::draw_ghosts,
                     publish_game,
                     crate::onfoot::publish_onfoot,
@@ -162,6 +165,8 @@ impl Plugin for VisualsPlugin {
                 crate::zero_vision::ZeroVisionPlugin,
                 crate::hangar::HangarPlugin,
                 crate::shade::ShadePlugin,
+                crate::cockpit::CockpitPlugin,
+                crate::ui_panel::UiPanelPlugin,
             ))
             .configure_sets(
                 Update,
@@ -187,6 +192,7 @@ impl Plugin for VisualsPlugin {
                         crate::ambience::setup_ambience,
                         crate::hangar::setup_bay,
                     ),
+                    crate::cockpit::setup_cockpit,
                 )
                     .chain(),
             )
@@ -213,6 +219,7 @@ impl Plugin for VisualsPlugin {
                     crate::blast::update_blasts,
                     crate::ambience::update_ambience,
                     crate::rocks::rock_lod,
+                    crate::cockpit::drive_cockpit,
                 )
                     .chain()
                     .in_set(Vis::Fx),

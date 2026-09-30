@@ -317,6 +317,11 @@ impl Plugin for ShowcasePlugin {
             app.add_systems(
                 Update,
                 (chase_view, follow, pilot_effects).chain().in_set(crate::view::Vis::Camera),
+            )
+            .add_systems(Startup, spawn_instruments)
+            .add_systems(
+                Update,
+                (demo_instruments, crate::hud::place_instruments).chain().in_set(crate::view::Vis::Hud),
             );
         } else {
             app.add_systems(Update, place_camera.in_set(crate::view::Vis::Camera));
@@ -770,6 +775,82 @@ fn controls(
     if mv != Vec3::ZERO {
         let boost = if keys.pressed(KeyCode::ShiftLeft) { 5.0 } else { 1.0 };
         cam.target += mv * cam.dist * 0.6 * boost * real.delta_secs();
+    }
+}
+
+/// The cockpit's instruments in the chase scene, showing what the scene flies.
+fn spawn_instruments(
+    mut commands: Commands,
+    font: Res<crate::hud::UiFont>,
+    mut panels: ResMut<Assets<crate::ui_panel::PanelMaterial>>,
+) {
+    let looks = crate::hud::HudLooks::new(&mut panels);
+    crate::hud::spawn_instruments(&mut commands, &font, &looks);
+    commands.insert_resource(looks);
+}
+
+/// Readouts for the chase scene's flight: its speed and G, the two hits (the torso's armour),
+/// ZERO from 13 s. Shown only from the cockpit.
+fn demo_instruments(
+    vis: Res<VisTime>,
+    prefs: Res<ViewPrefs>,
+    mut root: Query<&mut Visibility, With<crate::hud::Instruments>>,
+    mut texts: Query<(&crate::hud::HudText, &mut Text)>,
+) {
+    use crate::hud::{HudText, bar};
+    for mut v in &mut root {
+        v.set_if_neq(if prefs.cockpit { Visibility::Inherited } else { Visibility::Hidden });
+    }
+    let t = vis.now;
+    let u = (t % CHASE_CYCLE) as f32;
+    let speed = (chase_pos(t + 0.05) - chase_pos(t - 0.05)).length() * 10.0;
+    let boost = (2.0..5.0).contains(&u);
+    let g = if (8.0..14.0).contains(&u) {
+        2.0 + 6.5 * ((u - 8.0) / 2.5).min(1.0)
+    } else if boost {
+        3.1
+    } else {
+        0.4
+    };
+    let prop = 0.82 - 0.004 * u;
+    let torso = if u >= 6.45 {
+        5.0 / 7.0
+    } else if u >= 6.05 {
+        6.0 / 7.0
+    } else {
+        1.0
+    };
+    let zero = u >= 13.0;
+    for (h, mut text) in &mut texts {
+        let s = match h {
+            HudText::Flight => format!(
+                "XXXG-00W0 WING GUNDAM ZERO\nSPD {speed:>6.0} m/s\nPROP {} {:>3.0}%\nHEAT {} {:>3.0}%\nENGY {} {:>3.0}%\nG   {g:>4.1} g",
+                bar(prop, 10),
+                prop * 100.0,
+                bar(0.18, 10),
+                18.0,
+                bar(0.93, 10),
+                93.0
+            ),
+            HudText::Armor => {
+                let mut a = String::new();
+                for (n, f) in [("HEAD", 1.0), ("TORSO", torso), ("L-ARM", 1.0), ("R-ARM", 1.0), ("LEGS", 1.0), ("BPACK", 1.0)] {
+                    a.push_str(&format!("{n:<6}{}\n", bar(f, 8)));
+                }
+                a
+            }
+            HudText::Weapons => format!(
+                "LMB TWIN BUSTER RIFLE  RDY\nRMB MACHINE CANNON     RDY 380\nF   BEAM SABER         RDY\nH   NEO-BIRD           READY\nZERO {}",
+                if zero { "ACTIVE" } else { "STANDBY (Z)" }
+            ),
+            HudText::Salvage => "HOLD ·········· 0 kg/1.5 t\nCR 1 250\nG grab   J jettison".into(),
+            HudText::Zero if zero => "TARGET   OZ-06MS LEO  78%\nMANEUVER BREAK-HIGH  64%\nTHREAT   HIGH  (conf 0.81)\nFLANKED  12%".into(),
+            HudText::Zero => "STANDBY".into(),
+            _ => continue,
+        };
+        if text.0 != s {
+            text.0 = s;
+        }
     }
 }
 

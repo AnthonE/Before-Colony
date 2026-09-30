@@ -75,6 +75,11 @@ impl Chase {
     pub fn sub_camera(&self) -> bool {
         self.cockpit && self.head_lost
     }
+
+    /// A hit's flash, 0..1 (fading).
+    pub fn hit_flash(&self) -> f32 {
+        self.flash
+    }
 }
 
 pub fn spawn_camera(mut commands: Commands) {

@@ -131,7 +131,8 @@ the cockpit. The choice is a setting, so the next sortie starts in the same view
    and starts off when the browser asks for reduced motion.
 3. **Off-screen markers** for hostiles, whoever is locking you, and missiles. Examples are Everspace
    2's edge arrows and Elite's compass. Nearly every game in the survey has them, and they matter
-   more from the cockpit [B3][B5].
+   more from the cockpit [B3][B5]. **Done:** chevrons at the edge of the view point at missiles
+   tracking you, whoever is locking on to you, and hostiles within 2 km.
 
 **P1: expected of any PC game in this genre.**
 

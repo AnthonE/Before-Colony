@@ -29,24 +29,30 @@ impl Hex {
 /// Readouts, the reticle, what's normal.
 pub const CYAN: Hex = Hex("#9fe8ff");
 /// Keys, values and cautions: the kill feed, salvage, a lock building.
-pub const AMBER: Hex = Hex("#ffc36b");
+pub const AMBER: Hex = Hex("#ffb547");
 /// Warnings and hostiles.
-pub const RED: Hex = Hex("#ff6b6b");
+pub const RED: Hex = Hex("#ff4b4b");
 /// Friendlies, what can be grabbed, a safe place to park.
 pub const GREEN: Hex = Hex("#8dffa8");
 /// The ZERO System.
-pub const PINK: Hex = Hex("#ff73cc");
+pub const PINK: Hex = Hex("#ff5fc8");
+/// Values on the panels: the suit's own readouts, what's whole.
+pub const WHITE: Hex = Hex("#eef4fb");
+/// Labels on the panels, their edges, what's in reserve.
+pub const LABEL: Hex = Hex("#9fc6e6");
 /// The dark the panels are made of (and the text on a bright button).
 pub const INK: Hex = Hex("#040a12");
 
 /// The CSS variable each colour is declared as, in `web/style.css`.
-pub const CSS: [(&str, Hex); 6] = [
+pub const CSS: [(&str, Hex); 8] = [
     ("--cyan", CYAN),
     ("--amber", AMBER),
     ("--red", RED),
     ("--green", GREEN),
     ("--pink", PINK),
     ("--ink", INK),
+    ("--white", WHITE),
+    ("--label", LABEL),
 ];
 
 #[cfg(test)]

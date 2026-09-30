@@ -17,6 +17,8 @@ mod blast;
 #[cfg(target_arch = "wasm32")]
 mod camera;
 #[cfg(target_arch = "wasm32")]
+mod cockpit;
+#[cfg(target_arch = "wasm32")]
 mod colony;
 #[cfg(target_arch = "wasm32")]
 mod config;
@@ -78,6 +80,8 @@ mod suits_vis;
 mod terminal;
 #[cfg(target_arch = "wasm32")]
 mod transport;
+#[cfg(target_arch = "wasm32")]
+mod ui_panel;
 #[cfg(target_arch = "wasm32")]
 mod view;
 #[cfg(target_arch = "wasm32")]

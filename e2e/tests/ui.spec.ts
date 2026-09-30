@@ -76,6 +76,9 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   await page.keyboard.press("Tab");
   await expect.poll(camera).toBe("cockpit/cockpit");
   await expect.poll(saved, { timeout: 10_000 }).toContain("camera = cockpit");
+  // From the seat: the monitors round the view carry the instruments.
+  await page.waitForTimeout(1_500);
+  await page.screenshot({ path: `artifacts/ui-${info.project.name}-cockpit.png` });
   await page.keyboard.press("Tab");
   await expect.poll(camera).toBe("chase/chase");
   await expect.poll(saved, { timeout: 10_000 }).toContain("camera = chase");

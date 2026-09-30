@@ -1,8 +1,21 @@
-/* One font for the page and the cockpit HUD (the wasm draws the HUD with the same file):
-   Share Tech Mono, SIL Open Font License (fonts/OFL.txt). */
+/* The page's fonts, the cockpit HUD's too (the wasm draws the HUD with the same files): Share Tech
+   Mono for readouts and numbers (fonts/OFL.txt), Chakra Petch for labels, headings and buttons
+   (fonts/OFL-ChakraPetch.txt). Both SIL Open Font License. */
 @font-face {
   font-family: "Share Tech Mono";
   src: url("fonts/ShareTechMono-Regular.ttf") format("truetype");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Chakra Petch";
+  src: url("fonts/ChakraPetch-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Chakra Petch";
+  src: url("fonts/ChakraPetch-SemiBold.ttf") format("truetype");
+  font-weight: 600;
   font-display: swap;
 }
 html, body {
@@ -40,13 +53,18 @@ canvas#bc {
    checks they agree). Tints are mixed from these. */
 :root {
   --cyan: #9fe8ff;
-  --amber: #ffc36b;
-  --red: #ff6b6b;
+  --amber: #ffb547;
+  --red: #ff4b4b;
   --green: #8dffa8;
-  --pink: #ff73cc;
+  --pink: #ff5fc8;
   --ink: #040a12;
+  --white: #eef4fb;
+  --label: #9fc6e6;
   --panel: color-mix(in srgb, var(--ink) 82%, transparent);
-  --edge: color-mix(in srgb, var(--cyan) 28%, transparent);
+  --edge: color-mix(in srgb, var(--label) 33%, transparent);
+  --label-font: "Chakra Petch", system-ui, sans-serif;
+  /* The mobile-suit monitor's panel: two corners cut. */
+  --chamfer: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
 }
 .hidden { display: none !important; }
 .overlay {
@@ -55,33 +73,38 @@ canvas#bc {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--cyan);
+  color: var(--white);
   padding: 16px;
   box-sizing: border-box;
   overflow-y: auto;
 }
 .overlay.dim { background: rgba(0, 0, 0, 0.45); }
 .card {
-  background: var(--panel);
+  background: linear-gradient(180deg, color-mix(in srgb, #0b1624 84%, transparent), color-mix(in srgb, #07101a 84%, transparent));
   border: 1px solid var(--edge);
+  color: var(--white);
   padding: 22px 26px;
   max-width: 760px;
   width: 100%;
   box-sizing: border-box;
   backdrop-filter: blur(3px);
+  clip-path: var(--chamfer);
 }
 .card.menu { max-width: 340px; display: flex; flex-direction: column; gap: 10px; }
 .card.wide { max-width: 900px; }
-h1 { margin: 0; font-size: 30px; letter-spacing: 0.35em; font-weight: normal; }
-h2 { margin: 0 0 8px; font-size: 16px; letter-spacing: 0.3em; font-weight: normal; }
-h3 { margin: 0 0 6px; font-size: 12px; letter-spacing: 0.25em; color: var(--amber); font-weight: normal; }
-.tagline { font-size: 11px; letter-spacing: 0.2em; opacity: 0.6; margin: 6px 0 20px; }
+h1, h2, h3, .tagline, .field > span, button, .term-body th, .setting > span:first-child {
+  font-family: var(--label-font);
+}
+h1 { margin: 0; font-size: 30px; letter-spacing: 0.3em; font-weight: 600; }
+h2 { margin: 0 0 8px; font-size: 16px; letter-spacing: 0.26em; font-weight: 600; }
+h3 { margin: 0 0 6px; font-size: 12px; letter-spacing: 0.22em; color: var(--label); font-weight: 600; }
+.tagline { font-size: 12px; letter-spacing: 0.16em; color: var(--label); margin: 6px 0 20px; }
 .field { display: block; margin-bottom: 16px; }
-.field > span { display: block; font-size: 11px; letter-spacing: 0.25em; opacity: 0.7; margin-bottom: 6px; }
+.field > span { display: block; font-size: 11px; letter-spacing: 0.22em; color: var(--label); margin-bottom: 6px; }
 input {
   font: inherit;
   font-size: 16px;
-  color: var(--cyan);
+  color: var(--white);
   background: rgba(0, 0, 0, 0.5);
   border: 1px solid var(--edge);
   padding: 8px 10px;
@@ -91,18 +114,26 @@ input {
 }
 input:focus { border-color: var(--cyan); }
 button {
-  font: inherit;
+  font-family: var(--label-font);
+  font-weight: 600;
   font-size: 13px;
-  letter-spacing: 0.2em;
-  color: var(--cyan);
-  background: color-mix(in srgb, var(--cyan) 6%, transparent);
+  letter-spacing: 0.16em;
+  color: var(--white);
+  background: color-mix(in srgb, var(--label) 7%, transparent);
   border: 1px solid var(--edge);
-  padding: 9px 16px;
+  padding: 8px 16px;
   cursor: pointer;
 }
-button:hover, button:focus-visible { border-color: var(--cyan); background: color-mix(in srgb, var(--cyan) 14%, transparent); outline: none; }
-button.primary { color: var(--ink); background: var(--cyan); border-color: var(--cyan); }
-button.primary:hover, button.primary:focus-visible { background: color-mix(in srgb, var(--cyan) 45%, white); }
+button:hover, button:focus-visible { border-color: var(--label); background: color-mix(in srgb, var(--label) 18%, transparent); outline: none; }
+/* The one thing to press: amber, slanted. */
+button.primary {
+  color: var(--ink);
+  background: var(--amber);
+  border-color: var(--amber);
+  padding: 8px 22px;
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+}
+button.primary:hover, button.primary:focus-visible { background: color-mix(in srgb, var(--amber) 60%, white); }
 /* What can't be undone, or ends the visit, is marked. */
 button.danger { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent); background: color-mix(in srgb, var(--red) 6%, transparent); }
 button.danger:hover, button.danger:focus-visible { border-color: var(--red); background: color-mix(in srgb, var(--red) 16%, transparent); }
@@ -141,9 +172,13 @@ button:disabled { opacity: 0.4; cursor: default; }
   left: 50%;
   transform: translateX(-50%);
   background: var(--panel);
-  border: 1px solid color-mix(in srgb, var(--red) 50%, transparent);
+  border: 5px solid transparent;
+  border-image: repeating-linear-gradient(-45deg, var(--amber) 0 10px, var(--ink) 10px 20px) 5;
   color: var(--red);
-  padding: 14px 20px;
+  font-family: var(--label-font);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  padding: 12px 20px;
   font-size: 13px;
   line-height: 1.5;
   text-align: center;

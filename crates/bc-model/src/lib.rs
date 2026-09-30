@@ -4,6 +4,7 @@
 //! broken apart. Each vertex carries its ambient occlusion, baked from the whole suit at rest (`ao`).
 
 mod ao;
+pub mod cockpit;
 pub mod frames;
 mod gundams;
 pub mod kit;
