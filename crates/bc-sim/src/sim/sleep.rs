@@ -4,13 +4,14 @@
 //! the velocity and spin it had, fully Newtonian (no flight assist, no attitude hold), and fetches
 //! up against rocks, landmarks and the colony as a wreck would. If it was standing on a body, or
 //! resting against one, when its pilot left, it's parked instead: held where it sat (or stood),
-//! moving with the body, and hidden from sensors beyond visual range. One aloft in a body's grip
+//! moving with the body, and, once its reactor has idled down, hidden from its enemies' sensors
+//! beyond visual range (`conceal`). One aloft in a body's grip
 //! settles onto it first, and parks where it lands. Shatter the rock and it floats free. Asleep,
 //! nobody works the frame's special: a Neo-Bird stays a bird, and a jammer goes off.
 //!
 //! Mobile Dolls leave sleepers alone; players can hunt them. A sleeper destroyed stays gone (no
 //! respawn) and its pilot is told when they're back ([`SleeperFate`]). When suit slots run short,
-//! the longest asleep is cleared. A pilot back wakes where the suit is: on its feet (or knees) and
+//! the longest asleep is cleared (one left in a hide spot last). A pilot back wakes where the suit is: on its feet (or knees) and
 //! still gripping, if it was standing.
 //!
 //! What a suit can rest on is a [`Body`] (`crate::bodies`): an asteroid of the field, or a
@@ -29,13 +30,14 @@ use crate::flight::FlightState;
 use crate::ground::{self, Anchor, Footing, STANCE, UNPARK_SPEED};
 use crate::handle::SuitId;
 use crate::math::{integrate_rotation, length, look_rotation, normalize_or};
-use crate::suits::Suits;
+use crate::suits::{NO_SPOT, Suits};
 
 /// The fastest a suit can be moving and still park, m/s.
 pub const PARK_SPEED: f32 = 3.0;
 /// How far out from a rock's surface (past the suit's clearance) still counts as resting on it, m.
 pub const PARK_REACH: f32 = 1.5;
-/// Parked sleepers are seen within this range, and not on sensors beyond it, m.
+/// Parked sleepers gone dark are seen by their enemies within this range (out of a hide spot), and
+/// not on sensors beyond it, m.
 pub const PARKED_VISUAL: f32 = 400.0;
 
 /// Why a sleeper is gone.
@@ -275,13 +277,14 @@ impl Sim {
         self.suits.sleeping.iter().filter(|&i| self.is_parked(i)).count()
     }
 
-    /// Clears the longest-asleep sleeper. `false` if there's none.
+    /// Clears the longest-asleep sleeper out in the open; the longest-asleep in a hide spot only
+    /// when there's none. `false` if there's none at all.
     pub fn evict_oldest_sleeper(&mut self) -> bool {
-        let mut oldest: Option<(u32, usize)> = None;
+        let mut oldest: Option<((bool, u32), usize)> = None;
         for i in self.suits.sleeping.iter() {
-            let at = self.suits.slept_at[i];
-            if oldest.is_none_or(|(o, _)| at < o) {
-                oldest = Some((at, i));
+            let key = (self.suits.hide_spot[i] != NO_SPOT, self.suits.slept_at[i]);
+            if oldest.is_none_or(|(o, _)| key < o) {
+                oldest = Some((key, i));
             }
         }
         let Some((_, i)) = oldest else { return false };
@@ -292,7 +295,8 @@ impl Sim {
         true
     }
 
-    /// Frees suit slots for `n` more (a join), clearing the longest-asleep sleepers if it must.
+    /// Frees suit slots for `n` more (a join), clearing sleepers if it must (those out in the open
+    /// first, the longest asleep first).
     pub fn ensure_free_suits(&mut self, n: usize) {
         while self.suits.free_slots() < n && self.evict_oldest_sleeper() {}
     }

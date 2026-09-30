@@ -676,6 +676,7 @@ impl World {
                 special_active: own.flags & own_flags::SPECIAL_ACTIVE != 0,
                 transforming: own.flags & own_flags::TRANSFORMING != 0,
             },
+            surface_n: Vec3::ZERO,
         };
         let mut p = Perception::default();
         p.reset(me);
@@ -703,6 +704,7 @@ impl World {
                 aiming_at_me: pose.aim.dot(to_me) > 0.9986,
                 locked_on_me: e.flags & ent_flags::LOCKED_ON_YOU != 0,
                 hostile: e.faction != self.faction,
+                surface_n: Vec3::ZERO,
             });
         }
         Some(p)

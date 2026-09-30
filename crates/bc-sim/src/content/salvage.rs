@@ -76,8 +76,11 @@ pub fn rock_multiplier(kind: WeaponKind) -> f32 {
 pub const BEAM_WASTE_KG: f32 = 4.0;
 /// Most ore one saber stroke chips off a rock, kg.
 pub const CHIP_KG: u32 = 200;
-/// A shattered rock grows back only when no suit is this close, m.
+/// A shattered rock grows back only when no suit is this close, m...
 pub const REGROW_CLEAR: f32 = 1_000.0;
+/// ...but a sleeper holds it back only from right where it would grow: within this of the rock's
+/// place, past the rock's radius and a suit's clearance, m.
+pub const REGROW_SLEEPER_CLEAR: f32 = 40.0;
 /// How far past its blade a saber digs into rock, m: a suit keeps 8 m off a rock's surface, and
 /// the blade has to reach it.
 pub const SABER_DIG: f32 = 2.5;

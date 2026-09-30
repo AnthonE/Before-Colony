@@ -8,7 +8,8 @@
 //! - **Guidance.** Proportional navigation: the motor turns the missile against the line of
 //!   sight's rotation (`a = N·Vc·(Ω × r̂)`, capped at the motor's acceleration) and spends what's
 //!   left of its thrust closing in. Its Δv is a budget: spent, the missile coasts and can't steer.
-//!   The seeker checks every third tick that it still sees its target (a jamming one it loses).
+//!   The seeker checks every third tick that it still sees its target (a jamming one it loses, and
+//!   one gone dark: parked, or hidden).
 //! - **Ends.** A proximity fuse against enemy suits, or meeting a rock, a landmark or the colony
 //!   (whichever comes first along its path), or its life running out: each is a `MissileBurst`
 //!   event. There's no lag compensation: missiles fly in the present.
@@ -143,7 +144,8 @@ impl Sim {
     }
 
     /// Whether missile `k`'s seeker still sees its target: alive (the same suit), within the
-    /// seeker's cone and its range scaled by the target's signature (a jammer's too).
+    /// seeker's cone and its range scaled by the target's signature, as its enemies' sensors get
+    /// it (through a jammer, and parked, hidden or cold: `conceal`).
     fn seeker_holds(&self, k: usize, spec: &MissileSpec) -> bool {
         let (m, s) = (&self.missiles, &self.suits);
         let j = usize::from(m.target[k]);
@@ -157,10 +159,11 @@ impl Sim {
             self.tick().saturating_sub(s.last_fired[j]) < 30,
             false,
         );
-        if s.faction[j] != m.owner_faction[k]
-            && let Some((jam, _)) = self.jamming(j)
-        {
-            sig *= jam;
+        if s.faction[j] != m.owner_faction[k] {
+            if let Some((jam, _)) = self.jamming(j) {
+                sig *= jam;
+            }
+            sig *= self.concealment(j).sig;
         }
         let range = spec.seeker_range * sig;
         to.length_squared() <= range * range

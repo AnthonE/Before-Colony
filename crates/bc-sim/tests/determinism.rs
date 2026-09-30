@@ -426,10 +426,11 @@ fn sleepers_golden_wasm() {
 /// Hash after 900 ticks on the surfaces, among Mobile Dolls. An OZ Leo is caught over a rock, lands,
 /// walks a square, hops, crouches, stands, and digs the rock out from under itself, crouched. On MO-II, a Heavyarms
 /// runs over a pylon's edge and down its side with rewound shots coming at it, and another walks
-/// to the Aft Well's rim, hops over it, crouches on the floor, sleeps there and wakes. A Wing Zero
-/// is caught over Hermit's Deep, lands in it, and changes into the Neo-Bird and flies off. A
-/// guided missile goes at the Leo on its rock.
-const SURFACE_GOLDEN: u64 = 0xc9a1_7643_9aef_852e;
+/// to the Aft Well's rim, hops over it, crouches on the floor and hides there, sleeps and wakes. A
+/// Wing Zero is caught over Hermit's Deep, lands in it, and changes into the Neo-Bird and flies
+/// off. A guided missile goes at the Leo on its rock. (The hash covers the suits' cover since they
+/// hide, and the dolls hunting the riders come at them from above.)
+const SURFACE_GOLDEN: u64 = 0x2f4e_41b2_9e66_e2ab;
 
 fn surface_hash() -> u64 {
     use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRIP, MELEE, MODE};
@@ -492,6 +493,7 @@ fn surface_hash() -> u64 {
     };
     let (mut leo_seen, mut hopped, mut crouched, mut dug_free) = ([false; 3], false, false, false);
     let (mut round_the_edge, mut in_the_well, mut zero_landed) = (false, false, false);
+    let mut hidden_at = None;
     let (mut hits_on_runner, mut bursts) = (0, 0);
     for _ in 0..900 {
         let t = sim.next_tick();
@@ -607,6 +609,9 @@ fn surface_hash() -> u64 {
             zero_landed = sim.footing(zero.idx()) == Footing::Grounded
                 && b.hide_spot_of(hermit, local(&sim, zero)) == Some(0);
         }
+        if hidden_at.is_none() && sim.cover_code(hider.idx()) == bc_sim::sim::cover::HIDDEN {
+            hidden_at = Some(t);
+        }
         if (651..850).contains(&t) {
             assert!(sim.is_parked(hider.idx()));
         }
@@ -619,6 +624,7 @@ fn surface_hash() -> u64 {
     assert!(round_the_edge, "the runner never went over the pylon's edge");
     assert!(hits_on_runner > 0, "no rewound shot hit the runner");
     assert!(in_the_well, "the hider isn't crouched in the Aft Well");
+    assert!(hidden_at.is_some_and(|t| t < 650), "the hider never hid before sleeping: {hidden_at:?}");
     let (hider, zero_f) = (hider.idx(), zero.idx());
     assert_eq!(sim.footing(hider), Footing::Grounded);
     assert_eq!(sim.suits.anchor[hider].stance, CROUCH_STANCE, "woke crouched");

@@ -438,16 +438,19 @@ pub fn rider_crowd(dolls: usize, seed: u64) -> (Sim, Vec<SuitId>, Vec<(SuitId, S
 
 /// A rider's command for tick `t` (rider `k` of the crowd), on a 10 s cycle: it walks (some run),
 /// hops, crouches, digs at the ground under it (crouched, blade and rifle), lets go for a third of a
-/// second, then arms its grip on flight assist and is caught again.
+/// second, then arms its grip on flight assist and is caught again. Every fourth never fights: it
+/// lies still, crouched, where the others dig.
 pub fn rider_scripted(sim: &Sim, id: SuitId, k: usize, t: u32) -> InputCmd {
     let f = sim.suits.flight[id.idx()];
     let (nose, up) = (f.rot * Vec3::Z, f.rot * Vec3::Y);
     let phase = (t + k as u32 * 7) % 300;
     let run = if k.is_multiple_of(3) { BOOST } else { 0 };
+    let lurker = k % 4 == 3;
     let (aim, thrust, buttons) = match phase {
         0..120 => (nose, [((k % 5) as i8 - 2) * 40, 0, 127], GRIP | run),
         120 => (nose, [0, 127, 0], GRIP | FLIGHT_ASSIST),
         150..170 => (nose, [0, -127, 0], GRIP),
+        200..260 if lurker => (nose, [0; 3], GRIP),
         200..260 => (-up, [0, -127, 0], GRIP | FIRE_PRIMARY | if phase % 45 < 3 { MELEE } else { 0 }),
         260..270 => (nose, [0; 3], FLIGHT_ASSIST),
         _ => (nose, [0; 3], GRIP | FLIGHT_ASSIST),

@@ -9,6 +9,7 @@
 //!    and hopping over it (`ground`); sleepers are held to what they're parked on; wrecks drift;
 //!    rocks and landmarks stop them all.
 //! 3. Spatial hash rebuild, then lag-compensation history is recorded (`history[T]` = snapshot `T`).
+//!    Then cover: who lies still, and in which hide spot (`conceal`).
 //! 4. Weapons fire: projectiles spawn and catch up through the history (≤ 8 ticks) for shots fired
 //!    by humans/agents; beams emit spawn events.
 //! 5. Projectiles sweep against per-part capsules (rocks, landmarks and the colony stop them,
@@ -19,6 +20,7 @@
 use alloc::boxed::Box;
 
 mod combat;
+mod conceal;
 mod detection;
 mod flame;
 mod launch;
@@ -65,6 +67,10 @@ use crate::zero::strain::StrainEvent;
 
 pub use crate::bodies::Body;
 pub use crate::ground::{Anchor, Footing};
+pub use conceal::{
+    COLD_SIG, Conceal, EXPOSE_TICKS, FOUGHT_DARK_TICKS, HIDE_AWAKE_VISUAL_MUL, LURK_SETTLE_TICKS, LURK_STILL,
+    POWER_DOWN_TICKS, cover,
+};
 pub use launch::{Homecoming, LAUNCH_GATE, LAUNCH_SPEED, Loadout};
 pub use sleep::{Gone, PARK_SPEED, PARKED_VISUAL, SleeperFate};
 
@@ -84,6 +90,10 @@ const MAX_SQUADS: usize = 32;
 /// cos(3°): "aiming at me" threshold.
 const COS_3_DEG: f32 = 0.998_629_5;
 const SQUAD_SIZE: u8 = 4;
+/// A brain's stick is kept off a landmark within this of its bounds, m, when its suit's feet are
+/// within this of the surface, m (`keep_off_landmarks`).
+const PUSH_REACH: f32 = 200.0;
+const PUSH_HEIGHT: f32 = 150.0;
 
 #[derive(Clone, Copy, Debug)]
 struct Squad {
@@ -155,8 +165,15 @@ pub struct Sim {
     missile_bits: BitSet,
     /// Scratch: live chunks, likewise.
     chunk_bits: BitSet,
+    /// Scratch: the suits `cover_step` goes through (nothing it calls uses it).
+    cover_bits: BitSet,
     /// Sleepers lost since the server last asked (`drain_fates`).
     fates: FixedVec<SleeperFate>,
+    /// Suits alive on their feet on a body, aloft in a body's grip, and hidden from their enemies'
+    /// sensors (parked and dark, or settled in a hide spot), as of the last tick.
+    pub n_grounded: u32,
+    pub n_aloft: u32,
+    pub n_hidden: u32,
 }
 
 impl Sim {
@@ -203,7 +220,11 @@ impl Sim {
             proj_bits: BitSet::new(cfg.max_projectiles),
             missile_bits: BitSet::new(MAX_MISSILES),
             chunk_bits: BitSet::new(chunks::MAX_CHUNKS),
+            cover_bits: BitSet::new(cap),
             fates: FixedVec::new(64, SleeperFate { suit: 0, generation: 0, gone: Gone::Evicted, tick: 0 }),
+            n_grounded: 0,
+            n_aloft: 0,
+            n_hidden: 0,
         }
     }
 
@@ -317,6 +338,7 @@ impl Sim {
         self.wrecks_follow_hulks();
         self.spatial_rebuild();
         self.record_history(t);
+        self.cover_step(t);
         self.lock_step();
         self.weapons_step(t);
         self.projectile_step(t);
@@ -462,6 +484,7 @@ impl Sim {
                 special_active: s.special[i].active,
                 transforming: self.transforming(i),
             },
+            surface_n: self.surface_n(i),
         }
     }
 
@@ -488,7 +511,27 @@ impl Sim {
             aiming_at_me: s.aim[j].dot(to_me) > COS_3_DEG,
             locked_on_me: s.input[j].lock_target == i as u16,
             hostile: s.faction[j] != s.faction[i],
+            surface_n: self.surface_n(j),
         }
+    }
+
+    /// The ground's normal under suit `i` while it stands on a body, sector frame (`Vec3::ZERO`
+    /// otherwise): what perception tells brains of a suit on the ground.
+    fn surface_n(&self, i: usize) -> Vec3 {
+        if self.suits.footing[i] == ground::Footing::Grounded {
+            self.ground_normal(i).unwrap_or(Vec3::ZERO)
+        } else {
+            Vec3::ZERO
+        }
+    }
+
+    /// The normal of the ground under suit `i`, sector frame, while it's on a body, aloft in its
+    /// grip or parked on it: which way is up off the body where it is.
+    pub(crate) fn ground_normal(&self, i: usize) -> Option<Vec3> {
+        let a = self.suits.anchor[i];
+        let bodies = Bodies::at(&self.field, self.landmarks(), self.tick);
+        let (pose, shape) = (bodies.pose(a.body)?, bodies.shape(a.body)?);
+        Some(pose.rot * ground::place(&shape, a.local, a.stance).1)
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -525,6 +568,7 @@ impl Sim {
             .then(|| self.contact_of(ai_state.target as usize, i, t));
             let me = self.self_view(i);
             let mut cmd = ai::drive(&me, target.as_ref(), &mut ai_state, t, profile, spec);
+            self.keep_off_landmarks(i, t, &mut cmd);
             if seized {
                 // Keep the System engaged while it holds the controls, the pilot's grip on what's
                 // in hand and on the ground, and the frame's mode (a seizure neither transforms the
@@ -536,6 +580,35 @@ impl Sim {
         }
         self.iter_bits = alive;
         self.scratch = scratch;
+    }
+
+    /// A brain's stick never flies its suit into a landmark: near one (its feet within
+    /// `PUSH_HEIGHT` of the surface), the part of the stick into the surface is dropped. Only
+    /// for a suit flying free (on the ground, the stick walks).
+    fn keep_off_landmarks(&self, i: usize, t: u32, cmd: &mut InputCmd) {
+        if self.suits.footing[i] != ground::Footing::Free {
+            return;
+        }
+        let f = &self.suits.flight[i];
+        for d in self.landmarks() {
+            if length(f.pos - d.center) > d.bound + d.orbit_radius + PUSH_REACH {
+                continue;
+            }
+            let pose = landmark_pose(d, t, 0.0);
+            let pr = d.shape.probe(pose.to_local(f.pos));
+            if pr.dist - ground::STANCE >= PUSH_HEIGHT {
+                continue;
+            }
+            let n = pose.rot * pr.normal;
+            let [x, y, z] = cmd.thrust.map(|v| f32::from(v) / 127.0);
+            let stick = f.rot * Vec3::new(x, y, z);
+            let into = stick.dot(n);
+            if into < 0.0 {
+                let local = f.rot.conjugate() * (stick - n * into);
+                let q = |v: f32| (v.clamp(-1.0, 1.0) * 127.0) as i8;
+                cmd.thrust = [q(local.x), q(local.y), q(local.z)];
+            }
+        }
     }
 
     // ---------------------------------------------------------------------------------------------

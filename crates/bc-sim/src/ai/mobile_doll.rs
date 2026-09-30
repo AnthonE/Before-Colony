@@ -3,7 +3,7 @@ use bc_proto::{InputCmd, NO_SLOT, Part};
 use glam::Vec3;
 
 use crate::content::{FrameSpec, weapon};
-use crate::math::{Rng, angle_between, length, normalize_or};
+use crate::math::{Rng, angle_between, clamp_len, length, normalize_or};
 use crate::perception::{Contact, Perception, SelfView};
 use crate::zero::fire_control;
 
@@ -106,6 +106,20 @@ pub const PILOT: DollProfile = DollProfile {
     strafe_span_s: 2.0,
     kit: true,
 };
+
+/// A brain hunting a suit on the ground keeps this far over the ground's plane there, m.
+pub const STANDOFF: f32 = 120.0;
+
+/// `desired`, for a brain hunting `t`: if `t` stands on a body, pushed up off the ground's plane
+/// there while it's within [`STANDOFF`] of it, so the brain comes at it from above rather than
+/// through the body it stands on.
+pub(crate) fn standoff(me: &SelfView, t: &Contact, desired: Vec3) -> Vec3 {
+    if t.surface_n == Vec3::ZERO {
+        return desired;
+    }
+    let above = (me.pos - t.pos).dot(t.surface_n);
+    clamp_len(desired + t.surface_n * ((STANDOFF - above) / STANDOFF).clamp(0.0, 1.0), 1.0)
+}
 
 fn rng_of(ai: &AiState, tick: u32) -> Rng {
     Rng::new(u64::from(ai.rng) << 32 | u64::from(tick))
@@ -241,6 +255,7 @@ pub fn drive(
             }
             _ => radial,
         };
+        let desired = standoff(me, t, desired);
         let in_range = t.dist < w.range * profile.fire_range_frac;
         let can_point = angle_between(aim, fwd) < mount.arm.cone() * 0.9;
         if in_range && can_point && me.ready[0] && !me.overheated && t.hostile {

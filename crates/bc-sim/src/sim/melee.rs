@@ -8,6 +8,9 @@
 //! What starts a strike, in priority order: the SPECIAL press for a frame whose special is a melee
 //! move (the Cross Crusher), the MELEE press for the melee slot, then fire held on a melee weapon in
 //! a gun slot (the Dragon Fang is Shenlong's primary).
+//!
+//! A suit standing on a rock doesn't cut it by swinging near its feet: only a strike aimed down
+//! into it digs it (and may shatter it out from under the suit).
 
 use bc_proto::events::Event;
 use bc_proto::{Part, PilotKind};
@@ -15,16 +18,21 @@ use glam::Vec3;
 
 use super::Sim;
 use crate::arms::{next_phase, strike_slot};
+use crate::bodies::Body;
 use crate::collide::{capsule_world, segment_segment};
 use crate::config::MAX_REWIND_TICKS;
 use crate::content::salvage::SABER_DIG;
 use crate::content::{ArmSlot, MeleeSpec, Mount, SpecialKind, Stroke, WeaponClass, frame, weapon};
+use crate::ground::Footing;
 use crate::math::clamp_to_cone;
 use crate::math::normalize_or;
 use crate::suits::{MeleePhase, MeleeState, SECOND_BLADE, SPECIAL_MOUNT};
 
 /// How far a suit can move within the lag-compensation window, m (as for shots).
 const REWIND_PAD: f32 = 170.0;
+/// A strike from the ground aimed this far down (the cosine to the ground's normal: 30° below its
+/// plane) digs into it.
+const DIG_OWN_DOT: f32 = -0.5;
 
 /// A suit-frame direction mirrored left-right: the second blade of a twin weapon.
 fn mirror(v: Vec3) -> Vec3 {
@@ -114,8 +122,13 @@ impl Sim {
         let Some(mount) = self.melee_mount(i, slot) else { return };
         let w = weapon(mount.weapon);
         let Some(m) = w.melee else { return };
+        let cmd = self.suits.input[i];
+        // On a body, a strike aimed well down into the ground under it (30° below its plane, or
+        // more) is meant for it: it may cut the rock the suit stands on.
+        let aim = normalize_or(cmd.aim, self.suits.flight[i].rot * Vec3::Z);
+        let dig_own = self.suits.footing[i] != Footing::Free
+            && self.ground_normal(i).is_some_and(|n| aim.dot(n) < DIG_OWN_DOT);
         let s = &mut self.suits;
-        let cmd = s.input[i];
         // A thrust goes where the pilot aims, as far off the nose as its mount turns.
         let dir = match m.stroke {
             Stroke::Swing => Vec3::Z,
@@ -132,6 +145,7 @@ impl Sim {
             slot,
             dir,
             lag_q4: (t << 4).saturating_sub(cmd.view_tick_q4),
+            dig_own,
             ..MeleeState::default()
         };
         s.heat[i] += w.heat;
@@ -155,15 +169,24 @@ impl Sim {
         let Some(mount) = self.melee_mount(i, st.slot) else { return };
         let w = weapon(st.weapon);
         let Some(m) = w.melee else { return };
-        let f = self.suits.flight[i];
         // As the pilot saw it: the others as they were its latency ago (not frozen at the start of
-        // the strike, which would leave a fast target behind).
+        // the strike, which would leave a fast target behind), and the suit itself, on a body, on
+        // the body as it was then.
         let rewind = if self.suits.pilot[i] == PilotKind::MobileDoll {
             0
         } else {
             (st.lag_q4 >> 4).min(MAX_REWIND_TICKS)
         };
         let when = t - rewind;
+        let mut f = self.suits.flight[i];
+        if rewind > 0 {
+            self.as_seen_on_its_body(i, when, 0.0, &mut f);
+        }
+        // The rock it stands on, which it cuts only when it means to.
+        let underfoot = match self.suits.anchor[i].body {
+            Body::Rock(r) if self.suits.footing[i] != Footing::Free && !st.dig_own => Some(usize::from(r)),
+            _ => None,
+        };
         let faction = self.suits.faction[i];
         // Suits are found where they are now, but met where they were: widen the search by how far
         // one can have moved since.
@@ -210,9 +233,11 @@ impl Sim {
                         (hand + dir * near, hand + dir * far, dir)
                     }
                 };
-                // It works a rock, and cuts a hulk, once each a strike.
+                // It works a rock, and cuts a hulk, once each a strike (not the ground underfoot,
+                // unless it's digging).
                 if self.suits.melee[i].rock.is_none()
                     && let Some((at, rock)) = self.field.sweep(a, b, w.radius + SABER_DIG)
+                    && underfoot != Some(rock)
                 {
                     self.suits.melee[i].rock = Some(rock as u16);
                     self.rock_hit(rock, w.damage, w.kind, a + (b - a) * at, cut, i, t);

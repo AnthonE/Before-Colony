@@ -6,12 +6,14 @@ use bc_proto::{ChunkDesc, ChunkKind, InputCmd, NO_CHUNK, Part, PilotKind, Segmen
 use glam::Vec3;
 
 use super::{DamageEvent, Sim};
-use crate::bodies::sweep_landmarks;
+use crate::bodies::{Body, landmark_pose, sweep_landmarks};
 use crate::chunks::Motion;
 use crate::collide::{segment_near_point, sweep_capsules};
 use crate::config::{DT, MAX_REWIND_TICKS, secs};
 use crate::content::salvage::{DETACH_PUSH, DETACH_SPEED, bounty, mass_without, part_mass_kg, wreck_ttl};
 use crate::content::{Mount, Replication, WeaponClass, WeaponSpec, frame, weapon};
+use crate::flight::FlightState;
+use crate::ground::{Footing, derive};
 use crate::math::{angle_between, clamp_to_cone, hash01, normalize_or};
 use crate::suits::{SPECIAL_SLOTS, WeaponState};
 use crate::world::colony_sweep;
@@ -144,7 +146,18 @@ impl Sim {
     }
 
     fn fire(&mut self, i: usize, slot: usize, mount: Mount, w: &WeaponSpec, cmd: &InputCmd, t: u32) {
-        let f = self.suits.flight[i];
+        // Lag compensation for remote pilots: fly the shot through the world as they saw it, but
+        // no further back than MAX_REWIND_TICKS (a view older than that counts as exactly that old).
+        let view_q4 = cmd.view_tick_q4.max(t.saturating_sub(MAX_REWIND_TICKS) << 4);
+        let rewind =
+            if self.suits.pilot[i] == PilotKind::MobileDoll { 0 } else { t.saturating_sub(view_q4 >> 4) };
+        let frac = if rewind > 0 { (view_q4 & 15) as f32 / 16.0 } else { 0.0 };
+        let spawn_tick = t - rewind;
+        let mut f = self.suits.flight[i];
+        // On a body, the shot leaves where its pilot saw the suit: on the body as it was then.
+        if rewind > 0 {
+            self.as_seen_on_its_body(i, spawn_tick, frac, &mut f);
+        }
         let fwd = f.rot * Vec3::Z;
         let mut dir = clamp_to_cone(normalize_or(cmd.aim, fwd), fwd, mount.arm.cone());
         let z = &self.suits.zero[i];
@@ -181,15 +194,7 @@ impl Sim {
             s.fired_secondary[i] = t;
         }
         self.break_jammer(i, t);
-        let s = &mut self.suits;
-
-        // Lag compensation for remote pilots: fly the shot through the world as they saw it, but
-        // no further back than MAX_REWIND_TICKS (a view older than that counts as exactly that old).
-        let view_q4 = cmd.view_tick_q4.max(t.saturating_sub(MAX_REWIND_TICKS) << 4);
-        let rewind = if s.pilot[i] == PilotKind::MobileDoll { 0 } else { t.saturating_sub(view_q4 >> 4) };
-        let frac = if rewind > 0 { (view_q4 & 15) as f32 / 16.0 } else { 0.0 };
-        let spawn_tick = t - rewind;
-        let faction = s.faction[i];
+        let faction = self.suits.faction[i];
         // Rocks, landmarks and the colony stop it too, the landmarks where they were then.
         let mut p = muzzle;
         let mut hit = None;
@@ -233,6 +238,24 @@ impl Sim {
                     self.projectiles.spawn(w.kind, i as u16, faction, p, vel, t + ttl, w.damage, w.radius);
                 }
             }
+        }
+    }
+
+    /// Where suit `i`'s pilot saw it at tick `t` plus `frac` of the next, into `f` (its world
+    /// state now): on its body, if it's on one that moves, its anchor as it is on the body as the
+    /// body was then. The pilot's view drew it there, glued to the deck it saw, and saw everyone
+    /// else as they were then (lag compensation), so a shot or a blade leaves from there. Free, or
+    /// on a body that doesn't move, it's where it is.
+    pub(super) fn as_seen_on_its_body(&self, i: usize, t: u32, frac: f32, f: &mut FlightState) {
+        if self.suits.footing[i] == Footing::Free {
+            return;
+        }
+        let a = self.suits.anchor[i];
+        let Body::Landmark(k) = a.body else { return };
+        let Some(d) = self.landmarks().get(usize::from(k)) else { return };
+        let pose = landmark_pose(d, t, frac);
+        if pose.moving {
+            derive(&pose, &a, f);
         }
     }
 
@@ -419,8 +442,10 @@ impl Sim {
                         *c = c.saturating_add(bounty(self.suits.frame[j]));
                     }
                 }
+                // What it spills goes off the body it stood on (the wreck is off it).
+                let up = self.spill_up(j);
                 let hulk = self.wreck(j, t);
-                self.spill(j, t, true);
+                self.spill_over(j, t, true, up);
                 self.events.push(Event::Kill { id: 0, tick: t, victim: j as u16, killer: d.shooter, hulk });
                 let wait = if self.suits.pilot[j] == PilotKind::MobileDoll {
                     secs(3.0)
@@ -479,7 +504,7 @@ impl Sim {
         let fid = self.suits.frame[j];
         let f = self.suits.flight[j];
         // Off whatever it stood on: the hulk drifts on the world velocity it had there.
-        self.suits.footing[j] = crate::ground::Footing::Free;
+        self.suits.footing[j] = Footing::Free;
         self.suits.anchor[j] = crate::ground::Anchor::default();
         let gone = self.suits.gone_mask(j);
         let lim = Vec3::splat(bc_proto::objects::SPIN_MAX);

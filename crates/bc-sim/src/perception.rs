@@ -29,6 +29,9 @@ pub struct Contact {
     pub aiming_at_me: bool,
     pub locked_on_me: bool,
     pub hostile: bool,
+    /// The ground's normal under it while it stands on a body (`Vec3::ZERO` otherwise): where it
+    /// can go is along the ground, and off it.
+    pub surface_n: Vec3,
 }
 
 impl Default for Contact {
@@ -49,6 +52,7 @@ impl Default for Contact {
             aiming_at_me: false,
             locked_on_me: false,
             hostile: false,
+            surface_n: Vec3::ZERO,
         }
     }
 }
@@ -88,6 +92,8 @@ pub struct SelfView {
     pub ready: [bool; 3],
     pub overheated: bool,
     pub kit: KitView,
+    /// The ground's normal under it while it stands on a body (`Vec3::ZERO` otherwise).
+    pub surface_n: Vec3,
 }
 
 impl Default for SelfView {
@@ -108,6 +114,7 @@ impl Default for SelfView {
             ready: [true; 3],
             overheated: false,
             kit: KitView::default(),
+            surface_n: Vec3::ZERO,
         }
     }
 }

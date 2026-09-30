@@ -156,8 +156,22 @@ impl Sim {
     }
 
     /// Empties suit `i`'s hold as loose ore: behind it (jettisoned), or all round (spilled as it
-    /// dies). With `all`, what's in hand goes too.
+    /// dies). With `all`, what's in hand goes too. On a body (or parked on one), none of it goes
+    /// into the body.
     pub(super) fn spill(&mut self, i: usize, t: u32, all: bool) {
+        let up = self.spill_up(i);
+        self.spill_over(i, t, all, up);
+    }
+
+    /// Which way is off the body suit `i` is on, aloft over or parked on, if any: what it spills
+    /// goes that side of the ground.
+    pub(super) fn spill_up(&self, i: usize) -> Option<Vec3> {
+        let on = self.suits.footing[i] != Footing::Free || self.is_parked(i);
+        if on { self.ground_normal(i) } else { None }
+    }
+
+    /// [`Sim::spill`], with `up` the way off the body the suit is on (`None`: it's on none).
+    pub(super) fn spill_over(&mut self, i: usize, t: u32, all: bool, up: Option<Vec3>) {
         if all && let Some(k) = self.held_chunk(i) {
             self.release(i, k, Vec3::ZERO, t);
         }
@@ -174,7 +188,13 @@ impl Sim {
                 Vec3::new(hash01(t, salt) - 0.5, hash01(t ^ 0x33, salt) - 0.5, hash01(t ^ 0xCC, salt) - 0.5),
                 Vec3::Y,
             );
-            let away = if all { scatter } else { normalize_or(back + scatter * 0.4, back) };
+            let mut away = if all { scatter } else { normalize_or(back + scatter * 0.4, back) };
+            // Off the ground, not into it: what would go down goes up as far.
+            if let Some(n) = up
+                && away.dot(n) < 0.0
+            {
+                away -= n * (2.0 * away.dot(n));
+            }
             let seg = Segment {
                 t0: t,
                 pos: f.pos + away * 12.0,

@@ -1,5 +1,6 @@
 //! Mining: sabers chip ore off rocks and shatter them without waste, beams waste ore, a shattered
-//! rock stops colliding and grows back once nobody is near, and a saber cuts limbs off hulks.
+//! rock stops colliding and grows back once nobody awake is near (a sleeper only where it would
+//! grow), and a saber cuts limbs off hulks.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
 use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, MELEE};
@@ -215,9 +216,10 @@ fn a_saber_cuts_limbs_off_a_hulk() {
 }
 
 #[test]
-fn a_sleeper_900_m_off_keeps_a_shattered_rock_from_growing_back() {
-    // PIN: flips in WP5. Regrowth waits on any suit within 1 km, asleep or awake: a sleeper
-    // drifting nowhere near the rock's place keeps it from growing back for as long as it sleeps.
+fn a_sleeper_900_m_off_does_not_keep_a_shattered_rock_from_growing_back() {
+    // Regrowth waits on suits awake within 1 km; a sleeper holds it back only from right where the
+    // rock would grow (`concealment.rs` has that one), so a pilot asleep nearby can't freeze a rock
+    // shattered for good.
     let mut sim = sim();
     let (i, rock) = lone_rock(&sim, 8.0, 60.0);
     sim.rocks.hp[i] = 1.0;
@@ -229,16 +231,10 @@ fn a_sleeper_900_m_off_keeps_a_shattered_rock_from_growing_back() {
     let facing = look_rotation(Vec3::Z, Vec3::Y);
     let sleeper = sim.spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, at, facing).unwrap();
     assert!(sim.sleep(sleeper));
-    // Well past the ten minutes it takes, it hasn't grown back...
+    // Well past the ten minutes it takes, it has grown back beside the sleeper.
     for _ in 0..(11 * 60 * 30) {
         sim.step();
     }
     assert!(sim.suits.flight[sleeper.idx()].pos.distance(rock.pos) < 1_000.0);
-    assert!(sim.rocks.destroyed.get(i), "grew back beside a sleeper 900 m off");
-    // ...until the sleeper is gone.
-    sim.leave(sleeper);
-    for _ in 0..(40 * 30) {
-        sim.step();
-    }
-    assert!(!sim.rocks.destroyed.get(i), "never grew back");
+    assert!(!sim.rocks.destroyed.get(i), "a sleeper 900 m off kept it from growing back");
 }

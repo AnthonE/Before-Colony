@@ -14,7 +14,7 @@
 mod common;
 
 use bc_proto::buttons::{
-    BOOST, BRAKE, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, GRIP, MODE, THROW, ZERO,
+    BOOST, BRAKE, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, GRIP, MELEE, MODE, THROW, ZERO,
 };
 use bc_proto::events::{BurstCause, Event};
 use bc_proto::snapshot::zero_mode;
@@ -34,6 +34,7 @@ use bc_sim::ground::{
 };
 use bc_sim::math::look_rotation;
 use bc_sim::rocks::RockStates;
+use bc_sim::sim::cover;
 use bc_sim::world::{COLONY_CENTER, COLONY_RADIUS, colony_sweep};
 use bc_sim::{DT, Sim, SimConfig, SuitId};
 use common::{
@@ -1302,4 +1303,449 @@ fn seized_riders_keep_their_grip() {
         assert!(sim.suits.input[i].pressed(GRIP), "the seizure dropped the grip at {k}");
         assert_ne!(sim.footing(i), Footing::Free, "and let go at {k}");
     }
+}
+
+// -------------------------------------------------------------------------------------------------
+// Fighting on and over the surfaces
+// -------------------------------------------------------------------------------------------------
+
+#[test]
+fn shots_hit_a_suit_standing_on_mo_ii_and_the_hull_shields_one_on_the_far_side() {
+    for rewind in [0, 8] {
+        // On the +y pylon's top, and a Leo 400 m over it.
+        let mut sim = sector(2);
+        let target = standing_on(&mut sim, FrameId::Taurus, Faction::Oz, Body::Landmark(0), Vec3::Y);
+        let (n, _) = ground(&sim, target);
+        let at = sim.suits.flight[target.idx()].pos;
+        let leo = suit(&mut sim, FrameId::Leo, Faction::Colonies, at + n * 400.0, -n);
+        let (hits, _) = one_beam(&mut sim, leo, target, rewind);
+        assert_eq!(hits, 1, "rewound {rewind}: a rider in plain sight wasn't hit");
+        // On the -y pylon's, with MO-II's core between them.
+        let mut sim = sector(2);
+        let target = standing_on(&mut sim, FrameId::Taurus, Faction::Oz, Body::Landmark(0), -Vec3::Y);
+        let (n, _) = ground(&sim, target);
+        let at = sim.suits.flight[target.idx()].pos;
+        let leo = suit(&mut sim, FrameId::Leo, Faction::Colonies, at - n * 500.0, n);
+        let (hits, _) = one_beam(&mut sim, leo, target, rewind);
+        assert_eq!(hits, 0, "rewound {rewind}: the shot went through MO-II");
+    }
+}
+
+#[test]
+fn crouched_in_the_deep_the_rim_stops_a_level_shot_and_a_shot_from_above_hits() {
+    // Hermit's Deep is 30 m deep: crouched on its floor, a suit is below its rim.
+    let hermit = landmark_pose(&LANDMARKS[1], 0, 0.0);
+    for (from, hit) in [(Vec3::new(500.0, 600.0, 0.0), false), (Vec3::new(40.0, 1_100.0, 30.0), true)] {
+        let mut sim = sector(2);
+        let target = standing_on(&mut sim, FrameId::Taurus, Faction::Oz, Body::Landmark(1), Vec3::Y);
+        for _ in 0..20 {
+            let aim = sim.suits.flight[target.idx()].rot * Vec3::Z;
+            drive(&mut sim, target, [0, -127, 0], GRIP, aim);
+            step(&mut sim);
+        }
+        assert_eq!(sim.suits.anchor[target.idx()].stance, CROUCH_STANCE);
+        let at = hermit.to_world(from);
+        let facing = sim.suits.flight[target.idx()].pos - at;
+        let leo = suit(&mut sim, FrameId::Leo, Faction::Colonies, at, facing);
+        let (hits, _) = one_beam(&mut sim, leo, target, 0);
+        assert_eq!(hits, usize::from(hit), "from {from}: {hits} hits");
+    }
+}
+
+#[test]
+fn a_lag_compensated_shot_from_a_rider_on_mo_ii_leaves_where_it_was_seen() {
+    // On the fore module's rim, 120 m off MO-II's axis: the deck there moves 2.9 m/s.
+    let mut sim = sector(2);
+    let id = on_mo_ii(&mut sim, FrameId::Leo, Vec3::new(230.0, 80.0, 80.0));
+    let i = id.idx();
+    let (n, _) = ground(&sim, id);
+    for _ in 0..10 {
+        drive(&mut sim, id, [0; 3], GRIP, n);
+        step(&mut sim);
+    }
+    // Its pilot saw the world, its own suit on the deck included, 8 ticks back.
+    let rewind = 8;
+    let t = sim.next_tick();
+    let cmd = InputCmd {
+        tick: t,
+        view_tick_q4: (t - rewind) << 4,
+        aim: n,
+        buttons: GRIP | FIRE_PRIMARY,
+        ..InputCmd::default()
+    };
+    sim.set_input(id, cmd);
+    let from = sim.events.next_seq();
+    step(&mut sim);
+    let origin = events_since(&sim, from)
+        .into_iter()
+        .find_map(|e| match e {
+            Event::BeamSpawn { origin, tick, .. } => Some((origin, tick)),
+            _ => None,
+        })
+        .expect("it fired");
+    assert_eq!(origin.1, t - rewind);
+    let muzzle = frame(FrameId::Leo).loadout[0].unwrap().arm.muzzle();
+    let mut seen = sim.suits.flight[i];
+    bc_sim::ground::derive(&landmark_pose(&LANDMARKS[0], t - rewind, 0.0), &sim.suits.anchor[i], &mut seen);
+    let (seen, now) =
+        (seen.pos + seen.rot * muzzle, sim.suits.flight[i].pos + sim.suits.flight[i].rot * muzzle);
+    assert!(origin.0.distance(seen) < 1e-3, "left {} m from where it was seen", origin.0.distance(seen));
+    assert!(now.distance(seen) > 0.5, "(the deck moved only {} m)", now.distance(seen));
+}
+
+#[test]
+fn missile_seekers_drop_parked_and_hidden_targets_but_not_ones_in_the_open() {
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    enum Target {
+        Open,
+        Hidden,
+        Parked,
+    }
+    // A Leo in Hermit's Deep, and a salvo 1 km over it that only its seekers can bring in: flying
+    // blind, it would pass 500 m off.
+    let hits = |target: Target| {
+        let mut sim = sector(2);
+        let id = standing_on(&mut sim, FrameId::Leo, Faction::Colonies, Body::Landmark(1), Vec3::Y);
+        let i = id.idx();
+        let crouch = if target == Target::Open { 0 } else { -127 };
+        for _ in 0..(20 + bc_sim::sim::LURK_SETTLE_TICKS) {
+            let aim = sim.suits.flight[i].rot * Vec3::Z;
+            let ty = if sim.suits.anchor[i].stance == CROUCH_STANCE { 0 } else { crouch };
+            drive(&mut sim, id, [0, ty, 0], GRIP, aim);
+            step(&mut sim);
+        }
+        if target == Target::Parked {
+            assert!(sim.sleep(id) && sim.is_parked(i));
+            sim.suits.slept_at[i] = sim.tick() - bc_sim::sim::POWER_DOWN_TICKS;
+            step(&mut sim);
+        }
+        let expected = if target == Target::Open { cover::EXPOSED } else { cover::HIDDEN };
+        assert_eq!(sim.cover_code(i), expected, "{target:?}");
+        let (n, _) = ground(&sim, id);
+        let at = sim.suits.flight[i].pos;
+        let side = n.cross(Vec3::X).normalize();
+        let ha = suit(&mut sim, FrameId::Heavyarms, Faction::Oz, at + n * 3_000.0, -n);
+        let from = sim.events.next_seq();
+        let spec = bc_sim::content::weapon(WeaponKind::HomingMissile).missile.unwrap();
+        for k in 0..4 {
+            let pos = at + n * 1_000.0 + side * (k as f32 * 20.0);
+            let vel = -n * 200.0 + side * 100.0;
+            let target = (i as u16, sim.suits.generation[i]);
+            sim.missiles.spawn(
+                WeaponKind::HomingMissile,
+                ha.idx() as u16,
+                Faction::Oz,
+                target,
+                pos,
+                vel,
+                spec.dv,
+                sim.tick() + 240,
+            );
+        }
+        for _ in 0..240 {
+            if target != Target::Parked {
+                let aim = sim.suits.flight[i].rot * Vec3::Z;
+                drive(&mut sim, id, [0; 3], GRIP, aim);
+            }
+            step(&mut sim);
+        }
+        hits_on(&sim, from, id)
+    };
+    assert!(hits(Target::Open) > 0, "the seekers lost a suit in the open");
+    assert_eq!(hits(Target::Hidden), 0, "the seekers kept a hidden suit");
+    assert_eq!(hits(Target::Parked), 0, "the seekers kept a parked suit gone dark");
+}
+
+/// A Leo standing on top of a big rock (a lone one, 40 m or more across), and the rock's index.
+fn on_a_rock(sim: &mut Sim) -> (SuitId, usize) {
+    let (r, _) = common::lone_rock(sim, 40.0, 300.0);
+    (standing_on(sim, FrameId::Leo, Faction::Colonies, Body::Rock(r as u16), Vec3::Y), r)
+}
+
+/// `id` crouches (or stands), then swings its saber aiming `c` (the cosine to the ground's
+/// normal: 0 along the ground, -1 straight into it): the rock's structure left.
+fn swing_at_the_ground(sim: &mut Sim, id: SuitId, r: usize, c: f32, crouch: bool) -> f32 {
+    let (n, _) = ground(sim, id);
+    let aim = along(n) * (1.0 - c * c).sqrt() + n * c;
+    let ty = if crouch { -127 } else { 64 };
+    for k in 0..60 {
+        let melee = if k == 20 { MELEE } else { 0 };
+        drive(sim, id, [0, ty, 0], GRIP | melee, aim);
+        step(sim);
+    }
+    sim.rocks.hp[r]
+}
+
+#[test]
+fn melee_does_not_dig_the_rock_underfoot_unless_aimed_down() {
+    // Whether a saber swung aiming `c` (crouched or standing) cut the rock its Leo stands on.
+    let cuts = |c: f32, crouch: bool| {
+        let mut sim = grip_sector();
+        let (id, r) = on_a_rock(&mut sim);
+        let whole = sim.rocks.hp[r];
+        let cut = swing_at_the_ground(&mut sim, id, r, c, crouch) < whole;
+        assert_eq!(sim.suits.melee[id.idx()].dig_own, c < -0.5, "aimed {c}");
+        assert_eq!(sim.footing(id.idx()), Footing::Grounded);
+        cut
+    };
+    // Crouched, a swing aimed only a little down already goes into the rock: it isn't digging, so
+    // the rock is left alone...
+    for c in [0.0, -0.2, -0.35, -0.49] {
+        assert!(!cuts(c, true), "a swing aimed {c} cut the rock underfoot");
+    }
+    // ...but aimed down into it, crouched or standing, it digs.
+    assert!(cuts(-0.9, true) && cuts(-0.9, false), "a strike down into the rock missed it");
+}
+
+#[test]
+fn digging_down_can_shatter_it_and_frees_the_suit() {
+    let mut sim = grip_sector();
+    let (id, r) = on_a_rock(&mut sim);
+    let i = id.idx();
+    let (n, _) = ground(&sim, id);
+    sim.rocks.hp[r] = 1.0;
+    let from = sim.events.next_seq();
+    let mut broke = None;
+    for k in 0..60 {
+        let melee = if k == 20 { MELEE } else { 0 };
+        drive(&mut sim, id, [0, -127, 0], GRIP | melee, -n);
+        step(&mut sim);
+        if broke.is_none() && sim.rocks.destroyed.get(r) {
+            broke = Some(sim.tick());
+            assert_eq!(sim.footing(i), Footing::Grounded, "let go the very tick it broke");
+        } else if broke.is_some() {
+            break;
+        }
+    }
+    assert!(broke.is_some(), "the dig never shattered it");
+    let by = events_since(&sim, from).into_iter().find_map(|e| match e {
+        Event::RockBreak { rock, by, .. } if rock as usize == r => Some(by),
+        _ => None,
+    });
+    assert_eq!(by, Some(i as u16));
+    // The tick after, it's off the rock (still lunging down into where it was: see
+    // `shattering_the_rock_underfoot_sets_the_suit_free` for the float-off itself).
+    assert_eq!(sim.footing(i), Footing::Free);
+    assert_eq!(sim.suits.anchor[i], Default::default());
+}
+
+#[test]
+fn melee_between_riders_of_mo_ii_meets_as_seen() {
+    // Two Leos on the fore module's top, one facing the other's back `d` m ahead along the deck,
+    // both still. The first swings its saber (and lunges) with its pilot's view `rewind` ticks old.
+    let hits = |d: f32, rewind: u32| {
+        let mut sim = sector(2);
+        let a = on_mo_ii(&mut sim, FrameId::Leo, Vec3::new(230.0, 80.0, -40.0));
+        let b = standing_on(
+            &mut sim,
+            FrameId::Leo,
+            Faction::Oz,
+            Body::Landmark(0),
+            Vec3::new(230.0, 80.0, -40.0 + d),
+        );
+        let (aim_a, aim_b) =
+            (sim.suits.flight[a.idx()].rot * Vec3::Z, sim.suits.flight[b.idx()].rot * Vec3::Z);
+        let from = sim.events.next_seq();
+        for k in 0..40 {
+            let t = sim.next_tick();
+            let melee = if k == 12 { MELEE } else { 0 };
+            let cmd = InputCmd {
+                tick: t,
+                view_tick_q4: (t - rewind) << 4,
+                aim: aim_a,
+                buttons: GRIP | melee,
+                ..InputCmd::default()
+            };
+            sim.set_input(a, cmd);
+            drive(&mut sim, b, [0; 3], GRIP, aim_b);
+            step(&mut sim);
+        }
+        hits_on(&sim, from, b) > 0
+    };
+    // Where the live strike stops reaching...
+    let (mut near, mut far) = (6.0, 60.0);
+    assert!(hits(near, 0) && !hits(far, 0));
+    for _ in 0..12 {
+        let mid = (near + far) / 2.0;
+        if hits(mid, 0) {
+            near = mid;
+        } else {
+            far = mid;
+        }
+    }
+    // ...is where a lagging pilot's does: on the deck, nothing moved while its view lagged. (The deck
+    // itself moved 0.5 m in 8 ticks.)
+    for rewind in [3, 8] {
+        assert!(hits(near - 0.05, rewind), "rewound {rewind}, it fell short at {near} m");
+        assert!(!hits(far + 0.05, rewind), "rewound {rewind}, it reached {far} m");
+    }
+}
+
+#[test]
+fn spill_from_a_rider_lands_outside_its_body() {
+    // A Leo on Hermit's flank with a full hold, leaning back to aim straight up: behind it is into
+    // the ground.
+    let spills = |dies: bool| {
+        let mut sim = grip_sector();
+        let id = on_hermit(&mut sim, FrameId::Leo, Vec3::new(0.3, 1.0, 0.2));
+        let i = id.idx();
+        let (n, _) = ground(&sim, id);
+        for _ in 0..40 {
+            drive(&mut sim, id, [0; 3], GRIP, n);
+            step(&mut sim);
+        }
+        sim.suits.cargo_kg[i] = [300; bc_proto::CARGO_KINDS];
+        let before = sim.chunks.alive.iter().collect::<Vec<_>>();
+        if dies {
+            sim.suits.part_hp[i][bc_proto::Part::Torso as usize] = 1.0;
+            let at = sim.suits.flight[i].pos;
+            let leo = suit(&mut sim, FrameId::Leo, Faction::Oz, at + n * 300.0, -n);
+            one_beam(&mut sim, leo, id, 0);
+            assert!(!sim.suits.alive.get(i), "it didn't die");
+        } else {
+            drive(&mut sim, id, [0; 3], GRIP | bc_proto::buttons::JETTISON, n);
+            step(&mut sim);
+        }
+        let ore: Vec<usize> = sim
+            .chunks
+            .alive
+            .iter()
+            .filter(|k| !before.contains(k) && matches!(sim.chunks.desc[*k].kind, ChunkKind::Ore { .. }))
+            .collect();
+        assert_eq!(ore.len(), bc_proto::CARGO_KINDS, "dies {dies}");
+        (sim, ore)
+    };
+    for dies in [false, true] {
+        let (sim, ore) = spills(dies);
+        for k in ore {
+            let seg = free_segment(&sim, k);
+            let at = segment_pos(&seg, f64::from(seg.t0));
+            let (_, pr) = landmark_probe(&sim, 1, at);
+            let r = chunks::radius(&sim.chunks.desc[k]);
+            assert!(pr.dist > r, "dies {dies}: ore {k} spilled {} m into Hermit", r - pr.dist);
+        }
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// Brains and the surfaces
+// -------------------------------------------------------------------------------------------------
+
+#[test]
+fn dolls_hunt_riders_from_above_and_do_not_push_into_landmarks() {
+    use bc_sim::ai::{DOLL, drive as doll_drive};
+    use bc_sim::perception::Perception;
+
+    let mut sim = sector(2);
+    // A tough Leo on Hermit's flank.
+    let rider = on_hermit(&mut sim, FrameId::Leo, Vec3::new(0.3, 1.0, 0.2));
+    let r = rider.idx();
+    sim.suits.part_hp[r] = [1e9; bc_proto::Part::COUNT];
+    let (n, _) = ground(&sim, rider);
+    let at = sim.suits.flight[r].pos;
+    let side = n.cross(Vec3::X).normalize();
+    // One doll level with it 1.4 km off along the ground, and one skimming the rock round the far
+    // side of it, 60 m up.
+    let spawn = |sim: &mut Sim, pos: Vec3| {
+        sim.spawn_at(
+            FrameId::Taurus,
+            Faction::Oz,
+            PilotKind::MobileDoll,
+            pos,
+            look_rotation(at - pos, Vec3::Y),
+        )
+        .unwrap()
+    };
+    let level = spawn(&mut sim, at + side * 1_400.0);
+    let (p, m) = landmark_surface(&sim, 1, Vec3::new(-0.3, -0.2, 1.0));
+    let skimmer = spawn(&mut sim, p + m * (STANCE + 60.0));
+    for &d in &[level, skimmer] {
+        let (_, pr) = landmark_probe(&sim, 1, sim.suits.flight[d.idx()].pos);
+        assert!(pr.dist > 50.0, "doll {} starts in the rock", d.idx());
+    }
+    let above = |sim: &Sim, d: SuitId| (sim.suits.flight[d.idx()].pos - at).dot(n);
+    let hold = |sim: &mut Sim| {
+        let aim = sim.suits.flight[r].rot * Vec3::Z;
+        drive(sim, rider, [0; 3], GRIP, aim);
+        step(sim);
+    };
+    hold(&mut sim);
+    // The doll level with it is pushed up off the ground's plane there: its brain, given the rider
+    // on the ground, and the same rider flying.
+    assert!(above(&sim, level).abs() < 1.0);
+    let mut p = Perception::default();
+    sim.perceive_into(level.idx(), &mut p);
+    let c = *p.get(r as u16).expect("the doll sees the rider");
+    assert!(c.surface_n.dot(n) > 0.999, "perception has it on the ground: {}", c.surface_n);
+    let flying = bc_sim::perception::Contact { surface_n: Vec3::ZERO, ..c };
+    let stick_up = |c: &bc_sim::perception::Contact| {
+        let mut ai = sim.suits.ai[level.idx()];
+        let cmd = doll_drive(&p.me, Some(c), &mut ai, sim.tick(), &DOLL, frame(FrameId::Taurus));
+        let [x, y, z] = cmd.thrust.map(|v| f32::from(v) / 127.0);
+        (p.me.rot * Vec3::new(x, y, z)).dot(n)
+    };
+    assert!(stick_up(&c) > stick_up(&flying) + 0.5, "no push up off the ground's plane");
+    // Hunting it, neither doll's stick ever drives it into Hermit, and the one that was level with
+    // it ends over it.
+    let mut hunted = false;
+    for _ in 0..900 {
+        hold(&mut sim);
+        for &d in &[level, skimmer] {
+            let f = sim.suits.flight[d.idx()];
+            let (_, pr) = landmark_probe(&sim, 1, f.pos);
+            if pr.dist - STANCE < 150.0 {
+                let [x, y, z] = sim.suits.input[d.idx()].thrust.map(|v| f32::from(v) / 127.0);
+                let into = (f.rot * Vec3::new(x, y, z)).dot(pr.normal);
+                assert!(into > -0.02, "doll {} pushed into Hermit ({into}) at {}", d.idx(), sim.tick());
+            }
+            hunted |= sim.suits.ai[d.idx()].target == r as u16;
+        }
+    }
+    assert!(hunted, "the dolls never went for the rider");
+    assert!(above(&sim, level) > 60.0, "the doll level with it stayed level ({} m)", above(&sim, level));
+}
+
+#[test]
+fn zero_never_predicts_a_grounded_contact_into_its_surface() {
+    use bc_sim::perception::Perception;
+    use bc_sim::zero::hypotheses::{Maneuver, accel, accel_on};
+    use bc_sim::zero::local_oracle::{hypothesis_accels, own_maneuver_distribution};
+    use bc_sim::zero::rollout::rollout;
+
+    let mut sim = sector(2);
+    // A Wing Zero on Hermit's flank, walking, and an OZ one 800 m over it with ZERO engaged.
+    let rider = on_hermit(&mut sim, FrameId::WingZero, Vec3::new(0.3, 1.0, 0.2));
+    let r = rider.idx();
+    let (n, _) = ground(&sim, rider);
+    let at = sim.suits.flight[r].pos;
+    let watcher = suit(&mut sim, FrameId::WingZero, Faction::Oz, at + n * 800.0 + along(n) * 300.0, -n);
+    for _ in 0..30 {
+        let aim = (sim.suits.flight[watcher.idx()].pos - sim.suits.flight[r].pos).normalize();
+        drive(&mut sim, rider, [0, 0, 127], GRIP, aim);
+        let aim = (sim.suits.flight[r].pos - sim.suits.flight[watcher.idx()].pos).normalize();
+        drive(&mut sim, watcher, [0; 3], ZERO | FLIGHT_ASSIST, aim);
+        step(&mut sim);
+    }
+    assert_eq!(sim.footing(r), Footing::Grounded);
+    let mut p = Perception::default();
+    sim.perceive_into(watcher.idx(), &mut p);
+    let c = *p.get(r as u16).expect("the watcher sees the rider");
+    assert!(c.surface_n.dot(n) > 0.999);
+    // Every future it's given stays out of the rock (the origin rides its stance over the ground).
+    let height = |q: Vec3| landmark_probe(&sim, 1, q).1.dist;
+    for (k, a) in hypothesis_accels(&c).into_iter().enumerate() {
+        for q in rollout(c.pos, c.vel, a) {
+            assert!(height(q) > 1.0, "{:?} puts it {} m under Hermit", Maneuver::from_index(k), -height(q));
+        }
+    }
+    // Flying, its Down would have gone into it.
+    let spec = frame(FrameId::WingZero);
+    let down = rollout(c.pos, c.vel, accel(spec, c.rot, Maneuver::Down));
+    assert!(down.iter().any(|&q| height(q) < 0.0), "(the flying hypotheses keep out of it anyway)");
+    // And the rider, told how to break by its own System, is never told to break into the ground.
+    assert_eq!(accel_on(spec, c.rot, c.surface_n, Maneuver::Down), Vec3::ZERO);
+    sim.perceive_into(r, &mut p);
+    assert!(p.me.surface_n.dot(n) > 0.999);
+    let own = own_maneuver_distribution(&p.me, spec, p.contacts());
+    assert!(own[Maneuver::Down as usize] < own[Maneuver::Coast as usize], "{own:?}");
 }

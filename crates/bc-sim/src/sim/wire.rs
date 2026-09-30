@@ -7,6 +7,7 @@ use bc_proto::{EntityState, ObjectState, OwnState, RockState, ZeroInfo};
 
 use super::Sim;
 use crate::arms::phase_to_wire;
+use crate::bodies::Body;
 use crate::chunks::Motion;
 use crate::content::{SpecialKind, WeaponClass, frame, weapon};
 use crate::rocks::{max_hp, max_ore_kg};
@@ -106,7 +107,8 @@ impl Sim {
         if s.alive.get(i) && self.docked(i) {
             flags |= own_flags::DOCKED;
         }
-        if self.parkable(i).is_some() {
+        // (What it could park on is worked out once a tick, in `cover_step`.)
+        if s.parkable[i] != Body::None {
             flags |= own_flags::PARKABLE;
         }
         if spec.zero || self.cfg.zero_on_all_frames {

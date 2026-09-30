@@ -124,10 +124,12 @@ fn riders_never_allocate() {
     // 128 suits standing on MO-II, Hermit and the rocks they can grip, 64 Heavyarms hunting them
     // with guns and missiles, and 256 Mobile Dolls. The riders walk, run, hop, crouch, dig, let go
     // and are caught again; every 10 ticks one falls asleep where it is, every 30 one wakes, and a
-    // rock with riders on it is shattered. None of it may touch the heap.
+    // rock with riders on it is shattered; some of those asleep go dark. None of it may touch the
+    // heap.
     let (mut sim, riders, hunters, broken) = common::rider_crowd(256, 13);
     let mut was: Vec<Footing> = riders.iter().map(|id| sim.footing(id.idx())).collect();
     let (mut grounded, mut aloft, mut catches, mut parked) = (0u32, 0u32, 0u32, 0usize);
+    let mut hidden = 0;
     let mut total = 0;
     for n in 0..900u32 {
         let t = sim.next_tick();
@@ -174,9 +176,11 @@ fn riders_never_allocate() {
             was[k] = now;
         }
         parked = parked.max(sim.parked());
+        hidden = hidden.max(sim.n_hidden);
     }
     assert!(grounded > 1_000 && aloft > 100, "{grounded} grounded and {aloft} aloft suit-ticks");
     assert!(catches > 10 && parked > 5, "{catches} catches, {parked} parked at once");
+    assert!(hidden > 2, "{hidden} hidden at once");
     let missiles: u32 = hunters.iter().map(|(id, _)| sim.stats(id.idx()).missiles).sum();
     assert!(missiles > 0, "the hunters never let a missile go");
     assert!(sim.field.is_dead(broken));

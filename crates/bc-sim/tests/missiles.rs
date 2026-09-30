@@ -1,7 +1,8 @@
 //! Missile locks and homing missiles: a lock builds while the designation is held in the lock cone
 //! and falls apart twice as fast; a guided salvo runs down a crossing target; a target faster than
-//! the motor's Δv outruns it; a jammer breaks the seeker's hold; missiles pass friends; a missile
-//! that finds nothing bursts at the end of its life; a full pool swallows launches.
+//! the motor's Δv outruns it; a jammer breaks the seeker's hold, and so does a target parking and
+//! going dark (but not before it has, nor to its friends); missiles pass friends; a missile that
+//! finds nothing bursts at the end of its life; a full pool swallows launches.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
 mod common;
@@ -261,10 +262,10 @@ fn a_full_pool_swallows_launches() {
     assert_eq!(sim.missiles.count(), MAX_MISSILES);
 }
 
-#[test]
-fn a_guided_missile_keeps_homing_on_a_suit_that_parks() {
-    // PIN: flips in WP5. The seeker never asks whether its target parked and went dark: a salvo
-    // fired at a suit that then parks against a rock runs it down all the same.
+/// Heavyarms locks a Leo resting against a lone rock 1.5 km off, crossing at 150 m/s so that
+/// only homing brings its missiles in, and lets a salvo go; once it's away, the Leo parks there,
+/// asleep, and `parked` runs (on the sim, the Leo, and the tick it slept). The hits it took.
+fn salvo_at_a_suit_that_parks(parked: impl FnOnce(&mut Sim, SuitId, u32)) -> usize {
     let mut sim = Sim::new(SimConfig { target_dolls: 0, ..SimConfig::default() });
     let (_, rock) = lone_rock(&sim, 20.0, 1_500.0);
     let (leo, out) = resting_on(&mut sim, &rock);
@@ -274,7 +275,6 @@ fn a_guided_missile_keeps_homing_on_a_suit_that_parks() {
     }
     let at = sim.suits.flight[leo.idx()].pos;
     let ha = suit(&mut sim, FrameId::Heavyarms, Faction::Oz, at + out * 1_500.0, -out);
-    // Heavyarms crosses at 150 m/s: its missiles leave with that, so only homing brings them in.
     let across = out.cross(Vec3::Y).normalize() * 150.0;
     for _ in 0..LOCK_TICKS {
         sim.suits.flight[ha.idx()].vel = across;
@@ -291,12 +291,65 @@ fn a_guided_missile_keeps_homing_on_a_suit_that_parks() {
         k += 1;
         assert!(k < 30, "the salvo never left");
     }
-    // The whole salvo away and homing, its target parks, as if it had slept for 10 s.
-    let i = leo.idx();
-    assert!(sim.sleep(leo) && sim.is_parked(i));
-    sim.suits.slept_at[i] = sim.tick() - 300;
+    // The whole salvo away and homing, its target parks.
+    assert!(sim.sleep(leo) && sim.is_parked(leo.idx()));
+    let t = sim.tick();
+    parked(&mut sim, leo, t);
     for _ in 0..8 * 30 {
         sim.step();
     }
-    assert!(missile_hits(&sim, from, leo) > 0, "the seekers lost a parked suit");
+    missile_hits(&sim, from, leo)
+}
+
+#[test]
+fn a_guided_missile_loses_a_suit_that_parks_and_goes_dark() {
+    // As if it had slept for 10 s: its reactor has idled down, and the seekers lose it on their
+    // next look.
+    let hits = salvo_at_a_suit_that_parks(|sim, leo, t| sim.suits.slept_at[leo.idx()] = t - 300);
+    assert_eq!(hits, 0, "the seekers kept a parked suit gone dark");
+}
+
+#[test]
+fn a_guided_missile_keeps_a_suit_that_parks_while_it_powers_down() {
+    // Just asleep, it shows for 8 s yet (POWER_DOWN_TICKS): the salvo is in by then.
+    let hits = salvo_at_a_suit_that_parks(|_, _, _| {});
+    assert!(hits > 0, "the seekers lost a parked suit before it went dark");
+}
+
+#[test]
+fn a_guided_missile_keeps_a_friend_s_parked_suit_in_its_sights() {
+    // Concealment is from enemies only: an OZ salvo that locked an OZ sleeper (friendly fire on)
+    // runs it down however dark it is to the Colonies.
+    let mut sim = Sim::new(SimConfig { target_dolls: 0, friendly_fire: true, ..SimConfig::default() });
+    let (_, rock) = lone_rock(&sim, 20.0, 1_500.0);
+    let (leo, out) = resting_on(&mut sim, &rock);
+    sim.suits.faction[leo.idx()] = Faction::Oz;
+    for _ in 0..300 {
+        sim.step();
+    }
+    let at = sim.suits.flight[leo.idx()].pos;
+    let ha = suit(&mut sim, FrameId::Heavyarms, Faction::Oz, at + out * 1_500.0, -out);
+    let across = out.cross(Vec3::Y).normalize() * 150.0;
+    let salvo = usize::from(weapon(WeaponKind::HomingMissile).salvo);
+    // An ally is no designation: the salvo is given its target by hand, as a lock would.
+    let from = sim.events.next_seq();
+    let mut k = 0;
+    while sim.missiles.count() < salvo {
+        sim.suits.flight[ha.idx()].vel = across;
+        press(&mut sim, ha, if k == 0 { FIRE_SECONDARY } else { 0 }, leo);
+        sim.step();
+        for m in sim.missiles.alive.iter() {
+            sim.missiles.target[m] = leo.idx() as u16;
+            sim.missiles.target_gen[m] = sim.suits.generation[leo.idx()];
+        }
+        k += 1;
+        assert!(k < 30, "the salvo never left");
+    }
+    assert!(sim.sleep(leo) && sim.is_parked(leo.idx()));
+    sim.suits.slept_at[leo.idx()] = sim.tick() - 300;
+    assert_eq!(sim.concealment(leo.idx()).sig, 0.0, "dark to its enemies");
+    for _ in 0..8 * 30 {
+        sim.step();
+    }
+    assert!(missile_hits(&sim, from, leo) > 0, "an ally's seeker lost it");
 }
