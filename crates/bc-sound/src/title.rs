@@ -672,16 +672,18 @@ f+8. e8. d8 <a2 |
 <b2 a4 f+8 d+8 |
 ";
 
-/// C D | Bm Em | C D | Em, and again; the Em's C falls to B (a sigh over the chord).
+/// C D | Bm Em | C D | Em, and again: long notes held across the changes, the Em's C falling to
+/// B (a sigh over the chord), the second time climbing to a held high E.
 const LEAD_CHORUS: &str = "
-o5
-g4. e8 f+4 g8 a8 |
-b4. a8 g4 f+8 e8 |
-e8 e8 g8 >c8< a4 f+8 a8 |
+q8 o5
+g2 f+4. a8 |
+b2. a8 g8 |
+e2 f+4 a4 |
 >c4< b2. |
-g4. e8 f+4 g8 a8 |
-b4. >d8 e4 d8 <b8 |
->c4< b8 g8 a4 f+8 a8 |
+g2 a4. b8 |
+>d2 e2< |
+>c2< b4 a4 |
+q7
 ";
 
 const LEAD_TURN: &str = "o5 b4. a8 f+4 d+4 |";
@@ -802,14 +804,15 @@ l16
 
 /// A harmony a third or so under the lead.
 const COLOUR_CHORUS: &str = "
-@0 v19 y14 q7 l8 o5
-e4. c8 d4 e8 f+8 |
-f+4. f+8 e4 d8 <b8 |
->c8 c8 e8 g8 f+4 d8 f+8 |
+@0 v19 y14 q8 l8 o5
+e2 d4. f+8 |
+f+2 g4 f+8 e8 |
+c2 d4 f+4 |
 a4 g2. |
-e4. c8 d4 e8 f+8 |
-f+4. b8 b4 b8 g8 |
-g4 g8 e8 f+4 d8 f+8 |
+e2 f+4. g8 |
+b1 |
+g2 g4 f+4 |
+q7
 ";
 
 const COLOUR_TURN: &str = "o5 f+4. f+8 d+4 <b4 |";
