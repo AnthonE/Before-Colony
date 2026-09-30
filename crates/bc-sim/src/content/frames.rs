@@ -216,6 +216,13 @@ impl FrameSpec {
         self.dry_mass + propellant.max(0.0)
     }
 
+    /// Whether the frame has legs to stand on: every frame but the Neo-Bird. Without them a suit
+    /// can't grip a surface.
+    #[inline]
+    pub fn has_legs(&self) -> bool {
+        self.id != FrameId::WingZeroBird
+    }
+
     /// Exhaust velocity, m/s.
     #[inline]
     pub fn exhaust_velocity(&self) -> f32 {

@@ -5,8 +5,10 @@ use bc_proto::{CARGO_KINDS, Faction, FrameId, InputCmd, NO_CHUNK, NO_SLOT, Part,
 use glam::{Quat, Vec3};
 
 use crate::ai::AiState;
+use crate::bodies::Body;
 use crate::content::{ArmSlot, frame};
 use crate::flight::FlightState;
+use crate::ground::{Anchor, Footing};
 use crate::handle::{Handle, SuitId};
 use crate::storage::{BitSet, FreeList, boxed};
 use crate::transform::Form;
@@ -59,6 +61,10 @@ pub const SPECIAL_SLOTS: usize = 3;
 pub const ALL_MOUNTS: u8 = 0b111;
 /// Marks a hit by a twin weapon's second blade in [`MeleeState::hits`].
 pub const SECOND_BLADE: u16 = 1 << 15;
+/// [`Suits::still_since`] of a suit that isn't lying still.
+pub const NOT_STILL: u32 = u32::MAX;
+/// [`Suits::hide_spot`] of a suit in no hide spot.
+pub const NO_SPOT: u8 = 255;
 
 #[derive(Clone, Copy, Debug)]
 pub struct MeleeState {
@@ -79,6 +85,8 @@ pub struct MeleeState {
     /// The rock, and the hulk, this strike has struck (each at most once).
     pub rock: Option<u16>,
     pub cut: Option<u16>,
+    /// The strike was aimed down into the rock the suit stands on: it may cut it.
+    pub dig_own: bool,
 }
 
 impl Default for MeleeState {
@@ -94,6 +102,7 @@ impl Default for MeleeState {
             lag_q4: 0,
             rock: None,
             cut: None,
+            dig_own: false,
         }
     }
 }
@@ -190,8 +199,21 @@ pub struct Suits {
     pub sleeping: BitSet,
     /// When each sleeper fell asleep (tick).
     pub slept_at: Box<[u32]>,
-    /// What each sleeper is parked on.
-    pub anchor: Box<[crate::sim::Anchor]>,
+    /// Where each suit standing on a body, aloft in its grip or parked on it is, in the body's frame
+    /// (`crate::ground`).
+    pub anchor: Box<[Anchor]>,
+    /// Flying free, standing on a body, or aloft in its grip.
+    pub footing: Box<[Footing]>,
+    /// Tick the suit was last hit (0: never).
+    pub last_hit: Box<[u32]>,
+    /// Tick since which the suit has been lying still ([`NOT_STILL`]: it isn't).
+    pub still_since: Box<[u32]>,
+    /// The landmark hide spot the suit is in ([`NO_SPOT`]: none).
+    pub hide_spot: Box<[u8]>,
+    /// What each pilot's suit could park on now (worked out once a tick).
+    pub parkable: Box<[Body]>,
+    /// Suits that stand still, for replication's priorities.
+    pub still: BitSet,
     free: FreeList,
 }
 
@@ -236,7 +258,13 @@ impl Suits {
             credits: boxed(cap, 0u32),
             sleeping: BitSet::new(cap),
             slept_at: boxed(cap, 0u32),
-            anchor: boxed(cap, crate::sim::Anchor::default()),
+            anchor: boxed(cap, Anchor::default()),
+            footing: boxed(cap, Footing::Free),
+            last_hit: boxed(cap, 0u32),
+            still_since: boxed(cap, NOT_STILL),
+            hide_spot: boxed(cap, NO_SPOT),
+            parkable: boxed(cap, Body::None),
+            still: BitSet::new(cap),
             free: FreeList::full(cap),
         }
     }
@@ -255,7 +283,8 @@ impl Suits {
         self.ai[idx] = AiState::default();
         self.credits[idx] = 0;
         self.sleeping.set(idx, false);
-        self.anchor[idx] = crate::sim::Anchor::default();
+        self.reset_ground(idx);
+        self.parkable[idx] = Body::None;
         Some(SuitId(Handle { idx: idx as u16, generation: self.generation[idx] }))
     }
 
@@ -298,6 +327,17 @@ impl Suits {
         self.held[idx] = (NO_CHUNK, 0, false);
         self.cargo_kg[idx] = [0; CARGO_KINDS];
         self.mounts[idx] = ALL_MOUNTS;
+        self.reset_ground(idx);
+    }
+
+    /// Off any body, and neither still, hidden nor hit.
+    fn reset_ground(&mut self, idx: usize) {
+        self.footing[idx] = Footing::Free;
+        self.anchor[idx] = Anchor::default();
+        self.last_hit[idx] = 0;
+        self.still_since[idx] = NOT_STILL;
+        self.hide_spot[idx] = NO_SPOT;
+        self.still.set(idx, false);
     }
 
     /// Frees a slot entirely (disconnect, or a Mobile Doll wreck clearing).

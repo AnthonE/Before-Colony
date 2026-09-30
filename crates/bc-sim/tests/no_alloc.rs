@@ -115,3 +115,70 @@ fn sleepers_never_allocate() {
     assert!(sim.sleepers() <= 12);
     assert_eq!(total, 0, "heap operations inside the tick: {total}");
 }
+
+#[test]
+fn riders_never_allocate() {
+    use bc_proto::InputCmd;
+    use bc_sim::ground::Footing;
+
+    // 128 suits standing on MO-II, Hermit and the rocks they can grip, 64 Heavyarms hunting them
+    // with guns and missiles, and 256 Mobile Dolls. The riders walk, run, hop, crouch, dig, let go
+    // and are caught again; every 10 ticks one falls asleep where it is, every 30 one wakes, and a
+    // rock with riders on it is shattered. None of it may touch the heap.
+    let (mut sim, riders, hunters, broken) = common::rider_crowd(256, 13);
+    let mut was: Vec<Footing> = riders.iter().map(|id| sim.footing(id.idx())).collect();
+    let (mut grounded, mut aloft, mut catches, mut parked) = (0u32, 0u32, 0u32, 0usize);
+    let mut total = 0;
+    for n in 0..900u32 {
+        let t = sim.next_tick();
+        let mut rider_cmds = [InputCmd::default(); 128];
+        for (k, id) in riders.iter().enumerate() {
+            rider_cmds[k] = common::rider_scripted(&sim, *id, k, t);
+        }
+        let mut hunter_cmds = [InputCmd::default(); 64];
+        for (k, &(id, prey)) in hunters.iter().enumerate() {
+            hunter_cmds[k] = common::hunter_scripted(&sim, id, prey, k, t);
+        }
+        let ((), heap) = bc_alloc::count(|| {
+            if n.is_multiple_of(10) {
+                sim.sleep(riders[(n as usize / 10 * 13) % 128]);
+            }
+            if n % 30 == 15 {
+                sim.wake(riders[(n as usize / 30 * 13) % 128]);
+            }
+            if n == 450 {
+                sim.field.set_dead(broken, true);
+            }
+            for (k, id) in riders.iter().enumerate() {
+                if sim.suits.valid(*id) && !sim.is_sleeping(id.idx()) {
+                    sim.set_input(*id, rider_cmds[k]);
+                }
+            }
+            for (k, &(id, _)) in hunters.iter().enumerate() {
+                sim.set_input(id, hunter_cmds[k]);
+            }
+            sim.step();
+        });
+        total += heap;
+        common::check_invariants(&sim);
+        for (k, id) in riders.iter().enumerate() {
+            let now = sim.footing(id.idx());
+            match now {
+                Footing::Grounded => grounded += 1,
+                Footing::Aloft => aloft += 1,
+                Footing::Free => {}
+            }
+            if was[k] == Footing::Free && now == Footing::Aloft {
+                catches += 1;
+            }
+            was[k] = now;
+        }
+        parked = parked.max(sim.parked());
+    }
+    assert!(grounded > 1_000 && aloft > 100, "{grounded} grounded and {aloft} aloft suit-ticks");
+    assert!(catches > 10 && parked > 5, "{catches} catches, {parked} parked at once");
+    let missiles: u32 = hunters.iter().map(|(id, _)| sim.stats(id.idx()).missiles).sum();
+    assert!(missiles > 0, "the hunters never let a missile go");
+    assert!(sim.field.is_dead(broken));
+    assert_eq!(total, 0, "heap operations inside the tick: {total}");
+}

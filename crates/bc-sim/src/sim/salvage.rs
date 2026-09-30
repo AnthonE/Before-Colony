@@ -7,12 +7,14 @@ use bc_proto::{CARGO_KINDS, ChunkDesc, ChunkKind, NO_CHUNK, Segment};
 use glam::Vec3;
 
 use super::Sim;
+use crate::bodies::Bodies;
 use crate::chunks::{self, Motion, segment_pos, segment_rot};
 use crate::content::salvage::{
     CATCH_SPEED, DOCK_CENTER, DOCK_RADIUS, DOCK_SPEED, JETTISON_SPEED, PRICE, REACH, THROW_IMPULSE,
     THROW_SPEED_MAX, hold_kg, material, ore_ttl, stowable, wreck_ttl,
 };
 use crate::content::{ArmSlot, frame};
+use crate::ground::{Footing, derive};
 use crate::math::{hash01, normalize_or};
 
 impl Sim {
@@ -137,7 +139,20 @@ impl Sim {
         let Motion::Free(seg) = self.chunks.motion[k] else { return };
         let mods = self.flight_mods(i);
         let suit_kg = frame(self.suits.frame[i]).mass(f.propellant) + mods.extra_mass_kg as f32;
-        self.suits.flight[i].vel -= (seg.vel - f.vel) * (chunk_kg / suit_kg);
+        let dv = (seg.vel - f.vel) * (chunk_kg / suit_kg);
+        if self.suits.footing[i] == Footing::Free {
+            self.suits.flight[i].vel -= dv;
+            return;
+        }
+        // On a body, the suit's motion is its anchor's (its world state is derived from it): the
+        // push goes there. On the ground, what's along it slides the suit (until its legs stop
+        // it) and the ground takes what's into it; aloft, all of it moves the suit.
+        let landmarks = self.landmarks();
+        let a = &mut self.suits.anchor[i];
+        if let Some(p) = Bodies::at(&self.field, landmarks, t).pose(a.body) {
+            a.vel -= p.rot.conjugate() * dv;
+            derive(&p, a, &mut self.suits.flight[i]);
+        }
     }
 
     /// Empties suit `i`'s hold as loose ore: behind it (jettisoned), or all round (spilled as it

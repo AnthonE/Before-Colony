@@ -38,6 +38,8 @@ pub const TRACE_EPS: f32 = 0.02;
 /// within [`TRACE_ITERS`], so on a segment of `len` they can be `len / TRACE_ITERS` long, and this
 /// is where that reaches the 6 m of the thinnest feature. Callers split longer segments.
 pub const TRACE_MAX_LEN: f32 = TRACE_ITERS as f32 * 6.0;
+/// Newton steps [`Shape::normal_from`] takes toward an ellipsoid's nearest point.
+pub const NEAREST_ITERS: u32 = 8;
 /// The most pieces [`Shape::trace_long`] cuts a segment into (18 km of them; a tick of the
 /// fastest shot is 267 m).
 pub const TRACE_MAX_PIECES: u32 = 64;
@@ -265,6 +267,38 @@ impl Shape {
             }
         }
         out
+    }
+
+    /// The outward normal where the surface is nearest to `p`, a point outside it: which way is
+    /// straight up from the ground below `p`. A union's (and a cut's) is the probe's own. An
+    /// ellipsoid's first-order gradient isn't, off its surface: it leans toward the long axes, so a
+    /// suit set down along it would creep. There the nearest point `x` is solved for: `p` is
+    /// `x + s·x/a²` for the one `s ≥ 0` that puts `x` on the surface (Eberly's equation, by
+    /// [`NEAREST_ITERS`] Newton steps from `s = 0`, which never overshoot), and the normal is along
+    /// `x/a² = p/(a² + s)`.
+    pub fn normal_from(&self, p: Vec3) -> Vec3 {
+        let pr = self.probe(p);
+        let Base::Ellipsoid(a) = self.base else { return pr.normal };
+        let a2 = a * a;
+        let q = p * a;
+        let k0 = length(p / a);
+        let k1 = length(p / a2);
+        let base = if k1 > 1e-9 { k0 * (k0 - 1.0) / k1 } else { -a.min_element() };
+        if k0 <= 1.0 || self.cuts.iter().any(|c| -(length(p - c.c) - c.r) > base) {
+            return pr.normal;
+        }
+        let mut s = 0.0;
+        for _ in 0..NEAREST_ITERS {
+            let d = a2 + Vec3::splat(s);
+            let v = q / d;
+            let f = v.dot(v) - 1.0;
+            let df = -2.0 * (v * v / d).dot(Vec3::ONE);
+            if f <= 0.0 || df >= 0.0 {
+                break;
+            }
+            s -= f / df;
+        }
+        normalize_or(p / (a2 + Vec3::splat(s)), pr.normal)
     }
 
     /// A lower bound on the distance from `p` to the shape, for tracing (the same as the probe's for
@@ -1252,6 +1286,38 @@ mod tests {
                 assert!(length(v - moved) < 2e-3, "tick {t}, {l}: {v} vs {moved}");
             }
         }
+    }
+
+    #[test]
+    fn the_normal_from_a_point_is_the_nearest_surfaces() {
+        // Off an ellipsoid, the nearest point of its surface is where the line down the normal
+        // from `p` meets it square: the surface's own normal there is the line's direction. The
+        // first-order gradient at `p` leans off that by degrees.
+        let mut rng = Rng::new(21);
+        let square = |a: Vec3, p: Vec3, n: Vec3| {
+            // Where the line p - n·t first meets the ellipsoid (the nearer root), and the angle
+            // between the surface's normal there and n.
+            let (o, d) = (p / a, -n / a);
+            let (qa, qb, qc) = (d.dot(d), 2.0 * o.dot(d), o.dot(o) - 1.0);
+            let t = (-qb - sqrt(qb * qb - 4.0 * qa * qc)) / (2.0 * qa);
+            let x = p - n * t;
+            angle_between(normalize_or(x / (a * a), Vec3::Y), n)
+        };
+        let (mut worst, mut worst_iq): (f32, f32) = (0.0, 0.0);
+        for _ in 0..2_000 {
+            let min = 10.0 + rng.next_f32() * 20.0;
+            let a = Vec3::new(min, min * (1.0 + 2.05 * rng.next_f32()), min * (1.0 + rng.next_f32()));
+            let shape = Shape::ellipsoid(a);
+            let dir = normalize_or(Vec3::new(rng.signed(), rng.signed(), rng.signed()), Vec3::Y);
+            let p = dir / length(dir / a) + dir * (6.0 + 4.0 * rng.next_f32());
+            worst = worst.max(square(a, p, shape.normal_from(p)));
+            worst_iq = worst_iq.max(square(a, p, shape.probe(p).normal));
+        }
+        assert!(worst < 1e-3, "{worst} rad off square to the surface");
+        assert!(worst_iq > 0.05, "the gradient was only {worst_iq} rad off: the test tests nothing");
+        // A union's and a cut's are the probe's own.
+        let p = Vec3::new(-100.0, 70.0, 3.0);
+        assert_eq!(mo_ii().normal_from(p), mo_ii().probe(p).normal);
     }
 
     #[test]

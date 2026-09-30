@@ -5,8 +5,9 @@
 //!
 //! Pipeline for tick `T`:
 //! 1. Mobile Doll AI (and ZERO seizures) write `InputCmd`s (dolls re-plan every 3rd tick, staggered).
-//! 2. Flight: AMBAC/RCS attitude, thrust, propellant, G-strain; wrecks drift; rocks and landmarks
-//!    stop both.
+//! 2. Flight: AMBAC/RCS attitude, thrust, propellant, G-strain; or, in a body's grip, walking on it
+//!    and hopping over it (`ground`); sleepers are held to what they're parked on; wrecks drift;
+//!    rocks and landmarks stop them all.
 //! 3. Spatial hash rebuild, then lag-compensation history is recorded (`history[T]` = snapshot `T`).
 //! 4. Weapons fire: projectiles spawn and catch up through the history (≤ 8 ticks) for shots fired
 //!    by humans/agents; beams emit spawn events.
@@ -30,7 +31,7 @@ mod specials;
 mod wire;
 mod zero;
 
-use bc_proto::buttons::{GRAB, MODE, ZERO};
+use bc_proto::buttons::{GRAB, GRIP, MODE, ZERO};
 use bc_proto::events::Event;
 use bc_proto::quant::{dequantize_unit, quantize_unit};
 use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, Part, PilotKind, Segment, WeaponKind};
@@ -46,7 +47,8 @@ use crate::content::salvage::{BOUNCE, mass_without};
 use crate::content::{frame, weapon};
 use crate::events::EventRing;
 use crate::field::Field;
-use crate::flight::{self, FlightMods};
+use crate::flight::FlightMods;
+use crate::ground::{self, MoveCtx, Mover};
 use crate::handle::SuitId;
 use crate::lagcomp::History;
 use crate::math::{Rng, length, look_rotation, normalize_or};
@@ -62,8 +64,9 @@ use crate::zero::TacticalAdvice;
 use crate::zero::strain::StrainEvent;
 
 pub use crate::bodies::Body;
+pub use crate::ground::{Anchor, Footing};
 pub use launch::{Homecoming, LAUNCH_GATE, LAUNCH_SPEED, Loadout};
-pub use sleep::{Anchor, Gone, PARK_SPEED, PARKED_VISUAL, SleeperFate};
+pub use sleep::{Gone, PARK_SPEED, PARKED_VISUAL, SleeperFate};
 
 /// A pending hit, applied in the damage phase.
 #[derive(Clone, Copy, Debug)]
@@ -523,9 +526,10 @@ impl Sim {
             let me = self.self_view(i);
             let mut cmd = ai::drive(&me, target.as_ref(), &mut ai_state, t, profile, spec);
             if seized {
-                // Keep the System engaged while it holds the controls, the pilot's grip, and the
-                // frame's mode (a seizure neither transforms the suit nor drops its jammer).
-                cmd.buttons |= ZERO | (self.suits.input[i].buttons & (GRAB | MODE));
+                // Keep the System engaged while it holds the controls, the pilot's grip on what's
+                // in hand and on the ground, and the frame's mode (a seizure neither transforms the
+                // suit, drops its jammer, nor lets go of the surface it stands on).
+                cmd.buttons |= ZERO | (self.suits.input[i].buttons & (GRAB | MODE | GRIP));
             }
             self.suits.ai[i] = ai_state;
             self.suits.input[i] = cmd;
@@ -589,39 +593,60 @@ impl Sim {
         wire(ambac.max(0.1))
     }
 
+    /// What suit `i` brings to its step besides its command: its flight modifiers (with a change of
+    /// form's cut in thrust: applied here, not in the replicated factor, as the owner's client
+    /// applies it the same way as it predicts the change), whether it can hold on to a surface, and
+    /// whether it has legs to walk on.
+    pub fn move_ctx(&self, i: usize) -> MoveCtx<'static> {
+        let mut mods = self.flight_mods(i);
+        let form = self.suits.form(i);
+        if form.changing() {
+            mods.thrust *= transform_thrust(&form);
+        }
+        let spec = frame(self.suits.frame[i]);
+        MoveCtx {
+            spec,
+            mods,
+            can_grip: spec.has_legs() && !form.changing(),
+            legs_ok: self.suits.part_hp[i][Part::Legs as usize] > 0.0,
+        }
+    }
+
     fn flight_step(&mut self, t: u32) {
         let mut used = core::mem::take(&mut self.iter_bits);
         used.copy_from(&self.suits.used);
         // Every body where it is this tick. It borrows only the field, so the suits can move.
         let bodies = Bodies::at(&self.field, self.landmarks(), t);
         for i in used.iter() {
-            if self.suits.sleeping.get(i) && self.suits.alive.get(i) {
-                // Nobody's flying it (`sleep`).
-                sleep::sleeper_drift(&mut self.suits, &bodies, i);
-            } else if self.suits.alive.get(i) {
-                let mut mods = self.flight_mods(i);
-                // Changing form cuts thrust (applied here, not in the replicated factor: the owner's
-                // client applies it the same way as it predicts the change).
-                let form = self.suits.form(i);
-                if form.changing() {
-                    mods.thrust *= transform_thrust(&form);
-                }
-                let spec = frame(self.suits.frame[i]);
-                let cmd = self.suits.input[i];
-                let f = &mut self.suits.flight[i];
-                let prev = f.pos;
-                let out = flight::step_in(&self.field, f, &cmd, spec, &mods, DT);
-                // The landmarks are as solid as the rocks (nothing to do far from them).
-                bodies.collide_landmarks(prev, f, None);
-                self.suits.boosting[i] = out.boosting;
-                self.suits.aim[i] = normalize_or(cmd.aim, self.suits.flight[i].rot * Vec3::Z);
-            } else {
+            let asleep = self.suits.sleeping.get(i);
+            if !self.suits.alive.get(i) {
                 // Wrecks drift (and fetch up against rocks and landmarks).
                 let f = &mut self.suits.flight[i];
                 let prev = f.pos;
                 f.pos += f.vel * DT;
                 self.field.collide(prev, f);
                 bodies.collide_landmarks(prev, f, None);
+            } else if asleep && self.suits.footing[i] != ground::Footing::Aloft {
+                // Nobody's flying it (`sleep`): held to its body, or drifting.
+                sleep::sleeper_drift(&mut self.suits, &bodies, i);
+            } else {
+                // Flown, or (asleep in a grip, hands off) settling under it until it's down.
+                let cx = self.move_ctx(i);
+                let cmd = self.suits.input[i];
+                let s = &mut self.suits;
+                let mut m = Mover { flight: s.flight[i], footing: s.footing[i], anchor: s.anchor[i] };
+                let out = ground::move_step(&bodies, &mut m, &cmd, &cx, DT);
+                if asleep && m.footing == ground::Footing::Grounded {
+                    // Down: it stays where it landed, parked.
+                    m.anchor.vel = Vec3::ZERO;
+                    m.anchor.ang_vel = Vec3::ZERO;
+                    if let Some(p) = bodies.pose(m.anchor.body) {
+                        sleep::hold(&p, &m.anchor, &mut m.flight);
+                    }
+                }
+                (s.flight[i], s.footing[i], s.anchor[i]) = (m.flight, m.footing, m.anchor);
+                s.boosting[i] = out.flight.boosting;
+                s.aim[i] = normalize_or(cmd.aim, m.flight.rot * Vec3::Z);
             }
         }
         self.iter_bits = used;
@@ -754,18 +779,31 @@ impl Sim {
                     s.overheated[i] = true;
                 }
                 s.energy[i] = (s.energy[i] + spec.energy_regen * DT).min(spec.energy_cap);
-                let want = s.input[i].pressed(ZERO);
-                let capable = spec.zero || self.cfg.zero_on_all_frames;
-                let g = s.flight[i].g_strain;
-                match s.zero[i].update(want, capable, g, DT) {
-                    StrainEvent::Seized => {
-                        s.zero[i].out.computed_at = 0;
-                        self.events.push(Event::Seizure { id: 0, tick: t, pilot: i as u16, active: true });
+                // Asleep, nobody's there for the System to strain.
+                if !s.sleeping.get(i) {
+                    let want = s.input[i].pressed(ZERO);
+                    let capable = spec.zero || self.cfg.zero_on_all_frames;
+                    let g = s.flight[i].g_strain;
+                    match s.zero[i].update(want, capable, g, DT) {
+                        StrainEvent::Seized => {
+                            s.zero[i].out.computed_at = 0;
+                            self.events.push(Event::Seizure {
+                                id: 0,
+                                tick: t,
+                                pilot: i as u16,
+                                active: true,
+                            });
+                        }
+                        StrainEvent::Released => {
+                            self.events.push(Event::Seizure {
+                                id: 0,
+                                tick: t,
+                                pilot: i as u16,
+                                active: false,
+                            });
+                        }
+                        StrainEvent::None => {}
                     }
-                    StrainEvent::Released => {
-                        self.events.push(Event::Seizure { id: 0, tick: t, pilot: i as u16, active: false });
-                    }
-                    StrainEvent::None => {}
                 }
                 self.suits.prev_buttons[i] = self.suits.input[i].buttons;
             } else if self.suits.respawn_at[i] != 0 && t >= self.suits.respawn_at[i] {

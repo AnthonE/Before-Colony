@@ -16,6 +16,10 @@ impl Sim {
         let mut alive = core::mem::take(&mut self.iter_bits);
         alive.copy_from(&self.suits.alive);
         for i in alive.iter() {
+            // Asleep, nobody works the frame's special: a bird stays a bird, a jammer stays off.
+            if self.suits.sleeping.get(i) {
+                continue;
+            }
             match frame(self.suits.frame[i]).special {
                 SpecialKind::HyperJammer { drain, min_energy, .. } => self.jammer_step(i, drain, min_energy),
                 SpecialKind::FullOpen { ticks, lockout, cooldown } => {

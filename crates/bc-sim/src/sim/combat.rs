@@ -362,6 +362,7 @@ impl Sim {
             if !self.suits.alive.get(j) {
                 continue;
             }
+            self.suits.last_hit[j] = t;
             let spec = frame(self.suits.frame[j]);
             let mut part = d.part;
             let mut amount = d.amount * spec.armor;
@@ -477,6 +478,9 @@ impl Sim {
     fn wreck(&mut self, j: usize, t: u32) -> u16 {
         let fid = self.suits.frame[j];
         let f = self.suits.flight[j];
+        // Off whatever it stood on: the hulk drifts on the world velocity it had there.
+        self.suits.footing[j] = crate::ground::Footing::Free;
+        self.suits.anchor[j] = crate::ground::Anchor::default();
         let gone = self.suits.gone_mask(j);
         let lim = Vec3::splat(bc_proto::objects::SPIN_MAX);
         let seg = Segment { t0: t, pos: f.pos, vel: f.vel, rot: f.rot, spin: f.ang_vel.clamp(-lim, lim) }

@@ -39,11 +39,14 @@ pub mod buttons {
     pub const MODE: u16 = 1 << 12;
     /// Press: the frame's special attack (Heavyarms' Full Open Attack, Sandrock's Cross Crusher).
     pub const SPECIAL: u16 = 1 << 13;
+    /// State: the grip is armed. Coming in slow and close to a surface lands the suit on it, and it
+    /// holds on while this is set: clearing it lets go.
+    pub const GRIP: u16 = 1 << 14;
 
     /// Actions a silent client's repeated command must not keep performing.
     pub const FIRE_MASK: u16 = FIRE_PRIMARY | FIRE_SECONDARY | MELEE | SPECIAL;
     /// States that persist while a client is silent (see [`InputCmd::neutral`](super::InputCmd::neutral)).
-    pub const STATES: u16 = FLIGHT_ASSIST | ZERO | GRAB | MODE;
+    pub const STATES: u16 = FLIGHT_ASSIST | ZERO | GRAB | MODE | GRIP;
     pub const BITS: u32 = 16;
 }
 
@@ -97,7 +100,7 @@ impl Default for InputCmd {
 
 impl InputCmd {
     /// A "hands off" command for `tick` that keeps the given aim and states (flight assist, ZERO,
-    /// the frame's mode, and a grip on whatever is in hand).
+    /// the frame's mode, a grip on whatever is in hand, and the grip on a surface).
     pub fn neutral(tick: u32, aim: Vec3, keep_buttons: u16) -> Self {
         Self {
             tick,
@@ -299,7 +302,15 @@ mod tests {
     #[test]
     fn a_silent_client_keeps_its_states() {
         let n = InputCmd::neutral(9, Vec3::X, u16::MAX);
-        assert_eq!(n.buttons, buttons::FLIGHT_ASSIST | buttons::ZERO | buttons::GRAB | buttons::MODE);
+        assert_eq!(
+            n.buttons,
+            buttons::FLIGHT_ASSIST | buttons::ZERO | buttons::GRAB | buttons::MODE | buttons::GRIP
+        );
+        // A client that stalls never lets go of the surface it stands on.
+        let last =
+            InputCmd { tick: 9, buttons: buttons::GRIP | buttons::FIRE_PRIMARY, ..InputCmd::default() };
+        assert_eq!(InputCmd::stand_in(&last, 11, 2).buttons, buttons::GRIP);
+        assert_eq!(InputCmd::stand_in(&last, 30, NEUTRAL_AFTER + 1).buttons, buttons::GRIP);
         // Presses (fire, the special) are never repeated for a silent client.
         const { assert!(buttons::STATES & buttons::FIRE_MASK == 0) };
         const { assert!(buttons::FIRE_MASK & buttons::SPECIAL != 0) };

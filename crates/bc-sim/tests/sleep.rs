@@ -9,7 +9,7 @@ use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, MODE};
 use bc_proto::events::Event;
 use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
 use bc_sim::math::look_rotation;
-use bc_sim::sim::{Gone, SleeperFate};
+use bc_sim::sim::{Body, Gone, SleeperFate};
 use bc_sim::{DT, Sim, SimConfig, SuitId};
 use common::{lone_rock, resting_on};
 use glam::Vec3;
@@ -76,7 +76,7 @@ fn resting_on_a_rock_it_parks_and_hides_there() {
     let (id, out) = resting_on(&mut sim, &rock);
     let i = id.idx();
     steps(&mut sim, 5);
-    assert_eq!(sim.parkable(i), Some(r_idx as u16), "at rest against the rock, it could park");
+    assert_eq!(sim.parkable(i), Some(Body::Rock(r_idx as u16)), "at rest against the rock, it could park");
     assert!(sim.sleep(id));
     assert!(sim.is_parked(i));
     let at = sim.suits.flight[i].pos;
@@ -256,9 +256,9 @@ fn the_longest_asleep_make_room() {
 }
 
 #[test]
-fn a_sleeping_neo_bird_unfolds() {
-    // PIN: flips in WP4. Asleep, the suit's input drops MODE with every other button, so a
-    // Neo-Bird parked by its pilot changes back into a Wing Zero under nobody's hand.
+fn a_sleeping_neo_bird_stays_a_bird() {
+    // Asleep, the suit's input keeps MODE (and nobody works the frame's special), so a Neo-Bird
+    // parked by its pilot is still a bird when they're back.
     let mut sim = empty();
     let id = sim
         .spawn_at(
@@ -276,7 +276,39 @@ fn a_sleeping_neo_bird_unfolds() {
     }
     assert_eq!(sim.suits.frame[i], FrameId::WingZeroBird, "MODE held a second makes a bird");
     assert!(sim.sleep(id));
-    steps(&mut sim, 30);
-    assert_eq!(sim.suits.frame[i], FrameId::WingZero, "the sleeping bird kept its form");
+    steps(&mut sim, 600);
+    assert_eq!(sim.suits.frame[i], FrameId::WingZeroBird, "the sleeping bird kept its form");
     assert!(!sim.suits.form(i).changing());
+    // Awake, its pilot has the mode again: held, it stays a bird.
+    assert!(sim.wake(id));
+    for _ in 0..30 {
+        hold(&mut sim, id, MODE, Vec3::Z);
+        sim.step();
+    }
+    assert_eq!(sim.suits.frame[i], FrameId::WingZeroBird);
+}
+
+#[test]
+fn a_sleeping_deathscythe_drops_its_jammer() {
+    let mut sim = empty();
+    let id = sim
+        .spawn_at(
+            FrameId::Deathscythe,
+            Faction::Colonies,
+            PilotKind::Human,
+            Vec3::new(0.0, 5_000.0, 9_000.0),
+            look_rotation(Vec3::Z, Vec3::Y),
+        )
+        .unwrap();
+    let i = id.idx();
+    for _ in 0..10 {
+        hold(&mut sim, id, MODE, Vec3::Z);
+        sim.step();
+    }
+    assert!(sim.suits.special[i].active, "MODE engages the Hyper Jammer");
+    let energy = sim.suits.energy[i];
+    assert!(sim.sleep(id));
+    steps(&mut sim, 120);
+    assert!(!sim.suits.special[i].active, "asleep, the jammer is off");
+    assert!(sim.suits.energy[i] > energy, "and draws nothing");
 }
