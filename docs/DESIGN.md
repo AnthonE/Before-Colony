@@ -448,7 +448,8 @@ The browser plays it through Web Audio; volumes are settings (master, weapons, c
 original piece at 143 BPM in E minor (orchestra hits on a 3-3-2, a hook, verse, pre-chorus and a
 "royal road" chorus, 47 s that loop). It's written in MML, one string a voice as SNES composers
 wrote, and plays on the console's sound chip in software (`bc_sound::spc`): eight voices,
-instruments generated in code and stored as 4-bit BRR in the chip's 64 KB (bank and echo buffer
+instruments of the kinds those games carried (an overdriven guitar lead, power chords, slap bass,
+orchestra hit, brass, strings, choir) generated in code and stored as 4-bit BRR in the chip's 64 KB (bank and echo buffer
 fit, with room for a driver), the chip's Gaussian interpolation, its ADSR rates and its echo with
 the 8-tap FIR, stereo at 32 kHz. `cargo run -p bc-sound --release --example title -- title.wav`
 writes it out.
