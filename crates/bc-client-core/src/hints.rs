@@ -1,7 +1,8 @@
 //! First-flight hints: one short line at a time, each gone once the pilot does what it says (or
 //! after a while), and never shown again once seen (the seen set is kept with the settings).
+//! Flying hints come while flying, and the hangar bay's (survival rules) while on foot in it.
 
-/// A hint, in the order they're shown.
+/// A hint. Each one's bit in the seen set is its discriminant: new ones go at the end.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hint {
     Thrust,
@@ -10,14 +11,36 @@ pub enum Hint {
     FlightAssist,
     Salvage,
     Menu,
+    /// On foot: walking and looking; using what's in view; boarding at the hatch.
+    Walk,
+    Use,
+    Launch,
+    /// Survival rules, flying: docking to go home.
+    Dock,
 }
 
 impl Hint {
-    pub const ALL: [Hint; 6] =
-        [Hint::Thrust, Hint::Boost, Hint::Fire, Hint::FlightAssist, Hint::Salvage, Hint::Menu];
+    /// In the order they're shown.
+    pub const ALL: [Hint; 10] = [
+        Hint::Walk,
+        Hint::Use,
+        Hint::Launch,
+        Hint::Thrust,
+        Hint::Boost,
+        Hint::Fire,
+        Hint::FlightAssist,
+        Hint::Salvage,
+        Hint::Dock,
+        Hint::Menu,
+    ];
 
     pub fn bit(self) -> u32 {
         1 << self as u32
+    }
+
+    /// Shown on foot in the hangar bay (else while flying).
+    fn on_foot(self) -> bool {
+        matches!(self, Hint::Walk | Hint::Use | Hint::Launch)
     }
 
     pub fn text(self) -> &'static str {
@@ -28,15 +51,26 @@ impl Hint {
             Hint::FlightAssist => {
                 "V turns flight assist off: then nothing slows you down, like a real spacecraft."
             }
-            Hint::Salvage => "G grabs wreckage and ore, B stows it. Sell it at the colony's dock.",
+            Hint::Salvage => "G grabs wreckage and ore, B stows it. Bring it to the colony's dock.",
             Hint::Menu => "Esc opens the menu. F1 lists every control.",
+            Hint::Walk => "W A S D walk, Shift runs, Space jumps. The mouse looks.",
+            Hint::Use => {
+                "Look at a terminal and press E: the fabricator and the stores on the right, the \
+                 exchange by the doors, the suit's console at its feet."
+            }
+            Hint::Launch => {
+                "Up the stairs to the catwalk: E at the cockpit hatch boards the suit and launches."
+            }
+            Hint::Dock => "To go home, come to rest inside the dock's ring of lights and press Enter.",
         }
     }
 
     /// Longest it stays up if the pilot doesn't do it, s.
     fn max_secs(self) -> f64 {
         match self {
-            Hint::Thrust | Hint::Fire => 20.0,
+            Hint::Thrust | Hint::Fire | Hint::Walk => 20.0,
+            Hint::Use | Hint::Launch => 30.0,
+            Hint::Dock => 15.0,
             _ => 9.0,
         }
     }
@@ -52,6 +86,15 @@ pub struct HintInput {
     pub firing: bool,
     pub toggled_assist: bool,
     pub grabbing: bool,
+    /// Survival rules (the hangar's hints, and docking's).
+    pub survival: bool,
+    /// On foot in the hangar bay (controls live), walking about, using something, boarding.
+    pub walking: bool,
+    pub strolling: bool,
+    pub using: bool,
+    pub boarding: bool,
+    /// Asked to dock.
+    pub docking: bool,
 }
 
 /// Seconds between one hint and the next.
@@ -72,11 +115,15 @@ impl Hints {
     /// Steps once a frame; `seen` is the settings' seen set, and is updated. Returns the hint to
     /// show.
     pub fn step(&mut self, seen: &mut u32, now: f64, dt: f64, i: &HintInput) -> Option<Hint> {
-        if !i.flying {
+        if !i.flying && !i.walking {
             // Nothing new while dead or in a menu; the one up stays for later.
             return None;
         }
         if let Some((h, since)) = self.current {
+            if h.on_foot() != i.walking {
+                // Its place is elsewhere (flying, or on foot): it waits there.
+                return None;
+            }
             let acting = match h {
                 Hint::Thrust => i.thrusting,
                 Hint::Boost => i.boosting,
@@ -84,9 +131,15 @@ impl Hints {
                 Hint::FlightAssist => i.toggled_assist,
                 Hint::Salvage => i.grabbing,
                 Hint::Menu => false,
+                Hint::Walk => i.strolling,
+                Hint::Use => i.using,
+                Hint::Launch => i.boarding,
+                Hint::Dock => i.docking,
             };
             self.doing = if acting { self.doing + dt } else { self.doing };
-            let done = self.doing >= DOING || (acting && matches!(h, Hint::FlightAssist | Hint::Salvage));
+            let at_once =
+                matches!(h, Hint::FlightAssist | Hint::Salvage | Hint::Use | Hint::Launch | Hint::Dock);
+            let done = self.doing >= DOING || (acting && at_once);
             if done || now - since > h.max_secs() {
                 *seen |= h.bit();
                 self.current = None;
@@ -98,7 +151,9 @@ impl Hints {
         if now < self.next_at {
             return None;
         }
-        let h = Hint::ALL.into_iter().find(|h| *seen & h.bit() == 0)?;
+        let h = Hint::ALL.into_iter().find(|h| {
+            *seen & h.bit() == 0 && h.on_foot() == i.walking && (i.survival || !matches!(h, Hint::Dock))
+        })?;
         self.current = Some((h, now));
         self.doing = 0.0;
         Some(h)
@@ -141,6 +196,40 @@ mod tests {
         let mut t2 = 0.0;
         let first = run(&mut h2, &mut seen, &mut t2, 0.1, flying);
         assert_ne!(first, Some(Hint::Thrust));
+    }
+
+    #[test]
+    fn the_bays_hints_come_on_foot_and_the_flying_ones_wait() {
+        let (mut h, mut seen, mut t) = (Hints::default(), 0u32, 0.0);
+        let walking = HintInput { walking: true, survival: true, ..Default::default() };
+        assert_eq!(run(&mut h, &mut seen, &mut t, 0.1, walking), Some(Hint::Walk));
+        run(&mut h, &mut seen, &mut t, 1.2, HintInput { strolling: true, ..walking });
+        assert_eq!(run(&mut h, &mut seen, &mut t, GAP + 0.2, walking), Some(Hint::Use));
+        // Out flying (the bay's hint waits), then back on foot.
+        let flying = HintInput { flying: true, survival: true, ..Default::default() };
+        assert_eq!(run(&mut h, &mut seen, &mut t, 0.5, flying), None);
+        run(&mut h, &mut seen, &mut t, 0.2, HintInput { using: true, ..walking });
+        assert!(seen & Hint::Use.bit() != 0);
+        assert_eq!(run(&mut h, &mut seen, &mut t, GAP + 0.2, walking), Some(Hint::Launch));
+        run(&mut h, &mut seen, &mut t, 0.2, HintInput { boarding: true, ..walking });
+        // Flying: the flight hints, and (survival) docking before the menu.
+        let mut order = Vec::new();
+        for _ in 0..4_000 {
+            if let Some(x) = run(&mut h, &mut seen, &mut t, 0.05, flying)
+                && order.last() != Some(&x)
+            {
+                order.push(x);
+            }
+        }
+        let dock = order.iter().position(|x| *x == Hint::Dock).expect("docking's hint");
+        let menu = order.iter().position(|x| *x == Hint::Menu).expect("the menu's hint");
+        assert!(dock < menu, "{order:?}");
+        // Under arcade rules there's no docking hint.
+        let (mut h, mut seen, mut t) = (Hints::default(), 0u32, 0.0);
+        let arcade = HintInput { flying: true, ..Default::default() };
+        for _ in 0..4_000 {
+            assert_ne!(run(&mut h, &mut seen, &mut t, 0.05, arcade), Some(Hint::Dock));
+        }
     }
 
     #[test]

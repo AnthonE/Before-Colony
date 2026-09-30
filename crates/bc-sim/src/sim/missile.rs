@@ -98,7 +98,7 @@ impl Sim {
             return;
         }
         let Some(spec) = w.missile else { return };
-        if ws.ammo == 0 || !self.suits.arm_free(i, mount.arm) {
+        if ws.ammo == 0 || !self.suits.fitted(i, slot) || !self.suits.arm_free(i, mount.arm) {
             ws.salvo = 0;
             return;
         }

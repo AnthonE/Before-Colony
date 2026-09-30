@@ -11,6 +11,18 @@ pub enum Mode {
     Echo,
 }
 
+/// How pilots get their suits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum Ruleset {
+    /// The game: pilots start in their hangar bay, fly the suit they built (a worn Leo, to begin
+    /// with), dock to bring home what they found, and lose it for good when it's destroyed. Their
+    /// credits, stores and suit are kept (signed in); the Colony Exchange is shared.
+    Survival,
+    /// Any frame from the title screen, free respawns, and the dock buys the hold: for trying the
+    /// Gundams out, the load tests and the combat end-to-end tests.
+    Arcade,
+}
+
 /// Which tactical oracle feeds the ZERO System. The in-sim local oracle always runs; `jev` adds
 /// TypeSafe Jev as a blended prior when `TYPESAFE_API_KEY` is set.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
@@ -52,6 +64,11 @@ pub struct Config {
     pub max_sleepers: usize,
     /// A session with no input for this long is ended (its suit sleeps, or goes, as on leaving).
     pub idle_timeout: Duration,
+    pub rules: Ruleset,
+    /// The fabricator and foundry work this many times faster than their recipes say.
+    pub craft_speed: f64,
+    /// Where pilot records and the exchange are kept (none: in memory, for this run only).
+    pub data_dir: Option<PathBuf>,
 }
 
 impl Default for Config {
@@ -73,6 +90,9 @@ impl Default for Config {
             resume_ttl: Duration::from_secs(15 * 60),
             max_sleepers: 256,
             idle_timeout: Duration::from_secs(60),
+            rules: Ruleset::Survival,
+            craft_speed: 1.0,
+            data_dir: None,
         }
     }
 }

@@ -64,6 +64,7 @@ impl Sim {
                         && s.energy[i] >= w.energy
                         && (w.ammo == 0 || ws.ammo > 0)
                         && !s.overheated[i]
+                        && s.fitted(i, slot)
                         && s.arm_free(i, m.arm)
                         && !self.arm_blocked(i, m.arm)
                 };
@@ -208,6 +209,7 @@ impl Sim {
             let ws = &s.weapons[i][slot];
             let arm = s.arm_free(i, mount.arm);
             let can = s.energy[i] >= w.energy
+                && s.fitted(i, slot)
                 && match w.class {
                     WeaponClass::Melee => w.melee.is_some_and(|m| self.melee_arms_ok(i, mount, &m)),
                     // A flame is lit while fire is held, whatever its cooldown.

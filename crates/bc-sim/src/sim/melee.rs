@@ -33,9 +33,9 @@ fn mirror(v: Vec3) -> Vec3 {
 
 impl Sim {
     /// The mount a strike from `slot` (a loadout slot, or [`SPECIAL_MOUNT`]) would use, if it holds
-    /// a melee weapon.
+    /// a melee weapon, and it's fitted.
     fn melee_mount(&self, i: usize, slot: u8) -> Option<Mount> {
-        frame(self.suits.frame[i]).melee_mount(slot)
+        frame(self.suits.frame[i]).melee_mount(slot).filter(|_| self.suits.fitted(i, usize::from(slot)))
     }
 
     /// Whether suit `i` has the arms to strike from `mount`: a twin weapon strikes with the blades

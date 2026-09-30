@@ -9,7 +9,7 @@ use axum::routing::post;
 use bc_bot::{BotClient, BotConfig, DollBrain};
 use bc_proto::buttons::ZERO;
 use bc_proto::{Faction, FrameId};
-use bc_server::{Config, Mode, OracleKind};
+use bc_server::{Config, Mode, OracleKind, Ruleset};
 use serde_json::{Value, json};
 
 async fn fake_jev(Json(body): Json<Value>) -> Json<Value> {
@@ -46,6 +46,7 @@ async fn jev_advice_reaches_the_zero_pilot() -> anyhow::Result<()> {
 
     let cfg = Config {
         mode: Mode::Game,
+        rules: Ruleset::Arcade,
         wt_port: 0,
         http_addr: "127.0.0.1:0".parse()?,
         mobile_dolls: 8,

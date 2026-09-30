@@ -94,6 +94,14 @@ pub fn hold_kg(frame_id: FrameId) -> u32 {
     }
 }
 
+/// What the colony pays (survival rules) for bringing down a Mobile Doll of `frame_id`, credits.
+pub fn bounty(frame_id: FrameId) -> u32 {
+    match frame_id {
+        FrameId::Virgo => 600,
+        _ => 250,
+    }
+}
+
 /// The Gundams: built of gundanium, which only zero-G can make.
 pub fn is_gundam(frame_id: FrameId) -> bool {
     matches!(

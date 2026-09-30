@@ -550,6 +550,7 @@ dependencies = [
  "anyhow",
  "bc-auth",
  "bc-client-core",
+ "bc-econ",
  "bc-proto",
  "bc-sim",
  "clap",
@@ -571,6 +572,7 @@ version = "0.1.0"
 dependencies = [
  "bc-auth",
  "bc-client-core",
+ "bc-econ",
  "bc-model",
  "bc-proto",
  "bc-sim",
@@ -586,6 +588,7 @@ dependencies = [
  "glam",
  "half",
  "js-sys",
+ "serde_json",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -598,9 +601,21 @@ name = "bc-client-core"
 version = "0.1.0"
 dependencies = [
  "bc-auth",
+ "bc-econ",
  "bc-proto",
  "bc-sim",
  "glam",
+]
+
+[[package]]
+name = "bc-econ"
+version = "0.1.0"
+dependencies = [
+ "bc-proto",
+ "bc-sim",
+ "proptest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -645,6 +660,7 @@ dependencies = [
  "bc-auth",
  "bc-bot",
  "bc-client-core",
+ "bc-econ",
  "bc-proto",
  "bc-sector",
  "bc-sim",

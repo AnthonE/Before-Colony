@@ -58,6 +58,13 @@ async fn main() -> anyhow::Result<()> {
                     return;
                 }
             };
+            // Under survival rules they fly the starter Leo out of their hangars (run the server
+            // with --rules arcade to fly every frame).
+            if let Err(e) = bot.sortie().await {
+                eprintln!("bot {k}: {e:#}");
+                totals.errors.fetch_add(1, Ordering::Relaxed);
+                return;
+            }
             totals.connected.fetch_add(1, Ordering::Relaxed);
             let mut brain = DollBrain::new(k as u32 * 7919 + 1);
             let mut worst = 0.0f32;

@@ -2,6 +2,7 @@
 
 use crate::InputContext;
 use crate::salvage::route;
+use crate::world::World;
 use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, GRAB, MELEE, STOW};
 use bc_proto::{ChunkKind, FrameId, InputCmd, Part};
 use bc_sim::ai::{self, AiState, DollProfile, PILOT};
@@ -60,9 +61,11 @@ const BRAKING: f32 = 6.0;
 const FETCH_RANGE: f32 = 300.0;
 
 /// A miner. It works the nearest standing rock with its saber (its rifle, if the saber arm has been
-/// shot off); its free hand takes each chip of ore knocked off, and stows it. When the rock shatters it gathers up the ore, and when the hold
-/// is full (or it has something in hand that won't fit) it takes it to the dock to sell, round
-/// the colony. It flies with flight assist.
+/// shot off); its free hand takes each chip of ore knocked off, and stows it. When the rock
+/// shatters it gathers up the ore, and when the hold is full (or it has something in hand that
+/// won't fit) it takes it to the dock, round the colony: under arcade rules the dock buys it;
+/// under survival rules its pilot docks ([`MinerBrain::ready_to_dock`]) and sells it on the
+/// exchange. It flies with flight assist.
 pub struct MinerBrain {
     /// How full the hold gets (0..1) before it goes to sell.
     pub sell_at: f32,
@@ -91,6 +94,17 @@ impl MinerBrain {
     /// The rock it's working, by index in the field.
     pub fn rock(&self) -> Option<usize> {
         self.rock
+    }
+
+    /// Survival rules: it has brought its haul to rest in the dock, and its pilot should dock.
+    pub fn ready_to_dock(&self, world: &World) -> bool {
+        self.hauling && world.own.is_some_and(|o| o.alive) && world.salvage_view().is_some_and(|v| v.docked)
+    }
+
+    /// The haul is home (docked and unloaded): back to work.
+    pub fn unloaded(&mut self) {
+        self.hauling = false;
+        self.rock = None;
     }
 
     pub fn decide(&mut self, ctx: &InputContext) -> InputCmd {

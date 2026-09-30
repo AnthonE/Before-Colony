@@ -183,13 +183,24 @@ pub fn update_hints(
     mut ui: ResMut<Ui>,
     controls: Res<Controls>,
     pointer: Res<PointerRes>,
+    keys: Res<ButtonInput<KeyCode>>,
+    cmds: Res<UiCmds>,
+    indoors: Res<crate::hangar::Indoors>,
+    onfoot: Res<crate::onfoot::OnFoot>,
     game: NonSend<GameClient>,
     time: Res<Time<Real>>,
 ) {
-    let alive = game.borrow().core.world.own.is_some_and(|o| o.alive);
-    let flying = settings.0.hints && ui.playing() && !ui.panel_open() && pointer.0.flying() && alive;
+    let (alive, survival) = {
+        let g = game.borrow();
+        (g.core.world.own.is_some_and(|o| o.alive), g.core.welcome.is_some_and(|w| w.survival))
+    };
+    let live = settings.0.hints && ui.playing() && !ui.panel_open() && pointer.0.flying();
+    let flying = live && alive && !indoors.0;
+    let walking = live && ui.on_foot;
     let toggled = state.last_assist.is_some_and(|a| a != controls.flight_assist);
     state.last_assist = Some(controls.flight_assist);
+    let used = keys.just_pressed(KeyCode::KeyE) || cmds.has(&UiCmd::Use);
+    let walk_keys = [KeyCode::KeyW, KeyCode::KeyA, KeyCode::KeyS, KeyCode::KeyD];
     let input = HintInput {
         flying,
         thrusting: controls.thrust != Vec3::ZERO,
@@ -197,13 +208,19 @@ pub fn update_hints(
         firing: controls.buttons & (FIRE_PRIMARY | FIRE_SECONDARY | MELEE) != 0,
         toggled_assist: toggled,
         grabbing: controls.grab,
+        survival,
+        walking,
+        strolling: keys.any_pressed(walk_keys),
+        using: used && onfoot.focus.is_some(),
+        boarding: used && onfoot.focus == Some(bc_client_core::bay::Spot::Cockpit),
+        docking: keys.just_pressed(KeyCode::Enter),
     };
     let mut seen = settings.0.hints_seen;
     let hint = state.hints.step(&mut seen, now_s(), f64::from(time.delta_secs()), &input);
     if seen != settings.0.hints_seen {
         settings.0.hints_seen = seen;
     }
-    let text = hint.filter(|_| flying).map(|h| h.text()).unwrap_or_default();
+    let text = hint.filter(|_| flying || walking).map(|h| h.text()).unwrap_or_default();
     if ui.hint != text {
         ui.hint = text.to_string();
     }

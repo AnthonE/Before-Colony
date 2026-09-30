@@ -51,6 +51,11 @@ const scenes: Array<[string, number, number, number]> = [
   ["gundams", 5, 6.63, 12],
   ["gundams", 5, 7.9, 12],
   ["gundams", 6, 6, 12],
+  // The hangar bay: just in from the airlock; from its back corner with the doors opening; from
+  // the cockpit, down the launch tunnel with the doors open.
+  ["hangar", 1, 2, 12],
+  ["hangar", 4, 6, 12],
+  ["hangar", 5, 8.5, 12],
 ];
 
 for (const [scene, cam, t, frames] of scenes) {

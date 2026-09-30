@@ -2,7 +2,9 @@
 # Build the browser client and run a local sector with Mobile Dolls, an AI agent and a miner.
 #   scripts/dev.sh            then open http://127.0.0.1:8080 in Chrome or Edge
 # Env: BC_DOLLS (default 24), BC_AGENTS (default 1), BC_MINERS (default 1),
-#      BC_ORACLE (local|jev; jev needs TYPESAFE_API_KEY)
+#      BC_ORACLE (local|jev; jev needs TYPESAFE_API_KEY),
+#      BC_RULES (survival|arcade; default survival), BC_DATA (a directory: keep pilots, hangars
+#      and the exchange across restarts)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ./scripts/build-web.sh webgl2
@@ -10,7 +12,9 @@ cargo build --release -p bc-server -p bc-bot --bins --examples
 pids=()
 cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; }
 trap cleanup EXIT INT TERM
-./target/release/bc-server --mobile-dolls "${BC_DOLLS:-24}" --oracle "${BC_ORACLE:-local}" &
+data=()
+[ -n "${BC_DATA:-}" ] && data=(--data-dir "$BC_DATA")
+./target/release/bc-server --mobile-dolls "${BC_DOLLS:-24}" --oracle "${BC_ORACLE:-local}" --rules "${BC_RULES:-survival}" "${data[@]}" &
 pids+=($!)
 sleep 1
 for i in $(seq 1 "${BC_AGENTS:-1}"); do

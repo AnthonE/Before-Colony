@@ -11,6 +11,7 @@ repository.workspace = true
 [dependencies]
 bc-auth = { workspace = true, features = ["sign"] }
 bc-client-core.workspace = true
+bc-econ.workspace = true
 bc-proto.workspace = true
 bc-sim = { workspace = true, features = ["deterministic", "canon-names"] }
 wtransport.workspace = true

@@ -6,6 +6,8 @@
 #   scripts/e2e.sh frames [project]  # the autopilot flies each Gundam's kit against the dolls
 #   scripts/e2e.sh ui [project]      # the title screen, the menu, reconnecting, disconnecting
 #   scripts/e2e.sh login [project]   # wallet sign-in (a stub wallet with a test key), resume, take-over
+#   scripts/e2e.sh hangar [project]  # survival: on foot in the bay, its terminals, launching and docking
+# The suits' suites run the arcade rules (any frame, free respawns) unless BC_RULES says otherwise.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 suite="${1:-slice}"
@@ -26,23 +28,28 @@ case "$suite" in
     pids+=($!)
     ;;
   slice)
-    ./target/release/bc-server --mode game --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls "${BC_DOLLS:-24}" &
+    ./target/release/bc-server --mode game --rules "${BC_RULES:-arcade}" --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls "${BC_DOLLS:-24}" &
     pids+=($!)
     sleep 1
     ./target/release/examples/mobile_doll --server "$BC_URL" --name "Agent-01" &
     pids+=($!)
     ;;
   frames)
-    ./target/release/bc-server --mode game --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls "${BC_DOLLS:-24}" &
+    ./target/release/bc-server --mode game --rules "${BC_RULES:-arcade}" --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls "${BC_DOLLS:-24}" &
     pids+=($!)
     ;;
   ui)
-    ./target/release/bc-server --mode game --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls "${BC_DOLLS:-4}" &
+    ./target/release/bc-server --mode game --rules "${BC_RULES:-arcade}" --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls "${BC_DOLLS:-4}" &
     pids+=($!)
     ;;
   login)
     # No dolls: an idle pilot shot down can't sleep (a wreck is simply gone).
-    ./target/release/bc-server --mode game --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls 0 &
+    ./target/release/bc-server --mode game --rules "${BC_RULES:-arcade}" --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls 0 &
+    pids+=($!)
+    ;;
+  hangar)
+    # Survival rules; the fabricator works fast so a job finishes inside the test.
+    ./target/release/bc-server --mode game --rules survival --craft-speed 60 --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls 0 &
     pids+=($!)
     ;;
   *) echo "unknown suite $suite" >&2; exit 1 ;;

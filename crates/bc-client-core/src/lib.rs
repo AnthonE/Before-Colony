@@ -8,10 +8,12 @@
 //! [`ClientCore::on_control`] and datagrams to [`ClientCore::on_datagram`], and sends whatever
 //! [`ClientCore::poll_inputs`] returns.
 
+pub mod bay;
 pub mod brains;
 pub mod chase;
 pub mod clock;
 pub mod controls;
+pub mod hangar;
 pub mod hints;
 pub mod inputs;
 pub mod interp;
@@ -21,11 +23,12 @@ pub mod predict;
 pub mod salvage;
 pub mod session;
 pub mod settings;
+pub mod walker;
 pub mod world;
 
 use bc_proto::auth::{Address, Domain, NONCE_BYTES, Signature, TOKEN_BYTES};
 use bc_proto::buttons::FIRE_PRIMARY;
-use bc_proto::control::{ControlMsg, RejectReason, hello_flags, roster_flags, welcome_flags};
+use bc_proto::control::{ControlMsg, Frame, RejectReason, hello_flags, roster_flags, welcome_flags};
 use bc_proto::snapshot::{own_flags, zero_mode};
 use bc_proto::{Faction, FrameId, InputCmd, InputPacket, PROTOCOL_VERSION, PilotKind, SnapshotReader};
 use bc_sim::DT;
@@ -36,6 +39,7 @@ use glam::Vec3;
 
 pub use brains::{DollBrain, MinerBrain};
 pub use clock::Clock;
+pub use hangar::HangarState;
 pub use inputs::InputHistory;
 pub use own::OwnView;
 pub use predict::{OwnPose, Predictor};
@@ -75,6 +79,8 @@ pub struct Welcome {
     pub signed_in: bool,
     /// The pilot woke in the suit they'd left.
     pub woke: bool,
+    /// Survival rules: the pilot starts in their hangar, and launches the suit they built.
+    pub survival: bool,
 }
 
 /// The server's sign-in challenge.
@@ -133,6 +139,8 @@ pub struct ClientCore {
     /// What the server wanted the pilot to know: `bc_proto::control::notice` codes and their
     /// detail. Taken by the UI.
     pub notices: Vec<(u8, String)>,
+    /// Survival: the pilot's hangar, and where they are.
+    pub hangar: HangarState,
     ctrl_buf: Vec<u8>,
     pub welcome: Option<Welcome>,
     pub clock: Clock,
@@ -161,6 +169,7 @@ impl ClientCore {
             bye_reason: None,
             resume_token: None,
             notices: Vec::new(),
+            hangar: HangarState::default(),
             ctrl_buf: Vec::new(),
             welcome: None,
             clock: Clock::default(),
@@ -226,14 +235,50 @@ impl ClientCore {
         encode(ControlMsg::Respawn { frame })
     }
 
+    /// Asks the hangar for something (survival rules): the frame to send.
+    pub fn request(&self, req: &bc_econ::Request) -> Vec<u8> {
+        hangar::frame(req)
+    }
+
+    /// The pilot left the sector (docked, or lost): what was flown is forgotten, and the next
+    /// sortie syncs its clock afresh. The field, the roster and the tallies stay.
+    fn left_the_sector(&mut self) {
+        let old = std::mem::replace(&mut self.world, World::new(self.cfg.faction));
+        self.world.roster = old.roster;
+        self.world.roster_flags = old.roster_flags;
+        self.world.my_hits = old.my_hits;
+        self.world.my_kills = old.my_kills;
+        self.world.my_deaths = old.my_deaths;
+        self.world.hits_taken = old.hits_taken;
+        self.world.kit = old.kit;
+        let field = self.predict.field.clone();
+        self.predict = Predictor::default();
+        self.predict.field = field;
+        self.clock = Clock::default();
+        self.inputs = InputHistory::default();
+        self.next_cmd_tick = 0;
+        self.last_cmd = InputCmd::default();
+        self.drawn = own::Drawn::default();
+        self.heard_g = 0.0;
+    }
+
     /// Feeds bytes read from the control stream.
     pub fn on_control(&mut self, bytes: &[u8]) {
         self.ctrl_buf.extend_from_slice(bytes);
         loop {
-            match ControlMsg::decode(&self.ctrl_buf) {
-                Ok(Some((msg, used))) => {
+            match Frame::decode(&self.ctrl_buf) {
+                Ok(Some((frame, used))) => {
+                    match frame {
+                        Frame::Msg(msg) => self.handle_control(msg),
+                        Frame::Hangar(p) => {
+                            if let Some(update) = bc_econ::wire::decode(p)
+                                && self.hangar.apply(update)
+                            {
+                                self.left_the_sector();
+                            }
+                        }
+                    }
                     self.ctrl_buf.drain(..used);
-                    self.handle_control(msg);
                 }
                 Ok(None) => break,
                 Err(_) => {
@@ -271,6 +316,7 @@ impl ClientCore {
                     field_rocks,
                     signed_in: flags & welcome_flags::SIGNED_IN != 0,
                     woke: flags & welcome_flags::WOKE != 0,
+                    survival: flags & welcome_flags::SURVIVAL != 0,
                 });
                 self.predict.set_field(bc_sim::field::Field::generate(field_seed, field_rocks));
                 self.phase = Phase::InGame;

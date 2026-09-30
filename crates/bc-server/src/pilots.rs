@@ -1,10 +1,11 @@
 //! Pilots who sign in with a wallet: their records, which session each is flying in, and the
 //! resume tokens that let them reconnect without signing again.
 //!
-//! Records go through a [`PilotStore`]. It's in memory for now ([`MemoryStore`]); a Redis or
-//! Mongo store implements the same two methods, and a [`PilotRecord`] is plain serde data so it
-//! can be kept as-is. None of this is on the sector's hot path: sessions call it around the
-//! handshake and teardown.
+//! Records go through a [`PilotStore`]: in memory ([`MemoryStore`]), or a JSON file per pilot in
+//! the server's data directory ([`FileStore`], `--data-dir`); a Redis or Mongo store implements
+//! the same two methods, and a [`PilotRecord`] is plain serde data so it can be kept as-is. None
+//! of this is on the sector's hot path: sessions call it around the handshake and teardown, and
+//! when their hangar changes.
 //!
 //! A signed-in pilot who leaves stays in the sector, asleep in the cockpit: the record keeps which
 //! suit. Sleepers live as long as this server run, and so does the news of what became of one
@@ -15,6 +16,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use bc_econ::Hangar;
 use bc_proto::auth::{Address, TOKEN_BYTES};
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
@@ -69,6 +71,10 @@ pub struct PilotRecord {
     pub sleeper: Option<Sleeper>,
     pub created_unix: u64,
     pub seen_unix: u64,
+    /// Survival: the pilot's hangar bay (credits, stores, the suit, the stations' queues). None
+    /// until they first come in, when they get the starter kit.
+    #[serde(default)]
+    pub hangar: Option<Hangar>,
 }
 
 impl PilotRecord {
@@ -82,6 +88,7 @@ impl PilotRecord {
             sleeper: None,
             created_unix: now,
             seen_unix: now,
+            hangar: None,
         }
     }
 }
@@ -108,6 +115,61 @@ impl PilotStore for MemoryStore {
         }
         Box::pin(async { Ok(()) })
     }
+}
+
+/// Records as JSON files, one per pilot, in a directory: they outlive the server.
+pub struct FileStore {
+    dir: std::path::PathBuf,
+}
+
+impl FileStore {
+    /// Keeps records in `dir` (made if it isn't there).
+    pub fn new(dir: impl Into<std::path::PathBuf>) -> anyhow::Result<Self> {
+        let dir = dir.into();
+        std::fs::create_dir_all(&dir)?;
+        Ok(Self { dir })
+    }
+
+    fn path(&self, address: &str) -> anyhow::Result<std::path::PathBuf> {
+        // Keys are `0x` and 40 hex digits: nothing else becomes a file name.
+        let ok = address.len() == 42
+            && address.starts_with("0x")
+            && address[2..].bytes().all(|b| b.is_ascii_hexdigit());
+        anyhow::ensure!(ok, "not a pilot key: {address:?}");
+        Ok(self.dir.join(format!("{address}.json")))
+    }
+}
+
+impl PilotStore for FileStore {
+    fn load(&self, address: &str) -> BoxFuture<'_, anyhow::Result<Option<PilotRecord>>> {
+        let path = self.path(address);
+        Box::pin(async move {
+            let path = path?;
+            tokio::task::spawn_blocking(move || match std::fs::read(&path) {
+                Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(e) => Err(e.into()),
+            })
+            .await?
+        })
+    }
+
+    fn save(&self, record: PilotRecord) -> BoxFuture<'_, anyhow::Result<()>> {
+        let path = self.path(&record.address);
+        Box::pin(async move {
+            let path = path?;
+            let bytes = serde_json::to_vec_pretty(&record)?;
+            tokio::task::spawn_blocking(move || write_atomically(&path, &bytes)).await?
+        })
+    }
+}
+
+/// Writes `bytes` to `path` so that a reader sees the old file or the new one, never half of it.
+pub fn write_atomically(path: &std::path::Path, bytes: &[u8]) -> anyhow::Result<()> {
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, bytes)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
 }
 
 /// A pilot's live session.
@@ -347,6 +409,22 @@ mod tests {
         p.tell(a, Fate::Destroyed { by: "Zechs".into() });
         assert_eq!(p.take_news(&a), Some(Fate::Destroyed { by: "Zechs".into() }));
         assert_eq!(p.take_news(&a), None);
+    }
+
+    #[tokio::test]
+    async fn records_survive_the_server_in_files() {
+        let dir = std::env::temp_dir().join(format!("bc-pilots-{}", std::process::id()));
+        let store = FileStore::new(&dir).unwrap();
+        let a = Address([6; 20]);
+        let mut r = PilotRecord::new(&a);
+        r.hangar = Some(Hangar::starter());
+        store.save(r.clone()).await.unwrap();
+        // Another server run, the same directory.
+        let again = FileStore::new(&dir).unwrap();
+        assert_eq!(again.load(&key(&a)).await.unwrap(), Some(r));
+        assert_eq!(again.load(&key(&Address([7; 20]))).await.unwrap(), None);
+        assert!(again.load("../etc/passwd").await.is_err());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]

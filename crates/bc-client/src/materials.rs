@@ -165,6 +165,8 @@ pub struct Surfaces {
     pub colony: Handle<HullMaterial>,
     /// The colony's mirrors: segments over a hundred metres across.
     pub mirror: Handle<HullMaterial>,
+    /// A hangar bay's walls, deck and machinery: plates a couple of metres across, well worn.
+    pub plating: Handle<HullMaterial>,
     pub rock: Handle<RockMaterial>,
     /// Keeps the shared WGSL library loaded, so shaders can import it.
     _noise: Handle<Shader>,
@@ -214,6 +216,7 @@ pub fn setup_materials(
         armour: hulls.add(hull(Vec4::new(1.1, 0.035, 0.6, 0.35))),
         colony: hulls.add(hull(Vec4::new(42.0, 0.6, 0.5, 0.35))),
         mirror: hulls.add(hull(Vec4::new(160.0, 1.2, 0.3, 0.05))),
+        plating: hulls.add(hull(Vec4::new(2.4, 0.03, 0.5, 0.7))),
         rock: rocks.add(ExtendedMaterial {
             base: StandardMaterial { perceptual_roughness: 0.9, ..default() },
             extension: RockExt {

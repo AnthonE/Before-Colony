@@ -17,6 +17,10 @@
   let autoplay = false;
   let toastSeq = 0;
   let toastTimer = null;
+  let newsSeq = 0;
+  let newsTimer = null;
+  // Survival rules (the server's /status says): the title has no frame to choose.
+  let survival = false;
 
   // --- Title screen. ---
   function renderFrames() {
@@ -193,23 +197,63 @@
 
     show($("pause"), s === "playing" && v.panel === "pause");
     // Signed in, leaving puts the pilot to sleep in the cockpit; a guest's suit goes with them.
-    $("disconnect-button").textContent = v.signedIn ? "SLEEP & DISCONNECT" : "DISCONNECT";
-    $("pause-who").textContent = !v.signedIn
-      ? "Flying as a guest: your suit is lost when you leave."
-      : (address ? `Signed in as ${short(address)}. ` : "Signed in. ") + (v.parkable
-        ? "You're resting on an asteroid: your suit stays parked here while you sleep, hidden from sensors beyond 400 m."
-        : "Your suit stays out here while you sleep, drifting on as it was. Rest against an asteroid to park it.");
+    $("disconnect-button").textContent = v.place === "hangar" ? "LEAVE THE BAY" : v.signedIn ? "SLEEP & DISCONNECT" : "DISCONNECT";
+    const who = address ? `Signed in as ${short(address)}. ` : "Signed in. ";
+    if (v.place === "hangar") {
+      $("pause-who").textContent = v.signedIn
+        ? who + "Your hangar is kept while you're away: its stores, its suit, its jobs, your orders on the exchange."
+        : "Playing as a guest: your hangar, and everything in it, is gone when you leave. Connect a wallet to keep it.";
+    } else {
+      $("pause-who").textContent = !v.signedIn
+        ? "Flying as a guest: your suit is lost when you leave."
+        : who + (v.parkable
+          ? "You're resting on an asteroid: your suit stays parked here while you sleep, hidden from sensors beyond 400 m."
+          : "Your suit stays out here while you sleep, drifting on as it was. Rest against an asteroid to park it.");
+    }
     show($("settings"), v.panel === "settings");
     const hint = $("hint");
     hint.textContent = v.hint || "";
     show(hint, s === "playing" && !!v.hint && v.panel === "none");
     show($("help"), v.help);
-    show($("prompt"), s === "playing" && v.clickToFly && !v.help);
-    $("prompt-main").textContent = v.refused ? "CLICK AGAIN TO FLY" : "CLICK TO FLY";
+    show($("prompt"), s === "playing" && v.clickToFly && !v.help && !v.sequence);
+    const verb = v.place === "hangar" && v.onFoot ? "WALK" : "FLY";
+    $("prompt-main").textContent = v.refused ? `CLICK AGAIN TO ${verb}` : `CLICK TO ${verb}`;
+
+    // Survival rules: on foot in the hangar bay, its line, a dot to aim by, and what can be used.
+    const playing = s === "playing";
+    show($("onfoot"), playing && !!v.bayLine && v.panel === "none");
+    $("bay-line").textContent = v.bayLine || "";
+    show($("dot"), playing && v.onFoot && !v.clickToFly);
+    const use = $("use");
+    use.textContent = v.prompt || "";
+    show(use, playing && !!v.prompt && v.panel === "none" && !v.help);
+    // A terminal: opened on the tab of the one used; the book stops coming when it closes.
+    const termOpen = playing && v.panel === "terminal";
+    show($("terminal"), termOpen);
+    if (termOpen && !terminalShown) {
+      terminalShown = true;
+      openTab(v.terminal || tab);
+    } else if (!termOpen && terminalShown) {
+      terminalShown = false;
+      watch("");
+    }
+    // A sortie's news.
+    if (v.newsSeq !== newsSeq) {
+      newsSeq = v.newsSeq;
+      if (v.news) {
+        const n = $("news");
+        n.textContent = v.news;
+        n.classList.toggle("bad", !!v.newsBad);
+        show(n, true);
+        clearTimeout(newsTimer);
+        newsTimer = setTimeout(() => show(n, false), 5000);
+      }
+    }
 
     if (v.toastSeq !== toastSeq) {
       toastSeq = v.toastSeq;
-      if (v.toast) {
+      // Over a terminal its log says it (the toast would cover its tabs).
+      if (v.toast && v.panel !== "terminal") {
         const t = $("toast");
         t.textContent = v.toast;
         show(t, true);
@@ -300,7 +344,409 @@
     }
   }
 
-  window.bcUi = { init, update, settings: renderSettings };
+  // --- The hangar's terminals (survival rules). The game sends the catalogue once and the pilot's
+  // hangar whenever the server's word on it changes (crates/bc-client/src/terminal.rs); what the
+  // pilot asks for goes back as {cmd: "hangar", req}, a request the server checks and answers. ---
+  let catalogue = { items: [], recipes: [], lines: [], parts: [], fee_bp: 0 };
+  const items = new Map();
+  const lines = new Map();
+  let hangar = null;
+  let tab = "fabricator";
+  let terminalShown = false;
+  let fabFilter = "materials";
+  let exFilter = "goods";
+  let watching = "";
+  let side = "buy";
+  // What the pilot is typing, by field (a re-render keeps it).
+  const drafts = {};
+  const ask = (req) => send("hangar", { req });
+
+  const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const fmt = (n) => Number(n || 0).toLocaleString("en-US");
+  const nameOf = (slug) => items.get(slug)?.name || slug;
+  const isBulk = (slug) => !!items.get(slug)?.bulk;
+  const amount = (slug, qty) => (isBulk(slug) ? `${fmt(qty)} kg` : fmt(qty));
+  const unit = (slug) => (isBulk(slug) ? "CR/t" : "CR");
+  const worth = (slug, price, qty) => Math.floor(isBulk(slug) ? (price * qty) / 1000 : price * qty);
+  const secs = (s) =>
+    s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m` : s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
+  const partName = (slug) => catalogue.parts.find((p) => p.slug === slug)?.name || slug;
+  const stockOf = (slug) => {
+    const v = hangar?.view;
+    if (!v) return 0;
+    const it = items.get(slug);
+    if (it?.kind === "part") return v.parts.filter((u) => u.line === it.line && u.part === it.part).length;
+    const e = v.stock.find(([i]) => i === slug);
+    return e ? e[1] : 0;
+  };
+  const draft = (key, dflt) => (key in drafts ? drafts[key] : dflt);
+  const button = (label, attrs, cls) =>
+    `<button type="button" ${cls ? `class="${cls}"` : ""} ${Object.entries(attrs).map(([k, v]) => `data-${k}="${esc(v)}"`).join(" ")}>${label}</button>`;
+  const input = (key, value, extra) => `<input data-key="${esc(key)}" value="${esc(value)}" ${extra || ""}>`;
+  const bar = (pct) => `<span class="bar ${pct < 35 ? "bad" : pct < 75 ? "worn" : ""}"><i style="width:${Math.max(2, pct)}%"></i></span>${pct}%`;
+
+  function catalogueIn(json) {
+    catalogue = JSON.parse(json);
+    items.clear();
+    for (const it of catalogue.items) items.set(it.slug, it);
+    lines.clear();
+    for (const l of catalogue.lines) lines.set(l.slug, l);
+    if (terminalShown) renderTerminal();
+  }
+
+  function hangarIn(json) {
+    hangar = JSON.parse(json);
+    if (terminalShown) renderTerminal();
+  }
+
+  // The fabricator: what can be made (materials, each line's parts, weapons), and the queues.
+  function renderFabricator() {
+    const filters = [["materials", "MATERIALS"], ...catalogue.lines.map((l) => [l.slug, l.name.toUpperCase()]), ["weapons", "WEAPONS"]];
+    let out = `<div class="filters">${filters
+      .map(([f, label]) => button(label, { act: "fab-filter", f }, fabFilter === f ? "active" : ""))
+      .join("")}</div>`;
+    const shown = catalogue.recipes.filter((r) => {
+      const it = items.get(r.output);
+      if (!it) return false;
+      if (fabFilter === "materials") return it.kind === "material";
+      if (fabFilter === "weapons") return it.kind === "weapon";
+      return it.kind === "part" && it.line === fabFilter;
+    });
+    const line = lines.get(fabFilter);
+    if (line?.gundam) {
+      out += `<div class="status warn">GUNDAM TECHNOLOGY. Its armour is gundanium, which only the colony's zero-G foundry can make, and the colony won't trade it: OZ is hunting for it. Only pilots buy and sell it.</div>`;
+    }
+    out += `<table><tr><th>MAKES</th><th>A BATCH NEEDS</th><th>WHERE</th><th class="num">TIME</th><th class="num">BATCHES</th><th></th></tr>`;
+    for (const r of shown) {
+      const key = `batches:${r.output}`;
+      const n = Math.max(1, Math.floor(Number(draft(key, "1")) || 1));
+      const needs = r.inputs
+        .map(([slug, q]) => `<span class="${stockOf(slug) >= q * n ? "have" : "short"}">${amount(slug, q)} ${esc(nameOf(slug))}</span>`)
+        .join(", ");
+      const fee = r.fee ? ` · ${fmt(r.fee)} CR` : "";
+      const g = items.get(r.output)?.gundam ? " gundam" : "";
+      out += `<tr><td class="${g}">${amount(r.output, r.makes)} ${esc(nameOf(r.output))}</td><td>${needs}</td>` +
+        `<td class="dim">${esc(r.station_name)}${fee}</td><td class="num">${secs(r.secs)}</td>` +
+        `<td class="num">${input(key, draft(key, "1"), 'inputmode="numeric" size="4"')}</td>` +
+        `<td class="act">${button("MAKE", { act: "make", item: r.output })}</td></tr>`;
+    }
+    out += `</table>`;
+    const jobs = hangar?.view?.jobs || [];
+    out += `<section><h3>QUEUES</h3>`;
+    if (!jobs.length) out += `<div class="note">Nothing being made.</div>`;
+    else {
+      out += `<table><tr><th>WHERE</th><th>MAKING</th><th class="num">BATCHES</th><th class="num">DONE IN</th><th></th></tr>`;
+      const index = {};
+      for (const j of jobs) {
+        const k = (index[j.station] = (index[j.station] ?? -1) + 1);
+        out += `<tr><td class="dim">${esc(j.station === "foundry" ? "Zero-G foundry" : "Fabricator")}</td>` +
+          `<td>${esc(nameOf(j.item))}</td><td class="num">${j.done}/${j.batches}</td><td class="num">${secs(j.secs_left)}</td>` +
+          `<td class="act">${button("CANCEL", { act: "cancel-job", station: j.station, index: k })}</td></tr>`;
+      }
+      out += `</table>`;
+    }
+    return out + `</section>`;
+  }
+
+  // The stores: bulk goods, weapons, and parts one by one.
+  function renderStores() {
+    const v = hangar?.view;
+    if (!v) return `<div class="note">Waiting for the stores' inventory…</div>`;
+    const fits = new Set(hangar.console?.fits || []);
+    let out = `<section><h3>GOODS</h3><table><tr><th>ITEM</th><th class="num">HELD</th><th class="num">COLONY VALUE</th><th></th></tr>`;
+    const goods = v.stock.filter(([slug]) => isBulk(slug));
+    if (!goods.length) out += `<tr><td colspan="4" class="dim">None.</td></tr>`;
+    for (const [slug, qty] of goods) {
+      out += `<tr><td>${esc(nameOf(slug))}</td><td class="num">${amount(slug, qty)}</td>` +
+        `<td class="num dim">${fmt(items.get(slug)?.value)} ${unit(slug)}</td>` +
+        `<td class="act">${button("SELL", { act: "sell", item: slug })}</td></tr>`;
+    }
+    out += `</table></section><section><h3>WEAPONS</h3><table><tr><th>ITEM</th><th class="num">HELD</th><th></th></tr>`;
+    const weapons = v.stock.filter(([slug]) => items.get(slug)?.kind === "weapon");
+    if (!weapons.length) out += `<tr><td colspan="3" class="dim">None.</td></tr>`;
+    for (const [slug, qty] of weapons) {
+      out += `<tr><td>${esc(nameOf(slug))}</td><td class="num">${fmt(qty)}</td><td class="act">` +
+        (fits.has(slug) ? button("FIT", { act: "fit", item: slug }) + " " : "") +
+        button("SCRAP", { act: "scrap", item: slug }) + " " + button("SELL", { act: "sell", item: slug }) + `</td></tr>`;
+    }
+    out += `</table></section><section><h3>PARTS</h3><table><tr><th>PART</th><th>CONDITION</th><th></th></tr>`;
+    const parts = [...v.parts].sort((a, b) => (a.line + a.part).localeCompare(b.line + b.part) || b.condition - a.condition);
+    if (!parts.length) out += `<tr><td colspan="3" class="dim">None.</td></tr>`;
+    for (const u of parts) {
+      const slug = `part.${u.line}.${u.part}`;
+      out += `<tr><td class="${items.get(slug)?.gundam ? "gundam" : ""}">${esc(nameOf(slug))}</td><td>${bar(u.condition)}</td><td class="act">` +
+        (fits.has(slug) ? button("FIT", { act: "fit", item: slug }) + " " : "") +
+        button("SCRAP", { act: "scrap", item: slug }) + " " + button("SELL", { act: "sell", item: slug }) + `</td></tr>`;
+    }
+    return out + `</table></section>`;
+  }
+
+  // The suit's maintenance console: what's fitted, what could be, repairs, and the launch check.
+  function renderSuit() {
+    const v = hangar?.view;
+    if (!v) return `<div class="note">Waiting for the bay…</div>`;
+    const con = hangar.console || {};
+    const fits = new Set(con.fits || []);
+    const bay = v.bay;
+    if (bay.state === "out") {
+      return `<div class="status warn">YOUR ${esc(lines.get(bay.suit.line)?.name.toUpperCase())} IS OUT IN THE SECTOR. Bring it home: at rest inside the dock's ring of lights, press Enter.</div>`;
+    }
+    if (bay.state === "empty") {
+      let out = `<div class="status bad">THE GANTRY IS EMPTY. A suit starts with its torso: fit one from the stores, or make one at the fabricator.</div><div class="slots">`;
+      for (const slug of fits) {
+        out += `<div class="slot"><div class="what">${esc(nameOf(slug))}</div><div>${button("FIT: A NEW SUIT", { act: "fit", item: slug })}</div></div>`;
+      }
+      return out + `</div>`;
+    }
+    const suit = bay.suit;
+    const line = lines.get(suit.line);
+    let out = con.launch
+      ? `<div class="status bad">NOT READY TO LAUNCH: ${esc(con.launch)}.</div>`
+      : `<div class="status">READY TO LAUNCH. Climb the stairs to the catwalk and board at the cockpit hatch (E). The tank and the magazines are topped up from the stores as it goes.</div>`;
+    out += `<h3>${esc(line?.name.toUpperCase() || suit.line)}${line?.gundam ? " · GUNDAM" : ""}</h3><div class="slots">`;
+    catalogue.parts.forEach((p, k) => {
+      const c = suit.parts[k];
+      const slug = `part.${suit.line}.${p.slug}`;
+      if (c == null) {
+        out += `<div class="slot empty"><div class="what">${esc(p.name.toUpperCase())}: NOT FITTED</div><div>` +
+          (fits.has(slug) ? button("FIT", { act: "fit", item: slug }) : `<span class="note">none in the stores</span>`) + `</div></div>`;
+        return;
+      }
+      const rep = (con.repairs || []).find((r) => r.part === p.slug);
+      const cost = rep ? rep.cost.map(([s, q]) => `${amount(s, q)} ${esc(nameOf(s))}`).join(", ") : "";
+      out += `<div class="slot"><div class="what">${esc(p.name.toUpperCase())}</div><div>${bar(c)}</div><div>` +
+        (rep ? button("REPAIR", { act: "repair", part: p.slug }) + " " : "") +
+        button("STRIP", { act: "strip-part", part: p.slug }) + `</div>` +
+        (rep ? `<div class="note">repair: ${cost}</div>` : "") + `</div>`;
+    });
+    (line?.mounts || []).forEach((m, k) => {
+      if (!m) return;
+      if (!suit.mounts[k]) {
+        out += `<div class="slot empty"><div class="what">${esc(m.name.toUpperCase())}: NOT FITTED</div><div>` +
+          (fits.has(m.weapon) ? button("FIT", { act: "fit", item: m.weapon }) : `<span class="note">none in the stores</span>`) + `</div></div>`;
+        return;
+      }
+      const rounds = m.rounds ? `${fmt(suit.ammo[k])}/${fmt(m.rounds)} rounds` : "no rounds to load";
+      out += `<div class="slot"><div class="what">${esc(m.name.toUpperCase())}</div><div class="note">${rounds}</div><div>` +
+        button("STRIP", { act: "strip-mount", mount: k }) + `</div></div>`;
+    });
+    const tank = line?.tank || 0;
+    const stores = stockOf("mat.propellant");
+    out += `<div class="slot"><div class="what">PROPELLANT</div><div>${bar(Math.round((100 * suit.propellant) / Math.max(1, tank)))}</div>` +
+      `<div class="note">${fmt(suit.propellant)}/${fmt(tank)} kg · ${fmt(stores)} kg in the stores</div></div></div>`;
+    out += `<div class="row">` + ((con.repairs || []).length ? button("REPAIR ALL", { act: "repair", part: "" }) : "") +
+      button("DISMANTLE", { act: "dismantle" }) + `<span class="note">Dismantling puts everything back in the stores.</span></div>`;
+    return out;
+  }
+
+  // The Colony Exchange: quotes, the watched item's book and history, the order form, and the
+  // pilot's orders.
+  function renderExchange() {
+    const m = hangar?.market;
+    if (!m) return `<div class="note">Waiting for the exchange…</div>`;
+    const filters = [["goods", "RAW & MATERIALS"], ["parts", "PARTS"], ["weapons", "WEAPONS"]];
+    let left = `<div class="filters">${filters
+      .map(([f, label]) => button(label, { act: "ex-filter", f }, exFilter === f ? "active" : ""))
+      .join("")}</div><table><tr><th>ITEM</th><th class="num">BID</th><th class="num">ASK</th><th class="num">LAST</th><th class="num">VOL</th></tr>`;
+    for (const q of m.quotes) {
+      const it = items.get(q.item);
+      if (!it) continue;
+      const kind = it.kind === "ore" || it.kind === "material" ? "goods" : it.kind === "part" ? "parts" : "weapons";
+      if (kind !== exFilter) continue;
+      const quiet = q.bid == null && q.ask == null && !q.volume && !stockOf(q.item);
+      if (kind === "parts" && quiet) continue;
+      left += `<tr class="pick${q.item === watching ? " chosen" : ""}" data-act="watch" data-item="${esc(q.item)}">` +
+        `<td class="${it.gundam ? "gundam" : ""}">${esc(it.name)}</td>` +
+        `<td class="num bid">${q.bid != null ? fmt(q.bid) : "-"}</td><td class="num ask">${q.ask != null ? fmt(q.ask) : "-"}</td>` +
+        `<td class="num">${q.last != null ? fmt(q.last) : "-"}</td><td class="num dim">${fmt(q.volume)}</td></tr>`;
+    }
+    left += `</table><div class="note">Prices in credits a tonne for goods, a piece for parts and weapons.</div>`;
+
+    let right = `<div class="note">Pick something to trade.</div>`;
+    if (watching && items.has(watching)) {
+      const it = items.get(watching);
+      const q = m.quotes.find((x) => x.item === watching) || {};
+      const book = hangar.book && hangar.book.depth.item === watching ? hangar.book : null;
+      right = `<h3>${esc(it.name.toUpperCase())}</h3><div class="note">` +
+        (it.gundam ? "Gundam technology: pilots only; the colony won't touch it." : it.colony_buys || it.colony_sells
+          ? `The colony ${it.colony_buys && it.colony_sells ? "buys and sells" : it.colony_buys ? "buys" : "sells"} it; its prices follow its stock.`
+          : "Pilots only.") + ` You hold ${amount(watching, stockOf(watching))}.</div>`;
+      const hist = book?.history || [];
+      if (hist.length > 1) {
+        const lo = Math.min(...hist), hi = Math.max(...hist), span = Math.max(1, hi - lo);
+        const pts = hist.map((p, i) => `${((i / (hist.length - 1)) * 100).toFixed(1)},${(55 - ((p - lo) / span) * 50).toFixed(1)}`).join(" ");
+        right += `<svg class="spark" viewBox="0 0 100 60" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="#9fe8ff" stroke-width="1" vector-effect="non-scaling-stroke"/></svg>` +
+          `<div class="note">last hour: ${fmt(lo)}–${fmt(hi)} ${unit(watching)}</div>`;
+      }
+      const levels = (list, cls) =>
+        `<table>${(list || []).slice(0, 8).map((l) => `<tr><td class="num ${cls}">${fmt(l.price)}</td><td class="num">${amount(watching, l.qty)}</td><td class="dim">${l.colony ? "colony" : ""}</td></tr>`).join("") || `<tr><td class="dim">none</td></tr>`}</table>`;
+      right += `<div class="book"><div><h3>BIDS</h3>${levels(book?.depth.bids, "bid")}</div><div><h3>ASKS</h3>${levels(book?.depth.asks, "ask")}</div></div>`;
+      const dfltPrice = side === "buy" ? q.ask ?? q.last ?? it.value : q.bid ?? q.last ?? it.value;
+      const priceKey = `price:${side}:${watching}`;
+      const qtyKey = `qty:${side}:${watching}`;
+      const dfltQty = side === "sell" ? Math.min(stockOf(watching), it.bulk ? 1000 : 1) || (it.bulk ? 1000 : 1) : it.bulk ? 1000 : 1;
+      const price = Math.max(0, Math.floor(Number(draft(priceKey, String(dfltPrice || 0))) || 0));
+      const qty = Math.max(0, Math.floor(Number(draft(qtyKey, String(dfltQty))) || 0));
+      const total = worth(watching, price, qty);
+      const fee = side === "sell" ? Math.floor((total * (m.fee_bp || 0)) / 10000) : 0;
+      right += `<div class="form">${button("BUY", { act: "side", side: "buy" }, side === "buy" ? "primary" : "")}` +
+        button("SELL", { act: "side", side: "sell" }, side === "sell" ? "primary" : "") + `</div>` +
+        `<div class="form"><label>PRICE ${input(priceKey, draft(priceKey, String(dfltPrice || 0)), 'inputmode="numeric"')} ${unit(watching)}</label>` +
+        `<label>${it.bulk ? "KG" : "PIECES"} ${input(qtyKey, draft(qtyKey, String(dfltQty)), 'inputmode="numeric"')}</label>` +
+        `<label><input type="checkbox" data-key="rest" ${draft("rest", true) ? "checked" : ""}> REST ON THE BOOK</label></div>` +
+        `<div class="form">${button(side === "buy" ? "PLACE BUY ORDER" : "PLACE SELL ORDER", { act: "order" }, "primary")}` +
+        `<span class="note">${side === "buy" ? `up to ${fmt(total)} CR held until it fills` : `${fmt(total)} CR less a ${fmt(fee)} CR fee`}` +
+        `${draft("rest", true) ? "; what doesn't fill at once waits on the book" : "; what doesn't fill at once is handed back"}</span></div>`;
+    }
+    let orders = `<section><h3>YOUR ORDERS</h3>`;
+    if (!m.orders.length) orders += `<div class="note">None resting.</div>`;
+    else {
+      orders += `<table><tr><th>ITEM</th><th>SIDE</th><th class="num">PRICE</th><th class="num">LEFT</th><th></th></tr>`;
+      for (const o of m.orders) {
+        orders += `<tr><td>${esc(nameOf(o.item))}</td><td class="${o.side === "buy" ? "bid" : "ask"}">${o.side.toUpperCase()}</td>` +
+          `<td class="num">${fmt(o.price)} ${unit(o.item)}</td><td class="num">${amount(o.item, o.qty)}</td>` +
+          `<td class="act">${button("CANCEL", { act: "cancel-order", id: o.id })}</td></tr>`;
+      }
+      orders += `</table>`;
+    }
+    orders += `</section>`;
+    return `<div class="split"><div>${left}</div><div>${right}${orders}</div></div>`;
+  }
+
+  // Replacing a focused field blurs it, and a blur can fire events that would render again from
+  // inside this render: once at a time.
+  let rendering = false;
+  function renderTerminal() {
+    if (rendering) return;
+    rendering = true;
+    try {
+      drawTerminal();
+    } finally {
+      rendering = false;
+    }
+  }
+
+  function drawTerminal() {
+    for (const b of document.querySelectorAll("[data-tab]")) b.classList.toggle("active", b.dataset.tab === tab);
+    $("term-credits").textContent = hangar?.view ? `${fmt(hangar.view.credits)} CR` : "";
+    // Keep the field being typed in.
+    const active = document.activeElement;
+    const key = active && active.dataset ? active.dataset.key : null;
+    const caret = key && typeof active.selectionStart === "number" ? active.selectionStart : null;
+    const body = $("term-body");
+    const scroll = body.scrollTop;
+    const render = { fabricator: renderFabricator, stores: renderStores, suit: renderSuit, exchange: renderExchange }[tab];
+    body.innerHTML = render ? render() : "";
+    body.scrollTop = scroll;
+    if (key) {
+      const el = body.querySelector(`[data-key="${CSS.escape(key)}"]`);
+      if (el) {
+        el.focus();
+        if (caret != null && el.setSelectionRange) el.setSelectionRange(caret, caret);
+      }
+    }
+    const log = $("term-log");
+    log.innerHTML = (hangar?.log || [])
+      .slice()
+      .reverse()
+      .map(([text, ok]) => `<div class="${ok ? "ok" : "no"}">${esc(ok ? text : `CAN'T: ${String(text).toUpperCase()}`)}</div>`)
+      .join("");
+  }
+
+  function watch(slug) {
+    if (slug === watching) return;
+    watching = slug;
+    ask({ t: "watch", item: slug || null });
+  }
+
+  function openTab(t) {
+    tab = t;
+    if (t === "exchange" && !watching) {
+      const held = hangar?.view?.stock?.find(([s]) => isBulk(s));
+      watch(held ? held[0] : "ore.nickel_iron");
+    }
+    renderTerminal();
+  }
+
+  function onTerminalClick(e) {
+    const el = e.target instanceof Element ? e.target.closest("[data-act]") : null;
+    if (!el) return;
+    const d = el.dataset;
+    switch (d.act) {
+      case "fab-filter":
+        fabFilter = d.f;
+        break;
+      case "ex-filter":
+        exFilter = d.f;
+        break;
+      case "make": {
+        const n = Math.max(1, Math.floor(Number(draft(`batches:${d.item}`, "1")) || 1));
+        ask({ t: "craft", item: d.item, batches: n });
+        return;
+      }
+      case "cancel-job":
+        ask({ t: "cancel_job", station: d.station, index: Number(d.index) });
+        return;
+      case "fit":
+        ask({ t: "fit", item: d.item });
+        return;
+      case "scrap":
+        ask({ t: "scrap", item: d.item });
+        return;
+      case "strip-part":
+        ask({ t: "strip", slot: { kind: "part", part: d.part } });
+        return;
+      case "strip-mount":
+        ask({ t: "strip", slot: { kind: "mount", mount: Number(d.mount) } });
+        return;
+      case "repair":
+        ask(d.part ? { t: "repair", part: d.part } : { t: "repair" });
+        return;
+      case "dismantle":
+        if (confirm("Strip the suit bare, torso and all, into the stores?")) ask({ t: "dismantle" });
+        return;
+      case "sell":
+        side = "sell";
+        exFilter = items.get(d.item)?.kind === "part" ? "parts" : items.get(d.item)?.kind === "weapon" ? "weapons" : "goods";
+        watch(d.item);
+        tab = "exchange";
+        break;
+      case "watch":
+        watch(d.item);
+        break;
+      case "side":
+        side = d.side;
+        break;
+      case "order": {
+        const it = items.get(watching);
+        if (!it) return;
+        const q = hangar?.market?.quotes.find((x) => x.item === watching) || {};
+        const dfltPrice = side === "buy" ? q.ask ?? q.last ?? it.value : q.bid ?? q.last ?? it.value;
+        const price = Math.floor(Number(draft(`price:${side}:${watching}`, String(dfltPrice || 0))) || 0);
+        const dfltQty = side === "sell" ? Math.min(stockOf(watching), it.bulk ? 1000 : 1) || (it.bulk ? 1000 : 1) : it.bulk ? 1000 : 1;
+        const qty = Math.floor(Number(draft(`qty:${side}:${watching}`, String(dfltQty))) || 0);
+        if (price <= 0 || qty <= 0) return;
+        ask({ t: "order", item: watching, side, price, qty, rest: !!draft("rest", true) });
+        return;
+      }
+      case "cancel-order":
+        ask({ t: "cancel_order", id: Number(d.id) });
+        return;
+      default:
+        return;
+    }
+    renderTerminal();
+  }
+
+  function onTerminalInput(e) {
+    const el = e.target;
+    if (!(el instanceof HTMLInputElement) || !el.dataset.key) return;
+    drafts[el.dataset.key] = el.type === "checkbox" ? el.checked : el.value;
+    // Totals follow what's typed; the field itself is kept as it is.
+    if (tab === "exchange" || tab === "fabricator") renderTerminal();
+  }
+
+  window.bcUi = { init, update, settings: renderSettings, catalogue: catalogueIn, hangar: hangarIn };
 
   // --- What the player does. ---
   document.addEventListener("DOMContentLoaded", () => {
@@ -333,6 +779,21 @@
         showWallet();
       });
     }
+    // The terminals: one listener for all their buttons and fields.
+    $("term-body").addEventListener("click", onTerminalClick);
+    $("term-body").addEventListener("input", onTerminalInput);
+    for (const b of document.querySelectorAll("[data-tab]")) {
+      b.addEventListener("click", () => openTab(b.dataset.tab));
+    }
+    // Survival rules: nothing to choose on the title but a callsign.
+    fetch("/status", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((st) => {
+        survival = !!st && (st.game?.rules ?? st.rules) === "survival";
+        show($("frames-field"), !survival);
+        show($("survival-field"), survival);
+      })
+      .catch(() => {});
     $("title-controls").addEventListener("click", () => send("help", { show: true }));
     $("title-settings").addEventListener("click", () => send("settings", { show: true }));
     $("reload").addEventListener("click", () => location.reload());
@@ -382,6 +843,12 @@
       if (e.key === "F1") {
         e.preventDefault();
         if (!e.repeat) send("help");
+      } else if ((e.key === "e" || e.key === "E") && !e.repeat && view.panel === "terminal" &&
+        !(e.target instanceof HTMLInputElement)) {
+        // E again steps away from the terminal.
+        e.preventDefault();
+        send("resume");
+        canvas()?.focus();
       } else if (e.key === "Escape" && !e.repeat) {
         send(view.screen === "connecting" ? "cancel" : "back");
       }

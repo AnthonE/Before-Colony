@@ -63,7 +63,9 @@ impl Sim {
             if pressed(JETTISON) {
                 self.spill(i, t, false);
             }
-            if self.docked(i) {
+            // Arcade rules: the dock buys the hold and fills the tank. Under survival rules the
+            // dock is the way into the hangar bay, which does both (`Sim::dock`).
+            if !self.cfg.survival && self.docked(i) {
                 self.sell(i);
                 self.refuel(i);
             }

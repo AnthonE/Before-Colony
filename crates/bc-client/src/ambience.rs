@@ -229,6 +229,8 @@ pub fn setup_ambience(
 pub fn update_ambience(
     time: Res<VisTime>,
     gfx: Res<Gfx>,
+    indoors: Res<crate::hangar::Indoors>,
+    mut dust_vis: Query<&mut Visibility, With<Dust>>,
     cams: Query<&GlobalTransform, With<MainCamera>>,
     suns: Query<&DirectionalLight, With<Sun>>,
     windows: Query<&Window, With<PrimaryWindow>>,
@@ -245,6 +247,13 @@ pub fn update_ambience(
         _ => Vec3::ZERO,
     };
     *last = Some(eye);
+    // No dust in the hangar bay.
+    for mut v in &mut dust_vis {
+        let want = if indoors.0 { Visibility::Hidden } else { Visibility::Inherited };
+        if *v != want {
+            *v = want;
+        }
+    }
     for d in &dusts {
         if let Some(mut m) = dust_materials.get_mut(&d.0) {
             // Teleports (respawns, camera cuts) would streak across the whole box.

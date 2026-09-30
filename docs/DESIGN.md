@@ -235,8 +235,9 @@ can take.
 
 ## Salvage
 
-Battles leave wreckage, and wreckage is worth money. Credits carry across respawns, and a
-signed-in pilot keeps them from one session to the next (a guest's go with them).
+Battles leave wreckage, and wreckage is worth money. Under survival rules what's brought home
+goes to the pilot's stores (below); under arcade rules the dock buys it, and credits carry across
+respawns (a signed-in pilot keeps them from one session to the next; a guest's go with them).
 
 - **Grab** (G toggles it): the free hand (the left, unless it's gone) closes on the nearest free
   chunk within 8 m of reach that is moving at no more than 12 m/s relative to you, and holds it.
@@ -250,8 +251,9 @@ signed-in pilot keeps them from one session to the next (a guest's go with them)
   towing a 6 t hulk has about 60% of its usual acceleration, and turns slower too. Parts shot off
   make it lighter.
 - **The dock** is just off the mouth of the docking hub at the colony's −X end, inside a ring of
-  amber lights. It tops up your propellant. Arrive slower than
-  25 m/s and the hold, and whatever is in hand, sells: nickel-iron 1 credit/kg, titanium 4,
+  amber lights. Under survival rules, Enter at rest inside it takes the suit into its bay, and
+  everything aboard with it. Under arcade rules it tops up your propellant, and arriving slower
+  than 25 m/s sells the hold and whatever is in hand: nickel-iron 1 credit/kg, titanium 4,
   volatiles 3, exotics 15. Suit parts sell as titanium, except a Gundam's (gundanium, sold with the
   exotics).
 - **Dying** spills the hold and drops what you were holding; someone else can pick it up.
@@ -271,6 +273,99 @@ show which, and thin as the ore is taken. A rock of radius r m has 60 + 25r of s
   as they're worked.
 - **Hulks come apart.** A blade's stroke through a hulk cuts off the part nearest the blade, which
   drifts free as a limb small enough to stow.
+
+## Survival: you build your suit (Milestone 3)
+
+The default rules (`--rules survival`; `--rules arcade` keeps the old game, any frame and free
+respawns). Nobody is handed a Gundam. A pilot starts on foot in their own **hangar bay** in the
+colony's docking hub, with a worn-out Leo in the gantry (its beam rifle missing, the tank half
+full), a little steel, propellant and munitions, and 2,000 credits. Everything better is built
+from ore, salvaged from wrecks, or bought from other pilots, and what's flown out can be lost.
+
+**How hard a good suit is.** In the colony's own prices, a new Leo is about 41,000 credits of parts
+and weapons: some 10 t of ore (mostly nickel-iron and titanium) and an hour of fabricator time. A
+Gundam is 175,000–223,000: 10–13 t of titanium ore, 2.4–3.4 t of exotic metals (a Leo's hold
+carries 3 t of anything), 3½–4½ hours of fabricator time, and 15,000–20,000 credits of foundry
+fees for its gundanium, which only the colony's zero-G foundry can make. The colony won't trade
+Gundam technology at all (OZ is hunting for it): gundanium, and the Gundams' parts and weapons,
+change hands only between pilots.
+
+### The hangar bay (first person)
+
+The bay (34 × 48 m, 30 m high) hangs in the hub's spin ring at 0.7 g. The suit stands in the
+middle in a yellow gantry, facing the bay doors it launches through; a catwalk crosses in front of
+its chest at the cockpit hatch, reached by the stairs along the left wall. The pilot walks it in
+first person (a 0.6 × 1.8 m body that steps up stairs, jumps and falls: `bc_client_core::walker`,
+the same code the agents walk with), and uses things by looking at them within reach (E):
+
+- **The fabricator** (right wall): ore into materials, materials into parts and weapons. Jobs queue
+  and run on the wall clock, so they finish while the pilot is out flying, or away.
+- **The stores' racks** (right wall, forward): bulk goods by the kilogram, weapons, and suit parts
+  one by one with their condition.
+- **The Colony Exchange terminal** (left, by the doors).
+- **The suit's maintenance console** (by its feet): fit and strip parts and weapons, repair,
+  dismantle, and whether the suit would launch.
+- **The cockpit hatch** (on the catwalk): board and launch.
+- **The airlock** (left wall): the way out of the bay (leave the game).
+
+The terminals are panels on the page over the live bay. Everything they show is the server's word,
+and everything they do is a request the server checks (`bc_econ::wire`).
+
+### Building a suit
+
+A suit is its **torso** (the cockpit and the reactor) plus whatever else is fitted: head, arms,
+legs (without them it can't walk, but in space it flies), backpack (the main thrusters), and a
+weapon on each of its line's mounts, which hang on their arm. A torso fitted into an empty bay
+starts a new suit; parts fit only their own line. Each part keeps its **condition** (1–100%),
+which is its armour when it launches; a part shot off in the sector comes home missing, its weapon
+with it. A suit launches with what's fitted, as worn as it is, its tank and magazines topped up
+from the stores.
+
+- **Materials** (fabricator): steel (nickel-iron), titanium alloy (titanium, a little volatiles),
+  propellant (volatiles), electronics (exotic metals and steel), munitions (steel and volatiles).
+  **Gundanium** (titanium alloy and exotic metals) only at the zero-G foundry, 400 credits a batch.
+- **Parts** take structure (steel), armour (titanium alloy, or gundanium for a Gundam) and wiring
+  (electronics) in proportion to their mass, plus their systems: the ZERO System in Wing Zero's
+  torso, its wings, the Hyper Jammer, Full Open's gatlings and pods, the Cross Crusher's arms.
+- **Repairs** cost 60% of a part's materials, pro rata; **scrapping** a part or a weapon gives back
+  half of what went into it, as worn as it was.
+- **Salvage** docked in the hold comes home as ore, or as parts: a limb at 15% condition, each
+  part still on a hulk at 40%. Parts of lines nobody can build (a Mobile Doll's) are scrap metal.
+
+### The Colony Exchange
+
+An order book per item. Pilots place limit orders; an order that crosses trades at once at the
+resting price (best first, oldest first), and the rest waits on the book or is handed back.
+Resting orders hold their goods or credits in escrow, and fills wait in the trader's account until
+they're next in their bay, so orders fill while their owners are away. Prices are credits a tonne
+for bulk goods, a piece for everything else.
+
+- **The colony** trades too, from a desk per item it deals in: it buys all the raw ore it can get,
+  sells propellant cheap, and deals in materials, ordinary parts and weapons. Its middle price is
+  the item's value times (the stock it wants ÷ the stock it has)^0.6, within ⅕× and 5×; it bids 10%
+  under and asks 10% over. Pilots selling to it drive its prices down and buying drives them up,
+  and its stock settles back towards what it wants over hours (what it uses up, what it imports),
+  so prices drift back.
+- **Sinks and sources.** A seller pays 2% of every sale; the foundry charges its fees; what the
+  colony consumes is gone. Credits come in from what the colony buys and from bounties (Mobile
+  Dolls shot down). The ledger balances: credits are neither made nor lost in a trade (a property
+  test checks it).
+- Each item's last trade price is sampled once a minute: the terminal draws the last hour.
+
+### Sorties
+
+- **Launching:** board at the hatch. The bay vents, beacons turning red, the doors part, and the
+  catapult throws the suit down the 220 m launch tunnel into space at the hub's mouth, inside the
+  dock. (Space skips the sequence.)
+- **Docking:** come to rest (under 25 m/s) inside the dock's ring of amber lights, off the mouth
+  of the docking hub at the colony's −X end, and press Enter. The suit glides in down the tunnel,
+  the doors shut behind it, and the pilot climbs out onto the catwalk. What came home goes to the
+  stores: the suit as it is, the hold's ore, whatever was in hand, and the bounties earned.
+- **Losing it:** a suit destroyed out there is gone, along with its hold. The bounties it earned are
+  still paid, and the pilot is brought back to the bay through the airlock once the wreck clears.
+- **Away:** a signed-in pilot who leaves keeps everything: their hangar, its jobs, their orders.
+  Left out in the sector, their suit sleeps where it is (below), and they wake in it; one the
+  sector lost track of is towed in. A guest's hangar lasts the visit.
 
 ## The world (EVE-lite, roadmap)
 
@@ -295,13 +390,18 @@ show which, and thin as the ore is taken. A rock of radius r m has 60 + 25r of s
 | H | the frame's special: a toggle for Neo-Bird and the Hyper Jammer, a press for Full Open Attack and the Cross Crusher |
 | V · Z | flight assist · ZERO System |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
-| 1–6 | respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
+| Enter | dock (survival): at rest inside the dock's ring of lights |
+| 1–6 | arcade rules: respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
+
+On foot in the hangar bay: the mouse looks, W/A/S/D walk, Shift runs, Space jumps, E uses what's
+in view (E again, or Esc, steps away from a terminal).
 | Esc · F1 · F10 | menu · the controls sheet · graphics quality |
 
 The list players see (the title screen's controls sheet and F1) is
 `bc_client_core::controls::BINDINGS`; keep it in step with this table.
 
-**The page around the game.** The title screen takes a callsign and a mobile suit and launches,
+**The page around the game.** The title screen takes a callsign (and, under arcade rules, a
+mobile suit) and launches,
 as a guest or signed in with a wallet (Sign-In with Ethereum: the wallet proves the address, and
 nothing is authorized or spent). A signed-in pilot is someone the sector can remember; a guest's
 suit goes when they do.
@@ -332,7 +432,8 @@ the sector with its pilot asleep in the cockpit, and they wake in it when they'r
 field of view, camera shake, first-flight hints and graphics quality, along with the last callsign
 and frame launched. `bc_client_core::settings` defines them, their ranges and the stored text (a
 key this build doesn't know is kept, for the build that wrote it). A new pilot gets one hint at a
-time (thrust, boost, fire, flight assist, salvage, the menu), each gone once it's been done.
+time (on foot in the bay: walking, using a terminal, boarding; flying: thrust, boost, fire,
+flight assist, salvage, docking, the menu), each gone once it's been done.
 
 **Sound.** Every sound is generated at boot (`bc-sound`, no audio files): weapons, impacts,
 explosions, the engines worked by the throttle, RCS puffs, the lock tone quickening as a lock
@@ -348,10 +449,16 @@ keeps it while it stays within 15°. Its bracket fills as the lock builds and re
 acquired. The HUD shows the special's state (READY, JAMMING, FIRING, the cooldown), the lock, and
 MISSILE LOCK and MISSILE warnings, with a marker on each missile tracking you.
 
-## Roadmap after Milestone 2
+## Roadmap after Milestone 3
 
 Milestone 1 was the playable slice; Milestone 2 the five Gundams (Heavyarms, Deathscythe, Sandrock,
-Shenlong, and Wing Zero's Neo-Bird), each flown by pilots and agents.
+Shenlong, and Wing Zero's Neo-Bird), each flown by pilots and agents; Milestone 3 survival: the
+hangar bay on foot, building suits, and the Colony Exchange.
+
+- **The colony, on foot:** the concourse beyond the airlock, other pilots' bays, a bar to meet in;
+  crews (a friend's hangar, shared stores).
+- **Economy:** contracts (haul this, clear that), insurance, market data for agents, the other
+  colonies' exchanges with prices of their own (and hauling between them).
 
 - **Sectors:** multiple sectors with handoff, transfer orbits, TiDi, persistence (a Redis or Mongo
   `PilotStore`, off the hot path).
@@ -363,5 +470,4 @@ Shenlong, and Wing Zero's Neo-Bird), each flown by pilots and agents.
 - **Agents:** an MCP server so LLM agents can fly as squad commanders, and a Python gym on the
   headless simulation for RL.
 - **Earth:** atmosphere, gravity, re-entry heating (Wing's shield).
-- **Salvage:** credits that persist, a market with prices that move, repairs at the dock, chunks
-  that collide with each other, miners and pirates flown by the server.
+- **Salvage:** chunks that collide with each other, miners and pirates flown by the server.

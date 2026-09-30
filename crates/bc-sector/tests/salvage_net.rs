@@ -62,8 +62,18 @@ fn run(
     brain: &mut dyn FnMut(&InputContext) -> InputCmd,
     each_tick: &mut dyn FnMut(&mut Sector, &ClientCore, Option<usize>),
 ) -> (Sector, ClientCore) {
+    run_with(false, secs, brain, each_tick)
+}
+
+/// [`run`], under survival rules if `survival` (the Leo launches, whole, from the docking hub).
+fn run_with(
+    survival: bool,
+    secs: f64,
+    brain: &mut dyn FnMut(&InputContext) -> InputCmd,
+    each_tick: &mut dyn FnMut(&mut Sector, &ClientCore, Option<usize>),
+) -> (Sector, ClientCore) {
     let cfg = SectorConfig {
-        sim: SimConfig { target_dolls: 0, seed: 5, ..SimConfig::default() },
+        sim: SimConfig { target_dolls: 0, seed: 5, survival, ..SimConfig::default() },
         max_clients: 4,
         ..SectorConfig::default()
     };
@@ -78,6 +88,7 @@ fn run(
             faction: Faction::Colonies,
             max_datagram: MAX_DATAGRAM as u16,
             comeback: Comeback::default(),
+            launch: survival.then(|| bc_sim::sim::Loadout::full(FrameId::Leo)),
         })
         .unwrap();
     let mut up = Link::new(11, 0.05, 0.02, 0.05);
@@ -469,4 +480,31 @@ fn a_miner_earns_credits() {
     assert!(broke > 0, "never broke a rock");
     assert!(sold_at.is_some(), "never sold anything (hold up to {most_kg} kg)");
     assert_eq!(me.credits, sector.sim.suits.credits[me.slot as usize]);
+}
+
+/// Survival: the same miner brings its haul home. The dock doesn't buy it; the miner comes to rest
+/// there with a full hold for its pilot to dock, and the hold goes home with the suit.
+#[test]
+fn a_miner_brings_its_haul_home() {
+    use std::cell::RefCell;
+
+    use bc_client_core::MinerBrain;
+    use bc_sim::SuitId;
+    use bc_sim::handle::Handle;
+    let brain = RefCell::new(MinerBrain::new());
+    let mut home = None;
+    let mut docked_at = 0;
+    run_with(true, 600.0, &mut |ctx| brain.borrow_mut().decide(ctx), &mut |sector, client, me| {
+        let Some(me) = me else { return };
+        if home.is_none() && brain.borrow().ready_to_dock(&client.world) {
+            let id = SuitId(Handle { idx: me as u16, generation: sector.sim.suits.generation[me] });
+            home = sector.sim.dock(id);
+            docked_at = sector.sim.tick();
+        }
+    });
+    let home = home.expect("never came to rest in the dock with a haul");
+    let kg: u32 = home.cargo_kg.iter().map(|&kg| u32::from(kg)).sum();
+    println!("miner: docked at {} s with {kg} kg aboard", docked_at / 30);
+    assert!(kg >= 2_000, "a light haul: {kg} kg");
+    assert!(home.parts.iter().all(|p| *p > 0.0), "whole");
 }

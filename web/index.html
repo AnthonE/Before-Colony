@@ -31,9 +31,16 @@
             <span id="wallet-account" class="note"></span>
           </div>
         </div>
-        <div class="field">
+        <div class="field" id="frames-field">
           <span>MOBILE SUIT</span>
           <div id="frames" class="frames" role="radiogroup" aria-label="Mobile suit"></div>
+        </div>
+        <div class="field hidden" id="survival-field">
+          <span>SURVIVAL</span>
+          <div class="note survival-note">You start on foot in your hangar bay in the colony's docking hub, with a
+            worn-out Leo in the gantry (its beam rifle missing), a little steel and propellant, and 2,000
+            credits. Mine ore, salvage wrecks, fabricate parts, trade on the Colony Exchange, and work your way
+            up to a Gundam. Dock to bring your suit home: a suit destroyed out there is gone.</div>
         </div>
         <div class="row">
           <button id="launch-button" type="submit" class="primary">LAUNCH</button>
@@ -81,6 +88,33 @@
       <div class="row"><button data-cmd="settings-close" class="primary">BACK</button><span class="note">Kept in this browser.</span></div>
     </div>
   </div>
+
+  <!-- A terminal in the hangar bay (survival rules): the fabricator, the stores, the suit's
+       maintenance console, the Colony Exchange. Drawn from the server's word (terminal.rs). -->
+  <div id="terminal" class="overlay dim hidden">
+    <div class="card terminal">
+      <div class="term-head">
+        <div class="tabs" role="tablist">
+          <button type="button" data-tab="fabricator">FABRICATOR</button>
+          <button type="button" data-tab="stores">STORES</button>
+          <button type="button" data-tab="suit">SUIT</button>
+          <button type="button" data-tab="exchange">EXCHANGE</button>
+        </div>
+        <div id="term-credits" class="term-credits"></div>
+        <button type="button" data-cmd="resume" class="close">CLOSE</button>
+      </div>
+      <div id="term-body" class="term-body"></div>
+      <div id="term-log" class="term-log"></div>
+    </div>
+  </div>
+
+  <!-- On foot in the bay: the bay's line, a dot to aim by, and what can be used. -->
+  <div id="onfoot" class="hidden">
+    <div id="bay-line" class="bay-line"></div>
+    <div id="dot" class="dot"></div>
+  </div>
+  <div id="use" class="use hidden"></div>
+  <div id="news" class="news hidden"></div>
 
   <div id="hint" class="hint hidden"></div>
   <div id="banner" class="banner hidden">

@@ -18,6 +18,7 @@ use alloc::boxed::Box;
 mod combat;
 mod detection;
 mod flame;
+mod launch;
 mod melee;
 mod mining;
 mod missile;
@@ -56,6 +57,7 @@ use crate::transform::transform_thrust;
 use crate::zero::TacticalAdvice;
 use crate::zero::strain::StrainEvent;
 
+pub use launch::{Homecoming, LAUNCH_GATE, LAUNCH_SPEED, Loadout};
 pub use sleep::{Anchor, Body, Gone, PARK_SPEED, PARKED_VISUAL, SleeperFate};
 
 /// A pending hit, applied in the damage phase.
@@ -420,6 +422,7 @@ impl Sim {
                 *r = ws.cooldown == 0
                     && s.energy[i] >= w.energy
                     && (w.ammo == 0 || ws.ammo > 0)
+                    && s.fitted(i, slot)
                     && s.arm_free(i, m.arm);
             }
         }
@@ -726,8 +729,12 @@ impl Sim {
                 }
                 self.suits.prev_buttons[i] = self.suits.input[i].buttons;
             } else if self.suits.respawn_at[i] != 0 && t >= self.suits.respawn_at[i] {
-                // A sleeper destroyed is gone: nobody is there to respawn.
-                if self.suits.pilot[i] == PilotKind::MobileDoll || self.suits.sleeping.get(i) {
+                // A sleeper destroyed is gone: nobody is there to respawn. Under survival rules
+                // nobody respawns: the pilot is back in the hangar, and has to build another suit.
+                if self.suits.pilot[i] == PilotKind::MobileDoll
+                    || self.suits.sleeping.get(i)
+                    || self.cfg.survival
+                {
                     self.suits.release(i);
                 } else {
                     self.spawn_counter += 1;

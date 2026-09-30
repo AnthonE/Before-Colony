@@ -31,6 +31,8 @@ mod fx;
 #[cfg(target_arch = "wasm32")]
 mod gfx;
 #[cfg(target_arch = "wasm32")]
+mod hangar;
+#[cfg(target_arch = "wasm32")]
 mod hud;
 #[cfg(target_arch = "wasm32")]
 mod input;
@@ -46,6 +48,8 @@ mod net;
 mod net_view;
 #[cfg(target_arch = "wasm32")]
 mod noise;
+#[cfg(target_arch = "wasm32")]
+mod onfoot;
 #[cfg(target_arch = "wasm32")]
 mod page;
 #[cfg(target_arch = "wasm32")]
@@ -68,6 +72,8 @@ mod showcase;
 mod sky;
 #[cfg(target_arch = "wasm32")]
 mod suits_vis;
+#[cfg(target_arch = "wasm32")]
+mod terminal;
 #[cfg(target_arch = "wasm32")]
 mod transport;
 #[cfg(target_arch = "wasm32")]

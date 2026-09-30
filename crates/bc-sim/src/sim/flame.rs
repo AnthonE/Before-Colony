@@ -30,7 +30,9 @@ impl Sim {
     ) {
         let Some(cone) = w.cone else { return };
         let button = if slot == 0 { FIRE_PRIMARY } else { FIRE_SECONDARY };
-        let arm_ok = self.suits.arm_free(i, mount.arm) && !self.arm_blocked(i, mount.arm);
+        let arm_ok = self.suits.fitted(i, slot)
+            && self.suits.arm_free(i, mount.arm)
+            && !self.arm_blocked(i, mount.arm);
         let s = &mut self.suits;
         let mut ws = s.weapons[i][slot];
         ws.cooldown = ws.cooldown.saturating_sub(1);

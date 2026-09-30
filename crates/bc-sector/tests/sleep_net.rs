@@ -28,6 +28,7 @@ fn join(slot: u16, comeback: Comeback) -> Control {
         faction: Faction::Colonies,
         max_datagram: MAX_DATAGRAM as u16,
         comeback,
+        launch: None,
     }
 }
 

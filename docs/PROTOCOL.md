@@ -1,4 +1,4 @@
-# Before Colony wire protocol (v7)
+# Before Colony wire protocol (v8)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
@@ -156,12 +156,12 @@ answer to the bit.
 ## Control stream
 
 Frames are `[u16 LE payload length][u8 tag][payload]`, byte-aligned, at most 256 bytes with the
-prefix.
+prefix, except the hangar's (tag 11), which may carry up to 64 KiB.
 
 | Tag | Message | Direction |
 |---|---|---|
 | 1 | Hello {version, pilot kind, frame, faction, name ≤ 16 B, flags (1 SIGN_IN, 2 RESUME), resume token (32 B, only with RESUME)} | client → server (first frame) |
-| 2 | Welcome {version, client slot, tick, tick_hz, sector, zero_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE)} | server → client |
+| 2 | Welcome {version, client slot, tick, tick_hz, sector, zero_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL)} | server → client |
 | 3 | Reject {reason: 1 version, 2 full, 3 bad hello, 4 frame not allowed, 5 sign-in failed, 6 sign-in required, 7 resume token expired, 8 no signature in time} | server → client |
 | 4 | Roster {entity slot, pilot kind, name (empty = left), flags (1 VERIFIED, 2 ASLEEP)} | server → client |
 | 5 | Respawn {frame} | client → server |
@@ -170,6 +170,7 @@ prefix.
 | 8 | Auth {address (20 B), signature (65 B: r, s, v)} | client → server |
 | 9 | Token {resume token (32 B)} | server → client |
 | 10 | Notice {code: 1 your sleeping suit was destroyed, 2 your sleeping suit is gone; name ≤ 16 B (who, for 1)} | server → client |
+| 11 | Hangar {JSON, `bc_econ::wire`: a Request up, an Update down} | either (survival rules) |
 
 Pilots claiming to be a server-side Mobile Doll are downgraded to `Agent`.
 
@@ -211,6 +212,46 @@ asleep. Everyone's roster shows it with ASLEEP (and snapshots with the entity fl
 next session wakes in it: the Welcome sets WOKE. If it's gone, the pilot starts in a new suit and a
 Notice says why: destroyed while they slept (and by whom), or lost (cleared to make room, or the
 server restarted). A suit that was already a wreck is simply gone. Guests' suits go when they do.
+
+### Survival: the hangar's messages
+
+Under survival rules (the Welcome sets SURVIVAL) a pilot starts in their hangar bay, not in the
+sector: they get no snapshots until they launch. The hangar talks in JSON on the control stream
+(tag 11), readable by people and agents alike; `bc_econ::wire` defines it. Every message is an
+object tagged by `"t"`.
+
+Client → server (`Request`):
+
+| `t` | Fields | Does |
+|---|---|---|
+| `craft` | `item`, `batches` | queue batches of what makes `item` at its station |
+| `cancel_job` | `station` (`fabricator`, `foundry`), `index` | cancel a queued job (what's not started comes back) |
+| `fit` | `item` | fit a part or weapon from the stores (a torso into an empty bay starts a suit) |
+| `strip` | `slot`: `{"kind": "part", "part": …}` or `{"kind": "mount", "mount": 0–2}` | take it off into the stores |
+| `dismantle` | | strip the suit bare |
+| `repair` | `part` (optional: all) | repair as far as the stores allow |
+| `scrap` | `item` | melt one down for half its materials |
+| `order` | `item`, `side` (`buy`, `sell`), `price`, `qty`, `rest` | a limit order on the exchange |
+| `cancel_order` | `id` | |
+| `watch` | `item` (or `null`) | send that item's book and history as they change |
+| `launch` | | board and launch the suit in the bay |
+| `dock` | | take the suit home (at rest inside the dock) |
+
+Items are slugs: `ore.nickel_iron`, `mat.steel`, `part.leo.torso`, `weapon.beam_rifle`. Parts are
+`head`, `torso`, `arm_l`, `arm_r`, `legs`, `backpack`. Prices are credits a tonne for ores and
+materials (quantities in kg), credits a piece for everything else.
+
+Server → client (`Update`): `place` {`place`: `hangar` or `space`, `bay`}; `hangar` (credits,
+stock, parts with their condition, the bay: `empty`, `docked` or `out` with the suit, the job
+queues with their time left); `market` (every item's bid, ask, last and volume, the pilot's
+orders, the fee); `book` {`depth`, `history`}; `note` {`text`, `ok`} answering a request (or
+news: a job done, an order filled); `sortie` {`outcome`: `docked`, `lost`, `recovered`, `text`}.
+The server sends the hangar and the market whenever they change, the market at most every 2 s.
+
+A launch puts the suit in the sector at the docking hub's mouth (the pilot's slot and the Welcome
+stay the same; snapshots start), and `place` says `space`. Docking answers with a `sortie` and
+`place: hangar`, or a refusing `note`. A suit destroyed out there sends `sortie: lost` at once and
+`place: hangar` once the wreck clears.
 
 ### Setting up the sector
 
