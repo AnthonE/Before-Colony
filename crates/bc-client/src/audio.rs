@@ -361,14 +361,14 @@ pub fn play_sound(
                 sound.mixer.request(Request::own(Cue::HullHit));
                 heat += 0.12;
             }
-            FxEvent::Kill { pos } => {
+            FxEvent::Kill { pos, .. } => {
                 sound.mixer.request(Request::at(Cue::Explosion, v3(pos)));
                 if pos.distance(ears) < 3_000.0 {
                     heat += 0.25;
                 }
             }
             FxEvent::RockBreak { pos, .. } => sound.mixer.request(Request::at(Cue::RockBreak, v3(pos))),
-            FxEvent::Clash { pos } => {
+            FxEvent::Clash { pos, .. } => {
                 sound.mixer.request(Request::at(Cue::Clash, v3(pos)));
                 heat += 0.08;
             }

@@ -413,6 +413,25 @@ nose. With the head shot off the picture comes from the sub-camera, greyer and f
 watched from the chase camera. The view is a setting, so the next sortie starts in it; the chase
 camera is the default.
 
+From the cockpit the pilot sits inside the suit, as in the show: the middle of the view is the
+panoramic monitor (the world, with nothing of the cockpit across the crosshair), and round it a
+fan of monitors on a dark frame, a wide one across the top, two down each side, with the control
+grips and the console below. The instruments move onto the monitors: ZERO across the top, the
+suit and its damage silhouette upper left, arms upper right, flight lower left, the hold lower
+right. What marks the world stays over the view: the crosshair, the target corners, the edge
+chevrons and the cautions. In the console, a radar sphere holds its bearings in space as the suit
+turns: hostiles red, friends green, missiles amber, the pilot's suit at its heart (out to 3 km, on
+a log scale). The cockpit is trimmed in the suit's livery, sways a little under G, and its monitors
+flicker when the suit is hit (with flashing effects on) and fill with static on the sub-camera.
+
+**The HUD** is drawn as a mobile suit's monitor: translucent plates with two corners cut, labels in
+Chakra Petch over readouts in Share Tech Mono, white for the suit's own values, amber for what
+wants attention, red for danger, pink for ZERO. Cautions (LOCK WARNING, MISSILE) come up in a
+hazard-striped banner. Targets get amber corners with a name and range tag (red for hostiles, green
+for friends, pink for ZERO's pick); what's off the view gets a chevron at its edge. The suit's
+damage silhouette colours each part by its armour: white, amber, red, and an outline once it's
+gone. Chasing, the panels sit in the screen's corners.
+
 **Where the guns point.** A hand weapon fires only within 50° of the body's axis (Neo-Bird's rifles
 within 2° of the nose), so until the suit has turned onto the aim the crosshair dims and `( )` marks
 where the primary weapon would fire. `-o-` is the velocity vector, the way the suit is drifting
@@ -448,7 +467,8 @@ the sector with its pilot asleep in the cockpit, and they wake in it when they'r
 
 **Settings** (from the title or the menu) are kept in the browser: mouse sensitivity, invert Y,
 the flight camera, field of view (vertical; the panel gives the horizontal too), camera shake,
-first-flight hints and graphics quality, along with the last callsign and frame launched. `bc_client_core::settings` defines them, their ranges and the stored text (a
+flashing effects (a ZERO seizure's flicker; off to start with when the browser asks for reduced
+motion), first-flight hints and graphics quality, along with the last callsign and frame launched. `bc_client_core::settings` defines them, their ranges and the stored text (a
 key this build doesn't know is kept, for the build that wrote it). A new pilot gets one hint at a
 time (on foot in the bay: walking, using a terminal, boarding; flying: thrust, boost, fire, the
 cockpit view, flight assist, salvage, docking, the menu), each gone once it's been done.

@@ -474,7 +474,7 @@
     for (const [slug, qty] of weapons) {
       out += `<tr><td>${esc(nameOf(slug))}</td><td class="num">${fmt(qty)}</td><td class="act">` +
         (fits.has(slug) ? button("FIT", { act: "fit", item: slug }) + " " : "") +
-        button("SCRAP", { act: "scrap", item: slug }) + " " + button("SELL", { act: "sell", item: slug }) + `</td></tr>`;
+        button("SCRAP", { act: "scrap", item: slug }, "danger") + " " + button("SELL", { act: "sell", item: slug }) + `</td></tr>`;
     }
     out += `</table></section><section><h3>PARTS</h3><table><tr><th>PART</th><th>CONDITION</th><th></th></tr>`;
     const parts = [...v.parts].sort((a, b) => (a.line + a.part).localeCompare(b.line + b.part) || b.condition - a.condition);
@@ -483,7 +483,7 @@
       const slug = `part.${u.line}.${u.part}`;
       out += `<tr><td class="${items.get(slug)?.gundam ? "gundam" : ""}">${esc(nameOf(slug))}</td><td>${bar(u.condition)}</td><td class="act">` +
         (fits.has(slug) ? button("FIT", { act: "fit", item: slug }) + " " : "") +
-        button("SCRAP", { act: "scrap", item: slug }) + " " + button("SELL", { act: "sell", item: slug }) + `</td></tr>`;
+        button("SCRAP", { act: "scrap", item: slug }, "danger") + " " + button("SELL", { act: "sell", item: slug }) + `</td></tr>`;
     }
     return out + `</table></section>`;
   }
@@ -542,7 +542,7 @@
     out += `<div class="slot"><div class="what">PROPELLANT</div><div>${bar(Math.round((100 * suit.propellant) / Math.max(1, tank)))}</div>` +
       `<div class="note">${fmt(suit.propellant)}/${fmt(tank)} kg · ${fmt(stores)} kg in the stores</div></div></div>`;
     out += `<div class="row">` + ((con.repairs || []).length ? button("REPAIR ALL", { act: "repair", part: "" }) : "") +
-      button("DISMANTLE", { act: "dismantle" }) + `<span class="note">Dismantling puts everything back in the stores.</span></div>`;
+      button("DISMANTLE", { act: "dismantle" }, "danger") + `<span class="note">Dismantling puts everything back in the stores.</span></div>`;
     return out;
   }
 
@@ -582,7 +582,7 @@
       if (hist.length > 1) {
         const lo = Math.min(...hist), hi = Math.max(...hist), span = Math.max(1, hi - lo);
         const pts = hist.map((p, i) => `${((i / (hist.length - 1)) * 100).toFixed(1)},${(55 - ((p - lo) / span) * 50).toFixed(1)}`).join(" ");
-        right += `<svg class="spark" viewBox="0 0 100 60" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="#9fe8ff" stroke-width="1" vector-effect="non-scaling-stroke"/></svg>` +
+        right += `<svg class="spark" viewBox="0 0 100 60" preserveAspectRatio="none"><polyline points="${pts}" fill="none" style="stroke: var(--cyan)" stroke-width="1" vector-effect="non-scaling-stroke"/></svg>` +
           `<div class="note">last hour: ${fmt(lo)}–${fmt(hi)} ${unit(watching)}</div>`;
       }
       const levels = (list, cls) =>

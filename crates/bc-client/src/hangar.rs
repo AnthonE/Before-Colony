@@ -29,6 +29,7 @@ use bevy::prelude::*;
 
 use crate::camera::FillLight;
 use crate::materials::{HullMaterial, HullTag, Surfaces};
+use crate::shade::{ShadeMaterial, Shades};
 use crate::suits_vis::SuitVisual;
 use crate::view::{SuitDrive, VisTime};
 
@@ -43,10 +44,11 @@ pub const DOOR_SECS: f32 = 3.5;
 /// How far the launch tunnel runs past the bay doors, m.
 const TUNNEL: f32 = 220.0;
 /// The ceiling lamps and the flood lights on the suit, lumens.
-const LAMP: f32 = 3.0e6;
-const FLOOD: f32 = 1.2e6;
-/// Light that bounces round the bay, indoors (the ambient fill).
-pub const INDOOR_AMBIENT: f32 = 120.0;
+const LAMP: f32 = 1.6e6;
+const FLOOD: f32 = 2.6e6;
+/// Light that bounces round the bay, indoors (the ambient fill): little, so the lamps and floods
+/// pool their light and the corners keep their shade.
+pub const INDOOR_AMBIENT: f32 = 45.0;
 
 /// Whether the pilot is in the bay (and the view with them).
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
@@ -97,6 +99,10 @@ struct Beacon {
     phase: f32,
 }
 
+/// One of the flood lights on the suit (the first casts shadows where the tier has them).
+#[derive(Component)]
+pub struct Flood(pub usize);
+
 pub struct HangarPlugin;
 
 impl Plugin for HangarPlugin {
@@ -138,8 +144,10 @@ pub fn setup_bay(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut shade_materials: ResMut<Assets<ShadeMaterial>>,
     surfaces: Res<Surfaces>,
 ) {
+    let shades = Shades::new(&mut meshes, &mut shade_materials);
     let layout = Layout::new();
     let cube = meshes.add(Cuboid::new(1.0, 1.0, 1.0));
     let plating: Handle<HullMaterial> = surfaces.plating.clone();
@@ -176,6 +184,24 @@ pub fn setup_bay(
         let (paint, metal) = finish(b.look);
         let tag = HullTag { metal, ..HullTag::paint(paint, (k * 37) as u8) }.tag();
         piece(&mut commands, b.centre(), b.size(), tag);
+        // What stands on the deck shades the deck round its foot.
+        if b.min.y == 0.0
+            && matches!(b.look, Look::Machine | Look::Rack | Look::Console | Look::Crate | Look::Pillar)
+        {
+            let foot = Vec2::new(b.size().x, b.size().z);
+            let reach = (0.5 + foot.min_element() * 0.35).min(1.6);
+            let at = Vec3::new(b.centre().x, 0.0, b.centre().z);
+            shades.spawn(&mut commands, root, at, foot + Vec2::splat(reach * 2.0), reach, 0.7);
+        }
+    }
+    // And the foot of every wall, where the deck meets it.
+    for (at, size) in [
+        (Vec3::new(0.0, 0.0, HALF_LENGTH), Vec2::new(HALF_WIDTH * 2.0, 3.0)),
+        (Vec3::new(0.0, 0.0, -HALF_LENGTH), Vec2::new(HALF_WIDTH * 2.0, 3.0)),
+        (Vec3::new(HALF_WIDTH, 0.0, 0.0), Vec2::new(3.0, HALF_LENGTH * 2.0)),
+        (Vec3::new(-HALF_WIDTH, 0.0, 0.0), Vec2::new(3.0, HALF_LENGTH * 2.0)),
+    ] {
+        shades.spawn(&mut commands, root, at, size + Vec2::splat(1.0), 2.0, 0.55);
     }
     let glow = |commands: &mut Commands, at: Vec3, size: Vec3, m: &Handle<StandardMaterial>| {
         commands
@@ -467,9 +493,10 @@ pub fn setup_bay(
             .id();
         lamps.push((e, LAMP));
     }
-    for (x, z) in [(-12.0, -8.0), (12.0, -8.0)] {
+    for (k, (x, z)) in [(-12.0, -8.0), (12.0, -8.0)].into_iter().enumerate() {
         let e = commands
             .spawn((
+                Flood(k),
                 SpotLight {
                     intensity: FLOOD,
                     range: 60.0,
@@ -516,6 +543,18 @@ pub fn setup_bay(
     let suit = commands
         .spawn((Name::new("bay-suit"), Transform::from_translation(BAY_ORIGIN + SUIT_AT), Visibility::Hidden))
         .id();
+    // The suit's feet shade the deck where it stands (and go with it when it launches).
+    for b in layout.blocks.iter().filter(|b| b.look == Look::Suit && b.min.y == 0.0) {
+        let at = Vec3::new(b.centre().x, 0.0, b.centre().z) - SUIT_AT;
+        shades.spawn(
+            &mut commands,
+            suit,
+            at,
+            Vec2::new(b.size().x, b.size().z) + Vec2::splat(1.6),
+            0.8,
+            0.75,
+        );
+    }
     commands.insert_resource(BayScene {
         root,
         doors,

@@ -352,12 +352,13 @@ pub fn sync_view(
         if let FeedLine::Kill { tick, victim, .. } = *line
             && seen.kills.insert((tick, victim))
         {
-            let pos = world
+            let at = world
                 .pose(victim, t_render)
-                .map(|p| p.pos)
-                .or(world.own.filter(|o| o.slot == victim).map(|o| o.pos));
-            if let Some(pos) = pos {
-                events.0.push(FxEvent::Kill { pos });
+                .map(|p| (p.pos, p.vel))
+                .or(drawn.filter(|_| Some(victim) == own_slot).map(|v| (v.pos, v.vel)))
+                .or(world.own.filter(|o| o.slot == victim).map(|o| (o.pos, Vec3::ZERO)));
+            if let Some((pos, vel)) = at {
+                events.0.push(FxEvent::Kill { pos, vel, victim: Some(victim) });
             }
         }
     }
@@ -376,11 +377,11 @@ pub fn sync_view(
             let at = |slot: u16| {
                 world
                     .pose(slot, t_render)
-                    .map(|p| p.pos)
-                    .or(drawn.filter(|_| Some(slot) == own_slot).map(|v| v.pos))
+                    .map(|p| (p.pos, p.vel))
+                    .or(drawn.filter(|_| Some(slot) == own_slot).map(|v| (v.pos, v.vel)))
             };
-            if let (Some(pa), Some(pb)) = (at(a), at(b)) {
-                events.0.push(FxEvent::Clash { pos: (pa + pb) * 0.5 });
+            if let (Some((pa, va)), Some((pb, vb))) = (at(a), at(b)) {
+                events.0.push(FxEvent::Clash { pos: (pa + pb) * 0.5, vel: (va + vb) * 0.5 });
             }
         }
     }

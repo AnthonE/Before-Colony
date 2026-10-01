@@ -11,7 +11,7 @@ use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::post_process::bloom::Bloom;
 use bevy::post_process::effect_stack::{ChromaticAberration, LensDistortion, Vignette};
 use bevy::prelude::*;
-use bevy::render::view::ColorGrading;
+use bevy::render::view::{ColorGrading, ColorGradingGlobal, ColorGradingSection};
 use bevy::window::PrimaryWindow;
 
 use crate::camera::MainCamera;
@@ -160,6 +160,8 @@ pub struct Gfx {
     /// Which build was loaded: "webgl2" or "webgpu".
     pub backend: &'static str,
     pub tonemapping: Tonemapping,
+    /// The game's own look (grade, vignette, lit smoke); `?look=0` turns it off, to compare.
+    pub look: bool,
     /// The page's pick for this GPU (what the "auto" setting means).
     pub auto: GfxTier,
 }
@@ -175,7 +177,7 @@ impl Gfx {
             _ => Tonemapping::TonyMcMapface,
         };
         let auto = GfxTier::parse(&cfg.quality_auto).unwrap_or(tier);
-        Self { tier, settings: tier.settings(), backend, tonemapping, auto }
+        Self { tier, settings: tier.settings(), backend, tonemapping, look: cfg.look, auto }
     }
 
     pub fn set_tier(&mut self, tier: GfxTier) {
@@ -212,6 +214,27 @@ fn cycle_tier(
     }
 }
 
+/// The picture's grade before anything happens to the pilot: a touch warmer, a little more contrast
+/// in the midtones, and shadows and highlights a shade less saturated, as film would take it.
+/// Applied on every tier (LDR tiers grade in their shaders). `camera::pilot_effects` works on top.
+pub fn base_grading(look: bool) -> ColorGrading {
+    if !look {
+        return ColorGrading::default();
+    }
+    let section = |saturation: f32, contrast: f32| ColorGradingSection { saturation, contrast, ..default() };
+    ColorGrading {
+        global: ColorGradingGlobal { temperature: 0.03, ..default() },
+        shadows: section(0.9, 1.0),
+        midtones: section(1.0, 1.06),
+        highlights: section(0.95, 1.0),
+    }
+}
+
+/// The vignette's resting intensity: the edges of the picture a little darker, like a lens's.
+pub fn base_vignette(look: bool) -> f32 {
+    if look { 0.22 } else { 0.0 }
+}
+
 /// Puts the tier's post-processing on the main camera (at spawn and whenever the tier changes).
 fn apply_camera_tier(
     mut commands: Commands,
@@ -243,16 +266,16 @@ fn apply_camera_tier(
         } else {
             e.remove::<(Hdr, Bloom)>();
         }
+        e.insert(base_grading(gfx.look));
         if s.post {
             e.insert((
-                Vignette { intensity: 0.0, ..default() },
+                Vignette { intensity: base_vignette(gfx.look), ..default() },
                 ChromaticAberration { intensity: 0.0, ..default() },
                 LensDistortion { intensity: 0.0, ..default() },
-                ColorGrading::default(),
                 ZeroVision::default(),
             ));
         } else {
-            e.remove::<(Vignette, ChromaticAberration, LensDistortion, ColorGrading, ZeroVision)>();
+            e.remove::<(Vignette, ChromaticAberration, LensDistortion, ZeroVision)>();
         }
     }
 }

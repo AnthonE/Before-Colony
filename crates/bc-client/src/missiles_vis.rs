@@ -70,7 +70,9 @@ pub fn update_missiles(
         let dir = m.vel.normalize_or(Vec3::Z);
         let scale = if m.kind == WeaponKind::MicroMissile { 0.6 } else { 1.0 };
         let tail = m.pos - dir * LENGTH * 0.5 * scale;
-        place_ribbon(&mut tf, tail, dir, look.length * scale, look.half_width * scale);
+        // A short tongue of fire off the rail, streaming out longer as the motor speeds it up.
+        let length = (m.vel.length() * 0.03).clamp(8.0, look.length);
+        place_ribbon(&mut tf, tail, dir, length * scale, look.half_width * scale);
         if *vis != Visibility::Visible {
             *vis = Visibility::Visible;
         }

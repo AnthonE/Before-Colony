@@ -9,7 +9,7 @@
 //   22-25 trim paint, 26-29 accent paint, 30-31 eye colour.
 // Merged suit meshes (bc_model) also carry per-vertex data in their colour: r the paint slot
 // (0 body, 1 trim, 2 accent, 3 eye glow, 16+ a fixed paint, 32+ bare metal, 48+ glowing), g 1 on
-// bevels, b a panel seed.
+// bevels, b a panel seed, a ambient occlusion baked from the whole suit.
 
 #import bevy_pbr::{
     pbr_fragment::pbr_input_from_standard_material,
@@ -63,10 +63,12 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     var slot = 0u;
     var bevel = 0.0;
     var vseed = 0.0;
+    var ao = 1.0;
 #ifdef VERTEX_COLORS
     slot = u32(in.color.r * 255.0 + 0.5);
     bevel = in.color.g;
     vseed = in.color.b * 97.0;
+    ao = in.color.a;
 #endif
     var index = tag & 15u;
     var bare_metal = ((tag >> 21u) & 1u) == 1u;
@@ -142,6 +144,11 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let hurt = 1.0 - armour;
     // A wreck's sensors are dark, and so are those of a suit whose pilot is asleep.
     var emissive = select(glow, vec3(0.0), wreck || dark);
+    // A fresh hit leaves hot spots on the plate, cooling, even where the armour's still whole.
+    if (heat > 0.0) {
+        let spots = smoothstep(0.64, 0.82, fbm(p * 0.9 + seed * 5.3, 2));
+        emissive += vec3(6.0, 1.6, 0.3) * spots * heat * heat;
+    }
     if (hurt > 0.01 || wreck) {
         let reach = select(hurt, 1.0, wreck);
         let n_scorch = fbm(p * 0.45 + seed * 3.1, 4);
@@ -166,10 +173,14 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // Seams are grooves: tilt the normal toward the seam line.
     let tilt = rot * (tu * pl.z + tv * pl.w) * seam * hull.panel.z;
     pbr.N = normalize(pbr.N - tilt);
-    pbr.material.base_color = vec4(albedo, 1.0);
     pbr.material.perceptual_roughness = clamp(rough, 0.05, 1.0);
     pbr.material.metallic = metallic;
     pbr.material.emissive = vec4(emissive, 0.0);
+    // Crevices hold shadow: the sky's light doesn't reach into them, and a little of the Sun's
+    // doesn't either (grime collects there too).
+    pbr.diffuse_occlusion *= ao;
+    pbr.specular_occlusion *= ao;
+    pbr.material.base_color = vec4(albedo * mix(1.0, ao, 0.45), 1.0);
 
     var out: FragmentOutput;
     out.color = apply_pbr_lighting(pbr);

@@ -33,6 +33,12 @@ pub struct ZeroVision {
     pub seizure: f32,
     /// Seconds, for the flicker.
     pub time: f32,
+    /// 1: a seizure may flicker the whole view; 0: the pilot turned flashing effects off.
+    pub flicker: f32,
+    /// WebGL2 wants uniforms in multiples of 16 bytes.
+    pub _pad0: f32,
+    pub _pad1: f32,
+    pub _pad2: f32,
 }
 
 impl SyncComponent for ZeroVision {

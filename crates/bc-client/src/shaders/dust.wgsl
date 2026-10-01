@@ -33,8 +33,12 @@ fn vertex(v: Vertex) -> Out {
     let p = cam + (fract(v.seed - cam / size + 0.5) - 0.5) * size;
     let rel = p - cam;
     let dist = length(rel);
-    out.fade = (1.0 - smoothstep(size * 0.3, size * 0.5, dist)) * smoothstep(3.0, 8.0, dist);
-    let radius = dust.shape.y;
+    // Motes differ: a few are grains, most specks; some catch more light than others.
+    let h = fract(sin(dot(v.seed, vec3(12.9898, 78.233, 37.719))) * 43758.547);
+    let grain = 0.6 + 1.1 * h * h;
+    out.fade = (1.0 - smoothstep(size * 0.3, size * 0.5, dist)) * smoothstep(3.0, 8.0, dist)
+        * (0.45 + 0.9 * fract(h * 7.31));
+    let radius = dust.shape.y * grain;
     let vel = dust.velocity.xyz;
     let streak = length(vel) * dust.velocity.w;
     var right = view.world_from_view[0].xyz;
@@ -45,6 +49,8 @@ fn vertex(v: Vertex) -> Out {
         // Seen end-on the side is undefined: lean on camera-right so it never goes NaN.
         right = normalize(cross(up, -rel) + view.world_from_view[0].xyz * (1e-3 * dist));
         half_len = streak * 0.5;
+        // The same light smeared along a longer streak.
+        out.fade *= clamp(radius * 24.0 / half_len, 0.35, 1.0);
     }
     let world = p + right * v.corner.x * radius + up * v.corner.y * half_len;
     out.clip = view.clip_from_world * vec4(world, 1.0);

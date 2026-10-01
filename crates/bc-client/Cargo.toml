@@ -29,6 +29,7 @@ serde_json.workspace = true
 # directly.
 bevy_asset = { version = "0.19.1", default-features = false }
 bevy_ecs = { version = "0.19.1", default-features = false }
+bevy_image = { version = "0.19.1", default-features = false }
 bevy_reflect = { version = "0.19.1", default-features = false }
 bevy_render = { version = "0.19.1", default-features = false }
 # The `ShaderType` derive falls back to naming `encase` (the version Bevy uses).
