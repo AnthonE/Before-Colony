@@ -460,9 +460,11 @@ impl World {
     }
 
     /// Applies a snapshot's rock and object lists (each record is the thing's whole current state).
+    /// A shattered rock is gone from the bodies the view sweeps, too.
     pub fn apply_salvage(&mut self, rocks: &[RockState], objects: &[ObjectState]) {
         for r in rocks {
             self.rocks.insert(r.id, *r);
+            self.bodies.set_rock_dead(usize::from(r.id), r.destroyed);
         }
         for o in objects {
             let (generation, desc, motion) = match *o {

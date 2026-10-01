@@ -63,6 +63,14 @@ impl BodySet {
     pub fn shape(&self, b: Body) -> Option<Shape> {
         body_shape(&self.field, self.landmarks(), b)
     }
+
+    /// Rock `i` shattered (or grew back), as a rock record says. The field is the view's own: the
+    /// predictor's copy revives a dated break while it replays the ticks before it.
+    pub fn set_rock_dead(&mut self, i: usize, dead: bool) {
+        if self.field.is_dead(i) != dead {
+            Arc::make_mut(&mut self.field).set_dead(i, dead);
+        }
+    }
 }
 
 /// Where `b`, one of `field`'s rocks or of `landmarks`, is at time `t` (ticks, fractional), exactly

@@ -332,6 +332,8 @@ impl ClientCore {
                     landmarks: self.predict.landmarks().len() as u8,
                 });
                 self.predict.set_field(bc_sim::field::Field::generate(field_seed, field_rocks));
+                // The same rocks, shared until a shattering parts them: the view's go by the rock
+                // records, the prediction's by the tick it replays.
                 self.world.bodies = BodySet::new(self.predict.field.clone(), landmarks);
                 self.phase = Phase::InGame;
             }
@@ -695,4 +697,75 @@ fn encode(msg: ControlMsg) -> Vec<u8> {
 /// Roster flags as the world keeps them.
 pub fn asleep(world: &World, slot: u16) -> bool {
     world.roster_flags.get(&slot).is_some_and(|f| f & roster_flags::ASLEEP != 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bc_proto::{RockState, SnapshotHeader, SnapshotWriter};
+    use bc_sim::field::Field;
+    use surface::{CAM_CLEAR, camera_clamp};
+
+    #[test]
+    fn the_camera_passes_through_a_rock_once_it_has_shattered() {
+        let (seed, rocks) = (0xDEB12, 160);
+        let mut core = ClientCore::new(ClientConfig {
+            name: "test".into(),
+            pilot: PilotKind::Human,
+            frame: FrameId::Leo,
+            faction: Faction::Colonies,
+        });
+        core.on_control(&encode(ControlMsg::Welcome {
+            version: PROTOCOL_VERSION,
+            client_slot: 0,
+            tick: 0,
+            tick_hz: bc_sim::config::TICK_HZ as u8,
+            sector: 0,
+            zero_allowed: false,
+            max_datagram: 1_100,
+            field_seed: seed,
+            field_rocks: rocks,
+            flags: 0,
+            landmarks: 0,
+        }));
+        assert_eq!(core.phase, Phase::InGame);
+        // A line through a rock, and through nothing else.
+        let mut field = Field::generate(seed, rocks);
+        let (i, from, to) = (0..field.len())
+            .find_map(|i| {
+                let rock = field.rocks()[i];
+                let reach = rock.radius + CAM_CLEAR + 20.0;
+                let (from, to) = (rock.pos + Vec3::Y * reach, rock.pos - Vec3::Y * reach);
+                field.set_dead(i, true);
+                let clear = field.sweep(from, to, CAM_CLEAR).is_none();
+                field.set_dead(i, false);
+                clear.then_some((i, from, to))
+            })
+            .expect("a rock on its own");
+        let view = &core.world.bodies;
+        assert!(camera_clamp(view, 10.0, from, to).distance(to) > 1.0, "stopped short of the rock");
+        // The server breaks it on tick 40, and says so (and that it's gone) in the snapshot of 41.
+        let mut buf = [0u8; 1_100];
+        let mut w = SnapshotWriter::new(&mut buf, 1_100);
+        w.header(&SnapshotHeader { tick: 41, ..SnapshotHeader::default() });
+        w.own(None);
+        w.zero(None);
+        assert!(w.event(&Event::RockBreak { id: 1, tick: 40, rock: i as u16, by: 3 }, 0));
+        assert!(w.rock(&RockState::new(i as u16, true, 0.0, 0.0), 0));
+        let n = w.finish().unwrap();
+        core.on_datagram(&buf[..n], 1.0);
+        assert_eq!(core.stats.decode_errors, 0);
+        // The view sees through it now, whatever the prediction makes of it.
+        assert!(core.world.bodies.field.is_dead(i));
+        assert_eq!(camera_clamp(&core.world.bodies, 40.5, from, to), to);
+        // Grown back, it is in the way again.
+        let mut w = SnapshotWriter::new(&mut buf, 1_100);
+        w.header(&SnapshotHeader { tick: 90, ..SnapshotHeader::default() });
+        w.own(None);
+        w.zero(None);
+        assert!(w.rock(&RockState::new(i as u16, false, 1.0, 1.0), 0));
+        let n = w.finish().unwrap();
+        core.on_datagram(&buf[..n], 2.0);
+        assert!(camera_clamp(&core.world.bodies, 90.0, from, to).distance(to) > 1.0);
+    }
 }
