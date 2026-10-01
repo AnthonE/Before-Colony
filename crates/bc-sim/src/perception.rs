@@ -94,6 +94,9 @@ pub struct SelfView {
     pub kit: KitView,
     /// The ground's normal under it while it stands on a body (`Vec3::ZERO` otherwise).
     pub surface_n: Vec3,
+    /// The suit's stat sheet (damaged actuators narrow where its guns point, a hurt pilot bears
+    /// less G).
+    pub tuning: crate::tuning::Tuning,
 }
 
 impl Default for SelfView {
@@ -115,6 +118,7 @@ impl Default for SelfView {
             overheated: false,
             kit: KitView::default(),
             surface_n: Vec3::ZERO,
+            tuning: crate::tuning::Tuning::default(),
         }
     }
 }

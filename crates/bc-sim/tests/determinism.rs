@@ -7,7 +7,7 @@
 mod common;
 
 /// Hash after 600 ticks of the reference scenario (update deliberately when the sim changes).
-const GOLDEN: u64 = 0xc25f_ae81_af32_6278;
+const GOLDEN: u64 = 0x8ef9_bdea_f968_ba20;
 
 fn scenario_hash() -> u64 {
     let (mut sim, players) = common::arena(8, 24, 42);
@@ -34,7 +34,7 @@ fn golden_hash_wasm() {
 /// Hash after 450 ticks of the Gundams duelling in pairs among Mobile Dolls: every blade, the
 /// Cross Crusher, the Dragon Fang, the flamethrower, the Hyper Jammer, guided missiles, Full Open,
 /// Neo-Bird and the Gundams' guns (changes deliberately as their mechanics arrive).
-const GUNDAMS_GOLDEN: u64 = 0xffcc_95bd_ee89_b0c0;
+const GUNDAMS_GOLDEN: u64 = 0x0a08_8b70_159e_47d8;
 
 fn gundams_hash() -> u64 {
     use bc_proto::events::Event;
@@ -138,7 +138,7 @@ fn field_hash() -> u64 {
 
 /// Hash after suits have flown into rocks and fired into them, wearing them down, while a Leo cuts
 /// a small one apart with its saber.
-const ROCKS_GOLDEN: u64 = 0x5eaf_38c9_e443_00fb;
+const ROCKS_GOLDEN: u64 = 0x9062_a234_a495_8fa0;
 
 fn rocks_hash() -> u64 {
     use bc_proto::buttons::{FIRE_PRIMARY, MELEE};
@@ -224,7 +224,7 @@ fn field_and_rocks_golden_wasm() {
 
 /// Hash after a salvage run: pilots gather ore, stow it, tow a hulk, throw, jettison, and sell (and
 /// refuel) at the dock.
-const SALVAGE_GOLDEN: u64 = 0xc072_d7d8_13de_e986;
+const SALVAGE_GOLDEN: u64 = 0xea7b_0f6f_3c58_79f6;
 
 fn salvage_hash() -> u64 {
     use bc_proto::buttons::{FLIGHT_ASSIST, GRAB, JETTISON, STOW, THROW};
@@ -323,8 +323,9 @@ fn salvage_golden_wasm() {
 /// shattered under it; others tumble off on what they had; one is shot down asleep; the longest
 /// asleep are cleared past the cap; one wakes and flies; Mobile Dolls look on. (The hash covers
 /// what a sleeper is parked on more fully since suits stand on bodies: how it's turned there, when
-/// it last fought, and its hide spot. The scenario itself runs bit for bit as it did.)
-const SLEEPERS_GOLDEN: u64 = 0x168b_18de_e1ef_4827;
+/// it last fought, and its hide spot; and, with wear and tear, every suit's systems, equipment and
+/// statuses. The scenario itself runs bit for bit as it did.)
+const SLEEPERS_GOLDEN: u64 = 0x82d4_286e_fe11_0a4c;
 
 fn sleepers_hash() -> u64 {
     use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST};
@@ -429,8 +430,9 @@ fn sleepers_golden_wasm() {
 /// to the Aft Well's rim, hops over it, crouches on the floor and hides there, sleeps and wakes. A
 /// Wing Zero is caught over Hermit's Deep, lands in it, and changes into the Neo-Bird and flies
 /// off. A guided missile goes at the Leo on its rock. (The hash covers the suits' cover since they
-/// hide, and the dolls hunting the riders come at them from above.)
-const SURFACE_GOLDEN: u64 = 0x8909_1164_8956_f151;
+/// hide, and the dolls hunting the riders come at them from above; with wear and tear, every suit's
+/// systems, equipment and statuses.)
+const SURFACE_GOLDEN: u64 = 0x096e_bce5_8678_c035;
 
 fn surface_hash() -> u64 {
     use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRIP, MELEE, MODE};

@@ -32,6 +32,7 @@ use bc_sim::flight::{FlightMods, FlightOut, FlightState};
 use bc_sim::ground::{Anchor, Footing, MoveCtx, MoveOut, Mover, derive, move_step, place};
 use bc_sim::math::integrate_rotation;
 use bc_sim::transform::{Form, transform_step, transform_thrust};
+use bc_sim::tuning::{Tuning, flight_mods, own_tuning, sputter};
 use bc_sim::{DT, TICK_HZ};
 use glam::{Quat, Vec3};
 
@@ -254,8 +255,8 @@ pub struct Predictor {
     pub form: Form,
     /// The arms after the newest generated command: a strike under way, how lately a weapon fired.
     pub arms: ArmsClock,
-    /// The server's flight modifiers (AMBAC's with the arms idle).
-    mods: FlightMods,
+    /// The suit's stat sheet and flight modifiers, as the server's (AMBAC's with the arms idle).
+    flying: Flying,
     /// The suit's legs are there (it can walk and hop).
     legs_ok: bool,
     /// What the server flies the suit on until the client's first command reaches it: the input
@@ -290,7 +291,7 @@ impl Default for Predictor {
             tick: 0,
             form: Form { frame: FrameId::Leo, timer: 0 },
             arms: ArmsClock::default(),
-            mods: FlightMods::default(),
+            flying: Flying::default(),
             legs_ok: true,
             unheard: InputCmd::default(),
             samples: Box::new([Sample::NONE; HISTORY]),
@@ -344,17 +345,19 @@ fn mover_from(own: &OwnState, bodies: &Bodies) -> Mover {
     m
 }
 
+/// What the own suit flies with between snapshots: its stat sheet (built from the snapshot as the
+/// server builds it), the flight modifiers from it, and its slot (whose sputter it is).
+#[derive(Clone, Copy, Debug, Default)]
+struct Flying {
+    mods: FlightMods,
+    tuning: Tuning,
+    slot: u16,
+}
+
 impl Predictor {
-    fn mods_from(own: &OwnState) -> FlightMods {
-        FlightMods {
-            ambac: own.ambac_factor,
-            thrust: own.thrust_factor,
-            g_immune: false,
-            lunge: false,
-            extra_mass_kg: own.extra_mass_kg,
-            roll_level: None,
-            hop: None,
-        }
+    fn mods_from(own: &OwnState) -> Flying {
+        let tuning = own_tuning(own);
+        Flying { mods: flight_mods(&tuning, false, own.extra_mass_kg), tuning, slot: own.slot }
     }
 
     /// The frame flown now.
@@ -379,7 +382,7 @@ impl Predictor {
         m: &mut Mover,
         form: &mut Form,
         arms: &mut ArmsClock,
-        mods: &FlightMods,
+        flying: &Flying,
         legs_ok: bool,
         cmd: &InputCmd,
     ) -> MoveOut {
@@ -387,7 +390,8 @@ impl Predictor {
             arms.drop_strike();
         }
         let spec = frame(form.frame);
-        let mut mods = *mods;
+        let mut mods = flying.mods;
+        mods.main *= sputter(&flying.tuning, cmd.tick, flying.slot);
         if form.changing() {
             mods.thrust *= transform_thrust(form);
         }
@@ -406,7 +410,8 @@ impl Predictor {
         self.rocks_as_at(cmd.tick);
         let mut m = self.mover();
         let bodies = Bodies::at(&self.field, self.landmarks(), cmd.tick);
-        let out = Self::step(&bodies, &mut m, &mut self.form, &mut self.arms, &self.mods, self.legs_ok, cmd);
+        let out =
+            Self::step(&bodies, &mut m, &mut self.form, &mut self.arms, &self.flying, self.legs_ok, cmd);
         self.set_mover(&m);
         self.keep(Sample::of(cmd.tick, &m, &out, self.form.frame, &self.arms));
     }
@@ -553,7 +558,7 @@ impl Predictor {
             form.timer = u16::from(own.special_timer);
         }
         self.form = form;
-        self.mods = Self::mods_from(own);
+        self.flying = Self::mods_from(own);
         self.legs_ok = own.parts[Part::Legs as usize] > 0.0;
         // The server's state for that tick (the G and thrust aren't sent; see below).
         let mut m = mover_from(own, &self.bodies(server_tick));

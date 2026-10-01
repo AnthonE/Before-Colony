@@ -12,9 +12,13 @@ use serde::{Deserialize, Serialize};
 use crate::catalogue::{MUNITIONS_ITEM, PROPELLANT_ITEM, Station, munitions_per_load, recipe};
 use crate::exchange::{Exchange, Side};
 use crate::fab::{MAX_JOBS, Works};
+use crate::faults::{Faults, overhaul_cost};
 use crate::item::{Item, Material, Ore, is_line, part_name};
 use crate::stores::{PartUnit, Stores};
-use crate::suit::{Slot, Suit, line_of, repair_cost, scrap_yield};
+use crate::suit::{MODULE_MOUNTS, Slot, Suit, line_of, repair_cost, scrap_yield};
+use bc_sim::content::System;
+use bc_sim::content::modules::MOUNTS;
+use bc_sim::content::systems::{DAMAGED, FAILED, OK};
 
 /// A part towed home loose (it was shot off) comes back this worn, %.
 pub const SALVAGED_LIMB: u8 = 15;
@@ -75,6 +79,8 @@ impl Hangar {
         suit.mounts[0] = false;
         suit.ammo[0] = 0;
         suit.propellant = suit.tank() / 2;
+        // Second-hand, and it shows inside too: its radiators are tired.
+        suit.faults.set(System::Radiators, DAMAGED);
         let mut stores = Stores::default();
         stores.add(PROPELLANT_ITEM, 600);
         stores.add(MUNITIONS_ITEM, 100);
@@ -177,6 +183,11 @@ impl Hangar {
                     format!("{} parts don't fit a {}", frame_name(other), frame_name(line))
                 }
                 Item::Part(..) | Item::Weapon(_) => format!("there's no free place for a {}", item.name()),
+                Item::Module(k) => format!(
+                    "there's no free place for a {} (it goes on the {}, one to a suit)",
+                    item.name(),
+                    part_name(k.part())
+                ),
                 _ => format!("{} isn't something you fit", item.name()),
             });
         };
@@ -185,8 +196,25 @@ impl Hangar {
                 let Some(unit) = self.stores.take_best_part(line, part) else {
                     return refuse(format!("no {} in the stores", item.name()));
                 };
-                self.suit_mut()?.parts[part as usize] = Some(unit.condition);
-                Ok(format!("FITTED {} ({}%)", item.name().to_uppercase(), unit.condition))
+                let suit = self.suit_mut()?;
+                suit.parts[part as usize] = Some(unit.condition);
+                suit.faults = suit.faults.with_part(part, unit.faults);
+                let inside =
+                    if unit.faults.is_empty() { String::new() } else { format!(" · {}", unit.faults) };
+                Ok(format!(
+                    "FITTED {} ({}%){}",
+                    item.name().to_uppercase(),
+                    unit.condition,
+                    inside.to_uppercase()
+                ))
+            }
+            Slot::Module { module } => {
+                if !self.stores.take(item, 1) {
+                    return refuse(format!("no {} in the stores", item.name()));
+                }
+                let Item::Module(kind) = item else { return refuse("that isn't equipment") };
+                self.suit_mut()?.modules[usize::from(module)] = Some(kind);
+                Ok(format!("FITTED {}", item.name().to_uppercase()))
             }
             Slot::Mount { mount } => {
                 if !self.stores.take(item, 1) {
@@ -210,9 +238,13 @@ impl Hangar {
                 if suit.fitted().count() > 1 || suit.mounts.iter().any(|m| *m) {
                     return refuse("strip everything else first");
                 }
+                if suit.modules.iter().any(|m| m.is_some()) {
+                    return refuse("strip everything else first");
+                }
                 let condition = suit.parts[Part::Torso as usize].unwrap_or(1);
                 let propellant = suit.propellant;
-                self.stores.add_part(PartUnit { line, part: Part::Torso, condition });
+                let faults = suit.faults.of_part(Part::Torso);
+                self.stores.add_part(PartUnit { line, part: Part::Torso, condition, faults });
                 self.stores.add(PROPELLANT_ITEM, u64::from(propellant));
                 self.bay = Bay::Empty;
                 Ok("THE BAY IS EMPTY".into())
@@ -221,6 +253,17 @@ impl Hangar {
                 let Some(condition) = suit.parts[part as usize].take() else {
                     return refuse(format!("there's no {} fitted", part_name(part)));
                 };
+                let faults = suit.faults.of_part(part);
+                suit.faults = suit.faults.with_part(part, Faults::NONE);
+                // Its equipment comes off with it, into the stores.
+                let mut gear = Vec::new();
+                for (k, m) in suit.modules.iter_mut().enumerate() {
+                    if MOUNTS[k] == part
+                        && let Some(kind) = m.take()
+                    {
+                        gear.push(kind);
+                    }
+                }
                 // Its weapons come off with it.
                 let mut notes = vec![format!("{} OFF", part_name(part).to_uppercase())];
                 let mut off = Vec::new();
@@ -232,8 +275,20 @@ impl Hangar {
                 for m in off {
                     notes.push(self.unmount(m));
                 }
-                self.stores.add_part(PartUnit { line, part, condition });
+                for kind in gear {
+                    self.stores.add(Item::Module(kind), 1);
+                    notes.push(format!("{} OFF", kind.name().to_uppercase()));
+                }
+                self.stores.add_part(PartUnit { line, part, condition, faults });
                 Ok(notes.join(" · "))
+            }
+            Slot::Module { module } => {
+                let m = usize::from(module);
+                let Some(kind) = suit.modules.get_mut(m).and_then(|k| k.take()) else {
+                    return refuse("there's no equipment on that mount");
+                };
+                self.stores.add(Item::Module(kind), 1);
+                Ok(format!("{} OFF", kind.name().to_uppercase()))
             }
             Slot::Mount { mount } => {
                 let m = usize::from(mount);
@@ -264,6 +319,9 @@ impl Hangar {
         self.suit_mut()?;
         for m in 0..3 {
             let _ = self.strip(Slot::Mount { mount: m });
+        }
+        for m in 0..MODULE_MOUNTS as u8 {
+            let _ = self.strip(Slot::Module { module: m });
         }
         for part in Part::ALL {
             if part != Part::Torso {
@@ -305,6 +363,32 @@ impl Hangar {
         }
     }
 
+    /// Restores the damaged and failed systems inside `part` (or every part) as far as the stores
+    /// allow, one system at a time.
+    pub fn overhaul(&mut self, part: Option<Part>) -> Done {
+        let suit = self.suit_mut()?.clone();
+        let mut fixed = Vec::new();
+        let mut short = false;
+        for (sys, level) in suit.faults.iter() {
+            if part.is_some_and(|p| p != sys.part()) || suit.parts[sys.part() as usize].is_none() {
+                continue;
+            }
+            if !self.stores.take_all(&overhaul_cost(suit.line, level), 1) {
+                short = true;
+                continue;
+            }
+            self.suit_mut()?.faults.set(sys, OK);
+            fixed.push(sys.name().to_uppercase());
+        }
+        match (fixed.is_empty(), short) {
+            (true, true) => {
+                refuse("not enough in the stores to overhaul that (machined components, electronics)")
+            }
+            (true, false) => refuse("nothing inside needs overhauling"),
+            (false, _) => Ok(format!("OVERHAULED {}", fixed.join(" · "))),
+        }
+    }
+
     /// Melts down one `item` from the stores (a part: the worst there is) for half its materials.
     pub fn scrap(&mut self, item: Item) -> Done {
         let condition = match item {
@@ -312,7 +396,7 @@ impl Hangar {
                 Some(u) => u.condition,
                 None => return refuse(format!("no {} in the stores", item.name())),
             },
-            Item::Weapon(_) if self.stores.take(item, 1) => 100,
+            Item::Weapon(_) | Item::Module(_) if self.stores.take(item, 1) => 100,
             _ => return refuse(format!("{} can't be scrapped", item.name())),
         };
         let back = scrap_yield(item, condition);
@@ -417,7 +501,9 @@ impl Hangar {
             ChunkKind::Limb { frame, part, .. } => {
                 let line = line_of(frame);
                 if is_line(line) {
-                    self.stores.add_part(PartUnit { line, part, condition: SALVAGED_LIMB });
+                    // It was shot off: everything inside it failed.
+                    let faults = Faults::all(part, FAILED);
+                    self.stores.add_part(PartUnit { line, part, condition: SALVAGED_LIMB, faults });
                     notes.push(format!(
                         "SALVAGED {} ({SALVAGED_LIMB}%)",
                         Item::Part(line, part).name().to_uppercase()
@@ -433,7 +519,8 @@ impl Hangar {
                         continue;
                     }
                     if is_line(line) && part != Part::Torso {
-                        self.stores.add_part(PartUnit { line, part, condition: SALVAGED_HULK });
+                        let faults = Faults::all(part, DAMAGED);
+                        self.stores.add_part(PartUnit { line, part, condition: SALVAGED_HULK, faults });
                         notes.push(format!(
                             "SALVAGED {} ({SALVAGED_HULK}%)",
                             Item::Part(line, part).name().to_uppercase()
@@ -541,6 +628,8 @@ mod tests {
             mounts: l.mounts,
             ammo: l.ammo,
             propellant: l.propellant,
+            systems: l.systems,
+            modules: l.modules,
             cargo_kg: [0; 4],
             held: None,
             bounty: 0,

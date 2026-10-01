@@ -53,7 +53,7 @@ pub fn ore_colour(kind: usize) -> Vec3 {
 }
 
 /// Per-piece parameters for [`HullMaterial`], packed into a `MeshTag`.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct HullTag {
     pub paint: u8,
     /// A suit livery's trim and accent paints and eye colour (merged suit meshes pick among

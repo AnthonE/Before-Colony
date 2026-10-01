@@ -366,7 +366,7 @@
   // --- The hangar's terminals (survival rules). The game sends the catalogue once and the pilot's
   // hangar whenever the server's word on it changes (crates/bc-client/src/terminal.rs); what the
   // pilot asks for goes back as {cmd: "hangar", req}, a request the server checks and answers. ---
-  let catalogue = { items: [], recipes: [], lines: [], parts: [], fee_bp: 0 };
+  let catalogue = { items: [], recipes: [], lines: [], parts: [], systems: [], module_mounts: [], fee_bp: 0 };
   const items = new Map();
   const lines = new Map();
   let hangar = null;
@@ -402,6 +402,13 @@
   const button = (label, attrs, cls) =>
     `<button type="button" ${cls ? `class="${cls}"` : ""} ${Object.entries(attrs).map(([k, v]) => `data-${k}="${esc(v)}"`).join(" ")}>${label}</button>`;
   const input = (key, value, extra) => `<input data-key="${esc(key)}" value="${esc(value)}" ${extra || ""}>`;
+  const systemName = (slug) => catalogue.systems.find((x) => x.slug === slug)?.name || slug;
+  // What's damaged or failed inside a part, as a line under it.
+  const faultNote = (faults) => {
+    const list = Object.entries(faults || {});
+    if (!list.length) return "";
+    return `<div class="note fault">${list.map(([sys, level]) => `${esc(systemName(sys))} <b class="${level}">${level.toUpperCase()}</b>`).join(" · ")}</div>`;
+  };
   const bar = (pct) => `<span class="bar ${pct < 35 ? "bad" : pct < 75 ? "worn" : ""}"><i style="width:${Math.max(2, pct)}%"></i></span>${pct}%`;
 
   function catalogueIn(json) {
@@ -420,7 +427,7 @@
 
   // The fabricator: what can be made (materials, each line's parts, weapons), and the queues.
   function renderFabricator() {
-    const filters = [["materials", "MATERIALS"], ...catalogue.lines.map((l) => [l.slug, l.name.toUpperCase()]), ["weapons", "WEAPONS"]];
+    const filters = [["materials", "MATERIALS"], ...catalogue.lines.map((l) => [l.slug, l.name.toUpperCase()]), ["weapons", "WEAPONS"], ["modules", "EQUIPMENT"]];
     let out = `<div class="filters">${filters
       .map(([f, label]) => button(label, { act: "fab-filter", f }, fabFilter === f ? "active" : ""))
       .join("")}</div>`;
@@ -429,6 +436,7 @@
       if (!it) return false;
       if (fabFilter === "materials") return it.kind === "material";
       if (fabFilter === "weapons") return it.kind === "weapon";
+      if (fabFilter === "modules") return it.kind === "module";
       return it.kind === "part" && it.line === fabFilter;
     });
     const line = lines.get(fabFilter);
@@ -444,7 +452,8 @@
         .join(", ");
       const fee = r.fee ? ` · ${fmt(r.fee)} CR` : "";
       const g = items.get(r.output)?.gundam ? " gundam" : "";
-      out += `<tr><td class="${g}">${amount(r.output, r.makes)} ${esc(nameOf(r.output))}</td><td>${needs}</td>` +
+      const what = items.get(r.output)?.summary ? `<div class="note">${esc(items.get(r.output).summary)} · fits the ${esc(partName(items.get(r.output).part))}</div>` : "";
+      out += `<tr><td class="${g}">${amount(r.output, r.makes)} ${esc(nameOf(r.output))}${what}</td><td>${needs}</td>` +
         `<td class="dim">${esc(r.station_name)}${fee}</td><td class="num">${secs(r.secs)}</td>` +
         `<td class="num">${input(key, draft(key, "1"), 'inputmode="numeric" size="4"')}</td>` +
         `<td class="act">${button("MAKE", { act: "make", item: r.output })}</td></tr>`;
@@ -486,6 +495,14 @@
     for (const [slug, qty] of weapons) {
       out += `<tr><td>${esc(nameOf(slug))}</td><td class="num">${fmt(qty)}</td><td class="act">` +
         (fits.has(slug) ? button("FIT", { act: "fit", item: slug }) + " " : "") +
+        button("SCRAP", { act: "scrap", item: slug }, "danger") + " " + button("SELL", { act: "sell", item: slug }) + `</td></tr>`;
+    }
+    out += `</table></section><section><h3>EQUIPMENT</h3><table><tr><th>MODULE</th><th class="num">HELD</th><th></th></tr>`;
+    const gear = v.stock.filter(([slug]) => items.get(slug)?.kind === "module");
+    if (!gear.length) out += `<tr><td colspan="3" class="dim">None.</td></tr>`;
+    for (const [slug, qty] of gear) {
+      out += `<tr><td>${esc(nameOf(slug))}<div class="note">${esc(items.get(slug)?.summary)}</div></td><td class="num">${fmt(qty)}</td><td class="act">` +
+        (fits.has(slug) ? button("FIT", { act: "fit", item: slug }) + " " : "") +
         button("SCRAP", { act: "scrap", item: slug }) + " " + button("SELL", { act: "sell", item: slug }) + `</td></tr>`;
     }
     out += `</table></section><section><h3>PARTS</h3><table><tr><th>PART</th><th>CONDITION</th><th></th></tr>`;
@@ -493,9 +510,9 @@
     if (!parts.length) out += `<tr><td colspan="3" class="dim">None.</td></tr>`;
     for (const u of parts) {
       const slug = `part.${u.line}.${u.part}`;
-      out += `<tr><td class="${items.get(slug)?.gundam ? "gundam" : ""}">${esc(nameOf(slug))}</td><td>${bar(u.condition)}</td><td class="act">` +
+      out += `<tr><td class="${items.get(slug)?.gundam ? "gundam" : ""}">${esc(nameOf(slug))}${faultNote(u.faults)}</td><td>${bar(u.condition)}</td><td class="act">` +
         (fits.has(slug) ? button("FIT", { act: "fit", item: slug }) + " " : "") +
-        button("SCRAP", { act: "scrap", item: slug }) + " " + button("SELL", { act: "sell", item: slug }) + `</td></tr>`;
+        button("SCRAP", { act: "scrap", item: slug }, "danger") + " " + button("SELL", { act: "sell", item: slug }) + `</td></tr>`;
     }
     return out + `</table></section>`;
   }
@@ -533,10 +550,35 @@
       }
       const rep = (con.repairs || []).find((r) => r.part === p.slug);
       const cost = rep ? rep.cost.map(([s, q]) => `${amount(s, q)} ${esc(nameOf(s))}`).join(", ") : "";
-      out += `<div class="slot"><div class="what">${esc(p.name.toUpperCase())}</div><div>${bar(c)}</div><div>` +
+      // Its systems: working, or what's wrong and what restoring it takes.
+      const inside = catalogue.systems.filter((x) => x.part === p.slug);
+      const broken = (con.overhauls || []).filter((o) => o.part === p.slug);
+      const tags = inside.map((x) => {
+        const o = broken.find((b) => b.system === x.slug);
+        return `<span class="sys ${o ? o.level : "ok"}" title="${esc(x.name)}${o ? ": " + o.level : ""}">${esc(x.tag)}</span>`;
+      }).join(" ");
+      const ohCost = broken.map((o) => `${esc(systemName(o.system))}: ${o.cost.map(([s, q]) => `${amount(s, q)} ${esc(nameOf(s))}`).join(", ")}`).join("; ");
+      out += `<div class="slot"><div class="what">${esc(p.name.toUpperCase())}</div><div>${bar(c)}</div><div class="systems">${tags}</div><div>` +
         (rep ? button("REPAIR", { act: "repair", part: p.slug }) + " " : "") +
+        (broken.length ? button("OVERHAUL", { act: "overhaul", part: p.slug }) + " " : "") +
         button("STRIP", { act: "strip-part", part: p.slug }) + `</div>` +
-        (rep ? `<div class="note">repair: ${cost}</div>` : "") + `</div>`;
+        (rep ? `<div class="note">repair: ${cost}</div>` : "") +
+        (broken.length ? `<div class="note">overhaul: ${ohCost}</div>` : "") + `</div>`;
+    });
+    // Equipment, on its parts' mounts.
+    (catalogue.module_mounts || []).forEach((part, k) => {
+      const kind = (suit.modules || [])[k];
+      if (suit.parts[catalogue.parts.findIndex((p) => p.slug === part)] == null) return;
+      if (!kind) {
+        const can = [...fits].filter((slug) => items.get(slug)?.kind === "module" && items.get(slug)?.part === part);
+        out += `<div class="slot empty"><div class="what">${esc(partName(part).toUpperCase())} MOUNT: EMPTY</div><div>` +
+          (can.length ? can.map((slug) => button(`FIT ${esc(nameOf(slug).toUpperCase())}`, { act: "fit", item: slug })).join(" ") : `<span class="note">no equipment for it in the stores</span>`) +
+          `</div></div>`;
+        return;
+      }
+      const slug = `module.${kind}`;
+      out += `<div class="slot"><div class="what">${esc(nameOf(slug).toUpperCase())}</div><div class="note">${esc(items.get(slug)?.summary)}</div><div>` +
+        button("STRIP", { act: "strip-module", module: k }) + `</div></div>`;
     });
     (line?.mounts || []).forEach((m, k) => {
       if (!m) return;
@@ -553,8 +595,26 @@
     const stores = stockOf("mat.propellant");
     out += `<div class="slot"><div class="what">PROPELLANT</div><div>${bar(Math.round((100 * suit.propellant) / Math.max(1, tank)))}</div>` +
       `<div class="note">${fmt(suit.propellant)}/${fmt(tank)} kg · ${fmt(stores)} kg in the stores</div></div></div>`;
+    const st = con.stats;
+    if (st) {
+      const row = (k, v) => `<div><span class="dim">${k}</span> ${v}</div>`;
+      out += `<section class="stats"><h3>AS IT WOULD LAUNCH</h3><div class="statgrid">` +
+        row("DELTA-V", `${fmt(Math.round(st.delta_v))} m/s`) +
+        row("ACCEL", `${st.accel_g.toFixed(1)} g (boost ${st.boost_g.toFixed(1)} g)`) +
+        row("MASS", `${fmt(st.mass_kg)} kg`) +
+        row("TANK", `${fmt(st.tank_kg)} kg`) +
+        row("SENSORS", `${(st.sensor_m / 1000).toFixed(1)} km`) +
+        row("SIGNATURE", `×${st.signature.toFixed(2)}`) +
+        row("ENERGY", `${fmt(Math.round(st.energy))} (+${st.regen.toFixed(1)}/s)`) +
+        row("HEAT SHED", `${st.heat.toFixed(1)}/s`) +
+        row("HOLD", `${fmt(st.hold_kg)} kg`) +
+        row("PILOT BEARS", `${st.g_tolerance.toFixed(1)} g`) +
+        row("DAMAGE TAKEN", `×${st.armour.toFixed(2)}`) +
+        `</div></section>`;
+    }
     out += `<div class="row">` + ((con.repairs || []).length ? button("REPAIR ALL", { act: "repair", part: "" }) : "") +
-      button("DISMANTLE", { act: "dismantle" }) + `<span class="note">Dismantling puts everything back in the stores.</span></div>`;
+      ((con.overhauls || []).length ? button("OVERHAUL ALL", { act: "overhaul", part: "" }) : "") +
+      button("DISMANTLE", { act: "dismantle" }, "danger") + `<span class="note">Dismantling puts everything back in the stores.</span></div>`;
     return out;
   }
 
@@ -563,14 +623,14 @@
   function renderExchange() {
     const m = hangar?.market;
     if (!m) return `<div class="note">Waiting for the exchange…</div>`;
-    const filters = [["goods", "RAW & MATERIALS"], ["parts", "PARTS"], ["weapons", "WEAPONS"]];
+    const filters = [["goods", "RAW & MATERIALS"], ["parts", "PARTS"], ["weapons", "WEAPONS"], ["modules", "EQUIPMENT"]];
     let left = `<div class="filters">${filters
       .map(([f, label]) => button(label, { act: "ex-filter", f }, exFilter === f ? "active" : ""))
       .join("")}</div><table><tr><th>ITEM</th><th class="num">BID</th><th class="num">ASK</th><th class="num">LAST</th><th class="num">VOL</th></tr>`;
     for (const q of m.quotes) {
       const it = items.get(q.item);
       if (!it) continue;
-      const kind = it.kind === "ore" || it.kind === "material" ? "goods" : it.kind === "part" ? "parts" : "weapons";
+      const kind = it.kind === "ore" || it.kind === "material" ? "goods" : it.kind === "part" ? "parts" : it.kind === "module" ? "modules" : "weapons";
       if (kind !== exFilter) continue;
       const quiet = q.bid == null && q.ask == null && !q.volume && !stockOf(q.item);
       if (kind === "parts" && quiet) continue;
@@ -594,7 +654,7 @@
       if (hist.length > 1) {
         const lo = Math.min(...hist), hi = Math.max(...hist), span = Math.max(1, hi - lo);
         const pts = hist.map((p, i) => `${((i / (hist.length - 1)) * 100).toFixed(1)},${(55 - ((p - lo) / span) * 50).toFixed(1)}`).join(" ");
-        right += `<svg class="spark" viewBox="0 0 100 60" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="#9fe8ff" stroke-width="1" vector-effect="non-scaling-stroke"/></svg>` +
+        right += `<svg class="spark" viewBox="0 0 100 60" preserveAspectRatio="none"><polyline points="${pts}" fill="none" style="stroke: var(--cyan)" stroke-width="1" vector-effect="non-scaling-stroke"/></svg>` +
           `<div class="note">last hour: ${fmt(lo)}–${fmt(hi)} ${unit(watching)}</div>`;
       }
       const levels = (list, cls) =>
@@ -721,12 +781,18 @@
       case "repair":
         ask(d.part ? { t: "repair", part: d.part } : { t: "repair" });
         return;
+      case "overhaul":
+        ask(d.part ? { t: "overhaul", part: d.part } : { t: "overhaul" });
+        return;
+      case "strip-module":
+        ask({ t: "strip", slot: { kind: "module", module: Number(d.module) } });
+        return;
       case "dismantle":
         if (confirm("Strip the suit bare, torso and all, into the stores?")) ask({ t: "dismantle" });
         return;
       case "sell":
         side = "sell";
-        exFilter = items.get(d.item)?.kind === "part" ? "parts" : items.get(d.item)?.kind === "weapon" ? "weapons" : "goods";
+        exFilter = { part: "parts", weapon: "weapons", module: "modules" }[items.get(d.item)?.kind] || "goods";
         watch(d.item);
         tab = "exchange";
         break;

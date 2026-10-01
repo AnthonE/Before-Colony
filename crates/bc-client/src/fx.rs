@@ -25,7 +25,7 @@ use crate::gfx::Gfx;
 use crate::materials::{HullTag, paint};
 use crate::model::SuitMeshLib;
 use crate::particles::{At, Particles};
-use crate::suits_vis::{bone_point, drawn_blades, flame_nozzle, plume_power};
+use crate::suits_vis::{SuitVisual, bone_point, drawn_blades, flame_nozzle, plume_power};
 use crate::view::{BeamFeed, FxEvent, FxEvents, MissileFeed, SuitDrive, VisTime};
 
 const BEAMS: usize = 96;
@@ -134,7 +134,7 @@ pub fn update_fx(
     lib: Res<SuitMeshLib>,
     feed: Res<BeamFeed>,
     mut events: ResMut<FxEvents>,
-    suits: Query<(&SuitDrive, Option<&Anim>)>,
+    suits: Query<(&SuitDrive, Option<&Anim>, Option<&SuitVisual>)>,
     cams: Query<&GlobalTransform, With<MainCamera>>,
     mut state: ResMut<FxState>,
     mut particles: ResMut<Particles>,
@@ -167,6 +167,10 @@ pub fn update_fx(
                 if b.weapon == WeaponKind::TwinBusterRifle {
                     particles.trail(cap, b.head, b.dir, length, look.color, time.dt);
                 }
+                // A bright bolt-head, so a shot reads end-on and far away (the Twin Buster's own
+                // head is already vast).
+                let size = (look.half_width * 1.6).min(3.0);
+                particles.glow(cap, At { pos: b.head, vel: Vec3::ZERO }, size, look.color * 0.5);
             }
             None => show(&mut v, false),
         }
@@ -174,7 +178,7 @@ pub fn update_fx(
 
     // --- Stream weapons: tracers at each weapon's own speed and colour, from the firing flags
     // (the simulation sends no event per round). The flamethrower's jet. ---
-    for (d, anim) in &suits {
+    for (d, anim, _) in &suits {
         let sockets = lib.sockets(d.frame);
         for (k, m) in firing_mounts(d) {
             let w = weapon(m.weapon);
@@ -246,9 +250,9 @@ pub fn update_fx(
     }
 
     // --- The main thrusters' fire, seen end-on (the plume ribbons vanish from straight behind). ---
-    for (d, anim) in &suits {
+    for (d, anim, _) in &suits {
         let power = plume_power(d);
-        if power > 0.03 {
+        if power > 0.03 && d.parts[bc_proto::Part::Backpack as usize] > 0 {
             for &(pos, dir) in &lib.sockets(d.frame).nozzles {
                 let at = At { pos: bone_point(d, anim, Bone::Backpack, pos + dir * 0.4), vel: d.vel };
                 particles.glow(cap, at, 0.6 + 1.2 * power, Vec3::new(2.0, 2.8, 5.0) * power);
@@ -257,7 +261,7 @@ pub fn update_fx(
     }
 
     // --- Attitude jets: sideways and vertical thrust vents vapour the other way. ---
-    for (d, _) in &suits {
+    for (d, _, _) in &suits {
         if d.flags & ent_flags::WRECK != 0 {
             continue;
         }
@@ -284,7 +288,7 @@ pub fn update_fx(
 
     // --- Blades cutting rock: sparks and molten rock spray from where a blade goes in. ---
     if let Some(field) = &field {
-        for (d, anim) in &suits {
+        for (d, anim, _) in &suits {
             for (a, b, _) in drawn_blades(d, anim, &lib, &ribbons).into_iter().flatten() {
                 let Some((f, i)) = field.0.sweep(a, b, 0.4) else { continue };
                 let rock = field.0.rocks()[i];
@@ -303,7 +307,7 @@ pub fn update_fx(
     }
 
     // --- The Twin Buster Rifle drawing in energy while it charges. ---
-    for (d, anim) in &suits {
+    for (d, anim, _) in &suits {
         if d.flags & ent_flags::CHARGING != 0 && d.flags & ent_flags::WRECK == 0 {
             // At the drawn muzzle, which the arm is holding on the aim.
             let muzzle = bone_point(d, anim, Bone::Weapon, lib.sockets(d.frame).muzzle);
@@ -319,15 +323,18 @@ pub fn update_fx(
     }
 
     // --- One-shot effects. ---
+    let suit_vel = |slot: u16| suits.iter().find(|(d, ..)| d.slot == slot).map(|(d, ..)| d.vel);
     for ev in events.0.drain(..) {
         match ev {
-            FxEvent::Hit { pos, weapon, normal, .. } => {
+            FxEvent::Hit { pos, weapon, normal, target } => {
                 let look = ribbons.look(weapon);
                 let big = weapon == WeaponKind::TwinBusterRifle;
-                // Sparks fly off the struck surface (or back toward the camera's side of it).
+                // Sparks fly off the struck surface (or back toward the camera's side of it), and
+                // on with the suit they came off.
                 let normal = normal.unwrap_or_else(|| (eye - pos).normalize_or(Vec3::Y));
                 let scale = if big { 3.0 } else { 1.0 };
-                particles.impact(cap, At { pos, vel: Vec3::ZERO }, normal, look.color, scale);
+                let vel = target.and_then(|(slot, _)| suit_vel(slot)).unwrap_or(Vec3::ZERO);
+                particles.impact(cap, At { pos, vel }, normal, look.color, scale);
                 state.flashes.push(Flash {
                     pos,
                     born: now,
@@ -336,11 +343,16 @@ pub fn update_fx(
                     color: Color::srgb(1.0, 0.85, 0.6),
                 });
             }
-            FxEvent::Kill { pos } => {
-                let at = At { pos, vel: Vec3::ZERO };
+            FxEvent::Kill { pos, vel, victim } => {
+                // The blast flies on with the wreck, and its armour comes off in its own paint.
+                let at = At { pos, vel };
                 particles.explosion(cap, at, 1.0);
-                blasts.shockwave(pos, Vec3::ZERO, 70.0);
-                blasts.chips(pos, Vec3::ZERO, 14, HullTag { heat: 20, ..HullTag::paint(paint::DARK, 0) });
+                blasts.shockwave(pos, vel, 70.0);
+                let livery = victim
+                    .and_then(|slot| suits.iter().find(|(d, ..)| d.slot == slot))
+                    .and_then(|(.., v)| v.map(|v| v.tag()))
+                    .unwrap_or_else(|| HullTag::paint(paint::DARK, 0));
+                blasts.chips(pos, vel, 14, HullTag { heat: 31, armour: 3, ..livery });
                 state.flashes.push(Flash {
                     pos,
                     born: now,
@@ -353,12 +365,14 @@ pub fn update_fx(
                 // At the drawn muzzle when it's the shooter's main weapon (the simulation's is at
                 // the hand, inside the gun).
                 let pos = shooter
-                    .and_then(|slot| suits.iter().find(|(d, _)| d.slot == slot))
-                    .filter(|(d, _)| {
+                    .and_then(|slot| suits.iter().find(|(d, ..)| d.slot == slot))
+                    .filter(|(d, ..)| {
                         frame(d.frame).loadout[0]
                             .is_some_and(|m| m.weapon == weapon && m.arm == ArmSlot::Right)
                     })
-                    .map_or(pos, |(d, anim)| bone_point(d, anim, Bone::Weapon, lib.sockets(d.frame).muzzle));
+                    .map_or(pos, |(d, anim, _)| {
+                        bone_point(d, anim, Bone::Weapon, lib.sockets(d.frame).muzzle)
+                    });
                 let look = ribbons.look(weapon);
                 let buster = weapon == WeaponKind::TwinBusterRifle;
                 let scale = if buster { 4.0 } else { 1.0 };
@@ -375,7 +389,25 @@ pub fn update_fx(
                 });
             }
             // The camera shakes and flashes for this one (see `camera`).
-            FxEvent::Struck { .. } | FxEvent::MissileLaunch { .. } => {}
+            FxEvent::Struck { .. } => {}
+            FxEvent::MissileLaunch { pos, .. } => {
+                // The motor lights off the rail: a flash and a puff of propellant.
+                let vel = suits
+                    .iter()
+                    .map(|(d, ..)| d)
+                    .filter(|d| d.pos.distance_squared(pos) < 30.0 * 30.0)
+                    .map(|d| d.vel)
+                    .next()
+                    .unwrap_or(Vec3::ZERO);
+                particles.launch(cap, At { pos, vel });
+                state.flashes.push(Flash {
+                    pos,
+                    born: now,
+                    life: 0.15,
+                    lumens: 4.0e7,
+                    color: Color::srgb(1.0, 0.75, 0.45),
+                });
+            }
             FxEvent::RockBreak { pos, radius, ore } => {
                 particles.rock_burst(cap, At { pos, vel: Vec3::ZERO }, radius, ore);
                 state.flashes.push(Flash {
@@ -390,7 +422,7 @@ pub fn update_fx(
                 // A flash of feathers and a ring round the waist as the frame folds or unfolds.
                 let at = At { pos, vel };
                 particles.muzzle(cap, at, rot * Vec3::Y, Vec3::new(6.0, 7.0, 9.0), 5.0);
-                blasts.ring(pos, vel, rot * Vec3::Z, 16.0);
+                blasts.feather_ring(pos, vel, rot * Vec3::Z, 16.0);
                 state.flashes.push(Flash {
                     pos,
                     born: now,
@@ -418,8 +450,8 @@ pub fn update_fx(
                     particles.dust(cap, At { pos, vel }, normal, speed / 8.0);
                 }
             }
-            FxEvent::Clash { pos } => {
-                particles.clash(cap, At { pos, vel: Vec3::ZERO });
+            FxEvent::Clash { pos, vel } => {
+                particles.clash(cap, At { pos, vel });
                 state.flashes.push(Flash {
                     pos,
                     born: now,

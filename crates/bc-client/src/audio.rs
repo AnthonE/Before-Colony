@@ -265,7 +265,8 @@ fn cockpit_in(game: &GameClient, in_world: bool, footfalls: u32) -> CockpitIn {
         thrust,
         boost: view.is_some_and(|v| v.boosting && v.throttle.z > 0.05),
         rcs: core.last_cmd.buttons & RCS_SHARP != 0,
-        propellant: core.predict.state.propellant / spec.propellant_cap.max(1.0),
+        propellant: core.predict.state.propellant
+            / bc_sim::tuning::tank_cap(spec, &bc_sim::tuning::own_tuning(&o)).max(1.0),
         g_strain: view.map_or(o.g_strain, |v| v.g_strain).clamp(0.0, 1.0),
         blackout: view.is_some_and(|v| v.blackout),
         charge: o.charge,
@@ -283,12 +284,22 @@ fn cockpit_in(game: &GameClient, in_world: bool, footfalls: u32) -> CockpitIn {
         held: o.held != NO_CHUNK,
         cargo_kg: o.cargo_kg.iter().map(|kg| u32::from(*kg)).sum(),
         credits: o.credits,
+        damaged: systems_at(&o, bc_sim::content::systems::DAMAGED),
+        failed: systems_at(&o, bc_sim::content::systems::FAILED),
+        leak: bc_sim::tuning::own_tuning(&o).leak_kg_s > 0.0,
         footing: view.and_then(|v| v.ground).map_or(0, |g| if g.aloft { 2 } else { 1 }),
         touchdown: view.and_then(|v| v.touchdown).unwrap_or(0.0),
         footfalls,
         grip: core.last_cmd.buttons & bc_proto::buttons::GRIP != 0,
         cover: o.cover,
     }
+}
+
+/// How many of the own suit's systems are at `level` (those in parts shot off count as failed).
+fn systems_at(o: &bc_proto::OwnState, level: u8) -> u8 {
+    let gone = bc_sim::tuning::own_gone(o);
+    let s = bc_sim::content::Systems(o.systems);
+    bc_sim::content::System::ALL.iter().filter(|x| s.level(**x, gone) == level).count() as u8
 }
 
 /// Builds the bank a little at a time.
@@ -368,14 +379,14 @@ pub fn play_sound(
                 sound.mixer.request(Request::own(Cue::HullHit));
                 heat += 0.12;
             }
-            FxEvent::Kill { pos } => {
+            FxEvent::Kill { pos, .. } => {
                 sound.mixer.request(Request::at(Cue::Explosion, v3(pos)));
                 if pos.distance(ears) < 3_000.0 {
                     heat += 0.25;
                 }
             }
             FxEvent::RockBreak { pos, .. } => sound.mixer.request(Request::at(Cue::RockBreak, v3(pos))),
-            FxEvent::Clash { pos } => {
+            FxEvent::Clash { pos, .. } => {
                 sound.mixer.request(Request::at(Cue::Clash, v3(pos)));
                 heat += 0.08;
             }

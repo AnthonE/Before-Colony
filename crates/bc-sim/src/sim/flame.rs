@@ -63,7 +63,7 @@ impl Sim {
         let s = &self.suits;
         let f = s.flight[i];
         let fwd = f.rot * Vec3::Z;
-        let dir = clamp_to_cone(normalize_or(cmd.aim, fwd), fwd, mount.arm.cone());
+        let dir = clamp_to_cone(normalize_or(cmd.aim, fwd), fwd, self.cone(i, mount.arm));
         let nozzle = f.pos + f.rot * mount.arm.muzzle();
         let tip = nozzle + dir * w.range;
         // The cone's radius per metre along it.

@@ -1,17 +1,21 @@
 //! The title theme: an original piece in the manner of a mid-90s anime opening as a Super Famicom
-//! game played it, at 143 BPM in E minor, 28 bars (about 47 s) that loop. It plays on the
+//! game played it, at 143 BPM in E minor, 36 bars (about 60 s) that loop. It plays on the
 //! [`crate::spc`] chip: eight voices, instruments stored as BRR, the chip's echo.
 //!
-//! - **Intro** (bars 1-4): orchestra hits, brass and bass on a 3-3-2, a tom fill.
-//! - **Hook** (5-8): the lead over the full groove, Em C D B, open hats on the off-beats.
-//! - **Verse** (9-16): Em C D, sparser, eighth-note arpeggios.
-//! - **Pre-chorus** (17-20): Am Bm C B, brass climbing, a snare roll.
-//! - **Chorus** (21-28): C D Bm Em (J-pop's "royal road"), a harmony under the lead, and a fill
-//!   back to the top.
+//! - **Intro** (bars 1-4): orchestra hits, brass, power chords and bass on a 3-3-2, a tom fill.
+//! - **Hook** (5-8): the guitar lead over the full groove, Em C D B, open hats on the off-beats.
+//! - **Verse** (9-16): Em C D, sparser, a choir and eighth-note arpeggios.
+//! - **Pre-chorus** (17-20): Am Bm C B, brass climbing over muted chugs, then the band stops dead
+//!   and a snare roll and the lead carry it into...
+//! - **Chorus** (21-28): C D Bm Em (J-pop's "royal road") with sevenths in a falling string line,
+//!   power chords in eighths, a second guitar in harmony, the melody's high notes leaning on the
+//!   chord before they resolve.
+//! - **Last chorus** (29-36): a whole step up, with the choir, turning back to E minor for the top.
 //!
 //! The score is MML (music macro language, the way SNES composers wrote), a string a voice, with
-//! the drums as step grids. The instruments are waveforms built here and stored as BRR; they and
-//! the echo buffer fit in the chip's 64 KB.
+//! the drums as step grids. The instruments are the kinds the era's anime games carried (an
+//! overdriven guitar, power chords, slap bass, orchestra hit, brass, strings, choir), built here
+//! from waveforms and stored as BRR; they and the echo buffer fit in the chip's 64 KB.
 
 use std::f32::consts::TAU;
 
@@ -22,7 +26,7 @@ use crate::synth::{Lp, Rng};
 /// Beats a minute.
 pub const BPM: f64 = 143.0;
 /// Bars before it loops.
-pub const BARS: u32 = 28;
+pub const BARS: u32 = 36;
 /// Ticks a bar of 4/4 (an MML whole note), as sound drivers count them.
 const BAR: u32 = 192;
 /// Samples a tick.
@@ -52,6 +56,8 @@ struct Inst {
     adsr: Adsr,
     /// Vibrato depth, cents.
     vibrato: f32,
+    /// A long note slides up into pitch from this far below, cents (a guitarist's scoop).
+    scoop: f32,
 }
 
 /// Drums sampled at 16 kHz play middle C at pitch 0x800; at 32 kHz, at 0x1000.
@@ -65,36 +71,56 @@ const HAT: u8 = 8;
 const OPEN_HAT: u8 = 9;
 const CRASH: u8 = 10;
 
-const INSTRUMENTS: [Inst; 11] = [
-    // @0 lead, with vibrato.
-    Inst { sample: 0, unity: 1_000.0, adsr: adsr(14, 7, 6, 8), vibrato: 18.0 },
-    // @1 bass: struck, then settling.
-    Inst { sample: 1, unity: 250.0, adsr: adsr(15, 5, 3, 16), vibrato: 0.0 },
+const INSTRUMENTS: [Inst; 13] = [
+    // @0 lead: an overdriven guitar, scooping into long notes, with vibrato.
+    Inst { sample: 0, unity: 500.0, adsr: adsr(15, 2, 5, 9), vibrato: 24.0, scoop: -70.0 },
+    // @1 slap bass: struck, then settling.
+    Inst { sample: 1, unity: 250.0, adsr: adsr(15, 5, 3, 16), vibrato: 0.0, scoop: 0.0 },
     // @2 strings: slow in, held.
-    Inst { sample: 2, unity: 500.0, adsr: adsr(9, 0, 7, 0), vibrato: 0.0 },
+    Inst { sample: 2, unity: 500.0, adsr: adsr(9, 0, 7, 0), vibrato: 0.0, scoop: 0.0 },
     // @3 brass: quick in, falling away.
-    Inst { sample: 3, unity: 500.0, adsr: adsr(12, 4, 4, 14), vibrato: 0.0 },
+    Inst { sample: 3, unity: 500.0, adsr: adsr(12, 4, 4, 14), vibrato: 0.0, scoop: 0.0 },
     // @4 pluck, for arpeggios.
-    Inst { sample: 4, unity: 1_000.0, adsr: adsr(15, 5, 1, 18), vibrato: 0.0 },
+    Inst { sample: 4, unity: 1_000.0, adsr: adsr(15, 5, 1, 18), vibrato: 0.0, scoop: 0.0 },
     // @5 orchestra hit.
-    Inst { sample: 5, unity: 250.0, adsr: adsr(15, 3, 3, 16), vibrato: 0.0 },
+    Inst { sample: 5, unity: 250.0, adsr: adsr(15, 3, 3, 16), vibrato: 0.0, scoop: 0.0 },
     // @6 kick (tuned up, the toms), @7 snare: the samples shape them.
-    Inst { sample: 6, unity: DRUM_16K, adsr: adsr(15, 0, 7, 0), vibrato: 0.0 },
-    Inst { sample: 7, unity: DRUM_16K, adsr: adsr(15, 0, 7, 0), vibrato: 0.0 },
+    Inst { sample: 6, unity: DRUM_16K, adsr: adsr(15, 0, 7, 0), vibrato: 0.0, scoop: 0.0 },
+    Inst { sample: 7, unity: DRUM_16K, adsr: adsr(15, 0, 7, 0), vibrato: 0.0, scoop: 0.0 },
     // @8 closed hat and @9 open: one sample, cut short or let ring.
-    Inst { sample: 8, unity: DRUM_32K, adsr: adsr(15, 7, 0, 26), vibrato: 0.0 },
-    Inst { sample: 8, unity: DRUM_32K, adsr: adsr(15, 2, 3, 19), vibrato: 0.0 },
+    Inst { sample: 8, unity: DRUM_32K, adsr: adsr(15, 7, 0, 26), vibrato: 0.0, scoop: 0.0 },
+    Inst { sample: 8, unity: DRUM_32K, adsr: adsr(15, 2, 3, 19), vibrato: 0.0, scoop: 0.0 },
     // @10 crash.
-    Inst { sample: 9, unity: DRUM_32K, adsr: adsr(15, 1, 4, 13), vibrato: 0.0 },
+    Inst { sample: 9, unity: DRUM_32K, adsr: adsr(15, 1, 4, 13), vibrato: 0.0, scoop: 0.0 },
+    // @11 a distorted guitar's power chord (root, fifth, octave): chugs and hits.
+    Inst { sample: 10, unity: 250.0, adsr: adsr(15, 4, 4, 12), vibrato: 0.0, scoop: 0.0 },
+    // @12 choir: slow in, held.
+    Inst { sample: 11, unity: 500.0, adsr: adsr(8, 0, 7, 0), vibrato: 0.0, scoop: 0.0 },
 ];
 
 /// Vibrato comes in this long after a note starts, ticks, at this rate.
 const VIBRATO_DELAY: u32 = 24;
 const VIBRATO_HZ: f32 = 5.5;
+/// A scoop takes this long, ticks, into notes at least [`SCOOP_FROM`] long.
+const SCOOP_TICKS: u32 = 6;
+const SCOOP_FROM: u32 = 36;
 
 /// The samples, in the order [`INSTRUMENTS`] number them.
 fn bank() -> Vec<Sample> {
-    vec![lead(), bass(), strings(), brass(), pluck(), orchestra(), kick(), snare(), hat(), crash()]
+    vec![
+        lead(),
+        bass(),
+        strings(),
+        brass(),
+        pluck(),
+        orchestra(),
+        kick(),
+        snare(),
+        hat(),
+        crash(),
+        power_chord(),
+        choir(),
+    ]
 }
 
 /// To 15 bits, peaking at `peak`.
@@ -131,39 +157,123 @@ fn rolloff(h: usize, cut: f32, slope: i32) -> f32 {
     1.0 / (1.0 + (h as f32 / cut).powi(slope))
 }
 
-/// Odd harmonics full and even ones about half (between a square and a saw), a little brighter
-/// as the note starts.
-fn lead() -> Sample {
-    tone(32, 7, |c, h| {
-        let body = if h % 2 == 1 { 1.0 } else { 0.55 } / h as f32;
-        let onset = if h >= 4 { 1.0 + 0.6 * (1.0 - c as f32 / 6.0) } else { 1.0 };
-        body * onset
-    })
+/// Samples in a detuned loop: long enough that strings a few cents apart each fit it whole.
+const ENSEMBLE: usize = 8_192;
+
+/// Saws at `periods` cycles a loop (128 is 500 Hz at pitch 0x1000), a few cents apart, each
+/// harmonic `h` weighted by `weight(h)`: a loop that beats like a section or a pair of strings.
+fn ensemble(periods: &[usize], weight: impl Fn(usize) -> f32) -> Vec<f32> {
+    let sine: Vec<f32> = (0..ENSEMBLE).map(|i| (TAU * i as f32 / ENSEMBLE as f32).sin()).collect();
+    let mut wave = vec![0.0f32; ENSEMBLE];
+    for &p in periods {
+        // Up to just under the Nyquist of the fastest.
+        for h in 1..ENSEMBLE / 2 / (p + 1) {
+            let a = weight(h) / h as f32;
+            for (i, w) in wave.iter_mut().enumerate() {
+                *w += a * sine[p * h * i % ENSEMBLE];
+            }
+        }
+    }
+    wave
 }
 
-/// A saw through a closing filter, the second harmonic popping at the start: a slapped string.
+/// Driven into clipping, then through a speaker cabinet: a high-pass under the strings' body and
+/// two low-passes at `cab` Hz. The filters go round the loop twice so its end meets its start.
+fn distort(wave: &[f32], drive: f32, cab: f32) -> Vec<f32> {
+    let peak = wave.iter().fold(0.0f32, |m, v| m.max(v.abs())).max(1e-9);
+    let (mut mud, mut a, mut b) =
+        (Lp::at_rate(120.0, 32_000.0), Lp::at_rate(cab, 32_000.0), Lp::at_rate(cab, 32_000.0));
+    let mut out = vec![0.0; wave.len()];
+    for pass in 0..2 {
+        for (o, &v) in out.iter_mut().zip(wave) {
+            let x = (drive * v / peak).tanh();
+            let y = b.run(a.run(x - mud.run(x)));
+            if pass == 1 {
+                *o = y;
+            }
+        }
+    }
+    out
+}
+
+/// A loop with a picked attack in front: the loop going round (so it runs straight into its
+/// start) with a pick's scrape on top.
+fn picked(looped: &[f32], attack: usize, seed: u32) -> Sample {
+    let mut r = Rng::new(seed);
+    let peak = looped.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+    let mut hp = Lp::at_rate(2_500.0, 32_000.0);
+    let mut wave: Vec<f32> = (0..attack)
+        .map(|i| {
+            let x = r.noise();
+            let scrape = 0.6 * peak * (x - hp.run(x)) * (-(i as f32) / 90.0).exp();
+            let n = looped.len();
+            looped[(i + n * attack - attack) % n] * (1.0 + 0.4 * (-(i as f32) / 300.0).exp()) + scrape
+        })
+        .collect();
+    wave.extend_from_slice(looped);
+    Sample::new(&quantize(&wave, TONE), Some(attack))
+}
+
+/// An overdriven guitar: two strings a hair apart (128 and 129 periods in the loop), clipped
+/// and through a cabinet, picked.
+fn lead() -> Sample {
+    let strings = ensemble(&[128, 129], |h| rolloff(h, 14.0, 2));
+    picked(&distort(&strings, 5.0, 3_600.0), 1_024, 0x6717)
+}
+
+/// A distorted guitar's power chord: root, fifth and octave (2, 3 and 4 periods in 256 samples,
+/// so the root is 250 Hz at 0x1000), clipped hard, picked.
+fn power_chord() -> Sample {
+    const LEN: usize = 256;
+    let chord: Vec<f32> = (0..LEN)
+        .map(|i| {
+            let x = TAU * i as f32 / LEN as f32;
+            (1..=12)
+                .map(|h| {
+                    let h = h as f32;
+                    ((2.0 * h * x).sin() + 0.8 * (3.0 * h * x).sin() + 0.5 * (4.0 * h * x).sin()) / h
+                })
+                .sum::<f32>()
+        })
+        .collect();
+    picked(&distort(&chord, 9.0, 3_000.0), 512, 0xF1F7)
+}
+
+/// A saw through a closing filter, the low harmonics popping and a click at the start: a
+/// slapped string.
 fn bass() -> Sample {
-    tone(128, 13, |c, h| {
-        let cut = 5.0 + 25.0 * (-(c as f32) / 2.5).exp();
-        let pop = if h == 2 { 1.0 + (-(c as f32) / 2.0).exp() } else { 1.0 };
+    const CYCLES: usize = 13;
+    let mut wave = additive(128, CYCLES, |c, h| {
+        let cut = 5.0 + 40.0 * (-(c as f32) / 2.0).exp();
+        let pop = if h == 2 || h == 3 { 1.0 + 1.5 * (-(c as f32) / 2.0).exp() } else { 1.0 };
         pop / h as f32 * rolloff(h, cut, 4)
-    })
+    });
+    // The thumb's click on the string.
+    let peak = wave.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+    let mut r = Rng::new(0x51A9);
+    for (i, w) in wave.iter_mut().take(256).enumerate() {
+        *w += 0.3 * peak * r.noise() * (-(i as f32) / 30.0).exp();
+    }
+    Sample::new(&quantize(&wave, TONE), Some((CYCLES - 1) * 128))
 }
 
 /// Three soft saws a little apart (127, 128 and 129 periods in the loop): a section's shimmer.
 fn strings() -> Sample {
-    const LEN: usize = 8_192;
-    let sine: Vec<f32> = (0..LEN).map(|i| (TAU * i as f32 / LEN as f32).sin()).collect();
-    let mut wave = vec![0.0f32; LEN];
-    for periods in [127, 128, 129] {
-        for h in 1..=24 {
-            let a = rolloff(h, 9.0, 2) / h as f32;
-            for (i, w) in wave.iter_mut().enumerate() {
-                *w += a * sine[periods * h * i % LEN];
-            }
-        }
-    }
-    Sample::new(&quantize(&wave, TONE), Some(0))
+    Sample::new(&quantize(&ensemble(&[127, 128, 129], |h| rolloff(h, 9.0, 2)), TONE), Some(0))
+}
+
+/// Voices singing "ah": the ensemble's harmonics shaped by the vowel's formants (at 0x1000; like
+/// any sample's they move with the pitch, as the console's choirs' did).
+fn choir() -> Sample {
+    let formant = |hz: f32, at: f32, width: f32| 1.0 / (1.0 + ((hz - at) / width).powi(2));
+    let vowel = |h: usize| {
+        let hz = 500.0 * h as f32;
+        h as f32
+            * (formant(hz, 750.0, 150.0)
+                + 0.6 * formant(hz, 1_150.0, 200.0)
+                + 0.2 * formant(hz, 2_600.0, 300.0))
+    };
+    Sample::new(&quantize(&ensemble(&[127, 128, 129], vowel), TONE), Some(0))
 }
 
 /// A saw that opens up over its first dozen periods.
@@ -299,7 +409,7 @@ fn gated(len: u32, q: u32) -> u32 {
 /// Reads MML: `o4` octave (o4 c is middle C), `<` `>` down and up one; notes `c d e f g a b` with
 /// `+` sharp or `-` flat, then a length (`4` a quarter, `8.` a dotted eighth, none: the `l`
 /// default); `^` ties more on, `r` rests; `@n` instrument, `v` volume (0-127), `y` pan (0 left,
-/// 10 centre, 20 right), `q` gate (sounds q/8 of a note); `[...]n` repeats; `|` a bar line, which
+/// 10 centre, 20 right), `q` gate (sounds q/8 of a note), `k` transpose (semitones up); `[...]n` repeats; `|` a bar line, which
 /// is checked; `;` a comment to the end of the line.
 ///
 /// The score is a constant, so a mistake in it panics (and the tests play it).
@@ -314,6 +424,7 @@ fn mml(src: &str) -> Part {
         vol: 64,
         pan: 10,
         gate: 8,
+        transpose: 0,
         notes: Vec::new(),
         tied: None,
     };
@@ -334,6 +445,8 @@ struct Mml<'a> {
     notes: Vec<Note>,
     /// The last note's full length and gate, while a `^` may still lengthen it.
     tied: Option<(u32, u32)>,
+    /// Semitones every note is moved by (`k`).
+    transpose: i32,
 }
 
 impl Mml<'_> {
@@ -361,6 +474,7 @@ impl Mml<'_> {
                 b'v' => self.vol = self.number() as u8,
                 b'y' => self.pan = self.number() as u8,
                 b'q' => self.gate = self.number(),
+                b'k' => self.transpose = self.number() as i32,
                 b'[' => {
                     let body = self.at;
                     self.seq(depth + 1);
@@ -396,7 +510,8 @@ impl Mml<'_> {
     }
 
     fn note(&mut self, name: u8) {
-        let mut key = 12 * (self.octave + 1)
+        let mut key = self.transpose
+            + 12 * (self.octave + 1)
             + match name {
                 b'c' => 0,
                 b'd' => 2,
@@ -520,6 +635,18 @@ fn steps(grid: &str) -> Part {
     Part { notes, ticks: tick }
 }
 
+/// A melodic voice's whole part: up to the chorus, the chorus turning on B, then the last chorus a
+/// whole step up (the lift of an anime opening's last chorus: E minor to F# minor, `last` setting
+/// anything it adds) turning back down on B to E minor at the top.
+fn song(verse: &str, chorus: &str, turn: &str, last: &str) -> String {
+    format!("{verse}{chorus}{turn} k2 {last} {chorus} k0 {turn}")
+}
+
+/// A drum voice's: the same shape, untransposed.
+fn beat(verse: &str, chorus: &str, turn: &str) -> String {
+    format!("{verse}{chorus}{turn}{chorus}{turn}")
+}
+
 const LEAD: &str = "
 @0 v31 y8 q7 o5
 ; Intro: the orchestra has it.
@@ -538,21 +665,28 @@ r8 b8 b8 >e8 g8. f+8. e8 |
 d8. e8. d8 <b2 |
 r8 >c8 e8 g8 a8. g8. e8 |
 f+8. e8. d8 <a2 |
-; Pre-chorus: Am Bm C B, climbing.
+; Pre-chorus: Am Bm C B, climbing, then alone over the band's stop.
 >e4. d8 c4 <a4 |
 >f+4. e8 d4 <b4 |
 >g4. e8 g4 >c4 |
 <b2 a4 f+8 d+8 |
-; Chorus: C D | Bm Em | C D | Em, then again to B.
-g4. e8 f+4 g8 a8 |
-b4. a8 g4 f+8 e8 |
-e8 e8 g8 >c8< a4 f+8 a8 |
-b2^8 a8 g8 f+8 |
-g4. e8 f+4 g8 a8 |
-b4. >d8 e4 d8 <b8 |
->c4< b8 g8 a4 f+8 a8 |
-b4. a8 f+4 d+4 |
 ";
+
+/// C D | Bm Em | C D | Em, and again: long notes held across the changes, the Em's C falling to
+/// B (a sigh over the chord), the second time climbing to a held high E.
+const LEAD_CHORUS: &str = "
+q8 o5
+g2 f+4. a8 |
+b2. a8 g8 |
+e2 f+4 a4 |
+>c4< b2. |
+g2 a4. b8 |
+>d2 e2< |
+>c2< b4 a4 |
+q7
+";
+
+const LEAD_TURN: &str = "o5 b4. a8 f+4 d+4 |";
 
 /// The chords' upper voice.
 const HIGH: &str = "
@@ -563,34 +697,53 @@ q8 f+1 |
 ; Hook: strings.
 @2 v13
 b1 | g1 | a1 | f+1 |
-; Verse
+; Verse: choir.
+@12 v14
 b1 | ^1 | g1 | a1 | b1 | ^1 | g1 | a1 |
-; Pre-chorus: brass, climbing.
+; Pre-chorus: brass, climbing, then the stop.
 @3 v15 q3 o5
 e4. e4. e4 | f+4. f+4. f+4 | g4. g4. g4 |
-q8 f+1 |
-; Chorus: strings, two chords a bar.
-@2 v13 o4
-g2 a2 | f+2 b2 | g2 a2 | b1 | g2 a2 | f+2 b2 | g2 a2 | f+1 |
+q4 f+4 r2. |
+@2 v13 q8
 ";
 
-/// The chords' lower voice.
-const LOW: &str = "
-@3 v15 y15 q3 o4
-g4. g4. g4 | e4. e4. e4 | f+4. f+4. f+4 |
-q8 d+1 |
-@2 v13
-g1 | e1 | f+1 | d+1 |
-g1 | ^1 | e1 | f+1 | g1 | ^1 | e1 | f+1 |
-@3 v15 q3 o5
-c4. c4. c4 | d4. d4. d4 | e4. e4. e4 |
-q8 d+1 |
-@2 v13 o4
-e2 f+2 | d2 g2 | e2 f+2 | g1 | e2 f+2 | d2 g2 | e2 f+2 | d+1 |
+/// A line falling through the chords' sevenths (Cmaj7 D Bm7 Em7), then rising.
+const HIGH_CHORUS: &str = "
+o4
+b2 a2 | a2 g2 | g2 f+2 | e1 |
+b2 a2 | b2 >d2< | >e2 f+2< |
 ";
+
+const HIGH_TURN: &str = "o5 d+1 |";
+
+/// The chords' lower voice: guitar power chords, strings and choir.
+const LOW: &str = "
+; Intro: guitar power chords on the hits, then a held B.
+@11 v22 y15 q5 o3
+e4. e4. e4 | c4. c4. c4 | d4. d4. d4 |
+q8 <b1> |
+; Hook: strings.
+@2 v13 o4
+g1 | e1 | f+1 | d+1 |
+; Verse: choir.
+@12 v14
+g1 | ^1 | e1 | f+1 | g1 | ^1 | e1 | f+1 |
+; Pre-chorus: muted chugs on the roots, then the stop.
+@11 v22 q3 o3
+[a8]8 | [b8]8 | >[c8]8< | q4 b4 r2. |
+";
+
+/// Power chords in eighths, two chords a bar.
+const LOW_CHORUS: &str = "
+@11 v22 q4 o3
+[c8]4 [d8]4 | <[b8]4> [e8]4 | [c8]4 [d8]4 | [e8]8 |
+[c8]4 [d8]4 | <[b8]4> [e8]4 | [c8]4 [d8]4 |
+";
+
+const LOW_TURN: &str = "q8 o2 b1 |";
 
 const BASS: &str = "
-@1 v31 y10 q6
+@1 v40 y10 q6
 ; Intro: with the hits, then eighths into the hook.
 o2 e4. e4. e4 | c4. c4. c4 | d4. d4. d4 |
 o1 [b8 >b8<]4 |
@@ -604,9 +757,12 @@ d8 d8 d8 d8 d8 d8 >d8< d8 |
 [e8 e8 e8 e8 e8 e8 >e8< e8 |]2
 c8 c8 c8 c8 c8 c8 >c8< c8 |
 d8 d8 d8 d8 d8 d8 >d8< d8 |
-; Pre-chorus: climbing.
-o2 [a8 >a8<]4 | [b8 >b8<]4 | o3 [c8 >c8<]4 | o2 [b8 >b8<]4 |
-; Chorus: two chords a bar.
+; Pre-chorus: climbing, then the stop.
+o2 [a8 >a8<]4 | [b8 >b8<]4 | o3 [c8 >c8<]4 | o2 b4 r2. |
+";
+
+/// Octaves, two chords a bar.
+const BASS_CHORUS: &str = "
 o2 [c8 >c8<]2 [d8 >d8<]2 |
 o1 [b8 >b8<]2 o2 [e8 >e8<]2 |
 [c8 >c8<]2 [d8 >d8<]2 |
@@ -614,10 +770,11 @@ o1 [b8 >b8<]2 o2 [e8 >e8<]2 |
 [c8 >c8<]2 [d8 >d8<]2 |
 o1 [b8 >b8<]2 o2 [e8 >e8<]2 |
 [c8 >c8<]2 [d8 >d8<]2 |
-o1 [b8 >b8<]4 |
 ";
 
-/// Orchestra hits, arpeggios, then the chorus's harmony.
+const BASS_TURN: &str = "o1 [b8 >b8<]4 |";
+
+/// Orchestra hits, arpeggios, then the chorus's second guitar.
 const COLOUR: &str = "
 ; Intro: orchestra hits.
 @5 v33 y11 q8 o4
@@ -637,23 +794,28 @@ f+ a > d f+ d < a f+ a |
 [e g b > e < b g e g |]2
 e g > c e c < g e g |
 f+ a > d f+ d < a f+ a |
-; Pre-chorus: sixteenths.
+; Pre-chorus: sixteenths, then an orchestra hit on the stop.
 l16
 [e a > c e c < a e a]2 |
 [f+ b > d f+ d < b f+ b]2 |
 [e g > c e c < g e g]2 |
-[f+ b > d+ f+ d+ < b f+ b]2 |
-; Chorus: a harmony under the lead.
-@0 v19 y14 q7 l8 o5
-e4. c8 d4 e8 f+8 |
-f+4. f+8 e4 d8 <b8 |
->c8 c8 e8 g8 f+4 d8 f+8 |
-g2^8 f+8 e8 d8 |
-e4. c8 d4 e8 f+8 |
-f+4. b8 b4 b8 g8 |
-g4 g8 e8 f+4 d8 f+8 |
-f+4. f+8 d+4 <b4 |
+@5 v33 q8 o3 b4 r2. |
 ";
+
+/// A harmony a third or so under the lead.
+const COLOUR_CHORUS: &str = "
+@0 v19 y14 q8 l8 o5
+e2 d4. f+8 |
+f+2 g4 f+8 e8 |
+c2 d4 f+4 |
+a4 g2. |
+e2 f+4. g8 |
+b1 |
+g2 g4 f+4 |
+q7
+";
+
+const COLOUR_TURN: &str = "o5 f+4. f+8 d+4 <b4 |";
 
 const KICKS: &str = "
 ; Intro
@@ -663,12 +825,16 @@ k...k...k...k... | k...k...k...k... | k...k...k...k... | k...k...k...k... |
 ; Verse
 k.....k.k....... | k.....k.k....... | k.....k.k....... | k.....k.k....... |
 k.....k.k....... | k.....k.k....... | k.....k.k....... | k.....k.k...k.k. |
-; Pre-chorus
-k...k...k...k... | k...k...k...k... | k...k...k...k... | k...k...k.k.k.k. |
-; Chorus
-k...k...k...k... | k...k...k...k... | k...k...k...k... | k...k...k...k... |
-k...k...k...k... | k...k...k...k... | k...k...k...k... | k...k...k.k.k.k. |
+; Pre-chorus, and the stop.
+k...k...k...k... | k...k...k...k... | k...k...k...k... | k............... |
 ";
+
+const KICKS_CHORUS: &str = "
+k...k...k...k... | k...k...k...k... | k...k...k...k... | k...k...k...k... |
+k...k...k...k... | k...k...k...k... | k...k...k...k... |
+";
+
+const KICKS_TURN: &str = "k...k...k.k.k.k. |";
 
 const SNARES: &str = "
 ; Intro: on the hits, then a fill.
@@ -678,12 +844,16 @@ S.....S.....S... | S.....S.....S... | S.....S.....S... | ....s...ttmmffSS |
 ; Verse
 ....s.......s... | ....s.......s... | ....s.......s... | ....s.......s... |
 ....s.......s... | ....s.......s... | ....s.......s... | ....s.......s.ss |
-; Pre-chorus: a roll into the chorus.
+; Pre-chorus: a roll through the stop into the chorus.
 ....s.......s... | ....s.......s... | ....s.......s... | s.s.s.s.ssssSSSS |
-; Chorus
-....S.......S... | ....S.......S... | ....S.......S... | ....S.......S... |
-....S.......S... | ....S.......S... | ....S.......S... | ....S...ttmmffSS |
 ";
+
+const SNARES_CHORUS: &str = "
+....S.......S... | ....S.......S... | ....S.......S... | ....S.......S... |
+....S.......S... | ....S.......S... | ....S.......S... |
+";
+
+const SNARES_TURN: &str = "....S...ttmmffSS |";
 
 const CYMBALS: &str = "
 ; Intro: a crash on each bar.
@@ -693,25 +863,29 @@ x.......h.o.h.o. | h.o.h.o.h.o.h.o. | h.o.h.o.h.o.h.o. | h.o.h.o.h.o.h.o. |
 ; Verse
 x.......h.h.h.h. | h.h.h.h.h.h.h.h. | h.h.h.h.h.h.h.h. | h.h.h.h.h.h.h.h. |
 h.h.h.h.h.h.h.h. | h.h.h.h.h.h.h.h. | h.h.h.h.h.h.h.h. | h.h.h.h.h.h.h.h. |
-; Pre-chorus
-x.......hhhhhhhh | hhhhhhhhhhhhhhhh | hhhhhhhhhhhhhhhh | hhhhhhhhhhhhhhhh |
-; Chorus
-x.......h.o.h.o. | h.o.h.o.h.o.h.o. | h.o.h.o.h.o.h.o. | h.o.h.o.h.o.h.o. |
-x.......h.o.h.o. | h.o.h.o.h.o.h.o. | h.o.h.o.h.o.h.o. | x............... |
+; Pre-chorus, and a crash on the stop.
+x.......hhhhhhhh | hhhhhhhhhhhhhhhh | hhhhhhhhhhhhhhhh | x............... |
 ";
 
+const CYMBALS_CHORUS: &str = "
+x.......h.o.h.o. | h.o.h.o.h.o.h.o. | h.o.h.o.h.o.h.o. | h.o.h.o.h.o.h.o. |
+x.......h.o.h.o. | h.o.h.o.h.o.h.o. | h.o.h.o.h.o.h.o. |
+";
+
+const CYMBALS_TURN: &str = "x............... |";
+
 /// The eight voices' parts, and whether each goes to the echo (the bass, kick and cymbals stay
-/// dry).
+/// dry). The last chorus's upper voice is the choir.
 fn score() -> [(Part, bool); spc::VOICES] {
     [
-        (mml(LEAD), true),
-        (mml(HIGH), true),
-        (mml(LOW), true),
-        (mml(BASS), false),
-        (mml(COLOUR), true),
-        (steps(KICKS), false),
-        (steps(SNARES), true),
-        (steps(CYMBALS), false),
+        (mml(&song(LEAD, LEAD_CHORUS, LEAD_TURN, "")), true),
+        (mml(&song(HIGH, HIGH_CHORUS, HIGH_TURN, "@12 v15")), true),
+        (mml(&song(LOW, LOW_CHORUS, LOW_TURN, "")), true),
+        (mml(&song(BASS, BASS_CHORUS, BASS_TURN, "")), false),
+        (mml(&song(COLOUR, COLOUR_CHORUS, COLOUR_TURN, "")), true),
+        (steps(&beat(KICKS, KICKS_CHORUS, KICKS_TURN)), false),
+        (steps(&beat(SNARES, SNARES_CHORUS, SNARES_TURN)), true),
+        (steps(&beat(CYMBALS, CYMBALS_CHORUS, CYMBALS_TURN)), false),
     ]
 }
 
@@ -773,7 +947,12 @@ fn render() -> (Vec<f32>, u32) {
                 } else {
                     0.0
                 };
-                let hz = midi(f32::from(n.key) + cents / 100.0);
+                let scoop = if n.off - n.on >= SCOOP_FROM && since < SCOOP_TICKS {
+                    inst.scoop * (1.0 - since as f32 / SCOOP_TICKS as f32)
+                } else {
+                    0.0
+                };
+                let hz = midi(f32::from(n.key) + (cents + scoop) / 100.0);
                 dsp.set_pitch(v, (4096.0 * hz / inst.unity).round() as u32);
             }
         }
@@ -828,12 +1007,14 @@ mod tests {
     }
 
     #[test]
-    fn the_notes_are_in_e_minor() {
-        // E natural minor, and D# for the B major chords (the drums are unpitched).
+    fn the_notes_are_in_key() {
+        // E natural minor, and D# for the B major chords (the drums are unpitched); the last
+        // chorus (bars 29-35) a whole step up.
         let scale = [4, 6, 7, 9, 11, 0, 2, 3];
         for (p, _) in score().into_iter().take(5) {
             for n in &p.notes {
-                assert!(scale.contains(&(n.key % 12)), "key {} at tick {}", n.key, n.on);
+                let up = if (28 * BAR..35 * BAR).contains(&n.on) { 2 } else { 0 };
+                assert!(scale.contains(&((n.key - up) % 12)), "key {} at tick {}", n.key, n.on);
             }
         }
     }

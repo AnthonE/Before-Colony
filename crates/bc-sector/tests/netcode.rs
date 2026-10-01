@@ -18,6 +18,7 @@ use bc_proto::{
 };
 use bc_sector::{Comeback, Control, InputMsg, Sector, SectorConfig, SlotState, read_packet};
 use bc_sim::bodies::{Bodies, Body};
+use bc_sim::content::{ModuleKind, Modules, Systems};
 use bc_sim::content::{frame as frame_spec, weapon};
 use bc_sim::field::SUIT_CLEARANCE;
 use bc_sim::ground::Footing;
@@ -142,6 +143,10 @@ struct Scenario<'a> {
     input_period: f64,
     /// Parts the client's suit is missing from the start.
     lost: &'a [Part],
+    /// What's damaged or failed inside the client's suit from the start.
+    faults: Systems,
+    /// The equipment on it.
+    modules: Modules,
     /// No polls in this window (s): a background tab, or a long hitch. Datagrams still arrive.
     stall: Option<(f64, f64)>,
     /// Render like the browser at this rate (Hz): each frame polls inputs, then draws; the 8 ms
@@ -159,6 +164,8 @@ impl Default for Scenario<'_> {
             frame: FrameId::Leo,
             input_period: 1.0 / 60.0,
             lost: &[],
+            faults: Systems::OK,
+            modules: Modules::NONE,
             stall: None,
             render_hz: None,
             link: BAD,
@@ -190,7 +197,7 @@ fn run_as(
 }
 
 fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd) -> Outcome {
-    let Scenario { frame, input_period, lost, stall, render_hz, link, place } = *sc;
+    let Scenario { frame, input_period, lost, faults, modules, stall, render_hz, link, place } = *sc;
     let cfg = SectorConfig {
         sim: SimConfig { target_dolls: 0, seed: 1, ..SimConfig::default() },
         max_clients: 4,
@@ -242,7 +249,7 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
     let mut welcomed = false;
     let mut max_len = 0;
     let mut missing_at_20s = None;
-    let mut damaged = lost.is_empty();
+    let mut damaged = lost.is_empty() && faults.is_ok() && modules == Modules::NONE;
     let mut other_form = 0;
     let (mut grounded, mut aloft) = (0, 0);
     let mut server = HashMap::new();
@@ -252,6 +259,8 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
             for p in lost {
                 sector.sim.suits.part_hp[own.slot as usize][*p as usize] = 0.0;
             }
+            sector.sim.suits.systems[own.slot as usize] = faults;
+            sector.sim.suits.modules[own.slot as usize] = modules;
             damaged = true;
         }
         for bytes in up.deliver(t) {
@@ -546,9 +555,41 @@ fn prediction_holds_up_for_a_damaged_suit() {
     let lost = [Part::ArmR, Part::Legs, Part::Backpack];
     let Outcome { client, mut errors, .. } = run_with(1.0 / 60.0, &mut weaving_pilot, &lost);
     let own = client.world.own.expect("own state");
-    assert!(own.thrust_factor < 0.5 && own.ambac_factor < 0.75, "the damage took: {own:?}");
+    let tuned = bc_sim::tuning::own_tuning(&own);
+    assert!(tuned.main < 0.5 && tuned.ambac < 0.75, "the damage took: {tuned:?}");
     let p99 = percentile(&mut errors, 0.99);
     println!("damaged suit: prediction error p50 {:.4} m  p99 {p99:.4} m", percentile(&mut errors, 0.5));
+    assert!(p99 < 0.01, "prediction error p99 {p99:.3} m");
+}
+
+/// A suit whose systems are failing: its main thrusters cough, its tank leaks, its gyros and leg
+/// thrusters are weak, its boosters half there and its pilot hurt; and it carries a thruster kit,
+/// a G-seat, leg verniers and a cargo rack. The client builds the same stat sheet from the
+/// snapshot, coughs on the same ticks and leaks the same kilograms, so its prediction holds as
+/// well as for a whole suit.
+#[test]
+fn prediction_holds_up_for_a_suit_with_failing_systems() {
+    use bc_sim::content::System;
+    use bc_sim::content::systems::{DAMAGED, FAILED};
+    let faults = Systems::OK
+        .with(System::MainThrusters, DAMAGED)
+        .with(System::Tank, FAILED)
+        .with(System::Gyros, DAMAGED)
+        .with(System::LegThrusters, DAMAGED)
+        .with(System::Boosters, DAMAGED)
+        .with(System::Cockpit, DAMAGED);
+    let mut modules = Modules::NONE;
+    modules.set(1, Some(ModuleKind::GSeat));
+    modules.set(3, Some(ModuleKind::CargoRack));
+    modules.set(4, Some(ModuleKind::ThrusterKit));
+    let sc = Scenario { faults, modules, ..Scenario::default() };
+    let Outcome { client, mut errors, .. } = run_scenario(&sc, &mut weaving_pilot);
+    let own = client.world.own.expect("own state");
+    let tuned = bc_sim::tuning::own_tuning(&own);
+    // (The hurt pilot bears 5 g; the G-seat gives one back.)
+    assert!(tuned.sputter && tuned.leak_kg_s > 0.0 && tuned.isp < 1.0 && tuned.hold_kg > 0, "{tuned:?}");
+    let p99 = percentile(&mut errors, 0.99);
+    println!("failing systems: prediction error p50 {:.4} m  p99 {p99:.4} m", percentile(&mut errors, 0.5));
     assert!(p99 < 0.01, "prediction error p99 {p99:.3} m");
 }
 

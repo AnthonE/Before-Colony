@@ -65,6 +65,22 @@ pub fn render(cue: Cue) -> Vec<f32> {
         Cue::Destroyed => destroyed(&mut r),
         Cue::Launch => launch(&mut r),
         Cue::Klaxon => klaxon(),
+        // Something inside took the blow: a falling two-note chirp.
+        Cue::SystemCrit => {
+            let mut b = beep(0.07, 1_318.5, 0.4);
+            mix_in(&mut b, &beep(0.09, 987.8, 0.4), samples(0.08), 1.0);
+            b
+        }
+        // Something failed: the master caution, three hard square pulses.
+        Cue::SystemFail => {
+            let mut b = beep(0.11, 660.0, 0.8);
+            for k in 1..3 {
+                mix_in(&mut b, &beep(0.11, 660.0, 0.8), samples(0.16 * k as f32), 1.0);
+            }
+            b
+        }
+        // A holed tank venting: a thin hiss.
+        Cue::Leak => whoosh(&mut r, 0.6, 6_800.0, 4_800.0),
         Cue::DoorRumble => door_rumble(&mut r),
         Cue::AirlockHiss => {
             let mut h = whoosh(&mut r, 1.1, 5_200.0, 1_400.0);

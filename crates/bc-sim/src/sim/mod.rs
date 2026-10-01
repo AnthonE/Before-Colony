@@ -35,7 +35,6 @@ mod zero;
 
 use bc_proto::buttons::{GRAB, GRIP, MODE, ZERO};
 use bc_proto::events::Event;
-use bc_proto::quant::{dequantize_unit, quantize_unit};
 use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, Part, PilotKind, Segment, WeaponKind};
 use glam::{Quat, Vec3};
 
@@ -62,6 +61,7 @@ use crate::spatial::SpatialHash;
 use crate::storage::{BitSet, FixedVec, boxed};
 use crate::suits::{MeleePhase, Suits};
 use crate::transform::transform_thrust;
+use crate::tuning::{self, Tuning};
 use crate::zero::TacticalAdvice;
 use crate::zero::strain::StrainEvent;
 
@@ -328,7 +328,6 @@ impl Sim {
     pub fn step(&mut self) {
         self.tick += 1;
         let t = self.tick;
-        self.damage.clear();
         self.spawn_dolls(t);
         if t.is_multiple_of(30) {
             self.squad_logic();
@@ -347,6 +346,8 @@ impl Sim {
         self.missile_step(t);
         self.melee_step(t);
         self.damage_step(t);
+        // (Emptied after, not before: a blow struck between ticks lands with this tick's.)
+        self.damage.clear();
         self.salvage_step(t);
         self.status_step(t);
         self.zero_step(t);
@@ -427,8 +428,7 @@ impl Sim {
         let me = self.self_view(i);
         out.reset(me);
         let spec = frame(self.suits.frame[i]);
-        let head_ok = self.suits.part_hp[i][Part::Head as usize] > 0.0;
-        let range = spec.sensor_range * if head_ok { 1.0 } else { 0.4 };
+        let range = spec.sensor_range * self.suits.tuning[i].sensor;
         let t = self.tick;
         let mut found = core::mem::take(&mut self.query_bits);
         found.clear();
@@ -474,8 +474,8 @@ impl Sim {
             aim: s.aim[i],
             parts: s.part_fractions(i),
             heat: s.heat[i] / spec.heat_cap,
-            energy: s.energy[i] / spec.energy_cap,
-            propellant: f.propellant / spec.propellant_cap,
+            energy: s.energy[i] / (spec.energy_cap * s.tuning[i].energy_cap),
+            propellant: f.propellant / tuning::tank_cap(spec, &s.tuning[i]),
             g_strain: f.g_strain,
             ready,
             overheated: s.overheated[i],
@@ -487,6 +487,7 @@ impl Sim {
                 transforming: self.transforming(i),
             },
             surface_n: self.surface_n(i),
+            tuning: s.tuning[i],
         }
     }
 
@@ -623,49 +624,43 @@ impl Sim {
     }
 
     /// Damage and busy-arm modifiers for the flight of tick `t`, from the arms as they stand. The
-    /// owner's client gets the damage's (rounded to the 8 bits it gets them in, so its prediction
-    /// flies the same suit) and works out the arms' tick by tick (`crate::arms`).
+    /// owner's client builds the damage's from its snapshot with the same code (`crate::tuning`),
+    /// and works out the arms' tick by tick (`crate::arms`).
     pub fn flight_mods_at(&self, i: usize, t: u32) -> FlightMods {
         let s = &self.suits;
         let busy =
             s.melee[i].phase != MeleePhase::Idle || t.saturating_sub(s.last_fired[i]) < BUSY_FIRE_TICKS;
-        let idle = self.idle_ambac(i);
-        let dead = |p: Part| s.part_hp[i][p as usize] <= 0.0;
-        let mut thrust: f32 = if dead(Part::Backpack) { 0.35 } else { 1.0 };
-        if dead(Part::Legs) {
-            thrust *= 0.9;
-        }
         // Parts shot off lighten the suit; the hold and what's in hand weigh it down.
         let fid = s.frame[i];
         let held = self.held_chunk(i).map_or(0, |k| self.chunks.desc[k].mass_kg);
+        let tuned = self.tuning(i);
         let extra_mass_kg = mass_without(fid, s.gone_mask(i)) as i32 - mass_without(fid, 0) as i32
-            + (s.cargo_total_kg(i) + held) as i32;
-        FlightMods {
-            ambac: if busy { busy_ambac(idle) } else { idle },
-            thrust: wire(thrust),
-            g_immune: s.pilot[i] == PilotKind::MobileDoll,
-            lunge: s.melee[i].striking() && weapon(s.melee[i].weapon).melee.is_some_and(|m| m.lunge),
-            extra_mass_kg,
-            roll_level: None,
-            hop: None,
+            + (s.cargo_total_kg(i) + held + tuned.module_kg) as i32;
+        let mut mods = tuning::flight_mods(&tuned, s.pilot[i] == PilotKind::MobileDoll, extra_mass_kg);
+        mods.main *= tuning::sputter(&tuned, t, i as u16);
+        if busy {
+            mods.ambac = busy_ambac(mods.ambac);
         }
+        mods.lunge = s.melee[i].striking() && weapon(s.melee[i].weapon).melee.is_some_and(|m| m.lunge);
+        mods
+    }
+
+    /// Suit `i`'s stat sheet, as rebuilt at the top of this tick's flight.
+    #[inline]
+    pub fn tuning(&self, i: usize) -> Tuning {
+        self.suits.tuning[i]
+    }
+
+    /// How far off suit `i`'s axis a weapon on `arm` can point, radians: its reach, less what
+    /// damaged actuators take.
+    #[inline]
+    pub fn cone(&self, i: usize, arm: crate::content::ArmSlot) -> f32 {
+        tuning::cone(arm, &self.suits.tuning[i])
     }
 
     /// AMBAC's authority with the arms idle: what the limbs shot off leave of it.
     pub fn idle_ambac(&self, i: usize) -> f32 {
-        let hp = &self.suits.part_hp[i];
-        let dead = |p: Part| hp[p as usize] <= 0.0;
-        let mut ambac: f32 = 1.0;
-        if dead(Part::ArmL) {
-            ambac -= 0.2;
-        }
-        if dead(Part::ArmR) {
-            ambac -= 0.2;
-        }
-        if dead(Part::Legs) {
-            ambac -= 0.3;
-        }
-        wire(ambac.max(0.1))
+        self.tuning(i).ambac
     }
 
     /// What suit `i` brings to its step besides its command: its flight modifiers (with a change of
@@ -690,6 +685,11 @@ impl Sim {
     fn flight_step(&mut self, t: u32) {
         let mut used = core::mem::take(&mut self.iter_bits);
         used.copy_from(&self.suits.used);
+        // Every stat sheet from the suits as they stood at the end of the last tick: what their
+        // pilots' clients were just told, and fly the next tick with.
+        for i in used.iter() {
+            self.suits.retune(i);
+        }
         // Every body where it is this tick. It borrows only the field, so the suits can move.
         let bodies = Bodies::at(&self.field, self.landmarks(), t);
         for i in used.iter() {
@@ -847,7 +847,8 @@ impl Sim {
             let spec = frame(self.suits.frame[i]);
             if self.suits.alive.get(i) {
                 let s = &mut self.suits;
-                s.heat[i] = (s.heat[i] - spec.heat_dissipation * DT).max(0.0);
+                let tuned = s.tuning[i];
+                s.heat[i] = (s.heat[i] - spec.heat_dissipation * tuned.heat * DT).max(0.0);
                 if s.heat[i] >= spec.heat_cap {
                     s.overheated[i] = true;
                 } else if s.overheated[i] && s.heat[i] < spec.heat_cap * 0.5 {
@@ -857,7 +858,16 @@ impl Sim {
                 if s.special[i].lockout > 0 {
                     s.overheated[i] = true;
                 }
-                s.energy[i] = (s.energy[i] + spec.energy_regen * DT).min(spec.energy_cap);
+                // A scrammed reactor gives nothing until it's back.
+                let st = &mut s.status[i];
+                let regen = if st.scram > 0 { 0.0 } else { spec.energy_regen * tuned.regen };
+                st.scram = st.scram.saturating_sub(1);
+                st.concussed = st.concussed.saturating_sub(1);
+                s.energy[i] = (s.energy[i] + regen * DT).min(spec.energy_cap * tuned.energy_cap);
+                if tuned.repairs {
+                    self.damage_control(i);
+                }
+                let s = &mut self.suits;
                 // Asleep, nobody's there for the System to strain.
                 if !s.sleeping.get(i) {
                     let want = s.input[i].pressed(ZERO);
@@ -904,15 +914,44 @@ impl Sim {
         self.iter_bits = used;
     }
 
+    /// Damage control works on suit `i`'s damaged systems one at a time, drawing energy while it
+    /// does (it pauses when there isn't enough). It can't mend what's failed.
+    fn damage_control(&mut self, i: usize) {
+        use crate::content::modules::{REPAIR_ENERGY, REPAIR_TICKS};
+        use crate::content::systems::{DAMAGED, OK, System};
+        use crate::suits::NO_REPAIR;
+        let s = &mut self.suits;
+        let gone = s.gone_mask(i);
+        let now = s.systems[i];
+        let st = &mut s.status[i];
+        let working =
+            System::from_index(usize::from(st.repairing)).filter(|sys| now.level(*sys, gone) == DAMAGED);
+        let Some(sys) = working.or_else(|| System::ALL.into_iter().find(|x| now.level(*x, gone) == DAMAGED))
+        else {
+            st.repairing = NO_REPAIR;
+            st.repair_left = 0;
+            return;
+        };
+        if working.is_none() {
+            st.repairing = sys as u8;
+            st.repair_left = REPAIR_TICKS;
+        }
+        let draw = REPAIR_ENERGY * DT;
+        if s.energy[i] < draw {
+            return;
+        }
+        s.energy[i] -= draw;
+        st.repair_left = st.repair_left.saturating_sub(1);
+        if st.repair_left == 0 {
+            s.systems[i].set(sys, OK);
+            st.repairing = NO_REPAIR;
+        }
+    }
+
     /// FNV-1a over the simulation state (determinism tests).
     pub fn state_hash(&self) -> u64 {
         crate::hash::state_hash(self)
     }
-}
-
-/// A flight modifier rounded to the 8 bits its owner's client gets it in.
-fn wire(x: f32) -> f32 {
-    dequantize_unit(quantize_unit(x, 8), 8)
 }
 
 /// A Mobile Doll's target that's asleep is no target.

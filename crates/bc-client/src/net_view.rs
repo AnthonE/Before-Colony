@@ -138,6 +138,20 @@ pub fn sync_view(
                 flags |= ent_bit;
             }
         }
+        // What's broken inside shows on the own suit as it does on everyone's.
+        {
+            use bc_sim::content::systems::{DAMAGED, FAILED, OK};
+            let gone = bc_sim::tuning::own_gone(&own);
+            let systems = bc_sim::content::Systems(own.systems);
+            flags |= match systems.worst(gone) {
+                FAILED => ent_flags::SMOKING,
+                DAMAGED => ent_flags::SPARKING,
+                _ => 0,
+            };
+            if own.alive && systems.level(bc_sim::content::System::Tank, gone) != OK {
+                flags |= ent_flags::VENTING;
+            }
+        }
         let spec = frame(view.frame);
         let buttons = core.last_cmd.buttons;
         if buttons & FIRE_PRIMARY != 0 && own.weapon_ready & 1 != 0 {
@@ -392,12 +406,13 @@ pub fn sync_view(
         if let FeedLine::Kill { tick, victim, .. } = *line
             && seen.kills.insert((tick, victim))
         {
-            let pos = world
+            let at = world
                 .pose(victim, t_render)
-                .map(|p| p.pos)
-                .or(world.own.filter(|o| o.slot == victim).map(|o| o.pos));
-            if let Some(pos) = pos {
-                events.0.push(FxEvent::Kill { pos });
+                .map(|p| (p.pos, p.vel))
+                .or(drawn.filter(|_| Some(victim) == own_slot).map(|v| (v.pos, v.vel)))
+                .or(world.own.filter(|o| o.slot == victim).map(|o| (o.pos, Vec3::ZERO)));
+            if let Some((pos, vel)) = at {
+                events.0.push(FxEvent::Kill { pos, vel, victim: Some(victim) });
             }
         }
     }
@@ -416,11 +431,11 @@ pub fn sync_view(
             let at = |slot: u16| {
                 world
                     .pose(slot, t_render)
-                    .map(|p| p.pos)
-                    .or(drawn.filter(|_| Some(slot) == own_slot).map(|v| v.pos))
+                    .map(|p| (p.pos, p.vel))
+                    .or(drawn.filter(|_| Some(slot) == own_slot).map(|v| (v.pos, v.vel)))
             };
-            if let (Some(pa), Some(pb)) = (at(a), at(b)) {
-                events.0.push(FxEvent::Clash { pos: (pa + pb) * 0.5 });
+            if let (Some((pa, va)), Some((pb, vb))) = (at(a), at(b)) {
+                events.0.push(FxEvent::Clash { pos: (pa + pb) * 0.5, vel: (va + vb) * 0.5 });
             }
         }
     }

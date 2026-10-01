@@ -16,7 +16,7 @@ use bevy::light::{
     NotShadowReceiver,
 };
 use bevy::mesh::MeshVertexBufferLayoutRef;
-use bevy::pbr::{Material, MaterialPipeline, MaterialPipelineKey, MaterialPlugin};
+use bevy::pbr::{DistanceFog, FogFalloff, Material, MaterialPipeline, MaterialPipelineKey, MaterialPlugin};
 use bevy::prelude::*;
 use bevy::render::render_resource::{
     AsBindGroup, CompareFunction, Extent3d, RenderPipelineDescriptor, ShaderType,
@@ -33,7 +33,7 @@ use crate::view::VisTime;
 /// +X cap), far enough off-axis that the hull catches the light.
 pub const SUN_DIR: Vec3 = Vec3::new(0.84788, 0.34913, 0.39900);
 /// Angular radius of the Sun's disc, radians (enlarged about 2.5×, so it reads at a glance).
-const SUN_RADIUS: f32 = 0.012;
+pub const SUN_RADIUS: f32 = 0.012;
 /// Direction to Earth, and its angular radius: vast and low in the sky.
 pub const EARTH_DIR: Vec3 = Vec3::new(-0.29987, -0.54975, 0.77965);
 const EARTH_RADIUS: f32 = 0.29;
@@ -158,7 +158,13 @@ fn setup_sky(
     ));
     commands.spawn((
         Sun,
-        DirectionalLight { illuminance: SUN_LUX, shadow_maps_enabled: false, ..default() },
+        // The Sun's own colour, as its disc is drawn (sky.wgsl): white, a shade warm.
+        DirectionalLight {
+            illuminance: SUN_LUX,
+            color: Color::linear_rgb(1.0, 0.965, 0.92),
+            shadow_maps_enabled: false,
+            ..default()
+        },
         Transform::default().looking_to(-SUN_DIR, Vec3::Y),
     ));
     let (diffuse, specular) = environment_maps(&mut images);
@@ -178,6 +184,7 @@ fn apply_light_tier(
     mut ambient: ResMut<GlobalAmbientLight>,
     mut skies: Query<&SkyDome>,
     mut sky_materials: ResMut<Assets<SkyMaterial>>,
+    mut floods: Query<(&mut SpotLight, &crate::hangar::Flood)>,
 ) {
     if !gfx.is_changed() && added.is_empty() && !indoors.is_changed() {
         return;
@@ -191,6 +198,16 @@ fn apply_light_tier(
         // The bay's few lamps reach all of it: one light cluster (WebGL2's per-cluster light
         // lists overflow when every lamp covers every cluster, and tiles of the screen go dark).
         e.insert(if inside { ClusterConfig::Single } else { ClusterConfig::default() });
+        // The bay has air in it: the far end of the bay and the launch tunnel fade into its haze.
+        if inside && gfx.look {
+            e.insert(DistanceFog {
+                color: Color::srgb(0.06, 0.07, 0.085),
+                falloff: FogFalloff::Exponential { density: 0.0055 },
+                ..default()
+            });
+        } else {
+            e.remove::<DistanceFog>();
+        }
         if s.ibl && !inside {
             e.insert(EnvironmentMapLight {
                 diffuse_map: maps.diffuse.clone(),
@@ -224,6 +241,14 @@ fn apply_light_tier(
         );
     }
     commands.insert_resource(DirectionalLightShadowMap { size: s.shadow_map });
+    // In the bay, the flood lights on the suit cast shadows on tiers with them: WebGL2 has room for
+    // one spot light's (the Sun's are off indoors), WebGPU for both.
+    for (mut light, flood) in &mut floods {
+        let on = s.shadows && (flood.0 == 0 || cfg!(feature = "webgpu"));
+        if light.shadow_maps_enabled != on {
+            light.shadow_maps_enabled = on;
+        }
+    }
     for dome in &mut skies {
         if let Some(mut m) = sky_materials.get_mut(&dome.0) {
             m.sky.params.y = s.sky_detail;

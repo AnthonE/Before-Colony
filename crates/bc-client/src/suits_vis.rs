@@ -67,6 +67,18 @@ pub struct SuitBone;
 #[derive(Component)]
 pub struct SuitPartMarker;
 
+/// A blade's glow igniting and going out: how far out it reaches, 0..1, and where it was last
+/// held (its hilt, direction and look), so it can draw back into the hilt after the stroke.
+#[derive(Component, Default)]
+pub struct BladeGlow {
+    reach: f32,
+    last: Option<(Vec3, Vec3, f32, f32)>,
+}
+
+/// How fast a blade ignites and goes out (fractions of its length per second).
+const IGNITE: f32 = 12.0;
+const RETRACT: f32 = 7.0;
+
 /// Eye colours (the hull shader's order).
 const EYE_GREEN: u8 = 0;
 const EYE_PINK: u8 = 1;
@@ -199,6 +211,7 @@ fn build_suit(
                 beam_tag(d.slot as u8, true),
                 Transform::default(),
                 SuitPartMarker,
+                BladeGlow::default(),
                 Visibility::Hidden,
                 ChildOf(bones[bone.index()]),
             ))
@@ -294,6 +307,7 @@ pub fn build_suits(
 }
 
 /// Poses every suit from its drive and switches its thrusters, saber and ZERO aura.
+#[allow(clippy::too_many_arguments)]
 pub fn pose_suits(
     time: Res<VisTime>,
     lib: Res<SuitMeshLib>,
@@ -301,10 +315,13 @@ pub fn pose_suits(
     mut suits: Query<(&SuitDrive, &SuitVisual, &mut Transform), Without<SuitPartMarker>>,
     mut parts: Query<(&mut Transform, &mut Visibility), With<SuitPartMarker>>,
     mut looks: Query<&mut MeshMaterial3d<BeamMaterial>, With<SuitPartMarker>>,
+    mut glows: Query<&mut BladeGlow>,
     mut tags: Query<&mut MeshTag>,
 ) {
-    let flicker = 0.8 + 0.2 * ((time.now * 40.0).sin() as f32);
+    let dt = time.dt.min(0.1);
     for (d, v, mut tf) in &mut suits {
+        // Each suit's fire flickers to its own beat.
+        let flicker = 0.8 + 0.2 * ((time.now * 40.0 + f64::from(d.slot) * 1.7).sin() as f32);
         tf.translation = d.pos;
         tf.rotation = d.rot;
         let has = |f: u16| d.flags & f != 0;
@@ -339,17 +356,28 @@ pub fn pose_suits(
                     };
                     Some((socket?, ribbons.blade(weapon)?))
                 });
+            // The blade springs out of the hilt as the stroke begins and draws back in after it.
+            let Ok(mut glow) = glows.get_mut(blade) else { continue };
+            if let Some(((hilt, dir), look)) = lit {
+                glow.last = Some((hilt, dir, look.half_width, look.length));
+                glow.reach = (glow.reach + IGNITE * dt).min(1.0);
+                if let Ok(mut m) = looks.get_mut(blade)
+                    && m.0 != look.material
+                {
+                    m.0 = look.material.clone();
+                }
+            } else {
+                glow.reach = (glow.reach - RETRACT * dt).max(0.0);
+            }
             if let Ok((mut btf, mut bv)) = parts.get_mut(blade) {
-                set_visible(&mut bv, lit.is_some());
-                if let Some(((hilt, dir), look)) = lit {
+                let shown = glow.reach > 0.0 && !wreck && intact(if right { Part::ArmR } else { Part::ArmL });
+                set_visible(&mut bv, shown);
+                if let (true, Some((hilt, dir, half_width, length))) = (shown, glow.last) {
+                    // Eased: quick to reach full length, slowing as it gets there.
+                    let out = 1.0 - (1.0 - glow.reach) * (1.0 - glow.reach);
                     *btf = Transform::from_translation(hilt)
                         .with_rotation(Quat::from_rotation_arc(Vec3::Y, dir))
-                        .with_scale(Vec3::new(look.half_width, look.length, 1.0));
-                    if let Ok(mut m) = looks.get_mut(blade)
-                        && m.0 != look.material
-                    {
-                        m.0 = look.material.clone();
-                    }
+                        .with_scale(Vec3::new(half_width, (length * out).max(0.05), 1.0));
                 }
             }
         }

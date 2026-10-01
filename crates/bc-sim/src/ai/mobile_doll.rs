@@ -257,7 +257,7 @@ pub fn drive(
         };
         let desired = standoff(me, t, desired);
         let in_range = t.dist < w.range * profile.fire_range_frac;
-        let can_point = angle_between(aim, fwd) < mount.arm.cone() * 0.9;
+        let can_point = angle_between(aim, fwd) < crate::tuning::cone(mount.arm, &me.tuning) * 0.9;
         if in_range && can_point && me.ready[0] && !me.overheated && t.hostile {
             buttons |= FIRE_PRIMARY;
         }

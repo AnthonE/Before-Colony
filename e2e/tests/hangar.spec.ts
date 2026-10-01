@@ -43,6 +43,9 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   expect(s.bay_line).toBe("leo");
   expect(s.hangar_credits).toBe(2000);
   expect(s.alive).toBe(false);
+  // Second-hand inside too: its radiators are tired. A new arrival is told where they are.
+  expect(s.bay_faults).toBe(1);
+  await expect(page.locator("#news")).toContainText("ARRIVAL", { timeout: 30_000 });
 
   // The exchange: 100 kg of titanium alloy from the colony, at its ask.
   await use(page, "exchange");
@@ -65,6 +68,34 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   await expect(page.locator("#term-log")).toContainText("MADE", { timeout: 60_000 });
   await page.click('[data-tab="stores"]');
   await expect(page.locator("#term-body")).toContainText(/Knife/);
+  await page.keyboard.press("Escape");
+  await until(page, "the terminal closed", (s) => !s.terminal, 10_000);
+
+  // The suit's console: overhaul the radiators with components and electronics bought from the
+  // colony, and fit a G-seat off its shelf. The stat sheet shows what it would launch as.
+  await use(page, "exchange");
+  await until(page, "the exchange terminal", (s) => s.terminal === "exchange", 10_000);
+  for (const [slug, qty] of [["mat.components", "20"], ["mat.electronics", "5"]]) {
+    await page.click('[data-act="ex-filter"][data-f="goods"]');
+    await page.click(`tr[data-item="${slug}"]`);
+    await page.fill(`[data-key="qty:buy:${slug}"]`, qty);
+    await page.click('[data-act="order"]');
+    await expect(page.locator("#term-log")).toContainText(/BOUGHT/, { timeout: 30_000 });
+  }
+  await page.click('[data-act="ex-filter"][data-f="modules"]');
+  await page.click('tr[data-item="module.g_seat"]');
+  await page.fill('[data-key="qty:buy:module.g_seat"]', "1");
+  await page.click('[data-act="order"]');
+  await expect(page.locator("#term-log")).toContainText(/G-seat/i, { timeout: 30_000 });
+  await page.keyboard.press("Escape");
+  await until(page, "the terminal closed", (s) => !s.terminal, 10_000);
+  await use(page, "suit");
+  await until(page, "the suit's console", (s) => s.terminal === "suit", 10_000);
+  await expect(page.locator("#term-body")).toContainText("AS IT WOULD LAUNCH");
+  await page.click('[data-act="overhaul"][data-part="torso"]');
+  await expect(page.locator("#term-log")).toContainText("OVERHAULED RADIATORS", { timeout: 30_000 });
+  await page.click('[data-act="fit"][data-item="module.g_seat"]');
+  s = await until(page, "the G-seat fitted", (s) => s.bay_modules === 1 && s.bay_faults === 0, 30_000);
   await page.keyboard.press("Escape");
   await until(page, "the terminal closed", (s) => !s.terminal, 10_000);
   const before = (await bc(page)).hangar_credits;

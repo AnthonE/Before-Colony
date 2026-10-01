@@ -54,6 +54,14 @@ function autoQuality(renderer) {
   return "high";
 }
 
+// Fades the loading screen out, then hides it for good (called when the first frame is drawn).
+window.bcHideBoot = () => {
+  const boot = document.getElementById("boot");
+  if (!boot || boot.classList.contains("fading")) return;
+  boot.classList.add("fading");
+  setTimeout(() => boot.classList.add("hidden"), 650);
+};
+
 async function main() {
   const showcase = params.get("showcase") || "";
   const renderer = rendererName();
@@ -79,6 +87,10 @@ async function main() {
     perf: params.get("perf") === "1",
     calm: params.get("calm") === "1" || matchMedia("(prefers-reduced-motion: reduce)").matches,
     tonemap: params.get("tonemap") || "",
+    // `?look=0`: the plain look (no grade, vignette or lit smoke), to compare against.
+    look: params.get("look") !== "0",
+    // `?hz=N`: the showcase's fixed clock rate (default 60), to see effects at a low frame rate.
+    hz: Number(params.get("hz") || 60),
   };
   if (!showcase) {
     if (!("WebTransport" in window)) {
@@ -104,7 +116,7 @@ async function main() {
   } catch (e) {
     if (!String(e).includes("Using exceptions for control flow")) throw e;
   }
-  document.getElementById("boot")?.classList.add("hidden");
+  window.bcHideBoot();
 }
 
 main().catch((e) => {

@@ -256,3 +256,96 @@ fn turns_settle_without_swinging_past_the_aim() {
         }
     }
 }
+
+/// Each axis' thrusters are only as strong as what's left of them, and flight assist asks for no
+/// more than they can give.
+#[test]
+fn damaged_thrusters_push_less_on_their_own_axis() {
+    let spec = frame(FrameId::Leo);
+    let accel = |mods: FlightMods, thrust: [i8; 3]| {
+        let mut s = fresh(FrameId::Leo);
+        let cmd = InputCmd { aim: Vec3::Z, thrust, ..InputCmd::default() };
+        step(&mut s, &cmd, spec, &mods, DT).accel.length()
+    };
+    let whole = FlightMods::default();
+    let weak_main = FlightMods { main: 0.5, ..whole };
+    let weak_side = FlightMods { side: 0.5, ..whole };
+    let fwd = [0, 0, 127];
+    let right = [127, 0, 0];
+    assert!((accel(weak_main, fwd) / accel(whole, fwd) - 0.5).abs() < 1e-3);
+    assert_eq!(accel(weak_main, right), accel(whole, right), "the main engines don't strafe");
+    assert!((accel(weak_side, right) / accel(whole, right) - 0.5).abs() < 1e-3);
+    assert_eq!(accel(weak_side, fwd), accel(whole, fwd));
+}
+
+/// Damaged boosters give part of boost's extra thrust; failed ones give none, and then holding
+/// Shift neither boosts nor lifts flight assist's G guard or its cruise.
+#[test]
+fn boosters_give_what_they_have_left() {
+    let spec = frame(FrameId::WingZero);
+    let boost = InputCmd { aim: Vec3::Z, thrust: [0, 0, 127], buttons: BOOST, ..InputCmd::default() };
+    let run = |mods: FlightMods| {
+        let mut s = fresh(FrameId::WingZero);
+        step(&mut s, &boost, spec, &mods, DT)
+    };
+    let full = run(FlightMods::default()).accel.length();
+    let half = run(FlightMods { boost: 0.5, ..FlightMods::default() });
+    let none = run(FlightMods { boost: 0.0, ..FlightMods::default() });
+    let plain = {
+        let mut s = fresh(FrameId::WingZero);
+        let cmd = InputCmd { buttons: 0, ..boost };
+        step(&mut s, &cmd, spec, &FlightMods::default(), DT).accel.length()
+    };
+    let expect_half = plain * (1.0 + (spec.boost_mult - 1.0) * 0.5);
+    assert!(
+        (half.accel.length() - expect_half).abs() / expect_half < 1e-3,
+        "{} vs {expect_half}",
+        half.accel.length()
+    );
+    assert!(half.boosting && half.accel.length() < full);
+    assert!(!none.boosting, "failed boosters don't boost");
+    assert_eq!(none.accel.length(), plain);
+    // Under flight assist, failed boosters keep the G guard on.
+    let mut s = fresh(FrameId::WingZero);
+    let fa = InputCmd { buttons: BOOST | FLIGHT_ASSIST, ..boost };
+    let out = step(&mut s, &fa, spec, &FlightMods { boost: 0.0, ..FlightMods::default() }, DT);
+    assert!(out.accel.length() / G0 <= FA_G_CAP + 1e-3, "{} g", out.accel.length() / G0);
+}
+
+/// A holed tank loses propellant at its rate whether the suit burns or not.
+#[test]
+fn a_leak_drains_the_tank() {
+    let spec = frame(FrameId::Leo);
+    let mut s = fresh(FrameId::Leo);
+    let coast = InputCmd { aim: Vec3::Z, ..InputCmd::default() };
+    let leak = FlightMods { leak_kg_s: 15.0, ..FlightMods::default() };
+    for _ in 0..(10 * 30) {
+        step(&mut s, &coast, spec, &leak, DT);
+    }
+    let lost = spec.propellant_cap - s.propellant;
+    assert!((lost - 150.0).abs() < 0.5, "lost {lost} kg");
+}
+
+/// A hurt pilot bears less: flight assist holds them under their own tolerance, and G beyond it
+/// strains them.
+#[test]
+fn a_pilot_bears_their_own_tolerance() {
+    let spec = frame(FrameId::WingZero);
+    let hurt = FlightMods { g_tolerance: 5.0, ..FlightMods::default() };
+    let go = InputCmd { aim: Vec3::Z, thrust: [0, 0, 127], buttons: FLIGHT_ASSIST, ..InputCmd::default() };
+    let mut s = fresh(FrameId::WingZero);
+    let out = step(&mut s, &go, spec, &hurt, DT);
+    assert!(out.g_limited && out.accel.length() / G0 < 4.98, "{} g", out.accel.length() / G0);
+    // Unassisted at ~8 g: the hurt pilot strains faster than a whole one.
+    let raw = InputCmd { buttons: 0, ..go };
+    let (mut a, mut b) = (fresh(FrameId::WingZero), fresh(FrameId::WingZero));
+    for _ in 0..30 {
+        step(&mut a, &raw, spec, &hurt, DT);
+        step(&mut b, &raw, spec, &FlightMods::default(), DT);
+    }
+    assert!(a.g_strain > b.g_strain + 0.1, "{} vs {}", a.g_strain, b.g_strain);
+    let seat = FlightMods { g_tolerance: HUMAN_G_TOLERANCE + 1.0, ..FlightMods::default() };
+    let mut c = fresh(FrameId::WingZero);
+    let out = step(&mut c, &go, spec, &seat, DT);
+    assert!(out.accel.length() / G0 > FA_G_CAP + 0.5, "a G-seat lets flight assist pull harder");
+}

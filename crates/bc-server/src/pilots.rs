@@ -22,6 +22,7 @@ use bc_econ::Hangar;
 use bc_proto::auth::{Address, TOKEN_BYTES};
 use bc_proto::{CARGO_KINDS, Faction, FrameId, Part, PilotKind};
 use bc_sim::content::landmarks::LANDMARKS_VERSION;
+use bc_sim::content::{Modules, Systems};
 use bc_sim::sim::{Homecoming, ParkRecord};
 use futures::future::BoxFuture;
 use glam::{Quat, Vec3};
@@ -86,6 +87,12 @@ pub struct ParkedSuit {
     /// record of the suit (it was hit since) replaces an earlier one, never the other way round.
     #[serde(default)]
     pub tick: u32,
+    /// Wear and tear: the state of the systems inside its parts, and the modules fitted (the
+    /// sector's own encodings, `Systems` and `Modules`).
+    #[serde(default)]
+    pub systems: u32,
+    #[serde(default)]
+    pub modules: u32,
 }
 
 impl ParkedSuit {
@@ -109,6 +116,8 @@ impl ParkedSuit {
             bounty: h.bounty,
             since_unix,
             tick: 0,
+            systems: h.systems.0,
+            modules: h.modules.0,
         }
     }
 
@@ -138,6 +147,8 @@ impl ParkedSuit {
                 cargo_kg: self.cargo_kg,
                 held: None,
                 bounty: self.bounty,
+                systems: Systems(self.systems),
+                modules: Modules(self.modules),
             },
         })
     }
@@ -732,6 +743,9 @@ mod tests {
                 cargo_kg: [1, 2, 3, 4],
                 held: None,
                 bounty: 900,
+                // Wear and tear comes home too: some systems hurt, a module fitted.
+                systems: Systems(0b10_01_00_11),
+                modules: Modules(0b0011),
             },
         }
     }

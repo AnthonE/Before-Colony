@@ -580,6 +580,7 @@ dependencies = [
  "bevy",
  "bevy_asset",
  "bevy_ecs",
+ "bevy_image",
  "bevy_reflect",
  "bevy_render",
  "console_error_panic_hook",

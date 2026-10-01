@@ -139,6 +139,10 @@ struct Session<'a> {
     entered: bool,
 }
 
+/// What a pilot is told the first time they wake in their bay.
+pub const ARRIVAL: &str =
+    "ARRIVAL REGISTERED · THE CHARTER BOARD ADVANCES YOU 2,000 CR AND A LEO · WELCOME TO THE FIRST COLONY";
+
 impl Session<'_> {
     fn survival(&self) -> bool {
         self.game.survival
@@ -155,8 +159,13 @@ impl Session<'_> {
         let left = self.record.as_ref().and_then(|r| r.sleeper).filter(|s| s.run == run);
         let had_sleeper = self.record.as_ref().is_some_and(|r| r.sleeper.is_some());
         let mut woke = false;
+        // A pilot with no hangar yet has only just arrived.
+        let mut arrived = false;
         if self.survival() {
-            self.hangar = self.record.as_mut().and_then(|r| r.hangar.take()).unwrap_or_else(Hangar::starter);
+            self.hangar = self.record.as_mut().and_then(|r| r.hangar.take()).unwrap_or_else(|| {
+                arrived = true;
+                Hangar::starter()
+            });
             // Out in the sector, asleep: wake in it, if it's still there.
             if matches!(self.hangar.bay, Bay::Out { .. }) {
                 let line = self.hangar_line();
@@ -283,6 +292,9 @@ impl Session<'_> {
             self.send_place().await?;
             if let Some((outcome, text)) = sortie {
                 self.send(&Update::Sortie { outcome, text }).await?;
+            }
+            if arrived {
+                self.send(&Update::News { text: ARRIVAL.to_string() }).await?;
             }
             self.send_hangar().await?;
             self.send_market().await?;

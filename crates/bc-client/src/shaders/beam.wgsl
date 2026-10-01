@@ -16,7 +16,8 @@ struct Beam {
 
 @vertex
 fn vertex(@builtin(instance_index) instance: u32, @location(0) position: vec3<f32>) -> RibbonOut {
-    return ribbon_vertex(instance, position);
+    // At least 1.2 px either side of the axis, however far.
+    return ribbon_vertex(instance, position, 1.2);
 }
 
 @fragment
@@ -33,8 +34,11 @@ fn fragment(in: RibbonOut) -> @location(0) vec4<f32> {
     // Shots: faint at the tail, full at the head. Blades: full from the hilt.
     let along = select(smoothstep(0.0, 0.45, y), smoothstep(0.0, 0.02, y), blade);
     let t = beam.params.z;
-    let flicker = 1.0 + beam.params.y * sin(y * 43.0 - t * 95.0 + seed);
-    let striae = 1.0 + beam.params.w * sin(y * 70.0 + xs * 5.0 - t * 60.0 + seed) * glow;
+    // Flicker and striae run along the beam in metres, so they don't stretch as it grows.
+    // (A blade is short and fixed: its ripple keeps the rifle's count along it.)
+    let m = y * select(in.size.y, 110.0, blade);
+    let flicker = 1.0 + beam.params.y * sin(m * 0.39 - t * 95.0 + seed);
+    let striae = 1.0 + beam.params.w * sin(m * 0.146 + xs * 5.0 - t * 60.0 + seed) * glow;
     let rgb = (beam.color.rgb * glow * striae + vec3(1.0, 0.97, 0.94) * core * beam.color.a) * along * flicker;
-    return vec4(glow_out(rgb), 0.0);
+    return vec4(glow_out(rgb * in.dim), 0.0);
 }

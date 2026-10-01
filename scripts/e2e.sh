@@ -8,6 +8,7 @@
 #   scripts/e2e.sh login [project]   # wallet sign-in (a stub wallet with a test key), resume, take-over
 #   scripts/e2e.sh hangar [project]  # survival: on foot in the bay, its terminals, launching and docking
 #   scripts/e2e.sh surface [project] # the lander lands in MO-II's Aft Well, hides, parks and wakes there
+# Anything after the project goes to Playwright, e.g. `scripts/e2e.sh gfx webgl2 --grep "duel|hangar"`.
 # The suits' suites run the arcade rules (any frame, free respawns) unless BC_RULES says otherwise.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -67,4 +68,4 @@ cd e2e
 mkdir -p artifacts
 runner=()
 [ "$project" = "webgpu" ] && runner=(xvfb-run -a)
-"${runner[@]}" pnpm exec playwright test "${suite}.spec" --project="$project"
+"${runner[@]}" pnpm exec playwright test "${suite}.spec" --project="$project" "${@:3}"

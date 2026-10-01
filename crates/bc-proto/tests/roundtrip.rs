@@ -226,7 +226,9 @@ proptest! {
                            missiles in prop::collection::vec(missile(), 0..=12),
                            pos in vec3(30_000.0), rot in quat(), extra in -131_071i32..131_071, credits in 0u32..16_777_215,
                            lock in 0u16..1024, progress in 0u8..16, special in any::<[u8; 2]>(), ready in 0u8..16,
-                           arms in arms(), g_strain in 0.0f32..3.0, on in 0u32..3, stance in 96u8..=146, cover in 0u8..4) {
+                           arms in arms(), g_strain in 0.0f32..3.0, on in 0u32..3, stance in 96u8..=146, cover in 0u8..4,
+                           systems in 0u32..(1 << 24), modules in 0u32..(1 << 20),
+                           timers in any::<[u8; 3]>(), repairing in 0u8..16) {
         // Flying free, standing on a rock, or in a landmark's grip.
         let surface = match on {
             0 => None,
@@ -236,7 +238,8 @@ proptest! {
         let own = OwnState { slot: 5, alive: true, pos, vel: Vec3::new(10.0, -3.0, 250.0), rot, propellant: 812.5,
                              g_strain, parts: [1.0, 0.5, 0.0, 1.0, 0.25, 0.75], extra_mass_kg: extra, cargo_kg: [0, 16_383, 2_500, 1],
                              credits, held: 1_000, weapon_ready: ready, lock_target: lock, lock_progress: progress,
-                             special_timer: special[0], special_cooldown: special[1], arms, surface, cover,
+                             special_timer: special[0], special_cooldown: special[1], arms, surface, cover, systems, modules,
+                             scram: timers[0] & 127, concussed: timers[1] & 127, repairing, repair_left: timers[2] & 127,
                              ..OwnState::default() };
         let mut zero = ZeroInfo { threat_count: 2, has_solution: true, solution: Vec3::X, hit_p: 0.62, ..ZeroInfo::default() };
         zero.threats[0] = ZeroThreat { slot: 9, probs: [0.1, 0.2, 0.3, 0.1, 0.1, 0.1, 0.1] };
@@ -398,16 +401,16 @@ proptest! {
 fn record_budgets_match_plan() {
     // ~26 bytes per entity (24 for a suit on a body); ~30 fit in a datagram next to header, own
     // state, ZERO and events.
-    const { assert!(ENTITY_MAX_BITS == 208) };
+    const { assert!(ENTITY_MAX_BITS == 211) };
     const { assert!(ZERO_HYPOTHESES == 7) };
-    const { assert!(OWN_BITS_FREE == 707) };
-    const { assert!(OWN_MAX_BITS == 727) };
+    const { assert!(OWN_BITS_FREE == 760) };
+    const { assert!(OWN_MAX_BITS == 780) };
     const { assert!(ROCK_RECORD_BITS == 18) };
     const { assert!(MISSILE_RECORD_BITS == 119) };
     const { assert!(ObjectState::MAX_BITS <= 232) };
     let rider = |body| EntityState { on: Some(RiderOn { body, aloft: false }), ..EntityState::default() };
-    assert_eq!(rider(BodyRef::Rock(0)).encoded_bits(), 191);
-    assert_eq!(rider(BodyRef::Landmark(0)).encoded_bits(), 191);
+    assert_eq!(rider(BodyRef::Rock(0)).encoded_bits(), 194);
+    assert_eq!(rider(BodyRef::Landmark(0)).encoded_bits(), 194);
     assert_eq!(EntityState::default().encoded_bits(), ENTITY_MAX_BITS);
 }
 
@@ -436,25 +439,25 @@ fn entities_that_fit(own: &OwnState, e: &EntityState) -> usize {
 }
 
 #[test]
-fn a_full_datagram_holds_38_free_or_41_riders() {
+fn a_full_datagram_holds_37_free_or_40_riders() {
     let free = EntityState { pos: Vec3::new(9_000.0, 5_000.0, -12_000.0), ..EntityState::default() };
     let rider = EntityState {
         on: Some(RiderOn { body: BodyRef::Landmark(1), aloft: false }),
         pos: Vec3::new(0.0, 599.0, 0.0),
         ..EntityState::default()
     };
-    // The worst own state: standing on a rock. Free traffic loses nothing to v8's 38.
+    // The worst own state: standing on a rock. Free traffic loses nothing to wear and tear's 37.
     let on_a_rock = OwnState {
         alive: true,
         surface: Some(OwnSurface { footing: footing::GROUNDED, body: BodyRef::Rock(1_000), stance_q: 146 }),
         ..OwnState::default()
     };
     assert_eq!(on_a_rock.encoded_bits(), OWN_MAX_BITS);
-    assert_eq!(entities_that_fit(&on_a_rock, &free), 38);
-    assert_eq!(entities_that_fit(&on_a_rock, &rider), 41);
+    assert_eq!(entities_that_fit(&on_a_rock, &free), 37);
+    assert_eq!(entities_that_fit(&on_a_rock, &rider), 40);
     let flying = OwnState { alive: true, ..OwnState::default() };
-    assert_eq!(entities_that_fit(&flying, &free), 38);
-    assert_eq!(entities_that_fit(&flying, &rider), 41);
+    assert_eq!(entities_that_fit(&flying, &free), 37);
+    assert_eq!(entities_that_fit(&flying, &rider), 40);
 }
 
 #[test]

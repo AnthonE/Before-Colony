@@ -38,8 +38,10 @@ pub const FA_RESPONSE: f32 = 0.2;
 const FA_SETTLE: f32 = 0.005;
 /// Holding boost raises flight assist's cruise speed by this much.
 pub const FA_BOOST_CRUISE: f32 = 1.8;
-/// Flight assist holds a pilot just under what they bear for good, g, unless they boost.
-pub const FA_G_CAP: f32 = HUMAN_G_TOLERANCE - 0.03;
+/// How far under a pilot's tolerance flight assist holds them, g.
+pub const FA_G_MARGIN: f32 = 0.03;
+/// Flight assist holds a healthy pilot just under what they bear for good, g, unless they boost.
+pub const FA_G_CAP: f32 = HUMAN_G_TOLERANCE - FA_G_MARGIN;
 /// A blade's lunge drives forward at this much of full main thrust (never boosted).
 pub const LUNGE_THRUST: f32 = 1.5;
 /// How hard roll-level turns the feet toward a surface (1/s): the roll rate asked for per radian
@@ -77,13 +79,28 @@ impl Default for FlightState {
     }
 }
 
-/// Modifiers from damage and what the arms are doing.
+/// Modifiers from damage, equipment and what the arms are doing (see `crate::tuning`, which builds
+/// them the same way on the server and in the owner's prediction).
 #[derive(Clone, Copy, Debug)]
 pub struct FlightMods {
     /// AMBAC authority 0..1 (lost limbs, busy arms).
     pub ambac: f32,
-    /// Thrust authority 0..1 (damaged backpack/legs).
+    /// Thrust authority on every axis, applied after flight assist asks for its force (a change of
+    /// form cutting it).
     pub thrust: f32,
+    /// What each axis' thrusters can give, of the frame's own: main (forward), side (lateral and
+    /// vertical) and retro. Flight assist only asks for what they can give.
+    pub main: f32,
+    pub side: f32,
+    pub retro: f32,
+    /// How much of boost's extra thrust the boosters give (0: they can't boost at all).
+    pub boost: f32,
+    /// Specific impulse, of the frame's own.
+    pub isp: f32,
+    /// Sustained G the pilot bears before strain builds.
+    pub g_tolerance: f32,
+    /// Propellant lost from a holed tank, kg/s.
+    pub leak_kg_s: f32,
     /// Mobile Dolls: no G-strain.
     pub g_immune: bool,
     /// Beam saber lunge: full forward thrust at [`LUNGE_THRUST`]×.
@@ -104,6 +121,13 @@ impl Default for FlightMods {
         Self {
             ambac: 1.0,
             thrust: 1.0,
+            main: 1.0,
+            side: 1.0,
+            retro: 1.0,
+            boost: 1.0,
+            isp: 1.0,
+            g_tolerance: HUMAN_G_TOLERANCE,
+            leak_kg_s: 0.0,
             g_immune: false,
             lunge: false,
             extra_mass_kg: 0,
@@ -233,17 +257,22 @@ pub fn integrate(
     s.rot = integrate_rotation(s.rot, s.ang_vel, dt);
 
     // --- Translation. ---
-    let boosting = cmd.pressed(BOOST) && has_prop && !s.blackout;
-    let main = spec.main_thrust * if boosting { spec.boost_mult } else { 1.0 };
-    let side = spec.side_thrust;
-    let retro = spec.retro_thrust;
+    // Boosters that can't boost don't: no boosted cruise, and flight assist keeps its G guard.
+    let can_boost = mods.boost > 0.0;
+    let boosting = cmd.pressed(BOOST) && has_prop && !s.blackout && can_boost;
+    // Exactly the frame's multiplier when the boosters are whole (a lerp needn't round back to it).
+    let boost_mult =
+        if mods.boost >= 1.0 { spec.boost_mult } else { 1.0 + (spec.boost_mult - 1.0) * mods.boost };
+    let main = spec.main_thrust * mods.main * if boosting { boost_mult } else { 1.0 };
+    let side = spec.side_thrust * mods.side;
+    let retro = spec.retro_thrust * mods.retro;
     let brake = cmd.pressed(BRAKE);
     let assisted = brake || cmd.pressed(FLIGHT_ASSIST);
     let stick = if brake { Vec3::ZERO } else { cmd.thrust_vec() };
     let mut f_local = if assisted {
         // Boost's cruise while the pilot holds it, even through a blackout that cuts the boost
         // itself (flight assist mustn't brake them for it).
-        let cruise = spec.fa_speed * if cmd.pressed(BOOST) { FA_BOOST_CRUISE } else { 1.0 };
+        let cruise = spec.fa_speed * if cmd.pressed(BOOST) && can_boost { FA_BOOST_CRUISE } else { 1.0 };
         let v_local = s.rot.conjugate() * s.vel;
         let gap = match mods.hop {
             None => stick * cruise - v_local,
@@ -271,7 +300,7 @@ pub fn integrate(
         )
     };
     if mods.lunge {
-        f_local.z = spec.main_thrust * LUNGE_THRUST;
+        f_local.z = spec.main_thrust * mods.main * LUNGE_THRUST;
     }
     f_local *= mods.thrust * authority;
     if !has_prop {
@@ -280,37 +309,42 @@ pub fn integrate(
     // Flight assist spares its pilot's body: short of boost (or a blade's lunge), it holds them
     // under what they bear for good, whatever their tank and the thrusters could do.
     let guard = assisted && !boosting && !mods.lunge && !mods.g_immune;
-    let most = FA_G_CAP * G0 * mass;
+    let most = (mods.g_tolerance - FA_G_MARGIN) * G0 * mass;
     let pull = length(f_local);
     let g_limited = guard && pull > most;
     if g_limited {
         f_local *= most / pull;
     }
-    let burn = (f_local.x.abs() + f_local.y.abs() + f_local.z.abs()) * dt / spec.exhaust_velocity();
+    let burn =
+        (f_local.x.abs() + f_local.y.abs() + f_local.z.abs()) * dt / (spec.exhaust_velocity() * mods.isp);
     s.propellant = (s.propellant - burn).max(0.0);
+    if mods.leak_kg_s > 0.0 {
+        s.propellant = (s.propellant - mods.leak_kg_s * dt).max(0.0);
+    }
     let axial = if f_local.z >= 0.0 { spec.main_thrust } else { spec.retro_thrust };
-    let throttle = f_local / Vec3::new(side, side, axial).max(Vec3::ONE);
+    // Against the healthy caps: damaged thrusters read as a lower throttle (the sound, the plumes).
+    let throttle = f_local / Vec3::new(spec.side_thrust, spec.side_thrust, axial).max(Vec3::ONE);
     let accel = (s.rot * f_local) / mass;
     s.vel += accel * dt;
     s.pos += s.vel * dt;
 
     // --- Pilot G. ---
-    pilot_g(s, accel, mods.g_immune, dt);
+    pilot_g(s, accel, mods, dt);
     FlightOut { boosting, accel, throttle, g_limited }
 }
 
 /// Pilot G: the suit felt `accel` (m/s²) for `dt`. Above what a pilot bears for good, strain
 /// builds; below it, strain eases. At 1.0 they black out, until it falls under 0.5. A Mobile Doll
-/// (`g_immune`) feels nothing.
-pub fn pilot_g(s: &mut FlightState, accel: Vec3, g_immune: bool, dt: f32) {
+/// (`g_immune`) feels nothing. A pilot bears `mods.g_tolerance` for good.
+pub fn pilot_g(s: &mut FlightState, accel: Vec3, mods: &FlightMods, dt: f32) {
     let g = length(accel) / G0;
     s.g_load = g;
-    if g_immune {
+    if mods.g_immune {
         s.g_strain = 0.0;
         s.blackout = false;
     } else {
-        if g > HUMAN_G_TOLERANCE {
-            s.g_strain += (g - HUMAN_G_TOLERANCE) / STRAIN_GAIN_DIV * dt;
+        if g > mods.g_tolerance {
+            s.g_strain += (g - mods.g_tolerance) / STRAIN_GAIN_DIV * dt;
         } else {
             s.g_strain -= STRAIN_RECOVERY * dt;
         }
@@ -414,17 +448,23 @@ mod tests {
             s.rot = integrate_rotation(s.rot, s.ang_vel, dt);
 
             // --- Translation. ---
-            let boosting = cmd.pressed(BOOST) && has_prop && !s.blackout;
-            let main = spec.main_thrust * if boosting { spec.boost_mult } else { 1.0 };
-            let side = spec.side_thrust;
-            let retro = spec.retro_thrust;
+            // Boosters that can't boost don't: no boosted cruise, and flight assist keeps its G guard.
+            let can_boost = mods.boost > 0.0;
+            let boosting = cmd.pressed(BOOST) && has_prop && !s.blackout && can_boost;
+            // Exactly the frame's multiplier when the boosters are whole (a lerp needn't round back to it).
+            let boost_mult =
+                if mods.boost >= 1.0 { spec.boost_mult } else { 1.0 + (spec.boost_mult - 1.0) * mods.boost };
+            let main = spec.main_thrust * mods.main * if boosting { boost_mult } else { 1.0 };
+            let side = spec.side_thrust * mods.side;
+            let retro = spec.retro_thrust * mods.retro;
             let brake = cmd.pressed(BRAKE);
             let assisted = brake || cmd.pressed(FLIGHT_ASSIST);
             let stick = if brake { Vec3::ZERO } else { cmd.thrust_vec() };
             let mut f_local = if assisted {
                 // Boost's cruise while the pilot holds it, even through a blackout that cuts the boost
                 // itself (flight assist mustn't brake them for it).
-                let cruise = spec.fa_speed * if cmd.pressed(BOOST) { FA_BOOST_CRUISE } else { 1.0 };
+                let cruise =
+                    spec.fa_speed * if cmd.pressed(BOOST) && can_boost { FA_BOOST_CRUISE } else { 1.0 };
                 let v_local = s.rot.conjugate() * s.vel;
                 let gap = stick * cruise - v_local;
                 let response =
@@ -443,7 +483,7 @@ mod tests {
                 )
             };
             if mods.lunge {
-                f_local.z = spec.main_thrust * LUNGE_THRUST;
+                f_local.z = spec.main_thrust * mods.main * LUNGE_THRUST;
             }
             f_local *= mods.thrust * authority;
             if !has_prop {
@@ -452,16 +492,21 @@ mod tests {
             // Flight assist spares its pilot's body: short of boost (or a blade's lunge), it holds them
             // under what they bear for good, whatever their tank and the thrusters could do.
             let guard = assisted && !boosting && !mods.lunge && !mods.g_immune;
-            let most = FA_G_CAP * G0 * mass;
+            let most = (mods.g_tolerance - FA_G_MARGIN) * G0 * mass;
             let pull = length(f_local);
             let g_limited = guard && pull > most;
             if g_limited {
                 f_local *= most / pull;
             }
-            let burn = (f_local.x.abs() + f_local.y.abs() + f_local.z.abs()) * dt / spec.exhaust_velocity();
+            let burn = (f_local.x.abs() + f_local.y.abs() + f_local.z.abs()) * dt
+                / (spec.exhaust_velocity() * mods.isp);
             s.propellant = (s.propellant - burn).max(0.0);
+            if mods.leak_kg_s > 0.0 {
+                s.propellant = (s.propellant - mods.leak_kg_s * dt).max(0.0);
+            }
             let axial = if f_local.z >= 0.0 { spec.main_thrust } else { spec.retro_thrust };
-            let throttle = f_local / Vec3::new(side, side, axial).max(Vec3::ONE);
+            // Against the healthy caps: damaged thrusters read as a lower throttle (the sound, the plumes).
+            let throttle = f_local / Vec3::new(spec.side_thrust, spec.side_thrust, axial).max(Vec3::ONE);
             let accel = (s.rot * f_local) / mass;
             s.vel += accel * dt;
             s.pos += s.vel * dt;
@@ -473,8 +518,8 @@ mod tests {
                 s.g_strain = 0.0;
                 s.blackout = false;
             } else {
-                if g > HUMAN_G_TOLERANCE {
-                    s.g_strain += (g - HUMAN_G_TOLERANCE) / STRAIN_GAIN_DIV * dt;
+                if g > mods.g_tolerance {
+                    s.g_strain += (g - mods.g_tolerance) / STRAIN_GAIN_DIV * dt;
                 } else {
                     s.g_strain -= STRAIN_RECOVERY * dt;
                 }
@@ -491,16 +536,15 @@ mod tests {
         }
 
         /// The pilot-G block of v8's `step`, verbatim.
-        pub fn pilot_g(s: &mut FlightState, accel: Vec3, g_immune: bool, dt: f32) {
-            let mods = FlightMods { g_immune, ..FlightMods::default() };
+        pub fn pilot_g(s: &mut FlightState, accel: Vec3, mods: &FlightMods, dt: f32) {
             let g = length(accel) / G0;
             s.g_load = g;
             if mods.g_immune {
                 s.g_strain = 0.0;
                 s.blackout = false;
             } else {
-                if g > HUMAN_G_TOLERANCE {
-                    s.g_strain += (g - HUMAN_G_TOLERANCE) / STRAIN_GAIN_DIV * dt;
+                if g > mods.g_tolerance {
+                    s.g_strain += (g - mods.g_tolerance) / STRAIN_GAIN_DIV * dt;
                 } else {
                     s.g_strain -= STRAIN_RECOVERY * dt;
                 }
@@ -599,6 +643,14 @@ mod tests {
             g_immune: rng.next_u32().is_multiple_of(2),
             lunge: rng.next_u32().is_multiple_of(8),
             extra_mass_kg: (rng.next_u32() % 30_000) as i32 - 5_000,
+            // Wear and tear's per-axis modifiers, so the old expressions are held to with them too.
+            main: 0.5 + rng.next_f32() * 0.5,
+            side: 0.5 + rng.next_f32() * 0.5,
+            retro: 0.5 + rng.next_f32() * 0.5,
+            boost: rng.next_f32(),
+            isp: 0.7 + rng.next_f32() * 0.3,
+            g_tolerance: 4.0 + rng.next_f32() * 2.0,
+            leak_kg_s: if rng.next_u32().is_multiple_of(4) { rng.next_f32() * 3.0 } else { 0.0 },
             ..FlightMods::default()
         };
         (s, cmd, spec, mods)
@@ -618,10 +670,10 @@ mod tests {
             assert_eq!(out_bits(&out_a), out_bits(&out_b), "case {n}");
             // Pilot G on its own, against the block it was lifted from.
             let accel = random_vec(&mut rng, 150.0);
-            let g_immune = rng.next_u32().is_multiple_of(2);
+            let gm = FlightMods { g_immune: rng.next_u32().is_multiple_of(2), ..mods };
             let (mut p, mut q) = (s0, s0);
-            pilot_g(&mut p, accel, g_immune, DT);
-            v8::pilot_g(&mut q, accel, g_immune, DT);
+            pilot_g(&mut p, accel, &gm, DT);
+            v8::pilot_g(&mut q, accel, &gm, DT);
             assert_eq!(bits(&p), bits(&q), "case {n}: {s0:?} felt {accel}");
         }
         assert!(constrained > 3_000, "only {constrained} of the cases met the hull or the edge");

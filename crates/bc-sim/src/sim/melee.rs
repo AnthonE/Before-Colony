@@ -128,6 +128,7 @@ impl Sim {
         let aim = normalize_or(cmd.aim, self.suits.flight[i].rot * Vec3::Z);
         let dig_own = self.suits.footing[i] != Footing::Free
             && self.ground_normal(i).is_some_and(|n| aim.dot(n) < DIG_OWN_DOT);
+        let cone = self.cone(i, mount.arm);
         let s = &mut self.suits;
         // A thrust goes where the pilot aims, as far off the nose as its mount turns.
         let dir = match m.stroke {
@@ -135,7 +136,7 @@ impl Sim {
             Stroke::Thrust => {
                 let rot = s.flight[i].rot;
                 let fwd = rot * Vec3::Z;
-                rot.inverse() * clamp_to_cone(normalize_or(cmd.aim, fwd), fwd, mount.arm.cone())
+                rot.inverse() * clamp_to_cone(normalize_or(cmd.aim, fwd), fwd, cone)
             }
         };
         s.melee[i] = MeleeState {

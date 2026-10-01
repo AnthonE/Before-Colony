@@ -57,6 +57,7 @@ fn relevant(sim: &Sim, me: usize, e: &Event) -> bool {
         Event::MissileBurst { pos, .. } => {
             (pos - sim.suits.flight[me].pos).length_squared() < BEAM_NOTICE_RANGE * BEAM_NOTICE_RANGE
         }
+        Event::SystemHit { target, .. } => near(target),
         Event::Leave { .. } => false,
     }
 }
@@ -402,6 +403,6 @@ mod tests {
         let on = Some(RiderOn { body: BodyRef::Landmark(0), aloft: false });
         assert_eq!((es.on, ew.on), (on, on));
         assert!(es.vel.length() < 0.05 && ew.vel.length() > 3.0, "{} {}", es.vel, ew.vel);
-        assert_eq!(es.encoded_bits(), 191);
+        assert_eq!(es.encoded_bits(), 194);
     }
 }

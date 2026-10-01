@@ -7,6 +7,10 @@ import { bc, collectConsole, luminanceStdDev } from "./util";
 //
 //   BC_GFX_QUALITY=high (default) | low | medium | ultra
 const quality = process.env.BC_GFX_QUALITY ?? "high";
+// Extra query parameters for every shot (say `look=0` for the plain look, `hz=20` for a slower
+// clock), which also go into the screenshots' names so pairs sit side by side.
+const extra = process.env.BC_GFX_EXTRA ?? "";
+const suffix = extra ? `-${extra.replace(/[^a-z0-9=]+/gi, "_")}` : "";
 // [scene, camera preset, start time (s), frames to run]. The clock stops after the last frame
 // (`hold`), so each screenshot shows one exact moment; effects need their triggering event inside
 // the run.
@@ -15,6 +19,8 @@ const scenes: Array<[string, number, number, number]> = [
   ["lineup", 2, 6, 12],
   // The Taurus exploding as Wing Zero's shot lands, with the Leo's machine-cannon tracers.
   ["duel", 1, 6.75, 30],
+  // Two seconds on: the Taurus's wreck drifting on out of its blast, burning, trailing smoke.
+  ["duel", 1, 6.9, 120],
   // The Twin Buster Rifle mid-shot.
   ["duel", 2, 1.85, 12],
   // Beam sabers clashing.
@@ -73,7 +79,7 @@ for (const [scene, cam, t, frames] of scenes) {
     test.setTimeout(240_000);
     const logs = collectConsole(page);
     await page.goto(
-      `/?showcase=${scene}&cam=${cam}&t=${t}&hold=${frames}&quality=${quality}&gfx=${info.project.name}`,
+      `/?showcase=${scene}&cam=${cam}&t=${t}&hold=${frames}&quality=${quality}&gfx=${info.project.name}${extra ? `&${extra}` : ""}`,
     );
     // A few frames past start-up, so pipelines have compiled and effects are on screen. A GPU
     // validation error or a panic stops the app, so fail on one at once rather than time out.
@@ -95,7 +101,7 @@ for (const [scene, cam, t, frames] of scenes) {
     console.log(`${scene}/${cam}: ${JSON.stringify(status)}`);
     expect(status.mode).toBe("showcase");
     expect(status.gfx_tier).toBe(quality);
-    const name = `gfx-${info.project.name}-${quality}-${scene}-${cam}-t${t}.png`;
+    const name = `gfx-${info.project.name}-${quality}-${scene}-${cam}-t${t}${suffix}.png`;
     const shot = await page.screenshot({ path: `artifacts/${name}` });
     expect(luminanceStdDev(shot)).toBeGreaterThan(3);
     const bad = logs.filter((l) => /\[error\]|\[pageerror\]|%cERROR|panicked|wgpu error|validation error/i.test(l));

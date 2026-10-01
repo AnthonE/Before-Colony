@@ -228,6 +228,22 @@ impl Exchange {
         }
     }
 
+    /// Stocks the colony's desk for anything it deals in but holds no record of: an exchange kept
+    /// from before the item existed would otherwise quote it as if the colony had none (dear, and
+    /// never settling). Returns how many desks it opened.
+    pub fn seed_missing(&mut self) -> usize {
+        let mut n = 0;
+        for item in Item::all() {
+            if let Some(d) = desk(item)
+                && !self.colony.contains_key(&item)
+            {
+                self.colony.insert(item, Stock { held: d.target as f64 });
+                n += 1;
+            }
+        }
+        n
+    }
+
     /// Credits a buy order must hold in escrow.
     pub fn escrow_for(item: Item, price: u64, qty: u64) -> u64 {
         worth(item, price, qty)

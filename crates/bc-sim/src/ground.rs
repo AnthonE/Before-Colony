@@ -271,7 +271,7 @@ pub fn move_step(b: &Bodies, m: &mut Mover, cmd: &InputCmd, cx: &MoveCtx, dt: f3
                 let acc_l = grounded(&shape, &mut m.anchor, &mut m.footing, cmd, cx, blackout, aim_l, dt);
                 // The legs' push is felt as thrust is (contact itself is harmless).
                 let accel = pose.rot * acc_l;
-                flight::pilot_g(&mut m.flight, accel, cx.mods.g_immune, dt);
+                flight::pilot_g(&mut m.flight, accel, &cx.mods, dt);
                 out.flight = FlightOut { boosting: false, accel, throttle: Vec3::ZERO, g_limited: false };
                 false
             } else {

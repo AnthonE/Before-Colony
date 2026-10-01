@@ -256,6 +256,18 @@ fn survival_launches_docks_and_losses_never_allocate() {
             l.mounts = 0b110;
         }
         l.parts[bc_proto::Part::Head as usize] = 0.4;
+        // Some fly with failing systems: a leak, coughing thrusters, a hurt pilot.
+        if slot.is_multiple_of(2) {
+            use bc_sim::content::systems::{DAMAGED, FAILED};
+            use bc_sim::content::{System, Systems};
+            l.systems = Systems::OK
+                .with(System::Tank, FAILED)
+                .with(System::MainThrusters, DAMAGED)
+                .with(System::Cockpit, DAMAGED);
+            use bc_sim::content::ModuleKind;
+            l.modules.set(1, Some(ModuleKind::DamageControl));
+            l.modules.set(4, Some(ModuleKind::AuxiliaryTank));
+        }
         l
     };
     let launch = |slot: u16| Control::Join {

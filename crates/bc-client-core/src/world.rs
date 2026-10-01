@@ -238,6 +238,8 @@ pub struct World {
     pub hulks: HashMap<u16, u16>,
     /// Rocks that shattered, newest last: (tick, rock).
     pub rock_breaks: VecDeque<(u32, u16)>,
+    /// Blows that got through to a suit's systems, newest last: (tick, suit, system, level).
+    pub system_hits: VecDeque<(u32, u16, u8, u8)>,
     /// Missiles in flight nearby, by pool id.
     pub missiles: Vec<Option<MissileTrack>>,
     /// Missiles that burst, newest last.
@@ -271,6 +273,7 @@ impl World {
             objects: vec![None; 1 << CHUNK_BITS],
             hulks: HashMap::new(),
             rock_breaks: VecDeque::new(),
+            system_hits: VecDeque::new(),
             missiles: vec![None; 1 << MISSILE_BITS],
             missile_bursts: VecDeque::new(),
             seen: VecDeque::new(),
@@ -630,6 +633,14 @@ impl World {
                     }
                 }
             }
+            Event::SystemHit { id, tick, target, system, level } => {
+                if self.first_time(id) {
+                    self.system_hits.push_back((tick, target, system, level));
+                    while self.system_hits.len() > 32 {
+                        self.system_hits.pop_front();
+                    }
+                }
+            }
             Event::MissileBurst { id, tick, missile, pos, cause } => {
                 if self.first_time(id) {
                     let slot = self.missiles.get_mut(usize::from(missile));
@@ -696,6 +707,7 @@ impl World {
         let own = self.own?;
         let spec = frame(own.frame);
         let s = &predict.state;
+        let tuning = bc_sim::tuning::own_tuning(&own);
         let me = SelfView {
             slot: own.slot,
             frame: own.frame,
@@ -707,7 +719,7 @@ impl World {
             parts: own.parts,
             heat: own.heat,
             energy: own.energy,
-            propellant: own.propellant / spec.propellant_cap,
+            propellant: own.propellant / bc_sim::tuning::tank_cap(spec, &tuning),
             g_strain: s.g_strain,
             ready: [own.weapon_ready & 1 != 0, own.weapon_ready & 2 != 0, own.weapon_ready & 4 != 0],
             overheated: own.flags & own_flags::OVERHEAT != 0,
@@ -719,6 +731,7 @@ impl World {
                 transforming: own.flags & own_flags::TRANSFORMING != 0,
             },
             surface_n: predict.surface_n(),
+            tuning,
         };
         let mut p = Perception::default();
         p.reset(me);

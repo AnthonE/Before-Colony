@@ -10,6 +10,7 @@ use super::Sim;
 use crate::arms::phase_to_wire;
 use crate::bodies::Body;
 use crate::chunks::Motion;
+use crate::content::systems::{DAMAGED, FAILED, OK, System};
 use crate::content::{SpecialKind, WeaponClass, frame, weapon};
 use crate::ground::Footing;
 use crate::rocks::{max_hp, max_ore_kg};
@@ -142,7 +143,7 @@ impl Sim {
             if l.target == bc_proto::NO_SLOT {
                 0
             } else {
-                (u32::from(l.progress) * 15 / u32::from(m.lock_ticks)) as u8
+                (u32::from(l.progress) * 15 / u32::from(super::missile::lock_full(&m).max(1))) as u8
             }
         });
         if s.special[i].active {
@@ -187,7 +188,7 @@ impl Sim {
             propellant: f.propellant,
             g_strain: f.g_strain,
             heat: (s.heat[i] / spec.heat_cap).clamp(0.0, 1.0),
-            energy: (s.energy[i] / spec.energy_cap).clamp(0.0, 1.0),
+            energy: (s.energy[i] / (spec.energy_cap * s.tuning[i].energy_cap)).clamp(0.0, 1.0),
             ammo: [s.weapons[i][0].ammo, s.weapons[i][1].ammo],
             weapon_ready: ready,
             charge,
@@ -195,8 +196,12 @@ impl Sim {
             zero_strain: s.zero[i].strain,
             zero_mode: s.zero[i].mode,
             flags,
-            ambac_factor: self.idle_ambac(i),
-            thrust_factor: mods.thrust,
+            systems: s.systems[i].0,
+            modules: s.modules[i].0,
+            scram: s.status[i].scram,
+            concussed: s.status[i].concussed,
+            repairing: s.status[i].repairing,
+            repair_left: s.status[i].repair_left.div_ceil(8).min(127) as u8,
             respawn_in,
             extra_mass_kg: mods.extra_mass_kg,
             cargo_kg: s.cargo_kg[i],
@@ -308,6 +313,18 @@ impl Sim {
         }
         if s.sleeping.get(j) {
             flags |= ent_flags::ASLEEP;
+        }
+        // What's broken inside shows: sparks, smoke, a vapour trail (not on a wreck).
+        if s.alive.get(j) {
+            let gone = s.gone_mask(j);
+            flags |= match s.systems[j].worst(gone) {
+                FAILED => ent_flags::SMOKING,
+                DAMAGED => ent_flags::SPARKING,
+                _ => 0,
+            };
+            if s.systems[j].level(System::Tank, gone) != OK {
+                flags |= ent_flags::VENTING;
+            }
         }
         if s.input[j].lock_target == viewer as u16 && self.designation(j) == Some(viewer) {
             flags |= ent_flags::LOCKED_ON_YOU;

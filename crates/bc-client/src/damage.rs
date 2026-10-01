@@ -5,7 +5,9 @@
 //! - plates come away as a part wears down;
 //! - a part shot to nothing breaks away and the stump sparks. In game the piece that flies off is
 //!   the server's limb chunk (`salvage_vis`); the offline showcase flies its own;
-//! - a suit that dies goes up in secondary blasts, and what's left drifts on as a hulk.
+//! - a suit that dies goes up in secondary blasts, and what's left drifts on as a hulk;
+//! - what's broken inside shows: a damaged system sparks, a failed one smokes, a holed tank vents
+//!   a jet of propellant (from the entity flags, the own suit's included).
 //!
 //! All of it follows the replicated part states and seeds, so every client sees the same pieces
 //! go.
@@ -28,6 +30,8 @@ use crate::view::{FxEvent, FxEvents, SuitDrive, VisTime};
 
 /// Seconds a part stays hot after a hit.
 const HEAT_SECS: f32 = 1.6;
+/// Seconds a wreck burns after it's destroyed.
+const BURN_SECS: f64 = 20.0;
 /// Seconds a broken-off piece flies before it's gone, and a stump sparks.
 const DEBRIS_SECS: f32 = 30.0;
 const STUMP_SECS: f64 = 5.0;
@@ -74,6 +78,8 @@ pub struct Damage {
     /// Secondary blasts still to come, and stumps still sparking: (until when, where).
     blasts: Vec<(f64, Bone)>,
     stumps: Vec<(f64, Bone)>,
+    /// Burning from when it was destroyed until then (a wreck seen already dead doesn't).
+    burn_until: f64,
     rng: Rng,
 }
 
@@ -88,6 +94,7 @@ impl Damage {
             primed: false,
             blasts: Vec::new(),
             stumps: Vec::new(),
+            burn_until: 0.0,
             rng: Rng::new(0xDA3A_6E00 ^ u64::from(slot)),
         }
     }
@@ -246,6 +253,7 @@ pub fn damage_suits(
             for (k, bone) in [Bone::Backpack, Bone::ShoulderR, Bone::Chest].into_iter().enumerate() {
                 dmg.blasts.push((now + 0.12 + 0.2 * k as f64, bone));
             }
+            dmg.burn_until = now + BURN_SECS;
             changed = true;
         }
         if wreck != dmg.wreck {
@@ -263,6 +271,35 @@ pub fn damage_suits(
         for bone in blasts_due {
             let at = bone_point(d, Some(anim), bone, Vec3::ZERO);
             particles.explosion(cap, At { pos: at, vel: d.vel }, 0.35);
+        }
+        // What's broken inside: sparks, smoke, a vapour jet (not from a wreck).
+        if !wreck {
+            if d.flags & (ent_flags::SPARKING | ent_flags::SMOKING) != 0 && dmg.rng.next_f32() < dt * 3.0 {
+                let bone = [Bone::Chest, Bone::Backpack, Bone::ShoulderL, Bone::ShoulderR]
+                    [(dmg.rng.next_f32() * 4.0) as usize % 4];
+                let at = bone_point(d, Some(anim), bone, Vec3::ZERO);
+                let n = Vec3::new(dmg.rng.signed(), dmg.rng.signed(), dmg.rng.signed()).normalize_or(Vec3::Y);
+                particles.impact(cap, At { pos: at, vel: d.vel }, n, Vec3::new(5.0, 6.0, 10.0), 0.35);
+            }
+            if d.flags & ent_flags::SMOKING != 0 {
+                let at = bone_point(d, Some(anim), Bone::Backpack, Vec3::ZERO);
+                particles.smoke(cap, At { pos: at, vel: d.vel }, 1.0, dt);
+            }
+            if d.flags & ent_flags::VENTING != 0 {
+                let at = bone_point(d, Some(anim), Bone::Chest, Vec3::ZERO);
+                let out = (d.rot * Vec3::new(0.6, 0.2, -0.8)).normalize_or(Vec3::Y);
+                particles.jet(cap, At { pos: at, vel: d.vel }, out, 60.0, dt);
+            }
+        }
+        // A wreck burns on for a while, from its chest and backpack while they're still on it.
+        if dmg.burn_until > now {
+            let strength = ((dmg.burn_until - now) / BURN_SECS) as f32;
+            for bone in [Bone::Chest, Bone::Backpack] {
+                if !dmg.lost[bone.index()] {
+                    let at = bone_point(d, Some(anim), bone, Vec3::ZERO);
+                    particles.burn(cap, At { pos: at, vel: d.vel }, strength * strength.sqrt(), dt);
+                }
+            }
         }
         // Stumps spark and arc.
         dmg.stumps.retain(|(until, _)| *until > now);

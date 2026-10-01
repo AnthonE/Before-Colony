@@ -130,7 +130,12 @@ cues!(
     MusicCalm,
     MusicCombat,
     MusicTitle,
-    // On the bodies (appended, so every cue before keeps its number and its seed): the grip, the
+    // Something inside the suit: damaged, failed, a holed tank venting. (Last, so every cue
+    // before keeps its seed and sounds as it did.)
+    SystemCrit,
+    SystemFail,
+    Leak,
+    // On the bodies (after wear and tear's, so every cue before keeps its number and its seed): the grip, the
     // feet, hiding.
     MagLock,
     MagRelease,
@@ -206,6 +211,9 @@ impl Cue {
             Cue::Seizure => def(Cockpit, 9, 0.0, 1.0, 0.7, 0.0),
             Cue::Destroyed => def(Cockpit, 10, 0.0, 1.0, 0.9, 0.0),
             Cue::Launch => def(Cockpit, 8, 0.0, 1.0, 0.6, 0.0),
+            Cue::SystemCrit => def(Cockpit, 8, 0.0, 0.25, 0.5, 0.0),
+            Cue::SystemFail => def(Cockpit, 9, 0.0, 0.6, 0.55, 0.0),
+            Cue::Leak => def(Cockpit, 4, 0.0, 0.5, 0.25, 0.1),
             Cue::Klaxon => def(Cockpit, 7, 0.0, 1.0, 0.4, 0.0),
             Cue::DoorRumble => def(Cockpit, 6, 0.0, 1.0, 0.55, 0.0),
             Cue::AirlockHiss => def(Cockpit, 5, 0.0, 0.5, 0.35, 0.05),

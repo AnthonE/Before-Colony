@@ -147,11 +147,12 @@ so on a body they become a hop (held: lift off on the thrusters) and a crouch at
      feels different between them.
 2. **Flashing.** A ZERO seizure dims the whole screen by 30% at random on a 17 Hz clock
    (`zero_vision.wgsl`). Over a bright scene that can exceed the three flashes a second that
-   photosensitivity guidelines allow, and only the camera-shake slider turns it down. It needs its
-   own "flashing effects" toggle, off when the browser asks for reduced motion [C5].
+   photosensitivity guidelines allow [C5]. **Done:** a "Flashing effects" setting turns it off,
+   and starts off when the browser asks for reduced motion.
 3. **Off-screen markers** for hostiles, whoever is locking you, and missiles. Examples are Everspace
    2's edge arrows and Elite's compass. Nearly every game in the survey has them, and they matter
-   more from the cockpit [B3][B5].
+   more from the cockpit [B3][B5]. **Done:** chevrons at the edge of the view point at missiles
+   tracking you, whoever is locking on to you, and hostiles within 2 km.
 
 **P1: expected of any PC game in this genre.**
 
