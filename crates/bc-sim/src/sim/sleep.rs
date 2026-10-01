@@ -2,18 +2,22 @@
 //!
 //! A sleeping suit keeps its armour, its hold and its credits, but nobody flies it. It drifts on
 //! the velocity and spin it had, fully Newtonian (no flight assist, no attitude hold), and fetches
-//! up against rocks, landmarks and the colony as a wreck would. If it was standing on a body, or
-//! resting against one, when its pilot left, it's parked instead: held where it sat (or stood),
-//! moving with the body, and, once its reactor has idled down, hidden from its enemies' sensors
-//! beyond visual range (`conceal`). One aloft in a body's grip
-//! settles onto it first, and parks where it lands. Shatter the rock and it floats free. Asleep,
-//! nobody works the frame's special: a Neo-Bird stays a bird, and a jammer goes off.
+//! up against rocks, landmarks and the colony as a wreck would.
 //!
-//! Mobile Dolls leave sleepers alone; players can hunt them. A sleeper destroyed stays gone (no
-//! respawn) and its pilot is told when they're back ([`SleeperFate`]). When suit slots run short,
-//! the longest asleep is cleared (one left in a hide spot last). A pilot back wakes where the suit is: on its feet (or knees) and
-//! still gripping, if it was standing. One left in a landmark's hide spot can outlive the server
-//! (survival): `launch.rs`'s [`ParkRecord`](super::ParkRecord).
+//! - **Parked.** A suit standing on a body, or resting against one, when its pilot leaves is parked
+//!   instead: held where it sat (or stood, kneeling if it was crouched), moving with the body. Its
+//!   reactor idles down [`POWER_DOWN_TICKS`](super::POWER_DOWN_TICKS) after the pilot leaves, or
+//!   [`FOUGHT_DARK_TICKS`](super::FOUGHT_DARK_TICKS) after its last fight, and then it is hidden
+//!   from its enemies' sensors beyond visual range (`conceal`). One aloft in a body's grip settles
+//!   onto it first, and parks where it lands. Shatter the rock and it floats free.
+//! - **Asleep, nobody works the frame's special:** a Neo-Bird stays a bird, and a jammer goes off.
+//! - **Hunted.** Mobile Dolls leave sleepers alone; players can hunt them. A sleeper destroyed stays
+//!   gone (no respawn) and its pilot is told when they're back ([`SleeperFate`]).
+//! - **Room.** When suit slots run short, the longest asleep is cleared, those in a hide spot last.
+//!
+//! A pilot back wakes where the suit is: on its feet (or knees) and still gripping, if it was
+//! standing, and still hidden if it lay hidden. One left in a landmark's hide spot can outlive the
+//! server (survival): `launch.rs`'s [`ParkRecord`](super::ParkRecord).
 //!
 //! What a suit can rest on is a [`Body`] (`crate::bodies`): an asteroid of the field, or a
 //! landmark. Its pose is in [`Bodies::pose`].

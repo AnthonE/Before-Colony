@@ -284,6 +284,14 @@ next session wakes in it: the Welcome sets WOKE. If it's gone, the pilot starts 
 Notice says why: destroyed while they slept (and by whom), or lost (cleared to make room, or the
 server restarted). A suit that was already a wreck is simply gone. Guests' suits go when they do.
 
+Under survival rules, a suit left on its feet in a landmark's hide spot outlives a restart: the
+server puts it back, asleep, before anyone connects, and its pilot wakes in it as above (WOKE).
+Its roster entry, ASLEEP, is there from the start.
+
+A suit woken on a body (or put down on one) holds its grip until its client's first command
+arrives: until then the server flies the input it left the suit with, GRIP set. A client should
+send GRIP from its first command on, for a suit whose own state is on a body, or the suit lets go.
+
 ### Survival: the hangar's messages
 
 Under survival rules (the Welcome sets SURVIVAL) a pilot starts in their hangar bay, not in the

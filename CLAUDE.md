@@ -13,6 +13,9 @@ surveys what players of similar games expect of the controls (read it before cha
   The sector thread never wakes tokio; it `unpark()`s the egress thread.
 - Proof: the `no_alloc` tests count heap operations with `bc-alloc::CountingAlloc` and must stay at 0.
 - Determinism: use `bc_sim::math` (libm) for trig; never enable glam `fast-math` or wasm `simd128`.
+- Surface contact is `bc_sim::ground::move_step` (the server and the client's predictor share it); body
+  poses are closed forms in the integer tick (`bodies::landmark_pose(t)`) and never replicated; a rider is
+  body-local (`Anchor`) and its world pose is derived from it every tick (`docs/ARCHITECTURE.md`, "Bodies and frames").
 - Never log signatures or resume tokens (addresses shortened: `pilots::short`). `bc_proto::auth::Signature`'s
   `Debug` hides its bytes on purpose.
 

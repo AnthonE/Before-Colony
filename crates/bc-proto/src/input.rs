@@ -8,8 +8,9 @@ use glam::Vec3;
 use crate::quant::{self, quantize_dir};
 use crate::{BitReader, BitWriter, DecodeError, NO_SLOT, PACKET_KIND_BITS, PacketKind, SLOT_BITS};
 
-/// Button and state bits. Toggles (flight assist, ZERO, the frame's mode) are sent as **states**,
-/// never as presses, so a lost or duplicated packet can't flip them twice.
+/// Button and state bits. Toggles (flight assist, ZERO, the frame's mode, a grab, the grip) are
+/// sent as **states**, never as presses, so a lost or duplicated packet can't flip them twice. Bit
+/// 15 is free.
 pub mod buttons {
     /// Left mouse: primary weapon (beam rifle / Twin Buster Rifle).
     pub const FIRE_PRIMARY: u16 = 1 << 0;
@@ -39,8 +40,9 @@ pub mod buttons {
     pub const MODE: u16 = 1 << 12;
     /// Press: the frame's special attack (Heavyarms' Full Open Attack, Sandrock's Cross Crusher).
     pub const SPECIAL: u16 = 1 << 13;
-    /// State: the grip is armed. Coming in slow and close to a surface lands the suit on it, and it
-    /// holds on while this is set: clearing it lets go.
+    /// State (L): the grip is armed. Coming in slow and close to a surface lands the suit on it, and
+    /// it holds on while this is set: clearing it lets go. Being a state, a client that stalls
+    /// never drops its suit off a body.
     pub const GRIP: u16 = 1 << 14;
 
     /// Actions a silent client's repeated command must not keep performing.
@@ -70,7 +72,9 @@ pub struct InputCmd {
     pub view_tick_q4: u32,
     /// Unit aim direction, world space.
     pub aim: Vec3,
-    /// Thrust demand in the suit's local frame: x right, y up, z forward. -127..=127.
+    /// Thrust demand in the suit's local frame: x right, y up, z forward. -127..=127. On its feet
+    /// on a body x and z walk instead, and y sets the stance and keeps it: -64 or less crouches, 32
+    /// or more stands, 100 or more (standing) hops, and anything between holds the stance it has.
     pub thrust: [i8; 3],
     /// Roll rate demand, -127..=127 (positive = clockwise when viewed from behind).
     pub roll: i8,
