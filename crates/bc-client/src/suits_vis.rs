@@ -360,7 +360,7 @@ pub fn pose_suits(
                 atf.scale = Vec3::splat(11.0 + 0.6 * flicker);
             }
         }
-        // The contact shadow: on the surface under the suit, spreading and thinning as it rises.
+        // The contact shadow: on the surface under the suit, spreading as it rises.
         if let Ok((mut stf, mut sv)) = parts.get_mut(v.shadow) {
             let near =
                 d.ground.map(|g| (g, (g.height - STANCE).max(0.0))).filter(|(_, h)| *h < SHADOW_HEIGHT);

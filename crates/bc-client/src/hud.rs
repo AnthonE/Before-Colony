@@ -17,7 +17,7 @@
 use bc_client_core::surface::{SurfaceHint, surface_hint};
 use bc_client_core::world::ObjectMotion;
 use bc_client_core::{ClientCore, FeedLine};
-use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, MELEE, MODE};
+use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRIP, MELEE, MODE};
 use bc_proto::snapshot::{cover, ent_flags, own_flags, zero_mode};
 use bc_proto::{ChunkKind, NO_CHUNK, NO_SLOT, OwnState, Part, PilotKind, WeaponKind};
 use bc_sim::bodies::Body;
@@ -27,7 +27,7 @@ use bc_sim::content::salvage::{CATCH_SPEED, DOCK_CENTER, PRICE, REACH, hold_kg, 
 use bc_sim::content::{
     ArmSlot, FrameSpec, PLAYABLE_ORDER, SpecialKind, frame, frame_name, weapon, weapon_name,
 };
-use bc_sim::ground::{Footing, STANCE};
+use bc_sim::ground::{Footing, RELEASE_SPEED, STANCE};
 use bc_sim::sim::LURK_SETTLE_TICKS;
 use bc_sim::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS};
 use bc_sim::zero::hypotheses::Maneuver;
@@ -139,6 +139,18 @@ pub fn footed(core: &ClientCore) -> Footed {
     }
 }
 
+/// Whether the own suit, just let go of `body`, climbed out of its grip on the thrusters: Space
+/// held (so it rose past the release height), the body still there, and the suit no faster over it
+/// than a grip holds. Any other letting go, still armed, the pilot didn't ask for.
+fn lifted_off(core: &ClientCore, body: Body) -> bool {
+    let p = &core.predict;
+    let f = &p.mover().flight;
+    let bodies = p.bodies(p.tick + 1);
+    core.last_cmd.thrust[1] > 0
+        && bodies.alive(body)
+        && bodies.pose(body).is_some_and(|b| (f.vel - b.point_vel(f.pos)).length() <= RELEASE_SPEED)
+}
+
 /// The hide spot the own suit is in, as the server last had it: its name.
 pub fn hide_spot(core: &ClientCore) -> Option<&'static str> {
     let own = core.world.own_sent()?;
@@ -166,9 +178,9 @@ pub struct Lurk {
     /// Seen (it fired, or was hit, while settled) until then (s).
     seen_until: f64,
     hits_taken: u32,
-    /// How it stood last frame, and when the grip last lost its hold (s).
-    footing: Option<Footing>,
-    lost_at: f64,
+    /// How it stood last frame and on what, and when the grip last lost its hold (s).
+    footing: Option<(Footing, Body)>,
+    lost_at: Option<f64>,
 }
 
 /// The velocity vector's colour, and the speed below which it isn't shown (m/s).
@@ -452,6 +464,7 @@ pub fn update_hud(
     mut sales: Local<Sales>,
     mut lurk: Local<Lurk>,
     bodies: Res<DrawnBodies>,
+    mut ui: ResMut<crate::page::Ui>,
 ) {
     let game = game.borrow();
     let core = &game.core;
@@ -482,6 +495,8 @@ pub fn update_hud(
         _ => controls.flight_assist,
     };
     let fa = if assisted { "FA ON" } else { "FA OFF" };
+    // The grip, likewise armed or not as flown.
+    let grip = if core.inputs.newest != 0 { core.last_cmd.buttons & GRIP != 0 } else { controls.grip };
     let mode = if game.autopilot { format!("AUTOPILOT ({})", game.brain.name()) } else { "MANUAL".into() };
     // The ping is a default until the first snapshot measures it.
     let ping =
@@ -522,7 +537,7 @@ pub fn update_hud(
                 let alt = view.and_then(|v| v.ground).map_or(0.0, |g| g.height - STANCE);
                 format!("  ALOFT  ALT {:.0} m", alt.max(0.0))
             }
-            Footing::Free if controls.grip => "  GRIP ARMED".to_string(),
+            Footing::Free if grip => "  GRIP ARMED".to_string(),
             Footing::Free => String::new(),
         };
         set(
@@ -760,11 +775,19 @@ pub fn update_hud(
     }
     lurk.cover = cover_now;
     lurk.hits_taken = world.hits_taken;
-    // The grip let go of its own accord (too high, too fast, or the rock gone), still armed.
-    if feet.footing == Footing::Free && lurk.footing.is_some_and(|f| f != Footing::Free) && controls.grip {
-        lurk.lost_at = now;
+    // The grip let go, still armed: on purpose, climbing out of it on the thrusters, or of its own
+    // accord (too fast, the rock gone, blown off).
+    if feet.footing == Footing::Free
+        && grip
+        && let Some((was, body)) = lurk.footing.filter(|f| f.0 != Footing::Free)
+    {
+        if was == Footing::Aloft && lifted_off(core, body) {
+            ui.toast("FLYING");
+        } else {
+            lurk.lost_at = Some(now);
+        }
     }
-    lurk.footing = Some(feet.footing);
+    lurk.footing = Some((feet.footing, feet.body));
     let lurking = own.filter(|o| o.alive).and_then(|_| {
         let left = |since: f64| {
             let settle = f64::from(LURK_SETTLE_TICKS) / f64::from(bc_sim::TICK_HZ);
@@ -783,7 +806,7 @@ pub fn update_hud(
     });
     let own_now = drawn.filter(|v| v.alive).map(|v| v.pos);
     let landing = feet.hint.filter(|_| feet.footing == Footing::Free).map(|h| {
-        if !controls.grip {
+        if !grip {
             ("L - GRIP".to_string(), GREY)
         } else if h.catch {
             (format!("LAND {:.0} m {:.1} m/s", h.height.max(0.0), h.speed), GREEN)
@@ -793,9 +816,7 @@ pub fn update_hud(
             (format!("LAND {:.0} m {:.1} m/s", h.height.max(0.0), h.speed), AMBER)
         }
     });
-    let hull = controls.grip
-        && feet.footing == Footing::Free
-        && own_now.is_some_and(|p| off_the_hull(p) < HULL_NEAR);
+    let hull = grip && feet.footing == Footing::Free && own_now.is_some_and(|p| off_the_hull(p) < HULL_NEAR);
     let signed_in = core.welcome.is_some_and(|w| w.signed_in);
     let (alert, alert_color) = match own {
         Some(o) if !o.alive && survival => ("SUIT LOST\nthe colony's rescue boat is on its way".into(), RED),
@@ -824,7 +845,9 @@ pub fn update_hud(
         Some(o) if o.flags & own_flags::MISSILE_LOCK != 0 => ("MISSILE LOCK".into(), RED),
         Some(o) if o.flags & own_flags::LOCKED_ON != 0 => ("LOCK WARNING".into(), RED),
         Some(o) if o.flags & own_flags::TRANSFORMING != 0 => ("TRANSFORMING".into(), CYAN),
-        Some(o) if o.alive && now - lurk.lost_at < LOST_SECS => ("GRIP LOST".into(), AMBER),
+        Some(o) if o.alive && lurk.lost_at.is_some_and(|at| now - at < LOST_SECS) => {
+            ("GRIP LOST".into(), AMBER)
+        }
         Some(_) if lurking.is_some() => lurking.unwrap_or_default(),
         Some(_) if landing.is_some() => landing.unwrap_or_default(),
         Some(_) if hull => ("HULL SPINS - NO GRIP".into(), GREY),
@@ -971,7 +994,7 @@ pub fn update_hud(
     // The landing ring, on the surface the armed grip would land the suit on.
     let ring = feet
         .hint
-        .filter(|_| controls.grip && feet.footing == Footing::Free && own_now.is_some())
+        .filter(|_| grip && feet.footing == Footing::Free && own_now.is_some())
         .map(|h| (h.point, "( _ )".to_string(), if h.catch { GREEN } else { AMBER }));
     for (mut node, mut text, mut color, mut vis, grab, is_bore, is_velocity, is_ring, landmark, hide) in
         &mut markers
@@ -995,8 +1018,12 @@ pub fn update_hud(
                     (l.1.pos, format!("{name}  {}  {closure:+.0} m/s", km(l.2.max(0.0))), CYAN)
                 })
         } else if let Some(&HideMarker(k, i)) = hide {
+            // Not the one it stands in.
             landmarks.iter().find(|l| l.0 == k && l.2 < LANDMARK_NEAR).and_then(|l| {
                 let spot = LANDMARKS[usize::from(k)].hides.get(usize::from(i))?;
+                if feet.body == Body::Landmark(k) && feet.spot == Some(spot.name) {
+                    return None;
+                }
                 let at = l.1.to_world(spot.center);
                 Some((at, format!("<> {} {}", spot.name, km(at.distance(own_pos))), AMBER))
             })

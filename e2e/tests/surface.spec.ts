@@ -7,14 +7,15 @@ import { bc, collectConsole } from "./util";
 // Suits on the bodies, end to end: signed in with a stub wallet, the lander autopilot flies from
 // the Colonies' base to MO-II, lands in its Aft Well with its grip, crouches and lies still until
 // it's hidden. Leaving there parks the suit (asleep, in the hide spot); coming back wakes in it,
-// still on the ground and still hidden. All the while the server allocates nothing in its tick,
-// every snapshot fits a datagram, and every rider names a body the client knows.
+// still on the ground and still hidden. Then, flown by hand, it wakes there again and lifts off
+// on the thrusters, free past 40 m. All the while the server allocates nothing in its tick, every
+// snapshot fits a datagram, and every rider names a body the client knows.
 const SIGNER = resolve(dirname(fileURLToPath(import.meta.url)), "../../target/release/examples/sign");
 // Test key 2's address.
 const ADDRESS = "0x2b5ad5c4795c026514f8317c7a215e218dccd6cf";
 const NAME = "E2E-Hider";
 
-test("land in MO-II's Aft Well, hide there, park on leaving and wake hidden", async ({ context, page, request }, info) => {
+test("land in MO-II's Aft Well, hide there, park on leaving, wake hidden and lift off", async ({ context, page, request }, info) => {
   test.setTimeout(600_000);
   await context.exposeFunction("__signHex", (hex: string) => {
     const message = Buffer.from(hex.slice(2), "hex");
@@ -107,6 +108,27 @@ test("land in MO-II's Aft Well, hide there, park on leaving and wake hidden", as
   await page.waitForTimeout(3_000);
   const later = await healthy(page);
   expect([later.footing, later.cover, later.hide_spot]).toEqual(["grounded", "hidden", "AFT WELL"]);
+
+  // Parked again, and back without the autopilot: the pilot's own controls hold the suit on the
+  // ground from the first command.
+  await page.evaluate(() => (window as any).bcInbox.push({ cmd: "pause" }));
+  await page.locator("#disconnect-button").click();
+  await waitOn(page, "the title again", (b) => b.link === "idle");
+  await expect.poll(asleep, { timeout: 10_000 }).toBeTruthy();
+  await page.goto(`/?quality=low&gfx=${info.project.name}&frame=leo&autoplay=0`);
+  await expect(page.locator("#wallet-account")).toContainText(ADDRESS.slice(0, 6), { timeout: 60_000 });
+  await page.locator("#callsign").fill(NAME);
+  await page.locator("#launch-button").click();
+  const manual = await waitOn(page, "awake by hand", (b) => b.link === "ingame" && b.woke === true && b.footing !== "free");
+  expect([manual.autopilot, manual.footing, manual.hide_spot, manual.grip]).toEqual([false, "grounded", "AFT WELL", true]);
+  await page.waitForTimeout(2_000);
+  expect((await healthy(page)).footing).toBe("grounded");
+  // Space held: it stands, hops, and the thrusters climb until the grip lets go, which is flying,
+  // not losing it.
+  await page.keyboard.down("Space");
+  await waitOn(page, "lifted off", (b) => b.footing === "free", 30_000);
+  await page.keyboard.up("Space");
+  await expect.poll(async () => page.locator("#toast").textContent(), { timeout: 2_000 }).toBe("FLYING");
 
   const errors = logs.filter((l) => /%cERROR|\[pageerror\]|panicked/.test(l));
   if (errors.length) console.log(errors.join("\n"));
