@@ -183,6 +183,39 @@ mod tests {
     }
 
     #[test]
+    fn the_guide_takes_a_pilot_from_the_platforms_middle_in_through_a_door() {
+        use crate::walker::Guide;
+        // A train standing at Hub Gate's station (the end of the line) with its doors open.
+        let tick = (0..PERIOD_TICKS)
+            .find(|t| {
+                let tr = train(0, 2, *t, 0.0);
+                tr.doors && tr.at == Some(0) && train(0, 2, t + 300, 0.0).doors
+            })
+            .unwrap();
+        let tr = train(0, 2, tick, 0.0);
+        let mid = STRIP_WIDTH * 0.5;
+        let door = tr.car_x(0) - DOOR_AT;
+        let at = |x: f32, s: f32| CityPos::new(0, x, s, FLOOR).walker();
+        // Coming along the island from its middle, then across to the door.
+        let mut w = Walker::at(at(tr.x, mid), -Vec3::X);
+        let world = CityAndTrains { ground: CityGround { strip: 0, stage: Stage(0) }, trains: &[tr] };
+        for _ in 0..30 {
+            w.step(&world, &Stride::default(), DT);
+        }
+        let mut guide = Guide::new(vec![at(door, mid), at(door, tr.s)], None);
+        let mut on = None;
+        for _ in 0..(20.0 / DT) as u32 {
+            let stride = guide.steer(&mut w, DT);
+            w.step(&world, &stride, DT);
+            if let Some(b) = boarding(CityPos::from_walker(0, w.feet), &[tr]) {
+                on = Some(b);
+                break;
+            }
+        }
+        assert!(on.is_some(), "never got on: {:?} {:?}", CityPos::from_walker(0, w.feet), guide.route);
+    }
+
+    #[test]
     fn the_walls_of_a_standing_train_keep_you_out_but_for_its_doors() {
         let tick = standing();
         let tr = train(0, 2, tick, 0.0);

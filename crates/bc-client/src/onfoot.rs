@@ -36,7 +36,8 @@ use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, local_frame, up_at};
 use bc_sim::colony::hub::BAY_RADIUS;
 use bc_sim::colony::pools::{pool, pool_near};
 use bc_sim::colony::transit::{
-    CAR_WIDTH, DOOR_AT, FLOOR, PLATFORM_LENGTH, STATION_GAP, STATIONS, TRAINS, TrainState, station_x, train,
+    CAR_WIDTH, CARS, DOOR_AT, FLOOR, PLATFORM_HALF, PLATFORM_LENGTH, STATION_GAP, STATIONS, TRAINS,
+    TrainState, station_x, train,
 };
 use bc_sim::content::city::{DISTRICT_NAMES, PLACES, PlaceDef, PlaceKind, SIGHTS, STRIP_NAMES};
 use bc_sim::world::COLONY_RADIUS;
@@ -307,22 +308,30 @@ impl CityFoot {
         let feet = self.feet();
         let i = ((feet.x - station_x(0)) / STATION_GAP).round().clamp(0.0, (STATIONS - 1) as f32) as usize;
         let sx = station_x(i);
-        let foot = sx - 0.5 * PLATFORM_LENGTH - 2.0;
-        let mut route = if (feet.s - mid).abs() < 0.5 * AVENUE_WIDTH {
-            vec![at(feet.x.min(foot), mid, 0.0)]
-        } else {
-            city_nav::route(self.strip, (feet.s, feet.x), (mid - 20.0, foot))
-        };
-        route.push(at(foot, mid, 0.0));
-        route.push(at(sx - 0.5 * PLATFORM_LENGTH + 5.0, mid, FLOOR));
-        let standing = self
-            .trains
-            .iter()
-            .filter(|t| t.doors && t.at == Some(i))
-            .min_by(|a, b| (a.x - feet.x).abs().total_cmp(&(b.x - feet.x).abs()));
+        let half = 0.5 * PLATFORM_LENGTH;
+        let on_platform = (feet.x - sx).abs() < half && (feet.s - mid).abs() < PLATFORM_HALF && feet.h > 0.5;
+        let mut route = Vec::new();
+        if !on_platform {
+            // Along the avenue's middle to the nearer end of the platform, and up its steps.
+            let end = if feet.x < sx { -1.0 } else { 1.0 };
+            let foot = sx + end * (half + 2.0);
+            if (feet.s - mid).abs() < 0.5 * AVENUE_WIDTH {
+                route.push(at(feet.x, mid, 0.0));
+            } else {
+                route = city_nav::route(self.strip, (feet.s, feet.x), (mid - 20.0, foot));
+            }
+            route.push(at(foot, mid, 0.0));
+            route.push(at(sx + end * (half - 5.0), mid, FLOOR));
+        }
+        let from = route.last().map_or(feet.x, |p| p.x);
+        let standing = self.trains.iter().find(|t| t.doors && t.at == Some(i));
         match standing {
             Some(t) => {
-                let door = t.car_x(0) - DOOR_AT;
+                // The door nearest, and in through it.
+                let door = (0..CARS)
+                    .flat_map(|c| [t.car_x(c) - DOOR_AT, t.car_x(c) + DOOR_AT])
+                    .min_by(|a, b| (a - from).abs().total_cmp(&(b - from).abs()))
+                    .unwrap_or(t.x);
                 route.push(at(door, mid, FLOOR));
                 route.push(at(door, t.s, FLOOR));
             }
