@@ -12,7 +12,8 @@
 //! Mobile Dolls leave sleepers alone; players can hunt them. A sleeper destroyed stays gone (no
 //! respawn) and its pilot is told when they're back ([`SleeperFate`]). When suit slots run short,
 //! the longest asleep is cleared (one left in a hide spot last). A pilot back wakes where the suit is: on its feet (or knees) and
-//! still gripping, if it was standing.
+//! still gripping, if it was standing. One left in a landmark's hide spot can outlive the server
+//! (survival): `launch.rs`'s [`ParkRecord`](super::ParkRecord).
 //!
 //! What a suit can rest on is a [`Body`] (`crate::bodies`): an asteroid of the field, or a
 //! landmark. Its pose is in [`Bodies::pose`].
@@ -302,7 +303,7 @@ impl Sim {
     }
 
     /// Keeps the sleepers under their cap (one more is about to sleep).
-    fn make_room_for_sleeper(&mut self) {
+    pub(super) fn make_room_for_sleeper(&mut self) {
         while self.sleepers() >= self.cfg.max_sleepers && self.evict_oldest_sleeper() {}
     }
 

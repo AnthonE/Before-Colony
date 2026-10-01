@@ -9,7 +9,7 @@ use bc_sim::{Sim, SimConfig, SuitId};
 
 use crate::clients::ClientState;
 use crate::metrics::Metrics;
-use crate::queues::{Control, Outcome, Report, SectorEnds, SectorShared, SlotState};
+use crate::queues::{Control, Outcome, Report, Restored, SectorEnds, SectorShared, SlotState};
 use crate::replicate::{Work, build_snapshot};
 
 /// Ticks between tactical pictures per ZERO pilot when an external oracle is attached (≈3.75 Hz).
@@ -149,6 +149,14 @@ impl Sector {
                         let id = self.clients[s].suit;
                         if matches!(msg, Control::Sleep { .. }) && self.sim.sleep(id) {
                             asleep = Some(id);
+                            // Survival: left in a hide spot, it outlives the server. The session
+                            // hears of it before it sees the slot free.
+                            if self.cfg.sim.survival
+                                && let Some(rec) = self.sim.park_record(id.idx())
+                                && self.ends.reports[s].push(Report::Parked(rec)).is_err()
+                            {
+                                Metrics::add(&self.shared.metrics.notes_dropped, 1);
+                            }
                         } else {
                             self.sim.leave(id);
                         }
@@ -180,6 +188,14 @@ impl Sector {
                 Control::Respawn { slot, frame } => {
                     if let Some(c) = self.clients.get(slot as usize).filter(|c| c.active) {
                         self.sim.set_respawn_frame(c.suit, frame);
+                    }
+                }
+                Control::Restore { key, rec } => {
+                    if let Some(id) = self.sim.restore_sleeper(&rec) {
+                        let (suit, generation) = (id.0.idx, id.0.generation);
+                        if self.shared.restored.push(Restored { key, suit, generation }).is_err() {
+                            Metrics::add(&self.shared.metrics.notes_dropped, 1);
+                        }
                     }
                 }
             }

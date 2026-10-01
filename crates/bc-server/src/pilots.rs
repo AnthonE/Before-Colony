@@ -9,7 +9,9 @@
 //!
 //! A signed-in pilot who leaves stays in the sector, asleep in the cockpit: the record keeps which
 //! suit. Sleepers live as long as this server run, and so does the news of what became of one
-//! (destroyed, or cleared for room), kept here until its pilot is back.
+//! (destroyed, or cleared for room), kept here until its pilot is back. Under survival rules, one
+//! left in a landmark's hide spot outlives the run: the record keeps where it is and what it
+//! carries ([`ParkedSuit`]), and the next run puts it back there before anyone connects.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -18,7 +20,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use bc_econ::Hangar;
 use bc_proto::auth::{Address, TOKEN_BYTES};
+use bc_proto::{CARGO_KINDS, Faction, FrameId, Part, PilotKind};
+use bc_sim::content::landmarks::LANDMARKS_VERSION;
+use bc_sim::sim::{Homecoming, ParkRecord};
 use futures::future::BoxFuture;
+use glam::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Notify, oneshot};
 
@@ -48,6 +54,98 @@ pub struct Sleeper {
     pub since_unix: u64,
 }
 
+/// A suit its pilot left asleep in a landmark's hide spot (survival): where it is and what it
+/// carries, so that the next server run can put it back there
+/// ([`GameShared::restore_parked`](crate::net::game::GameShared::restore_parked)).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ParkedSuit {
+    /// The landmarks it was left on (`LANDMARKS_VERSION`): if they've changed since, the colony's
+    /// tugs bring the suit in instead.
+    pub landmarks_version: u16,
+    pub landmark: u8,
+    /// Its origin and attitude in the landmark's frame, and how high it stands (m: on its feet,
+    /// or crouched).
+    pub local: [f32; 3],
+    pub rot: [f32; 4],
+    pub stance: f32,
+    /// The frame (a slug), the side it flies for, and who flies it (`human` or `agent`).
+    pub frame: String,
+    pub faction: String,
+    #[serde(default)]
+    pub pilot: String,
+    /// Armour per part as a fraction of the frame's, the weapons fitted (a bit per mount), the
+    /// rounds loaded, the tank (kg), the hold (kg per cargo kind) and the bounties earned.
+    pub parts: [f32; Part::COUNT],
+    pub mounts: u8,
+    pub ammo: [u16; 3],
+    pub propellant: f32,
+    pub cargo_kg: [u16; CARGO_KINDS],
+    pub bounty: u32,
+    pub since_unix: u64,
+}
+
+impl ParkedSuit {
+    /// The sector's record of a suit left in a hide spot, as it's kept.
+    pub fn new(rec: &ParkRecord, since_unix: u64) -> Self {
+        let h = &rec.home;
+        Self {
+            landmarks_version: LANDMARKS_VERSION,
+            landmark: rec.landmark,
+            local: rec.local.to_array(),
+            rot: rec.rot.to_array(),
+            stance: rec.stance,
+            frame: rec.frame.slug().to_string(),
+            faction: faction_slug(rec.faction).to_string(),
+            pilot: if rec.pilot == PilotKind::Agent { "agent" } else { "human" }.to_string(),
+            parts: h.parts,
+            mounts: h.mounts,
+            ammo: h.ammo,
+            propellant: h.propellant,
+            cargo_kg: h.cargo_kg,
+            bounty: h.bounty,
+            since_unix,
+        }
+    }
+
+    /// The record to give the sector, if it names a frame and a side there are.
+    pub fn record(&self) -> Option<ParkRecord> {
+        let frame = FrameId::from_slug(&self.frame)?;
+        let faction = match self.faction.as_str() {
+            "oz" => Faction::Oz,
+            "colonies" => Faction::Colonies,
+            "alliance" => Faction::Alliance,
+            _ => return None,
+        };
+        Some(ParkRecord {
+            landmark: self.landmark,
+            local: Vec3::from_array(self.local),
+            rot: Quat::from_array(self.rot),
+            stance: self.stance,
+            frame,
+            faction,
+            pilot: if self.pilot == "agent" { PilotKind::Agent } else { PilotKind::Human },
+            home: Homecoming {
+                frame,
+                parts: self.parts,
+                mounts: self.mounts,
+                ammo: self.ammo,
+                propellant: self.propellant,
+                cargo_kg: self.cargo_kg,
+                held: None,
+                bounty: self.bounty,
+            },
+        })
+    }
+}
+
+fn faction_slug(f: Faction) -> &'static str {
+    match f {
+        Faction::Oz => "oz",
+        Faction::Colonies => "colonies",
+        Faction::Alliance => "alliance",
+    }
+}
+
 /// What happened to a sleeping suit, to tell its pilot when they're back.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Fate {
@@ -75,6 +173,9 @@ pub struct PilotRecord {
     /// until they first come in, when they get the starter kit.
     #[serde(default)]
     pub hangar: Option<Hangar>,
+    /// Survival: the suit asleep in a landmark's hide spot, kept for the next server run.
+    #[serde(default)]
+    pub parked: Option<ParkedSuit>,
 }
 
 impl PilotRecord {
@@ -89,6 +190,7 @@ impl PilotRecord {
             created_unix: now,
             seen_unix: now,
             hangar: None,
+            parked: None,
         }
     }
 }
@@ -97,6 +199,8 @@ impl PilotRecord {
 pub trait PilotStore: Send + Sync {
     fn load(&self, address: &str) -> BoxFuture<'_, anyhow::Result<Option<PilotRecord>>>;
     fn save(&self, record: PilotRecord) -> BoxFuture<'_, anyhow::Result<()>>;
+    /// Every record (at boot: for the suits left out there).
+    fn all(&self) -> BoxFuture<'_, anyhow::Result<Vec<PilotRecord>>>;
 }
 
 /// Records in memory: gone when the server stops.
@@ -115,6 +219,11 @@ impl PilotStore for MemoryStore {
         }
         Box::pin(async { Ok(()) })
     }
+
+    fn all(&self) -> BoxFuture<'_, anyhow::Result<Vec<PilotRecord>>> {
+        let all = self.0.lock().map(|m| m.values().cloned().collect()).unwrap_or_default();
+        Box::pin(async move { Ok(all) })
+    }
 }
 
 /// Records as JSON files, one per pilot, in a directory: they outlive the server.
@@ -131,13 +240,14 @@ impl FileStore {
     }
 
     fn path(&self, address: &str) -> anyhow::Result<std::path::PathBuf> {
-        // Keys are `0x` and 40 hex digits: nothing else becomes a file name.
-        let ok = address.len() == 42
-            && address.starts_with("0x")
-            && address[2..].bytes().all(|b| b.is_ascii_hexdigit());
-        anyhow::ensure!(ok, "not a pilot key: {address:?}");
+        anyhow::ensure!(is_key(address), "not a pilot key: {address:?}");
         Ok(self.dir.join(format!("{address}.json")))
     }
+}
+
+/// Keys are `0x` and 40 hex digits: nothing else becomes a file name.
+fn is_key(address: &str) -> bool {
+    address.len() == 42 && address.starts_with("0x") && address[2..].bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 impl PilotStore for FileStore {
@@ -160,6 +270,31 @@ impl PilotStore for FileStore {
             let path = path?;
             let bytes = serde_json::to_vec_pretty(&record)?;
             tokio::task::spawn_blocking(move || write_atomically(&path, &bytes)).await?
+        })
+    }
+
+    fn all(&self) -> BoxFuture<'_, anyhow::Result<Vec<PilotRecord>>> {
+        let dir = self.dir.clone();
+        Box::pin(async move {
+            tokio::task::spawn_blocking(move || {
+                let mut all = Vec::new();
+                for entry in std::fs::read_dir(&dir)? {
+                    let path = entry?.path();
+                    let key = path.file_stem().and_then(|k| k.to_str()).filter(|k| is_key(k));
+                    if key.is_none() || path.extension().is_none_or(|e| e != "json") {
+                        continue;
+                    }
+                    // One unreadable record keeps nobody else's suit from coming back.
+                    match std::fs::read(&path).map_err(anyhow::Error::from).and_then(|bytes| {
+                        serde_json::from_slice::<PilotRecord>(&bytes).map_err(anyhow::Error::from)
+                    }) {
+                        Ok(r) => all.push(r),
+                        Err(e) => tracing::warn!("pilot store: {}: {e}", path.display()),
+                    }
+                }
+                Ok(all)
+            })
+            .await?
         })
     }
 }
@@ -341,6 +476,30 @@ impl Pilots {
             tracing::warn!("pilot store: {e}");
         }
     }
+
+    /// The pilot's sleeper `suit` is gone (destroyed, or cleared for room): if it was left in a
+    /// hide spot, the next server run mustn't put it back. A pilot flying again is left to their
+    /// session, which forgets the sleeper (and its spot) as they come in.
+    pub async fn clear_parked(&self, address: Address, suit: (u16, u16)) {
+        if self.is_online(&address) {
+            return;
+        }
+        let mut r = match self.store.load(&key(&address)).await {
+            Ok(Some(r)) => r,
+            Ok(None) => return,
+            Err(e) => {
+                tracing::warn!("pilot store: {e}");
+                return;
+            }
+        };
+        let theirs = r.sleeper.is_some_and(|s| s.run == self.run && (s.suit, s.generation) == suit);
+        if r.parked.is_none() || !theirs || self.is_online(&address) {
+            return;
+        }
+        r.parked = None;
+        tracing::info!(address = %short(&address), suit = suit.0, "hidden suit gone: not kept");
+        self.save(r).await;
+    }
 }
 
 #[cfg(test)]
@@ -425,6 +584,62 @@ mod tests {
         assert_eq!(again.load(&key(&Address([7; 20]))).await.unwrap(), None);
         assert!(again.load("../etc/passwd").await.is_err());
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn every_record_is_listed_but_what_isnt_one() {
+        let dir = std::env::temp_dir().join(format!("bc-pilots-all-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = FileStore::new(&dir).unwrap();
+        let (a, b) = (PilotRecord::new(&Address([8; 20])), PilotRecord::new(&Address([9; 20])));
+        store.save(a.clone()).await.unwrap();
+        store.save(b.clone()).await.unwrap();
+        // A torn file and strangers in the directory hold up nobody else's.
+        std::fs::write(dir.join(format!("0x{}.json", "0a".repeat(20))), b"{ \"address\": ").unwrap();
+        std::fs::write(dir.join("notes.json"), b"{}").unwrap();
+        std::fs::write(dir.join(format!("0x{}.tmp", "0b".repeat(20))), b"{}").unwrap();
+        let mut all = store.all().await.unwrap();
+        all.sort_by(|x, y| x.address.cmp(&y.address));
+        assert_eq!(all, [a.clone(), b.clone()]);
+        let memory = MemoryStore::default();
+        memory.save(a.clone()).await.unwrap();
+        assert_eq!(memory.all().await.unwrap(), [a]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_parked_suit_is_kept_as_the_sector_recorded_it() {
+        let rec = ParkRecord {
+            landmark: 1,
+            local: Vec3::new(0.1, 596.0, -0.3),
+            rot: Quat::from_xyzw(0.1, 0.7, -0.1, 0.7).normalize(),
+            stance: 6.0,
+            frame: FrameId::Heavyarms,
+            faction: Faction::Alliance,
+            pilot: PilotKind::Agent,
+            home: Homecoming {
+                frame: FrameId::Heavyarms,
+                parts: [1.0, 0.8, 0.0, 0.5, 1.0, 0.25],
+                mounts: 0b101,
+                ammo: [3, 0, 77],
+                propellant: 412.5,
+                cargo_kg: [1, 2, 3, 4],
+                held: None,
+                bounty: 900,
+            },
+        };
+        let mut r = PilotRecord::new(&Address([10; 20]));
+        r.parked = Some(ParkedSuit::new(&rec, 77));
+        let again: PilotRecord = serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
+        assert_eq!(again, r);
+        assert_eq!(again.parked.and_then(|p| p.record()), Some(rec));
+        // Records from before suits were kept in hide spots read as keeping none.
+        let mut old = serde_json::to_value(PilotRecord::new(&Address([10; 20]))).unwrap();
+        old.as_object_mut().unwrap().remove("parked");
+        assert_eq!(serde_json::from_value::<PilotRecord>(old).unwrap().parked, None);
+        // A frame or a side there isn't: nothing to put back.
+        let odd = ParkedSuit { faction: "zeon".into(), ..ParkedSuit::new(&rec, 77) };
+        assert_eq!(odd.record(), None);
     }
 
     #[tokio::test]

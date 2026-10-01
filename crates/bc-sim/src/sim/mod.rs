@@ -71,7 +71,7 @@ pub use conceal::{
     COLD_SIG, Conceal, EXPOSE_TICKS, FOUGHT_DARK_TICKS, HIDE_AWAKE_VISUAL_MUL, LURK_SETTLE_TICKS, LURK_STILL,
     POWER_DOWN_TICKS, cover,
 };
-pub use launch::{Homecoming, LAUNCH_GATE, LAUNCH_SPEED, Loadout};
+pub use launch::{Homecoming, LAUNCH_GATE, LAUNCH_SPEED, Loadout, ParkRecord};
 pub use sleep::{Gone, PARK_SPEED, PARKED_VISUAL, SleeperFate};
 
 /// A pending hit, applied in the damage phase.

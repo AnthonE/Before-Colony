@@ -231,12 +231,18 @@ fn a_missile_barrage_never_allocates() {
 
 #[test]
 fn survival_launches_docks_and_losses_never_allocate() {
+    use bc_proto::buttons::GRIP;
     use bc_sector::{Report, SlotState};
+    use bc_sim::SuitId;
+    use bc_sim::bodies::Body;
     use bc_sim::content::salvage::DOCK_CENTER;
+    use bc_sim::handle::Handle;
     use bc_sim::sim::Loadout;
 
     // 64 pilots flying the suits they built among 128 Mobile Dolls: every few ticks one docks and
-    // one launches again; the dolls shoot some down.
+    // one launches again; the dolls shoot some down. Now and then one is left in MO-II's Aft Well
+    // as its pilot logs off (the sector records it), and the suit is put back from that record,
+    // as a restarted server would.
     let cfg = SectorConfig {
         sim: SimConfig { target_dolls: 128, seed: 11, survival: true, ..SimConfig::default() },
         max_clients: 64,
@@ -268,7 +274,27 @@ fn survival_launches_docks_and_losses_never_allocate() {
     }
     let mut buf = [0u8; 2048];
     let (mut total, mut docked, mut relaunched, mut lost) = (0u64, 0u32, 0u32, 0u32);
+    let (mut parked, mut restored, mut record) = (0u32, 0u32, None);
     for step in 0..1_300u32 {
+        // Network side: one pilot is put down in the Aft Well, and leaves a few ticks later; the
+        // last suit recorded there is put back.
+        if step >= 300 && step % 11 >= 5 {
+            let slot = ((step / 11) % 64) as u16;
+            let status = &shared.slots[slot as usize];
+            match (step % 11, status.state(), status.suit_id()) {
+                (5, SlotState::Active, Some((idx, generation))) => {
+                    let id = SuitId(Handle { idx, generation });
+                    let _ = sector.sim.place_on(id, Body::Landmark(0), Vec3::new(-1.0, 0.02, 0.02));
+                }
+                (9, SlotState::Active, _) => shared.control.push(Control::Sleep { slot }).unwrap(),
+                (10, ..) => {
+                    if let Some(rec) = record.take() {
+                        shared.control.push(Control::Restore { key: step, rec }).unwrap();
+                    }
+                }
+                _ => {}
+            }
+        }
         // Network side, outside the counted region: one pilot at rest in the dock asks to dock,
         // one who's in the hangar launches again.
         if step >= 300 && step.is_multiple_of(5) {
@@ -310,7 +336,8 @@ fn survival_launches_docks_and_losses_never_allocate() {
                 view_tick_q4: (next << 4) - 30,
                 aim: Vec3::new(0.3, 0.2, -1.0).normalize(),
                 thrust: [0, 20, 60],
-                buttons: FLIGHT_ASSIST | FIRE_PRIMARY,
+                // Gripping: put down on a body, a suit stays there (and walks).
+                buttons: FLIGHT_ASSIST | FIRE_PRIMARY | GRIP,
                 ..InputCmd::default()
             }
             .quantized();
@@ -326,18 +353,26 @@ fn survival_launches_docks_and_losses_never_allocate() {
                     Report::Home(_) => docked += 1,
                     Report::Lost { .. } => lost += 1,
                     Report::DockRefused => {}
+                    Report::Parked(rec) => {
+                        parked += 1;
+                        record = Some(rec);
+                    }
                 }
             }
+        }
+        while shared.restored.pop().is_some() {
+            restored += 1;
         }
         for ring in &mut egress.rings {
             while read_packet(ring, &mut buf).is_some() {}
         }
     }
-    println!("docked {docked}, relaunched {relaunched}, lost {lost}");
+    println!("docked {docked}, relaunched {relaunched}, lost {lost}, parked {parked}, restored {restored}");
     assert!(
         docked > 50 && relaunched > 50 && lost > 50,
         "docked {docked}, relaunched {relaunched}, lost {lost}"
     );
+    assert!(parked > 20 && restored > 20, "parked {parked}, restored {restored}");
     assert_eq!(total, 0, "heap operations inside sector ticks: {total}");
 }
 

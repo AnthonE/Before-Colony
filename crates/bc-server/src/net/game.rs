@@ -9,11 +9,15 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
 
+use bc_econ::Bay;
 use bc_proto::auth::{Address, Domain, NONCE_BYTES};
 use bc_proto::control::{ControlMsg, Frame, MAX_FRAME, RejectReason, hello_flags, roster_flags};
 use bc_proto::{MAX_DATAGRAM, PROTOCOL_VERSION, PilotKind};
-use bc_sector::{EgressEnds, Metrics, SectorConfig, SectorShared, SectorThread, SlotState, read_packet};
+use bc_sector::{
+    Control, EgressEnds, Metrics, Restored, SectorConfig, SectorShared, SectorThread, SlotState, read_packet,
+};
 use bc_sim::SimConfig;
+use bc_sim::content::landmarks::LANDMARKS_VERSION;
 use bc_sim::sim::Gone;
 use crossbeam_queue::ArrayQueue;
 use tokio::sync::broadcast;
@@ -21,7 +25,7 @@ use wtransport::{Connection, RecvStream, SendStream};
 
 use super::NetStats;
 use crate::market::Market;
-use crate::pilots::{self, Claim, Fate, FileStore, MemoryStore, PilotStore, Pilots};
+use crate::pilots::{self, Claim, Fate, FileStore, MemoryStore, PilotRecord, PilotStore, Pilots, Sleeper};
 use crate::{Config, OracleKind, Ruleset};
 
 /// Commands for the egress thread.
@@ -34,6 +38,7 @@ pub enum EgressCmd {
 pub struct RosterEntry {
     pub name: String,
     pub pilot: PilotKind,
+    /// The slot of the session that seated the pilot (`u16::MAX`: none, a suit put back at boot).
     pub client_slot: u16,
     /// `roster_flags` (signed in, asleep).
     pub flags: u8,
@@ -102,6 +107,107 @@ pub struct GameShared {
     pub econ: bc_econ::Rules,
     /// Pilots' hangars, by client slot, for `/status`.
     pub(super) hangars: Arc<RwLock<HashMap<u16, HangarEntry>>>,
+}
+
+/// How long the sector gets to put back the suits left in hide spots, at boot.
+const RESTORE_WAIT: Duration = Duration::from_secs(2);
+
+impl GameShared {
+    /// Survival, at boot, before anyone can connect: puts the suits pilots left in landmarks'
+    /// hide spots back where they were, asleep (the newest `max_sleepers` of them). Each record
+    /// then names its suit as the sleeper of this run, so its pilot wakes in it as they would
+    /// have before the restart, and it's on the roster, asleep. A suit that can't be put back (it
+    /// was out on landmarks that have changed since, its pilot's bay says it isn't out, or the
+    /// sector has no room) is forgotten: the colony's tugs bring it in when its pilot is back.
+    /// How many came back.
+    pub async fn restore_parked(&self, max_sleepers: usize) -> usize {
+        let records = match self.pilots.store.all().await {
+            Ok(records) => records,
+            Err(e) => {
+                tracing::warn!("pilot store: {e}");
+                return 0;
+            }
+        };
+        let mut left = Vec::new();
+        for mut r in records {
+            let Some(p) = &r.parked else { continue };
+            let out = r.hangar.as_ref().is_some_and(|h| matches!(h.bay, Bay::Out { .. }));
+            let rec = p.record().filter(|rec| {
+                out && p.landmarks_version == LANDMARKS_VERSION && rec.landmark < self.sector.landmarks
+            });
+            match (rec, bc_auth::parse_address(&r.address)) {
+                (Some(rec), Some(address)) => left.push((p.since_unix, address, r, rec)),
+                _ => self.unpark(&mut r, "stale").await,
+            }
+        }
+        // The newest, if there are more than the sector keeps (it would clear the oldest).
+        left.sort_by_key(|(since, ..)| *since);
+        let over = left.len().saturating_sub(max_sleepers);
+        for (.., mut r, _) in left.drain(..over) {
+            self.unpark(&mut r, "over the sleepers' cap").await;
+        }
+        let sector = &self.sector;
+        for (key, (.., rec)) in left.iter().enumerate() {
+            let mut msg = Control::Restore { key: key as u32, rec: *rec };
+            while let Err(back) = sector.control.push(msg) {
+                msg = back;
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+        }
+        // Every request has been answered once the sector has drained them all and finished the
+        // tick after (a refusal doesn't answer).
+        let pushed = sector.tick.load(Ordering::Acquire);
+        let mut back = vec![None; left.len()];
+        let until = tokio::time::Instant::now() + RESTORE_WAIT;
+        loop {
+            while let Some(Restored { key, suit, generation }) = sector.restored.pop() {
+                if let Some(b) = back.get_mut(key as usize) {
+                    *b = Some((suit, generation));
+                }
+            }
+            let done = sector.control.is_empty() && sector.tick.load(Ordering::Acquire) > pushed + 1;
+            if done || back.iter().all(Option::is_some) || tokio::time::Instant::now() > until {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let mut restored = 0;
+        for ((since_unix, address, mut r, rec), back) in left.into_iter().zip(back) {
+            let Some((suit, generation)) = back else {
+                self.unpark(&mut r, "no room").await;
+                continue;
+            };
+            r.sleeper = Some(Sleeper { run: self.pilots.run, suit, generation, since_unix });
+            self.pilots.bind_suit((suit, generation), address);
+            let pilot = rec.pilot;
+            let flags = roster_flags::VERIFIED | roster_flags::ASLEEP;
+            if let Ok(mut roster) = self.roster.write() {
+                let entry = RosterEntry {
+                    name: r.name.clone(),
+                    pilot,
+                    client_slot: u16::MAX,
+                    flags,
+                    address: Some(pilots::short(&address)),
+                };
+                roster.insert(suit, entry);
+            }
+            let _ = self.roster_tx.send(RosterUpdate { suit, pilot, name: r.name.clone(), flags });
+            tracing::info!(address = %pilots::short(&address), suit, "hidden suit put back");
+            self.pilots.save(r).await;
+            restored += 1;
+        }
+        restored
+    }
+
+    /// Forgets the suit a record says is left in a hide spot.
+    async fn unpark(&self, r: &mut PilotRecord, why: &str) {
+        r.parked = None;
+        match bc_auth::parse_address(&r.address) {
+            Some(a) => tracing::info!(address = %pilots::short(&a), "hidden suit not put back: {why}"),
+            None => tracing::info!("hidden suit not put back: {why}"),
+        }
+        self.pilots.save(r.clone()).await;
+    }
 }
 
 /// Read-only view for `/status`.
@@ -606,6 +712,11 @@ pub fn process_notes(game: &GameShared) {
         };
         tracing::info!(address = %pilots::short(&address), suit = fate.suit, "sleeper gone: {news:?}");
         game.pilots.tell(address, news);
+        // Left in a hide spot, it isn't to come back with the next server run.
+        if game.survival {
+            let pilots = game.pilots.clone();
+            tokio::spawn(async move { pilots.clear_parked(address, (fate.suit, fate.generation)).await });
+        }
         // Only the sleeper's entry: the slot may have a new pilot already.
         let asleep = game
             .roster

@@ -48,7 +48,8 @@ pub struct Metrics {
     /// and the sleepers among them.
     pub hidden: AtomicU64,
     pub sleepers_hidden: AtomicU64,
-    /// Sleepers' fates the server wasn't reading fast enough to hear.
+    /// Sleepers' fates, slots' reports and restored suits the server wasn't reading fast enough to
+    /// hear.
     pub notes_dropped: AtomicU64,
     pub projectiles: AtomicU64,
     pub events: AtomicU64,
