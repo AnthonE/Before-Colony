@@ -191,9 +191,11 @@ pub struct SectorShared {
     pub tick: AtomicU32,
     pub stop: AtomicBool,
     pub max_clients: usize,
-    /// The debris field the simulation runs, for clients' Welcome.
+    /// The debris field the simulation runs, and how many of the compiled landmarks the sector has
+    /// (`Sim::landmarks`), for clients' Welcome.
     pub field_seed: u32,
     pub field_rocks: u16,
+    pub landmarks: u8,
     started: std::time::Instant,
 }
 
@@ -267,6 +269,7 @@ pub fn build(cfg: SectorConfig) -> (crate::Sector, Arc<SectorShared>, EgressEnds
         max_clients: n,
         field_seed: cfg.sim.field_seed,
         field_rocks: cfg.sim.field_rocks,
+        landmarks: cfg.sim.landmark_defs().len() as u8,
         started: std::time::Instant::now(),
     });
     let ends = SectorEnds { inputs, reports, outputs, pictures: pic_p, advice: adv_c };

@@ -163,6 +163,9 @@ pub enum ControlMsg {
         field_rocks: u16,
         /// [`welcome_flags`].
         flags: u8,
+        /// How many of the compiled landmarks (`bc_sim::content::landmarks::LANDMARKS`) the sector
+        /// has: the first this many. Riders name them by index.
+        landmarks: u8,
     },
     /// Server → client, then the stream closes.
     Reject { reason: RejectReason },
@@ -224,6 +227,7 @@ impl ControlMsg {
                 field_seed,
                 field_rocks,
                 flags,
+                landmarks,
             } => {
                 p.u8(2);
                 p.u16(version);
@@ -236,6 +240,7 @@ impl ControlMsg {
                 p.u32(field_seed);
                 p.u16(field_rocks);
                 p.u8(flags);
+                p.u8(landmarks);
             }
             ControlMsg::Reject { reason } => {
                 p.u8(3);
@@ -341,6 +346,7 @@ impl ControlMsg {
                 field_seed: r.u32()?,
                 field_rocks: r.u16()?,
                 flags: r.u8()?,
+                landmarks: r.u8()?,
             },
             3 => ControlMsg::Reject { reason: RejectReason::from_u8(r.u8()?) },
             4 => ControlMsg::Roster {
@@ -509,6 +515,7 @@ mod tests {
                 field_seed: 0xDEB12,
                 field_rocks: 160,
                 flags: welcome_flags::SIGNED_IN | welcome_flags::WOKE,
+                landmarks: 2,
             },
             ControlMsg::Reject { reason: RejectReason::FrameNotAllowed },
             ControlMsg::Reject { reason: RejectReason::VersionMismatch },
@@ -553,6 +560,35 @@ mod tests {
             pos += used;
         }
         assert_eq!(pos, len);
+    }
+
+    #[test]
+    fn welcome_carries_landmarks() {
+        let welcome = |landmarks| ControlMsg::Welcome {
+            version: PROTOCOL_VERSION,
+            client_slot: 0,
+            tick: 1,
+            tick_hz: 30,
+            sector: 1,
+            zero_allowed: false,
+            max_datagram: 1100,
+            field_seed: 7,
+            field_rocks: 0,
+            flags: 0,
+            landmarks,
+        };
+        let mut buf = [0u8; MAX_FRAME];
+        for landmarks in [0, 2, 16, 255] {
+            let n = welcome(landmarks).encode(&mut buf).unwrap();
+            // Tag, version, slot, tick, tick_hz, sector, zero_allowed, max_datagram, field seed and
+            // rocks, flags, and the landmarks' one byte last.
+            assert_eq!(n, 2 + 1 + 2 + 2 + 4 + 1 + 1 + 1 + 2 + 4 + 2 + 1 + 1);
+            assert_eq!(buf[n - 1], landmarks);
+            assert_eq!(ControlMsg::decode(&buf[..n]).unwrap(), Some((welcome(landmarks), n)));
+            // A Welcome without it (an older server's) is cut short.
+            buf[0] -= 1;
+            assert_eq!(ControlMsg::decode(&buf[..n - 1]), Err(DecodeError::Truncated));
+        }
     }
 
     #[test]

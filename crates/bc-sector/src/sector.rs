@@ -343,6 +343,10 @@ impl Sector {
         Metrics::set(&m.suits_alive, self.sim.alive_count() as u64);
         Metrics::set(&m.sleepers, self.sim.sleepers() as u64);
         Metrics::set(&m.parked, self.sim.parked() as u64);
+        Metrics::set(&m.grounded, u64::from(self.sim.n_grounded));
+        Metrics::set(&m.aloft, u64::from(self.sim.n_aloft));
+        Metrics::set(&m.hidden, u64::from(self.sim.n_hidden));
+        Metrics::set(&m.sleepers_hidden, u64::from(self.sim.n_hidden_asleep));
         Metrics::set(&m.projectiles, self.sim.projectiles.count() as u64);
         Metrics::set(&m.events, u64::from(self.sim.events.next_seq()));
     }

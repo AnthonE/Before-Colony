@@ -41,10 +41,10 @@ use glam::{Quat, Vec3};
 
 use crate::ai::{self, DOLL, SEIZED};
 use crate::arms::{BUSY_FIRE_TICKS, busy_ambac};
-use crate::bodies::{Bodies, MAX_LANDMARKS, landmark_pose, landmark_touching, sweep_landmarks};
+use crate::bodies::{Bodies, landmark_pose, landmark_touching, sweep_landmarks};
 use crate::chunks::{self, Chunks, Motion, held_pose, segment_pos, segment_rot};
 use crate::config::{DT, SECTOR_LIMIT, SimConfig, secs};
-use crate::content::landmarks::{LANDMARKS, LandmarkDef};
+use crate::content::landmarks::LandmarkDef;
 use crate::content::salvage::{BOUNCE, mass_without};
 use crate::content::{frame, weapon};
 use crate::events::EventRing;
@@ -170,10 +170,12 @@ pub struct Sim {
     /// Sleepers lost since the server last asked (`drain_fates`).
     fates: FixedVec<SleeperFate>,
     /// Suits alive on their feet on a body, aloft in a body's grip, and hidden from their enemies'
-    /// sensors (parked and dark, or settled in a hide spot), as of the last tick.
+    /// sensors (parked and dark, or settled in a hide spot), and the sleepers among those hidden, as
+    /// of the last tick.
     pub n_grounded: u32,
     pub n_aloft: u32,
     pub n_hidden: u32,
+    pub n_hidden_asleep: u32,
 }
 
 impl Sim {
@@ -225,6 +227,7 @@ impl Sim {
             n_grounded: 0,
             n_aloft: 0,
             n_hidden: 0,
+            n_hidden_asleep: 0,
         }
     }
 
@@ -236,8 +239,7 @@ impl Sim {
 
     /// The sector's landmarks (`cfg.landmarks` of them), by id.
     pub fn landmarks(&self) -> &'static [LandmarkDef] {
-        let n = usize::from(self.cfg.landmarks).min(LANDMARKS.len()).min(MAX_LANDMARKS);
-        &LANDMARKS[..n]
+        self.cfg.landmark_defs()
     }
 
     /// The tick the next [`step`](Self::step) will simulate (inputs should target it).

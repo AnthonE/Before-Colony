@@ -113,7 +113,7 @@ fn parked_suits_power_down_before_they_hide() {
     assert_eq!(sim.tick(), slept + POWER_DOWN_TICKS);
     assert!(!sim.detects(far.idx(), i), "still on sensors at 1 km");
     assert!(sim.detects(near.idx(), i), "not in sight inside the parked range");
-    assert_eq!(sim.n_hidden, 1);
+    assert_eq!((sim.n_hidden, sim.n_hidden_asleep), (1, 1));
     assert!(sim.is_still(i), "a parked suit tells its viewers nothing new");
 }
 
@@ -251,7 +251,7 @@ fn crouched_still_in_a_hide_spot_goes_dark_in_3s_seen_only_within_225m() {
     assert!(!sim.detects(outside.idx(), i), "seen at {} m", visual + 25.0);
     assert!(sim.detects(inside.idx(), i), "not seen at {} m", visual - 25.0);
     lie_still(&mut sim, id, 1);
-    assert_eq!((sim.n_grounded, sim.n_hidden), (1, 1));
+    assert_eq!((sim.n_grounded, sim.n_hidden, sim.n_hidden_asleep), (1, 1, 0), "awake, it's no sleeper");
     assert!(sim.is_still(i));
     // Moving breaks it.
     let aim = sim.suits.flight[i].rot * Vec3::Z;

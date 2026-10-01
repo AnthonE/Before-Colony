@@ -57,6 +57,15 @@ pub struct SimConfig {
     pub survival: bool,
 }
 
+impl SimConfig {
+    /// The sector's landmarks, by id: the first [`landmarks`](Self::landmarks) of those there are,
+    /// and no more than a sector holds. Clients are told how many in their Welcome.
+    pub fn landmark_defs(&self) -> &'static [crate::content::landmarks::LandmarkDef] {
+        let all = &crate::content::landmarks::LANDMARKS;
+        &all[..usize::from(self.landmarks).min(all.len()).min(crate::bodies::MAX_LANDMARKS)]
+    }
+}
+
 impl Default for SimConfig {
     fn default() -> Self {
         Self {

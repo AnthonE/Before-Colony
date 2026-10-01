@@ -48,17 +48,9 @@ const STILL_SPEED: f32 = 0.05;
 const STILL_SPIN: f32 = 0.01;
 const STILL_QUIET_TICKS: u32 = 30;
 
-/// What a suit's cover amounts to, as its pilot is told ([`Sim::cover_code`]).
-pub mod cover {
-    /// In the open.
-    pub const EXPOSED: u8 = 0;
-    /// Crouched still and settling, or shown by a shot or a hit.
-    pub const SETTLING: u8 = 1;
-    /// Settled out of a hide spot: half its signature.
-    pub const COLD: u8 = 2;
-    /// Off enemies' sensors: seen only close in.
-    pub const HIDDEN: u8 = 3;
-}
+/// What a suit's cover amounts to, as its pilot is told ([`Sim::cover_code`]): the own state's
+/// wire codes.
+pub use bc_proto::snapshot::cover;
 
 /// How much of a suit's signature its enemies' sensors and seekers get, and how far off their eyes
 /// still find it, m.
@@ -156,7 +148,7 @@ impl Sim {
         let mut used = core::mem::take(&mut self.cover_bits);
         used.copy_from(&self.suits.used);
         let bodies = Bodies::at(&self.field, self.landmarks(), t);
-        let (mut grounded, mut aloft, mut hidden) = (0, 0, 0);
+        let (mut grounded, mut aloft, mut hidden, mut hidden_asleep) = (0, 0, 0, 0);
         for i in used.iter() {
             if !self.suits.alive.get(i) {
                 let s = &mut self.suits;
@@ -199,9 +191,11 @@ impl Sim {
             }
             if self.concealment(i).sig == 0.0 {
                 hidden += 1;
+                hidden_asleep += u32::from(asleep);
             }
         }
         (self.n_grounded, self.n_aloft, self.n_hidden) = (grounded, aloft, hidden);
+        self.n_hidden_asleep = hidden_asleep;
         self.cover_bits = used;
     }
 }

@@ -1,14 +1,18 @@
 //! Pilots leaving and coming back through the sector's queues: a suit put to sleep stays, and the
 //! same pilot wakes in it; a sleeper that's gone means a new suit (with the pilot's credits); a
-//! wreck can't sleep; sleepers cleared for room are reported to the server.
+//! wreck can't sleep; sleepers cleared for room are reported to the server; suits on bodies are
+//! counted.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
 use std::sync::Arc;
 
 use bc_proto::{Faction, FrameId, MAX_DATAGRAM, PilotKind};
 use bc_sector::{Comeback, Control, Outcome, Sector, SectorConfig, SectorShared, SlotState};
-use bc_sim::SimConfig;
-use bc_sim::sim::Gone;
+use bc_sim::bodies::Body;
+use bc_sim::handle::Handle;
+use bc_sim::sim::{Gone, POWER_DOWN_TICKS};
+use bc_sim::{SimConfig, SuitId};
+use glam::Vec3;
 
 fn sector(max_sleepers: usize) -> (Sector, Arc<SectorShared>) {
     let cfg = SectorConfig {
@@ -120,4 +124,35 @@ fn sleepers_cleared_for_room_are_reported() {
         send(&mut sector, &shared, 0, join(0, Comeback { sleeper: Some(first), credits: 0 })),
         (SlotState::Active, Outcome::Fresh)
     );
+}
+
+#[test]
+fn suits_on_bodies_are_counted_and_the_welcome_names_the_landmarks() {
+    let (mut sector, shared) = sector(16);
+    assert_eq!(shared.landmarks, 2, "MO-II and Hermit");
+    send(&mut sector, &shared, 0, join(0, Comeback::default()));
+    let (idx, generation) = shared.slots[0].suit_id().unwrap();
+    // Standing on Hermit (out of its hide spots) as its pilot leaves: parked on its feet.
+    let id = SuitId(Handle { idx, generation });
+    assert!(sector.sim.place_on(id, Body::Landmark(1), Vec3::new(0.3, 0.2, 1.0)));
+    assert_eq!(send(&mut sector, &shared, 0, Control::Sleep { slot: 0 }), (SlotState::Free, Outcome::Asleep));
+    let count = |c| bc_sector::Metrics::load(c);
+    let m = &shared.metrics;
+    assert_eq!((count(&m.grounded), count(&m.aloft), count(&m.parked)), (1, 0, 1));
+    assert_eq!((count(&m.hidden), count(&m.sleepers_hidden)), (0, 0), "still powering down");
+    for _ in 0..POWER_DOWN_TICKS {
+        sector.tick();
+    }
+    assert_eq!((count(&m.grounded), count(&m.hidden), count(&m.sleepers_hidden)), (1, 1, 1), "dark");
+
+    // A sector of fewer landmarks says so; one asking for more than there are has them all.
+    for (asked, has) in [(0, 0), (1, 1), (9, 2)] {
+        let cfg = SectorConfig {
+            sim: SimConfig { target_dolls: 0, field_rocks: 0, landmarks: asked, ..SimConfig::default() },
+            max_clients: 1,
+            ..SectorConfig::default()
+        };
+        let (sector, shared, _egress, _oracle) = bc_sector::build(cfg);
+        assert_eq!((shared.landmarks, sector.sim.landmarks().len()), (has, usize::from(has)));
+    }
 }

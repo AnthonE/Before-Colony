@@ -81,6 +81,8 @@ pub struct Welcome {
     pub woke: bool,
     /// Survival rules: the pilot starts in their hangar, and launches the suit they built.
     pub survival: bool,
+    /// How many of the compiled landmarks the sector has (no more than this build knows of).
+    pub landmarks: u8,
 }
 
 /// The server's sign-in challenge.
@@ -301,12 +303,14 @@ impl ClientCore {
                 field_seed,
                 field_rocks,
                 flags,
+                landmarks,
                 ..
             } => {
                 if version != PROTOCOL_VERSION {
                     self.phase = Phase::Rejected(RejectReason::VersionMismatch);
                     return;
                 }
+                self.predict.set_landmarks(landmarks);
                 self.welcome = Some(Welcome {
                     client_slot,
                     tick_hz,
@@ -317,6 +321,7 @@ impl ClientCore {
                     signed_in: flags & welcome_flags::SIGNED_IN != 0,
                     woke: flags & welcome_flags::WOKE != 0,
                     survival: flags & welcome_flags::SURVIVAL != 0,
+                    landmarks: self.predict.landmarks().len() as u8,
                 });
                 self.predict.set_field(bc_sim::field::Field::generate(field_seed, field_rocks));
                 self.phase = Phase::InGame;
@@ -418,11 +423,12 @@ impl ClientCore {
         });
         self.clock.on_snapshot(h.tick, now, rtt, h.input_health);
         let heard = self.world.own.filter(|o| o.alive).map(|o| (self.world.tick, o.vel));
-        if let (Some(own), Some((t0, v0))) = (own.filter(|o| o.alive), heard) {
-            self.heard_g = (own.vel - v0).length() / ((h.tick - t0) as f32 * DT) / G0;
-        }
         self.world.apply_missiles(h.tick, &missiles);
-        self.world.apply(h.tick, own, zero, &events, &ents);
+        self.world.apply(h.tick, own, zero, &events, &ents, &self.predict.bodies(h.tick));
+        // (The world has the own suit in the sector's frame, whatever frame it came in.)
+        if let (Some(now), Some((t0, v0))) = (self.world.own.filter(|o| o.alive), heard) {
+            self.heard_g = (now.vel - v0).length() / ((h.tick - t0) as f32 * DT) / G0;
+        }
         self.world.apply_salvage(&rocks, &objects);
         for r in &rocks {
             self.predict.set_rock_dead(usize::from(r.id), r.destroyed);

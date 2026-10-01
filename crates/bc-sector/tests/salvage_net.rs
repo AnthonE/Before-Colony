@@ -124,6 +124,7 @@ fn run_with(
                     field_seed: shared.field_seed,
                     field_rocks: shared.field_rocks,
                     flags: 0,
+                    landmarks: shared.landmarks,
                 }
                 .encode(&mut w)
                 .unwrap();

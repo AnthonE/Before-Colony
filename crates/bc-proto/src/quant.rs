@@ -36,6 +36,29 @@ pub fn signed_step(max_abs: f32, bits: u32) -> f32 {
     2.0 * max_abs / max_q(bits) as f32
 }
 
+/// Maps `v ∈ [-max_abs, max_abs]` onto the signed integers `±(2^(bits-1) - 1)` (values outside are
+/// clamped), written in two's complement. Unlike [`quantize_signed`], whose grid has no middle
+/// value, zero comes back exactly zero: what is at rest stays at rest.
+#[inline]
+pub fn quantize_centered(v: f32, max_abs: f32, bits: u32) -> i32 {
+    let m = f64::from(max_q(bits - 1));
+    let t = (f64::from(v) / f64::from(max_abs)).clamp(-1.0, 1.0);
+    libm::round(t * m) as i32
+}
+
+#[inline]
+pub fn dequantize_centered(q: i32, max_abs: f32, bits: u32) -> f32 {
+    let m = f64::from(max_q(bits - 1));
+    // (A hostile -2^(bits-1) reads as the end of the range.)
+    ((f64::from(q).clamp(-m, m) / m) * f64::from(max_abs)) as f32
+}
+
+/// Step size (LSB) of [`quantize_centered`].
+#[inline]
+pub fn centered_step(max_abs: f32, bits: u32) -> f32 {
+    max_abs / max_q(bits - 1) as f32
+}
+
 /// Maps `v ∈ [0, 1]` onto `[0, 2^bits - 1]`.
 #[inline]
 pub fn quantize_unit(v: f32, bits: u32) -> u32 {
@@ -81,6 +104,21 @@ pub fn read_vec(r: &mut BitReader<'_>, max_abs: f32, bits: u32) -> Vec3 {
     let mut out = [0.0f32; 3];
     for c in &mut out {
         *c = dequantize_signed(r.read_bits(bits), max_abs, bits);
+    }
+    Vec3::from_array(out)
+}
+
+/// A vector on the [`quantize_centered`] grid: zero is exact.
+pub fn write_vec_centered(w: &mut BitWriter<'_>, v: Vec3, max_abs: f32, bits: u32) {
+    for c in v.to_array() {
+        w.write_i32(quantize_centered(c, max_abs, bits), bits);
+    }
+}
+
+pub fn read_vec_centered(r: &mut BitReader<'_>, max_abs: f32, bits: u32) -> Vec3 {
+    let mut out = [0.0f32; 3];
+    for c in &mut out {
+        *c = dequantize_centered(r.read_i32(bits), max_abs, bits);
     }
     Vec3::from_array(out)
 }
@@ -205,6 +243,32 @@ mod tests {
                 v += 0.37;
             }
         }
+    }
+
+    #[test]
+    fn centered_round_trip_within_half_step_and_zero_is_exact() {
+        for bits in [8u32, 10, 14] {
+            let step = centered_step(32.0, bits);
+            let mut v = -32.0f32;
+            while v <= 32.0 {
+                let back = dequantize_centered(quantize_centered(v, 32.0, bits), 32.0, bits);
+                assert!((back - v).abs() <= step * 0.5 + 1e-5, "bits {bits} v {v} back {back}");
+                v += 0.037;
+            }
+            assert_eq!(dequantize_centered(quantize_centered(0.0, 32.0, bits), 32.0, bits).to_bits(), 0);
+            assert_eq!(dequantize_centered(quantize_centered(-1e-4, 32.0, bits), 32.0, bits), 0.0);
+            // Out of range clamps, both ways, and the one code past the end reads as the end.
+            assert_eq!(dequantize_centered(quantize_centered(99.0, 32.0, bits), 32.0, bits), 32.0);
+            assert_eq!(dequantize_centered(quantize_centered(-99.0, 32.0, bits), 32.0, bits), -32.0);
+            assert_eq!(dequantize_centered(-(1 << (bits - 1)), 32.0, bits), -32.0);
+        }
+        let mut buf = [0u8; 8];
+        let mut w = BitWriter::new(&mut buf);
+        write_vec_centered(&mut w, Vec3::new(0.0, -3.0, 31.9), 32.0, 10);
+        assert_eq!(w.bits_written(), 30);
+        let back = read_vec_centered(&mut BitReader::new(&buf), 32.0, 10);
+        assert_eq!(back.x, 0.0);
+        assert!((back - Vec3::new(0.0, -3.0, 31.9)).abs().max_element() <= centered_step(32.0, 10) * 0.5);
     }
 
     #[test]

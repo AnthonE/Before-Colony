@@ -237,6 +237,7 @@ impl Session<'_> {
                 field_seed: self.game.sector.field_seed,
                 field_rocks: self.game.sector.field_rocks,
                 flags,
+                landmarks: self.game.sector.landmarks,
             },
         )
         .await?;

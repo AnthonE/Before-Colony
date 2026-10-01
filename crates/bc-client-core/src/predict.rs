@@ -17,9 +17,9 @@ use bc_proto::buttons::MODE;
 use bc_proto::snapshot::own_flags;
 use bc_proto::{FrameId, InputCmd, OwnState};
 use bc_sim::arms::{ArmsClock, busy_ambac};
-use bc_sim::bodies::Bodies;
+use bc_sim::bodies::{Bodies, MAX_LANDMARKS};
 use bc_sim::content::frame;
-use bc_sim::content::landmarks::LANDMARKS;
+use bc_sim::content::landmarks::{LANDMARKS, LandmarkDef};
 use bc_sim::field::Field;
 use bc_sim::flight::{FlightMods, FlightOut, FlightState, step_in};
 use bc_sim::math::integrate_rotation;
@@ -28,6 +28,7 @@ use bc_sim::{DT, TICK_HZ};
 use glam::{Quat, Vec3};
 
 use crate::inputs::InputHistory;
+use crate::world::own_in_sector;
 
 const HISTORY: usize = 128;
 /// The server's suit this far from where the prediction had it at the same tick was moved there
@@ -180,6 +181,8 @@ pub struct Predictor {
     pub initialized: bool,
     /// The sector's debris field (from the Welcome), which the suit collides with as on the server.
     pub field: std::sync::Arc<Field>,
+    /// How many of the landmarks the sector has (from the Welcome): as solid here as there.
+    landmarks: u8,
 }
 
 impl Default for Predictor {
@@ -196,11 +199,18 @@ impl Default for Predictor {
             relocations: 0,
             initialized: false,
             field: std::sync::Arc::new(Field::empty()),
+            // Every one of them, until the Welcome says how many the sector has.
+            landmarks: LANDMARKS.len() as u8,
         }
     }
 }
 
-fn flight_from(own: &OwnState) -> FlightState {
+/// The server's flight state from `own`. A suit on a body is sent in its frame, and is put back in
+/// the sector's on the body as `bodies` has it (the snapshot's tick), exactly as the server derived
+/// it. (A stopgap: the prediction flies it on from there as a free suit until it steps on bodies
+/// itself.)
+fn flight_from(own: &OwnState, bodies: &Bodies) -> FlightState {
+    let own = own_in_sector(own, bodies).unwrap_or(*own);
     FlightState {
         pos: own.pos,
         vel: own.vel,
@@ -235,6 +245,7 @@ impl Predictor {
     /// suit flies with the arms as they stood, then the arms move on.
     fn step(
         field: &Field,
+        landmarks: &'static [LandmarkDef],
         s: &mut FlightState,
         form: &mut Form,
         arms: &mut ArmsClock,
@@ -255,16 +266,24 @@ impl Predictor {
         mods.lunge = arms.lunging(spec);
         let prev = s.pos;
         let out = step_in(field, s, cmd, spec, &mods, DT);
-        // The landmarks are as solid here as on the server. Every one of them, until the Welcome
-        // says how many the sector has.
-        Bodies::at(field, &LANDMARKS, cmd.tick).collide_landmarks(prev, s, None);
+        // The landmarks are as solid here as on the server.
+        Bodies::at(field, landmarks, cmd.tick).collide_landmarks(prev, s, None);
         arms.tick(spec, cmd, form.changing(), cmd.tick);
         out
     }
 
     /// Flies `cmd` from the newest state and keeps the tick.
     fn fly(&mut self, cmd: &InputCmd) {
-        let out = Self::step(&self.field, &mut self.state, &mut self.form, &mut self.arms, &self.mods, cmd);
+        let landmarks = self.landmarks();
+        let out = Self::step(
+            &self.field,
+            landmarks,
+            &mut self.state,
+            &mut self.form,
+            &mut self.arms,
+            &self.mods,
+            cmd,
+        );
         self.keep(Sample::of(cmd.tick, &self.state, &out, self.form.frame, &self.arms));
     }
 
@@ -281,6 +300,21 @@ impl Predictor {
     /// The sector's field, from the Welcome.
     pub fn set_field(&mut self, field: Field) {
         self.field = std::sync::Arc::new(field);
+    }
+
+    /// How many landmarks the sector has, from the Welcome (no more than this build knows of).
+    pub fn set_landmarks(&mut self, n: u8) {
+        self.landmarks = n.min(LANDMARKS.len().min(MAX_LANDMARKS) as u8);
+    }
+
+    /// The sector's landmarks, by id.
+    pub fn landmarks(&self) -> &'static [LandmarkDef] {
+        &LANDMARKS[..usize::from(self.landmarks)]
+    }
+
+    /// The sector's bodies (its field and landmarks) at tick `t`.
+    pub fn bodies(&self, t: u32) -> Bodies<'_> {
+        Bodies::at(&self.field, self.landmarks(), t)
     }
 
     /// Rock `i` shattered (or grew back): the suit flies through where it was, as on the server.
@@ -330,24 +364,24 @@ impl Predictor {
             InputCmd::stand_in(&last, server_tick, server_tick - last.tick)
         };
         self.arms = ArmsClock::from_own(own, server_tick, flown.buttons);
+        // The server's state for that tick, with what the prediction knows it did over it (the G
+        // and thrust aren't sent).
+        let mut s = flight_from(own, &self.bodies(server_tick));
         if !own.alive {
-            self.state = flight_from(own);
+            self.state = s;
             self.tick = server_tick;
             self.initialized = true;
             return;
         }
         let kept = self.sample(server_tick).copied();
         if let Some(p) = kept {
-            let e = (p.pos - own.pos).length();
+            let e = (p.pos - s.pos).length();
             if e > RELOCATION {
                 self.relocations += 1; // moved by the server: not a misprediction
             } else {
                 self.last_error = e;
             }
         }
-        // The server's state for that tick, with what the prediction knows it did over it (the G
-        // and thrust aren't sent).
-        let mut s = flight_from(own);
         let done =
             kept.unwrap_or(Sample { g_load: 0.0, throttle: Vec3::ZERO, g_limited: false, ..Sample::NONE });
         s.g_load = done.g_load;
@@ -413,7 +447,9 @@ mod tests {
     /// The server's flight from `own` at tick 100 through `to`, on stand-ins where `history` has no
     /// command.
     fn server_flies(own: &OwnState, history: &InputHistory, to: u32) -> FlightState {
-        let (mut s, mods, field) = (flight_from(own), Predictor::mods_from(own), Field::empty());
+        let field = Field::empty();
+        let (mut s, mods) =
+            (flight_from(own, &Bodies::at(&field, &LANDMARKS, 100)), Predictor::mods_from(own));
         let mut form = Form { frame: own.frame, timer: 0 };
         let mut arms = ArmsClock::from_own(own, 100, 0);
         let mut last = InputCmd::default();
@@ -425,7 +461,7 @@ mod tests {
                 }
                 None => InputCmd::stand_in(&last, t, t - last.tick),
             };
-            Predictor::step(&field, &mut s, &mut form, &mut arms, &mods, &c);
+            Predictor::step(&field, &LANDMARKS, &mut s, &mut form, &mut arms, &mods, &c);
         }
         s
     }
@@ -466,6 +502,35 @@ mod tests {
         p.forget_before(150);
         assert!(p.sample(149).is_none() && p.sample(150).is_some());
         assert_eq!(p.pose_at(120.0).unwrap().pos, flown[50].1.pos);
+    }
+
+    #[test]
+    fn an_own_state_on_a_body_seeds_the_prediction_where_the_body_carries_it() {
+        use bc_proto::BodyRef;
+        use bc_proto::snapshot::{OwnSurface, footing};
+        use bc_sim::bodies::Body;
+
+        let local = Vec3::new(-230.0, 0.0, 89.125);
+        let own = OwnState {
+            pos: local,
+            vel: Vec3::new(1.0, 0.0, 0.0),
+            surface: Some(OwnSurface {
+                footing: footing::GROUNDED,
+                body: BodyRef::Landmark(0),
+                stance_q: 146,
+            }),
+            ..own_at(local)
+        };
+        let mut p = Predictor::default();
+        p.reconcile(4_000, &own, &InputHistory::default());
+        let deck = p.bodies(4_000).pose(Body::Landmark(0)).unwrap();
+        assert_eq!(p.state.pos, deck.to_world(local));
+        assert_eq!(p.state.vel, deck.point_vel(p.state.pos) + deck.rot * own.vel);
+        assert!(p.state.rot.dot(deck.rot).abs() > 1.0 - 1e-6);
+        // A sector without it: the state can't be placed, and is taken as it came.
+        p.set_landmarks(0);
+        p.reconcile(4_001, &own, &InputHistory::default());
+        assert_eq!(p.state.pos, local);
     }
 
     #[test]

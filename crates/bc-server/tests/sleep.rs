@@ -80,12 +80,18 @@ async fn a_signed_in_pilot_sleeps_and_wakes_in_the_same_suit() -> anyhow::Result
     let w = wallet(9);
 
     let mut pilot = BotClient::connect_as(&bot(&http, "Sleeper-1"), Some(&w)).await?;
+    // The Welcome names the sector's landmarks: both, MO-II and Hermit.
+    assert_eq!(pilot.core.welcome.map(|w| w.landmarks), Some(2));
     idle(&mut pilot, 0.6).await?;
     let own = pilot.core.world.own.expect("flying");
     let token = pilot.core.resume_token.expect("a signed-in pilot gets a resume token");
     pilot.close().await;
     let me = "Sleeper-1".to_string();
     until("the sleeper", || sleepers(&server).contains(&me) && !flying(&server).contains(&me)).await?;
+    // Asleep out in space, on no body: counted, but not as on one, or hidden.
+    let status = server.status();
+    let count = |k: &str| status["game"][k].as_u64();
+    assert_eq!(["suits_grounded", "suits_aloft", "suits_hidden", "sleepers_hidden"].map(count), [Some(0); 4]);
 
     // Someone else sees it there, flagged asleep.
     let mut guest = BotClient::connect(&bot(&http, "Guest-2")).await?;

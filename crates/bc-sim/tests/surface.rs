@@ -17,9 +17,11 @@ use bc_proto::buttons::{
     BOOST, BRAKE, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, GRIP, MELEE, MODE, THROW, ZERO,
 };
 use bc_proto::events::{BurstCause, Event};
-use bc_proto::snapshot::zero_mode;
+use bc_proto::snapshot::{footing, zero_mode};
 use bc_proto::{
-    ChunkDesc, ChunkKind, Faction, FrameId, InputCmd, NO_SLOT, Part, PilotKind, Segment, WeaponKind,
+    BodyRef, ChunkDesc, ChunkKind, EntityState, Faction, FrameId, InputCmd, MAX_DATAGRAM, NO_SLOT, OwnState,
+    OwnSurface, Part, PilotKind, RiderOn, Segment, SnapshotHeader, SnapshotReader, SnapshotWriter,
+    WeaponKind,
 };
 use bc_sim::bodies::{Bodies, Body, TRACE_EPS, landmark_pose};
 use bc_sim::chunks::{self, Motion, segment_pos};
@@ -29,8 +31,9 @@ use bc_sim::content::salvage::BOUNCE;
 use bc_sim::field::{Field, Rock, SUIT_CLEARANCE};
 use bc_sim::flight::{self, FlightState};
 use bc_sim::ground::{
-    CATCH_RANGE, CATCH_SPEED, CROUCH_SPEED, CROUCH_STANCE, Footing, GRIP_ACCEL, JUMP_SPEED, LAND_SPEED_MAX,
-    LEGLESS_TURN_RATE, RELEASE_RANGE, RELEASE_SPEED, RUN_SPEED, STANCE, TAKEOFF_SPEED, UNPARK_SPEED, place,
+    Anchor, CATCH_RANGE, CATCH_SPEED, CROUCH_SPEED, CROUCH_STANCE, Footing, GRIP_ACCEL, JUMP_SPEED,
+    LAND_SPEED_MAX, LEGLESS_TURN_RATE, RELEASE_RANGE, RELEASE_SPEED, RUN_SPEED, STANCE, TAKEOFF_SPEED,
+    UNPARK_SPEED, derive, place,
 };
 use bc_sim::math::look_rotation;
 use bc_sim::rocks::RockStates;
@@ -1302,6 +1305,112 @@ fn seized_riders_keep_their_grip() {
         assert_eq!(sim.suits.zero[i].mode, zero_mode::SEIZED);
         assert!(sim.suits.input[i].pressed(GRIP), "the seizure dropped the grip at {k}");
         assert_ne!(sim.footing(i), Footing::Free, "and let go at {k}");
+    }
+}
+
+/// What one snapshot to `viewer` says of it and of suit `j`, written and read back.
+fn on_the_wire(sim: &Sim, viewer: usize, j: usize) -> (OwnState, EntityState) {
+    let mut buf = [0u8; 1500];
+    let mut w = SnapshotWriter::new(&mut buf, MAX_DATAGRAM);
+    w.header(&SnapshotHeader { tick: sim.tick(), ..SnapshotHeader::default() });
+    w.own(Some(&sim.own_state(viewer)));
+    w.zero(None);
+    assert!(w.entity(&sim.entity_state(j, viewer), 0));
+    let n = w.finish().unwrap();
+    let mut r = SnapshotReader::new(&buf[..n]).unwrap();
+    (r.own().unwrap().unwrap(), r.next_entity().unwrap().unwrap())
+}
+
+/// Where a decoded rider is in the sector, on its body as the snapshot's tick has it.
+fn composed(sim: &Sim, body: BodyRef, pos: Vec3, rot: Quat, vel: Vec3) -> FlightState {
+    let pose = bodies(sim).pose(Body::from(body)).unwrap();
+    let a = Anchor { body: Body::from(body), local: pos, rot, vel, ..Anchor::default() };
+    let mut f = FlightState::default();
+    derive(&pose, &a, &mut f);
+    f
+}
+
+#[test]
+fn riders_go_on_the_wire_in_their_bodys_frame() {
+    let mut sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
+    let deck = BodyRef::Landmark(0);
+    let rider = on_mo_ii(&mut sim, FrameId::Leo, Vec3::new(-1.5, 1.0, 0.0));
+    let r = rider.idx();
+    let at = sim.suits.flight[r].pos;
+    let viewer = sim
+        .spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, at + Vec3::Y * 300.0, Quat::IDENTITY)
+        .unwrap()
+        .idx();
+    let aim = sim.suits.flight[r].rot * Vec3::Z;
+    for _ in 0..10 {
+        drive(&mut sim, rider, [0, 0, 127], GRIP, aim);
+        step(&mut sim);
+    }
+    assert_eq!(sim.footing(r), Footing::Grounded);
+
+    // Its own pilot gets the anchor itself: composed on the deck as the server has it, the world
+    // state comes back to the bit (position and velocity are sent whole).
+    let (a, f) = (sim.suits.anchor[r], sim.suits.flight[r]);
+    let own = sim.own_state(r);
+    assert_eq!(own.surface, Some(OwnSurface { footing: footing::GROUNDED, body: deck, stance_q: 146 }));
+    assert_eq!((own.pos, own.vel, own.cover), (a.local, a.vel, sim.cover_code(r)));
+    let (mine, _) = on_the_wire(&sim, r, viewer);
+    assert_eq!(mine.surface, own.surface);
+    let back = composed(&sim, deck, mine.pos, a.rot, mine.vel);
+    let bits = |v: Vec3| v.to_array().map(f32::to_bits);
+    assert_eq!((bits(back.pos), bits(back.vel)), (bits(f.pos), bits(f.vel)));
+    assert!(mine.rot.dot(a.rot).abs() > 1.0 - 1e-6);
+    // Everyone else gets it on the deck to 1.6 cm, walking at its pace over it.
+    let (theirs, e) = on_the_wire(&sim, viewer, r);
+    assert_eq!((theirs.surface, theirs.pos), (None, sim.suits.flight[viewer].pos), "flying free");
+    assert_eq!(e.on, Some(RiderOn { body: deck, aloft: false }));
+    let seen = composed(&sim, deck, e.pos, e.rot, e.vel);
+    assert!(seen.pos.distance(f.pos) < 0.016, "{} vs {}", seen.pos, f.pos);
+    assert!(seen.vel.distance(f.vel) < 0.06, "{} vs {}", seen.vel, f.vel);
+    assert!(e.vel.length() > 3.0, "walking: {}", e.vel);
+
+    // A hop: in the deck's grip, in the air.
+    drive(&mut sim, rider, [0, 127, 0], GRIP, aim);
+    step(&mut sim);
+    hands_off_gripping(&mut sim, rider, aim, 3);
+    assert_eq!(sim.footing(r), Footing::Aloft);
+    assert_eq!(sim.own_state(r).surface.map(|s| s.footing), Some(footing::ALOFT));
+    assert_eq!(on_the_wire(&sim, viewer, r).1.on, Some(RiderOn { body: deck, aloft: true }));
+
+    // Down again and asleep: parked, at rest on the deck however it moves.
+    hands_off_gripping(&mut sim, rider, aim, 240);
+    assert_eq!(sim.footing(r), Footing::Grounded);
+    assert!(sim.sleep(rider) && sim.is_parked(r));
+    step(&mut sim);
+    let (_, e) = on_the_wire(&sim, viewer, r);
+    assert_eq!((e.on, e.vel), (Some(RiderOn { body: deck, aloft: false }), Vec3::ZERO));
+    let f = sim.suits.flight[r];
+    let seen = composed(&sim, deck, e.pos, e.rot, e.vel);
+    assert!(seen.pos.distance(f.pos) < 0.016, "{} vs {}", seen.pos, f.pos);
+    // (Moving as the deck does where it's drawn, 1.6 cm off: ω·1.6 cm.)
+    assert!(seen.vel.distance(f.vel) < 1e-3, "{} vs {}", seen.vel, f.vel);
+
+    // A suit only resting against the deck parks there too, and goes out on it.
+    let (p, n) = surface_of(&sim, Body::Landmark(0), Vec3::new(-1.0, 0.1, 0.05));
+    let pos = p + n * (SUIT_CLEARANCE + 0.5);
+    let resting = sim
+        .spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, pos, look_rotation(n, Vec3::Y))
+        .unwrap();
+    sim.suits.flight[resting.idx()].vel = bodies(&sim).pose(Body::Landmark(0)).unwrap().point_vel(pos);
+    assert!(sim.sleep(resting) && sim.is_parked(resting.idx()));
+    assert_eq!(sim.footing(resting.idx()), Footing::Free);
+    step(&mut sim);
+    let (_, e) = on_the_wire(&sim, viewer, resting.idx());
+    assert_eq!((e.on, e.vel), (Some(RiderOn { body: deck, aloft: false }), Vec3::ZERO));
+    let seen = composed(&sim, deck, e.pos, e.rot, e.vel);
+    assert!(seen.pos.distance(sim.suits.flight[resting.idx()].pos) < 0.016);
+}
+
+/// `ticks` ticks of `id` holding its grip, stick idle.
+fn hands_off_gripping(sim: &mut Sim, id: SuitId, aim: Vec3, ticks: u32) {
+    for _ in 0..ticks {
+        drive(sim, id, [0; 3], GRIP, aim);
+        step(sim);
     }
 }
 

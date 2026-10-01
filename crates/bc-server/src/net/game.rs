@@ -377,7 +377,14 @@ impl StatusView {
             "exchange": exchange,
             "clients": l(&m.clients),
             "suits_alive": l(&m.suits_alive),
+            // Suits on a body: on their feet (the parked among them), and in its grip in the air.
+            "suits_grounded": l(&m.grounded),
+            "suits_aloft": l(&m.aloft),
             "sleepers_parked": l(&m.parked),
+            // Off enemies' sensors (parked and powered down, or lying hidden in a hide spot), and
+            // the sleepers among them: how many, never where.
+            "suits_hidden": l(&m.hidden),
+            "sleepers_hidden": l(&m.sleepers_hidden),
             "notes_dropped": l(&m.notes_dropped),
             "projectiles": l(&m.projectiles),
             "events": l(&m.events),

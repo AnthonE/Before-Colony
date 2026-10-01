@@ -5,12 +5,15 @@ use std::collections::{HashMap, VecDeque};
 use bc_proto::events::{BurstCause, Event};
 use bc_proto::snapshot::{ent_flags, own_flags};
 use bc_proto::{
-    CHUNK_BITS, ChunkDesc, EntityState, Faction, FrameId, MAX_ENTITIES, MISSILE_BITS, MissileState, NO_CHUNK,
-    ObjectState, OwnState, Part, PilotKind, RockState, Segment, WeaponKind, ZeroInfo,
+    BodyRef, CHUNK_BITS, ChunkDesc, EntityState, Faction, FrameId, MAX_ENTITIES, MISSILE_BITS, MissileState,
+    NO_CHUNK, ObjectState, OwnState, Part, PilotKind, RockState, Segment, WeaponKind, ZeroInfo,
 };
 use bc_sim::TICK_HZ;
+use bc_sim::bodies::{Bodies, Body};
 use bc_sim::chunks::{self, held_pose, segment_pos, segment_rot};
 use bc_sim::content::{SpecialKind, WeaponClass, frame, frame_name, weapon};
+use bc_sim::flight::FlightState;
+use bc_sim::ground::{Anchor, derive};
 use bc_sim::perception::{Contact, KitView, Perception, SelfView};
 use bc_sim::zero::N_HYP;
 use bc_sim::zero::hypotheses::{self, Maneuver};
@@ -350,7 +353,9 @@ impl World {
         self.missiles.iter().flatten()
     }
 
-    /// Applies a decoded snapshot.
+    /// Applies a decoded snapshot. `bodies` are the sector's at its tick: suits on them are put in
+    /// the sector's frame on arrival (a stopgap until they're interpolated in their body's), and a
+    /// record naming a body this sector doesn't have is dropped.
     pub fn apply(
         &mut self,
         tick: u32,
@@ -358,10 +363,12 @@ impl World {
         zero: Option<ZeroInfo>,
         events: &[Event],
         ents: &[EntityState],
+        bodies: &Bodies,
     ) {
         if tick < self.tick {
             return;
         }
+        let own = own.map(|o| own_in_sector(&o, bodies).unwrap_or(o));
         let prev_own = self.own;
         self.tick = tick;
         self.own = own;
@@ -375,12 +382,13 @@ impl World {
             if Some(e.slot) == me {
                 continue;
             }
-            let (jamming, flame, fang) = kit_seen(e);
+            let Some(e) = rider_in_sector(e, bodies) else { continue };
+            let (jamming, flame, fang) = kit_seen(&e);
             seen = (seen.0 | jamming, seen.1 | flame, seen.2 | fang);
             let slot = e.slot as usize;
             match &mut self.entities[slot] {
-                Some(track) if track.latest.generation == e.generation => track.push(tick, *e),
-                other => *other = Some(EntityTrack::new(tick, *e)),
+                Some(track) if track.latest.generation == e.generation => track.push(tick, e),
+                other => *other = Some(EntityTrack::new(tick, e)),
             }
         }
         let own_jamming = own.is_some_and(|o| {
@@ -738,6 +746,39 @@ impl World {
     }
 }
 
+/// A suit on `body`, in the sector's frame with the body where `bodies` has it: carried, turned and
+/// moved by the body, exactly as the server derives it (`bc_sim::ground::derive`).
+fn in_sector(
+    bodies: &Bodies,
+    body: BodyRef,
+    local: Vec3,
+    rot: Quat,
+    vel: Vec3,
+    ang_vel: Vec3,
+) -> Option<FlightState> {
+    let body = Body::from(body);
+    let pose = bodies.pose(body)?;
+    let mut f = FlightState::default();
+    derive(&pose, &Anchor { body, local, rot, vel, ang_vel, stance: 0.0 }, &mut f);
+    Some(f)
+}
+
+/// The own suit's state in the sector's frame (it's sent in its body's while on one). `None` if it
+/// names a body this sector doesn't have.
+pub fn own_in_sector(own: &OwnState, bodies: &Bodies) -> Option<OwnState> {
+    let Some(on) = own.surface else { return Some(*own) };
+    let f = in_sector(bodies, on.body, own.pos, own.rot, own.vel, own.ang_vel)?;
+    Some(OwnState { pos: f.pos, vel: f.vel, rot: f.rot, ang_vel: f.ang_vel, surface: None, ..*own })
+}
+
+/// Another suit's record in the sector's frame, as one flying free (a rider is sent in its body's).
+/// `None` if it names a body this sector doesn't have.
+pub fn rider_in_sector(e: &EntityState, bodies: &Bodies) -> Option<EntityState> {
+    let Some(on) = e.on else { return Some(*e) };
+    let f = in_sector(bodies, on.body, e.pos, e.rot, e.vel, Vec3::ZERO)?;
+    Some(EntityState { on: None, pos: f.pos, rot: f.rot, vel: f.vel, ..*e })
+}
+
 /// What a contact shows of the Gundams' mechanics: (jamming, a flamethrower burning, the Dragon
 /// Fang striking).
 fn kit_seen(e: &EntityState) -> (bool, bool, bool) {
@@ -763,6 +804,41 @@ mod tests {
     fn hostile_at(world: &mut World, slot: u16, pos: Vec3) {
         let e = EntityState { slot, faction: Faction::Oz, pos, ..EntityState::default() };
         world.entities[usize::from(slot)] = Some(EntityTrack::new(10, e));
+    }
+
+    #[test]
+    fn riders_arrive_in_the_sectors_frame_and_unknown_bodies_are_dropped() {
+        use bc_proto::RiderOn;
+        use bc_sim::content::landmarks::LANDMARKS;
+        use bc_sim::field::Field;
+
+        let field = Field::empty();
+        let t = 5_000;
+        let bodies = Bodies::at(&field, &LANDMARKS, t);
+        let mo_ii = bodies.pose(Body::Landmark(0)).unwrap();
+        let rider = |slot, body| EntityState {
+            slot,
+            on: Some(RiderOn { body, aloft: false }),
+            pos: Vec3::new(0.0, 69.125, 0.0),
+            vel: Vec3::new(0.0, 0.0, 8.0),
+            ..EntityState::default()
+        };
+        let ents = [
+            rider(3, BodyRef::Landmark(0)),
+            rider(4, BodyRef::Landmark(5)),
+            rider(5, BodyRef::Rock(7)),
+            EntityState { slot: 6, pos: Vec3::splat(100.0), ..EntityState::default() },
+        ];
+        let mut world = World::new(Faction::Colonies);
+        world.apply(t, None, None, &[], &ents, &bodies);
+        let on_deck = world.entity(3).expect("on MO-II").latest;
+        let local = Vec3::new(0.0, 69.125, 0.0);
+        assert_eq!(on_deck.pos, mo_ii.to_world(local));
+        assert_eq!(on_deck.vel, mo_ii.point_vel(on_deck.pos) + mo_ii.rot * Vec3::new(0.0, 0.0, 8.0));
+        assert_eq!(on_deck.on, None);
+        // A landmark the sector hasn't got, a rock its field hasn't: nowhere to draw them.
+        assert!(world.entity(4).is_none() && world.entity(5).is_none());
+        assert_eq!(world.entity(6).map(|e| e.latest.pos), Some(Vec3::splat(100.0)), "flying free");
     }
 
     #[test]

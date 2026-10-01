@@ -12,6 +12,7 @@
 
 use core::f32::consts::TAU;
 
+use bc_proto::BodyRef;
 use glam::{Quat, Vec3};
 
 use crate::collide::segment_near_point;
@@ -64,6 +65,24 @@ impl Body {
             Body::None => u32::MAX,
             Body::Rock(r) => u32::from(r),
             Body::Landmark(k) => 0x0001_0000 | u32::from(k),
+        }
+    }
+
+    /// What the wire calls it (`None` for [`Body::None`]).
+    pub fn to_wire(self) -> Option<BodyRef> {
+        match self {
+            Body::None => None,
+            Body::Rock(r) => Some(BodyRef::Rock(r)),
+            Body::Landmark(k) => Some(BodyRef::Landmark(k)),
+        }
+    }
+}
+
+impl From<BodyRef> for Body {
+    fn from(b: BodyRef) -> Self {
+        match b {
+            BodyRef::Rock(r) => Body::Rock(r),
+            BodyRef::Landmark(k) => Body::Landmark(k),
         }
     }
 }

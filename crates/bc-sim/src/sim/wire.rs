@@ -1,15 +1,17 @@
 //! Conversions from simulation state to the wire structs in `bc-proto`.
 
 use bc_proto::snapshot::{
-    OwnArms, ZERO_THREATS as WIRE_THREATS, ZeroThreat, ent_flags, own_flags, part_buckets, zero_mode,
+    OwnArms, ZERO_THREATS as WIRE_THREATS, ZeroThreat, ent_flags, footing, own_flags, part_buckets, zero_mode,
 };
-use bc_proto::{EntityState, ObjectState, OwnState, RockState, ZeroInfo};
+use bc_proto::{EntityState, ObjectState, OwnState, OwnSurface, RiderOn, RockState, ZeroInfo};
+use glam::Vec3;
 
 use super::Sim;
 use crate::arms::phase_to_wire;
 use crate::bodies::Body;
 use crate::chunks::Motion;
 use crate::content::{SpecialKind, WeaponClass, frame, weapon};
+use crate::ground::Footing;
 use crate::rocks::{max_hp, max_ore_kg};
 use crate::suits::{MeleePhase, SPECIAL_MOUNT, SuitStats};
 
@@ -46,7 +48,8 @@ impl Sim {
         self.detects(viewer, j)
     }
 
-    /// Full-precision state of suit `i` for its own pilot.
+    /// Full-precision state of suit `i` for its own pilot. On a body it is the state the suit moves
+    /// in there: its anchor, in the body's frame.
     pub fn own_state(&self, i: usize) -> OwnState {
         let s = &self.suits;
         let spec = frame(s.frame[i]);
@@ -156,15 +159,31 @@ impl Sim {
         };
         let respawn_in =
             if s.alive.get(i) { 0 } else { (s.respawn_at[i].saturating_sub(t) / 4).min(255) as u8 };
+        let a = &s.anchor[i];
+        let on = match s.footing[i] {
+            Footing::Free => None,
+            Footing::Grounded => Some(footing::GROUNDED),
+            Footing::Aloft => Some(footing::ALOFT),
+        };
+        let surface = on.zip(a.body.to_wire()).map(|(footing, body)| OwnSurface {
+            footing,
+            body,
+            // (On the sixteenth-metre grid: exact.)
+            stance_q: (a.stance * 16.0 + 0.5) as u8,
+        });
+        let (pos, vel, rot, ang_vel) = match surface {
+            Some(_) => (a.local, a.vel, a.rot, a.ang_vel),
+            None => (f.pos, f.vel, f.rot, f.ang_vel),
+        };
         OwnState {
             slot: i as u16,
             generation: (s.generation[i] & 3) as u8,
             frame: s.frame[i],
             alive: s.alive.get(i),
-            pos: f.pos,
-            vel: f.vel,
-            rot: f.rot,
-            ang_vel: f.ang_vel,
+            pos,
+            vel,
+            rot,
+            ang_vel,
             propellant: f.propellant,
             g_strain: f.g_strain,
             heat: (s.heat[i] / spec.heat_cap).clamp(0.0, 1.0),
@@ -188,6 +207,8 @@ impl Sim {
             special_timer: special_timer.min(255) as u8,
             special_cooldown: s.special[i].cooldown.div_ceil(4).min(255) as u8,
             arms: self.own_arms(i),
+            surface,
+            cover: self.cover_code(i),
         }
     }
 
@@ -245,7 +266,8 @@ impl Sim {
         arms
     }
 
-    /// Suit `j` as replicated to `viewer`.
+    /// Suit `j` as replicated to `viewer`. On a body (standing on it, in its grip, or parked on it)
+    /// it goes in the body's frame, a parked suit at rest there; otherwise in the sector's.
     pub fn entity_state(&self, j: usize, viewer: usize) -> EntityState {
         let s = &self.suits;
         let f = &s.flight[j];
@@ -298,15 +320,27 @@ impl Sim {
         {
             flags |= ent_flags::SPECIAL;
         }
+        let a = &s.anchor[j];
+        let parked = self.is_parked(j);
+        let on = a
+            .body
+            .to_wire()
+            .filter(|_| parked || s.footing[j] != Footing::Free)
+            .map(|body| RiderOn { body, aloft: s.footing[j] == Footing::Aloft });
+        let (pos, rot, vel) = match on {
+            Some(_) => (a.local, a.rot, if parked { Vec3::ZERO } else { a.vel }),
+            None => (f.pos, f.rot, f.vel),
+        };
         EntityState {
             slot: j as u16,
             generation: (s.generation[j] & 3) as u8,
             frame: s.frame[j],
             faction: s.faction[j],
             pilot: s.pilot[j],
-            pos: f.pos,
-            rot: f.rot,
-            vel: f.vel,
+            on,
+            pos,
+            rot,
+            vel,
             aim: s.aim[j],
             flags,
             parts: part_buckets(&s.part_fractions(j)),
