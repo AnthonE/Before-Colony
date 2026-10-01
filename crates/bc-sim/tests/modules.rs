@@ -46,6 +46,9 @@ fn each_module_changes_its_stat() {
     check(ModuleKind::SensorArray, &|a, b| b.sensor > a.sensor && b.signature > a.signature);
     check(ModuleKind::FireControlComputer, &|a, b| b.lock_step > a.lock_step);
     check(ModuleKind::CapacitorBank, &|a, b| b.energy_cap > a.energy_cap);
+    let mut s = sim();
+    let id = launch(&mut s, &[ModuleKind::CapacitorBank], Systems::OK).idx();
+    assert!(s.suits.energy[id] > frame(FrameId::Leo).energy_cap * 1.4, "launched charged full");
     check(ModuleKind::ReactorBooster, &|a, b| b.regen > a.regen && b.heat < a.heat);
     check(ModuleKind::RadiatorPackage, &|a, b| b.heat > a.heat && b.signature > a.signature);
     check(ModuleKind::CompositePlating, &|a, b| b.armor < a.armor);

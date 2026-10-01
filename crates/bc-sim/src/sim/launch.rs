@@ -127,6 +127,8 @@ impl Sim {
         self.suits.systems[i] = loadout.systems.clean();
         self.suits.modules[i] = loadout.modules.clean();
         self.suits.retune(i);
+        // Charged full, a capacitor bank's worth included.
+        self.suits.energy[i] = spec.energy_cap * self.suits.tuning[i].energy_cap;
         for (slot, ws) in self.suits.weapons[i].iter_mut().enumerate() {
             if let Some(m) = spec.loadout[slot] {
                 ws.ammo = loadout.ammo[slot].min(weapon(m.weapon).ammo);
