@@ -76,7 +76,7 @@ pub struct SignIn {
 pub struct HangarEntry {
     pub name: String,
     pub address: Option<String>,
-    /// `hangar` or `space`.
+    /// `hangar`, `space` or `city`.
     pub place: &'static str,
     pub credits: u64,
     /// `empty`, `docked` or `out`, and the suit's line.
@@ -105,6 +105,10 @@ pub struct GameShared {
     pub(super) idle: Duration,
     /// Survival rules (else arcade).
     pub survival: bool,
+    /// The colony is open: pilots may go down into its city.
+    pub colony: bool,
+    /// The people in the colony's city (`plaza`).
+    pub plaza: Arc<crate::plaza::Plaza>,
     /// Anime flight rules (else the simulator's).
     pub anime: bool,
     /// The Colony Exchange.
@@ -246,6 +250,8 @@ pub struct StatusView {
     roster: Arc<RwLock<HashMap<u16, RosterEntry>>>,
     oracle: &'static str,
     survival: bool,
+    colony: bool,
+    plaza: Arc<crate::plaza::Plaza>,
     anime: bool,
     market: Arc<Market>,
     hangars: Arc<RwLock<HashMap<u16, HangarEntry>>>,
@@ -334,6 +340,8 @@ impl GameRuntime {
             },
             idle: cfg.idle_timeout,
             survival,
+            colony: survival && cfg.colony,
+            plaza: Arc::new(crate::plaza::Plaza::default()),
             anime: cfg.flight == Flight::Anime,
             market,
             econ: bc_econ::Rules { craft_speed: cfg.craft_speed },
@@ -387,6 +395,8 @@ impl GameRuntime {
             roster: self.shared.roster.clone(),
             oracle: self.oracle,
             survival: self.shared.survival,
+            colony: self.shared.colony,
+            plaza: self.shared.plaza.clone(),
             anime: self.shared.anime,
             market: self.shared.market.clone(),
             hangars: self.shared.hangars.clone(),
@@ -497,6 +507,7 @@ impl StatusView {
             .collect();
         let hangars: Vec<HangarEntry> =
             self.hangars.read().map(|h| h.values().cloned().collect()).unwrap_or_default();
+        let city = self.plaza.counts();
         let exchange = self.market.with(|ex| {
             let (escrow, goods) = ex.escrowed();
             serde_json::json!({
@@ -513,6 +524,14 @@ impl StatusView {
             "tick_hz": bc_sim::TICK_HZ,
             "oracle": self.oracle,
             "rules": if self.survival { "survival" } else { "arcade" },
+            // Pilots may go down into the colony's city from their bays; how many are down there
+            // (never where), and how many of their poses weren't passed on.
+            "colony": self.colony,
+            "city": {
+                "people": city.0,
+                "by_strip": city.1,
+                "refused_poses": city.2,
+            },
             "flight": if self.anime { "anime" } else { "real" },
             // Survival: pilots in their hangar bays (and out of them), and the exchange's ledger.
             "hangars": hangars,

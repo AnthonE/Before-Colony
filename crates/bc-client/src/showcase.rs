@@ -68,6 +68,10 @@ pub enum Scene {
     /// 1), one kneeling asleep in its Aft Well (2), and one coming down on Hermit in its grip,
     /// landing in a puff of dust at 6.1 s of every 8 (3).
     Surface,
+    /// Inside the colony: the city, from Hub Gate down the avenue (1), from the cap lift high on the
+    /// end cap (2), at street level downtown (3), at a window bank (4), by the canal (5), and from
+    /// near the axis down the whole length (6). `?t=1900` is night.
+    City,
 }
 
 impl Scene {
@@ -84,6 +88,7 @@ impl Scene {
             "gundams" => Some(Self::Gundams),
             "hangar" | "bay" => Some(Self::Hangar),
             "surface" | "landmarks" => Some(Self::Surface),
+            "city" | "inside" => Some(Self::City),
             _ => None,
         }
     }
@@ -101,12 +106,14 @@ impl Scene {
             Self::Gundams => "gundams",
             Self::Hangar => "hangar",
             Self::Surface => "surface",
+            Self::City => "city",
         }
     }
 
     /// Camera presets 1..: orbit target, yaw, pitch (radians) and distance.
     fn presets(self) -> Vec<Orbit> {
         match self {
+            Self::City => city_cams(),
             Self::Hangar => {
                 use bc_client_core::bay::{HATCH, SPAWN, SUIT_AT, Spot};
                 let o = crate::hangar::BAY_ORIGIN;
@@ -246,13 +253,20 @@ const LINEUP_CAMS: [Orbit; 5] = [
 ];
 const DUEL_CAMS: [Orbit; 3] =
     [orbit(DUEL, 0.8, 0.3, 380.0), orbit(DUEL, -1.2, 0.1, 260.0), orbit(DUEL, 2.4, -0.25, 320.0)];
-const COLONY_CAMS: [Orbit; 5] = [
+const COLONY_CAMS: [Orbit; 8] = [
     orbit(COLONY_CENTER, 0.9, 0.35, 42_000.0),
     orbit(SQUAD_START, 2.2, 0.35, 190.0),
     orbit(Vec3::new(16_000.0, -4_200.0, 0.0), -1.8, 0.3, 14_000.0),
     orbit(Vec3::new(0.0, -700.0, 0.0), -0.4, -0.05, 6_000.0),
     // The dock, off the docking hub's mouth at the −X end.
     orbit(Vec3::new(DOCK_CENTER.x + 300.0, DOCK_CENTER.y, DOCK_CENTER.z), -0.6, 0.12, 1_100.0),
+    // The docking hub's end from out past the dock and below: the bay ring, the spire, the mirrors
+    // opening beyond, outlined in lamps (`?t=1900`: at night).
+    orbit(Vec3::new(-16_250.0, -4_200.0, 0.0), -1.15, -0.18, 6_500.0),
+    // The bay ring's face close to: the bays' doors and their lamps.
+    orbit(Vec3::new(-16_450.0, -4_200.0 + 2_252.0, 0.0), -1.4, 0.12, 1_600.0),
+    // The mirrors from the side, the whole colony beyond (`?t=2300`: opening at dawn).
+    orbit(Vec3::new(-11_000.0, -4_200.0, 0.0), 0.25, 0.32, 24_000.0),
 ];
 const FIELD_CAMS: [Orbit; 3] = [
     orbit(FIELD, 0.3, 0.1, 400.0),
@@ -354,6 +368,10 @@ impl Plugin for ShowcasePlugin {
         if self.scene == Scene::Hangar {
             app.add_systems(Update, hangar_script.after(script).in_set(crate::view::Vis::Drive));
         }
+        if self.scene == Scene::City {
+            app.add_systems(Startup, city_script)
+                .add_systems(Update, city_crowd.after(script).in_set(crate::view::Vis::Drive));
+        }
         if self.scene == Scene::Chase {
             app.add_systems(
                 Update,
@@ -364,6 +382,8 @@ impl Plugin for ShowcasePlugin {
                 Update,
                 (demo_instruments, crate::hud::place_instruments).chain().in_set(crate::view::Vis::Hud),
             );
+        } else if self.scene == Scene::City {
+            app.add_systems(Update, place_city_camera.in_set(crate::view::Vis::Camera));
         } else {
             app.add_systems(Update, place_camera.in_set(crate::view::Vis::Camera));
         }
@@ -401,6 +421,7 @@ fn cast(scene: Scene) -> Vec<(FrameId, Faction)> {
         ],
         Scene::Hangar => vec![],
         Scene::Surface => vec![(Leo, Faction::Colonies), (Leo, Faction::Colonies), (Leo, Faction::Alliance)],
+        Scene::City => vec![],
     }
 }
 
@@ -956,6 +977,163 @@ fn chase_view(show: Res<Show>, mut prefs: ResMut<ViewPrefs>) {
     }
 }
 
+/// The city scene's render origin: Hub Gate on the Charter strip, at the foot of the end cap.
+fn city_origin() -> bevy::math::DVec3 {
+    use bc_sim::colony::frame::{CityPos, STRIP_WIDTH};
+    crate::city::colony_point(CityPos::new(0, -15_700.0, STRIP_WIDTH * 0.5, 0.0))
+}
+
+/// A place in the city scene: strip, across, along, up, drawn relative to [`city_origin`].
+fn city_at(strip: u8, s: f32, x: f32, h: f32) -> Vec3 {
+    use bc_sim::colony::frame::CityPos;
+    (crate::city::colony_point(CityPos::new(strip, x, s, h)) - city_origin()).as_vec3()
+}
+
+/// Up (towards the axis) and across (the way `s` grows) on strip `strip` at `s`.
+fn city_axes(strip: u8, s: f32) -> (Vec3, Vec3) {
+    let q = bc_sim::colony::frame::local_frame(strip, s);
+    (q * Vec3::Y, -(q * Vec3::Z))
+}
+
+fn city_cams() -> Vec<Orbit> {
+    use bc_sim::colony::city::{CANAL_ROW, KERB, block_rect, channel};
+    use bc_sim::colony::frame::STRIP_WIDTH;
+    let mid = STRIP_WIDTH * 0.5;
+    let (up, across) = city_axes(0, mid);
+    let quay = channel(&block_rect(40, CANAL_ROW)).s0 - 3.0;
+    let (bank_up, bank_across) = city_axes(0, 60.0);
+    vec![
+        // Over Hub Gate's offices, down the avenue to the far end: the city curving up either side.
+        look(city_at(0, mid - 90.0, -15_700.0, 170.0), (Vec3::X * 0.97 - up * 0.2).normalize()),
+        // From the cap lift, 700 m up the end cap.
+        look(city_at(0, mid, -15_990.0, 700.0), (Vec3::X * 0.94 - up * 0.34).normalize()),
+        // On the avenue's pavement downtown, at eye height.
+        look(city_at(0, mid + 30.0, -14_100.0, 1.65), (Vec3::X + up * 0.05).normalize()),
+        // At the window bank, the glass and the strip beyond rising up past the railing.
+        look(
+            city_at(0, 60.0, -12_000.0, 1.65),
+            (-bank_across * 0.8 + bank_up * 0.45 + Vec3::X * 0.3).normalize(),
+        ),
+        // Along the canal from its quay.
+        look(city_at(0, quay, -11_000.0, KERB + 1.65), (Vec3::X - across * 0.08).normalize()),
+        // Near the axis at the docking hub's end, down the whole 32 km.
+        look((bevy::math::DVec3::new(-15_600.0, 300.0, 300.0) - city_origin()).as_vec3(), Vec3::X),
+        // On a tram station's platform (the sixth, x −3,250), a train standing either side of it.
+        look(
+            city_at(
+                0,
+                mid - 1.0,
+                bc_sim::colony::transit::station_x(5) - 32.0,
+                bc_sim::colony::transit::FLOOR + 1.65,
+            ),
+            (Vec3::X - across * 0.12 + up * 0.02).normalize(),
+        ),
+    ]
+}
+
+/// The city scene: the view inside, built whole before the first frame shows.
+fn city_script(mut view: ResMut<crate::city::CityView>, mut origin: ResMut<crate::city::RenderOrigin>) {
+    *view = crate::city::CityView { active: true, sync: true };
+    origin.0 = city_origin();
+}
+
+/// Pilots strolling the avenue's pavements by the third view, and crossing at its corner: the
+/// people as the plaza would show them.
+fn city_crowd(
+    vis: Res<VisTime>,
+    mut crowd: ResMut<crate::people::Crowd>,
+    mut trams: ResMut<crate::trams::TramClock>,
+) {
+    // The trams on the showcase's clock.
+    let t = vis.now * f64::from(bc_sim::TICK_HZ);
+    *trams = crate::trams::TramClock(t.floor() as u32, (t - t.floor()) as f32);
+    use bc_proto::presence::PersonPose;
+    use bc_sim::colony::frame::STRIP_WIDTH;
+    const NAMES: [&str; 16] = [
+        "Heero",
+        "Duo",
+        "Trowa",
+        "Quatre",
+        "Wufei",
+        "Relena",
+        "Zechs",
+        "Noin",
+        "Sally",
+        "Hilde",
+        "Catherine",
+        "Dorothy",
+        "Lady Une",
+        "Treize",
+        "Howard",
+        "Rashid",
+    ];
+    let mid = STRIP_WIDTH * 0.5;
+    let t = vis.now as f32;
+    crowd.0 = NAMES
+        .iter()
+        .enumerate()
+        .map(|(i, name)| {
+            let k = i as f32;
+            // Up or down the avenue, on either pavement, each at their own pace.
+            let dir = if i % 2 == 0 { 1.0 } else { -1.0 };
+            let speed = 1.1 + 0.08 * (i % 7) as f32 + if i % 5 == 0 { 3.2 } else { 0.0 };
+            let side = if i % 3 == 0 { -1.0 } else { 1.0 };
+            let s = mid + side * (24.0 + (k * 3.7) % 13.0);
+            let x = -14_095.0 + (k * 23.0 + dir * speed * t).rem_euclid(160.0);
+            let yaw = if dir > 0.0 { std::f32::consts::FRAC_PI_2 } else { -std::f32::consts::FRAC_PI_2 };
+            let pose = PersonPose {
+                strip: 0,
+                x,
+                s,
+                h: 0.15,
+                yaw,
+                pitch: 0.0,
+                speed,
+                grounded: true,
+                running: speed > 5.0,
+                ride: 0,
+            };
+            (i as u16, (*name).to_string(), pose)
+        })
+        .collect();
+    // A car up the avenue's out-bound road, and a scooter down the in-bound one.
+    let traffic = [
+        ("Noin-car", bc_proto::presence::RIDE_CAR, 1.0f32, mid + 15.0, 11.0),
+        ("Hilde", bc_proto::presence::RIDE_SCOOTER, -1.0, mid - 12.0, 8.0),
+    ];
+    for (k, (name, ride, dir, s, speed)) in traffic.into_iter().enumerate() {
+        let x = -14_100.0 + (dir * speed * t + 40.0 * k as f32).rem_euclid(220.0);
+        let yaw = if dir > 0.0 { std::f32::consts::FRAC_PI_2 } else { -std::f32::consts::FRAC_PI_2 };
+        let pose = PersonPose {
+            strip: 0,
+            x,
+            s,
+            h: 0.0,
+            yaw,
+            pitch: 0.0,
+            speed,
+            grounded: true,
+            running: false,
+            ride,
+        };
+        crowd.0.push((100 + k as u16, name.to_string(), pose));
+    }
+}
+
+/// The camera inside: its up is the colony's where it stands (towards the axis), not +Y.
+fn place_city_camera(
+    show: Res<Show>,
+    origin: Res<crate::city::RenderOrigin>,
+    mut cam: Query<&mut Transform, With<MainCamera>>,
+) {
+    if let Ok(mut tf) = cam.single_mut() {
+        let eye = show.cam.eye();
+        let at = origin.0 + eye.as_dvec3();
+        let up = bc_sim::colony::frame::up_at(at.as_vec3());
+        *tf = Transform::from_translation(eye).looking_at(show.cam.target, up);
+    }
+}
+
 fn place_camera(show: Res<Show>, mut cam: Query<&mut Transform, With<MainCamera>>) {
     if let Ok(mut tf) = cam.single_mut() {
         *tf = Transform::from_translation(show.cam.eye()).looking_at(show.cam.target, Vec3::Y);
@@ -1354,8 +1532,8 @@ fn script(
                 events.0.push(FxEvent::RockBreak { pos: rock.pos, radius: rock.radius, ore });
             }
         }
-        // The bay is driven by `hangar_script`.
-        Scene::Hangar => {}
+        // The bay is driven by `hangar_script`; the city by `city_script`.
+        Scene::Hangar | Scene::City => {}
         Scene::Surface => {
             let pose = mo_ii_at(t);
             let mo_ii = Body::Landmark(0);

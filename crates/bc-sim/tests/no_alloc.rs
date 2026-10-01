@@ -217,3 +217,35 @@ fn riders_never_allocate() {
     assert!(sim.field.is_dead(broken));
     assert_eq!(total, 0, "heap operations inside the tick: {total}");
 }
+
+#[test]
+fn the_colony_answers_without_allocating() {
+    // The city, its day, its frames and its trams are closed forms: asking them anything allocates nothing,
+    // so a future sector inside the colony can ask them in its tick.
+    use bc_sim::colony::{city, frame, time, transit};
+    let mut rng = bc_sim::math::Rng::new(5);
+    let (hits, n) = bc_alloc::count(|| {
+        let mut hits = 0u32;
+        for i in 0..100_000u32 {
+            let k = (i % 3) as u8;
+            let p = glam::Vec3::new(
+                rng.signed() * 16_000.0,
+                rng.next_f32() * 12.0,
+                -rng.next_f32() * frame::STRIP_WIDTH,
+            );
+            let e = glam::Vec3::new(0.3, 0.9, 0.3);
+            hits += u32::from(city::solid(k, p - e, p + e, city::Stage(0)));
+            let d = time::day(i * 7, 0.0);
+            hits += u32::from(time::key_light(k as usize, &d).x > 2.0);
+            let c = frame::CityPos::new(k, p.x, -p.z, p.y).to_colony();
+            hits += u32::from(matches!(frame::from_colony(c), frame::Under::Window { .. }));
+            // The trams, and the walls of a car.
+            let t = transit::train(k, (i % transit::TRAINS) as u8, i * 13, 0.5);
+            hits += u32::from(t.doors);
+            hits += u32::from(transit::car_walls(t.doors, |b| b.h1 > 3.0));
+        }
+        hits
+    });
+    assert!(hits > 1_000, "{hits}: buildings should be hit");
+    assert_eq!(n, 0, "heap operations asking the colony: {n}");
+}

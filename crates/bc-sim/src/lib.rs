@@ -13,6 +13,7 @@ pub mod arms;
 pub mod bodies;
 pub mod chunks;
 pub mod collide;
+pub mod colony;
 pub mod config;
 pub mod content;
 pub mod events;

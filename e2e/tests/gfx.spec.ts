@@ -29,6 +29,12 @@ const scenes: Array<[string, number, number, number]> = [
   ["colony", 2, 6, 12],
   // The dock's ring of lights, off the docking hub.
   ["colony", 5, 6, 12],
+  // The docking hub's end: the bay ring, the spire and the mirrors in their lamps; the same at
+  // night; the bay ring's doors close to; the mirrors opening at dawn.
+  ["colony", 6, 6, 12],
+  ["colony", 6, 1900, 12],
+  ["colony", 7, 6, 12],
+  ["colony", 8, 2300, 12],
   ["field", 1, 6, 12],
   // Wreckage after a fight: hulks, limbs shot off, loose ore.
   ["salvage", 1, 6, 12],
@@ -72,6 +78,16 @@ const scenes: Array<[string, number, number, number]> = [
   ["surface", 1, 2, 45],
   ["surface", 2, 4, 20],
   ["surface", 3, 6, 20],
+  // Inside the colony: down the avenue from Hub Gate (and at night), from the cap lift, downtown
+  // at eye height, at a window bank, along the canal, and from near the axis down the length.
+  ["city", 1, 6, 4],
+  ["city", 1, 1900, 4],
+  ["city", 2, 6, 4],
+  ["city", 3, 6, 4],
+  ["city", 4, 6, 4],
+  ["city", 5, 6, 4],
+  ["city", 6, 6, 4],
+  ["city", 7, 6, 4],
 ];
 
 for (const [scene, cam, t, frames] of scenes) {

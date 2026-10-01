@@ -89,6 +89,8 @@ pub struct Config {
     pub craft_speed: f64,
     /// Where pilot records and the exchange are kept (none: in memory, for this run only).
     pub data_dir: Option<PathBuf>,
+    /// The colony is open (survival): pilots may ride the cap lifts down into its city.
+    pub colony: bool,
 }
 
 impl Default for Config {
@@ -114,6 +116,7 @@ impl Default for Config {
             flight: Flight::Anime,
             craft_speed: 1.0,
             data_dir: None,
+            colony: false,
         }
     }
 }

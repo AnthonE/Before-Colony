@@ -1,10 +1,34 @@
-//! On foot: a first-person body (a box 0.6 m across and 1.8 m tall) under the bay's gravity. It
-//! slides along what it runs into, steps up stairs, jumps, and falls. And a guide that walks it
-//! along a route, for tests, agents and the browser's autopilot.
+//! On foot: a first-person body (a box 0.6 m across and 1.8 m tall) under the gravity of where it
+//! is. It slides along what it runs into, steps up stairs and kerbs, jumps, and falls. What it
+//! walks among is a [`Solid`]: the bay's layout, the colony's city (`crate::city`), the inside of
+//! a car it rides. And a guide that walks it along a route, for tests, agents and the browser's
+//! autopilot.
 
 use glam::Vec3;
 
 use crate::bay::{GRAVITY, Layout};
+
+/// What a walker walks among, in its frame (Y up).
+pub trait Solid {
+    /// Whether the box `min..max` touches anything.
+    fn hits(&self, min: Vec3, max: Vec3) -> bool;
+
+    /// The pull down −Y at `feet`, m/s².
+    fn gravity(&self, _feet: Vec3) -> f32 {
+        GRAVITY
+    }
+
+    /// The frame's own push on what's in it (a car braking: its acceleration, taken away), m/s².
+    fn push(&self) -> Vec3 {
+        Vec3::ZERO
+    }
+}
+
+impl Solid for Layout {
+    fn hits(&self, min: Vec3, max: Vec3) -> bool {
+        Layout::hits(self, min, max)
+    }
+}
 
 /// Eye height above the feet, m.
 pub const EYE: f32 = 1.62;
@@ -75,22 +99,22 @@ impl Walker {
         (feet + Vec3::new(-HALF, 0.0, -HALF), feet + Vec3::new(HALF, HEIGHT, HALF))
     }
 
-    fn clear(bay: &Layout, feet: Vec3) -> bool {
+    fn clear<W: Solid + ?Sized>(world: &W, feet: Vec3) -> bool {
         let (a, b) = Self::body(feet);
-        !bay.hits(a, b)
+        !world.hits(a, b)
     }
 
-    /// Moves the body `dt` seconds on.
-    pub fn step(&mut self, bay: &Layout, s: &Stride, dt: f32) {
+    /// Moves the body `dt` seconds on among `world`.
+    pub fn step<W: Solid + ?Sized>(&mut self, world: &W, s: &Stride, dt: f32) {
         let mut left = dt.clamp(0.0, 0.25);
         while left > 1e-6 {
             let h = left.min(SUBSTEP);
-            self.substep(bay, s, h);
+            self.substep(world, s, h);
             left -= h;
         }
     }
 
-    fn substep(&mut self, bay: &Layout, s: &Stride, dt: f32) {
+    fn substep<W: Solid + ?Sized>(&mut self, bay: &W, s: &Stride, dt: f32) {
         let f = self.heading();
         let right = Vec3::new(-f.z, 0.0, f.x);
         let wish = (f * s.forward.clamp(-1.0, 1.0) + right * s.right.clamp(-1.0, 1.0)).clamp_length_max(1.0)
@@ -104,7 +128,8 @@ impl Walker {
             self.vel.y = JUMP;
             self.grounded = false;
         }
-        self.vel.y -= GRAVITY * dt;
+        self.vel.y -= bay.gravity(self.feet) * dt;
+        self.vel += bay.push() * dt;
         let stepped_x = self.slide(bay, 0, self.vel.x * dt);
         let stepped_z = self.slide(bay, 2, self.vel.z * dt);
         if stepped_x || stepped_z {
@@ -114,7 +139,7 @@ impl Walker {
     }
 
     /// Moves along a horizontal axis, stepping up a ledge on the way if it can. Whether it did.
-    fn slide(&mut self, bay: &Layout, axis: usize, d: f32) -> bool {
+    fn slide<W: Solid + ?Sized>(&mut self, bay: &W, axis: usize, d: f32) -> bool {
         if d == 0.0 {
             return false;
         }
@@ -149,7 +174,7 @@ impl Walker {
     }
 
     /// Drops the feet onto what's below, at most `most` down (after stepping up).
-    fn settle(&mut self, bay: &Layout, most: f32) {
+    fn settle<W: Solid + ?Sized>(&mut self, bay: &W, most: f32) {
         let (mut lo, mut hi) = (0.0f32, most);
         if Self::clear(bay, self.feet - Vec3::Y * hi) {
             return;
@@ -168,7 +193,7 @@ impl Walker {
     }
 
     /// Moves vertically: lands on the floor, bumps its head.
-    fn fall(&mut self, bay: &Layout, d: f32) {
+    fn fall<W: Solid + ?Sized>(&mut self, bay: &W, d: f32) {
         let to = self.feet + Vec3::Y * d;
         if Self::clear(bay, to) {
             self.feet = to;

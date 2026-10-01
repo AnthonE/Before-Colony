@@ -648,3 +648,99 @@ fn surface_golden_native() {
 fn surface_golden_wasm() {
     assert_eq!(surface_hash(), SURFACE_GOLDEN);
 }
+
+/// Hash of the colony's closed forms: the city's blocks and buildings on every strip (every fifth
+/// block along, every row), what's solid at scattered points, the colony's day and its frames,
+/// and its trams (their timetable, the stations' platforms).
+/// Every client draws and walks this, and the server checks poses against it.
+const CITY_GOLDEN: u64 = 0xa794_5f3a_f31a_0372;
+
+fn city_hash() -> u64 {
+    use bc_sim::colony::{city, frame, time};
+    let stage = city::Stage(0);
+    let mut h = 0xcbf2_9ce4_8422_2325;
+    for k in 0..3u8 {
+        for bx in (city::HUB_GATE.0..=city::FAR_FOOT.1).step_by(5) {
+            for row in -city::BANK_ROW..=city::BANK_ROW {
+                for b in city::texel(k, bx, row, stage) {
+                    fnv(&mut h, u32::from(b));
+                }
+                if let Some(b) = city::block(k, bx, row, stage) {
+                    for bd in city::lots(&b).as_slice() {
+                        for v in [bd.foot.s0, bd.foot.s1, bd.foot.x0, bd.foot.x1, bd.height, bd.top()] {
+                            fnv(&mut h, v.to_bits());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut rng = bc_sim::math::Rng::new(99);
+    for _ in 0..4_000 {
+        let k = (rng.next_u32() % 3) as u8;
+        let p = glam::Vec3::new(
+            rng.signed() * 16_000.0,
+            rng.next_f32() * 20.0 - 1.0,
+            -rng.next_f32() * frame::STRIP_WIDTH,
+        );
+        let e = glam::Vec3::new(0.3, 0.9, 0.3);
+        fnv(&mut h, u32::from(city::solid(k, p - e, p + e, stage)));
+        fnv(&mut h, city::ground(k, -p.z, p.x, stage).to_bits());
+    }
+    for t in (0..time::DAY_TICKS).step_by(997) {
+        let d = time::day(t, 0.5);
+        for v in [d.daylight, d.mirror_beta, d.lamps, d.sun_elev] {
+            fnv(&mut h, v.to_bits());
+        }
+        let l = time::key_light((t % 3) as usize, &d);
+        for v in [l.x, l.y, l.z] {
+            fnv(&mut h, v.to_bits());
+        }
+    }
+    for i in 0..300 {
+        let p = frame::CityPos::new(
+            (i % 3) as u8,
+            -15_000.0 + 100.0 * i as f32,
+            11.0 * i as f32,
+            (i % 17) as f32,
+        );
+        let c = p.to_colony();
+        for v in [c.x, c.y, c.z] {
+            fnv(&mut h, v.to_bits());
+        }
+    }
+    // The trams: their timetable, and the stations' platforms.
+    use bc_sim::colony::transit;
+    for strip in 0..3u8 {
+        for k in 0..transit::TRAINS as u8 {
+            for t in (0..transit::PERIOD_TICKS).step_by(7_919) {
+                let tr = transit::train(strip, k, t, 0.37);
+                for v in [tr.x, tr.s, tr.dir, tr.speed, tr.accel] {
+                    fnv(&mut h, v.to_bits());
+                }
+                fnv(&mut h, u32::from(tr.doors) | tr.at.map_or(0, |a| a as u32 + 2) << 1);
+            }
+        }
+    }
+    for i in 0..400 {
+        let x = transit::station_x(i % transit::STATIONS) - 45.0 + 0.23 * i as f32;
+        let p = glam::Vec3::new(x, 0.3, -frame::STRIP_WIDTH * 0.5 - 1.0);
+        let e = glam::Vec3::new(0.3, 0.9, 0.3);
+        fnv(&mut h, u32::from(city::solid((i % 3) as u8, p - e, p + e, stage)));
+    }
+    h
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn city_golden_native() {
+    let h = city_hash();
+    assert_eq!(h, city_hash(), "must be reproducible within a process");
+    assert_eq!(h, CITY_GOLDEN, "the city's hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn city_golden_wasm() {
+    assert_eq!(city_hash(), CITY_GOLDEN);
+}

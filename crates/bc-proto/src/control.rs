@@ -38,6 +38,8 @@ pub mod welcome_flags {
     /// Anime flight rules: the tank is a boost gauge that fills back up, and pilots bear more G
     /// (`bc_sim::tuning::FlightRules::Anime`). The owner's client predicts by them.
     pub const ANIME: u8 = 1 << 3;
+    /// The colony is open: the bay's airlock leads to the cap lifts, and down to its city.
+    pub const COLONY: u8 = 1 << 4;
 }
 
 /// [`ControlMsg::Roster`] flags.

@@ -70,6 +70,12 @@ pub enum Request {
     Launch,
     /// Take the suit into the bay (it must be resting in the dock).
     Dock,
+    /// Ride a cap lift down from the bays into the colony, to Hub Gate on land strip `strip`.
+    EnterCity {
+        strip: u8,
+    },
+    /// Ride the cap lift back up to the bay.
+    LeaveCity,
 }
 
 /// Where the pilot is.
@@ -80,6 +86,8 @@ pub enum Place {
     Hangar,
     /// In the cockpit, in the sector.
     Space,
+    /// On foot inside the colony, in its city.
+    City,
 }
 
 /// How a sortie ended.
@@ -100,6 +108,9 @@ pub enum Update {
     Place {
         place: Place,
         bay: u8,
+        /// In the city: which land strip.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        strip: Option<u8>,
     },
     Hangar(HangarView),
     Market(MarketView),
@@ -122,6 +133,18 @@ pub enum Update {
     News {
         text: String,
     },
+    /// In the city: the names of people the pilot sees for the first time (by client slot, as the
+    /// plaza's datagrams name them).
+    People {
+        people: Vec<Person>,
+    },
+}
+
+/// Someone in the city, by the slot the plaza's datagrams know them by.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Person {
+    pub id: u16,
+    pub name: String,
 }
 
 /// A job, as the pilot sees it.
@@ -242,7 +265,11 @@ pub fn apply(
                 Err("no such order".into())
             }
         }
-        Request::Watch { .. } | Request::Launch | Request::Dock => return None,
+        Request::Watch { .. }
+        | Request::Launch
+        | Request::Dock
+        | Request::EnterCity { .. }
+        | Request::LeaveCity => return None,
     })
 }
 

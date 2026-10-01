@@ -227,6 +227,8 @@
     hint.textContent = v.hint || "";
     show(hint, s === "playing" && !!v.hint && v.panel === "none");
     show($("help"), v.help);
+    show($("map"), s === "playing" && !!v.map && v.panel === "none");
+    if (s === "playing" && v.map && v.panel === "none") drawMap(v.map);
     show($("prompt"), s === "playing" && v.clickToFly && !v.help && !v.sequence);
     const verb = v.place === "hangar" && v.onFoot ? "WALK" : "FLY";
     $("prompt-main").textContent = v.refused ? `CLICK AGAIN TO ${verb}` : `CLICK TO ${verb}`;
@@ -275,7 +277,116 @@
     }
   }
 
+  // --- The colony's map (M): the strip the pilot is on, drawn from the city's tables (`init`). ---
+  let city = null;
+  // A canvas the page's width, `data-h` CSS pixels tall, at the screen's resolution.
+  function sizeCanvas(c) {
+    const dpr = window.devicePixelRatio || 1;
+    const cssH = Number(c.dataset.h);
+    c.style.height = `${cssH}px`;
+    const w = Math.round(c.clientWidth * dpr), h = Math.round(cssH * dpr);
+    if (w > 0 && (c.width !== w || c.height !== h)) {
+      c.width = w;
+      c.height = h;
+    }
+    return c.getContext("2d");
+  }
+  function drawMap(at) {
+    if (!city) return;
+    const strip = city.strips[at.strip] || city.strips[0];
+    const district = strip.districts.find((d) => at.x >= d.x && at.x < d.x1);
+    $("map-title").textContent = `THE FIRST COLONY · ${strip.name}` + (district ? ` · ${district.name}` : "");
+    const css = getComputedStyle(document.documentElement);
+    const cyan = css.getPropertyValue("--cyan").trim();
+    const amber = css.getPropertyValue("--amber").trim();
+    const label = css.getPropertyValue("--label").trim();
+    const font = (px) => `${px}px ${css.getPropertyValue("--label-font")}`;
+    const dpr = window.devicePixelRatio || 1;
+
+    // The whole strip, end to end: its districts, and where the pilot is.
+    const top = sizeCanvas($("map-strip"));
+    const tw = top.canvas.width, th = top.canvas.height;
+    const tx = (x) => ((x - city.x0) / (city.x1 - city.x0)) * tw;
+    top.clearRect(0, 0, tw, th);
+    strip.districts.forEach((d, i) => {
+      top.fillStyle = d.x === strip.districts[strip.districts.length - 1].x ? "rgba(255,181,71,0.18)"
+        : i % 2 ? "rgba(159,198,230,0.16)" : "rgba(159,198,230,0.28)";
+      top.fillRect(tx(d.x), 0, tx(d.x1) - tx(d.x), th);
+    });
+    top.fillStyle = cyan;
+    top.fillRect(tx(at.x) - 1.5 * dpr, 0, 3 * dpr, th);
+
+    // Round the pilot: the strip's whole width across (+s up, as seen from the axis), kilometres along.
+    const g = sizeCanvas($("map-near"));
+    const W = g.canvas.width, H = g.canvas.height;
+    const k = H / city.width;
+    const span = W / k;
+    const x0 = Math.min(Math.max(at.x - span / 2, city.x0), city.x1 - span);
+    const X = (x) => (x - x0) * k;
+    const Y = (s) => H - s * k;
+    g.clearRect(0, 0, W, H);
+    // The blocks between the streets, the window banks green.
+    g.fillStyle = "rgba(159,198,230,0.07)";
+    g.fillRect(0, 0, W, H);
+    g.fillStyle = "rgba(141,255,168,0.12)";
+    const bank = (city.width - city.avenue) / 2 - city.rows * city.block;
+    g.fillRect(0, Y(bank), W, bank * k);
+    g.fillRect(0, 0, W, bank * k);
+    g.strokeStyle = "rgba(4,10,18,0.9)";
+    g.lineWidth = Math.max(1, 0.8 * dpr);
+    for (let bx = Math.floor((x0 - city.gridX0) / city.block); ; bx++) {
+      const x = city.gridX0 + bx * city.block;
+      if (X(x) > W) break;
+      if (x < city.x0 || x > city.x1) continue;
+      g.beginPath(); g.moveTo(X(x), Y(bank)); g.lineTo(X(x), Y(city.width - bank)); g.stroke();
+    }
+    for (let r = 0; r <= city.rows; r++) {
+      for (const sign of [-1, 1]) {
+        const s = city.width / 2 + sign * (city.avenue / 2 + r * city.block);
+        g.beginPath(); g.moveTo(0, Y(s)); g.lineTo(W, Y(s)); g.stroke();
+      }
+    }
+    // Hub Gate's square, the avenue and the canal.
+    const [q0, q1, qx0, qx1] = city.square;
+    g.fillStyle = "rgba(238,244,251,0.18)";
+    g.fillRect(X(qx0), Y(q1), (qx1 - qx0) * k, (q1 - q0) * k);
+    g.fillStyle = "rgba(238,244,251,0.35)";
+    g.fillRect(0, Y(city.width / 2 + city.avenue / 2), W, Math.max(2 * dpr, city.avenue * k));
+    g.fillStyle = "rgba(90,170,230,0.55)";
+    g.fillRect(0, Y(city.canal[1]), W, Math.max(2 * dpr, (city.canal[1] - city.canal[0]) * k));
+    // District lines and names.
+    g.font = font(11 * dpr);
+    g.textBaseline = "top";
+    for (const d of strip.districts) {
+      if (X(d.x1) < 0 || X(d.x) > W) continue;
+      g.strokeStyle = "rgba(159,198,230,0.5)";
+      g.beginPath(); g.moveTo(X(d.x), 0); g.lineTo(X(d.x), H); g.stroke();
+      g.fillStyle = label;
+      g.fillText(d.name, Math.max(X(d.x), 0) + 6 * dpr, 6 * dpr);
+    }
+    // Sights and places.
+    const mark = (p, colour, size) => {
+      if (X(p.x) < -40 || X(p.x) > W + 40) return;
+      g.fillStyle = colour;
+      g.beginPath(); g.arc(X(p.x), Y(p.s), size * dpr, 0, Math.PI * 2); g.fill();
+      g.fillText(p.name, X(p.x) + (size + 4) * dpr, Y(p.s) - 6 * dpr);
+    };
+    for (const p of strip.sights) mark(p, label, 3);
+    for (const p of strip.places) mark(p, amber, 4.5);
+    // The pilot, and the way they face.
+    const px = X(at.x), py = Y(at.s), r = 9 * dpr;
+    const c = Math.cos(at.heading), sn = Math.sin(at.heading);
+    g.fillStyle = cyan;
+    g.beginPath();
+    g.moveTo(px + c * r, py + sn * r);
+    g.lineTo(px - c * r * 0.6 - sn * r * 0.55, py - sn * r * 0.6 + c * r * 0.55);
+    g.lineTo(px - c * r * 0.6 + sn * r * 0.55, py - sn * r * 0.6 - c * r * 0.55);
+    g.closePath();
+    g.fill();
+  }
+
   function init(data) {
+    city = data.city || null;
     frames = data.frames || [];
     autoplay = !!data.autoplay;
     if (data.frame && frames.some((f) => f.slug === data.frame)) chosen = data.frame;

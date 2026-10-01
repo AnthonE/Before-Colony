@@ -166,6 +166,8 @@ fn setup_sky(
             ..default()
         },
         Transform::default().looking_to(-SUN_DIR, Vec3::Y),
+        // Space's sun, and inside the colony the strip's (the city's own layer).
+        bevy::camera::visibility::RenderLayers::from_layers(&[0, crate::city::CITY_LAYER]),
     ));
     let (diffuse, specular) = environment_maps(&mut images);
     commands.insert_resource(SkyMaps { diffuse, specular });
@@ -185,8 +187,13 @@ fn apply_light_tier(
     mut skies: Query<&SkyDome>,
     mut sky_materials: ResMut<Assets<SkyMaterial>>,
     mut floods: Query<(&mut SpotLight, &crate::hangar::Flood)>,
+    city: Res<crate::city::CityView>,
 ) {
-    if !gfx.is_changed() && added.is_empty() && !indoors.is_changed() {
+    if !gfx.is_changed() && added.is_empty() && !indoors.is_changed() && !city.is_changed() {
+        return;
+    }
+    // Inside the colony, its own light (`city::light_city`).
+    if city.active {
         return;
     }
     let s = gfx.settings;
@@ -271,10 +278,15 @@ fn sun_visibility(p: Vec3) -> f32 {
 fn eclipse(
     time: Res<VisTime>,
     indoors: Res<crate::hangar::Indoors>,
+    city: Res<crate::city::CityView>,
     cams: Query<&Transform, With<MainCamera>>,
     mut suns: Query<&mut DirectionalLight, With<Sun>>,
     mut vis: Local<Option<f32>>,
 ) {
+    if city.active {
+        *vis = None;
+        return;
+    }
     let Ok(cam) = cams.single() else { return };
     let target = if indoors.0 { 0.0 } else { sun_visibility(cam.translation) };
     let k = 1.0 - (-time.dt * 6.0).exp();

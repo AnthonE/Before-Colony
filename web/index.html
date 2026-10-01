@@ -82,6 +82,14 @@
     </div>
   </div>
 
+  <!-- In the colony: the map (M) of the strip the pilot walks, the whole of it along the top and
+       the streets round them below (not modal: walking goes on under it). -->
+  <div id="map" class="map hidden">
+    <div class="map-head"><span id="map-title"></span><span class="note">M to close</span></div>
+    <canvas id="map-strip" data-h="30"></canvas>
+    <canvas id="map-near" data-h="380"></canvas>
+  </div>
+
   <!-- Settings: drawn from the game's list of them (bc_client_core::settings::KNOBS). -->
   <div id="settings" class="overlay dim hidden">
     <div class="card wide">

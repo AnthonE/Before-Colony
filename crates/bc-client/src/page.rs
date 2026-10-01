@@ -160,6 +160,10 @@ pub struct Ui {
     /// (its number, their credits).
     pub prompt: String,
     pub bay_line: String,
+    /// In the colony: the map (M) is up, and where the pilot stands on it (strip, `x` along, `s`
+    /// across, heading in the map's terms: radians from +x towards −s).
+    pub map: bool,
+    pub map_at: Option<[f32; 4]>,
     /// A sortie's news, shown large for a few seconds.
     news_seq: u32,
     news: String,
@@ -331,6 +335,7 @@ pub struct View {
     sequence: bool,
     prompt: String,
     bay_line: String,
+    map_at: Option<[f32; 4]>,
     news_seq: u32,
     news: String,
     news_bad: bool,
@@ -369,6 +374,7 @@ impl View {
             sequence: ui.sequence,
             prompt: ui.prompt.clone(),
             bay_line: ui.bay_line.clone(),
+            map_at: ui.map_at.filter(|_| ui.map),
             news_seq: ui.news_seq,
             news: ui.news.clone(),
             news_bad: ui.news_bad,
@@ -402,6 +408,14 @@ impl View {
         set(&o, "sequence", self.sequence);
         set(&o, "prompt", self.prompt.as_str());
         set(&o, "bayLine", self.bay_line.as_str());
+        if let Some([strip, x, s, heading]) = self.map_at {
+            let at = Object::new();
+            set(&at, "strip", strip);
+            set(&at, "x", x);
+            set(&at, "s", s);
+            set(&at, "heading", heading);
+            set(&o, "map", at);
+        }
         set(&o, "newsSeq", self.news_seq);
         set(&o, "news", self.news.as_str());
         set(&o, "newsBad", self.news_bad);
@@ -496,6 +510,7 @@ pub fn init_page(
     let init = Object::new();
     set(&init, "frames", frames);
     set(&init, "controls", controls);
+    set(&init, "city", city_map());
     let saved = settings.as_ref().map(|s| &s.0);
     let pick = |url: &str, saved: Option<&str>| {
         if url.is_empty() { saved.unwrap_or_default().to_string() } else { url.to_string() }
@@ -504,4 +519,73 @@ pub fn init_page(
     set(&init, "frame", pick(&cfg.0.frame, saved.map(|s| s.frame.as_str())));
     set(&init, "autoplay", cfg.0.autoplay);
     call_ui("init", &init);
+}
+
+/// The colony's city for the page's map (M): each strip's districts along it, its key places'
+/// doors and its sights, and the grid's lines the map draws them on (`bc_sim::colony::city`).
+fn city_map() -> Object {
+    use bc_sim::colony::city::{
+        AVENUE, BLOCK, CANAL_ROW, CITY, DISTRICT_BLOCKS, HUB_GATE, ROWS, SITE, SQUARE_ROWS, block_rect,
+        channel, grid_x, place_door, row_span,
+    };
+    use bc_sim::colony::frame::{STRIP_WIDTH, STRIPS};
+    use bc_sim::content::city::{DISTRICT_NAMES, PLACES, SIGHTS, STRIP_NAMES};
+    let point = |name: &str, s: f32, x: f32| {
+        let o = Object::new();
+        set(&o, "name", name);
+        set(&o, "s", s);
+        set(&o, "x", x);
+        o
+    };
+    let strips = Array::new();
+    for k in 0..STRIPS {
+        let strip = Object::new();
+        set(&strip, "name", STRIP_NAMES[k]);
+        let districts = Array::new();
+        for (d, name) in DISTRICT_NAMES[k].iter().enumerate() {
+            let d = d as i32;
+            let b0 = if d == 0 { HUB_GATE.0 } else { CITY.0 + DISTRICT_BLOCKS * d };
+            let b1 = (CITY.0 + DISTRICT_BLOCKS * (d + 1)).min(CITY.1 + 1);
+            let o = point(name, 0.0, grid_x(b0));
+            set(&o, "x1", grid_x(b1));
+            districts.push(&o);
+        }
+        let site = point("THE BUILDING SITE", 0.0, grid_x(SITE.0));
+        set(&site, "x1", grid_x(SITE.1 + 1));
+        districts.push(&site);
+        set(&strip, "districts", districts);
+        let places = Array::new();
+        for p in PLACES.iter().filter(|p| p.strip as usize == k) {
+            let ((s, x), _) = place_door(p);
+            places.push(&point(p.name, s, x));
+        }
+        set(&strip, "places", places);
+        let sights = Array::new();
+        for &(_, bx, row, name) in SIGHTS.iter().filter(|s| s.0 as usize == k) {
+            let (s0, s1) = row_span(row);
+            sights.push(&point(name, (s0 + s1) * 0.5, grid_x(bx) + BLOCK * 0.5));
+        }
+        set(&strip, "sights", sights);
+        strips.push(&strip);
+    }
+    let canal = channel(&block_rect(CITY.0, CANAL_ROW));
+    let o = Object::new();
+    set(&o, "strips", strips);
+    set(&o, "width", STRIP_WIDTH);
+    set(&o, "x0", grid_x(HUB_GATE.0));
+    set(&o, "x1", grid_x(SITE.1 + 1));
+    set(&o, "block", BLOCK);
+    set(&o, "gridX0", grid_x(0));
+    set(&o, "avenue", AVENUE);
+    set(&o, "rows", ROWS);
+    set(&o, "canal", Array::of2(&JsValue::from(canal.s0), &JsValue::from(canal.s1)));
+    // Hub Gate's square: (s0, s1, x0, x1).
+    let (sq0, _) = row_span(-SQUARE_ROWS);
+    let (_, sq1) = row_span(SQUARE_ROWS);
+    let square = Array::new();
+    for v in [sq0, sq1, grid_x(HUB_GATE.0), grid_x(HUB_GATE.1 + 1)] {
+        square.push(&JsValue::from(v));
+    }
+    set(&o, "square", square);
+    o
 }

@@ -1,4 +1,4 @@
-# Before Colony wire protocol (v11)
+# Before Colony wire protocol (v12)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
@@ -232,6 +232,34 @@ its segment: `pos(t) = pos + vel · (t − t0)·DT`, spinning at `spin`. The ser
 exactly the quantized segment it sends, so clients evaluating it at the same tick get the same
 answer to the bit.
 
+## The colony's people: pose and plaza datagrams
+
+Pilots on foot in the colony's city (survival, `--colony`) are relayed by their session tasks,
+off the sector's tick (`bc_proto::presence`; the server's `plaza`). Positions are a strip's city
+coordinates, where the city stands still: `x` along (22 bits over ±16,384 m), `s` across from the
+strip's edge (19 bits over 0–4,096 m), `h` up (15 bits over −8–248 m), all in 7.8 mm steps; the
+walker's yaw (10 bits), pitch (8 bits over ±90°), speed over the ground (6 bits, 0.2 m/s steps to
+12.6), GROUNDED and RUNNING, and what they ride (4 bits: 0 on foot, `k` + 1 on train `k` of the
+strip's line, 13 driving a car, 14 on a scooter), 86 bits in all. A rider's `x`, `s` and `h` are from their train's middle, from its
+track's middle plus 2,048 m, and from its floor: everyone draws them inside the train wherever
+their own screen has it (`transit::train` is a closed form of the tick).
+
+| Datagram | Content | Size |
+|---|---|---|
+| kind 3, Pose (client → server, 15 Hz in the city) | kind (4), seq (u16), strip (2), the pose (86) | 14 B |
+| kind 4, Plaza (server → client: 10 Hz in the city, 2 Hz in the bay) | kind (4), the sector's tick (u32), in the city (1), strip (2), then until the bits run out: per person their client slot (10), how long before the tick their pose was heard (6 bits, 10 ms steps) and the pose (86) | 5 B + 12.75 B a person, at most 48 (617 B) |
+
+A pose is taken only if it could be: on the pilot's strip, inside the colony, out of the walls
+(`bc_sim::colony::city::solid`), no further from the last one taken than 13.5 m/s and 2 m allow, the
+first within 150 m of the strip's Hub Gate, and newer (`seq`) than the last. A rider must be inside
+their train's cars; getting on or off, within 8 m of the train while it stood with its doors open
+(within 3 s of the sector's tick). A driver's first pose must be at a motor pool
+(`bc_sim::colony::pools`), and no driver goes faster than 45.5 m/s. Anything else isn't
+passed on (`/status`'s `city.refused_poses`). Each pilot is sent the people on their strip within
+1.5 km of them, heard from in the last 5 s, nearest first; their names come once each on the
+control stream (`people`). The plaza's tick keeps a client's clock (and the colony's day) when no
+snapshots come: in the city, and in the bay.
+
 ## Control stream
 
 Frames are `[u16 LE payload length][u8 tag][payload]`, byte-aligned, at most 256 bytes with the
@@ -240,7 +268,7 @@ prefix, except the hangar's (tag 11), which may carry up to 64 KiB.
 | Tag | Message | Direction |
 |---|---|---|
 | 1 | Hello {version, pilot kind, frame, faction, name ≤ 16 B, flags (1 SIGN_IN, 2 RESUME), resume token (32 B, only with RESUME)} | client → server (first frame) |
-| 2 | Welcome {version, client slot, tick, tick_hz, sector, zero_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME), landmarks (u8)} | server → client |
+| 2 | Welcome {version, client slot, tick, tick_hz, sector, zero_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY), landmarks (u8)} | server → client |
 | 3 | Reject {reason: 1 version, 2 full, 3 bad hello, 4 frame not allowed, 5 sign-in failed, 6 sign-in required, 7 resume token expired, 8 no signature in time} | server → client |
 | 4 | Roster {entity slot, pilot kind, name (empty = left), flags (1 VERIFIED, 2 ASLEEP)} | server → client |
 | 5 | Respawn {frame} | client → server |
@@ -324,18 +352,23 @@ Client → server (`Request`):
 | `watch` | `item` (or `null`) | send that item's book and history as they change |
 | `launch` | | board and launch the suit in the bay |
 | `dock` | | take the suit home (at rest inside the dock) |
+| `enter_city` | `strip` (0–2) | ride the cap lift down from the bay to that strip's Hub Gate (the colony open, and the pilot in their bay) |
+| `leave_city` | | ride the lift back up from Hub Gate to the bay |
 
 Items are slugs: `ore.nickel_iron`, `mat.steel`, `mat.components`, `part.leo.torso`,
 `weapon.beam_rifle`, `module.g_seat`. Parts are
 `head`, `torso`, `arm_l`, `arm_r`, `legs`, `backpack`. Prices are credits a tonne for ores and
 materials (quantities in kg), credits a piece for everything else.
 
-Server → client (`Update`): `place` {`place`: `hangar` or `space`, `bay`}; `hangar` (credits,
+Server → client (`Update`): `place` {`place`: `hangar`, `space` or `city`, `bay`, and in the city
+its `strip`}; `hangar` (credits,
 stock, parts with their condition, the bay: `empty`, `docked` or `out` with the suit, the job
 queues with their time left); `market` (every item's bid, ask, last and volume, the pilot's
 orders, the fee); `book` {`depth`, `history`}; `note` {`text`, `ok`} answering a request (or
 news: a job done, an order filled); `sortie` {`outcome`: `docked`, `lost`, `recovered`, `text`};
-`news` {`text`} (a pilot's arrival; the colony's announcements). A suit (in the bay, or out) carries
+`news` {`text`} (a pilot's arrival; the colony's announcements); `people` {`people`: [{`id`,
+`name`}]} (in the city: the names of people seen there for the first time, by the slot the plaza's
+datagrams use). A suit (in the bay, or out) carries
 `faults`, a map from system slug to `damaged` or `failed` (absent when everything works), and
 `modules`, its five equipment mounts' slugs (or `null`); a part on the shelf carries its own
 `faults`.
@@ -345,6 +378,14 @@ A launch puts the suit in the sector at the docking hub's mouth (the pilot's slo
 stay the same; snapshots start), and `place` says `space`. Docking answers with a `sortie` and
 `place: hangar`, or a refusing `note`. A suit destroyed out there sends `sortie: lost` at once and
 `place: hangar` once the wreck clears.
+
+The colony (the Welcome sets COLONY: a survival server run with `--colony`): from the bay,
+`enter_city` answers `place: city` with the strip, or a refusing `note`; in the city the hangar and
+the market keep coming (the Exchange floor's terminal is the bay's), and `launch` is refused.
+`leave_city` answers `place: hangar`. The city itself is compiled content (`bc_sim::colony::city`,
+`content::city::CITY_VERSION`), the same on every client and the server, so any change to it bumps
+the protocol version. Walking the city is the client's own, as in the bay; where the pilot stands goes
+to the server in pose datagrams (above), for the others there to see.
 
 ### Setting up the sector
 

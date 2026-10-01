@@ -1,0 +1,17 @@
+//! The colony as the people inside it know it, in closed forms everyone evaluates alike: its frames
+//! (`frame`: the strips, and a point on the floor in city coordinates), its day (`time`: the
+//! mirrors open and close on the tick's clock), its mirrors (`mirrors`), the docking hub's
+//! structures (`hub`) and its city (`city`: streets, blocks and buildings, worked out where
+//! they're asked for).
+//!
+//! To suits and shots the colony is still `world`'s solid cylinder; this is the rest of it. Like
+//! the bodies, nothing here allocates or reads a clock of its own, and every function is the same
+//! to the bit on the server and in the browser (libm through `math`).
+
+pub mod city;
+pub mod frame;
+pub mod hub;
+pub mod mirrors;
+pub mod pools;
+pub mod time;
+pub mod transit;
