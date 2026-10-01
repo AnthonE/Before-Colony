@@ -5,7 +5,9 @@
 //! - plates come away as a part wears down;
 //! - a part shot to nothing breaks away and the stump sparks. In game the piece that flies off is
 //!   the server's limb chunk (`salvage_vis`); the offline showcase flies its own;
-//! - a suit that dies goes up in secondary blasts, and what's left drifts on as a hulk.
+//! - a suit that dies goes up in secondary blasts, and what's left drifts on as a hulk;
+//! - what's broken inside shows: a damaged system sparks, a failed one smokes, a holed tank vents
+//!   a jet of propellant (from the entity flags, the own suit's included).
 //!
 //! All of it follows the replicated part states and seeds, so every client sees the same pieces
 //! go.
@@ -263,6 +265,25 @@ pub fn damage_suits(
         for bone in blasts_due {
             let at = bone_point(d, Some(anim), bone, Vec3::ZERO);
             particles.explosion(cap, At { pos: at, vel: d.vel }, 0.35);
+        }
+        // What's broken inside: sparks, smoke, a vapour jet (not from a wreck).
+        if !wreck {
+            if d.flags & (ent_flags::SPARKING | ent_flags::SMOKING) != 0 && dmg.rng.next_f32() < dt * 3.0 {
+                let bone = [Bone::Chest, Bone::Backpack, Bone::ShoulderL, Bone::ShoulderR]
+                    [(dmg.rng.next_f32() * 4.0) as usize % 4];
+                let at = bone_point(d, Some(anim), bone, Vec3::ZERO);
+                let n = Vec3::new(dmg.rng.signed(), dmg.rng.signed(), dmg.rng.signed()).normalize_or(Vec3::Y);
+                particles.impact(cap, At { pos: at, vel: d.vel }, n, Vec3::new(5.0, 6.0, 10.0), 0.35);
+            }
+            if d.flags & ent_flags::SMOKING != 0 {
+                let at = bone_point(d, Some(anim), Bone::Backpack, Vec3::ZERO);
+                particles.smoke(cap, At { pos: at, vel: d.vel }, 1.0, dt);
+            }
+            if d.flags & ent_flags::VENTING != 0 {
+                let at = bone_point(d, Some(anim), Bone::Chest, Vec3::ZERO);
+                let out = (d.rot * Vec3::new(0.6, 0.2, -0.8)).normalize_or(Vec3::Y);
+                particles.jet(cap, At { pos: at, vel: d.vel }, out, 60.0, dt);
+            }
         }
         // Stumps spark and arc.
         dmg.stumps.retain(|(until, _)| *until > now);

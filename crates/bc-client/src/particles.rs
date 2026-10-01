@@ -509,6 +509,29 @@ impl Particles {
         }
     }
 
+    /// Smoke pouring from a failed system, for `dt` s: dark, slow, spreading.
+    pub fn smoke(&mut self, cap: usize, at: At, scale: f32, dt: f32) {
+        let n = self.count(14.0 * dt);
+        for _ in 0..n.min(6) {
+            let vel = at.vel + self.unit() * self.range(1.0, 3.0);
+            let life = self.range(1.4, 2.4);
+            let size = (1.0 * scale, 4.5 * scale);
+            self.spawn(
+                cap,
+                Particle {
+                    pos: at.pos,
+                    vel,
+                    age: 0.0,
+                    life,
+                    size,
+                    streak: 0.0,
+                    core: 0.0,
+                    ramp: Ramp::Vapour,
+                },
+            );
+        }
+    }
+
     /// A flamethrower's jet along `dir`, for `dt` s: burning propellant billowing out to `range`
     /// m inside a cone of `half_angle`, cooling from white-yellow through orange to dark.
     pub fn flame(&mut self, cap: usize, at: At, dir: Vec3, range: f32, half_angle: f32, dt: f32) {

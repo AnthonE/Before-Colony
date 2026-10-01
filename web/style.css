@@ -317,6 +317,13 @@ button:disabled { opacity: 0.4; cursor: default; }
 .term-body .slot { border: 1px solid var(--edge); padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
 .term-body .slot.empty { border-style: dashed; opacity: 0.75; }
 .term-body .slot .what { letter-spacing: 0.08em; }
+.term-body .systems { display: flex; gap: 4px; flex-wrap: wrap; }
+.term-body .sys { font-size: 10px; letter-spacing: 0.08em; padding: 1px 4px; border: 1px solid var(--edge); color: var(--cyan); }
+.term-body .sys.damaged { border-color: var(--amber); color: var(--amber); }
+.term-body .sys.failed { border-color: var(--red); color: var(--red); text-decoration: line-through; }
+.term-body .fault b.damaged { color: var(--amber); font-weight: normal; }
+.term-body .fault b.failed { color: var(--red); font-weight: normal; }
+.term-body .stats .statgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 4px 14px; font-size: 12px; }
 .term-body .status { padding: 8px 10px; border-left: 3px solid var(--cyan); background: rgba(159, 232, 255, 0.06); margin-bottom: 12px; font-size: 12px; line-height: 1.5; }
 .term-body .status.warn { border-color: var(--amber); }
 .term-body .status.bad { border-color: var(--red); }

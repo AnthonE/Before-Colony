@@ -47,7 +47,7 @@ impl World {
         let own = self.own?;
         Some(SalvageView {
             cargo_kg: own.cargo_kg,
-            capacity_kg: hold_kg(own.frame),
+            capacity_kg: hold_kg(own.frame) + bc_sim::tuning::own_tuning(&own).hold_kg,
             held: (own.held != NO_CHUNK).then_some(own.held),
             credits: own.credits,
             docked: own.flags & own_flags::DOCKED != 0,

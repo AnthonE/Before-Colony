@@ -263,7 +263,8 @@ fn cockpit_in(game: &GameClient, in_world: bool) -> CockpitIn {
         thrust,
         boost: view.is_some_and(|v| v.boosting && v.throttle.z > 0.05),
         rcs: core.last_cmd.buttons & RCS_SHARP != 0,
-        propellant: core.predict.state.propellant / spec.propellant_cap.max(1.0),
+        propellant: core.predict.state.propellant
+            / bc_sim::tuning::tank_cap(spec, &bc_sim::tuning::own_tuning(&o)).max(1.0),
         g_strain: view.map_or(o.g_strain, |v| v.g_strain).clamp(0.0, 1.0),
         blackout: view.is_some_and(|v| v.blackout),
         charge: o.charge,
@@ -281,7 +282,17 @@ fn cockpit_in(game: &GameClient, in_world: bool) -> CockpitIn {
         held: o.held != NO_CHUNK,
         cargo_kg: o.cargo_kg.iter().map(|kg| u32::from(*kg)).sum(),
         credits: o.credits,
+        damaged: systems_at(&o, bc_sim::content::systems::DAMAGED),
+        failed: systems_at(&o, bc_sim::content::systems::FAILED),
+        leak: bc_sim::tuning::own_tuning(&o).leak_kg_s > 0.0,
     }
+}
+
+/// How many of the own suit's systems are at `level` (those in parts shot off count as failed).
+fn systems_at(o: &bc_proto::OwnState, level: u8) -> u8 {
+    let gone = bc_sim::tuning::own_gone(o);
+    let s = bc_sim::content::Systems(o.systems);
+    bc_sim::content::System::ALL.iter().filter(|x| s.level(**x, gone) == level).count() as u8
 }
 
 /// Builds the bank a little at a time.
