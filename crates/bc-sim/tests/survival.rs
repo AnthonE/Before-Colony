@@ -31,6 +31,7 @@ fn stripped_leo() -> Loadout {
         ammo: [0, 50, 0],
         propellant: 1_200.0,
         systems: Systems::OK,
+        modules: Default::default(),
     }
 }
 

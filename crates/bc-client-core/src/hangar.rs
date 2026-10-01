@@ -21,6 +21,8 @@ pub struct HangarState {
     pub notes: Vec<(String, bool)>,
     /// Sorties that ended, oldest first. The UI takes them.
     pub sorties: Vec<(Outcome, String)>,
+    /// News, oldest first. The UI takes it.
+    pub news: Vec<String>,
     /// Bumped by every update (the UI redraws when it moves).
     pub version: u64,
 }
@@ -40,6 +42,7 @@ impl HangarState {
             Update::Book { depth, history } => self.book = Some((depth, history)),
             Update::Note { text, ok } => self.notes.push((text, ok)),
             Update::Sortie { outcome, text } => self.sorties.push((outcome, text)),
+            Update::News { text } => self.news.push(text),
         }
         false
     }

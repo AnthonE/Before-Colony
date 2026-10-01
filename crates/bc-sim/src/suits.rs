@@ -5,7 +5,7 @@ use bc_proto::{CARGO_KINDS, Faction, FrameId, InputCmd, NO_CHUNK, NO_SLOT, Part,
 use glam::{Quat, Vec3};
 
 use crate::ai::AiState;
-use crate::content::{ArmSlot, Systems, frame};
+use crate::content::{ArmSlot, Modules, Systems, frame};
 use crate::flight::FlightState;
 use crate::handle::{Handle, SuitId};
 use crate::storage::{BitSet, FreeList, boxed};
@@ -187,6 +187,8 @@ pub struct Suits {
     pub part_hp: Box<[[f32; Part::COUNT]]>,
     /// What's inside the parts: each system's level (a part shot off fails its own on top).
     pub systems: Box<[Systems]>,
+    /// The equipment fitted to its parts.
+    pub modules: Box<[Modules]>,
     /// Timed conditions: a scram, a concussion, a repair under way.
     pub status: Box<[Status]>,
     /// The stat sheet, rebuilt at the top of each tick's flight (`crate::tuning`).
@@ -250,6 +252,7 @@ impl Suits {
             incoming: boxed(cap, 0u16),
             part_hp: boxed(cap, [0.0f32; Part::COUNT]),
             systems: boxed(cap, Systems::OK),
+            modules: boxed(cap, Modules::NONE),
             status: boxed(cap, Status::default()),
             tuning: boxed(cap, Tuning::default()),
             zero: boxed(cap, ZeroState::default()),
@@ -324,6 +327,7 @@ impl Suits {
         self.incoming[idx] = 0;
         self.part_hp[idx] = spec.part_hp;
         self.systems[idx] = Systems::OK;
+        self.modules[idx] = Modules::NONE;
         self.status[idx] = Status::default();
         self.tuning[idx] = Tuning::default();
         self.zero[idx] = ZeroState::default();
@@ -385,7 +389,7 @@ impl Suits {
 
     /// Rebuilds suit `idx`'s stat sheet from its parts and systems as they stand.
     pub fn retune(&mut self, idx: usize) {
-        self.tuning[idx] = crate::tuning::tuning(self.gone_mask(idx), self.systems[idx]);
+        self.tuning[idx] = crate::tuning::tuning(self.gone_mask(idx), self.systems[idx], self.modules[idx]);
     }
 
     /// The state of weapon `slot`: a loadout slot (0..3), or a special mount (from

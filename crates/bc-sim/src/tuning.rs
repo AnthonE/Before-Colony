@@ -1,4 +1,4 @@
-//! A suit's stat sheet: what its damage, its systems (and, soon, its equipment) make of its frame.
+//! A suit's stat sheet: what its damage, its systems and its equipment make of its frame.
 //!
 //! [`Tuning`] is a handful of multipliers on the frame's own numbers. The server builds it for
 //! every suit at the top of each tick's flight, from the suit's state at the end of the last tick;
@@ -10,6 +10,7 @@ use bc_proto::Part;
 use bc_proto::quant::{dequantize_unit, quantize_unit};
 use glam::Vec3;
 
+use crate::content::modules::{self as md, ModuleKind, Modules};
 use crate::content::systems::{self as sys, FAILED, System, Systems};
 use crate::content::{ArmSlot, FrameSpec};
 use crate::flight::FlightMods;
@@ -61,11 +62,15 @@ pub struct Tuning {
     /// How far each arm's weapons reach off the body's axis, of their full reach.
     pub cone_l: f32,
     pub cone_r: f32,
+    /// Damage control is fitted (it restores damaged systems one at a time).
+    pub repairs: bool,
+    /// What the modules weigh, kg.
+    pub module_kg: u32,
 }
 
 impl Default for Tuning {
     fn default() -> Self {
-        tuning(0, Systems::OK)
+        tuning(0, Systems::OK, Modules::NONE)
     }
 }
 
@@ -75,9 +80,9 @@ pub fn is_gone(gone: u8, part: Part) -> bool {
     gone & (1 << part as u8) != 0
 }
 
-/// The stat sheet of a suit whose parts in `gone` were shot off and whose systems stand at
-/// `systems`.
-pub fn tuning(gone: u8, systems: Systems) -> Tuning {
+/// The stat sheet of a suit whose parts in `gone` were shot off, whose systems stand at `systems`
+/// and which carries `modules` (those on parts shot off went with them).
+pub fn tuning(gone: u8, systems: Systems, modules: Modules) -> Tuning {
     let lost = |p: Part| is_gone(gone, p);
     let level = |s: System| usize::from(systems.level(s, gone));
     // Limbs swing to turn the suit (AMBAC): each one gone takes its share.
@@ -92,7 +97,7 @@ pub fn tuning(gone: u8, systems: Systems) -> Tuning {
         limbs -= 0.3;
     }
     let legs = sys::LEG_THRUSTERS[level(System::LegThrusters)];
-    Tuning {
+    let mut t = Tuning {
         ambac: wire(limbs.max(0.1)) * sys::GYROS[level(System::Gyros)],
         main: sys::MAIN_THRUSTERS[level(System::MainThrusters)],
         side: legs,
@@ -115,7 +120,47 @@ pub fn tuning(gone: u8, systems: Systems) -> Tuning {
         magnetism: level(System::FireControl) != usize::from(FAILED),
         cone_l: sys::ACTUATORS[level(System::ActuatorL)],
         cone_r: sys::ACTUATORS[level(System::ActuatorR)],
+        repairs: false,
+        module_kg: 0,
+    };
+    // Each module on a part still on (a suit with none flies exactly as above).
+    for (_, kind) in modules.fitted(gone) {
+        t.module_kg += kind.mass_kg();
+        match kind {
+            ModuleKind::SensorArray => {
+                t.sensor *= md::SENSOR_ARRAY_RANGE;
+                t.signature *= md::SENSOR_ARRAY_SIGNATURE;
+            }
+            ModuleKind::FireControlComputer => {
+                if t.lock_step > 0 {
+                    t.lock_step += 1;
+                }
+            }
+            ModuleKind::CapacitorBank => t.energy_cap *= md::CAPACITOR_BANK,
+            ModuleKind::ReactorBooster => {
+                t.regen *= md::REACTOR_BOOSTER_REGEN;
+                t.heat *= md::REACTOR_BOOSTER_HEAT;
+            }
+            ModuleKind::RadiatorPackage => {
+                t.heat *= md::RADIATOR_PACKAGE_HEAT;
+                t.signature *= md::RADIATOR_PACKAGE_SIGNATURE;
+            }
+            ModuleKind::CompositePlating => t.armor *= md::COMPOSITE_PLATING,
+            ModuleKind::GSeat => t.g_tolerance += md::G_SEAT,
+            ModuleKind::DamageControl => t.repairs = true,
+            ModuleKind::AuxiliaryTank => t.tank *= md::AUXILIARY_TANK,
+            ModuleKind::ThrusterKit => {
+                t.main *= md::THRUSTER_KIT_MAIN;
+                t.isp *= md::THRUSTER_KIT_ISP;
+            }
+            ModuleKind::LegVerniers => t.side *= md::LEG_VERNIERS,
+            ModuleKind::CargoRack => {
+                t.hold_kg += md::CARGO_RACK_KG;
+                t.ambac *= md::CARGO_RACK_AMBAC;
+            }
+        }
     }
+    t
 }
 
 /// Parts shot off, from an own state (any armour at all left arrives as more than 0).
@@ -132,7 +177,7 @@ pub fn own_gone(own: &bc_proto::OwnState) -> u8 {
 /// The owner's client's copy of its suit's stat sheet, from the snapshot: the same as the one the
 /// server flies the next tick with.
 pub fn own_tuning(own: &bc_proto::OwnState) -> Tuning {
-    tuning(own_gone(own), Systems(own.systems))
+    tuning(own_gone(own), Systems(own.systems), Modules(own.modules))
 }
 
 /// The flight model's modifiers from a suit's stat sheet, before what the arms are doing (busy
@@ -208,7 +253,7 @@ mod tests {
 
     #[test]
     fn a_whole_suit_flies_its_frame_as_it_is() {
-        let t = tuning(0, Systems::OK);
+        let t = tuning(0, Systems::OK, Modules::NONE);
         let m = flight_mods(&t, false, 0);
         let d = FlightMods::default();
         assert_eq!(
@@ -223,20 +268,24 @@ mod tests {
     #[test]
     fn parts_shot_off_fail_their_systems() {
         let all = (1 << Part::ArmR as u8) | (1 << Part::Legs as u8) | (1 << Part::Backpack as u8);
-        let t = tuning(all, Systems::OK);
+        let t = tuning(all, Systems::OK, Modules::NONE);
         assert_eq!(t.main, sys::MAIN_THRUSTERS[2]);
         assert_eq!(t.boost, 0.0);
         assert_eq!(t.side, sys::LEG_THRUSTERS[2]);
         assert!(t.ambac < 0.75, "{t:?}");
         assert_eq!(t.cone_r, sys::ACTUATORS[2]);
-        assert_eq!(tuning(1 << Part::Head as u8, Systems::OK).sensor, 0.4, "the sub-camera, as ever");
+        assert_eq!(
+            tuning(1 << Part::Head as u8, Systems::OK, Modules::NONE).sensor,
+            0.4,
+            "the sub-camera, as ever"
+        );
     }
 
     #[test]
     fn each_level_does_what_its_table_says() {
         for level in [DAMAGED, FAILED] {
             let l = usize::from(level);
-            let t = |s: System| tuning(0, Systems::OK.with(s, level));
+            let t = |s: System| tuning(0, Systems::OK.with(s, level), Modules::NONE);
             assert_eq!(t(System::Sensors).sensor, sys::SENSORS[l]);
             assert_eq!(t(System::Reactor).regen, sys::REACTOR[l]);
             assert_eq!(t(System::Tank).leak_kg_s, sys::LEAK_KG_S[l]);
@@ -249,12 +298,12 @@ mod tests {
             assert_eq!(t(System::Boosters).boost, sys::BOOSTERS[l]);
             assert_eq!(t(System::FireControl).lock_step, sys::LOCK_STEP[l]);
         }
-        assert!(!tuning(0, Systems::OK.with(System::FireControl, FAILED)).magnetism);
+        assert!(!tuning(0, Systems::OK.with(System::FireControl, FAILED), Modules::NONE).magnetism);
     }
 
     #[test]
     fn damaged_thrusters_cough_now_and_then_the_same_way_every_time() {
-        let t = tuning(0, Systems::OK.with(System::MainThrusters, DAMAGED));
+        let t = tuning(0, Systems::OK.with(System::MainThrusters, DAMAGED), Modules::NONE);
         let coughs: usize = (0..30_000u32).filter(|k| sputter(&t, *k, 7) < 1.0).count();
         let share = coughs as f32 / 30_000.0;
         assert!((share - sys::SPUTTER_CHANCE).abs() < 0.03, "{share}");
@@ -263,7 +312,7 @@ mod tests {
             let first = sputter(&t, k, 7);
             assert!((k..k + 8).all(|j| sputter(&t, j, 7) == first));
         }
-        assert_eq!(sputter(&tuning(0, Systems::OK), 5, 7), 1.0);
+        assert_eq!(sputter(&tuning(0, Systems::OK, Modules::NONE), 5, 7), 1.0);
     }
 
     #[test]

@@ -8,6 +8,8 @@
 //!   of structure (steel), armour (titanium alloy, or gundanium for a Gundam) and electronics; a
 //!   Gundam's torso carries its reactor and its system (the ZERO System, the Hyper Jammer).
 //! - **Weapons** each have a recipe; the ones that fire rounds need munitions to load.
+//! - **Machined components** (steel, a little electronics and titanium alloy) are what overhauls
+//!   restore a suit's systems with, and what equipment **modules** are mostly made of.
 //!
 //! A Gundam costs about six Leos, most of it exotics and foundry time: getting one is the game.
 
@@ -16,7 +18,7 @@ use std::sync::OnceLock;
 
 use bc_proto::{FrameId, Part, WeaponKind};
 use bc_sim::content::salvage::{is_gundam, part_mass_kg};
-use bc_sim::content::{frame, weapon};
+use bc_sim::content::{ModuleKind, frame, weapon};
 use serde::{Deserialize, Serialize};
 
 use crate::item::{Item, LINES, Material, Ore, weapons};
@@ -76,10 +78,11 @@ const fn mat(m: Material) -> Item {
 
 const STEEL: Item = mat(Material::Steel);
 const TI_ALLOY: Item = mat(Material::TitaniumAlloy);
-const ELECTRONICS: Item = mat(Material::Electronics);
+pub(crate) const ELECTRONICS: Item = mat(Material::Electronics);
 const GUNDANIUM: Item = mat(Material::Gundanium);
 const MUNITIONS: Item = mat(Material::Munitions);
-const EXOTICS: Item = ore(Ore::Exotics);
+pub(crate) const EXOTICS: Item = ore(Ore::Exotics);
+pub(crate) const COMPONENTS: Item = mat(Material::Components);
 
 /// Rounded to the nearest 10 kg (and at least 10).
 fn tens(kg: f32) -> u64 {
@@ -105,6 +108,7 @@ fn build_recipes() -> Vec<Recipe> {
             secs: 180,
             fee: 400,
         },
+        refine(Material::Components, 40, &[(STEEL, 40), (ELECTRONICS, 5), (TI_ALLOY, 5)], 30),
     ];
     for line in LINES {
         for part in Part::ALL {
@@ -114,7 +118,37 @@ fn build_recipes() -> Vec<Recipe> {
     for w in weapons() {
         v.push(weapon_recipe(w));
     }
+    for k in ModuleKind::ALL {
+        v.push(module_recipe(k));
+    }
     v
+}
+
+/// An equipment module: mostly machined components, with what its job needs.
+fn module_recipe(k: ModuleKind) -> Recipe {
+    use ModuleKind::*;
+    let (inputs, secs): (&[(Item, u64)], u32) = match k {
+        SensorArray => (&[(COMPONENTS, 30), (ELECTRONICS, 25), (TI_ALLOY, 20)], 90),
+        FireControlComputer => (&[(COMPONENTS, 20), (ELECTRONICS, 40), (EXOTICS, 10)], 120),
+        CapacitorBank => (&[(COMPONENTS, 60), (ELECTRONICS, 30), (STEEL, 200)], 120),
+        ReactorBooster => (&[(COMPONENTS, 80), (ELECTRONICS, 20), (EXOTICS, 20)], 150),
+        RadiatorPackage => (&[(COMPONENTS, 60), (TI_ALLOY, 100)], 90),
+        CompositePlating => (&[(TI_ALLOY, 400), (STEEL, 200), (COMPONENTS, 20)], 120),
+        GSeat => (&[(COMPONENTS, 60), (ELECTRONICS, 10), (STEEL, 60)], 60),
+        DamageControl => (&[(COMPONENTS, 100), (ELECTRONICS, 30)], 180),
+        AuxiliaryTank => (&[(COMPONENTS, 40), (TI_ALLOY, 120)], 90),
+        ThrusterKit => (&[(COMPONENTS, 80), (TI_ALLOY, 60), (EXOTICS, 10)], 150),
+        LegVerniers => (&[(COMPONENTS, 60), (TI_ALLOY, 60)], 90),
+        CargoRack => (&[(COMPONENTS, 30), (STEEL, 200)], 60),
+    };
+    Recipe {
+        output: Item::Module(k),
+        makes: 1,
+        inputs: inputs.to_vec(),
+        station: Station::Fabricator,
+        secs,
+        fee: 0,
+    }
 }
 
 /// A part of `line`: structure, armour and electronics in proportion to its mass, plus what its
@@ -301,6 +335,7 @@ pub fn gundam_tech(item: Item) -> bool {
         Item::Part(line, _) => is_gundam(line),
         Item::Ore(_) | Item::Material(_) => false,
         Item::Weapon(_) => recipe(item).is_some_and(|r| r.inputs.iter().any(|(i, _)| gundam_tech(*i))),
+        Item::Module(_) => false,
     }
 }
 
@@ -342,9 +377,13 @@ pub fn desk(item: Item) -> Option<Desk> {
         Item::Material(Material::Electronics) => d(2_000, true, true, 2.0),
         Item::Material(Material::Munitions) => d(10_000, true, true, 2.0),
         Item::Material(Material::Steel) => d(30_000, true, true, 2.0),
+        // The colony's machine shops turn them out, and its own repair crews use them up.
+        Item::Material(Material::Components) => d(8_000, true, true, 2.0),
         Item::Material(_) => d(15_000, true, true, 2.0),
         // The militia's Leos, and ordinary weapons.
         Item::Part(..) | Item::Weapon(_) => d(3, true, true, 6.0),
+        // Ordinary equipment, a couple of each on the shelf.
+        Item::Module(_) => d(2, true, true, 6.0),
     })
 }
 

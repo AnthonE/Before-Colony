@@ -6,6 +6,7 @@
 
 mod frames;
 pub mod melee;
+pub mod modules;
 mod names;
 pub mod salvage;
 pub mod systems;
@@ -15,6 +16,7 @@ pub use frames::{
     AiHints, ArmSlot, Capsule, FrameSpec, Mount, PLAYABLE_ORDER, SPECIAL_MOUNT, SpecialKind, frame,
 };
 pub use melee::{ConeSpec, MeleeSpec, MissileSpec, Stroke};
+pub use modules::{ModuleKind, Modules};
 pub use names::{frame_designation, frame_name, weapon_name};
 pub use systems::{System, Systems};
 pub use weapons::{Replication, WeaponClass, WeaponSpec, weapon};

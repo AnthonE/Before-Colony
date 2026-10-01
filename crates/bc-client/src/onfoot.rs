@@ -323,6 +323,10 @@ pub fn drive_onfoot(
         ui.news(text.clone(), outcome == Outcome::Lost);
         log.push(text, outcome != Outcome::Lost);
     }
+    for text in g.core.hangar.news.drain(..) {
+        ui.news(text.clone(), false);
+        log.push(text, true);
+    }
 
     // Where the pilot is.
     let place = g.core.hangar.place;

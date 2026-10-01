@@ -258,6 +258,9 @@ fn survival_launches_docks_and_losses_never_allocate() {
                 .with(System::Tank, FAILED)
                 .with(System::MainThrusters, DAMAGED)
                 .with(System::Cockpit, DAMAGED);
+            use bc_sim::content::ModuleKind;
+            l.modules.set(1, Some(ModuleKind::DamageControl));
+            l.modules.set(4, Some(ModuleKind::AuxiliaryTank));
         }
         l
     };

@@ -543,9 +543,9 @@ impl Sim {
         // Parts shot off lighten the suit; the hold and what's in hand weigh it down.
         let fid = s.frame[i];
         let held = self.held_chunk(i).map_or(0, |k| self.chunks.desc[k].mass_kg);
-        let extra_mass_kg = mass_without(fid, s.gone_mask(i)) as i32 - mass_without(fid, 0) as i32
-            + (s.cargo_total_kg(i) + held) as i32;
         let tuned = self.tuning(i);
+        let extra_mass_kg = mass_without(fid, s.gone_mask(i)) as i32 - mass_without(fid, 0) as i32
+            + (s.cargo_total_kg(i) + held + tuned.module_kg) as i32;
         let mut mods = tuning::flight_mods(&tuned, s.pilot[i] == PilotKind::MobileDoll, extra_mass_kg);
         mods.main *= tuning::sputter(&tuned, t, i as u16);
         if busy {
@@ -722,6 +722,10 @@ impl Sim {
                 st.scram = st.scram.saturating_sub(1);
                 st.concussed = st.concussed.saturating_sub(1);
                 s.energy[i] = (s.energy[i] + regen * DT).min(spec.energy_cap * tuned.energy_cap);
+                if tuned.repairs {
+                    self.damage_control(i);
+                }
+                let s = &mut self.suits;
                 let want = s.input[i].pressed(ZERO);
                 let capable = spec.zero || self.cfg.zero_on_all_frames;
                 let g = s.flight[i].g_strain;
@@ -753,6 +757,40 @@ impl Sim {
             }
         }
         self.iter_bits = used;
+    }
+
+    /// Damage control works on suit `i`'s damaged systems one at a time, drawing energy while it
+    /// does (it pauses when there isn't enough). It can't mend what's failed.
+    fn damage_control(&mut self, i: usize) {
+        use crate::content::modules::{REPAIR_ENERGY, REPAIR_TICKS};
+        use crate::content::systems::{DAMAGED, OK, System};
+        use crate::suits::NO_REPAIR;
+        let s = &mut self.suits;
+        let gone = s.gone_mask(i);
+        let now = s.systems[i];
+        let st = &mut s.status[i];
+        let working =
+            System::from_index(usize::from(st.repairing)).filter(|sys| now.level(*sys, gone) == DAMAGED);
+        let Some(sys) = working.or_else(|| System::ALL.into_iter().find(|x| now.level(*x, gone) == DAMAGED))
+        else {
+            st.repairing = NO_REPAIR;
+            st.repair_left = 0;
+            return;
+        };
+        if working.is_none() {
+            st.repairing = sys as u8;
+            st.repair_left = REPAIR_TICKS;
+        }
+        let draw = REPAIR_ENERGY * DT;
+        if s.energy[i] < draw {
+            return;
+        }
+        s.energy[i] -= draw;
+        st.repair_left = st.repair_left.saturating_sub(1);
+        if st.repair_left == 0 {
+            s.systems[i].set(sys, OK);
+            st.repairing = NO_REPAIR;
+        }
     }
 
     /// FNV-1a over the simulation state (determinism tests).

@@ -28,6 +28,13 @@ impl Market {
                 .map_err(|e| tracing::warn!("exchange file unreadable, starting afresh: {e}"))
                 .ok()
         });
+        let loaded = loaded.map(|mut x: Exchange| {
+            let opened = x.seed_missing();
+            if opened > 0 {
+                tracing::info!("the colony opened {opened} new desks on the exchange");
+            }
+            x
+        });
         if loaded.is_some() {
             tracing::info!(
                 "exchange restored from {}",

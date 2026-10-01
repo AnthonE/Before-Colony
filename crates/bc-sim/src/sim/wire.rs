@@ -176,7 +176,7 @@ impl Sim {
             zero_mode: s.zero[i].mode,
             flags,
             systems: s.systems[i].0,
-            modules: 0,
+            modules: s.modules[i].0,
             scram: s.status[i].scram,
             concussed: s.status[i].concussed,
             repairing: s.status[i].repairing,
