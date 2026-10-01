@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use bc_server::{Config, Mode, OracleKind, Ruleset};
+use bc_server::{Config, Flight, Mode, OracleKind, Ruleset};
 use clap::Parser;
 
 /// Counts heap operations; the sector thread marks its ticks as hot regions, so any allocation
@@ -47,6 +47,10 @@ struct Args {
     /// frame, free respawns.
     #[arg(long, value_enum, default_value_t = Ruleset::Survival)]
     rules: Ruleset,
+    /// `anime`: the tank is a boost gauge that fills back up, and pilots bear more G; `real`:
+    /// every newton burns propellant (the simulator).
+    #[arg(long, value_enum, default_value_t = Flight::Anime)]
+    flight: Flight,
     /// The fabricator and foundry work this many times faster than their recipes say.
     #[arg(long, default_value_t = 1.0)]
     craft_speed: f64,
@@ -82,6 +86,7 @@ fn main() -> anyhow::Result<()> {
         siwe_domain: args.siwe_domain,
         require_auth: args.require_auth,
         rules: args.rules,
+        flight: args.flight,
         craft_speed: args.craft_speed.max(0.01),
         data_dir: args.data_dir,
         colony: args.colony,

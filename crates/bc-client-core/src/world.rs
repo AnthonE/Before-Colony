@@ -248,6 +248,8 @@ pub struct World {
     pub faction: Faction,
     pub my_hits: u32,
     pub my_kills: u32,
+    /// Of them, Mobile Dolls (as last seen).
+    pub doll_kills: u32,
     pub my_deaths: u32,
     pub hits_taken: u32,
     pub kit: KitStats,
@@ -280,6 +282,7 @@ impl World {
             faction,
             my_hits: 0,
             my_kills: 0,
+            doll_kills: 0,
             my_deaths: 0,
             hits_taken: 0,
             kit: KitStats::default(),
@@ -607,6 +610,9 @@ impl World {
                 }
                 if Some(killer) == me && killer != victim {
                     self.my_kills += 1;
+                    if self.entity(victim).is_some_and(|tr| tr.latest.pilot == PilotKind::MobileDoll) {
+                        self.doll_kills += 1;
+                    }
                 }
                 if Some(victim) == me {
                     self.my_deaths += 1;

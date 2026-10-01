@@ -253,7 +253,9 @@ impl Suit {
             self.mounts[m] = self.mounts[m] && home.mounts & (1 << m) != 0 && self.mount_has_its_part(m);
             self.ammo[m] = if self.mounts[m] { home.ammo[m].min(self.full_load(m)) } else { 0 };
         }
-        self.propellant = (home.propellant.max(0.0) as u32).min(self.tank());
+        // No more than it went out with: under anime rules the tank fills itself back up in
+        // flight, and what it made out there isn't the stores' to keep.
+        self.propellant = (home.propellant.max(0.0) as u32).min(self.tank()).min(self.propellant);
     }
 
     /// Parts fitted, and how many of them are worn.

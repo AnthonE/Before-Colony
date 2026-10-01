@@ -35,8 +35,11 @@ pub mod welcome_flags {
     /// Survival rules: the pilot starts in their hangar bay, flies the suit they built, and
     /// launches and docks it with hangar messages. (Otherwise, arcade rules: in a suit at once.)
     pub const SURVIVAL: u8 = 1 << 2;
+    /// Anime flight rules: the tank is a boost gauge that fills back up, and pilots bear more G
+    /// (`bc_sim::tuning::FlightRules::Anime`). The owner's client predicts by them.
+    pub const ANIME: u8 = 1 << 3;
     /// The colony is open: the bay's airlock leads to the cap lifts, and down to its city.
-    pub const COLONY: u8 = 1 << 3;
+    pub const COLONY: u8 = 1 << 4;
 }
 
 /// [`ControlMsg::Roster`] flags.

@@ -19,7 +19,7 @@ pub use frames::{
 };
 pub use melee::{ConeSpec, MeleeSpec, MissileSpec, Stroke};
 pub use modules::{ModuleKind, Modules};
-pub use names::{frame_designation, frame_name, weapon_name};
+pub use names::{doll_name, frame_designation, frame_name, weapon_name};
 pub use systems::{System, Systems};
 pub use weapons::{Replication, WeaponClass, WeaponSpec, weapon};
 

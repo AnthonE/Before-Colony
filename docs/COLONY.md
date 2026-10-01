@@ -97,7 +97,7 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
    - People on a tram or in a car are sent in its frame (an anchor), so they stay exactly inside it on every screen.
    - Poses are checked for plausibility against the closed form; implausible ones are not relayed. No people go into
      the sector simulation: they need no prediction or lag compensation.
-7. **Ship safely.** The city sits behind a server `--colony` flag (Welcome flag 8 `COLONY`) until presence and
+7. **Ship safely.** The city sits behind a server `--colony` flag (Welcome flag 16 `COLONY`; 8 is `ANIME`) until presence and
    trams work. The new exterior ships on its own first. The city is survival-only, because it hangs off the bay.
 
 ## Phases (PR-sized steps)

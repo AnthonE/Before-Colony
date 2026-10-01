@@ -29,7 +29,7 @@ use crate::market::Market;
 use crate::pilots::{
     self, Claim, Fate, FileStore, MemoryStore, ParkNews, PilotRecord, PilotStore, Pilots, Sleeper,
 };
-use crate::{Config, OracleKind, Ruleset};
+use crate::{Config, Flight, OracleKind, Ruleset};
 
 /// Commands for the egress thread.
 pub enum EgressCmd {
@@ -109,6 +109,8 @@ pub struct GameShared {
     pub colony: bool,
     /// The people in the colony's city (`plaza`).
     pub plaza: Arc<crate::plaza::Plaza>,
+    /// Anime flight rules (else the simulator's).
+    pub anime: bool,
     /// The Colony Exchange.
     pub market: Arc<Market>,
     pub econ: bc_econ::Rules,
@@ -250,6 +252,7 @@ pub struct StatusView {
     survival: bool,
     colony: bool,
     plaza: Arc<crate::plaza::Plaza>,
+    anime: bool,
     market: Arc<Market>,
     hangars: Arc<RwLock<HashMap<u16, HangarEntry>>>,
 }
@@ -280,6 +283,7 @@ impl GameRuntime {
                 seed: cfg.seed,
                 max_sleepers: cfg.max_sleepers,
                 survival,
+                flight: cfg.flight.rules(),
                 ..SimConfig::default()
             },
             max_clients: cfg.max_clients,
@@ -313,6 +317,7 @@ impl GameRuntime {
             max_clients = cfg.max_clients,
             oracle,
             rules = ?cfg.rules,
+            flight = ?cfg.flight,
             "sector running at 30 Hz"
         );
         let store: Arc<dyn PilotStore> = match &cfg.data_dir {
@@ -337,6 +342,7 @@ impl GameRuntime {
             survival,
             colony: survival && cfg.colony,
             plaza: Arc::new(crate::plaza::Plaza::default()),
+            anime: cfg.flight == Flight::Anime,
             market,
             econ: bc_econ::Rules { craft_speed: cfg.craft_speed },
             hangars: Arc::new(RwLock::new(HashMap::new())),
@@ -391,6 +397,7 @@ impl GameRuntime {
             survival: self.shared.survival,
             colony: self.shared.colony,
             plaza: self.shared.plaza.clone(),
+            anime: self.shared.anime,
             market: self.shared.market.clone(),
             hangars: self.shared.hangars.clone(),
         }
@@ -525,6 +532,7 @@ impl StatusView {
                 "by_strip": city.1,
                 "refused_poses": city.2,
             },
+            "flight": if self.anime { "anime" } else { "real" },
             // Survival: pilots in their hangar bays (and out of them), and the exchange's ledger.
             "hangars": hangars,
             "exchange": exchange,

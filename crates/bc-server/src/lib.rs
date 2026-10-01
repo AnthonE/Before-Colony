@@ -21,7 +21,7 @@ pub mod telemetry;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-pub use config::{Config, Mode, OracleKind, Ruleset};
+pub use config::{Config, Flight, Mode, OracleKind, Ruleset};
 
 /// Handle to a running server. Dropping it does not stop the server; call [`ServerHandle::shutdown`].
 pub struct ServerHandle {

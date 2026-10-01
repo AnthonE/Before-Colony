@@ -649,6 +649,25 @@ mod tests {
     }
 
     #[test]
+    fn a_tank_comes_home_no_fuller_than_it_went_out() {
+        // Under anime rules the tank refills in flight: what it made out there isn't the stores'.
+        let mut h = Hangar::starter();
+        let l = h.launch().unwrap();
+        let Bay::Out { suit } = h.bay.clone() else { panic!() };
+        let mut home = home_as(&suit);
+        home.propellant = suit.tank() as f32;
+        h.came_home(&home);
+        assert_eq!(h.suit().unwrap().propellant, l.propellant as u32, "launched with 1.8 t, home with 1.8 t");
+        // Burnt down, it comes home with what's left, as ever.
+        let _ = h.launch().unwrap();
+        let Bay::Out { suit } = h.bay.clone() else { panic!() };
+        let mut home = home_as(&suit);
+        home.propellant = 700.0;
+        h.came_home(&home);
+        assert_eq!(h.suit().unwrap().propellant, 700);
+    }
+
+    #[test]
     fn a_sortie_brings_home_ore_salvage_and_bounty() {
         let mut h = Hangar::starter();
         let _ = h.launch().unwrap();

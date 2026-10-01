@@ -879,6 +879,8 @@ pub fn update_hud(
     let zero = world.zero;
     // Survival rules: the pilot flies what they built, and docks to go home.
     let survival = core.welcome.is_some_and(|w| w.survival);
+    // Anime flight rules: the tank is the boost gauge.
+    let anime = core.welcome.is_some_and(|w| w.anime);
     let mut set = |which: HudText, s: String, color: Option<Color>| {
         for (h, mut text, mut c) in &mut texts {
             if *h == which {
@@ -951,11 +953,12 @@ pub fn update_hud(
         set(
             HudText::Flight,
             format!(
-                "{} {}\nSPD {:>6.0} m/s{}\nPROP {} {:>3.0}%{}\nHEAT {} {:>3.0}%\nENGY {} {:>3.0}%\nG   {:>4.1} g {:<3} STRAIN {}",
+                "{} {}\nSPD   {:>6.0} m/s{}\n{} {} {:>3.0}%{}\nHEAT  {} {:>3.0}%\nENGY  {} {:>3.0}%\nG     {:>4.1} g {:<3} STRAIN {}",
                 bc_sim::content::frame_designation(form),
                 frame_name(form).to_uppercase(),
                 speed,
                 stands,
+                if anime { "BOOST" } else { "PROP " },
                 bar(s.propellant / tank, 10),
                 100.0 * s.propellant / tank,
                 if tuned.leak_kg_s > 0.0 {
@@ -1355,7 +1358,7 @@ pub fn update_hud(
                         node.left = Val::Px(p.x - 16.0);
                         node.top = Val::Px(p.y - 10.0);
                         text.0 = format!("[ ]{:.0}%", z.hit_p * 100.0);
-                        *vis = Visibility::Visible;
+                        *vis = Visibility::Inherited;
                     }
                     Err(_) => *vis = Visibility::Hidden,
                 }
@@ -1508,7 +1511,7 @@ pub fn update_hud(
                 node.top = Val::Px(p.y + dy);
                 text.0 = s;
                 color.0 = c;
-                *vis = Visibility::Visible;
+                *vis = Visibility::Inherited;
             }
             _ => *vis = Visibility::Hidden,
         }
@@ -1520,10 +1523,12 @@ pub fn update_hud(
 pub fn show_hud(
     ui: Res<crate::page::Ui>,
     indoors: Res<crate::hangar::Indoors>,
+    map: Res<crate::map::MapOpen>,
     mut root: Query<&mut Visibility, Or<(With<HudRoot>, With<Instruments>)>>,
 ) {
-    // On foot in the bay the page draws what the pilot needs.
-    let want = if ui.playing() && !indoors.0 { Visibility::Inherited } else { Visibility::Hidden };
+    // On foot in the bay the page draws what the pilot needs; the map, when it's open, takes the
+    // screen (it marks the suits in sight itself).
+    let want = if ui.playing() && !indoors.0 && !map.0 { Visibility::Inherited } else { Visibility::Hidden };
     for mut v in &mut root {
         v.set_if_neq(want);
     }
@@ -1655,7 +1660,7 @@ pub fn update_marks(
             Some(m) => {
                 node.left = Val::Px(m.at.x);
                 node.top = Val::Px(m.at.y);
-                vis.set_if_neq(Visibility::Visible);
+                vis.set_if_neq(Visibility::Inherited);
             }
             None => {
                 vis.set_if_neq(Visibility::Hidden);
@@ -1693,7 +1698,7 @@ pub fn update_marks(
         node.top = Val::Px(at.y);
         ui.rotation = Rot2::radians(d.y.atan2(d.x) + std::f32::consts::FRAC_PI_4);
         *border = BorderColor::all(color);
-        vis.set_if_neq(Visibility::Visible);
+        vis.set_if_neq(Visibility::Inherited);
     }
 }
 

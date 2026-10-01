@@ -28,7 +28,7 @@ suits inside it.
 
 ## Commands
 - `scripts/ci.sh` — everything CI runs (`BC_E2E=1` adds the browser tests).
-- `scripts/dev.sh` — build the web client, run a survival sector with Mobile Dolls, an AI agent and a miner (`BC_RULES=arcade` for the arcade rules, `BC_DATA=dir` to keep pilots and the exchange, `BC_COLONY=1` to open the colony's inside: the server's `--colony`).
+- `scripts/dev.sh` — build the web client, run a survival sector with Mobile Dolls, an AI agent and a miner (`BC_RULES=arcade` for the arcade rules, `BC_FLIGHT=real` for the simulator's flight instead of anime rules, `BC_DATA=dir` to keep pilots and the exchange, `BC_COLONY=1` to open the colony's inside: the server's `--colony`).
 - `cargo test --workspace --release` — all native tests (bc-client is a no-op natively; release
   because the simulation-heavy tests are slow unoptimised).
 - `cargo clippy --workspace --all-targets -- -D warnings` and
@@ -38,5 +38,7 @@ suits inside it.
 - `scripts/e2e.sh spike|slice|gfx|frames|ui|login|hangar|surface|colony [webgl2|webgpu]` — Playwright against a real server (`frames`: the autopilot flies each Gundam; `gfx`: every showcase scene, screenshots in `e2e/artifacts/`; `ui`: the page around the game; `login`: wallet sign-in with a stub wallet; `hangar`: survival on foot, the terminals, launching and docking; `surface`: the lander autopilot lands in MO-II's Aft Well, hides, parks and wakes there; `colony`: down the cap lift into the city, to its Exchange floor and back up). The suits' suites run `--rules arcade` (`BC_RULES` overrides); the server's default is survival. Arguments after the project go to Playwright (`scripts/e2e.sh gfx webgl2 --grep "duel|hangar"`); `BC_GFX_EXTRA="look=0"` adds query parameters to every gfx shot (and its file name).
 - A suit's stats are `bc_sim::tuning` (frame × systems × equipment), built identically by the server and the
   owner's prediction: anything that changes flight goes through it, from state the own snapshot carries.
+  The sector's flight rules (`tuning::FlightRules`: anime, the default, or real) go through it too; the
+  Welcome's ANIME flag tells the client.
 - Survival's economy is `bc-econ` (off the hot path); the hangar's JSON messages are `bc_econ::wire` on control-stream frames tagged 11 (`docs/PROTOCOL.md`).
 - Never set `RUSTFLAGS` (it would drop the `web_sys_unstable_apis` cfg from `.cargo/config.toml`).

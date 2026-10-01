@@ -12,7 +12,8 @@
 //! - **Specials.** Neo-Bird for long hauls, the jammer while closing, Full Open with a lock inside
 //!   1.2 km, the Cross Crusher at arm's length.
 //! - **Care.** It breaks sideways from a missile tracking it, and eases off before G-strain blacks
-//!   its pilot out.
+//!   its pilot out. A tank run dry boosting is let alone until it's half full again: under anime
+//!   rules it's a boost gauge that fills only once boost is let go.
 
 use bc_proto::buttons::{
     BOOST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, MELEE, MODE, RCS_SHARP, SPECIAL,
@@ -59,6 +60,9 @@ const STRAIN_EASE: f32 = 0.5;
 const STRAIN_EASE_CLOSE: f32 = 0.7;
 const CLOSE_RANGE: f32 = 300.0;
 const SUSTAINED_G: f32 = 5.0;
+/// Boost stops when the tank is down to this share, and starts again once it's back to the second.
+const BOOST_DRY: f32 = 0.05;
+const BOOST_BACK: f32 = 0.5;
 
 /// This tick's command for a kit-aware pilot.
 pub fn drive_kit(
@@ -70,6 +74,11 @@ pub fn drive_kit(
     spec: &FrameSpec,
 ) -> InputCmd {
     let mut buttons = FLIGHT_ASSIST | RCS_SHARP;
+    if me.propellant < BOOST_DRY {
+        ai.boost_spent = true;
+    } else if me.propellant > BOOST_BACK {
+        ai.boost_spent = false;
+    }
     let fwd = me.forward();
     // Presses (MELEE, SPECIAL) act on their first tick: offered every other tick they're edges.
     let edge = tick.is_multiple_of(2);
@@ -143,7 +152,9 @@ pub fn drive_kit(
     if me.kit.missile_incoming && hostile.is_none_or(|t| t.dist > 60.0) {
         let across = hostile.map_or(fwd, |t| normalize_or(t.pos - me.pos, fwd));
         desired = normalize_or(across.cross(me.rot * Vec3::Y), Vec3::X) * ai.strafe_sign;
-        buttons |= BOOST;
+        if !ai.boost_spent {
+            buttons |= BOOST;
+        }
     }
     // Flight assist spares a pilot's body unless they boost, and boosting a Gundam is more than a
     // pilot bears for long. Strained, it flies unassisted instead, accelerating toward the same
@@ -281,7 +292,7 @@ fn footwork(
         // end, weaving on the way in.
         let reach = spec.loadout[2].map_or(10.0, |m| weapon(m.weapon).range);
         let gap = (t.dist - (reach * 0.7 + 5.0)).max(0.0);
-        let boost = t.dist > BOOST_RANGE;
+        let boost = t.dist > BOOST_RANGE && !ai.boost_spent;
         let cruise = spec.fa_speed.max(1.0) * if boost { FA_BOOST_CRUISE } else { 1.0 };
         if boost {
             *buttons |= BOOST;
@@ -304,11 +315,15 @@ fn footwork(
         Action::Strafe => radial * 0.6 + lateral * 0.9,
         Action::Engage => radial + lateral * 0.25,
         Action::Evade => {
-            *buttons |= BOOST;
+            if !ai.boost_spent {
+                *buttons |= BOOST;
+            }
             ai.evade_dir
         }
         Action::Retreat => {
-            *buttons |= BOOST;
+            if !ai.boost_spent {
+                *buttons |= BOOST;
+            }
             -los
         }
         _ => radial,

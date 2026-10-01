@@ -89,14 +89,20 @@ pub fn run() {
             .init_resource::<PointerRes>()
             .init_resource::<crate::onfoot::OnFoot>()
             .init_resource::<crate::terminal::TerminalLog>()
+            .init_resource::<crate::map::MapOpen>()
+            .init_resource::<crate::map::ObjectiveState>()
             .add_systems(First, drain_inbox)
-            .add_systems(Startup, (start_net_loop, setup_hud, crate::onfoot::setup_onfoot))
+            .add_systems(
+                Startup,
+                (start_net_loop, (setup_hud, crate::map::setup_map).chain(), crate::onfoot::setup_onfoot),
+            )
             .add_systems(
                 Update,
                 (
                     drive_link,
                     apply_ui_cmds,
                     crate::input::toggle_camera,
+                    crate::map::toggle_map,
                     update_settings,
                     update_pointer,
                     read_input,
@@ -129,6 +135,9 @@ pub fn run() {
                     update_marks,
                     update_panels,
                     place_instruments,
+                    crate::map::update_objectives,
+                    crate::map::sync_map_rocks,
+                    crate::map::update_map,
                     crate::zero_overlay::draw_ghosts,
                     publish_game,
                     crate::onfoot::publish_onfoot,

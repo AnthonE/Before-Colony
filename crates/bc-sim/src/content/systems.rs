@@ -241,6 +241,9 @@ pub const LOCK_DECAY: [u8; 3] = [4, 8, 8];
 pub const REACTOR: [f32; 3] = [1.0, 0.5, 0.15];
 /// Propellant lost, kg/s.
 pub const LEAK_KG_S: [f32; 3] = [0.0, 3.0, 15.0];
+/// Under anime rules, how fast the boost gauge fills back up: a holed tank can't hold what it's
+/// given, and a failed one nothing at all (it still flies, but it can't boost for long).
+pub const TANK_REFILL: [f32; 3] = [1.0, 0.5, 0.0];
 /// Heat dissipation.
 pub const RADIATORS: [f32; 3] = [1.0, 0.6, 0.25];
 /// AMBAC authority.

@@ -83,6 +83,20 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   await expect.poll(camera).toBe("chase/chase");
   await expect.poll(saved, { timeout: 10_000 }).toContain("camera = chase");
 
+  // Anime flight rules (the server's default): the tank is a boost gauge. And an objective with a
+  // waypoint: under arcade rules the first is a Doll, and the patrols (or a Doll in sight) mark it.
+  expect((await bc(page)).anime).toBe(true);
+  await expect.poll(async () => (await bc(page)).objective).toBe("DOWN A MOBILE DOLL");
+  await expect.poll(async () => (await bc(page)).waypoint).toMatch(/MOBILE DOLL|PATROLS/);
+  await page.screenshot({ path: `artifacts/ui-${info.project.name}-objective.png` });
+  // M: the map of the sector, over the world; M again closes it.
+  await page.keyboard.press("m");
+  await expect.poll(async () => (await bc(page)).map_open).toBe(true);
+  await page.waitForTimeout(1_000);
+  await page.screenshot({ path: `artifacts/ui-${info.project.name}-map.png` });
+  await page.keyboard.press("m");
+  await expect.poll(async () => (await bc(page)).map_open).toBe(false);
+
   // Esc: the menu; Resume closes it.
   await page.keyboard.press("Escape");
   await expect(page.locator("#pause")).toBeVisible();

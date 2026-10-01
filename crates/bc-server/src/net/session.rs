@@ -248,6 +248,9 @@ impl Session<'_> {
         if self.survival() {
             flags |= welcome_flags::SURVIVAL;
         }
+        if self.game.anime {
+            flags |= welcome_flags::ANIME;
+        }
         if self.game.colony {
             flags |= welcome_flags::COLONY;
         }

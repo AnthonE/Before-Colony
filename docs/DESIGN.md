@@ -10,8 +10,10 @@ All art is procedural.
 
 ## Pillars
 
-1. **It flies like a mobile suit in space.** Newtonian 6DOF, finite propellant, AMBAC, pilot G
-   limits. There is no drag or "space friction" unless you turn on flight assist.
+1. **It flies like a mobile suit in space.** Newtonian 6DOF, AMBAC, pilot G limits. There is no
+   drag or "space friction" unless you turn on flight assist. How much the tank and the pilot's
+   body hold you back is the sector's choice: anime rules (the default, for fun over realism)
+   make the tank a boost gauge that refills, and the real rules make every newton count.
 2. **You aim.** Mouse free aim with no tab-targeting. Beams take a fraction of a second to arrive, so
    leading, dodging and range matter.
 3. **AI is a first-class citizen.** Mobile Dolls are the NPCs, as in the show. External AI agents
@@ -60,6 +62,32 @@ where the colony's logistics live. Earth, with atmosphere, gravity and re-entry,
 ## Flight model (`bc-sim/src/flight.rs`)
 
 Everything is in SI units and shared bit-for-bit between the server and the browser's prediction.
+
+### Flight rules: anime or real (`bc_sim::tuning::FlightRules`)
+
+A sector's pilots fly by one of two sets of rules, people and agents alike. The server picks
+(`--flight anime|real`, `BC_FLIGHT` for the scripts), and its Welcome tells clients, which predict
+by them. **Mobile Dolls fly by the real rules either way**: machines built cheap, they burn every
+newton and run dry, and a Doll that has been out a while can hardly dodge. (With bottomless tanks
+they never tire, and a melee pilot can't catch them: the autopilot's Shenlong landed 0 to 3 hits
+in three minutes against 24 of them, against 36 to 82 by the real rules and 71 to 128 with the
+Dolls on them.)
+
+- **Anime** (the default). The tank is a **boost gauge** (the flight panel reads `BOOST`).
+  - Only boost burns it, with all the thrust boost gives, as ever. Flying, turning on RCS,
+    flight assist's braking and a blade's lunge burn nothing, and work on an empty gauge.
+  - Let go of Shift and it fills back up: a whole tank in 20 s, in flight or standing on a body.
+    Leaning on boost with the gauge dry gets nothing (no boost, no refill), and flight assist
+    holds the plain cruise, not boost's.
+  - A holed tank refills at half the rate, and a failed one not at all: it leaks dry, and the suit
+    flies on without boost.
+  - Pilots bear twice the G (12 g for good), as the show's do: a Gundam's boost doesn't black its
+    pilot out. A Wing Zero boosting on a nearly empty gauge (lighter, it pulls up to 16 g) still
+    can, and so can a pilot hurt by a struck cockpit.
+  - What the tank makes out there stays out there: under survival, a suit comes home with no more
+    propellant than it launched with.
+- **Real.** Every newton burns propellant at `|F| / (Isp·g0)` (the rest of this section), and a
+  pilot bears 6 g. The tank is the sortie's delta-v: brake before you're dry.
 
 - **Thrust** is limited per axis: main (forward), side (lateral and vertical) and retro. Boost
   multiplies main thrust. Every newton burns propellant at `|F| / (Isp·g0)`, so mass falls as you
@@ -422,7 +450,9 @@ can take.
   - Neo-Bird for the long haul; the jammer while closing, holding fire so as not to break it;
     Full Open with a lock inside 1.2 km; the Cross Crusher at arm's length;
   - it breaks sideways from a missile tracking it, and minds its pilot's G: strained, it flies
-    unassisted at 5 g, which a pilot bears for good.
+    unassisted at 5 g, which a pilot bears for good;
+  - it lets go of boost once its tank is down to 5%, until it's half full again (under anime
+    rules a boost gauge fills only once boost is let go).
   The server's own Mobile Dolls, and a ZERO seizure, keep the plain doll's reflexes.
 
 ## Salvage
@@ -469,6 +499,42 @@ show which, and thin as the ore is taken. A rock of radius r m has 60 + 25r of s
   shatter the rock, which floats the suit off.
 - **Hulks come apart.** A blade's stroke through a hulk cuts off the part nearest the blade, which
   drifts free as a limb small enough to stow.
+
+## Objectives and the map
+
+A new pilot needs somewhere to go and something to do. The Charter Board's first jobs for an
+Arrival are the **objectives** (`bc_client_core::objectives`), and the HUD shows one at a time,
+top left (`OBJECTIVE 2/7`), with its waypoint in the world: a yellow `◆` with its name and range,
+held at the edge of the view while it's off it.
+
+| Objective | Done when | Waypoint |
+|---|---|---|
+| LAND ON MO-II | standing on it | MO-II |
+| HIDE IN THE AFT WELL | hidden in it (the server's word) | the Aft Well |
+| MINE 200 KG OF ORE | 200 kg in the hold and in hand | the nearest big rock |
+| BRING THE ORE HOME (survival) · SELL ORE AT THE DOCK (arcade) | in the dock's ring with something aboard | the dock |
+| DOWN A MOBILE DOLL | a Doll downed | the nearest Doll in sight, else their patrols over the field |
+| LAND ON HERMIT | standing on it | Hermit |
+| DOWN 5 MOBILE DOLLS | five downed, over any number of visits | as above |
+
+- **Any order.** Each is checked every frame, so doing one early counts; the HUD shows the first
+  in the rules' order not yet done. Survival starts at the dock beside MO-II, in a worn Leo with
+  no rifle, so it lands and hides first and fights last; arcade starts among the Dolls, so it
+  fights first.
+- **Kept with the settings**, as the hints are: what's done and the Dolls downed carry over from
+  one visit to the next in the same browser. An objective done says so (`OBJECTIVE DONE - …`).
+  The settings panel can hide the objective and its waypoint.
+- **Not rewards.** They point the way to what pays (bounties, the dock's prices, the stores), and
+  nothing about them is the server's: it pays what it always has.
+
+**The map (M)** looks down on the sector, the colony's axis across it: the colony and its docking
+hub, the dock, the field's rocks (gone while shattered), MO-II and Hermit, the pilot's suit (`▲`,
+pointing the way it's headed, held at the edge if it's off the map), the suits in sight (red
+hostile, green friendly, grey wrecks) and the objective's `◆`. Beside it: every objective, done
+(`[x]`), current (`[>]`) or not, with progress; the waypoint's range and how far above or below
+the pilot it is; and what the sector's flight rules mean. The sector doesn't pause while it's open,
+and the HUD steps aside for it (its own marks are the warning: red closing in). It closes when the
+pilot leaves the sector.
 
 ## Survival: you build your suit (Milestone 3)
 
@@ -651,6 +717,7 @@ Still to come: suits inside the colony with their weapons safe by the colony's l
 | H | the frame's special: a toggle for Neo-Bird and the Hyper Jammer, a press for Full Open Attack and the Cross Crusher |
 | V · Z | flight assist · ZERO System |
 | Tab · mouse wheel | the camera: the cockpit (first person) or the chase camera (wheel in: the cockpit; out: chasing) |
+| M | the map of the sector, with the objectives |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
 | Enter | dock (survival): at rest inside the dock's ring of lights |
 | 1–6 | arcade rules: respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
@@ -753,10 +820,10 @@ PARK & DISCONNECT where it would park, SLEEP & DISCONNECT anywhere else.
 **Settings** (from the title or the menu) are kept in the browser: mouse sensitivity, invert Y,
 the flight camera, field of view (vertical; the panel gives the horizontal too), camera shake,
 flashing effects (a ZERO seizure's flicker; off to start with when the browser asks for reduced
-motion), first-flight hints and graphics quality, along with the last callsign and frame launched. `bc_client_core::settings` defines them, their ranges and the stored text (a
+motion), first-flight hints, the objectives and graphics quality, along with the last callsign and frame launched. `bc_client_core::settings` defines them, their ranges and the stored text (a
 key this build doesn't know is kept, for the build that wrote it). A new pilot gets one hint at a
-time (on foot in the bay: walking, using a terminal, boarding; flying: thrust, boost, fire, the
-cockpit view, flight assist, salvage, docking, the menu; near a body: the grip, walking on it,
+time (on foot in the bay: walking, using a terminal, boarding; flying: thrust, the map, boost,
+fire, the cockpit view, flight assist, salvage, docking, the menu; near a body: the grip, walking on it,
 hiding in a hide spot), each gone once it's been done.
 
 **Sound.** Every sound is generated at boot (`bc-sound`, no audio files): weapons, impacts,
