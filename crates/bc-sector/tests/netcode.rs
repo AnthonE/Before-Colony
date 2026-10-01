@@ -431,7 +431,14 @@ fn sprint_and_stop_draws_smoothly() {
         let (mut surge, mut prev): (f32, Option<(f64, f32)>) = (0.0, None);
         for (t, v, _) in &drawn {
             let dt = prev.map_or(1.0 / hz, |(p, _)| t - p) as f32;
-            let f = Follow { pos: v.pos, vel: v.vel, aim: Vec3::Z, up: v.rot * Vec3::Y, cut: v.cut };
+            let f = Follow {
+                pos: v.pos,
+                vel: v.vel,
+                aim: Vec3::Z,
+                up: v.rot * Vec3::Y,
+                cut: v.cut,
+                ground: false,
+            };
             let cut = rig.step(&f, dt);
             let gap = (v.pos - rig.pos).dot(Vec3::Z);
             if let (Some((_, p)), false) = (prev, cut) {

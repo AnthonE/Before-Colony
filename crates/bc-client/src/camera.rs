@@ -169,7 +169,7 @@ pub fn follow(
 
     // Behind and above the suit, on a spring in the frame moving with the suit as drawn. It keeps
     // pace in the cockpit too, ready for the switch back.
-    let follow = Follow { pos: t.pos, vel: t.vel, aim: t.aim, up: t.up, cut: t.cut };
+    let follow = Follow { pos: t.pos, vel: t.vel, aim: t.aim, up: t.up, cut: t.cut, ground: false };
     if c.rig.step(&follow, dt) {
         // Spawning, respawning or a teleport: the eased effects cut too.
         c.cut = true;

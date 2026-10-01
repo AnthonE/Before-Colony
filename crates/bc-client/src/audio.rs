@@ -281,6 +281,11 @@ fn cockpit_in(game: &GameClient, in_world: bool) -> CockpitIn {
         held: o.held != NO_CHUNK,
         cargo_kg: o.cargo_kg.iter().map(|kg| u32::from(*kg)).sum(),
         credits: o.credits,
+        footing: view.and_then(|v| v.ground).map_or(0, |g| if g.aloft { 2 } else { 1 }),
+        touchdown: view.and_then(|v| v.touchdown).unwrap_or(0.0),
+        footfalls: 0,
+        grip: core.last_cmd.buttons & bc_proto::buttons::GRIP != 0,
+        cover: o.cover,
     }
 }
 
@@ -423,8 +428,8 @@ pub fn play_sound(
     // The cockpit (not while the view is in the bay).
     let cin = cockpit_in(&game, ui.playing() && !indoors.0);
     let mixer = &mut sound.mixer;
-    let out = sound.cockpit.frame(now, &cin, &mut |c| {
-        mixer.request(Request::own(c));
+    let out = sound.cockpit.frame(now, &cin, &mut |c, gain| {
+        mixer.request(Request { gain, ..Request::own(c) });
     });
     let saber = cin.alive && cin.saber;
     if saber && !sound.own_saber {

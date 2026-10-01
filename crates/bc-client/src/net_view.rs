@@ -171,8 +171,8 @@ pub fn sync_view(
         let Some(track) = track else { continue };
         let e = &track.latest;
         let state = track.state_at(t_render);
-        let p = track.sample(t_render);
-        let before = track.sample(t_render - 1.0);
+        let p = track.sample(t_render, &world.bodies);
+        let before = track.sample(t_render - 1.0, &world.bodies);
         let raw = thrust_estimate(e.frame, p.rot, p.vel, before.vel);
         let smooth = seen.thrust.entry(slot as u16).or_insert(raw);
         *smooth += (raw - *smooth) * (1.0 - (-vis.dt * 8.0).exp());
@@ -330,7 +330,7 @@ pub fn sync_view(
                     drawn.map(|v| (v.frame, v.pos, v.rot))
                 } else {
                     world.entity(slot).map(|t| {
-                        let p = t.sample(t_render);
+                        let p = t.sample(t_render, &world.bodies);
                         (t.latest.frame, p.pos, p.rot)
                     })
                 }

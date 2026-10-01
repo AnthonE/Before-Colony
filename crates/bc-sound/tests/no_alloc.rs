@@ -26,13 +26,20 @@ fn a_frame_of_sound_does_not_allocate() {
             propellant: 0.1,
             rcs: k.is_multiple_of(3),
             held: k % 90 < 45,
+            // Gripping, landing, walking and hiding on a body.
+            grip: k % 120 < 100,
+            footing: [0, 2, 1, 1][k / 30 % 4],
+            touchdown: (k % 11) as f32,
+            footfalls: (k / 12) as u32,
+            cover: (k / 40 % 4) as u8,
             ..Default::default()
         };
-        let cues = &mut |c: Cue| mixer.request(Request::own(c));
+        let cues = &mut |c: Cue, gain: f32| mixer.request(Request { gain, ..Request::own(c) });
         let _ = cockpit.frame(now, &i, cues);
         for j in 0..10 {
             mixer.request(Request::at(Cue::HitFar, [j as f32 * 50.0, 0.0, 0.0]));
         }
+        mixer.request(Request::at(Cue::FootstepFar, [120.0, 0.0, 0.0]));
         let _ = mixer.frame(now, &ears, &mix, &mut out);
         let _ =
             music.frame(1.0 / 60.0, &MusicIn { in_world: true, heat: 0.01, threatened: k.is_multiple_of(2) });

@@ -761,7 +761,9 @@ pub fn update_hud(
         .entities
         .iter()
         .enumerate()
-        .filter_map(|(slot, tr)| tr.as_ref().map(|tr| (tr.sample(t).pos.distance(own_pos), slot as u16)))
+        .filter_map(|(slot, tr)| {
+            tr.as_ref().map(|tr| (tr.sample(t, &world.bodies).pos.distance(own_pos), slot as u16))
+        })
         .collect();
     shown.sort_by(|a, b| a.0.total_cmp(&b.0));
     let lock = own.filter(|o| o.alive && o.lock_target != NO_SLOT);
@@ -786,7 +788,7 @@ pub fn update_hud(
         };
         let Some(track) = world.entity(slot) else { continue };
         let e = &track.latest;
-        let pos = track.sample(t).pos;
+        let pos = track.sample(t, &world.bodies).pos;
         match cam.world_to_viewport(cam_tf, pos) {
             Ok(p) => {
                 let hostile = e.faction != core.cfg.faction;

@@ -4,6 +4,10 @@
 //! the suit as drawn: at any steady speed it sits still, so the suit does too; it trails by
 //! acceleration / ω² (about 5 m under 10 g) and swings with turns of the aim, which move its place
 //! round the suit. The step is exact, so the camera moves the same at any frame rate.
+//!
+//! On a body the camera comes in closer and higher, to see over rims, and it is kept out of the
+//! bodies: the client clamps it short of any surface between the suit and its place
+//! ([`ChaseRig::step_clamped`], with `surface::camera_clamp`).
 
 use glam::Vec3;
 
@@ -14,6 +18,11 @@ pub const SLACK: f32 = 25.0;
 /// Where the camera sits: behind the suit along the aim, and above it (m).
 pub const BACK: f32 = 42.0;
 pub const RISE: f32 = 10.0;
+/// ...and on a body (m): closer and higher, to see over a crater's rim.
+pub const GROUND_BACK: f32 = 36.0;
+pub const GROUND_RISE: f32 = 14.0;
+/// How fast the camera moves between the two (1/s).
+const GROUND_EASE: f32 = 3.0;
 /// How far ahead along the aim the camera looks (m).
 pub const LOOK: f32 = 800.0;
 /// A camera this far from its place has lost the suit (a respawn, a teleport): it cuts.
@@ -39,12 +48,22 @@ pub struct Follow {
     pub up: Vec3,
     /// The view jumped (spawn, respawn, a relocation): cut rather than chase.
     pub cut: bool,
+    /// The suit is on a body (standing on it, or in the air in its grip).
+    pub ground: bool,
 }
 
 impl Follow {
     /// The camera's place: behind the suit along the aim, and above it.
     pub fn ideal(&self) -> Vec3 {
-        self.pos - self.aim * BACK + self.up * RISE
+        self.ideal_at(0.0)
+    }
+
+    /// The camera's place `mix` (0..1) of the way from where it sits in flight to where it sits on
+    /// a body.
+    fn ideal_at(&self, mix: f32) -> Vec3 {
+        let back = BACK + (GROUND_BACK - BACK) * mix;
+        let rise = RISE + (GROUND_RISE - RISE) * mix;
+        self.pos - self.aim * back + self.up * rise
     }
 
     /// Where the camera looks.
@@ -59,14 +78,26 @@ pub struct ChaseRig {
     pub placed: bool,
     pub pos: Vec3,
     pub vel: Vec3,
+    /// How far (0..1) it has come in to where it sits on a body.
+    pub ground: f32,
 }
 
 impl ChaseRig {
     /// Moves the camera `dt` seconds on; returns whether it cut to its place.
     pub fn step(&mut self, f: &Follow, dt: f32) -> bool {
-        let ideal = f.ideal();
-        if !self.placed || f.cut || (self.pos + self.vel * dt).distance(ideal) > CUT {
-            *self = Self { placed: true, pos: ideal, vel: f.vel };
+        self.step_clamped(f, dt, &|_, to| to)
+    }
+
+    /// [`ChaseRig::step`], with the camera's place on the way from the suit to it passed through
+    /// `clamp(suit, place)`, which may stop it short (of a body's surface).
+    pub fn step_clamped(&mut self, f: &Follow, dt: f32, clamp: &dyn Fn(Vec3, Vec3) -> Vec3) -> bool {
+        let goal = if f.ground { 1.0 } else { 0.0 };
+        let cut = !self.placed || f.cut;
+        self.ground =
+            if cut { goal } else { self.ground + (goal - self.ground) * (1.0 - (-GROUND_EASE * dt).exp()) };
+        let ideal = f.ideal_at(self.ground);
+        if cut || (self.pos + self.vel * dt).distance(ideal) > CUT {
+            *self = Self { placed: true, pos: clamp(f.pos, ideal), vel: f.vel, ground: self.ground };
             return true;
         }
         // In the frame moving with the drawn suit: the camera starts where that frame carries it,
@@ -82,7 +113,7 @@ impl ChaseRig {
             x = ideal + n * SLACK;
             u -= n * u.dot(n).max(0.0);
         }
-        self.pos = x;
+        self.pos = clamp(f.pos, x);
         self.vel = u + f.vel;
         false
     }
@@ -107,7 +138,7 @@ mod tests {
     }
 
     fn follow(pos: Vec3, vel: Vec3) -> Follow {
-        Follow { pos, vel, aim: AIM, up: UP, cut: false }
+        Follow { pos, vel, aim: AIM, up: UP, cut: false, ground: false }
     }
 
     /// Flies the rig behind a suit drawn at `path(t)` at `hz` for `secs`, told how far the suit
@@ -237,5 +268,76 @@ mod tests {
         assert!(rig.step(&Follow { cut: true, ..follow(Vec3::ZERO, Vec3::ZERO) }, 0.016));
         assert!(rig.step(&follow(Vec3::splat(5_000.0), Vec3::ZERO), 0.016), "a teleport");
         assert_eq!(rig.pos, follow(Vec3::splat(5_000.0), Vec3::ZERO).ideal());
+    }
+
+    #[test]
+    fn grounded_offsets_ease() {
+        // Landing: the camera comes in to 36 m back and 14 m up over a third of a second or so,
+        // and goes back out on taking off.
+        let dt = 1.0 / 60.0;
+        let mut rig = ChaseRig::default();
+        let flying = follow(Vec3::ZERO, Vec3::ZERO);
+        rig.step(&flying, dt);
+        assert_eq!(rig.pos, flying.ideal());
+        let landed = Follow { ground: true, ..flying };
+        let place = |rig: &ChaseRig| (-(rig.pos - landed.pos).dot(AIM), (rig.pos - landed.pos).dot(UP));
+        let mut prev = place(&rig);
+        for k in 0..120 {
+            rig.step(&landed, dt);
+            let (back, rise) = place(&rig);
+            assert!(back <= prev.0 + 1e-3 && rise >= prev.1 - 1e-3, "frame {k}: eases one way");
+            prev = (back, rise);
+            if k == 5 {
+                assert!(back > 39.0, "no jump: {back} m back after 6 frames");
+            }
+        }
+        assert!((prev.0 - GROUND_BACK).abs() < 0.2 && (prev.1 - GROUND_RISE).abs() < 0.2, "{prev:?}");
+        for _ in 0..180 {
+            rig.step(&flying, dt);
+        }
+        assert!(rig.pos.distance(flying.ideal()) < 0.05);
+        // A cut goes straight there.
+        rig.step(&Follow { cut: true, ..landed }, dt);
+        assert!(rig.pos.distance(landed.pos - AIM * GROUND_BACK + UP * GROUND_RISE) < 1e-3);
+    }
+
+    #[test]
+    fn the_camera_stays_outside_the_body() {
+        use crate::surface::{BodySet, CAM_CLEAR, camera_clamp};
+        use bc_sim::bodies::Body;
+        use bc_sim::field::Field;
+        use bc_sim::ground::STANCE;
+        use std::sync::Arc;
+
+        // Standing on Hermit, aiming down at the ground: the camera's place behind and above the
+        // aim is under the surface, and it's held out of it.
+        let bodies = BodySet::new(Arc::new(Field::empty()), 2);
+        let hermit = Body::Landmark(1);
+        let t = 100.0;
+        let pose = bodies.pose_at(hermit, t).unwrap();
+        let shape = bodies.shape(hermit).unwrap();
+        let (p, n) = bodies.at(100).surface_along(hermit, Vec3::new(0.4, 1.0, -0.3)).unwrap();
+        let (p, n) = (pose.to_world(p), pose.rot * n);
+        let side = n.cross(Vec3::X).normalize();
+        let clear = |x: Vec3| shape.probe(pose.to_local(x)).dist;
+        let dt = 1.0 / 60.0;
+        let mut clamped = 0;
+        for pitch in [-1.2f32, -0.6, 0.0, 0.8, 1.2] {
+            // Aimed up (positive), the camera goes down behind the suit.
+            let aim = (side * pitch.cos() + n * pitch.sin()).normalize();
+            let f = Follow { pos: p + n * STANCE, vel: Vec3::ZERO, aim, up: n, cut: false, ground: true };
+            clamped += u32::from(clear(f.ideal_at(1.0)) < 0.0);
+            let mut rig = ChaseRig::default();
+            for _ in 0..240 {
+                rig.step_clamped(&f, dt, &|from, to| camera_clamp(&bodies, t, from, to));
+                assert!(clear(rig.pos) > CAM_CLEAR * 0.9, "pitch {pitch}: {} m clear", clear(rig.pos));
+            }
+            let open = clear(f.ideal_at(1.0)) > CAM_CLEAR;
+            if open {
+                assert!(rig.pos.distance(f.ideal_at(1.0)) < 0.05, "pitch {pitch}: held short for nothing");
+            }
+        }
+        // Places under the ground came up: the clamp had work to do.
+        assert_eq!(clamped, 2);
     }
 }

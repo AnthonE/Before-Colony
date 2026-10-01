@@ -85,6 +85,14 @@ pub fn render(cue: Cue) -> Vec<f32> {
         Cue::MusicCalm => crate::music::calm(),
         Cue::MusicCombat => crate::music::combat(),
         Cue::MusicTitle => crate::title::title(),
+        Cue::MagLock => mag_lock(&mut r),
+        Cue::MagRelease => mag_release(&mut r),
+        Cue::Touchdown => touchdown(&mut r),
+        Cue::Footstep => footstep(&mut r, false),
+        Cue::FootstepFar => footstep(&mut r, true),
+        Cue::PushOff => push_off(&mut r),
+        Cue::GoDark => reactor(&mut r, false),
+        Cue::PowerUp => reactor(&mut r, true),
     };
     normalize(&mut out, PEAK);
     out
@@ -614,6 +622,102 @@ fn click(r: &mut Rng) -> Vec<f32> {
             let t = i as f32 / SR;
             let x = r.noise();
             ((x - hp.run(x)) * 0.5 + (TAU * 2_200.0 * t).sin()) * (-t / 0.008).exp() * edges(i, n)
+        })
+        .collect()
+}
+
+/// The grip arming (or a surface taking hold): magnets seating, a hard clunk with a ring through
+/// the frame.
+fn mag_lock(r: &mut Rng) -> Vec<f32> {
+    let mut out = impact(r, 0.45, 120.0, 0.07, 0.015, 2_600.0, 500.0);
+    mix_in(&mut out, &ring(0.4, &[(880.0, 0.08), (1_390.0, 0.05), (2_210.0, 0.03)]), samples(0.01), 0.35);
+    let n = out.len();
+    for (i, v) in out.iter_mut().enumerate() {
+        *v *= edges(i, n);
+    }
+    out
+}
+
+/// The grip letting go: a softer unlatch and the hiss of the field collapsing.
+fn mag_release(r: &mut Rng) -> Vec<f32> {
+    let mut out = whoosh(r, 0.5, 3_800.0, 900.0);
+    mix_in(&mut out, &impact(r, 0.2, 150.0, 0.04, 0.01, 2_000.0, 600.0), 0, 0.6);
+    let n = out.len();
+    for (i, v) in out.iter_mut().enumerate() {
+        *v *= edges(i, n);
+    }
+    out
+}
+
+/// Landing: a low thud through the legs, then the hydraulics taking the weight with a hiss.
+fn touchdown(r: &mut Rng) -> Vec<f32> {
+    let mut out = boom(r, 0.6, 48.0, 0.14);
+    mix_in(&mut out, &impact(r, 0.3, 75.0, 0.08, 0.03, 1_400.0, 160.0), 0, 0.9);
+    let mut hiss = whoosh(r, 0.5, 4_500.0, 1_800.0);
+    for v in &mut hiss {
+        *v *= 0.35;
+    }
+    mix_in(&mut out, &hiss, samples(0.08), 1.0);
+    let n = out.len();
+    for (i, v) in out.iter_mut().enumerate() {
+        *v *= edges(i, n);
+    }
+    out
+}
+
+/// A foot coming down: a thump and a metallic ring through the frame. Heard from another suit
+/// through the body (`far`), only the low thump comes through, dulled.
+fn footstep(r: &mut Rng, far: bool) -> Vec<f32> {
+    let dur = if far { 0.35 } else { 0.3 };
+    let mut out = impact(r, dur, 62.0, 0.07, 0.012, if far { 500.0 } else { 2_000.0 }, 120.0);
+    if !far {
+        mix_in(&mut out, &ring(0.25, &[(610.0, 0.05), (1_475.0, 0.03)]), samples(0.005), 0.2);
+    }
+    let n = out.len();
+    let mut lp = Lp::new(if far { 300.0 } else { 6_000.0 });
+    for (i, v) in out.iter_mut().enumerate() {
+        *v = lp.run(*v) * edges(i, n);
+    }
+    out
+}
+
+/// Pushing off a surface: the legs' servos slamming out, and a thruster's breath.
+fn push_off(r: &mut Rng) -> Vec<f32> {
+    let dur = 0.7;
+    let n = samples(dur);
+    let mut lp = Lp::new(900.0);
+    let mut phase = 0.0f32;
+    let mut out: Vec<f32> = (0..n)
+        .map(|i| {
+            let t = i as f32 / SR;
+            phase += (220.0 - 120.0 * (t / dur)) / SR;
+            lp.run(saw(phase)) * (-t / 0.12).exp() * 0.8
+        })
+        .collect();
+    mix_in(&mut out, &impact(r, 0.25, 90.0, 0.05, 0.02, 2_500.0, 300.0), 0, 0.9);
+    mix_in(&mut out, &whoosh(r, 0.55, 600.0, 2_600.0), samples(0.05), 0.5);
+    for (i, v) in out.iter_mut().enumerate() {
+        *v *= edges(i, n);
+    }
+    out
+}
+
+/// The reactor going down to idle (`up`: spinning back up): a turbine's whine falling away to a
+/// hum, or rising out of one.
+fn reactor(r: &mut Rng, up: bool) -> Vec<f32> {
+    let dur = 1.6;
+    let n = samples(dur);
+    let mut lp = Lp::new(400.0);
+    let mut phase = 0.0f32;
+    (0..n)
+        .map(|i| {
+            let t = i as f32 / SR;
+            let x = if up { t / dur } else { 1.0 - t / dur };
+            phase += (90.0 + 900.0 * x * x) / SR;
+            let whine = (TAU * phase).sin() * 0.6 + (TAU * phase * 2.01).sin() * 0.2;
+            let rumble = lp.run(r.noise()) * 2.0 * (0.3 + 0.7 * x);
+            let env = attack(t, 0.08) * ((dur - t) / 0.4).clamp(0.0, 1.0);
+            (whine * (0.2 + 0.8 * x) + rumble) * env * edges(i, n)
         })
         .collect()
 }

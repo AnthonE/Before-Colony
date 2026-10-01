@@ -220,6 +220,13 @@ pub fn update_hints(
         using: used && onfoot.focus.is_some(),
         boarding: used && onfoot.focus == Some(bc_client_core::bay::Spot::Cockpit),
         docking: keys.just_pressed(KeyCode::Enter),
+        near_surface: false,
+        gripping: false,
+        grounded: false,
+        walked: false,
+        hopped: false,
+        in_hide_spot: false,
+        hidden: false,
     };
     let mut seen = settings.0.hints_seen;
     let hint = state.hints.step(&mut seen, now_s(), f64::from(time.delta_secs()), &input);

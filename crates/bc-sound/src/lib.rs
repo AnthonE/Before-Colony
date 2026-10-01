@@ -130,6 +130,16 @@ cues!(
     MusicCalm,
     MusicCombat,
     MusicTitle,
+    // On the bodies (appended, so every cue before keeps its number and its seed): the grip, the
+    // feet, hiding.
+    MagLock,
+    MagRelease,
+    Touchdown,
+    Footstep,
+    FootstepFar,
+    PushOff,
+    GoDark,
+    PowerUp,
 );
 
 /// How many cues there are.
@@ -213,6 +223,14 @@ impl Cue {
             Cue::MusicCalm => looped(Music, 0.5),
             Cue::MusicCombat => looped(Music, 0.5),
             Cue::MusicTitle => looped(Music, 0.5),
+            Cue::MagLock => def(Cockpit, 7, 0.0, 0.25, 0.55, 0.03),
+            Cue::MagRelease => def(Cockpit, 7, 0.0, 0.25, 0.45, 0.03),
+            Cue::Touchdown => def(Cockpit, 8, 0.0, 0.3, 0.8, 0.06),
+            Cue::Footstep => def(Cockpit, 4, 0.0, cockpit::FOOTSTEP_GAP, 0.4, 0.1),
+            Cue::FootstepFar => def(Effects, 3, CONDUCT_RANGE, 0.08, 0.5, 0.12),
+            Cue::PushOff => def(Cockpit, 7, 0.0, 0.3, 0.55, 0.04),
+            Cue::GoDark => def(Cockpit, 8, 0.0, 1.0, 0.5, 0.0),
+            Cue::PowerUp => def(Cockpit, 8, 0.0, 1.0, 0.5, 0.0),
         }
     }
 
@@ -235,6 +253,17 @@ pub fn sample_rate(cue: Cue) -> u32 {
 /// A cue's channels: the title theme is stereo, the rest mono.
 pub fn channels(cue: Cue) -> usize {
     if cue == Cue::MusicTitle { 2 } else { 1 }
+}
+
+/// Footsteps carry through a body this far, m: within it, a pilot on the same body hears another's
+/// feet through the rock or the hull ([`Cue::FootstepFar`]); off it, nothing carries them.
+pub const CONDUCT_RANGE: f32 = 500.0;
+
+/// Whether a pilot on body `listener` (an id the caller gives each body; `None`: on none) hears
+/// the footsteps of a suit on body `source`, `dist` m off: on the same body, within
+/// [`CONDUCT_RANGE`].
+pub fn conducted(listener: Option<u32>, source: Option<u32>, dist: f32) -> bool {
+    listener.is_some() && listener == source && dist < CONDUCT_RANGE
 }
 
 /// How much of a positional cue reaches the pilot from `dist` m away: 1 up close, falling off with
@@ -269,6 +298,18 @@ mod tests {
         }
         assert_eq!(falloff(1_000.0, 1_000.0), 0.0);
         assert_eq!(falloff(5.0, 0.0), 1.0, "the pilot's own isn't positional");
+    }
+
+    #[test]
+    fn footsteps_carry_through_the_body_they_are_on() {
+        assert!(conducted(Some(3), Some(3), 120.0));
+        assert!(!conducted(Some(3), Some(3), 600.0), "too far through it");
+        assert!(!conducted(Some(3), Some(4), 20.0), "another body");
+        assert!(
+            !conducted(None, Some(3), 20.0) && !conducted(None, None, 20.0),
+            "nothing carries them in space"
+        );
+        assert_eq!(Cue::FootstepFar.def().radius, CONDUCT_RANGE);
     }
 
     #[test]

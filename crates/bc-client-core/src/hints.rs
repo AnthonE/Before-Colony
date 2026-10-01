@@ -1,6 +1,8 @@
 //! First-flight hints: one short line at a time, each gone once the pilot does what it says (or
 //! after a while), and never shown again once seen (the seen set is kept with the settings).
 //! Flying hints come while flying, and the hangar bay's (survival rules) while on foot in it.
+//! The surface's come when they mean something: arming the grip near a body, walking once on one,
+//! hiding once in a hide spot.
 
 /// A hint. Each one's bit in the seen set is its discriminant: new ones go at the end.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,11 +21,17 @@ pub enum Hint {
     Dock,
     /// Flying: the cockpit view (players from other games press V, which is flight assist here).
     Camera,
+    /// Flying near something to land on: arming the grip.
+    Grip,
+    /// On a body: walking, hopping, crouching, letting go.
+    Surface,
+    /// In a hide spot: hiding.
+    Hide,
 }
 
 impl Hint {
     /// In the order they're shown.
-    pub const ALL: [Hint; 11] = [
+    pub const ALL: [Hint; 14] = [
         Hint::Walk,
         Hint::Use,
         Hint::Launch,
@@ -34,6 +42,9 @@ impl Hint {
         Hint::FlightAssist,
         Hint::Salvage,
         Hint::Dock,
+        Hint::Grip,
+        Hint::Surface,
+        Hint::Hide,
         Hint::Menu,
     ];
 
@@ -44,6 +55,17 @@ impl Hint {
     /// Shown on foot in the hangar bay (else while flying).
     fn on_foot(self) -> bool {
         matches!(self, Hint::Walk | Hint::Use | Hint::Launch)
+    }
+
+    /// Whether it means something now: the surface's hints wait for their moment.
+    fn due(self, i: &HintInput) -> bool {
+        match self {
+            Hint::Dock => i.survival,
+            Hint::Grip => i.near_surface && !i.gripping,
+            Hint::Surface => i.grounded,
+            Hint::Hide => i.grounded && i.in_hide_spot,
+            _ => true,
+        }
     }
 
     pub fn text(self) -> &'static str {
@@ -66,6 +88,13 @@ impl Hint {
             }
             Hint::Dock => "To go home, come to rest inside the dock's ring of lights and press Enter.",
             Hint::Camera => "Tab (or the mouse wheel) switches between the cockpit and the chase camera.",
+            Hint::Grip => "L arms your grip: come in slow and close, and it lands you",
+            Hint::Surface => {
+                "W A S D walk - Shift runs - Space hops, hold it to lift off - C crouches - L lets go"
+            }
+            Hint::Hide => {
+                "Crouch still in a hide spot and sensors lose you. Log off here and your suit stays hidden"
+            }
         }
     }
 
@@ -74,7 +103,8 @@ impl Hint {
         match self {
             Hint::Thrust | Hint::Fire | Hint::Walk => 20.0,
             Hint::Use | Hint::Launch => 30.0,
-            Hint::Dock | Hint::Camera => 15.0,
+            Hint::Dock | Hint::Camera | Hint::Grip | Hint::Hide => 15.0,
+            Hint::Surface => 20.0,
             _ => 9.0,
         }
     }
@@ -101,6 +131,18 @@ pub struct HintInput {
     pub boarding: bool,
     /// Asked to dock.
     pub docking: bool,
+    /// Flying within a kilometre of something it could land on.
+    pub near_surface: bool,
+    /// On a body, in its grip (caught, standing, or aloft).
+    pub gripping: bool,
+    /// Standing on a body.
+    pub grounded: bool,
+    /// Walking on it (the stick held), and hopping this frame.
+    pub walked: bool,
+    pub hopped: bool,
+    /// In one of a landmark's hide spots, and hidden (sensors have lost it).
+    pub in_hide_spot: bool,
+    pub hidden: bool,
 }
 
 /// Seconds between one hint and the next.
@@ -114,6 +156,8 @@ pub struct Hints {
     current: Option<(Hint, f64)>,
     /// How long the current hint's action has gone on.
     doing: f64,
+    /// The pilot hopped while the surface's hint was up.
+    hopped: bool,
     next_at: f64,
 }
 
@@ -142,13 +186,29 @@ impl Hints {
                 Hint::Launch => i.boarding,
                 Hint::Dock => i.docking,
                 Hint::Camera => i.switched_camera,
+                Hint::Grip => i.gripping,
+                Hint::Surface => i.walked,
+                Hint::Hide => i.hidden,
             };
             self.doing = if acting { self.doing + dt } else { self.doing };
+            self.hopped |= i.hopped;
             let at_once = matches!(
                 h,
-                Hint::FlightAssist | Hint::Camera | Hint::Salvage | Hint::Use | Hint::Launch | Hint::Dock
+                Hint::FlightAssist
+                    | Hint::Camera
+                    | Hint::Salvage
+                    | Hint::Use
+                    | Hint::Launch
+                    | Hint::Dock
+                    | Hint::Grip
+                    | Hint::Hide
             );
-            let done = self.doing >= DOING || (acting && at_once);
+            // The surface's: a second of walking, and a hop.
+            let done = if h == Hint::Surface {
+                self.doing >= DOING && self.hopped
+            } else {
+                self.doing >= DOING || (acting && at_once)
+            };
             if done || now - since > h.max_secs() {
                 *seen |= h.bit();
                 self.current = None;
@@ -160,11 +220,11 @@ impl Hints {
         if now < self.next_at {
             return None;
         }
-        let h = Hint::ALL.into_iter().find(|h| {
-            *seen & h.bit() == 0 && h.on_foot() == i.walking && (i.survival || !matches!(h, Hint::Dock))
-        })?;
+        let h =
+            Hint::ALL.into_iter().find(|h| *seen & h.bit() == 0 && h.on_foot() == i.walking && h.due(i))?;
         self.current = Some((h, now));
         self.doing = 0.0;
+        self.hopped = false;
         Some(h)
     }
 }
@@ -262,5 +322,46 @@ mod tests {
         let mut all = Hint::ALL.iter().fold(0, |a, h| a | h.bit());
         let flying = HintInput { flying: true, ..Default::default() };
         assert_eq!(run(&mut h, &mut all, &mut t, 5.0, flying), None);
+    }
+
+    #[test]
+    fn the_surfaces_hints_take_the_next_bits() {
+        assert_eq!((Hint::Grip.bit(), Hint::Surface.bit(), Hint::Hide.bit()), (1 << 11, 1 << 12, 1 << 13));
+        let mut bits: Vec<u32> = Hint::ALL.iter().map(|h| h.bit()).collect();
+        bits.sort_unstable();
+        bits.dedup();
+        assert_eq!(bits.len(), Hint::ALL.len(), "every hint listed once");
+    }
+
+    #[test]
+    fn the_surfaces_hints_come_when_they_mean_something() {
+        let (mut h, mut t) = (Hints::default(), 0.0);
+        // Everything else seen.
+        let mut seen = Hint::ALL
+            .iter()
+            .filter(|h| !matches!(h, Hint::Grip | Hint::Surface | Hint::Hide))
+            .fold(0, |a, h| a | h.bit());
+        let flying = HintInput { flying: true, ..Default::default() };
+        assert_eq!(run(&mut h, &mut seen, &mut t, 5.0, flying), None, "nothing to land on");
+        // Near a body: arm the grip; caught, it's done.
+        let near = HintInput { near_surface: true, ..flying };
+        assert_eq!(run(&mut h, &mut seen, &mut t, 0.1, near), Some(Hint::Grip));
+        run(&mut h, &mut seen, &mut t, 0.1, HintInput { gripping: true, ..near });
+        assert!(seen & Hint::Grip.bit() != 0);
+        // Standing on it: walking alone doesn't clear the surface's hint; a hop as well does.
+        let grounded = HintInput { gripping: true, grounded: true, ..flying };
+        assert_eq!(run(&mut h, &mut seen, &mut t, GAP + 0.2, grounded), Some(Hint::Surface));
+        assert_eq!(
+            run(&mut h, &mut seen, &mut t, 2.0, HintInput { walked: true, ..grounded }),
+            Some(Hint::Surface)
+        );
+        run(&mut h, &mut seen, &mut t, 0.05, HintInput { hopped: true, ..grounded });
+        assert!(seen & Hint::Surface.bit() != 0);
+        // Not in a hide spot: nothing; in one, hiding is explained until the suit is hidden.
+        assert_eq!(run(&mut h, &mut seen, &mut t, GAP + 0.2, grounded), None);
+        let spot = HintInput { in_hide_spot: true, ..grounded };
+        assert_eq!(run(&mut h, &mut seen, &mut t, 0.1, spot), Some(Hint::Hide));
+        run(&mut h, &mut seen, &mut t, 0.05, HintInput { hidden: true, ..spot });
+        assert!(seen & Hint::Hide.bit() != 0);
     }
 }
