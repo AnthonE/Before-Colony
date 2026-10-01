@@ -636,7 +636,8 @@ impl Sim {
         let tuned = self.tuning(i);
         let extra_mass_kg = mass_without(fid, s.gone_mask(i)) as i32 - mass_without(fid, 0) as i32
             + (s.cargo_total_kg(i) + held + tuned.module_kg) as i32;
-        let mut mods = tuning::flight_mods(&tuned, s.pilot[i] == PilotKind::MobileDoll, extra_mass_kg);
+        let doll = s.pilot[i] == PilotKind::MobileDoll;
+        let mut mods = tuning::flight_mods(&tuned, self.cfg.flight, doll, extra_mass_kg);
         mods.main *= tuning::sputter(&tuned, t, i as u16);
         if busy {
             mods.ambac = busy_ambac(mods.ambac);

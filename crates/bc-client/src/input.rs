@@ -16,6 +16,7 @@
 //! | H | the frame's special: Neo-Bird or the Hyper Jammer on/off, or held: Full Open, Cross Crusher |
 //! | V | flight assist on/off · Z ZERO System on/off |
 //! | Tab, mouse wheel | the chase camera or the cockpit (wheel in: the cockpit, out: chasing) |
+//! | M | the map of the sector and the objectives (`map.rs`) |
 //! | 1–6 | respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock, Shenlong (when destroyed) |
 //!
 //! Down is C alone: Left Ctrl held with W would be Ctrl+W, which closes the browser's tab.

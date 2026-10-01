@@ -13,8 +13,35 @@ use glam::Vec3;
 use crate::content::modules::{self as md, ModuleKind, Modules};
 use crate::content::systems::{self as sys, FAILED, System, Systems};
 use crate::content::{ArmSlot, FrameSpec};
-use crate::flight::FlightMods;
+use crate::flight::{BoostGauge, FlightMods};
 use crate::math::{hash01, normalize_or};
+
+/// How a sector's pilots fly, people and agents alike. The server says which in its Welcome, and
+/// the owner's client predicts by the same rules. Mobile Dolls fly by the real rules either way:
+/// machines built cheap, they burn every newton and run dry, which is what lets a pilot catch the
+/// ones that have been out a while.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FlightRules {
+    /// The simulator: every newton burns propellant (the rocket equation decides how far a tank
+    /// goes), and a pilot bears 6 g for good.
+    #[default]
+    Real,
+    /// Anime rules, for fun over realism: a pilot's tank is a boost gauge. Only boost burns it,
+    /// flying is free, and it fills back up from dry in [`ANIME_REFILL_SECS`] once boost is let go
+    /// (on the ground too). Pilots bear [`ANIME_G`] times the G, as the show's do.
+    Anime,
+}
+
+/// Under anime rules, how long a whole tank takes to fill back up from dry, s.
+pub const ANIME_REFILL_SECS: f32 = 20.0;
+/// Under anime rules, how much more G a pilot bears for good.
+pub const ANIME_G: f32 = 2.0;
+
+impl FlightRules {
+    pub fn anime(self) -> bool {
+        self == FlightRules::Anime
+    }
+}
 
 /// A multiplier rounded to 8 bits, as part-loss factors always have been.
 pub fn wire(x: f32) -> f32 {
@@ -38,6 +65,8 @@ pub struct Tuning {
     pub g_tolerance: f32,
     /// Propellant lost from the tank, kg/s.
     pub leak_kg_s: f32,
+    /// Under anime rules, how fast the boost gauge fills back up.
+    pub refill: f32,
     /// The main thrusters cough (see [`sputter`]).
     pub sputter: bool,
     /// Sensor range, and the signature others see.
@@ -106,6 +135,7 @@ pub fn tuning(gone: u8, systems: Systems, modules: Modules) -> Tuning {
         isp: 1.0,
         g_tolerance: sys::COCKPIT_G[level(System::Cockpit)],
         leak_kg_s: sys::LEAK_KG_S[level(System::Tank)],
+        refill: sys::TANK_REFILL[level(System::Tank)],
         sputter: level(System::MainThrusters) == usize::from(sys::DAMAGED),
         sensor: sys::SENSORS[level(System::Sensors)],
         signature: 1.0,
@@ -180,9 +210,12 @@ pub fn own_tuning(own: &bc_proto::OwnState) -> Tuning {
     tuning(own_gone(own), Systems(own.systems), Modules(own.modules))
 }
 
-/// The flight model's modifiers from a suit's stat sheet, before what the arms are doing (busy
-/// arms, a lunge), a change of form and a sputter, which the caller applies tick by tick.
-pub fn flight_mods(t: &Tuning, g_immune: bool, extra_mass_kg: i32) -> FlightMods {
+/// The flight model's modifiers from a suit's stat sheet under the sector's `rules`, before what
+/// the arms are doing (busy arms, a lunge), a change of form and a sputter, which the caller
+/// applies tick by tick. A Mobile Doll (`g_immune`: no body) flies by the real rules whatever
+/// the sector's.
+pub fn flight_mods(t: &Tuning, rules: FlightRules, g_immune: bool, extra_mass_kg: i32) -> FlightMods {
+    let anime = rules.anime() && !g_immune;
     FlightMods {
         ambac: t.ambac,
         thrust: 1.0,
@@ -191,13 +224,14 @@ pub fn flight_mods(t: &Tuning, g_immune: bool, extra_mass_kg: i32) -> FlightMods
         retro: t.retro,
         boost: t.boost,
         isp: t.isp,
-        g_tolerance: t.g_tolerance,
+        g_tolerance: if anime { t.g_tolerance * ANIME_G } else { t.g_tolerance },
         leak_kg_s: t.leak_kg_s,
         g_immune,
         lunge: false,
         extra_mass_kg,
         roll_level: None,
         hop: None,
+        gauge: anime.then(|| BoostGauge { tank: t.tank, refill: t.refill / ANIME_REFILL_SECS }),
     }
 }
 
@@ -256,7 +290,7 @@ mod tests {
     #[test]
     fn a_whole_suit_flies_its_frame_as_it_is() {
         let t = tuning(0, Systems::OK, Modules::NONE);
-        let m = flight_mods(&t, false, 0);
+        let m = flight_mods(&t, FlightRules::Real, false, 0);
         let d = FlightMods::default();
         assert_eq!(
             (m.ambac, m.thrust, m.main, m.side, m.retro, m.boost, m.isp, m.g_tolerance, m.leak_kg_s),

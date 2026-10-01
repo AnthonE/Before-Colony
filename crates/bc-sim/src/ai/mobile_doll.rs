@@ -38,6 +38,9 @@ pub struct AiState {
     /// Current aim error (re-rolled when thinking).
     pub aim_noise: Vec3,
     pub shot_seq: u8,
+    /// The kit-aware pilot ran its tank dry boosting: it lets go of boost until it's half full
+    /// again (under anime rules a boost gauge fills only once boost is let go).
+    pub boost_spent: bool,
 }
 
 impl Default for AiState {
@@ -56,6 +59,7 @@ impl Default for AiState {
             rng: 1,
             aim_noise: Vec3::ZERO,
             shot_seq: 0,
+            boost_spent: false,
         }
     }
 }

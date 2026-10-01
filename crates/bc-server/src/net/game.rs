@@ -29,7 +29,7 @@ use crate::market::Market;
 use crate::pilots::{
     self, Claim, Fate, FileStore, MemoryStore, ParkNews, PilotRecord, PilotStore, Pilots, Sleeper,
 };
-use crate::{Config, OracleKind, Ruleset};
+use crate::{Config, Flight, OracleKind, Ruleset};
 
 /// Commands for the egress thread.
 pub enum EgressCmd {
@@ -105,6 +105,8 @@ pub struct GameShared {
     pub(super) idle: Duration,
     /// Survival rules (else arcade).
     pub survival: bool,
+    /// Anime flight rules (else the simulator's).
+    pub anime: bool,
     /// The Colony Exchange.
     pub market: Arc<Market>,
     pub econ: bc_econ::Rules,
@@ -244,6 +246,7 @@ pub struct StatusView {
     roster: Arc<RwLock<HashMap<u16, RosterEntry>>>,
     oracle: &'static str,
     survival: bool,
+    anime: bool,
     market: Arc<Market>,
     hangars: Arc<RwLock<HashMap<u16, HangarEntry>>>,
 }
@@ -274,6 +277,7 @@ impl GameRuntime {
                 seed: cfg.seed,
                 max_sleepers: cfg.max_sleepers,
                 survival,
+                flight: cfg.flight.rules(),
                 ..SimConfig::default()
             },
             max_clients: cfg.max_clients,
@@ -307,6 +311,7 @@ impl GameRuntime {
             max_clients = cfg.max_clients,
             oracle,
             rules = ?cfg.rules,
+            flight = ?cfg.flight,
             "sector running at 30 Hz"
         );
         let store: Arc<dyn PilotStore> = match &cfg.data_dir {
@@ -329,6 +334,7 @@ impl GameRuntime {
             },
             idle: cfg.idle_timeout,
             survival,
+            anime: cfg.flight == Flight::Anime,
             market,
             econ: bc_econ::Rules { craft_speed: cfg.craft_speed },
             hangars: Arc::new(RwLock::new(HashMap::new())),
@@ -381,6 +387,7 @@ impl GameRuntime {
             roster: self.shared.roster.clone(),
             oracle: self.oracle,
             survival: self.shared.survival,
+            anime: self.shared.anime,
             market: self.shared.market.clone(),
             hangars: self.shared.hangars.clone(),
         }
@@ -506,6 +513,7 @@ impl StatusView {
             "tick_hz": bc_sim::TICK_HZ,
             "oracle": self.oracle,
             "rules": if self.survival { "survival" } else { "arcade" },
+            "flight": if self.anime { "anime" } else { "real" },
             // Survival: pilots in their hangar bays (and out of them), and the exchange's ledger.
             "hangars": hangars,
             "exchange": exchange,

@@ -19,6 +19,7 @@ pub mod hangar;
 pub mod hints;
 pub mod inputs;
 pub mod interp;
+pub mod objectives;
 pub mod own;
 pub mod palette;
 pub mod pointer;
@@ -41,6 +42,7 @@ use bc_sim::bodies::Body;
 use bc_sim::config::{G0, MAX_REWIND_TICKS};
 use bc_sim::content::{Mount, Replication, frame, weapon};
 use bc_sim::math::{clamp_to_cone, integrate_rotation, normalize_or};
+use bc_sim::tuning::FlightRules;
 use glam::Vec3;
 
 pub use brains::{DollBrain, LanderBrain, MinerBrain};
@@ -88,6 +90,8 @@ pub struct Welcome {
     pub woke: bool,
     /// Survival rules: the pilot starts in their hangar, and launches the suit they built.
     pub survival: bool,
+    /// Anime flight rules: the tank is a boost gauge that fills back up.
+    pub anime: bool,
     /// How many of the compiled landmarks the sector has (no more than this build knows of).
     pub landmarks: u8,
 }
@@ -320,6 +324,8 @@ impl ClientCore {
                     return;
                 }
                 self.predict.set_landmarks(landmarks);
+                let anime = flags & welcome_flags::ANIME != 0;
+                self.predict.set_rules(if anime { FlightRules::Anime } else { FlightRules::Real });
                 self.welcome = Some(Welcome {
                     client_slot,
                     tick_hz,
@@ -330,6 +336,7 @@ impl ClientCore {
                     signed_in: flags & welcome_flags::SIGNED_IN != 0,
                     woke: flags & welcome_flags::WOKE != 0,
                     survival: flags & welcome_flags::SURVIVAL != 0,
+                    anime,
                     landmarks: self.predict.landmarks().len() as u8,
                 });
                 self.predict.set_field(bc_sim::field::Field::generate(field_seed, field_rocks));

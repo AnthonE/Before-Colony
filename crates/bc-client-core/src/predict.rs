@@ -32,7 +32,7 @@ use bc_sim::flight::{FlightMods, FlightOut, FlightState};
 use bc_sim::ground::{Anchor, Footing, MoveCtx, MoveOut, Mover, derive, move_step, place};
 use bc_sim::math::integrate_rotation;
 use bc_sim::transform::{Form, transform_step, transform_thrust};
-use bc_sim::tuning::{Tuning, flight_mods, own_tuning, sputter};
+use bc_sim::tuning::{FlightRules, Tuning, flight_mods, own_tuning, sputter};
 use bc_sim::{DT, TICK_HZ};
 use glam::{Quat, Vec3};
 
@@ -280,6 +280,8 @@ pub struct Predictor {
     /// Rocks that shattered, and the first tick each is gone for (the tick after the server
     /// broke it): a replay from before then still stands on it.
     rock_deaths: Vec<(u16, u32)>,
+    /// How the sector's suits fly (from the Welcome).
+    rules: FlightRules,
 }
 
 impl Default for Predictor {
@@ -303,6 +305,7 @@ impl Default for Predictor {
             // Every one of them, until the Welcome says how many the sector has.
             landmarks: LANDMARKS.len() as u8,
             rock_deaths: Vec::new(),
+            rules: FlightRules::Real,
         }
     }
 }
@@ -355,9 +358,18 @@ struct Flying {
 }
 
 impl Predictor {
-    fn mods_from(own: &OwnState) -> Flying {
+    fn mods_from(own: &OwnState, rules: FlightRules) -> Flying {
         let tuning = own_tuning(own);
-        Flying { mods: flight_mods(&tuning, false, own.extra_mass_kg), tuning, slot: own.slot }
+        Flying { mods: flight_mods(&tuning, rules, false, own.extra_mass_kg), tuning, slot: own.slot }
+    }
+
+    /// How the sector's suits fly, from the Welcome.
+    pub fn set_rules(&mut self, rules: FlightRules) {
+        self.rules = rules;
+    }
+
+    pub fn rules(&self) -> FlightRules {
+        self.rules
     }
 
     /// The frame flown now.
@@ -558,7 +570,7 @@ impl Predictor {
             form.timer = u16::from(own.special_timer);
         }
         self.form = form;
-        self.flying = Self::mods_from(own);
+        self.flying = Self::mods_from(own, self.rules);
         self.legs_ok = own.parts[Part::Legs as usize] > 0.0;
         // The server's state for that tick (the G and thrust aren't sent; see below).
         let mut m = mover_from(own, &self.bodies(server_tick));
@@ -754,8 +766,10 @@ mod tests {
     /// command.
     fn server_flies(own: &OwnState, history: &InputHistory, to: u32) -> FlightState {
         let field = Field::empty();
-        let (mut m, mods) =
-            (mover_from(own, &Bodies::at(&field, &LANDMARKS, 100)), Predictor::mods_from(own));
+        let (mut m, mods) = (
+            mover_from(own, &Bodies::at(&field, &LANDMARKS, 100)),
+            Predictor::mods_from(own, FlightRules::Real),
+        );
         let mut form = Form { frame: own.frame, timer: 0 };
         let mut arms = ArmsClock::from_own(own, 100, 0);
         let mut last = InputCmd::default();

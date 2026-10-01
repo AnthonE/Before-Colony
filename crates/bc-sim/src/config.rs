@@ -55,6 +55,10 @@ pub struct SimConfig {
     /// colony pays bounties for Mobile Dolls. Off: arcade rules (any frame, free respawns, sell
     /// and refuel at the dock).
     pub survival: bool,
+    /// How pilots fly: the simulator's rocket equation, or anime rules (a boost gauge that fills
+    /// back up). Clients are told in their Welcome, and predict by the same rules. Mobile Dolls
+    /// fly by the real rules either way.
+    pub flight: crate::tuning::FlightRules,
 }
 
 impl SimConfig {
@@ -84,6 +88,7 @@ impl Default for SimConfig {
             landmarks: crate::content::landmarks::LANDMARKS.len() as u8,
             max_sleepers: 256,
             survival: false,
+            flight: crate::tuning::FlightRules::Real,
         }
     }
 }

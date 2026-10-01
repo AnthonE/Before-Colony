@@ -41,6 +41,37 @@ fn busy_sector_ticks_without_allocating() {
 }
 
 #[test]
+fn anime_rules_tick_without_allocating() {
+    // The same busy sector under anime flight rules: boost gauges drain and fill back up.
+    let (mut sim, players) = common::arena(64, 256, 9);
+    sim.cfg.flight = bc_sim::tuning::FlightRules::Anime;
+    common::run(&mut sim, &players, 120);
+    let (mut total, mut refilled) = (0, 0);
+    for _ in 0..600 {
+        let t = sim.next_tick();
+        let mut cmds = [bc_proto::InputCmd::default(); 64];
+        for (k, &id) in players.iter().enumerate() {
+            cmds[k] = common::scripted(&sim, id, t);
+        }
+        let before: Vec<f32> = players.iter().map(|id| sim.suits.flight[id.idx()].propellant).collect();
+        let ((), n) = bc_alloc::count(|| {
+            for (k, &id) in players.iter().enumerate() {
+                sim.set_input(id, cmds[k]);
+            }
+            sim.step();
+        });
+        total += n;
+        refilled += players
+            .iter()
+            .zip(&before)
+            .filter(|(id, b)| sim.suits.alive.get(id.idx()) && sim.suits.flight[id.idx()].propellant > **b)
+            .count();
+    }
+    assert!(refilled > 100, "the gauges should fill back up: {refilled}");
+    assert_eq!(total, 0, "heap operations inside the tick: {total}");
+}
+
+#[test]
 fn gundams_duel_without_allocating() {
     // Every Gundam's blades, twin blades, the fang and the Cross Crusher, among Mobile Dolls.
     let (mut sim, pilots) = common::gundam_arena(64, 11);

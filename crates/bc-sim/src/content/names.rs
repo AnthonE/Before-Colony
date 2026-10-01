@@ -62,6 +62,12 @@ pub fn weapon_name(kind: WeaponKind) -> &'static str {
 #[cfg(feature = "canon-names")]
 pub(crate) const MO_II: &str = "MO-II";
 
+/// What the pilotless suits are called.
+#[cfg(feature = "canon-names")]
+pub fn doll_name() -> &'static str {
+    "Mobile Doll"
+}
+
 #[cfg(not(feature = "canon-names"))]
 pub fn frame_name(id: FrameId) -> &'static str {
     match id {
@@ -119,3 +125,8 @@ pub fn weapon_name(kind: WeaponKind) -> &'static str {
 
 #[cfg(not(feature = "canon-names"))]
 pub(crate) const MO_II: &str = "ORE SAT";
+
+#[cfg(not(feature = "canon-names"))]
+pub fn doll_name() -> &'static str {
+    "Drone"
+}
