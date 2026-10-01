@@ -27,6 +27,8 @@ mod damage;
 #[cfg(target_arch = "wasm32")]
 mod dev_hooks;
 #[cfg(target_arch = "wasm32")]
+mod dots;
+#[cfg(target_arch = "wasm32")]
 mod echo;
 #[cfg(target_arch = "wasm32")]
 mod fx;

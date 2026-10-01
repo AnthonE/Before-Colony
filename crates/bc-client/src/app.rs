@@ -161,6 +161,7 @@ impl Plugin for VisualsPlugin {
             .add_plugins((
                 crate::sky::SkyPlugin,
                 crate::materials::MaterialsPlugin,
+                crate::dots::DotsPlugin,
                 crate::colony::ColonyPlugin,
                 crate::landmarks::LandmarksPlugin,
                 crate::particles::ParticlesPlugin,
