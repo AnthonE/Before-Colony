@@ -19,7 +19,7 @@
 //! is measured there, so the body's motion (exact on both sides) never reads as an error. A rock
 //! that shatters underfoot does so from the tick the server broke it, however late the news.
 
-use bc_proto::buttons::MODE;
+use bc_proto::buttons::{GRIP, MODE};
 use bc_proto::snapshot::{footing, own_flags};
 use bc_proto::{FrameId, InputCmd, OwnState, Part};
 use bc_sim::arms::{ArmsClock, busy_ambac};
@@ -258,6 +258,9 @@ pub struct Predictor {
     mods: FlightMods,
     /// The suit's legs are there (it can walk and hop).
     legs_ok: bool,
+    /// What the server flies the suit on until the client's first command reaches it: the input
+    /// the sector left it with (gripping, if it woke on a body).
+    unheard: InputCmd,
     /// The ticks flown, by tick: what the suit is drawn from, and what the server's state for the
     /// same tick is checked against.
     samples: Box<[Sample; HISTORY]>,
@@ -289,6 +292,7 @@ impl Default for Predictor {
             arms: ArmsClock::default(),
             mods: FlightMods::default(),
             legs_ok: true,
+            unheard: InputCmd::default(),
             samples: Box::new([Sample::NONE; HISTORY]),
             first: 0,
             last_error: 0.0,
@@ -531,7 +535,7 @@ impl Predictor {
             return; // for a tick the server has already been heard from
         }
         if cmd.tick - self.tick <= MAX_GAP {
-            let last = history.last_at_or_before(self.tick).unwrap_or_default();
+            let last = history.last_at_or_before(self.tick).unwrap_or(self.unheard);
             for t in self.tick + 1..cmd.tick {
                 self.fly(&InputCmd::stand_in(&last, t, t - last.tick));
             }
@@ -551,8 +555,14 @@ impl Predictor {
         self.form = form;
         self.mods = Self::mods_from(own);
         self.legs_ok = own.parts[Part::Legs as usize] > 0.0;
+        // The server's state for that tick (the G and thrust aren't sent; see below).
+        let mut m = mover_from(own, &self.bodies(server_tick));
+        // Before any command of the client's, the server stood in with what it left the suit
+        // with: on a body (it woke there), its grip.
+        let grip = if m.footing == Footing::Free { 0 } else { GRIP };
+        self.unheard = InputCmd::neutral(server_tick, m.flight.rot * Vec3::Z, grip);
         // The command the server flew that tick (the prediction's, or the stand-in it flew).
-        let mut last = history.last_at_or_before(server_tick).unwrap_or_default();
+        let mut last = history.last_at_or_before(server_tick).unwrap_or(self.unheard);
         let flown = if last.tick == server_tick {
             last
         } else {
@@ -570,10 +580,8 @@ impl Predictor {
             }
             false
         });
-        // The server's state for that tick, with what the prediction knows it did over it (the G
-        // and thrust aren't sent).
+        // With what the prediction knows it did over that tick (the G and thrust aren't sent).
         self.rocks_as_at(server_tick);
-        let mut m = mover_from(own, &self.bodies(server_tick));
         if !own.alive {
             self.set_mover(&m);
             self.tick = server_tick;
@@ -825,6 +833,43 @@ mod tests {
         p.set_landmarks(0);
         p.reconcile(4_001, &own, &InputHistory::default());
         assert_eq!(p.state.pos, local);
+    }
+
+    #[test]
+    fn until_its_first_command_a_suit_woken_on_a_body_keeps_its_grip() {
+        use bc_proto::BodyRef;
+        use bc_proto::buttons::GRIP;
+        use bc_proto::snapshot::{OwnSurface, footing};
+
+        // Woken on its feet on MO-II's aft module. Until the client's first command reaches the
+        // server, the server flies the suit on what it left it with, gripping: so does the
+        // prediction, through the ticks before that command.
+        let local = Vec3::new(-230.0, 0.0, 80.0 + bc_sim::ground::STANCE);
+        let own = OwnState {
+            pos: local,
+            rot: bc_sim::math::look_rotation(Vec3::X, Vec3::Z),
+            surface: Some(OwnSurface {
+                footing: footing::GROUNDED,
+                body: BodyRef::Landmark(0),
+                stance_q: 146,
+            }),
+            ..own_at(local)
+        };
+        let mut history = InputHistory::default();
+        let mut p = Predictor::default();
+        p.reconcile(4_000, &own, &history);
+        let first =
+            InputCmd { tick: 4_006, aim: p.state.rot * Vec3::Z, buttons: GRIP, ..InputCmd::default() }
+                .quantized();
+        history.push(first);
+        p.advance(&first, &history);
+        // Replayed from the server's word of a later tick before the command, the same.
+        p.reconcile(4_002, &own, &history);
+        for t in 4_001..=4_006 {
+            let s = p.sample(t).unwrap_or_else(|| panic!("tick {t} flown"));
+            assert_eq!((s.footing, s.body), (Footing::Grounded, Body::Landmark(0)), "let go at {t}");
+            assert!(s.local.distance(local) < 1e-3, "moved off its spot at {t}");
+        }
     }
 
     #[test]

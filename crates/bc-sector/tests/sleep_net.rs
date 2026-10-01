@@ -1,7 +1,7 @@
 //! Pilots leaving and coming back through the sector's queues: a suit put to sleep stays, and the
 //! same pilot wakes in it; a sleeper that's gone means a new suit (with the pilot's credits); a
 //! wreck can't sleep; sleepers cleared for room are reported to the server; suits on bodies are
-//! counted.
+//! counted, and one that wakes on a body keeps its grip until its pilot is heard from.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
 use std::sync::Arc;
@@ -9,6 +9,7 @@ use std::sync::Arc;
 use bc_proto::{Faction, FrameId, MAX_DATAGRAM, PilotKind};
 use bc_sector::{Comeback, Control, Outcome, Sector, SectorConfig, SectorShared, SlotState};
 use bc_sim::bodies::Body;
+use bc_sim::ground::{Footing, STANCE};
 use bc_sim::handle::Handle;
 use bc_sim::sim::{Gone, POWER_DOWN_TICKS};
 use bc_sim::{SimConfig, SuitId};
@@ -155,4 +156,36 @@ fn suits_on_bodies_are_counted_and_the_welcome_names_the_landmarks() {
         let (sector, shared, _egress, _oracle) = bc_sector::build(cfg);
         assert_eq!((shared.landmarks, sector.sim.landmarks().len()), (has, usize::from(has)));
     }
+}
+
+#[test]
+fn a_rider_that_wakes_keeps_its_grip_until_its_pilot_is_heard_from() {
+    let (mut sector, shared) = sector(16);
+    send(&mut sector, &shared, 0, join(0, Comeback::default()));
+    let (idx, generation) = shared.slots[0].suit_id().unwrap();
+    let i = usize::from(idx);
+    // On its feet on Hermit as its pilot leaves.
+    assert!(sector.sim.place_on(
+        SuitId(Handle { idx, generation }),
+        Body::Landmark(1),
+        Vec3::new(0.3, 0.2, 1.0)
+    ));
+    send(&mut sector, &shared, 0, Control::Sleep { slot: 0 });
+    for _ in 0..30 {
+        sector.tick();
+    }
+    let parked = sector.sim.suits.anchor[i];
+    // Back: the suit wakes where it stood, and is flown on stand-ins until the client's first
+    // command arrives (a round trip and the client's lead later, or a slow page's first frame).
+    // Those carry on as the sector left the suit, gripping, not as a client that never said
+    // anything would: it doesn't let go and push off its body.
+    let back = Comeback { sleeper: Some((idx, generation)), credits: 0 };
+    assert_eq!(send(&mut sector, &shared, 1, join(1, back)), (SlotState::Active, Outcome::Woke));
+    for _ in 0..60 {
+        sector.tick();
+        assert_eq!(sector.sim.footing(i), Footing::Grounded, "let go at {}", sector.sim.tick());
+    }
+    let a = sector.sim.suits.anchor[i];
+    assert_eq!((a.body, a.stance), (Body::Landmark(1), STANCE), "still standing on Hermit");
+    assert!(a.local.distance(parked.local) < 1e-3, "moved {} m", a.local.distance(parked.local));
 }

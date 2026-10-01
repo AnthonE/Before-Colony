@@ -260,10 +260,17 @@ impl Sector {
                 }
                 None => {
                     // The last command again without firing, then hands-off: the rule the owner's
-                    // prediction flies through its own gaps too.
+                    // prediction flies through its own gaps too. Until the client is first heard
+                    // from, the last command is the one the sector left its suit with, so a suit
+                    // woken (or put) on a body keeps its grip rather than letting go.
                     client.missing += 1;
                     Metrics::add(&self.shared.metrics.inputs_missing, 1);
-                    InputCmd::stand_in(&client.last_cmd, next, client.missing)
+                    let last = if client.last_real == u32::MAX {
+                        self.sim.suits.input[client.suit.idx()]
+                    } else {
+                        client.last_cmd
+                    };
+                    InputCmd::stand_in(&last, next, client.missing)
                 }
             };
             self.sim.set_input(client.suit, cmd);
