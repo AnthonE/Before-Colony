@@ -323,6 +323,10 @@ pub fn drive_onfoot(
         ui.news(text.clone(), outcome == Outcome::Lost);
         log.push(text, outcome != Outcome::Lost);
     }
+    for text in g.core.hangar.news.drain(..) {
+        ui.news(text.clone(), false);
+        log.push(text, true);
+    }
 
     // Where the pilot is.
     let place = g.core.hangar.place;
@@ -602,6 +606,13 @@ pub fn publish_onfoot(me: Res<OnFoot>, ui: Res<Ui>, game: NonSend<GameClient>, m
     };
     dev.set("bay", bay);
     dev.set("bay_line", line);
+    // What's broken inside the suit in the bay, and what it carries.
+    let suit = h.view.as_ref().and_then(|v| match &v.bay {
+        Bay::Docked { suit } | Bay::Out { suit } => Some(suit),
+        Bay::Empty => None,
+    });
+    dev.set("bay_faults", suit.map_or(0, |s| s.faults.count() as u32));
+    dev.set("bay_modules", suit.map_or(0, |s| s.modules.iter().flatten().count() as u32));
     dev.set("jobs", h.view.as_ref().map_or(0, |v| v.jobs.len() as u32));
     dev.set("orders", h.market.as_ref().map_or(0, |m| m.orders.len() as u32));
 }

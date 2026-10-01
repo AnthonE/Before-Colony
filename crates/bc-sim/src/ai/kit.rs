@@ -200,17 +200,22 @@ fn weapons(
         let w = weapon(m.weapon);
         let fire = match w.class {
             WeaponClass::Beam | WeaponClass::Ballistic => {
-                t.dist < w.range * p.fire_range_frac && angle_between(aim, fwd) < m.arm.cone() * 0.9
+                t.dist < w.range * p.fire_range_frac
+                    && angle_between(aim, fwd) < crate::tuning::cone(m.arm, &me.tuning) * 0.9
             }
             WeaponClass::Missile => {
                 me.kit.lock_acquired && w.missile.is_some_and(|ms| t.dist < ms.lock_range)
             }
             WeaponClass::Cone => w.cone.is_some_and(|c| {
-                t.dist < w.range * 0.9 && angle_between(los, fwd) < m.arm.cone().min(c.half_angle * 3.0)
+                t.dist < w.range * 0.9
+                    && angle_between(los, fwd)
+                        < crate::tuning::cone(m.arm, &me.tuning).min(c.half_angle * 3.0)
             }),
             // A blade in a gun slot (the Dragon Fang) thrusts along the aim.
             WeaponClass::Melee => {
-                t.dist > w.range * 0.35 && t.dist < w.range + 3.0 && angle_between(los, fwd) < m.arm.cone()
+                t.dist > w.range * 0.35
+                    && t.dist < w.range + 3.0
+                    && angle_between(los, fwd) < crate::tuning::cone(m.arm, &me.tuning)
             }
         };
         if fire && !me.overheated {

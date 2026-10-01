@@ -11,7 +11,7 @@ use std::fmt;
 use std::str::FromStr;
 
 use bc_proto::{FrameId, Part, WeaponKind};
-use bc_sim::content::{PLAYABLE_ORDER, frame, frame_name, weapon_name};
+use bc_sim::content::{ModuleKind, PLAYABLE_ORDER, frame, frame_name, weapon_name};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Ore as it comes out of a rock: the simulation's four cargo kinds, in its order.
@@ -65,16 +65,20 @@ pub enum Material {
     Munitions,
     /// The Gundams' armour: it can only be made in zero-G.
     Gundanium,
+    /// Machined components (valves, pumps, actuators, bearings): what overhauls and equipment are
+    /// built from.
+    Components,
 }
 
 impl Material {
-    pub const ALL: [Material; 6] = [
+    pub const ALL: [Material; 7] = [
         Material::Steel,
         Material::TitaniumAlloy,
         Material::Propellant,
         Material::Electronics,
         Material::Munitions,
         Material::Gundanium,
+        Material::Components,
     ];
 
     pub fn slug(self) -> &'static str {
@@ -85,6 +89,7 @@ impl Material {
             Material::Electronics => "electronics",
             Material::Munitions => "munitions",
             Material::Gundanium => "gundanium",
+            Material::Components => "components",
         }
     }
 
@@ -96,6 +101,7 @@ impl Material {
             Material::Electronics => "Electronics",
             Material::Munitions => "Munitions",
             Material::Gundanium => "Gundanium alloy",
+            Material::Components => "Machined components",
         }
     }
 }
@@ -179,6 +185,8 @@ pub enum Item {
     /// A part of a suit of this line (a buildable frame).
     Part(FrameId, Part),
     Weapon(WeaponKind),
+    /// Equipment fitted to a part (any line's).
+    Module(ModuleKind),
 }
 
 impl Item {
@@ -190,6 +198,7 @@ impl Item {
             v.extend(Part::ALL.into_iter().map(|p| Item::Part(line, p)));
         }
         v.extend(weapons().map(Item::Weapon));
+        v.extend(ModuleKind::ALL.into_iter().map(Item::Module));
         v
     }
 
@@ -200,6 +209,7 @@ impl Item {
             Item::Material(m) => 16 + m as u16,
             Item::Part(line, part) => 64 + line as u16 * 8 + part as u16,
             Item::Weapon(w) => 256 + w as u16,
+            Item::Module(k) => 512 + k as u16,
         }
     }
 
@@ -214,6 +224,7 @@ impl Item {
             Item::Ore(_) | Item::Material(_) => true,
             Item::Part(line, _) => is_line(line),
             Item::Weapon(w) => is_item_weapon(w),
+            Item::Module(_) => true,
         }
     }
 
@@ -223,6 +234,7 @@ impl Item {
             Item::Material(m) => format!("mat.{}", m.slug()),
             Item::Part(line, part) => format!("part.{}.{}", line.slug(), part_slug(part)),
             Item::Weapon(w) => format!("weapon.{}", weapon_slug(w)),
+            Item::Module(k) => format!("module.{}", k.slug()),
         }
     }
 
@@ -233,6 +245,7 @@ impl Item {
             Item::Material(m) => m.name().to_string(),
             Item::Part(line, part) => format!("{} {}", frame_name(line), part_name(part)),
             Item::Weapon(w) => weapon_name(w).to_string(),
+            Item::Module(k) => k.name().to_string(),
         }
     }
 
@@ -292,6 +305,7 @@ impl FromStr for Item {
             (Some("weapon"), Some(w), None, None) => {
                 Item::Weapon(weapons().find(|x| weapon_slug(*x) == w).ok_or_else(bad)?)
             }
+            (Some("module"), Some(k), None, None) => Item::Module(ModuleKind::from_slug(k).ok_or_else(bad)?),
             _ => return Err(bad()),
         };
         Ok(item)
@@ -380,6 +394,8 @@ mod tests {
         assert!("part.taurus.head".parse::<Item>().is_err(), "a Mobile Doll's line isn't built");
         assert!("weapon.chest_gatlings".parse::<Item>().is_err(), "comes with the suit");
         assert!("ore.titanium.x".parse::<Item>().is_err());
+        assert_eq!("module.g_seat".parse(), Ok(Item::Module(ModuleKind::GSeat)));
+        assert_eq!("mat.components".parse(), Ok(Item::Material(Material::Components)));
         assert!("".parse::<Item>().is_err());
     }
 

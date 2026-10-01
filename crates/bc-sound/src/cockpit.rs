@@ -50,6 +50,11 @@ pub struct CockpitIn {
     pub held: bool,
     pub cargo_kg: u32,
     pub credits: u32,
+    /// How many systems are damaged, and how many failed.
+    pub damaged: u8,
+    pub failed: u8,
+    /// The tank is holed.
+    pub leak: bool,
 }
 
 /// One loop's level and pitch.
@@ -81,6 +86,7 @@ pub struct Cockpit {
     next_lock_beep: f64,
     next_fuel_beep: f64,
     next_puff: f64,
+    next_hiss: f64,
     fuel_low: bool,
 }
 
@@ -123,6 +129,12 @@ impl Cockpit {
                 if i.transforming && !p.transforming {
                     cue(Cue::Transform);
                 }
+                // Something inside broke: an alarm for a failure, a chirp for damage.
+                if i.failed > p.failed {
+                    cue(Cue::SystemFail);
+                } else if i.damaged > p.damaged {
+                    cue(Cue::SystemCrit);
+                }
             }
         } else if live {
             // Just arrived in the world.
@@ -151,6 +163,14 @@ impl Cockpit {
             }
         } else {
             self.next_fuel_beep = now;
+        }
+        if live && i.leak {
+            if now >= self.next_hiss {
+                cue(Cue::Leak);
+                self.next_hiss = now + 1.2;
+            }
+        } else {
+            self.next_hiss = now;
         }
         if live && i.rcs {
             if now >= self.next_puff {
@@ -284,6 +304,29 @@ mod tests {
         // Between the two thresholds, still low.
         assert!(beeps(&mut c, 20.0, 0.18) >= 1);
         assert_eq!(beeps(&mut c, 30.0, 0.3), 0);
+    }
+
+    #[test]
+    fn breakage_inside_sounds_and_a_leak_hisses() {
+        let mut c = Cockpit::default();
+        step(&mut c, 0.0, flying());
+        assert_eq!(step(&mut c, 0.1, CockpitIn { damaged: 1, ..flying() }).1, vec![Cue::SystemCrit]);
+        assert_eq!(
+            step(&mut c, 0.2, CockpitIn { damaged: 1, failed: 1, ..flying() }).1,
+            vec![Cue::SystemFail]
+        );
+        let hiss = (0..300)
+            .map(|k| {
+                step(
+                    &mut c,
+                    1.0 + k as f64 / 60.0,
+                    CockpitIn { damaged: 1, failed: 1, leak: true, ..flying() },
+                )
+                .1
+            })
+            .filter(|q| q.contains(&Cue::Leak))
+            .count();
+        assert!((3..=5).contains(&hiss), "{hiss}");
     }
 
     #[test]

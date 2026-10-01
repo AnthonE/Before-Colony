@@ -21,9 +21,11 @@ use bc_proto::snapshot::{ent_flags, own_flags, zero_mode};
 use bc_proto::{ChunkKind, NO_CHUNK, NO_SLOT, OwnState, Part, PilotKind, WeaponKind};
 use bc_sim::chunks;
 use bc_sim::content::salvage::{CATCH_SPEED, DOCK_CENTER, PRICE, REACH, hold_kg, material};
+use bc_sim::content::systems::{DAMAGED, FAILED};
 use bc_sim::content::{
     ArmSlot, FrameSpec, PLAYABLE_ORDER, SpecialKind, frame, frame_name, weapon, weapon_name,
 };
+use bc_sim::content::{System, Systems};
 use bc_sim::zero::hypotheses::Maneuver;
 use bevy::prelude::*;
 use bevy::text::LetterSpacing;
@@ -772,18 +774,27 @@ pub fn update_hud(
         let form = view.map_or(o.frame, |v| v.frame);
         let spec = frame(form);
         let s = &core.predict.state;
+        // The suit's stat sheet, from the snapshot as the server builds it: the tank and hold it
+        // has, what's broken inside it.
+        let tuned = bc_sim::tuning::own_tuning(&o);
+        let tank = bc_sim::tuning::tank_cap(spec, &tuned);
         let (speed, g, strain, limited) = view.map_or((o.vel.length(), 0.0, o.g_strain, false), |v| {
             (v.flight_vel.length(), v.g, v.g_strain, v.g_limited)
         });
         set(
             HudText::Flight,
             format!(
-                "{} {}\nSPD {:>6.0} m/s\nPROP {} {:>3.0}%\nHEAT {} {:>3.0}%\nENGY {} {:>3.0}%\nG   {:>4.1} g {:<3} STRAIN {}",
+                "{} {}\nSPD {:>6.0} m/s\nPROP {} {:>3.0}%{}\nHEAT {} {:>3.0}%\nENGY {} {:>3.0}%\nG   {:>4.1} g {:<3} STRAIN {}",
                 bc_sim::content::frame_designation(form),
                 frame_name(form).to_uppercase(),
                 speed,
-                bar(s.propellant / spec.propellant_cap, 10),
-                100.0 * s.propellant / spec.propellant_cap,
+                bar(s.propellant / tank, 10),
+                100.0 * s.propellant / tank,
+                if tuned.leak_kg_s > 0.0 {
+                    format!(" LEAK -{:.0} kg/s", tuned.leak_kg_s)
+                } else {
+                    String::new()
+                },
                 bar(o.heat, 10),
                 o.heat * 100.0,
                 bar(o.energy, 10),
@@ -796,6 +807,8 @@ pub fn update_hud(
             None,
         );
         let names = ["HEAD", "TORSO", "L-ARM", "R-ARM", "LEGS", "BPACK"];
+        let systems = Systems(o.systems);
+        let gone = bc_sim::tuning::own_gone(&o);
         let mut armor = String::new();
         for (i, n) in names.iter().enumerate() {
             let f = o.parts[i];
@@ -803,11 +816,40 @@ pub fn update_hud(
             let state = match f <= 0.0 {
                 true if i == Part::Head as usize && chase.sub_camera() => "SUB-CAM".to_string(),
                 true => "LOST".to_string(),
-                false => bar(f, 8),
+                // The armour, and what's broken inside it.
+                false => {
+                    let broken: Vec<String> = System::of_part(Part::ALL[i])
+                        .filter_map(|x| match systems.level(x, gone) {
+                            DAMAGED => Some(format!("{} DMG", x.tag())),
+                            FAILED => Some(format!("{} OUT", x.tag())),
+                            _ => None,
+                        })
+                        .collect();
+                    if broken.is_empty() { bar(f, 8) } else { format!("{} {}", bar(f, 8), broken.join(" ")) }
+                }
             };
             armor.push_str(&format!("{n:<6}{state}\n"));
         }
-        let hull_color = if o.parts[Part::Torso as usize] < 0.3 { RED } else { CYAN };
+        // What the suit is under: a scram, a concussion, a repair under way.
+        let mut status = Vec::new();
+        if o.scram > 0 {
+            status.push(format!("SCRAM {:.1}s", f32::from(o.scram) / 30.0));
+        }
+        if o.concussed > 0 {
+            status.push(format!("CONCUSSED {:.1}s", f32::from(o.concussed) / 30.0));
+        }
+        if let Some(x) = System::from_index(usize::from(o.repairing)) {
+            status.push(format!("REPAIRING {} {:.0}s", x.tag(), f32::from(o.repair_left) * 8.0 / 30.0));
+        }
+        armor.push_str(&status.join(" · "));
+        let worst = systems.worst(gone);
+        let hull_color = if o.parts[Part::Torso as usize] < 0.3 || worst == FAILED {
+            RED
+        } else if worst == DAMAGED {
+            AMBER
+        } else {
+            CYAN
+        };
         set(HudText::Armor, armor, Some(hull_color));
         let mut w = String::new();
         for (slot, key) in [(0usize, "LMB"), (1, "RMB"), (2, "F")] {
@@ -859,7 +901,7 @@ pub fn update_hud(
         set(HudText::Weapons, w, None);
 
         // --- Salvage (bottom middle). ---
-        let hold = hold_kg(o.frame);
+        let hold = hold_kg(o.frame) + tuned.hold_kg;
         let cargo: u32 = o.cargo_kg.iter().map(|kg| u32::from(*kg)).sum();
         let mut sv = String::new();
         if hold > 0 {
@@ -1020,6 +1062,23 @@ pub fn update_hud(
         }
         Some(o) if o.flags & own_flags::MISSILE_LOCK != 0 => ("MISSILE LOCK".into(), RED),
         Some(o) if o.flags & own_flags::LOCKED_ON != 0 => ("LOCK WARNING".into(), RED),
+        // A blow just got through to something inside: say what (for two seconds).
+        Some(o)
+            if o.alive
+                && let Some((_, _, sys, level)) =
+                    world.system_hits.iter().rev().find(|(tick, target, ..)| {
+                        *target == o.slot && world.tick.saturating_sub(*tick) < 60
+                    }) =>
+        {
+            let name = System::from_index(usize::from(*sys)).map_or("SYSTEM", |x| x.name()).to_uppercase();
+            let what = match (*sys, *level) {
+                (s, _) if s == System::Reactor as u8 && o.scram > 0 => "SCRAM".to_string(),
+                (s, _) if s == System::Cockpit as u8 && o.concussed > 0 => "HIT · CONCUSSED".to_string(),
+                (_, FAILED) => "FAILED".to_string(),
+                _ => "DAMAGED".to_string(),
+            };
+            (format!("{name} {what}"), if *level >= FAILED { RED } else { AMBER })
+        }
         Some(o) if o.flags & own_flags::TRANSFORMING != 0 => ("TRANSFORMING".into(), CYAN),
         // Resting on a rock, signed in: leave now and the suit stays parked here, hidden.
         Some(o) if o.flags & own_flags::PARKABLE != 0 && core.welcome.is_some_and(|w| w.signed_in) => {
@@ -1032,9 +1091,12 @@ pub fn update_hud(
     // axis (as the server fires it). Off the aim while the suit is still turning onto it; none
     // once the part carrying it is shot off.
     let bore = match (own, drawn) {
-        (Some(o), Some(v)) if o.alive && v.alive => frame(v.frame).loadout[0]
-            .filter(|m| o.parts[m.arm.part() as usize] > 0.0)
-            .map(|m| bc_sim::math::clamp_to_cone(aim.dir, v.rot * Vec3::Z, m.arm.cone())),
+        (Some(o), Some(v)) if o.alive && v.alive => {
+            frame(v.frame).loadout[0].filter(|m| o.parts[m.arm.part() as usize] > 0.0).map(|m| {
+                let cone = bc_sim::tuning::cone(m.arm, &bc_sim::tuning::own_tuning(&o));
+                bc_sim::math::clamp_to_cone(aim.dir, v.rot * Vec3::Z, cone)
+            })
+        }
         _ => None,
     }
     .filter(|b| b.angle_between(aim.dir) > 1f32.to_radians());

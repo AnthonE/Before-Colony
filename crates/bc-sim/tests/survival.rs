@@ -6,8 +6,8 @@
 use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, MELEE};
 use bc_proto::{ChunkDesc, ChunkKind, Faction, FrameId, InputCmd, Part, PilotKind, Segment};
 use bc_sim::chunks::Motion;
-use bc_sim::content::frame;
 use bc_sim::content::salvage::{DOCK_CENTER, DOCK_RADIUS, bounty, mass_without};
+use bc_sim::content::{Systems, frame};
 use bc_sim::math::look_rotation;
 use bc_sim::sim::{LAUNCH_GATE, Loadout};
 use bc_sim::{Sim, SimConfig, SuitId};
@@ -25,7 +25,14 @@ fn hold(sim: &mut Sim, id: SuitId, buttons: u16, aim: Vec3) {
 /// A Leo with a worn torso, no right arm (so no beam rifle), its left arm's machine cannon fitted
 /// and 50 rounds loaded, but no saber; half a tank.
 fn stripped_leo() -> Loadout {
-    Loadout { parts: [0.5, 0.8, 1.0, 0.0, 0.25, 1.0], mounts: 0b010, ammo: [0, 50, 0], propellant: 1_200.0 }
+    Loadout {
+        parts: [0.5, 0.8, 1.0, 0.0, 0.25, 1.0],
+        mounts: 0b010,
+        ammo: [0, 50, 0],
+        propellant: 1_200.0,
+        systems: Systems::OK,
+        modules: Default::default(),
+    }
 }
 
 #[test]

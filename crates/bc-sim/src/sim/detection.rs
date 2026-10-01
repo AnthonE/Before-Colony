@@ -5,7 +5,6 @@
 //! its enemies a twentieth of its signature, and their eyes see it only close in. Firing, striking
 //! or using a special shows through the jammer for a while.
 
-use bc_proto::Part;
 use bc_proto::buttons::MODE;
 
 use super::Sim;
@@ -18,10 +17,9 @@ impl Sim {
     /// its sensor range scaled by `j`'s signature (see `sensors`).
     pub fn detects(&self, viewer: usize, j: usize) -> bool {
         let s = &self.suits;
-        let head_ok = s.part_hp[viewer][Part::Head as usize] > 0.0;
-        let range = frame(s.frame[viewer]).sensor_range * if head_ok { 1.0 } else { 0.4 };
+        let range = frame(s.frame[viewer]).sensor_range * s.tuning[viewer].sensor;
         let mut sig = sensors::signature(
-            frame(s.frame[j]).signature,
+            frame(s.frame[j]).signature * s.tuning[j].signature,
             s.boosting[j],
             self.tick().saturating_sub(s.last_fired[j]) < 30,
             !s.alive.get(j),
@@ -80,7 +78,7 @@ impl Sim {
     /// The jammer follows MODE: it engages with enough energy, drains it, and drops when it's gone.
     pub(super) fn jammer_step(&mut self, i: usize, drain: f32, min_energy: f32) {
         let s = &mut self.suits;
-        let cap = frame(s.frame[i]).energy_cap;
+        let cap = frame(s.frame[i]).energy_cap * s.tuning[i].energy_cap;
         let sp = &mut s.special[i];
         if !s.input[i].pressed(MODE) {
             sp.active = false;

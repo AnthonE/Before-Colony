@@ -54,6 +54,7 @@ fn relevant(sim: &Sim, me: usize, e: &Event) -> bool {
         Event::MissileBurst { pos, .. } => {
             (pos - sim.suits.flight[me].pos).length_squared() < BEAM_NOTICE_RANGE * BEAM_NOTICE_RANGE
         }
+        Event::SystemHit { target, .. } => near(target),
         Event::Leave { .. } => false,
     }
 }

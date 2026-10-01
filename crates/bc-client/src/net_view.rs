@@ -109,6 +109,20 @@ pub fn sync_view(
                 flags |= ent_bit;
             }
         }
+        // What's broken inside shows on the own suit as it does on everyone's.
+        {
+            use bc_sim::content::systems::{DAMAGED, FAILED, OK};
+            let gone = bc_sim::tuning::own_gone(&own);
+            let systems = bc_sim::content::Systems(own.systems);
+            flags |= match systems.worst(gone) {
+                FAILED => ent_flags::SMOKING,
+                DAMAGED => ent_flags::SPARKING,
+                _ => 0,
+            };
+            if own.alive && systems.level(bc_sim::content::System::Tank, gone) != OK {
+                flags |= ent_flags::VENTING;
+            }
+        }
         let spec = frame(view.frame);
         let buttons = core.last_cmd.buttons;
         if buttons & FIRE_PRIMARY != 0 && own.weapon_ready & 1 != 0 {

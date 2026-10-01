@@ -4,6 +4,7 @@
 //! - [`item`]: ores, materials, mobile-suit parts for each frame line, weapons.
 //! - [`catalogue`]: what everything is made of, how long it takes, and what the colony pays.
 //! - [`stores`]: a hangar's stock, and its parts one by one with their condition.
+//! - [`faults`]: what's damaged or failed inside a suit's parts, and what restoring it takes.
 //! - [`suit`]: the suit standing in the bay, what it launches with and what it comes home as.
 //! - [`fab`]: the fabricator's and the zero-G foundry's job queues, on the wall clock.
 //! - [`exchange`]: the Colony Exchange, pilots' order books with the colony as a trader whose
@@ -18,6 +19,7 @@
 pub mod catalogue;
 pub mod exchange;
 pub mod fab;
+pub mod faults;
 pub mod hangar;
 pub mod item;
 pub mod stores;
@@ -26,6 +28,7 @@ pub mod wire;
 
 pub use catalogue::{Recipe, Station, recipe, recipes};
 pub use exchange::{Exchange, Side};
+pub use faults::Faults;
 pub use hangar::{Bay, Hangar, Rules};
 pub use item::{Item, Material, Ore};
 pub use stores::{PartUnit, Stores};

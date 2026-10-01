@@ -14,7 +14,7 @@ use glam::{Quat, Vec3};
 
 use super::Sim;
 use crate::content::salvage::DOCK_HUB_LENGTH;
-use crate::content::{frame, weapon};
+use crate::content::{Modules, Systems, frame, weapon};
 use crate::handle::SuitId;
 use crate::math::{cos, look_rotation, sin};
 use crate::suits::ALL_MOUNTS;
@@ -52,6 +52,10 @@ pub struct Loadout {
     pub ammo: [u16; 3],
     /// In the tank, kg.
     pub propellant: f32,
+    /// What's damaged or failed inside the parts.
+    pub systems: Systems,
+    /// The equipment on the parts.
+    pub modules: Modules,
 }
 
 impl Loadout {
@@ -64,7 +68,14 @@ impl Loadout {
                 *a = crate::content::weapon(m.weapon).ammo;
             }
         }
-        Self { parts: [1.0; Part::COUNT], mounts: 0b111, ammo, propellant: spec.propellant_cap }
+        Self {
+            parts: [1.0; Part::COUNT],
+            mounts: 0b111,
+            ammo,
+            propellant: spec.propellant_cap,
+            systems: Systems::OK,
+            modules: Modules::NONE,
+        }
     }
 }
 
@@ -78,6 +89,10 @@ pub struct Homecoming {
     pub mounts: u8,
     pub ammo: [u16; 3],
     pub propellant: f32,
+    /// What's damaged or failed inside the parts still on (a part shot off takes its own).
+    pub systems: Systems,
+    /// The equipment on the parts still on (a part shot off took its own).
+    pub modules: Modules,
     /// The hold, kg per cargo kind.
     pub cargo_kg: [u16; CARGO_KINDS],
     /// Whatever it had in hand (a hulk it towed in, a limb, ore).
@@ -109,13 +124,19 @@ impl Sim {
             *hp = max * f.clamp(0.0, 1.0);
         }
         self.suits.mounts[i] = loadout.mounts & ALL_MOUNTS;
+        self.suits.systems[i] = loadout.systems.clean();
+        self.suits.modules[i] = loadout.modules.clean();
+        self.suits.retune(i);
+        // Charged full, a capacitor bank's worth included.
+        self.suits.energy[i] = spec.energy_cap * self.suits.tuning[i].energy_cap;
         for (slot, ws) in self.suits.weapons[i].iter_mut().enumerate() {
             if let Some(m) = spec.loadout[slot] {
                 ws.ammo = loadout.ammo[slot].min(weapon(m.weapon).ammo);
             }
         }
+        let tank = crate::tuning::tank_cap(spec, &self.suits.tuning[i]);
         let f = &mut self.suits.flight[i];
-        f.propellant = loadout.propellant.clamp(0.0, spec.propellant_cap);
+        f.propellant = loadout.propellant.clamp(0.0, tank);
         f.vel = rot * Vec3::Z * LAUNCH_SPEED;
         Some(id)
     }
@@ -141,6 +162,8 @@ impl Sim {
             mounts: s.mounts[i],
             ammo: [s.weapons[i][0].ammo, s.weapons[i][1].ammo, s.weapons[i][2].ammo],
             propellant: s.flight[i].propellant,
+            systems: s.systems[i],
+            modules: s.modules[i].without(s.gone_mask(i)),
             cargo_kg: s.cargo_kg[i],
             held: held.map(|k| self.chunks.desc[k]),
             bounty: s.credits[i],

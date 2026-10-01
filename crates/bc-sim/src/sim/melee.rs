@@ -114,6 +114,7 @@ impl Sim {
         let Some(mount) = self.melee_mount(i, slot) else { return };
         let w = weapon(mount.weapon);
         let Some(m) = w.melee else { return };
+        let cone = self.cone(i, mount.arm);
         let s = &mut self.suits;
         let cmd = s.input[i];
         // A thrust goes where the pilot aims, as far off the nose as its mount turns.
@@ -122,7 +123,7 @@ impl Sim {
             Stroke::Thrust => {
                 let rot = s.flight[i].rot;
                 let fwd = rot * Vec3::Z;
-                rot.inverse() * clamp_to_cone(normalize_or(cmd.aim, fwd), fwd, mount.arm.cone())
+                rot.inverse() * clamp_to_cone(normalize_or(cmd.aim, fwd), fwd, cone)
             }
         };
         s.melee[i] = MeleeState {

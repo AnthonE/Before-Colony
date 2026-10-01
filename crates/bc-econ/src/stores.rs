@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use bc_proto::{FrameId, Part};
 use serde::{Deserialize, Serialize};
 
+use crate::faults::Faults;
 use crate::item::{Item, line_serde, part_serde};
 
 /// A mobile-suit part on the shelf.
@@ -17,15 +18,24 @@ pub struct PartUnit {
     pub part: Part,
     /// Armour left, 1..=100 %: new parts are 100, salvage much less.
     pub condition: u8,
+    /// What's damaged or failed inside it (only its own systems).
+    #[serde(default, skip_serializing_if = "Faults::is_empty")]
+    pub faults: Faults,
 }
 
 impl PartUnit {
     pub fn new(line: FrameId, part: Part) -> Self {
-        Self { line, part, condition: 100 }
+        Self { line, part, condition: 100, faults: Faults::NONE }
     }
 
     pub fn item(&self) -> Item {
         Item::Part(self.line, self.part)
+    }
+
+    /// As good as new: full armour and nothing wrong inside. Only these trade or count as
+    /// ingredients.
+    pub fn is_new(&self) -> bool {
+        self.condition >= 100 && self.faults.is_empty()
     }
 }
 
@@ -44,8 +54,7 @@ impl Stores {
     pub fn get(&self, item: Item) -> u64 {
         match item {
             Item::Part(line, part) => {
-                self.parts.iter().filter(|u| u.line == line && u.part == part && u.condition >= 100).count()
-                    as u64
+                self.parts.iter().filter(|u| u.line == line && u.part == part && u.is_new()).count() as u64
             }
             _ => self.stock.get(&item).copied().unwrap_or(0),
         }
@@ -83,7 +92,7 @@ impl Stores {
             Item::Part(line, part) => {
                 for _ in 0..qty {
                     if let Some(i) =
-                        self.parts.iter().position(|u| u.line == line && u.part == part && u.condition >= 100)
+                        self.parts.iter().position(|u| u.line == line && u.part == part && u.is_new())
                     {
                         self.parts.remove(i);
                     }
@@ -132,13 +141,9 @@ impl Stores {
 
     pub fn add_part(&mut self, unit: PartUnit) {
         let unit = PartUnit { condition: unit.condition.clamp(1, 100), ..unit };
-        let at = self
-            .parts
-            .iter()
-            .position(|u| {
-                (u.item(), std::cmp::Reverse(u.condition)) > (unit.item(), std::cmp::Reverse(unit.condition))
-            })
-            .unwrap_or(self.parts.len());
+        // Best first: the most armour, then the fewest faults inside.
+        let key = |u: &PartUnit| (u.item(), std::cmp::Reverse(u.condition), u.faults.count());
+        let at = self.parts.iter().position(|u| key(u) > key(&unit)).unwrap_or(self.parts.len());
         self.parts.insert(at, unit);
     }
 
@@ -199,10 +204,10 @@ mod tests {
     fn parts_keep_their_condition_and_only_new_ones_count_as_stock() {
         let mut s = Stores::default();
         let arm = Item::Part(FrameId::Leo, Part::ArmL);
-        s.add_part(PartUnit { line: FrameId::Leo, part: Part::ArmL, condition: 40 });
+        s.add_part(PartUnit { line: FrameId::Leo, part: Part::ArmL, condition: 40, faults: Faults::NONE });
         s.add(arm, 1);
-        s.add_part(PartUnit { line: FrameId::Leo, part: Part::ArmL, condition: 70 });
-        s.add_part(PartUnit { line: FrameId::Leo, part: Part::Head, condition: 0 });
+        s.add_part(PartUnit { line: FrameId::Leo, part: Part::ArmL, condition: 70, faults: Faults::NONE });
+        s.add_part(PartUnit { line: FrameId::Leo, part: Part::Head, condition: 0, faults: Faults::NONE });
         assert_eq!(s.get(arm), 1);
         let conditions: Vec<u8> =
             s.parts().iter().filter(|u| u.part == Part::ArmL).map(|u| u.condition).collect();

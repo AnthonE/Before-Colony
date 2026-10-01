@@ -5,8 +5,9 @@
 //!   the colony values it at, whether it's Gundam technology), every recipe, and each frame
 //!   line's tank and weapon mounts;
 //! - the pilot's hangar, with what the suit's console works out from it (what could be fitted,
-//!   what repairs would take, whether the suit would launch), the exchange and the book they're
-//!   watching, whenever the server's word on them changes, and the log of what the server said.
+//!   what repairs and overhauls would take, the suit's stat sheet, whether it would launch), the
+//!   exchange and the book they're watching, whenever the server's word on them changes, and the
+//!   log of what the server said.
 //!
 //! What the pilot asks for comes back as `UiCmd::Hangar` (a `bc_econ::Request`), and `onfoot.rs`
 //! sends it on. The server decides everything; the page only shows its word.
@@ -16,12 +17,15 @@ use std::collections::VecDeque;
 use bc_client_core::hangar::HangarState;
 use bc_econ::catalogue::{desk, gundam_tech, munitions_per_load, recipes, rounds_per_load, tank_kg, value};
 use bc_econ::exchange::FEE_BP;
+use bc_econ::faults::overhaul_cost;
 use bc_econ::item::{LINES, part_name, part_slug};
 use bc_econ::suit::repair_cost;
 use bc_econ::wire::HangarView;
 use bc_econ::{Bay, Hangar, Item};
 use bc_proto::Part;
-use bc_sim::content::{frame, frame_name, weapon_name};
+use bc_sim::content::modules::MOUNTS;
+use bc_sim::content::systems::FAILED;
+use bc_sim::content::{System, frame, frame_name, weapon_name};
 use bevy::prelude::*;
 use serde_json::{Value, json};
 use wasm_bindgen::JsValue;
@@ -64,6 +68,7 @@ fn catalogue() -> Value {
                 Item::Material(_) => ("material", None, None),
                 Item::Part(l, p) => ("part", Some(l.slug()), Some(part_slug(p))),
                 Item::Weapon(_) => ("weapon", None, None),
+                Item::Module(k) => ("module", None, Some(part_slug(k.part()))),
             };
             let d = desk(i);
             json!({
@@ -77,6 +82,8 @@ fn catalogue() -> Value {
                 "part": part,
                 "colony_buys": d.is_some_and(|d| d.buys),
                 "colony_sells": d.is_some_and(|d| d.sells),
+                "summary": match i { Item::Module(k) => Some(k.summary()), _ => None },
+                "mass": match i { Item::Module(k) => Some(k.mass_kg()), _ => None },
             })
         })
         .collect();
@@ -123,7 +130,20 @@ fn catalogue() -> Value {
         .collect();
     let parts: Vec<Value> =
         Part::ALL.iter().map(|&p| json!({ "slug": part_slug(p), "name": part_name(p) })).collect();
-    json!({ "items": items, "recipes": recipes, "lines": lines, "parts": parts, "fee_bp": FEE_BP })
+    let systems: Vec<Value> = System::ALL
+        .iter()
+        .map(|s| json!({ "slug": s.slug(), "name": s.name(), "tag": s.tag(), "part": part_slug(s.part()) }))
+        .collect();
+    let mounts: Vec<&str> = MOUNTS.iter().map(|p| part_slug(*p)).collect();
+    json!({
+        "items": items,
+        "recipes": recipes,
+        "lines": lines,
+        "parts": parts,
+        "systems": systems,
+        "module_mounts": mounts,
+        "fee_bp": FEE_BP,
+    })
 }
 
 /// The hangar as the server last told it, rebuilt (to ask it what a launch would say).
@@ -149,7 +169,7 @@ fn console(v: &HangarView) -> Value {
         torsos.sort();
         torsos.dedup();
         let fits: Vec<String> = torsos.into_iter().map(Item::slug).collect();
-        return json!({ "launch": launch, "repairs": [], "fits": fits });
+        return json!({ "launch": launch, "repairs": [], "overhauls": [], "fits": fits });
     };
     let repairs: Vec<Value> = suit
         .fitted()
@@ -172,7 +192,27 @@ fn console(v: &HangarView) -> Value {
     fits.sort();
     fits.dedup();
     let fits: Vec<String> = fits.into_iter().map(Item::slug).collect();
-    json!({ "launch": launch, "repairs": repairs, "fits": fits })
+    // What's broken inside the parts fitted, and what restoring each takes.
+    let overhauls: Vec<Value> = suit
+        .faults
+        .iter()
+        .filter(|(sys, _)| suit.parts[sys.part() as usize].is_some())
+        .map(|(sys, level)| {
+            json!({
+                "system": sys.slug(),
+                "part": part_slug(sys.part()),
+                "level": if level >= FAILED { "failed" } else { "damaged" },
+                "cost": amounts(&overhaul_cost(suit.line, level)),
+            })
+        })
+        .collect();
+    json!({
+        "launch": launch,
+        "repairs": repairs,
+        "overhauls": overhauls,
+        "fits": fits,
+        "stats": suit.stats(),
+    })
 }
 
 fn hangar_json(h: &HangarState, log: &TerminalLog) -> Value {

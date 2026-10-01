@@ -42,10 +42,9 @@ impl Sim {
             let pressed = |b: u16| cmd.buttons & b != 0 && prev & b == 0;
             match self.held_chunk(i) {
                 Some(k) => {
-                    // Let go when told to, or when the hand holding it is gone.
+                    // Let go when told to, or when the hand holding it is gone or can't grip.
                     let right = self.suits.held[i].2;
-                    let arm = if right { ArmSlot::Right } else { ArmSlot::Left };
-                    if !cmd.pressed(GRAB) || self.suits.part_hp[i][arm.part() as usize] <= 0.0 {
+                    if !cmd.pressed(GRAB) || !self.suits.hand_works(i, right) {
                         self.release(i, k, Vec3::ZERO, t);
                     } else if pressed(STOW) {
                         self.stow(i, k);
@@ -115,7 +114,8 @@ impl Sim {
     /// Puts chunk `k` in suit `i`'s hold, if it fits.
     fn stow(&mut self, i: usize, k: usize) {
         let desc = self.chunks.desc[k];
-        let room = hold_kg(self.suits.frame[i]).saturating_sub(self.suits.cargo_total_kg(i));
+        let room = (hold_kg(self.suits.frame[i]) + self.suits.tuning[i].hold_kg)
+            .saturating_sub(self.suits.cargo_total_kg(i));
         if !stowable(&desc) || desc.mass_kg > room {
             return;
         }
@@ -177,7 +177,8 @@ impl Sim {
     /// Sells suit `i`'s hold, and whatever it has in hand, for credits.
     /// Tops up suit `i`'s propellant (at the dock).
     fn refuel(&mut self, i: usize) {
-        self.suits.flight[i].propellant = frame(self.suits.frame[i]).propellant_cap;
+        self.suits.flight[i].propellant =
+            crate::tuning::tank_cap(frame(self.suits.frame[i]), &self.suits.tuning[i]);
     }
 
     fn sell(&mut self, i: usize) {

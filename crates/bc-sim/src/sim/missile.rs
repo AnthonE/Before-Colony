@@ -29,6 +29,12 @@ use crate::world::inside_colony;
 /// A missile's body, for direct hits and rocks (m).
 const BODY_RADIUS: f32 = 0.5;
 
+/// A lock's progress when it's acquired: twice the launcher's lock time, so fire control can
+/// build it at half, whole or one and a half steps a tick.
+pub fn lock_full(spec: &MissileSpec) -> u8 {
+    spec.lock_ticks.saturating_mul(2)
+}
+
 impl Sim {
     /// Builds, holds or loses each launcher-carrying suit's lock on its designation.
     pub(super) fn lock_step(&mut self) {
@@ -37,21 +43,26 @@ impl Sim {
         for i in alive.iter() {
             let Some(spec) = frame(self.suits.frame[i]).lock_spec() else { continue };
             let (me, aim) = (self.suits.flight[i].pos, self.suits.aim[i]);
+            // Fire control builds the lock (twice the launcher's ticks, in steps of its own).
+            let tuned = self.suits.tuning[i];
             let held = self.designation(i).filter(|&j| {
                 let to = self.suits.flight[j].pos - me;
-                length(to) <= spec.lock_range && angle_between(aim, to) <= spec.lock_cone
+                tuned.lock_step > 0
+                    && length(to) <= spec.lock_range
+                    && angle_between(aim, to) <= spec.lock_cone
             });
+            let full = lock_full(&spec);
             let lock = &mut self.suits.lock[i];
             match held {
                 Some(j) if lock.target == j as u16 => {
-                    lock.progress = (lock.progress + 1).min(spec.lock_ticks)
+                    lock.progress = lock.progress.saturating_add(tuned.lock_step).min(full)
                 }
                 Some(j) if lock.progress == 0 => {
                     lock.target = j as u16;
-                    lock.progress = 1;
+                    lock.progress = tuned.lock_step;
                 }
                 _ => {
-                    lock.progress = lock.progress.saturating_sub(2);
+                    lock.progress = lock.progress.saturating_sub(tuned.lock_decay);
                     if lock.progress == 0 {
                         lock.target = NO_SLOT;
                     }
@@ -66,7 +77,7 @@ impl Sim {
         let spec = frame(self.suits.frame[i]).lock_spec()?;
         let lock = &self.suits.lock[i];
         let j = usize::from(lock.target);
-        (lock.progress >= spec.lock_ticks && self.suits.is_alive(j)).then_some(j)
+        (lock.progress >= lock_full(&spec) && self.suits.is_alive(j)).then_some(j)
     }
 
     /// A launcher's trigger pull: its salvo starts now, and it's cooling down for the next.
@@ -104,7 +115,7 @@ impl Sim {
         }
         let f = self.suits.flight[i];
         let fwd = f.rot * Vec3::Z;
-        let aim = clamp_to_cone(normalize_or(cmd.aim, fwd), fwd, mount.arm.cone());
+        let aim = clamp_to_cone(normalize_or(cmd.aim, fwd), fwd, self.cone(i, mount.arm));
         // Each missile of a salvo leaves a little off the aim, its own way.
         let n = u32::from(w.salvo.max(1) - ws.salvo);
         let seed = (i as u32) * 131 + (slot as u32) * 17 + n;
@@ -151,7 +162,7 @@ impl Sim {
         }
         let to = s.flight[j].pos - m.pos[k];
         let mut sig = sensors::signature(
-            frame(s.frame[j]).signature,
+            frame(s.frame[j]).signature * s.tuning[j].signature,
             s.boosting[j],
             self.tick().saturating_sub(s.last_fired[j]) < 30,
             false,

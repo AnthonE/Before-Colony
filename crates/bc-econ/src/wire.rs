@@ -41,6 +41,12 @@ pub enum Request {
         #[serde(default, with = "opt_part")]
         part: Option<Part>,
     },
+    /// Restore the damaged and failed systems inside a part (none: every part) as far as the
+    /// stores allow.
+    Overhaul {
+        #[serde(default, with = "opt_part")]
+        part: Option<Part>,
+    },
     /// Melt one `item` down.
     Scrap {
         item: Item,
@@ -110,6 +116,10 @@ pub enum Update {
     /// A sortie ended.
     Sortie {
         outcome: Outcome,
+        text: String,
+    },
+    /// News for the pilot (a first arrival; the colony's announcements).
+    News {
         text: String,
     },
 }
@@ -219,6 +229,7 @@ pub fn apply(
         Request::Strip { slot } => hangar.strip(*slot),
         Request::Dismantle => hangar.dismantle(),
         Request::Repair { part } => hangar.repair(*part),
+        Request::Overhaul { part } => hangar.overhaul(*part),
         Request::Scrap { item } => hangar.scrap(*item),
         Request::Order { item, side, price, qty, rest } => {
             hangar.trade(exchange, trader, *item, *side, *price, *qty, *rest)

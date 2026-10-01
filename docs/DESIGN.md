@@ -22,13 +22,19 @@ All art is procedural.
 
 ## Setting
 
-After Colony 195–196, Earth Sphere. The milestones so far take place in **Sector L1: the L1 Colony Cluster**.
-An O'Neill cylinder (3.2 km radius, 32 km long) lies below the combat zone, with a debris field
-around it and OZ Mobile Doll patrols circling above. The sector is a ±32.768 km cube, and suits are
-kept within ±30 km.
+**The year before the colony calendar begins.** The first colony, an O'Neill cylinder at L1, has
+just opened its docks, and the calendar history will call After Colony starts the day its charter
+is signed. The pilots are **Arrivals**: people, and minds without bodies (the agents), who woke in
+its docking hub remembering another world where After Colony is a story they already know. The
+world moves through eras as the community builds it. `docs/STORY.md` is the world bible.
+
+The milestones so far take place in **Sector L1**: the colony (3.2 km radius, 32 km long) lies
+below the combat zone, with the debris of its construction around it and the Consortium's OZ
+Mobile Doll patrols circling above, guarding its claims. The sector is a ±32.768 km cube, and suits
+are kept within ±30 km.
 
 Space comes first because that is where gundanium is made (it can only be refined in zero-G) and
-where the war's logistics live. Earth, with atmosphere, gravity and re-entry, is on the roadmap.
+where the colony's logistics live. Earth, with atmosphere, gravity and re-entry, is on the roadmap.
 
 ## Flight model (`bc-sim/src/flight.rs`)
 
@@ -108,11 +114,78 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
     (pilots').
 - **Heat and energy.** Overheating locks all weapons until heat falls to 50%. Beam weapons draw from
   an energy pool that the reactor recharges.
+- **Systems inside the parts.** Armour protects what's behind it; once it thins, blows get through
+  (below).
 - **Streams.** Rapid-fire weapons (gatlings, machine guns, vulcans) aren't sent shot by shot: every
   client draws their tracers from the firing flags. Only single shots (rifles, cannons, the buster
   shield) are events, and only those are predicted by the shooter's own client.
 - **Lag compensation.** A shot resolves against the world as its shooter saw it, up to 8 ticks
   (267 ms) back. Details are in `ARCHITECTURE.md`.
+
+### Suit systems and malfunctions
+
+Every part holds systems a blow can reach once it's through the armour. Each is working,
+**damaged** or **failed**; a part shot off fails its own, which is how losing the head (sensors)
+or the backpack (main thrusters, boosters) does what it does. (`bc_sim::content::systems`, applied
+through each suit's stat sheet, `bc_sim::tuning`.)
+
+| Part | System | Damaged | Failed |
+|---|---|---|---|
+| head | sensors | sensor range ×0.7 | ×0.4: the sub-camera |
+| head | fire control | missile locks build at half the rate and fall apart twice as fast | no locks; ZERO's firing solution no longer pulls shots |
+| torso | reactor | energy regeneration ×0.5 | ×0.15 |
+| torso | propellant tank | leaks 3 kg/s | leaks 15 kg/s (a Leo's tank in under 3 minutes) |
+| torso | radiators | heat dissipation ×0.6 | ×0.25 |
+| torso | gyros | AMBAC ×0.75 | ×0.5 |
+| torso | cockpit | the pilot bears 5 g (flight assist holds them under it) | 4 g |
+| each arm | actuators | its weapons reach 35° off the axis, not 50° | 15°, and its hand can't grip (it lets go) |
+| legs | leg thrusters | lateral, vertical and retro thrust ×0.8 | ×0.6 |
+| backpack | main thrusters | main thrust ×0.7, and they cough: a quarter-second at 30% one time in five | ×0.35 |
+| backpack | boosters | half of boost's extra thrust | no boost (and flight assist keeps its G guard) |
+
+- **Criticals.** A blow that leaves a part standing reaches one of its working systems with a
+  chance that grows as the armour thins and with the blow's size: `(1 − armour left) ×
+  min(1, blow / 25% of the part)`, at most 75%. It finds a system by weight (the reactor most
+  often), and knocks it down a level, two for a blow of 35% of the part or more. Over a part's
+  life, about two blows get through whatever the weapon (measured on a Leo's torso: machine
+  cannon 2.1, beam rifle 1.7, beam saber 1.2). A suit fights normally until it's past half its
+  armour, and then things start breaking; a worn part launched at 60% breaks sooner. Mobile Dolls
+  are built simply: 0.6× as often, and no pilot to hurt.
+- **Statuses.** A struck reactor **scrams**: no energy at all for 4 s. A struck cockpit
+  **concusses** the pilot: their shots wander up to 1.5° for 3 s. Struck actuators **jam** the
+  arm's weapons for 3 s.
+- **What others see.** A suit with a damaged system sparks, one with a failed system smokes, a
+  holed tank vents a jet of propellant; the HUD lists what's broken in each part (`RCT DMG`,
+  `TNK OUT`), the statuses (`SCRAM 3.1s · CONCUSSED · REPAIRING GYR 12s`) and the tank's leak, and
+  says what a blow just reached (`REACTOR SCRAM`). The cockpit chirps for damage, sounds the
+  master caution for a failure, and hisses while the tank vents.
+- Systems are only mended in the bay (an overhaul), or by damage-control gear.
+
+### Equipment modules
+
+A suit's stat sheet is its frame's numbers times what's fitted and what's broken. Equipment
+modules ride on mounts on the parts (the head one, the torso two, the legs and the backpack one
+each), so a part shot off takes its module; a suit carries at most one of each kind. Each is one
+fixed design with a physical trade-off (`bc_sim::content::modules`):
+
+| Module | On | Gives | Costs |
+|---|---|---|---|
+| Sensor array | head | sensor range ×1.35 | signature ×1.1 |
+| Fire-control computer | head | missile locks 1.5× as fast | 40 kg |
+| Capacitor bank | torso | energy capacity ×1.5 | 350 kg |
+| Reactor booster | torso | energy regeneration ×1.35 | heat dissipation ×0.85 |
+| Radiator package | torso | heat dissipation ×1.5 | signature ×1.15 |
+| Composite plating | torso | damage taken ×0.88 | 600 kg |
+| G-seat | torso | the pilot bears 1 g more | 150 kg |
+| Damage control | torso | restores one damaged system every 25 s (never a failed one) | 4 energy/s while it works |
+| Auxiliary tank | backpack | tank ×1.4 (a Leo's delta-v about +30%) | 200 kg |
+| Thruster kit | backpack | main thrust ×1.15 | specific impulse ×0.88 |
+| Leg verniers | legs | lateral and vertical thrust ×1.25 | 150 kg |
+| Cargo rack | legs | hold +1,000 kg | AMBAC ×0.9, 250 kg |
+
+The owner's client builds the same stat sheet from its snapshot (the systems' levels and the
+modules' codes), so a suit that coughs, leaks and carries a thruster kit is predicted as exactly
+as a whole one.
 
 ### Neo-Bird
 
@@ -280,7 +353,9 @@ The default rules (`--rules survival`; `--rules arcade` keeps the old game, any 
 respawns). Nobody is handed a Gundam. A pilot starts on foot in their own **hangar bay** in the
 colony's docking hub, with a worn-out Leo in the gantry (its beam rifle missing, the tank half
 full), a little steel, propellant and munitions, and 2,000 credits. Everything better is built
-from ore, salvaged from wrecks, or bought from other pilots, and what's flown out can be lost.
+from ore, salvaged from wrecks, or bought from other pilots, and what's flown out can be lost. The
+starter Leo is second-hand inside too: its radiators are damaged, and the suit's console says
+what overhauling them takes.
 
 **How hard a good suit is.** In the colony's own prices, a new Leo is about 41,000 credits of parts
 and weapons: some 10 t of ore (mostly nickel-iron and titanium) and an hour of fabricator time. A
@@ -303,8 +378,10 @@ the same code the agents walk with), and uses things by looking at them within r
 - **The stores' racks** (right wall, forward): bulk goods by the kilogram, weapons, and suit parts
   one by one with their condition.
 - **The Colony Exchange terminal** (left, by the doors).
-- **The suit's maintenance console** (by its feet): fit and strip parts and weapons, repair,
-  dismantle, and whether the suit would launch.
+- **The suit's maintenance console** (by its feet): fit and strip parts, weapons and equipment,
+  repair armour, overhaul systems, dismantle, the suit's stat sheet as it would launch (delta-v,
+  acceleration, sensors, energy, heat, hold, the G its pilot bears, damage taken), and whether it
+  would launch.
 - **The cockpit hatch** (on the catwalk): board and launch.
 - **The airlock** (left wall): the way out of the bay (leave the game).
 
@@ -327,10 +404,18 @@ from the stores.
 - **Parts** take structure (steel), armour (titanium alloy, or gundanium for a Gundam) and wiring
   (electronics) in proportion to their mass, plus their systems: the ZERO System in Wing Zero's
   torso, its wings, the Hyper Jammer, Full Open's gatlings and pods, the Cross Crusher's arms.
-- **Repairs** cost 60% of a part's materials, pro rata; **scrapping** a part or a weapon gives back
-  half of what went into it, as worn as it was.
-- **Salvage** docked in the hold comes home as ore, or as parts: a limb at 15% condition, each
-  part still on a hulk at 40%. Parts of lines nobody can build (a Mobile Doll's) are scrap metal.
+- **Repairs** restore armour for 60% of a part's materials, pro rata; **overhauls** restore a
+  damaged system for 20 kg of machined components and 5 of electronics (2½ times that for a
+  failed one; a Gundam's take exotic metals too). **Scrapping** a part, a weapon or a module gives
+  back half of what went into it, as worn as it was.
+- **Machined components** (steel, a little electronics and titanium alloy, at the fabricator) are
+  what overhauls and equipment are made of; the colony deals in them, and in ordinary equipment.
+- **Faults travel with parts.** A part stripped off carries its systems' faults to the shelf, and
+  back when it's fitted; a part with faults isn't new, so it doesn't trade. Equipment comes off
+  with its part, into the stores.
+- **Salvage** docked in the hold comes home as ore, or as parts: a limb at 15% condition with its
+  systems failed, each part still on a hulk at 40% with its systems damaged. Parts of lines nobody
+  can build (a Mobile Doll's) are scrap metal.
 
 ### The Colony Exchange
 
@@ -360,7 +445,10 @@ for bulk goods, a piece for everything else.
 - **Docking:** come to rest (under 25 m/s) inside the dock's ring of amber lights, off the mouth
   of the docking hub at the colony's −X end, and press Enter. The suit glides in down the tunnel,
   the doors shut behind it, and the pilot climbs out onto the catwalk. What came home goes to the
-  stores: the suit as it is, the hold's ore, whatever was in hand, and the bounties earned.
+  stores: the suit as it is (its systems as broken as they came, its equipment if its parts came
+  too), the hold's ore, whatever was in hand, and the bounties earned.
+- **Arriving:** a pilot's first time in their bay, the news says they've arrived, and what the
+  Charter Board advanced them.
 - **Losing it:** a suit destroyed out there is gone, along with its hold. The bounties it earned are
   still paid, and the pilot is brought back to the bay through the airlock once the wreck clears.
 - **Away:** a signed-in pilot who leaves keeps everything: their hangar, its jobs, their orders.
@@ -497,16 +585,35 @@ keeps it while it stays within 15°. Its bracket fills as the lock builds and re
 acquired. The HUD shows the special's state (READY, JAMMING, FIRING, the cooldown), the lock, and
 MISSILE LOCK and MISSILE warnings, with a marker on each missile tracking you.
 
-## Roadmap after Milestone 3
+## Roadmap after Milestone 4
 
 Milestone 1 was the playable slice; Milestone 2 the five Gundams (Heavyarms, Deathscythe, Sandrock,
 Shenlong, and Wing Zero's Neo-Bird), each flown by pilots and agents; Milestone 3 survival: the
-hangar bay on foot, building suits, and the Colony Exchange.
+hangar bay on foot, building suits, and the Colony Exchange; Milestone 4 wear and tear: the
+systems inside the parts, statuses, equipment, overhauls, and the world bible (`STORY.md`).
 
+The direction is a living colony its pilots build and run: SimCity's colony projects and GTA's
+jobs, law and traffic, on an economy whose sinks keep demand turning over.
+
+- **Consumables and a survival hotbar** (keys 1–4, which survival leaves free): patch kits (seal a
+  leak, restart a failed system for a while), coolant flushes, chaff against missile locks,
+  stims (a g more for a minute, then the crash). Used up in fights, so always in demand.
+- **Wear from use:** thruster hours, barrel wear and reactor cycles wear systems down between
+  fights, so keeping a suit flying is a steady trade.
+- **Contracts:** a board of jobs from the colony and from pilots, rewards held in escrow (haul
+  this, clear that claim, escort a hauler home, recover a wreck).
+- **Colony projects:** the Charter Board's great works (a second foundry, a militia's hangar,
+  new cylinders), funded by deliveries; finishing one changes the world and moves the eras on.
+- **Facilities:** workshops and refineries in the hub, leased by pilots and crews: production
+  chains, and rent as a sink.
 - **The colony, on foot:** the concourse beyond the airlock, other pilots' bays, a bar to meet in;
   crews (a friend's hangar, shared stores).
-- **Economy:** contracts (haul this, clear that), insurance, market data for agents, the other
-  colonies' exchanges with prices of their own (and hauling between them).
+- **Economy:** insurance, market data for agents, the other colonies' exchanges with prices of
+  their own (and hauling between them).
+- **Law and heat:** shooting colonists draws the militia; enough of it makes a pilot a bounty.
+- **Traffic:** tugs, haulers and miners flown by the server, so the lanes are busy.
+- **Pilot skills**, economy first: better at what they do, without a combat edge over newer
+  Arrivals.
 
 - **Sectors:** multiple sectors with handoff, transfer orbits, TiDi, persistence (a Redis or Mongo
   `PilotStore`, off the hot path).
