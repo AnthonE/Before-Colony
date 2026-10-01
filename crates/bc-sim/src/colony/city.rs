@@ -4,8 +4,8 @@
 //! against the same walls every client draws and walks.
 //!
 //! Across a strip from its edge: the window-bank park, twelve rows of 128 m blocks, the avenue
-//! (80 m, the tram on its median), twelve rows more, the other bank. Along it: Hub Gate's plaza at
-//! the docking hub's cap, the city's 191 blocks in twelve districts (`content::city`), the
+//! (80 m, the tram on its median), twelve rows more, the other bank. Along it: Hub Gate's square at
+//! the docking hub's cap (its offices round it), the city's 191 blocks in twelve districts (`content::city`), the
 //! building site, and the far cap's foot. Streets run on the grid's lines, 24 m wide and 40 m every
 //! fourth; the fourth row past the avenue is the canal, bridged at every street.
 //!
@@ -43,8 +43,10 @@ pub const CANAL_DEPTH: f32 = 3.0;
 /// Railings: along the canal, and at the window banks' glass.
 pub const RAILING: f32 = 1.1;
 pub const RAIL_THICKNESS: f32 = 0.3;
-/// Stretches along the axis, by block: Hub Gate's plaza, the city, the building site, the far foot.
+/// Stretches along the axis, by block: Hub Gate's, the city, the building site, the far foot.
 pub const HUB_GATE: (i32, i32) = (3, 7);
+/// Hub Gate's square: this many rows either side of the avenue (the rest of its stretch is built).
+pub const SQUARE_ROWS: i32 = 2;
 pub const CITY: (i32, i32) = (8, 198);
 pub const SITE: (i32, i32) = (199, 249);
 pub const FAR_FOOT: (i32, i32) = (250, 252);
@@ -323,11 +325,14 @@ pub fn row_span(row: i32) -> (f32, f32) {
 /// The district at block `bx`, if it's in the city's stretch (or the site's, built out).
 pub fn district_of(strip: u8, bx: i32, stage: Stage) -> Option<(u8, DistrictKind)> {
     let built = CITY.1 + DISTRICT_BLOCKS * i32::from(stage.0);
-    if bx < CITY.0 || bx > built.min(SITE.1) {
+    if bx < HUB_GATE.0 || bx > built.min(SITE.1) {
         return None;
     }
-    let d = ((bx - CITY.0) / DISTRICT_BLOCKS).clamp(0, 11);
-    let kind = if bx > CITY.1 {
+    let d = ((bx - CITY.0).max(0) / DISTRICT_BLOCKS).clamp(0, 11);
+    let kind = if bx < CITY.0 {
+        // Round Hub Gate's square: the colony's offices.
+        DistrictKind::Civic
+    } else if bx > CITY.1 {
         // The site, built out: alternate works and homes.
         if (bx - SITE.0) / DISTRICT_BLOCKS % 2 == 0 { DistrictKind::Works } else { DistrictKind::Residential }
     } else {
@@ -341,10 +346,12 @@ pub fn district_at(strip: u8, x: f32, stage: Stage) -> Option<(u8, DistrictKind)
     district_of(strip, block_index(x), stage)
 }
 
-/// Whether there's a block in cell (`bx`, `row`): only in the city's and the site's stretches, off
-/// the avenue and the banks.
+/// Whether there's a block in cell (`bx`, `row`): in the city's and the site's stretches off the
+/// avenue and the banks, and round Hub Gate's square (its two rows either side of the avenue are
+/// the square).
 pub fn has_block(bx: i32, row: i32) -> bool {
-    (CITY.0..=SITE.1).contains(&bx) && (1..=ROWS).contains(&row.abs())
+    let rows = if (HUB_GATE.0..=HUB_GATE.1).contains(&bx) { SQUARE_ROWS + 1..=ROWS } else { 1..=ROWS };
+    (HUB_GATE.0..=SITE.1).contains(&bx) && rows.contains(&row.abs())
 }
 
 /// The footprint of cell (`bx`, `row`)'s block, inside its streets.
@@ -797,9 +804,12 @@ mod tests {
                 let x = -COLONY_HALF_LENGTH + 70.0 + 31_850.0 * i as f32 / 400.0;
                 assert!(!walker_at(k, STRIP_WIDTH * 0.5 + 20.0, x, 0.0), "the avenue at {x}");
             }
-            for i in 0..50 {
-                let s = 40.0 + (STRIP_WIDTH - 80.0) * i as f32 / 50.0;
-                assert!(!walker_at(k, s, grid_x(5), 0.0), "Hub Gate's plaza at {s}");
+            let square = row_edge(SQUARE_ROWS) - lane_width(SQUARE_ROWS) * 0.5 - 1.0;
+            for i in 0..=50 {
+                let s = STRIP_WIDTH * 0.5 - square + 2.0 * square * i as f32 / 50.0;
+                for bx in HUB_GATE.0 + 1..=HUB_GATE.1 {
+                    assert!(!walker_at(k, s, grid_x(bx) + 64.0, 0.0), "Hub Gate's square at {s}, {bx}");
+                }
             }
             // The lanes along the axis between rows.
             for kk in 1..=ROWS {

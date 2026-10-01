@@ -17,6 +17,8 @@ mod blast;
 #[cfg(target_arch = "wasm32")]
 mod camera;
 #[cfg(target_arch = "wasm32")]
+mod city;
+#[cfg(target_arch = "wasm32")]
 mod cockpit;
 #[cfg(target_arch = "wasm32")]
 mod colony;

@@ -12,6 +12,8 @@ pub struct HangarState {
     pub place: Option<Place>,
     /// Their bay's number.
     pub bay: u8,
+    /// In the city: the land strip they're on.
+    pub strip: Option<u8>,
     pub view: Option<HangarView>,
     pub market: Option<MarketView>,
     /// The book (and price history) of the item the pilot is watching.
@@ -32,9 +34,9 @@ impl HangarState {
     pub fn apply(&mut self, update: Update) -> bool {
         self.version += 1;
         match update {
-            Update::Place { place, bay } => {
+            Update::Place { place, bay, strip } => {
                 let back = self.place == Some(Place::Space) && place == Place::Hangar;
-                (self.place, self.bay) = (Some(place), bay);
+                (self.place, self.bay, self.strip) = (Some(place), bay, strip);
                 return back;
             }
             Update::Hangar(view) => self.view = Some(view),
@@ -50,6 +52,11 @@ impl HangarState {
     /// On foot in the hangar bay.
     pub fn in_hangar(&self) -> bool {
         self.place == Some(Place::Hangar)
+    }
+
+    /// On foot in the colony's city.
+    pub fn in_city(&self) -> bool {
+        self.place == Some(Place::City)
     }
 
     /// Credits, as last told.
@@ -80,12 +87,14 @@ mod tests {
         assert_eq!(wire::decode::<Request>(p), Some(Request::Launch));
 
         let mut h = HangarState::default();
-        assert!(!h.apply(Update::Place { place: Place::Hangar, bay: 7 }));
+        assert!(!h.apply(Update::Place { place: Place::Hangar, bay: 7, strip: None }));
         assert!(h.in_hangar());
-        assert!(!h.apply(Update::Place { place: Place::Space, bay: 7 }));
-        assert!(h.apply(Update::Place { place: Place::Hangar, bay: 7 }), "back from the sector");
+        assert!(!h.apply(Update::Place { place: Place::Space, bay: 7, strip: None }));
+        assert!(h.apply(Update::Place { place: Place::Hangar, bay: 7, strip: None }), "back from the sector");
+        assert!(!h.apply(Update::Place { place: Place::City, bay: 7, strip: Some(2) }));
+        assert!(h.in_city() && h.strip == Some(2));
         h.apply(Update::Note { text: "MADE 80 kg STEEL".into(), ok: true });
         assert_eq!(h.notes.len(), 1);
-        assert_eq!(h.version, 4);
+        assert_eq!(h.version, 5);
     }
 }

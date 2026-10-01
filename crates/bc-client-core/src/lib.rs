@@ -15,6 +15,7 @@ pub mod chase;
 pub mod city;
 pub mod city_atlas;
 pub mod city_mesh;
+pub mod city_nav;
 pub mod clock;
 pub mod controls;
 pub mod gait;
@@ -91,6 +92,8 @@ pub struct Welcome {
     pub woke: bool,
     /// Survival rules: the pilot starts in their hangar, and launches the suit they built.
     pub survival: bool,
+    /// The colony is open: the bay's airlock leads to the cap lifts and down into its city.
+    pub colony: bool,
     /// How many of the compiled landmarks the sector has (no more than this build knows of).
     pub landmarks: u8,
 }
@@ -333,6 +336,7 @@ impl ClientCore {
                     signed_in: flags & welcome_flags::SIGNED_IN != 0,
                     woke: flags & welcome_flags::WOKE != 0,
                     survival: flags & welcome_flags::SURVIVAL != 0,
+                    colony: flags & welcome_flags::COLONY != 0,
                     landmarks: self.predict.landmarks().len() as u8,
                 });
                 self.predict.set_field(bc_sim::field::Field::generate(field_seed, field_rocks));

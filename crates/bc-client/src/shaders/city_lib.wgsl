@@ -89,15 +89,16 @@ fn inside(r: vec4<f32>, p: vec2<f32>) -> f32 {
     return min(min(p.x - r.x, r.y - p.x), min(p.y - r.z, r.w - p.y));
 }
 
-// What a block looks like from afar, from its atlas texel (bytes as 0..1: kind, district, height
-// in 2 m steps, seed).
-fn city_paint(cell: Cell, t: vec4<f32>) -> Paint {
+// What a block looks like from its atlas texel (bytes as 0..1: kind, district, height in 2 m steps,
+// seed). From afar (through the windows) its buildings are roofs; from inside the colony, where the
+// buildings stand on it, the ground in a block is its yards and pavements.
+fn city_paint(cell: Cell, t: vec4<f32>, from_afar: bool) -> Paint {
     let kind = i32(t.r * 255.0 + 0.5);
     let height = t.b * 255.0 * 2.0;
     let seed = t.a * 255.0;
     let p = cell.p;
-    let asphalt = vec3(0.16, 0.16, 0.17);
-    let paving = vec3(0.42, 0.40, 0.37);
+    let asphalt = vec3(0.14, 0.15, 0.16);
+    let paving = vec3(0.37, 0.38, 0.39);
     let grass = vec3(0.13, 0.24, 0.08);
     // The streets: asphalt, with the lamps along their edges.
     let d = inside(cell.rect, p);
@@ -156,6 +157,9 @@ fn city_paint(cell: Cell, t: vec4<f32>) -> Paint {
         let soil = vec3(0.32, 0.25, 0.17) * (0.8 + 0.3 * noise3(vec3(p * 0.1, seed)));
         let frame = step(0.92, fract(q.x * 6.0)) + step(0.92, fract(q.y * 6.0));
         return Paint(mix(soil, vec3(0.45, 0.44, 0.42), min(frame, 1.0) * 0.6), step(0.97, hash13(vec3(floor(p / 12.0), seed))), height);
+    }
+    if (!from_afar) {
+        return Paint(paving * (0.8 + 0.2 * noise3(vec3(p * 0.3, seed))), 0.0, 0.0);
     }
     // Buildings: roofs over a grid of lots, lit windows by night.
     let lots = select(2.0, 3.0, hash13(vec3(seed, 1.0, 2.0)) > 0.5);

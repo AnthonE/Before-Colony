@@ -53,6 +53,9 @@ struct Args {
     /// Keep pilot records and the exchange in this directory (otherwise they last one run).
     #[arg(long)]
     data_dir: Option<PathBuf>,
+    /// Open the colony (survival): the bays' airlocks lead to the cap lifts, down into its city.
+    #[arg(long)]
+    colony: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -81,6 +84,7 @@ fn main() -> anyhow::Result<()> {
         rules: args.rules,
         craft_speed: args.craft_speed.max(0.01),
         data_dir: args.data_dir,
+        colony: args.colony,
         ..Config::default()
     };
     // Two workers are plenty: all game work happens on the dedicated sector thread.

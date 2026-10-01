@@ -46,6 +46,8 @@ pub enum Surface {
     Railing = 10,
     Hall = 11,
     Glass = 12,
+    /// An end cap's inner face.
+    Cap = 13,
 }
 
 /// A chunk's mesh: the renderer's vertex arrays.
@@ -500,7 +502,8 @@ pub fn ground(strip: u8, b0: i32, b1: i32) -> (CityPos, CityMesh) {
     let mut m = Builder::new(strip, anchor);
     let across = (STRIP_WIDTH / 32.0).ceil() as u32;
     let along = (((x1 - x0) / BLOCK).ceil() as u32).max(1);
-    let col = [Surface::Ground as u8 as f32 / 255.0, 0.0, 1.0, 0.0];
+    // The strip rides in the seed, for the shader's lookup in the block atlas.
+    let col = [Surface::Ground as u8 as f32 / 255.0, strip as f32 / 255.0, 1.0, 0.0];
     for j in 0..=along {
         let x = x0 + (x1 - x0) * j as f32 / along as f32;
         for i in 0..=across {
@@ -516,6 +519,83 @@ pub fn ground(strip: u8, b0: i32, b1: i32) -> (CityPos, CityMesh) {
             let up = m.up(STRIP_WIDTH * (i as f32 + 0.5) / across as f32);
             m.quad([a, a + 1, a + 1 + w, a + w], up);
         }
+    }
+    (anchor, m.mesh)
+}
+
+/// An end cap's inner face (`side` −1 the docking hub's, +1 the far one), facing into the colony:
+/// a disc in rings out to the hull. Positions are from its middle, on the axis.
+pub fn cap(side: f32) -> (Vec3, CityMesh) {
+    let x = side * COLONY_HALF_LENGTH;
+    let centre = Vec3::new(x, 0.0, 0.0);
+    let mut mesh = CityMesh::default();
+    let (rings, segs) = (24u32, 192u32);
+    let normal = Vec3::X * -side;
+    let col = [Surface::Cap as u8 as f32 / 255.0, if side < 0.0 { 0.0 } else { 1.0 }, 1.0, 0.0];
+    for j in 0..=rings {
+        let r = COLONY_RADIUS * j as f32 / rings as f32;
+        for i in 0..=segs {
+            let a = std::f32::consts::TAU * i as f32 / segs as f32;
+            mesh.positions.push([0.0, r * a.cos(), r * a.sin()]);
+            mesh.normals.push(normal.to_array());
+            mesh.uvs.push([r, a]);
+            mesh.colors.push(col);
+        }
+    }
+    let w = segs + 1;
+    for j in 0..rings {
+        for i in 0..segs {
+            let a = j * w + i;
+            let (b, c, d) = (a + 1, a + w, a + w + 1);
+            let p = |k: u32| Vec3::from_array(mesh.positions[k as usize]);
+            let g = (p(b) - p(a)).cross(p(d) - p(a));
+            if g.dot(normal) >= 0.0 || g.length() < 1e-6 {
+                mesh.indices.extend_from_slice(&[a, b, d, a, d, c]);
+            } else {
+                mesh.indices.extend_from_slice(&[a, d, b, a, c, d]);
+            }
+        }
+    }
+    (centre, mesh)
+}
+
+/// Hub Gate on strip `strip`: the terminal at the foot of the docking hub's end cap, and the cap
+/// lift's glass shaft up the cap from it to the bay ring, 948 m up.
+pub fn hub_gate(strip: u8) -> (CityPos, CityMesh) {
+    use bc_sim::colony::city::{TERMINAL_HEIGHT, terminal_rect};
+    use bc_sim::colony::hub::BAY_RADIUS;
+    let t = terminal_rect();
+    let (ms, _) = t.middle();
+    let anchor = CityPos::new(strip, t.x0, ms, 0.0);
+    let mut m = Builder::new(strip, anchor);
+    m.city_box(
+        &CityBox { rect: t, h0: -0.3, h1: TERMINAL_HEIGHT },
+        Surface::Hall,
+        Surface::Roof,
+        0.3,
+        0.2,
+        false,
+    );
+    let shaft = Rect::new(ms - 7.0, ms + 7.0, t.x0, t.x0 + 14.0);
+    let top = COLONY_RADIUS - BAY_RADIUS;
+    m.city_box(
+        &CityBox { rect: shaft, h0: TERMINAL_HEIGHT, h1: top },
+        Surface::Glass,
+        Surface::Steel,
+        0.7,
+        1.0,
+        true,
+    );
+    for side in [-1.0f32, 1.0] {
+        let rail = Rect::new(ms + side * 9.0 - 1.0, ms + side * 9.0 + 1.0, t.x0, t.x0 + 3.0);
+        m.city_box(
+            &CityBox { rect: rail, h0: TERMINAL_HEIGHT, h1: top },
+            Surface::Steel,
+            Surface::Steel,
+            0.5,
+            0.0,
+            true,
+        );
     }
     (anchor, m.mesh)
 }

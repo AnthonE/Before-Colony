@@ -652,7 +652,7 @@ fn surface_golden_wasm() {
 /// Hash of the colony's closed forms: the city's blocks and buildings on every strip (every fifth
 /// block along, every row), what's solid at scattered points, the colony's day and its frames.
 /// Every client draws and walks this, and the server checks poses against it.
-const CITY_GOLDEN: u64 = 0x1a19_23a1_a848_2a68;
+const CITY_GOLDEN: u64 = 0x07d4_eb33_6c72_6377;
 
 fn city_hash() -> u64 {
     use bc_sim::colony::{city, frame, time};

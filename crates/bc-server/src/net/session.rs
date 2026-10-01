@@ -92,6 +92,7 @@ pub(super) async fn run(
         hangar: Hangar::default(),
         trader,
         place: Place::Hangar,
+        strip: 0,
         watching: None,
         market_seen: 0,
         market_sent: Instant::now() - MARKET_EVERY,
@@ -129,6 +130,8 @@ struct Session<'a> {
     hangar: Hangar,
     trader: String,
     place: Place,
+    /// In the city: the land strip the pilot came down to.
+    strip: u8,
     /// The item whose book the pilot is looking at.
     watching: Option<Item>,
     market_seen: u64,
@@ -234,6 +237,9 @@ impl Session<'_> {
         }
         if self.survival() {
             flags |= welcome_flags::SURVIVAL;
+        }
+        if self.game.colony {
+            flags |= welcome_flags::COLONY;
         }
         send_control(
             self.tx,
@@ -486,7 +492,8 @@ impl Session<'_> {
 
     async fn send_place(&mut self) -> anyhow::Result<()> {
         let bay = (self.slot % 99 + 1) as u8;
-        self.send(&Update::Place { place: self.place, bay }).await
+        let strip = (self.place == Place::City).then_some(self.strip);
+        self.send(&Update::Place { place: self.place, bay, strip }).await
     }
 
     async fn send_hangar(&mut self) -> anyhow::Result<()> {
@@ -541,6 +548,7 @@ impl Session<'_> {
             place: match self.place {
                 Place::Hangar => "hangar",
                 Place::Space => "space",
+                Place::City => "city",
             },
             credits: h.credits,
             bay,
@@ -578,6 +586,8 @@ impl Session<'_> {
         match req {
             Request::Launch => self.launch().await,
             Request::Dock => self.dock().await,
+            Request::EnterCity { strip } => self.enter_city(strip).await,
+            Request::LeaveCity => self.leave_city().await,
             Request::Watch { item } => {
                 self.watching = item.filter(|i| i.valid());
                 self.send_market().await
@@ -605,10 +615,43 @@ impl Session<'_> {
         }
     }
 
+    /// Down a cap lift into the colony's city, from the bay.
+    async fn enter_city(&mut self, strip: u8) -> anyhow::Result<()> {
+        if !self.game.colony {
+            return self.note("the cap lifts are closed", false).await;
+        }
+        if self.place != Place::Hangar || self.suit.is_some() {
+            return self.note("the cap lifts run from the bays", false).await;
+        }
+        self.place = Place::City;
+        self.strip = strip % bc_sim::colony::frame::STRIPS as u8;
+        tracing::info!(slot = self.slot, name = %self.callsign, strip = self.strip, "went down into the colony");
+        self.send_place().await?;
+        self.publish_hangar();
+        Ok(())
+    }
+
+    /// Back up the cap lift to the bay.
+    async fn leave_city(&mut self) -> anyhow::Result<()> {
+        if self.place != Place::City {
+            return self.note("you're not in the colony", false).await;
+        }
+        self.place = Place::Hangar;
+        self.send_place().await?;
+        self.send_hangar().await?;
+        self.publish_hangar();
+        Ok(())
+    }
+
     /// Boards the suit in the bay and launches it.
     async fn launch(&mut self) -> anyhow::Result<()> {
         if self.suit.is_some() || self.place == Place::Space {
             return self.note("you're already out", false).await;
+        }
+        if self.place == Place::City {
+            return self
+                .note("you're down in the colony: ride the lift back up to your bay to board", false)
+                .await;
         }
         let line = self.hangar_line();
         let loadout = match self.hangar.launch() {
@@ -710,7 +753,7 @@ impl Session<'_> {
                 self.save().await;
             }
         }
-        if self.place == Place::Hangar
+        if matches!(self.place, Place::Hangar | Place::City)
             && self.game.market.version() != self.market_seen
             && self.market_sent.elapsed() >= MARKET_EVERY
         {

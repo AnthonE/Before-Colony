@@ -76,7 +76,7 @@ pub struct SignIn {
 pub struct HangarEntry {
     pub name: String,
     pub address: Option<String>,
-    /// `hangar` or `space`.
+    /// `hangar`, `space` or `city`.
     pub place: &'static str,
     pub credits: u64,
     /// `empty`, `docked` or `out`, and the suit's line.
@@ -105,6 +105,8 @@ pub struct GameShared {
     pub(super) idle: Duration,
     /// Survival rules (else arcade).
     pub survival: bool,
+    /// The colony is open: pilots may go down into its city.
+    pub colony: bool,
     /// The Colony Exchange.
     pub market: Arc<Market>,
     pub econ: bc_econ::Rules,
@@ -244,6 +246,7 @@ pub struct StatusView {
     roster: Arc<RwLock<HashMap<u16, RosterEntry>>>,
     oracle: &'static str,
     survival: bool,
+    colony: bool,
     market: Arc<Market>,
     hangars: Arc<RwLock<HashMap<u16, HangarEntry>>>,
 }
@@ -329,6 +332,7 @@ impl GameRuntime {
             },
             idle: cfg.idle_timeout,
             survival,
+            colony: survival && cfg.colony,
             market,
             econ: bc_econ::Rules { craft_speed: cfg.craft_speed },
             hangars: Arc::new(RwLock::new(HashMap::new())),
@@ -381,6 +385,7 @@ impl GameRuntime {
             roster: self.shared.roster.clone(),
             oracle: self.oracle,
             survival: self.shared.survival,
+            colony: self.shared.colony,
             market: self.shared.market.clone(),
             hangars: self.shared.hangars.clone(),
         }
@@ -506,6 +511,8 @@ impl StatusView {
             "tick_hz": bc_sim::TICK_HZ,
             "oracle": self.oracle,
             "rules": if self.survival { "survival" } else { "arcade" },
+            // Pilots may go down into the colony's city from their bays.
+            "colony": self.colony,
             // Survival: pilots in their hangar bays (and out of them), and the exchange's ledger.
             "hangars": hangars,
             "exchange": exchange,

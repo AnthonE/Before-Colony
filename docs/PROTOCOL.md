@@ -240,7 +240,7 @@ prefix, except the hangar's (tag 11), which may carry up to 64 KiB.
 | Tag | Message | Direction |
 |---|---|---|
 | 1 | Hello {version, pilot kind, frame, faction, name ≤ 16 B, flags (1 SIGN_IN, 2 RESUME), resume token (32 B, only with RESUME)} | client → server (first frame) |
-| 2 | Welcome {version, client slot, tick, tick_hz, sector, zero_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL), landmarks (u8)} | server → client |
+| 2 | Welcome {version, client slot, tick, tick_hz, sector, zero_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 COLONY), landmarks (u8)} | server → client |
 | 3 | Reject {reason: 1 version, 2 full, 3 bad hello, 4 frame not allowed, 5 sign-in failed, 6 sign-in required, 7 resume token expired, 8 no signature in time} | server → client |
 | 4 | Roster {entity slot, pilot kind, name (empty = left), flags (1 VERIFIED, 2 ASLEEP)} | server → client |
 | 5 | Respawn {frame} | client → server |
@@ -324,13 +324,16 @@ Client → server (`Request`):
 | `watch` | `item` (or `null`) | send that item's book and history as they change |
 | `launch` | | board and launch the suit in the bay |
 | `dock` | | take the suit home (at rest inside the dock) |
+| `enter_city` | `strip` (0–2) | ride the cap lift down from the bay to that strip's Hub Gate (the colony open, and the pilot in their bay) |
+| `leave_city` | | ride the lift back up from Hub Gate to the bay |
 
 Items are slugs: `ore.nickel_iron`, `mat.steel`, `mat.components`, `part.leo.torso`,
 `weapon.beam_rifle`, `module.g_seat`. Parts are
 `head`, `torso`, `arm_l`, `arm_r`, `legs`, `backpack`. Prices are credits a tonne for ores and
 materials (quantities in kg), credits a piece for everything else.
 
-Server → client (`Update`): `place` {`place`: `hangar` or `space`, `bay`}; `hangar` (credits,
+Server → client (`Update`): `place` {`place`: `hangar`, `space` or `city`, `bay`, and in the city
+its `strip`}; `hangar` (credits,
 stock, parts with their condition, the bay: `empty`, `docked` or `out` with the suit, the job
 queues with their time left); `market` (every item's bid, ask, last and volume, the pilot's
 orders, the fee); `book` {`depth`, `history`}; `note` {`text`, `ok`} answering a request (or
@@ -345,6 +348,13 @@ A launch puts the suit in the sector at the docking hub's mouth (the pilot's slo
 stay the same; snapshots start), and `place` says `space`. Docking answers with a `sortie` and
 `place: hangar`, or a refusing `note`. A suit destroyed out there sends `sortie: lost` at once and
 `place: hangar` once the wreck clears.
+
+The colony (the Welcome sets COLONY: a survival server run with `--colony`): from the bay,
+`enter_city` answers `place: city` with the strip, or a refusing `note`; in the city the hangar and
+the market keep coming (the Exchange floor's terminal is the bay's), and `launch` is refused.
+`leave_city` answers `place: hangar`. The city itself is compiled content (`bc_sim::colony::city`,
+`content::city::CITY_VERSION`), the same on every client and the server, so any change to it bumps
+the protocol version. Walking the city is the client's own, as in the bay: nothing more is sent.
 
 ### Setting up the sector
 

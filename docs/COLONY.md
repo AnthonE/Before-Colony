@@ -22,6 +22,16 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
 - **Pilots on foot:** flight suits, coloured per pilot.
 - **Suits inside:** weapons are safe inside, by colony law.
 
+## Status
+
+| Phase | State |
+|---|---|
+| 0: foundations (frames, day, city rules, routes) | done. The routes follow the street grid (avenue, then a cross street, then a lane) rather than an A* over a graph; that's enough while the grid has no closures. |
+| 1.1, 1.2, 1.4: mirrors, the −X end and its lights, the windows showing the city | done |
+| 1.3: solid end structures | to do (needs a protocol bump of its own) |
+| 2: into the colony | done, behind `--colony`: the lift (a cut down the end cap's face, not a lift lobby beyond the airlock), the city drawn and streamed, walking it, the Exchange floor, the Charter Board, The Arrival, districts and sights named on the way, the map (M), the `colony` e2e suite. Not yet: a found-list of sights, indoor rooms (EV 8), `/status`'s `"city"` counts, `__bc`'s `chunks`/`city_tris`/`city_ms`. |
+| 3–6: shared presence, trams, vehicles, suits inside | to do |
+
 **Where it starts (at `a40504a`):**
 - **Simulation.** `bc_sim::world` treats the colony as a still solid cylinder: `COLONY_CENTER` (0,−4200,0), axis +X,
   `colony_spin_angle` 3405 ticks per turn. The docking hub is drawn only. `DOCK_CENTER` is at x −17250 and
@@ -313,7 +323,7 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
 
 | Part | Blocks | x |
 |---|---|---|
-| Hub Gate plaza | 3–7 | [−16000, −15360] |
+| Hub Gate (its square two rows either side of the avenue, civic blocks round it) | 3–7 | [−16000, −15360] |
 | City | 8–198 | to +9088 |
 | Site | 199–249 | to +15616 |
 

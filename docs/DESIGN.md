@@ -47,11 +47,12 @@ Suits can land on the sector's bodies, walk on them, and hide in them (see "Surf
 - **The field's big rocks.** A rock whose smallest half-axis is at least 10 m (75 of the 160) can
   be gripped. A smaller one can still be rested against, and a suit parks on it.
 
-**The colony isn't walkable.** It spins for 1 g inside, so its hull moves at 177 m/s: standing
-on it would fling a suit off at more than 1 g, and the browser would draw its own suit up to 47 m
-from where the server has it. To suits and shots the colony is a still, solid cylinder. Its spin
-runs on the tick's clock (one turn every 3 405 ticks, 113.5 s), so every client draws it turned the
-same way, and a later hull walker has it to hand.
+**The colony's hull isn't walkable.** It spins for 1 g inside, so its hull moves at 177 m/s:
+standing on it would fling a suit off at more than 1 g, and the browser would draw its own suit up
+to 47 m from where the server has it. To suits and shots the colony is a still, solid cylinder. Its
+spin runs on the tick's clock (one turn every 3 405 ticks, 113.5 s), so every client draws it turned
+the same way, and a later hull walker has it to hand. **Its inside is walkable on foot** (below,
+"The First Colony, inside"): there the colony's own frame is the ground, and it doesn't move.
 
 Space comes first because that is where gundanium is made (it can only be refined in zero-G) and
 where the colony's logistics live. Earth, with atmosphere, gravity and re-entry, is on the roadmap.
@@ -505,7 +506,8 @@ the same code the agents walk with), and uses things by looking at them within r
   acceleration, sensors, energy, heat, hold, the G its pilot bears, damage taken), and whether it
   would launch.
 - **The cockpit hatch** (on the catwalk): board and launch.
-- **The airlock** (left wall): the way out of the bay (leave the game).
+- **The airlock** (left wall): the way out of the bay (leave the game), or, when the colony's
+  open, to the cap lift down into it.
 
 The terminals are panels on the page over the live bay. Everything they show is the server's word,
 and everything they do is a request the server checks (`bc_econ::wire`).
@@ -576,6 +578,36 @@ for bulk goods, a piece for everything else.
 - **Away:** a signed-in pilot who leaves keeps everything: their hangar, its jobs, their orders.
   Left out in the sector, their suit sleeps where it is (below), and they wake in it; one the
   sector lost track of is towed in. A guest's hangar lasts the visit.
+
+## The First Colony, inside (Milestone 5)
+
+The plan, its numbers and what's still to come are `COLONY.md`. What's in so far:
+
+- **The colony, from outside**, as the Gundam Wing pictures have it: its mirrors hinged at the −X
+  end, opening with the colony's day (about 1° at night, 45° at noon), the bay ring with its six
+  spokes, the docking hub as a spire of stacked modules, scaffolds and cranes at the +X axis
+  port, and rows of lights along the windows, the ring and the spire. Its windows show the city
+  inside, the same streets the walkers walk, lit at night.
+- **The colony's day** runs on the tick's clock: 48 minutes (32 of them daylight), the same on
+  every client.
+- **The city.** Three land strips, each 3.35 km across and 32 km long: an 80 m avenue down the
+  middle, twelve rows of 128 m blocks either side, a canal in the fourth row on one side, a park
+  and promenade along each window, Hub Gate's square at the docking hub's end and a building site
+  at the far end. Each strip has twelve districts of its own (`content::city`), from the towers of
+  Exchange Row to Old Town's low streets, all worked out as a closed form of where you are
+  (`bc_sim::colony::city`): nothing is stored, and every client and the server see the same walls.
+  Gravity is the spin's: 1 g on the ground, less up a tower.
+- **Going in** (a survival server run with `--colony`): the bay's airlock leads to the cap lift,
+  which rides down the end cap's face with the whole colony in view (Space skips the ride) to Hub
+  Gate's terminal. From there the pilot walks the city with the bay's controls, and M shows the
+  map of their strip. Districts and sights are named on the way in.
+- **Places:** the Exchange floor (its terminal is the bay's exchange), the Charter Board (its
+  notices), The Arrival (a bar, quiet for now), and Hub Gate, whose lift goes back up to the bay.
+  A suit can't launch from the city: its pilot rides back up first.
+
+Still to come: other pilots in the city, in flight suits coloured their own (the plaza's
+datagrams), trams down each avenue, vehicles, and suits inside the colony with their weapons safe
+by the colony's law.
 
 ## The world (EVE-lite, roadmap)
 
@@ -759,8 +791,8 @@ jobs, law and traffic, on an economy whose sinks keep demand turning over.
   new cylinders), funded by deliveries; finishing one changes the world and moves the eras on.
 - **Facilities:** workshops and refineries in the hub, leased by pilots and crews: production
   chains, and rent as a sink.
-- **The colony, on foot:** the concourse beyond the airlock, other pilots' bays, a bar to meet in;
-  crews (a friend's hangar, shared stores).
+- **The colony, on foot** (begun: Milestone 5, above): other pilots in its streets, trams and
+  vehicles, other pilots' bays; crews (a friend's hangar, shared stores).
 - **Economy:** insurance, market data for agents, the other colonies' exchanges with prices of
   their own (and hauling between them).
 - **Law and heat:** shooting colonists draws the militia; enough of it makes a pilot a bounty.

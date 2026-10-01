@@ -163,6 +163,7 @@ impl Plugin for VisualsPlugin {
                 crate::materials::MaterialsPlugin,
                 crate::dots::DotsPlugin,
                 crate::colony::ColonyPlugin,
+                crate::city::CityPlugin,
                 crate::landmarks::LandmarksPlugin,
                 crate::particles::ParticlesPlugin,
                 crate::beams::BeamsPlugin,
@@ -198,6 +199,7 @@ impl Plugin for VisualsPlugin {
                         crate::blast::setup_blasts,
                         crate::ambience::setup_ambience,
                         crate::hangar::setup_bay,
+                        crate::city::setup_city,
                     ),
                     crate::cockpit::setup_cockpit,
                 )

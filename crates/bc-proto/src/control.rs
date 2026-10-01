@@ -35,6 +35,8 @@ pub mod welcome_flags {
     /// Survival rules: the pilot starts in their hangar bay, flies the suit they built, and
     /// launches and docks it with hangar messages. (Otherwise, arcade rules: in a suit at once.)
     pub const SURVIVAL: u8 = 1 << 2;
+    /// The colony is open: the bay's airlock leads to the cap lifts, and down to its city.
+    pub const COLONY: u8 = 1 << 3;
 }
 
 /// [`ControlMsg::Roster`] flags.

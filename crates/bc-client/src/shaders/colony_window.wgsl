@@ -85,7 +85,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let strip = i32(floor(rel / (TAU / 3.0)));
         let s = (rel - f32(strip) * (TAU / 3.0) - TAU / 6.0) * r_hull;
         let cell = city_cell(s, hit.x);
-        let g = city_paint(cell, textureLoad(atlas, atlas_texel(strip, cell), 0));
+        let g = city_paint(cell, textureLoad(atlas, atlas_texel(strip, cell), 0), true);
         col = g.albedo * lit + vec3(1.0, 0.72, 0.4) * g.lamps * colony.extra.x * 0.05 * SCREEN;
     }
     // Clouds about a kilometre above the far wall.

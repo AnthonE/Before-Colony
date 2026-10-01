@@ -37,19 +37,41 @@ Meteor, the war. Here none of it has happened. Whether it has to is up to everyo
   futures of a fight. Colonists who try it come out shaking. Arrivals find it familiar: it shows
   the future the way they remember the story. Why is the mystery under everything else.
 
-## The first colony
+## The First Colony
 
+- **Its name.** The colonists call it **the First Colony**, and so does everything they sign; the
+  Consortium's papers say L1-01.
 - **The cylinder.** 3.2 km in radius and 32 km long, spinning for gravity, its interior still
   being finished. The game's sector L1 is the space around it: the debris of its construction
   (asteroids hauled in for metal), the docking hub at its −X end, and the lanes between.
 - **The docking hub.** The spin ring at 0.7 g where the pilots' bays hang, the launch tunnels,
   the dock with its ring of amber lights, and the **zero-G foundry**, the only place gundanium can
-  be made. Beyond the airlock: the concourse (on the roadmap).
+  be made. Beyond a bay's airlock, the cap lift rides down the end cap's face into the colony.
 - **The Charter Board.** The colonists' provisional council. It advances each Arrival 2,000
   credits and a Leo, runs the colony's desks on the **Colony Exchange** (it buys ore, sells
   propellant cheap, and keeps machine shops turning out components), and pays a bounty for every
   Mobile Doll a pilot brings down. The bounties are its quiet war: it can't fight the Consortium
   openly, but it can pay the people who do.
+- **Inside.** Three land strips run the length of the cylinder between its three windows, each a
+  city with a name of its own: **Charter** (the colony's offices, its money, its first streets,
+  its university), **Canal** (a working town along the canal that carries its freight: depots,
+  quays, locks, yards) and **Gardens** (orchards, the arboretum, the colleges, homes on
+  terraces). Each runs from **Hub Gate**, the square at the foot of the docking hub's end cap where
+  the cap lift comes down, to **the building site** at the far end, where the colony is still
+  being built and its cranes stand against the far cap. Down the middle of every strip runs the
+  avenue; along every window, a park and a promenade at the glass. The mirrors outside throw in
+  the day: 32 minutes of light, then dusk, and the city's lamps.
+- **Its districts**, from Hub Gate: in Charter, Charter Square, Exchange Row, Tower Hill (the
+  Axis View tower, the tallest thing on any strip), Meridian, Lantern Street, Firsthomes, Central
+  Park, Arrival Heights, Old Town, the University, Machine Row and Foundry Lane; in Canal, the
+  Depots, Quayside, Canal Central, Lock Town, Waterside, the Basin, Millrace, Twin Bridges, Lower
+  Canal, the Yards, Far Quays and Last Lock; in Gardens, Garden Gate, the Orchards, the Arboretum,
+  the Colleges, Terraces, Green Meridian, Hillside, the Meadow, Vine Street, Greenworks, Fieldside
+  and the Seed Halls.
+- **Places an Arrival goes.** The **Exchange floor** on Charter Square (the Colony Exchange's
+  hall: the same book the bays' terminals trade on); the **Charter Board**'s hall, where its
+  notices go up; **The Arrival**, a bar off the square where pilots meet. The colony's law holds
+  inside: no weapons fired within its walls.
 - **The economy.** A boomtown. Ore comes in from the field, parts and suits go out from the bays,
   and prices float with what the colony holds. Frames are old and patched, so systems fail, and
   keeping a suit flying is a trade of its own (overhauls, machined components, equipment).
@@ -135,7 +157,6 @@ The design ahead (see `DESIGN.md`, "Roadmap") is a living colony that its pilots
 
 ## Open questions
 
-- The first colony's name. (Working names: "the First Colony", L1-01.)
 - Era pacing: real time, milestones, or both.
 - Whether Arrivals recognise each other from the old world.
 - How the ZERO mystery resolves, and whether the Arrivals can go home.
