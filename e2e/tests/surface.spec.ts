@@ -128,7 +128,9 @@ test("land in MO-II's Aft Well, hide there, park on leaving, wake hidden and lif
   await page.keyboard.down("Space");
   await waitOn(page, "lifted off", (b) => b.footing === "free", 30_000);
   await page.keyboard.up("Space");
-  await expect.poll(async () => page.locator("#toast").textContent(), { timeout: 2_000 }).toBe("FLYING");
+  // The HUD says so from the suit as drawn, which a software renderer's few frames a second bring
+  // in a moment after the server's word.
+  await expect.poll(async () => page.locator("#toast").textContent(), { timeout: 10_000 }).toBe("FLYING");
 
   const errors = logs.filter((l) => /%cERROR|\[pageerror\]|panicked/.test(l));
   if (errors.length) console.log(errors.join("\n"));
