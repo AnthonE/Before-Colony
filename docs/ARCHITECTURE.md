@@ -22,11 +22,11 @@
 | Crate | Kind | Role |
 |---|---|---|
 | `bc-proto` | `no_std`, **no `alloc`** | Wire format: bit packing, quantization, input/snapshot/event/control codecs. It *cannot* allocate. |
-| `bc-sim` | `no_std` + `alloc` at construction only | The simulation: flight, weapons, damage, lag comp, sensors, Mobile Doll AI, ZERO, the debris field, salvage and mining. Shared by the server and the browser. |
+| `bc-sim` | `no_std` + `alloc` at construction only | The simulation: flight, weapons, damage (and the systems inside the parts), lag comp, sensors, Mobile Doll AI, ZERO, the debris field, salvage and mining. Each suit's stat sheet (`tuning`): its frame times what's broken and what's fitted, built the same way by the server and the owner's prediction. Shared by the server and the browser. |
 | `bc-sector` | std, no tokio | The hot loop: a paced thread, lock-free queues, jitter buffers, interest, snapshot encoding, metrics. |
 | `bc-zero` | std + tokio | Tactical oracles off the hot path: the `TacticalOracle` trait, `JevOracle`, the worker. |
 | `bc-client-core` | std, no transport | Client state machine for the browser *and* bots: clock, inputs, prediction, interpolation, world model, the salvage view, `DollBrain` and `MinerBrain`; the link state machine (dial, sign in, redial), the pointer, settings, first-flight hints; survival: the hangar as the server tells it (`hangar`), the bay's layout (`bay`) and the first-person walker and its guide (`walker`). |
-| `bc-econ` | std | The economy, off the hot path: items (ores, materials, each line's parts, weapons), recipes and the colony's valuations (`catalogue`), stores, the suit in the bay and what it launches as (`suit`), the fabricator's and foundry's job queues on the wall clock (`fab`), the Colony Exchange's order books with the colony as a market maker (`exchange`), a pilot's hangar and every request it takes (`hangar`), and the JSON messages (`wire`). |
+| `bc-econ` | std | The economy, off the hot path: items (ores, materials, each line's parts, weapons, equipment), what's broken inside a suit's parts and what overhauling it takes (`faults`), recipes and the colony's valuations (`catalogue`), stores, the suit in the bay and what it launches as (`suit`), the fabricator's and foundry's job queues on the wall clock (`fab`), the Colony Exchange's order books with the colony as a market maker (`exchange`), a pilot's hangar and every request it takes (`hangar`), and the JSON messages (`wire`). |
 | `bc-auth` | `no_std` | Wallet sign-in: the EIP-4361 message both sides build, EIP-55 addresses, and (features) the server's signature check and a local wallet for agents and tests. The browser builds only the message. |
 | `bc-sound` | lib | The sound bank, generated in code (no audio files): cues, the mixer (culling, cooldowns, voices, panning), the cockpit's loops and alarms, the score (the title theme on the Super Famicom's sound chip, in software). Pure Rust; the browser plays it through Web Audio. |
 | `bc-server` | bin + lib | WebTransport sessions (`net/session.rs`: a pilot's session from slot to goodbye, and survival's hangar, sorties and requests), sign-in and the pilot registry (`pilots`: records behind a `PilotStore`, in memory or files, one session per wallet, resume tokens), the colony's exchange (`market`), egress thread, roster, dev HTTP, `/status`. |
@@ -75,8 +75,12 @@ network threads.
    2. Specials: their cooldowns run down; the Hyper Jammer follows MODE and drains energy; Full
       Open runs; a transformable frame changes form on MODE (`bc_sim::transform`, which the
       client's predictor runs too).
-   3. Flight: AMBAC/RCS, thrust, propellant, G-strain, swept against the rocks. Wrecks drift, and
-      so do sleepers (`sim/sleep.rs`: no flight assist, no attitude hold), unless parked on a rock.
+   3. Flight. First every suit's stat sheet is rebuilt (`bc_sim::tuning`) from its parts,
+      systems and equipment as they stood at the end of the last tick, which is what its pilot's
+      client was just told. Then AMBAC/RCS, per-axis thrust (damaged thrusters cough on ticks the
+      owner's client can work out), propellant and any leak, G-strain against the pilot's own
+      tolerance, swept against the rocks. Wrecks drift, and so do sleepers (`sim/sleep.rs`: no
+      flight assist, no attitude hold), unless parked on a rock.
    4. Chunks (loose ore, limbs, hulks): free ones drift on closed-form segments, bounce off the
       colony and rocks, and expire.
    5. Rebuild the spatial hash (counting sort, 128 m cells).
@@ -95,11 +99,14 @@ network threads.
       per tick), the Dragon Fang's thrust drives its head out along the aim, twin weapons strike
       with a blade in each hand. Blades that parry clash; a stroke chips ore off a rock and cuts a
       part off a hulk.
-   10. Damage resolves in order: limbs come off as chunks, overflow spills to the torso, suits die
-      and leave hulks (spilling their holds).
+   10. Damage resolves in order: limbs come off as chunks, overflow spills to the torso, a blow
+      through thinned armour may reach a system inside the part (rolled with `hash01`; a struck
+      reactor scrams, a cockpit concusses, actuators jam), suits die and leave hulks (spilling
+      their holds).
    11. Salvage: grab, stow, throw, jettison, and sales at the dock. Presses are edges against the
        previous tick's buttons, so this runs before they're recorded.
-   12. Heat, energy, ZERO strain (seizure and lockout), respawns.
+   12. Heat, energy, statuses (a scram's and a concussion's timers; damage control mending one
+      damaged system at a time), ZERO strain (seizure and lockout), respawns.
    13. ZERO rollouts (staggered every 3 ticks per pilot).
    12. Shattered rocks grow back once no suit is near (checked every 30 ticks).
 6. **Sleepers' fates** (destroyed, or cleared for room) onto the notes queue, for the server to tell
@@ -287,6 +294,9 @@ on wasm32 (under Node, via `wasm-bindgen-test-runner`). Never enable glam's `fas
 | `bc-sim/tests/{flight,combat,fire_control,lagcomp,mobile_dolls,zero,field,salvage}.rs` | Rocket equation, FA, blackout, no tunnelling, arm loss, charge, sabers and clashes, lag comp (and its clamp), dolls fight to a kill, ZERO accuracy, calibration, seizure, magnetism; suits stop at rocks at 2 km/s and rocks stop shots; limbs come off as chunks and shots pass where they were, hulks, bounces, expiry, lighter suits. |
 | `bc-sector/tests/salvage_net.rs` | Over the same link: chunks reach the client exactly as the server moves them, across bounces; chunks that go leave the client; a kill hands its wreck to its hulk; changed rocks arrive; a miner under survival rules docks and brings its haul home. |
 | `bc-sim/tests/survival.rs`, `bc-sector/tests/survival_net.rs` | A suit launches as it was built (parts missing, worn, weapons not fitted that don't fire, what's in the tank); it docks only at rest in the dock, awake, and goes home with its hold and what it holds; the colony pays bounties on Mobile Dolls; a pilot shot down stays down. Through the sector: no loadout, no suit; launch, dock and home with the hold on the slot's report ring; a suit lost is reported, then its pilot goes home. The `no_alloc` tests cover survival ticks too. |
+| `bc-sim/tests/{systems,modules}.rs`, `bc-sim/src/tuning.rs` | Blows through thin armour reach systems about twice per part's life whatever the weapon (Mobile Dolls less), the same way every run; each system's levels do what their table says (sensors, locks, scram, leak, coughing thrusters, actuators that jam and let go); each module changes its stat, weighs what it weighs and goes with its part; damage control mends one damaged system at a time; faults and equipment launch and come home. |
+| `bc-sector/tests/netcode.rs` (failing systems) | A suit whose thrusters cough, whose tank leaks and whose pilot is hurt, carrying a thruster kit, a G-seat and a cargo rack, is predicted over the bad link to p99 under 0.1 mm. |
+| `bc-econ/tests/wear.rs` | Faults come home with their parts and travel with them to the shelf (a faulted part isn't new); overhauls restore them from the stores; equipment fits one of a kind on its own part and comes off with it; the stat sheet follows what's fitted and broken; records from before load as they were; the colony deals in components and equipment, and opens their desks on an old exchange. |
 | `bc-econ` tests (`tests/ledger.rs`) | Recipes, fitting and stripping, repairs and scrap, jobs on the clock, the exchange's matching, escrow and the colony's desk; a property test that no sequence of trades, cancels and colony drift makes or loses a credit or a kilogram. |
 | `bc-server/tests/hangar.rs` | A real server under survival rules: a pilot starts in their bay, fabricates, fits, trades, launches, docks and comes home; a signed-in pilot's hangar outlives the server (`--data-dir`); a suit left out there is woken in, or towed home. |
 | `bc-client-core` walker tests | The first-person body stands, walks, runs into walls, jumps and falls from the catwalk; the guide walks from the airlock to every place in the bay and back. |

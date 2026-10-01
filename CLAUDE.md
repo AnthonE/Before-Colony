@@ -2,7 +2,8 @@
 
 A Gundam Wing space MMO (free aim, Newtonian 6DOF). Rust server, Bevy 0.19 client compiled to wasm,
 WebTransport (QUIC) between them. See `docs/ARCHITECTURE.md` and `docs/DESIGN.md`; `docs/CONTROLS.md`
-surveys what players of similar games expect of the controls (read it before changing a binding).
+surveys what players of similar games expect of the controls (read it before changing a binding);
+`docs/STORY.md` is the world bible (setting, factions, eras, voice: read it before writing in-game text).
 
 ## Hot-path rules (non-negotiable)
 - The sector tick (`bc-sim` step + `bc-sector` input drain/encode) must not allocate or lock.
@@ -26,5 +27,7 @@ surveys what players of similar games expect of the controls (read it before cha
 - `scripts/build-web.sh [webgl2] [webgpu]` — browser build into `web/dist/` (needs wasm-bindgen-cli 0.2.128).
 - `cargo run -p bc-server --release` then open http://127.0.0.1:8080
 - `scripts/e2e.sh spike|slice|gfx|frames|ui|login|hangar [webgl2|webgpu]` — Playwright against a real server (`frames`: the autopilot flies each Gundam; `gfx`: every showcase scene, screenshots in `e2e/artifacts/`; `ui`: the page around the game; `login`: wallet sign-in with a stub wallet; `hangar`: survival on foot, the terminals, launching and docking). The suits' suites run `--rules arcade` (`BC_RULES` overrides); the server's default is survival.
+- A suit's stats are `bc_sim::tuning` (frame × systems × equipment), built identically by the server and the
+  owner's prediction: anything that changes flight goes through it, from state the own snapshot carries.
 - Survival's economy is `bc-econ` (off the hot path); the hangar's JSON messages are `bc_econ::wire` on control-stream frames tagged 11 (`docs/PROTOCOL.md`).
 - Never set `RUSTFLAGS` (it would drop the `web_sys_unstable_apis` cfg from `.cargo/config.toml`).

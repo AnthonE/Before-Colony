@@ -1,4 +1,4 @@
-# Before Colony wire protocol (v8)
+# Before Colony wire protocol (v9)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
@@ -58,12 +58,12 @@ exactly `tick − 8`, so the 8-bit field's saturation at 15.9 ticks loses nothin
 | Section | Content |
 |---|---|
 | header (116 bits) | kind=2, tick, ack_input_tick, input_health (i8), time_echo_ms, echo_hold_ms, tidi_pct, flags |
-| own (1 + 703 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, ambac/thrust factors, respawn_in, extra mass (kg, i18), cargo ×4 (kg, 14 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special cooldown (8, ticks ÷ 4), arms (46, below) |
+| own (1 + 756 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, systems (24), modules (20), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, extra mass (kg, i18), cargo ×4 (kg, 14 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special cooldown (8, ticks ÷ 4), arms (46, below) |
 | ZERO (1 + ≤200 bits) | source_jev, advice_age, threat_count, per threat {slot, 7 × p}, rec_target + p, rec_maneuver + p, threat_level + confidence, flanked, has_solution, solution (oct 2×12), hit_p |
 | events | repeated `[1][event]`, closed by `[0]` |
 | rocks | repeated `[1][rock]` (18 bits each), closed by `[0]` |
 | missiles | repeated `[1][missile]` (119 bits each), closed by `[0]` |
-| entities | repeated `[1][entity]` (207 bits each), closed by `[0]` |
+| entities | repeated `[1][entity]` (210 bits each), closed by `[0]` |
 | objects | repeated `[1][object]` (12–232 bits each), closed by `[0]` |
 
 The writer reserves room for every list terminator still owed before it writes a record, so a
@@ -78,9 +78,16 @@ Header notes:
 
 Own-state notes:
 - A part with any armour left encodes as at least 1/255: 0 means it is gone.
-- The server flies the suit with the ambac and thrust factors rounded to the same 8 bits, and with
-  exactly `extra_mass_kg`, so prediction matches it. The ambac factor is the one with the arms
-  idle; busy arms take 0.6 of it, which the client works out tick by tick from the arms.
+- The client flies its suit with the stat sheet it builds from the snapshot (`bc_sim::tuning`):
+  the parts left, `systems` (2 bits a system, in `bc_sim::content::System` order: 0 working,
+  1 damaged, 2 failed) and `modules` (4 bits a mount, in `bc_sim::content::modules::MOUNTS`
+  order: 0 empty, else the module's code). The server builds the same one for the next tick from
+  the same state, so prediction matches it, coughing main thrusters (their windows come from the
+  tick and the slot) and a leaking tank included; and exactly `extra_mass_kg` (cargo, what's in
+  hand, modules, less the parts shot off). AMBAC's authority is the one with the arms idle; busy
+  arms take 0.6 of it, which the client works out tick by tick from the arms.
+- `scram` and `concussed` count the ticks a scrammed reactor gives nothing and a concussed
+  pilot's shots wander (the shooter's client draws its own shots wandering the same way).
 - The arms record lets the client roll its suit's arms on from the snapshot as the server does
   (`bc_sim::arms`), so its prediction lunges, and turns with busy arms, on the same ticks:
   the strike under way (phase 2: none, windup, stroke, recovery; timer 5; mount 2, 3 being the
@@ -104,14 +111,15 @@ Own-state notes:
   Hyper Jammer hides the suit again.
 
 Entity record: slot (10), generation (2), frame (4), faction (3), pilot kind (2), position (63),
-rotation (32), velocity (42), aim (18), flags (13), and 6 part-armour buckets (3 bits each, 0–7).
+rotation (32), velocity (42), aim (18), flags (16), and 6 part-armour buckets (3 bits each, 0–7).
 FIRING_PRIMARY and FIRING_SECONDARY say the slot fired in the last 4 ticks: clients draw a
 stream weapon's tracers from them (its shots send no BeamSpawn), and a flamethrower's flag is set
 while it's lit. SABER says a melee strike is out. The last two flags are SPECIAL (the frame's
 special is engaged; a jamming suit shows it only to its allies, and its enemies' sensors lose it
 past 150 m) and MELEE_ALT (the melee strike
 under way comes from a ranged slot, the Dragon Fang). ASLEEP says its pilot is offline, asleep in
-the cockpit.
+the cockpit. SPARKING, SMOKING and VENTING say a system inside it is damaged, one has failed, and
+its tank is holed.
 
 Missile record: pool id (10), generation (2), weapon kind (5), guided, targets you, friendly (1
 each), position (63, the entity grid), velocity (3 × 12 bits over ±4 096 m/s). A snapshot lists at
@@ -129,7 +137,7 @@ Events carry a 3-bit kind and an 8-bit age (ticks before the snapshot):
 | 4 | Clash | id, a, b |
 | 5 | Seizure | id, pilot, active |
 | 6 | Detach | id, from_hulk, source (suit slot, or hulk chunk), part, chunk (the limb) |
-| 7 | extension | 3-bit sub-kind: 0 = RockBreak {id, rock, by}; 1 = MissileBurst {id, missile id, position, cause (2 bits: hit, proximity, expired, blocked)}; 2–7 reserved |
+| 7 | extension | 3-bit sub-kind: 0 = RockBreak {id, rock, by}; 1 = MissileBurst {id, missile id, position, cause (2 bits: hit, proximity, expired, blocked)}; 2 = SystemHit {id, target (entity slot), system (4), level (2)}: a blow reached a system inside a suit; 3–7 reserved |
 
 Events repeat in every snapshot until the client acks one that carried them. `id` (the low 16 bits
 of the event sequence) lets clients de-duplicate the repeats.
@@ -227,9 +235,10 @@ Client → server (`Request`):
 | `craft` | `item`, `batches` | queue batches of what makes `item` at its station |
 | `cancel_job` | `station` (`fabricator`, `foundry`), `index` | cancel a queued job (what's not started comes back) |
 | `fit` | `item` | fit a part or weapon from the stores (a torso into an empty bay starts a suit) |
-| `strip` | `slot`: `{"kind": "part", "part": …}` or `{"kind": "mount", "mount": 0–2}` | take it off into the stores |
+| `strip` | `slot`: `{"kind": "part", "part": …}`, `{"kind": "mount", "mount": 0–2}` or `{"kind": "module", "module": 0–4}` | take it off into the stores (a part takes its equipment with it, and carries its faults) |
 | `dismantle` | | strip the suit bare |
-| `repair` | `part` (optional: all) | repair as far as the stores allow |
+| `repair` | `part` (optional: all) | repair armour as far as the stores allow |
+| `overhaul` | `part` (optional: all) | restore damaged and failed systems as far as the stores allow |
 | `scrap` | `item` | melt one down for half its materials |
 | `order` | `item`, `side` (`buy`, `sell`), `price`, `qty`, `rest` | a limit order on the exchange |
 | `cancel_order` | `id` | |
@@ -237,7 +246,8 @@ Client → server (`Request`):
 | `launch` | | board and launch the suit in the bay |
 | `dock` | | take the suit home (at rest inside the dock) |
 
-Items are slugs: `ore.nickel_iron`, `mat.steel`, `part.leo.torso`, `weapon.beam_rifle`. Parts are
+Items are slugs: `ore.nickel_iron`, `mat.steel`, `mat.components`, `part.leo.torso`,
+`weapon.beam_rifle`, `module.g_seat`. Parts are
 `head`, `torso`, `arm_l`, `arm_r`, `legs`, `backpack`. Prices are credits a tonne for ores and
 materials (quantities in kg), credits a piece for everything else.
 
@@ -245,7 +255,11 @@ Server → client (`Update`): `place` {`place`: `hangar` or `space`, `bay`}; `ha
 stock, parts with their condition, the bay: `empty`, `docked` or `out` with the suit, the job
 queues with their time left); `market` (every item's bid, ask, last and volume, the pilot's
 orders, the fee); `book` {`depth`, `history`}; `note` {`text`, `ok`} answering a request (or
-news: a job done, an order filled); `sortie` {`outcome`: `docked`, `lost`, `recovered`, `text`}.
+news: a job done, an order filled); `sortie` {`outcome`: `docked`, `lost`, `recovered`, `text`};
+`news` {`text`} (a pilot's arrival; the colony's announcements). A suit (in the bay, or out) carries
+`faults`, a map from system slug to `damaged` or `failed` (absent when everything works), and
+`modules`, its five equipment mounts' slugs (or `null`); a part on the shelf carries its own
+`faults`.
 The server sends the hangar and the market whenever they change, the market at most every 2 s.
 
 A launch puts the suit in the sector at the docking hub's mouth (the pilot's slot and the Welcome
