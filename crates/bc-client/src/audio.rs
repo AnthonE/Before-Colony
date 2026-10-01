@@ -202,6 +202,8 @@ pub struct Sound {
     sabers: HashMap<u16, bool>,
     /// The pilot's own, last frame.
     own_saber: bool,
+    /// Each suit's footfalls so far (its walk's), as of last frame.
+    steps: HashMap<u16, u32>,
     /// Counters for the dev hooks.
     pub started: u32,
 }
@@ -241,8 +243,8 @@ fn v3(v: Vec3) -> [f32; 3] {
     [v.x, v.y, v.z]
 }
 
-/// The pilot's suit, as the cockpit model reads it.
-fn cockpit_in(game: &GameClient, in_world: bool) -> CockpitIn {
+/// The pilot's suit, as the cockpit model reads it; `footfalls`, its walk's so far.
+fn cockpit_in(game: &GameClient, in_world: bool, footfalls: u32) -> CockpitIn {
     let g = game.borrow();
     let core = &g.core;
     let Some(o) = core.world.own.filter(|_| in_world) else { return CockpitIn::default() };
@@ -283,7 +285,7 @@ fn cockpit_in(game: &GameClient, in_world: bool) -> CockpitIn {
         credits: o.credits,
         footing: view.and_then(|v| v.ground).map_or(0, |g| if g.aloft { 2 } else { 1 }),
         touchdown: view.and_then(|v| v.touchdown).unwrap_or(0.0),
-        footfalls: 0,
+        footfalls,
         grip: core.last_cmd.buttons & bc_proto::buttons::GRIP != 0,
         cover: o.cover,
     }
@@ -306,7 +308,7 @@ pub fn play_sound(
     ui: Res<Ui>,
     settings: Res<SettingsRes>,
     game: NonSend<GameClient>,
-    drives: Query<&crate::view::SuitDrive>,
+    drives: Query<(&crate::view::SuitDrive, Option<&crate::anim::Anim>)>,
     camera: Query<&GlobalTransform, With<MainCamera>>,
     time: Res<Time<Real>>,
     indoors: Res<crate::hangar::Indoors>,
@@ -390,18 +392,38 @@ pub fn play_sound(
                     Request::at(Cue::MissileLaunch, v3(pos))
                 });
             }
-            FxEvent::Transform { .. } => {}
+            // The pilot's own landing thuds in the cockpit (`bc_sound::cockpit`).
+            FxEvent::Transform { .. } | FxEvent::Touchdown { .. } => {}
         }
     }
     // Other suits' blades lighting up.
-    for d in &drives {
+    for (d, _) in &drives {
         let on = d.flags & bc_proto::snapshot::ent_flags::SABER != 0;
         let was = sound.sabers.insert(d.slot, on).unwrap_or(false);
         if on && !was && !d.own {
             sound.mixer.request(Request::at(Cue::Saber, v3(d.pos)));
         }
     }
-    sound.sabers.retain(|slot, _| drives.iter().any(|d| d.slot == *slot));
+    sound.sabers.retain(|slot, _| drives.iter().any(|(d, _)| d.slot == *slot));
+    // Feet on a body: the pilot's own in the cockpit, and others' heard through the body itself
+    // when the pilot stands on the same one, near enough.
+    let own_drive = drives.iter().find(|(d, _)| d.own);
+    let underfoot = own_drive.and_then(|(d, _)| d.ground).map(|g| g.body.code());
+    let me = own_drive.map_or(ears, |(d, _)| d.pos);
+    let mut own_steps = 0;
+    for (d, anim) in &drives {
+        let Some(a) = anim else { continue };
+        let steps = a.gait.footfalls;
+        let before = sound.steps.insert(d.slot, steps).unwrap_or(steps);
+        if d.own {
+            own_steps = steps;
+        } else if steps != before
+            && bc_sound::conducted(underfoot, d.ground.map(|g| g.body.code()), d.pos.distance(me))
+        {
+            sound.mixer.request(Request::at(Cue::FootstepFar, v3(d.pos)));
+        }
+    }
+    sound.steps.retain(|slot, _| drives.iter().any(|(d, _)| d.slot == *slot));
 
     // The bay: the klaxon and the doors as it cycles, the airlock's hiss. (The launch itself sounds
     // as the suit leaves the tunnel, when the cockpit below finds itself in the world.)
@@ -426,7 +448,7 @@ pub fn play_sound(
     }
 
     // The cockpit (not while the view is in the bay).
-    let cin = cockpit_in(&game, ui.playing() && !indoors.0);
+    let cin = cockpit_in(&game, ui.playing() && !indoors.0, own_steps);
     let mixer = &mut sound.mixer;
     let out = sound.cockpit.frame(now, &cin, &mut |c, gain| {
         mixer.request(Request { gain, ..Request::own(c) });

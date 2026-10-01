@@ -413,6 +413,11 @@ pub fn update_fx(
                     color: Color::srgb(1.0, 0.7, 0.35),
                 });
             }
+            FxEvent::Touchdown { pos, vel, normal, speed, rock } => {
+                if rock {
+                    particles.dust(cap, At { pos, vel }, normal, speed / 8.0);
+                }
+            }
             FxEvent::Clash { pos } => {
                 particles.clash(cap, At { pos, vel: Vec3::ZERO });
                 state.flashes.push(Flash {

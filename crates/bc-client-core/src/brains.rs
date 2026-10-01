@@ -7,7 +7,7 @@ use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, GRAB, GRIP, MELEE, STOW};
 use bc_proto::{ChunkKind, FrameId, InputCmd, Part};
 use bc_sim::TICK_HZ;
 use bc_sim::ai::{self, AiState, DollProfile, PILOT};
-use bc_sim::bodies::{Body, BodyPose};
+use bc_sim::bodies::{Body, BodyPose, Shape};
 use bc_sim::content::salvage::{DOCK_CENTER, stowable};
 use bc_sim::content::{ArmSlot, frame, weapon};
 use bc_sim::field::SUIT_CLEARANCE;
@@ -318,7 +318,18 @@ impl LanderBrain {
         }
         let look = Some(s.pos + pose.rot * along(n) * 1_000.0);
         match self.stage {
-            Stage::Approach => fly(ctx, own.frame, hi, pose.point_vel(hi), look, FLIGHT_ASSIST),
+            Stage::Approach => {
+                // Round the body, if it's in the way (coming up on its far side).
+                let bound = match body {
+                    Body::Landmark(k) => bodies.landmarks.get(usize::from(k)).map_or(0.0, |d| d.bound),
+                    Body::Rock(r) => {
+                        bodies.field.rocks().get(usize::from(r)).map_or(0.0, |r| r.axes.max_element())
+                    }
+                    Body::None => 0.0,
+                };
+                let to = round_body(&pose, &shape, bound, s.pos, hi);
+                fly(ctx, own.frame, to, pose.point_vel(to), look, FLIGHT_ASSIST)
+            }
             Stage::Descend => {
                 let mut cmd =
                     fly_at(ctx, own.frame, lo, pose.point_vel(lo), look, FLIGHT_ASSIST | GRIP, DESCENT);
@@ -328,6 +339,26 @@ impl LanderBrain {
             }
         }
     }
+}
+
+/// How far off a body a lander keeps going round it (m), past the furthest of its surface from
+/// its middle along the way.
+const ROUND_CLEAR: f32 = 120.0;
+
+/// Where a lander at `from` heads for `to` near a body posed `pose`, of shape `shape` and reaching
+/// `bound` m from its middle: straight there if the way keeps a fifth of [`ROUND_CLEAR`] off the
+/// body, else out round it, beyond its reach, halfway (by direction from its middle) between where
+/// the lander is and where it's going. Each step on, the way round turns further toward `to`,
+/// until the way there is clear.
+fn round_body(pose: &BodyPose, shape: &Shape, bound: f32, from: Vec3, to: Vec3) -> Vec3 {
+    let (a, b) = (pose.to_local(from), pose.to_local(to));
+    if shape.trace_long(a, b, ROUND_CLEAR * 0.2).is_none() {
+        return to;
+    }
+    let side = a.normalize_or(Vec3::Y);
+    let goal = b.normalize_or(-side);
+    let mid = (side + goal).try_normalize().unwrap_or_else(|| side.any_orthonormal_vector());
+    pose.to_world(mid * (bound + ROUND_CLEAR))
 }
 
 /// Flies with flight assist toward `to` (moving at `vel`), round the colony if it's in the way,
@@ -397,12 +428,10 @@ mod tests {
 
     /// A Leo `height` m over where `plan` lands, flown by a lander seeing what its client would,
     /// for `ticks`; `each` sees the server after every tick.
-    fn land(plan: Plan, height: f32, ticks: u32, mut each: impl FnMut(&Sim, usize)) {
-        let mut sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
-        let mut brain = LanderBrain::new(plan);
+    fn land(plan: Plan, height: f32, ticks: u32, each: impl FnMut(&Sim, usize)) {
+        let sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
         let bodies = Bodies::at(&sim.field, sim.landmarks(), 0);
-        let body = brain.body();
-        let pose = bodies.pose(body).unwrap();
+        let pose = bodies.pose(LanderBrain::new(plan).body()).unwrap();
         let (at, n) = match plan {
             Plan::Walk { body, dir_local } => bodies.surface_along(body, dir_local).unwrap(),
             Plan::Hide { landmark, spot } => {
@@ -411,7 +440,13 @@ mod tests {
                 (c, def.shape.probe(c).normal)
             }
         };
-        let start = pose.to_world(at + n * height);
+        fly_from(plan, pose.to_world(at + n * height), ticks, each);
+    }
+
+    /// A Leo starting at `start`, flown by a lander with `plan` (as [`land`]).
+    fn fly_from(plan: Plan, start: Vec3, ticks: u32, mut each: impl FnMut(&Sim, usize)) {
+        let mut sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
+        let mut brain = LanderBrain::new(plan);
         let id = sim
             .spawn_at(
                 FrameId::Leo,
@@ -489,5 +524,32 @@ mod tests {
         assert_eq!(free_after, 0, "let go");
         assert!(hops >= 5 && on_ground > 500, "{hops} hops, {on_ground} ticks down");
         assert!(furthest > 15.0, "walked {furthest} m");
+    }
+
+    #[test]
+    fn a_lander_goes_round_the_body_to_a_spot_on_its_far_side() {
+        // From 1.5 km off MO-II's fore end, into the Aft Well at its other end: the straight way
+        // goes through the station.
+        let sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
+        let pose = Bodies::at(&sim.field, sim.landmarks(), 0).pose(Body::Landmark(0)).unwrap();
+        let start = pose.to_world(Vec3::new(1_500.0, 120.0, 80.0));
+        let (mut closest, mut grounded, mut hidden) = (f32::INFINITY, None, None);
+        fly_from(Plan::Hide { landmark: 0, spot: 0 }, start, 4_800, |sim, i| {
+            // Never against the station on the way (a suit touching it is held off at 8 m).
+            if sim.footing(i) == Footing::Free {
+                let b = Bodies::at(&sim.field, sim.landmarks(), sim.tick());
+                let p = b.pose(Body::Landmark(0)).unwrap();
+                closest =
+                    closest.min(sim.landmarks()[0].shape.probe(p.to_local(sim.suits.flight[i].pos)).dist);
+            }
+            if grounded.is_none() && sim.footing(i) == Footing::Grounded {
+                grounded = Some(sim.tick());
+            }
+            if grounded.is_some() && hidden.is_none() && sim.cover_code(i) == cover::HIDDEN {
+                hidden = Some(sim.tick());
+            }
+        });
+        assert!(grounded.is_some() && hidden.is_some(), "grounded {grounded:?}, hidden {hidden:?}");
+        assert!(closest > 12.0, "brushed the station at {closest} m");
     }
 }

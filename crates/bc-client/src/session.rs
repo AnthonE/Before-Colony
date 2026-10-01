@@ -408,6 +408,9 @@ pub fn drive_link(
         ui.signed_in = l.in_game() && g.core.welcome.is_some_and(|w| w.signed_in);
         ui.parkable = ui.signed_in
             && g.core.world.own.is_some_and(|o| o.flags & bc_proto::snapshot::own_flags::PARKABLE != 0);
+        let alive = l.in_game() && g.core.world.own.is_some_and(|o| o.alive);
+        ui.hide_spot = if alive { crate::hud::footed(&g.core).spot.unwrap_or("") } else { "" };
+        ui.survival = g.core.welcome.is_some_and(|w| w.survival);
     }
     ui.attempt = l.attempt();
     ui.retry_in = match l.state {

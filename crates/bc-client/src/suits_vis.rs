@@ -7,6 +7,8 @@ use bc_model::{Lod, paint};
 use bc_proto::snapshot::ent_flags;
 use bc_proto::{Faction, FrameId, Part, PilotKind, WeaponKind};
 use bc_sim::content::{SpecialKind, frame};
+use bc_sim::ground::STANCE;
+use bevy::light::NotShadowCaster;
 use bevy::mesh::MeshTag;
 use bevy::prelude::*;
 
@@ -22,6 +24,10 @@ use crate::view::{SuitDrive, VisTime};
 /// Suits switch to their far models beyond this distance (m), and back within `LOD_NEAR`.
 const LOD_FAR: f32 = 550.0;
 const LOD_NEAR: f32 = 450.0;
+/// A suit on a body has a contact shadow under it this wide (m), standing, or in the air with its
+/// feet no higher than `SHADOW_HEIGHT` (m) off the surface.
+const SHADOW_RADIUS: f32 = 4.0;
+const SHADOW_HEIGHT: f32 = 30.0;
 
 /// A suit root's built visual: which occupant it was built for, its bones and livery, and its
 /// toggled children.
@@ -42,6 +48,8 @@ pub struct SuitVisual {
     aura: Entity,
     /// The Hyper Jammer's shimmer.
     shimmer: Entity,
+    /// The contact shadow under it on a body.
+    shadow: Entity,
 }
 
 impl SuitVisual {
@@ -231,6 +239,17 @@ fn build_suit(
             ChildOf(root),
         ))
         .id();
+    let shadow = commands
+        .spawn((
+            Mesh3d(shapes.disc.clone()),
+            MeshMaterial3d(pal.contact.clone()),
+            Transform::default(),
+            NotShadowCaster,
+            SuitPartMarker,
+            Visibility::Hidden,
+            ChildOf(root),
+        ))
+        .id();
     commands.entity(root).insert((
         SuitVisual {
             generation: d.generation,
@@ -243,6 +262,7 @@ fn build_suit(
             cable,
             aura,
             shimmer,
+            shadow,
         },
         Anim::default(),
         Damage::new(d.slot),
@@ -338,6 +358,21 @@ pub fn pose_suits(
             set_visible(&mut av, aura);
             if aura {
                 atf.scale = Vec3::splat(11.0 + 0.6 * flicker);
+            }
+        }
+        // The contact shadow: on the surface under the suit, spreading and thinning as it rises.
+        if let Ok((mut stf, mut sv)) = parts.get_mut(v.shadow) {
+            let near =
+                d.ground.map(|g| (g, (g.height - STANCE).max(0.0))).filter(|(_, h)| *h < SHADOW_HEIGHT);
+            set_visible(&mut sv, near.is_some() && !wreck);
+            if let Some((g, h)) = near {
+                let inv = d.rot.inverse();
+                // A hand's breadth off the ground, so it never fights it for the same pixels.
+                let at = d.pos - g.up * (g.height - 0.15);
+                let spread = 1.0 + h / SHADOW_HEIGHT;
+                *stf = Transform::from_translation(inv * (at - d.pos))
+                    .with_rotation(inv * Quat::from_rotation_arc(Vec3::Y, g.up))
+                    .with_scale(Vec3::new(SHADOW_RADIUS * spread, 1.0, SHADOW_RADIUS * spread));
             }
         }
         // Jamming: a restless shimmer, brightening and fading as it crawls.

@@ -8,6 +8,10 @@
 //!   over its nose). A wreck is watched from the chase camera, which keeps pace all along so the
 //!   switch between them is a clean cut. With the head shot off, the sub-camera's picture is
 //!   duller;
+//! - on a body the chase camera comes in closer and higher, and is kept out of every body: it stops
+//!   short of any surface between the suit and its place (`bc_client_core::surface::camera_clamp`,
+//!   the bodies as drawn). From the cockpit the walk bobs the eye a little (30% of the hips'
+//!   drop), for comfort;
 //! - the field of view widens on boost, and blasts, hits and the Twin Buster Rifle shake it;
 //! - G-strain greys the view out and closes it to a tunnel, and a blackout (G-LOC) takes it to
 //!   black;
@@ -18,6 +22,7 @@
 //! `?calm=1`, or the browser's reduced-motion setting, starts them turned down.
 
 use bc_client_core::chase::{self, ChaseRig, Follow};
+use bc_client_core::surface::camera_clamp;
 use bc_model::rig::Bone;
 use bc_proto::snapshot::ent_flags;
 use bc_proto::{Part, WeaponKind};
@@ -29,7 +34,7 @@ use crate::anim::Anim;
 use crate::damage::Damage;
 use crate::model::SuitMeshLib;
 use crate::suits_vis::{SuitBone, SuitVisual};
-use crate::view::{CameraTarget, FxEvent, FxEvents, SuitDrive, ViewPrefs, VisTime};
+use crate::view::{CameraTarget, DrawnBodies, FxEvent, FxEvents, SuitDrive, ViewPrefs, VisTime};
 use crate::zero_vision::ZeroVision;
 
 #[derive(Component)]
@@ -42,6 +47,8 @@ pub struct FillLight;
 /// Field of view (degrees) at the default setting; boost widens it by [`BOOST_WIDEN`].
 const FOV: f32 = 70.0;
 const BOOST_WIDEN: f32 = 7.0;
+/// How much of a stride's bob the cockpit's eye is spared.
+const EYE_STEADY: f32 = 0.7;
 
 /// The chase camera and the pilot effects, between frames.
 #[derive(Resource, Clone, Copy, Default)]
@@ -125,6 +132,7 @@ pub fn follow(
     events: Res<FxEvents>,
     prefs: Res<ViewPrefs>,
     lib: Res<SuitMeshLib>,
+    bodies: Res<DrawnBodies>,
     mut chase: ResMut<Chase>,
     suits: Query<(&SuitDrive, &Anim, &SuitVisual, Option<&Damage>)>,
     mut bones: Query<&mut Visibility, With<SuitBone>>,
@@ -135,10 +143,14 @@ pub fn follow(
     let c = &mut *chase;
     let dt = time.dt.min(0.1);
     let own = suits.iter().find(|(d, ..)| d.own);
-    // The cockpit's eye: the own suit's head camera as posed (none for a wreck).
+    // The cockpit's eye: the own suit's head camera as posed (none for a wreck), spared most of a
+    // stride's bob.
     let cockpit = own
         .filter(|(d, ..)| prefs.cockpit && target.0.is_some() && d.flags & ent_flags::WRECK == 0)
-        .map(|(d, anim, ..)| anim.point(d, Bone::Head, lib.sockets(d.frame).eye));
+        .map(|(d, anim, ..)| {
+            let steady = -anim.lift.normalize_or_zero() * anim.bob * EYE_STEADY;
+            anim.point(d, Bone::Head, lib.sockets(d.frame).eye) + d.rot * steady
+        });
     c.cockpit = cockpit.is_some();
     c.head_lost = own.is_some_and(|(d, ..)| d.parts[Part::Head as usize] == 0);
     // The eye is inside a humanoid's head, which isn't drawn meanwhile (unless it's been shot off,
@@ -167,10 +179,11 @@ pub fn follow(
         return;
     };
 
-    // Behind and above the suit, on a spring in the frame moving with the suit as drawn. It keeps
-    // pace in the cockpit too, ready for the switch back.
-    let follow = Follow { pos: t.pos, vel: t.vel, aim: t.aim, up: t.up, cut: t.cut, ground: false };
-    if c.rig.step(&follow, dt) {
+    // Behind and above the suit, on a spring in the frame moving with the suit as drawn, kept out
+    // of the bodies as they're drawn. It keeps pace in the cockpit too, ready for the switch back.
+    let follow = Follow { pos: t.pos, vel: t.vel, aim: t.aim, up: t.up, cut: t.cut, ground: t.ground };
+    let clamp = |from: Vec3, to: Vec3| camera_clamp(&bodies.set, bodies.t, from, to);
+    if c.rig.step_clamped(&follow, dt, &clamp) {
         // Spawning, respawning or a teleport: the eased effects cut too.
         c.cut = true;
         c.fov = fov_for(&prefs, t.boost);
@@ -190,6 +203,7 @@ pub fn follow(
             FxEvent::Muzzle { pos, weapon: WeaponKind::TwinBusterRifle, .. } => 0.6 * near(pos, 60.0, 900.0),
             FxEvent::Clash { pos } => 0.4 * near(pos, 40.0, 400.0),
             FxEvent::RockBreak { pos, radius, .. } => 0.7 * near(pos, radius * 2.0, radius * 40.0),
+            FxEvent::Touchdown { pos, speed, .. } => 0.3 * (speed / 8.0).min(1.0) * near(pos, 20.0, 200.0),
             _ => 0.0,
         };
     }

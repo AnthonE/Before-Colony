@@ -1,7 +1,12 @@
 //! The debris field, drawn from `bc_sim::field` (the generator the server shares): procedural
 //! asteroids, one mesh per shape so they batch, with a cheaper mesh in the distance. In game it is
 //! the server's field, from the Welcome.
+//!
+//! A rock a suit can grip (`bc_sim::bodies::GRIP_MIN_AXIS`) is drawn filling its collider: its
+//! relief is pressed into the outer 4% of each half-axis, so a suit standing on it stands on what's
+//! drawn. A smaller one keeps its full relief, inside its collider.
 
+use bc_sim::bodies::GRIP_MIN_AXIS;
 use bc_sim::field::{Field, SHAPES};
 use bc_sim::math::Rng;
 use bevy::mesh::VertexAttributeValues;
@@ -34,9 +39,14 @@ impl RockLod {
     }
 }
 
+/// How deep a grippable rock's relief goes, as a fraction of each half-axis.
+const GRIP_RELIEF: f32 = 0.04;
+
 /// An asteroid: an icosphere pushed around by noise and pocked with craters, scaled so that it
-/// fits inside the unit sphere (the field's collider radius bounds it).
-fn rock_mesh(shape: u8, subdivisions: u32) -> Mesh {
+/// fits inside the unit sphere (the field's collider radius bounds it). `grip`: its relief pressed
+/// into the sphere's outer [`GRIP_RELIEF`], `1 − 0.04·(1 − h)` for a height `h` of 0 (the deepest
+/// crater) to 1 (the highest ridge), so the collider is its envelope.
+fn rock_mesh(shape: u8, subdivisions: u32, grip: bool) -> Mesh {
     let mut mesh = Sphere::new(1.0).mesh().ico(subdivisions).expect("icosphere");
     let mut rng = Rng::new(0xA57E_0000 + u64::from(shape));
     let craters: Vec<(Vec3, f32, f32)> = (0..6 + rng.next_u32() % 5)
@@ -70,19 +80,29 @@ fn rock_mesh(shape: u8, subdivisions: u32) -> Mesh {
         })
         .collect();
     let max = out.iter().map(|p| p.length()).fold(0.0, f32::max).max(1e-3);
-    for p in &mut out {
-        *p /= max;
+    if grip {
+        let min = out.iter().map(|p| p.length()).fold(f32::INFINITY, f32::min);
+        for p in &mut out {
+            let h = (p.length() - min) / (max - min).max(1e-3);
+            *p = p.normalize() * (1.0 - GRIP_RELIEF * (1.0 - h));
+        }
+    } else {
+        for p in &mut out {
+            *p /= max;
+        }
     }
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, out.iter().map(|p| p.to_array()).collect::<Vec<_>>());
     mesh.compute_smooth_normals();
     mesh
 }
 
-/// Every rock shape's meshes, detailed and coarse.
+/// Every rock shape's meshes, detailed and coarse, and for rocks that can be gripped.
 #[derive(Resource)]
 pub struct RockMeshes {
     near: Vec<Handle<Mesh>>,
     far: Vec<Handle<Mesh>>,
+    grip_near: Vec<Handle<Mesh>>,
+    grip_far: Vec<Handle<Mesh>>,
 }
 
 impl RockMeshes {
@@ -108,8 +128,10 @@ pub struct RockPiece;
 /// Builds the rock meshes and spawns the default field.
 pub fn setup_field(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, surfaces: Res<Surfaces>) {
     let lib = RockMeshes {
-        near: (0..SHAPES).map(|s| meshes.add(rock_mesh(s, 7))).collect(),
-        far: (0..SHAPES).map(|s| meshes.add(rock_mesh(s, 2))).collect(),
+        near: (0..SHAPES).map(|s| meshes.add(rock_mesh(s, 7, false))).collect(),
+        far: (0..SHAPES).map(|s| meshes.add(rock_mesh(s, 2, false))).collect(),
+        grip_near: (0..SHAPES).map(|s| meshes.add(rock_mesh(s, 7, true))).collect(),
+        grip_far: (0..SHAPES).map(|s| meshes.add(rock_mesh(s, 2, true))).collect(),
     };
     let shown = ShownField(Field::DEFAULT_SEED, Field::DEFAULT_ROCKS);
     let field = Field::generate(shown.0, shown.1);
@@ -142,8 +164,12 @@ pub fn show_field(
 
 /// Spawns each rock twice: a detailed mesh up close and a coarse one beyond.
 fn spawn_rocks(commands: &mut Commands, lib: &RockMeshes, surfaces: &Surfaces, field: &Field) {
-    let (near, far) = (&lib.near, &lib.far);
     for (i, r) in field.rocks().iter().enumerate() {
+        let (near, far) = if r.axes.min_element() >= GRIP_MIN_AXIS {
+            (&lib.grip_near, &lib.grip_far)
+        } else {
+            (&lib.near, &lib.far)
+        };
         let tf = Transform::from_translation(r.pos).with_rotation(r.rot).with_scale(r.axes);
         let tag = rock_state_tag(r.ore, i as u8, 7, 15);
         let switch = 1_200.0 + r.radius * 40.0;

@@ -6,18 +6,30 @@
 //! hand's 50°, Neo-Bird's nose 2°), so while the suit is still turning onto the aim the crosshair
 //! dims and a second marker shows where the primary weapon would fire. The velocity vector shows
 //! which way the suit is drifting (`-o-`), or, moving backwards, the way it's drifting from
-//! (`-x-`).
+//! (`-x-`): relative to the body it's on, or to a landmark within 2 km.
+//!
+//! The bodies: a landmark within 3 km is named with its range and closure, relative to its
+//! surface, and its hide spots marked (`<>`, from compiled content: they never say who is in one).
+//! With the grip armed, a landing ring `( _ )` sits on the surface the suit is coming in on, green
+//! when the next tick would catch it (the simulation's own test). On a body the flight panel says
+//! how the suit stands, and its speed is over the body; the alerts say how well hidden it is.
 
-use bc_client_core::FeedLine;
+use bc_client_core::surface::{SurfaceHint, surface_hint};
 use bc_client_core::world::ObjectMotion;
-use bc_proto::buttons::{FLIGHT_ASSIST, MODE};
-use bc_proto::snapshot::{ent_flags, own_flags, zero_mode};
+use bc_client_core::{ClientCore, FeedLine};
+use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, MELEE, MODE};
+use bc_proto::snapshot::{cover, ent_flags, own_flags, zero_mode};
 use bc_proto::{ChunkKind, NO_CHUNK, NO_SLOT, OwnState, Part, PilotKind, WeaponKind};
+use bc_sim::bodies::Body;
 use bc_sim::chunks;
+use bc_sim::content::landmarks::LANDMARKS;
 use bc_sim::content::salvage::{CATCH_SPEED, DOCK_CENTER, PRICE, REACH, hold_kg, material};
 use bc_sim::content::{
     ArmSlot, FrameSpec, PLAYABLE_ORDER, SpecialKind, frame, frame_name, weapon, weapon_name,
 };
+use bc_sim::ground::{Footing, STANCE};
+use bc_sim::sim::LURK_SETTLE_TICKS;
+use bc_sim::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS};
 use bc_sim::zero::hypotheses::Maneuver;
 use bevy::prelude::*;
 
@@ -25,6 +37,7 @@ use crate::camera::{Chase, MainCamera};
 use crate::input::{Aim, Controls};
 use crate::net::{GameClient, now_s};
 use crate::suits_vis::pilot_tag;
+use crate::view::DrawnBodies;
 
 const CYAN: Color = Color::srgb(0.55, 0.92, 1.0);
 const AMBER: Color = Color::srgb(1.0, 0.75, 0.25);
@@ -63,6 +76,100 @@ pub struct BoreMarker;
 /// The velocity vector.
 #[derive(Component)]
 pub struct VelocityMarker;
+/// The landing ring: where the armed grip would land the suit.
+#[derive(Component)]
+pub struct LandingMarker;
+/// A landmark's name, range and closure, while it's near.
+#[derive(Component)]
+pub struct LandmarkMarker(u8);
+/// A hide spot: which landmark's, and which of its spots.
+#[derive(Component)]
+pub struct HideMarker(u8, u8);
+
+/// A landmark is named, and its hide spots marked, within this range of its surface (m).
+const LANDMARK_NEAR: f32 = 3_000.0;
+/// The velocity vector is taken relative to a landmark within this range of its surface (m).
+const RELATIVE_NEAR: f32 = 2_000.0;
+/// With the grip armed this close to the colony's hull (m), the HUD says it can't grip there.
+const HULL_NEAR: f32 = 500.0;
+/// How long the HUD says the grip lost its hold (s), and that a hider was seen (s).
+const LOST_SECS: f64 = 3.0;
+const SEEN_SECS: f64 = 5.0;
+/// Pale blue, for COLD; grey, for what's merely possible.
+const PALE_BLUE: Color = Color::srgb(0.55, 0.72, 1.0);
+const GREY: Color = Color::srgb(0.62, 0.66, 0.7);
+
+/// The own suit and the bodies, as predicted: how it stands, what it could land on, which hide
+/// spot it's in. What the HUD, the hints and the pause menu say of it.
+#[derive(Clone, Copy, Debug)]
+pub struct Footed {
+    pub footing: Footing,
+    pub body: Body,
+    /// How high its origin rides over the ground, m.
+    pub stance: f32,
+    /// The hide spot it stands in.
+    pub spot: Option<&'static str>,
+    /// Flying: the surface its grip, armed, would land it on (the landing ring).
+    pub hint: Option<SurfaceHint>,
+    /// Flying within a kilometre of a surface it could land on.
+    pub near: bool,
+}
+
+/// How the own suit stands with respect to the bodies, as predicted after the newest command;
+/// what it could land on is the simulation's test for the next tick.
+pub fn footed(core: &ClientCore) -> Footed {
+    let p = &core.predict;
+    let m = p.mover();
+    let bodies = p.bodies(p.tick + 1);
+    let spot = match (m.footing, m.anchor.body) {
+        (Footing::Grounded, b @ Body::Landmark(k)) => bodies
+            .hide_spot_of(b, m.anchor.local)
+            .and_then(|s| p.landmarks().get(usize::from(k))?.hides.get(usize::from(s)))
+            .map(|h| h.name),
+        _ => None,
+    };
+    let flying = m.footing == Footing::Free && core.world.own.is_some_and(|o| o.alive);
+    Footed {
+        footing: m.footing,
+        body: m.anchor.body,
+        stance: m.anchor.stance,
+        spot,
+        hint: if flying { surface_hint(&bodies, &m.flight) } else { None },
+        near: flying && bodies.nearest_grippable(&m.flight, 1_000.0, f32::INFINITY, f32::INFINITY).is_some(),
+    }
+}
+
+/// The hide spot the own suit is in, as the server last had it: its name.
+pub fn hide_spot(core: &ClientCore) -> Option<&'static str> {
+    let own = core.world.own_sent()?;
+    let s = own.surface.filter(|s| s.footing == bc_proto::snapshot::footing::GROUNDED)?;
+    let bc_proto::BodyRef::Landmark(k) = s.body else { return None };
+    let def = core.world.bodies.landmarks().get(usize::from(k))?;
+    // The body's frame (the own state on a body is in it), as `Bodies::hide_spot_of` has it.
+    def.hides.iter().find(|h| (own.pos - h.center).length() <= h.radius).map(|h| h.name)
+}
+
+/// How far a point is outside the colony's hull (m): to its side, or past an end.
+fn off_the_hull(p: Vec3) -> f32 {
+    let rel = p - COLONY_CENTER;
+    let radial = Vec2::new(rel.y, rel.z).length() - COLONY_RADIUS;
+    let axial = rel.x.abs() - COLONY_HALF_LENGTH;
+    if axial <= 0.0 { radial.abs() } else { Vec2::new(axial, radial.max(0.0)).length() }
+}
+
+/// What the HUD remembers of hiding between frames.
+#[derive(Default)]
+pub struct Lurk {
+    cover: u8,
+    /// When the own suit began to settle into hiding (s).
+    settling: Option<f64>,
+    /// Seen (it fired, or was hit, while settled) until then (s).
+    seen_until: f64,
+    hits_taken: u32,
+    /// How it stood last frame, and when the grip last lost its hold (s).
+    footing: Option<Footing>,
+    lost_at: f64,
+}
 
 /// The velocity vector's colour, and the speed below which it isn't shown (m/s).
 const PALE_GREEN: Color = Color::srgb(0.75, 1.0, 0.85);
@@ -168,6 +275,25 @@ pub fn setup_hud(mut commands: Commands) {
                 label(16.0, PALE_GREEN, abs(Some(0.0), None, Some(0.0), None)),
                 Visibility::Hidden,
             ));
+            p.spawn((
+                LandingMarker,
+                label(18.0, GREEN, abs(Some(0.0), None, Some(0.0), None)),
+                Visibility::Hidden,
+            ));
+            for (k, def) in LANDMARKS.iter().enumerate() {
+                p.spawn((
+                    LandmarkMarker(k as u8),
+                    label(13.0, CYAN, abs(Some(0.0), None, Some(0.0), None)),
+                    Visibility::Hidden,
+                ));
+                for i in 0..def.hides.len() {
+                    p.spawn((
+                        HideMarker(k as u8, i as u8),
+                        label(12.0, AMBER, abs(Some(0.0), None, Some(0.0), None)),
+                        Visibility::Hidden,
+                    ));
+                }
+            }
             p.spawn((
                 HudText::Alert,
                 label(
@@ -303,9 +429,20 @@ pub fn update_hud(
             Has<GrabMarker>,
             Has<BoreMarker>,
             Has<VelocityMarker>,
+            Has<LandingMarker>,
+            Option<&LandmarkMarker>,
+            Option<&HideMarker>,
         ),
         (
-            Or<(With<GrabMarker>, With<DockMarker>, With<BoreMarker>, With<VelocityMarker>)>,
+            Or<(
+                With<GrabMarker>,
+                With<DockMarker>,
+                With<BoreMarker>,
+                With<VelocityMarker>,
+                With<LandingMarker>,
+                With<LandmarkMarker>,
+                With<HideMarker>,
+            )>,
             Without<HudText>,
             Without<LeadMarker>,
             Without<Bracket>,
@@ -313,6 +450,8 @@ pub fn update_hud(
         ),
     >,
     mut sales: Local<Sales>,
+    mut lurk: Local<Lurk>,
+    bodies: Res<DrawnBodies>,
 ) {
     let game = game.borrow();
     let core = &game.core;
@@ -343,7 +482,7 @@ pub fn update_hud(
         _ => controls.flight_assist,
     };
     let fa = if assisted { "FA ON" } else { "FA OFF" };
-    let mode = if game.autopilot { "AUTOPILOT (Mobile Doll brain)" } else { "MANUAL" };
+    let mode = if game.autopilot { format!("AUTOPILOT ({})", game.brain.name()) } else { "MANUAL".into() };
     // The ping is a default until the first snapshot measures it.
     let ping =
         if core.clock.synced() { format!("{:.0} ms", core.clock.rtt * 1_000.0) } else { "--".to_string() };
@@ -370,16 +509,30 @@ pub fn update_hud(
         let form = view.map_or(o.frame, |v| v.frame);
         let spec = frame(form);
         let s = &core.predict.state;
+        // On a body, the speed is over it.
         let (speed, g, strain, limited) = view.map_or((o.vel.length(), 0.0, o.g_strain, false), |v| {
-            (v.flight_vel.length(), v.g, v.g_strain, v.g_limited)
+            let speed = v.ground.map_or(v.flight_vel.length(), |g| g.rel_vel.length());
+            (speed, v.g, v.g_strain, v.g_limited)
         });
+        let feet = footed(core);
+        let stands = match feet.footing {
+            Footing::Grounded if feet.stance < STANCE => "  CROUCHED".to_string(),
+            Footing::Grounded => "  GROUNDED".to_string(),
+            Footing::Aloft => {
+                let alt = view.and_then(|v| v.ground).map_or(0.0, |g| g.height - STANCE);
+                format!("  ALOFT  ALT {:.0} m", alt.max(0.0))
+            }
+            Footing::Free if controls.grip => "  GRIP ARMED".to_string(),
+            Footing::Free => String::new(),
+        };
         set(
             HudText::Flight,
             format!(
-                "{} {}\nSPD {:>6.0} m/s\nPROP {} {:>3.0}%\nHEAT {} {:>3.0}%\nENGY {} {:>3.0}%\nG   {:>4.1} g {:<3} STRAIN {}",
+                "{} {}\nSPD {:>6.0} m/s{}\nPROP {} {:>3.0}%\nHEAT {} {:>3.0}%\nENGY {} {:>3.0}%\nG   {:>4.1} g {:<3} STRAIN {}",
                 bc_sim::content::frame_designation(form),
                 frame_name(form).to_uppercase(),
                 speed,
+                stands,
                 bar(s.propellant / spec.propellant_cap, 10),
                 100.0 * s.propellant / spec.propellant_cap,
                 bar(o.heat, 10),
@@ -591,6 +744,59 @@ pub fn update_hud(
         })
         .collect();
     incoming.sort_by(|a, b| a.0.total_cmp(&b.0));
+    // Hiding, as the server has it: settling into it, and seen again for firing or being hit.
+    let feet = footed(core);
+    let cover_now = own.filter(|o| o.alive).map_or(cover::EXPOSED, |o| o.cover);
+    if cover_now == cover::SETTLING && lurk.cover != cover::SETTLING {
+        lurk.settling = Some(now);
+    }
+    let fought = core.last_cmd.buttons & (FIRE_PRIMARY | FIRE_SECONDARY | MELEE) != 0
+        || world.hits_taken != lurk.hits_taken;
+    if fought && matches!(lurk.cover, cover::COLD | cover::HIDDEN) {
+        lurk.seen_until = now + SEEN_SECS;
+    }
+    if cover_now != cover::SETTLING {
+        lurk.settling = None;
+    }
+    lurk.cover = cover_now;
+    lurk.hits_taken = world.hits_taken;
+    // The grip let go of its own accord (too high, too fast, or the rock gone), still armed.
+    if feet.footing == Footing::Free && lurk.footing.is_some_and(|f| f != Footing::Free) && controls.grip {
+        lurk.lost_at = now;
+    }
+    lurk.footing = Some(feet.footing);
+    let lurking = own.filter(|o| o.alive).and_then(|_| {
+        let left = |since: f64| {
+            let settle = f64::from(LURK_SETTLE_TICKS) / f64::from(bc_sim::TICK_HZ);
+            (settle - (now - since)).ceil().max(1.0)
+        };
+        Some(match cover_now {
+            _ if now < lurk.seen_until => (format!("SEEN {:.0}", (lurk.seen_until - now).ceil()), AMBER),
+            cover::SETTLING => (format!("HIDING {:.0}", lurk.settling.map_or(3.0, left)), AMBER),
+            cover::HIDDEN => match feet.spot.or(hide_spot(core)) {
+                Some(spot) => (format!("HIDDEN - {spot}"), GREEN),
+                None => ("HIDDEN".into(), GREEN),
+            },
+            cover::COLD => ("COLD".into(), PALE_BLUE),
+            _ => return None,
+        })
+    });
+    let own_now = drawn.filter(|v| v.alive).map(|v| v.pos);
+    let landing = feet.hint.filter(|_| feet.footing == Footing::Free).map(|h| {
+        if !controls.grip {
+            ("L - GRIP".to_string(), GREY)
+        } else if h.catch {
+            (format!("LAND {:.0} m {:.1} m/s", h.height.max(0.0), h.speed), GREEN)
+        } else if h.speed > bc_sim::ground::CATCH_SPEED {
+            (format!("TOO FAST {:.0} m/s", h.speed), AMBER)
+        } else {
+            (format!("LAND {:.0} m {:.1} m/s", h.height.max(0.0), h.speed), AMBER)
+        }
+    });
+    let hull = controls.grip
+        && feet.footing == Footing::Free
+        && own_now.is_some_and(|p| off_the_hull(p) < HULL_NEAR);
+    let signed_in = core.welcome.is_some_and(|w| w.signed_in);
     let (alert, alert_color) = match own {
         Some(o) if !o.alive && survival => ("SUIT LOST\nthe colony's rescue boat is on its way".into(), RED),
         Some(o) if !o.alive => {
@@ -618,9 +824,17 @@ pub fn update_hud(
         Some(o) if o.flags & own_flags::MISSILE_LOCK != 0 => ("MISSILE LOCK".into(), RED),
         Some(o) if o.flags & own_flags::LOCKED_ON != 0 => ("LOCK WARNING".into(), RED),
         Some(o) if o.flags & own_flags::TRANSFORMING != 0 => ("TRANSFORMING".into(), CYAN),
-        // Resting on a rock, signed in: leave now and the suit stays parked here, hidden.
-        Some(o) if o.flags & own_flags::PARKABLE != 0 && core.welcome.is_some_and(|w| w.signed_in) => {
-            ("PARKED · safe to log off here".into(), GREEN)
+        Some(o) if o.alive && now - lurk.lost_at < LOST_SECS => ("GRIP LOST".into(), AMBER),
+        Some(_) if lurking.is_some() => lurking.unwrap_or_default(),
+        Some(_) if landing.is_some() => landing.unwrap_or_default(),
+        Some(_) if hull => ("HULL SPINS - NO GRIP".into(), GREY),
+        // At rest on a body, signed in: leave now and the suit stays parked here, hidden; in a
+        // hide spot, better hidden.
+        Some(o) if o.flags & own_flags::PARKABLE != 0 && signed_in && feet.spot.is_some() => {
+            ("HIDE SPOT - log off to leave your suit hidden".into(), GREEN)
+        }
+        Some(o) if o.flags & own_flags::PARKABLE != 0 && signed_in => {
+            ("PARKED - safe to log off here".into(), GREEN)
         }
         _ => (String::new(), RED),
     };
@@ -725,20 +939,67 @@ pub fn update_hud(
         }
     }
     // Which way the suit drifts: ahead of the camera, or behind it (then the way it comes from).
-    let velocity = match (own, drawn) {
-        (Some(o), Some(v)) if o.alive && v.alive && v.flight_vel.length() > DRIFT => {
-            let dir = v.flight_vel.normalize();
+    // On a body, over it; flying, relative to a landmark near enough to matter.
+    let landmarks: Vec<(u8, bc_sim::bodies::BodyPose, f32, Vec3)> = bodies
+        .set
+        .landmarks()
+        .iter()
+        .enumerate()
+        .filter_map(|(k, d)| {
+            let pose = bodies.pose(Body::Landmark(k as u8))?;
+            let at = own_now?;
+            let pr = d.shape.probe(pose.to_local(at));
+            Some((k as u8, pose, pr.dist, pose.rot * pr.normal))
+        })
+        .collect();
+    let drift = drawn.map(|v| match v.ground {
+        Some(g) => g.rel_vel,
+        None => landmarks
+            .iter()
+            .filter(|l| l.2 < RELATIVE_NEAR)
+            .min_by(|a, b| a.2.total_cmp(&b.2))
+            .map_or(v.flight_vel, |l| v.flight_vel - l.1.point_vel(v.pos)),
+    });
+    let velocity = match (own, drawn, drift) {
+        (Some(o), Some(v), Some(drift)) if o.alive && v.alive && drift.length() > DRIFT => {
+            let dir = drift.normalize();
             let ahead = dir.dot(cam_tf.forward().as_vec3()) >= 0.0;
             Some(if ahead { (dir, "-o-") } else { (-dir, "-x-") })
         }
         _ => None,
     };
-    for (mut node, mut text, mut color, mut vis, grab, is_bore, is_velocity) in &mut markers {
-        let centred = is_bore || is_velocity;
+    // The landing ring, on the surface the armed grip would land the suit on.
+    let ring = feet
+        .hint
+        .filter(|_| controls.grip && feet.footing == Footing::Free && own_now.is_some())
+        .map(|h| (h.point, "( _ )".to_string(), if h.catch { GREEN } else { AMBER }));
+    for (mut node, mut text, mut color, mut vis, grab, is_bore, is_velocity, is_ring, landmark, hide) in
+        &mut markers
+    {
+        let centred = is_bore || is_velocity || is_ring;
         let what = if is_bore {
             bore.map(|b| (own_pos + b * 1_500.0, "( )".to_string(), CYAN))
         } else if is_velocity {
             velocity.map(|(d, s)| (cam_tf.translation() + d * 1_500.0, s.to_string(), PALE_GREEN))
+        } else if is_ring {
+            ring.clone()
+        } else if let Some(&LandmarkMarker(k)) = landmark {
+            // Named while it's near, but not while standing on it.
+            landmarks
+                .iter()
+                .find(|l| l.0 == k && l.2 < LANDMARK_NEAR && feet.body != Body::Landmark(k))
+                .zip(drawn)
+                .map(|(l, v)| {
+                    let closure = (v.flight_vel - l.1.point_vel(v.pos)).dot(l.3);
+                    let name = LANDMARKS[usize::from(k)].name;
+                    (l.1.pos, format!("{name}  {}  {closure:+.0} m/s", km(l.2.max(0.0))), CYAN)
+                })
+        } else if let Some(&HideMarker(k, i)) = hide {
+            landmarks.iter().find(|l| l.0 == k && l.2 < LANDMARK_NEAR).and_then(|l| {
+                let spot = LANDMARKS[usize::from(k)].hides.get(usize::from(i))?;
+                let at = l.1.to_world(spot.center);
+                Some((at, format!("<> {} {}", spot.name, km(at.distance(own_pos))), AMBER))
+            })
         } else if grab {
             grab_at.clone()
         } else {

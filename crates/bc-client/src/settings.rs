@@ -193,10 +193,17 @@ pub fn update_hints(
     game: NonSend<GameClient>,
     time: Res<Time<Real>>,
 ) {
-    let (alive, survival) = {
+    let (alive, survival, feet, hidden) = {
         let g = game.borrow();
-        (g.core.world.own.is_some_and(|o| o.alive), g.core.welcome.is_some_and(|w| w.survival))
+        let own = g.core.world.own.filter(|o| o.alive);
+        (
+            own.is_some(),
+            g.core.welcome.is_some_and(|w| w.survival),
+            crate::hud::footed(&g.core),
+            own.is_some_and(|o| o.cover == bc_proto::snapshot::cover::HIDDEN),
+        )
     };
+    let grounded = feet.footing == bc_sim::ground::Footing::Grounded;
     let live = settings.0.hints && ui.playing() && !ui.panel_open() && pointer.0.flying();
     let flying = live && alive && !indoors.0;
     let walking = live && ui.on_foot;
@@ -220,13 +227,13 @@ pub fn update_hints(
         using: used && onfoot.focus.is_some(),
         boarding: used && onfoot.focus == Some(bc_client_core::bay::Spot::Cockpit),
         docking: keys.just_pressed(KeyCode::Enter),
-        near_surface: false,
-        gripping: false,
-        grounded: false,
-        walked: false,
-        hopped: false,
-        in_hide_spot: false,
-        hidden: false,
+        near_surface: feet.near,
+        gripping: feet.footing != bc_sim::ground::Footing::Free,
+        grounded,
+        walked: grounded && keys.any_pressed(walk_keys),
+        hopped: grounded && keys.just_pressed(KeyCode::Space),
+        in_hide_spot: grounded && feet.spot.is_some(),
+        hidden,
     };
     let mut seen = settings.0.hints_seen;
     let hint = state.hints.step(&mut seen, now_s(), f64::from(time.delta_secs()), &input);

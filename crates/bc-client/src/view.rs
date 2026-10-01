@@ -3,7 +3,10 @@
 
 use std::collections::HashMap;
 
+use bc_client_core::BodySet;
+use bc_client_core::interp::GroundPose;
 use bc_proto::{Faction, FrameId, Part, WeaponKind};
+use bc_sim::bodies::{Body, BodyPose, Shape};
 use bevy::prelude::*;
 
 /// The clock every visual system animates with, in seconds. Game mode: the page's clock.
@@ -37,6 +40,56 @@ pub struct SuitDrive {
     pub parts: [u8; Part::COUNT],
     /// Holding a chunk: in the right hand (true) or the left.
     pub holding: Option<bool>,
+    /// On a body: standing on it, or in the air in its grip.
+    pub ground: Option<SuitGround>,
+}
+
+/// How a suit on a body is drawn on it: what its walk, its stance and its shadow need.
+#[derive(Clone, Copy, Debug)]
+pub struct SuitGround {
+    pub body: Body,
+    /// The body as drawn this frame, and its shape (in its frame).
+    pub pose: BodyPose,
+    pub shape: Shape,
+    /// In the air in the body's grip, rather than standing on it.
+    pub aloft: bool,
+    /// The surface's outward normal under the suit (world).
+    pub up: Vec3,
+    /// The suit's velocity relative to the body (world), m/s.
+    pub rel_vel: Vec3,
+    /// How high its origin is over the surface, m: its stance, when standing.
+    pub height: f32,
+}
+
+impl SuitGround {
+    /// `g`, on its body as `bodies` has it drawn; none if the body isn't one of theirs.
+    pub fn of(g: &GroundPose, bodies: &DrawnBodies) -> Option<Self> {
+        Some(Self {
+            body: g.body,
+            pose: bodies.pose(g.body)?,
+            shape: bodies.set.shape(g.body)?,
+            aloft: g.aloft,
+            up: g.up,
+            rel_vel: g.rel_vel,
+            height: g.height,
+        })
+    }
+}
+
+/// The sector's bodies as drawn this frame, and the view clock's time they're drawn at (ticks).
+/// Every body is drawn on the view clock, as remote suits are, so a suit standing on one is drawn
+/// on it. Game mode: the sector's, at the render tick. Showcase: every landmark, at its clock.
+#[derive(Resource, Clone, Default)]
+pub struct DrawnBodies {
+    pub set: BodySet,
+    pub t: f64,
+}
+
+impl DrawnBodies {
+    /// Where `b` is drawn this frame.
+    pub fn pose(&self, b: Body) -> Option<BodyPose> {
+        self.set.pose_at(b, self.t)
+    }
 }
 
 /// Suit visual roots by entity slot.
@@ -126,6 +179,15 @@ pub enum FxEvent {
         kind: WeaponKind,
         struck: bool,
     },
+    /// A suit landing on a body: where its feet came down, how the surface moves there and which
+    /// way it faces, how hard it landed (m/s), and whether it's rock (dust flies) or hull.
+    Touchdown {
+        pos: Vec3,
+        vel: Vec3,
+        normal: Vec3,
+        speed: f32,
+        rock: bool,
+    },
 }
 
 #[derive(Resource, Default)]
@@ -162,6 +224,9 @@ pub struct ChaseTarget {
     pub aim: Vec3,
     /// The suit jumped (spawn, respawn, a relocation): cut rather than chase.
     pub cut: bool,
+    /// On a body (standing on it, or in the air in its grip): the camera comes in closer and
+    /// higher.
+    pub ground: bool,
     /// Boosting: the field of view widens.
     pub boost: bool,
     /// Pilot G-strain, 0..1: greys the view out, then closes it to a tunnel.

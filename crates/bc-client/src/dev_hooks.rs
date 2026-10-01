@@ -166,5 +166,37 @@ pub fn publish_game(
         dev.set("credits", o.credits);
         dev.set("extra_mass_kg", o.extra_mass_kg as f64);
     }
+    // On the bodies, as the server last said: how the suit stands and on what, how well hidden,
+    // in which hide spot; the grip as flown; and riders this client couldn't place.
+    use bc_proto::snapshot::{cover, footing};
+    let surface = w.own.and_then(|o| o.surface);
+    dev.set(
+        "footing",
+        match surface.map(|s| s.footing) {
+            Some(footing::GROUNDED) => "grounded",
+            Some(footing::ALOFT) => "aloft",
+            _ => "free",
+        },
+    );
+    dev.set(
+        "surface_body",
+        match surface.map(|s| s.body) {
+            Some(bc_proto::BodyRef::Rock(r)) => format!("rock:{r}"),
+            Some(bc_proto::BodyRef::Landmark(k)) => format!("landmark:{k}"),
+            None => String::new(),
+        },
+    );
+    dev.set(
+        "cover",
+        match w.own.map_or(cover::EXPOSED, |o| o.cover) {
+            cover::SETTLING => "settling",
+            cover::COLD => "cold",
+            cover::HIDDEN => "hidden",
+            _ => "exposed",
+        },
+    );
+    dev.set("hide_spot", crate::hud::hide_spot(core).unwrap_or_default());
+    dev.set("grip", core.last_cmd.buttons & bc_proto::buttons::GRIP != 0);
+    dev.set("unresolved_bodies", w.stats.unresolved_bodies as f64);
     dev.set("autopilot", game.autopilot);
 }

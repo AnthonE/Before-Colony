@@ -660,6 +660,8 @@ fn drive_bay(
             thrust: Vec3::ZERO,
             parts,
             holding: None,
+            // Held in its gantry, not standing on a body: it doesn't kneel asleep.
+            ground: None,
         });
         return;
     }

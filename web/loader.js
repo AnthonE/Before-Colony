@@ -60,8 +60,9 @@ async function main() {
   const qualityParam = (params.get("quality") || "").toLowerCase();
   const qualityAuto = autoQuality(renderer);
   const config = {
-    autopilot: params.get("autopilot") === "1",
-    autoplay: params.get("autoplay") === "1",
+    // `1`: the Mobile Doll brain; `lander[:plan]`: a lander (see config.rs).
+    autopilot: params.get("autopilot") || "",
+    autoplay: params.get("autoplay") || "",
     echo: params.get("mode") === "echo",
     lowQuality: params.get("quality") === "low",
     quality: TIERS.includes(qualityParam) ? qualityParam : qualityAuto,
