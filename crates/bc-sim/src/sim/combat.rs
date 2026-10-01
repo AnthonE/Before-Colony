@@ -6,16 +6,30 @@ use bc_proto::{ChunkDesc, ChunkKind, InputCmd, NO_CHUNK, Part, PilotKind, Segmen
 use glam::Vec3;
 
 use super::{DamageEvent, Sim};
+use crate::bodies::{Body, landmark_pose, sweep_landmarks};
 use crate::chunks::Motion;
 use crate::collide::{segment_near_point, sweep_capsules};
 use crate::config::{DT, MAX_REWIND_TICKS, secs};
 use crate::content::salvage::{DETACH_PUSH, DETACH_SPEED, bounty, mass_without, part_mass_kg, wreck_ttl};
 use crate::content::systems::{self, FAILED, System};
 use crate::content::{ArmSlot, Mount, Replication, WeaponClass, WeaponSpec, frame, weapon};
+use crate::flight::FlightState;
+use crate::ground::{Footing, derive};
 use crate::math::{angle_between, clamp_to_cone, hash01, normalize_or};
 use crate::suits::{SPECIAL_SLOTS, WeaponState};
 use crate::tuning;
-use crate::world::inside_colony;
+use crate::world::colony_sweep;
+
+/// What stops a shot, a missile or a flame short of a suit ([`Sim::first_blocker`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Blocker {
+    /// An asteroid of the field, by index (a shot works it: `rock_hit`).
+    Rock(usize),
+    /// A landmark, by index.
+    Landmark(u8),
+    /// The colony's hull, or an end cap.
+    Colony,
+}
 
 /// ZERO fire-time magnetism: shots this close to the ZERO firing solution snap to it.
 pub const MAGNET_ANGLE: f32 = 0.026; // 1.5°
@@ -140,7 +154,18 @@ impl Sim {
     }
 
     fn fire(&mut self, i: usize, slot: usize, mount: Mount, w: &WeaponSpec, cmd: &InputCmd, t: u32) {
-        let f = self.suits.flight[i];
+        // Lag compensation for remote pilots: fly the shot through the world as they saw it, but
+        // no further back than MAX_REWIND_TICKS (a view older than that counts as exactly that old).
+        let view_q4 = cmd.view_tick_q4.max(t.saturating_sub(MAX_REWIND_TICKS) << 4);
+        let rewind =
+            if self.suits.pilot[i] == PilotKind::MobileDoll { 0 } else { t.saturating_sub(view_q4 >> 4) };
+        let frac = if rewind > 0 { (view_q4 & 15) as f32 / 16.0 } else { 0.0 };
+        let spawn_tick = t - rewind;
+        let mut f = self.suits.flight[i];
+        // On a body, the shot leaves where its pilot saw the suit: on the body as it was then.
+        if rewind > 0 {
+            self.as_seen_on_its_body(i, spawn_tick, frac, &mut f);
+        }
         let fwd = f.rot * Vec3::Z;
         let mut dir = clamp_to_cone(normalize_or(cmd.aim, fwd), fwd, self.cone(i, mount.arm));
         let z = &self.suits.zero[i];
@@ -183,28 +208,22 @@ impl Sim {
             s.fired_secondary[i] = t;
         }
         self.break_jammer(i, t);
-        let s = &mut self.suits;
-
-        // Lag compensation for remote pilots: fly the shot through the world as they saw it, but
-        // no further back than MAX_REWIND_TICKS (a view older than that counts as exactly that old).
-        let view_q4 = cmd.view_tick_q4.max(t.saturating_sub(MAX_REWIND_TICKS) << 4);
-        let rewind = if s.pilot[i] == PilotKind::MobileDoll { 0 } else { t.saturating_sub(view_q4 >> 4) };
-        let frac = if rewind > 0 { (view_q4 & 15) as f32 / 16.0 } else { 0.0 };
-        let spawn_tick = t - rewind;
-        let faction = s.faction[i];
+        let faction = self.suits.faction[i];
+        // Rocks, landmarks and the colony stop it too, the landmarks where they were then.
         let mut p = muzzle;
         let mut hit = None;
         let mut blocked = None;
         for k in 0..rewind {
             let b = p + vel * DT;
-            let rock = self.field.sweep(p, b, w.radius);
-            match self.sweep_history(p, b, w.radius, i, faction, spawn_tick + k, frac) {
-                Some((s, j, part)) if rock.is_none_or(|(t, _)| s <= t) => {
+            let when = spawn_tick + k;
+            let blocker = self.first_blocker(p, b, w.radius, when, frac);
+            match self.sweep_history(p, b, w.radius, i, faction, when, frac) {
+                Some((s, j, part)) if blocker.is_none_or(|(t, _)| s <= t) => {
                     hit = Some((j, part));
                     break;
                 }
-                _ if rock.is_some() => {
-                    blocked = rock.map(|(f, r)| (r, p + (b - p) * f));
+                _ if blocker.is_some() => {
+                    blocked = blocker.map(|(f, what)| (what, p + (b - p) * f));
                     break;
                 }
                 _ => {}
@@ -224,7 +243,9 @@ impl Sim {
         }
         match (hit, blocked) {
             (Some((target, part)), _) => self.queue_damage(target, part, w.damage, i, w.kind, dir),
-            (None, Some((rock, at))) => self.rock_hit(rock, w.damage, w.kind, at, dir, i, t),
+            (None, Some((Blocker::Rock(rock), at))) => self.rock_hit(rock, w.damage, w.kind, at, dir, i, t),
+            // A landmark or the colony just takes it.
+            (None, Some(_)) => {}
             (None, None) => {
                 let ttl = w.ttl_ticks().saturating_sub(rewind);
                 if ttl > 0 {
@@ -232,6 +253,51 @@ impl Sim {
                 }
             }
         }
+    }
+
+    /// Where suit `i`'s pilot saw it at tick `t` plus `frac` of the next, into `f` (its world
+    /// state now): on its body, if it's on one that moves, its anchor as it is on the body as the
+    /// body was then. The pilot's view drew it there, glued to the deck it saw, and saw everyone
+    /// else as they were then (lag compensation), so a shot or a blade leaves from there. Free, or
+    /// on a body that doesn't move, it's where it is.
+    pub(super) fn as_seen_on_its_body(&self, i: usize, t: u32, frac: f32, f: &mut FlightState) {
+        if self.suits.footing[i] == Footing::Free {
+            return;
+        }
+        let a = self.suits.anchor[i];
+        let Body::Landmark(k) = a.body else { return };
+        let Some(d) = self.landmarks().get(usize::from(k)) else { return };
+        let pose = landmark_pose(d, t, frac);
+        if pose.moving {
+            derive(&pose, &a, f);
+        }
+    }
+
+    /// The first thing other than a suit that a sphere of radius `r` meets moving from `a` to `b`:
+    /// a rock, a landmark as it was at tick `t` plus `frac` of the next, or the colony. How far
+    /// along (0..1), and which. A tie goes to the rock, then the landmark. Shots, missiles and
+    /// flame all stop at it; a suit before it, or level with it, is hit.
+    pub(crate) fn first_blocker(
+        &self,
+        a: Vec3,
+        b: Vec3,
+        r: f32,
+        t: u32,
+        frac: f32,
+    ) -> Option<(f32, Blocker)> {
+        let mut first = self.field.sweep(a, b, r).map(|(s, i)| (s, Blocker::Rock(i)));
+        let mut meet = |s: f32, what: Blocker| {
+            if first.is_none_or(|(f, _)| s < f) {
+                first = Some((s, what));
+            }
+        };
+        if let Some((s, k)) = sweep_landmarks(self.landmarks(), a, b, r, t, frac) {
+            meet(s, Blocker::Landmark(k));
+        }
+        if let Some(s) = colony_sweep(a, b, r) {
+            meet(s, Blocker::Colony);
+        }
+        first
     }
 
     /// Swept test against suits as they were at `when + frac` (lag compensation).
@@ -279,10 +345,6 @@ impl Sim {
             }
             let a = self.projectiles.pos[k];
             let b = a + self.projectiles.vel[k] * DT;
-            if inside_colony(b) {
-                self.projectiles.kill(k);
-                continue;
-            }
             let r = self.projectiles.radius[k];
             let owner = self.projectiles.owner[k] as usize;
             let of = self.projectiles.owner_faction[k];
@@ -305,20 +367,23 @@ impl Sim {
                     best = Some((s, j, cap));
                 }
             });
-            // Rocks stop shots, and are worked by them: whichever is met first along this tick's path.
-            let rock = self.field.sweep(a, b, r);
+            // Rocks, landmarks and the colony stop shots (rocks are worked by them): whichever is
+            // met first along this tick's path, a suit included. A suit skimming the hull is hit.
+            let blocker = self.first_blocker(a, b, r, t, 0.0);
             let shot = |p: &crate::projectiles::Projectiles| {
                 (p.kind[k], p.damage[k], normalize_or(p.vel[k], Vec3::Z))
             };
-            match (best, rock) {
-                (Some((s, j, cap)), _) if rock.is_none_or(|(t, _)| s <= t) => {
+            match (best, blocker) {
+                (Some((s, j, cap)), _) if blocker.is_none_or(|(t, _)| s <= t) => {
                     let (kind, dmg, dir) = shot(&self.projectiles);
                     self.queue_damage(j, Part::ALL[cap], dmg, owner, kind, dir);
                     self.projectiles.kill(k);
                 }
-                (_, Some((f, which))) => {
-                    let (kind, dmg, dir) = shot(&self.projectiles);
-                    self.rock_hit(which, dmg, kind, a + (b - a) * f, dir, owner, t);
+                (_, Some((f, what))) => {
+                    if let Blocker::Rock(which) = what {
+                        let (kind, dmg, dir) = shot(&self.projectiles);
+                        self.rock_hit(which, dmg, kind, a + (b - a) * f, dir, owner, t);
+                    }
                     self.projectiles.kill(k);
                 }
                 _ => self.projectiles.pos[k] = b,
@@ -334,6 +399,7 @@ impl Sim {
             if !self.suits.alive.get(j) {
                 continue;
             }
+            self.suits.last_hit[j] = t;
             let spec = frame(self.suits.frame[j]);
             let mut part = d.part;
             let mut amount = d.amount * spec.armor * self.suits.tuning[j].armor;
@@ -395,8 +461,10 @@ impl Sim {
                         *c = c.saturating_add(bounty(self.suits.frame[j]));
                     }
                 }
+                // What it spills goes off the body it stood on (the wreck is off it).
+                let up = self.spill_up(j);
                 let hulk = self.wreck(j, t);
-                self.spill(j, t, true);
+                self.spill_over(j, t, true, up);
                 self.events.push(Event::Kill { id: 0, tick: t, victim: j as u16, killer: d.shooter, hulk });
                 let wait = if self.suits.pilot[j] == PilotKind::MobileDoll {
                     secs(3.0)
@@ -517,6 +585,9 @@ impl Sim {
     fn wreck(&mut self, j: usize, t: u32) -> u16 {
         let fid = self.suits.frame[j];
         let f = self.suits.flight[j];
+        // Off whatever it stood on: the hulk drifts on the world velocity it had there.
+        self.suits.footing[j] = Footing::Free;
+        self.suits.anchor[j] = crate::ground::Anchor::default();
         let gone = self.suits.gone_mask(j);
         let lim = Vec3::splat(bc_proto::objects::SPIN_MAX);
         let seg = Segment { t0: t, pos: f.pos, vel: f.vel, rot: f.rot, spin: f.ang_vel.clamp(-lim, lim) }

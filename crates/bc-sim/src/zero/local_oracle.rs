@@ -91,12 +91,12 @@ pub fn posterior(prior: &[f32; N_HYP], likelihood: &[f32; N_HYP]) -> [f32; N_HYP
     out
 }
 
-/// Accelerations of every hypothesis for a contact.
+/// Accelerations of every hypothesis for a contact (along the ground, for one standing on it).
 pub fn hypothesis_accels(c: &Contact) -> [Vec3; N_HYP] {
     let spec = frame(c.frame);
     let mut out = [Vec3::ZERO; N_HYP];
     for (k, o) in out.iter_mut().enumerate() {
-        *o = hypotheses::accel(spec, c.rot, Maneuver::from_index(k));
+        *o = hypotheses::accel_on(spec, c.rot, c.surface_n, Maneuver::from_index(k));
     }
     out
 }
@@ -117,7 +117,7 @@ pub fn own_maneuver_distribution(me: &SelfView, spec: &FrameSpec, contacts: &[Co
         let t = c.dist / speed.max(1.0);
         let los = normalize_or(me.pos - c.pos, Vec3::Z);
         for (k, u) in utility.iter_mut().enumerate() {
-            let a = hypotheses::accel(spec, me.rot, Maneuver::from_index(k));
+            let a = hypotheses::accel_on(spec, me.rot, me.surface_n, Maneuver::from_index(k));
             let disp = a * (0.5 * t * t);
             let lateral = disp - los * disp.dot(los);
             let miss = length(lateral);

@@ -1,8 +1,14 @@
-//! What a threat might do next: burn its thrusters along one body axis, or coast.
+//! What a threat might do next: burn its thrusters along one body axis, or coast. On the ground,
+//! its legs move it along the ground, and up is a hop.
 
 use glam::{Quat, Vec3};
 
 use crate::content::FrameSpec;
+use crate::ground::{GROUND_ACCEL, JUMP_SPEED};
+use crate::math::clamp_len;
+
+/// A hop off the ground, as a maneuver: its take-off speed reached over this long, s.
+const HOP_SECS: f32 = 1.0;
 
 pub const N_HYP: usize = 7;
 
@@ -80,4 +86,22 @@ pub fn accel(spec: &FrameSpec, rot: Quat, m: Maneuver) -> Vec3 {
         return Vec3::ZERO;
     }
     rot * d * spec.max_accel_along(d)
+}
+
+/// [`accel`] for a suit standing on a body, the ground's normal under it `surface_n` (sector frame;
+/// `Vec3::ZERO` for a suit off the ground, which gets [`accel`]'s). Every maneuver is along the
+/// ground, no harder than its legs push ([`GROUND_ACCEL`]); down is into the ground, so it's no
+/// maneuver at all, and up is a hop.
+pub fn accel_on(spec: &FrameSpec, rot: Quat, surface_n: Vec3, m: Maneuver) -> Vec3 {
+    if surface_n == Vec3::ZERO {
+        return accel(spec, rot, m);
+    }
+    match m {
+        Maneuver::Coast | Maneuver::Down => Vec3::ZERO,
+        Maneuver::Up => surface_n * (JUMP_SPEED / HOP_SECS),
+        _ => {
+            let a = accel(spec, rot, m);
+            clamp_len(a - surface_n * a.dot(surface_n), GROUND_ACCEL)
+        }
+    }
 }

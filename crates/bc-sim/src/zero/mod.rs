@@ -1,7 +1,8 @@
 //! The ZERO System: predicts the future of a fight and advises (and, past its limit, overrides)
 //! its pilot.
 //!
-//! - [`hypotheses`]: the maneuvers a threat can make next (thrust along each body axis, or coast).
+//! - [`hypotheses`]: the maneuvers a threat can make next (thrust along each body axis, or coast;
+//!   along the ground, for one standing on a body).
 //! - [`rollout`]: forward-simulates each hypothesis 1.5 s ahead. The browser runs the same code to
 //!   draw the ghost trails, so only probabilities travel on the wire.
 //! - [`fire_control`]: intercept solutions and the hit probability across hypotheses.

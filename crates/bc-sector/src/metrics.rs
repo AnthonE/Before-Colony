@@ -38,10 +38,18 @@ pub struct Metrics {
     pub inputs_missing: AtomicU64,
     pub clients: AtomicU64,
     pub suits_alive: AtomicU64,
-    /// Suits whose pilots are offline, asleep in the cockpit; and those of them parked on a rock.
+    /// Suits whose pilots are offline, asleep in the cockpit; and those of them parked on a body.
     pub sleepers: AtomicU64,
     pub parked: AtomicU64,
-    /// Sleepers' fates the server wasn't reading fast enough to hear.
+    /// Suits on a body: on their feet (or parked there), and in its grip in the air.
+    pub grounded: AtomicU64,
+    pub aloft: AtomicU64,
+    /// Suits off their enemies' sensors: parked and powered down, or lying hidden in a hide spot;
+    /// and the sleepers among them.
+    pub hidden: AtomicU64,
+    pub sleepers_hidden: AtomicU64,
+    /// Sleepers' fates, slots' reports and restored suits the server wasn't reading fast enough to
+    /// hear.
     pub notes_dropped: AtomicU64,
     pub projectiles: AtomicU64,
     pub events: AtomicU64,
@@ -71,6 +79,10 @@ impl Metrics {
             suits_alive: AtomicU64::new(0),
             sleepers: AtomicU64::new(0),
             parked: AtomicU64::new(0),
+            grounded: AtomicU64::new(0),
+            aloft: AtomicU64::new(0),
+            hidden: AtomicU64::new(0),
+            sleepers_hidden: AtomicU64::new(0),
             notes_dropped: AtomicU64::new(0),
             projectiles: AtomicU64::new(0),
             events: AtomicU64::new(0),

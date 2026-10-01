@@ -2,8 +2,9 @@
 //!
 //! Everything that asks "can `i` see `j`?" asks [`Sim::detects`]: replication (so an undetected
 //! suit leaves its enemies' clients), Mobile Doll and ZERO perception, locks. A jamming suit shows
-//! its enemies a twentieth of its signature, and their eyes see it only close in. Firing, striking
-//! or using a special shows through the jammer for a while.
+//! its enemies a fiftieth of its signature, and their eyes see it only close in. Firing, striking
+//! or using a special shows through the jammer for a while. A suit parked, hidden or running cold
+//! (`conceal`) shows its enemies less again; its allies see it all.
 
 use bc_proto::buttons::MODE;
 
@@ -25,16 +26,16 @@ impl Sim {
             !s.alive.get(j),
         );
         let mut visual = VISUAL_RANGE;
-        if s.faction[j] != s.faction[viewer]
-            && let Some((jam_sig, jam_visual)) = self.jamming(j)
-        {
-            sig *= jam_sig;
-            visual = jam_visual;
-        }
-        // A suit parked asleep on a rock is cold and still: eyes find it close in, sensors don't.
-        if self.is_parked(j) {
-            sig = 0.0;
-            visual = visual.min(super::PARKED_VISUAL);
+        // What a suit hides, it hides from its enemies: a jammer, and a suit parked, hidden or
+        // cold (eyes find those close in, sensors less or not at all).
+        if s.faction[j] != s.faction[viewer] {
+            if let Some((jam_sig, jam_visual)) = self.jamming(j) {
+                sig *= jam_sig;
+                visual = jam_visual;
+            }
+            let c = self.concealment(j);
+            sig *= c.sig;
+            visual = visual.min(c.visual);
         }
         sensors::detects_within(s.flight[viewer].pos, range, s.flight[j].pos, sig, visual)
     }

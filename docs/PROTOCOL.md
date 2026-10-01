@@ -1,4 +1,4 @@
-# Before Colony wire protocol (v9)
+# Before Colony wire protocol (v10)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
@@ -11,6 +11,8 @@ of every datagram give the packet kind: `1` = input, `2` = snapshot.
 | Entity position | 3 × 21 bits over ±32 768 m (3.1 cm steps) |
 | Entity velocity | 3 × 14 bits over ±2 048 m/s (0.25 m/s) |
 | Entity rotation | smallest-three: 2-bit index + 3 × 10 bits |
+| Rider position (in its body's frame) | 3 × 15 bits over ±256 m on a rock, 3 × 17 bits over ±1 024 m on a landmark (1.5625 cm steps either way) |
+| Rider velocity (over its body) | 3 × 10 bits, two's complement, in steps of 32/511 m/s (6.26 cm/s; zero is exact) |
 | Own position, velocity, propellant, G-strain | raw `f32` (lossless: the client re-simulates from them) |
 | Own rotation | smallest-three at 16 bits per component |
 | Aim (input) | octahedral 2 × 16 bits (≈0.005°) |
@@ -41,13 +43,19 @@ of every datagram give the packet kind: `1` = input, `2` = snapshot.
 
 Buttons, by bit: 0 FIRE_PRIMARY, 1 FIRE_SECONDARY, 2 MELEE, 3 BOOST, 4 BRAKE, 5 FLIGHT_ASSIST*,
 6 ZERO*, 7 RCS_SHARP, 8 GRAB*, 9 STOW, 10 THROW, 11 JETTISON, 12 MODE* (the frame's mode: Neo-Bird,
-Hyper Jammer), 13 SPECIAL (the frame's special attack: Full Open Attack, Cross Crusher), 14–15
-reserved. Starred bits are states.
+Hyper Jammer), 13 SPECIAL (the frame's special attack: Full Open Attack, Cross Crusher), 14 GRIP*
+(land on a body near enough and slow enough, and keep hold of it; clear: let go), 15 reserved.
+Starred bits are states.
+
+`aim` is in the sector's frame, on a body or not. On its feet on a body, a suit reads `thrust` as
+legs: x and z walk (Shift runs), and `thrust[1]` sets the stance and stays set: −64 or less
+crouches, 32 or more stands, 100 or more (standing) hops, and anything between keeps the stance it
+has, so a silent client stays crouched.
 
 Four commands fit in 64 bytes (86 + 4 × 106 bits). A client sending several ticks at once sends
 overlapping windows two ticks apart, so each command is in two packets. States persist while a
-client is silent (the server repeats its last command, keeping only FLIGHT_ASSIST, ZERO, GRAB and
-MODE); presses (STOW, THROW, JETTISON, MELEE, SPECIAL) act on the tick they first appear, and a
+client is silent (the server repeats its last command, keeping only FLIGHT_ASSIST, ZERO, GRAB,
+MODE and GRIP); presses (STOW, THROW, JETTISON, MELEE, SPECIAL) act on the tick they first appear, and a
 repeated command never fires.
 
 Lag compensation reaches back at most 8 ticks. A view delta of 128 or more (8 ticks) resolves at
@@ -58,16 +66,52 @@ exactly `tick − 8`, so the 8-bit field's saturation at 15.9 ticks loses nothin
 | Section | Content |
 |---|---|
 | header (116 bits) | kind=2, tick, ack_input_tick, input_health (i8), time_echo_ms, echo_hold_ms, tidi_pct, flags |
-| own (1 + 756 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, systems (24), modules (20), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, extra mass (kg, i18), cargo ×4 (kg, 14 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special cooldown (8, ticks ÷ 4), arms (46, below) |
+| own (1 + 760..780 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, systems (24), modules (20), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, extra mass (kg, i18), cargo ×4 (kg, 14 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special cooldown (8, ticks ÷ 4), arms (46, below), footing (2), cover (2), and on a body its body (6 or 12) and stance (8) (below) |
 | ZERO (1 + ≤200 bits) | source_jev, advice_age, threat_count, per threat {slot, 7 × p}, rec_target + p, rec_maneuver + p, threat_level + confidence, flanked, has_solution, solution (oct 2×12), hit_p |
 | events | repeated `[1][event]`, closed by `[0]` |
 | rocks | repeated `[1][rock]` (18 bits each), closed by `[0]` |
 | missiles | repeated `[1][missile]` (119 bits each), closed by `[0]` |
-| entities | repeated `[1][entity]` (210 bits each), closed by `[0]` |
+| entities | repeated `[1][entity]` (194 or 211 bits each), closed by `[0]` |
 | objects | repeated `[1][object]` (12–232 bits each), closed by `[0]` |
 
 The writer reserves room for every list terminator still owed before it writes a record, so a
 snapshot is never cut off mid-list.
+
+What fits, in the 8 800 bits of a 1 100-byte datagram: the fixed part is the header, the own state,
+ZERO's presence bit and the five lists' terminators.
+
+| | Own flying free | Own on a rock (the largest) |
+|---|---|---|
+| Fixed | 883 bits | 903 bits |
+| Free suits (1 + 211 bits each), nothing else | 37 | 37 |
+| Suits on bodies (1 + 194 bits each), nothing else | 40 | 40 |
+| Room kept for six of the largest objects (6 × 233 bits) | 30 free / 33 riders | 30 / 33 |
+| With ZERO on (+200 bits) | 36 / 39 | 36 / 39 |
+| A 256-byte connection (2 048 bits) | 5 / 5 | 5 / 5 |
+
+### Bodies and riders
+
+A suit standing on a body, in its grip in the air, or parked on it is a *rider*, and is sent in the
+body's frame. A body is named by a `BodyRef`: a 2-bit kind, then an id.
+
+| Kind | Body | Id |
+|---|---|---|
+| 0 | a rock of the debris field | 10 bits (the rock's index) |
+| 1 | a landmark (MO-II, Hermit: `bc_sim::content::landmarks`) | 4 bits (its index) |
+| 2, 3 | invalid: the record doesn't decode | |
+
+Two rules keep this cheap and exact:
+- **Body poses never travel.** Rocks don't move, and come from the Welcome's field; a landmark's
+  pose is a closed form in the integer tick, from compiled content. Client and server work out
+  the same pose for the same tick, to the bit.
+- **A rider is never sent without its body known.** Its rock is in the field (a shattered rock
+  keeps its pose: the riders on it are let go a tick later, and the next snapshot sends them
+  free), and its landmark is one of the first `landmarks` of the Welcome. A client drops a record
+  that names any other.
+
+A rider's sector pose is its body's at the snapshot's tick composed with its body-frame pose: the
+position `P + R·local`, the rotation `R·rot`, the velocity the body's surface velocity there plus
+`R·vel`.
 
 Header notes:
 - `input_health` is how many ticks of this client's input the server has buffered beyond the
@@ -97,21 +141,48 @@ Own-state notes:
   off, energy or rounds run out), and each gun slot's missile salvo under way (rounds left, 3;
   ticks to the next, 2). Heat is the OVERHEAT flag, and the lockout after Full Open follows it.
 - `weapon_ready` has a bit each for the primary, secondary, melee weapon and the frame's special.
+- Footing (2 bits): 0 flying free, 1 on its feet (or knees) on a body, 2 in a body's grip in the
+  air; 3 is invalid. Unless it is 0, the body's `BodyRef` and the stance follow: how high the
+  suit's origin rides over the surface, in sixteenths of a metre (96 crouched to 146 standing).
+  Then the position, velocity, rotation and angular velocity above are in the body's frame (the
+  velocity over the body), so the client re-runs exactly what the server moves; it composes them
+  with the body's pose at the snapshot's tick for the sector's frame.
+- Cover (2 bits): 0 exposed, 1 settling (crouched still for under 3 s, or shown by firing or a
+  hit), 2 cold (settled out of a hide spot: half the signature), 3 hidden (off enemies' sensors).
 - Flags: BOOSTING, BLACKOUT, OVERHEAT, CHARGING, SABER_ACTIVE, ZERO_CAPABLE, FLIGHT_ASSIST,
   LOCKED_ON, DOCKED (in the colony's dock), LUNGE (saber windup and swing: the flight model's
   lunge), SPECIAL_ACTIVE (the jammer is on, a melee move is out), TRANSFORMING (the special
   timer counts the change of form down),
   LOCK_ACQUIRED (your missile lock), MISSILE_LOCK (someone's missile lock is on you),
-  MISSILE_INCOMING (a guided missile is tracking you), PARKABLE (you're resting against an
-  asteroid, slowly enough to park: a signed-in pilot who leaves now stays parked there).
+  MISSILE_INCOMING (a guided missile is tracking you), PARKABLE (you're on your feet on a body, or
+  resting against a rock or a landmark, slowly enough to park: a signed-in pilot who leaves now
+  stays parked there).
 - The lock target is the designation the server accepted: alive, hostile and on your sensors.
   Lock progress counts 0–15 toward a missile lock on it; LOCK_ACQUIRED says it's there.
   LOCKED_ON ignores locks by suits you can't see (a jamming suit's lock goes unnoticed).
 - The special timer counts ticks: of a change of form, of Full Open, or of the break until the
   Hyper Jammer hides the suit again.
 
-Entity record: slot (10), generation (2), frame (4), faction (3), pilot kind (2), position (63),
-rotation (32), velocity (42), aim (18), flags (16), and 6 part-armour buckets (3 bits each, 0–7).
+Entity record, by kind:
+
+| Field | Flying free | On a rock | On a landmark |
+|---|---|---|---|
+| slot 10, generation 2, frame 4, faction 3, pilot kind 2 | 21 | 21 | 21 |
+| attached | 1 (= 0) | 1 | 1 |
+| `BodyRef` | | 2 + 10 | 2 + 4 |
+| aloft (in the body's grip, not on its feet) | | 1 | 1 |
+| position | 63 (sector) | 45 (body frame) | 51 (body frame) |
+| rotation | 32 (sector) | 32 (body frame) | 32 (body frame) |
+| velocity | 42 (sector) | 30 (over the body) | 30 (over the body) |
+| aim (sector) | 18 | 18 | 18 |
+| flags | 16 | 16 | 16 |
+| 6 part-armour buckets (3 bits each, 0–7) | 18 | 18 | 18 |
+| **total** | **211** | **194** | **194** |
+
+How high a rider stands isn't sent: the surface under it says (`Shape::probe`). A parked suit is
+sent at rest on its body (velocity 0), ASLEEP. A rider standing still (stick idle, not turning,
+not fighting) or parked is sent a tenth as often as a moving one at the same range: its record
+says the same thing every time but for its flags and parts.
 FIRING_PRIMARY and FIRING_SECONDARY say the slot fired in the last 4 ticks: clients draw a
 stream weapon's tracers from them (its shots send no BeamSpawn), and a flamethrower's flag is set
 while it's lit. SABER says a melee strike is out. The last two flags are SPECIAL (the frame's
@@ -169,7 +240,7 @@ prefix, except the hangar's (tag 11), which may carry up to 64 KiB.
 | Tag | Message | Direction |
 |---|---|---|
 | 1 | Hello {version, pilot kind, frame, faction, name ≤ 16 B, flags (1 SIGN_IN, 2 RESUME), resume token (32 B, only with RESUME)} | client → server (first frame) |
-| 2 | Welcome {version, client slot, tick, tick_hz, sector, zero_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL)} | server → client |
+| 2 | Welcome {version, client slot, tick, tick_hz, sector, zero_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL), landmarks (u8)} | server → client |
 | 3 | Reject {reason: 1 version, 2 full, 3 bad hello, 4 frame not allowed, 5 sign-in failed, 6 sign-in required, 7 resume token expired, 8 no signature in time} | server → client |
 | 4 | Roster {entity slot, pilot kind, name (empty = left), flags (1 VERIFIED, 2 ASLEEP)} | server → client |
 | 5 | Respawn {frame} | client → server |
@@ -221,6 +292,14 @@ next session wakes in it: the Welcome sets WOKE. If it's gone, the pilot starts 
 Notice says why: destroyed while they slept (and by whom), or lost (cleared to make room, or the
 server restarted). A suit that was already a wreck is simply gone. Guests' suits go when they do.
 
+Under survival rules, a suit left on its feet in a landmark's hide spot outlives a restart: the
+server puts it back, asleep, before anyone connects, and its pilot wakes in it as above (WOKE).
+Its roster entry, ASLEEP, is there from the start.
+
+A suit woken on a body (or put down on one) holds its grip until its client's first command
+arrives: until then the server flies the input it left the suit with, GRIP set. A client should
+send GRIP from its first command on, for a suit whose own state is on a body, or the suit lets go.
+
 ### Survival: the hangar's messages
 
 Under survival rules (the Welcome sets SURVIVAL) a pilot starts in their hangar bay, not in the
@@ -271,4 +350,7 @@ stay the same; snapshots start), and `place` says `space`. Docking answers with 
 
 The Welcome's `field_seed` (u32) and `field_rocks` (u16) name the sector's debris field: clients
 build it with `bc_sim::field::Field::generate(field_seed, field_rocks)`, identical to the
-server's, and predict their suit against it.
+server's, and predict their suit against it. Its `landmarks` (u8) says how many of the compiled
+landmarks the sector has: the first that many of `bc_sim::content::landmarks::LANDMARKS`, by
+index (a client takes no more than it knows of). Their shapes and motion are compiled content,
+so any change to them bumps the protocol version, as the field's generator does.

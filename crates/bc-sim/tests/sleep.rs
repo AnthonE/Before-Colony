@@ -3,13 +3,15 @@
 //! stays gone and is reported; the longest asleep make room for the living.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
-use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST};
+mod common;
+
+use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, MODE};
 use bc_proto::events::Event;
 use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
-use bc_sim::field::{Rock, SUIT_CLEARANCE};
 use bc_sim::math::look_rotation;
-use bc_sim::sim::{Gone, SleeperFate};
+use bc_sim::sim::{Body, Gone, SleeperFate};
 use bc_sim::{DT, Sim, SimConfig, SuitId};
+use common::{lone_rock, resting_on};
 use glam::Vec3;
 
 fn sim() -> Sim {
@@ -33,33 +35,6 @@ fn steps(sim: &mut Sim, n: u32) {
 fn hold(sim: &mut Sim, id: SuitId, buttons: u16, aim: Vec3) {
     let t = sim.next_tick();
     sim.set_input(id, InputCmd { tick: t, view_tick_q4: t << 4, aim, buttons, ..InputCmd::default() });
-}
-
-/// A rock bigger than `min` m with nothing else within `clear` m of it.
-fn lone_rock(sim: &Sim, min: f32, clear: f32) -> (usize, Rock) {
-    let rocks = sim.field.rocks();
-    rocks
-        .iter()
-        .enumerate()
-        .filter(|(i, r)| {
-            r.radius > min
-                && rocks
-                    .iter()
-                    .enumerate()
-                    .all(|(j, o)| j == *i || o.pos.distance(r.pos) > r.radius + o.radius + clear)
-        })
-        .min_by(|a, b| a.1.radius.total_cmp(&b.1.radius))
-        .map(|(i, r)| (i, *r))
-        .expect("a lone rock")
-}
-
-/// A Leo at rest against rock `r`, just off its surface.
-fn resting_on(sim: &mut Sim, r: &Rock) -> (SuitId, Vec3) {
-    let dir = Vec3::new(1.0, 0.1, 0.3).normalize();
-    let surface = r.surface(r.pos - dir * (r.radius + 50.0), 0.0);
-    let out = -dir;
-    let id = leo(sim, Faction::Colonies, surface + out * (SUIT_CLEARANCE + 0.5), out);
-    (id, out)
 }
 
 fn fates(sim: &mut Sim) -> Vec<SleeperFate> {
@@ -101,7 +76,7 @@ fn resting_on_a_rock_it_parks_and_hides_there() {
     let (id, out) = resting_on(&mut sim, &rock);
     let i = id.idx();
     steps(&mut sim, 5);
-    assert_eq!(sim.parkable(i), Some(r_idx as u16), "at rest against the rock, it could park");
+    assert_eq!(sim.parkable(i), Some(Body::Rock(r_idx as u16)), "at rest against the rock, it could park");
     assert!(sim.sleep(id));
     assert!(sim.is_parked(i));
     let at = sim.suits.flight[i].pos;
@@ -278,4 +253,62 @@ fn the_longest_asleep_make_room() {
     assert_eq!(sim.suits.free_slots(), 3);
     assert!(!sim.suits.valid(ids[1]), "the older of the two");
     assert!(sim.suits.valid(ids[2]));
+}
+
+#[test]
+fn a_sleeping_neo_bird_stays_a_bird() {
+    // Asleep, the suit's input keeps MODE (and nobody works the frame's special), so a Neo-Bird
+    // parked by its pilot is still a bird when they're back.
+    let mut sim = empty();
+    let id = sim
+        .spawn_at(
+            FrameId::WingZero,
+            Faction::Colonies,
+            PilotKind::Human,
+            Vec3::new(0.0, 5_000.0, 9_000.0),
+            look_rotation(Vec3::Z, Vec3::Y),
+        )
+        .unwrap();
+    let i = id.idx();
+    for _ in 0..30 {
+        hold(&mut sim, id, MODE, Vec3::Z);
+        sim.step();
+    }
+    assert_eq!(sim.suits.frame[i], FrameId::WingZeroBird, "MODE held a second makes a bird");
+    assert!(sim.sleep(id));
+    steps(&mut sim, 600);
+    assert_eq!(sim.suits.frame[i], FrameId::WingZeroBird, "the sleeping bird kept its form");
+    assert!(!sim.suits.form(i).changing());
+    // Awake, its pilot has the mode again: held, it stays a bird.
+    assert!(sim.wake(id));
+    for _ in 0..30 {
+        hold(&mut sim, id, MODE, Vec3::Z);
+        sim.step();
+    }
+    assert_eq!(sim.suits.frame[i], FrameId::WingZeroBird);
+}
+
+#[test]
+fn a_sleeping_deathscythe_drops_its_jammer() {
+    let mut sim = empty();
+    let id = sim
+        .spawn_at(
+            FrameId::Deathscythe,
+            Faction::Colonies,
+            PilotKind::Human,
+            Vec3::new(0.0, 5_000.0, 9_000.0),
+            look_rotation(Vec3::Z, Vec3::Y),
+        )
+        .unwrap();
+    let i = id.idx();
+    for _ in 0..10 {
+        hold(&mut sim, id, MODE, Vec3::Z);
+        sim.step();
+    }
+    assert!(sim.suits.special[i].active, "MODE engages the Hyper Jammer");
+    let energy = sim.suits.energy[i];
+    assert!(sim.sleep(id));
+    steps(&mut sim, 120);
+    assert!(!sim.suits.special[i].active, "asleep, the jammer is off");
+    assert!(sim.suits.energy[i] > energy, "and draws nothing");
 }

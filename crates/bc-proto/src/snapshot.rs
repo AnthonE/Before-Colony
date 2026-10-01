@@ -5,16 +5,23 @@
 //! | Section | Size | Notes |
 //! |---|---|---|
 //! | header | 116 bits | tick, input ack, input-buffer health, RTT echo, time dilation |
-//! | own state | 1 + 756 bits | full precision: the client reconciles its prediction against it |
+//! | own state | 1 + 760..780 bits | full precision: the client reconciles its prediction against it |
 //! | ZERO | 1 + ≤200 bits | only while the pilot's ZERO System is engaged |
 //! | events | `1+n` bits each, `0` ends | repeated until the client acks a snapshot containing them |
 //! | rocks | `1+18` bits each, `0` ends | debris-field rocks whose state changed, repeated until acked |
 //! | missiles | `1+119` bits each, `0` ends | missiles in flight nearby, those tracking you first |
-//! | entities | `1+210` bits each, `0` ends | as many prioritised contacts as fit |
+//! | entities | `1+194..211` bits each, `0` ends | as many prioritised contacts as fit |
 //! | objects | `1+12..232` bits each, `0` ends | salvage chunks (ore, limbs, hulks) in range |
 //!
 //! Everything must fit in [`MAX_DATAGRAM`](crate::MAX_DATAGRAM) bytes. The writer checks the budget
 //! before every record, counting the terminators still owed, and never produces a partial item.
+//!
+//! A suit on a body (standing on it, in its grip, or parked on it) is sent in the body's frame: its
+//! own state's position, velocity, rotation and spin, and an entity record's position, rotation and
+//! velocity, are relative to the [`BodyRef`] it names. Body poses never travel; the client works
+//! them out for the snapshot's tick, as the server did. A rider is never sent without its body
+//! known: rocks come from the Welcome's field (a shattered one keeps its pose), landmarks from
+//! compiled content and the Welcome's count.
 
 use glam::{Quat, Vec3};
 
@@ -22,7 +29,7 @@ use crate::events::Event;
 use crate::missiles::{MISSILE_RECORD_BITS, MissileState};
 use crate::objects::{ObjectState, ROCK_RECORD_BITS, RockState};
 use crate::quant::{self, dequantize_signed, dequantize_unit, quantize_signed, quantize_unit};
-use crate::types::{Faction, FrameId, Part, PilotKind};
+use crate::types::{BodyRef, Faction, FrameId, Part, PilotKind, RIDER_VEL_BITS, RIDER_VEL_MAX};
 use crate::{
     BitReader, BitWriter, CARGO_KINDS, CHUNK_BITS, DecodeError, NO_CHUNK, PACKET_KIND_BITS, PacketKind,
     SLOT_BITS,
@@ -84,8 +91,31 @@ pub mod own_flags {
     pub const MISSILE_LOCK: u16 = 1 << 13;
     /// A guided missile is tracking you.
     pub const MISSILE_INCOMING: u16 = 1 << 14;
-    /// At rest against an asteroid: a signed-in pilot who leaves now stays parked here.
+    /// At rest on a body (standing on it, or against a rock or a landmark): a signed-in pilot who
+    /// leaves now stays parked here.
     pub const PARKABLE: u16 = 1 << 15;
+}
+
+/// How a suit stands with respect to the bodies, for [`OwnSurface::footing`].
+pub mod footing {
+    /// Flying free (no [`OwnSurface`](super::OwnSurface) is sent).
+    pub const FREE: u8 = 0;
+    /// On its feet (or knees) on the body.
+    pub const GROUNDED: u8 = 1;
+    /// In the air, in the body's grip.
+    pub const ALOFT: u8 = 2;
+}
+
+/// What the pilot's cover amounts to, for [`OwnState::cover`].
+pub mod cover {
+    /// In the open.
+    pub const EXPOSED: u8 = 0;
+    /// Crouched still and settling, or shown by a shot or a hit.
+    pub const SETTLING: u8 = 1;
+    /// Settled out of a hide spot: half its signature.
+    pub const COLD: u8 = 2;
+    /// Off enemies' sensors: seen only close in.
+    pub const HIDDEN: u8 = 3;
 }
 
 /// ZERO System state for [`OwnState::zero_mode`].
@@ -106,6 +136,8 @@ pub struct OwnState {
     pub generation: u8,
     pub frame: FrameId,
     pub alive: bool,
+    /// Position, velocity, rotation and angular velocity: in the sector's frame, or, while
+    /// [`surface`](Self::surface) is `Some`, in its body's (the velocity over the body).
     pub pos: Vec3,
     pub vel: Vec3,
     pub rot: Quat,
@@ -161,6 +193,28 @@ pub struct OwnState {
     pub special_cooldown: u8,
     /// What the arms are doing, for the client to roll on tick by tick.
     pub arms: OwnArms,
+    /// The body the suit stands on or is in the grip of (`None`: flying free).
+    pub surface: Option<OwnSurface>,
+    /// What its cover amounts to ([`cover`]).
+    pub cover: u8,
+}
+
+/// The own suit on a body: how, which, and how high it stands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OwnSurface {
+    /// [`footing::GROUNDED`] or [`footing::ALOFT`].
+    pub footing: u8,
+    pub body: BodyRef,
+    /// How high its origin rides over the surface, sixteenths of a metre (96 crouched to 146
+    /// standing).
+    pub stance_q: u8,
+}
+
+impl OwnSurface {
+    /// Encoded size after the footing, in bits: the body and the stance.
+    pub fn bits(&self) -> usize {
+        self.body.bits() + STANCE_BITS as usize
+    }
 }
 
 /// The own suit's arms, which its client rolls on from each snapshot as the server does
@@ -227,10 +281,11 @@ pub const ARMS_MAX_TIMER: u8 = (1 << ARMS_TIMER_BITS) - 1;
 pub const ARMS_MAX_SALVO: u8 = (1 << SALVO_BITS) - 1;
 pub const ARMS_MAX_SALVO_GAP: u8 = (1 << SALVO_GAP_BITS) - 1;
 
-/// Encoded size of the own state (after its presence bit), in bits: the flight and combat state
-/// (503), systems and equipment (24 + 20 + 7 + 7 + 4 + 7), salvage (18 + 14 per cargo kind + 24
-/// + a chunk id), lock and special (10 + 4 + 8 + 8), then the arms.
-pub const OWN_BITS: usize = 503
+/// Encoded size of a free suit's own state (after its presence bit), in bits: the flight and combat
+/// state (503), systems and equipment (24 + 20 + 7 + 7 + 4 + 7), salvage (18 + 14 per cargo kind +
+/// 24 + a chunk id), lock and special (10 + 4 + 8 + 8), the arms, then the footing and the cover
+/// (2 + 2).
+pub const OWN_BITS_FREE: usize = 503
     + SYSTEMS_BITS as usize
     + MODULES_BITS as usize
     + 2 * STATUS_TICK_BITS as usize
@@ -244,7 +299,14 @@ pub const OWN_BITS: usize = 503
     + 4
     + 8
     + 8
-    + ARMS_BITS;
+    + ARMS_BITS
+    + FOOTING_BITS as usize
+    + COVER_BITS as usize;
+/// The largest own state: on a rock, which takes the longest [`BodyRef`], and the stance.
+pub const OWN_MAX_BITS: usize = OWN_BITS_FREE + BodyRef::MAX_BITS + STANCE_BITS as usize;
+const FOOTING_BITS: u32 = 2;
+const COVER_BITS: u32 = 2;
+const STANCE_BITS: u32 = 8;
 /// Bits for [`OwnState::systems`] (2 per system) and [`OwnState::modules`] (4 per slot).
 pub const SYSTEMS_BITS: u32 = 24;
 pub const MODULES_BITS: u32 = 20;
@@ -293,7 +355,16 @@ impl Default for OwnState {
             special_timer: 0,
             special_cooldown: 0,
             arms: OwnArms::default(),
+            surface: None,
+            cover: cover::EXPOSED,
         }
+    }
+}
+
+impl OwnState {
+    /// Encoded size (after the presence bit), in bits.
+    pub fn encoded_bits(&self) -> usize {
+        OWN_BITS_FREE + self.surface.map_or(0, |s| s.bits())
     }
 }
 
@@ -338,9 +409,14 @@ pub struct EntityState {
     pub frame: FrameId,
     pub faction: Faction,
     pub pilot: PilotKind,
+    /// The body it stands on, is in the grip of, or is parked on (`None`: flying free).
+    pub on: Option<RiderOn>,
+    /// Position, rotation and velocity: in the sector's frame, or, while [`on`](Self::on) is
+    /// `Some`, in its body's (the velocity over the body; a parked suit's is zero).
     pub pos: Vec3,
     pub rot: Quat,
     pub vel: Vec3,
+    /// Where it aims, in the sector's frame either way.
     pub aim: Vec3,
     pub flags: u16,
     /// Armour per part in eighths (0 = destroyed, 7 = pristine).
@@ -355,6 +431,7 @@ impl Default for EntityState {
             frame: FrameId::Leo,
             faction: Faction::Oz,
             pilot: PilotKind::Human,
+            on: None,
             pos: Vec3::ZERO,
             rot: Quat::IDENTITY,
             vel: Vec3::ZERO,
@@ -365,18 +442,47 @@ impl Default for EntityState {
     }
 }
 
-/// Encoded size of one entity record, in bits.
-pub const ENTITY_BITS: usize = SLOT_BITS as usize
+/// A rider: the body a suit is on, and whether it's in the air in the body's grip rather than on
+/// its feet (or parked). How high it stands isn't sent: the body's surface under it says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RiderOn {
+    pub body: BodyRef,
+    pub aloft: bool,
+}
+
+/// What every entity record has: slot, generation, frame, faction, pilot kind, the `attached` bit,
+/// rotation (smallest-three), aim, flags and the parts.
+const ENTITY_COMMON_BITS: usize = SLOT_BITS as usize
     + 2
     + (FrameId::BITS + Faction::BITS + PilotKind::BITS) as usize
-    + 3 * quant::POS_BITS as usize
-    + 32
-    + 3 * quant::VEL_BITS as usize
+    + 1
+    + 2
+    + 3 * ENTITY_ROT_BITS as usize
     + 2 * ENTITY_AIM_BITS as usize
     + ent_flags::BITS as usize
     + 3 * Part::COUNT;
+/// Encoded size of the largest entity record, a free suit's (world position and velocity), in
+/// bits. A rider's is smaller ([`EntityState::encoded_bits`]).
+pub const ENTITY_MAX_BITS: usize =
+    ENTITY_COMMON_BITS + 3 * quant::POS_BITS as usize + 3 * quant::VEL_BITS as usize;
 const ENTITY_AIM_BITS: u32 = 9;
 const ENTITY_ROT_BITS: u32 = 10;
+
+impl EntityState {
+    /// Encoded size of this record, in bits.
+    pub fn encoded_bits(&self) -> usize {
+        match self.on {
+            None => ENTITY_MAX_BITS,
+            Some(on) => {
+                ENTITY_COMMON_BITS
+                    + on.body.bits()
+                    + 1
+                    + 3 * on.body.local_bits() as usize
+                    + 3 * RIDER_VEL_BITS as usize
+            }
+        }
+    }
+}
 
 /// One threat's predicted futures: probability of each maneuver hypothesis.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -537,6 +643,16 @@ impl<'a> SnapshotWriter<'a> {
             w.write_bits(u32::from(a.salvo[k].min(ARMS_MAX_SALVO)), SALVO_BITS);
             w.write_bits(u32::from(a.salvo_gap[k].min(ARMS_MAX_SALVO_GAP)), SALVO_GAP_BITS);
         }
+        let code = o.surface.map_or(footing::FREE, |on| {
+            debug_assert!(matches!(on.footing, footing::GROUNDED | footing::ALOFT), "{on:?}");
+            on.footing.clamp(footing::GROUNDED, footing::ALOFT)
+        });
+        w.write_bits(u32::from(code), FOOTING_BITS);
+        w.write_bits(u32::from(o.cover.min(cover::HIDDEN)), COVER_BITS);
+        if let Some(on) = o.surface {
+            on.body.write(w);
+            w.write_u8(on.stance_q);
+        }
     }
 
     pub fn zero(&mut self, zero: Option<&ZeroInfo>) {
@@ -631,7 +747,7 @@ impl<'a> SnapshotWriter<'a> {
     /// Appends an entity if it fits while leaving `keep_free_bits` (for objects). Returns whether
     /// it was written.
     pub fn entity(&mut self, e: &EntityState, keep_free_bits: usize) -> bool {
-        if !self.start(List::Entities, ENTITY_BITS, keep_free_bits) {
+        if !self.start(List::Entities, e.encoded_bits(), keep_free_bits) {
             return false;
         }
         let w = &mut self.w;
@@ -640,9 +756,24 @@ impl<'a> SnapshotWriter<'a> {
         w.write_bits(e.frame as u32, FrameId::BITS);
         w.write_bits(e.faction as u32, Faction::BITS);
         w.write_bits(e.pilot as u32, PilotKind::BITS);
-        quant::write_pos(w, e.pos);
-        quant::write_quat(w, e.rot, ENTITY_ROT_BITS);
-        quant::write_vec(w, e.vel, quant::VEL_MAX, quant::VEL_BITS);
+        w.write_bool(e.on.is_some());
+        match e.on {
+            None => {
+                quant::write_pos(w, e.pos);
+                quant::write_quat(w, e.rot, ENTITY_ROT_BITS);
+                quant::write_vec(w, e.vel, quant::VEL_MAX, quant::VEL_BITS);
+            }
+            Some(on) => {
+                // Riders stay well inside both ranges; the quantizers clamp if one doesn't.
+                debug_assert!(e.pos.abs().max_element() <= on.body.local_max(), "{e:?}");
+                debug_assert!(e.vel.abs().max_element() <= RIDER_VEL_MAX, "{e:?}");
+                on.body.write(w);
+                w.write_bool(on.aloft);
+                quant::write_vec(w, e.pos, on.body.local_max(), on.body.local_bits());
+                quant::write_quat(w, e.rot, ENTITY_ROT_BITS);
+                quant::write_vec_centered(w, e.vel, RIDER_VEL_MAX, RIDER_VEL_BITS);
+            }
+        }
         quant::write_dir(w, e.aim, ENTITY_AIM_BITS);
         w.write_bits(u32::from(e.flags), ent_flags::BITS);
         for p in e.parts {
@@ -825,6 +956,15 @@ impl<'a> SnapshotReader<'a> {
             a.salvo[k] = r.read_bits(SALVO_BITS) as u8;
             a.salvo_gap[k] = r.read_bits(SALVO_GAP_BITS) as u8;
         }
+        let code = r.read_bits(FOOTING_BITS) as u8;
+        o.cover = r.read_bits(COVER_BITS) as u8;
+        o.surface = match code {
+            footing::FREE => None,
+            footing::GROUNDED | footing::ALOFT => {
+                Some(OwnSurface { footing: code, body: BodyRef::read(r)?, stance_q: r.read_u8() })
+            }
+            _ => return Err(DecodeError::Invalid),
+        };
         self.check()?;
         Ok(Some(o))
     }
@@ -909,13 +1049,21 @@ impl<'a> SnapshotReader<'a> {
             frame: FrameId::from_bits(r.read_bits(FrameId::BITS)).ok_or(DecodeError::Invalid)?,
             faction: Faction::from_bits(r.read_bits(Faction::BITS)),
             pilot: PilotKind::from_bits(r.read_bits(PilotKind::BITS)),
-            pos: quant::read_pos(r),
-            rot: quant::read_quat(r, ENTITY_ROT_BITS),
-            vel: quant::read_vec(r, quant::VEL_MAX, quant::VEL_BITS),
-            aim: quant::read_dir(r, ENTITY_AIM_BITS),
-            flags: r.read_bits(ent_flags::BITS) as u16,
-            parts: [0; Part::COUNT],
+            ..EntityState::default()
         };
+        if r.read_bool() {
+            let on = RiderOn { body: BodyRef::read(r)?, aloft: r.read_bool() };
+            e.on = Some(on);
+            e.pos = quant::read_vec(r, on.body.local_max(), on.body.local_bits());
+            e.rot = quant::read_quat(r, ENTITY_ROT_BITS);
+            e.vel = quant::read_vec_centered(r, RIDER_VEL_MAX, RIDER_VEL_BITS);
+        } else {
+            e.pos = quant::read_pos(r);
+            e.rot = quant::read_quat(r, ENTITY_ROT_BITS);
+            e.vel = quant::read_vec(r, quant::VEL_MAX, quant::VEL_BITS);
+        }
+        e.aim = quant::read_dir(r, ENTITY_AIM_BITS);
+        e.flags = r.read_bits(ent_flags::BITS) as u16;
         for p in &mut e.parts {
             *p = r.read_bits(3) as u8;
         }
@@ -958,11 +1106,77 @@ mod tests {
     use super::*;
 
     #[test]
-    fn own_state_is_exactly_own_bits() {
+    fn own_state_is_exactly_its_encoded_bits() {
+        let free = OwnState { cover: cover::COLD, ..OwnState::default() };
+        let on = |footing, body| OwnSurface { footing, body, stance_q: 96 };
+        let cases = [
+            (free, OWN_BITS_FREE),
+            (
+                OwnState { surface: Some(on(footing::GROUNDED, BodyRef::Landmark(1))), ..free },
+                OWN_BITS_FREE + 14,
+            ),
+            (OwnState { surface: Some(on(footing::ALOFT, BodyRef::Rock(1_022))), ..free }, OWN_MAX_BITS),
+        ];
+        for (own, bits) in cases {
+            let mut buf = [0u8; 256];
+            let mut w = SnapshotWriter::new(&mut buf, 256);
+            w.header(&SnapshotHeader::default());
+            let at = w.w.bits_written();
+            w.own(Some(&own));
+            assert_eq!(w.w.bits_written() - at, 1 + bits);
+            assert_eq!(own.encoded_bits(), bits);
+            let n = w.finish().unwrap();
+            let back = SnapshotReader::new(&buf[..n]).unwrap().own().unwrap().unwrap();
+            assert_eq!((back.surface, back.cover), (own.surface, own.cover));
+        }
+        assert_eq!((OWN_BITS_FREE, OWN_BITS_FREE + 14, OWN_MAX_BITS), (760, 774, 780));
+    }
+
+    #[test]
+    fn a_footing_of_3_is_invalid() {
         let mut buf = [0u8; 256];
         let mut w = SnapshotWriter::new(&mut buf, 256);
+        w.header(&SnapshotHeader::default());
+        let at = w.w.bits_written();
         w.own(Some(&OwnState::default()));
-        assert_eq!(w.w.bits_written(), 1 + OWN_BITS);
+        let n = w.finish().unwrap();
+        // The footing is the 4 bits before the end of the own state (then the cover).
+        let bit = at + 1 + OWN_BITS_FREE - 4;
+        buf[bit / 8] |= 1 << (bit % 8);
+        buf[(bit + 1) / 8] |= 1 << ((bit + 1) % 8);
+        assert_eq!(SnapshotReader::new(&buf[..n]).unwrap().own(), Err(DecodeError::Invalid));
+    }
+
+    #[test]
+    fn entity_records_are_the_size_they_say() {
+        let free = EntityState::default();
+        let rider = |body| EntityState {
+            on: Some(RiderOn { body, aloft: true }),
+            pos: Vec3::new(-200.0, 3.5, 99.0),
+            vel: Vec3::new(1.0, -31.0, 0.0),
+            ..free
+        };
+        let cases = [(free, 211), (rider(BodyRef::Rock(1_000)), 194), (rider(BodyRef::Landmark(15)), 194)];
+        for (e, bits) in cases {
+            assert_eq!(e.encoded_bits(), bits, "{e:?}");
+            let mut buf = [0u8; 256];
+            let mut w = SnapshotWriter::new(&mut buf, 256);
+            w.header(&SnapshotHeader::default());
+            w.own(None);
+            w.zero(None);
+            // A first record opens the list (and closes the ones before it).
+            assert!(w.entity(&free, 0));
+            let at = w.w.bits_written();
+            assert!(w.entity(&e, 0));
+            // The record, after the bit that says one follows.
+            assert_eq!(w.w.bits_written() - at - 1, bits, "{e:?}");
+            let n = w.finish().unwrap();
+            let mut r = SnapshotReader::new(&buf[..n]).unwrap();
+            assert_eq!(r.next_entity().unwrap().map(|b| b.on), Some(None));
+            assert_eq!(r.next_entity().unwrap().map(|b| b.on), Some(e.on));
+            assert_eq!(r.next_entity().unwrap(), None);
+        }
+        assert_eq!(ENTITY_MAX_BITS, 211);
     }
 
     #[test]

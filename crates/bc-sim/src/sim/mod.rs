@@ -5,17 +5,22 @@
 //!
 //! Pipeline for tick `T`:
 //! 1. Mobile Doll AI (and ZERO seizures) write `InputCmd`s (dolls re-plan every 3rd tick, staggered).
-//! 2. Flight: AMBAC/RCS attitude, thrust, propellant, G-strain; wrecks drift; rocks stop both.
+//! 2. Flight: AMBAC/RCS attitude, thrust, propellant, G-strain; or, in a body's grip, walking on it
+//!    and hopping over it (`ground`); sleepers are held to what they're parked on; wrecks drift;
+//!    rocks and landmarks stop them all.
 //! 3. Spatial hash rebuild, then lag-compensation history is recorded (`history[T]` = snapshot `T`).
+//!    Then cover: who lies still, and in which hide spot (`conceal`).
 //! 4. Weapons fire: projectiles spawn and catch up through the history (≤ 8 ticks) for shots fired
 //!    by humans/agents; beams emit spawn events.
-//! 5. Projectiles sweep against per-part capsules (rocks stop them); sabers sweep their arcs.
+//! 5. Projectiles sweep against per-part capsules (rocks, landmarks and the colony stop them,
+//!    whichever comes first); sabers sweep their arcs.
 //! 6. Damage resolves in generation order; parts break; suits die.
 //! 7. Heat, energy, ZERO strain, respawns; staggered ZERO rollouts.
 
 use alloc::boxed::Box;
 
 mod combat;
+mod conceal;
 mod detection;
 mod flame;
 mod launch;
@@ -28,20 +33,23 @@ mod specials;
 mod wire;
 mod zero;
 
-use bc_proto::buttons::{GRAB, MODE, ZERO};
+use bc_proto::buttons::{GRAB, GRIP, MODE, ZERO};
 use bc_proto::events::Event;
 use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, Part, PilotKind, Segment, WeaponKind};
 use glam::{Quat, Vec3};
 
 use crate::ai::{self, DOLL, SEIZED};
 use crate::arms::{BUSY_FIRE_TICKS, busy_ambac};
+use crate::bodies::{Bodies, landmark_pose, landmark_touching, sweep_landmarks};
 use crate::chunks::{self, Chunks, Motion, held_pose, segment_pos, segment_rot};
 use crate::config::{DT, SECTOR_LIMIT, SimConfig, secs};
+use crate::content::landmarks::LandmarkDef;
 use crate::content::salvage::{BOUNCE, mass_without};
 use crate::content::{frame, weapon};
 use crate::events::EventRing;
 use crate::field::Field;
-use crate::flight::{self, FlightMods};
+use crate::flight::FlightMods;
+use crate::ground::{self, MoveCtx, Mover};
 use crate::handle::SuitId;
 use crate::lagcomp::History;
 use crate::math::{Rng, length, look_rotation, normalize_or};
@@ -57,8 +65,14 @@ use crate::tuning::{self, Tuning};
 use crate::zero::TacticalAdvice;
 use crate::zero::strain::StrainEvent;
 
-pub use launch::{Homecoming, LAUNCH_GATE, LAUNCH_SPEED, Loadout};
-pub use sleep::{Anchor, Body, Gone, PARK_SPEED, PARKED_VISUAL, SleeperFate};
+pub use crate::bodies::Body;
+pub use crate::ground::{Anchor, Footing};
+pub use conceal::{
+    COLD_SIG, Conceal, EXPOSE_TICKS, FOUGHT_DARK_TICKS, HIDE_AWAKE_VISUAL_MUL, LURK_SETTLE_TICKS, LURK_STILL,
+    POWER_DOWN_TICKS, cover,
+};
+pub use launch::{Homecoming, LAUNCH_GATE, LAUNCH_SPEED, Loadout, ParkRecord};
+pub use sleep::{Gone, PARK_SPEED, PARKED_VISUAL, SleeperFate};
 
 /// A pending hit, applied in the damage phase.
 #[derive(Clone, Copy, Debug)]
@@ -76,6 +90,10 @@ const MAX_SQUADS: usize = 32;
 /// cos(3°): "aiming at me" threshold.
 const COS_3_DEG: f32 = 0.998_629_5;
 const SQUAD_SIZE: u8 = 4;
+/// A brain's stick is kept off a landmark within this of its bounds, m, when its suit's feet are
+/// within this of the surface, m (`keep_off_landmarks`).
+const PUSH_REACH: f32 = 200.0;
+const PUSH_HEIGHT: f32 = 150.0;
 
 #[derive(Clone, Copy, Debug)]
 struct Squad {
@@ -147,8 +165,17 @@ pub struct Sim {
     missile_bits: BitSet,
     /// Scratch: live chunks, likewise.
     chunk_bits: BitSet,
+    /// Scratch: the suits `cover_step` goes through (nothing it calls uses it).
+    cover_bits: BitSet,
     /// Sleepers lost since the server last asked (`drain_fates`).
     fates: FixedVec<SleeperFate>,
+    /// Suits alive on their feet on a body, aloft in a body's grip, and hidden from their enemies'
+    /// sensors (parked and dark, or settled in a hide spot), and the sleepers among those hidden, as
+    /// of the last tick.
+    pub n_grounded: u32,
+    pub n_aloft: u32,
+    pub n_hidden: u32,
+    pub n_hidden_asleep: u32,
 }
 
 impl Sim {
@@ -195,7 +222,12 @@ impl Sim {
             proj_bits: BitSet::new(cfg.max_projectiles),
             missile_bits: BitSet::new(MAX_MISSILES),
             chunk_bits: BitSet::new(chunks::MAX_CHUNKS),
+            cover_bits: BitSet::new(cap),
             fates: FixedVec::new(64, SleeperFate { suit: 0, generation: 0, gone: Gone::Evicted, tick: 0 }),
+            n_grounded: 0,
+            n_aloft: 0,
+            n_hidden: 0,
+            n_hidden_asleep: 0,
         }
     }
 
@@ -203,6 +235,11 @@ impl Sim {
     #[inline]
     pub fn tick(&self) -> u32 {
         self.tick
+    }
+
+    /// The sector's landmarks (`cfg.landmarks` of them), by id.
+    pub fn landmarks(&self) -> &'static [LandmarkDef] {
+        self.cfg.landmark_defs()
     }
 
     /// The tick the next [`step`](Self::step) will simulate (inputs should target it).
@@ -302,6 +339,7 @@ impl Sim {
         self.wrecks_follow_hulks();
         self.spatial_rebuild();
         self.record_history(t);
+        self.cover_step(t);
         self.lock_step();
         self.weapons_step(t);
         self.projectile_step(t);
@@ -448,6 +486,7 @@ impl Sim {
                 special_active: s.special[i].active,
                 transforming: self.transforming(i),
             },
+            surface_n: self.surface_n(i),
             tuning: s.tuning[i],
         }
     }
@@ -475,7 +514,27 @@ impl Sim {
             aiming_at_me: s.aim[j].dot(to_me) > COS_3_DEG,
             locked_on_me: s.input[j].lock_target == i as u16,
             hostile: s.faction[j] != s.faction[i],
+            surface_n: self.surface_n(j),
         }
+    }
+
+    /// The ground's normal under suit `i` while it stands on a body, sector frame (`Vec3::ZERO`
+    /// otherwise): what perception tells brains of a suit on the ground.
+    fn surface_n(&self, i: usize) -> Vec3 {
+        if self.suits.footing[i] == ground::Footing::Grounded {
+            self.ground_normal(i).unwrap_or(Vec3::ZERO)
+        } else {
+            Vec3::ZERO
+        }
+    }
+
+    /// The normal of the ground under suit `i`, sector frame, while it's on a body, aloft in its
+    /// grip or parked on it: which way is up off the body where it is.
+    pub(crate) fn ground_normal(&self, i: usize) -> Option<Vec3> {
+        let a = self.suits.anchor[i];
+        let bodies = Bodies::at(&self.field, self.landmarks(), self.tick);
+        let (pose, shape) = (bodies.pose(a.body)?, bodies.shape(a.body)?);
+        Some(pose.rot * ground::place(&shape, a.local, a.stance).1)
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -512,16 +571,47 @@ impl Sim {
             .then(|| self.contact_of(ai_state.target as usize, i, t));
             let me = self.self_view(i);
             let mut cmd = ai::drive(&me, target.as_ref(), &mut ai_state, t, profile, spec);
+            self.keep_off_landmarks(i, t, &mut cmd);
             if seized {
-                // Keep the System engaged while it holds the controls, the pilot's grip, and the
-                // frame's mode (a seizure neither transforms the suit nor drops its jammer).
-                cmd.buttons |= ZERO | (self.suits.input[i].buttons & (GRAB | MODE));
+                // Keep the System engaged while it holds the controls, the pilot's grip on what's
+                // in hand and on the ground, and the frame's mode (a seizure neither transforms the
+                // suit, drops its jammer, nor lets go of the surface it stands on).
+                cmd.buttons |= ZERO | (self.suits.input[i].buttons & (GRAB | MODE | GRIP));
             }
             self.suits.ai[i] = ai_state;
             self.suits.input[i] = cmd;
         }
         self.iter_bits = alive;
         self.scratch = scratch;
+    }
+
+    /// A brain's stick never flies its suit into a landmark: near one (its feet within
+    /// `PUSH_HEIGHT` of the surface), the part of the stick into the surface is dropped. Only
+    /// for a suit flying free (on the ground, the stick walks).
+    fn keep_off_landmarks(&self, i: usize, t: u32, cmd: &mut InputCmd) {
+        if self.suits.footing[i] != ground::Footing::Free {
+            return;
+        }
+        let f = &self.suits.flight[i];
+        for d in self.landmarks() {
+            if length(f.pos - d.center) > d.bound + d.orbit_radius + PUSH_REACH {
+                continue;
+            }
+            let pose = landmark_pose(d, t, 0.0);
+            let pr = d.shape.probe(pose.to_local(f.pos));
+            if pr.dist - ground::STANCE >= PUSH_HEIGHT {
+                continue;
+            }
+            let n = pose.rot * pr.normal;
+            let [x, y, z] = cmd.thrust.map(|v| f32::from(v) / 127.0);
+            let stick = f.rot * Vec3::new(x, y, z);
+            let into = stick.dot(n);
+            if into < 0.0 {
+                let local = f.rot.conjugate() * (stick - n * into);
+                let q = |v: f32| (v.clamp(-1.0, 1.0) * 127.0) as i8;
+                cmd.thrust = [q(local.x), q(local.y), q(local.z)];
+            }
+        }
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -573,7 +663,26 @@ impl Sim {
         self.tuning(i).ambac
     }
 
-    fn flight_step(&mut self, _t: u32) {
+    /// What suit `i` brings to its step besides its command: its flight modifiers (with a change of
+    /// form's cut in thrust: applied here, not in the replicated factor, as the owner's client
+    /// applies it the same way as it predicts the change), whether it can hold on to a surface, and
+    /// whether it has legs to walk on.
+    pub fn move_ctx(&self, i: usize) -> MoveCtx<'static> {
+        let mut mods = self.flight_mods(i);
+        let form = self.suits.form(i);
+        if form.changing() {
+            mods.thrust *= transform_thrust(&form);
+        }
+        let spec = frame(self.suits.frame[i]);
+        MoveCtx {
+            spec,
+            mods,
+            can_grip: spec.has_legs() && !form.changing(),
+            legs_ok: self.suits.part_hp[i][Part::Legs as usize] > 0.0,
+        }
+    }
+
+    fn flight_step(&mut self, t: u32) {
         let mut used = core::mem::take(&mut self.iter_bits);
         used.copy_from(&self.suits.used);
         // Every stat sheet from the suits as they stood at the end of the last tick: what their
@@ -581,39 +690,55 @@ impl Sim {
         for i in used.iter() {
             self.suits.retune(i);
         }
+        // Every body where it is this tick. It borrows only the field, so the suits can move.
+        let bodies = Bodies::at(&self.field, self.landmarks(), t);
         for i in used.iter() {
-            if self.suits.sleeping.get(i) && self.suits.alive.get(i) {
-                // Nobody's flying it (`sleep`).
-                self.sleeper_drift(i);
-            } else if self.suits.alive.get(i) {
-                let mut mods = self.flight_mods(i);
-                // Changing form cuts thrust (applied here, not in the replicated factor: the owner's
-                // client applies it the same way as it predicts the change).
-                let form = self.suits.form(i);
-                if form.changing() {
-                    mods.thrust *= transform_thrust(&form);
-                }
-                let spec = frame(self.suits.frame[i]);
-                let cmd = self.suits.input[i];
-                let out = flight::step_in(&self.field, &mut self.suits.flight[i], &cmd, spec, &mods, DT);
-                self.suits.boosting[i] = out.boosting;
-                self.suits.aim[i] = normalize_or(cmd.aim, self.suits.flight[i].rot * Vec3::Z);
-            } else {
-                // Wrecks drift (and fetch up against rocks).
+            let asleep = self.suits.sleeping.get(i);
+            if !self.suits.alive.get(i) {
+                // Wrecks drift (and fetch up against rocks and landmarks).
                 let f = &mut self.suits.flight[i];
                 let prev = f.pos;
                 f.pos += f.vel * DT;
                 self.field.collide(prev, f);
+                bodies.collide_landmarks(prev, f, None);
+            } else if asleep && self.suits.footing[i] != ground::Footing::Aloft {
+                // Nobody's flying it (`sleep`): held to its body, or drifting.
+                sleep::sleeper_drift(&mut self.suits, &bodies, i);
+            } else {
+                // Flown, or (asleep in a grip, hands off) settling under it until it's down.
+                let cx = self.move_ctx(i);
+                let cmd = self.suits.input[i];
+                let s = &mut self.suits;
+                let mut m = Mover { flight: s.flight[i], footing: s.footing[i], anchor: s.anchor[i] };
+                let out = ground::move_step(&bodies, &mut m, &cmd, &cx, DT);
+                if asleep && m.footing == ground::Footing::Grounded {
+                    // Down: it stays where it landed, parked.
+                    m.anchor.vel = Vec3::ZERO;
+                    m.anchor.ang_vel = Vec3::ZERO;
+                    if let Some(p) = bodies.pose(m.anchor.body) {
+                        sleep::hold(&p, &m.anchor, &mut m.flight);
+                    }
+                }
+                (s.flight[i], s.footing[i], s.anchor[i]) = (m.flight, m.footing, m.anchor);
+                s.boosting[i] = out.flight.boosting;
+                if asleep {
+                    sleep::look_ahead(s, i);
+                } else {
+                    s.aim[i] = normalize_or(cmd.aim, m.flight.rot * Vec3::Z);
+                }
             }
         }
         self.iter_bits = used;
     }
 
-    /// Free chunks drift, bounce off the colony and rocks, leave the sector or expire.
+    /// Free chunks drift, bounce off the colony, rocks and landmarks, leave the sector or expire.
+    /// A landmark's bounce is off its surface as it moves: the chunk leaves it as fast as it came
+    /// in, less the bounce's loss, relative to the surface where it struck.
     fn chunk_step(&mut self, t: u32) {
         if self.chunks.count() == 0 {
             return;
         }
+        let landmarks = self.landmarks();
         let mut live = core::mem::take(&mut self.chunk_bits);
         live.copy_from(&self.chunks.alive);
         for k in live.iter() {
@@ -625,15 +750,32 @@ impl Sim {
             }
             let a = segment_pos(&seg, f64::from(t - 1));
             let r = chunks::radius(&self.chunks.desc[k]);
-            let contact = match self.field.sweep(a, b, r) {
-                Some((f, i)) => {
+            // The first of a rock and a landmark along the way (a tie goes to the rock), else a
+            // landmark or the colony where it ends up (a landmark's surface moves into what's
+            // still). Each with the velocity of its surface there.
+            let rock = self.field.sweep(a, b, r);
+            let landmark = sweep_landmarks(landmarks, a, b, r, t, 0.0)
+                .or_else(|| landmark_touching(landmarks, b, r, t).map(|m| (1.0, m)));
+            let contact = match (rock, landmark) {
+                (Some((f, i)), _) if landmark.is_none_or(|(s, _)| f <= s) => {
                     let at = a + (b - a) * f;
-                    Some((at, self.field.rocks()[i].normal(at, r)))
+                    Some((at, self.field.rocks()[i].normal(at, r), Vec3::ZERO))
                 }
-                None => crate::world::hull_contact(b, r),
+                (_, Some((f, m))) => {
+                    let d = &landmarks[usize::from(m)];
+                    let pose = landmark_pose(d, t, 0.0);
+                    let mut local = pose.to_local(a + (b - a) * f);
+                    let pr = d.shape.probe(local);
+                    if pr.dist < r {
+                        local += pr.normal * (r - pr.dist);
+                    }
+                    let at = pose.to_world(local);
+                    Some((at, pose.rot * pr.normal, pose.point_vel(at)))
+                }
+                _ => crate::world::hull_contact(b, r).map(|(at, n)| (at, n, Vec3::ZERO)),
             };
-            let Some((at, n)) = contact else { continue };
-            let vn = seg.vel.dot(n);
+            let Some((at, n, surface)) = contact else { continue };
+            let vn = (seg.vel - surface).dot(n);
             if vn < 0.0 {
                 let bounced = Segment {
                     t0: t,
@@ -726,18 +868,31 @@ impl Sim {
                     self.damage_control(i);
                 }
                 let s = &mut self.suits;
-                let want = s.input[i].pressed(ZERO);
-                let capable = spec.zero || self.cfg.zero_on_all_frames;
-                let g = s.flight[i].g_strain;
-                match s.zero[i].update(want, capable, g, DT) {
-                    StrainEvent::Seized => {
-                        s.zero[i].out.computed_at = 0;
-                        self.events.push(Event::Seizure { id: 0, tick: t, pilot: i as u16, active: true });
+                // Asleep, nobody's there for the System to strain.
+                if !s.sleeping.get(i) {
+                    let want = s.input[i].pressed(ZERO);
+                    let capable = spec.zero || self.cfg.zero_on_all_frames;
+                    let g = s.flight[i].g_strain;
+                    match s.zero[i].update(want, capable, g, DT) {
+                        StrainEvent::Seized => {
+                            s.zero[i].out.computed_at = 0;
+                            self.events.push(Event::Seizure {
+                                id: 0,
+                                tick: t,
+                                pilot: i as u16,
+                                active: true,
+                            });
+                        }
+                        StrainEvent::Released => {
+                            self.events.push(Event::Seizure {
+                                id: 0,
+                                tick: t,
+                                pilot: i as u16,
+                                active: false,
+                            });
+                        }
+                        StrainEvent::None => {}
                     }
-                    StrainEvent::Released => {
-                        self.events.push(Event::Seizure { id: 0, tick: t, pilot: i as u16, active: false });
-                    }
-                    StrainEvent::None => {}
                 }
                 self.suits.prev_buttons[i] = self.suits.input[i].buttons;
             } else if self.suits.respawn_at[i] != 0 && t >= self.suits.respawn_at[i] {

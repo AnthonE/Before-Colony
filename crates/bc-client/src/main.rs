@@ -39,6 +39,8 @@ mod hud;
 #[cfg(target_arch = "wasm32")]
 mod input;
 #[cfg(target_arch = "wasm32")]
+mod landmarks;
+#[cfg(target_arch = "wasm32")]
 mod materials;
 #[cfg(target_arch = "wasm32")]
 mod missiles_vis;

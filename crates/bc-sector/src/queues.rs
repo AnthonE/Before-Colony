@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use bc_proto::{Faction, FrameId, InputPacket, PilotKind};
 use bc_sim::SuitId;
-use bc_sim::sim::{Homecoming, Loadout, SleeperFate};
+use bc_sim::sim::{Homecoming, Loadout, ParkRecord, SleeperFate};
 use bc_sim::zero::{TacticalAdvice, TacticalPicture};
 use crossbeam_queue::ArrayQueue;
 
@@ -61,6 +61,36 @@ pub enum Control {
         slot: u16,
         frame: FrameId,
     },
+    /// Puts a suit left in a hide spot before the server restarted back there, asleep. The
+    /// sector answers on [`SectorShared::restored`] with the same `key`, or not at all (no room).
+    Restore {
+        key: u32,
+        rec: ParkRecord,
+    },
+    /// Takes away a suit [`Control::Restore`] put back too late (the server had stopped waiting,
+    /// and its record no longer keeps it): quietly, nothing spilled and no fate.
+    Discard {
+        suit: u16,
+        generation: u16,
+    },
+}
+
+/// A suit [`Control::Restore`] put back: which request, and the suit (entity slot, generation).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Restored {
+    pub key: u32,
+    pub suit: u16,
+    pub generation: u16,
+}
+
+/// A suit asleep in a hide spot was hit (survival): what's left of it, as of `tick`, for the record
+/// that would put it back after a restart ([`SectorShared::reparked`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Reparked {
+    pub suit: u16,
+    pub generation: u16,
+    pub tick: u32,
+    pub rec: ParkRecord,
 }
 
 /// Lifecycle of a client slot, published by the sector through an atomic.
@@ -101,6 +131,10 @@ pub enum Report {
     DockRefused,
     /// The suit was destroyed; the bounties it had earned.
     Lost { bounty: u32 },
+    /// Its pilot left it asleep in a landmark's hide spot: what it takes to put it back there
+    /// after a restart, as of sector tick `tick` (a later [`Reparked`] of it is newer). Sent
+    /// before the slot is published free.
+    Parked { rec: ParkRecord, tick: u32 },
 }
 
 /// Per-slot status visible to the network side.
@@ -183,6 +217,10 @@ pub struct SectorShared {
     /// What became of sleeping suits (destroyed, or cleared for room), for the server to tell
     /// their pilots. Whose each was is the server's to know.
     pub notes: ArrayQueue<SleeperFate>,
+    /// Suits put back by [`Control::Restore`], for the server to hand to their pilots.
+    pub restored: ArrayQueue<Restored>,
+    /// Suits asleep in hide spots hit this tick, for the server to keep their records up to date.
+    pub reparked: ArrayQueue<Reparked>,
     /// Free slot leases. A session pops one, and pushes it back once the sector has freed the slot.
     pub leases: ArrayQueue<SlotLease>,
     pub slots: Box<[SlotStatus]>,
@@ -191,9 +229,11 @@ pub struct SectorShared {
     pub tick: AtomicU32,
     pub stop: AtomicBool,
     pub max_clients: usize,
-    /// The debris field the simulation runs, for clients' Welcome.
+    /// The debris field the simulation runs, and how many of the compiled landmarks the sector has
+    /// (`Sim::landmarks`), for clients' Welcome.
     pub field_seed: u32,
     pub field_rocks: u16,
+    pub landmarks: u8,
     started: std::time::Instant,
 }
 
@@ -232,6 +272,8 @@ pub const IN_RING: usize = 64;
 pub const NOTES: usize = 256;
 /// Reports waiting for a slot's session.
 pub const REPORTS: usize = 8;
+/// Restored suits waiting for the server.
+pub const RESTORED: usize = 256;
 
 /// Allocates every queue and the simulation. Returns the sector itself plus the ends the network
 /// side needs. This is the only place the runtime allocates.
@@ -259,6 +301,8 @@ pub fn build(cfg: SectorConfig) -> (crate::Sector, Arc<SectorShared>, EgressEnds
     let shared = Arc::new(SectorShared {
         control,
         notes: ArrayQueue::new(NOTES),
+        restored: ArrayQueue::new(RESTORED),
+        reparked: ArrayQueue::new(NOTES),
         leases,
         slots: (0..n).map(|_| SlotStatus::new()).collect(),
         metrics: Metrics::new(n),
@@ -267,6 +311,7 @@ pub fn build(cfg: SectorConfig) -> (crate::Sector, Arc<SectorShared>, EgressEnds
         max_clients: n,
         field_seed: cfg.sim.field_seed,
         field_rocks: cfg.sim.field_rocks,
+        landmarks: cfg.sim.landmark_defs().len() as u8,
         started: std::time::Instant::now(),
     });
     let ends = SectorEnds { inputs, reports, outputs, pictures: pic_p, advice: adv_c };

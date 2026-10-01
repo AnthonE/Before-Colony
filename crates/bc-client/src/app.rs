@@ -10,7 +10,7 @@ use crate::gfx::{Gfx, GfxPlugin};
 use crate::hud::{place_instruments, setup_hud, show_hud, update_hud, update_marks, update_panels};
 use crate::input::{Aim, Controls, read_input};
 use crate::net::{LaunchConfigRes, NetPlugin, drive, game_client, start_net_loop};
-use crate::net_view::{sync_view, tick_vis_time};
+use crate::net_view::{sync_view, tick_vis_time, track_bodies};
 use crate::page::{Ui, UiCmds, apply_ui_cmds, drain_inbox, init_page, publish_view};
 use crate::particles::{setup_particles, update_particles};
 use crate::pointer::{PointerRes, update_pointer};
@@ -18,7 +18,9 @@ use crate::session::{Pilot, SessionPlugin, drive_link};
 use crate::settings::{HintState, publish_settings, update_hints, update_settings};
 use crate::showcase::{Scene, ShowcasePlugin};
 use crate::suits_vis::{build_suits, pose_suits, suit_lod};
-use crate::view::{BeamFeed, CameraTarget, FxEvents, MissileFeed, SuitIndex, ViewPrefs, Vis, VisTime};
+use crate::view::{
+    BeamFeed, CameraTarget, DrawnBodies, FxEvents, MissileFeed, SuitIndex, ViewPrefs, Vis, VisTime,
+};
 
 pub fn run() {
     console_error_panic_hook::set_once();
@@ -101,6 +103,7 @@ pub fn run() {
                     update_hints,
                     drive,
                     tick_vis_time,
+                    track_bodies,
                     sync_view,
                     crate::onfoot::drive_onfoot,
                     crate::rocks::follow_server_field,
@@ -147,6 +150,7 @@ struct VisualsPlugin;
 impl Plugin for VisualsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<VisTime>()
+            .init_resource::<DrawnBodies>()
             .init_resource::<SuitIndex>()
             .init_resource::<BeamFeed>()
             .init_resource::<MissileFeed>()
@@ -158,6 +162,7 @@ impl Plugin for VisualsPlugin {
                 crate::sky::SkyPlugin,
                 crate::materials::MaterialsPlugin,
                 crate::colony::ColonyPlugin,
+                crate::landmarks::LandmarksPlugin,
                 crate::particles::ParticlesPlugin,
                 crate::beams::BeamsPlugin,
                 crate::blast::BlastPlugin,
@@ -183,6 +188,7 @@ impl Plugin for VisualsPlugin {
                     ),
                     (
                         crate::colony::setup_colony,
+                        crate::landmarks::setup_landmarks,
                         crate::rocks::setup_field,
                         spawn_camera,
                         setup_fx,

@@ -5,12 +5,15 @@ use std::collections::{HashMap, VecDeque};
 use bc_proto::events::{BurstCause, Event};
 use bc_proto::snapshot::{ent_flags, own_flags};
 use bc_proto::{
-    CHUNK_BITS, ChunkDesc, EntityState, Faction, FrameId, MAX_ENTITIES, MISSILE_BITS, MissileState, NO_CHUNK,
-    ObjectState, OwnState, Part, PilotKind, RockState, Segment, WeaponKind, ZeroInfo,
+    BodyRef, CHUNK_BITS, ChunkDesc, EntityState, Faction, FrameId, MAX_ENTITIES, MISSILE_BITS, MissileState,
+    NO_CHUNK, ObjectState, OwnState, Part, PilotKind, RockState, Segment, WeaponKind, ZeroInfo,
 };
 use bc_sim::TICK_HZ;
+use bc_sim::bodies::{Bodies, Body};
 use bc_sim::chunks::{self, held_pose, segment_pos, segment_rot};
 use bc_sim::content::{SpecialKind, WeaponClass, frame, frame_name, weapon};
+use bc_sim::flight::FlightState;
+use bc_sim::ground::{Anchor, derive};
 use bc_sim::perception::{Contact, KitView, Perception, SelfView};
 use bc_sim::zero::N_HYP;
 use bc_sim::zero::hypotheses::{self, Maneuver};
@@ -19,10 +22,9 @@ use glam::{Quat, Vec3};
 
 use crate::interp::{EntityTrack, Pose};
 use crate::predict::Predictor;
+use crate::surface::BodySet;
 
 const HZ: f64 = TICK_HZ as f64;
-/// Tracks not refreshed for this long are dropped (ticks).
-const STALE_TICKS: u32 = 90;
 /// Missiles not listed for this long are dropped: out of range, or lost with their burst (ticks).
 const MISSILE_STALE_TICKS: u32 = 15;
 
@@ -198,6 +200,14 @@ pub struct KitStats {
     pub fang: u32,
 }
 
+/// What the world has had to throw away.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct WorldStats {
+    /// Records of suits on a body this client doesn't know (a rock past the field, a landmark
+    /// the sector hasn't got): dropped, never drawn. The server never sends one.
+    pub unresolved_bodies: u64,
+}
+
 /// Lock assist picks a target within this angle of the reticle (rad)...
 pub const LOCK_PICK: f32 = 0.175; // 10°
 /// ...and keeps it while it stays within this.
@@ -207,7 +217,12 @@ pub struct World {
     /// Newest snapshot tick.
     pub tick: u32,
     pub entities: Vec<Option<EntityTrack>>,
+    /// The own suit's newest state, in the sector's frame: one on a body (sent in the body's
+    /// frame) is put where the body carries it at the snapshot's tick, and its `surface` still
+    /// says which body and how it stands on it.
     pub own: Option<OwnState>,
+    /// The own state as it was sent (on a body, in the body's frame).
+    own_sent: Option<OwnState>,
     pub zero: Option<ZeroInfo>,
     pub beams: Vec<Beam>,
     pub hits: Vec<HitMark>,
@@ -236,6 +251,9 @@ pub struct World {
     pub my_deaths: u32,
     pub hits_taken: u32,
     pub kit: KitStats,
+    /// The sector's bodies, which riders are drawn on (from the Welcome).
+    pub bodies: BodySet,
+    pub stats: WorldStats,
 }
 
 impl World {
@@ -244,6 +262,7 @@ impl World {
             tick: 0,
             entities: vec![None; MAX_ENTITIES],
             own: None,
+            own_sent: None,
             zero: None,
             beams: Vec::new(),
             hits: Vec::new(),
@@ -264,7 +283,14 @@ impl World {
             my_deaths: 0,
             hits_taken: 0,
             kit: KitStats::default(),
+            bodies: BodySet::default(),
+            stats: WorldStats::default(),
         }
+    }
+
+    /// The own state as the server sent it: on a body, in the body's frame.
+    pub fn own_sent(&self) -> Option<&OwnState> {
+        self.own_sent.as_ref()
     }
 
     pub fn own_slot(&self) -> Option<u16> {
@@ -306,7 +332,7 @@ impl World {
             if e.faction == self.faction || e.flags & ent_flags::WRECK != 0 {
                 return None;
             }
-            let to = track.sample(t).pos - from;
+            let to = track.sample(t, &self.bodies).pos - from;
             Some(aim.angle_between(to))
         };
         if let Some(slot) = current
@@ -353,7 +379,9 @@ impl World {
         self.missiles.iter().flatten()
     }
 
-    /// Applies a decoded snapshot.
+    /// Applies a decoded snapshot. A suit on a body is kept in the body's frame (it is drawn there,
+    /// [`EntityTrack::sample`]); a record naming a body this sector doesn't have is dropped and
+    /// counted ([`WorldStats::unresolved_bodies`]).
     pub fn apply(
         &mut self,
         tick: u32,
@@ -365,9 +393,16 @@ impl World {
         if tick < self.tick {
             return;
         }
+        if own.and_then(|o| o.surface).is_some_and(|on| !self.bodies.knows(on.body)) {
+            self.stats.unresolved_bodies += 1;
+        }
+        let at = self.bodies.at(tick);
+        let own_sent = own;
+        let own = own.map(|o| own_in_sector(&o, &at));
         let prev_own = self.own;
         self.tick = tick;
         self.own = own;
+        self.own_sent = own_sent;
         self.zero = zero;
         let me = own.map(|o| o.slot);
         if let Some(now) = own {
@@ -378,12 +413,17 @@ impl World {
             if Some(e.slot) == me {
                 continue;
             }
-            let (jamming, flame, fang) = kit_seen(e);
+            if e.on.is_some_and(|on| !self.bodies.knows(on.body)) {
+                self.stats.unresolved_bodies += 1;
+                continue;
+            }
+            let e = *e;
+            let (jamming, flame, fang) = kit_seen(&e);
             seen = (seen.0 | jamming, seen.1 | flame, seen.2 | fang);
             let slot = e.slot as usize;
             match &mut self.entities[slot] {
-                Some(track) if track.latest.generation == e.generation => track.push(tick, *e),
-                other => *other = Some(EntityTrack::new(tick, *e)),
+                Some(track) if track.latest.generation == e.generation => track.push(tick, e),
+                other => *other = Some(EntityTrack::new(tick, e)),
             }
         }
         let own_jamming = own.is_some_and(|o| {
@@ -399,7 +439,7 @@ impl World {
         }
         // Forget tracks the server stopped updating without telling us (lost Leave).
         for slot in self.entities.iter_mut() {
-            if slot.as_ref().is_some_and(|t| tick.saturating_sub(t.latest_tick) > STALE_TICKS) {
+            if slot.as_ref().is_some_and(|t| tick.saturating_sub(t.latest_tick) > t.stale_ticks()) {
                 *slot = None;
             }
         }
@@ -423,9 +463,11 @@ impl World {
     }
 
     /// Applies a snapshot's rock and object lists (each record is the thing's whole current state).
+    /// A shattered rock is gone from the bodies the view sweeps, too.
     pub fn apply_salvage(&mut self, rocks: &[RockState], objects: &[ObjectState]) {
         for r in rocks {
             self.rocks.insert(r.id, *r);
+            self.bodies.set_rock_dead(usize::from(r.id), r.destroyed);
         }
         for o in objects {
             let (generation, desc, motion) = match *o {
@@ -657,7 +699,7 @@ impl World {
 
     /// Interpolated pose of entity `slot` at time `t`.
     pub fn pose(&self, slot: u16, t: f64) -> Option<Pose> {
-        self.entity(slot).map(|e| e.sample(t))
+        self.entity(slot).map(|e| e.sample(t, &self.bodies))
     }
 
     /// Builds the same [`Perception`] the server's Mobile Dolls use, from this client's view.
@@ -688,6 +730,7 @@ impl World {
                 special_active: own.flags & own_flags::SPECIAL_ACTIVE != 0,
                 transforming: own.flags & own_flags::TRANSFORMING != 0,
             },
+            surface_n: predict.surface_n(),
             tuning,
         };
         let mut p = Perception::default();
@@ -698,7 +741,7 @@ impl World {
             if e.flags & ent_flags::WRECK != 0 {
                 continue;
             }
-            let pose = track.sample(t);
+            let pose = track.sample(t, &self.bodies);
             let to_me = (s.pos - pose.pos).normalize_or(Vec3::Z);
             p.offer(Contact {
                 slot: slot as u16,
@@ -709,13 +752,15 @@ impl World {
                 vel: pose.vel,
                 rot: pose.rot,
                 aim: pose.aim,
-                accel: track.accel_estimate(),
+                accel: track.accel_estimate(&self.bodies),
                 hull: f32::from(e.parts[Part::Torso as usize]) / 7.0,
                 dist: (pose.pos - s.pos).length(),
                 firing: e.flags & (ent_flags::FIRING_PRIMARY | ent_flags::FIRING_SECONDARY) != 0,
                 aiming_at_me: pose.aim.dot(to_me) > 0.9986,
                 locked_on_me: e.flags & ent_flags::LOCKED_ON_YOU != 0,
                 hostile: e.faction != self.faction,
+                // Standing on a body (not in the air over one): which way is up off it.
+                surface_n: pose.ground.filter(|g| !g.aloft).map_or(Vec3::ZERO, |g| g.up),
             });
         }
         Some(p)
@@ -728,11 +773,12 @@ impl World {
         let mut out = Vec::new();
         for th in &z.threats[..z.threat_count as usize] {
             let Some(track) = self.entity(th.slot) else { continue };
-            let pose = track.sample(t);
+            let pose = track.sample(t, &self.bodies);
             let spec = frame(track.latest.frame);
+            let surface_n = pose.ground.filter(|g| !g.aloft).map_or(Vec3::ZERO, |g| g.up);
             let mut paths = [[Vec3::ZERO; STEPS]; N_HYP];
             for (k, path) in paths.iter_mut().enumerate() {
-                let a = hypotheses::accel(spec, pose.rot, Maneuver::from_index(k));
+                let a = hypotheses::accel_on(spec, pose.rot, surface_n, Maneuver::from_index(k));
                 *path = rollout(pose.pos, pose.vel, a);
             }
             out.push(Ghost { slot: th.slot, probs: th.probs, paths });
@@ -746,6 +792,33 @@ impl World {
             return self.own.map(|o| o.frame);
         }
         self.entity(slot).map(|t| t.latest.frame)
+    }
+}
+
+/// A suit on `body`, in the sector's frame with the body where `bodies` has it: carried, turned and
+/// moved by the body, exactly as the server derives it (`bc_sim::ground::derive`).
+fn in_sector(
+    bodies: &Bodies,
+    body: BodyRef,
+    local: Vec3,
+    rot: Quat,
+    vel: Vec3,
+    ang_vel: Vec3,
+) -> Option<FlightState> {
+    let body = Body::from(body);
+    let pose = bodies.pose(body)?;
+    let mut f = FlightState::default();
+    derive(&pose, &Anchor { body, local, rot, vel, ang_vel, stance: 0.0 }, &mut f);
+    Some(f)
+}
+
+/// The own suit's state in the sector's frame (it's sent in its body's while on one), still
+/// saying what it stands on. One naming a body this sector doesn't have is taken as it came.
+fn own_in_sector(own: &OwnState, bodies: &Bodies) -> OwnState {
+    let Some(on) = own.surface else { return *own };
+    match in_sector(bodies, on.body, own.pos, own.rot, own.vel, own.ang_vel) {
+        Some(f) => OwnState { pos: f.pos, vel: f.vel, rot: f.rot, ang_vel: f.ang_vel, ..*own },
+        None => *own,
     }
 }
 
@@ -774,6 +847,148 @@ mod tests {
     fn hostile_at(world: &mut World, slot: u16, pos: Vec3) {
         let e = EntityState { slot, faction: Faction::Oz, pos, ..EntityState::default() };
         world.entities[usize::from(slot)] = Some(EntityTrack::new(10, e));
+    }
+
+    /// A rider at `local` on `body`, walking over it at `vel` (its frame).
+    fn rider(slot: u16, body: BodyRef, local: Vec3, vel: Vec3) -> EntityState {
+        use bc_proto::RiderOn;
+        EntityState {
+            slot,
+            faction: Faction::Oz,
+            on: Some(RiderOn { body, aloft: false }),
+            pos: local,
+            vel,
+            aim: Vec3::Z,
+            ..EntityState::default()
+        }
+    }
+
+    #[test]
+    fn unresolved_bodies_are_dropped() {
+        use bc_sim::field::Field;
+        use std::sync::Arc;
+
+        let mut world = World::new(Faction::Colonies);
+        world.bodies = BodySet::new(Arc::new(Field::generate(0xDEB12, 160)), 1);
+        let t = 5_000;
+        let local = Vec3::new(0.0, 69.125, 0.0);
+        let ents = [
+            rider(3, BodyRef::Landmark(0), local, Vec3::Z * 8.0),
+            // A landmark the sector hasn't got, a rock its field hasn't: nowhere to draw them.
+            rider(4, BodyRef::Landmark(1), local, Vec3::ZERO),
+            rider(5, BodyRef::Rock(160), local, Vec3::ZERO),
+            rider(6, BodyRef::Rock(159), Vec3::Y * 40.0, Vec3::ZERO),
+            EntityState { slot: 7, pos: Vec3::splat(100.0), ..EntityState::default() },
+        ];
+        world.apply(t, None, None, &[], &ents);
+        assert!(world.entity(4).is_none() && world.entity(5).is_none());
+        assert_eq!(world.stats.unresolved_bodies, 2);
+        // The rest are kept as sent, and drawn on their bodies.
+        let on_deck = world.entity(3).expect("on MO-II").latest;
+        assert_eq!(on_deck.pos, local);
+        let deck = world.bodies.pose_at(Body::Landmark(0), f64::from(t)).unwrap();
+        let drawn = world.pose(3, f64::from(t)).unwrap();
+        assert!(drawn.pos.distance(deck.to_world(local)) < 1e-3);
+        assert!(drawn.vel.distance(deck.point_vel(drawn.pos) + deck.rot * Vec3::Z * 8.0) < 1e-3);
+        let rock = world.bodies.field.rocks()[159];
+        assert!(
+            world.pose(6, f64::from(t)).unwrap().pos.distance(rock.pos + rock.rot * (Vec3::Y * 40.0)) < 1e-3
+        );
+        assert_eq!(world.pose(7, f64::from(t)).map(|p| p.pos), Some(Vec3::splat(100.0)), "flying free");
+        // An own state on a body it doesn't know is taken as it came, and counted.
+        let own = OwnState {
+            alive: true,
+            surface: Some(bc_proto::OwnSurface {
+                footing: bc_proto::snapshot::footing::GROUNDED,
+                body: BodyRef::Landmark(3),
+                stance_q: 146,
+            }),
+            pos: local,
+            ..OwnState::default()
+        };
+        world.apply(t + 1, Some(own), None, &[], &[]);
+        assert_eq!(world.stats.unresolved_bodies, 3);
+        assert_eq!(world.own.map(|o| o.pos), Some(local));
+    }
+
+    #[test]
+    fn the_own_state_is_kept_in_the_sectors_frame_and_as_sent() {
+        let mut world = World::new(Faction::Colonies);
+        let t = 7_000;
+        let local = Vec3::new(-230.0, 0.0, 89.125);
+        let own = OwnState {
+            alive: true,
+            surface: Some(bc_proto::OwnSurface {
+                footing: bc_proto::snapshot::footing::GROUNDED,
+                body: BodyRef::Landmark(0),
+                stance_q: 146,
+            }),
+            pos: local,
+            vel: Vec3::X,
+            ..OwnState::default()
+        };
+        world.apply(t, Some(own), None, &[], &[]);
+        let deck = world.bodies.at(t).pose(Body::Landmark(0)).unwrap();
+        let o = world.own.unwrap();
+        assert_eq!(o.pos, deck.to_world(local));
+        assert_eq!(o.vel, deck.point_vel(o.pos) + deck.rot * Vec3::X);
+        assert_eq!(o.surface, own.surface, "still saying what it stands on");
+        assert_eq!(world.own_sent().map(|o| o.pos), Some(local));
+    }
+
+    #[test]
+    fn still_rider_tracks_live_300_ticks() {
+        let mut world = World::new(Faction::Colonies);
+        let local = Vec3::new(0.0, 69.125, 0.0);
+        let ents = [
+            rider(3, BodyRef::Landmark(0), local, Vec3::ZERO),
+            rider(4, BodyRef::Landmark(0), local, Vec3::Z * 3.0),
+            EntityState { slot: 5, pos: Vec3::splat(100.0), ..EntityState::default() },
+        ];
+        world.apply(100, None, None, &[], &ents);
+        // Snapshots with nothing of them: a moving suit is given up after 90 ticks, a still rider
+        // (refreshed a tenth as often) after 300.
+        for t in 101..=191 {
+            world.apply(t, None, None, &[], &[]);
+        }
+        assert!(world.entity(3).is_some());
+        assert!(world.entity(4).is_none() && world.entity(5).is_none());
+        for t in 192..=400 {
+            world.apply(t, None, None, &[], &[]);
+        }
+        assert!(world.entity(3).is_some(), "lost at 400");
+        world.apply(401, None, None, &[], &[]);
+        assert!(world.entity(3).is_none(), "kept past 300 ticks");
+    }
+
+    #[test]
+    fn perception_fills_surface_n_for_grounded_contacts() {
+        use bc_proto::RiderOn;
+
+        let mut world = World::new(Faction::Colonies);
+        let t = 3_000;
+        let standing = rider(3, BodyRef::Landmark(0), Vec3::new(0.0, 69.125, 0.0), Vec3::ZERO);
+        let aloft = EntityState {
+            on: Some(RiderOn { body: BodyRef::Landmark(0), aloft: true }),
+            ..rider(4, BodyRef::Landmark(0), Vec3::new(0.0, 0.0, 100.0), Vec3::ZERO)
+        };
+        let free = EntityState {
+            slot: 5,
+            faction: Faction::Oz,
+            pos: Vec3::splat(-17_000.0),
+            ..EntityState::default()
+        };
+        world.apply(t, None, None, &[], &[standing, aloft, free]);
+        world.own = Some(OwnState { alive: true, slot: 1, ..OwnState::default() });
+        let p = world.perception(f64::from(t), &Predictor::default()).expect("a view");
+        let deck = world.bodies.at(t).pose(Body::Landmark(0)).unwrap();
+        let n = |slot| p.get(slot).map(|c| c.surface_n).unwrap();
+        assert!(n(3).distance(deck.rot * Vec3::Y) < 1e-4, "up off the pylon: {:?}", n(3));
+        assert_eq!(n(4), Vec3::ZERO, "aloft: not on the surface");
+        assert_eq!(n(5), Vec3::ZERO, "flying free");
+        assert_eq!(p.me.surface_n, Vec3::ZERO);
+        // Standing on the rolling deck it isn't accelerating.
+        assert!(p.get(3).unwrap().accel.length() < 1e-3);
     }
 
     #[test]

@@ -81,6 +81,10 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
         Mode::Game => Some(net::game::GameRuntime::start(&cfg, stats.clone(), domain)?),
     };
     let shared = game.as_ref().map(|g| g.shared());
+    // Survival: suits left in hide spots before a restart are back before anyone connects.
+    if let Some(g) = shared.as_ref().filter(|g| g.survival) {
+        g.restore_parked(cfg.max_sleepers).await;
+    }
     let status_stats = stats.clone();
     let status_view = game.as_ref().map(|g| g.status_view());
     let status_game = status_view.clone();

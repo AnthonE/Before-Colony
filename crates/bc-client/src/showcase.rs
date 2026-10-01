@@ -7,22 +7,29 @@
 //! after N frames. Controls: drag to orbit, wheel to zoom, WASD/Space/C to move,
 //! 1-9 camera presets, P to pause, F10 to cycle the graphics tier.
 
+use bc_client_core::BodySet;
 use bc_client_core::world::{ObjectMotion, ObjectTrack};
 use bc_proto::snapshot::ent_flags;
 use bc_proto::{ChunkDesc, ChunkKind, Faction, FrameId, Part, Segment, WeaponKind};
+use bc_sim::TICK_HZ;
+use bc_sim::bodies::{Body, BodyPose, landmark_pose};
 use bc_sim::content::frame;
+use bc_sim::content::landmarks::LANDMARKS;
 use bc_sim::content::salvage::DOCK_CENTER;
 use bc_sim::field::{Field, Rock};
+use bc_sim::ground::{LAND_SPEED_MAX, STANCE, place};
 use bc_sim::world::{COLONY_CENTER, COLONY_RADIUS};
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
+use std::f32::consts::TAU;
 
 use crate::camera::{MainCamera, follow, pilot_effects};
 use crate::dev_hooks::DevStatus;
 use crate::gfx::Gfx;
+use crate::sky::SUN_DIR;
 use crate::view::{
-    BeamFeed, BeamView, CameraTarget, ChaseTarget, FxEvent, FxEvents, MissileFeed, MissileView, SuitDrive,
-    ViewPrefs, VisTime,
+    BeamFeed, BeamView, CameraTarget, ChaseTarget, DrawnBodies, FxEvent, FxEvents, MissileFeed, MissileView,
+    SuitDrive, SuitGround, ViewPrefs, VisTime,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,6 +64,10 @@ pub enum Scene {
     /// across its chest, the stations. Every 14 s the bay cycles: the alarm turns and the doors
     /// part (4-7.5 s), stand open, and close again (10.5-14 s).
     Hangar,
+    /// Suits on the landmarks: a Leo walking circles on MO-II's core as the station rolls (preset
+    /// 1), one kneeling asleep in its Aft Well (2), and one coming down on Hermit in its grip,
+    /// landing in a puff of dust at 6.1 s of every 8 (3).
+    Surface,
 }
 
 impl Scene {
@@ -72,6 +83,7 @@ impl Scene {
             "chase" | "pilot" => Some(Self::Chase),
             "gundams" => Some(Self::Gundams),
             "hangar" | "bay" => Some(Self::Hangar),
+            "surface" | "landmarks" => Some(Self::Surface),
             _ => None,
         }
     }
@@ -88,6 +100,7 @@ impl Scene {
             Self::Mining => "mining",
             Self::Gundams => "gundams",
             Self::Hangar => "hangar",
+            Self::Surface => "surface",
         }
     }
 
@@ -129,6 +142,34 @@ impl Scene {
                     orbit(gundam_pos(5) + Vec3::new(0.0, 0.0, 18.0), 1.35, 0.1, 55.0),
                     orbit(at(6, 0.0), 0.9, 0.25, 36.0),
                     orbit(at(1, 0.0), 0.4, 0.1, 40.0),
+                ]
+            }
+            Self::Surface => {
+                let pose = mo_ii_at(2.0);
+                let walk = pose.to_world(WALK_AT);
+                let well = pose.to_world(well_floor() + Vec3::NEG_X * 6.0);
+                let (spot, n) = hermit_spot();
+                // Close by each, a moment into its row's run.
+                let (at, fwd) = lap(2.2);
+                let walker = mo_ii_at(2.2).to_world(at);
+                let side = (pose.rot * fwd).cross(pose.rot * Vec3::Y);
+                vec![
+                    // The walker on the core's top, from the sunward side.
+                    orbit_from(walk + pose.rot * Vec3::Y * 8.0, Vec3::new(0.55, 0.5, 0.65), 62.0),
+                    // Into the Aft Well, from just off its rim.
+                    orbit_from(well, pose.rot * Vec3::new(-1.0, 0.45, 0.35), 52.0),
+                    // Beside the landing on Hermit, the ground under it.
+                    orbit_from(spot + n * 10.0, n.cross(Vec3::Y).normalize() + n * 0.35, 58.0),
+                    // The walker side on, its feet on the deck.
+                    orbit_from(walker, side + pose.rot * Vec3::Y * 0.15, 26.0),
+                    // The sleeper, side on.
+                    orbit_from(
+                        pose.to_world(well_floor() + Vec3::NEG_X * 4.0),
+                        pose.rot * Vec3::new(-0.35, 0.1, 1.0),
+                        24.0,
+                    ),
+                    // The lander's feet.
+                    orbit_from(spot + n * 4.0, n.cross(Vec3::Y).normalize() + n * 0.1, 22.0),
                 ]
             }
             Self::Lineup => LINEUP_CAMS.to_vec(),
@@ -359,6 +400,7 @@ fn cast(scene: Scene) -> Vec<(FrameId, Faction)> {
             (WingZeroBird, Faction::Colonies),
         ],
         Scene::Hangar => vec![],
+        Scene::Surface => vec![(Leo, Faction::Colonies), (Leo, Faction::Colonies), (Leo, Faction::Alliance)],
     }
 }
 
@@ -533,6 +575,54 @@ fn mining_stance(rock: &Rock, side: Vec3) -> (Vec3, Vec3) {
     (face, face + side * 7.5)
 }
 
+/// The surface scene's walker circles here on MO-II's core (its frame: on the core's top, between
+/// the +Y pylon and the fore module), this wide (m), a lap in this long (s).
+const WALK_AT: Vec3 = Vec3::new(120.0, 60.0 + STANCE, 0.0);
+const WALK_RADIUS: f32 = 12.0;
+const WALK_LAP: f64 = 9.0;
+/// The landing on Hermit: its cycle, when the climb back up ends and the fall begins, and how high
+/// the feet start it (s, s, m); it lands about 6.1 s into each cycle.
+const LANDING_CYCLE: f64 = 8.0;
+const FALL_FROM: f64 = 2.75;
+const FALL_HEIGHT: f32 = 24.0;
+
+/// Where the surface scene's walker is on its lap `t` s in, and which way it's walking (MO-II's
+/// frame; not yet put on the ground).
+fn lap(t: f64) -> (Vec3, Vec3) {
+    let a = TAU * (t / WALK_LAP).fract() as f32;
+    (WALK_AT + Vec3::new(a.cos(), 0.0, a.sin()) * WALK_RADIUS, Vec3::new(-a.sin(), 0.0, a.cos()))
+}
+
+/// MO-II as the simulation has it `t` s into the scene.
+fn mo_ii_at(t: f64) -> BodyPose {
+    let ticks = (t * f64::from(TICK_HZ)).max(0.0);
+    landmark_pose(&LANDMARKS[0], ticks.floor() as u32, ticks.fract() as f32)
+}
+
+/// The Aft Well's floor (MO-II's frame).
+fn well_floor() -> Vec3 {
+    LANDMARKS[0].hides[0].center
+}
+
+/// Where the surface scene's Leo lands on Hermit, and the surface's normal there (sector frame):
+/// on its sunward shoulder.
+fn hermit_spot() -> (Vec3, Vec3) {
+    let def = &LANDMARKS[1];
+    let pose = landmark_pose(def, 0, 0.0);
+    let toward = (SUN_DIR + Vec3::Y * 0.8).normalize();
+    let bodies = BodySet::default();
+    let (p, n) =
+        bodies.at(0).surface_along(Body::Landmark(1), pose.rot.conjugate() * toward).unwrap_or_default();
+    (pose.to_world(p), pose.rot * n)
+}
+
+/// A suit's orientation standing on a surface: up along `up`, facing along `fwd` (turned to lie
+/// along the surface).
+fn standing(fwd: Vec3, up: Vec3) -> Quat {
+    let fwd = (fwd - up * fwd.dot(up)).normalize_or(up.any_orthonormal_vector());
+    Transform::IDENTITY.looking_to(-fwd, up).rotation
+}
+
 /// A piece of ore the mining scene knocks loose: from `born` s into the cycle it drifts and turns
 /// from where it starts, until the cycle ends.
 #[derive(Component)]
@@ -684,6 +774,7 @@ fn spawn_showcase(mut commands: Commands, mut show: ResMut<Show>, font: Res<crat
                 thrust: Vec3::ZERO,
                 parts: [7; Part::COUNT],
                 holding: None,
+                ground: None,
             };
             commands.spawn((d, Transform::from_translation(LINEUP), Visibility::default())).id()
         })
@@ -702,6 +793,7 @@ fn spawn_showcase(mut commands: Commands, mut show: ResMut<Show>, font: Res<crat
 fn advance_clock(
     mut show: ResMut<Show>,
     mut vis: ResMut<VisTime>,
+    mut bodies: ResMut<DrawnBodies>,
     real: Res<Time<Real>>,
     mut dev: ResMut<DevStatus>,
 ) {
@@ -722,6 +814,8 @@ fn advance_clock(
         vis.now += dt;
     }
     vis.dt = dt as f32;
+    // The bodies (every landmark; the colony's spin) on the scene's clock, in ticks.
+    bodies.t = vis.now * f64::from(TICK_HZ);
     show.frames += 1;
     dev.set("mode", "showcase");
     dev.set("scene", show.scene.name());
@@ -1219,6 +1313,7 @@ fn script(
                 up: rot * Vec3::Y,
                 aim: heading,
                 cut: false,
+                ground: false,
                 boost,
                 g_strain: g,
                 blackout: (10.5..12.5).contains(&u),
@@ -1261,6 +1356,82 @@ fn script(
         }
         // The bay is driven by `hangar_script`.
         Scene::Hangar => {}
+        Scene::Surface => {
+            let pose = mo_ii_at(t);
+            let mo_ii = Body::Landmark(0);
+            let shape = LANDMARKS[0].shape;
+            // On MO-II, as the station rolls under it: a suit's place, way and speed on it (its
+            // frame), put on the ground.
+            let on_mo_ii = |local: Vec3, fwd: Vec3, speed: f32, d: &mut SuitDrive| {
+                let (origin, n, _) = place(&shape, local, STANCE);
+                let up = pose.rot * n;
+                let rel = pose.rot * ((fwd - n * fwd.dot(n)).normalize_or(Vec3::ZERO) * speed);
+                d.pos = pose.to_world(origin);
+                d.rot = standing(pose.rot * fwd, up);
+                d.vel = pose.point_vel(d.pos) + rel;
+                d.ground = Some(SuitGround {
+                    body: mo_ii,
+                    pose,
+                    shape,
+                    aloft: false,
+                    up,
+                    rel_vel: rel,
+                    height: STANCE,
+                });
+            };
+            // A lap of the core's top.
+            let speed = TAU * WALK_RADIUS / WALK_LAP as f32;
+            set(0, &mut |d| {
+                let (local, fwd) = lap(t);
+                on_mo_ii(local, fwd, speed, d);
+                d.aim = (d.rot * Vec3::new(0.2, 0.05, 1.0)).normalize();
+                d.flags = 0;
+                d.thrust = Vec3::ZERO;
+            });
+            // Asleep on the Aft Well's floor: it kneels, its eyes dark.
+            set(1, &mut |d| {
+                on_mo_ii(well_floor() + Vec3::NEG_X * STANCE, Vec3::Y, 0.0, d);
+                d.aim = d.rot * Vec3::Z;
+                d.flags = ent_flags::ASLEEP;
+                d.thrust = Vec3::ZERO;
+            });
+            // Down onto Hermit in its grip: off it on the thrusters, then falling under the grip's
+            // pull (braked at 8 m/s) to a landing, and standing.
+            let (spot, n) = hermit_spot();
+            let hermit = landmark_pose(&LANDMARKS[1], 0, 0.0);
+            let u = t.rem_euclid(LANDING_CYCLE);
+            let fall = (u - FALL_FROM).max(0.0) as f32;
+            let (h, vn, lifting) = if u < FALL_FROM {
+                let h = FALL_HEIGHT * smooth(0.5, FALL_FROM, u);
+                (h, if (0.5..FALL_FROM).contains(&u) { 12.0 } else { 0.0 }, u >= 0.5)
+            } else {
+                // 2 m/s down at first, 6 m/s² more each second, to the brake's 8 m/s.
+                let (h, v) = if fall < 1.0 {
+                    (FALL_HEIGHT - 2.0 * fall - 3.0 * fall * fall, 2.0 + 6.0 * fall)
+                } else {
+                    (FALL_HEIGHT - 5.0 - LAND_SPEED_MAX * (fall - 1.0), LAND_SPEED_MAX)
+                };
+                (h.max(0.0), if h > 0.0 { -v } else { 0.0 }, false)
+            };
+            set(2, &mut |d| {
+                let fwd = n.cross(Vec3::Y).normalize_or(Vec3::Z);
+                d.pos = spot + n * (STANCE + h);
+                d.rot = standing(fwd, n);
+                d.vel = n * vn;
+                d.aim = d.rot * Vec3::Z;
+                d.flags = 0;
+                d.thrust = if lifting { Vec3::Y * 0.8 } else { Vec3::ZERO };
+                d.ground = Some(SuitGround {
+                    body: Body::Landmark(1),
+                    pose: hermit,
+                    shape: LANDMARKS[1].shape,
+                    aloft: h > 0.0,
+                    up: n,
+                    rel_vel: n * vn,
+                    height: STANCE + h,
+                });
+            });
+        }
         Scene::Gundams => {
             let u = t.rem_euclid(GUNDAMS_CYCLE);
             for i in 0..7 {

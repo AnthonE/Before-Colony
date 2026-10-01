@@ -33,6 +33,26 @@ below the combat zone, with the debris of its construction around it and the Con
 Mobile Doll patrols circling above, guarding its claims. The sector is a ±32.768 km cube, and suits
 are kept within ±30 km.
 
+Suits can land on the sector's bodies, walk on them, and hide in them (see "Surfaces"):
+- **MO-II** ("Mobile Operation II"), a resource satellite serving the colony's dock. It lies 3.6 km
+  past the colony's −X end, about 30 s from the launch gate. A 400 m core with a module at each
+  end, four pylons round its middle and a mast at its nose. It rolls about its long axis once every
+  320 s and drifts round a 200 m station-keeping circle every 30 minutes, so no point of it moves
+  faster than 2.87 m/s. The **Aft Well**, a bowl 25 m deep, is cut into its aft module's face, on
+  the axis.
+- **Hermit**, a big asteroid 15.6 km from the field's centre: 1.8 × 1.24 × 1.52 km and still. It
+  isn't one of the field's rocks, so it can't be mined or shattered. Three craters, each a bowl
+  about 30 m deep, sit at an end of each of its axes: **THE DEEP**, **KEYHOLE** and the **FAR
+  SIDE**.
+- **The field's big rocks.** A rock whose smallest half-axis is at least 10 m (75 of the 160) can
+  be gripped. A smaller one can still be rested against, and a suit parks on it.
+
+**The colony isn't walkable.** It spins for 1 g inside, so its hull moves at 177 m/s: standing
+on it would fling a suit off at more than 1 g, and the browser would draw its own suit up to 47 m
+from where the server has it. To suits and shots the colony is a still, solid cylinder. Its spin
+runs on the tick's clock (one turn every 3 405 ticks, 113.5 s), so every client draws it turned the
+same way, and a later hull walker has it to hand.
+
 Space comes first because that is where gundanium is made (it can only be refined in zero-G) and
 where the colony's logistics live. Earth, with atmosphere, gravity and re-entry, is on the roadmap.
 
@@ -66,6 +86,9 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
 - **Rocks are solid too.** A suit that flies into one stops at its surface, losing its speed into
   it, and slides along it; nothing tunnels, even at 2 km/s. Shots stop at rocks, so a rock is
   cover. The field comes from a seed, so your browser predicts against the same rocks.
+- **So are MO-II and Hermit.** A suit meets them as it meets a rock, but relative to the moving
+  surface, which carries it along. A shot meets whatever is first along its path: a rock, a
+  landmark, the colony or a suit. So a suit skimming the hull is hit, and one behind it isn't.
 
 | Frame | Role | Dry mass | Accel (boost) | Δv | Armour | Loadout |
 |---|---|---|---|---|---|---|
@@ -78,6 +101,78 @@ Everything is in SI units and shared bit-for-bit between the server and the brow
 | Shenlong Gundam (XXXG-01S) | duellist | 7.5 t | 7.4 g (11.8 g) | ≈3.3 km/s | gundanium (×0.55) | Dragon Fang · flamethrower · beam glaive |
 | Taurus (OZ-13MS) | Mobile Doll | 6.5 t | 5 g | | titanium | beam rifle |
 | Virgo (OZ-02MD) | Mobile Doll | 9.5 t | 3 g | | heavy (×0.8) | beam cannon, Planet Defensors (visual) |
+
+## Surfaces (`bc-sim/src/ground.rs`)
+
+A suit can land on a body (MO-II, Hermit, the field's big rocks), walk on it, crouch and hide on
+it, and lift off again. Each body has a frame of its own, and a suit on one moves in it, so a
+station that turns carries its riders round with it.
+
+- **Grip is opt-in: L arms it.** Armed, a suit that comes in slow and close is caught: its feet
+  within 25 m of a surface it can grip, under 8 m/s relative to it and not leaving it faster than
+  2 m/s, with no boost and no Space. Far from surfaces nothing changes, and a suit that never arms
+  the grip flies exactly as it always has. Mobile Dolls and miners never arm it.
+  - Coming in with the grip armed (within 150 m and under 40 m/s), the suit rolls its feet toward
+    the surface; its nose stays on the aim, and Q/E override. A landing ring `( _ )` marks where
+    it will come down: green with `LAND 18 m 3.2 m/s` when a catch would hold, amber with
+    `TOO FAST 14 m/s` when it wouldn't.
+- **Three footings.** A suit is *free* (flying in the sector), *aloft* (in the air over a body, in
+  its grip) or *grounded* (on its feet).
+  - **Aloft** is flight in the body's frame, under a *grip gravity* of 6 m/s² (0.6 g) toward the
+    nearest surface. A descent faster than 8 m/s is braked, burning nothing. Flight assist holds
+    a walk's (or, with Shift, a run's) speed along the surface but never holds altitude: let go of
+    Space and C and the suit comes down. The thrusters still work: W/A/S/D steer, C dives (still
+    braked), Space climbs at 20 m/s, and Q/E roll. More than 40 m over the surface, or faster than
+    30 m/s over it, and the grip lets go. A catch is never undone by the fall it starts, which
+    lands at no more than 8 m/s.
+  - **Grounded** is legs, not thrusters, and burns no propellant. W/A/S/D walk at 8 m/s toward
+    where you aim, Shift runs at 16, and crouched you creep at 3. The suit stands up to the
+    surface, turns to face the aim and leans back (or forward) up to 40° to reach it, so hand
+    weapons reach straight overhead. X stops hard. A blade's lunge is a dash along the ground.
+  - **Where you can walk.** Rounded edges and gentle curves are walked round. An inner corner, or
+    an edge that turns the ground by more than 34° in a step, is a wall, and you slide along it.
+    So a crater's rim is a wall: you hop in and out. Walk off a drop of more than 1.2 m and you're
+    aloft, and the grip brings you down onto the nearest surface, running if you were.
+- **Hop and lift off.** Tap Space to hop: 10 m/s off the ground, an 8.3 m apex and 3.4 s in the
+  air. Hold it, and once you're off the ground the thrusters take over, climbing at 20 m/s; past
+  40 m you're flying free (`FLYING`).
+- **Let go: L again.** On the ground the suit pushes off at 6 m/s along the normal, and leaves
+  with exactly the velocity of the surface it stood on. A rock shattered underfoot floats the
+  suit off at 1.5 m/s (`GRIP LOST`), and folding into Neo-Bird takes off too: a bird can't grip.
+- **Crouch: C**, a toggle on the ground. The suit's origin drops from 9.125 m over the surface to
+  6 m in about half a second. The simulation keeps the stance until it's told otherwise, so a
+  client that stalls leaves its suit crouched. Space from a crouch stands up first, then hops.
+- **Legs.** A suit without them still grips, kneels, turns (slowly) and lifts off on its
+  thrusters, but it can't walk or hop.
+- **Cover and concealment are different things.** *Cover* is geometry: shots meet the first thing
+  in their way, so crouched below a crater's rim or behind a pylon you're shielded, anywhere.
+  *Concealment* is what you show your enemies' sensors, and it comes from lying still (see
+  "Sensors and visibility").
+- **Fighting on a body.** A rider is a suit like any other to everyone else: shots and blades meet
+  it where its shooter saw it, and the body shields it from the far side. A rider fires from where
+  its pilot saw itself, on the station as it was drawn (`ARCHITECTURE.md`, "Bodies and frames").
+  Mobile Dolls come at riders from above, rather than ploughing into the body. ZERO knows a
+  grounded suit can't dive through the ground: it reads its maneuvers along the surface.
+- **What the HUD says.** The flight panel shows `GRIP ARMED`, `ALOFT` (with the feet's height,
+  `ALT 23 m`), `GROUNDED` or `CROUCHED`. While you're on a body, `SPD` and the velocity marker
+  `-o-` are relative to it; flying within 2 km of a landmark, the marker is relative to that.
+  Within 3 km of a landmark its name, range and range rate over its surface show, negative while
+  you close on it (`MO-II  2.4 km  -38 m/s`), and its hide spots are marked (`<> AFT WELL 2.4 km`).
+  `L - GRIP` says a surface you could grip is near; `HULL SPINS - NO GRIP` that the colony isn't
+  one.
+
+| Constant (`bc_sim::ground`) | Value |
+|---|---|
+| Origin over the ground: standing, crouched | 9.125 m, 6 m (soles 9.07 m below the origin) |
+| Walk, run, crouched | 8, 16, 3 m/s, picked up at 20 m/s² (X stops at 40 m/s²) |
+| Hop | 10 m/s off the ground |
+| Grip gravity; the free brake on a descent | 6 m/s²; 8 m/s |
+| A catch | feet within 25 m, under 8 m/s relative, leaving at under 2 m/s |
+| The grip lets go aloft | feet above 40 m, or faster than 30 m/s |
+| Roll-level and the landing ring | within 150 m, under 40 m/s |
+| Push-off on letting go | 6 m/s |
+| A wall | the ground turning more than 0.6 rad (34°) in a step; the origin never nearer than 5 m to its body |
+| Grippable rocks | smallest half-axis 10 m or more |
 
 ## Combat
 
@@ -207,8 +302,10 @@ exactly.
   at up to 18 g, but its Δv is a budget (1.1 km/s): once spent the missile coasts and can't turn.
   So a target can outrun it, make it burn its motor turning, or break late.
 - **Seekers** hold their target within 60° of the nose and 3.2 km times the target's signature,
-  so a jamming Deathscythe slips them. A missile bursts within 4 m of an enemy suit (friends are
-  safe), against a rock or the colony, or at the end of its 8 s life.
+  so a jamming Deathscythe slips them, and so does a suit that goes dark parked or hides: the
+  seeker asks the sensors' question ("Sensors and visibility"). A missile bursts within 4 m of an
+  enemy suit (friends are safe), where it meets a rock, a landmark or the colony, or at the end
+  of its 8 s life.
 - **Full Open Attack** (Heavyarms, SPECIAL): for three seconds every hatch opens and everything
   fires along the aim, heat or not: the beam gatling, both launchers and the chest gatlings,
   about 24 missiles. Then the suit is locked in an overheat for 5 s, and it's ready again 30 s
@@ -240,17 +337,38 @@ timings, arc and reach in its row of the weapon table.
 ## Sensors and visibility
 
 Each frame has a sensor range, and each suit a signature. Boosting multiplies the signature by 1.5
-and firing by 1.8 (for 1 s). Anything within 1.5 km is always visible. Losing the head cuts sensor
-range to 40%. **The server only replicates what your sensors see**, so fog of war is also the
-anti-wallhack.
+and firing by 1.8 (for 1 s). Anything within 1.5 km is in sight, unless it's jamming or hiding
+(below). Losing the head cuts sensor range to 40%. **The server only replicates what your
+sensors see**, so fog of war is also the anti-wallhack.
 
 **Deathscythe's Hyper Jammer** (held on MODE) defeats this model. To its enemies a jamming suit
 shows a fiftieth of its signature, and their eyes see it only within 150 m. So it leaves their
 screens, and Mobile Dolls, the ZERO System, locks and missile seekers lose it too, until it's all
-but within reach of its scythe. Allies still see it, as a
-shimmer. The jammer engages with a fifth of the energy pool and drains 30 energy/s against a
-recharge of 18, so it runs about 12 s from full. Firing, striking or using a special shows
-through it for 2 s.
+but within reach of its scythe. Allies still see it, as a shimmer. The jammer engages with a
+fifth of the energy pool and drains 30 energy/s against a recharge of 18, so it runs about 12 s
+from full. Firing, striking or using a special shows through it for 2 s.
+
+**Hiding on a body** (`bc-sim/src/sim/conceal.rs`). What a suit shows depends on how still it
+lies, and one question answers it for sensors, Mobile Dolls, ZERO, locks and missile seekers
+alike (`Sim::concealment`):
+- **Lurking.** A suit crouched on a body, stick idle and moving under 0.5 m/s over it, settles in
+  3 s (`HIDING 3`). In a hide spot it is then **hidden** (`HIDDEN - AFT WELL`, the reactor idling):
+  off its enemies' sensors and seekers, and their eyes find it only within 225 m. Anywhere else on
+  a body it runs **cold** (`COLD`): half its signature, so sensors find it at half their range.
+  Firing or being hit shows it for 5 s (`SEEN 5`); then it settles again.
+- **Parked.** A sleeper parked on a body powers down (see "Sleeping in the cockpit"): off sensors,
+  and seen only within 400 m, or 150 m in a hide spot.
+- **Hide spots** are bowls cut into the landmarks: the **Aft Well** on MO-II, and **THE DEEP**,
+  **KEYHOLE** and the **FAR SIDE** on Hermit. They're compiled into every client, so their markers
+  give nobody away, and they turn with their body. Their rims are cover too: the top of a suit
+  crouched on the Aft Well's floor is 10 m below its rim.
+- **Allies** always see their own, hidden or parked.
+
+Only a signature of zero lets the eye's range bind (a suit is found within eyesight *or* within
+its enemy's sensor range scaled by its signature), which is why hide spots are needed to vanish:
+running cold only shortens how far off sensors find you. Nothing vanishes the tick its pilot logs
+off, so leaving doesn't give a suit away on the spot; and a sensor doesn't see through rock yet,
+so hide spots stand in for line of sight.
 
 ## The ZERO System
 
@@ -329,7 +447,8 @@ respawns (a signed-in pilot keeps them from one session to the next; a guest's g
   than 25 m/s sells the hold and whatever is in hand: nickel-iron 1 credit/kg, titanium 4,
   volatiles 3, exotics 15. Suit parts sell as titanium, except a Gundam's (gundanium, sold with the
   exotics).
-- **Dying** spills the hold and drops what you were holding; someone else can pick it up.
+- **Dying** spills the hold and drops what you were holding; someone else can pick it up. What a
+  suit on a body spills (dying, or jettisoning) flies up off the body, never into it.
 
 ## Mining
 
@@ -342,8 +461,11 @@ show which, and thin as the ore is taken. A rock of radius r m has 60 + 25r of s
   Beams do 0.3× and boil off 4 kg of ore for each point of damage, so shooting a rock apart wastes
   most of it.
 - **A rock with no structure left shatters**: whatever ore is left flies off as 2–8 chunks. Nothing
-  meets it until it grows back, 10 minutes later and only once no suit is within 1 km. Rocks crack
-  as they're worked.
+  meets it until it grows back, 10 minutes later and only once no suit awake is within 1 km (a
+  sleeper holds it back only if the rock would grow over it). Rocks crack as they're worked.
+- **Digging your own rock.** On a rock's surface, a blade doesn't cut into the rock underfoot
+  unless the stroke starts aimed down, 30° or more below the horizon: then it digs, and can
+  shatter the rock, which floats the suit off.
 - **Hulks come apart.** A blade's stroke through a hulk cuts off the part nearest the blade, which
   drifts free as a limb small enough to stow.
 
@@ -458,8 +580,10 @@ for bulk goods, a piece for everything else.
 ## The world (EVE-lite, roadmap)
 
 - The Earth Sphere is split into **sectors**: L1–L5 colony clusters, lunar orbit, Earth orbit, and
-  resource satellites (MO-II, Barge). Each sector is one simulation thread (then one process).
-  Travel between them is a timed transfer orbit, so chokepoints and interdiction emerge naturally.
+  resource satellites (Barge; MO-II already keeps station in L1). Each sector is one simulation
+  thread (then one process). Travel between them is a timed transfer orbit, so chokepoints and
+  interdiction emerge naturally. A sector's bodies, and the suits on them, are its own: a suit
+  leaves a sector flying free.
 - **Time dilation** instead of crashes. When a sector's tick exceeds budget in a huge battle,
   simulation time slows and the snapshot header's `tidi_pct` tells clients to slow their clocks.
 - **Factions and territory:** OZ, the Alliance, the Colonies (Operation Meteor), Romefeller, White
@@ -473,6 +597,7 @@ for bulk goods, a piece for everything else.
 | Mouse (click to lock) | aim |
 | W/S · A/D · Space/C | thrust forward/back · left/right · up/down |
 | Q/E | roll |
+| L | grip: armed, coming in slow and close lands you on a rock or a landmark; again, let go |
 | Shift · X · R | boost · brake · RCS (fast turns) |
 | LMB · RMB · F | primary · secondary · melee |
 | H | the frame's special: a toggle for Neo-Bird and the Hyper Jammer, a press for Full Open Attack and the Cross Crusher |
@@ -482,6 +607,11 @@ for bulk goods, a piece for everything else.
 | Enter | dock (survival): at rest inside the dock's ring of lights |
 | 1–6 | arcade rules: respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
 | Esc · F1 · F10 | menu · the controls sheet · graphics quality |
+
+On a body (see "Surfaces"): W/A/S/D walk, Shift runs, Space hops (held, it lifts off on the
+thrusters), C crouches (a toggle), X stops, a blade's lunge dashes along the ground, and Q/E do
+nothing; L lets go. Aloft in a body's grip the keys fly as ever, but flight assist holds a walk's
+speed over the body, or a run's with Shift, and never holds altitude.
 
 On foot in the hangar bay: the mouse looks, W/A/S/D walk, Shift runs, Space jumps, E uses what's
 in view (E again, or Esc, steps away from a terminal).
@@ -536,21 +666,40 @@ when a link that was in the world drops. A signed-in redial doesn't ask the wall
 signing in from a second window takes the pilot over (the first lets go and doesn't fight back). Esc (or the browser taking the pointer back) opens the menu: Resume, Controls,
 Disconnect. The sector doesn't pause. Menus are HTML over the live scene; the cockpit HUD is Bevy's.
 
-**Sleeping in the cockpit.** A signed-in pilot who leaves (SLEEP & DISCONNECT in the menu, closing
+**Sleeping in the cockpit.** A signed-in pilot who leaves (the menu's disconnect button, closing
 the tab, a link that stays down, a minute without input) doesn't take the suit along: it stays in
-the sector with its pilot asleep in the cockpit, and they wake in it when they're back.
+the sector with its pilot asleep in the cockpit, and they wake in it when they're back. The menu's
+button says what will become of it: LEAVE SUIT HIDDEN on the ground in a hide spot (survival),
+PARK & DISCONNECT where it would park, SLEEP & DISCONNECT anywhere else.
 - *Drifting.* Nobody flies a sleeping suit: no flight assist, no attitude hold. It carries on at the
-  velocity and spin it had, fully Newtonian, and fetches up against rocks and the colony as a wreck
-  would. Its eyes go dark, and brackets read ASLEEP.
-- *Parking.* A suit resting against an asteroid (within 1.5 m of its surface, under 3 m/s) when its
-  pilot leaves is parked instead: held where it sat, cold and still. Sensors don't find it; eyes
-  do, inside 400 m. The HUD reads PARKED while you're somewhere you could park. Shatter the rock
-  and the suit floats free. Moon craters are next (one more kind of `Body` to rest on).
+  velocity and spin it had, fully Newtonian, and fetches up against rocks, landmarks and the colony
+  as a wreck would. Its eyes go dark, and brackets read ASLEEP. Nobody works its special either: a
+  Neo-Bird stays a bird, and a jammer goes off.
+- *Parking.* A suit on its feet on a body, or resting against a rock or a landmark (within 1.5 m of
+  its surface, under 3 m/s over it), when its pilot leaves is parked instead: held where it was,
+  kneeling if it was crouched, and moving with the body. One aloft in a body's grip settles onto it
+  first, and parks where it lands. The HUD reads PARKED while you're somewhere you could park (HIDE
+  SPOT in one). Shatter the rock and the suit floats free.
+- *Powering down.* A parked suit stays in sight for 8 s after its pilot leaves, or 60 s after it
+  last fired or was hit, whichever is later, so nobody logs off out of a fight. (A suit that has
+  never fought is dark after the 8 s.) Then its reactor idles: its enemies' sensors and seekers lose
+  it, and their eyes find it only within 400 m, or 150 m in a hide spot. Its allies see it all
+  along.
 - *Hunted.* Mobile Dolls leave sleepers alone; other pilots can shoot them down and salvage what's
   left. A sleeper destroyed stays gone, and its pilot is told by whom when they're back. Parked is
-  safer than drifting.
+  safer than drifting, and hidden safer still.
 - *Room.* At most 256 sleepers a sector; past that, or when the sector's suits run out, the longest
-  asleep is cleared, and its pilot is told. A server restart clears them all.
+  asleep is cleared (those in hide spots last), and its pilot is told.
+- *A restart.* Under survival rules, a suit left on its feet in a landmark's hide spot is saved with
+  its pilot's record, and put back where it was when the server starts, before anyone connects, with
+  its real damage, tank, ammunition and hold: what it had when its pilot left, less what it has
+  lost to hunters since (its record follows every hit, so limbs shot off aren't there to take
+  again). It is asleep, and dark 8 s later, so it can be hunted before its pilot is back.
+  Destroyed while they're away, it isn't put back again, even if that was as they were leaving. A restart clears
+  every other sleeper: under survival the tugs bring it home to its bay as it launched.
+- *Waking.* The pilot wakes where the suit is: on its feet (or knees) as they left it, still
+  gripping, and crouched if it was. A suit that lay hidden stays hidden until it moves or fires:
+  `WOKE IN AFT WELL - hidden. Move or fire and you're seen.`
 - A suit that's already a wreck when its pilot leaves is gone, as a guest's suit always is.
 
 **Settings** (from the title or the menu) are kept in the browser: mouse sensitivity, invert Y,
@@ -559,14 +708,18 @@ flashing effects (a ZERO seizure's flicker; off to start with when the browser a
 motion), first-flight hints and graphics quality, along with the last callsign and frame launched. `bc_client_core::settings` defines them, their ranges and the stored text (a
 key this build doesn't know is kept, for the build that wrote it). A new pilot gets one hint at a
 time (on foot in the bay: walking, using a terminal, boarding; flying: thrust, boost, fire, the
-cockpit view, flight assist, salvage, docking, the menu), each gone once it's been done.
+cockpit view, flight assist, salvage, docking, the menu; near a body: the grip, walking on it,
+hiding in a hide spot), each gone once it's been done.
 
 **Sound.** Every sound is generated at boot (`bc-sound`, no audio files): weapons, impacts,
 explosions, the engines worked by the throttle, RCS puffs, the lock tone quickening as a lock
 builds, missile and low-propellant alarms, the pilot's heartbeat under G, the ZERO System's drone,
-the dock and the sale, and a score that crossfades from calm to combat with the fight. There's no
-air in space, so it's the cockpit's sound: the suit's own machinery, and the world as the sensors
-render it, quieter with distance and gone beyond each cue's range. A blackout muffles everything.
+the dock and the sale, and a score that crossfades from calm to combat with the fight. On a body:
+the grip's clamps closing and opening, the thud of a landing (as hard as it was), footsteps, the
+reactor going dark and powering up, and, through the rock, the footsteps of anyone else on the
+same body within 500 m, so hunter and hider can hear each other. There's no air in space, so it's
+the cockpit's sound: the suit's own machinery, and the world as the sensors render it, quieter with
+distance and gone beyond each cue's range. A blackout muffles everything.
 The browser plays it through Web Audio; volumes are settings (master, weapons, cockpit, music).
 `cargo run -p bc-sound --release --example reel -- reel.wav` writes a reel to listen to.
 
@@ -625,4 +778,26 @@ jobs, law and traffic, on an economy whose sinks keep demand turning over.
 - **Agents:** an MCP server so LLM agents can fly as squad commanders, and a Python gym on the
   headless simulation for RL.
 - **Earth:** atmosphere, gravity, re-entry heating (Wing's shield).
+- **Surfaces, next** (each left out of the first round on purpose):
+  - Walking the colony's hull. It needs a surface moving at 177 m/s, more than 1 g outward and a
+    camera that rides with it. The clock and the hull's ordered sweep are in place; the axis
+    port's end-cap module, which moves at most 5 m/s within 90 m of the axis, is the natural
+    first step.
+  - On foot in the sector, or a suit left hidden while its pilot flies another (survival's
+    one-suit rule, and a pilot's body on the server).
+  - Parked suits outliving a restart outside the landmarks' hide spots (on rocks: a rock grows
+    back where it was, so its index and the field's seed would do).
+  - Chunks coming to rest on bodies; damage and G from a hard landing; sensors that rock blocks
+    (line of sight: hide spots stand in for it today).
+  - More landmarks, and landmarks that can be mined or wrecked; bodies that move by more than a
+    closed form (pushed, thrusting, streamed in), which would need their state on the wire.
+  - A charged leap (button bit 15 is free); leaning and peeking round cover on Q/E; hold to look.
+  - Coriolis and centrifugal pulls aloft (at most 0.043 m/s² on MO-II); a chase camera that turns
+    with a spinning body (it lags MO-II by 4 mrad); gripping rocks under 10 m.
+  - Keeping hidden sleepers' names off the roster and `/status` (they give away who, never where).
+  - **Moons and planets.** A moon is too big for one `f32` frame (0.125 m steps at its radius), so a
+    lunar sector *is* the moon's own frame, a patch of its surface ±30 km across: the ground is
+    still in sector coordinates, and the moon's turn never enters the simulation. Its surface is a
+    heightfield with a bounded slope, gravity is real (1.62 m/s²), and the stepping, the wire and
+    the drawing carry over unchanged, since they already work in a body's frame against a probe.
 - **Salvage:** chunks that collide with each other, miners and pirates flown by the server.

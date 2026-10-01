@@ -196,6 +196,8 @@ pub fn flight_mods(t: &Tuning, g_immune: bool, extra_mass_kg: i32) -> FlightMods
         g_immune,
         lunge: false,
         extra_mass_kg,
+        roll_level: None,
+        hop: None,
     }
 }
 

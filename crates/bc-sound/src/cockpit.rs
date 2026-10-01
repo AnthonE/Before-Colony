@@ -1,6 +1,7 @@
 //! What the pilot hears of their own suit: the engines as they're worked, the lock tone building,
-//! warnings, the hold and the dock, the ZERO System. A model of the cockpit's state in, loop
-//! levels and one-shot cues out, so every rule is a test.
+//! warnings, the hold and the dock, the ZERO System, the grip and the feet on a body, the reactor
+//! going dark in hiding. A model of the cockpit's state in, loop levels and one-shot cues out, so
+//! every rule is a test.
 
 use crate::Cue;
 
@@ -55,7 +56,27 @@ pub struct CockpitIn {
     pub failed: u8,
     /// The tank is holed.
     pub leak: bool,
+    /// How the suit stands on a body: 0 free, 1 grounded (standing on it), 2 aloft (in its grip),
+    /// as the own state has it.
+    pub footing: u8,
+    /// How fast it came down on landing, m/s (read the frame it's grounded).
+    pub touchdown: f32,
+    /// Feet put down so far (one per plant).
+    pub footfalls: u32,
+    /// The grip is armed.
+    pub grip: bool,
+    /// How well hidden it is: 0 exposed, 1 settling, 2 cold, 3 hidden (sensors have lost it).
+    pub cover: u8,
 }
+
+/// [`CockpitIn::footing`]: standing on a body.
+pub const GROUNDED: u8 = 1;
+/// [`CockpitIn::cover`]: hidden.
+pub const HIDDEN: u8 = 3;
+/// The quickest footsteps come, s.
+pub const FOOTSTEP_GAP: f32 = 0.2;
+/// A landing this fast (m/s), the most the grip lets a suit come down at, thuds at full.
+pub const TOUCHDOWN_FULL: f32 = 8.0;
 
 /// One loop's level and pitch.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -86,65 +107,89 @@ pub struct Cockpit {
     next_lock_beep: f64,
     next_fuel_beep: f64,
     next_puff: f64,
+    next_step: f64,
     next_hiss: f64,
     fuel_low: bool,
 }
 
 impl Cockpit {
-    /// Steps once a frame: `cue` is called for every one-shot this frame starts.
-    pub fn frame(&mut self, now: f64, i: &CockpitIn, cue: &mut dyn FnMut(Cue)) -> CockpitOut {
+    /// Steps once a frame: `cue` is called for every one-shot this frame starts, with its gain
+    /// (0..1).
+    pub fn frame(&mut self, now: f64, i: &CockpitIn, cue: &mut dyn FnMut(Cue, f32)) -> CockpitOut {
         let live = i.in_world && i.alive;
         if let Some(p) = self.prev.filter(|p| p.in_world && i.in_world) {
             if p.alive && !i.alive {
-                cue(Cue::Destroyed);
+                cue(Cue::Destroyed, 1.0);
             }
             if !p.alive && i.alive {
-                cue(Cue::Launch);
+                cue(Cue::Launch, 1.0);
             }
             if live {
                 if i.docked && !p.docked {
-                    cue(Cue::Dock);
+                    cue(Cue::Dock, 1.0);
                 }
                 if i.credits > p.credits {
-                    cue(Cue::Sale);
+                    cue(Cue::Sale, 1.0);
                 }
                 if i.held && !p.held {
-                    cue(Cue::Grab);
+                    cue(Cue::Grab, 1.0);
                 }
                 if p.held && !i.held {
-                    cue(if i.cargo_kg > p.cargo_kg { Cue::Stow } else { Cue::Throw });
+                    cue(if i.cargo_kg > p.cargo_kg { Cue::Stow } else { Cue::Throw }, 1.0);
                 }
                 if i.cargo_kg < p.cargo_kg && !i.docked && i.credits == p.credits {
-                    cue(Cue::Jettison);
+                    cue(Cue::Jettison, 1.0);
                 }
                 if i.zero && !p.zero {
-                    cue(Cue::ZeroOn);
+                    cue(Cue::ZeroOn, 1.0);
                 }
                 if i.seized && !p.seized {
-                    cue(Cue::Seizure);
+                    cue(Cue::Seizure, 1.0);
                 }
                 if i.jamming != p.jamming {
-                    cue(if i.jamming { Cue::JammerOn } else { Cue::JammerOff });
+                    cue(if i.jamming { Cue::JammerOn } else { Cue::JammerOff }, 1.0);
                 }
                 if i.transforming && !p.transforming {
-                    cue(Cue::Transform);
+                    cue(Cue::Transform, 1.0);
+                }
+                // The grip: armed, or a surface taking hold; disarmed, or letting go. One a frame.
+                let (held, was) = (i.footing != 0, p.footing != 0);
+                if (i.grip && !p.grip) || (held && !was) {
+                    cue(Cue::MagLock, 1.0);
+                } else if (p.grip && !i.grip) || (was && !held) {
+                    cue(Cue::MagRelease, 1.0);
+                }
+                if was && !held {
+                    cue(Cue::PushOff, 1.0);
+                }
+                if i.footing == GROUNDED && p.footing != GROUNDED {
+                    cue(Cue::Touchdown, (i.touchdown / TOUCHDOWN_FULL).clamp(0.1, 1.0));
+                }
+                if i.footing == GROUNDED && i.footfalls > p.footfalls && now >= self.next_step {
+                    cue(Cue::Footstep, 1.0);
+                    self.next_step = now + f64::from(FOOTSTEP_GAP);
+                }
+                if i.cover == HIDDEN && p.cover != HIDDEN {
+                    cue(Cue::GoDark, 1.0);
+                } else if p.cover == HIDDEN && i.cover != HIDDEN {
+                    cue(Cue::PowerUp, 1.0);
                 }
                 // Something inside broke: an alarm for a failure, a chirp for damage.
                 if i.failed > p.failed {
-                    cue(Cue::SystemFail);
+                    cue(Cue::SystemFail, 1.0);
                 } else if i.damaged > p.damaged {
-                    cue(Cue::SystemCrit);
+                    cue(Cue::SystemCrit, 1.0);
                 }
             }
         } else if live {
             // Just arrived in the world.
-            cue(Cue::Launch);
+            cue(Cue::Launch, 1.0);
         }
 
         // Repeating cues.
         if live && i.lock_progress > 0.0 && !i.locked {
             if now >= self.next_lock_beep {
-                cue(Cue::LockBeep);
+                cue(Cue::LockBeep, 1.0);
                 // Faster as the lock builds: from about twice a second to ten times.
                 self.next_lock_beep = now + f64::from(0.45 - 0.35 * i.lock_progress.clamp(0.0, 1.0));
             }
@@ -158,7 +203,7 @@ impl Cockpit {
         }
         if live && self.fuel_low {
             if now >= self.next_fuel_beep {
-                cue(Cue::LowFuel);
+                cue(Cue::LowFuel, 1.0);
                 self.next_fuel_beep = now + 2.5;
             }
         } else {
@@ -166,7 +211,7 @@ impl Cockpit {
         }
         if live && i.leak {
             if now >= self.next_hiss {
-                cue(Cue::Leak);
+                cue(Cue::Leak, 1.0);
                 self.next_hiss = now + 1.2;
             }
         } else {
@@ -174,7 +219,7 @@ impl Cockpit {
         }
         if live && i.rcs {
             if now >= self.next_puff {
-                cue(Cue::RcsPuff);
+                cue(Cue::RcsPuff, 1.0);
                 self.next_puff = now + 0.14;
             }
         } else {
@@ -226,7 +271,7 @@ mod tests {
 
     fn step(c: &mut Cockpit, now: f64, i: CockpitIn) -> (CockpitOut, Vec<Cue>) {
         let mut cues = Vec::new();
-        let out = c.frame(now, &i, &mut |q| cues.push(q));
+        let out = c.frame(now, &i, &mut |q, _| cues.push(q));
         (out, cues)
     }
 
@@ -352,5 +397,81 @@ mod tests {
         assert!(out.lowpass_hz < 1_000.0);
         let (out, _) = step(&mut c, 0.1, flying());
         assert_eq!(out.lowpass_hz, 20_000.0);
+    }
+
+    #[test]
+    fn touchdown_thuds_once_scaled_by_speed() {
+        let mut c = Cockpit::default();
+        step(&mut c, 0.0, flying());
+        let aloft = CockpitIn { footing: 2, grip: true, ..flying() };
+        step(&mut c, 0.1, aloft);
+        let mut heard = Vec::new();
+        c.frame(0.2, &CockpitIn { footing: GROUNDED, touchdown: 4.0, ..aloft }, &mut |q, g| {
+            heard.push((q, g))
+        });
+        assert_eq!(heard, vec![(Cue::Touchdown, 0.5)]);
+        // Standing on, nothing more.
+        assert!(step(&mut c, 0.3, CockpitIn { footing: GROUNDED, touchdown: 4.0, ..aloft }).1.is_empty());
+        // A hard landing thuds at full, a soft one quietly.
+        step(&mut c, 0.4, aloft);
+        let mut gain = 0.0;
+        c.frame(0.5, &CockpitIn { footing: GROUNDED, touchdown: 30.0, ..aloft }, &mut |_, g| gain = g);
+        assert_eq!(gain, 1.0);
+        step(&mut c, 0.6, aloft);
+        c.frame(0.7, &CockpitIn { footing: GROUNDED, touchdown: 0.2, ..aloft }, &mut |_, g| gain = g);
+        assert!(gain > 0.0 && gain < 0.2);
+    }
+
+    #[test]
+    fn footsteps_follow_footfalls() {
+        let mut c = Cockpit::default();
+        let ground = CockpitIn { footing: GROUNDED, grip: true, ..flying() };
+        step(&mut c, 0.0, ground);
+        let count = |c: &mut Cockpit, from: f64, secs: f64, per_s: f64| {
+            let mut n = 0;
+            let mut k = 0;
+            while f64::from(k) / 60.0 < secs {
+                let t = from + f64::from(k) / 60.0;
+                let falls = ((t - from) * per_s) as u32;
+                n += step(c, t, CockpitIn { footfalls: 1_000 + falls, ..ground })
+                    .1
+                    .iter()
+                    .filter(|q| **q == Cue::Footstep)
+                    .count();
+                k += 1;
+            }
+            n
+        };
+        // A walk's 1.5 steps a second: a step heard for each.
+        assert_eq!(count(&mut c, 1.0, 4.0, 1.5), 6);
+        // Standing still: none.
+        assert_eq!(count(&mut c, 10.0, 2.0, 0.0), 0);
+        // Faster than the gap allows: no more than one in 0.2 s.
+        assert!(count(&mut c, 20.0, 2.0, 20.0) <= 11);
+        // Feet in the air make no sound.
+        let aloft = CockpitIn { footing: 2, footfalls: 5_000, ..ground };
+        assert!(!step(&mut c, 30.0, aloft).1.contains(&Cue::Footstep));
+    }
+
+    #[test]
+    fn maglock_and_godark_cue_once() {
+        let mut c = Cockpit::default();
+        step(&mut c, 0.0, flying());
+        // Armed: a lock. Caught (still armed): a lock. Down: a thud, no lock.
+        assert_eq!(step(&mut c, 1.0, CockpitIn { grip: true, ..flying() }).1, vec![Cue::MagLock]);
+        assert_eq!(step(&mut c, 2.0, CockpitIn { grip: true, footing: 2, ..flying() }).1, vec![Cue::MagLock]);
+        assert_eq!(
+            step(&mut c, 3.0, CockpitIn { grip: true, footing: GROUNDED, touchdown: 3.0, ..flying() }).1,
+            vec![Cue::Touchdown]
+        );
+        // Hidden: dark, once; seen again: up, once.
+        let down = CockpitIn { grip: true, footing: GROUNDED, ..flying() };
+        assert_eq!(step(&mut c, 4.0, CockpitIn { cover: 1, ..down }).1, vec![]);
+        assert_eq!(step(&mut c, 5.0, CockpitIn { cover: HIDDEN, ..down }).1, vec![Cue::GoDark]);
+        assert!(step(&mut c, 5.1, CockpitIn { cover: HIDDEN, ..down }).1.is_empty());
+        assert_eq!(step(&mut c, 6.0, CockpitIn { cover: 0, ..down }).1, vec![Cue::PowerUp]);
+        // Disarmed on the ground: one release, and the push off it.
+        assert_eq!(step(&mut c, 7.0, flying()).1, vec![Cue::MagRelease, Cue::PushOff]);
+        assert!(step(&mut c, 7.1, flying()).1.is_empty());
     }
 }

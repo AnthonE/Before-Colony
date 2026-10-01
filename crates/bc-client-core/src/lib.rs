@@ -9,10 +9,12 @@
 //! [`ClientCore::poll_inputs`] returns.
 
 pub mod bay;
+pub mod body_mesh;
 pub mod brains;
 pub mod chase;
 pub mod clock;
 pub mod controls;
+pub mod gait;
 pub mod hangar;
 pub mod hints;
 pub mod inputs;
@@ -24,27 +26,31 @@ pub mod predict;
 pub mod salvage;
 pub mod session;
 pub mod settings;
+pub mod surface;
 pub mod walker;
 pub mod world;
 
 use bc_proto::auth::{Address, Domain, NONCE_BYTES, Signature, TOKEN_BYTES};
 use bc_proto::buttons::FIRE_PRIMARY;
 use bc_proto::control::{ControlMsg, Frame, RejectReason, hello_flags, roster_flags, welcome_flags};
+use bc_proto::events::Event;
 use bc_proto::snapshot::{own_flags, zero_mode};
 use bc_proto::{Faction, FrameId, InputCmd, InputPacket, PROTOCOL_VERSION, PilotKind, SnapshotReader};
 use bc_sim::DT;
+use bc_sim::bodies::Body;
 use bc_sim::config::{G0, MAX_REWIND_TICKS};
 use bc_sim::content::{Mount, Replication, frame, weapon};
 use bc_sim::math::{clamp_to_cone, integrate_rotation, normalize_or};
 use glam::Vec3;
 
-pub use brains::{DollBrain, MinerBrain};
+pub use brains::{DollBrain, LanderBrain, MinerBrain};
 pub use clock::Clock;
 pub use hangar::HangarState;
 pub use inputs::InputHistory;
 pub use own::OwnView;
 pub use predict::{OwnPose, Predictor};
 pub use salvage::{LooseChunk, SalvageView};
+pub use surface::BodySet;
 pub use world::{Beam, FeedLine, Ghost, HitMark, World};
 
 /// Who this client is.
@@ -82,6 +88,8 @@ pub struct Welcome {
     pub woke: bool,
     /// Survival rules: the pilot starts in their hangar, and launches the suit they built.
     pub survival: bool,
+    /// How many of the compiled landmarks the sector has (no more than this build knows of).
+    pub landmarks: u8,
 }
 
 /// The server's sign-in challenge.
@@ -252,9 +260,11 @@ impl ClientCore {
         self.world.my_deaths = old.my_deaths;
         self.world.hits_taken = old.hits_taken;
         self.world.kit = old.kit;
-        let field = self.predict.field.clone();
+        self.world.bodies = old.bodies;
+        let (field, landmarks) = (self.predict.field.clone(), self.predict.landmarks().len() as u8);
         self.predict = Predictor::default();
         self.predict.field = field;
+        self.predict.set_landmarks(landmarks);
         self.clock = Clock::default();
         self.inputs = InputHistory::default();
         self.next_cmd_tick = 0;
@@ -302,12 +312,14 @@ impl ClientCore {
                 field_seed,
                 field_rocks,
                 flags,
+                landmarks,
                 ..
             } => {
                 if version != PROTOCOL_VERSION {
                     self.phase = Phase::Rejected(RejectReason::VersionMismatch);
                     return;
                 }
+                self.predict.set_landmarks(landmarks);
                 self.welcome = Some(Welcome {
                     client_slot,
                     tick_hz,
@@ -318,8 +330,12 @@ impl ClientCore {
                     signed_in: flags & welcome_flags::SIGNED_IN != 0,
                     woke: flags & welcome_flags::WOKE != 0,
                     survival: flags & welcome_flags::SURVIVAL != 0,
+                    landmarks: self.predict.landmarks().len() as u8,
                 });
                 self.predict.set_field(bc_sim::field::Field::generate(field_seed, field_rocks));
+                // The same rocks, shared until a shattering parts them: the view's go by the rock
+                // records, the prediction's by the tick it replays.
+                self.world.bodies = BodySet::new(self.predict.field.clone(), landmarks);
                 self.phase = Phase::InGame;
             }
             ControlMsg::Reject { reason } => self.phase = Phase::Rejected(reason),
@@ -409,7 +425,7 @@ impl ClientCore {
         }
         // The own suit where it was last drawn, from what it was drawn from, before this news.
         let drawn_at = self.drawn.recent(now);
-        let before = drawn_at.and_then(|t| self.own_source(t)).map(|(p, _)| p);
+        let before = drawn_at.and_then(|(o, v)| self.own_source(o, v)).map(|(p, _)| p);
         let life_before = self.world.own.map(|o| (o.slot, o.generation, o.alive));
         // A hold of 255 ms is saturated (the client sent nothing for that long), so the true hold
         // is unknown and the sample would overstate the RTT.
@@ -419,12 +435,19 @@ impl ClientCore {
         });
         self.clock.on_snapshot(h.tick, now, rtt, h.input_health);
         let heard = self.world.own.filter(|o| o.alive).map(|o| (self.world.tick, o.vel));
-        if let (Some(own), Some((t0, v0))) = (own.filter(|o| o.alive), heard) {
-            self.heard_g = (own.vel - v0).length() / ((h.tick - t0) as f32 * DT) / G0;
-        }
         self.world.apply_missiles(h.tick, &missiles);
         self.world.apply(h.tick, own, zero, &events, &ents);
+        // (The world has the own suit in the sector's frame, whatever frame it came in.)
+        if let (Some(now), Some((t0, v0))) = (self.world.own.filter(|o| o.alive), heard) {
+            self.heard_g = (now.vel - v0).length() / ((h.tick - t0) as f32 * DT) / G0;
+        }
         self.world.apply_salvage(&rocks, &objects);
+        // A rock is gone from the tick after the server broke it: its riders let go then.
+        for e in &events {
+            if let Event::RockBreak { tick, rock, .. } = *e {
+                self.predict.note_rock_break(rock, tick + 1);
+            }
+        }
         for r in &rocks {
             self.predict.set_rock_dead(usize::from(r.id), r.destroyed);
         }
@@ -440,7 +463,7 @@ impl ClientCore {
             self.predict.reconcile(h.tick, &own, &self.inputs);
             self.stats.prediction_error = self.predict.last_error;
             // Keep the suit where it was drawn, and blend what the news changed out.
-            let after = drawn_at.and_then(|t| self.own_source(t)).map(|(p, _)| p);
+            let after = drawn_at.and_then(|(o, v)| self.own_source(o, v)).map(|(p, _)| p);
             if new_life || drawn_at.is_none() {
                 self.drawn.cut();
             } else {
@@ -558,11 +581,12 @@ impl ClientCore {
     }
 
     /// Draws the shot `cmd` fires from `mount`, as the server fires it: from the suit after that
-    /// tick's flight, within the arm's reach off the nose.
+    /// tick's flight (on a moving body, where the pilot saw it on the body), within the arm's
+    /// reach off the nose.
     fn predict_shot(&mut self, mount: Mount, cmd: &InputCmd) {
         let Some(own) = self.world.own else { return };
         let w = weapon(mount.weapon);
-        let s = &self.predict.state;
+        let s = &self.predict.as_seen(cmd);
         let fwd = s.rot * Vec3::Z;
         // Within what its actuators leave of the arm's reach, wandering if the pilot's concussed
         // (the server counts the concussion down after each tick's shots).
@@ -585,19 +609,20 @@ impl ClientCore {
 
     /// What the own suit is drawn from at `t` (input-clock ticks), and whether it's alive: the
     /// prediction, between the ticks it has flown; or, for the wreck and while ZERO flies the suit
-    /// (not the pilot's commands), the server's word carried on at its velocity and spin.
-    fn own_source(&self, t: f64) -> Option<(OwnPose, bool)> {
+    /// (not the pilot's commands), the server's word carried on at its velocity and spin. On a
+    /// body, its place on the body then, on the body as drawn at `t_view` (view-clock ticks).
+    fn own_source(&self, t: f64, t_view: f64) -> Option<(OwnPose, bool)> {
         let own = self.world.own?;
         let seized = own.zero_mode == zero_mode::SEIZED;
         if own.alive
             && !seized
             && self.predict.initialized
-            && let Some(p) = self.predict.pose_at(t)
+            && let Some(p) = self.predict.pose_at_on(t, t_view)
         {
             return Some((p, true));
         }
         let ahead = (t - f64::from(self.world.tick)).clamp(0.0, 15.0) as f32 * DT;
-        let pose = OwnPose {
+        let mut pose = OwnPose {
             pos: own.pos + own.vel * ahead,
             // (A wreck drifts without turning.)
             rot: if own.alive { integrate_rotation(own.rot, own.ang_vel, ahead) } else { own.rot },
@@ -611,7 +636,30 @@ impl ClientCore {
             g_limited: false,
             frame: own.frame,
             strike: (own.alive && matches!(own.arms.phase, 1 | 2)).then_some(own.arms.slot),
+            ground: None,
+            touchdown: None,
         };
+        // On a body: carried on over it, in its frame.
+        if let Some(sent) = self.world.own_sent().filter(|_| own.alive)
+            && let Some(on) = sent.surface
+            && let body = Body::from(on.body)
+            && let (Some(p), Some(shape)) =
+                (self.world.bodies.pose_at(body, t_view), self.world.bodies.shape(body))
+        {
+            let local = sent.pos + sent.vel * ahead;
+            let probe = shape.probe(local);
+            pose.pos = p.to_world(local);
+            pose.rot = p.rot * integrate_rotation(sent.rot, sent.ang_vel, ahead);
+            pose.vel = p.point_vel(pose.pos) + p.rot * sent.vel;
+            pose.dpos = pose.vel;
+            pose.ground = Some(interp::GroundPose {
+                body,
+                aloft: on.footing == bc_proto::snapshot::footing::ALOFT,
+                up: p.rot * probe.normal,
+                rel_vel: p.rot * sent.vel,
+                height: probe.dist,
+            });
+        }
         Some((pose, own.alive))
     }
 
@@ -628,13 +676,19 @@ impl ClientCore {
     /// Per-frame housekeeping: draws the own suit for this frame ([`ClientCore::own_view`]) and
     /// prunes what's done.
     pub fn frame(&mut self, now: f64, frame_dt: f32) {
-        self.world.prune(self.render_tick(now));
-        // A tick behind the input clock, between the last two ticks predicted.
+        let view_t = self.render_tick(now);
+        self.world.prune(view_t);
+        // A tick behind the input clock, between the last two ticks predicted; on a body, on the
+        // body as it's drawn (with everyone else, at the view clock's time).
         let own_t = self.clock.own_tick(now) - 1.0;
-        match self.own_source(own_t) {
+        let at = own::Moment { own: own_t, view: view_t, now };
+        match self.own_source(own_t, view_t) {
             Some((src, alive)) => {
                 let rate = self.clock.own_rate(now) as f32;
-                self.drawn.draw(own_t, now, &src, alive, frame_dt, rate);
+                let bodies = &self.world.bodies;
+                self.drawn.reframe(&src, at, &|b, t| bodies.pose_at(b, t));
+                let deck = src.on().and_then(|b| bodies.pose_at(b, view_t)).map(|p| p.rot);
+                self.drawn.draw(at, &src, alive, frame_dt, rate, deck);
             }
             None => self.drawn.view = None,
         }
@@ -651,4 +705,75 @@ fn encode(msg: ControlMsg) -> Vec<u8> {
 /// Roster flags as the world keeps them.
 pub fn asleep(world: &World, slot: u16) -> bool {
     world.roster_flags.get(&slot).is_some_and(|f| f & roster_flags::ASLEEP != 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bc_proto::{RockState, SnapshotHeader, SnapshotWriter};
+    use bc_sim::field::Field;
+    use surface::{CAM_CLEAR, camera_clamp};
+
+    #[test]
+    fn the_camera_passes_through_a_rock_once_it_has_shattered() {
+        let (seed, rocks) = (0xDEB12, 160);
+        let mut core = ClientCore::new(ClientConfig {
+            name: "test".into(),
+            pilot: PilotKind::Human,
+            frame: FrameId::Leo,
+            faction: Faction::Colonies,
+        });
+        core.on_control(&encode(ControlMsg::Welcome {
+            version: PROTOCOL_VERSION,
+            client_slot: 0,
+            tick: 0,
+            tick_hz: bc_sim::config::TICK_HZ as u8,
+            sector: 0,
+            zero_allowed: false,
+            max_datagram: 1_100,
+            field_seed: seed,
+            field_rocks: rocks,
+            flags: 0,
+            landmarks: 0,
+        }));
+        assert_eq!(core.phase, Phase::InGame);
+        // A line through a rock, and through nothing else.
+        let mut field = Field::generate(seed, rocks);
+        let (i, from, to) = (0..field.len())
+            .find_map(|i| {
+                let rock = field.rocks()[i];
+                let reach = rock.radius + CAM_CLEAR + 20.0;
+                let (from, to) = (rock.pos + Vec3::Y * reach, rock.pos - Vec3::Y * reach);
+                field.set_dead(i, true);
+                let clear = field.sweep(from, to, CAM_CLEAR).is_none();
+                field.set_dead(i, false);
+                clear.then_some((i, from, to))
+            })
+            .expect("a rock on its own");
+        let view = &core.world.bodies;
+        assert!(camera_clamp(view, 10.0, from, to).distance(to) > 1.0, "stopped short of the rock");
+        // The server breaks it on tick 40, and says so (and that it's gone) in the snapshot of 41.
+        let mut buf = [0u8; 1_100];
+        let mut w = SnapshotWriter::new(&mut buf, 1_100);
+        w.header(&SnapshotHeader { tick: 41, ..SnapshotHeader::default() });
+        w.own(None);
+        w.zero(None);
+        assert!(w.event(&Event::RockBreak { id: 1, tick: 40, rock: i as u16, by: 3 }, 0));
+        assert!(w.rock(&RockState::new(i as u16, true, 0.0, 0.0), 0));
+        let n = w.finish().unwrap();
+        core.on_datagram(&buf[..n], 1.0);
+        assert_eq!(core.stats.decode_errors, 0);
+        // The view sees through it now, whatever the prediction makes of it.
+        assert!(core.world.bodies.field.is_dead(i));
+        assert_eq!(camera_clamp(&core.world.bodies, 40.5, from, to), to);
+        // Grown back, it is in the way again.
+        let mut w = SnapshotWriter::new(&mut buf, 1_100);
+        w.header(&SnapshotHeader { tick: 90, ..SnapshotHeader::default() });
+        w.own(None);
+        w.zero(None);
+        assert!(w.rock(&RockState::new(i as u16, false, 1.0, 1.0), 0));
+        let n = w.finish().unwrap();
+        core.on_datagram(&buf[..n], 2.0);
+        assert!(camera_clamp(&core.world.bodies, 90.0, from, to).distance(to) > 1.0);
+    }
 }

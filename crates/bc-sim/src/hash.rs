@@ -1,6 +1,7 @@
 //! Deterministic digest of the simulation state (FNV-1a), for golden tests across targets.
 
 use crate::chunks::Motion;
+use crate::ground::Footing;
 use crate::sim::Sim;
 
 struct Fnv(u64);
@@ -51,15 +52,38 @@ pub fn state_hash(sim: &Sim) -> u64 {
             h.u32(u32::from(kg));
         }
         h.u32(s.credits[i]);
+        // When it last fought: what decides how long it takes to go dark.
+        let quiet_from = s.last_fired[i].max(s.last_hit[i]);
+        let a = &s.anchor[i];
         if s.sleeping.get(i) {
             h.u32(s.slept_at[i]);
-            let a = &s.anchor[i];
-            h.u32(match a.body {
-                crate::sim::Body::None => u32::MAX,
-                crate::sim::Body::Rock(r) => u32::from(r),
-            });
+            h.u32(a.body.code());
             for v in [a.local.x, a.local.y, a.local.z] {
                 h.f32(v);
+            }
+            for c in a.rot.to_array() {
+                h.f32(c);
+            }
+            h.u32(quiet_from);
+            h.u32(u32::from(s.hide_spot[i]));
+        }
+        // On a body (only then: a suit that never grips hashes as it always has).
+        if s.footing[i] != Footing::Free {
+            h.u32(0xF007_0000 | s.footing[i] as u32);
+            h.u32(a.body.code());
+            for v in a.local.to_array().into_iter().chain(a.rot.to_array()) {
+                h.f32(v);
+            }
+            for v in [a.vel, a.ang_vel] {
+                h.f32(v.x);
+                h.f32(v.y);
+                h.f32(v.z);
+            }
+            h.f32(a.stance);
+            if !s.sleeping.get(i) {
+                h.u32(quiet_from);
+                h.u32(s.still_since[i]);
+                h.u32(u32::from(s.hide_spot[i]));
             }
         }
     }

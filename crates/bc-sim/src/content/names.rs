@@ -58,6 +58,10 @@ pub fn weapon_name(kind: WeaponKind) -> &'static str {
     }
 }
 
+/// The resource satellite that serves the colony's dock (a landmark).
+#[cfg(feature = "canon-names")]
+pub(crate) const MO_II: &str = "MO-II";
+
 #[cfg(not(feature = "canon-names"))]
 pub fn frame_name(id: FrameId) -> &'static str {
     match id {
@@ -112,3 +116,6 @@ pub fn weapon_name(kind: WeaponKind) -> &'static str {
         WeaponKind::BeamGlaive => "Beam Polearm",
     }
 }
+
+#[cfg(not(feature = "canon-names"))]
+pub(crate) const MO_II: &str = "ORE SAT";

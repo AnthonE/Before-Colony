@@ -45,6 +45,9 @@ pub struct SimConfig {
     /// are told both in their Welcome and build the identical field.
     pub field_seed: u32,
     pub field_rocks: u16,
+    /// Landmarks in the sector: the first `landmarks` of `content::landmarks::LANDMARKS` (0 for
+    /// none; at most `bodies::MAX_LANDMARKS`).
+    pub landmarks: u8,
     /// The most suits asleep at once (offline pilots'); past it the longest asleep is cleared.
     pub max_sleepers: usize,
     /// Survival rules: pilots fly the suits they built (`Sim::launch`), bring them home
@@ -52,6 +55,15 @@ pub struct SimConfig {
     /// colony pays bounties for Mobile Dolls. Off: arcade rules (any frame, free respawns, sell
     /// and refuel at the dock).
     pub survival: bool,
+}
+
+impl SimConfig {
+    /// The sector's landmarks, by id: the first [`landmarks`](Self::landmarks) of those there are,
+    /// and no more than a sector holds. Clients are told how many in their Welcome.
+    pub fn landmark_defs(&self) -> &'static [crate::content::landmarks::LandmarkDef] {
+        let all = &crate::content::landmarks::LANDMARKS;
+        &all[..usize::from(self.landmarks).min(all.len()).min(crate::bodies::MAX_LANDMARKS)]
+    }
 }
 
 impl Default for SimConfig {
@@ -69,6 +81,7 @@ impl Default for SimConfig {
             zero_on_all_frames: false,
             field_seed: crate::field::Field::DEFAULT_SEED,
             field_rocks: crate::field::Field::DEFAULT_ROCKS,
+            landmarks: crate::content::landmarks::LANDMARKS.len() as u8,
             max_sleepers: 256,
             survival: false,
         }

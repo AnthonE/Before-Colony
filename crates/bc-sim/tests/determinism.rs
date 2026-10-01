@@ -321,8 +321,11 @@ fn salvage_golden_wasm() {
 
 /// Hash after sleepers' lives: a pilot at rest against a rock parks there until the rock is
 /// shattered under it; others tumble off on what they had; one is shot down asleep; the longest
-/// asleep are cleared past the cap; one wakes and flies; Mobile Dolls look on.
-const SLEEPERS_GOLDEN: u64 = 0x26e3_3080_f169_e922;
+/// asleep are cleared past the cap; one wakes and flies; Mobile Dolls look on. (The hash covers
+/// what a sleeper is parked on more fully since suits stand on bodies: how it's turned there, when
+/// it last fought, and its hide spot; and, with wear and tear, every suit's systems, equipment and
+/// statuses. The scenario itself runs bit for bit as it did.)
+const SLEEPERS_GOLDEN: u64 = 0x82d4_286e_fe11_0a4c;
 
 fn sleepers_hash() -> u64 {
     use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST};
@@ -419,4 +422,229 @@ fn sleepers_golden_native() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 fn sleepers_golden_wasm() {
     assert_eq!(sleepers_hash(), SLEEPERS_GOLDEN);
+}
+
+/// Hash after 900 ticks on the surfaces, among Mobile Dolls. An OZ Leo is caught over a rock, lands,
+/// walks a square, hops, crouches, stands, and digs the rock out from under itself, crouched. On MO-II, a Heavyarms
+/// runs over a pylon's edge and down its side with rewound shots coming at it, and another walks
+/// to the Aft Well's rim, hops over it, crouches on the floor and hides there, sleeps and wakes. A
+/// Wing Zero is caught over Hermit's Deep, lands in it, and changes into the Neo-Bird and flies
+/// off. A guided missile goes at the Leo on its rock. (The hash covers the suits' cover since they
+/// hide, and the dolls hunting the riders come at them from above; with wear and tear, every suit's
+/// systems, equipment and statuses.)
+const SURFACE_GOLDEN: u64 = 0x096e_bce5_8678_c035;
+
+fn surface_hash() -> u64 {
+    use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRIP, MELEE, MODE};
+    use bc_proto::events::Event;
+    use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
+    use bc_sim::bodies::{Bodies, Body};
+    use bc_sim::content::landmarks::LANDMARKS;
+    use bc_sim::ground::{CROUCH_STANCE, Footing, STANCE, place};
+    use bc_sim::math::look_rotation;
+    use glam::Vec3;
+
+    let mut sim = bc_sim::Sim::new(bc_sim::SimConfig { target_dolls: 4, ..bc_sim::SimConfig::default() });
+    let (mo_ii, hermit) = (Body::Landmark(0), Body::Landmark(1));
+    let spawn = |sim: &mut bc_sim::Sim, frame: FrameId, faction: Faction, pos: Vec3, facing: Vec3| {
+        sim.spawn_at(frame, faction, PilotKind::Human, pos, look_rotation(facing, Vec3::Y)).unwrap()
+    };
+    // The Leo, 20 m over the smallest rock it can grip.
+    let (r, rock) = common::grippable_rock(&sim, 300.0);
+    let (top, up, over, h) = {
+        let bodies = Bodies::at(&sim.field, &LANDMARKS, 0);
+        let (top, up) = bodies.surface_along(Body::Rock(r as u16), Vec3::Y).unwrap();
+        let over = bodies.pose(mo_ii).unwrap().to_world(Vec3::new(0.0, 600.0, 0.0));
+        (rock.pos + rock.rot * top, rock.rot * up, over, bodies.pose(hermit).unwrap())
+    };
+    let ahead = (Vec3::Z - up * up.z).normalize();
+    let leo = spawn(&mut sim, FrameId::Leo, Faction::Oz, top + up * (STANCE + 20.0), ahead);
+    // A Heavyarms 900 m off, with its missiles.
+    let gunner = spawn(&mut sim, FrameId::Heavyarms, Faction::Colonies, top + up * 900.0, -up);
+    // On MO-II: one on a pylon's top, one on the aft module's face beside the Aft Well.
+    let runner = common::standing_on(&mut sim, FrameId::Heavyarms, Faction::Alliance, mo_ii, Vec3::Y);
+    let hider = common::standing_on(
+        &mut sim,
+        FrameId::Heavyarms,
+        Faction::Alliance,
+        mo_ii,
+        Vec3::new(-260.0, 65.0, 0.0),
+    );
+    // Two Leos 500 m over the pylon, shooting at the runner as they saw it 6 ticks back.
+    let shooters = [Vec3::new(-60.0, 0.0, 0.0), Vec3::new(60.0, 0.0, 40.0)]
+        .map(|d| spawn(&mut sim, FrameId::Leo, Faction::Colonies, over + d, -Vec3::Y));
+    // The Wing Zero, 15 m over the floor of Hermit's Deep.
+    let deep = LANDMARKS[1].hides[0].center;
+    let zero = sim
+        .spawn_at(
+            FrameId::WingZero,
+            Faction::Oz,
+            PilotKind::Human,
+            h.to_world(deep + Vec3::Y * (STANCE + 15.0)),
+            look_rotation(h.rot * Vec3::Z, h.rot * Vec3::Y),
+        )
+        .unwrap();
+
+    let local = |sim: &bc_sim::Sim, id: bc_sim::SuitId| sim.suits.anchor[id.idx()].local;
+    let pose = |sim: &bc_sim::Sim, b: Body| Bodies::at(&sim.field, &LANDMARKS, sim.tick()).pose(b).unwrap();
+    // The ground's normal under an attached suit, in the sector's frame.
+    let normal = |sim: &bc_sim::Sim, id: bc_sim::SuitId| {
+        let a = sim.suits.anchor[id.idx()];
+        let b = Bodies::at(&sim.field, &LANDMARKS, sim.tick());
+        b.pose(a.body).unwrap().rot * place(&b.shape(a.body).unwrap(), a.local, a.stance).1
+    };
+    let (mut leo_seen, mut hopped, mut crouched, mut dug_free) = ([false; 3], false, false, false);
+    let (mut round_the_edge, mut in_the_well, mut zero_landed) = (false, false, false);
+    let mut hidden_at = None;
+    let (mut hits_on_runner, mut bursts) = (0, 0);
+    for _ in 0..900 {
+        let t = sim.next_tick();
+        let cmd = |aim: Vec3, thrust: [i8; 3], buttons: u16| {
+            InputCmd { tick: t, view_tick_q4: t << 4, aim, thrust, buttons, ..InputCmd::default() }
+                .quantized()
+        };
+        // The Leo.
+        let footing = sim.footing(leo.idx());
+        let c = if t >= 600 && footing == Footing::Free {
+            cmd(ahead, [0; 3], FLIGHT_ASSIST)
+        } else if t >= 600 {
+            let dig = if t % 45 < 3 { MELEE } else { 0 };
+            cmd(-normal(&sim, leo), [0, -127, 0], GRIP | FIRE_PRIMARY | dig)
+        } else {
+            let square = [[0, 0, 127], [127, 0, 0], [0, 0, -127], [-127, 0, 0]];
+            let thrust = match t {
+                100..200 => square[(t as usize - 100) / 25],
+                200 => [0, 127, 0],
+                330..350 => [0, -127, 0],
+                450..460 => [0, 64, 0],
+                _ => [0; 3],
+            };
+            cmd(ahead, thrust, GRIP | FLIGHT_ASSIST)
+        };
+        sim.set_input(leo, c);
+        // Its hunter locks on, and lets one salvo go.
+        let to_leo = (sim.suits.flight[leo.idx()].pos - sim.suits.flight[gunner.idx()].pos).normalize();
+        let fire = if t == 400 { FIRE_SECONDARY } else { 0 };
+        sim.set_input(
+            gunner,
+            InputCmd { lock_target: leo.idx() as u16, ..cmd(to_leo, [0; 3], FLIGHT_ASSIST | fire) },
+        );
+        // The runner: off the pylon's top toward -x, then straight on, over the edge and down.
+        let deck = pose(&sim, mo_ii);
+        let aim = if local(&sim, runner).x > -30.0 {
+            deck.rot * -Vec3::X
+        } else {
+            sim.suits.flight[runner.idx()].rot * Vec3::Z
+        };
+        sim.set_input(runner, cmd(aim, [0, 0, 127], GRIP | BOOST));
+        // The hider: to the rim, over it, to the floor; crouched; asleep from 650 to 850.
+        if t == 650 {
+            assert!(sim.sleep(hider) && sim.is_parked(hider.idx()), "the hider didn't park");
+        }
+        if t == 850 {
+            assert!(sim.wake(hider));
+        }
+        if !sim.is_sleeping(hider.idx()) {
+            let floor = LANDMARKS[0].hides[0].center + Vec3::X * -STANCE;
+            let to_floor = floor - local(&sim, hider);
+            let (aim, thrust, buttons) = match t {
+                ..150 => (deck.rot * -Vec3::Y, [0, 0, 127], GRIP),
+                150 => (deck.rot * -Vec3::Y, [0, 127, 127], GRIP | FLIGHT_ASSIST),
+                _ if sim.footing(hider.idx()) == Footing::Aloft => {
+                    (deck.rot * -Vec3::Y, [0, 0, 127], GRIP | FLIGHT_ASSIST)
+                }
+                400..420 => (deck.rot * to_floor.normalize_or(Vec3::Y), [0, -127, 0], GRIP),
+                _ if to_floor.length() > 4.0 => {
+                    (deck.rot * to_floor.normalize_or(Vec3::Y), [0, 0, 127], GRIP)
+                }
+                _ => (sim.suits.flight[hider.idx()].rot * Vec3::Z, [0; 3], GRIP),
+            };
+            sim.set_input(hider, cmd(aim, thrust, buttons));
+        }
+        // The shooters, from t = 60.
+        let target = sim.suits.flight[runner.idx()].pos;
+        for &s in &shooters {
+            let aim = (target - sim.suits.flight[s.idx()].pos).normalize();
+            let fire = if t >= 60 { FIRE_PRIMARY } else { 0 };
+            let c = InputCmd { view_tick_q4: (t - 6) << 4, ..cmd(aim, [0; 3], FLIGHT_ASSIST | fire) };
+            sim.set_input(s, c);
+        }
+        // The Wing Zero: down into the Deep, then off as a bird at 500.
+        let hz = pose(&sim, hermit).rot;
+        let c = if t < 500 {
+            cmd(hz * Vec3::Z, [0; 3], GRIP)
+        } else {
+            cmd(sim.suits.flight[zero.idx()].rot * Vec3::Z, [0, 60, 127], MODE | FLIGHT_ASSIST)
+        };
+        sim.set_input(zero, c);
+
+        let from = sim.events.next_seq();
+        sim.step();
+        common::check_invariants(&sim);
+        for e in (from..sim.events.next_seq()).filter_map(|s| sim.events.get(s)) {
+            match e {
+                Event::Hit { target, .. } if *target as usize == runner.idx() => hits_on_runner += 1,
+                Event::MissileBurst { .. } => bursts += 1,
+                _ => {}
+            }
+        }
+        let t = sim.tick();
+        match sim.footing(leo.idx()) {
+            Footing::Aloft => leo_seen[1] = true,
+            Footing::Grounded => leo_seen[2] = true,
+            Footing::Free if leo_seen[2] => leo_seen[0] = true,
+            Footing::Free => {}
+        }
+        hopped |= (200..260).contains(&t) && sim.footing(leo.idx()) == Footing::Aloft;
+        crouched |= t == 400 && sim.suits.anchor[leo.idx()].stance == CROUCH_STANCE;
+        dug_free |= sim.rocks.destroyed.get(r) && sim.footing(leo.idx()) == Footing::Free;
+        if sim.footing(runner.idx()) == Footing::Grounded {
+            round_the_edge |= normal(&sim, runner).dot(pose(&sim, mo_ii).rot * -Vec3::X) > 0.95;
+        }
+        let hider_at = Bodies::at(&sim.field, &LANDMARKS, t).hide_spot_of(mo_ii, local(&sim, hider));
+        in_the_well |= t == 640
+            && sim.footing(hider.idx()) == Footing::Grounded
+            && hider_at == Some(0)
+            && sim.suits.anchor[hider.idx()].stance == CROUCH_STANCE;
+        if t == 499 {
+            let b = Bodies::at(&sim.field, &LANDMARKS, t);
+            zero_landed = sim.footing(zero.idx()) == Footing::Grounded
+                && b.hide_spot_of(hermit, local(&sim, zero)) == Some(0);
+        }
+        if hidden_at.is_none() && sim.cover_code(hider.idx()) == bc_sim::sim::cover::HIDDEN {
+            hidden_at = Some(t);
+        }
+        if (651..850).contains(&t) {
+            assert!(sim.is_parked(hider.idx()));
+        }
+    }
+    assert!(
+        leo_seen == [true; 3] && hopped && crouched && dug_free,
+        "the Leo: {leo_seen:?} {hopped} {crouched} {dug_free}"
+    );
+    assert!(sim.stats(gunner.idx()).missiles > 0 && bursts > 0, "no missile went at the Leo");
+    assert!(round_the_edge, "the runner never went over the pylon's edge");
+    assert!(hits_on_runner > 0, "no rewound shot hit the runner");
+    assert!(in_the_well, "the hider isn't crouched in the Aft Well");
+    assert!(hidden_at.is_some_and(|t| t < 650), "the hider never hid before sleeping: {hidden_at:?}");
+    let (hider, zero_f) = (hider.idx(), zero.idx());
+    assert_eq!(sim.footing(hider), Footing::Grounded);
+    assert_eq!(sim.suits.anchor[hider].stance, CROUCH_STANCE, "woke crouched");
+    assert!(zero_landed, "the Wing Zero never landed in the Deep");
+    assert_eq!((sim.footing(zero_f), sim.suits.frame[zero_f]), (Footing::Free, FrameId::WingZeroBird));
+    sim.state_hash()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn surface_golden_native() {
+    let h = surface_hash();
+    assert_eq!(h, surface_hash(), "must be reproducible within a process");
+    assert_eq!(h, SURFACE_GOLDEN, "surface scenario hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn surface_golden_wasm() {
+    assert_eq!(surface_hash(), SURFACE_GOLDEN);
 }

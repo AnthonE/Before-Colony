@@ -32,7 +32,7 @@ use super::game::{
     EgressCmd, GameShared, HangarEntry, RateLimit, RosterEntry, RosterUpdate, forget, process_notes, reject,
     send_control, set_roster_flags, wait_slot,
 };
-use crate::pilots::{self, Fate, PilotRecord, Sleeper};
+use crate::pilots::{self, Fate, ParkedSuit, PilotRecord, Sleeper};
 
 /// Who the Hello said the pilot is.
 pub(super) struct Who {
@@ -216,7 +216,9 @@ impl Session<'_> {
             });
         }
         if let Some(r) = self.record.as_mut() {
+            // Woken, or gone: either way it's no longer out there asleep (in a hide spot or not).
             r.sleeper = None;
+            r.parked = None;
             r.name = self.callsign.clone();
             r.frame = self.frame.slug().to_string();
             r.seen_unix = pilots::unix_now();
@@ -246,6 +248,7 @@ impl Session<'_> {
                 field_seed: self.game.sector.field_seed,
                 field_rocks: self.game.sector.field_rocks,
                 flags,
+                landmarks: self.game.sector.landmarks,
             },
         )
         .await?;
@@ -667,6 +670,8 @@ impl Session<'_> {
             Report::DockRefused => {
                 self.note("come to rest inside the dock's ring of lights to dock", false).await?;
             }
+            // Only ever sent as the pilot leaves (`leave` reads it).
+            Report::Parked { .. } => {}
             Report::Lost { bounty } => {
                 self.lost = true;
                 let text = self.hangar.lost(bounty);
@@ -751,6 +756,17 @@ impl Session<'_> {
                 tokio::time::sleep(Duration::from_millis(2)).await;
             }
             let _ = wait_slot(&game.sector, slot, |s, _| s == SlotState::Free).await;
+            // What the sector had left to say about the suit: that it was left in a hide spot
+            // (survival), or destroyed on the way out (with the bounties it had earned). Nothing
+            // of it is for whoever has the slot next.
+            let (mut parked, mut bounty) = (None, 0);
+            while let Some(report) = self.lease.as_mut().and_then(|l| l.reports.pop().ok()) {
+                match report {
+                    Report::Parked { rec, tick } => parked = Some((rec, tick)),
+                    Report::Lost { bounty: b } => bounty = b,
+                    Report::Home(_) | Report::DockRefused => {}
+                }
+            }
             let asleep = match (status.outcome(), status.suit_id()) {
                 (Outcome::Asleep, Some((s, g))) => Some(Sleeper {
                     run: game.pilots.run,
@@ -760,18 +776,23 @@ impl Session<'_> {
                 }),
                 _ => None,
             };
+            let parked = asleep
+                .zip(parked)
+                .map(|(s, (rec, tick))| ParkedSuit { tick, ..ParkedSuit::new(&rec, s.since_unix) });
             if let (Some(a), Some(sleeper)) = (self.address, asleep) {
-                tracing::info!(address = %pilots::short(&a), suit = sleeper.suit, "asleep in the cockpit");
+                let hidden = parked.is_some();
+                tracing::info!(address = %pilots::short(&a), suit = sleeper.suit, hidden, "asleep in the cockpit");
             } else {
                 // A wreck (or a guest's suit) doesn't sleep: it's gone.
                 let _ = game.pilots.suit_gone((suit, generation));
                 forget(game, suit, self.pilot);
                 if self.survival() && matches!(self.hangar.bay, Bay::Out { .. }) {
-                    self.hangar.lost(0);
+                    self.hangar.lost(bounty);
                 }
             }
             if let Some(r) = self.record.as_mut() {
                 r.sleeper = asleep;
+                r.parked = parked;
             }
         }
         if self.survival() {

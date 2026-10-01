@@ -3,7 +3,7 @@
 
 use bc_proto::events::Event;
 use bc_proto::objects::ROCK_RECORD_BITS;
-use bc_proto::snapshot::{ENTITY_BITS, ent_flags};
+use bc_proto::snapshot::{ENTITY_MAX_BITS, ent_flags};
 use bc_proto::{ObjectState, SnapshotHeader, SnapshotWriter};
 use bc_sim::Sim;
 use bc_sim::chunks::{MAX_CHUNKS, Motion};
@@ -17,8 +17,8 @@ use crate::clients::{
 
 /// Events older than this are no longer worth re-sending (ticks).
 const EVENT_MAX_AGE: u32 = 45;
-/// Room kept for entities when packing events.
-const ENTITY_RESERVE_BITS: usize = (ENTITY_BITS + 1) * 6;
+/// Room kept for entities when packing events: six of the largest records.
+const ENTITY_RESERVE_BITS: usize = (ENTITY_MAX_BITS + 1) * 6;
 /// Beams whose origin is this close are shown even if the shooter isn't on sensors.
 const BEAM_NOTICE_RANGE: f32 = 5_000.0;
 /// Free chunks within this range are sent; a client that has one keeps it until a tenth further.
@@ -30,7 +30,10 @@ const OBJECT_RESERVE: usize = 6;
 const MISSILES_PER_SNAPSHOT: usize = 12;
 const MISSILE_RANGE: f32 = 5_000.0;
 /// Room missiles leave for entities.
-const MISSILE_KEEP_BITS: usize = (ENTITY_BITS + 1) * 12;
+const MISSILE_KEEP_BITS: usize = (ENTITY_MAX_BITS + 1) * 12;
+/// A suit standing still on a body is worth this much of a moving one's refreshes: it is sent in its
+/// body's frame, so every refresh would say the same thing but for its flags and parts.
+const STILL_WEIGHT: f32 = 0.1;
 
 fn relevant(sim: &Sim, me: usize, e: &Event) -> bool {
     let near = |j: u16| j as usize == me || sim.visible_to(me, j as usize);
@@ -68,6 +71,9 @@ fn weight(sim: &Sim, me: usize, j: usize) -> f32 {
     }
     if !sim.suits.alive.get(j) {
         w *= 0.3;
+    }
+    if sim.is_still(j) {
+        w *= STILL_WEIGHT;
     }
     w
 }
@@ -342,4 +348,61 @@ pub(crate) fn build_snapshot(
     let n = w.finish()?;
     client.sent[t as usize % SENT_RING] = rec;
     Some(n)
+}
+
+#[cfg(test)]
+mod tests {
+    use bc_proto::buttons::GRIP;
+    use bc_proto::{BodyRef, Faction, FrameId, InputCmd, PilotKind, RiderOn};
+    use bc_sim::bodies::{Bodies, Body};
+    use bc_sim::{SimConfig, SuitId};
+    use glam::{Quat, Vec3};
+
+    use super::*;
+
+    /// A Leo standing on MO-II along `dir` (its frame).
+    fn on_mo_ii(sim: &mut Sim, dir: Vec3) -> SuitId {
+        let id = sim
+            .spawn_at(FrameId::Leo, Faction::Oz, PilotKind::Human, Vec3::Y * 5_000.0, Quat::IDENTITY)
+            .unwrap();
+        assert!(sim.place_on(id, Body::Landmark(0), dir));
+        id
+    }
+
+    #[test]
+    fn still_riders_yield_bandwidth() {
+        let mut sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
+        let (still, walking) = (on_mo_ii(&mut sim, Vec3::new(-1.5, 1.0, 0.0)), on_mo_ii(&mut sim, Vec3::Y));
+        let at = sim.suits.flight[still.idx()].pos;
+        let me = sim
+            .spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, at + Vec3::Y * 400.0, Quat::IDENTITY)
+            .unwrap()
+            .idx();
+        for _ in 0..40 {
+            let t = sim.next_tick();
+            // Each aims where it faces on the deck, as the deck will be turned (a still mouse on a
+            // client, which turns the aim with it).
+            let deck = Bodies::at(&sim.field, sim.landmarks(), t).pose(Body::Landmark(0)).unwrap();
+            for (id, forward) in [(still, 0), (walking, 127)] {
+                let aim = deck.rot * sim.suits.anchor[id.idx()].rot * Vec3::Z;
+                let cmd =
+                    InputCmd { tick: t, aim, thrust: [0, 0, forward], buttons: GRIP, ..InputCmd::default() };
+                sim.set_input(id, cmd);
+            }
+            sim.step();
+        }
+        let (s, w) = (still.idx(), walking.idx());
+        assert!(sim.is_still(s) && !sim.is_still(w));
+        // Weighed by distance as anyone is, then a tenth of that for standing still.
+        let by_distance =
+            |j: usize| 1.0 / (1.0 + sim.suits.flight[j].pos.distance(at + Vec3::Y * 400.0) / 800.0);
+        assert!((weight(&sim, me, s) - by_distance(s) * STILL_WEIGHT).abs() < 1e-6);
+        assert!((weight(&sim, me, w) - by_distance(w)).abs() < 1e-6);
+        // Both go out on the deck, the still one at rest on it.
+        let (es, ew) = (sim.entity_state(s, me), sim.entity_state(w, me));
+        let on = Some(RiderOn { body: BodyRef::Landmark(0), aloft: false });
+        assert_eq!((es.on, ew.on), (on, on));
+        assert!(es.vel.length() < 0.05 && ew.vel.length() > 3.0, "{} {}", es.vel, ew.vel);
+        assert_eq!(es.encoded_bits(), 194);
+    }
 }

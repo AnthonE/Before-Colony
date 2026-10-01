@@ -9,6 +9,8 @@
 //! | mouse | aim (click to lock the pointer, Esc for the menu) |
 //! | W/S, A/D, Space/C | thrust forward/back, left/right, up/down |
 //! | Q/E | roll |
+//! | L | grip: armed, a suit coming in slow and close is caught and landed; off, it lets go |
+//! | on a body: W/A/S/D, Shift, Space, C | walk, run, hop (held: lift off), crouch (a toggle) |
 //! | Shift | boost · X brake · R RCS (fast turns, burns propellant) |
 //! | LMB / RMB / F | primary / secondary / melee |
 //! | H | the frame's special: Neo-Bird or the Hyper Jammer on/off, or held: Full Open, Cross Crusher |
@@ -17,14 +19,23 @@
 //! | 1–6 | respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock, Shenlong (when destroyed) |
 //!
 //! Down is C alone: Left Ctrl held with W would be Ctrl+W, which closes the browser's tab.
+//!
+//! On a body, `thrust[1]` says what the legs do (`bc_sim::ground`): Space sends 127 (stand, then
+//! hop; held, the thrusters lift off), the crouch toggle -127 (crouch, and stay down whatever
+//! comes), and standing back up from one 64, until the stance is full; otherwise 0, which keeps
+//! the stance. In the air in a body's grip, Space and C are the thrusters' again. While the suit is
+//! on a turning body the aim turns with it, so a still mouse keeps its bearing on the deck.
 
 use bc_client_core::settings::CameraView;
 use bc_proto::buttons::{
-    BOOST, BRAKE, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, JETTISON, MELEE, MODE, RCS_SHARP,
+    BOOST, BRAKE, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, GRIP, JETTISON, MELEE, MODE, RCS_SHARP,
     SPECIAL, STOW, THROW, ZERO,
 };
+use bc_proto::snapshot::footing;
 use bc_proto::{InputCmd, NO_SLOT};
+use bc_sim::bodies::Body;
 use bc_sim::content::{PLAYABLE_ORDER, frame};
+use bc_sim::ground::{Footing, STANCE, STAND_LEVEL};
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll, MouseScrollUnit};
 use bevy::prelude::*;
 
@@ -35,6 +46,9 @@ use crate::session::Pilot;
 use crate::settings::SettingsRes;
 
 const SENSITIVITY: f32 = 0.0022;
+/// `thrust[1]` standing back up from a crouch: past the stand level, short of a hop's.
+const STAND_UP: i8 = 64;
+const _: () = assert!(STAND_UP >= STAND_LEVEL && STAND_UP < bc_sim::ground::JUMP_LEVEL);
 
 /// Switches the flight camera between the chase camera and the cockpit.
 pub const CAMERA_KEY: KeyCode = KeyCode::Tab;
@@ -66,6 +80,13 @@ pub struct Controls {
     pub grab: bool,
     /// The frame's toggled special (Neo-Bird, the Hyper Jammer) is asked for.
     pub mode: bool,
+    /// The grip is armed (L): coming in slow and close to a body, the suit is caught and landed;
+    /// on one, it holds on.
+    pub grip: bool,
+    /// Crouched, on the ground (C toggles it there; leaving the ground clears it).
+    pub crouch: bool,
+    /// Standing back up out of a crouch: the stance isn't full yet.
+    pub standing_up: bool,
     pub locked: bool,
     swallow_click: bool,
 }
@@ -80,6 +101,9 @@ impl Default for Controls {
             zero: false,
             grab: false,
             mode: false,
+            grip: false,
+            crouch: false,
+            standing_up: false,
             locked: false,
             swallow_click: false,
         }
@@ -103,9 +127,14 @@ impl Controls {
         if self.mode {
             buttons |= MODE;
         }
+        if self.grip {
+            buttons |= GRIP;
+        }
+        // Standing up says so plainly, short of a hop's level.
+        let lift = if self.standing_up && self.thrust.y == 0.0 { STAND_UP } else { q(self.thrust.y) };
         InputCmd {
             aim,
-            thrust: [q(self.thrust.x), q(self.thrust.y), q(self.thrust.z)],
+            thrust: [q(self.thrust.x), lift, q(self.thrust.z)],
             roll: q(self.roll),
             buttons,
             lock_target: lock.unwrap_or(NO_SLOT),
@@ -161,6 +190,7 @@ pub fn read_input(
     indoors: Res<crate::hangar::Indoors>,
     mut pilot: ResMut<Pilot>,
     game: NonSend<GameClient>,
+    mut deck: Local<Option<(Body, Quat)>>,
 ) {
     let mut game = game.borrow_mut();
     // Keep the aim sane across (re)spawns: start looking where the suit looks.
@@ -170,9 +200,29 @@ pub fn read_input(
     {
         aim.dir = own.rot * Vec3::Z;
         aim.initialized_for = Some((own.slot, own.generation));
-        // A fresh suit comes out in its first form, jammer off.
+        // A fresh suit comes out in its first form, jammer off. One woken on a body holds on to
+        // it, standing or crouched as it was left.
         controls.mode = false;
+        controls.grip = own.surface.is_some();
+        controls.crouch = own
+            .surface
+            .is_some_and(|s| s.footing == footing::GROUNDED && f32::from(s.stance_q) / 16.0 < STANCE);
+        if let Some(spot) = crate::hud::hide_spot(&game.core)
+            && game.core.welcome.is_some_and(|w| w.woke)
+            && own.cover == bc_proto::snapshot::cover::HIDDEN
+        {
+            ui.toast(format!("WOKE IN {spot} - hidden. Move or fire and you're seen."));
+        }
     }
+    // On a turning body the aim turns with it, so a still mouse holds its bearing on the deck.
+    let on = game.core.own_view().and_then(|v| Some((v.ground?.body, v.t_view)));
+    let now = on.and_then(|(b, t)| Some((b, game.core.world.bodies.pose_at(b, t)?.rot)));
+    if let (Some((b, rot)), Some((was, before))) = (now, *deck)
+        && b == was
+    {
+        aim.dir = (rot * before.conjugate() * aim.dir).normalize_or(aim.dir);
+    }
+    *deck = now;
     if game.autopilot {
         return;
     }
@@ -210,11 +260,28 @@ pub fn read_input(
         }
     }
     let axis = |pos: KeyCode, neg: KeyCode| (keys.pressed(pos) as i32 - keys.pressed(neg) as i32) as f32;
-    controls.thrust = Vec3::new(
-        axis(KeyCode::KeyD, KeyCode::KeyA),
-        axis(KeyCode::Space, KeyCode::KeyC),
-        axis(KeyCode::KeyW, KeyCode::KeyS),
-    );
+    // On the ground C toggles a crouch, and Space hops (out of a crouch, it stands first); in the
+    // air they're the thrusters. Leaving the ground stands the crouch down.
+    let mover = game.core.predict.mover();
+    let lift = if mover.footing == Footing::Grounded {
+        if keys.just_pressed(KeyCode::KeyC) {
+            controls.crouch = !controls.crouch;
+        }
+        if keys.pressed(KeyCode::Space) {
+            controls.crouch = false;
+            1.0
+        } else if controls.crouch {
+            -1.0
+        } else {
+            0.0
+        }
+    } else {
+        controls.crouch = false;
+        axis(KeyCode::Space, KeyCode::KeyC)
+    };
+    controls.standing_up =
+        mover.footing == Footing::Grounded && !controls.crouch && mover.anchor.stance < STANCE;
+    controls.thrust = Vec3::new(axis(KeyCode::KeyD, KeyCode::KeyA), lift, axis(KeyCode::KeyW, KeyCode::KeyS));
     controls.roll = axis(KeyCode::KeyE, KeyCode::KeyQ);
     let mut b = 0;
     if controls.locked && !controls.swallow_click && mouse.pressed(MouseButton::Left) {
@@ -275,6 +342,15 @@ pub fn read_input(
     }
     if keys.just_pressed(KeyCode::KeyZ) {
         controls.zero = !controls.zero;
+    }
+    if keys.just_pressed(KeyCode::KeyL) {
+        controls.grip = !controls.grip;
+        let on_body = mover.footing != Footing::Free;
+        ui.toast(match (controls.grip, on_body) {
+            (true, _) => "GRIP ON: come in slow and close, and it lands you",
+            (false, true) => "GRIP OFF: letting go",
+            (false, false) => "GRIP OFF",
+        });
     }
     let dead = game.core.world.own.is_some_and(|o| !o.alive);
     let digits = [

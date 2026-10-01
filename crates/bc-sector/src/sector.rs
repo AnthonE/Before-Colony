@@ -9,7 +9,7 @@ use bc_sim::{Sim, SimConfig, SuitId};
 
 use crate::clients::ClientState;
 use crate::metrics::Metrics;
-use crate::queues::{Control, Outcome, Report, SectorEnds, SectorShared, SlotState};
+use crate::queues::{Control, Outcome, Reparked, Report, Restored, SectorEnds, SectorShared, SlotState};
 use crate::replicate::{Work, build_snapshot};
 
 /// Ticks between tactical pictures per ZERO pilot when an external oracle is attached (≈3.75 Hz).
@@ -149,6 +149,16 @@ impl Sector {
                         let id = self.clients[s].suit;
                         if matches!(msg, Control::Sleep { .. }) && self.sim.sleep(id) {
                             asleep = Some(id);
+                            // Survival: left in a hide spot, it outlives the server. The session
+                            // hears of it before it sees the slot free.
+                            if self.cfg.sim.survival
+                                && let Some(rec) = self.sim.park_record(id.idx())
+                                && self.ends.reports[s]
+                                    .push(Report::Parked { rec, tick: self.sim.tick() })
+                                    .is_err()
+                            {
+                                Metrics::add(&self.shared.metrics.notes_dropped, 1);
+                            }
                         } else {
                             self.sim.leave(id);
                         }
@@ -181,6 +191,17 @@ impl Sector {
                     if let Some(c) = self.clients.get(slot as usize).filter(|c| c.active) {
                         self.sim.set_respawn_frame(c.suit, frame);
                     }
+                }
+                Control::Restore { key, rec } => {
+                    if let Some(id) = self.sim.restore_sleeper(&rec) {
+                        let (suit, generation) = (id.0.idx, id.0.generation);
+                        if self.shared.restored.push(Restored { key, suit, generation }).is_err() {
+                            Metrics::add(&self.shared.metrics.notes_dropped, 1);
+                        }
+                    }
+                }
+                Control::Discard { suit, generation } => {
+                    self.sim.discard_sleeper(SuitId(Handle { idx: suit, generation }));
                 }
             }
         }
@@ -231,7 +252,8 @@ impl Sector {
         }
     }
 
-    /// Sleepers destroyed or cleared this tick, on to the server.
+    /// Sleepers destroyed or cleared this tick, on to the server; and under survival rules, what's
+    /// left of those in hide spots that were hit (what a restart puts back is what's left).
     fn pass_on_fates(&mut self) {
         let shared = &self.shared;
         self.sim.drain_fates(|fate| {
@@ -239,6 +261,14 @@ impl Sector {
                 Metrics::add(&shared.metrics.notes_dropped, 1);
             }
         });
+        if self.cfg.sim.survival {
+            let tick = self.sim.tick();
+            self.sim.hidden_hit(|suit, generation, rec| {
+                if shared.reparked.push(Reparked { suit, generation, tick, rec }).is_err() {
+                    Metrics::add(&shared.metrics.notes_dropped, 1);
+                }
+            });
+        }
     }
 
     fn drain_advice(&mut self) {
@@ -260,10 +290,17 @@ impl Sector {
                 }
                 None => {
                     // The last command again without firing, then hands-off: the rule the owner's
-                    // prediction flies through its own gaps too.
+                    // prediction flies through its own gaps too. Until the client is first heard
+                    // from, the last command is the one the sector left its suit with, so a suit
+                    // woken (or put) on a body keeps its grip rather than letting go.
                     client.missing += 1;
                     Metrics::add(&self.shared.metrics.inputs_missing, 1);
-                    InputCmd::stand_in(&client.last_cmd, next, client.missing)
+                    let last = if client.last_real == u32::MAX {
+                        self.sim.suits.input[client.suit.idx()]
+                    } else {
+                        client.last_cmd
+                    };
+                    InputCmd::stand_in(&last, next, client.missing)
                 }
             };
             self.sim.set_input(client.suit, cmd);
@@ -343,6 +380,10 @@ impl Sector {
         Metrics::set(&m.suits_alive, self.sim.alive_count() as u64);
         Metrics::set(&m.sleepers, self.sim.sleepers() as u64);
         Metrics::set(&m.parked, self.sim.parked() as u64);
+        Metrics::set(&m.grounded, u64::from(self.sim.n_grounded));
+        Metrics::set(&m.aloft, u64::from(self.sim.n_aloft));
+        Metrics::set(&m.hidden, u64::from(self.sim.n_hidden));
+        Metrics::set(&m.sleepers_hidden, u64::from(self.sim.n_hidden_asleep));
         Metrics::set(&m.projectiles, self.sim.projectiles.count() as u64);
         Metrics::set(&m.events, u64::from(self.sim.events.next_seq()));
     }

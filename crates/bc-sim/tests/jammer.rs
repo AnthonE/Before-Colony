@@ -1,14 +1,18 @@
-//! Deathscythe's Hyper Jammer: its enemies lose it (sensors, eyes past 400 m, Mobile Dolls, ZERO
+//! Deathscythe's Hyper Jammer: its enemies lose it (sensors, eyes past 150 m, Mobile Dolls, ZERO
 //! and locks) while its allies still see it; firing or striking shows through it for 2 s; it drains
-//! energy and needs a fifth of it to engage.
+//! energy and needs a fifth of it to engage. Hidden in a hide spot as well, eyes find it only as
+//! close as the hide spot lets them.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
-use bc_proto::buttons::{FIRE_SECONDARY, MELEE, MODE, ZERO};
+use bc_proto::buttons::{FIRE_SECONDARY, GRIP, MELEE, MODE, ZERO};
 use bc_proto::snapshot::{ent_flags, own_flags};
 use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, PilotKind};
+use bc_sim::bodies::{Bodies, Body};
+use bc_sim::content::landmarks::LANDMARKS;
 use bc_sim::content::{SpecialKind, frame};
 use bc_sim::math::look_rotation;
 use bc_sim::perception::Perception;
+use bc_sim::sim::{HIDE_AWAKE_VISUAL_MUL, LURK_SETTLE_TICKS, cover};
 use bc_sim::{Sim, SimConfig, SuitId};
 use glam::Vec3;
 
@@ -216,4 +220,52 @@ fn locks_need_sensors_that_see() {
     assert_eq!(sim.own_state(leo.idx()).lock_target, NO_SLOT);
     assert_eq!(sim.own_state(leo.idx()).flags & own_flags::LOCKED_ON, 0);
     assert_eq!(sim.designation(ds.idx()), Some(leo.idx()));
+}
+
+#[test]
+fn hidden_in_a_hide_spot_and_jamming_it_is_seen_no_further_off_than_either_allows() {
+    let (_, _, _, _, jam_visual) = jammer();
+    let hidden_visual = LANDMARKS[1].hides[0].visual * HIDE_AWAKE_VISUAL_MUL;
+    assert!(jam_visual < hidden_visual);
+    let mut sim = empty();
+    // A Deathscythe on the floor of Hermit's Deep; enemy eyes between the two ranges, and far off.
+    let ds = suit(&mut sim, FrameId::Deathscythe, Faction::Colonies, AT, Vec3::Z);
+    assert!(sim.place_on(ds, Body::Landmark(1), Vec3::Y));
+    let i = ds.idx();
+    let n =
+        Bodies::at(&sim.field, sim.landmarks(), sim.tick()).pose(Body::Landmark(1)).unwrap().rot * Vec3::Y;
+    let at = sim.suits.flight[i].pos;
+    let between = suit(&mut sim, FrameId::Leo, Faction::Oz, at + n * (jam_visual + hidden_visual) / 2.0, -n);
+    let far = suit(&mut sim, FrameId::Leo, Faction::Oz, at + n * 3_000.0, -n);
+    let ally = suit(&mut sim, FrameId::Leo, Faction::Colonies, at + n * 3_000.0 + Vec3::X * 50.0, -n);
+    let crouch = |sim: &mut Sim, ty: i8, buttons: u16| {
+        let t = sim.next_tick();
+        let aim = sim.suits.flight[i].rot * Vec3::Z;
+        let cmd = InputCmd {
+            tick: t,
+            view_tick_q4: t << 4,
+            aim,
+            thrust: [0, ty, 0],
+            buttons: GRIP | buttons,
+            ..InputCmd::default()
+        };
+        sim.set_input(ds, cmd);
+        sim.step();
+    };
+    // Crouched, and still for 3 s: hidden, off sensors, and in sight within the hide spot's range.
+    for _ in 0..20 {
+        crouch(&mut sim, -127, 0);
+    }
+    for _ in 0..=LURK_SETTLE_TICKS {
+        crouch(&mut sim, 0, 0);
+    }
+    assert_eq!(sim.cover_code(i), cover::HIDDEN);
+    assert!(!sim.visible_to(far.idx(), i));
+    assert!(sim.visible_to(between.idx(), i), "lost inside the hide spot's eyesight");
+    // Jamming as well: eyes find it only within the jammer's range, the nearer.
+    crouch(&mut sim, 0, MODE);
+    assert!(sim.jamming(i).is_some());
+    assert_eq!(sim.cover_code(i), cover::HIDDEN);
+    assert!(!sim.visible_to(between.idx(), i), "seen past the jammer's eyesight");
+    assert!(sim.visible_to(ally.idx(), i), "its ally lost it");
 }

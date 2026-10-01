@@ -7,6 +7,7 @@ mod ao;
 pub mod cockpit;
 pub mod frames;
 mod gundams;
+pub mod ik;
 pub mod kit;
 pub mod paint;
 pub mod rig;

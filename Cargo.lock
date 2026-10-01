@@ -670,6 +670,7 @@ dependencies = [
  "crossbeam-queue",
  "futures",
  "getrandom 0.3.4",
+ "glam",
  "hex",
  "rtrb",
  "rustls",

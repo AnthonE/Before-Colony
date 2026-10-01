@@ -8,16 +8,23 @@
 //! - [`Sim::dock`](super::Sim::dock) takes a suit that has come to rest in the dock out of the
 //!   sector again, and says what it brings home ([`Homecoming`]): what's left of it, its hold,
 //!   whatever it has in hand, and the bounties it earned.
+//! - A suit its pilot left parked in a landmark's hide spot outlives the server:
+//!   [`Sim::park_record`](super::Sim::park_record) says where it stands and what it carries
+//!   ([`ParkRecord`]), and [`Sim::restore_sleeper`](super::Sim::restore_sleeper) puts it back
+//!   there, asleep, when the server starts again.
 
-use bc_proto::{CARGO_KINDS, ChunkDesc, Faction, FrameId, NO_CHUNK, Part, PilotKind};
+use bc_proto::buttons::GRIP;
+use bc_proto::{CARGO_KINDS, ChunkDesc, Faction, FrameId, InputCmd, NO_CHUNK, Part, PilotKind};
 use glam::{Quat, Vec3};
 
 use super::Sim;
+use crate::bodies::{Bodies, Body};
 use crate::content::salvage::DOCK_HUB_LENGTH;
 use crate::content::{Modules, Systems, frame, weapon};
+use crate::ground::{self, Anchor, CROUCH_STANCE, Footing, STANCE};
 use crate::handle::SuitId;
-use crate::math::{cos, look_rotation, sin};
-use crate::suits::ALL_MOUNTS;
+use crate::math::{cos, floor, look_rotation, quat_normalize, sin};
+use crate::suits::{ALL_MOUNTS, NO_SPOT};
 use crate::world::{COLONY_CENTER, COLONY_HALF_LENGTH};
 
 /// Where suits come out: on the docking hub's axis, just off its mouth, inside the dock (a suit
@@ -101,6 +108,25 @@ pub struct Homecoming {
     pub bounty: u32,
 }
 
+/// A suit parked in a landmark's hide spot as its pilot left (survival): where it stands on the
+/// landmark, and everything it carries. Enough to put it back as it was when the server starts
+/// again ([`Sim::restore_sleeper`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ParkRecord {
+    /// The landmark it stands on (an index into [`Sim::landmarks`]).
+    pub landmark: u8,
+    /// Its origin and attitude in the landmark's frame.
+    pub local: Vec3,
+    pub rot: Quat,
+    /// How high its origin stands over the ground, m: on its feet, or crouched.
+    pub stance: f32,
+    pub frame: FrameId,
+    pub faction: Faction,
+    pub pilot: PilotKind,
+    /// What's left of it, its hold and its bounty (nothing in hand: a sleeper lets go).
+    pub home: Homecoming,
+}
+
 impl Sim {
     /// Launches `loadout` from the docking hub, flown by `pilot`. `None` if the sector is full, the
     /// frame isn't one pilots fly, or there's no torso.
@@ -152,8 +178,20 @@ impl Sim {
             return None;
         }
         let held = self.held_chunk(i);
+        let home = Homecoming { held: held.map(|k| self.chunks.desc[k]), ..self.kit(i) };
+        if let Some(k) = held {
+            self.chunks.kill(k);
+        }
+        self.suits.held[i] = (NO_CHUNK, 0, false);
+        self.suits.cargo_kg[i] = [0; CARGO_KINDS];
+        self.suits.release(i);
+        Some(home)
+    }
+
+    /// What suit `i` would bring home, but for whatever it has in hand.
+    fn kit(&self, i: usize) -> Homecoming {
         let s = &self.suits;
-        let home = Homecoming {
+        Homecoming {
             frame: match s.frame[i] {
                 FrameId::WingZeroBird => FrameId::WingZero,
                 f => f,
@@ -165,15 +203,112 @@ impl Sim {
             systems: s.systems[i],
             modules: s.modules[i].without(s.gone_mask(i)),
             cargo_kg: s.cargo_kg[i],
-            held: held.map(|k| self.chunks.desc[k]),
+            held: None,
             bounty: s.credits[i],
-        };
-        if let Some(k) = held {
-            self.chunks.kill(k);
         }
-        self.suits.held[i] = (NO_CHUNK, 0, false);
-        self.suits.cargo_kg[i] = [0; CARGO_KINDS];
-        self.suits.release(i);
-        Some(home)
+    }
+
+    /// Suit `i`, if it's asleep on its feet (or knees) in one of a landmark's hide spots: where,
+    /// and what it carries. Nothing for a suit parked anywhere else.
+    pub fn park_record(&self, i: usize) -> Option<ParkRecord> {
+        if !self.is_parked(i) || !self.suits.alive.get(i) {
+            return None;
+        }
+        let s = &self.suits;
+        let (Footing::Grounded, Body::Landmark(landmark), false) =
+            (s.footing[i], s.anchor[i].body, s.hide_spot[i] == NO_SPOT)
+        else {
+            return None;
+        };
+        let a = s.anchor[i];
+        Some(ParkRecord {
+            landmark,
+            local: a.local,
+            rot: a.rot,
+            stance: a.stance,
+            frame: s.frame[i],
+            faction: s.faction[i],
+            pilot: s.pilot[i],
+            home: self.kit(i),
+        })
+    }
+
+    /// Suits asleep in a hide spot that were hit this tick, each (entity slot, generation) as
+    /// [`park_record`](Self::park_record) finds it now: what a later server run puts back is
+    /// what's left of it, not what its pilot left.
+    pub fn hidden_hit(&self, mut f: impl FnMut(u16, u16, ParkRecord)) {
+        for i in self.suits.sleeping.iter() {
+            if self.suits.last_hit[i] == self.tick
+                && let Some(rec) = self.park_record(i)
+            {
+                f(i as u16, self.suits.generation[i], rec);
+            }
+        }
+    }
+
+    /// Puts a suit back as [`park_record`](Self::park_record) found it, asleep: kneeling (or
+    /// standing) where it was in its hide spot, with its armour, weapons, rounds, tank, hold and
+    /// bounty, and gripping, so its pilot wakes there. It powers down as any suit just parked
+    /// does, and nobody has fought it. `None` if the sector is full, or the record doesn't name a
+    /// hide spot this sector has, a frame pilots fly on legs, or a torso.
+    pub fn restore_sleeper(&mut self, rec: &ParkRecord) -> Option<SuitId> {
+        let spec = frame(rec.frame);
+        if !spec.playable
+            || !spec.has_legs()
+            || rec.home.parts[Part::Torso as usize] <= 0.0
+            || !rec.stance.is_finite()
+            || !rec.rot.is_finite()
+            || rec.rot.length_squared() < 0.25
+        {
+            return None;
+        }
+        let t = self.tick;
+        let body = Body::Landmark(rec.landmark);
+        // On the stance grid, between a crouch and full height.
+        let stance = (floor(rec.stance * 16.0 + 0.5) / 16.0).clamp(CROUCH_STANCE, STANCE);
+        let (pose, local, spot) = {
+            let bodies = Bodies::at(&self.field, self.landmarks(), t);
+            let (pose, shape) = (bodies.pose(body)?, bodies.shape(body)?);
+            // Where it stood, its feet on the ground: a record saved by `park_record` has them
+            // there already, and is kept to the bit.
+            let (local, _) = ground::settle(&shape, rec.local, Vec3::Y, stance);
+            (pose, local, bodies.hide_spot_of(body, local)?)
+        };
+        self.make_room_for_sleeper();
+        let id = self.suits.allocate(rec.frame, rec.faction, rec.pilot)?;
+        let i = id.idx();
+        // Unit length as saved (kept to the bit), or made so.
+        let rot =
+            if (rec.rot.length_squared() - 1.0).abs() < 1e-4 { rec.rot } else { quat_normalize(rec.rot) };
+        let a = Anchor { body, local, rot, stance, ..Anchor::default() };
+        let home = &rec.home;
+        self.suits.place(i, rec.frame, pose.to_world(local), pose.rot * a.rot, t);
+        let s = &mut self.suits;
+        for (hp, (max, f)) in s.part_hp[i].iter_mut().zip(spec.part_hp.iter().zip(home.parts)) {
+            *hp = max * f.clamp(0.0, 1.0);
+        }
+        s.mounts[i] = home.mounts & ALL_MOUNTS;
+        for (slot, ws) in s.weapons[i].iter_mut().enumerate() {
+            if let Some(m) = spec.loadout[slot] {
+                ws.ammo = home.ammo[slot].min(weapon(m.weapon).ammo);
+            }
+        }
+        s.flight[i].propellant = home.propellant.clamp(0.0, spec.propellant_cap);
+        s.cargo_kg[i] = home.cargo_kg;
+        s.credits[i] = home.bounty;
+        (s.footing[i], s.anchor[i]) = (Footing::Grounded, a);
+        super::sleep::hold(&pose, &a, &mut s.flight[i]);
+        // Asleep since now: lying still, never fought (so it goes dark as a suit just parked
+        // does), and still gripping.
+        let aim = s.flight[i].rot * Vec3::Z;
+        s.aim[i] = aim;
+        s.input[i] = InputCmd::neutral(t, aim, GRIP);
+        s.sleeping.set(i, true);
+        s.slept_at[i] = t;
+        s.last_fired[i] = 0;
+        s.last_hit[i] = 0;
+        s.still_since[i] = t;
+        s.hide_spot[i] = spot;
+        Some(id)
     }
 }

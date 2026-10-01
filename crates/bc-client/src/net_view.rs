@@ -5,20 +5,23 @@
 use std::collections::{HashMap, HashSet};
 
 use bc_client_core::FeedLine;
+use bc_client_core::interp::Pose;
 use bc_client_core::world::ObjectMotion;
 use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY};
 use bc_proto::events::BurstCause;
 use bc_proto::snapshot::{ent_flags, own_flags, zero_mode};
 use bc_sim::TICK_HZ;
+use bc_sim::bodies::sweep_landmarks;
 use bc_sim::content::{SPECIAL_MOUNT, SpecialKind, frame};
+use bc_sim::ground::{GRIP_ACCEL, LAND_SPEED_MAX};
 use bc_sim::world::COLONY_CENTER;
 use bevy::prelude::*;
 
 use crate::input::Aim;
 use crate::net::{GameClient, now_s};
 use crate::view::{
-    BeamFeed, BeamView, CameraTarget, ChaseTarget, FxEvent, FxEvents, MissileFeed, MissileView, SuitDrive,
-    SuitIndex, VisTime,
+    BeamFeed, BeamView, CameraTarget, ChaseTarget, DrawnBodies, FxEvent, FxEvents, MissileFeed, MissileView,
+    SuitDrive, SuitGround, SuitIndex, VisTime,
 };
 
 /// Remembers which one-shot events were already turned into effects.
@@ -43,11 +46,22 @@ pub struct Seen {
 }
 
 /// A suit's thrust demand in its own frame (-1..1 per axis), estimated from its acceleration
-/// between two interpolated samples a tick apart.
-fn thrust_estimate(frame_id: bc_proto::FrameId, rot: Quat, vel_now: Vec3, vel_before: Vec3) -> Vec3 {
+/// between two interpolated samples a tick apart. On a body, what its thrusters do is told apart
+/// from what the body does: standing on it, they're idle (the legs carry it); in the air in its
+/// grip, the acceleration is taken relative to the body, less the grip's pull and its free brake
+/// on a fall.
+fn thrust_estimate(frame_id: bc_proto::FrameId, rot: Quat, now: &Pose, before: &Pose) -> Vec3 {
+    let accel = match (now.ground, before.ground) {
+        (Some(g), _) if !g.aloft => return Vec3::ZERO,
+        (Some(g), Some(b)) if b.body == g.body => {
+            let a = (g.rel_vel - b.rel_vel) * TICK_HZ as f32 + g.up * GRIP_ACCEL;
+            // Falling at the brake's limit, nothing pushes along the normal.
+            if g.rel_vel.dot(g.up) <= -(LAND_SPEED_MAX - 0.25) { a - g.up * a.dot(g.up) } else { a }
+        }
+        _ => (now.vel - before.vel) * TICK_HZ as f32,
+    };
     let spec = frame(frame_id);
     let mass = spec.dry_mass + spec.propellant_cap * 0.5;
-    let accel = (vel_now - vel_before) * TICK_HZ as f32;
     let local = rot.inverse() * accel;
     let forward = if local.z >= 0.0 { spec.main_thrust } else { spec.retro_thrust };
     Vec3::new(local.x * mass / spec.side_thrust, local.y * mass / spec.side_thrust, local.z * mass / forward)
@@ -60,12 +74,26 @@ pub fn tick_vis_time(mut t: ResMut<VisTime>, time: Res<Time<Real>>) {
     t.dt = time.delta_secs();
 }
 
+/// The sector's bodies as drawn this frame: on the view clock, at the very moment the own suit is
+/// drawn on its body (else the render clock's now).
+pub fn track_bodies(game: NonSend<GameClient>, vis: Res<VisTime>, mut bodies: ResMut<DrawnBodies>) {
+    let game = game.borrow();
+    let core = &game.core;
+    bodies.t = core.own_view().map_or_else(|| core.render_tick(vis.now), |v| v.t_view);
+    if !std::sync::Arc::ptr_eq(&bodies.set.field, &core.world.bodies.field)
+        || bodies.set.landmarks().len() != core.world.bodies.landmarks().len()
+    {
+        bodies.set = core.world.bodies.clone();
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn sync_view(
     mut commands: Commands,
     game: NonSend<GameClient>,
     aim: Res<Aim>,
     vis: Res<VisTime>,
+    bodies: Res<DrawnBodies>,
     mut index: ResMut<SuitIndex>,
     mut drives: Query<&mut SuitDrive>,
     mut beams: ResMut<BeamFeed>,
@@ -78,7 +106,8 @@ pub fn sync_view(
     let core = &game.core;
     let world = &core.world;
     let now = vis.now;
-    let t_render = core.render_tick(now);
+    // Everyone else, and every body, on the view clock.
+    let t_render = bodies.t;
     // The own suit as drawn this frame (between the ticks predicted), and the time it's drawn at.
     let drawn = core.own_view().copied();
     let t_own = drawn.map_or(core.clock.own_tick(now) - 1.0, |v| v.t);
@@ -179,15 +208,16 @@ pub fn sync_view(
                 ObjectMotion::Held { holder, right, .. } if holder == own.slot => Some(right),
                 _ => None,
             }),
+            ground: view.ground.and_then(|g| SuitGround::of(&g, &bodies)),
         });
     }
     for (slot, track) in world.entities.iter().enumerate() {
         let Some(track) = track else { continue };
         let e = &track.latest;
         let state = track.state_at(t_render);
-        let p = track.sample(t_render);
-        let before = track.sample(t_render - 1.0);
-        let raw = thrust_estimate(e.frame, p.rot, p.vel, before.vel);
+        let p = track.sample(t_render, &world.bodies);
+        let before = track.sample(t_render - 1.0, &world.bodies);
+        let raw = thrust_estimate(e.frame, p.rot, &p, &before);
         let smooth = seen.thrust.entry(slot as u16).or_insert(raw);
         *smooth += (raw - *smooth) * (1.0 - (-vis.dt * 8.0).exp());
         let thrust = if e.flags & ent_flags::WRECK != 0 { Vec3::ZERO } else { *smooth };
@@ -206,6 +236,7 @@ pub fn sync_view(
             parts: state.parts,
             thrust,
             holding: holders.get(&(slot as u16)).copied(),
+            ground: p.ground.and_then(|g| SuitGround::of(&g, &bodies)),
         });
     }
     seen.thrust.retain(|slot, _| world.entities.get(*slot as usize).is_some_and(Option::is_some));
@@ -247,8 +278,8 @@ pub fn sync_view(
 
     // --- Beams: the own suit's on its own clock (leaving the muzzle as the suit is drawn there),
     // others on the render clock. ---
-    // The server removes beams that strike the colony or a rock without telling anyone, so they
-    // end, and splash, there.
+    // The server removes beams that strike the colony, a rock or a landmark without telling
+    // anyone, so they end, and splash, there (a landmark as it's drawn).
     beams.0.clear();
     for b in &world.beams {
         let t = if Some(b.shooter) == own_slot { t_own } else { t_render };
@@ -262,18 +293,27 @@ pub fn sync_view(
         let radius = bc_sim::content::weapon(b.weapon).radius;
         let rock = field.sweep(b.origin, head, radius).map(|(t, i)| (t * travelled, i));
         let hull = crate::colony::ray_hit(b.origin, dir).filter(|d| travelled >= *d);
-        let stop = match (rock, hull) {
-            (Some((d, i)), h) if h.is_none_or(|h| d <= h) => {
-                let at = b.origin + dir * d;
-                Some((at, field.rocks()[i].normal(at, radius)))
-            }
-            (_, Some(h)) => {
-                let at = b.origin + dir * h;
-                let rel = at - COLONY_CENTER;
-                Some((at, Vec3::new(0.0, rel.y, rel.z).normalize_or(Vec3::Y)))
-            }
-            _ => None,
-        };
+        let k = bodies.t.max(0.0).floor();
+        let landmark =
+            sweep_landmarks(bodies.set.landmarks(), b.origin, head, radius, k as u32, (bodies.t - k) as f32)
+                .map(|(s, id)| (s * travelled, id));
+        let solid =
+            [rock.map(|(d, _)| d), hull, landmark.map(|(d, _)| d)].into_iter().flatten().reduce(f32::min);
+        let stop = solid.map(|d| {
+            let at = b.origin + dir * d;
+            let normal = match (rock, landmark) {
+                (Some((r, i)), _) if r == d => field.rocks()[i].normal(at, radius),
+                (_, Some((l, id))) if l == d => bodies
+                    .pose(bc_sim::bodies::Body::Landmark(id))
+                    .zip(bodies.set.shape(bc_sim::bodies::Body::Landmark(id)))
+                    .map_or(-dir, |(p, shape)| p.rot * shape.probe(p.to_local(at)).normal),
+                _ => {
+                    let rel = at - COLONY_CENTER;
+                    Vec3::new(0.0, rel.y, rel.z).normalize_or(Vec3::Y)
+                }
+            };
+            (at, normal)
+        });
         if let Some((at, normal)) = stop {
             if seen.splashes.insert((b.shooter, b.shot_seq)) {
                 events.0.push(FxEvent::Hit { pos: at, weapon: b.weapon, normal: Some(normal), target: None });
@@ -344,7 +384,7 @@ pub fn sync_view(
                     drawn.map(|v| (v.frame, v.pos, v.rot))
                 } else {
                     world.entity(slot).map(|t| {
-                        let p = t.sample(t_render);
+                        let p = t.sample(t_render, &world.bodies);
                         (t.latest.frame, p.pos, p.rot)
                     })
                 }
@@ -425,6 +465,7 @@ pub fn sync_view(
         up: view.rot * Vec3::Y,
         aim: aim.dir,
         cut: view.cut,
+        ground: view.alive && view.ground.is_some(),
         boost: view.alive && view.boosting,
         g_strain: view.g_strain.clamp(0.0, 1.0),
         blackout: view.alive && view.blackout,

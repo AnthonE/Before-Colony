@@ -5,8 +5,9 @@ use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, MELEE};
 use bc_proto::events::Event;
 use bc_proto::{Faction, FrameId, InputCmd, Part, PilotKind};
 use bc_sim::collide::sweep_capsules;
-use bc_sim::content::Capsule;
+use bc_sim::content::{Capsule, frame};
 use bc_sim::math::{Rng, look_rotation};
+use bc_sim::world::{COLONY_CENTER, COLONY_RADIUS, inside_colony};
 use bc_sim::{DT, Sim, SimConfig, SuitId};
 use glam::{Quat, Vec3};
 
@@ -147,4 +148,45 @@ fn saber_cuts_and_clashes() {
         hold(&mut sim, b, 0, -Vec3::Z);
     }
     assert!(events_since(&sim, from).iter().any(|e| matches!(e, Event::Clash { .. })), "expected a clash");
+}
+
+#[test]
+fn a_suit_skimming_the_colony_is_hit_by_a_shot_aimed_at_it() {
+    // A shot whose tick ends inside the colony meets whatever is first along that path: a suit
+    // skimming the hull is hit before the hull behind it stops the shot.
+    let mut sim = empty();
+    let top = COLONY_CENTER + Vec3::Y * (COLONY_RADIUS + 12.5);
+    let target = human(&mut sim, FrameId::Taurus, Faction::Oz, top, Vec3::Z);
+    let above = top + Vec3::new(0.0, 700.0, -250.0);
+    let leo = human(&mut sim, FrameId::Leo, Faction::Colonies, above, top - above);
+    let from = sim.events.next_seq();
+    let (mut last, mut fired) = (None, false);
+    for _ in 0..30 {
+        let f = &sim.suits.flight[leo.idx()];
+        let muzzle = f.pos + f.rot * Vec3::new(3.4, 0.6, 3.0);
+        let aim = (sim.suits.flight[target.idx()].pos - muzzle).normalize();
+        hold(&mut sim, leo, if fired { 0 } else { FIRE_PRIMARY }, aim);
+        sim.step();
+        let shot = sim.projectiles.alive.iter().find(|&k| sim.projectiles.owner[k] as usize == leo.idx());
+        fired |= shot.is_some();
+        match shot {
+            Some(k) => {
+                last = Some((sim.projectiles.pos[k], sim.projectiles.vel[k], sim.projectiles.radius[k]))
+            }
+            None if fired => break,
+            None => {}
+        }
+    }
+    let (a, vel, r) = last.expect("the rifle never fired");
+    let b = a + vel * DT;
+    // Its last tick's path ran through the suit and on into the hull...
+    let t = &sim.suits.flight[target.idx()];
+    let caps = &frame(FrameId::Taurus).capsules;
+    assert!(sweep_capsules(a, b, r, caps, t.pos, t.rot, 0).is_some(), "the shot's path missed the suit");
+    assert!(inside_colony(b));
+    // ...and it hit the suit.
+    let hit = events_since(&sim, from)
+        .iter()
+        .any(|e| matches!(e, Event::Hit { target: j, .. } if *j as usize == target.idx()));
+    assert!(hit, "the hull stopped the shot before the suit");
 }

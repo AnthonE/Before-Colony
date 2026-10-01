@@ -3,12 +3,16 @@
 use crate::InputContext;
 use crate::salvage::route;
 use crate::world::World;
-use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, GRAB, MELEE, STOW};
+use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, GRAB, GRIP, MELEE, STOW};
 use bc_proto::{ChunkKind, FrameId, InputCmd, Part};
+use bc_sim::TICK_HZ;
 use bc_sim::ai::{self, AiState, DollProfile, PILOT};
+use bc_sim::bodies::{Body, BodyPose, Shape};
 use bc_sim::content::salvage::{DOCK_CENTER, stowable};
 use bc_sim::content::{ArmSlot, frame, weapon};
 use bc_sim::field::SUIT_CLEARANCE;
+use bc_sim::ground::{Footing, STANCE, WALK_SPEED, place};
+use bc_sim::math::quat_axis_angle;
 use glam::Vec3;
 
 /// Where the fighting is (the Mobile Doll patrol ring around the colony).
@@ -187,6 +191,176 @@ impl MinerBrain {
     }
 }
 
+/// Where a lander comes in from: this far over its landing spot, m...
+const APPROACH_HEIGHT: f32 = 50.0;
+/// ...and once it's this close to there (m), this slow relative to the body (m/s)...
+const APPROACH_NEAR: f32 = 30.0;
+const APPROACH_SLOW: f32 = 3.0;
+/// ...it arms its grip and comes down this fast (m/s), to this high over the spot (its feet, m):
+/// inside the catch, slow enough to be caught.
+const DESCENT: f32 = 5.0;
+const DESCEND_TO: f32 = 12.0;
+/// Down, a walker paces a square this big (m), and hops this often (ticks).
+const SQUARE: f32 = 30.0;
+const HOP_EVERY: u32 = 90;
+
+/// What a [`LanderBrain`] is to do.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Plan {
+    /// Land on `body` where its surface is straight out from its middle along `dir_local` (its
+    /// frame), then walk a 30 m square, hopping every 3 s.
+    Walk { body: Body, dir_local: Vec3 },
+    /// Land in hide spot `spot` of landmark `landmark`, crouch, and keep still.
+    Hide { landmark: u8, spot: u8 },
+}
+
+/// Where a lander is in its plan.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stage {
+    /// Flying to a spot over where it lands.
+    Approach,
+    /// Coming down on it, grip armed.
+    Descend,
+}
+
+/// A lander: it flies to a body, comes in slow and close with its grip armed, lets the catch and
+/// the grip land it, then walks about on it ([`Plan::Walk`]) or hides in a hide spot
+/// ([`Plan::Hide`]). For tests, the browser's autopilot and bots. A body that moves is flown to
+/// where it is now, at the speed of its surface there.
+pub struct LanderBrain {
+    pub plan: Plan,
+    stage: Stage,
+    /// When it first stood on the body.
+    landed: Option<u32>,
+}
+
+impl LanderBrain {
+    pub fn new(plan: Plan) -> Self {
+        Self { plan, stage: Stage::Approach, landed: None }
+    }
+
+    /// The body it lands on.
+    pub fn body(&self) -> Body {
+        match self.plan {
+            Plan::Walk { body, .. } => body,
+            Plan::Hide { landmark, .. } => Body::Landmark(landmark),
+        }
+    }
+
+    /// Where it lands on its body, and the surface's normal there (the body's frame).
+    fn spot(&self, ctx: &InputContext) -> Option<(Vec3, Vec3)> {
+        let bodies = ctx.predict.bodies(ctx.tick);
+        match self.plan {
+            Plan::Walk { body, dir_local } => bodies.surface_along(body, dir_local),
+            Plan::Hide { landmark, spot } => {
+                let def = bodies.landmarks.get(usize::from(landmark))?;
+                let c = def.hides.get(usize::from(spot))?.center;
+                Some((c, def.shape.probe(c).normal))
+            }
+        }
+    }
+
+    pub fn decide(&mut self, ctx: &InputContext) -> InputCmd {
+        let idle = InputCmd { buttons: FLIGHT_ASSIST, ..InputCmd::default() };
+        let (Some((at, n)), Some(own)) = (self.spot(ctx), ctx.world.own.filter(|o| o.alive)) else {
+            return idle;
+        };
+        let bodies = ctx.predict.bodies(ctx.tick);
+        let body = self.body();
+        let (Some(pose), Some(shape)) = (bodies.pose(body), bodies.shape(body)) else { return idle };
+        let m = ctx.predict.mover();
+        // A way along the surface (it looks along it, so an armed grip rolls its feet down).
+        let along =
+            |n: Vec3| (n.cross(if n.y.abs() < 0.9 { Vec3::Y } else { Vec3::X })).normalize_or(Vec3::X);
+        if m.footing != Footing::Free {
+            let a = m.anchor;
+            let up = place(&shape, a.local, a.stance).1;
+            let mut cmd = InputCmd { buttons: FLIGHT_ASSIST | GRIP, ..InputCmd::default() };
+            if m.footing == Footing::Aloft {
+                // In the grip's hold: let it bring the suit down.
+                cmd.aim = pose.rot * along(up);
+                return cmd;
+            }
+            let landed = *self.landed.get_or_insert(ctx.tick);
+            let down = ctx.tick - landed;
+            match self.plan {
+                Plan::Walk { .. } => {
+                    // A side of the square at a time, turning a quarter each.
+                    let side = (SQUARE / WALK_SPEED * TICK_HZ as f32) as u32;
+                    let turn = (down / side % 4) as f32 * core::f32::consts::FRAC_PI_2;
+                    cmd.aim = pose.rot * (quat_axis_angle(up, turn) * along(up));
+                    cmd.thrust = [0, 0, 127];
+                    if down > 0 && down.is_multiple_of(HOP_EVERY) {
+                        cmd.thrust[1] = 127;
+                    }
+                }
+                Plan::Hide { .. } => {
+                    cmd.aim = pose.rot * along(up);
+                    cmd.thrust = [0, -127, 0];
+                }
+            }
+            return cmd;
+        }
+        self.landed = None;
+        let (hi, lo) =
+            (pose.to_world(at + n * APPROACH_HEIGHT), pose.to_world(at + n * (STANCE + DESCEND_TO)));
+        let s = &ctx.predict.state;
+        let rel = |p: Vec3, pose: &BodyPose| s.vel - pose.point_vel(p);
+        if self.stage == Stage::Approach
+            && s.pos.distance(hi) < APPROACH_NEAR
+            && rel(s.pos, &pose).length() < APPROACH_SLOW
+        {
+            self.stage = Stage::Descend;
+        }
+        if self.stage == Stage::Descend && s.pos.distance(hi) > APPROACH_HEIGHT * 2.0 {
+            // Thrown off (or never caught): round again.
+            self.stage = Stage::Approach;
+        }
+        let look = Some(s.pos + pose.rot * along(n) * 1_000.0);
+        match self.stage {
+            Stage::Approach => {
+                // Round the body, if it's in the way (coming up on its far side).
+                let bound = match body {
+                    Body::Landmark(k) => bodies.landmarks.get(usize::from(k)).map_or(0.0, |d| d.bound),
+                    Body::Rock(r) => {
+                        bodies.field.rocks().get(usize::from(r)).map_or(0.0, |r| r.axes.max_element())
+                    }
+                    Body::None => 0.0,
+                };
+                let to = round_body(&pose, &shape, bound, s.pos, hi);
+                fly(ctx, own.frame, to, pose.point_vel(to), look, FLIGHT_ASSIST)
+            }
+            Stage::Descend => {
+                let mut cmd =
+                    fly_at(ctx, own.frame, lo, pose.point_vel(lo), look, FLIGHT_ASSIST | GRIP, DESCENT);
+                // The catch wants nothing pushing it away from the surface.
+                cmd.thrust[1] = cmd.thrust[1].min(0);
+                cmd
+            }
+        }
+    }
+}
+
+/// How far off a body a lander keeps going round it (m), past the furthest of its surface from
+/// its middle along the way.
+const ROUND_CLEAR: f32 = 120.0;
+
+/// Where a lander at `from` heads for `to` near a body posed `pose`, of shape `shape` and reaching
+/// `bound` m from its middle: straight there if the way keeps a fifth of [`ROUND_CLEAR`] off the
+/// body, else out round it, beyond its reach, halfway (by direction from its middle) between where
+/// the lander is and where it's going. Each step on, the way round turns further toward `to`,
+/// until the way there is clear.
+fn round_body(pose: &BodyPose, shape: &Shape, bound: f32, from: Vec3, to: Vec3) -> Vec3 {
+    let (a, b) = (pose.to_local(from), pose.to_local(to));
+    if shape.trace_long(a, b, ROUND_CLEAR * 0.2).is_none() {
+        return to;
+    }
+    let side = a.normalize_or(Vec3::Y);
+    let goal = b.normalize_or(-side);
+    let mid = (side + goal).try_normalize().unwrap_or_else(|| side.any_orthonormal_vector());
+    pose.to_world(mid * (bound + ROUND_CLEAR))
+}
+
 /// Flies with flight assist toward `to` (moving at `vel`), round the colony if it's in the way,
 /// braking to arrive; looks at `look`, or where it's going.
 fn fly(
@@ -197,6 +371,19 @@ fn fly(
     look: Option<Vec3>,
     buttons: u16,
 ) -> InputCmd {
+    fly_at(ctx, frame_id, to, vel, look, buttons, CRUISE)
+}
+
+/// [`fly`], no faster than `cruise` m/s (relative to `vel`).
+fn fly_at(
+    ctx: &InputContext,
+    frame_id: FrameId,
+    to: Vec3,
+    vel: Vec3,
+    look: Option<Vec3>,
+    buttons: u16,
+    cruise: f32,
+) -> InputCmd {
     let s = &ctx.predict.state;
     let next = route(s.pos, to);
     // Brake for the end of the whole way, not the turn.
@@ -205,7 +392,7 @@ fn fly(
     } else {
         (s.pos.distance(next) + next.distance(to), Vec3::ZERO)
     };
-    let speed = (2.0 * BRAKING * left).sqrt().min(left * 0.8).min(CRUISE);
+    let speed = (2.0 * BRAKING * left).sqrt().min(left * 0.8).min(cruise);
     let want = end_vel + (next - s.pos).normalize_or_zero() * speed;
     let fwd = s.rot * Vec3::Z;
     let aim = match look {
@@ -217,4 +404,152 @@ fn fly(
     let stick = s.rot.conjugate() * want / frame(frame_id).fa_speed;
     let q = |x: f32| (x.clamp(-1.0, 1.0) * 127.0).round() as i8;
     InputCmd { aim, thrust: [q(stick.x), q(stick.y), q(stick.z)], buttons, ..InputCmd::default() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{InputHistory, Predictor};
+    use bc_proto::snapshot::cover;
+    use bc_proto::{Faction, OwnState, PilotKind, SnapshotHeader, SnapshotReader, SnapshotWriter};
+    use bc_sim::bodies::Bodies;
+    use bc_sim::math::look_rotation;
+    use bc_sim::{Sim, SimConfig};
+
+    /// The own state as the client decodes it.
+    fn over_the_wire(own: &OwnState) -> OwnState {
+        let mut buf = [0u8; 256];
+        let mut w = SnapshotWriter::new(&mut buf, 256);
+        w.header(&SnapshotHeader::default());
+        w.own(Some(own));
+        let n = w.finish().unwrap();
+        SnapshotReader::new(&buf[..n]).unwrap().own().unwrap().unwrap()
+    }
+
+    /// A Leo `height` m over where `plan` lands, flown by a lander seeing what its client would,
+    /// for `ticks`; `each` sees the server after every tick.
+    fn land(plan: Plan, height: f32, ticks: u32, each: impl FnMut(&Sim, usize)) {
+        let sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
+        let bodies = Bodies::at(&sim.field, sim.landmarks(), 0);
+        let pose = bodies.pose(LanderBrain::new(plan).body()).unwrap();
+        let (at, n) = match plan {
+            Plan::Walk { body, dir_local } => bodies.surface_along(body, dir_local).unwrap(),
+            Plan::Hide { landmark, spot } => {
+                let def = &sim.landmarks()[usize::from(landmark)];
+                let c = def.hides[usize::from(spot)].center;
+                (c, def.shape.probe(c).normal)
+            }
+        };
+        fly_from(plan, pose.to_world(at + n * height), ticks, each);
+    }
+
+    /// A Leo starting at `start`, flown by a lander with `plan` (as [`land`]).
+    fn fly_from(plan: Plan, start: Vec3, ticks: u32, mut each: impl FnMut(&Sim, usize)) {
+        let mut sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
+        let mut brain = LanderBrain::new(plan);
+        let id = sim
+            .spawn_at(
+                FrameId::Leo,
+                Faction::Colonies,
+                PilotKind::Human,
+                start,
+                look_rotation(Vec3::Z, Vec3::Y),
+            )
+            .unwrap();
+        let i = id.idx();
+        let (mut world, mut predict, mut history) =
+            (World::new(Faction::Colonies), Predictor::default(), InputHistory::default());
+        for t in 1..=ticks {
+            let own = over_the_wire(&sim.own_state(i));
+            world.apply(t - 1, Some(own), None, &[], &[]);
+            predict.reconcile(t - 1, &own, &history);
+            let ctx = InputContext {
+                tick: t,
+                view_tick: f64::from(t),
+                resolve_tick: f64::from(t),
+                now: 0.0,
+                world: &world,
+                predict: &predict,
+            };
+            let cmd = InputCmd { tick: t, view_tick_q4: t << 4, ..brain.decide(&ctx) }.quantized();
+            history.push(cmd);
+            sim.set_input(id, cmd);
+            sim.step();
+            each(&sim, i);
+        }
+    }
+
+    #[test]
+    fn lander_lands_walks_and_hides() {
+        // Into THE DEEP on Hermit: down, crouched, and hidden.
+        let (mut grounded, mut hidden) = (None, None);
+        land(Plan::Hide { landmark: 1, spot: 0 }, 400.0, 2_400, |sim, i| {
+            let t = sim.tick();
+            if grounded.is_none() && sim.footing(i) == Footing::Grounded {
+                grounded = Some(t);
+            }
+            if grounded.is_some() && hidden.is_none() && sim.cover_code(i) == cover::HIDDEN {
+                hidden = Some(t);
+            }
+        });
+        let (Some(down), Some(dark)) = (grounded, hidden) else {
+            panic!("grounded {grounded:?}, hidden {hidden:?}")
+        };
+        assert!(dark > down, "down at {down}, hidden at {dark}");
+        // On MO-II as it rolls: down, then about on it, hopping, never letting go.
+        let (mut down, mut hops, mut free_after, mut on_ground) = (None, 0, 0, 0);
+        let mut was = Footing::Free;
+        let (mut first, mut furthest) = (None, 0.0f32);
+        land(
+            Plan::Walk { body: Body::Landmark(0), dir_local: Vec3::new(1.0, 0.6, 0.6) },
+            300.0,
+            2_400,
+            |sim, i| {
+                let f = sim.footing(i);
+                if down.is_none() && f == Footing::Grounded {
+                    down = Some(sim.tick());
+                }
+                if down.is_some() {
+                    hops += u32::from(was == Footing::Grounded && f == Footing::Aloft);
+                    free_after += u32::from(f == Footing::Free);
+                    on_ground += u32::from(f == Footing::Grounded);
+                    let local = sim.suits.anchor[i].local;
+                    let from = *first.get_or_insert(local);
+                    furthest = furthest.max(local.distance(from));
+                }
+                was = f;
+            },
+        );
+        assert!(down.is_some_and(|t| t < 1_500), "landed at {down:?}");
+        assert_eq!(free_after, 0, "let go");
+        assert!(hops >= 5 && on_ground > 500, "{hops} hops, {on_ground} ticks down");
+        assert!(furthest > 15.0, "walked {furthest} m");
+    }
+
+    #[test]
+    fn a_lander_goes_round_the_body_to_a_spot_on_its_far_side() {
+        // From 1.5 km off MO-II's fore end, into the Aft Well at its other end: the straight way
+        // goes through the station.
+        let sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
+        let pose = Bodies::at(&sim.field, sim.landmarks(), 0).pose(Body::Landmark(0)).unwrap();
+        let start = pose.to_world(Vec3::new(1_500.0, 120.0, 80.0));
+        let (mut closest, mut grounded, mut hidden) = (f32::INFINITY, None, None);
+        fly_from(Plan::Hide { landmark: 0, spot: 0 }, start, 4_800, |sim, i| {
+            // Never against the station on the way (a suit touching it is held off at 8 m).
+            if sim.footing(i) == Footing::Free {
+                let b = Bodies::at(&sim.field, sim.landmarks(), sim.tick());
+                let p = b.pose(Body::Landmark(0)).unwrap();
+                closest =
+                    closest.min(sim.landmarks()[0].shape.probe(p.to_local(sim.suits.flight[i].pos)).dist);
+            }
+            if grounded.is_none() && sim.footing(i) == Footing::Grounded {
+                grounded = Some(sim.tick());
+            }
+            if grounded.is_some() && hidden.is_none() && sim.cover_code(i) == cover::HIDDEN {
+                hidden = Some(sim.tick());
+            }
+        });
+        assert!(grounded.is_some() && hidden.is_some(), "grounded {grounded:?}, hidden {hidden:?}");
+        assert!(closest > 12.0, "brushed the station at {closest} m");
+    }
 }

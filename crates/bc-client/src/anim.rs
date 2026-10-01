@@ -10,22 +10,48 @@
 //! - Neo-Bird holds its shape: it's an aircraft, not a figure.
 //! - Weapons kick when they fire; the Virgo's Planet Defensors circle.
 //! - Wrecks go limp.
+//! - On a body, the suit walks (`bc_client_core::gait`): each foot planted on the surface where
+//!   the body's shape has it, held there in the body's frame, the legs reaching it by two-bone IK
+//!   (`bc_model::ik`), the soles turned flat to the ground. The hips drop as far as a stride needs,
+//!   the knees fold with a crouch and the chest leans into it; a landing squashes the legs and they
+//!   spring back. A pilot asleep in the cockpit, or a suit with its legs shot off, kneels. AMBAC and
+//!   the thrust posture are the air's, not the ground's.
 //!
 //! Every joint rides a critically damped spring toward its target, so motion stays smooth
 //! whatever the network does. Rotations are kept as scaled axes (radians) in the parent's frame.
 
+use bc_client_core::gait::{Gait, Stand};
 use bc_model::Sockets;
-use bc_model::rig::{BONES, Bone};
+use bc_model::ik::{ANKLE_TO_SOLE, SHIN, THIGH, two_bone};
+use bc_model::rig::{self, BONES, Bone};
 use bc_proto::snapshot::ent_flags;
-use bc_proto::{FrameId, WeaponKind};
+use bc_proto::{FrameId, Part, WeaponKind};
 use bc_sim::config::DT;
 use bc_sim::content::{ArmSlot, MeleeSpec, Stroke, frame, weapon};
+use bc_sim::ground::{CROUCH_STANCE, STANCE};
 use bevy::prelude::*;
 
 use crate::damage::Damage;
 use crate::model::SuitMeshLib;
 use crate::suits_vis::SuitVisual;
-use crate::view::{FxEvent, FxEvents, SuitDrive, VisTime};
+use crate::view::{FxEvent, FxEvents, SuitDrive, SuitGround, VisTime};
+
+/// The deepest a stride drops the hips, and a landing squashes the legs (m).
+const MAX_BOB: f32 = 2.5;
+/// A landing squashes the legs `SQUASH_PER_SPEED` m for each m/s it came down at (at most
+/// [`MAX_BOB`]), and they spring back at `SQUASH_SPRING` rad/s.
+const SQUASH_PER_SPEED: f32 = 0.12;
+const SQUASH_SPRING: f32 = 10.0;
+/// How fast the hips follow a stride, a crouch or a kneel (rad/s).
+const DROP_SPRING: f32 = 8.0;
+/// How high the origin rides kneeling (m): one knee on the ground.
+const KNEEL_HEIGHT: f32 = 4.6;
+/// A stride keeps the legs this much short of straight.
+const REACH: f32 = 0.985;
+/// How far the chest leans into a crouch (rad).
+const CROUCH_LEAN: f32 = 0.2;
+/// The legs' joints ride stiffer springs on the ground, so a planted foot stays put (rad/s).
+const LEG_STIFF: f32 = 40.0;
 
 /// Which hands carry a strike.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -144,6 +170,22 @@ pub struct Anim {
     saber_flag: bool,
     /// The Planet Defensors' angle.
     orbit: f32,
+    /// The walk on a body (the feet, in its frame).
+    pub gait: Gait,
+    /// How far the hips have dropped below the origin for a stride, a crouch or a kneel, and its
+    /// spring's rate (m, m/s); the stride's share of it (the cockpit's eye takes a little).
+    drop: f32,
+    drop_v: f32,
+    pub bob: f32,
+    /// A landing's squash, and its rate (m, m/s).
+    squash: f32,
+    squash_v: f32,
+    /// How fast it was coming down onto the surface last frame, in the air in the body's grip
+    /// (m/s); none standing or flying free.
+    falling: Option<f32>,
+    /// Where the torso sits from the suit's origin (suit frame): dropped along the surface's
+    /// normal.
+    pub lift: Vec3,
 }
 
 impl Default for Anim {
@@ -157,6 +199,14 @@ impl Default for Anim {
             swing: None,
             saber_flag: false,
             orbit: 0.0,
+            gait: Gait::default(),
+            drop: 0.0,
+            drop_v: 0.0,
+            bob: 0.0,
+            squash: 0.0,
+            squash_v: 0.0,
+            falling: None,
+            lift: Vec3::ZERO,
         }
     }
 }
@@ -174,9 +224,13 @@ impl Anim {
     }
 
     /// Where `bone`'s joint sits in its parent's frame, posed: at rest, but for the Dragon Fang's
-    /// head out on its cable.
+    /// head out on its cable, and the torso dropped on a body.
     pub fn rest(&self, bone: Bone) -> Vec3 {
-        if bone == Bone::HandR { bone.rest() + self.reach } else { bone.rest() }
+        match bone {
+            Bone::HandR => bone.rest() + self.reach,
+            Bone::Torso => self.lift,
+            _ => bone.rest(),
+        }
     }
 
     /// How `bone` is turned relative to the suit, posed.
@@ -206,6 +260,81 @@ fn spring(x: &mut Vec3, v: &mut Vec3, target: Vec3, w: f32, dt: f32) {
     *v = (*v - j * (w * dt)) * e;
 }
 
+/// [`spring`], for one number.
+fn spring1(x: &mut f32, v: &mut f32, target: f32, w: f32, dt: f32) {
+    let (mut xv, mut vv) = (Vec3::X * *x, Vec3::X * *v);
+    spring(&mut xv, &mut vv, Vec3::X * target, w, dt);
+    (*x, *v) = (xv.x, vv.x);
+}
+
+/// The legs of a suit on a body, posed this frame: each leg's thigh, shin and foot rotations
+/// (scaled axes, parents' frames), and how far the hips must drop for the feet to be reached (m).
+struct Legs {
+    rot: [[Vec3; 3]; 2],
+    drop: f32,
+}
+
+/// The bones of the left and the right leg.
+const LEG_BONES: [[Bone; 3]; 2] =
+    [[Bone::ThighL, Bone::ShinL, Bone::FootL], [Bone::ThighR, Bone::ShinR, Bone::FootR]];
+
+/// The legs reaching for `ankles`, their knees bending toward `poles` (both in the suit's frame,
+/// from the torso), the soles turned flat to `up` (suit frame).
+fn reach_legs(ankles: [Vec3; 2], poles: [Vec3; 2], up: Vec3) -> [[Vec3; 3]; 2] {
+    // The rig's legs aren't quite straight at rest: each bone's rotation is taken from its own
+    // rest line, not the IK's straight-down one.
+    let rest_line = |b: Bone| Quat::from_rotation_arc(b.rest().normalize(), Vec3::NEG_Y);
+    let flat = Quat::from_rotation_arc(Vec3::Y, up);
+    [0, 1].map(|side| {
+        let [thigh, shin, foot] = LEG_BONES[side];
+        let hip = thigh.def().joint;
+        let (tq, sq) = two_bone(hip, poles[side], ankles[side], THIGH, SHIN);
+        let (a, b) = (rest_line(shin), rest_line(foot));
+        let thigh_rot = tq * a;
+        let shin_rot = a.inverse() * sq * b;
+        let foot_rot = (thigh_rot * shin_rot).inverse() * flat;
+        [thigh_rot, shin_rot, foot_rot].map(Quat::to_scaled_axis)
+    })
+}
+
+/// Standing on a body: where each foot is (its gait, or a kneel), how the legs reach them, and how
+/// far the hips drop to do it.
+fn ground_legs(d: &SuitDrive, g: &SuitGround, gait: &Gait, lift: Vec3, kneel: bool) -> Legs {
+    let inv = d.rot.inverse();
+    let up = (inv * g.up).normalize_or(Vec3::Y);
+    let fwd = (Vec3::Z - up * up.z).normalize_or(Vec3::Z);
+    // Suit frame, from the origin.
+    let ground = -up * g.height;
+    let hip = |side: usize| LEG_BONES[side][0].def().joint;
+    let on_ground = |side: usize| {
+        let h = hip(side);
+        h - up * (h.dot(up) - ground.dot(up))
+    };
+    let (ankles, poles) = if kneel {
+        // The right foot planted ahead, the left knee down with its foot behind.
+        (
+            [on_ground(0) - fwd * 3.3 + up * 0.9, on_ground(1) + fwd * 2.2 + up * ANKLE_TO_SOLE],
+            [hip(0) + fwd * 5.0 - up * 4.0, hip(1) + fwd * 10.0],
+        )
+    } else {
+        let ankle = |side: usize| inv * (g.pose.to_world(gait.feet[side].at) - d.pos) + up * ANKLE_TO_SOLE;
+        ([ankle(0), ankle(1)], [hip(0) + fwd * 10.0, hip(1) + fwd * 10.0])
+    };
+    // How far the hips must drop for the further foot to be in reach.
+    let reach = (THIGH + SHIN) * REACH;
+    let drop = [0, 1]
+        .map(|side| {
+            let v = ankles[side] - hip(side);
+            let b = v.dot(up);
+            let disc = b * b - v.length_squared() + reach * reach;
+            if disc >= 0.0 { -b - disc.sqrt() } else { -b }
+        })
+        .into_iter()
+        .fold(0.0f32, f32::max)
+        .clamp(0.0, MAX_BOB);
+    Legs { rot: reach_legs(ankles.map(|a| a - lift), poles.map(|p| p - lift), up), drop }
+}
+
 fn smooth(lo: f32, hi: f32, x: f32) -> f32 {
     let t = ((x - lo) / (hi - lo)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
@@ -215,11 +344,12 @@ fn smooth(lo: f32, hi: f32, x: f32) -> f32 {
 pub fn animate_suits(
     time: Res<VisTime>,
     lib: Res<SuitMeshLib>,
-    events: Res<FxEvents>,
+    mut events: ResMut<FxEvents>,
     mut suits: Query<(&SuitDrive, &SuitVisual, &mut Anim, Option<&Damage>)>,
     mut bones: Query<&mut Transform>,
 ) {
     let dt = time.dt.min(0.1);
+    let mut touchdowns = Vec::new();
     for (d, v, mut a, damage) in &mut suits {
         let a = &mut *a;
         let has = |f: u16| d.flags & f != 0;
@@ -252,6 +382,44 @@ pub fn animate_suits(
         let mut target = [Vec3::ZERO; BONES];
         let mut stiff = [9.0f32; BONES];
         let bird = d.frame == FrameId::WingZeroBird;
+        // On a body: standing on it (walking, crouched or kneeling), or in the air in its grip.
+        let ground = d.ground.filter(|_| !wreck && !bird);
+        let standing = ground.filter(|g| !g.aloft);
+        let kneel = standing.is_some() && (has(ent_flags::ASLEEP) || d.parts[Part::Legs as usize] == 0);
+        match standing {
+            Some(g) if !kneel => {
+                let inv = g.pose.rot.conjugate();
+                let stand = Stand {
+                    body: g.body,
+                    shape: &g.shape,
+                    local: g.pose.to_local(d.pos),
+                    rot: inv * d.rot,
+                    vel: inv * g.rel_vel,
+                    up: inv * g.up,
+                    stance: g.height,
+                };
+                a.gait.step(&stand, dt);
+            }
+            // Off the ground (or kneeling) the feet start over where they land.
+            _ => a.gait.body = None,
+        }
+        // A landing: the legs squash with how hard it came down, and the ground puffs.
+        if let Some(g) = standing
+            && let Some(v) = a.falling
+        {
+            a.squash_v += (SQUASH_PER_SPEED * v).min(MAX_BOB) * SQUASH_SPRING * std::f32::consts::E;
+            let pos = d.pos - g.up * g.height;
+            touchdowns.push(FxEvent::Touchdown {
+                pos,
+                vel: g.pose.point_vel(pos),
+                normal: g.up,
+                speed: v,
+                rock: matches!(g.shape.base, bc_sim::bodies::Base::Ellipsoid(_)),
+            });
+        }
+        a.falling = ground.filter(|g| g.aloft).map(|g| (-g.rel_vel.dot(g.up)).max(0.0));
+        let up = ground.map_or(Vec3::Y, |g| (d.rot.inverse() * g.up).normalize_or(Vec3::Y));
+        let mut drop = 0.0;
         // The arm that holds the main weapon aims it (Deathscythe's buster shield is on the left).
         let aim_left = frame(d.frame).loadout[0].is_some_and(|m| m.arm == ArmSlot::Left);
         let (aim_up, aim_fore) =
@@ -275,7 +443,12 @@ pub fn animate_suits(
             // Aim: the chest turns a little toward it, and the right arm brings the weapon the rest
             // of the way, shoulder and elbow sharing the turn; the head looks there too.
             let aim = turn(Vec3::Z, aim_local, 50f32.to_radians());
-            let chest = Vec3::new(0.0, aim.y * 0.25, 0.0);
+            // Standing, the chest leans into a crouch, and further kneeling.
+            let lean = standing.map_or(0.0, |g| {
+                let crouch = ((STANCE - g.height) / (STANCE - CROUCH_STANCE)).clamp(0.0, 1.0);
+                CROUCH_LEAN * crouch + if kneel { 0.25 } else { 0.0 }
+            });
+            let chest = Vec3::new(lean, aim.y * 0.25, 0.0);
             target[Bone::Chest.index()] = chest;
             // An arm holding a chunk holds still in the suit's frame, undoing the chest's turn: the
             // chunk rides the suit, just in front of the hand.
@@ -292,23 +465,36 @@ pub fn animate_suits(
             stiff[aim_up.index()] = 14.0;
             stiff[aim_fore.index()] = 14.0;
 
-            // AMBAC: limbs swing against the rotation.
-            let reaction = (-a.spin * 0.22).clamp_length_max(0.6);
-            for b in [Bone::ThighL, Bone::ThighR] {
-                target[b.index()] += reaction;
-            }
-            if !arms_busy {
-                let free = if aim_left { Bone::UpperArmR } else { Bone::UpperArmL };
-                target[free.index()] += reaction * 0.8;
-            }
+            if let Some(g) = standing {
+                // On the ground: the legs reach the feet where they're planted (or kneel), and
+                // the hips drop as far as that takes.
+                let legs = ground_legs(d, &g, &a.gait, a.lift, kneel);
+                for (side, bones) in LEG_BONES.iter().enumerate() {
+                    for (k, b) in bones.iter().enumerate() {
+                        target[b.index()] = legs.rot[side][k];
+                        stiff[b.index()] = LEG_STIFF;
+                    }
+                }
+                drop = if kneel { (g.height - KNEEL_HEIGHT).max(0.0) } else { legs.drop };
+            } else {
+                // AMBAC: limbs swing against the rotation.
+                let reaction = (-a.spin * 0.22).clamp_length_max(0.6);
+                for b in [Bone::ThighL, Bone::ThighR] {
+                    target[b.index()] += reaction;
+                }
+                if !arms_busy {
+                    let free = if aim_left { Bone::UpperArmR } else { Bone::UpperArmL };
+                    target[free.index()] += reaction * 0.8;
+                }
 
-            // Thrust posture: legs trail forward burns, swing forward braking, and away from
-            // sideways thrust; knees follow.
-            let t = d.thrust;
-            let trail = Vec3::new(0.4 * t.z, 0.0, -0.25 * t.x);
-            for (thigh, shin) in [(Bone::ThighL, Bone::ShinL), (Bone::ThighR, Bone::ShinR)] {
-                target[thigh.index()] += trail;
-                target[shin.index()] += Vec3::new(0.35 * t.z.abs() + 0.1, 0.0, 0.0);
+                // Thrust posture: legs trail forward burns, swing forward braking, and away from
+                // sideways thrust; knees follow.
+                let t = d.thrust;
+                let trail = Vec3::new(0.4 * t.z, 0.0, -0.25 * t.x);
+                for (thigh, shin) in [(Bone::ThighL, Bone::ShinL), (Bone::ThighR, Bone::ShinR)] {
+                    target[thigh.index()] += trail;
+                    target[shin.index()] += Vec3::new(0.35 * t.z.abs() + 0.1, 0.0, 0.0);
+                }
             }
             // Wings flare on boost.
             let flare = if has(ent_flags::BOOST) { 0.35 } else { 0.0 };
@@ -367,6 +553,12 @@ pub fn animate_suits(
         for i in 0..BONES {
             spring(&mut a.rot[i], &mut a.vel[i], target[i], stiff[i], dt);
         }
+        // The hips drop along the surface's normal: a stride, a crouch or a kneel, and a landing's
+        // squash.
+        spring1(&mut a.drop, &mut a.drop_v, drop, DROP_SPRING, dt);
+        spring1(&mut a.squash, &mut a.squash_v, 0.0, SQUASH_SPRING, dt);
+        a.bob = if standing.is_some() && !kneel { a.drop } else { 0.0 };
+        a.lift = -up * (a.drop + a.squash).clamp(-MAX_BOB, MAX_BOB + KNEEL_HEIGHT);
         // The fang's head out along the thrust, in the forearm's frame as it is now posed.
         a.reach = match a.swing {
             Some(sw) if sw.hands == Hands::Fang => {
@@ -394,10 +586,11 @@ pub fn animate_suits(
             }
             if let Ok(mut tf) = bones.get_mut(*e) {
                 tf.rotation = Quat::from_scaled_axis(a.rot[i]);
-                if i == Bone::HandR.index() {
-                    tf.translation = a.rest(Bone::HandR);
+                if i == Bone::HandR.index() || i == Bone::Torso.index() {
+                    tf.translation = a.rest(rig::ALL[i]);
                 }
             }
         }
     }
+    events.0.extend(touchdowns);
 }

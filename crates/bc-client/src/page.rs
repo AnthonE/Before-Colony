@@ -133,8 +133,14 @@ pub struct Ui {
     pub signing: bool,
     /// Flying signed in (the suit stays when the pilot leaves).
     pub signed_in: bool,
-    /// At rest against an asteroid: leaving now parks the suit there.
+    /// At rest on or against a body: leaving now parks the suit there.
     pub parkable: bool,
+    /// In the air over a body, in its grip: leaving now, the suit settles onto it and parks.
+    pub aloft: bool,
+    /// Standing in one of a landmark's hide spots: its name (empty: none). Leaving there hides the
+    /// suit better, and under survival rules it outlasts a server restart (`survival`).
+    pub hide_spot: &'static str,
+    pub survival: bool,
     /// What the link screens say.
     pub message: String,
     pub retryable: bool,
@@ -316,6 +322,9 @@ pub struct View {
     signing: bool,
     signed_in: bool,
     parkable: bool,
+    aloft: bool,
+    hide_spot: &'static str,
+    survival: bool,
     terminal: &'static str,
     place: &'static str,
     on_foot: bool,
@@ -351,6 +360,9 @@ impl View {
             signing: ui.signing,
             signed_in: ui.signed_in,
             parkable: ui.parkable,
+            aloft: ui.aloft,
+            hide_spot: ui.hide_spot,
+            survival: ui.survival,
             terminal: ui.terminal().map_or("", Spot::slug),
             place: ui.place,
             on_foot: ui.on_foot,
@@ -381,6 +393,9 @@ impl View {
         set(&o, "signing", self.signing);
         set(&o, "signedIn", self.signed_in);
         set(&o, "parkable", self.parkable);
+        set(&o, "aloft", self.aloft);
+        set(&o, "hideSpot", self.hide_spot);
+        set(&o, "survival", self.survival);
         set(&o, "terminal", self.terminal);
         set(&o, "place", self.place);
         set(&o, "onFoot", self.on_foot);

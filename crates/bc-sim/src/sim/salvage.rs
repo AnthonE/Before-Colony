@@ -7,13 +7,15 @@ use bc_proto::{CARGO_KINDS, ChunkDesc, ChunkKind, NO_CHUNK, Segment};
 use glam::Vec3;
 
 use super::Sim;
+use crate::bodies::Bodies;
 use crate::chunks::{self, Motion, segment_pos, segment_rot};
 use crate::content::salvage::{
     CATCH_SPEED, DOCK_CENTER, DOCK_RADIUS, DOCK_SPEED, JETTISON_SPEED, PRICE, REACH, THROW_IMPULSE,
     THROW_SPEED_MAX, hold_kg, material, ore_ttl, stowable, wreck_ttl,
 };
 use crate::content::{ArmSlot, frame};
-use crate::math::{hash01, normalize_or};
+use crate::ground::{Footing, LUNGE_GROUND_SPEED, RELEASE_SPEED, derive};
+use crate::math::{clamp_len, hash01, normalize_or};
 
 impl Sim {
     /// The chunk suit `i` holds, if it still holds it.
@@ -137,12 +139,42 @@ impl Sim {
         let Motion::Free(seg) = self.chunks.motion[k] else { return };
         let mods = self.flight_mods(i);
         let suit_kg = frame(self.suits.frame[i]).mass(f.propellant) + mods.extra_mass_kg as f32;
-        self.suits.flight[i].vel -= (seg.vel - f.vel) * (chunk_kg / suit_kg);
+        let dv = (seg.vel - f.vel) * (chunk_kg / suit_kg);
+        if self.suits.footing[i] == Footing::Free {
+            self.suits.flight[i].vel -= dv;
+            return;
+        }
+        // On a body, the suit's motion is its anchor's (its world state is derived from it): the
+        // push goes there. On the ground, what's along it slides the suit (until its legs stop
+        // it) and the ground takes what's into it; aloft, all of it moves the suit. Never past
+        // what a rider can have (a lunge's on the ground, the grip's aloft): the step has already
+        // run this tick, so nothing else would hold it there until the next.
+        let cap = if self.suits.footing[i] == Footing::Aloft { RELEASE_SPEED } else { LUNGE_GROUND_SPEED };
+        let landmarks = self.landmarks();
+        let a = &mut self.suits.anchor[i];
+        if let Some(p) = Bodies::at(&self.field, landmarks, t).pose(a.body) {
+            a.vel = clamp_len(a.vel - p.rot.conjugate() * dv, cap);
+            derive(&p, a, &mut self.suits.flight[i]);
+        }
     }
 
     /// Empties suit `i`'s hold as loose ore: behind it (jettisoned), or all round (spilled as it
-    /// dies). With `all`, what's in hand goes too.
+    /// dies). With `all`, what's in hand goes too. On a body (or parked on one), none of it goes
+    /// into the body.
     pub(super) fn spill(&mut self, i: usize, t: u32, all: bool) {
+        let up = self.spill_up(i);
+        self.spill_over(i, t, all, up);
+    }
+
+    /// Which way is off the body suit `i` is on, aloft over or parked on, if any: what it spills
+    /// goes that side of the ground.
+    pub(super) fn spill_up(&self, i: usize) -> Option<Vec3> {
+        let on = self.suits.footing[i] != Footing::Free || self.is_parked(i);
+        if on { self.ground_normal(i) } else { None }
+    }
+
+    /// [`Sim::spill`], with `up` the way off the body the suit is on (`None`: it's on none).
+    pub(super) fn spill_over(&mut self, i: usize, t: u32, all: bool, up: Option<Vec3>) {
         if all && let Some(k) = self.held_chunk(i) {
             self.release(i, k, Vec3::ZERO, t);
         }
@@ -159,7 +191,13 @@ impl Sim {
                 Vec3::new(hash01(t, salt) - 0.5, hash01(t ^ 0x33, salt) - 0.5, hash01(t ^ 0xCC, salt) - 0.5),
                 Vec3::Y,
             );
-            let away = if all { scatter } else { normalize_or(back + scatter * 0.4, back) };
+            let mut away = if all { scatter } else { normalize_or(back + scatter * 0.4, back) };
+            // Off the ground, not into it: what would go down goes up as far.
+            if let Some(n) = up
+                && away.dot(n) < 0.0
+            {
+                away -= n * (2.0 * away.dot(n));
+            }
             let seg = Segment {
                 t0: t,
                 pos: f.pos + away * 12.0,

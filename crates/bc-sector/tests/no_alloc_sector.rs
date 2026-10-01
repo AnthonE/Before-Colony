@@ -231,12 +231,18 @@ fn a_missile_barrage_never_allocates() {
 
 #[test]
 fn survival_launches_docks_and_losses_never_allocate() {
+    use bc_proto::buttons::GRIP;
     use bc_sector::{Report, SlotState};
+    use bc_sim::SuitId;
+    use bc_sim::bodies::Body;
     use bc_sim::content::salvage::DOCK_CENTER;
+    use bc_sim::handle::Handle;
     use bc_sim::sim::Loadout;
 
     // 64 pilots flying the suits they built among 128 Mobile Dolls: every few ticks one docks and
-    // one launches again; the dolls shoot some down.
+    // one launches again; the dolls shoot some down. Now and then one is left in MO-II's Aft Well
+    // as its pilot logs off (the sector records it), and the suit is put back from that record,
+    // as a restarted server would.
     let cfg = SectorConfig {
         sim: SimConfig { target_dolls: 128, seed: 11, survival: true, ..SimConfig::default() },
         max_clients: 64,
@@ -280,7 +286,27 @@ fn survival_launches_docks_and_losses_never_allocate() {
     }
     let mut buf = [0u8; 2048];
     let (mut total, mut docked, mut relaunched, mut lost) = (0u64, 0u32, 0u32, 0u32);
+    let (mut parked, mut restored, mut reparked, mut record) = (0u32, 0u32, 0u32, None);
     for step in 0..1_300u32 {
+        // Network side: one pilot is put down in the Aft Well, and leaves a few ticks later; the
+        // last suit recorded there is put back.
+        if step >= 300 && step % 11 >= 5 {
+            let slot = ((step / 11) % 64) as u16;
+            let status = &shared.slots[slot as usize];
+            match (step % 11, status.state(), status.suit_id()) {
+                (5, SlotState::Active, Some((idx, generation))) => {
+                    let id = SuitId(Handle { idx, generation });
+                    let _ = sector.sim.place_on(id, Body::Landmark(0), Vec3::new(-1.0, 0.02, 0.02));
+                }
+                (9, SlotState::Active, _) => shared.control.push(Control::Sleep { slot }).unwrap(),
+                (10, ..) => {
+                    if let Some(rec) = record.take() {
+                        shared.control.push(Control::Restore { key: step, rec }).unwrap();
+                    }
+                }
+                _ => {}
+            }
+        }
         // Network side, outside the counted region: one pilot at rest in the dock asks to dock,
         // one who's in the hangar launches again.
         if step >= 300 && step.is_multiple_of(5) {
@@ -314,6 +340,14 @@ fn survival_launches_docks_and_losses_never_allocate() {
             }
         }
         let next = sector.sim.next_tick();
+        // And those asleep there are shot at (as the damage step leaves a suit it hits): what's
+        // left of them goes to the server.
+        if step >= 300 && step % 13 == 0 {
+            let s = &mut sector.sim.suits;
+            for i in s.sleeping.iter() {
+                s.last_hit[i] = next;
+            }
+        }
         for l in &mut leases {
             let mut p =
                 InputPacket { ack_snapshot: next.saturating_sub(3), count: 1, ..InputPacket::default() };
@@ -322,7 +356,8 @@ fn survival_launches_docks_and_losses_never_allocate() {
                 view_tick_q4: (next << 4) - 30,
                 aim: Vec3::new(0.3, 0.2, -1.0).normalize(),
                 thrust: [0, 20, 60],
-                buttons: FLIGHT_ASSIST | FIRE_PRIMARY,
+                // Gripping: put down on a body, a suit stays there (and walks).
+                buttons: FLIGHT_ASSIST | FIRE_PRIMARY | GRIP,
                 ..InputCmd::default()
             }
             .quantized();
@@ -338,17 +373,205 @@ fn survival_launches_docks_and_losses_never_allocate() {
                     Report::Home(_) => docked += 1,
                     Report::Lost { .. } => lost += 1,
                     Report::DockRefused => {}
+                    Report::Parked { rec, .. } => {
+                        parked += 1;
+                        record = Some(rec);
+                    }
                 }
             }
+        }
+        while let Some(r) = shared.restored.pop() {
+            restored += 1;
+            // Every other one as though it came back after the server stopped waiting: it goes.
+            if restored % 2 == 0 {
+                let (suit, generation) = (r.suit, r.generation);
+                shared.control.push(Control::Discard { suit, generation }).unwrap();
+            }
+        }
+        while shared.reparked.pop().is_some() {
+            reparked += 1;
         }
         for ring in &mut egress.rings {
             while read_packet(ring, &mut buf).is_some() {}
         }
     }
-    println!("docked {docked}, relaunched {relaunched}, lost {lost}");
+    println!(
+        "docked {docked}, relaunched {relaunched}, lost {lost}, parked {parked}, restored {restored}, \
+         reparked {reparked}"
+    );
     assert!(
         docked > 50 && relaunched > 50 && lost > 50,
         "docked {docked}, relaunched {relaunched}, lost {lost}"
+    );
+    assert!(
+        parked > 20 && restored > 20 && reparked > 10,
+        "parked {parked}, restored {restored}, reparked {reparked}"
+    );
+    assert_eq!(total, 0, "heap operations inside sector ticks: {total}");
+}
+
+#[test]
+fn riders_and_hides_never_allocate() {
+    use bc_proto::buttons::{BOOST, GRIP};
+    use bc_sim::SuitId;
+    use bc_sim::bodies::{Body, GRIP_MIN_AXIS};
+    use bc_sim::handle::Handle;
+
+    // 64 pilots among 256 Mobile Dolls, 16 of them on bodies: four lying crouched in MO-II's Aft
+    // Well, four walking its core, four on Hermit and four on big rocks. Those walk, run, hop and
+    // crouch; two of the hiders log off where they lie and stay asleep, and the walkers take
+    // turns to sleep and wake on their feet.
+    let cfg = SectorConfig {
+        sim: SimConfig { target_dolls: 256, seed: 3, ..SimConfig::default() },
+        max_clients: 64,
+        ..SectorConfig::default()
+    };
+    let (mut sector, shared, mut egress, _oracle) = bc_sector::build(cfg);
+    let mut leases = Vec::new();
+    while let Some(l) = shared.leases.pop() {
+        let frame = if l.slot % 2 == 0 { FrameId::Leo } else { FrameId::Heavyarms };
+        shared
+            .control
+            .push(Control::Join {
+                slot: l.slot,
+                pilot: PilotKind::Human,
+                frame,
+                faction: Faction::Colonies,
+                max_datagram: MAX_DATAGRAM as u16,
+                comeback: Comeback::default(),
+                launch: None,
+            })
+            .unwrap();
+        leases.push(l);
+    }
+    sector.tick();
+    const RIDERS: u16 = 16;
+    let rocks: Vec<u16> = (0..sector.sim.field.len())
+        .filter(|&r| sector.sim.field.rocks()[r].axes.min_element() >= GRIP_MIN_AXIS)
+        .map(|r| r as u16)
+        .collect();
+    for slot in 0..RIDERS {
+        let (idx, generation) = shared.slots[usize::from(slot)].suit_id().expect("a suit");
+        let k = f32::from(slot / 4);
+        let (body, dir) = match slot % 4 {
+            0 => (Body::Landmark(0), Vec3::new(-1.0, 0.02 * k, 0.02)),
+            1 => (Body::Landmark(0), Vec3::new(1.0, 0.45 + 0.1 * k, 0.45 - 0.1 * k)),
+            2 => (Body::Landmark(1), Vec3::new(0.5 + 0.1 * k, 1.0, 0.3)),
+            _ => (Body::Rock(rocks[usize::from(slot / 4)]), Vec3::new(0.2, 1.0, 0.1 * k)),
+        };
+        assert!(
+            sector.sim.place_on(SuitId(Handle { idx, generation }), body, dir),
+            "slot {slot} on {body:?}"
+        );
+    }
+    let hider = |slot: u16| slot < RIDERS && slot.is_multiple_of(4);
+    let mut buf = [0u8; 2048];
+    let mut total = 0u64;
+    let (mut grounded, mut aloft, mut parked, mut hidden) = (0u64, 0u64, 0u64, 0u64);
+    let mut asleep: Option<(u16, (u16, u16))> = None;
+    let (mut slept, mut woke) = (0, 0);
+    for step in 1..1_300u32 {
+        // Network side (outside the counted region): two hiders log off for good; every 30 ticks
+        // a walker logs off, and the one before comes back.
+        if step == 350 {
+            for slot in [0, 4] {
+                shared.control.push(Control::Sleep { slot }).unwrap();
+            }
+        }
+        let leaving = (step >= 300 && step.is_multiple_of(30))
+            .then_some(((step / 30) % 16) as u16)
+            .filter(|&s| !hider(s));
+        let mut returning = None;
+        if let Some(slot) = leaving {
+            if let Some((back, id)) = asleep.take() {
+                returning = Some(back);
+                let join = Control::Join {
+                    slot: back,
+                    pilot: PilotKind::Human,
+                    frame: FrameId::Leo,
+                    faction: Faction::Colonies,
+                    max_datagram: MAX_DATAGRAM as u16,
+                    comeback: Comeback { sleeper: Some(id), credits: 0 },
+                    launch: None,
+                };
+                shared.control.push(join).unwrap();
+            }
+            shared.control.push(Control::Sleep { slot }).unwrap();
+        }
+        let next = sector.sim.next_tick();
+        for l in &mut leases {
+            let mut p = InputPacket {
+                ack_snapshot: next.saturating_sub(3),
+                client_time_ms: step as u16,
+                count: 1,
+                ..InputPacket::default()
+            };
+            let a = (step as f32 * 0.02 + f32::from(l.slot)).sin();
+            let aim = Vec3::new(a, 0.1, 1.0).normalize();
+            // (Flight assist is a state a client keeps on: in the air in a body's grip, it holds
+            // the walking pace.)
+            let grip = FLIGHT_ASSIST | GRIP;
+            let (thrust, buttons) = match l.slot {
+                // Crouched and still: hidden once it settles.
+                s if hider(s) => ([0, -127, 0], grip),
+                // Walking, running, hopping, crouching, standing.
+                s if s < RIDERS => match (step + u32::from(s) * 7) % 150 {
+                    0..60 => ([40, 0, 127], grip),
+                    60..90 => ([0, 0, 127], grip | BOOST),
+                    90 => ([0, 127, 0], grip),
+                    91..120 => ([0, 0, 0], grip),
+                    120..135 => ([-60, -127, 80], grip),
+                    _ => ([0, 64, 0], grip),
+                },
+                _ => ([40, 0, 90], FLIGHT_ASSIST | FIRE_PRIMARY | ZERO),
+            };
+            p.cmds[0] = InputCmd {
+                tick: next + 2,
+                view_tick_q4: (next << 4) - 30,
+                aim,
+                thrust,
+                buttons,
+                ..InputCmd::default()
+            }
+            .quantized();
+            let _ = l.input.push(InputMsg { packet: p, recv_us: u64::from(step) * 33_333 });
+        }
+        let ((), n) = bc_alloc::count(|| sector.tick());
+        if step >= 300 {
+            total += n; // the first 300 ticks let the doll spawner fill the sector
+            let m = &shared.metrics;
+            let load = |c| bc_sector::Metrics::load(c);
+            grounded = grounded.max(load(&m.grounded));
+            aloft = aloft.max(load(&m.aloft));
+            parked = parked.max(load(&m.parked));
+            hidden = hidden.max(load(&m.hidden));
+        }
+        if let Some(slot) = leaving {
+            let st = &shared.slots[slot as usize];
+            if st.outcome() == Outcome::Asleep {
+                slept += 1;
+                asleep = st.suit_id().map(|id| (slot, id));
+            }
+        }
+        if let Some(back) = returning
+            && shared.slots[back as usize].outcome() == Outcome::Woke
+        {
+            woke += 1;
+        }
+        for ring in &mut egress.rings {
+            while let Some(len) = read_packet(ring, &mut buf) {
+                assert!(len <= MAX_DATAGRAM);
+            }
+        }
+        while shared.notes.pop().is_some() {}
+    }
+    println!(
+        "at most {grounded} suits on their feet, {aloft} aloft, {parked} parked, {hidden} hidden; slept {slept}, woke {woke}"
+    );
+    assert!(slept > 20 && woke > 20, "slept {slept}, woke {woke}");
+    assert!(
+        grounded > 0 && aloft > 0 && parked > 0 && hidden > 0,
+        "grounded {grounded}, aloft {aloft}, parked {parked}, hidden {hidden}"
     );
     assert_eq!(total, 0, "heap operations inside sector ticks: {total}");
 }

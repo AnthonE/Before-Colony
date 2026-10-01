@@ -75,12 +75,30 @@ the cockpit. The choice is a setting, so the next sortie starts in the same view
 |---|---|
 | W/S forward/back, A/D strafe | Star Citizen, Everspace 2, Warframe Archwing [B2][B3] |
 | Space / C up/down | Space Engineers, key for key [B4] |
+| On a body: Space hops (held, lifts off), C crouches | Space Engineers' jump and crouch on foot, the same keys [B4] |
+| L arms the grip to land, and clears it to let go | Elite's landing gear (*unverified*) [B1] |
 | Q/E roll | Star Citizen, Everspace 2, Space Engineers [B2][B3][B4] |
 | Shift boost · X brake | Star Citizen (X is its space brake) [B2] |
 | R RCS | Kerbal Space Program (R toggles RCS) [B4] |
 | LMB/RMB weapons | Mecha BREAK [A2] |
 | Esc menu | The browser's own exit from pointer lock [C1] |
 | Hold the reticle on a target to lock missiles | GBO2's funnels [A1] |
+
+**On a surface.** Landing, walking and hiding (`DESIGN.md`, "Surfaces") reuse keys players already
+have: Space and C are jump and crouch on foot in Space Engineers, and up and down in its flight,
+so on a body they become a hop (held: lift off on the thrusters) and a crouch at no cost to anyone
+[B4]. The grip needed one new key.
+- **L, for Land or Latch.** It was free (I, K, L, M, N, O, P, U and Y were unbound), it is pressed
+  once per landing rather than in a fight, and Elite puts landing gear on it (*unverified*).
+- **Rejected:** P, Space Engineers' landing gear (*unverified*), is the showcase's key; N, Star
+  Citizen's landing key (*unverified*), lost to L's mnemonic; T and Enter are throw and dock, and
+  the usual chat keys to plan around (item 3 below); Ctrl combinations are out (Ctrl+W closes the
+  tab), and so are Alt and the function keys.
+- **The grip is a state** on the wire, as flight assist is: a stalled client keeps its suit on the
+  body, and a lost packet can't flip it.
+- **Crouch is a toggle on the ground**, not a held key. Hiding means lying crouched and still for as
+  long as it takes, and holding C for minutes would be a chore. The simulation keeps the stance
+  until told otherwise, so a stalled tab stays crouched and hidden. In flight C is still held down.
 
 ## Where we break convention, and what it costs
 
@@ -110,6 +128,8 @@ the cockpit. The choice is a setting, so the next sortie starts in the same view
 7. **Left Ctrl was a hidden "down"**, and holding it with W is Ctrl+W, which closes the browser tab.
    Browsers reserve that shortcut outside fullscreen, and itch.io players report tabs closing on
    them exactly this way [C1]. **Done:** down is C alone.
+8. **C means two things.** Held in flight it is down; on a body it toggles a crouch. The flight
+   panel always says which (`GROUNDED` or `CROUCHED`), and a first-landing hint names the keys.
 
 ## What players will ask for, most important first
 
@@ -172,6 +192,9 @@ the cockpit. The choice is a setting, so the next sortie starts in the same view
     - Optional horizon lines, and optional auto-level while flight assist is on. Overload's
       auto-level is praised; roll adds most to motion sickness (pitch alone 1.95 on a sickness scale,
       pitch and roll 4.33) [B3][C6].
+      - **Partly done:** with the grip armed and a surface within 150 m, the suit rolls its feet
+        toward it (Q/E override, and the nose stays on the aim). That is auto-level referenced to the
+        surface, on the axis that matters most. Auto-level in open flight is still open.
     - A separate cockpit field of view (Starfield added one). A lower minimum of about 50° vertical.
     - Boost's field-of-view widening on its own slider rather than tied to shake.
     - Separate sensitivity for the cockpit, the chase camera and on foot (Hawken Reborn, Battlefield)

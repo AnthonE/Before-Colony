@@ -7,17 +7,25 @@ use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::atomic::Ordering;
 
+use bc_client_core::brains::Plan;
 use bc_client_core::chase::{self, ChaseRig, Follow};
-use bc_client_core::{ClientConfig, ClientCore, InputContext, OwnView};
-use bc_proto::buttons::{BOOST, FIRE_SECONDARY, FLIGHT_ASSIST, MELEE, MODE};
+use bc_client_core::{ClientConfig, ClientCore, InputContext, LanderBrain, OwnView};
+use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRIP, MELEE, MODE};
 use bc_proto::control::ControlMsg;
-use bc_proto::{Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, Part, PilotKind};
-use bc_sector::{Comeback, Control, InputMsg, SectorConfig, SlotState, read_packet};
-use bc_sim::SimConfig;
+use bc_proto::snapshot::footing;
+use bc_proto::{
+    Event, Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, Part, PilotKind,
+};
+use bc_sector::{Comeback, Control, InputMsg, Sector, SectorConfig, SlotState, read_packet};
+use bc_sim::bodies::{Bodies, Body};
 use bc_sim::content::{ModuleKind, Modules, Systems};
+use bc_sim::content::{frame as frame_spec, weapon};
 use bc_sim::field::SUIT_CLEARANCE;
-use bc_sim::math::Rng;
-use glam::Vec3;
+use bc_sim::ground::Footing;
+use bc_sim::handle::Handle;
+use bc_sim::math::{Rng, look_rotation};
+use bc_sim::{SimConfig, SuitId};
+use glam::{Quat, Vec3};
 
 /// One direction of a lossy link: packets delivered at `send + base ± jitter`, some dropped.
 struct Link {
@@ -25,16 +33,20 @@ struct Link {
     base: f64,
     jitter: f64,
     loss: f32,
+    /// Everything sent in this window (s) is lost.
+    outage: Option<(f64, f64)>,
     queue: BinaryHeap<Reverse<(u64, u64, Vec<u8>)>>, // (deliver µs, seq, bytes)
     seq: u64,
 }
 
 impl Link {
-    fn new(seed: u64, base: f64, jitter: f64, loss: f32) -> Self {
-        Self { rng: Rng::new(seed), base, jitter, loss, queue: BinaryHeap::new(), seq: 0 }
+    fn new(seed: u64, spec: LinkSpec) -> Self {
+        let LinkSpec { base, jitter, loss, outage } = spec;
+        Self { rng: Rng::new(seed), base, jitter, loss, outage, queue: BinaryHeap::new(), seq: 0 }
     }
     fn send(&mut self, now: f64, bytes: Vec<u8>) {
-        if self.rng.next_f32() < self.loss {
+        if self.rng.next_f32() < self.loss || self.outage.is_some_and(|(from, to)| (from..to).contains(&now))
+        {
             return;
         }
         let at = now + self.base + f64::from(self.rng.signed()) * self.jitter;
@@ -102,18 +114,25 @@ struct Outcome {
     /// With a render rate: every frame after warm-up, its time, the own suit as drawn, and where
     /// the newest prediction had it.
     drawn: Vec<(f64, OwnView, Vec3)>,
+    /// Snapshots after warm-up that had the suit standing on a body, and in a body's grip aloft.
+    grounded: usize,
+    aloft: usize,
+    /// Where the server had the suit after each tick (the sector's frame).
+    server: HashMap<u32, Vec3>,
 }
 
-/// One direction of a link: base delay, ± jitter (s), and the share of packets lost.
+/// One direction of a link: base delay, ± jitter (s), the share of packets lost, and a window
+/// (s) in which everything is.
 #[derive(Clone, Copy)]
 struct LinkSpec {
     base: f64,
     jitter: f64,
     loss: f32,
+    outage: Option<(f64, f64)>,
 }
 
 /// 100 ms round trip, ±20 ms of jitter each way, 5 % loss.
-const BAD: LinkSpec = LinkSpec { base: 0.05, jitter: 0.02, loss: 0.05 };
+const BAD: LinkSpec = LinkSpec { base: 0.05, jitter: 0.02, loss: 0.05, outage: None };
 /// The same delays with nothing lost.
 const CLEAN: LinkSpec = LinkSpec { loss: 0.0, ..BAD };
 
@@ -134,6 +153,9 @@ struct Scenario<'a> {
     /// network timer polls between frames. Without one, inputs are polled every `input_period`.
     render_hz: Option<f64>,
     link: LinkSpec,
+    /// What the suit is put to as it joins (given its index), before its client hears of it: on
+    /// a body, say, rather than at the faction's base far from any.
+    place: Option<fn(&mut Sector, usize)>,
 }
 
 impl Default for Scenario<'_> {
@@ -147,6 +169,7 @@ impl Default for Scenario<'_> {
             stall: None,
             render_hz: None,
             link: BAD,
+            place: None,
         }
     }
 }
@@ -174,7 +197,7 @@ fn run_as(
 }
 
 fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd) -> Outcome {
-    let Scenario { frame, input_period, lost, faults, modules, stall, render_hz, link } = *sc;
+    let Scenario { frame, input_period, lost, faults, modules, stall, render_hz, link, place } = *sc;
     let cfg = SectorConfig {
         sim: SimConfig { target_dolls: 0, seed: 1, ..SimConfig::default() },
         max_clients: 4,
@@ -194,8 +217,8 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
             launch: None,
         })
         .unwrap();
-    let mut up = Link::new(1, link.base, link.jitter, link.loss);
-    let mut down = Link::new(2, link.base, link.jitter, link.loss);
+    let mut up = Link::new(1, link);
+    let mut down = Link::new(2, link);
     let mut client = ClientCore::new(ClientConfig {
         name: "Heero".into(),
         pilot: PilotKind::Human,
@@ -228,6 +251,9 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
     let mut missing_at_20s = None;
     let mut damaged = lost.is_empty() && faults.is_ok() && modules == Modules::NONE;
     let mut other_form = 0;
+    let (mut grounded, mut aloft) = (0, 0);
+    let mut server = HashMap::new();
+    let mut suit: Option<usize> = None;
     while t < 40.0 {
         if !damaged && let Some(own) = client.world.own {
             for p in lost {
@@ -244,11 +270,21 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
         if t >= next_tick {
             next_tick += 1.0 / 30.0;
             sector.tick_at((t * 1e6) as u64);
+            if let Some(i) = suit {
+                server.insert(sector.sim.tick(), sector.sim.suits.flight[i].pos);
+            }
             if missing_at_20s.is_none() && t >= 20.0 {
                 missing_at_20s = Some(shared.metrics.inputs_missing.load(Ordering::Relaxed));
             }
             if !welcomed && shared.slots[lease.slot as usize].state() == SlotState::Active {
                 welcomed = true;
+                let (idx, _) = shared.slots[lease.slot as usize].suit_id().expect("a suit");
+                suit = Some(usize::from(idx));
+                if let Some(place) = place {
+                    place(&mut sector, usize::from(idx));
+                    // The client first hears of its suit where it was put.
+                    while read_packet(&mut egress.rings[lease.slot as usize], &mut buf).is_some() {}
+                }
                 let mut w = [0u8; 64];
                 let n = ControlMsg::Welcome {
                     version: PROTOCOL_VERSION,
@@ -261,6 +297,7 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
                     field_seed: shared.field_seed,
                     field_rocks: shared.field_rocks,
                     flags: 0,
+                    landmarks: shared.landmarks,
                 }
                 .encode(&mut w)
                 .unwrap();
@@ -286,6 +323,11 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
                 touching.push(client.stats.prediction_error);
             }
             other_form += usize::from(own.frame != frame);
+            match own.surface.map(|on| on.footing) {
+                Some(footing::GROUNDED) => grounded += 1,
+                Some(footing::ALOFT) => aloft += 1,
+                _ => {}
+            }
         }
         if stall.is_some_and(|(from, to)| (from..to).contains(&t)) {
             next_input = t + input_period;
@@ -321,7 +363,20 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
     }
     let missing_late =
         shared.metrics.inputs_missing.load(Ordering::Relaxed) - missing_at_20s.expect("ran past 20 s");
-    Outcome { client, errors, error_times, ahead, touching, max_len, missing_late, other_form, drawn }
+    Outcome {
+        client,
+        errors,
+        error_times,
+        ahead,
+        touching,
+        max_len,
+        missing_late,
+        other_form,
+        drawn,
+        grounded,
+        aloft,
+        server,
+    }
 }
 
 fn percentile(errors: &mut [f32], q: f64) -> f32 {
@@ -439,7 +494,14 @@ fn sprint_and_stop_draws_smoothly() {
         let (mut surge, mut prev): (f32, Option<(f64, f32)>) = (0.0, None);
         for (t, v, _) in &drawn {
             let dt = prev.map_or(1.0 / hz, |(p, _)| t - p) as f32;
-            let f = Follow { pos: v.pos, vel: v.vel, aim: Vec3::Z, up: v.rot * Vec3::Y, cut: v.cut };
+            let f = Follow {
+                pos: v.pos,
+                vel: v.vel,
+                aim: Vec3::Z,
+                up: v.rot * Vec3::Y,
+                cut: v.cut,
+                ground: false,
+            };
             let cut = rig.step(&f, dt);
             let gap = (v.pos - rig.pos).dot(Vec3::Z);
             if let (Some((_, p)), false) = (prev, cut) {
@@ -588,4 +650,752 @@ fn prediction_holds_up_through_strikes_and_fire() {
         assert!(ahead_p99 < 0.01, "{frame:?}: flown ahead, p99 {ahead_p99:.3} m off");
         assert!(client.world.own.expect("own state").alive);
     }
+}
+
+const MO_II: Body = Body::Landmark(0);
+const HERMIT: Body = Body::Landmark(1);
+/// Where on MO-II a lander comes down and paces its square (its frame, out from its middle): on
+/// the core 94 m fore of the middle, clear of the pylons and the fore module.
+const ON_MO_II: Vec3 = Vec3::new(1.0, 0.45, 0.45);
+/// Where on Hermit a suit stands for a static body to set MO-II against: clear of its bowls.
+const ON_HERMIT: Vec3 = Vec3::new(0.5, 1.0, 0.3);
+/// How fast any point of MO-II's surface moves (its spin and its drift), m/s. A suit standing or
+/// hopping on the core where [`ON_MO_II`] puts it moves slower than that (2.2 m/s at most).
+const MO_II_SURFACE_SPEED: f32 = 2.87;
+
+/// Stands the suit on `body`, where its surface is out from its middle along `dir`.
+fn stand(sector: &mut Sector, i: usize, body: Body, dir: Vec3) {
+    let id = SuitId(Handle { idx: i as u16, generation: sector.sim.suits.generation[i] });
+    assert!(sector.sim.place_on(id, body, dir), "stood on {body:?}");
+}
+
+/// Puts the suit `range` m out from `body`'s surface along `dir`, at rest, facing it.
+fn hover(sector: &mut Sector, i: usize, body: Body, dir: Vec3, range: f32) {
+    let sim = &mut sector.sim;
+    let bodies = Bodies::at(&sim.field, sim.landmarks(), sim.tick());
+    let (pose, (p, n)) =
+        (bodies.pose(body).expect("a body"), bodies.surface_along(body, dir).expect("a surface"));
+    let (at, to) = (pose.to_world(p + n * range), pose.to_world(p));
+    let rot = look_rotation((to - at).normalize(), pose.rot * n.cross(Vec3::Y).normalize_or(Vec3::X));
+    let f = &mut sim.suits.flight[i];
+    (f.pos, f.vel, f.rot, f.ang_vel) = (at, Vec3::ZERO, rot, Vec3::ZERO);
+    sim.suits.aim[i] = rot * Vec3::Z;
+    sim.suits.input[i].aim = rot * Vec3::Z;
+}
+
+fn on_mo_ii(sector: &mut Sector, i: usize) {
+    stand(sector, i, MO_II, ON_MO_II);
+}
+
+fn on_hermit(sector: &mut Sector, i: usize) {
+    stand(sector, i, HERMIT, ON_HERMIT);
+}
+
+/// 600 m out over where [`lander`] walks.
+fn over_mo_ii(sector: &mut Sector, i: usize) {
+    hover(sector, i, MO_II, ON_MO_II, 600.0);
+}
+
+/// 1 400 m out over where [`lander`] walks: as far as a [`gunner`] shoots.
+fn far_over_mo_ii(sector: &mut Sector, i: usize) {
+    hover(sector, i, MO_II, ON_MO_II, 1_400.0);
+}
+
+/// 40 m over where [`lander`] walks: a free suit beside the station.
+fn beside_mo_ii(sector: &mut Sector, i: usize) {
+    hover(sector, i, MO_II, ON_MO_II, 40.0);
+}
+
+/// 600 m out over where [`on_hermit`] stands a suit.
+fn over_hermit(sector: &mut Sector, i: usize) {
+    hover(sector, i, HERMIT, ON_HERMIT, 600.0);
+}
+
+/// A lander walking its square on MO-II, hopping every 3 s ([`Plan::Walk`]).
+fn lander() -> impl FnMut(&InputContext) -> InputCmd {
+    let mut brain = LanderBrain::new(Plan::Walk { body: MO_II, dir_local: ON_MO_II });
+    move |ctx: &InputContext| brain.decide(ctx)
+}
+
+/// [`lander`], letting go once it has been on MO-II for 5 s: it pushes off, flies out over its
+/// spot and comes down on it again.
+fn letting_go() -> impl FnMut(&InputContext) -> InputCmd {
+    let mut brain = lander();
+    let mut since = None;
+    move |ctx: &InputContext| {
+        let mut cmd = brain(ctx);
+        let m = ctx.predict.mover();
+        if m.footing == Footing::Free {
+            since = None;
+        } else if m.footing == Footing::Grounded && ctx.tick - *since.get_or_insert(ctx.tick) >= 150 {
+            cmd.buttons &= !GRIP;
+        }
+        cmd
+    }
+}
+
+/// Crouches where it stands and keeps still, facing the same way over the deck as it turns (as
+/// a still mouse does on a client).
+fn crouched(ctx: &InputContext) -> InputCmd {
+    let m = ctx.predict.mover();
+    let deck = ctx.predict.body_pose(m.anchor.body, f64::from(ctx.tick));
+    let aim = deck.map_or(m.flight.rot * Vec3::Z, |p| p.rot * m.anchor.rot * Vec3::Z);
+    InputCmd { aim, thrust: [0, -127, 0], buttons: GRIP, ..InputCmd::default() }
+}
+
+/// Holds still with flight assist, looking at MO-II.
+fn watching(ctx: &InputContext) -> InputCmd {
+    let at = ctx.predict.body_pose(MO_II, f64::from(ctx.tick)).map_or(Vec3::ZERO, |p| p.pos);
+    InputCmd {
+        aim: (at - ctx.predict.state.pos).normalize_or(Vec3::Z),
+        buttons: FLIGHT_ASSIST,
+        ..InputCmd::default()
+    }
+}
+
+/// Flies a 30 m square at walking speed with flight assist: a free target to set a rider against.
+fn pacing(ctx: &InputContext) -> InputCmd {
+    // 8 m/s of the Leo's 220 m/s cruise is a stick of 4.6.
+    let stick = [[5, 0, 0], [0, 0, 5], [-5, 0, 0], [0, 0, -5]][(ctx.tick / 112 % 4) as usize];
+    InputCmd {
+        aim: ctx.predict.state.rot * Vec3::Z,
+        thrust: stick,
+        buttons: FLIGHT_ASSIST,
+        ..InputCmd::default()
+    }
+}
+
+/// How far a [`gunner`] shoots, m.
+const GUN_RANGE: f32 = 1_500.0;
+
+/// Fires the beam rifle at the nearest suit in range whenever it's ready, from its muzzle where it
+/// saw it (on a body that moves, on the body as drawn: the view clock's), leading the suit seen at
+/// the tick the server judges the shot at by its flight. On a body it keeps its grip and stands
+/// its ground.
+fn gunner(ctx: &InputContext) -> InputCmd {
+    let me = ctx.predict.mover();
+    let grip = if me.footing == Footing::Free { FLIGHT_ASSIST } else { GRIP };
+    let view_tick_q4 = ((ctx.view_tick.max(0.0) * 16.0) as u32).min(ctx.tick << 4);
+    let seen = ctx.predict.as_seen(&InputCmd { tick: ctx.tick, view_tick_q4, ..InputCmd::default() });
+    let rifle = frame_spec(ctx.predict.frame()).loadout[0].expect("a rifle");
+    let muzzle = seen.pos + seen.rot * rifle.arm.muzzle();
+    let own = ctx.world.own_slot();
+    let target = (0..ctx.world.entities.len() as u16)
+        .filter(|&j| Some(j) != own)
+        .filter_map(|j| ctx.world.pose(j, ctx.resolve_tick))
+        .min_by(|a, b| a.pos.distance(muzzle).total_cmp(&b.pos.distance(muzzle)));
+    let Some(target) = target.filter(|p| p.pos.distance(muzzle) < GUN_RANGE) else {
+        return InputCmd { aim: seen.rot * Vec3::Z, buttons: grip, ..InputCmd::default() };
+    };
+    let flight = target.pos.distance(muzzle) / weapon(rifle.weapon).speed;
+    let lead = target.pos + (target.vel - seen.vel) * flight;
+    // A press when the server last said it was ready, which the client draws as it fires.
+    let ready = ctx.world.own.is_some_and(|o| o.weapon_ready & 1 != 0);
+    let fire = if ready { FIRE_PRIMARY } else { 0 };
+    InputCmd { aim: (lead - muzzle).normalize(), buttons: grip | fire, ..InputCmd::default() }
+}
+
+/// Where the server had a suit at `t` (ticks), between the ticks either side.
+fn server_at(server: &HashMap<u32, Vec3>, t: f64) -> Option<Vec3> {
+    let k = t.floor() as u32;
+    Some(server.get(&k)?.lerp(*server.get(&(k + 1))?, (t - f64::from(k)) as f32))
+}
+
+/// A lander walks its square on MO-II as the station rolls and drifts, hopping every 3 s: the
+/// client predicts it there in the station's frame, over a clean link as exactly as in open
+/// space and over the bad one as well as flying.
+#[test]
+fn prediction_holds_up_grounded_on_mo_ii() {
+    for (link, most, name) in [(CLEAN, 0.01, "clean"), (BAD, 0.25, "bad")] {
+        let sc = Scenario { link, place: Some(on_mo_ii), ..Scenario::default() };
+        let Outcome { client, mut errors, grounded, aloft, .. } = run_scenario(&sc, &mut lander());
+        let p99 = percentile(&mut errors, 0.99);
+        println!(
+            "{name} link, on MO-II: {grounded} snapshots standing and {aloft} hopping of {}; prediction error (its frame) p50 {:.4} m  p99 {p99:.4} m  max {:.4} m; {} relocations",
+            errors.len(),
+            percentile(&mut errors, 0.5),
+            errors[errors.len() - 1],
+            client.predict.relocations,
+        );
+        assert!(errors.len() > 800, "snapshots measured: {}", errors.len());
+        assert!(grounded > 400 && aloft > 200, "standing at {grounded} snapshots, hopping at {aloft}");
+        assert_eq!(grounded + aloft, errors.len(), "never let go of MO-II");
+        assert!(p99 < most, "{name} link: prediction error p99 {p99:.4} m");
+        assert!(client.predict.relocations <= 1, "{} relocations", client.predict.relocations);
+        assert!(client.world.own.expect("own state").alive);
+    }
+}
+
+/// The own suit on MO-II is drawn on the station as the station is drawn (on the view clock),
+/// which is where it truly is (at the input clock's time) moved on or back by the station's
+/// motion between the two clocks: never further from it than the fastest point of MO-II moves
+/// in that time.
+#[test]
+fn drawn_own_rider_stays_within_the_clock_bound() {
+    for (link, name) in [(CLEAN, "clean"), (BAD, "bad")] {
+        let sc = Scenario { render_hz: Some(60.0), link, place: Some(on_mo_ii), ..Scenario::default() };
+        let Outcome { drawn, server, .. } = run_scenario(&sc, &mut lander());
+        assert!(drawn.len() > 30 * 60, "{} frames drawn", drawn.len());
+        let (mut over, mut off, mut gaps, mut on, mut seen) = (f32::MIN, 0.0f32, (f64::MAX, 0.0f64), 0, 0);
+        // (The last few frames are drawn ahead of the last tick the server stepped.)
+        for (_, v, _) in &drawn {
+            let Some(truth) = server_at(&server, v.t) else { continue };
+            seen += 1;
+            let gap = v.t - v.t_view;
+            gaps = (gaps.0.min(gap), gaps.1.max(gap));
+            let bound = MO_II_SURFACE_SPEED * gap as f32 / 30.0 + 0.05;
+            off = off.max(v.pos.distance(truth));
+            over = over.max(v.pos.distance(truth) - bound);
+            on += usize::from(v.ground.is_some_and(|g| g.body == MO_II));
+        }
+        println!(
+            "{name} link: {seen} frames, {on} on MO-II; the clocks {:.1} to {:.1} ticks apart; drawn up to {off:.3} m from where it was, {:.3} m inside the bound at worst",
+            gaps.0, gaps.1, -over
+        );
+        assert!(seen > drawn.len() - 30, "{seen} of {} frames checked", drawn.len());
+        assert_eq!(on, seen, "drawn on MO-II throughout");
+        assert!(gaps.1 > 2.0, "the clocks were only {:.1} ticks apart", gaps.1);
+        assert!(
+            over <= 0.0,
+            "{name} link: drawn {over:.3} m further from where it was than the station moves"
+        );
+    }
+}
+
+/// Letting go of MO-II and landing on it again changes how the own suit is drawn (on the station
+/// as drawn, or where it is), by the station's motion between the clocks. That is blended out,
+/// as a correction is: the camera never cuts, and the drawn suit never jumps (moves further in a
+/// frame than it is drawn moving).
+#[test]
+fn attach_and_detach_blend_without_a_cut() {
+    for (hz, link) in [(60.0, CLEAN), (144.0, CLEAN), (60.0, BAD), (144.0, BAD)] {
+        let sc = Scenario { render_hz: Some(hz), link, place: Some(on_mo_ii), ..Scenario::default() };
+        let Outcome { drawn, mut errors, .. } = run_scenario(&sc, &mut letting_go());
+        let (mut attached, mut detached, mut cuts, mut step) = (0, 0, 0, f32::MIN);
+        for w in drawn.windows(2) {
+            let [(ta, a, _), (tb, b, _)] = w else { unreachable!() };
+            match (a.ground.is_some(), b.ground.is_some()) {
+                (false, true) => attached += 1,
+                (true, false) => detached += 1,
+                _ => {}
+            }
+            cuts += usize::from(b.cut);
+            // (As drawn: its flight, the clock's easing and the blending.)
+            let speed = a.vel.length().max(b.vel.length());
+            step = step.max(a.pos.distance(b.pos) - speed * (tb - ta) as f32);
+        }
+        let p99 = percentile(&mut errors, 0.99);
+        println!(
+            "{hz} Hz: landed {attached} times and let go {detached} times; {cuts} cuts; a frame's step beyond the suit's speed {step:.4} m at most; prediction p99 {p99:.4} m"
+        );
+        assert!(attached >= 2 && detached >= 2, "landed {attached} times, let go {detached} times");
+        assert_eq!(cuts, 0, "the camera cut at {hz} Hz");
+        assert!(step < 0.05, "the drawn suit stepped {step:.3} m further than its speed at {hz} Hz");
+        assert!(p99 < 0.01, "prediction error p99 {p99:.4} m");
+    }
+}
+
+/// A client of a [`party`]: the suit it joins in, its link, and how it flies. It draws at 60 Hz
+/// as the browser does (inputs each frame, and between them on the 8 ms network timer).
+struct Guest<'a> {
+    frame: FrameId,
+    faction: Faction,
+    link: LinkSpec,
+    /// What its suit is put to as it joins, before its client hears of it ([`Scenario::place`]).
+    place: Option<fn(&mut Sector, usize)>,
+    max_datagram: u16,
+    brain: Box<dyn FnMut(&InputContext) -> InputCmd + 'a>,
+}
+
+impl<'a> Guest<'a> {
+    fn new(
+        faction: Faction,
+        link: LinkSpec,
+        place: fn(&mut Sector, usize),
+        brain: impl FnMut(&InputContext) -> InputCmd + 'a,
+    ) -> Self {
+        Self {
+            frame: FrameId::Leo,
+            faction,
+            link,
+            place: Some(place),
+            max_datagram: MAX_DATAGRAM as u16,
+            brain: Box::new(brain),
+        }
+    }
+}
+
+/// A frame a guest drew, after warm-up.
+struct Frame {
+    t: f64,
+    /// The view clock's time it was drawn at (ticks): everyone else's.
+    view: f64,
+    /// Where it drew each guest's suit (not its own).
+    suits: Vec<Option<Vec3>>,
+}
+
+/// What a guest of a [`party`] saw.
+struct Visit {
+    client: ClientCore,
+    /// Its suit's slot.
+    suit: usize,
+    frames: Vec<Frame>,
+    /// How many snapshots after warm-up carried each suit, by slot.
+    carried: HashMap<u16, u32>,
+    /// The shots it drew before the server's word of them, by shot sequence: where each left the
+    /// muzzle.
+    shots: HashMap<u8, Vec3>,
+}
+
+/// A suit as the server had it after a tick.
+#[derive(Clone, Copy)]
+struct Truth {
+    pos: Vec3,
+    footing: Footing,
+    body: Body,
+    local: Vec3,
+    still: bool,
+}
+
+/// What a [`party`] leaves: the sector, what each guest saw, and each guest's suit as the server
+/// had it after every tick.
+struct Party {
+    sector: Sector,
+    visits: Vec<Visit>,
+    server: HashMap<u32, Vec<Truth>>,
+    /// Every beam the server fired: its shooter's slot, its shot sequence and its muzzle.
+    shots: Vec<(u16, u8, Vec3)>,
+}
+
+impl Party {
+    /// Where the server had guest `g`'s suit at `t` (ticks), between the ticks either side.
+    fn at(&self, g: usize, t: f64) -> Option<Vec3> {
+        let k = t.floor() as u32;
+        let (a, b) = (self.server.get(&k)?.get(g)?, self.server.get(&(k + 1))?.get(g)?);
+        Some(a.pos.lerp(b.pos, (t - f64::from(k)) as f32))
+    }
+}
+
+/// Several real clients of one real sector, each over its own link, for 40 s. `before_tick` sees
+/// the sector before each tick.
+fn party(mut guests: Vec<Guest>, before_tick: &mut dyn FnMut(&mut Sector)) -> Party {
+    struct Seat {
+        lease: bc_sector::SlotLease,
+        client: ClientCore,
+        up: Link,
+        down: Link,
+        suit: Option<usize>,
+        next_frame: f64,
+        next_timer: f64,
+        frames: Vec<Frame>,
+        carried: HashMap<u16, u32>,
+        shots: HashMap<u8, Vec3>,
+    }
+    const HZ: f64 = 60.0;
+    let cfg = SectorConfig {
+        sim: SimConfig { target_dolls: 0, seed: 1, ..SimConfig::default() },
+        max_clients: 4,
+        ..SectorConfig::default()
+    };
+    let (mut sector, shared, mut egress, _oracle) = bc_sector::build(cfg);
+    let mut seats: Vec<Seat> = guests
+        .iter()
+        .enumerate()
+        .map(|(k, g)| {
+            let lease = shared.leases.pop().expect("lease");
+            shared
+                .control
+                .push(Control::Join {
+                    slot: lease.slot,
+                    pilot: PilotKind::Human,
+                    frame: g.frame,
+                    faction: g.faction,
+                    max_datagram: g.max_datagram,
+                    comeback: Comeback::default(),
+                    launch: None,
+                })
+                .unwrap();
+            let seed = 10 * k as u64;
+            Seat {
+                lease,
+                client: ClientCore::new(ClientConfig {
+                    name: format!("Pilot {k}"),
+                    pilot: PilotKind::Human,
+                    frame: g.frame,
+                    faction: g.faction,
+                }),
+                up: Link::new(seed + 1, g.link),
+                down: Link::new(seed + 2, g.link),
+                suit: None,
+                next_frame: 0.0,
+                next_timer: 0.0,
+                frames: Vec::new(),
+                carried: HashMap::new(),
+                shots: HashMap::new(),
+            }
+        })
+        .collect();
+    let (mut server, mut shots) = (HashMap::new(), Vec::new());
+    let mut seq = sector.sim.events.next_seq();
+    let (mut t, mut next_tick) = (0.0f64, 0.0);
+    let mut buf = [0u8; 2048];
+    while t < 40.0 {
+        for s in &mut seats {
+            for bytes in s.up.deliver(t) {
+                let packet = InputPacket::decode(&bytes).expect("input decodes");
+                let _ = s.lease.input.push(InputMsg { packet, recv_us: (t * 1e6) as u64 });
+            }
+        }
+        if t >= next_tick {
+            next_tick += 1.0 / 30.0;
+            before_tick(&mut sector);
+            sector.tick_at((t * 1e6) as u64);
+            let sim = &sector.sim;
+            for e in (seq..sim.events.next_seq()).filter_map(|k| sim.events.get(k)) {
+                if let Event::BeamSpawn { shooter, shot_seq, origin, .. } = *e {
+                    shots.push((shooter, shot_seq, origin));
+                }
+            }
+            seq = sim.events.next_seq();
+            let truth = |i: usize| Truth {
+                pos: sim.suits.flight[i].pos,
+                footing: sim.suits.footing[i],
+                body: sim.suits.anchor[i].body,
+                local: sim.suits.anchor[i].local,
+                still: sim.is_still(i),
+            };
+            if let Some(all) = seats.iter().map(|s| s.suit.map(truth)).collect::<Option<Vec<_>>>() {
+                server.insert(sim.tick(), all);
+            }
+            for (s, g) in seats.iter_mut().zip(&guests) {
+                let slot = s.lease.slot as usize;
+                if s.suit.is_none() && shared.slots[slot].state() == SlotState::Active {
+                    let (idx, _) = shared.slots[slot].suit_id().expect("a suit");
+                    s.suit = Some(usize::from(idx));
+                    if let Some(place) = g.place {
+                        place(&mut sector, usize::from(idx));
+                        // The client first hears of its suit where it was put.
+                        while read_packet(&mut egress.rings[slot], &mut buf).is_some() {}
+                    }
+                    let mut w = [0u8; 64];
+                    let n = ControlMsg::Welcome {
+                        version: PROTOCOL_VERSION,
+                        client_slot: s.lease.slot,
+                        tick: sector.sim.tick(),
+                        tick_hz: 30,
+                        sector: 1,
+                        zero_allowed: true,
+                        max_datagram: g.max_datagram,
+                        field_seed: shared.field_seed,
+                        field_rocks: shared.field_rocks,
+                        flags: 0,
+                        landmarks: shared.landmarks,
+                    }
+                    .encode(&mut w)
+                    .unwrap();
+                    s.client.on_control(&w[..n]);
+                }
+                while let Some(n) = read_packet(&mut egress.rings[slot], &mut buf) {
+                    assert!(n <= usize::from(g.max_datagram));
+                    s.down.send(t, buf[..n].to_vec());
+                }
+            }
+        }
+        let suits: Vec<Option<usize>> = seats.iter().map(|s| s.suit).collect();
+        for (s, g) in seats.iter_mut().zip(&mut guests) {
+            let before = s.client.stats.snapshots;
+            for bytes in s.down.deliver(t) {
+                s.client.on_datagram(&bytes, t);
+            }
+            if s.client.stats.snapshots > before && t > 5.0 {
+                let w = &s.client.world;
+                for (j, e) in w.entities.iter().enumerate() {
+                    if e.as_ref().is_some_and(|e| e.latest_tick == w.tick) {
+                        *s.carried.entry(j as u16).or_default() += 1;
+                    }
+                }
+            }
+            if t >= s.next_frame {
+                s.next_frame += 1.0 / HZ;
+                for p in s.client.poll_inputs(t, &mut *g.brain) {
+                    s.up.send(t, p);
+                }
+                for b in s.client.world.beams.iter().filter(|b| b.predicted) {
+                    s.shots.entry(b.shot_seq).or_insert(b.origin);
+                }
+                s.client.frame(t, (1.0 / HZ) as f32);
+                if t > 5.0 {
+                    let view = s.client.render_tick(t);
+                    let drawn = |i: &Option<usize>| {
+                        i.filter(|&i| Some(i) != s.suit)
+                            .and_then(|i| s.client.world.pose(i as u16, view))
+                            .map(|p| p.pos)
+                    };
+                    s.frames.push(Frame { t, view, suits: suits.iter().map(drawn).collect() });
+                }
+            } else if t >= s.next_timer {
+                for p in s.client.poll_inputs(t, &mut *g.brain) {
+                    s.up.send(t, p);
+                }
+                for b in s.client.world.beams.iter().filter(|b| b.predicted) {
+                    s.shots.entry(b.shot_seq).or_insert(b.origin);
+                }
+            }
+            if t >= s.next_timer {
+                s.next_timer += 0.008;
+            }
+        }
+        t += 0.001;
+    }
+    let visits = seats
+        .into_iter()
+        .map(|s| Visit {
+            client: s.client,
+            suit: s.suit.expect("joined"),
+            frames: s.frames,
+            carried: s.carried,
+            shots: s.shots,
+        })
+        .collect();
+    Party { sector, visits, server, shots }
+}
+
+/// A watcher hovering 600 m off MO-II draws a lander walking its square on it (hopping, as the
+/// station rolls and drifts) where the server had it at the moment drawn: what lag compensation
+/// judges its shots against. A rider is sent and interpolated in the station's frame, so the
+/// station's motion costs nothing.
+#[test]
+fn remote_riders_are_drawn_where_the_server_had_them() {
+    for (link, name) in [(CLEAN, "clean"), (BAD, "bad")] {
+        let guests = vec![
+            Guest::new(Faction::Colonies, link, on_mo_ii, lander()),
+            Guest::new(Faction::Colonies, link, over_mo_ii, watching),
+        ];
+        let party = party(guests, &mut |_| {});
+        let watcher = &party.visits[1];
+        let (mut off, mut walked, mut hopped) = (Vec::new(), 0, 0);
+        for f in &watcher.frames {
+            let (Some(drawn), Some(truth)) = (f.suits[0], party.at(0, f.view)) else { continue };
+            off.push(drawn.distance(truth));
+            let k = f.view.floor() as u32;
+            match party.server.get(&k).map(|all| all[0].footing) {
+                Some(Footing::Grounded) => walked += 1,
+                Some(Footing::Aloft) => hopped += 1,
+                _ => {}
+            }
+        }
+        let p99 = percentile(&mut off, 0.99);
+        println!(
+            "{name} link: {} frames ({walked} walking, {hopped} hopping): drawn off the server's rider p50 {:.4} m  p99 {p99:.4} m  max {:.4} m",
+            off.len(),
+            percentile(&mut off, 0.5),
+            off[off.len() - 1],
+        );
+        assert!(off.len() > 30 * 60, "{} frames drew the rider", off.len());
+        assert!(walked > 600 && hopped > 600, "{walked} frames walking, {hopped} hopping");
+        assert!(p99 < 0.02, "{name} link: drawn p99 {p99:.4} m off the server's rider");
+        assert_eq!(watcher.client.world.stats.unresolved_bodies, 0);
+    }
+}
+
+/// A rider crouched still on MO-II is drawn glued to the station as it rolls, over the bad link
+/// and through 4 s in which nothing at all reaches the watcher: in the station's frame it doesn't
+/// move, so there is nothing to mispredict, however long the news takes.
+#[test]
+fn still_riders_stay_glued_through_loss() {
+    const OUTAGE: (f64, f64) = (20.0, 24.0);
+    let blackout = LinkSpec { outage: Some(OUTAGE), ..BAD };
+    let guests = vec![
+        Guest::new(Faction::Colonies, BAD, on_mo_ii, crouched),
+        Guest::new(Faction::Colonies, blackout, over_mo_ii, watching),
+    ];
+    let party = party(guests, &mut |_| {});
+    let watcher = &party.visits[1];
+    let bodies = &watcher.client.world.bodies;
+    // Once it has crouched and settled (the server finds it still), in MO-II's frame as drawn.
+    let (mut first, mut drift, mut off, mut through, mut n) = (None, 0.0f32, 0.0f32, 0, 0);
+    for f in watcher.frames.iter().filter(|f| f.t > 8.0) {
+        let Some(drawn) = f.suits[0] else { continue };
+        let truth = party.server[&(f.view.floor() as u32)][0];
+        assert!(truth.still && truth.body == MO_II, "still on MO-II at {:.1}", f.view);
+        let local = bodies.pose_at(MO_II, f.view).expect("MO-II").to_local(drawn);
+        drift = drift.max(local.distance(*first.get_or_insert(local)));
+        off = off.max(local.distance(truth.local));
+        through += usize::from((OUTAGE.0 + 0.2..OUTAGE.1).contains(&f.t));
+        n += 1;
+    }
+    let deck = bodies
+        .pose_at(MO_II, 8.0 * 30.0)
+        .unwrap()
+        .pos
+        .distance(bodies.pose_at(MO_II, 40.0 * 30.0).unwrap().pos);
+    println!(
+        "{n} frames ({through} with no news): drawn drifting {drift:.4} m over the deck (which moved {deck:.1} m), {off:.4} m from the server's rider at most"
+    );
+    assert!(n > 30 * 60 && through > 3 * 60, "{n} frames drew it, {through} in the outage");
+    assert!(drift < 0.01, "drifted {drift:.4} m over MO-II");
+    // (Its place on the deck is sent to 1.5625 cm: within half that on each axis.)
+    assert!(off < 0.0136, "drawn {off:.4} m off the server's rider");
+    assert_eq!(watcher.client.world.stats.unresolved_bodies, 0);
+}
+
+/// Keeps every suit whole, charged and cool, so a gunner fires as often as its rifle allows and
+/// its targets live on.
+fn refit(sector: &mut Sector) {
+    let s = &mut sector.sim.suits;
+    for i in s.alive.iter() {
+        let spec = frame_spec(s.frame[i]);
+        (s.part_hp[i], s.energy[i], s.heat[i], s.overheated[i]) = (spec.part_hp, spec.energy_cap, 0.0, false);
+    }
+}
+
+/// How many of guest `g`'s shots hit, of how many.
+fn hit_rate(party: &Party, g: usize) -> (f32, u32) {
+    let stats = party.sector.sim.suits.stats[party.visits[g].suit];
+    (stats.hits as f32 / stats.shots.max(1) as f32, stats.shots)
+}
+
+/// A pilot 1 400 m off MO-II shoots at a lander walking its square on the station (and hopping),
+/// aiming where it draws the rider, led by the shot's flight. Lag compensation judges it against
+/// the rider where the server had it then, which is where it was drawn: it hits as often as it
+/// hits a suit flying the same square at the same speed beside the station, free.
+#[test]
+fn a_pilot_hits_a_walking_rider_it_aims_at() {
+    let run = |target: Guest| {
+        let guests = vec![target, Guest::new(Faction::Oz, BAD, far_over_mo_ii, gunner)];
+        let party = party(guests, &mut refit);
+        assert!(party.visits[0].client.world.own.expect("own").alive);
+        hit_rate(&party, 1)
+    };
+    let (rider, shots) = run(Guest::new(Faction::Colonies, BAD, on_mo_ii, lander()));
+    let (free, free_shots) = run(Guest::new(Faction::Colonies, BAD, beside_mo_ii, pacing));
+    println!(
+        "hits on the rider {:.0}% of {shots} shots; on the free suit {:.0}% of {free_shots}",
+        rider * 100.0,
+        free * 100.0
+    );
+    assert!(shots > 30 && free_shots > 30, "{shots} and {free_shots} shots");
+    assert!(rider >= 0.8, "hit the rider with {:.0}% of its shots", rider * 100.0);
+    assert!(rider >= free, "hit the rider {:.0}%, the free suit {:.0}%", rider * 100.0, free * 100.0);
+}
+
+/// A rider standing on MO-II shoots at a suit pacing 600 m off it. It saw itself on the station as
+/// the station was drawn (the view clock's, some ticks behind where the station truly is), and the
+/// server fires the shot from there, on the station as it was then: so each shot leaves the muzzle
+/// the pilot saw (where its client drew it), and hits as often as from Hermit, which doesn't move.
+#[test]
+fn a_rider_shooting_from_mo_ii_hits_what_it_saw() {
+    let run = |stand: fn(&mut Sector, usize), over: fn(&mut Sector, usize)| {
+        let guests = vec![
+            Guest::new(Faction::Colonies, BAD, stand, gunner),
+            Guest::new(Faction::Oz, BAD, over, pacing),
+        ];
+        let party = party(guests, &mut refit);
+        let gunner = &party.visits[0];
+        // Each shot the server fired, against the same shot as its client drew it.
+        let me = gunner.suit as u16;
+        let mut off: Vec<f32> = party
+            .shots
+            .iter()
+            .filter(|(shooter, _, _)| *shooter == me)
+            .filter_map(|(_, seq, origin)| Some(gunner.shots.get(seq)?.distance(*origin)))
+            .collect();
+        let (rate, shots) = hit_rate(&party, 0);
+        let lead = gunner.client.clock.lead;
+        (rate, shots, percentile(&mut off, 0.99), off.len(), lead)
+    };
+    let (moving, shots, off, matched, lead) = run(on_mo_ii, over_mo_ii);
+    let (fixed, fixed_shots, fixed_off, _, _) = run(on_hermit, over_hermit);
+    println!(
+        "from MO-II {:.0}% of {shots} shots hit (muzzles {matched} matched, p99 {off:.4} m off the drawn one; lead {lead:.1} ticks); from Hermit {:.0}% of {fixed_shots} (p99 {fixed_off:.4} m)",
+        moving * 100.0,
+        fixed * 100.0
+    );
+    assert!(shots > 30 && fixed_shots > 30, "{shots} and {fixed_shots} shots");
+    assert!(matched as u32 > shots * 9 / 10, "{matched} of {shots} shots drawn");
+    assert!(
+        off < 0.01 && fixed_off < 0.01,
+        "the shots left {off:.4} m (MO-II), {fixed_off:.4} m (Hermit) off the drawn muzzle"
+    );
+    assert!(
+        (moving - fixed).abs() <= 0.05,
+        "hit {:.0}% from MO-II, {:.0}% from Hermit",
+        moving * 100.0,
+        fixed * 100.0
+    );
+}
+
+/// How many suits stand about on Hermit for [`still_riders_yield_bandwidth`], and how many of
+/// them walk.
+const CROWD: usize = 24;
+
+/// Before the first tick: [`CROWD`] suits on Hermit around where [`on_hermit`] stands one, the
+/// first `walking` of them walking off (the rest stand still on their feet).
+fn crowd(walking: usize) -> impl FnMut(&mut Sector) {
+    let mut done = false;
+    move |sector: &mut Sector| {
+        if std::mem::replace(&mut done, true) {
+            return;
+        }
+        let sim = &mut sector.sim;
+        for k in 0..CROWD {
+            let id = sim
+                .spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, Vec3::ZERO, Quat::IDENTITY)
+                .expect("room");
+            let dir =
+                ON_HERMIT + Vec3::new((k % 6) as f32 * 0.03 - 0.075, 0.0, (k / 6) as f32 * 0.03 - 0.045);
+            assert!(sim.place_on(id, HERMIT, dir));
+            if k < walking {
+                let aim = sim.suits.flight[id.idx()].rot * Vec3::Z;
+                let t = sim.next_tick();
+                let walk = InputCmd {
+                    tick: t,
+                    view_tick_q4: t << 4,
+                    aim,
+                    thrust: [0, 0, 127],
+                    buttons: GRIP,
+                    ..InputCmd::default()
+                };
+                sim.set_input(id, walk);
+            }
+        }
+    }
+}
+
+/// A client on a 256-byte budget watches 24 suits on Hermit, more than its snapshots hold. Half
+/// stand still: each record of one would say just what the last did (it is sent in Hermit's
+/// frame), so it is sent a tenth as often, its track kept alive longer, and the half that walk
+/// are refreshed more often for it.
+#[test]
+fn still_riders_yield_bandwidth() {
+    let watch = |walking: usize| {
+        let mut watcher = Guest::new(Faction::Colonies, CLEAN, over_hermit, watching);
+        watcher.max_datagram = 256;
+        let party = party(vec![watcher], &mut crowd(walking));
+        let visit = &party.visits[0];
+        let crowd: Vec<u16> = (0..party.sector.sim.suits.cap as u16)
+            .filter(|&j| usize::from(j) != visit.suit && party.sector.sim.suits.alive.get(usize::from(j)))
+            .collect();
+        assert_eq!(crowd.len(), CROWD);
+        let world = &visit.client.world;
+        assert!(crowd.iter().all(|&j| world.entities[usize::from(j)].is_some()), "a track was dropped");
+        // Refreshes a second of the walkers and of those standing still (the crowd spawned in order).
+        let rate = |js: &[u16]| {
+            let n: u32 = js.iter().map(|j| visit.carried.get(j).copied().unwrap_or(0)).sum();
+            n as f32 / js.len().max(1) as f32 / 35.0
+        };
+        let still = crowd[walking..].iter().all(|&j| party.sector.sim.is_still(usize::from(j)));
+        assert!(still, "the ones left standing are still");
+        (rate(&crowd[..walking]), rate(&crowd[walking..]))
+    };
+    let (walkers, standing) = watch(CROWD / 2);
+    let (all_walking, _) = watch(CROWD);
+    println!(
+        "of {CROWD} suits on Hermit: walkers refreshed {walkers:.1} Hz beside those standing still ({standing:.1} Hz), {all_walking:.1} Hz when all walk"
+    );
+    assert!(walkers > 5.0 * standing, "walkers {walkers:.1} Hz, standing {standing:.1} Hz");
+    assert!(walkers > 1.5 * all_walking, "walkers {walkers:.1} Hz, {all_walking:.1} Hz when all walk");
+    // Often enough to stay well inside a still rider's track's life.
+    let stale = bc_client_core::interp::STALE_STILL_TICKS as f32 / 30.0;
+    assert!(standing > 3.0 / stale, "standing refreshed {standing:.2} Hz");
 }

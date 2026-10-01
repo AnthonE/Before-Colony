@@ -14,6 +14,9 @@ surveys what players of similar games expect of the controls (read it before cha
   The sector thread never wakes tokio; it `unpark()`s the egress thread.
 - Proof: the `no_alloc` tests count heap operations with `bc-alloc::CountingAlloc` and must stay at 0.
 - Determinism: use `bc_sim::math` (libm) for trig; never enable glam `fast-math` or wasm `simd128`.
+- Surface contact is `bc_sim::ground::move_step` (the server and the client's predictor share it); body
+  poses are closed forms in the integer tick (`bodies::landmark_pose(t)`) and never replicated; a rider is
+  body-local (`Anchor`) and its world pose is derived from it every tick (`docs/ARCHITECTURE.md`, "Bodies and frames").
 - Never log signatures or resume tokens (addresses shortened: `pilots::short`). `bc_proto::auth::Signature`'s
   `Debug` hides its bytes on purpose.
 
@@ -26,7 +29,7 @@ surveys what players of similar games expect of the controls (read it before cha
   `cargo clippy -p bc-client --target wasm32-unknown-unknown -- -D warnings`
 - `scripts/build-web.sh [webgl2] [webgpu]` — browser build into `web/dist/` (needs wasm-bindgen-cli 0.2.128).
 - `cargo run -p bc-server --release` then open http://127.0.0.1:8080
-- `scripts/e2e.sh spike|slice|gfx|frames|ui|login|hangar [webgl2|webgpu]` — Playwright against a real server (`frames`: the autopilot flies each Gundam; `gfx`: every showcase scene, screenshots in `e2e/artifacts/`; `ui`: the page around the game; `login`: wallet sign-in with a stub wallet; `hangar`: survival on foot, the terminals, launching and docking). The suits' suites run `--rules arcade` (`BC_RULES` overrides); the server's default is survival. Arguments after the project go to Playwright (`scripts/e2e.sh gfx webgl2 --grep "duel|hangar"`); `BC_GFX_EXTRA="look=0"` adds query parameters to every gfx shot (and its file name).
+- `scripts/e2e.sh spike|slice|gfx|frames|ui|login|hangar|surface [webgl2|webgpu]` — Playwright against a real server (`frames`: the autopilot flies each Gundam; `gfx`: every showcase scene, screenshots in `e2e/artifacts/`; `ui`: the page around the game; `login`: wallet sign-in with a stub wallet; `hangar`: survival on foot, the terminals, launching and docking; `surface`: the lander autopilot lands in MO-II's Aft Well, hides, parks and wakes there). The suits' suites run `--rules arcade` (`BC_RULES` overrides); the server's default is survival. Arguments after the project go to Playwright (`scripts/e2e.sh gfx webgl2 --grep "duel|hangar"`); `BC_GFX_EXTRA="look=0"` adds query parameters to every gfx shot (and its file name).
 - A suit's stats are `bc_sim::tuning` (frame × systems × equipment), built identically by the server and the
   owner's prediction: anything that changes flight goes through it, from state the own snapshot carries.
 - Survival's economy is `bc-econ` (off the hot path); the hangar's JSON messages are `bc_econ::wire` on control-stream frames tagged 11 (`docs/PROTOCOL.md`).

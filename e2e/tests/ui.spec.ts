@@ -110,6 +110,34 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   expect(errors).toEqual([]);
 });
 
+// The menu says what leaving does with a signed-in pilot's suit: hidden in a spot, parked where it
+// rests, coming down to park from the air in a body's grip, or drifting on. (The page draws what
+// it's given: each view is drawn and read back in one go, before the game's next frame.)
+test("the menu says what leaving does with the suit", async ({ page }, info) => {
+  await page.goto(`/?quality=low&gfx=${info.project.name}`);
+  await expect(page.locator("#title")).toBeVisible({ timeout: 60_000 });
+  const menu = (extra: Record<string, unknown>) =>
+    page.evaluate((extra) => {
+      const v = { screen: "playing", panel: "pause", help: false, signedIn: true, place: "space", ...extra };
+      (window as any).bcUi.update(v);
+      const text = (id: string) => document.getElementById(id)?.textContent ?? "";
+      return [text("disconnect-button"), text("pause-who")];
+    }, extra);
+  const [hidden, hiddenWho] = await menu({ hideSpot: "AFT WELL", survival: true, parkable: true });
+  expect(hidden).toBe("LEAVE SUIT HIDDEN");
+  expect(hiddenWho).toContain("Hidden in AFT WELL");
+  const [parked, parkedWho] = await menu({ parkable: true });
+  expect(parked).toBe("PARK & DISCONNECT");
+  expect(parkedWho).toContain("parked here");
+  const [aloft, aloftWho] = await menu({ aloft: true });
+  expect(aloft).toBe("SLEEP & DISCONNECT");
+  expect(aloftWho).toContain("parks where it lands");
+  expect(aloftWho).not.toContain("drifting");
+  const [drift, driftWho] = await menu({});
+  expect(drift).toBe("SLEEP & DISCONNECT");
+  expect(driftWho).toContain("drifting on");
+});
+
 // Settings: changed on the panel, kept in this browser across reloads, with keys a newer build
 // wrote left alone; and the last launch (callsign, frame) remembered for the title.
 test("settings persist across a reload", async ({ page }, info) => {

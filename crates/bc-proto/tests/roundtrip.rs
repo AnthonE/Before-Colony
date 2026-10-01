@@ -6,11 +6,15 @@ use bc_proto::events::{BurstCause, Event};
 use bc_proto::missiles::{MISSILE_RECORD_BITS, MISSILE_VEL_BITS, MISSILE_VEL_MAX};
 use bc_proto::objects::{ROCK_RECORD_BITS, SPIN_MAX};
 use bc_proto::quant::{self, VEL_MAX};
-use bc_proto::snapshot::{ENTITY_BITS, OWN_BITS, OwnArms, ZERO_HYPOTHESES, ZeroThreat, entity_pos_step};
+use bc_proto::snapshot::{
+    ENTITY_MAX_BITS, OWN_BITS_FREE, OWN_MAX_BITS, OwnArms, ZERO_HYPOTHESES, ZeroThreat, entity_pos_step,
+    footing,
+};
+use bc_proto::types::{RIDER_VEL_BITS, RIDER_VEL_MAX};
 use bc_proto::{
-    ChunkDesc, ChunkKind, EntityState, Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, MissileState,
-    NO_CHUNK, ObjectState, OwnState, Part, PilotKind, RockState, Segment, SnapshotHeader, SnapshotReader,
-    SnapshotWriter, WeaponKind, ZeroInfo,
+    BodyRef, ChunkDesc, ChunkKind, EntityState, Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM,
+    MissileState, NO_CHUNK, ObjectState, OwnState, OwnSurface, Part, PilotKind, RiderOn, RockState, Segment,
+    SnapshotHeader, SnapshotReader, SnapshotWriter, WeaponKind, ZeroInfo,
 };
 use glam::{Quat, Vec3};
 use proptest::prelude::*;
@@ -28,31 +32,60 @@ fn quat() -> impl Strategy<Value = Quat> {
         .prop_map(|(axis, angle)| Quat::from_axis_angle(axis, angle))
 }
 
+/// A body a rider can name: kind 0 a rock, 1 a landmark.
+fn body_ref(kind: u32, id: u16) -> BodyRef {
+    if kind == 0 { BodyRef::Rock(id % 1024) } else { BodyRef::Landmark((id % 16) as u8) }
+}
+
+/// A suit flying free (`on.0 == 0`) or riding a body: anywhere in the sector, or anywhere a rider
+/// can be over its body.
 fn entity() -> impl Strategy<Value = EntityState> {
     (
         0u16..1023,
         0u8..4,
         0u32..FrameId::COUNT as u32,
-        vec3(32_000.0),
+        (0u32..3, 0u16..1024, any::<bool>()),
+        vec3(1.0),
         quat(),
-        vec3(2000.0),
+        vec3(1.0),
         unit(),
         0u16..8192,
         prop::array::uniform6(0u8..8),
     )
-        .prop_map(|(slot, generation, frame, pos, rot, vel, aim, flags, parts)| EntityState {
-            slot,
-            generation,
-            frame: FrameId::from_bits(frame).unwrap(),
-            faction: Faction::Colonies,
-            pilot: PilotKind::Agent,
-            pos,
-            rot,
-            vel,
-            aim,
-            flags,
-            parts,
+        .prop_map(|(slot, generation, frame, (kind, id, aloft), pos, rot, vel, aim, flags, parts)| {
+            let on = (kind > 0).then(|| RiderOn { body: body_ref(kind - 1, id), aloft });
+            let (reach, speed) = on.map_or((32_000.0, 2_000.0), |on| (on.body.local_max(), RIDER_VEL_MAX));
+            EntityState {
+                slot,
+                generation,
+                frame: FrameId::from_bits(frame).unwrap(),
+                faction: Faction::Colonies,
+                pilot: PilotKind::Agent,
+                on,
+                pos: pos * reach,
+                rot,
+                vel: vel * speed,
+                aim,
+                flags,
+                parts,
+            }
         })
+}
+
+/// A decoded entity's pose matches what was sent within half a step: of the sector's grid, or of
+/// its body's.
+fn entity_pose_close(e: &EntityState, src: &EntityState) -> bool {
+    let (pos_step, vel_step) = match src.on {
+        None => (entity_pos_step(), quant::signed_step(VEL_MAX, quant::VEL_BITS)),
+        Some(on) => (
+            quant::signed_step(on.body.local_max(), on.body.local_bits()),
+            quant::centered_step(RIDER_VEL_MAX, RIDER_VEL_BITS),
+        ),
+    };
+    e.on == src.on
+        && (e.pos - src.pos).abs().max_element() <= pos_step * 0.5 + 0.004
+        && (e.vel - src.vel).abs().max_element() <= vel_step * 0.5 + 1e-3
+        && e.rot.dot(src.rot).abs() > 0.999
 }
 
 fn arms() -> impl Strategy<Value = OwnArms> {
@@ -193,12 +226,19 @@ proptest! {
                            missiles in prop::collection::vec(missile(), 0..=12),
                            pos in vec3(30_000.0), rot in quat(), extra in -131_071i32..131_071, credits in 0u32..16_777_215,
                            lock in 0u16..1024, progress in 0u8..16, special in any::<[u8; 2]>(), ready in 0u8..16,
-                           arms in arms(), g_strain in 0.0f32..3.0, systems in 0u32..(1 << 24), modules in 0u32..(1 << 20),
+                           arms in arms(), g_strain in 0.0f32..3.0, on in 0u32..3, stance in 96u8..=146, cover in 0u8..4,
+                           systems in 0u32..(1 << 24), modules in 0u32..(1 << 20),
                            timers in any::<[u8; 3]>(), repairing in 0u8..16) {
+        // Flying free, standing on a rock, or in a landmark's grip.
+        let surface = match on {
+            0 => None,
+            1 => Some(OwnSurface { footing: footing::GROUNDED, body: body_ref(0, lock), stance_q: stance }),
+            _ => Some(OwnSurface { footing: footing::ALOFT, body: body_ref(1, lock), stance_q: stance }),
+        };
         let own = OwnState { slot: 5, alive: true, pos, vel: Vec3::new(10.0, -3.0, 250.0), rot, propellant: 812.5,
                              g_strain, parts: [1.0, 0.5, 0.0, 1.0, 0.25, 0.75], extra_mass_kg: extra, cargo_kg: [0, 16_383, 2_500, 1],
                              credits, held: 1_000, weapon_ready: ready, lock_target: lock, lock_progress: progress,
-                             special_timer: special[0], special_cooldown: special[1], arms, systems, modules,
+                             special_timer: special[0], special_cooldown: special[1], arms, surface, cover, systems, modules,
                              scram: timers[0] & 127, concussed: timers[1] & 127, repairing, repair_left: timers[2] & 127,
                              ..OwnState::default() };
         let mut zero = ZeroInfo { threat_count: 2, has_solution: true, solution: Vec3::X, hit_p: 0.62, ..ZeroInfo::default() };
@@ -223,7 +263,7 @@ proptest! {
         for r in &rocks { prop_assert!(w.rock(r, 0)); }
         // Missiles leave room for twenty entities and six of the largest objects.
         let reserve = 6 * (ObjectState::MAX_BITS + 1);
-        for m in &missiles { prop_assert!(w.missile(m, reserve + 20 * (ENTITY_BITS + 1))); }
+        for m in &missiles { prop_assert!(w.missile(m, reserve + 20 * (ENTITY_MAX_BITS + 1))); }
         // Entities leave room for six of the largest objects.
         let mut written = 0;
         for e in &ents { if w.entity(e, reserve) { written += 1 } else { break } }
@@ -246,6 +286,9 @@ proptest! {
         prop_assert_eq!((o.extra_mass_kg, o.cargo_kg, o.credits, o.held), (extra, own.cargo_kg, credits, 1_000));
         prop_assert_eq!((o.weapon_ready, o.lock_target, o.lock_progress), (ready, lock, progress));
         prop_assert_eq!((o.special_timer, o.special_cooldown), (special[0], special[1]));
+        prop_assert_eq!((o.surface, o.cover), (surface, cover));
+        // In a body's frame or the sector's, the velocity comes back exact too.
+        prop_assert_eq!(o.vel, own.vel);
         prop_assert!(o.rot.dot(own.rot).abs() > 0.9999);
         let z = r.zero().unwrap().unwrap();
         prop_assert_eq!(z.threat_count, 2);
@@ -276,9 +319,7 @@ proptest! {
         while let Some(e) = r.next_entity().unwrap() {
             let src = &ents[i];
             prop_assert_eq!((e.slot, e.generation, e.frame), (src.slot, src.generation, src.frame));
-            prop_assert!((e.pos - src.pos).abs().max_element() <= entity_pos_step() * 0.5 + 0.004);
-            prop_assert!((e.vel - src.vel).abs().max_element() <= quant::signed_step(VEL_MAX, quant::VEL_BITS) * 0.5 + 1e-3);
-            prop_assert!(e.rot.dot(src.rot).abs() > 0.999);
+            prop_assert!(entity_pose_close(&e, src), "{:?} vs {:?}", e, src);
             prop_assert!(e.aim.dot(src.aim) > 0.995);
             prop_assert_eq!(e.flags, src.flags);
             prop_assert_eq!(e.parts, src.parts);
@@ -291,6 +332,45 @@ proptest! {
             k += 1;
         }
         prop_assert_eq!(k, objects_written);
+    }
+
+    #[test]
+    fn attached_entities_round_trip_within_half_a_step(kind in 0u32..2, id in 0u16..1024, aloft in any::<bool>(),
+                                                       pos in vec3(1.0), vel in vec3(1.0), rot in quat(), aim in unit()) {
+        let body = body_ref(kind, id);
+        let e = EntityState {
+            on: Some(RiderOn { body, aloft }),
+            pos: pos * body.local_max(),
+            vel: vel * RIDER_VEL_MAX,
+            rot,
+            aim,
+            ..EntityState::default()
+        };
+        let mut buf = [0u8; 256];
+        let mut w = SnapshotWriter::new(&mut buf, 256);
+        w.header(&SnapshotHeader::default());
+        w.own(None);
+        w.zero(None);
+        prop_assert!(w.entity(&e, 0));
+        let n = w.finish().unwrap();
+        let back = SnapshotReader::new(&buf[..n]).unwrap().next_entity().unwrap().unwrap();
+        prop_assert_eq!(back.on, Some(RiderOn { body, aloft }));
+        // 7.8 mm in the body's frame on any body, 3.2 cm/s over it.
+        prop_assert!((back.pos - e.pos).abs().max_element() <= 0.0079, "{} vs {}", back.pos, e.pos);
+        prop_assert!((back.vel - e.vel).abs().max_element() <= 0.032, "{} vs {}", back.vel, e.vel);
+        prop_assert!(back.rot.dot(e.rot).abs() > 0.999);
+        prop_assert!(back.aim.dot(e.aim) > 0.995);
+        // At rest on its body, it comes out exactly at rest.
+        let still = EntityState { vel: Vec3::ZERO, ..e };
+        let mut buf = [0u8; 256];
+        let mut w = SnapshotWriter::new(&mut buf, 256);
+        w.header(&SnapshotHeader::default());
+        w.own(None);
+        w.zero(None);
+        prop_assert!(w.entity(&still, 0));
+        let n = w.finish().unwrap();
+        let back = SnapshotReader::new(&buf[..n]).unwrap().next_entity().unwrap().unwrap();
+        prop_assert_eq!(back.vel.to_array().map(f32::to_bits), [0; 3]);
     }
 
     #[test]
@@ -319,13 +399,65 @@ proptest! {
 
 #[test]
 fn record_budgets_match_plan() {
-    // ~26 bytes per entity; ~30 fit in a datagram next to header, own state, ZERO and events.
-    const { assert!(ENTITY_BITS == 210) };
+    // ~26 bytes per entity (24 for a suit on a body); ~30 fit in a datagram next to header, own
+    // state, ZERO and events.
+    const { assert!(ENTITY_MAX_BITS == 211) };
     const { assert!(ZERO_HYPOTHESES == 7) };
-    const { assert!(OWN_BITS == 756) };
+    const { assert!(OWN_BITS_FREE == 760) };
+    const { assert!(OWN_MAX_BITS == 780) };
     const { assert!(ROCK_RECORD_BITS == 18) };
     const { assert!(MISSILE_RECORD_BITS == 119) };
     const { assert!(ObjectState::MAX_BITS <= 232) };
+    let rider = |body| EntityState { on: Some(RiderOn { body, aloft: false }), ..EntityState::default() };
+    assert_eq!(rider(BodyRef::Rock(0)).encoded_bits(), 194);
+    assert_eq!(rider(BodyRef::Landmark(0)).encoded_bits(), 194);
+    assert_eq!(EntityState::default().encoded_bits(), ENTITY_MAX_BITS);
+}
+
+/// How many entities fill a whole datagram after the header and `own`, with ZERO off and no
+/// objects.
+fn entities_that_fit(own: &OwnState, e: &EntityState) -> usize {
+    let mut buf = [0u8; 1500];
+    let mut w = SnapshotWriter::new(&mut buf, MAX_DATAGRAM);
+    w.header(&SnapshotHeader::default());
+    w.own(Some(own));
+    w.zero(None);
+    let mut n = 0;
+    while w.entity(e, 0) {
+        n += 1;
+    }
+    let len = w.finish().unwrap();
+    assert!(len <= MAX_DATAGRAM);
+    let mut r = SnapshotReader::new(&buf[..len]).unwrap();
+    let mut back = 0;
+    while let Some(got) = r.next_entity().unwrap() {
+        assert_eq!(got.on, e.on);
+        back += 1;
+    }
+    assert_eq!(back, n);
+    n
+}
+
+#[test]
+fn a_full_datagram_holds_37_free_or_40_riders() {
+    let free = EntityState { pos: Vec3::new(9_000.0, 5_000.0, -12_000.0), ..EntityState::default() };
+    let rider = EntityState {
+        on: Some(RiderOn { body: BodyRef::Landmark(1), aloft: false }),
+        pos: Vec3::new(0.0, 599.0, 0.0),
+        ..EntityState::default()
+    };
+    // The worst own state: standing on a rock. Free traffic loses nothing to wear and tear's 37.
+    let on_a_rock = OwnState {
+        alive: true,
+        surface: Some(OwnSurface { footing: footing::GROUNDED, body: BodyRef::Rock(1_000), stance_q: 146 }),
+        ..OwnState::default()
+    };
+    assert_eq!(on_a_rock.encoded_bits(), OWN_MAX_BITS);
+    assert_eq!(entities_that_fit(&on_a_rock, &free), 37);
+    assert_eq!(entities_that_fit(&on_a_rock, &rider), 40);
+    let flying = OwnState { alive: true, ..OwnState::default() };
+    assert_eq!(entities_that_fit(&flying, &free), 37);
+    assert_eq!(entities_that_fit(&flying, &rider), 40);
 }
 
 #[test]

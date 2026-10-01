@@ -1,6 +1,6 @@
 //! Mining: shots and sabers wear rocks down (sabers chip ore off as they go), a rock with no
-//! structure left shatters into ore, and grows back once nobody is near. A saber also cuts limbs
-//! off hulks.
+//! structure left shatters into ore, and grows back once nobody is near (awake; a sleeper only
+//! where it would grow). A saber also cuts limbs off hulks.
 
 use bc_proto::events::Event;
 use bc_proto::{ChunkDesc, ChunkKind, NO_CHUNK, Part, Segment, WeaponKind};
@@ -10,9 +10,11 @@ use super::Sim;
 use crate::chunks::{self, Motion, segment_pos};
 use crate::config::secs;
 use crate::content::salvage::{
-    BEAM_WASTE_KG, CHIP_KG, REGROW_CLEAR, ore_ttl, part_mass_kg, rock_multiplier, wreck_ttl,
+    BEAM_WASTE_KG, CHIP_KG, REGROW_CLEAR, REGROW_SLEEPER_CLEAR, ore_ttl, part_mass_kg, rock_multiplier,
+    wreck_ttl,
 };
 use crate::content::{WeaponClass, frame, weapon};
+use crate::field::SUIT_CLEARANCE;
 use crate::math::{hash01, normalize_or};
 use crate::rocks::{max_hp, max_ore_kg};
 
@@ -115,7 +117,9 @@ impl Sim {
         self.events.push(Event::RockBreak { id: 0, tick: t, rock: i as u16, by: by as u16 });
     }
 
-    /// Shattered rocks grow back in time, once no suit is within `REGROW_CLEAR`.
+    /// Shattered rocks grow back in time, once no suit awake is within `REGROW_CLEAR`, and no
+    /// sleeper is where the rock would be (it never grows over one; one asleep further off doesn't
+    /// hold it back).
     pub(super) fn field_step(&mut self, t: u32) {
         if !t.is_multiple_of(30) {
             return;
@@ -125,8 +129,14 @@ impl Sim {
                 continue;
             }
             let rock = self.field.rocks()[i];
-            let near = self.suits.alive.iter().any(|j| {
-                (self.suits.flight[j].pos - rock.pos).length_squared() < REGROW_CLEAR * REGROW_CLEAR
+            let s = &self.suits;
+            let near = s.alive.iter().any(|j| {
+                let clear = if s.sleeping.get(j) {
+                    rock.radius + SUIT_CLEARANCE + REGROW_SLEEPER_CLEAR
+                } else {
+                    REGROW_CLEAR
+                };
+                (s.flight[j].pos - rock.pos).length_squared() < clear * clear
             });
             let r = &mut self.rocks;
             if near {

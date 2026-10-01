@@ -7,7 +7,8 @@
 //!   between a third of its reach and all of it; blades when the target will be within reach by
 //!   the end of the windup.
 //! - **Footwork.** A melee-first frame pursues: it closes to a blade's length, boosting from afar.
-//!   The others keep the doll's range and strafing, at the frame's preferred distance.
+//!   The others keep the doll's range and strafing, at the frame's preferred distance. A target on
+//!   the ground is come at from above.
 //! - **Specials.** Neo-Bird for long hauls, the jammer while closing, Full Open with a lock inside
 //!   1.2 km, the Cross Crusher at arm's length.
 //! - **Care.** It breaks sideways from a missile tracking it, and eases off before G-strain blacks
@@ -19,7 +20,7 @@ use bc_proto::buttons::{
 use bc_proto::{InputCmd, NO_SLOT};
 use glam::Vec3;
 
-use super::mobile_doll::{Action, AiState, DollProfile};
+use super::mobile_doll::{Action, AiState, DollProfile, standoff};
 use crate::config::{DT, G0};
 use crate::content::{FrameSpec, SpecialKind, WeaponClass, weapon};
 use crate::flight::{FA_BOOST_CRUISE, FA_RESPONSE};
@@ -86,7 +87,7 @@ pub fn drive_kit(
                         && t.dist < w.range * profile.fire_range_frac
                 })
             });
-            let desired = footwork(me, t, los, ai, tick, profile, spec, &mut buttons);
+            let desired = standoff(me, t, footwork(me, t, los, ai, tick, profile, spec, &mut buttons));
             let cruise = spec.fa_speed * if buttons & BOOST != 0 { FA_BOOST_CRUISE } else { 1.0 };
             let push = desired * cruise - me.vel;
             let aim = match gun.and_then(|s| spec.loadout[s]) {

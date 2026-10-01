@@ -408,6 +408,11 @@ pub fn drive_link(
         ui.signed_in = l.in_game() && g.core.welcome.is_some_and(|w| w.signed_in);
         ui.parkable = ui.signed_in
             && g.core.world.own.is_some_and(|o| o.flags & bc_proto::snapshot::own_flags::PARKABLE != 0);
+        let alive = l.in_game() && g.core.world.own.is_some_and(|o| o.alive);
+        let feet = crate::hud::footed(&g.core);
+        ui.hide_spot = if alive { feet.spot.unwrap_or("") } else { "" };
+        ui.aloft = alive && ui.signed_in && feet.footing == bc_sim::ground::Footing::Aloft;
+        ui.survival = g.core.welcome.is_some_and(|w| w.survival);
     }
     ui.attempt = l.attempt();
     ui.retry_in = match l.state {

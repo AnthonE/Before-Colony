@@ -8,8 +8,9 @@ use glam::Vec3;
 use crate::quant::{self, quantize_dir};
 use crate::{BitReader, BitWriter, DecodeError, NO_SLOT, PACKET_KIND_BITS, PacketKind, SLOT_BITS};
 
-/// Button and state bits. Toggles (flight assist, ZERO, the frame's mode) are sent as **states**,
-/// never as presses, so a lost or duplicated packet can't flip them twice.
+/// Button and state bits. Toggles (flight assist, ZERO, the frame's mode, a grab, the grip) are
+/// sent as **states**, never as presses, so a lost or duplicated packet can't flip them twice. Bit
+/// 15 is free.
 pub mod buttons {
     /// Left mouse: primary weapon (beam rifle / Twin Buster Rifle).
     pub const FIRE_PRIMARY: u16 = 1 << 0;
@@ -39,11 +40,15 @@ pub mod buttons {
     pub const MODE: u16 = 1 << 12;
     /// Press: the frame's special attack (Heavyarms' Full Open Attack, Sandrock's Cross Crusher).
     pub const SPECIAL: u16 = 1 << 13;
+    /// State (L): the grip is armed. Coming in slow and close to a surface lands the suit on it, and
+    /// it holds on while this is set: clearing it lets go. Being a state, a client that stalls
+    /// never drops its suit off a body.
+    pub const GRIP: u16 = 1 << 14;
 
     /// Actions a silent client's repeated command must not keep performing.
     pub const FIRE_MASK: u16 = FIRE_PRIMARY | FIRE_SECONDARY | MELEE | SPECIAL;
     /// States that persist while a client is silent (see [`InputCmd::neutral`](super::InputCmd::neutral)).
-    pub const STATES: u16 = FLIGHT_ASSIST | ZERO | GRAB | MODE;
+    pub const STATES: u16 = FLIGHT_ASSIST | ZERO | GRAB | MODE | GRIP;
     pub const BITS: u32 = 16;
 }
 
@@ -67,7 +72,9 @@ pub struct InputCmd {
     pub view_tick_q4: u32,
     /// Unit aim direction, world space.
     pub aim: Vec3,
-    /// Thrust demand in the suit's local frame: x right, y up, z forward. -127..=127.
+    /// Thrust demand in the suit's local frame: x right, y up, z forward. -127..=127. On its feet
+    /// on a body x and z walk instead, and y sets the stance and keeps it: -64 or less crouches, 32
+    /// or more stands, 100 or more (standing) hops, and anything between holds the stance it has.
     pub thrust: [i8; 3],
     /// Roll rate demand, -127..=127 (positive = clockwise when viewed from behind).
     pub roll: i8,
@@ -97,7 +104,7 @@ impl Default for InputCmd {
 
 impl InputCmd {
     /// A "hands off" command for `tick` that keeps the given aim and states (flight assist, ZERO,
-    /// the frame's mode, and a grip on whatever is in hand).
+    /// the frame's mode, a grip on whatever is in hand, and the grip on a surface).
     pub fn neutral(tick: u32, aim: Vec3, keep_buttons: u16) -> Self {
         Self {
             tick,
@@ -299,7 +306,15 @@ mod tests {
     #[test]
     fn a_silent_client_keeps_its_states() {
         let n = InputCmd::neutral(9, Vec3::X, u16::MAX);
-        assert_eq!(n.buttons, buttons::FLIGHT_ASSIST | buttons::ZERO | buttons::GRAB | buttons::MODE);
+        assert_eq!(
+            n.buttons,
+            buttons::FLIGHT_ASSIST | buttons::ZERO | buttons::GRAB | buttons::MODE | buttons::GRIP
+        );
+        // A client that stalls never lets go of the surface it stands on.
+        let last =
+            InputCmd { tick: 9, buttons: buttons::GRIP | buttons::FIRE_PRIMARY, ..InputCmd::default() };
+        assert_eq!(InputCmd::stand_in(&last, 11, 2).buttons, buttons::GRIP);
+        assert_eq!(InputCmd::stand_in(&last, 30, NEUTRAL_AFTER + 1).buttons, buttons::GRIP);
         // Presses (fire, the special) are never repeated for a silent client.
         const { assert!(buttons::STATES & buttons::FIRE_MASK == 0) };
         const { assert!(buttons::FIRE_MASK & buttons::SPECIAL != 0) };

@@ -1,5 +1,8 @@
 //! Launch configuration injected by `web/loader.js` as `window.BC_CONFIG`.
 
+use bc_client_core::brains::Plan;
+use bc_sim::bodies::Body;
+use glam::Vec3;
 use wasm_bindgen::JsValue;
 
 #[derive(Clone, Debug, Default)]
@@ -8,9 +11,12 @@ pub struct LaunchConfig {
     pub wt_url: String,
     /// SHA-256 of the dev server's self-signed certificate (hex), if any.
     pub cert_hash: Option<Vec<u8>>,
-    /// `?autopilot=1`: the Mobile Doll AI flies this pilot (used by the E2E test).
-    pub autopilot: bool,
-    /// `?autoplay=1` (implied by `?autopilot=1`): skip the title screen and launch straight away.
+    /// `?autopilot=`: who flies this pilot (the E2E tests'), if anyone: `1`, the Mobile Doll AI;
+    /// `lander`, a lander that walks MO-II; `lander:walk:<landmark>`, one that walks a landmark;
+    /// `lander:hide:<landmark>:<spot>`, one that hides in a landmark's hide spot.
+    pub autopilot: Option<Autopilot>,
+    /// `?autoplay=1` (implied by `?autopilot=`, unless `?autoplay=0`): skip the title screen and
+    /// launch straight away.
     pub autoplay: bool,
     /// The browser has no WebTransport (the page still loads, to say so).
     pub no_web_transport: bool,
@@ -74,11 +80,13 @@ impl LaunchConfig {
         let cert_hash = get(&cfg, "certHash").as_string().and_then(|h| decode_hex(&h));
         let name = string("name");
         let frame = string("frame");
+        let autopilot = Autopilot::parse(&string("autopilot"));
+        let autoplay = string("autoplay");
         Self {
             wt_url,
             cert_hash,
-            autopilot: flag("autopilot"),
-            autoplay: flag("autopilot") || flag("autoplay"),
+            autopilot,
+            autoplay: autoplay == "1" || (autopilot.is_some() && autoplay != "0"),
             no_web_transport: flag("noWebTransport"),
             name,
             frame,
@@ -97,6 +105,36 @@ impl LaunchConfig {
             tonemap: string("tonemap"),
             look: get(&cfg, "look").as_bool().unwrap_or(true),
             showcase_hz: number("hz").filter(|h| *h >= 1.0).unwrap_or(60.0).min(240.0),
+        }
+    }
+}
+
+/// Who flies the pilot's suit for them (`?autopilot=`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Autopilot {
+    /// The Mobile Doll brain, with ZERO engaged.
+    Doll,
+    /// A lander: it flies to a body, lands on it with its grip, and walks or hides there.
+    Lander(Plan),
+}
+
+impl Autopilot {
+    /// `1`, `lander`, `lander:walk:<landmark>` or `lander:hide:<landmark>:<spot>` (a number left
+    /// out is 0); anything else (or nothing): none.
+    pub fn parse(s: &str) -> Option<Self> {
+        let parts: Vec<&str> = s.split(':').collect();
+        let num = |i: usize| parts.get(i).map_or(Some(0), |p| p.parse::<u8>().ok());
+        // A landmark's top, at an angle to its axis (a station's pylons stand along the others).
+        let walk = |landmark: u8| Plan::Walk {
+            body: Body::Landmark(landmark),
+            dir_local: Vec3::new(1.0, 0.45, 0.45),
+        };
+        match parts.as_slice() {
+            ["1"] => Some(Self::Doll),
+            ["lander"] => Some(Self::Lander(walk(0))),
+            ["lander", "walk", ..] => Some(Self::Lander(walk(num(2)?))),
+            ["lander", "hide", ..] => Some(Self::Lander(Plan::Hide { landmark: num(2)?, spot: num(3)? })),
+            _ => None,
         }
     }
 }

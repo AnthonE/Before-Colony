@@ -25,9 +25,9 @@
 pub mod client;
 pub mod transport;
 
-/// The ready-made brains: the Mobile Doll AI, and a miner. (They live in `bc-client-core`, so the
-/// browser autopilot can use them too.)
-pub use bc_client_core::brains::{self, DollBrain, MinerBrain};
+/// The ready-made brains: the Mobile Doll AI, a miner, and a lander that walks and hides on the
+/// bodies. (They live in `bc-client-core`, so the browser autopilot can use them too.)
+pub use bc_client_core::brains::{self, DollBrain, LanderBrain, MinerBrain, Plan};
 pub use client::{BotClient, BotConfig};
 pub use transport::{EndpointInfo, connect, discover, install_crypto_provider};
 

@@ -3,7 +3,8 @@
 //! While fire is held the flame is lit (the slot's firing flag shows it), and every `interval`
 //! ticks it burns what's in its cone: each suit there takes the weapon's damage on the part
 //! nearest the flame's axis, and its heat rises, which can overheat it. Each burn costs a round.
-//! Rocks shield what's behind them. There's no lag compensation: a flame lingers.
+//! Rocks, landmarks and the colony shield what's behind them. There's no lag compensation: a
+//! flame lingers.
 
 use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY};
 use bc_proto::{InputCmd, Part};
@@ -105,7 +106,7 @@ impl Sim {
             }
         });
         for &(j, part, at) in &burnt[..n] {
-            if self.field.sweep(nozzle, at, 0.0).is_some() {
+            if self.first_blocker(nozzle, at, 0.0, t, 0.0).is_some() {
                 continue;
             }
             self.queue_damage(j, part, w.damage, i, w.kind, dir);

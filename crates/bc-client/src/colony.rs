@@ -3,13 +3,14 @@
 //! the colony (`shaders/colony_window.wgsl`), structural rings band the hull, the end caps carry a
 //! docking hub and the mirror hub, and three hinged mirrors at the sunward end throw light in.
 //!
-//! Collision stays the simulation's static cylinder (`bc_sim::world`), which doesn't care that the
-//! visual one spins.
+//! It turns on the simulation's clock (`bc_sim::world::colony_spin_angle`) at the view clock's
+//! time, so every client draws it at the same angle. Collision stays the simulation's static
+//! cylinder (`bc_sim::world`), which doesn't care that the visual one spins.
 
 use std::f32::consts::{FRAC_PI_3, FRAC_PI_6, TAU};
 
 use bc_sim::content::salvage::{DOCK_CENTER, DOCK_HUB_LENGTH, DOCK_RADIUS};
-use bc_sim::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS};
+use bc_sim::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS, colony_spin_angle};
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::light::NotShadowCaster;
 use bevy::mesh::{Indices, PrimitiveTopology};
@@ -20,10 +21,8 @@ use bevy::shader::ShaderRef;
 
 use crate::materials::{HullTag, Surfaces, paint};
 use crate::sky::{SUN_DIR, SUN_LUX, Sun};
-use crate::view::VisTime;
+use crate::view::{DrawnBodies, Vis, VisTime};
 
-/// Spin for 1 g at the rim: ω = √(g / R).
-const SPIN: f32 = 0.055_37;
 /// Centre angle of the first window strip (the others follow every 120°).
 const FIRST_WINDOW: f32 = 0.4;
 /// One colony day (the mirrors open and close), seconds.
@@ -35,7 +34,7 @@ impl Plugin for ColonyPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "shaders/colony_window.wgsl");
         app.add_plugins(MaterialPlugin::<WindowMaterial>::default())
-            .add_systems(Update, (spin, blink_beacons));
+            .add_systems(Update, (spin.in_set(Vis::Suits), blink_beacons));
     }
 }
 
@@ -406,21 +405,24 @@ pub fn setup_colony(
     commands.entity(root).insert(ColonyRoot { windows: window_material });
 }
 
-/// Turns the colony, and tells the window shader the spin, the time of day and the sunlight.
+/// Turns the colony as the simulation has it at the view clock's time, and tells the window shader
+/// the spin, the time of day and the sunlight.
 fn spin(
     time: Res<VisTime>,
+    bodies: Res<DrawnBodies>,
     mut roots: Query<(&ColonyRoot, &mut Transform)>,
     suns: Query<&DirectionalLight, With<Sun>>,
     mut windows: ResMut<Assets<WindowMaterial>>,
 ) {
-    let angle = (time.now * f64::from(SPIN)) % std::f64::consts::TAU;
+    let t = bodies.t.max(0.0);
+    let angle = colony_spin_angle(t.floor() as u32, (t - t.floor()) as f32);
     let day = (std::f64::consts::TAU * time.now / DAY_SECS).cos() as f32;
     let daylight = ((day + 0.25) / 0.5).clamp(0.0, 1.0);
     let sunlight = suns.iter().next().map_or(1.0, |l| l.illuminance / SUN_LUX);
     for (root, mut tf) in &mut roots {
-        tf.rotation = Quat::from_rotation_x(angle as f32);
+        tf.rotation = Quat::from_rotation_x(angle);
         if let Some(mut m) = windows.get_mut(&root.windows) {
-            m.colony.centre.w = angle as f32;
+            m.colony.centre.w = angle;
             m.colony.shape.w = daylight * daylight * (3.0 - 2.0 * daylight);
             m.colony.sun.w = sunlight;
         }

@@ -66,6 +66,12 @@ const scenes: Array<[string, number, number, number]> = [
   ["hangar", 1, 2, 12],
   ["hangar", 4, 6, 12],
   ["hangar", 5, 8.5, 12],
+  // Suits on the landmarks: a Leo walking MO-II's core as the station rolls; one kneeling asleep
+  // in the Aft Well, its rim lights round it; one landing on Hermit in a puff of dust.
+  // (The walker's stride needs a moment to get going.)
+  ["surface", 1, 2, 45],
+  ["surface", 2, 4, 20],
+  ["surface", 3, 6, 20],
 ];
 
 for (const [scene, cam, t, frames] of scenes) {

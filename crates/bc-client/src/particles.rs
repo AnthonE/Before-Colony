@@ -338,6 +338,24 @@ impl Particles {
         self.shower(cap, 24, at, None, (4.0, 18.0), (2.0, 5.0), (0.8, 0.4), 0.0, Ramp::Glow(ore * 3.0));
     }
 
+    /// A suit landing on rock: a ring of its dust thrown out low along the ground, more and
+    /// further the harder it came down (`scale`, about 1 at 8 m/s).
+    pub fn dust(&mut self, cap: usize, at: At, normal: Vec3, scale: f32) {
+        let n = normal.normalize_or(Vec3::Y);
+        let scale = scale.clamp(0.2, 2.5);
+        let count = (28.0 * scale) as u32;
+        for _ in 0..count {
+            let out = self.unit();
+            let flat = (out - n * out.dot(n)).normalize_or(n.any_orthonormal_vector());
+            let d = (flat + n * self.range(0.05, 0.35)).normalize();
+            let v = at.vel + d * self.range(3.0, 11.0) * scale;
+            let life = self.range(1.5, 3.5);
+            let size = (self.range(1.5, 3.0) * scale, self.range(4.0, 7.0) * scale);
+            let pos = at.pos + flat * self.range(1.0, 3.0) + n * 0.4;
+            self.spawn(cap, Particle::new(pos, v, life, size, 0.0, 0.6, Ramp::Dust));
+        }
+    }
+
     /// A saber blade in rock, for `dt` s: sparks and molten rock spraying off the cut, and glints
     /// of its ore.
     pub fn cutting(&mut self, cap: usize, at: At, normal: Vec3, ore: Vec3, dt: f32) {
