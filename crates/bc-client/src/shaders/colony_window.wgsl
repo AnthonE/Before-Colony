@@ -1,13 +1,15 @@
 // The colony's window strips. Each window pixel casts its view ray into the (analytic) cylinder
-// and draws what it meets on the far side: farmland, rivers, towns and roads on the land strips,
-// clouds a kilometre up, and haze over six kilometres of air. Towns light up at night. The glass
-// adds a sun glint on top.
+// and draws what it meets on the far side: the city on the land strips (its blocks from the block
+// atlas, painted by `bc::city`, the same streets the walkers walk), clouds a kilometre up, and
+// haze over six kilometres of air. Its lamps and windows light up at night. The glass adds a sun
+// glint on top.
 
 #import bevy_pbr::{
     forward_io::VertexOutput,
     mesh_view_bindings::view,
 }
-#import bc::noise::{hash13, noise3, fbm}
+#import bc::noise::fbm
+#import bc::city::{city_cell, atlas_texel, city_paint}
 #ifdef TONEMAP_IN_SHADER
 #import bevy_core_pipeline::tonemapping::tone_mapping
 #endif
@@ -19,9 +21,13 @@ struct Colony {
     shape: vec4<f32>,
     // xyz: direction to the Sun; w: sunlight scale (eclipse).
     sun: vec4<f32>,
+    // x: how many of the city's lamps are lit, 0..1; yzw: unused.
+    extra: vec4<f32>,
 };
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> colony: Colony;
+// One texel a block of the city (`bc_client_core::city_atlas`).
+@group(#{MATERIAL_BIND_GROUP}) @binding(1) var atlas: texture_2d<f32>;
 
 const WHITE: f32 = 31830.99;
 const SCREEN: f32 = 27800.0;
@@ -44,41 +50,6 @@ fn sector_angle(p: vec3<f32>) -> f32 {
 fn is_window(p: vec3<f32>) -> bool {
     let a = sector_angle(p) + TAU / 12.0;
     return (i32(floor(a / (TAU / 6.0))) % 2) == 0;
-}
-
-struct Ground {
-    albedo: vec3<f32>,
-    // Where towns and roads light up at night, 0..1.
-    lights: f32,
-};
-
-// The land at (x along the axis, s around the wall), in metres: fields, woods, a river, towns and
-// the roads between them.
-fn ground(x: f32, s: f32) -> Ground {
-    let q = vec3(x, s, 0.0);
-    // Fields: patches a couple of hundred metres across.
-    let cell = floor(q / 220.0);
-    let crop = hash13(cell + vec3(0.0, 0.0, 3.0));
-    var col = mix(vec3(0.12, 0.2, 0.07), vec3(0.3, 0.27, 0.12), crop);
-    col = mix(col, vec3(0.2, 0.15, 0.09), step(0.85, crop));
-    col *= 0.85 + 0.3 * noise3(q / 40.0);
-    // Woods.
-    let wood = smoothstep(0.58, 0.64, fbm(q / 900.0 + 7.0, 3));
-    col = mix(col, vec3(0.05, 0.1, 0.04), wood);
-    // A river meandering along the axis in each land strip.
-    let strip = s - floor(s / 3351.0) * 3351.0 - 1675.0;
-    let meander = sin(x / 2300.0) * 600.0 + (fbm(vec3(x / 1800.0, 1.3, 0.0), 3) - 0.5) * 900.0;
-    let river = 1.0 - smoothstep(18.0, 30.0, abs(strip - meander));
-    col = mix(col, vec3(0.04, 0.07, 0.1), river);
-    // Towns, and roads along and across the strip.
-    let town_cell = floor(q.xy / 1600.0);
-    let centre = (town_cell + 0.5) * 1600.0;
-    let town = step(0.72, hash13(vec3(town_cell, 11.0))) * (1.0 - smoothstep(250.0, 420.0, length(q.xy - centre)));
-    let along = 1.0 - smoothstep(4.0, 7.0, abs(strip + 900.0));
-    let across = (1.0 - smoothstep(3.0, 6.0, abs(x - floor(x / 1600.0) * 1600.0 - 800.0))) * 0.6;
-    let road = min(along + across, 1.0);
-    col = mix(col, vec3(0.33, 0.33, 0.34), max(town, road * 0.8));
-    return Ground(col, town * step(0.55, noise3(q / 12.0)) + road * 0.35);
 }
 
 @fragment
@@ -109,8 +80,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         // Through the far window to space.
         col = vec3(0.004, 0.006, 0.012) * WHITE;
     } else {
-        let g = ground(hit.x, sector_angle(hit) * r_hull);
-        col = g.albedo * lit + vec3(1.0, 0.7, 0.35) * g.lights * night * 0.05 * SCREEN;
+        // A land strip: which, and how far across it from its edge.
+        let rel = sector_angle(hit) + TAU / 12.0;
+        let strip = i32(floor(rel / (TAU / 3.0)));
+        let s = (rel - f32(strip) * (TAU / 3.0) - TAU / 6.0) * r_hull;
+        let cell = city_cell(s, hit.x);
+        let g = city_paint(cell, textureLoad(atlas, atlas_texel(strip, cell), 0));
+        col = g.albedo * lit + vec3(1.0, 0.72, 0.4) * g.lamps * colony.extra.x * 0.05 * SCREEN;
     }
     // Clouds about a kilometre above the far wall.
     let rc = r_hull - 1000.0;

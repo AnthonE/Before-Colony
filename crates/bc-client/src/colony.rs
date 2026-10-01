@@ -38,6 +38,7 @@ pub struct ColonyPlugin;
 impl Plugin for ColonyPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "shaders/colony_window.wgsl");
+        embedded_asset!(app, "shaders/city_lib.wgsl");
         app.add_plugins(MaterialPlugin::<WindowMaterial>::default())
             .init_resource::<ColonyDay>()
             .add_systems(Update, ((spin, open_mirrors).chain().in_set(Vis::Suits), blink_beacons));
@@ -48,6 +49,9 @@ impl Plugin for ColonyPlugin {
 pub struct WindowMaterial {
     #[uniform(0)]
     colony: ColonyUniform,
+    /// The city's block atlas (`bc_client_core::city_atlas`): what the windows show of it.
+    #[texture(1)]
+    atlas: Handle<Image>,
 }
 
 #[derive(ShaderType, Clone, Copy, Debug)]
@@ -58,12 +62,31 @@ struct ColonyUniform {
     shape: Vec4,
     /// xyz: direction to the Sun; w: sunlight scale.
     sun: Vec4,
+    /// x: how many of the city's lamps are lit; yzw: unused.
+    extra: Vec4,
 }
 
 impl Material for WindowMaterial {
     fn fragment_shader() -> ShaderRef {
         "embedded://bc_client/shaders/colony_window.wgsl".into()
     }
+}
+
+/// Keeps the city's shader library loaded (it's only imported).
+#[derive(Resource)]
+pub struct CityLib(#[allow(dead_code)] Handle<Shader>);
+
+/// The city's block atlas as an image: one RGBA8 texel a block.
+pub fn atlas_image() -> Image {
+    use bc_client_core::city_atlas::{ATLAS_H, ATLAS_W, block_atlas};
+    use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+    Image::new(
+        Extent3d { width: ATLAS_W, height: ATLAS_H, depth_or_array_layers: 1 },
+        TextureDimension::D2,
+        block_atlas(bc_sim::colony::city::Stage(0)),
+        TextureFormat::Rgba8Unorm,
+        RenderAssetUsages::RENDER_WORLD,
+    )
 }
 
 /// The spinning part of the colony (everything visual).
@@ -301,6 +324,7 @@ fn radial_box(a: f32, r: f32, x: f32, size: Vec3) -> Transform {
     Transform::from_translation(around(a, r, x)).with_rotation(Quat::from_rotation_x(a)).with_scale(size)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn setup_colony(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -308,15 +332,20 @@ pub fn setup_colony(
     mut windows: ResMut<Assets<WindowMaterial>>,
     mut dot_materials: ResMut<Assets<DotMaterial>>,
     mut dot_look: ResMut<DotLook>,
+    mut images: ResMut<Assets<Image>>,
+    assets: Res<AssetServer>,
     surfaces: Res<Surfaces>,
 ) {
+    commands.insert_resource(CityLib(assets.load("embedded://bc_client/shaders/city_lib.wgsl")));
     let dot_material = dot_look.get(&mut dot_materials);
     let window_material = windows.add(WindowMaterial {
         colony: ColonyUniform {
             centre: COLONY_CENTER.extend(0.0),
             shape: Vec4::new(COLONY_RADIUS, COLONY_HALF_LENGTH, FIRST_WINDOW, 1.0),
             sun: SUN_DIR.extend(1.0),
+            extra: Vec4::ZERO,
         },
+        atlas: images.add(atlas_image()),
     });
     let beacon_red = standard.add(StandardMaterial {
         base_color: Color::BLACK,
@@ -615,10 +644,10 @@ pub fn setup_colony(
                 }
             }
             for i in 0..=16 {
+                // A sparse row round each ring, dimmer than the frames': the hull's bands read from
+                // afar without wiring it up.
                 let x = -COLONY_HALF_LENGTH + 2_000.0 * i as f32;
-                for dx in [-22.0f32, 22.0] {
-                    lamps.ring(x + dx, COLONY_RADIUS + 15.0, 184, 3.0, lamp);
-                }
+                lamps.ring(x, COLONY_RADIUS + 15.0, 96, 3.0, lamp * 0.45);
             }
             // The axis port's end (+X), still being finished: scaffold towers and cranes on the cap.
             for k in 0..4 {
@@ -690,6 +719,7 @@ fn spin(
             m.colony.centre.w = angle;
             m.colony.shape.w = hour.0.daylight;
             m.colony.sun.w = sunlight;
+            m.colony.extra.x = hour.0.lamps;
         }
     }
 }
