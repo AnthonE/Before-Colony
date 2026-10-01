@@ -1,6 +1,11 @@
-//! Cockpit HUD: flight and armour readouts, weapons and the frame's special, missile lock, target
-//! brackets and markers on missiles tracking you, kill feed, the ZERO System's recommendations and
-//! alerts. Plain ASCII so the embedded font renders everything.
+//! Cockpit HUD, drawn as a mobile suit's monitor: flight and armour readouts with the suit's damage
+//! silhouette, weapons and the frame's special, missile lock, amber target corners and markers on
+//! missiles tracking you, chevrons at the view's edge on what's off it, kill feed, the ZERO
+//! System's recommendations, and cautions in a hazard-striped banner. In the page's fonts
+//! (`UiFont`) and palette (`bc_client_core::palette`), on chamfered plates (`ui_panel`).
+//!
+//! The instruments (the panels) are one tree: chasing, it's drawn in the screen's corners; from the
+//! cockpit, into the texture the cockpit's monitors show (`place_instruments`, `cockpit`).
 //!
 //! The crosshair is the aim. A weapon bears only within its mount's reach of the body's axis (a
 //! hand's 50°, Neo-Bird's nose 2°), so while the suit is still turning onto the aim the crosshair
@@ -9,6 +14,7 @@
 //! (`-x-`).
 
 use bc_client_core::FeedLine;
+use bc_client_core::palette;
 use bc_client_core::world::ObjectMotion;
 use bc_proto::buttons::{FLIGHT_ASSIST, MODE};
 use bc_proto::snapshot::{ent_flags, own_flags, zero_mode};
@@ -22,20 +28,33 @@ use bc_sim::content::{
 use bc_sim::content::{System, Systems};
 use bc_sim::zero::hypotheses::Maneuver;
 use bevy::prelude::*;
+use bevy::text::LetterSpacing;
+
+use bc_model::cockpit::Show;
+use bevy::ui_render::prelude::MaterialNode;
 
 use crate::camera::{Chase, MainCamera};
 use crate::input::{Aim, Controls};
 use crate::net::{GameClient, now_s};
 use crate::suits_vis::pilot_tag;
+use crate::ui_panel::PanelMaterial;
 
-const CYAN: Color = Color::srgb(0.55, 0.92, 1.0);
-const AMBER: Color = Color::srgb(1.0, 0.75, 0.25);
-const RED: Color = Color::srgb(1.0, 0.3, 0.3);
-const GREEN: Color = Color::srgb(0.45, 1.0, 0.55);
-const ZERO_PINK: Color = Color::srgb(1.0, 0.45, 0.8);
+const fn colour(hex: palette::Hex) -> Color {
+    let [r, g, b] = hex.srgb();
+    Color::srgb(r, g, b)
+}
+
+const CYAN: Color = colour(palette::CYAN);
+const AMBER: Color = colour(palette::AMBER);
+const RED: Color = colour(palette::RED);
+const GREEN: Color = colour(palette::GREEN);
+const ZERO_PINK: Color = colour(palette::PINK);
+const WHITE: Color = colour(palette::WHITE);
 /// Target brackets on suits, then markers on missiles tracking the pilot.
 const BRACKETS: usize = 24;
 const MISSILE_MARKERS: usize = 8;
+/// How many of the nearest suits' brackets carry a name and range.
+const TAGGED: usize = 6;
 
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 pub enum HudText {
@@ -102,8 +121,64 @@ pub struct LeadMarker;
 #[derive(Component)]
 pub struct Bracket(usize);
 
-fn label(size: f32, color: Color, node: Node) -> (Text, TextFont, TextColor, Node) {
-    (Text::new(""), TextFont { font_size: FontSize::Px(size), ..default() }, TextColor(color), node)
+/// The fonts the HUD (and the page) is set in (`web/fonts`, SIL OFL): Share Tech Mono for readouts
+/// and numbers, Chakra Petch for the panels' labels and the cautions.
+#[derive(Resource, Clone)]
+pub struct UiFont {
+    pub mono: Handle<Font>,
+    pub label: Handle<Font>,
+}
+
+impl UiFont {
+    /// Adds the fonts the page loads to the app's fonts.
+    pub fn load(fonts: &mut Assets<Font>) -> Self {
+        let mono = include_bytes!("../../../web/fonts/ShareTechMono-Regular.ttf");
+        let label = include_bytes!("../../../web/fonts/ChakraPetch-SemiBold.ttf");
+        Self {
+            mono: fonts.add(Font::from_bytes(mono.to_vec())),
+            label: fonts.add(Font::from_bytes(label.to_vec())),
+        }
+    }
+
+    /// Readouts.
+    pub fn text(&self, size: f32) -> TextFont {
+        TextFont { font: self.mono.clone().into(), font_size: FontSize::Px(size), ..default() }
+    }
+
+    /// Labels and cautions.
+    pub fn heading(&self, size: f32) -> TextFont {
+        TextFont { font: self.label.clone().into(), font_size: FontSize::Px(size), ..default() }
+    }
+}
+
+/// A soft shadow under HUD text, so it reads over anything bright.
+pub const SHADOW: TextShadow =
+    TextShadow { offset: Vec2::new(1.0, 1.0), color: Color::srgba(0.0, 0.0, 0.0, 0.75) };
+
+fn label(
+    font: &UiFont,
+    size: f32,
+    color: Color,
+    node: Node,
+) -> (Text, TextFont, TextColor, TextShadow, Node) {
+    (Text::new(""), font.text(size), TextColor(color), SHADOW, node)
+}
+
+/// A full-width row at `top`, centring what's in it.
+fn banner(top: Val) -> Node {
+    Node {
+        position_type: PositionType::Absolute,
+        top,
+        left: Val::Px(0.0),
+        right: Val::Px(0.0),
+        justify_content: JustifyContent::Center,
+        ..default()
+    }
+}
+
+/// Centres a node on its `left`/`top` point (a symbol on the spot it marks).
+fn centred() -> UiTransform {
+    UiTransform { translation: Val2::percent(-50.0, -50.0), ..default() }
 }
 
 fn abs(left: Option<f32>, right: Option<f32>, top: Option<f32>, bottom: Option<f32>) -> Node {
@@ -117,7 +192,181 @@ fn abs(left: Option<f32>, right: Option<f32>, top: Option<f32>, bottom: Option<f
     }
 }
 
-pub fn setup_hud(mut commands: Commands) {
+/// The instruments: the readouts that live on the cockpit's monitors in the first-person view, and
+/// in the corners of the screen when chasing. One tree, drawn to whichever it is (`place_instruments`).
+#[derive(Component)]
+pub struct Instruments;
+
+/// One of the instruments' panels, by the monitor it goes on.
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+pub struct Panel(pub Show);
+
+/// A text's size on screen (px); on the cockpit's monitors it's drawn larger, to be read there.
+#[derive(Component, Clone, Copy)]
+pub struct BaseSize(f32);
+
+/// A block of the suit's damage silhouette, coloured by its part's armour.
+#[derive(Component, Clone, Copy)]
+pub struct PartBlock(Part);
+
+/// The caution banner the alerts come up in.
+#[derive(Component)]
+pub struct Caution;
+
+/// A target bracket's corners and its tag (by the bracket's index).
+#[derive(Component)]
+pub struct BracketCorner(usize);
+#[derive(Component)]
+pub struct BracketTag(usize);
+
+/// A marker at the edge of the view on something off it: a hostile close by, whoever is locking
+/// on to the pilot, a missile tracking them.
+#[derive(Component)]
+pub struct EdgeMarker(usize);
+const EDGE_MARKERS: usize = 12;
+
+/// The looks the HUD's panels and cautions are drawn with.
+#[derive(Resource, Clone)]
+pub struct HudLooks {
+    plate: Handle<PanelMaterial>,
+    zero: Handle<PanelMaterial>,
+    caution: Handle<PanelMaterial>,
+    notice: Handle<PanelMaterial>,
+}
+
+impl HudLooks {
+    pub fn new(panels: &mut Assets<PanelMaterial>) -> Self {
+        Self {
+            plate: panels.add(PanelMaterial::plate(PLATE, PLATE_EDGE, 12.0, 1.0)),
+            zero: panels.add(PanelMaterial::plate(
+                Color::srgba(0.09, 0.02, 0.08, 0.72),
+                Color::srgba(1.0, 0.45, 0.8, 0.5),
+                12.0,
+                1.0,
+            )),
+            caution: panels.add(PanelMaterial::stripes(AMBER, INK, 6.0)),
+            notice: panels.add(PanelMaterial::plate(PLATE, PLATE_EDGE, 8.0, 1.0)),
+        }
+    }
+}
+
+/// The damage silhouette's frame (sized up on the cockpit's monitors).
+#[derive(Component)]
+pub struct Silhouette;
+const SILHOUETTE: Vec2 = Vec2::new(46.0, 80.0);
+
+/// B's colours for the panels: the plate, its edge, its labels.
+const PLATE: Color = Color::srgba(0.03, 0.07, 0.12, 0.78);
+const PLATE_EDGE: Color = Color::srgba(0.62, 0.78, 0.9, 0.45);
+const LABEL: Color = colour(palette::LABEL);
+const INK: Color = colour(palette::INK);
+
+fn corner(i: usize, left: bool, top: bool) -> impl Bundle {
+    let b = Val::Px(2.0);
+    (
+        BracketCorner(i),
+        Node {
+            position_type: PositionType::Absolute,
+            width: Val::Px(9.0),
+            height: Val::Px(9.0),
+            left: if left { Val::Px(0.0) } else { Val::Auto },
+            right: if left { Val::Auto } else { Val::Px(0.0) },
+            top: if top { Val::Px(0.0) } else { Val::Auto },
+            bottom: if top { Val::Auto } else { Val::Px(0.0) },
+            border: UiRect {
+                left: if left { b } else { Val::Px(0.0) },
+                right: if left { Val::Px(0.0) } else { b },
+                top: if top { b } else { Val::Px(0.0) },
+                bottom: if top { Val::Px(0.0) } else { b },
+            },
+            ..default()
+        },
+        BorderColor::all(AMBER),
+    )
+}
+
+/// A panel of the instruments: a plate with a label along its top and the text below.
+#[allow(clippy::too_many_arguments)]
+fn panel(
+    p: &mut ChildSpawnerCommands,
+    f: &UiFont,
+    looks: &HudLooks,
+    show: Show,
+    title: &str,
+    text: HudText,
+    color: Color,
+    extra: impl FnOnce(&mut ChildSpawnerCommands),
+) {
+    let look = if show == Show::Top { looks.zero.clone() } else { looks.plate.clone() };
+    p.spawn((
+        Panel(show),
+        Node {
+            position_type: PositionType::Absolute,
+            flex_direction: FlexDirection::Column,
+            padding: UiRect::axes(Val::Px(12.0), Val::Px(8.0)),
+            row_gap: Val::Px(4.0),
+            overflow: Overflow::clip(),
+            ..default()
+        },
+        MaterialNode(look),
+    ))
+    .with_children(|p| {
+        p.spawn((
+            Text::new(title),
+            f.heading(10.0),
+            BaseSize(10.0),
+            TextColor(if show == Show::Top { ZERO_PINK } else { LABEL }),
+            LetterSpacing::Px(2.0),
+        ));
+        p.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(12.0), ..default() })
+            .with_children(|row| {
+                extra(row);
+                row.spawn((
+                    text,
+                    Text::new(""),
+                    f.text(13.0),
+                    BaseSize(13.0),
+                    TextColor(color),
+                    TextLayout::default().with_no_wrap(),
+                ));
+            });
+    });
+}
+
+/// The suit's damage silhouette: head, torso and backpack, arms and legs.
+fn silhouette(p: &mut ChildSpawnerCommands) {
+    let block = |part: Part, x: f32, y: f32, w: f32, h: f32| {
+        (
+            PartBlock(part),
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Percent(x),
+                top: Val::Percent(y),
+                width: Val::Percent(w),
+                height: Val::Percent(h),
+                border: UiRect::all(Val::Px(1.0)),
+                ..default()
+            },
+            BackgroundColor(Color::WHITE),
+            BorderColor::all(Color::NONE),
+        )
+    };
+    p.spawn((Silhouette, Node { width: Val::Px(SILHOUETTE.x), height: Val::Px(SILHOUETTE.y), ..default() }))
+        .with_children(|s| {
+            s.spawn(block(Part::Backpack, 30.0, 12.0, 40.0, 10.0));
+            s.spawn(block(Part::Head, 38.0, 0.0, 24.0, 11.0));
+            s.spawn(block(Part::Torso, 28.0, 14.0, 44.0, 32.0));
+            s.spawn(block(Part::ArmL, 2.0, 15.0, 22.0, 34.0));
+            s.spawn(block(Part::ArmR, 76.0, 15.0, 22.0, 34.0));
+            s.spawn(block(Part::Legs, 28.0, 49.0, 44.0, 51.0));
+        });
+}
+
+pub fn setup_hud(mut commands: Commands, font: Res<UiFont>, mut panels: ResMut<Assets<PanelMaterial>>) {
+    let f = &*font;
+    let looks = HudLooks::new(&mut panels);
+    commands.insert_resource(looks.clone());
+    // What's drawn over the view: the reticle and markers, target corners, cautions, the link.
     commands
         .spawn((
             HudRoot,
@@ -130,91 +379,248 @@ pub fn setup_hud(mut commands: Commands) {
             Visibility::Hidden,
         ))
         .with_children(|p| {
-            p.spawn((HudText::Status, label(13.0, CYAN, abs(Some(14.0), None, Some(10.0), None))));
-            p.spawn((
-                HudText::Zero,
-                label(
-                    14.0,
-                    ZERO_PINK,
-                    Node {
-                        position_type: PositionType::Absolute,
-                        top: Val::Px(10.0),
-                        left: Val::Percent(36.0),
-                        ..default()
-                    },
-                ),
-            ));
-            p.spawn((HudText::Feed, label(13.0, AMBER, abs(None, Some(14.0), Some(10.0), None))));
-            p.spawn((HudText::Flight, label(13.0, CYAN, abs(Some(14.0), None, None, Some(12.0)))));
-            p.spawn((HudText::Armor, label(13.0, CYAN, abs(Some(250.0), None, None, Some(12.0)))));
-            p.spawn((HudText::Weapons, label(13.0, CYAN, abs(None, Some(14.0), None, Some(12.0)))));
-            // Above the armour readout, clear of the weapons panel however narrow the window.
-            p.spawn((HudText::Salvage, label(13.0, AMBER, abs(Some(250.0), None, None, Some(136.0)))));
+            p.spawn((HudText::Status, label(f, 11.0, LABEL, abs(Some(14.0), None, Some(10.0), None))));
+            p.spawn((HudText::Feed, label(f, 12.0, AMBER, abs(None, Some(14.0), Some(10.0), None))));
             p.spawn((
                 GrabMarker,
-                label(13.0, GREEN, abs(Some(0.0), None, Some(0.0), None)),
+                label(f, 13.0, GREEN, abs(Some(0.0), None, Some(0.0), None)),
                 Visibility::Hidden,
             ));
             p.spawn((
                 DockMarker,
-                label(13.0, AMBER, abs(Some(0.0), None, Some(0.0), None)),
+                label(f, 13.0, AMBER, abs(Some(0.0), None, Some(0.0), None)),
                 Visibility::Hidden,
             ));
             p.spawn((
                 BoreMarker,
-                label(18.0, CYAN, abs(Some(0.0), None, Some(0.0), None)),
+                label(f, 18.0, CYAN, abs(Some(0.0), None, Some(0.0), None)),
+                centred(),
                 Visibility::Hidden,
             ));
             p.spawn((
                 VelocityMarker,
-                label(16.0, PALE_GREEN, abs(Some(0.0), None, Some(0.0), None)),
+                label(f, 16.0, PALE_GREEN, abs(Some(0.0), None, Some(0.0), None)),
+                centred(),
                 Visibility::Hidden,
             ));
-            p.spawn((
-                HudText::Alert,
-                label(
-                    22.0,
-                    RED,
-                    Node {
-                        position_type: PositionType::Absolute,
-                        top: Val::Percent(30.0),
-                        left: Val::Percent(40.0),
-                        ..default()
-                    },
-                ),
-            ));
+            // Cautions, centred below the top of the view: hazard stripes round a dark plate.
+            p.spawn(banner(Val::Percent(20.0))).with_children(|row| {
+                row.spawn((
+                    Caution,
+                    Node { padding: UiRect::all(Val::Px(5.0)), ..default() },
+                    MaterialNode(looks.caution.clone()),
+                    Visibility::Hidden,
+                ))
+                .with_children(|b| {
+                    b.spawn((
+                        Node { padding: UiRect::axes(Val::Px(18.0), Val::Px(5.0)), ..default() },
+                        BackgroundColor(Color::srgba(0.02, 0.03, 0.05, 0.88)),
+                    ))
+                    .with_children(|t| {
+                        t.spawn((
+                            HudText::Alert,
+                            Text::new(""),
+                            f.heading(20.0),
+                            TextColor(RED),
+                            SHADOW,
+                            TextLayout::justify(Justify::Center),
+                            LetterSpacing::Px(3.0),
+                        ));
+                    });
+                });
+            });
             p.spawn((
                 Reticle,
                 label(
+                    f,
                     26.0,
                     CYAN,
                     Node {
                         position_type: PositionType::Absolute,
                         left: Val::Percent(50.0),
                         top: Val::Percent(50.0),
-                        margin: UiRect { left: Val::Px(-7.0), top: Val::Px(-16.0), ..default() },
                         ..default()
                     },
                 ),
+                centred(),
             ));
             p.spawn((
                 LeadMarker,
-                label(16.0, ZERO_PINK, abs(Some(0.0), None, Some(0.0), None)),
+                label(f, 16.0, ZERO_PINK, abs(Some(0.0), None, Some(0.0), None)),
                 Visibility::Hidden,
             ));
+            // Target corners, each with its tag to the right.
             for i in 0..BRACKETS + MISSILE_MARKERS {
+                let size = if i < BRACKETS { 34.0 } else { 20.0 };
                 p.spawn((
                     Bracket(i),
-                    label(11.0, RED, abs(Some(0.0), None, Some(0.0), None)),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        width: Val::Px(size),
+                        height: Val::Px(size),
+                        ..default()
+                    },
+                    centred(),
+                    Visibility::Hidden,
+                ))
+                .with_children(|b| {
+                    for (left, top) in [(true, true), (false, true), (true, false), (false, false)] {
+                        b.spawn(corner(i, left, top));
+                    }
+                    b.spawn((
+                        BracketTag(i),
+                        Text::new(""),
+                        TextLayout::default().with_no_wrap(),
+                        f.heading(11.0),
+                        TextColor(AMBER),
+                        SHADOW,
+                        Node {
+                            position_type: PositionType::Absolute,
+                            left: Val::Px(size + 5.0),
+                            top: Val::Px(-2.0),
+                            ..default()
+                        },
+                    ));
+                });
+            }
+            // Chevrons at the edge of the view, pointing at what's off it.
+            for i in 0..EDGE_MARKERS {
+                p.spawn((
+                    EdgeMarker(i),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        width: Val::Px(14.0),
+                        height: Val::Px(14.0),
+                        border: UiRect { top: Val::Px(3.0), right: Val::Px(3.0), ..default() },
+                        ..default()
+                    },
+                    BorderColor::all(RED),
+                    UiTransform { translation: Val2::percent(-50.0, -50.0), ..default() },
                     Visibility::Hidden,
                 ));
             }
         });
+    spawn_instruments(&mut commands, f, &looks);
 }
 
-fn bar(f: f32, n: usize) -> String {
+/// The instruments (placed and targeted by `place_instruments`).
+pub fn spawn_instruments(commands: &mut Commands, f: &UiFont, looks: &HudLooks) {
+    commands
+        .spawn((
+            Instruments,
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                ..default()
+            },
+            Visibility::Hidden,
+        ))
+        .with_children(|p| {
+            panel(p, f, looks, Show::Top, "ZERO SYSTEM", HudText::Zero, ZERO_PINK, |_| {});
+            panel(p, f, looks, Show::Suit, "SUIT", HudText::Armor, WHITE, silhouette);
+            panel(p, f, looks, Show::Flight, "FLIGHT", HudText::Flight, WHITE, |_| {});
+            panel(p, f, looks, Show::Arms, "ARMS", HudText::Weapons, WHITE, |_| {});
+            panel(p, f, looks, Show::Log, "HOLD", HudText::Salvage, AMBER, |_| {});
+        });
+}
+
+/// Where each panel goes: the corners of the screen (chasing), or its monitor's region of the
+/// cockpit's screen texture (from the seat), where its text is drawn larger to be read there.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
+pub fn place_instruments(
+    mut commands: Commands,
+    chase: Res<Chase>,
+    cockpit: Option<Res<crate::cockpit::Cockpit>>,
+    roots: Query<Entity, With<Instruments>>,
+    mut panels: Query<(&Panel, &mut Node, &mut UiTransform), Without<Instruments>>,
+    mut root_nodes: Query<&mut Node, (With<Instruments>, Without<Panel>)>,
+    mut texts: Query<(&BaseSize, &mut TextFont)>,
+    mut silhouettes: Query<&mut Node, (With<Silhouette>, Without<Panel>, Without<Instruments>)>,
+    mut last: Local<Option<bool>>,
+) {
+    let inside = chase.cockpit() && cockpit.is_some();
+    let Ok(root) = roots.single() else { return };
+    if *last == Some(inside) {
+        return;
+    }
+    *last = Some(inside);
+    let [tw, th] = bc_model::cockpit::TEXTURE.map(|v| v as f32);
+    match cockpit.filter(|_| inside) {
+        Some(c) => {
+            commands.entity(root).insert(UiTargetCamera(c.screen_camera));
+            if let Ok(mut n) = root_nodes.get_mut(root) {
+                n.width = Val::Px(tw);
+                n.height = Val::Px(th);
+            }
+        }
+        None => {
+            commands.entity(root).remove::<UiTargetCamera>();
+            if let Ok(mut n) = root_nodes.get_mut(root) {
+                n.width = Val::Percent(100.0);
+                n.height = Val::Percent(100.0);
+            }
+        }
+    }
+    let scale = if inside { 2.0 } else { 1.0 };
+    for (base, mut font) in &mut texts {
+        font.font_size = FontSize::Px(base.0 * scale);
+    }
+    for mut n in &mut silhouettes {
+        n.width = Val::Px(SILHOUETTE.x * scale * 1.3);
+        n.height = Val::Px(SILHOUETTE.y * scale * 1.3);
+    }
+    let design = bc_model::cockpit::build_screens();
+    for (p, mut node, mut ui) in &mut panels {
+        let reset = |node: &mut Node| {
+            node.left = Val::Auto;
+            node.right = Val::Auto;
+            node.top = Val::Auto;
+            node.bottom = Val::Auto;
+            node.width = Val::Auto;
+            node.height = Val::Auto;
+        };
+        reset(&mut node);
+        *ui = UiTransform::default();
+        if inside {
+            if let Some(s) = design.iter().find(|s| s.show == p.0) {
+                // Its region, inset a little from the monitor's rim.
+                node.left = Val::Px(s.region[0] * tw + 10.0);
+                node.top = Val::Px(s.region[1] * th + 10.0);
+                node.width = Val::Px((s.region[2] - s.region[0]) * tw - 20.0);
+                node.height = Val::Px((s.region[3] - s.region[1]) * th - 20.0);
+            }
+            continue;
+        }
+        match p.0 {
+            // Below the kill feed, clear of the cautions.
+            Show::Top => {
+                node.top = Val::Px(112.0);
+                node.right = Val::Px(14.0);
+            }
+            Show::Suit => {
+                node.left = Val::Px(14.0);
+                node.bottom = Val::Px(12.0);
+            }
+            Show::Flight => {
+                node.left = Val::Px(238.0);
+                node.bottom = Val::Px(12.0);
+            }
+            Show::Arms => {
+                node.right = Val::Px(14.0);
+                node.bottom = Val::Px(12.0);
+            }
+            Show::Log => {
+                node.right = Val::Px(14.0);
+                node.bottom = Val::Px(150.0);
+            }
+        }
+    }
+}
+
+pub(crate) fn bar(f: f32, n: usize) -> String {
     let k = ((f.clamp(0.0, 1.0) * n as f32).round() as usize).min(n);
-    format!("[{}{}]", "#".repeat(k), "-".repeat(n - k))
+    format!("{}{}", "|".repeat(k), "·".repeat(n - k))
 }
 
 fn km(d: f32) -> String {
@@ -290,10 +696,6 @@ pub fn update_hud(
     mut lead: Query<
         (&mut Node, &mut Text, &mut Visibility),
         (With<LeadMarker>, Without<HudText>, Without<Bracket>, Without<Reticle>),
-    >,
-    mut brackets: Query<
-        (&Bracket, &mut Node, &mut Text, &mut TextColor, &mut Visibility),
-        (Without<HudText>, Without<LeadMarker>, Without<Reticle>),
     >,
     camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     mut markers: Query<
@@ -407,24 +809,26 @@ pub fn update_hud(
         let names = ["HEAD", "TORSO", "L-ARM", "R-ARM", "LEGS", "BPACK"];
         let systems = Systems(o.systems);
         let gone = bc_sim::tuning::own_gone(&o);
-        let mut armor = String::from("ARMOR / SYSTEMS\n");
+        let mut armor = String::new();
         for (i, n) in names.iter().enumerate() {
             let f = o.parts[i];
             // Without the head's main camera the cockpit sees through the sub-camera.
-            let lost = match f <= 0.0 {
-                true if i == Part::Head as usize && chase.sub_camera() => "LOST  SUB-CAM".to_string(),
+            let state = match f <= 0.0 {
+                true if i == Part::Head as usize && chase.sub_camera() => "SUB-CAM".to_string(),
                 true => "LOST".to_string(),
-                // What's broken inside it.
-                false => System::of_part(Part::ALL[i])
-                    .filter_map(|x| match systems.level(x, gone) {
-                        DAMAGED => Some(format!("{} DMG", x.tag())),
-                        FAILED => Some(format!("{} OUT", x.tag())),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" "),
+                // The armour, and what's broken inside it.
+                false => {
+                    let broken: Vec<String> = System::of_part(Part::ALL[i])
+                        .filter_map(|x| match systems.level(x, gone) {
+                            DAMAGED => Some(format!("{} DMG", x.tag())),
+                            FAILED => Some(format!("{} OUT", x.tag())),
+                            _ => None,
+                        })
+                        .collect();
+                    if broken.is_empty() { bar(f, 8) } else { format!("{} {}", bar(f, 8), broken.join(" ")) }
+                }
             };
-            armor.push_str(&format!("{n:<6}{} {lost}\n", bar(f, 8)));
+            armor.push_str(&format!("{n:<6}{state}\n"));
         }
         // What the suit is under: a scram, a concussion, a repair under way.
         let mut status = Vec::new();
@@ -572,8 +976,8 @@ pub fn update_hud(
                 if z.rec_target != bc_proto::NO_SLOT { world.name_of(z.rec_target) } else { "-".into() };
             let level = ["LOW", "MODERATE", "HIGH", "LETHAL"][z.threat_level.min(3) as usize];
             let mut s = format!(
-                "Z E R O   S Y S T E M{}\nTARGET   {target}  {:.0}%\nMANEUVER {}  {:.0}%\nTHREAT   {level}  (conf {:.2})\nFLANKED  {:.0}%\n",
-                if z.source_jev { "   [Jev]" } else { "" },
+                "{}TARGET   {target}  {:.0}%\nMANEUVER {}  {:.0}%\nTHREAT   {level}  (conf {:.2})\nFLANKED  {:.0}%\n",
+                if z.source_jev { "[Jev]\n" } else { "" },
                 z.rec_target_p * 100.0,
                 Maneuver::from_index(z.rec_maneuver as usize).own_label(),
                 z.rec_maneuver_p * 100.0,
@@ -596,7 +1000,8 @@ pub fn update_hud(
             }
             set(HudText::Zero, s, None);
         }
-        None => set(HudText::Zero, String::new(), None),
+        // On the cockpit's top monitor, idle; chasing, the panel isn't shown.
+        None => set(HudText::Zero, if chase.cockpit() { "STANDBY".into() } else { String::new() }, None),
     }
 
     // --- Kill feed. ---
@@ -806,8 +1211,9 @@ pub fn update_hud(
         };
         match what.map(|(p, s, c)| (cam.world_to_viewport(cam_tf, p), s, c)) {
             Some((Ok(p), s, c)) => {
-                // Symbols are centred on their point; labels start just left of theirs.
-                let (dx, dy) = if centred { (-13.0, -10.0) } else { (-20.0, -8.0) };
+                // Symbols are centred on their point (their `UiTransform`); labels start just left
+                // of theirs.
+                let (dx, dy) = if centred { (0.0, 0.0) } else { (-20.0, -8.0) };
                 node.left = Val::Px(p.x + dx);
                 node.top = Val::Px(p.y + dy);
                 text.0 = s;
@@ -815,6 +1221,76 @@ pub fn update_hud(
                 *vis = Visibility::Visible;
             }
             _ => *vis = Visibility::Hidden,
+        }
+    }
+}
+
+/// The HUD is the cockpit's: hidden on the title and while the link is down.
+#[allow(clippy::type_complexity)]
+pub fn show_hud(
+    ui: Res<crate::page::Ui>,
+    indoors: Res<crate::hangar::Indoors>,
+    mut root: Query<&mut Visibility, Or<(With<HudRoot>, With<Instruments>)>>,
+) {
+    // On foot in the bay the page draws what the pilot needs.
+    let want = if ui.playing() && !indoors.0 { Visibility::Inherited } else { Visibility::Hidden };
+    for mut v in &mut root {
+        v.set_if_neq(want);
+    }
+}
+
+/// What a target bracket shows: where, its tag, its colour.
+struct Mark {
+    at: Vec2,
+    tag: String,
+    color: Color,
+}
+
+/// Target brackets on the nearest suits and on missiles tracking the pilot, and chevrons at the
+/// edge of the view on what's off it that matters: a missile tracking them, whoever is locking on
+/// to them, a hostile within [`NEAR`].
+#[allow(clippy::type_complexity)]
+pub fn update_marks(
+    game: NonSend<GameClient>,
+    camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    mut brackets: Query<(&Bracket, &mut Node, &mut Visibility), Without<EdgeMarker>>,
+    mut corners: Query<(&BracketCorner, &mut BorderColor), Without<EdgeMarker>>,
+    mut tags: Query<(&BracketTag, &mut Text, &mut TextColor)>,
+    mut edges: Query<
+        (&EdgeMarker, &mut Node, &mut UiTransform, &mut BorderColor, &mut Visibility),
+        (Without<Bracket>, Without<BracketCorner>),
+    >,
+) {
+    const NEAR: f32 = 2_000.0;
+    let game = game.borrow();
+    let core = &game.core;
+    let world = &core.world;
+    let t = core.render_tick(now_s());
+    let own = world.own;
+    let zero = world.zero;
+    let own_pos = core.own_view().map_or(Vec3::ZERO, |v| v.pos);
+    let Ok((cam, cam_tf)) = camera.single() else { return };
+    let Some(rect) = cam.logical_viewport_rect() else { return };
+    // On the screen (in front and within the view), or off it.
+    let project = |p: Vec3| cam.world_to_viewport(cam_tf, p).ok().filter(|v| rect.contains(*v));
+    let mut marks: [Option<Mark>; BRACKETS + MISSILE_MARKERS] = std::array::from_fn(|_| None);
+    let mut off: Vec<(Vec3, Color)> = Vec::new();
+    let mut incoming: Vec<(f32, Vec3)> = world
+        .missiles()
+        .filter(|m| m.latest.targets_you)
+        .map(|m| {
+            let p = m.pos_at(t);
+            (p.distance(own_pos), p)
+        })
+        .collect();
+    incoming.sort_by(|a, b| a.0.total_cmp(&b.0));
+    for (k, &(d, p)) in incoming.iter().enumerate() {
+        match project(p) {
+            Some(at) if k < MISSILE_MARKERS => {
+                marks[BRACKETS + k] = Some(Mark { at, tag: format!("MSL {}", km(d)), color: RED })
+            }
+            Some(_) => {}
+            None => off.push((p, RED)),
         }
     }
     let mut shown: Vec<(f32, u16)> = world
@@ -825,88 +1301,153 @@ pub fn update_hud(
         .collect();
     shown.sort_by(|a, b| a.0.total_cmp(&b.0));
     let lock = own.filter(|o| o.alive && o.lock_target != NO_SLOT);
-    for (b, mut node, mut text, mut color, mut vis) in &mut brackets {
-        if b.0 >= BRACKETS {
-            // A missile tracking the pilot.
-            match incoming.get(b.0 - BRACKETS).map(|&(d, p)| (d, cam.world_to_viewport(cam_tf, p))) {
-                Some((d, Ok(p))) => {
-                    node.left = Val::Px(p.x - 12.0);
-                    node.top = Val::Px(p.y - 8.0);
-                    text.0 = format!("<!> MSL {}", km(d));
-                    color.0 = RED;
-                    *vis = Visibility::Visible;
-                }
-                _ => *vis = Visibility::Hidden,
-            }
-            continue;
-        }
-        let Some(&(dist, slot)) = shown.get(b.0) else {
-            *vis = Visibility::Hidden;
-            continue;
-        };
+    for (k, &(dist, slot)) in shown.iter().enumerate() {
         let Some(track) = world.entity(slot) else { continue };
         let e = &track.latest;
         let pos = track.sample(t).pos;
-        match cam.world_to_viewport(cam_tf, pos) {
-            Ok(p) => {
-                let hostile = e.faction != core.cfg.faction;
-                let wreck = e.flags & ent_flags::WRECK != 0;
-                // Its pilot is offline, asleep in the cockpit.
-                let asleep = e.flags & ent_flags::ASLEEP != 0 && !wreck;
-                let zero_target = zero.is_some_and(|z| z.rec_target == slot);
-                node.left = Val::Px(p.x - 30.0);
-                node.top = Val::Px(p.y - 26.0);
-                let warn = if e.flags & ent_flags::LOCKED_ON_YOU != 0 { " !LOCK" } else { "" };
-                // The pilot's own missile lock on it: building, or acquired.
-                let locking = lock.filter(|o| o.lock_target == slot).map(|o| {
-                    let spec = frame(o.frame).lock_spec();
-                    match spec {
-                        _ if o.flags & own_flags::LOCK_ACQUIRED != 0 => "\n<< LOCKED >>".to_string(),
-                        Some(l) => {
-                            format!("\n<{}>", bar(f32::from(o.lock_progress) / f32::from(l.lock_ticks), 6))
-                        }
-                        None => String::new(),
-                    }
-                });
-                text.0 = format!(
-                    "{}{}{}\n{}{}{}{}",
-                    world.name_of(slot),
-                    pilot_tag(e.pilot),
-                    warn,
-                    km(dist),
-                    if e.pilot == PilotKind::Agent { " agent" } else { "" },
-                    if asleep { " ASLEEP" } else { "" },
-                    locking.as_deref().unwrap_or("")
-                );
-                color.0 = if wreck {
-                    Color::srgb(0.5, 0.5, 0.5)
-                } else if locking.is_some() {
-                    AMBER
-                } else if zero_target {
-                    ZERO_PINK
-                } else if asleep {
-                    Color::srgb(0.55, 0.66, 0.8)
-                } else if hostile {
-                    RED
-                } else {
-                    GREEN
-                };
-                *vis = Visibility::Visible;
+        let hostile = e.faction != core.cfg.faction;
+        let wreck = e.flags & ent_flags::WRECK != 0;
+        let locked_on_you = e.flags & ent_flags::LOCKED_ON_YOU != 0;
+        let Some(at) = project(pos) else {
+            if !wreck && (locked_on_you || (hostile && dist < NEAR)) {
+                off.push((pos, if locked_on_you { RED } else { AMBER }));
             }
-            Err(_) => *vis = Visibility::Hidden,
+            continue;
+        };
+        if k >= BRACKETS {
+            continue;
         }
+        // Its pilot is offline, asleep in the cockpit.
+        let asleep = e.flags & ent_flags::ASLEEP != 0 && !wreck;
+        let zero_target = zero.is_some_and(|z| z.rec_target == slot);
+        let warn = if locked_on_you { "  LOCK!" } else { "" };
+        // The pilot's own missile lock on it: building, or acquired.
+        let locking = lock.filter(|o| o.lock_target == slot).map(|o| match frame(o.frame).lock_spec() {
+            _ if o.flags & own_flags::LOCK_ACQUIRED != 0 => "\nLOCKED".to_string(),
+            Some(l) => format!("\n{}", bar(f32::from(o.lock_progress) / f32::from(l.lock_ticks), 6)),
+            None => String::new(),
+        });
+        // Named: the nearest few, and any that matter (a lock either way, ZERO's pick).
+        let named = k < TAGGED || locked_on_you || locking.is_some() || zero_target;
+        let tag = if !named {
+            String::new()
+        } else {
+            format!(
+                "{}{}{}\n{}{}{}{}",
+                world.name_of(slot),
+                pilot_tag(e.pilot),
+                warn,
+                km(dist),
+                if e.pilot == PilotKind::Agent { " agent" } else { "" },
+                if asleep { " ASLEEP" } else { "" },
+                locking.as_deref().unwrap_or("")
+            )
+        };
+        let color = if wreck {
+            Color::srgb(0.5, 0.5, 0.5)
+        } else if locking.is_some() {
+            AMBER
+        } else if zero_target {
+            ZERO_PINK
+        } else if asleep {
+            Color::srgb(0.55, 0.66, 0.8)
+        } else if hostile {
+            RED
+        } else {
+            GREEN
+        };
+        marks[k] = Some(Mark { at, tag, color });
+    }
+    for (b, mut node, mut vis) in &mut brackets {
+        match &marks[b.0] {
+            Some(m) => {
+                node.left = Val::Px(m.at.x);
+                node.top = Val::Px(m.at.y);
+                vis.set_if_neq(Visibility::Visible);
+            }
+            None => {
+                vis.set_if_neq(Visibility::Hidden);
+            }
+        }
+    }
+    for (c, mut border) in &mut corners {
+        if let Some(m) = &marks[c.0] {
+            *border = BorderColor::all(m.color);
+        }
+    }
+    for (tag, mut text, mut color) in &mut tags {
+        if let Some(m) = &marks[tag.0] {
+            if text.0 != m.tag {
+                text.0.clone_from(&m.tag);
+            }
+            color.0 = m.color;
+        }
+    }
+    // The chevrons: from the middle of the view toward each, where that meets the view's edge.
+    let centre = rect.center();
+    let half = (rect.half_size() - Vec2::splat(26.0)).max(Vec2::splat(1.0));
+    let to_cam = cam_tf.affine().inverse();
+    for (m, mut node, mut ui, mut border, mut vis) in &mut edges {
+        let Some(&(p, color)) = off.get(m.0) else {
+            vis.set_if_neq(Visibility::Hidden);
+            continue;
+        };
+        let local = to_cam.transform_point3(p);
+        // Screen space: x right, y down. Straight behind reads as below.
+        let d = Vec2::new(local.x, -local.y).try_normalize().unwrap_or(Vec2::Y);
+        let reach = (half.x / d.x.abs().max(1e-4)).min(half.y / d.y.abs().max(1e-4));
+        let at = centre + d * reach;
+        node.left = Val::Px(at.x);
+        node.top = Val::Px(at.y);
+        ui.rotation = Rot2::radians(d.y.atan2(d.x) + std::f32::consts::FRAC_PI_4);
+        *border = BorderColor::all(color);
+        vis.set_if_neq(Visibility::Visible);
     }
 }
 
-/// The HUD is the cockpit's: hidden on the title and while the link is down.
-pub fn show_hud(
-    ui: Res<crate::page::Ui>,
-    indoors: Res<crate::hangar::Indoors>,
-    mut root: Query<&mut Visibility, With<HudRoot>>,
+/// The caution banner (hazard stripes for a warning, a plain plate for a notice, hidden without
+/// one), and the suit's damage silhouette.
+#[allow(clippy::type_complexity)]
+pub fn update_panels(
+    game: NonSend<GameClient>,
+    looks: Res<HudLooks>,
+    alert: Query<(&HudText, &Text, &TextColor)>,
+    mut caution: Query<(&mut MaterialNode<PanelMaterial>, &mut Visibility), With<Caution>>,
+    mut blocks: Query<(&PartBlock, &mut BackgroundColor, &mut BorderColor)>,
+    mut panels: Query<(&Panel, &mut Visibility), Without<Caution>>,
+    chase: Res<Chase>,
 ) {
-    // On foot in the bay the page draws what the pilot needs.
-    let want = if ui.playing() && !indoors.0 { Visibility::Inherited } else { Visibility::Hidden };
-    for mut v in &mut root {
-        v.set_if_neq(want);
+    let (text, color) = alert
+        .iter()
+        .find(|(h, ..)| **h == HudText::Alert)
+        .map_or((true, RED), |(_, t, c)| (t.0.is_empty(), c.0));
+    for (mut look, mut vis) in &mut caution {
+        vis.set_if_neq(if text { Visibility::Hidden } else { Visibility::Inherited });
+        let want = if color == RED { &looks.caution } else { &looks.notice };
+        if look.0 != *want {
+            look.0 = want.clone();
+        }
+    }
+    let game = game.borrow();
+    let own = game.core.world.own;
+    let zero = game.core.world.zero.is_some();
+    for (p, mut vis) in &mut panels {
+        let shown = p.0 != Show::Top || zero || chase.cockpit();
+        vis.set_if_neq(if shown { Visibility::Inherited } else { Visibility::Hidden });
+    }
+    for (b, mut fill, mut edge) in &mut blocks {
+        let f = own.map_or(1.0, |o| o.parts[b.0 as usize]);
+        // Whole, damaged, failing; lost is an outline.
+        let (c, e) = if f <= 0.0 {
+            (Color::NONE, RED)
+        } else if f > 0.66 {
+            (WHITE, Color::NONE)
+        } else if f > 0.33 {
+            (AMBER, Color::NONE)
+        } else {
+            (RED, Color::NONE)
+        };
+        fill.0 = c;
+        *edge = BorderColor::all(e);
     }
 }

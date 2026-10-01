@@ -18,6 +18,7 @@ pub mod hints;
 pub mod inputs;
 pub mod interp;
 pub mod own;
+pub mod palette;
 pub mod pointer;
 pub mod predict;
 pub mod salvage;

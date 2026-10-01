@@ -12,6 +12,12 @@ struct ZeroVision {
     strain: f32,
     seizure: f32,
     time: f32,
+    // 0 when the pilot turned flashing effects off.
+    flicker: f32,
+    // Padding to 32 bytes (WebGL2).
+    pad0: f32,
+    pad1: f32,
+    pad2: f32,
 };
 
 @group(0) @binding(2) var<uniform> zero: ZeroVision;
@@ -42,7 +48,7 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     // A faint line scanning down the view.
     let scan = exp(-pow((uv.y - fract(t * 0.35)) * 40.0, 2.0));
     c += vec3(0.4, 0.08, 0.35) * scan * 0.035 * on;
-    // A seizure flickers.
-    let flicker = 1.0 - seizure * 0.3 * step(0.6, hash(floor(t * 17.0)));
+    // A seizure flickers (unless the pilot turned flashing effects off).
+    let flicker = 1.0 - seizure * 0.3 * zero.flicker * step(0.6, hash(floor(t * 17.0)));
     return vec4(c * flicker, 1.0);
 }

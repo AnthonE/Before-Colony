@@ -18,8 +18,9 @@ use bevy::window::PrimaryWindow;
 
 use crate::camera::MainCamera;
 use crate::gfx::Gfx;
-use crate::sky::{SUN_DIR, SUN_LUX, Sun};
-use crate::view::VisTime;
+use crate::rocks::VisField;
+use crate::sky::{SUN_DIR, SUN_LUX, SUN_RADIUS, Sun};
+use crate::view::{SuitDrive, VisTime};
 
 const ATTRIBUTE_CORNER: MeshVertexAttribute =
     MeshVertexAttribute::new("DustCorner", 0x5EC0_0010, VertexFormat::Float32x2);
@@ -224,6 +225,37 @@ pub fn setup_ambience(
     ));
 }
 
+/// How far out rocks can hide the Sun from the camera (m): past this one's too small to matter.
+const ROCK_SHADE: f32 = 3_000.0;
+/// A suit's size, as a sphere that hides the Sun (m).
+const SUIT_SHADE: f32 = 6.0;
+
+/// How much of the Sun's disc the camera sees past the rocks and suits nearby, 0..1 (the colony's
+/// eclipse is the sunlight's own: `sky::eclipse`).
+fn sun_unblocked(eye: Vec3, field: Option<&VisField>, suits: &[Vec3]) -> f32 {
+    let u = SUN_DIR.any_orthonormal_vector();
+    let v = SUN_DIR.cross(u);
+    let r = SUN_RADIUS * 0.7;
+    let rays = [SUN_DIR, SUN_DIR + u * r, SUN_DIR - u * r, SUN_DIR + v * r, SUN_DIR - v * r];
+    let seen = rays
+        .iter()
+        .filter(|ray| {
+            let ray = ray.normalize();
+            let rock = field.is_some_and(|f| f.0.sweep(eye, eye + ray * ROCK_SHADE, 0.0).is_some());
+            let suit = suits.iter().any(|&c| {
+                let to = c - eye;
+                let along = to.dot(ray);
+                // Not from inside it (the cockpit), nor behind the camera.
+                to.length_squared() > SUIT_SHADE * SUIT_SHADE
+                    && along > 0.0
+                    && (to - ray * along).length_squared() < SUIT_SHADE * SUIT_SHADE
+            });
+            !rock && !suit
+        })
+        .count();
+    seen as f32 / rays.len() as f32
+}
+
 /// Feeds the dust the camera's velocity, and the flare how much of the Sun is in view.
 #[allow(clippy::too_many_arguments)]
 pub fn update_ambience(
@@ -238,7 +270,11 @@ pub fn update_ambience(
     flares: Query<&Flare>,
     mut dust_materials: ResMut<Assets<DustMaterial>>,
     mut flare_materials: ResMut<Assets<FlareMaterial>>,
+    field: Option<Res<VisField>>,
+    suits: Query<&SuitDrive>,
     mut last: Local<Option<Vec3>>,
+    mut shade: Local<Option<f32>>,
+    mut near: Local<Vec<Vec3>>,
 ) {
     let Ok(cam) = cams.single() else { return };
     let eye = cam.translation();
@@ -256,14 +292,32 @@ pub fn update_ambience(
     }
     for d in &dusts {
         if let Some(mut m) = dust_materials.get_mut(&d.0) {
-            // Teleports (respawns, camera cuts) would streak across the whole box.
-            m.dust.velocity = if vel.length() < 3_000.0 { vel.extend(1.0 / 20.0) } else { Vec4::ZERO };
+            // A cut (a respawn, a teleport) would streak across the whole box: nothing flies faster
+            // than a few km/s. Past that, streaks stop growing at a third of the box.
+            let speed = vel.length();
+            m.dust.velocity = if speed < 6_000.0 {
+                vel.extend((1.0 / 20.0f32).min(DUST_BOX / 3.0 / speed.max(1.0)))
+            } else {
+                Vec4::ZERO
+            };
         }
     }
     let facing = cam.forward().dot(SUN_DIR);
     let sunlight = suns.iter().next().map_or(1.0, |l| l.illuminance / SUN_LUX);
     let on = if gfx.settings.flare { 1.0 } else { 0.0 };
-    let intensity = on * sunlight * ((facing - 0.55) / 0.35).clamp(0.0, 1.0);
+    // Rocks and suits passing across the Sun hide its flare, easing like the eclipse.
+    let mut seen = 1.0;
+    if on > 0.0 && facing > 0.55 {
+        near.clear();
+        near.extend(
+            suits.iter().map(|d| d.pos).filter(|p| p.distance_squared(eye) < ROCK_SHADE * ROCK_SHADE),
+        );
+        seen = sun_unblocked(eye, field.as_deref(), &near);
+    }
+    let k = 1.0 - (-time.dt * 10.0).exp();
+    let shown = shade.map_or(seen, |s| s + (seen - s) * k);
+    *shade = Some(shown);
+    let intensity = on * sunlight * shown * ((facing - 0.55) / 0.35).clamp(0.0, 1.0);
     let aspect = windows.single().map_or(9.0 / 16.0, |w| w.height() / w.width().max(1.0));
     for f in &flares {
         if let Some(mut m) = flare_materials.get_mut(&f.0) {

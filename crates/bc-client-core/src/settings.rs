@@ -104,6 +104,7 @@ pub const KNOBS: &[Knob] = &[
     Knob { key: "camera", label: "Flight camera", group: "VIEW", kind: Kind::Choice(&CameraView::NAMES) },
     range("fov", "Field of view", "VIEW", 60.0, 100.0, 1.0),
     range("shake", "Camera shake and screen effects", "VIEW", 0.0, 1.0, 0.05),
+    toggle("flashing", "Flashing effects", "VIEW"),
     toggle("hints", "Hints for new pilots", "VIEW"),
     Knob { key: "gfx", label: "Graphics quality", group: "GRAPHICS", kind: Kind::Choice(&GfxChoice::NAMES) },
     range("vol_master", "Master volume", "SOUND", 0.0, 1.0, 0.05),
@@ -128,6 +129,8 @@ pub struct Settings {
     pub fov: f32,
     /// How much of the camera shake, kicks and warps to keep, 0..1.
     pub shake: f32,
+    /// Full-screen flicker and flashes (a ZERO seizure's); off for photosensitive pilots.
+    pub flashing: bool,
     pub gfx: GfxChoice,
     /// Show the first-flight hints.
     pub hints: bool,
@@ -150,6 +153,7 @@ impl Default for Settings {
             camera: CameraView::Chase,
             fov: 70.0,
             shake: 1.0,
+            flashing: true,
             gfx: GfxChoice::Auto,
             hints: true,
             hints_seen: 0,
@@ -206,6 +210,7 @@ impl Settings {
             "camera" => self.camera.name().to_string(),
             "fov" => self.fov.to_string(),
             "shake" => self.shake.to_string(),
+            "flashing" => self.flashing.to_string(),
             "gfx" => self.gfx.name().to_string(),
             "hints" => self.hints.to_string(),
             "hints_seen" => self.hints_seen.to_string(),
@@ -236,12 +241,12 @@ impl Settings {
                     _ => self.vol_music = v,
                 }
             }
-            "invert_y" | "hints" => {
+            "invert_y" | "hints" | "flashing" => {
                 let Some(b) = parse_bool(value) else { return false };
-                if key == "invert_y" {
-                    self.invert_y = b;
-                } else {
-                    self.hints = b;
+                match key {
+                    "invert_y" => self.invert_y = b,
+                    "hints" => self.hints = b,
+                    _ => self.flashing = b,
                 }
             }
             "gfx" => {
@@ -262,7 +267,7 @@ impl Settings {
     }
 
     /// Every key, in the order the file lists them.
-    const KEYS: [&'static str; 14] = [
+    const KEYS: [&'static str; 15] = [
         "name",
         "frame",
         "sensitivity",
@@ -270,6 +275,7 @@ impl Settings {
         "camera",
         "fov",
         "shake",
+        "flashing",
         "gfx",
         "hints",
         "hints_seen",
@@ -353,6 +359,7 @@ mod tests {
             camera: CameraView::Cockpit,
             fov: 85.0,
             shake: 0.25,
+            flashing: false,
             gfx: GfxChoice::Medium,
             hints: false,
             hints_seen: 0b1011,
@@ -420,6 +427,10 @@ mod tests {
         // An older build's file has no camera line: the chase camera, as before.
         let loaded = parse("version = 1\nfov = 80\n", Settings::default());
         assert_eq!(loaded.settings.camera, CameraView::Chase);
+        // Nor a flashing line: whatever the defaults say (off for a pilot who asked for calm).
+        let calm = Settings { flashing: false, ..Settings::default() };
+        assert!(!parse("version = 1\n", calm).settings.flashing);
+        assert!(parse("version = 1\n", Settings::default()).settings.flashing);
     }
 
     #[test]

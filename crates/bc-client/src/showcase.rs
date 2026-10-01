@@ -2,8 +2,9 @@
 //! scene drives the same view model the network does ([`SuitDrive`], [`BeamFeed`], [`FxEvents`],
 //! and in the chase scene the [`CameraTarget`]).
 //!
-//! Time runs on a fixed 60 Hz step from `?t=` (unless `?realtime=1`), so a screenshot after N frames
-//! is the same on any machine; `?hold=N` stops the clock after N frames. Controls: drag to orbit, wheel to zoom, WASD/Space/C to move,
+//! Time runs on a fixed 60 Hz step from `?t=` (`?hz=` for another rate, `?realtime=1` for the wall
+//! clock), so a screenshot after N frames is the same on any machine; `?hold=N` stops the clock
+//! after N frames. Controls: drag to orbit, wheel to zoom, WASD/Space/C to move,
 //! 1-9 camera presets, P to pause, F10 to cycle the graphics tier.
 
 use bc_client_core::world::{ObjectMotion, ObjectTrack};
@@ -229,7 +230,6 @@ const FIELD: Vec3 = Vec3::new(2_600.0, 900.0, 1_400.0);
 const CHASE: Vec3 = Vec3::new(2_600.0, 1_050.0, 1_400.0);
 const CHASE_RADIUS: f32 = 500.0;
 const CHASE_CYCLE: f64 = 20.0;
-const STEP: f64 = 1.0 / 60.0;
 
 /// An orbit camera: looks at `target` from `dist` away.
 #[derive(Clone, Copy, Debug)]
@@ -256,6 +256,8 @@ struct Show {
     prev: f64,
     frames: u64,
     realtime: bool,
+    /// The fixed clock's step (s).
+    step: f64,
     paused: bool,
     /// Stop the clock after this many frames (0: never).
     hold: u64,
@@ -273,6 +275,8 @@ pub struct ShowcasePlugin {
     pub t0: f64,
     pub cam: u32,
     pub realtime: bool,
+    /// The fixed clock's rate (Hz; 60 unless `?hz=` says otherwise).
+    pub hz: f64,
     pub hold: u64,
     /// The frame a scene features (the hangar's suit).
     pub frame: FrameId,
@@ -288,6 +292,7 @@ impl Plugin for ShowcasePlugin {
             prev: self.t0,
             frames: 0,
             realtime: self.realtime,
+            step: 1.0 / self.hz.max(1.0),
             paused: false,
             hold: self.hold,
             cam: presets[preset - 1],
@@ -312,6 +317,11 @@ impl Plugin for ShowcasePlugin {
             app.add_systems(
                 Update,
                 (chase_view, follow, pilot_effects).chain().in_set(crate::view::Vis::Camera),
+            )
+            .add_systems(Startup, spawn_instruments)
+            .add_systems(
+                Update,
+                (demo_instruments, crate::hud::place_instruments).chain().in_set(crate::view::Vis::Hud),
             );
         } else {
             app.add_systems(Update, place_camera.in_set(crate::view::Vis::Camera));
@@ -655,7 +665,7 @@ fn drift_wreckage(vis: Res<VisTime>, mut pieces: Query<(&Wreckage, &mut Transfor
     }
 }
 
-fn spawn_showcase(mut commands: Commands, mut show: ResMut<Show>) {
+fn spawn_showcase(mut commands: Commands, mut show: ResMut<Show>, font: Res<crate::hud::UiFont>) {
     let suits = cast(show.scene)
         .into_iter()
         .enumerate()
@@ -682,7 +692,8 @@ fn spawn_showcase(mut commands: Commands, mut show: ResMut<Show>) {
     commands.spawn((
         ShowcaseText,
         Text::new(""),
-        TextFont { font_size: FontSize::Px(13.0), ..default() },
+        font.text(13.0),
+        crate::hud::SHADOW,
         TextColor(Color::srgba(0.7, 0.92, 1.0, 0.85)),
         Node { position_type: PositionType::Absolute, left: Val::Px(14.0), top: Val::Px(10.0), ..default() },
     ));
@@ -700,12 +711,12 @@ fn advance_clock(
     } else if show.realtime {
         real.delta_secs_f64()
     } else {
-        STEP
+        show.step
     };
     if show.frames == 0 {
         // The first frame shows `?t=` exactly, and fires events due at it.
         vis.now = show.t0;
-        show.prev = show.t0 - STEP;
+        show.prev = show.t0 - show.step;
     } else {
         show.prev = vis.now;
         vis.now += dt;
@@ -764,6 +775,82 @@ fn controls(
     if mv != Vec3::ZERO {
         let boost = if keys.pressed(KeyCode::ShiftLeft) { 5.0 } else { 1.0 };
         cam.target += mv * cam.dist * 0.6 * boost * real.delta_secs();
+    }
+}
+
+/// The cockpit's instruments in the chase scene, showing what the scene flies.
+fn spawn_instruments(
+    mut commands: Commands,
+    font: Res<crate::hud::UiFont>,
+    mut panels: ResMut<Assets<crate::ui_panel::PanelMaterial>>,
+) {
+    let looks = crate::hud::HudLooks::new(&mut panels);
+    crate::hud::spawn_instruments(&mut commands, &font, &looks);
+    commands.insert_resource(looks);
+}
+
+/// Readouts for the chase scene's flight: its speed and G, the two hits (the torso's armour),
+/// ZERO from 13 s. Shown only from the cockpit.
+fn demo_instruments(
+    vis: Res<VisTime>,
+    prefs: Res<ViewPrefs>,
+    mut root: Query<&mut Visibility, With<crate::hud::Instruments>>,
+    mut texts: Query<(&crate::hud::HudText, &mut Text)>,
+) {
+    use crate::hud::{HudText, bar};
+    for mut v in &mut root {
+        v.set_if_neq(if prefs.cockpit { Visibility::Inherited } else { Visibility::Hidden });
+    }
+    let t = vis.now;
+    let u = (t % CHASE_CYCLE) as f32;
+    let speed = (chase_pos(t + 0.05) - chase_pos(t - 0.05)).length() * 10.0;
+    let boost = (2.0..5.0).contains(&u);
+    let g = if (8.0..14.0).contains(&u) {
+        2.0 + 6.5 * ((u - 8.0) / 2.5).min(1.0)
+    } else if boost {
+        3.1
+    } else {
+        0.4
+    };
+    let prop = 0.82 - 0.004 * u;
+    let torso = if u >= 6.45 {
+        5.0 / 7.0
+    } else if u >= 6.05 {
+        6.0 / 7.0
+    } else {
+        1.0
+    };
+    let zero = u >= 13.0;
+    for (h, mut text) in &mut texts {
+        let s = match h {
+            HudText::Flight => format!(
+                "XXXG-00W0 WING GUNDAM ZERO\nSPD {speed:>6.0} m/s\nPROP {} {:>3.0}%\nHEAT {} {:>3.0}%\nENGY {} {:>3.0}%\nG   {g:>4.1} g",
+                bar(prop, 10),
+                prop * 100.0,
+                bar(0.18, 10),
+                18.0,
+                bar(0.93, 10),
+                93.0
+            ),
+            HudText::Armor => {
+                let mut a = String::new();
+                for (n, f) in [("HEAD", 1.0), ("TORSO", torso), ("L-ARM", 1.0), ("R-ARM", 1.0), ("LEGS", 1.0), ("BPACK", 1.0)] {
+                    a.push_str(&format!("{n:<6}{}\n", bar(f, 8)));
+                }
+                a
+            }
+            HudText::Weapons => format!(
+                "LMB TWIN BUSTER RIFLE  RDY\nRMB MACHINE CANNON     RDY 380\nF   BEAM SABER         RDY\nH   NEO-BIRD           READY\nZERO {}",
+                if zero { "ACTIVE" } else { "STANDBY (Z)" }
+            ),
+            HudText::Salvage => "HOLD ·········· 0 kg/1.5 t\nCR 1 250\nG grab   J jettison".into(),
+            HudText::Zero if zero => "TARGET   OZ-06MS LEO  78%\nMANEUVER BREAK-HIGH  64%\nTHREAT   HIGH  (conf 0.81)\nFLANKED  12%".into(),
+            HudText::Zero => "STANDBY".into(),
+            _ => continue,
+        };
+        if text.0 != s {
+            text.0 = s;
+        }
     }
 }
 
@@ -1015,11 +1102,16 @@ fn script(
                 }
             }
             if crossed((t / 10.0).floor() * 10.0 + 7.0) {
-                events.0.push(FxEvent::Kill { pos: duel_pos(2, t) });
+                // The Taurus flies on at 90 m/s along x as it goes up.
+                events.0.push(FxEvent::Kill {
+                    pos: duel_pos(2, t),
+                    vel: Vec3::new(90.0, 0.0, 0.0),
+                    victim: Some(2),
+                });
             }
             // Blades crossing, for the effect (the duellists stay far apart).
             if crossed((t / 10.0).floor() * 10.0 + 4.5) {
-                events.0.push(FxEvent::Clash { pos: DUEL + Vec3::new(0.0, 30.0, 0.0) });
+                events.0.push(FxEvent::Clash { pos: DUEL + Vec3::new(0.0, 30.0, 0.0), vel: Vec3::ZERO });
             }
         }
         Scene::Colony => {

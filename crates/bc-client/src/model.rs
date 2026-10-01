@@ -34,7 +34,7 @@ impl SuitMeshLib {
     }
 }
 
-fn mesh(m: MeshData) -> Mesh {
+pub fn mesh(m: MeshData) -> Mesh {
     Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, m.positions)
         .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, m.normals)

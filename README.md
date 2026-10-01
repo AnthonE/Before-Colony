@@ -66,7 +66,10 @@ with the ZERO System engaged (it walks to the cockpit and launches first), and, 
 `?frame=leo|wingzero|heavyarms|deathscythe|sandrock|shenlong` to pick it.
 `?quality=low|medium|high|ultra` picks a graphics tier for the visit (F10 cycles them; the settings
 keep the choice). Without a server,
-`?showcase=gundams|lineup|duel|colony|field|sky|chase|salvage|mining|hangar` plays an offline scene.
+`?showcase=gundams|lineup|duel|colony|field|sky|chase|salvage|mining|hangar` plays an offline scene
+(`?hz=20` runs its clock slower, to see effects at a low frame rate). `?look=0` turns off the game's
+own look (its grade, vignette, lit smoke and the bay's haze) and `?tonemap=agx|aces` swaps the
+tonemapper, for comparing.
 
 Only Chromium has been tested. Firefox and Safari 26.4+ also ship WebTransport, but the dev server's
 self-signed certificate depends on `serverCertificateHashes` pinning, and that may not work there.

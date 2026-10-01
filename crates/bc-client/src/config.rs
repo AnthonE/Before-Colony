@@ -46,6 +46,10 @@ pub struct LaunchConfig {
     pub calm: bool,
     /// `?tonemap=tony|agx|aces`: the tonemapper, for comparing them (default TonyMcMapface).
     pub tonemap: String,
+    /// `?look=0`: the plain look (no grade, vignette or lit smoke), for comparing against.
+    pub look: bool,
+    /// `?hz=N`: the showcase's fixed clock rate (default 60), to see effects at a low frame rate.
+    pub showcase_hz: f64,
 }
 
 fn get(obj: &JsValue, key: &str) -> JsValue {
@@ -91,6 +95,8 @@ impl LaunchConfig {
             perf: flag("perf"),
             calm: flag("calm"),
             tonemap: string("tonemap"),
+            look: get(&cfg, "look").as_bool().unwrap_or(true),
+            showcase_hz: number("hz").filter(|h| *h >= 1.0).unwrap_or(60.0).min(240.0),
         }
     }
 }
