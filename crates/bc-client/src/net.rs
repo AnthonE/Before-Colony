@@ -259,6 +259,10 @@ fn pump(g: &mut Game, t: &Transport, now: f64) {
     for p in &packets {
         t.send_datagram(p);
     }
+    // On foot in the colony: where the pilot stands (`onfoot` sets it).
+    if let Some(p) = g.core.poll_pose(now) {
+        t.send_datagram(&p);
+    }
 }
 
 /// Per rendered frame: publishes the pilot's controls, runs the network loop once, and advances

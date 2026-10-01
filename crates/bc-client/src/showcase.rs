@@ -369,7 +369,8 @@ impl Plugin for ShowcasePlugin {
             app.add_systems(Update, hangar_script.after(script).in_set(crate::view::Vis::Drive));
         }
         if self.scene == Scene::City {
-            app.add_systems(Startup, city_script);
+            app.add_systems(Startup, city_script)
+                .add_systems(Update, city_crowd.after(script).in_set(crate::view::Vis::Drive));
         }
         if self.scene == Scene::Chase {
             app.add_systems(
@@ -1017,6 +1018,16 @@ fn city_cams() -> Vec<Orbit> {
         look(city_at(0, quay, -11_000.0, KERB + 1.65), (Vec3::X - across * 0.08).normalize()),
         // Near the axis at the docking hub's end, down the whole 32 km.
         look((bevy::math::DVec3::new(-15_600.0, 300.0, 300.0) - city_origin()).as_vec3(), Vec3::X),
+        // On a tram station's platform (the sixth, x −3,250), a train standing either side of it.
+        look(
+            city_at(
+                0,
+                mid - 1.0,
+                bc_sim::colony::transit::station_x(5) - 32.0,
+                bc_sim::colony::transit::FLOOR + 1.65,
+            ),
+            (Vec3::X - across * 0.12 + up * 0.02).normalize(),
+        ),
     ]
 }
 
@@ -1024,6 +1035,67 @@ fn city_cams() -> Vec<Orbit> {
 fn city_script(mut view: ResMut<crate::city::CityView>, mut origin: ResMut<crate::city::RenderOrigin>) {
     *view = crate::city::CityView { active: true, sync: true };
     origin.0 = city_origin();
+}
+
+/// Pilots strolling the avenue's pavements by the third view, and crossing at its corner: the
+/// people as the plaza would show them.
+fn city_crowd(
+    vis: Res<VisTime>,
+    mut crowd: ResMut<crate::people::Crowd>,
+    mut trams: ResMut<crate::trams::TramClock>,
+) {
+    // The trams on the showcase's clock.
+    let t = vis.now * f64::from(bc_sim::TICK_HZ);
+    *trams = crate::trams::TramClock(t.floor() as u32, (t - t.floor()) as f32);
+    use bc_proto::presence::PersonPose;
+    use bc_sim::colony::frame::STRIP_WIDTH;
+    const NAMES: [&str; 16] = [
+        "Heero",
+        "Duo",
+        "Trowa",
+        "Quatre",
+        "Wufei",
+        "Relena",
+        "Zechs",
+        "Noin",
+        "Sally",
+        "Hilde",
+        "Catherine",
+        "Dorothy",
+        "Lady Une",
+        "Treize",
+        "Howard",
+        "Rashid",
+    ];
+    let mid = STRIP_WIDTH * 0.5;
+    let t = vis.now as f32;
+    crowd.0 = NAMES
+        .iter()
+        .enumerate()
+        .map(|(i, name)| {
+            let k = i as f32;
+            // Up or down the avenue, on either pavement, each at their own pace.
+            let dir = if i % 2 == 0 { 1.0 } else { -1.0 };
+            let speed = 1.1 + 0.08 * (i % 7) as f32 + if i % 5 == 0 { 3.2 } else { 0.0 };
+            let side = if i % 3 == 0 { -1.0 } else { 1.0 };
+            let s = mid + side * (24.0 + (k * 3.7) % 13.0);
+            let x = -14_095.0 + (k * 23.0 + dir * speed * t).rem_euclid(160.0);
+            let yaw = if dir > 0.0 { std::f32::consts::FRAC_PI_2 } else { -std::f32::consts::FRAC_PI_2 };
+            let pose = PersonPose {
+                strip: 0,
+                x,
+                s,
+                h: 0.15,
+                yaw,
+                pitch: 0.0,
+                speed,
+                grounded: true,
+                running: speed > 5.0,
+                train: 0,
+            };
+            (i as u16, (*name).to_string(), pose)
+        })
+        .collect();
 }
 
 /// The camera inside: its up is the colony's where it stands (towards the axis), not +Y.

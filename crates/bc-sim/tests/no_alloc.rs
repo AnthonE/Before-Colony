@@ -189,9 +189,9 @@ fn riders_never_allocate() {
 
 #[test]
 fn the_colony_answers_without_allocating() {
-    // The city, its day and its frames are closed forms: asking them anything allocates nothing,
+    // The city, its day, its frames and its trams are closed forms: asking them anything allocates nothing,
     // so a future sector inside the colony can ask them in its tick.
-    use bc_sim::colony::{city, frame, time};
+    use bc_sim::colony::{city, frame, time, transit};
     let mut rng = bc_sim::math::Rng::new(5);
     let (hits, n) = bc_alloc::count(|| {
         let mut hits = 0u32;
@@ -208,6 +208,10 @@ fn the_colony_answers_without_allocating() {
             hits += u32::from(time::key_light(k as usize, &d).x > 2.0);
             let c = frame::CityPos::new(k, p.x, -p.z, p.y).to_colony();
             hits += u32::from(matches!(frame::from_colony(c), frame::Under::Window { .. }));
+            // The trams, and the walls of a car.
+            let t = transit::train(k, (i % transit::TRAINS) as u8, i * 13, 0.5);
+            hits += u32::from(t.doors);
+            hits += u32::from(transit::car_walls(t.doors, |b| b.h1 > 3.0));
         }
         hits
     });

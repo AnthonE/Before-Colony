@@ -140,6 +140,10 @@ impl BotClient {
             // Oversized/unsendable datagrams are dropped like any lost packet.
             let _ = self.conn.send_datagram(p);
         }
+        // On foot in the colony: where the agent stands (`ClientCore::set_pose`).
+        if let Some(p) = self.core.poll_pose(now) {
+            let _ = self.conn.send_datagram(p);
+        }
         self.core.frame(now, 0.01);
         if matches!(self.core.phase, Phase::Closed | Phase::Rejected(_)) {
             bail!("session ended: {:?}", self.core.phase);
@@ -206,6 +210,29 @@ impl BotClient {
             self.step(&mut |_| InputCmd::default()).await?;
         }
         Ok(())
+    }
+
+    /// Survival, with the colony open: rides the cap lift down to strip `strip`'s Hub Gate, and
+    /// returns once there. Set where the agent stands with [`BotClient::set_pose`].
+    pub async fn enter_city(&mut self, strip: u8) -> anyhow::Result<()> {
+        self.request(&Request::EnterCity { strip }).await?;
+        self.wait_until(10.0, "the city", |c| c.hangar.in_city()).await
+    }
+
+    /// Rides back up to the bay.
+    pub async fn leave_city(&mut self) -> anyhow::Result<()> {
+        self.request(&Request::LeaveCity).await?;
+        self.wait_until(10.0, "the bay", |c| c.hangar.in_hangar()).await
+    }
+
+    /// Where the agent stands in the city: sent 15 times a second as it steps.
+    pub fn set_pose(&mut self, pose: bc_proto::presence::PersonPose) {
+        self.core.set_pose(Some(pose));
+    }
+
+    /// The people near the agent in the city, as drawn now: slot, name and pose.
+    pub fn people(&self) -> Vec<(u16, String, bc_proto::presence::PersonPose)> {
+        self.core.people(self.now()).into_iter().map(|(id, name, p)| (id, name.to_string(), p)).collect()
     }
 
     /// Survival rules: boards the suit in the bay and launches it. Returns once the pilot is out

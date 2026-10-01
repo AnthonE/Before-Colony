@@ -21,15 +21,21 @@
 use bc_client_core::bay::{CATWALK_Y, HATCH, Layout, SPAWN, SUIT_AT, Spot};
 use bc_client_core::city::CityGround;
 use bc_client_core::city_nav;
+use bc_client_core::tram::{self, CarInside, CityAndTrains, Rider};
 use bc_client_core::walker::{Guide, Stride, Walker};
 use bc_econ::item::thousands;
 use bc_econ::wire::{Outcome, Place, Request};
 use bc_econ::{Bay, Suit};
+use bc_proto::presence::PersonPose;
 use bc_sim::colony::city::{
-    BLOCK, Stage, TERMINAL_HEIGHT, district_at, grid_x, place_door, row_span, terminal_rect,
+    AVENUE as AVENUE_WIDTH, BLOCK, Stage, TERMINAL_HEIGHT, district_at, grid_x, place_door, row_span,
+    terminal_rect,
 };
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, local_frame, up_at};
 use bc_sim::colony::hub::BAY_RADIUS;
+use bc_sim::colony::transit::{
+    CAR_WIDTH, DOOR_AT, FLOOR, PLATFORM_LENGTH, STATION_GAP, STATIONS, TRAINS, TrainState, station_x, train,
+};
 use bc_sim::content::city::{DISTRICT_NAMES, PLACES, PlaceDef, PlaceKind, SIGHTS, STRIP_NAMES};
 use bc_sim::world::COLONY_RADIUS;
 use bevy::input::mouse::AccumulatedMouseMotion;
@@ -134,6 +140,21 @@ pub struct CityFoot {
     /// The district they're in, and the sight they're at (both named on the way in).
     district: Option<u8>,
     sight: Option<usize>,
+    /// Riding a tram (the walker is then in its car's frame), the trains of the strip's line
+    /// this frame, and the station the pilot's train last stood at.
+    pub ride: Option<Rider>,
+    trains: [TrainState; TRAINS as usize],
+    stood: Option<usize>,
+}
+
+/// Station `i` of strip `strip`'s line, by name: Hub Gate's, then the district it's in.
+fn station_name(strip: u8, i: usize) -> String {
+    if i == 0 {
+        return "HUB GATE".into();
+    }
+    let k = strip as usize % 3;
+    district_at(strip, station_x(i), Stage(0))
+        .map_or_else(|| "THE BUILDING SITE".into(), |(d, _)| DISTRICT_NAMES[k][d as usize].to_string())
 }
 
 /// Strip `strip`'s Hub Gate.
@@ -154,7 +175,111 @@ impl CityFoot {
             focus: None,
             district: None,
             sight: None,
+            ride: None,
+            trains: std::array::from_fn(|k| train(strip, k as u8, 0, 0.0)),
+            stood: None,
         }
+    }
+
+    /// The line's trains at the colony's tick.
+    fn time(&mut self, tick: u32, frac: f32) {
+        self.trains = std::array::from_fn(|k| train(self.strip, k as u8, tick, frac));
+    }
+
+    /// The train the pilot rides, this frame.
+    fn train(&self) -> Option<&TrainState> {
+        self.ride.map(|r| &self.trains[r.k as usize])
+    }
+
+    /// Steps the pilot's body `h` seconds on: among the city's walls and its standing trains, or
+    /// in their car. Getting on and off; what to tell them if they did.
+    fn step(&mut self, stride: &Stride, h: f32) -> Option<String> {
+        match (self.ride, self.train().copied()) {
+            (Some(r), Some(t)) => {
+                self.walker.step(&CarInside { open: t.doors, accel: t.accel }, stride, h);
+                let out = tram::alighting(&r, self.walker.feet, &t)?;
+                self.ride = None;
+                self.walker.feet = out.walker();
+                self.stood = None;
+                None
+            }
+            _ => {
+                let world = CityAndTrains { ground: self.ground(), trains: &self.trains };
+                self.walker.step(&world, stride, h);
+                let (r, local) = tram::boarding(self.feet(), &self.trains)?;
+                let t = self.trains[r.k as usize];
+                self.ride = Some(r);
+                self.walker.feet = local;
+                self.guide = None;
+                self.stood = t.at;
+                let to = if t.dir > 0.0 { "THE BUILDING SITE" } else { "HUB GATE" };
+                Some(format!("{} LINE · TO {to}", STRIP_NAMES[self.strip as usize % 3]))
+            }
+        }
+    }
+
+    /// Riding: the station the train has just pulled into, by name.
+    fn arrived(&mut self) -> Option<String> {
+        let at = self.train()?.at;
+        if at == self.stood {
+            return None;
+        }
+        self.stood = at;
+        at.map(|i| station_name(self.strip, i))
+    }
+
+    /// Where the pilot is, as the plaza has them.
+    fn pose(&self) -> PersonPose {
+        match self.ride {
+            Some(r) => tram::pose_riding(&r, &self.walker, self.strip),
+            None => bc_client_core::city::pose_of(self.strip, &self.walker),
+        }
+    }
+
+    /// Walks the pilot onto the nearest station's platform and in through the nearest open door
+    /// of a train standing there (or, none standing, to the platform's middle, to wait); riding,
+    /// out of the nearest door onto the platform. False if there's nowhere to go.
+    fn walk_to_tram(&mut self) -> bool {
+        let mid = STRIP_WIDTH * 0.5;
+        let at = |x: f32, s: f32, h: f32| CityPos::new(self.strip, x, s, h).walker();
+        if let Some(t) = self.train().copied() {
+            if !t.doors {
+                return false;
+            }
+            // Out of the nearest door, to the platform's side (the avenue's middle).
+            let x = self.walker.feet.x;
+            let door = if (x - DOOR_AT).abs() < (x + DOOR_AT).abs() { DOOR_AT } else { -DOOR_AT };
+            let out = t.dir * (0.5 * CAR_WIDTH + 1.2);
+            let route = vec![Vec3::new(door, 0.0, 0.0), Vec3::new(door, 0.0, out)];
+            self.guide = Some(Guide::new(route, None));
+            return true;
+        }
+        let feet = self.feet();
+        let i = ((feet.x - station_x(0)) / STATION_GAP).round().clamp(0.0, (STATIONS - 1) as f32) as usize;
+        let sx = station_x(i);
+        let foot = sx - 0.5 * PLATFORM_LENGTH - 2.0;
+        let mut route = if (feet.s - mid).abs() < 0.5 * AVENUE_WIDTH {
+            vec![at(feet.x.min(foot), mid, 0.0)]
+        } else {
+            city_nav::route(self.strip, (feet.s, feet.x), (mid - 20.0, foot))
+        };
+        route.push(at(foot, mid, 0.0));
+        route.push(at(sx - 0.5 * PLATFORM_LENGTH + 5.0, mid, FLOOR));
+        let standing = self
+            .trains
+            .iter()
+            .filter(|t| t.doors && t.at == Some(i))
+            .min_by(|a, b| (a.x - feet.x).abs().total_cmp(&(b.x - feet.x).abs()));
+        match standing {
+            Some(t) => {
+                let door = t.car_x(0) - DOOR_AT;
+                route.push(at(door, mid, FLOOR));
+                route.push(at(door, t.s, FLOOR));
+            }
+            None => route.push(at(sx, mid, FLOOR)),
+        }
+        self.guide = Some(Guide::new(route, None));
+        true
     }
 
     /// What's newly reached: a district's name (with its strip's) or a sight's.
@@ -183,19 +308,28 @@ impl CityFoot {
         CityGround { strip: self.strip, stage: Stage(0) }
     }
 
-    /// Where the pilot stands, in city coordinates.
+    /// Where the pilot stands, in city coordinates (riding: where their car has them).
     pub fn feet(&self) -> CityPos {
-        CityPos::from_walker(self.strip, self.walker.feet)
+        match (self.ride, self.train()) {
+            (Some(r), Some(t)) => tram::in_city(&r, self.walker.feet, t),
+            _ => CityPos::from_walker(self.strip, self.walker.feet),
+        }
     }
 
     /// The eye, in the colony's frame, and the way it looks.
     fn view(&self) -> (DVec3, Vec3) {
-        let eye = CityPos::from_walker(self.strip, self.walker.eye());
+        let eye = match (self.ride, self.train()) {
+            (Some(r), Some(t)) => tram::in_city(&r, self.walker.eye(), t),
+            _ => CityPos::from_walker(self.strip, self.walker.eye()),
+        };
         (colony_point(eye), local_frame(self.strip, eye.s) * self.walker.look())
     }
 
     /// The place whose door the pilot stands at, facing it.
     fn door_in_view(&self) -> Option<usize> {
+        if self.ride.is_some() {
+            return None;
+        }
         let at = self.feet();
         let h = self.walker.heading();
         // Facing, in city terms: x along is the walker's x, s across its −z.
@@ -586,7 +720,10 @@ pub fn drive_onfoot(
     if in_city && let Some(c) = me.city.as_mut() {
         for cmd in &cmds.0 {
             if let UiCmd::WalkTo(slug) = cmd {
-                c.walk_to(slug);
+                match slug.as_str() {
+                    "tram" => c.walk_to_tram(),
+                    _ => c.walk_to(slug),
+                };
             }
         }
         if look != Vec2::ZERO {
@@ -596,7 +733,8 @@ pub fn drive_onfoot(
         if stride != Stride::default() {
             c.guide = None;
         }
-        let ground = c.ground();
+        let (tick, frac) = g.core.colony_tick(now);
+        c.time(tick, frac);
         let mut left = walk_dt;
         while left > 1e-4 {
             let h = left.min(0.1);
@@ -607,9 +745,15 @@ pub fn drive_onfoot(
                     c.guide = None;
                 }
             }
-            c.walker.step(&ground, &stride, h);
+            if let Some(news) = c.step(&stride, h) {
+                ui.toast(news);
+            }
+        }
+        if let Some(name) = c.arrived() {
+            ui.toast(name);
         }
         c.focus = c.door_in_view();
+        g.core.set_pose(Some(c.pose()));
         if let Some(name) = c.reached() {
             ui.toast(name);
         }
@@ -635,6 +779,9 @@ pub fn drive_onfoot(
     } else if let Some(c) = me.city.as_mut() {
         c.focus = None;
         c.guide = None;
+    }
+    if !in_city {
+        g.core.set_pose(None);
     }
     let hangar_bay = g.core.hangar.view.as_ref().map(|v| v.bay.clone());
     if on_foot {
@@ -885,7 +1032,17 @@ pub fn publish_onfoot(me: Res<OnFoot>, ui: Res<Ui>, game: NonSend<GameClient>, m
             dev.set("strip", f64::from(c.strip));
             dev.set("city_feet", format!("{:.1},{:.1},{:.1}", at.x, at.s, at.h));
             dev.set("city_walking_to", c.guide.is_some());
+            dev.set("riding", c.ride.map_or(-1.0, |r| f64::from(r.k)));
+            dev.set("station", c.train().and_then(|t| t.at).map_or(-1.0, |i| i as f64));
             dev.set("district", c.district.map_or("", |d| DISTRICT_NAMES[c.strip as usize % 3][d as usize]));
+            // The people in view, and where the nearest is from the pilot (m).
+            let people = g.core.people(now_s());
+            let names: Vec<&str> = people.iter().map(|(_, n, _)| *n).collect();
+            dev.set("people", people.len() as u32);
+            dev.set("people_names", names.join(","));
+            let near =
+                people.iter().map(|(_, _, p)| (p.x - at.x).hypot(p.s - at.s)).fold(f32::INFINITY, f32::min);
+            dev.set("people_nearest", if near.is_finite() { f64::from(near) } else { -1.0 });
             if me.seq == Seq::Walking {
                 dev.set("focus", c.focus.map_or("", |i| PLACES[i].slug));
             }
@@ -894,7 +1051,12 @@ pub fn publish_onfoot(me: Res<OnFoot>, ui: Res<Ui>, game: NonSend<GameClient>, m
             dev.set("strip", -1.0);
             dev.set("city_feet", "");
             dev.set("city_walking_to", false);
+            dev.set("riding", -1.0);
+            dev.set("station", -1.0);
             dev.set("district", "");
+            dev.set("people", 0u32);
+            dev.set("people_names", "");
+            dev.set("people_nearest", -1.0);
         }
     }
     dev.set("hangar_credits", h.credits() as f64);

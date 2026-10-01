@@ -5,6 +5,8 @@
 //! - Datagrams (unreliable, one QUIC packet each, never fragmented):
 //!   - client → server [`InputPacket`]: the last up-to-4 [`InputCmd`]s, so one lost packet costs
 //!     nothing.
+//!   - client → server [`PosePacket`] and server → client plaza ([`PlazaWriter`] / [`PlazaReader`]):
+//!     pilots on foot in the colony ([`presence`]).
 //!   - server → client snapshot ([`SnapshotWriter`] / [`SnapshotReader`]): header, full-precision
 //!     own state, ZERO info, events and changed rocks repeated until acked, the missiles in flight
 //!     nearby, then as many prioritised entities and salvage objects as fit in [`MAX_DATAGRAM`]
@@ -24,6 +26,7 @@ pub mod events;
 pub mod input;
 pub mod missiles;
 pub mod objects;
+pub mod presence;
 pub mod quant;
 pub mod snapshot;
 pub mod types;
@@ -33,6 +36,7 @@ pub use events::{BurstCause, Event};
 pub use input::{InputCmd, InputPacket, buttons};
 pub use missiles::MissileState;
 pub use objects::{ChunkDesc, ChunkKind, ObjectState, RockState, Segment};
+pub use presence::{PersonPose, PlazaReader, PlazaWriter, PosePacket};
 pub use snapshot::{
     EntityState, OwnState, OwnSurface, RiderOn, SnapshotHeader, SnapshotReader, SnapshotWriter, ZeroInfo,
 };
@@ -72,6 +76,10 @@ pub const SECTOR_HALF_EXTENT: f32 = 32_768.0;
 pub enum PacketKind {
     Input = 1,
     Snapshot = 2,
+    /// A pilot's pose on foot in the colony (client → server, [`presence`]).
+    Pose = 3,
+    /// The people near a pilot in the colony, and the sector's tick (server → client).
+    Plaza = 4,
 }
 
 pub const PACKET_KIND_BITS: u32 = 4;
@@ -81,6 +89,8 @@ pub fn packet_kind(bytes: &[u8]) -> Option<PacketKind> {
     match bytes.first()? & 0x0f {
         1 => Some(PacketKind::Input),
         2 => Some(PacketKind::Snapshot),
+        3 => Some(PacketKind::Pose),
+        4 => Some(PacketKind::Plaza),
         _ => None,
     }
 }

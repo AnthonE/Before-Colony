@@ -17,6 +17,8 @@ const WIDE_STREET: f32 = 40.0;
 const SIDEWALK: f32 = 5.0;
 const CANAL_ROW: i32 = 4;
 const CANAL_WIDTH: f32 = 40.0;
+// The tram's tracks: each one's middle from the avenue's.
+const TRACK_OFFSET: f32 = 4.5;
 const STRIP_WIDTH: f32 = 3351.0322;
 const ATLAS_ROWS: i32 = 27;
 
@@ -112,6 +114,10 @@ fn city_paint(cell: Cell, t: vec4<f32>, from_afar: bool) -> Paint {
             var col = asphalt;
             col = mix(col, vec3(0.2, 0.26, 0.14), step(MEDIAN * 0.5, a) * (1.0 - step(MEDIAN * 0.5 + 1.0, a)));
             col = mix(col, vec3(0.08, 0.16, 0.06) * (0.7 + 0.6 * noise3(vec3(p * 0.3, 1.0))), step(AVENUE * 0.5 - 18.0, a));
+            // The tram's tracks on the median: ballast and two rails each.
+            let t = abs(a - TRACK_OFFSET);
+            col = mix(col, vec3(0.27, 0.26, 0.24) * (0.85 + 0.3 * noise3(vec3(p * 2.0, 4.0))), step(t, 1.4));
+            col = mix(col, vec3(0.55, 0.56, 0.58), step(abs(t - 0.72), 0.05));
             return Paint(col, smoothstep(1.5, 0.0, abs(a - (AVENUE * 0.5 - 17.0))) * step(0.8, along), 0.0);
         }
         if (abs(cell.row) >= BANK_ROW) {

@@ -107,6 +107,8 @@ pub struct GameShared {
     pub survival: bool,
     /// The colony is open: pilots may go down into its city.
     pub colony: bool,
+    /// The people in the colony's city (`plaza`).
+    pub plaza: Arc<crate::plaza::Plaza>,
     /// The Colony Exchange.
     pub market: Arc<Market>,
     pub econ: bc_econ::Rules,
@@ -247,6 +249,7 @@ pub struct StatusView {
     oracle: &'static str,
     survival: bool,
     colony: bool,
+    plaza: Arc<crate::plaza::Plaza>,
     market: Arc<Market>,
     hangars: Arc<RwLock<HashMap<u16, HangarEntry>>>,
 }
@@ -333,6 +336,7 @@ impl GameRuntime {
             idle: cfg.idle_timeout,
             survival,
             colony: survival && cfg.colony,
+            plaza: Arc::new(crate::plaza::Plaza::default()),
             market,
             econ: bc_econ::Rules { craft_speed: cfg.craft_speed },
             hangars: Arc::new(RwLock::new(HashMap::new())),
@@ -386,6 +390,7 @@ impl GameRuntime {
             oracle: self.oracle,
             survival: self.shared.survival,
             colony: self.shared.colony,
+            plaza: self.shared.plaza.clone(),
             market: self.shared.market.clone(),
             hangars: self.shared.hangars.clone(),
         }
@@ -495,6 +500,7 @@ impl StatusView {
             .collect();
         let hangars: Vec<HangarEntry> =
             self.hangars.read().map(|h| h.values().cloned().collect()).unwrap_or_default();
+        let city = self.plaza.counts();
         let exchange = self.market.with(|ex| {
             let (escrow, goods) = ex.escrowed();
             serde_json::json!({
@@ -511,8 +517,14 @@ impl StatusView {
             "tick_hz": bc_sim::TICK_HZ,
             "oracle": self.oracle,
             "rules": if self.survival { "survival" } else { "arcade" },
-            // Pilots may go down into the colony's city from their bays.
+            // Pilots may go down into the colony's city from their bays; how many are down there
+            // (never where), and how many of their poses weren't passed on.
             "colony": self.colony,
+            "city": {
+                "people": city.0,
+                "by_strip": city.1,
+                "refused_poses": city.2,
+            },
             // Survival: pilots in their hangar bays (and out of them), and the exchange's ledger.
             "hangars": hangars,
             "exchange": exchange,

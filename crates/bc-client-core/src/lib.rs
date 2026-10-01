@@ -18,6 +18,7 @@ pub mod city_mesh;
 pub mod city_nav;
 pub mod clock;
 pub mod controls;
+pub mod figure;
 pub mod gait;
 pub mod hangar;
 pub mod hints;
@@ -25,12 +26,14 @@ pub mod inputs;
 pub mod interp;
 pub mod own;
 pub mod palette;
+pub mod plaza;
 pub mod pointer;
 pub mod predict;
 pub mod salvage;
 pub mod session;
 pub mod settings;
 pub mod surface;
+pub mod tram;
 pub mod walker;
 pub mod world;
 
@@ -38,8 +41,12 @@ use bc_proto::auth::{Address, Domain, NONCE_BYTES, Signature, TOKEN_BYTES};
 use bc_proto::buttons::FIRE_PRIMARY;
 use bc_proto::control::{ControlMsg, Frame, RejectReason, hello_flags, roster_flags, welcome_flags};
 use bc_proto::events::Event;
+use bc_proto::presence::{PersonPose, PlazaReader, PosePacket};
 use bc_proto::snapshot::{own_flags, zero_mode};
-use bc_proto::{Faction, FrameId, InputCmd, InputPacket, PROTOCOL_VERSION, PilotKind, SnapshotReader};
+use bc_proto::{
+    Faction, FrameId, InputCmd, InputPacket, PROTOCOL_VERSION, PacketKind, PilotKind, SnapshotReader,
+    packet_kind,
+};
 use bc_sim::DT;
 use bc_sim::bodies::Body;
 use bc_sim::config::{G0, MAX_REWIND_TICKS};
@@ -172,6 +179,12 @@ pub struct ClientCore {
     /// Felt acceleration between the last two snapshots, g: the reading while ZERO flies the suit
     /// (and the prediction, flying the pilot's commands, is beside the point).
     heard_g: f32,
+    /// Survival, on foot in the colony: the people near the pilot, and the pilot's own pose to
+    /// send (with its sequence number and when it last went).
+    pub plaza: plaza::PlazaView,
+    pose: Option<PersonPose>,
+    pose_seq: u16,
+    pose_sent: f64,
 }
 
 impl ClientCore {
@@ -198,7 +211,57 @@ impl ClientCore {
             last_cmd: InputCmd::default(),
             drawn: own::Drawn::default(),
             heard_g: 0.0,
+            plaza: plaza::PlazaView::default(),
+            pose: None,
+            pose_seq: 0,
+            pose_sent: f64::NEG_INFINITY,
         }
+    }
+
+    /// On foot in the colony: where the pilot is now (`None`: not in the city, so nothing to send).
+    pub fn set_pose(&mut self, pose: Option<PersonPose>) {
+        self.pose = pose;
+    }
+
+    /// The pose datagram that's due at local time `now` (s), if one is (15 a second).
+    pub fn poll_pose(&mut self, now: f64) -> Option<Vec<u8>> {
+        let pose = self.pose?;
+        if now - self.pose_sent < plaza::POSE_EVERY {
+            return None;
+        }
+        self.pose_sent = now;
+        self.pose_seq = self.pose_seq.wrapping_add(1);
+        let mut buf = [0u8; 32];
+        let n = PosePacket { seq: self.pose_seq, pose }.encode(&mut buf)?;
+        Some(buf[..n].to_vec())
+    }
+
+    /// When the colony's people and trams are drawn at local time `now`: the sector's tick and
+    /// the fraction of the next.
+    pub fn colony_tick(&self, now: f64) -> (u32, f32) {
+        let t = (self.clock.server_now(now) - plaza::DELAY_TICKS).max(0.0);
+        (t.floor() as u32, (t - t.floor()) as f32)
+    }
+
+    /// The people near the pilot in the city as they're drawn at local time `now`: their slot,
+    /// name and pose, in city coordinates (a rider where their train is then; still marked as
+    /// riding it).
+    pub fn people(&self, now: f64) -> Vec<(u16, &str, PersonPose)> {
+        let t = self.clock.server_now(now) - plaza::DELAY_TICKS;
+        let (tick, frac) = self.colony_tick(now);
+        self.plaza
+            .people_at(t)
+            .into_iter()
+            .map(|(id, mut p)| {
+                if let Some(k) = p.riding() {
+                    let tr = bc_sim::colony::transit::train(p.strip, k, tick, frac);
+                    p.x += tr.x;
+                    p.s += tr.s - bc_proto::presence::RIDER_S;
+                    p.h += bc_sim::colony::transit::FLOOR;
+                }
+                (id, self.hangar.people.get(&id).map_or("", String::as_str), p)
+            })
+            .collect()
     }
 
     /// Signs in as `identity` (before [`ClientCore::hello`]).
@@ -377,6 +440,18 @@ impl ClientCore {
 
     /// Feeds a datagram received at local time `now` (seconds).
     pub fn on_datagram(&mut self, bytes: &[u8], now: f64) {
+        if packet_kind(bytes) == Some(PacketKind::Plaza) {
+            match PlazaReader::new(bytes) {
+                Ok(r) => {
+                    // The sector's tick keeps the clock on foot, where no snapshots come (they're
+                    // never sent in space).
+                    self.clock.on_snapshot(r.tick, now, None, clock::TARGET_HEALTH as i8);
+                    self.plaza.on_datagram(r, now);
+                }
+                Err(_) => self.stats.decode_errors += 1,
+            }
+            return;
+        }
         let Ok(mut r) = SnapshotReader::new(bytes) else {
             self.stats.decode_errors += 1;
             return;

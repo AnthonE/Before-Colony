@@ -232,6 +232,33 @@ its segment: `pos(t) = pos + vel · (t − t0)·DT`, spinning at `spin`. The ser
 exactly the quantized segment it sends, so clients evaluating it at the same tick get the same
 answer to the bit.
 
+## The colony's people: pose and plaza datagrams
+
+Pilots on foot in the colony's city (survival, `--colony`) are relayed by their session tasks,
+off the sector's tick (`bc_proto::presence`; the server's `plaza`). Positions are a strip's city
+coordinates, where the city stands still: `x` along (22 bits over ±16,384 m), `s` across from the
+strip's edge (19 bits over 0–4,096 m), `h` up (15 bits over −8–248 m), all in 7.8 mm steps; the
+walker's yaw (10 bits), pitch (8 bits over ±90°), speed over the ground (6 bits, 0.2 m/s steps to
+12.6), GROUNDED and RUNNING, and the tram ridden (4 bits: 0 on foot, `k` + 1 on train `k` of the
+strip's line), 86 bits in all. A rider's `x`, `s` and `h` are from their train's middle, from its
+track's middle plus 2,048 m, and from its floor: everyone draws them inside the train wherever
+their own screen has it (`transit::train` is a closed form of the tick).
+
+| Datagram | Content | Size |
+|---|---|---|
+| kind 3, Pose (client → server, 15 Hz in the city) | kind (4), seq (u16), strip (2), the pose (86) | 14 B |
+| kind 4, Plaza (server → client: 10 Hz in the city, 2 Hz in the bay) | kind (4), the sector's tick (u32), in the city (1), strip (2), then until the bits run out: per person their client slot (10), how long before the tick their pose was heard (6 bits, 10 ms steps) and the pose (86) | 5 B + 12.75 B a person, at most 48 (617 B) |
+
+A pose is taken only if it could be: on the pilot's strip, inside the colony, out of the walls
+(`bc_sim::colony::city::solid`), no further from the last one taken than 13.5 m/s and 2 m allow, the
+first within 150 m of the strip's Hub Gate, and newer (`seq`) than the last. A rider must be inside
+their train's cars; getting on or off, within 8 m of the train while it stood with its doors open
+(within 3 s of the sector's tick). Anything else isn't
+passed on (`/status`'s `city.refused_poses`). Each pilot is sent the people on their strip within
+1.5 km of them, heard from in the last 5 s, nearest first; their names come once each on the
+control stream (`people`). The plaza's tick keeps a client's clock (and the colony's day) when no
+snapshots come: in the city, and in the bay.
+
 ## Control stream
 
 Frames are `[u16 LE payload length][u8 tag][payload]`, byte-aligned, at most 256 bytes with the
@@ -338,7 +365,9 @@ stock, parts with their condition, the bay: `empty`, `docked` or `out` with the 
 queues with their time left); `market` (every item's bid, ask, last and volume, the pilot's
 orders, the fee); `book` {`depth`, `history`}; `note` {`text`, `ok`} answering a request (or
 news: a job done, an order filled); `sortie` {`outcome`: `docked`, `lost`, `recovered`, `text`};
-`news` {`text`} (a pilot's arrival; the colony's announcements). A suit (in the bay, or out) carries
+`news` {`text`} (a pilot's arrival; the colony's announcements); `people` {`people`: [{`id`,
+`name`}]} (in the city: the names of people seen there for the first time, by the slot the plaza's
+datagrams use). A suit (in the bay, or out) carries
 `faults`, a map from system slug to `damaged` or `failed` (absent when everything works), and
 `modules`, its five equipment mounts' slugs (or `null`); a part on the shelf carries its own
 `faults`.
@@ -354,7 +383,8 @@ The colony (the Welcome sets COLONY: a survival server run with `--colony`): fro
 the market keep coming (the Exchange floor's terminal is the bay's), and `launch` is refused.
 `leave_city` answers `place: hangar`. The city itself is compiled content (`bc_sim::colony::city`,
 `content::city::CITY_VERSION`), the same on every client and the server, so any change to it bumps
-the protocol version. Walking the city is the client's own, as in the bay: nothing more is sent.
+the protocol version. Walking the city is the client's own, as in the bay; where the pilot stands goes
+to the server in pose datagrams (above), for the others there to see.
 
 ### Setting up the sector
 

@@ -133,6 +133,18 @@ pub enum Update {
     News {
         text: String,
     },
+    /// In the city: the names of people the pilot sees for the first time (by client slot, as the
+    /// plaza's datagrams name them).
+    People {
+        people: Vec<Person>,
+    },
+}
+
+/// Someone in the city, by the slot the plaza's datagrams know them by.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Person {
+    pub id: u16,
+    pub name: String,
 }
 
 /// A job, as the pilot sees it.

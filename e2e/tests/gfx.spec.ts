@@ -87,6 +87,7 @@ const scenes: Array<[string, number, number, number]> = [
   ["city", 4, 6, 4],
   ["city", 5, 6, 4],
   ["city", 6, 6, 4],
+  ["city", 7, 6, 4],
 ];
 
 for (const [scene, cam, t, frames] of scenes) {

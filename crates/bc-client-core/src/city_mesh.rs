@@ -559,6 +559,45 @@ pub fn cap(side: f32) -> (Vec3, CityMesh) {
     (centre, mesh)
 }
 
+/// Tram station `i` on strip `strip`: its island platform and steps (`transit::platform_solids`),
+/// and a canopy over the platform on its posts.
+pub fn station(strip: u8, i: usize) -> (CityPos, CityMesh) {
+    use bc_sim::colony::frame::STRIP_WIDTH;
+    use bc_sim::colony::transit::{FLOOR, PLATFORM_HALF, PLATFORM_LENGTH, platform_solids, station_x};
+    let (x, mid) = (station_x(i), STRIP_WIDTH * 0.5);
+    let anchor = CityPos::new(strip, x, mid, 0.0);
+    let mut m = Builder::new(strip, anchor);
+    let area = Rect::new(mid - 1.0, mid + 1.0, x - PLATFORM_LENGTH, x + PLATFORM_LENGTH);
+    platform_solids(&area, |b| {
+        if (b.rect.x0 + b.rect.x1 - 2.0 * x).abs() < PLATFORM_LENGTH {
+            m.city_box(&CityBox { h0: -0.2, ..*b }, Surface::Kerb, Surface::Pavement, 0.4, 0.0, true);
+        }
+        false
+    });
+    let roof = Rect::new(mid - PLATFORM_HALF - 0.3, mid + PLATFORM_HALF + 0.3, x - 30.0, x + 30.0);
+    m.city_box(
+        &CityBox { rect: roof, h0: FLOOR + 4.2, h1: FLOOR + 4.45 },
+        Surface::Steel,
+        Surface::Roof,
+        0.6,
+        0.0,
+        true,
+    );
+    for k in 0..4 {
+        let px = x - 27.0 + 18.0 * k as f32;
+        let post = Rect::new(mid - 0.15, mid + 0.15, px - 0.15, px + 0.15);
+        m.city_box(
+            &CityBox { rect: post, h0: FLOOR, h1: FLOOR + 4.2 },
+            Surface::Steel,
+            Surface::Steel,
+            0.6,
+            0.0,
+            true,
+        );
+    }
+    (anchor, m.mesh)
+}
+
 /// Hub Gate on strip `strip`: the terminal at the foot of the docking hub's end cap, and the cap
 /// lift's glass shaft up the cap from it to the bay ring, 948 m up.
 pub fn hub_gate(strip: u8) -> (CityPos, CityMesh) {

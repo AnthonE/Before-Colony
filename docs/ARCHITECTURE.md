@@ -30,7 +30,7 @@
 | `bc-auth` | `no_std` | Wallet sign-in: the EIP-4361 message both sides build, EIP-55 addresses, and (features) the server's signature check and a local wallet for agents and tests. The browser builds only the message. |
 | `bc-sound` | lib | The sound bank, generated in code (no audio files): cues, the mixer (culling, cooldowns, voices, panning), the cockpit's loops and alarms, the score (the title theme on the Super Famicom's sound chip, in software). Pure Rust; the browser plays it through Web Audio. |
 | `bc-server` | bin + lib | WebTransport sessions (`net/session.rs`: a pilot's session from slot to goodbye, and survival's hangar, sorties and requests), sign-in and the pilot registry (`pilots`: records behind a `PilotStore`, in memory or files, one session per wallet, resume tokens, suits left hidden that are put back at boot), the colony's exchange (`market`), egress thread, roster, dev HTTP, `/status`. |
-| `bc-bot` | lib + bins | Bot SDK (`BotClient`), `mobile_doll` and `miner` example agents, `bc-swarm` load tester. |
+| `bc-bot` | lib + bins | Bot SDK (`BotClient`), `mobile_doll`, `miner` and `flaneur` (on foot in the colony) example agents, `bc-swarm` load tester. |
 | `bc-client` | wasm32 bin | Bevy app: procedural jointed suits (every frame's kit, animated from its `MeleeSpec`s, walking and kneeling on a body), sky, colony, field and landmarks (custom shaders), particles and effects (missiles, stream tracers, flame, jammer shimmer; sunlit smoke, burning wrecks, beams that keep a minimum width on screen), the camera's look (a grade on every tier, a lens vignette, a flare that rocks and suits hide), camera (chasing, or from the cockpit: a wraparound cockpit hung on the camera, its monitors showing the instruments rendered into one texture by a second UI camera, and a world-aligned radar sphere; `cockpit`), input with lock assist, HUD in the mobile-suit monitor style (chamfered plates and hazard-striped cautions from a small UI material, `ui_panel`; amber target corners, off-screen chevrons, a damage silhouette; one set of instruments drawn in the screen's corners or onto the cockpit's monitors; the page's fonts and palette: `bc_client_core::palette`), ZERO overlay, offline showcase scenes; the hangar bay drawn (`hangar`), with its haze, a flood light's shadow and contact shadows on the deck (`shade`), on foot in it with the launch and homecoming sequences (`onfoot`), and its terminals' data for the page (`terminal`). The colony from outside (`colony`: its mirrors, its ends and its lights, `dots`) and inside (`city`: the city on a render layer of its own, streamed by level of detail round a floating origin, lit strip by strip, its haze and its windows), and the cap lift and the city on foot (`onfoot`). |
 | `bc-model` | lib | The suits' procedural designs on a shared 24-bone rig, and the sockets their kits are drawn from (muzzles, blades, the Dragon Fang, missile hatches, the cockpit's eye), checked against each frame's hit capsules; the legs' two-bone IK (`ik`); ambient occlusion baked into every vertex from the whole suit at rest (`ao`); the cockpit seen from the seat (`cockpit`: the shell, its monitors' faces and their regions of the shared screen texture, the radar's place). |
 | `bc-alloc` | lib | Counting global allocator: proves the tick never allocates and counts violations in production. |
@@ -487,9 +487,25 @@ server see the same walls.
   camera by the kilometre, so `f32` stays fine far from the axis. The camera's strip is lit by the
   scene's one directional light (with shadows); the other two, kilometres off, by a key-and-sky
   term in their own frame; the haze is Bevy's distance fog.
+- **The trams** (`colony::transit`) are a timetable in the tick: a line down each strip's
+  avenue, eleven stations, twelve trains running out and back, speeding up and slowing down at
+  1.5 m/s². Every client draws every train where the tick has it (`bc-client/src/trams.rs`),
+  and nothing about them is sent. The stations' platforms are part of the city's walls. A rider
+  walks inside their car, in the car's own frame (`bc_client_core::tram`): the timetable carries
+  them, its acceleration pushes them, and they get on and off through doors that open only while
+  the train stands at a platform.
 - **Being there** is the hangar's business (`bc_econ::wire`: `enter_city`, `leave_city`, `place:
-  city`), behind the server's `--colony` flag (the Welcome's COLONY). The server only knows which
-  strip a pilot is on: walking is the client's, as in the bay.
+  city`), behind the server's `--colony` flag (the Welcome's COLONY). Walking is the client's, as
+  in the bay.
+- **The people** ("the plaza") stay off the tick too. A pilot in the city sends their pose 15
+  times a second (`bc_proto::presence`, datagram kind 3); their session task checks it against
+  the closed form (in the walls? too far from the last? first seen away from Hub Gate?) and keeps
+  it in `bc-server`'s `plaza` (a `Mutex`ed map: the session tasks', not the sector's). Every
+  100 ms each session sends its pilot the people near them (kind 4) with the sector's tick, which
+  keeps the client's clock on foot; in the bay it sends just the tick, twice a second. Clients
+  draw people 200 ms behind, between the poses heard (`bc_client_core::plaza`), as figures in
+  flight suits of their own colours (`figure`, `bc-client/src/people.rs`). People never enter the
+  sector's simulation: nothing to predict or rewind, and nothing on the hot path.
 
 ## AI layers
 
@@ -556,6 +572,8 @@ fire, beside 4 dolls).
 | `e2e/tests/frames.spec.ts` | Each Gundam in the browser against the server's dolls: the autopilot flies its kit until the server's per-pilot counters (`/status`) and the client's (`window.__bc`) show it: Heavyarms' Full Open and missiles, Deathscythe jamming and reaping, Sandrock's missiles and shotels, Shenlong's fang or flame, Wing Zero out as Neo-Bird and back. |
 | `e2e/tests/gfx.spec.ts` | Every showcase scene renders cleanly, `gundams` included (Full Open's salvo, the jammer, the shotels and Cross Crusher, the fang at full reach, the flamethrower, Neo-Bird), `surface` (a Leo walking on MO-II as it rolls, one kneeling asleep in the Aft Well, one landing on Hermit), and the hangar bay. |
 | `e2e/tests/hangar.spec.ts` | Survival in the browser: the pilot comes in through the airlock, walks to each terminal and uses it, fabricates and trades through the panels, boards at the hatch, launches through the bay doors into space, and docks home again. |
+| `bc-sim` `colony::transit`, `bc-client-core` `tram` | The timetable comes round to the bit and runs without jumps, never past 1.5 m/s² or its top speed; trains on a track stay 300 m apart; every door of a standing train is on its platform, a hand's breadth from its edge, open only there; the platform is climbed by its steps; a car's doors let a walker through only when open. A walker on a platform walks in through an open door, rides out of the station held by the car's walls against its push, and walks out onto the next platform. |
+| `bc-proto` `presence`, `bc-server` `plaza`, `bc-client-core` `plaza` and `figure` tests, `bc-server/tests/plaza.rs` | A pose goes round within half a step (13 B); 48 people fit one datagram; the bay's heartbeat carries only the tick; decoders never panic. The plaza takes walks, drops reordered poses, and doesn't pass on teleports, walls, another strip or a first pose away from Hub Gate; it shows only the strip and the near, and hides the silent. Clients draw people between the poses heard and hold them at the last; headings turn the short way. A figure is under 1,500 triangles and fits the walker's box; walking swings its legs. Over real WebTransport, two agents at Hub Gate see each other by name within 5 cm, a teleport isn't relayed, going back up removes a pilot, and the plaza keeps the clock within two ticks; riders are taken from beside a standing train's open doors to the next platform, and nobody boards a running train or stands outside its cars. |
 | `bc-server/tests/city.rs` | Over real WebTransport: with `--colony` the Welcome says so, a pilot rides down to a strip's city and back, trades on the exchange from there, can't launch from it, and `/status` follows them; without it, the lifts are closed. |
 | `e2e/tests/colony.spec.ts` | The colony in the browser (`--colony`): out through the bay's airlock, down the cap lift (skipped) to Hub Gate, the map, a walk through the streets to the Exchange floor to buy there through its panel, back to Hub Gate and up to the bay; the server's `/status` follows the pilot (`city`, then `hangar`), and the hot path never allocates. |
 | `e2e/tests/surface.spec.ts` | On the bodies in the browser, signed in: the lander autopilot flies to MO-II, lands in the Aft Well and hides; leaving parks the suit there, and coming back wakes in it, grounded and hidden; then, flown by hand, it wakes there again and lifts off, free past 40 m (`FLYING`). Throughout, no hot-path allocation, every snapshot fits, and every rider names a body the client knows. |

@@ -68,6 +68,9 @@ Meteor, the war. Here none of it has happened. Whether it has to is up to everyo
   Canal, the Yards, Far Quays and Last Lock; in Gardens, Garden Gate, the Orchards, the Arboretum,
   the Colleges, Terraces, Green Meridian, Hillside, the Meadow, Vine Street, Greenworks, Fieldside
   and the Seed Halls.
+- **The lines.** A tram runs down the middle of each strip's avenue, from Hub Gate to the
+  building site: the Charter line in blue, the Canal line in teal, the Gardens line in green.
+  Its stations take their districts' names.
 - **Places an Arrival goes.** The **Exchange floor** on Charter Square (the Colony Exchange's
   hall: the same book the bays' terminals trade on); the **Charter Board**'s hall, where its
   notices go up; **The Arrival**, a bar off the square where pilots meet. The colony's law holds

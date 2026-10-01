@@ -6,7 +6,8 @@ use bc_sim::colony::city::{Stage, solid};
 use bc_sim::colony::frame::{CityPos, gravity};
 use glam::Vec3;
 
-use crate::walker::Solid;
+use crate::walker::{Solid, Walker};
+use bc_proto::presence::PersonPose;
 
 /// A strip of the city, to walk.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -32,10 +33,28 @@ impl CityGround {
     }
 }
 
+/// A walker on strip `strip`, as the plaza has them (`bc_proto::presence`).
+pub fn pose_of(strip: u8, w: &Walker) -> PersonPose {
+    let at = CityPos::from_walker(strip, w.feet);
+    let flat = Vec3::new(w.vel.x, 0.0, w.vel.z).length();
+    PersonPose {
+        strip,
+        x: at.x,
+        s: at.s,
+        h: at.h,
+        yaw: w.yaw,
+        pitch: w.pitch,
+        speed: flat,
+        grounded: w.grounded,
+        running: flat > 5.0,
+        train: 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::walker::{Stride, Walker};
+    use crate::walker::Stride;
     use bc_sim::colony::city::{
         BLOCK, CANAL_ROW, KERB, SIDEWALK, block, block_rect, channel, grid_x, lots, place, place_door,
     };

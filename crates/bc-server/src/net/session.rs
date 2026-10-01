@@ -19,6 +19,7 @@ use bc_proto::auth::Address;
 use bc_proto::control::{
     self, ControlMsg, Frame, Name, RejectReason, bye, notice, roster_flags, welcome_flags,
 };
+use bc_proto::presence::{PlazaWriter, PosePacket};
 use bc_proto::{
     Faction, FrameId, InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, PacketKind, PilotKind, packet_kind,
 };
@@ -47,6 +48,9 @@ pub(super) struct Who {
 const TICK: Duration = Duration::from_millis(100);
 /// The market is resent at most this often while it moves.
 const MARKET_EVERY: Duration = Duration::from_secs(2);
+/// In the bay, every this many session ticks a plaza datagram with no one in it: the sector's
+/// tick, for the colony's clock (2 Hz). In the city it goes every tick (10 Hz).
+const HEARTBEAT_TICKS: u32 = 5;
 
 /// Takes a slot, plays, and gives the slot back.
 #[allow(clippy::too_many_arguments)]
@@ -93,6 +97,8 @@ pub(super) async fn run(
         trader,
         place: Place::Hangar,
         strip: 0,
+        named: Default::default(),
+        ticks: 0,
         watching: None,
         market_seen: 0,
         market_sent: Instant::now() - MARKET_EVERY,
@@ -130,8 +136,12 @@ struct Session<'a> {
     hangar: Hangar,
     trader: String,
     place: Place,
-    /// In the city: the land strip the pilot came down to.
+    /// In the city: the land strip the pilot came down to, and the people whose names they've
+    /// been told.
     strip: u8,
+    named: std::collections::HashSet<u16>,
+    /// Session ticks, for the bay's heartbeat.
+    ticks: u32,
     /// The item whose book the pilot is looking at.
     watching: Option<Item>,
     market_seen: u64,
@@ -397,9 +407,24 @@ impl Session<'_> {
                     let d = d?;
                     NetStats::add(&self.stats.datagrams_in, 1);
                     NetStats::add(&self.stats.bytes_in, d.len() as u64);
-                    if packet_kind(&d) != Some(PacketKind::Input) {
-                        NetStats::add(&self.stats.malformed, 1);
-                        continue;
+                    match packet_kind(&d) {
+                        Some(PacketKind::Input) => {}
+                        // On foot in the city: where the pilot is.
+                        Some(PacketKind::Pose) => {
+                            match PosePacket::decode(&d) {
+                                Ok(p) if rate.allow() && self.place == Place::City => {
+                                    let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+                                    self.game.plaza.accept(self.slot, p.seq, p.pose, Instant::now(), tick);
+                                }
+                                Ok(_) => {}
+                                Err(_) => NetStats::add(&self.stats.malformed, 1),
+                            }
+                            continue;
+                        }
+                        _ => {
+                            NetStats::add(&self.stats.malformed, 1);
+                            continue;
+                        }
                     }
                     match InputPacket::decode(&d) {
                         Ok(packet) if rate.allow() => {
@@ -456,6 +481,7 @@ impl Session<'_> {
                         heard = tokio::time::Instant::now();
                     }
                     if self.survival() {
+                        self.send_plaza().await?;
                         let settle = last_settle.elapsed() >= Duration::from_secs(1);
                         if settle {
                             last_settle = Instant::now();
@@ -494,6 +520,37 @@ impl Session<'_> {
         let bay = (self.slot % 99 + 1) as u8;
         let strip = (self.place == Place::City).then_some(self.strip);
         self.send(&Update::Place { place: self.place, bay, strip }).await
+    }
+
+    /// In the city, the people near the pilot (and the names of any they haven't seen before);
+    /// in the bay, now and then, just the sector's tick.
+    async fn send_plaza(&mut self) -> anyhow::Result<()> {
+        self.ticks = self.ticks.wrapping_add(1);
+        let city = self.place == Place::City;
+        if !city && !(self.place == Place::Hangar && self.ticks.is_multiple_of(HEARTBEAT_TICKS)) {
+            return Ok(());
+        }
+        let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        let mut buf = [0u8; MAX_DATAGRAM];
+        let mut shown = Vec::new();
+        let mut w = PlazaWriter::new(&mut buf, tick, city.then_some(self.strip));
+        if city {
+            self.game.plaza.fill(self.slot, Instant::now(), tick, &mut w, &mut shown);
+        }
+        let n = w.finish();
+        if self.conn.send_datagram(&buf[..n]).is_ok() {
+            NetStats::add(&self.stats.datagrams_out, 1);
+            NetStats::add(&self.stats.bytes_out, n as u64);
+        }
+        let new: Vec<wire::Person> = shown
+            .into_iter()
+            .filter(|id| self.named.insert(*id))
+            .filter_map(|id| Some(wire::Person { id, name: self.game.plaza.name(id)? }))
+            .collect();
+        if !new.is_empty() {
+            self.send(&Update::People { people: new }).await?;
+        }
+        Ok(())
     }
 
     async fn send_hangar(&mut self) -> anyhow::Result<()> {
@@ -625,6 +682,8 @@ impl Session<'_> {
         }
         self.place = Place::City;
         self.strip = strip % bc_sim::colony::frame::STRIPS as u8;
+        self.game.plaza.enter(self.slot, &self.callsign, self.strip);
+        self.named.clear();
         tracing::info!(slot = self.slot, name = %self.callsign, strip = self.strip, "went down into the colony");
         self.send_place().await?;
         self.publish_hangar();
@@ -636,6 +695,7 @@ impl Session<'_> {
         if self.place != Place::City {
             return self.note("you're not in the colony", false).await;
         }
+        self.game.plaza.leave(self.slot);
         self.place = Place::Hangar;
         self.send_place().await?;
         self.send_hangar().await?;
@@ -765,6 +825,7 @@ impl Session<'_> {
     /// The pilot is gone: their suit sleeps (signed in) or goes, their record is kept, and the
     /// slot is handed back.
     async fn leave(&mut self) {
+        self.game.plaza.leave(self.slot);
         let _ = self.game.egress.push(EgressCmd::Detach(self.slot));
         self.game.egress_thread.unpark();
         if !self.entered {

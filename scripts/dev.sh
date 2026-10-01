@@ -5,7 +5,7 @@
 #      BC_ORACLE (local|jev; jev needs TYPESAFE_API_KEY),
 #      BC_RULES (survival|arcade; default survival), BC_DATA (a directory: keep pilots, hangars
 #      and the exchange across restarts), BC_COLONY=1 (open the colony: the bay's airlock leads
-#      down into its city)
+#      down into its city, where an agent strolls outside each Hub Gate)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ./scripts/build-web.sh webgl2
@@ -27,6 +27,13 @@ for i in $(seq 1 "${BC_MINERS:-1}"); do
   ./target/release/examples/miner --name "Miner-$(printf %02d "$i")" &
   pids+=($!)
 done
+# The colony open: someone strolling outside each strip's Hub Gate.
+if [ "${BC_COLONY:-0}" = "1" ]; then
+  for strip in 0 1 2; do
+    ./target/release/examples/flaneur --name "Flaneur-0$((strip + 1))" --strip "$strip" &
+    pids+=($!)
+  done
+fi
 echo
 echo "  Before Colony is up: open http://127.0.0.1:8080   (add ?autopilot=1 to watch the Mobile Doll brain fly)"
 echo

@@ -639,7 +639,8 @@ pub fn ground(strip: u8, s: f32, x: f32, stage: Stage) -> f32 {
 }
 
 /// The solid boxes near a footprint, for anything that wants them one at a time: buildings, kerbs,
-/// railings, Hub Gate's terminal, the end caps' walls, the glass's edge. Calls `f` with each; stops
+/// railings, Hub Gate's terminal, the end caps' walls, the glass's edge, the tram stations'
+/// platforms. Calls `f` with each; stops
 /// early when it returns true, and says whether it did.
 pub fn each_solid(strip: u8, area: &Rect, stage: Stage, mut f: impl FnMut(&CityBox) -> bool) -> bool {
     const DEEP: f32 = -50.0;
@@ -663,6 +664,10 @@ pub fn each_solid(strip: u8, area: &Rect, stage: Stage, mut f: impl FnMut(&CityB
         if w.rect.overlaps(area) && f(w) {
             return true;
         }
+    }
+    // The tram stations' island platforms, on the avenue.
+    if super::transit::platform_solids(area, &mut f) {
+        return true;
     }
     let (b0, b1) = (block_index(area.x0), block_index(area.x1));
     let (r0, r1) = (row_at(area.s0), row_at(area.s1));
@@ -793,9 +798,10 @@ mod tests {
     #[test]
     fn streets_avenues_and_plazas_are_clear_to_walk() {
         for k in 0..STRIPS as u8 {
-            // Every cross street, up and down the strip, at a few places across.
+            // Every cross street, up and down the strip, at a few places across (on the avenue,
+            // its road: a tram station's platform may stand on its median).
             for bx in (HUB_GATE.0 + 1)..=FAR_FOOT.1 {
-                for s in [60.0, 700.0, STRIP_WIDTH * 0.5, 2_100.0, STRIP_WIDTH - 60.0] {
+                for s in [60.0, 700.0, STRIP_WIDTH * 0.5 - 20.0, 2_100.0, STRIP_WIDTH - 60.0] {
                     assert!(!walker_at(k, s, grid_x(bx), 0.0), "a street at {bx} on strip {k}, s {s}");
                 }
             }

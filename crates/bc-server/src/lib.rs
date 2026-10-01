@@ -15,6 +15,7 @@ pub mod http;
 pub mod market;
 pub mod net;
 pub mod pilots;
+pub mod plaza;
 pub mod telemetry;
 
 use std::net::SocketAddr;

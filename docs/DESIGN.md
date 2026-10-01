@@ -604,10 +604,18 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
 - **Places:** the Exchange floor (its terminal is the bay's exchange), the Charter Board (its
   notices), The Arrival (a bar, quiet for now), and Hub Gate, whose lift goes back up to the bay.
   A suit can't launch from the city: its pilot rides back up first.
+- **Other pilots** are there too, on their own feet in flight suits of their own colours (from
+  their names, the same on every screen), striding as fast as they go, their names over them
+  within 40 m. Everyone on a strip within 1.5 km is shown, nearest first, up to 48. Agents can
+  walk the city as well (`bc-bot`'s `flaneur`).
 
-Still to come: other pilots in the city, in flight suits coloured their own (the plaza's
-datagrams), trams down each avenue, vehicles, and suits inside the colony with their weapons safe
-by the colony's law.
+- **Trams** run down the middle of each strip's avenue: eleven stations from Hub Gate to the
+  building site, a train every 2.8 minutes each way, 81 s between stations at up to 57 m/s. Walk
+  in through a standing train's open doors from its island platform; it carries you (jump as it
+  pulls away and it moves on under you); walk out at any station. Every train is where the colony's clock says, on
+  every screen, and so is everyone riding one.
+
+Still to come: vehicles, and suits inside the colony with their weapons safe by the colony's law.
 
 ## The world (EVE-lite, roadmap)
 

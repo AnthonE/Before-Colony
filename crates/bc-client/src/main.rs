@@ -63,6 +63,8 @@ mod page;
 #[cfg(target_arch = "wasm32")]
 mod particles;
 #[cfg(target_arch = "wasm32")]
+mod people;
+#[cfg(target_arch = "wasm32")]
 mod perf;
 #[cfg(target_arch = "wasm32")]
 mod pointer;
@@ -84,6 +86,8 @@ mod sky;
 mod suits_vis;
 #[cfg(target_arch = "wasm32")]
 mod terminal;
+#[cfg(target_arch = "wasm32")]
+mod trams;
 #[cfg(target_arch = "wasm32")]
 mod transport;
 #[cfg(target_arch = "wasm32")]

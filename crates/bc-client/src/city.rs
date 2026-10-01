@@ -35,6 +35,7 @@ use bevy::pbr::{
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, ShaderType};
+use bevy::render::view::ColorGrading;
 use bevy::shader::ShaderRef;
 
 use crate::camera::MainCamera;
@@ -213,7 +214,8 @@ fn window_mesh(k: usize, x0: f32, x1: f32) -> (DVec3, Mesh) {
     (anchor.as_dvec3(), mesh)
 }
 
-/// Builds what's always there inside: the ground, the windows, the end caps, Hub Gate's terminals.
+/// Builds what's always there inside: the ground, the windows, the end caps, Hub Gate's terminals,
+/// the tram stations.
 pub fn setup_city(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -253,6 +255,10 @@ pub fn setup_city(
         }
         let (anchor, mesh) = city_mesh::hub_gate(strip);
         part(&mut commands, to_mesh(mesh), colony_point(anchor), true);
+        for i in 0..bc_sim::colony::transit::STATIONS {
+            let (anchor, mesh) = city_mesh::station(strip, i);
+            part(&mut commands, to_mesh(mesh), colony_point(anchor), true);
+        }
     }
     for k in 0..STRIPS {
         for seg in 0..16 {
@@ -275,9 +281,20 @@ pub fn setup_city(
 fn switch_view(
     view: Res<CityView>,
     streamer: Res<Streamer>,
-    mut cams: Query<&mut RenderLayers, With<MainCamera>>,
+    gfx: Res<Gfx>,
+    mut cams: Query<(&mut RenderLayers, Option<&mut ColorGrading>), With<MainCamera>>,
     mut vis: Query<&mut Visibility>,
 ) {
+    // Inside, the picture's white balance is left alone: the space scene's warm grade turns the
+    // colony's blue haze mauve (`apply_camera_tier` puts it back whenever the tier changes).
+    let temperature = if view.active { 0.0 } else { crate::gfx::base_grading(gfx.look).global.temperature };
+    for (_, grading) in &mut cams {
+        if let Some(mut g) = grading
+            && g.global.temperature != temperature
+        {
+            g.global.temperature = temperature;
+        }
+    }
     if !view.is_changed() {
         return;
     }
@@ -286,7 +303,7 @@ fn switch_view(
     } else {
         RenderLayers::from_layers(&[0, crate::cockpit::LAYER])
     };
-    for mut l in &mut cams {
+    for (mut l, _) in &mut cams {
         *l = layers.clone();
     }
     if let Some(mut v) = streamer.root.and_then(|r| vis.get_mut(r).ok()) {

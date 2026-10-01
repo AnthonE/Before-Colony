@@ -62,6 +62,7 @@ mod tests {
         assert_eq!(constant("CANAL_WIDTH"), city::CANAL_WIDTH);
         assert!((constant("STRIP_WIDTH") - STRIP_WIDTH).abs() < 1e-3);
         assert_eq!(constant("ATLAS_ROWS") as u32, ATLAS_ROWS);
+        assert_eq!(constant("TRACK_OFFSET"), bc_sim::colony::transit::TRACK_OFFSET);
     }
 
     #[test]

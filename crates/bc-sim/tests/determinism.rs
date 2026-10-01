@@ -650,9 +650,10 @@ fn surface_golden_wasm() {
 }
 
 /// Hash of the colony's closed forms: the city's blocks and buildings on every strip (every fifth
-/// block along, every row), what's solid at scattered points, the colony's day and its frames.
+/// block along, every row), what's solid at scattered points, the colony's day and its frames,
+/// and its trams (their timetable, the stations' platforms).
 /// Every client draws and walks this, and the server checks poses against it.
-const CITY_GOLDEN: u64 = 0x07d4_eb33_6c72_6377;
+const CITY_GOLDEN: u64 = 0xa794_5f3a_f31a_0372;
 
 fn city_hash() -> u64 {
     use bc_sim::colony::{city, frame, time};
@@ -707,6 +708,25 @@ fn city_hash() -> u64 {
         for v in [c.x, c.y, c.z] {
             fnv(&mut h, v.to_bits());
         }
+    }
+    // The trams: their timetable, and the stations' platforms.
+    use bc_sim::colony::transit;
+    for strip in 0..3u8 {
+        for k in 0..transit::TRAINS as u8 {
+            for t in (0..transit::PERIOD_TICKS).step_by(7_919) {
+                let tr = transit::train(strip, k, t, 0.37);
+                for v in [tr.x, tr.s, tr.dir, tr.speed, tr.accel] {
+                    fnv(&mut h, v.to_bits());
+                }
+                fnv(&mut h, u32::from(tr.doors) | tr.at.map_or(0, |a| a as u32 + 2) << 1);
+            }
+        }
+    }
+    for i in 0..400 {
+        let x = transit::station_x(i % transit::STATIONS) - 45.0 + 0.23 * i as f32;
+        let p = glam::Vec3::new(x, 0.3, -frame::STRIP_WIDTH * 0.5 - 1.0);
+        let e = glam::Vec3::new(0.3, 0.9, 0.3);
+        fnv(&mut h, u32::from(city::solid((i % 3) as u8, p - e, p + e, stage)));
     }
     h
 }

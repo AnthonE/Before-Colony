@@ -8,7 +8,7 @@
 #   scripts/e2e.sh login [project]   # wallet sign-in (a stub wallet with a test key), resume, take-over
 #   scripts/e2e.sh hangar [project]  # survival: on foot in the bay, its terminals, launching and docking
 #   scripts/e2e.sh surface [project] # the lander lands in MO-II's Aft Well, hides, parks and wakes there
-#   scripts/e2e.sh colony [project]  # survival, the colony open: the cap lift, the city's streets, its Exchange floor
+#   scripts/e2e.sh colony [project]  # survival, the colony open: the cap lift, another pilot at Hub Gate, the streets, the Exchange floor
 # Anything after the project goes to Playwright, e.g. `scripts/e2e.sh gfx webgl2 --grep "duel|hangar"`.
 # The suits' suites run the arcade rules (any frame, free respawns) unless BC_RULES says otherwise.
 set -euo pipefail
@@ -61,8 +61,11 @@ case "$suite" in
     pids+=($!)
     ;;
   colony)
-    # Survival rules with the colony open; no dolls.
+    # Survival rules with the colony open; no dolls. An agent strolls outside Hub Gate.
     ./target/release/bc-server --mode game --rules survival --colony --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls 0 &
+    pids+=($!)
+    sleep 1
+    ./target/release/examples/flaneur --server "$BC_URL" --name "Flaneur-01" &
     pids+=($!)
     ;;
   *) echo "unknown suite $suite" >&2; exit 1 ;;

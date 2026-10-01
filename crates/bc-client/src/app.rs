@@ -106,6 +106,7 @@ pub fn run() {
                     track_bodies,
                     sync_view,
                     crate::onfoot::drive_onfoot,
+                    crate::people::fill_crowd,
                     crate::rocks::follow_server_field,
                     crate::rocks::follow_rock_states,
                     crate::salvage_vis::sync_chunks,
@@ -175,6 +176,7 @@ impl Plugin for VisualsPlugin {
                 crate::cockpit::CockpitPlugin,
                 crate::ui_panel::UiPanelPlugin,
             ))
+            .add_plugins((crate::people::PeoplePlugin, crate::trams::TramsPlugin))
             .configure_sets(
                 Update,
                 (Vis::Drive, Vis::Suits, Vis::Camera, Vis::Audio, Vis::Fx, Vis::Hud).chain(),
