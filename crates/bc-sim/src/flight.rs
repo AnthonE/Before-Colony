@@ -11,6 +11,9 @@
 //!   snaps onto it at full thrust.
 //! - **Pilot G**: sustained load above tolerance builds G-strain. At 1.0 the pilot blacks out and
 //!   control authority collapses until it recovers below 0.5. Mobile Dolls have no body to protect.
+//! - **Anime rules** ([`BoostGauge`], `crate::tuning::FlightRules`): the tank is a boost gauge. Only
+//!   boost burns it; flying, turning on RCS and a blade's lunge are free, and work on an empty
+//!   tank; and it fills back up whenever boost is let go.
 
 use bc_proto::InputCmd;
 use bc_proto::buttons::{BOOST, BRAKE, FLIGHT_ASSIST, RCS_SHARP};
@@ -114,6 +117,8 @@ pub struct FlightMods {
     pub roll_level: Option<Vec3>,
     /// Flight assist aloft over a surface that grips the suit ([`HopAssist`]).
     pub hop: Option<HopAssist>,
+    /// Anime rules: the tank is a boost gauge ([`BoostGauge`]). None: every newton burns.
+    pub gauge: Option<BoostGauge>,
 }
 
 impl Default for FlightMods {
@@ -133,8 +138,20 @@ impl Default for FlightMods {
             extra_mass_kg: 0,
             roll_level: None,
             hop: None,
+            gauge: None,
         }
     }
+}
+
+/// Anime rules: the tank is a boost gauge. Only boost burns propellant (all the thrust it gives,
+/// as ever); everything else the thrusters do is free and works on an empty tank, and once boost
+/// is let go the tank fills back up. Boost's cruise needs propellant to hold.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BoostGauge {
+    /// The tank's size, of the frame's own (an auxiliary tank's bigger).
+    pub tank: f32,
+    /// The share of the tank that comes back a second while boost isn't held.
+    pub refill: f32,
 }
 
 /// Flight assist aloft over a surface that grips the suit: it holds the stick's speed along the
@@ -205,6 +222,8 @@ pub fn integrate(
     // Extra mass slows turns too (limbs and thrusters swing more); a lighter suit gains nothing.
     let turn = (own / mass).min(1.0);
     let has_prop = s.propellant > 0.0;
+    // Under anime rules only boost needs propellant.
+    let powered = has_prop || mods.gauge.is_some();
     let authority = if s.blackout { 0.25 } else { 1.0 };
 
     // --- Attitude: chase the aim direction, plus commanded roll (or roll-level). ---
@@ -214,7 +233,7 @@ pub fn integrate(
     let sin_a = length(axis);
     let cos_a = fwd.dot(aim);
     let angle = atan2(sin_a, cos_a);
-    let rcs = cmd.pressed(RCS_SHARP) && has_prop;
+    let rcs = cmd.pressed(RCS_SHARP) && powered;
     let max_rate = if rcs { spec.rcs_rate } else { spec.ambac_rate } * authority;
     let ambac = spec.ambac_accel * mods.ambac * authority * turn;
     let rcs_accel = if rcs { spec.rcs_accel * authority * turn } else { 0.0 };
@@ -251,7 +270,7 @@ pub fn integrate(
     let max_dw = accel_cap * dt;
     let applied = if dw_len > max_dw && dw_len > 0.0 { dw * (max_dw / dw_len) } else { dw };
     s.ang_vel += applied;
-    if rcs_accel > 0.0 {
+    if rcs_accel > 0.0 && mods.gauge.is_none() {
         s.propellant -= spec.rcs_propellant * length(applied) * (rcs_accel / accel_cap);
     }
     s.rot = integrate_rotation(s.rot, s.ang_vel, dt);
@@ -271,8 +290,9 @@ pub fn integrate(
     let stick = if brake { Vec3::ZERO } else { cmd.thrust_vec() };
     let mut f_local = if assisted {
         // Boost's cruise while the pilot holds it, even through a blackout that cuts the boost
-        // itself (flight assist mustn't brake them for it).
-        let cruise = spec.fa_speed * if cmd.pressed(BOOST) && can_boost { FA_BOOST_CRUISE } else { 1.0 };
+        // itself (flight assist mustn't brake them for it). An empty boost gauge can't hold it.
+        let boost_cruise = cmd.pressed(BOOST) && can_boost && (has_prop || mods.gauge.is_none());
+        let cruise = spec.fa_speed * if boost_cruise { FA_BOOST_CRUISE } else { 1.0 };
         let v_local = s.rot.conjugate() * s.vel;
         let gap = match mods.hop {
             None => stick * cruise - v_local,
@@ -303,7 +323,7 @@ pub fn integrate(
         f_local.z = spec.main_thrust * mods.main * LUNGE_THRUST;
     }
     f_local *= mods.thrust * authority;
-    if !has_prop {
+    if !powered {
         f_local = Vec3::ZERO;
     }
     // Flight assist spares its pilot's body: short of boost (or a blade's lunge), it holds them
@@ -315,11 +335,18 @@ pub fn integrate(
     if g_limited {
         f_local *= most / pull;
     }
-    let burn =
-        (f_local.x.abs() + f_local.y.abs() + f_local.z.abs()) * dt / (spec.exhaust_velocity() * mods.isp);
-    s.propellant = (s.propellant - burn).max(0.0);
+    // Under anime rules only boost burns.
+    if mods.gauge.is_none() || boosting {
+        let burn =
+            (f_local.x.abs() + f_local.y.abs() + f_local.z.abs()) * dt / (spec.exhaust_velocity() * mods.isp);
+        s.propellant = (s.propellant - burn).max(0.0);
+    }
     if mods.leak_kg_s > 0.0 {
         s.propellant = (s.propellant - mods.leak_kg_s * dt).max(0.0);
+    }
+    // It fills only once boost is let go, so a pilot leaning on an empty gauge gets nothing.
+    if !(cmd.pressed(BOOST) && can_boost) {
+        refill(s, spec, mods, dt);
     }
     let axial = if f_local.z >= 0.0 { spec.main_thrust } else { spec.retro_thrust };
     // Against the healthy caps: damaged thrusters read as a lower throttle (the sound, the plumes).
@@ -331,6 +358,18 @@ pub fn integrate(
     // --- Pilot G. ---
     pilot_g(s, accel, mods, dt);
     FlightOut { boosting, accel, throttle, g_limited }
+}
+
+/// Anime rules ([`BoostGauge`]): `dt` of the tank filling back up, to its size. Nothing under the
+/// real rules. Flying suits refill in [`integrate`] while boost isn't held; a suit on its feet
+/// (whose legs burn nothing, and whose Shift runs) refills through this from the ground step.
+pub fn refill(s: &mut FlightState, spec: &FrameSpec, mods: &FlightMods, dt: f32) {
+    if let Some(g) = mods.gauge {
+        let tank = spec.propellant_cap * g.tank;
+        if s.propellant < tank {
+            s.propellant = (s.propellant + tank * g.refill * dt).min(tank);
+        }
+    }
 }
 
 /// Pilot G: the suit felt `accel` (m/s²) for `dt`. Above what a pilot bears for good, strain

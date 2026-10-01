@@ -73,12 +73,15 @@ fn hide_boot_overlay() {
 }
 
 /// Game state for the E2E tests (and for curious humans at the devtools console).
+#[allow(clippy::too_many_arguments)]
 pub fn publish_game(
     game: NonSend<crate::net::GameClient>,
     link: Res<crate::session::LinkRes>,
     ui: Res<crate::page::Ui>,
     chase: Res<crate::camera::Chase>,
     prefs: Res<crate::view::ViewPrefs>,
+    map: Res<crate::map::MapOpen>,
+    objectives: Res<crate::map::ObjectiveState>,
     mut dev: ResMut<DevStatus>,
 ) {
     use bc_proto::PilotKind;
@@ -98,6 +101,13 @@ pub fn publish_game(
     let w = &core.world;
     dev.set("mode", "game");
     dev.set("welcomed", core.welcome.is_some());
+    // The flight rules, the gauge (kg), the map and the objective with its waypoint.
+    dev.set("anime", core.welcome.is_some_and(|w| w.anime));
+    dev.set("propellant", core.predict.state.propellant);
+    dev.set("map_open", map.0);
+    let survival = core.welcome.is_some_and(|w| w.survival);
+    dev.set("objective", objectives.current.map(|o| o.title(survival)).unwrap_or_default());
+    dev.set("waypoint", objectives.waypoint.as_ref().map(|w| w.1.clone()).unwrap_or_default());
     dev.set("signed_in", core.welcome.is_some_and(|w| w.signed_in));
     dev.set("woke", core.welcome.is_some_and(|w| w.woke));
     dev.set("resume_token", core.resume_token.is_some());

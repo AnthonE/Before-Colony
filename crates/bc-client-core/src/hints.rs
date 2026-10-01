@@ -27,15 +27,18 @@ pub enum Hint {
     Surface,
     /// In a hide spot: hiding.
     Hide,
+    /// Flying: the map, and the objective's waypoint.
+    Map,
 }
 
 impl Hint {
     /// In the order they're shown.
-    pub const ALL: [Hint; 14] = [
+    pub const ALL: [Hint; 15] = [
         Hint::Walk,
         Hint::Use,
         Hint::Launch,
         Hint::Thrust,
+        Hint::Map,
         Hint::Boost,
         Hint::Fire,
         Hint::Camera,
@@ -71,7 +74,7 @@ impl Hint {
     pub fn text(self) -> &'static str {
         match self {
             Hint::Thrust => "W A S D and Space / C thrust. The mouse aims; Q / E roll.",
-            Hint::Boost => "Shift boosts, X brakes, R turns fast on thrusters.",
+            Hint::Boost => "Shift boosts (it spends propellant: watch the gauge), X brakes, R turns fast.",
             Hint::Fire => "Left and right mouse fire, F strikes in melee, H is the suit's special.",
             Hint::FlightAssist => {
                 "V turns flight assist off: then nothing slows you down, like a real spacecraft."
@@ -95,6 +98,7 @@ impl Hint {
             Hint::Hide => {
                 "Crouch still in a hide spot and sensors lose you. Log off here and your suit stays hidden"
             }
+            Hint::Map => "M opens the map. Your objective is top left, and ◆ marks where to go.",
         }
     }
 
@@ -103,7 +107,7 @@ impl Hint {
         match self {
             Hint::Thrust | Hint::Fire | Hint::Walk => 20.0,
             Hint::Use | Hint::Launch => 30.0,
-            Hint::Dock | Hint::Camera | Hint::Grip | Hint::Hide => 15.0,
+            Hint::Dock | Hint::Camera | Hint::Grip | Hint::Hide | Hint::Map => 15.0,
             Hint::Surface => 20.0,
             _ => 9.0,
         }
@@ -143,6 +147,8 @@ pub struct HintInput {
     /// In one of a landmark's hide spots, and hidden (sensors have lost it).
     pub in_hide_spot: bool,
     pub hidden: bool,
+    /// Opened the map.
+    pub opened_map: bool,
 }
 
 /// Seconds between one hint and the next.
@@ -189,6 +195,7 @@ impl Hints {
                 Hint::Grip => i.gripping,
                 Hint::Surface => i.walked,
                 Hint::Hide => i.hidden,
+                Hint::Map => i.opened_map,
             };
             self.doing = if acting { self.doing + dt } else { self.doing };
             self.hopped |= i.hopped;
@@ -202,6 +209,7 @@ impl Hints {
                     | Hint::Dock
                     | Hint::Grip
                     | Hint::Hide
+                    | Hint::Map
             );
             // The surface's: a second of walking, and a hop.
             let done = if h == Hint::Surface {
@@ -251,6 +259,10 @@ mod tests {
         // Thrusting for a second clears it.
         run(&mut h, &mut seen, &mut t, 1.2, HintInput { thrusting: true, ..flying });
         assert!(seen & Hint::Thrust.bit() != 0);
+        // Then the map: opening it clears it at once.
+        assert_eq!(run(&mut h, &mut seen, &mut t, GAP + 0.2, flying), Some(Hint::Map));
+        run(&mut h, &mut seen, &mut t, 0.05, HintInput { opened_map: true, ..flying });
+        assert!(seen & Hint::Map.bit() != 0);
         assert_eq!(run(&mut h, &mut seen, &mut t, GAP + 0.2, flying), Some(Hint::Boost));
     }
 
@@ -259,7 +271,7 @@ mod tests {
         let (mut h, mut seen, mut t) = (Hints::default(), 0u32, 0.0);
         let flying = HintInput { flying: true, ..Default::default() };
         // Everything before it already seen.
-        for x in [Hint::Thrust, Hint::Boost, Hint::Fire] {
+        for x in [Hint::Thrust, Hint::Map, Hint::Boost, Hint::Fire] {
             seen |= x.bit();
         }
         assert_eq!(run(&mut h, &mut seen, &mut t, 0.1, flying), Some(Hint::Camera));

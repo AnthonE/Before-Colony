@@ -41,6 +41,8 @@ mod input;
 #[cfg(target_arch = "wasm32")]
 mod landmarks;
 #[cfg(target_arch = "wasm32")]
+mod map;
+#[cfg(target_arch = "wasm32")]
 mod materials;
 #[cfg(target_arch = "wasm32")]
 mod missiles_vis;

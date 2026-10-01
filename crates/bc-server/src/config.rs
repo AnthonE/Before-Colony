@@ -23,6 +23,25 @@ pub enum Ruleset {
     Arcade,
 }
 
+/// How pilots fly (`bc_sim::tuning::FlightRules`; Mobile Dolls fly by the real rules either way).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum Flight {
+    /// For fun over realism: the tank is a boost gauge (only boost burns it, and it fills back up
+    /// once boost is let go), and pilots bear twice the G.
+    Anime,
+    /// The simulator: every newton burns propellant, and a pilot bears 6 g for good.
+    Real,
+}
+
+impl Flight {
+    pub fn rules(self) -> bc_sim::tuning::FlightRules {
+        match self {
+            Flight::Anime => bc_sim::tuning::FlightRules::Anime,
+            Flight::Real => bc_sim::tuning::FlightRules::Real,
+        }
+    }
+}
+
 /// Which tactical oracle feeds the ZERO System. The in-sim local oracle always runs; `jev` adds
 /// TypeSafe Jev as a blended prior when `TYPESAFE_API_KEY` is set.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
@@ -65,6 +84,7 @@ pub struct Config {
     /// A session with no input for this long is ended (its suit sleeps, or goes, as on leaving).
     pub idle_timeout: Duration,
     pub rules: Ruleset,
+    pub flight: Flight,
     /// The fabricator and foundry work this many times faster than their recipes say.
     pub craft_speed: f64,
     /// Where pilot records and the exchange are kept (none: in memory, for this run only).
@@ -91,6 +111,7 @@ impl Default for Config {
             max_sleepers: 256,
             idle_timeout: Duration::from_secs(60),
             rules: Ruleset::Survival,
+            flight: Flight::Anime,
             craft_speed: 1.0,
             data_dir: None,
         }

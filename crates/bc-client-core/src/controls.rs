@@ -82,6 +82,7 @@ pub const BINDINGS: &[Binding] = &[
         "Enter",
         "Dock: at rest inside the dock's ring of lights (the colony's -X end), into your bay",
     ),
+    b(Group::System, "M", "Map of the sector, with your objectives (the current one is marked ◆)"),
     b(Group::System, "Esc", "Menu"),
     b(Group::System, "F1", "This list"),
     b(Group::System, "F10", "Graphics quality"),

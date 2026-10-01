@@ -8,6 +8,7 @@ use bc_sim::ai::{self, AiState, DollProfile, PILOT};
 use bc_sim::content::{WeaponClass, frame, weapon};
 use bc_sim::math::look_rotation;
 use bc_sim::perception::Perception;
+use bc_sim::tuning::FlightRules;
 use bc_sim::{Sim, SimConfig, SuitId};
 use glam::Vec3;
 
@@ -23,7 +24,12 @@ struct Evidence {
 
 /// `f` (Colonies) starts `gap` m from three Taurus and a Virgo (Oz), and fights them for `secs`.
 fn fight(f: FrameId, gap: f32, secs: u32) -> Evidence {
-    let mut sim = Sim::new(SimConfig { target_dolls: 0, seed: 21, ..SimConfig::default() });
+    fight_by(FlightRules::Real, f, gap, secs)
+}
+
+/// [`fight`], under the given flight rules.
+fn fight_by(flight: FlightRules, f: FrameId, gap: f32, secs: u32) -> Evidence {
+    let mut sim = Sim::new(SimConfig { target_dolls: 0, seed: 21, flight, ..SimConfig::default() });
     let home = Vec3::new(-2_000.0, 1_200.0, 3_000.0);
     let me =
         sim.spawn_at(f, Faction::Colonies, PilotKind::Human, home, look_rotation(Vec3::X, Vec3::Y)).unwrap();
@@ -122,4 +128,57 @@ fn wing_zero_flies_out_as_neo_bird_and_fights_as_itself() {
     assert!(changes >= 2, "forms flown: {:?}", ev.frames);
     assert!(ev.specials >= 2);
     assert!(hits(&ev, WeaponClass::Beam) >= 1, "no hits");
+}
+
+/// Under anime rules the tank is a boost gauge that fills only once boost is let go: a pilot run
+/// dry on a long pursuit lets go of boost (rather than crawl after its prey at the plain cruise on
+/// an empty gauge that never fills), and boosts again once it's half full.
+#[test]
+fn under_anime_rules_a_dry_gauge_is_let_go_until_half_full() {
+    let cfg = SimConfig { target_dolls: 0, seed: 21, flight: FlightRules::Anime, ..SimConfig::default() };
+    let mut sim = Sim::new(cfg);
+    let home = Vec3::new(-2_000.0, 1_200.0, 3_000.0);
+    let me = sim
+        .spawn_at(
+            FrameId::Shenlong,
+            Faction::Colonies,
+            PilotKind::Human,
+            home,
+            look_rotation(Vec3::X, Vec3::Y),
+        )
+        .unwrap();
+    let far = home + Vec3::new(5_000.0, 0.0, 0.0);
+    sim.spawn_at(FrameId::Taurus, Faction::Oz, PilotKind::MobileDoll, far, look_rotation(-Vec3::X, Vec3::Y))
+        .unwrap();
+    sim.suits.flight[me.idx()].propellant = 0.0;
+    let mut brain = AiState { rng: 7, anchor: far, ..AiState::default() };
+    let mut p = Perception::default();
+    let tank = frame(FrameId::Shenlong).propellant_cap;
+    let (mut held_dry, mut boosted_again) = (0, false);
+    for _ in 0..20 * 30 {
+        let cmd = pilot(&mut sim, me, &mut brain, &mut p);
+        let gauge = sim.suits.flight[me.idx()].propellant / tank;
+        let boost = cmd.pressed(bc_proto::buttons::BOOST);
+        if boost && gauge < 0.45 && !boosted_again {
+            held_dry += 1;
+        }
+        boosted_again |= boost && gauge > 0.45;
+        sim.set_input(me, cmd);
+        sim.step();
+    }
+    assert_eq!(held_dry, 0, "it leaned on an empty gauge");
+    assert!(boosted_again, "it never boosted again");
+}
+
+/// Every frame still shows its kit under anime rules, from further off.
+#[test]
+fn under_anime_rules_the_kit_pilot_minds_its_boost_gauge() {
+    let shenlong = fight_by(FlightRules::Anime, FrameId::Shenlong, 6_000.0, 90);
+    println!("Shenlong: {shenlong:?}");
+    assert!(hits(&shenlong, WeaponClass::Melee) + hits(&shenlong, WeaponClass::Cone) >= 1);
+    let deathscythe = fight_by(FlightRules::Anime, FrameId::Deathscythe, 6_000.0, 90);
+    println!("Deathscythe: {deathscythe:?}");
+    assert!(hits(&deathscythe, WeaponClass::Melee) >= 1, "the scythe never landed");
+    let heavyarms = fight_by(FlightRules::Anime, FrameId::Heavyarms, 2_500.0, 60);
+    assert!(hits(&heavyarms, WeaponClass::Missile) >= 1 && hits(&heavyarms, WeaponClass::Beam) >= 1);
 }

@@ -272,6 +272,8 @@ pub fn move_step(b: &Bodies, m: &mut Mover, cmd: &InputCmd, cx: &MoveCtx, dt: f3
                 // The legs' push is felt as thrust is (contact itself is harmless).
                 let accel = pose.rot * acc_l;
                 flight::pilot_g(&mut m.flight, accel, &cx.mods, dt);
+                // Legs burn nothing, so under anime rules the boost gauge fills here too.
+                flight::refill(&mut m.flight, cx.spec, &cx.mods, dt);
                 out.flight = FlightOut { boosting: false, accel, throttle: Vec3::ZERO, g_limited: false };
                 false
             } else {

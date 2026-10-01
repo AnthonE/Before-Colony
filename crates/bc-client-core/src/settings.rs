@@ -106,6 +106,7 @@ pub const KNOBS: &[Knob] = &[
     range("shake", "Camera shake and screen effects", "VIEW", 0.0, 1.0, 0.05),
     toggle("flashing", "Flashing effects", "VIEW"),
     toggle("hints", "Hints for new pilots", "VIEW"),
+    toggle("objectives", "Objectives and their waypoint", "VIEW"),
     Knob { key: "gfx", label: "Graphics quality", group: "GRAPHICS", kind: Kind::Choice(&GfxChoice::NAMES) },
     range("vol_master", "Master volume", "SOUND", 0.0, 1.0, 0.05),
     range("vol_effects", "Weapons and impacts", "SOUND", 0.0, 1.0, 0.05),
@@ -136,6 +137,11 @@ pub struct Settings {
     pub hints: bool,
     /// The hints already shown (bits of `hints::Hint`).
     pub hints_seen: u32,
+    /// Show the current objective and its waypoint.
+    pub objectives: bool,
+    /// The objectives done (bits of `objectives::Objective`), and the Mobile Dolls downed.
+    pub objectives_done: u32,
+    pub dolls_downed: u32,
     /// Volumes, 0..1.
     pub vol_master: f32,
     pub vol_effects: f32,
@@ -157,6 +163,9 @@ impl Default for Settings {
             gfx: GfxChoice::Auto,
             hints: true,
             hints_seen: 0,
+            objectives: true,
+            objectives_done: 0,
+            dolls_downed: 0,
             vol_master: 0.8,
             vol_effects: 0.9,
             vol_cockpit: 0.8,
@@ -214,6 +223,9 @@ impl Settings {
             "gfx" => self.gfx.name().to_string(),
             "hints" => self.hints.to_string(),
             "hints_seen" => self.hints_seen.to_string(),
+            "objectives" => self.objectives.to_string(),
+            "objectives_done" => self.objectives_done.to_string(),
+            "dolls_downed" => self.dolls_downed.to_string(),
             "vol_master" => self.vol_master.to_string(),
             "vol_effects" => self.vol_effects.to_string(),
             "vol_cockpit" => self.vol_cockpit.to_string(),
@@ -241,11 +253,12 @@ impl Settings {
                     _ => self.vol_music = v,
                 }
             }
-            "invert_y" | "hints" | "flashing" => {
+            "invert_y" | "hints" | "flashing" | "objectives" => {
                 let Some(b) = parse_bool(value) else { return false };
                 match key {
                     "invert_y" => self.invert_y = b,
                     "hints" => self.hints = b,
+                    "objectives" => self.objectives = b,
                     _ => self.flashing = b,
                 }
             }
@@ -257,9 +270,13 @@ impl Settings {
                 let Some(c) = CameraView::parse(value) else { return false };
                 self.camera = c;
             }
-            "hints_seen" => {
+            "hints_seen" | "objectives_done" | "dolls_downed" => {
                 let Ok(n) = value.trim().parse() else { return false };
-                self.hints_seen = n;
+                match key {
+                    "hints_seen" => self.hints_seen = n,
+                    "objectives_done" => self.objectives_done = n,
+                    _ => self.dolls_downed = n,
+                }
             }
             _ => return false,
         }
@@ -267,7 +284,7 @@ impl Settings {
     }
 
     /// Every key, in the order the file lists them.
-    const KEYS: [&'static str; 15] = [
+    const KEYS: [&'static str; 18] = [
         "name",
         "frame",
         "sensitivity",
@@ -279,6 +296,9 @@ impl Settings {
         "gfx",
         "hints",
         "hints_seen",
+        "objectives",
+        "objectives_done",
+        "dolls_downed",
         "vol_master",
         "vol_effects",
         "vol_cockpit",
@@ -363,6 +383,9 @@ mod tests {
             gfx: GfxChoice::Medium,
             hints: false,
             hints_seen: 0b1011,
+            objectives: false,
+            objectives_done: 0b101,
+            dolls_downed: 3,
             vol_master: 0.6,
             vol_effects: 1.0,
             vol_cockpit: 0.35,

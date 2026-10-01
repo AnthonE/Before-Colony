@@ -235,6 +235,9 @@ impl Session<'_> {
         if self.survival() {
             flags |= welcome_flags::SURVIVAL;
         }
+        if self.game.anime {
+            flags |= welcome_flags::ANIME;
+        }
         send_control(
             self.tx,
             ControlMsg::Welcome {

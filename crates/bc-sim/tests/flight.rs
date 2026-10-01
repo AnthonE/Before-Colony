@@ -349,3 +349,124 @@ fn a_pilot_bears_their_own_tolerance() {
     let out = step(&mut c, &go, spec, &seat, DT);
     assert!(out.accel.length() / G0 > FA_G_CAP + 0.5, "a G-seat lets flight assist pull harder");
 }
+
+/// Anime rules' modifiers for a whole suit (`bc_sim::tuning`, as the server and the owner's client
+/// build them).
+fn anime() -> FlightMods {
+    let t = bc_sim::tuning::Tuning::default();
+    bc_sim::tuning::flight_mods(&t, bc_sim::tuning::FlightRules::Anime, false, 0)
+}
+
+#[test]
+fn under_anime_rules_flying_is_free_and_only_boost_spends_the_gauge() {
+    let spec = frame(FrameId::Leo);
+    let mods = anime();
+    let tank = spec.propellant_cap;
+    // Back and forth under flight assist, turning, on RCS: never a kilogram burnt.
+    let mut s = fresh(FrameId::Leo);
+    for k in 0..(40 * 30) {
+        let forward = if (k / 90) % 2 == 0 { 127 } else { -127 };
+        let aim = Quat::from_rotation_y(k as f32 * 0.01) * Vec3::Z;
+        let buttons = FLIGHT_ASSIST | if k % 200 < 50 { RCS_SHARP } else { 0 };
+        let cmd = InputCmd { aim, thrust: [40, -20, forward], buttons, ..InputCmd::default() };
+        step(&mut s, &cmd, spec, &mods, DT);
+    }
+    assert_eq!(s.propellant, tank, "flying burnt the gauge");
+    assert!(s.vel.length() > 10.0, "it flew: {:?}", s.vel);
+    // Boost spends it, as it always has (all the thrust it gives).
+    let boost = InputCmd { aim: Vec3::Z, thrust: [0, 0, 127], buttons: BOOST, ..InputCmd::default() };
+    let mut real = fresh(FrameId::Leo);
+    let mut s = fresh(FrameId::Leo);
+    for _ in 0..(5 * 30) {
+        step(&mut s, &boost, spec, &mods, DT);
+        step(&mut real, &boost, spec, &FlightMods::default(), DT);
+    }
+    assert!(s.propellant < tank - 200.0, "5 s of boost burnt only {} kg", tank - s.propellant);
+    assert!((s.propellant - real.propellant).abs() < 1.0, "{} vs {}", s.propellant, real.propellant);
+    // Let go, it fills back up: the whole tank in ANIME_REFILL_SECS.
+    let coast = InputCmd { aim: Vec3::Z, buttons: FLIGHT_ASSIST, ..InputCmd::default() };
+    let low = s.propellant;
+    for _ in 0..30 {
+        step(&mut s, &coast, spec, &mods, DT);
+    }
+    let per_s = s.propellant - low;
+    let want = tank / bc_sim::tuning::ANIME_REFILL_SECS;
+    assert!((per_s - want).abs() < want * 0.01, "{per_s} kg/s back, want {want}");
+    for _ in 0..(bc_sim::tuning::ANIME_REFILL_SECS as usize * 30) {
+        step(&mut s, &coast, spec, &mods, DT);
+    }
+    assert_eq!(s.propellant, tank, "full again, and no fuller");
+}
+
+#[test]
+fn under_anime_rules_an_empty_gauge_still_flies_but_cant_boost_until_let_go() {
+    let spec = frame(FrameId::WingZero);
+    let mods = anime();
+    let mut s = FlightState { propellant: 0.0, ..fresh(FrameId::WingZero) };
+    // Leaning on boost with the gauge dry: it flies at its plain cruise, and nothing comes back.
+    let held =
+        InputCmd { aim: Vec3::Z, thrust: [0, 0, 127], buttons: FLIGHT_ASSIST | BOOST, ..InputCmd::default() };
+    for _ in 0..(8 * 30) {
+        let out = step(&mut s, &held, spec, &mods, DT);
+        assert!(!out.boosting);
+    }
+    assert_eq!(s.propellant, 0.0);
+    assert!((s.vel.z - spec.fa_speed).abs() < 1.0, "plain cruise, not boost's: {:?}", s.vel);
+    // Let go of boost and it refills; held again, it boosts.
+    let go = InputCmd { buttons: FLIGHT_ASSIST, ..held };
+    for _ in 0..30 {
+        step(&mut s, &go, spec, &mods, DT);
+    }
+    assert!(s.propellant > 100.0);
+    assert!(step(&mut s, &held, spec, &mods, DT).boosting);
+    // Under the real rules a dry tank flies nowhere.
+    let mut dry = FlightState { propellant: 0.0, ..fresh(FrameId::WingZero) };
+    for _ in 0..30 {
+        step(&mut dry, &held, spec, &FlightMods::default(), DT);
+    }
+    assert_eq!(dry.vel, Vec3::ZERO);
+}
+
+#[test]
+fn under_anime_rules_a_holed_tank_refills_slower_and_a_failed_one_not_at_all() {
+    use bc_sim::content::systems::{DAMAGED, FAILED};
+    use bc_sim::content::{System, Systems, modules::Modules};
+    use bc_sim::tuning::{FlightRules, flight_mods, tuning};
+    let spec = frame(FrameId::Leo);
+    let refill = |level: u8| {
+        let t = tuning(0, Systems::OK.with(System::Tank, level), Modules::NONE);
+        let mods = flight_mods(&t, FlightRules::Anime, false, 0);
+        let mut s = FlightState { propellant: 500.0, ..fresh(FrameId::Leo) };
+        let coast = InputCmd { aim: Vec3::Z, ..InputCmd::default() };
+        for _ in 0..30 {
+            step(&mut s, &coast, spec, &mods, DT);
+        }
+        s.propellant - 500.0
+    };
+    let (whole, holed, failed) = (refill(0), refill(DAMAGED), refill(FAILED));
+    assert!(holed < whole * 0.6 && holed > 0.0, "{whole} {holed}");
+    assert!(failed < 0.0, "a failed tank only leaks: {failed}");
+}
+
+#[test]
+fn under_anime_rules_a_pilot_bears_twice_the_g() {
+    let mods = anime();
+    assert_eq!(mods.g_tolerance, HUMAN_G_TOLERANCE * bc_sim::tuning::ANIME_G);
+    // Deathscythe's boost (about 11 g) doesn't black its pilot out.
+    let spec = frame(FrameId::Deathscythe);
+    let mut s = fresh(FrameId::Deathscythe);
+    let burn = InputCmd { aim: Vec3::Z, thrust: [0, 0, 127], buttons: BOOST, ..InputCmd::default() };
+    for _ in 0..(5 * 30) {
+        step(&mut s, &burn, spec, &mods, DT);
+    }
+    assert!(s.g_load > 10.0 && !s.blackout && s.g_strain == 0.0, "{} g, strain {}", s.g_load, s.g_strain);
+}
+
+#[test]
+fn mobile_dolls_fly_by_the_real_rules_whatever_the_sectors() {
+    let t = bc_sim::tuning::Tuning::default();
+    let doll = bc_sim::tuning::flight_mods(&t, bc_sim::tuning::FlightRules::Anime, true, 0);
+    assert!(doll.gauge.is_none(), "a Doll burns every newton and runs dry");
+    assert_eq!(doll.g_tolerance, HUMAN_G_TOLERANCE);
+    assert!(anime().gauge.is_some());
+}

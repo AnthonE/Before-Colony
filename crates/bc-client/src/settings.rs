@@ -236,6 +236,7 @@ pub fn update_hints(
         hopped: grounded && keys.just_pressed(KeyCode::Space),
         in_hide_spot: grounded && feet.spot.is_some(),
         hidden,
+        opened_map: keys.just_pressed(crate::map::MAP_KEY),
     };
     let mut seen = settings.0.hints_seen;
     let hint = state.hints.step(&mut seen, now_s(), f64::from(time.delta_secs()), &input);
