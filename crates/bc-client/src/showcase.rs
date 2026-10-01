@@ -1091,7 +1091,7 @@ fn city_crowd(
                 speed,
                 grounded: true,
                 running: speed > 5.0,
-                train: 0,
+                ride: 0,
             };
             (i as u16, (*name).to_string(), pose)
         })

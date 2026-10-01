@@ -12,5 +12,6 @@ pub mod city;
 pub mod frame;
 pub mod hub;
 pub mod mirrors;
+pub mod pools;
 pub mod time;
 pub mod transit;

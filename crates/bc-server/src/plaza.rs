@@ -4,8 +4,9 @@
 //!
 //! A pose is taken only if it could be: on the pilot's own strip, within the colony, not inside a
 //! wall (`bc_sim::colony::city::solid`, the walls every client walks into), no further from the
-//! last one taken than a running pilot could go, and, the first, near the strip's Hub Gate, where
-//! the lift comes down. Anything else isn't passed on.
+//! last one taken than a running pilot (or a car) could go, and, the first, near the strip's Hub
+//! Gate, where the lift comes down; on a tram only from beside its open doors, and in a car only
+//! from a motor pool. Anything else isn't passed on.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -14,12 +15,15 @@ use std::time::Instant;
 use bc_proto::presence::{MAX_PEOPLE, PersonPose, PlazaWriter, RIDER_S};
 use bc_sim::colony::city::{MAX_HEIGHT, Stage, place_door, solid};
 use bc_sim::colony::frame::{STRIP_WIDTH, STRIPS, within_caps};
+use bc_sim::colony::pools::pool_near;
 use bc_sim::colony::transit::{self, CAR_WIDTH, TRAIN_LENGTH, TRAINS};
 use bc_sim::content::city::{PLACES, PlaceKind};
 use glam::Vec3;
 
 /// Faster than anyone runs (the walker's run is 7 m/s), with room for a late packet on top, m/s.
 const MAX_SPEED: f32 = 9.0 * 1.5;
+/// Faster than anything drives (a car's top speed is 30 m/s), likewise.
+const MAX_DRIVE: f32 = 35.0 * 1.3;
 const SLACK: f32 = 2.0;
 /// A pilot's first pose must be this near their strip's Hub Gate, m: everyone comes down its lift.
 const ARRIVAL: f32 = 150.0;
@@ -65,6 +69,22 @@ fn hub_gate(strip: u8) -> (f32, f32) {
         .iter()
         .find(|p| p.kind == PlaceKind::HubGate && p.strip == strip)
         .map_or((STRIP_WIDTH * 0.5, -15_900.0), |p| place_door(p).0)
+}
+
+/// How someone gets about.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Foot,
+    Train(u8),
+    Drive(u8),
+}
+
+fn mode(p: &PersonPose) -> Mode {
+    match p.riding() {
+        Some(k) => Mode::Train(k),
+        None if p.driving() => Mode::Drive(p.ride),
+        None => Mode::Foot,
+    }
 }
 
 /// Where someone is on their strip, `(s, x)`, at tick `tick` (a rider: where their train is).
@@ -142,17 +162,25 @@ impl Plaza {
             Some(_) if (seq.wrapping_sub(me.seq) as i16) <= 0 => return Verdict::Stale,
             Some(last) => {
                 let dt = now.saturating_duration_since(me.heard).as_secs_f32();
-                let reach = MAX_SPEED * dt + SLACK;
-                match (last.riding(), pose.riding()) {
-                    // Walking, on the ground or in a car.
-                    (a, b) if a == b => {
-                        (pose.x - last.x).hypot(pose.s - last.s) <= reach && (pose.h - last.h).abs() <= reach
-                    }
+                let moved = |speed: f32| {
+                    let reach = speed * dt + SLACK;
+                    (pose.x - last.x).hypot(pose.s - last.s) <= reach && (pose.h - last.h).abs() <= reach
+                };
+                match (mode(&last), mode(&pose)) {
+                    // Walking, on the ground or in a car of a train.
+                    (Mode::Foot, Mode::Foot) => moved(MAX_SPEED),
+                    (Mode::Train(a), Mode::Train(b)) => a == b && moved(MAX_SPEED),
                     // Getting on: from beside its open doors.
-                    (None, Some(k)) => at_open_doors(pose.strip, k, last.s, last.x, tick),
+                    (Mode::Foot, Mode::Train(k)) => at_open_doors(pose.strip, k, last.s, last.x, tick),
                     // Getting off: out of its open doors.
-                    (Some(k), None) => at_open_doors(pose.strip, k, pose.s, pose.x, tick),
-                    // From one train to another.
+                    (Mode::Train(k), Mode::Foot) => at_open_doors(pose.strip, k, pose.s, pose.x, tick),
+                    // Driving: no faster than a car goes; taken from a motor pool; left anywhere.
+                    (Mode::Drive(a), Mode::Drive(b)) => a == b && moved(MAX_DRIVE),
+                    (Mode::Foot, Mode::Drive(_)) => {
+                        pool_near(pose.strip, last.s, last.x).is_some() && moved(MAX_SPEED)
+                    }
+                    (Mode::Drive(_), Mode::Foot) => moved(MAX_DRIVE),
+                    // From a train to a car, or one train to another.
                     _ => false,
                 }
             }
@@ -315,7 +343,7 @@ mod tests {
             assert_eq!(plaza.accept(id, 2, platform, t0 + Duration::from_secs(60), tick), Verdict::Taken);
         }
         // In through the door.
-        let rider = |lx: f32| PersonPose { x: lx, s: RIDER_S + 0.4, h: 0.0, train: k + 1, ..at(0, 0.0, 0.0) };
+        let rider = |lx: f32| PersonPose { x: lx, s: RIDER_S + 0.4, h: 0.0, ride: k + 1, ..at(0, 0.0, 0.0) };
         assert_eq!(
             plaza.accept(1, 3, rider(door - tr.x), t0 + Duration::from_secs(61), tick),
             Verdict::Taken
@@ -341,6 +369,40 @@ mod tests {
         );
         // Nor stands outside its cars while aboard.
         assert_eq!(plaza.accept(2, 4, rider(80.0), t0 + Duration::from_secs(65), tick), Verdict::Implausible);
+    }
+
+    #[test]
+    fn cars_come_from_the_motor_pools_and_keep_to_a_cars_speed() {
+        use bc_proto::presence::RIDE_CAR;
+        use bc_sim::colony::pools::pool;
+        let plaza = Plaza::default();
+        let t0 = Instant::now();
+        let (s, x) = hub_gate(0);
+        let (ps, px) = pool(0, 0);
+        plaza.enter(1, "Duo", 0);
+        assert_eq!(plaza.accept(1, 1, at(0, s, x + 2.0), t0, 0), Verdict::Taken);
+        // Not from the middle of the street.
+        let car = |s: f32, x: f32| PersonPose { ride: RIDE_CAR, ..at(0, s, x) };
+        assert_eq!(
+            plaza.accept(1, 2, car(s, x + 3.0), t0 + Duration::from_millis(100), 0),
+            Verdict::Implausible
+        );
+        // From the pool.
+        let t1 = t0 + Duration::from_secs(10);
+        assert_eq!(plaza.accept(1, 3, at(0, ps, px), t1, 0), Verdict::Taken);
+        assert_eq!(plaza.accept(1, 4, car(ps, px + 0.5), t1 + Duration::from_millis(100), 0), Verdict::Taken);
+        // 30 m/s for a second, fine; 300 m in one, not.
+        let t2 = t1 + Duration::from_millis(1_100);
+        assert_eq!(plaza.accept(1, 5, car(ps, px + 30.5), t2, 0), Verdict::Taken);
+        assert_eq!(
+            plaza.accept(1, 6, car(ps, px + 330.0), t2 + Duration::from_secs(1), 0),
+            Verdict::Implausible
+        );
+        // Out beside it.
+        assert_eq!(
+            plaza.accept(1, 7, at(0, ps + 1.6, px + 30.5), t2 + Duration::from_secs(2), 0),
+            Verdict::Taken
+        );
     }
 
     #[test]

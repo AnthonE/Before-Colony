@@ -615,7 +615,15 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   pulls away and it moves on under you); walk out at any station. Every train is where the colony's clock says, on
   every screen, and so is everyone riding one.
 
-Still to come: vehicles, and suits inside the colony with their weapons safe by the colony's law.
+- **Cars and scooters** come from the motor pools: one beside each Hub Gate's door, one on the
+  avenue by each tram station (E a car, Q a scooter). W/S the throttle and brake (held at a stop,
+  reverse), A/D the wheel, Space the handbrake, Tab the camera (behind, or the driver's seat), E
+  to get out once slowed to a walk. They ride up kerbs, stop at walls, and don't drive into the
+  canal; a car tops out at 30 m/s, a scooter at 22. Others see the car (or the scooter, and its
+  rider) in its driver's colour.
+
+Still to come: suits inside the colony with their weapons safe by the colony's law
+(`SUITS_INSIDE.md`).
 
 ## The world (EVE-lite, roadmap)
 

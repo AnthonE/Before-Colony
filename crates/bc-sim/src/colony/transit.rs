@@ -240,6 +240,7 @@ mod tests {
     #[test]
     fn the_timetable_adds_up() {
         assert_eq!(PERIOD_TICKS, 60_480);
+        assert_eq!(TRAINS, u32::from(bc_proto::presence::MAX_TRAINS), "the wire names every train");
         assert_eq!(PERIOD_TICKS % TRAINS, 0);
         assert!((station_x(STATIONS - 1) - 9_000.0).abs() < 1e-3);
         let v = cruise();

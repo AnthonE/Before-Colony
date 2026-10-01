@@ -142,3 +142,44 @@ test("a pilot takes the tram from Hub Gate one stop up the line", async ({ page 
   if (bad.length) console.log(bad.join("\n"));
   expect(bad).toEqual([]);
 });
+
+test("a pilot takes a car from Hub Gate's motor pool and drives up the avenue", async ({ page }) => {
+  test.setTimeout(600_000);
+  const logs = collectConsole(page);
+  await page.goto("/?autoplay=1&name=Hilde&quality=low");
+  await until(page, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 180_000);
+  await push(page, { cmd: "walk_to", spot: "airlock" });
+  await until(page, "at the airlock", (s) => s.focus === "airlock" && !s.walking_to, 120_000);
+  await push(page, { cmd: "use" });
+  await until(page, "the city", (s) => s.place === "city", 30_000);
+  await push(page, { cmd: "skip" });
+  await until(page, "Hub Gate", (s) => s.seq === "walking", 30_000);
+
+  // To the motor pool beside Hub Gate's door, and a car from it.
+  await push(page, { cmd: "walk_to", spot: "pool" });
+  await until(page, "at the pool", (s) => !s.city_walking_to, 120_000);
+  await expect(page.locator("#use")).toContainText("TAKE A CAR");
+  await push(page, { cmd: "use" });
+  let s = await until(page, "at the wheel", (s) => s.driving === "car", 10_000);
+  const start = Number(String(s.city_feet).split(",")[0]);
+
+  // Up the avenue for a few seconds, then the brakes.
+  await page.focus("#bc");
+  await page.keyboard.down("w");
+  s = await until(page, "under way", (s) => s.drive_speed > 8, 60_000);
+  await page.keyboard.up("w");
+  await page.keyboard.down("s");
+  s = await until(page, "stopped", (s) => Math.abs(s.drive_speed) < 1, 60_000);
+  await page.keyboard.up("s");
+  const end = Number(String(s.city_feet).split(",")[0]);
+  expect(end - start).toBeGreaterThan(20);
+
+  // Out beside it, on foot again.
+  await push(page, { cmd: "use" });
+  s = await until(page, "on foot", (s) => s.driving === "", 10_000);
+  const status = await (await page.request.get("/status")).json();
+  expect(status.game.city.refused_poses).toBe(0);
+  const bad = logs.filter((l) => /\[error\]|\[pageerror\]|%cERROR|panicked/i.test(l));
+  if (bad.length) console.log(bad.join("\n"));
+  expect(bad).toEqual([]);
+});

@@ -34,6 +34,7 @@ pub mod session;
 pub mod settings;
 pub mod surface;
 pub mod tram;
+pub mod vehicle;
 pub mod walker;
 pub mod world;
 

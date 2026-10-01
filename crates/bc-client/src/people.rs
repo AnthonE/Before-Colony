@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use bc_client_core::figure::{self, Paint, Piece};
 use bc_client_core::plaza::suit_colour;
-use bc_proto::presence::PersonPose;
+use bc_proto::presence::{PersonPose, RIDE_CAR, RIDE_SCOOTER};
 use bc_sim::colony::frame::{CityPos, local_frame};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
@@ -20,6 +20,8 @@ use crate::hud::UiFont;
 
 /// Names show within this distance, m.
 const NAME_REACH: f32 = 40.0;
+/// The pilot's own place in the crowd (driving: their vehicle).
+pub const OWN: u16 = u16::MAX;
 
 /// The people to draw: slot, name and pose.
 #[derive(Resource, Default)]
@@ -36,16 +38,52 @@ impl Plugin for PeoplePlugin {
     }
 }
 
-/// The figure's meshes (a piece's paints apart) and its trim's and visor's materials.
+/// The figure's meshes (a piece's paints apart) and its trim's and visor's materials; a car's
+/// and a scooter's (body, glass, tyres).
 #[derive(Resource)]
 struct PeopleScene {
     meshes: Vec<(usize, Paint, Handle<Mesh>)>,
     trim: Handle<StandardMaterial>,
     visor: Handle<StandardMaterial>,
+    car: [Handle<Mesh>; 3],
+    scooter: [Handle<Mesh>; 3],
+    glass: Handle<StandardMaterial>,
+    tyre: Handle<StandardMaterial>,
+}
+
+/// A car (facing +z, wheels on the ground): its body, its glass, its tyres.
+fn car_meshes() -> [Mesh; 3] {
+    use bc_client_core::vehicle::{Kind, spec};
+    let sp = spec(Kind::Car);
+    let (hl, hw) = (0.5 * sp.length, 0.5 * sp.width);
+    let body = [
+        (Vec3::new(0.0, 0.62, 0.0), Vec3::new(hw, 0.33, hl)),
+        (Vec3::new(0.0, sp.height - 0.04, -0.2), Vec3::new(hw - 0.12, 0.04, 1.05)),
+    ];
+    let glass = [(Vec3::new(0.0, 1.17, -0.2), Vec3::new(hw - 0.1, 0.22, 1.15))];
+    let wheel = |x: f32, z: f32| (Vec3::new(x, 0.32, z), Vec3::new(0.12, 0.32, 0.32));
+    let tyres =
+        [wheel(-hw + 0.1, 1.35), wheel(hw - 0.1, 1.35), wheel(-hw + 0.1, -1.35), wheel(hw - 0.1, -1.35)];
+    [crate::trams::boxes(&body), crate::trams::boxes(&glass), crate::trams::boxes(&tyres)]
+}
+
+/// A scooter (facing +z): its deck and column, a screen, its two wheels.
+fn scooter_meshes() -> [Mesh; 3] {
+    let body = [
+        (Vec3::new(0.0, 0.32, -0.1), Vec3::new(0.22, 0.08, 0.7)),
+        (Vec3::new(0.0, 0.75, 0.62), Vec3::new(0.05, 0.45, 0.05)),
+        (Vec3::new(0.0, 1.18, 0.62), Vec3::new(0.32, 0.03, 0.04)),
+    ];
+    let glass = [(Vec3::new(0.0, 1.05, 0.7), Vec3::new(0.18, 0.15, 0.01))];
+    let tyres = [
+        (Vec3::new(0.0, 0.22, 0.72), Vec3::new(0.06, 0.22, 0.22)),
+        (Vec3::new(0.0, 0.22, -0.72), Vec3::new(0.06, 0.22, 0.22)),
+    ];
+    [crate::trams::boxes(&body), crate::trams::boxes(&glass), crate::trams::boxes(&tyres)]
 }
 
 /// A pilot drawn: their slot, their stride, where they were last frame (to stride by it), their
-/// pieces' joints and their name tag.
+/// pieces' joints, their name tag, and what they might drive (a car, a scooter).
 #[derive(Component)]
 struct Figure {
     id: u16,
@@ -53,6 +91,8 @@ struct Figure {
     last: Option<(f32, f32, f32)>,
     joints: [Entity; 12],
     tag: Entity,
+    car: Entity,
+    scooter: Entity,
 }
 
 fn setup_people(
@@ -101,7 +141,22 @@ fn setup_people(
         metallic: 0.6,
         ..default()
     });
-    commands.insert_resource(PeopleScene { meshes: out, trim, visor });
+    let glass = materials.add(StandardMaterial {
+        base_color: Color::srgba(0.12, 0.18, 0.22, 0.4),
+        perceptual_roughness: 0.05,
+        alpha_mode: AlphaMode::Blend,
+        cull_mode: None,
+        double_sided: true,
+        ..default()
+    });
+    let tyre = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.04, 0.04, 0.045),
+        perceptual_roughness: 0.9,
+        ..default()
+    });
+    let car = car_meshes().map(|m| meshes.add(m));
+    let scooter = scooter_meshes().map(|m| meshes.add(m));
+    commands.insert_resource(PeopleScene { meshes: out, trim, visor, car, scooter, glass, tyre });
 }
 
 /// Builds a figure for `id`, named `name`.
@@ -117,6 +172,15 @@ fn spawn_figure(
     let suit = materials.add(StandardMaterial {
         base_color: Color::srgb(r, g, b),
         perceptual_roughness: 0.7,
+        ..default()
+    });
+    // Their car's paint: their colour, glossy, seen from inside too.
+    let paint = materials.add(StandardMaterial {
+        base_color: Color::srgb(r, g, b),
+        perceptual_roughness: 0.25,
+        metallic: 0.3,
+        cull_mode: None,
+        double_sided: true,
         ..default()
     });
     let layer = RenderLayers::layer(CITY_LAYER);
@@ -150,6 +214,21 @@ fn spawn_figure(
             ChildOf(joints[*i]),
         ));
     }
+    let mut vehicle = |meshes: &[Handle<Mesh>; 3]| {
+        let v = commands.spawn((Transform::default(), Visibility::Hidden, layer.clone(), ChildOf(root))).id();
+        for (mesh, material) in meshes.iter().zip([&paint, &scene.glass, &scene.tyre]) {
+            commands.spawn((
+                Mesh3d(mesh.clone()),
+                MeshMaterial3d(material.clone()),
+                Transform::default(),
+                layer.clone(),
+                ChildOf(v),
+            ));
+        }
+        v
+    };
+    let car = vehicle(&scene.car);
+    let scooter = vehicle(&scene.scooter);
     let tag = commands
         .spawn((
             Text::new(name.to_string()),
@@ -160,7 +239,7 @@ fn spawn_figure(
             Visibility::Hidden,
         ))
         .id();
-    commands.entity(root).insert(Figure { id, phase: 0.0, last: None, joints, tag });
+    commands.entity(root).insert(Figure { id, phase: 0.0, last: None, joints, tag, car, scooter });
     root
 }
 
@@ -174,7 +253,7 @@ fn draw_people(
     font: Res<UiFont>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut figures: Query<(Entity, &mut Figure, &mut Placed, &mut Transform)>,
-    mut joints: Query<&mut Transform, Without<Figure>>,
+    mut joints: Query<(&mut Transform, &mut Visibility), Without<Figure>>,
 ) {
     let Some(scene) = scene else { return };
     let want: HashMap<u16, (&str, &PersonPose)> = if view.active {
@@ -199,10 +278,34 @@ fn draw_people(
             f.phase = (f.phase + figure::stride_phase(d, pose.running)) % std::f32::consts::TAU;
         }
         f.last = Some((pose.x, pose.s, pose.h));
-        let turns = figure::pose(f.phase, pose.speed, pose.pitch, pose.grounded, pose.running);
+        // Driving: in a car, out of sight in it; on a scooter, standing on its deck, still.
+        let (in_car, on_scooter) = (pose.ride == RIDE_CAR, pose.ride == RIDE_SCOOTER);
+        let still = in_car || on_scooter;
+        let turns = figure::pose(
+            if still { 0.0 } else { f.phase },
+            if still { 0.0 } else { pose.speed },
+            pose.pitch,
+            pose.grounded || still,
+            pose.running,
+        );
         for (i, j) in f.joints.iter().enumerate() {
-            if let Ok(mut t) = joints.get_mut(*j) {
+            if let Ok((mut t, _)) = joints.get_mut(*j) {
                 t.rotation = turns[i];
+            }
+        }
+        if let Ok((mut hips, mut vis)) = joints.get_mut(f.joints[0]) {
+            hips.translation.y = Piece::Hips.joint().y + if on_scooter { 0.4 } else { 0.0 };
+            let want = if in_car { Visibility::Hidden } else { Visibility::Inherited };
+            if *vis != want {
+                *vis = want;
+            }
+        }
+        for (e, on) in [(f.car, in_car), (f.scooter, on_scooter)] {
+            if let Ok((_, mut vis)) = joints.get_mut(e) {
+                let want = if on { Visibility::Inherited } else { Visibility::Hidden };
+                if *vis != want {
+                    *vis = want;
+                }
             }
         }
     }
@@ -224,7 +327,7 @@ fn name_tags(
     for (f, placed, tf) in &figures {
         let Ok((mut node, mut vis)) = tags.get_mut(f.tag) else { continue };
         let head = origin.place(placed.0) + tf.rotation * Vec3::Y * 2.05;
-        let near = cam_tf.translation().distance(head) < NAME_REACH;
+        let near = f.id != OWN && cam_tf.translation().distance(head) < NAME_REACH;
         let shown = near.then(|| cam.world_to_viewport(cam_tf, head).ok()).flatten();
         match shown {
             Some(p) => {
@@ -247,13 +350,14 @@ fn name_tags(
 /// clock for the trams.
 pub fn fill_crowd(
     game: NonSend<crate::net::GameClient>,
+    me: Res<crate::onfoot::OnFoot>,
     mut crowd: ResMut<Crowd>,
     mut trams: ResMut<crate::trams::TramClock>,
 ) {
     let g = game.borrow();
     let (tick, frac) = g.core.colony_tick(crate::net::now_s());
     *trams = crate::trams::TramClock(tick, frac);
-    let people = if g.core.hangar.in_city() {
+    let mut people: Vec<(u16, String, PersonPose)> = if g.core.hangar.in_city() {
         g.core
             .people(crate::net::now_s())
             .into_iter()
@@ -262,6 +366,10 @@ pub fn fill_crowd(
     } else {
         Vec::new()
     };
+    // The pilot's own vehicle, as everyone else sees it (in a car their figure is out of sight).
+    if let Some(v) = me.city.as_ref().and_then(|c| c.drive) {
+        people.push((OWN, g.core.cfg.name.clone(), v.pose(0.0)));
+    }
     if crowd.0 != people {
         crowd.0 = people;
     }

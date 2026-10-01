@@ -46,7 +46,7 @@ struct Car {
 }
 
 /// Boxes `(centre, half extents)` as one mesh, faces out.
-fn boxes(parts: &[(Vec3, Vec3)]) -> Mesh {
+pub fn boxes(parts: &[(Vec3, Vec3)]) -> Mesh {
     let (mut pos, mut nrm, mut idx) = (Vec::new(), Vec::new(), Vec::new());
     for (c, h) in parts {
         for (n, u, v) in [

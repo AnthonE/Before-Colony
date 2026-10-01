@@ -117,7 +117,7 @@ pub fn pose_riding(r: &Rider, w: &Walker, strip: u8) -> PersonPose {
         speed: flat,
         grounded: w.grounded,
         running: flat > 5.0,
-        train: r.k + 1,
+        ride: r.k + 1,
     }
 }
 

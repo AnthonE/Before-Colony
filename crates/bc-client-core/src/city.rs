@@ -47,7 +47,7 @@ pub fn pose_of(strip: u8, w: &Walker) -> PersonPose {
         speed: flat,
         grounded: w.grounded,
         running: flat > 5.0,
-        train: 0,
+        ride: 0,
     }
 }
 

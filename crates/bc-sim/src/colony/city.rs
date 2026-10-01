@@ -640,8 +640,7 @@ pub fn ground(strip: u8, s: f32, x: f32, stage: Stage) -> f32 {
 
 /// The solid boxes near a footprint, for anything that wants them one at a time: buildings, kerbs,
 /// railings, Hub Gate's terminal, the end caps' walls, the glass's edge, the tram stations'
-/// platforms. Calls `f` with each; stops
-/// early when it returns true, and says whether it did.
+/// platforms. Calls `f` with each; stops early when it returns true, and says whether it did.
 pub fn each_solid(strip: u8, area: &Rect, stage: Stage, mut f: impl FnMut(&CityBox) -> bool) -> bool {
     const DEEP: f32 = -50.0;
     const SKY: f32 = 4_000.0;

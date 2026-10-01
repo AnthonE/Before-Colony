@@ -27,9 +27,14 @@ const PITCH_BITS: u32 = 8;
 /// Speed over the ground: [0, `SPEED_MAX`] m/s.
 const SPEED_MAX: f32 = 12.6;
 const SPEED_BITS: u32 = 6;
-/// The train a rider is on (0: on foot; `k` + 1: train `k` of the strip's line).
-const TRAIN_BITS: u32 = 4;
-const POSE_BITS: u32 = X_BITS + S_BITS + H_BITS + YAW_BITS + PITCH_BITS + SPEED_BITS + 2 + TRAIN_BITS;
+/// What a pilot rides ([`PersonPose::ride`]).
+const RIDE_BITS: u32 = 4;
+const POSE_BITS: u32 = X_BITS + S_BITS + H_BITS + YAW_BITS + PITCH_BITS + SPEED_BITS + 2 + RIDE_BITS;
+/// Trains on a strip's line (`bc_sim::colony::transit::TRAINS`).
+pub const MAX_TRAINS: u8 = 12;
+/// [`PersonPose::ride`] for a pilot driving a car, and riding a scooter.
+pub const RIDE_CAR: u8 = 13;
+pub const RIDE_SCOOTER: u8 = 14;
 /// A rider's `s` is from their train's track, offset by this so it stays positive, m.
 pub const RIDER_S: f32 = 2_048.0;
 /// How long before the plaza's tick the server heard a person's pose, in 10 ms steps.
@@ -58,16 +63,22 @@ pub struct PersonPose {
     pub speed: f32,
     pub grounded: bool,
     pub running: bool,
-    /// On a tram: train `k` + 1 of the strip's line (0: on foot). A rider's `x`, `s` and `h` are
-    /// then from the train's middle, from its track's middle (plus [`RIDER_S`]) and from its floor,
-    /// so they're drawn inside it wherever each screen has it.
-    pub train: u8,
+    /// What they ride: 0 nothing (on foot); `k` + 1 train `k` of the strip's line, when a rider's
+    /// `x`, `s` and `h` are from the train's middle, from its track's middle (plus [`RIDER_S`])
+    /// and from its floor, so they're drawn inside it wherever each screen has it; [`RIDE_CAR`] or
+    /// [`RIDE_SCOOTER`] driving one (where it is, its heading, its speed).
+    pub ride: u8,
 }
 
 impl PersonPose {
+    /// Driving a car or riding a scooter.
+    pub fn driving(&self) -> bool {
+        matches!(self.ride, RIDE_CAR | RIDE_SCOOTER)
+    }
+
     /// Riding train `k`.
     pub fn riding(&self) -> Option<u8> {
-        self.train.checked_sub(1)
+        self.ride.checked_sub(1).filter(|k| *k < MAX_TRAINS)
     }
 }
 
@@ -110,7 +121,7 @@ impl PersonPose {
         w.write_bits(unit(self.speed, 0.0, SPEED_MAX, SPEED_BITS), SPEED_BITS);
         w.write_bool(self.grounded);
         w.write_bool(self.running);
-        w.write_bits(u32::from(self.train.min((1 << TRAIN_BITS) - 1)), TRAIN_BITS);
+        w.write_bits(u32::from(self.ride.min((1 << RIDE_BITS) - 1)), RIDE_BITS);
     }
 
     fn read_body(r: &mut BitReader<'_>, strip: u8) -> Self {
@@ -124,7 +135,7 @@ impl PersonPose {
             speed: ununit(r.read_bits(SPEED_BITS), 0.0, SPEED_MAX, SPEED_BITS),
             grounded: r.read_bool(),
             running: r.read_bool(),
-            train: r.read_bits(TRAIN_BITS) as u8,
+            ride: r.read_bits(RIDE_BITS) as u8,
         }
     }
 }
@@ -266,7 +277,7 @@ mod tests {
             speed: (f * 0.37) % 12.0,
             grounded: i.is_multiple_of(2),
             running: i.is_multiple_of(3),
-            train: (i % 13) as u8,
+            ride: (i % 15) as u8,
         }
     }
 
@@ -279,7 +290,7 @@ mod tests {
         assert!(dy.min(TAU - dy) <= dyaw * 0.5 + 1e-4, "yaw {} {}", a.yaw, b.yaw);
         assert!((a.pitch - b.pitch).abs() < 0.007);
         assert!((a.speed - b.speed).abs() < 0.11);
-        assert_eq!((a.grounded, a.running, a.train), (b.grounded, b.running, b.train));
+        assert_eq!((a.grounded, a.running, a.ride), (b.grounded, b.running, b.ride));
     }
 
     #[test]

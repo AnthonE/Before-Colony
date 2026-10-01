@@ -22,6 +22,7 @@ use bc_client_core::bay::{CATWALK_Y, HATCH, Layout, SPAWN, SUIT_AT, Spot};
 use bc_client_core::city::CityGround;
 use bc_client_core::city_nav;
 use bc_client_core::tram::{self, CarInside, CityAndTrains, Rider};
+use bc_client_core::vehicle::{Drive, Kind, Vehicle};
 use bc_client_core::walker::{Guide, Stride, Walker};
 use bc_econ::item::thousands;
 use bc_econ::wire::{Outcome, Place, Request};
@@ -33,6 +34,7 @@ use bc_sim::colony::city::{
 };
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, local_frame, up_at};
 use bc_sim::colony::hub::BAY_RADIUS;
+use bc_sim::colony::pools::{pool, pool_near};
 use bc_sim::colony::transit::{
     CAR_WIDTH, DOOR_AT, FLOOR, PLATFORM_LENGTH, STATION_GAP, STATIONS, TRAINS, TrainState, station_x, train,
 };
@@ -145,6 +147,9 @@ pub struct CityFoot {
     pub ride: Option<Rider>,
     trains: [TrainState; TRAINS as usize],
     stood: Option<usize>,
+    /// Driving (from a motor pool), and seen from behind (else from the driver's seat).
+    pub drive: Option<Vehicle>,
+    chase: bool,
 }
 
 /// Station `i` of strip `strip`'s line, by name: Hub Gate's, then the district it's in.
@@ -178,6 +183,50 @@ impl CityFoot {
             ride: None,
             trains: std::array::from_fn(|k| train(strip, k as u8, 0, 0.0)),
             stood: None,
+            drive: None,
+            chase: true,
+        }
+    }
+
+    /// Takes a vehicle from the motor pool in reach, if there is one.
+    fn take(&mut self, kind: Kind) -> bool {
+        let at = self.feet();
+        let Some(i) = pool_near(self.strip, at.s, at.x) else { return false };
+        let (s, x) = pool(self.strip, i);
+        // Parked facing up the avenue.
+        self.drive = Some(Vehicle::new(kind, self.strip, s, x, std::f32::consts::FRAC_PI_2));
+        self.guide = None;
+        // From the scooter's deck there's nothing to see but the helmet: from behind.
+        self.chase = self.chase || kind == Kind::Scooter;
+        true
+    }
+
+    /// Walks the pilot to the nearest motor pool along the avenue (the dev hooks').
+    fn walk_to_pool(&mut self) -> bool {
+        if self.drive.is_some() || self.ride.is_some() {
+            return false;
+        }
+        let at = self.feet();
+        let Some((s, x)) = (0..bc_sim::colony::pools::POOLS)
+            .map(|i| pool(self.strip, i))
+            .min_by(|a, b| (a.1 - at.x).abs().total_cmp(&(b.1 - at.x).abs()))
+        else {
+            return false;
+        };
+        let route = vec![
+            CityPos::new(self.strip, at.x, s, 0.0).walker(),
+            CityPos::new(self.strip, x, s, 0.0).walker(),
+        ];
+        self.guide = Some(Guide::new(route, None));
+        true
+    }
+
+    /// Gets out of the vehicle, beside it.
+    fn get_out(&mut self) {
+        if let Some(v) = self.drive.take() {
+            let mut w = Walker::at(v.door().walker(), Vec3::new(v.yaw.sin(), 0.0, v.yaw.cos()));
+            w.pitch = self.walker.pitch;
+            self.walker = w;
         }
     }
 
@@ -230,9 +279,10 @@ impl CityFoot {
 
     /// Where the pilot is, as the plaza has them.
     fn pose(&self) -> PersonPose {
-        match self.ride {
-            Some(r) => tram::pose_riding(&r, &self.walker, self.strip),
-            None => bc_client_core::city::pose_of(self.strip, &self.walker),
+        match (self.ride, self.drive) {
+            (Some(r), _) => tram::pose_riding(&r, &self.walker, self.strip),
+            (None, Some(v)) => v.pose(self.walker.pitch),
+            (None, None) => bc_client_core::city::pose_of(self.strip, &self.walker),
         }
     }
 
@@ -308,8 +358,12 @@ impl CityFoot {
         CityGround { strip: self.strip, stage: Stage(0) }
     }
 
-    /// Where the pilot stands, in city coordinates (riding: where their car has them).
+    /// Where the pilot stands, in city coordinates (riding: where their car has them; driving:
+    /// where the vehicle is).
     pub fn feet(&self) -> CityPos {
+        if let Some(v) = self.drive {
+            return CityPos::new(self.strip, v.x, v.s, v.ground());
+        }
         match (self.ride, self.train()) {
             (Some(r), Some(t)) => tram::in_city(&r, self.walker.feet, t),
             _ => CityPos::from_walker(self.strip, self.walker.feet),
@@ -318,6 +372,22 @@ impl CityFoot {
 
     /// The eye, in the colony's frame, and the way it looks.
     fn view(&self) -> (DVec3, Vec3) {
+        if let Some(v) = self.drive {
+            let (fx, fs) = v.forward();
+            let g = v.ground();
+            let at = |back: f32, up: f32| {
+                colony_point(CityPos::new(self.strip, v.x - fx * back, v.s - fs * back, g + up))
+            };
+            if self.chase {
+                // Behind and above it, looking a little ahead of it.
+                let (eye, ahead) = (at(7.5, 2.8), at(-4.0, 1.0));
+                return (eye, (ahead - eye).as_vec3().normalize_or(Vec3::X));
+            }
+            let eye = CityPos::new(self.strip, v.x - fx * 0.3, v.s - fs * 0.3, g + v.spec().eye);
+            let look =
+                Vec3::new(v.yaw.sin(), self.walker.pitch.clamp(-0.4, 0.3).sin(), v.yaw.cos()).normalize();
+            return (colony_point(eye), local_frame(self.strip, eye.s) * look);
+        }
         let eye = match (self.ride, self.train()) {
             (Some(r), Some(t)) => tram::in_city(&r, self.walker.eye(), t),
             _ => CityPos::from_walker(self.strip, self.walker.eye()),
@@ -327,7 +397,7 @@ impl CityFoot {
 
     /// The place whose door the pilot stands at, facing it.
     fn door_in_view(&self) -> Option<usize> {
-        if self.ride.is_some() {
+        if self.ride.is_some() || self.drive.is_some() {
             return None;
         }
         let at = self.feet();
@@ -722,6 +792,7 @@ pub fn drive_onfoot(
             if let UiCmd::WalkTo(slug) = cmd {
                 match slug.as_str() {
                     "tram" => c.walk_to_tram(),
+                    "pool" => c.walk_to_pool(),
                     _ => c.walk_to(slug),
                 };
             }
@@ -735,7 +806,25 @@ pub fn drive_onfoot(
         }
         let (tick, frac) = g.core.colony_tick(now);
         c.time(tick, frac);
-        let mut left = walk_dt;
+        // Driving: W/S the throttle and the brake, A/D the wheel, Space the handbrake.
+        let mut got_out = false;
+        if let Some(v) = c.drive.as_mut() {
+            let drive = Drive { throttle: own.forward, steer: -own.right, handbrake: own.jump };
+            let mut left = walk_dt;
+            while left > 1e-4 {
+                let h = left.min(0.05);
+                left -= h;
+                v.step(&drive, h);
+            }
+            if live && keys.just_pressed(KeyCode::Tab) && v.kind == Kind::Car {
+                c.chase = !c.chase;
+            }
+            if used_key && v.speed.abs() < 3.0 {
+                c.get_out();
+                got_out = true;
+            }
+        }
+        let mut left = if c.drive.is_some() { 0.0 } else { walk_dt };
         while left > 1e-4 {
             let h = left.min(0.1);
             left -= h;
@@ -760,8 +849,21 @@ pub fn drive_onfoot(
         if live && keys.just_pressed(KeyCode::KeyM) {
             ui.map = !ui.map;
         }
+        // A motor pool in reach: E a car, Q a scooter (a place's door comes first).
+        let pool_here = c.drive.is_none() && c.ride.is_none() && {
+            let at = c.feet();
+            pool_near(c.strip, at.s, at.x).is_some()
+        };
+        if pool_here && c.focus.is_none() && !ui.panel_open() && !got_out {
+            let scooter = live && keys.just_pressed(KeyCode::KeyQ);
+            if (used_key || scooter) && c.take(if scooter { Kind::Scooter } else { Kind::Car }) {
+                ui.toast(if scooter { "A SCOOTER FROM THE MOTOR POOL" } else { "A CAR FROM THE MOTOR POOL" });
+            }
+        }
         if used_key
             && !ui.panel_open()
+            && c.drive.is_none()
+            && !got_out
             && let Some(i) = c.focus
         {
             match PLACES[i].kind {
@@ -956,11 +1058,20 @@ pub fn drive_onfoot(
         Seq::Walking if on_foot => {
             me.focus.map_or_else(String::new, |s| format!("E  {}", verb(s, hangar_bay.as_ref(), colony)))
         }
-        Seq::Walking if in_city => me
-            .city
-            .as_ref()
-            .and_then(|c| c.focus)
-            .map_or_else(String::new, |i| format!("E  {}", city_verb(&PLACES[i]))),
+        Seq::Walking if in_city => match me.city.as_ref() {
+            Some(c) if c.drive.is_some_and(|v| v.speed.abs() < 3.0) => "E  GET OUT".into(),
+            Some(c) if c.drive.is_some() => String::new(),
+            Some(c) if c.focus.is_some() => format!("E  {}", city_verb(&PLACES[c.focus.unwrap_or(0)])),
+            Some(c)
+                if c.ride.is_none() && {
+                    let at = c.feet();
+                    pool_near(c.strip, at.s, at.x).is_some()
+                } =>
+            {
+                "E  TAKE A CAR · Q  A SCOOTER".into()
+            }
+            _ => String::new(),
+        },
         s if s.skippable() => "SPACE  SKIP".into(),
         _ => String::new(),
     };
@@ -1033,6 +1144,8 @@ pub fn publish_onfoot(me: Res<OnFoot>, ui: Res<Ui>, game: NonSend<GameClient>, m
             dev.set("city_feet", format!("{:.1},{:.1},{:.1}", at.x, at.s, at.h));
             dev.set("city_walking_to", c.guide.is_some());
             dev.set("riding", c.ride.map_or(-1.0, |r| f64::from(r.k)));
+            dev.set("driving", c.drive.map_or("", |v| if v.kind == Kind::Car { "car" } else { "scooter" }));
+            dev.set("drive_speed", c.drive.map_or(0.0, |v| f64::from(v.speed)));
             dev.set("station", c.train().and_then(|t| t.at).map_or(-1.0, |i| i as f64));
             dev.set("district", c.district.map_or("", |d| DISTRICT_NAMES[c.strip as usize % 3][d as usize]));
             // The people in view, and where the nearest is from the pilot (m).
@@ -1052,6 +1165,8 @@ pub fn publish_onfoot(me: Res<OnFoot>, ui: Res<Ui>, game: NonSend<GameClient>, m
             dev.set("city_feet", "");
             dev.set("city_walking_to", false);
             dev.set("riding", -1.0);
+            dev.set("driving", "");
+            dev.set("drive_speed", 0.0);
             dev.set("station", -1.0);
             dev.set("district", "");
             dev.set("people", 0u32);

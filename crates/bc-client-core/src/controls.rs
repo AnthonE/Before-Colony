@@ -9,6 +9,8 @@ pub enum Group {
     OnFoot,
     /// On foot in the colony's city.
     Colony,
+    /// At the wheel in the colony's city (or on a scooter).
+    Driving,
     Flight,
     /// On a body: standing on it, or in the air in its grip.
     Surface,
@@ -18,9 +20,10 @@ pub enum Group {
 }
 
 impl Group {
-    pub const ALL: [Group; 7] = [
+    pub const ALL: [Group; 8] = [
         Group::OnFoot,
         Group::Colony,
+        Group::Driving,
         Group::Flight,
         Group::Surface,
         Group::Weapons,
@@ -32,6 +35,7 @@ impl Group {
         match self {
             Group::OnFoot => "IN THE HANGAR",
             Group::Colony => "IN THE COLONY",
+            Group::Driving => "DRIVING",
             Group::Flight => "FLIGHT",
             Group::Surface => "ON A SURFACE",
             Group::Weapons => "COMBAT",
@@ -69,10 +73,21 @@ pub const BINDINGS: &[Binding] = &[
     b(
         Group::Colony,
         "E",
-        "Use a door: the Exchange floor, the Charter Board, The Arrival; at Hub Gate, the cap lift up to your bay",
+        "Use a door: the Exchange floor, the Charter Board, The Arrival; at Hub Gate, the cap lift up to your bay; at a motor pool, take a car",
     ),
+    b(Group::Colony, "Q", "At a motor pool (Hub Gate's, or by a tram station): take a scooter"),
     b(Group::Colony, "Space", "On the cap lift: skip the ride down"),
     b(Group::Colony, "M", "The map: your strip end to end, and the streets round you"),
+    b(
+        Group::Colony,
+        "Walk in",
+        "Trams: in through a standing train's open doors, out the same way at any station",
+    ),
+    b(Group::Driving, "W / S", "Throttle / brake (held at a stop: reverse)"),
+    b(Group::Driving, "A / D", "Steer"),
+    b(Group::Driving, "Space", "Handbrake"),
+    b(Group::Driving, "Tab", "Camera: behind the car, or from the driver's seat"),
+    b(Group::Driving, "E", "Get out (slow to a walk first)"),
     b(Group::Flight, "Mouse", "Aim (click the game to take control)"),
     b(Group::Flight, "W / S", "Thrust forward / back"),
     b(Group::Flight, "A / D", "Thrust left / right"),

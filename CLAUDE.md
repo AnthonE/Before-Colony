@@ -4,7 +4,8 @@ A Gundam Wing space MMO (free aim, Newtonian 6DOF). Rust server, Bevy 0.19 clien
 WebTransport (QUIC) between them. See `docs/ARCHITECTURE.md` and `docs/DESIGN.md`; `docs/CONTROLS.md`
 surveys what players of similar games expect of the controls (read it before changing a binding);
 `docs/STORY.md` is the world bible (setting, factions, eras, voice: read it before writing in-game text);
-`docs/COLONY.md` is the plan for the First Colony's inside (Milestone 5).
+`docs/COLONY.md` is the plan for the First Colony's inside (Milestone 5), `docs/SUITS_INSIDE.md` the design for
+suits inside it.
 
 ## Hot-path rules (non-negotiable)
 - The sector tick (`bc-sim` step + `bc-sector` input drain/encode) must not allocate or lock.

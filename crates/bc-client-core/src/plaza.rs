@@ -56,7 +56,7 @@ pub fn blend(a: &PersonPose, b: &PersonPose, u: f32) -> PersonPose {
         speed: l(a.speed, b.speed),
         grounded: if u < 0.5 { a.grounded } else { b.grounded },
         running: if u < 0.5 { a.running } else { b.running },
-        train: b.train,
+        ride: b.ride,
     }
 }
 
@@ -118,12 +118,8 @@ impl PlazaView {
                     let k = s.iter().position(|(ts, _)| *ts > t).unwrap_or(s.len() - 1);
                     let (a, b) = (&s[k - 1], &s[k]);
                     let u = ((t - a.0) / (b.0 - a.0).max(1e-6)) as f32;
-                    // Getting on or off a train: no blending a place in it with one outside.
-                    if a.1.train != b.1.train {
-                        if u < 0.5 { a.1 } else { b.1 }
-                    } else {
-                        blend(&a.1, &b.1, u)
-                    }
+                    // Getting on or off a train, into or out of a vehicle: no blending a place in it with one outside.
+                    if a.1.ride != b.1.ride { if u < 0.5 { a.1 } else { b.1 } } else { blend(&a.1, &b.1, u) }
                 };
                 Some((*id, pose))
             })
