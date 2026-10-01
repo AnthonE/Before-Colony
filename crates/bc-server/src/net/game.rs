@@ -14,7 +14,8 @@ use bc_proto::auth::{Address, Domain, NONCE_BYTES};
 use bc_proto::control::{ControlMsg, Frame, MAX_FRAME, RejectReason, hello_flags, roster_flags};
 use bc_proto::{MAX_DATAGRAM, PROTOCOL_VERSION, PilotKind};
 use bc_sector::{
-    Control, EgressEnds, Metrics, Restored, SectorConfig, SectorShared, SectorThread, SlotState, read_packet,
+    Control, EgressEnds, Metrics, Reparked, Restored, SectorConfig, SectorShared, SectorThread, SlotState,
+    read_packet,
 };
 use bc_sim::SimConfig;
 use bc_sim::content::landmarks::LANDMARKS_VERSION;
@@ -25,7 +26,9 @@ use wtransport::{Connection, RecvStream, SendStream};
 
 use super::NetStats;
 use crate::market::Market;
-use crate::pilots::{self, Claim, Fate, FileStore, MemoryStore, PilotRecord, PilotStore, Pilots, Sleeper};
+use crate::pilots::{
+    self, Claim, Fate, FileStore, MemoryStore, ParkNews, PilotRecord, PilotStore, Pilots, Sleeper,
+};
 use crate::{Config, OracleKind, Ruleset};
 
 /// Commands for the egress thread.
@@ -107,6 +110,9 @@ pub struct GameShared {
     pub econ: bc_econ::Rules,
     /// Pilots' hangars, by client slot, for `/status`.
     pub(super) hangars: Arc<RwLock<HashMap<u16, HangarEntry>>>,
+    /// The suits left in hide spots have been put back (or let go): a suit the sector puts back
+    /// from now on came too late, and goes again ([`process_notes`]).
+    restore_over: Arc<AtomicBool>,
 }
 
 /// How long the sector gets to put back the suits left in hide spots, at boot.
@@ -121,6 +127,12 @@ impl GameShared {
     /// sector has no room) is forgotten: the colony's tugs bring it in when its pilot is back.
     /// How many came back.
     pub async fn restore_parked(&self, max_sleepers: usize) -> usize {
+        let restored = self.put_back(max_sleepers).await;
+        self.restore_over.store(true, Ordering::Release);
+        restored
+    }
+
+    async fn put_back(&self, max_sleepers: usize) -> usize {
         let records = match self.pilots.store.all().await {
             Ok(records) => records,
             Err(e) => {
@@ -176,11 +188,18 @@ impl GameShared {
         let mut restored = 0;
         for ((since_unix, address, mut r, rec), back) in left.into_iter().zip(back) {
             let Some((suit, generation)) = back else {
+                // Its answer may yet come: the suit then goes again (`process_notes`).
                 self.unpark(&mut r, "no room").await;
                 continue;
             };
             r.sleeper = Some(Sleeper { run: self.pilots.run, suit, generation, since_unix });
-            self.pilots.bind_suit((suit, generation), address);
+            if let Some(p) = r.parked.as_mut() {
+                // Recorded before anything this run did to it.
+                p.tick = 0;
+            }
+            // Saved before its pilot is bound to it, so news of it finds the record naming it
+            // (`Pilots::apply_park_news`); and on the roster, so news of its end finds it there.
+            self.pilots.save(r.clone()).await;
             let pilot = rec.pilot;
             let flags = roster_flags::VERIFIED | roster_flags::ASLEEP;
             if let Ok(mut roster) = self.roster.write() {
@@ -194,8 +213,14 @@ impl GameShared {
                 roster.insert(suit, entry);
             }
             let _ = self.roster_tx.send(RosterUpdate { suit, pilot, name: r.name.clone(), flags });
+            if let Err(fate) = self.pilots.bind_restored((suit, generation), address) {
+                // Gone already, as it came back: its pilot hears so, and it isn't kept.
+                self.pilots.tell(address, fate);
+                forget(self, suit, pilot);
+                self.unpark(&mut r, "gone as it came back").await;
+                continue;
+            }
             tracing::info!(address = %pilots::short(&address), suit, "hidden suit put back");
-            self.pilots.save(r).await;
             restored += 1;
         }
         restored
@@ -307,6 +332,7 @@ impl GameRuntime {
             market,
             econ: bc_econ::Rules { craft_speed: cfg.craft_speed },
             hangars: Arc::new(RwLock::new(HashMap::new())),
+            restore_over: Arc::new(AtomicBool::new(false)),
         };
         // The exchange's clock, and its file.
         if survival {
@@ -674,7 +700,11 @@ async fn session(conn: Connection, game: GameShared, stats: Arc<NetStats>) -> an
     let who = super::session::Who { pilot, frame, faction, name, address };
     let result = super::session::run(&conn, &game, &stats, &mut tx, &mut rx, pending, who, kicked).await;
     if let Some((address, session)) = held {
-        game.pilots.release(address, session);
+        // What was said of their suit in a hide spot while they flew, now that the session has
+        // saved its record.
+        for news in game.pilots.release(address, session) {
+            game.pilots.apply_park_news(address, news).await;
+        }
     }
     result
 }
@@ -698,9 +728,11 @@ pub(super) fn forget(game: &GameShared, suit: u16, pilot: PilotKind) {
 }
 
 /// What became of sleepers, from the sector: news for their pilots, and the roster forgets them.
+/// Under survival rules, what's left of those in hide spots that were hit, for their records; and
+/// a suit put back after boot stopped waiting for it goes again.
 pub fn process_notes(game: &GameShared) {
     while let Some(fate) = game.sector.notes.pop() {
-        let Some(address) = game.pilots.suit_gone((fate.suit, fate.generation)) else { continue };
+        let suit = (fate.suit, fate.generation);
         let news = match fate.gone {
             Gone::Destroyed { killer } => Fate::Destroyed {
                 by: game
@@ -712,12 +744,12 @@ pub fn process_notes(game: &GameShared) {
             },
             Gone::Evicted => Fate::Lost,
         };
+        let Some(address) = game.pilots.sleeper_gone(suit, news.clone()) else { continue };
         tracing::info!(address = %pilots::short(&address), suit = fate.suit, "sleeper gone: {news:?}");
         game.pilots.tell(address, news);
         // Left in a hide spot, it isn't to come back with the next server run.
         if game.survival {
-            let pilots = game.pilots.clone();
-            tokio::spawn(async move { pilots.clear_parked(address, (fate.suit, fate.generation)).await });
+            park_news(game, address, ParkNews::Gone { suit });
         }
         // Only the sleeper's entry: the slot may have a new pilot already.
         let asleep = game
@@ -729,4 +761,31 @@ pub fn process_notes(game: &GameShared) {
             forget(game, fate.suit, PilotKind::Human);
         }
     }
+    // The latest of each suit's hits (after its end, above: news of one gone finds nobody).
+    let mut hits = HashMap::new();
+    while let Some(Reparked { suit, generation, tick, rec }) = game.sector.reparked.pop() {
+        hits.insert((suit, generation), (tick, rec));
+    }
+    for (suit, (tick, rec)) in hits {
+        if let Some(address) = game.pilots.suit_owner(suit) {
+            park_news(game, address, ParkNews::Hit { suit, tick, rec });
+        }
+    }
+    if game.restore_over.load(Ordering::Acquire) {
+        while let Some(late) = game.sector.restored.pop() {
+            let (suit, generation) = (late.suit, late.generation);
+            tracing::info!(suit, "hidden suit put back too late: discarded");
+            if game.sector.control.push(Control::Discard { suit, generation }).is_err() {
+                // Next time round.
+                let _ = game.sector.restored.push(late);
+                break;
+            }
+        }
+    }
+}
+
+/// Into the pilot's record, in the background.
+fn park_news(game: &GameShared, address: Address, news: ParkNews) {
+    let pilots = game.pilots.clone();
+    tokio::spawn(async move { pilots.apply_park_news(address, news).await });
 }

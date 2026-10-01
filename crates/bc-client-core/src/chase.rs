@@ -6,8 +6,9 @@
 //! round the suit. The step is exact, so the camera moves the same at any frame rate.
 //!
 //! On a body the camera comes in closer and higher, to see over rims, and it is kept out of the
-//! bodies: the client clamps it short of any surface between the suit and its place
-//! ([`ChaseRig::step_clamped`], with `surface::camera_clamp`).
+//! bodies: the client clamps it short of any surface between the suit and its place, which it
+//! reaches over the suit's head ([`ChaseRig::step_clamped`], [`reach`], with
+//! `surface::camera_clamp`), so a wall at the suit's back never puts the camera inside the suit.
 
 use glam::Vec3;
 
@@ -89,7 +90,7 @@ impl ChaseRig {
     }
 
     /// [`ChaseRig::step`], with the camera's place on the way from the suit to it passed through
-    /// `clamp(suit, place)`, which may stop it short (of a body's surface).
+    /// `clamp(from, to)`, which may stop it short (of a body's surface): see [`reach`].
     pub fn step_clamped(&mut self, f: &Follow, dt: f32, clamp: &dyn Fn(Vec3, Vec3) -> Vec3) -> bool {
         let goal = if f.ground { 1.0 } else { 0.0 };
         let cut = !self.placed || f.cut;
@@ -97,7 +98,7 @@ impl ChaseRig {
             if cut { goal } else { self.ground + (goal - self.ground) * (1.0 - (-GROUND_EASE * dt).exp()) };
         let ideal = f.ideal_at(self.ground);
         if cut || (self.pos + self.vel * dt).distance(ideal) > CUT {
-            *self = Self { placed: true, pos: clamp(f.pos, ideal), vel: f.vel, ground: self.ground };
+            *self = Self { placed: true, pos: reach(f, ideal, clamp), vel: f.vel, ground: self.ground };
             return true;
         }
         // In the frame moving with the drawn suit: the camera starts where that frame carries it,
@@ -113,10 +114,20 @@ impl ChaseRig {
             x = ideal + n * SLACK;
             u -= n * u.dot(n).max(0.0);
         }
-        self.pos = clamp(f.pos, x);
+        self.pos = reach(f, x, clamp);
         self.vel = u + f.vel;
         false
     }
+}
+
+/// Where the camera gets to on its way to `x` from the suit, `clamp` stopping it short of a body:
+/// up over the suit's head first (as high as `x` is over it), then across to it. Straight from the
+/// suit, a surface just behind it would stop the camera inside the suit itself; this way it stops
+/// over its head, looking past it. With nothing in the way, it's `x`.
+pub fn reach(f: &Follow, x: Vec3, clamp: &dyn Fn(Vec3, Vec3) -> Vec3) -> Vec3 {
+    let over = f.pos + f.up * (x - f.pos).dot(f.up).max(0.0);
+    let up = clamp(f.pos, over);
+    clamp(up, x)
 }
 
 #[cfg(test)]
@@ -339,5 +350,39 @@ mod tests {
         }
         // Places under the ground came up: the clamp had work to do.
         assert_eq!(clamped, 2);
+    }
+
+    #[test]
+    fn a_wall_behind_the_suit_puts_the_camera_over_its_head_not_in_it() {
+        use crate::surface::{BodySet, CAM_CLEAR, camera_clamp};
+        use bc_sim::bodies::Body;
+        use bc_sim::field::Field;
+        use bc_sim::ground::BODY_CLEAR;
+        use std::sync::Arc;
+
+        // Its back to MO-II's fore module, as near as a suit on it can be (BODY_CLEAR), and facing
+        // away: the camera's place is inside the module, and straight back from the suit it would
+        // stop a metre behind its origin, in its torso.
+        let bodies = BodySet::new(Arc::new(Field::empty()), 1);
+        let mo_ii = Body::Landmark(0);
+        let t = 100.0;
+        let pose = bodies.pose_at(mo_ii, t).unwrap();
+        let shape = bodies.shape(mo_ii).unwrap();
+        let clear = |x: Vec3| shape.probe(pose.to_local(x)).dist;
+        let (aim, up) = (pose.rot * Vec3::X, pose.rot * Vec3::Y);
+        let pos = pose.to_world(Vec3::new(260.0 + BODY_CLEAR, 40.0, 40.0));
+        let f = Follow { pos, vel: Vec3::ZERO, aim, up, cut: false, ground: true };
+        let clamp = |from, to| camera_clamp(&bodies, t, from, to);
+        assert!(clamp(pos, f.ideal_at(1.0)).distance(pos) < 2.0, "straight back, it was in the suit");
+        let mut rig = ChaseRig::default();
+        for _ in 0..240 {
+            rig.step_clamped(&f, 1.0 / 60.0, &clamp);
+            assert!(clear(rig.pos) > CAM_CLEAR * 0.9, "{} m clear", clear(rig.pos));
+            assert!(
+                (rig.pos - pos).dot(up) > GROUND_RISE - 0.5,
+                "{} m over the suit",
+                (rig.pos - pos).dot(up)
+            );
+        }
     }
 }

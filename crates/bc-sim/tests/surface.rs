@@ -32,8 +32,8 @@ use bc_sim::field::{Field, Rock, SUIT_CLEARANCE};
 use bc_sim::flight::{self, FlightState};
 use bc_sim::ground::{
     Anchor, CATCH_RANGE, CATCH_SPEED, CROUCH_SPEED, CROUCH_STANCE, Footing, GRIP_ACCEL, JUMP_SPEED,
-    LAND_SPEED_MAX, LEGLESS_TURN_RATE, RELEASE_RANGE, RELEASE_SPEED, RUN_SPEED, STANCE, TAKEOFF_SPEED,
-    UNPARK_SPEED, derive, place,
+    LAND_SPEED_MAX, LEGLESS_TURN_RATE, LUNGE_GROUND_SPEED, RELEASE_RANGE, RELEASE_SPEED, RUN_SPEED, STANCE,
+    TAKEOFF_SPEED, UNPARK_SPEED, derive, place,
 };
 use bc_sim::math::look_rotation;
 use bc_sim::rocks::RockStates;
@@ -249,6 +249,31 @@ fn free_suits_stop_at_mo_ii_and_hermit() {
                 "landmark {k} along {dir}: {} m off, {vn} m/s into it",
                 pr.dist
             );
+        }
+    }
+}
+
+#[test]
+fn a_suit_sliding_fast_along_mo_ii_meets_its_mast() {
+    // Pressed against the fore module's +X face (as its last push out of it left it) and sliding
+    // along it at 540 m/s, 18 m a tick, toward the 8 m mast standing out of that face: it stops
+    // against the mast, never coming out on its far side. Touching the face at the start of every
+    // tick, its move isn't swept against the face, but it is against the rest of MO-II.
+    let sim = sector(1);
+    let b = Bodies::at(&sim.field, sim.landmarks(), 100);
+    let pose = b.pose(Body::Landmark(0)).unwrap();
+    for y0 in [-30.0, -31.0, -33.0, -35.0, -60.0] {
+        let local = Vec3::new(260.0 + SUIT_CLEARANCE, y0, 0.0);
+        let pos = pose.to_world(local);
+        let vel = pose.point_vel(pos) + pose.rot * Vec3::new(-5.0, 540.0, 0.0);
+        let mut f = FlightState { pos, vel, ..FlightState::default() };
+        for k in 0..6 {
+            let prev = f.pos;
+            f.pos += f.vel * DT;
+            b.collide_landmarks(prev, &mut f, None);
+            let at = pose.to_local(f.pos);
+            assert!(at.y < 0.0, "from y = {y0}: through the mast to y = {} at {k}", at.y);
+            assert!(LANDMARKS[0].shape.probe(at).dist >= SUIT_CLEARANCE - 0.05, "inside at {k}: {at}");
         }
     }
 }
@@ -769,6 +794,32 @@ fn inner_corners_block_rounded_edges_do_not_and_walls_slide() {
 }
 
 #[test]
+fn a_suit_stopped_at_a_rim_keeps_no_speed() {
+    // Running at THE DEEP's rim from outside: the ground turns down into the bowl too sharply to
+    // walk over, a wall whose face leans the way the suit runs. Stopped there, it's still: nothing
+    // left of its run to replicate, to give its shots, or to let go with.
+    let mut sim = grip_sector();
+    let deep = Body::Landmark(1);
+    let id = standing_on(&mut sim, FrameId::Leo, Faction::Colonies, deep, Vec3::new(120.0, 600.0, 0.0));
+    let i = id.idx();
+    let mut stopped = 0;
+    for k in 0..300 {
+        let aim = bodies(&sim).pose(deep).unwrap().rot * -Vec3::X;
+        let was = sim.suits.anchor[i].local;
+        drive(&mut sim, id, [0, 0, 127], GRIP | BOOST, aim);
+        step(&mut sim);
+        assert_eq!(sim.footing(i), Footing::Grounded, "at {k}");
+        if sim.suits.anchor[i].local == was {
+            stopped += 1;
+            assert_eq!(sim.suits.anchor[i].vel, Vec3::ZERO, "stopped at {k}, but moving");
+            let f = sim.suits.flight[i];
+            assert_eq!(f.vel, bodies(&sim).pose(deep).unwrap().point_vel(f.pos));
+        }
+    }
+    assert!(stopped > 100, "the rim stopped it for {stopped} ticks");
+}
+
+#[test]
 fn running_off_a_ledge_lands_running() {
     // Running, a hop keeps the run: aloft, flight assist holds run speed along the surface, so the
     // suit comes down still running, and the grip never lets go.
@@ -1105,19 +1156,7 @@ fn throw_recoil_moves_a_grounded_suit_along_the_ground() {
     let i = id.idx();
     let (n, _) = ground(&sim, id);
     let ahead = sim.suits.flight[i].rot * Vec3::Z;
-    // A tonne of ore just off the left hand.
-    let desc = ChunkDesc { kind: ChunkKind::Ore { ore: 1 }, seed: 1, mass_kg: 1_000 };
-    let f = sim.suits.flight[i];
-    let hand = f.pos + f.rot * bc_sim::content::ArmSlot::Left.muzzle();
-    let at = hand + f.rot * -Vec3::X * (chunks::radius(&desc) + 0.5);
-    let t = sim.tick();
-    let seg = Segment { t0: t, pos: at, ..Segment::default() }.quantized();
-    let k = sim.chunks.spawn(desc, Motion::Free(seg), t + 9_000, t).unwrap() as usize;
-    for _ in 0..2 {
-        drive(&mut sim, id, [0; 3], GRIP | GRAB, ahead);
-        step(&mut sim);
-    }
-    assert_eq!(sim.held_chunk(i), Some(k), "it took the ore in hand");
+    let k = a_tonne_in_hand(&mut sim, id);
     let mods = sim.flight_mods(i);
     let suit_kg =
         frame(FrameId::Leo).mass(sim.suits.flight[i].propellant) + mods.extra_mass_kg as f32 - 1_000.0;
@@ -1142,6 +1181,55 @@ fn throw_recoil_moves_a_grounded_suit_along_the_ground() {
     assert!(moved.dot(ahead) < -0.3, "slid {} m back", -moved.dot(ahead));
     assert!(moved.dot(n).abs() < 0.05, "and along the ground, not off it: {}", moved.dot(n));
     assert_eq!(sim.suits.anchor[i].vel, Vec3::ZERO, "the legs stopped it");
+}
+
+/// Puts a tonne of ore in `id`'s left hand (it grabs it over two ticks, gripping the ground).
+fn a_tonne_in_hand(sim: &mut Sim, id: SuitId) -> usize {
+    let i = id.idx();
+    let ahead = sim.suits.flight[i].rot * Vec3::Z;
+    let desc = ChunkDesc { kind: ChunkKind::Ore { ore: 1 }, seed: 1, mass_kg: 1_000 };
+    let f = sim.suits.flight[i];
+    let hand = f.pos + f.rot * bc_sim::content::ArmSlot::Left.muzzle();
+    let at = hand + f.rot * -Vec3::X * (chunks::radius(&desc) + 0.5);
+    let t = sim.tick();
+    let seg = Segment { t0: t, pos: at, ..Segment::default() }.quantized();
+    let k = sim.chunks.spawn(desc, Motion::Free(seg), t + 9_000, t).unwrap() as usize;
+    for _ in 0..2 {
+        drive(sim, id, [0; 3], GRIP | GRAB, ahead);
+        step(sim);
+    }
+    assert_eq!(sim.held_chunk(i), Some(k), "it took the ore in hand");
+    k
+}
+
+#[test]
+fn throw_recoil_never_takes_a_rider_past_its_speed() {
+    // Already going backward near a rider's top speed (a lunge's on the ground, the grip's aloft),
+    // a throw forward would push it past: the step has run, so nothing else would hold it to that
+    // until the next tick. `step` checks I11 as the tick leaves it.
+    for aloft in [false, true] {
+        let mut sim = grip_sector();
+        let id = on_hermit(&mut sim, FrameId::Leo, Vec3::new(0.3, 1.0, 0.2));
+        let i = id.idx();
+        let ahead = sim.suits.flight[i].rot * Vec3::Z;
+        a_tonne_in_hand(&mut sim, id);
+        let cap = if aloft {
+            drive(&mut sim, id, [0, 127, 0], GRIP | GRAB, ahead);
+            step(&mut sim);
+            assert_eq!(sim.footing(i), Footing::Aloft);
+            RELEASE_SPEED
+        } else {
+            LUNGE_GROUND_SPEED
+        };
+        let pose = bodies(&sim).pose(Body::Landmark(1)).unwrap();
+        sim.suits.anchor[i].vel = pose.rot.conjugate() * -ahead * (cap - 0.4);
+        drive(&mut sim, id, [0; 3], GRIP | GRAB | THROW, ahead);
+        step(&mut sim);
+        assert_eq!(sim.held_chunk(i), None, "thrown");
+        let v = sim.suits.anchor[i].vel.length();
+        assert!(v <= cap + 1e-3, "aloft {aloft}: {v} m/s after the throw");
+        assert!(v > cap - 0.5, "aloft {aloft}: the push back still counts ({v} m/s)");
+    }
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -1226,6 +1314,38 @@ fn an_aloft_suit_that_sleeps_settles_then_parks() {
 }
 
 #[test]
+fn a_sleeper_climbing_out_of_the_grip_still_comes_down_and_parks() {
+    // Its pilot gone halfway up a climb on Space at about 19 m/s: hands off, grip gravity alone
+    // would let it coast on past 40 m and out of the grip for good. It stops where it is and
+    // comes down instead.
+    let mut sim = grip_sector();
+    let id = on_hermit(&mut sim, FrameId::Leo, Vec3::new(0.3, 1.0, 0.2));
+    let i = id.idx();
+    let aim = sim.suits.flight[i].rot * Vec3::Z;
+    let mut climb = 0.0;
+    for _ in 0..120 {
+        drive(&mut sim, id, [0, 127, 0], GRIP | FLIGHT_ASSIST, aim);
+        step(&mut sim);
+        if sim.footing(i) == Footing::Aloft && ground(&sim, id).1 > 22.0 {
+            let (n, _) = ground(&sim, id);
+            climb = (bodies(&sim).pose(Body::Landmark(1)).unwrap().rot * sim.suits.anchor[i].vel).dot(n);
+            break;
+        }
+    }
+    assert!(climb > 15.5, "climbing at {climb} m/s: fast enough to coast out of the grip");
+    assert!(sim.sleep(id));
+    let mut parked_at = None;
+    for k in 0..300 {
+        step(&mut sim);
+        assert_ne!(sim.footing(i), Footing::Free, "it left the grip at {k}");
+        if sim.is_parked(i) {
+            parked_at.get_or_insert(k);
+        }
+    }
+    assert!(parked_at.is_some(), "it never came down");
+}
+
+#[test]
 fn parked_on_mo_ii_moves_with_it_and_carries_point_velocity() {
     let mut sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
     let deck = Body::Landmark(0);
@@ -1250,6 +1370,8 @@ fn parked_on_mo_ii_moves_with_it_and_carries_point_velocity() {
             let f = sim.suits.flight[id.idx()];
             assert_eq!(f.vel, pose.point_vel(f.pos), "moving with the deck");
             assert_eq!(f.ang_vel, pose.ang_vel, "turning with it");
+            // And looking where it faces: an aim left as it slept would sweep round the deck.
+            assert_eq!(sim.suits.aim[id.idx()], f.rot * Vec3::Z, "aim turning with it");
         }
     }
     for (id, s) in [standing, resting].iter().zip(start) {

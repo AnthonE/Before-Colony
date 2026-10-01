@@ -70,7 +70,7 @@ network threads.
    (release it), Sleep (a signed-in pilot left: the suit stays, asleep; under survival, one parked
    in a landmark's hide spot is reported on the slot's ring, `Report::Parked`, for the pilot's
    record), Restore (at boot, put such a suit back, asleep, and answer on `SectorShared::restored`),
-   Respawn frame.
+   Discard (take away one put back after the server stopped waiting for it), Respawn frame.
 2. **Inputs:** drain each slot's ring into a 64-slot jitter buffer, and process acks.
 3. **Oracle advice** in, with a 15-tick time-to-live.
 4. **Apply inputs** for tick `T`: the client's command if it arrived; otherwise the last one with fire
@@ -119,7 +119,8 @@ network threads.
    15. Shattered rocks grow back once no suit awake is near, nor a sleeper in the way (checked
        every 30 ticks).
 6. **Sleepers' fates** (destroyed, or cleared for room) onto the notes queue, for the server to tell
-   their pilots.
+   their pilots; under survival, the records of those in hide spots hit this tick onto
+   `SectorShared::reparked`, for their pilots' records.
 7. **Tactical pictures** for ZERO pilots (≈4 Hz), only when an external oracle is attached.
 8. **Snapshots** for each client, straight into its ring. The egress thread is unparked.
 
@@ -257,7 +258,13 @@ network threads.
     landmarks (`LANDMARKS_VERSION`). The sector answers each it put back on
     `SectorShared::restored`, and the record then names that sleeper, so the pilot's next Join
     wakes it as any other. Any fate of the sleeper clears `parked` on disk, so a hidden suit
-    destroyed while its pilot is away is never put back.
+    destroyed while its pilot is away is never put back; every hit on it replaces the record with
+    what's left of it (`Reparked`, newer by sector tick), so limbs shot off don't grow back with a
+    restart. While the pilot's session is live (leaving, it saves the record it has), that news
+    waits on the session and is applied once it ends (`Pilots::release`, `apply_park_news`); a fate
+    that comes before a restored suit is bound to its pilot is kept for the binding
+    (`Pilots::bind_restored`); and a restore answered after the 2 s wait, its record already let
+    go, is discarded again (`Control::Discard`).
 
 - **Survival: the hangar, off the tick.** A pilot's hangar (credits, stores, the suit in the bay,
   job queues) lives in their record and in their session task, never in the sector. Its messages
@@ -511,7 +518,7 @@ fire, beside 4 dolls).
 | `bc-sim` unit tests (`bodies`, `content::landmarks`, `ground`, `world`, `math`) | Probes are exact on the surface and Lipschitz; bounds are lower bounds; traces match dense sampling (none misses anything 6 m thick); poses are periodic bit for bit and their point velocities match their motion, exactly zero on a still body; the landmarks are clear of everything else in the sector, within the surface-speed budget, their hide spots on bowl floors behind walls; 75 rocks of the default field are grippable; placement converges to within 1 cm on every body; the stance stays on its grid; the colony's sweep matches dense sampling and its spin is 1 g. |
 | `bc-client-core/tests/{surface_predict,landmarks}.rs` | Seeded from every snapshot of a real Sim's suit catching, landing, walking, running, hopping, crouching, letting go, lifting off and digging itself free on a rock, Hermit and MO-II (and the Aft Well), the prediction keeps footing, body and stance exact and flies within 1 cm in the body's frame for 10 ticks ahead; it stops at a landmark where the server does. Unit tests: rock deaths are tick-stamped, riders interpolate in their body's frame and across a frame switch without a pop, a still rider stays glued and lives 300 ticks, an unknown body is dropped and counted, a frame switch is a correction and not a cut, the camera stays out of the body, the gait's planted feet don't slide on MO-II, the landmarks' meshes lie on their surfaces, and the lander lands, walks and hides. |
 | `bc-sector/tests/netcode.rs`, on the bodies | Over the same link, with real clients drawing at 60 and 144 Hz: prediction holds up walking and hopping on MO-II; the own rider is drawn within the clock's bound; landing and letting go blend without a cut; other riders are drawn where the server had them, and still ones stay glued through loss; a pilot hits a walking rider as often as a free one, and a rider shooting from MO-II hits what it saw; still riders yield bandwidth. |
-| `bc-sector/tests/sleep_net.rs`, `bc-server/tests/hide.rs` | A rider that wakes keeps its grip until its pilot is heard from; under survival a suit parked in a hide spot is reported, and restored into a fresh sector exactly where it was, dark after 8 s. Through a real server: a hidden suit is put back at boot (in `/status` and the roster before anyone connects) and its pilot wakes in it, grounded and crouched within 1 cm of where it was, with its hold; a record saved for other landmarks (an older `LANDMARKS_VERSION`) is towed home; a restored sleeper destroyed isn't restored again; `/status` counts hidden sleepers and gives no positions. |
+| `bc-sector/tests/sleep_net.rs`, `bc-server/tests/hide.rs` | A rider that wakes keeps its grip until its pilot is heard from; under survival a suit parked in a hide spot is reported, and restored into a fresh sector exactly where it was, dark after 8 s. Through a real server: a hidden suit is put back at boot (in `/status` and the roster before anyone connects) and its pilot wakes in it, grounded and crouched within 1 cm of where it was, with its hold; a record saved for other landmarks (an older `LANDMARKS_VERSION`) is towed home; a restored sleeper destroyed isn't restored again, and one hunted comes back as its hunters left it; a restore answered too late is discarded; `/status` counts hidden sleepers and gives no positions. |
 | `bc-model` tests | Every design stays within 2.6 m of its hit capsules (Neo-Bird's own), no two frames share a mesh, every kit has the sockets it's drawn from, the cockpit's eye sees out past the suit it rides (nothing drawn inside the near plane or across the crosshair's 15°), and the triangle budgets. |
 
 ## Scaling path

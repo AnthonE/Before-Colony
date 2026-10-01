@@ -150,9 +150,10 @@ station that turns carries its riders round with it.
 - **What the HUD says.** The flight panel shows `GRIP ARMED`, `ALOFT` (with the feet's height,
   `ALT 23 m`), `GROUNDED` or `CROUCHED`. While you're on a body, `SPD` and the velocity marker
   `-o-` are relative to it; flying within 2 km of a landmark, the marker is relative to that.
-  Within 3 km of a landmark its name, range and closing speed over its surface show, and its hide
-  spots are marked (`<> AFT WELL 2.4 km`). `L - GRIP` says a surface you could grip is near;
-  `HULL SPINS - NO GRIP` that the colony isn't one.
+  Within 3 km of a landmark its name, range and range rate over its surface show, negative while
+  you close on it (`MO-II  2.4 km  -38 m/s`), and its hide spots are marked (`<> AFT WELL 2.4 km`).
+  `L - GRIP` says a surface you could grip is near; `HULL SPINS - NO GRIP` that the colony isn't
+  one.
 
 | Constant (`bc_sim::ground`) | Value |
 |---|---|
@@ -584,8 +585,10 @@ PARK & DISCONNECT where it would park, SLEEP & DISCONNECT anywhere else.
   asleep is cleared (those in hide spots last), and its pilot is told.
 - *A restart.* Under survival rules, a suit left on its feet in a landmark's hide spot is saved with
   its pilot's record, and put back where it was when the server starts, before anyone connects, with
-  its real damage, tank, ammunition and hold. It is asleep, and dark 8 s later, so it can be hunted
-  before its pilot is back. Destroyed while they're away, it isn't put back again. A restart clears
+  its real damage, tank, ammunition and hold: what it had when its pilot left, less what it has
+  lost to hunters since (its record follows every hit, so limbs shot off aren't there to take
+  again). It is asleep, and dark 8 s later, so it can be hunted before its pilot is back.
+  Destroyed while they're away, it isn't put back again, even if that was as they were leaving. A restart clears
   every other sleeper: under survival the tugs bring it home to its bay as it launched.
 - *Waking.* The pilot wakes where the suit is: on its feet (or knees) as they left it, still
   gripping, and crouched if it was. A suit that lay hidden stays hidden until it moves or fires:

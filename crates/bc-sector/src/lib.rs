@@ -27,8 +27,8 @@ mod sector;
 pub use jitter::JitterBuffer;
 pub use metrics::Metrics;
 pub use queues::{
-    Comeback, Control, EgressEnds, InputMsg, NOTES, OracleEnds, Outcome, REPORTS, RESTORED, Report, Restored,
-    SectorShared, SlotLease, SlotState, build, read_packet,
+    Comeback, Control, EgressEnds, InputMsg, NOTES, OracleEnds, Outcome, REPORTS, RESTORED, Reparked, Report,
+    Restored, SectorShared, SlotLease, SlotState, build, read_packet,
 };
 pub use runtime::{SectorThread, spawn};
 pub use sector::{Sector, SectorConfig};

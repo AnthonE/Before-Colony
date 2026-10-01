@@ -430,7 +430,7 @@ fn sleepers_golden_wasm() {
 /// Wing Zero is caught over Hermit's Deep, lands in it, and changes into the Neo-Bird and flies
 /// off. A guided missile goes at the Leo on its rock. (The hash covers the suits' cover since they
 /// hide, and the dolls hunting the riders come at them from above.)
-const SURFACE_GOLDEN: u64 = 0x2f4e_41b2_9e66_e2ab;
+const SURFACE_GOLDEN: u64 = 0x8909_1164_8956_f151;
 
 fn surface_hash() -> u64 {
     use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRIP, MELEE, MODE};

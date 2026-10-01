@@ -9,8 +9,9 @@
 //!   switch between them is a clean cut. With the head shot off, the sub-camera's picture is
 //!   duller;
 //! - on a body the chase camera comes in closer and higher, and is kept out of every body: it stops
-//!   short of any surface between the suit and its place (`bc_client_core::surface::camera_clamp`,
-//!   the bodies as drawn). From the cockpit the walk bobs the eye a little (30% of the hips'
+//!   short of any surface between the suit and its place, reached over the suit's head
+//!   (`bc_client_core::chase::reach`, `bc_client_core::surface::camera_clamp`, the bodies as
+//!   drawn). From the cockpit the walk bobs the eye a little (30% of the hips'
 //!   drop), for comfort;
 //! - the field of view widens on boost, and blasts, hits and the Twin Buster Rifle shake it;
 //! - G-strain greys the view out and closes it to a tunnel, and a blackout (G-LOC) takes it to

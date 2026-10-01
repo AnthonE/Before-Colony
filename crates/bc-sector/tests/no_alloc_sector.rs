@@ -274,7 +274,7 @@ fn survival_launches_docks_and_losses_never_allocate() {
     }
     let mut buf = [0u8; 2048];
     let (mut total, mut docked, mut relaunched, mut lost) = (0u64, 0u32, 0u32, 0u32);
-    let (mut parked, mut restored, mut record) = (0u32, 0u32, None);
+    let (mut parked, mut restored, mut reparked, mut record) = (0u32, 0u32, 0u32, None);
     for step in 0..1_300u32 {
         // Network side: one pilot is put down in the Aft Well, and leaves a few ticks later; the
         // last suit recorded there is put back.
@@ -328,6 +328,14 @@ fn survival_launches_docks_and_losses_never_allocate() {
             }
         }
         let next = sector.sim.next_tick();
+        // And those asleep there are shot at (as the damage step leaves a suit it hits): what's
+        // left of them goes to the server.
+        if step >= 300 && step % 13 == 0 {
+            let s = &mut sector.sim.suits;
+            for i in s.sleeping.iter() {
+                s.last_hit[i] = next;
+            }
+        }
         for l in &mut leases {
             let mut p =
                 InputPacket { ack_snapshot: next.saturating_sub(3), count: 1, ..InputPacket::default() };
@@ -353,26 +361,40 @@ fn survival_launches_docks_and_losses_never_allocate() {
                     Report::Home(_) => docked += 1,
                     Report::Lost { .. } => lost += 1,
                     Report::DockRefused => {}
-                    Report::Parked(rec) => {
+                    Report::Parked { rec, .. } => {
                         parked += 1;
                         record = Some(rec);
                     }
                 }
             }
         }
-        while shared.restored.pop().is_some() {
+        while let Some(r) = shared.restored.pop() {
             restored += 1;
+            // Every other one as though it came back after the server stopped waiting: it goes.
+            if restored % 2 == 0 {
+                let (suit, generation) = (r.suit, r.generation);
+                shared.control.push(Control::Discard { suit, generation }).unwrap();
+            }
+        }
+        while shared.reparked.pop().is_some() {
+            reparked += 1;
         }
         for ring in &mut egress.rings {
             while read_packet(ring, &mut buf).is_some() {}
         }
     }
-    println!("docked {docked}, relaunched {relaunched}, lost {lost}, parked {parked}, restored {restored}");
+    println!(
+        "docked {docked}, relaunched {relaunched}, lost {lost}, parked {parked}, restored {restored}, \
+         reparked {reparked}"
+    );
     assert!(
         docked > 50 && relaunched > 50 && lost > 50,
         "docked {docked}, relaunched {relaunched}, lost {lost}"
     );
-    assert!(parked > 20 && restored > 20, "parked {parked}, restored {restored}");
+    assert!(
+        parked > 20 && restored > 20 && reparked > 10,
+        "parked {parked}, restored {restored}, reparked {reparked}"
+    );
     assert_eq!(total, 0, "heap operations inside sector ticks: {total}");
 }
 

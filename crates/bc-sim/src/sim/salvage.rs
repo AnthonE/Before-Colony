@@ -14,8 +14,8 @@ use crate::content::salvage::{
     THROW_SPEED_MAX, hold_kg, material, ore_ttl, stowable, wreck_ttl,
 };
 use crate::content::{ArmSlot, frame};
-use crate::ground::{Footing, derive};
-use crate::math::{hash01, normalize_or};
+use crate::ground::{Footing, LUNGE_GROUND_SPEED, RELEASE_SPEED, derive};
+use crate::math::{clamp_len, hash01, normalize_or};
 
 impl Sim {
     /// The chunk suit `i` holds, if it still holds it.
@@ -146,11 +146,14 @@ impl Sim {
         }
         // On a body, the suit's motion is its anchor's (its world state is derived from it): the
         // push goes there. On the ground, what's along it slides the suit (until its legs stop
-        // it) and the ground takes what's into it; aloft, all of it moves the suit.
+        // it) and the ground takes what's into it; aloft, all of it moves the suit. Never past
+        // what a rider can have (a lunge's on the ground, the grip's aloft): the step has already
+        // run this tick, so nothing else would hold it there until the next.
+        let cap = if self.suits.footing[i] == Footing::Aloft { RELEASE_SPEED } else { LUNGE_GROUND_SPEED };
         let landmarks = self.landmarks();
         let a = &mut self.suits.anchor[i];
         if let Some(p) = Bodies::at(&self.field, landmarks, t).pose(a.body) {
-            a.vel -= p.rot.conjugate() * dv;
+            a.vel = clamp_len(a.vel - p.rot.conjugate() * dv, cap);
             derive(&p, a, &mut self.suits.flight[i]);
         }
     }

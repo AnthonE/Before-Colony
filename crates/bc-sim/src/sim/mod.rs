@@ -721,7 +721,11 @@ impl Sim {
                 }
                 (s.flight[i], s.footing[i], s.anchor[i]) = (m.flight, m.footing, m.anchor);
                 s.boosting[i] = out.flight.boosting;
-                s.aim[i] = normalize_or(cmd.aim, m.flight.rot * Vec3::Z);
+                if asleep {
+                    sleep::look_ahead(s, i);
+                } else {
+                    s.aim[i] = normalize_or(cmd.aim, m.flight.rot * Vec3::Z);
+                }
             }
         }
         self.iter_bits = used;

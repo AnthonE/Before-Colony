@@ -349,9 +349,10 @@ fn the_owners_feet_keep_time_with_the_servers() {
     let seen = check("the Aft Well", &run);
     println!("the Aft Well: {seen:?}");
     let at_rim = run.poses[225].4;
+    // Stopped there, it keeps nothing of its walk (none of it to replicate, nor to let go with).
     assert!(
-        at_rim.local.z > 53.0 && at_rim.vel.length() > 7.0,
-        "held at the rim, walking into it: {at_rim:?}"
+        at_rim.local.z > 53.0 && at_rim.vel == Vec3::ZERO,
+        "held at the rim, still, walking into it: {at_rim:?}"
     );
     assert!(seen.hopped == 1 && seen.landed == 2 && seen.crouched > 60, "{seen:?}");
     let (.., footing, end) = *run.poses.last().unwrap();

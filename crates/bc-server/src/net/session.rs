@@ -659,7 +659,7 @@ impl Session<'_> {
                 self.note("come to rest inside the dock's ring of lights to dock", false).await?;
             }
             // Only ever sent as the pilot leaves (`leave` reads it).
-            Report::Parked(_) => {}
+            Report::Parked { .. } => {}
             Report::Lost { bounty } => {
                 self.lost = true;
                 let text = self.hangar.lost(bounty);
@@ -750,7 +750,7 @@ impl Session<'_> {
             let (mut parked, mut bounty) = (None, 0);
             while let Some(report) = self.lease.as_mut().and_then(|l| l.reports.pop().ok()) {
                 match report {
-                    Report::Parked(rec) => parked = Some(rec),
+                    Report::Parked { rec, tick } => parked = Some((rec, tick)),
                     Report::Lost { bounty: b } => bounty = b,
                     Report::Home(_) | Report::DockRefused => {}
                 }
@@ -764,7 +764,9 @@ impl Session<'_> {
                 }),
                 _ => None,
             };
-            let parked = asleep.zip(parked).map(|(s, rec)| ParkedSuit::new(&rec, s.since_unix));
+            let parked = asleep
+                .zip(parked)
+                .map(|(s, (rec, tick))| ParkedSuit { tick, ..ParkedSuit::new(&rec, s.since_unix) });
             if let (Some(a), Some(sleeper)) = (self.address, asleep) {
                 let hidden = parked.is_some();
                 tracing::info!(address = %pilots::short(&a), suit = sleeper.suit, hidden, "asleep in the cockpit");

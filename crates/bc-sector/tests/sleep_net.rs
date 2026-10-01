@@ -269,7 +269,7 @@ fn parked_in_the_aft_well() -> ParkRecord {
     assert_eq!(sector.sim.suits.anchor[i].stance, CROUCH_STANCE);
     send(&mut sector, &shared, 0, Control::Sleep { slot: 0 });
     match reports(&mut leases[0]).as_slice() {
-        [Report::Parked(rec)] => *rec,
+        [Report::Parked { rec, .. }] => *rec,
         other => panic!("{other:?}"),
     }
 }
@@ -282,7 +282,8 @@ fn a_suit_parked_in_a_hide_spot_reports_it() {
     assert!(sector.sim.is_parked(i));
     // On the slot's report ring by the time the slot is free: the session waiting for that finds it.
     let got = reports(&mut leases[0]);
-    let [Report::Parked(rec)] = got.as_slice() else { panic!("{got:?}") };
+    let [Report::Parked { rec, tick }] = got.as_slice() else { panic!("{got:?}") };
+    assert_eq!(*tick, sector.sim.tick() - 1, "recorded as it slept, before the tick");
     let a = sector.sim.suits.anchor[i];
     assert_eq!((rec.landmark, rec.local, rec.rot, rec.stance), (0, a.local, a.rot, a.stance));
     assert_eq!((rec.frame, rec.faction, rec.pilot), (FrameId::Leo, Faction::Colonies, PilotKind::Human));
@@ -380,4 +381,47 @@ fn restore_brings_a_parked_sleeper_back() {
     }
     assert!(shared.restored.pop().is_none() && bare_shared.restored.pop().is_none());
     assert_eq!(sector.sim.sleepers() + bare.sim.sleepers(), 0);
+}
+
+#[test]
+fn a_hidden_sleeper_that_is_hit_reports_what_is_left_of_it() {
+    let (mut sector, shared, _leases) = sector_with_leases(true);
+    let id = leave_on(&mut sector, &shared, 0, Some(AFT_WELL));
+    let i = id.idx();
+    // One asleep in open space has nothing to keep, hit or not.
+    let open = leave_on(&mut sector, &shared, 1, None);
+    sector.tick();
+    assert!(shared.reparked.pop().is_none(), "nothing hit");
+    // Its left arm shot off (as the damage step leaves a suit it hits).
+    let next = sector.sim.next_tick();
+    for j in [i, open.idx()] {
+        sector.sim.suits.last_hit[j] = next;
+    }
+    sector.sim.suits.part_hp[i][Part::ArmL as usize] = 0.0;
+    sector.tick();
+    let r = shared.reparked.pop().expect("reported");
+    assert!(shared.reparked.pop().is_none(), "only the hidden one");
+    assert_eq!((r.suit, r.generation, r.tick), (id.0.idx, id.0.generation, next));
+    assert_eq!(r.rec.home.parts[Part::ArmL as usize], 0.0);
+    assert_eq!(Some(r.rec), sector.sim.park_record(i));
+    sector.tick();
+    assert!(shared.reparked.pop().is_none(), "once a hit");
+}
+
+#[test]
+fn a_suit_put_back_too_late_is_discarded_quietly() {
+    let rec = parked_in_the_aft_well();
+    let (mut sector, shared) = sector(16);
+    shared.control.push(Control::Restore { key: 1, rec }).unwrap();
+    sector.tick();
+    let Restored { suit, generation, .. } = shared.restored.pop().expect("restored");
+    // The server had stopped waiting, and its record has let the suit go: it goes, with no fate to
+    // report and nothing left behind.
+    let chunks = sector.sim.chunks.count();
+    shared.control.push(Control::Discard { suit, generation }).unwrap();
+    sector.tick();
+    assert_eq!(sector.sim.sleepers(), 0);
+    assert!(!sector.sim.suits.used.get(usize::from(suit)));
+    assert!(shared.notes.pop().is_none(), "no fate");
+    assert_eq!(sector.sim.chunks.count(), chunks, "nothing spilled");
 }

@@ -197,8 +197,8 @@
 
     show($("pause"), s === "playing" && v.panel === "pause");
     // Signed in, leaving puts the pilot to sleep in the cockpit: in a hide spot the suit is left
-    // hidden (and under survival rules it outlasts a restart), at rest on a body it's parked; a
-    // guest's suit goes with them.
+    // hidden (and under survival rules it outlasts a restart), at rest on a body it's parked, in
+    // the air in a body's grip it comes down and parks; a guest's suit goes with them.
     const hidden = v.signedIn && v.hideSpot && v.survival;
     $("disconnect-button").textContent = v.place === "hangar" ? "LEAVE THE BAY"
       : !v.signedIn ? "DISCONNECT"
@@ -218,6 +218,8 @@
             (v.survival ? " It survives a server restart." : "")
           : v.parkable
           ? "Your suit stays parked here while you sleep: after 8 s (60 s after a fight) sensors lose it, and eyes see it only within 400 m."
+          : v.aloft
+          ? "Your suit stays here while you sleep: in the grip, it settles onto the body below and parks where it lands."
           : "Your suit stays out here while you sleep, drifting on as it was. Land on a body, or rest against one, to park it.");
     }
     show($("settings"), v.panel === "settings");

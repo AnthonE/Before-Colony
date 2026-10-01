@@ -409,7 +409,9 @@ pub fn drive_link(
         ui.parkable = ui.signed_in
             && g.core.world.own.is_some_and(|o| o.flags & bc_proto::snapshot::own_flags::PARKABLE != 0);
         let alive = l.in_game() && g.core.world.own.is_some_and(|o| o.alive);
-        ui.hide_spot = if alive { crate::hud::footed(&g.core).spot.unwrap_or("") } else { "" };
+        let feet = crate::hud::footed(&g.core);
+        ui.hide_spot = if alive { feet.spot.unwrap_or("") } else { "" };
+        ui.aloft = alive && ui.signed_in && feet.footing == bc_sim::ground::Footing::Aloft;
         ui.survival = g.core.welcome.is_some_and(|w| w.survival);
     }
     ui.attempt = l.attempt();

@@ -8,13 +8,13 @@
 //! which way the suit is drifting (`-o-`), or, moving backwards, the way it's drifting from
 //! (`-x-`): relative to the body it's on, or to a landmark within 2 km.
 //!
-//! The bodies: a landmark within 3 km is named with its range and closure, relative to its
-//! surface, and its hide spots marked (`<>`, from compiled content: they never say who is in one).
+//! The bodies: a landmark within 3 km is named with its range and range rate (negative closing),
+//! relative to its surface, and its hide spots marked (`<>`, from compiled content: they never say who is in one).
 //! With the grip armed, a landing ring `( _ )` sits on the surface the suit is coming in on, green
 //! when the next tick would catch it (the simulation's own test). On a body the flight panel says
 //! how the suit stands, and its speed is over the body; the alerts say how well hidden it is.
 
-use bc_client_core::surface::{SurfaceHint, surface_hint};
+use bc_client_core::surface::{LetGo, SurfaceHint, let_go, range_rate, surface_hint};
 use bc_client_core::world::ObjectMotion;
 use bc_client_core::{ClientCore, FeedLine};
 use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRIP, MELEE, MODE};
@@ -79,7 +79,7 @@ pub struct VelocityMarker;
 /// The landing ring: where the armed grip would land the suit.
 #[derive(Component)]
 pub struct LandingMarker;
-/// A landmark's name, range and closure, while it's near.
+/// A landmark's name, range and range rate (negative closing), while it's near.
 #[derive(Component)]
 pub struct LandmarkMarker(u8);
 /// A hide spot: which landmark's, and which of its spots.
@@ -775,16 +775,18 @@ pub fn update_hud(
     }
     lurk.cover = cover_now;
     lurk.hits_taken = world.hits_taken;
-    // The grip let go, still armed: on purpose, climbing out of it on the thrusters, or of its own
-    // accord (too fast, the rock gone, blown off).
+    // The grip let go, still armed: on purpose, climbing out of it on the thrusters or changing
+    // form, or of its own accord (too fast, the rock gone, blown off).
     if feet.footing == Footing::Free
         && grip
         && let Some((was, body)) = lurk.footing.filter(|f| f.0 != Footing::Free)
     {
-        if was == Footing::Aloft && lifted_off(core, body) {
-            ui.toast("FLYING");
-        } else {
-            lurk.lost_at = Some(now);
+        let form = &core.predict.form;
+        let can_grip = frame(form.frame).has_legs() && !form.changing();
+        match let_go(was, lifted_off(core, body), can_grip) {
+            LetGo::Flying => ui.toast("FLYING"),
+            LetGo::Transformed => {}
+            LetGo::Lost => lurk.lost_at = Some(now),
         }
     }
     lurk.footing = Some((feet.footing, feet.body));
@@ -1013,9 +1015,9 @@ pub fn update_hud(
                 .find(|l| l.0 == k && l.2 < LANDMARK_NEAR && feet.body != Body::Landmark(k))
                 .zip(drawn)
                 .map(|(l, v)| {
-                    let closure = (v.flight_vel - l.1.point_vel(v.pos)).dot(l.3);
+                    let rate = range_rate(v.flight_vel - l.1.point_vel(v.pos), l.3);
                     let name = LANDMARKS[usize::from(k)].name;
-                    (l.1.pos, format!("{name}  {}  {closure:+.0} m/s", km(l.2.max(0.0))), CYAN)
+                    (l.1.pos, format!("{name}  {}  {rate:+.0} m/s", km(l.2.max(0.0))), CYAN)
                 })
         } else if let Some(&HideMarker(k, i)) = hide {
             // Not the one it stands in.

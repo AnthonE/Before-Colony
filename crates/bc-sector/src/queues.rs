@@ -67,6 +67,12 @@ pub enum Control {
         key: u32,
         rec: ParkRecord,
     },
+    /// Takes away a suit [`Control::Restore`] put back too late (the server had stopped waiting,
+    /// and its record no longer keeps it): quietly, nothing spilled and no fate.
+    Discard {
+        suit: u16,
+        generation: u16,
+    },
 }
 
 /// A suit [`Control::Restore`] put back: which request, and the suit (entity slot, generation).
@@ -75,6 +81,16 @@ pub struct Restored {
     pub key: u32,
     pub suit: u16,
     pub generation: u16,
+}
+
+/// A suit asleep in a hide spot was hit (survival): what's left of it, as of `tick`, for the record
+/// that would put it back after a restart ([`SectorShared::reparked`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Reparked {
+    pub suit: u16,
+    pub generation: u16,
+    pub tick: u32,
+    pub rec: ParkRecord,
 }
 
 /// Lifecycle of a client slot, published by the sector through an atomic.
@@ -116,8 +132,9 @@ pub enum Report {
     /// The suit was destroyed; the bounties it had earned.
     Lost { bounty: u32 },
     /// Its pilot left it asleep in a landmark's hide spot: what it takes to put it back there
-    /// after a restart. Sent before the slot is published free.
-    Parked(ParkRecord),
+    /// after a restart, as of sector tick `tick` (a later [`Reparked`] of it is newer). Sent
+    /// before the slot is published free.
+    Parked { rec: ParkRecord, tick: u32 },
 }
 
 /// Per-slot status visible to the network side.
@@ -202,6 +219,8 @@ pub struct SectorShared {
     pub notes: ArrayQueue<SleeperFate>,
     /// Suits put back by [`Control::Restore`], for the server to hand to their pilots.
     pub restored: ArrayQueue<Restored>,
+    /// Suits asleep in hide spots hit this tick, for the server to keep their records up to date.
+    pub reparked: ArrayQueue<Reparked>,
     /// Free slot leases. A session pops one, and pushes it back once the sector has freed the slot.
     pub leases: ArrayQueue<SlotLease>,
     pub slots: Box<[SlotStatus]>,
@@ -283,6 +302,7 @@ pub fn build(cfg: SectorConfig) -> (crate::Sector, Arc<SectorShared>, EgressEnds
         control,
         notes: ArrayQueue::new(NOTES),
         restored: ArrayQueue::new(RESTORED),
+        reparked: ArrayQueue::new(NOTES),
         leases,
         slots: (0..n).map(|_| SlotStatus::new()).collect(),
         metrics: Metrics::new(n),

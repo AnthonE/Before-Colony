@@ -131,6 +131,7 @@ impl Sim {
         // Hands off everything but the frame's mode and the grip on the ground: no thrust, no
         // assist, no ZERO, nothing held (the hold stays), and the special off (a jammer, Full Open).
         let aim = s.flight[i].rot * Vec3::Z;
+        s.aim[i] = aim;
         s.input[i] = InputCmd::neutral(t, aim, s.input[i].buttons & (MODE | GRIP));
         s.zero[i] = Default::default();
         s.boosting[i] = false;
@@ -151,8 +152,10 @@ impl Sim {
                     hold(&p, a, &mut self.suits.flight[i]);
                 }
             }
-            // Grip gravity brings it down (`flight_step`), and it parks where it lands.
-            Footing::Aloft => {}
+            // It stops where it is in the air, and grip gravity brings it down (`flight_step`) to
+            // park where it lands. Hands off, nothing else would slow it: a climb or a run over a
+            // curved hull it kept could carry it out of the grip (T5) and off for good.
+            Footing::Aloft => self.suits.anchor[i].vel = Vec3::ZERO,
             Footing::Free => {
                 self.suits.anchor[i] = Anchor::default();
                 match self.parkable(i) {
@@ -272,6 +275,17 @@ impl Sim {
         true
     }
 
+    /// Takes sleeper `id` out of the sector without a trace: nothing spilled, and no fate (its
+    /// pilot's record no longer names it: a suit put back after the server stopped waiting for
+    /// it). `false` if it isn't there asleep.
+    pub fn discard_sleeper(&mut self, id: SuitId) -> bool {
+        if !self.suits.valid(id) || !self.suits.sleeping.get(id.idx()) {
+            return false;
+        }
+        self.suits.release(id.idx());
+        true
+    }
+
     /// Suits asleep.
     pub fn sleepers(&self) -> usize {
         self.suits.sleeping.count()
@@ -335,6 +349,7 @@ pub(crate) fn sleeper_drift(suits: &mut Suits, bodies: &Bodies, i: usize) {
         match bodies.pose(anchor.body).filter(|_| bodies.alive(anchor.body)) {
             Some(p) => {
                 hold(&p, &anchor, &mut suits.flight[i]);
+                look_ahead(suits, i);
                 return;
             }
             None => {
@@ -354,6 +369,13 @@ pub(crate) fn sleeper_drift(suits: &mut Suits, bodies: &Bodies, i: usize) {
     crate::world::constrain(f);
     bodies.collide_landmarks(prev, f, None);
     suits.boosting[i] = false;
+    look_ahead(suits, i);
+}
+
+/// A sleeper looks where its nose points, turning as its body (or its tumble) turns it: an aim
+/// left fixed in the sector's frame would sweep round a suit parked on a spinning landmark.
+pub(crate) fn look_ahead(suits: &mut Suits, i: usize) {
+    suits.aim[i] = suits.flight[i].rot * Vec3::Z;
 }
 
 /// A parked suit's world state on its body, posed `p`: where the body carries it, turned as it

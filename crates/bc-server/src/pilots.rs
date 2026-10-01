@@ -82,6 +82,10 @@ pub struct ParkedSuit {
     pub cargo_kg: [u16; CARGO_KINDS],
     pub bounty: u32,
     pub since_unix: u64,
+    /// The sector tick it was recorded at, in the server run of the record's sleeper: a later
+    /// record of the suit (it was hit since) replaces an earlier one, never the other way round.
+    #[serde(default)]
+    pub tick: u32,
 }
 
 impl ParkedSuit {
@@ -104,6 +108,7 @@ impl ParkedSuit {
             cargo_kg: h.cargo_kg,
             bounty: h.bounty,
             since_unix,
+            tick: 0,
         }
     }
 
@@ -153,6 +158,24 @@ pub enum Fate {
     Destroyed { by: String },
     /// Cleared to make room, or the server restarted.
     Lost,
+}
+
+/// What the sector said of a pilot's suit left in a hide spot, for their record.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ParkNews {
+    /// It's gone (destroyed, or cleared for room): the next server run mustn't put it back.
+    Gone { suit: (u16, u16) },
+    /// It was hit at sector tick `tick`: what's left of it is what the next run puts back.
+    Hit { suit: (u16, u16), tick: u32, rec: ParkRecord },
+}
+
+impl ParkNews {
+    /// The suit (entity slot, generation).
+    pub fn suit(&self) -> (u16, u16) {
+        match *self {
+            ParkNews::Gone { suit } | ParkNews::Hit { suit, .. } => suit,
+        }
+    }
 }
 
 /// Everything kept about a signed-in pilot.
@@ -315,6 +338,9 @@ struct Online {
     kick: Option<oneshot::Sender<()>>,
     /// Signalled when the session has torn down.
     gone: Arc<Notify>,
+    /// News of the pilot's suit left in a hide spot that came while the session was live, for
+    /// their record once it has saved its own ([`Pilots::release`]).
+    pending: Vec<ParkNews>,
 }
 
 struct Token {
@@ -330,13 +356,26 @@ pub struct Pilots {
     pub run: u64,
     online: Mutex<HashMap<Address, Online>>,
     tokens: Mutex<HashMap<[u8; TOKEN_BYTES], Token>>,
-    /// Signed-in pilots' suits, flying or asleep, by (entity slot, generation).
-    suits: Mutex<HashMap<(u16, u16), Address>>,
+    /// Signed-in pilots' suits, flying or asleep, by (entity slot, generation); and what became of
+    /// sleepers nobody was bound to yet (a suit put back at boot, gone as it came back), for
+    /// [`Pilots::bind_restored`].
+    suits: Mutex<BoundSuits>,
+    /// One change at a time to a record's suit left in a hide spot ([`Pilots::apply_park_news`]).
+    park_lock: tokio::sync::Mutex<()>,
     /// What became of pilots' sleepers while they were away, until they're back.
     news: Mutex<HashMap<Address, Fate>>,
     next_session: AtomicU64,
     ttl: Duration,
 }
+
+#[derive(Default)]
+struct BoundSuits {
+    by_suit: HashMap<(u16, u16), Address>,
+    unbound_fates: HashMap<(u16, u16), Fate>,
+}
+
+/// Fates of unbound sleepers kept at most (there are only ever a few, at boot).
+const UNBOUND_FATES: usize = 256;
 
 /// A claimed pilot: this session is theirs until [`Pilots::release`].
 pub struct Claim {
@@ -358,7 +397,8 @@ impl Pilots {
             run: u64::from_le_bytes(run),
             online: Mutex::new(HashMap::new()),
             tokens: Mutex::new(HashMap::new()),
-            suits: Mutex::new(HashMap::new()),
+            suits: Mutex::new(BoundSuits::default()),
+            park_lock: tokio::sync::Mutex::new(()),
             news: Mutex::new(HashMap::new()),
             next_session: AtomicU64::new(1),
             ttl,
@@ -367,6 +407,7 @@ impl Pilots {
 
     /// Makes this session the pilot's, taking over (and waiting out) any older one.
     pub async fn claim(&self, address: Address) -> Claim {
+        let mut carried = Vec::new();
         loop {
             let waiting = {
                 let Ok(mut online) = self.online.lock() else { break };
@@ -382,27 +423,32 @@ impl Pilots {
             };
             let Some(gone) = waiting else { break };
             if tokio::time::timeout(TAKEOVER_WAIT, gone.notified()).await.is_err() {
-                // It didn't go in time: it's forgotten either way.
+                // It didn't go in time: it's forgotten either way (what it was keeping isn't).
                 if let Ok(mut online) = self.online.lock() {
-                    online.remove(&address);
+                    carried.extend(online.remove(&address).map(|o| o.pending).unwrap_or_default());
                 }
             }
         }
         let (tx, rx) = oneshot::channel();
         let session = self.next_session.fetch_add(1, Ordering::Relaxed);
         if let Ok(mut online) = self.online.lock() {
-            online.insert(address, Online { session, kick: Some(tx), gone: Arc::new(Notify::new()) });
+            let gone = Arc::new(Notify::new());
+            online.insert(address, Online { session, kick: Some(tx), gone, pending: carried });
         }
         Claim { address, session, kicked: rx }
     }
 
-    /// The session ended: the pilot is free, and their token starts to age.
-    pub fn release(&self, claim_address: Address, session: u64) {
+    /// The session ended: the pilot is free, and their token starts to age. The news of their
+    /// suit left in a hide spot that came while it was live, for [`Pilots::apply_park_news`] (the
+    /// session has saved the record it had by now).
+    pub fn release(&self, claim_address: Address, session: u64) -> Vec<ParkNews> {
+        let mut pending = Vec::new();
         if let Ok(mut online) = self.online.lock()
             && online.get(&claim_address).is_some_and(|o| o.session == session)
             && let Some(o) = online.remove(&claim_address)
         {
             o.gone.notify_one();
+            pending = o.pending;
         }
         if let Ok(mut tokens) = self.tokens.lock() {
             let expires = Some(Instant::now() + self.ttl);
@@ -410,6 +456,7 @@ impl Pilots {
                 t.expires = expires;
             }
         }
+        pending
     }
 
     /// Whether the pilot is flying right now.
@@ -440,13 +487,45 @@ impl Pilots {
     /// The pilot flies (or sleeps in) this suit.
     pub fn bind_suit(&self, suit: (u16, u16), address: Address) {
         if let Ok(mut suits) = self.suits.lock() {
-            suits.insert(suit, address);
+            suits.by_suit.insert(suit, address);
         }
+    }
+
+    /// The pilot sleeps in this suit, put back at boot; unless the sector has said it's gone
+    /// already (before anyone was bound to it, [`Pilots::sleeper_gone`]): then, what became of it.
+    pub fn bind_restored(&self, suit: (u16, u16), address: Address) -> Result<(), Fate> {
+        let Ok(mut suits) = self.suits.lock() else { return Ok(()) };
+        match suits.unbound_fates.remove(&suit) {
+            Some(fate) => Err(fate),
+            None => {
+                suits.by_suit.insert(suit, address);
+                Ok(())
+            }
+        }
+    }
+
+    /// Whose suit this is, flying or asleep.
+    pub fn suit_owner(&self, suit: (u16, u16)) -> Option<Address> {
+        self.suits.lock().ok()?.by_suit.get(&suit).copied()
     }
 
     /// The suit is gone: whose it was, if anyone's.
     pub fn suit_gone(&self, suit: (u16, u16)) -> Option<Address> {
-        self.suits.lock().ok()?.remove(&suit)
+        self.suits.lock().ok()?.by_suit.remove(&suit)
+    }
+
+    /// The sleeper `suit` is gone (`fate`): whose it was. If it's nobody's yet, the fate is kept
+    /// for whoever is bound to it next ([`Pilots::bind_restored`]).
+    pub fn sleeper_gone(&self, suit: (u16, u16), fate: Fate) -> Option<Address> {
+        let mut suits = self.suits.lock().ok()?;
+        let owner = suits.by_suit.remove(&suit);
+        if owner.is_none() {
+            if suits.unbound_fates.len() >= UNBOUND_FATES {
+                suits.unbound_fates.clear();
+            }
+            suits.unbound_fates.insert(suit, fate);
+        }
+        owner
     }
 
     /// News for a pilot who's away (the latest replaces any before it).
@@ -478,11 +557,14 @@ impl Pilots {
         }
     }
 
-    /// The pilot's sleeper `suit` is gone (destroyed, or cleared for room): if it was left in a
-    /// hide spot, the next server run mustn't put it back. A pilot flying again is left to their
-    /// session, which forgets the sleeper (and its spot) as they come in.
-    pub async fn clear_parked(&self, address: Address, suit: (u16, u16)) {
-        if self.is_online(&address) {
+    /// News of a pilot's suit left in a hide spot, for their record: one gone isn't put back by
+    /// the next server run, and one hit is put back as it is now. While the pilot's session is
+    /// live it's kept for when it ends ([`Pilots::release`]): a session about to save the record
+    /// it has would undo it, and one coming in forgets the suit anyway. Nothing if the record's
+    /// suit isn't that one, or it already has something newer.
+    pub async fn apply_park_news(&self, address: Address, news: ParkNews) {
+        let _one = self.park_lock.lock().await;
+        if !self.unless_online(address, news) {
             return;
         }
         let mut r = match self.store.load(&key(&address)).await {
@@ -493,13 +575,37 @@ impl Pilots {
                 return;
             }
         };
+        let suit = news.suit();
         let theirs = r.sleeper.is_some_and(|s| s.run == self.run && (s.suit, s.generation) == suit);
-        if r.parked.is_none() || !theirs || self.is_online(&address) {
-            return;
+        let Some(kept) = r.parked.as_ref().filter(|_| theirs) else { return };
+        match news {
+            ParkNews::Gone { .. } => {
+                r.parked = None;
+                tracing::info!(address = %short(&address), suit = suit.0, "hidden suit gone: not kept");
+            }
+            ParkNews::Hit { tick, rec, .. } => {
+                if tick <= kept.tick {
+                    return;
+                }
+                r.parked = Some(ParkedSuit { tick, ..ParkedSuit::new(&rec, kept.since_unix) });
+            }
         }
-        r.parked = None;
-        tracing::info!(address = %short(&address), suit = suit.0, "hidden suit gone: not kept");
-        self.save(r).await;
+        // A session that started meanwhile has the record now.
+        if self.unless_online(address, news) {
+            self.save(r).await;
+        }
+    }
+
+    /// `true` if the pilot isn't flying; else the news is kept for when their session ends.
+    fn unless_online(&self, address: Address, news: ParkNews) -> bool {
+        let Ok(mut online) = self.online.lock() else { return true };
+        match online.get_mut(&address) {
+            Some(o) => {
+                o.pending.push(news);
+                false
+            }
+            None => true,
+        }
     }
 }
 
@@ -608,9 +714,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
-    #[test]
-    fn a_parked_suit_is_kept_as_the_sector_recorded_it() {
-        let rec = ParkRecord {
+    fn hidden_heavyarms() -> ParkRecord {
+        ParkRecord {
             landmark: 1,
             local: Vec3::new(0.1, 596.0, -0.3),
             rot: Quat::from_xyzw(0.1, 0.7, -0.1, 0.7).normalize(),
@@ -628,7 +733,12 @@ mod tests {
                 held: None,
                 bounty: 900,
             },
-        };
+        }
+    }
+
+    #[test]
+    fn a_parked_suit_is_kept_as_the_sector_recorded_it() {
+        let rec = hidden_heavyarms();
         let mut r = PilotRecord::new(&Address([10; 20]));
         r.parked = Some(ParkedSuit::new(&rec, 77));
         let again: PilotRecord = serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
@@ -641,6 +751,85 @@ mod tests {
         // A frame or a side there isn't: nothing to put back.
         let odd = ParkedSuit { faction: "zeon".into(), ..ParkedSuit::new(&rec, 77) };
         assert_eq!(odd.record(), None);
+    }
+
+    /// `a`'s record, saying their suit `suit` of this run is asleep in a hide spot as of `tick`.
+    async fn left_hidden(p: &Pilots, a: Address, suit: (u16, u16), tick: u32) -> ParkRecord {
+        let rec = hidden_heavyarms();
+        let mut r = p.load_or_new(&a).await;
+        r.sleeper = Some(Sleeper { run: p.run, suit: suit.0, generation: suit.1, since_unix: 50 });
+        r.parked = Some(ParkedSuit { tick, ..ParkedSuit::new(&rec, 50) });
+        p.save(r).await;
+        rec
+    }
+
+    async fn parked(p: &Pilots, a: Address) -> Option<ParkedSuit> {
+        p.load_or_new(&a).await.parked
+    }
+
+    #[tokio::test]
+    async fn a_hidden_suit_hit_is_kept_as_it_is_now_and_once_gone_not_at_all() {
+        let p = pilots();
+        let a = Address([11; 20]);
+        let rec = left_hidden(&p, a, (40, 2), 100).await;
+        // Its left arm shot off at tick 130.
+        let mut hit = rec;
+        hit.home.parts[Part::ArmL as usize] = 0.0;
+        p.apply_park_news(a, ParkNews::Hit { suit: (40, 2), tick: 130, rec: hit }).await;
+        let kept = parked(&p, a).await.expect("still kept");
+        assert_eq!((kept.tick, kept.since_unix), (130, 50));
+        assert_eq!(kept.record().map(|r| r.home.parts), Some(hit.home.parts));
+        // News older than what's kept, or of another suit, changes nothing.
+        p.apply_park_news(a, ParkNews::Hit { suit: (40, 2), tick: 120, rec }).await;
+        p.apply_park_news(a, ParkNews::Hit { suit: (41, 2), tick: 140, rec }).await;
+        p.apply_park_news(a, ParkNews::Gone { suit: (40, 1) }).await;
+        assert_eq!(parked(&p, a).await, Some(kept));
+        // Gone: not kept, and nothing said of it after brings it back.
+        p.apply_park_news(a, ParkNews::Gone { suit: (40, 2) }).await;
+        p.apply_park_news(a, ParkNews::Hit { suit: (40, 2), tick: 150, rec: hit }).await;
+        assert_eq!(parked(&p, a).await, None);
+    }
+
+    #[tokio::test]
+    async fn news_of_a_hidden_suit_waits_for_its_pilots_session_to_end() {
+        // The pilot's session is leaving: the sector has put the suit to sleep in a hide spot, and
+        // it's destroyed (and hit just before) before the session has saved the record that
+        // keeps it. The news waits for the session, and the record it saved doesn't keep it.
+        let p = pilots();
+        let a = Address([12; 20]);
+        let claim = p.claim(a).await;
+        let rec = hidden_heavyarms();
+        p.apply_park_news(a, ParkNews::Hit { suit: (40, 2), tick: 130, rec }).await;
+        p.apply_park_news(a, ParkNews::Gone { suit: (40, 2) }).await;
+        left_hidden(&p, a, (40, 2), 100).await;
+        let pending = p.release(a, claim.session);
+        assert_eq!(pending.len(), 2);
+        assert!(parked(&p, a).await.is_some(), "the session's own save");
+        for news in pending {
+            p.apply_park_news(a, news).await;
+        }
+        assert_eq!(parked(&p, a).await, None, "destroyed: not kept");
+        // A session that won't go and is forgotten hands what it was keeping on.
+        left_hidden(&p, a, (40, 3), 100).await;
+        let _stuck = p.claim(a).await;
+        p.apply_park_news(a, ParkNews::Gone { suit: (40, 3) }).await;
+        let next = p.claim(a).await;
+        assert_eq!(p.release(a, next.session), [ParkNews::Gone { suit: (40, 3) }]);
+    }
+
+    #[test]
+    fn a_suit_put_back_but_gone_before_it_was_bound_is_not_bound() {
+        let p = pilots();
+        let a = Address([13; 20]);
+        let fate = Fate::Destroyed { by: "Zechs".into() };
+        // The sector reports it gone before the server has bound its pilot to it.
+        assert_eq!(p.sleeper_gone((40, 2), fate.clone()), None);
+        assert_eq!(p.bind_restored((40, 2), a), Err(fate));
+        assert_eq!(p.suit_owner((40, 2)), None);
+        // Another, still there.
+        assert_eq!(p.bind_restored((41, 2), a), Ok(()));
+        assert_eq!(p.sleeper_gone((41, 2), Fate::Lost), Some(a));
+        assert_eq!(p.bind_restored((41, 2), a), Ok(()), "a fate it had is told once");
     }
 
     #[tokio::test]

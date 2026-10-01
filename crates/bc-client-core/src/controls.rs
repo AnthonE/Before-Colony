@@ -66,7 +66,7 @@ pub const BINDINGS: &[Binding] = &[
     b(Group::Surface, "W / A / S / D", "Walk"),
     b(Group::Surface, "Shift", "Run"),
     b(Group::Surface, "Space", "Hop (hold: lift off on the thrusters)"),
-    b(Group::Surface, "C", "Crouch (toggle): crouched still, a suit hides"),
+    b(Group::Surface, "C", "Crouch (toggle): crouched still, a suit runs cold, and in a hide spot it hides"),
     b(Group::Weapons, "Left mouse", "Primary weapon"),
     b(Group::Weapons, "Right mouse", "Secondary weapon"),
     b(Group::Weapons, "F", "Melee: saber, scythe, shotels, glaive, knife"),
@@ -117,6 +117,13 @@ mod tests {
         }
         // Keys may mean something else on a surface than in flight.
         assert!(keys(Group::Flight).contains(&"L") && keys(Group::Flight).contains(&"Shift"));
+    }
+
+    #[test]
+    fn crouching_hides_only_in_a_hide_spot() {
+        // Anywhere else a suit crouched still only runs cold (`conceal`: half its signature).
+        let c = BINDINGS.iter().find(|b| b.group == Group::Surface && b.keys == "C").unwrap();
+        assert!(c.action.contains("cold") && c.action.contains("in a hide spot it hides"), "{}", c.action);
     }
 
     #[test]

@@ -15,7 +15,8 @@ use bc_econ::wire::{Outcome, Place};
 use bc_econ::{Bay, Hangar};
 use bc_proto::buttons::GRIP;
 use bc_proto::snapshot::footing;
-use bc_proto::{BodyRef, Faction, FrameId, InputCmd, PilotKind};
+use bc_proto::{BodyRef, Faction, FrameId, InputCmd, Part, PilotKind};
+use bc_sector::{Control, Reparked};
 use bc_server::net::NetStats;
 use bc_server::net::game::GameRuntime;
 use bc_server::pilots::{FileStore, ParkedSuit, PilotRecord, PilotStore, Sleeper, key};
@@ -281,6 +282,67 @@ async fn status_counts_hidden_sleepers_without_positions() -> anyhow::Result<()>
     assert_eq!(entry["name"], "Duo");
     assert!(status["game"]["pilots"].as_array().is_some_and(Vec::is_empty), "nobody flying");
     server.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_hidden_suit_comes_back_as_it_was_left_by_its_hunters() -> anyhow::Result<()> {
+    let dir = data_dir("hunted");
+    let w = wallet(25);
+    let rec = hidden_leo();
+    store(&dir).save(left_hidden(&w, "Heero", &rec, LANDMARKS_VERSION)).await?;
+    let cfg = config(&dir)?;
+    let boot = || GameRuntime::start(&cfg, Arc::new(NetStats::default()), "127.0.0.1".into());
+
+    let game = boot()?;
+    let shared = game.shared();
+    assert_eq!(shared.restore_parked(cfg.max_sleepers).await, 1);
+    let sleeper = store(&dir).load(&key(&w.address())).await?.and_then(|r| r.sleeper).expect("asleep");
+    // Found while its pilot is away, and its arms shot off: the sector says what's left of it.
+    let mut hit = rec;
+    hit.home.parts[Part::ArmL as usize] = 0.0;
+    hit.home.parts[Part::ArmR as usize] = 0.0;
+    hit.home.mounts = 0;
+    let (suit, generation) = (sleeper.suit, sleeper.generation);
+    shared.sector.reparked.push(Reparked { suit, generation, tick: 900, rec: hit }).expect("room");
+    let mut kept = None;
+    for _ in 0..200 {
+        kept = store(&dir).load(&key(&w.address())).await?.and_then(|r| r.parked).filter(|p| p.tick == 900);
+        if kept.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let kept = kept.expect("the record still keeps it as its pilot left it");
+    assert_eq!((kept.parts, kept.mounts), (hit.home.parts, 0));
+    game.stop();
+
+    // The next run puts it back as its hunters left it: the arms aren't there to take again.
+    let game = boot()?;
+    assert_eq!(game.shared().restore_parked(cfg.max_sleepers).await, 1);
+    let again = store(&dir).load(&key(&w.address())).await?.and_then(|r| r.parked).expect("kept");
+    assert_eq!((again.parts, again.mounts, again.tick), (hit.home.parts, 0, 0));
+    game.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_suit_put_back_after_boot_stopped_waiting_goes_again() -> anyhow::Result<()> {
+    // A sector slow enough at boot answers a restore after the server has given up on it (and let
+    // its record go, so its pilot's suit is towed home): that suit doesn't stay out there too.
+    let dir = data_dir("late");
+    let cfg = config(&dir)?;
+    let game = GameRuntime::start(&cfg, Arc::new(NetStats::default()), "127.0.0.1".into())?;
+    let shared = game.shared();
+    assert_eq!(shared.restore_parked(cfg.max_sleepers).await, 0);
+    shared.sector.control.push(Control::Restore { key: 0, rec: hidden_leo() }).expect("room");
+    let view = game.status_view();
+    tokio::time::sleep(Duration::from_millis(1_000)).await;
+    let status = view.json();
+    assert_eq!((&status["sleepers_parked"], &status["suits_alive"]), (&0.into(), &0.into()));
+    game.stop();
     let _ = std::fs::remove_dir_all(&dir);
     Ok(())
 }

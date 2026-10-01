@@ -22,6 +22,11 @@ use crate::field::{Field, SUIT_CLEARANCE};
 use crate::flight::FlightState;
 use crate::math::{cos, length, normalize_or, quat_axis_angle, quat_normalize, sin, sqrt};
 
+/// A move that starts touching a landmark is slid along it from this far off its surface, m (past
+/// [`TRACE_EPS`], so the slide is traced), and meets something only where the surface faces away
+/// from the one it slides on by more than this cosine's angle (37°).
+pub const SLIDE_LIFT: f32 = 0.1;
+pub const SLIDE_TURN_COS: f32 = 0.8;
 /// Landmarks a sector holds at most (the wire could name 16).
 pub const MAX_LANDMARKS: usize = 4;
 /// Cuts a shape has at most.
@@ -499,6 +504,27 @@ pub fn landmark_touching(landmarks: &[LandmarkDef], p: Vec3, r: f32, t: u32) -> 
         .map(|k| k as u8)
 }
 
+/// A suit's move `a→b` (body frame) that starts touching `shape`, where [`Shape::trace`] stops
+/// looking, slid along the surface it touches from just off it ([`SLIDE_LIFT`]): how far along the
+/// slide (0..1) it meets something else, and where. A union has thin features (MO-II's mast), so
+/// the end of a move alone says nothing of what it passed on the way. Only a surface turned away
+/// from the one it slides on ([`SLIDE_TURN_COS`]) counts: the same curved wall met again a little
+/// on is still the slide.
+fn slide_trace(shape: &Shape, a: Vec3, b: Vec3, r: f32) -> Option<(f32, Vec3)> {
+    let start = shape.probe(a);
+    if start.dist - r > TRACE_EPS {
+        return None;
+    }
+    let n = start.normal;
+    let d = b - a;
+    let d = d - n * d.dot(n).min(0.0);
+    let a1 = a + n * (r + SLIDE_LIFT - start.dist);
+    // Touching something else already there, and moving into it, is a meeting at once.
+    let t = shape.trace(a1, a1 + d, r)?;
+    let at = a1 + d * t;
+    (shape.probe(at).normal.dot(n) < SLIDE_TURN_COS).then_some((t, at))
+}
+
 /// [`sweep_landmarks`], with each landmark posed by `pose` (its index, and it) once the move is
 /// near it. The earliest wins; a tie goes to the lower index.
 fn sweep_posed(
@@ -661,7 +687,8 @@ impl<'a> Bodies<'a> {
 
     /// Keeps a suit out of the landmarks (all but `except`, the one it rides), as
     /// [`Field::collide`] keeps it out of rocks: its move this tick (from `prev`) is swept, meeting
-    /// one stops it there, and ending inside one it was touching slides it out along the surface.
+    /// one stops it there, and ending inside one it was touching slides it out along the surface
+    /// (unless the slide met another of its surfaces on the way, which stops it there: [`slide_trace`]).
     /// The first contact wins. The speed it had into the surface, relative to the surface, is lost.
     /// Whether it met one.
     pub fn collide_landmarks(&self, prev: Vec3, s: &mut FlightState, except: Option<u8>) -> bool {
@@ -677,8 +704,11 @@ impl<'a> Bodies<'a> {
             let (a, b) = (pose.to_local(prev), pose.to_local(s.pos));
             let (t, at) = match d.shape.trace(a, b, r) {
                 Some(t) if t > 0.0 => (t, a + (b - a) * t),
-                _ if d.shape.probe(b).dist < r => (0.0, b),
-                _ => continue,
+                _ => match slide_trace(&d.shape, a, b, r) {
+                    Some(hit) => hit,
+                    None if d.shape.probe(b).dist < r => (0.0, b),
+                    None => continue,
+                },
             };
             if first.is_none_or(|(ft, _, _)| t < ft) {
                 first = Some((t, k, at));

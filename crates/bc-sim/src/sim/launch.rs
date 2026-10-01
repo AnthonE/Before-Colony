@@ -210,6 +210,19 @@ impl Sim {
         })
     }
 
+    /// Suits asleep in a hide spot that were hit this tick, each (entity slot, generation) as
+    /// [`park_record`](Self::park_record) finds it now: what a later server run puts back is
+    /// what's left of it, not what its pilot left.
+    pub fn hidden_hit(&self, mut f: impl FnMut(u16, u16, ParkRecord)) {
+        for i in self.suits.sleeping.iter() {
+            if self.suits.last_hit[i] == self.tick
+                && let Some(rec) = self.park_record(i)
+            {
+                f(i as u16, self.suits.generation[i], rec);
+            }
+        }
+    }
+
     /// Puts a suit back as [`park_record`](Self::park_record) found it, asleep: kneeling (or
     /// standing) where it was in its hide spot, with its armour, weapons, rounds, tank, hold and
     /// bounty, and gripping, so its pilot wakes there. It powers down as any suit just parked

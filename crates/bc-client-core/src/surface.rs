@@ -1,5 +1,5 @@
 //! The sector's bodies as a client knows them, and what the pilot's view needs of them: where each
-//! is at any moment, the camera kept out of them, and the landing ring.
+//! is at any moment, the camera kept out of them, the landing ring, and how the HUD reads them.
 //!
 //! A body's pose never travels on the wire. Rocks come from the Welcome's seed and never move;
 //! landmarks are compiled content whose pose is a closed form in the tick
@@ -13,7 +13,7 @@ use bc_sim::bodies::{Bodies, Body, BodyPose, MAX_LANDMARKS, Near, Shape, landmar
 use bc_sim::content::landmarks::{LANDMARKS, LandmarkDef};
 use bc_sim::field::Field;
 use bc_sim::flight::FlightState;
-use bc_sim::ground::{CATCH_LEAVE, CATCH_RANGE, CATCH_SPEED, LEVEL_RANGE, LEVEL_SPEED, STANCE};
+use bc_sim::ground::{CATCH_LEAVE, CATCH_RANGE, CATCH_SPEED, Footing, LEVEL_RANGE, LEVEL_SPEED, STANCE};
 use glam::Vec3;
 
 /// The sector's bodies: its field of rocks (from the Welcome's seed) and the landmarks it has.
@@ -153,9 +153,59 @@ fn hint_of(near: &Near, catch: bool) -> SurfaceHint {
     }
 }
 
+/// How fast the gap between a suit and a surface opens, m/s: the suit's velocity relative to the
+/// surface (`rel_vel`) along its outward normal. Negative while it closes on it, as a range rate
+/// reads: the HUD's figure by a landmark's name.
+pub fn range_rate(rel_vel: Vec3, outward: Vec3) -> f32 {
+    rel_vel.dot(outward)
+}
+
+/// How the own suit's armed grip let go of a body, as the HUD tells it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LetGo {
+    /// It climbed out of the grip on the thrusters, as asked: flying.
+    Flying,
+    /// Its pilot changed its form, which can't hold on (a Neo-Bird can't grip): taking off, as
+    /// asked.
+    Transformed,
+    /// Of its own accord: too high, too fast, the rock gone, blown off. `GRIP LOST`.
+    Lost,
+}
+
+/// How a grip still armed let go: from how the suit was on the body (`was`), whether it climbed
+/// out of the grip on the thrusters (`lifted_off`), and whether it can grip now at all (`can_grip`:
+/// a frame with legs, not changing form, as the step has it).
+pub fn let_go(was: Footing, lifted_off: bool, can_grip: bool) -> LetGo {
+    if !can_grip {
+        LetGo::Transformed
+    } else if was == Footing::Aloft && lifted_off {
+        LetGo::Flying
+    } else {
+        LetGo::Lost
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_range_rate_is_negative_closing() {
+        let n = Vec3::Y;
+        assert_eq!(range_rate(Vec3::new(3.0, -50.0, 0.0), n), -50.0, "closing");
+        assert_eq!(range_rate(Vec3::new(0.0, 50.0, 4.0), n), 50.0, "opening");
+    }
+
+    #[test]
+    fn folding_into_a_bird_on_a_body_is_not_losing_the_grip() {
+        // Changing form lets go (T2), from the ground or the air: asked for, so not GRIP LOST.
+        for was in [Footing::Grounded, Footing::Aloft] {
+            assert_eq!(let_go(was, false, false), LetGo::Transformed);
+        }
+        assert_eq!(let_go(Footing::Aloft, true, true), LetGo::Flying);
+        assert_eq!(let_go(Footing::Grounded, false, true), LetGo::Lost, "the rock shattered underfoot");
+        assert_eq!(let_go(Footing::Aloft, false, true), LetGo::Lost, "too fast, or blown off");
+    }
 
     #[test]
     fn bodies_are_where_the_simulation_has_them_at_any_moment() {

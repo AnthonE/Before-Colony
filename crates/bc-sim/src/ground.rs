@@ -450,7 +450,10 @@ fn grounded(
                     n1
                 }
                 _ => {
+                    // Blocked both ways (a rim turning away too sharply, an inner corner): it
+                    // doesn't move, so it has no speed over the ground to keep.
                     a.local = o0;
+                    a.vel = Vec3::ZERO;
                     n0
                 }
             }

@@ -9,7 +9,7 @@ use bc_sim::{Sim, SimConfig, SuitId};
 
 use crate::clients::ClientState;
 use crate::metrics::Metrics;
-use crate::queues::{Control, Outcome, Report, Restored, SectorEnds, SectorShared, SlotState};
+use crate::queues::{Control, Outcome, Reparked, Report, Restored, SectorEnds, SectorShared, SlotState};
 use crate::replicate::{Work, build_snapshot};
 
 /// Ticks between tactical pictures per ZERO pilot when an external oracle is attached (≈3.75 Hz).
@@ -153,7 +153,9 @@ impl Sector {
                             // hears of it before it sees the slot free.
                             if self.cfg.sim.survival
                                 && let Some(rec) = self.sim.park_record(id.idx())
-                                && self.ends.reports[s].push(Report::Parked(rec)).is_err()
+                                && self.ends.reports[s]
+                                    .push(Report::Parked { rec, tick: self.sim.tick() })
+                                    .is_err()
                             {
                                 Metrics::add(&self.shared.metrics.notes_dropped, 1);
                             }
@@ -197,6 +199,9 @@ impl Sector {
                             Metrics::add(&self.shared.metrics.notes_dropped, 1);
                         }
                     }
+                }
+                Control::Discard { suit, generation } => {
+                    self.sim.discard_sleeper(SuitId(Handle { idx: suit, generation }));
                 }
             }
         }
@@ -247,7 +252,8 @@ impl Sector {
         }
     }
 
-    /// Sleepers destroyed or cleared this tick, on to the server.
+    /// Sleepers destroyed or cleared this tick, on to the server; and under survival rules, what's
+    /// left of those in hide spots that were hit (what a restart puts back is what's left).
     fn pass_on_fates(&mut self) {
         let shared = &self.shared;
         self.sim.drain_fates(|fate| {
@@ -255,6 +261,14 @@ impl Sector {
                 Metrics::add(&shared.metrics.notes_dropped, 1);
             }
         });
+        if self.cfg.sim.survival {
+            let tick = self.sim.tick();
+            self.sim.hidden_hit(|suit, generation, rec| {
+                if shared.reparked.push(Reparked { suit, generation, tick, rec }).is_err() {
+                    Metrics::add(&shared.metrics.notes_dropped, 1);
+                }
+            });
+        }
     }
 
     fn drain_advice(&mut self) {
