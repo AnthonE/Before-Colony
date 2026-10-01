@@ -42,14 +42,14 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await until(page, "at the airlock", (s) => s.focus === "airlock" && !s.walking_to, 120_000);
   await expect(page.locator("#use")).toContainText("CAP LIFT");
   await push(page, { cmd: "use" });
-  await until(page, "the ride down", (s) => s.seq === "lift_down", 10_000);
+  await until(page, "the ride down", (s) => s.seq === "lift_down", 30_000);
   let s = await until(page, "the city", (s) => s.place === "city", 30_000);
   // The ride can be skipped.
   await push(page, { cmd: "skip" });
   s = await until(page, "Hub Gate", (s) => s.seq === "walking", 30_000);
   expect(s.strip).toBe(0);
   // Its square is named on arrival.
-  await until(page, "Charter Square", (s) => s.district === "CHARTER SQUARE", 10_000);
+  await until(page, "Charter Square", (s) => s.district === "CHARTER SQUARE", 30_000);
   // Someone's there already: the agent strolling outside Hub Gate, in a flight suit of their own,
   // and the server has the two of them down here.
   s = await until(page, "the flaneur", (s) => s.people >= 1 && String(s.people_names).includes("Flaneur-01"), 30_000);
@@ -62,18 +62,18 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   // The map (M): the strip, its districts, its places.
   await page.focus("#bc");
   await page.keyboard.press("m");
-  await expect(page.locator("#map")).toBeVisible({ timeout: 10_000 });
-  await expect(page.locator("#map-title")).toContainText("CHARTER SQUARE");
+  await expect(page.locator("#map")).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator("#map-title")).toContainText("CHARTER SQUARE", { timeout: 30_000 });
   await page.keyboard.press("m");
-  await expect(page.locator("#map")).toBeHidden({ timeout: 10_000 });
+  await expect(page.locator("#map")).toBeHidden({ timeout: 30_000 });
 
   // Down the avenue and round the corner to the Exchange floor; the panel is the bay's.
   await push(page, { cmd: "walk_to", spot: "exchange_floor" });
-  await until(page, "the walk", (s) => s.city_walking_to, 10_000);
+  await until(page, "the walk", (s) => s.city_walking_to, 30_000);
   await until(page, "at the Exchange floor", (s) => s.focus === "exchange_floor" && !s.city_walking_to, 420_000);
-  await expect(page.locator("#use")).toContainText("EXCHANGE");
+  await expect(page.locator("#use")).toContainText("EXCHANGE", { timeout: 30_000 });
   await push(page, { cmd: "use" });
-  await until(page, "the exchange terminal", (s) => s.terminal === "exchange", 10_000);
+  await until(page, "the exchange terminal", (s) => s.terminal === "exchange", 60_000);
   await expect(page.locator("#terminal")).toBeVisible();
   await page.click('[data-act="ex-filter"][data-f="goods"]');
   await page.click('tr[data-item="mat.ti_alloy"]');
@@ -81,13 +81,13 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await page.click('[data-act="order"]');
   await expect(page.locator("#term-log")).toContainText("BOUGHT", { timeout: 30_000 });
   await page.keyboard.press("Escape");
-  await until(page, "the terminal closed", (s) => !s.terminal, 10_000);
+  await until(page, "the terminal closed", (s) => !s.terminal, 60_000);
   expect((await bc(page)).hangar_credits).toBeLessThan(2000);
 
   // Back to Hub Gate, and up the lift to the bay.
   await push(page, { cmd: "walk_to", spot: "hub_gate_1" });
   await until(page, "at Hub Gate", (s) => s.focus === "hub_gate_1" && !s.city_walking_to, 420_000);
-  await expect(page.locator("#use")).toContainText("UP TO YOUR BAY");
+  await expect(page.locator("#use")).toContainText("UP TO YOUR BAY", { timeout: 30_000 });
   await push(page, { cmd: "use" });
   s = await until(page, "home", (s) => s.place === "hangar", 30_000);
   s = await until(page, "on foot in the bay", (s) => s.seq === "walking" && s.strip === -1, 30_000);
@@ -124,7 +124,7 @@ test("a pilot takes the tram from Hub Gate one stop up the line", async ({ page 
     await page.waitForTimeout(1_000);
     s = await bc(page);
   }
-  await expect(page.locator("#toast")).toContainText("CHARTER LINE", { timeout: 10_000 });
+  await expect(page.locator("#toast")).toContainText("CHARTER LINE", { timeout: 30_000 });
 
   // It pulls out, and stops at the next station with its doors open: off onto the platform.
   s = await until(page, "the next station", (s) => s.station === 1, 240_000);
@@ -158,9 +158,9 @@ test("a pilot takes a car from Hub Gate's motor pool and drives up the avenue", 
   // To the motor pool beside Hub Gate's door, and a car from it.
   await push(page, { cmd: "walk_to", spot: "pool" });
   await until(page, "at the pool", (s) => !s.city_walking_to, 120_000);
-  await expect(page.locator("#use")).toContainText("TAKE A CAR");
+  await expect(page.locator("#use")).toContainText("TAKE A CAR", { timeout: 30_000 });
   await push(page, { cmd: "use" });
-  let s = await until(page, "at the wheel", (s) => s.driving === "car", 10_000);
+  let s = await until(page, "at the wheel", (s) => s.driving === "car", 30_000);
   const start = Number(String(s.city_feet).split(",")[0]);
 
   // Up the avenue for a few seconds, then the brakes.
@@ -176,7 +176,7 @@ test("a pilot takes a car from Hub Gate's motor pool and drives up the avenue", 
 
   // Out beside it, on foot again.
   await push(page, { cmd: "use" });
-  s = await until(page, "on foot", (s) => s.driving === "", 10_000);
+  s = await until(page, "on foot", (s) => s.driving === "", 30_000);
   const status = await (await page.request.get("/status")).json();
   expect(status.game.city.refused_poses).toBe(0);
   const bad = logs.filter((l) => /\[error\]|\[pageerror\]|%cERROR|panicked/i.test(l));

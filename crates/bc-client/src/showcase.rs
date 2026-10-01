@@ -1096,6 +1096,28 @@ fn city_crowd(
             (i as u16, (*name).to_string(), pose)
         })
         .collect();
+    // A car up the avenue's out-bound road, and a scooter down the in-bound one.
+    let traffic = [
+        ("Noin-car", bc_proto::presence::RIDE_CAR, 1.0f32, mid + 15.0, 11.0),
+        ("Hilde", bc_proto::presence::RIDE_SCOOTER, -1.0, mid - 12.0, 8.0),
+    ];
+    for (k, (name, ride, dir, s, speed)) in traffic.into_iter().enumerate() {
+        let x = -14_100.0 + (dir * speed * t + 40.0 * k as f32).rem_euclid(220.0);
+        let yaw = if dir > 0.0 { std::f32::consts::FRAC_PI_2 } else { -std::f32::consts::FRAC_PI_2 };
+        let pose = PersonPose {
+            strip: 0,
+            x,
+            s,
+            h: 0.0,
+            yaw,
+            pitch: 0.0,
+            speed,
+            grounded: true,
+            running: false,
+            ride,
+        };
+        crowd.0.push((100 + k as u16, name.to_string(), pose));
+    }
 }
 
 /// The camera inside: its up is the colony's where it stands (towards the axis), not +Y.
