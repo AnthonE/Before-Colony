@@ -140,9 +140,10 @@ impl GameShared {
                 _ => self.unpark(&mut r, "stale").await,
             }
         }
-        // The newest, if there are more than the sector keeps (it would clear the oldest).
+        // The newest, if there are more than the sector keeps (it would clear the oldest) or can
+        // answer in one go.
         left.sort_by_key(|(since, ..)| *since);
-        let over = left.len().saturating_sub(max_sleepers);
+        let over = left.len().saturating_sub(max_sleepers.min(bc_sector::RESTORED));
         for (.., mut r, _) in left.drain(..over) {
             self.unpark(&mut r, "over the sleepers' cap").await;
         }
@@ -160,12 +161,13 @@ impl GameShared {
         let mut back = vec![None; left.len()];
         let until = tokio::time::Instant::now() + RESTORE_WAIT;
         loop {
+            // Looked at before emptying the queue, so every answer the sector gave by then is read.
+            let done = sector.control.is_empty() && sector.tick.load(Ordering::Acquire) > pushed + 1;
             while let Some(Restored { key, suit, generation }) = sector.restored.pop() {
                 if let Some(b) = back.get_mut(key as usize) {
                     *b = Some((suit, generation));
                 }
             }
-            let done = sector.control.is_empty() && sector.tick.load(Ordering::Acquire) > pushed + 1;
             if done || back.iter().all(Option::is_some) || tokio::time::Instant::now() > until {
                 break;
             }

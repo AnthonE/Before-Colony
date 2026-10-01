@@ -281,15 +281,16 @@ impl PilotStore for FileStore {
                 for entry in std::fs::read_dir(&dir)? {
                     let path = entry?.path();
                     let key = path.file_stem().and_then(|k| k.to_str()).filter(|k| is_key(k));
-                    if key.is_none() || path.extension().is_none_or(|e| e != "json") {
+                    let key = key.and_then(bc_auth::parse_address);
+                    let Some(key) = key.filter(|_| path.extension().is_some_and(|e| e == "json")) else {
                         continue;
-                    }
+                    };
                     // One unreadable record keeps nobody else's suit from coming back.
                     match std::fs::read(&path).map_err(anyhow::Error::from).and_then(|bytes| {
                         serde_json::from_slice::<PilotRecord>(&bytes).map_err(anyhow::Error::from)
                     }) {
                         Ok(r) => all.push(r),
-                        Err(e) => tracing::warn!("pilot store: {}: {e}", path.display()),
+                        Err(e) => tracing::warn!(address = %short(&key), "pilot store: {e}"),
                     }
                 }
                 Ok(all)
