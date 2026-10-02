@@ -54,6 +54,10 @@ pub enum UiCmd {
     DropLink,
     /// Something asked of the hangar from one of its terminals (survival rules).
     Hangar(bc_econ::Request),
+    /// A line for the colony's radio, typed on the page.
+    Say(String),
+    /// Open (`true`) or close the radio's line.
+    Chat(bool),
     /// Dev hooks, on foot: walk to a place in the bay (by its slug), use what's in view, skip a
     /// launch or homecoming sequence.
     WalkTo(String),
@@ -169,6 +173,11 @@ pub struct Ui {
     news: String,
     /// Whether the news is bad (a suit lost).
     news_bad: bool,
+    /// The colony radio's line is open: the pilot is typing (no keys reach the suit).
+    pub chat: bool,
+    /// The radio's latest lines, who and what, and how many have been heard (`chat.rs`).
+    pub radio: Vec<(String, String)>,
+    pub radio_seq: u32,
 }
 
 impl Ui {
@@ -176,8 +185,9 @@ impl Ui {
         self.screen == Screen::Playing
     }
 
+    /// A panel is up, or the radio's line is open: either way the keys aren't the suit's.
     pub fn panel_open(&self) -> bool {
-        self.panel != Panel::None
+        self.panel != Panel::None || self.chat
     }
 
     pub fn open_pause(&mut self) {
@@ -241,6 +251,8 @@ fn parse(v: &JsValue) -> Option<UiCmd> {
             let json = js_sys::JSON::stringify(&get(v, "req")).ok()?.as_string()?;
             UiCmd::Hangar(bc_econ::wire::decode(json.as_bytes())?)
         }
+        "say" => UiCmd::Say(s("text")),
+        "chat" => UiCmd::Chat(get(v, "open").as_bool().unwrap_or(false)),
         "walk_to" => UiCmd::WalkTo(s("spot")),
         "use" => UiCmd::Use,
         "skip" => UiCmd::Skip,
@@ -339,6 +351,9 @@ pub struct View {
     news_seq: u32,
     news: String,
     news_bad: bool,
+    chat: bool,
+    radio_seq: u32,
+    radio: Vec<(String, String)>,
 }
 
 impl View {
@@ -378,6 +393,9 @@ impl View {
             news_seq: ui.news_seq,
             news: ui.news.clone(),
             news_bad: ui.news_bad,
+            chat: ui.chat,
+            radio_seq: ui.radio_seq,
+            radio: ui.radio.clone(),
         }
     }
 
@@ -419,6 +437,13 @@ impl View {
         set(&o, "newsSeq", self.news_seq);
         set(&o, "news", self.news.as_str());
         set(&o, "newsBad", self.news_bad);
+        set(&o, "chat", self.chat);
+        set(&o, "radioSeq", self.radio_seq);
+        let radio = Array::new();
+        for (from, text) in &self.radio {
+            radio.push(&Array::of2(&JsValue::from_str(from), &JsValue::from_str(text)));
+        }
+        set(&o, "radio", radio);
         o
     }
 }

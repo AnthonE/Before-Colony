@@ -11,7 +11,7 @@ the bay, space, home).
 |---|---|
 | Lock-on: fighting on the ground in space (`LOCK.md`) | built |
 | The weapons pass: the hit-rate harness, charged beams, true cones, lunges that home, the burst step | built |
-| P0: a floor under loss (built), text chat, objectives along the chain, The Arrival's seats | building |
+| P0: a floor under loss and text chat (built), objectives along the chain, The Arrival's seats | building |
 | P1, P2 below | planned |
 
 ## P0: before more players arrive
@@ -25,7 +25,7 @@ within the half hour; not while there's a torso to build on or a torso's worth) 
 `bc-server/tests/hangar.rs` (over a server restart, from the pilot's record). Known, and not made
 worse: a new wallet is a new starter kit.
 
-**Text chat.** `Request::Say { text }` and `Update::Said { from, text }` on control-stream frames
+**Text chat.** *Built* (`bc-server` `radio.rs`, `bc-client` `chat.rs`). `Request::Say { text }` and `Update::Said { from, text }` on control-stream frames
 tagged 11 (`bc_econ::wire`, `PROTOCOL.md`). One channel, the colony's radio, for everyone connected:
 a ring in the server's shared state, read by each session on its 100 ms tick (off the hot path).
 At most 5 lines in 10 s and 160 characters a line, control characters stripped, never logged (only

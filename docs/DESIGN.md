@@ -770,6 +770,7 @@ Still to come: suits inside the colony with their weapons safe by the colony's l
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
 | Enter | dock (survival): at rest inside the dock's ring of lights |
 | 1–6 | arcade rules: respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
+| / (Enter on foot) | talk on the colony's radio: Enter says it, Esc closes |
 | Esc · F1 · F10 | menu · the controls sheet · graphics quality |
 
 On a body (see "Surfaces"): W/A/S/D walk, Shift runs, Space hops (held, it lifts off on the
@@ -896,6 +897,12 @@ overdriven guitar lead, power chords, slap bass, orchestra hit, brass, strings, 
 in code and stored as 4-bit BRR in the chip's 64 KB (bank and echo buffer fit, with room for a
 driver), the chip's Gaussian interpolation, its ADSR rates and its echo with the 8-tap FIR, stereo
 at 32 kHz. `cargo run -p bc-sound --release --example title -- title.wav` writes it out.
+
+**The colony's radio.** One channel for everyone connected, under any rules: `/` opens a line on
+the page (Enter too, on foot), Enter says it, Esc closes it, and no keys reach the suit meanwhile.
+The latest lines show on the left for a while after one comes in. Lines are cleaned (no control
+characters, one line, 160 characters at most), a pilot says at most 5 in 10 s, and the server
+keeps no log of them (`/status` counts them). Agents talk on it too (`bc-bot` `say` and `heard`).
 
 **Lock-on** (`LOCK.md`). Y, or a click of the middle button, locks the hostile nearest the
 crosshair (again: the next one; held: let go), and the fight goes onto the ground: flight assist

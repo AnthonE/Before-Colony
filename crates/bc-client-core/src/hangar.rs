@@ -27,6 +27,8 @@ pub struct HangarState {
     pub news: Vec<String>,
     /// In the city: the names of the people seen there, by the slot the plaza knows them by.
     pub people: std::collections::HashMap<u16, String>,
+    /// The colony's radio: who said what, oldest first (any rules). The UI takes it.
+    pub said: Vec<(String, String)>,
     /// Bumped by every update (the UI redraws when it moves).
     pub version: u64,
 }
@@ -52,6 +54,7 @@ impl HangarState {
                     self.people.insert(p.id, p.name);
                 }
             }
+            Update::Said { from, text } => self.said.push((from, text)),
         }
         false
     }

@@ -245,6 +245,28 @@ button:disabled { opacity: 0.4; cursor: default; }
   pointer-events: none;
 }
 
+/* --- The colony's radio: its latest lines for a while, and the line to type on (/). --- */
+.chat {
+  position: fixed;
+  left: 16px;
+  bottom: 34%;
+  width: min(460px, calc(100vw - 32px));
+  display: none;
+  font-size: 13px;
+  pointer-events: none;
+}
+.chat.playing.recent, .chat.playing.open { display: block; }
+.chat-log > div {
+  background: color-mix(in srgb, var(--ink) 62%, transparent);
+  color: var(--white);
+  padding: 3px 10px;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.chat-log .from { color: var(--amber); letter-spacing: 0.06em; }
+.chat-input { display: none; width: 100%; box-sizing: border-box; margin-top: 6px; pointer-events: auto; }
+.chat.open .chat-input { display: block; }
+
 /* --- On foot in the hangar bay (survival rules). --- */
 .bay-line {
   position: fixed;

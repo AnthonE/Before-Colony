@@ -165,9 +165,45 @@
     canvas()?.focus();
   }
 
+  // --- The colony's radio (crates/bc-client/src/chat.rs): the latest lines, for a while after one
+  // comes in, and while the line is open, focused to type on. ---
+  let radioSeq = 0;
+  let radioTimer = null;
+  function renderRadio(v) {
+    const box = $("chat");
+    const input = $("chat-input");
+    if (v.radioSeq !== radioSeq) {
+      radioSeq = v.radioSeq;
+      $("chat-log").replaceChildren(...(v.radio || []).map(([from, text]) => {
+        const line = document.createElement("div");
+        const who = document.createElement("span");
+        who.className = "from";
+        who.textContent = from;
+        line.append(who, " ", text);
+        return line;
+      }));
+      if (radioSeq > 0) {
+        box.classList.add("recent");
+        clearTimeout(radioTimer);
+        radioTimer = setTimeout(() => box.classList.remove("recent"), 15000);
+      }
+    }
+    const open = v.screen === "playing" && !!v.chat;
+    box.classList.toggle("playing", v.screen === "playing");
+    box.classList.toggle("open", open);
+    if (open && document.activeElement !== input) {
+      input.focus();
+    } else if (!open && document.activeElement === input) {
+      input.value = "";
+      input.blur();
+      canvas()?.focus();
+    }
+  }
+
   // --- The game's view. ---
   function update(v) {
     view = v;
+    renderRadio(v);
     const s = v.screen;
     const onTitle = s === "title" || s === "connecting" || s === "failed";
     show($("title"), onTitle);
@@ -976,6 +1012,18 @@
       });
     }
     // The terminals: one listener for all their buttons and fields.
+    // The radio's line: Enter says it, Esc closes it; what's typed here isn't the game's.
+    $("chat-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === "Escape") {
+        e.preventDefault();
+        const text = e.target.value.trim();
+        if (e.key === "Enter" && text) send("say", { text });
+        e.target.value = "";
+        send("chat", { open: false });
+        send("resume");
+      }
+      e.stopPropagation();
+    });
     $("term-body").addEventListener("click", onTerminalClick);
     $("term-body").addEventListener("input", onTerminalInput);
     for (const b of document.querySelectorAll("[data-tab]")) {
@@ -1045,7 +1093,7 @@
         e.preventDefault();
         send("resume");
         canvas()?.focus();
-      } else if (e.key === "Escape" && !e.repeat) {
+      } else if (e.key === "Escape" && !e.repeat && e.target !== $("chat-input")) {
         send(view.screen === "connecting" ? "cancel" : "back");
       }
     },

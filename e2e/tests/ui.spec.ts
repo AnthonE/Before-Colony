@@ -97,7 +97,30 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   await page.keyboard.press("m");
   await expect.poll(async () => (await bc(page)).map_open).toBe(false);
 
+  // /: the colony's radio. Its line opens, focused; what's typed there doesn't fly the suit; Enter
+  // says it, and everyone connected hears it (the speaker too); the server counts it.
+  await page.focus("#bc");
+  await page.keyboard.press("/");
+  await expect(page.locator("#chat-input")).toBeVisible();
+  await expect(page.locator("#chat-input")).toBeFocused();
+  await page.keyboard.type("o7 from the e2e");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#chat-input")).toBeHidden();
+  await expect(page.locator("#chat-log")).toContainText("E2E-Title o7 from the e2e");
+  const radio = await (await request.get("/status")).json();
+  expect(radio.game?.radio_lines).toBe(1);
+  // Esc closes it without a word, and without opening the menu.
+  await page.focus("#bc");
+  await page.keyboard.press("/");
+  await expect(page.locator("#chat-input")).toBeFocused();
+  await page.keyboard.type("never mind");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#chat-input")).toBeHidden();
+  await expect(page.locator("#pause")).toBeHidden();
+  await expect(page.locator("#chat-log")).not.toContainText("never mind");
+
   // Esc: the menu; Resume closes it.
+  await page.focus("#bc");
   await page.keyboard.press("Escape");
   await expect(page.locator("#pause")).toBeVisible();
   // window.__bc is published four times a second: poll it.

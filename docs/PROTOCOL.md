@@ -295,7 +295,7 @@ prefix, except the hangar's (tag 11), which may carry up to 64 KiB.
 | 8 | Auth {address (20 B), signature (65 B: r, s, v)} | client → server |
 | 9 | Token {resume token (32 B)} | server → client |
 | 10 | Notice {code: 1 your sleeping suit was destroyed, 2 your sleeping suit is gone; name ≤ 16 B (who, for 1)} | server → client |
-| 11 | Hangar {JSON, `bc_econ::wire`: a Request up, an Update down} | either (survival rules) |
+| 11 | Hangar {JSON, `bc_econ::wire`: a Request up, an Update down} | either (survival rules; the radio's `say` and `said` under any) |
 
 Pilots claiming to be a server-side Mobile Doll are downgraded to `Agent`.
 
@@ -372,6 +372,7 @@ Client → server (`Request`):
 | `dock` | | take the suit home (at rest inside the dock) |
 | `enter_city` | `strip` (0–2) | ride the cap lift down from the bay to that strip's Hub Gate (the colony open, and the pilot in their bay) |
 | `leave_city` | | ride the lift back up from Hub Gate to the bay |
+| `say` | `text` | a line on the colony's radio, to everyone connected, under any rules: control characters stripped, whitespace made single spaces, cut to 160 characters; at most 5 lines in 10 s (more get a refusing `note`). Never logged; `/status` counts them (`radio_lines`) |
 
 Items are slugs: `ore.nickel_iron`, `mat.steel`, `mat.components`, `part.leo.torso`,
 `weapon.beam_rifle`, `module.g_seat`. Parts are
@@ -386,7 +387,8 @@ orders, the fee); `book` {`depth`, `history`}; `note` {`text`, `ok`} answering a
 news: a job done, an order filled); `sortie` {`outcome`: `docked`, `lost`, `recovered`, `text`};
 `news` {`text`} (a pilot's arrival; the colony's announcements); `people` {`people`: [{`id`,
 `name`}]} (in the city: the names of people seen there for the first time, by the slot the plaza's
-datagrams use). A suit (in the bay, or out) carries
+datagrams use); `said` {`from`, `text`} (a line on the colony's radio, the speaker's own included,
+from the moment the pilot was welcomed, in the order the server heard them). A suit (in the bay, or out) carries
 `faults`, a map from system slug to `damaged` or `failed` (absent when everything works), and
 `modules`, its five equipment mounts' slugs (or `null`); a part on the shelf carries its own
 `faults`.
