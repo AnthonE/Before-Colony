@@ -358,6 +358,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .term-body .filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
 .term-body .filters button.active { border-color: var(--cyan); background: color-mix(in srgb, var(--cyan) 20%, transparent); }
 .term-body .split { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px; }
+.term-body .split.even { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 @media (max-width: 760px) { .term-body .split { grid-template-columns: 1fr; } }
 .term-body tr.pick { cursor: pointer; }
 .term-body tr.pick:hover td { background: color-mix(in srgb, var(--cyan) 6%, transparent); }

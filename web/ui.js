@@ -887,7 +887,7 @@
           const dflt = Math.min(need - have, stockOf(item));
           const give = w.done || have >= need ? "" : `${input(key, draft(key, String(Math.max(0, dflt))), 'inputmode="numeric" class="narrow"')}` +
             button("DELIVER", { act: "contribute", work: w.work, item }, stockOf(item) ? "primary" : "");
-          return `<tr><td>${esc(nameOf(item))}</td><td>${bar(pct)}</td><td class="num dim">${amount(item, have)} / ${amount(item, need)}</td><td class="act">${give}</td></tr>`;
+          return `<tr><td>${esc(nameOf(item))}<div class="note">${amount(item, have)} / ${amount(item, need)}</div></td><td>${bar(pct)}</td><td class="act">${give}</td></tr>`;
         }).join("") + `</table>`;
       }
       if (w.top.length) {
@@ -895,7 +895,7 @@
       }
       right += `</section>`;
     }
-    return `<div class="split"><div>${left}</div><div>${right}</div></div>`;
+    return `<div class="split even"><div>${left}</div><div>${right}</div></div>`;
   }
 
   // Replacing a focused field blurs it, and a blur can fire events that would render again from
