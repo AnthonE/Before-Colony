@@ -4,8 +4,8 @@ import { bc, collectConsole } from "./util";
 // The colony inside (`scripts/e2e.sh colony`: a survival server with the colony open, no dolls,
 // and an agent strolling outside Hub Gate). The pilot goes out through their bay's airlock and
 // rides the cap lift down to Hub Gate, finds the agent there, walks the city's streets to the
-// Exchange floor and buys there, then walks back and rides up to the bay. The walking is the dev hook's (a guide walks the pilot's own legs); the terminal's panel
-// is clicked.
+// Exchange floor and buys there, finds a sight, then walks back and rides up to the bay. The
+// walking is the dev hook's (a guide walks the pilot's own legs); the terminal's panel is clicked.
 
 const push = (page: Page, cmd: Record<string, unknown>) =>
   page.evaluate((c) => ((window as any).bcInbox ||= []).push(c), cmd);
@@ -87,6 +87,22 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await page.keyboard.press("Escape");
   await until(page, "the terminal closed", (s) => !s.terminal, 60_000);
   expect((await bc(page)).hangar_credits).toBeLessThan(2000);
+
+  // On to the nearest sight, the clock tower over Charter Square: found, on the found-list, and
+  // the map lists it.
+  expect((await bc(page)).sights_found).toBe(0);
+  await push(page, { cmd: "walk_to", spot: "sight_1" });
+  await until(page, "the walk", (s) => s.city_walking_to, 30_000);
+  await until(page, "the clock tower", (s) => s.sights_found === 1, 420_000);
+  await expect(page.locator("#toast")).toContainText("SIGHT FOUND", { timeout: 30_000 });
+  await until(page, "there", (s) => !s.city_walking_to, 420_000);
+  await page.focus("#bc");
+  await page.keyboard.press("m");
+  await expect(page.locator("#map-sights")).toContainText("SIGHTS FOUND 1/10", { timeout: 30_000 });
+  await expect(page.locator("#map-sights")).toContainText("THE CLOCK TOWER");
+  await page.screenshot({ path: "artifacts/colony-map-sights.png" });
+  await page.keyboard.press("m");
+  await expect(page.locator("#map")).toBeHidden({ timeout: 30_000 });
 
   // The Arrival's seats: over to one, E to sit (the pilot's seen sitting), a step to stand.
   await push(page, { cmd: "walk_to", spot: "seat" });

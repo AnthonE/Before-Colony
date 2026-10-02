@@ -832,7 +832,10 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
 - **Going in** (a survival server run with `--colony`): the bay's airlock leads to the cap lift,
   which rides down the end cap's face with the whole colony in view (Space skips the ride) to Hub
   Gate's terminal. From there the pilot walks the city with the bay's controls, and M shows the
-  map of their strip. Districts and sights are named on the way in.
+  map of their strip. Districts and sights are named on the way in; a sight reached for the first
+  time goes on the pilot's found-list (kept in their settings: "SIGHT FOUND · THE CLOCK TOWER · 2
+  OF 10"), and the map ticks off the sights found by name, rings those still to find, and lists
+  them.
 - **Places:** the Exchange floor (its terminal is the bay's exchange), the Charter Board (its
   contracts and great works, above), The Arrival (a bar), and Hub Gate, whose lift goes back up to the bay.
 - **The Arrival's seats:** two benches either side of its door, facing the avenue

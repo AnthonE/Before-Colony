@@ -9,7 +9,7 @@
 #   scripts/e2e.sh login [project]   # wallet sign-in (a stub wallet with a test key), resume, take-over
 #   scripts/e2e.sh hangar [project]  # survival: on foot in the bay, its terminals, launching and docking
 #   scripts/e2e.sh surface [project] # the lander lands in MO-II's Aft Well, hides, parks and wakes there
-#   scripts/e2e.sh colony [project]  # survival, the colony open: the cap lift, another pilot at Hub Gate, the streets, the Exchange floor
+#   scripts/e2e.sh colony [project]  # survival, the colony open: the cap lift, another pilot at Hub Gate, the streets, the Exchange floor, a sight
 #   scripts/e2e.sh inside [project]  # survival, the colony open: Q at the cockpit launches the suit into the colony, it flies there, docks back at the inner gate
 #   scripts/e2e.sh chart [project]   # the chart: the Earth Sphere and back, a course to MO-II's Aft Well, the auto-nav flying it
 # Anything after the project goes to Playwright, e.g. `scripts/e2e.sh gfx webgl2 --grep "duel|hangar"`.

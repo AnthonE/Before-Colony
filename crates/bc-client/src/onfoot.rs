@@ -21,6 +21,7 @@
 use bc_client_core::bay::{CATWALK_Y, HATCH, Layout, SPAWN, SUIT_AT, Spot};
 use bc_client_core::city::CityGround;
 use bc_client_core::city_nav;
+use bc_client_core::sights;
 use bc_client_core::tram::{self, CarInside, CityAndTrains, Rider};
 use bc_client_core::vehicle::{Drive, Kind, Vehicle};
 use bc_client_core::walker::{Guide, Stride, Walker};
@@ -29,8 +30,8 @@ use bc_econ::wire::{Outcome, Place, Request};
 use bc_econ::{Bay, Suit};
 use bc_proto::presence::{PersonPose, RIDE_SEATED};
 use bc_sim::colony::city::{
-    AVENUE as AVENUE_WIDTH, BLOCK, Stage, TERMINAL_HEIGHT, arrival_seats, district_at, grid_x, place_door,
-    row_span, seat_near, terminal_rect,
+    AVENUE as AVENUE_WIDTH, Stage, TERMINAL_HEIGHT, arrival_seats, district_at, place_door, seat_near,
+    terminal_rect,
 };
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, local_frame, up_at};
 use bc_sim::colony::hub::BAY_RADIUS;
@@ -39,7 +40,7 @@ use bc_sim::colony::transit::{
     CAR_WIDTH, CARS, DOOR_AT, FLOOR, PLATFORM_HALF, PLATFORM_LENGTH, STATION_GAP, STATIONS, TRAINS,
     TrainState, station_x, train,
 };
-use bc_sim::content::city::{DISTRICT_NAMES, PLACES, PlaceDef, PlaceKind, SIGHTS, STRIP_NAMES};
+use bc_sim::content::city::{DISTRICT_NAMES, PLACES, PlaceDef, PlaceKind, STRIP_NAMES};
 use bc_sim::content::{Kit, Kits};
 use bc_sim::world::COLONY_RADIUS;
 use bevy::input::mouse::AccumulatedMouseMotion;
@@ -84,8 +85,6 @@ const LIFT_SECS: f32 = 12.0;
 const LIFT_UP_SECS: f32 = 6.0;
 /// How near a place's door the pilot must stand to use it, m.
 const DOOR_REACH: f32 = 3.5;
-/// A sight is named once the pilot is this near its block's middle, m.
-const SIGHT_REACH: f32 = 140.0;
 
 /// Where the pilot is in the bay's sequences.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -409,24 +408,20 @@ impl CityFoot {
         true
     }
 
-    /// What's newly reached: a district's name (with its strip's) or a sight's.
-    fn reached(&mut self) -> Option<String> {
+    /// What's newly reached: a district (its name, with its strip's), and a sight (`sights`).
+    fn reached(&mut self) -> (Option<String>, Option<usize>) {
         let at = self.feet();
         let k = self.strip as usize % 3;
         let district = district_at(self.strip, at.x, Stage(0)).map(|(d, _)| d);
-        let sight = SIGHTS.iter().position(|&(strip, bx, row, _)| {
-            let (s0, s1) = row_span(row);
-            let (s, x) = ((s0 + s1) * 0.5, grid_x(bx) + BLOCK * 0.5);
-            strip == self.strip && (at.s - s).hypot(at.x - x) < SIGHT_REACH
-        });
-        let mut news = None;
+        let sight = sights::reached(self.strip, at.s, at.x);
+        let mut news = (None, None);
         if district != self.district {
             self.district = district;
-            news = district.map(|d| format!("{} · {}", DISTRICT_NAMES[k][d as usize], STRIP_NAMES[k]));
+            news.0 = district.map(|d| format!("{} · {}", DISTRICT_NAMES[k][d as usize], STRIP_NAMES[k]));
         }
         if sight != self.sight {
             self.sight = sight;
-            news = sight.map(|i| SIGHTS[i].3.to_string()).or(news);
+            news.1 = sight;
         }
         news
     }
@@ -491,8 +486,17 @@ impl CityFoot {
         })
     }
 
-    /// Walks the pilot to a place's door, facing in.
+    /// Walks the pilot to a place's door, facing in; or (`sight_<i>`) to where sight `i` is seen
+    /// from the street.
     fn walk_to(&mut self, slug: &str) -> bool {
+        if let Some(i) = slug.strip_prefix("sight_").and_then(|i| i.parse::<usize>().ok()) {
+            if i >= bc_sim::content::city::SIGHTS.len() || sights::sight_at(i).0 != self.strip {
+                return false;
+            }
+            let at = self.feet();
+            self.guide = Some(Guide::new(city_nav::route(self.strip, (at.s, at.x), sights::stand(i)), None));
+            return true;
+        }
         let Some((_, p)) = bc_sim::colony::city::place(slug) else { return false };
         if p.strip != self.strip {
             return false;
@@ -737,7 +741,7 @@ pub fn drive_onfoot(
     motion: Res<AccumulatedMouseMotion>,
     cmds: Res<UiCmds>,
     pointer: Res<PointerRes>,
-    settings: Res<SettingsRes>,
+    mut settings: ResMut<SettingsRes>,
     time: Res<Time<Real>>,
     net: NonSend<NetState>,
     game: NonSend<GameClient>,
@@ -964,8 +968,18 @@ pub fn drive_onfoot(
             }
         }
         g.core.set_pose(Some(c.pose()));
-        if let Some(name) = c.reached() {
-            ui.toast(name);
+        // A sight goes on the found-list the first time (and is named every time); else a
+        // district's name.
+        match c.reached() {
+            (_, Some(i)) => {
+                let found = settings.0.sights_found;
+                ui.toast(sights::news(i, found));
+                if found & sights::bit(i) == 0 {
+                    settings.0.sights_found |= sights::bit(i);
+                }
+            }
+            (Some(district), None) => ui.toast(district),
+            (None, None) => {}
         }
         if live && keys.just_pressed(KeyCode::KeyM) {
             ui.map = !ui.map;
@@ -1185,6 +1199,9 @@ pub fn drive_onfoot(
     if ui.map_at != map_at {
         ui.map_at = map_at;
     }
+    if ui.map_found != settings.0.sights_found {
+        ui.map_found = settings.0.sights_found;
+    }
     // On foot in the city, or flying a suit inside the colony: the camera sees its city.
     let inside = place == Some(Place::Space) && g.core.welcome.is_some_and(|w| w.interior);
     let city_now = me.city.is_some() || inside;
@@ -1273,10 +1290,18 @@ pub fn onfoot_camera(
 }
 
 /// On foot, for the E2E tests: where the pilot is and what they could use.
-pub fn publish_onfoot(me: Res<OnFoot>, ui: Res<Ui>, game: NonSend<GameClient>, mut dev: ResMut<DevStatus>) {
+pub fn publish_onfoot(
+    me: Res<OnFoot>,
+    ui: Res<Ui>,
+    settings: Res<SettingsRes>,
+    game: NonSend<GameClient>,
+    mut dev: ResMut<DevStatus>,
+) {
     let g = game.borrow();
     let h = &g.core.hangar;
     dev.set("place", ui.place);
+    // The colony's sights found on foot (the found-list, kept in the settings).
+    dev.set("sights_found", sights::count(settings.0.sights_found) as u32);
     dev.set("seq", me.seq.name());
     dev.set("focus", me.focus.map_or("", Spot::slug));
     dev.set("terminal", ui.terminal_tab());

@@ -37,6 +37,7 @@ pub mod predict;
 pub mod salvage;
 pub mod session;
 pub mod settings;
+pub mod sights;
 pub mod sphere;
 pub mod surface;
 pub mod tram;

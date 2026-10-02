@@ -144,6 +144,8 @@ pub struct Settings {
     /// The objectives done (bits of `objectives::Objective`), and the Mobile Dolls downed.
     pub objectives_done: u32,
     pub dolls_downed: u32,
+    /// The colony's sights found on foot (bits of `sights`, by `bc_sim::content::city::SIGHTS`).
+    pub sights_found: u32,
     /// Locked on, the ◆ that shows where to lead the target.
     pub lead: bool,
     /// A direction key pressed twice quickly makes a burst step that way.
@@ -172,6 +174,7 @@ impl Default for Settings {
             objectives: true,
             objectives_done: 0,
             dolls_downed: 0,
+            sights_found: 0,
             lead: true,
             double_tap: true,
             vol_master: 0.8,
@@ -234,6 +237,7 @@ impl Settings {
             "objectives" => self.objectives.to_string(),
             "objectives_done" => self.objectives_done.to_string(),
             "dolls_downed" => self.dolls_downed.to_string(),
+            "sights_found" => self.sights_found.to_string(),
             "lead" => self.lead.to_string(),
             "double_tap" => self.double_tap.to_string(),
             "vol_master" => self.vol_master.to_string(),
@@ -282,11 +286,12 @@ impl Settings {
                 let Some(c) = CameraView::parse(value) else { return false };
                 self.camera = c;
             }
-            "hints_seen" | "objectives_done" | "dolls_downed" => {
+            "hints_seen" | "objectives_done" | "dolls_downed" | "sights_found" => {
                 let Ok(n) = value.trim().parse() else { return false };
                 match key {
                     "hints_seen" => self.hints_seen = n,
                     "objectives_done" => self.objectives_done = n,
+                    "sights_found" => self.sights_found = n,
                     _ => self.dolls_downed = n,
                 }
             }
@@ -296,7 +301,7 @@ impl Settings {
     }
 
     /// Every key, in the order the file lists them.
-    const KEYS: [&'static str; 20] = [
+    const KEYS: [&'static str; 21] = [
         "name",
         "frame",
         "sensitivity",
@@ -311,6 +316,7 @@ impl Settings {
         "objectives",
         "objectives_done",
         "dolls_downed",
+        "sights_found",
         "lead",
         "double_tap",
         "vol_master",
@@ -400,6 +406,7 @@ mod tests {
             objectives: false,
             objectives_done: 0b101,
             dolls_downed: 3,
+            sights_found: 0b1_0010,
             lead: false,
             double_tap: false,
             vol_master: 0.6,

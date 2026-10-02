@@ -452,3 +452,10 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 .map canvas { display: block; width: 100%; }
 #map-strip { margin-bottom: 8px; }
+.map-sights {
+  margin-top: 8px;
+  font-family: var(--label-font);
+  letter-spacing: 0.14em;
+  font-size: 11px;
+  color: var(--label);
+}
