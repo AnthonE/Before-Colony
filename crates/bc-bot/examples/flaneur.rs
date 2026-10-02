@@ -7,13 +7,8 @@
 
 use std::time::{Duration, Instant};
 
-use bc_bot::{BotClient, BotConfig};
-use bc_client_core::city::{CityGround, pose_of};
-use bc_client_core::walker::{Stride, Walker};
+use bc_bot::{BotClient, BotConfig, Stroll};
 use bc_proto::{Faction, FrameId};
-use bc_sim::colony::city::{Stage, place_door};
-use bc_sim::colony::frame::CityPos;
-use bc_sim::content::city::{PLACES, PlaceKind};
 use clap::Parser;
 
 #[derive(Parser)]
@@ -56,13 +51,7 @@ async fn main() -> anyhow::Result<()> {
     anyhow::ensure!(bot.core.welcome.as_ref().is_some_and(|w| w.colony), "the colony isn't open (--colony)");
     let strip = a.strip % 3;
     bot.enter_city(strip).await?;
-    let gate = PLACES.iter().find(|p| p.kind == PlaceKind::HubGate && p.strip == strip).expect("a Hub Gate");
-    let ((s, x), (ds, dx)) = place_door(gate);
-    // Out of the door and a few metres to one side, facing up the avenue.
-    let start = CityPos::new(strip, x - dx * 6.0, s - ds * 6.0 + 4.0, 0.0);
-    let along = CityPos::new(strip, start.x + 1.0, start.s, 0.0).walker() - start.walker();
-    let mut walker = Walker::at(start.walker(), along.normalize());
-    let ground = CityGround { strip, stage: Stage(0) };
+    let mut stroll = Stroll::new(strip, a.reach, 4.0);
     tracing::info!(name = %a.name, strip, "down in the colony, strolling");
     let started = Instant::now();
     let mut last = Instant::now();
@@ -70,19 +59,13 @@ async fn main() -> anyhow::Result<()> {
     loop {
         let dt = last.elapsed().as_secs_f32().min(0.25);
         last = Instant::now();
-        // Up the avenue to `reach`, then back down to the door, and again.
-        let at = CityPos::from_walker(strip, walker.feet);
-        let out = walker.heading().dot(along.normalize()) > 0.0;
-        if (out && at.x > start.x + a.reach) || (!out && at.x < start.x) {
-            walker.turn(std::f32::consts::PI, 0.0);
-        }
-        walker.step(&ground, &Stride { forward: 1.0, ..Stride::default() }, dt);
-        bot.set_pose(pose_of(strip, &walker));
+        let pose = stroll.step(dt);
+        bot.set_pose(pose);
         bot.step(&mut |_| bc_proto::InputCmd::default()).await?;
         if last_report.elapsed() > Duration::from_secs(10) {
             last_report = Instant::now();
             let people: Vec<String> = bot.people().into_iter().map(|(_, n, _)| n).collect();
-            tracing::info!(x = at.x as i32, ?people, "strolling");
+            tracing::info!(x = stroll.along() as i32, ?people, "strolling");
         }
         if a.secs > 0 && started.elapsed() > Duration::from_secs(a.secs) {
             break;
