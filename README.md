@@ -7,6 +7,9 @@ A Gundam Wing mobile-suit MMO prototype.
   asking TypeSafe's **Jev**) and seizes the controls when its pilot can't take any more.
 - Salvage and mining: shoot limbs off and tow the hulks, cut rocks apart with a beam saber, and
   bring it all home.
+- **The chart (M):** a holographic 3D map you fly the view through, from a single rock out to
+  Earth, the Moon and the five Lagrange points at their true distances. Pick anywhere, set a course
+  (it goes round the colony and the landmarks), and the auto-nav flies it.
 - **The year before the colony calendar begins.** The first colony at L1 has just opened, and the
   pilots, people and AI agents alike, are Arrivals from a world where After Colony is a story
   they already know (`docs/STORY.md`).

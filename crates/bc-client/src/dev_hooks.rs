@@ -82,6 +82,7 @@ pub fn publish_game(
     prefs: Res<crate::view::ViewPrefs>,
     map: Res<crate::map::MapOpen>,
     objectives: Res<crate::map::ObjectiveState>,
+    (chart, target): (Res<crate::chart::Chart>, Res<crate::chart::NavTarget>),
     mut dev: ResMut<DevStatus>,
 ) {
     use bc_proto::PilotKind;
@@ -108,6 +109,19 @@ pub fn publish_game(
     let survival = core.welcome.is_some_and(|w| w.survival);
     dev.set("objective", objectives.current.map(|o| o.title(survival)).unwrap_or_default());
     dev.set("waypoint", objectives.waypoint.as_ref().map(|w| w.1.clone()).unwrap_or_default());
+    // The chart: what's picked on it, how far out the view is; the course set, how far it goes
+    // and how many turns it takes; the auto-nav; and where the suit is, to see it get there.
+    dev.set("chart_selected", chart.selected.map(|p| p.name(w)).unwrap_or_default());
+    dev.set("chart_hover", chart.hover.map(|p| p.name(w)).unwrap_or_default());
+    dev.set("chart_view_m", chart.cam.now.dist as f64);
+    dev.set("course", target.place.map(|p| p.name(w)).unwrap_or_default());
+    dev.set("course_m", target.course.length() as f64);
+    dev.set("course_turns", target.course.points.len().saturating_sub(2) as u32);
+    dev.set("auto_nav", game.nav.is_some());
+    if let Some(v) = core.own_view() {
+        dev.set("pos", format!("{:.0},{:.0},{:.0}", v.pos.x, v.pos.y, v.pos.z));
+        dev.set("speed", v.flight_vel.length());
+    }
     dev.set("signed_in", core.welcome.is_some_and(|w| w.signed_in));
     dev.set("woke", core.welcome.is_some_and(|w| w.woke));
     dev.set("resume_token", core.resume_token.is_some());
