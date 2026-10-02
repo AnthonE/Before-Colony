@@ -14,7 +14,7 @@
 //! fly exactly the same thing. The aim stays the pilot's own: the lock moves the suit, it doesn't
 //! point the guns.
 
-use bc_proto::buttons::FLIGHT_ASSIST;
+use bc_proto::buttons::{BURST, FLIGHT_ASSIST};
 use bc_proto::snapshot::{ent_flags, zero_mode};
 use bc_proto::{FrameId, InputCmd, LockOn};
 use bc_sim::config::DT;
@@ -247,6 +247,11 @@ pub fn shape(cmd: InputCmd, lock: &mut Lock, ctx: &InputContext) -> InputCmd {
     let probe = InputCmd { lockon: Some(LockOn { ref_vel: vt, up }), ..out }.quantized();
     let cruise = fa_cruise(spec, mods, &probe, s.propellant);
     let Some(axes) = lockon_assist(&probe, &s, spec) else { return out };
+    // A burst step's press goes along the keys themselves, in the fight's axes (`flight::Burst`).
+    if cmd.pressed(BURST) && !s.burst.held {
+        out.lockon = probe.lockon;
+        return out;
+    }
 
     // Toward the target (+) or away: W closes and stops at `stop`; S opens; neither holds.
     let mut closing = if keys.z > 0.0 {

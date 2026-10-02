@@ -101,6 +101,7 @@ const fn toggle(key: &'static str, label: &'static str, group: &'static str) -> 
 pub const KNOBS: &[Knob] = &[
     range("sensitivity", "Mouse sensitivity", "CONTROLS", 0.25, 3.0, 0.05),
     toggle("invert_y", "Invert mouse Y", "CONTROLS"),
+    toggle("double_tap", "Double-tap a direction to step", "CONTROLS"),
     Knob { key: "camera", label: "Flight camera", group: "VIEW", kind: Kind::Choice(&CameraView::NAMES) },
     range("fov", "Field of view", "VIEW", 60.0, 100.0, 1.0),
     range("shake", "Camera shake and screen effects", "VIEW", 0.0, 1.0, 0.05),
@@ -145,6 +146,8 @@ pub struct Settings {
     pub dolls_downed: u32,
     /// Locked on, the ◆ that shows where to lead the target.
     pub lead: bool,
+    /// A direction key pressed twice quickly makes a burst step that way.
+    pub double_tap: bool,
     /// Volumes, 0..1.
     pub vol_master: f32,
     pub vol_effects: f32,
@@ -170,6 +173,7 @@ impl Default for Settings {
             objectives_done: 0,
             dolls_downed: 0,
             lead: true,
+            double_tap: true,
             vol_master: 0.8,
             vol_effects: 0.9,
             vol_cockpit: 0.8,
@@ -231,6 +235,7 @@ impl Settings {
             "objectives_done" => self.objectives_done.to_string(),
             "dolls_downed" => self.dolls_downed.to_string(),
             "lead" => self.lead.to_string(),
+            "double_tap" => self.double_tap.to_string(),
             "vol_master" => self.vol_master.to_string(),
             "vol_effects" => self.vol_effects.to_string(),
             "vol_cockpit" => self.vol_cockpit.to_string(),
@@ -258,13 +263,14 @@ impl Settings {
                     _ => self.vol_music = v,
                 }
             }
-            "invert_y" | "hints" | "flashing" | "objectives" | "lead" => {
+            "invert_y" | "hints" | "flashing" | "objectives" | "lead" | "double_tap" => {
                 let Some(b) = parse_bool(value) else { return false };
                 match key {
                     "invert_y" => self.invert_y = b,
                     "hints" => self.hints = b,
                     "objectives" => self.objectives = b,
                     "lead" => self.lead = b,
+                    "double_tap" => self.double_tap = b,
                     _ => self.flashing = b,
                 }
             }
@@ -290,7 +296,7 @@ impl Settings {
     }
 
     /// Every key, in the order the file lists them.
-    const KEYS: [&'static str; 19] = [
+    const KEYS: [&'static str; 20] = [
         "name",
         "frame",
         "sensitivity",
@@ -306,6 +312,7 @@ impl Settings {
         "objectives_done",
         "dolls_downed",
         "lead",
+        "double_tap",
         "vol_master",
         "vol_effects",
         "vol_cockpit",
@@ -394,6 +401,7 @@ mod tests {
             objectives_done: 0b101,
             dolls_downed: 3,
             lead: false,
+            double_tap: false,
             vol_master: 0.6,
             vol_effects: 1.0,
             vol_cockpit: 0.35,

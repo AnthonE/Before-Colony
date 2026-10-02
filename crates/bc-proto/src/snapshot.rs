@@ -193,6 +193,8 @@ pub struct OwnState {
     pub special_cooldown: u8,
     /// What the arms are doing, for the client to roll on tick by tick.
     pub arms: OwnArms,
+    /// The burst step's state (`bc_sim::flight::Burst`), for the client to roll on.
+    pub burst: OwnBurst,
     /// The body the suit stands on or is in the grip of (`None`: flying free).
     pub surface: Option<OwnSurface>,
     /// What its cover amounts to ([`cover`]).
@@ -216,6 +218,25 @@ impl OwnSurface {
         self.body.bits() + STANCE_BITS as usize
     }
 }
+
+/// The own suit's burst step (`bc_sim::flight::Burst`): the step under way and the wait for the
+/// next, which its client rolls on from each snapshot as the server does.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct OwnBurst {
+    /// Ticks of the step still to drive, up to [`BURST_MAX_LEFT`].
+    pub left: u8,
+    /// Ticks until another can start, up to [`BURST_MAX_COOLDOWN`].
+    pub cooldown: u8,
+    /// The stick's direction at its press: each axis -1, 0 or 1.
+    pub dir: [i8; 3],
+    /// BURST was held last tick (a step starts on the press).
+    pub held: bool,
+}
+
+pub const BURST_MAX_LEFT: u8 = 15;
+pub const BURST_MAX_COOLDOWN: u8 = 63;
+/// Bits for [`OwnBurst`]: left 4, cooldown 6, the direction 3 × 2, held 1.
+pub const BURST_BITS: usize = 4 + 6 + 6 + 1;
 
 /// The own suit's arms, which its client rolls on from each snapshot as the server does
 /// (`bc_sim::arms`): busy arms slow AMBAC's turning, and a blade's lunge drives the suit.
@@ -300,6 +321,7 @@ pub const OWN_BITS_FREE: usize = 503
     + 8
     + 8
     + ARMS_BITS
+    + BURST_BITS
     + FOOTING_BITS as usize
     + COVER_BITS as usize;
 /// The largest own state: on a rock, which takes the longest [`BodyRef`], and the stance.
@@ -355,6 +377,7 @@ impl Default for OwnState {
             special_timer: 0,
             special_cooldown: 0,
             arms: OwnArms::default(),
+            burst: OwnBurst::default(),
             surface: None,
             cover: cover::EXPOSED,
         }
@@ -643,6 +666,13 @@ impl<'a> SnapshotWriter<'a> {
             w.write_bits(u32::from(a.salvo[k].min(ARMS_MAX_SALVO)), SALVO_BITS);
             w.write_bits(u32::from(a.salvo_gap[k].min(ARMS_MAX_SALVO_GAP)), SALVO_GAP_BITS);
         }
+        let b = &o.burst;
+        w.write_bits(u32::from(b.left.min(BURST_MAX_LEFT)), 4);
+        w.write_bits(u32::from(b.cooldown.min(BURST_MAX_COOLDOWN)), 6);
+        for d in b.dir {
+            w.write_bits((d.signum() + 1) as u32, 2);
+        }
+        w.write_bool(b.held);
         let code = o.surface.map_or(footing::FREE, |on| {
             debug_assert!(matches!(on.footing, footing::GROUNDED | footing::ALOFT), "{on:?}");
             on.footing.clamp(footing::GROUNDED, footing::ALOFT)
@@ -956,6 +986,18 @@ impl<'a> SnapshotReader<'a> {
             a.salvo[k] = r.read_bits(SALVO_BITS) as u8;
             a.salvo_gap[k] = r.read_bits(SALVO_GAP_BITS) as u8;
         }
+        let b = &mut o.burst;
+        b.left = r.read_bits(4) as u8;
+        b.cooldown = r.read_bits(6) as u8;
+        for d in &mut b.dir {
+            *d = match r.read_bits(2) {
+                0 => -1,
+                1 => 0,
+                2 => 1,
+                _ => return Err(DecodeError::Invalid),
+            };
+        }
+        b.held = r.read_bool();
         let code = r.read_bits(FOOTING_BITS) as u8;
         o.cover = r.read_bits(COVER_BITS) as u8;
         o.surface = match code {
@@ -1129,7 +1171,7 @@ mod tests {
             let back = SnapshotReader::new(&buf[..n]).unwrap().own().unwrap().unwrap();
             assert_eq!((back.surface, back.cover), (own.surface, own.cover));
         }
-        assert_eq!((OWN_BITS_FREE, OWN_BITS_FREE + 14, OWN_MAX_BITS), (760, 774, 780));
+        assert_eq!((OWN_BITS_FREE, OWN_BITS_FREE + 14, OWN_MAX_BITS), (777, 791, 797));
     }
 
     #[test]

@@ -98,6 +98,7 @@ pub const BINDINGS: &[Binding] = &[
     b(Group::Flight, "R", "RCS: fast turns (burns propellant)"),
     b(Group::Flight, "V", "Flight assist on/off (off: fully Newtonian)"),
     b(Group::Flight, "Tab / mouse wheel", "Camera: the cockpit (first person) or the chase camera"),
+    b(Group::Flight, "Double-tap W/A/S/D/Space/C", "Burst step that way (locked on: in the fight's axes)"),
     b(Group::Flight, "L", "Land: arm the grip (come in slow and close to a rock or a landmark)"),
     b(Group::Surface, "L", "Grip off: let go (pushes off)"),
     b(Group::Surface, "W / A / S / D", "Walk"),

@@ -7,8 +7,8 @@ use bc_proto::missiles::{MISSILE_RECORD_BITS, MISSILE_VEL_BITS, MISSILE_VEL_MAX}
 use bc_proto::objects::{ROCK_RECORD_BITS, SPIN_MAX};
 use bc_proto::quant::{self, VEL_MAX};
 use bc_proto::snapshot::{
-    ENTITY_MAX_BITS, OWN_BITS_FREE, OWN_MAX_BITS, OwnArms, ZERO_HYPOTHESES, ZeroThreat, entity_pos_step,
-    footing,
+    ENTITY_MAX_BITS, OWN_BITS_FREE, OWN_MAX_BITS, OwnArms, OwnBurst, ZERO_HYPOTHESES, ZeroThreat,
+    entity_pos_step, footing,
 };
 use bc_proto::types::{RIDER_VEL_BITS, RIDER_VEL_MAX};
 use bc_proto::{
@@ -86,6 +86,11 @@ fn entity_pose_close(e: &EntityState, src: &EntityState) -> bool {
         && (e.pos - src.pos).abs().max_element() <= pos_step * 0.5 + 0.004
         && (e.vel - src.vel).abs().max_element() <= vel_step * 0.5 + 1e-3
         && e.rot.dot(src.rot).abs() > 0.999
+}
+
+fn burst() -> impl Strategy<Value = OwnBurst> {
+    (0u8..16, 0u8..64, prop::array::uniform3(-1i8..=1), any::<bool>())
+        .prop_map(|(left, cooldown, dir, held)| OwnBurst { left, cooldown, dir, held })
 }
 
 fn arms() -> impl Strategy<Value = OwnArms> {
@@ -231,7 +236,7 @@ proptest! {
                            missiles in prop::collection::vec(missile(), 0..=12),
                            pos in vec3(30_000.0), rot in quat(), extra in -131_071i32..131_071, credits in 0u32..16_777_215,
                            lock in 0u16..1024, progress in 0u8..16, special in any::<[u8; 2]>(), ready in 0u8..16,
-                           arms in arms(), g_strain in 0.0f32..3.0, on in 0u32..3, stance in 96u8..=146, cover in 0u8..4,
+                           arms in arms(), burst in burst(), g_strain in 0.0f32..3.0, on in 0u32..3, stance in 96u8..=146, cover in 0u8..4,
                            systems in 0u32..(1 << 24), modules in 0u32..(1 << 20),
                            timers in any::<[u8; 3]>(), repairing in 0u8..16) {
         // Flying free, standing on a rock, or in a landmark's grip.
@@ -243,7 +248,7 @@ proptest! {
         let own = OwnState { slot: 5, alive: true, pos, vel: Vec3::new(10.0, -3.0, 250.0), rot, propellant: 812.5,
                              g_strain, parts: [1.0, 0.5, 0.0, 1.0, 0.25, 0.75], extra_mass_kg: extra, cargo_kg: [0, 16_383, 2_500, 1],
                              credits, held: 1_000, weapon_ready: ready, lock_target: lock, lock_progress: progress,
-                             special_timer: special[0], special_cooldown: special[1], arms, surface, cover, systems, modules,
+                             special_timer: special[0], special_cooldown: special[1], arms, burst, surface, cover, systems, modules,
                              scram: timers[0] & 127, concussed: timers[1] & 127, repairing, repair_left: timers[2] & 127,
                              ..OwnState::default() };
         let mut zero = ZeroInfo { threat_count: 2, has_solution: true, solution: Vec3::X, hit_p: 0.62, ..ZeroInfo::default() };
@@ -288,6 +293,7 @@ proptest! {
         // The strain comes back exact, so the client blacks out on the same tick as the server.
         prop_assert_eq!(o.g_strain, g_strain);
         prop_assert_eq!(o.arms, arms);
+        prop_assert_eq!(o.burst, burst);
         prop_assert_eq!((o.extra_mass_kg, o.cargo_kg, o.credits, o.held), (extra, own.cargo_kg, credits, 1_000));
         prop_assert_eq!((o.weapon_ready, o.lock_target, o.lock_progress), (ready, lock, progress));
         prop_assert_eq!((o.special_timer, o.special_cooldown), (special[0], special[1]));
@@ -408,8 +414,8 @@ fn record_budgets_match_plan() {
     // state, ZERO and events.
     const { assert!(ENTITY_MAX_BITS == 211) };
     const { assert!(ZERO_HYPOTHESES == 7) };
-    const { assert!(OWN_BITS_FREE == 760) };
-    const { assert!(OWN_MAX_BITS == 780) };
+    const { assert!(OWN_BITS_FREE == 777) };
+    const { assert!(OWN_MAX_BITS == 797) };
     const { assert!(ROCK_RECORD_BITS == 18) };
     const { assert!(MISSILE_RECORD_BITS == 119) };
     const { assert!(ObjectState::MAX_BITS <= 232) };

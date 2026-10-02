@@ -224,7 +224,7 @@ pub fn duel_scripted(sim: &Sim, id: SuitId, foe: SuitId, tick: u32) -> InputCmd 
 
 /// [`duel_scripted`], locked on (`bc_proto::LockOn`): flight assist holds the foe's velocity, the
 /// fight's up is the colony's, and the stick, in the fight's axes, closes in and then circles one
-/// way and the other.
+/// way and the other, with a burst step now and then.
 pub fn locked_scripted(sim: &Sim, id: SuitId, foe: SuitId, tick: u32) -> InputCmd {
     let cmd = duel_scripted(sim, id, foe, tick);
     let (me, it) = (&sim.suits.flight[id.idx()], &sim.suits.flight[foe.idx()]);
@@ -233,6 +233,12 @@ pub fn locked_scripted(sim: &Sim, id: SuitId, foe: SuitId, tick: u32) -> InputCm
     let circle = if (tick / 90 + id.idx() as u32).is_multiple_of(2) { 0.6 } else { -0.6 };
     let q = |v: f32| (v.clamp(-1.0, 1.0) * 127.0) as i8;
     let lockon = bc_proto::LockOn { ref_vel: it.vel, up: bc_sim::world::colony_up(me.pos) };
+    // Now and then a burst step, the way it circles.
+    if (tick + 13 * id.idx() as u32).is_multiple_of(70) {
+        let buttons = cmd.buttons | bc_proto::buttons::BURST;
+        return InputCmd { thrust: [q(circle * 2.0), 0, 0], roll: 0, buttons, lockon: Some(lockon), ..cmd }
+            .quantized();
+    }
     InputCmd { thrust: [q(circle), 0, q(close)], roll: 0, lockon: Some(lockon), ..cmd }.quantized()
 }
 

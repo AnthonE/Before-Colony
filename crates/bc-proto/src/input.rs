@@ -44,6 +44,9 @@ pub mod buttons {
     /// it holds on while this is set: clearing it lets go. Being a state, a client that stalls
     /// never drops its suit off a body.
     pub const GRIP: u16 = 1 << 14;
+    /// Press: the burst step, along the stick (a double-tapped direction). A step starts on the
+    /// press (`bc_sim::flight::Burst`), so a silent client's repeat can't step again.
+    pub const BURST: u16 = 1 << 15;
 
     /// Actions a silent client's repeated command must not keep performing.
     pub const FIRE_MASK: u16 = FIRE_PRIMARY | FIRE_SECONDARY | MELEE | SPECIAL;

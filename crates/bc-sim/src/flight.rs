@@ -16,7 +16,9 @@
 //!   tank; and it fills back up whenever boost is let go.
 
 use bc_proto::InputCmd;
-use bc_proto::buttons::{BOOST, BRAKE, FLIGHT_ASSIST, RCS_SHARP};
+use bc_proto::buttons::{BOOST, BRAKE, BURST, FLIGHT_ASSIST, RCS_SHARP};
+/// The burst step's state ([`burst_tick`]): the own snapshot carries it as it is.
+pub use bc_proto::snapshot::OwnBurst as Burst;
 use glam::{Quat, Vec3};
 
 use crate::config::G0;
@@ -50,6 +52,15 @@ pub const LUNGE_THRUST: f32 = 1.5;
 /// A lunge homes: it drives along the aim when the aim is within this much of the nose, rad
 /// (15°), and along the edge of that cone when it's further off.
 pub const LUNGE_CONE: f32 = 0.2618;
+/// The burst step ([`burst_tick`]): it drives this many ticks (0.3 s)...
+pub const BURST_TICKS: u8 = 9;
+/// ...at this much, m/s² (about 12 g, which a pilot bears under the anime rules and feels under the
+/// real ones), adding 36 m/s along the stick...
+pub const BURST_ACCEL: f32 = 120.0;
+/// ...and the next can start this many ticks after its press (1.2 s).
+pub const BURST_COOLDOWN: u8 = 36;
+/// A stick past this (of 127) counts toward a step's direction.
+const BURST_STICK: i8 = 32;
 /// How hard roll-level turns the feet toward a surface (1/s): the roll rate asked for per radian
 /// of roll still to go, up to the frame's roll rate.
 pub const ROLL_LEVEL_GAIN: f32 = 2.0;
@@ -68,6 +79,8 @@ pub struct FlightState {
     pub g_load: f32,
     pub g_strain: f32,
     pub blackout: bool,
+    /// The burst step under way, and the wait for the next.
+    pub burst: Burst,
 }
 
 impl Default for FlightState {
@@ -81,7 +94,39 @@ impl Default for FlightState {
             g_load: 0.0,
             g_strain: 0.0,
             blackout: false,
+            burst: Burst::default(),
         }
+    }
+}
+
+/// The burst step: a press of BURST (a double-tapped direction) with the stick off centre starts a
+/// step along it, if the last has cooled down and the suit `can` (propellant in the tank, the pilot
+/// awake, boosters that work). It drives for [`BURST_TICKS`] at [`BURST_ACCEL`], burning as boost
+/// does, in the suit's own axes or, locked on, in the fight's ([`LockOnAssist`]); flight assist lets
+/// it be until it's done, then brings the suit back to what the stick asks. One tick of it: whether
+/// it drives this tick.
+pub fn burst_tick(b: &mut Burst, cmd: &InputCmd, can: bool) -> bool {
+    let held = cmd.pressed(BURST);
+    let pressed = held && !b.held;
+    b.held = held;
+    b.cooldown = b.cooldown.saturating_sub(1);
+    let dir = cmd.thrust.map(|t| {
+        if t > BURST_STICK {
+            1
+        } else if t < -BURST_STICK {
+            -1
+        } else {
+            0
+        }
+    });
+    if pressed && b.cooldown == 0 && can && dir != [0; 3] {
+        *b = Burst { left: BURST_TICKS, cooldown: BURST_COOLDOWN, dir, held };
+    }
+    if b.left > 0 {
+        b.left -= 1;
+        true
+    } else {
+        false
     }
 }
 
@@ -316,7 +361,15 @@ pub fn integrate(
     let side = spec.side_thrust * mods.side;
     let retro = spec.retro_thrust * mods.retro;
     let brake = cmd.pressed(BRAKE);
-    let assisted = brake || cmd.pressed(FLIGHT_ASSIST);
+    // A burst step, along the stick at its press (in the fight's axes when locked on).
+    let burst = burst_tick(&mut s.burst, cmd, has_prop && !s.blackout && can_boost).then(|| {
+        let d = Vec3::new(f32::from(s.burst.dir[0]), f32::from(s.burst.dir[1]), f32::from(s.burst.dir[2]));
+        match mods.lockon {
+            Some(l) => normalize_or(s.rot.conjugate() * (l.right * d.x + l.up * d.y + l.fwd * d.z), Vec3::Z),
+            None => normalize_or(d, Vec3::Z),
+        }
+    });
+    let assisted = (brake || cmd.pressed(FLIGHT_ASSIST)) && burst.is_none();
     let stick = if brake { Vec3::ZERO } else { cmd.thrust_vec() };
     let mut f_local = if assisted {
         let cruise = fa_cruise(spec, mods, cmd, s.propellant);
@@ -361,6 +414,9 @@ pub fn integrate(
             f_local.z = drive;
         }
     }
+    if let Some(d) = burst {
+        f_local += d * (BURST_ACCEL * mass);
+    }
     f_local *= mods.thrust * authority;
     if !powered {
         f_local = Vec3::ZERO;
@@ -374,8 +430,8 @@ pub fn integrate(
     if g_limited {
         f_local *= most / pull;
     }
-    // Under anime rules only boost burns.
-    if mods.gauge.is_none() || boosting {
+    // Under anime rules only boost burns (and a burst step, which is one).
+    if mods.gauge.is_none() || boosting || burst.is_some() {
         let burn =
             (f_local.x.abs() + f_local.y.abs() + f_local.z.abs()) * dt / (spec.exhaust_velocity() * mods.isp);
         s.propellant = (s.propellant - burn).max(0.0);
@@ -383,8 +439,9 @@ pub fn integrate(
     if mods.leak_kg_s > 0.0 {
         s.propellant = (s.propellant - mods.leak_kg_s * dt).max(0.0);
     }
-    // It fills only once boost is let go, so a pilot leaning on an empty gauge gets nothing.
-    if !(cmd.pressed(BOOST) && can_boost) {
+    // It fills only once boost is let go (and a step is done), so a pilot leaning on an empty gauge
+    // gets nothing.
+    if !(cmd.pressed(BOOST) && can_boost) && burst.is_none() {
         refill(s, spec, mods, dt);
     }
     let axial = if f_local.z >= 0.0 { spec.main_thrust } else { spec.retro_thrust };
@@ -396,7 +453,8 @@ pub fn integrate(
 
     // --- Pilot G. ---
     pilot_g(s, accel, mods, dt);
-    FlightOut { boosting, accel, throttle, g_limited }
+    // A step is seen as boost is (its plumes, its heat on sensors).
+    FlightOut { boosting: boosting || burst.is_some(), accel, throttle, g_limited }
 }
 
 /// Anime rules ([`BoostGauge`]): `dt` of the tank filling back up, to its size. Nothing under the
@@ -468,6 +526,64 @@ mod tests {
         assert!(drive.angle_between(aim) < aim.angle_between(nose), "toward the aim");
         let (drive, nose, _) = lunge(10.0, 0.0);
         assert!(drive.angle_between(nose) < 0.002, "{}", drive.angle_between(nose));
+    }
+
+    /// The burst step: on BURST's press, 36 m/s along the stick in 0.3 s, burning the gauge even
+    /// under the anime rules; none on a held button, a centred stick or before it's cooled down;
+    /// locked on, along the fight's axes; and flight assist brings the suit back after it.
+    #[test]
+    fn a_burst_step_dashes_along_the_stick_once_per_cooldown() {
+        let spec = frame(FrameId::Leo);
+        let anime = FlightMods {
+            gauge: Some(BoostGauge { tank: 1.0, refill: 0.1 }),
+            g_tolerance: HUMAN_G_TOLERANCE * 2.0,
+            ..FlightMods::default()
+        };
+        let fly = |s: &mut FlightState, buttons: u16, thrust: [i8; 3], mods: &FlightMods| {
+            let cmd =
+                InputCmd { aim: Vec3::Z, thrust, buttons: FLIGHT_ASSIST | buttons, ..InputCmd::default() };
+            integrate(s, &cmd, spec, mods, DT)
+        };
+        // D double-tapped: BURST pressed with the stick right, then everything let go.
+        let mut s = state();
+        let out = fly(&mut s, BURST, [127, 0, 0], &anime);
+        assert!(out.boosting, "a step is seen as boost is");
+        for _ in 1..BURST_TICKS {
+            fly(&mut s, 0, [0; 3], &anime);
+        }
+        // (The press's tick also has the held key's own thrust.)
+        assert!((s.vel - Vec3::X * 36.0).length() < 1.0, "{}", s.vel);
+        assert!((30.0..50.0).contains(&(2_400.0 - s.propellant)), "burnt {}", 2_400.0 - s.propellant);
+        assert!(s.g_strain < 0.05 && !s.blackout, "strain {}", s.g_strain);
+        // Pressed again too soon, or held, or with the stick centred: nothing.
+        fly(&mut s, BURST, [127, 0, 0], &anime);
+        fly(&mut s, BURST, [127, 0, 0], &anime);
+        assert!(s.burst.left == 0 && s.burst.cooldown < BURST_COOLDOWN - BURST_TICKS, "{:?}", s.burst);
+        // Flight assist brings it back (on the side thrusters: about 2 s).
+        for _ in 0..90 {
+            fly(&mut s, 0, [0; 3], &anime);
+        }
+        assert!(s.vel.length() < 0.1, "flight assist brought it back: {}", s.vel);
+        fly(&mut s, BURST, [0; 3], &anime);
+        assert_eq!((s.burst.left, s.burst.cooldown), (0, 0), "a centred stick doesn't step");
+        // Locked on, S steps back from the target, along the fight's axes rather than the nose.
+        let up = Vec3::Y;
+        let fwd = Vec3::new(1.0, 0.0, 1.0).normalize();
+        let lock = LockOnAssist { ref_vel: Vec3::ZERO, right: up.cross(fwd), up, fwd };
+        let locked = FlightMods { lockon: Some(lock), ..anime };
+        let mut s = state();
+        fly(&mut s, BURST, [0, 0, -127], &locked);
+        for _ in 1..BURST_TICKS {
+            fly(&mut s, 0, [0; 3], &locked);
+        }
+        assert!((s.vel + fwd * 36.0).length() < 1.0 && s.vel.y.abs() < 0.01, "{}", s.vel);
+        // Under the real rules the pilot feels it.
+        let mut s = state();
+        for k in 0..BURST_TICKS {
+            let press = if k == 0 { BURST } else { 0 };
+            fly(&mut s, press, [0, 127, 0], &FlightMods::default());
+        }
+        assert!(s.g_strain > 0.3 && !s.blackout, "strain {}", s.g_strain);
     }
 
     #[test]
@@ -727,13 +843,16 @@ mod tests {
             g_load: rng.next_f32() * 10.0,
             g_strain: rng.next_f32() * 1.2,
             blackout: rng.next_u32().is_multiple_of(4),
+            // No step under way (v8 had none).
+            burst: Burst::default(),
         };
         let axis = |rng: &mut Rng| if rng.next_u32().is_multiple_of(4) { 0 } else { rng.next_u32() as i8 };
         let cmd = InputCmd {
             aim: if rng.next_u32().is_multiple_of(10) { Vec3::ZERO } else { random_vec(rng, 1.0) },
             thrust: [axis(rng), axis(rng), axis(rng)],
             roll: axis(rng),
-            buttons: rng.next_u32() as u16,
+            // Bit 15 was free in v8 (the burst step came later; its own tests hold it).
+            buttons: rng.next_u32() as u16 & !BURST,
             ..InputCmd::default()
         };
         let spec = frame(FrameId::ALL[rng.next_u32() as usize % FrameId::COUNT]);

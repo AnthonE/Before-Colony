@@ -987,8 +987,11 @@ pub fn update_hud(
                 100.0 * s.propellant / tank,
                 if tuned.leak_kg_s > 0.0 {
                     format!(" LEAK -{:.0} kg/s", tuned.leak_kg_s)
+                } else if s.burst.cooldown > 0 {
+                    // The burst step cooling down (double-tap a direction).
+                    format!(" STEP {:.1}s", f32::from(s.burst.cooldown) * bc_sim::DT)
                 } else {
-                    String::new()
+                    " STEP".to_string()
                 },
                 bar(o.heat, 10),
                 o.heat * 100.0,

@@ -89,7 +89,8 @@ and SPD and the velocity marker relative to the target.
 - A locked suit keeps pace with anything up to its boosted cruise, so running away is by
   acceleration, by range (past 5 km), by the jammer, or by getting out of sight in a hide spot.
 - Closing to blade range is easy now; the target is warned (LOCK WARNING, as for any designation),
-  and the burst step (`PEERS.md`, the weapons pass) is the answer to a lunge.
+  and the burst step is the answer to a lunge: double-tapped, it goes along the fight's axes, so
+  A and D sidestep round the attacker and S jumps back (`DESIGN.md`, "The burst step").
 - Missile locks still need the target within 20° of the aim: the lock doesn't point the launchers.
 
 ## Numbers (all tunable)

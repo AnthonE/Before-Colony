@@ -7,7 +7,7 @@
 //! | Key | Action |
 //! |---|---|
 //! | mouse | aim (click to lock the pointer, Esc for the menu) |
-//! | W/S, A/D, Space/C | thrust forward/back, left/right, up/down |
+//! | W/S, A/D, Space/C | thrust forward/back, left/right, up/down; double-tapped, a burst step |
 //! | Q/E | roll |
 //! | L | grip: armed, a suit coming in slow and close is caught and landed; off, it lets go |
 //! | on a body: W/A/S/D, Shift, Space, C | walk, run, hop (held: lift off), crouch (a toggle) |
@@ -27,11 +27,12 @@
 //! the stance. In the air in a body's grip, Space and C are the thrusters' again. While the suit is
 //! on a turning body the aim turns with it, so a still mouse keeps its bearing on the deck.
 
+use bc_client_core::doubletap::{DIRECTIONS, DoubleTap};
 use bc_client_core::lockon::{Broke, HOLD_TO_RELEASE};
 use bc_client_core::settings::CameraView;
 use bc_proto::buttons::{
-    BOOST, BRAKE, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, GRIP, JETTISON, MELEE, MODE, RCS_SHARP,
-    SPECIAL, STOW, THROW, ZERO,
+    BOOST, BRAKE, BURST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, GRIP, JETTISON, MELEE, MODE,
+    RCS_SHARP, SPECIAL, STOW, THROW, ZERO,
 };
 use bc_proto::snapshot::footing;
 use bc_proto::{InputCmd, NO_SLOT};
@@ -256,6 +257,7 @@ pub fn read_input(
     game: NonSend<GameClient>,
     mut deck: Local<Option<(Body, Quat)>>,
     mut lock_key: Local<Option<f64>>,
+    mut tap: Local<DoubleTap>,
 ) {
     let mut game = game.borrow_mut();
     // Keep the aim sane across (re)spawns: start looking where the suit looks.
@@ -307,6 +309,7 @@ pub fn read_input(
         controls.thrust = Vec3::ZERO;
         controls.roll = 0.0;
         controls.buttons = 0;
+        tap.clear();
         return;
     }
 
@@ -351,6 +354,24 @@ pub fn read_input(
     controls.thrust = Vec3::new(axis(KeyCode::KeyD, KeyCode::KeyA), lift, axis(KeyCode::KeyW, KeyCode::KeyS));
     controls.roll = axis(KeyCode::KeyE, KeyCode::KeyQ);
     let mut b = 0;
+    // A direction double-tapped, off the ground: a burst step that way, the stick held that way
+    // while it's pressed.
+    const STEP_KEYS: [KeyCode; DIRECTIONS] =
+        [KeyCode::KeyD, KeyCode::KeyA, KeyCode::Space, KeyCode::KeyC, KeyCode::KeyW, KeyCode::KeyS];
+    if settings.0.double_tap && mover.footing != Footing::Grounded {
+        let now = crate::net::now_s();
+        for (k, key) in STEP_KEYS.iter().enumerate() {
+            if keys.just_pressed(*key) {
+                tap.press(k, now);
+            }
+        }
+        if let Some((axis, sign)) = tap.stepping(STEP_KEYS.map(|k| keys.pressed(k)), now) {
+            controls.thrust[axis] = sign;
+            b |= BURST;
+        }
+    } else {
+        tap.clear();
+    }
     if controls.locked && !controls.swallow_click && mouse.pressed(MouseButton::Left) {
         b |= FIRE_PRIMARY;
     }

@@ -212,6 +212,7 @@ impl Sim {
             special_timer: special_timer.min(255) as u8,
             special_cooldown: s.special[i].cooldown.div_ceil(4).min(255) as u8,
             arms: self.own_arms(i),
+            burst: f.burst,
             surface,
             cover: self.cover_code(i),
         }

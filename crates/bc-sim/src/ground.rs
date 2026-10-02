@@ -583,6 +583,7 @@ fn aloft(
         g_load: f.g_load,
         g_strain: f.g_strain,
         blackout: f.blackout,
+        burst: f.burst,
     };
     let cmd_l = InputCmd { aim: aim_l, ..*cmd };
     let cruise = if cmd.pressed(BOOST) { RUN_SPEED } else { WALK_SPEED };
@@ -598,6 +599,7 @@ fn aloft(
     }
     (a.local, a.vel, a.rot, a.ang_vel) = (l.pos, l.vel, l.rot, l.ang_vel);
     (f.propellant, f.g_load, f.g_strain, f.blackout) = (l.propellant, l.g_load, l.g_strain, l.blackout);
+    f.burst = l.burst;
     let (o1, n1, h) = place(shape, a.local, a.stance);
     let into = a.vel.dot(n1);
     if h <= 0.0 && into <= 0.0 {

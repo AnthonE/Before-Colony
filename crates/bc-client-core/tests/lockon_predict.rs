@@ -80,6 +80,8 @@ fn locked_on_a_pilot_closes_settles_and_circles_and_predicts_it_exactly() {
             InputCmd { tick: t, view_tick_q4: t << 4, ..lockon::shape(cmd, &mut lock, &ctx) }.quantized();
         assert!(cmd.lockon.is_some(), "tick {t}: not flying locked on");
         history.push(cmd);
+        // Flown ahead as the client flies it, to be checked against the server's word of it.
+        predict.advance(&cmd, &history);
         sim.set_input(me, cmd);
         sim.step();
 

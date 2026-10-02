@@ -251,6 +251,7 @@ pub fn update_hints(
         opened_map: keys.just_pressed(crate::map::MAP_KEY),
         hostile_near,
         locked,
+        stepped: controls.buttons & bc_proto::buttons::BURST != 0,
     };
     let mut seen = settings.0.hints_seen;
     let hint = state.hints.step(&mut seen, now_s(), f64::from(time.delta_secs()), &input);

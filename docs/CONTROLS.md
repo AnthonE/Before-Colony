@@ -199,7 +199,9 @@ so on a body they become a hop (held: lift off on the thrusters) and a crouch at
 
 9. **A burst step.** A double-tapped direction that spends propellant and G, like EXVS's step,
    GBO2's double-tap evade, AC6's Quick Boost and Mecha BREAK's Shift evade [A1][A2]. Every
-   reference game has one.
+   reference game has one. **Done:** double-tap W/A/S/D/Space/C (a setting turns it off) for 36
+   m/s that way in 0.3 s, once every 1.2 s; locked on, along the fight's axes (`DESIGN.md`, "The
+   burst step"). A key of its own (for pads, and pilots who hate double taps) is still open.
 10. **Mild homing on blade lunges, within a cone** (EXVS, Zone of the Enders). Landing a lunge on a
     target that moves in 6DOF is hard. **Done:** a lunge drives along the aim within 15° of the
     nose (`DESIGN.md`, "Blades lunge").

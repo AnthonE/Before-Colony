@@ -324,6 +324,7 @@ fn mover_from(own: &OwnState, bodies: &Bodies) -> Mover {
             g_load: 0.0,
             g_strain: own.g_strain,
             blackout: own.flags & own_flags::BLACKOUT != 0,
+            burst: own.burst,
         },
         footing: Footing::Free,
         anchor: Anchor::default(),

@@ -108,6 +108,16 @@ Dolls on them.)
     gives you everything the thrusters have. (A Mobile Doll's flight assist snaps at full thrust.)
   - Held through a blackout, boost keeps flight assist aiming at the boosted cruise, so it doesn't
     brake while you're out.
+- **The burst step** (`flight::Burst`; double-tap a direction, or BURST on the wire with the stick
+  off centre). For 0.3 s the suit dashes along the keys at 120 m/s² (about 12 g), 36 m/s in all,
+  and flight assist lets it be until it's done, then brings the suit back to what the stick asks.
+  Locked on, it goes along the fight's axes, so A and D sidestep round the target and S jumps
+  back. It burns as boost does (under the anime rules too: about 40 kg of a Leo's tank, and the
+  gauge doesn't refill meanwhile), needs propellant, an awake pilot and boosters that work, and
+  the next can start 1.2 s after the last's press. Under the anime rules a pilot bears it; under
+  the real ones each step costs nearly half the G-strain to a blackout. Others see it as boost
+  (its plumes, its heat on sensors). It's the answer to a lunge and to a shot from far off: a
+  rifle shot from 2 km takes half a second, which a step turns into about 12 m.
 - **Pilot G.** Sustained load above 6 g builds G-strain. At 100% the pilot blacks out and control
   authority collapses until strain falls below 50%. A Wing Zero on boost pulls about 12 g, so you
   *can* out-thrust your own body, as Zechs did in the Tallgeese. Mobile Dolls have no body, so no
@@ -742,7 +752,7 @@ Still to come: suits inside the colony with their weapons safe by the colony's l
 |---|---|
 | Mouse (click to lock) | aim |
 | Y · middle click | lock on (again: the next target; held: let go) |
-| W/S · A/D · Space/C | thrust forward/back · left/right · up/down |
+| W/S · A/D · Space/C | thrust forward/back · left/right · up/down; double-tapped, a burst step that way |
 | Q/E | roll |
 | L | grip: armed, coming in slow and close lands you on a rock or a landmark; again, let go |
 | Shift · X · R | boost · brake · RCS (fast turns) |
@@ -887,7 +897,8 @@ holds your velocity relative to the target's, W closes in and stops just outside
 A/D circle it, and with Space and C let go the suit settles onto its level, the fight's floor, and
 rolls level with the ground (away from the colony). The mouse still aims; the ◆ marks where the
 primary's shot meets the target if it flies on as it is (ZERO's solution replaces it), SPD and the
-velocity marker are relative to the target, and its bracket says how fast it closes. The lock goes
+velocity marker are relative to the target, and its bracket says how fast it closes. A burst step
+goes along the fight's axes: double-tap A or D to sidestep round it, S to jump back. The lock goes
 when the target's downed, out of sight or past 5 km. With flight assist off, on a body, under ZERO's
 seizure or in Neo-Bird form the keys fly as they always do.
 
@@ -950,7 +961,8 @@ the nearest games teach, and which of the items below come first and why.
     (line of sight: hide spots stand in for it today).
   - More landmarks, and landmarks that can be mined or wrecked; bodies that move by more than a
     closed form (pushed, thrusting, streamed in), which would need their state on the wire.
-  - A charged leap (button bit 15 is free); leaning and peeking round cover on Q/E; hold to look.
+  - A charged leap (the buttons are all taken: it would take a stance, or a bit of the burst
+    step's); leaning and peeking round cover on Q/E; hold to look.
   - Coriolis and centrifugal pulls aloft (at most 0.043 m/s² on MO-II); a chase camera that turns
     with a spinning body (it lags MO-II by 4 mrad); gripping rocks under 10 m.
   - Keeping hidden sleepers' names off the roster and `/status` (they give away who, never where).

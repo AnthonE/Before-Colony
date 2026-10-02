@@ -1,4 +1,4 @@
-# Before Colony wire protocol (v14)
+# Before Colony wire protocol (v15)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
@@ -53,7 +53,8 @@ can ask for. A free suit only; on a body the grip's rules fly it.
 Buttons, by bit: 0 FIRE_PRIMARY, 1 FIRE_SECONDARY, 2 MELEE, 3 BOOST, 4 BRAKE, 5 FLIGHT_ASSIST*,
 6 ZERO*, 7 RCS_SHARP, 8 GRAB*, 9 STOW, 10 THROW, 11 JETTISON, 12 MODE* (the frame's mode: Neo-Bird,
 Hyper Jammer), 13 SPECIAL (the frame's special attack: Full Open Attack, Cross Crusher), 14 GRIP*
-(land on a body near enough and slow enough, and keep hold of it; clear: let go), 15 reserved.
+(land on a body near enough and slow enough, and keep hold of it; clear: let go), 15 BURST (a
+burst step along the stick: it starts on the press, so a repeated command never steps again).
 Starred bits are states.
 
 `aim` is in the sector's frame, on a body or not. On its feet on a body, a suit reads `thrust` as
@@ -64,7 +65,7 @@ has, so a silent client stays crouched.
 Four commands fit in 65 bytes (86 + 4 × 107 bits), or 96 locked on (86 + 4 × 169). A client sending several ticks at once sends
 overlapping windows two ticks apart, so each command is in two packets. States persist while a
 client is silent (the server repeats its last command, keeping only FLIGHT_ASSIST, ZERO, GRAB,
-MODE and GRIP, and the lock-on for 30 ticks more); presses (STOW, THROW, JETTISON, MELEE, SPECIAL) act on the tick they first appear, and a
+MODE and GRIP, and the lock-on for 30 ticks more); presses (STOW, THROW, JETTISON, MELEE, SPECIAL, BURST) act on the tick they first appear, and a
 repeated command never fires.
 
 Lag compensation reaches back at most 8 ticks. A view delta of 128 or more (8 ticks) resolves at
@@ -75,7 +76,7 @@ exactly `tick − 8`, so the 8-bit field's saturation at 15.9 ticks loses nothin
 | Section | Content |
 |---|---|
 | header (116 bits) | kind=2, tick, ack_input_tick, input_health (i8), time_echo_ms, echo_hold_ms, tidi_pct, flags |
-| own (1 + 760..780 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, systems (24), modules (20), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, extra mass (kg, i18), cargo ×4 (kg, 14 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special cooldown (8, ticks ÷ 4), arms (46, below), footing (2), cover (2), and on a body its body (6 or 12) and stance (8) (below) |
+| own (1 + 777..797 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, systems (24), modules (20), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, extra mass (kg, i18), cargo ×4 (kg, 14 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special cooldown (8, ticks ÷ 4), arms (46, below), burst step (17, below), footing (2), cover (2), and on a body its body (6 or 12) and stance (8) (below) |
 | ZERO (1 + ≤200 bits) | source_jev, advice_age, threat_count, per threat {slot, 7 × p}, rec_target + p, rec_maneuver + p, threat_level + confidence, flanked, has_solution, solution (oct 2×12), hit_p |
 | events | repeated `[1][event]`, closed by `[0]` |
 | rocks | repeated `[1][rock]` (18 bits each), closed by `[0]` |
@@ -149,6 +150,10 @@ Own-state notes:
   for heat (6 bits each; 63 = not until something the client can't foresee changes: an arm shot
   off, energy or rounds run out), and each gun slot's missile salvo under way (rounds left, 3;
   ticks to the next, 2). Heat is the OVERHEAT flag, and the lockout after Full Open follows it.
+- The burst step (`bc_sim::flight::Burst`), which the client rolls on from the snapshot as the
+  server does: ticks of the step still to drive (4), ticks until another can start (6), the
+  stick's direction at its press (3 × 2 bits: 0 back, 1 none, 2 forward on each axis; 3 is
+  invalid), and whether BURST was held last tick (1), so a press is told from a held button.
 - `weapon_ready` has a bit each for the primary, secondary, melee weapon and the frame's special.
 - Footing (2 bits): 0 flying free, 1 on its feet (or knees) on a body, 2 in a body's grip in the
   air; 3 is invalid. Unless it is 0, the body's `BodyRef` and the stance follow: how high the

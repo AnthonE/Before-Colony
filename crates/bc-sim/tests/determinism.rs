@@ -112,11 +112,12 @@ fn gundams_golden_wasm() {
 
 /// Hash after 450 ticks of pilots locked on to their foes (`bc_proto::LockOn`): flight assist
 /// holding each foe's velocity in the fight's axes, levelled to the colony's up, closing in and
-/// circling, among Mobile Dolls.
-const LOCKON_GOLDEN: u64 = 0xe12a_4d38_f23c_6111;
+/// circling, burst-stepping now and then, among Mobile Dolls.
+const LOCKON_GOLDEN: u64 = 0xc8af_9bcc_9e59_1ede;
 
 fn lockon_hash() -> u64 {
     let (mut sim, duels) = common::gundam_crowd(8, 12, 21);
+    let mut steps = 0;
     for _ in 0..450 {
         let t = sim.next_tick();
         for &(a, b) in &duels {
@@ -125,7 +126,11 @@ fn lockon_hash() -> u64 {
             sim.set_input(b, cb);
         }
         sim.step();
+        let started =
+            |id: bc_sim::SuitId| sim.suits.flight[id.idx()].burst.left == bc_sim::flight::BURST_TICKS - 1;
+        steps += duels.iter().map(|&(a, b)| usize::from(started(a)) + usize::from(started(b))).sum::<usize>();
     }
+    assert!(steps >= 2 * duels.len() * 4, "only {steps} burst steps");
     sim.state_hash()
 }
 
