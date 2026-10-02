@@ -222,6 +222,27 @@ station that turns carries its riders round with it.
 | Micro-missiles (Heavyarms) | 150 m/s, then a 14 g motor | 16 each | volleys of 8 | Full Open only; 16 rounds |
 | Flamethrower (Shenlong) | – | 7 a burn | 5 burns/s | a 70 m cone, ±12°; each burn adds 10 heat to what it touches, enough to overheat it; 150 burns |
 
+**Hitting.** What a shot's speed, size and spread are worth, measured (`bc-sim/tests/hit_rate.rs`,
+`-- --nocapture` prints it): one shot at a time, led perfectly but linearly (where the target would be
+if it flew on as it is: the lock-on's ◆), at a Leo crossing at 150 m/s, coasting or jinking (flight
+assist on, the stick thrown a new way every 0.4 s, boosting now and then). Hit %, coasting / jinking:
+
+| Weapon | m/s | Shot radius, m | Spread | 300 m | 600 m | 1 km | 1.5 km | 2 km | 3 km |
+|---|---|---|---|---|---|---|---|---|---|
+| Beam rifle | 4,000 | 0.6 | – | 100/100 | 100/100 | 100/100 | 100/100 | 100/75 | 100/81 |
+| Twin Buster Rifle | 8,000 | 5.0 | – | 100/100 | 100/100 | 100/100 | 100/100 | 100/100 | 100/100 |
+| Beam cannon (Virgo) | 3,500 | 1.2 | – | 100/100 | 100/100 | 100/100 | 100/100 | 100/88 | 100/75 |
+| Beam machine gun | 3,500 | 0.45 | – | 100/100 | 100/100 | 100/100 | 100/100 | 100/88 | 100/44 |
+| Beam gatling | 3,000 | 0.35 | 0.34° | 100/100 | 100/100 | 100/94 | 100/94 | 100/75 | out of range |
+| Machine cannon | 1,200 | 0.25 | 0.23° | 100/100 | 100/94 | 100/56 | 50/38 | 50/19 | out of range |
+| Head vulcans | 1,000 | 0.2 | 0.46° | 100/88 | 50/56 | 50/25 | 0/0 | 0/0 | out of range |
+| Buster shield | 450 | 1.2 | – | 100/81 | 0/12 | out of range | | | |
+
+So the lead is the whole skill against a target that flies straight, and a beam rewards it at any
+range; spread is what limits the guns past a kilometre, and slow shots (the buster shield's claw)
+are for close in. A pilot who dodges on purpose does better than this target, which changes its
+mind on a timer.
+
 - **Projectiles inherit the shooter's velocity** (it's space). Fire control solves the intercept in
   the shooter's frame.
 - **Arms aim.** A hand-held weapon fires anywhere within 50° of the body axis (shoulder mounts 20°),
