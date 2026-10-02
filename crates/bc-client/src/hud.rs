@@ -1030,6 +1030,10 @@ pub fn update_hud(
         };
         set(HudText::Armor, armor, Some(hull_color));
         let mut w = String::new();
+        // Inside the colony nothing fires: its law, and the sector's.
+        if core.welcome.is_some_and(|wl| wl.interior) {
+            w.push_str("WEAPONS SAFE · INSIDE THE COLONY\n");
+        }
         for (slot, key) in [(0usize, "LMB"), (1, "RMB"), (2, "F")] {
             if let Some(m) = spec.loadout[slot] {
                 let ready = o.weapon_ready & (1 << slot) != 0;

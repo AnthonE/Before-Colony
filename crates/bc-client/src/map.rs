@@ -135,12 +135,18 @@ pub fn setup_objectives(
 
 /// M opens and closes the chart; it closes by itself when the pilot leaves the sector.
 pub fn toggle_map(
+    game: NonSend<GameClient>,
     keys: Res<ButtonInput<KeyCode>>,
-    ui: Res<Ui>,
+    mut ui: ResMut<Ui>,
     indoors: Res<crate::hangar::Indoors>,
     mut open: ResMut<MapOpen>,
 ) {
-    let can = ui.playing() && !indoors.0 && !ui.on_foot;
+    // The chart is space's: inside the colony, the gate's marker shows the way home.
+    let inside = game.borrow().core.welcome.is_some_and(|w| w.interior);
+    if inside && keys.just_pressed(MAP_KEY) && ui.playing() && !ui.on_foot {
+        ui.toast("THE CHART IS FOR SPACE: INSIDE, FOLLOW THE INNER GATE'S MARKER");
+    }
+    let can = ui.playing() && !indoors.0 && !ui.on_foot && !inside;
     if !can {
         if open.0 {
             open.0 = false;
@@ -177,6 +183,8 @@ pub fn update_objectives(
     let feet = crate::hud::footed(core);
     let survival = core.welcome.is_some_and(|w| w.survival);
     let in_sector = ui.playing() && !indoors.0 && !ui.on_foot;
+    // Flying inside the colony: no objectives in there, and the waypoint is the inner gate.
+    let inside = in_sector && core.welcome.is_some_and(|w| w.interior);
     let landed_on = match (feet.footing, feet.body) {
         (Footing::Grounded, Body::Landmark(k)) => Some(k),
         _ => None,
@@ -216,8 +224,12 @@ pub fn update_objectives(
     state.current = current;
     state.input = input;
     state.waypoint = current.and_then(|o| waypoint_at(core, o.waypoint(), from, t));
+    if inside {
+        state.waypoint =
+            Some((bc_sim::colony::interior::INNER_GATE, "INNER GATE: DOCK AT REST IN ITS RING".into()));
+    }
 
-    let shown = settings.0.objectives && in_sector && own.is_some();
+    let shown = settings.0.objectives && in_sector && own.is_some() && !inside;
     // The panel: hidden under the map, which lists them all.
     let want = if shown && current.is_some() && !open.0 { Visibility::Inherited } else { Visibility::Hidden };
     for mut v in &mut panel {
@@ -247,7 +259,7 @@ pub fn update_objectives(
     // The waypoint in the world: on its point, or at the edge of the view toward it.
     let Ok((mut node, mut vis)) = marker.single_mut() else { return };
     let (Some((p, name)), true, Ok((cam, cam_tf))) =
-        (state.waypoint.clone(), shown && !open.0, camera.single())
+        (state.waypoint.clone(), (shown || inside) && !open.0, camera.single())
     else {
         vis.set_if_neq(Visibility::Hidden);
         return;

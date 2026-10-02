@@ -799,8 +799,13 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   canal; a car tops out at 30 m/s, a scooter at 22. Others see the car (or the scooter, and its
   rider) in its driver's colour.
 
-Still to come: suits inside the colony with their weapons safe by the colony's law
-(`SUITS_INSIDE.md`).
+- **Suits inside** (`SUITS_INSIDE.md`): at the cockpit, Q launches the suit into the colony by
+  the inner gate near the axis instead of out to space. In there it flies the colony's own frame:
+  the spin pulls it to the floor (1 g there, less towards the axis) and Coriolis turns it aside,
+  the air slows it, the hull, the end caps and the city's buildings stop it, and flight assist
+  holds it where it is. Weapons are safe by the colony's law: nothing fires. The HUD marks the
+  inner gate; at rest in its ring of lights, Enter docks back into the bay. It's the server's
+  second sector (`sector-1`). Not yet: suits walking the streets, pilots on foot seeing them.
 
 ## The world (EVE-lite, roadmap)
 

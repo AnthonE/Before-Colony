@@ -653,6 +653,9 @@ fn ask(net: &NetState, game: &crate::net::Game, req: &Request) {
 /// What using a place is called on the prompt.
 fn verb(spot: Spot, bay: Option<&Bay>, colony: bool) -> String {
     match (spot, bay) {
+        (Spot::Cockpit, Some(Bay::Docked { .. })) if colony => {
+            "BOARD & LAUNCH · Q  INTO THE COLONY, BY THE INNER GATE".into()
+        }
         (Spot::Cockpit, Some(Bay::Docked { .. })) => "BOARD & LAUNCH".into(),
         (Spot::Cockpit, Some(Bay::Out { .. })) => "COCKPIT: YOUR SUIT IS OUT".into(),
         (Spot::Cockpit, _) => "COCKPIT: THE GANTRY IS EMPTY".into(),
@@ -724,6 +727,12 @@ pub fn drive_onfoot(
             (_, None) => *me = OnFoot::default(),
             (Some(Place::Hangar), Some(Place::Space)) if me.seq == Seq::Boarding => {
                 me.start(Seq::Venting, now);
+                if g.core.welcome.is_some_and(|w| w.interior) {
+                    ui.news(
+                        "INTO THE COLONY · WEAPONS SAFE BY ITS LAW · DOCK AT REST IN THE INNER GATE'S RING",
+                        false,
+                    );
+                }
             }
             (Some(Place::Space), Some(Place::Hangar)) if me.outcome == Some(Outcome::Docked) => {
                 me.climb_out();
@@ -954,7 +963,9 @@ pub fn drive_onfoot(
         me.focus = Layout::spot_in_view(me.walker.eye(), me.walker.look());
 
         // Using what's in view.
-        let used = used_key || (autopilot && me.focus == Some(Spot::Cockpit) && me.guide.is_none());
+        // Q at the cockpit (the colony open): launch into the colony, by the inner gate.
+        let inward = colony && live && keys.just_pressed(KeyCode::KeyQ) && me.focus == Some(Spot::Cockpit);
+        let used = used_key || inward || (autopilot && me.focus == Some(Spot::Cockpit) && me.guide.is_none());
         if used
             && !ui.panel_open()
             && let Some(spot) = me.focus
@@ -964,7 +975,7 @@ pub fn drive_onfoot(
                     me.launching = Some(suit.clone());
                     me.from = (me.walker.eye(), me.walker.look());
                     me.start(Seq::Boarding, now);
-                    ask(&net, &g, &Request::Launch);
+                    ask(&net, &g, if inward { &Request::LaunchInside } else { &Request::Launch });
                 }
                 (Spot::Cockpit, Some(Bay::Out { .. })) => ui.toast("YOUR SUIT IS OUT IN THE SECTOR"),
                 (Spot::Cockpit, _) => ui.toast("THE GANTRY IS EMPTY: BUILD A SUIT AT THE FABRICATOR"),
@@ -1087,7 +1098,9 @@ pub fn drive_onfoot(
     if ui.map_at != map_at {
         ui.map_at = map_at;
     }
-    let city_now = me.city.is_some();
+    // On foot in the city, or flying a suit inside the colony: the camera sees its city.
+    let inside = place == Some(Place::Space) && g.core.welcome.is_some_and(|w| w.interior);
+    let city_now = me.city.is_some() || inside;
     if city_view.active != city_now {
         *city_view = CityView { active: city_now, sync: false };
     }

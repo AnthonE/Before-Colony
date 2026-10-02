@@ -46,6 +46,7 @@ mod holo;
 mod hud;
 #[cfg(target_arch = "wasm32")]
 mod input;
+mod inside;
 #[cfg(target_arch = "wasm32")]
 mod landmarks;
 #[cfg(target_arch = "wasm32")]
