@@ -98,7 +98,7 @@ impl Hint {
             Hint::Hide => {
                 "Crouch still in a hide spot and sensors lose you. Log off here and your suit stays hidden"
             }
-            Hint::Map => "M opens the map. Your objective is top left, and ◆ marks where to go.",
+            Hint::Map => "M opens the chart. Pick where to go, then N: the auto-nav flies you there.",
         }
     }
 

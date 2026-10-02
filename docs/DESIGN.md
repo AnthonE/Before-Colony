@@ -500,7 +500,7 @@ show which, and thin as the ore is taken. A rock of radius r m has 60 + 25r of s
 - **Hulks come apart.** A blade's stroke through a hulk cuts off the part nearest the blade, which
   drifts free as a limb small enough to stow.
 
-## Objectives and the map
+## Objectives and the chart
 
 A new pilot needs somewhere to go and something to do. The Charter Board's first jobs for an
 Arrival are the **objectives** (`bc_client_core::objectives`), and the HUD shows one at a time,
@@ -527,14 +527,52 @@ held at the edge of the view while it's off it.
 - **Not rewards.** They point the way to what pays (bounties, the dock's prices, the stores), and
   nothing about them is the server's: it pays what it always has.
 
-**The map (M)** looks down on the sector, the colony's axis across it: the colony and its docking
-hub, the dock, the field's rocks (gone while shattered), MO-II and Hermit, the pilot's suit (`▲`,
-pointing the way it's headed, held at the edge if it's off the map), the suits in sight (red
-hostile, green friendly, grey wrecks) and the objective's `◆`. Beside it: every objective, done
-(`[x]`), current (`[>]`) or not, with progress; the waypoint's range and how far above or below
-the pilot it is; and what the sector's flight rules mean. The sector doesn't pause while it's open,
-and the HUD steps aside for it (its own marks are the warning: red closing in). It closes when the
-pilot leaves the sector.
+**The chart (M)** is a holographic map of everything a pilot can find, in 3D, from a single rock
+out to Earth and the Moon (`bc-client`'s `chart.rs`, on `bc_client_core::{chart, nav, sphere}`).
+- *Drawn in light.* The sector on its own render layer: the colony turning with its three windows
+  lit, the docking hub and the dock's amber ring, MO-II rolling on its station-keeping circle,
+  Hermit and its craters, the hide spots ringed in amber, the field's rocks (each a light that
+  keeps a least size on screen, coloured by its ore), every suit in sight with where it's heading
+  (red hostile, green friendly, grey wrecks), missiles, the objective's `◆`, and the pilot's suit,
+  an arrowhead with its velocity drawn 30 s ahead. The sector's limit is a dashed box.
+- *Above and below.* A plane through the pilot's suit (P: through the sector's middle) is ruled in a
+  grid that fades from the view's focus, with range rings round the pilot (1, 2, 5, 10, 20 km) and
+  its ends named (`+X SUNWARD`, `-X DOCK END`); a stalk drops from everything to it.
+- *Out to the Earth Sphere, without a cut.* Zooming out past the sector pulls the view toward the
+  Earth Sphere's middle a little each step, until Earth, the Moon, the Moon's orbit and the five
+  Lagrange points are in view at their true distances (`sphere`: L1 326,381 km from Earth and
+  58,019 km from the Moon); the sector is a light at L1. The sky draws Earth and the Moon in the
+  same directions, so the Earth in the window is where the chart puts it. Earth is a hologram of
+  continents ruled in contour lines, lit on the Sun's side and pricked with cities on the night
+  side. L2 to L5 are marked UNOPENED, with dashed lanes from L1: they open with the Cluster's
+  expeditions (`STORY.md`), and a course can't be set to them yet.
+- *Picking.* Hovering names anything with its range; a click selects it, and a card says what it is
+  (in the world's voice), how far, how far above or below, how fast it's closing, how far and how
+  long by the auto-nav and, by the real flight rules, about how much propellant the trip burns. A
+  double-click flies the view to it; a double-click on empty space marks a nav point on the plane.
+  The places are also listed as chips to click (the colony, the dock, the field, each landmark and
+  hide spot, Earth, the Moon, the Sun, L1 to L5).
+- *Courses.* Enter, a right click or SET COURSE sets a course: the shortest way there that keeps
+  300 m off the colony and 60 m off the landmarks (`nav::plot`: straight if the way is clear,
+  else through a ring of points round the colony's hull and round each landmark, searched
+  shortest first). It ends just off what it's for: 150 m off a landmark's or a rock's surface on
+  the near side, 120 m over a hide spot's bowl, in the dock's ring, 300 m off a suit and keeping
+  pace, 800 m off the colony's hull. The chart draws it with chevrons flowing along it; with the
+  chart closed it's laid out in space ahead of the suit as chevrons that fade with distance, with a
+  `◇` on the HUD (held at the edge of the view) giving the range and, flown by hand, the time to
+  it and `BRAKE` when the suit is closing too fast to stop in time.
+- *The auto-nav (N, on the chart or in flight).* Flies the course with flight assist, no faster than 300 m/s, slowing for its
+  turns and where it runs close to something, sidestepping rocks, never closing on anything it
+  couldn't stop short of, and comes to rest at the end (`ARRIVED: MO-II · L arms the grip to
+  land`). It's the pilot's own stick, the same command any pilot sends, worked out from the
+  prediction tick by tick: every playable frame flies it to every kind of place, by both flight
+  rules, without touching the colony, a landmark or a rock (`nav::tests`). Any flight key (thrust,
+  boost, brake) hands the stick back; moving the mouse takes back only the aim, and it keeps flying
+  the course whichever way the suit looks. Landing is left to the pilot.
+- *Hands off.* While the chart is open the cursor is free (the pointer's lock comes back when it
+  closes) and the keys are the chart's, so the suit's stick is let go: flight assist holds it still
+  unless the auto-nav is flying. The sector doesn't pause, and the chart says when hostiles are
+  within 3 km. Esc or M closes it, and it closes by itself when the pilot leaves the sector.
 
 ## Survival: you build your suit (Milestone 3)
 
@@ -717,7 +755,7 @@ Still to come: suits inside the colony with their weapons safe by the colony's l
 | H | the frame's special: a toggle for Neo-Bird and the Hyper Jammer, a press for Full Open Attack and the Cross Crusher |
 | V · Z | flight assist · ZERO System |
 | Tab · mouse wheel | the camera: the cockpit (first person) or the chase camera (wheel in: the cockpit; out: chasing) |
-| M | the map of the sector, with the objectives |
+| M · N | the chart: the sector in 3D out to the Earth Sphere, the objectives and courses · the auto-nav on the course set (on or off) |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
 | Enter | dock (survival): at rest inside the dock's ring of lights |
 | 1–6 | arcade rules: respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
@@ -822,7 +860,7 @@ the flight camera, field of view (vertical; the panel gives the horizontal too),
 flashing effects (a ZERO seizure's flicker; off to start with when the browser asks for reduced
 motion), first-flight hints, the objectives and graphics quality, along with the last callsign and frame launched. `bc_client_core::settings` defines them, their ranges and the stored text (a
 key this build doesn't know is kept, for the build that wrote it). A new pilot gets one hint at a
-time (on foot in the bay: walking, using a terminal, boarding; flying: thrust, the map, boost,
+time (on foot in the bay: walking, using a terminal, boarding; flying: thrust, the chart, boost,
 fire, the cockpit view, flight assist, salvage, docking, the menu; near a body: the grip, walking on it,
 hiding in a hide spot), each gone once it's been done.
 

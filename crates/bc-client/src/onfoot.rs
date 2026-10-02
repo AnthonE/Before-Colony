@@ -688,6 +688,7 @@ pub fn drive_onfoot(
     mut log: ResMut<TerminalLog>,
     mut curtain: Query<&mut BackgroundColor, With<Curtain>>,
     mut city_view: ResMut<CityView>,
+    map: Res<crate::map::MapOpen>,
 ) {
     let now = now_s();
     let dt = time.delta_secs().min(0.1);
@@ -987,11 +988,12 @@ pub fn drive_onfoot(
         me.guide = None;
     }
 
-    // In the sector: Enter docks.
+    // In the sector: Enter docks (on the chart, it sets a course).
     let flying = place == Some(Place::Space) && me.seq == Seq::Walking;
     if flying
         && ui.playing()
         && !ui.panel_open()
+        && !map.0
         && (keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter))
     {
         ask(&net, &g, &Request::Dock);

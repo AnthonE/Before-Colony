@@ -16,10 +16,15 @@
 //! | H | the frame's special: Neo-Bird or the Hyper Jammer on/off, or held: Full Open, Cross Crusher |
 //! | V | flight assist on/off · Z ZERO System on/off |
 //! | Tab, mouse wheel | the chase camera or the cockpit (wheel in: the cockpit, out: chasing) |
-//! | M | the map of the sector and the objectives (`map.rs`) |
+//! | M | the chart: the sector and the Earth Sphere in 3D, the objectives, courses (`chart.rs`) |
 //! | 1–6 | respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock, Shenlong (when destroyed) |
 //!
 //! Down is C alone: Left Ctrl held with W would be Ctrl+W, which closes the browser's tab.
+//!
+//! While the chart is open the keys and the mouse are the chart's, and the stick is let go (flight
+//! assist holds the suit still, unless the auto-nav flies it). The auto-nav hands the stick back
+//! the moment the pilot thrusts, boosts or brakes; moving the mouse takes back only the aim (it
+//! keeps flying the course, whichever way the suit looks).
 //!
 //! On a body, `thrust[1]` says what the legs do (`bc_sim::ground`): Space sends 127 (stand, then
 //! hop; held, the thrusters lift off), the crouch toggle -127 (crouch, and stay down whatever
@@ -153,8 +158,9 @@ pub fn toggle_camera(
     mut ui: ResMut<Ui>,
     mut settings: ResMut<SettingsRes>,
     indoors: Res<crate::hangar::Indoors>,
+    map: Res<crate::map::MapOpen>,
 ) {
-    if !ui.playing() || ui.panel_open() || indoors.0 {
+    if !ui.playing() || ui.panel_open() || indoors.0 || map.0 {
         return;
     }
     let now = settings.0.camera;
@@ -189,6 +195,7 @@ pub fn read_input(
     mut ui: ResMut<Ui>,
     settings: Res<SettingsRes>,
     indoors: Res<crate::hangar::Indoors>,
+    map: Res<crate::map::MapOpen>,
     mut pilot: ResMut<Pilot>,
     game: NonSend<GameClient>,
     mut deck: Local<Option<(Body, Quat)>>,
@@ -235,15 +242,29 @@ pub fn read_input(
         controls.swallow_click = false;
     }
     controls.locked = pointer.0.flying();
-    if !ui.playing() || ui.panel_open() || indoors.0 {
-        // Hands off the stick in menus, and on foot (or while the bay launches the suit); the
-        // toggles stay as they were.
+    if !ui.playing() || ui.panel_open() || indoors.0 || map.0 {
+        // Hands off the stick in menus, on the chart, and on foot (or while the bay launches the
+        // suit); the toggles stay as they were.
         controls.thrust = Vec3::ZERO;
         controls.roll = 0.0;
         controls.buttons = 0;
         return;
     }
 
+    // Flying by hand takes the stick back from the auto-nav; the mouse takes only the aim.
+    let flown = [KeyCode::KeyW, KeyCode::KeyA, KeyCode::KeyS, KeyCode::KeyD, KeyCode::Space, KeyCode::KeyC]
+        .into_iter()
+        .chain([KeyCode::KeyX, KeyCode::ShiftLeft, KeyCode::ShiftRight])
+        .any(|k| keys.just_pressed(k));
+    if flown && game.nav.take().is_some() {
+        ui.toast("AUTO-NAV OFF: you have the stick");
+    }
+    if controls.locked
+        && motion.delta.length() > 2.0
+        && let Some(n) = game.nav.as_mut().filter(|n| n.look)
+    {
+        n.look = false;
+    }
     // Turn the aim about the suit's up as drawn (as the camera shows it).
     let up = game.core.own_view().map_or(game.core.predict.state.rot, |v| v.rot) * Vec3::Y;
     if controls.locked && motion.delta != Vec2::ZERO {

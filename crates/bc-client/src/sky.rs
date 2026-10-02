@@ -29,19 +29,17 @@ use crate::camera::MainCamera;
 use crate::gfx::Gfx;
 use crate::view::VisTime;
 
-/// Direction to the Sun. The colony's axis points roughly at it (its mirrors are at the sunward
-/// +X cap), far enough off-axis that the hull catches the light.
-pub const SUN_DIR: Vec3 = Vec3::new(0.84788, 0.34913, 0.39900);
+/// Where the Sun, Earth and the Moon are, and the Milky Way's plane: the Earth Sphere as the chart
+/// has it (`bc_client_core::sphere`), so the Earth in the window is the chart's. The colony's axis
+/// points roughly at the Sun (its mirrors are at the sunward +X cap), far enough off-axis that the
+/// hull catches the light; Earth is vast and low, and the Moon, opposite it (L1 lies between
+/// them), half lit.
+pub use bc_client_core::sphere::{EARTH_DIR, GALAXY_NORMAL, MOON_DIR, SUN_DIR};
 /// Angular radius of the Sun's disc, radians (enlarged about 2.5×, so it reads at a glance).
 pub const SUN_RADIUS: f32 = 0.012;
-/// Direction to Earth, and its angular radius: vast and low in the sky.
-pub const EARTH_DIR: Vec3 = Vec3::new(-0.29987, -0.54975, 0.77965);
+/// Angular radii of Earth and the Moon, radians (enlarged, as the Sun is).
 const EARTH_RADIUS: f32 = 0.29;
-/// The Moon, roughly opposite Earth (L1 lies between them), half lit.
-pub const MOON_DIR: Vec3 = Vec3::new(0.35934, 0.49908, -0.78854);
 const MOON_RADIUS: f32 = 0.065;
-/// Normal of the Milky Way's plane.
-pub const GALAXY_NORMAL: Vec3 = Vec3::new(0.4703, 0.7705, -0.4303);
 
 /// Sunlight, lux (direct sunlight at 1 AU is about 100,000 lux, a little more above an atmosphere).
 pub const SUN_LUX: f32 = 100_000.0;

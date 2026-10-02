@@ -83,14 +83,14 @@ the cockpit. The choice is a setting, so the next sortie starts in the same view
 | LMB/RMB weapons | Mecha BREAK [A2] |
 | Esc menu | The browser's own exit from pointer lock [C1] |
 | Hold the reticle on a target to lock missiles | GBO2's funnels [A1] |
-| M map | Elite's galaxy and system maps and nearly every PC game with one; `◆` waypoints as in Everspace 2 |
+| M the chart (a 3D map) · N its auto-nav | Elite's galaxy and system maps and nearly every PC game with one; dragging to turn a 3D map and the wheel to zoom it, as in Elite's galaxy map; `◆` waypoints as in Everspace 2; flying a picked destination for the pilot, as Elite's supercruise assist does (*unverified*) |
 
 **On a surface.** Landing, walking and hiding (`DESIGN.md`, "Surfaces") reuse keys players already
 have: Space and C are jump and crouch on foot in Space Engineers, and up and down in its flight,
 so on a body they become a hop (held: lift off on the thrusters) and a crouch at no cost to anyone
 [B4]. The grip needed one new key.
-- **L, for Land or Latch.** It was free (I, K, L, M, N, O, P, U and Y were unbound; M is the map
-  now), it is pressed
+- **L, for Land or Latch.** It was free (I, K, L, M, N, O, P, U and Y were unbound; M is the chart
+  now, and N its auto-nav), it is pressed
   once per landing rather than in a fight, and Elite puts landing gear on it (*unverified*).
 - **Rejected:** P, Space Engineers' landing gear (*unverified*), is the showcase's key; N, Star
   Citizen's landing key (*unverified*), lost to L's mnemonic; T and Enter are throw and dock, and
