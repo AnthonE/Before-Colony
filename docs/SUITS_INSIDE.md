@@ -6,11 +6,13 @@ weapons are safe there. This is the design it was built from.
 **Built:** the interior sector (`WorldKind::Interior`, `sector-1`), its pull, Coriolis and air,
 the hull, the caps and the city's boxes (`bc_sim::colony::interior`), weapons safe, the inner
 gate (in, and docking back out), the Welcome moving a pilot between sectors, the client flying and
-drawing suits among the city's buildings with the gate's ring and marker, and the tests (unit,
-`INTERIOR_GOLDEN` native and wasm, `no_alloc`, `bc-server/tests/inside.rs`). **Not yet:**
-`Body::City` (suits stand by resting on what's under them, flight assist holding them, rather
-than walking), pilots on foot seeing suits (spectator slots), people, trams and cars drawn for
-pilots in suits, the axis port's handoff, and the building site's work for suits.
+drawing suits among the city's buildings with the gate's ring and marker; one clock for the
+colony (the interior keeps space's tick: `bc_sector::spawn_follower`); pilots on foot watching
+the suits near them (spectator slots, below); people, their cars and the trams drawn for pilots
+in suits; and the tests (unit, `INTERIOR_GOLDEN` native and wasm, `no_alloc`,
+`bc-sector/tests/watch_net.rs`, `bc-server/tests/inside.rs`). **Not yet:** `Body::City` (suits
+stand by resting on what's under them, flight assist holding them, rather than walking), the
+axis port's handoff, and the building site's work for suits.
 
 ## What it has to be
 
@@ -75,14 +77,23 @@ weapon); its rollouts run against the interior's world.
 
 ## Who sees whom
 
+- **One clock.** The interior sector keeps space's tick: it ticks each time `sector-0` has, right
+  after it, woken by it (`bc_sector::spawn_follower`, `spawn_waking`), and never runs ahead. Its
+  snapshots, the plaza's datagrams and the trams' timetable are then the same moment, for a pilot
+  on foot and one in a suit, and a client can keep its clock from either.
 - **Suits** are the interior sector's entities, replicated by its own snapshots to the pilots in
   it, exactly as in space.
 - **Pilots on foot** (the plaza) aren't in either sector. They see suits through **spectator
-  slots**: a session in the city subscribes to `sector-1`'s snapshots for the suits near it
-  (interest by position, as today), drawing them interpolated; it sends no input. The snapshot's
-  own-suit section is absent for a spectator.
-- **Suits see people, trams and cars** as the plaza relays them, ghosts as on foot: nothing
-  touches a suit. A suit landing on a car or a crowd simply stands among them.
+  slots** (built): a session in the city takes a slot in the interior sector
+  (`Control::Watch`, twice the pilots' slots there) whose snapshots, marked SPECTATOR in their
+  header, carry no own suit and the suits within 2.5 km of where the pilot is (the plaza's last
+  pose, in the colony's frame, moved twice a second), by distance-weighted priority as anyone's.
+  The client draws them interpolated on the city's layer, relative to its render origin; it sends
+  no input, and acks nothing, so a suit leaving the view is told for half a second.
+- **Suits see people, trams and cars** (built) as the plaza relays them, ghosts as on foot:
+  nothing touches a suit. The session sends a suit's pilot the people of the strip under the suit
+  (over a window, the nearer strip's) within 1.5 km of it, from where its sector last had it
+  (`Metrics::pilots[slot].pos`). A suit landing on a car or a crowd simply stands among them.
 
 ## Wire
 
@@ -99,7 +110,11 @@ weapon); its rollouts run against the interior's world.
 - `no_alloc`: 64 suits flying the interior for 1,000 ticks, 0 heap operations.
 - Determinism: an interior scenario hashes the same native and wasm; every existing golden is
   unchanged (space untouched).
-- `bc-server/tests/interior.rs`: launch into the colony, fly, dock back; fire inputs do nothing.
+- `bc-server/tests/inside.rs`: launch into the colony, fly, dock back; fire inputs do nothing;
+  the two sectors keep one tick; a suit flown down over Hub Gate sees a pilot walking there, who
+  sees it, and stops seeing it up the lift.
+- `bc-sector/tests/watch_net.rs`: a spectator's snapshots carry no own suit and the suits near
+  it, a suit leaving its view is told, and watching allocates nothing.
 - e2e: a pilot launches into the colony from the bay, flies over the avenue, docks back; a second
   pilot on foot at Hub Gate sees the suit.
 

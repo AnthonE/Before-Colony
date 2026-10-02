@@ -4,7 +4,10 @@ Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagra
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
 
-v18 (from v17): the key places' rooms in the city (`content::city::CITY_VERSION` 2).
+v18 (from v17): spectator snapshots, for pilots on foot in the colony's city watching the suits
+inside it (the header's SPECTATOR flag); the colony's inside keeping the outside's tick; plaza
+datagrams for pilots flying inside; and the key places' rooms in the city
+(`content::city::CITY_VERSION` 2).
 
 ## Quantization
 
@@ -88,6 +91,11 @@ exactly `tick − 8`, so the 8-bit field's saturation at 15.9 ticks loses nothin
 
 The writer reserves room for every list terminator still owed before it writes a record, so a
 snapshot is never cut off mid-list.
+
+Header flags, by bit: 0 SPECTATOR (v18): a spectator's snapshot, sent to a pilot on foot in the
+colony's city by its inside sector (below, "Suits inside the colony"). It has no own state and no
+ZERO, no events but Leave notices, no rocks, missiles or objects; its `ack_input_tick`,
+`input_health` and echo say nothing (the pilot sends no input).
 
 What fits, in the 8 800 bits of a 1 100-byte datagram: the fixed part is the header, the own state,
 ZERO's presence bit and the five lists' terminators.
@@ -268,7 +276,7 @@ their own screen has it (`transit::train` is a closed form of the tick).
 | Datagram | Content | Size |
 |---|---|---|
 | kind 3, Pose (client → server, 15 Hz in the city) | kind (4), seq (u16), strip (2), the pose (86) | 14 B |
-| kind 4, Plaza (server → client: 10 Hz in the city, 2 Hz in the bay) | kind (4), the sector's tick (u32), in the city (1), strip (2), then until the bits run out: per person their client slot (10), how long before the tick their pose was heard (6 bits, 10 ms steps) and the pose (86) | 5 B + 12.75 B a person, at most 48 (617 B) |
+| kind 4, Plaza (server → client: 10 Hz in the city and flying inside the colony, 2 Hz in the bay) | kind (4), the sector's tick (u32), in the city (1), strip (2), then until the bits run out: per person their client slot (10), how long before the tick their pose was heard (6 bits, 10 ms steps) and the pose (86) | 5 B + 12.75 B a person, at most 48 (617 B) |
 
 A pose is taken only if it could be: on the pilot's strip, inside the colony, out of the walls
 (`bc_sim::colony::city::solid`), no further from the last one taken than 13.5 m/s and 2 m allow, the
@@ -280,8 +288,10 @@ seat (`bc_sim::colony::city::arrival_seats`, within 0.3 m), and stays put on it 
 stands. Anything else isn't
 passed on (`/status`'s `city.refused_poses`). Each pilot is sent the people on their strip within
 1.5 km of them, heard from in the last 5 s, nearest first; their names come once each on the
-control stream (`people`). The plaza's tick keeps a client's clock (and the colony's day) when no
-snapshots come: in the city, and in the bay.
+control stream (`people`). A pilot flying a suit inside the colony is sent the people of the strip
+under the suit (over a window, the nearer strip's), within 1.5 km of it in the air, nearest first.
+The plaza's tick keeps a client's clock (and the colony's day) when none of the pilot's own
+snapshots come: in the bay, and in the city (a spectator's snapshots, below, carry no round trip).
 
 ## Control stream
 
@@ -426,6 +436,18 @@ sector, its snapshots come instead, and nothing fires there. `dock` at rest in t
 ring brings the suit home, with a `sortie` and a Welcome back to sector 1 (the client slot it
 had). A client welcomed mid-session forgets what it flew in the last sector. Leaving while
 inside, the colony's tugs bring the suit back to the bay.
+
+The inside keeps the outside's tick (v18): it ticks each time sector 1 has, right after it, so the
+colony has one clock. Its snapshots, the plaza's datagrams and the trams' timetable are the same
+moment, for a pilot on foot and one in a suit.
+
+A pilot on foot in the city watches the inside's suits (v18): while they're there, the inside
+sector gives them a spectator's slot of its own (no suit; it isn't in the Welcome) and sends them
+its snapshots marked SPECTATOR, with the suits within 2.5 km of where they are (the plaza's last
+pose of theirs, in the colony's frame, moved twice a second), interpolated as any. A suit that
+leaves their view gets a Leave notice for half a second (a spectator acks nothing; its client also
+forgets a suit it stops hearing of). Up the lift, it ends, and the client forgets what it watched.
+A client takes spectator snapshots only in the city.
 
 The colony (the Welcome sets COLONY: a survival server run with `--colony`): from the bay,
 `enter_city` answers `place: city` with the strip, or a refusing `note`; in the city the hangar and

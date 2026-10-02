@@ -30,5 +30,5 @@ pub use queues::{
     Comeback, Control, EgressEnds, InputMsg, NOTES, OracleEnds, Outcome, REPORTS, RESTORED, Reparked, Report,
     Restored, SectorShared, SlotLease, SlotState, build, read_packet,
 };
-pub use runtime::{SectorThread, spawn, spawn_named};
+pub use runtime::{SectorThread, spawn, spawn_follower, spawn_named, spawn_waking};
 pub use sector::{Sector, SectorConfig};

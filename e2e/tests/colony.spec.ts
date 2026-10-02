@@ -6,6 +6,8 @@ import { bc, collectConsole } from "./util";
 // rides the cap lift down to Hub Gate, finds the agent there, walks the city's streets to the
 // Exchange floor and buys there, finds a sight, then walks back and rides up to the bay. The
 // walking is the dev hook's (a guide walks the pilot's own legs); the terminal's panel is clicked.
+// Then a tram, a car, and two browsers: two pilots meet at Hub Gate, and one flies a suit in by
+// the inner gate over the other, each seeing the other.
 
 const push = (page: Page, cmd: Record<string, unknown>) =>
   page.evaluate((c) => ((window as any).bcInbox ||= []).push(c), cmd);
@@ -225,4 +227,91 @@ test("a pilot takes a car from Hub Gate's motor pool and drives up the avenue", 
   const bad = logs.filter((l) => /\[error\]|\[pageerror\]|%cERROR|panicked/i.test(l));
   if (bad.length) console.log(bad.join("\n"));
   expect(bad).toEqual([]);
+});
+
+// Where `name` is in `s.people_at` ("name@x,s,h;…"): along, across, up.
+function seenAt(s: Record<string, any>, name: string): number[] | undefined {
+  const hit = String(s.people_at ?? "")
+    .split(";")
+    .find((p) => p.startsWith(`${name}@`));
+  return hit?.slice(name.length + 1).split(",").map(Number);
+}
+
+test("two pilots meet at Hub Gate, and one flies a suit in over the other", async ({ browser }) => {
+  test.setTimeout(900_000);
+  // Two browsers, two pilots.
+  const [ca, cb] = [await browser.newContext(), await browser.newContext()];
+  const [a, b] = [await ca.newPage(), await cb.newPage()];
+  const logs = [collectConsole(a), collectConsole(b)];
+  await a.goto("/?autoplay=1&name=Heero&quality=low");
+  await b.goto("/?autoplay=1&name=Duo&quality=low");
+  const both = async (f: (p: Page) => Promise<unknown>) => Promise.all([f(a), f(b)]);
+  await both((p) => until(p, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 180_000));
+
+  // Both down the cap lift to Hub Gate.
+  await both((p) => push(p, { cmd: "walk_to", spot: "airlock" }));
+  await both((p) => until(p, "at the airlock", (s) => s.focus === "airlock" && !s.walking_to, 120_000));
+  await both((p) => push(p, { cmd: "use" }));
+  await both((p) => until(p, "the city", (s) => s.place === "city", 30_000));
+  await both((p) => push(p, { cmd: "skip" }));
+  await both((p) => until(p, "Hub Gate", (s) => s.seq === "walking" && s.strip === 0, 30_000));
+  // Heero steps over to the motor pool beside the door; Duo stays at it.
+  await push(a, { cmd: "walk_to", spot: "pool" });
+  await until(a, "the walk", (s) => s.city_walking_to, 30_000);
+  await until(a, "at the pool", (s) => !s.city_walking_to, 120_000);
+
+  // Each sees the other, by name, where the other stands (within 2 m), and the server has both.
+  for (const [me, other, them] of [
+    [a, b, "Duo"],
+    [b, a, "Heero"],
+  ] as const) {
+    const s = await until(me, `${them} in view`, (s) => seenAt(s, them) !== undefined, 60_000);
+    await me.waitForTimeout(1_000);
+    const seen = seenAt(await bc(me), them)!;
+    const feet = String((await bc(other)).city_feet).split(",").map(Number);
+    console.log(`${them}: seen at ${seen}, stands at ${feet} (${s.people} in view)`);
+    expect(Math.hypot(seen[0] - feet[0], seen[1] - feet[1])).toBeLessThan(2);
+  }
+  let status = await (await a.request.get("/status")).json();
+  expect(status.game.city.people).toBeGreaterThanOrEqual(3);
+  expect(status.game.city.by_strip[0]).toBeGreaterThanOrEqual(3);
+
+  // Duo rides back up to the bay and launches into the colony by the inner gate.
+  await push(b, { cmd: "walk_to", spot: "hub_gate_1" });
+  await until(b, "at Hub Gate's door", (s) => s.focus === "hub_gate_1" && !s.city_walking_to, 120_000);
+  await push(b, { cmd: "use" });
+  await until(b, "the bay", (s) => s.place === "hangar" && s.seq === "walking" && s.strip === -1, 60_000);
+  await push(b, { cmd: "walk_to", spot: "cockpit" });
+  await until(b, "at the cockpit", (s) => s.focus === "cockpit" && !s.walking_to, 120_000);
+  await b.locator("canvas").first().click();
+  await b.keyboard.press("q");
+  await until(b, "inside the colony", (s) => s.place === "space" && s.interior === true && s.alive, 120_000);
+  await push(b, { cmd: "skip" });
+
+  // Down from the inner gate to 250 m over Hub Gate's door: Heero, on foot below, watches it come,
+  // and Duo, in it, sees Heero.
+  await push(b, { cmd: "fly_to", spot: "hub_gate_1", up: 250 });
+  await until(b, "the errand", (s) => s.flying_to, 30_000);
+  const s = await until(
+    a,
+    "the suit over Hub Gate",
+    (s) => s.watched >= 1 && s.watched_nearest >= 0 && s.watched_nearest < 600,
+    300_000,
+  );
+  console.log(`watched: ${s.watched} suit(s), the nearest ${Math.round(s.watched_nearest)} m off`);
+  await until(b, "Heero, from the suit", (s) => seenAt(s, "Heero") !== undefined, 120_000);
+  await a.screenshot({ path: "artifacts/colony-suit-overhead.png" });
+  await b.screenshot({ path: "artifacts/colony-from-the-suit.png" });
+
+  // The server: Heero watching, Duo's suit inside, nobody's pose refused, and the hot path clean.
+  status = await (await a.request.get("/status")).json();
+  expect(status.game.inside.watchers).toBeGreaterThanOrEqual(1);
+  expect(status.game.inside.suits).toBe(1);
+  expect(status.game.city.refused_poses).toBe(0);
+  expect(status.game.hot_path_allocations).toBe(0);
+  const bad = logs.flat().filter((l) => /\[error\]|\[pageerror\]|%cERROR|panicked/i.test(l));
+  if (bad.length) console.log(bad.join("\n"));
+  expect(bad).toEqual([]);
+  await ca.close();
+  await cb.close();
 });

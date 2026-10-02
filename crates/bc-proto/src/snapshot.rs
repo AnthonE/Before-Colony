@@ -59,6 +59,14 @@ pub struct SnapshotHeader {
     pub flags: u8,
 }
 
+/// Snapshot-header flags ([`SnapshotHeader::flags`]).
+pub mod header_flags {
+    /// A spectator's snapshot: a pilot on foot in the colony's city watching the suits its inside
+    /// sector has near them. No own suit, and no input to answer for: its round trip and input
+    /// health say nothing.
+    pub const SPECTATOR: u8 = 1 << 0;
+}
+
 /// Own-suit flags.
 pub mod own_flags {
     pub const BOOSTING: u16 = 1 << 0;

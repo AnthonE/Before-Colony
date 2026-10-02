@@ -871,7 +871,10 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   the air slows it, the hull, the end caps and the city's buildings stop it, and flight assist
   holds it where it is. Weapons are safe by the colony's law: nothing fires. The HUD marks the
   inner gate; at rest in its ring of lights, Enter docks back into the bay. It's the server's
-  second sector (`sector-1`). Not yet: suits walking the streets, pilots on foot seeing them.
+  second sector (`sector-1`), keeping the first's tick: the colony has one clock. Pilots on foot
+  see the suits flying within 2.5 km of them, and a suit's pilot sees the people below (those on
+  the strip under it within 1.5 km, their cars too) and the trams, where everyone on foot sees
+  them. Not yet: suits walking the streets.
 
 ## The world (EVE-lite, roadmap)
 

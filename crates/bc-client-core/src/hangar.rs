@@ -39,12 +39,14 @@ pub struct HangarState {
 }
 
 impl HangarState {
-    /// Takes in an update. Whether the pilot just came back from the sector into the hangar.
+    /// Takes in an update. Whether the pilot just came back from the sector into the hangar, or
+    /// left the city (where they watched the suits inside the colony): what they saw is done with.
     pub fn apply(&mut self, update: Update) -> bool {
         self.version += 1;
         match update {
             Update::Place { place, bay, strip } => {
-                let back = self.place == Some(Place::Space) && place == Place::Hangar;
+                let back = (self.place == Some(Place::Space) && place == Place::Hangar)
+                    || (self.place == Some(Place::City) && place != Place::City);
                 (self.place, self.bay, self.strip) = (Some(place), bay, strip);
                 return back;
             }
@@ -115,8 +117,10 @@ mod tests {
         assert!(h.apply(Update::Place { place: Place::Hangar, bay: 7, strip: None }), "back from the sector");
         assert!(!h.apply(Update::Place { place: Place::City, bay: 7, strip: Some(2) }));
         assert!(h.in_city() && h.strip == Some(2));
+        assert!(h.apply(Update::Place { place: Place::Hangar, bay: 7, strip: None }), "up from the city");
+        assert!(!h.apply(Update::Place { place: Place::City, bay: 7, strip: Some(2) }));
         h.apply(Update::Note { text: "MADE 80 kg STEEL".into(), ok: true });
         assert_eq!(h.notes.len(), 1);
-        assert_eq!(h.version, 5);
+        assert_eq!(h.version, 7);
     }
 }

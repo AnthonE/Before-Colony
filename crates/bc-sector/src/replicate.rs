@@ -350,6 +350,78 @@ pub(crate) fn build_snapshot(
     Some(n)
 }
 
+/// How far a spectator sees suits from, m (a suit 2.5 km off is a few pixels through the colony's
+/// haze).
+pub(crate) const WATCH_RANGE: f32 = 2_500.0;
+
+/// Writes one snapshot for a spectator watching from `at`: no own suit and no ZERO, the suits
+/// within [`WATCH_RANGE`] of them by the same priority accumulation as everyone's (weighted by
+/// distance), and notices of those that left their view or the sector. Nothing else: no events
+/// (inside the colony nothing fires), rocks, missiles or salvage.
+pub(crate) fn build_watch(
+    sim: &Sim,
+    client: &mut ClientState,
+    at: Vec3,
+    header: &SnapshotHeader,
+    buf: &mut [u8],
+    work: &mut Work,
+) -> Option<usize> {
+    let t = header.tick;
+    let mut w = SnapshotWriter::new(buf, client.max_datagram);
+    w.header(header);
+    w.own(None);
+    w.zero(None);
+    let candidates = &mut work.entities;
+    let mut n_cand = 0;
+    for j in 0..sim.suits.cap {
+        let d = sim.suits.used.get(j).then(|| sim.suits.flight[j].pos.distance(at));
+        match d {
+            Some(d) if d < WATCH_RANGE => {
+                let fresh = !client.known.get(j);
+                client.prio[j] += 1.0 / (1.0 + d / 800.0) + if fresh { 10.0 } else { 0.0 };
+                if n_cand < candidates.len() {
+                    candidates[n_cand] = (client.prio[j], j as u16);
+                    n_cand += 1;
+                }
+            }
+            _ if client.known.get(j) => {
+                client.known.set(j, false);
+                client.prio[j] = 0.0;
+                client.queue_leave(j as u16, t);
+            }
+            _ => {}
+        }
+    }
+    for k in 0..client.n_leaves {
+        let (slot, tick) = client.leaves[k];
+        if !w.event(&Event::Leave { tick, slot }, ENTITY_RESERVE_BITS) {
+            break;
+        }
+    }
+    w.end_events();
+    client.retire_watched_leaves(t);
+    let cand = &mut work.entities[..n_cand];
+    const TOP: usize = 48;
+    if cand.len() > TOP {
+        cand.select_nth_unstable_by(TOP, |a, b| b.0.total_cmp(&a.0));
+    }
+    let top = cand.len().min(TOP);
+    cand[..top].sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
+    for &(_, j) in cand[..top].iter() {
+        let j = j as usize;
+        let mut e = sim.entity_state_watched(j);
+        if !sim.suits.alive.get(j) {
+            e.flags |= ent_flags::WRECK;
+        }
+        if !w.entity(&e, 0) {
+            break;
+        }
+        client.prio[j] = 0.0;
+        client.known.set(j, true);
+    }
+    w.finish()
+}
+
 #[cfg(test)]
 mod tests {
     use bc_proto::buttons::GRIP;

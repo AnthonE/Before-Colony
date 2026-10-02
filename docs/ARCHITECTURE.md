@@ -515,6 +515,13 @@ server see the same walls.
   draw people 200 ms behind, between the poses heard (`bc_client_core::plaza`), as figures in
   flight suits of their own colours (`figure`, `bc-client/src/people.rs`). People never enter the
   sector's simulation: nothing to predict or rewind, and nothing on the hot path.
+- **Suits inside** fly the server's second sector, in the colony's own frame
+  (`bc_sim::colony::interior`, `SUITS_INSIDE.md`), on the colony's one clock (it keeps the first
+  sector's tick). Those on foot watch them: their session holds a spectator's slot in that sector
+  (`Control::Watch`), whose snapshots (marked SPECTATOR) carry the suits near the pilot and no own
+  suit, and the client draws them on the city's layer. A suit's pilot is sent the plaza's people
+  round the suit, from where the sector last had it (each slot's `Metrics::pilots[slot].pos`, an
+  atomic the sector writes in its tick).
 
 ## AI layers
 
@@ -586,6 +593,7 @@ fire, beside 4 dolls).
 | `bc-sim` `colony::pools`, `bc-client-core` `vehicle` | Every motor pool stands on open road, room for a car. A car gets up to speed, brakes to a stop and then backs up; it turns the way its wheel says; it stops at a wall and is never inside one; its driver gets out beside it. The server takes a car only from a pool, at a car's speed. |
 | `bc-proto` `presence`, `bc-server` `plaza`, `bc-client-core` `plaza` and `figure` tests, `bc-server/tests/plaza.rs` | A pose goes round within half a step (14 B); 48 people fit one datagram; the bay's heartbeat carries only the tick; decoders never panic. The plaza takes walks, drops reordered poses, and doesn't pass on teleports, walls, another strip or a first pose away from Hub Gate; it shows only the strip and the near, and hides the silent. Clients draw people between the poses heard and hold them at the last; headings turn the short way. A figure is under 1,500 triangles and fits the walker's box; walking swings its legs. Over real WebTransport, two agents at Hub Gate see each other by name within 5 cm, a teleport isn't relayed, going back up removes a pilot, and the plaza keeps the clock within two ticks; riders are taken from beside a standing train's open doors to the next platform, and nobody boards a running train or stands outside its cars. |
 | `bc-server/tests/city.rs` | Over real WebTransport: with `--colony` the Welcome says so, a pilot rides down to a strip's city and back, trades on the exchange from there, can't launch from it, and `/status` follows them; without it, the lifts are closed. |
+| `bc-server/tests/inside.rs`, `bc-sector/tests/watch_net.rs` | A suit launched into the colony by the inner gate flies there with its weapons safe and docks back out, and a pilot who leaves inside finds it towed home; the inside keeps the outside's tick; a suit flown down over Hub Gate sees a pilot walking there by name, where they are, and they see it (as a spectator), until they ride back up. A spectator's snapshots carry no own suit and the suits near it, tell it of one that leaves its view, and cost the tick nothing on the heap. |
 | `e2e/tests/colony.spec.ts` | The colony in the browser (`--colony`, an agent strolling outside Hub Gate): out through the bay's airlock, down the cap lift (skipped) to Hub Gate, the agent seen there, the map, a walk through the streets to the Exchange floor to buy there through its panel, back to Hub Gate and up to the bay; the server's `/status` follows the pilot (`city`, then `hangar`), and the hot path never allocates. Then a tram from Hub Gate's platform one stop up the line, and a car from its motor pool up the avenue, with no pose refused. |
 | `e2e/tests/surface.spec.ts` | On the bodies in the browser, signed in: the lander autopilot flies to MO-II, lands in the Aft Well and hides; leaving parks the suit there, and coming back wakes in it, grounded and hidden; then, flown by hand, it wakes there again and lifts off, free past 40 m (`FLYING`). Throughout, no hot-path allocation, every snapshot fits, and every rider names a body the client knows. |
 | `bc-client-core` tests (`nav`, `chart`, `sphere`) | The Lagrange points balance (the restricted three-body problem's pull vanishes at L1, L2, L3) and L4 and L5 make equilateral triangles in the Moon's plane, which holds the Sun; Earth and the Moon sit on one line through L1, within 2.3° of the sky's first survey. Courses run straight when the way is clear, and otherwise round the colony and the landmarks without coming near them (over, under and along the colony, round its end to the dock, through Hermit and MO-II, and 120 random pairs across the sector), never far longer than the crow's flight. The auto-nav, flown tick by tick against a real `Sim` as its client would, takes every playable frame on five trips (out of the dock round MO-II to its Aft Well, MO-II across the field to Hermit's KEYHOLE, from under the colony to a rock, Hermit home to the dock, a point high over the field), by both flight rules and through the full field, and arrives at rest every time without touching the hull, a landmark or a rock. Every place is named, found and arrived at in the open; the chart's camera zooms out to frame the Earth Sphere and back in to the sector, tracks a suit at speed to the metre, picks what's under the cursor and keeps labels apart. |
@@ -602,9 +610,12 @@ fire, beside 4 dolls).
 
 ## Scaling path
 
-1. **One sector per server** (now). The server builds one sector and runs it on the thread
-   `sector-0`, with its own rings and egress thread; the Welcome's sector is always 1. Nothing in a
-   sector is shared with another, so many per process (a thread each) is a matter of building more.
+1. **One sector per server** (now), and a second for the colony's inside. The server builds one
+   sector and runs it on the thread `sector-0`, with its own rings and egress thread; the Welcome's
+   sector is 1. With `--colony` it builds the inside too (`sector-1`, `egress-1`, the Welcome's 2),
+   which keeps `sector-0`'s tick (`bc_sector::spawn_follower`: woken by it after each of its
+   ticks, never ahead), so the colony has one clock. Nothing else in a sector is shared with
+   another, so many per process (a thread each) is a matter of building more.
 2. **Sector per process**, with a gateway that routes sessions by sector. Handoff moves the pilot
    record through the gateway when a transfer orbit completes. A suit hands off only flying free:
    bodies and their riders are sector-local ("Bodies and frames").

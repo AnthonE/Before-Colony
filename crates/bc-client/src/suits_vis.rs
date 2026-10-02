@@ -423,12 +423,16 @@ pub fn pose_suits(
 /// Swaps suits between their near and far models by distance from the camera.
 pub fn suit_lod(
     lib: Res<SuitMeshLib>,
+    view: Res<crate::city::CityView>,
+    origin: Res<crate::city::RenderOrigin>,
     cams: Query<&GlobalTransform, With<MainCamera>>,
     mut suits: Query<(&SuitDrive, &mut SuitVisual)>,
     mut meshes: Query<&mut Mesh3d, With<SuitBone>>,
 ) {
     let Ok(cam) = cams.single() else { return };
-    let eye = cam.translation();
+    // Inside the colony the camera is drawn relative to the render origin; suits are where they are.
+    let eye =
+        if view.active { (origin.0 + cam.translation().as_dvec3()).as_vec3() } else { cam.translation() };
     for (d, mut v) in &mut suits {
         let dist = if d.own { 0.0 } else { d.pos.distance(eye) };
         let want = match v.lod {

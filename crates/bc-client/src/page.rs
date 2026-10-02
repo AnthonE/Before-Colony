@@ -64,6 +64,9 @@ pub enum UiCmd {
     /// Dev hook, flying: keep the aim on the nearest hostile (headless browsers can't lock the
     /// pointer to aim with), or stop.
     AimHostile(bool),
+    /// Dev hook, flying inside the colony: fly the suit (flight assist) to `up` metres over a
+    /// place's door (by its slug), or stop (`None`).
+    FlyTo(Option<(String, f32)>),
     Use,
     Skip,
 }
@@ -272,6 +275,11 @@ fn parse(v: &JsValue) -> Option<UiCmd> {
         "chat" => UiCmd::Chat(get(v, "open").as_bool().unwrap_or(false)),
         "walk_to" => UiCmd::WalkTo(s("spot")),
         "aim_hostile" => UiCmd::AimHostile(get(v, "on").as_bool().unwrap_or(false)),
+        "fly_to" => UiCmd::FlyTo(
+            Some(s("spot"))
+                .filter(|spot| !spot.is_empty())
+                .map(|spot| (spot, get(v, "up").as_f64().unwrap_or(0.0) as f32)),
+        ),
         "use" => UiCmd::Use,
         "skip" => UiCmd::Skip,
         _ => return None,

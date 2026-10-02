@@ -4,6 +4,7 @@ use bc_proto::{InputCmd, PilotKind};
 use bc_sim::SuitId;
 use bc_sim::chunks::MAX_CHUNKS;
 use bc_sim::storage::{BitSet, boxed};
+use glam::Vec3;
 
 use crate::jitter::JitterBuffer;
 
@@ -16,6 +17,9 @@ pub(crate) const OBJS_PER_SNAPSHOT: usize = 24;
 pub(crate) const ROCKS_PER_SNAPSHOT: usize = 16;
 /// A client holds nothing of a chunk.
 pub(crate) const NONE: u16 = u16::MAX;
+/// How long a spectator is told a suit left their view, ticks (it acks nothing; its client also
+/// forgets a suit it stops hearing of).
+pub(crate) const WATCH_LEAVE_TICKS: u32 = 15;
 
 /// What a client holds of a chunk: its generation and version.
 pub(crate) fn packed(generation: u8, version: u8) -> u16 {
@@ -70,6 +74,9 @@ pub(crate) struct ClientState {
     pub rock_acked: Box<[u8]>,
     /// Its suit's loss has been reported (survival rules).
     pub lost: bool,
+    /// A spectator (`Control::Watch`): where they watch from, with no suit of their own (`active`
+    /// stays false).
+    pub watch: Option<Vec3>,
 }
 
 impl ClientState {
@@ -97,12 +104,14 @@ impl ClientState {
             obj_known: 0,
             rock_acked: boxed(rocks, 0u8),
             lost: false,
+            watch: None,
         }
     }
 
     /// Seats a new session in this slot (no allocation: everything is reset in place).
     pub fn seat(&mut self, suit: SuitId, pilot: PilotKind, max_datagram: usize, event_seq: u32) {
         self.active = true;
+        self.watch = None;
         self.suit = suit;
         self.pilot = pilot;
         self.max_datagram = max_datagram.clamp(256, bc_proto::MAX_DATAGRAM);
@@ -123,6 +132,26 @@ impl ClientState {
         self.obj_known = 0;
         self.rock_acked.fill(0);
         self.lost = false;
+    }
+
+    /// Seats a spectator in this slot, watching from `at` (no allocation, as [`Self::seat`]).
+    pub fn spectate(&mut self, at: Vec3, max_datagram: usize, event_seq: u32) {
+        self.seat(SuitId::NONE, PilotKind::Human, max_datagram, event_seq);
+        self.active = false;
+        self.watch = Some(at);
+    }
+
+    /// A spectator acks nothing (it sends no input): a "left your view" notice is repeated for
+    /// [`WATCH_LEAVE_TICKS`] and then dropped.
+    pub fn retire_watched_leaves(&mut self, tick: u32) {
+        let mut k = 0;
+        for i in 0..self.n_leaves {
+            if tick.saturating_sub(self.leaves[i].1) < WATCH_LEAVE_TICKS {
+                self.leaves[k] = self.leaves[i];
+                k += 1;
+            }
+        }
+        self.n_leaves = k;
     }
 
     pub fn queue_leave(&mut self, slot: u16, tick: u32) {

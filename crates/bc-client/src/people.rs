@@ -428,8 +428,8 @@ fn name_tags(
     }
 }
 
-/// Game mode: the people near the pilot, from the plaza (none outside the city), and the colony's
-/// clock for the trams.
+/// Game mode: the people near the pilot, from the plaza (none outside the city but round a suit
+/// flying inside it), and the colony's clock for the trams.
 pub fn fill_crowd(
     game: NonSend<crate::net::GameClient>,
     me: Res<crate::onfoot::OnFoot>,
@@ -439,7 +439,7 @@ pub fn fill_crowd(
     let g = game.borrow();
     let (tick, frac) = g.core.colony_tick(crate::net::now_s());
     *trams = crate::trams::TramClock(tick, frac);
-    let mut people: Vec<(u16, String, PersonPose)> = if g.core.hangar.in_city() {
+    let mut people: Vec<(u16, String, PersonPose)> = if g.core.hangar.in_city() || g.core.inside() {
         g.core
             .people(crate::net::now_s())
             .into_iter()

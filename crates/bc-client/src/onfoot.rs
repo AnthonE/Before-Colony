@@ -1308,6 +1308,13 @@ pub fn publish_onfoot(
     dev.set("walking_to", me.guide.is_some());
     let f = me.walker.feet;
     dev.set("feet", format!("{:.1},{:.1},{:.1}", f.x, f.y, f.z));
+    // The people in view (on foot in the city, or round a suit flying inside it): how many, their
+    // names, and where each is ("name@x,s,h", `;` between them).
+    let people = g.core.people(now_s());
+    dev.set("people", people.len() as u32);
+    dev.set("people_names", people.iter().map(|(_, n, _)| *n).collect::<Vec<_>>().join(","));
+    let where_ = people.iter().map(|(_, n, p)| format!("{n}@{:.1},{:.1},{:.1}", p.x, p.s, p.h));
+    dev.set("people_at", where_.collect::<Vec<_>>().join(";"));
     // In the colony: the strip, where on it (along, across, up) and the place at hand.
     match &me.city {
         Some(c) => {
@@ -1321,14 +1328,20 @@ pub fn publish_onfoot(
             dev.set("drive_speed", c.drive.map_or(0.0, |v| f64::from(v.speed)));
             dev.set("station", c.train().and_then(|t| t.at).map_or(-1.0, |i| i as f64));
             dev.set("district", c.district.map_or("", |d| DISTRICT_NAMES[c.strip as usize % 3][d as usize]));
-            // The people in view, and where the nearest is from the pilot (m).
-            let people = g.core.people(now_s());
-            let names: Vec<&str> = people.iter().map(|(_, n, _)| *n).collect();
-            dev.set("people", people.len() as u32);
-            dev.set("people_names", names.join(","));
+            // Where the nearest of the people in view is from the pilot (m).
             let near =
                 people.iter().map(|(_, _, p)| (p.x - at.x).hypot(p.s - at.s)).fold(f32::INFINITY, f32::min);
             dev.set("people_nearest", if near.is_finite() { f64::from(near) } else { -1.0 });
+            // The suits flying inside the colony that they watch, and how far off the nearest is.
+            let eye = colony_point(at).as_vec3();
+            let t = g.core.render_tick(now_s());
+            let suits: Vec<f32> = (0..g.core.world.entities.len() as u16)
+                .filter_map(|slot| g.core.world.pose(slot, t))
+                .map(|p| p.pos.distance(eye))
+                .collect();
+            dev.set("watched", suits.len() as u32);
+            let near = suits.iter().copied().fold(f32::INFINITY, f32::min);
+            dev.set("watched_nearest", if near.is_finite() { f64::from(near) } else { -1.0 });
             if me.seq == Seq::Walking {
                 dev.set("focus", c.focus.map_or("", |i| PLACES[i].slug));
             }
@@ -1343,9 +1356,9 @@ pub fn publish_onfoot(
             dev.set("drive_speed", 0.0);
             dev.set("station", -1.0);
             dev.set("district", "");
-            dev.set("people", 0u32);
-            dev.set("people_names", "");
             dev.set("people_nearest", -1.0);
+            dev.set("watched", 0u32);
+            dev.set("watched_nearest", -1.0);
         }
     }
     dev.set("hangar_credits", h.credits() as f64);
