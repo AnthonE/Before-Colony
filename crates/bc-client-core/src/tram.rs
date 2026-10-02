@@ -9,7 +9,7 @@ use bc_sim::colony::city::{CityBox, Rect};
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, gravity};
 use bc_sim::colony::transit::{
     CAR_LENGTH, CAR_WIDTH, CARS, DOOR_AT, DOOR_WIDTH, FLOOR, PLATFORM_HALF, PLATFORM_LENGTH, STATION_GAP,
-    STATIONS, TrainState, car_offset, car_walls, station_x,
+    STATIONS, TRACK_OFFSET, TrainState, car_offset, car_walls, station_x,
 };
 use glam::Vec3;
 
@@ -154,6 +154,21 @@ pub fn boarding(feet: CityPos, trains: &[TrainState]) -> Option<(Rider, Vec3)> {
     })
 }
 
+/// A pilot fallen onto the track beside a platform (the doors shut on them as their train pulled
+/// out): where to put them back, on the platform's edge.
+pub fn rescue(feet: CityPos) -> Option<CityPos> {
+    let mid = STRIP_WIDTH * 0.5;
+    let i = ((feet.x - station_x(0)) / STATION_GAP).round();
+    if !(0.0..STATIONS as f32).contains(&i) || feet.h > FLOOR - 0.5 {
+        return None;
+    }
+    let off = feet.s - mid;
+    let beside = (PLATFORM_HALF..TRACK_OFFSET + 0.5 * CAR_WIDTH + 0.5).contains(&off.abs());
+    let along = (feet.x - station_x(i as usize)).abs() < 0.5 * PLATFORM_LENGTH - 4.0;
+    (beside && along)
+        .then(|| CityPos::new(feet.strip, feet.x, mid + off.signum() * (PLATFORM_HALF - 0.4), FLOOR))
+}
+
 /// Where a rider's feet (`local`, in their car's frame) are in city coordinates.
 pub fn in_city(r: &Rider, local: Vec3, t: &TrainState) -> CityPos {
     CityPos::new(t.strip, t.car_x(r.car) + local.x, t.s - local.z, FLOOR + local.y)
@@ -291,6 +306,19 @@ mod tests {
             let p = CityPos::from_walker(0, w.feet);
             assert!(p.s < mid + PLATFORM_HALF && (p.h - FLOOR).abs() < 0.05, "off the platform: {p:?}");
         }
+    }
+
+    #[test]
+    fn a_pilot_on_the_track_beside_a_platform_is_put_back_on_it() {
+        let mid = STRIP_WIDTH * 0.5;
+        let x = bc_sim::colony::transit::station_x(2);
+        let p = rescue(CityPos::new(0, x - 6.0, mid + 3.2, 0.0)).expect("put back");
+        assert!((p.h - FLOOR).abs() < 1e-3 && p.s < mid + PLATFORM_HALF && p.s > mid);
+        assert!(rescue(CityPos::new(0, x, mid - 4.0, 0.0)).is_some_and(|p| p.s < mid));
+        // On the platform, on the avenue's road, or on the track between stations: left alone.
+        assert!(rescue(CityPos::new(0, x, mid + 2.0, FLOOR)).is_none());
+        assert!(rescue(CityPos::new(0, x, mid + 15.0, 0.0)).is_none());
+        assert!(rescue(CityPos::new(0, x + 1_000.0, mid + 4.0, 0.0)).is_none());
     }
 
     #[test]

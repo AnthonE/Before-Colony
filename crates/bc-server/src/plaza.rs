@@ -55,6 +55,8 @@ struct Person {
     seq: u16,
     heard: Instant,
     refused: u32,
+    /// When a refusal of theirs was last logged.
+    said: Option<Instant>,
 }
 
 /// Everyone in the city, by client slot, and how many poses were refused, by why.
@@ -165,7 +167,15 @@ impl Plaza {
             let strip = strip % STRIPS as u8;
             all.insert(
                 id,
-                Person { name: name.into(), strip, pose: None, seq: 0, heard: Instant::now(), refused: 0 },
+                Person {
+                    name: name.into(),
+                    strip,
+                    pose: None,
+                    seq: 0,
+                    heard: Instant::now(),
+                    refused: 0,
+                    said: None,
+                },
             );
         }
     }
@@ -221,6 +231,20 @@ impl Plaza {
             }
         };
         if let Some(why) = why {
+            // Said now and then (never where: only why, how far and how long since the last).
+            if me.said.is_none_or(|t| now.saturating_duration_since(t).as_secs_f32() > 5.0) {
+                me.said = Some(now);
+                let dt = now.saturating_duration_since(me.heard).as_secs_f32();
+                let moved = me.pose.map_or(0.0, |l| (pose.x - l.x).hypot(pose.s - l.s));
+                tracing::info!(
+                    slot = id,
+                    ?why,
+                    moved = moved as u32,
+                    dt,
+                    refused = me.refused + 1,
+                    "a pose not passed on"
+                );
+            }
             me.refused += 1;
             if let Ok(mut by) = self.refused_by.lock() {
                 by[why as usize] += 1;

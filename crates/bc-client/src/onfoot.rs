@@ -151,6 +151,8 @@ pub struct CityFoot {
     /// Driving (from a motor pool), and seen from behind (else from the driver's seat).
     pub drive: Option<Vehicle>,
     chase: bool,
+    /// The colony's tick the trains are at.
+    tick: (u32, f32),
 }
 
 /// Station `i` of strip `strip`'s line, by name: Hub Gate's, then the district it's in.
@@ -186,6 +188,7 @@ impl CityFoot {
             stood: None,
             drive: None,
             chase: true,
+            tick: (0, 0.0),
         }
     }
 
@@ -234,6 +237,7 @@ impl CityFoot {
     /// The line's trains at the colony's tick.
     fn time(&mut self, tick: u32, frac: f32) {
         self.trains = std::array::from_fn(|k| train(self.strip, k as u8, tick, frac));
+        self.tick = (tick, frac);
     }
 
     /// The train the pilot rides, this frame.
@@ -256,6 +260,11 @@ impl CityFoot {
             _ => {
                 let world = CityAndTrains { ground: self.ground(), trains: &self.trains };
                 self.walker.step(&world, stride, h);
+                if let Some(back) = tram::rescue(self.feet()) {
+                    self.walker.feet = back.walker();
+                    self.walker.vel = Vec3::ZERO;
+                    self.guide = None;
+                }
                 let (r, local) = tram::boarding(self.feet(), &self.trains)?;
                 let t = self.trains[r.k as usize];
                 self.ride = Some(r);
@@ -324,7 +333,12 @@ impl CityFoot {
             route.push(at(sx + end * (half - 5.0), mid, FLOOR));
         }
         let from = route.last().map_or(feet.x, |p| p.x);
-        let standing = self.trains.iter().find(|t| t.doors && t.at == Some(i));
+        // A train whose doors will still be open by the time the pilot gets there (6 s on).
+        let (tick, frac) = self.tick;
+        let standing = self
+            .trains
+            .iter()
+            .find(|t| t.doors && t.at == Some(i) && train(self.strip, t.k, tick + 180, frac).doors);
         match standing {
             Some(t) => {
                 // The door nearest, and in through it.
