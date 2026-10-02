@@ -119,6 +119,9 @@ pub struct FlightMods {
     pub hop: Option<HopAssist>,
     /// Anime rules: the tank is a boost gauge ([`BoostGauge`]). None: every newton burns.
     pub gauge: Option<BoostGauge>,
+    /// Inside the colony, in its own frame (`colony::interior`): the spin's pull, Coriolis and the
+    /// air act on the suit, and flight assist holds against them.
+    pub interior: bool,
 }
 
 impl Default for FlightMods {
@@ -139,6 +142,7 @@ impl Default for FlightMods {
             roll_level: None,
             hop: None,
             gauge: None,
+            interior: false,
         }
     }
 }
@@ -225,6 +229,8 @@ pub fn integrate(
     // Under anime rules only boost needs propellant.
     let powered = has_prop || mods.gauge.is_some();
     let authority = if s.blackout { 0.25 } else { 1.0 };
+    // Inside the colony: what the spin and the air do to it this tick.
+    let ext = if mods.interior { Some(crate::colony::interior::accel(s.pos, s.vel, mass)) } else { None };
 
     // --- Attitude: chase the aim direction, plus commanded roll (or roll-level). ---
     let fwd = s.rot * Vec3::Z;
@@ -306,7 +312,11 @@ pub fn integrate(
             }
         };
         let response = if mods.g_immune || length(gap) < FA_SETTLE { dt } else { FA_RESPONSE.max(dt) };
-        let f_req = gap * (mass / response);
+        let mut f_req = gap * (mass / response);
+        // Holding a velocity inside the colony means holding against its pull too.
+        if let Some(e) = ext {
+            f_req -= (s.rot.conjugate() * e) * mass;
+        }
         Vec3::new(
             clamp_axis(f_req.x, side, side),
             clamp_axis(f_req.y, side, side),
@@ -353,6 +363,10 @@ pub fn integrate(
     let throttle = f_local / Vec3::new(spec.side_thrust, spec.side_thrust, axial).max(Vec3::ONE);
     let accel = (s.rot * f_local) / mass;
     s.vel += accel * dt;
+    // (Not felt as G: a free fall is weightless, whatever pulls it.)
+    if let Some(e) = ext {
+        s.vel += e * dt;
+    }
     s.pos += s.vel * dt;
 
     // --- Pilot G. ---

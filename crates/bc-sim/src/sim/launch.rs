@@ -47,6 +47,15 @@ fn launch_pose(n: u32) -> (Vec3, Quat) {
     (pos, look_rotation(-Vec3::X, Vec3::Y))
 }
 
+/// Where the `n`th suit comes into the colony from the bays: round the inner gate, nose down the
+/// colony, its head towards the axis (up, in there).
+fn inner_launch_pose(n: u32) -> (Vec3, Quat) {
+    use crate::colony::interior::INNER_GATE;
+    let a = (n % LAUNCH_PLACES) as f32 * core::f32::consts::TAU / LAUNCH_PLACES as f32;
+    let pos = INNER_GATE + Vec3::new(0.0, cos(a) * 40.0, sin(a) * 40.0);
+    (pos, look_rotation(Vec3::X, crate::colony::frame::up_at(pos)))
+}
+
 /// A suit as its pilot built it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Loadout {
@@ -150,7 +159,11 @@ impl Sim {
         }
         let id = self.suits.allocate(frame_id, faction, pilot)?;
         self.spawn_counter += 1;
-        let (pos, rot) = launch_pose(self.spawn_counter);
+        let (pos, rot) = if self.interior() {
+            inner_launch_pose(self.spawn_counter)
+        } else {
+            launch_pose(self.spawn_counter)
+        };
         let i = id.idx();
         self.suits.place(i, frame_id, pos, rot, self.tick);
         for (hp, (max, f)) in self.suits.part_hp[i].iter_mut().zip(spec.part_hp.iter().zip(loadout.parts)) {
@@ -169,9 +182,10 @@ impl Sim {
             }
         }
         let tank = crate::tuning::tank_cap(spec, &self.suits.tuning[i]);
+        let speed = if self.interior() { crate::colony::interior::INNER_LAUNCH_SPEED } else { LAUNCH_SPEED };
         let f = &mut self.suits.flight[i];
         f.propellant = loadout.propellant.clamp(0.0, tank);
-        f.vel = rot * Vec3::Z * LAUNCH_SPEED;
+        f.vel = rot * Vec3::Z * speed;
         Some(id)
     }
 

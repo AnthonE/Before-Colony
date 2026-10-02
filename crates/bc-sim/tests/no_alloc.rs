@@ -249,3 +249,55 @@ fn the_colony_answers_without_allocating() {
     assert!(hits > 1_000, "{hits}: buildings should be hit");
     assert_eq!(n, 0, "heap operations asking the colony: {n}");
 }
+
+#[test]
+fn the_interior_ticks_without_allocating() {
+    // 64 suits flying the colony's inside: low among the towers, landing on roofs and the floor,
+    // pressing fire (which the colony's law ignores).
+    use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FLIGHT_ASSIST};
+    use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
+    use bc_sim::colony::frame::CityPos;
+    use bc_sim::colony::interior::WorldKind;
+    use bc_sim::sim::Loadout;
+    use glam::Vec3;
+    let mut sim = bc_sim::Sim::new(bc_sim::SimConfig {
+        target_dolls: 0,
+        field_rocks: 0,
+        landmarks: 0,
+        survival: true,
+        world: WorldKind::Interior,
+        ..bc_sim::SimConfig::default()
+    });
+    let mut ids = Vec::new();
+    for k in 0..64 {
+        let f = [FrameId::Leo, FrameId::WingZero, FrameId::Heavyarms][k % 3];
+        let id = sim.launch(f, Faction::Colonies, PilotKind::Human, &Loadout::full(f)).unwrap();
+        let at =
+            CityPos::new((k % 3) as u8, -9_000.0 + k as f32 * 90.0, 300.0 + (k * 37 % 2_800) as f32, 40.0);
+        sim.suits.flight[id.idx()].pos = at.to_colony();
+        ids.push(id);
+    }
+    let mut total = 0;
+    for n in 0..1_000u32 {
+        let t = sim.next_tick();
+        let mut cmds = [InputCmd::default(); 64];
+        for (k, id) in ids.iter().enumerate() {
+            let f = &sim.suits.flight[id.idx()];
+            let aim = (f.rot * Vec3::Z + Vec3::new(0.0, 0.1, 0.05 * (k % 5) as f32)).normalize();
+            let (buttons, thrust) = if (n / 50 + k as u32).is_multiple_of(3) {
+                (0, [0, 0, 0])
+            } else {
+                (FLIGHT_ASSIST | FIRE_PRIMARY | BOOST, [20, 0, 127])
+            };
+            cmds[k] = InputCmd { tick: t, view_tick_q4: t << 4, aim, thrust, buttons, ..InputCmd::default() };
+        }
+        let ((), heap) = bc_alloc::count(|| {
+            for (k, id) in ids.iter().enumerate() {
+                sim.set_input(*id, cmds[k]);
+            }
+            sim.step();
+        });
+        total += heap;
+    }
+    assert_eq!(total, 0, "heap operations inside the interior's tick: {total}");
+}

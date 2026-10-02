@@ -297,11 +297,21 @@ impl Sim {
         }
     }
 
-    /// Sets the command a player's suit will use next tick.
-    pub fn set_input(&mut self, id: SuitId, cmd: InputCmd) {
+    /// Sets the command a player's suit will use next tick. Inside the colony nothing fires and
+    /// nothing strikes: those buttons never reach the tick.
+    pub fn set_input(&mut self, id: SuitId, mut cmd: InputCmd) {
         if self.suits.valid(id) {
+            if self.interior() {
+                cmd.buttons &= !bc_proto::buttons::FIRE_MASK;
+            }
             self.suits.input[id.idx()] = cmd;
         }
+    }
+
+    /// This sector is the colony's inside (`colony::interior`).
+    #[inline]
+    pub fn interior(&self) -> bool {
+        self.cfg.world == crate::colony::interior::WorldKind::Interior
     }
 
     /// Sets what a suit's pilot has earned (a signed-in pilot, back in a new suit, keeps theirs).
@@ -335,18 +345,25 @@ impl Sim {
             self.squad_logic();
         }
         self.ai_step(t);
-        self.specials_step(t);
+        // Inside the colony, weapons are safe by its law: no specials, locks, shots, missiles or
+        // blades (and their buttons never get this far: `set_input`).
+        let armed = !self.interior();
+        if armed {
+            self.specials_step(t);
+        }
         self.flight_step(t);
         self.chunk_step(t);
         self.wrecks_follow_hulks();
         self.spatial_rebuild();
         self.record_history(t);
         self.cover_step(t);
-        self.lock_step();
-        self.weapons_step(t);
-        self.projectile_step(t);
-        self.missile_step(t);
-        self.melee_step(t);
+        if armed {
+            self.lock_step();
+            self.weapons_step(t);
+            self.projectile_step(t);
+            self.missile_step(t);
+            self.melee_step(t);
+        }
         self.damage_step(t);
         // (Emptied after, not before: a blow struck between ticks lands with this tick's.)
         self.damage.clear();
@@ -640,6 +657,7 @@ impl Sim {
             + (s.cargo_total_kg(i) + held + tuned.module_kg) as i32;
         let doll = s.pilot[i] == PilotKind::MobileDoll;
         let mut mods = tuning::flight_mods(&tuned, self.cfg.flight, doll, extra_mass_kg);
+        mods.interior = self.interior();
         mods.main *= tuning::sputter(&tuned, t, i as u16);
         if busy {
             mods.ambac = busy_ambac(mods.ambac);
@@ -704,6 +722,19 @@ impl Sim {
                 f.pos += f.vel * DT;
                 self.field.collide(prev, f);
                 bodies.collide_landmarks(prev, f, None);
+            } else if self.interior() {
+                // Inside the colony: its pull, its air, its hull and its city (`colony::interior`).
+                let cx = self.move_ctx(i);
+                let cmd = self.suits.input[i];
+                let s = &mut self.suits;
+                let out = crate::colony::interior::step(&mut s.flight[i], &cmd, cx.spec, &cx.mods, DT);
+                s.boosting[i] = out.boosting;
+                if !asleep {
+                    let u = &mut s.usage[i];
+                    u.burn += u32::from(out.throttle.z > 0.1);
+                    u.boost += u32::from(out.boosting);
+                    s.aim[i] = normalize_or(cmd.aim, s.flight[i].rot * Vec3::Z);
+                }
             } else if asleep && self.suits.footing[i] != ground::Footing::Aloft {
                 // Nobody's flying it (`sleep`): held to its body, or drifting.
                 sleep::sleeper_drift(&mut self.suits, &bodies, i);
