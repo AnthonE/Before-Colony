@@ -236,6 +236,9 @@ fn tonnes(kg: u32) -> String {
 
 #[derive(Component)]
 pub struct Reticle;
+/// A gun's spread: a ring round the crosshair that its shots land within.
+#[derive(Component)]
+pub struct SpreadRing;
 #[derive(Component)]
 pub struct LeadMarker;
 #[derive(Component)]
@@ -582,6 +585,17 @@ pub fn setup_hud(mut commands: Commands, font: Res<UiFont>, mut panels: ResMut<A
                     },
                 ),
                 centred(),
+            ));
+            p.spawn((
+                SpreadRing,
+                Node {
+                    position_type: PositionType::Absolute,
+                    border: UiRect::all(Val::Px(1.0)),
+                    border_radius: BorderRadius::MAX,
+                    ..default()
+                },
+                BorderColor::all(Color::srgba(0.55, 0.92, 1.0, 0.45)),
+                Visibility::Hidden,
             ));
             p.spawn((
                 LeadMarker,
@@ -1549,6 +1563,46 @@ pub fn update_hud(
             }
             _ => *vis = Visibility::Hidden,
         }
+    }
+}
+
+/// Sizes the [`SpreadRing`] to the widest cone of the suit's guns (`bc_sim::tuning::scatter`), as
+/// the camera draws it round the aim; hidden without a gun that spreads, or one so tight the
+/// crosshair covers it.
+pub fn update_spread_ring(
+    game: NonSend<GameClient>,
+    aim: Res<Aim>,
+    camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    mut ring: Query<(&mut Node, &mut Visibility), With<SpreadRing>>,
+) {
+    let Ok((mut node, mut vis)) = ring.single_mut() else { return };
+    let game = game.borrow();
+    let spread = game.core.world.own.filter(|o| o.alive).map_or(0.0, |o| {
+        frame(o.frame).loadout[..2]
+            .iter()
+            .flatten()
+            .map(|m| weapon(m.weapon))
+            .filter(|w| matches!(w.class, WeaponClass::Beam | WeaponClass::Ballistic))
+            .map(|w| w.spread)
+            .fold(0.0, f32::max)
+    });
+    let radius = camera.single().ok().filter(|_| spread > 0.0).and_then(|(cam, tf)| {
+        let eye = tf.translation();
+        let side = aim.dir.any_orthonormal_vector();
+        let edge = aim.dir * spread.cos() + side * spread.sin();
+        let c = cam.world_to_viewport(tf, eye + aim.dir * 1_000.0).ok()?;
+        let e = cam.world_to_viewport(tf, eye + edge * 1_000.0).ok()?;
+        Some((c, c.distance(e)))
+    });
+    match radius {
+        Some((c, r)) if r >= 3.0 => {
+            node.left = Val::Px(c.x - r);
+            node.top = Val::Px(c.y - r);
+            node.width = Val::Px(2.0 * r);
+            node.height = Val::Px(2.0 * r);
+            *vis = Visibility::Inherited;
+        }
+        _ => *vis = Visibility::Hidden,
     }
 }
 

@@ -201,7 +201,8 @@ so on a body they become a hop (held: lift off on the thrusters) and a crouch at
    GBO2's double-tap evade, AC6's Quick Boost and Mecha BREAK's Shift evade [A1][A2]. Every
    reference game has one.
 10. **Mild homing on blade lunges, within a cone** (EXVS, Zone of the Enders). Landing a lunge on a
-    target that moves in 6DOF is hard.
+    target that moves in 6DOF is hard. **Done:** a lunge drives along the aim within 15° of the
+    nose (`DESIGN.md`, "Blades lunge").
 11. **Comfort.**
     - Optional horizon lines, and optional auto-level while flight assist is on. Overload's
       auto-level is praised; roll adds most to motion sickness (pitch alone 1.95 on a sickness scale,

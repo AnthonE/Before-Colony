@@ -16,7 +16,7 @@ use bc_sim::{Sim, SimConfig};
 use glam::Vec3;
 
 const RANGES: [f32; 6] = [300.0, 600.0, 1_000.0, 1_500.0, 2_000.0, 3_000.0];
-const TRIALS: u32 = 16;
+const TRIALS: u32 = 32;
 /// The target's speed across the line of fire, m/s.
 const CROSSING: f32 = 150.0;
 
@@ -33,6 +33,11 @@ enum Target {
 fn shot(frame_id: FrameId, slot: usize, charged: bool, range: f32, target: Target, seed: u32) -> bool {
     let cfg = SimConfig { max_suits: 8, target_dolls: 0, field_rocks: 0, ..SimConfig::default() };
     let mut sim = Sim::new(cfg);
+    // Each trial's clock starts somewhere of its own, so a gun's spread (drawn from the tick) is
+    // sampled afresh, the geometry the same.
+    for _ in 0..seed % 32 {
+        sim.step();
+    }
     let at = Vec3::new(0.0, 2_000.0, 0.0);
     let me = sim.spawn_at(frame_id, Faction::Colonies, PilotKind::Human, at, look_rotation(Vec3::Z, Vec3::Y));
     let it = sim.spawn_at(

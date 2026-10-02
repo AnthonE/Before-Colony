@@ -206,12 +206,7 @@ impl Sim {
         {
             dir = z.out.solution;
         }
-        if w.spread > 0.0 {
-            let seed = (i as u32) * 7 + slot as u32;
-            let n =
-                Vec3::new(hash01(t, seed) - 0.5, hash01(t ^ 0x55, seed) - 0.5, hash01(t ^ 0xAA, seed) - 0.5);
-            dir = normalize_or(dir + n * (2.0 * w.spread), dir);
-        }
+        dir = tuning::scatter(dir, w.spread, t, i as u16, slot);
         // A concussed pilot's hands shake.
         if self.suits.status[i].concussed > 0 {
             dir = tuning::wobble(dir, t, i as u16, slot);

@@ -10,7 +10,7 @@ the bay, space, home).
 | Item | State |
 |---|---|
 | Lock-on: fighting on the ground in space (`LOCK.md`) | built |
-| The weapons pass: the hit-rate harness and charged beams (built), true cones, lunges that home, a burst step | building |
+| The weapons pass: the hit-rate harness, charged beams, true cones and lunges that home (built), a burst step | building |
 | P0: a floor under loss, text chat, objectives along the chain, The Arrival's seats | next |
 | P1, P2 below | planned |
 

@@ -22,7 +22,7 @@ use glam::{Quat, Vec3};
 use crate::config::G0;
 use crate::content::FrameSpec;
 use crate::field::Field;
-use crate::math::{atan2, integrate_rotation, length, normalize_or, sqrt};
+use crate::math::{atan2, clamp_to_cone, integrate_rotation, length, normalize_or, sqrt};
 
 /// Sustained G a trained human pilot tolerates before strain builds.
 pub const HUMAN_G_TOLERANCE: f32 = 6.0;
@@ -47,6 +47,9 @@ pub const FA_G_MARGIN: f32 = 0.03;
 pub const FA_G_CAP: f32 = HUMAN_G_TOLERANCE - FA_G_MARGIN;
 /// A blade's lunge drives forward at this much of full main thrust (never boosted).
 pub const LUNGE_THRUST: f32 = 1.5;
+/// A lunge homes: it drives along the aim when the aim is within this much of the nose, rad
+/// (15°), and along the edge of that cone when it's further off.
+pub const LUNGE_CONE: f32 = 0.2618;
 /// How hard roll-level turns the feet toward a surface (1/s): the roll rate asked for per radian
 /// of roll still to go, up to the frame's roll rate.
 pub const ROLL_LEVEL_GAIN: f32 = 2.0;
@@ -108,6 +111,9 @@ pub struct FlightMods {
     pub g_immune: bool,
     /// Beam saber lunge: full forward thrust at [`LUNGE_THRUST`]×.
     pub lunge: bool,
+    /// How far off the nose a lunge drives toward the aim, rad ([`LUNGE_CONE`]); 0: straight
+    /// along the nose.
+    pub lunge_cone: f32,
     /// Mass beyond the frame's own (cargo, a chunk in hand) less the parts shot off, kg. Whole
     /// kilograms, so prediction uses exactly the server's number.
     pub extra_mass_kg: i32,
@@ -137,6 +143,7 @@ impl Default for FlightMods {
             leak_kg_s: 0.0,
             g_immune: false,
             lunge: false,
+            lunge_cone: 0.0,
             extra_mass_kg: 0,
             roll_level: None,
             hop: None,
@@ -345,7 +352,14 @@ pub fn integrate(
         )
     };
     if mods.lunge {
-        f_local.z = spec.main_thrust * mods.main * LUNGE_THRUST;
+        let drive = spec.main_thrust * mods.main * LUNGE_THRUST;
+        if mods.lunge_cone > 0.0 {
+            // It homes: along the aim, within its cone of the nose, on top of the stick's sideways.
+            let along = s.rot.conjugate() * clamp_to_cone(aim, s.rot * Vec3::Z, mods.lunge_cone);
+            f_local = Vec3::new(f_local.x + along.x * drive, f_local.y + along.y * drive, along.z * drive);
+        } else {
+            f_local.z = drive;
+        }
     }
     f_local *= mods.thrust * authority;
     if !powered {
@@ -432,6 +446,28 @@ mod tests {
 
     fn state() -> FlightState {
         FlightState { propellant: 2_400.0, pos: Vec3::new(0.0, 2_000.0, 0.0), ..FlightState::default() }
+    }
+
+    /// A lunge homes: with the aim off the nose it drives along the aim, and along the edge of its
+    /// cone once the aim's further off than that; with no cone it drives along the nose.
+    #[test]
+    fn a_lunge_drives_along_the_aim_within_its_cone() {
+        let spec = frame(FrameId::Leo);
+        let lunge = |deg: f32, cone: f32| {
+            let mut s = state();
+            let a = deg.to_radians();
+            let cmd = InputCmd { aim: Vec3::new(sin(a), 0.0, cos(a)), ..InputCmd::default() };
+            let mods = FlightMods { lunge: true, lunge_cone: cone, ..FlightMods::default() };
+            let out = integrate(&mut s, &cmd, spec, &mods, DT);
+            (out.accel.normalize(), s.rot * Vec3::Z, cmd.aim)
+        };
+        let (drive, _, aim) = lunge(10.0, LUNGE_CONE);
+        assert!(drive.angle_between(aim) < 0.002, "off the aim by {}", drive.angle_between(aim));
+        let (drive, nose, aim) = lunge(40.0, LUNGE_CONE);
+        assert!((drive.angle_between(nose) - LUNGE_CONE).abs() < 0.002, "{}", drive.angle_between(nose));
+        assert!(drive.angle_between(aim) < aim.angle_between(nose), "toward the aim");
+        let (drive, nose, _) = lunge(10.0, 0.0);
+        assert!(drive.angle_between(nose) < 0.002, "{}", drive.angle_between(nose));
     }
 
     #[test]

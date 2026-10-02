@@ -310,7 +310,14 @@ fn footwork(
         }
         return v / cruise;
     }
-    let range_err = t.dist - profile.preferred_range;
+    // Full Open ready, the lock on and the hull fit for it: in to where it reaches.
+    let opening = matches!(spec.special, SpecialKind::FullOpen { .. })
+        && me.kit.special_ready
+        && me.kit.lock_acquired
+        && me.hull() > FULL_OPEN_HULL;
+    let preferred =
+        if opening { profile.preferred_range.min(FULL_OPEN_RANGE * 0.8) } else { profile.preferred_range };
+    let range_err = t.dist - preferred;
     let radial = los * (range_err / 800.0).clamp(-1.0, 1.0);
     let lateral = normalize_or(los.cross(me.rot * Vec3::Y), Vec3::X) * ai.strafe_sign;
     match ai.action {

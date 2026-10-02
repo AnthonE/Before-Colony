@@ -696,6 +696,8 @@ impl ClientCore {
         // (the server counts the concussion down after each tick's shots).
         let tuned = bc_sim::tuning::own_tuning(&own);
         let mut dir = clamp_to_cone(normalize_or(cmd.aim, fwd), fwd, bc_sim::tuning::cone(mount.arm, &tuned));
+        // Within the weapon's cone, as the server scatters it (the primary is mount 0).
+        dir = bc_sim::tuning::scatter(dir, w.spread, cmd.tick, own.slot, 0);
         let since = cmd.tick.saturating_sub(self.world.tick).saturating_sub(1);
         if u32::from(own.concussed) > since {
             dir = bc_sim::tuning::wobble(dir, cmd.tick, own.slot, 0);

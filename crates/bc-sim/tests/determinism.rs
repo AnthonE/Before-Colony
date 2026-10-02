@@ -7,7 +7,7 @@
 mod common;
 
 /// Hash after 600 ticks of the reference scenario (update deliberately when the sim changes).
-const GOLDEN: u64 = 0x8ef9_bdea_f968_ba20;
+const GOLDEN: u64 = 0x2e6d_0082_f337_169d;
 
 fn scenario_hash() -> u64 {
     let (mut sim, players) = common::arena(8, 24, 42);
@@ -34,7 +34,7 @@ fn golden_hash_wasm() {
 /// Hash after 450 ticks of the Gundams duelling in pairs among Mobile Dolls: every blade, the
 /// Cross Crusher, the Dragon Fang, the flamethrower, the Hyper Jammer, guided missiles, Full Open,
 /// Neo-Bird and the Gundams' guns (changes deliberately as their mechanics arrive).
-const GUNDAMS_GOLDEN: u64 = 0x0a08_8b70_159e_47d8;
+const GUNDAMS_GOLDEN: u64 = 0xc8b4_b787_b868_e3d3;
 
 fn gundams_hash() -> u64 {
     use bc_proto::events::Event;
@@ -113,7 +113,7 @@ fn gundams_golden_wasm() {
 /// Hash after 450 ticks of pilots locked on to their foes (`bc_proto::LockOn`): flight assist
 /// holding each foe's velocity in the fight's axes, levelled to the colony's up, closing in and
 /// circling, among Mobile Dolls.
-const LOCKON_GOLDEN: u64 = 0xd825_937a_1d36_b106;
+const LOCKON_GOLDEN: u64 = 0xe12a_4d38_f23c_6111;
 
 fn lockon_hash() -> u64 {
     let (mut sim, duels) = common::gundam_crowd(8, 12, 21);
@@ -171,7 +171,7 @@ fn field_hash() -> u64 {
 
 /// Hash after suits have flown into rocks and fired into them, wearing them down, while a Leo cuts
 /// a small one apart with its saber.
-const ROCKS_GOLDEN: u64 = 0x9062_a234_a495_8fa0;
+const ROCKS_GOLDEN: u64 = 0x91c4_8251_0774_173a;
 
 fn rocks_hash() -> u64 {
     use bc_proto::buttons::{FIRE_PRIMARY, MELEE};
@@ -465,7 +465,7 @@ fn sleepers_golden_wasm() {
 /// off. A guided missile goes at the Leo on its rock. (The hash covers the suits' cover since they
 /// hide, and the dolls hunting the riders come at them from above; with wear and tear, every suit's
 /// systems, equipment and statuses.)
-const SURFACE_GOLDEN: u64 = 0x096e_bce5_8678_c035;
+const SURFACE_GOLDEN: u64 = 0x2e92_5182_35ee_f345;
 
 fn surface_hash() -> u64 {
     use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRIP, MELEE, MODE};

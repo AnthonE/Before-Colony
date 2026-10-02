@@ -70,6 +70,18 @@ pub fn clamp_to_cone(dir: Vec3, axis: Vec3, cone: f32) -> Vec3 {
     normalize_or(axis * cos(cone) + perp * sin(cone), axis)
 }
 
+/// A direction within the cone of half-angle `half` about `dir` (a unit vector), from two numbers
+/// in [0, 1): `u` how far off (by the cone's cross-section, so shots fill it evenly rather than
+/// bunching on the axis), `v` which way round. A weapon's spread: its shots land within the ring
+/// the HUD draws.
+pub fn within_cone(dir: Vec3, half: f32, u: f32, v: f32) -> Vec3 {
+    let off = half * sqrt(u);
+    let around = v * core::f32::consts::TAU;
+    let side = normalize_or(dir.cross(if dir.y.abs() < 0.9 { Vec3::Y } else { Vec3::X }), Vec3::X);
+    let up = dir.cross(side);
+    normalize_or(dir * cos(off) + (side * cos(around) + up * sin(around)) * sin(off), dir)
+}
+
 /// Normalizes a quaternion with our sqrt.
 #[inline]
 pub fn quat_normalize(q: Quat) -> Quat {
@@ -208,6 +220,30 @@ mod tests {
     fn apart(a: Quat, b: Quat) -> f32 {
         let d = b * a.conjugate();
         2.0 * atan2(length(Vec3::new(d.x, d.y, d.z)), d.w.abs())
+    }
+
+    /// A spread's shots stay within its cone and fill it evenly: half of them in the inner 71% of
+    /// its angle (half its cross-section), and as many to each side.
+    #[test]
+    fn within_cone_fills_the_cone_evenly() {
+        let mut rng = Rng::new(0xC0DE);
+        for _ in 0..50 {
+            let dir = normalize_or(Vec3::new(rng.signed(), rng.signed(), rng.signed()), Vec3::Z);
+            let half = 0.001 + rng.next_f32() * 0.2;
+            let (mut inner, mut right, n) = (0, 0, 2_000);
+            let side = normalize_or(dir.cross(Vec3::new(0.3, 0.8, -0.5)), Vec3::X);
+            for _ in 0..n {
+                let d = within_cone(dir, half, rng.next_f32(), rng.next_f32());
+                let off = angle_between(dir, d);
+                assert!(off <= half * 1.001 + 1e-4, "{off} outside {half}");
+                assert!((length(d) - 1.0).abs() < 1e-5);
+                inner += u32::from(off < half * core::f32::consts::FRAC_1_SQRT_2);
+                right += u32::from(d.dot(side) > 0.0);
+            }
+            let share = |k: u32| k as f32 / n as f32;
+            assert!((share(inner) - 0.5).abs() < 0.05, "inner {}", share(inner));
+            assert!((share(right) - 0.5).abs() < 0.05, "one side {}", share(right));
+        }
     }
 
     fn random_rotation(rng: &mut Rng) -> Quat {
