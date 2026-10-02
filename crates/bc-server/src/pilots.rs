@@ -753,6 +753,7 @@ mod tests {
                 systems: Systems(0b10_01_00_11),
                 modules: Modules(0b0011),
                 kits: Kits(0b0110),
+                usage: Default::default(),
             },
         }
     }
