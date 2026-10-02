@@ -1028,7 +1028,24 @@ fn city_cams() -> Vec<Orbit> {
             ),
             (Vec3::X - across * 0.12 + up * 0.02).normalize(),
         ),
+        exchange_floor_cam(),
     ]
+}
+
+/// On the Exchange floor, just in from its door: across the trading floor to its counter and the
+/// boards along the back wall, lit by the room's lamps (EV 8).
+fn exchange_floor_cam() -> Orbit {
+    use bc_sim::colony::city::{KERB, place, room};
+    let Some(room) = place("exchange_floor").and_then(|(i, _)| room(i)) else {
+        return look(Vec3::ZERO, Vec3::X);
+    };
+    let (_, (s, x)) = room.threshold();
+    let (ds, dx) = room.inward;
+    let (up, across) = city_axes(0, s);
+    look(
+        city_at(0, s - ds * 1.0 + dx * 4.0, x - dx * 1.0 + ds * 4.0, KERB + 1.7),
+        (across * ds + Vec3::X * dx + up * 0.12).normalize(),
+    )
 }
 
 /// The city scene: the view inside, built whole before the first frame shows.

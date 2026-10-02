@@ -838,6 +838,10 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   them.
 - **Places:** the Exchange floor (its terminal is the bay's exchange), the Charter Board (its
   contracts and great works, above), The Arrival (a bar), and Hub Gate, whose lift goes back up to the bay.
+  Each of the first three has a room behind its door: walk in, and use the place at its counter
+  (E). The trading floor's boards run along its back wall, the Charter Board's notices are pinned
+  on its, and the bar's shelves are behind its counter. Rooms are lit by their own lamps; the eye
+  adapts to them going in (and the street through the door blazes), and back to the day going out.
 - **The Arrival's seats:** two benches either side of its door, facing the avenue
   (`colony::city::arrival_seats`). E by one sits you on it (the view drops to a seated eye), and E
   again or a step stands you up; everyone else sees you sitting (the presence's ride 15), and the

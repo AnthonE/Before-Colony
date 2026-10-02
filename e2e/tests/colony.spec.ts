@@ -70,11 +70,14 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await page.keyboard.press("m");
   await expect(page.locator("#map")).toBeHidden({ timeout: 30_000 });
 
-  // Down the avenue and round the corner to the Exchange floor; the panel is the bay's.
+  // Down the avenue, round the corner and in through the Exchange floor's door to its counter: a
+  // room, lit by its lamps (the eye adapts to EV 8). The panel is the bay's.
   await push(page, { cmd: "walk_to", spot: "exchange_floor" });
   await until(page, "the walk", (s) => s.city_walking_to, 30_000);
   await until(page, "at the Exchange floor", (s) => s.focus === "exchange_floor" && !s.city_walking_to, 420_000);
   await expect(page.locator("#use")).toContainText("EXCHANGE", { timeout: 30_000 });
+  s = await until(page, "indoors", (s) => s.city_room === "exchange_floor" && s.city_ev < 8.5, 30_000);
+  await page.screenshot({ path: "artifacts/colony-exchange-floor.png" });
   await until(page, "the last objective", (s) => s.objective === "SELL ON THE EXCHANGE", 30_000);
   await push(page, { cmd: "use" });
   await until(page, "the exchange terminal", (s) => s.terminal === "exchange", 60_000);

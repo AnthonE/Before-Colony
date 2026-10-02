@@ -145,7 +145,12 @@ pub struct Building {
     pub tower: Option<(Rect, f32)>,
     pub style: Style,
     pub seed: u32,
+    /// A key place's hall: the room behind its door.
+    pub room: Option<Room>,
 }
+
+/// The most solid boxes a building is ([`Building::solids`]): a hall round its room.
+pub const MAX_SOLIDS: usize = 8;
 
 impl Building {
     /// The highest roof.
@@ -153,8 +158,12 @@ impl Building {
         self.tower.map_or(self.height, |(_, h)| h.max(self.height))
     }
 
-    /// What's solid of it: up to four boxes (a frame's corner columns, or a base and its tower).
-    pub fn solids(&self, out: &mut [CityBox; 4]) -> usize {
+    /// What's solid of it: a frame's corner columns, a base and its tower, or a hall round the
+    /// room behind its door (its walls, its door's lintel, what's over the ceiling, the counter).
+    pub fn solids(&self, out: &mut [CityBox; MAX_SOLIDS]) -> usize {
+        if let Some(room) = &self.room {
+            return room.hall_solids(self.foot, self.height, out);
+        }
         match self.style {
             Style::Frame => {
                 let f = self.foot;
@@ -184,6 +193,168 @@ impl Building {
     }
 }
 
+/// Walls round a key place's room, m thick.
+pub const WALL: f32 = 1.0;
+/// Its door: the gap in the front wall, m wide and high.
+pub const DOOR_WIDTH: f32 = 4.0;
+pub const DOOR_HEIGHT: f32 = 3.5;
+/// Its counter, against the back wall: how high, how deep, how far out from the wall (m), and
+/// how much of the room's width it takes.
+pub const COUNTER_HEIGHT: f32 = 1.1;
+pub const COUNTER_DEPTH: f32 = 1.2;
+pub const COUNTER_GAP: f32 = 2.5;
+pub const COUNTER_SHARE: f32 = 0.5;
+/// Where a pilot stands to use a counter: this far out in front of it, m.
+pub const COUNTER_STAND: f32 = 1.2;
+
+/// The room behind a key place's door (`content::city::room_size`), at street level: through the
+/// door in its front wall, a floor under a ceiling, and against its back wall the counter the
+/// place is used at (the Exchange's terminal, the Charter Board, the bar). The hall stands solid
+/// round it ([`Building::solids`]). A closed form of the place, like everything in the city.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Room {
+    /// Which place it is (`content::city::PLACES`), and its strip.
+    pub place: u8,
+    pub strip: u8,
+    /// Its floor, inside its walls.
+    pub rect: Rect,
+    /// Its ceiling, m up from the street.
+    pub ceiling: f32,
+    /// The door: the gap through the front wall.
+    pub door: Rect,
+    /// The way in, through the door (a unit `(ds, dx)`).
+    pub inward: (f32, f32),
+    /// The counter against the back wall.
+    pub counter: Rect,
+    /// The hall's frame: its front face, where along it the door is, and which way is in.
+    pub front: Front,
+}
+
+/// Where a hall's front is: across (`along_s`: the front runs along `s`, its face at an `x`; else
+/// along `x`, its face at an `s`), the face itself, the middle of the front along it (the door's
+/// middle), and which way is in (+1 or −1). A place in it is `u` along the front from its middle
+/// and `v` in from its face.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Front {
+    pub along_s: bool,
+    pub face: f32,
+    pub middle: f32,
+    pub sign: f32,
+}
+
+impl Front {
+    /// What's `u0..u1` along the front from its middle and `v0..v1` in from its face.
+    pub fn rect(&self, u0: f32, u1: f32, v0: f32, v1: f32) -> Rect {
+        let (a, b) = (self.face + self.sign * v0, self.face + self.sign * v1);
+        let (lo, hi) = (a.min(b), a.max(b));
+        if self.along_s {
+            Rect::new(self.middle + u0, self.middle + u1, lo, hi)
+        } else {
+            Rect::new(lo, hi, self.middle + u0, self.middle + u1)
+        }
+    }
+
+    /// The point `u` along the front and `v` in: `(s, x)`.
+    pub fn point(&self, u: f32, v: f32) -> (f32, f32) {
+        let w = self.face + self.sign * v;
+        if self.along_s { (self.middle + u, w) } else { (w, self.middle + u) }
+    }
+}
+
+impl Room {
+    /// The hall round the room, of foot `foot` and roof `height`: what's over the ceiling, what's
+    /// either side of the room and behind it, the front wall either side of the door and its
+    /// lintel, and the counter. Eight boxes.
+    fn hall_solids(&self, foot: Rect, height: f32, out: &mut [CityBox; MAX_SOLIDS]) -> usize {
+        let f = &self.front;
+        // The hall's extent along its front and in from it, about the front's middle.
+        let (u0, u1, depth) = if f.along_s {
+            (foot.s0 - f.middle, foot.s1 - f.middle, foot.length())
+        } else {
+            (foot.x0 - f.middle, foot.x1 - f.middle, foot.width())
+        };
+        let w = self.width() * 0.5;
+        let d = self.depth();
+        let (c, low) = (self.ceiling, KERB);
+        let door = DOOR_WIDTH * 0.5;
+        let cw = self.width() * COUNTER_SHARE * 0.5;
+        let boxes = [
+            CityBox { rect: foot, h0: c, h1: height },
+            CityBox { rect: f.rect(u0, -w, 0.0, depth), h0: low, h1: c },
+            CityBox { rect: f.rect(w, u1, 0.0, depth), h0: low, h1: c },
+            CityBox { rect: f.rect(-w, w, d, depth), h0: low, h1: c },
+            CityBox { rect: f.rect(-w, -door, 0.0, WALL), h0: low, h1: c },
+            CityBox { rect: f.rect(door, w, 0.0, WALL), h0: low, h1: c },
+            CityBox { rect: f.rect(-door, door, 0.0, WALL), h0: low + DOOR_HEIGHT, h1: c },
+            CityBox {
+                rect: f.rect(-cw, cw, d - COUNTER_GAP - COUNTER_DEPTH, d - COUNTER_GAP),
+                h0: low,
+                h1: low + COUNTER_HEIGHT,
+            },
+        ];
+        out.copy_from_slice(&boxes);
+        MAX_SOLIDS
+    }
+
+    /// How wide it is along its front, and how deep from the front face to the back wall, m.
+    pub fn width(&self) -> f32 {
+        if self.front.along_s { self.rect.width() } else { self.rect.length() }
+    }
+
+    pub fn depth(&self) -> f32 {
+        WALL + if self.front.along_s { self.rect.length() } else { self.rect.width() }
+    }
+
+    /// Whether a point of its strip is in it, under its ceiling: `(s, x)`, `h` up.
+    pub fn holds(&self, s: f32, x: f32, h: f32) -> bool {
+        self.rect.contains(s, x) && (-1.0..self.ceiling).contains(&h)
+    }
+
+    /// Where a pilot stands to use its counter, and which way they face: `(s, x)` and a unit
+    /// `(ds, dx)`.
+    pub fn counter_spot(&self) -> ((f32, f32), (f32, f32)) {
+        let v = self.depth() - COUNTER_GAP - COUNTER_DEPTH - COUNTER_STAND;
+        (self.front.point(0.0, v), self.inward)
+    }
+
+    /// Just inside its door, and just outside it: a walk in goes from the one to the other.
+    pub fn threshold(&self) -> ((f32, f32), (f32, f32)) {
+        (self.front.point(0.0, -2.0), self.front.point(0.0, WALL + 2.0))
+    }
+}
+
+/// Place `i`'s room behind its door, if it has one (Hub Gate's terminal doesn't).
+pub fn room(i: usize) -> Option<Room> {
+    let p = PLACES.get(i)?;
+    let (depth, width, ceiling) = crate::content::city::room_size(p.kind)?;
+    let foot = block_rect(p.bx, p.row).inset(SIDEWALK);
+    let (ms, mx) = foot.middle();
+    let front = match p.door_x {
+        1 => Front { along_s: true, face: foot.x1, middle: ms, sign: -1.0 },
+        -1 => Front { along_s: true, face: foot.x0, middle: ms, sign: 1.0 },
+        _ if p.row < 0 => Front { along_s: false, face: foot.s1, middle: mx, sign: -1.0 },
+        _ => Front { along_s: false, face: foot.s0, middle: mx, sign: 1.0 },
+    };
+    let (w, d) = (width * 0.5, depth);
+    let cw = width * COUNTER_SHARE * 0.5;
+    let inward = if front.along_s { (0.0, front.sign) } else { (front.sign, 0.0) };
+    Some(Room {
+        place: i as u8,
+        strip: p.strip,
+        rect: front.rect(-w, w, WALL, d),
+        ceiling: KERB + ceiling,
+        door: front.rect(-DOOR_WIDTH * 0.5, DOOR_WIDTH * 0.5, 0.0, WALL),
+        inward,
+        counter: front.rect(-cw, cw, d - COUNTER_GAP - COUNTER_DEPTH, d - COUNTER_GAP),
+        front,
+    })
+}
+
+/// The room a point of strip `strip` is in (`(s, x)`, `h` up), if any.
+pub fn room_at(strip: u8, s: f32, x: f32, h: f32) -> Option<Room> {
+    (0..PLACES.len()).filter_map(room).find(|r| r.strip == strip && r.holds(s, x, h))
+}
+
 /// A block's buildings.
 pub const MAX_LOTS: usize = 9;
 
@@ -202,6 +373,7 @@ impl Lots {
             tower: None,
             style: Style::Plain,
             seed: 0,
+            room: None,
         }; MAX_LOTS],
     };
 
@@ -581,7 +753,7 @@ pub fn lots(b: &BlockInfo) -> Lots {
                     } else {
                         Style::Plain
                     };
-                    out.push(Building { foot, height, tower, style, seed: ls });
+                    out.push(Building { foot, height, tower, style, seed: ls, room: None });
                 }
             }
         }
@@ -600,6 +772,7 @@ pub fn lots(b: &BlockInfo) -> Lots {
                     tower: None,
                     style: Style::Pavilion,
                     seed: ls,
+                    room: None,
                 });
             }
         }
@@ -613,6 +786,7 @@ pub fn lots(b: &BlockInfo) -> Lots {
                 tower: None,
                 style: Style::Monument,
                 seed,
+                room: None,
             });
         }
         BlockKind::Tower(h) => {
@@ -625,6 +799,7 @@ pub fn lots(b: &BlockInfo) -> Lots {
                 tower: Some((t, h.min(MAX_HEIGHT))),
                 style: Style::Tower,
                 seed,
+                room: None,
             });
         }
         BlockKind::Place(i) => {
@@ -634,7 +809,14 @@ pub fn lots(b: &BlockInfo) -> Lots {
                 PlaceKind::Charter => 36.0,
                 PlaceKind::HubGate => TERMINAL_HEIGHT,
             };
-            out.push(Building { foot: area, height, tower: None, style: Style::Hall, seed });
+            out.push(Building {
+                foot: area,
+                height,
+                tower: None,
+                style: Style::Hall,
+                seed,
+                room: room(usize::from(i)),
+            });
         }
         BlockKind::Site => {
             // A frame going up, maybe two, and a crane.
@@ -647,7 +829,7 @@ pub fn lots(b: &BlockInfo) -> Lots {
                 let x = if i == 0 { area.x0 } else { area.x1 - l };
                 let foot = Rect::new(s, s + w.min(area.width()), x, x + l.min(area.length()));
                 let height = floors_height(5 + (unit(ls, 4) * 28.0) as u32).min(120.0);
-                out.push(Building { foot, height, tower: None, style: Style::Frame, seed: ls });
+                out.push(Building { foot, height, tower: None, style: Style::Frame, seed: ls, room: None });
             }
             if unit(seed, 3) < 0.45 {
                 let (s, x) = area.middle();
@@ -658,6 +840,7 @@ pub fn lots(b: &BlockInfo) -> Lots {
                     tower: None,
                     style: Style::Crane,
                     seed: mix(seed, 13, 0),
+                    room: None,
                 });
             }
         }
@@ -711,7 +894,7 @@ pub fn each_solid(strip: u8, area: &Rect, stage: Stage, mut f: impl FnMut(&CityB
     }
     let (b0, b1) = (block_index(area.x0), block_index(area.x1));
     let (r0, r1) = (row_at(area.s0), row_at(area.s1));
-    let mut boxes = [CityBox::default(); 4];
+    let mut boxes = [CityBox::default(); MAX_SOLIDS];
     for bx in b0..=b1 {
         for row in r0..=r1 {
             let Some(b) = block(strip, bx, row, stage) else { continue };
@@ -949,21 +1132,83 @@ mod tests {
 
     #[test]
     fn every_key_places_door_is_on_a_street_facing_it() {
-        for p in &PLACES {
+        for (i, p) in PLACES.iter().enumerate() {
             let ((s, x), (ds, dx)) = place_door(p);
             assert!(!walker_at(p.strip, s, x, 0.0), "{}'s door is in a wall", p.name);
-            // Further on, the way in, is the building.
-            assert!(
-                walker_at(p.strip, s + ds * 12.0, x + dx * 12.0, KERB + 0.01),
-                "{} has nothing to go into",
-                p.name
-            );
+            // Further on, the way in, is the building: its front wall beside the door (and through
+            // the door, its room), or Hub Gate's terminal.
+            let aside = if room(i).is_some() { DOOR_WIDTH } else { 0.0 };
+            let (a, b) = (s + ds * 9.5 + dx * aside, x + dx * 9.5 + ds * aside);
+            assert!(walker_at(p.strip, a, b, KERB + 0.01), "{} has nothing to go into", p.name);
             if p.kind != PlaceKind::HubGate {
                 let b = block(p.strip, p.bx, p.row, STAGE).unwrap();
                 assert_eq!(b.kind, BlockKind::Place(PLACES.iter().position(|q| q == p).unwrap() as u8));
             }
             assert!(place(p.slug).is_some());
         }
+    }
+
+    #[test]
+    fn the_key_places_rooms_are_walked_into_and_used_at_their_counters() {
+        let mut rooms = 0;
+        for (i, p) in PLACES.iter().enumerate() {
+            let Some(room) = room(i) else {
+                assert_eq!(p.kind, PlaceKind::HubGate, "{} has no room", p.name);
+                continue;
+            };
+            rooms += 1;
+            let b = block(p.strip, p.bx, p.row, STAGE).unwrap();
+            let hall = lots(&b).as_slice()[0];
+            assert_eq!(hall.room, Some(room));
+            assert!(hall.foot.holds(&room.rect) && room.ceiling + 1.0 < hall.height, "{}", p.name);
+            // From the door's spot on the street, through the door, to the counter: nothing in the
+            // way of a walker.
+            let (door, _) = place_door(p);
+            let (outside, inside) = room.threshold();
+            let (spot, (fs, fx)) = room.counter_spot();
+            for (a, b) in [(door, outside), (outside, inside), (inside, spot)] {
+                for k in 0..=200 {
+                    let t = k as f32 / 200.0;
+                    let (s, x) = (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t);
+                    assert!(!walker_at(p.strip, s, x, KERB + 0.01), "{}: blocked at ({s}, {x})", p.name);
+                }
+            }
+            // The counter is just in front of the spot, and the way the spot faces is in.
+            assert_eq!((fs, fx), room.inward);
+            assert!(
+                walker_at(p.strip, spot.0 + fs * 1.5, spot.1 + fx * 1.5, KERB + 0.01),
+                "{}: no counter",
+                p.name
+            );
+            assert!(room.rect.holds(&room.counter) && room.rect.contains(spot.0, spot.1));
+            // The front wall stands either side of the door, the back wall behind the counter, the
+            // side walls and the ceiling round the room: nobody walks out but by the door.
+            let (ms, mx) = room.door.middle();
+            let (us, ux) = (fx.abs(), fs.abs());
+            for side in [-1.0f32, 1.0] {
+                let (s, x) =
+                    (ms + us * side * (DOOR_WIDTH * 0.5 + 0.8), mx + ux * side * (DOOR_WIDTH * 0.5 + 0.8));
+                assert!(walker_at(p.strip, s, x, KERB + 0.01), "{}: no front wall at ({s}, {x})", p.name);
+            }
+            let (rs, rx) = room.rect.middle();
+            let half_w = room.width() * 0.5 + 0.5;
+            assert!(
+                walker_at(p.strip, rs + us * half_w, rx + ux * half_w, KERB + 0.01),
+                "{}: no side wall",
+                p.name
+            );
+            let back = room.depth() + 0.5;
+            let (bs, bx) = (ms + fs * back, mx + fx * back);
+            assert!(walker_at(p.strip, bs, bx, KERB + 0.01), "{}: no back wall at ({bs}, {bx})", p.name);
+            assert!(walker_at(p.strip, rs, rx, room.ceiling - 1.0), "{}: no ceiling", p.name);
+            assert!(!walker_at(p.strip, rs, rx, room.ceiling - 2.0), "{}: the ceiling's too low", p.name);
+            // Who's in it, and who isn't.
+            assert_eq!(room_at(p.strip, spot.0, spot.1, KERB).map(|r| r.place), Some(i as u8));
+            assert_eq!(room_at(p.strip, door.0, door.1, KERB), None, "{}'s street isn't its room", p.name);
+            assert_eq!(room_at(p.strip, spot.0, spot.1, room.ceiling + 2.0), None, "over the ceiling");
+            assert_eq!(room_at((p.strip + 1) % STRIPS as u8, spot.0, spot.1, KERB), None);
+        }
+        assert_eq!(rooms, 3, "the bar, the Exchange floor and the Charter Board");
     }
 
     #[test]

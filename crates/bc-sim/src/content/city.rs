@@ -5,8 +5,9 @@
 //! Any change here changes what every client draws and walks into, and what the server checks
 //! poses against, so it moves [`CITY_VERSION`] with the protocol's version.
 
-/// The city's version: bumped, with `bc_proto::PROTOCOL_VERSION`, on any change to the layout.
-pub const CITY_VERSION: u8 = 1;
+/// The city's version: bumped, with `bc_proto::PROTOCOL_VERSION`, on any change to the layout (2:
+/// the key places' rooms).
+pub const CITY_VERSION: u8 = 2;
 
 /// A strip's name, in the colony's own words.
 pub const STRIP_NAMES: [&str; 3] = ["CHARTER", "CANAL", "GARDENS"];
@@ -151,6 +152,20 @@ pub struct PlaceDef {
     pub bx: i32,
     pub row: i32,
     pub door_x: i8,
+}
+
+/// The room behind a key place's door, at street level: how deep it runs in from the front, how
+/// wide it is along it, and how high its ceiling is, m. Hub Gate's terminal has the lift instead.
+pub const fn room_size(kind: PlaceKind) -> Option<(f32, f32, f32)> {
+    match kind {
+        // A bar: low, warm, a counter along its back.
+        PlaceKind::Bar => Some((18.0, 22.0, 5.0)),
+        // The trading floor: a hall under a high ceiling, the boards along its back wall.
+        PlaceKind::Exchange => Some((36.0, 48.0, 12.0)),
+        // The Charter Board's hall: its notices on the back wall.
+        PlaceKind::Charter => Some((28.0, 36.0, 9.0)),
+        PlaceKind::HubGate => None,
+    }
 }
 
 /// Every key place. The Hub Gates' terminals stand at the foot of the end cap, on the avenue.

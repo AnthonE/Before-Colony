@@ -22,7 +22,8 @@ struct City {
     origin: vec4<f32>,
     // x: daylight 0..1; y: lamps lit 0..1; z: seconds; w: the sun's elevation (rad).
     day: vec4<f32>,
-    // x: the key light (lux) on the other strips; y: the sky's light (nits); zw: unused.
+    // x: the key light (lux) on the other strips; y: the sky's light (nits); z: 1 while the camera
+    // is in a key place's room (the scene's light is then the room's); w: unused.
     light: vec4<f32>,
 };
 
@@ -33,6 +34,9 @@ const TAU: f32 = 6.2831853;
 const PI: f32 = 3.14159265;
 const FIRST_WINDOW: f32 = 0.4;
 const RADIUS: f32 = 3200.0;
+// A key place's room is lit by its own lamps (nits on a white wall): exposed at EV 8 inside, it's
+// dim seen from the sunlit street through its door, as rooms are.
+const INDOOR: f32 = 300.0;
 
 // Which land strip a point of the colony's frame is over (−1: a window).
 fn strip_of(p: vec3<f32>) -> f32 {
@@ -99,6 +103,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     var rough = 0.85;
     var metal = 0.0;
     var glow = vec3(0.0);
+    var indoor = false;
 
     if (surface == 0u) {
         // The ground, from the block atlas: streets, the avenue, parks, yards. The canal's channel is
@@ -202,6 +207,75 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         rough = 0.8;
     }
 
+    if (surface >= 14u && surface <= 18u) {
+        // Inside a key place's room (`city_mesh::Surface::Interior` to `Display`), its seed what the
+        // place is: 1 the bar, 2 the Exchange, 3 the Charter Board.
+        indoor = true;
+        let kind = u32(seed + 0.5);
+        let bar = kind == 1u;
+        if (surface == 14u) {
+            // Plaster over a dark dado (walls' UVs are metres along, and up from the street).
+            let dado = step(uv.y, 1.3);
+            let plaster = select(vec3(0.74, 0.72, 0.68), vec3(0.6, 0.45, 0.32), bar);
+            albedo = mix(plaster, vec3(0.2, 0.15, 0.11), dado) * (0.94 + 0.08 * noise3(vec3(uv * 0.7, 4.0)));
+            rough = 0.8;
+        } else if (surface == 15u) {
+            // Polished stone tiles; the bar's boards.
+            if (bar) {
+                let plank = fract(uv.y / 0.25);
+                albedo = vec3(0.32, 0.2, 0.11) * (0.8 + 0.3 * hash13(vec3(floor(uv.y / 0.25), floor(uv.x / 2.4), 6.0)));
+                albedo *= mix(0.7, 1.0, step(0.06, plank));
+                rough = 0.55;
+            } else {
+                let j = min(fract(uv.x / 1.2), fract(uv.y / 1.2));
+                let tile = hash13(vec3(floor(uv / 1.2), 8.0));
+                albedo = mix(vec3(0.62, 0.6, 0.56), vec3(0.42, 0.42, 0.44), step(0.5, tile)) * mix(0.75, 1.0, step(0.03, j));
+                rough = 0.25;
+            }
+        } else if (surface == 16u) {
+            // The ceiling and its lamps: panels in a grid (warm in the bar).
+            let g = abs(fract(uv / 5.0) - vec2(0.5));
+            let panel = step(max(g.x, g.y), 0.14);
+            albedo = vec3(0.82, 0.8, 0.77);
+            glow = select(vec3(1.0, 0.96, 0.9), warm, bar) * panel * 2600.0;
+        } else if (surface == 17u) {
+            // The counter: a steel desk; the bar's polished wood.
+            albedo = select(vec3(0.2, 0.22, 0.24), vec3(0.34, 0.18, 0.08), bar);
+            rough = 0.3;
+            metal = select(0.6, 0.0, bar);
+        } else {
+            // The back wall: what the place is.
+            if (kind == 2u) {
+                // The Exchange's boards: rows of prices, green and amber, changing every few seconds.
+                let band = step(3.0, uv.y) * step(fract((uv.y - 3.0) / 1.1), 0.7);
+                let cell = vec3(floor(uv.x / 0.9), floor((uv.y - 3.0) / 1.1), floor(city.day.z / 3.0));
+                let lit = step(0.25, hash13(cell));
+                let tint = mix(vec3(0.25, 1.0, 0.45), vec3(1.0, 0.62, 0.15), step(0.6, hash13(cell.xyz + vec3(0.0, 0.0, 5.0))));
+                albedo = vec3(0.04, 0.045, 0.05);
+                glow = tint * lit * band * 900.0;
+            } else if (kind == 3u) {
+                // The Charter Board: notices pinned on cork, lit by lamps over them.
+                let fx = fract(uv.x / 1.4);
+                let fy = fract((uv.y - 1.4) / 1.0);
+                let cell = vec3(floor(uv.x / 1.4), floor((uv.y - 1.4) / 1.0), 9.0);
+                let paper = step(0.1, fx) * step(fx, 0.85) * step(0.1, fy) * step(fy, 0.9)
+                    * step(1.4, uv.y) * step(uv.y, 6.4) * step(hash13(cell), 0.75);
+                albedo = mix(vec3(0.36, 0.25, 0.15), vec3(0.9, 0.88, 0.8), paper);
+                glow = warm * paper * 60.0;
+            } else {
+                // The bar's shelves: bottles catching the lamps.
+                let rows = step(1.2, uv.y) * step(uv.y, 3.6);
+                let shelf = step(fract((uv.y - 1.2) / 0.6), 0.08);
+                let neck = step(0.2, fract(uv.x / 0.16)) * step(fract(uv.x / 0.16), 0.7) * step(0.15, fract((uv.y - 1.2) / 0.6));
+                let bottle = rows * neck * (1.0 - shelf);
+                let hue = hash13(vec3(floor(uv.x / 0.16), floor((uv.y - 1.2) / 0.6), 2.0));
+                albedo = mix(vec3(0.28, 0.16, 0.08), mix(vec3(0.1, 0.3, 0.12), vec3(0.45, 0.25, 0.05), hue), bottle);
+                glow = warm * bottle * 140.0;
+                rough = mix(0.6, 0.15, bottle);
+            }
+        }
+    }
+
     pbr.material.base_color = vec4(albedo, 1.0);
     pbr.material.perceptual_roughness = rough;
     pbr.material.metallic = metal;
@@ -210,6 +284,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     pbr.specular_occlusion *= ao;
 
     // On the camera's strip, the scene's sun and shadows; elsewhere, that strip's own sun and sky.
+    // From inside a room the scene's light is the room's, so the street through its door is lit by
+    // its own sun and sky as the other strips are (and blazes, at the room's exposure). A room's
+    // own surfaces are lit by its lamps.
     var out: FragmentOutput;
     let lit = apply_pbr_lighting(pbr);
     let k = strip_of(p);
@@ -217,7 +294,11 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let key = max(dot(n, key_light(max(k, 0.0))), 0.0) * city.light.x / PI;
     let sky = city.light.y * (0.6 + 0.4 * dot(n, strip_up(max(k, 0.0))));
     let own = vec4((albedo * (key + sky) * ao) * view.exposure + glow * view.exposure, 1.0);
-    out.color = select(own, lit, k < 0.0 || abs(k - city.origin.w) < 0.5);
+    let scene = (k < 0.0 || abs(k - city.origin.w) < 0.5) && city.light.z < 0.5;
+    out.color = select(own, lit, scene);
+    if (indoor) {
+        out.color = vec4((albedo * INDOOR * ao + glow) * view.exposure, 1.0);
+    }
     out.color = main_pass_post_lighting_processing(pbr, out.color);
     return out;
 }

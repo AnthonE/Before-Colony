@@ -477,7 +477,10 @@ server see the same walls.
   strip, the lamps. Every client's colony shows the same hour.
 - **The city's rules** (`colony::city`) turn a block's strip and grid cell into what stands
   there with an integer hash: its district (`content::city`), its kind (buildings, park, plaza,
-  canal, site, a key place, a landmark tower) and up to nine buildings. `texel` sums each block up
+  canal, site, a key place, a landmark tower) and up to nine buildings. A key place's hall has a
+  room behind its door (`city::room`, a closed form of the place): the hall's solids are its walls
+  round the room, the door's lintel, what's over the ceiling and the counter, so the walker, the
+  server's checks and the meshes all have it. `texel` sums each block up
   in four bytes: the client bakes them into a 256 × 81 texture, and the shaders paint the streets
   and the city seen through the windows from it (`bc::city`, `shaders/city_lib.wgsl`, its constants
   checked against Rust by `bc_client_core::city_atlas`'s tests). Shaders never re-implement the

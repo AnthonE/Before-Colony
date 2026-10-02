@@ -1,8 +1,10 @@
-# Before Colony wire protocol (v16)
+# Before Colony wire protocol (v18)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v18 (from v17): the key places' rooms in the city (`content::city::CITY_VERSION` 2).
 
 ## Quantization
 
@@ -430,7 +432,8 @@ The colony (the Welcome sets COLONY: a survival server run with `--colony`): fro
 the market keep coming (the Exchange floor's terminal is the bay's), and `launch` is refused.
 `leave_city` answers `place: hangar`. The city itself is compiled content (`bc_sim::colony::city`,
 `content::city::CITY_VERSION`), the same on every client and the server, so any change to it bumps
-the protocol version. Walking the city is the client's own, as in the bay; where the pilot stands goes
+the protocol version (v18: the rooms behind the key places' doors, walked into and checked as any
+of the city's walls). Walking the city is the client's own, as in the bay; where the pilot stands goes
 to the server in pose datagrams (above), for the others there to see.
 
 ### Setting up the sector

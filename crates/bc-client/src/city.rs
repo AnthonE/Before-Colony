@@ -61,6 +61,13 @@ const HAZE_NOON: Vec3 = Vec3::new(5_200.0, 8_000.0, 13_500.0);
 /// The camera's exposure (EV100) at noon, following the light down (as an eye's would) until night's.
 const EV_NOON: f32 = 14.5;
 const EV_NIGHT: f32 = 9.0;
+/// In a key place's room (`colony::city::Room`): the exposure, its lamps' light on what isn't the
+/// room's own (people, a bench; lux, from overhead) and the ambient's (nits), and how fast the eye
+/// adapts going in or out (1/s).
+const EV_INDOOR: f32 = 8.0;
+const INDOOR_LUX: f32 = 900.0;
+const INDOOR_SKY: f32 = 40.0;
+const ADAPT: f32 = 3.0;
 
 pub struct CityPlugin;
 
@@ -150,7 +157,8 @@ pub struct CityParams {
     pub origin: Vec4,
     /// x: daylight; y: lamps lit; z: seconds; w: the sun's elevation (rad).
     pub day: Vec4,
-    /// x: the key light (lux) on the other strips; y: the sky's light (nits).
+    /// x: the key light (lux) on the other strips; y: the sky's light (nits); z: 1 while the camera
+    /// is in a key place's room.
     pub light: Vec4,
 }
 
@@ -553,35 +561,58 @@ fn light_city(
     mut ambient: ResMut<GlobalAmbientLight>,
     mut materials: ResMut<Assets<CityMaterial>>,
     mut insides: ResMut<Assets<InsideMaterial>>,
+    status: Option<ResMut<crate::dev_hooks::DevStatus>>,
+    mut adapted: Local<Option<f32>>,
 ) {
     if !view.active {
+        *adapted = None;
         return;
     }
     let Ok((cam, cam_tf)) = cams.single() else { return };
     let d = hour.0;
     let eye = camera_point(&origin, cam_tf).as_vec3();
-    let strip = match from_colony(eye) {
-        Under::Land(c) => c.strip as usize,
-        Under::Window { k, .. } => k as usize,
+    let (strip, room) = match from_colony(eye) {
+        Under::Land(c) => (c.strip as usize, bc_sim::colony::city::room_at(c.strip, c.s, c.x, c.h)),
+        Under::Window { k, .. } => (k as usize, None),
     };
     let to_sun = key_light(strip, &d);
     let daylight = d.daylight;
-    let ev = (EV_NOON + daylight.max(1e-4).log2()).max(EV_NIGHT);
+    // The eye adapts to where it is: the day outside, or a room's lamps.
+    let target = if room.is_some() { EV_INDOOR } else { (EV_NOON + daylight.max(1e-4).log2()).max(EV_NIGHT) };
+    let ev = match *adapted {
+        Some(e) => e + (target - e) * (1.0 - (-ADAPT * time.dt.min(0.25)).exp()),
+        None => target,
+    };
+    *adapted = Some(ev);
     let exposure = 1.0 / (2f32.powf(ev) * 1.2);
     let haze = HAZE_NOON * daylight + Vec3::new(14.0, 18.0, 30.0) * (1.0 - daylight);
     let sky = NOON_SKY * daylight + 6.0;
     let lux = NOON_LUX * daylight;
     // Warmer when the mirrors are low.
     let warm = (1.0 - (d.sun_elev / 0.9).min(1.0)) * daylight.min(1.0);
+    let up = (-Vec3::new(0.0, eye.y, eye.z)).normalize_or(Vec3::Y);
     for (mut light, mut tf) in &mut suns {
-        light.illuminance = lux;
-        light.color = Color::linear_rgb(1.0, 0.97 - 0.17 * warm, 0.94 - 0.39 * warm);
-        light.shadow_maps_enabled = gfx.settings.shadows;
-        let up = (-Vec3::new(0.0, eye.y, eye.z)).normalize_or(Vec3::Y);
-        *tf = Transform::default().looking_to(-to_sun, up);
+        if room.is_some() {
+            // In a room, the scene's one light is its lamps, from overhead.
+            light.illuminance = INDOOR_LUX;
+            light.color = Color::linear_rgb(1.0, 0.93, 0.82);
+            light.shadow_maps_enabled = false;
+            *tf = Transform::default().looking_to(-up, Vec3::X);
+        } else {
+            light.illuminance = lux;
+            light.color = Color::linear_rgb(1.0, 0.97 - 0.17 * warm, 0.94 - 0.39 * warm);
+            light.shadow_maps_enabled = gfx.settings.shadows;
+            *tf = Transform::default().looking_to(-to_sun, up);
+        }
     }
     ambient.color = Color::srgb(0.78, 0.85, 1.0);
-    ambient.brightness = sky;
+    ambient.brightness = if room.is_some() { INDOOR_SKY } else { sky };
+    if let Some(mut status) = status {
+        // `window.__bc`: the room the camera is in (its place's slug), and the exposure.
+        status
+            .set("city_room", room.map_or("", |r| bc_sim::content::city::PLACES[usize::from(r.place)].slug));
+        status.set("city_ev", ev);
+    }
     let fog = haze * exposure;
     commands.entity(cam).insert((
         Exposure { ev100: ev },
@@ -599,7 +630,7 @@ fn light_city(
         m.extension.city = CityParams {
             origin: o.extend(strip as f32),
             day: Vec4::new(daylight, d.lamps, (time.now % 3_600.0) as f32, d.sun_elev),
-            light: Vec4::new(lux, sky, 0.0, 0.0),
+            light: Vec4::new(lux, sky, if room.is_some() { 1.0 } else { 0.0 }, 0.0),
         };
     }
     if let Some(mut m) = insides.get_mut(&streamer.inside) {

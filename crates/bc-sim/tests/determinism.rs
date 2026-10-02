@@ -690,9 +690,9 @@ fn surface_golden_wasm() {
 
 /// Hash of the colony's closed forms: the city's blocks and buildings on every strip (every fifth
 /// block along, every row), what's solid at scattered points, the colony's day and its frames,
-/// and its trams (their timetable, the stations' platforms).
-/// Every client draws and walks this, and the server checks poses against it.
-const CITY_GOLDEN: u64 = 0xa794_5f3a_f31a_0372;
+/// its trams (their timetable, the stations' platforms), and the key places' rooms and the halls
+/// round them. Every client draws and walks this, and the server checks poses against it.
+const CITY_GOLDEN: u64 = 0x3a9e_d960_4c23_7688;
 
 fn city_hash() -> u64 {
     use bc_sim::colony::{city, frame, time};
@@ -766,6 +766,28 @@ fn city_hash() -> u64 {
         let p = glam::Vec3::new(x, 0.3, -frame::STRIP_WIDTH * 0.5 - 1.0);
         let e = glam::Vec3::new(0.3, 0.9, 0.3);
         fnv(&mut h, u32::from(city::solid((i % 3) as u8, p - e, p + e, stage)));
+    }
+    // The key places' rooms, and the halls round them.
+    use bc_sim::content::city::PLACES;
+    for (i, p) in PLACES.iter().enumerate() {
+        let Some(room) = city::room(i) else { continue };
+        let ((cs, cx), _) = room.counter_spot();
+        for r in [room.rect, room.door, room.counter] {
+            for v in [r.s0, r.s1, r.x0, r.x1] {
+                fnv(&mut h, v.to_bits());
+            }
+        }
+        for v in [room.ceiling, cs, cx] {
+            fnv(&mut h, v.to_bits());
+        }
+        let b = city::block(p.strip, p.bx, p.row, stage).expect("its block");
+        let mut boxes = [city::CityBox::default(); city::MAX_SOLIDS];
+        let n = city::lots(&b).as_slice()[0].solids(&mut boxes);
+        for bx in &boxes[..n] {
+            for v in [bx.rect.s0, bx.rect.s1, bx.rect.x0, bx.rect.x1, bx.h0, bx.h1] {
+                fnv(&mut h, v.to_bits());
+            }
+        }
     }
     h
 }

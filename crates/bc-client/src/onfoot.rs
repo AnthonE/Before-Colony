@@ -470,7 +470,8 @@ impl CityFoot {
         (colony_point(eye), local_frame(self.strip, eye.s) * self.walker.look())
     }
 
-    /// The place whose door the pilot stands at, facing it.
+    /// The place the pilot can use where they stand, facing it: at its counter, in the room behind
+    /// its door (`bc_sim::colony::city::Room`), or at Hub Gate's door.
     fn door_in_view(&self) -> Option<usize> {
         if self.ride.is_some() || self.drive.is_some() || self.seat.is_some() {
             return None;
@@ -479,8 +480,8 @@ impl CityFoot {
         let h = self.walker.heading();
         // Facing, in city terms: x along is the walker's x, s across its −z.
         let (hs, hx) = (-h.z, h.x);
-        PLACES.iter().enumerate().filter(|(_, p)| p.strip == self.strip).find_map(|(i, p)| {
-            let ((s, x), (ds, dx)) = place_door(p);
+        PLACES.iter().enumerate().filter(|(_, p)| p.strip == self.strip).find_map(|(i, _)| {
+            let ((s, x), (ds, dx)) = city_nav::use_spot(i);
             let near = (at.s - s).hypot(at.x - x) < DOOR_REACH;
             (near && hs * ds + hx * dx > 0.3).then_some(i)
         })
@@ -497,16 +498,15 @@ impl CityFoot {
             self.guide = Some(Guide::new(city_nav::route(self.strip, (at.s, at.x), sights::stand(i)), None));
             return true;
         }
-        let Some((_, p)) = bc_sim::colony::city::place(slug) else { return false };
+        let Some((i, p)) = bc_sim::colony::city::place(slug) else { return false };
         if p.strip != self.strip {
             return false;
         }
-        let ((s, x), (ds, dx)) = place_door(p);
-        let at = self.feet();
+        let ((s, x), (ds, dx)) = city_nav::use_spot(i);
         let facing = CityPos::new(self.strip, x + dx, s + ds, 0.0).walker()
             - CityPos::new(self.strip, x, s, 0.0).walker();
-        self.guide =
-            Some(Guide::new(city_nav::route(self.strip, (at.s, at.x), (s, x)), Some(facing.normalize())));
+        let route = city_nav::route_to_place(self.strip, self.feet(), i);
+        self.guide = Some(Guide::new(route, Some(facing.normalize())));
         true
     }
 }
@@ -1008,7 +1008,7 @@ pub fn drive_onfoot(
                 }
                 PlaceKind::Exchange => ui.panel = Panel::Terminal(Spot::Exchange),
                 PlaceKind::Charter => ui.panel = Panel::Board,
-                PlaceKind::Bar => ui.toast("THE ARRIVAL · A BAR TO MEET IN · QUIET FOR NOW"),
+                PlaceKind::Bar => ui.toast("THE ARRIVAL · THE BAR'S QUIET FOR NOW · THE SEATS ARE OUT FRONT"),
             }
         }
     } else if let Some(c) = me.city.as_mut() {
