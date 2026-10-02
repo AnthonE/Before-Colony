@@ -861,7 +861,8 @@ hangar bay on foot, building suits, and the Colony Exchange; Milestone 4 wear an
 systems inside the parts, statuses, equipment, overhauls, and the world bible (`STORY.md`).
 
 The direction is a living colony its pilots build and run: SimCity's colony projects and GTA's
-jobs, law and traffic, on an economy whose sinks keep demand turning over.
+jobs, law and traffic, on an economy whose sinks keep demand turning over. `PEERS.md` says what
+the nearest games teach, and which of the items below come first and why.
 
 - **Consumables and a survival hotbar** (keys 1–4, which survival leaves free): patch kits (seal a
   leak, restart a failed system for a while), coolant flushes, chaff against missile locks,

@@ -3,6 +3,8 @@
 A Gundam Wing space MMO (free aim, Newtonian 6DOF). Rust server, Bevy 0.19 client compiled to wasm,
 WebTransport (QUIC) between them. See `docs/ARCHITECTURE.md` and `docs/DESIGN.md`; `docs/CONTROLS.md`
 surveys what players of similar games expect of the controls (read it before changing a binding);
+`docs/PEERS.md` is what the nearest games teach us, with priorities (read it before adding a system players will
+compare with theirs);
 `docs/STORY.md` is the world bible (setting, factions, eras, voice: read it before writing in-game text);
 `docs/COLONY.md` is the plan for the First Colony's inside (Milestone 5), `docs/SUITS_INSIDE.md` the design for
 suits inside it.

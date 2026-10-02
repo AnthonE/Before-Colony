@@ -34,6 +34,9 @@ So players arrive with three sets of habits that disagree with each other:
 We can't meet all three by default. The pillars choose for us: free aim with no gun lock, and
 Newtonian flight. The cost is paid in reading aids and onboarding.
 
+`PEERS.md` looks at the nearest games beyond their controls: what each has of the whole fantasy,
+and what we take from it.
+
 ## The cockpit view
 
 Tab, or the mouse wheel (in for the cockpit, out to chase), switches between the chase camera and
