@@ -9,6 +9,7 @@
 #   scripts/e2e.sh hangar [project]  # survival: on foot in the bay, its terminals, launching and docking
 #   scripts/e2e.sh surface [project] # the lander lands in MO-II's Aft Well, hides, parks and wakes there
 #   scripts/e2e.sh colony [project]  # survival, the colony open: the cap lift, another pilot at Hub Gate, the streets, the Exchange floor
+#   scripts/e2e.sh inside [project]  # survival, the colony open: Q at the cockpit launches the suit into the colony, it flies there, docks back at the inner gate
 #   scripts/e2e.sh chart [project]   # the chart: the Earth Sphere and back, a course to MO-II's Aft Well, the auto-nav flying it
 # Anything after the project goes to Playwright, e.g. `scripts/e2e.sh gfx webgl2 --grep "duel|hangar"`.
 # The suits' suites run the arcade rules (any frame, free respawns) unless BC_RULES says otherwise,
@@ -67,7 +68,7 @@ case "$suite" in
     ./target/release/bc-server --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --craft-speed 60 --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls 0 &
     pids+=($!)
     ;;
-  colony)
+  colony|inside)
     # Survival rules with the colony open; no dolls. An agent strolls outside Hub Gate.
     ./target/release/bc-server --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --colony --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls 0 &
     pids+=($!)

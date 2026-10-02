@@ -17,8 +17,10 @@ pub struct InsidePlugin;
 
 impl Plugin for InsidePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_gate)
-            .add_systems(Update, inside_view.after(crate::view::Vis::Suits).before(crate::view::Vis::Camera));
+        app.add_systems(Startup, setup_gate).add_systems(
+            Update,
+            (inside_view.after(crate::view::Vis::Suits).before(crate::view::Vis::Camera), publish),
+        );
     }
 }
 
@@ -48,6 +50,13 @@ fn setup_gate(
         RenderLayers::layer(CITY_LAYER),
         Visibility::Hidden,
     ));
+}
+
+/// `window.__bc.interior`: the pilot's sector is the colony's inside.
+fn publish(game: NonSend<GameClient>, status: Option<ResMut<crate::dev_hooks::DevStatus>>) {
+    if let Some(mut status) = status {
+        status.set("interior", game.borrow().core.welcome.is_some_and(|w| w.interior));
+    }
 }
 
 /// While the pilot flies inside the colony: the render origin at the axis, every suit (and all of

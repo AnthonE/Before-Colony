@@ -56,6 +56,12 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   await page.fill('[data-key="qty:buy:mat.ti_alloy"]', "100");
   await page.click('[data-act="order"]');
   await expect(page.locator("#term-log")).toContainText("BOUGHT", { timeout: 30_000 });
+  // The Charter Board, a tab away: the colony's contracts and its great works.
+  await page.click('[data-tab="charter"]');
+  await expect(page.locator("#term-body")).toContainText("THE COLONY", { timeout: 30_000 });
+  await expect(page.locator("#term-body")).toContainText("A SECOND FOUNDRY");
+  await expect(page.locator("#term-body")).toContainText("BEFORE COLONY");
+  await page.screenshot({ path: "artifacts/charter.png" });
   await page.keyboard.press("Escape");
   await until(page, "the terminal closed", (s) => !s.terminal, 10_000);
 
