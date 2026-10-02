@@ -1,4 +1,4 @@
-# Before Colony wire protocol (v12)
+# Before Colony wire protocol (v16)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
@@ -27,7 +27,7 @@ of every datagram give the packet kind: `1` = input, `2` = snapshot.
 | client_time_ms (echoed for RTT) | 16 |
 | count − 1 | 2 |
 | newest command's tick | 32 |
-| `count` × `InputCmd` body, newest first (ticks descend by 1) | 106 each |
+| `count` × `InputCmd` body, newest first (ticks descend by 1) | 107 each, 169 locked on |
 
 `InputCmd` body:
 
@@ -40,11 +40,21 @@ of every datagram give the packet kind: `1` = input, `2` = snapshot.
 | buttons (below) | 16 |
 | lock target (entity slot, 1023 = none) | 10 |
 | shot_seq | 8 |
+| locked on (a `LockOn` follows) | 1 |
+| `LockOn`, when locked on: ref_vel (3 × 14, centred grid over ±2 048 m/s: 0.25 m/s steps, zero exact) | 42 |
+| `LockOn`: up (octahedral, 2 × 10) | 20 |
+
+**Locked on** (`docs/LOCK.md`): flight assist holds the suit's velocity relative to `ref_vel` (the
+target's, as the pilot sees it), reading the stick in axes levelled to `up` (the stick's up; its
+forward the aim laid flat), and the suit rolls level with `up`. The server checks neither against
+the target: the simulation caps `ref_vel` at the frame's boosted cruise, and that's all a lock-on
+can ask for. A free suit only; on a body the grip's rules fly it.
 
 Buttons, by bit: 0 FIRE_PRIMARY, 1 FIRE_SECONDARY, 2 MELEE, 3 BOOST, 4 BRAKE, 5 FLIGHT_ASSIST*,
 6 ZERO*, 7 RCS_SHARP, 8 GRAB*, 9 STOW, 10 THROW, 11 JETTISON, 12 MODE* (the frame's mode: Neo-Bird,
 Hyper Jammer), 13 SPECIAL (the frame's special attack: Full Open Attack, Cross Crusher), 14 GRIP*
-(land on a body near enough and slow enough, and keep hold of it; clear: let go), 15 reserved.
+(land on a body near enough and slow enough, and keep hold of it; clear: let go), 15 BURST (a
+burst step along the stick: it starts on the press, so a repeated command never steps again).
 Starred bits are states.
 
 `aim` is in the sector's frame, on a body or not. On its feet on a body, a suit reads `thrust` as
@@ -52,10 +62,10 @@ legs: x and z walk (Shift runs), and `thrust[1]` sets the stance and stays set: 
 crouches, 32 or more stands, 100 or more (standing) hops, and anything between keeps the stance it
 has, so a silent client stays crouched.
 
-Four commands fit in 64 bytes (86 + 4 × 106 bits). A client sending several ticks at once sends
+Four commands fit in 65 bytes (86 + 4 × 107 bits), or 96 locked on (86 + 4 × 169). A client sending several ticks at once sends
 overlapping windows two ticks apart, so each command is in two packets. States persist while a
 client is silent (the server repeats its last command, keeping only FLIGHT_ASSIST, ZERO, GRAB,
-MODE and GRIP); presses (STOW, THROW, JETTISON, MELEE, SPECIAL) act on the tick they first appear, and a
+MODE and GRIP, and the lock-on for 30 ticks more); presses (STOW, THROW, JETTISON, MELEE, SPECIAL, BURST) act on the tick they first appear, and a
 repeated command never fires.
 
 Lag compensation reaches back at most 8 ticks. A view delta of 128 or more (8 ticks) resolves at
@@ -66,7 +76,7 @@ exactly `tick − 8`, so the 8-bit field's saturation at 15.9 ticks loses nothin
 | Section | Content |
 |---|---|
 | header (116 bits) | kind=2, tick, ack_input_tick, input_health (i8), time_echo_ms, echo_hold_ms, tidi_pct, flags |
-| own (1 + 780..800 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, systems (24), modules (20), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, the rack (8: 2 bits a consumable), a stim's clock (12, ticks), extra mass (kg, i18), cargo ×4 (kg, 14 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special cooldown (8, ticks ÷ 4), arms (46, below), footing (2), cover (2), and on a body its body (6 or 12) and stance (8) (below) |
+| own (1 + 797..817 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, systems (24), modules (20), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, the rack (8: 2 bits a consumable), a stim's clock (12, ticks), extra mass (kg, i18), cargo ×4 (kg, 14 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special cooldown (8, ticks ÷ 4), arms (46, below), burst step (17, below), footing (2), cover (2), and on a body its body (6 or 12) and stance (8) (below) |
 | ZERO (1 + ≤200 bits) | source_jev, advice_age, threat_count, per threat {slot, 7 × p}, rec_target + p, rec_maneuver + p, threat_level + confidence, flanked, has_solution, solution (oct 2×12), hit_p |
 | events | repeated `[1][event]`, closed by `[0]` |
 | rocks | repeated `[1][rock]` (18 bits each), closed by `[0]` |
@@ -82,7 +92,7 @@ ZERO's presence bit and the five lists' terminators.
 
 | | Own flying free | Own on a rock (the largest) |
 |---|---|---|
-| Fixed | 903 bits | 923 bits |
+| Fixed | 920 bits | 940 bits |
 | Free suits (1 + 211 bits each), nothing else | 37 | 37 |
 | Suits on bodies (1 + 194 bits each), nothing else | 40 | 40 |
 | Room kept for six of the largest objects (6 × 233 bits) | 30 free / 33 riders | 30 / 33 |
@@ -140,6 +150,10 @@ Own-state notes:
   for heat (6 bits each; 63 = not until something the client can't foresee changes: an arm shot
   off, energy or rounds run out), and each gun slot's missile salvo under way (rounds left, 3;
   ticks to the next, 2). Heat is the OVERHEAT flag, and the lockout after Full Open follows it.
+- The burst step (`bc_sim::flight::Burst`), which the client rolls on from the snapshot as the
+  server does: ticks of the step still to drive (4), ticks until another can start (6), the
+  stick's direction at its press (3 × 2 bits: 0 back, 1 none, 2 forward on each axis; 3 is
+  invalid), and whether BURST was held last tick (1), so a press is told from a held button.
 - `weapon_ready` has a bit each for the primary, secondary, melee weapon and the frame's special.
 - Footing (2 bits): 0 flying free, 1 on its feet (or knees) on a body, 2 in a body's grip in the
   air; 3 is invalid. Unless it is 0, the body's `BodyRef` and the stance follow: how high the
@@ -157,6 +171,10 @@ Own-state notes:
   MISSILE_INCOMING (a guided missile is tracking you), PARKABLE (you're on your feet on a body, or
   resting against a rock or a landmark, slowly enough to park: a signed-in pilot who leaves now
   stays parked there).
+- Charge is the primary's, as a fraction: the Twin Buster's charge, or on a weapon with a charged
+  shot (the beam rifle) how long its trigger has been held, from the press to a full charge (1:
+  let go and the charged shot, weapon kind 19, leaves). CHARGING, here and on the entity, is the
+  Twin Buster charging or a charged shot held past its tap.
 - The lock target is the designation the server accepted: alive, hostile and on your sensors.
   Lock progress counts 0–15 toward a missile lock on it; LOCK_ACQUIRED says it's there.
   LOCKED_ON ignores locks by suits you can't see (a jamming suit's lock goes unnoticed).
@@ -240,7 +258,8 @@ coordinates, where the city stands still: `x` along (22 bits over ±16,384 m), `
 strip's edge (19 bits over 0–4,096 m), `h` up (15 bits over −8–248 m), all in 7.8 mm steps; the
 walker's yaw (10 bits), pitch (8 bits over ±90°), speed over the ground (6 bits, 0.2 m/s steps to
 12.6), GROUNDED and RUNNING, and what they ride (4 bits: 0 on foot, `k` + 1 on train `k` of the
-strip's line, 13 driving a car, 14 on a scooter), 86 bits in all. A rider's `x`, `s` and `h` are from their train's middle, from its
+strip's line, 13 driving a car, 14 on a scooter, 15 sitting on a seat: v16 gave 15 that meaning,
+with no new bits), 86 bits in all. A rider's `x`, `s` and `h` are from their train's middle, from its
 track's middle plus 2,048 m, and from its floor: everyone draws them inside the train wherever
 their own screen has it (`transit::train` is a closed form of the tick).
 
@@ -254,7 +273,9 @@ A pose is taken only if it could be: on the pilot's strip, inside the colony, ou
 first within 150 m of the strip's Hub Gate, and newer (`seq`) than the last. A rider must be inside
 their train's cars; getting on or off, within 8 m of the train while it stood with its doors open
 (within 3 s of the sector's tick). A driver's first pose must be at a motor pool
-(`bc_sim::colony::pools`), and no driver goes faster than 45.5 m/s. Anything else isn't
+(`bc_sim::colony::pools`), and no driver goes faster than 45.5 m/s. A seated pose must be on a
+seat (`bc_sim::colony::city::arrival_seats`, within 0.3 m), and stays put on it until its pilot
+stands. Anything else isn't
 passed on (`/status`'s `city.refused_poses`). Each pilot is sent the people on their strip within
 1.5 km of them, heard from in the last 5 s, nearest first; their names come once each on the
 control stream (`people`). The plaza's tick keeps a client's clock (and the colony's day) when no
@@ -277,7 +298,7 @@ prefix, except the hangar's (tag 11), which may carry up to 64 KiB.
 | 8 | Auth {address (20 B), signature (65 B: r, s, v)} | client → server |
 | 9 | Token {resume token (32 B)} | server → client |
 | 10 | Notice {code: 1 your sleeping suit was destroyed, 2 your sleeping suit is gone; name ≤ 16 B (who, for 1)} | server → client |
-| 11 | Hangar {JSON, `bc_econ::wire`: a Request up, an Update down} | either (survival rules) |
+| 11 | Hangar {JSON, `bc_econ::wire`: a Request up, an Update down} | either (survival rules; the radio's `say` and `said` under any) |
 
 Pilots claiming to be a server-side Mobile Doll are downgraded to `Agent`.
 
@@ -363,6 +384,7 @@ Client → server (`Request`):
 | `contribute` | `work` (`second_foundry`, `militia_hangar`), `item`, `qty` | deliver to one of the colony's great works |
 | `sign` | | sign the charter (the vote open, and the pilot of standing) |
 | `use_kit` | `kit` (`patch_kit`, `coolant`, `chaff`, `stim`) | in flight: use one from the suit's rack (the hotbar; nothing answers, the own state shows it) |
+| `say` | `text` | a line on the colony's radio, to everyone connected, under any rules: control characters stripped, whitespace made single spaces, cut to 160 characters; at most 5 lines in 10 s (more get a refusing `note`). Never logged; `/status` counts them (`radio_lines`) |
 
 Items are slugs: `ore.nickel_iron`, `mat.steel`, `mat.components`, `part.leo.torso`,
 `weapon.beam_rifle`, `module.g_seat`. Parts are
@@ -380,7 +402,8 @@ news: a job done, an order filled); `sortie` {`outcome`: `docked`, `lost`, `reco
 datagrams use); `charter` (the Charter Board, while watched: the era, the contracts with their
 `task` (`{"kind": "supply", "item", "qty", "delivered"}` or `{"kind": "patrol", "bounty",
 "earned"}`), reward, paid and seconds left, the great works with what each needs and has, their
-top contributors, the pilot's standing and the charter's signatures). A suit (in the bay, or out) carries
+top contributors, the pilot's standing and the charter's signatures); `said` {`from`, `text`} (a line on the colony's radio, the speaker's own included,
+from the moment the pilot was welcomed, in the order the server heard them). A suit (in the bay, or out) carries
 `faults`, a map from system slug to `damaged` or `failed` (absent when everything works), and
 `modules`, its five equipment mounts' slugs (or `null`); a part on the shelf carries its own
 `faults`.

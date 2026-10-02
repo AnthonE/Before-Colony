@@ -27,10 +27,10 @@ use bc_client_core::walker::{Guide, Stride, Walker};
 use bc_econ::item::thousands;
 use bc_econ::wire::{Outcome, Place, Request};
 use bc_econ::{Bay, Suit};
-use bc_proto::presence::PersonPose;
+use bc_proto::presence::{PersonPose, RIDE_SEATED};
 use bc_sim::colony::city::{
-    AVENUE as AVENUE_WIDTH, BLOCK, Stage, TERMINAL_HEIGHT, district_at, grid_x, place_door, row_span,
-    terminal_rect,
+    AVENUE as AVENUE_WIDTH, BLOCK, Stage, TERMINAL_HEIGHT, arrival_seats, district_at, grid_x, place_door,
+    row_span, seat_near, terminal_rect,
 };
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, local_frame, up_at};
 use bc_sim::colony::hub::BAY_RADIUS;
@@ -154,7 +154,12 @@ pub struct CityFoot {
     chase: bool,
     /// The colony's tick the trains are at.
     tick: (u32, f32),
+    /// Sitting on one of The Arrival's seats (`bc_sim::colony::city::arrival_seats`).
+    pub seat: Option<usize>,
 }
+
+/// Seated, the eye is this much lower than standing, m.
+const SEATED_DROP: f32 = 0.55;
 
 /// Station `i` of strip `strip`'s line, by name: Hub Gate's, then the district it's in.
 fn station_name(strip: u8, i: usize) -> String {
@@ -190,7 +195,42 @@ impl CityFoot {
             drive: None,
             chase: true,
             tick: (0, 0.0),
+            seat: None,
         }
+    }
+
+    /// Sits on seat `k`, facing out from it.
+    fn sit(&mut self, k: usize) {
+        let t = arrival_seats()[k];
+        self.walker.feet = CityPos::new(self.strip, t.x, t.s, self.feet().h).walker();
+        self.walker.vel = Vec3::ZERO;
+        self.walker.yaw = t.yaw;
+        self.guide = None;
+        self.seat = Some(k);
+    }
+
+    /// Stands up off the seat, a step out in front of it.
+    fn stand(&mut self) {
+        if let Some(k) = self.seat.take() {
+            let t = arrival_seats()[k];
+            let (fs, fx) = (-t.yaw.cos(), t.yaw.sin());
+            self.walker.feet =
+                CityPos::new(self.strip, t.x + fx * 0.9, t.s + fs * 0.9, self.feet().h).walker();
+        }
+    }
+
+    /// Walks the pilot to one of The Arrival's seats (a dev hook's errand), to sit on it.
+    fn walk_to_seat(&mut self) -> bool {
+        let t = arrival_seats()[0];
+        if t.strip != self.strip {
+            return false;
+        }
+        let at = self.feet();
+        let facing = CityPos::new(self.strip, t.x + t.yaw.sin(), t.s - t.yaw.cos(), 0.0).walker()
+            - CityPos::new(self.strip, t.x, t.s, 0.0).walker();
+        self.guide =
+            Some(Guide::new(city_nav::route(self.strip, (at.s, at.x), (t.s, t.x)), Some(facing.normalize())));
+        true
     }
 
     /// Takes a vehicle from the motor pool in reach, if there is one.
@@ -290,6 +330,19 @@ impl CityFoot {
 
     /// Where the pilot is, as the plaza has them.
     fn pose(&self) -> PersonPose {
+        if let Some(k) = self.seat {
+            let t = arrival_seats()[k];
+            let p = bc_client_core::city::pose_of(self.strip, &self.walker);
+            return PersonPose {
+                s: t.s,
+                x: t.x,
+                yaw: t.yaw,
+                speed: 0.0,
+                running: false,
+                ride: RIDE_SEATED,
+                ..p
+            };
+        }
         match (self.ride, self.drive) {
             (Some(r), _) => tram::pose_riding(&r, &self.walker, self.strip),
             (None, Some(v)) => v.pose(self.walker.pitch),
@@ -412,16 +465,19 @@ impl CityFoot {
                 Vec3::new(v.yaw.sin(), self.walker.pitch.clamp(-0.4, 0.3).sin(), v.yaw.cos()).normalize();
             return (colony_point(eye), local_frame(self.strip, eye.s) * look);
         }
-        let eye = match (self.ride, self.train()) {
+        let mut eye = match (self.ride, self.train()) {
             (Some(r), Some(t)) => tram::in_city(&r, self.walker.eye(), t),
             _ => CityPos::from_walker(self.strip, self.walker.eye()),
         };
+        if self.seat.is_some() {
+            eye.h -= SEATED_DROP;
+        }
         (colony_point(eye), local_frame(self.strip, eye.s) * self.walker.look())
     }
 
     /// The place whose door the pilot stands at, facing it.
     fn door_in_view(&self) -> Option<usize> {
-        if self.ride.is_some() || self.drive.is_some() {
+        if self.ride.is_some() || self.drive.is_some() || self.seat.is_some() {
             return None;
         }
         let at = self.feet();
@@ -827,6 +883,7 @@ pub fn drive_onfoot(
                 match slug.as_str() {
                     "tram" => c.walk_to_tram(),
                     "pool" => c.walk_to_pool(),
+                    "seat" => c.walk_to_seat(),
                     _ => c.walk_to(slug),
                 };
             }
@@ -858,7 +915,13 @@ pub fn drive_onfoot(
                 got_out = true;
             }
         }
-        let mut left = if c.drive.is_some() { 0.0 } else { walk_dt };
+        // Seated: put, till a step or E gets them up, a step out in front of the seat.
+        let mut stood_up = false;
+        if c.seat.is_some() && (own != Stride::default() || used_key) {
+            c.stand();
+            stood_up = true;
+        }
+        let mut left = if c.drive.is_some() || c.seat.is_some() { 0.0 } else { walk_dt };
         while left > 1e-4 {
             let h = left.min(0.1);
             left -= h;
@@ -876,6 +939,30 @@ pub fn drive_onfoot(
             ui.toast(name);
         }
         c.focus = c.door_in_view();
+        // E by one of The Arrival's seats (no door in view): sit, unless someone's on it.
+        if used_key
+            && !stood_up
+            && !got_out
+            && c.focus.is_none()
+            && c.seat.is_none()
+            && c.drive.is_none()
+            && c.ride.is_none()
+        {
+            let at = c.feet();
+            if let Some(k) = seat_near(c.strip, at.s, at.x) {
+                let t = arrival_seats()[k];
+                let taken = g
+                    .core
+                    .people(now)
+                    .iter()
+                    .any(|(_, _, p)| p.seated() && (p.s - t.s).hypot(p.x - t.x) < 0.5);
+                if taken {
+                    ui.toast("SOMEONE'S SITTING THERE");
+                } else {
+                    c.sit(k);
+                }
+            }
+        }
         g.core.set_pose(Some(c.pose()));
         if let Some(name) = c.reached() {
             ui.toast(name);
@@ -1112,7 +1199,16 @@ pub fn drive_onfoot(
         Seq::Walking if in_city => match me.city.as_ref() {
             Some(c) if c.drive.is_some_and(|v| v.speed.abs() < 3.0) => "E  GET OUT".into(),
             Some(c) if c.drive.is_some() => String::new(),
+            Some(c) if c.seat.is_some() => "SEATED · E OR A STEP TO STAND".into(),
             Some(c) if c.focus.is_some() => format!("E  {}", city_verb(&PLACES[c.focus.unwrap_or(0)])),
+            Some(c)
+                if c.ride.is_none() && {
+                    let at = c.feet();
+                    seat_near(c.strip, at.s, at.x).is_some()
+                } =>
+            {
+                "E  SIT".into()
+            }
             Some(c)
                 if c.ride.is_none() && {
                     let at = c.feet();
@@ -1194,6 +1290,7 @@ pub fn publish_onfoot(me: Res<OnFoot>, ui: Res<Ui>, game: NonSend<GameClient>, m
             dev.set("strip", f64::from(c.strip));
             dev.set("city_feet", format!("{:.1},{:.1},{:.1}", at.x, at.s, at.h));
             dev.set("city_walking_to", c.guide.is_some());
+            dev.set("seated", c.seat.map_or(-1.0, |k| k as f64));
             dev.set("riding", c.ride.map_or(-1.0, |r| f64::from(r.k)));
             dev.set("driving", c.drive.map_or("", |v| if v.kind == Kind::Car { "car" } else { "scooter" }));
             dev.set("drive_speed", c.drive.map_or(0.0, |v| f64::from(v.speed)));
@@ -1215,6 +1312,7 @@ pub fn publish_onfoot(me: Res<OnFoot>, ui: Res<Ui>, game: NonSend<GameClient>, m
             dev.set("strip", -1.0);
             dev.set("city_feet", "");
             dev.set("city_walking_to", false);
+            dev.set("seated", -1.0);
             dev.set("riding", -1.0);
             dev.set("driving", "");
             dev.set("drive_speed", 0.0);

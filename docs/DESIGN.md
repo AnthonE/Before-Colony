@@ -14,7 +14,8 @@ All art is procedural.
    drag or "space friction" unless you turn on flight assist. How much the tank and the pilot's
    body hold you back is the sector's choice: anime rules (the default, for fun over realism)
    make the tank a boost gauge that refills, and the real rules make every newton count.
-2. **You aim.** Mouse free aim with no tab-targeting. Beams take a fraction of a second to arrive, so
+2. **You aim.** Mouse free aim with no tab-targeting. A lock-on (Y) moves you about your target and
+   marks the lead, but never points the guns (`LOCK.md`). Beams take a fraction of a second to arrive, so
    leading, dodging and range matter.
 3. **AI is a first-class citizen.** Mobile Dolls are the NPCs, as in the show. External AI agents
    connect through the same protocol as humans and are labelled **MD**. The ZERO System is a
@@ -107,6 +108,16 @@ Dolls on them.)
     gives you everything the thrusters have. (A Mobile Doll's flight assist snaps at full thrust.)
   - Held through a blackout, boost keeps flight assist aiming at the boosted cruise, so it doesn't
     brake while you're out.
+- **The burst step** (`flight::Burst`; double-tap a direction, or BURST on the wire with the stick
+  off centre). For 0.3 s the suit dashes along the keys at 120 m/s² (about 12 g), 36 m/s in all,
+  and flight assist lets it be until it's done, then brings the suit back to what the stick asks.
+  Locked on, it goes along the fight's axes, so A and D sidestep round the target and S jumps
+  back. It burns as boost does (under the anime rules too: about 40 kg of a Leo's tank, and the
+  gauge doesn't refill meanwhile), needs propellant, an awake pilot and boosters that work, and
+  the next can start 1.2 s after the last's press. Under the anime rules a pilot bears it; under
+  the real ones each step costs nearly half the G-strain to a blackout. Others see it as boost
+  (its plumes, its heat on sensors). It's the answer to a lunge and to a shot from far off: a
+  rifle shot from 2 km takes half a second, which a step turns into about 12 m.
 - **Pilot G.** Sustained load above 6 g builds G-strain. At 100% the pilot blacks out and control
   authority collapses until strain falls below 50%. A Wing Zero on boost pulls about 12 g, so you
   *can* out-thrust your own body, as Zechs did in the Tallgeese. Mobile Dolls have no body, so no
@@ -207,7 +218,8 @@ station that turns carries its riders round with it.
 
 | Weapon | Speed | Damage | Rate | Notes |
 |---|---|---|---|---|
-| Beam rifle | 4 km/s | 45 | 1.5/s | energy and heat; dodgeable at range |
+| Beam rifle | 4 km/s | 45 | 1.5/s | energy and heat; dodgeable at range. Tap fires; held 1.2 s from the press it charges (glowing for everyone to see), and let go full the charged shot leaves; let go sooner, only the tap's shot went |
+| Beam rifle, charged | 8 km/s | 90 | 1 per 1.2 s (the hold) | the sniper's shot: 0.9 m beam, 8 km reach, 36 heat; the lead marker leads for it once the charge is full |
 | Machine cannon | 1.2 km/s | 6 | 10/s | ballistic; 400 rounds; small spread |
 | Beam saber | – | 90 | swing | 9 m arc sweep with a lunge; blades clash (both parried) |
 | Twin Buster Rifle | 8 km/s | 220 | 1 per 5 s | 0.6 s charge, visible to everyone; 5 m beam engulfs the whole suit |
@@ -220,6 +232,33 @@ station that turns carries its riders round with it.
 | Chest gatlings (Heavyarms) | 1.2 km/s | 4 | 30/s | Full Open only; 300 rounds |
 | Micro-missiles (Heavyarms) | 150 m/s, then a 14 g motor | 16 each | volleys of 8 | Full Open only; 16 rounds |
 | Flamethrower (Shenlong) | – | 7 a burn | 5 burns/s | a 70 m cone, ±12°; each burn adds 10 heat to what it touches, enough to overheat it; 150 burns |
+
+**Hitting.** What a shot's speed, size and spread are worth, measured (`bc-sim/tests/hit_rate.rs`,
+`-- --nocapture` prints it): one shot at a time, led perfectly but linearly (where the target would be
+if it flew on as it is: the lock-on's ◆), at a Leo crossing at 150 m/s, coasting or jinking (flight
+assist on, the stick thrown a new way every 0.4 s, boosting now and then), 32 trials a cell (so a
+few points either way is noise). A gun's spread is a cone, its shots spread evenly over it
+(`tuning::scatter`), and the HUD rings the crosshair with the widest of the suit's. Hit %, coasting
+/ jinking:
+
+| Weapon | m/s | Shot radius, m | Spread (cone) | 300 m | 600 m | 1 km | 1.5 km | 2 km | 3 km |
+|---|---|---|---|---|---|---|---|---|---|
+| Beam rifle | 4,000 | 0.6 | – | 100/100 | 100/100 | 100/100 | 100/97 | 100/62 | 100/88 |
+| Beam rifle, charged | 8,000 | 0.9 | – | 100/100 | 100/100 | 100/100 | 100/100 | 100/100 | 100/97 |
+| Twin Buster Rifle | 8,000 | 5.0 | – | 100/100 | 100/100 | 100/100 | 100/100 | 100/100 | 100/100 |
+| Beam cannon (Virgo) | 3,500 | 1.2 | – | 100/100 | 100/100 | 100/100 | 100/100 | 100/81 | 100/81 |
+| Beam machine gun | 3,500 | 0.45 | – | 100/100 | 100/100 | 100/100 | 100/100 | 100/81 | 100/56 |
+| Beam gatling | 3,000 | 0.35 | 0.34° | 91/94 | 62/66 | 50/62 | 47/53 | 34/28 | out of range |
+| Machine cannon | 1,200 | 0.25 | 0.23° | 100/94 | 100/94 | 97/44 | 62/31 | 78/16 | out of range |
+| Head vulcans | 1,000 | 0.2 | 0.46° | 100/94 | 72/59 | 59/19 | 0/0 | 0/0 | out of range |
+| Buster shield | 450 | 1.2 | – | 100/88 | 0/16 | out of range | | | |
+
+So the lead is the whole skill against a target that flies straight, and a beam rewards it at any
+range; spread is what limits the guns past a kilometre, and slow shots (the buster shield's claw)
+are for close in. The charged shot is the sniper's answer to a target that jinks: at twice the
+rifle's speed the target has half the time to change its mind, so held still and led, it hits at 3
+km; what it costs is 1.2 s with the trigger held and the gun glowing for everyone to see. A pilot who dodges on purpose does better than this target, which changes its
+mind on a timer.
 
 - **Projectiles inherit the shooter's velocity** (it's space). Fire control solves the intercept in
   the shooter's frame.
@@ -357,9 +396,12 @@ timings, arc and reach in its row of the weapon table.
 
 - **A blade hits a suit at most once a strike**; each of a twin weapon's blades hits it once. A lost
   arm loses its blade (the Cross Crusher needs both).
-- **Blades lunge**: through the windup and the stroke the suit drives forward at 1.5× main thrust
-  (never boosted: holding Shift through a swing doesn't black the pilot out), which adds several
-  metres to the reach. The Dragon Fang is Shenlong's arm, so it doesn't.
+- **Blades lunge**: through the windup and the stroke the suit drives at 1.5× main thrust (never
+  boosted: holding Shift through a swing doesn't black the pilot out), which adds several metres to
+  the reach. The lunge homes, mildly: it drives along the aim while the aim is within 15° of the
+  nose, and along the edge of that cone when it's further off, so a pilot who keeps the crosshair
+  on a target that slips aside carries the blade after it (`flight::LUNGE_CONE`). The Dragon Fang
+  is Shenlong's arm, so it doesn't lunge.
 - **Clashes.** A stroke that meets a suit whose own blade is out and facing it is parried: neither
   does damage, and each recovers for its blade's clash time. The Dragon Fang can't be parried.
 
@@ -513,6 +555,9 @@ held at the edge of the view while it's off it.
 | HIDE IN THE AFT WELL | hidden in it (the server's word) | the Aft Well |
 | MINE 200 KG OF ORE | 200 kg in the hold and in hand | the nearest big rock |
 | BRING THE ORE HOME (survival) · SELL ORE AT THE DOCK (arcade) | in the dock's ring with something aboard | the dock |
+| RIDE THE CAP LIFT DOWN (the colony open) | in the city | flying, the dock; in the bay, the airlock's prompt |
+| FIND THE EXCHANGE FLOOR (the colony open) | at its door | on the city's map (M), a `◆` on its door, and its range on the panel |
+| SELL ON THE EXCHANGE (the colony open) | a sale filled on the Exchange, from anywhere | as above |
 | DOWN A MOBILE DOLL | a Doll downed | the nearest Doll in sight, else their patrols over the field |
 | LAND ON HERMIT | standing on it | Hermit |
 | DOWN 5 MOBILE DOLLS | five downed, over any number of visits | as above |
@@ -520,7 +565,9 @@ held at the edge of the view while it's off it.
 - **Any order.** Each is checked every frame, so doing one early counts; the HUD shows the first
   in the rules' order not yet done. Survival starts at the dock beside MO-II, in a worn Leo with
   no rifle, so it lands and hides first and fights last; arcade starts among the Dolls, so it
-  fights first.
+  fights first. The ore brought home goes down the chain, into the colony and onto its Exchange
+  (`PEERS.md`'s "connect before deepening"). On foot (in the bay, or the city) the panel shows the
+  first of those not yet done, since the flight's wait for the next sortie.
 - **Kept with the settings**, as the hints are: what's done and the Dolls downed carry over from
   one visit to the next in the same browser. An objective done says so (`OBJECTIVE DONE - …`).
   The settings panel can hide the objective and its waypoint.
@@ -567,8 +614,10 @@ out to Earth and the Moon (`bc-client`'s `chart.rs`, on `bc_client_core::{chart,
   land`). It's the pilot's own stick, the same command any pilot sends, worked out from the
   prediction tick by tick: every playable frame flies it to every kind of place, by both flight
   rules, without touching the colony, a landmark or a rock (`nav::tests`). Any flight key (thrust,
-  boost, brake) hands the stick back; moving the mouse takes back only the aim, and it keeps flying
-  the course whichever way the suit looks. Landing is left to the pilot.
+  boost, brake) hands the stick back, and so does locking on (Y): that's choosing to fight, and
+  the lock-on's stick takes over. While it flies, the command carries no lock-on (its stick is in
+  the suit's own axes) and no burst step. Moving the mouse takes back only the aim, and it keeps
+  flying the course whichever way the suit looks. Landing is left to the pilot.
 - *Hands off.* While the chart is open the cursor is free (the pointer's lock comes back when it
   closes) and the keys are the chart's, so the suit's stick is let go: flight assist holds it still
   unless the auto-nav is flying. The sector doesn't pause, and the chart says when hostiles are
@@ -752,6 +801,12 @@ every terminal in the bay, and the Charter Board's own desk in Charter Square.
   Charter Board advanced them.
 - **Losing it:** a suit destroyed out there is gone, along with its hold. The bounties it earned are
   still paid, and the pilot is brought back to the bay through the airlock once the wreck clears.
+- **A floor under it** (`Hangar::reissue`): a pilot back in an empty bay with no torso in the stores
+  to build on, and less than a Leo torso's worth in credits, stores and parts (at the colony's
+  values), finds a worn Leo in the gantry, the Charter Board's advance, as on the day they
+  arrived; the news says so. At most once every 30 minutes, so it's a floor, not a free suit.
+  (An Arrival's 2,000 cr is less than a torso: lose the first suit and the Board stands you
+  another.) A new wallet is still a new starter kit.
 - **Away:** a signed-in pilot who leaves keeps everything: their hangar, its jobs, their orders.
   Left out in the sector, their suit sleeps where it is (below), and they wake in it; one the
   sector lost track of is towed in. A guest's hangar lasts the visit.
@@ -779,7 +834,11 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   Gate's terminal. From there the pilot walks the city with the bay's controls, and M shows the
   map of their strip. Districts and sights are named on the way in.
 - **Places:** the Exchange floor (its terminal is the bay's exchange), the Charter Board (its
-  contracts and great works, above), The Arrival (a bar, quiet for now), and Hub Gate, whose lift goes back up to the bay.
+  contracts and great works, above), The Arrival (a bar), and Hub Gate, whose lift goes back up to the bay.
+- **The Arrival's seats:** two benches either side of its door, facing the avenue
+  (`colony::city::arrival_seats`). E by one sits you on it (the view drops to a seated eye), and E
+  again or a step stands you up; everyone else sees you sitting (the presence's ride 15), and the
+  plaza takes a seated pose only on a seat. Agents come and sit too (`flaneur --sit`).
   A suit can't launch from the city: its pilot rides back up first.
 - **Other pilots** are there too, on their own feet in flight suits of their own colours (from
   their names, the same on every screen), striding as fast as they go, their names over them
@@ -825,11 +884,12 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
 | Input | Action |
 |---|---|
 | Mouse (click to lock) | aim |
-| W/S · A/D · Space/C | thrust forward/back · left/right · up/down |
+| Y · middle click | lock on (again: the next target; held: let go) |
+| W/S · A/D · Space/C | thrust forward/back · left/right · up/down; double-tapped, a burst step that way |
 | Q/E | roll |
 | L | grip: armed, coming in slow and close lands you on a rock or a landmark; again, let go |
 | Shift · X · R | boost · brake · RCS (fast turns) |
-| LMB · RMB · F | primary · secondary · melee |
+| LMB · RMB · F | primary · secondary · melee (a beam rifle: tap fires, hold to charge, let go full for the charged shot) |
 | H | the frame's special: a toggle for Neo-Bird and the Hyper Jammer, a press for Full Open Attack and the Cross Crusher |
 | V · Z | flight assist · ZERO System |
 | Tab · mouse wheel | the camera: the cockpit (first person) or the chase camera (wheel in: the cockpit; out: chasing) |
@@ -838,6 +898,7 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
 | 1 · 2 · 3 · 4 | survival: the rack's patch kit · coolant flush · chaff · stim |
 | Enter | dock (survival): at rest inside the dock's ring of lights |
 | 1–6 | arcade rules: respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
+| / (Enter on foot) | talk on the colony's radio: Enter says it, Esc closes |
 | Esc · F1 · F10 | menu · the controls sheet · graphics quality |
 
 On a body (see "Surfaces"): W/A/S/D walk, Shift runs, Space hops (held, it lifts off on the
@@ -940,8 +1001,8 @@ flashing effects (a ZERO seizure's flicker; off to start with when the browser a
 motion), first-flight hints, the objectives and graphics quality, along with the last callsign and frame launched. `bc_client_core::settings` defines them, their ranges and the stored text (a
 key this build doesn't know is kept, for the build that wrote it). A new pilot gets one hint at a
 time (on foot in the bay: walking, using a terminal, boarding; flying: thrust, the chart, boost,
-fire, the cockpit view, flight assist, salvage, docking, the menu; near a body: the grip, walking on it,
-hiding in a hide spot), each gone once it's been done.
+fire, locking on and then the burst step, the cockpit view, flight assist, salvage, docking, the
+menu; near a body: the grip, walking on it, hiding in a hide spot), each gone once it's been done.
 
 **Sound.** Every sound is generated at boot (`bc-sound`, no audio files): weapons, impacts,
 explosions, the engines worked by the throttle, RCS puffs, the lock tone quickening as a lock
@@ -965,6 +1026,24 @@ in code and stored as 4-bit BRR in the chip's 64 KB (bank and echo buffer fit, w
 driver), the chip's Gaussian interpolation, its ADSR rates and its echo with the 8-tap FIR, stereo
 at 32 kHz. `cargo run -p bc-sound --release --example title -- title.wav` writes it out.
 
+**The colony's radio.** One channel for everyone connected, under any rules: `/` opens a line on
+the page (Enter too, on foot), Enter says it, Esc closes it, and no keys reach the suit meanwhile.
+The latest lines show on the left for a while after one comes in. Lines are cleaned (no control
+characters, one line, 160 characters at most), a pilot says at most 5 in 10 s, and the server
+keeps no log of them (`/status` counts them). Agents talk on it too (`bc-bot` `say` and `heard`).
+In the city, what someone near you said shows over their head, under their name, for 8 s.
+
+**Lock-on** (`LOCK.md`). Y, or a click of the middle button, locks the hostile nearest the
+crosshair (again: the next one; held: let go), and the fight goes onto the ground: flight assist
+holds your velocity relative to the target's, W closes in and stops just outside your blade's reach,
+A/D circle it, and with Space and C let go the suit settles onto its level, the fight's floor, and
+rolls level with the ground (away from the colony). The mouse still aims; the ◆ marks where the
+primary's shot meets the target if it flies on as it is (ZERO's solution replaces it), SPD and the
+velocity marker are relative to the target, and its bracket says how fast it closes. A burst step
+goes along the fight's axes: double-tap A or D to sidestep round it, S to jump back. The lock goes
+when the target's downed, out of sight or past 5 km. With flight assist off, on a body, under ZERO's
+seizure or in Neo-Bird form the keys fly as they always do.
+
 **Lock assist.** A frame with missiles designates the hostile nearest the reticle (within 10°) and
 keeps it while it stays within 15°. Its bracket fills as the lock builds and reads LOCKED when it's
 acquired. The HUD shows the special's state (READY, JAMMING, FIRING, the cooldown), the lock, and
@@ -978,7 +1057,8 @@ hangar bay on foot, building suits, and the Colony Exchange; Milestone 4 wear an
 systems inside the parts, statuses, equipment, overhauls, and the world bible (`STORY.md`).
 
 The direction is a living colony its pilots build and run: SimCity's colony projects and GTA's
-jobs, law and traffic, on an economy whose sinks keep demand turning over.
+jobs, law and traffic, on an economy whose sinks keep demand turning over. `PEERS.md` says what
+the nearest games teach, and which of the items below come first and why.
 
 - **Consumables and a survival hotbar** (done: the rack, above). Next: chaff drawn as it
   blooms, and decoys a missile chases.
@@ -1021,7 +1101,8 @@ jobs, law and traffic, on an economy whose sinks keep demand turning over.
     (line of sight: hide spots stand in for it today).
   - More landmarks, and landmarks that can be mined or wrecked; bodies that move by more than a
     closed form (pushed, thrusting, streamed in), which would need their state on the wire.
-  - A charged leap (button bit 15 is free); leaning and peeking round cover on Q/E; hold to look.
+  - A charged leap (the buttons are all taken: it would take a stance, or a bit of the burst
+    step's); leaning and peeking round cover on Q/E; hold to look.
   - Coriolis and centrifugal pulls aloft (at most 0.043 m/s² on MO-II); a chase camera that turns
     with a spinning body (it lags MO-II by 4 mrad); gripping rocks under 10 m.
   - Keeping hidden sleepers' names off the roster and `/status` (they give away who, never where).

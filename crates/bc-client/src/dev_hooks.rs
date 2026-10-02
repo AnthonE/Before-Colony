@@ -72,6 +72,43 @@ fn hide_boot_overlay() {
     }
 }
 
+/// Dev hook (`aim_hostile`): while on, the aim follows the nearest hostile suit, as a pilot's mouse
+/// would; and, on or off, how far off that suit is (`hostile_range`, m; -1: none in sight).
+pub fn aim_hook(
+    cmds: Res<crate::page::UiCmds>,
+    mut aim: ResMut<crate::input::Aim>,
+    game: NonSend<crate::net::GameClient>,
+    mut on: Local<bool>,
+    mut dev: ResMut<DevStatus>,
+) {
+    for cmd in &cmds.0 {
+        if let crate::page::UiCmd::AimHostile(want) = cmd {
+            *on = *want;
+        }
+    }
+    let game = game.borrow();
+    let core = &game.core;
+    let Some(me) = core.own_view().filter(|v| v.alive) else {
+        dev.set("hostile_range", -1.0);
+        return;
+    };
+    let t = core.render_tick(crate::net::now_s());
+    let w = &core.world;
+    let nearest = w
+        .entities
+        .iter()
+        .flatten()
+        .filter(|tr| {
+            tr.latest.faction != w.faction && tr.latest.flags & bc_proto::snapshot::ent_flags::WRECK == 0
+        })
+        .map(|tr| tr.sample(t, &w.bodies).pos - me.pos)
+        .min_by(|a, b| a.length_squared().total_cmp(&b.length_squared()));
+    dev.set("hostile_range", nearest.map_or(-1.0, |r| f64::from(r.length())));
+    if *on && let Some(r) = nearest {
+        aim.dir = r.normalize_or(aim.dir);
+    }
+}
+
 /// Game state for the E2E tests (and for curious humans at the devtools console).
 #[allow(clippy::too_many_arguments)]
 pub fn publish_game(
@@ -157,6 +194,22 @@ pub fn publish_game(
     dev.set("zero_jev", w.zero.is_some_and(|z| z.source_jev));
     dev.set("rtt_ms", core.clock.rtt * 1_000.0);
     dev.set("prediction_error_m", core.stats.prediction_error);
+    // The lock-on: the suit locked (-1: none), how far it is over the fight's ground and above or
+    // below its level (the floor), and whether the last command flew locked on.
+    let now = crate::net::now_s();
+    let t = core.render_tick(now);
+    dev.set("lock_slot", game.hard.slot().map_or(-1, i32::from));
+    let (range, level) = match (game.hard.target(w, t), core.own_view()) {
+        (Some(p), Some(v)) => {
+            let up = bc_sim::world::colony_up(v.pos);
+            let r = p.pos - v.pos;
+            ((r - up * r.dot(up)).length(), r.dot(up))
+        }
+        _ => (-1.0, 0.0),
+    };
+    dev.set("lock_range", range);
+    dev.set("lock_level", level);
+    dev.set("lockon", core.last_cmd.lockon.is_some());
     dev.set("beams", w.beams.len() as u32);
     let chunks = || w.objects.iter().flatten();
     dev.set("chunks", chunks().count() as u32);

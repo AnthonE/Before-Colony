@@ -544,21 +544,20 @@ impl Particles {
         self.spawn(cap, p);
     }
 
-    /// Energy drawn into a charging Twin Buster Rifle: sparks of it falling in toward the muzzle,
-    /// where a glow gathers.
-    pub fn charge(&mut self, cap: usize, at: At, dt: f32) {
-        let color = Vec3::new(12.0, 7.0, 16.0);
-        let expected = 110.0 * dt;
+    /// Energy drawn into a charging gun: sparks of it falling in toward the muzzle, where a glow
+    /// gathers. `size` 1 is the Twin Buster Rifle's (sparks from 6–12 m out).
+    pub fn charge(&mut self, cap: usize, at: At, dt: f32, color: Vec3, size: f32) {
+        let expected = 110.0 * size * dt;
         let n = expected as u32 + u32::from(self.rng.next_f32() < expected.fract());
         for _ in 0..n {
             let d = self.unit();
-            let r = self.range(6.0, 12.0);
+            let r = self.range(6.0, 12.0) * size;
             let life = self.range(0.4, 0.6);
             let p = Particle::new(
                 at.pos + d * r,
                 at.vel - d * (r / life),
                 life,
-                (0.12, 0.25),
+                (0.12 * size.sqrt(), 0.25 * size.sqrt()),
                 0.06,
                 1.0,
                 Ramp::Glow(color),
@@ -566,7 +565,7 @@ impl Particles {
             self.spawn(cap, p);
         }
         let flicker = 0.8 + 0.4 * self.rng.next_f32();
-        self.glow(cap, at, 1.4 * flicker, color * 0.35);
+        self.glow(cap, at, 1.4 * size.sqrt() * flicker, color * 0.35);
     }
 }
 

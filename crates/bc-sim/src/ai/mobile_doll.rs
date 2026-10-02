@@ -294,5 +294,7 @@ pub fn drive(
         buttons,
         lock_target: target.map_or(NO_SLOT, |t| t.slot),
         shot_seq: ai.shot_seq,
+        // Dolls never lock on: perfect leads and perfect pace together would be unbeatable.
+        lockon: None,
     }
 }

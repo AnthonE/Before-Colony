@@ -7,7 +7,7 @@
 //! | Key | Action |
 //! |---|---|
 //! | mouse | aim (click to lock the pointer, Esc for the menu) |
-//! | W/S, A/D, Space/C | thrust forward/back, left/right, up/down |
+//! | W/S, A/D, Space/C | thrust forward/back, left/right, up/down; double-tapped, a burst step |
 //! | Q/E | roll |
 //! | L | grip: armed, a suit coming in slow and close is caught and landed; off, it lets go |
 //! | on a body: W/A/S/D, Shift, Space, C | walk, run, hop (held: lift off), crouch (a toggle) |
@@ -32,10 +32,12 @@
 //! the stance. In the air in a body's grip, Space and C are the thrusters' again. While the suit is
 //! on a turning body the aim turns with it, so a still mouse keeps its bearing on the deck.
 
+use bc_client_core::doubletap::{DIRECTIONS, DoubleTap};
+use bc_client_core::lockon::{Broke, HOLD_TO_RELEASE};
 use bc_client_core::settings::CameraView;
 use bc_proto::buttons::{
-    BOOST, BRAKE, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, GRIP, JETTISON, MELEE, MODE, RCS_SHARP,
-    SPECIAL, STOW, THROW, ZERO,
+    BOOST, BRAKE, BURST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, GRIP, JETTISON, MELEE, MODE,
+    RCS_SHARP, SPECIAL, STOW, THROW, ZERO,
 };
 use bc_proto::snapshot::footing;
 use bc_proto::{InputCmd, NO_SLOT};
@@ -58,6 +60,8 @@ const _: () = assert!(STAND_UP >= STAND_LEVEL && STAND_UP < bc_sim::ground::JUMP
 
 /// Switches the flight camera between the chase camera and the cockpit.
 pub const CAMERA_KEY: KeyCode = KeyCode::Tab;
+/// Locks on (`bc_client_core::lockon`); so does a click of the middle button.
+pub const LOCK_KEY: KeyCode = KeyCode::KeyY;
 /// A trackpad's scroll this small (pixels in a frame) is a brush, not a turn of the wheel.
 const SCROLL_PX: f32 = 8.0;
 
@@ -149,6 +153,73 @@ impl Controls {
     }
 }
 
+/// Locks on and lets go (`bc_client_core::lockon`). [`LOCK_KEY`] (or a click of the middle button):
+/// a tap locks the hostile nearest the crosshair, or moves the lock on to the next; held for
+/// [`HOLD_TO_RELEASE`], it lets go. The lock also lets go by itself: the target downed, out of sight
+/// or too far, or the pilot's own suit gone or stepped out of. A lock taken while the auto-nav flies
+/// takes the stick back from it.
+fn lock_on(
+    game: &mut crate::net::Game,
+    keys: &ButtonInput<KeyCode>,
+    mouse: &ButtonInput<MouseButton>,
+    aim: Vec3,
+    ui: &mut Ui,
+    pressed_at: &mut Option<f64>,
+    flying: bool,
+) {
+    let now = crate::net::now_s();
+    let t = game.core.render_tick(now);
+    let from = game.core.own_view().map_or(game.core.predict.state.pos, |v| v.pos);
+    let alive = game.core.world.own.is_some_and(|o| o.alive);
+    if !alive || !flying {
+        if game.hard.locked() && !alive {
+            game.hard.release();
+        }
+        *pressed_at = None;
+        return;
+    }
+    if let Some(why) = game.hard.validate(&game.core.world, from, t) {
+        ui.toast(match why {
+            Broke::Downed => "TARGET DOWN: LOCK RELEASED",
+            Broke::Lost => "LOCK LOST: OUT OF SIGHT",
+            Broke::Range => "LOCK LOST: OUT OF RANGE",
+            Broke::Released => "LOCK RELEASED",
+        });
+    }
+    let held = keys.pressed(LOCK_KEY) || mouse.pressed(MouseButton::Middle);
+    // A tap that went down and up between two frames (a slow frame) is still a press.
+    if pressed_at.is_none() && (keys.just_pressed(LOCK_KEY) || mouse.just_pressed(MouseButton::Middle)) {
+        *pressed_at = Some(now);
+    }
+    match (*pressed_at, held) {
+        (None, true) => *pressed_at = Some(now),
+        // Held long enough: let go (once; the press is spent).
+        (Some(at), true) if now - at >= HOLD_TO_RELEASE => {
+            if game.hard.locked() {
+                game.hard.release();
+                ui.toast("LOCK RELEASED");
+            }
+            *pressed_at = Some(f64::INFINITY);
+        }
+        // A tap.
+        (Some(at), false) => {
+            if at.is_finite() {
+                let was = game.hard.slot();
+                if game.hard.tap(&game.core.world, from, aim, t) {
+                    let name = game.hard.slot().map(|s| game.core.world.name_of(s)).unwrap_or_default();
+                    // Locking on is choosing to fight: the stick comes back from the auto-nav.
+                    let nav = if game.nav.take().is_some() { " · AUTO-NAV OFF" } else { "" };
+                    ui.toast(format!("LOCKED ON: {name}{nav}"));
+                } else if was.is_none() {
+                    ui.toast("NOTHING TO LOCK ON TO");
+                }
+            }
+            *pressed_at = None;
+        }
+        _ => {}
+    }
+}
+
 /// [`CAMERA_KEY`] switches between the chase camera and the cockpit; the mouse wheel goes in (the
 /// cockpit) or out (chasing). Kept in the settings, so the next sortie starts in the same view.
 pub fn toggle_camera(
@@ -199,6 +270,8 @@ pub fn read_input(
     mut pilot: ResMut<Pilot>,
     game: NonSend<GameClient>,
     mut deck: Local<Option<(Body, Quat)>>,
+    mut lock_key: Local<Option<f64>>,
+    mut tap: Local<DoubleTap>,
 ) {
     let mut game = game.borrow_mut();
     // Keep the aim sane across (re)spawns: start looking where the suit looks.
@@ -242,12 +315,16 @@ pub fn read_input(
         controls.swallow_click = false;
     }
     controls.locked = pointer.0.flying();
+    // Not on the chart either: its middle drag pans, which mustn't lock on or let go.
+    let flying = ui.playing() && !ui.panel_open() && !indoors.0 && !map.0;
+    lock_on(&mut game, &keys, &mouse, aim.dir, &mut ui, &mut lock_key, flying);
     if !ui.playing() || ui.panel_open() || indoors.0 || map.0 {
         // Hands off the stick in menus, on the chart, and on foot (or while the bay launches the
         // suit); the toggles stay as they were.
         controls.thrust = Vec3::ZERO;
         controls.roll = 0.0;
         controls.buttons = 0;
+        tap.clear();
         return;
     }
 
@@ -306,6 +383,24 @@ pub fn read_input(
     controls.thrust = Vec3::new(axis(KeyCode::KeyD, KeyCode::KeyA), lift, axis(KeyCode::KeyW, KeyCode::KeyS));
     controls.roll = axis(KeyCode::KeyE, KeyCode::KeyQ);
     let mut b = 0;
+    // A direction double-tapped, off the ground: a burst step that way, the stick held that way
+    // while it's pressed.
+    const STEP_KEYS: [KeyCode; DIRECTIONS] =
+        [KeyCode::KeyD, KeyCode::KeyA, KeyCode::Space, KeyCode::KeyC, KeyCode::KeyW, KeyCode::KeyS];
+    if settings.0.double_tap && mover.footing != Footing::Grounded {
+        let now = crate::net::now_s();
+        for (k, key) in STEP_KEYS.iter().enumerate() {
+            if keys.just_pressed(*key) {
+                tap.press(k, now);
+            }
+        }
+        if let Some((axis, sign)) = tap.stepping(STEP_KEYS.map(|k| keys.pressed(k)), now) {
+            controls.thrust[axis] = sign;
+            b |= BURST;
+        }
+    } else {
+        tap.clear();
+    }
     if controls.locked && !controls.swallow_click && mouse.pressed(MouseButton::Left) {
         b |= FIRE_PRIMARY;
     }

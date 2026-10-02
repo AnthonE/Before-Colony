@@ -19,12 +19,14 @@ pub mod city_mesh;
 pub mod city_nav;
 pub mod clock;
 pub mod controls;
+pub mod doubletap;
 pub mod figure;
 pub mod gait;
 pub mod hangar;
 pub mod hints;
 pub mod inputs;
 pub mod interp;
+pub mod lockon;
 pub mod nav;
 pub mod objectives;
 pub mod own;
@@ -50,7 +52,7 @@ use bc_proto::presence::{PersonPose, PlazaReader, PosePacket};
 use bc_proto::snapshot::{own_flags, zero_mode};
 use bc_proto::{
     Faction, FrameId, InputCmd, InputPacket, PROTOCOL_VERSION, PacketKind, PilotKind, SnapshotReader,
-    packet_kind,
+    WeaponKind, packet_kind,
 };
 use bc_sim::DT;
 use bc_sim::bodies::Body;
@@ -182,6 +184,8 @@ pub struct ClientCore {
     next_cmd_tick: u32,
     pub shot_seq: u8,
     last_shot_tick: u32,
+    /// The cooldown of the shot drawn at `last_shot_tick`, ticks.
+    last_shot_wait: u16,
     pub stats: ClientStats,
     pub last_cmd: InputCmd,
     /// The own suit as drawn, between frames.
@@ -217,6 +221,7 @@ impl ClientCore {
             next_cmd_tick: 0,
             shot_seq: 0,
             last_shot_tick: 0,
+            last_shot_wait: 0,
             stats: ClientStats::default(),
             last_cmd: InputCmd::default(),
             drawn: own::Drawn::default(),
@@ -621,8 +626,8 @@ impl ClientCore {
             let q = cmd.quantized();
             self.inputs.push(q);
             self.predict.advance(&q, &self.inputs);
-            if let Some(mount) = shot {
-                self.predict_shot(mount, &q);
+            if let Some((mount, kind)) = shot {
+                self.predict_shot(mount, kind, &q);
             }
             self.last_cmd = q;
             self.next_cmd_tick += 1;
@@ -664,40 +669,52 @@ impl ClientCore {
         packets
     }
 
-    /// Whether this command fires the primary weapon, which should be ready: if so, the shot takes
-    /// the next `shot_seq` and is drawn now (the server's spawn event confirms it). Only weapons
-    /// whose every shot is an event are drawn this way: a stream's tracers, a blade or a flame
-    /// have nothing to confirm.
-    fn shot_due(&mut self, cmd: &InputCmd, tick: u32) -> Option<Mount> {
+    /// Whether this command fires the primary weapon, which should be ready: if so, the shot (the
+    /// weapon's own, or its charged shot) takes the next `shot_seq` and is drawn now (the server's
+    /// spawn event confirms it). Only weapons whose every shot is an event are drawn this way: a
+    /// stream's tracers, a blade or a flame have nothing to confirm.
+    fn shot_due(&mut self, cmd: &InputCmd, tick: u32) -> Option<(Mount, WeaponKind)> {
         let own = self.world.own?;
-        if !own.alive || cmd.buttons & FIRE_PRIMARY == 0 || own.weapon_ready & 1 == 0 {
+        if !own.alive || own.weapon_ready & 1 == 0 {
             return None;
         }
         let mount = frame(own.frame).loadout[0]?;
         let w = weapon(mount.weapon);
+        let held = cmd.buttons & FIRE_PRIMARY != 0;
+        // Tap fires, hold charges (`bc_sim::arms::charged_pull`, with the hold as predicted up to
+        // this command): the tap's shot early in a pull, the charged shot on letting go full.
+        let kind = match w.charged {
+            Some(c) if held && self.predict.arms.charge < u16::from(c.tap) => w.kind,
+            Some(c) if !held && self.predict.arms.charge >= c.full() => c.shot,
+            None if held => w.kind,
+            _ => return None,
+        };
         if w.replication != Replication::PerShot
             || w.charge_ticks > 0
-            || tick < self.last_shot_tick + u32::from(w.cooldown)
+            || tick < self.last_shot_tick + u32::from(self.last_shot_wait)
         {
             return None;
         }
         self.last_shot_tick = tick;
+        self.last_shot_wait = weapon(kind).cooldown;
         self.shot_seq = self.shot_seq.wrapping_add(1);
-        Some(mount)
+        Some((mount, kind))
     }
 
     /// Draws the shot `cmd` fires from `mount`, as the server fires it: from the suit after that
     /// tick's flight (on a moving body, where the pilot saw it on the body), within the arm's
     /// reach off the nose.
-    fn predict_shot(&mut self, mount: Mount, cmd: &InputCmd) {
+    fn predict_shot(&mut self, mount: Mount, kind: WeaponKind, cmd: &InputCmd) {
         let Some(own) = self.world.own else { return };
-        let w = weapon(mount.weapon);
+        let w = weapon(kind);
         let s = &self.predict.as_seen(cmd);
         let fwd = s.rot * Vec3::Z;
         // Within what its actuators leave of the arm's reach, wandering if the pilot's concussed
         // (the server counts the concussion down after each tick's shots).
         let tuned = bc_sim::tuning::own_tuning(&own);
         let mut dir = clamp_to_cone(normalize_or(cmd.aim, fwd), fwd, bc_sim::tuning::cone(mount.arm, &tuned));
+        // Within the weapon's cone, as the server scatters it (the primary is mount 0).
+        dir = bc_sim::tuning::scatter(dir, w.spread, cmd.tick, own.slot, 0);
         let since = cmd.tick.saturating_sub(self.world.tick).saturating_sub(1);
         if u32::from(own.concussed) > since {
             dir = bc_sim::tuning::wobble(dir, cmd.tick, own.slot, 0);

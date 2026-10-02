@@ -247,6 +247,28 @@ pub fn pose(phase: f32, speed: f32, pitch: f32, grounded: bool, running: bool) -
     q
 }
 
+/// Sitting, the hips are this much lower than standing, m: on a bench's seat.
+pub const SEAT_DROP: f32 = 0.48;
+
+/// Sitting on a seat: the thighs out level, the shins hanging, the hands on the knees, the head
+/// with the look (by [`Piece::ALL`]'s order, as [`pose`]).
+pub fn seated(pitch: f32) -> [Quat; 12] {
+    let mut q = [Quat::IDENTITY; 12];
+    let set = |q: &mut [Quat; 12], p: Piece, r: Quat| q[Piece::ALL.iter().position(|x| *x == p).unwrap()] = r;
+    let x = |a: f32| Quat::from_rotation_x(a);
+    set(&mut q, Piece::ThighL, x(-1.45) * Quat::from_rotation_z(0.06));
+    set(&mut q, Piece::ThighR, x(-1.45) * Quat::from_rotation_z(-0.06));
+    set(&mut q, Piece::ShinL, x(1.45));
+    set(&mut q, Piece::ShinR, x(1.45));
+    set(&mut q, Piece::UpperArmL, x(-0.45) * Quat::from_rotation_z(0.1));
+    set(&mut q, Piece::UpperArmR, x(-0.45) * Quat::from_rotation_z(-0.1));
+    set(&mut q, Piece::ForearmL, x(-0.7));
+    set(&mut q, Piece::ForearmR, x(-0.7));
+    set(&mut q, Piece::Chest, x(0.06));
+    set(&mut q, Piece::Head, x(-pitch.clamp(-0.8, 0.8) * 0.6));
+    q
+}
+
 /// The stride's phase moves on by this much for `dist` metres walked (two steps a cycle).
 pub fn stride_phase(dist: f32, running: bool) -> f32 {
     dist / if running { 2.6 } else { 1.5 } * std::f32::consts::TAU

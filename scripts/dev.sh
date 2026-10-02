@@ -28,10 +28,15 @@ for i in $(seq 1 "${BC_MINERS:-1}"); do
   ./target/release/examples/miner --name "Miner-$(printf %02d "$i")" &
   pids+=($!)
 done
-# The colony open: someone strolling outside each strip's Hub Gate.
+# The colony open: someone strolling outside each strip's Hub Gate, and two more come to sit
+# outside The Arrival.
 if [ "${BC_COLONY:-0}" = "1" ]; then
   for strip in 0 1 2; do
     ./target/release/examples/flaneur --name "Flaneur-0$((strip + 1))" --strip "$strip" &
+    pids+=($!)
+  done
+  for k in 4 5; do
+    ./target/release/examples/flaneur --name "Flaneur-0$k" --sit --seat "$k" &
     pids+=($!)
   done
 fi

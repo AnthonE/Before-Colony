@@ -54,9 +54,16 @@ pub enum UiCmd {
     DropLink,
     /// Something asked of the hangar from one of its terminals (survival rules).
     Hangar(bc_econ::Request),
+    /// A line for the colony's radio, typed on the page.
+    Say(String),
+    /// Open (`true`) or close the radio's line.
+    Chat(bool),
     /// Dev hooks, on foot: walk to a place in the bay (by its slug), use what's in view, skip a
     /// launch or homecoming sequence.
     WalkTo(String),
+    /// Dev hook, flying: keep the aim on the nearest hostile (headless browsers can't lock the
+    /// pointer to aim with), or stop.
+    AimHostile(bool),
     Use,
     Skip,
 }
@@ -166,11 +173,18 @@ pub struct Ui {
     /// across, heading in the map's terms: radians from +x towards −s).
     pub map: bool,
     pub map_at: Option<[f32; 4]>,
+    /// The objective's place on the map, by slug (its door gets the ◆).
+    pub map_goal: Option<&'static str>,
     /// A sortie's news, shown large for a few seconds.
     news_seq: u32,
     news: String,
     /// Whether the news is bad (a suit lost).
     news_bad: bool,
+    /// The colony radio's line is open: the pilot is typing (no keys reach the suit).
+    pub chat: bool,
+    /// The radio's latest lines, who and what, and how many have been heard (`chat.rs`).
+    pub radio: Vec<(String, String)>,
+    pub radio_seq: u32,
 }
 
 impl Ui {
@@ -178,8 +192,9 @@ impl Ui {
         self.screen == Screen::Playing
     }
 
+    /// A panel is up, or the radio's line is open: either way the keys aren't the suit's.
     pub fn panel_open(&self) -> bool {
-        self.panel != Panel::None
+        self.panel != Panel::None || self.chat
     }
 
     pub fn open_pause(&mut self) {
@@ -251,7 +266,10 @@ fn parse(v: &JsValue) -> Option<UiCmd> {
             let json = js_sys::JSON::stringify(&get(v, "req")).ok()?.as_string()?;
             UiCmd::Hangar(bc_econ::wire::decode(json.as_bytes())?)
         }
+        "say" => UiCmd::Say(s("text")),
+        "chat" => UiCmd::Chat(get(v, "open").as_bool().unwrap_or(false)),
         "walk_to" => UiCmd::WalkTo(s("spot")),
+        "aim_hostile" => UiCmd::AimHostile(get(v, "on").as_bool().unwrap_or(false)),
         "use" => UiCmd::Use,
         "skip" => UiCmd::Skip,
         _ => return None,
@@ -349,9 +367,13 @@ pub struct View {
     prompt: String,
     bay_line: String,
     map_at: Option<[f32; 4]>,
+    map_goal: Option<&'static str>,
     news_seq: u32,
     news: String,
     news_bad: bool,
+    chat: bool,
+    radio_seq: u32,
+    radio: Vec<(String, String)>,
 }
 
 impl View {
@@ -388,9 +410,13 @@ impl View {
             prompt: ui.prompt.clone(),
             bay_line: ui.bay_line.clone(),
             map_at: ui.map_at.filter(|_| ui.map),
+            map_goal: ui.map_goal.filter(|_| ui.map),
             news_seq: ui.news_seq,
             news: ui.news.clone(),
             news_bad: ui.news_bad,
+            chat: ui.chat,
+            radio_seq: ui.radio_seq,
+            radio: ui.radio.clone(),
         }
     }
 
@@ -429,9 +455,19 @@ impl View {
             set(&at, "heading", heading);
             set(&o, "map", at);
         }
+        if let Some(goal) = self.map_goal {
+            set(&o, "mapGoal", goal);
+        }
         set(&o, "newsSeq", self.news_seq);
         set(&o, "news", self.news.as_str());
         set(&o, "newsBad", self.news_bad);
+        set(&o, "chat", self.chat);
+        set(&o, "radioSeq", self.radio_seq);
+        let radio = Array::new();
+        for (from, text) in &self.radio {
+            radio.push(&Array::of2(&JsValue::from_str(from), &JsValue::from_str(text)));
+        }
+        set(&o, "radio", radio);
         o
     }
 }
@@ -570,7 +606,9 @@ fn city_map() -> Object {
         let places = Array::new();
         for p in PLACES.iter().filter(|p| p.strip as usize == k) {
             let ((s, x), _) = place_door(p);
-            places.push(&point(p.name, s, x));
+            let o = point(p.name, s, x);
+            set(&o, "slug", p.slug);
+            places.push(&o);
         }
         set(&strip, "places", places);
         let sights = Array::new();

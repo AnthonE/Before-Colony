@@ -19,6 +19,8 @@ mod camera;
 #[cfg(target_arch = "wasm32")]
 mod chart;
 #[cfg(target_arch = "wasm32")]
+mod chat;
+#[cfg(target_arch = "wasm32")]
 mod city;
 #[cfg(target_arch = "wasm32")]
 mod cockpit;
@@ -46,6 +48,7 @@ mod holo;
 mod hud;
 #[cfg(target_arch = "wasm32")]
 mod input;
+#[cfg(target_arch = "wasm32")]
 mod inside;
 #[cfg(target_arch = "wasm32")]
 mod landmarks;

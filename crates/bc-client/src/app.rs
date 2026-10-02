@@ -7,7 +7,9 @@ use crate::dev_hooks::{DevHooksPlugin, publish_game};
 use crate::echo::EchoPlugin;
 use crate::fx::{FxState, setup_fx, update_fx, update_fx_lights};
 use crate::gfx::{Gfx, GfxPlugin};
-use crate::hud::{place_instruments, setup_hud, show_hud, update_hud, update_marks, update_panels};
+use crate::hud::{
+    place_instruments, setup_hud, show_hud, update_hud, update_marks, update_panels, update_spread_ring,
+};
 use crate::input::{Aim, Controls, read_input};
 use crate::net::{LaunchConfigRes, NetPlugin, drive, game_client, start_net_loop};
 use crate::net_view::{sync_view, tick_vis_time, track_bodies};
@@ -90,6 +92,7 @@ pub fn run() {
             .init_resource::<crate::onfoot::OnFoot>()
             .init_resource::<crate::terminal::TerminalLog>()
             .init_resource::<crate::map::MapOpen>()
+            .init_resource::<crate::chat::Spoken>()
             .init_resource::<crate::map::ObjectiveState>()
             .add_plugins(crate::chart::ChartPlugin)
             .add_systems(First, drain_inbox)
@@ -106,6 +109,8 @@ pub fn run() {
                 (
                     drive_link,
                     apply_ui_cmds,
+                    crate::dev_hooks::aim_hook,
+                    crate::chat::radio,
                     crate::input::toggle_camera,
                     crate::map::toggle_map,
                     update_settings,
@@ -137,6 +142,7 @@ pub fn run() {
                 (
                     show_hud,
                     update_hud,
+                    update_spread_ring,
                     update_marks,
                     update_panels,
                     place_instruments,

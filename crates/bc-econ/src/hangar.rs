@@ -9,7 +9,7 @@ use bc_sim::content::salvage::{is_gundam, part_mass_kg};
 use bc_sim::sim::{Homecoming, Loadout};
 use serde::{Deserialize, Serialize};
 
-use crate::catalogue::{MUNITIONS_ITEM, PROPELLANT_ITEM, Station, munitions_per_load, recipe};
+use crate::catalogue::{MUNITIONS_ITEM, PROPELLANT_ITEM, Station, munitions_per_load, recipe, value, worth};
 use crate::exchange::{Exchange, Side};
 use crate::fab::{MAX_JOBS, Works};
 use crate::faults::{Faults, overhaul_cost};
@@ -23,12 +23,29 @@ use crate::wear::{SERVICE_FROM, service_cost};
 use bc_sim::content::modules::MOUNTS;
 use bc_sim::content::systems::{DAMAGED, FAILED, OK};
 
+/// The Charter Board advances a pilot who has lost everything a worn suit at most this often, s
+/// ([`Hangar::reissue`]).
+pub const REISSUE_EVERY_SECS: u64 = 30 * 60;
+
 /// A part towed home loose (it was shot off) comes back this worn, %.
 pub const SALVAGED_LIMB: u8 = 15;
 /// A part still on a hulk towed home, %.
 pub const SALVAGED_HULK: u8 = 40;
 /// The most batches one job may ask for.
 pub const MAX_BATCHES: u32 = 500;
+
+/// What the Charter Board hands an Arrival: a worn, second-hand Leo with no beam rifle (that's the
+/// first thing to buy or build) and half a tank.
+fn worn_leo() -> Suit {
+    let mut suit = Suit::complete(FrameId::Leo);
+    suit.parts = [Some(70), Some(60), Some(55), Some(65), Some(60), Some(70)];
+    suit.mounts[0] = false;
+    suit.ammo[0] = 0;
+    suit.propellant = suit.tank() / 2;
+    // Second-hand, and it shows inside too: its radiators are tired.
+    suit.faults.set(System::Radiators, DAMAGED);
+    suit
+}
 
 /// Where the pilot's suit is.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,6 +67,9 @@ pub struct Hangar {
     pub stores: Stores,
     pub bay: Bay,
     pub works: Works,
+    /// When the Charter Board last advanced this pilot a suit ([`Hangar::reissue`]), unix seconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reissued_at: Option<u64>,
 }
 
 /// How a request went: what to tell the pilot.
@@ -87,19 +107,33 @@ impl Hangar {
     /// What a new pilot starts with: a worn, second-hand Leo (no beam rifle: that's the first
     /// thing to buy or build), a little propellant and munitions, and enough credits to get going.
     pub fn starter() -> Self {
-        let line = FrameId::Leo;
-        let mut suit = Suit::complete(line);
-        suit.parts = [Some(70), Some(60), Some(55), Some(65), Some(60), Some(70)];
-        suit.mounts[0] = false;
-        suit.ammo[0] = 0;
-        suit.propellant = suit.tank() / 2;
-        // Second-hand, and it shows inside too: its radiators are tired.
-        suit.faults.set(System::Radiators, DAMAGED);
         let mut stores = Stores::default();
         stores.add(PROPELLANT_ITEM, 600);
         stores.add(MUNITIONS_ITEM, 100);
         stores.add(Item::Material(Material::Steel), 200);
-        Self { credits: 2_000, stores, bay: Bay::Docked { suit }, works: Works::default() }
+        Self { credits: 2_000, stores, bay: Bay::Docked { suit: worn_leo() }, ..Self::default() }
+    }
+
+    /// A floor under loss: a pilot with no suit in the bay, no torso in the stores to build one on,
+    /// and less than a torso's worth in credits, stores and parts (at the colony's values) is
+    /// advanced a worn Leo by the Charter Board, as on the day they arrived: at most once every
+    /// [`REISSUE_EVERY_SECS`] (`now` is unix seconds). The notice to give them, if it did.
+    pub fn reissue(&mut self, now: u64) -> Option<String> {
+        let line = FrameId::Leo;
+        if !matches!(self.bay, Bay::Empty) || self.stores.parts().iter().any(|p| p.part == Part::Torso) {
+            return None;
+        }
+        let goods: u64 = self.stores.stock().map(|(item, qty)| worth(item, value(item), qty)).sum();
+        let parts: u64 = self.stores.parts().iter().map(|p| value(p.item())).sum();
+        if self.credits + goods + parts >= value(Item::Part(line, Part::Torso)) {
+            return None;
+        }
+        if self.reissued_at.is_some_and(|at| now < at + REISSUE_EVERY_SECS) {
+            return None;
+        }
+        self.bay = Bay::Docked { suit: worn_leo() };
+        self.reissued_at = Some(now);
+        Some(format!("THE CHARTER BOARD ADVANCES YOU A WORN {}", frame_name(line).to_uppercase()))
     }
 
     /// The suit standing in the bay.
@@ -707,6 +741,45 @@ mod tests {
         assert_eq!(l.ammo[1], 400);
         assert!(matches!(h.bay, Bay::Out { .. }));
         assert!(h.launch().is_err());
+    }
+
+    /// Lost and broke, a pilot is advanced a worn Leo, but not twice in half an hour, not while a
+    /// suit stands in the bay or a torso waits in the stores, and not while they're worth a torso.
+    #[test]
+    fn the_charter_board_advances_a_worn_leo_to_a_pilot_who_lost_everything() {
+        let t0 = 1_800_000_000;
+        let mut h = Hangar::starter();
+        assert_eq!(h.reissue(t0), None, "a suit stands in the bay");
+        let _ = h.launch().unwrap();
+        assert_eq!(h.reissue(t0), None, "it's out there");
+        h.lost(0);
+        // An Arrival's 2,000 cr and stores are less than a torso: lose the first suit, and that's
+        // everything. Worth a torso, there's no advance.
+        let torso = value(Item::Part(FrameId::Leo, Part::Torso));
+        assert!(h.credits < torso, "a torso is {torso} cr");
+        h.credits = torso;
+        assert_eq!(h.reissue(t0), None, "worth a torso");
+        h.credits = torso / 4;
+        let note = h.reissue(t0).expect("reissued");
+        assert!(note.contains("ADVANCES YOU A WORN"), "{note}");
+        assert_eq!(h.suit(), Hangar::starter().suit(), "the suit an Arrival gets");
+        assert_eq!(h.reissued_at, Some(t0));
+        // Lost again within the half hour: nothing; after it, another.
+        let _ = h.launch();
+        h.lost(0);
+        assert_eq!(h.reissue(t0 + REISSUE_EVERY_SECS - 1), None, "not twice in half an hour");
+        assert!(h.reissue(t0 + REISSUE_EVERY_SECS).is_some());
+        // A torso in the stores is a suit to build: no advance.
+        h.lost(0);
+        h.reissued_at = None;
+        h.stores.add_part(PartUnit { condition: 5, ..PartUnit::new(FrameId::Leo, Part::Torso) });
+        assert_eq!(h.reissue(t0), None, "a torso to build on");
+        // It's kept with the hangar, and an old record without it reads as never.
+        let saved = serde_json::to_string(&Hangar { reissued_at: Some(t0), ..Hangar::default() }).unwrap();
+        assert_eq!(serde_json::from_str::<Hangar>(&saved).unwrap().reissued_at, Some(t0));
+        let old = serde_json::to_string(&Hangar::default()).unwrap();
+        assert!(!old.contains("reissued_at"));
+        assert_eq!(serde_json::from_str::<Hangar>(&old).unwrap().reissued_at, None);
     }
 
     #[test]

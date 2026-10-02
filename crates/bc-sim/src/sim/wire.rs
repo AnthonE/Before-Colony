@@ -83,8 +83,8 @@ impl Sim {
         }
         let charge = spec.loadout[0]
             .map(|m| weapon(m.weapon))
-            .filter(|w| w.charge_ticks > 0)
-            .map_or(0.0, |w| f32::from(s.weapons[i][0].charge) / f32::from(w.charge_ticks));
+            .filter(|w| w.charge_span() > 0)
+            .map_or(0.0, |w| f32::from(s.weapons[i][0].charge) / f32::from(w.charge_span()));
         let mut flags = 0u16;
         if s.boosting[i] {
             flags |= own_flags::BOOSTING;
@@ -95,7 +95,7 @@ impl Sim {
         if s.overheated[i] {
             flags |= own_flags::OVERHEAT;
         }
-        if charge > 0.0 {
+        if spec.loadout[0].is_some_and(|m| crate::arms::charging(s.weapons[i][0].charge, weapon(m.weapon))) {
             flags |= own_flags::CHARGING;
         }
         let melee = &s.melee[i];
@@ -214,6 +214,7 @@ impl Sim {
             special_timer: special_timer.min(255) as u8,
             special_cooldown: s.special[i].cooldown.div_ceil(4).min(255) as u8,
             arms: self.own_arms(i),
+            burst: f.burst,
             surface,
             cover: self.cover_code(i),
         }
@@ -298,7 +299,9 @@ impl Sim {
         if s.boosting[j] {
             flags |= ent_flags::BOOST;
         }
-        if s.weapons[j][0].charge > 0 {
+        if frame(s.frame[j]).loadout[0]
+            .is_some_and(|m| crate::arms::charging(s.weapons[j][0].charge, weapon(m.weapon)))
+        {
             flags |= ent_flags::CHARGING;
         }
         if s.zero[j].active() {

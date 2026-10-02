@@ -131,6 +131,8 @@ pub struct GameShared {
     pub econ: bc_econ::Rules,
     /// Pilots' hangars, by client slot, for `/status`.
     pub(super) hangars: Arc<RwLock<HashMap<u16, HangarEntry>>>,
+    /// The colony's radio: what pilots say (`radio`).
+    pub radio: Arc<crate::radio::Radio>,
     /// The suits left in hide spots have been put back (or let go): a suit the sector puts back
     /// from now on came too late, and goes again ([`process_notes`]).
     restore_over: Arc<AtomicBool>,
@@ -272,6 +274,7 @@ pub struct StatusView {
     charter: Arc<Charter>,
     hangars: Arc<RwLock<HashMap<u16, HangarEntry>>>,
     inside: Option<Arc<SectorShared>>,
+    radio: Arc<crate::radio::Radio>,
 }
 
 /// Owns the sector and egress threads.
@@ -396,6 +399,7 @@ impl GameRuntime {
             charter,
             econ: bc_econ::Rules { craft_speed: cfg.craft_speed, ..bc_econ::Rules::default() },
             hangars: Arc::new(RwLock::new(HashMap::new())),
+            radio: Arc::new(crate::radio::Radio::default()),
             restore_over: Arc::new(AtomicBool::new(false)),
         };
         // The exchange's and the Charter Board's clocks, and their files.
@@ -457,6 +461,7 @@ impl GameRuntime {
             charter: self.shared.charter.clone(),
             hangars: self.shared.hangars.clone(),
             inside: self.shared.inside.as_ref().map(|i| i.sector.clone()),
+            radio: self.shared.radio.clone(),
         }
     }
 
@@ -677,6 +682,8 @@ impl StatusView {
             "advice": l(&m.advice),
             // Heap operations observed on the sector thread inside ticks (must stay 0).
             "hot_path_allocations": bc_alloc::violations(),
+            // Lines said on the colony's radio (counted, never kept in the logs).
+            "radio_lines": self.radio.said(),
             "pilots": pilots,
             // Signed-in pilots who left: their suits, asleep in the cockpit.
             "sleepers": sleepers,

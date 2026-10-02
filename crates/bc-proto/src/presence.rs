@@ -35,6 +35,9 @@ pub const MAX_TRAINS: u8 = 12;
 /// [`PersonPose::ride`] for a pilot driving a car, and riding a scooter.
 pub const RIDE_CAR: u8 = 13;
 pub const RIDE_SCOOTER: u8 = 14;
+/// [`PersonPose::ride`] for a pilot sitting on a seat (`bc_sim::colony::city::SEATS`): where it
+/// is, and the way it faces.
+pub const RIDE_SEATED: u8 = 15;
 /// A rider's `s` is from their train's track, offset by this so it stays positive, m.
 pub const RIDER_S: f32 = 2_048.0;
 /// How long before the plaza's tick the server heard a person's pose, in 10 ms steps.
@@ -66,7 +69,7 @@ pub struct PersonPose {
     /// What they ride: 0 nothing (on foot); `k` + 1 train `k` of the strip's line, when a rider's
     /// `x`, `s` and `h` are from the train's middle, from its track's middle (plus [`RIDER_S`])
     /// and from its floor, so they're drawn inside it wherever each screen has it; [`RIDE_CAR`] or
-    /// [`RIDE_SCOOTER`] driving one (where it is, its heading, its speed).
+    /// [`RIDE_SCOOTER`] driving one (where it is, its heading, its speed); [`RIDE_SEATED`] sitting.
     pub ride: u8,
 }
 
@@ -74,6 +77,11 @@ impl PersonPose {
     /// Driving a car or riding a scooter.
     pub fn driving(&self) -> bool {
         matches!(self.ride, RIDE_CAR | RIDE_SCOOTER)
+    }
+
+    /// Sitting on a seat.
+    pub fn seated(&self) -> bool {
+        self.ride == RIDE_SEATED
     }
 
     /// Riding train `k`.
@@ -277,7 +285,7 @@ mod tests {
             speed: (f * 0.37) % 12.0,
             grounded: i.is_multiple_of(2),
             running: i.is_multiple_of(3),
-            ride: (i % 15) as u8,
+            ride: (i % 16) as u8,
         }
     }
 

@@ -274,6 +274,17 @@ impl BotClient {
         Ok(suit)
     }
 
+    /// Says `text` on the colony's radio (any rules): everyone connected hears it, this agent too.
+    pub async fn say(&mut self, text: &str) -> anyhow::Result<()> {
+        self.request(&Request::Say { text: text.to_string() }).await
+    }
+
+    /// What's been heard on the colony's radio since this agent connected: who said what, oldest
+    /// first.
+    pub fn heard(&self) -> &[(String, String)] {
+        &self.core.hangar.said
+    }
+
     /// Asks the hangar for something and waits for its answer: what it said, or why it refused.
     pub async fn ask(&mut self, req: &Request) -> anyhow::Result<String> {
         let n = self.core.hangar.notes.len();

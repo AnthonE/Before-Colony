@@ -120,6 +120,32 @@ pub enum Request {
         #[serde(with = "kit_serde")]
         kit: Kit,
     },
+    /// Say something on the colony's radio, to everyone connected (any rules): at most
+    /// [`SAY_MAX_CHARS`] of it, cleaned ([`clean_line`]).
+    Say {
+        text: String,
+    },
+}
+
+/// The longest line the colony's radio carries, characters.
+pub const SAY_MAX_CHARS: usize = 160;
+
+/// A line fit for the radio: control characters gone, runs of space made one, trimmed, and cut to
+/// [`SAY_MAX_CHARS`]. `None` if nothing's left.
+pub fn clean_line(text: &str) -> Option<String> {
+    let mut out = String::new();
+    for c in text.chars() {
+        let c = if c.is_whitespace() { ' ' } else { c };
+        if c.is_control() || (c == ' ' && (out.is_empty() || out.ends_with(' '))) {
+            continue;
+        }
+        if out.chars().count() == SAY_MAX_CHARS {
+            break;
+        }
+        out.push(c);
+    }
+    let out = out.trim_end().to_string();
+    (!out.is_empty()).then_some(out)
 }
 
 /// Where the pilot is.
@@ -183,6 +209,11 @@ pub enum Update {
     /// plaza's datagrams name them).
     People {
         people: Vec<Person>,
+    },
+    /// A line on the colony's radio: who said it (their callsign), and what.
+    Said {
+        from: String,
+        text: String,
     },
 }
 
@@ -325,7 +356,8 @@ pub fn apply(
         | Request::EnterCity { .. }
         | Request::LeaveCity
         | Request::WatchBoard { .. }
-        | Request::UseKit { .. } => return None,
+        | Request::UseKit { .. }
+        | Request::Say { .. } => return None,
     })
 }
 
@@ -459,6 +491,7 @@ mod tests {
             (r#"{"t":"launch_inside"}"#, Request::LaunchInside),
             (r#"{"t":"dock"}"#, Request::Dock),
             (r#"{"t":"use_kit","kit":"chaff"}"#, Request::UseKit { kit: Kit::Chaff }),
+            (r#"{"t":"say","text":"o7"}"#, Request::Say { text: "o7".into() }),
         ];
         for (json, req) in cases {
             assert_eq!(decode::<Request>(json.as_bytes()).as_ref(), Some(req), "{json}");
@@ -466,6 +499,20 @@ mod tests {
         }
         assert_eq!(decode::<Request>(br#"{"t":"fit","item":"part.virgo.head"}"#), None);
         assert_eq!(decode::<Request>(b"not json"), None);
+    }
+
+    #[test]
+    fn a_line_for_the_radio_is_cleaned() {
+        assert_eq!(clean_line("  hello\tthere \n "), Some("hello there".into()));
+        assert_eq!(clean_line("\u{7}\u{1b}[31mred"), Some("[31mred".into()), "control characters go");
+        assert_eq!(clean_line(" \n\t "), None);
+        let long = "é".repeat(SAY_MAX_CHARS + 40);
+        assert_eq!(clean_line(&long).unwrap().chars().count(), SAY_MAX_CHARS);
+        // The longest line still fits a frame, as the server sends it.
+        let said = Update::Said { from: "W".repeat(16), text: "\u{1F600}".repeat(SAY_MAX_CHARS) };
+        let json = encode(&said);
+        let mut out = vec![0u8; json.len() + 3];
+        assert!(bc_proto::control::encode_hangar(&json, &mut out).is_some(), "{} bytes", json.len());
     }
 
     #[test]

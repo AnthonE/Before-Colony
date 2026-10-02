@@ -12,7 +12,7 @@ use glam::Vec3;
 
 use crate::config::SECTOR_LIMIT;
 use crate::flight::FlightState;
-use crate::math::sqrt;
+use crate::math::{normalize_or, sqrt};
 
 /// O'Neill cylinder "L1 Colony Cluster, Colony 03": axis along X, below the combat zone.
 pub const COLONY_CENTER: Vec3 = Vec3::new(0.0, -4_200.0, 0.0);
@@ -80,6 +80,32 @@ pub fn hull_contact(p: Vec3, r: f32) -> Option<(Vec3, Vec3)> {
     Some((COLONY_CENTER + Vec3::new(rel.x, 0.0, 0.0) + n * limit, n))
 }
 
+/// "Up" anywhere around the colony: away from the nearest point of it (its hull, an end cap, or a
+/// cap's rim). A fight locked on (`bc_proto::LockOn`) takes the colony for its ground, so the two
+/// pilots in it share one. It turns smoothly everywhere outside the colony: over the hull it points
+/// away from the axis, and past an end it points along the axis, away from the cap. (Inside, or on
+/// the hull itself, away from the axis; on the axis, +Y.)
+pub fn colony_up(p: Vec3) -> Vec3 {
+    let (off, radial) = off_the_colony(p);
+    normalize_or(off, normalize_or(radial, Vec3::Y))
+}
+
+/// How high `p` is over the colony: its distance from the nearest point of it, m (0 inside). Two
+/// suits at the same altitude fight on the same floor, however far round the hull they are.
+pub fn colony_altitude(p: Vec3) -> f32 {
+    crate::math::length(off_the_colony(p).0)
+}
+
+/// From the nearest point of the solid colony to `p`, and `p`'s offset from the axis.
+fn off_the_colony(p: Vec3) -> (Vec3, Vec3) {
+    let rel = p - COLONY_CENTER;
+    let radial = Vec3::new(0.0, rel.y, rel.z);
+    let d2 = radial.length_squared();
+    let rim = if d2 > COLONY_RADIUS * COLONY_RADIUS { radial * (COLONY_RADIUS / sqrt(d2)) } else { radial };
+    let nearest = Vec3::new(rel.x.clamp(-COLONY_HALF_LENGTH, COLONY_HALF_LENGTH), rim.y, rim.z);
+    (rel - nearest, radial)
+}
+
 /// Whether a point is inside the colony's solid hull.
 pub fn inside_colony(p: Vec3) -> bool {
     let rel = p - COLONY_CENTER;
@@ -145,6 +171,46 @@ mod tests {
         assert!((colony_spin_angle(41, 1.0) - colony_spin_angle(42, 0.0)).abs() < 1e-6);
         assert!((colony_spin_angle(COLONY_SPIN_PERIOD_TICKS - 1, 1.0) - TAU).abs() < 1e-5);
         assert!((colony_spin_angle(1, 0.0) - w * DT).abs() < 1e-7);
+    }
+
+    #[test]
+    fn colony_up_points_away_from_the_colony_and_turns_smoothly() {
+        let c = COLONY_CENTER;
+        let near = |a: Vec3, b: Vec3| a.angle_between(b) < 1e-4;
+        // Over the hull, away from the axis, wherever along it.
+        assert!(near(colony_up(c + Vec3::new(9_000.0, 5_000.0, 0.0)), Vec3::Y));
+        assert!(near(colony_up(c + Vec3::new(-3_000.0, 0.0, -4_100.0)), -Vec3::Z));
+        // Past an end cap, along the axis, away from it; on the axis too.
+        assert!(near(colony_up(c + Vec3::new(-19_600.0, 300.0, -800.0)), -Vec3::X));
+        assert!(near(colony_up(c + Vec3::new(17_000.0, 0.0, 0.0)), Vec3::X));
+        // Off the rim, between the two.
+        let rim = colony_up(c + Vec3::new(COLONY_HALF_LENGTH + 1_000.0, COLONY_RADIUS + 1_000.0, 0.0));
+        assert!(near(rim, Vec3::new(1.0, 1.0, 0.0).normalize()), "{rim}");
+        // The combat zone over the colony: up is up.
+        assert!(near(colony_up(Vec3::new(0.0, 1_100.0, 0.0)), Vec3::Y));
+        // Altitude is over the curve: the same height over the hull round the colony and past it.
+        let over = |a: f32, h: f32| c + Vec3::new(0.0, a.cos(), a.sin()) * (COLONY_RADIUS + h);
+        assert!((colony_altitude(over(0.0, 500.0)) - 500.0).abs() < 0.01);
+        assert!((colony_altitude(over(1.2, 500.0)) - 500.0).abs() < 0.01);
+        assert!((colony_altitude(c + Vec3::new(-COLONY_HALF_LENGTH - 700.0, 0.0, 0.0)) - 700.0).abs() < 0.01);
+        assert_eq!(colony_altitude(c), 0.0);
+        // Unit everywhere, and smooth: a metre's step never turns it by more than a metre's worth
+        // of the nearest point's distance (no flips across the rim).
+        let mut rng = Rng::new(11);
+        for _ in 0..20_000 {
+            let p = Vec3::new(
+                (rng.next_f32() - 0.5) * 60_000.0,
+                (rng.next_f32() - 0.5) * 60_000.0,
+                (rng.next_f32() - 0.5) * 60_000.0,
+            );
+            if inside_colony(p) || hull_contact(p, 50.0).is_some() {
+                continue;
+            }
+            let u = colony_up(p);
+            assert!((length(u) - 1.0).abs() < 1e-5);
+            let step = colony_up(p + Vec3::new(0.6, -0.5, 0.6));
+            assert!(u.angle_between(step) < 0.03, "{p}: {u} → {step}");
+        }
     }
 
     /// Whether `q` is in the colony grown by `r` (in f64).

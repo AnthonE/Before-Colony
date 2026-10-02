@@ -215,12 +215,14 @@ pub enum WeaponKind {
     Flamethrower = 17,
     /// Shenlong's beam glaive: an overhead chop.
     BeamGlaive = 18,
+    /// The beam rifle's charged shot: twice as fast and as thick, held for and let go.
+    BeamRifleCharged = 19,
 }
 
 impl WeaponKind {
     /// Room for 32 kinds on the wire.
     pub const BITS: u32 = 5;
-    pub const COUNT: usize = 19;
+    pub const COUNT: usize = 20;
     pub const ALL: [WeaponKind; Self::COUNT] = [
         WeaponKind::BeamRifle,
         WeaponKind::MachineCannon,
@@ -241,6 +243,7 @@ impl WeaponKind {
         WeaponKind::DragonFang,
         WeaponKind::Flamethrower,
         WeaponKind::BeamGlaive,
+        WeaponKind::BeamRifleCharged,
     ];
 
     pub fn from_bits(v: u32) -> Option<Self> {
