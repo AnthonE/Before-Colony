@@ -168,6 +168,8 @@ pub struct Ui {
     /// across, heading in the map's terms: radians from +x towards −s).
     pub map: bool,
     pub map_at: Option<[f32; 4]>,
+    /// The objective's place on the map, by slug (its door gets the ◆).
+    pub map_goal: Option<&'static str>,
     /// A sortie's news, shown large for a few seconds.
     news_seq: u32,
     news: String,
@@ -348,6 +350,7 @@ pub struct View {
     prompt: String,
     bay_line: String,
     map_at: Option<[f32; 4]>,
+    map_goal: Option<&'static str>,
     news_seq: u32,
     news: String,
     news_bad: bool,
@@ -390,6 +393,7 @@ impl View {
             prompt: ui.prompt.clone(),
             bay_line: ui.bay_line.clone(),
             map_at: ui.map_at.filter(|_| ui.map),
+            map_goal: ui.map_goal.filter(|_| ui.map),
             news_seq: ui.news_seq,
             news: ui.news.clone(),
             news_bad: ui.news_bad,
@@ -433,6 +437,9 @@ impl View {
             set(&at, "s", s);
             set(&at, "heading", heading);
             set(&o, "map", at);
+        }
+        if let Some(goal) = self.map_goal {
+            set(&o, "mapGoal", goal);
         }
         set(&o, "newsSeq", self.news_seq);
         set(&o, "news", self.news.as_str());
@@ -582,7 +589,9 @@ fn city_map() -> Object {
         let places = Array::new();
         for p in PLACES.iter().filter(|p| p.strip as usize == k) {
             let ((s, x), _) = place_door(p);
-            places.push(&point(p.name, s, x));
+            let o = point(p.name, s, x);
+            set(&o, "slug", p.slug);
+            places.push(&o);
         }
         set(&strip, "places", places);
         let sights = Array::new();

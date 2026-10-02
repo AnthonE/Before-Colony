@@ -36,6 +36,8 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await page.goto("/?autoplay=1&name=Relena&quality=low");
   await until(page, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 180_000);
   expect((await mine(page, "Relena")).status.game.colony).toBe(true);
+  // The objectives on foot run down the chain: first, the cap lift.
+  await until(page, "the first objective on foot", (s) => s.objective === "RIDE THE CAP LIFT DOWN", 30_000);
 
   // The airlock leads to the cap lift.
   await push(page, { cmd: "walk_to", spot: "airlock" });
@@ -58,6 +60,7 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   expect(city.people).toBe(2);
   expect(city.refused_poses).toBe(0);
   expect((await mine(page, "Relena")).hangar?.place).toBe("city");
+  await until(page, "the next objective", (s) => s.objective === "FIND THE EXCHANGE FLOOR", 30_000);
 
   // The map (M): the strip, its districts, its places.
   await page.focus("#bc");
@@ -72,6 +75,7 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await until(page, "the walk", (s) => s.city_walking_to, 30_000);
   await until(page, "at the Exchange floor", (s) => s.focus === "exchange_floor" && !s.city_walking_to, 420_000);
   await expect(page.locator("#use")).toContainText("EXCHANGE", { timeout: 30_000 });
+  await until(page, "the last objective", (s) => s.objective === "SELL ON THE EXCHANGE", 30_000);
   await push(page, { cmd: "use" });
   await until(page, "the exchange terminal", (s) => s.terminal === "exchange", 60_000);
   await expect(page.locator("#terminal")).toBeVisible();

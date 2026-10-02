@@ -555,6 +555,9 @@ held at the edge of the view while it's off it.
 | HIDE IN THE AFT WELL | hidden in it (the server's word) | the Aft Well |
 | MINE 200 KG OF ORE | 200 kg in the hold and in hand | the nearest big rock |
 | BRING THE ORE HOME (survival) · SELL ORE AT THE DOCK (arcade) | in the dock's ring with something aboard | the dock |
+| RIDE THE CAP LIFT DOWN (the colony open) | in the city | flying, the dock; in the bay, the airlock's prompt |
+| FIND THE EXCHANGE FLOOR (the colony open) | at its door | on the city's map (M), a `◆` on its door, and its range on the panel |
+| SELL ON THE EXCHANGE (the colony open) | a sale filled on the Exchange, from anywhere | as above |
 | DOWN A MOBILE DOLL | a Doll downed | the nearest Doll in sight, else their patrols over the field |
 | LAND ON HERMIT | standing on it | Hermit |
 | DOWN 5 MOBILE DOLLS | five downed, over any number of visits | as above |
@@ -562,7 +565,9 @@ held at the edge of the view while it's off it.
 - **Any order.** Each is checked every frame, so doing one early counts; the HUD shows the first
   in the rules' order not yet done. Survival starts at the dock beside MO-II, in a worn Leo with
   no rifle, so it lands and hides first and fights last; arcade starts among the Dolls, so it
-  fights first.
+  fights first. The ore brought home goes down the chain, into the colony and onto its Exchange
+  (`PEERS.md`'s "connect before deepening"). On foot (in the bay, or the city) the panel shows the
+  first of those not yet done, since the flight's wait for the next sortie.
 - **Kept with the settings**, as the hints are: what's done and the Dolls downed carry over from
   one visit to the next in the same browser. An objective done says so (`OBJECTIVE DONE - …`).
   The settings panel can hide the objective and its waypoint.

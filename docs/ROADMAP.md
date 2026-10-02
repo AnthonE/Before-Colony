@@ -11,7 +11,7 @@ the bay, space, home).
 |---|---|
 | Lock-on: fighting on the ground in space (`LOCK.md`) | built |
 | The weapons pass: the hit-rate harness, charged beams, true cones, lunges that home, the burst step | built |
-| P0: a floor under loss and text chat (built), objectives along the chain, The Arrival's seats | building |
+| P0: a floor under loss, text chat and objectives along the chain (built), The Arrival's seats | building |
 | P1, P2 below | planned |
 
 ## P0: before more players arrive
@@ -33,9 +33,11 @@ counted on `/status`). `/` opens it (Enter too, on foot, where Enter docks nothi
 the suit while typing. Agents: `bc-bot` `say` and `heard`. Tests: a two-bot server test; the page's
 `ui` e2e types a line.
 
-**Objectives along the chain** (`bc_client_core::objectives`, appended so their bits stay): ride the
-cap lift down, find the Exchange floor, sell on the Exchange (with the colony open, the Welcome's
-COLONY flag), each with a waypoint to the place's door in the city view.
+**Objectives along the chain.** *Built* (`bc_client_core::objectives`, appended so their bits
+stay): ride the cap lift down, find the Exchange floor, sell on the Exchange (with the colony
+open, the Welcome's COLONY flag). On foot the panel shows the first of them not done, with the
+range to the place's door, and the city's map marks the door with a `◆`. Still open: a marker
+on the door in the city view itself.
 
 **The Arrival does something.** Seats by its door (`content::city`), E to sit, others see you sit
 (the presence's `ride` 15 is seated: no new bits, a protocol bump for the meaning), and chat over

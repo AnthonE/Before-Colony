@@ -264,7 +264,7 @@
     show(hint, s === "playing" && !!v.hint && v.panel === "none");
     show($("help"), v.help);
     show($("map"), s === "playing" && !!v.map && v.panel === "none");
-    if (s === "playing" && v.map && v.panel === "none") drawMap(v.map);
+    if (s === "playing" && v.map && v.panel === "none") drawMap(v.map, v.mapGoal);
     show($("prompt"), s === "playing" && v.clickToFly && !v.help && !v.sequence);
     const verb = v.place === "hangar" && v.onFoot ? "WALK" : "FLY";
     $("prompt-main").textContent = v.refused ? `CLICK AGAIN TO ${verb}` : `CLICK TO ${verb}`;
@@ -327,7 +327,7 @@
     }
     return c.getContext("2d");
   }
-  function drawMap(at) {
+  function drawMap(at, goal) {
     if (!city) return;
     const strip = city.strips[at.strip] || city.strips[0];
     const district = strip.districts.find((d) => at.x >= d.x && at.x < d.x1);
@@ -409,6 +409,19 @@
     };
     for (const p of strip.sights) mark(p, label, 3);
     for (const p of strip.places) mark(p, amber, 4.5);
+    // The objective's door: a ◆ over it (and pointing the way when it's off the map's edge).
+    const target = strip.places.find((p) => p.slug === goal);
+    if (target) {
+      const pink = css.getPropertyValue("--pink").trim();
+      const gx = Math.min(Math.max(X(target.x), 14 * dpr), W - 14 * dpr), gy = Y(target.s);
+      const d = 8 * dpr;
+      g.strokeStyle = pink;
+      g.lineWidth = 2 * dpr;
+      g.beginPath();
+      g.moveTo(gx, gy - d); g.lineTo(gx + d, gy); g.lineTo(gx, gy + d); g.lineTo(gx - d, gy);
+      g.closePath();
+      g.stroke();
+    }
     // The pilot, and the way they face.
     const px = X(at.x), py = Y(at.s), r = 9 * dpr;
     const c = Math.cos(at.heading), sn = Math.sin(at.heading);
