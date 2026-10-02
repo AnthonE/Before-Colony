@@ -61,6 +61,9 @@ pub enum UiCmd {
     /// Dev hooks, on foot: walk to a place in the bay (by its slug), use what's in view, skip a
     /// launch or homecoming sequence.
     WalkTo(String),
+    /// Dev hook, flying: keep the aim on the nearest hostile (headless browsers can't lock the
+    /// pointer to aim with), or stop.
+    AimHostile(bool),
     Use,
     Skip,
 }
@@ -256,6 +259,7 @@ fn parse(v: &JsValue) -> Option<UiCmd> {
         "say" => UiCmd::Say(s("text")),
         "chat" => UiCmd::Chat(get(v, "open").as_bool().unwrap_or(false)),
         "walk_to" => UiCmd::WalkTo(s("spot")),
+        "aim_hostile" => UiCmd::AimHostile(get(v, "on").as_bool().unwrap_or(false)),
         "use" => UiCmd::Use,
         "skip" => UiCmd::Skip,
         _ => return None,

@@ -2,10 +2,11 @@ import { expect, test } from "@playwright/test";
 import { bc, collectConsole } from "./util";
 
 // Lock-on (docs/LOCK.md) in a real browser against the server's Mobile Dolls, flown with the keys
-// alone (headless Chromium can't lock the pointer): Y locks the nearest Doll, holding W carries the
-// suit in to it, flying locked on, its prediction keeping to the server's; holding Y lets go.
+// (headless Chromium can't lock the pointer, so a dev hook keeps the aim on the nearest Doll): Y
+// locks it, holding W carries the suit in to it, flying locked on, its prediction keeping to the
+// server's; holding Y lets go.
 test("lock on to a Doll, close in on it, and let go", async ({ page, request }, info) => {
-  test.setTimeout(240_000);
+  test.setTimeout(420_000);
   const logs = collectConsole(page);
   const wait = async (what: string, pred: string, timeout = 60_000) => {
     try {
@@ -24,17 +25,26 @@ test("lock on to a Doll, close in on it, and let go", async ({ page, request }, 
   await wait("in the world", "window.__bc?.link === 'ingame' && window.__bc?.alive && window.__bc?.entities > 0");
   await page.focus("#bc");
 
-  // Y: the nearest Doll, wherever the crosshair is.
+  // On to the nearest Doll (a dev hook keeps the aim on it, as a pilot's mouse would: headless
+  // Chromium can't lock the pointer), flying in until one is within a lock's reach.
+  await page.evaluate(() => (window as any).bcInbox.push({ cmd: "aim_hostile", on: true }));
+  await page.keyboard.down("w");
+  await wait("a Doll within reach", "window.__bc?.hostile_range > 0 && window.__bc?.hostile_range < 3000", 120_000);
+  await page.keyboard.up("w");
+
+  // Y: the Doll under the crosshair.
   await page.keyboard.press("y");
   await wait("a lock", "window.__bc?.lock_slot >= 0 && window.__bc?.lock_range > 0", 20_000);
   const start = (await bc(page)).lock_range as number;
 
-  // W, held: in to it, flying locked on, the prediction keeping to the server's.
+  // W and boost, held: in to it (a Doll keeps its distance, so boost), flying locked on, the
+  // prediction keeping to the server's.
+  await page.keyboard.down("Shift");
   await page.keyboard.down("w");
   let closest = start;
   let lockedOn = false;
   let worstError = 0;
-  const until = Date.now() + 60_000;
+  const until = Date.now() + 90_000;
   while (Date.now() < until) {
     await page.waitForTimeout(500);
     const s = await bc(page);
@@ -45,6 +55,7 @@ test("lock on to a Doll, close in on it, and let go", async ({ page, request }, 
     if (closest < 60) break;
   }
   await page.keyboard.up("w");
+  await page.keyboard.up("Shift");
   console.log(`locked at ${start.toFixed(0)} m, closest ${closest.toFixed(0)} m, prediction ≤ ${worstError.toFixed(3)} m`);
   expect(lockedOn).toBe(true);
   expect(closest).toBeLessThan(Math.max(60, start * 0.5));

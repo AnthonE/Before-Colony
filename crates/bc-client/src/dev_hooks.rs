@@ -72,6 +72,41 @@ fn hide_boot_overlay() {
     }
 }
 
+/// Dev hook (`aim_hostile`): while on, the aim follows the nearest hostile suit, as a pilot's mouse
+/// would; and, on or off, how far off that suit is (`hostile_range`, m; -1: none in sight).
+pub fn aim_hook(
+    cmds: Res<crate::page::UiCmds>,
+    mut aim: ResMut<crate::input::Aim>,
+    game: NonSend<crate::net::GameClient>,
+    mut on: Local<bool>,
+    mut dev: ResMut<DevStatus>,
+) {
+    for cmd in &cmds.0 {
+        if let crate::page::UiCmd::AimHostile(want) = cmd {
+            *on = *want;
+        }
+    }
+    let game = game.borrow();
+    let core = &game.core;
+    let Some(me) = core.own_view().filter(|v| v.alive) else {
+        dev.set("hostile_range", -1.0);
+        return;
+    };
+    let t = core.render_tick(crate::net::now_s());
+    let w = &core.world;
+    let nearest = w
+        .entities
+        .iter()
+        .flatten()
+        .filter(|tr| tr.latest.faction != w.faction && tr.latest.flags & bc_proto::snapshot::ent_flags::WRECK == 0)
+        .map(|tr| tr.sample(t, &w.bodies).pos - me.pos)
+        .min_by(|a, b| a.length_squared().total_cmp(&b.length_squared()));
+    dev.set("hostile_range", nearest.map_or(-1.0, |r| f64::from(r.length())));
+    if *on && let Some(r) = nearest {
+        aim.dir = r.normalize_or(aim.dir);
+    }
+}
+
 /// Game state for the E2E tests (and for curious humans at the devtools console).
 #[allow(clippy::too_many_arguments)]
 pub fn publish_game(

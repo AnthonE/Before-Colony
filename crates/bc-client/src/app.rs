@@ -104,6 +104,7 @@ pub fn run() {
                 (
                     drive_link,
                     apply_ui_cmds,
+                    crate::dev_hooks::aim_hook,
                     crate::chat::radio,
                     crate::input::toggle_camera,
                     crate::map::toggle_map,

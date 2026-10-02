@@ -181,6 +181,10 @@ fn lock_on(
         });
     }
     let held = keys.pressed(LOCK_KEY) || mouse.pressed(MouseButton::Middle);
+    // A tap that went down and up between two frames (a slow frame) is still a press.
+    if pressed_at.is_none() && (keys.just_pressed(LOCK_KEY) || mouse.just_pressed(MouseButton::Middle)) {
+        *pressed_at = Some(now);
+    }
     match (*pressed_at, held) {
         (None, true) => *pressed_at = Some(now),
         // Held long enough: let go (once; the press is spent).
