@@ -68,6 +68,7 @@ pub const BINDINGS: &[Binding] = &[
     b(Group::OnFoot, "W / A / S / D", "Walk"),
     b(Group::OnFoot, "Shift", "Run"),
     b(Group::OnFoot, "Space", "Jump"),
+    b(Group::OnFoot, "Q (at the cockpit)", "With the colony open: launch into it, by the inner gate"),
     b(
         Group::OnFoot,
         "E",

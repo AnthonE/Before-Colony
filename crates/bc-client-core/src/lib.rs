@@ -111,6 +111,8 @@ pub struct Welcome {
     pub colony: bool,
     /// How many of the compiled landmarks the sector has (no more than this build knows of).
     pub landmarks: u8,
+    /// The sector is the colony's inside (the pilot flew in through the inner gate).
+    pub interior: bool,
 }
 
 /// The server's sign-in challenge.
@@ -339,9 +341,13 @@ impl ClientCore {
         self.world.kit = old.kit;
         self.world.bodies = old.bodies;
         let (field, landmarks) = (self.predict.field.clone(), self.predict.landmarks().len() as u8);
+        let (rules, interior) = (self.predict.rules(), self.predict.interior());
         self.predict = Predictor::default();
         self.predict.field = field;
         self.predict.set_landmarks(landmarks);
+        // How the sector flies stays (the Welcome said).
+        self.predict.set_rules(rules);
+        self.predict.set_interior(interior);
         self.clock = Clock::default();
         self.inputs = InputHistory::default();
         self.next_cmd_tick = 0;
@@ -396,6 +402,12 @@ impl ClientCore {
                     self.phase = Phase::Rejected(RejectReason::VersionMismatch);
                     return;
                 }
+                // Welcomed again mid-session: into another sector (the colony's inside, or back
+                // out of it). What was flown in the last one is forgotten.
+                if self.welcome.is_some() {
+                    self.left_the_sector();
+                }
+                self.predict.set_interior(flags & welcome_flags::INTERIOR != 0);
                 self.predict.set_landmarks(landmarks);
                 let anime = flags & welcome_flags::ANIME != 0;
                 self.predict.set_rules(if anime { FlightRules::Anime } else { FlightRules::Real });
@@ -411,6 +423,7 @@ impl ClientCore {
                     survival: flags & welcome_flags::SURVIVAL != 0,
                     anime,
                     colony: flags & welcome_flags::COLONY != 0,
+                    interior: flags & welcome_flags::INTERIOR != 0,
                     landmarks: self.predict.landmarks().len() as u8,
                 });
                 self.predict.set_field(bc_sim::field::Field::generate(field_seed, field_rocks));

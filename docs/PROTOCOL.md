@@ -268,7 +268,7 @@ prefix, except the hangar's (tag 11), which may carry up to 64 KiB.
 | Tag | Message | Direction |
 |---|---|---|
 | 1 | Hello {version, pilot kind, frame, faction, name ≤ 16 B, flags (1 SIGN_IN, 2 RESUME), resume token (32 B, only with RESUME)} | client → server (first frame) |
-| 2 | Welcome {version, client slot, tick, tick_hz, sector, zero_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY), landmarks (u8)} | server → client |
+| 2 | Welcome {version, client slot, tick, tick_hz, sector, zero_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY, 32 INTERIOR), landmarks (u8)} | server → client (again on moving between sectors) |
 | 3 | Reject {reason: 1 version, 2 full, 3 bad hello, 4 frame not allowed, 5 sign-in failed, 6 sign-in required, 7 resume token expired, 8 no signature in time} | server → client |
 | 4 | Roster {entity slot, pilot kind, name (empty = left), flags (1 VERIFIED, 2 ASLEEP)} | server → client |
 | 5 | Respawn {frame} | client → server |
@@ -351,7 +351,8 @@ Client → server (`Request`):
 | `cancel_order` | `id` | |
 | `watch` | `item` (or `null`) | send that item's book and history as they change |
 | `launch` | | board and launch the suit in the bay |
-| `dock` | | take the suit home (at rest inside the dock) |
+| `dock` | | take the suit home (at rest inside the dock, or inside the colony the inner gate's ring) |
+| `launch_inside` | | board and launch the suit into the colony through the inner gate (the colony open) |
 | `enter_city` | `strip` (0–2) | ride the cap lift down from the bay to that strip's Hub Gate (the colony open, and the pilot in their bay) |
 | `leave_city` | | ride the lift back up from Hub Gate to the bay |
 | `watch_board` | `on` | send the Charter Board (`charter`) as it changes, or stop |
@@ -391,6 +392,15 @@ A launch puts the suit in the sector at the docking hub's mouth (the pilot's slo
 stay the same; snapshots start), and `place` says `space`. Docking answers with a `sortie` and
 `place: hangar`, or a refusing `note`. A suit destroyed out there sends `sortie: lost` at once and
 `place: hangar` once the wreck clears.
+
+Suits inside the colony (the Welcome sets COLONY): `launch_inside` seats the suit in the
+server's second sector, the colony's inside (`sector-1`, in the colony's own frame:
+`bc_sim::colony::interior`), and the server sends a new Welcome: sector 2, INTERIOR set, no field
+and no landmarks, and the client slot the inside sector knows the pilot by. Inputs go to that
+sector, its snapshots come instead, and nothing fires there. `dock` at rest in the inner gate's
+ring brings the suit home, with a `sortie` and a Welcome back to sector 1 (the client slot it
+had). A client welcomed mid-session forgets what it flew in the last sector. Leaving while
+inside, the colony's tugs bring the suit back to the bay.
 
 The colony (the Welcome sets COLONY: a survival server run with `--colony`): from the bay,
 `enter_city` answers `place: city` with the strip, or a refusing `note`; in the city the hangar and

@@ -91,6 +91,16 @@ pub struct HangarEntry {
     pub stores_pieces: u64,
 }
 
+/// The colony's inside (`--colony`, survival): a second sector, `sector-1`, in the colony's own
+/// frame (`bc_sim::colony::interior`), with its own slots, rings and egress. Pilots launch into it
+/// from their bays through the inner gate, and dock back out of it.
+#[derive(Clone)]
+pub struct Inside {
+    pub sector: Arc<SectorShared>,
+    pub(super) egress: Arc<ArrayQueue<EgressCmd>>,
+    pub(super) egress_thread: thread::Thread,
+}
+
 /// What each session task needs to reach the sector.
 #[derive(Clone)]
 pub struct GameShared {
@@ -106,8 +116,10 @@ pub struct GameShared {
     pub(super) idle: Duration,
     /// Survival rules (else arcade).
     pub survival: bool,
-    /// The colony is open: pilots may go down into its city.
+    /// The colony is open: pilots may go down into its city, and fly their suits inside it.
     pub colony: bool,
+    /// The colony's inside, if it's open.
+    pub inside: Option<Inside>,
     /// The people in the colony's city (`plaza`).
     pub plaza: Arc<crate::plaza::Plaza>,
     /// Anime flight rules (else the simulator's).
@@ -259,12 +271,15 @@ pub struct StatusView {
     market: Arc<Market>,
     charter: Arc<Charter>,
     hangars: Arc<RwLock<HashMap<u16, HangarEntry>>>,
+    inside: Option<Arc<SectorShared>>,
 }
 
 /// Owns the sector and egress threads.
 pub struct GameRuntime {
     sector: Option<SectorThread>,
     egress: Option<thread::JoinHandle<()>>,
+    /// The colony's inside: its sector and egress threads.
+    inside: Option<(SectorThread, thread::JoinHandle<()>)>,
     egress_stop: Arc<AtomicBool>,
     shared: GameShared,
     oracle: &'static str,
@@ -297,7 +312,7 @@ impl GameRuntime {
         let (sector, shared, egress_ends, oracle_ends) = bc_sector::build(sector_cfg);
         let queue = Arc::new(ArrayQueue::new(1_024));
         let stop = Arc::new(AtomicBool::new(false));
-        let egress = spawn_egress(egress_ends, queue.clone(), stats, stop.clone())?;
+        let egress = spawn_egress(egress_ends, queue.clone(), stats.clone(), stop.clone(), "egress-0")?;
         let egress_thread = egress.thread().clone();
         let sector_thread = bc_sector::spawn(sector, Some(egress_thread.clone()))?;
         let oracle_worker = match jev_key.filter(|_| use_jev) {
@@ -328,6 +343,34 @@ impl GameRuntime {
             Some(dir) => Arc::new(FileStore::new(dir.join("pilots"))?),
             None => Arc::new(MemoryStore::default()),
         };
+        // The colony's inside: a second sector in its own frame, no Dolls, no field, no landmarks.
+        let (inside, inside_threads) = if survival && cfg.colony {
+            let inside_cfg = SectorConfig {
+                sim: SimConfig {
+                    target_dolls: 0,
+                    seed: cfg.seed ^ 0x1_51DE,
+                    field_rocks: 0,
+                    landmarks: 0,
+                    max_sleepers: 0,
+                    survival: true,
+                    flight: cfg.flight.rules(),
+                    world: bc_sim::colony::interior::WorldKind::Interior,
+                    ..SimConfig::default()
+                },
+                max_clients: cfg.max_clients,
+                oracle: false,
+                hot_guard: Some(bc_alloc::set_hot),
+            };
+            let (sector, shared, egress_ends, _oracle) = bc_sector::build(inside_cfg);
+            let queue = Arc::new(ArrayQueue::new(1_024));
+            let egress = spawn_egress(egress_ends, queue.clone(), stats.clone(), stop.clone(), "egress-1")?;
+            let egress_thread = egress.thread().clone();
+            let thread = bc_sector::spawn_named(sector, Some(egress_thread.clone()), "sector-1")?;
+            tracing::info!("the colony's inside is open: sector-1");
+            (Some(Inside { sector: shared, egress: queue, egress_thread }), Some((thread, egress)))
+        } else {
+            (None, None)
+        };
         let market = Arc::new(Market::open(cfg.data_dir.as_ref().map(|d| d.join("exchange.json"))));
         let charter = Arc::new(Charter::open(cfg.data_dir.as_ref().map(|d| d.join("charter.json"))));
         let game = GameShared {
@@ -346,6 +389,7 @@ impl GameRuntime {
             idle: cfg.idle_timeout,
             survival,
             colony: survival && cfg.colony,
+            inside,
             plaza: Arc::new(crate::plaza::Plaza::default()),
             anime: cfg.flight == Flight::Anime,
             market,
@@ -388,6 +432,7 @@ impl GameRuntime {
         Ok(Self {
             sector: Some(sector_thread),
             egress: Some(egress),
+            inside: inside_threads,
             egress_stop: stop,
             shared: game,
             oracle,
@@ -411,6 +456,7 @@ impl GameRuntime {
             market: self.shared.market.clone(),
             charter: self.shared.charter.clone(),
             hangars: self.shared.hangars.clone(),
+            inside: self.shared.inside.as_ref().map(|i| i.sector.clone()),
         }
     }
 
@@ -418,6 +464,10 @@ impl GameRuntime {
         if let Some(s) = self.sector.take() {
             s.stop();
         }
+        let inside_egress = self.inside.take().map(|(s, e)| {
+            s.stop();
+            e
+        });
         // The exchange's last word goes to its file.
         let market = self.shared.market.clone();
         let charter = self.shared.charter.clone();
@@ -432,6 +482,10 @@ impl GameRuntime {
             e.thread().unpark();
             let _ = e.join();
         }
+        if let Some(e) = inside_egress {
+            e.thread().unpark();
+            let _ = e.join();
+        }
     }
 }
 
@@ -442,8 +496,9 @@ fn spawn_egress(
     queue: Arc<ArrayQueue<EgressCmd>>,
     stats: Arc<NetStats>,
     stop: Arc<AtomicBool>,
+    name: &str,
 ) -> std::io::Result<thread::JoinHandle<()>> {
-    thread::Builder::new().name("egress-0".into()).spawn(move || {
+    thread::Builder::new().name(name.into()).spawn(move || {
         let mut conns: Vec<Option<Connection>> = (0..ends.rings.len()).map(|_| None).collect();
         let mut buf = [0u8; MAX_DATAGRAM + 64];
         while !stop.load(Ordering::Acquire) {
@@ -584,6 +639,12 @@ impl StatusView {
             "hangars": hangars,
             "exchange": exchange,
             "charter": charter,
+            // The colony's inside (`--colony`): its sector's suits, and its tick.
+            "inside": self.inside.as_ref().map(|i| serde_json::json!({
+                "suits": l(&i.metrics.suits_alive),
+                "tick": i.tick.load(Ordering::Acquire),
+                "tick_us_p99": i.metrics.tick_quantile_us(0.99),
+            })),
             "clients": l(&m.clients),
             "suits_alive": l(&m.suits_alive),
             // Suits on a body: on their feet (the parked among them), and in its grip in the air.

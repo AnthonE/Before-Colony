@@ -239,6 +239,8 @@ pub struct SectorShared {
     pub field_seed: u32,
     pub field_rocks: u16,
     pub landmarks: u8,
+    /// The colony's inside (`bc_sim::colony::interior`), not space: for the Welcome.
+    pub interior: bool,
     started: std::time::Instant,
 }
 
@@ -317,6 +319,7 @@ pub fn build(cfg: SectorConfig) -> (crate::Sector, Arc<SectorShared>, EgressEnds
         field_seed: cfg.sim.field_seed,
         field_rocks: cfg.sim.field_rocks,
         landmarks: cfg.sim.landmark_defs().len() as u8,
+        interior: cfg.sim.world == bc_sim::colony::interior::WorldKind::Interior,
         started: std::time::Instant::now(),
     });
     let ends = SectorEnds { inputs, reports, outputs, pictures: pic_p, advice: adv_c };

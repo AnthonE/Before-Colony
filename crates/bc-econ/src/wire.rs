@@ -70,6 +70,9 @@ pub enum Request {
     },
     /// Board the suit in the bay and launch it.
     Launch,
+    /// Board the suit in the bay and launch it into the colony, through the inner gate (the colony
+    /// open): its own sector, weapons safe. `dock` brings it back to the bay from the inner gate.
+    LaunchInside,
     /// Take the suit into the bay (it must be resting in the dock).
     Dock,
     /// Ride a cap lift down from the bays into the colony, to Hub Gate on land strip `strip`.
@@ -317,6 +320,7 @@ pub fn apply(
         }
         Request::Watch { .. }
         | Request::Launch
+        | Request::LaunchInside
         | Request::Dock
         | Request::EnterCity { .. }
         | Request::LeaveCity
@@ -452,6 +456,7 @@ mod tests {
             ),
             (r#"{"t":"watch","item":null}"#, Request::Watch { item: None }),
             (r#"{"t":"launch"}"#, Request::Launch),
+            (r#"{"t":"launch_inside"}"#, Request::LaunchInside),
             (r#"{"t":"dock"}"#, Request::Dock),
             (r#"{"t":"use_kit","kit":"chaff"}"#, Request::UseKit { kit: Kit::Chaff }),
         ];

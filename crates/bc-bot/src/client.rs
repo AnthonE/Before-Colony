@@ -245,6 +245,19 @@ impl BotClient {
         .await
     }
 
+    /// Survival rules, the colony open: boards the suit in the bay and launches it into the
+    /// colony through the inner gate. Returns once the pilot is flying it in there (welcomed to the
+    /// colony's inside).
+    pub async fn launch_inside(&mut self) -> anyhow::Result<()> {
+        self.request(&Request::LaunchInside).await?;
+        self.wait_until(10.0, "the launch into the colony", |c| {
+            c.hangar.place == Some(Place::Space)
+                && c.welcome.is_some_and(|w| w.interior)
+                && c.world.own.is_some_and(|o| o.alive)
+        })
+        .await
+    }
+
     /// Gets the agent flying, whatever the rules: under survival rules, a pilot in the hangar
     /// launches the suit in the bay (`false` if there isn't one: it was lost); under arcade
     /// rules, or already out, there's nothing to do.

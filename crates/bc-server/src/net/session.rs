@@ -107,6 +107,7 @@ pub(super) async fn run(
         board_sent: Instant::now() - MARKET_EVERY,
         news_seen: game.charter.with(|b| b.news_seq()),
         lost: false,
+        inside: None,
         entered: false,
     };
     let result = match s.enter().await {
@@ -158,6 +159,9 @@ struct Session<'a> {
     news_seen: u64,
     /// The suit was destroyed; its wreck is still out there.
     lost: bool,
+    /// Flying inside the colony: the lease on the inside sector's slot the suit is flown through
+    /// (`self.suit` names it there).
+    inside: Option<SlotLease>,
     /// Welcomed (so leaving has a roster entry, a record and a lease to settle).
     entered: bool,
 }
@@ -248,39 +252,7 @@ impl Session<'_> {
         }
         self.save().await;
 
-        let mut flags = 0;
-        if self.address.is_some() {
-            flags |= welcome_flags::SIGNED_IN;
-        }
-        if woke {
-            flags |= welcome_flags::WOKE;
-        }
-        if self.survival() {
-            flags |= welcome_flags::SURVIVAL;
-        }
-        if self.game.anime {
-            flags |= welcome_flags::ANIME;
-        }
-        if self.game.colony {
-            flags |= welcome_flags::COLONY;
-        }
-        send_control(
-            self.tx,
-            ControlMsg::Welcome {
-                version: PROTOCOL_VERSION,
-                client_slot: self.slot,
-                tick: self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire),
-                tick_hz: bc_sim::TICK_HZ as u8,
-                sector: 1,
-                zero_allowed: true,
-                max_datagram: self.max_datagram,
-                field_seed: self.game.sector.field_seed,
-                field_rocks: self.game.sector.field_rocks,
-                flags,
-                landmarks: self.game.sector.landmarks,
-            },
-        )
-        .await?;
+        self.welcome(woke).await?;
         if let Some(a) = self.address {
             send_control(self.tx, ControlMsg::Token { token: self.game.pilots.issue_token(a) }).await?;
         }
@@ -330,6 +302,51 @@ impl Session<'_> {
             self.publish_hangar();
         }
         Ok(true)
+    }
+
+    /// The Welcome: at the handshake (`woke`: in the suit they left), and again whenever the pilot
+    /// moves between sectors (into the colony's inside, and back out).
+    async fn welcome(&mut self, woke: bool) -> anyhow::Result<()> {
+        let mut flags = 0;
+        if self.address.is_some() {
+            flags |= welcome_flags::SIGNED_IN;
+        }
+        if woke {
+            flags |= welcome_flags::WOKE;
+        }
+        if self.survival() {
+            flags |= welcome_flags::SURVIVAL;
+        }
+        if self.game.anime {
+            flags |= welcome_flags::ANIME;
+        }
+        if self.game.colony {
+            flags |= welcome_flags::COLONY;
+        }
+        let (sector, slot, number) = match (&self.inside, &self.game.inside) {
+            (Some(lease), Some(inside)) => {
+                flags |= welcome_flags::INTERIOR;
+                (&inside.sector, lease.slot, 2)
+            }
+            _ => (&self.game.sector, self.slot, 1),
+        };
+        send_control(
+            self.tx,
+            ControlMsg::Welcome {
+                version: PROTOCOL_VERSION,
+                client_slot: slot,
+                tick: sector.tick.load(std::sync::atomic::Ordering::Acquire),
+                tick_hz: bc_sim::TICK_HZ as u8,
+                sector: number,
+                zero_allowed: true,
+                max_datagram: self.max_datagram,
+                field_seed: sector.field_seed,
+                field_rocks: sector.field_rocks,
+                flags,
+                landmarks: sector.landmarks,
+            },
+        )
+        .await
     }
 
     /// The line of the suit in (or out of) the bay.
@@ -393,6 +410,11 @@ impl Session<'_> {
 
     /// The suit is out of the sector (docked, or its wreck cleared): off the roster.
     fn unseat(&mut self) {
+        // Inside the colony the suit was its sector's, and on nobody's roster.
+        if self.inside.is_some() {
+            self.suit = None;
+            return;
+        }
         if let Some((suit, generation)) = self.suit.take() {
             let _ = self.game.pilots.suit_gone((suit, generation));
             forget(self.game, suit, self.pilot);
@@ -443,7 +465,12 @@ impl Session<'_> {
                         Ok(packet) if rate.allow() => {
                             heard = tokio::time::Instant::now();
                             let recv_us = self.game.sector.now_us();
-                            let _ = self.lease().input.push(InputMsg { packet, recv_us });
+                            // Inside the colony, to its sector.
+                            let input = match self.inside.as_mut() {
+                                Some(lease) => &mut lease.input,
+                                None => &mut self.lease().input,
+                            };
+                            let _ = input.push(InputMsg { packet, recv_us });
                         }
                         Ok(_) => {}
                         Err(_) => NetStats::add(&self.stats.malformed, 1),
@@ -693,6 +720,7 @@ impl Session<'_> {
         };
         match req {
             Request::Launch => self.launch().await,
+            Request::LaunchInside => self.launch_inside().await,
             Request::Dock => self.dock().await,
             Request::EnterCity { strip } => self.enter_city(strip).await,
             Request::LeaveCity => self.leave_city().await,
@@ -702,7 +730,14 @@ impl Session<'_> {
             }
             Request::UseKit { kit } => {
                 if self.place == Place::Space && self.suit.is_some() && !self.lost {
-                    let _ = self.game.sector.control.push(Control::UseKit { slot: self.slot, kit });
+                    match (&self.inside, &self.game.inside) {
+                        (Some(lease), Some(inside)) => {
+                            let _ = inside.sector.control.push(Control::UseKit { slot: lease.slot, kit });
+                        }
+                        _ => {
+                            let _ = self.game.sector.control.push(Control::UseKit { slot: self.slot, kit });
+                        }
+                    }
                 }
                 Ok(())
             }
@@ -828,15 +863,119 @@ impl Session<'_> {
         Ok(())
     }
 
+    /// Boards the suit in the bay and launches it into the colony through the inner gate: a seat in
+    /// the inside sector (its own slot, rings and egress), and a Welcome to it.
+    async fn launch_inside(&mut self) -> anyhow::Result<()> {
+        let Some(inside) = self.game.inside.clone() else {
+            return self.note("the inner gate is closed", false).await;
+        };
+        if self.suit.is_some() || self.place != Place::Hangar {
+            return self.note("the inner gate launches from your bay", false).await;
+        }
+        let Some(lease) = inside.sector.leases.pop() else {
+            return self.note("the inner gate is busy: the colony's inside is full", false).await;
+        };
+        let line = self.hangar_line();
+        let loadout = match self.hangar.launch() {
+            Ok(l) => l,
+            Err(why) => {
+                let _ = inside.sector.leases.push(lease);
+                return self.note(why, false).await;
+            }
+        };
+        let slot = lease.slot;
+        let status = &inside.sector.slots[slot as usize];
+        let epoch = status.epoch();
+        let mut join = Control::Join {
+            slot,
+            pilot: self.pilot,
+            frame: line,
+            faction: self.faction,
+            max_datagram: self.max_datagram,
+            comeback: Comeback::default(),
+            launch: Some(loadout),
+        };
+        while let Err(back) = inside.sector.control.push(join) {
+            join = back;
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        let state = wait_slot(&inside.sector, slot, |s, e| e != epoch && s != SlotState::Free).await;
+        let (Some(SlotState::Active), Some(suit)) = (state, status.suit_id()) else {
+            let _ = inside.sector.leases.push(lease);
+            self.hangar.recover();
+            self.note("the inner gate is busy: try again in a moment", false).await?;
+            return self.send_hangar().await;
+        };
+        self.suit = Some(suit);
+        self.lost = false;
+        self.inside = Some(lease);
+        self.place = Place::Space;
+        // Its snapshots come from the inside's egress now.
+        let _ = self.game.egress.push(EgressCmd::Detach(self.slot));
+        self.game.egress_thread.unpark();
+        let _ = inside.egress.push(EgressCmd::Attach(slot, self.conn.clone()));
+        inside.egress_thread.unpark();
+        tracing::info!(slot = self.slot, inside = slot, name = %self.callsign, line = line.slug(), "launched into the colony");
+        self.welcome(false).await?;
+        self.send_place().await?;
+        self.send_hangar().await?;
+        self.save().await;
+        Ok(())
+    }
+
+    /// Docked back from the colony's inside: its slot goes back, and the pilot is welcomed back to
+    /// the sector their bay is in.
+    async fn out_of_the_colony(&mut self) -> anyhow::Result<()> {
+        let (Some(lease), Some(inside)) = (self.inside.take(), self.game.inside.clone()) else {
+            return Ok(());
+        };
+        let _ = inside.egress.push(EgressCmd::Detach(lease.slot));
+        inside.egress_thread.unpark();
+        let _ = inside.sector.leases.push(lease);
+        let _ = self.game.egress.push(EgressCmd::Attach(self.slot, self.conn.clone()));
+        self.game.egress_thread.unpark();
+        self.welcome(false).await
+    }
+
+    /// The pilot left while flying inside the colony: the suit goes from its sector, and the slot
+    /// back.
+    async fn leave_the_colony(&mut self) {
+        let (Some(mut lease), Some(inside)) = (self.inside.take(), self.game.inside.clone()) else {
+            return;
+        };
+        let _ = inside.egress.push(EgressCmd::Detach(lease.slot));
+        inside.egress_thread.unpark();
+        let mut bye = Control::Leave { slot: lease.slot };
+        while let Err(back) = inside.sector.control.push(bye) {
+            bye = back;
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        let _ = wait_slot(&inside.sector, lease.slot, |s, _| s == SlotState::Free).await;
+        while lease.reports.pop().is_ok() {}
+        let _ = inside.sector.leases.push(lease);
+        self.suit = None;
+    }
+
     /// Takes the suit into the bay, if it's at rest in the dock.
     async fn dock(&mut self) -> anyhow::Result<()> {
         if self.suit.is_none() || self.lost {
             return self.note("there's nothing to dock", false).await;
         }
-        let _ = self.game.sector.control.push(Control::Dock { slot: self.slot });
+        match (&self.inside, &self.game.inside) {
+            (Some(lease), Some(inside)) => {
+                let _ = inside.sector.control.push(Control::Dock { slot: lease.slot });
+            }
+            _ => {
+                let _ = self.game.sector.control.push(Control::Dock { slot: self.slot });
+            }
+        }
         // The sector answers within a tick or two.
         for _ in 0..200 {
-            let Ok(report) = self.lease().reports.pop() else {
+            let report = match self.inside.as_mut() {
+                Some(lease) => lease.reports.pop(),
+                None => self.lease().reports.pop(),
+            };
+            let Ok(report) = report else {
                 tokio::time::sleep(Duration::from_millis(5)).await;
                 continue;
             };
@@ -853,6 +992,7 @@ impl Session<'_> {
         match report {
             Report::Home(home) => {
                 self.unseat();
+                self.out_of_the_colony().await?;
                 let text = self.hangar.came_home(&home);
                 self.patrol_bounties(home.bounty).await?;
                 self.place = Place::Hangar;
@@ -864,7 +1004,12 @@ impl Session<'_> {
                 self.send_market().await?;
             }
             Report::DockRefused => {
-                self.note("come to rest inside the dock's ring of lights to dock", false).await?;
+                let text = if self.inside.is_some() {
+                    "come to rest inside the inner gate's ring of lights to dock"
+                } else {
+                    "come to rest inside the dock's ring of lights to dock"
+                };
+                self.note(text, false).await?;
             }
             // Only ever sent as the pilot leaves (`leave` reads it).
             Report::Parked { .. } => {}
@@ -885,6 +1030,9 @@ impl Session<'_> {
     /// a second) and the market.
     async fn on_tick(&mut self, settle: bool) -> anyhow::Result<()> {
         while let Ok(report) = self.lease().reports.pop() {
+            self.on_report(report).await?;
+        }
+        while let Some(report) = self.inside.as_mut().and_then(|l| l.reports.pop().ok()) {
             self.on_report(report).await?;
         }
         if self.lost && self.game.sector.slots[self.slot as usize].state() == SlotState::Free {
@@ -930,6 +1078,14 @@ impl Session<'_> {
     /// slot is handed back.
     async fn leave(&mut self) {
         self.game.plaza.leave(self.slot);
+        // Inside the colony, the suit doesn't sleep there: the colony's tugs bring it back to the
+        // bay.
+        if self.inside.is_some() {
+            self.leave_the_colony().await;
+            if self.survival() {
+                self.hangar.recover();
+            }
+        }
         let _ = self.game.egress.push(EgressCmd::Detach(self.slot));
         self.game.egress_thread.unpark();
         if !self.entered {
