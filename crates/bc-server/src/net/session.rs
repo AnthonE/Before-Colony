@@ -228,6 +228,8 @@ impl Session<'_> {
                 }
             });
         }
+        // Lost everything: the Charter Board's advance (`Hangar::reissue`).
+        let advanced = if self.survival() { self.hangar.reissue(pilots::unix_now()) } else { None };
         if let Some(r) = self.record.as_mut() {
             // Woken, or gone: either way it's no longer out there asleep (in a hide spot or not).
             r.sleeper = None;
@@ -311,6 +313,9 @@ impl Session<'_> {
             self.send_place().await?;
             if let Some((outcome, text)) = sortie {
                 self.send(&Update::Sortie { outcome, text }).await?;
+            }
+            if let Some(text) = advanced {
+                self.send(&Update::News { text }).await?;
             }
             if arrived {
                 self.send(&Update::News { text: ARRIVAL.to_string() }).await?;
@@ -797,11 +802,16 @@ impl Session<'_> {
             self.on_report(report).await?;
         }
         if self.lost && self.game.sector.slots[self.slot as usize].state() == SlotState::Free {
-            // The wreck is gone: the pilot is back in the hangar.
+            // The wreck is gone: the pilot is back in the hangar (and, lost everything, advanced
+            // another suit).
             self.lost = false;
             self.unseat();
             self.place = Place::Hangar;
             self.send_place().await?;
+            if let Some(text) = self.hangar.reissue(pilots::unix_now()) {
+                self.save().await;
+                self.send(&Update::News { text }).await?;
+            }
             self.send_hangar().await?;
             self.send_market().await?;
             self.publish_hangar();

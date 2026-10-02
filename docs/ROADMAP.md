@@ -11,17 +11,19 @@ the bay, space, home).
 |---|---|
 | Lock-on: fighting on the ground in space (`LOCK.md`) | built |
 | The weapons pass: the hit-rate harness, charged beams, true cones, lunges that home, the burst step | built |
-| P0: a floor under loss, text chat, objectives along the chain, The Arrival's seats | next |
+| P0: a floor under loss (built), text chat, objectives along the chain, The Arrival's seats | building |
 | P1, P2 below | planned |
 
 ## P0: before more players arrive
 
-**A floor under loss.** A signed-in pilot whose only suit is gone, with less than a torso's worth of
-credits and stores (at the colony's bid prices), finds a worn Leo in the gantry from the Charter
-Board, at most once every 30 minutes (`bc-econ` `Hangar`, with a `reissued_at`; `bc-server`
-`session.rs::enter` and the return from a loss). The news says so. `STORY.md`'s "debt" becomes "an
-advance". Tests: `bc-server/tests/hangar.rs` (lost, broke, reissued; not again within the half hour;
-not while there's a torso to fit). Known, and not made worse: a new wallet is a new starter kit.
+**A floor under loss.** *Built.* A signed-in pilot whose only suit is gone, with less than a
+torso's worth of credits, stores and parts (at the colony's values, `catalogue::value`), finds a
+worn Leo in the gantry from the Charter Board, at most once every 30 minutes (`Hangar::reissue`,
+with a `reissued_at`; `bc-server` `session.rs::enter` and the return from a loss). The news says
+so. `STORY.md`'s "debt" is now "an advance". Tests: `bc-econ` (lost, broke, reissued; not again
+within the half hour; not while there's a torso to build on or a torso's worth) and
+`bc-server/tests/hangar.rs` (over a server restart, from the pilot's record). Known, and not made
+worse: a new wallet is a new starter kit.
 
 **Text chat.** `Request::Say { text }` and `Update::Said { from, text }` on control-stream frames
 tagged 11 (`bc_econ::wire`, `PROTOCOL.md`). One channel, the colony's radio, for everyone connected:

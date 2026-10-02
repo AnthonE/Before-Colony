@@ -683,6 +683,12 @@ for bulk goods, a piece for everything else.
   Charter Board advanced them.
 - **Losing it:** a suit destroyed out there is gone, along with its hold. The bounties it earned are
   still paid, and the pilot is brought back to the bay through the airlock once the wreck clears.
+- **A floor under it** (`Hangar::reissue`): a pilot back in an empty bay with no torso in the stores
+  to build on, and less than a Leo torso's worth in credits, stores and parts (at the colony's
+  values), finds a worn Leo in the gantry, the Charter Board's advance, as on the day they
+  arrived; the news says so. At most once every 30 minutes, so it's a floor, not a free suit.
+  (An Arrival's 2,000 cr is less than a torso: lose the first suit and the Board stands you
+  another.) A new wallet is still a new starter kit.
 - **Away:** a signed-in pilot who leaves keeps everything: their hangar, its jobs, their orders.
   Left out in the sector, their suit sleeps where it is (below), and they wake in it; one the
   sector lost track of is towed in. A guest's hangar lasts the visit.

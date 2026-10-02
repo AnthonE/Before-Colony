@@ -15,7 +15,7 @@ The calendar that history will call *After Colony* begins the day its charter is
 nobody has signed it yet. This is the year before: **Before Colony**.
 
 You woke up in a hangar bay in the colony's docking hub. You have the reflexes of a mobile-suit
-pilot, a worn-out Leo in the gantry, a debt of 2,000 credits, and memories of another world: one
+pilot, a worn-out Leo in the gantry, an advance of 2,000 credits, and memories of another world: one
 where After Colony is a story you already know. The Mobile Dolls, the five Gundams, Operation
 Meteor, the war. Here none of it has happened. Whether it has to is up to everyone who arrives.
 
@@ -48,7 +48,8 @@ Meteor, the war. Here none of it has happened. Whether it has to is up to everyo
   the dock with its ring of amber lights, and the **zero-G foundry**, the only place gundanium can
   be made. Beyond a bay's airlock, the cap lift rides down the end cap's face into the colony.
 - **The Charter Board.** The colonists' provisional council. It advances each Arrival 2,000
-  credits and a Leo, runs the colony's desks on the **Colony Exchange** (it buys ore, sells
+  credits and a Leo (and another worn Leo to a pilot who has lost everything, though not twice in
+  half an hour: `THE CHARTER BOARD ADVANCES YOU A WORN LEO`), runs the colony's desks on the **Colony Exchange** (it buys ore, sells
   propellant cheap, and keeps machine shops turning out components), and pays a bounty for every
   Mobile Doll a pilot brings down. The bounties are its quiet war: it can't fight the Consortium
   openly, but it can pay the people who do.

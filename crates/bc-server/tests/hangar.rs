@@ -245,3 +245,57 @@ async fn a_suit_left_out_there_is_woken_in_or_towed_home() -> anyhow::Result<()>
     let _ = std::fs::remove_dir_all(&dir);
     Ok(())
 }
+
+/// Writes the signed-in pilot's record in `dir` as one who lost their suit and everything else:
+/// the bay empty, no credits, nothing in the stores.
+fn ruin(dir: &std::path::Path) -> anyhow::Result<()> {
+    let file = std::fs::read_dir(dir.join("pilots"))?
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .find(|p| p.extension().is_some_and(|e| e == "json"))
+        .expect("the pilot's record");
+    let mut rec: serde_json::Value = serde_json::from_slice(&std::fs::read(&file)?)?;
+    let h = &mut rec["hangar"];
+    h["bay"] = serde_json::json!({ "state": "empty" });
+    h["credits"] = 0.into();
+    h["stores"] = serde_json::to_value(bc_econ::Stores::default())?;
+    std::fs::write(&file, serde_json::to_vec(&rec)?)?;
+    Ok(())
+}
+
+/// A floor under loss: a signed-in pilot back after losing everything finds a worn Leo in the
+/// gantry, advanced by the Charter Board, and the news says so; lost and broke again within the
+/// half hour, they don't get a second.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_pilot_who_lost_everything_is_advanced_a_worn_leo() -> anyhow::Result<()> {
+    let dir = std::env::temp_dir().join(format!("bc-hangar-floor-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let w = wallet(11);
+    let me = Identity::Wallet { address: w.address(), resume: None };
+    let advanced = |b: &BotClient| b.core.hangar.news.iter().any(|n| n.contains("ADVANCES YOU A WORN"));
+    for visit in 0..3 {
+        let server = bc_server::start(config(Some(dir.clone()))?).await?;
+        let http = format!("http://{}", server.http_addr);
+        let mut b = BotClient::connect_with(&bot(&http, "Duo"), me, Some(&w)).await?;
+        b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
+        match visit {
+            // Arrived: the Arrival's own Leo.
+            0 => assert!(docked(&b).is_some() && !advanced(&b)),
+            // Lost and broke: advanced another.
+            1 => {
+                let suit = docked(&b).expect("a suit in the gantry");
+                assert_eq!(suit.line, FrameId::Leo);
+                assert!(advanced(&b), "news: {:?}", b.core.hangar.news);
+            }
+            // Again, inside the half hour: nothing.
+            _ => assert!(docked(&b).is_none() && !advanced(&b), "advanced twice in half an hour"),
+        }
+        b.close().await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        server.shutdown();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        ruin(&dir)?;
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(())
+}
