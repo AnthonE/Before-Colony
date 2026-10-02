@@ -3,9 +3,10 @@
 //! A car is a shell (floor, sides, glass, roof), so a pilot riding one sees out of it. Nothing
 //! about them comes over the wire: the clock is the sector's tick, the same on every screen.
 
-use bc_sim::colony::frame::{CityPos, STRIPS, local_frame};
+use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, STRIPS, local_frame};
 use bc_sim::colony::transit::{
-    CAR_HEIGHT, CAR_LENGTH, CAR_WIDTH, CARS, DOOR_AT, DOOR_WIDTH, FLOOR, TRAINS, TrainState, train,
+    CAR_HEIGHT, CAR_LENGTH, CAR_WIDTH, CARS, DOOR_AT, DOOR_WIDTH, FLOOR, PLATFORM_HALF, PLATFORM_LENGTH,
+    STATIONS, TRAINS, TrainState, car_offset, station_x, train,
 };
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
@@ -187,17 +188,104 @@ fn setup_trams(
                 commands.entity(root).insert(Car { strip, k, c, doors });
             }
         }
+        // Each station's screens: glass along the island's edges, and their doors.
+        let screen_glass = materials.add(StandardMaterial {
+            base_color: Color::srgba(0.55, 0.7, 0.8, 0.22),
+            perceptual_roughness: 0.05,
+            alpha_mode: AlphaMode::Blend,
+            cull_mode: None,
+            double_sided: true,
+            ..default()
+        });
+        for i in 0..STATIONS {
+            let [glass, doors] = screen_meshes().map(|m| meshes.add(m));
+            let at = CityPos::new(strip, station_x(i), STRIP_WIDTH * 0.5, 0.0);
+            let root = commands
+                .spawn((
+                    Transform::from_rotation(local_frame(strip, at.s)),
+                    Visibility::Inherited,
+                    Placed(colony_point(at)),
+                    layer.clone(),
+                ))
+                .id();
+            commands.spawn((
+                Mesh3d(glass),
+                MeshMaterial3d(screen_glass.clone()),
+                Transform::default(),
+                layer.clone(),
+                ChildOf(root),
+            ));
+            for (side, mesh) in [(-1.0f32, doors.clone()), (1.0, doors)] {
+                commands.spawn((
+                    Mesh3d(mesh),
+                    MeshMaterial3d(screen_glass.clone()),
+                    // The +s side's doors: the −s side's mirrored across the avenue (z = −s).
+                    Transform::from_scale(Vec3::new(1.0, 1.0, -side)),
+                    Visibility::Inherited,
+                    layer.clone(),
+                    ScreenDoors { strip, station: i, side },
+                    ChildOf(root),
+                ));
+            }
+        }
     }
 }
 
-/// Every car where its train is, near the camera; their doors open at the stations.
+/// A platform's screen doors on one side of its island (shut but where a train stands with its
+/// own doors open).
+#[derive(Component)]
+struct ScreenDoors {
+    strip: u8,
+    station: usize,
+    side: f32,
+}
+
+/// A station's screens in its own frame (`x` along from the station's middle, `y` up, `z` = −s):
+/// the glass along both edges of the island but at the doors, and the doors on its −s side.
+fn screen_meshes() -> [Mesh; 2] {
+    let (edge, t, top) = (PLATFORM_HALF - 0.04, 0.03, FLOOR + 2.2);
+    let half = 0.5 * PLATFORM_LENGTH;
+    let mut gaps: Vec<f32> =
+        (0..CARS).flat_map(|c| [car_offset(c) - DOOR_AT, car_offset(c) + DOOR_AT]).collect();
+    gaps.sort_by(f32::total_cmp);
+    let mut glass = Vec::new();
+    let mut doors = Vec::new();
+    for side in [-1.0f32, 1.0] {
+        let z = -side * edge;
+        let mut from = -half;
+        for g in &gaps {
+            let to = g - 0.5 * DOOR_WIDTH;
+            glass.push((
+                Vec3::new(0.5 * (from + to), 0.5 * (FLOOR + top), z),
+                Vec3::new(0.5 * (to - from), 0.5 * (top - FLOOR), t),
+            ));
+            from = g + 0.5 * DOOR_WIDTH;
+        }
+        glass.push((
+            Vec3::new(0.5 * (from + half), 0.5 * (FLOOR + top), z),
+            Vec3::new(0.5 * (half - from), 0.5 * (top - FLOOR), t),
+        ));
+    }
+    for g in &gaps {
+        doors.push((
+            Vec3::new(*g, 0.5 * (FLOOR + top), edge),
+            Vec3::new(0.5 * DOOR_WIDTH, 0.5 * (top - FLOOR), t),
+        ));
+    }
+    [boxes(&glass), boxes(&doors)]
+}
+
+/// Every car where its train is, near the camera; their doors open at the stations, and the
+/// platform's screen doors with them.
+#[allow(clippy::type_complexity)]
 fn draw_trams(
     view: Res<CityView>,
     clock: Res<TramClock>,
     origin: Res<RenderOrigin>,
     cams: Query<&Transform, (With<MainCamera>, Without<Car>)>,
     mut cars: Query<(&Car, &mut Placed, &mut Transform, &mut Visibility)>,
-    mut doors: Query<&mut Visibility, Without<Car>>,
+    mut doors: Query<&mut Visibility, (Without<Car>, Without<ScreenDoors>)>,
+    mut screens: Query<(&ScreenDoors, &mut Visibility), Without<Car>>,
 ) {
     let eye = cams.single().map(|c| origin.0 + c.translation.as_dvec3()).unwrap_or_default();
     let mut trains: [[Option<TrainState>; TRAINS as usize]; 3] = [[None; TRAINS as usize]; 3];
@@ -220,6 +308,18 @@ fn draw_trams(
             if *v != want {
                 *v = want;
             }
+        }
+    }
+    let mid = STRIP_WIDTH * 0.5;
+    for (sd, mut v) in &mut screens {
+        let open = (0..TRAINS as u8).any(|k| {
+            let t =
+                trains[sd.strip as usize][k as usize].unwrap_or_else(|| train(sd.strip, k, clock.0, clock.1));
+            t.doors && t.at == Some(sd.station) && (t.s - mid) * sd.side > 0.0
+        });
+        let want = if open { Visibility::Hidden } else { Visibility::Inherited };
+        if *v != want {
+            *v = want;
         }
     }
 }

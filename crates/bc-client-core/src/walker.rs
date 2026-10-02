@@ -217,6 +217,9 @@ impl Walker {
     }
 }
 
+/// A guide stuck this long (s) gives up.
+const GIVE_UP: f32 = 6.0;
+
 /// Walks a pilot along a route of waypoints (from [`Layout::route`]).
 #[derive(Clone, Debug, Default)]
 pub struct Guide {
@@ -254,6 +257,12 @@ impl Guide {
             let moved = self.last.map_or(1.0, |p| (w.feet - p).length());
             self.last = Some(w.feet);
             self.stuck = if moved < 0.004 { self.stuck + dt } else { 0.0 };
+            // Nudged and jumped for long enough without getting anywhere: it gives up (the way is
+            // shut: a tram's doors closed on it, say), and whoever asked can ask again.
+            if self.stuck > GIVE_UP {
+                self.route.clear();
+                return Stride::default();
+            }
             let facing_it = d.abs() < 0.6;
             return Stride {
                 forward: if facing_it { 1.0 } else { 0.25 },

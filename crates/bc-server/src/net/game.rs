@@ -531,6 +531,12 @@ impl StatusView {
                 "people": city.0,
                 "by_strip": city.1,
                 "refused_poses": city.2,
+                "refused_by": self
+                    .plaza
+                    .refused_by()
+                    .into_iter()
+                    .map(|(why, n)| (why.to_string(), serde_json::json!(n)))
+                    .collect::<serde_json::Map<_, _>>(),
             },
             "flight": if self.anime { "anime" } else { "real" },
             // Survival: pilots in their hangar bays (and out of them), and the exchange's ledger.

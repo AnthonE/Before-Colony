@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use bc_proto::presence::{MAX_PEOPLE, PersonPose, PlazaWriter, RIDER_S};
 use bc_sim::colony::city::{MAX_HEIGHT, Stage, place_door, solid};
@@ -25,6 +25,10 @@ const MAX_SPEED: f32 = 9.0 * 1.5;
 /// Faster than anything drives (a car's top speed is 30 m/s), likewise.
 const MAX_DRIVE: f32 = 35.0 * 1.3;
 const SLACK: f32 = 2.0;
+/// Standing still earns no more reach than this long's worth, s. (Reach is measured from when the
+/// pilot last moved, not from their last pose: a slow client repeats one pose many times between
+/// frames, then jumps a frame's walk at once.)
+const STILL: f32 = 2.0;
 /// A pilot's first pose must be this near their strip's Hub Gate, m: everyone comes down its lift.
 const ARRIVAL: f32 = 150.0;
 /// Someone not heard from this long isn't shown, s.
@@ -54,14 +58,42 @@ struct Person {
     pose: Option<PersonPose>,
     seq: u16,
     heard: Instant,
+    /// When their pose last moved (no earlier than `STILL` before `heard`).
+    moved_at: Instant,
     refused: u32,
+    /// When a refusal of theirs was last logged.
+    said: Option<Instant>,
 }
 
-/// Everyone in the city, by client slot.
+/// Everyone in the city, by client slot, and how many poses were refused, by why.
 #[derive(Default)]
 pub struct Plaza {
     people: Mutex<HashMap<u16, Person>>,
+    refused_by: Mutex<[u32; WHYS.len()]>,
 }
+
+/// Why a pose wasn't passed on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Why {
+    /// Not the pilot's strip.
+    Strip,
+    /// Inside a wall, outside the colony, or (riding) outside the train's cars.
+    Wall,
+    /// Further from the last one than they could have gone.
+    Reach,
+    /// A first pose away from Hub Gate.
+    Arrival,
+    /// On a train without having stood by its open doors.
+    Board,
+    /// Off a train away from its open doors.
+    Alight,
+    /// In a vehicle not from a motor pool.
+    Pool,
+    /// From a train into a vehicle, or one train to another.
+    Mode,
+}
+
+const WHYS: [&str; 8] = ["strip", "wall", "reach", "arrival", "board", "alight", "pool", "mode"];
 
 /// Where strip `strip`'s Hub Gate lets people out: `(s, x)`.
 fn hub_gate(strip: u8) -> (f32, f32) {
@@ -141,7 +173,16 @@ impl Plaza {
             let strip = strip % STRIPS as u8;
             all.insert(
                 id,
-                Person { name: name.into(), strip, pose: None, seq: 0, heard: Instant::now(), refused: 0 },
+                Person {
+                    name: name.into(),
+                    strip,
+                    pose: None,
+                    seq: 0,
+                    heard: Instant::now(),
+                    moved_at: Instant::now(),
+                    refused: 0,
+                    said: None,
+                },
             );
         }
     }
@@ -157,42 +198,71 @@ impl Plaza {
     pub fn accept(&self, id: u16, seq: u16, pose: PersonPose, now: Instant, tick: u32) -> Verdict {
         let Ok(mut all) = self.people.lock() else { return Verdict::Away };
         let Some(me) = all.get_mut(&id) else { return Verdict::Away };
-        let ok = match me.pose {
-            _ if pose.strip != me.strip || !possible(&pose) => false,
+        let why = match me.pose {
+            _ if pose.strip != me.strip => Some(Why::Strip),
+            _ if !possible(&pose) => Some(Why::Wall),
             Some(_) if (seq.wrapping_sub(me.seq) as i16) <= 0 => return Verdict::Stale,
             Some(last) => {
-                let dt = now.saturating_duration_since(me.heard).as_secs_f32();
+                let dt = now.saturating_duration_since(me.moved_at).as_secs_f32();
                 let moved = |speed: f32| {
                     let reach = speed * dt + SLACK;
                     (pose.x - last.x).hypot(pose.s - last.s) <= reach && (pose.h - last.h).abs() <= reach
                 };
+                let check = |ok: bool, why: Why| (!ok).then_some(why);
                 match (mode(&last), mode(&pose)) {
                     // Walking, on the ground or in a car of a train.
-                    (Mode::Foot, Mode::Foot) => moved(MAX_SPEED),
-                    (Mode::Train(a), Mode::Train(b)) => a == b && moved(MAX_SPEED),
+                    (Mode::Foot, Mode::Foot) => check(moved(MAX_SPEED), Why::Reach),
+                    (Mode::Train(a), Mode::Train(b)) => check(a == b && moved(MAX_SPEED), Why::Reach),
                     // Getting on: from beside its open doors.
-                    (Mode::Foot, Mode::Train(k)) => at_open_doors(pose.strip, k, last.s, last.x, tick),
-                    // Getting off: out of its open doors.
-                    (Mode::Train(k), Mode::Foot) => at_open_doors(pose.strip, k, pose.s, pose.x, tick),
-                    // Driving: no faster than a car goes; taken from a motor pool; left anywhere.
-                    (Mode::Drive(a), Mode::Drive(b)) => a == b && moved(MAX_DRIVE),
-                    (Mode::Foot, Mode::Drive(_)) => {
-                        pool_near(pose.strip, last.s, last.x).is_some() && moved(MAX_SPEED)
+                    (Mode::Foot, Mode::Train(k)) => {
+                        check(at_open_doors(pose.strip, k, last.s, last.x, tick), Why::Board)
                     }
-                    (Mode::Drive(_), Mode::Foot) => moved(MAX_DRIVE),
+                    // Getting off: out of its open doors.
+                    (Mode::Train(k), Mode::Foot) => {
+                        check(at_open_doors(pose.strip, k, pose.s, pose.x, tick), Why::Alight)
+                    }
+                    // Driving: no faster than a car goes; taken from a motor pool; left anywhere.
+                    (Mode::Drive(a), Mode::Drive(b)) => check(a == b && moved(MAX_DRIVE), Why::Reach),
+                    (Mode::Foot, Mode::Drive(_)) => {
+                        check(pool_near(pose.strip, last.s, last.x).is_some() && moved(MAX_SPEED), Why::Pool)
+                    }
+                    (Mode::Drive(_), Mode::Foot) => check(moved(MAX_DRIVE), Why::Reach),
                     // From a train to a car, or one train to another.
-                    _ => false,
+                    _ => Some(Why::Mode),
                 }
             }
             None => {
                 let (s, x) = hub_gate(me.strip);
-                pose.riding().is_none() && (pose.x - x).hypot(pose.s - s) <= ARRIVAL
+                let ok = pose.riding().is_none() && (pose.x - x).hypot(pose.s - s) <= ARRIVAL;
+                (!ok).then_some(Why::Arrival)
             }
         };
-        if !ok {
+        if let Some(why) = why {
+            // Said now and then (never where: only why, how far and how long since the last).
+            if me.said.is_none_or(|t| now.saturating_duration_since(t).as_secs_f32() > 5.0) {
+                me.said = Some(now);
+                let dt = now.saturating_duration_since(me.moved_at).as_secs_f32();
+                let moved = me.pose.map_or(0.0, |l| (pose.x - l.x).hypot(pose.s - l.s));
+                tracing::info!(
+                    slot = id,
+                    ?why,
+                    moved = moved as u32,
+                    dt,
+                    refused = me.refused + 1,
+                    "a pose not passed on"
+                );
+            }
             me.refused += 1;
+            if let Ok(mut by) = self.refused_by.lock() {
+                by[why as usize] += 1;
+            }
             return Verdict::Implausible;
         }
+        let still = me.pose.is_some_and(|l| (l.x, l.s, l.h, l.ride) == (pose.x, pose.s, pose.h, pose.ride));
+        me.moved_at = match now.checked_sub(Duration::from_secs_f32(STILL)) {
+            Some(earliest) if still => me.moved_at.max(earliest),
+            _ => now,
+        };
         me.pose = Some(pose);
         me.seq = seq;
         me.heard = now;
@@ -231,6 +301,12 @@ impl Plaza {
         self.people.lock().ok()?.get(&id).map(|p| p.name.clone())
     }
 
+    /// For `/status`: how many poses have been refused, by why.
+    pub fn refused_by(&self) -> Vec<(&'static str, u32)> {
+        let by = self.refused_by.lock().map(|b| *b).unwrap_or_default();
+        WHYS.iter().zip(by).map(|(w, n)| (*w, n)).collect()
+    }
+
     /// For `/status`: how many are in the city, by strip, and how many poses have been refused
     /// (no positions).
     pub fn counts(&self) -> (usize, [usize; 3], u32) {
@@ -248,7 +324,6 @@ mod tests {
     use super::*;
     use bc_proto::MAX_DATAGRAM;
     use bc_proto::presence::PlazaReader;
-    use std::time::Duration;
 
     fn at(strip: u8, s: f32, x: f32) -> PersonPose {
         PersonPose { strip, x, s, grounded: true, ..PersonPose::default() }
@@ -293,6 +368,32 @@ mod tests {
         assert_eq!(plaza.counts().0, 2);
         plaza.leave(2);
         assert!(seen(&plaza, 1, t1).is_empty());
+    }
+
+    #[test]
+    fn a_slow_client_repeating_its_pose_between_frames_isnt_refused() {
+        let plaza = Plaza::default();
+        let t0 = Instant::now();
+        let (s, x) = hub_gate(0);
+        plaza.enter(1, "Hilde", 0);
+        assert_eq!(plaza.accept(1, 1, at(0, s, x), t0, 0), Verdict::Taken);
+        // At under 1 fps: the same pose at 15 Hz for 1.5 s, then the next frame's 7 m run at once.
+        let mut seq = 1;
+        for i in 1..=22 {
+            seq += 1;
+            let t = t0 + Duration::from_millis(i * 67);
+            assert_eq!(plaza.accept(1, seq, at(0, s, x), t, 0), Verdict::Taken);
+        }
+        let t1 = t0 + Duration::from_millis(1_550);
+        assert_eq!(plaza.accept(1, seq + 1, at(0, s, x + 7.0), t1, 0), Verdict::Taken);
+        // Standing still a minute doesn't earn a long jump.
+        for i in 1..=900 {
+            seq += 1;
+            let t = t1 + Duration::from_millis(i * 67);
+            assert_eq!(plaza.accept(1, seq + 1, at(0, s, x + 7.0), t, 0), Verdict::Taken);
+        }
+        let t2 = t1 + Duration::from_millis(900 * 67 + 67);
+        assert_eq!(plaza.accept(1, seq + 2, at(0, s, x + 207.0), t2, 0), Verdict::Implausible);
     }
 
     #[test]
