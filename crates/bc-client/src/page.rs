@@ -280,12 +280,15 @@ pub fn drain_inbox(mut cmds: ResMut<UiCmds>) {
 }
 
 /// Esc, F1, Resume and the pause menu's own buttons (the link's commands are `session`'s).
-pub fn apply_ui_cmds(cmds: Res<UiCmds>, mut ui: ResMut<Ui>) {
+pub fn apply_ui_cmds(cmds: Res<UiCmds>, mut ui: ResMut<Ui>, mut map: ResMut<crate::map::MapOpen>) {
     for cmd in &cmds.0 {
         match cmd {
             UiCmd::Back => {
                 if ui.help {
                     ui.help = false;
+                } else if map.0 && ui.panel == Panel::None {
+                    // Esc closes the chart, as M does.
+                    map.0 = false;
                 } else {
                     match ui.panel {
                         Panel::Settings { from_pause } => ui.close_settings(from_pause),

@@ -1,7 +1,7 @@
 //! Keeps the cursor's lock in step with what the pilot is doing (see
 //! `bc_client_core::pointer`): asks the browser each frame whether the pointer is really locked,
-//! locks it on a click into the world or Resume, frees it for menus, and opens the pause menu when
-//! the browser takes it back (Esc, alt-tab).
+//! locks it on a click into the world or Resume, frees it for menus and the chart, and opens the
+//! pause menu when the browser takes it back (Esc, alt-tab).
 
 use bc_client_core::pointer::{Grab, Pointer, PointerIn};
 use bevy::prelude::*;
@@ -21,6 +21,7 @@ pub fn update_pointer(
     mut pointer: ResMut<PointerRes>,
     mut ui: ResMut<Ui>,
     cmds: Res<UiCmds>,
+    map: Res<crate::map::MapOpen>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut cursor: Single<&mut CursorOptions, With<PrimaryWindow>>,
     game: NonSend<GameClient>,
@@ -30,7 +31,9 @@ pub fn update_pointer(
     let out = pointer.0.step(PointerIn {
         now: now_s(),
         playing,
-        panel_open: ui.panel_open(),
+        // The chart wants the cursor, as a panel does (the pilot stays engaged: it locks again
+        // when the chart closes).
+        panel_open: ui.panel_open() || map.0,
         clicked: mouse.just_pressed(MouseButton::Left),
         resume: cmds.has(&UiCmd::Resume),
         asked: cursor.grab_mode == CursorGrabMode::Locked,
@@ -57,5 +60,5 @@ pub fn update_pointer(
     if flying {
         ui.refused = false;
     }
-    ui.click_to_fly = playing && !ui.panel_open() && !flying;
+    ui.click_to_fly = playing && !ui.panel_open() && !map.0 && !flying;
 }

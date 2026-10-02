@@ -17,6 +17,8 @@ mod blast;
 #[cfg(target_arch = "wasm32")]
 mod camera;
 #[cfg(target_arch = "wasm32")]
+mod chart;
+#[cfg(target_arch = "wasm32")]
 mod chat;
 #[cfg(target_arch = "wasm32")]
 mod city;
@@ -40,6 +42,8 @@ mod fx;
 mod gfx;
 #[cfg(target_arch = "wasm32")]
 mod hangar;
+#[cfg(target_arch = "wasm32")]
+mod holo;
 #[cfg(target_arch = "wasm32")]
 mod hud;
 #[cfg(target_arch = "wasm32")]

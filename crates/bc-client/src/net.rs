@@ -9,8 +9,9 @@ use std::cell::{Ref, RefCell, RefMut};
 use std::rc::Rc;
 
 use bc_client_core::lockon::{self, Lock};
+use bc_client_core::nav::AutoNav;
 use bc_client_core::{ClientConfig, ClientCore, DollBrain, Identity, LanderBrain};
-use bc_proto::buttons::{FLIGHT_ASSIST, GRIP, ZERO};
+use bc_proto::buttons::{BOOST, BRAKE, BURST, FLIGHT_ASSIST, GRIP, ZERO};
 use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
 use bc_sim::content::frame;
 use bevy::prelude::*;
@@ -80,6 +81,9 @@ pub struct Game {
     /// The suit (slot, generation) those controls were set up for (`input::read_input` seeds them
     /// from its first own state: the grip, a crouch).
     pub controls_for: Option<(u16, u8)>,
+    /// The auto-nav, while it's flying the pilot's course (`chart.rs`): it holds the stick every
+    /// tick, and the pilot's buttons (but boost, brake and the grip) still count.
+    pub nav: Option<AutoNav>,
 }
 
 impl Game {
@@ -101,6 +105,7 @@ impl Game {
             hard: Lock::default(),
             controls: InputCmd::default(),
             controls_for: None,
+            nav: None,
         }
     }
 }
@@ -248,8 +253,8 @@ fn pump(g: &mut Game, t: &Transport, now: f64) {
         })
     } else {
         let (cmd, seeded) = (g.controls, g.controls_for);
-        let hard = &mut g.hard;
-        g.core.poll_inputs(now, &mut |ctx| match ctx.world.own {
+        let Game { core, nav, hard, .. } = &mut *g;
+        core.poll_inputs(now, &mut |ctx| match ctx.world.own {
             // News of a suit the controls aren't set up for yet came in between frames (one woken
             // on a body, say): hold on as the server does until the next frame sets them, rather
             // than let go of the body.
@@ -258,8 +263,19 @@ fn pump(g: &mut Game, t: &Transport, now: f64) {
                 buttons: FLIGHT_ASSIST | if o.surface.is_some() { GRIP } else { 0 },
                 ..InputCmd::default()
             },
-            // Locked on, the keys move the suit about its target, worked out tick by tick.
-            _ => lockon::shape(cmd, hard, ctx),
+            // The auto-nav holds the stick: a velocity for flight assist to fly, worked out from
+            // the prediction tick by tick, in the suit's own axes (so no lock-on rides with it, and
+            // no burst step). Else, locked on, the keys move the suit about its target.
+            _ => match nav.as_mut().and_then(|n| Some((n.decide(ctx)?, n.look))) {
+                Some((n, look)) => InputCmd {
+                    thrust: n.thrust,
+                    aim: if look { n.aim } else { cmd.aim },
+                    buttons: (cmd.buttons & !(BOOST | BRAKE | GRIP | BURST)) | n.buttons,
+                    lockon: None,
+                    ..cmd
+                },
+                None => lockon::shape(cmd, hard, ctx),
+            },
         })
     };
     for p in &packets {
@@ -298,7 +314,9 @@ pub fn drive(
     g.controls = controls.command(aim.dir, g.lock);
     g.controls_for = aim.initialized_for;
     pump(&mut g, &t, now);
-    if g.autopilot && g.core.inputs.newest != 0 {
+    // The view follows what the autopilot (or the auto-nav, while it turns the suit) aims at.
+    let steered = g.nav.as_ref().is_some_and(|n| n.look);
+    if (g.autopilot || steered) && g.core.inputs.newest != 0 {
         aim.dir = g.core.last_cmd.aim;
     }
     g.core.frame(now, time.delta_secs());

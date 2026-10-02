@@ -61,7 +61,7 @@ struct RimLight {
 }
 
 /// `m` as a Bevy mesh.
-fn to_mesh(m: &MeshData) -> Mesh {
+pub(crate) fn to_mesh(m: &MeshData) -> Mesh {
     let uvs: Vec<[f32; 2]> = m.positions.iter().map(|p| [p[0], p[1]]).collect();
     Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, m.positions.clone())
@@ -72,7 +72,7 @@ fn to_mesh(m: &MeshData) -> Mesh {
 
 /// A shape's coarse meshes, for far off: each primitive with a few segments, an ellipsoid as a
 /// small cube-sphere. Too far to see a hide spot's bowl, so none is cut.
-fn far_meshes(shape: &Shape) -> Vec<MeshData> {
+pub(crate) fn far_meshes(shape: &Shape) -> Vec<MeshData> {
     match shape.base {
         Base::Ellipsoid(axes) => vec![body_mesh::ellipsoid(axes, 20, &[])],
         Base::Union(prims) => prims

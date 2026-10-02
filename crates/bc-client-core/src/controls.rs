@@ -16,11 +16,13 @@ pub enum Group {
     Surface,
     Weapons,
     Salvage,
+    /// The chart (M), while it's open.
+    Chart,
     System,
 }
 
 impl Group {
-    pub const ALL: [Group; 8] = [
+    pub const ALL: [Group; 9] = [
         Group::OnFoot,
         Group::Colony,
         Group::Driving,
@@ -28,6 +30,7 @@ impl Group {
         Group::Surface,
         Group::Weapons,
         Group::Salvage,
+        Group::Chart,
         Group::System,
     ];
 
@@ -40,6 +43,7 @@ impl Group {
             Group::Surface => "ON A SURFACE",
             Group::Weapons => "COMBAT",
             Group::Salvage => "SALVAGE",
+            Group::Chart => "THE CHART",
             Group::System => "SYSTEM",
         }
     }
@@ -101,6 +105,7 @@ pub const BINDINGS: &[Binding] = &[
     b(Group::Flight, "Tab / mouse wheel", "Camera: the cockpit (first person) or the chase camera"),
     b(Group::Flight, "Double-tap W/A/S/D/Space/C", "Burst step that way (locked on: in the fight's axes)"),
     b(Group::Flight, "L", "Land: arm the grip (come in slow and close to a rock or a landmark)"),
+    b(Group::Flight, "N", "Auto-nav on/off: flies the course set on the chart (M)"),
     b(Group::Surface, "L", "Grip off: let go (pushes off)"),
     b(Group::Surface, "W / A / S / D", "Walk"),
     b(Group::Surface, "Shift", "Run"),
@@ -126,7 +131,43 @@ pub const BINDINGS: &[Binding] = &[
         "Enter",
         "Dock: at rest inside the dock's ring of lights (the colony's -X end), into your bay",
     ),
-    b(Group::System, "M", "Map of the sector, with your objectives (the current one is marked ◆)"),
+    b(
+        Group::Chart,
+        "M / Esc",
+        "The chart, open or closed: the sector in 3D out to Earth and the Moon, and your objectives (the sector doesn't pause)",
+    ),
+    b(
+        Group::Chart,
+        "Drag / right-drag / wheel",
+        "Turn the view / pan / zoom (out past the sector to the Earth Sphere)",
+    ),
+    b(
+        Group::Chart,
+        "Click / double-click",
+        "Select / focus on it (on empty space: mark a nav point on the plane)",
+    ),
+    b(
+        Group::Chart,
+        "[ / ]",
+        "Step through the places: the colony, the dock, the field, each landmark and hide spot, Earth, the Moon, the Lagrange points",
+    ),
+    b(
+        Group::Chart,
+        "Right click / Enter",
+        "Set a course to it: laid out ahead of you in space, with ◇ on the HUD",
+    ),
+    b(
+        Group::Chart,
+        "N",
+        "Auto-nav: flies the course, stops at rest just off it; any flight key takes the stick back",
+    ),
+    b(Group::Chart, "Backspace", "Clear the course"),
+    b(Group::Chart, "W / A / S / D, R / F, Q / E", "Pan, rise and sink, turn the view"),
+    b(
+        Group::Chart,
+        "H / 2 / 3 / T / P",
+        "Back to your suit / the sector / the Earth Sphere / top-down / the chart's plane",
+    ),
     b(Group::System, "/ (Enter on foot)", "Talk on the colony's radio: Enter says it, Esc closes"),
     b(Group::System, "Esc", "Menu"),
     b(Group::System, "F1", "This list"),

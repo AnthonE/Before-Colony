@@ -94,10 +94,15 @@ pub fn run() {
             .init_resource::<crate::map::MapOpen>()
             .init_resource::<crate::chat::Spoken>()
             .init_resource::<crate::map::ObjectiveState>()
+            .add_plugins(crate::chart::ChartPlugin)
             .add_systems(First, drain_inbox)
             .add_systems(
                 Startup,
-                (start_net_loop, (setup_hud, crate::map::setup_map).chain(), crate::onfoot::setup_onfoot),
+                (
+                    start_net_loop,
+                    (setup_hud, crate::map::setup_objectives).chain(),
+                    crate::onfoot::setup_onfoot,
+                ),
             )
             .add_systems(
                 Update,
@@ -142,8 +147,13 @@ pub fn run() {
                     update_panels,
                     place_instruments,
                     crate::map::update_objectives,
-                    crate::map::sync_map_rocks,
-                    crate::map::update_map,
+                    crate::chart::chart_input,
+                    crate::chart::nav_key,
+                    crate::chart::track_course,
+                    crate::chart::chart_camera,
+                    crate::chart::chart_draw,
+                    crate::chart::chart_panels,
+                    crate::chart::show_course,
                     crate::zero_overlay::draw_ghosts,
                     publish_game,
                     crate::onfoot::publish_onfoot,
