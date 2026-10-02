@@ -13,7 +13,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use bc_proto::presence::{MAX_PEOPLE, PersonPose, PlazaWriter, RIDER_S};
-use bc_sim::colony::city::{MAX_HEIGHT, Stage, place_door, solid};
+use bc_sim::colony::city::{MAX_HEIGHT, Stage, arrival_seats, place_door, solid};
 use bc_sim::colony::frame::{STRIP_WIDTH, STRIPS, within_caps};
 use bc_sim::colony::pools::pool_near;
 use bc_sim::colony::transit::{self, CAR_WIDTH, TRAIN_LENGTH, TRAINS};
@@ -91,9 +91,11 @@ enum Why {
     Pool,
     /// From a train into a vehicle, or one train to another.
     Mode,
+    /// Sitting where there's no seat, or moving while seated.
+    Seat,
 }
 
-const WHYS: [&str; 8] = ["strip", "wall", "reach", "arrival", "board", "alight", "pool", "mode"];
+const WHYS: [&str; 9] = ["strip", "wall", "reach", "arrival", "board", "alight", "pool", "mode", "seat"];
 
 /// Where strip `strip`'s Hub Gate lets people out: `(s, x)`.
 fn hub_gate(strip: u8) -> (f32, f32) {
@@ -109,9 +111,13 @@ enum Mode {
     Foot,
     Train(u8),
     Drive(u8),
+    Seated,
 }
 
 fn mode(p: &PersonPose) -> Mode {
+    if p.seated() {
+        return Mode::Seated;
+    }
     match p.riding() {
         Some(k) => Mode::Train(k),
         None if p.driving() => Mode::Drive(p.ride),
@@ -140,6 +146,14 @@ fn at_open_doors(strip: u8, k: u8, s: f32, x: f32, tick: u32) -> bool {
         tr.doors && dx.hypot(ds) <= DOORSTEP
     })
 }
+
+/// Whether a seated pose is on a seat (`bc_sim::colony::city::arrival_seats`).
+fn on_seat(p: &PersonPose) -> bool {
+    arrival_seats().iter().any(|t| t.strip == p.strip && (t.s - p.s).hypot(t.x - p.x) <= SEATED_SLACK)
+}
+
+/// How far a seated pose may be from its seat's spot (rounding on the wire), m.
+const SEATED_SLACK: f32 = 0.3;
 
 /// Whether a rider's place in their train could be: inside its cars.
 fn aboard(p: &PersonPose) -> bool {
@@ -227,6 +241,13 @@ impl Plaza {
                         check(pool_near(pose.strip, last.s, last.x).is_some() && moved(MAX_SPEED), Why::Pool)
                     }
                     (Mode::Drive(_), Mode::Foot) => check(moved(MAX_DRIVE), Why::Reach),
+                    // Sitting down on a seat from beside it, staying put on it, and getting up.
+                    (Mode::Foot, Mode::Seated) => check(on_seat(&pose) && moved(MAX_SPEED), Why::Seat),
+                    (Mode::Seated, Mode::Seated) => check(
+                        on_seat(&pose) && (pose.x - last.x).hypot(pose.s - last.s) <= SEATED_SLACK,
+                        Why::Seat,
+                    ),
+                    (Mode::Seated, Mode::Foot) => check(moved(MAX_SPEED), Why::Reach),
                     // From a train to a car, or one train to another.
                     _ => Some(Why::Mode),
                 }
@@ -470,6 +491,39 @@ mod tests {
         );
         // Nor stands outside its cars while aboard.
         assert_eq!(plaza.accept(2, 4, rider(80.0), t0 + Duration::from_secs(65), tick), Verdict::Implausible);
+    }
+
+    #[test]
+    fn pilots_sit_only_on_seats_and_stay_put_till_they_stand() {
+        use bc_proto::presence::RIDE_SEATED;
+        let plaza = Plaza::default();
+        let t0 = Instant::now();
+        let (s, x) = hub_gate(0);
+        plaza.enter(1, "Quatre", 0);
+        assert_eq!(plaza.accept(1, 1, at(0, s, x + 2.0), t0, 0), Verdict::Taken);
+        let seat = arrival_seats()[1];
+        let sit = |s: f32, x: f32| PersonPose { ride: RIDE_SEATED, yaw: seat.yaw, ..at(0, s, x) };
+        // Not in the middle of the street.
+        assert_eq!(
+            plaza.accept(1, 2, sit(s, x + 3.0), t0 + Duration::from_millis(100), 0),
+            Verdict::Implausible
+        );
+        // Walked over to The Arrival (a minute later), and sat down on its seat.
+        let t1 = t0 + Duration::from_secs(120);
+        assert_eq!(plaza.accept(1, 3, at(0, seat.s + 1.0, seat.x), t1, 0), Verdict::Taken);
+        assert_eq!(
+            plaza.accept(1, 4, sit(seat.s, seat.x), t1 + Duration::from_millis(500), 0),
+            Verdict::Taken
+        );
+        assert_eq!(plaza.accept(1, 5, sit(seat.s, seat.x), t1 + Duration::from_secs(30), 0), Verdict::Taken);
+        // No sliding along the bench, seated.
+        assert_eq!(
+            plaza.accept(1, 6, sit(seat.s, seat.x + 2.0), t1 + Duration::from_secs(31), 0),
+            Verdict::Implausible
+        );
+        // Up again, and off.
+        let t2 = t1 + Duration::from_secs(40);
+        assert_eq!(plaza.accept(1, 7, at(0, seat.s + 1.0, seat.x), t2, 0), Verdict::Taken);
     }
 
     #[test]

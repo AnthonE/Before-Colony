@@ -721,7 +721,11 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   Gate's terminal. From there the pilot walks the city with the bay's controls, and M shows the
   map of their strip. Districts and sights are named on the way in.
 - **Places:** the Exchange floor (its terminal is the bay's exchange), the Charter Board (its
-  notices), The Arrival (a bar, quiet for now), and Hub Gate, whose lift goes back up to the bay.
+  notices), The Arrival (a bar), and Hub Gate, whose lift goes back up to the bay.
+- **The Arrival's seats:** two benches either side of its door, facing the avenue
+  (`colony::city::arrival_seats`). E by one sits you on it (the view drops to a seated eye), and E
+  again or a step stands you up; everyone else sees you sitting (the presence's ride 15), and the
+  plaza takes a seated pose only on a seat. Agents come and sit too (`flaneur --sit`).
   A suit can't launch from the city: its pilot rides back up first.
 - **Other pilots** are there too, on their own feet in flight suits of their own colours (from
   their names, the same on every screen), striding as fast as they go, their names over them
@@ -908,6 +912,7 @@ the page (Enter too, on foot), Enter says it, Esc closes it, and no keys reach t
 The latest lines show on the left for a while after one comes in. Lines are cleaned (no control
 characters, one line, 160 characters at most), a pilot says at most 5 in 10 s, and the server
 keeps no log of them (`/status` counts them). Agents talk on it too (`bc-bot` `say` and `heard`).
+In the city, what someone near you said shows over their head, under their name, for 8 s.
 
 **Lock-on** (`LOCK.md`). Y, or a click of the middle button, locks the hostile nearest the
 crosshair (again: the next one; held: let go), and the fight goes onto the ground: flight assist

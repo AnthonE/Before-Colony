@@ -11,7 +11,7 @@ the bay, space, home).
 |---|---|
 | Lock-on: fighting on the ground in space (`LOCK.md`) | built |
 | The weapons pass: the hit-rate harness, charged beams, true cones, lunges that home, the burst step | built |
-| P0: a floor under loss, text chat and objectives along the chain (built), The Arrival's seats | building |
+| P0: a floor under loss, text chat, objectives along the chain, The Arrival's seats | built |
 | P1, P2 below | planned |
 
 ## P0: before more players arrive
@@ -39,9 +39,12 @@ open, the Welcome's COLONY flag). On foot the panel shows the first of them not 
 range to the place's door, and the city's map marks the door with a `◆`. Still open: a marker
 on the door in the city view itself.
 
-**The Arrival does something.** Seats by its door (`content::city`), E to sit, others see you sit
-(the presence's `ride` 15 is seated: no new bits, a protocol bump for the meaning), and chat over
-the heads of those near you. Flaneurs come and sit.
+**The Arrival does something.** *Built.* Seats by its door (`bc_sim::colony::city::arrival_seats`, a
+closed form of the door; benches drawn there), E to sit, others see you sit (the presence's
+`ride` 15 is seated: no new bits, wire v16 for the meaning; the plaza takes it only on a seat), and
+what's said on the radio over the heads of those near you. Flaneurs come and sit (`flaneur
+--sit`, two of them under `BC_COLONY=1`). Tests: the seats' geometry, the plaza's rules for
+sitting, and a step in the colony e2e.
 
 ## P1: what makes the chain worth walking
 

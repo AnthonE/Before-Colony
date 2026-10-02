@@ -223,7 +223,7 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
   - Hub Gate.
   - The Exchange floor: its terminal opens `Panel::Terminal(Spot::Exchange)`, the bay's panel and requests.
   - The Charter Board hall: news, bounty rates, the site's stage.
-  - The Arrival, a bar: you can sit.
+  - The Arrival, a bar: you can sit (its seats out front, `arrival_seats`; inside is still to come).
   - About 10 landmarks, named on approach, with a found-list kept in settings.
   - An M map overlay on the page, from published JSON.
   - Indoor rooms use EV 8.

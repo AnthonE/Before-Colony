@@ -17,7 +17,7 @@ use glam::Vec3;
 
 use crate::colony::frame::STRIP_WIDTH;
 use crate::content::city::{DISTRICTS, DistrictKind, PLACES, PlaceDef, PlaceKind, SPECIAL, Special};
-use crate::math::floor;
+use crate::math::{atan2, floor};
 use crate::world::COLONY_HALF_LENGTH;
 
 /// A block's cell, m square.
@@ -390,6 +390,47 @@ pub fn terminal_rect() -> Rect {
         -COLONY_HALF_LENGTH,
         -COLONY_HALF_LENGTH + TERMINAL_DEPTH,
     )
+}
+
+/// A seat in the city: on a bench against a place's front, facing out.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Seat {
+    pub strip: u8,
+    /// Across the strip and along the colony, m.
+    pub s: f32,
+    pub x: f32,
+    /// The way a pilot sitting on it faces: the walker's yaw (0 faces −s, τ/4 faces +x).
+    pub yaw: f32,
+}
+
+/// How many seats The Arrival puts out.
+pub const ARRIVAL_SEATS: usize = 4;
+/// How far along its front from the door the seats are, m: two benches of two, either side.
+const SEAT_OFFSETS: [f32; ARRIVAL_SEATS] = [-5.5, -4.5, 4.5, 5.5];
+/// A pilot this close to a seat can sit on it, m.
+pub const SEAT_REACH: f32 = 1.6;
+
+/// The Arrival's seats: two benches either side of its door, a metre out from its front, facing
+/// the avenue. A closed form of the place's door, like everything in the city.
+pub fn arrival_seats() -> [Seat; ARRIVAL_SEATS] {
+    let bar = PLACES.iter().find(|p| p.kind == PlaceKind::Bar).unwrap_or(&PLACES[0]);
+    let ((s, x), (ds, dx)) = place_door(bar);
+    // The door's spot is 4 m out from the front; the benches 1 m out, along it either side.
+    let (fs, fx) = (s + ds * 3.0, x + dx * 3.0);
+    let (along_s, along_x) = (-dx, ds);
+    let yaw = atan2(-dx, ds);
+    SEAT_OFFSETS.map(|k| Seat { strip: bar.strip, s: fs + along_s * k, x: fx + along_x * k, yaw })
+}
+
+/// The seat within [`SEAT_REACH`] of `(s, x)` on `strip`, nearest first.
+pub fn seat_near(strip: u8, s: f32, x: f32) -> Option<usize> {
+    let d = |t: &Seat| (t.s - s) * (t.s - s) + (t.x - x) * (t.x - x);
+    arrival_seats()
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| t.strip == strip && d(t) <= SEAT_REACH * SEAT_REACH)
+        .min_by(|a, b| d(a.1).total_cmp(&d(b.1)))
+        .map(|(k, _)| k)
 }
 
 /// Where a pilot stands at a place's door, and which way they face to go in: `(s, x)` and a unit
@@ -776,6 +817,36 @@ mod tests {
     /// A walker's box (0.6 × 1.8 m) standing at `(s, x)` with its feet at `h`, on strip `k`.
     fn walker_at(k: u8, s: f32, x: f32, h: f32) -> bool {
         solid(k, Vec3::new(x - 0.3, h, -s - 0.3), Vec3::new(x + 0.3, h + 1.8, -s + 0.3), STAGE)
+    }
+
+    /// The Arrival's seats stand clear of its walls, beside its door and either side of it, facing
+    /// away from the bar; one is found from where a pilot stands by it, none from the door itself.
+    #[test]
+    fn the_arrivals_seats_are_out_front_facing_the_avenue() {
+        let bar = PLACES.iter().find(|p| p.kind == PlaceKind::Bar).unwrap();
+        let ((s, x), (ds, dx)) = place_door(bar);
+        let seats = arrival_seats();
+        for (k, seat) in seats.iter().enumerate() {
+            assert_eq!(seat.strip, bar.strip);
+            // Seated (a box from the seat's height up), clear of the walls.
+            assert!(
+                !solid(
+                    seat.strip,
+                    Vec3::new(seat.x - 0.2, 0.5, -seat.s - 0.2),
+                    Vec3::new(seat.x + 0.2, 1.3, -seat.s + 0.2),
+                    STAGE
+                ),
+                "seat {k} is in a wall"
+            );
+            let off = (seat.s - s).hypot(seat.x - x);
+            assert!((3.0..8.0).contains(&off), "seat {k} is {off} m from the door");
+            // Facing out: the way the door goes in, turned round (yaw 0 faces −s, τ/4 faces +x).
+            let face = (-crate::math::cos(seat.yaw), crate::math::sin(seat.yaw));
+            assert!((face.0 + ds).abs() < 1e-4 && (face.1 + dx).abs() < 1e-4, "seat {k} faces {face:?}");
+            assert_eq!(seat_near(seat.strip, seat.s + 0.5, seat.x + 0.3), Some(k));
+        }
+        assert_eq!(seat_near(bar.strip, s, x), None, "the door's spot isn't a seat");
+        assert_eq!(seat_near((bar.strip + 1) % STRIPS as u8, seats[0].s, seats[0].x), None, "another strip");
     }
 
     #[test]

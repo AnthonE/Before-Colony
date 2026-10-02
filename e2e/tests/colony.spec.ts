@@ -88,6 +88,21 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await until(page, "the terminal closed", (s) => !s.terminal, 60_000);
   expect((await bc(page)).hangar_credits).toBeLessThan(2000);
 
+  // The Arrival's seats: over to one, E to sit (the pilot's seen sitting), a step to stand.
+  await push(page, { cmd: "walk_to", spot: "seat" });
+  await until(page, "the walk", (s) => s.city_walking_to, 30_000);
+  await until(page, "by the seats", (s) => !s.city_walking_to, 420_000);
+  await expect(page.locator("#use")).toContainText("SIT", { timeout: 30_000 });
+  await push(page, { cmd: "use" });
+  await until(page, "seated", (s) => s.seated >= 0, 30_000);
+  await expect(page.locator("#use")).toContainText("SEATED", { timeout: 30_000 });
+  await page.screenshot({ path: "artifacts/colony-seated.png" });
+  await page.focus("#bc");
+  await page.keyboard.down("w");
+  await until(page, "standing", (s) => s.seated < 0, 30_000);
+  await page.keyboard.up("w");
+  expect((await mine(page, "Relena")).status.game.city.refused_by?.seat ?? 0).toBe(0);
+
   // Back to Hub Gate, and up the lift to the bay.
   await push(page, { cmd: "walk_to", spot: "hub_gate_1" });
   await until(page, "at Hub Gate", (s) => s.focus === "hub_gate_1" && !s.city_walking_to, 420_000);

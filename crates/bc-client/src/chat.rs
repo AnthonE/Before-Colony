@@ -11,17 +11,25 @@ use crate::page::{Ui, UiCmd, UiCmds};
 /// The page keeps this many of the latest lines.
 pub const SHOWN: usize = 6;
 
+/// What each callsign last said, and when (the page's clock): in the city it's shown over their
+/// head (`people::name_tags`).
+#[derive(Resource, Default)]
+pub struct Spoken(pub std::collections::HashMap<String, (String, f64)>);
+
 pub fn radio(
     keys: Res<ButtonInput<KeyCode>>,
     cmds: Res<UiCmds>,
     mut ui: ResMut<Ui>,
+    mut spoken: ResMut<Spoken>,
     net: NonSend<NetState>,
     game: NonSend<GameClient>,
 ) {
     let mut g = game.borrow_mut();
     // What's been heard.
-    for line in g.core.hangar.said.drain(..) {
-        ui.radio.push(line);
+    let now = crate::net::now_s();
+    for (from, text) in g.core.hangar.said.drain(..) {
+        spoken.0.insert(from.clone(), (text.clone(), now));
+        ui.radio.push((from, text));
         ui.radio_seq += 1;
     }
     let extra = ui.radio.len().saturating_sub(SHOWN);

@@ -1,4 +1,4 @@
-# Before Colony wire protocol (v15)
+# Before Colony wire protocol (v16)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
@@ -258,7 +258,8 @@ coordinates, where the city stands still: `x` along (22 bits over ±16,384 m), `
 strip's edge (19 bits over 0–4,096 m), `h` up (15 bits over −8–248 m), all in 7.8 mm steps; the
 walker's yaw (10 bits), pitch (8 bits over ±90°), speed over the ground (6 bits, 0.2 m/s steps to
 12.6), GROUNDED and RUNNING, and what they ride (4 bits: 0 on foot, `k` + 1 on train `k` of the
-strip's line, 13 driving a car, 14 on a scooter), 86 bits in all. A rider's `x`, `s` and `h` are from their train's middle, from its
+strip's line, 13 driving a car, 14 on a scooter, 15 sitting on a seat: v16 gave 15 that meaning,
+with no new bits), 86 bits in all. A rider's `x`, `s` and `h` are from their train's middle, from its
 track's middle plus 2,048 m, and from its floor: everyone draws them inside the train wherever
 their own screen has it (`transit::train` is a closed form of the tick).
 
@@ -272,7 +273,9 @@ A pose is taken only if it could be: on the pilot's strip, inside the colony, ou
 first within 150 m of the strip's Hub Gate, and newer (`seq`) than the last. A rider must be inside
 their train's cars; getting on or off, within 8 m of the train while it stood with its doors open
 (within 3 s of the sector's tick). A driver's first pose must be at a motor pool
-(`bc_sim::colony::pools`), and no driver goes faster than 45.5 m/s. Anything else isn't
+(`bc_sim::colony::pools`), and no driver goes faster than 45.5 m/s. A seated pose must be on a
+seat (`bc_sim::colony::city::arrival_seats`, within 0.3 m), and stays put on it until its pilot
+stands. Anything else isn't
 passed on (`/status`'s `city.refused_poses`). Each pilot is sent the people on their strip within
 1.5 km of them, heard from in the last 5 s, nearest first; their names come once each on the
 control stream (`people`). The plaza's tick keeps a client's clock (and the colony's day) when no

@@ -92,6 +92,7 @@ pub fn run() {
             .init_resource::<crate::onfoot::OnFoot>()
             .init_resource::<crate::terminal::TerminalLog>()
             .init_resource::<crate::map::MapOpen>()
+            .init_resource::<crate::chat::Spoken>()
             .init_resource::<crate::map::ObjectiveState>()
             .add_systems(First, drain_inbox)
             .add_systems(
