@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use bc_proto::presence::{MAX_PEOPLE, PersonPose, PlazaWriter, RIDER_S};
 use bc_sim::colony::city::{MAX_HEIGHT, Stage, place_door, solid};
@@ -25,9 +25,10 @@ const MAX_SPEED: f32 = 9.0 * 1.5;
 /// Faster than anything drives (a car's top speed is 30 m/s), likewise.
 const MAX_DRIVE: f32 = 35.0 * 1.3;
 const SLACK: f32 = 2.0;
-/// Standing still earns no more reach than this long's worth, s. (Reach is measured from when the
-/// pilot last moved, not from their last pose: a slow client repeats one pose many times between
-/// frames, then jumps a frame's walk at once.)
+/// How far a pilot may go is a budget of time, s: what has passed since their last pose adds to it,
+/// each move spends its distance at the fastest they could go, and standing still saves up no more
+/// than this. (Not each pose's distance over the time since the one before: a slow client's poses
+/// come in bunches, a frame's walk each.)
 const STILL: f32 = 2.0;
 /// A pilot's first pose must be this near their strip's Hub Gate, m: everyone comes down its lift.
 const ARRIVAL: f32 = 150.0;
@@ -58,8 +59,9 @@ struct Person {
     pose: Option<PersonPose>,
     seq: u16,
     heard: Instant,
-    /// When their pose last moved (no earlier than `STILL` before `heard`).
-    moved_at: Instant,
+    /// Their budget of time to move in, s, as it stood at `credited`.
+    credit: f32,
+    credited: Instant,
     refused: u32,
     /// When a refusal of theirs was last logged.
     said: Option<Instant>,
@@ -179,7 +181,8 @@ impl Plaza {
                     pose: None,
                     seq: 0,
                     heard: Instant::now(),
-                    moved_at: Instant::now(),
+                    credit: 0.0,
+                    credited: Instant::now(),
                     refused: 0,
                     said: None,
                 },
@@ -198,15 +201,19 @@ impl Plaza {
     pub fn accept(&self, id: u16, seq: u16, pose: PersonPose, now: Instant, tick: u32) -> Verdict {
         let Ok(mut all) = self.people.lock() else { return Verdict::Away };
         let Some(me) = all.get_mut(&id) else { return Verdict::Away };
+        let credit = me.credit + now.saturating_duration_since(me.credited).as_secs_f32();
+        // How far they went, and at what speed it's paid for (none: from one frame to another).
+        let went = me.pose.map_or(0.0, |l| (pose.x - l.x).hypot(pose.s - l.s));
+        let mut pace = 0.0;
         let why = match me.pose {
             _ if pose.strip != me.strip => Some(Why::Strip),
             _ if !possible(&pose) => Some(Why::Wall),
             Some(_) if (seq.wrapping_sub(me.seq) as i16) <= 0 => return Verdict::Stale,
             Some(last) => {
-                let dt = now.saturating_duration_since(me.moved_at).as_secs_f32();
-                let moved = |speed: f32| {
-                    let reach = speed * dt + SLACK;
-                    (pose.x - last.x).hypot(pose.s - last.s) <= reach && (pose.h - last.h).abs() <= reach
+                let mut moved = |speed: f32| {
+                    pace = speed;
+                    let reach = speed * credit + SLACK;
+                    went <= reach && (pose.h - last.h).abs() <= reach
                 };
                 let check = |ok: bool, why: Why| (!ok).then_some(why);
                 match (mode(&last), mode(&pose)) {
@@ -237,17 +244,18 @@ impl Plaza {
                 (!ok).then_some(Why::Arrival)
             }
         };
+        me.credited = now;
         if let Some(why) = why {
-            // Said now and then (never where: only why, how far and how long since the last).
+            // Refused, they save up all the while (so a pilot the plaza has lost is found again).
+            me.credit = credit;
+            // Said now and then (never where: only why, how far, and in how long).
             if me.said.is_none_or(|t| now.saturating_duration_since(t).as_secs_f32() > 5.0) {
                 me.said = Some(now);
-                let dt = now.saturating_duration_since(me.moved_at).as_secs_f32();
-                let moved = me.pose.map_or(0.0, |l| (pose.x - l.x).hypot(pose.s - l.s));
                 tracing::info!(
                     slot = id,
                     ?why,
-                    moved = moved as u32,
-                    dt,
+                    moved = went as u32,
+                    credit,
                     refused = me.refused + 1,
                     "a pose not passed on"
                 );
@@ -258,11 +266,8 @@ impl Plaza {
             }
             return Verdict::Implausible;
         }
-        let still = me.pose.is_some_and(|l| (l.x, l.s, l.h, l.ride) == (pose.x, pose.s, pose.h, pose.ride));
-        me.moved_at = match now.checked_sub(Duration::from_secs_f32(STILL)) {
-            Some(earliest) if still => me.moved_at.max(earliest),
-            _ => now,
-        };
+        let spent = if pace > 0.0 { went / pace } else { 0.0 };
+        me.credit = (credit - spent).min(STILL);
         me.pose = Some(pose);
         me.seq = seq;
         me.heard = now;
@@ -324,6 +329,7 @@ mod tests {
     use super::*;
     use bc_proto::MAX_DATAGRAM;
     use bc_proto::presence::PlazaReader;
+    use std::time::Duration;
 
     fn at(strip: u8, s: f32, x: f32) -> PersonPose {
         PersonPose { strip, x, s, grounded: true, ..PersonPose::default() }
@@ -371,29 +377,44 @@ mod tests {
     }
 
     #[test]
-    fn a_slow_client_repeating_its_pose_between_frames_isnt_refused() {
+    fn a_slow_clients_bunched_poses_are_passed_on_but_not_a_sprint() {
         let plaza = Plaza::default();
         let t0 = Instant::now();
         let (s, x) = hub_gate(0);
         plaza.enter(1, "Hilde", 0);
         assert_eq!(plaza.accept(1, 1, at(0, s, x), t0, 0), Verdict::Taken);
-        // At under 1 fps: the same pose at 15 Hz for 1.5 s, then the next frame's 7 m run at once.
+        let ms = |n: u64| Duration::from_millis(n);
+        // Running at under 1 fps: a frame's 6.4 m each second, but heard 0.1 s after one another
+        // (the same pose repeated at 15 Hz between them).
         let mut seq = 1;
-        for i in 1..=22 {
+        let mut go = |plaza: &Plaza, x: f32, t: Instant| {
             seq += 1;
-            let t = t0 + Duration::from_millis(i * 67);
-            assert_eq!(plaza.accept(1, seq, at(0, s, x), t, 0), Verdict::Taken);
+            plaza.accept(1, seq, at(0, s, x), t, 0)
+        };
+        for i in 1..=6u64 {
+            let t = t0 + ms(1_000 * i);
+            let x = x + 12.8 * i as f32;
+            assert_eq!(go(&plaza, x - 6.4, t), Verdict::Taken);
+            assert_eq!(go(&plaza, x - 6.4, t + ms(67)), Verdict::Taken);
+            assert_eq!(go(&plaza, x, t + ms(166)), Verdict::Taken, "second {i}");
         }
-        let t1 = t0 + Duration::from_millis(1_550);
-        assert_eq!(plaza.accept(1, seq + 1, at(0, s, x + 7.0), t1, 0), Verdict::Taken);
-        // Standing still a minute doesn't earn a long jump.
-        for i in 1..=900 {
-            seq += 1;
-            let t = t1 + Duration::from_millis(i * 67);
-            assert_eq!(plaza.accept(1, seq + 1, at(0, s, x + 7.0), t, 0), Verdict::Taken);
+        // Standing still a minute doesn't save up for a long jump.
+        let t1 = t0 + ms(6_166);
+        let x1 = x + 12.8 * 6.0;
+        for i in 1..=900u64 {
+            assert_eq!(go(&plaza, x1, t1 + ms(67 * i)), Verdict::Taken);
         }
-        let t2 = t1 + Duration::from_millis(900 * 67 + 67);
-        assert_eq!(plaza.accept(1, seq + 2, at(0, s, x + 207.0), t2, 0), Verdict::Implausible);
+        let t2 = t1 + ms(67 * 901);
+        assert_eq!(go(&plaza, x1 + 200.0, t2), Verdict::Implausible);
+        // Nor does anyone keep up 20 m/s on foot, a pose at a time.
+        let refused = (1..=100u64)
+            .filter(|i| go(&plaza, x1 + 2.0 * *i as f32, t2 + ms(100 * i)) == Verdict::Implausible)
+            .count();
+        assert!(refused > 20, "{refused}");
+        // Refused, they save up: a pilot the plaza lost is found again.
+        let t3 = t2 + ms(10_100);
+        assert_eq!(go(&plaza, x1 + 600.0, t3), Verdict::Implausible);
+        assert_eq!(go(&plaza, x1 + 600.0, t3 + ms(40_000)), Verdict::Taken);
     }
 
     #[test]
