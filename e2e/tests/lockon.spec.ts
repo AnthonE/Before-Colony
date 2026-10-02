@@ -20,7 +20,8 @@ test("lock on to a Doll, close in on it, and let go", async ({ page, request }, 
   await page.goto(`/?quality=low&gfx=${info.project.name}`);
   await expect(page.locator("#title")).toBeVisible({ timeout: 60_000 });
   await page.locator("#callsign").fill("E2E-Lock");
-  await page.locator('#frames .frame[data-slug="leo"]').click();
+  // Wing Zero: a Leo flying in on eight Dolls is often shot down before it's halfway there.
+  await page.locator('#frames .frame[data-slug="wingzero"]').click();
   await page.locator("#launch-button").click();
   await wait("in the world", "window.__bc?.link === 'ingame' && window.__bc?.alive && window.__bc?.entities > 0");
   await page.focus("#bc");
@@ -44,19 +45,26 @@ test("lock on to a Doll, close in on it, and let go", async ({ page, request }, 
   let closest = start;
   let lockedOn = false;
   let worstError = 0;
+  let ended = "the time ran out";
   const until = Date.now() + 90_000;
   while (Date.now() < until) {
     await page.waitForTimeout(500);
     const s = await bc(page);
-    if (s.lock_slot < 0 || !s.alive) break;
+    if (s.lock_slot < 0 || !s.alive) {
+      ended = !s.alive ? "shot down" : "the lock let go";
+      break;
+    }
     lockedOn ||= s.lockon === true;
     if (s.lock_range > 0) closest = Math.min(closest, s.lock_range);
     worstError = Math.max(worstError, s.prediction_error_m ?? 0);
-    if (closest < 60) break;
+    if (closest < 60) {
+      ended = "in reach";
+      break;
+    }
   }
   await page.keyboard.up("w");
   await page.keyboard.up("Shift");
-  console.log(`locked at ${start.toFixed(0)} m, closest ${closest.toFixed(0)} m, prediction ≤ ${worstError.toFixed(3)} m`);
+  console.log(`locked at ${start.toFixed(0)} m, closest ${closest.toFixed(0)} m (${ended}), prediction ≤ ${worstError.toFixed(3)} m`);
   expect(lockedOn).toBe(true);
   expect(closest).toBeLessThan(Math.max(60, start * 0.5));
   expect(worstError).toBeLessThan(0.5);
