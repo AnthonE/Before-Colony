@@ -6,8 +6,11 @@
 
 use bc_proto::presence::{PersonPose, RIDER_S};
 use bc_sim::colony::city::{CityBox, Rect};
-use bc_sim::colony::frame::{CityPos, gravity};
-use bc_sim::colony::transit::{CAR_LENGTH, CAR_WIDTH, CARS, FLOOR, TrainState, car_offset, car_walls};
+use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, gravity};
+use bc_sim::colony::transit::{
+    CAR_LENGTH, CAR_WIDTH, CARS, DOOR_AT, DOOR_WIDTH, FLOOR, PLATFORM_HALF, PLATFORM_LENGTH, STATION_GAP,
+    STATIONS, TrainState, car_offset, car_walls, station_x,
+};
 use glam::Vec3;
 
 use crate::city::CityGround;
@@ -60,6 +63,9 @@ impl Solid for CityAndTrains<'_> {
             return true;
         }
         let (s0, s1, x0, x1) = (-max.z, -min.z, min.x, max.x);
+        if self.screens(&Rect::new(s0, s1, x0, x1), min.y, max.y) {
+            return true;
+        }
         self.trains.iter().filter(|t| t.at.is_some()).any(|t| {
             (0..CARS).any(|c| {
                 let (cx, cs) = (t.car_x(c), t.s);
@@ -75,6 +81,60 @@ impl Solid for CityAndTrains<'_> {
 
     fn gravity(&self, feet: Vec3) -> f32 {
         self.ground.gravity(feet)
+    }
+}
+
+/// The platforms' screen doors: glass along each long edge of the island, this tall, with a door
+/// wherever a standing train's car has one (they stop in the same place every time), open while
+/// it is.
+const SCREEN: f32 = 2.2;
+const SCREEN_THICKNESS: f32 = 0.08;
+
+impl CityAndTrains<'_> {
+    /// Whether `area` (between heights `h0` and `h1`) meets a platform's screen: its glass, or one
+    /// of its doors that's shut.
+    fn screens(&self, area: &Rect, h0: f32, h1: f32) -> bool {
+        let mid = STRIP_WIDTH * 0.5;
+        if h1 < FLOOR
+            || h0 > FLOOR + SCREEN
+            || (area.s0 > mid + PLATFORM_HALF)
+            || (area.s1 < mid - PLATFORM_HALF)
+        {
+            return false;
+        }
+        let near = ((0.5 * (area.x0 + area.x1) - station_x(0)) / STATION_GAP).round();
+        if near < 0.0 || near >= STATIONS as f32 {
+            return false;
+        }
+        let i = near as usize;
+        let x = station_x(i);
+        let half = 0.5 * PLATFORM_LENGTH;
+        for side in [-1.0f32, 1.0] {
+            let edge = mid + side * PLATFORM_HALF;
+            let glass = Rect::new(
+                edge.min(edge - side * SCREEN_THICKNESS),
+                edge.max(edge - side * SCREEN_THICKNESS),
+                x - half,
+                x + half,
+            );
+            if !glass.overlaps(area) {
+                continue;
+            }
+            // The train standing at this edge with its doors open, if there is one.
+            let open = self.trains.iter().any(|t| t.doors && t.at == Some(i) && (t.s - mid) * side > 0.0);
+            let in_door = |x0: f32, x1: f32| {
+                (0..CARS).any(|c| {
+                    [-DOOR_AT, DOOR_AT].iter().any(|d| {
+                        let at = x + car_offset(c) + d;
+                        x0 >= at - 0.5 * DOOR_WIDTH && x1 <= at + 0.5 * DOOR_WIDTH
+                    })
+                })
+            };
+            if !(open && in_door(area.x0.max(glass.x0), area.x1.min(glass.x1))) {
+                return true;
+            }
+        }
+        false
     }
 }
 
@@ -213,6 +273,24 @@ mod tests {
             }
         }
         assert!(on.is_some(), "never got on: {:?} {:?}", CityPos::from_walker(0, w.feet), guide.route);
+    }
+
+    #[test]
+    fn the_platforms_screens_keep_you_off_the_track_but_for_a_trains_open_doors() {
+        let x = bc_sim::colony::transit::station_x(3);
+        let mid = STRIP_WIDTH * 0.5;
+        let empty = CityAndTrains { ground: CityGround { strip: 0, stage: Stage(0) }, trains: &[] };
+        // Walking straight off the island's +s edge, no train there: stopped at the glass.
+        for along in [x - 20.0, x + car_offset(1) + DOOR_AT] {
+            let start = CityPos::new(0, along, mid, FLOOR);
+            let across = CityPos::new(0, along, mid + 1.0, FLOOR).walker() - start.walker();
+            let mut w = Walker::at(start.walker(), across.normalize());
+            for _ in 0..(4.0 / DT) as u32 {
+                w.step(&empty, &Stride { forward: 1.0, ..Stride::default() }, DT);
+            }
+            let p = CityPos::from_walker(0, w.feet);
+            assert!(p.s < mid + PLATFORM_HALF && (p.h - FLOOR).abs() < 0.05, "off the platform: {p:?}");
+        }
     }
 
     #[test]

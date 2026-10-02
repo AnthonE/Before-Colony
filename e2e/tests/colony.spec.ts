@@ -119,6 +119,7 @@ test("a pilot takes the tram from Hub Gate one stop up the line", async ({ page 
   const t0 = Date.now();
   let s = await bc(page);
   while (s.riding < 0) {
+    // (A guide that finds the doors shut on it gives up; then it's asked again.)
     if (!s.city_walking_to) await push(page, { cmd: "walk_to", spot: "tram" });
     if (Date.now() - t0 > 420_000) throw new Error(`never got on: ${JSON.stringify(s)}`);
     await page.waitForTimeout(1_000);
@@ -163,10 +164,11 @@ test("a pilot takes a car from Hub Gate's motor pool and drives up the avenue", 
   let s = await until(page, "at the wheel", (s) => s.driving === "car", 30_000);
   const start = Number(String(s.city_feet).split(",")[0]);
 
-  // Up the avenue for a few seconds, then the brakes.
+  // Up the avenue for 30 m or so, then the brakes.
+  const along = (s: Record<string, any>) => Number(String(s.city_feet).split(",")[0]);
   await page.focus("#bc");
   await page.keyboard.down("w");
-  s = await until(page, "under way", (s) => s.drive_speed > 8, 60_000);
+  s = await until(page, "under way", (s) => s.drive_speed > 8 && along(s) - start > 30, 90_000);
   await page.keyboard.up("w");
   await page.keyboard.down("s");
   s = await until(page, "stopped", (s) => Math.abs(s.drive_speed) < 1, 60_000);
