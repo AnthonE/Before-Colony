@@ -20,11 +20,11 @@ use glam::{Quat, Vec3};
 use super::Sim;
 use crate::bodies::{Bodies, Body};
 use crate::content::salvage::DOCK_HUB_LENGTH;
-use crate::content::{Modules, Systems, frame, weapon};
+use crate::content::{Kits, Modules, Systems, frame, weapon};
 use crate::ground::{self, Anchor, CROUCH_STANCE, Footing, STANCE};
 use crate::handle::SuitId;
 use crate::math::{cos, floor, look_rotation, quat_normalize, sin};
-use crate::suits::{ALL_MOUNTS, NO_SPOT};
+use crate::suits::{ALL_MOUNTS, NO_SPOT, Usage};
 use crate::world::{COLONY_CENTER, COLONY_HALF_LENGTH};
 
 /// Where suits come out: on the docking hub's axis, just off its mouth, inside the dock (a suit
@@ -47,6 +47,15 @@ fn launch_pose(n: u32) -> (Vec3, Quat) {
     (pos, look_rotation(-Vec3::X, Vec3::Y))
 }
 
+/// Where the `n`th suit comes into the colony from the bays: round the inner gate, nose down the
+/// colony, its head towards the axis (up, in there).
+fn inner_launch_pose(n: u32) -> (Vec3, Quat) {
+    use crate::colony::interior::INNER_GATE;
+    let a = (n % LAUNCH_PLACES) as f32 * core::f32::consts::TAU / LAUNCH_PLACES as f32;
+    let pos = INNER_GATE + Vec3::new(0.0, cos(a) * 40.0, sin(a) * 40.0);
+    (pos, look_rotation(Vec3::X, crate::colony::frame::up_at(pos)))
+}
+
 /// A suit as its pilot built it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Loadout {
@@ -63,6 +72,8 @@ pub struct Loadout {
     pub systems: Systems,
     /// The equipment on the parts.
     pub modules: Modules,
+    /// The consumables in its rack.
+    pub kits: Kits,
 }
 
 impl Loadout {
@@ -82,6 +93,7 @@ impl Loadout {
             propellant: spec.propellant_cap,
             systems: Systems::OK,
             modules: Modules::NONE,
+            kits: Kits::NONE,
         }
     }
 }
@@ -100,6 +112,10 @@ pub struct Homecoming {
     pub systems: Systems,
     /// The equipment on the parts still on (a part shot off took its own).
     pub modules: Modules,
+    /// The consumables it didn't use.
+    pub kits: Kits,
+    /// What it has been through out there (thrusters, guns, the reactor).
+    pub usage: Usage,
     /// The hold, kg per cargo kind.
     pub cargo_kg: [u16; CARGO_KINDS],
     /// Whatever it had in hand (a hulk it towed in, a limb, ore).
@@ -143,7 +159,11 @@ impl Sim {
         }
         let id = self.suits.allocate(frame_id, faction, pilot)?;
         self.spawn_counter += 1;
-        let (pos, rot) = launch_pose(self.spawn_counter);
+        let (pos, rot) = if self.interior() {
+            inner_launch_pose(self.spawn_counter)
+        } else {
+            launch_pose(self.spawn_counter)
+        };
         let i = id.idx();
         self.suits.place(i, frame_id, pos, rot, self.tick);
         for (hp, (max, f)) in self.suits.part_hp[i].iter_mut().zip(spec.part_hp.iter().zip(loadout.parts)) {
@@ -152,6 +172,7 @@ impl Sim {
         self.suits.mounts[i] = loadout.mounts & ALL_MOUNTS;
         self.suits.systems[i] = loadout.systems.clean();
         self.suits.modules[i] = loadout.modules.clean();
+        self.suits.kits[i] = loadout.kits;
         self.suits.retune(i);
         // Charged full, a capacitor bank's worth included.
         self.suits.energy[i] = spec.energy_cap * self.suits.tuning[i].energy_cap;
@@ -161,9 +182,10 @@ impl Sim {
             }
         }
         let tank = crate::tuning::tank_cap(spec, &self.suits.tuning[i]);
+        let speed = if self.interior() { crate::colony::interior::INNER_LAUNCH_SPEED } else { LAUNCH_SPEED };
         let f = &mut self.suits.flight[i];
         f.propellant = loadout.propellant.clamp(0.0, tank);
-        f.vel = rot * Vec3::Z * LAUNCH_SPEED;
+        f.vel = rot * Vec3::Z * speed;
         Some(id)
     }
 
@@ -178,7 +200,7 @@ impl Sim {
             return None;
         }
         let held = self.held_chunk(i);
-        let home = Homecoming { held: held.map(|k| self.chunks.desc[k]), ..self.kit(i) };
+        let home = Homecoming { held: held.map(|k| self.chunks.desc[k]), ..self.homecoming(i) };
         if let Some(k) = held {
             self.chunks.kill(k);
         }
@@ -189,7 +211,7 @@ impl Sim {
     }
 
     /// What suit `i` would bring home, but for whatever it has in hand.
-    fn kit(&self, i: usize) -> Homecoming {
+    pub fn homecoming(&self, i: usize) -> Homecoming {
         let s = &self.suits;
         Homecoming {
             frame: match s.frame[i] {
@@ -202,6 +224,8 @@ impl Sim {
             propellant: s.flight[i].propellant,
             systems: s.systems[i],
             modules: s.modules[i].without(s.gone_mask(i)),
+            kits: s.kits[i],
+            usage: s.usage[i],
             cargo_kg: s.cargo_kg[i],
             held: None,
             bounty: s.credits[i],
@@ -229,7 +253,7 @@ impl Sim {
             frame: s.frame[i],
             faction: s.faction[i],
             pilot: s.pilot[i],
-            home: self.kit(i),
+            home: self.homecoming(i),
         })
     }
 
@@ -288,12 +312,18 @@ impl Sim {
             *hp = max * f.clamp(0.0, 1.0);
         }
         s.mounts[i] = home.mounts & ALL_MOUNTS;
+        // As worn inside as it was left, its equipment and rack with it.
+        s.systems[i] = home.systems.clean();
+        s.modules[i] = home.modules.clean();
+        s.kits[i] = home.kits;
+        s.usage[i] = home.usage;
+        s.retune(i);
         for (slot, ws) in s.weapons[i].iter_mut().enumerate() {
             if let Some(m) = spec.loadout[slot] {
                 ws.ammo = home.ammo[slot].min(weapon(m.weapon).ammo);
             }
         }
-        s.flight[i].propellant = home.propellant.clamp(0.0, spec.propellant_cap);
+        s.flight[i].propellant = home.propellant.clamp(0.0, crate::tuning::tank_cap(spec, &s.tuning[i]));
         s.cargo_kg[i] = home.cargo_kg;
         s.credits[i] = home.bounty;
         (s.footing[i], s.anchor[i]) = (Footing::Grounded, a);

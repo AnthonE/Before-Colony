@@ -68,6 +68,7 @@ pub const BINDINGS: &[Binding] = &[
     b(Group::OnFoot, "W / A / S / D", "Walk"),
     b(Group::OnFoot, "Shift", "Run"),
     b(Group::OnFoot, "Space", "Jump"),
+    b(Group::OnFoot, "Q (at the cockpit)", "With the colony open: launch into it, by the inner gate"),
     b(
         Group::OnFoot,
         "E",
@@ -121,6 +122,11 @@ pub const BINDINGS: &[Binding] = &[
         Group::Weapons,
         "Y / middle click",
         "Lock on: the hostile nearest the crosshair (again: the next one; hold: let go). Locked, W closes in and stops short, A / D circle it, and you fight on its level; ◆ shows where to lead",
+    ),
+    b(
+        Group::Weapons,
+        "1 / 2 / 3 / 4",
+        "Survival: the rack's patch kit, coolant flush, chaff, stim (up to 3 of each, loaded at launch)",
     ),
     b(Group::Salvage, "G", "Grab on/off: the free hand takes what it touches"),
     b(Group::Salvage, "B", "Stow what's in hand"),

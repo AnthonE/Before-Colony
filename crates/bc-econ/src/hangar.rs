@@ -17,6 +17,9 @@ use crate::item::{Item, Material, Ore, is_line, part_name};
 use crate::stores::{PartUnit, Stores};
 use crate::suit::{MODULE_MOUNTS, Slot, Suit, line_of, repair_cost, scrap_yield};
 use bc_sim::content::System;
+use bc_sim::content::kits::{Kit, RACK};
+
+use crate::wear::{SERVICE_FROM, service_cost};
 use bc_sim::content::modules::MOUNTS;
 use bc_sim::content::systems::{DAMAGED, FAILED, OK};
 
@@ -81,11 +84,22 @@ fn refuse<T>(why: impl Into<String>) -> Result<T, String> {
 pub struct Rules {
     /// Jobs run this many times faster than their recipes say (testing, events).
     pub craft_speed: f64,
+    /// The foundry's fee, percent of the recipe's, and how many times faster it works (the
+    /// colony's great works: `charter::Effects`).
+    pub foundry_fee_pct: u64,
+    pub foundry_speed: f64,
 }
 
 impl Default for Rules {
     fn default() -> Self {
-        Self { craft_speed: 1.0 }
+        Self { craft_speed: 1.0, foundry_fee_pct: 100, foundry_speed: 1.0 }
+    }
+}
+
+impl Rules {
+    /// These rules, with what the colony's finished works do.
+    pub fn with(self, e: &crate::charter::Effects) -> Self {
+        Self { foundry_fee_pct: e.foundry_fee_pct, foundry_speed: e.foundry_speed, ..self }
     }
 }
 
@@ -162,7 +176,7 @@ impl Hangar {
             ));
         }
         let n = u64::from(batches);
-        let fee = r.fee * n;
+        let fee = r.fee * n * rules.foundry_fee_pct / 100;
         if self.credits < fee {
             return refuse(format!("the foundry wants {fee} cr for that"));
         }
@@ -177,8 +191,9 @@ impl Hangar {
         }
         let _ = self.stores.take_all(&r.inputs, n);
         self.credits -= fee;
-        let secs = (f64::from(r.secs) / rules.craft_speed.max(1e-3)).round().max(1.0) as u32;
-        self.works.queue(r.station).push(item, batches, secs, now);
+        let speed = rules.craft_speed * if r.station == Station::Foundry { rules.foundry_speed } else { 1.0 };
+        let secs = (f64::from(r.secs) / speed.max(1e-3)).round().max(1.0) as u32;
+        self.works.queue(r.station).push(item, batches, secs, now, rules.foundry_fee_pct);
         Ok(format!("QUEUED {} × {}", batches, item.name().to_uppercase()))
     }
 
@@ -289,6 +304,10 @@ impl Hangar {
                 };
                 let faults = suit.faults.of_part(part);
                 suit.faults = suit.faults.with_part(part, Faults::NONE);
+                // The next one fitted starts its systems' service lives afresh.
+                for sys in System::ALL.into_iter().filter(|s| s.part() == part) {
+                    suit.wear.reset(sys, line);
+                }
                 // Its equipment comes off with it, into the stores.
                 let mut gear = Vec::new();
                 for (k, m) in suit.modules.iter_mut().enumerate() {
@@ -411,8 +430,28 @@ impl Hangar {
                 short = true;
                 continue;
             }
-            self.suit_mut()?.faults.set(sys, OK);
+            let s = self.suit_mut()?;
+            s.faults.set(sys, OK);
+            s.wear.reset(sys, suit.line);
             fixed.push(sys.name().to_uppercase());
+        }
+        // Then a service for what's working but worn: its life starts again, for less than an
+        // overhaul would take once it's worn out.
+        for (sys, f) in suit.wear.systems(suit.line) {
+            let fitted = suit.parts[sys.part() as usize].is_some();
+            if f < SERVICE_FROM
+                || !fitted
+                || part.is_some_and(|p| p != sys.part())
+                || suit.faults.level(sys) != OK
+            {
+                continue;
+            }
+            if !self.stores.take_all(&service_cost(suit.line), 1) {
+                short = true;
+                continue;
+            }
+            self.suit_mut()?.wear.reset(sys, suit.line);
+            fixed.push(format!("{} (SERVICED)", sys.name().to_uppercase()));
         }
         match (fixed.is_empty(), short) {
             (true, true) => {
@@ -468,6 +507,10 @@ impl Hangar {
             let _ = self.stores.take(MUNITIONS_ITEM, kg);
             suit.ammo[m] = (u64::from(suit.ammo[m]) + rounds).min(u64::from(full)) as u16;
         }
+        // The rack: up to three of each consumable in the stores.
+        for kit in Kit::ALL {
+            suit.kits[kit as usize] = self.stores.take_up_to(Item::Kit(kit), u64::from(RACK)) as u8;
+        }
         let loadout = suit.loadout();
         self.bay = Bay::Out { suit };
         Ok(loadout)
@@ -481,6 +524,15 @@ impl Hangar {
             Bay::Empty => Suit::complete(line_of(home.frame)),
         };
         suit.came_home(home);
+        // Wear from use: what's had its service life comes home a level worse.
+        suit.wear.add(&home.usage);
+        let (line, parts) = (suit.line, suit.parts);
+        let worn = suit.wear.wear_out(&mut suit.faults, line, |p| parts[p as usize].is_some());
+        // What's left in the rack goes back on the shelf.
+        for kit in Kit::ALL {
+            self.stores.add(Item::Kit(kit), u64::from(home.kits.get(kit)));
+        }
+        suit.kits = [0; Kit::COUNT];
         self.bay = Bay::Docked { suit };
         let mut notes = vec!["DOCKED".to_string()];
         for (kind, kg) in home.cargo_kg.iter().enumerate() {
@@ -496,6 +548,9 @@ impl Hangar {
             self.credits += u64::from(home.bounty);
             notes.push(format!("BOUNTY {} CR", home.bounty));
         }
+        for sys in worn {
+            notes.push(format!("{} WORN: OVERHAUL IT", sys.name().to_uppercase()));
+        }
         notes.join(" · ")
     }
 
@@ -510,7 +565,11 @@ impl Hangar {
     /// the colony's tugs bring it in as it launched.
     pub fn recover(&mut self) -> bool {
         match std::mem::take(&mut self.bay) {
-            Bay::Out { suit } => {
+            Bay::Out { mut suit } => {
+                for kit in Kit::ALL {
+                    self.stores.add(Item::Kit(kit), u64::from(suit.kits[kit as usize]));
+                }
+                suit.kits = [0; Kit::COUNT];
                 self.bay = Bay::Docked { suit };
                 true
             }
@@ -664,6 +723,8 @@ mod tests {
             propellant: l.propellant,
             systems: l.systems,
             modules: l.modules,
+            kits: l.kits,
+            usage: Default::default(),
             cargo_kg: [0; 4],
             held: None,
             bounty: 0,
@@ -841,7 +902,7 @@ mod tests {
         h.stores.add(Item::Ore(Ore::NickelIron), 250);
         let err = h.craft(steel, 3, 0, &Rules::default()).unwrap_err();
         assert!(err.contains("50 kg Nickel-iron ore"), "{err}");
-        h.craft(steel, 2, 0, &Rules { craft_speed: 2.0 }).unwrap();
+        h.craft(steel, 2, 0, &Rules { craft_speed: 2.0, ..Rules::default() }).unwrap();
         assert_eq!(h.stores.get(Item::Ore(Ore::NickelIron)), 50);
         assert_eq!(h.settle(10), [(steel, 80)]);
         assert_eq!(h.settle(20), [(steel, 80)]);

@@ -6,8 +6,8 @@
 //!   line's tank and weapon mounts;
 //! - the pilot's hangar, with what the suit's console works out from it (what could be fitted,
 //!   what repairs and overhauls would take, the suit's stat sheet, whether it would launch), the
-//!   exchange and the book they're watching, whenever the server's word on them changes, and the
-//!   log of what the server said.
+//!   exchange and the book they're watching, the Charter Board (while its tab is open), whenever
+//!   the server's word on them changes, and the log of what the server said.
 //!
 //! What the pilot asks for comes back as `UiCmd::Hangar` (a `bc_econ::Request`), and `onfoot.rs`
 //! sends it on. The server decides everything; the page only shows its word.
@@ -20,6 +20,7 @@ use bc_econ::exchange::FEE_BP;
 use bc_econ::faults::overhaul_cost;
 use bc_econ::item::{LINES, part_name, part_slug};
 use bc_econ::suit::repair_cost;
+use bc_econ::wear::{SERVICE_FROM, service_cost};
 use bc_econ::wire::HangarView;
 use bc_econ::{Bay, Hangar, Item};
 use bc_proto::Part;
@@ -69,6 +70,7 @@ fn catalogue() -> Value {
                 Item::Part(l, p) => ("part", Some(l.slug()), Some(part_slug(p))),
                 Item::Weapon(_) => ("weapon", None, None),
                 Item::Module(k) => ("module", None, Some(part_slug(k.part()))),
+                Item::Kit(_) => ("kit", None, None),
             };
             let d = desk(i);
             json!({
@@ -82,7 +84,11 @@ fn catalogue() -> Value {
                 "part": part,
                 "colony_buys": d.is_some_and(|d| d.buys),
                 "colony_sells": d.is_some_and(|d| d.sells),
-                "summary": match i { Item::Module(k) => Some(k.summary()), _ => None },
+                "summary": match i {
+                    Item::Module(k) => Some(k.summary()),
+                    Item::Kit(k) => Some(k.summary()),
+                    _ => None,
+                },
                 "mass": match i { Item::Module(k) => Some(k.mass_kg()), _ => None },
             })
         })
@@ -206,12 +212,23 @@ fn console(v: &HangarView) -> Value {
             })
         })
         .collect();
+    // Wear from use: each worn system, how far through its service life.
+    let wear: Vec<Value> = suit
+        .wear
+        .systems(suit.line)
+        .into_iter()
+        .filter(|(sys, _)| suit.parts[sys.part() as usize].is_some())
+        .map(|(sys, used)| json!({ "system": sys.slug(), "used": used }))
+        .collect();
     json!({
         "launch": launch,
         "repairs": repairs,
         "overhauls": overhauls,
         "fits": fits,
         "stats": suit.stats(),
+        "wear": wear,
+        "service_cost": amounts(&service_cost(suit.line)),
+        "service_from_pct": (SERVICE_FROM * 100.0).round() as u32,
     })
 }
 
@@ -220,6 +237,7 @@ fn hangar_json(h: &HangarState, log: &TerminalLog) -> Value {
         "bay": h.bay,
         "view": h.view,
         "market": h.market,
+        "charter": h.charter,
         "book": h.book.as_ref().map(|(depth, history)| json!({ "depth": depth, "history": history })),
         "console": h.view.as_ref().map(console),
         "log": log.lines,

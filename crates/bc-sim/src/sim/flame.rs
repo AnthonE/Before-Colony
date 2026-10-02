@@ -53,6 +53,9 @@ impl Sim {
             s.heat[i] += w.heat;
             s.energy[i] -= w.energy;
             s.stats[i].shots += 1;
+            if let Some(n) = s.usage[i].shots.get_mut(slot) {
+                *n = n.saturating_add(1);
+            }
         }
         s.weapons[i][slot] = ws;
         if !burn {

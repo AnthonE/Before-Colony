@@ -14,7 +14,7 @@ use bc_proto::{FrameId, Part, WeaponKind};
 use bc_sim::config::G0;
 use bc_sim::content::modules::{AUXILIARY_TANK, MOUNTS};
 use bc_sim::content::salvage::{hold_kg, mass_without};
-use bc_sim::content::{ArmSlot, ModuleKind, Modules, frame};
+use bc_sim::content::{ArmSlot, Kit, Kits, ModuleKind, Modules, frame};
 use bc_sim::sim::{Homecoming, Loadout};
 use bc_sim::tuning::tuning;
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,7 @@ use crate::catalogue::{munitions_per_load, recipe, rounds_per_load, tank_kg};
 use crate::faults::Faults;
 use crate::item::{Item, line_serde, part_serde};
 use crate::stores::PartUnit;
+use crate::wear::Wear;
 
 /// Where something is fitted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,6 +59,17 @@ pub struct Suit {
     /// The equipment on each mount (`bc_sim::content::modules::MOUNTS`).
     #[serde(default, with = "equipment_serde")]
     pub modules: [Option<ModuleKind>; MODULE_MOUNTS],
+    /// Out in the sector: the consumables in its rack, per kind (`bc_sim::content::Kit`). They're
+    /// loaded from the stores at launch, and what's left goes back when it docks.
+    #[serde(default, skip_serializing_if = "no_kits")]
+    pub kits: [u8; Kit::COUNT],
+    /// What its systems have been through since they were last overhauled or serviced.
+    #[serde(default, skip_serializing_if = "Wear::is_none")]
+    pub wear: Wear,
+}
+
+fn no_kits(k: &[u8; Kit::COUNT]) -> bool {
+    k.iter().all(|n| *n == 0)
 }
 
 /// Equipment mounts on a suit.
@@ -115,6 +127,8 @@ impl Suit {
             propellant: 0,
             faults: Faults::NONE.with_part(Part::Torso, torso.faults),
             modules: [None; MODULE_MOUNTS],
+            kits: [0; Kit::COUNT],
+            wear: Wear::default(),
         }
     }
 
@@ -129,6 +143,8 @@ impl Suit {
             propellant: tank_kg(line),
             faults: Faults::NONE,
             modules: [None; MODULE_MOUNTS],
+            kits: [0; Kit::COUNT],
+            wear: Wear::default(),
         }
         .with_mounts_of_its_loadout()
     }
@@ -226,7 +242,17 @@ impl Suit {
             propellant: self.propellant as f32,
             systems: self.faults.0,
             modules: self.equipment(),
+            kits: self.rack(),
         }
+    }
+
+    /// The rack as the simulation carries it.
+    pub fn rack(&self) -> Kits {
+        let mut k = Kits::NONE;
+        for kit in Kit::ALL {
+            k.set(kit, self.kits[kit as usize]);
+        }
+        k
     }
 
     /// The suit as it came home: parts worn or gone (a weapon goes with the part it hung on),
@@ -380,6 +406,8 @@ mod tests {
             propellant: l.propellant,
             systems: l.systems,
             modules: l.modules,
+            kits: l.kits,
+            usage: Default::default(),
             cargo_kg: [0; 4],
             held: None,
             bounty: 0,

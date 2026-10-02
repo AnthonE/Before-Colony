@@ -19,7 +19,7 @@ use bc_proto::buttons::FLIGHT_ASSIST;
 use bc_proto::{Faction, FrameId, InputCmd, Part, WeaponKind};
 use bc_server::{Config, Mode, Ruleset};
 use bc_sim::content::systems::DAMAGED;
-use bc_sim::content::{ModuleKind, System};
+use bc_sim::content::{Kit, Kits, ModuleKind, System};
 
 fn config(data_dir: Option<PathBuf>) -> anyhow::Result<Config> {
     Ok(Config {
@@ -135,13 +135,29 @@ async fn a_pilot_works_the_bay_launches_and_docks() -> anyhow::Result<()> {
     ask(&mut b, Request::Order { item: propellant, side: Side::Buy, price: 3_000, qty: 200, rest: false })
         .await?;
 
+    // A stim and two chaff from the colony's chandlers: the rack takes them at launch.
+    let (stim, chaff) = (Item::Kit(Kit::Stim), Item::Kit(Kit::Chaff));
+    let ask_of = |item: Item| bc_econ::catalogue::value(item) * 3 / 2;
+    ask(&mut b, Request::Order { item: stim, side: Side::Buy, price: ask_of(stim), qty: 1, rest: false })
+        .await?;
+    ask(&mut b, Request::Order { item: chaff, side: Side::Buy, price: ask_of(chaff), qty: 2, rest: false })
+        .await?;
+
     // Launch: out of the hub, flying.
     b.launch().await?;
     assert_eq!(b.place(), Some(Place::Space));
     let own = b.world().own.expect("own suit");
     assert!(own.alive && own.frame == FrameId::Leo);
     assert_eq!(own.weapon_ready & 0b001, 0, "no beam rifle fitted");
-    assert!(bc_sim::tuning::own_tuning(&own).g_tolerance > 6.0, "it flies with its G-seat");
+    let g = bc_sim::tuning::own_tuning(&own).g_tolerance;
+    assert!(g > 6.0, "it flies with its G-seat");
+    // The rack, and the hotbar: a stim lifts the G the pilot bears.
+    assert_eq!((Kits(own.kits).get(Kit::Stim), Kits(own.kits).get(Kit::Chaff)), (1, 2));
+    b.use_kit(Kit::Stim).await?;
+    let own = b.world().own.expect("own suit");
+    assert!(own.stim > 0);
+    assert!(bc_sim::tuning::own_tuning(&own).g_tolerance > g);
+    assert!(b.use_kit(Kit::Stim).await.is_err(), "the rack is out of them");
     // Brake to rest in the dock, and dock.
     for _ in 0..100 {
         b.step(&mut |_| InputCmd { buttons: FLIGHT_ASSIST, ..InputCmd::default() }).await?;
@@ -154,6 +170,11 @@ async fn a_pilot_works_the_bay_launches_and_docks() -> anyhow::Result<()> {
     assert_eq!(back.parts, suit.parts, "nothing hit it");
     assert!(back.modules.contains(&Some(ModuleKind::GSeat)), "the G-seat came home");
     assert!(back.propellant > 0 && back.propellant <= back.tank());
+    // What the rack didn't use is back on the shelf.
+    let held = |item: Item| {
+        b.core.hangar.view.as_ref().unwrap().stock.iter().find(|(i, _)| *i == item).map_or(0, |e| e.1)
+    };
+    assert_eq!((held(stim), held(chaff)), (0, 2));
     b.close().await;
     server.shutdown();
     Ok(())

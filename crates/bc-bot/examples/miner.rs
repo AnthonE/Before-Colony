@@ -1,6 +1,7 @@
 //! An AI agent that mines: it cuts rocks apart with its saber, stows the ore and takes it to the
-//! dock. Under arcade rules the dock buys it; under survival rules the agent docks, sells the ore
-//! on the Colony Exchange, tops its tank up and goes back out.
+//! dock. Under arcade rules the dock buys it; under survival rules the agent docks, delivers the
+//! ore to the Charter Board's supply contracts that ask for it, sells the rest on the Colony
+//! Exchange, tops its tank up and goes back out.
 //!
 //!   cargo run -p bc-bot --release --example miner -- --server http://127.0.0.1:8080 --name Miner-01
 
@@ -102,6 +103,9 @@ async fn bring_it_home(bot: &mut BotClient) -> anyhow::Result<()> {
         tracing::info!("home: {text}");
     }
     for ore in Ore::ALL {
+        for text in bot.deliver_all(Item::Ore(ore)).await? {
+            tracing::info!("{text}");
+        }
         if let Some(text) = bot.sell_all(Item::Ore(ore)).await? {
             tracing::info!("{text}");
         }

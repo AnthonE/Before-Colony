@@ -29,6 +29,8 @@ fn home_of(s: &Suit) -> Homecoming {
         propellant: l.propellant,
         systems: l.systems,
         modules: l.modules,
+        kits: l.kits,
+        usage: Default::default(),
         cargo_kg: [0; 4],
         held: None,
         bounty: 0,
@@ -180,4 +182,84 @@ fn the_stat_sheet_follows_the_suit() {
     s.faults.set(System::Boosters, FAILED);
     let broken = s.stats();
     assert_eq!(broken.boost_g, broken.accel_g);
+}
+
+/// The rack takes up to three of each consumable from the stores at launch; what's left comes back
+/// when the suit docks (or is towed in), and nothing when it's lost.
+#[test]
+fn the_rack_loads_from_the_stores_and_comes_home() {
+    use bc_sim::content::Kit;
+    let mut h = Hangar::starter();
+    h.stores.add(Item::Kit(Kit::Chaff), 5);
+    h.stores.add(Item::Kit(Kit::Stim), 1);
+    let l = h.launch().unwrap();
+    assert_eq!((l.kits.get(Kit::Chaff), l.kits.get(Kit::Stim), l.kits.get(Kit::Patch)), (3, 1, 0));
+    assert_eq!(h.stores.get(Item::Kit(Kit::Chaff)), 2);
+    let Bay::Out { suit } = &h.bay else { panic!() };
+    let mut home = home_of(suit);
+    home.kits.take(Kit::Chaff);
+    home.kits.take(Kit::Stim);
+    h.came_home(&home);
+    assert_eq!((h.stores.get(Item::Kit(Kit::Chaff)), h.stores.get(Item::Kit(Kit::Stim))), (4, 0));
+    // Towed in, it brings its rack as it went out.
+    h.launch().unwrap();
+    assert_eq!(h.stores.get(Item::Kit(Kit::Chaff)), 1);
+    assert!(h.recover());
+    assert_eq!(h.stores.get(Item::Kit(Kit::Chaff)), 4);
+    // Lost, it's gone.
+    h.launch().unwrap();
+    h.lost(0);
+    assert_eq!(h.stores.get(Item::Kit(Kit::Chaff)), 1);
+}
+
+/// Consumables are made at the fabricator and sold by the colony.
+#[test]
+fn consumables_are_made_and_traded() {
+    use bc_econ::catalogue::{desk, recipe, value};
+    use bc_sim::content::Kit;
+    for kit in Kit::ALL {
+        let item = Item::Kit(kit);
+        assert_eq!(item.slug().parse::<Item>().unwrap(), item);
+        assert!(recipe(item).is_some(), "{kit:?}");
+        assert!(value(item) > 0, "{kit:?}");
+        assert!(desk(item).is_some_and(|d| d.buys && d.sells), "{kit:?}");
+    }
+}
+
+/// Wear from use: a sortie's thruster burn, rounds and overheats add up, a system past its
+/// service life comes home damaged, an overhaul restores it, and a worn one can be serviced first.
+#[test]
+fn systems_wear_from_use_and_are_serviced() {
+    use bc_econ::wear::{MAIN_S, OVERHEATS};
+    use bc_sim::TICK_HZ;
+    use bc_sim::sim::Usage;
+    let mut h = Hangar::starter();
+    h.stores.add(Item::Material(Material::Components), 10_000);
+    h.stores.add(Item::Material(Material::Electronics), 10_000);
+    h.overhaul(None).unwrap();
+    let fly = |h: &mut Hangar, usage: Usage| {
+        h.launch().unwrap();
+        let Bay::Out { suit } = &h.bay else { panic!() };
+        let mut home = home_of(suit);
+        home.usage = usage;
+        h.came_home(&home)
+    };
+    // Half a service life of burn and a few overheats: nothing yet, but it can be serviced.
+    let half =
+        Usage { burn: MAIN_S * TICK_HZ / 2 + 1, overheats: (OVERHEATS / 2) as u16, ..Usage::default() };
+    let note = fly(&mut h, half);
+    assert!(!note.contains("WORN"), "{note}");
+    assert!(suit(&h).faults.is_empty());
+    let text = h.overhaul(None).unwrap();
+    assert!(text.contains("MAIN THRUSTERS (SERVICED)"), "{text}");
+    assert!(suit(&h).wear.is_none(), "{:?}", suit(&h).wear);
+    // A whole life of it: the main thrusters come home damaged, and an overhaul puts them right.
+    let note = fly(&mut h, Usage { burn: MAIN_S * TICK_HZ, ..Usage::default() });
+    assert!(note.contains("MAIN THRUSTERS WORN"), "{note}");
+    assert_eq!(suit(&h).faults.level(System::MainThrusters), DAMAGED);
+    let text = h.overhaul(None).unwrap();
+    assert!(text.contains("MAIN THRUSTERS"), "{text}");
+    assert!(suit(&h).faults.is_empty());
+    // Nothing worn, nothing broken: nothing to do.
+    assert!(h.overhaul(None).is_err());
 }

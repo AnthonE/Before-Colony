@@ -10,6 +10,7 @@
 //!
 //! [`start`] boots everything in-process, which is also how the integration tests run a real server.
 
+pub mod charter;
 pub mod config;
 pub mod http;
 pub mod market;

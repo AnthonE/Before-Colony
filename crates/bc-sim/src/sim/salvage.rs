@@ -31,6 +31,9 @@ impl Sim {
     /// Whether suit `i` is in the dock, slow enough to sell.
     pub fn docked(&self, i: usize) -> bool {
         let f = &self.suits.flight[i];
+        if self.interior() {
+            return crate::colony::interior::in_gate(f.pos, f.vel);
+        }
         (f.pos - DOCK_CENTER).length_squared() < DOCK_RADIUS * DOCK_RADIUS
             && f.vel.length_squared() < DOCK_SPEED * DOCK_SPEED
     }

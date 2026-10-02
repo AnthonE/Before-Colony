@@ -40,6 +40,10 @@ pub mod welcome_flags {
     pub const ANIME: u8 = 1 << 3;
     /// The colony is open: the bay's airlock leads to the cap lifts, and down to its city.
     pub const COLONY: u8 = 1 << 4;
+    /// This sector is the colony's inside, in its own frame (`bc_sim::colony::interior`): its
+    /// pull, its air and its city, weapons safe. A Welcome mid-session moves the pilot between
+    /// sectors (in through the inner gate, and back to the bay).
+    pub const INTERIOR: u8 = 1 << 5;
 }
 
 /// [`ControlMsg::Roster`] flags.

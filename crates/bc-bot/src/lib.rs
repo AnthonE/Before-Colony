@@ -23,12 +23,14 @@
 //! ```
 
 pub mod client;
+pub mod stroll;
 pub mod transport;
 
 /// The ready-made brains: the Mobile Doll AI, a miner, and a lander that walks and hides on the
 /// bodies. (They live in `bc-client-core`, so the browser autopilot can use them too.)
 pub use bc_client_core::brains::{self, DollBrain, LanderBrain, MinerBrain, Plan};
 pub use client::{BotClient, BotConfig};
+pub use stroll::Stroll;
 pub use transport::{EndpointInfo, connect, discover, install_crypto_provider};
 
 /// Parses a frame an agent may fly, by its slug (`leo`, `wingzero`, `heavyarms`…; see

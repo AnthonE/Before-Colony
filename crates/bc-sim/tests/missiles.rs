@@ -2,7 +2,8 @@
 //! and falls apart twice as fast; a guided salvo runs down a crossing target; a target faster than
 //! the motor's Δv outruns it; a jammer breaks the seeker's hold, and so does a target parking and
 //! going dark (but not before it has, nor to its friends); missiles pass friends; a missile that
-//! finds nothing bursts at the end of its life; a full pool swallows launches.
+//! finds nothing bursts at the end of its life; a full pool swallows launches; chaff throws a salvo
+//! off and keeps the next lock from building.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
 mod common;
@@ -11,7 +12,7 @@ use bc_proto::buttons::{FIRE_SECONDARY, MODE};
 use bc_proto::events::{BurstCause, Event};
 use bc_proto::snapshot::own_flags;
 use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, PilotKind, WeaponKind};
-use bc_sim::content::{WeaponClass, frame, weapon};
+use bc_sim::content::{Kit, WeaponClass, frame, weapon};
 use bc_sim::math::look_rotation;
 use bc_sim::missiles::MAX_MISSILES;
 use bc_sim::{Sim, SimConfig, SuitId};
@@ -152,6 +153,45 @@ fn a_guided_salvo_runs_down_a_crossing_target() {
             .any(|e| matches!(e, Event::MissileBurst { cause: BurstCause::Hit, .. }))
     );
     assert_eq!(sim.stats(0).hits_by_class[WeaponClass::Missile as usize] as usize, hits);
+}
+
+#[test]
+fn chaff_throws_a_salvo_off_and_keeps_locks_off() {
+    let (sim, leo, from) = salvo_at(FrameId::Leo, Vec3::X * 120.0, 8, &mut |sim, leo, k| {
+        if k == 0 {
+            sim.suits.kits[leo.idx()].set(Kit::Chaff, 1);
+        }
+        // The salvo is on its way: chaff.
+        if k == 20 {
+            assert!(sim.suits.incoming[leo.idx()] > 0);
+            assert!(sim.use_kit(leo, Kit::Chaff));
+            assert!(!sim.use_kit(leo, Kit::Chaff), "the rack is empty");
+        }
+    });
+    assert_eq!(missile_hits(&sim, from, leo), 0);
+    assert_eq!(sim.suits.kits[leo.idx()].get(Kit::Chaff), 0);
+    // A lock started under the chaff doesn't build until it clears.
+    let mut sim = empty();
+    let ha = suit(&mut sim, FrameId::Heavyarms, Faction::Colonies, AT, Vec3::Z);
+    let leo = suit(&mut sim, FrameId::Leo, Faction::Oz, AT + Vec3::Z * 1_500.0, -Vec3::Z);
+    sim.suits.kits[leo.idx()].set(Kit::Chaff, 1);
+    for k in 0..LOCK_TICKS {
+        press(&mut sim, ha, 0, leo);
+        coast(&mut sim, leo, Vec3::ZERO);
+        sim.step();
+        if k == LOCK_TICKS / 2 {
+            assert!(sim.suits.lock[ha.idx()].progress > 0);
+            assert!(sim.use_kit(leo, Kit::Chaff));
+            assert_eq!(sim.suits.lock[ha.idx()].progress, 0, "broken at once");
+        }
+    }
+    assert!(sim.missile_lock(ha.idx()).is_none());
+    for _ in 0..u32::from(bc_sim::content::kits::CHAFF_TICKS) + LOCK_TICKS {
+        press(&mut sim, ha, 0, leo);
+        coast(&mut sim, leo, Vec3::ZERO);
+        sim.step();
+    }
+    assert!(sim.missile_lock(ha.idx()).is_some(), "once it clears, the lock builds again");
 }
 
 #[test]

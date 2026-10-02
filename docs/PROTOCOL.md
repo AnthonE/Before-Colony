@@ -76,7 +76,7 @@ exactly `tick − 8`, so the 8-bit field's saturation at 15.9 ticks loses nothin
 | Section | Content |
 |---|---|
 | header (116 bits) | kind=2, tick, ack_input_tick, input_health (i8), time_echo_ms, echo_hold_ms, tidi_pct, flags |
-| own (1 + 777..797 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, systems (24), modules (20), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, extra mass (kg, i18), cargo ×4 (kg, 14 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special cooldown (8, ticks ÷ 4), arms (46, below), burst step (17, below), footing (2), cover (2), and on a body its body (6 or 12) and stance (8) (below) |
+| own (1 + 797..817 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, systems (24), modules (20), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, the rack (8: 2 bits a consumable), a stim's clock (12, ticks), extra mass (kg, i18), cargo ×4 (kg, 14 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special cooldown (8, ticks ÷ 4), arms (46, below), burst step (17, below), footing (2), cover (2), and on a body its body (6 or 12) and stance (8) (below) |
 | ZERO (1 + ≤200 bits) | source_jev, advice_age, threat_count, per threat {slot, 7 × p}, rec_target + p, rec_maneuver + p, threat_level + confidence, flanked, has_solution, solution (oct 2×12), hit_p |
 | events | repeated `[1][event]`, closed by `[0]` |
 | rocks | repeated `[1][rock]` (18 bits each), closed by `[0]` |
@@ -92,7 +92,7 @@ ZERO's presence bit and the five lists' terminators.
 
 | | Own flying free | Own on a rock (the largest) |
 |---|---|---|
-| Fixed | 883 bits | 903 bits |
+| Fixed | 920 bits | 940 bits |
 | Free suits (1 + 211 bits each), nothing else | 37 | 37 |
 | Suits on bodies (1 + 194 bits each), nothing else | 40 | 40 |
 | Room kept for six of the largest objects (6 × 233 bits) | 30 free / 33 riders | 30 / 33 |
@@ -289,7 +289,7 @@ prefix, except the hangar's (tag 11), which may carry up to 64 KiB.
 | Tag | Message | Direction |
 |---|---|---|
 | 1 | Hello {version, pilot kind, frame, faction, name ≤ 16 B, flags (1 SIGN_IN, 2 RESUME), resume token (32 B, only with RESUME)} | client → server (first frame) |
-| 2 | Welcome {version, client slot, tick, tick_hz, sector, zero_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY), landmarks (u8)} | server → client |
+| 2 | Welcome {version, client slot, tick, tick_hz, sector, zero_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY, 32 INTERIOR), landmarks (u8)} | server → client (again on moving between sectors) |
 | 3 | Reject {reason: 1 version, 2 full, 3 bad hello, 4 frame not allowed, 5 sign-in failed, 6 sign-in required, 7 resume token expired, 8 no signature in time} | server → client |
 | 4 | Roster {entity slot, pilot kind, name (empty = left), flags (1 VERIFIED, 2 ASLEEP)} | server → client |
 | 5 | Respawn {frame} | client → server |
@@ -372,9 +372,18 @@ Client → server (`Request`):
 | `cancel_order` | `id` | |
 | `watch` | `item` (or `null`) | send that item's book and history as they change |
 | `launch` | | board and launch the suit in the bay |
-| `dock` | | take the suit home (at rest inside the dock) |
+| `dock` | | take the suit home (at rest inside the dock, or inside the colony the inner gate's ring) |
+| `launch_inside` | | board and launch the suit into the colony through the inner gate (the colony open) |
 | `enter_city` | `strip` (0–2) | ride the cap lift down from the bay to that strip's Hub Gate (the colony open, and the pilot in their bay) |
 | `leave_city` | | ride the lift back up from Hub Gate to the bay |
+| `watch_board` | `on` | send the Charter Board (`charter`) as it changes, or stop |
+| `post` | `item`, `qty`, `reward`, `hours` (1–72) | post a supply contract; the reward goes into escrow |
+| `withdraw` | `id` | take one's own contract down (what it hasn't paid comes back) |
+| `deliver` | `id`, `qty` | deliver to a supply contract from the stores, paid pro rata on the spot |
+| `take_patrol` · `drop_patrol` | `id` | take a militia patrol (one at a time), or give it up |
+| `contribute` | `work` (`second_foundry`, `militia_hangar`), `item`, `qty` | deliver to one of the colony's great works |
+| `sign` | | sign the charter (the vote open, and the pilot of standing) |
+| `use_kit` | `kit` (`patch_kit`, `coolant`, `chaff`, `stim`) | in flight: use one from the suit's rack (the hotbar; nothing answers, the own state shows it) |
 | `say` | `text` | a line on the colony's radio, to everyone connected, under any rules: control characters stripped, whitespace made single spaces, cut to 160 characters; at most 5 lines in 10 s (more get a refusing `note`). Never logged; `/status` counts them (`radio_lines`) |
 
 Items are slugs: `ore.nickel_iron`, `mat.steel`, `mat.components`, `part.leo.torso`,
@@ -390,17 +399,31 @@ orders, the fee); `book` {`depth`, `history`}; `note` {`text`, `ok`} answering a
 news: a job done, an order filled); `sortie` {`outcome`: `docked`, `lost`, `recovered`, `text`};
 `news` {`text`} (a pilot's arrival; the colony's announcements); `people` {`people`: [{`id`,
 `name`}]} (in the city: the names of people seen there for the first time, by the slot the plaza's
-datagrams use); `said` {`from`, `text`} (a line on the colony's radio, the speaker's own included,
+datagrams use); `charter` (the Charter Board, while watched: the era, the contracts with their
+`task` (`{"kind": "supply", "item", "qty", "delivered"}` or `{"kind": "patrol", "bounty",
+"earned"}`), reward, paid and seconds left, the great works with what each needs and has, their
+top contributors, the pilot's standing and the charter's signatures); `said` {`from`, `text`} (a line on the colony's radio, the speaker's own included,
 from the moment the pilot was welcomed, in the order the server heard them). A suit (in the bay, or out) carries
 `faults`, a map from system slug to `damaged` or `failed` (absent when everything works), and
 `modules`, its five equipment mounts' slugs (or `null`); a part on the shelf carries its own
 `faults`.
-The server sends the hangar and the market whenever they change, the market at most every 2 s.
+The server sends the hangar and the market whenever they change, the market and the board at most
+every 2 s. The board's notices (a great work finished, the vote open, an era begun) come to every
+pilot as `news`, wherever they are.
 
 A launch puts the suit in the sector at the docking hub's mouth (the pilot's slot and the Welcome
 stay the same; snapshots start), and `place` says `space`. Docking answers with a `sortie` and
 `place: hangar`, or a refusing `note`. A suit destroyed out there sends `sortie: lost` at once and
 `place: hangar` once the wreck clears.
+
+Suits inside the colony (the Welcome sets COLONY): `launch_inside` seats the suit in the
+server's second sector, the colony's inside (`sector-1`, in the colony's own frame:
+`bc_sim::colony::interior`), and the server sends a new Welcome: sector 2, INTERIOR set, no field
+and no landmarks, and the client slot the inside sector knows the pilot by. Inputs go to that
+sector, its snapshots come instead, and nothing fires there. `dock` at rest in the inner gate's
+ring brings the suit home, with a `sortie` and a Welcome back to sector 1 (the client slot it
+had). A client welcomed mid-session forgets what it flew in the last sector. Leaving while
+inside, the colony's tugs bring the suit back to the bay.
 
 The colony (the Welcome sets COLONY: a survival server run with `--colony`): from the bay,
 `enter_city` answers `place: city` with the strip, or a refusing `note`; in the city the hangar and

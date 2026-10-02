@@ -207,7 +207,9 @@ pub fn own_gone(own: &bc_proto::OwnState) -> u8 {
 /// The owner's client's copy of its suit's stat sheet, from the snapshot: the same as the one the
 /// server flies the next tick with.
 pub fn own_tuning(own: &bc_proto::OwnState) -> Tuning {
-    tuning(own_gone(own), Systems(own.systems), Modules(own.modules))
+    let mut t = tuning(own_gone(own), Systems(own.systems), Modules(own.modules));
+    t.g_tolerance += crate::content::kits::stim_g(own.stim);
+    t
 }
 
 /// The flight model's modifiers from a suit's stat sheet under the sector's `rules`, before what
@@ -234,6 +236,7 @@ pub fn flight_mods(t: &Tuning, rules: FlightRules, g_immune: bool, extra_mass_kg
         hop: None,
         lockon: None,
         gauge: anime.then(|| BoostGauge { tank: t.tank, refill: t.refill / ANIME_REFILL_SECS }),
+        interior: false,
     }
 }
 

@@ -4,9 +4,11 @@
 //! for agents alike.
 
 use bc_proto::Part;
+use bc_sim::content::Kit;
 use serde::{Deserialize, Serialize};
 
 use crate::catalogue::Station;
+use crate::charter::{Board, CharterView, Work};
 use crate::exchange::{Depth, Exchange, Quote, Side, Trader};
 use crate::hangar::{Bay, Done, Hangar, Rules};
 use crate::item::Item;
@@ -68,6 +70,9 @@ pub enum Request {
     },
     /// Board the suit in the bay and launch it.
     Launch,
+    /// Board the suit in the bay and launch it into the colony, through the inner gate (the colony
+    /// open): its own sector, weapons safe. `dock` brings it back to the bay from the inner gate.
+    LaunchInside,
     /// Take the suit into the bay (it must be resting in the dock).
     Dock,
     /// Ride a cap lift down from the bays into the colony, to Hub Gate on land strip `strip`.
@@ -76,6 +81,45 @@ pub enum Request {
     },
     /// Ride the cap lift back up to the bay.
     LeaveCity,
+    /// The Charter Board: post a supply contract (its reward goes into escrow), take one down,
+    /// deliver to one from the stores, take or give up a patrol.
+    Post {
+        item: Item,
+        qty: u64,
+        reward: u64,
+        hours: u64,
+    },
+    Withdraw {
+        id: u64,
+    },
+    Deliver {
+        id: u64,
+        qty: u64,
+    },
+    TakePatrol {
+        id: u64,
+    },
+    DropPatrol {
+        id: u64,
+    },
+    /// Deliver toward one of the colony's great works.
+    Contribute {
+        work: Work,
+        item: Item,
+        qty: u64,
+    },
+    /// Sign the charter.
+    Sign,
+    /// Send the Charter Board (and keep sending it as it changes), or stop.
+    WatchBoard {
+        on: bool,
+    },
+    /// In flight: use a consumable from the suit's rack (the hotbar). Nothing answers: the own
+    /// snapshot shows the rack, and what it did.
+    UseKit {
+        #[serde(with = "kit_serde")]
+        kit: Kit,
+    },
     /// Say something on the colony's radio, to everyone connected (any rules): at most
     /// [`SAY_MAX_CHARS`] of it, cleaned ([`clean_line`]).
     Say {
@@ -140,6 +184,8 @@ pub enum Update {
     },
     Hangar(HangarView),
     Market(MarketView),
+    /// The Charter Board.
+    Charter(CharterView),
     /// The watched item's book and price history.
     Book {
         depth: Depth,
@@ -277,6 +323,13 @@ pub fn apply(
     rules: &Rules,
 ) -> Option<Done> {
     Some(match req {
+        Request::Post { .. }
+        | Request::Withdraw { .. }
+        | Request::Deliver { .. }
+        | Request::TakePatrol { .. }
+        | Request::DropPatrol { .. }
+        | Request::Contribute { .. }
+        | Request::Sign => return None,
         Request::Craft { item, batches } => hangar.craft(*item, *batches, now, rules),
         Request::CancelJob { station, index } => hangar.cancel_job(*station, *index, now),
         Request::Fit { item } => hangar.fit(*item),
@@ -298,10 +351,42 @@ pub fn apply(
         }
         Request::Watch { .. }
         | Request::Launch
+        | Request::LaunchInside
         | Request::Dock
         | Request::EnterCity { .. }
         | Request::LeaveCity
+        | Request::WatchBoard { .. }
+        | Request::UseKit { .. }
         | Request::Say { .. } => return None,
+    })
+}
+
+/// Does what `req` asks of the Charter Board, if it's the board's to do: `None` otherwise.
+/// `name` is what the pilot goes by on the board.
+#[allow(clippy::too_many_arguments)]
+pub fn apply_charter(
+    req: &Request,
+    hangar: &mut Hangar,
+    board: &mut Board,
+    exchange: &mut Exchange,
+    trader: &str,
+    name: &str,
+    now: u64,
+) -> Option<Done> {
+    Some(match *req {
+        Request::Post { item, qty, reward, hours } => {
+            board.post(hangar, trader, name, item, qty, reward, hours, now)
+        }
+        Request::Withdraw { id } => board.withdraw(hangar, trader, id),
+        Request::Deliver { id, qty } => board.deliver(hangar, exchange, trader, name, id, qty, now),
+        Request::TakePatrol { id } => board.take(trader, name, id, now),
+        Request::DropPatrol { id } => board.drop_patrol(trader, id, now),
+        // What's delivered is built into the work: it's gone from the economy.
+        Request::Contribute { work, item, qty } => {
+            board.contribute(hangar, trader, name, work, item, qty, now)
+        }
+        Request::Sign => board.sign(trader, name, now),
+        _ => return None,
     })
 }
 
@@ -312,6 +397,24 @@ pub fn encode<T: Serialize>(msg: &T) -> Vec<u8> {
 
 pub fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Option<T> {
     serde_json::from_slice(bytes).ok()
+}
+
+/// Serde for a consumable, as its slug (`patch_kit`, `coolant`, `chaff`, `stim`).
+mod kit_serde {
+    use bc_sim::content::Kit;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(k: &Kit, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(k.slug())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Kit, D::Error> {
+        let s = String::deserialize(d)?;
+        Kit::ALL
+            .into_iter()
+            .find(|k| k.slug() == s)
+            .ok_or_else(|| serde::de::Error::custom(format!("no such consumable: {s}")))
+    }
 }
 
 /// Serde for an optional part, as its slug or null.
@@ -385,7 +488,9 @@ mod tests {
             ),
             (r#"{"t":"watch","item":null}"#, Request::Watch { item: None }),
             (r#"{"t":"launch"}"#, Request::Launch),
+            (r#"{"t":"launch_inside"}"#, Request::LaunchInside),
             (r#"{"t":"dock"}"#, Request::Dock),
+            (r#"{"t":"use_kit","kit":"chaff"}"#, Request::UseKit { kit: Kit::Chaff }),
             (r#"{"t":"say","text":"o7"}"#, Request::Say { text: "o7".into() }),
         ];
         for (json, req) in cases {

@@ -11,6 +11,7 @@
 pub mod city;
 pub mod frame;
 pub mod hub;
+pub mod interior;
 pub mod mirrors;
 pub mod pools;
 pub mod time;

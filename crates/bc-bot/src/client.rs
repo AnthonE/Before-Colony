@@ -245,6 +245,19 @@ impl BotClient {
         .await
     }
 
+    /// Survival rules, the colony open: boards the suit in the bay and launches it into the
+    /// colony through the inner gate. Returns once the pilot is flying it in there (welcomed to the
+    /// colony's inside).
+    pub async fn launch_inside(&mut self) -> anyhow::Result<()> {
+        self.request(&Request::LaunchInside).await?;
+        self.wait_until(10.0, "the launch into the colony", |c| {
+            c.hangar.place == Some(Place::Space)
+                && c.welcome.is_some_and(|w| w.interior)
+                && c.world.own.is_some_and(|o| o.alive)
+        })
+        .await
+    }
+
     /// Gets the agent flying, whatever the rules: under survival rules, a pilot in the hangar
     /// launches the suit in the bay (`false` if there isn't one: it was lost); under arcade
     /// rules, or already out, there's nothing to do.
@@ -300,6 +313,69 @@ impl BotClient {
         }
         let req = Request::Order { item, side: bc_econ::Side::Sell, price: 1, qty: have, rest: false };
         self.ask(&req).await.map(Some)
+    }
+
+    /// Survival rules, in flight: uses a consumable from the suit's rack. Returns once the own
+    /// snapshot shows one fewer in the rack (or fails after a second: none there, or nothing for it
+    /// to do).
+    pub async fn use_kit(&mut self, kit: bc_sim::content::Kit) -> anyhow::Result<()> {
+        use bc_sim::content::Kits;
+        let count = |c: &ClientCore| c.world.own.map_or(0, |o| Kits(o.kits).get(kit));
+        let before = count(&self.core);
+        anyhow::ensure!(before > 0, "no {} in the rack", kit.name());
+        self.request(&Request::UseKit { kit }).await?;
+        self.wait_until(1.0, kit.name(), |c| count(c) < before).await
+    }
+
+    /// Survival rules: delivers what the stores hold of `item` to the Charter Board's supply
+    /// contracts that ask for it (the colony's pay above its desks), best paying first. What the
+    /// board said to each delivery.
+    pub async fn deliver_all(&mut self, item: bc_econ::Item) -> anyhow::Result<Vec<String>> {
+        use bc_econ::charter::Task;
+        self.request(&Request::WatchBoard { on: true }).await?;
+        let seen = self.core.hangar.charter.is_some();
+        let v0 = self.core.hangar.version;
+        self.wait_until(5.0, "the Charter Board", |c| {
+            c.hangar.charter.is_some() && (seen || c.hangar.version > v0)
+        })
+        .await?;
+        let mut wanted: Vec<(u64, u64, u64)> = self
+            .core
+            .hangar
+            .charter
+            .as_ref()
+            .map(|b| {
+                b.contracts
+                    .iter()
+                    .filter(|c| !c.mine)
+                    .filter_map(|c| match c.task {
+                        Task::Supply { item: i, qty, delivered } if i == item && qty > delivered => {
+                            Some((c.id, qty - delivered, (c.reward - c.paid) * 1_000 / (qty - delivered)))
+                        }
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        wanted.sort_by_key(|w| std::cmp::Reverse(w.2));
+        let mut said = Vec::new();
+        for (id, left, _) in wanted {
+            let have = self
+                .core
+                .hangar
+                .view
+                .as_ref()
+                .map_or(0, |v| v.stock.iter().find(|(i, _)| *i == item).map_or(0, |(_, q)| *q));
+            if have == 0 {
+                break;
+            }
+            match self.ask(&Request::Deliver { id, qty: left.min(have) }).await {
+                Ok(text) => said.push(text),
+                Err(e) => said.push(format!("{e:#}")),
+            }
+        }
+        self.request(&Request::WatchBoard { on: false }).await?;
+        Ok(said)
     }
 
     /// Survival rules: buys up to `qty` of `item` at no more than `price` (credits a tonne, or a

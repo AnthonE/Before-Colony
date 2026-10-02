@@ -6,6 +6,7 @@
 
 pub mod city;
 mod frames;
+pub mod kits;
 pub mod landmarks;
 pub mod melee;
 pub mod modules;
@@ -17,6 +18,7 @@ mod weapons;
 pub use frames::{
     AiHints, ArmSlot, Capsule, FrameSpec, Mount, PLAYABLE_ORDER, SPECIAL_MOUNT, SpecialKind, frame,
 };
+pub use kits::{Kit, Kits};
 pub use melee::{ConeSpec, MeleeSpec, MissileSpec, Stroke};
 pub use modules::{ModuleKind, Modules};
 pub use names::{doll_name, frame_designation, frame_name, weapon_name};

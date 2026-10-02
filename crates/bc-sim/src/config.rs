@@ -59,6 +59,10 @@ pub struct SimConfig {
     /// back up). Clients are told in their Welcome, and predict by the same rules. Mobile Dolls
     /// fly by the real rules either way.
     pub flight: crate::tuning::FlightRules,
+    /// Space round the colony, or the colony's inside (`colony::interior`): its own frame, the
+    /// spin's pull and the air, weapons safe by the colony's law. Clients are told in their
+    /// Welcome. An interior has no Mobile Dolls, no field and no landmarks.
+    pub world: crate::colony::interior::WorldKind,
 }
 
 impl SimConfig {
@@ -89,6 +93,7 @@ impl Default for SimConfig {
             max_sleepers: 256,
             survival: false,
             flight: crate::tuning::FlightRules::Real,
+            world: crate::colony::interior::WorldKind::Space,
         }
     }
 }

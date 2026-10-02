@@ -24,12 +24,18 @@ impl SectorThread {
     }
 }
 
-/// Runs `sector` on its own thread, waking `egress` after every tick.
+/// Runs `sector` on its own thread (`sector-0`), waking `egress` after every tick.
+pub fn spawn(sector: Sector, egress: Option<Thread>) -> std::io::Result<SectorThread> {
+    spawn_named(sector, egress, "sector-0")
+}
+
+/// Runs `sector` on a thread called `name` (a server's second sector: `sector-1`, the colony's
+/// inside), waking `egress` after every tick.
 #[allow(clippy::disallowed_methods, clippy::disallowed_macros)]
-pub fn spawn(mut sector: Sector, egress: Option<Thread>) -> std::io::Result<SectorThread> {
+pub fn spawn_named(mut sector: Sector, egress: Option<Thread>, name: &str) -> std::io::Result<SectorThread> {
     let shared = sector.shared().clone();
     let hot = sector_hot_guard(&sector);
-    let handle = thread::Builder::new().name("sector-0".into()).spawn(move || {
+    let handle = thread::Builder::new().name(name.into()).spawn(move || {
         let period = Duration::from_secs_f64(1.0 / f64::from(bc_sim::TICK_HZ));
         let spin_window = Duration::from_micros(1_500);
         let shared = sector.shared().clone();

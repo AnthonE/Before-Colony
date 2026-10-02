@@ -50,6 +50,7 @@ impl Sim {
             let held = self.designation(i).filter(|&j| {
                 let to = self.suits.flight[j].pos - me;
                 tuned.lock_step > 0
+                    && !self.chaffed(j)
                     && length(to) <= spec.lock_range
                     && angle_between(aim, to) <= spec.lock_cone
             });
@@ -145,6 +146,9 @@ impl Sim {
         ws.ammo -= 1;
         s.stats[i].shots += 1;
         s.stats[i].missiles += 1;
+        if let Some(n) = s.usage[i].shots.get_mut(slot) {
+            *n = n.saturating_add(1);
+        }
         s.last_fired[i] = t;
         if slot == 0 {
             s.fired_primary[i] = t;
@@ -160,7 +164,7 @@ impl Sim {
     fn seeker_holds(&self, k: usize, spec: &MissileSpec) -> bool {
         let (m, s) = (&self.missiles, &self.suits);
         let j = usize::from(m.target[k]);
-        if j >= s.cap || !s.alive.get(j) || s.generation[j] != m.target_gen[k] {
+        if j >= s.cap || !s.alive.get(j) || s.generation[j] != m.target_gen[k] || self.chaffed(j) {
             return false;
         }
         let to = s.flight[j].pos - m.pos[k];

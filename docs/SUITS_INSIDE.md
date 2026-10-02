@@ -1,7 +1,16 @@
 # Suits inside the First Colony (Milestone 5, phase 6): the design
 
 The owner's call (`COLONY.md`): mobile suits can go inside the colony, and by the colony's law their
-weapons are safe there. This is the design to build it from. Nothing here is built yet.
+weapons are safe there. This is the design it was built from.
+
+**Built:** the interior sector (`WorldKind::Interior`, `sector-1`), its pull, Coriolis and air,
+the hull, the caps and the city's boxes (`bc_sim::colony::interior`), weapons safe, the inner
+gate (in, and docking back out), the Welcome moving a pilot between sectors, the client flying and
+drawing suits among the city's buildings with the gate's ring and marker, and the tests (unit,
+`INTERIOR_GOLDEN` native and wasm, `no_alloc`, `bc-server/tests/inside.rs`). **Not yet:**
+`Body::City` (suits stand by resting on what's under them, flight assist holding them, rather
+than walking), pilots on foot seeing suits (spectator slots), people, trams and cars drawn for
+pilots in suits, the axis port's handoff, and the building site's work for suits.
 
 ## What it has to be
 

@@ -282,6 +282,9 @@ pub struct Predictor {
     rock_deaths: Vec<(u16, u32)>,
     /// How the sector's suits fly (from the Welcome).
     rules: FlightRules,
+    /// The sector is the colony's inside (from the Welcome): suits fly its pull, its air and its
+    /// city (`bc_sim::colony::interior`).
+    interior: bool,
 }
 
 impl Default for Predictor {
@@ -306,6 +309,7 @@ impl Default for Predictor {
             landmarks: LANDMARKS.len() as u8,
             rock_deaths: Vec::new(),
             rules: FlightRules::Real,
+            interior: false,
         }
     }
 }
@@ -369,6 +373,15 @@ impl Predictor {
         self.rules = rules;
     }
 
+    /// Whether the sector is the colony's inside, from the Welcome.
+    pub fn set_interior(&mut self, interior: bool) {
+        self.interior = interior;
+    }
+
+    pub fn interior(&self) -> bool {
+        self.interior
+    }
+
     pub fn rules(&self) -> FlightRules {
         self.rules
     }
@@ -412,6 +425,11 @@ impl Predictor {
             mods.ambac = busy_ambac(mods.ambac);
         }
         mods.lunge = arms.lunging(spec);
+        if mods.interior {
+            let flight = bc_sim::colony::interior::step(&mut m.flight, cmd, spec, &mods, DT);
+            arms.tick(spec, cmd, form.changing(), cmd.tick);
+            return MoveOut { flight, touchdown: None, caught: false, released: false };
+        }
         let cx = MoveCtx { spec, mods, can_grip: spec.has_legs() && !form.changing(), legs_ok };
         let out = move_step(bodies, m, cmd, &cx, DT);
         arms.tick(spec, cmd, form.changing(), cmd.tick);
@@ -578,6 +596,7 @@ impl Predictor {
         }
         self.form = form;
         self.flying = Self::mods_from(own, self.rules);
+        self.flying.mods.interior = self.interior;
         self.legs_ok = own.parts[Part::Legs as usize] > 0.0;
         // The server's state for that tick (the G and thrust aren't sent; see below).
         let mut m = mover_from(own, &self.bodies(server_tick));

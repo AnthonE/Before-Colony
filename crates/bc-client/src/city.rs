@@ -77,9 +77,25 @@ impl Plugin for CityPlugin {
         .init_resource::<Streamer>()
         .add_systems(
             Update,
-            (switch_view, stream_city, place_all, light_city).chain().in_set(crate::view::Vis::Fx),
+            (switch_view, stream_city, place_all, light_city, publish_stats)
+                .chain()
+                .in_set(crate::view::Vis::Fx),
         );
     }
+}
+
+/// `window.__bc.city_chunks`, `city_tris` and `city_ms`: what the streamer shows, and the most a
+/// frame spent building chunks lately.
+fn publish_stats(
+    view: Res<CityView>,
+    streamer: Res<Streamer>,
+    status: Option<ResMut<crate::dev_hooks::DevStatus>>,
+) {
+    let Some(mut status) = status else { return };
+    let (chunks, tris, ms) = if view.active { streamer.stats() } else { (0, 0, 0.0) };
+    status.set("city_chunks", chunks);
+    status.set("city_tris", tris);
+    status.set("city_ms", ms);
 }
 
 /// Whether the view is inside the colony, and how its city is built.
@@ -172,10 +188,23 @@ pub struct Streamer {
     root: Option<Entity>,
     material: Handle<CityMaterial>,
     inside: Handle<InsideMaterial>,
-    /// Built chunks: their entity (none if empty) and when they were last wanted.
-    built: HashMap<ChunkKey, (Option<Entity>, u64)>,
+    /// Built chunks: their entity (none if empty), when they were last wanted, and their
+    /// triangles.
+    built: HashMap<ChunkKey, (Option<Entity>, u64, u32)>,
     shown: HashSet<ChunkKey>,
     frame: u64,
+    /// The slowest frame's building in the last second, ms, and the one before (`__bc.city_ms`).
+    build_ms: (f32, f32),
+    build_window: f32,
+}
+
+impl Streamer {
+    /// For `window.__bc`: the chunks shown, their triangles, and the most a frame spent building
+    /// chunks over the last second or so (ms).
+    pub fn stats(&self) -> (u32, u32, f32) {
+        let tris = self.shown.iter().filter_map(|k| self.built.get(k)).map(|b| b.2).sum();
+        (self.shown.len() as u32, tris, self.build_ms.0.max(self.build_ms.1))
+    }
 }
 
 fn to_mesh(m: CityMesh) -> Mesh {
@@ -428,6 +457,7 @@ fn stream_city(
             continue;
         }
         let mesh = city_mesh::chunk(*key, Stage(0));
+        let tris = mesh.triangles() as u32;
         let entity = (!mesh.is_empty()).then(|| {
             commands
                 .spawn((
@@ -441,7 +471,14 @@ fn stream_city(
                 ))
                 .id()
         });
-        streamer.built.insert(*key, (entity, frame));
+        streamer.built.insert(*key, (entity, frame, tris));
+    }
+    let spent = start.elapsed().as_secs_f32() * 1000.0;
+    streamer.build_ms.0 = streamer.build_ms.0.max(spent);
+    streamer.build_window += time.delta_secs();
+    if streamer.build_window >= 1.0 {
+        streamer.build_window = 0.0;
+        streamer.build_ms = (0.0, streamer.build_ms.0);
     }
     // Show what's wanted and built; keep showing what it replaces until all of that is.
     let wanted_keys: HashSet<ChunkKey> = want.iter().map(|(k, _)| *k).collect();
@@ -461,7 +498,7 @@ fn stream_city(
             shown.insert(*old);
         }
     }
-    for (key, (entity, _)) in &streamer.built {
+    for (key, (entity, _, _)) in &streamer.built {
         let Some(e) = entity else { continue };
         if let Ok(mut v) = vis.get_mut(*e) {
             let want = if shown.contains(key) { Visibility::Inherited } else { Visibility::Hidden };
@@ -477,12 +514,12 @@ fn stream_city(
             .built
             .iter()
             .filter(|(k, _)| !streamer.shown.contains(*k))
-            .map(|(k, (_, f))| (*k, *f))
+            .map(|(k, (_, f, _))| (*k, *f))
             .collect();
         old.sort_by_key(|(_, f)| *f);
         let excess = streamer.built.len() - CACHE;
         for (k, _) in old.into_iter().take(excess) {
-            if let Some((Some(e), _)) = streamer.built.remove(&k) {
+            if let Some((Some(e), _, _)) = streamer.built.remove(&k) {
                 commands.entity(e).despawn();
             }
         }

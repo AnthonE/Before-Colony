@@ -22,7 +22,7 @@ use bc_econ::Hangar;
 use bc_proto::auth::{Address, TOKEN_BYTES};
 use bc_proto::{CARGO_KINDS, Faction, FrameId, Part, PilotKind};
 use bc_sim::content::landmarks::LANDMARKS_VERSION;
-use bc_sim::content::{Modules, Systems};
+use bc_sim::content::{Kits, Modules, Systems};
 use bc_sim::sim::{Homecoming, ParkRecord};
 use futures::future::BoxFuture;
 use glam::{Quat, Vec3};
@@ -93,6 +93,9 @@ pub struct ParkedSuit {
     pub systems: u32,
     #[serde(default)]
     pub modules: u32,
+    /// The consumables in its rack (`bc_sim::content::Kits`).
+    #[serde(default)]
+    pub kits: u8,
 }
 
 impl ParkedSuit {
@@ -118,6 +121,7 @@ impl ParkedSuit {
             tick: 0,
             systems: h.systems.0,
             modules: h.modules.0,
+            kits: h.kits.0,
         }
     }
 
@@ -149,6 +153,8 @@ impl ParkedSuit {
                 bounty: self.bounty,
                 systems: Systems(self.systems),
                 modules: Modules(self.modules),
+                kits: Kits(self.kits),
+                usage: Default::default(),
             },
         })
     }
@@ -746,6 +752,8 @@ mod tests {
                 // Wear and tear comes home too: some systems hurt, a module fitted.
                 systems: Systems(0b10_01_00_11),
                 modules: Modules(0b0011),
+                kits: Kits(0b0110),
+                usage: Default::default(),
             },
         }
     }

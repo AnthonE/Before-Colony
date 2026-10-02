@@ -714,6 +714,79 @@ for bulk goods, a piece for everything else.
   test checks it).
 - Each item's last trade price is sampled once a minute: the terminal draws the last hour.
 
+### Wear from use
+
+Systems wear down between fights as well as in them (`bc_econ::wear`). The sector counts what
+each suit goes through out there (`bc_sim::sim::Usage`: ticks of main burn and of boost, rounds or
+shots from each mount, overheats), and the hangar adds each sortie's to the suit's wear:
+
+| What's counted | Wears | Service life |
+|---|---|---|
+| the main thrusters burning | the main thrusters | 30 minutes |
+| boosting | the boosters | 5 minutes |
+| rounds or shots from a mount | its arm's actuators (the fire control, for the head's, shoulders' and chest's) | 1,500 |
+| overheating | the reactor | 6 times |
+
+A system that's had its service life comes home a level worse (working to damaged, damaged to
+failed), and the dock's note says so; overhauling it starts its life again. From a quarter of
+the way through, an overhaul services it instead (half of what overhauling it damaged takes), so
+keeping a suit flying is a steady trade in machined components. A part stripped off leaves its
+systems' wear behind: the next one fitted starts afresh. The suit's console shows each worn
+system's service life.
+
+### Consumables: the rack and the hotbar
+
+A suit carries a rack of consumables (`bc_sim::content::kits`), used in flight from the hotbar
+(1–4; the HUD's `RACK` line counts them). They're made a few at a time at the fabricator and the
+colony sells them; at launch the rack takes up to three of each from the stores, and what's left
+comes home with the suit (nothing, if it's lost). Used up in fights, they're always in demand.
+
+| Key | Consumable | What it does |
+|---|---|---|
+| 1 | Patch kit | A field repair: seals a leaking tank, or brings the worst-off system it can reach back a level (failed to damaged, damaged to working). A part shot off is beyond it. |
+| 2 | Coolant flush | Dumps the suit's heat at once (Full Open's lockout still holds). |
+| 3 | Chaff | Breaks every lock on the suit, and missiles tracking it lose it; for 3 s no new lock builds. |
+| 4 | Stim | The pilot bears 1 g more (2 under anime rules) for a minute, then crashes, bearing 1 g less, for half a minute. One at a time. |
+
+A kit with nothing to do (a cold suit's coolant, a patch kit with nothing broken) stays in the
+rack. The use goes to the server on the control stream, the sector applies it at the next tick, and
+the owner's snapshot carries the rack and the stim's clock (the stim is part of the stat sheet the
+client predicts with, as the server flies with it).
+
+### The Charter Board: contracts and the great works
+
+The colony's notices (`bc_econ::charter`, one board per colony, kept with the exchange): a tab on
+every terminal in the bay, and the Charter Board's own desk in Charter Square.
+
+- **Contracts.** Jobs with their pay posted beside them. *Supply*: deliver so much of an item.
+  Anyone but its issuer delivers part of it from their stores and is paid pro rata on the spot,
+  and what's delivered goes to the issuer: to the colony's desk (its prices fall as if it had
+  bought it), or to the pilot who posted it, waiting in their bay. A pilot's contract holds its
+  reward in escrow from the moment it's posted (up to 8 at once, standing 1–72 hours), so a job
+  is always good for its pay; what it hasn't paid when it expires or is withdrawn goes back. The
+  colony keeps four of its own up for what its desks are shortest of (ore, steel, alloy,
+  electronics, munitions, components), at 135% of their value, for two hours each. Agents deliver
+  too: the miner hands its ore to the colony's contracts before it sells the rest.
+- **Patrols** (once the militia has its hangar): take one, and down Mobile Dolls for 1,000 CR of
+  bounties within the hour; the militia pays 1,500 CR on top. One pilot holds a patrol at a time,
+  and a pilot holds one at a time; the bounties count when the suit comes home (or is lost).
+- **The great works.** The era's projects, each needing tonnes of materials, delivered from the
+  stores at 120% of the colony's value:
+  - *A second foundry* (12 t of steel, 6 t of titanium alloy, 800 kg of electronics, 1.5 t of
+    machined components): gundanium at half the fee, made twice as fast.
+  - *The militia's hangar* (15 t of steel, 4 t of alloy, 2 t of components, 3 t of munitions,
+    4 t of propellant): the militia posts patrols.
+  - *The charter vote*, open once both are finished: three pilots of standing sign it, and the
+    calendar begins (`AC 1 · THE CHARTER`, `STORY.md`).
+
+  Every pilot hears when one is finished, wherever they are; the board lists each work's most
+  generous contributors.
+- **Standing** is the credits a pilot has earned from the colony's contracts, patrols and works:
+  it's what signing the charter takes. A pilot's contract with another pilot earns none.
+- **The ledger** still balances: credits enter only from the colony (what it pays on contracts
+  and works joins its purchases), and escrow and deliveries never make or lose any (the ledger's
+  property test covers the board too).
+
 ### Sorties
 
 - **Launching:** board at the hatch. The bay vents, beacons turning red, the doors part, and the
@@ -761,7 +834,7 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   Gate's terminal. From there the pilot walks the city with the bay's controls, and M shows the
   map of their strip. Districts and sights are named on the way in.
 - **Places:** the Exchange floor (its terminal is the bay's exchange), the Charter Board (its
-  notices), The Arrival (a bar), and Hub Gate, whose lift goes back up to the bay.
+  contracts and great works, above), The Arrival (a bar), and Hub Gate, whose lift goes back up to the bay.
 - **The Arrival's seats:** two benches either side of its door, facing the avenue
   (`colony::city::arrival_seats`). E by one sits you on it (the view drops to a seated eye), and E
   again or a step stands you up; everyone else sees you sitting (the presence's ride 15), and the
@@ -785,8 +858,13 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   canal; a car tops out at 30 m/s, a scooter at 22. Others see the car (or the scooter, and its
   rider) in its driver's colour.
 
-Still to come: suits inside the colony with their weapons safe by the colony's law
-(`SUITS_INSIDE.md`).
+- **Suits inside** (`SUITS_INSIDE.md`): at the cockpit, Q launches the suit into the colony by
+  the inner gate near the axis instead of out to space. In there it flies the colony's own frame:
+  the spin pulls it to the floor (1 g there, less towards the axis) and Coriolis turns it aside,
+  the air slows it, the hull, the end caps and the city's buildings stop it, and flight assist
+  holds it where it is. Weapons are safe by the colony's law: nothing fires. The HUD marks the
+  inner gate; at rest in its ring of lights, Enter docks back into the bay. It's the server's
+  second sector (`sector-1`). Not yet: suits walking the streets, pilots on foot seeing them.
 
 ## The world (EVE-lite, roadmap)
 
@@ -817,6 +895,7 @@ Still to come: suits inside the colony with their weapons safe by the colony's l
 | Tab · mouse wheel | the camera: the cockpit (first person) or the chase camera (wheel in: the cockpit; out: chasing) |
 | M · N | the chart: the sector in 3D out to the Earth Sphere, the objectives and courses · the auto-nav on the course set (on or off) |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
+| 1 · 2 · 3 · 4 | survival: the rack's patch kit · coolant flush · chaff · stim |
 | Enter | dock (survival): at rest inside the dock's ring of lights |
 | 1–6 | arcade rules: respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
 | / (Enter on foot) | talk on the colony's radio: Enter says it, Esc closes |
@@ -981,15 +1060,13 @@ The direction is a living colony its pilots build and run: SimCity's colony proj
 jobs, law and traffic, on an economy whose sinks keep demand turning over. `PEERS.md` says what
 the nearest games teach, and which of the items below come first and why.
 
-- **Consumables and a survival hotbar** (keys 1–4, which survival leaves free): patch kits (seal a
-  leak, restart a failed system for a while), coolant flushes, chaff against missile locks,
-  stims (a g more for a minute, then the crash). Used up in fights, so always in demand.
-- **Wear from use:** thruster hours, barrel wear and reactor cycles wear systems down between
-  fights, so keeping a suit flying is a steady trade.
-- **Contracts:** a board of jobs from the colony and from pilots, rewards held in escrow (haul
-  this, clear that claim, escort a hauler home, recover a wreck).
-- **Colony projects:** the Charter Board's great works (a second foundry, a militia's hangar,
-  new cylinders), funded by deliveries; finishing one changes the world and moves the eras on.
+- **Consumables and a survival hotbar** (done: the rack, above). Next: chaff drawn as it
+  blooms, and decoys a missile chases.
+- **Wear from use** (done: above).
+- **Contracts** (begun: the Charter Board, above, with supply contracts and the militia's
+  patrols): clear that claim, escort a hauler home, recover a wreck; shady ones.
+- **Colony projects** (begun: the era's great works and the charter vote, above): the next eras'
+  (new cylinders, the Cluster's expeditions), and the city showing them built.
 - **Facilities:** workshops and refineries in the hub, leased by pilots and crews: production
   chains, and rent as a sink.
 - **The colony, on foot** (begun: Milestone 5, above): other pilots in its streets, trams and

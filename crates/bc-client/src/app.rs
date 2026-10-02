@@ -201,7 +201,11 @@ impl Plugin for VisualsPlugin {
                 crate::cockpit::CockpitPlugin,
                 crate::ui_panel::UiPanelPlugin,
             ))
-            .add_plugins((crate::people::PeoplePlugin, crate::trams::TramsPlugin))
+            .add_plugins((
+                crate::people::PeoplePlugin,
+                crate::trams::TramsPlugin,
+                crate::inside::InsidePlugin,
+            ))
             .configure_sets(
                 Update,
                 (Vis::Drive, Vis::Suits, Vis::Camera, Vis::Audio, Vis::Fx, Vis::Hud).chain(),

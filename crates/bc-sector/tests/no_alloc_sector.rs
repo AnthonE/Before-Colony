@@ -251,6 +251,10 @@ fn survival_launches_docks_and_losses_never_allocate() {
     let (mut sector, shared, mut egress, _oracle) = bc_sector::build(cfg);
     let loadout = |slot: u16| {
         let mut l = Loadout::full(FrameId::Leo);
+        // A full rack: the hotbar's uses below.
+        for kit in bc_sim::content::Kit::ALL {
+            l.kits.set(kit, 3);
+        }
         if slot.is_multiple_of(3) {
             l.parts[bc_proto::Part::ArmR as usize] = 0.0;
             l.mounts = 0b110;
@@ -325,6 +329,12 @@ fn survival_launches_docks_and_losses_never_allocate() {
                     relaunched += 1;
                 }
             }
+        }
+        // Pilots use what's in their racks (patch kits, coolant, chaff, stims).
+        if step >= 300 && step % 3 == 1 {
+            let slot = ((step / 3) % 64) as u16;
+            let kit = bc_sim::content::Kit::ALL[(step / 3 % 4) as usize];
+            shared.control.push(Control::UseKit { slot, kit }).unwrap();
         }
         // And now and then one is shot down (as the damage step leaves a suit it destroys).
         if step >= 300 && step % 7 == 3 {

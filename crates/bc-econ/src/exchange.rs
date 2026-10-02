@@ -597,6 +597,19 @@ impl Exchange {
         self.tapes.get(&item).map(|t| t.samples.clone()).unwrap_or_default()
     }
 
+    /// The colony takes delivery of `qty` of `item` outside the books (a contract, a great
+    /// work): its desk holds more, so its prices fall as if it had bought it.
+    pub fn colony_receive(&mut self, item: Item, qty: u64) {
+        if let Some(s) = self.colony.get_mut(&item) {
+            s.held += qty as f64;
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn colony_take(&mut self, item: Item, qty: u64) -> bool {
+        self.colony.get_mut(&item).map(|s| s.held = (s.held - qty as f64).max(0.0)).is_some()
+    }
+
     /// What the colony holds of `item` (kg, or pieces).
     pub fn colony_stock(&self, item: Item) -> Option<f64> {
         self.colony.get(&item).map(|s| s.held)

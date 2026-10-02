@@ -28,13 +28,14 @@ use bc_proto::snapshot::{cover, ent_flags, own_flags, zero_mode};
 use bc_proto::{ChunkKind, NO_CHUNK, NO_SLOT, OwnState, Part, PilotKind};
 use bc_sim::bodies::Body;
 use bc_sim::chunks;
+use bc_sim::content::kits::CRASH_TICKS;
 use bc_sim::content::landmarks::LANDMARKS;
 use bc_sim::content::salvage::{CATCH_SPEED, DOCK_CENTER, PRICE, REACH, hold_kg, material};
 use bc_sim::content::systems::{DAMAGED, FAILED};
 use bc_sim::content::{
     ArmSlot, FrameSpec, PLAYABLE_ORDER, SpecialKind, WeaponClass, frame, frame_name, weapon, weapon_name,
 };
-use bc_sim::content::{System, Systems};
+use bc_sim::content::{Kit, Kits, System, Systems};
 use bc_sim::ground::{Footing, RELEASE_SPEED, STANCE};
 use bc_sim::sim::LURK_SETTLE_TICKS;
 use bc_sim::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS};
@@ -1039,6 +1040,12 @@ pub fn update_hud(
         if let Some(x) = System::from_index(usize::from(o.repairing)) {
             status.push(format!("REPAIRING {} {:.0}s", x.tag(), f32::from(o.repair_left) * 8.0 / 30.0));
         }
+        // A stim: the lift, then the crash.
+        if o.stim > CRASH_TICKS {
+            status.push(format!("STIM +1G {:.0}s", f32::from(o.stim - CRASH_TICKS) / 30.0));
+        } else if o.stim > 0 {
+            status.push(format!("CRASHING {:.0}s", f32::from(o.stim) / 30.0));
+        }
         armor.push_str(&status.join(" · "));
         let worst = systems.worst(gone);
         let hull_color = if o.parts[Part::Torso as usize] < 0.3 || worst == FAILED {
@@ -1050,6 +1057,10 @@ pub fn update_hud(
         };
         set(HudText::Armor, armor, Some(hull_color));
         let mut w = String::new();
+        // Inside the colony nothing fires: its law, and the sector's.
+        if core.welcome.is_some_and(|wl| wl.interior) {
+            w.push_str("WEAPONS SAFE · INSIDE THE COLONY\n");
+        }
         for (slot, key) in [(0usize, "LMB"), (1, "RMB"), (2, "F")] {
             if let Some(m) = spec.loadout[slot] {
                 let ready = o.weapon_ready & (1 << slot) != 0;
@@ -1102,6 +1113,17 @@ pub fn update_hud(
                 _ => "STANDBY (Z)",
             };
             w.push_str(&format!("ZERO {z}  STRAIN {}", bar(o.zero_strain, 8)));
+            w.push('\n');
+        }
+        // The rack (survival): keys 1-4.
+        if core.hangar.place.is_some() {
+            let rack = Kits(o.kits);
+            let line: Vec<String> = Kit::ALL
+                .iter()
+                .enumerate()
+                .map(|(k, kit)| format!("{} {} {}", k + 1, kit.tag(), rack.get(*kit)))
+                .collect();
+            w.push_str(&format!("RACK {}", line.join("  ")));
         }
         set(HudText::Weapons, w, None);
 

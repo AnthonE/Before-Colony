@@ -22,6 +22,13 @@ pub struct Job {
     pub secs: u32,
     /// When the batch under way started (the job at the head of the queue only).
     pub started: u64,
+    /// The share of the recipe's fee paid for it, percent (the second foundry's discount).
+    #[serde(default = "full_fee")]
+    pub fee_pct: u64,
+}
+
+fn full_fee() -> u64 {
+    100
 }
 
 impl Job {
@@ -48,9 +55,9 @@ impl Queue {
     }
 
     /// Adds a job (its inputs already taken). It starts at `now` if nothing's ahead of it.
-    pub fn push(&mut self, recipe: Item, batches: u32, secs: u32, now: u64) {
+    pub fn push(&mut self, recipe: Item, batches: u32, secs: u32, now: u64, fee_pct: u64) {
         let started = if self.jobs.is_empty() { now } else { 0 };
-        self.jobs.push(Job { recipe, batches, done: 0, secs: secs.max(1), started });
+        self.jobs.push(Job { recipe, batches, done: 0, secs: secs.max(1), started, fee_pct });
     }
 
     /// Runs the clock to `now`: every batch finished by then, as (what, how much), in order.
@@ -97,7 +104,7 @@ impl Queue {
         let left = u64::from(job.batches.saturating_sub(job.done));
         let r = job.recipe()?;
         let refund = r.inputs.iter().map(|(i, q)| (*i, q * left)).collect();
-        Some((refund, r.fee * left))
+        Some((refund, r.fee * left * job.fee_pct / 100))
     }
 
     /// Seconds until everything queued is done.
@@ -155,8 +162,8 @@ mod tests {
     #[test]
     fn jobs_run_in_order_on_the_clock_and_deliver_batch_by_batch() {
         let mut q = Queue::default();
-        q.push(STEEL, 3, 20, 1_000);
-        q.push(PROPELLANT, 2, 15, 1_005);
+        q.push(STEEL, 3, 20, 1_000, 100);
+        q.push(PROPELLANT, 2, 15, 1_005, 100);
         assert_eq!(q.secs_left(1_000), 3 * 20 + 2 * 15);
         assert_eq!(q.settle(1_019), []);
         assert_eq!(q.settle(1_020), [(STEEL, 80)]);
@@ -174,8 +181,8 @@ mod tests {
     #[test]
     fn cancelling_refunds_the_batches_not_made() {
         let mut q = Queue::default();
-        q.push(STEEL, 4, 20, 0);
-        q.push(PROPELLANT, 1, 15, 0);
+        q.push(STEEL, 4, 20, 0, 100);
+        q.push(PROPELLANT, 1, 15, 0, 100);
         assert_eq!(q.settle(45), [(STEEL, 160)]);
         let (refund, fee) = q.cancel(0, 45).unwrap();
         assert_eq!(refund, [(Item::Ore(Ore::NickelIron), 200)]);
@@ -190,7 +197,7 @@ mod tests {
     fn the_foundry_refunds_its_fees() {
         let mut q = Queue::default();
         let gundanium = Item::Material(Material::Gundanium);
-        q.push(gundanium, 3, 180, 0);
+        q.push(gundanium, 3, 180, 0, 100);
         assert_eq!(q.settle(200), [(gundanium, 100)]);
         let (_, fee) = q.cancel(0, 200).unwrap();
         assert_eq!(fee, 2 * recipe(gundanium).unwrap().fee);
