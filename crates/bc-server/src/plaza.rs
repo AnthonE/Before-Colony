@@ -57,11 +57,35 @@ struct Person {
     refused: u32,
 }
 
-/// Everyone in the city, by client slot.
+/// Everyone in the city, by client slot, and how many poses were refused, by why.
 #[derive(Default)]
 pub struct Plaza {
     people: Mutex<HashMap<u16, Person>>,
+    refused_by: Mutex<[u32; WHYS.len()]>,
 }
+
+/// Why a pose wasn't passed on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Why {
+    /// Not the pilot's strip.
+    Strip,
+    /// Inside a wall, outside the colony, or (riding) outside the train's cars.
+    Wall,
+    /// Further from the last one than they could have gone.
+    Reach,
+    /// A first pose away from Hub Gate.
+    Arrival,
+    /// On a train without having stood by its open doors.
+    Board,
+    /// Off a train away from its open doors.
+    Alight,
+    /// In a vehicle not from a motor pool.
+    Pool,
+    /// From a train into a vehicle, or one train to another.
+    Mode,
+}
+
+const WHYS: [&str; 8] = ["strip", "wall", "reach", "arrival", "board", "alight", "pool", "mode"];
 
 /// Where strip `strip`'s Hub Gate lets people out: `(s, x)`.
 fn hub_gate(strip: u8) -> (f32, f32) {
@@ -157,8 +181,9 @@ impl Plaza {
     pub fn accept(&self, id: u16, seq: u16, pose: PersonPose, now: Instant, tick: u32) -> Verdict {
         let Ok(mut all) = self.people.lock() else { return Verdict::Away };
         let Some(me) = all.get_mut(&id) else { return Verdict::Away };
-        let ok = match me.pose {
-            _ if pose.strip != me.strip || !possible(&pose) => false,
+        let why = match me.pose {
+            _ if pose.strip != me.strip => Some(Why::Strip),
+            _ if !possible(&pose) => Some(Why::Wall),
             Some(_) if (seq.wrapping_sub(me.seq) as i16) <= 0 => return Verdict::Stale,
             Some(last) => {
                 let dt = now.saturating_duration_since(me.heard).as_secs_f32();
@@ -166,31 +191,40 @@ impl Plaza {
                     let reach = speed * dt + SLACK;
                     (pose.x - last.x).hypot(pose.s - last.s) <= reach && (pose.h - last.h).abs() <= reach
                 };
+                let check = |ok: bool, why: Why| (!ok).then_some(why);
                 match (mode(&last), mode(&pose)) {
                     // Walking, on the ground or in a car of a train.
-                    (Mode::Foot, Mode::Foot) => moved(MAX_SPEED),
-                    (Mode::Train(a), Mode::Train(b)) => a == b && moved(MAX_SPEED),
+                    (Mode::Foot, Mode::Foot) => check(moved(MAX_SPEED), Why::Reach),
+                    (Mode::Train(a), Mode::Train(b)) => check(a == b && moved(MAX_SPEED), Why::Reach),
                     // Getting on: from beside its open doors.
-                    (Mode::Foot, Mode::Train(k)) => at_open_doors(pose.strip, k, last.s, last.x, tick),
-                    // Getting off: out of its open doors.
-                    (Mode::Train(k), Mode::Foot) => at_open_doors(pose.strip, k, pose.s, pose.x, tick),
-                    // Driving: no faster than a car goes; taken from a motor pool; left anywhere.
-                    (Mode::Drive(a), Mode::Drive(b)) => a == b && moved(MAX_DRIVE),
-                    (Mode::Foot, Mode::Drive(_)) => {
-                        pool_near(pose.strip, last.s, last.x).is_some() && moved(MAX_SPEED)
+                    (Mode::Foot, Mode::Train(k)) => {
+                        check(at_open_doors(pose.strip, k, last.s, last.x, tick), Why::Board)
                     }
-                    (Mode::Drive(_), Mode::Foot) => moved(MAX_DRIVE),
+                    // Getting off: out of its open doors.
+                    (Mode::Train(k), Mode::Foot) => {
+                        check(at_open_doors(pose.strip, k, pose.s, pose.x, tick), Why::Alight)
+                    }
+                    // Driving: no faster than a car goes; taken from a motor pool; left anywhere.
+                    (Mode::Drive(a), Mode::Drive(b)) => check(a == b && moved(MAX_DRIVE), Why::Reach),
+                    (Mode::Foot, Mode::Drive(_)) => {
+                        check(pool_near(pose.strip, last.s, last.x).is_some() && moved(MAX_SPEED), Why::Pool)
+                    }
+                    (Mode::Drive(_), Mode::Foot) => check(moved(MAX_DRIVE), Why::Reach),
                     // From a train to a car, or one train to another.
-                    _ => false,
+                    _ => Some(Why::Mode),
                 }
             }
             None => {
                 let (s, x) = hub_gate(me.strip);
-                pose.riding().is_none() && (pose.x - x).hypot(pose.s - s) <= ARRIVAL
+                let ok = pose.riding().is_none() && (pose.x - x).hypot(pose.s - s) <= ARRIVAL;
+                (!ok).then_some(Why::Arrival)
             }
         };
-        if !ok {
+        if let Some(why) = why {
             me.refused += 1;
+            if let Ok(mut by) = self.refused_by.lock() {
+                by[why as usize] += 1;
+            }
             return Verdict::Implausible;
         }
         me.pose = Some(pose);
@@ -229,6 +263,12 @@ impl Plaza {
     /// `id`'s name, as they came down.
     pub fn name(&self, id: u16) -> Option<String> {
         self.people.lock().ok()?.get(&id).map(|p| p.name.clone())
+    }
+
+    /// For `/status`: how many poses have been refused, by why.
+    pub fn refused_by(&self) -> Vec<(&'static str, u32)> {
+        let by = self.refused_by.lock().map(|b| *b).unwrap_or_default();
+        WHYS.iter().zip(by).map(|(w, n)| (*w, n)).collect()
     }
 
     /// For `/status`: how many are in the city, by strip, and how many poses have been refused

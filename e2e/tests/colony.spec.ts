@@ -137,6 +137,7 @@ test("a pilot takes the tram from Hub Gate one stop up the line", async ({ page 
 
   // The server followed every step of it: on foot, aboard and off again.
   const status = await (await page.request.get("/status")).json();
+  console.log(`refused: ${JSON.stringify(status.game.city.refused_by)}`);
   expect(status.game.city.refused_poses).toBe(0);
   expect(status.game.hot_path_allocations).toBe(0);
   const bad = logs.filter((l) => /\[error\]|\[pageerror\]|%cERROR|panicked/i.test(l));
@@ -169,10 +170,11 @@ test("a pilot takes a car from Hub Gate's motor pool and drives up the avenue", 
   await page.focus("#bc");
   await page.keyboard.down("w");
   s = await until(page, "under way", (s) => s.drive_speed > 8 && along(s) - start > 30, 90_000);
+  // The handbrake stops it dead (held S, a stop runs straight on into reversing).
   await page.keyboard.up("w");
-  await page.keyboard.down("s");
+  await page.keyboard.down("Space");
   s = await until(page, "stopped", (s) => Math.abs(s.drive_speed) < 1, 60_000);
-  await page.keyboard.up("s");
+  await page.keyboard.up("Space");
   const end = Number(String(s.city_feet).split(",")[0]);
   expect(end - start).toBeGreaterThan(20);
 
@@ -180,6 +182,7 @@ test("a pilot takes a car from Hub Gate's motor pool and drives up the avenue", 
   await push(page, { cmd: "use" });
   s = await until(page, "on foot", (s) => s.driving === "", 30_000);
   const status = await (await page.request.get("/status")).json();
+  console.log(`refused: ${JSON.stringify(status.game.city.refused_by)}`);
   expect(status.game.city.refused_poses).toBe(0);
   const bad = logs.filter((l) => /\[error\]|\[pageerror\]|%cERROR|panicked/i.test(l));
   if (bad.length) console.log(bad.join("\n"));
