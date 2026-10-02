@@ -69,9 +69,38 @@ pub struct WeaponSpec {
     pub melee: Option<MeleeSpec>,
     pub missile: Option<MissileSpec>,
     pub cone: Option<ConeSpec>,
+    /// Tap fires, hold charges ([`ChargedShot`]): the beam rifle's sniper shot.
+    pub charged: Option<ChargedShot>,
+}
+
+/// A shot charged by holding the trigger (`crate::arms::charged_pull`): a press fires the weapon as
+/// ever; held on past `tap` ticks it charges, glowing for everyone to see, and let go once `ticks`
+/// more have passed it fires `shot` instead (a weapon of its own, in [`weapon`]'s table). Let go
+/// sooner, the charge is lost.
+#[derive(Clone, Copy, Debug)]
+pub struct ChargedShot {
+    pub shot: WeaponKind,
+    pub tap: u8,
+    pub ticks: u8,
+}
+
+impl ChargedShot {
+    /// Ticks the trigger is held from the press to a full charge.
+    pub const fn full(&self) -> u16 {
+        self.tap as u16 + self.ticks as u16
+    }
 }
 
 impl WeaponSpec {
+    /// How long a charge takes on this weapon, ticks (0: it doesn't charge): the Twin Buster's own
+    /// charge, or a charged shot's hold from the press.
+    pub const fn charge_span(&self) -> u16 {
+        match self.charged {
+            Some(c) => c.full(),
+            None => self.charge_ticks,
+        }
+    }
+
     /// Projectile lifetime in ticks.
     pub fn ttl_ticks(&self) -> u32 {
         if self.speed <= 0.0 { 0 } else { crate::config::secs(self.range / self.speed) }
@@ -104,6 +133,7 @@ const BASE: WeaponSpec = WeaponSpec {
     melee: None,
     missile: None,
     cone: None,
+    charged: None,
 };
 
 const STREAM: WeaponSpec = WeaponSpec { replication: Replication::Stream, ..BASE };
@@ -151,6 +181,8 @@ static WEAPONS: [WeaponSpec; WeaponKind::COUNT] = [
         cooldown: 20,
         heat: 14.0,
         energy: 16.0,
+        // Held for 1.2 s from the press: the sniper's shot.
+        charged: Some(ChargedShot { shot: WeaponKind::BeamRifleCharged, tap: 6, ticks: 30 }),
         ..BASE
     },
     WeaponSpec {
@@ -441,6 +473,19 @@ static WEAPONS: [WeaponSpec; WeaponKind::COUNT] = [
         }),
         ..BLADE
     },
+    // The beam rifle's charged shot: twice as fast, half again as thick, twice the damage and
+    // reach. Its energy is the rifle's own, so a charge the pool could refuse is foreseen.
+    WeaponSpec {
+        kind: WeaponKind::BeamRifleCharged,
+        damage: 90.0,
+        speed: 8_000.0,
+        radius: 0.9,
+        range: 8_000.0,
+        cooldown: 30,
+        heat: 36.0,
+        energy: 16.0,
+        ..BASE
+    },
 ];
 
 // Every row sits at its kind's index, and each class has the parameters it needs.
@@ -480,7 +525,16 @@ const _: () = {
             }
         }
         assert!(w.salvo <= ARMS_MAX_SALVO + 1 && w.salvo_gap <= ARMS_MAX_SALVO_GAP + 1);
-        assert!(w.charge_ticks < 63, "a charge too long to come back to the tick");
+        assert!(w.charge_span() < 63, "a charge too long to come back to the tick");
+        if let Some(c) = w.charged {
+            let shot = &WEAPONS[c.shot as usize];
+            // A tap is over before the weapon could fire again, and the charged shot is its own
+            // straight-flying shot, drawing no more energy than the weapon (so the owner's client
+            // foresees a refusal), and charging nothing of its own.
+            assert!((c.tap as u16) < w.cooldown && c.ticks > 0 && w.charge_ticks == 0);
+            assert!(matches!(shot.class, WeaponClass::Beam | WeaponClass::Ballistic));
+            assert!(shot.energy <= w.energy && shot.charged.is_none() && shot.charge_ticks == 0);
+        }
         i += 1;
     }
 };

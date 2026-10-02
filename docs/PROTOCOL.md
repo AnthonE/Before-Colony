@@ -1,4 +1,4 @@
-# Before Colony wire protocol (v13)
+# Before Colony wire protocol (v14)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
@@ -166,6 +166,10 @@ Own-state notes:
   MISSILE_INCOMING (a guided missile is tracking you), PARKABLE (you're on your feet on a body, or
   resting against a rock or a landmark, slowly enough to park: a signed-in pilot who leaves now
   stays parked there).
+- Charge is the primary's, as a fraction: the Twin Buster's charge, or on a weapon with a charged
+  shot (the beam rifle) how long its trigger has been held, from the press to a full charge (1:
+  let go and the charged shot, weapon kind 19, leaves). CHARGING, here and on the entity, is the
+  Twin Buster charging or a charged shot held past its tap.
 - The lock target is the designation the server accepted: alive, hostile and on your sensors.
   Lock progress counts 0–15 toward a missile lock on it; LOCK_ACQUIRED says it's there.
   LOCKED_ON ignores locks by suits you can't see (a jamming suit's lock goes unnoticed).

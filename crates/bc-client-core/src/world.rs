@@ -550,7 +550,8 @@ impl World {
                 }
                 let ttl = f64::from(weapon(w).ttl_ticks());
                 if Some(shooter) == me
-                    && let Some(b) = self.beams.iter_mut().find(|b| b.predicted && b.shot_seq == shot_seq)
+                    && let Some(b) =
+                        self.beams.iter_mut().find(|b| b.predicted && b.shot_seq == shot_seq && b.weapon == w)
                 {
                     // Our own predicted beam: keep drawing it, now confirmed.
                     b.predicted = false;

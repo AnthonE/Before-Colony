@@ -208,7 +208,8 @@ station that turns carries its riders round with it.
 
 | Weapon | Speed | Damage | Rate | Notes |
 |---|---|---|---|---|
-| Beam rifle | 4 km/s | 45 | 1.5/s | energy and heat; dodgeable at range |
+| Beam rifle | 4 km/s | 45 | 1.5/s | energy and heat; dodgeable at range. Tap fires; held 1.2 s from the press it charges (glowing for everyone to see), and let go full the charged shot leaves; let go sooner, only the tap's shot went |
+| Beam rifle, charged | 8 km/s | 90 | 1 per 1.2 s (the hold) | the sniper's shot: 0.9 m beam, 8 km reach, 36 heat; the lead marker leads for it once the charge is full |
 | Machine cannon | 1.2 km/s | 6 | 10/s | ballistic; 400 rounds; small spread |
 | Beam saber | – | 90 | swing | 9 m arc sweep with a lunge; blades clash (both parried) |
 | Twin Buster Rifle | 8 km/s | 220 | 1 per 5 s | 0.6 s charge, visible to everyone; 5 m beam engulfs the whole suit |
@@ -230,6 +231,7 @@ assist on, the stick thrown a new way every 0.4 s, boosting now and then). Hit %
 | Weapon | m/s | Shot radius, m | Spread | 300 m | 600 m | 1 km | 1.5 km | 2 km | 3 km |
 |---|---|---|---|---|---|---|---|---|---|
 | Beam rifle | 4,000 | 0.6 | – | 100/100 | 100/100 | 100/100 | 100/100 | 100/75 | 100/81 |
+| Beam rifle, charged | 8,000 | 0.9 | – | 100/100 | 100/100 | 100/100 | 100/100 | 100/100 | 100/100 |
 | Twin Buster Rifle | 8,000 | 5.0 | – | 100/100 | 100/100 | 100/100 | 100/100 | 100/100 | 100/100 |
 | Beam cannon (Virgo) | 3,500 | 1.2 | – | 100/100 | 100/100 | 100/100 | 100/100 | 100/88 | 100/75 |
 | Beam machine gun | 3,500 | 0.45 | – | 100/100 | 100/100 | 100/100 | 100/100 | 100/88 | 100/44 |
@@ -240,7 +242,9 @@ assist on, the stick thrown a new way every 0.4 s, boosting now and then). Hit %
 
 So the lead is the whole skill against a target that flies straight, and a beam rewards it at any
 range; spread is what limits the guns past a kilometre, and slow shots (the buster shield's claw)
-are for close in. A pilot who dodges on purpose does better than this target, which changes its
+are for close in. The charged shot is the sniper's answer to a target that jinks: at twice the
+rifle's speed the target has half the time to change its mind, so held still and led, it hits at 3
+km; what it costs is 1.2 s with the trigger held and the gun glowing for everyone to see. A pilot who dodges on purpose does better than this target, which changes its
 mind on a timer.
 
 - **Projectiles inherit the shooter's velocity** (it's space). Fire control solves the intercept in
@@ -736,7 +740,7 @@ Still to come: suits inside the colony with their weapons safe by the colony's l
 | Q/E | roll |
 | L | grip: armed, coming in slow and close lands you on a rock or a landmark; again, let go |
 | Shift · X · R | boost · brake · RCS (fast turns) |
-| LMB · RMB · F | primary · secondary · melee |
+| LMB · RMB · F | primary · secondary · melee (a beam rifle: tap fires, hold to charge, let go full for the charged shot) |
 | H | the frame's special: a toggle for Neo-Bird and the Hyper Jammer, a press for Full Open Attack and the Cross Crusher |
 | V · Z | flight assist · ZERO System |
 | Tab · mouse wheel | the camera: the cockpit (first person) or the chase camera (wheel in: the cockpit; out: chasing) |

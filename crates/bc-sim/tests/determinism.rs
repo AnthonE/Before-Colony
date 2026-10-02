@@ -228,7 +228,7 @@ fn rocks_hash() -> u64 {
                     tick: t,
                     view_tick_q4: t << 4,
                     aim: dir,
-                    buttons: FIRE_PRIMARY,
+                    buttons: common::pull(&sim, id, FIRE_PRIMARY),
                     ..InputCmd::default()
                 },
             );
@@ -542,7 +542,7 @@ fn surface_hash() -> u64 {
             cmd(ahead, [0; 3], FLIGHT_ASSIST)
         } else if t >= 600 {
             let dig = if t % 45 < 3 { MELEE } else { 0 };
-            cmd(-normal(&sim, leo), [0, -127, 0], GRIP | FIRE_PRIMARY | dig)
+            cmd(-normal(&sim, leo), [0, -127, 0], common::pull(&sim, leo, GRIP | FIRE_PRIMARY | dig))
         } else {
             let square = [[0, 0, 127], [127, 0, 0], [0, 0, -127], [-127, 0, 0]];
             let thrust = match t {
@@ -599,7 +599,8 @@ fn surface_hash() -> u64 {
         for &s in &shooters {
             let aim = (target - sim.suits.flight[s.idx()].pos).normalize();
             let fire = if t >= 60 { FIRE_PRIMARY } else { 0 };
-            let c = InputCmd { view_tick_q4: (t - 6) << 4, ..cmd(aim, [0; 3], FLIGHT_ASSIST | fire) };
+            let fire = common::pull(&sim, s, FLIGHT_ASSIST | fire);
+            let c = InputCmd { view_tick_q4: (t - 6) << 4, ..cmd(aim, [0; 3], fire) };
             sim.set_input(s, c);
         }
         // The Wing Zero: down into the Deep, then off as a bird at 500.

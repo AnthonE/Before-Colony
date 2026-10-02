@@ -25,7 +25,7 @@ use bc_client_core::world::ObjectMotion;
 use bc_client_core::{ClientCore, FeedLine};
 use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRIP, MELEE, MODE};
 use bc_proto::snapshot::{cover, ent_flags, own_flags, zero_mode};
-use bc_proto::{ChunkKind, NO_CHUNK, NO_SLOT, OwnState, Part, PilotKind, WeaponKind};
+use bc_proto::{ChunkKind, NO_CHUNK, NO_SLOT, OwnState, Part, PilotKind};
 use bc_sim::bodies::Body;
 use bc_sim::chunks;
 use bc_sim::content::landmarks::LANDMARKS;
@@ -1041,8 +1041,15 @@ pub fn update_hud(
                 } else {
                     String::new()
                 };
-                let extra = if m.weapon == WeaponKind::TwinBusterRifle && o.charge > 0.0 {
-                    format!(" CHARGE {}", bar(o.charge, 6))
+                // The Twin Buster's charge, or a charged shot's once the tap is past (full: let go).
+                let gun = weapon(m.weapon);
+                let shown = match gun.charged {
+                    Some(c) => o.charge * f32::from(c.full()) > f32::from(c.tap) + 0.5,
+                    None => gun.charge_ticks > 0 && o.charge > 0.0,
+                };
+                let extra = if slot == 0 && shown {
+                    let full = gun.charged.is_some() && o.charge > 0.99;
+                    format!(" CHARGE {}{}", bar(o.charge, 6), if full { " FULL" } else { "" })
                 } else {
                     String::new()
                 };
@@ -1363,7 +1370,14 @@ pub fn update_hud(
         // ZERO's firing solution, which weighs the target's maneuvers; else, locked on, where a
         // shot from the primary meets the target if it flies on as it is (the ◆, and how long
         // the shot takes).
-        let primary = own.and_then(|o| frame(o.frame).loadout[0]).map(|m| weapon(m.weapon));
+        // A full charge leads for the charged shot.
+        let primary = own.and_then(|o| {
+            let w = weapon(frame(o.frame).loadout[0]?.weapon);
+            Some(match w.charged {
+                Some(c) if o.charge > 0.99 => weapon(c.shot),
+                _ => w,
+            })
+        });
         let mark = match (zero, own, locked, drawn) {
             (Some(z), Some(o), _, _) if z.has_solution && o.alive => {
                 Some((own_pos + z.solution * 1_500.0, format!("[ ]{:.0}%", z.hit_p * 100.0), 16.0))

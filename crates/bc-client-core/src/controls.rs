@@ -104,7 +104,7 @@ pub const BINDINGS: &[Binding] = &[
     b(Group::Surface, "Shift", "Run"),
     b(Group::Surface, "Space", "Hop (hold: lift off on the thrusters)"),
     b(Group::Surface, "C", "Crouch (toggle): crouched still, a suit runs cold, and in a hide spot it hides"),
-    b(Group::Weapons, "Left mouse", "Primary weapon"),
+    b(Group::Weapons, "Left mouse", "Primary weapon (a beam rifle: hold to charge, let go when full)"),
     b(Group::Weapons, "Right mouse", "Secondary weapon"),
     b(Group::Weapons, "F", "Melee: saber, scythe, shotels, glaive, knife"),
     b(Group::Weapons, "H", "Special: Neo-Bird, Hyper Jammer, Full Open Attack, Cross Crusher"),

@@ -10,13 +10,49 @@ use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, MELEE, SPECIAL};
 use bc_proto::snapshot::{OwnArms, own_flags};
 use bc_proto::{InputCmd, OwnState};
 
-use crate::content::{ArmSlot, FrameSpec, MeleeSpec, SPECIAL_MOUNT, SpecialKind, WeaponClass, frame, weapon};
+use crate::content::{
+    ArmSlot, ChargedShot, FrameSpec, MeleeSpec, SPECIAL_MOUNT, SpecialKind, WeaponClass, frame, weapon,
+};
 use crate::suits::MeleePhase;
 
 /// After a weapon fires (or a strike begins), the arms are busy for this many ticks.
 pub const BUSY_FIRE_TICKS: u32 = 6;
 /// AMBAC's authority while the arms are busy, of what it has with them idle.
 pub const BUSY_AMBAC: f32 = 0.6;
+
+/// What a trigger does this tick on a weapon whose shot charges ([`ChargedShot`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pull {
+    None,
+    /// The weapon's own shot.
+    Shot,
+    /// The charged shot.
+    Charged,
+}
+
+/// Tap fires, hold charges: the one rule for a [`ChargedShot`], which the server's weapons step
+/// and the owner's [`ArmsClock`] both run. `hold` is how long the trigger has been held (kept on
+/// the weapon); `wants` whether it is now, `ready` whether the weapon could fire. In the first
+/// `tap` ticks of a pull the weapon fires as it always does; held on, it charges; let go on a full
+/// charge, the charged shot leaves, and let go sooner, nothing does.
+pub fn charged_pull(hold: &mut u16, wants: bool, ready: bool, c: &ChargedShot) -> Pull {
+    if wants {
+        *hold = (*hold + 1).min(c.full());
+        if *hold <= u16::from(c.tap) && ready { Pull::Shot } else { Pull::None }
+    } else {
+        let held = core::mem::take(hold);
+        if held >= c.full() && ready { Pull::Charged } else { Pull::None }
+    }
+}
+
+/// Whether a weapon with this hold on it is charging for everyone to see: a charged shot past its
+/// tap, or the Twin Buster's own charge.
+pub fn charging(hold: u16, spec: &crate::content::WeaponSpec) -> bool {
+    match spec.charged {
+        Some(c) => hold > u16::from(c.tap),
+        None => hold > 0,
+    }
+}
 
 /// AMBAC's authority with busy arms, from its authority with them idle (as sent to the owner).
 pub fn busy_ambac(idle: f32) -> f32 {
@@ -94,8 +130,9 @@ pub struct ArmsClock {
     /// Each gun slot's missile salvo under way: rounds still to launch, and ticks until the next.
     pub salvo: [u8; 2],
     pub salvo_gap: [u8; 2],
-    /// Ticks the primary has charged (the Twin Buster Rifle fires when it's full).
-    pub charge: u8,
+    /// Ticks the primary has charged (the Twin Buster Rifle fires when it's full), or its trigger
+    /// has been held (a [`ChargedShot`]).
+    pub charge: u16,
     /// Ticks of Full Open left.
     pub full_open: u8,
     /// Overheated: guns and blades wait (Full Open fires through it).
@@ -128,7 +165,7 @@ impl ArmsClock {
         let spec = frame(own.frame);
         let a = &own.arms;
         // Sent as a fraction of the charge, which comes back to the tick (see the content tests).
-        let charge_ticks = spec.loadout[0].map_or(0, |m| weapon(m.weapon).charge_ticks);
+        let charge_ticks = spec.loadout[0].map_or(0, |m| weapon(m.weapon).charge_span());
         let full_open = matches!(spec.special, SpecialKind::FullOpen { .. })
             && own.flags & own_flags::SPECIAL_ACTIVE != 0;
         Self {
@@ -139,7 +176,7 @@ impl ArmsClock {
             wait: a.wait,
             salvo: a.salvo,
             salvo_gap: a.salvo_gap,
-            charge: (own.charge * f32::from(charge_ticks) + 0.5) as u8,
+            charge: (own.charge * f32::from(charge_ticks) + 0.5) as u16,
             full_open: if full_open { own.special_timer } else { 0 },
             overheated: own.flags & own_flags::OVERHEAT != 0,
             prev_buttons: buttons,
@@ -242,25 +279,32 @@ impl ArmsClock {
                     }
                     continue;
                 }
-                let fire = if w.charge_ticks > 0 {
+                // The primary's charge is kept here (only it charges).
+                let fire = if let Some(c) = w.charged.filter(|_| slot == 0) {
+                    match charged_pull(&mut self.charge, wants, ready, &c) {
+                        Pull::None => None,
+                        Pull::Shot => Some(w.cooldown),
+                        Pull::Charged => Some(weapon(c.shot).cooldown),
+                    }
+                } else if w.charge_ticks > 0 {
                     // Held, it charges and fires when full; let go, the charge is lost.
                     if wants && ready {
                         self.charge = self.charge.saturating_add(1);
-                        let full = u16::from(self.charge) >= w.charge_ticks;
+                        let full = self.charge >= w.charge_ticks;
                         if full {
                             self.charge = 0;
                         }
-                        full
+                        full.then_some(w.cooldown)
                     } else {
                         self.charge = 0;
-                        false
+                        None
                     }
                 } else {
-                    wants && ready
+                    (wants && ready).then_some(w.cooldown)
                 };
-                if fire {
+                if let Some(cooldown) = fire {
                     self.fired_at = t;
-                    self.wait[slot] = OwnArms::wait(w.cooldown);
+                    self.wait[slot] = OwnArms::wait(cooldown);
                 }
             }
             // The special mounts fire all through Full Open.

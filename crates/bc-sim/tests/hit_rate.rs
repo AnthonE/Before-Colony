@@ -28,9 +28,9 @@ enum Target {
     Jinking,
 }
 
-/// One shot, fired with a perfect linear lead from `frame_id`'s `slot` at a Leo `range` m off:
-/// whether it hit.
-fn shot(frame_id: FrameId, slot: usize, range: f32, target: Target, seed: u32) -> bool {
+/// One shot, fired with a perfect linear lead from `frame_id`'s `slot` (`charged`: its charged
+/// shot, the trigger held to a full charge and let go) at a Leo `range` m off: whether it hit.
+fn shot(frame_id: FrameId, slot: usize, charged: bool, range: f32, target: Target, seed: u32) -> bool {
     let cfg = SimConfig { max_suits: 8, target_dolls: 0, field_rocks: 0, ..SimConfig::default() };
     let mut sim = Sim::new(cfg);
     let at = Vec3::new(0.0, 2_000.0, 0.0);
@@ -47,7 +47,8 @@ fn shot(frame_id: FrameId, slot: usize, range: f32, target: Target, seed: u32) -
     let side = if seed.is_multiple_of(2) { 1.0 } else { -1.0 };
     sim.suits.flight[j].vel = Vec3::X * CROSSING * side;
     let mount = frame(frame_id).loadout[slot].unwrap();
-    let w = weapon(mount.weapon);
+    let charge = weapon(mount.weapon).charged.filter(|_| charged);
+    let w = charge.map_or(weapon(mount.weapon), |c| weapon(c.shot));
     let button = if slot == 0 { FIRE_PRIMARY } else { FIRE_SECONDARY };
     let mut fired = None;
     let mut hit = false;
@@ -69,12 +70,16 @@ fn shot(frame_id: FrameId, slot: usize, range: f32, target: Target, seed: u32) -
         };
         sim.set_input(it, InputCmd { tick: t, view_tick_q4: t << 4, ..jink }.quantized());
         // The shooter leads it, perfectly but linearly, and pulls the trigger once it's settled on
-        // the lead (a charged weapon holds it till the shot leaves).
+        // the lead (the Twin Buster holds it till the shot leaves; a charged shot is held to a
+        // full charge and let go, its tap's shot going first).
         let (s, o) = (sim.suits.flight[i], sim.suits.flight[j]);
         let muzzle = s.pos + s.rot * mount.arm.muzzle();
         let aim = intercept(muzzle, s.vel, w.speed, o.pos, o.vel, Vec3::ZERO)
             .map_or((o.pos - muzzle).normalize(), |x| x.dir);
-        let pull = tick >= 30 && fired.is_none();
+        let pull = match charge {
+            Some(c) => (30..30 + u32::from(c.full())).contains(&tick),
+            None => tick >= 30 && fired.is_none(),
+        };
         let cmd = InputCmd {
             tick: t,
             view_tick_q4: t << 4,
@@ -87,7 +92,7 @@ fn shot(frame_id: FrameId, slot: usize, range: f32, target: Target, seed: u32) -
         sim.step();
         // Nothing else to judge: armour back as it was, so a big hit doesn't end the trial.
         sim.suits.part_hp[j] = frame(FrameId::Leo).part_hp;
-        if fired.is_none() && sim.stats(i).shots > 0 {
+        if fired.is_none() && sim.stats(i).shots > u32::from(charge.is_some()) {
             fired = Some(tick);
         }
         for e in from..sim.events.next_seq() {
@@ -107,34 +112,36 @@ fn shot(frame_id: FrameId, slot: usize, range: f32, target: Target, seed: u32) -
 }
 
 /// The share of [`TRIALS`] shots that hit, %.
-fn rate(frame_id: FrameId, slot: usize, range: f32, target: Target) -> f32 {
-    let hits = (0..TRIALS).filter(|&k| shot(frame_id, slot, range, target, k * 7 + 1)).count();
+fn rate(frame_id: FrameId, slot: usize, charged: bool, range: f32, target: Target) -> f32 {
+    let hits = (0..TRIALS).filter(|&k| shot(frame_id, slot, charged, range, target, k * 7 + 1)).count();
     100.0 * hits as f32 / TRIALS as f32
 }
 
 #[test]
 fn hit_rates_by_weapon_and_range() {
-    // Every gun and beam that leaves a muzzle, on the frame that carries it.
-    let guns: [(FrameId, usize); 9] = [
-        (FrameId::Leo, 0),
-        (FrameId::Leo, 1),
-        (FrameId::WingZero, 0),
-        (FrameId::Virgo, 0),
-        (FrameId::Heavyarms, 0),
-        (FrameId::Sandrock, 0),
-        (FrameId::Deathscythe, 0),
-        (FrameId::Deathscythe, 1),
-        (FrameId::Taurus, 0),
+    // Every gun and beam that leaves a muzzle, on the frame that carries it (and charged).
+    let guns: [(FrameId, usize, bool); 10] = [
+        (FrameId::Leo, 0, false),
+        (FrameId::Leo, 0, true),
+        (FrameId::Leo, 1, false),
+        (FrameId::WingZero, 0, false),
+        (FrameId::Virgo, 0, false),
+        (FrameId::Heavyarms, 0, false),
+        (FrameId::Sandrock, 0, false),
+        (FrameId::Deathscythe, 0, false),
+        (FrameId::Deathscythe, 1, false),
+        (FrameId::Taurus, 0, false),
     ];
     println!(
         "{:<18} {:>6} {:>5} {:>5} |  coasting (%) / jinking (%) at {RANGES:?} m",
         "weapon", "m/s", "r m", "sprd°"
     );
-    for (f, slot) in guns {
+    for (f, slot, charged) in guns {
         let w = weapon(frame(f).loadout[slot].unwrap().weapon);
+        let w = if charged { weapon(w.charged.unwrap().shot) } else { w };
         assert!(matches!(w.class, WeaponClass::Beam | WeaponClass::Ballistic));
-        let coast: Vec<f32> = RANGES.iter().map(|&r| rate(f, slot, r, Target::Coasting)).collect();
-        let jink: Vec<f32> = RANGES.iter().map(|&r| rate(f, slot, r, Target::Jinking)).collect();
+        let coast: Vec<f32> = RANGES.iter().map(|&r| rate(f, slot, charged, r, Target::Coasting)).collect();
+        let jink: Vec<f32> = RANGES.iter().map(|&r| rate(f, slot, charged, r, Target::Jinking)).collect();
         let cells: Vec<String> = coast.iter().zip(&jink).map(|(c, j)| format!("{c:>3.0}/{j:>3.0}")).collect();
         println!(
             "{:<18} {:>6.0} {:>5.2} {:>5.2} |  {}",

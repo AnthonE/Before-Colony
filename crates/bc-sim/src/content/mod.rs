@@ -21,7 +21,7 @@ pub use melee::{ConeSpec, MeleeSpec, MissileSpec, Stroke};
 pub use modules::{ModuleKind, Modules};
 pub use names::{doll_name, frame_designation, frame_name, weapon_name};
 pub use systems::{System, Systems};
-pub use weapons::{Replication, WeaponClass, WeaponSpec, weapon};
+pub use weapons::{ChargedShot, Replication, WeaponClass, WeaponSpec, weapon};
 
 /// Whether pilots and agents may fly `id` (the server refuses the rest).
 pub fn playable(id: bc_proto::FrameId) -> bool {

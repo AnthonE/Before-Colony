@@ -6,6 +6,7 @@ use bc_proto::{ChunkDesc, ChunkKind, InputCmd, NO_CHUNK, Part, PilotKind, Segmen
 use glam::Vec3;
 
 use super::{DamageEvent, Sim};
+use crate::arms::Pull;
 use crate::bodies::{Body, landmark_pose, sweep_landmarks};
 use crate::chunks::Motion;
 use crate::collide::{segment_near_point, sweep_capsules};
@@ -129,6 +130,17 @@ impl Sim {
             *self.suits.weapon_state(i, slot) = ws;
             return;
         }
+        // Tap fires, hold charges (the beam rifle's sniper shot).
+        if let Some(c) = w.charged {
+            let pull = crate::arms::charged_pull(&mut ws.charge, wants, ready, &c);
+            *self.suits.weapon_state(i, slot) = ws;
+            match pull {
+                Pull::None => {}
+                Pull::Shot => self.fire(i, slot, mount, w, cmd, t),
+                Pull::Charged => self.fire(i, slot, mount, weapon(c.shot), cmd, t),
+            }
+            return;
+        }
         let fire = if w.charge_ticks > 0 {
             // Charged weapons: hold to charge, fires automatically when full; releasing early
             // cancels. The charge glow is replicated, so everyone sees it coming.
@@ -151,6 +163,22 @@ impl Sim {
         if fire {
             self.fire(i, slot, mount, w, cmd, t);
         }
+    }
+
+    /// Whether suit `i`'s loadout `slot` would fire on the next tick if its trigger were pulled:
+    /// its cooldown run out by then, cool enough, the energy and rounds for it, the arm free. (A
+    /// script that pulls only then fires as one that holds the trigger down, under either rule.)
+    pub fn would_fire(&self, i: usize, slot: usize) -> bool {
+        let Some(mount) = frame(self.suits.frame[i]).loadout[slot] else { return false };
+        let w = weapon(mount.weapon);
+        let ws = &self.suits.weapons[i][slot];
+        ws.cooldown <= 1
+            && !self.suits.overheated[i]
+            && self.suits.energy[i] >= w.energy
+            && (w.ammo == 0 || ws.ammo > 0)
+            && self.suits.fitted(i, slot)
+            && self.suits.arm_free(i, mount.arm)
+            && !self.arm_blocked(i, mount.arm)
     }
 
     fn fire(&mut self, i: usize, slot: usize, mount: Mount, w: &WeaponSpec, cmd: &InputCmd, t: u32) {

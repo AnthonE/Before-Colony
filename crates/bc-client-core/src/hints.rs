@@ -79,7 +79,9 @@ impl Hint {
         match self {
             Hint::Thrust => "W A S D and Space / C thrust. The mouse aims; Q / E roll.",
             Hint::Boost => "Shift boosts (it spends propellant: watch the gauge), X brakes, R turns fast.",
-            Hint::Fire => "Left and right mouse fire, F strikes in melee, H is the suit's special.",
+            Hint::Fire => {
+                "Left and right mouse fire (hold a beam rifle's to charge it), F strikes in melee, H is the suit's special."
+            }
             Hint::FlightAssist => {
                 "V turns flight assist off: then nothing slows you down, like a real spacecraft."
             }

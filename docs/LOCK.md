@@ -81,7 +81,7 @@ asks for is a velocity flight assist could hold anyway).
 
 **On the HUD.** The locked target's bracket, name, range and closing speed; the ◆ lead marker for the
 primary weapon (`bc_sim::zero::fire_control::intercept`, the target's velocity as drawn, the shot's
-speed on top of the suit's), hidden while ZERO has a solution (which weighs the target's maneuvers);
+speed on top of the suit's; a beam rifle's charged shot's once the charge is full), hidden while ZERO has a solution (which weighs the target's maneuvers);
 and SPD and the velocity marker relative to the target.
 
 ## Balance

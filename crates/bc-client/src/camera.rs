@@ -204,7 +204,11 @@ pub fn follow(
             FxEvent::Kill { pos, .. } => 0.9 * near(pos, 120.0, 1_500.0),
             FxEvent::Struck { weapon } => {
                 c.flash = 1.0;
-                if weapon == WeaponKind::TwinBusterRifle { 0.9 } else { 0.35 }
+                match weapon {
+                    WeaponKind::TwinBusterRifle => 0.9,
+                    WeaponKind::BeamRifleCharged => 0.6,
+                    _ => 0.35,
+                }
             }
             FxEvent::Muzzle { pos, weapon: WeaponKind::TwinBusterRifle, .. } => 0.6 * near(pos, 60.0, 900.0),
             FxEvent::Clash { pos, .. } => 0.4 * near(pos, 40.0, 400.0),
