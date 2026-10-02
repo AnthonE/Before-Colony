@@ -107,6 +107,7 @@ pub const KNOBS: &[Knob] = &[
     toggle("flashing", "Flashing effects", "VIEW"),
     toggle("hints", "Hints for new pilots", "VIEW"),
     toggle("objectives", "Objectives and their waypoint", "VIEW"),
+    toggle("lead", "Lead marker when locked on", "VIEW"),
     Knob { key: "gfx", label: "Graphics quality", group: "GRAPHICS", kind: Kind::Choice(&GfxChoice::NAMES) },
     range("vol_master", "Master volume", "SOUND", 0.0, 1.0, 0.05),
     range("vol_effects", "Weapons and impacts", "SOUND", 0.0, 1.0, 0.05),
@@ -142,6 +143,8 @@ pub struct Settings {
     /// The objectives done (bits of `objectives::Objective`), and the Mobile Dolls downed.
     pub objectives_done: u32,
     pub dolls_downed: u32,
+    /// Locked on, the ◆ that shows where to lead the target.
+    pub lead: bool,
     /// Volumes, 0..1.
     pub vol_master: f32,
     pub vol_effects: f32,
@@ -166,6 +169,7 @@ impl Default for Settings {
             objectives: true,
             objectives_done: 0,
             dolls_downed: 0,
+            lead: true,
             vol_master: 0.8,
             vol_effects: 0.9,
             vol_cockpit: 0.8,
@@ -226,6 +230,7 @@ impl Settings {
             "objectives" => self.objectives.to_string(),
             "objectives_done" => self.objectives_done.to_string(),
             "dolls_downed" => self.dolls_downed.to_string(),
+            "lead" => self.lead.to_string(),
             "vol_master" => self.vol_master.to_string(),
             "vol_effects" => self.vol_effects.to_string(),
             "vol_cockpit" => self.vol_cockpit.to_string(),
@@ -253,12 +258,13 @@ impl Settings {
                     _ => self.vol_music = v,
                 }
             }
-            "invert_y" | "hints" | "flashing" | "objectives" => {
+            "invert_y" | "hints" | "flashing" | "objectives" | "lead" => {
                 let Some(b) = parse_bool(value) else { return false };
                 match key {
                     "invert_y" => self.invert_y = b,
                     "hints" => self.hints = b,
                     "objectives" => self.objectives = b,
+                    "lead" => self.lead = b,
                     _ => self.flashing = b,
                 }
             }
@@ -284,7 +290,7 @@ impl Settings {
     }
 
     /// Every key, in the order the file lists them.
-    const KEYS: [&'static str; 18] = [
+    const KEYS: [&'static str; 19] = [
         "name",
         "frame",
         "sensitivity",
@@ -299,6 +305,7 @@ impl Settings {
         "objectives",
         "objectives_done",
         "dolls_downed",
+        "lead",
         "vol_master",
         "vol_effects",
         "vol_cockpit",
@@ -386,6 +393,7 @@ mod tests {
             objectives: false,
             objectives_done: 0b101,
             dolls_downed: 3,
+            lead: false,
             vol_master: 0.6,
             vol_effects: 1.0,
             vol_cockpit: 0.35,

@@ -30,7 +30,7 @@ use glam::{Quat, Vec3};
 
 use crate::bodies::{Bodies, Body, BodyPose, Near, Shape};
 use crate::content::FrameSpec;
-use crate::flight::{self, FlightMods, FlightOut, FlightState, HopAssist};
+use crate::flight::{self, FA_BOOST_CRUISE, FlightMods, FlightOut, FlightState, HopAssist, LockOnAssist};
 use crate::math::{
     angle_between, clamp_len, length, look_rotation, normalize_or, quat_rotate_toward, rotation_vector, sqrt,
 };
@@ -209,6 +209,26 @@ fn tangent_of(v: Vec3, n: Vec3) -> Vec3 {
     normalize_or(v - n * v.dot(n), any_perp(n))
 }
 
+/// What flight assist flies by when `cmd` is locked on to a target (`bc_proto::LockOn`): the
+/// fight's axes, levelled to its up, forward the aim laid flat on its ground (else the nose), and
+/// the target's velocity, capped at the frame's boosted cruise so a lock can't pace anything for
+/// free. Pure in the command and the suit's own state, so the server and the owner's prediction
+/// agree to the bit; a reference that isn't a number (an agent's own, unquantized) is no reference.
+pub fn lockon_assist(cmd: &InputCmd, f: &FlightState, spec: &FrameSpec) -> Option<LockOnAssist> {
+    let l = cmd.lockon?;
+    let up = normalize_or(l.up, Vec3::Y);
+    let nose = f.rot * Vec3::Z;
+    let aim = normalize_or(cmd.aim, nose);
+    let fwd = normalize_or(aim - up * aim.dot(up), tangent_of(nose, up));
+    let r = if l.ref_vel.is_finite() { l.ref_vel } else { Vec3::ZERO };
+    Some(LockOnAssist {
+        ref_vel: clamp_len(r, spec.fa_speed * FA_BOOST_CRUISE),
+        right: up.cross(fwd),
+        up,
+        fwd,
+    })
+}
+
 /// The surface a suit with its grip armed would be caught by now: the nearest grippable one its
 /// feet are within [`CATCH_RANGE`] of, slow enough relative to it. What the HUD's landing ring
 /// shows is exactly what the step will do.
@@ -254,6 +274,15 @@ pub fn move_step(b: &Bodies, m: &mut Mover, cmd: &InputCmd, cx: &MoveCtx, dt: f3
                 mods.roll_level = b
                     .nearest_grippable(&m.flight, LEVEL_RANGE, LEVEL_SPEED, f32::INFINITY)
                     .map(|n| n.n_world);
+            }
+            // Locked on: flight assist flies by the fight's axes, and the suit rolls level with
+            // them, unless the pilot rolls or the grip is bringing it down onto a surface.
+            mods.lockon = lockon_assist(cmd, &m.flight, cx.spec);
+            if let Some(l) = mods.lockon
+                && mods.roll_level.is_none()
+                && cmd.roll == 0
+            {
+                mods.roll_level = Some(l.up);
             }
             out.flight = flight::step_in(b.field, &mut m.flight, cmd, cx.spec, &mods, dt);
             // The landmarks are as solid as the rocks (nothing to do far from them).
@@ -796,5 +825,73 @@ mod tests {
         move_step(&bodies, &mut m, &cmd, &cx, crate::config::DT);
         assert_eq!(m.footing, Footing::Aloft, "10 m past the top of a 12 m rock, the ground is gone");
         assert_eq!(m.anchor.body, Body::Rock(0), "and the grip holds on");
+    }
+    #[test]
+    fn a_lockon_flies_by_the_fights_axes_capped_and_sane() {
+        let spec = crate::content::frame(bc_proto::FrameId::Leo);
+        let f = FlightState::default();
+        let lock = |ref_vel: Vec3, up: Vec3, aim: Vec3| {
+            let cmd = InputCmd { aim, lockon: Some(bc_proto::LockOn { ref_vel, up }), ..InputCmd::default() };
+            lockon_assist(&cmd, &f, spec).unwrap()
+        };
+        // Forward is the aim laid flat on the fight's ground; the axes are right-handed and square.
+        let l = lock(Vec3::X * 100.0, Vec3::Y, Vec3::new(0.0, 0.6, 0.8));
+        assert!(l.fwd.distance(Vec3::Z) < 1e-6 && l.right.distance(Vec3::X) < 1e-6, "{l:?}");
+        assert!(l.ref_vel == Vec3::X * 100.0);
+        let l = lock(Vec3::ZERO, Vec3::new(1.0, 2.0, -0.5).normalize(), Vec3::new(0.3, -0.2, 0.9));
+        assert!(l.up.dot(l.fwd).abs() < 1e-6 && l.up.dot(l.right).abs() < 1e-6);
+        assert!((l.right.cross(l.up) - l.fwd).length() < 1e-5);
+        // Aiming straight along the up: forward falls back to the nose laid flat.
+        let l = lock(Vec3::ZERO, Vec3::X, Vec3::X);
+        assert!(l.fwd.distance(Vec3::Z) < 1e-6, "{l:?}");
+        // No faster than the frame's boosted cruise, and nothing that isn't a number.
+        let l = lock(Vec3::X * 5_000.0, Vec3::Y, Vec3::Z);
+        assert!((l.ref_vel.length() - spec.fa_speed * FA_BOOST_CRUISE).abs() < 1e-3);
+        assert_eq!(lock(Vec3::new(f32::NAN, 1.0, 0.0), Vec3::Y, Vec3::Z).ref_vel, Vec3::ZERO);
+        assert!(lockon_assist(&InputCmd::default(), &f, spec).is_none());
+    }
+
+    #[test]
+    fn a_lockon_flies_free_suits_only() {
+        let rock = crate::field::Rock {
+            pos: Vec3::new(0.0, 900.0, 0.0),
+            radius: 12.0,
+            axes: Vec3::splat(12.0),
+            ..crate::field::Rock::default()
+        };
+        let field = Field::from_rocks(&[rock]);
+        let bodies = Bodies::at(&field, &[], 1);
+        let spec = crate::content::frame(bc_proto::FrameId::Leo);
+        let cx = MoveCtx { spec, mods: FlightMods::default(), can_grip: true, legs_ok: true };
+        let lockon = Some(bc_proto::LockOn { ref_vel: Vec3::new(150.0, 0.0, -40.0), up: Vec3::X });
+        let walk = InputCmd { aim: Vec3::Z, thrust: [40, 0, 127], buttons: GRIP, ..InputCmd::default() };
+        // On its feet, the legs walk as ever.
+        let (mut a, mut b) = (standing(&field), standing(&field));
+        for _ in 0..30 {
+            move_step(&bodies, &mut a, &walk, &cx, crate::config::DT);
+            move_step(&bodies, &mut b, &InputCmd { lockon, ..walk }, &cx, crate::config::DT);
+        }
+        assert_eq!(a, b);
+        // Flying free, the suit rolls level with the fight's up and keeps pace with the target.
+        let mut m = Mover {
+            flight: FlightState {
+                pos: Vec3::new(0.0, 2_000.0, 0.0),
+                propellant: 1_000.0,
+                ..FlightState::default()
+            },
+            footing: Footing::Free,
+            anchor: Anchor::default(),
+        };
+        let fly = InputCmd {
+            aim: Vec3::Z,
+            buttons: bc_proto::buttons::FLIGHT_ASSIST,
+            lockon,
+            ..InputCmd::default()
+        };
+        for _ in 0..300 {
+            move_step(&bodies, &mut m, &fly, &cx, crate::config::DT);
+        }
+        assert!((m.flight.rot * Vec3::Y).dot(Vec3::X) > 0.999, "{}", m.flight.rot * Vec3::Y);
+        assert!((m.flight.vel - Vec3::new(150.0, 0.0, -40.0)).length() < 0.05, "{}", m.flight.vel);
     }
 }

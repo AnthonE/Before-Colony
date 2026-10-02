@@ -24,6 +24,7 @@ pub mod hangar;
 pub mod hints;
 pub mod inputs;
 pub mod interp;
+pub mod lockon;
 pub mod objectives;
 pub mod own;
 pub mod palette;

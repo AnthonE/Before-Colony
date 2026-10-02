@@ -143,6 +143,22 @@ pub fn publish_game(
     dev.set("zero_jev", w.zero.is_some_and(|z| z.source_jev));
     dev.set("rtt_ms", core.clock.rtt * 1_000.0);
     dev.set("prediction_error_m", core.stats.prediction_error);
+    // The lock-on: the suit locked (-1: none), how far it is over the fight's ground and above or
+    // below its level (the floor), and whether the last command flew locked on.
+    let now = crate::net::now_s();
+    let t = core.render_tick(now);
+    dev.set("lock_slot", game.hard.slot().map_or(-1, i32::from));
+    let (range, level) = match (game.hard.target(w, t), core.own_view()) {
+        (Some(p), Some(v)) => {
+            let up = bc_sim::world::colony_up(v.pos);
+            let r = p.pos - v.pos;
+            ((r - up * r.dot(up)).length(), r.dot(up))
+        }
+        _ => (-1.0, 0.0),
+    };
+    dev.set("lock_range", range);
+    dev.set("lock_level", level);
+    dev.set("lockon", core.last_cmd.lockon.is_some());
     dev.set("beams", w.beams.len() as u32);
     let chunks = || w.objects.iter().flatten();
     dev.set("chunks", chunks().count() as u32);

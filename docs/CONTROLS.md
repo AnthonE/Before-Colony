@@ -118,16 +118,24 @@ so on a body they become a hop (held: lift off on the thrusters) and a crouch at
    look-around in Star Citizen. Our mnemonic is worth keeping, but it will surprise sim players.
 3. **T is throw and Enter is dock.** T is "target ahead" in Elite and Star Wars: Squadrons [B5], and
    T and Enter are the usual chat keys. An MMO will want chat: plan the keys before chat lands.
-4. **No gun lock.** Most Gundam games lock on: Extreme Vs., Gundam Breaker, SD Gundam Battle
-   Alliance, even the cockpit arcade game Senjou no Kizuna [A1]. Lock-on is also the most common
-   complaint in mech games: too strong, unreliable, or grabbing the wrong target (AC6, Mecha BREAK,
-   Daemon X Machina, Gundam Breaker 4, SD Gundam Battle Alliance) [A2]. GBO2 has no lock-on button,
-   which shows Gundam players will accept free aim [A1]. Say it in onboarding: this is how the suit
-   aims.
-5. **No lead pip without ZERO.** Elite, Star Citizen and Everspace 2 all give one [B1][B2][B3]. With
-   4 km/s beams at kilometre ranges, expect "unhittable" complaints. ZERO's solution is better than a
-   linear pip, since it weighs the target's likely maneuvers. So a plain pip either comes as a
-   training aid or has to be explained away.
+4. **The lock moves you; it doesn't aim for you.** Most Gundam games lock on: Extreme Vs., Gundam
+   Breaker, SD Gundam Battle Alliance, even the cockpit arcade game Senjou no Kizuna [A1]. Lock-on is
+   also the most common complaint in mech games: too strong, unreliable, or grabbing the wrong target
+   (AC6, Mecha BREAK, Daemon X Machina, Gundam Breaker 4, SD Gundam Battle Alliance) [A2]. GBO2 has no
+   lock-on button, which shows Gundam players will accept free aim [A1].
+   - **Done** (`LOCK.md`): Y, or a click of the middle button, locks on, and what it locks is the
+     fight's footing, not the guns. Flight assist keeps pace with the target, W closes in and stops
+     short, A/D circle it, and the suit settles onto its level as if on the ground; the mouse still
+     aims. Against the complaints: the target is the hostile nearest the crosshair, the next is a
+     tap away, it's let go by holding the key, and its bracket is always marked.
+   - **Why Y.** It was free and sits by T/G/H; Bevy's keys are physical positions, so QWERTZ keeps
+     it there. The middle button's click is a second key for it; holding the middle button stays
+     free for looking around (P1 #7). Y is chat in Counter-Strike: chat (`PEERS.md`) takes `/`.
+5. **A lead pip.** Elite, Star Citizen and Everspace 2 all give one [B1][B2][B3]. With 4 km/s beams
+   at kilometre ranges, expect "unhittable" complaints. **Done:** locked on, a ◆ marks where the
+   primary's shot meets the target if it flies on as it is, with the time the shot takes (a
+   setting). ZERO's solution is better than a linear pip, since it weighs the target's likely
+   maneuvers, and replaces it when ZERO has one.
 6. **F1 and F10 are function keys.** On Mac laptops they need Fn, and 60% keyboards have none [C1].
    They need second keys.
 7. **Left Ctrl was a hidden "down"**, and holding it with W is Ctrl+W, which closes the browser tab.
@@ -168,7 +176,8 @@ so on a body they become a hop (held: lift off on the thrusters) and a crouch at
    - Bevy's `KeyCode` is already a physical key position. `navigator.keyboard.getLayoutMap()`
      (Chromium only) can print the right labels.
    - Keep `BINDINGS`, the hints and this document drawn from one table.
-5. **Reading aids instead of a gun lock.** Designate a target (the one ahead, the nearest hostile,
+5. **Reading aids instead of a gun lock.** **Done** with the lock-on (`LOCK.md`): its bracket, range
+   and closing speed, and the ◆. Designate a target (the one ahead, the nearest hostile,
    whoever is shooting you) for information only: a box, range and closing speed.
    - Colour the reticle when a blade can reach, like Senjou's orange [A1].
    - Keep the lock warnings, which we already have.
@@ -184,7 +193,7 @@ so on a body they become a hop (held: lift off on the thrusters) and a crouch at
      mouse button in Elite [B5].
    - Alt is risky in a browser (on its own it can reach the browser's menu), so use the middle
      button.
-8. **A basic lead pip** as an optional training aid (see "No lead pip without ZERO" above).
+8. **A basic lead pip** as an optional training aid. **Done** (item 5 above).
 
 **P2: depth, once the above is in.**
 

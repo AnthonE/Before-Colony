@@ -1,4 +1,4 @@
-# Before Colony wire protocol (v12)
+# Before Colony wire protocol (v13)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
@@ -27,7 +27,7 @@ of every datagram give the packet kind: `1` = input, `2` = snapshot.
 | client_time_ms (echoed for RTT) | 16 |
 | count − 1 | 2 |
 | newest command's tick | 32 |
-| `count` × `InputCmd` body, newest first (ticks descend by 1) | 106 each |
+| `count` × `InputCmd` body, newest first (ticks descend by 1) | 107 each, 169 locked on |
 
 `InputCmd` body:
 
@@ -40,6 +40,15 @@ of every datagram give the packet kind: `1` = input, `2` = snapshot.
 | buttons (below) | 16 |
 | lock target (entity slot, 1023 = none) | 10 |
 | shot_seq | 8 |
+| locked on (a `LockOn` follows) | 1 |
+| `LockOn`, when locked on: ref_vel (3 × 14, centred grid over ±2 048 m/s: 0.25 m/s steps, zero exact) | 42 |
+| `LockOn`: up (octahedral, 2 × 10) | 20 |
+
+**Locked on** (`docs/LOCK.md`): flight assist holds the suit's velocity relative to `ref_vel` (the
+target's, as the pilot sees it), reading the stick in axes levelled to `up` (the stick's up; its
+forward the aim laid flat), and the suit rolls level with `up`. The server checks neither against
+the target: the simulation caps `ref_vel` at the frame's boosted cruise, and that's all a lock-on
+can ask for. A free suit only; on a body the grip's rules fly it.
 
 Buttons, by bit: 0 FIRE_PRIMARY, 1 FIRE_SECONDARY, 2 MELEE, 3 BOOST, 4 BRAKE, 5 FLIGHT_ASSIST*,
 6 ZERO*, 7 RCS_SHARP, 8 GRAB*, 9 STOW, 10 THROW, 11 JETTISON, 12 MODE* (the frame's mode: Neo-Bird,
@@ -52,10 +61,10 @@ legs: x and z walk (Shift runs), and `thrust[1]` sets the stance and stays set: 
 crouches, 32 or more stands, 100 or more (standing) hops, and anything between keeps the stance it
 has, so a silent client stays crouched.
 
-Four commands fit in 64 bytes (86 + 4 × 106 bits). A client sending several ticks at once sends
+Four commands fit in 65 bytes (86 + 4 × 107 bits), or 96 locked on (86 + 4 × 169). A client sending several ticks at once sends
 overlapping windows two ticks apart, so each command is in two packets. States persist while a
 client is silent (the server repeats its last command, keeping only FLIGHT_ASSIST, ZERO, GRAB,
-MODE and GRIP); presses (STOW, THROW, JETTISON, MELEE, SPECIAL) act on the tick they first appear, and a
+MODE and GRIP, and the lock-on for 30 ticks more); presses (STOW, THROW, JETTISON, MELEE, SPECIAL) act on the tick they first appear, and a
 repeated command never fires.
 
 Lag compensation reaches back at most 8 ticks. A view delta of 128 or more (8 ticks) resolves at

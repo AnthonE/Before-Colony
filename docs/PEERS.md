@@ -27,7 +27,7 @@ again, and people to cross it with**. Most of what follows is one of those two.
 
 ## Battle Operation 2
 
-The nearest Gundam game: manual aim with no lock-on button (`CONTROLS.md`, "No gun lock"), suits
+The nearest Gundam game: manual aim with no lock-on button (`CONTROLS.md`, "Where we break convention" 4), suits
 from every series, and still adding them (Gundam 00's Double O Riser and Susanoo in the summer of
 2026, *unverified*).
 
@@ -146,6 +146,8 @@ The rule to keep: **connect before deepening.** A new system should send pilots 
 (city, bay, space, home) rather than deepen one link of it.
 
 ## What we take, most important first
+
+How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
 
 **P0: small, and worth doing before more players arrive.**
 

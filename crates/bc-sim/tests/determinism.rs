@@ -110,6 +110,39 @@ fn gundams_golden_wasm() {
     assert_eq!(gundams_hash(), GUNDAMS_GOLDEN);
 }
 
+/// Hash after 450 ticks of pilots locked on to their foes (`bc_proto::LockOn`): flight assist
+/// holding each foe's velocity in the fight's axes, levelled to the colony's up, closing in and
+/// circling, among Mobile Dolls.
+const LOCKON_GOLDEN: u64 = 0xd825_937a_1d36_b106;
+
+fn lockon_hash() -> u64 {
+    let (mut sim, duels) = common::gundam_crowd(8, 12, 21);
+    for _ in 0..450 {
+        let t = sim.next_tick();
+        for &(a, b) in &duels {
+            let (ca, cb) = (common::locked_scripted(&sim, a, b, t), common::locked_scripted(&sim, b, a, t));
+            sim.set_input(a, ca);
+            sim.set_input(b, cb);
+        }
+        sim.step();
+    }
+    sim.state_hash()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn lockon_golden_native() {
+    let h = lockon_hash();
+    assert_eq!(h, lockon_hash(), "must be reproducible within a process");
+    assert_eq!(h, LOCKON_GOLDEN, "lock-on scenario hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn lockon_golden_wasm() {
+    assert_eq!(lockon_hash(), LOCKON_GOLDEN);
+}
+
 /// Hash of the generated debris field (clients build it from the Welcome's seed and count).
 const FIELD_GOLDEN: u64 = 0x8631_3a1b_8b14_b993;
 

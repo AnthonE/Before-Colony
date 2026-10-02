@@ -231,6 +231,7 @@ pub fn flight_mods(t: &Tuning, rules: FlightRules, g_immune: bool, extra_mass_kg
         extra_mass_kg,
         roll_level: None,
         hop: None,
+        lockon: None,
         gauge: anime.then(|| BoostGauge { tank: t.tank, refill: t.refill / ANIME_REFILL_SECS }),
     }
 }

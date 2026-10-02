@@ -98,6 +98,31 @@ fn gundams_duel_without_allocating() {
 }
 
 #[test]
+fn locked_on_pilots_never_allocate() {
+    // Thirty duels, every pilot locked on to its foe, among Mobile Dolls.
+    let (mut sim, duels) = common::gundam_crowd(30, 64, 13);
+    common::run(&mut sim, &[], 30);
+    let mut total = 0;
+    for _ in 0..600 {
+        let t = sim.next_tick();
+        let mut cmds = [bc_proto::InputCmd::default(); 60];
+        for (k, &(a, b)) in duels.iter().enumerate() {
+            cmds[2 * k] = common::locked_scripted(&sim, a, b, t);
+            cmds[2 * k + 1] = common::locked_scripted(&sim, b, a, t);
+        }
+        let ((), n) = bc_alloc::count(|| {
+            for (k, &(a, b)) in duels.iter().enumerate() {
+                sim.set_input(a, cmds[2 * k]);
+                sim.set_input(b, cmds[2 * k + 1]);
+            }
+            sim.step();
+        });
+        total += n;
+    }
+    assert_eq!(total, 0, "heap operations inside the tick: {total}");
+}
+
+#[test]
 fn sleepers_never_allocate() {
     // 64 pilots among 256 Mobile Dolls. Every tick a pilot falls asleep, and every third tick a
     // sleeper wakes, well past the cap on sleepers (so the longest asleep are cleared); sleepers

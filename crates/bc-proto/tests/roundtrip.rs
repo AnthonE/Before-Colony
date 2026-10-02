@@ -12,9 +12,9 @@ use bc_proto::snapshot::{
 };
 use bc_proto::types::{RIDER_VEL_BITS, RIDER_VEL_MAX};
 use bc_proto::{
-    BodyRef, ChunkDesc, ChunkKind, EntityState, Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM,
-    MissileState, NO_CHUNK, ObjectState, OwnState, OwnSurface, Part, PilotKind, RiderOn, RockState, Segment,
-    SnapshotHeader, SnapshotReader, SnapshotWriter, WeaponKind, ZeroInfo,
+    BodyRef, ChunkDesc, ChunkKind, EntityState, Faction, FrameId, InputCmd, InputPacket, LockOn,
+    MAX_DATAGRAM, MissileState, NO_CHUNK, ObjectState, OwnState, OwnSurface, Part, PilotKind, RiderOn,
+    RockState, Segment, SnapshotHeader, SnapshotReader, SnapshotWriter, WeaponKind, ZeroInfo,
 };
 use glam::{Quat, Vec3};
 use proptest::prelude::*;
@@ -206,15 +206,20 @@ proptest! {
     #[test]
     fn input_packet_round_trip(aim in unit(), thrust in prop::array::uniform3(any::<i8>()), roll in any::<i8>(),
                                buttons in any::<u16>(), tick in 16u32..u32::MAX / 32, view_back in 0u32..4000,
-                               lock in 0u16..1024, shot in any::<u8>(), count in 1u8..=4) {
+                               lock in 0u16..1024, shot in any::<u8>(), count in 1u8..=4,
+                               locked in prop::array::uniform4(any::<bool>()), ref_vel in vec3(2_500.0), up in unit()) {
         let mut p = InputPacket { ack_snapshot: tick - 3, client_time_ms: 777, count, ..Default::default() };
-        for i in 0..count as usize {
+        for (i, &on) in locked.iter().enumerate().take(count as usize) {
             let t = tick - i as u32;
-            p.cmds[i] = InputCmd { tick: t, view_tick_q4: (t << 4).saturating_sub(view_back), aim, thrust, roll, buttons, lock_target: lock, shot_seq: shot }.quantized();
+            let lockon = on.then_some(LockOn { ref_vel, up });
+            p.cmds[i] = InputCmd { tick: t, view_tick_q4: (t << 4).saturating_sub(view_back), aim, thrust, roll, buttons, lock_target: lock, shot_seq: shot, lockon }.quantized();
         }
         let mut buf = [0u8; 128];
         let n = p.encode(&mut buf).unwrap();
-        prop_assert!(n <= 64, "{} bytes", n);
+        prop_assert!(n <= 96, "{} bytes", n);
+        if !locked[..count as usize].contains(&true) {
+            prop_assert!(n <= 65, "{} bytes", n);
+        }
         let back = InputPacket::decode(&buf[..n]).unwrap();
         for i in 0..count as usize {
             prop_assert_eq!(back.cmds[i], p.cmds[i]);

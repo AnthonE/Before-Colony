@@ -14,7 +14,8 @@ All art is procedural.
    drag or "space friction" unless you turn on flight assist. How much the tank and the pilot's
    body hold you back is the sector's choice: anime rules (the default, for fun over realism)
    make the tank a boost gauge that refills, and the real rules make every newton count.
-2. **You aim.** Mouse free aim with no tab-targeting. Beams take a fraction of a second to arrive, so
+2. **You aim.** Mouse free aim with no tab-targeting. A lock-on (Y) moves you about your target and
+   marks the lead, but never points the guns (`LOCK.md`). Beams take a fraction of a second to arrive, so
    leading, dodging and range matter.
 3. **AI is a first-class citizen.** Mobile Dolls are the NPCs, as in the show. External AI agents
    connect through the same protocol as humans and are labelled **MD**. The ZERO System is a
@@ -709,6 +710,7 @@ Still to come: suits inside the colony with their weapons safe by the colony's l
 | Input | Action |
 |---|---|
 | Mouse (click to lock) | aim |
+| Y · middle click | lock on (again: the next target; held: let go) |
 | W/S · A/D · Space/C | thrust forward/back · left/right · up/down |
 | Q/E | roll |
 | L | grip: armed, coming in slow and close lands you on a rock or a landmark; again, let go |
@@ -847,6 +849,16 @@ overdriven guitar lead, power chords, slap bass, orchestra hit, brass, strings, 
 in code and stored as 4-bit BRR in the chip's 64 KB (bank and echo buffer fit, with room for a
 driver), the chip's Gaussian interpolation, its ADSR rates and its echo with the 8-tap FIR, stereo
 at 32 kHz. `cargo run -p bc-sound --release --example title -- title.wav` writes it out.
+
+**Lock-on** (`LOCK.md`). Y, or a click of the middle button, locks the hostile nearest the
+crosshair (again: the next one; held: let go), and the fight goes onto the ground: flight assist
+holds your velocity relative to the target's, W closes in and stops just outside your blade's reach,
+A/D circle it, and with Space and C let go the suit settles onto its level, the fight's floor, and
+rolls level with the ground (away from the colony). The mouse still aims; the ◆ marks where the
+primary's shot meets the target if it flies on as it is (ZERO's solution replaces it), SPD and the
+velocity marker are relative to the target, and its bracket says how fast it closes. The lock goes
+when the target's downed, out of sight or past 5 km. With flight assist off, on a body, under ZERO's
+seizure or in Neo-Bird form the keys fly as they always do.
 
 **Lock assist.** A frame with missiles designates the hostile nearest the reticle (within 10°) and
 keeps it while it stays within 15°. Its bracket fills as the lock builds and reads LOCKED when it's

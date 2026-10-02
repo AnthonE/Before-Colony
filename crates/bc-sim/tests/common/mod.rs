@@ -93,6 +93,7 @@ pub fn scripted(sim: &Sim, id: SuitId, tick: u32) -> InputCmd {
         buttons,
         lock_target: NO_SLOT,
         shot_seq: (tick / 10) as u8,
+        lockon: None,
     }
     .quantized()
 }
@@ -203,8 +204,23 @@ pub fn duel_scripted(sim: &Sim, id: SuitId, foe: SuitId, tick: u32) -> InputCmd 
         buttons,
         lock_target: foe.idx() as u16,
         shot_seq: (tick / 10) as u8,
+        lockon: None,
     }
     .quantized()
+}
+
+/// [`duel_scripted`], locked on (`bc_proto::LockOn`): flight assist holds the foe's velocity, the
+/// fight's up is the colony's, and the stick, in the fight's axes, closes in and then circles one
+/// way and the other.
+pub fn locked_scripted(sim: &Sim, id: SuitId, foe: SuitId, tick: u32) -> InputCmd {
+    let cmd = duel_scripted(sim, id, foe, tick);
+    let (me, it) = (&sim.suits.flight[id.idx()], &sim.suits.flight[foe.idx()]);
+    let range = me.pos.distance(it.pos);
+    let close = ((range - 20.0) / 200.0).clamp(-0.5, 1.0);
+    let circle = if (tick / 90 + id.idx() as u32).is_multiple_of(2) { 0.6 } else { -0.6 };
+    let q = |v: f32| (v.clamp(-1.0, 1.0) * 127.0) as i8;
+    let lockon = bc_proto::LockOn { ref_vel: it.vel, up: bc_sim::world::colony_up(me.pos) };
+    InputCmd { thrust: [q(circle), 0, q(close)], roll: 0, lockon: Some(lockon), ..cmd }.quantized()
 }
 
 /// The smallest rock bigger than `min` m with nothing else within `clear` m of it.

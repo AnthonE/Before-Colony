@@ -110,6 +110,11 @@ pub const BINDINGS: &[Binding] = &[
     b(Group::Weapons, "H", "Special: Neo-Bird, Hyper Jammer, Full Open Attack, Cross Crusher"),
     b(Group::Weapons, "Z", "ZERO System on/off"),
     b(Group::Weapons, "Hold on target", "Missile lock (fire once it reads LOCKED)"),
+    b(
+        Group::Weapons,
+        "Y / middle click",
+        "Lock on: the hostile nearest the crosshair (again: the next one; hold: let go). Locked, W closes in and stops short, A / D circle it, and you fight on its level; ◆ shows where to lead",
+    ),
     b(Group::Salvage, "G", "Grab on/off: the free hand takes what it touches"),
     b(Group::Salvage, "B", "Stow what's in hand"),
     b(Group::Salvage, "T", "Throw"),

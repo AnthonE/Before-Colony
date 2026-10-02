@@ -195,14 +195,26 @@ pub fn update_hints(
     game: NonSend<GameClient>,
     time: Res<Time<Real>>,
 ) {
-    let (alive, survival, feet, hidden) = {
+    let (alive, survival, feet, hidden, hostile_near, locked) = {
         let g = game.borrow();
         let own = g.core.world.own.filter(|o| o.alive);
+        // A hostile within a couple of kilometres: something to lock on to.
+        let from = g.core.own_view().map_or(g.core.predict.state.pos, |v| v.pos);
+        let w = &g.core.world;
+        let hostile_near = w.entities.iter().flatten().any(|tr| {
+            let e = &tr.latest;
+            e.faction != w.faction
+                && e.flags & bc_proto::snapshot::ent_flags::WRECK == 0
+                && tr.latest.pos.distance(from) < 2_000.0
+                && e.on.is_none()
+        });
         (
             own.is_some(),
             g.core.welcome.is_some_and(|w| w.survival),
             crate::hud::footed(&g.core),
             own.is_some_and(|o| o.cover == bc_proto::snapshot::cover::HIDDEN),
+            hostile_near,
+            g.hard.locked(),
         )
     };
     let grounded = feet.footing == bc_sim::ground::Footing::Grounded;
@@ -237,6 +249,8 @@ pub fn update_hints(
         in_hide_spot: grounded && feet.spot.is_some(),
         hidden,
         opened_map: keys.just_pressed(crate::map::MAP_KEY),
+        hostile_near,
+        locked,
     };
     let mut seen = settings.0.hints_seen;
     let hint = state.hints.step(&mut seen, now_s(), f64::from(time.delta_secs()), &input);

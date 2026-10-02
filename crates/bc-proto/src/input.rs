@@ -54,6 +54,15 @@ pub mod buttons {
 
 /// Bits per axis for the aim direction (octahedral): ~0.005° precision.
 pub const AIM_BITS: u32 = 16;
+/// A lock-on's reference velocity ([`LockOn::ref_vel`]): 3 × this many bits on the centred grid over
+/// ±[`LOCKON_VEL_MAX`] m/s (0.25 m/s steps, and a target at rest is exactly at rest).
+pub const LOCKON_VEL_BITS: u32 = 14;
+pub const LOCKON_VEL_MAX: f32 = 2_048.0;
+/// Bits per axis for a lock-on's up (octahedral): ~0.2°.
+pub const LOCKON_UP_BITS: u32 = 10;
+/// How long a silent client's suit keeps flying locked on once it's gone hands-off, in ticks past
+/// [`NEUTRAL_AFTER`]: about a second, then flight assist holds still in the sector's frame again.
+pub const LOCKON_KEEP: u32 = 30;
 /// How far behind its own tick a command may place its lag-compensation view, in 1/16 ticks: up
 /// to 15.9 ticks, twice what lag compensation reaches back (8 ticks). An older view saturates, and
 /// the server treats it as 8 ticks old either way.
@@ -61,6 +70,47 @@ pub const VIEW_DELTA_BITS: u32 = 8;
 pub const MAX_CMDS: usize = 4;
 /// A client silent for more than this many ticks goes hands-off (see [`InputCmd::stand_in`]).
 pub const NEUTRAL_AFTER: u32 = 8;
+
+/// Flying locked on to a target: flight assist holds the suit's velocity relative to `ref_vel` (the
+/// target's, as its pilot sees it) instead of to the sector, and reads the stick in axes levelled
+/// to `up`: the stick's up is `up`, its forward the aim laid flat, and the suit rolls level with
+/// it. The pilot's client works both out, so the server and the owner's prediction fly exactly
+/// the same command; neither is checked against the target, since all they ask for is a velocity a
+/// pilot could fly by hand (the simulation caps `ref_vel` at the frame's boosted cruise).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LockOn {
+    /// What flight assist holds the suit's velocity relative to, sector frame, m/s.
+    pub ref_vel: Vec3,
+    /// The fight's up (unit, sector frame): its "ground" is the plane square to it.
+    pub up: Vec3,
+}
+
+impl LockOn {
+    /// After a round trip through the wire.
+    pub fn quantized(&self) -> Self {
+        let q = |v: f32| {
+            quant::dequantize_centered(
+                quant::quantize_centered(v, LOCKON_VEL_MAX, LOCKON_VEL_BITS),
+                LOCKON_VEL_MAX,
+                LOCKON_VEL_BITS,
+            )
+        };
+        Self {
+            ref_vel: Vec3::new(q(self.ref_vel.x), q(self.ref_vel.y), q(self.ref_vel.z)),
+            up: quantize_dir(self.up, LOCKON_UP_BITS),
+        }
+    }
+
+    fn write(&self, w: &mut BitWriter<'_>) {
+        quant::write_vec_centered(w, self.ref_vel, LOCKON_VEL_MAX, LOCKON_VEL_BITS);
+        quant::write_dir(w, self.up, LOCKON_UP_BITS);
+    }
+
+    fn read(r: &mut BitReader<'_>) -> Self {
+        let ref_vel = quant::read_vec_centered(r, LOCKON_VEL_MAX, LOCKON_VEL_BITS);
+        Self { ref_vel, up: quant::read_dir(r, LOCKON_UP_BITS) }
+    }
+}
 
 /// One tick of control.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -85,6 +135,8 @@ pub struct InputCmd {
     pub lock_target: u16,
     /// Increments on every shot fired, so the shooter can match its predicted beams to the server's.
     pub shot_seq: u8,
+    /// Flying locked on to a target ([`LockOn`]), or not.
+    pub lockon: Option<LockOn>,
 }
 
 impl Default for InputCmd {
@@ -98,6 +150,7 @@ impl Default for InputCmd {
             buttons: 0,
             lock_target: NO_SLOT,
             shot_seq: 0,
+            lockon: None,
         }
     }
 }
@@ -118,11 +171,13 @@ impl InputCmd {
     /// What the server flies for `tick` when a client's command for it never arrived, `missing`
     /// ticks (1, 2, …) after `last`, the last one that did: `last` again without firing, on the same
     /// view delay, then hands-off ([`InputCmd::neutral`]) once the client has been silent for more
-    /// than [`NEUTRAL_AFTER`] ticks. The owner's prediction flies the same through gaps in what it
-    /// sent.
+    /// than [`NEUTRAL_AFTER`] ticks, still locked on for [`LOCKON_KEEP`] ticks more (so a stalled
+    /// pilot keeps station on its target rather than braking hard to the sector's rest). The owner's
+    /// prediction flies the same through gaps in what it sent.
     pub fn stand_in(last: &InputCmd, tick: u32, missing: u32) -> Self {
         if missing > NEUTRAL_AFTER {
-            return Self::neutral(tick, last.aim, last.buttons);
+            let lockon = last.lockon.filter(|_| missing <= NEUTRAL_AFTER + LOCKON_KEEP);
+            return Self { lockon, ..Self::neutral(tick, last.aim, last.buttons) };
         }
         let delta = (last.tick << 4).saturating_sub(last.view_tick_q4);
         Self {
@@ -158,6 +213,7 @@ impl InputCmd {
         c.view_tick_q4 = (self.tick << 4) - delta;
         c.lock_target = self.lock_target.min(NO_SLOT);
         c.buttons = (u32::from(self.buttons) & ((1 << buttons::BITS) - 1)) as u16;
+        c.lockon = self.lockon.map(|l| l.quantized());
         c
     }
 
@@ -172,6 +228,10 @@ impl InputCmd {
         w.write_bits(u32::from(self.buttons), buttons::BITS);
         w.write_bits(u32::from(self.lock_target.min(NO_SLOT)), SLOT_BITS);
         w.write_u8(self.shot_seq);
+        w.write_bool(self.lockon.is_some());
+        if let Some(l) = &self.lockon {
+            l.write(w);
+        }
     }
 
     fn read_body(r: &mut BitReader<'_>, tick: u32) -> Self {
@@ -182,6 +242,7 @@ impl InputCmd {
         let buttons = r.read_bits(buttons::BITS) as u16;
         let lock_target = r.read_bits(SLOT_BITS) as u16;
         let shot_seq = r.read_u8();
+        let lockon = r.read_bool().then(|| LockOn::read(r));
         Self {
             tick,
             view_tick_q4: (tick << 4).saturating_sub(delta),
@@ -191,6 +252,7 @@ impl InputCmd {
             buttons,
             lock_target,
             shot_seq,
+            lockon,
         }
     }
 }
@@ -214,9 +276,10 @@ impl Default for InputPacket {
 }
 
 impl InputPacket {
-    /// Encodes into `buf`, returning the byte length (≤ 64 for four commands: 86 + 4 × 106 bits).
-    /// Each command is 8 + 32 + 24 + 8 + 16 + 10 + 8 bits: view delta, aim, thrust, roll, buttons,
-    /// lock target, shot sequence.
+    /// Encodes into `buf`, returning the byte length: at most 65 for four commands (86 + 4 × 107
+    /// bits), and 96 if all four fly locked on (86 + 4 × 169). Each command is 8 + 32 + 24 + 8 + 16 +
+    /// 10 + 8 + 1 bits: view delta, aim, thrust, roll, buttons, lock target, shot sequence, and
+    /// whether a lock-on ([`LockOn`]: 42 + 20 bits) follows.
     pub fn encode(&self, buf: &mut [u8]) -> Option<usize> {
         let count = self.count.clamp(1, MAX_CMDS as u8);
         let mut w = BitWriter::new(buf);
@@ -270,12 +333,14 @@ mod tests {
                 buttons: buttons::FIRE_PRIMARY | buttons::ZERO | buttons::JETTISON,
                 lock_target: 17,
                 shot_seq: 250,
+                // One of them locked on, its target at rest.
+                lockon: (i == 1).then_some(LockOn { ref_vel: Vec3::new(-412.3, 0.0, 77.7), up: Vec3::Y }),
             }
             .quantized();
         }
         let mut buf = [0u8; 128];
         let n = p.encode(&mut buf).unwrap();
-        assert!(n <= 64, "{n}");
+        assert!(n <= 72, "{n}");
         let back = InputPacket::decode(&buf[..n]).unwrap();
         assert_eq!(back.count, 3);
         for i in 0..3 {
@@ -286,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn four_commands_fit_in_64_bytes() {
+    fn four_commands_fit_in_65_bytes_or_96_locked_on() {
         let mut p =
             InputPacket { ack_snapshot: u32::MAX, client_time_ms: u16::MAX, count: 4, ..Default::default() };
         for i in 0..4 {
@@ -300,7 +365,52 @@ mod tests {
             };
         }
         let mut buf = [0u8; 128];
-        assert_eq!(p.encode(&mut buf), Some(64));
+        assert_eq!(p.encode(&mut buf), Some(65));
+        for c in &mut p.cmds {
+            c.lockon = Some(LockOn { ref_vel: Vec3::splat(-5_000.0), up: Vec3::NEG_Z });
+        }
+        assert_eq!(p.encode(&mut buf), Some(96));
+    }
+
+    #[test]
+    fn a_lock_on_round_trips_and_a_still_target_stays_still() {
+        let l = LockOn { ref_vel: Vec3::new(0.0, -0.1, 1_999.9), up: Vec3::new(0.3, 0.9, -0.2).normalize() };
+        let q = l.quantized();
+        // The centred grid: zero is zero, and a tenth of a m/s is under half a step.
+        assert_eq!(q.ref_vel.x.to_bits(), 0.0f32.to_bits());
+        assert_eq!(q.ref_vel.y, 0.0);
+        assert!((q.ref_vel.z - 1_999.9).abs() <= 0.13, "{}", q.ref_vel.z);
+        assert!(q.up.angle_between(l.up) < 0.004, "{}", q.up.angle_between(l.up));
+        assert!((q.up.length() - 1.0).abs() < 1e-6);
+        // Quantizing again changes nothing: the client predicts with what the server decodes.
+        assert_eq!(q.quantized(), q);
+        // Out of range clamps to the grid's ends.
+        let far = LockOn { ref_vel: Vec3::new(9_000.0, -9_000.0, 0.0), up: Vec3::Y }.quantized();
+        assert_eq!((far.ref_vel.x, far.ref_vel.y), (LOCKON_VEL_MAX, -LOCKON_VEL_MAX));
+    }
+
+    #[test]
+    fn a_silent_client_stays_locked_on_for_a_while() {
+        let lockon = Some(LockOn { ref_vel: Vec3::new(120.0, 0.0, -40.0), up: Vec3::Y });
+        let last = InputCmd {
+            tick: 50,
+            thrust: [0, 0, 127],
+            buttons: buttons::FLIGHT_ASSIST | buttons::FIRE_PRIMARY,
+            lock_target: 9,
+            lockon,
+            ..InputCmd::default()
+        };
+        // Repeated as it was...
+        assert_eq!(InputCmd::stand_in(&last, 53, 3).lockon, lockon);
+        // ...then hands off, still keeping station on the target...
+        let n = InputCmd::stand_in(&last, 50 + NEUTRAL_AFTER + 1, NEUTRAL_AFTER + 1);
+        assert_eq!((n.thrust, n.lockon, n.buttons), ([0; 3], lockon, buttons::FLIGHT_ASSIST));
+        let n = InputCmd::stand_in(&last, 50, NEUTRAL_AFTER + LOCKON_KEEP);
+        assert_eq!(n.lockon, lockon);
+        // ...until it lets that go too.
+        assert_eq!(InputCmd::stand_in(&last, 50, NEUTRAL_AFTER + LOCKON_KEEP + 1).lockon, None);
+        // Handing a suit to nobody (asleep, launched) is never locked on.
+        assert_eq!(InputCmd::neutral(9, Vec3::X, u16::MAX).lockon, None);
     }
 
     #[test]
@@ -331,6 +441,7 @@ mod tests {
             buttons: buttons::FIRE_PRIMARY | buttons::BOOST | buttons::FLIGHT_ASSIST | buttons::MELEE,
             lock_target: 7,
             shot_seq: 3,
+            lockon: None,
         };
         // Repeated without firing, on the same view delay.
         let r = InputCmd::stand_in(&last, 103, 3);

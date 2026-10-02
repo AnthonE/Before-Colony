@@ -32,12 +32,13 @@ use bc_sim::content::landmarks::LANDMARKS;
 use bc_sim::content::salvage::{CATCH_SPEED, DOCK_CENTER, PRICE, REACH, hold_kg, material};
 use bc_sim::content::systems::{DAMAGED, FAILED};
 use bc_sim::content::{
-    ArmSlot, FrameSpec, PLAYABLE_ORDER, SpecialKind, frame, frame_name, weapon, weapon_name,
+    ArmSlot, FrameSpec, PLAYABLE_ORDER, SpecialKind, WeaponClass, frame, frame_name, weapon, weapon_name,
 };
 use bc_sim::content::{System, Systems};
 use bc_sim::ground::{Footing, RELEASE_SPEED, STANCE};
 use bc_sim::sim::LURK_SETTLE_TICKS;
 use bc_sim::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS};
+use bc_sim::zero::fire_control::intercept;
 use bc_sim::zero::hypotheses::Maneuver;
 use bevy::prelude::*;
 use bevy::text::LetterSpacing;
@@ -869,12 +870,15 @@ pub fn update_hud(
     mut lurk: Local<Lurk>,
     bodies: Res<DrawnBodies>,
     mut ui: ResMut<crate::page::Ui>,
+    settings: Res<crate::settings::SettingsRes>,
 ) {
     let game = game.borrow();
     let core = &game.core;
     let world = &core.world;
     let now = now_s();
     let t = core.render_tick(now);
+    // The lock-on's target, as drawn.
+    let locked = game.hard.target(world, t).filter(|_| world.own.is_some_and(|o| o.alive));
     let own = world.own;
     let zero = world.zero;
     // Survival rules: the pilot flies what they built, and docks to go home.
@@ -935,8 +939,13 @@ pub fn update_hud(
         let tuned = bc_sim::tuning::own_tuning(&o);
         let tank = bc_sim::tuning::tank_cap(spec, &tuned);
         // On a body, the speed is over it.
+        // On a body, the speed is over it; locked on, it's relative to the target.
         let (speed, g, strain, limited) = view.map_or((o.vel.length(), 0.0, o.g_strain, false), |v| {
-            let speed = v.ground.map_or(v.flight_vel.length(), |g| g.rel_vel.length());
+            let speed = match (v.ground, locked) {
+                (Some(g), _) => g.rel_vel.length(),
+                (None, Some(p)) => (v.flight_vel - p.vel).length(),
+                (None, None) => v.flight_vel.length(),
+            };
             (speed, v.g, v.g_strain, v.g_limited)
         });
         let feet = footed(core);
@@ -948,6 +957,7 @@ pub fn update_hud(
                 format!("  ALOFT  ALT {:.0} m", alt.max(0.0))
             }
             Footing::Free if grip => "  GRIP ARMED".to_string(),
+            Footing::Free if locked.is_some() => "  LOCKED ON".to_string(),
             Footing::Free => String::new(),
         };
         set(
@@ -1350,18 +1360,26 @@ pub fn update_hud(
     // --- Screen-space markers. ---
     let Ok((cam, cam_tf)) = camera.single() else { return };
     if let Ok((mut node, mut text, mut vis)) = lead.single_mut() {
-        match (zero, own) {
-            (Some(z), Some(o)) if z.has_solution && o.alive => {
-                let point = own_pos + z.solution * 1_500.0;
-                match cam.world_to_viewport(cam_tf, point) {
-                    Ok(p) => {
-                        node.left = Val::Px(p.x - 16.0);
-                        node.top = Val::Px(p.y - 10.0);
-                        text.0 = format!("[ ]{:.0}%", z.hit_p * 100.0);
-                        *vis = Visibility::Inherited;
-                    }
-                    Err(_) => *vis = Visibility::Hidden,
-                }
+        // ZERO's firing solution, which weighs the target's maneuvers; else, locked on, where a
+        // shot from the primary meets the target if it flies on as it is (the ◆, and how long
+        // the shot takes).
+        let primary = own.and_then(|o| frame(o.frame).loadout[0]).map(|m| weapon(m.weapon));
+        let mark = match (zero, own, locked, drawn) {
+            (Some(z), Some(o), _, _) if z.has_solution && o.alive => {
+                Some((own_pos + z.solution * 1_500.0, format!("[ ]{:.0}%", z.hit_p * 100.0), 16.0))
+            }
+            (_, Some(o), Some(p), Some(v)) if o.alive && settings.0.lead => primary
+                .filter(|w| matches!(w.class, WeaponClass::Beam | WeaponClass::Ballistic))
+                .and_then(|w| intercept(own_pos, v.flight_vel, w.speed, p.pos, p.vel, Vec3::ZERO))
+                .map(|sol| (own_pos + sol.dir * 1_500.0, format!("◆ {:.2}s", sol.t), 6.0)),
+            _ => None,
+        };
+        match mark.map(|(point, s, dx)| (cam.world_to_viewport(cam_tf, point), s, dx)) {
+            Some((Ok(p), s, dx)) => {
+                node.left = Val::Px(p.x - dx);
+                node.top = Val::Px(p.y - 10.0);
+                text.0 = s;
+                *vis = Visibility::Inherited;
             }
             _ => *vis = Visibility::Hidden,
         }
@@ -1445,9 +1463,11 @@ pub fn update_hud(
             Some((k as u8, pose, pr.dist, pose.rot * pr.normal))
         })
         .collect();
-    let drift = drawn.map(|v| match v.ground {
-        Some(g) => g.rel_vel,
-        None => landmarks
+    let drift = drawn.map(|v| match (v.ground, locked) {
+        (Some(g), _) => g.rel_vel,
+        // Locked on: how the suit moves about its target.
+        (None, Some(p)) => v.flight_vel - p.vel,
+        (None, None) => landmarks
             .iter()
             .filter(|l| l.2 < RELATIVE_NEAR)
             .min_by(|a, b| a.2.total_cmp(&b.2))
@@ -1598,6 +1618,8 @@ pub fn update_marks(
         .collect();
     shown.sort_by(|a, b| a.0.total_cmp(&b.0));
     let lock = own.filter(|o| o.alive && o.lock_target != NO_SLOT);
+    let hard = game.hard.slot();
+    let own_vel = core.own_view().map_or(Vec3::ZERO, |v| v.flight_vel);
     for (k, &(dist, slot)) in shown.iter().enumerate() {
         let Some(track) = world.entity(slot) else { continue };
         let e = &track.latest;
@@ -1605,8 +1627,12 @@ pub fn update_marks(
         let hostile = e.faction != core.cfg.faction;
         let wreck = e.flags & ent_flags::WRECK != 0;
         let locked_on_you = e.flags & ent_flags::LOCKED_ON_YOU != 0;
+        // The pilot's own lock-on: where it is always shows, on screen or off it.
+        let locked_on = hard == Some(slot);
         let Some(at) = project(pos) else {
-            if !wreck && (locked_on_you || (hostile && dist < NEAR)) {
+            if locked_on {
+                off.push((pos, CYAN));
+            } else if !wreck && (locked_on_you || (hostile && dist < NEAR)) {
                 off.push((pos, if locked_on_you { RED } else { AMBER }));
             }
             continue;
@@ -1625,23 +1651,31 @@ pub fn update_marks(
             None => String::new(),
         });
         // Named: the nearest few, and any that matter (a lock either way, ZERO's pick).
-        let named = k < TAGGED || locked_on_you || locking.is_some() || zero_target;
+        // Locked on: how fast it closes (+) or opens.
+        let closing = locked_on.then(|| {
+            let to = (pos - own_pos).normalize_or_zero();
+            format!("\nLOCK-ON {:+.0} m/s", -(track.sample(t, &world.bodies).vel - own_vel).dot(to))
+        });
+        let named = k < TAGGED || locked_on_you || locking.is_some() || zero_target || locked_on;
         let tag = if !named {
             String::new()
         } else {
             format!(
-                "{}{}{}\n{}{}{}{}",
+                "{}{}{}\n{}{}{}{}{}",
                 world.name_of(slot),
                 pilot_tag(e.pilot),
                 warn,
                 km(dist),
                 if e.pilot == PilotKind::Agent { " agent" } else { "" },
                 if asleep { " ASLEEP" } else { "" },
-                locking.as_deref().unwrap_or("")
+                locking.as_deref().unwrap_or(""),
+                closing.as_deref().unwrap_or("")
             )
         };
         let color = if wreck {
             Color::srgb(0.5, 0.5, 0.5)
+        } else if locked_on {
+            CYAN
         } else if locking.is_some() {
             AMBER
         } else if zero_target {

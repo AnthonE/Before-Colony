@@ -4,6 +4,7 @@
 #   scripts/e2e.sh slice [project]   # the vertical slice (game mode, dolls + an agent bot)
 #   scripts/e2e.sh gfx [project]     # every showcase scene renders cleanly (BC_GFX_QUALITY=high)
 #   scripts/e2e.sh frames [project]  # the autopilot flies each Gundam's kit against the dolls
+#   scripts/e2e.sh lockon [project]  # Y locks on to a Doll, W carries the suit in, holding Y lets go
 #   scripts/e2e.sh ui [project]      # the title screen, the menu, reconnecting, disconnecting
 #   scripts/e2e.sh login [project]   # wallet sign-in (a stub wallet with a test key), resume, take-over
 #   scripts/e2e.sh hangar [project]  # survival: on foot in the bay, its terminals, launching and docking
@@ -40,6 +41,11 @@ case "$suite" in
     ;;
   frames)
     ./target/release/bc-server --mode game --rules "${BC_RULES:-arcade}" --flight "${BC_FLIGHT:-anime}" --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls "${BC_DOLLS:-24}" &
+    pids+=($!)
+    ;;
+  lockon)
+    # A few Dolls to lock on to.
+    ./target/release/bc-server --mode game --rules "${BC_RULES:-arcade}" --flight "${BC_FLIGHT:-anime}" --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls "${BC_DOLLS:-8}" &
     pids+=($!)
     ;;
   ui)

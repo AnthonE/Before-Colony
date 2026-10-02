@@ -29,11 +29,13 @@ pub enum Hint {
     Hide,
     /// Flying: the map, and the objective's waypoint.
     Map,
+    /// Flying with a hostile near: locking on.
+    Lock,
 }
 
 impl Hint {
     /// In the order they're shown.
-    pub const ALL: [Hint; 15] = [
+    pub const ALL: [Hint; 16] = [
         Hint::Walk,
         Hint::Use,
         Hint::Launch,
@@ -41,6 +43,7 @@ impl Hint {
         Hint::Map,
         Hint::Boost,
         Hint::Fire,
+        Hint::Lock,
         Hint::Camera,
         Hint::FlightAssist,
         Hint::Salvage,
@@ -67,6 +70,7 @@ impl Hint {
             Hint::Grip => i.near_surface && !i.gripping,
             Hint::Surface => i.grounded,
             Hint::Hide => i.grounded && i.in_hide_spot,
+            Hint::Lock => i.hostile_near && !i.locked,
             _ => true,
         }
     }
@@ -99,6 +103,9 @@ impl Hint {
                 "Crouch still in a hide spot and sensors lose you. Log off here and your suit stays hidden"
             }
             Hint::Map => "M opens the map. Your objective is top left, and ◆ marks where to go.",
+            Hint::Lock => {
+                "Y (or the middle button) locks on: W closes in, A / D circle it, ◆ shows where to lead. Hold Y to let go."
+            }
         }
     }
 
@@ -107,7 +114,7 @@ impl Hint {
         match self {
             Hint::Thrust | Hint::Fire | Hint::Walk => 20.0,
             Hint::Use | Hint::Launch => 30.0,
-            Hint::Dock | Hint::Camera | Hint::Grip | Hint::Hide | Hint::Map => 15.0,
+            Hint::Dock | Hint::Camera | Hint::Grip | Hint::Hide | Hint::Map | Hint::Lock => 15.0,
             Hint::Surface => 20.0,
             _ => 9.0,
         }
@@ -149,6 +156,9 @@ pub struct HintInput {
     pub hidden: bool,
     /// Opened the map.
     pub opened_map: bool,
+    /// A hostile within a couple of kilometres, and the pilot locked on to one.
+    pub hostile_near: bool,
+    pub locked: bool,
 }
 
 /// Seconds between one hint and the next.
@@ -196,6 +206,7 @@ impl Hints {
                 Hint::Surface => i.walked,
                 Hint::Hide => i.hidden,
                 Hint::Map => i.opened_map,
+                Hint::Lock => i.locked,
             };
             self.doing = if acting { self.doing + dt } else { self.doing };
             self.hopped |= i.hopped;
@@ -210,6 +221,7 @@ impl Hints {
                     | Hint::Grip
                     | Hint::Hide
                     | Hint::Map
+                    | Hint::Lock
             );
             // The surface's: a second of walking, and a hop.
             let done = if h == Hint::Surface {
