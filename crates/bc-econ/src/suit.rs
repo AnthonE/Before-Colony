@@ -23,6 +23,7 @@ use crate::catalogue::{munitions_per_load, recipe, rounds_per_load, tank_kg};
 use crate::faults::Faults;
 use crate::item::{Item, line_serde, part_serde};
 use crate::stores::PartUnit;
+use crate::wear::Wear;
 
 /// Where something is fitted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,6 +63,9 @@ pub struct Suit {
     /// loaded from the stores at launch, and what's left goes back when it docks.
     #[serde(default, skip_serializing_if = "no_kits")]
     pub kits: [u8; Kit::COUNT],
+    /// What its systems have been through since they were last overhauled or serviced.
+    #[serde(default, skip_serializing_if = "Wear::is_none")]
+    pub wear: Wear,
 }
 
 fn no_kits(k: &[u8; Kit::COUNT]) -> bool {
@@ -124,6 +128,7 @@ impl Suit {
             faults: Faults::NONE.with_part(Part::Torso, torso.faults),
             modules: [None; MODULE_MOUNTS],
             kits: [0; Kit::COUNT],
+            wear: Wear::default(),
         }
     }
 
@@ -139,6 +144,7 @@ impl Suit {
             faults: Faults::NONE,
             modules: [None; MODULE_MOUNTS],
             kits: [0; Kit::COUNT],
+            wear: Wear::default(),
         }
         .with_mounts_of_its_loadout()
     }
@@ -401,6 +407,7 @@ mod tests {
             systems: l.systems,
             modules: l.modules,
             kits: l.kits,
+            usage: Default::default(),
             cargo_kg: [0; 4],
             held: None,
             bounty: 0,

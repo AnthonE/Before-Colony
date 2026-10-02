@@ -665,6 +665,26 @@ for bulk goods, a piece for everything else.
   test checks it).
 - Each item's last trade price is sampled once a minute: the terminal draws the last hour.
 
+### Wear from use
+
+Systems wear down between fights as well as in them (`bc_econ::wear`). The sector counts what
+each suit goes through out there (`bc_sim::sim::Usage`: ticks of main burn and of boost, rounds or
+shots from each mount, overheats), and the hangar adds each sortie's to the suit's wear:
+
+| What's counted | Wears | Service life |
+|---|---|---|
+| the main thrusters burning | the main thrusters | 30 minutes |
+| boosting | the boosters | 5 minutes |
+| rounds or shots from a mount | its arm's actuators (the fire control, for the head's, shoulders' and chest's) | 1,500 |
+| overheating | the reactor | 6 times |
+
+A system that's had its service life comes home a level worse (working to damaged, damaged to
+failed), and the dock's note says so; overhauling it starts its life again. From a quarter of
+the way through, an overhaul services it instead (half of what overhauling it damaged takes), so
+keeping a suit flying is a steady trade in machined components. A part stripped off leaves its
+systems' wear behind: the next one fitted starts afresh. The suit's console shows each worn
+system's service life.
+
 ### Consumables: the rack and the hotbar
 
 A suit carries a rack of consumables (`bc_sim::content::kits`), used in flight from the hotbar
@@ -957,8 +977,7 @@ jobs, law and traffic, on an economy whose sinks keep demand turning over.
 
 - **Consumables and a survival hotbar** (done: the rack, above). Next: chaff drawn as it
   blooms, and decoys a missile chases.
-- **Wear from use:** thruster hours, barrel wear and reactor cycles wear systems down between
-  fights, so keeping a suit flying is a steady trade.
+- **Wear from use** (done: above).
 - **Contracts** (begun: the Charter Board, above, with supply contracts and the militia's
   patrols): clear that claim, escort a hauler home, recover a wreck; shady ones.
 - **Colony projects** (begun: the era's great works and the charter vote, above): the next eras'

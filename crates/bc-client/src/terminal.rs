@@ -20,6 +20,7 @@ use bc_econ::exchange::FEE_BP;
 use bc_econ::faults::overhaul_cost;
 use bc_econ::item::{LINES, part_name, part_slug};
 use bc_econ::suit::repair_cost;
+use bc_econ::wear::{SERVICE_FROM, service_cost};
 use bc_econ::wire::HangarView;
 use bc_econ::{Bay, Hangar, Item};
 use bc_proto::Part;
@@ -211,12 +212,23 @@ fn console(v: &HangarView) -> Value {
             })
         })
         .collect();
+    // Wear from use: each worn system, how far through its service life.
+    let wear: Vec<Value> = suit
+        .wear
+        .systems(suit.line)
+        .into_iter()
+        .filter(|(sys, _)| suit.parts[sys.part() as usize].is_some())
+        .map(|(sys, used)| json!({ "system": sys.slug(), "used": used }))
+        .collect();
     json!({
         "launch": launch,
         "repairs": repairs,
         "overhauls": overhauls,
         "fits": fits,
         "stats": suit.stats(),
+        "wear": wear,
+        "service_cost": amounts(&service_cost(suit.line)),
+        "service_from_pct": (SERVICE_FROM * 100.0).round() as u32,
     })
 }
 

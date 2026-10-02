@@ -30,6 +30,7 @@ fn home_of(s: &Suit) -> Homecoming {
         systems: l.systems,
         modules: l.modules,
         kits: l.kits,
+        usage: Default::default(),
         cargo_kg: [0; 4],
         held: None,
         bounty: 0,
@@ -223,4 +224,42 @@ fn consumables_are_made_and_traded() {
         assert!(value(item) > 0, "{kit:?}");
         assert!(desk(item).is_some_and(|d| d.buys && d.sells), "{kit:?}");
     }
+}
+
+/// Wear from use: a sortie's thruster burn, rounds and overheats add up, a system past its
+/// service life comes home damaged, an overhaul restores it, and a worn one can be serviced first.
+#[test]
+fn systems_wear_from_use_and_are_serviced() {
+    use bc_econ::wear::{MAIN_S, OVERHEATS};
+    use bc_sim::TICK_HZ;
+    use bc_sim::sim::Usage;
+    let mut h = Hangar::starter();
+    h.stores.add(Item::Material(Material::Components), 10_000);
+    h.stores.add(Item::Material(Material::Electronics), 10_000);
+    h.overhaul(None).unwrap();
+    let fly = |h: &mut Hangar, usage: Usage| {
+        h.launch().unwrap();
+        let Bay::Out { suit } = &h.bay else { panic!() };
+        let mut home = home_of(suit);
+        home.usage = usage;
+        h.came_home(&home)
+    };
+    // Half a service life of burn and a few overheats: nothing yet, but it can be serviced.
+    let half =
+        Usage { burn: MAIN_S * TICK_HZ / 2 + 1, overheats: (OVERHEATS / 2) as u16, ..Usage::default() };
+    let note = fly(&mut h, half);
+    assert!(!note.contains("WORN"), "{note}");
+    assert!(suit(&h).faults.is_empty());
+    let text = h.overhaul(None).unwrap();
+    assert!(text.contains("MAIN THRUSTERS (SERVICED)"), "{text}");
+    assert!(suit(&h).wear.is_none(), "{:?}", suit(&h).wear);
+    // A whole life of it: the main thrusters come home damaged, and an overhaul puts them right.
+    let note = fly(&mut h, Usage { burn: MAIN_S * TICK_HZ, ..Usage::default() });
+    assert!(note.contains("MAIN THRUSTERS WORN"), "{note}");
+    assert_eq!(suit(&h).faults.level(System::MainThrusters), DAMAGED);
+    let text = h.overhaul(None).unwrap();
+    assert!(text.contains("MAIN THRUSTERS"), "{text}");
+    assert!(suit(&h).faults.is_empty());
+    // Nothing worn, nothing broken: nothing to do.
+    assert!(h.overhaul(None).is_err());
 }

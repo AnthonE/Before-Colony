@@ -68,6 +68,7 @@ use crate::zero::strain::StrainEvent;
 
 pub use crate::bodies::Body;
 pub use crate::ground::{Anchor, Footing};
+pub use crate::suits::Usage;
 pub use conceal::{
     COLD_SIG, Conceal, EXPOSE_TICKS, FOUGHT_DARK_TICKS, HIDE_AWAKE_VISUAL_MUL, LURK_SETTLE_TICKS, LURK_STILL,
     POWER_DOWN_TICKS, cover,
@@ -723,6 +724,11 @@ impl Sim {
                 }
                 (s.flight[i], s.footing[i], s.anchor[i]) = (m.flight, m.footing, m.anchor);
                 s.boosting[i] = out.flight.boosting;
+                if !asleep {
+                    let u = &mut s.usage[i];
+                    u.burn += u32::from(out.flight.throttle.z > 0.1);
+                    u.boost += u32::from(out.flight.boosting);
+                }
                 if asleep {
                     sleep::look_ahead(s, i);
                 } else {
@@ -852,6 +858,9 @@ impl Sim {
                 let tuned = s.tuning[i];
                 s.heat[i] = (s.heat[i] - spec.heat_dissipation * tuned.heat * DT).max(0.0);
                 if s.heat[i] >= spec.heat_cap {
+                    if !s.overheated[i] {
+                        s.usage[i].overheats = s.usage[i].overheats.saturating_add(1);
+                    }
                     s.overheated[i] = true;
                 } else if s.overheated[i] && s.heat[i] < spec.heat_cap * 0.5 {
                     s.overheated[i] = false;

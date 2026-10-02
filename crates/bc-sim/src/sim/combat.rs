@@ -201,6 +201,9 @@ impl Sim {
         s.energy[i] -= w.energy;
         s.last_fired[i] = t;
         s.stats[i].shots += 1;
+        if let Some(n) = s.usage[i].shots.get_mut(slot) {
+            *n = n.saturating_add(1);
+        }
         // (The special mounts fire only in Full Open, which shows by itself.)
         if slot == 0 {
             s.fired_primary[i] = t;

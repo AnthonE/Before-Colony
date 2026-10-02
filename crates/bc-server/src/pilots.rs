@@ -154,6 +154,7 @@ impl ParkedSuit {
                 systems: Systems(self.systems),
                 modules: Modules(self.modules),
                 kits: Kits(self.kits),
+                usage: Default::default(),
             },
         })
     }

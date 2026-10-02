@@ -18,6 +18,8 @@ use crate::stores::{PartUnit, Stores};
 use crate::suit::{MODULE_MOUNTS, Slot, Suit, line_of, repair_cost, scrap_yield};
 use bc_sim::content::System;
 use bc_sim::content::kits::{Kit, RACK};
+
+use crate::wear::{SERVICE_FROM, service_cost};
 use bc_sim::content::modules::MOUNTS;
 use bc_sim::content::systems::{DAMAGED, FAILED, OK};
 
@@ -268,6 +270,10 @@ impl Hangar {
                 };
                 let faults = suit.faults.of_part(part);
                 suit.faults = suit.faults.with_part(part, Faults::NONE);
+                // The next one fitted starts its systems' service lives afresh.
+                for sys in System::ALL.into_iter().filter(|s| s.part() == part) {
+                    suit.wear.reset(sys, line);
+                }
                 // Its equipment comes off with it, into the stores.
                 let mut gear = Vec::new();
                 for (k, m) in suit.modules.iter_mut().enumerate() {
@@ -390,8 +396,28 @@ impl Hangar {
                 short = true;
                 continue;
             }
-            self.suit_mut()?.faults.set(sys, OK);
+            let s = self.suit_mut()?;
+            s.faults.set(sys, OK);
+            s.wear.reset(sys, suit.line);
             fixed.push(sys.name().to_uppercase());
+        }
+        // Then a service for what's working but worn: its life starts again, for less than an
+        // overhaul would take once it's worn out.
+        for (sys, f) in suit.wear.systems(suit.line) {
+            let fitted = suit.parts[sys.part() as usize].is_some();
+            if f < SERVICE_FROM
+                || !fitted
+                || part.is_some_and(|p| p != sys.part())
+                || suit.faults.level(sys) != OK
+            {
+                continue;
+            }
+            if !self.stores.take_all(&service_cost(suit.line), 1) {
+                short = true;
+                continue;
+            }
+            self.suit_mut()?.wear.reset(sys, suit.line);
+            fixed.push(format!("{} (SERVICED)", sys.name().to_uppercase()));
         }
         match (fixed.is_empty(), short) {
             (true, true) => {
@@ -464,6 +490,10 @@ impl Hangar {
             Bay::Empty => Suit::complete(line_of(home.frame)),
         };
         suit.came_home(home);
+        // Wear from use: what's had its service life comes home a level worse.
+        suit.wear.add(&home.usage);
+        let (line, parts) = (suit.line, suit.parts);
+        let worn = suit.wear.wear_out(&mut suit.faults, line, |p| parts[p as usize].is_some());
         // What's left in the rack goes back on the shelf.
         for kit in Kit::ALL {
             self.stores.add(Item::Kit(kit), u64::from(home.kits.get(kit)));
@@ -483,6 +513,9 @@ impl Hangar {
         if home.bounty > 0 {
             self.credits += u64::from(home.bounty);
             notes.push(format!("BOUNTY {} CR", home.bounty));
+        }
+        for sys in worn {
+            notes.push(format!("{} WORN: OVERHAUL IT", sys.name().to_uppercase()));
         }
         notes.join(" · ")
     }
@@ -657,6 +690,7 @@ mod tests {
             systems: l.systems,
             modules: l.modules,
             kits: l.kits,
+            usage: Default::default(),
             cargo_kg: [0; 4],
             held: None,
             bounty: 0,

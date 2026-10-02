@@ -155,6 +155,19 @@ impl Default for Status {
     }
 }
 
+/// What a suit has been through since it launched, for wear between fights (`bc_econ::wear`):
+/// counted, never hashed, and nothing in the simulation reads it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Usage {
+    /// Ticks its main thrusters burnt, and it boosted.
+    pub burn: u32,
+    pub boost: u32,
+    /// Rounds and shots fired from each loadout mount.
+    pub shots: [u16; 3],
+    /// Times it overheated.
+    pub overheats: u16,
+}
+
 /// Per-suit combat statistics (for `/status` and the kill feed).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SuitStats {
@@ -204,6 +217,8 @@ pub struct Suits {
     pub modules: Box<[Modules]>,
     /// The consumables in its rack (survival: `content::kits`).
     pub kits: Box<[Kits]>,
+    /// What it has been through since it launched.
+    pub usage: Box<[Usage]>,
     /// Timed conditions: a scram, a concussion, a repair under way.
     pub status: Box<[Status]>,
     /// The stat sheet, rebuilt at the top of each tick's flight (`crate::tuning`).
@@ -297,6 +312,7 @@ impl Suits {
             mounts: boxed(cap, ALL_MOUNTS),
             credits: boxed(cap, 0u32),
             kits: boxed(cap, Kits::NONE),
+            usage: boxed(cap, Usage::default()),
             sleeping: BitSet::new(cap),
             slept_at: boxed(cap, 0u32),
             anchor: boxed(cap, Anchor::default()),
@@ -365,6 +381,7 @@ impl Suits {
         self.systems[idx] = Systems::OK;
         self.modules[idx] = Modules::NONE;
         self.kits[idx] = Kits::NONE;
+        self.usage[idx] = Usage::default();
         self.status[idx] = Status::default();
         self.tuning[idx] = Tuning::default();
         self.zero[idx] = ZeroState::default();

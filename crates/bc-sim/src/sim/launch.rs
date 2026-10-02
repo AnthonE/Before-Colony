@@ -24,7 +24,7 @@ use crate::content::{Kits, Modules, Systems, frame, weapon};
 use crate::ground::{self, Anchor, CROUCH_STANCE, Footing, STANCE};
 use crate::handle::SuitId;
 use crate::math::{cos, floor, look_rotation, quat_normalize, sin};
-use crate::suits::{ALL_MOUNTS, NO_SPOT};
+use crate::suits::{ALL_MOUNTS, NO_SPOT, Usage};
 use crate::world::{COLONY_CENTER, COLONY_HALF_LENGTH};
 
 /// Where suits come out: on the docking hub's axis, just off its mouth, inside the dock (a suit
@@ -105,6 +105,8 @@ pub struct Homecoming {
     pub modules: Modules,
     /// The consumables it didn't use.
     pub kits: Kits,
+    /// What it has been through out there (thrusters, guns, the reactor).
+    pub usage: Usage,
     /// The hold, kg per cargo kind.
     pub cargo_kg: [u16; CARGO_KINDS],
     /// Whatever it had in hand (a hulk it towed in, a limb, ore).
@@ -209,6 +211,7 @@ impl Sim {
             systems: s.systems[i],
             modules: s.modules[i].without(s.gone_mask(i)),
             kits: s.kits[i],
+            usage: s.usage[i],
             cargo_kg: s.cargo_kg[i],
             held: None,
             bounty: s.credits[i],
@@ -299,6 +302,7 @@ impl Sim {
         s.systems[i] = home.systems.clean();
         s.modules[i] = home.modules.clean();
         s.kits[i] = home.kits;
+        s.usage[i] = home.usage;
         s.retune(i);
         for (slot, ws) in s.weapons[i].iter_mut().enumerate() {
             if let Some(m) = spec.loadout[slot] {

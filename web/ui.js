@@ -735,8 +735,18 @@
         row("DAMAGE TAKEN", `×${st.armour.toFixed(2)}`) +
         `</div></section>`;
     }
+    // Wear from use: how far through its service life each worn system is.
+    const wear = con.wear || [];
+    if (wear.length) {
+      const serviceCost = (con.service_cost || []).map(([s, q]) => `${amount(s, q)} ${esc(nameOf(s))}`).join(", ");
+      out += `<section><h3>SERVICE LIFE</h3><table>` + wear.map((w) => {
+        const pct = Math.min(100, Math.round(w.used * 100));
+        return `<tr><td>${esc(systemName(w.system))}</td><td><span class="bar ${pct >= 75 ? "bad" : pct >= 40 ? "worn" : ""}"><i style="width:${Math.max(2, pct)}%"></i></span>${pct}% used</td></tr>`;
+      }).join("") + `</table><div class="note">Thruster hours, rounds fired and overheats wear systems down: at 100% one comes home a level worse. From ${con.service_from_pct}% OVERHAUL services it (${serviceCost} each) and its life starts again.</div></section>`;
+    }
+    const serviceable = wear.some((w) => w.used * 100 >= (con.service_from_pct || 100));
     out += `<div class="row">` + ((con.repairs || []).length ? button("REPAIR ALL", { act: "repair", part: "" }) : "") +
-      ((con.overhauls || []).length ? button("OVERHAUL ALL", { act: "overhaul", part: "" }) : "") +
+      ((con.overhauls || []).length || serviceable ? button("OVERHAUL ALL", { act: "overhaul", part: "" }) : "") +
       button("DISMANTLE", { act: "dismantle" }, "danger") + `<span class="note">Dismantling puts everything back in the stores.</span></div>`;
     return out;
   }

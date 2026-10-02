@@ -146,6 +146,9 @@ impl Sim {
         ws.ammo -= 1;
         s.stats[i].shots += 1;
         s.stats[i].missiles += 1;
+        if let Some(n) = s.usage[i].shots.get_mut(slot) {
+            *n = n.saturating_add(1);
+        }
         s.last_fired[i] = t;
         if slot == 0 {
             s.fired_primary[i] = t;
