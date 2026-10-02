@@ -347,6 +347,9 @@ button:disabled { opacity: 0.4; cursor: default; }
 .term-body button { padding: 4px 9px; font-size: 11px; letter-spacing: 0.12em; }
 .term-body input { font-size: 12px; padding: 4px 6px; width: 76px; }
 .term-body input[type="checkbox"] { width: auto; }
+.term-body input.narrow { width: 56px; }
+.term-body select { font: inherit; font-size: 12px; padding: 4px 6px; max-width: 200px; color: var(--white); background: rgba(0, 0, 0, 0.5); border: 1px solid var(--edge); }
+.term-body section.work.done { opacity: 0.75; }
 .term-body .have { color: var(--cyan); }
 .term-body .short { color: var(--red); }
 .term-body .dim { opacity: 0.55; }

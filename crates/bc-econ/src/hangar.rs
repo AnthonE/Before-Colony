@@ -61,11 +61,22 @@ fn refuse<T>(why: impl Into<String>) -> Result<T, String> {
 pub struct Rules {
     /// Jobs run this many times faster than their recipes say (testing, events).
     pub craft_speed: f64,
+    /// The foundry's fee, percent of the recipe's, and how many times faster it works (the
+    /// colony's great works: `charter::Effects`).
+    pub foundry_fee_pct: u64,
+    pub foundry_speed: f64,
 }
 
 impl Default for Rules {
     fn default() -> Self {
-        Self { craft_speed: 1.0 }
+        Self { craft_speed: 1.0, foundry_fee_pct: 100, foundry_speed: 1.0 }
+    }
+}
+
+impl Rules {
+    /// These rules, with what the colony's finished works do.
+    pub fn with(self, e: &crate::charter::Effects) -> Self {
+        Self { foundry_fee_pct: e.foundry_fee_pct, foundry_speed: e.foundry_speed, ..self }
     }
 }
 
@@ -128,7 +139,7 @@ impl Hangar {
             ));
         }
         let n = u64::from(batches);
-        let fee = r.fee * n;
+        let fee = r.fee * n * rules.foundry_fee_pct / 100;
         if self.credits < fee {
             return refuse(format!("the foundry wants {fee} cr for that"));
         }
@@ -143,8 +154,9 @@ impl Hangar {
         }
         let _ = self.stores.take_all(&r.inputs, n);
         self.credits -= fee;
-        let secs = (f64::from(r.secs) / rules.craft_speed.max(1e-3)).round().max(1.0) as u32;
-        self.works.queue(r.station).push(item, batches, secs, now);
+        let speed = rules.craft_speed * if r.station == Station::Foundry { rules.foundry_speed } else { 1.0 };
+        let secs = (f64::from(r.secs) / speed.max(1e-3)).round().max(1.0) as u32;
+        self.works.queue(r.station).push(item, batches, secs, now, rules.foundry_fee_pct);
         Ok(format!("QUEUED {} × {}", batches, item.name().to_uppercase()))
     }
 
@@ -768,7 +780,7 @@ mod tests {
         h.stores.add(Item::Ore(Ore::NickelIron), 250);
         let err = h.craft(steel, 3, 0, &Rules::default()).unwrap_err();
         assert!(err.contains("50 kg Nickel-iron ore"), "{err}");
-        h.craft(steel, 2, 0, &Rules { craft_speed: 2.0 }).unwrap();
+        h.craft(steel, 2, 0, &Rules { craft_speed: 2.0, ..Rules::default() }).unwrap();
         assert_eq!(h.stores.get(Item::Ore(Ore::NickelIron)), 50);
         assert_eq!(h.settle(10), [(steel, 80)]);
         assert_eq!(h.settle(20), [(steel, 80)]);

@@ -102,6 +102,10 @@ pub(super) async fn run(
         watching: None,
         market_seen: 0,
         market_sent: Instant::now() - MARKET_EVERY,
+        board: false,
+        board_seen: 0,
+        board_sent: Instant::now() - MARKET_EVERY,
+        news_seen: game.charter.with(|b| b.news_seq()),
         lost: false,
         entered: false,
     };
@@ -146,6 +150,12 @@ struct Session<'a> {
     watching: Option<Item>,
     market_seen: u64,
     market_sent: Instant,
+    /// The pilot is looking at the Charter Board; the version they saw, and when it was sent.
+    board: bool,
+    board_seen: u64,
+    board_sent: Instant,
+    /// The newest of the board's notices the pilot has heard.
+    news_seen: u64,
     /// The suit was destroyed; its wreck is still out there.
     lost: bool,
     /// Welcomed (so leaving has a roster entry, a record and a lease to settle).
@@ -573,6 +583,40 @@ impl Session<'_> {
         Ok(())
     }
 
+    async fn send_board(&mut self) -> anyhow::Result<()> {
+        self.board_seen = self.game.charter.version();
+        self.board_sent = Instant::now();
+        let view = self.game.charter.with(|b| b.view(&self.trader, pilots::unix_now()));
+        self.send(&Update::Charter(view)).await
+    }
+
+    /// The board's notices the pilot hasn't heard yet (the colony's great works finished, an era
+    /// begun), as news.
+    async fn send_notices(&mut self) -> anyhow::Result<()> {
+        let seen = self.news_seen;
+        let (latest, news): (u64, Vec<String>) =
+            self.game.charter.with(|b| (b.news_seq(), b.news_since(seen).map(|n| n.text.clone()).collect()));
+        self.news_seen = latest;
+        for text in news {
+            self.send(&Update::News { text }).await?;
+        }
+        Ok(())
+    }
+
+    /// A sortie earned `bounty`: it counts toward the patrol the pilot holds.
+    async fn patrol_bounties(&mut self, bounty: u32) -> anyhow::Result<()> {
+        let now = pilots::unix_now();
+        let notes = self.game.charter.with(|b| b.bounties(&self.trader, u64::from(bounty), now));
+        if notes.is_empty() {
+            return Ok(());
+        }
+        self.game.charter.changed();
+        for n in notes {
+            self.note(n, true).await?;
+        }
+        Ok(())
+    }
+
     /// Runs the stations' clocks and collects what the exchange owes. What happened, to tell.
     fn settle(&mut self, collect: bool) -> Vec<String> {
         let mut notes: Vec<String> = self
@@ -586,6 +630,10 @@ impl Session<'_> {
             let hangar = &mut self.hangar;
             if self.game.market.with(|ex| ex.owed(&trader)) {
                 notes.extend(self.game.market.with(|ex| hangar.collect(ex, &trader)));
+            }
+            if self.game.charter.with(|b| b.owed(&trader)) {
+                notes.extend(self.game.charter.with(|b| b.collect(hangar, &trader)));
+                self.game.charter.changed();
             }
         }
         notes
@@ -652,9 +700,44 @@ impl Session<'_> {
                 self.watching = item.filter(|i| i.valid());
                 self.send_market().await
             }
+            Request::WatchBoard { on } => {
+                self.board = on;
+                if on { self.send_board().await } else { Ok(()) }
+            }
+            Request::Post { .. }
+            | Request::Withdraw { .. }
+            | Request::Deliver { .. }
+            | Request::TakePatrol { .. }
+            | Request::DropPatrol { .. }
+            | Request::Contribute { .. }
+            | Request::Sign => {
+                let now = pilots::unix_now();
+                let (hangar, trader, name) = (&mut self.hangar, self.trader.as_str(), self.callsign.as_str());
+                let (market, charter) = (&self.game.market, &self.game.charter);
+                let done = charter
+                    .with(|b| market.with(|ex| wire::apply_charter(&req, hangar, b, ex, trader, name, now)));
+                charter.changed();
+                if matches!(req, Request::Deliver { .. }) {
+                    // A colony contract's goods went to its desk.
+                    market.changed();
+                }
+                match done {
+                    Some(Ok(text)) if text.is_empty() => {}
+                    Some(Ok(text)) => self.note(text, true).await?,
+                    Some(Err(why)) => self.note(why, false).await?,
+                    None => {}
+                }
+                self.send_hangar().await?;
+                self.send_board().await?;
+                self.send_notices().await?;
+                self.save().await;
+                Ok(())
+            }
             other => {
                 let now = pilots::unix_now();
-                let (hangar, trader, econ) = (&mut self.hangar, self.trader.as_str(), self.game.econ);
+                let effects = self.game.charter.with(|b| b.effects());
+                let (hangar, trader, econ) =
+                    (&mut self.hangar, self.trader.as_str(), self.game.econ.with(&effects));
                 let done = self.game.market.with(|ex| wire::apply(&other, hangar, ex, trader, now, &econ));
                 let trades = matches!(other, Request::Order { .. } | Request::CancelOrder { .. });
                 if trades {
@@ -765,6 +848,7 @@ impl Session<'_> {
             Report::Home(home) => {
                 self.unseat();
                 let text = self.hangar.came_home(&home);
+                self.patrol_bounties(home.bounty).await?;
                 self.place = Place::Hangar;
                 tracing::info!(slot = self.slot, name = %self.callsign, "docked: {text}");
                 self.save().await;
@@ -781,6 +865,7 @@ impl Session<'_> {
             Report::Lost { bounty } => {
                 self.lost = true;
                 let text = self.hangar.lost(bounty);
+                self.patrol_bounties(bounty).await?;
                 tracing::info!(slot = self.slot, name = %self.callsign, "suit lost");
                 self.save().await;
                 self.send(&Update::Sortie { outcome: SortieOutcome::Lost, text }).await?;
@@ -821,6 +906,16 @@ impl Session<'_> {
             && self.market_sent.elapsed() >= MARKET_EVERY
         {
             self.send_market().await?;
+        }
+        if self.board
+            && matches!(self.place, Place::Hangar | Place::City)
+            && self.game.charter.version() != self.board_seen
+            && self.board_sent.elapsed() >= MARKET_EVERY
+        {
+            self.send_board().await?;
+        }
+        if settle && self.game.charter.with(|b| b.news_seq()) != self.news_seen {
+            self.send_notices().await?;
         }
         Ok(())
     }

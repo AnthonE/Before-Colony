@@ -6,8 +6,8 @@
 //!   line's tank and weapon mounts;
 //! - the pilot's hangar, with what the suit's console works out from it (what could be fitted,
 //!   what repairs and overhauls would take, the suit's stat sheet, whether it would launch), the
-//!   exchange and the book they're watching, whenever the server's word on them changes, and the
-//!   log of what the server said.
+//!   exchange and the book they're watching, the Charter Board (while its tab is open), whenever
+//!   the server's word on them changes, and the log of what the server said.
 //!
 //! What the pilot asks for comes back as `UiCmd::Hangar` (a `bc_econ::Request`), and `onfoot.rs`
 //! sends it on. The server decides everything; the page only shows its word.
@@ -220,6 +220,7 @@ fn hangar_json(h: &HangarState, log: &TerminalLog) -> Value {
         "bay": h.bay,
         "view": h.view,
         "market": h.market,
+        "charter": h.charter,
         "book": h.book.as_ref().map(|(depth, history)| json!({ "depth": depth, "history": history })),
         "console": h.view.as_ref().map(console),
         "log": log.lines,

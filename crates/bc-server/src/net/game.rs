@@ -25,6 +25,7 @@ use tokio::sync::broadcast;
 use wtransport::{Connection, RecvStream, SendStream};
 
 use super::NetStats;
+use crate::charter::Charter;
 use crate::market::Market;
 use crate::pilots::{
     self, Claim, Fate, FileStore, MemoryStore, ParkNews, PilotRecord, PilotStore, Pilots, Sleeper,
@@ -113,6 +114,8 @@ pub struct GameShared {
     pub anime: bool,
     /// The Colony Exchange.
     pub market: Arc<Market>,
+    /// The Charter Board: contracts and the colony's great works.
+    pub charter: Arc<Charter>,
     pub econ: bc_econ::Rules,
     /// Pilots' hangars, by client slot, for `/status`.
     pub(super) hangars: Arc<RwLock<HashMap<u16, HangarEntry>>>,
@@ -254,6 +257,7 @@ pub struct StatusView {
     plaza: Arc<crate::plaza::Plaza>,
     anime: bool,
     market: Arc<Market>,
+    charter: Arc<Charter>,
     hangars: Arc<RwLock<HashMap<u16, HangarEntry>>>,
 }
 
@@ -325,6 +329,7 @@ impl GameRuntime {
             None => Arc::new(MemoryStore::default()),
         };
         let market = Arc::new(Market::open(cfg.data_dir.as_ref().map(|d| d.join("exchange.json"))));
+        let charter = Arc::new(Charter::open(cfg.data_dir.as_ref().map(|d| d.join("charter.json"))));
         let game = GameShared {
             sector: shared,
             egress: queue,
@@ -344,13 +349,15 @@ impl GameRuntime {
             plaza: Arc::new(crate::plaza::Plaza::default()),
             anime: cfg.flight == Flight::Anime,
             market,
-            econ: bc_econ::Rules { craft_speed: cfg.craft_speed },
+            charter,
+            econ: bc_econ::Rules { craft_speed: cfg.craft_speed, ..bc_econ::Rules::default() },
             hangars: Arc::new(RwLock::new(HashMap::new())),
             restore_over: Arc::new(AtomicBool::new(false)),
         };
-        // The exchange's clock, and its file.
+        // The exchange's and the Charter Board's clocks, and their files.
         if survival {
             let market = game.market.clone();
+            let charter = game.charter.clone();
             let sector = game.sector.clone();
             tokio::spawn(async move {
                 let mut every = tokio::time::interval(Duration::from_secs(1));
@@ -358,12 +365,15 @@ impl GameRuntime {
                 while !sector.stop.load(Ordering::Acquire) {
                     every.tick().await;
                     market.tick(1.0);
+                    charter.tick(crate::pilots::unix_now(), &market);
                     n += 1;
                     if n.is_multiple_of(60) {
                         market.save().await;
+                        charter.save().await;
                     }
                 }
                 market.save().await;
+                charter.save().await;
             });
         }
         // What became of sleepers: news for their pilots, a few times a second.
@@ -399,6 +409,7 @@ impl GameRuntime {
             plaza: self.shared.plaza.clone(),
             anime: self.shared.anime,
             market: self.shared.market.clone(),
+            charter: self.shared.charter.clone(),
             hangars: self.shared.hangars.clone(),
         }
     }
@@ -409,8 +420,12 @@ impl GameRuntime {
         }
         // The exchange's last word goes to its file.
         let market = self.shared.market.clone();
+        let charter = self.shared.charter.clone();
         if let Ok(rt) = tokio::runtime::Handle::try_current() {
-            rt.spawn(async move { market.save().await });
+            rt.spawn(async move {
+                market.save().await;
+                charter.save().await;
+            });
         }
         self.egress_stop.store(true, Ordering::Release);
         if let Some(e) = self.egress.take() {
@@ -519,6 +534,31 @@ impl StatusView {
                 "traded_items": ex.quotes().iter().filter(|q| q.volume > 0).count(),
             })
         });
+        let charter = self.charter.with(|b| {
+            let (escrow, goods) = b.held();
+            let works: serde_json::Map<String, serde_json::Value> = bc_econ::Work::ALL
+                .iter()
+                .map(|w| {
+                    let p = b.progress(*w);
+                    let need: u64 = w.needs().iter().map(|(_, q)| q).sum();
+                    let have: u64 =
+                        w.needs().iter().map(|(i, q)| p.delivered.get(i).copied().unwrap_or(0).min(*q)).sum();
+                    let key = serde_json::to_value(w).ok().and_then(|v| v.as_str().map(str::to_string));
+                    (
+                        key.unwrap_or_default(),
+                        serde_json::json!({ "done": p.done.is_some(), "kg": have, "of": need }),
+                    )
+                })
+                .collect();
+            serde_json::json!({
+                "era": b.era(),
+                "contracts": b.contracts().count(),
+                "colony_paid": b.colony_paid,
+                "escrow_credits": escrow,
+                "owed_items": goods.len(),
+                "works": works,
+            })
+        });
         serde_json::json!({
             "tick": s.tick.load(Ordering::Acquire),
             "tick_hz": bc_sim::TICK_HZ,
@@ -539,9 +579,11 @@ impl StatusView {
                     .collect::<serde_json::Map<_, _>>(),
             },
             "flight": if self.anime { "anime" } else { "real" },
-            // Survival: pilots in their hangar bays (and out of them), and the exchange's ledger.
+            // Survival: pilots in their hangar bays (and out of them), the exchange's ledger, and
+            // the Charter Board.
             "hangars": hangars,
             "exchange": exchange,
+            "charter": charter,
             "clients": l(&m.clients),
             "suits_alive": l(&m.suits_alive),
             // Suits on a body: on their feet (the parked among them), and in its grip in the air.

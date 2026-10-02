@@ -7,6 +7,7 @@ use bc_proto::Part;
 use serde::{Deserialize, Serialize};
 
 use crate::catalogue::Station;
+use crate::charter::{Board, CharterView, Work};
 use crate::exchange::{Depth, Exchange, Quote, Side, Trader};
 use crate::hangar::{Bay, Done, Hangar, Rules};
 use crate::item::Item;
@@ -76,6 +77,39 @@ pub enum Request {
     },
     /// Ride the cap lift back up to the bay.
     LeaveCity,
+    /// The Charter Board: post a supply contract (its reward goes into escrow), take one down,
+    /// deliver to one from the stores, take or give up a patrol.
+    Post {
+        item: Item,
+        qty: u64,
+        reward: u64,
+        hours: u64,
+    },
+    Withdraw {
+        id: u64,
+    },
+    Deliver {
+        id: u64,
+        qty: u64,
+    },
+    TakePatrol {
+        id: u64,
+    },
+    DropPatrol {
+        id: u64,
+    },
+    /// Deliver toward one of the colony's great works.
+    Contribute {
+        work: Work,
+        item: Item,
+        qty: u64,
+    },
+    /// Sign the charter.
+    Sign,
+    /// Send the Charter Board (and keep sending it as it changes), or stop.
+    WatchBoard {
+        on: bool,
+    },
 }
 
 /// Where the pilot is.
@@ -114,6 +148,8 @@ pub enum Update {
     },
     Hangar(HangarView),
     Market(MarketView),
+    /// The Charter Board.
+    Charter(CharterView),
     /// The watched item's book and price history.
     Book {
         depth: Depth,
@@ -246,6 +282,13 @@ pub fn apply(
     rules: &Rules,
 ) -> Option<Done> {
     Some(match req {
+        Request::Post { .. }
+        | Request::Withdraw { .. }
+        | Request::Deliver { .. }
+        | Request::TakePatrol { .. }
+        | Request::DropPatrol { .. }
+        | Request::Contribute { .. }
+        | Request::Sign => return None,
         Request::Craft { item, batches } => hangar.craft(*item, *batches, now, rules),
         Request::CancelJob { station, index } => hangar.cancel_job(*station, *index, now),
         Request::Fit { item } => hangar.fit(*item),
@@ -269,7 +312,37 @@ pub fn apply(
         | Request::Launch
         | Request::Dock
         | Request::EnterCity { .. }
-        | Request::LeaveCity => return None,
+        | Request::LeaveCity
+        | Request::WatchBoard { .. } => return None,
+    })
+}
+
+/// Does what `req` asks of the Charter Board, if it's the board's to do: `None` otherwise.
+/// `name` is what the pilot goes by on the board.
+#[allow(clippy::too_many_arguments)]
+pub fn apply_charter(
+    req: &Request,
+    hangar: &mut Hangar,
+    board: &mut Board,
+    exchange: &mut Exchange,
+    trader: &str,
+    name: &str,
+    now: u64,
+) -> Option<Done> {
+    Some(match *req {
+        Request::Post { item, qty, reward, hours } => {
+            board.post(hangar, trader, name, item, qty, reward, hours, now)
+        }
+        Request::Withdraw { id } => board.withdraw(hangar, trader, id),
+        Request::Deliver { id, qty } => board.deliver(hangar, exchange, trader, name, id, qty, now),
+        Request::TakePatrol { id } => board.take(trader, name, id, now),
+        Request::DropPatrol { id } => board.drop_patrol(trader, id, now),
+        // What's delivered is built into the work: it's gone from the economy.
+        Request::Contribute { work, item, qty } => {
+            board.contribute(hangar, trader, name, work, item, qty, now)
+        }
+        Request::Sign => board.sign(trader, name, now),
+        _ => return None,
     })
 }
 

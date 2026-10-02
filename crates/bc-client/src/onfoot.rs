@@ -896,9 +896,7 @@ pub fn drive_onfoot(
                     ask(&net, &g, &Request::LeaveCity);
                 }
                 PlaceKind::Exchange => ui.panel = Panel::Terminal(Spot::Exchange),
-                PlaceKind::Charter => {
-                    ui.news("THE CHARTER BOARD · ARRIVALS REGISTER AT THE DESK · NOTICES BY THE DOOR", false)
-                }
+                PlaceKind::Charter => ui.panel = Panel::Board,
                 PlaceKind::Bar => ui.toast("THE ARRIVAL · A BAR TO MEET IN · QUIET FOR NOW"),
             }
         }
@@ -1157,7 +1155,7 @@ pub fn publish_onfoot(me: Res<OnFoot>, ui: Res<Ui>, game: NonSend<GameClient>, m
     dev.set("place", ui.place);
     dev.set("seq", me.seq.name());
     dev.set("focus", me.focus.map_or("", Spot::slug));
-    dev.set("terminal", ui.terminal().map_or("", Spot::slug));
+    dev.set("terminal", ui.terminal_tab());
     dev.set("walking_to", me.guide.is_some());
     let f = me.walker.feet;
     dev.set("feet", format!("{:.1},{:.1},{:.1}", f.x, f.y, f.z));

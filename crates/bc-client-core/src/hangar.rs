@@ -2,6 +2,7 @@
 //! stores, the suit, the stations' jobs), the exchange, and what they've been told. The server
 //! decides everything; this keeps its latest word, and turns what the pilot asks into frames.
 
+use bc_econ::charter::CharterView;
 use bc_econ::exchange::Depth;
 use bc_econ::wire::{self, HangarView, MarketView, Outcome, Place, Request, Update};
 use bc_proto::control::encode_hangar;
@@ -16,6 +17,8 @@ pub struct HangarState {
     pub strip: Option<u8>,
     pub view: Option<HangarView>,
     pub market: Option<MarketView>,
+    /// The Charter Board (while the pilot is looking at it).
+    pub charter: Option<CharterView>,
     /// The book (and price history) of the item the pilot is watching.
     pub book: Option<(Depth, Vec<u64>)>,
     /// What to tell the pilot (the text, and whether it was done or refused), oldest first. The
@@ -43,6 +46,7 @@ impl HangarState {
             }
             Update::Hangar(view) => self.view = Some(view),
             Update::Market(market) => self.market = Some(market),
+            Update::Charter(view) => self.charter = Some(view),
             Update::Book { depth, history } => self.book = Some((depth, history)),
             Update::Note { text, ok } => self.notes.push((text, ok)),
             Update::Sortie { outcome, text } => self.sorties.push((outcome, text)),

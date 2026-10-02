@@ -665,6 +665,40 @@ for bulk goods, a piece for everything else.
   test checks it).
 - Each item's last trade price is sampled once a minute: the terminal draws the last hour.
 
+### The Charter Board: contracts and the great works
+
+The colony's notices (`bc_econ::charter`, one board per colony, kept with the exchange): a tab on
+every terminal in the bay, and the Charter Board's own desk in Charter Square.
+
+- **Contracts.** Jobs with their pay posted beside them. *Supply*: deliver so much of an item.
+  Anyone but its issuer delivers part of it from their stores and is paid pro rata on the spot,
+  and what's delivered goes to the issuer: to the colony's desk (its prices fall as if it had
+  bought it), or to the pilot who posted it, waiting in their bay. A pilot's contract holds its
+  reward in escrow from the moment it's posted (up to 8 at once, standing 1–72 hours), so a job
+  is always good for its pay; what it hasn't paid when it expires or is withdrawn goes back. The
+  colony keeps four of its own up for what its desks are shortest of (ore, steel, alloy,
+  electronics, munitions, components), at 135% of their value, for two hours each. Agents deliver
+  too: the miner hands its ore to the colony's contracts before it sells the rest.
+- **Patrols** (once the militia has its hangar): take one, and down Mobile Dolls for 1,000 CR of
+  bounties within the hour; the militia pays 1,500 CR on top. One pilot holds a patrol at a time,
+  and a pilot holds one at a time; the bounties count when the suit comes home (or is lost).
+- **The great works.** The era's projects, each needing tonnes of materials, delivered from the
+  stores at 120% of the colony's value:
+  - *A second foundry* (12 t of steel, 6 t of titanium alloy, 800 kg of electronics, 1.5 t of
+    machined components): gundanium at half the fee, made twice as fast.
+  - *The militia's hangar* (15 t of steel, 4 t of alloy, 2 t of components, 3 t of munitions,
+    4 t of propellant): the militia posts patrols.
+  - *The charter vote*, open once both are finished: three pilots of standing sign it, and the
+    calendar begins (`AC 1 · THE CHARTER`, `STORY.md`).
+
+  Every pilot hears when one is finished, wherever they are; the board lists each work's most
+  generous contributors.
+- **Standing** is the credits a pilot has earned from the colony's contracts, patrols and works:
+  it's what signing the charter takes. A pilot's contract with another pilot earns none.
+- **The ledger** still balances: credits enter only from the colony (what it pays on contracts
+  and works joins its purchases), and escrow and deliveries never make or lose any (the ledger's
+  property test covers the board too).
+
 ### Sorties
 
 - **Launching:** board at the hatch. The bay vents, beacons turning red, the doors part, and the
@@ -706,7 +740,7 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   Gate's terminal. From there the pilot walks the city with the bay's controls, and M shows the
   map of their strip. Districts and sights are named on the way in.
 - **Places:** the Exchange floor (its terminal is the bay's exchange), the Charter Board (its
-  notices), The Arrival (a bar, quiet for now), and Hub Gate, whose lift goes back up to the bay.
+  contracts and great works, above), The Arrival (a bar, quiet for now), and Hub Gate, whose lift goes back up to the bay.
   A suit can't launch from the city: its pilot rides back up first.
 - **Other pilots** are there too, on their own feet in flight suits of their own colours (from
   their names, the same on every screen), striding as fast as they go, their names over them
@@ -906,10 +940,10 @@ jobs, law and traffic, on an economy whose sinks keep demand turning over.
   stims (a g more for a minute, then the crash). Used up in fights, so always in demand.
 - **Wear from use:** thruster hours, barrel wear and reactor cycles wear systems down between
   fights, so keeping a suit flying is a steady trade.
-- **Contracts:** a board of jobs from the colony and from pilots, rewards held in escrow (haul
-  this, clear that claim, escort a hauler home, recover a wreck).
-- **Colony projects:** the Charter Board's great works (a second foundry, a militia's hangar,
-  new cylinders), funded by deliveries; finishing one changes the world and moves the eras on.
+- **Contracts** (begun: the Charter Board, above, with supply contracts and the militia's
+  patrols): clear that claim, escort a hauler home, recover a wreck; shady ones.
+- **Colony projects** (begun: the era's great works and the charter vote, above): the next eras'
+  (new cylinders, the Cluster's expeditions), and the city showing them built.
 - **Facilities:** workshops and refineries in the hub, leased by pilots and crews: production
   chains, and rent as a sink.
 - **The colony, on foot** (begun: Milestone 5, above): other pilots in its streets, trams and

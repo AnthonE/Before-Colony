@@ -291,6 +291,57 @@ impl BotClient {
         self.ask(&req).await.map(Some)
     }
 
+    /// Survival rules: delivers what the stores hold of `item` to the Charter Board's supply
+    /// contracts that ask for it (the colony's pay above its desks), best paying first. What the
+    /// board said to each delivery.
+    pub async fn deliver_all(&mut self, item: bc_econ::Item) -> anyhow::Result<Vec<String>> {
+        use bc_econ::charter::Task;
+        self.request(&Request::WatchBoard { on: true }).await?;
+        let seen = self.core.hangar.charter.is_some();
+        let v0 = self.core.hangar.version;
+        self.wait_until(5.0, "the Charter Board", |c| {
+            c.hangar.charter.is_some() && (seen || c.hangar.version > v0)
+        })
+        .await?;
+        let mut wanted: Vec<(u64, u64, u64)> = self
+            .core
+            .hangar
+            .charter
+            .as_ref()
+            .map(|b| {
+                b.contracts
+                    .iter()
+                    .filter(|c| !c.mine)
+                    .filter_map(|c| match c.task {
+                        Task::Supply { item: i, qty, delivered } if i == item && qty > delivered => {
+                            Some((c.id, qty - delivered, (c.reward - c.paid) * 1_000 / (qty - delivered)))
+                        }
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        wanted.sort_by_key(|w| std::cmp::Reverse(w.2));
+        let mut said = Vec::new();
+        for (id, left, _) in wanted {
+            let have = self
+                .core
+                .hangar
+                .view
+                .as_ref()
+                .map_or(0, |v| v.stock.iter().find(|(i, _)| *i == item).map_or(0, |(_, q)| *q));
+            if have == 0 {
+                break;
+            }
+            match self.ask(&Request::Deliver { id, qty: left.min(have) }).await {
+                Ok(text) => said.push(text),
+                Err(e) => said.push(format!("{e:#}")),
+            }
+        }
+        self.request(&Request::WatchBoard { on: false }).await?;
+        Ok(said)
+    }
+
     /// Survival rules: buys up to `qty` of `item` at no more than `price` (credits a tonne, or a
     /// piece), whatever fills now.
     pub async fn buy(&mut self, item: bc_econ::Item, qty: u64, price: u64) -> anyhow::Result<String> {

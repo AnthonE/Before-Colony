@@ -250,6 +250,7 @@
     } else if (!termOpen && terminalShown) {
       terminalShown = false;
       watch("");
+      watchBoard(false);
     }
     // A sortie's news.
     if (v.newsSeq !== newsSeq) {
@@ -803,6 +804,79 @@
     return `<div class="split"><div>${left}</div><div>${right}${orders}</div></div>`;
   }
 
+  // The Charter Board: contracts (the colony's, the militia's, other pilots'), posting one, the
+  // colony's great works and the charter vote. Rewards are the server's: a pilot's are in escrow.
+  const workItems = (w) => w.needs.map(([item]) => item);
+  function contractRow(c) {
+    const t = c.task;
+    let job, act = "";
+    if (t.kind === "supply") {
+      const left = t.qty - t.delivered;
+      job = `${esc(nameOf(t.item))}: ${amount(t.item, t.qty)}` +
+        (t.delivered ? ` <span class="dim">(${amount(t.item, t.delivered)} in)</span>` : "");
+      if (c.mine) act = button("WITHDRAW", { act: "withdraw", id: c.id });
+      else {
+        const key = `deliver:${c.id}`;
+        const dflt = Math.min(left, stockOf(t.item));
+        act = `${input(key, draft(key, String(dflt)), 'inputmode="numeric" class="narrow"')}` +
+          button("DELIVER", { act: "deliver", id: c.id }, stockOf(t.item) ? "primary" : "");
+      }
+    } else {
+      job = `PATROL: Dolls downed for ${fmt(t.bounty)} CR of bounties` +
+        (c.holder ? ` <span class="dim">(${fmt(t.earned)} so far · ${esc(c.holder)})</span>` : "");
+      act = c.held ? button("GIVE UP", { act: "drop-patrol", id: c.id }) : c.holder ? `<span class="dim">TAKEN</span>` : button("TAKE", { act: "take-patrol", id: c.id }, "primary");
+    }
+    const pays = t.kind === "supply" && c.paid ? `${fmt(c.reward)} <span class="dim">(${fmt(c.paid)} paid)</span>` : fmt(c.reward);
+    return `<tr${c.mine || c.held ? ' class="chosen"' : ""}><td class="dim">#${c.id}</td><td class="${c.colony ? "bid" : ""}">${esc(c.issuer)}</td>` +
+      `<td>${job}</td><td class="num">${pays} CR</td><td class="num dim">${secs(c.secs_left)}</td><td class="act">${act}</td></tr>`;
+  }
+
+  function renderCharter() {
+    const b = hangar?.charter;
+    if (!b) return `<div class="note">Waiting for the Charter Board…</div>`;
+    let left = `<h3>CONTRACTS</h3><div class="note">The colony's pay ${b.supply_pct}% of its desks' value; a pilot's reward is held in escrow until it's delivered. Deliveries come from your stores, paid on the spot.</div>`;
+    if (!b.contracts.length) left += `<div class="note">Nothing posted.</div>`;
+    else {
+      left += `<table><tr><th></th><th>FROM</th><th>JOB</th><th class="num">PAYS</th><th class="num">LEFT</th><th></th></tr>` +
+        b.contracts.map(contractRow).join("") + `</table>`;
+    }
+    // Posting one.
+    const goods = catalogue.items.filter((i) => i.kind === "ore" || i.kind === "material" || i.kind === "weapon" || i.kind === "module" || i.kind === "part");
+    const pick = draft("post:item", "mat.steel");
+    const qty = Math.max(0, Math.floor(Number(draft("post:qty", isBulk(pick) ? "1000" : "1")) || 0));
+    const reward = Math.max(0, Math.floor(Number(draft("post:reward", String(worth(pick, items.get(pick)?.value || 0, qty)))) || 0));
+    left += `<section><h3>POST A CONTRACT</h3><div class="form"><label>WANTED <select data-key="post:item">` +
+      goods.map((i) => `<option value="${esc(i.slug)}"${i.slug === pick ? " selected" : ""}>${esc(i.name)}</option>`).join("") +
+      `</select></label><label>${isBulk(pick) ? "KG" : "PIECES"} ${input("post:qty", draft("post:qty", isBulk(pick) ? "1000" : "1"), 'inputmode="numeric"')}</label>` +
+      `<label>REWARD ${input("post:reward", draft("post:reward", String(reward)), 'inputmode="numeric"')} CR</label>` +
+      `<label>HOURS ${input("post:hours", draft("post:hours", "24"), 'inputmode="numeric" class="narrow"')}</label></div>` +
+      `<div class="form">${button("POST", { act: "post" }, "primary")}<span class="note">${fmt(reward)} CR into escrow; what isn't delivered in time comes back. Up to ${b.max_posted} posted at once.</span></div></section>`;
+
+    let right = `<h3>${esc(b.era_name)}</h3><div class="note">Your standing with the colony: <b>${fmt(b.standing)}</b>. The great works pay ${b.works_pct}% of the colony's value, and in standing.</div>`;
+    for (const w of b.works) {
+      right += `<section class="work${w.done ? " done" : ""}"><h3>${esc(w.name.toUpperCase())}${w.done ? ' <span class="bid">FINISHED</span>' : ""}</h3><div class="note">${esc(w.summary)}</div>`;
+      if (w.work === "charter_vote") {
+        right += `<div class="note">Signatures: ${b.signatures} of ${b.signatures_needed}.${w.open ? "" : w.done ? "" : " The vote opens when the era's works are finished."}</div>`;
+        if (w.open && !b.signed) right += `<div class="form">${button("SIGN THE CHARTER", { act: "sign" }, b.standing ? "primary" : "")}</div>`;
+        if (b.signed) right += `<div class="note bid">You signed.</div>`;
+      } else {
+        right += `<table>` + w.needs.map(([item, need, have]) => {
+          const pct = Math.min(100, Math.floor((have * 100) / Math.max(1, need)));
+          const key = `give:${w.work}:${item}`;
+          const dflt = Math.min(need - have, stockOf(item));
+          const give = w.done || have >= need ? "" : `${input(key, draft(key, String(Math.max(0, dflt))), 'inputmode="numeric" class="narrow"')}` +
+            button("DELIVER", { act: "contribute", work: w.work, item }, stockOf(item) ? "primary" : "");
+          return `<tr><td>${esc(nameOf(item))}</td><td>${bar(pct)}</td><td class="num dim">${amount(item, have)} / ${amount(item, need)}</td><td class="act">${give}</td></tr>`;
+        }).join("") + `</table>`;
+      }
+      if (w.top.length) {
+        right += `<div class="note">Most given: ${w.top.map(([n, s]) => `${esc(n)} ${fmt(s)}`).join(" · ")}${w.mine ? ` · you ${fmt(w.mine)}` : ""}</div>`;
+      }
+      right += `</section>`;
+    }
+    return `<div class="split"><div>${left}</div><div>${right}</div></div>`;
+  }
+
   // Replacing a focused field blurs it, and a blur can fire events that would render again from
   // inside this render: once at a time.
   let rendering = false;
@@ -825,7 +899,7 @@
     const caret = key && typeof active.selectionStart === "number" ? active.selectionStart : null;
     const body = $("term-body");
     const scroll = body.scrollTop;
-    const render = { fabricator: renderFabricator, stores: renderStores, suit: renderSuit, exchange: renderExchange }[tab];
+    const render = { fabricator: renderFabricator, stores: renderStores, suit: renderSuit, exchange: renderExchange, charter: renderCharter }[tab];
     body.innerHTML = render ? render() : "";
     body.scrollTop = scroll;
     if (key) {
@@ -849,8 +923,17 @@
     ask({ t: "watch", item: slug || null });
   }
 
+  // The board comes from the server only while its tab is open.
+  let boardOn = false;
+  function watchBoard(on) {
+    if (on === boardOn) return;
+    boardOn = on;
+    ask({ t: "watch_board", on });
+  }
+
   function openTab(t) {
     tab = t;
+    watchBoard(t === "charter");
     if (t === "exchange" && !watching) {
       const held = hangar?.view?.stock?.find(([s]) => isBulk(s));
       watch(held ? held[0] : "ore.nickel_iron");
@@ -928,6 +1011,43 @@
       case "cancel-order":
         ask({ t: "cancel_order", id: Number(d.id) });
         return;
+      case "deliver": {
+        const qty = Math.floor(Number(draft(`deliver:${d.id}`, "0")) || 0);
+        const c = hangar?.charter?.contracts.find((x) => x.id === Number(d.id));
+        const dflt = c && c.task.kind === "supply" ? Math.min(c.task.qty - c.task.delivered, stockOf(c.task.item)) : 0;
+        const n = `deliver:${d.id}` in drafts ? qty : dflt;
+        if (n > 0) ask({ t: "deliver", id: Number(d.id), qty: n });
+        return;
+      }
+      case "withdraw":
+        ask({ t: "withdraw", id: Number(d.id) });
+        return;
+      case "take-patrol":
+        ask({ t: "take_patrol", id: Number(d.id) });
+        return;
+      case "drop-patrol":
+        ask({ t: "drop_patrol", id: Number(d.id) });
+        return;
+      case "contribute": {
+        const w = hangar?.charter?.works.find((x) => x.work === d.work);
+        const need = w?.needs.find(([i]) => i === d.item);
+        const key = `give:${d.work}:${d.item}`;
+        const dflt = need ? Math.min(need[1] - need[2], stockOf(d.item)) : 0;
+        const n = key in drafts ? Math.floor(Number(drafts[key]) || 0) : dflt;
+        if (n > 0) ask({ t: "contribute", work: d.work, item: d.item, qty: n });
+        return;
+      }
+      case "sign":
+        ask({ t: "sign" });
+        return;
+      case "post": {
+        const item = draft("post:item", "mat.steel");
+        const qty = Math.floor(Number(draft("post:qty", isBulk(item) ? "1000" : "1")) || 0);
+        const reward = Math.floor(Number(draft("post:reward", String(worth(item, items.get(item)?.value || 0, qty)))) || 0);
+        const hours = Math.floor(Number(draft("post:hours", "24")) || 0);
+        if (qty > 0 && reward > 0 && hours > 0) ask({ t: "post", item, qty, reward, hours });
+        return;
+      }
       default:
         return;
     }
@@ -936,10 +1056,16 @@
 
   function onTerminalInput(e) {
     const el = e.target;
-    if (!(el instanceof HTMLInputElement) || !el.dataset.key) return;
+    if (!(el instanceof HTMLInputElement || el instanceof HTMLSelectElement) || !el.dataset.key) return;
     drafts[el.dataset.key] = el.type === "checkbox" ? el.checked : el.value;
+    // A new item to post for: its quantity and reward start again from its value.
+    if (el.dataset.key === "post:item") {
+      delete drafts["post:qty"];
+      delete drafts["post:reward"];
+    }
+    if (el.dataset.key === "post:qty") delete drafts["post:reward"];
     // Totals follow what's typed; the field itself is kept as it is.
-    if (tab === "exchange" || tab === "fabricator") renderTerminal();
+    if (tab === "exchange" || tab === "fabricator" || tab === "charter") renderTerminal();
   }
 
   window.bcUi = { init, update, settings: renderSettings, catalogue: catalogueIn, hangar: hangarIn };

@@ -111,6 +111,8 @@ pub enum Panel {
     },
     /// One of the hangar bay's terminals (survival rules).
     Terminal(Spot),
+    /// The Charter Board (survival rules): the terminals' panel, on its own tab.
+    Board,
 }
 
 /// The page's state, as Rust decides it.
@@ -211,6 +213,14 @@ impl Ui {
             _ => None,
         }
     }
+
+    /// The terminals' tab to open on (empty: no terminal is open).
+    pub fn terminal_tab(&self) -> &'static str {
+        match self.panel {
+            Panel::Board => "charter",
+            _ => self.terminal().map_or("", Spot::slug),
+        }
+    }
 }
 
 pub fn get(obj: &JsValue, key: &str) -> JsValue {
@@ -274,7 +284,7 @@ pub fn apply_ui_cmds(cmds: Res<UiCmds>, mut ui: ResMut<Ui>, mut map: ResMut<crat
                 } else {
                     match ui.panel {
                         Panel::Settings { from_pause } => ui.close_settings(from_pause),
-                        Panel::Terminal(_) => ui.panel = Panel::None,
+                        Panel::Terminal(_) | Panel::Board => ui.panel = Panel::None,
                         Panel::None if ui.playing() => ui.open_pause(),
                         // Esc that belonged to the browser dropping the lock (which opened the
                         // menu) must not close it again.
@@ -302,7 +312,7 @@ pub fn apply_ui_cmds(cmds: Res<UiCmds>, mut ui: ResMut<Ui>, mut map: ResMut<crat
         }
     }
     // The menu and the terminals are the world's; settings may open over the title too.
-    if !ui.playing() && matches!(ui.panel, Panel::Pause | Panel::Terminal(_)) {
+    if !ui.playing() && matches!(ui.panel, Panel::Pause | Panel::Terminal(_) | Panel::Board) {
         ui.panel = Panel::None;
     }
     if !ui.playing() && ui.panel == (Panel::Settings { from_pause: true }) {
@@ -352,7 +362,7 @@ impl View {
                 Panel::None => "none",
                 Panel::Pause => "pause",
                 Panel::Settings { .. } => "settings",
-                Panel::Terminal(_) => "terminal",
+                Panel::Terminal(_) | Panel::Board => "terminal",
             },
             help: ui.help,
             click_to_fly: ui.click_to_fly,
@@ -371,7 +381,7 @@ impl View {
             aloft: ui.aloft,
             hide_spot: ui.hide_spot,
             survival: ui.survival,
-            terminal: ui.terminal().map_or("", Spot::slug),
+            terminal: ui.terminal_tab(),
             place: ui.place,
             on_foot: ui.on_foot,
             sequence: ui.sequence,

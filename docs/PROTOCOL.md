@@ -354,6 +354,13 @@ Client → server (`Request`):
 | `dock` | | take the suit home (at rest inside the dock) |
 | `enter_city` | `strip` (0–2) | ride the cap lift down from the bay to that strip's Hub Gate (the colony open, and the pilot in their bay) |
 | `leave_city` | | ride the lift back up from Hub Gate to the bay |
+| `watch_board` | `on` | send the Charter Board (`charter`) as it changes, or stop |
+| `post` | `item`, `qty`, `reward`, `hours` (1–72) | post a supply contract; the reward goes into escrow |
+| `withdraw` | `id` | take one's own contract down (what it hasn't paid comes back) |
+| `deliver` | `id`, `qty` | deliver to a supply contract from the stores, paid pro rata on the spot |
+| `take_patrol` · `drop_patrol` | `id` | take a militia patrol (one at a time), or give it up |
+| `contribute` | `work` (`second_foundry`, `militia_hangar`), `item`, `qty` | deliver to one of the colony's great works |
+| `sign` | | sign the charter (the vote open, and the pilot of standing) |
 
 Items are slugs: `ore.nickel_iron`, `mat.steel`, `mat.components`, `part.leo.torso`,
 `weapon.beam_rifle`, `module.g_seat`. Parts are
@@ -368,11 +375,16 @@ orders, the fee); `book` {`depth`, `history`}; `note` {`text`, `ok`} answering a
 news: a job done, an order filled); `sortie` {`outcome`: `docked`, `lost`, `recovered`, `text`};
 `news` {`text`} (a pilot's arrival; the colony's announcements); `people` {`people`: [{`id`,
 `name`}]} (in the city: the names of people seen there for the first time, by the slot the plaza's
-datagrams use). A suit (in the bay, or out) carries
+datagrams use); `charter` (the Charter Board, while watched: the era, the contracts with their
+`task` (`{"kind": "supply", "item", "qty", "delivered"}` or `{"kind": "patrol", "bounty",
+"earned"}`), reward, paid and seconds left, the great works with what each needs and has, their
+top contributors, the pilot's standing and the charter's signatures). A suit (in the bay, or out) carries
 `faults`, a map from system slug to `damaged` or `failed` (absent when everything works), and
 `modules`, its five equipment mounts' slugs (or `null`); a part on the shelf carries its own
 `faults`.
-The server sends the hangar and the market whenever they change, the market at most every 2 s.
+The server sends the hangar and the market whenever they change, the market and the board at most
+every 2 s. The board's notices (a great work finished, the vote open, an era begun) come to every
+pilot as `news`, wherever they are.
 
 A launch puts the suit in the sector at the docking hub's mouth (the pilot's slot and the Welcome
 stay the same; snapshots start), and `place` says `space`. Docking answers with a `sortie` and
