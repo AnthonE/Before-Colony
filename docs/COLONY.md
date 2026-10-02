@@ -371,7 +371,10 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
 - Plaza: 74-bit header plus about 118 bits a person, at most 48 people (about 720 B, about 7 KB/s).
 - Interest: same strip within 1.5 km.
 - Others are drawn about 200 ms behind.
-- Plausibility: on foot at most 9 m/s × 1.5 + 2 m, at most 0.3 m into a solid; strip changes only by lift.
+- Plausibility: a budget of time to move in. What has passed since the last pose adds to it, and each move spends its
+  distance at the fastest pace (on foot 9 m/s × 1.5, driving 35 m/s × 1.3), with 2 m of slack. Standing still saves
+  up at most 2 s, while a refused pilot keeps saving, so the plaza finds a lost one again. A slow client's poses come
+  in bunches, and an average speed is what a budget checks. Also at most 0.3 m into a solid, and strip changes only by lift.
 
 **Budgets**
 - City triangles on screen: Low 150k, Medium 500k, High 1.2M, Ultra 2.5M.
