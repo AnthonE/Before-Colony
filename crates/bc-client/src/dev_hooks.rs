@@ -98,7 +98,9 @@ pub fn aim_hook(
         .entities
         .iter()
         .flatten()
-        .filter(|tr| tr.latest.faction != w.faction && tr.latest.flags & bc_proto::snapshot::ent_flags::WRECK == 0)
+        .filter(|tr| {
+            tr.latest.faction != w.faction && tr.latest.flags & bc_proto::snapshot::ent_flags::WRECK == 0
+        })
         .map(|tr| tr.sample(t, &w.bodies).pos - me.pos)
         .min_by(|a, b| a.length_squared().total_cmp(&b.length_squared()));
     dev.set("hostile_range", nearest.map_or(-1.0, |r| f64::from(r.length())));
