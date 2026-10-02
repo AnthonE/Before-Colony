@@ -16,13 +16,15 @@
 //!   tank; and it fills back up whenever boost is let go.
 
 use bc_proto::InputCmd;
-use bc_proto::buttons::{BOOST, BRAKE, FLIGHT_ASSIST, RCS_SHARP};
+use bc_proto::buttons::{BOOST, BRAKE, BURST, FLIGHT_ASSIST, RCS_SHARP};
+/// The burst step's state ([`burst_tick`]): the own snapshot carries it as it is.
+pub use bc_proto::snapshot::OwnBurst as Burst;
 use glam::{Quat, Vec3};
 
 use crate::config::G0;
 use crate::content::FrameSpec;
 use crate::field::Field;
-use crate::math::{atan2, integrate_rotation, length, normalize_or, sqrt};
+use crate::math::{atan2, clamp_to_cone, integrate_rotation, length, normalize_or, sqrt};
 
 /// Sustained G a trained human pilot tolerates before strain builds.
 pub const HUMAN_G_TOLERANCE: f32 = 6.0;
@@ -47,6 +49,18 @@ pub const FA_G_MARGIN: f32 = 0.03;
 pub const FA_G_CAP: f32 = HUMAN_G_TOLERANCE - FA_G_MARGIN;
 /// A blade's lunge drives forward at this much of full main thrust (never boosted).
 pub const LUNGE_THRUST: f32 = 1.5;
+/// A lunge homes: it drives along the aim when the aim is within this much of the nose, rad
+/// (15°), and along the edge of that cone when it's further off.
+pub const LUNGE_CONE: f32 = 0.2618;
+/// The burst step ([`burst_tick`]): it drives this many ticks (0.3 s)...
+pub const BURST_TICKS: u8 = 9;
+/// ...at this much, m/s² (about 12 g, which a pilot bears under the anime rules and feels under the
+/// real ones), adding 36 m/s along the stick...
+pub const BURST_ACCEL: f32 = 120.0;
+/// ...and the next can start this many ticks after its press (1.2 s).
+pub const BURST_COOLDOWN: u8 = 36;
+/// A stick past this (of 127) counts toward a step's direction.
+const BURST_STICK: i8 = 32;
 /// How hard roll-level turns the feet toward a surface (1/s): the roll rate asked for per radian
 /// of roll still to go, up to the frame's roll rate.
 pub const ROLL_LEVEL_GAIN: f32 = 2.0;
@@ -65,6 +79,8 @@ pub struct FlightState {
     pub g_load: f32,
     pub g_strain: f32,
     pub blackout: bool,
+    /// The burst step under way, and the wait for the next.
+    pub burst: Burst,
 }
 
 impl Default for FlightState {
@@ -78,7 +94,39 @@ impl Default for FlightState {
             g_load: 0.0,
             g_strain: 0.0,
             blackout: false,
+            burst: Burst::default(),
         }
+    }
+}
+
+/// The burst step: a press of BURST (a double-tapped direction) with the stick off centre starts a
+/// step along it, if the last has cooled down and the suit `can` (propellant in the tank, the pilot
+/// awake, boosters that work). It drives for [`BURST_TICKS`] at [`BURST_ACCEL`], burning as boost
+/// does, in the suit's own axes or, locked on, in the fight's ([`LockOnAssist`]); flight assist lets
+/// it be until it's done, then brings the suit back to what the stick asks. One tick of it: whether
+/// it drives this tick.
+pub fn burst_tick(b: &mut Burst, cmd: &InputCmd, can: bool) -> bool {
+    let held = cmd.pressed(BURST);
+    let pressed = held && !b.held;
+    b.held = held;
+    b.cooldown = b.cooldown.saturating_sub(1);
+    let dir = cmd.thrust.map(|t| {
+        if t > BURST_STICK {
+            1
+        } else if t < -BURST_STICK {
+            -1
+        } else {
+            0
+        }
+    });
+    if pressed && b.cooldown == 0 && can && dir != [0; 3] {
+        *b = Burst { left: BURST_TICKS, cooldown: BURST_COOLDOWN, dir, held };
+    }
+    if b.left > 0 {
+        b.left -= 1;
+        true
+    } else {
+        false
     }
 }
 
@@ -108,6 +156,9 @@ pub struct FlightMods {
     pub g_immune: bool,
     /// Beam saber lunge: full forward thrust at [`LUNGE_THRUST`]×.
     pub lunge: bool,
+    /// How far off the nose a lunge drives toward the aim, rad ([`LUNGE_CONE`]); 0: straight
+    /// along the nose.
+    pub lunge_cone: f32,
     /// Mass beyond the frame's own (cargo, a chunk in hand) less the parts shot off, kg. Whole
     /// kilograms, so prediction uses exactly the server's number.
     pub extra_mass_kg: i32,
@@ -117,6 +168,8 @@ pub struct FlightMods {
     pub roll_level: Option<Vec3>,
     /// Flight assist aloft over a surface that grips the suit ([`HopAssist`]).
     pub hop: Option<HopAssist>,
+    /// Flight assist locked on to a target ([`LockOnAssist`]).
+    pub lockon: Option<LockOnAssist>,
     /// Anime rules: the tank is a boost gauge ([`BoostGauge`]). None: every newton burns.
     pub gauge: Option<BoostGauge>,
 }
@@ -135,9 +188,11 @@ impl Default for FlightMods {
             leak_kg_s: 0.0,
             g_immune: false,
             lunge: false,
+            lunge_cone: 0.0,
             extra_mass_kg: 0,
             roll_level: None,
             hop: None,
+            lockon: None,
             gauge: None,
         }
     }
@@ -165,6 +220,26 @@ pub struct HopAssist {
     pub cruise: f32,
     /// Speed along the normal at full up or down stick, m/s.
     pub climb: f32,
+}
+
+/// Flight assist locked on to a target (`bc_proto::LockOn`, built by `crate::ground::lockon_assist`):
+/// it holds the velocity the stick asks for relative to the target's, `ref_vel`, and reads the
+/// stick in the fight's axes rather than the suit's own: `right`, `up` and `fwd` (the aim laid flat
+/// on the fight's ground), all in the frame flown. A free suit only.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LockOnAssist {
+    pub ref_vel: Vec3,
+    pub right: Vec3,
+    pub up: Vec3,
+    pub fwd: Vec3,
+}
+
+/// The speed flight assist holds at full stick, m/s: the frame's cruise, or boost's while the pilot
+/// holds it (even through a blackout that cuts the boost itself: flight assist mustn't brake them
+/// for it). An empty boost gauge can't hold it, and boosters that can't boost don't.
+pub fn fa_cruise(spec: &FrameSpec, mods: &FlightMods, cmd: &InputCmd, propellant: f32) -> f32 {
+    let boost_cruise = cmd.pressed(BOOST) && mods.boost > 0.0 && (propellant > 0.0 || mods.gauge.is_none());
+    spec.fa_speed * if boost_cruise { FA_BOOST_CRUISE } else { 1.0 }
 }
 
 /// What the step did (for visuals and signatures).
@@ -286,17 +361,21 @@ pub fn integrate(
     let side = spec.side_thrust * mods.side;
     let retro = spec.retro_thrust * mods.retro;
     let brake = cmd.pressed(BRAKE);
-    let assisted = brake || cmd.pressed(FLIGHT_ASSIST);
+    // A burst step, along the stick at its press (in the fight's axes when locked on).
+    let burst = burst_tick(&mut s.burst, cmd, has_prop && !s.blackout && can_boost).then(|| {
+        let d = Vec3::new(f32::from(s.burst.dir[0]), f32::from(s.burst.dir[1]), f32::from(s.burst.dir[2]));
+        match mods.lockon {
+            Some(l) => normalize_or(s.rot.conjugate() * (l.right * d.x + l.up * d.y + l.fwd * d.z), Vec3::Z),
+            None => normalize_or(d, Vec3::Z),
+        }
+    });
+    let assisted = (brake || cmd.pressed(FLIGHT_ASSIST)) && burst.is_none();
     let stick = if brake { Vec3::ZERO } else { cmd.thrust_vec() };
     let mut f_local = if assisted {
-        // Boost's cruise while the pilot holds it, even through a blackout that cuts the boost
-        // itself (flight assist mustn't brake them for it). An empty boost gauge can't hold it.
-        let boost_cruise = cmd.pressed(BOOST) && can_boost && (has_prop || mods.gauge.is_none());
-        let cruise = spec.fa_speed * if boost_cruise { FA_BOOST_CRUISE } else { 1.0 };
+        let cruise = fa_cruise(spec, mods, cmd, s.propellant);
         let v_local = s.rot.conjugate() * s.vel;
-        let gap = match mods.hop {
-            None => stick * cruise - v_local,
-            Some(h) => {
+        let gap = match (mods.hop, mods.lockon) {
+            (Some(h), _) => {
                 // Along the surface, the stick's speed; along the normal, the climb asked for, or
                 // else the speed it has (so no force at all that way).
                 let (s_n, v_n) = (stick.dot(h.up), v_local.dot(h.up));
@@ -304,6 +383,12 @@ pub fn integrate(
                 let t_n = if cmd.thrust[1] == 0 { v_n } else { s_n * h.climb };
                 s_t * h.cruise + h.up * t_n - v_local
             }
+            // Locked on: the stick's velocity in the fight's axes, on top of the target's.
+            (None, Some(l)) => {
+                let want = l.ref_vel + (l.right * stick.x + l.up * stick.y + l.fwd * stick.z) * cruise;
+                s.rot.conjugate() * want - v_local
+            }
+            (None, None) => stick * cruise - v_local,
         };
         let response = if mods.g_immune || length(gap) < FA_SETTLE { dt } else { FA_RESPONSE.max(dt) };
         let f_req = gap * (mass / response);
@@ -320,7 +405,17 @@ pub fn integrate(
         )
     };
     if mods.lunge {
-        f_local.z = spec.main_thrust * mods.main * LUNGE_THRUST;
+        let drive = spec.main_thrust * mods.main * LUNGE_THRUST;
+        if mods.lunge_cone > 0.0 {
+            // It homes: along the aim, within its cone of the nose, on top of the stick's sideways.
+            let along = s.rot.conjugate() * clamp_to_cone(aim, s.rot * Vec3::Z, mods.lunge_cone);
+            f_local = Vec3::new(f_local.x + along.x * drive, f_local.y + along.y * drive, along.z * drive);
+        } else {
+            f_local.z = drive;
+        }
+    }
+    if let Some(d) = burst {
+        f_local += d * (BURST_ACCEL * mass);
     }
     f_local *= mods.thrust * authority;
     if !powered {
@@ -335,8 +430,8 @@ pub fn integrate(
     if g_limited {
         f_local *= most / pull;
     }
-    // Under anime rules only boost burns.
-    if mods.gauge.is_none() || boosting {
+    // Under anime rules only boost burns (and a burst step, which is one).
+    if mods.gauge.is_none() || boosting || burst.is_some() {
         let burn =
             (f_local.x.abs() + f_local.y.abs() + f_local.z.abs()) * dt / (spec.exhaust_velocity() * mods.isp);
         s.propellant = (s.propellant - burn).max(0.0);
@@ -344,8 +439,9 @@ pub fn integrate(
     if mods.leak_kg_s > 0.0 {
         s.propellant = (s.propellant - mods.leak_kg_s * dt).max(0.0);
     }
-    // It fills only once boost is let go, so a pilot leaning on an empty gauge gets nothing.
-    if !(cmd.pressed(BOOST) && can_boost) {
+    // It fills only once boost is let go (and a step is done), so a pilot leaning on an empty gauge
+    // gets nothing.
+    if !(cmd.pressed(BOOST) && can_boost) && burst.is_none() {
         refill(s, spec, mods, dt);
     }
     let axial = if f_local.z >= 0.0 { spec.main_thrust } else { spec.retro_thrust };
@@ -357,7 +453,8 @@ pub fn integrate(
 
     // --- Pilot G. ---
     pilot_g(s, accel, mods, dt);
-    FlightOut { boosting, accel, throttle, g_limited }
+    // A step is seen as boost is (its plumes, its heat on sensors).
+    FlightOut { boosting: boosting || burst.is_some(), accel, throttle, g_limited }
 }
 
 /// Anime rules ([`BoostGauge`]): `dt` of the tank filling back up, to its size. Nothing under the
@@ -407,6 +504,86 @@ mod tests {
 
     fn state() -> FlightState {
         FlightState { propellant: 2_400.0, pos: Vec3::new(0.0, 2_000.0, 0.0), ..FlightState::default() }
+    }
+
+    /// A lunge homes: with the aim off the nose it drives along the aim, and along the edge of its
+    /// cone once the aim's further off than that; with no cone it drives along the nose.
+    #[test]
+    fn a_lunge_drives_along_the_aim_within_its_cone() {
+        let spec = frame(FrameId::Leo);
+        let lunge = |deg: f32, cone: f32| {
+            let mut s = state();
+            let a = deg.to_radians();
+            let cmd = InputCmd { aim: Vec3::new(sin(a), 0.0, cos(a)), ..InputCmd::default() };
+            let mods = FlightMods { lunge: true, lunge_cone: cone, ..FlightMods::default() };
+            let out = integrate(&mut s, &cmd, spec, &mods, DT);
+            (out.accel.normalize(), s.rot * Vec3::Z, cmd.aim)
+        };
+        let (drive, _, aim) = lunge(10.0, LUNGE_CONE);
+        assert!(drive.angle_between(aim) < 0.002, "off the aim by {}", drive.angle_between(aim));
+        let (drive, nose, aim) = lunge(40.0, LUNGE_CONE);
+        assert!((drive.angle_between(nose) - LUNGE_CONE).abs() < 0.002, "{}", drive.angle_between(nose));
+        assert!(drive.angle_between(aim) < aim.angle_between(nose), "toward the aim");
+        let (drive, nose, _) = lunge(10.0, 0.0);
+        assert!(drive.angle_between(nose) < 0.002, "{}", drive.angle_between(nose));
+    }
+
+    /// The burst step: on BURST's press, 36 m/s along the stick in 0.3 s, burning the gauge even
+    /// under the anime rules; none on a held button, a centred stick or before it's cooled down;
+    /// locked on, along the fight's axes; and flight assist brings the suit back after it.
+    #[test]
+    fn a_burst_step_dashes_along_the_stick_once_per_cooldown() {
+        let spec = frame(FrameId::Leo);
+        let anime = FlightMods {
+            gauge: Some(BoostGauge { tank: 1.0, refill: 0.1 }),
+            g_tolerance: HUMAN_G_TOLERANCE * 2.0,
+            ..FlightMods::default()
+        };
+        let fly = |s: &mut FlightState, buttons: u16, thrust: [i8; 3], mods: &FlightMods| {
+            let cmd =
+                InputCmd { aim: Vec3::Z, thrust, buttons: FLIGHT_ASSIST | buttons, ..InputCmd::default() };
+            integrate(s, &cmd, spec, mods, DT)
+        };
+        // D double-tapped: BURST pressed with the stick right, then everything let go.
+        let mut s = state();
+        let out = fly(&mut s, BURST, [127, 0, 0], &anime);
+        assert!(out.boosting, "a step is seen as boost is");
+        for _ in 1..BURST_TICKS {
+            fly(&mut s, 0, [0; 3], &anime);
+        }
+        // (The press's tick also has the held key's own thrust.)
+        assert!((s.vel - Vec3::X * 36.0).length() < 1.0, "{}", s.vel);
+        assert!((30.0..50.0).contains(&(2_400.0 - s.propellant)), "burnt {}", 2_400.0 - s.propellant);
+        assert!(s.g_strain < 0.05 && !s.blackout, "strain {}", s.g_strain);
+        // Pressed again too soon, or held, or with the stick centred: nothing.
+        fly(&mut s, BURST, [127, 0, 0], &anime);
+        fly(&mut s, BURST, [127, 0, 0], &anime);
+        assert!(s.burst.left == 0 && s.burst.cooldown < BURST_COOLDOWN - BURST_TICKS, "{:?}", s.burst);
+        // Flight assist brings it back (on the side thrusters: about 2 s).
+        for _ in 0..90 {
+            fly(&mut s, 0, [0; 3], &anime);
+        }
+        assert!(s.vel.length() < 0.1, "flight assist brought it back: {}", s.vel);
+        fly(&mut s, BURST, [0; 3], &anime);
+        assert_eq!((s.burst.left, s.burst.cooldown), (0, 0), "a centred stick doesn't step");
+        // Locked on, S steps back from the target, along the fight's axes rather than the nose.
+        let up = Vec3::Y;
+        let fwd = Vec3::new(1.0, 0.0, 1.0).normalize();
+        let lock = LockOnAssist { ref_vel: Vec3::ZERO, right: up.cross(fwd), up, fwd };
+        let locked = FlightMods { lockon: Some(lock), ..anime };
+        let mut s = state();
+        fly(&mut s, BURST, [0, 0, -127], &locked);
+        for _ in 1..BURST_TICKS {
+            fly(&mut s, 0, [0; 3], &locked);
+        }
+        assert!((s.vel + fwd * 36.0).length() < 1.0 && s.vel.y.abs() < 0.01, "{}", s.vel);
+        // Under the real rules the pilot feels it.
+        let mut s = state();
+        for k in 0..BURST_TICKS {
+            let press = if k == 0 { BURST } else { 0 };
+            fly(&mut s, press, [0, 127, 0], &FlightMods::default());
+        }
+        assert!(s.g_strain > 0.3 && !s.blackout, "strain {}", s.g_strain);
     }
 
     #[test]
@@ -666,13 +843,16 @@ mod tests {
             g_load: rng.next_f32() * 10.0,
             g_strain: rng.next_f32() * 1.2,
             blackout: rng.next_u32().is_multiple_of(4),
+            // No step under way (v8 had none).
+            burst: Burst::default(),
         };
         let axis = |rng: &mut Rng| if rng.next_u32().is_multiple_of(4) { 0 } else { rng.next_u32() as i8 };
         let cmd = InputCmd {
             aim: if rng.next_u32().is_multiple_of(10) { Vec3::ZERO } else { random_vec(rng, 1.0) },
             thrust: [axis(rng), axis(rng), axis(rng)],
             roll: axis(rng),
-            buttons: rng.next_u32() as u16,
+            // Bit 15 was free in v8 (the burst step came later; its own tests hold it).
+            buttons: rng.next_u32() as u16 & !BURST,
             ..InputCmd::default()
         };
         let spec = frame(FrameId::ALL[rng.next_u32() as usize % FrameId::COUNT]);
@@ -721,10 +901,10 @@ mod tests {
     #[test]
     fn none_mods_are_the_old_expressions() {
         let mut rng = Rng::new(0x0008);
-        let (mut rolled, mut hopped) = (0, 0);
+        let (mut rolled, mut hopped, mut locked) = (0, 0, 0);
         for n in 0..10_000 {
             let (s0, cmd, spec, mods) = random_case(&mut rng);
-            assert!(mods.roll_level.is_none() && mods.hop.is_none());
+            assert!(mods.roll_level.is_none() && mods.hop.is_none() && mods.lockon.is_none());
             let (mut a, mut b) = (s0, s0);
             let out_a = step(&mut a, &cmd, spec, &mods, DT);
             let out_b = v8::step(&mut b, &cmd, spec, &mods, DT);
@@ -736,10 +916,63 @@ mod tests {
             step(&mut c, &cmd, spec, &FlightMods { roll_level: Some(up), ..mods }, DT);
             let hop = HopAssist { up, cruise: 8.0, climb: 20.0 };
             step(&mut d, &cmd, spec, &FlightMods { hop: Some(hop), ..mods }, DT);
+            let fwd = (s0.rot * Vec3::Z - up * (s0.rot * Vec3::Z).dot(up))
+                .normalize_or(up.any_orthonormal_vector());
+            let lock = LockOnAssist { ref_vel: random_vec(&mut rng, 400.0), right: up.cross(fwd), up, fwd };
+            let mut e = s0;
+            step(&mut e, &cmd, spec, &FlightMods { lockon: Some(lock), ..mods }, DT);
             rolled += u32::from(bits(&c) != bits(&a));
             hopped += u32::from(bits(&d) != bits(&a));
+            locked += u32::from(bits(&e) != bits(&a));
         }
         assert!(rolled > 5_000 && hopped > 1_000, "roll-level changed {rolled}, hop assist {hopped}");
+        assert!(locked > 1_000, "a lock-on changed {locked}");
+    }
+
+    /// The suit's own axes and nothing to hold relative to: locked on is plain flight assist.
+    #[test]
+    fn a_lockon_with_no_reference_in_the_suits_own_axes_is_plain_flight_assist() {
+        let mut rng = Rng::new(0x10C0);
+        let own = LockOnAssist { ref_vel: Vec3::ZERO, right: Vec3::X, up: Vec3::Y, fwd: Vec3::Z };
+        for n in 0..2_000 {
+            let (s0, cmd, spec, mods) = random_case(&mut rng);
+            let s0 = FlightState { rot: Quat::IDENTITY, ang_vel: Vec3::ZERO, ..s0 };
+            let cmd = InputCmd { aim: Vec3::Z, roll: 0, ..cmd };
+            let (mut a, mut b) = (s0, s0);
+            let out_a = step(&mut a, &cmd, spec, &mods, DT);
+            let out_b = step(&mut b, &cmd, spec, &FlightMods { lockon: Some(own), ..mods }, DT);
+            assert_eq!(bits(&a), bits(&b), "case {n}: {s0:?} {cmd:?}");
+            assert_eq!(out_bits(&out_a), out_bits(&out_b), "case {n}");
+        }
+    }
+
+    /// A target faster than flight assist's cruise: plain flight assist can't keep up with it, locked
+    /// on it holds station on it, and the stick's speed comes on top. Brake brakes to the target.
+    #[test]
+    fn locked_on_flight_assist_keeps_pace_with_its_target() {
+        let spec = frame(FrameId::Leo);
+        // Mostly ahead, where the main thrusters push; some across, where the side ones do.
+        let target = Vec3::new(50.0, -60.0, 380.0);
+        assert!(target.length() > spec.fa_speed);
+        let lock = LockOnAssist { ref_vel: target, right: Vec3::X, up: Vec3::Y, fwd: Vec3::Z };
+        let mods = FlightMods { lockon: Some(lock), ..FlightMods::default() };
+        let fly = |thrust: [i8; 3], buttons: u16, from: Vec3| {
+            let mut s = FlightState { vel: from, ..state() };
+            let cmd = InputCmd { aim: Vec3::Z, thrust, buttons, ..InputCmd::default() };
+            for _ in 0..1_200 {
+                integrate(&mut s, &cmd, spec, &mods, DT);
+            }
+            s
+        };
+        let s = fly([0; 3], FLIGHT_ASSIST, Vec3::ZERO);
+        assert!((s.vel - target).length() < 0.01, "{}", s.vel);
+        // Flight assist spared the pilot all the way.
+        assert!(s.g_strain == 0.0 && !s.blackout);
+        let s = fly([0, 0, 127], FLIGHT_ASSIST, Vec3::ZERO);
+        assert!((s.vel - target - Vec3::Z * spec.fa_speed).length() < 0.01, "{}", s.vel);
+        // Brake (with the stick held) brakes to the target's velocity, not the sector's rest.
+        let s = fly([127, 0, 127], BRAKE, Vec3::new(-50.0, 0.0, 100.0));
+        assert!((s.vel - target).length() < 0.01, "{}", s.vel);
     }
 
     #[test]

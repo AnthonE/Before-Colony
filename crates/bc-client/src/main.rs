@@ -19,6 +19,8 @@ mod camera;
 #[cfg(target_arch = "wasm32")]
 mod chart;
 #[cfg(target_arch = "wasm32")]
+mod chat;
+#[cfg(target_arch = "wasm32")]
 mod city;
 #[cfg(target_arch = "wasm32")]
 mod cockpit;

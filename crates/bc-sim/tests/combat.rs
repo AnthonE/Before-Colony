@@ -3,7 +3,7 @@
 
 use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, MELEE};
 use bc_proto::events::Event;
-use bc_proto::{Faction, FrameId, InputCmd, Part, PilotKind};
+use bc_proto::{Faction, FrameId, InputCmd, Part, PilotKind, WeaponKind};
 use bc_sim::collide::sweep_capsules;
 use bc_sim::content::{Capsule, frame};
 use bc_sim::math::{Rng, look_rotation};
@@ -53,6 +53,41 @@ fn fast_shots_never_tunnel() {
     }
 }
 
+/// Tap fires, hold charges: a press fires the rifle as ever; held past its tap it charges (and
+/// says so), and let go on a full charge the charged shot leaves; let go sooner, only the tap's
+/// shot went.
+#[test]
+fn a_tap_fires_and_a_held_trigger_charges_a_sniper_shot() {
+    let mut sim = empty();
+    let leo = human(&mut sim, FrameId::Leo, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
+    let from = sim.events.next_seq();
+    let fly = |sim: &mut Sim, ticks: u32, buttons: u16| {
+        for _ in 0..ticks {
+            hold(sim, leo, buttons, Vec3::Z);
+            sim.step();
+        }
+    };
+    // A tap.
+    fly(&mut sim, 1, FIRE_PRIMARY);
+    fly(&mut sim, 30, 0);
+    // Held for a full charge, then let go.
+    fly(&mut sim, 40, FIRE_PRIMARY);
+    assert!(sim.own_state(leo.idx()).charge > 0.99, "{}", sim.own_state(leo.idx()).charge);
+    fly(&mut sim, 1, 0);
+    fly(&mut sim, 40, 0);
+    // Held, but not for long enough.
+    fly(&mut sim, 20, FIRE_PRIMARY);
+    fly(&mut sim, 40, 0);
+    let spawned = |kind: WeaponKind| {
+        events_since(&sim, from)
+            .iter()
+            .filter(|e| matches!(e, Event::BeamSpawn { weapon, .. } if *weapon == kind))
+            .count()
+    };
+    assert_eq!(spawned(WeaponKind::BeamRifle), 3, "a shot on each pull");
+    assert_eq!(spawned(WeaponKind::BeamRifleCharged), 1, "one charged shot, on the long hold's release");
+}
+
 #[test]
 fn beam_rifle_hits_and_breaks_parts() {
     let mut sim = empty();
@@ -63,7 +98,9 @@ fn beam_rifle_hits_and_breaks_parts() {
         let muzzle =
             sim.suits.flight[leo.idx()].pos + sim.suits.flight[leo.idx()].rot * Vec3::new(3.4, 0.6, 3.0);
         let aim = (sim.suits.flight[target.idx()].pos + Vec3::new(0.0, 2.5, 0.0) - muzzle).normalize();
-        hold(&mut sim, leo, FIRE_PRIMARY, aim);
+        // Tap fires: a pull each time it's ready (held, it would charge).
+        let pull = if sim.would_fire(leo.idx(), 0) { FIRE_PRIMARY } else { 0 };
+        hold(&mut sim, leo, pull, aim);
         sim.step();
     }
     let ev = events_since(&sim, from);

@@ -32,7 +32,7 @@ pub struct PeoplePlugin;
 impl Plugin for PeoplePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Crowd>()
-            .add_systems(Startup, setup_people)
+            .add_systems(Startup, (setup_people, setup_benches))
             .add_systems(Update, draw_people.in_set(crate::view::Vis::Suits))
             .add_systems(Update, name_tags.in_set(crate::view::Vis::Hud));
     }
@@ -49,6 +49,58 @@ struct PeopleScene {
     scooter: [Handle<Mesh>; 3],
     glass: Handle<StandardMaterial>,
     tyre: Handle<StandardMaterial>,
+}
+
+/// The Arrival's benches by its door (`bc_sim::colony::city::arrival_seats`), two seats each: a
+/// seat and a back, in the seats' own frame (facing +z, the way a pilot sits on them).
+fn setup_benches(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let wood = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.42, 0.29, 0.18),
+        perceptual_roughness: 0.7,
+        ..default()
+    });
+    let iron = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.12, 0.13, 0.14),
+        perceptual_roughness: 0.45,
+        metallic: 0.6,
+        ..default()
+    });
+    let layer = RenderLayers::layer(CITY_LAYER);
+    let slab = meshes.add(Cuboid::new(2.4, 0.07, 0.5));
+    let back = meshes.add(Cuboid::new(2.4, 0.45, 0.06));
+    let leg = meshes.add(Cuboid::new(0.07, 0.45, 0.45));
+    let seats = bc_sim::colony::city::arrival_seats();
+    for pair in seats.chunks(2) {
+        let (a, b) = (pair[0], pair[pair.len() - 1]);
+        let at = CityPos::new(a.strip, 0.5 * (a.x + b.x), 0.5 * (a.s + b.s), 0.0);
+        let root = commands
+            .spawn((
+                Transform::from_rotation(local_frame(a.strip, at.s) * Quat::from_rotation_y(a.yaw)),
+                Visibility::Inherited,
+                Placed(colony_point(at)),
+                layer.clone(),
+            ))
+            .id();
+        let parts = [
+            (slab.clone(), wood.clone(), Vec3::new(0.0, 0.45, 0.0)),
+            (back.clone(), wood.clone(), Vec3::new(0.0, 0.8, -0.24)),
+            (leg.clone(), iron.clone(), Vec3::new(-1.05, 0.22, 0.0)),
+            (leg.clone(), iron.clone(), Vec3::new(1.05, 0.22, 0.0)),
+        ];
+        for (mesh, material, offset) in parts {
+            commands.spawn((
+                Mesh3d(mesh),
+                MeshMaterial3d(material),
+                Transform::from_translation(offset),
+                layer.clone(),
+                ChildOf(root),
+            ));
+        }
+    }
 }
 
 /// A car (facing +z, wheels on the ground): its body, its glass, its tyres.
@@ -87,6 +139,8 @@ fn scooter_meshes() -> [Mesh; 3] {
 #[derive(Component)]
 struct Figure {
     id: u16,
+    /// Their callsign, as the radio names them.
+    name: String,
     phase: f32,
     last: Option<(f32, f32, f32)>,
     joints: [Entity; 12],
@@ -239,7 +293,16 @@ fn spawn_figure(
             Visibility::Hidden,
         ))
         .id();
-    commands.entity(root).insert(Figure { id, phase: 0.0, last: None, joints, tag, car, scooter });
+    commands.entity(root).insert(Figure {
+        id,
+        name: name.to_string(),
+        phase: 0.0,
+        last: None,
+        joints,
+        tag,
+        car,
+        scooter,
+    });
     root
 }
 
@@ -278,23 +341,29 @@ fn draw_people(
             f.phase = (f.phase + figure::stride_phase(d, pose.running)) % std::f32::consts::TAU;
         }
         f.last = Some((pose.x, pose.s, pose.h));
-        // Driving: in a car, out of sight in it; on a scooter, standing on its deck, still.
-        let (in_car, on_scooter) = (pose.ride == RIDE_CAR, pose.ride == RIDE_SCOOTER);
+        // Driving: in a car, out of sight in it; on a scooter, standing on its deck, still. Seated,
+        // sitting.
+        let (in_car, on_scooter, seated) = (pose.ride == RIDE_CAR, pose.ride == RIDE_SCOOTER, pose.seated());
         let still = in_car || on_scooter;
-        let turns = figure::pose(
-            if still { 0.0 } else { f.phase },
-            if still { 0.0 } else { pose.speed },
-            pose.pitch,
-            pose.grounded || still,
-            pose.running,
-        );
+        let turns = if seated {
+            figure::seated(pose.pitch)
+        } else {
+            figure::pose(
+                if still { 0.0 } else { f.phase },
+                if still { 0.0 } else { pose.speed },
+                pose.pitch,
+                pose.grounded || still,
+                pose.running,
+            )
+        };
         for (i, j) in f.joints.iter().enumerate() {
             if let Ok((mut t, _)) = joints.get_mut(*j) {
                 t.rotation = turns[i];
             }
         }
         if let Ok((mut hips, mut vis)) = joints.get_mut(f.joints[0]) {
-            hips.translation.y = Piece::Hips.joint().y + if on_scooter { 0.4 } else { 0.0 };
+            hips.translation.y = Piece::Hips.joint().y + if on_scooter { 0.4 } else { 0.0 }
+                - if seated { figure::SEAT_DROP } else { 0.0 };
             let want = if in_car { Visibility::Hidden } else { Visibility::Inherited };
             if *vis != want {
                 *vis = want;
@@ -316,16 +385,29 @@ fn draw_people(
     }
 }
 
-/// Names over the near ones.
+/// How long a line said on the radio stays over its speaker's head, s.
+const SAID_SECS: f64 = 8.0;
+
+/// Names over the near ones, and over each, what they last said on the radio (for a while).
 fn name_tags(
     origin: Res<RenderOrigin>,
     figures: Query<(&Figure, &Placed, &Transform)>,
     cams: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    mut tags: Query<(&mut Node, &mut Visibility), With<Text>>,
+    mut tags: Query<(&mut Node, &mut Visibility, &mut Text)>,
+    spoken: Res<crate::chat::Spoken>,
 ) {
     let Ok((cam, cam_tf)) = cams.single() else { return };
+    let now = crate::net::now_s();
     for (f, placed, tf) in &figures {
-        let Ok((mut node, mut vis)) = tags.get_mut(f.tag) else { continue };
+        let Ok((mut node, mut vis, mut text)) = tags.get_mut(f.tag) else { continue };
+        let said = spoken.0.get(&f.name).filter(|(_, at)| now - at < SAID_SECS);
+        let want = match said {
+            Some((line, _)) => format!("{}\n{line}", f.name),
+            None => f.name.clone(),
+        };
+        if text.0 != want {
+            text.0 = want;
+        }
         let head = origin.place(placed.0) + tf.rotation * Vec3::Y * 2.05;
         let near = f.id != OWN && cam_tf.translation().distance(head) < NAME_REACH;
         let shown = near.then(|| cam.world_to_viewport(cam_tf, head).ok()).flatten();

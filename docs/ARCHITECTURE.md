@@ -74,7 +74,8 @@ network threads.
 2. **Inputs:** drain each slot's ring into a 64-slot jitter buffer, and process acks.
 3. **Oracle advice** in, with a 15-tick time-to-live.
 4. **Apply inputs** for tick `T`: the client's command if it arrived; otherwise the last one with fire
-   cleared (the same view delay). After 8 silent ticks the suit goes hands-off, keeping its states.
+   cleared (the same view delay). After 8 silent ticks the suit goes hands-off, keeping its states
+   (and, for 30 ticks more, its lock-on: `LOCK.md`).
    Until a client is first heard from, "the last one" is the suit's own input (what a woken or
    restored suit was left with: the grip held), so a rider never lets go before its pilot speaks.
 5. **`Sim::step`:**

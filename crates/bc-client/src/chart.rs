@@ -2046,7 +2046,7 @@ fn objectives_list(state: &ObjectiveState, done: u32, downed: u32, survival: boo
     let input = state.input();
     let mut list = String::new();
     for o in Objective::order(survival) {
-        if !o.available(input.landmarks, input.rocks) {
+        if !o.available(input) {
             continue;
         }
         let mark = if done & o.bit() != 0 {

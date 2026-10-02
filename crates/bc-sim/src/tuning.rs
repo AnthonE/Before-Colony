@@ -228,9 +228,11 @@ pub fn flight_mods(t: &Tuning, rules: FlightRules, g_immune: bool, extra_mass_kg
         leak_kg_s: t.leak_kg_s,
         g_immune,
         lunge: false,
+        lunge_cone: crate::flight::LUNGE_CONE,
         extra_mass_kg,
         roll_level: None,
         hop: None,
+        lockon: None,
         gauge: anime.then(|| BoostGauge { tank: t.tank, refill: t.refill / ANIME_REFILL_SECS }),
     }
 }
@@ -268,6 +270,17 @@ pub fn wobble(dir: Vec3, tick: u32, slot: u16, mount: usize) -> Vec3 {
     let n =
         Vec3::new(hash01(tick, seed) - 0.5, hash01(tick ^ 0x3C, seed) - 0.5, hash01(tick ^ 0xC3, seed) - 0.5);
     normalize_or(dir + (n * (2.0 * sys::CONCUSSION_WOBBLE)).clamp_length_max(sys::CONCUSSION_WOBBLE), dir)
+}
+
+/// Where a shot from mount `mount` of suit `slot` on tick `tick` goes, aimed along `dir`: anywhere
+/// in the weapon's cone of half-angle `spread`, evenly (the ring the HUD draws round the
+/// crosshair). The shooter's client draws it the same way.
+pub fn scatter(dir: Vec3, spread: f32, tick: u32, slot: u16, mount: usize) -> Vec3 {
+    if spread <= 0.0 {
+        return dir;
+    }
+    let seed = u32::from(slot) * 7 + mount as u32;
+    crate::math::within_cone(dir, spread, hash01(tick, seed), hash01(tick ^ 0x55, seed))
 }
 
 /// The tank's size, kg.

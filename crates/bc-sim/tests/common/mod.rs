@@ -90,11 +90,25 @@ pub fn scripted(sim: &Sim, id: SuitId, tick: u32) -> InputCmd {
         aim: aim.normalize_or(Vec3::Z),
         thrust: [q(wobble.x * 2.0), q(wobble.y * 2.0), q(0.3 + wobble.z)],
         roll: 0,
-        buttons,
+        buttons: pull(sim, id, buttons),
         lock_target: NO_SLOT,
         shot_seq: (tick / 10) as u8,
+        lockon: None,
     }
     .quantized()
+}
+
+/// `buttons`, with the primary's trigger pulled only on ticks it would fire if its shot charges (tap
+/// fires, hold charges: `bc_sim::arms::charged_pull`). So a script that holds the trigger fires just
+/// as it did before charging came, shot for shot.
+pub fn pull(sim: &Sim, id: SuitId, buttons: u16) -> u16 {
+    let charged = bc_sim::content::frame(sim.suits.frame[id.idx()]).loadout[0]
+        .is_some_and(|m| bc_sim::content::weapon(m.weapon).charged.is_some());
+    if buttons & FIRE_PRIMARY != 0 && charged && !sim.would_fire(id.idx(), 0) {
+        buttons & !FIRE_PRIMARY
+    } else {
+        buttons
+    }
 }
 
 /// Steps the arena `ticks` times with scripted input for every player.
@@ -200,11 +214,32 @@ pub fn duel_scripted(sim: &Sim, id: SuitId, foe: SuitId, tick: u32) -> InputCmd 
         aim: aim.normalize_or(Vec3::Z),
         thrust: [q(local.x * pull + weave.x), q(local.y * pull + weave.y), q(local.z * pull + weave.z)],
         roll: 0,
-        buttons,
+        buttons: self::pull(sim, id, buttons),
         lock_target: foe.idx() as u16,
         shot_seq: (tick / 10) as u8,
+        lockon: None,
     }
     .quantized()
+}
+
+/// [`duel_scripted`], locked on (`bc_proto::LockOn`): flight assist holds the foe's velocity, the
+/// fight's up is the colony's, and the stick, in the fight's axes, closes in and then circles one
+/// way and the other, with a burst step now and then.
+pub fn locked_scripted(sim: &Sim, id: SuitId, foe: SuitId, tick: u32) -> InputCmd {
+    let cmd = duel_scripted(sim, id, foe, tick);
+    let (me, it) = (&sim.suits.flight[id.idx()], &sim.suits.flight[foe.idx()]);
+    let range = me.pos.distance(it.pos);
+    let close = ((range - 20.0) / 200.0).clamp(-0.5, 1.0);
+    let circle = if (tick / 90 + id.idx() as u32).is_multiple_of(2) { 0.6 } else { -0.6 };
+    let q = |v: f32| (v.clamp(-1.0, 1.0) * 127.0) as i8;
+    let lockon = bc_proto::LockOn { ref_vel: it.vel, up: bc_sim::world::colony_up(me.pos) };
+    // Now and then a burst step, the way it circles.
+    if (tick + 13 * id.idx() as u32).is_multiple_of(70) {
+        let buttons = cmd.buttons | bc_proto::buttons::BURST;
+        return InputCmd { thrust: [q(circle * 2.0), 0, 0], roll: 0, buttons, lockon: Some(lockon), ..cmd }
+            .quantized();
+    }
+    InputCmd { thrust: [q(circle), 0, q(close)], roll: 0, lockon: Some(lockon), ..cmd }.quantized()
 }
 
 /// The smallest rock bigger than `min` m with nothing else within `clear` m of it.
@@ -455,6 +490,7 @@ pub fn rider_scripted(sim: &Sim, id: SuitId, k: usize, t: u32) -> InputCmd {
         260..270 => (nose, [0; 3], FLIGHT_ASSIST),
         _ => (nose, [0; 3], GRIP | FLIGHT_ASSIST),
     };
+    let buttons = pull(sim, id, buttons);
     InputCmd { tick: t, view_tick_q4: t << 4, aim, thrust, buttons, ..InputCmd::default() }.quantized()
 }
 
@@ -467,7 +503,7 @@ pub fn hunter_scripted(sim: &Sim, id: SuitId, prey: SuitId, k: usize, t: u32) ->
         tick: t,
         view_tick_q4: (t << 4).saturating_sub(40),
         aim,
-        buttons: FLIGHT_ASSIST | fire,
+        buttons: pull(sim, id, FLIGHT_ASSIST | fire),
         lock_target: prey.idx() as u16,
         ..InputCmd::default()
     }

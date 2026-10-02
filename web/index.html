@@ -127,6 +127,12 @@
   <div id="news" class="news hidden"></div>
 
   <div id="hint" class="hint hidden"></div>
+  <!-- The colony's radio (crates/bc-client/src/chat.rs): its latest lines, and / to say one. -->
+  <div id="chat" class="chat">
+    <div id="chat-log" class="chat-log"></div>
+    <input id="chat-input" class="chat-input" maxlength="160" autocomplete="off" spellcheck="false"
+      placeholder="Say it on the colony's radio · Enter sends · Esc closes">
+  </div>
   <div id="banner" class="banner hidden">
     <div id="banner-text"></div>
     <div class="row"><button data-cmd="retry" class="primary">RECONNECT NOW</button><button data-cmd="cancel">TITLE</button></div>

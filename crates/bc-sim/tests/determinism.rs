@@ -7,7 +7,7 @@
 mod common;
 
 /// Hash after 600 ticks of the reference scenario (update deliberately when the sim changes).
-const GOLDEN: u64 = 0x8ef9_bdea_f968_ba20;
+const GOLDEN: u64 = 0x2e6d_0082_f337_169d;
 
 fn scenario_hash() -> u64 {
     let (mut sim, players) = common::arena(8, 24, 42);
@@ -34,7 +34,7 @@ fn golden_hash_wasm() {
 /// Hash after 450 ticks of the Gundams duelling in pairs among Mobile Dolls: every blade, the
 /// Cross Crusher, the Dragon Fang, the flamethrower, the Hyper Jammer, guided missiles, Full Open,
 /// Neo-Bird and the Gundams' guns (changes deliberately as their mechanics arrive).
-const GUNDAMS_GOLDEN: u64 = 0x0a08_8b70_159e_47d8;
+const GUNDAMS_GOLDEN: u64 = 0xc8b4_b787_b868_e3d3;
 
 fn gundams_hash() -> u64 {
     use bc_proto::events::Event;
@@ -110,6 +110,44 @@ fn gundams_golden_wasm() {
     assert_eq!(gundams_hash(), GUNDAMS_GOLDEN);
 }
 
+/// Hash after 450 ticks of pilots locked on to their foes (`bc_proto::LockOn`): flight assist
+/// holding each foe's velocity in the fight's axes, levelled to the colony's up, closing in and
+/// circling, burst-stepping now and then, among Mobile Dolls.
+const LOCKON_GOLDEN: u64 = 0xc8af_9bcc_9e59_1ede;
+
+fn lockon_hash() -> u64 {
+    let (mut sim, duels) = common::gundam_crowd(8, 12, 21);
+    let mut steps = 0;
+    for _ in 0..450 {
+        let t = sim.next_tick();
+        for &(a, b) in &duels {
+            let (ca, cb) = (common::locked_scripted(&sim, a, b, t), common::locked_scripted(&sim, b, a, t));
+            sim.set_input(a, ca);
+            sim.set_input(b, cb);
+        }
+        sim.step();
+        let started =
+            |id: bc_sim::SuitId| sim.suits.flight[id.idx()].burst.left == bc_sim::flight::BURST_TICKS - 1;
+        steps += duels.iter().map(|&(a, b)| usize::from(started(a)) + usize::from(started(b))).sum::<usize>();
+    }
+    assert!(steps >= 2 * duels.len() * 4, "only {steps} burst steps");
+    sim.state_hash()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn lockon_golden_native() {
+    let h = lockon_hash();
+    assert_eq!(h, lockon_hash(), "must be reproducible within a process");
+    assert_eq!(h, LOCKON_GOLDEN, "lock-on scenario hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn lockon_golden_wasm() {
+    assert_eq!(lockon_hash(), LOCKON_GOLDEN);
+}
+
 /// Hash of the generated debris field (clients build it from the Welcome's seed and count).
 const FIELD_GOLDEN: u64 = 0x8631_3a1b_8b14_b993;
 
@@ -138,7 +176,7 @@ fn field_hash() -> u64 {
 
 /// Hash after suits have flown into rocks and fired into them, wearing them down, while a Leo cuts
 /// a small one apart with its saber.
-const ROCKS_GOLDEN: u64 = 0x9062_a234_a495_8fa0;
+const ROCKS_GOLDEN: u64 = 0x91c4_8251_0774_173a;
 
 fn rocks_hash() -> u64 {
     use bc_proto::buttons::{FIRE_PRIMARY, MELEE};
@@ -195,7 +233,7 @@ fn rocks_hash() -> u64 {
                     tick: t,
                     view_tick_q4: t << 4,
                     aim: dir,
-                    buttons: FIRE_PRIMARY,
+                    buttons: common::pull(&sim, id, FIRE_PRIMARY),
                     ..InputCmd::default()
                 },
             );
@@ -432,7 +470,7 @@ fn sleepers_golden_wasm() {
 /// off. A guided missile goes at the Leo on its rock. (The hash covers the suits' cover since they
 /// hide, and the dolls hunting the riders come at them from above; with wear and tear, every suit's
 /// systems, equipment and statuses.)
-const SURFACE_GOLDEN: u64 = 0x096e_bce5_8678_c035;
+const SURFACE_GOLDEN: u64 = 0x2e92_5182_35ee_f345;
 
 fn surface_hash() -> u64 {
     use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRIP, MELEE, MODE};
@@ -509,7 +547,7 @@ fn surface_hash() -> u64 {
             cmd(ahead, [0; 3], FLIGHT_ASSIST)
         } else if t >= 600 {
             let dig = if t % 45 < 3 { MELEE } else { 0 };
-            cmd(-normal(&sim, leo), [0, -127, 0], GRIP | FIRE_PRIMARY | dig)
+            cmd(-normal(&sim, leo), [0, -127, 0], common::pull(&sim, leo, GRIP | FIRE_PRIMARY | dig))
         } else {
             let square = [[0, 0, 127], [127, 0, 0], [0, 0, -127], [-127, 0, 0]];
             let thrust = match t {
@@ -566,7 +604,8 @@ fn surface_hash() -> u64 {
         for &s in &shooters {
             let aim = (target - sim.suits.flight[s.idx()].pos).normalize();
             let fire = if t >= 60 { FIRE_PRIMARY } else { 0 };
-            let c = InputCmd { view_tick_q4: (t - 6) << 4, ..cmd(aim, [0; 3], FLIGHT_ASSIST | fire) };
+            let fire = common::pull(&sim, s, FLIGHT_ASSIST | fire);
+            let c = InputCmd { view_tick_q4: (t - 6) << 4, ..cmd(aim, [0; 3], fire) };
             sim.set_input(s, c);
         }
         // The Wing Zero: down into the Deep, then off as a bird at 500.

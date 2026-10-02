@@ -5,11 +5,14 @@
 //! The objectives themselves (what they are, when each is done, where its waypoint is) are
 //! `bc_client_core::objectives`; this draws them, and keeps what's done in the settings.
 
-use bc_client_core::objectives::{Objective, ObjectiveInput, Objectives, waypoint_at};
+use bc_client_core::objectives::{Objective, ObjectiveInput, Objectives, Waypoint as Goal, waypoint_at};
 use bc_client_core::palette;
+use bc_econ::wire::Place;
 use bc_proto::NO_CHUNK;
 use bc_proto::snapshot::{cover, own_flags};
 use bc_sim::bodies::Body;
+use bc_sim::colony::city::place_door;
+use bc_sim::content::city::PLACES;
 use bc_sim::ground::Footing;
 use bevy::prelude::*;
 use bevy::text::LetterSpacing;
@@ -167,6 +170,7 @@ pub fn update_objectives(
     mut texts: Query<(&ObjectiveText, &mut Text)>,
     mut marker: Query<(&mut Node, &mut Visibility), (With<Waypoint>, Without<ObjectivePanel>)>,
     mut label: Query<&mut Text, (With<WaypointLabel>, Without<ObjectiveText>)>,
+    onfoot: Res<crate::onfoot::OnFoot>,
 ) {
     let g = game.borrow();
     let core = &g.core;
@@ -200,6 +204,14 @@ pub fn update_objectives(
         cargo_kg: own.map_or(0, |o| o.cargo_kg.iter().map(|kg| u32::from(*kg)).sum::<u32>()) + held,
         docked: own.is_some_and(|o| o.flags & own_flags::DOCKED != 0),
         doll_kills: core.world.doll_kills,
+        colony: core.welcome.is_some_and(|w| w.colony),
+        in_city: core.hangar.place == Some(Place::City),
+        at_exchange: core.hangar.place == Some(Place::City)
+            && onfoot
+                .city
+                .as_ref()
+                .is_some_and(|c| c.focus == Some(usize::from(bc_client_core::objectives::exchange()))),
+        sales: core.hangar.sales,
     };
     let (mut done, mut downed) = (settings.0.objectives_done, settings.0.dolls_downed);
     let before = done;
@@ -213,11 +225,34 @@ pub fn update_objectives(
         ui.toast(format!("OBJECTIVE DONE - {}", o.title(survival)));
     }
     let from = view.map_or(Vec3::ZERO, |v| v.pos);
+    // On foot, the first of those done on foot (the flight's wait for the next sortie).
+    let afoot = ui.playing() && ui.on_foot;
+    let current = if afoot {
+        Objective::order(survival)
+            .iter()
+            .copied()
+            .find(|o| o.on_foot() && done & o.bit() == 0 && o.available(&input))
+    } else {
+        current
+    };
     state.current = current;
     state.input = input;
-    state.waypoint = current.and_then(|o| waypoint_at(core, o.waypoint(), from, t));
+    // On foot, the way is on the page's map (M): the place's door, and how far off it is.
+    let door = current.and_then(|o| match o.waypoint() {
+        Goal::Place(k) => PLACES.get(usize::from(k)),
+        _ => None,
+    });
+    ui.map_goal = door.filter(|_| afoot).map(|p| p.slug);
+    let to_door = door.zip(onfoot.city.as_ref()).filter(|(p, c)| p.strip == c.strip).map(|(p, c)| {
+        let ((s, x), _) = place_door(p);
+        let at = c.feet();
+        Vec2::new(at.s - s, at.x - x).length()
+    });
+    state.waypoint =
+        if afoot { None } else { current.and_then(|o| waypoint_at(core, o.waypoint(), from, t)) };
 
-    let shown = settings.0.objectives && in_sector && own.is_some();
+    let shown = settings.0.objectives
+        && ((in_sector && own.is_some()) || (afoot && current.is_some_and(|o| o.on_foot())));
     // The panel: hidden under the map, which lists them all.
     let want = if shown && current.is_some() && !open.0 { Visibility::Inherited } else { Visibility::Hidden };
     for mut v in &mut panel {
@@ -225,13 +260,15 @@ pub fn update_objectives(
     }
     if let Some(o) = current {
         let order = Objective::order(survival);
-        let count = order.iter().filter(|o| o.available(input.landmarks, input.rocks)).count();
-        let n =
-            order.iter().filter(|o| o.available(input.landmarks, input.rocks) && done & o.bit() != 0).count();
+        let count = order.iter().filter(|o| o.available(&input)).count();
+        let n = order.iter().filter(|o| o.available(&input) && done & o.bit() != 0).count();
         let progress =
             o.progress(&input, downed).map_or(String::new(), |(a, b)| format!("   {a}/{b}{}", unit(o)));
-        let dist =
-            state.waypoint.as_ref().map_or(String::new(), |(p, _)| format!("   {}", km(p.distance(from))));
+        let dist = match (&state.waypoint, to_door) {
+            (Some((p, _)), _) => format!("   {}", km(p.distance(from))),
+            (None, Some(d)) => format!("   {}", km(d)),
+            _ => String::new(),
+        };
         for (which, mut text) in &mut texts {
             let s = match which {
                 ObjectiveText::Heading => format!("OBJECTIVE {}/{count}   M - MAP", n + 1),

@@ -34,6 +34,7 @@ use super::game::{
     send_control, set_roster_flags, wait_slot,
 };
 use crate::pilots::{self, Fate, ParkedSuit, PilotRecord, Sleeper};
+use crate::radio::Mouth;
 
 /// Who the Hello said the pilot is.
 pub(super) struct Who {
@@ -102,6 +103,8 @@ pub(super) async fn run(
         watching: None,
         market_seen: 0,
         market_sent: Instant::now() - MARKET_EVERY,
+        radio_heard: 0,
+        mouth: Mouth::default(),
         lost: false,
         entered: false,
     };
@@ -146,6 +149,9 @@ struct Session<'a> {
     watching: Option<Item>,
     market_seen: u64,
     market_sent: Instant,
+    /// The last line of the colony's radio passed on, and how fast the pilot may talk on it.
+    radio_heard: u64,
+    mouth: Mouth,
     /// The suit was destroyed; its wreck is still out there.
     lost: bool,
     /// Welcomed (so leaving has a roster entry, a record and a lease to settle).
@@ -203,6 +209,8 @@ impl Session<'_> {
             }
         }
         self.entered = true;
+        // The radio from now on.
+        self.radio_heard = self.game.radio.said();
         // What became of the suit they left, if they didn't wake in it.
         let news = match self.address {
             Some(a) if had_sleeper && !woke => {
@@ -228,6 +236,8 @@ impl Session<'_> {
                 }
             });
         }
+        // Lost everything: the Charter Board's advance (`Hangar::reissue`).
+        let advanced = if self.survival() { self.hangar.reissue(pilots::unix_now()) } else { None };
         if let Some(r) = self.record.as_mut() {
             // Woken, or gone: either way it's no longer out there asleep (in a hide spot or not).
             r.sleeper = None;
@@ -311,6 +321,9 @@ impl Session<'_> {
             self.send_place().await?;
             if let Some((outcome, text)) = sortie {
                 self.send(&Update::Sortie { outcome, text }).await?;
+            }
+            if let Some(text) = advanced {
+                self.send(&Update::News { text }).await?;
             }
             if arrived {
                 self.send(&Update::News { text: ARRIVAL.to_string() }).await?;
@@ -483,6 +496,7 @@ impl Session<'_> {
                     if self.suit.is_none() {
                         heard = tokio::time::Instant::now();
                     }
+                    self.hear().await?;
                     if self.survival() {
                         self.send_plaza().await?;
                         let settle = last_settle.elapsed() >= Duration::from_secs(1);
@@ -637,10 +651,15 @@ impl Session<'_> {
     }
 
     async fn on_request(&mut self, bytes: &[u8]) -> anyhow::Result<()> {
+        let req = wire::decode::<Request>(bytes);
+        // The radio is everyone's, whatever the rules.
+        if let Some(Request::Say { text }) = &req {
+            return self.say(text).await;
+        }
         if !self.survival() {
             return Ok(());
         }
-        let Some(req) = wire::decode::<Request>(bytes) else {
+        let Some(req) = req else {
             return self.note("the hangar didn't understand that", false).await;
         };
         match req {
@@ -673,6 +692,27 @@ impl Session<'_> {
                 Ok(())
             }
         }
+    }
+
+    /// A line for the colony's radio from this pilot: cleaned, and at most five in ten seconds.
+    /// Never logged.
+    async fn say(&mut self, text: &str) -> anyhow::Result<()> {
+        let Some(line) = wire::clean_line(text) else { return Ok(()) };
+        if !self.mouth.allow(Instant::now()) {
+            return self.note("the radio's busy: give it a moment", false).await;
+        }
+        self.game.radio.say(&self.callsign, line);
+        Ok(())
+    }
+
+    /// Passes on what's been said on the radio since the pilot last heard it (their own lines
+    /// too, so everyone hears them in the same order).
+    async fn hear(&mut self) -> anyhow::Result<()> {
+        for line in self.game.radio.since(self.radio_heard) {
+            self.radio_heard = line.seq;
+            self.send(&Update::Said { from: line.from, text: line.text }).await?;
+        }
+        Ok(())
     }
 
     /// Down a cap lift into the colony's city, from the bay.
@@ -797,11 +837,16 @@ impl Session<'_> {
             self.on_report(report).await?;
         }
         if self.lost && self.game.sector.slots[self.slot as usize].state() == SlotState::Free {
-            // The wreck is gone: the pilot is back in the hangar.
+            // The wreck is gone: the pilot is back in the hangar (and, lost everything, advanced
+            // another suit).
             self.lost = false;
             self.unseat();
             self.place = Place::Hangar;
             self.send_place().await?;
+            if let Some(text) = self.hangar.reissue(pilots::unix_now()) {
+                self.save().await;
+                self.send(&Update::News { text }).await?;
+            }
             self.send_hangar().await?;
             self.send_market().await?;
             self.publish_hangar();

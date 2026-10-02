@@ -27,6 +27,10 @@ pub struct HangarState {
     pub news: Vec<String>,
     /// In the city: the names of the people seen there, by the slot the plaza knows them by.
     pub people: std::collections::HashMap<u16, String>,
+    /// The colony's radio: who said what, oldest first (any rules). The UI takes it.
+    pub said: Vec<(String, String)>,
+    /// Sales filled on the Exchange this session (its `SOLD …` notes; `objectives`).
+    pub sales: u32,
     /// Bumped by every update (the UI redraws when it moves).
     pub version: u64,
 }
@@ -44,7 +48,13 @@ impl HangarState {
             Update::Hangar(view) => self.view = Some(view),
             Update::Market(market) => self.market = Some(market),
             Update::Book { depth, history } => self.book = Some((depth, history)),
-            Update::Note { text, ok } => self.notes.push((text, ok)),
+            Update::Note { text, ok } => {
+                // The Exchange's word of a sale filled (`bc_econ::exchange`).
+                if ok && text.starts_with("SOLD ") {
+                    self.sales += 1;
+                }
+                self.notes.push((text, ok));
+            }
             Update::Sortie { outcome, text } => self.sorties.push((outcome, text)),
             Update::News { text } => self.news.push(text),
             Update::People { people } => {
@@ -52,6 +62,7 @@ impl HangarState {
                     self.people.insert(p.id, p.name);
                 }
             }
+            Update::Said { from, text } => self.said.push((from, text)),
         }
         false
     }

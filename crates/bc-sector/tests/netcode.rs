@@ -15,6 +15,7 @@ use bc_proto::control::ControlMsg;
 use bc_proto::snapshot::footing;
 use bc_proto::{
     Event, Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, Part, PilotKind,
+    WeaponKind,
 };
 use bc_sector::{Comeback, Control, InputMsg, Sector, SectorConfig, SlotState, read_packet};
 use bc_sim::bodies::{Bodies, Body};
@@ -773,6 +774,20 @@ const GUN_RANGE: f32 = 1_500.0;
 /// the tick the server judges the shot at by its flight. On a body it keeps its grip and stands
 /// its ground.
 fn gunner(ctx: &InputContext) -> InputCmd {
+    // A press when the server last said it was ready, which the client draws as it fires.
+    let ready = ctx.world.own.is_some_and(|o| o.weapon_ready & 1 != 0);
+    shoot(ctx, ready, weapon(WeaponKind::BeamRifle).speed)
+}
+
+/// Like the [`gunner`], but holding the trigger for 1.5 s, past a full charge, and letting go: a
+/// charged shot every 2 s, led for its speed.
+fn sniper(ctx: &InputContext) -> InputCmd {
+    shoot(ctx, ctx.tick % 60 < 45, weapon(WeaponKind::BeamRifleCharged).speed)
+}
+
+/// Aims the rifle at the nearest suit in range, led for a shot at `speed`, and pulls the trigger
+/// if `pull`.
+fn shoot(ctx: &InputContext, pull: bool, speed: f32) -> InputCmd {
     let me = ctx.predict.mover();
     let grip = if me.footing == Footing::Free { FLIGHT_ASSIST } else { GRIP };
     let view_tick_q4 = ((ctx.view_tick.max(0.0) * 16.0) as u32).min(ctx.tick << 4);
@@ -787,11 +802,9 @@ fn gunner(ctx: &InputContext) -> InputCmd {
     let Some(target) = target.filter(|p| p.pos.distance(muzzle) < GUN_RANGE) else {
         return InputCmd { aim: seen.rot * Vec3::Z, buttons: grip, ..InputCmd::default() };
     };
-    let flight = target.pos.distance(muzzle) / weapon(rifle.weapon).speed;
+    let flight = target.pos.distance(muzzle) / speed;
     let lead = target.pos + (target.vel - seen.vel) * flight;
-    // A press when the server last said it was ready, which the client draws as it fires.
-    let ready = ctx.world.own.is_some_and(|o| o.weapon_ready & 1 != 0);
-    let fire = if ready { FIRE_PRIMARY } else { 0 };
+    let fire = if pull { FIRE_PRIMARY } else { 0 };
     InputCmd { aim: (lead - muzzle).normalize(), buttons: grip | fire, ..InputCmd::default() }
 }
 
@@ -963,8 +976,8 @@ struct Party {
     sector: Sector,
     visits: Vec<Visit>,
     server: HashMap<u32, Vec<Truth>>,
-    /// Every beam the server fired: its shooter's slot, its shot sequence and its muzzle.
-    shots: Vec<(u16, u8, Vec3)>,
+    /// Every beam the server fired: its shooter's slot, its shot sequence, its muzzle and its weapon.
+    shots: Vec<(u16, u8, Vec3, WeaponKind)>,
 }
 
 impl Party {
@@ -1052,8 +1065,8 @@ fn party(mut guests: Vec<Guest>, before_tick: &mut dyn FnMut(&mut Sector)) -> Pa
             sector.tick_at((t * 1e6) as u64);
             let sim = &sector.sim;
             for e in (seq..sim.events.next_seq()).filter_map(|k| sim.events.get(k)) {
-                if let Event::BeamSpawn { shooter, shot_seq, origin, .. } = *e {
-                    shots.push((shooter, shot_seq, origin));
+                if let Event::BeamSpawn { shooter, shot_seq, origin, weapon, .. } = *e {
+                    shots.push((shooter, shot_seq, origin, weapon));
                 }
             }
             seq = sim.events.next_seq();
@@ -1297,8 +1310,8 @@ fn a_rider_shooting_from_mo_ii_hits_what_it_saw() {
         let mut off: Vec<f32> = party
             .shots
             .iter()
-            .filter(|(shooter, _, _)| *shooter == me)
-            .filter_map(|(_, seq, origin)| Some(gunner.shots.get(seq)?.distance(*origin)))
+            .filter(|(shooter, ..)| *shooter == me)
+            .filter_map(|(_, seq, origin, _)| Some(gunner.shots.get(seq)?.distance(*origin)))
             .collect();
         let (rate, shots) = hit_rate(&party, 0);
         let lead = gunner.client.clock.lead;
@@ -1323,6 +1336,40 @@ fn a_rider_shooting_from_mo_ii_hits_what_it_saw() {
         moving * 100.0,
         fixed * 100.0
     );
+}
+
+/// Tap fires, hold charges: a rider on Hermit holds its rifle's trigger to a full charge and lets
+/// go, and its client draws each charged shot as it leaves, from the muzzle the server fired it
+/// from, as it draws a tap's.
+#[test]
+fn a_charged_shot_is_drawn_as_it_leaves() {
+    let guests = vec![
+        Guest::new(Faction::Colonies, BAD, on_hermit, sniper),
+        Guest::new(Faction::Oz, BAD, over_hermit, pacing),
+    ];
+    let party = party(guests, &mut refit);
+    let sniper = &party.visits[0];
+    let me = sniper.suit as u16;
+    let charged: Vec<_> = party
+        .shots
+        .iter()
+        .filter(|&&(shooter, .., w)| shooter == me && w == WeaponKind::BeamRifleCharged)
+        .collect();
+    let mut off: Vec<f32> = charged
+        .iter()
+        .filter_map(|(_, seq, origin, _)| Some(sniper.shots.get(seq)?.distance(*origin)))
+        .collect();
+    let (rate, shots) = hit_rate(&party, 0);
+    println!(
+        "{} charged shots of {shots}, {} drawn as they left (p99 {:.4} m off), {:.0}% of all shots hit",
+        charged.len(),
+        off.len(),
+        percentile(&mut off, 0.99),
+        rate * 100.0
+    );
+    assert!(charged.len() >= 12, "{} charged shots", charged.len());
+    assert!(off.len() * 10 >= charged.len() * 9, "{} of {} drawn", off.len(), charged.len());
+    assert!(percentile(&mut off, 0.99) < 0.01, "drawn off the muzzle");
 }
 
 /// How many suits stand about on Hermit for [`still_riders_yield_bandwidth`], and how many of

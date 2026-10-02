@@ -324,6 +324,7 @@ fn mover_from(own: &OwnState, bodies: &Bodies) -> Mover {
             g_load: 0.0,
             g_strain: own.g_strain,
             blackout: own.flags & own_flags::BLACKOUT != 0,
+            burst: own.burst,
         },
         footing: Footing::Free,
         anchor: Anchor::default(),
@@ -452,6 +453,12 @@ impl Predictor {
     /// The sector's landmarks, by id.
     pub fn landmarks(&self) -> &'static [LandmarkDef] {
         &LANDMARKS[..usize::from(self.landmarks)]
+    }
+
+    /// The suit's flight modifiers as the server flies it (damage, equipment, the sector's rules),
+    /// with its arms idle.
+    pub fn mods(&self) -> &bc_sim::flight::FlightMods {
+        &self.flying.mods
     }
 
     /// The sector's bodies (its field and landmarks) at tick `t`.

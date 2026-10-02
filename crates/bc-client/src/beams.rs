@@ -148,6 +148,8 @@ pub struct Look {
 pub struct Ribbons {
     pub mesh: Handle<Mesh>,
     pub rifle: Look,
+    /// The beam rifle's charged shot: the rifle's colour, thicker, longer and brighter.
+    pub sniper: Look,
     pub cannon: Look,
     pub buster: Look,
     pub tracer: Look,
@@ -174,6 +176,7 @@ impl Ribbons {
         match weapon {
             WeaponKind::TwinBusterRifle => &self.buster,
             WeaponKind::BeamCannon => &self.cannon,
+            WeaponKind::BeamRifleCharged => &self.sniper,
             WeaponKind::MachineCannon | WeaponKind::HeadVulcan | WeaponKind::ChestGatling => &self.tracer,
             WeaponKind::BeamGatling | WeaponKind::BeamMachineGun => &self.bolt,
             WeaponKind::BusterShield => &self.shield,
@@ -184,9 +187,10 @@ impl Ribbons {
         }
     }
 
-    fn looks(&self) -> [&Look; 11] {
+    fn looks(&self) -> [&Look; 12] {
         [
             &self.rifle,
+            &self.sniper,
             &self.cannon,
             &self.buster,
             &self.tracer,
@@ -253,6 +257,7 @@ pub fn setup_ribbons(
     let ribbons = Ribbons {
         mesh: meshes.add(ribbon_mesh()),
         rifle: look(Vec3::new(6.0, 4.2, 1.0), 18.0, 0.22, 0.1, 0.0, 1.2, 110.0),
+        sniper: look(Vec3::new(8.0, 5.6, 1.6), 26.0, 0.26, 0.12, 0.2, 2.4, 260.0),
         cannon: look(Vec3::new(1.2, 7.0, 2.4), 16.0, 0.22, 0.1, 0.0, 2.0, 140.0),
         buster: look(Vec3::new(9.0, 4.0, 12.0), 30.0, 0.3, 0.15, 0.35, 12.0, 480.0),
         tracer: look(Vec3::new(8.0, 3.5, 0.8), 8.0, 0.3, 0.0, 0.0, 0.35, 22.0),

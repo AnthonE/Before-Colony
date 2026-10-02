@@ -180,8 +180,11 @@ impl MinerBrain {
         let stand = rock.surface(s.pos, SUIT_CLEARANCE + 1.0);
         if s.pos.distance(stand) < 6.0 && view.held.is_none() {
             if !left_arm {
-                // No saber: shoot it apart (beams waste most of the ore).
-                buttons |= FIRE_PRIMARY;
+                // No saber: shoot it apart (beams waste most of the ore), a press each time the
+                // gun is ready (held, a beam rifle would charge).
+                if own.weapon_ready & 1 != 0 {
+                    buttons |= FIRE_PRIMARY;
+                }
             } else if own.weapon_ready & 4 != 0 && ctx.tick.is_multiple_of(2) {
                 // A swing starts on a press (an edge), once the saber is ready.
                 buttons |= MELEE;

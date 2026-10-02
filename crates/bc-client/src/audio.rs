@@ -226,7 +226,7 @@ impl Plugin for AudioPlugin {
 fn muzzle_cue(w: WeaponKind) -> Cue {
     match w {
         WeaponKind::TwinBusterRifle => Cue::BusterFire,
-        WeaponKind::BeamCannon => Cue::BeamHeavy,
+        WeaponKind::BeamCannon | WeaponKind::BeamRifleCharged => Cue::BeamHeavy,
         WeaponKind::BeamGatling | WeaponKind::BeamMachineGun => Cue::BeamGun,
         WeaponKind::Flamethrower => Cue::Flame,
         _ => match weapon(w).class {

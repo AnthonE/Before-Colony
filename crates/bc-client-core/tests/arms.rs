@@ -1,5 +1,5 @@
 //! The owner's prediction flies the suit the server flies through strikes and their lunges, busy
-//! arms, charged shots, missile salvos, Full Open and changes of form: seeded from any snapshot, it
+//! arms, charged shots (the Twin Buster's, and the beam rifle's held and let go), missile salvos, Full Open and changes of form: seeded from any snapshot, it
 //! replays the pilot's commands and its arms keep time with the server's, tick after tick.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
@@ -41,7 +41,8 @@ fn held(t: u32, period: u32, windows: &[(u32, u32)]) -> bool {
 fn buttons(f: FrameId, t: u32) -> u16 {
     let mut b = FLIGHT_ASSIST;
     let on = |cond: bool, bit: u16| if cond { bit } else { 0 };
-    b |= on(held(t, 97, &[(10, 40)]), FIRE_PRIMARY);
+    // A short hold, and one long enough for a charged shot (tap fires, hold charges).
+    b |= on(held(t, 97, &[(10, 40), (50, 92)]), FIRE_PRIMARY);
     b |= on(held(t, 71, &[(30, 52)]), FIRE_SECONDARY);
     b |= on(held(t, 53, &[(5, 6), (20, 31), (44, 45)]), MELEE);
     b |= on(held(t, 131, &[(60, 62)]), BOOST);

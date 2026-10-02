@@ -59,7 +59,12 @@ fn work(sim: &mut Sim, id: SuitId, at: Vec3, ticks: u32, press: impl Fn(u32) -> 
                 view_tick_q4: t << 4,
                 aim,
                 thrust: [0, 0, 20],
-                buttons: press(t),
+                // Tap fires: the rifle's trigger pulled each time it's ready (held, it would
+                // charge).
+                buttons: match press(t) {
+                    b if b & FIRE_PRIMARY != 0 && !sim.would_fire(id.idx(), 0) => b & !FIRE_PRIMARY,
+                    b => b,
+                },
                 ..InputCmd::default()
             },
         );

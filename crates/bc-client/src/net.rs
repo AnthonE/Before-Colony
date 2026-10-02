@@ -8,9 +8,10 @@
 use std::cell::{Ref, RefCell, RefMut};
 use std::rc::Rc;
 
+use bc_client_core::lockon::{self, Lock};
 use bc_client_core::nav::AutoNav;
 use bc_client_core::{ClientConfig, ClientCore, DollBrain, Identity, LanderBrain};
-use bc_proto::buttons::{BOOST, BRAKE, FLIGHT_ASSIST, GRIP, ZERO};
+use bc_proto::buttons::{BOOST, BRAKE, BURST, FLIGHT_ASSIST, GRIP, ZERO};
 use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
 use bc_sim::content::frame;
 use bevy::prelude::*;
@@ -71,8 +72,10 @@ pub struct Game {
     pub pilot: Option<Autopilot>,
     pub brain: Brain,
     pub respawn_request: Option<FrameId>,
-    /// The suit lock assist has designated.
+    /// The suit designated: the lock-on's target, else lock assist's (frames with missiles).
     pub lock: Option<u16>,
+    /// The pilot's lock-on (Y, or the middle button): `bc_client_core::lockon`.
+    pub hard: Lock,
     /// The pilot's controls as of the last rendered frame; the timer repeats them until the next.
     pub controls: InputCmd,
     /// The suit (slot, generation) those controls were set up for (`input::read_input` seeds them
@@ -99,6 +102,7 @@ impl Game {
             brain: Brain::new(pilot),
             respawn_request: None,
             lock: None,
+            hard: Lock::default(),
             controls: InputCmd::default(),
             controls_for: None,
             nav: None,
@@ -249,7 +253,7 @@ fn pump(g: &mut Game, t: &Transport, now: f64) {
         })
     } else {
         let (cmd, seeded) = (g.controls, g.controls_for);
-        let Game { core, nav, .. } = &mut *g;
+        let Game { core, nav, hard, .. } = &mut *g;
         core.poll_inputs(now, &mut |ctx| match ctx.world.own {
             // News of a suit the controls aren't set up for yet came in between frames (one woken
             // on a body, say): hold on as the server does until the next frame sets them, rather
@@ -260,15 +264,17 @@ fn pump(g: &mut Game, t: &Transport, now: f64) {
                 ..InputCmd::default()
             },
             // The auto-nav holds the stick: a velocity for flight assist to fly, worked out from
-            // the prediction tick by tick.
+            // the prediction tick by tick, in the suit's own axes (so no lock-on rides with it, and
+            // no burst step). Else, locked on, the keys move the suit about its target.
             _ => match nav.as_mut().and_then(|n| Some((n.decide(ctx)?, n.look))) {
                 Some((n, look)) => InputCmd {
                     thrust: n.thrust,
                     aim: if look { n.aim } else { cmd.aim },
-                    buttons: (cmd.buttons & !(BOOST | BRAKE | GRIP)) | n.buttons,
+                    buttons: (cmd.buttons & !(BOOST | BRAKE | GRIP | BURST)) | n.buttons,
+                    lockon: None,
                     ..cmd
                 },
-                None => cmd,
+                None => lockon::shape(cmd, hard, ctx),
             },
         })
     };
@@ -293,9 +299,12 @@ pub fn drive(
     let Some(t) = net.get() else { return };
     let now = now_s();
     let mut g = game.borrow_mut();
-    // Lock assist, for frames with missiles to guide: the hostile the reticle is on.
+    // The lock-on's target; else lock assist, for frames with missiles to guide: the hostile the
+    // reticle is on.
     let launcher = g.core.world.own.is_some_and(|o| o.alive && frame(o.frame).lock_spec().is_some());
-    g.lock = if launcher {
+    g.lock = if let Some(slot) = g.hard.slot() {
+        Some(slot)
+    } else if launcher {
         let from = g.core.own_view().map_or(g.core.predict.state.pos, |v| v.pos);
         let t = g.core.render_tick(now);
         g.core.world.lock_assist(from, aim.dir, g.lock, t)

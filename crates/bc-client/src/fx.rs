@@ -306,18 +306,24 @@ pub fn update_fx(
         }
     }
 
-    // --- The Twin Buster Rifle drawing in energy while it charges. ---
+    // --- A gun drawing in energy while it charges: the Twin Buster Rifle, a beam rifle's shot. ---
     for (d, anim, _) in &suits {
         if d.flags & ent_flags::CHARGING != 0 && d.flags & ent_flags::WRECK == 0 {
             // At the drawn muzzle, which the arm is holding on the aim.
             let muzzle = bone_point(d, anim, Bone::Weapon, lib.sockets(d.frame).muzzle);
-            particles.charge(cap, At { pos: muzzle, vel: d.vel }, time.dt);
+            let buster = frame(d.frame).loadout[0].is_some_and(|m| m.weapon == WeaponKind::TwinBusterRifle);
+            let (glow, size, light) = if buster {
+                (Vec3::new(12.0, 7.0, 16.0), 1.0, Color::linear_rgb(0.9, 0.6, 1.0))
+            } else {
+                (ribbons.sniper.color * 1.6, 0.35, color(ribbons.sniper.color))
+            };
+            particles.charge(cap, At { pos: muzzle, vel: d.vel }, time.dt, glow, size);
             state.flashes.push(Flash {
                 pos: muzzle,
                 born: now,
                 life: 0.05,
-                lumens: 6.0e7,
-                color: Color::linear_rgb(0.9, 0.6, 1.0),
+                lumens: 6.0e7 * size,
+                color: light,
             });
         }
     }
@@ -332,7 +338,13 @@ pub fn update_fx(
                 // Sparks fly off the struck surface (or back toward the camera's side of it), and
                 // on with the suit they came off.
                 let normal = normal.unwrap_or_else(|| (eye - pos).normalize_or(Vec3::Y));
-                let scale = if big { 3.0 } else { 1.0 };
+                let scale = if big {
+                    3.0
+                } else if weapon == WeaponKind::BeamRifleCharged {
+                    1.8
+                } else {
+                    1.0
+                };
                 let vel = target.and_then(|(slot, _)| suit_vel(slot)).unwrap_or(Vec3::ZERO);
                 particles.impact(cap, At { pos, vel }, normal, look.color, scale);
                 state.flashes.push(Flash {
@@ -375,7 +387,13 @@ pub fn update_fx(
                     });
                 let look = ribbons.look(weapon);
                 let buster = weapon == WeaponKind::TwinBusterRifle;
-                let scale = if buster { 4.0 } else { 1.0 };
+                let scale = if buster {
+                    4.0
+                } else if weapon == WeaponKind::BeamRifleCharged {
+                    2.0
+                } else {
+                    1.0
+                };
                 particles.muzzle(cap, At { pos, vel }, dir, look.color, scale);
                 if buster {
                     blasts.ring(pos + dir * 6.0, vel, dir, 28.0);

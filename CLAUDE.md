@@ -3,9 +3,12 @@
 A Gundam Wing space MMO (free aim, Newtonian 6DOF). Rust server, Bevy 0.19 client compiled to wasm,
 WebTransport (QUIC) between them. See `docs/ARCHITECTURE.md` and `docs/DESIGN.md`; `docs/CONTROLS.md`
 surveys what players of similar games expect of the controls (read it before changing a binding);
+`docs/PEERS.md` is what the nearest games teach us, with priorities (read it before adding a system players will
+compare with theirs), and `docs/ROADMAP.md` how each is built;
 `docs/STORY.md` is the world bible (setting, factions, eras, voice: read it before writing in-game text);
 `docs/COLONY.md` is the plan for the First Colony's inside (Milestone 5), `docs/SUITS_INSIDE.md` the design for
-suits inside it.
+suits inside it; `docs/LOCK.md` is the lock-on (it moves the suit about its target, never the aim: what it decides
+travels in the command as `bc_proto::LockOn`, so prediction stays exact).
 
 ## Hot-path rules (non-negotiable)
 - The sector tick (`bc-sim` step + `bc-sector` input drain/encode) must not allocate or lock.
@@ -35,7 +38,7 @@ suits inside it.
   `cargo clippy -p bc-client --target wasm32-unknown-unknown -- -D warnings`
 - `scripts/build-web.sh [webgl2] [webgpu]` — browser build into `web/dist/` (needs wasm-bindgen-cli 0.2.128).
 - `cargo run -p bc-server --release` then open http://127.0.0.1:8080
-- `scripts/e2e.sh spike|slice|gfx|frames|ui|login|hangar|surface|colony|chart [webgl2|webgpu]` — Playwright against a real server (`frames`: the autopilot flies each Gundam; `gfx`: every showcase scene, screenshots in `e2e/artifacts/`; `ui`: the page around the game; `login`: wallet sign-in with a stub wallet; `hangar`: survival on foot, the terminals, launching and docking; `surface`: the lander autopilot lands in MO-II's Aft Well, hides, parks and wakes there; `colony`: down the cap lift into the city, to its Exchange floor and back up; `chart`: the 3D chart out to the Earth Sphere, a course to MO-II's Aft Well and the auto-nav flying it). The suits' suites run `--rules arcade` (`BC_RULES` overrides); the server's default is survival. Arguments after the project go to Playwright (`scripts/e2e.sh gfx webgl2 --grep "duel|hangar"`); `BC_GFX_EXTRA="look=0"` adds query parameters to every gfx shot (and its file name).
+- `scripts/e2e.sh spike|slice|gfx|frames|lockon|ui|login|hangar|surface|colony|chart [webgl2|webgpu]` — Playwright against a real server (`frames`: the autopilot flies each Gundam; `lockon`: Y locks on to a Doll, W carries the suit in; `gfx`: every showcase scene, screenshots in `e2e/artifacts/`; `ui`: the page around the game; `login`: wallet sign-in with a stub wallet; `hangar`: survival on foot, the terminals, launching and docking; `surface`: the lander autopilot lands in MO-II's Aft Well, hides, parks and wakes there; `colony`: down the cap lift into the city, to its Exchange floor and back up; `chart`: the 3D chart out to the Earth Sphere, a course to MO-II's Aft Well and the auto-nav flying it). The suits' suites run `--rules arcade` (`BC_RULES` overrides); the server's default is survival. Arguments after the project go to Playwright (`scripts/e2e.sh gfx webgl2 --grep "duel|hangar"`); `BC_GFX_EXTRA="look=0"` adds query parameters to every gfx shot (and its file name).
 - A suit's stats are `bc_sim::tuning` (frame × systems × equipment), built identically by the server and the
   owner's prediction: anything that changes flight goes through it, from state the own snapshot carries.
   The sector's flight rules (`tuning::FlightRules`: anime, the default, or real) go through it too; the

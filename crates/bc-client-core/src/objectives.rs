@@ -1,7 +1,8 @@
 //! Objectives: what a pilot can set out to do in the sector. The HUD shows one at a time with a
 //! waypoint to fly to (◆), and the map (M) lists them all. They're the Charter Board's first jobs
 //! for a new Arrival: land on the resource satellite and hide in its well, mine ore and bring it
-//! home, down a Mobile Doll, reach Hermit, and make a name for yourself.
+//! home, then (with the colony open) ride the cap lift down, find the Exchange floor and sell on
+//! it, down a Mobile Doll, reach Hermit, and make a name for yourself.
 //!
 //! They can be done in any order: each is checked every frame, and the HUD shows the first in the
 //! rules' order that isn't done yet. What's done is kept with the settings (a bit per
@@ -13,6 +14,7 @@
 //! sales are the server's, as ever. These point the way to them.
 
 use bc_sim::bodies::Body;
+use bc_sim::content::city::{PLACES, PlaceKind};
 use bc_sim::content::landmarks::LANDMARKS;
 use bc_sim::content::salvage::DOCK_CENTER;
 use bc_sim::field::FIELD_CENTER;
@@ -45,6 +47,12 @@ pub enum Objective {
     Hermit,
     /// Down [`ACE`] Mobile Dolls.
     Ace,
+    /// Ride a cap lift down from the bays into the colony (the colony open).
+    RideDown,
+    /// Find the Colony Exchange's floor in the city.
+    ExchangeFloor,
+    /// Sell something on the Exchange.
+    Sell,
 }
 
 /// Where an objective's waypoint is.
@@ -58,24 +66,43 @@ pub enum Waypoint {
     Dock,
     /// The nearest Mobile Doll in sight, else their patrols over the field.
     Dolls,
+    /// A place in the colony's city (an index into `content::city::PLACES`): flying, the way
+    /// home to the dock comes first; on foot, its door.
+    Place(u8),
 }
 
 impl Objective {
-    pub const ALL: [Objective; 7] = [
+    pub const ALL: [Objective; 10] = [
         Objective::LandStation,
         Objective::Hide,
         Objective::Mine,
         Objective::Deliver,
+        Objective::Bounty,
+        Objective::Hermit,
+        Objective::Ace,
+        Objective::RideDown,
+        Objective::ExchangeFloor,
+        Objective::Sell,
+    ];
+
+    /// Survival's order: a pilot launches at the dock, beside the station, in a worn Leo; the
+    /// Dolls are a long way off. The ore brought home goes down the chain: to the colony, and its
+    /// Exchange.
+    const SURVIVAL: [Objective; 10] = [
+        Objective::LandStation,
+        Objective::Hide,
+        Objective::Mine,
+        Objective::Deliver,
+        Objective::RideDown,
+        Objective::ExchangeFloor,
+        Objective::Sell,
         Objective::Bounty,
         Objective::Hermit,
         Objective::Ace,
     ];
-
-    /// Survival's order: a pilot launches at the dock, beside the station, in a worn Leo; the
-    /// Dolls are a long way off.
-    const SURVIVAL: [Objective; 7] = Self::ALL;
-    /// Arcade's: a pilot launches by the field, in whatever suit they like, among the Dolls.
-    const ARCADE: [Objective; 7] = [
+    /// Arcade's: a pilot launches by the field, in whatever suit they like, among the Dolls (and
+    /// the colony is closed).
+    const ARCADE: [Objective; 10] = [
         Objective::Bounty,
         Objective::Mine,
         Objective::Deliver,
@@ -83,6 +110,9 @@ impl Objective {
         Objective::Hide,
         Objective::Hermit,
         Objective::Ace,
+        Objective::RideDown,
+        Objective::ExchangeFloor,
+        Objective::Sell,
     ];
 
     pub fn bit(self) -> u32 {
@@ -90,18 +120,24 @@ impl Objective {
     }
 
     /// In the order the rules show them.
-    pub fn order(survival: bool) -> &'static [Objective; 7] {
+    pub fn order(survival: bool) -> &'static [Objective; 10] {
         if survival { &Self::SURVIVAL } else { &Self::ARCADE }
     }
 
-    /// Whether the sector has what it needs (a landmark, rocks).
-    pub fn available(self, landmarks: u8, rocks: bool) -> bool {
+    /// Whether the sector has what it needs (a landmark, rocks, the colony open).
+    pub fn available(self, i: &ObjectiveInput) -> bool {
         match self {
-            Objective::LandStation | Objective::Hide => landmarks >= 1,
-            Objective::Hermit => landmarks >= 2,
-            Objective::Mine => rocks,
+            Objective::LandStation | Objective::Hide => i.landmarks >= 1,
+            Objective::Hermit => i.landmarks >= 2,
+            Objective::Mine => i.rocks,
+            Objective::RideDown | Objective::ExchangeFloor | Objective::Sell => i.colony,
             _ => true,
         }
+    }
+
+    /// Done on foot (in the bay or the city), so shown there too.
+    pub fn on_foot(self) -> bool {
+        matches!(self, Objective::RideDown | Objective::ExchangeFloor | Objective::Sell)
     }
 
     /// The HUD's line: terse, all caps.
@@ -116,6 +152,9 @@ impl Objective {
             Objective::Bounty => format!("DOWN A {}", doll().to_uppercase()),
             Objective::Hermit => format!("LAND ON {}", LANDMARKS[1].name),
             Objective::Ace => format!("DOWN {ACE} {}S", doll().to_uppercase()),
+            Objective::RideDown => "RIDE THE CAP LIFT DOWN".into(),
+            Objective::ExchangeFloor => "FIND THE EXCHANGE FLOOR".into(),
+            Objective::Sell => "SELL ON THE EXCHANGE".into(),
         }
     }
 
@@ -148,6 +187,17 @@ impl Objective {
                 LANDMARKS[1].hides.iter().map(|h| h.name).collect::<Vec<_>>().join(", ")
             ),
             Objective::Ace => "Make a name for yourself. Every one downed is a bounty paid.".into(),
+            Objective::RideDown => {
+                "Home in your bay, walk to the airlock and press E: the cap lift rides down the end cap into the colony."
+                    .into()
+            }
+            Objective::ExchangeFloor => {
+                "From Hub Gate, along the avenue: M shows the city, ◆ marks the Exchange's door.".into()
+            }
+            Objective::Sell => {
+                "At the Exchange floor's door, E opens its book: sell your ore to the colony's desk or another pilot."
+                    .into()
+            }
         }
     }
 
@@ -159,6 +209,8 @@ impl Objective {
             Objective::Deliver => Waypoint::Dock,
             Objective::Bounty | Objective::Ace => Waypoint::Dolls,
             Objective::Hermit => Waypoint::Landmark(1),
+            Objective::RideDown => Waypoint::Place(hub_gate()),
+            Objective::ExchangeFloor | Objective::Sell => Waypoint::Place(exchange()),
         }
     }
 
@@ -170,6 +222,16 @@ impl Objective {
             _ => None,
         }
     }
+}
+
+/// Where the browser's cap lift comes down (`PLACES`' index): the first strip's Hub Gate.
+fn hub_gate() -> u8 {
+    PLACES.iter().position(|p| p.kind == PlaceKind::HubGate && p.strip == 0).unwrap_or(0) as u8
+}
+
+/// The Exchange floor's index in `PLACES`.
+pub fn exchange() -> u8 {
+    PLACES.iter().position(|p| p.kind == PlaceKind::Exchange).unwrap_or(0) as u8
 }
 
 /// What the pilotless suits are called.
@@ -197,6 +259,13 @@ pub struct ObjectiveInput {
     pub docked: bool,
     /// Mobile Dolls the pilot has downed this session (the world's count).
     pub doll_kills: u32,
+    /// The colony is open (the Welcome's COLONY flag), the pilot is down in its city, and stands
+    /// at the Exchange floor's door.
+    pub colony: bool,
+    pub in_city: bool,
+    pub at_exchange: bool,
+    /// Sales filled on the Exchange this session (`HangarState::sales`).
+    pub sales: u32,
 }
 
 /// What the objectives remember between frames.
@@ -236,6 +305,16 @@ impl Objectives {
         } else {
             self.last_cargo = 0;
         }
+        // Down the chain, on foot.
+        if i.in_city {
+            *done |= Objective::RideDown.bit();
+        }
+        if i.at_exchange {
+            *done |= Objective::ExchangeFloor.bit();
+        }
+        if i.sales > 0 {
+            *done |= Objective::Sell.bit();
+        }
         if *downed >= 1 {
             *done |= Objective::Bounty.bit();
         }
@@ -247,10 +326,7 @@ impl Objectives {
 
     /// The first objective in the rules' order not in `done` that the sector has room for.
     pub fn current(done: u32, i: &ObjectiveInput) -> Option<Objective> {
-        Objective::order(i.survival)
-            .iter()
-            .copied()
-            .find(|o| done & o.bit() == 0 && o.available(i.landmarks, i.rocks))
+        Objective::order(i.survival).iter().copied().find(|o| done & o.bit() == 0 && o.available(i))
     }
 }
 
@@ -276,7 +352,8 @@ pub fn waypoint_at(core: &ClientCore, w: Waypoint, from: Vec3, t: f64) -> Option
                 .min_by(|a, b| a.1.pos.distance_squared(from).total_cmp(&b.1.pos.distance_squared(from)))
                 .map(|(_, r)| (r.pos, "ROCK".to_string()))
         }
-        Waypoint::Dock => Some((DOCK_CENTER, "DOCK".to_string())),
+        // Flying: home first (on foot the page's map marks the door).
+        Waypoint::Dock | Waypoint::Place(_) => Some((DOCK_CENTER, "DOCK".to_string())),
         Waypoint::Dolls => {
             let world = &core.world;
             let near = world
@@ -355,6 +432,41 @@ mod tests {
         o.step(&mut done, &mut downed, &i);
         o.step(&mut done, &mut downed, &ObjectiveInput { docked: true, ..i });
         assert_eq!(done & Objective::Deliver.bit(), 0);
+    }
+
+    /// With the colony open, the ore brought home goes down the chain: the cap lift, the Exchange
+    /// floor, a sale. With it closed, those don't show; and each counts done on foot, whenever it
+    /// happens.
+    #[test]
+    fn the_chain_runs_down_into_the_colony_and_its_exchange() {
+        let (mut o, mut downed) = (Objectives::default(), 0u32);
+        let home = Objective::LandStation.bit()
+            | Objective::Hide.bit()
+            | Objective::Mine.bit()
+            | Objective::Deliver.bit();
+        let open = ObjectiveInput { colony: true, ..flying(true) };
+        let mut done = home;
+        assert_eq!(o.step(&mut done, &mut downed, &open), Some(Objective::RideDown));
+        assert!(Objective::RideDown.on_foot() && !Objective::Mine.on_foot());
+        let mut closed = home;
+        assert_eq!(
+            o.step(&mut closed, &mut downed, &flying(true)),
+            Some(Objective::Bounty),
+            "the colony's closed"
+        );
+        // Down the lift and into the city: on foot, not flying.
+        let walking = ObjectiveInput { flying: false, in_city: true, ..open };
+        assert_eq!(o.step(&mut done, &mut downed, &walking), Some(Objective::ExchangeFloor));
+        assert_eq!(Objective::ExchangeFloor.waypoint(), Waypoint::Place(exchange()));
+        assert_eq!(PLACES[usize::from(exchange())].kind, PlaceKind::Exchange);
+        let there = ObjectiveInput { at_exchange: true, ..walking };
+        assert_eq!(o.step(&mut done, &mut downed, &there), Some(Objective::Sell));
+        let sold = ObjectiveInput { sales: 1, ..there };
+        assert_eq!(o.step(&mut done, &mut downed, &sold), Some(Objective::Bounty));
+        // A sale made from the bay's terminal before ever going down counts too.
+        let mut early = home;
+        o.step(&mut early, &mut downed, &ObjectiveInput { sales: 2, ..open });
+        assert!(early & Objective::Sell.bit() != 0);
     }
 
     #[test]
