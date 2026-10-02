@@ -32,6 +32,7 @@ fn stripped_leo() -> Loadout {
         propellant: 1_200.0,
         systems: Systems::OK,
         modules: Default::default(),
+        kits: Default::default(),
     }
 }
 

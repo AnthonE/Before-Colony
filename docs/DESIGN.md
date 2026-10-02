@@ -665,6 +665,25 @@ for bulk goods, a piece for everything else.
   test checks it).
 - Each item's last trade price is sampled once a minute: the terminal draws the last hour.
 
+### Consumables: the rack and the hotbar
+
+A suit carries a rack of consumables (`bc_sim::content::kits`), used in flight from the hotbar
+(1–4; the HUD's `RACK` line counts them). They're made a few at a time at the fabricator and the
+colony sells them; at launch the rack takes up to three of each from the stores, and what's left
+comes home with the suit (nothing, if it's lost). Used up in fights, they're always in demand.
+
+| Key | Consumable | What it does |
+|---|---|---|
+| 1 | Patch kit | A field repair: seals a leaking tank, or brings the worst-off system it can reach back a level (failed to damaged, damaged to working). A part shot off is beyond it. |
+| 2 | Coolant flush | Dumps the suit's heat at once (Full Open's lockout still holds). |
+| 3 | Chaff | Breaks every lock on the suit, and missiles tracking it lose it; for 3 s no new lock builds. |
+| 4 | Stim | The pilot bears 1 g more (2 under anime rules) for a minute, then crashes, bearing 1 g less, for half a minute. One at a time. |
+
+A kit with nothing to do (a cold suit's coolant, a patch kit with nothing broken) stays in the
+rack. The use goes to the server on the control stream, the sector applies it at the next tick, and
+the owner's snapshot carries the rack and the stim's clock (the stim is part of the stat sheet the
+client predicts with, as the server flies with it).
+
 ### The Charter Board: contracts and the great works
 
 The colony's notices (`bc_econ::charter`, one board per colony, kept with the exchange): a tab on
@@ -791,6 +810,7 @@ Still to come: suits inside the colony with their weapons safe by the colony's l
 | Tab · mouse wheel | the camera: the cockpit (first person) or the chase camera (wheel in: the cockpit; out: chasing) |
 | M · N | the chart: the sector in 3D out to the Earth Sphere, the objectives and courses · the auto-nav on the course set (on or off) |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
+| 1 · 2 · 3 · 4 | survival: the rack's patch kit · coolant flush · chaff · stim |
 | Enter | dock (survival): at rest inside the dock's ring of lights |
 | 1–6 | arcade rules: respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
 | Esc · F1 · F10 | menu · the controls sheet · graphics quality |
@@ -935,9 +955,8 @@ systems inside the parts, statuses, equipment, overhauls, and the world bible (`
 The direction is a living colony its pilots build and run: SimCity's colony projects and GTA's
 jobs, law and traffic, on an economy whose sinks keep demand turning over.
 
-- **Consumables and a survival hotbar** (keys 1–4, which survival leaves free): patch kits (seal a
-  leak, restart a failed system for a while), coolant flushes, chaff against missile locks,
-  stims (a g more for a minute, then the crash). Used up in fights, so always in demand.
+- **Consumables and a survival hotbar** (done: the rack, above). Next: chaff drawn as it
+  blooms, and decoys a missile chases.
 - **Wear from use:** thruster hours, barrel wear and reactor cycles wear systems down between
   fights, so keeping a suit flying is a steady trade.
 - **Contracts** (begun: the Charter Board, above, with supply contracts and the militia's

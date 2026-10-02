@@ -539,7 +539,7 @@
 
   // The fabricator: what can be made (materials, each line's parts, weapons), and the queues.
   function renderFabricator() {
-    const filters = [["materials", "MATERIALS"], ...catalogue.lines.map((l) => [l.slug, l.name.toUpperCase()]), ["weapons", "WEAPONS"], ["modules", "EQUIPMENT"]];
+    const filters = [["materials", "MATERIALS"], ...catalogue.lines.map((l) => [l.slug, l.name.toUpperCase()]), ["weapons", "WEAPONS"], ["modules", "EQUIPMENT"], ["kits", "CONSUMABLES"]];
     let out = `<div class="filters">${filters
       .map(([f, label]) => button(label, { act: "fab-filter", f }, fabFilter === f ? "active" : ""))
       .join("")}</div>`;
@@ -549,6 +549,7 @@
       if (fabFilter === "materials") return it.kind === "material";
       if (fabFilter === "weapons") return it.kind === "weapon";
       if (fabFilter === "modules") return it.kind === "module";
+      if (fabFilter === "kits") return it.kind === "kit";
       return it.kind === "part" && it.line === fabFilter;
     });
     const line = lines.get(fabFilter);
@@ -564,7 +565,10 @@
         .join(", ");
       const fee = r.fee ? ` · ${fmt(r.fee)} CR` : "";
       const g = items.get(r.output)?.gundam ? " gundam" : "";
-      const what = items.get(r.output)?.summary ? `<div class="note">${esc(items.get(r.output).summary)} · fits the ${esc(partName(items.get(r.output).part))}</div>` : "";
+      const out_ = items.get(r.output);
+      const what = out_?.summary
+        ? `<div class="note">${esc(out_.summary)}${out_.part ? ` · fits the ${esc(partName(out_.part))}` : ""}</div>`
+        : "";
       out += `<tr><td class="${g}">${amount(r.output, r.makes)} ${esc(nameOf(r.output))}${what}</td><td>${needs}</td>` +
         `<td class="dim">${esc(r.station_name)}${fee}</td><td class="num">${secs(r.secs)}</td>` +
         `<td class="num">${input(key, draft(key, "1"), 'inputmode="numeric" size="4"')}</td>` +
@@ -616,6 +620,13 @@
       out += `<tr><td>${esc(nameOf(slug))}<div class="note">${esc(items.get(slug)?.summary)}</div></td><td class="num">${fmt(qty)}</td><td class="act">` +
         (fits.has(slug) ? button("FIT", { act: "fit", item: slug }) + " " : "") +
         button("SCRAP", { act: "scrap", item: slug }) + " " + button("SELL", { act: "sell", item: slug }) + `</td></tr>`;
+    }
+    out += `</table></section><section><h3>CONSUMABLES</h3><div class="note">The suit's rack takes up to 3 of each at launch (keys 1–4 in flight); what's left comes home.</div><table><tr><th>ITEM</th><th class="num">HELD</th><th></th></tr>`;
+    const kits = v.stock.filter(([slug]) => items.get(slug)?.kind === "kit");
+    if (!kits.length) out += `<tr><td colspan="3" class="dim">None.</td></tr>`;
+    for (const [slug, qty] of kits) {
+      out += `<tr><td>${esc(nameOf(slug))}<div class="note">${esc(items.get(slug)?.summary)}</div></td><td class="num">${fmt(qty)}</td><td class="act">` +
+        button("SELL", { act: "sell", item: slug }) + `</td></tr>`;
     }
     out += `</table></section><section><h3>PARTS</h3><table><tr><th>PART</th><th>CONDITION</th><th></th></tr>`;
     const parts = [...v.parts].sort((a, b) => (a.line + a.part).localeCompare(b.line + b.part) || b.condition - a.condition);
@@ -735,14 +746,14 @@
   function renderExchange() {
     const m = hangar?.market;
     if (!m) return `<div class="note">Waiting for the exchange…</div>`;
-    const filters = [["goods", "RAW & MATERIALS"], ["parts", "PARTS"], ["weapons", "WEAPONS"], ["modules", "EQUIPMENT"]];
+    const filters = [["goods", "RAW & MATERIALS"], ["parts", "PARTS"], ["weapons", "WEAPONS"], ["modules", "EQUIPMENT"], ["kits", "CONSUMABLES"]];
     let left = `<div class="filters">${filters
       .map(([f, label]) => button(label, { act: "ex-filter", f }, exFilter === f ? "active" : ""))
       .join("")}</div><table><tr><th>ITEM</th><th class="num">BID</th><th class="num">ASK</th><th class="num">LAST</th><th class="num">VOL</th></tr>`;
     for (const q of m.quotes) {
       const it = items.get(q.item);
       if (!it) continue;
-      const kind = it.kind === "ore" || it.kind === "material" ? "goods" : it.kind === "part" ? "parts" : it.kind === "module" ? "modules" : "weapons";
+      const kind = it.kind === "ore" || it.kind === "material" ? "goods" : it.kind === "part" ? "parts" : it.kind === "module" ? "modules" : it.kind === "kit" ? "kits" : "weapons";
       if (kind !== exFilter) continue;
       const quiet = q.bid == null && q.ask == null && !q.volume && !stockOf(q.item);
       if (kind === "parts" && quiet) continue;
@@ -841,7 +852,7 @@
         b.contracts.map(contractRow).join("") + `</table>`;
     }
     // Posting one.
-    const goods = catalogue.items.filter((i) => i.kind === "ore" || i.kind === "material" || i.kind === "weapon" || i.kind === "module" || i.kind === "part");
+    const goods = catalogue.items.filter((i) => i.kind === "ore" || i.kind === "material" || i.kind === "weapon" || i.kind === "module" || i.kind === "kit" || i.kind === "part");
     const pick = draft("post:item", "mat.steel");
     const qty = Math.max(0, Math.floor(Number(draft("post:qty", isBulk(pick) ? "1000" : "1")) || 0));
     const reward = Math.max(0, Math.floor(Number(draft("post:reward", String(worth(pick, items.get(pick)?.value || 0, qty)))) || 0));
@@ -986,7 +997,7 @@
         return;
       case "sell":
         side = "sell";
-        exFilter = { part: "parts", weapon: "weapons", module: "modules" }[items.get(d.item)?.kind] || "goods";
+        exFilter = { part: "parts", weapon: "weapons", module: "modules", kit: "kits" }[items.get(d.item)?.kind] || "goods";
         watch(d.item);
         tab = "exchange";
         break;

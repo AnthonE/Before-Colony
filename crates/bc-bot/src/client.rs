@@ -291,6 +291,18 @@ impl BotClient {
         self.ask(&req).await.map(Some)
     }
 
+    /// Survival rules, in flight: uses a consumable from the suit's rack. Returns once the own
+    /// snapshot shows one fewer in the rack (or fails after a second: none there, or nothing for it
+    /// to do).
+    pub async fn use_kit(&mut self, kit: bc_sim::content::Kit) -> anyhow::Result<()> {
+        use bc_sim::content::Kits;
+        let count = |c: &ClientCore| c.world.own.map_or(0, |o| Kits(o.kits).get(kit));
+        let before = count(&self.core);
+        anyhow::ensure!(before > 0, "no {} in the rack", kit.name());
+        self.request(&Request::UseKit { kit }).await?;
+        self.wait_until(1.0, kit.name(), |c| count(c) < before).await
+    }
+
     /// Survival rules: delivers what the stores hold of `item` to the Charter Board's supply
     /// contracts that ask for it (the colony's pay above its desks), best paying first. What the
     /// board said to each delivery.

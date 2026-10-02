@@ -17,6 +17,7 @@ use crate::item::{Item, Material, Ore, is_line, part_name};
 use crate::stores::{PartUnit, Stores};
 use crate::suit::{MODULE_MOUNTS, Slot, Suit, line_of, repair_cost, scrap_yield};
 use bc_sim::content::System;
+use bc_sim::content::kits::{Kit, RACK};
 use bc_sim::content::modules::MOUNTS;
 use bc_sim::content::systems::{DAMAGED, FAILED, OK};
 
@@ -446,6 +447,10 @@ impl Hangar {
             let _ = self.stores.take(MUNITIONS_ITEM, kg);
             suit.ammo[m] = (u64::from(suit.ammo[m]) + rounds).min(u64::from(full)) as u16;
         }
+        // The rack: up to three of each consumable in the stores.
+        for kit in Kit::ALL {
+            suit.kits[kit as usize] = self.stores.take_up_to(Item::Kit(kit), u64::from(RACK)) as u8;
+        }
         let loadout = suit.loadout();
         self.bay = Bay::Out { suit };
         Ok(loadout)
@@ -459,6 +464,11 @@ impl Hangar {
             Bay::Empty => Suit::complete(line_of(home.frame)),
         };
         suit.came_home(home);
+        // What's left in the rack goes back on the shelf.
+        for kit in Kit::ALL {
+            self.stores.add(Item::Kit(kit), u64::from(home.kits.get(kit)));
+        }
+        suit.kits = [0; Kit::COUNT];
         self.bay = Bay::Docked { suit };
         let mut notes = vec!["DOCKED".to_string()];
         for (kind, kg) in home.cargo_kg.iter().enumerate() {
@@ -488,7 +498,11 @@ impl Hangar {
     /// the colony's tugs bring it in as it launched.
     pub fn recover(&mut self) -> bool {
         match std::mem::take(&mut self.bay) {
-            Bay::Out { suit } => {
+            Bay::Out { mut suit } => {
+                for kit in Kit::ALL {
+                    self.stores.add(Item::Kit(kit), u64::from(suit.kits[kit as usize]));
+                }
+                suit.kits = [0; Kit::COUNT];
                 self.bay = Bay::Docked { suit };
                 true
             }
@@ -642,6 +656,7 @@ mod tests {
             propellant: l.propellant,
             systems: l.systems,
             modules: l.modules,
+            kits: l.kits,
             cargo_kg: [0; 4],
             held: None,
             bounty: 0,

@@ -115,6 +115,11 @@ pub const BINDINGS: &[Binding] = &[
     b(Group::Weapons, "H", "Special: Neo-Bird, Hyper Jammer, Full Open Attack, Cross Crusher"),
     b(Group::Weapons, "Z", "ZERO System on/off"),
     b(Group::Weapons, "Hold on target", "Missile lock (fire once it reads LOCKED)"),
+    b(
+        Group::Weapons,
+        "1 / 2 / 3 / 4",
+        "Survival: the rack's patch kit, coolant flush, chaff, stim (up to 3 of each, loaded at launch)",
+    ),
     b(Group::Salvage, "G", "Grab on/off: the free hand takes what it touches"),
     b(Group::Salvage, "B", "Stow what's in hand"),
     b(Group::Salvage, "T", "Throw"),

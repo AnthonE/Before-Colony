@@ -187,6 +187,11 @@ impl Sector {
                         Metrics::add(&self.shared.metrics.notes_dropped, 1);
                     }
                 }
+                Control::UseKit { slot, kit } => {
+                    if let Some(c) = self.clients.get(slot as usize).filter(|c| c.active) {
+                        let _ = self.sim.use_kit(c.suit, kit);
+                    }
+                }
                 Control::Respawn { slot, frame } => {
                     if let Some(c) = self.clients.get(slot as usize).filter(|c| c.active) {
                         self.sim.set_respawn_frame(c.suit, frame);

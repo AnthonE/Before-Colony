@@ -11,7 +11,7 @@ use std::fmt;
 use std::str::FromStr;
 
 use bc_proto::{FrameId, Part, WeaponKind};
-use bc_sim::content::{ModuleKind, PLAYABLE_ORDER, frame, frame_name, weapon_name};
+use bc_sim::content::{Kit, ModuleKind, PLAYABLE_ORDER, frame, frame_name, weapon_name};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Ore as it comes out of a rock: the simulation's four cargo kinds, in its order.
@@ -187,6 +187,8 @@ pub enum Item {
     Weapon(WeaponKind),
     /// Equipment fitted to a part (any line's).
     Module(ModuleKind),
+    /// A consumable for a suit's rack (`bc_sim::content::kits`).
+    Kit(Kit),
 }
 
 impl Item {
@@ -199,6 +201,7 @@ impl Item {
         }
         v.extend(weapons().map(Item::Weapon));
         v.extend(ModuleKind::ALL.into_iter().map(Item::Module));
+        v.extend(Kit::ALL.into_iter().map(Item::Kit));
         v
     }
 
@@ -210,6 +213,7 @@ impl Item {
             Item::Part(line, part) => 64 + line as u16 * 8 + part as u16,
             Item::Weapon(w) => 256 + w as u16,
             Item::Module(k) => 512 + k as u16,
+            Item::Kit(k) => 768 + k as u16,
         }
     }
 
@@ -224,7 +228,7 @@ impl Item {
             Item::Ore(_) | Item::Material(_) => true,
             Item::Part(line, _) => is_line(line),
             Item::Weapon(w) => is_item_weapon(w),
-            Item::Module(_) => true,
+            Item::Module(_) | Item::Kit(_) => true,
         }
     }
 
@@ -235,6 +239,7 @@ impl Item {
             Item::Part(line, part) => format!("part.{}.{}", line.slug(), part_slug(part)),
             Item::Weapon(w) => format!("weapon.{}", weapon_slug(w)),
             Item::Module(k) => format!("module.{}", k.slug()),
+            Item::Kit(k) => format!("kit.{}", k.slug()),
         }
     }
 
@@ -246,6 +251,7 @@ impl Item {
             Item::Part(line, part) => format!("{} {}", frame_name(line), part_name(part)),
             Item::Weapon(w) => weapon_name(w).to_string(),
             Item::Module(k) => k.name().to_string(),
+            Item::Kit(k) => k.name().to_string(),
         }
     }
 
@@ -306,6 +312,9 @@ impl FromStr for Item {
                 Item::Weapon(weapons().find(|x| weapon_slug(*x) == w).ok_or_else(bad)?)
             }
             (Some("module"), Some(k), None, None) => Item::Module(ModuleKind::from_slug(k).ok_or_else(bad)?),
+            (Some("kit"), Some(k), None, None) => {
+                Item::Kit(Kit::ALL.into_iter().find(|x| x.slug() == k).ok_or_else(bad)?)
+            }
             _ => return Err(bad()),
         };
         Ok(item)

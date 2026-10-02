@@ -49,6 +49,11 @@ pub enum Control {
     Dock {
         slot: u16,
     },
+    /// The pilot uses a consumable from their suit's rack (survival rules: the hotbar).
+    UseKit {
+        slot: u16,
+        kit: bc_sim::content::Kit,
+    },
     /// The pilot left: the suit goes too.
     Leave {
         slot: u16,

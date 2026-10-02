@@ -23,6 +23,7 @@ mod combat;
 mod conceal;
 mod detection;
 mod flame;
+mod kits;
 mod launch;
 mod melee;
 mod mining;
@@ -864,6 +865,8 @@ impl Sim {
                 let regen = if st.scram > 0 { 0.0 } else { spec.energy_regen * tuned.regen };
                 st.scram = st.scram.saturating_sub(1);
                 st.concussed = st.concussed.saturating_sub(1);
+                st.stim = st.stim.saturating_sub(1);
+                st.chaff = st.chaff.saturating_sub(1);
                 s.energy[i] = (s.energy[i] + regen * DT).min(spec.energy_cap * tuned.energy_cap);
                 if tuned.repairs {
                     self.damage_control(i);

@@ -40,6 +40,7 @@ use bc_sim::colony::transit::{
     TrainState, station_x, train,
 };
 use bc_sim::content::city::{DISTRICT_NAMES, PLACES, PlaceDef, PlaceKind, SIGHTS, STRIP_NAMES};
+use bc_sim::content::{Kit, Kits};
 use bc_sim::world::COLONY_RADIUS;
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::math::DVec3;
@@ -995,6 +996,20 @@ pub fn drive_onfoot(
         && (keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter))
     {
         ask(&net, &g, &Request::Dock);
+    }
+    // In the sector: 1-4 use the rack's consumables (the hotbar), while the suit is alive.
+    if flying && ui.playing() && !ui.panel_open() && !map.0 && g.core.world.own.is_some_and(|o| o.alive) {
+        let keys_kits = [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4];
+        for (key, kit) in keys_kits.into_iter().zip(Kit::ALL) {
+            if keys.just_pressed(key) {
+                let have = g.core.world.own.is_some_and(|o| Kits(o.kits).get(kit) > 0);
+                if have {
+                    ask(&net, &g, &Request::UseKit { kit });
+                } else {
+                    ui.toast(format!("NO {} IN THE RACK", kit.name().to_uppercase()));
+                }
+            }
+        }
     }
     // Requests from the terminals (launching and docking are the bay's own business).
     for cmd in &cmds.0 {

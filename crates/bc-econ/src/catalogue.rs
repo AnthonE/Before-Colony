@@ -10,6 +10,8 @@
 //! - **Weapons** each have a recipe; the ones that fire rounds need munitions to load.
 //! - **Machined components** (steel, a little electronics and titanium alloy) are what overhauls
 //!   restore a suit's systems with, and what equipment **modules** are mostly made of.
+//! - **Consumables** for a suit's rack (patch kits, coolant flushes, chaff, stims) are made a few
+//!   at a time at the fabricator, and the colony sells them.
 //!
 //! A Gundam costs about six Leos, most of it exotics and foundry time: getting one is the game.
 
@@ -18,7 +20,7 @@ use std::sync::OnceLock;
 
 use bc_proto::{FrameId, Part, WeaponKind};
 use bc_sim::content::salvage::{is_gundam, part_mass_kg};
-use bc_sim::content::{ModuleKind, frame, weapon};
+use bc_sim::content::{Kit, ModuleKind, frame, weapon};
 use serde::{Deserialize, Serialize};
 
 use crate::item::{Item, LINES, Material, Ore, weapons};
@@ -121,7 +123,28 @@ fn build_recipes() -> Vec<Recipe> {
     for k in ModuleKind::ALL {
         v.push(module_recipe(k));
     }
+    for k in Kit::ALL {
+        v.push(kit_recipe(k));
+    }
     v
+}
+
+/// A consumable, a few at a time.
+fn kit_recipe(k: Kit) -> Recipe {
+    let (makes, inputs, secs): (u64, &[(Item, u64)], u32) = match k {
+        Kit::Patch => (2, &[(COMPONENTS, 30), (TI_ALLOY, 20), (ELECTRONICS, 4)], 40),
+        Kit::Coolant => (2, &[(PROPELLANT_ITEM, 80), (COMPONENTS, 10)], 20),
+        Kit::Chaff => (3, &[(MUNITIONS, 30), (ELECTRONICS, 3), (STEEL, 10)], 30),
+        Kit::Stim => (2, &[(ore(Ore::Volatiles), 20), (EXOTICS, 3), (ELECTRONICS, 2)], 60),
+    };
+    Recipe {
+        output: Item::Kit(k),
+        makes,
+        inputs: inputs.to_vec(),
+        station: Station::Fabricator,
+        secs,
+        fee: 0,
+    }
 }
 
 /// An equipment module: mostly machined components, with what its job needs.
@@ -335,7 +358,7 @@ pub fn gundam_tech(item: Item) -> bool {
         Item::Part(line, _) => is_gundam(line),
         Item::Ore(_) | Item::Material(_) => false,
         Item::Weapon(_) => recipe(item).is_some_and(|r| r.inputs.iter().any(|(i, _)| gundam_tech(*i))),
-        Item::Module(_) => false,
+        Item::Module(_) | Item::Kit(_) => false,
     }
 }
 
@@ -384,6 +407,8 @@ pub fn desk(item: Item) -> Option<Desk> {
         Item::Part(..) | Item::Weapon(_) => d(3, true, true, 6.0),
         // Ordinary equipment, a couple of each on the shelf.
         Item::Module(_) => d(2, true, true, 6.0),
+        // The colony's chandlers keep a shelf of each.
+        Item::Kit(_) => d(30, true, true, 2.0),
     })
 }
 

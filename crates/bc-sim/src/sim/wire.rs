@@ -203,6 +203,8 @@ impl Sim {
             repairing: s.status[i].repairing,
             repair_left: s.status[i].repair_left.div_ceil(8).min(127) as u8,
             respawn_in,
+            kits: s.kits[i].0,
+            stim: s.status[i].stim,
             extra_mass_kg: mods.extra_mass_kg,
             cargo_kg: s.cargo_kg[i],
             credits: s.credits[i],

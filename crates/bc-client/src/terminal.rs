@@ -69,6 +69,7 @@ fn catalogue() -> Value {
                 Item::Part(l, p) => ("part", Some(l.slug()), Some(part_slug(p))),
                 Item::Weapon(_) => ("weapon", None, None),
                 Item::Module(k) => ("module", None, Some(part_slug(k.part()))),
+                Item::Kit(_) => ("kit", None, None),
             };
             let d = desk(i);
             json!({
@@ -82,7 +83,11 @@ fn catalogue() -> Value {
                 "part": part,
                 "colony_buys": d.is_some_and(|d| d.buys),
                 "colony_sells": d.is_some_and(|d| d.sells),
-                "summary": match i { Item::Module(k) => Some(k.summary()), _ => None },
+                "summary": match i {
+                    Item::Module(k) => Some(k.summary()),
+                    Item::Kit(k) => Some(k.summary()),
+                    _ => None,
+                },
                 "mass": match i { Item::Module(k) => Some(k.mass_kg()), _ => None },
             })
         })

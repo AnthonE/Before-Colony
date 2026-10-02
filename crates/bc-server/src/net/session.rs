@@ -700,6 +700,12 @@ impl Session<'_> {
                 self.watching = item.filter(|i| i.valid());
                 self.send_market().await
             }
+            Request::UseKit { kit } => {
+                if self.place == Place::Space && self.suit.is_some() && !self.lost {
+                    let _ = self.game.sector.control.push(Control::UseKit { slot: self.slot, kit });
+                }
+                Ok(())
+            }
             Request::WatchBoard { on } => {
                 self.board = on;
                 if on { self.send_board().await } else { Ok(()) }

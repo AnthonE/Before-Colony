@@ -4,6 +4,7 @@
 //! for agents alike.
 
 use bc_proto::Part;
+use bc_sim::content::Kit;
 use serde::{Deserialize, Serialize};
 
 use crate::catalogue::Station;
@@ -109,6 +110,12 @@ pub enum Request {
     /// Send the Charter Board (and keep sending it as it changes), or stop.
     WatchBoard {
         on: bool,
+    },
+    /// In flight: use a consumable from the suit's rack (the hotbar). Nothing answers: the own
+    /// snapshot shows the rack, and what it did.
+    UseKit {
+        #[serde(with = "kit_serde")]
+        kit: Kit,
     },
 }
 
@@ -313,7 +320,8 @@ pub fn apply(
         | Request::Dock
         | Request::EnterCity { .. }
         | Request::LeaveCity
-        | Request::WatchBoard { .. } => return None,
+        | Request::WatchBoard { .. }
+        | Request::UseKit { .. } => return None,
     })
 }
 
@@ -353,6 +361,24 @@ pub fn encode<T: Serialize>(msg: &T) -> Vec<u8> {
 
 pub fn decode<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Option<T> {
     serde_json::from_slice(bytes).ok()
+}
+
+/// Serde for a consumable, as its slug (`patch_kit`, `coolant`, `chaff`, `stim`).
+mod kit_serde {
+    use bc_sim::content::Kit;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(k: &Kit, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(k.slug())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Kit, D::Error> {
+        let s = String::deserialize(d)?;
+        Kit::ALL
+            .into_iter()
+            .find(|k| k.slug() == s)
+            .ok_or_else(|| serde::de::Error::custom(format!("no such consumable: {s}")))
+    }
 }
 
 /// Serde for an optional part, as its slug or null.
@@ -427,6 +453,7 @@ mod tests {
             (r#"{"t":"watch","item":null}"#, Request::Watch { item: None }),
             (r#"{"t":"launch"}"#, Request::Launch),
             (r#"{"t":"dock"}"#, Request::Dock),
+            (r#"{"t":"use_kit","kit":"chaff"}"#, Request::UseKit { kit: Kit::Chaff }),
         ];
         for (json, req) in cases {
             assert_eq!(decode::<Request>(json.as_bytes()).as_ref(), Some(req), "{json}");

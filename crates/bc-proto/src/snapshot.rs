@@ -174,6 +174,11 @@ pub struct OwnState {
     pub repair_left: u8,
     /// While dead: ticks until respawn, divided by 4.
     pub respawn_in: u8,
+    /// The consumables in the rack, 2 bits a kind (`bc_sim::content::Kits`).
+    pub kits: u8,
+    /// A stim's clock, ticks: the pilot bears more G while it's past the crash's length, less
+    /// during it (`bc_sim::content::kits::stim_g`). The client's stat sheet takes it in.
+    pub stim: u16,
     /// Mass beyond the frame's own: cargo and anything in hand, less the parts shot off, kg. The
     /// flight model (and so prediction) uses exactly this.
     pub extra_mass_kg: i32,
@@ -282,7 +287,7 @@ pub const ARMS_MAX_SALVO: u8 = (1 << SALVO_BITS) - 1;
 pub const ARMS_MAX_SALVO_GAP: u8 = (1 << SALVO_GAP_BITS) - 1;
 
 /// Encoded size of a free suit's own state (after its presence bit), in bits: the flight and combat
-/// state (503), systems and equipment (24 + 20 + 7 + 7 + 4 + 7), salvage (18 + 14 per cargo kind +
+/// state (503), systems and equipment (24 + 20 + 7 + 7 + 4 + 7), the rack and a stim (8 + 12), salvage (18 + 14 per cargo kind +
 /// 24 + a chunk id), lock and special (10 + 4 + 8 + 8), the arms, then the footing and the cover
 /// (2 + 2).
 pub const OWN_BITS_FREE: usize = 503
@@ -291,6 +296,8 @@ pub const OWN_BITS_FREE: usize = 503
     + 2 * STATUS_TICK_BITS as usize
     + 4
     + STATUS_TICK_BITS as usize
+    + KITS_BITS as usize
+    + STIM_BITS as usize
     + 18
     + 14 * CARGO_KINDS
     + 24
@@ -313,6 +320,9 @@ pub const MODULES_BITS: u32 = 20;
 /// Bits for a status timer (ticks, or ticks / 8 for a repair).
 const STATUS_TICK_BITS: u32 = 7;
 const LOCK_PROGRESS_BITS: u32 = 4;
+/// Bits for [`OwnState::kits`] and [`OwnState::stim`] (up to 136 s of ticks).
+pub const KITS_BITS: u32 = 8;
+pub const STIM_BITS: u32 = 12;
 const EXTRA_MASS_BITS: u32 = 18;
 const CARGO_BITS: u32 = 14;
 const CREDIT_BITS: u32 = 24;
@@ -346,6 +356,8 @@ impl Default for OwnState {
             repairing: 15,
             repair_left: 0,
             respawn_in: 0,
+            kits: 0,
+            stim: 0,
             extra_mass_kg: 0,
             cargo_kg: [0; CARGO_KINDS],
             credits: 0,
@@ -620,6 +632,8 @@ impl<'a> SnapshotWriter<'a> {
         w.write_bits(u32::from(o.repairing.min(15)), 4);
         w.write_bits(u32::from(o.repair_left).min(tick_max), STATUS_TICK_BITS);
         w.write_u8(o.respawn_in);
+        w.write_bits(u32::from(o.kits), KITS_BITS);
+        w.write_bits(u32::from(o.stim).min((1 << STIM_BITS) - 1), STIM_BITS);
         let reach = (1 << (EXTRA_MASS_BITS - 1)) - 1;
         w.write_i32(o.extra_mass_kg.clamp(-reach, reach), EXTRA_MASS_BITS);
         for c in o.cargo_kg {
@@ -934,6 +948,8 @@ impl<'a> SnapshotReader<'a> {
         o.repairing = r.read_bits(4) as u8;
         o.repair_left = r.read_bits(STATUS_TICK_BITS) as u8;
         o.respawn_in = r.read_u8();
+        o.kits = r.read_bits(KITS_BITS) as u8;
+        o.stim = r.read_bits(STIM_BITS) as u16;
         o.extra_mass_kg = r.read_i32(EXTRA_MASS_BITS);
         for c in &mut o.cargo_kg {
             *c = r.read_bits(CARGO_BITS) as u16;
@@ -1129,7 +1145,7 @@ mod tests {
             let back = SnapshotReader::new(&buf[..n]).unwrap().own().unwrap().unwrap();
             assert_eq!((back.surface, back.cover), (own.surface, own.cover));
         }
-        assert_eq!((OWN_BITS_FREE, OWN_BITS_FREE + 14, OWN_MAX_BITS), (760, 774, 780));
+        assert_eq!((OWN_BITS_FREE, OWN_BITS_FREE + 14, OWN_MAX_BITS), (780, 794, 800));
     }
 
     #[test]

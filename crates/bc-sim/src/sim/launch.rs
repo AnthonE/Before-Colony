@@ -20,7 +20,7 @@ use glam::{Quat, Vec3};
 use super::Sim;
 use crate::bodies::{Bodies, Body};
 use crate::content::salvage::DOCK_HUB_LENGTH;
-use crate::content::{Modules, Systems, frame, weapon};
+use crate::content::{Kits, Modules, Systems, frame, weapon};
 use crate::ground::{self, Anchor, CROUCH_STANCE, Footing, STANCE};
 use crate::handle::SuitId;
 use crate::math::{cos, floor, look_rotation, quat_normalize, sin};
@@ -63,6 +63,8 @@ pub struct Loadout {
     pub systems: Systems,
     /// The equipment on the parts.
     pub modules: Modules,
+    /// The consumables in its rack.
+    pub kits: Kits,
 }
 
 impl Loadout {
@@ -82,6 +84,7 @@ impl Loadout {
             propellant: spec.propellant_cap,
             systems: Systems::OK,
             modules: Modules::NONE,
+            kits: Kits::NONE,
         }
     }
 }
@@ -100,6 +103,8 @@ pub struct Homecoming {
     pub systems: Systems,
     /// The equipment on the parts still on (a part shot off took its own).
     pub modules: Modules,
+    /// The consumables it didn't use.
+    pub kits: Kits,
     /// The hold, kg per cargo kind.
     pub cargo_kg: [u16; CARGO_KINDS],
     /// Whatever it had in hand (a hulk it towed in, a limb, ore).
@@ -152,6 +157,7 @@ impl Sim {
         self.suits.mounts[i] = loadout.mounts & ALL_MOUNTS;
         self.suits.systems[i] = loadout.systems.clean();
         self.suits.modules[i] = loadout.modules.clean();
+        self.suits.kits[i] = loadout.kits;
         self.suits.retune(i);
         // Charged full, a capacitor bank's worth included.
         self.suits.energy[i] = spec.energy_cap * self.suits.tuning[i].energy_cap;
@@ -178,7 +184,7 @@ impl Sim {
             return None;
         }
         let held = self.held_chunk(i);
-        let home = Homecoming { held: held.map(|k| self.chunks.desc[k]), ..self.kit(i) };
+        let home = Homecoming { held: held.map(|k| self.chunks.desc[k]), ..self.homecoming(i) };
         if let Some(k) = held {
             self.chunks.kill(k);
         }
@@ -189,7 +195,7 @@ impl Sim {
     }
 
     /// What suit `i` would bring home, but for whatever it has in hand.
-    fn kit(&self, i: usize) -> Homecoming {
+    pub fn homecoming(&self, i: usize) -> Homecoming {
         let s = &self.suits;
         Homecoming {
             frame: match s.frame[i] {
@@ -202,6 +208,7 @@ impl Sim {
             propellant: s.flight[i].propellant,
             systems: s.systems[i],
             modules: s.modules[i].without(s.gone_mask(i)),
+            kits: s.kits[i],
             cargo_kg: s.cargo_kg[i],
             held: None,
             bounty: s.credits[i],
@@ -229,7 +236,7 @@ impl Sim {
             frame: s.frame[i],
             faction: s.faction[i],
             pilot: s.pilot[i],
-            home: self.kit(i),
+            home: self.homecoming(i),
         })
     }
 
@@ -288,12 +295,17 @@ impl Sim {
             *hp = max * f.clamp(0.0, 1.0);
         }
         s.mounts[i] = home.mounts & ALL_MOUNTS;
+        // As worn inside as it was left, its equipment and rack with it.
+        s.systems[i] = home.systems.clean();
+        s.modules[i] = home.modules.clean();
+        s.kits[i] = home.kits;
+        s.retune(i);
         for (slot, ws) in s.weapons[i].iter_mut().enumerate() {
             if let Some(m) = spec.loadout[slot] {
                 ws.ammo = home.ammo[slot].min(weapon(m.weapon).ammo);
             }
         }
-        s.flight[i].propellant = home.propellant.clamp(0.0, spec.propellant_cap);
+        s.flight[i].propellant = home.propellant.clamp(0.0, crate::tuning::tank_cap(spec, &s.tuning[i]));
         s.cargo_kg[i] = home.cargo_kg;
         s.credits[i] = home.bounty;
         (s.footing[i], s.anchor[i]) = (Footing::Grounded, a);

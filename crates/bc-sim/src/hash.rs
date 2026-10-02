@@ -46,6 +46,10 @@ pub fn state_hash(sim: &Sim) -> u64 {
         let st = &s.status[i];
         h.u32(u32::from(st.scram) | u32::from(st.concussed) << 8 | u32::from(st.repairing) << 16);
         h.u32(u32::from(st.repair_left));
+        // Consumables (only once there are any, so a suit without hashes as it always has).
+        if !s.kits[i].is_empty() || st.stim > 0 || st.chaff > 0 {
+            h.u32(u32::from(s.kits[i].0) | u32::from(st.chaff) << 8 | u32::from(st.stim) << 16);
+        }
         let (k, g, right) = s.held[i];
         h.u32(u32::from(k) | u32::from(g) << 16 | u32::from(right) << 24);
         for kg in s.cargo_kg[i] {
