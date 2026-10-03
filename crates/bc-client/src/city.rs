@@ -25,8 +25,8 @@ use bc_sim::world::{COLONY_HALF_LENGTH, COLONY_RADIUS};
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::camera::Exposure;
 use bevy::camera::visibility::RenderLayers;
-use bevy::light::NotShadowCaster;
 use bevy::light::cluster::ClusterConfig;
+use bevy::light::{CascadeShadowConfig, CascadeShadowConfigBuilder, NotShadowCaster};
 use bevy::math::DVec3;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::pbr::{
@@ -68,6 +68,11 @@ const EV_INDOOR: f32 = 8.0;
 const INDOOR_LUX: f32 = 900.0;
 const INDOOR_SKY: f32 = 40.0;
 const ADAPT: f32 = 3.0;
+/// The glass runs this far (rad) past each strip's edge and lies this far (m) outside the floor, so
+/// it tucks under the ground there instead of meeting it edge to edge: two meshes whose shared edge
+/// rounds differently leave hairline cracks, and 15 m keeps the two apart in a far view's depth.
+const GLASS_TUCK: f32 = 0.003;
+const GLASS_OUT: f32 = 15.0;
 
 pub struct CityPlugin;
 
@@ -224,17 +229,19 @@ fn to_mesh(m: CityMesh) -> Mesh {
         .with_inserted_indices(Indices::U32(m.indices))
 }
 
-/// The inside of window `k`, from `x0` to `x1` along: glass facing the axis, cut every degree.
+/// The inside of window `k`, from `x0` to `x1` along: glass facing the axis, cut every degree,
+/// tucked under the strips' edges either side ([`GLASS_TUCK`]).
 fn window_mesh(k: usize, x0: f32, x1: f32) -> (DVec3, Mesh) {
     let w = window_centre(k);
     let anchor = Vec3::new((x0 + x1) * 0.5, COLONY_RADIUS * w.cos(), COLONY_RADIUS * w.sin());
     let segs = 60u32;
+    let (half, r) = (std::f32::consts::FRAC_PI_6 + GLASS_TUCK, COLONY_RADIUS + GLASS_OUT);
     let mut p = Vec::new();
     let mut n = Vec::new();
     for x in [x0, x1] {
         for i in 0..=segs {
-            let a = w - std::f32::consts::FRAC_PI_6 + std::f32::consts::FRAC_PI_3 * i as f32 / segs as f32;
-            p.push((Vec3::new(x, COLONY_RADIUS * a.cos(), COLONY_RADIUS * a.sin()) - anchor).to_array());
+            let a = w - half + 2.0 * half * i as f32 / segs as f32;
+            p.push((Vec3::new(x, r * a.cos(), r * a.sin()) - anchor).to_array());
             n.push([0.0, -a.cos(), -a.sin()]);
         }
     }
@@ -544,6 +551,35 @@ fn place_all(origin: Res<RenderOrigin>, mut placed: Query<(Ref<Placed>, &mut Tra
     }
 }
 
+/// How far the Sun's shadows reach inside, m: the nearest few hundred metres on foot, more from a
+/// roof or a suit, in 100 m steps.
+fn shadow_reach(height: f32) -> u32 {
+    let m = (300.0 + 2.0 * height.max(0.0)).min(1_500.0);
+    (m / 100.0).ceil() as u32 * 100
+}
+
+/// The Sun's cascades inside: WebGL2 has one, WebGPU three that reach on into the haze.
+fn city_cascades(reach: f32) -> CascadeShadowConfig {
+    if cfg!(feature = "webgpu") {
+        CascadeShadowConfigBuilder {
+            num_cascades: 3,
+            minimum_distance: 0.15,
+            first_cascade_far_bound: 40.0,
+            maximum_distance: (reach * 4.0).min(3_000.0),
+            ..default()
+        }
+        .build()
+    } else {
+        CascadeShadowConfigBuilder {
+            num_cascades: 1,
+            minimum_distance: 0.15,
+            maximum_distance: reach,
+            ..default()
+        }
+        .build()
+    }
+}
+
 /// The colony's light inside, at its hour: the Sun as the camera's strip has it (the mirrors' sun
 /// in the window overhead), the sky's light, the haze, and the exposure.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -557,15 +593,17 @@ fn light_city(
     gfx: Res<Gfx>,
     streamer: Res<Streamer>,
     cams: Query<(Entity, &Transform), With<MainCamera>>,
-    mut suns: Query<(&mut DirectionalLight, &mut Transform), (With<Sun>, Without<MainCamera>)>,
+    mut suns: Query<(Entity, &mut DirectionalLight, &mut Transform), (With<Sun>, Without<MainCamera>)>,
     mut ambient: ResMut<GlobalAmbientLight>,
     mut materials: ResMut<Assets<CityMaterial>>,
     mut insides: ResMut<Assets<InsideMaterial>>,
     status: Option<ResMut<crate::dev_hooks::DevStatus>>,
     mut adapted: Local<Option<f32>>,
+    mut reach: Local<Option<u32>>,
 ) {
     if !view.active {
         *adapted = None;
+        *reach = None;
         return;
     }
     let Ok((cam, cam_tf)) = cams.single() else { return };
@@ -591,7 +629,16 @@ fn light_city(
     // Warmer when the mirrors are low.
     let warm = (1.0 - (d.sun_elev / 0.9).min(1.0)) * daylight.min(1.0);
     let up = (-Vec3::new(0.0, eye.y, eye.z)).normalize_or(Vec3::Y);
-    for (mut light, mut tf) in &mut suns {
+    // The shadows reach as far as the camera's height needs, in 100 m steps (`sky.rs` puts space's
+    // back on the way out).
+    let height = COLONY_RADIUS - Vec2::new(eye.y, eye.z).length();
+    let want = shadow_reach(height);
+    let new_reach = *reach != Some(want);
+    *reach = Some(want);
+    for (sun, mut light, mut tf) in &mut suns {
+        if new_reach {
+            commands.entity(sun).insert(city_cascades(want as f32));
+        }
         if room.is_some() {
             // In a room, the scene's one light is its lamps, from overhead.
             light.illuminance = INDOOR_LUX;
