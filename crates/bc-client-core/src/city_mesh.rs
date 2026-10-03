@@ -3,11 +3,13 @@
 //! roof and a wall facing along the axis curve with the floor, cut every 24 m across).
 //!
 //! The city is drawn in chunks of blocks at four levels of detail, coarser further off:
-//! - L0, 2 × 2 blocks: every building whole, the pavements' kerbs, trees, the canal's walls and
-//!   water, railings, the site's frames and cranes.
+//! - L0, 2 × 2 blocks: every building whole, the pavements' kerbs, trees, the canal's quays,
+//!   railings, the site's frames and cranes.
 //! - L1, 4 × 4: the buildings and the trees.
 //! - L2, 8 × 8: one box a lot.
 //! - L3, 16 × 16: a block's bulk, and its tallest building where it stands out.
+//!
+//! At every level the canal's channel has its water and its sides (`canal_water`).
 //!
 //! The ground under it all (streets, parks, the avenue's median, painted from the block atlas) is
 //! one mesh a stretch of each strip ([`ground`]): it needs no levels, being flat.
@@ -19,8 +21,9 @@
 //! UVs: on walls, metres along the wall and up from the floor; on roofs and the ground, `s` and `x`.
 
 use bc_sim::colony::city::{
-    BLOCK, BlockKind, Building, CANAL_DEPTH, CityBox, DOOR_HEIGHT, DOOR_WIDTH, GRID_X0, KERB, MAX_HEIGHT,
-    MAX_SOLIDS, RAILING, ROWS, Rect, Room, Stage, Style, WALL, block, channel, lots, mix, unit,
+    BLOCK, BlockInfo, BlockKind, Building, CANAL_DEPTH, CityBox, DOOR_HEIGHT, DOOR_WIDTH, GRID_X0, KERB,
+    MAX_HEIGHT, MAX_SOLIDS, RAILING, ROWS, Rect, Room, Stage, Style, WALL, block, channel, grid_x, lots, mix,
+    unit,
 };
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, strip_edge};
 use bc_sim::content::city::{PLACES, PlaceKind};
@@ -29,6 +32,9 @@ use glam::Vec3;
 
 /// The finest a curved face is cut across, m.
 const CUT: f32 = 24.0;
+
+/// The canal's water, a metre below the street.
+const WATER: f32 = -1.0;
 
 /// What a vertex is, for the city shader (`r` of its colour, in 255ths).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -495,6 +501,9 @@ pub fn chunk(key: ChunkKey, stage: Stage) -> CityMesh {
             let seed = (b.seed & 0xff) as f32 / 255.0;
             let all = lots(&b);
             let buildings = all.as_slice();
+            if b.kind == BlockKind::Canal {
+                canal_water(&mut m, &b, seed, key.lod, stage);
+            }
             match key.lod {
                 0 | 1 => {
                     if key.lod == 0 {
@@ -583,8 +592,8 @@ pub fn chunk(key: ChunkKey, stage: Stage) -> CityMesh {
     m.mesh
 }
 
-/// A block's kerb (it stands a step up from the street), and in the canal's row the channel's
-/// walls, its water and the quays' railings.
+/// A block's kerb (it stands a step up from the street), and in the canal's row the quays either
+/// side of the channel and their railings.
 fn kerb_and_canal(m: &mut Builder, r: &Rect, kind: BlockKind, seed: f32) {
     if kind != BlockKind::Canal {
         m.city_box(
@@ -608,30 +617,6 @@ fn kerb_and_canal(m: &mut Builder, r: &Rect, kind: BlockKind, seed: f32) {
             false,
         );
     }
-    // The water, a metre below the street; the channel's ends under the bridges.
-    let n = Builder::cuts(ch.s0, ch.s1, false);
-    let mut a = Vec::new();
-    let mut b = Vec::new();
-    for i in 0..=n {
-        let s = ch.s0 + ch.width() * i as f32 / n as f32;
-        let up = m.up(s);
-        a.push(m.vertex(
-            m.at(s, r.x0 - 12.0, -1.0),
-            up,
-            [s, r.x0],
-            [Surface::Water as u8 as f32 / 255.0, seed, 1.0, 0.0],
-        ));
-        b.push(m.vertex(
-            m.at(s, r.x1 + 12.0, -1.0),
-            up,
-            [s, r.x1],
-            [Surface::Water as u8 as f32 / 255.0, seed, 1.0, 0.0],
-        ));
-    }
-    for i in 0..n as usize {
-        let up = m.up(ch.s0 + ch.width() * (i as f32 + 0.5) / n as f32);
-        m.quad([a[i], a[i + 1], b[i + 1], b[i]], up);
-    }
     for rail in [Rect::new(ch.s0 - 0.3, ch.s0, r.x0, r.x1), Rect::new(ch.s1, ch.s1 + 0.3, r.x0, r.x1)] {
         m.city_box(
             &CityBox { rect: rail, h0: KERB, h1: KERB + RAILING },
@@ -641,6 +626,41 @@ fn kerb_and_canal(m: &mut Builder, r: &Rect, kind: BlockKind, seed: f32) {
             0.0,
             true,
         );
+    }
+}
+
+/// A canal block's channel, at every level (the ground leaves it open, `city.wgsl`): its water
+/// from grid line to grid line, on under the bridges to meet the next block's, and its sides from
+/// the bed up, so it never shows the clear colour through. Under the bridges the sides meet the
+/// street's underside, and where the canal ends they close it. Along the block L0 has its quays;
+/// further off the sides stand to the kerb's height, over the ground's edge (its chords stand a
+/// few cm off the curve), so no crack shows there at a glance. The sides start at the bed, as the
+/// quays do, so the waterline is never a seam, and along the block they are the quays' faces
+/// exactly (where, how shaded, UVs), so a level's swap for another shows no change.
+fn canal_water(m: &mut Builder, b: &BlockInfo, seed: f32, lod: u8, stage: Stage) {
+    let r = b.rect;
+    let ch = channel(&r);
+    let (x0, x1) = (grid_x(b.bx).max(-COLONY_HALF_LENGTH), grid_x(b.bx + 1).min(COLONY_HALF_LENGTH));
+    let water = [Surface::Water as u8 as f32 / 255.0, seed, 1.0, 0.0];
+    m.level(&Rect::new(ch.s0, ch.s1, x0, x1), WATER, false, water);
+    // Shaded at the bed, and all the way up in the dark under a bridge.
+    let bed = -CANAL_DEPTH;
+    let wall = |top: f32| {
+        move |h: f32| [Surface::CanalWall as u8 as f32 / 255.0, seed, if h > bed { top } else { 0.62 }, 0.0]
+    };
+    for (s, ns) in [(ch.s0, 1.0), (ch.s1, -1.0)] {
+        m.wall_s(s, x0, r.x0, bed, 0.0, ns, x0, wall(0.62));
+        m.wall_s(s, r.x1, x1, bed, 0.0, ns, x0, wall(0.62));
+        if lod > 0 {
+            m.wall_s(s, r.x0, r.x1, bed, KERB, ns, r.x0, wall(1.0));
+        }
+    }
+    let canal = |bx: i32| block(b.strip, bx, b.row, stage).is_some_and(|n| n.kind == BlockKind::Canal);
+    if !canal(b.bx - 1) {
+        m.wall_x(x0, ch.s0, ch.s1, bed, 0.0, 1.0, ch.s0, wall(0.62));
+    }
+    if !canal(b.bx + 1) {
+        m.wall_x(x1, ch.s0, ch.s1, bed, 0.0, -1.0, ch.s0, wall(0.62));
     }
 }
 
@@ -785,7 +805,8 @@ pub fn hub_gate(strip: u8) -> (CityPos, CityMesh) {
         Surface::Hall,
         Surface::Roof,
         0.3,
-        0.2,
+        // Its height fraction of the tallest, which the hall's trim is painted from.
+        TERMINAL_HEIGHT / MAX_HEIGHT,
         false,
     );
     let shaft = Rect::new(ms - 7.0, ms + 7.0, t.x0, t.x0 + 14.0);
@@ -815,7 +836,7 @@ pub fn hub_gate(strip: u8) -> (CityPos, CityMesh) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bc_sim::colony::city::{CITY, SITE};
+    use bc_sim::colony::city::{CANAL_ROW, CITY, HUB_GATE, SITE};
     use bc_sim::colony::frame::{Under, from_colony};
     use bc_sim::content::city::SPECIAL;
 
@@ -837,6 +858,8 @@ mod tests {
             ChunkKey::of(0, 1, 100, 5),
             ChunkKey::of(1, 2, 140, -8),
             ChunkKey::of(2, 3, 40, 1),
+            ChunkKey::of(1, 1, 60, CANAL_ROW),
+            ChunkKey::of(2, 2, 248, CANAL_ROW),
         ] {
             let m = chunk(key, Stage(0));
             assert!(!m.is_empty(), "{key:?} is empty");
@@ -849,8 +872,8 @@ mod tests {
                 assert!((Vec3::from_array(*n).length() - 1.0).abs() < 1e-3, "{n:?}");
                 let c = back(key, *p);
                 assert_eq!(c.strip, key.strip);
-                // Within the chunk (trees' crowns and the canal's water reach a little over), and
-                // no taller than anything is.
+                // Within the chunk (trees' crowns reach a little over), and no taller than anything
+                // is.
                 assert!(
                     c.s > r.s0 - 15.0 && c.s < r.s1 + 15.0 && c.x > r.x0 - 15.0 && c.x < r.x1 + 15.0,
                     "{c:?} {r:?}"
@@ -862,8 +885,10 @@ mod tests {
 
     #[test]
     fn faces_face_out() {
-        // A tower's block, and the Exchange floor's (its room's walls face into the room).
-        for key in [ChunkKey::of(0, 0, 30, -2), ChunkKey::of(0, 0, 10, 2)] {
+        // A tower's block, the Exchange floor's (its room's walls face into the room), and the
+        // canal's at every level.
+        let canal = (0..4).map(|lod| ChunkKey::of(1, lod, 60, CANAL_ROW));
+        for key in [ChunkKey::of(0, 0, 30, -2), ChunkKey::of(0, 0, 10, 2)].into_iter().chain(canal) {
             let m = chunk(key, Stage(0));
             for t in m.indices.chunks(3) {
                 let p = |i: u32| Vec3::from_array(m.positions[i as usize]);
@@ -962,6 +987,147 @@ mod tests {
         }
         for ri in 0..24 {
             assert_eq!(row_index(row_of_index(ri)), ri);
+        }
+    }
+
+    /// Where triangle `t` (corners `[u, v, w]`) lies over `(u, v)`: its `w` there.
+    fn over(t: &[[f32; 3]; 3], u: f32, v: f32) -> Option<f32> {
+        let [a, b, c] = t;
+        let d = (b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1]);
+        if d.abs() < 1e-6 {
+            return None;
+        }
+        let l1 = ((u - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (v - a[1])) / d;
+        let l2 = ((b[0] - a[0]) * (v - a[1]) - (u - a[0]) * (b[1] - a[1])) / d;
+        let l0 = 1.0 - l1 - l2;
+        (l0.min(l1).min(l2) > -1e-4).then(|| l0 * a[2] + l1 * b[2] + l2 * c[2])
+    }
+
+    /// A chunk's faces of `surface` in city coordinates (corners `[s, x, h]`), and which way each
+    /// faces in them.
+    fn faces_of(key: ChunkKey, m: &CityMesh, surface: Surface) -> Vec<([[f32; 3]; 3], [f32; 3])> {
+        let city = |p: Vec3| {
+            let c = back(key, p.to_array());
+            [c.s, c.x, c.h]
+        };
+        m.indices
+            .chunks(3)
+            .filter(|t| (m.colors[t[0] as usize][0] * 255.0).round() as u8 == surface as u8)
+            .map(|t| {
+                let p = |k: usize| Vec3::from_array(m.positions[t[k] as usize]);
+                let (a, out) = (city(p(0)), city(p(0) + Vec3::from_array(m.normals[t[0] as usize])));
+                ([0, 1, 2].map(|k| city(p(k))), [0, 1, 2].map(|k| out[k] - a[k]))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_canal_is_water_at_every_level() {
+        // Down every strip's canal at every level (the ground leaves its channel open), the channel
+        // is water from grid line to grid line, walled from under the water to the street on both
+        // sides and closed at its ends, all facing in: nowhere does it show the clear colour through.
+        let keys = (0..3u8).flat_map(|strip| {
+            (0..4u8).flat_map(move |lod| {
+                let n = 2 << lod;
+                (HUB_GATE.0 / n..=SITE.1 / n).map(move |i| ChunkKey::of(strip, lod, i * n, CANAL_ROW))
+            })
+        });
+        for key in keys {
+            let m = chunk(key, Stage(0));
+            let (water, walls) = (faces_of(key, &m, Surface::Water), faces_of(key, &m, Surface::CanalWall));
+            // Whether a wall facing `sign` along coordinate `w` (0 s, 1 x) stands at `want` there,
+            // over `(u, v)` in the other two.
+            let walled = |w: usize, sign: f32, want: f32, u: f32, v: f32| {
+                walls.iter().any(|(t, out)| {
+                    let t = t.map(|c| if w == 0 { [c[1], c[2], c[0]] } else { [c[0], c[2], c[1]] });
+                    out[w] * sign > 0.9 && over(&t, u, v).is_some_and(|at| (at - want).abs() < 0.05)
+                })
+            };
+            let ((b0, b1), _) = key.blocks();
+            for bx in b0..b1 {
+                let Some(b) = block(key.strip, bx, CANAL_ROW, Stage(0)) else { continue };
+                assert_eq!(b.kind, BlockKind::Canal, "{key:?}: block {bx}");
+                let ch = channel(&b.rect);
+                let across = |k: usize| ch.s0 + 0.5 + (ch.width() - 1.0) * k as f32 / 8.0;
+                // Along the block, and on under the bridges either end.
+                for x in (0..=16).map(|k| grid_x(bx) + 0.5 + (BLOCK - 1.0) * k as f32 / 16.0) {
+                    for s in (0..=8).map(across) {
+                        let h = water.iter().find_map(|(t, out)| over(t, s, x).filter(|_| out[2] > 0.9));
+                        assert!(
+                            h.is_some_and(|h| (h - WATER).abs() < 0.1),
+                            "{key:?}: no water at block {bx} ({s}, {x}): {h:?}"
+                        );
+                    }
+                    for (side, sign) in [(ch.s0, 1.0), (ch.s1, -1.0)] {
+                        for h in [WATER - 0.5, WATER + 0.05, -0.05] {
+                            assert!(walled(0, sign, side, x, h), "{key:?}: open side at {side}, {x}, {h} up");
+                        }
+                    }
+                }
+                for (end, x, sign) in
+                    [(bx == HUB_GATE.0, grid_x(bx), 1.0), (bx == SITE.1, grid_x(bx + 1), -1.0)]
+                {
+                    if !end {
+                        continue;
+                    }
+                    for s in (0..=8).map(across) {
+                        for h in [WATER - 0.5, WATER + 0.05, -0.05] {
+                            assert!(
+                                walled(1, sign, x, s, h),
+                                "{key:?}: the end at {x} is open at {s}, {h} up"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_canal_is_the_same_at_every_level() {
+        // While a chunk swaps for its children both show: what a coarser level draws of the canal,
+        // L0 draws the same (where, UVs, colour), so nothing fights or pops.
+        type Face = ([glam::DVec3; 3], [[f32; 2]; 3], [[f32; 4]; 3]);
+        let canal = |key: ChunkKey, x0: f64, x1: f64| -> Vec<Face> {
+            let m = chunk(key, Stage(0));
+            let o = key.anchor().to_colony().as_dvec3();
+            m.indices
+                .chunks(3)
+                .filter(|t| {
+                    let s = (m.colors[t[0] as usize][0] * 255.0).round() as u8;
+                    s == Surface::Water as u8 || s == Surface::CanalWall as u8
+                })
+                .map(|t| {
+                    let v = [t[0], t[1], t[2]].map(|i| i as usize);
+                    (
+                        v.map(|i| o + Vec3::from_array(m.positions[i]).as_dvec3()),
+                        v.map(|i| m.uvs[i]),
+                        v.map(|i| m.colors[i]),
+                    )
+                })
+                .filter(|(p, _, _)| {
+                    (p[0].x + p[1].x + p[2].x) / 3.0 > x0 && (p[0].x + p[1].x + p[2].x) / 3.0 < x1
+                })
+                .collect()
+        };
+        for bx in [4, 60, 64, 248] {
+            let near = ChunkKey::of(1, 0, bx, CANAL_ROW);
+            let ((b0, b1), _) = near.blocks();
+            let (x0, x1) = (f64::from(grid_x(b0)), f64::from(grid_x(b1)));
+            let fine = canal(near, x0, x1);
+            for lod in 1..4 {
+                for (p, uv, col) in canal(ChunkKey::of(1, lod, bx, CANAL_ROW), x0, x1) {
+                    let twin = fine.iter().any(|(q, quv, qcol)| {
+                        (0..3).all(|i| {
+                            (p[i] - q[i]).length() < 1e-3
+                                && (uv[i][0] - quv[i][0]).abs() < 1e-3
+                                && (uv[i][1] - quv[i][1]).abs() < 1e-3
+                                && (0..4).all(|j| (col[i][j] - qcol[i][j]).abs() < 1e-4)
+                        })
+                    });
+                    assert!(twin, "block {bx}, L{lod}: a canal face L0 doesn't draw the same: {p:?}");
+                }
+            }
         }
     }
 }
