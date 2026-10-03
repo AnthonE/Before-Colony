@@ -183,11 +183,11 @@ impl Key {
 /// Noon: pale, hazy blue-white; the light straight down, the windows burning white.
 const NOON: Key = Key {
     elev: 90.0,
-    sun: Vec3::new(1.0, 0.97, 0.93),
+    sun: Vec3::new(1.0, 0.96, 0.9),
     lux: 1.0,
-    sky: Vec3::new(0.72, 0.8, 1.0),
+    sky: Vec3::new(0.68, 0.78, 1.0),
     sky_share: 1.0,
-    haze: Vec3::new(6_200.0, 7_800.0, 10_000.0),
+    haze: Vec3::new(5_600.0, 7_700.0, 11_500.0),
     mie: 450.0,
     air: Air { density: 1.5e-4, height: 1_100.0, g: 0.7 },
     glow: Vec3::new(21_000.0, 26_200.0, 32_000.0),
@@ -195,9 +195,9 @@ const NOON: Key = Key {
     grade: Grade {
         temperature: 0.0,
         tint: 0.0,
-        shadows: Tone::new(0.95, 1.0, 0.0),
-        midtones: Tone::new(1.0, 1.04, 0.0),
-        highlights: Tone::new(0.9, 1.0, 0.0),
+        shadows: Tone::new(1.02, 1.04, 0.0),
+        midtones: Tone::new(1.1, 1.1, 0.0),
+        highlights: Tone::new(0.95, 1.0, 0.0),
         bloom: 0.1,
     },
 };
@@ -217,8 +217,8 @@ const MORNING: Key = Key {
     grade: Grade {
         temperature: 0.008,
         tint: 0.004,
-        shadows: Tone::new(1.0, 1.0, 0.0),
-        midtones: Tone::new(1.03, 1.04, 0.0),
+        shadows: Tone::new(1.03, 1.04, 0.0),
+        midtones: Tone::new(1.1, 1.09, 0.0),
         highlights: Tone::new(0.95, 1.0, 0.0),
         bloom: 0.12,
     },
@@ -283,8 +283,8 @@ const AFTERNOON: Key = Key {
     grade: Grade {
         temperature: 0.015,
         tint: 0.0,
-        shadows: Tone::new(1.0, 1.0, 0.0),
-        midtones: Tone::new(1.03, 1.05, 0.0),
+        shadows: Tone::new(1.04, 1.04, 0.0),
+        midtones: Tone::new(1.1, 1.09, 0.0),
         highlights: Tone::new(0.95, 1.0, 0.0),
         bloom: 0.12,
     },
@@ -340,9 +340,9 @@ const EVENING_KEYS: [Key; 4] = [DUSK, GOLDEN, AFTERNOON, NOON];
 
 /// Night: no sun; deep blue, warm windows and cold signs (`city.wgsl`), the lamps' glow low in the
 /// haze. These are floors: the day's light adds to them.
-const NIGHT_SKY: Vec3 = Vec3::new(0.32, 0.42, 1.0);
+const NIGHT_SKY: Vec3 = Vec3::new(0.36, 0.38, 1.0);
 const NIGHT_SKY_NITS: f32 = 30.0;
-const NIGHT_HAZE: Vec3 = Vec3::new(4.0, 7.0, 20.0);
+const NIGHT_HAZE: Vec3 = Vec3::new(6.0, 5.5, 22.0);
 /// The lamps' light in the haze, and the city's lights seen from afar (nits, all lamps lit).
 const LAMP_HAZE: Vec3 = Vec3::new(8.0, 5.5, 3.0);
 const CITY_LIGHTS: Vec3 = Vec3::new(34.0, 25.0, 16.0);
@@ -350,8 +350,8 @@ const CITY_LIGHTS: Vec3 = Vec3::new(34.0, 25.0, 16.0);
 const STARS: f32 = 2.5;
 const NIGHT_AIR: Air = Air { density: 1.4e-4, height: 850.0, g: 0.7 };
 const NIGHT_GRADE: Grade = Grade {
-    temperature: -0.05,
-    tint: -0.005,
+    temperature: -0.02,
+    tint: 0.012,
     shadows: Tone::new(1.1, 1.0, 0.01),
     midtones: Tone::new(1.0, 1.08, 0.0),
     highlights: Tone::new(1.1, 1.0, 0.0),

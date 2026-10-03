@@ -1004,13 +1004,14 @@ fn paint_square(p: vec2<f32>, strip: i32, lit: bool, g: Grain, fp: vec2<f32>) ->
     out.glow = glow;
     out.wet = 0.5 * smoothstep(0.74, 0.86, 1.0 - g.lo);
     if (lit) {
-        // Lamps down the inlaid bands (every 64 m), 16 m apart along them: the square's lines of light.
+        // Lamps down the inlaid bands (every 64 m), 32 m apart along them: the square's lines of
+        // light, dotted rather than solid, so it reads as a square and not a lit grid.
         let gg = u - vec2(16.0);
         let gb = gg - 64.0 * floor(gg / 64.0 + 0.5);
-        let ga = gg - 16.0 * floor(gg / 16.0);
-        out.lamps = 0.5 * (lamps_across(gb.x, LAMP_CORE, fp.x) * lamps_periodic(ga.y, 16.0, LAMP_CORE, fp.y)
-            + lamps_across(gb.y, LAMP_CORE, fp.y) * lamps_periodic(ga.x, 16.0, LAMP_CORE, fp.x)) * grid_on
-            + 0.5 * ring_lamps + 0.04;
+        let ga = gg - 32.0 * floor(gg / 32.0);
+        out.lamps = 0.4 * (lamps_across(gb.x, LAMP_CORE, fp.x) * lamps_periodic(ga.y, 32.0, LAMP_CORE, fp.y)
+            + lamps_across(gb.y, LAMP_CORE, fp.y) * lamps_periodic(ga.x, 32.0, LAMP_CORE, fp.x)) * grid_on
+            + 0.5 * ring_lamps + 0.015;
     }
     return out;
 }

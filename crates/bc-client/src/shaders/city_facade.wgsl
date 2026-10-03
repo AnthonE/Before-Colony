@@ -182,8 +182,8 @@ fn f_lamp_dot(q: vec2<f32>, r: f32, fw: vec2<f32>) -> f32 {
 // A lamp's colour: 0 warm (2,700 K), 0.5 neutral (4,000 K), 1 cool (6,500 K).
 fn f_lamp_colour(k: f32) -> vec3<f32> {
     let warm = vec3(1.0, 0.64, 0.34);
-    let neutral = vec3(1.0, 0.84, 0.64);
-    let cool = vec3(0.84, 0.92, 1.0);
+    let neutral = vec3(1.0, 0.8, 0.58);
+    let cool = vec3(0.88, 0.9, 1.0);
     return select(mix(neutral, cool, clamp(k * 2.0 - 1.0, 0.0, 1.0)), mix(warm, neutral, clamp(k * 2.0, 0.0, 1.0)), k < 0.5);
 }
 

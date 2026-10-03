@@ -48,8 +48,9 @@ const RADIUS: f32 = 3200.0;
 const INDOOR: f32 = 300.0;
 // The ground's lamps by night: nits at a pool's peak a unit of albedo (`bc::city`'s `Paint::lamps`
 // is relative to it), for night's EV 8.5 (`city_hour::EV_NIGHT`; scale by 2^(EV - 8.5) if that
-// moves). The colony's light strips inlaid in its ground (`Paint::glow`), nits.
-const GROUND_LAMPS: f32 = 710.0;
+// moves): pools under the lamps, streets that read as lines from the lift without outshining the
+// windows. The colony's light strips inlaid in its ground (`Paint::glow`), nits.
+const GROUND_LAMPS: f32 = 420.0;
 const GROUND_STRIPS: f32 = 1800.0;
 
 @fragment
