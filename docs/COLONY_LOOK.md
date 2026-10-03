@@ -1,34 +1,54 @@
 # The First Colony, polished: the look, and the passes that get it there
 
 `COLONY.md` built the city: every block, street and room from closed forms, walked, ridden and
-shared. This plan is about how it looks. The goal, in the owner's words: very realistic and anime
-at the same time, a GTA in space with mobile suits.
+shared. This plan is about how it looks. The owner's brief: a survival game's realism, as in
+Rust, with anime filling in behind it, and the colony city of Phantasy Star Online remembered
+from childhood. GTA in space with mobile suits, a long-term project, and it should look good
+early.
 
-## The look: real light, an anime frame
+## The look: worn and real, with a clean colony and an anime sky
 
-Light, materials and air stay physical. That's the "realistic" half, and the engine already works
-that way (lux, nits and EV100 throughout `city.rs`). The "anime" half doesn't come from cel shading
-or ink lines. It comes from what the anime that defined colony life chose to put in the frame:
+Three layers, each with its own job:
 
-- **A colour script by the hour.** Each time of day has its palette and its mood. Noon is pale and
-  hazy blue-white. The golden hour has long amber light and violet shadows. Dusk is magenta haze
-  with the lamps coming on. Night is deep blue with warm windows. Shinkai's cities are lit as
-  carefully as a photograph, then coloured like a poster.
-- **The sky.** Here the sky is the colony: the other two strips hang overhead through kilometres of
-  haze, the windows burn white, and there are clouds in the core. The Endless Waltz OVA and every
-  Gundam colony interior lean on that shot. It should be the best thing on screen at every hour.
-- **Light that glints and blooms.** Glass catches the window strips. Wet asphalt mirrors the signs.
-  Lamps, signals and tail lights flare. Silhouettes stand against bright haze.
-- **Density at eye level.** Patlabor 2's Tokyo and Ghost in the Shell's port city are believable
-  because of their clutter: signs, wires, vending machines, shopfronts, people. GTA's city is
-  believable because it moves: traffic, pedestrians, signals changing.
+- **Rust's realism: everything is used.** Light, materials and air are physical (lux, nits and
+  EV100 throughout `city.rs`), and every surface shows its life: rain streaks under sills, grime
+  at the foot of walls, rust bleeding from steel, patched panels, dust in the corners, oil on the
+  roads. Materials read as what they are: concrete, brick, corrugated sheet, steel, glass, timber.
+  Nothing is pristine except what was finished last week. This is a boomtown whose frames are
+  old and patched (`STORY.md`). Light is natural and sometimes harsh; night is dark where nobody
+  has put a lamp.
+- **Phantasy Star Online's colony: the clean layer on top.** The colony's own infrastructure has
+  one design language, the way Pioneer 2's city does: Hub Gate, the trams and their stations, the
+  Charter Board's halls, the lift, the signs and the street furniture. White and pale grey panels,
+  the lines' colours (Charter blue, Canal teal, Gardens green) as accents, glowing strips, rounded
+  forms, readable silhouettes. Against the worn city it says where the colony's order is, and it
+  gives the picture its clear, saturated accents.
+- **Anime fills in behind.** No cel shading and no outlines on the city. The anime is in what the
+  frame holds and how it's coloured:
+  - **A colour script by the hour.** Noon is pale, hazy blue-white. The golden hour has long amber
+    light and violet shadows. Dusk is magenta haze with the lamps coming on. Night is deep blue with
+    warm windows and cold signs.
+  - **The sky is the colony.** The other two strips hang overhead through kilometres of haze, the
+    windows burn white, and clouds hang in the core. The Endless Waltz OVA and every Gundam colony
+    interior lean on that shot.
+  - **Light that glints and blooms.** Glass catches the window strips, wet asphalt mirrors the
+    signs, and lamps, signals and tail lights flare.
 
-For the colony itself, the realistic reference is NASA Ames's 1975 space-settlement paintings
-(Rick Guidice, Don Davis): land in many greens and browns, bright windows, clouds hanging in the
-middle of the cylinder. That is the daytime look to aim for; the anime is how it's lit and framed.
+**The strips carry it.** Charter, where the colony began, is the cleanest: stone and glass, the
+civic halls in the colony's white and blue. Canal is the working town: brick, corrugated steel,
+rust, cranes and yards, the most Rust of the three. Gardens is green and domestic: render, timber,
+terraces and orchards.
 
-**Not doing:** toon or cel shading on the city, and outlines on buildings. The city stays physically
-lit. Outlines on characters and suits only, as an option, is an open question below.
+**References.** For the colony's daytime look, NASA Ames's 1975 space-settlement paintings (Rick
+Guidice, Don Davis): land in many greens and browns, bright windows, clouds hanging in the middle
+of the cylinder. For wear and materials, Rust. For the colony's own design language, Phantasy Star
+Online's Pioneer 2. For density at eye level, Patlabor 2's Tokyo and Ghost in the Shell's port
+city (signs, wires, vending machines, shopfronts), and GTA for a city that moves.
+
+**Settled with the owner** (they left the rest to this plan): the city stays physically lit (no
+toon shading); the colony has weather, so streets can be wet; signs are in plain English, like the
+colony's notices; and ambient traffic and pedestrians may start as client-side ghosts that everyone
+sees the same and nobody can touch.
 
 ## Where it stands
 
@@ -299,13 +319,8 @@ goes with them, since everything after adds pattern. After that, the order can f
 what the game needs next. Pass 4 (life) is the one that makes it feel like GTA rather than a
 model, and it's independent of passes 2 and 3.
 
-## Open questions for the owner
+## Decisions
 
-1. **How anime?** (a) Physically lit with an anime colour script, as above (recommended). (b) The
-   same, plus outlines and a cel ramp on characters and suits only. (c) Toon shading throughout.
-2. **Weather.** Is rain (or something like it) part of the colony? Pass 3.2 needs a reason
-   for wet streets.
-3. **Signs.** `STORY.md` has colony notices in plain English. Do shop signs follow that, or mix in
-   other scripts?
-4. **Ambient people.** Are client-side ghosts (everyone sees the same ones, nobody can touch them)
-   acceptable as a first step?
+The owner's answers to this plan's first questions are in "The look" above: realism first (Rust),
+the colony's clean layer (Phantasy Star Online), anime behind; weather, plain-English signs and
+ghost traffic are all in.
