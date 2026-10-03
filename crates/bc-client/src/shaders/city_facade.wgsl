@@ -875,6 +875,10 @@ fn f_room(o: vec3<f32>, d: vec3<f32>, lo: vec2<f32>, hi: vec2<f32>, depth: f32, 
             }
         }
     }
+    // Never behind the glass: a filtered edge pixel just outside an opening with no reveal (a
+    // tower's vision glass, an open roller door) can start outside the box heading away from it,
+    // and a negative t would run the daylight's falloff below up to infinity.
+    t = max(t, 0.0);
     let hp = o + dd * t;
     // Its colours.
     var wall = f_room_wall(r1);
@@ -966,7 +970,7 @@ fn f_room(o: vec3<f32>, d: vec3<f32>, lo: vec2<f32>, hi: vec2<f32>, depth: f32, 
         illum = 0.3;
     }
     // Daylight falls off from the glass.
-    let dayf = (0.25 + 0.75 * exp(-hp.z * 0.3)) * select(1.0, 1.25, face == 2u);
+    let dayf = (0.25 + 0.75 * exp(-max(hp.z, 0.0) * 0.3)) * select(1.0, 1.25, face == 2u);
     return FRoomHit(alb * dayf, alb * illum + vec3(glow));
 }
 

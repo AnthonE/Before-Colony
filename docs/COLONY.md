@@ -140,7 +140,8 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
     Hull ribs and panel lines. The +X axis port with scaffolds and cranes.
   - `shaders/light_dots.wgsl`: one mesh of about 20k dots along the window frames, ring edges, spire tiers and mirror
     edges. Each dot keeps at least 1.5 px on screen, glows in HDR and blinks with its own phase.
-  - Showcase colony cams 6–8: image 2's composition, the night side, mirrors at dawn. Matching `gfx.spec.ts` rows.
+  - Showcase colony cams 6–8: image 2's composition, the night side, mirrors opening in the morning. Matching
+    `gfx.spec.ts` rows.
 - **1.3 Solid end structures** (separate PR, protocol bump).
   - `world.rs`: `hull_contact`, `colony_sweep`, `inside_colony` and `constrain` cover the spire and the ring. Both are
     shapes of revolution, so a still collider is exact, the same argument as for the hull.
@@ -354,9 +355,12 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
 - −X cap: three glass lift shafts at the strip centres.
 
 **Day and light**
-- `DAY_TICKS` 86,400 (48 min): night 8, dawn 4, day 32, dusk 4.
-- Exposure EV 13.5 by day to 9 at night; EV 8 indoors.
-- Haze 1.1e-4 /m: the opposite strip shows at about 49%, the far cap at about 3%.
+- `DAY_TICKS` 86,400 (48 min): night 8, dawn 4, day 32, dusk 4. Daylight rises and falls as sin² over the light
+  and the mirrors open with it, so the sun stays under 25° for about the first and last sixth of it (`COLONY_LOOK.md`
+  pass 1.0).
+- Exposure EV 14.5 at noon to 8.5 at night, by the colour script (`city_hour.rs`); EV 8 indoors.
+- Haze by height (`bc::colony_sky`): about 1.5e-4 /m at the floor by day, scale height about a kilometre, so the
+  street goes blue within a few kilometres while the opposite strip, across the clean core, shows at about 60%.
 
 **Lift**
 - 948 m at 40 m/s and 2.5 m/s², about 40 s.

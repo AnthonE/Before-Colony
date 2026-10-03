@@ -265,7 +265,7 @@ const COLONY_CAMS: [Orbit; 8] = [
     orbit(Vec3::new(-16_250.0, -4_200.0, 0.0), -1.15, -0.18, 6_500.0),
     // The bay ring's face close to: the bays' doors and their lamps.
     orbit(Vec3::new(-16_450.0, -4_200.0 + 2_252.0, 0.0), -1.4, 0.12, 1_600.0),
-    // The mirrors from the side, the whole colony beyond (`?t=2300`: opening at dawn).
+    // The mirrors from the side, the whole colony beyond (`?t=2620`: opening in the early morning).
     orbit(Vec3::new(-11_000.0, -4_200.0, 0.0), 0.25, 0.32, 24_000.0),
 ];
 const FIELD_CAMS: [Orbit; 3] = [

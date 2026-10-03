@@ -30,11 +30,11 @@ const scenes: Array<[string, number, number, number]> = [
   // The dock's ring of lights, off the docking hub.
   ["colony", 5, 6, 12],
   // The docking hub's end: the bay ring, the spire and the mirrors in their lamps; the same at
-  // night; the bay ring's doors close to; the mirrors opening at dawn.
+  // night; the bay ring's doors close to; the mirrors opening in the early morning.
   ["colony", 6, 6, 12],
   ["colony", 6, 1900, 12],
   ["colony", 7, 6, 12],
-  ["colony", 8, 2300, 12],
+  ["colony", 8, 2620, 12],
   ["field", 1, 6, 12],
   // Wreckage after a fight: hulks, limbs shot off, loose ore.
   ["salvage", 1, 6, 12],

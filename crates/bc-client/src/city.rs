@@ -67,9 +67,11 @@ const INDOOR_SKY: f32 = 40.0;
 const ADAPT: f32 = 3.0;
 /// The glass runs this far (rad) past each strip's edge and lies this far (m) outside the floor, so
 /// it tucks under the ground there instead of meeting it edge to edge: two meshes whose shared edge
-/// rounds differently leave hairline cracks, and 15 m keeps the two apart in a far view's depth.
+/// rounds differently leave hairline cracks. Half a metre is enough for the depth buffer even
+/// kilometres off, and keeps the gap under a strip's edge too shallow to see through (and a suit
+/// standing on the glass, which the simulation puts at the hull's radius, on it).
 const GLASS_TUCK: f32 = 0.003;
-const GLASS_OUT: f32 = 15.0;
+const GLASS_OUT: f32 = 0.5;
 
 pub struct CityPlugin;
 
