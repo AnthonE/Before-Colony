@@ -968,9 +968,10 @@ pub fn drive_onfoot(
             }
         }
         g.core.set_pose(Some(c.pose()));
-        // Sent now, if it's due, rather than by the network's next frame: after a slow frame the
-        // walk has caught up by up to a second's worth, and a pose a frame late would reach the
-        // server only a moment after the one before it, too far for that moment.
+        // Sent here, the frame it's taken, if one's due (and nowhere else, so a stale one never
+        // takes its turn): after a slow frame the walk has caught up by up to a second's worth,
+        // and a pose a frame late would reach the server only a moment after the one before it,
+        // too far for that moment.
         if let (Some(t), Some(p)) = (net.get(), g.core.poll_pose(now)) {
             t.send_datagram(&p);
         }

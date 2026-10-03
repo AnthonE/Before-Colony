@@ -289,10 +289,7 @@ fn pump(g: &mut Game, t: &Transport, now: f64) {
     for p in &packets {
         t.send_datagram(p);
     }
-    // On foot in the colony: where the pilot stands (`onfoot` sets it).
-    if let Some(p) = g.core.poll_pose(now) {
-        t.send_datagram(&p);
-    }
+    // (On foot in the colony, where the pilot stands is sent by `onfoot`, the frame it's taken.)
 }
 
 /// The command flying a suit (on flight assist) toward `to` in its sector's frame: a velocity there,
