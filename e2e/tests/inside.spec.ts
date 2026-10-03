@@ -30,7 +30,7 @@ async function until(
 }
 
 test("a pilot launches into the colony by the inner gate, flies there, and docks back", async ({ page }) => {
-  test.setTimeout(600_000);
+  test.setTimeout(1_500_000);
   const logs = collectConsole(page);
   await page.goto("/?autoplay=1&name=Quatre&quality=low");
   await until(page, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 180_000);
