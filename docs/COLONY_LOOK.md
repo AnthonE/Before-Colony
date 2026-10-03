@@ -316,21 +316,30 @@ lit by the strip's sun through Bevy's lighting, so they sit in the city's light 
 ## Review set
 
 The showcase's city cameras (`?showcase=city&cam=N`) are the review set, shot on High at noon
-(`t=480`), the late afternoon (`t=1350`, the golden hour once pass 1.0 makes one), dusk (`t=1560`),
-night (`t=1900`) and dawn (`t=2280`). New cameras land with
+(`t=480`), the golden hour (`t=1350`, the light 18° up), dusk with the lamps coming on (`t=1600`),
+night (`t=1900`) and the early morning (`t=2620`). Mind that SwiftShader takes several seconds a frame
+for the full city, so give a screenshot a long timeout. New cameras land with
 the passes that need them: the avenue at the golden hour toward the business district, a rooftop at
 night, the canal at dusk in the wet, and a suit among the towers. Each pass's PR shows its before
 and after from the same cameras. `scripts/e2e.sh gfx webgl2 --grep city` keeps them rendering
 cleanly on every tier.
 
-## Where to start
+## Next
 
-Pass 0, then pass 1. Beyond pass 0's canal water and glass edges they add no geometry, they stay
-in a handful of files (`city.rs`, `city_mesh.rs`, `city.wgsl`, a new `colony_sky.wgsl`,
-`colony::time`, `city_atlas.rs`), and they lift every frame at every hour. Pass 2.0 (filtering)
-goes with them, since everything after adds pattern. After that, the order can follow
-what the game needs next. Pass 4 (life) is the one that makes it feel like GTA rather than a
-model, and it's independent of passes 2 and 3.
+Passes 0 and 1 and the paint of 2 and 3 are in (see "Status"). What reads as a prototype now is mostly geometry
+and emptiness, so the next passes, in order:
+
+1. **The street's furniture and trees** (3.3, 3.4): lamp posts where the ground already paints their pools (the rule
+   for where they stand is in `city_lib.wgsl`'s notes), the avenue's two rows of trees, better crowns. Eye level is
+   where pilots spend their time, and it's still bare.
+2. **The buildings' massing** (2.5, a layout change with `CITY_VERSION`): setbacks, crowns and spires on towers,
+   varied footprints and roof structures, so the skyline has silhouettes. The facades are good enough now that the
+   boxes underneath are what gives the city away. The owner is open to reworking how the city is generated; this is
+   the place to do it.
+3. **Life** (4.1, 4.2): traffic and pedestrians as closed forms of the tick. This is what makes it GTA.
+4. **Clouds in the core** (5.1): the biggest single anime gain left, and it hides the far cap's disc at the
+   vanishing point that the clean core now shows.
+5. **Long shadows from a height atlas** (1.3), the rooms (3.6), wet streets (3.2), signs (3.7).
 
 ## Decisions
 
