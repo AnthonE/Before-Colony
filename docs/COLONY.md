@@ -81,7 +81,8 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
    - The city shader uses Bevy PBR on the camera's strip, with the one `Sun` light re-aimed to that strip's key light
      (shadows on High/Ultra).
    - The other two strips get a simple key-plus-sky term in their own frame.
-   - Haze has a single definition, Bevy's `DistanceFog`. Custom shaders read the same uniform.
+   - Haze has a single definition, the sky function (`bc::colony_sky`, `COLONY_LOOK.md` pass 1); Bevy's
+     `DistanceFog`, matched to it, covers only what the city's shader doesn't draw.
 5. **Walking.** `Walker` becomes generic over a `Solid` trait plus an `Env {gravity, pseudo}`. Its users:
    - `bay::Layout`, unchanged;
    - the city, in a walker frame of (x, h, −s); the handedness matters, or the city comes out mirrored;

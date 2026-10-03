@@ -13,7 +13,8 @@
 //!   once what replaces them is built, so the city never shows a hole. The ground, the windows, the
 //!   end caps and Hub Gate's terminals are built once.
 //! - **Lit strip by strip** by the mirrors' sun in the window over each (`shaders/city.wgsl`), on
-//!   the colony's shared day (`colony::ColonyDay`), through its haze (the camera's distance fog).
+//!   the colony's shared day (`colony::ColonyDay`), through its haze (the sky function,
+//!   `shaders/colony_sky.wgsl`), all coloured by the hour ([`crate::city_hour`]'s colour script).
 
 use std::collections::{HashMap, HashSet};
 
@@ -28,17 +29,22 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::light::cluster::ClusterConfig;
 use bevy::light::{CascadeShadowConfig, CascadeShadowConfigBuilder, NotShadowCaster};
 use bevy::math::DVec3;
-use bevy::mesh::{Indices, PrimitiveTopology};
+use bevy::mesh::{Indices, MeshVertexBufferLayoutRef, PrimitiveTopology};
 use bevy::pbr::{
-    DistanceFog, ExtendedMaterial, FogFalloff, Material, MaterialExtension, MaterialPlugin, StandardMaterial,
+    ExtendedMaterial, Material, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline,
+    MaterialPlugin, StandardMaterial,
 };
 use bevy::platform::time::Instant;
+use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, ShaderType};
+use bevy::render::render_resource::{
+    AsBindGroup, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
+};
 use bevy::render::view::ColorGrading;
 use bevy::shader::ShaderRef;
 
 use crate::camera::MainCamera;
+use crate::city_hour::{self, Sky};
 use crate::colony::ColonyDay;
 use crate::gfx::{Gfx, GfxTier};
 use crate::sky::Sun;
@@ -52,15 +58,6 @@ const REBASE: f64 = 1_000.0;
 const SPLIT: [f32; 3] = [350.0, 900.0, 2_200.0];
 /// Chunks kept built, at most.
 const CACHE: usize = 1_400;
-/// Sunlight through the mirrors at noon, lux; the sky's light at noon, nits.
-const NOON_LUX: f32 = 62_000.0;
-const NOON_SKY: f32 = 1_900.0;
-/// The haze: its density (/m) and its colour at noon (nits): pale blue, the air lit by the mirrors.
-const HAZE_DENSITY: f32 = 1.1e-4;
-const HAZE_NOON: Vec3 = Vec3::new(5_200.0, 8_000.0, 13_500.0);
-/// The camera's exposure (EV100) at noon, following the light down (as an eye's would) until night's.
-const EV_NOON: f32 = 14.5;
-const EV_NIGHT: f32 = 9.0;
 /// In a key place's room (`colony::city::Room`): the exposure, its lamps' light on what isn't the
 /// room's own (people, a bench; lux, from overhead) and the ambient's (nits), and how fast the eye
 /// adapts going in or out (1/s).
@@ -80,6 +77,8 @@ impl Plugin for CityPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "shaders/city.wgsl");
         embedded_asset!(app, "shaders/city_inside.wgsl");
+        embedded_asset!(app, "shaders/colony_sky.wgsl");
+        embedded_asset!(app, "shaders/city_facade.wgsl");
         app.add_plugins((
             MaterialPlugin::<CityMaterial>::default(),
             MaterialPlugin::<InsideMaterial>::default(),
@@ -148,12 +147,30 @@ pub fn colony_point(p: CityPos) -> DVec3 {
 pub type CityMaterial = ExtendedMaterial<StandardMaterial, CityExt>;
 
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+#[bind_group_data(CityKey)]
 pub struct CityExt {
     #[uniform(100)]
     pub city: CityParams,
     /// The block atlas (`bc_client_core::city_atlas`): the ground's streets and blocks.
     #[texture(101)]
     pub atlas: Handle<Image>,
+    /// The Low tier's city: the facades' cheap variant (`FACADE_LOW`) and the ground's sketch
+    /// (`city_sketch`, without `CITY_DETAIL`). Software rasterisers get Low, and run every branch of
+    /// a shader for every pixel, so the full shader would cost them several times as much.
+    pub low: bool,
+}
+
+/// What the city's pipeline is compiled for. Public because it's `CityExt`'s bind group data, and
+/// `Copy` because `ExtendedMaterial` packs it.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct CityKey {
+    low: bool,
+}
+
+impl From<&CityExt> for CityKey {
+    fn from(e: &CityExt) -> Self {
+        Self { low: e.low }
+    }
 }
 
 #[derive(ShaderType, Clone, Copy, Debug, Default)]
@@ -165,11 +182,28 @@ pub struct CityParams {
     /// x: the key light (lux) on the other strips; y: the sky's light (nits); z: 1 while the camera
     /// is in a key place's room.
     pub light: Vec4,
+    /// The hour's air and light, for the sky function (`bc::colony_sky`).
+    pub sky: Sky,
 }
 
 impl MaterialExtension for CityExt {
     fn fragment_shader() -> ShaderRef {
         "embedded://bc_client/shaders/city.wgsl".into()
+    }
+
+    fn specialize(
+        _pipeline: &MaterialExtensionPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        _layout: &MeshVertexBufferLayoutRef,
+        key: MaterialExtensionKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        // The prepass and shadow pipelines have no fragment stage here, or don't read these.
+        if let Some(fragment) = descriptor.fragment.as_mut() {
+            fragment
+                .shader_defs
+                .push(if key.bind_group_data.low { "FACADE_LOW" } else { "CITY_DETAIL" }.into());
+        }
+        Ok(())
     }
 }
 
@@ -187,7 +221,13 @@ struct InsideParams {
     day: Vec4,
     /// rgb: the haze's colour (nits).
     haze: Vec4,
+    /// The hour's air and light, for the sky function (`bc::colony_sky`).
+    sky: Sky,
 }
+
+/// Keeps the sky function's and the facades' shaders loaded (they're only imported).
+#[derive(Resource)]
+struct SkyLib(#[allow(dead_code)] Handle<Shader>, #[allow(dead_code)] Handle<Shader>);
 
 impl Material for InsideMaterial {
     fn fragment_shader() -> ShaderRef {
@@ -260,6 +300,7 @@ fn window_mesh(k: usize, x0: f32, x1: f32) -> (DVec3, Mesh) {
 
 /// Builds what's always there inside: the ground, the windows, the end caps, Hub Gate's terminals,
 /// the tram stations.
+#[allow(clippy::too_many_arguments)]
 pub fn setup_city(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -267,11 +308,19 @@ pub fn setup_city(
     mut insides: ResMut<Assets<InsideMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut streamer: ResMut<Streamer>,
+    assets: Res<AssetServer>,
+    gfx: Res<Gfx>,
 ) {
+    commands.insert_resource(SkyLib(
+        assets.load("embedded://bc_client/shaders/colony_sky.wgsl"),
+        assets.load("embedded://bc_client/shaders/city_facade.wgsl"),
+    ));
     let atlas = images.add(crate::colony::atlas_image());
     let material = materials.add(ExtendedMaterial {
-        base: StandardMaterial { perceptual_roughness: 0.85, ..default() },
-        extension: CityExt { city: CityParams::default(), atlas },
+        // The city draws its own haze (`bc::colony_sky`), so Bevy's distance fog is off for it.
+        base: StandardMaterial { perceptual_roughness: 0.85, fog_enabled: false, ..default() },
+        // Built for the tier from the start, so a software rasteriser never compiles the full city.
+        extension: CityExt { city: CityParams::default(), atlas, low: gfx.tier == GfxTier::Low },
     });
     let inside = insides.add(InsideMaterial { inside: InsideParams::default() });
     let layer = RenderLayers::layer(CITY_LAYER);
@@ -321,34 +370,50 @@ pub fn setup_city(
 }
 
 /// What the camera sees: the city (on its layer) inside, space and the bay outside. The Sun lights
-/// both layers; only one is seen at a time.
+/// both layers; only one is seen at a time. Inside, `light_city` grades the picture, sets its bloom
+/// and colours and turns the Sun by the hour; on the way out, space's come back.
+#[allow(clippy::type_complexity)]
 fn switch_view(
     view: Res<CityView>,
     streamer: Res<Streamer>,
     gfx: Res<Gfx>,
-    mut cams: Query<(&mut RenderLayers, Option<&mut ColorGrading>), With<MainCamera>>,
+    mut cams: Query<(&mut RenderLayers, Option<&mut ColorGrading>, Option<&mut Bloom>), With<MainCamera>>,
+    mut suns: Query<(&mut DirectionalLight, &mut Transform), With<Sun>>,
     mut vis: Query<&mut Visibility>,
 ) {
-    // Inside, the picture's white balance is left alone: the space scene's warm grade turns the
-    // colony's blue haze mauve (`apply_camera_tier` puts it back whenever the tier changes).
-    let temperature = if view.active { 0.0 } else { crate::gfx::base_grading(gfx.look).global.temperature };
-    for (_, grading) in &mut cams {
-        if let Some(mut g) = grading
-            && g.global.temperature != temperature
-        {
-            g.global.temperature = temperature;
-        }
-    }
     if !view.is_changed() {
         return;
+    }
+    if !view.active {
+        // Space's Sun as `sky::setup_sky` spawns it (`sky::eclipse` puts its illuminance back):
+        // otherwise the colony's hour (a red dusk) and its strip's direction follow it out.
+        for (mut light, mut tf) in &mut suns {
+            light.color = Color::linear_rgb(1.0, 0.965, 0.92);
+            *tf = Transform::default().looking_to(-crate::sky::SUN_DIR, Vec3::Y);
+        }
     }
     let layers = if view.active {
         RenderLayers::layer(CITY_LAYER)
     } else {
         RenderLayers::from_layers(&[0, crate::cockpit::LAYER])
     };
-    for (mut l, _) in &mut cams {
+    for (mut l, grading, bloom) in &mut cams {
         *l = layers.clone();
+        if view.active {
+            continue;
+        }
+        // Space's grade (`camera::pilot_effects` keeps its exposure and saturation) and bloom.
+        if let Some(mut g) = grading {
+            let base = crate::gfx::base_grading(gfx.look);
+            g.global.temperature = base.global.temperature;
+            g.global.tint = base.global.tint;
+            g.shadows = base.shadows;
+            g.midtones = base.midtones;
+            g.highlights = base.highlights;
+        }
+        if let Some(mut b) = bloom {
+            b.intensity = Bloom::NATURAL.intensity;
+        }
     }
     if let Some(mut v) = streamer.root.and_then(|r| vis.get_mut(r).ok()) {
         *v = if view.active { Visibility::Inherited } else { Visibility::Hidden };
@@ -580,8 +645,10 @@ fn city_cascades(reach: f32) -> CascadeShadowConfig {
     }
 }
 
-/// The colony's light inside, at its hour: the Sun as the camera's strip has it (the mirrors' sun
-/// in the window overhead), the sky's light, the haze, and the exposure.
+/// The colony's light inside, at its hour (`city_hour`'s colour script): the Sun as the camera's
+/// strip has it (the mirrors' sun in the window overhead), the sky's light, the sky function's
+/// uniform (the haze and every strip's light), the exposure, the picture's grade and bloom, and the
+/// distance fog for what the city's own shader doesn't draw (people, cars, trams).
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn light_city(
     mut commands: Commands,
@@ -592,7 +659,7 @@ fn light_city(
     time: Res<VisTime>,
     gfx: Res<Gfx>,
     streamer: Res<Streamer>,
-    cams: Query<(Entity, &Transform), With<MainCamera>>,
+    mut cams: Query<(Entity, &Transform, Option<&mut ColorGrading>, Option<&mut Bloom>), With<MainCamera>>,
     mut suns: Query<(Entity, &mut DirectionalLight, &mut Transform), (With<Sun>, Without<MainCamera>)>,
     mut ambient: ResMut<GlobalAmbientLight>,
     mut materials: ResMut<Assets<CityMaterial>>,
@@ -606,28 +673,23 @@ fn light_city(
         *reach = None;
         return;
     }
-    let Ok((cam, cam_tf)) = cams.single() else { return };
+    let Ok((cam, cam_tf, grading, bloom)) = cams.single_mut() else { return };
     let d = hour.0;
+    let look = city_hour::look(&d);
     let eye = camera_point(&origin, cam_tf).as_vec3();
     let (strip, room) = match from_colony(eye) {
         Under::Land(c) => (c.strip as usize, bc_sim::colony::city::room_at(c.strip, c.s, c.x, c.h)),
         Under::Window { k, .. } => (k as usize, None),
     };
     let to_sun = key_light(strip, &d);
-    let daylight = d.daylight;
-    // The eye adapts to where it is: the day outside, or a room's lamps.
-    let target = if room.is_some() { EV_INDOOR } else { (EV_NOON + daylight.max(1e-4).log2()).max(EV_NIGHT) };
+    // The eye adapts to where it is: the hour outside, or a room's lamps.
+    let target = if room.is_some() { EV_INDOOR } else { look.ev };
     let ev = match *adapted {
         Some(e) => e + (target - e) * (1.0 - (-ADAPT * time.dt.min(0.25)).exp()),
         None => target,
     };
     *adapted = Some(ev);
     let exposure = 1.0 / (2f32.powf(ev) * 1.2);
-    let haze = HAZE_NOON * daylight + Vec3::new(14.0, 18.0, 30.0) * (1.0 - daylight);
-    let sky = NOON_SKY * daylight + 6.0;
-    let lux = NOON_LUX * daylight;
-    // Warmer when the mirrors are low.
-    let warm = (1.0 - (d.sun_elev / 0.9).min(1.0)) * daylight.min(1.0);
     let up = (-Vec3::new(0.0, eye.y, eye.z)).normalize_or(Vec3::Y);
     // The shadows reach as far as the camera's height needs, in 100 m steps (`sky.rs` puts space's
     // back on the way out).
@@ -646,47 +708,69 @@ fn light_city(
             light.shadow_maps_enabled = false;
             *tf = Transform::default().looking_to(-up, Vec3::X);
         } else {
-            light.illuminance = lux;
-            light.color = Color::linear_rgb(1.0, 0.97 - 0.17 * warm, 0.94 - 0.39 * warm);
+            light.illuminance = look.lux;
+            light.color = Color::linear_rgb(look.sun.x, look.sun.y, look.sun.z);
             light.shadow_maps_enabled = gfx.settings.shadows;
             *tf = Transform::default().looking_to(-to_sun, up);
         }
     }
-    ambient.color = Color::srgb(0.78, 0.85, 1.0);
-    ambient.brightness = if room.is_some() { INDOOR_SKY } else { sky };
+    if room.is_some() {
+        ambient.color = Color::srgb(0.78, 0.85, 1.0);
+        ambient.brightness = INDOOR_SKY;
+    } else {
+        ambient.color = Color::linear_rgb(look.sky.x, look.sky.y, look.sky.z);
+        ambient.brightness = look.sky_nits;
+    }
     if let Some(mut status) = status {
         // `window.__bc`: the room the camera is in (its place's slug), and the exposure.
         status
             .set("city_room", room.map_or("", |r| bc_sim::content::city::PLACES[usize::from(r.place)].slug));
         status.set("city_ev", ev);
     }
-    let fog = haze * exposure;
+    // Bevy's fog, for what keeps it, matched to the haze near the floor (the city's shader draws the
+    // haze itself: its material has the fog off).
     commands.entity(cam).insert((
         Exposure { ev100: ev },
         ClusterConfig::default(),
-        DistanceFog {
-            color: Color::linear_rgb(fog.x, fog.y, fog.z),
-            directional_light_color: Color::linear_rgba(1.0, 0.96, 0.88, 0.12 * daylight),
-            directional_light_exponent: 12.0,
-            falloff: FogFalloff::Exponential { density: HAZE_DENSITY },
-        },
+        look.fog(height, exposure),
     ));
     commands.entity(cam).remove::<EnvironmentMapLight>();
+    // The grade and the bloom by the hour. `camera::pilot_effects` owns the grade's exposure and
+    // post-saturation (G-strain greys the picture out), so those are left to it; `?look=0` keeps the
+    // plain grade.
+    if let Some(mut g) = grading
+        && gfx.look
+    {
+        g.global.temperature = look.grading.global.temperature;
+        g.global.tint = look.grading.global.tint;
+        g.shadows = look.grading.shadows;
+        g.midtones = look.grading.midtones;
+        g.highlights = look.grading.highlights;
+    }
+    if let Some(mut b) = bloom {
+        b.intensity = look.bloom;
+    }
+    let t = bodies.t.max(0.0);
+    let spin = bc_sim::world::colony_spin_angle(t.floor() as u32, (t - t.floor()) as f32);
+    let seconds = (time.now % 3_600.0) as f32;
+    let sky = look.sky_params(&d, spin, seconds, gfx.tier != GfxTier::Low);
     let o = origin.0.as_vec3();
     if let Some(mut m) = materials.get_mut(&streamer.material) {
+        // F10 recompiles the city for the new tier (each variant once).
+        m.extension.low = gfx.tier == GfxTier::Low;
         m.extension.city = CityParams {
             origin: o.extend(strip as f32),
-            day: Vec4::new(daylight, d.lamps, (time.now % 3_600.0) as f32, d.sun_elev),
-            light: Vec4::new(lux, sky, if room.is_some() { 1.0 } else { 0.0 }, 0.0),
+            day: Vec4::new(d.daylight, d.lamps, seconds, d.sun_elev),
+            light: Vec4::new(look.lux, look.sky_nits, if room.is_some() { 1.0 } else { 0.0 }, 0.0),
+            sky,
         };
     }
     if let Some(mut m) = insides.get_mut(&streamer.inside) {
-        let t = bodies.t.max(0.0);
-        let spin = bc_sim::world::colony_spin_angle(t.floor() as u32, (t - t.floor()) as f32);
         m.inside = InsideParams {
             origin: o.extend(spin),
-            day: Vec4::new(daylight, d.lamps, d.mirror_beta, HAZE_DENSITY),
-            haze: haze.extend(0.0),
+            day: Vec4::new(d.daylight, d.lamps, d.mirror_beta, look.density),
+            haze: look.haze.extend(0.0),
+            sky,
         };
     }
 }

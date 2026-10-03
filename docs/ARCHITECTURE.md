@@ -501,8 +501,18 @@ server see the same walls.
   and built within a share of the frame (a showcase builds them all first); a chunk's mesh is
   relative to its own anchor, and everything is drawn relative to a render origin that follows the
   camera by the kilometre, so `f32` stays fine far from the axis. The camera's strip is lit by the
-  scene's one directional light (with shadows); the other two, kilometres off, by a key-and-sky
-  term in their own frame; the haze is Bevy's distance fog.
+  scene's one directional light (with shadows, cascades sized to the camera's height); the other
+  two, kilometres off, by their own key, sky and ground bounce. One sky function
+  (`shaders/colony_sky.wgsl`, `bc::colony_sky`) is the air for everything inside: haze thickest near
+  the floor and clean in the core, lit by the windows' beams, and the colour seen along any ray, which
+  glass and water reflect. A colour script by the hour (`city_hour.rs`) drives it, the Sun, the
+  exposure, the grade and the bloom; Bevy's distance fog, matched to it, is left only for what the
+  city's shader doesn't draw (people, cars, trams). The buildings' surfaces are `bc::facade`
+  (`shaders/city_facade.wgsl`: materials by district and strip, wear, rooms behind the windows) and
+  the ground's is `bc::city`'s paint; both take their derivatives at the top of `city.wgsl` (they
+  must stay in uniform control flow) and are filtered by the pixel's footprint. The Low tier compiles
+  their cheap variants (`FACADE_LOW`, `city_sketch`), since software rasterisers pay for every branch.
+  `docs/COLONY_LOOK.md` is the look these serve.
 - **The trams** (`colony::transit`) are a timetable in the tick: a line down each strip's
   avenue, eleven stations, twelve trains running out and back, speeding up and slowing down at
   1.5 m/s². Every client draws every train where the tick has it (`bc-client/src/trams.rs`),

@@ -50,10 +50,23 @@ toon shading); the colony has weather, so streets can be wet; signs are in plain
 colony's notices; and ambient traffic and pedestrians may start as client-side ghosts that everyone
 sees the same and nobody can touch.
 
-## Where it stands
+## Status
 
-*(From the showcase's city cameras on High, WebGL2, at noon, the late afternoon, dusk and night: see
-"Review set".)*
+| Pass | State |
+|---|---|
+| 0: what's broken | done: the canal's water at every level, the glass tucked under the strips' edges, the city's own shadow cascades, the showcase running again |
+| 1: air and light | 1.0 (golden hours), 1.1 (`bc::colony_sky`: haze by height, the windows' beams, the colour script in `city_hour.rs`), 1.2 (glass and water reflect the sky function) and 1.4 (grade and bloom by the hour) done; 1.3 has the cascades, not yet the long shadows from a height atlas; 1.5 (WebGPU extras) to do |
+| 2: facades | 2.0 to 2.4 done as paint (`bc::facade`: filtered, rooms behind the windows, materials by district and strip, wear, shopfronts, the colony's halls, roofs); 2.5 (crowns and setbacks, a layout change) to do |
+| 3: the street | 3.1 done (`bc::city`'s paint: markings, crossings, paving and beds on the avenue, wear, lamp pools that read as lines from afar); 3.5 in part (the water's reflections, see-through railings); the rest to do (3.2 has its `wet` mask ready) |
+| 4 to 6 | to do |
+
+The Low tier compiles the cheap variants (`FACADE_LOW`, `city_sketch`): software rasterisers run every branch
+for every pixel. On SwiftShader the full city costs several seconds a frame (the gfx suite's city shots, High).
+
+## Where it stood
+
+*(Before the first passes: the showcase's city cameras on High, WebGL2, at noon, the late afternoon, dusk
+and night. Kept as the baseline the passes are measured against.)*
 
 **What already works:** the scale and the curve. From Hub Gate the city runs 32 km into blue haze
 and rises up both sides: the shot only a cylinder gives. The layout reads as a real city plan:

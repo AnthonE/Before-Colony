@@ -63,6 +63,31 @@ mod tests {
         assert!((constant("STRIP_WIDTH") - STRIP_WIDTH).abs() < 1e-3);
         assert_eq!(constant("ATLAS_ROWS") as u32, ATLAS_ROWS);
         assert_eq!(constant("TRACK_OFFSET"), bc_sim::colony::transit::TRACK_OFFSET);
+        assert_eq!(constant("HUB_START") as i32, city::HUB_GATE.0);
+        assert_eq!(constant("CITY_START") as i32, city::CITY.0);
+        assert_eq!(constant("FOOT_START") as i32, city::FAR_FOOT.0);
+        assert_eq!(constant("TERMINAL_FRONT"), -bc_sim::world::COLONY_HALF_LENGTH + city::TERMINAL_DEPTH);
+    }
+
+    const FACADE: &str = include_str!("../../bc-client/src/shaders/city_facade.wgsl");
+
+    #[test]
+    fn the_facades_numbers_are_the_rules() {
+        let number = |name: &str| -> f32 {
+            let line = FACADE
+                .lines()
+                .find(|l| l.trim_start().starts_with(&format!("const {name}:")))
+                .unwrap_or_else(|| panic!("no {name} in city_facade.wgsl"));
+            let v = line.split('=').nth(1).unwrap().trim().trim_end_matches(';').trim();
+            v.parse().unwrap_or_else(|_| panic!("{name} = {v}"))
+        };
+        assert_eq!(number("F_GROUND"), city::GROUND_FLOOR);
+        assert_eq!(number("F_STOREY"), city::FLOOR);
+        assert_eq!(number("F_KERB"), city::KERB);
+        assert_eq!(number("F_MAX_HEIGHT"), city::MAX_HEIGHT);
+        assert_eq!(number("F_BLOCK"), city::BLOCK);
+        assert_eq!(number("F_RADIUS"), bc_sim::world::COLONY_RADIUS);
+        assert_eq!(number("F_FIRST_WINDOW"), bc_sim::colony::frame::FIRST_WINDOW);
     }
 
     #[test]

@@ -7,7 +7,8 @@ surveys what players of similar games expect of the controls (read it before cha
 compare with theirs), and `docs/ROADMAP.md` how each is built;
 `docs/STORY.md` is the world bible (setting, factions, eras, voice: read it before writing in-game text);
 `docs/COLONY.md` is the plan for the First Colony's inside (Milestone 5), `docs/SUITS_INSIDE.md` the design for
-suits inside it; `docs/LOCK.md` is the lock-on (it moves the suit about its target, never the aim: what it decides
+suits inside it, `docs/COLONY_LOOK.md` its look (Rust's realism, Phantasy Star Online's clean colony, anime behind)
+and the passes towards it; `docs/LOCK.md` is the lock-on (it moves the suit about its target, never the aim: what it decides
 travels in the command as `bc_proto::LockOn`, so prediction stays exact).
 
 ## Hot-path rules (non-negotiable)
@@ -25,7 +26,9 @@ travels in the command as `bc_proto::LockOn`, so prediction stays exact).
 - The colony's inside (`bc_sim::colony`: frames, day, mirrors, the city) is closed forms of the tick and of where
   you ask, deterministic and allocation-free (`CITY_GOLDEN`, `no_alloc`); nothing of it is stored or sent. Shaders
   paint the city from its block atlas (`bc::city`) and never re-implement the layout; a layout change bumps
-  `content::city::CITY_VERSION` with the protocol.
+  `content::city::CITY_VERSION` with the protocol. The rules' numbers the shaders keep (`city_lib.wgsl`,
+  `city_facade.wgsl`) are checked by `city_atlas.rs`'s tests. In `city.wgsl` every derivative is taken at the top
+  of `fragment()`, before the surface branch (WebGPU rejects them under it; naga doesn't catch it).
 - Never log signatures or resume tokens (addresses shortened: `pilots::short`). `bc_proto::auth::Signature`'s
   `Debug` hides its bytes on purpose.
 
