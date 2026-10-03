@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use bc_proto::presence::{MAX_PEOPLE, PersonPose, PlazaWriter, RIDER_S};
 use bc_sim::colony::city::{MAX_HEIGHT, Stage, arrival_seats, place_door, solid};
@@ -28,10 +28,14 @@ const MAX_SPEED: f32 = 9.0 * 1.5;
 /// Faster than anything drives (a car's top speed is 30 m/s), likewise.
 const MAX_DRIVE: f32 = 35.0 * 1.3;
 const SLACK: f32 = 2.0;
-/// Standing still earns no more reach than this long's worth, s. (Reach is measured from when the
-/// pilot last moved, not from their last pose: a slow client repeats one pose many times between
-/// frames, then jumps a frame's walk at once.)
-const STILL: f32 = 2.0;
+/// Reach a pilot carries from one pose to the next, s of the fastest they could go, at most. The
+/// time since their last pose earns reach (all of it: someone not heard from a minute may be far
+/// off), and a move spends it; what's left is carried, up to this. Walking spends less than it
+/// earns, so the bank stays full, and covers what a slow page does: one pose repeated between
+/// frames, then a frame's walk at once; or a frame's walk sent only once its (seconds-long) render
+/// is done, and the next frame's a moment later. Standing still a minute carries no more, and a
+/// teleport is refused.
+const BANK: f32 = 2.0;
 /// A pilot's first pose must be this near their strip's Hub Gate, m: everyone comes down its lift.
 const ARRIVAL: f32 = 150.0;
 /// Someone not heard from this long isn't shown, s.
@@ -63,8 +67,8 @@ struct Person {
     pose: Option<PersonPose>,
     seq: u16,
     heard: Instant,
-    /// When their pose last moved (no earlier than `STILL` before `heard`).
-    moved_at: Instant,
+    /// Reach carried from their last pose, s (at most [`BANK`]).
+    bank: f32,
     refused: u32,
     /// When a refusal of theirs was last logged.
     said: Option<Instant>,
@@ -117,6 +121,11 @@ enum Mode {
     Train(u8),
     Drive(u8),
     Seated,
+}
+
+/// The reach `me` has by `now`, s: what they carried from their last pose, and the time since.
+fn banked(me: &Person, now: Instant) -> f32 {
+    me.bank + now.saturating_duration_since(me.heard).as_secs_f32()
 }
 
 fn mode(p: &PersonPose) -> Mode {
@@ -211,7 +220,7 @@ impl Plaza {
                     pose: None,
                     seq: 0,
                     heard: Instant::now(),
-                    moved_at: Instant::now(),
+                    bank: 0.0,
                     refused: 0,
                     said: None,
                 },
@@ -235,7 +244,7 @@ impl Plaza {
             _ if !possible(&pose) => Some(Why::Wall),
             Some(_) if (seq.wrapping_sub(me.seq) as i16) <= 0 => return Verdict::Stale,
             Some(last) => {
-                let dt = now.saturating_duration_since(me.moved_at).as_secs_f32();
+                let dt = banked(me, now);
                 let moved = |speed: f32| {
                     let reach = speed * dt + SLACK;
                     (pose.x - last.x).hypot(pose.s - last.s) <= reach && (pose.h - last.h).abs() <= reach
@@ -280,7 +289,7 @@ impl Plaza {
             // Said now and then (never where: only why, how far and how long since the last).
             if me.said.is_none_or(|t| now.saturating_duration_since(t).as_secs_f32() > 5.0) {
                 me.said = Some(now);
-                let dt = now.saturating_duration_since(me.moved_at).as_secs_f32();
+                let dt = banked(me, now);
                 let moved = me.pose.map_or(0.0, |l| (pose.x - l.x).hypot(pose.s - l.s));
                 tracing::info!(
                     slot = id,
@@ -297,10 +306,19 @@ impl Plaza {
             }
             return Verdict::Implausible;
         }
-        let still = me.pose.is_some_and(|l| (l.x, l.s, l.h, l.ride) == (pose.x, pose.s, pose.h, pose.ride));
-        me.moved_at = match now.checked_sub(Duration::from_secs_f32(STILL)) {
-            Some(earliest) if still => me.moved_at.max(earliest),
-            _ => now,
+        // What the move spent of the bank (where it measures one: on foot, seated, driving, or in
+        // one train's car; boarding and alighting are checked at the doors instead).
+        me.bank = match me.pose {
+            Some(last) => {
+                let speed = match (mode(&last), mode(&pose)) {
+                    (Mode::Drive(_), _) | (_, Mode::Drive(_)) => MAX_DRIVE,
+                    _ => MAX_SPEED,
+                };
+                let same = last.riding() == pose.riding();
+                let d = if same { (pose.x - last.x).hypot(pose.s - last.s) } else { 0.0 };
+                (banked(me, now) - d / speed).clamp(0.0, BANK)
+            }
+            None => 0.0,
         };
         me.pose = Some(pose);
         me.seq = seq;
@@ -419,6 +437,8 @@ fn nearest(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
     use bc_proto::MAX_DATAGRAM;
     use bc_proto::presence::PlazaReader;
@@ -492,6 +512,34 @@ mod tests {
         }
         let t2 = t1 + Duration::from_millis(900 * 67 + 67);
         assert_eq!(plaza.accept(1, seq + 2, at(0, s, x + 207.0), t2, 0), Verdict::Implausible);
+    }
+
+    #[test]
+    fn a_page_that_sends_its_walk_late_and_then_at_once_isnt_refused() {
+        let plaza = Plaza::default();
+        let t0 = Instant::now();
+        let (s, x) = hub_gate(0);
+        plaza.enter(1, "Sally", 0);
+        assert_eq!(plaza.accept(1, 1, at(0, s, x), t0, 0), Verdict::Taken);
+        // A second's walk each frame, its pose leaving when the frame's render is done: a long
+        // render, then a short one, and the two poses arrive a tenth of a second apart.
+        let mut seq = 1;
+        let mut t = t0;
+        let mut ahead = 0.0;
+        for k in 0..20 {
+            seq += 1;
+            ahead += 6.0;
+            t += Duration::from_millis(if k % 2 == 0 { 1_900 } else { 120 });
+            assert_eq!(plaza.accept(1, seq, at(0, s, x + ahead), t, 0), Verdict::Taken, "frame {k}");
+        }
+        // But not faster than anyone goes, for long: 20 m a frame at 15 frames a second.
+        let refused = (0..30).filter(|_| {
+            seq += 1;
+            ahead += 20.0;
+            t += Duration::from_millis(67);
+            plaza.accept(1, seq, at(0, s, x + ahead), t, 0) == Verdict::Implausible
+        });
+        assert!(refused.count() > 20);
     }
 
     #[test]

@@ -288,8 +288,10 @@ their own screen has it (`transit::train` is a closed form of the tick).
 | kind 4, Plaza (server → client: 10 Hz in the city and flying inside the colony, 2 Hz in the bay) | kind (4), the sector's tick (u32), in the city (1), strip (2), then until the bits run out: per person their client slot (10), how long before the tick their pose was heard (6 bits, 10 ms steps) and the pose (86) | 5 B + 12.75 B a person, at most 48 (617 B) |
 
 A pose is taken only if it could be: on the pilot's strip, inside the colony, out of the walls
-(`bc_sim::colony::city::solid`), no further from the last one taken than 13.5 m/s and 2 m allow, the
-first within 150 m of the strip's Hub Gate, and newer (`seq`) than the last. A rider must be inside
+(`bc_sim::colony::city::solid`), no further from the last one taken than 13.5 m/s over the reach
+banked and 2 m allow (the time since the last pose earns reach, a move spends it, and up to 2 s of
+it is carried to the next: a slow page's walk, sent late and then at once, passes; a teleport
+doesn't), the first within 150 m of the strip's Hub Gate, and newer (`seq`) than the last. A rider must be inside
 their train's cars; getting on or off, within 8 m of the train while it stood with its doors open
 (within 3 s of the sector's tick). A driver's first pose must be at a motor pool
 (`bc_sim::colony::pools`), and no driver goes faster than 45.5 m/s. A seated pose must be on a

@@ -11,7 +11,6 @@ use bc_econ::wire::Place;
 use bc_proto::NO_CHUNK;
 use bc_proto::snapshot::{cover, own_flags};
 use bc_sim::bodies::Body;
-use bc_sim::colony::city::place_door;
 use bc_sim::content::city::PLACES;
 use bc_sim::ground::Footing;
 use bevy::prelude::*;
@@ -245,17 +244,19 @@ pub fn update_objectives(
     };
     state.current = current;
     state.input = input;
-    // On foot, the way is on the page's map (M): the place's door, and how far off it is.
-    let door = current.and_then(|o| match o.waypoint() {
-        Goal::Place(k) => PLACES.get(usize::from(k)),
+    // On foot, the way is on the page's map (M): the place's door, and how far off where it's used
+    // is (its counter, in through its door).
+    let goal = current.and_then(|o| match o.waypoint() {
+        Goal::Place(k) => PLACES.get(usize::from(k)).map(|p| (usize::from(k), p)),
         _ => None,
     });
-    ui.map_goal = door.filter(|_| afoot).map(|p| p.slug);
-    let to_door = door.zip(onfoot.city.as_ref()).filter(|(p, c)| p.strip == c.strip).map(|(p, c)| {
-        let ((s, x), _) = place_door(p);
-        let at = c.feet();
-        Vec2::new(at.s - s, at.x - x).length()
-    });
+    ui.map_goal = goal.filter(|_| afoot).map(|(_, p)| p.slug);
+    let to_door =
+        goal.zip(onfoot.city.as_ref()).filter(|((_, p), c)| p.strip == c.strip).map(|((i, _), c)| {
+            let ((s, x), _) = bc_client_core::city_nav::use_spot(i);
+            let at = c.feet();
+            Vec2::new(at.s - s, at.x - x).length()
+        });
     state.waypoint =
         if afoot { None } else { current.and_then(|o| waypoint_at(core, o.waypoint(), from, t)) };
     // Flying inside the colony: no objectives in there, and the waypoint is the inner gate.
