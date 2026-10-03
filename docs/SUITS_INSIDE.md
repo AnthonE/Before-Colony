@@ -47,13 +47,13 @@ form of `bc_sim::colony` works there unchanged.
   `ω² r` (1 g at the floor), and Coriolis `−2 ω × v`. Both go into `flight::integrate` for
   `Interior` only: a pure function of state, deterministic (libm), and allocation-free.
 - **Standing and walking** (built). The city is the interior sector's one body, `Body::City`,
-  still at its origin; `ground::move_step` moves every suit there as it does in space (free, a
-  free suit takes `colony::interior::step`). With its grip armed (L) a suit coming in slow over
-  the city is caught, lands, and walks, runs, crouches and hops on it as on a rock, and lets go as
+  still at its origin; `ground::move_step` moves every suit there as it does in space (a free
+  suit taking `colony::interior::step`). With its grip armed (L) a suit coming in slow over the
+  city is caught, lands, and walks, runs, crouches and hops on it as on a rock, and lets go as
   ever. Its surface is `colony::interior::probe`: the signed distance to the hull from inside (the
-  floor and the glass), the end caps and the city's boxes (all but the walkers' walls), exact over
-  the floor and the roofs; what's straight under a suit is `ground_under`, which the catch and the
-  landing ring read. The city has a down, the spin's, which no other body has: in its grip a suit
+  floor and the glass), the end caps and the city's boxes (all but the walkers' walls, their edges
+  rounded half a metre so a kerb is stepped up), exact over the floor and the roofs; what's
+  straight under a suit is `ground_under`, which the catch and the landing ring read. The city has a down, the spin's, which no other body has: in its grip a suit
   falls that way under the colony's pull (`colony::frame::gravity`), not toward the nearest
   surface under the grip's, braked to 8 m/s as anywhere; it stands only on ground facing within
   30° of up (`ground::CITY_FOOTING_COS`), so a wall stops a suit walking into it and keeps one in
