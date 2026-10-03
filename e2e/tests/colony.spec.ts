@@ -312,10 +312,24 @@ test("two pilots meet at Hub Gate, and one flies a suit in over the other", asyn
   // and Duo, in it, sees Heero.
   await push(b, { cmd: "fly_to", spot: "hub_gate_1", up: 250 });
   await until(b, "the errand", (s) => s.flying_to, 60_000);
+  // (Where the suit is as it comes, every half minute: the second browser isn't traced.)
+  const t0 = Date.now();
+  let told = 0;
   const s = await until(
     a,
     "the suit over Hub Gate",
-    (s) => s.watched >= 1 && s.watched_nearest >= 0 && s.watched_nearest < 600,
+    (s) => {
+      if (Date.now() - told > 30_000) {
+        told = Date.now();
+        void bc(b).then((d) =>
+          console.log(
+            `${Math.round((told - t0) / 1000)} s: Duo at ${d.pos} (${d.speed?.toFixed?.(0)} m/s, errand ${d.flying_to}, ` +
+              `${d.fps?.toFixed?.(2)} fps); Heero watches ${s.watched}, nearest ${Math.round(s.watched_nearest)} m`,
+          ),
+        );
+      }
+      return s.watched >= 1 && s.watched_nearest >= 0 && s.watched_nearest < 600;
+    },
     420_000,
   );
   console.log(`watched: ${s.watched} suit(s), the nearest ${Math.round(s.watched_nearest)} m off`);
