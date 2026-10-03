@@ -244,13 +244,25 @@ test("two pilots meet at Hub Gate, and one flies a suit in over the other", asyn
   const [ca, cb] = [await browser.newContext(small), await browser.newContext(small)];
   const [a, b] = [await ca.newPage(), await cb.newPage()];
   const logs = [collectConsole(a), collectConsole(b)];
-  // One after the other: the client is a big download and compile, and two at once on one
-  // machine can keep a page from answering its connection in time.
-  const inBay = (p: Page) => until(p, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 240_000);
-  await a.goto("/?autoplay=1&name=Heero&quality=low");
-  await inBay(a);
-  await b.goto("/?autoplay=1&name=Duo&quality=low");
-  await inBay(b);
+  // One after the other: the client is a big download and compile, and a page rendering in
+  // software beside another can take longer than its dial's 10 s to see its connection open (a
+  // first connection that fails waits for the player, who would load the page again).
+  const inBay = async (p: Page, name: string) => {
+    for (let k = 0; k < 3; k++) {
+      await p.goto(`/?autoplay=1&name=${name}&quality=low`);
+      const s = await until(
+        p,
+        "the bay",
+        (s) => (s.place === "hangar" && s.seq === "walking") || s.link === "failed",
+        240_000,
+      );
+      if (s.link !== "failed") return;
+      console.log(`${name}: the link failed (${s.last_error}); loading again`);
+    }
+    throw new Error(`${name} never got in`);
+  };
+  await inBay(a, "Heero");
+  await inBay(b, "Duo");
   const both = async (f: (p: Page) => Promise<unknown>) => Promise.all([f(a), f(b)]);
 
   // Both down the cap lift to Hub Gate.
