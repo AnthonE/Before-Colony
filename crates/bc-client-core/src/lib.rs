@@ -513,6 +513,10 @@ impl ClientCore {
         if spectator && !self.hangar.in_city() {
             return;
         }
+        // What's watched is the colony's inside, where the suits standing on its city ride it.
+        if spectator && !self.world.bodies.interior() {
+            self.world.bodies = std::mem::take(&mut self.world.bodies).inside(true);
+        }
         let (Ok(own), Ok(zero)) = (r.own(), r.zero()) else {
             self.stats.decode_errors += 1;
             return;

@@ -456,7 +456,8 @@ its snapshots marked SPECTATOR, with the suits within 2.5 km of where they are (
 pose of theirs, in the colony's frame, moved twice a second), interpolated as any. A suit that
 leaves their view gets a Leave notice for half a second (a spectator acks nothing; its client also
 forgets a suit it stops hearing of). Up the lift, it ends, and the client forgets what it watched.
-A client takes spectator snapshots only in the city.
+A client takes spectator snapshots only in the city, and knows the colony's city as a body for
+them (v19: the suits standing on it ride it).
 
 The colony (the Welcome sets COLONY: a survival server run with `--colony`): from the bay,
 `enter_city` answers `place: city` with the strip, or a refusing `note`; in the city the hangar and

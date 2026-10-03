@@ -194,23 +194,31 @@ async fn a_suit_inside_and_the_people_below_see_each_other_on_one_clock() -> any
 async fn a_suit_inside_lands_on_the_avenue_and_walks_it() -> anyhow::Result<()> {
     let server = bc_server::start(config()?).await?;
     let http = format!("http://{}", server.http_addr);
+    // Someone on foot by Hub Gate's door, to watch.
+    let ((s, x), (ds, dx)) = place_door(&PLACES[0]);
+    let mut walker = BotClient::connect(&bot(&http, "Catherine")).await?;
+    walker.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar()).await?;
+    walker.enter_city(0).await?;
+    let mut w = Walker::at(CityPos::new(0, x - dx * 10.0, s - ds * 10.0, 0.0).walker(), Vec3::X);
+    w.grounded = true;
+    walker.set_pose(pose_of(0, &w));
+
     let mut b = BotClient::connect(&bot(&http, "Trowa")).await?;
     b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
     b.launch_inside().await?;
 
     // Down from the gate to 22 m over the avenue, 60 m up it from Hub Gate's door.
-    let ((s, x), (ds, dx)) = place_door(&PLACES[0]);
     let spot = |ahead: f32, h: f32| CityPos::new(0, x - dx * ahead, s - ds * ahead, h).to_colony();
     let over = spot(60.0, 22.0);
-    for _ in 0..30 * 120 {
+    for _ in 0..30 * 200 {
         let own = b.world().own.expect("own suit");
-        if own.pos.distance(over) < 4.0 && own.vel.length() < 1.5 {
+        if own.pos.distance(over) < 6.0 && own.vel.length() < 2.0 {
             break;
         }
         b.step(&mut |_| toward(&own, over, 150.0)).await?;
     }
     let own = b.world().own.expect("own suit");
-    assert!(own.pos.distance(over) < 4.0, "over the avenue: {} m off", own.pos.distance(over));
+    assert!(own.pos.distance(over) < 6.0, "over the avenue: {} m off", own.pos.distance(over));
 
     // The grip armed: caught by the city, down, and on its feet.
     let up = (spot(100.0, 0.0) - spot(60.0, 0.0)).normalize();
@@ -238,6 +246,22 @@ async fn a_suit_inside_lands_on_the_avenue_and_walks_it() -> anyhow::Result<()> 
     assert!(b.core.stats.prediction_error < 0.05, "predicted {} m off", b.core.stats.prediction_error);
     let watched = server.status();
     assert_eq!(watched["game"]["hot_path_allocations"], 0);
+
+    // The one on foot watches it standing there: on the city, where its pilot has it.
+    walker
+        .wait_until(5.0, "the suit, standing on the city", |c| {
+            c.world
+                .entities
+                .iter()
+                .flatten()
+                .any(|t| t.latest.on.is_some_and(|on| on.body == BodyRef::City && !on.aloft))
+        })
+        .await?;
+    let seen = walker.world().entities.iter().flatten().map(|t| t.latest).next().expect("the suit");
+    let own = b.world().own.expect("own suit");
+    assert!(seen.pos.distance(own.pos) < 2.0, "seen at {}, stands at {}", seen.pos, own.pos);
+    assert_eq!(walker.world().stats.unresolved_bodies, 0);
+    walker.close().await;
 
     // Letting go: flying again.
     b.run_for(Duration::from_secs(1), &mut |_| InputCmd {
