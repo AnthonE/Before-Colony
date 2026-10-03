@@ -1339,16 +1339,21 @@ pub fn publish_onfoot(
             let near =
                 people.iter().map(|(_, _, p)| (p.x - at.x).hypot(p.s - at.s)).fold(f32::INFINITY, f32::min);
             dev.set("people_nearest", if near.is_finite() { f64::from(near) } else { -1.0 });
-            // The suits flying inside the colony that they watch, and how far off the nearest is.
+            // The suits inside the colony that they watch, how far off the nearest is, and how many
+            // stand on its city.
             let eye = colony_point(at).as_vec3();
             let t = g.core.render_tick(now_s());
-            let suits: Vec<f32> = (0..g.core.world.entities.len() as u16)
+            let suits: Vec<_> = (0..g.core.world.entities.len() as u16)
                 .filter_map(|slot| g.core.world.pose(slot, t))
-                .map(|p| p.pos.distance(eye))
                 .collect();
             dev.set("watched", suits.len() as u32);
-            let near = suits.iter().copied().fold(f32::INFINITY, f32::min);
+            let near = suits.iter().map(|p| p.pos.distance(eye)).fold(f32::INFINITY, f32::min);
             dev.set("watched_nearest", if near.is_finite() { f64::from(near) } else { -1.0 });
+            let standing = suits
+                .iter()
+                .filter(|p| p.ground.is_some_and(|g| g.body == bc_sim::bodies::Body::City && !g.aloft))
+                .count();
+            dev.set("watched_standing", standing as u32);
             if me.seq == Seq::Walking {
                 dev.set("focus", c.focus.map_or("", |i| PLACES[i].slug));
             }
@@ -1366,6 +1371,7 @@ pub fn publish_onfoot(
             dev.set("people_nearest", -1.0);
             dev.set("watched", 0u32);
             dev.set("watched_nearest", -1.0);
+            dev.set("watched_standing", 0u32);
         }
     }
     dev.set("hangar_credits", h.credits() as f64);

@@ -9,8 +9,8 @@
 #   scripts/e2e.sh login [project]   # wallet sign-in (a stub wallet with a test key), resume, take-over
 #   scripts/e2e.sh hangar [project]  # survival: on foot in the bay, its terminals, launching and docking
 #   scripts/e2e.sh surface [project] # the lander lands in MO-II's Aft Well, hides, parks and wakes there
-#   scripts/e2e.sh colony [project]  # survival, the colony open: the cap lift, another pilot at Hub Gate, the streets, the Exchange floor, a sight; two browsers, one in a suit over the other
-#   scripts/e2e.sh inside [project]  # survival, the colony open: Q at the cockpit launches the suit into the colony, it flies there, lands on the avenue and walks it, docks back at the inner gate
+#   scripts/e2e.sh colony [project]  # survival, the colony open: the cap lift, another pilot at Hub Gate, the streets, the Exchange floor, a sight; two browsers meet at Hub Gate, one rides home, and an agent's suit lands by the other
+#   scripts/e2e.sh inside [project]  # survival, the colony open: Q at the cockpit launches the suit into the colony, it flies there, lands on the avenue, sees the stroller there and walks it, docks back at the inner gate
 #   scripts/e2e.sh chart [project]   # the chart: the Earth Sphere and back, a course to MO-II's Aft Well, the auto-nav flying it
 # Anything after the project goes to Playwright, e.g. `scripts/e2e.sh gfx webgl2 --grep "duel|hangar"`.
 # The suits' suites run the arcade rules (any frame, free respawns) unless BC_RULES says otherwise,

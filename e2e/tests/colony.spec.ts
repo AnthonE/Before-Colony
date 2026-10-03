@@ -1,3 +1,6 @@
+import { spawn } from "node:child_process";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { chromium, expect, test, type Page } from "@playwright/test";
 import { bc, collectConsole } from "./util";
 
@@ -6,8 +9,13 @@ import { bc, collectConsole } from "./util";
 // rides the cap lift down to Hub Gate, finds the agent there, walks the city's streets to the
 // Exchange floor and buys there, finds a sight, then walks back and rides up to the bay. The
 // walking is the dev hook's (a guide walks the pilot's own legs); the terminal's panel is clicked.
-// Then a tram, a car, and two browsers: two pilots meet at Hub Gate, and one flies a suit in by
-// the inner gate over the other, each seeing the other.
+// Then a tram, a car, and two browsers: two pilots meet at Hub Gate, each seeing the other; one
+// rides home, gone from the other's street, and a suit an agent flies in by the inner gate comes
+// down onto the avenue by the other, each seeing the other.
+
+// The agent in a suit inside the colony (`crates/bc-bot/examples/suit_inside.rs`).
+const SUIT = resolve(dirname(fileURLToPath(import.meta.url)), "../../target/release/examples/suit_inside");
+const BC_URL = process.env.BC_URL ?? "http://127.0.0.1:8080";
 
 const push = (page: Page, cmd: Record<string, unknown>) =>
   page.evaluate((c) => ((window as any).bcInbox ||= []).push(c), cmd);
@@ -237,7 +245,7 @@ function seenAt(s: Record<string, any>, name: string): number[] | undefined {
   return hit?.slice(name.length + 1).split(",").map(Number);
 }
 
-test("two pilots meet at Hub Gate, and one flies a suit in over the other", async ({ browser }) => {
+test("two pilots meet at Hub Gate; one rides home, and a suit comes down by the other", async ({ browser }) => {
   test.setTimeout(1_200_000);
   // Two browsers, two pilots: small windows, as two software renderers share the machine. The
   // second is a browser of its own: two pages of one share its GPU process, and the one already
@@ -296,57 +304,52 @@ test("two pilots meet at Hub Gate, and one flies a suit in over the other", asyn
   expect(status.game.city.people).toBeGreaterThanOrEqual(3);
   expect(status.game.city.by_strip[0]).toBeGreaterThanOrEqual(3);
 
-  // Duo rides back up to the bay and launches into the colony by the inner gate.
+  // Duo rides back up to the bay, and is gone from Heero's street.
   await push(b, { cmd: "walk_to", spot: "hub_gate_1" });
   await until(b, "at Hub Gate's door", (s) => s.focus === "hub_gate_1" && !s.city_walking_to, 240_000);
   await push(b, { cmd: "use" });
   await until(b, "the bay", (s) => s.place === "hangar" && s.seq === "walking" && s.strip === -1, 120_000);
-  await push(b, { cmd: "walk_to", spot: "cockpit" });
-  await until(b, "at the cockpit", (s) => s.focus === "cockpit" && !s.walking_to, 240_000);
-  await b.locator("canvas").first().click();
-  await b.keyboard.press("q");
-  await until(b, "inside the colony", (s) => s.place === "space" && s.interior === true && s.alive, 180_000);
-  await push(b, { cmd: "skip" });
-
-  // Down from the inner gate to 250 m over Hub Gate's door: Heero, on foot below, watches it come,
-  // and Duo, in it, sees Heero.
-  await push(b, { cmd: "fly_to", spot: "hub_gate_1", up: 250 });
-  await until(b, "the errand", (s) => s.flying_to, 60_000);
-  // (Where the suit is as it comes, every half minute: the second browser isn't traced.)
-  const t0 = Date.now();
-  let told = 0;
-  const s = await until(
-    a,
-    "the suit over Hub Gate",
-    (s) => {
-      if (Date.now() - told > 30_000) {
-        told = Date.now();
-        void bc(b).then((d) =>
-          console.log(
-            `${Math.round((told - t0) / 1000)} s: Duo at ${d.pos} (${d.speed?.toFixed?.(0)} m/s, errand ${d.flying_to}, ` +
-              `${d.fps?.toFixed?.(2)} fps); Heero watches ${s.watched}, nearest ${Math.round(s.watched_nearest)} m`,
-          ),
-        );
-      }
-      return s.watched >= 1 && s.watched_nearest >= 0 && s.watched_nearest < 600;
-    },
-    420_000,
-  );
-  console.log(`watched: ${s.watched} suit(s), the nearest ${Math.round(s.watched_nearest)} m off`);
-  await until(b, "Heero, from the suit", (s) => seenAt(s, "Heero") !== undefined, 180_000);
-  await a.screenshot({ path: "artifacts/colony-suit-overhead.png" });
-  await b.screenshot({ path: "artifacts/colony-from-the-suit.png" });
-
-  // The server: Heero watching, Duo's suit inside, nobody's pose refused, and the hot path clean.
+  await until(a, "Duo gone", (s) => seenAt(s, "Duo") === undefined, 60_000);
   status = await (await a.request.get("/status")).json();
-  expect(status.game.inside.watchers).toBeGreaterThanOrEqual(1);
-  expect(status.game.inside.suits).toBe(1);
-  expect(status.game.city.refused_poses).toBe(0);
-  expect(status.game.hot_path_allocations).toBe(0);
+  expect(status.game.city.people).toBe(2);
+  // (Heero's page has the machine to itself for the rest.)
+  await cb.close();
+  await second.close();
+
+  // A suit comes in by the inner gate and down onto the avenue 60 m up from Hub Gate's door: an
+  // agent flies it (a page drawing in software beside another can't fly a suit down 2.9 km), and
+  // says every few seconds who it sees below. Heero, on foot by the door, watches it come and
+  // stand there, and the suit's pilot sees Heero.
+  let said = "";
+  const agent = spawn(SUIT, ["--server", BC_URL, "--name", "Wufei", "--land"]);
+  for (const out of [agent.stdout, agent.stderr]) out.on("data", (d: Buffer) => (said += d.toString()));
+  const lines = () => said.replace(/\x1b\[[0-9;]*m/g, "").split("\n");
+  try {
+    let s = await until(a, "the suit coming", (s) => s.watched >= 1 && s.watched_nearest >= 0, 300_000);
+    console.log(`a suit in view, ${Math.round(s.watched_nearest)} m off`);
+    s = await until(a, "the suit standing on the avenue", (s) => s.watched_standing >= 1, 300_000);
+    console.log(`it stands ${Math.round(s.watched_nearest)} m off`);
+    expect(s.watched_nearest).toBeLessThan(150);
+    await a.screenshot({ path: "artifacts/colony-suit-on-the-avenue.png" });
+    const t0 = Date.now();
+    while (!lines().some((l) => /sees \[.*\bHeero\b.*\] standing=true/.test(l))) {
+      if (Date.now() - t0 > 120_000) throw new Error(`the suit never saw Heero:\n${lines().slice(-20).join("\n")}`);
+      await a.waitForTimeout(1_000);
+    }
+    console.log(lines().filter((l) => l.includes("sees [")).slice(-1)[0]);
+
+    // The server: Heero (and the flaneur) watching, one suit inside, nobody's pose refused, and the
+    // hot path clean.
+    status = await (await a.request.get("/status")).json();
+    expect(status.game.inside.watchers).toBeGreaterThanOrEqual(1);
+    expect(status.game.inside.suits).toBe(1);
+    expect(status.game.city.refused_poses).toBe(0);
+    expect(status.game.hot_path_allocations).toBe(0);
+  } finally {
+    agent.kill();
+  }
   const bad = logs.flat().filter((l) => /\[error\]|\[pageerror\]|%cERROR|panicked/i.test(l));
   if (bad.length) console.log(bad.join("\n"));
   expect(bad).toEqual([]);
   await ca.close();
-  await cb.close();
-  await second.close();
 });

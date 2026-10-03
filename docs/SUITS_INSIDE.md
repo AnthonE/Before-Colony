@@ -80,7 +80,9 @@ weapon); its rollouts run against the interior's world.
 - **From the bay**: a new `Request::Launch { into: Colony }`. The bay's catapult throws the suit up
   an inner tunnel instead of the outer one: the session hands the pilot's slot to `sector-1`
   (the Welcome's sector becomes 2), and the suit appears at an inner launch gate near the axis at
-  the docking hub's end (x ≈ −15,800, r ≈ 300 m), slow, nose down the colony.
+  the docking hub's end (x ≈ −15,800, r ≈ 300 m), slow, nose down the colony, on flight assist:
+  until its pilot is first heard from, that holds it by the gate (a page still catching up after
+  the launch would otherwise find it fallen to the floor).
 - **Back**: at rest inside the inner gate's ring of lights, Enter docks, as the outer dock does
   today (`Request::Dock`), back to the bay.
 - **Later, through the axis port**: a suit flying out of the interior along the axis hands off to
@@ -116,7 +118,8 @@ weapon); its rollouts run against the interior's world.
 
 ## Verification
 
-- `bc-sim` unit tests: `interior_constrain` keeps capsules inside the hull and out of every box
+- `bc-sim` unit tests: a suit launched in holds by the inner gate till its pilot is heard from;
+  `interior_constrain` keeps capsules inside the hull and out of every box
   (dense sampling, as `colony_sweep_matches_dense_sampling`); a dropped suit falls at 1 g at the
   floor and less higher up; Coriolis deflects a dropped suit to −spin; drag caps speed;
   `ground::tests::city`: an armed suit lands on the avenue, walks it and lifts off without a jump;
@@ -134,8 +137,10 @@ weapon); its rollouts run against the interior's world.
 - `bc-sector/tests/watch_net.rs`: a spectator's snapshots carry no own suit and the suits near
   it, a suit leaving its view is told, and watching allocates nothing.
 - e2e: a pilot launches into the colony from the bay, flies down over the avenue, lands there
-  with the grip armed and walks up it, lets go and docks back (`inside`); a second pilot on foot
-  at Hub Gate sees the suit (`colony`).
+  with the grip armed, sees the agent strolling outside Hub Gate, walks up the avenue, lets go and
+  docks back (`inside`); a pilot on foot by Hub Gate's door watches a suit come in and stand on
+  the avenue, and its pilot sees them (`colony`'s two-browser test; an agent, `bc-bot`'s
+  `suit_inside`, flies the suit, as a page drawing in software beside another can't).
 
 ## Open questions
 

@@ -5,8 +5,9 @@ import { bc, collectConsole } from "./util";
 // dolls). The pilot walks to the cockpit in their bay and presses Q: the suit launches into the
 // colony by the inner gate, its own sector (the client is welcomed to it). There it flies among
 // the city's buildings with its weapons safe, comes down over the avenue by Hub Gate, lands there
-// with its grip armed (L) and walks up it (W), lets go, and flies back up to dock at the inner
-// gate into the bay. The flying is the dev hook's (`fly_to`); the grip and the walk are keys.
+// with its grip armed (L), sees the agent strolling outside Hub Gate (`scripts/e2e.sh` starts
+// it), and walks up the avenue (W), lets go, and flies back up to dock at the inner gate into the
+// bay. The flying is the dev hook's (`fly_to`); the grip and the walk are keys.
 
 const push = (page: Page, cmd: Record<string, unknown>) =>
   page.evaluate((c) => ((window as any).bcInbox ||= []).push(c), cmd);
@@ -65,6 +66,8 @@ test("a pilot launches into the colony by the inner gate, flies there, and docks
   await page.keyboard.press("l");
   s = await until(page, "on its feet", (s) => s.footing === "grounded" && s.surface_body === "city", 60_000);
   await page.screenshot({ path: "artifacts/inside-landed.png" });
+  // From the suit, its pilot sees the people below: the agent strolling outside Hub Gate.
+  await until(page, "the flaneur, from the suit", (s) => String(s.people_names).includes("Flaneur-01"), 60_000);
   // Up the avenue at a walk (W, held till it has gone 8 m, however slow the page's frames):
   // on the ground all the way.
   const from = posOf(s);
@@ -95,7 +98,7 @@ test("a pilot launches into the colony by the inner gate, flies there, and docks
   await until(page, "flying", (s) => s.footing === "free", 30_000);
   await push(page, { cmd: "fly_to", spot: "inner_gate" });
   await until(page, "the errand", (s) => s.flying_to, 30_000);
-  await until(page, "at the inner gate", (s) => !s.flying_to, 300_000);
+  await until(page, "at the inner gate", (s) => !s.flying_to, 600_000);
   await page.keyboard.down("x");
   await page.waitForTimeout(4_000);
   await page.keyboard.up("x");

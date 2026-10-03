@@ -247,19 +247,25 @@ async fn a_suit_inside_lands_on_the_avenue_and_walks_it() -> anyhow::Result<()> 
     let watched = server.status();
     assert_eq!(watched["game"]["hot_path_allocations"], 0);
 
-    // The one on foot watches it standing there: on the city, where its pilot has it.
-    walker
-        .wait_until(5.0, "the suit, standing on the city", |c| {
-            c.world
-                .entities
-                .iter()
-                .flatten()
-                .any(|t| t.latest.on.is_some_and(|on| on.body == BodyRef::City && !on.aloft))
+    // The one on foot watches it standing there: on the city, where its pilot has it. (They haven't
+    // stepped while it came down and walked, so what they hear first is that backlog: it shows the
+    // suit standing where it landed before it shows it where it is.)
+    let at = b.world().own.expect("own suit").pos;
+    let seen = |c: &bc_client_core::ClientCore| {
+        c.world
+            .entities
+            .iter()
+            .flatten()
+            .map(|t| t.latest)
+            .find(|e| e.on.is_some_and(|on| on.body == BodyRef::City))
+    };
+    let r = walker
+        .wait_until(5.0, "the suit, standing on the city where its pilot has it", |c| {
+            seen(c).is_some_and(|e| e.on.is_some_and(|on| !on.aloft) && e.pos.distance(at) < 2.0)
         })
-        .await?;
-    let seen = walker.world().entities.iter().flatten().map(|t| t.latest).next().expect("the suit");
-    let own = b.world().own.expect("own suit");
-    assert!(seen.pos.distance(own.pos) < 2.0, "seen at {}, stands at {}", seen.pos, own.pos);
+        .await;
+    let e = seen(&walker.core);
+    assert!(r.is_ok(), "seen at {:?}, stands at {at}", e.map(|e| e.pos));
     assert_eq!(walker.world().stats.unresolved_bodies, 0);
     walker.close().await;
 

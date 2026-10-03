@@ -13,7 +13,7 @@
 //!   ([`ParkRecord`]), and [`Sim::restore_sleeper`](super::Sim::restore_sleeper) puts it back
 //!   there, asleep, when the server starts again.
 
-use bc_proto::buttons::GRIP;
+use bc_proto::buttons::{FLIGHT_ASSIST, GRIP};
 use bc_proto::{CARGO_KINDS, ChunkDesc, Faction, FrameId, InputCmd, NO_CHUNK, Part, PilotKind};
 use glam::{Quat, Vec3};
 
@@ -186,6 +186,12 @@ impl Sim {
         let f = &mut self.suits.flight[i];
         f.propellant = loadout.propellant.clamp(0.0, tank);
         f.vel = rot * Vec3::Z * speed;
+        if self.interior() {
+            // Until its pilot is first heard from, flight assist holds it at the gate: the colony's
+            // pull would otherwise take it down to the floor while their page catches up.
+            self.suits.input[i] =
+                InputCmd { aim: rot * Vec3::Z, buttons: FLIGHT_ASSIST, ..InputCmd::default() };
+        }
         Some(id)
     }
 
