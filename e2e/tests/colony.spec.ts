@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { chromium, expect, test, type Page } from "@playwright/test";
 import { bc, collectConsole } from "./util";
 
 // The colony inside (`scripts/e2e.sh colony`: a survival server with the colony open, no dolls,
@@ -239,9 +239,12 @@ function seenAt(s: Record<string, any>, name: string): number[] | undefined {
 
 test("two pilots meet at Hub Gate, and one flies a suit in over the other", async ({ browser }) => {
   test.setTimeout(1_200_000);
-  // Two browsers, two pilots: small windows, as two software renderers share the machine.
+  // Two browsers, two pilots: small windows, as two software renderers share the machine. The
+  // second is a browser of its own: two pages of one share its GPU process, and the one already
+  // drawing the city leaves the other a frame a minute.
   const small = { viewport: { width: 640, height: 360 } };
-  const [ca, cb] = [await browser.newContext(small), await browser.newContext(small)];
+  const second = await chromium.launch(test.info().project.use.launchOptions ?? {});
+  const [ca, cb] = [await browser.newContext(small), await second.newContext(small)];
   const [a, b] = [await ca.newPage(), await cb.newPage()];
   const logs = [collectConsole(a), collectConsole(b)];
   // One after the other: the client is a big download and compile, and a page rendering in
@@ -331,4 +334,5 @@ test("two pilots meet at Hub Gate, and one flies a suit in over the other", asyn
   expect(bad).toEqual([]);
   await ca.close();
   await cb.close();
+  await second.close();
 });

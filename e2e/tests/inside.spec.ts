@@ -65,14 +65,18 @@ test("a pilot launches into the colony by the inner gate, flies there, and docks
   await page.keyboard.press("l");
   s = await until(page, "on its feet", (s) => s.footing === "grounded" && s.surface_body === "city", 60_000);
   await page.screenshot({ path: "artifacts/inside-landed.png" });
-  // Up the avenue at a walk (W): on the ground all the way.
+  // Up the avenue at a walk (W, held till it has gone 8 m, however slow the page's frames):
+  // on the ground all the way.
   const from = posOf(s);
+  const away = (s: Record<string, any>) => {
+    const at = posOf(s);
+    return Math.hypot(at[0] - from[0], at[1] - from[1], at[2] - from[2]);
+  };
   await page.keyboard.down("w");
-  await page.waitForTimeout(3_000);
+  await until(page, "walking up the avenue", (s) => away(s) > 8 || s.footing !== "grounded", 120_000);
   await page.keyboard.up("w");
-  s = await until(page, "stopped", (s) => s.speed < 0.5, 30_000);
-  const to = posOf(s);
-  const walked = Math.hypot(to[0] - from[0], to[1] - from[1], to[2] - from[2]);
+  s = await until(page, "stopped", (s) => s.speed < 0.5, 60_000);
+  const walked = away(s);
   console.log(`walked ${walked.toFixed(1)} m up the avenue`);
   expect(walked).toBeGreaterThan(8);
   expect(s.footing).toBe("grounded");
