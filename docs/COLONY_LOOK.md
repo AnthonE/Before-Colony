@@ -23,15 +23,20 @@ or ink lines. It comes from what the anime that defined colony life chose to put
   because of their clutter: signs, wires, vending machines, shopfronts, people. GTA's city is
   believable because it moves: traffic, pedestrians, signals changing.
 
+For the colony itself, the realistic reference is NASA Ames's 1975 space-settlement paintings
+(Rick Guidice, Don Davis): land in many greens and browns, bright windows, clouds hanging in the
+middle of the cylinder. That is the daytime look to aim for; the anime is how it's lit and framed.
+
 **Not doing:** toon or cel shading on the city, and outlines on buildings. The city stays physically
 lit. Outlines on characters and suits only, as an option, is an open question below.
 
 ## Where it stands
 
-*(From the showcase's city cameras at noon, golden hour, dusk and night: see "Review set".)*
+*(From the showcase's city cameras on High, WebGL2, at noon, the late afternoon, dusk and night: see
+"Review set".)*
 
 **What already works:** the scale and the curve. From Hub Gate the city runs 32 km into blue haze
-and rises up both sides, and no other game has that shot. The layout reads as a real city plan:
+and rises up both sides: the shot only a cylinder gives. The layout reads as a real city plan:
 avenue, tram median, canal, parks, districts that rise and fall.
 
 **What reads as a prototype:**
@@ -65,9 +70,20 @@ avenue, tram median, canal, parks, districts that rise and fall.
   only L0 chunks draw water. Beyond them the channel shows the clear colour: a black dashed line down
   the strip from the lift.
 - **Empty at eye level.** No street lamps (their light is painted on the asphalt), no furniture or
-  signs, octahedron trees only in parks and plazas, and nobody about but pilots and agents. The
+  signs, low-poly cone trees only in parks and plazas, and nobody about but pilots and agents. The
   avenue's "tree-lined" pavements are flat green paint, so on the showcase's street camera the
-  pilots stroll down what reads as a lawn 18 m wide.
+  pilots stroll down what reads as a lawn 18 m wide. At night the street is black and they vanish
+  into it: nothing lights the ground but the painted lamp spots.
+- **Three strips, one look.** From the axis, Charter, Canal and Gardens are the same grey grid of
+  boxes, though `STORY.md` gives each its own character (offices and money; depots and quays;
+  orchards and terraces).
+- **The canal reads as concrete.** The water is a flat grey-blue with nothing in it, and the quay's
+  railing is a solid black slab 1.1 m high.
+- **The window banks are a grid.** Up close the glass is a pale blue sheet ruled by its frame. It
+  doesn't read as glass with space beyond it, and the strip rising past it reads as grey carpet.
+- **The rooms are blown out.** The Exchange floor is a white box: ceiling panels clip to white, the
+  street through the door is a white band across the floor, the boards are coloured blocks, and
+  there's nothing in the room.
 
 ## What bounds it
 
@@ -123,12 +139,15 @@ The largest gain for the least work: none of it adds geometry.
 - **1.1 One sky function** (`shaders/colony_sky.wgsl`, `bc::colony_sky`), shared by `city.wgsl`
   and `city_inside.wgsl`. It gives the colour and transmittance of the air along any ray in the
   colony, and the colour seen along a direction that leaves it:
-  - **Haze by pressure.** In a spinning cylinder the air is densest at the floor and thins toward
-    the axis. Integrate density `ρ(r) = ρ₀·exp(−(R − r)/H)` along the ray, in closed form or with a
-    few steps. Street-level distances then go blue and soft. A look straight up crosses the thin
-    core, so the city overhead stays legible instead of drowning in one uniform fog. That's both
-    more correct than today's single `DistanceFog` density and the layered depth of an anime
-    background.
+  - **Haze by height.** The air itself thins only about 17% from the floor to the axis (the
+    colony's 3.2 km against air's 8 km scale height). But haze isn't air: dust, moisture and the
+    city's exhaust sit in a mixed layer near the ground, as aerosols do on Earth (scale height
+    about a kilometre). So the haze's density falls off with height above the floor,
+    `ρ(h) = ρ₀·exp(−h/H)` with `h = R − r` and `H` about 1 km, integrated along the ray in closed
+    form or a few steps. Street-level distances then go blue and soft. A look straight up spends
+    most of its 6 km in the clean core, so the city overhead stays legible instead of drowning in
+    one uniform fog. That's both more correct than today's single `DistanceFog` density and the
+    layered depth of an anime background.
   - **Scattering toward the light.** The haze brightens toward the window over the strip and
     warms there near dawn and dusk (Mie forward scattering).
   - **The colour script.** A small table in Rust (`colony::time` phase to haze colour, sun tint,
@@ -200,7 +219,14 @@ The largest gain for the least work: none of it adds geometry.
 - **3.4 Trees.** The avenue's "tree-lined" pavements are green paint today. Plant two rows of
   trees down every avenue pavement and along the canal. Replace the octahedron crowns with
   clustered leaf cards (alpha-tested, swaying in the vertex shader), with impostors past L1.
-- **3.5 Signs and neon.** Procedural shop signs (blades and fascias, glyph-like strokes from a
+- **3.5 The canal.** The water shows the sky function's reflections (pass 1.2) with ripples and
+  the lamps' streaks at night, and the quays' railings are drawn as posts, rails and glass inside
+  their solid box (no layout change: the test bounds vertices, not looks).
+- **3.6 The rooms.** The Exchange floor, the Charter Board and The Arrival lit like rooms, not
+  light boxes: panels that stop short of clipping, a door that shows the street without flooding
+  the floor, desks, screens with legible rows, chairs and the bar's stools, and the odd figure
+  at work.
+- **3.7 Signs and neon.** Procedural shop signs (blades and fascias, glyph-like strokes from a
   hash, never a real brand) on Midtown and Old Town ground floors, lit at night. Holographic
   billboards on the business district's towers (`holo.wgsl` is the precedent). With pass 3.2 at
   night, this is the shot people screenshot.
@@ -231,10 +257,15 @@ it today.
   Seen from the street, they sit between you and the city overhead.
 - **5.2 The city overhead by night.** The other strips' streets, windows and traffic glittering
   through the haze. The far strips' shading (`city.wgsl`, "elsewhere") already carries their
-  lit windows. Pass 1's thinner core air lets them through, and pass 4's traffic lights add
-  the moving part.
-- **5.3 Through the windows.** The mirrors' glare, and the Earth and the Moon wheeling past with
-  the spin (`city_inside.wgsl` already turns the stars).
+  lit windows. Pass 1's clean core lets them through, and pass 4's traffic lights add the
+  moving part.
+- **5.3 The windows as glass.** Up close the glass reflects the city faintly (the sky function
+  again) and lets space show through: the mirror's glare by day, the Earth and the Moon wheeling
+  past with the spin (`city_inside.wgsl` already turns the stars). The frame thins with distance
+  instead of ruling the whole sky.
+- **5.4 Three strips, three places.** The strips' identities (pass 2.2) carried to their ground
+  from afar: the Gardens' orchards and terraces green and patterned, the Canal's water and yards,
+  Charter's towers. Seen overhead through the haze, each strip is a different place.
 
 ### Pass 6: the lens
 
@@ -252,11 +283,21 @@ lit by the strip's sun through Bevy's lighting, so they sit in the city's light 
 ## Review set
 
 The showcase's city cameras (`?showcase=city&cam=N`) are the review set, shot on High at noon
-(`t=480`), the golden hour (`t=1350`), dusk (`t=1560`) and night (`t=1900`). New cameras land with
+(`t=480`), the late afternoon (`t=1350`, the golden hour once pass 1.0 makes one), dusk (`t=1560`),
+night (`t=1900`) and dawn (`t=2280`). New cameras land with
 the passes that need them: the avenue at the golden hour toward the business district, a rooftop at
 night, the canal at dusk in the wet, and a suit among the towers. Each pass's PR shows its before
 and after from the same cameras. `scripts/e2e.sh gfx webgl2 --grep city` keeps them rendering
 cleanly on every tier.
+
+## Where to start
+
+Pass 0, then pass 1. Beyond pass 0's canal water and glass edges they add no geometry, they stay
+in a handful of files (`city.rs`, `city_mesh.rs`, `city.wgsl`, a new `colony_sky.wgsl`,
+`colony::time`, `city_atlas.rs`), and they lift every frame at every hour. Pass 2.0 (filtering)
+goes with them, since everything after adds pattern. After that, the order can follow
+what the game needs next. Pass 4 (life) is the one that makes it feel like GTA rather than a
+model, and it's independent of passes 2 and 3.
 
 ## Open questions for the owner
 
@@ -264,7 +305,7 @@ cleanly on every tier.
    same, plus outlines and a cel ramp on characters and suits only. (c) Toon shading throughout.
 2. **Weather.** Is rain (or something like it) part of the colony? Pass 3.2 needs a reason
    for wet streets.
-3. **Signs.** What script and languages do the colony's signs use: English, Japanese, a mix?
-   STORY.md doesn't say.
+3. **Signs.** `STORY.md` has colony notices in plain English. Do shop signs follow that, or mix in
+   other scripts?
 4. **Ambient people.** Are client-side ghosts (everyone sees the same ones, nobody can touch them)
    acceptable as a first step?
