@@ -244,10 +244,14 @@ test("two pilots meet at Hub Gate, and one flies a suit in over the other", asyn
   const [ca, cb] = [await browser.newContext(small), await browser.newContext(small)];
   const [a, b] = [await ca.newPage(), await cb.newPage()];
   const logs = [collectConsole(a), collectConsole(b)];
+  // One after the other: the client is a big download and compile, and two at once on one
+  // machine can keep a page from answering its connection in time.
+  const inBay = (p: Page) => until(p, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 240_000);
   await a.goto("/?autoplay=1&name=Heero&quality=low");
+  await inBay(a);
   await b.goto("/?autoplay=1&name=Duo&quality=low");
+  await inBay(b);
   const both = async (f: (p: Page) => Promise<unknown>) => Promise.all([f(a), f(b)]);
-  await both((p) => until(p, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 240_000));
 
   // Both down the cap lift to Hub Gate.
   await both((p) => push(p, { cmd: "walk_to", spot: "airlock" }));
