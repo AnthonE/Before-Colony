@@ -72,10 +72,17 @@ test("a pilot launches into the colony by the inner gate, flies there, and docks
     const at = posOf(s);
     return Math.hypot(at[0] - from[0], at[1] - from[1], at[2] - from[2]);
   };
-  await page.keyboard.down("w");
-  await until(page, "walking up the avenue", (s) => away(s) > 8 || s.footing !== "grounded", 120_000);
-  await page.keyboard.up("w");
-  s = await until(page, "stopped", (s) => s.speed < 0.5, 60_000);
+  // (At a frame every second or two the page sends its commands in bursts, and between them the
+  // server flies the suit hands-off: what the page predicts runs ahead of what the server walks,
+  // and settles back to it once the suit stops. So: walk, stop, and look again.)
+  for (let k = 0; k < 5 && away(s) < 8; k++) {
+    await page.keyboard.down("w");
+    await until(page, "walking up the avenue", (s) => away(s) > 12 || s.footing !== "grounded", 120_000);
+    await page.keyboard.up("w");
+    s = await until(page, "stopped", (s) => s.speed < 0.5, 60_000);
+    await page.waitForTimeout(2_000);
+    s = await bc(page);
+  }
   const walked = away(s);
   console.log(`walked ${walked.toFixed(1)} m up the avenue`);
   expect(walked).toBeGreaterThan(8);
