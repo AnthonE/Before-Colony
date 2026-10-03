@@ -86,6 +86,8 @@ pub(crate) fn far_meshes(shape: &Shape) -> Vec<MeshData> {
                 Prim::RoundBox { c, half, round } => body_mesh::round_box(c, half, round, 2),
             })
             .collect(),
+        // The city's meshes are its streamer's.
+        Base::City => Vec::new(),
     }
 }
 

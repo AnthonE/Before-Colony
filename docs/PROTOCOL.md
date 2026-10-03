@@ -1,8 +1,16 @@
-# Before Colony wire protocol (v16)
+# Before Colony wire protocol (v19)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v19 (from v18): suits standing on the colony's city, and walking it: the body reference's kind 2
+(`City`, no id), its riders placed over ±16 384 m (below).
+
+v18 (from v17): spectator snapshots, for pilots on foot in the colony's city watching the suits
+inside it (the header's SPECTATOR flag); the colony's inside keeping the outside's tick; plaza
+datagrams for pilots flying inside; and the key places' rooms in the city
+(`content::city::CITY_VERSION` 2).
 
 ## Quantization
 
@@ -11,7 +19,7 @@ of every datagram give the packet kind: `1` = input, `2` = snapshot.
 | Entity position | 3 × 21 bits over ±32 768 m (3.1 cm steps) |
 | Entity velocity | 3 × 14 bits over ±2 048 m/s (0.25 m/s) |
 | Entity rotation | smallest-three: 2-bit index + 3 × 10 bits |
-| Rider position (in its body's frame) | 3 × 15 bits over ±256 m on a rock, 3 × 17 bits over ±1 024 m on a landmark (1.5625 cm steps either way) |
+| Rider position (in its body's frame) | 3 × 15 bits over ±256 m on a rock, 3 × 17 bits over ±1 024 m on a landmark, 3 × 21 bits over ±16 384 m on the colony's city (1.5625 cm steps on each) |
 | Rider velocity (over its body) | 3 × 10 bits, two's complement, in steps of 32/511 m/s (6.26 cm/s; zero is exact) |
 | Own position, velocity, propellant, G-strain | raw `f32` (lossless: the client re-simulates from them) |
 | Own rotation | smallest-three at 16 bits per component |
@@ -87,6 +95,11 @@ exactly `tick − 8`, so the 8-bit field's saturation at 15.9 ticks loses nothin
 The writer reserves room for every list terminator still owed before it writes a record, so a
 snapshot is never cut off mid-list.
 
+Header flags, by bit: 0 SPECTATOR (v18): a spectator's snapshot, sent to a pilot on foot in the
+colony's city by its inside sector (below, "Suits inside the colony"). It has no own state and no
+ZERO, no events but Leave notices, no rocks, missiles or objects; its `ack_input_tick`,
+`input_health` and echo say nothing (the pilot sends no input).
+
 What fits, in the 8 800 bits of a 1 100-byte datagram: the fixed part is the header, the own state,
 ZERO's presence bit and the five lists' terminators.
 
@@ -99,6 +112,9 @@ ZERO's presence bit and the five lists' terminators.
 | With ZERO on (+200 bits) | 36 / 39 | 36 / 39 |
 | A 256-byte connection (2 048 bits) | 5 / 5 | 5 / 5 |
 
+A suit on the colony's city takes 202 bits (its place needs 21 bits an axis): 38 of them fit, the
+own suit flying free, and nothing else.
+
 ### Bodies and riders
 
 A suit standing on a body, in its grip in the air, or parked on it is a *rider*, and is sent in the
@@ -108,16 +124,19 @@ body's frame. A body is named by a `BodyRef`: a 2-bit kind, then an id.
 |---|---|---|
 | 0 | a rock of the debris field | 10 bits (the rock's index) |
 | 1 | a landmark (MO-II, Hermit: `bc_sim::content::landmarks`) | 4 bits (its index) |
-| 2, 3 | invalid: the record doesn't decode | |
+| 2 | the colony's city, in an interior sector (v19): its floor, its buildings and its end caps | none |
+| 3 | invalid: the record doesn't decode | |
 
 Two rules keep this cheap and exact:
 - **Body poses never travel.** Rocks don't move, and come from the Welcome's field; a landmark's
-  pose is a closed form in the integer tick, from compiled content. Client and server work out
-  the same pose for the same tick, to the bit.
+  pose is a closed form in the integer tick, from compiled content; the city stands still at an
+  interior sector's origin (its frame is the colony's own). Client and server work out the same
+  pose for the same tick, to the bit.
 - **A rider is never sent without its body known.** Its rock is in the field (a shattered rock
   keeps its pose: the riders on it are let go a tick later, and the next snapshot sends them
-  free), and its landmark is one of the first `landmarks` of the Welcome. A client drops a record
-  that names any other.
+  free), its landmark is one of the first `landmarks` of the Welcome, and the city is named only
+  in a sector the Welcome says is the colony's inside (INTERIOR). A client drops a record that
+  names any other.
 
 A rider's sector pose is its body's at the snapshot's tick composed with its body-frame pose: the
 position `P + R·local`, the rotation `R·rot`, the velocity the body's surface velocity there plus
@@ -266,11 +285,13 @@ their own screen has it (`transit::train` is a closed form of the tick).
 | Datagram | Content | Size |
 |---|---|---|
 | kind 3, Pose (client → server, 15 Hz in the city) | kind (4), seq (u16), strip (2), the pose (86) | 14 B |
-| kind 4, Plaza (server → client: 10 Hz in the city, 2 Hz in the bay) | kind (4), the sector's tick (u32), in the city (1), strip (2), then until the bits run out: per person their client slot (10), how long before the tick their pose was heard (6 bits, 10 ms steps) and the pose (86) | 5 B + 12.75 B a person, at most 48 (617 B) |
+| kind 4, Plaza (server → client: 10 Hz in the city and flying inside the colony, 2 Hz in the bay) | kind (4), the sector's tick (u32), in the city (1), strip (2), then until the bits run out: per person their client slot (10), how long before the tick their pose was heard (6 bits, 10 ms steps) and the pose (86) | 5 B + 12.75 B a person, at most 48 (617 B) |
 
 A pose is taken only if it could be: on the pilot's strip, inside the colony, out of the walls
-(`bc_sim::colony::city::solid`), no further from the last one taken than 13.5 m/s and 2 m allow, the
-first within 150 m of the strip's Hub Gate, and newer (`seq`) than the last. A rider must be inside
+(`bc_sim::colony::city::solid`), no further from the last one taken than 13.5 m/s over the reach
+banked and 2 m allow (the time since the last pose earns reach, a move spends it, and up to 2 s of
+it is carried to the next: a slow page's walk, sent late and then at once, passes; a teleport
+doesn't), the first within 150 m of the strip's Hub Gate, and newer (`seq`) than the last. A rider must be inside
 their train's cars; getting on or off, within 8 m of the train while it stood with its doors open
 (within 3 s of the sector's tick). A driver's first pose must be at a motor pool
 (`bc_sim::colony::pools`), and no driver goes faster than 45.5 m/s. A seated pose must be on a
@@ -278,8 +299,10 @@ seat (`bc_sim::colony::city::arrival_seats`, within 0.3 m), and stays put on it 
 stands. Anything else isn't
 passed on (`/status`'s `city.refused_poses`). Each pilot is sent the people on their strip within
 1.5 km of them, heard from in the last 5 s, nearest first; their names come once each on the
-control stream (`people`). The plaza's tick keeps a client's clock (and the colony's day) when no
-snapshots come: in the city, and in the bay.
+control stream (`people`). A pilot flying a suit inside the colony is sent the people of the strip
+under the suit (over a window, the nearer strip's), within 1.5 km of it in the air, nearest first.
+The plaza's tick keeps a client's clock (and the colony's day) when none of the pilot's own
+snapshots come: in the bay, and in the city (a spectator's snapshots, below, carry no round trip).
 
 ## Control stream
 
@@ -425,12 +448,26 @@ ring brings the suit home, with a `sortie` and a Welcome back to sector 1 (the c
 had). A client welcomed mid-session forgets what it flew in the last sector. Leaving while
 inside, the colony's tugs bring the suit back to the bay.
 
+The inside keeps the outside's tick (v18): it ticks each time sector 1 has, right after it, so the
+colony has one clock. Its snapshots, the plaza's datagrams and the trams' timetable are the same
+moment, for a pilot on foot and one in a suit.
+
+A pilot on foot in the city watches the inside's suits (v18): while they're there, the inside
+sector gives them a spectator's slot of its own (no suit; it isn't in the Welcome) and sends them
+its snapshots marked SPECTATOR, with the suits within 2.5 km of where they are (the plaza's last
+pose of theirs, in the colony's frame, moved twice a second), interpolated as any. A suit that
+leaves their view gets a Leave notice for half a second (a spectator acks nothing; its client also
+forgets a suit it stops hearing of). Up the lift, it ends, and the client forgets what it watched.
+A client takes spectator snapshots only in the city, and knows the colony's city as a body for
+them (v19: the suits standing on it ride it).
+
 The colony (the Welcome sets COLONY: a survival server run with `--colony`): from the bay,
 `enter_city` answers `place: city` with the strip, or a refusing `note`; in the city the hangar and
 the market keep coming (the Exchange floor's terminal is the bay's), and `launch` is refused.
 `leave_city` answers `place: hangar`. The city itself is compiled content (`bc_sim::colony::city`,
 `content::city::CITY_VERSION`), the same on every client and the server, so any change to it bumps
-the protocol version. Walking the city is the client's own, as in the bay; where the pilot stands goes
+the protocol version (v18: the rooms behind the key places' doors, walked into and checked as any
+of the city's walls). Walking the city is the client's own, as in the bay; where the pilot stands goes
 to the server in pose datagrams (above), for the others there to see.
 
 ### Setting up the sector

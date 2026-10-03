@@ -54,7 +54,15 @@ pub enum Control {
         slot: u16,
         kit: bc_sim::content::Kit,
     },
-    /// The pilot left: the suit goes too.
+    /// A pilot on foot in the colony's city watches this sector's suits (the colony's inside) from
+    /// `at`, in its frame: the slot gets snapshots of the suits near there, and no suit of its own.
+    /// Sent again as the pilot walks, it moves where they watch from; `Leave` ends it.
+    Watch {
+        slot: u16,
+        at: glam::Vec3,
+        max_datagram: u16,
+    },
+    /// The pilot left: the suit goes too (a spectator just stops watching).
     Leave {
         slot: u16,
     },

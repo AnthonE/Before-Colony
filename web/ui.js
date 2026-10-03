@@ -264,7 +264,7 @@
     show(hint, s === "playing" && !!v.hint && v.panel === "none");
     show($("help"), v.help);
     show($("map"), s === "playing" && !!v.map && v.panel === "none");
-    if (s === "playing" && v.map && v.panel === "none") drawMap(v.map, v.mapGoal);
+    if (s === "playing" && v.map && v.panel === "none") drawMap(v.map, v.mapGoal, v.mapFound || 0);
     show($("prompt"), s === "playing" && v.clickToFly && !v.help && !v.sequence);
     const verb = v.place === "hangar" && v.onFoot ? "WALK" : "FLY";
     $("prompt-main").textContent = v.refused ? `CLICK AGAIN TO ${verb}` : `CLICK TO ${verb}`;
@@ -328,7 +328,7 @@
     }
     return c.getContext("2d");
   }
-  function drawMap(at, goal) {
+  function drawMap(at, goal, found) {
     if (!city) return;
     const strip = city.strips[at.strip] || city.strips[0];
     const district = strip.districts.find((d) => at.x >= d.x && at.x < d.x1);
@@ -401,14 +401,21 @@
       g.fillStyle = label;
       g.fillText(d.name, Math.max(X(d.x), 0) + 6 * dpr, 6 * dpr);
     }
-    // Sights and places.
-    const mark = (p, colour, size) => {
+    // Sights and places: a sight found is ticked off, one still to find is a ring.
+    const mark = (p, colour, size, name = p.name, ring = false) => {
       if (X(p.x) < -40 || X(p.x) > W + 40) return;
       g.fillStyle = colour;
-      g.beginPath(); g.arc(X(p.x), Y(p.s), size * dpr, 0, Math.PI * 2); g.fill();
-      g.fillText(p.name, X(p.x) + (size + 4) * dpr, Y(p.s) - 6 * dpr);
+      g.strokeStyle = colour;
+      g.lineWidth = 1.5 * dpr;
+      g.beginPath(); g.arc(X(p.x), Y(p.s), size * dpr, 0, Math.PI * 2);
+      if (ring) g.stroke(); else g.fill();
+      g.fillText(name, X(p.x) + (size + 4) * dpr, Y(p.s) - 6 * dpr);
     };
-    for (const p of strip.sights) mark(p, label, 3);
+    const got = (p) => ((found >>> p.i) & 1) === 1;
+    for (const p of strip.sights) {
+      if (got(p)) mark(p, cyan, 3.5, `\u2713 ${p.name}`);
+      else mark(p, label, 3.5, p.name, true);
+    }
     for (const p of strip.places) mark(p, amber, 4.5);
     // The objective's door: a ◆ over it (and pointing the way when it's off the map's edge).
     const target = strip.places.find((p) => p.slug === goal);
@@ -423,6 +430,11 @@
       g.closePath();
       g.stroke();
     }
+    // The found-list: every strip's sights, those found by name.
+    const all = city.strips.flatMap((k) => k.sights);
+    const have = all.filter(got);
+    $("map-sights").textContent = `SIGHTS FOUND ${have.length}/${all.length}` +
+      (have.length ? ` · ${have.map((p) => p.name).join(" · ")}` : " · WALK THE CITY TO FIND THEM");
     // The pilot, and the way they face.
     const px = X(at.x), py = Y(at.s), r = 9 * dpr;
     const c = Math.cos(at.heading), sn = Math.sin(at.heading);

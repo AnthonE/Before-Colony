@@ -321,6 +321,7 @@ pub fn play_sound(
     game: NonSend<GameClient>,
     drives: Query<(&crate::view::SuitDrive, Option<&crate::anim::Anim>)>,
     camera: Query<&GlobalTransform, With<MainCamera>>,
+    (city, origin): (Res<crate::city::CityView>, Res<crate::city::RenderOrigin>),
     time: Res<Time<Real>>,
     indoors: Res<crate::hangar::Indoors>,
     onfoot: Res<crate::onfoot::OnFoot>,
@@ -352,9 +353,13 @@ pub fn play_sound(
         }
     }
 
-    // The world's events.
+    // The world's events. Inside the colony the camera is drawn relative to the render origin;
+    // the suits it hears are where they are.
+    let at = |c: &GlobalTransform| {
+        if city.active { (origin.0 + c.translation().as_dvec3()).as_vec3() } else { c.translation() }
+    };
     let listener = camera.single().map_or(Listener { pos: [0.0; 3], right: [1.0, 0.0, 0.0] }, |c| Listener {
-        pos: v3(c.translation()),
+        pos: v3(at(c)),
         right: v3(c.right().as_vec3()),
     });
     let ears = Vec3::from(listener.pos);

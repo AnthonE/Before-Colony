@@ -3,6 +3,10 @@
 //! stays at the colony's axis (its frame's numbers are the suits', within 16 km: plenty for `f32`),
 //! and the inner gate's ring of lights shows where to dock. The flying itself is the cockpit's as
 //! ever: the snapshots are the inside sector's, in the colony's frame.
+//!
+//! On foot in the city the pilot watches the suits flying near them (a spectator's snapshots of the
+//! inside's sector): they go on the city's layer too, placed relative to the render origin, which
+//! follows the walker there, as everything of the city is.
 
 use bc_sim::colony::interior::{INNER_GATE, INNER_GATE_RADIUS};
 use bevy::camera::visibility::RenderLayers;
@@ -12,6 +16,7 @@ use bevy::prelude::*;
 use crate::city::{CITY_LAYER, Placed, RenderOrigin};
 use crate::net::GameClient;
 use crate::suits_vis::SuitVisual;
+use crate::view::SuitDrive;
 
 pub struct InsidePlugin;
 
@@ -60,39 +65,51 @@ fn publish(game: NonSend<GameClient>, status: Option<ResMut<crate::dev_hooks::De
 }
 
 /// While the pilot flies inside the colony: the render origin at the axis, every suit (and all of
-/// its pieces) on the city's layer, and the gate's ring shown. Out again, the suits go back to
-/// space's layer.
+/// its pieces) on the city's layer, and the gate's ring shown. On foot in the city, the suits they
+/// watch on the city's layer too, placed relative to the render origin (`city::place_all`). Out
+/// again, the suits go back to space's layer.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn inside_view(
     game: NonSend<GameClient>,
     mut origin: ResMut<RenderOrigin>,
     mut commands: Commands,
-    suits: Query<Entity, With<SuitVisual>>,
+    mut suits: Query<(Entity, &SuitDrive, Option<&mut Placed>), With<SuitVisual>>,
     children: Query<&Children>,
     layers: Query<Option<&RenderLayers>>,
     mut ring: Query<&mut Visibility, With<GateRing>>,
     mut was: Local<bool>,
 ) {
-    let inside = {
+    let (inside, watching) = {
         let g = game.borrow();
-        g.core.hangar.place == Some(bc_econ::wire::Place::Space) && g.core.welcome.is_some_and(|w| w.interior)
+        (g.core.inside(), g.core.hangar.in_city())
     };
     if inside && origin.0 != DVec3::ZERO {
         origin.0 = DVec3::ZERO;
     }
+    let city = inside || watching;
     for mut v in &mut ring {
-        v.set_if_neq(if inside { Visibility::Inherited } else { Visibility::Hidden });
+        v.set_if_neq(if city { Visibility::Inherited } else { Visibility::Hidden });
     }
-    if !inside && !*was {
+    if !city && !*was {
         return;
     }
-    *was = inside;
-    let want = if inside { RenderLayers::layer(CITY_LAYER) } else { RenderLayers::layer(0) };
-    for root in &suits {
+    *was = city;
+    let want = if city { RenderLayers::layer(CITY_LAYER) } else { RenderLayers::layer(0) };
+    for (root, d, placed) in &mut suits {
         for e in std::iter::once(root).chain(children.iter_descendants(root)) {
             if layers.get(e).ok().flatten() != Some(&want) {
                 commands.entity(e).insert(want.clone());
             }
+        }
+        match placed {
+            Some(mut p) if watching => p.0 = d.pos.as_dvec3(),
+            None if watching => {
+                commands.entity(root).insert(Placed(d.pos.as_dvec3()));
+            }
+            Some(_) => {
+                commands.entity(root).remove::<Placed>();
+            }
+            None => {}
         }
     }
 }

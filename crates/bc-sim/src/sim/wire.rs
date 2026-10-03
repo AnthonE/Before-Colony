@@ -277,6 +277,17 @@ impl Sim {
     /// Suit `j` as replicated to `viewer`. On a body (standing on it, in its grip, or parked on it)
     /// it goes in the body's frame, a parked suit at rest there; otherwise in the sector's.
     pub fn entity_state(&self, j: usize, viewer: usize) -> EntityState {
+        self.entity_state_for(j, Some(viewer))
+    }
+
+    /// Suit `j` as a spectator sees it, who has no suit (a pilot on foot watching the colony's
+    /// inside): as [`Sim::entity_state`], but nothing is locked on to them, and they're nobody's
+    /// ally.
+    pub fn entity_state_watched(&self, j: usize) -> EntityState {
+        self.entity_state_for(j, None)
+    }
+
+    fn entity_state_for(&self, j: usize, viewer: Option<usize>) -> EntityState {
         let s = &self.suits;
         let f = &s.flight[j];
         let t = self.tick();
@@ -331,12 +342,15 @@ impl Sim {
                 flags |= ent_flags::VENTING;
             }
         }
-        if s.input[j].lock_target == viewer as u16 && self.designation(j) == Some(viewer) {
+        if let Some(viewer) = viewer
+            && s.input[j].lock_target == viewer as u16
+            && self.designation(j) == Some(viewer)
+        {
             flags |= ent_flags::LOCKED_ON_YOU;
         }
         // Allies see a jamming suit's shimmer; its enemies (close enough to see it at all) don't.
         // Full Open shows to everyone.
-        if (self.jamming(j).is_some() && s.faction[j] == s.faction[viewer])
+        if (self.jamming(j).is_some() && viewer.is_some_and(|v| s.faction[j] == s.faction[v]))
             || self.full_open(j)
             || self.transforming(j)
         {

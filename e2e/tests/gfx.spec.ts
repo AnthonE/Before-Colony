@@ -79,7 +79,8 @@ const scenes: Array<[string, number, number, number]> = [
   ["surface", 2, 4, 20],
   ["surface", 3, 6, 20],
   // Inside the colony: down the avenue from Hub Gate (and at night), from the cap lift, downtown
-  // at eye height, at a window bank, along the canal, and from near the axis down the length.
+  // at eye height, at a window bank, along the canal, from near the axis down the length, a tram
+  // station's platform, and in from the Exchange floor's door to its boards.
   ["city", 1, 6, 4],
   ["city", 1, 1900, 4],
   ["city", 2, 6, 4],
@@ -88,6 +89,7 @@ const scenes: Array<[string, number, number, number]> = [
   ["city", 5, 6, 4],
   ["city", 6, 6, 4],
   ["city", 7, 6, 4],
+  ["city", 8, 6, 4],
 ];
 
 for (const [scene, cam, t, frames] of scenes) {

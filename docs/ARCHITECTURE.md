@@ -30,7 +30,7 @@
 | `bc-auth` | `no_std` | Wallet sign-in: the EIP-4361 message both sides build, EIP-55 addresses, and (features) the server's signature check and a local wallet for agents and tests. The browser builds only the message. |
 | `bc-sound` | lib | The sound bank, generated in code (no audio files): cues, the mixer (culling, cooldowns, voices, panning), the cockpit's loops and alarms, the score (the title theme on the Super Famicom's sound chip, in software). Pure Rust; the browser plays it through Web Audio. |
 | `bc-server` | bin + lib | WebTransport sessions (`net/session.rs`: a pilot's session from slot to goodbye, and survival's hangar, sorties and requests), sign-in and the pilot registry (`pilots`: records behind a `PilotStore`, in memory or files, one session per wallet, resume tokens, suits left hidden that are put back at boot), the colony's exchange (`market`), egress thread, roster, dev HTTP, `/status`. |
-| `bc-bot` | lib + bins | Bot SDK (`BotClient`), `mobile_doll`, `miner` and `flaneur` (on foot in the colony) example agents, `bc-swarm` load tester. |
+| `bc-bot` | lib + bins | Bot SDK (`BotClient`), `mobile_doll`, `miner`, `flaneur` (on foot in the colony) and `suit_inside` (a suit inside it) example agents, `bc-swarm` load tester. |
 | `bc-client` | wasm32 bin | Bevy app: procedural jointed suits (every frame's kit, animated from its `MeleeSpec`s, walking and kneeling on a body), sky, colony, field and landmarks (custom shaders), particles and effects (missiles, stream tracers, flame, jammer shimmer; sunlit smoke, burning wrecks, beams that keep a minimum width on screen), the camera's look (a grade on every tier, a lens vignette, a flare that rocks and suits hide), camera (chasing, or from the cockpit: a wraparound cockpit hung on the camera, its monitors showing the instruments rendered into one texture by a second UI camera, and a world-aligned radar sphere; `cockpit`), input with lock assist, HUD in the mobile-suit monitor style (chamfered plates and hazard-striped cautions from a small UI material, `ui_panel`; amber target corners, off-screen chevrons, a damage silhouette; one set of instruments drawn in the screen's corners or onto the cockpit's monitors; the page's fonts and palette: `bc_client_core::palette`), ZERO overlay, offline showcase scenes; the hangar bay drawn (`hangar`), with its haze, a flood light's shadow and contact shadows on the deck (`shade`), on foot in it with the launch and homecoming sequences (`onfoot`), and its terminals' data for the page (`terminal`). The colony from outside (`colony`: its mirrors, its ends and its lights, `dots`) and inside (`city`: the city on a render layer of its own, streamed by level of detail round a floating origin, lit strip by strip, its haze and its windows), and the cap lift and the city on foot (`onfoot`). |
 | `bc-model` | lib | The suits' procedural designs on a shared 24-bone rig, and the sockets their kits are drawn from (muzzles, blades, the Dragon Fang, missile hatches, the cockpit's eye), checked against each frame's hit capsules; the legs' two-bone IK (`ik`); ambient occlusion baked into every vertex from the whole suit at rest (`ao`); the cockpit seen from the seat (`cockpit`: the shell, its monitors' faces and their regions of the shared screen texture, the radar's place). |
 | `bc-alloc` | lib | Counting global allocator: proves the tick never allocates and counts violations in production. |
@@ -309,6 +309,11 @@ tick, under the hot path's rules.
   and its cuts, and conservative sphere tracing for a union: at most 48 steps, never stepping over
   the 6 m of MO-II's thinnest feature. Fixed work, libm only, no allocation, and a bounding-sphere test
   turns away first every query nowhere near a landmark.
+- Inside the colony (an interior sector) the one body is its city, `Body::City`, still at the
+  sector's origin, its frame the colony's own. Its surface is `colony::interior::probe`, the
+  signed distance to the hull from inside, the end caps and the city's boxes near the point (a box
+  measured in city coordinates; nothing past 64 m looked for, and the distance capped there, so
+  sphere tracing stays conservative), and `ground_under` is what's straight under a suit.
 
 **Two frames.** A free suit lives in the sector's frame. A suit on a body (on its feet, aloft in its
 grip, or parked) *is* an `Anchor` in the body's frame: its position, rotation, velocity and spin
@@ -327,6 +332,11 @@ suit: the server runs it for every suit, and the owner's client runs it to predi
 - A free suit takes `flight::step_in`, numerically unchanged (`step` is split into `integrate` and
   `world::constrain`, proven bitwise). A suit that never arms the grip and never nears a landmark
   flies bit for bit as it did before bodies existed, which is why the older goldens didn't move.
+  Inside the colony a free suit takes `colony::interior::step` (its pull, its air, its walls).
+- The city has a down, the spin's, which other bodies don't: over it a suit in its grip falls
+  that way under the colony's pull (not toward the nearest surface under the grip's), and stands
+  only on ground facing within 30° of up, so walls stop it and keep it off them, and a roof's edge
+  is stepped off rather than walked round.
 - On the ground the step is kinematic. It places the origin over the surface with `place`, which
   never reads the suit's rotation, so the own state's 16-bit rotation can't perturb a replayed
   position. Aloft is `flight::integrate` in the body's frame, with grip gravity and the descent
@@ -477,7 +487,10 @@ server see the same walls.
   strip, the lamps. Every client's colony shows the same hour.
 - **The city's rules** (`colony::city`) turn a block's strip and grid cell into what stands
   there with an integer hash: its district (`content::city`), its kind (buildings, park, plaza,
-  canal, site, a key place, a landmark tower) and up to nine buildings. `texel` sums each block up
+  canal, site, a key place, a landmark tower) and up to nine buildings. A key place's hall has a
+  room behind its door (`city::room`, a closed form of the place): the hall's solids are its walls
+  round the room, the door's lintel, what's over the ceiling and the counter, so the walker, the
+  server's checks and the meshes all have it. `texel` sums each block up
   in four bytes: the client bakes them into a 256 × 81 texture, and the shaders paint the streets
   and the city seen through the windows from it (`bc::city`, `shaders/city_lib.wgsl`, its constants
   checked against Rust by `bc_client_core::city_atlas`'s tests). Shaders never re-implement the
@@ -512,6 +525,14 @@ server see the same walls.
   draw people 200 ms behind, between the poses heard (`bc_client_core::plaza`), as figures in
   flight suits of their own colours (`figure`, `bc-client/src/people.rs`). People never enter the
   sector's simulation: nothing to predict or rewind, and nothing on the hot path.
+- **Suits inside** fly the server's second sector, in the colony's own frame
+  (`bc_sim::colony::interior`, `SUITS_INSIDE.md`), on the colony's one clock (it keeps the first
+  sector's tick). Those on foot watch them: their session holds a spectator's slot in that sector
+  (`Control::Watch`), whose snapshots (marked SPECTATOR) carry the suits near the pilot and no own
+  suit, and the client draws them on the city's layer. A suit's pilot is sent the plaza's people
+  round the suit, from where the sector last had it (each slot's `Metrics::pilots[slot].pos`, an
+  atomic the sector writes in its tick). There the city is a body, `Body::City` ("Bodies and
+  frames"), and suits land and walk on it.
 
 ## AI layers
 
@@ -583,6 +604,8 @@ fire, beside 4 dolls).
 | `bc-sim` `colony::pools`, `bc-client-core` `vehicle` | Every motor pool stands on open road, room for a car. A car gets up to speed, brakes to a stop and then backs up; it turns the way its wheel says; it stops at a wall and is never inside one; its driver gets out beside it. The server takes a car only from a pool, at a car's speed. |
 | `bc-proto` `presence`, `bc-server` `plaza`, `bc-client-core` `plaza` and `figure` tests, `bc-server/tests/plaza.rs` | A pose goes round within half a step (14 B); 48 people fit one datagram; the bay's heartbeat carries only the tick; decoders never panic. The plaza takes walks, drops reordered poses, and doesn't pass on teleports, walls, another strip or a first pose away from Hub Gate; it shows only the strip and the near, and hides the silent. Clients draw people between the poses heard and hold them at the last; headings turn the short way. A figure is under 1,500 triangles and fits the walker's box; walking swings its legs. Over real WebTransport, two agents at Hub Gate see each other by name within 5 cm, a teleport isn't relayed, going back up removes a pilot, and the plaza keeps the clock within two ticks; riders are taken from beside a standing train's open doors to the next platform, and nobody boards a running train or stands outside its cars. |
 | `bc-server/tests/city.rs` | Over real WebTransport: with `--colony` the Welcome says so, a pilot rides down to a strip's city and back, trades on the exchange from there, can't launch from it, and `/status` follows them; without it, the lifts are closed. |
+| `bc-server/tests/inside.rs`, `bc-sector/tests/watch_net.rs` | A suit launched into the colony by the inner gate flies there with its weapons safe and docks back out, and a pilot who leaves inside finds it towed home; the inside keeps the outside's tick; a suit flown down over Hub Gate sees a pilot walking there by name, where they are, and they see it (as a spectator), until they ride back up; armed, a suit lands on the avenue and walks up it, predicted as the server has it. A spectator's snapshots carry no own suit and the suits near it, tell it of one that leaves its view, and cost the tick nothing on the heap. |
+| `bc-sim` `ground::tests::city` | An armed suit over the avenue is caught by the city, comes down no faster than the brake, stands a stance over the floor, walks up the avenue at a walk and lifts off without a jump; walking into the blocks, it climbs the kerb and is stopped short of whatever stands there, never nearer anything than its stance; dropped on a roof it stands there, and walked over the edge it falls, kept off the walls it passes, and stands on what's below. The city's probe agrees with `colony::city::solid` everywhere in it and finds the ground straight under a suit. |
 | `e2e/tests/colony.spec.ts` | The colony in the browser (`--colony`, an agent strolling outside Hub Gate): out through the bay's airlock, down the cap lift (skipped) to Hub Gate, the agent seen there, the map, a walk through the streets to the Exchange floor to buy there through its panel, back to Hub Gate and up to the bay; the server's `/status` follows the pilot (`city`, then `hangar`), and the hot path never allocates. Then a tram from Hub Gate's platform one stop up the line, and a car from its motor pool up the avenue, with no pose refused. |
 | `e2e/tests/surface.spec.ts` | On the bodies in the browser, signed in: the lander autopilot flies to MO-II, lands in the Aft Well and hides; leaving parks the suit there, and coming back wakes in it, grounded and hidden; then, flown by hand, it wakes there again and lifts off, free past 40 m (`FLYING`). Throughout, no hot-path allocation, every snapshot fits, and every rider names a body the client knows. |
 | `bc-client-core` tests (`nav`, `chart`, `sphere`) | The Lagrange points balance (the restricted three-body problem's pull vanishes at L1, L2, L3) and L4 and L5 make equilateral triangles in the Moon's plane, which holds the Sun; Earth and the Moon sit on one line through L1, within 2.3° of the sky's first survey. Courses run straight when the way is clear, and otherwise round the colony and the landmarks without coming near them (over, under and along the colony, round its end to the dock, through Hermit and MO-II, and 120 random pairs across the sector), never far longer than the crow's flight. The auto-nav, flown tick by tick against a real `Sim` as its client would, takes every playable frame on five trips (out of the dock round MO-II to its Aft Well, MO-II across the field to Hermit's KEYHOLE, from under the colony to a rock, Hermit home to the dock, a point high over the field), by both flight rules and through the full field, and arrives at rest every time without touching the hull, a landmark or a rock. Every place is named, found and arrived at in the open; the chart's camera zooms out to frame the Earth Sphere and back in to the sector, tracks a suit at speed to the metre, picks what's under the cursor and keeps labels apart. |
@@ -599,9 +622,12 @@ fire, beside 4 dolls).
 
 ## Scaling path
 
-1. **One sector per server** (now). The server builds one sector and runs it on the thread
-   `sector-0`, with its own rings and egress thread; the Welcome's sector is always 1. Nothing in a
-   sector is shared with another, so many per process (a thread each) is a matter of building more.
+1. **One sector per server** (now), and a second for the colony's inside. The server builds one
+   sector and runs it on the thread `sector-0`, with its own rings and egress thread; the Welcome's
+   sector is 1. With `--colony` it builds the inside too (`sector-1`, `egress-1`, the Welcome's 2),
+   which keeps `sector-0`'s tick (`bc_sector::spawn_follower`: woken by it after each of its
+   ticks, never ahead), so the colony has one clock. Nothing else in a sector is shared with
+   another, so many per process (a thread each) is a matter of building more.
 2. **Sector per process**, with a gateway that routes sessions by sector. Handoff moves the pilot
    record through the gateway when a transfer orbit completes. A suit hands off only flying free:
    bodies and their riders are sector-local ("Bodies and frames").

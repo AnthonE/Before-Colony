@@ -21,6 +21,7 @@
 use bc_client_core::bay::{CATWALK_Y, HATCH, Layout, SPAWN, SUIT_AT, Spot};
 use bc_client_core::city::CityGround;
 use bc_client_core::city_nav;
+use bc_client_core::sights;
 use bc_client_core::tram::{self, CarInside, CityAndTrains, Rider};
 use bc_client_core::vehicle::{Drive, Kind, Vehicle};
 use bc_client_core::walker::{Guide, Stride, Walker};
@@ -29,8 +30,8 @@ use bc_econ::wire::{Outcome, Place, Request};
 use bc_econ::{Bay, Suit};
 use bc_proto::presence::{PersonPose, RIDE_SEATED};
 use bc_sim::colony::city::{
-    AVENUE as AVENUE_WIDTH, BLOCK, Stage, TERMINAL_HEIGHT, arrival_seats, district_at, grid_x, place_door,
-    row_span, seat_near, terminal_rect,
+    AVENUE as AVENUE_WIDTH, Stage, TERMINAL_HEIGHT, arrival_seats, district_at, place_door, seat_near,
+    terminal_rect,
 };
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, local_frame, up_at};
 use bc_sim::colony::hub::BAY_RADIUS;
@@ -39,7 +40,7 @@ use bc_sim::colony::transit::{
     CAR_WIDTH, CARS, DOOR_AT, FLOOR, PLATFORM_HALF, PLATFORM_LENGTH, STATION_GAP, STATIONS, TRAINS,
     TrainState, station_x, train,
 };
-use bc_sim::content::city::{DISTRICT_NAMES, PLACES, PlaceDef, PlaceKind, SIGHTS, STRIP_NAMES};
+use bc_sim::content::city::{DISTRICT_NAMES, PLACES, PlaceDef, PlaceKind, STRIP_NAMES};
 use bc_sim::content::{Kit, Kits};
 use bc_sim::world::COLONY_RADIUS;
 use bevy::input::mouse::AccumulatedMouseMotion;
@@ -84,8 +85,6 @@ const LIFT_SECS: f32 = 12.0;
 const LIFT_UP_SECS: f32 = 6.0;
 /// How near a place's door the pilot must stand to use it, m.
 const DOOR_REACH: f32 = 3.5;
-/// A sight is named once the pilot is this near its block's middle, m.
-const SIGHT_REACH: f32 = 140.0;
 
 /// Where the pilot is in the bay's sequences.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -229,7 +228,7 @@ impl CityFoot {
         let facing = CityPos::new(self.strip, t.x + t.yaw.sin(), t.s - t.yaw.cos(), 0.0).walker()
             - CityPos::new(self.strip, t.x, t.s, 0.0).walker();
         self.guide =
-            Some(Guide::new(city_nav::route(self.strip, (at.s, at.x), (t.s, t.x)), Some(facing.normalize())));
+            Some(Guide::new(city_nav::route_from(self.strip, at, (t.s, t.x)), Some(facing.normalize())));
         true
     }
 
@@ -381,7 +380,7 @@ impl CityFoot {
             if (feet.s - mid).abs() < 0.5 * AVENUE_WIDTH {
                 route.push(at(feet.x, mid, 0.0));
             } else {
-                route = city_nav::route(self.strip, (feet.s, feet.x), (mid - 20.0, foot));
+                route = city_nav::route_from(self.strip, feet, (mid - 20.0, foot));
             }
             route.push(at(foot, mid, 0.0));
             route.push(at(sx + end * (half - 5.0), mid, FLOOR));
@@ -409,24 +408,20 @@ impl CityFoot {
         true
     }
 
-    /// What's newly reached: a district's name (with its strip's) or a sight's.
-    fn reached(&mut self) -> Option<String> {
+    /// What's newly reached: a district (its name, with its strip's), and a sight (`sights`).
+    fn reached(&mut self) -> (Option<String>, Option<usize>) {
         let at = self.feet();
         let k = self.strip as usize % 3;
         let district = district_at(self.strip, at.x, Stage(0)).map(|(d, _)| d);
-        let sight = SIGHTS.iter().position(|&(strip, bx, row, _)| {
-            let (s0, s1) = row_span(row);
-            let (s, x) = ((s0 + s1) * 0.5, grid_x(bx) + BLOCK * 0.5);
-            strip == self.strip && (at.s - s).hypot(at.x - x) < SIGHT_REACH
-        });
-        let mut news = None;
+        let sight = sights::reached(self.strip, at.s, at.x);
+        let mut news = (None, None);
         if district != self.district {
             self.district = district;
-            news = district.map(|d| format!("{} · {}", DISTRICT_NAMES[k][d as usize], STRIP_NAMES[k]));
+            news.0 = district.map(|d| format!("{} · {}", DISTRICT_NAMES[k][d as usize], STRIP_NAMES[k]));
         }
         if sight != self.sight {
             self.sight = sight;
-            news = sight.map(|i| SIGHTS[i].3.to_string()).or(news);
+            news.1 = sight;
         }
         news
     }
@@ -475,7 +470,8 @@ impl CityFoot {
         (colony_point(eye), local_frame(self.strip, eye.s) * self.walker.look())
     }
 
-    /// The place whose door the pilot stands at, facing it.
+    /// The place the pilot can use where they stand, facing it: at its counter, in the room behind
+    /// its door (`bc_sim::colony::city::Room`), or at Hub Gate's door.
     fn door_in_view(&self) -> Option<usize> {
         if self.ride.is_some() || self.drive.is_some() || self.seat.is_some() {
             return None;
@@ -484,25 +480,33 @@ impl CityFoot {
         let h = self.walker.heading();
         // Facing, in city terms: x along is the walker's x, s across its −z.
         let (hs, hx) = (-h.z, h.x);
-        PLACES.iter().enumerate().filter(|(_, p)| p.strip == self.strip).find_map(|(i, p)| {
-            let ((s, x), (ds, dx)) = place_door(p);
+        PLACES.iter().enumerate().filter(|(_, p)| p.strip == self.strip).find_map(|(i, _)| {
+            let ((s, x), (ds, dx)) = city_nav::use_spot(i);
             let near = (at.s - s).hypot(at.x - x) < DOOR_REACH;
             (near && hs * ds + hx * dx > 0.3).then_some(i)
         })
     }
 
-    /// Walks the pilot to a place's door, facing in.
+    /// Walks the pilot to a place's door, facing in; or (`sight_<i>`) to where sight `i` is seen
+    /// from the street.
     fn walk_to(&mut self, slug: &str) -> bool {
-        let Some((_, p)) = bc_sim::colony::city::place(slug) else { return false };
+        if let Some(i) = slug.strip_prefix("sight_").and_then(|i| i.parse::<usize>().ok()) {
+            if i >= bc_sim::content::city::SIGHTS.len() || sights::sight_at(i).0 != self.strip {
+                return false;
+            }
+            let at = self.feet();
+            self.guide = Some(Guide::new(city_nav::route_from(self.strip, at, sights::stand(i)), None));
+            return true;
+        }
+        let Some((i, p)) = bc_sim::colony::city::place(slug) else { return false };
         if p.strip != self.strip {
             return false;
         }
-        let ((s, x), (ds, dx)) = place_door(p);
-        let at = self.feet();
+        let ((s, x), (ds, dx)) = city_nav::use_spot(i);
         let facing = CityPos::new(self.strip, x + dx, s + ds, 0.0).walker()
             - CityPos::new(self.strip, x, s, 0.0).walker();
-        self.guide =
-            Some(Guide::new(city_nav::route(self.strip, (at.s, at.x), (s, x)), Some(facing.normalize())));
+        let route = city_nav::route_to_place(self.strip, self.feet(), i);
+        self.guide = Some(Guide::new(route, Some(facing.normalize())));
         true
     }
 }
@@ -737,7 +741,7 @@ pub fn drive_onfoot(
     motion: Res<AccumulatedMouseMotion>,
     cmds: Res<UiCmds>,
     pointer: Res<PointerRes>,
-    settings: Res<SettingsRes>,
+    mut settings: ResMut<SettingsRes>,
     time: Res<Time<Real>>,
     net: NonSend<NetState>,
     game: NonSend<GameClient>,
@@ -964,8 +968,25 @@ pub fn drive_onfoot(
             }
         }
         g.core.set_pose(Some(c.pose()));
-        if let Some(name) = c.reached() {
-            ui.toast(name);
+        // Sent here, the frame it's taken, if one's due (and nowhere else, so a stale one never
+        // takes its turn): after a slow frame the walk has caught up by up to a second's worth,
+        // and a pose a frame late would reach the server only a moment after the one before it,
+        // too far for that moment.
+        if let (Some(t), Some(p)) = (net.get(), g.core.poll_pose(now)) {
+            t.send_datagram(&p);
+        }
+        // A sight goes on the found-list the first time (and is named every time); else a
+        // district's name.
+        match c.reached() {
+            (_, Some(i)) => {
+                let found = settings.0.sights_found;
+                ui.toast(sights::news(i, found));
+                if found & sights::bit(i) == 0 {
+                    settings.0.sights_found |= sights::bit(i);
+                }
+            }
+            (Some(district), None) => ui.toast(district),
+            (None, None) => {}
         }
         if live && keys.just_pressed(KeyCode::KeyM) {
             ui.map = !ui.map;
@@ -994,7 +1015,7 @@ pub fn drive_onfoot(
                 }
                 PlaceKind::Exchange => ui.panel = Panel::Terminal(Spot::Exchange),
                 PlaceKind::Charter => ui.panel = Panel::Board,
-                PlaceKind::Bar => ui.toast("THE ARRIVAL · A BAR TO MEET IN · QUIET FOR NOW"),
+                PlaceKind::Bar => ui.toast("THE ARRIVAL · THE BAR'S QUIET FOR NOW · THE SEATS ARE OUT FRONT"),
             }
         }
     } else if let Some(c) = me.city.as_mut() {
@@ -1185,6 +1206,9 @@ pub fn drive_onfoot(
     if ui.map_at != map_at {
         ui.map_at = map_at;
     }
+    if ui.map_found != settings.0.sights_found {
+        ui.map_found = settings.0.sights_found;
+    }
     // On foot in the city, or flying a suit inside the colony: the camera sees its city.
     let inside = place == Some(Place::Space) && g.core.welcome.is_some_and(|w| w.interior);
     let city_now = me.city.is_some() || inside;
@@ -1273,16 +1297,31 @@ pub fn onfoot_camera(
 }
 
 /// On foot, for the E2E tests: where the pilot is and what they could use.
-pub fn publish_onfoot(me: Res<OnFoot>, ui: Res<Ui>, game: NonSend<GameClient>, mut dev: ResMut<DevStatus>) {
+pub fn publish_onfoot(
+    me: Res<OnFoot>,
+    ui: Res<Ui>,
+    settings: Res<SettingsRes>,
+    game: NonSend<GameClient>,
+    mut dev: ResMut<DevStatus>,
+) {
     let g = game.borrow();
     let h = &g.core.hangar;
     dev.set("place", ui.place);
+    // The colony's sights found on foot (the found-list, kept in the settings).
+    dev.set("sights_found", sights::count(settings.0.sights_found) as u32);
     dev.set("seq", me.seq.name());
     dev.set("focus", me.focus.map_or("", Spot::slug));
     dev.set("terminal", ui.terminal_tab());
     dev.set("walking_to", me.guide.is_some());
     let f = me.walker.feet;
     dev.set("feet", format!("{:.1},{:.1},{:.1}", f.x, f.y, f.z));
+    // The people in view (on foot in the city, or round a suit flying inside it): how many, their
+    // names, and where each is ("name@x,s,h", `;` between them).
+    let people = g.core.people(now_s());
+    dev.set("people", people.len() as u32);
+    dev.set("people_names", people.iter().map(|(_, n, _)| *n).collect::<Vec<_>>().join(","));
+    let where_ = people.iter().map(|(_, n, p)| format!("{n}@{:.1},{:.1},{:.1}", p.x, p.s, p.h));
+    dev.set("people_at", where_.collect::<Vec<_>>().join(";"));
     // In the colony: the strip, where on it (along, across, up) and the place at hand.
     match &me.city {
         Some(c) => {
@@ -1296,14 +1335,25 @@ pub fn publish_onfoot(me: Res<OnFoot>, ui: Res<Ui>, game: NonSend<GameClient>, m
             dev.set("drive_speed", c.drive.map_or(0.0, |v| f64::from(v.speed)));
             dev.set("station", c.train().and_then(|t| t.at).map_or(-1.0, |i| i as f64));
             dev.set("district", c.district.map_or("", |d| DISTRICT_NAMES[c.strip as usize % 3][d as usize]));
-            // The people in view, and where the nearest is from the pilot (m).
-            let people = g.core.people(now_s());
-            let names: Vec<&str> = people.iter().map(|(_, n, _)| *n).collect();
-            dev.set("people", people.len() as u32);
-            dev.set("people_names", names.join(","));
+            // Where the nearest of the people in view is from the pilot (m).
             let near =
                 people.iter().map(|(_, _, p)| (p.x - at.x).hypot(p.s - at.s)).fold(f32::INFINITY, f32::min);
             dev.set("people_nearest", if near.is_finite() { f64::from(near) } else { -1.0 });
+            // The suits inside the colony that they watch, how far off the nearest is, and how many
+            // stand on its city.
+            let eye = colony_point(at).as_vec3();
+            let t = g.core.render_tick(now_s());
+            let suits: Vec<_> = (0..g.core.world.entities.len() as u16)
+                .filter_map(|slot| g.core.world.pose(slot, t))
+                .collect();
+            dev.set("watched", suits.len() as u32);
+            let near = suits.iter().map(|p| p.pos.distance(eye)).fold(f32::INFINITY, f32::min);
+            dev.set("watched_nearest", if near.is_finite() { f64::from(near) } else { -1.0 });
+            let standing = suits
+                .iter()
+                .filter(|p| p.ground.is_some_and(|g| g.body == bc_sim::bodies::Body::City && !g.aloft))
+                .count();
+            dev.set("watched_standing", standing as u32);
             if me.seq == Seq::Walking {
                 dev.set("focus", c.focus.map_or("", |i| PLACES[i].slug));
             }
@@ -1318,9 +1368,10 @@ pub fn publish_onfoot(me: Res<OnFoot>, ui: Res<Ui>, game: NonSend<GameClient>, m
             dev.set("drive_speed", 0.0);
             dev.set("station", -1.0);
             dev.set("district", "");
-            dev.set("people", 0u32);
-            dev.set("people_names", "");
             dev.set("people_nearest", -1.0);
+            dev.set("watched", 0u32);
+            dev.set("watched_nearest", -1.0);
+            dev.set("watched_standing", 0u32);
         }
     }
     dev.set("hangar_credits", h.credits() as f64);

@@ -68,6 +68,25 @@ fn a_suit_comes_in_at_the_inner_gate_and_holds_there_on_flight_assist() {
 }
 
 #[test]
+fn a_suit_holds_at_the_inner_gate_till_its_pilot_is_heard_from() {
+    // No command at all for ten seconds (a page still catching up after the launch): flight
+    // assist, as the launch leaves it, brings it to rest by the gate rather than the pull taking
+    // it down to the floor.
+    let mut sim = interior();
+    let id = launch(&mut sim, FrameId::Leo);
+    for _ in 0..30 * 10 {
+        sim.step();
+    }
+    let f = sim.suits.flight[id.idx()];
+    assert!(f.vel.length() < 1.0, "at rest: {}", f.vel);
+    assert!(
+        f.pos.distance(INNER_GATE) < INNER_GATE_RADIUS,
+        "by the gate: {} m off",
+        f.pos.distance(INNER_GATE)
+    );
+}
+
+#[test]
 fn weapons_are_safe_inside() {
     let mut sim = interior();
     let id = launch(&mut sim, FrameId::Leo);

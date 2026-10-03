@@ -37,6 +37,7 @@ pub mod predict;
 pub mod salvage;
 pub mod session;
 pub mod settings;
+pub mod sights;
 pub mod sphere;
 pub mod surface;
 pub mod tram;
@@ -49,7 +50,7 @@ use bc_proto::buttons::FIRE_PRIMARY;
 use bc_proto::control::{ControlMsg, Frame, RejectReason, hello_flags, roster_flags, welcome_flags};
 use bc_proto::events::Event;
 use bc_proto::presence::{PersonPose, PlazaReader, PosePacket};
-use bc_proto::snapshot::{own_flags, zero_mode};
+use bc_proto::snapshot::{header_flags, own_flags, zero_mode};
 use bc_proto::{
     Faction, FrameId, InputCmd, InputPacket, PROTOCOL_VERSION, PacketKind, PilotKind, SnapshotReader,
     WeaponKind, packet_kind,
@@ -71,6 +72,10 @@ pub use predict::{OwnPose, Predictor};
 pub use salvage::{LooseChunk, SalvageView};
 pub use surface::BodySet;
 pub use world::{Beam, FeedLine, Ghost, HitMark, World};
+
+/// None of the pilot's own snapshots for this long, s, and the plaza's datagrams keep the clock
+/// (on foot).
+const SNAPSHOTS_GONE: f64 = 0.5;
 
 /// Who this client is.
 #[derive(Clone, Debug)]
@@ -144,6 +149,8 @@ pub struct ClientStats {
     pub decode_errors: u64,
     pub packets_sent: u64,
     pub last_snapshot_at: f64,
+    /// When the last of the pilot's own snapshots came (not a spectator's), local s.
+    pub last_own_snapshot_at: Option<f64>,
     /// Prediction error at the most recent reconciled tick, m.
     pub prediction_error: f32,
 }
@@ -258,9 +265,14 @@ impl ClientCore {
         (t.floor() as u32, (t - t.floor()) as f32)
     }
 
-    /// The people near the pilot in the city as they're drawn at local time `now`: their slot,
-    /// name and pose, in city coordinates (a rider where their train is then; still marked as
-    /// riding it).
+    /// Flying a suit inside the colony (its people, trams and cars are round it).
+    pub fn inside(&self) -> bool {
+        self.hangar.place == Some(bc_econ::wire::Place::Space) && self.welcome.is_some_and(|w| w.interior)
+    }
+
+    /// The people near the pilot in the city (or round their suit inside the colony) as they're
+    /// drawn at local time `now`: their slot, name and pose, in city coordinates (a rider where
+    /// their train is then; still marked as riding it).
     pub fn people(&self, now: f64) -> Vec<(u16, &str, PersonPose)> {
         let t = self.clock.server_now(now) - plaza::DELAY_TICKS;
         let (tick, frac) = self.colony_tick(now);
@@ -333,8 +345,9 @@ impl ClientCore {
         hangar::frame(req)
     }
 
-    /// The pilot left the sector (docked, or lost): what was flown is forgotten, and the next
-    /// sortie syncs its clock afresh. The field, the roster and the tallies stay.
+    /// The pilot left the sector (docked, or lost), or the city (where they watched the colony's
+    /// inside): what was flown or watched is forgotten, and the next sortie syncs its clock afresh.
+    /// The field, the roster and the tallies stay.
     fn left_the_sector(&mut self) {
         let old = std::mem::replace(&mut self.world, World::new(self.cfg.faction));
         self.world.roster = old.roster;
@@ -434,7 +447,8 @@ impl ClientCore {
                 self.predict.set_field(bc_sim::field::Field::generate(field_seed, field_rocks));
                 // The same rocks, shared until a shattering parts them: the view's go by the rock
                 // records, the prediction's by the tick it replays.
-                self.world.bodies = BodySet::new(self.predict.field.clone(), landmarks);
+                self.world.bodies = BodySet::new(self.predict.field.clone(), landmarks)
+                    .inside(flags & welcome_flags::INTERIOR != 0);
                 self.phase = Phase::InGame;
             }
             ControlMsg::Reject { reason } => self.phase = Phase::Rejected(reason),
@@ -472,9 +486,13 @@ impl ClientCore {
         if packet_kind(bytes) == Some(PacketKind::Plaza) {
             match PlazaReader::new(bytes) {
                 Ok(r) => {
-                    // The sector's tick keeps the clock on foot, where no snapshots come (they're
-                    // never sent in space).
-                    self.clock.on_snapshot(r.tick, now, None, clock::TARGET_HEALTH as i8);
+                    // The sector's tick keeps the clock on foot. While the pilot's own snapshots
+                    // come (a suit inside the colony, whose sector keeps the same tick), they keep
+                    // it: they carry the round trip and the input buffer's health. A spectator's
+                    // carry neither, and leave it to the plaza.
+                    if self.stats.last_own_snapshot_at.is_none_or(|t| now - t > SNAPSHOTS_GONE) {
+                        self.clock.on_snapshot(r.tick, now, None, clock::TARGET_HEALTH as i8);
+                    }
                     self.plaza.on_datagram(r, now);
                 }
                 Err(_) => self.stats.decode_errors += 1,
@@ -488,6 +506,16 @@ impl ClientCore {
         let h = *r.header();
         if h.tick <= self.world.tick && self.stats.snapshots > 0 {
             return; // duplicate or reordered: everything in it is repeated in newer snapshots
+        }
+        // A spectator's (on foot in the city, the suits inside the colony near the pilot): taken
+        // only there. With no input of the pilot's to answer for, it leaves the clock to the plaza.
+        let spectator = h.flags & header_flags::SPECTATOR != 0;
+        if spectator && !self.hangar.in_city() {
+            return;
+        }
+        // What's watched is the colony's inside, where the suits standing on its city ride it.
+        if spectator && !self.world.bodies.interior() {
+            self.world.bodies = std::mem::take(&mut self.world.bodies).inside(true);
         }
         let (Ok(own), Ok(zero)) = (r.own(), r.zero()) else {
             self.stats.decode_errors += 1;
@@ -538,13 +566,16 @@ impl ClientCore {
         let drawn_at = self.drawn.recent(now);
         let before = drawn_at.and_then(|(o, v)| self.own_source(o, v)).map(|(p, _)| p);
         let life_before = self.world.own.map(|o| (o.slot, o.generation, o.alive));
-        // A hold of 255 ms is saturated (the client sent nothing for that long), so the true hold
-        // is unknown and the sample would overstate the RTT.
-        let rtt = (h.time_echo_ms != 0 && h.echo_hold_ms < u8::MAX).then(|| {
-            let now_ms = (now * 1_000.0) as u64 as u16;
-            f64::from(now_ms.wrapping_sub(h.time_echo_ms)) / 1_000.0 - f64::from(h.echo_hold_ms) / 1_000.0
-        });
-        self.clock.on_snapshot(h.tick, now, rtt, h.input_health);
+        if !spectator {
+            // A hold of 255 ms is saturated (the client sent nothing for that long), so the true
+            // hold is unknown and the sample would overstate the RTT.
+            let rtt = (h.time_echo_ms != 0 && h.echo_hold_ms < u8::MAX).then(|| {
+                let now_ms = (now * 1_000.0) as u64 as u16;
+                f64::from(now_ms.wrapping_sub(h.time_echo_ms)) / 1_000.0 - f64::from(h.echo_hold_ms) / 1_000.0
+            });
+            self.clock.on_snapshot(h.tick, now, rtt, h.input_health);
+            self.stats.last_own_snapshot_at = Some(now);
+        }
         let heard = self.world.own.filter(|o| o.alive).map(|o| (self.world.tick, o.vel));
         self.world.apply_missiles(h.tick, &missiles);
         self.world.apply(h.tick, own, zero, &events, &ents);

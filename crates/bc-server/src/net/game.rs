@@ -99,6 +99,8 @@ pub struct Inside {
     pub sector: Arc<SectorShared>,
     pub(super) egress: Arc<ArrayQueue<EgressCmd>>,
     pub(super) egress_thread: thread::Thread,
+    /// Its sector's thread (space's wakes it after each tick, to keep in step).
+    thread: thread::Thread,
 }
 
 /// What each session task needs to reach the sector.
@@ -317,7 +319,44 @@ impl GameRuntime {
         let stop = Arc::new(AtomicBool::new(false));
         let egress = spawn_egress(egress_ends, queue.clone(), stats.clone(), stop.clone(), "egress-0")?;
         let egress_thread = egress.thread().clone();
-        let sector_thread = bc_sector::spawn(sector, Some(egress_thread.clone()))?;
+        // The colony's inside: a second sector in its own frame, no Dolls, no field, no landmarks.
+        // It keeps this sector's tick (`bc_sector::spawn_follower`): the colony has one clock, so its
+        // day, its trams and its people are the same moment for a pilot on foot and one in a suit.
+        let (inside, inside_threads) = if survival && cfg.colony {
+            let inside_cfg = SectorConfig {
+                sim: SimConfig {
+                    target_dolls: 0,
+                    seed: cfg.seed ^ 0x1_51DE,
+                    field_rocks: 0,
+                    landmarks: 0,
+                    max_sleepers: 0,
+                    survival: true,
+                    flight: cfg.flight.rules(),
+                    world: bc_sim::colony::interior::WorldKind::Interior,
+                    ..SimConfig::default()
+                },
+                // Its pilots, and as many on foot in the city watching its suits.
+                max_clients: cfg.max_clients * 2,
+                oracle: false,
+                hot_guard: Some(bc_alloc::set_hot),
+            };
+            let (sector, inside_shared, egress_ends, _oracle) = bc_sector::build(inside_cfg);
+            let queue = Arc::new(ArrayQueue::new(1_024));
+            let egress = spawn_egress(egress_ends, queue.clone(), stats.clone(), stop.clone(), "egress-1")?;
+            let egress_thread = egress.thread().clone();
+            let thread =
+                bc_sector::spawn_follower(sector, Some(egress_thread.clone()), "sector-1", shared.clone())?;
+            tracing::info!("the colony's inside is open: sector-1");
+            (
+                Some(Inside { sector: inside_shared, egress: queue, egress_thread, thread: thread.thread() }),
+                Some((thread, egress)),
+            )
+        } else {
+            (None, None)
+        };
+        let mut wake = vec![egress_thread.clone()];
+        wake.extend(inside.as_ref().map(|i| i.thread.clone()));
+        let sector_thread = bc_sector::spawn_waking(sector, wake, "sector-0")?;
         let oracle_worker = match jev_key.filter(|_| use_jev) {
             Some(key) => {
                 let jev = match &cfg.jev_url {
@@ -345,34 +384,6 @@ impl GameRuntime {
         let store: Arc<dyn PilotStore> = match &cfg.data_dir {
             Some(dir) => Arc::new(FileStore::new(dir.join("pilots"))?),
             None => Arc::new(MemoryStore::default()),
-        };
-        // The colony's inside: a second sector in its own frame, no Dolls, no field, no landmarks.
-        let (inside, inside_threads) = if survival && cfg.colony {
-            let inside_cfg = SectorConfig {
-                sim: SimConfig {
-                    target_dolls: 0,
-                    seed: cfg.seed ^ 0x1_51DE,
-                    field_rocks: 0,
-                    landmarks: 0,
-                    max_sleepers: 0,
-                    survival: true,
-                    flight: cfg.flight.rules(),
-                    world: bc_sim::colony::interior::WorldKind::Interior,
-                    ..SimConfig::default()
-                },
-                max_clients: cfg.max_clients,
-                oracle: false,
-                hot_guard: Some(bc_alloc::set_hot),
-            };
-            let (sector, shared, egress_ends, _oracle) = bc_sector::build(inside_cfg);
-            let queue = Arc::new(ArrayQueue::new(1_024));
-            let egress = spawn_egress(egress_ends, queue.clone(), stats.clone(), stop.clone(), "egress-1")?;
-            let egress_thread = egress.thread().clone();
-            let thread = bc_sector::spawn_named(sector, Some(egress_thread.clone()), "sector-1")?;
-            tracing::info!("the colony's inside is open: sector-1");
-            (Some(Inside { sector: shared, egress: queue, egress_thread }), Some((thread, egress)))
-        } else {
-            (None, None)
         };
         let market = Arc::new(Market::open(cfg.data_dir.as_ref().map(|d| d.join("exchange.json"))));
         let charter = Arc::new(Charter::open(cfg.data_dir.as_ref().map(|d| d.join("charter.json"))));
@@ -647,6 +658,8 @@ impl StatusView {
             // The colony's inside (`--colony`): its sector's suits, and its tick.
             "inside": self.inside.as_ref().map(|i| serde_json::json!({
                 "suits": l(&i.metrics.suits_alive),
+                // Pilots on foot in the city watching its suits.
+                "watchers": l(&i.metrics.watchers),
                 "tick": i.tick.load(Ordering::Acquire),
                 "tick_us_p99": i.metrics.tick_quantile_us(0.99),
             })),

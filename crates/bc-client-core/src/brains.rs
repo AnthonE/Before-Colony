@@ -328,7 +328,7 @@ impl LanderBrain {
                     Body::Rock(r) => {
                         bodies.field.rocks().get(usize::from(r)).map_or(0.0, |r| r.axes.max_element())
                     }
-                    Body::None => 0.0,
+                    Body::City | Body::None => 0.0,
                 };
                 let to = round_body(&pose, &shape, bound, s.pos, hi);
                 fly(ctx, own.frame, to, pose.point_vel(to), look, FLIGHT_ASSIST)

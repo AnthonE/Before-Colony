@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use bc_proto::snapshot::header_flags;
 use bc_proto::{InputCmd, MAX_DATAGRAM, SnapshotHeader};
 use bc_sim::handle::Handle;
 use bc_sim::zero::TacticalPicture;
@@ -10,7 +11,7 @@ use bc_sim::{Sim, SimConfig, SuitId};
 use crate::clients::ClientState;
 use crate::metrics::Metrics;
 use crate::queues::{Control, Outcome, Reparked, Report, Restored, SectorEnds, SectorShared, SlotState};
-use crate::replicate::{Work, build_snapshot};
+use crate::replicate::{Work, build_snapshot, build_watch};
 
 /// Ticks between tactical pictures per ZERO pilot when an external oracle is attached (≈3.75 Hz).
 const PICTURE_INTERVAL: u32 = 8;
@@ -139,11 +140,23 @@ impl Sector {
                         None => self.shared.slots[s].publish(SlotState::Refused, None, Outcome::Fresh),
                     }
                 }
+                Control::Watch { slot, at, max_datagram } => {
+                    let s = slot as usize;
+                    // A pilot flying here doesn't watch it as well.
+                    let Some(c) = self.clients.get_mut(s).filter(|c| !c.active) else { continue };
+                    if c.watch.is_some() {
+                        c.watch = Some(at);
+                    } else {
+                        c.spectate(at, max_datagram as usize, self.sim.events.next_seq());
+                        self.shared.slots[s].publish(SlotState::Active, None, Outcome::Fresh);
+                    }
+                }
                 Control::Leave { slot } | Control::Sleep { slot } => {
                     let s = slot as usize;
                     if s >= self.clients.len() {
                         continue;
                     }
+                    self.clients[s].watch = None;
                     let mut asleep = None;
                     if self.clients[s].active {
                         let id = self.clients[s].suit;
@@ -335,6 +348,33 @@ impl Sector {
         let m = &self.shared.metrics;
         self.work.locate_chunks(&self.sim);
         for (s, client) in self.clients.iter_mut().enumerate() {
+            // A spectator: the suits near where they watch from, and nothing of their own.
+            if let Some(at) = client.watch {
+                let header = SnapshotHeader {
+                    tick: t,
+                    ack_input_tick: u32::MAX,
+                    input_health: 0,
+                    time_echo_ms: 0,
+                    echo_hold_ms: 0,
+                    tidi_pct: 100,
+                    flags: header_flags::SPECTATOR,
+                };
+                let Some(n) = build_watch(&self.sim, client, at, &header, &mut self.scratch, &mut self.work)
+                else {
+                    continue;
+                };
+                let out = &mut self.ends.outputs[s];
+                if out.slots() < n + 2 {
+                    Metrics::add(&m.out_drops, 1);
+                    continue;
+                }
+                let _ = out.push_entire_slice(&(n as u16).to_le_bytes());
+                let _ = out.push_entire_slice(&self.scratch[..n]);
+                Metrics::add(&m.snapshots, 1);
+                Metrics::add(&m.snapshot_bytes, n as u64);
+                Metrics::max(&m.snapshot_max_bytes, n as u64);
+                continue;
+            }
             if !client.active {
                 continue;
             }
@@ -376,12 +416,14 @@ impl Sector {
             Metrics::set(&ps.missiles, u64::from(st.missiles));
             Metrics::set(&ps.frame, self.sim.suits.frame[client.suit.idx()] as u64);
             Metrics::set(&ps.credits, u64::from(self.sim.suits.credits[client.suit.idx()]));
+            ps.set_pos(self.sim.suits.flight[client.suit.idx()].pos);
         }
     }
 
     fn publish_metrics(&mut self) {
         let m = &self.shared.metrics;
         Metrics::set(&m.clients, self.clients.iter().filter(|c| c.active).count() as u64);
+        Metrics::set(&m.watchers, self.clients.iter().filter(|c| c.watch.is_some()).count() as u64);
         Metrics::set(&m.suits_alive, self.sim.alive_count() as u64);
         Metrics::set(&m.sleepers, self.sim.sleepers() as u64);
         Metrics::set(&m.parked, self.sim.parked() as u64);

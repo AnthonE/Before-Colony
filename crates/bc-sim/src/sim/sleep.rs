@@ -191,7 +191,8 @@ impl Sim {
                         hold(&pose, &a, f);
                         self.suits.anchor[i] = a;
                     }
-                    Some(Body::None) | None => {}
+                    // (No sleeper is parked on the colony's city: the inside keeps none.)
+                    Some(Body::City | Body::None) | None => {}
                 }
             }
         }
@@ -393,7 +394,7 @@ fn anchor_normal(pos: Vec3, anchor: Anchor, field: &Field) -> Vec3 {
         Body::Rock(r) => {
             field.rocks().get(usize::from(r)).map_or(Vec3::Y, |rock| normalize_or(pos - rock.pos, Vec3::Y))
         }
-        // Landmarks never go away.
-        Body::Landmark(_) | Body::None => Vec3::Y,
+        // Landmarks (and the colony's city) never go away.
+        Body::Landmark(_) | Body::City | Body::None => Vec3::Y,
     }
 }

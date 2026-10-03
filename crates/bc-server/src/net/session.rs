@@ -52,6 +52,9 @@ const MARKET_EVERY: Duration = Duration::from_secs(2);
 /// In the bay, every this many session ticks a plaza datagram with no one in it: the sector's
 /// tick, for the colony's clock (2 Hz). In the city it goes every tick (10 Hz).
 const HEARTBEAT_TICKS: u32 = 5;
+/// On foot in the city, where the pilot watches the colony's inside from moves this often (session
+/// ticks: 2 Hz).
+const WATCH_TICKS: u32 = 5;
 
 /// Takes a slot, plays, and gives the slot back.
 #[allow(clippy::too_many_arguments)]
@@ -111,6 +114,7 @@ pub(super) async fn run(
         mouth: Mouth::default(),
         lost: false,
         inside: None,
+        spectating: None,
         entered: false,
     };
     let result = match s.enter().await {
@@ -168,6 +172,9 @@ struct Session<'a> {
     /// Flying inside the colony: the lease on the inside sector's slot the suit is flown through
     /// (`self.suit` names it there).
     inside: Option<SlotLease>,
+    /// On foot in the city: the lease on the inside sector's slot the pilot watches its suits
+    /// through (a spectator's, `Control::Watch`).
+    spectating: Option<SlotLease>,
     /// Welcomed (so leaving has a roster entry, a record and a lease to settle).
     entered: bool,
 }
@@ -576,20 +583,41 @@ impl Session<'_> {
         self.send(&Update::Place { place: self.place, bay, strip }).await
     }
 
+    /// Where the pilot's suit is inside the colony (the colony's own frame), while they fly it there.
+    fn suit_inside(&self) -> Option<glam::Vec3> {
+        match (&self.inside, &self.game.inside) {
+            (Some(lease), Some(inside)) if self.suit.is_some() && !self.lost => {
+                Some(inside.sector.metrics.pilots[lease.slot as usize].pos())
+            }
+            _ => None,
+        }
+    }
+
     /// In the city, the people near the pilot (and the names of any they haven't seen before);
-    /// in the bay, now and then, just the sector's tick.
+    /// flying inside the colony, the people round the suit; in the bay, now and then, just the
+    /// sector's tick.
     async fn send_plaza(&mut self) -> anyhow::Result<()> {
         self.ticks = self.ticks.wrapping_add(1);
         let city = self.place == Place::City;
-        if !city && !(self.place == Place::Hangar && self.ticks.is_multiple_of(HEARTBEAT_TICKS)) {
+        let suit = self.suit_inside();
+        if !city
+            && suit.is_none()
+            && !(self.place == Place::Hangar && self.ticks.is_multiple_of(HEARTBEAT_TICKS))
+        {
             return Ok(());
         }
         let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
         let mut buf = [0u8; MAX_DATAGRAM];
         let mut shown = Vec::new();
-        let mut w = PlazaWriter::new(&mut buf, tick, city.then_some(self.strip));
-        if city {
-            self.game.plaza.fill(self.slot, Instant::now(), tick, &mut w, &mut shown);
+        let strip = if city { Some(self.strip) } else { suit.map(|at| crate::plaza::strip_under(at).0) };
+        let mut w = PlazaWriter::new(&mut buf, tick, strip);
+        match suit {
+            _ if city => self.game.plaza.fill(self.slot, Instant::now(), tick, &mut w, &mut shown),
+            Some(at) => self.game.plaza.fill_around(at, Instant::now(), tick, &mut w, &mut shown),
+            None => {}
+        }
+        if city && self.ticks.is_multiple_of(WATCH_TICKS) {
+            self.watch();
         }
         let n = w.finish();
         if self.conn.send_datagram(&buf[..n]).is_ok() {
@@ -852,9 +880,55 @@ impl Session<'_> {
         self.game.plaza.enter(self.slot, &self.callsign, self.strip);
         self.named.clear();
         tracing::info!(slot = self.slot, name = %self.callsign, strip = self.strip, "went down into the colony");
+        self.watch();
         self.send_place().await?;
         self.publish_hangar();
         Ok(())
+    }
+
+    /// On foot in the city: watches the suits flying inside the colony from where the pilot is (a
+    /// spectator's slot in the inside's sector, its snapshots on the pilot's connection), or, as
+    /// they walk, moves where from. Without a slot to spare, they just don't see suits.
+    fn watch(&mut self) {
+        let Some(inside) = self.game.inside.clone() else { return };
+        let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        let Some(at) = self.game.plaza.where_is(self.slot, tick) else { return };
+        if self.spectating.is_none() {
+            let Some(lease) = inside.sector.leases.pop() else { return };
+            let _ = inside.egress.push(EgressCmd::Attach(lease.slot, self.conn.clone()));
+            inside.egress_thread.unpark();
+            self.spectating = Some(lease);
+        }
+        let Some(slot) = self.spectating.as_ref().map(|l| l.slot) else { return };
+        // Full, the next move will do.
+        let _ = inside.sector.control.push(Control::Watch { slot, at, max_datagram: self.max_datagram });
+    }
+
+    /// Stops watching the colony's inside (up the lift, or gone): its slot goes back, once the sector
+    /// has had the last of what this session sent it (a `Watch` still queued would seat it again
+    /// under whoever has the slot next).
+    async fn unwatch(&mut self) {
+        let (Some(mut lease), Some(inside)) = (self.spectating.take(), self.game.inside.clone()) else {
+            return;
+        };
+        let _ = inside.egress.push(EgressCmd::Detach(lease.slot));
+        inside.egress_thread.unpark();
+        let tick = || inside.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        let mut bye = Control::Leave { slot: lease.slot };
+        while let Err(back) = inside.sector.control.push(bye) {
+            bye = back;
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        // Every tick drains the control queue first: two ticks on, the Leave has been heard.
+        let pushed = tick();
+        for _ in 0..1_500 {
+            if tick() > pushed + 1 && inside.sector.slots[lease.slot as usize].state() == SlotState::Free {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        while lease.reports.pop().is_ok() {}
+        let _ = inside.sector.leases.push(lease);
     }
 
     /// Back up the cap lift to the bay.
@@ -863,6 +937,7 @@ impl Session<'_> {
             return self.note("you're not in the colony", false).await;
         }
         self.game.plaza.leave(self.slot);
+        self.unwatch().await;
         self.place = Place::Hangar;
         self.send_place().await?;
         self.send_hangar().await?;
@@ -1123,6 +1198,7 @@ impl Session<'_> {
     /// slot is handed back.
     async fn leave(&mut self) {
         self.game.plaza.leave(self.slot);
+        self.unwatch().await;
         // Inside the colony, the suit doesn't sleep there: the colony's tugs bring it back to the
         // bay.
         if self.inside.is_some() {

@@ -7,14 +7,17 @@
 //! last one taken than a running pilot (or a car) could go, and, the first, near the strip's Hub
 //! Gate, where the lift comes down; on a tram only from beside its open doors, and in a car only
 //! from a motor pool. Anything else isn't passed on.
+//!
+//! Pilots flying suits inside the colony see the people too: those on the strip under the suit,
+//! near it in the air ([`Plaza::fill_around`]).
 
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use bc_proto::presence::{MAX_PEOPLE, PersonPose, PlazaWriter, RIDER_S};
 use bc_sim::colony::city::{MAX_HEIGHT, Stage, arrival_seats, place_door, solid};
-use bc_sim::colony::frame::{STRIP_WIDTH, STRIPS, within_caps};
+use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, STRIPS, Under, from_colony, within_caps};
 use bc_sim::colony::pools::pool_near;
 use bc_sim::colony::transit::{self, CAR_WIDTH, TRAIN_LENGTH, TRAINS};
 use bc_sim::content::city::{PLACES, PlaceKind};
@@ -25,16 +28,22 @@ const MAX_SPEED: f32 = 9.0 * 1.5;
 /// Faster than anything drives (a car's top speed is 30 m/s), likewise.
 const MAX_DRIVE: f32 = 35.0 * 1.3;
 const SLACK: f32 = 2.0;
-/// Standing still earns no more reach than this long's worth, s. (Reach is measured from when the
-/// pilot last moved, not from their last pose: a slow client repeats one pose many times between
-/// frames, then jumps a frame's walk at once.)
-const STILL: f32 = 2.0;
+/// Reach a pilot carries from one pose to the next, s of the fastest they could go, at most. The
+/// time since their last pose earns reach (all of it: someone not heard from a minute may be far
+/// off), and a move spends it; what's left is carried, up to this. Walking spends less than it
+/// earns, so the bank stays full, and covers what a slow page does: one pose repeated between
+/// frames, then a frame's walk at once; or a frame's walk sent only once its (seconds-long) render
+/// is done, and the next frame's a moment later. Standing still a minute carries no more, and a
+/// teleport is refused.
+const BANK: f32 = 2.0;
 /// A pilot's first pose must be this near their strip's Hub Gate, m: everyone comes down its lift.
 const ARRIVAL: f32 = 150.0;
 /// Someone not heard from this long isn't shown, s.
 const HIDE: f32 = 5.0;
 /// How far a pilot sees others, m.
 const NEAR: f32 = 1_500.0;
+/// How far a suit inside the colony sees people, m (further off, a figure is less than a pixel).
+const SUIT_NEAR: f32 = 1_500.0;
 /// Getting on or off a tram: how near its body the pilot must be (m), and how far either side of
 /// the sector's tick its doors may have been open (ticks: the pilot's clock is their own).
 const DOORSTEP: f32 = 8.0;
@@ -58,8 +67,8 @@ struct Person {
     pose: Option<PersonPose>,
     seq: u16,
     heard: Instant,
-    /// When their pose last moved (no earlier than `STILL` before `heard`).
-    moved_at: Instant,
+    /// Reach carried from their last pose, s (at most [`BANK`]).
+    bank: f32,
     refused: u32,
     /// When a refusal of theirs was last logged.
     said: Option<Instant>,
@@ -114,6 +123,11 @@ enum Mode {
     Seated,
 }
 
+/// The reach `me` has by `now`, s: what they carried from their last pose, and the time since.
+fn banked(me: &Person, now: Instant) -> f32 {
+    me.bank + now.saturating_duration_since(me.heard).as_secs_f32()
+}
+
 fn mode(p: &PersonPose) -> Mode {
     if p.seated() {
         return Mode::Seated;
@@ -145,6 +159,19 @@ fn at_open_doors(strip: u8, k: u8, s: f32, x: f32, tick: u32) -> bool {
         let ds = ((s - tr.s).abs() - 0.5 * CAR_WIDTH).max(0.0);
         tr.doors && dx.hypot(ds) <= DOORSTEP
     })
+}
+
+/// The land strip a point of the colony's own frame is over (over a window, the nearer of the
+/// strips either side of it), and where on it: `(strip, s, x)`.
+pub fn strip_under(at: Vec3) -> (u8, f32, f32) {
+    match from_colony(at) {
+        Under::Land(c) => (c.strip, c.s, c.x),
+        // Window `k` lies between strip `k − 1`'s far edge and strip `k`'s near one.
+        Under::Window { k, s, .. } if s < STRIP_WIDTH * 0.5 => {
+            ((k + STRIPS as u8 - 1) % STRIPS as u8, STRIP_WIDTH, at.x)
+        }
+        Under::Window { k, .. } => (k, 0.0, at.x),
+    }
 }
 
 /// Whether a seated pose is on a seat (`bc_sim::colony::city::arrival_seats`).
@@ -193,7 +220,7 @@ impl Plaza {
                     pose: None,
                     seq: 0,
                     heard: Instant::now(),
-                    moved_at: Instant::now(),
+                    bank: 0.0,
                     refused: 0,
                     said: None,
                 },
@@ -217,7 +244,7 @@ impl Plaza {
             _ if !possible(&pose) => Some(Why::Wall),
             Some(_) if (seq.wrapping_sub(me.seq) as i16) <= 0 => return Verdict::Stale,
             Some(last) => {
-                let dt = now.saturating_duration_since(me.moved_at).as_secs_f32();
+                let dt = banked(me, now);
                 let moved = |speed: f32| {
                     let reach = speed * dt + SLACK;
                     (pose.x - last.x).hypot(pose.s - last.s) <= reach && (pose.h - last.h).abs() <= reach
@@ -262,7 +289,7 @@ impl Plaza {
             // Said now and then (never where: only why, how far and how long since the last).
             if me.said.is_none_or(|t| now.saturating_duration_since(t).as_secs_f32() > 5.0) {
                 me.said = Some(now);
-                let dt = now.saturating_duration_since(me.moved_at).as_secs_f32();
+                let dt = banked(me, now);
                 let moved = me.pose.map_or(0.0, |l| (pose.x - l.x).hypot(pose.s - l.s));
                 tracing::info!(
                     slot = id,
@@ -279,10 +306,19 @@ impl Plaza {
             }
             return Verdict::Implausible;
         }
-        let still = me.pose.is_some_and(|l| (l.x, l.s, l.h, l.ride) == (pose.x, pose.s, pose.h, pose.ride));
-        me.moved_at = match now.checked_sub(Duration::from_secs_f32(STILL)) {
-            Some(earliest) if still => me.moved_at.max(earliest),
-            _ => now,
+        // What the move spent of the bank (where it measures one: on foot, seated, driving, or in
+        // one train's car; boarding and alighting are checked at the doors instead).
+        me.bank = match me.pose {
+            Some(last) => {
+                let speed = match (mode(&last), mode(&pose)) {
+                    (Mode::Drive(_), _) | (_, Mode::Drive(_)) => MAX_DRIVE,
+                    _ => MAX_SPEED,
+                };
+                let same = last.riding() == pose.riding();
+                let d = if same { (pose.x - last.x).hypot(pose.s - last.s) } else { 0.0 };
+                (banked(me, now) - d / speed).clamp(0.0, BANK)
+            }
+            None => 0.0,
         };
         me.pose = Some(pose);
         me.seq = seq;
@@ -297,24 +333,49 @@ impl Plaza {
         let Ok(all) = self.people.lock() else { return };
         let Some(me) = all.get(&viewer) else { return };
         let (s, x) = me.pose.map_or_else(|| hub_gate(me.strip), |p| place(&p, tick));
-        let mut near: Vec<(f32, u16, f32, PersonPose)> = all
-            .iter()
-            .filter(|(id, p)| **id != viewer && p.strip == me.strip)
-            .filter_map(|(id, p)| {
-                let pose = p.pose?;
-                let age = now.saturating_duration_since(p.heard).as_secs_f32();
-                let (ps, px) = place(&pose, tick);
-                let d = (px - x).hypot(ps - s);
-                (age < HIDE && d < NEAR).then_some((d, *id, age, pose))
-            })
-            .collect();
-        near.sort_by(|a, b| a.0.total_cmp(&b.0));
-        for (_, id, age, pose) in near.into_iter().take(MAX_PEOPLE) {
-            if !w.push(id, age, &pose) {
-                break;
+        let d = |ps: f32, px: f32, _: f32| (px - x).hypot(ps - s);
+        nearest(&all, Some(viewer), me.strip, now, tick, NEAR, d, w, shown);
+    }
+
+    /// The people a pilot flying a suit inside the colony sees from `at` (the colony's own frame),
+    /// into their plaza datagram, whose strip is the one under the suit ([`strip_under`]): those on
+    /// it within [`SUIT_NEAR`] of the suit, up in the air as it is, nearest first.
+    pub fn fill_around(
+        &self,
+        at: Vec3,
+        now: Instant,
+        tick: u32,
+        w: &mut PlazaWriter<'_>,
+        shown: &mut Vec<u16>,
+    ) {
+        shown.clear();
+        let Ok(all) = self.people.lock() else { return };
+        let (strip, _, _) = strip_under(at);
+        let d = |ps: f32, px: f32, h: f32| CityPos::new(strip, px, ps, h).to_colony().distance(at);
+        nearest(&all, None, strip, now, tick, SUIT_NEAR, d, w, shown);
+    }
+
+    /// Where `id` was last seen to be (their last pose taken), if they're in the city.
+    pub fn pose_of(&self, id: u16) -> Option<PersonPose> {
+        self.people.lock().ok()?.get(&id)?.pose
+    }
+
+    /// Where `id` is in the colony's own frame at tick `tick` (a rider: where their train has
+    /// them); before their first pose, their strip's Hub Gate. `None` if they're not in the city.
+    pub fn where_is(&self, id: u16, tick: u32) -> Option<Vec3> {
+        let all = self.people.lock().ok()?;
+        let me = all.get(&id)?;
+        let (s, x, h) = match me.pose {
+            Some(p) => {
+                let (s, x) = place(&p, tick);
+                (s, x, p.h.max(0.0))
             }
-            shown.push(id);
-        }
+            None => {
+                let (s, x) = hub_gate(me.strip);
+                (s, x, 0.0)
+            }
+        };
+        Some(CityPos::new(me.strip, x, s, h).to_colony())
     }
 
     /// `id`'s name, as they came down.
@@ -340,8 +401,44 @@ impl Plaza {
     }
 }
 
+/// Into `w`, the people on strip `strip` heard from lately (but `skip`) within `range` by `dist`
+/// (of where they are across and along it, and how high), nearest first; their slots into `shown`.
+#[allow(clippy::too_many_arguments)]
+fn nearest(
+    all: &HashMap<u16, Person>,
+    skip: Option<u16>,
+    strip: u8,
+    now: Instant,
+    tick: u32,
+    range: f32,
+    dist: impl Fn(f32, f32, f32) -> f32,
+    w: &mut PlazaWriter<'_>,
+    shown: &mut Vec<u16>,
+) {
+    let mut near: Vec<(f32, u16, f32, PersonPose)> = all
+        .iter()
+        .filter(|(id, p)| Some(**id) != skip && p.strip == strip)
+        .filter_map(|(id, p)| {
+            let pose = p.pose?;
+            let age = now.saturating_duration_since(p.heard).as_secs_f32();
+            let (ps, px) = place(&pose, tick);
+            let d = dist(ps, px, pose.h.max(0.0));
+            (age < HIDE && d < range).then_some((d, *id, age, pose))
+        })
+        .collect();
+    near.sort_by(|a, b| a.0.total_cmp(&b.0));
+    for (_, id, age, pose) in near.into_iter().take(MAX_PEOPLE) {
+        if !w.push(id, age, &pose) {
+            break;
+        }
+        shown.push(id);
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
     use bc_proto::MAX_DATAGRAM;
     use bc_proto::presence::PlazaReader;
@@ -415,6 +512,34 @@ mod tests {
         }
         let t2 = t1 + Duration::from_millis(900 * 67 + 67);
         assert_eq!(plaza.accept(1, seq + 2, at(0, s, x + 207.0), t2, 0), Verdict::Implausible);
+    }
+
+    #[test]
+    fn a_page_that_sends_its_walk_late_and_then_at_once_isnt_refused() {
+        let plaza = Plaza::default();
+        let t0 = Instant::now();
+        let (s, x) = hub_gate(0);
+        plaza.enter(1, "Sally", 0);
+        assert_eq!(plaza.accept(1, 1, at(0, s, x), t0, 0), Verdict::Taken);
+        // A second's walk each frame, its pose leaving when the frame's render is done: a long
+        // render, then a short one, and the two poses arrive a tenth of a second apart.
+        let mut seq = 1;
+        let mut t = t0;
+        let mut ahead = 0.0;
+        for k in 0..20 {
+            seq += 1;
+            ahead += 6.0;
+            t += Duration::from_millis(if k % 2 == 0 { 1_900 } else { 120 });
+            assert_eq!(plaza.accept(1, seq, at(0, s, x + ahead), t, 0), Verdict::Taken, "frame {k}");
+        }
+        // But not faster than anyone goes, for long: 20 m a frame at 15 frames a second.
+        let refused = (0..30).filter(|_| {
+            seq += 1;
+            ahead += 20.0;
+            t += Duration::from_millis(67);
+            plaza.accept(1, seq, at(0, s, x + ahead), t, 0) == Verdict::Implausible
+        });
+        assert!(refused.count() > 20);
     }
 
     #[test]
@@ -558,6 +683,60 @@ mod tests {
             plaza.accept(1, 7, at(0, ps + 1.6, px + 30.5), t2 + Duration::from_secs(2), 0),
             Verdict::Taken
         );
+    }
+
+    /// What a suit at `at` (the colony's frame) is shown.
+    fn seen_from_a_suit(plaza: &Plaza, at: Vec3, now: Instant) -> Vec<(u16, PersonPose)> {
+        let mut buf = [0u8; MAX_DATAGRAM];
+        let (strip, _, _) = strip_under(at);
+        let mut w = PlazaWriter::new(&mut buf, 1, Some(strip));
+        let mut shown = Vec::new();
+        plaza.fill_around(at, now, 0, &mut w, &mut shown);
+        let n = w.finish();
+        let mut r = PlazaReader::new(&buf[..n]).unwrap();
+        assert_eq!(r.strip, Some(strip));
+        let mut out = Vec::new();
+        while let Some((id, _, p)) = r.next_person() {
+            out.push((id, p));
+        }
+        assert_eq!(out.iter().map(|(id, _)| *id).collect::<Vec<_>>(), shown);
+        out
+    }
+
+    #[test]
+    fn a_suit_inside_sees_the_people_on_the_strip_under_it_near_it() {
+        let plaza = Plaza::default();
+        let t0 = Instant::now();
+        let (s, x) = hub_gate(0);
+        plaza.enter(1, "Relena", 0);
+        plaza.enter(2, "Pagan", 0);
+        plaza.enter(3, "Lady Une", 1);
+        assert_eq!(plaza.accept(1, 1, at(0, s, x + 2.0), t0, 0), Verdict::Taken);
+        assert_eq!(plaza.accept(2, 1, at(0, s + 20.0, x + 60.0), t0, 0), Verdict::Taken);
+        let (s1, x1) = hub_gate(1);
+        assert_eq!(plaza.accept(3, 1, at(1, s1, x1), t0, 0), Verdict::Taken);
+        // A suit 300 m over Hub Gate's door: strip 0 under it, both of its people, the nearer
+        // first, and nobody from strip 1.
+        let over = CityPos::new(0, x + 2.0, s, 300.0).to_colony();
+        assert_eq!(strip_under(over).0, 0);
+        let seen = seen_from_a_suit(&plaza, over, t0);
+        assert_eq!(seen.iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![1, 2]);
+        // Up by the axis, 3 km over them: too far to make anyone out.
+        let high = CityPos::new(0, x + 2.0, s, 3_000.0).to_colony();
+        assert!(seen_from_a_suit(&plaza, high, t0).is_empty());
+        // Over strip 1: its own.
+        let over1 = CityPos::new(1, x1, s1, 120.0).to_colony();
+        assert_eq!(
+            seen_from_a_suit(&plaza, over1, t0).iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            vec![3]
+        );
+        // Over a window, the nearer strip's: window 1 lies between strip 0's far edge and strip 1.
+        let near0 = CityPos::new(0, x, STRIP_WIDTH + 100.0, 50.0).to_colony();
+        let near1 = CityPos::new(1, x, -100.0, 50.0).to_colony();
+        assert!(matches!(from_colony(near0), Under::Window { k: 1, .. }), "{:?}", from_colony(near0));
+        assert_eq!((strip_under(near0).0, strip_under(near1).0), (0, 1));
+        assert_eq!(plaza.pose_of(2).map(|p| p.x), Some(x + 60.0));
+        assert_eq!(plaza.pose_of(9), None);
     }
 
     #[test]

@@ -265,18 +265,22 @@ pub const RIDER_VEL_MAX: f32 = 32.0;
 pub const RIDER_VEL_BITS: u32 = 10;
 
 /// The body a suit stands on, is in the grip of, or is parked on, as the wire names it. Its pose
-/// never travels: rocks come from the Welcome's field and don't move, and landmarks are compiled
-/// content whose pose is a closed form in the tick (`bc_sim::bodies`).
+/// never travels: rocks come from the Welcome's field and don't move, landmarks are compiled
+/// content whose pose is a closed form in the tick (`bc_sim::bodies`), and the colony's city
+/// stands still in an interior sector's frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BodyRef {
     /// An asteroid of the field, by index.
     Rock(u16),
     /// A landmark of the sector (`bc_sim::content::landmarks`), by index.
     Landmark(u8),
+    /// The colony's inside: its floor, its city and its end caps (only in an interior sector,
+    /// whose frame is the colony's own).
+    City,
 }
 
 impl BodyRef {
-    /// The kind: 0 a rock, 1 a landmark; 2 and 3 are invalid.
+    /// The kind: 0 a rock, 1 a landmark, 2 the city; 3 is invalid.
     pub const KIND_BITS: u32 = 2;
     /// The most bits [`write`](Self::write) takes (a rock's).
     pub const MAX_BITS: usize = (Self::KIND_BITS + ROCK_BITS) as usize;
@@ -287,24 +291,28 @@ impl BodyRef {
             + match self {
                 BodyRef::Rock(_) => ROCK_BITS as usize,
                 BodyRef::Landmark(_) => LANDMARK_BITS as usize,
+                BodyRef::City => 0,
             }
     }
 
     /// How far from the body's origin a rider can be on each axis, m: past the largest rock's
-    /// surface or the largest landmark's, by more than a grip lets a suit fly off.
+    /// surface or the largest landmark's, by more than a grip lets a suit fly off; anywhere
+    /// between the colony's end caps (16 km from its middle) for the city.
     pub fn local_max(self) -> f32 {
         match self {
             BodyRef::Rock(_) => 256.0,
             BodyRef::Landmark(_) => 1_024.0,
+            BodyRef::City => 16_384.0,
         }
     }
 
     /// Bits per axis of a rider's position over [`local_max`](Self::local_max): 1.5625 cm steps
-    /// on either kind.
+    /// on every kind.
     pub fn local_bits(self) -> u32 {
         match self {
             BodyRef::Rock(_) => 15,
             BodyRef::Landmark(_) => 17,
+            BodyRef::City => 21,
         }
     }
 
@@ -318,15 +326,17 @@ impl BodyRef {
                 w.write_bits(1, Self::KIND_BITS);
                 w.write_bits(u32::from(k).min((1 << LANDMARK_BITS) - 1), LANDMARK_BITS);
             }
+            BodyRef::City => w.write_bits(2, Self::KIND_BITS),
         }
     }
 
-    /// Reads a body reference. Kinds 2 and 3 are [`DecodeError::Invalid`]. Whether the body
-    /// exists in this sector is the client's to check.
+    /// Reads a body reference. Kind 3 is [`DecodeError::Invalid`]. Whether the body exists in
+    /// this sector is the client's to check.
     pub fn read(r: &mut BitReader<'_>) -> Result<Self, DecodeError> {
         match r.read_bits(Self::KIND_BITS) {
             0 => Ok(BodyRef::Rock(r.read_bits(ROCK_BITS) as u16)),
             1 => Ok(BodyRef::Landmark(r.read_bits(LANDMARK_BITS) as u8)),
+            2 => Ok(BodyRef::City),
             _ => Err(DecodeError::Invalid),
         }
     }
@@ -337,8 +347,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn body_refs_round_trip_and_kinds_2_and_3_are_invalid() {
-        let refs = [BodyRef::Rock(0), BodyRef::Rock(1_022), BodyRef::Rock(1_023), BodyRef::Landmark(0)];
+    fn body_refs_round_trip_and_kind_3_is_invalid() {
+        let refs = [
+            BodyRef::Rock(0),
+            BodyRef::Rock(1_022),
+            BodyRef::Rock(1_023),
+            BodyRef::Landmark(0),
+            BodyRef::City,
+        ];
         for b in refs.into_iter().chain((0..16).map(BodyRef::Landmark)) {
             let mut buf = [0u8; 4];
             let mut w = BitWriter::new(&mut buf);
@@ -347,19 +363,17 @@ mod tests {
             assert!(b.bits() <= BodyRef::MAX_BITS);
             assert_eq!(BodyRef::read(&mut BitReader::new(&buf)), Ok(b));
         }
-        assert_eq!((BodyRef::Rock(5).bits(), BodyRef::Landmark(5).bits()), (12, 6));
-        // Both kinds place a rider to the same 1.5625 cm.
-        for b in [BodyRef::Rock(0), BodyRef::Landmark(0)] {
+        assert_eq!((BodyRef::Rock(5).bits(), BodyRef::Landmark(5).bits(), BodyRef::City.bits()), (12, 6, 2));
+        // Every kind places a rider to the same 1.5625 cm.
+        for b in [BodyRef::Rock(0), BodyRef::Landmark(0), BodyRef::City] {
             let step = crate::quant::signed_step(b.local_max(), b.local_bits());
             assert!((step - 0.015_625).abs() < 1e-6, "{b:?}: {step}");
         }
-        for kind in 2..4 {
-            let mut buf = [0u8; 4];
-            let mut w = BitWriter::new(&mut buf);
-            w.write_bits(kind, BodyRef::KIND_BITS);
-            w.write_bits(7, ROCK_BITS);
-            assert_eq!(BodyRef::read(&mut BitReader::new(&buf)), Err(DecodeError::Invalid));
-        }
+        let mut buf = [0u8; 4];
+        let mut w = BitWriter::new(&mut buf);
+        w.write_bits(3, BodyRef::KIND_BITS);
+        w.write_bits(7, ROCK_BITS);
+        assert_eq!(BodyRef::read(&mut BitReader::new(&buf)), Err(DecodeError::Invalid));
     }
 
     #[test]

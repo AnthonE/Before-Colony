@@ -19,10 +19,11 @@
 //! UVs: on walls, metres along the wall and up from the floor; on roofs and the ground, `s` and `x`.
 
 use bc_sim::colony::city::{
-    BLOCK, BlockKind, Building, CANAL_DEPTH, CityBox, GRID_X0, KERB, MAX_HEIGHT, RAILING, ROWS, Rect, Stage,
-    Style, block, channel, lots, mix, unit,
+    BLOCK, BlockKind, Building, CANAL_DEPTH, CityBox, DOOR_HEIGHT, DOOR_WIDTH, GRID_X0, KERB, MAX_HEIGHT,
+    MAX_SOLIDS, RAILING, ROWS, Rect, Room, Stage, Style, WALL, block, channel, lots, mix, unit,
 };
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, strip_edge};
+use bc_sim::content::city::{PLACES, PlaceKind};
 use bc_sim::world::{COLONY_HALF_LENGTH, COLONY_RADIUS};
 use glam::Vec3;
 
@@ -48,6 +49,14 @@ pub enum Surface {
     Glass = 12,
     /// An end cap's inner face.
     Cap = 13,
+    /// Inside a key place's room (lit indoors, `bc_sim::colony::city::Room`): its walls, its floor,
+    /// its ceiling (lamps in it), its counter, and its back wall, which shows what the place is
+    /// (the seed: 1 the bar's shelves, 2 the Exchange's boards, 3 the Charter Board's notices).
+    Interior = 14,
+    Floor = 15,
+    Ceiling = 16,
+    Counter = 17,
+    Display = 18,
 }
 
 /// A chunk's mesh: the renderer's vertex arrays.
@@ -223,6 +232,76 @@ impl Builder {
         }
     }
 
+    /// A wall at `x` along, from `s0` to `s1` across and `h0` to `h1` up, facing ±X (`nx`): flat in
+    /// x, curved across. UVs: metres across from `u0`, and up.
+    #[allow(clippy::too_many_arguments)]
+    fn wall_x(
+        &mut self,
+        x: f32,
+        s0: f32,
+        s1: f32,
+        h0: f32,
+        h1: f32,
+        nx: f32,
+        u0: f32,
+        col: impl Fn(f32) -> [f32; 4],
+    ) {
+        let n = Self::cuts(s0.min(s1), s0.max(s1), false);
+        let normal = Vec3::X * nx;
+        let (mut lo, mut hi) = (Vec::with_capacity(n as usize + 1), Vec::with_capacity(n as usize + 1));
+        for i in 0..=n {
+            let s = s0 + (s1 - s0) * i as f32 / n as f32;
+            let u = (s - u0).abs();
+            lo.push(self.vertex(self.at(s, x, h0), normal, [u, h0], col(h0)));
+            hi.push(self.vertex(self.at(s, x, h1), normal, [u, h1], col(h1)));
+        }
+        for i in 0..n as usize {
+            self.quad([lo[i], lo[i + 1], hi[i + 1], hi[i]], normal);
+        }
+    }
+
+    /// A wall at `s` across, from `x0` to `x1` along and `h0` to `h1` up, facing ±s (`ns`): plumb,
+    /// so plane. UVs: metres along from `u0`, and up.
+    #[allow(clippy::too_many_arguments)]
+    fn wall_s(
+        &mut self,
+        s: f32,
+        x0: f32,
+        x1: f32,
+        h0: f32,
+        h1: f32,
+        ns: f32,
+        u0: f32,
+        col: impl Fn(f32) -> [f32; 4],
+    ) {
+        let normal = self.across(s) * ns;
+        let (ua, ub) = ((x0 - u0).abs(), (x1 - u0).abs());
+        let v = [
+            self.vertex(self.at(s, x0, h0), normal, [ua, h0], col(h0)),
+            self.vertex(self.at(s, x1, h0), normal, [ub, h0], col(h0)),
+            self.vertex(self.at(s, x1, h1), normal, [ub, h1], col(h1)),
+            self.vertex(self.at(s, x0, h1), normal, [ua, h1], col(h1)),
+        ];
+        self.quad(v, normal);
+    }
+
+    /// A level face over `r` at `h`, facing up (or down, `down`): curved across. UVs: `s`, `x`.
+    fn level(&mut self, r: &Rect, h: f32, down: bool, col: [f32; 4]) {
+        let n = Self::cuts(r.s0, r.s1, false);
+        let sign = if down { -1.0 } else { 1.0 };
+        let (mut a, mut b) = (Vec::with_capacity(n as usize + 1), Vec::with_capacity(n as usize + 1));
+        for i in 0..=n {
+            let s = r.s0 + r.width() * i as f32 / n as f32;
+            let up = self.up(s) * sign;
+            a.push(self.vertex(self.at(s, r.x0, h), up, [s, r.x0], col));
+            b.push(self.vertex(self.at(s, r.x1, h), up, [s, r.x1], col));
+        }
+        for i in 0..n as usize {
+            let up = self.up(r.s0 + r.width() * (i as f32 + 0.5) / n as f32) * sign;
+            self.quad([a[i], a[i + 1], b[i + 1], b[i]], up);
+        }
+    }
+
     /// A tree: a trunk and a crown (an octahedron), standing at `(s, x)` on `h`.
     fn tree(&mut self, s: f32, x: f32, h: f32, size: f32, seed: f32) {
         let trunk =
@@ -265,11 +344,98 @@ fn faces(b: &Building) -> (Surface, Surface) {
     }
 }
 
+/// A key place's hall with the room behind its door (`bc_sim::colony::city::Room`), close up: its
+/// outside, its front cut for the door and the door's reveal through the wall; inside, the room's
+/// walls, the back wall showing what the place is, the ceiling with its lamps, the floor, and the
+/// counter.
+fn hall_with_room(m: &mut Builder, b: &Building, room: &Room, seed: f32, tall: f32) {
+    let f = room.front;
+    let foot = b.foot;
+    // The hall's extent along its front, about its middle, and how deep it runs in.
+    let (u0, u1, depth) = if f.along_s {
+        (foot.s0 - f.middle, foot.s1 - f.middle, foot.length())
+    } else {
+        (foot.x0 - f.middle, foot.x1 - f.middle, foot.width())
+    };
+    let (top, c) = (b.height, room.ceiling);
+    let (w, d) = (room.width() * 0.5, room.depth());
+    let door = DOOR_WIDTH * 0.5;
+    let lintel = KERB + DOOR_HEIGHT;
+    let kind = match PLACES[usize::from(room.place)].kind {
+        PlaceKind::Bar => 1.0,
+        PlaceKind::Exchange => 2.0,
+        PlaceKind::Charter => 3.0,
+        PlaceKind::HubGate => 0.0,
+    } / 255.0;
+    let col = |surface: Surface, seed: f32, floor: f32| {
+        move |h: f32| [surface as u8 as f32 / 255.0, seed, if h - floor < 3.0 { 0.62 } else { 1.0 }, tall]
+    };
+    let hall = col(Surface::Hall, seed, KERB);
+    let inside = col(Surface::Interior, kind, KERB);
+    let display = col(Surface::Display, kind, KERB);
+    // A face square to the way in, `v` in from the front, `ua..ub` along it: facing in (`inward`),
+    // or out of the hall toward the front.
+    let vface = |m: &mut Builder,
+                 v: f32,
+                 (ua, ub): (f32, f32),
+                 (h0, h1): (f32, f32),
+                 inward: bool,
+                 colour: &dyn Fn(f32) -> [f32; 4]| {
+        let at = f.face + f.sign * v;
+        let n = if inward { f.sign } else { -f.sign };
+        if f.along_s {
+            m.wall_x(at, f.middle + ua, f.middle + ub, h0, h1, n, f.middle + u0, colour);
+        } else {
+            m.wall_s(at, f.middle + ua, f.middle + ub, h0, h1, n, f.middle + u0, colour);
+        }
+    };
+    // A face along the way in, `u` along the front, `va..vb` in: facing +along (`plus`) or −.
+    let uface = |m: &mut Builder,
+                 u: f32,
+                 (va, vb): (f32, f32),
+                 (h0, h1): (f32, f32),
+                 plus: bool,
+                 colour: &dyn Fn(f32) -> [f32; 4]| {
+        let at = f.middle + u;
+        let (a, b) = (f.face + f.sign * va, f.face + f.sign * vb);
+        let n = if plus { 1.0 } else { -1.0 };
+        if f.along_s {
+            m.wall_s(at, a.min(b), a.max(b), h0, h1, n, a.min(b), colour);
+        } else {
+            m.wall_x(at, a.min(b), a.max(b), h0, h1, n, a.min(b), colour);
+        }
+    };
+    // Outside: the roof, the back and the ends, and the front round the door.
+    m.level(&foot, top, false, [Surface::Roof as u8 as f32 / 255.0, seed, 1.0, tall]);
+    vface(m, depth, (u0, u1), (KERB, top), true, &hall);
+    uface(m, u0, (0.0, depth), (KERB, top), false, &hall);
+    uface(m, u1, (0.0, depth), (KERB, top), true, &hall);
+    vface(m, 0.0, (u0, -door), (KERB, top), false, &hall);
+    vface(m, 0.0, (door, u1), (KERB, top), false, &hall);
+    vface(m, 0.0, (-door, door), (lintel, top), false, &hall);
+    // The door's reveal, through the front wall.
+    uface(m, -door, (0.0, WALL), (KERB, lintel), true, &inside);
+    uface(m, door, (0.0, WALL), (KERB, lintel), false, &inside);
+    m.level(&f.rect(-door, door, 0.0, WALL), lintel, true, inside(lintel));
+    // Inside: the front wall round the door, the sides, the back wall's display.
+    vface(m, WALL, (-w, -door), (KERB, c), true, &inside);
+    vface(m, WALL, (door, w), (KERB, c), true, &inside);
+    vface(m, WALL, (-door, door), (lintel, c), true, &inside);
+    uface(m, -w, (WALL, d), (KERB, c), true, &inside);
+    uface(m, w, (WALL, d), (KERB, c), false, &inside);
+    vface(m, d, (-w, w), (KERB, c), false, &display);
+    // Its ceiling, its floor (just over the kerb's top, which is the street's pavement), its counter.
+    m.level(&room.rect, c, true, [Surface::Ceiling as u8 as f32 / 255.0, kind, 1.0, tall]);
+    m.level(&room.rect, KERB + 0.005, false, [Surface::Floor as u8 as f32 / 255.0, kind, 1.0, tall]);
+    let counter = CityBox { rect: room.counter, h0: KERB, h1: KERB + bc_sim::colony::city::COUNTER_HEIGHT };
+    m.city_box(&counter, Surface::Counter, Surface::Counter, kind, tall, true);
+}
+
 /// A site's frame: corner columns and a floor's beams every second floor.
 fn frame(m: &mut Builder, b: &Building, seed: f32) {
     let f = b.foot;
     let c = 1.2;
-    let mut boxes = [CityBox::default(); 4];
+    let mut boxes = [CityBox::default(); MAX_SOLIDS];
     let n = b.solids(&mut boxes);
     for bx in &boxes[..n] {
         m.city_box(bx, Surface::Steel, Surface::Steel, seed, 0.0, true);
@@ -321,7 +487,7 @@ fn crane(m: &mut Builder, b: &Building, seed: f32) {
 pub fn chunk(key: ChunkKey, stage: Stage) -> CityMesh {
     let mut m = Builder::new(key.strip, key.anchor());
     let ((b0, b1), (r0, r1)) = key.blocks();
-    let mut boxes = [CityBox::default(); 4];
+    let mut boxes = [CityBox::default(); MAX_SOLIDS];
     for bx in b0..b1 {
         for ri in r0..r1 {
             let row = row_of_index(ri);
@@ -337,9 +503,16 @@ pub fn chunk(key: ChunkKey, stage: Stage) -> CityMesh {
                     for bd in buildings {
                         let s = (bd.seed & 0xff) as f32 / 255.0;
                         let tall = bd.top() / MAX_HEIGHT;
-                        match bd.style {
-                            Style::Frame if key.lod == 0 => frame(&mut m, bd, s),
-                            Style::Crane => crane(&mut m, bd, s),
+                        match (bd.style, bd.room) {
+                            (Style::Frame, _) if key.lod == 0 => frame(&mut m, bd, s),
+                            (Style::Crane, _) => crane(&mut m, bd, s),
+                            // A key place's hall: close up, its room inside; further off, its bulk.
+                            (_, Some(room)) if key.lod == 0 => hall_with_room(&mut m, bd, &room, s, tall),
+                            (_, Some(_)) => {
+                                let (wall, roof) = faces(bd);
+                                let cb = CityBox { rect: bd.foot, h0: KERB, h1: bd.height };
+                                m.city_box(&cb, wall, roof, s, tall, false);
+                            }
                             _ => {
                                 let n = bd.solids(&mut boxes);
                                 let (wall, roof) = faces(bd);
@@ -689,15 +862,44 @@ mod tests {
 
     #[test]
     fn faces_face_out() {
-        let key = ChunkKey::of(0, 0, 30, -2);
-        let m = chunk(key, Stage(0));
-        for t in m.indices.chunks(3) {
-            let p = |i: u32| Vec3::from_array(m.positions[i as usize]);
-            let g = (p(t[1]) - p(t[0])).cross(p(t[2]) - p(t[0]));
-            let n = Vec3::from_array(m.normals[t[0] as usize]);
-            if g.length() > 1e-4 {
-                assert!(g.normalize().dot(n) > 0.5, "a face wound inwards");
+        // A tower's block, and the Exchange floor's (its room's walls face into the room).
+        for key in [ChunkKey::of(0, 0, 30, -2), ChunkKey::of(0, 0, 10, 2)] {
+            let m = chunk(key, Stage(0));
+            for t in m.indices.chunks(3) {
+                let p = |i: u32| Vec3::from_array(m.positions[i as usize]);
+                let g = (p(t[1]) - p(t[0])).cross(p(t[2]) - p(t[0]));
+                let n = Vec3::from_array(m.normals[t[0] as usize]);
+                if g.length() > 1e-4 {
+                    assert!(g.normalize().dot(n) > 0.5, "a face wound inwards in {key:?}");
+                }
             }
+        }
+    }
+
+    #[test]
+    fn the_key_places_rooms_are_drawn_close_up() {
+        use bc_sim::colony::city::room;
+        let has = |m: &CityMesh, s: Surface| m.colors.iter().any(|c| (c[0] * 255.0).round() as u8 == s as u8);
+        for (i, p) in PLACES.iter().enumerate() {
+            let Some(r) = room(i) else { continue };
+            let near = chunk(ChunkKey::of(p.strip, 0, p.bx, p.row), Stage(0));
+            for s in [Surface::Interior, Surface::Floor, Surface::Ceiling, Surface::Counter, Surface::Display]
+            {
+                assert!(has(&near, s), "{}: no {s:?} close up", p.name);
+            }
+            // The room's ceiling is where the rules have it, facing down into it.
+            let key = ChunkKey::of(p.strip, 0, p.bx, p.row);
+            let ceiling = near
+                .positions
+                .iter()
+                .zip(&near.colors)
+                .filter(|(_, c)| (c[0] * 255.0).round() as u8 == Surface::Ceiling as u8)
+                .map(|(pos, _)| back(key, *pos).h)
+                .fold(0.0f32, f32::max);
+            assert!((ceiling - r.ceiling).abs() < 0.01, "{}: {ceiling} vs {}", p.name, r.ceiling);
+            // Further off, the hall is its bulk.
+            let far = chunk(ChunkKey::of(p.strip, 1, p.bx, p.row), Stage(0));
+            assert!(!has(&far, Surface::Interior) && has(&far, Surface::Hall), "{} at L1", p.name);
         }
     }
 

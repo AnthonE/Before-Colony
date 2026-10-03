@@ -78,7 +78,7 @@ pub const BINDINGS: &[Binding] = &[
     b(
         Group::Colony,
         "E",
-        "Use a door: the Exchange floor, the Charter Board, The Arrival; at Hub Gate, the cap lift up to your bay; at a motor pool, take a car",
+        "Use a place at its counter, in through its door: the Exchange floor, the Charter Board, The Arrival; at Hub Gate's door, the cap lift up to your bay; at a motor pool, take a car",
     ),
     b(Group::Colony, "Q", "At a motor pool (Hub Gate's, or by a tram station): take a scooter"),
     b(Group::Colony, "E (by a seat)", "Sit outside The Arrival; E again, or a step, stands you up"),

@@ -84,6 +84,9 @@ pub struct Game {
     /// The auto-nav, while it's flying the pilot's course (`chart.rs`): it holds the stick every
     /// tick, and the pilot's buttons (but boost, brake and the grip) still count.
     pub nav: Option<AutoNav>,
+    /// A dev hook's errand inside the colony (`fly_to`): flight assist flies the suit to this point
+    /// of the colony's frame, and lets go once it's there.
+    pub fly_to: Option<Vec3>,
 }
 
 impl Game {
@@ -106,6 +109,7 @@ impl Game {
             controls: InputCmd::default(),
             controls_for: None,
             nav: None,
+            fly_to: None,
         }
     }
 }
@@ -252,7 +256,7 @@ fn pump(g: &mut Game, t: &Transport, now: f64) {
             Brain::Lander(b) => b.decide(ctx),
         })
     } else {
-        let (cmd, seeded) = (g.controls, g.controls_for);
+        let (cmd, seeded, fly_to) = (g.controls, g.controls_for, g.fly_to);
         let Game { core, nav, hard, .. } = &mut *g;
         core.poll_inputs(now, &mut |ctx| match ctx.world.own {
             // News of a suit the controls aren't set up for yet came in between frames (one woken
@@ -263,6 +267,10 @@ fn pump(g: &mut Game, t: &Transport, now: f64) {
                 buttons: FLIGHT_ASSIST | if o.surface.is_some() { GRIP } else { 0 },
                 ..InputCmd::default()
             },
+            // A dev hook's errand (`fly_to`): flight assist toward the point, slowing as it nears.
+            Some(o) if fly_to.is_some() => {
+                fly_toward(ctx, frame(o.frame).fa_speed, fly_to.unwrap_or(ctx.predict.state.pos))
+            }
             // The auto-nav holds the stick: a velocity for flight assist to fly, worked out from
             // the prediction tick by tick, in the suit's own axes (so no lock-on rides with it, and
             // no burst step). Else, locked on, the keys move the suit about its target.
@@ -281,10 +289,35 @@ fn pump(g: &mut Game, t: &Transport, now: f64) {
     for p in &packets {
         t.send_datagram(p);
     }
-    // On foot in the colony: where the pilot stands (`onfoot` sets it).
-    if let Some(p) = g.core.poll_pose(now) {
-        t.send_datagram(&p);
+    // (On foot in the colony, where the pilot stands is sent by `onfoot`, the frame it's taken.)
+}
+
+/// The command flying a suit (on flight assist) toward `to` in its sector's frame: a velocity there,
+/// eased as it nears and no faster than 120 m/s, in the suit's own axes (`fa_speed` full stick).
+fn fly_toward(ctx: &bc_client_core::InputContext, fa_speed: f32, to: Vec3) -> InputCmd {
+    let s = &ctx.predict.state;
+    let d = to - s.pos;
+    let want = d.normalize_or_zero() * (d.length() * 0.3).min(120.0);
+    let stick = s.rot.conjugate() * want / fa_speed.max(1.0);
+    let q = |x: f32| (x.clamp(-1.0, 1.0) * 127.0).round() as i8;
+    InputCmd {
+        thrust: [q(stick.x), q(stick.y), q(stick.z)],
+        aim: d.normalize_or(s.rot * Vec3::Z),
+        buttons: FLIGHT_ASSIST,
+        ..InputCmd::default()
     }
+}
+
+/// Where a `fly_to` errand goes, in the colony's frame: `up` metres over a place's door (by its
+/// slug), `ahead` metres out from it; or the inner gate (`inner_gate`), `ahead` metres down the
+/// colony from it.
+fn fly_target(slug: &str, up: f32, ahead: f32) -> Option<Vec3> {
+    if slug == "inner_gate" {
+        return Some(bc_sim::colony::interior::INNER_GATE + Vec3::X * ahead);
+    }
+    let (_, p) = bc_sim::colony::city::place(slug)?;
+    let ((s, x), (ds, dx)) = bc_sim::colony::city::place_door(p);
+    Some(bc_sim::colony::frame::CityPos::new(p.strip, x - dx * ahead, s - ds * ahead, up).to_colony())
 }
 
 /// Per rendered frame: publishes the pilot's controls, runs the network loop once, and advances
@@ -293,12 +326,25 @@ pub fn drive(
     net: NonSend<NetState>,
     game: NonSend<GameClient>,
     controls: Res<Controls>,
+    cmds: Res<crate::page::UiCmds>,
     mut aim: ResMut<Aim>,
     time: Res<Time<Real>>,
+    mut dev: ResMut<DevStatus>,
 ) {
     let Some(t) = net.get() else { return };
     let now = now_s();
     let mut g = game.borrow_mut();
+    for cmd in &cmds.0 {
+        if let crate::page::UiCmd::FlyTo(to) = cmd {
+            g.fly_to = to.as_ref().and_then(|(slug, up, ahead)| fly_target(slug, *up, *ahead));
+        }
+    }
+    // The errand's done once the suit is there (or gone, or out of the colony).
+    let here = g.core.own_view().filter(|v| v.alive).map(|v| v.pos);
+    if g.fly_to.is_some_and(|to| !g.core.inside() || here.is_none_or(|p| p.distance(to) < 8.0)) {
+        g.fly_to = None;
+    }
+    dev.set("flying_to", g.fly_to.is_some());
     // The lock-on's target; else lock assist, for frames with missiles to guide: the hostile the
     // reticle is on.
     let launcher = g.core.world.own.is_some_and(|o| o.alive && frame(o.frame).lock_spec().is_some());

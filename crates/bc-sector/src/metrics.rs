@@ -21,6 +21,22 @@ pub struct PilotStats {
     pub suit: AtomicU64,
     /// Credits the pilot has earned (a signed-in pilot keeps them).
     pub credits: AtomicU64,
+    /// Where the suit is in the sector's frame (`f32` bits an axis): what the session shows its
+    /// pilot round it off the tick (the colony's people, for a suit inside).
+    pos: [AtomicU64; 3],
+}
+
+impl PilotStats {
+    pub fn set_pos(&self, p: glam::Vec3) {
+        for (a, v) in self.pos.iter().zip(p.to_array()) {
+            a.store(u64::from(v.to_bits()), Ordering::Relaxed);
+        }
+    }
+
+    /// Where the suit was at the end of a recent tick (an axis may be a tick newer than another).
+    pub fn pos(&self) -> glam::Vec3 {
+        glam::Vec3::from_array(self.pos.each_ref().map(|a| f32::from_bits(a.load(Ordering::Relaxed) as u32)))
+    }
 }
 
 pub struct Metrics {
@@ -37,6 +53,8 @@ pub struct Metrics {
     pub inputs_stale: AtomicU64,
     pub inputs_missing: AtomicU64,
     pub clients: AtomicU64,
+    /// Spectators watching the sector's suits (pilots on foot in the colony's city).
+    pub watchers: AtomicU64,
     pub suits_alive: AtomicU64,
     /// Suits whose pilots are offline, asleep in the cockpit; and those of them parked on a body.
     pub sleepers: AtomicU64,
@@ -76,6 +94,7 @@ impl Metrics {
             inputs_stale: AtomicU64::new(0),
             inputs_missing: AtomicU64::new(0),
             clients: AtomicU64::new(0),
+            watchers: AtomicU64::new(0),
             suits_alive: AtomicU64::new(0),
             sleepers: AtomicU64::new(0),
             parked: AtomicU64::new(0),

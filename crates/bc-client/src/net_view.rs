@@ -54,7 +54,15 @@ fn thrust_estimate(frame_id: bc_proto::FrameId, rot: Quat, now: &Pose, before: &
     let accel = match (now.ground, before.ground) {
         (Some(g), _) if !g.aloft => return Vec3::ZERO,
         (Some(g), Some(b)) if b.body == g.body => {
-            let a = (g.rel_vel - b.rel_vel) * TICK_HZ as f32 + g.up * GRIP_ACCEL;
+            // The grip's pull, or over the colony's city, the colony's.
+            let pull = match g.body {
+                bc_sim::bodies::Body::City => {
+                    let r = Vec2::new(now.pos.y, now.pos.z).length();
+                    bc_sim::colony::frame::gravity(bc_sim::world::COLONY_RADIUS - r)
+                }
+                _ => GRIP_ACCEL,
+            };
+            let a = (g.rel_vel - b.rel_vel) * TICK_HZ as f32 + g.up * pull;
             // Falling at the brake's limit, nothing pushes along the normal.
             if g.rel_vel.dot(g.up) <= -(LAND_SPEED_MAX - 0.25) { a - g.up * a.dot(g.up) } else { a }
         }

@@ -690,9 +690,9 @@ fn surface_golden_wasm() {
 
 /// Hash of the colony's closed forms: the city's blocks and buildings on every strip (every fifth
 /// block along, every row), what's solid at scattered points, the colony's day and its frames,
-/// and its trams (their timetable, the stations' platforms).
-/// Every client draws and walks this, and the server checks poses against it.
-const CITY_GOLDEN: u64 = 0xa794_5f3a_f31a_0372;
+/// its trams (their timetable, the stations' platforms), and the key places' rooms and the halls
+/// round them. Every client draws and walks this, and the server checks poses against it.
+const CITY_GOLDEN: u64 = 0x3a9e_d960_4c23_7688;
 
 fn city_hash() -> u64 {
     use bc_sim::colony::{city, frame, time};
@@ -767,6 +767,28 @@ fn city_hash() -> u64 {
         let e = glam::Vec3::new(0.3, 0.9, 0.3);
         fnv(&mut h, u32::from(city::solid((i % 3) as u8, p - e, p + e, stage)));
     }
+    // The key places' rooms, and the halls round them.
+    use bc_sim::content::city::PLACES;
+    for (i, p) in PLACES.iter().enumerate() {
+        let Some(room) = city::room(i) else { continue };
+        let ((cs, cx), _) = room.counter_spot();
+        for r in [room.rect, room.door, room.counter] {
+            for v in [r.s0, r.s1, r.x0, r.x1] {
+                fnv(&mut h, v.to_bits());
+            }
+        }
+        for v in [room.ceiling, cs, cx] {
+            fnv(&mut h, v.to_bits());
+        }
+        let b = city::block(p.strip, p.bx, p.row, stage).expect("its block");
+        let mut boxes = [city::CityBox::default(); city::MAX_SOLIDS];
+        let n = city::lots(&b).as_slice()[0].solids(&mut boxes);
+        for bx in &boxes[..n] {
+            for v in [bx.rect.s0, bx.rect.s1, bx.rect.x0, bx.rect.x1, bx.h0, bx.h1] {
+                fnv(&mut h, v.to_bits());
+            }
+        }
+    }
     h
 }
 
@@ -786,15 +808,17 @@ fn city_golden_wasm() {
 
 /// Hash after 600 ticks of suits flying the colony's inside: launched from the inner gate, some on
 /// flight assist weaving among the towers, some falling to the floor and the roofs, firing all the
-/// while (which the colony's law ignores). The spin's pull, Coriolis, the air and the city's boxes,
-/// to the bit native and wasm.
-const INTERIOR_GOLDEN: u64 = 0x8d4d_0a78_c0d1_b884;
+/// while (which the colony's law ignores), and two with their grips armed, landing on the avenue
+/// and walking it, running, crouching and hopping. The spin's pull, Coriolis, the air, the city's
+/// boxes and its ground, to the bit native and wasm.
+const INTERIOR_GOLDEN: u64 = 0x0010_6f5d_5bd0_5136;
 
 fn interior_hash() -> u64 {
-    use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FLIGHT_ASSIST};
+    use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FLIGHT_ASSIST, GRIP};
     use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
-    use bc_sim::colony::frame::CityPos;
+    use bc_sim::colony::frame::{CityPos, STRIP_WIDTH};
     use bc_sim::colony::interior::WorldKind;
+    use bc_sim::colony::transit::station_x;
     use bc_sim::sim::Loadout;
     use bc_sim::{Sim, SimConfig};
     use glam::Vec3;
@@ -814,11 +838,18 @@ fn interior_hash() -> u64 {
         FrameId::Deathscythe,
         FrameId::Leo,
         FrameId::Sandrock,
+        FrameId::Leo,
+        FrameId::Heavyarms,
     ];
     let mut ids = Vec::new();
     for (k, f) in frames.into_iter().enumerate() {
         let id = sim.launch(f, Faction::Colonies, PilotKind::Human, &Loadout::full(f)).unwrap();
-        if k >= 3 {
+        if k >= 6 {
+            // Over the avenue, low enough for an armed grip to catch.
+            let x = (station_x(2) + station_x(3)) * 0.5 + (k as f32 - 6.0) * 60.0;
+            let at = CityPos::new(0, x, STRIP_WIDTH * 0.5 + 24.0, 25.0);
+            sim.suits.flight[id.idx()].pos = at.to_colony();
+        } else if k >= 3 {
             // Over the city, low among the buildings.
             let at =
                 CityPos::new((k % 3) as u8, -8_000.0 + k as f32 * 300.0, 1_200.0 + k as f32 * 150.0, 60.0);
@@ -833,12 +864,17 @@ fn interior_hash() -> u64 {
             let phase = (n / 60 + k as u32) % 4;
             let yaw = bc_sim::math::sin(n as f32 * 0.01 + k as f32);
             let aim = (f.rot * Vec3::Z + Vec3::new(0.0, yaw * 0.3, yaw * 0.2)).normalize();
-            let (buttons, thrust) = match (k % 2, phase) {
-                (0, 0) => (FLIGHT_ASSIST | FIRE_PRIMARY, [0, 0, 100]),
-                (0, 1) => (FLIGHT_ASSIST | BOOST, [40, 0, 127]),
-                (0, _) => (FLIGHT_ASSIST, [-30, 20, 0]),
-                (_, 0) => (0, [0, 0, 0]),
-                (_, _) => (FIRE_PRIMARY, [0, -60, 50]),
+            let (buttons, thrust) = match (k, k % 2, phase) {
+                // On the city: walking, running, crouched, and a hop.
+                (6.., _, 0) => (GRIP | FLIGHT_ASSIST, [0, 0, 127]),
+                (6.., _, 1) => (GRIP | FLIGHT_ASSIST | BOOST, [60, 0, 127]),
+                (6.., _, 2) => (GRIP | FLIGHT_ASSIST, [0, -100, -127]),
+                (6.., _, _) => (GRIP | FLIGHT_ASSIST, [0, if n % 60 < 3 { 127 } else { 40 }, 40]),
+                (_, 0, 0) => (FLIGHT_ASSIST | FIRE_PRIMARY, [0, 0, 100]),
+                (_, 0, 1) => (FLIGHT_ASSIST | BOOST, [40, 0, 127]),
+                (_, 0, _) => (FLIGHT_ASSIST, [-30, 20, 0]),
+                (_, _, 0) => (0, [0, 0, 0]),
+                (_, _, _) => (FIRE_PRIMARY, [0, -60, 50]),
             };
             sim.set_input(
                 *id,
@@ -848,6 +884,10 @@ fn interior_hash() -> u64 {
         sim.step();
     }
     assert_eq!(sim.projectiles.count(), 0, "weapons safe");
+    assert!(
+        ids[6..].iter().all(|id| sim.suits.anchor[id.idx()].body == bc_sim::bodies::Body::City),
+        "on the city"
+    );
     sim.state_hash()
 }
 

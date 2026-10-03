@@ -64,6 +64,10 @@ pub enum UiCmd {
     /// Dev hook, flying: keep the aim on the nearest hostile (headless browsers can't lock the
     /// pointer to aim with), or stop.
     AimHostile(bool),
+    /// Dev hook, flying inside the colony: fly the suit (flight assist) to `up` metres over a
+    /// place's door (by its slug), `ahead` metres out from it (or to the inner gate,
+    /// `inner_gate`), or stop (`None`).
+    FlyTo(Option<(String, f32, f32)>),
     Use,
     Skip,
 }
@@ -175,6 +179,8 @@ pub struct Ui {
     pub map_at: Option<[f32; 4]>,
     /// The objective's place on the map, by slug (its door gets the ◆).
     pub map_goal: Option<&'static str>,
+    /// The sights found (`bc_client_core::sights`): the map marks them, and lists them.
+    pub map_found: u32,
     /// A sortie's news, shown large for a few seconds.
     news_seq: u32,
     news: String,
@@ -270,6 +276,10 @@ fn parse(v: &JsValue) -> Option<UiCmd> {
         "chat" => UiCmd::Chat(get(v, "open").as_bool().unwrap_or(false)),
         "walk_to" => UiCmd::WalkTo(s("spot")),
         "aim_hostile" => UiCmd::AimHostile(get(v, "on").as_bool().unwrap_or(false)),
+        "fly_to" => UiCmd::FlyTo(Some(s("spot")).filter(|spot| !spot.is_empty()).map(|spot| {
+            let num = |k: &str| get(v, k).as_f64().unwrap_or(0.0) as f32;
+            (spot, num("up"), num("ahead"))
+        })),
         "use" => UiCmd::Use,
         "skip" => UiCmd::Skip,
         _ => return None,
@@ -368,6 +378,7 @@ pub struct View {
     bay_line: String,
     map_at: Option<[f32; 4]>,
     map_goal: Option<&'static str>,
+    map_found: u32,
     news_seq: u32,
     news: String,
     news_bad: bool,
@@ -411,6 +422,7 @@ impl View {
             bay_line: ui.bay_line.clone(),
             map_at: ui.map_at.filter(|_| ui.map),
             map_goal: ui.map_goal.filter(|_| ui.map),
+            map_found: ui.map_found,
             news_seq: ui.news_seq,
             news: ui.news.clone(),
             news_bad: ui.news_bad,
@@ -458,6 +470,7 @@ impl View {
         if let Some(goal) = self.map_goal {
             set(&o, "mapGoal", goal);
         }
+        set(&o, "mapFound", self.map_found);
         set(&o, "newsSeq", self.news_seq);
         set(&o, "news", self.news.as_str());
         set(&o, "newsBad", self.news_bad);
@@ -612,9 +625,12 @@ fn city_map() -> Object {
         }
         set(&strip, "places", places);
         let sights = Array::new();
-        for &(_, bx, row, name) in SIGHTS.iter().filter(|s| s.0 as usize == k) {
-            let (s0, s1) = row_span(row);
-            sights.push(&point(name, (s0 + s1) * 0.5, grid_x(bx) + BLOCK * 0.5));
+        for i in (0..SIGHTS.len()).filter(|i| SIGHTS[*i].0 as usize == k) {
+            let (_, s, x) = bc_client_core::sights::sight_at(i);
+            let o = point(SIGHTS[i].3, s, x);
+            // Its bit on the found-list.
+            set(&o, "i", i as u32);
+            sights.push(&o);
         }
         set(&strip, "sights", sights);
         strips.push(&strip);

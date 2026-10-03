@@ -425,11 +425,6 @@ impl Predictor {
             mods.ambac = busy_ambac(mods.ambac);
         }
         mods.lunge = arms.lunging(spec);
-        if mods.interior {
-            let flight = bc_sim::colony::interior::step(&mut m.flight, cmd, spec, &mods, DT);
-            arms.tick(spec, cmd, form.changing(), cmd.tick);
-            return MoveOut { flight, touchdown: None, caught: false, released: false };
-        }
         let cx = MoveCtx { spec, mods, can_grip: spec.has_legs() && !form.changing(), legs_ok };
         let out = move_step(bodies, m, cmd, &cx, DT);
         arms.tick(spec, cmd, form.changing(), cmd.tick);
@@ -440,7 +435,8 @@ impl Predictor {
     fn fly(&mut self, cmd: &InputCmd) {
         self.rocks_as_at(cmd.tick);
         let mut m = self.mover();
-        let bodies = Bodies::at(&self.field, self.landmarks(), cmd.tick);
+        // (The field alone is borrowed, so the form and the arms can move.)
+        let bodies = Bodies::at(&self.field, self.landmarks(), cmd.tick).inside(self.interior);
         let out =
             Self::step(&bodies, &mut m, &mut self.form, &mut self.arms, &self.flying, self.legs_ok, cmd);
         self.set_mover(&m);
@@ -479,14 +475,25 @@ impl Predictor {
         &self.flying.mods
     }
 
-    /// The sector's bodies (its field and landmarks) at tick `t`.
+    /// The sector's bodies (its field and landmarks; inside the colony, its city) at tick `t`.
     pub fn bodies(&self, t: u32) -> Bodies<'_> {
-        Bodies::at(&self.field, self.landmarks(), t)
+        Bodies::at(&self.field, self.landmarks(), t).inside(self.interior)
     }
 
     /// Where `body` is at time `t` (ticks, fractional).
     pub fn body_pose(&self, body: Body, t: f64) -> Option<BodyPose> {
-        body_pose(&self.field, self.landmarks(), body, t)
+        match body {
+            Body::City => self.interior.then(|| BodyPose::fixed(Vec3::ZERO, glam::Quat::IDENTITY)),
+            _ => body_pose(&self.field, self.landmarks(), body, t),
+        }
+    }
+
+    /// The shape of `body`, in its frame.
+    fn shape_of(&self, body: Body) -> Option<bc_sim::bodies::Shape> {
+        match body {
+            Body::City => self.interior.then(bc_sim::bodies::Shape::city),
+            _ => body_shape(&self.field, self.landmarks(), body),
+        }
     }
 
     /// The normal of the ground under the suit (sector frame) while it stands on a body, else zero:
@@ -496,10 +503,7 @@ impl Predictor {
         if self.footing != Footing::Grounded {
             return Vec3::ZERO;
         }
-        match (
-            self.body_pose(a.body, f64::from(self.tick)),
-            body_shape(&self.field, self.landmarks(), a.body),
-        ) {
+        match (self.body_pose(a.body, f64::from(self.tick)), self.shape_of(a.body)) {
             (Some(p), Some(shape)) => p.rot * place(&shape, a.local, a.stance).1,
             _ => Vec3::ZERO,
         }
@@ -754,11 +758,11 @@ impl Predictor {
         chord: Vec3,
     ) -> OwnPose {
         let pos = p.to_world(local.pos);
-        let probe = body_shape(&self.field, self.landmarks(), body).map(|s| s.probe(local.pos));
+        let probe = self.shape_of(body).map(|s| s.probe(local.pos));
         let ground = GroundPose {
             body,
             aloft: footing == Footing::Aloft,
-            up: p.rot * probe.map_or(Vec3::Y, |pr| pr.normal),
+            up: crate::interp::ground_up(body, p, pos, probe.map_or(Vec3::Y, |pr| pr.normal)),
             rel_vel: p.rot * local.vel,
             height: probe.map_or(0.0, |pr| pr.dist),
         };
