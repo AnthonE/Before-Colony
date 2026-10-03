@@ -65,8 +65,9 @@ pub enum UiCmd {
     /// pointer to aim with), or stop.
     AimHostile(bool),
     /// Dev hook, flying inside the colony: fly the suit (flight assist) to `up` metres over a
-    /// place's door (by its slug), or stop (`None`).
-    FlyTo(Option<(String, f32)>),
+    /// place's door (by its slug), `ahead` metres out from it (or to the inner gate,
+    /// `inner_gate`), or stop (`None`).
+    FlyTo(Option<(String, f32, f32)>),
     Use,
     Skip,
 }
@@ -275,11 +276,10 @@ fn parse(v: &JsValue) -> Option<UiCmd> {
         "chat" => UiCmd::Chat(get(v, "open").as_bool().unwrap_or(false)),
         "walk_to" => UiCmd::WalkTo(s("spot")),
         "aim_hostile" => UiCmd::AimHostile(get(v, "on").as_bool().unwrap_or(false)),
-        "fly_to" => UiCmd::FlyTo(
-            Some(s("spot"))
-                .filter(|spot| !spot.is_empty())
-                .map(|spot| (spot, get(v, "up").as_f64().unwrap_or(0.0) as f32)),
-        ),
+        "fly_to" => UiCmd::FlyTo(Some(s("spot")).filter(|spot| !spot.is_empty()).map(|spot| {
+            let num = |k: &str| get(v, k).as_f64().unwrap_or(0.0) as f32;
+            (spot, num("up"), num("ahead"))
+        })),
         "use" => UiCmd::Use,
         "skip" => UiCmd::Skip,
         _ => return None,

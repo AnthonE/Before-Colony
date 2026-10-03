@@ -1,8 +1,11 @@
-# Before Colony wire protocol (v18)
+# Before Colony wire protocol (v19)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v19 (from v18): suits standing on the colony's city, and walking it: the body reference's kind 2
+(`City`, no id), its riders placed over ±16 384 m (below).
 
 v18 (from v17): spectator snapshots, for pilots on foot in the colony's city watching the suits
 inside it (the header's SPECTATOR flag); the colony's inside keeping the outside's tick; plaza
@@ -16,7 +19,7 @@ datagrams for pilots flying inside; and the key places' rooms in the city
 | Entity position | 3 × 21 bits over ±32 768 m (3.1 cm steps) |
 | Entity velocity | 3 × 14 bits over ±2 048 m/s (0.25 m/s) |
 | Entity rotation | smallest-three: 2-bit index + 3 × 10 bits |
-| Rider position (in its body's frame) | 3 × 15 bits over ±256 m on a rock, 3 × 17 bits over ±1 024 m on a landmark (1.5625 cm steps either way) |
+| Rider position (in its body's frame) | 3 × 15 bits over ±256 m on a rock, 3 × 17 bits over ±1 024 m on a landmark, 3 × 21 bits over ±16 384 m on the colony's city (1.5625 cm steps on each) |
 | Rider velocity (over its body) | 3 × 10 bits, two's complement, in steps of 32/511 m/s (6.26 cm/s; zero is exact) |
 | Own position, velocity, propellant, G-strain | raw `f32` (lossless: the client re-simulates from them) |
 | Own rotation | smallest-three at 16 bits per component |
@@ -109,6 +112,9 @@ ZERO's presence bit and the five lists' terminators.
 | With ZERO on (+200 bits) | 36 / 39 | 36 / 39 |
 | A 256-byte connection (2 048 bits) | 5 / 5 | 5 / 5 |
 
+A suit on the colony's city takes 202 bits (its place needs 21 bits an axis): 38 of them fit, the
+own suit flying free, and nothing else.
+
 ### Bodies and riders
 
 A suit standing on a body, in its grip in the air, or parked on it is a *rider*, and is sent in the
@@ -118,16 +124,19 @@ body's frame. A body is named by a `BodyRef`: a 2-bit kind, then an id.
 |---|---|---|
 | 0 | a rock of the debris field | 10 bits (the rock's index) |
 | 1 | a landmark (MO-II, Hermit: `bc_sim::content::landmarks`) | 4 bits (its index) |
-| 2, 3 | invalid: the record doesn't decode | |
+| 2 | the colony's city, in an interior sector (v19): its floor, its buildings and its end caps | none |
+| 3 | invalid: the record doesn't decode | |
 
 Two rules keep this cheap and exact:
 - **Body poses never travel.** Rocks don't move, and come from the Welcome's field; a landmark's
-  pose is a closed form in the integer tick, from compiled content. Client and server work out
-  the same pose for the same tick, to the bit.
+  pose is a closed form in the integer tick, from compiled content; the city stands still at an
+  interior sector's origin (its frame is the colony's own). Client and server work out the same
+  pose for the same tick, to the bit.
 - **A rider is never sent without its body known.** Its rock is in the field (a shattered rock
   keeps its pose: the riders on it are let go a tick later, and the next snapshot sends them
-  free), and its landmark is one of the first `landmarks` of the Welcome. A client drops a record
-  that names any other.
+  free), its landmark is one of the first `landmarks` of the Welcome, and the city is named only
+  in a sector the Welcome says is the colony's inside (INTERIOR). A client drops a record that
+  names any other.
 
 A rider's sector pose is its body's at the snapshot's tick composed with its body-frame pose: the
 position `P + R·local`, the rotation `R·rot`, the velocity the body's surface velocity there plus

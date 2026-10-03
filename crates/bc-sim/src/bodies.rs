@@ -1,5 +1,5 @@
 //! Bodies: what a suit can land on, walk on, park on and hide in. Field rocks, and the sector's
-//! landmarks (`content::landmarks`).
+//! landmarks (`content::landmarks`); inside the colony, its city ([`Body::City`]).
 //!
 //! Each body has a frame of its own. Its surface is a [`Shape`] in that frame, queried with
 //! [`Shape::probe`] (signed distance and outward normal) and swept with [`Shape::trace`]. Its pose
@@ -60,6 +60,10 @@ pub enum Body {
     Rock(u16),
     /// A landmark (`content::landmarks::LANDMARKS`), by index.
     Landmark(u8),
+    /// The colony's inside: its floor, its city's buildings and its end caps
+    /// (`colony::interior::probe`). Only in an interior sector, whose frame is the colony's own,
+    /// so it stands still at the origin.
+    City,
 }
 
 impl Body {
@@ -70,6 +74,7 @@ impl Body {
             Body::None => u32::MAX,
             Body::Rock(r) => u32::from(r),
             Body::Landmark(k) => 0x0001_0000 | u32::from(k),
+            Body::City => 0x0002_0000,
         }
     }
 
@@ -79,6 +84,7 @@ impl Body {
             Body::None => None,
             Body::Rock(r) => Some(BodyRef::Rock(r)),
             Body::Landmark(k) => Some(BodyRef::Landmark(k)),
+            Body::City => Some(BodyRef::City),
         }
     }
 }
@@ -88,6 +94,7 @@ impl From<BodyRef> for Body {
         match b {
             BodyRef::Rock(r) => Body::Rock(r),
             BodyRef::Landmark(k) => Body::Landmark(k),
+            BodyRef::City => Body::City,
         }
     }
 }
@@ -147,6 +154,9 @@ pub enum Base {
     Ellipsoid(Vec3),
     /// Everything inside any of these.
     Union(&'static [Prim]),
+    /// The colony's inside, in its own frame: everything past the hull (the floor and the glass),
+    /// past the end caps, or in the city's boxes (`colony::interior::probe`).
+    City,
 }
 
 /// A primitive of a union, axis-aligned in the body's frame.
@@ -259,14 +269,21 @@ impl Shape {
         Self { base: Base::Ellipsoid(axes), cuts: &[] }
     }
 
+    /// The colony's inside ([`Body::City`]).
+    pub const fn city() -> Self {
+        Self { base: Base::City, cuts: &[] }
+    }
+
     /// Signed distance from `p` to the surface (negative inside), and the outward normal there.
     ///
     /// A union is exact outside (the nearest primitive; ties go to the lower index). An ellipsoid
     /// uses Inigo Quilez's first-order distance: exact on the surface, off by O(d²κ) away from it,
     /// so it is millimetre-true within a foot's height of it. A cut is subtracted exactly (ties go
-    /// to the base). Normals are analytic, never finite differences.
+    /// to the base). Normals are analytic, never finite differences. The city's is
+    /// `colony::interior::probe`'s.
     pub fn probe(&self, p: Vec3) -> Probe {
         let mut out = match self.base {
+            Base::City => crate::colony::interior::probe(p),
             Base::Ellipsoid(a) => {
                 let k0 = length(p / a);
                 let k1 = length(p / (a * a));
@@ -330,7 +347,7 @@ impl Shape {
     /// than `min(a)`).
     pub fn bound(&self, p: Vec3) -> f32 {
         match self.base {
-            Base::Union(_) => self.probe(p).dist,
+            Base::Union(_) | Base::City => self.probe(p).dist,
             Base::Ellipsoid(a) => {
                 let mut d = (length(p / a) - 1.0) * a.min_element();
                 for cut in self.cuts {
@@ -364,7 +381,7 @@ impl Shape {
         }
         match self.base {
             Base::Ellipsoid(axes) => self.solve(axes, a, b, r),
-            Base::Union(_) => {
+            Base::Union(_) | Base::City => {
                 let mut s = d0;
                 for i in 0..TRACE_ITERS {
                     if s >= len {
@@ -565,13 +582,20 @@ pub struct Near {
     pub v_rel: Vec3,
 }
 
-/// Every body at one tick: the field's rocks (which don't move) and the sector's landmarks, posed.
+/// Every body at one tick: the field's rocks (which don't move) and the sector's landmarks, posed;
+/// in an interior sector, the colony's city.
 pub struct Bodies<'a> {
     pub field: &'a Field,
     pub landmarks: &'static [LandmarkDef],
     pub t: u32,
+    /// The sector is the colony's inside (`colony::interior::WorldKind::Interior`): its city is a
+    /// body ([`Body::City`]), and suits fly by its pull, its air and its walls.
+    pub interior: bool,
     now: [BodyPose; MAX_LANDMARKS],
 }
+
+/// Where the city is in an interior sector: at its origin, still.
+const CITY_POSE: BodyPose = BodyPose::fixed(Vec3::ZERO, Quat::IDENTITY);
 
 impl<'a> Bodies<'a> {
     /// The bodies at tick `t` (at most [`MAX_LANDMARKS`] of `landmarks`).
@@ -581,7 +605,12 @@ impl<'a> Bodies<'a> {
         for (k, d) in landmarks.iter().enumerate() {
             now[k] = landmark_pose(d, t, 0.0);
         }
-        Self { field, landmarks, t, now }
+        Self { field, landmarks, t, interior: false, now }
+    }
+
+    /// The same, in the colony's inside if `interior`: its city is a body.
+    pub fn inside(self, interior: bool) -> Self {
+        Self { interior, ..self }
     }
 
     /// Where `b` is now. A shattered rock still has its pose (the seed says where it was).
@@ -596,6 +625,7 @@ impl<'a> Bodies<'a> {
     pub fn pose_at(&self, b: Body, t: u32, frac: f32) -> Option<BodyPose> {
         match b {
             Body::None => None,
+            Body::City => self.interior.then_some(CITY_POSE),
             Body::Rock(r) => {
                 self.field.rocks().get(usize::from(r)).map(|rock| BodyPose::fixed(rock.pos, rock.rot))
             }
@@ -603,21 +633,25 @@ impl<'a> Bodies<'a> {
         }
     }
 
-    /// Whether `b` is there to stand on: a rock not shattered, or a landmark of this sector.
+    /// Whether `b` is there to stand on: a rock not shattered, a landmark of this sector, or the
+    /// city of the colony this sector is the inside of.
     pub fn alive(&self, b: Body) -> bool {
         match b {
             Body::None => false,
+            Body::City => self.interior,
             Body::Rock(r) => usize::from(r) < self.field.len() && !self.field.is_dead(usize::from(r)),
             Body::Landmark(k) => usize::from(k) < self.landmarks.len(),
         }
     }
 
-    /// Whether a suit can grip `b`: a rock big enough ([`GRIP_MIN_AXIS`]), or a landmark made to be.
+    /// Whether a suit can grip `b`: a rock big enough ([`GRIP_MIN_AXIS`]), a landmark made to be,
+    /// or the city.
     pub fn grippable(&self, b: Body) -> bool {
         self.alive(b)
             && match b {
                 Body::Rock(r) => self.field.rocks()[usize::from(r)].axes.min_element() >= GRIP_MIN_AXIS,
                 Body::Landmark(k) => self.landmarks[usize::from(k)].grippable,
+                Body::City => true,
                 Body::None => false,
             }
     }
@@ -626,6 +660,7 @@ impl<'a> Bodies<'a> {
     pub fn shape(&self, b: Body) -> Option<Shape> {
         match b {
             Body::None => None,
+            Body::City => self.interior.then(Shape::city),
             Body::Rock(r) => self.field.rocks().get(usize::from(r)).map(|rock| Shape::ellipsoid(rock.axes)),
             Body::Landmark(k) => self.landmarks.get(usize::from(k)).map(|d| d.shape),
         }
@@ -673,6 +708,25 @@ impl<'a> Bodies<'a> {
         for (k, d) in self.landmarks.iter().enumerate() {
             if d.grippable && length(f.pos - d.center) <= d.bound + d.orbit_radius + reach {
                 consider(Body::Landmark(k as u8), self.now[k], d.shape);
+            }
+        }
+        // Inside the colony, the city: what's straight under the suit, down being the spin's (not
+        // the nearest wall, which a suit standing by it isn't on).
+        if self.interior
+            && let Some(below) = crate::colony::interior::ground_under(f.pos)
+        {
+            let h = below - STANCE;
+            let up = crate::colony::frame::up_at(f.pos);
+            if h <= range && length(f.vel) <= max_speed && f.vel.dot(up) <= max_leave {
+                best = Some(Near {
+                    body: Body::City,
+                    pose: CITY_POSE,
+                    local: f.pos,
+                    n_local: up,
+                    n_world: up,
+                    h,
+                    v_rel: f.vel,
+                });
             }
         }
         best
@@ -736,11 +790,12 @@ impl<'a> Bodies<'a> {
         let reach = match b {
             Body::Rock(r) => self.field.rocks()[usize::from(r)].radius,
             Body::Landmark(k) => self.landmarks[usize::from(k)].bound,
-            Body::None => return None,
+            Body::City | Body::None => return None,
         } + 1.0;
         let dir = normalize_or(dir_local, Vec3::Y);
         let p = match shape.base {
             Base::Ellipsoid(_) => dir * (reach * (1.0 - shape.trace(dir * reach, Vec3::ZERO, 0.0)?)),
+            Base::City => return None,
             Base::Union(_) => {
                 // Sphere tracing in from outside, with no shortest step, never passes the surface.
                 // Not in the tick, it takes the steps it needs.
@@ -830,6 +885,7 @@ mod tests {
         let base = match shape.base {
             Base::Ellipsoid(a) => (q / a).length_squared() < 1.0,
             Base::Union(prims) => prims.iter().any(|p| in_prim(p, q)),
+            Base::City => crate::colony::interior::probe(q).dist < 0.0,
         };
         base && !shape.cuts.iter().any(|c| (q - c.c).length_squared() < c.r * c.r)
     }

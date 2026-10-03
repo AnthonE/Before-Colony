@@ -37,6 +37,16 @@ pub struct GroundPose {
     pub height: f32,
 }
 
+/// Which way is up off `body` (posed `p`) for a suit at `pos` (sector frame), whose nearest
+/// surface's normal is `n_local` (the body's frame): that normal, but on the colony's city, the
+/// spin's up (the nearest surface may be the wall a suit stands by).
+pub fn ground_up(body: Body, p: &BodyPose, pos: Vec3, n_local: Vec3) -> Vec3 {
+    match body {
+        Body::City => bc_sim::colony::frame::up_at(pos),
+        _ => p.rot * n_local,
+    }
+}
+
 /// An interpolated pose.
 #[derive(Clone, Copy, Debug)]
 pub struct Pose {
@@ -186,7 +196,7 @@ impl EntityTrack {
         let ground = GroundPose {
             body,
             aloft: e.on.is_some_and(|on| on.aloft),
-            up: p.rot * probe.normal,
+            up: ground_up(body, &p, w.pos, probe.normal),
             rel_vel: p.rot * kin.vel,
             height: probe.dist,
         };

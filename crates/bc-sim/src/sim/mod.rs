@@ -711,8 +711,10 @@ impl Sim {
         for i in used.iter() {
             self.suits.retune(i);
         }
-        // Every body where it is this tick. It borrows only the field, so the suits can move.
-        let bodies = Bodies::at(&self.field, self.landmarks(), t);
+        // Every body where it is this tick (inside the colony, its city). It borrows only the
+        // field, so the suits can move.
+        let interior = self.interior();
+        let bodies = Bodies::at(&self.field, self.landmarks(), t).inside(interior);
         for i in used.iter() {
             let asleep = self.suits.sleeping.get(i);
             if !self.suits.alive.get(i) {
@@ -722,20 +724,7 @@ impl Sim {
                 f.pos += f.vel * DT;
                 self.field.collide(prev, f);
                 bodies.collide_landmarks(prev, f, None);
-            } else if self.interior() {
-                // Inside the colony: its pull, its air, its hull and its city (`colony::interior`).
-                let cx = self.move_ctx(i);
-                let cmd = self.suits.input[i];
-                let s = &mut self.suits;
-                let out = crate::colony::interior::step(&mut s.flight[i], &cmd, cx.spec, &cx.mods, DT);
-                s.boosting[i] = out.boosting;
-                if !asleep {
-                    let u = &mut s.usage[i];
-                    u.burn += u32::from(out.throttle.z > 0.1);
-                    u.boost += u32::from(out.boosting);
-                    s.aim[i] = normalize_or(cmd.aim, s.flight[i].rot * Vec3::Z);
-                }
-            } else if asleep && self.suits.footing[i] != ground::Footing::Aloft {
+            } else if asleep && !interior && self.suits.footing[i] != ground::Footing::Aloft {
                 // Nobody's flying it (`sleep`): held to its body, or drifting.
                 sleep::sleeper_drift(&mut self.suits, &bodies, i);
             } else {

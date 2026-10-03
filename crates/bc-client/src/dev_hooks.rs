@@ -266,6 +266,7 @@ pub fn publish_game(
         match surface.map(|s| s.body) {
             Some(bc_proto::BodyRef::Rock(r)) => format!("rock:{r}"),
             Some(bc_proto::BodyRef::Landmark(k)) => format!("landmark:{k}"),
+            Some(bc_proto::BodyRef::City) => "city".to_string(),
             None => String::new(),
         },
     );

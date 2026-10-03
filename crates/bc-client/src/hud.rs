@@ -1322,7 +1322,11 @@ pub fn update_hud(
             (format!("LAND {:.0} m {:.1} m/s", h.height.max(0.0), h.speed), AMBER)
         }
     });
-    let hull = grip && feet.footing == Footing::Free && own_now.is_some_and(|p| off_the_hull(p) < HULL_NEAR);
+    // (Inside the colony, its city is a body like any: no hull spins under the suit.)
+    let hull = grip
+        && feet.footing == Footing::Free
+        && !core.predict.interior()
+        && own_now.is_some_and(|p| off_the_hull(p) < HULL_NEAR);
     let signed_in = core.welcome.is_some_and(|w| w.signed_in);
     let (alert, alert_color) = match own {
         Some(o) if !o.alive && survival => ("SUIT LOST\nthe colony's rescue boat is on its way".into(), RED),

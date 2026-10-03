@@ -447,7 +447,8 @@ impl ClientCore {
                 self.predict.set_field(bc_sim::field::Field::generate(field_seed, field_rocks));
                 // The same rocks, shared until a shattering parts them: the view's go by the rock
                 // records, the prediction's by the tick it replays.
-                self.world.bodies = BodySet::new(self.predict.field.clone(), landmarks);
+                self.world.bodies = BodySet::new(self.predict.field.clone(), landmarks)
+                    .inside(flags & welcome_flags::INTERIOR != 0);
                 self.phase = Phase::InGame;
             }
             ControlMsg::Reject { reason } => self.phase = Phase::Rejected(reason),

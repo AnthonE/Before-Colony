@@ -3,8 +3,9 @@
 //!
 //! A body's pose never travels on the wire. Rocks come from the Welcome's seed and never move;
 //! landmarks are compiled content whose pose is a closed form in the tick
-//! ([`bc_sim::bodies::landmark_pose`]). So a client works out any body's pose at any (fractional)
-//! tick exactly as the server does, and draws every body on the view clock.
+//! ([`bc_sim::bodies::landmark_pose`]); the colony's city stands still in an interior sector. So a
+//! client works out any body's pose at any (fractional) tick exactly as the server does, and draws
+//! every body on the view clock.
 
 use std::sync::Arc;
 
@@ -14,26 +15,43 @@ use bc_sim::content::landmarks::{LANDMARKS, LandmarkDef};
 use bc_sim::field::Field;
 use bc_sim::flight::FlightState;
 use bc_sim::ground::{CATCH_LEAVE, CATCH_RANGE, CATCH_SPEED, Footing, LEVEL_RANGE, LEVEL_SPEED, STANCE};
-use glam::Vec3;
+use glam::{Quat, Vec3};
 
-/// The sector's bodies: its field of rocks (from the Welcome's seed) and the landmarks it has.
+/// The sector's bodies: its field of rocks (from the Welcome's seed) and the landmarks it has; in
+/// the colony's inside, its city.
 #[derive(Clone, Debug)]
 pub struct BodySet {
     pub field: Arc<Field>,
     landmarks: u8,
+    /// The sector is the colony's inside (the Welcome's INTERIOR): its city is a body.
+    interior: bool,
 }
 
 impl Default for BodySet {
     /// No rocks, and every landmark this build knows (until a Welcome says otherwise).
     fn default() -> Self {
-        Self { field: Arc::new(Field::empty()), landmarks: LANDMARKS.len().min(MAX_LANDMARKS) as u8 }
+        Self {
+            field: Arc::new(Field::empty()),
+            landmarks: LANDMARKS.len().min(MAX_LANDMARKS) as u8,
+            interior: false,
+        }
     }
 }
 
 impl BodySet {
     /// `field`, and the first `landmarks` of the compiled ones (no more than this build knows of).
     pub fn new(field: Arc<Field>, landmarks: u8) -> Self {
-        Self { field, landmarks: landmarks.min(LANDMARKS.len().min(MAX_LANDMARKS) as u8) }
+        Self { field, landmarks: landmarks.min(LANDMARKS.len().min(MAX_LANDMARKS) as u8), interior: false }
+    }
+
+    /// The same, in the colony's inside if `interior`: its city is a body.
+    pub fn inside(self, interior: bool) -> Self {
+        Self { interior, ..self }
+    }
+
+    /// Whether the sector is the colony's inside.
+    pub fn interior(&self) -> bool {
+        self.interior
     }
 
     /// The sector's landmarks, by id.
@@ -41,27 +59,35 @@ impl BodySet {
         &LANDMARKS[..usize::from(self.landmarks)]
     }
 
-    /// Whether `body` names one of these: a rock of the field, a landmark of the sector.
+    /// Whether `body` names one of these: a rock of the field, a landmark of the sector, or the
+    /// city of the colony it's the inside of.
     pub fn knows(&self, body: BodyRef) -> bool {
         match body {
             BodyRef::Rock(r) => usize::from(r) < self.field.len(),
             BodyRef::Landmark(k) => usize::from(k) < self.landmarks().len(),
+            BodyRef::City => self.interior,
         }
     }
 
     /// Every body at tick `t`, as the simulation has them.
     pub fn at(&self, t: u32) -> Bodies<'_> {
-        Bodies::at(&self.field, self.landmarks(), t)
+        Bodies::at(&self.field, self.landmarks(), t).inside(self.interior)
     }
 
     /// Where `b` is at time `t` (ticks, fractional): a shattered rock where it was.
     pub fn pose_at(&self, b: Body, t: f64) -> Option<BodyPose> {
-        body_pose(&self.field, self.landmarks(), b, t)
+        match b {
+            Body::City => self.interior.then(|| BodyPose::fixed(Vec3::ZERO, Quat::IDENTITY)),
+            _ => body_pose(&self.field, self.landmarks(), b, t),
+        }
     }
 
     /// The shape of `b`, in its frame.
     pub fn shape(&self, b: Body) -> Option<Shape> {
-        body_shape(&self.field, self.landmarks(), b)
+        match b {
+            Body::City => self.interior.then(Shape::city),
+            _ => body_shape(&self.field, self.landmarks(), b),
+        }
     }
 
     /// Rock `i` shattered (or grew back), as a rock record says. The field is the view's own: the
@@ -79,7 +105,8 @@ pub fn body_pose(field: &Field, landmarks: &[LandmarkDef], b: Body, t: f64) -> O
     let k = t.max(0.0).floor();
     let frac = (t.max(0.0) - k) as f32;
     match b {
-        Body::None => None,
+        // (Only a [`BodySet`] in the colony's inside knows its city.)
+        Body::None | Body::City => None,
         Body::Rock(r) => field.rocks().get(usize::from(r)).map(|rock| BodyPose::fixed(rock.pos, rock.rot)),
         Body::Landmark(i) => landmarks.get(usize::from(i)).map(|d| landmark_pose(d, k as u32, frac)),
     }
@@ -88,7 +115,7 @@ pub fn body_pose(field: &Field, landmarks: &[LandmarkDef], b: Body, t: f64) -> O
 /// The shape of `b`, one of `field`'s rocks or of `landmarks`, in its frame.
 pub fn body_shape(field: &Field, landmarks: &[LandmarkDef], b: Body) -> Option<Shape> {
     match b {
-        Body::None => None,
+        Body::None | Body::City => None,
         Body::Rock(r) => field.rocks().get(usize::from(r)).map(|rock| Shape::ellipsoid(rock.axes)),
         Body::Landmark(i) => landmarks.get(usize::from(i)).map(|d| d.shape),
     }

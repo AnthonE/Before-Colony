@@ -1,7 +1,9 @@
 //! Suits inside the colony (`docs/SUITS_INSIDE.md`): an interior sector's world is the colony's
 //! own frame ([`super::frame`]), where the city stands still. A suit there feels the spin as
 //! gravity (the centrifugal pull, 1 g at the floor), is turned aside by Coriolis, and flies through
-//! air; it's kept inside the hull and the end caps and out of the city's boxes.
+//! air; it's kept inside the hull and the end caps and out of the city's boxes. With its grip
+//! armed it lands and walks on the city as on any body (`crate::bodies::Body::City`): [`probe`] is
+//! the city's surface, and [`ground_under`] what's straight under a suit.
 //!
 //! All of it is closed forms of where the suit is and how it moves, deterministic and
 //! allocation-free, run by the server and the owner's prediction alike.
@@ -12,9 +14,10 @@ use super::city::{CityBox, MAX_HEIGHT, Rect, Stage, each_solid};
 use super::frame::{CityPos, SPIN_RATE, Under, from_colony, s_scale, strip_edge, up_at};
 use bc_proto::InputCmd;
 
+use crate::bodies::{Probe, STANCE};
 use crate::content::FrameSpec;
 use crate::flight::{FlightMods, FlightOut, FlightState};
-use crate::math::{cos, sin, sqrt};
+use crate::math::{cos, length, normalize_or, sin, sqrt};
 use crate::world::{COLONY_HALF_LENGTH, COLONY_RADIUS};
 
 /// Which world a sector simulates.
@@ -30,8 +33,20 @@ pub enum WorldKind {
 /// Air: ½ ρ C_d A for a suit, kg/m (ρ 1.2 kg/m³, C_d·A 15 m²). A Leo falling flat out comes to
 /// about 95 m/s.
 pub const DRAG_KG_M: f32 = 0.5 * 1.2 * 15.0;
-/// How far a suit's hull keeps from the floor, the glass and the caps, m.
+/// How far a suit's hull keeps from the end caps, m.
 pub const MARGIN: f32 = 6.0;
+/// How far a suit's origin keeps from the hull (the floor and the glass) and above the roofs, m:
+/// its stance, so a suit flown down onto them comes to rest where it would stand on them (and one
+/// letting go of them doesn't jump).
+pub const FLOOR_CLEAR: f32 = STANCE;
+/// How far [`probe`] looks for the city's boxes, m: past a grip's reach over the ground (a suit
+/// lets go 40 m up, its origin a stance higher), so whatever a suit in the city's grip is near is
+/// seen. Past it, the distance [`probe`] gives is no more than this: never more than the true one,
+/// which is all sphere tracing asks.
+pub const PROBE_REACH: f32 = 64.0;
+/// Boxes this tall are the walkers' walls (past a strip's edge, the end caps): the glass and the
+/// caps themselves hold suits instead.
+const WALKERS_WALL: f32 = 2_000.0;
 
 /// The inner launch gate, at the docking hub's end near the axis: where suits come in from the
 /// bays (nose down the colony), and where they dock again.
@@ -85,7 +100,7 @@ pub fn constrain(f: &mut FlightState, r: f32) -> bool {
         // out of the shallowest face of each in turn and back again: after a couple of goes, up
         // and over the lot.
         if let Under::Land(c) = from_colony(f.pos)
-            && c.h - r <= MAX_HEIGHT + 20.0
+            && c.h - FLOOR_CLEAR <= MAX_HEIGHT + 20.0
             && let Some((delta, normal)) = push_out(&c, r, k >= 2)
         {
             f.pos += delta;
@@ -96,7 +111,7 @@ pub fn constrain(f: &mut FlightState, r: f32) -> bool {
             again = true;
         }
         let rr = sqrt(f.pos.y * f.pos.y + f.pos.z * f.pos.z);
-        let most = COLONY_RADIUS - r - MARGIN;
+        let most = COLONY_RADIUS - FLOOR_CLEAR;
         if rr > most {
             let out = Vec3::new(0.0, f.pos.y / rr, f.pos.z / rr);
             f.pos -= out * (rr - most);
@@ -114,30 +129,30 @@ pub fn constrain(f: &mut FlightState, r: f32) -> bool {
     moved
 }
 
-/// The shallowest way out of the deepest box a sphere of radius `r` at `c` overlaps (`up_only`: up
-/// out of its top): the move, and the face's outward normal, in the colony's frame.
+/// The shallowest way out of the deepest box a suit of hull radius `r` at `c` overlaps (`up_only`:
+/// up out of its top): the move, and the face's outward normal, in the colony's frame. The suit
+/// reaches `r` round its origin and above it, and its stance ([`FLOOR_CLEAR`]) below.
 fn push_out(c: &CityPos, r: f32, up_only: bool) -> Option<(Vec3, Vec3)> {
     let rs = r / s_scale(c.h).max(0.1);
     let area = Rect::new(c.s - rs, c.s + rs, c.x - r, c.x + r);
+    let below = FLOOR_CLEAR;
     // (depth, along: 0 x / 1 s / 2 h, sign)
     let mut best: Option<(f32, usize, f32)> = None;
     let mut deepest = 0.0f32;
     each_solid(c.strip, &area, Stage(0), |b: &CityBox| {
-        // The sky-high walls are the walkers' (past the strip's edge, the end caps): the glass and
-        // the caps hold suits instead.
-        if b.h1 > 2_000.0 {
+        if b.h1 > WALKERS_WALL {
             return false;
         }
-        if !(b.rect.overlaps(&area) && c.h - r < b.h1 && b.h0 < c.h + r) {
+        if !(b.rect.overlaps(&area) && c.h - below < b.h1 && b.h0 < c.h + r) {
             return false;
         }
-        // Distances out through each face (the sphere's extent counted).
+        // Distances out through each face (the suit's extent counted).
         let outs = [
             (b.rect.x1 - (c.x - r), 0, 1.0),
             ((c.x + r) - b.rect.x0, 0, -1.0),
             ((b.rect.s1 - (c.s - rs)) * s_scale(c.h), 1, 1.0),
             (((c.s + rs) - b.rect.s0) * s_scale(c.h), 1, -1.0),
-            (b.h1 - (c.h - r), 2, 1.0),
+            (b.h1 - (c.h - below), 2, 1.0),
             // Never down through the floor, out of a box that stands on it.
             (if b.h0 < 1.0 { f32::INFINITY } else { (c.h + r) - b.h0 }, 2, -1.0),
         ];
@@ -163,6 +178,115 @@ fn push_out(c: &CityPos, r: f32, up_only: bool) -> Option<(Vec3, Vec3)> {
         _ => up_at(p),
     } * sign;
     Some((dir * depth, dir))
+}
+
+/// -1 or 1: the side of zero `x` is on (1 at zero).
+#[inline]
+fn sign(x: f32) -> f32 {
+    if x < 0.0 { -1.0 } else { 1.0 }
+}
+
+/// The colony's inside as a body ([`crate::bodies::Body::City`]): the signed distance from `p` (its
+/// own frame) to the nearest solid, negative inside one, and the outward normal there. The solids
+/// are the hull from inside (the floor, and the glass), the end caps, and the city's boxes but the
+/// walkers' walls. The hull's and the caps' distances are exact; a box's is measured in city
+/// coordinates (plumb is radial, and a metre across is `s_scale(h)` metres where `p` is), its edges
+/// rounded ([`BOX_ROUND`]): exact over a roof, as over the floor, and true to the curve's sag
+/// (millimetres) beside a wall. Boxes further than [`PROBE_REACH`] aren't looked for, and the
+/// distance is then capped there.
+pub fn probe(p: Vec3) -> Probe {
+    let rr = sqrt(p.y * p.y + p.z * p.z);
+    let up = up_at(p);
+    let mut best = Probe { dist: COLONY_RADIUS - rr, normal: up };
+    let cap = COLONY_HALF_LENGTH - p.x.abs();
+    if cap < best.dist {
+        best = Probe { dist: cap, normal: Vec3::X * -sign(p.x) };
+    }
+    let Under::Land(c) = from_colony(p) else { return best };
+    // Only a box nearer than what's found already matters, and none past the reach is looked for.
+    let reach = best.dist.min(PROBE_REACH);
+    // No box stands taller than the tallest building.
+    let above = c.h - MAX_HEIGHT;
+    if above >= reach {
+        return Probe { dist: best.dist.min(above), ..best };
+    }
+    let k = s_scale(c.h).max(0.1);
+    let area = Rect::new(c.s - reach / k, c.s + reach / k, c.x - reach, c.x + reach);
+    let across = across(c.strip, c.s);
+    let mut found = best;
+    each_solid(c.strip, &area, Stage(0), |b: &CityBox| {
+        if b.h1 <= WALKERS_WALL {
+            let pr = box_probe(&c, k, b, across, up);
+            if pr.dist < found.dist {
+                found = pr;
+            }
+        }
+        false
+    });
+    // Nothing nearer than the reach: whatever there is lies further.
+    found.dist = found.dist.min(reach);
+    found
+}
+
+/// How round the city's boxes are at their edges to [`probe`], m (but no more than nearly half
+/// their thinnest side): a suit's feet, a centimetre past a kerb's edge as it steps up, then find
+/// the edge's own normal there rather than a face's, as on any rounded body.
+const BOX_ROUND: f32 = 0.5;
+
+/// Box `b`'s signed distance and outward normal from `c` (city coordinates, a metre across `k`
+/// metres there): the round box's formula ([`BOX_ROUND`]), its normal turned into the colony's
+/// frame (`across` and `up` at `c`).
+fn box_probe(c: &CityPos, k: f32, b: &CityBox, across: Vec3, up: Vec3) -> Probe {
+    let centre = Vec3::new((b.rect.x0 + b.rect.x1) * 0.5, (b.rect.s0 + b.rect.s1) * 0.5, (b.h0 + b.h1) * 0.5);
+    let half =
+        Vec3::new((b.rect.x1 - b.rect.x0) * 0.5, (b.rect.s1 - b.rect.s0) * 0.5 * k, (b.h1 - b.h0) * 0.5);
+    let round = BOX_ROUND.min(half.min_element() * 0.99).max(0.0);
+    let rel = Vec3::new(c.x - centre.x, (c.s - centre.y) * k, c.h - centre.z);
+    let q = rel.abs() - (half - Vec3::splat(round));
+    let o = q.max(Vec3::ZERO);
+    let m = q.max_element();
+    let dist = length(o) + m.min(0.0) - round;
+    let n = if m > 0.0 {
+        normalize_or(o * Vec3::new(sign(rel.x), sign(rel.y), sign(rel.z)), Vec3::Z)
+    } else if q.x >= q.y && q.x >= q.z {
+        Vec3::X * sign(rel.x)
+    } else if q.y >= q.z {
+        Vec3::Y * sign(rel.y)
+    } else {
+        Vec3::Z * sign(rel.z)
+    };
+    Probe { dist, normal: Vec3::X * n.x + across * n.y + up * n.z }
+}
+
+/// How far straight down from `p` (its own frame) the first solid is, m: the top of the box under
+/// it, or the floor (the glass, over a window). Down is the spin's, not toward the nearest wall.
+/// None outside the hull, past the caps, or inside a box.
+pub fn ground_under(p: Vec3) -> Option<f32> {
+    if p.x.abs() > COLONY_HALF_LENGTH {
+        return None;
+    }
+    let c = match from_colony(p) {
+        Under::Window { h, .. } => return (h >= 0.0).then_some(h),
+        Under::Land(c) => c,
+    };
+    if c.h < 0.0 {
+        return None;
+    }
+    let mut top = 0.0f32;
+    let mut inside = false;
+    let e = 0.01;
+    let area = Rect::new(c.s - e, c.s + e, c.x - e, c.x + e);
+    each_solid(c.strip, &area, Stage(0), |b: &CityBox| {
+        if b.h1 <= WALKERS_WALL && b.rect.contains(c.s, c.x) {
+            if b.h1 <= c.h {
+                top = top.max(b.h1);
+            } else if b.h0 < c.h {
+                inside = true;
+            }
+        }
+        inside
+    });
+    (!inside).then_some(c.h - top)
 }
 
 /// A tick of a suit's flight inside the colony: the flight model (with `mods.interior` set, the
@@ -234,7 +358,7 @@ mod tests {
                 FlightState { pos: c.to_colony(), vel: Vec3::new(1.0, -2.0, 3.0), ..Default::default() };
             constrain(&mut f, r);
             let rr = sqrt(f.pos.y * f.pos.y + f.pos.z * f.pos.z);
-            assert!(rr <= COLONY_RADIUS - r - MARGIN + 0.01);
+            assert!(rr <= COLONY_RADIUS - FLOOR_CLEAR + 0.01);
             if let Under::Land(at) = from_colony(f.pos) {
                 // Away from the strip's edges (the walkers' walls), the boxes are clear by a
                 // shrunken sphere.

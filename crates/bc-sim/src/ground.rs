@@ -18,7 +18,13 @@
 //!
 //! Grip is opt-in ([`GRIP`]). Armed, a suit that comes in slow and close is caught (Aloft) and
 //! lands; Space hops, and held it lifts off; clearing it lets go, with the exact velocity of the
-//! surface it left. A suit that never arms it flies exactly as [`flight::step_in`] flies it.
+//! surface it left. A suit that never arms it flies exactly as [`flight::step_in`] flies it (inside
+//! the colony, as `colony::interior::step` does).
+//!
+//! The colony's city ([`Body::City`]) has a down, the spin's: in its grip a suit falls that way,
+//! under the colony's pull rather than the grip's, and stands only on ground that faces up
+//! ([`CITY_FOOTING_COS`]). A wall is never stood on: it stops a suit walking into it and keeps one
+//! in the air off it, and a roof's edge is stepped off, not walked round.
 //!
 //! [`move_step`] is the one step: the server runs it for every live suit, and the owner's client
 //! runs it to predict its own. Every transition is decided by the step's own inputs, so both sides
@@ -28,7 +34,8 @@ use bc_proto::InputCmd;
 use bc_proto::buttons::{BOOST, BRAKE, GRIP};
 use glam::{Quat, Vec3};
 
-use crate::bodies::{Bodies, Body, BodyPose, Near, Shape};
+use crate::bodies::{Base, Bodies, Body, BodyPose, Near, Shape};
+use crate::colony::frame::{gravity, up_at};
 use crate::content::FrameSpec;
 use crate::flight::{self, FA_BOOST_CRUISE, FlightMods, FlightOut, FlightState, HopAssist, LockOnAssist};
 use crate::math::{
@@ -95,6 +102,10 @@ pub const SNAP_ITERS: u32 = 2;
 /// it never steps (or stands up) to where it wouldn't be, which is nearer than its stance to
 /// another surface of its body.
 pub const PLACE_TOL: f32 = 0.01;
+/// On the city, ground whose normal is further than this from the spin's up (cos 30°) isn't
+/// stood on: walked into, it's a wall; walked out over (a roof's edge), the ground fell away; come
+/// down on, it keeps the suit off and doesn't take it.
+pub const CITY_FOOTING_COS: f32 = 0.866_025_4;
 /// `thrust[1]` on the ground: at or below this the suit crouches, at or above this it stands, and
 /// at or above this (standing) it hops. Between, it keeps the stance it has.
 pub const CROUCH_LEVEL: i8 = -64;
@@ -199,6 +210,23 @@ fn step_toward(x: f32, target: f32, step: f32) -> f32 {
     if x < target { (x + step).min(target) } else { (x - step).max(target) }
 }
 
+/// Whether `shape` is the colony's city, which has a down.
+fn is_city(shape: &Shape) -> bool {
+    matches!(shape.base, Base::City)
+}
+
+/// On the city: up at `p` (the spin's) and how hard the colony pulls there, m/s².
+fn city_down(p: Vec3) -> (Vec3, f32) {
+    let r = sqrt(p.y * p.y + p.z * p.z);
+    (up_at(p), gravity(crate::world::COLONY_RADIUS - r))
+}
+
+/// Whether ground with normal `n` at `o` can be stood on: anywhere but on the city, where it must
+/// face up ([`CITY_FOOTING_COS`]).
+fn standable(shape: &Shape, o: Vec3, n: Vec3) -> bool {
+    !is_city(shape) || n.dot(up_at(o)) >= CITY_FOOTING_COS
+}
+
 /// A unit vector square to `n`.
 fn any_perp(n: Vec3) -> Vec3 {
     normalize_or(n.cross(if n.y.abs() < 0.9 { Vec3::Y } else { Vec3::X }), Vec3::X)
@@ -275,18 +303,23 @@ pub fn move_step(b: &Bodies, m: &mut Mover, cmd: &InputCmd, cx: &MoveCtx, dt: f3
                     .nearest_grippable(&m.flight, LEVEL_RANGE, LEVEL_SPEED, f32::INFINITY)
                     .map(|n| n.n_world);
             }
-            // Locked on: flight assist flies by the fight's axes, and the suit rolls level with
-            // them, unless the pilot rolls or the grip is bringing it down onto a surface.
-            mods.lockon = lockon_assist(cmd, &m.flight, cx.spec);
-            if let Some(l) = mods.lockon
-                && mods.roll_level.is_none()
-                && cmd.roll == 0
-            {
-                mods.roll_level = Some(l.up);
+            if b.interior {
+                // Inside the colony: its pull, its air, its hull and its city.
+                out.flight = crate::colony::interior::step(&mut m.flight, cmd, cx.spec, &mods, dt);
+            } else {
+                // Locked on: flight assist flies by the fight's axes, and the suit rolls level
+                // with them, unless the pilot rolls or the grip is bringing it down onto a surface.
+                mods.lockon = lockon_assist(cmd, &m.flight, cx.spec);
+                if let Some(l) = mods.lockon
+                    && mods.roll_level.is_none()
+                    && cmd.roll == 0
+                {
+                    mods.roll_level = Some(l.up);
+                }
+                out.flight = flight::step_in(b.field, &mut m.flight, cmd, cx.spec, &mods, dt);
+                // The landmarks are as solid as the rocks (nothing to do far from them).
+                b.collide_landmarks(prev, &mut m.flight, None);
             }
-            out.flight = flight::step_in(b.field, &mut m.flight, cmd, cx.spec, &mods, dt);
-            // The landmarks are as solid as the rocks (nothing to do far from them).
-            b.collide_landmarks(prev, &mut m.flight, None);
         }
         Footing::Grounded | Footing::Aloft => {
             let body = m.anchor.body;
@@ -315,6 +348,7 @@ pub fn move_step(b: &Bodies, m: &mut Mover, cmd: &InputCmd, cx: &MoveCtx, dt: f3
             derive(&pose, &m.anchor, &mut m.flight);
             // Everything else stays solid to it: other rocks, other landmarks, the colony and the
             // sector's bounds. (Not its own body: a crouched origin sits inside a rock's collider.)
+            // Inside the colony the city is all there is, and it's the body.
             let rock = match body {
                 Body::Rock(r) => Some(usize::from(r)),
                 _ => None,
@@ -323,9 +357,10 @@ pub fn move_step(b: &Bodies, m: &mut Mover, cmd: &InputCmd, cx: &MoveCtx, dt: f3
                 Body::Landmark(k) => Some(k),
                 _ => None,
             };
-            let moved = b.field.collide_except(prev, &mut m.flight, rock)
-                | b.collide_landmarks(prev, &mut m.flight, landmark)
-                | crate::world::constrain(&mut m.flight);
+            let moved = !b.interior
+                && (b.field.collide_except(prev, &mut m.flight, rock)
+                    | b.collide_landmarks(prev, &mut m.flight, landmark)
+                    | crate::world::constrain(&mut m.flight));
             if moved {
                 // Back into the body's frame where it was stopped, so the world pose is still its
                 // anchor's.
@@ -514,6 +549,11 @@ fn step_on(shape: &Shape, o0: Vec3, n0: Vec3, vel: Vec3, stance: f32, dt: f32) -
     if h0 > STEP_DOWN {
         return Stride::Off(to, n1);
     }
+    // The city has a down: ground leaning further from it than a suit stands on is a wall walked
+    // into or, walked out over (a roof's edge), ground that fell away.
+    if !standable(shape, o1, n1) {
+        return if n1.dot(vel) < 0.0 { Stride::Wall(n1) } else { Stride::Off(to, n1) };
+    }
     if angle_between(n0, n1) > MAX_STEP_TURN {
         return Stride::Wall(n1);
     }
@@ -560,7 +600,9 @@ fn surface_attitude(a: &mut Anchor, aim_l: Vec3, n: Vec3, rate: f32, dt: f32) {
 
 /// A tick aloft, in the body's frame: flight under grip gravity with the hop's flight assist, the
 /// free descent brake, then a touchdown (E1) or a lost grip (T5). Returns what the flight did (body
-/// frame), the touchdown's speed into the surface, and whether the grip is lost.
+/// frame), the touchdown's speed into the surface, and whether the grip is lost. Over the city,
+/// down is the spin's and the pull is the colony's, and what can't be stood on is a wall that
+/// keeps the suit off it.
 #[allow(clippy::too_many_arguments)]
 fn aloft(
     shape: &Shape,
@@ -572,11 +614,12 @@ fn aloft(
     aim_l: Vec3,
     dt: f32,
 ) -> (FlightOut, Option<f32>, bool) {
-    // Down is toward the nearest surface, whichever way that is.
-    let (_, n, _) = place(shape, a.local, a.stance);
+    // Down is toward the nearest surface, whichever way that is; over the city, the spin's.
+    let city = is_city(shape);
+    let (n, pull) = if city { city_down(a.local) } else { (place(shape, a.local, a.stance).1, GRIP_ACCEL) };
     let mut l = FlightState {
         pos: a.local,
-        vel: a.vel - n * (GRIP_ACCEL * dt),
+        vel: a.vel - n * (pull * dt),
         rot: a.rot,
         ang_vel: a.ang_vel,
         propellant: f.propellant,
@@ -590,6 +633,8 @@ fn aloft(
     let mods = FlightMods {
         roll_level: (cmd.roll == 0).then_some(n),
         hop: Some(HopAssist { up: l.rot.conjugate() * n, cruise, climb: HOP_CLIMB }),
+        // The pull is the one above (the grip's, or the colony's own over its city), not again.
+        interior: false,
         ..cx.mods
     };
     let out = flight::integrate(&mut l, &cmd_l, cx.spec, &mods, dt);
@@ -606,6 +651,13 @@ fn aloft(
         // E1: down, feet first. The legs take the landing, and any speed along the ground past a
         // lunge's.
         let (o, n) = settle(shape, o1, n1, a.stance);
+        if !standable(shape, o1, n1) || !standable(shape, o, n) {
+            // A wall of the city (or nowhere it fits to stand, as a lane narrower than a suit):
+            // it keeps the suit off, and takes the speed into it.
+            a.local = o1;
+            a.vel -= n1 * into;
+            return (out, None, false);
+        }
         a.local = o;
         a.vel = clamp_len(a.vel - n * a.vel.dot(n), LUNGE_GROUND_SPEED);
         *footing = Footing::Grounded;
@@ -895,5 +947,249 @@ mod tests {
         }
         assert!((m.flight.rot * Vec3::Y).dot(Vec3::X) > 0.999, "{}", m.flight.rot * Vec3::Y);
         assert!((m.flight.vel - Vec3::new(150.0, 0.0, -40.0)).length() < 0.05, "{}", m.flight.vel);
+    }
+
+    mod city {
+        use super::super::*;
+        use crate::colony::city::{Stage, solid};
+        use crate::colony::frame::{CityPos, STRIP_WIDTH, Under, from_colony};
+        use crate::colony::interior::{ground_under, probe};
+        use crate::colony::transit::station_x;
+        use crate::config::DT;
+        use crate::field::Field;
+        use crate::math::Rng;
+        use bc_proto::buttons::FLIGHT_ASSIST;
+
+        /// The colony's inside, its city a body.
+        fn inside(field: &Field) -> Bodies<'_> {
+            Bodies::at(field, &[], 1).inside(true)
+        }
+
+        fn ctx() -> MoveCtx<'static> {
+            let spec = crate::content::frame(bc_proto::FrameId::Leo);
+            MoveCtx {
+                spec,
+                mods: FlightMods { interior: true, ..FlightMods::default() },
+                can_grip: true,
+                legs_ok: true,
+            }
+        }
+
+        /// A Leo upright at `c`, nose along the axis.
+        fn at(c: CityPos) -> Mover {
+            let pos = c.to_colony();
+            Mover {
+                flight: FlightState {
+                    pos,
+                    rot: look_rotation(Vec3::X, up_at(pos)),
+                    propellant: 2_000.0,
+                    ..FlightState::default()
+                },
+                footing: Footing::Free,
+                anchor: Anchor::default(),
+            }
+        }
+
+        /// Where the avenue's lane is, up from the floor `h`: on strip 0 between two stations,
+        /// clear of their platforms.
+        fn avenue(h: f32) -> CityPos {
+            CityPos::new(0, (station_x(2) + station_x(3)) * 0.5, STRIP_WIDTH * 0.5 + 24.0, h)
+        }
+
+        /// Steps `m` under `cmd` up to `ticks` times, until `done`; the ticks it took.
+        fn run(b: &Bodies, m: &mut Mover, cmd: InputCmd, ticks: u32, done: impl Fn(&Mover) -> bool) -> u32 {
+            let cx = ctx();
+            for t in 0..ticks {
+                if done(m) {
+                    return t;
+                }
+                move_step(b, m, &cmd, &cx, DT);
+            }
+            ticks
+        }
+
+        /// How high the suit's origin is over the floor.
+        fn height(m: &Mover) -> f32 {
+            match from_colony(m.flight.pos) {
+                Under::Land(c) => c.h,
+                Under::Window { h, .. } => h,
+            }
+        }
+
+        /// Flight assist on and the grip armed, aiming up the axis.
+        fn armed() -> InputCmd {
+            InputCmd { aim: Vec3::X, buttons: GRIP | FLIGHT_ASSIST, ..InputCmd::default() }
+        }
+
+        #[test]
+        fn a_suit_lands_on_the_avenue_walks_it_and_lifts_off_smoothly() {
+            let field = Field::empty();
+            let b = inside(&field);
+            let mut m = at(avenue(30.0));
+            // Armed, 21 m over the street: caught, brought down no faster than the brake, and on
+            // its feet, a stance over the floor.
+            let mut fastest = 0.0f32;
+            let cx = ctx();
+            for _ in 0..600 {
+                if m.footing == Footing::Grounded {
+                    break;
+                }
+                move_step(&b, &mut m, &armed(), &cx, DT);
+                fastest = fastest.max(m.flight.vel.length());
+            }
+            assert_eq!((m.footing, m.anchor.body), (Footing::Grounded, Body::City));
+            assert!(fastest <= LAND_SPEED_MAX + 0.5, "came down at {fastest} m/s");
+            assert!((height(&m) - STANCE).abs() < 0.02, "{}", height(&m));
+            // Up the avenue at a walk, on the ground all the way.
+            let x0 = m.flight.pos.x;
+            let walk = InputCmd { thrust: [0, 0, 127], ..armed() };
+            for _ in 0..90 {
+                move_step(&b, &mut m, &walk, &cx, DT);
+                assert_eq!(m.footing, Footing::Grounded);
+                assert!((height(&m) - STANCE).abs() < 0.02, "{}", height(&m));
+            }
+            let walked = m.flight.pos.x - x0;
+            assert!(walked > 15.0 && walked < 25.0, "walked {walked} m in 3 s");
+            // Letting go: flying again, from where it stood, with no jump.
+            let stood = m.flight.pos;
+            let free = InputCmd { buttons: FLIGHT_ASSIST, ..InputCmd::default() };
+            for _ in 0..3 {
+                move_step(&b, &mut m, &free, &cx, DT);
+            }
+            assert_eq!(m.footing, Footing::Free);
+            assert!(m.flight.pos.distance(stood) < 1.0, "a jump of {} m", m.flight.pos.distance(stood));
+        }
+
+        #[test]
+        fn a_suit_on_the_city_is_kept_off_its_walls_and_steps_off_a_roof() {
+            let field = Field::empty();
+            let b = inside(&field);
+            let cx = ctx();
+            let mut m = at(avenue(20.0));
+            run(&b, &mut m, armed(), 600, |m| m.footing == Footing::Grounded);
+            assert_eq!(m.footing, Footing::Grounded);
+            // Across the strip into the blocks: stopped short of the building there (its wall 8 m
+            // in from the kerb, nearer than a suit's stance), never nearer anything than it stands
+            // high.
+            let c = avenue(0.0);
+            let across = (CityPos { s: c.s + 1.0, ..c }.to_colony() - c.to_colony()).normalize();
+            let walk = InputCmd { aim: across, thrust: [0, 0, 127], ..armed() };
+            let s0 = c.s;
+            let mut furthest = 0.0f32;
+            for _ in 0..600 {
+                move_step(&b, &mut m, &walk, &cx, DT);
+                assert_eq!(m.footing, Footing::Grounded, "{:?}", from_colony(m.flight.pos));
+                let clear = probe(m.flight.pos).dist;
+                assert!(clear > STANCE - 0.02, "{clear} m from the city at {:?}", from_colony(m.flight.pos));
+                if let Under::Land(c) = from_colony(m.flight.pos) {
+                    furthest = furthest.max(c.s - s0);
+                }
+            }
+            assert!(furthest > 10.0, "toward the blocks: {furthest} m");
+            assert!(m.anchor.vel.length() < 0.5, "stopped at the wall: {} m/s", m.anchor.vel.length());
+
+            // A roof, wide enough to stand on: dropped onto it, armed, it lands there.
+            let flat = |c: CityPos| {
+                let top = c.h - ground_under(c.to_colony())?;
+                let same = [(12.0, 0.0), (-12.0, 0.0), (0.0, 12.0), (0.0, -12.0)].iter().all(|(dx, ds)| {
+                    let p = CityPos { x: c.x + dx, s: c.s + ds, ..c }.to_colony();
+                    ground_under(p).is_some_and(|g| (c.h - g - top).abs() < 0.01)
+                });
+                (same && top > 25.0 && top < 150.0).then_some(top)
+            };
+            let (spot, top) = (0..2_000)
+                .find_map(|k| {
+                    let c = CityPos::new(
+                        0,
+                        avenue(0.0).x + (k % 100) as f32 * 9.0,
+                        s0 + 60.0 + (k / 100) as f32 * 11.0,
+                        400.0,
+                    );
+                    flat(c).map(|top| (c, top))
+                })
+                .expect("a roof to stand on");
+            let mut m = at(CityPos { h: top + 20.0, ..spot });
+            run(&b, &mut m, armed(), 600, |m| m.footing == Footing::Grounded);
+            assert_eq!(m.footing, Footing::Grounded);
+            assert!((height(&m) - (top + STANCE)).abs() < 0.05, "{} over a {top} m roof", height(&m));
+            // Walked out over its edge, the suit falls (the colony's pull, braked), kept off the
+            // walls it passes, and stands again lower down.
+            let fell = [Vec3::X, -Vec3::X, across, -across].into_iter().any(|dir| {
+                let walk = InputCmd { aim: dir, thrust: [0, 0, 127], ..armed() };
+                let mut left = false;
+                for _ in 0..900 {
+                    move_step(&b, &mut m, &walk, &cx, DT);
+                    if m.footing == Footing::Aloft {
+                        left = true;
+                        assert!(probe(m.flight.pos).dist > STANCE - 0.1, "kept off the walls");
+                    }
+                    if left && m.footing == Footing::Grounded {
+                        return true;
+                    }
+                }
+                false
+            });
+            assert!(fell, "it never stepped off the roof");
+            assert!(height(&m) < top, "down from the roof: {}", height(&m));
+            let under = ground_under(m.flight.pos).unwrap();
+            assert!((under - STANCE).abs() < 0.05, "standing on what's under it: {under}");
+        }
+
+        #[test]
+        fn the_citys_probe_agrees_with_its_solids_and_finds_the_ground_under() {
+            let mut rng = Rng::new(11);
+            let (mut inside_n, mut outside_n) = (0, 0);
+            for _ in 0..4_000 {
+                let c = CityPos::new(
+                    (rng.next_u32() % 3) as u8,
+                    -15_000.0 + rng.next_f32() * 30_000.0,
+                    40.0 + rng.next_f32() * (STRIP_WIDTH - 80.0),
+                    0.5 + rng.next_f32() * 250.0,
+                );
+                let pr = probe(c.to_colony());
+                let e = 0.02;
+                let here = solid(
+                    c.strip,
+                    Vec3::new(c.x - e, c.h - e, -(c.s + e)),
+                    Vec3::new(c.x + e, c.h + e, -(c.s - e)),
+                    Stage(0),
+                );
+                // (Past the rounding of a box's edges and corners, which the solids don't have.)
+                if pr.dist > 0.1 {
+                    assert!(!here, "{c:?} is {} m out of the city but solid", pr.dist);
+                    outside_n += 1;
+                } else if pr.dist < -0.1 {
+                    assert!(here, "{c:?} is {} m into the city but clear", -pr.dist);
+                    inside_n += 1;
+                }
+                // Straight down, past the nearest surface's distance at most.
+                if let Some(g) = ground_under(c.to_colony()) {
+                    // (Less a box's rounding, which the boxes under don't have.)
+                    assert!(g + 0.5 >= pr.dist.min(PROBE_REACH_CHECK), "{c:?}: {g} under, {} away", pr.dist);
+                }
+            }
+            assert!(inside_n > 40 && outside_n > 2_000, "{inside_n} in, {outside_n} out");
+            // Over the avenue it's the floor; under the floor, or in a building, nothing.
+            let c = avenue(50.0);
+            assert!((ground_under(c.to_colony()).unwrap() - 50.0).abs() < 1e-3);
+            assert!(ground_under(CityPos { h: -5.0, ..c }.to_colony()).is_none());
+        }
+
+        /// What [`probe`] caps its distance at.
+        const PROBE_REACH_CHECK: f32 = crate::colony::interior::PROBE_REACH;
+
+        #[test]
+        fn an_armed_suit_over_the_city_is_shown_the_ground_straight_under_it() {
+            let field = Field::empty();
+            let b = inside(&field);
+            let m = at(avenue(40.0));
+            let n = b.nearest_grippable(&m.flight, CATCH_RANGE + 20.0, CATCH_SPEED, CATCH_LEAVE).unwrap();
+            assert_eq!(n.body, Body::City);
+            assert!((n.h - (40.0 - STANCE)).abs() < 1e-3, "{}", n.h);
+            assert!(n.n_world.distance(up_at(m.flight.pos)) < 1e-6);
+            // Out in space there's no city.
+            assert!(Bodies::at(&field, &[], 1).nearest_grippable(&m.flight, 100.0, 100.0, 100.0).is_none());
+            assert!(!Bodies::at(&field, &[], 1).alive(Body::City));
+        }
     }
 }

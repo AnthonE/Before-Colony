@@ -4,6 +4,7 @@
 //! to their bay with the suit in it. A pilot who leaves while inside finds the suit towed home. The
 //! inside keeps space's tick, so the colony has one clock; a suit flown down over Hub Gate sees the
 //! people walking there, and they see it (each on-foot pilot watches the inside's suits near them).
+//! With its grip armed, a suit lands on the avenue and walks it, predicted as the server has it.
 
 use std::time::Duration;
 
@@ -13,8 +14,9 @@ use bc_client_core::city::pose_of;
 use bc_client_core::walker::Walker;
 use bc_econ::Bay;
 use bc_econ::wire::{Place, Request};
-use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST};
-use bc_proto::{Faction, FrameId, InputCmd};
+use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, GRIP};
+use bc_proto::snapshot::footing;
+use bc_proto::{BodyRef, Faction, FrameId, InputCmd};
 use bc_server::{Config, Mode, Ruleset};
 use bc_sim::colony::city::place_door;
 use bc_sim::colony::frame::CityPos;
@@ -184,6 +186,68 @@ async fn a_suit_inside_and_the_people_below_see_each_other_on_one_clock() -> any
     assert_eq!(server.status()["game"]["inside"]["watchers"], 0);
     walker.close().await;
     pilot.close().await;
+    server.shutdown();
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_suit_inside_lands_on_the_avenue_and_walks_it() -> anyhow::Result<()> {
+    let server = bc_server::start(config()?).await?;
+    let http = format!("http://{}", server.http_addr);
+    let mut b = BotClient::connect(&bot(&http, "Trowa")).await?;
+    b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
+    b.launch_inside().await?;
+
+    // Down from the gate to 22 m over the avenue, 60 m up it from Hub Gate's door.
+    let ((s, x), (ds, dx)) = place_door(&PLACES[0]);
+    let spot = |ahead: f32, h: f32| CityPos::new(0, x - dx * ahead, s - ds * ahead, h).to_colony();
+    let over = spot(60.0, 22.0);
+    for _ in 0..30 * 120 {
+        let own = b.world().own.expect("own suit");
+        if own.pos.distance(over) < 4.0 && own.vel.length() < 1.5 {
+            break;
+        }
+        b.step(&mut |_| toward(&own, over, 150.0)).await?;
+    }
+    let own = b.world().own.expect("own suit");
+    assert!(own.pos.distance(over) < 4.0, "over the avenue: {} m off", own.pos.distance(over));
+
+    // The grip armed: caught by the city, down, and on its feet.
+    let up = (spot(100.0, 0.0) - spot(60.0, 0.0)).normalize();
+    let hold = InputCmd { buttons: FLIGHT_ASSIST | GRIP, aim: up, ..InputCmd::default() };
+    let standing =
+        |b: &BotClient| b.world().own.and_then(|o| o.surface).is_some_and(|s| s.footing == footing::GROUNDED);
+    for _ in 0..30 * 30 {
+        if standing(&b) {
+            break;
+        }
+        b.step(&mut |_| hold).await?;
+    }
+    assert!(standing(&b), "on its feet: {:?}", b.world().own.and_then(|o| o.surface));
+    let own = b.world().own.expect("own suit");
+    assert_eq!(own.surface.map(|s| s.body), Some(BodyRef::City));
+    let start = own.pos;
+
+    // Up the avenue at a walk for two seconds: on the ground all the way, and predicted as flown.
+    b.run_for(Duration::from_secs(2), &mut |_| InputCmd { thrust: [0, 0, 127], ..hold }).await?;
+    b.run_for(Duration::from_millis(500), &mut |_| hold).await?;
+    let own = b.world().own.expect("own suit");
+    assert_eq!(own.surface.map(|s| s.footing), Some(footing::GROUNDED));
+    let walked = (own.pos - start).dot(up);
+    assert!(walked > 10.0, "walked {walked} m up the avenue");
+    assert!(b.core.stats.prediction_error < 0.05, "predicted {} m off", b.core.stats.prediction_error);
+    let watched = server.status();
+    assert_eq!(watched["game"]["hot_path_allocations"], 0);
+
+    // Letting go: flying again.
+    b.run_for(Duration::from_secs(1), &mut |_| InputCmd {
+        buttons: FLIGHT_ASSIST,
+        aim: up,
+        ..InputCmd::default()
+    })
+    .await?;
+    assert!(b.world().own.is_some_and(|o| o.surface.is_none()), "flying again");
+    b.close().await;
     server.shutdown();
     Ok(())
 }

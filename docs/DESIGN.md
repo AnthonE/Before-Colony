@@ -874,7 +874,9 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   second sector (`sector-1`), keeping the first's tick: the colony has one clock. Pilots on foot
   see the suits flying within 2.5 km of them, and a suit's pilot sees the people below (those on
   the strip under it within 1.5 km, their cars too) and the trams, where everyone on foot sees
-  them. Not yet: suits walking the streets.
+  them. With the grip armed (L) a suit lands on the city, the avenue or a roof, and walks it as it
+  would a rock, but under the colony's own pull: its walls stop it, and walked off a roof's edge
+  it comes down on whatever's below.
 
 ## The world (EVE-lite, roadmap)
 

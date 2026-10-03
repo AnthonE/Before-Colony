@@ -456,6 +456,8 @@ pub fn shape_meshes(shape: &Shape) -> Vec<MeshData> {
             vec![mesh]
         }
         Base::Union(prims) => prims.iter().map(|p| prim_mesh(p, shape.cuts)).collect(),
+        // The city's meshes are its streamer's (`city_mesh`).
+        Base::City => Vec::new(),
     }
 }
 
@@ -507,6 +509,7 @@ mod tests {
             (_, Some(prim)) => prim.probe(p).dist,
             (Base::Ellipsoid(a), None) => Shape::ellipsoid(*a).probe(p).dist,
             (Base::Union(_), None) => unreachable!("a union's meshes are its primitives'"),
+            (Base::City, None) => unreachable!("the city's meshes are its streamer's"),
         };
         cuts.iter().fold(d, |d, k| d.max(-(p.distance(k.c) - k.r)))
     }
@@ -552,6 +555,7 @@ mod tests {
                         assert!(nearest < 0.01, "{}: no floor at {floor}", d.name);
                     }
                 }
+                Base::City => unreachable!("no landmark is the colony's city"),
             }
         }
         // MO-II's Aft Well is dished into its aft module's end face.

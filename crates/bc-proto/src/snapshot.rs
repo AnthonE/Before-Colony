@@ -1182,6 +1182,7 @@ mod tests {
                 OWN_BITS_FREE + 14,
             ),
             (OwnState { surface: Some(on(footing::ALOFT, BodyRef::Rock(1_022))), ..free }, OWN_MAX_BITS),
+            (OwnState { surface: Some(on(footing::GROUNDED, BodyRef::City)), ..free }, OWN_BITS_FREE + 10),
         ];
         for (own, bits) in cases {
             let mut buf = [0u8; 256];
@@ -1222,7 +1223,12 @@ mod tests {
             vel: Vec3::new(1.0, -31.0, 0.0),
             ..free
         };
-        let cases = [(free, 211), (rider(BodyRef::Rock(1_000)), 194), (rider(BodyRef::Landmark(15)), 194)];
+        let cases = [
+            (free, 211),
+            (rider(BodyRef::Rock(1_000)), 194),
+            (rider(BodyRef::Landmark(15)), 194),
+            (rider(BodyRef::City), 202),
+        ];
         for (e, bits) in cases {
             assert_eq!(e.encoded_bits(), bits, "{e:?}");
             let mut buf = [0u8; 256];

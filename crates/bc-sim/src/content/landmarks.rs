@@ -196,6 +196,7 @@ mod tests {
                 let (ps, po) = reach(p, d.spin_axis);
                 (s.max(ps), o.max(po))
             }),
+            Base::City => unreachable!("no landmark is the colony's city"),
         }
     }
 

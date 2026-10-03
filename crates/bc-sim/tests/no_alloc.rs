@@ -278,8 +278,9 @@ fn the_colony_answers_without_allocating() {
 #[test]
 fn the_interior_ticks_without_allocating() {
     // 64 suits flying the colony's inside: low among the towers, landing on roofs and the floor,
-    // pressing fire (which the colony's law ignores).
-    use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FLIGHT_ASSIST};
+    // pressing fire (which the colony's law ignores); every fourth with its grip armed, landing on
+    // the city and walking it.
+    use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FLIGHT_ASSIST, GRIP};
     use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
     use bc_sim::colony::frame::CityPos;
     use bc_sim::colony::interior::WorldKind;
@@ -297,8 +298,9 @@ fn the_interior_ticks_without_allocating() {
     for k in 0..64 {
         let f = [FrameId::Leo, FrameId::WingZero, FrameId::Heavyarms][k % 3];
         let id = sim.launch(f, Faction::Colonies, PilotKind::Human, &Loadout::full(f)).unwrap();
-        let at =
-            CityPos::new((k % 3) as u8, -9_000.0 + k as f32 * 90.0, 300.0 + (k * 37 % 2_800) as f32, 40.0);
+        // (Those with their grips armed low enough to be caught.)
+        let h = if k % 4 == 0 { 25.0 } else { 40.0 };
+        let at = CityPos::new((k % 3) as u8, -9_000.0 + k as f32 * 90.0, 300.0 + (k * 37 % 2_800) as f32, h);
         sim.suits.flight[id.idx()].pos = at.to_colony();
         ids.push(id);
     }
@@ -309,7 +311,9 @@ fn the_interior_ticks_without_allocating() {
         for (k, id) in ids.iter().enumerate() {
             let f = &sim.suits.flight[id.idx()];
             let aim = (f.rot * Vec3::Z + Vec3::new(0.0, 0.1, 0.05 * (k % 5) as f32)).normalize();
-            let (buttons, thrust) = if (n / 50 + k as u32).is_multiple_of(3) {
+            let (buttons, thrust) = if k % 4 == 0 {
+                (GRIP | FLIGHT_ASSIST, [0, 0, if (n / 100).is_multiple_of(2) { 127 } else { -127 }])
+            } else if (n / 50 + k as u32).is_multiple_of(3) {
                 (0, [0, 0, 0])
             } else {
                 (FLIGHT_ASSIST | FIRE_PRIMARY | BOOST, [20, 0, 127])
@@ -325,4 +329,7 @@ fn the_interior_ticks_without_allocating() {
         total += heap;
     }
     assert_eq!(total, 0, "heap operations inside the interior's tick: {total}");
+    let walkers =
+        ids.iter().filter(|id| sim.suits.footing[id.idx()] != bc_sim::ground::Footing::Free).count();
+    assert!(walkers > 4, "on the city: {walkers}");
 }

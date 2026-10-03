@@ -311,11 +311,15 @@ fn fly_toward(ctx: &bc_client_core::InputContext, fa_speed: f32, to: Vec3) -> In
     }
 }
 
-/// Where a `fly_to` errand goes: `up` metres over a place's door (by its slug), in the colony's frame.
-fn fly_target(slug: &str, up: f32) -> Option<Vec3> {
+/// Where a `fly_to` errand goes, in the colony's frame: `up` metres over a place's door (by its
+/// slug), `ahead` metres out from it; or the inner gate (`inner_gate`).
+fn fly_target(slug: &str, up: f32, ahead: f32) -> Option<Vec3> {
+    if slug == "inner_gate" {
+        return Some(bc_sim::colony::interior::INNER_GATE);
+    }
     let (_, p) = bc_sim::colony::city::place(slug)?;
-    let ((s, x), _) = bc_sim::colony::city::place_door(p);
-    Some(bc_sim::colony::frame::CityPos::new(p.strip, x, s, up).to_colony())
+    let ((s, x), (ds, dx)) = bc_sim::colony::city::place_door(p);
+    Some(bc_sim::colony::frame::CityPos::new(p.strip, x - dx * ahead, s - ds * ahead, up).to_colony())
 }
 
 /// Per rendered frame: publishes the pilot's controls, runs the network loop once, and advances
@@ -334,12 +338,12 @@ pub fn drive(
     let mut g = game.borrow_mut();
     for cmd in &cmds.0 {
         if let crate::page::UiCmd::FlyTo(to) = cmd {
-            g.fly_to = to.as_ref().and_then(|(slug, up)| fly_target(slug, *up));
+            g.fly_to = to.as_ref().and_then(|(slug, up, ahead)| fly_target(slug, *up, *ahead));
         }
     }
     // The errand's done once the suit is there (or gone, or out of the colony).
     let here = g.core.own_view().filter(|v| v.alive).map(|v| v.pos);
-    if g.fly_to.is_some_and(|to| !g.core.inside() || here.is_none_or(|p| p.distance(to) < 40.0)) {
+    if g.fly_to.is_some_and(|to| !g.core.inside() || here.is_none_or(|p| p.distance(to) < 8.0)) {
         g.fly_to = None;
     }
     dev.set("flying_to", g.fly_to.is_some());
