@@ -1,8 +1,9 @@
 //! Routes through the city: its streets make a grid, so a route is a walk along a street to the
-//! right cross street, along that to the right street, and along that to the door. Waypoints are
-//! in the walker's frame on the strip (`(x, h, −s)`), for `walker::Guide`.
+//! right cross street, along that to the right street, and along that to the door. A walk from a
+//! key place's room goes out through its door first. Waypoints are in the walker's frame on the
+//! strip (`(x, h, −s)`), for `walker::Guide`.
 
-use bc_sim::colony::city::{BANK_ROW, KERB, ROWS, block_index, grid_x, place_door, room, row_at};
+use bc_sim::colony::city::{BANK_ROW, KERB, ROWS, block_index, grid_x, place_door, room, room_at, row_at};
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH};
 use bc_sim::content::city::PLACES;
 use glam::Vec3;
@@ -53,15 +54,26 @@ pub fn use_spot(i: usize) -> ((f32, f32), (f32, f32)) {
 /// to it).
 pub fn route_to_place(strip: u8, at: CityPos, i: usize) -> Vec<Vec3> {
     let (spot, _) = use_spot(i);
-    let Some(r) = room(i) else { return route(strip, (at.s, at.x), spot) };
+    let Some(r) = room(i) else { return route_from(strip, at, spot) };
     let walk = |(s, x): (f32, f32)| CityPos::new(strip, x, s, KERB).walker();
     let mut out = Vec::new();
     if !r.holds(at.s, at.x, at.h) {
         let (outside, inside) = r.threshold();
-        out = route(strip, (at.s, at.x), place_door(&PLACES[i]).0);
+        out = route_from(strip, at, place_door(&PLACES[i]).0);
         out.extend([walk(outside), walk(inside)]);
     }
     out.push(walk(spot));
+    out
+}
+
+/// A route on strip `strip` from `at` to `to` (`(s, x)`) along the streets ([`route`]), out
+/// through the door of the room `at` is in first, if it's in one.
+pub fn route_from(strip: u8, at: CityPos, to: (f32, f32)) -> Vec<Vec3> {
+    let Some(r) = room_at(strip, at.s, at.x, at.h) else { return route(strip, (at.s, at.x), to) };
+    let walk = |(s, x): (f32, f32)| CityPos::new(strip, x, s, KERB).walker();
+    let (outside, inside) = r.threshold();
+    let mut out = vec![walk(inside), walk(outside)];
+    out.extend(route(strip, outside, to));
     out
 }
 
@@ -148,6 +160,30 @@ mod tests {
             assert!((at.s - s).abs() < 1.0 && (at.x - x).abs() < 1.0, "{}: {at:?} vs {:?}", p.name, (s, x));
             // From where it stands, the route there again is just a step.
             assert!(route_to_place(p.strip, at, i).len() <= 1 || room(i).is_none(), "{}", p.name);
+        }
+    }
+
+    #[test]
+    fn the_guide_walks_out_of_every_room_and_back_to_hub_gate() {
+        for (i, p) in PLACES.iter().enumerate() {
+            let Some(r) = room(i) else { continue };
+            let ground = CityGround { strip: p.strip, stage: Stage(0) };
+            let ((s, x), _) = r.counter_spot();
+            let mut w = Walker::at(CityPos::new(p.strip, x, s, KERB).walker(), Vec3::X);
+            for _ in 0..30 {
+                w.step(&ground, &Stride::default(), DT);
+            }
+            let (gate, _) = place_door(place(&format!("hub_gate_{}", p.strip + 1)).unwrap().1);
+            let mut g = Guide::new(route_from(p.strip, ground.place(w.feet), gate), None);
+            let mut t = 0.0;
+            while !g.arrived() {
+                let st = g.steer(&mut w, DT);
+                w.step(&ground, &st, DT);
+                t += DT;
+                assert!(t < 600.0, "stuck leaving {}: at {:?}", p.name, ground.place(w.feet));
+            }
+            let at = ground.place(w.feet);
+            assert!((at.s - gate.0).abs() < 1.0 && (at.x - gate.1).abs() < 1.0, "{}: {at:?}", p.name);
         }
     }
 

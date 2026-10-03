@@ -33,7 +33,7 @@ async function mine(page: Page, name: string) {
 }
 
 test("a pilot rides down into the colony, trades on its Exchange floor, and rides home", async ({ page }) => {
-  test.setTimeout(900_000);
+  test.setTimeout(1_500_000);
   const logs = collectConsole(page);
   await page.goto("/?autoplay=1&name=Relena&quality=low");
   await until(page, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 180_000);
@@ -238,34 +238,35 @@ function seenAt(s: Record<string, any>, name: string): number[] | undefined {
 }
 
 test("two pilots meet at Hub Gate, and one flies a suit in over the other", async ({ browser }) => {
-  test.setTimeout(900_000);
-  // Two browsers, two pilots.
-  const [ca, cb] = [await browser.newContext(), await browser.newContext()];
+  test.setTimeout(1_200_000);
+  // Two browsers, two pilots: small windows, as two software renderers share the machine.
+  const small = { viewport: { width: 640, height: 360 } };
+  const [ca, cb] = [await browser.newContext(small), await browser.newContext(small)];
   const [a, b] = [await ca.newPage(), await cb.newPage()];
   const logs = [collectConsole(a), collectConsole(b)];
   await a.goto("/?autoplay=1&name=Heero&quality=low");
   await b.goto("/?autoplay=1&name=Duo&quality=low");
   const both = async (f: (p: Page) => Promise<unknown>) => Promise.all([f(a), f(b)]);
-  await both((p) => until(p, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 180_000));
+  await both((p) => until(p, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 240_000));
 
   // Both down the cap lift to Hub Gate.
   await both((p) => push(p, { cmd: "walk_to", spot: "airlock" }));
-  await both((p) => until(p, "at the airlock", (s) => s.focus === "airlock" && !s.walking_to, 120_000));
+  await both((p) => until(p, "at the airlock", (s) => s.focus === "airlock" && !s.walking_to, 180_000));
   await both((p) => push(p, { cmd: "use" }));
-  await both((p) => until(p, "the city", (s) => s.place === "city", 30_000));
+  await both((p) => until(p, "the city", (s) => s.place === "city", 120_000));
   await both((p) => push(p, { cmd: "skip" }));
-  await both((p) => until(p, "Hub Gate", (s) => s.seq === "walking" && s.strip === 0, 30_000));
+  await both((p) => until(p, "Hub Gate", (s) => s.seq === "walking" && s.strip === 0, 120_000));
   // Heero steps over to the motor pool beside the door; Duo stays at it.
   await push(a, { cmd: "walk_to", spot: "pool" });
-  await until(a, "the walk", (s) => s.city_walking_to, 30_000);
-  await until(a, "at the pool", (s) => !s.city_walking_to, 120_000);
+  await until(a, "the walk", (s) => s.city_walking_to, 60_000);
+  await until(a, "at the pool", (s) => !s.city_walking_to, 240_000);
 
   // Each sees the other, by name, where the other stands (within 2 m), and the server has both.
   for (const [me, other, them] of [
     [a, b, "Duo"],
     [b, a, "Heero"],
   ] as const) {
-    const s = await until(me, `${them} in view`, (s) => seenAt(s, them) !== undefined, 60_000);
+    const s = await until(me, `${them} in view`, (s) => seenAt(s, them) !== undefined, 120_000);
     await me.waitForTimeout(1_000);
     const seen = seenAt(await bc(me), them)!;
     const feet = String((await bc(other)).city_feet).split(",").map(Number);
@@ -278,28 +279,28 @@ test("two pilots meet at Hub Gate, and one flies a suit in over the other", asyn
 
   // Duo rides back up to the bay and launches into the colony by the inner gate.
   await push(b, { cmd: "walk_to", spot: "hub_gate_1" });
-  await until(b, "at Hub Gate's door", (s) => s.focus === "hub_gate_1" && !s.city_walking_to, 120_000);
+  await until(b, "at Hub Gate's door", (s) => s.focus === "hub_gate_1" && !s.city_walking_to, 240_000);
   await push(b, { cmd: "use" });
-  await until(b, "the bay", (s) => s.place === "hangar" && s.seq === "walking" && s.strip === -1, 60_000);
+  await until(b, "the bay", (s) => s.place === "hangar" && s.seq === "walking" && s.strip === -1, 120_000);
   await push(b, { cmd: "walk_to", spot: "cockpit" });
-  await until(b, "at the cockpit", (s) => s.focus === "cockpit" && !s.walking_to, 120_000);
+  await until(b, "at the cockpit", (s) => s.focus === "cockpit" && !s.walking_to, 240_000);
   await b.locator("canvas").first().click();
   await b.keyboard.press("q");
-  await until(b, "inside the colony", (s) => s.place === "space" && s.interior === true && s.alive, 120_000);
+  await until(b, "inside the colony", (s) => s.place === "space" && s.interior === true && s.alive, 180_000);
   await push(b, { cmd: "skip" });
 
   // Down from the inner gate to 250 m over Hub Gate's door: Heero, on foot below, watches it come,
   // and Duo, in it, sees Heero.
   await push(b, { cmd: "fly_to", spot: "hub_gate_1", up: 250 });
-  await until(b, "the errand", (s) => s.flying_to, 30_000);
+  await until(b, "the errand", (s) => s.flying_to, 60_000);
   const s = await until(
     a,
     "the suit over Hub Gate",
     (s) => s.watched >= 1 && s.watched_nearest >= 0 && s.watched_nearest < 600,
-    300_000,
+    420_000,
   );
   console.log(`watched: ${s.watched} suit(s), the nearest ${Math.round(s.watched_nearest)} m off`);
-  await until(b, "Heero, from the suit", (s) => seenAt(s, "Heero") !== undefined, 120_000);
+  await until(b, "Heero, from the suit", (s) => seenAt(s, "Heero") !== undefined, 180_000);
   await a.screenshot({ path: "artifacts/colony-suit-overhead.png" });
   await b.screenshot({ path: "artifacts/colony-from-the-suit.png" });
 

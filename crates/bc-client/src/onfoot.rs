@@ -228,7 +228,7 @@ impl CityFoot {
         let facing = CityPos::new(self.strip, t.x + t.yaw.sin(), t.s - t.yaw.cos(), 0.0).walker()
             - CityPos::new(self.strip, t.x, t.s, 0.0).walker();
         self.guide =
-            Some(Guide::new(city_nav::route(self.strip, (at.s, at.x), (t.s, t.x)), Some(facing.normalize())));
+            Some(Guide::new(city_nav::route_from(self.strip, at, (t.s, t.x)), Some(facing.normalize())));
         true
     }
 
@@ -380,7 +380,7 @@ impl CityFoot {
             if (feet.s - mid).abs() < 0.5 * AVENUE_WIDTH {
                 route.push(at(feet.x, mid, 0.0));
             } else {
-                route = city_nav::route(self.strip, (feet.s, feet.x), (mid - 20.0, foot));
+                route = city_nav::route_from(self.strip, feet, (mid - 20.0, foot));
             }
             route.push(at(foot, mid, 0.0));
             route.push(at(sx + end * (half - 5.0), mid, FLOOR));
@@ -495,7 +495,7 @@ impl CityFoot {
                 return false;
             }
             let at = self.feet();
-            self.guide = Some(Guide::new(city_nav::route(self.strip, (at.s, at.x), sights::stand(i)), None));
+            self.guide = Some(Guide::new(city_nav::route_from(self.strip, at, sights::stand(i)), None));
             return true;
         }
         let Some((i, p)) = bc_sim::colony::city::place(slug) else { return false };
@@ -968,6 +968,12 @@ pub fn drive_onfoot(
             }
         }
         g.core.set_pose(Some(c.pose()));
+        // Sent now, if it's due, rather than by the network's next frame: after a slow frame the
+        // walk has caught up by up to a second's worth, and a pose a frame late would reach the
+        // server only a moment after the one before it, too far for that moment.
+        if let (Some(t), Some(p)) = (net.get(), g.core.poll_pose(now)) {
+            t.send_datagram(&p);
+        }
         // A sight goes on the found-list the first time (and is named every time); else a
         // district's name.
         match c.reached() {
