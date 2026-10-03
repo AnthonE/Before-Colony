@@ -133,12 +133,14 @@ weapon); its rollouts run against the interior's world.
 - `bc-server/tests/inside.rs`: launch into the colony, fly, dock back; fire inputs do nothing;
   the two sectors keep one tick; a suit flown down over Hub Gate sees a pilot walking there, who
   sees it, and stops seeing it up the lift; armed, a suit lands on the avenue and walks up it,
-  its pilot's prediction agreeing.
+  its pilot's prediction agreeing, then lets go and flies the 2.9 km back up to the gate, and docks.
 - `bc-sector/tests/watch_net.rs`: a spectator's snapshots carry no own suit and the suits near
   it, a suit leaving its view is told, and watching allocates nothing.
-- e2e: a pilot launches into the colony from the bay, flies down over the avenue, lands there
-  with the grip armed, sees the agent strolling outside Hub Gate, walks up the avenue, lets go and
-  docks back (`inside`); a pilot on foot by Hub Gate's door watches a suit come in and stand on
+- e2e: a pilot launches into the colony from the bay, flies a way down it and back into the
+  gate's ring, and docks; another flies down over the avenue, lands there with the grip armed,
+  sees the agent strolling outside Hub Gate, walks up the avenue and lets go (`inside`: the climb
+  back is the native test's, as a page drawing in software sends its commands in bursts the
+  server fills with stand-ins, and climbs at a couple of metres a second); a pilot on foot by Hub Gate's door watches a suit come in and stand on
   the avenue, and its pilot sees them (`colony`'s two-browser test; an agent, `bc-bot`'s
   `suit_inside`, flies the suit, as a page drawing in software beside another can't).
 

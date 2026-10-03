@@ -277,6 +277,31 @@ async fn a_suit_inside_lands_on_the_avenue_and_walks_it() -> anyhow::Result<()> 
     })
     .await?;
     assert!(b.world().own.is_some_and(|o| o.surface.is_none()), "flying again");
+
+    // And back up to the inner gate, 2.9 km against the colony's pull, to dock into the bay.
+    let t0 = std::time::Instant::now();
+    for _ in 0..30 * 300 {
+        let own = b.world().own.expect("own suit");
+        if own.pos.distance(INNER_GATE) < INNER_GATE_RADIUS * 0.5 && own.vel.length() < 2.0 {
+            break;
+        }
+        b.step(&mut |_| toward(&own, INNER_GATE, 150.0)).await?;
+    }
+    let own = b.world().own.expect("own suit");
+    assert!(
+        own.pos.distance(INNER_GATE) < INNER_GATE_RADIUS,
+        "at the gate: {} m off",
+        own.pos.distance(INNER_GATE)
+    );
+    println!("up to the gate in {:.0} s", t0.elapsed().as_secs_f32());
+    b.run_for(Duration::from_secs(2), &mut |_| InputCmd {
+        buttons: FLIGHT_ASSIST,
+        aim: up,
+        ..InputCmd::default()
+    })
+    .await?;
+    b.dock().await?;
+    b.wait_until(5.0, "the bay", |c| c.hangar.in_hangar() && c.welcome.is_some_and(|w| !w.interior)).await?;
     b.close().await;
     server.shutdown();
     Ok(())

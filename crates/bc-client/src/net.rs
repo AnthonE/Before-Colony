@@ -309,10 +309,11 @@ fn fly_toward(ctx: &bc_client_core::InputContext, fa_speed: f32, to: Vec3) -> In
 }
 
 /// Where a `fly_to` errand goes, in the colony's frame: `up` metres over a place's door (by its
-/// slug), `ahead` metres out from it; or the inner gate (`inner_gate`).
+/// slug), `ahead` metres out from it; or the inner gate (`inner_gate`), `ahead` metres down the
+/// colony from it.
 fn fly_target(slug: &str, up: f32, ahead: f32) -> Option<Vec3> {
     if slug == "inner_gate" {
-        return Some(bc_sim::colony::interior::INNER_GATE);
+        return Some(bc_sim::colony::interior::INNER_GATE + Vec3::X * ahead);
     }
     let (_, p) = bc_sim::colony::city::place(slug)?;
     let ((s, x), (ds, dx)) = bc_sim::colony::city::place_door(p);
