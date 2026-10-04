@@ -245,12 +245,12 @@ fn riders_never_allocate() {
 
 #[test]
 fn the_colony_answers_without_allocating() {
-    // The city, its furniture, its day, its frames and its trams are closed forms: asking them anything
-    // allocates nothing, so a future sector inside the colony can ask them in its tick.
-    use bc_sim::colony::{city, frame, furniture, time, transit};
+    // The city, its furniture, its day, its frames, its trams and its traffic are closed forms: asking
+    // them anything allocates nothing, so a future sector inside the colony can ask them in its tick.
+    use bc_sim::colony::{city, frame, furniture, time, traffic, transit};
     let mut rng = bc_sim::math::Rng::new(5);
-    let ((hits, pieces), n) = bc_alloc::count(|| {
-        let (mut hits, mut pieces) = (0u32, 0u32);
+    let ((hits, pieces, cars), n) = bc_alloc::count(|| {
+        let (mut hits, mut pieces, mut cars) = (0u32, 0u32, 0u32);
         for i in 0..100_000u32 {
             let k = (i % 3) as u8;
             let p = glam::Vec3::new(
@@ -275,13 +275,59 @@ fn the_colony_answers_without_allocating() {
                     pieces += 1;
                     false
                 });
+                // The traffic round it: all of it, and its moving and its parked cars apart.
+                traffic::each_car(k, &area, city::Stage(0), i * 31, 0.5, |_| {
+                    cars += 1;
+                    false
+                });
+                traffic::each_ring_car(k, &area, city::Stage(0), i * 37, 0.5, |_| {
+                    cars += 1;
+                    false
+                });
+                traffic::each_bay_car(k, &area, city::Stage(0), |_| {
+                    cars += 1;
+                    false
+                });
             }
         }
-        (hits, pieces)
+        (hits, pieces, cars)
     });
     assert!(hits > 1_000, "{hits}: buildings should be hit");
     assert!(pieces > 1_000, "{pieces}: furniture should be found");
+    assert!(cars > 1_000, "{cars}: cars should be found");
     assert_eq!(n, 0, "heap operations asking the colony: {n}");
+}
+
+#[test]
+fn the_citys_people_are_found_without_allocating() {
+    // Everybody near a few hundred metres of street, square or platform, any hour: a closed form
+    // a sector's tick could ask too.
+    use bc_sim::colony::{city, frame, transit, walkers};
+    let mid = frame::STRIP_WIDTH * 0.5;
+    let areas = [
+        city::Rect::new(mid - 300.0, mid + 300.0, -16_000.0, -15_400.0),
+        city::Rect::new(
+            mid - 150.0,
+            mid + 150.0,
+            transit::station_x(3) - 150.0,
+            transit::station_x(3) + 150.0,
+        ),
+        city::Rect::new(0.0, 300.0, -12_000.0, -11_700.0),
+        city::Rect::new(mid - 700.0, mid + 700.0, -12_400.0, -11_400.0),
+    ];
+    let (seen, n) = bc_alloc::count(|| {
+        let mut seen = 0u32;
+        for i in 0..200u32 {
+            let area = &areas[(i % 4) as usize];
+            walkers::each_walker((i % 3) as u8, area, city::Stage(0), i * 4_321, 0.3, |w| {
+                seen += u32::from(w.fade > 0.0);
+                false
+            });
+        }
+        seen
+    });
+    assert!(seen > 10_000, "{seen} people found");
+    assert_eq!(n, 0, "heap operations finding people: {n}");
 }
 
 #[test]

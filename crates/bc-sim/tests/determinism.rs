@@ -832,6 +832,113 @@ fn city_golden_wasm() {
     assert_eq!(city_hash(), CITY_GOLDEN);
 }
 
+/// Hash of the city's traffic (`colony::traffic`): the cars in a few places (the avenue at a wide
+/// street, a district's edge, the canal's rows, the rows' ends at Hub Gate's square and on the site,
+/// the bank road) at noon, dusk, night and dawn, and the signals. Every client draws the same cars.
+const TRAFFIC_GOLDEN: u64 = 0x192f_bfdd_bab7_18d4;
+
+fn traffic_hash() -> u64 {
+    use bc_sim::colony::{city, frame::STRIP_WIDTH, traffic};
+    let stage = city::Stage(0);
+    let mid = STRIP_WIDTH * 0.5;
+    let mut h = 0xcbf2_9ce4_8422_2325;
+    let places = [
+        (40, mid - 400.0, mid + 400.0),
+        (24, 0.0, 600.0),
+        (100, mid + 400.0, mid + 900.0),
+        (8, mid - 300.0, mid + 300.0),
+        (199, STRIP_WIDTH - 500.0, STRIP_WIDTH),
+    ];
+    for (k, (bx, s0, s1)) in places.into_iter().enumerate() {
+        let x = city::grid_x(bx);
+        let area = city::Rect::new(s0, s1, x - 300.0, x + 300.0);
+        for t in [0u32, 12_345, 49_999, 57_000, 70_001, 1_000_000] {
+            traffic::each_car((k % 3) as u8, &area, stage, t, 0.37, |c| {
+                fnv(&mut h, (c.id ^ (c.id >> 32)) as u32);
+                fnv(&mut h, c.kind as u32 | u32::from(c.parked) << 4 | (c.blink as u32) << 5);
+                for v in [c.s, c.x, c.dir.0, c.dir.1, c.yaw, c.speed, c.accel] {
+                    fnv(&mut h, v.to_bits());
+                }
+                false
+            });
+        }
+    }
+    for strip in 0..3u8 {
+        for bx in [8, 40, 44, 200] {
+            for k in [0, 1, 7, 12] {
+                for t in (0..4_800).step_by(371) {
+                    let s = traffic::signal(strip, bx, k, stage, t, 0.5).expect("a wide street's signals");
+                    fnv(&mut h, s.light as u32 | u32::from(s.walk) << 2);
+                    fnv(&mut h, s.left.to_bits());
+                }
+            }
+        }
+    }
+    h
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn traffic_golden_native() {
+    let h = traffic_hash();
+    assert_eq!(h, traffic_hash(), "must be reproducible within a process");
+    assert_eq!(h, TRAFFIC_GOLDEN, "the traffic's hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn traffic_golden_wasm() {
+    assert_eq!(traffic_hash(), TRAFFIC_GOLDEN);
+}
+
+/// Hash of the city's people (`colony::walkers`): everybody on Hub Gate's square, round a station,
+/// down the avenue and its blocks, on a bank and the canal, at hours through a week, on every strip.
+/// Every client draws the same crowd from this.
+const WALKERS_GOLDEN: u64 = 0x2c14_7d45_2158_da87;
+
+fn walkers_hash() -> u64 {
+    use bc_sim::colony::{city, frame, transit, walkers};
+    let mid = frame::STRIP_WIDTH * 0.5;
+    let areas = [
+        city::Rect::new(mid - 300.0, mid + 300.0, -16_000.0, -15_350.0),
+        city::Rect::new(mid - 60.0, mid + 60.0, transit::station_x(6) - 100.0, transit::station_x(6) + 100.0),
+        city::Rect::new(mid - 500.0, mid + 500.0, -12_400.0, -11_900.0),
+        city::Rect::new(0.0, 200.0, -8_000.0, -7_000.0),
+        city::Rect::new(mid + 380.0, mid + 600.0, 2_000.0, 2_600.0),
+    ];
+    let mut h = 0xcbf2_9ce4_8422_2325;
+    for k in 0..3u8 {
+        for (n, area) in areas.iter().enumerate() {
+            for t in [0u32, 14_400, 57_600, 70_000 + 7_919 * n as u32, 1_234_567] {
+                walkers::each_walker(k, area, city::Stage(0), t, 0.37, |w| {
+                    fnv(&mut h, w.id);
+                    fnv(&mut h, w.pose as u32);
+                    fnv(&mut h, w.seed);
+                    for v in [w.s, w.x, w.h, w.yaw, w.speed, w.stride, w.fade] {
+                        fnv(&mut h, v.to_bits());
+                    }
+                    false
+                });
+            }
+        }
+    }
+    h
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn walkers_golden_native() {
+    let h = walkers_hash();
+    assert_eq!(h, walkers_hash(), "must be reproducible within a process");
+    assert_eq!(h, WALKERS_GOLDEN, "the city's people's hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn walkers_golden_wasm() {
+    assert_eq!(walkers_hash(), WALKERS_GOLDEN);
+}
+
 /// Hash after 600 ticks of suits flying the colony's inside: launched from the inner gate, some on
 /// flight assist weaving among the towers, some falling to the floor and the roofs, firing all the
 /// while (which the colony's law ignores), and two with their grips armed, landing on the avenue

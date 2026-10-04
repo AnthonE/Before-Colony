@@ -138,7 +138,7 @@ impl RenderOrigin {
 }
 
 /// Where an entity of the city is, in the colony's frame.
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct Placed(pub DVec3);
 
 /// A point of the colony's frame, in `f64`.

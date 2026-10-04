@@ -2,8 +2,9 @@
 //! (`frame`: the strips, and a point on the floor in city coordinates), its day (`time`: the
 //! mirrors open and close on the tick's clock), its mirrors (`mirrors`), the docking hub's
 //! structures (`hub`), its city (`city`: streets, blocks and buildings, worked out where they're
-//! asked for) and its street furniture (`furniture`: lamps, trees, benches; solid to people, not to
-//! suits).
+//! asked for), its street furniture (`furniture`: lamps, trees, benches; solid to people, not to
+//! suits), its trams (`transit`), its traffic (`traffic`: the cars on its streets and their signals)
+//! and the people on its streets (`walkers`), on the tick's clock.
 //!
 //! To suits and shots the colony is still `world`'s solid cylinder; this is the rest of it. Like
 //! the bodies, nothing here allocates or reads a clock of its own, and every function is the same
@@ -17,4 +18,6 @@ pub mod interior;
 pub mod mirrors;
 pub mod pools;
 pub mod time;
+pub mod traffic;
 pub mod transit;
+pub mod walkers;

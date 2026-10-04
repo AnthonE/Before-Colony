@@ -996,38 +996,31 @@ fn city_axes(strip: u8, s: f32) -> (Vec3, Vec3) {
 }
 
 fn city_cams() -> Vec<Orbit> {
-    use bc_sim::colony::city::{CANAL_ROW, KERB, block_rect, channel};
     use bc_sim::colony::frame::STRIP_WIDTH;
     let mid = STRIP_WIDTH * 0.5;
     let (up, across) = city_axes(0, mid);
-    let quay = channel(&block_rect(40, CANAL_ROW)).s0 - 3.0;
     let (bank_up, bank_across) = city_axes(0, 60.0);
+    // The street-level eyes stand where nobody walks and no car drives (`showcase_city`'s tests).
+    let eyes = bc_client_core::showcase_city::street_eyes();
+    let eye = |i: usize| {
+        let (strip, s, x, h) = eyes[i];
+        city_at(strip, s, x, h)
+    };
     vec![
         // Over Hub Gate's offices, down the avenue to the far end: the city curving up either side.
         look(city_at(0, mid - 90.0, -15_700.0, 170.0), (Vec3::X * 0.97 - up * 0.2).normalize()),
         // From the cap lift, 700 m up the end cap.
         look(city_at(0, mid, -15_990.0, 700.0), (Vec3::X * 0.94 - up * 0.34).normalize()),
         // On the avenue's pavement downtown, at eye height.
-        look(city_at(0, mid + 30.0, -14_100.0, 1.65), (Vec3::X + up * 0.05).normalize()),
+        look(eye(0), (Vec3::X + up * 0.05).normalize()),
         // At the window bank, the glass and the strip beyond rising up past the railing.
-        look(
-            city_at(0, 60.0, -12_000.0, 1.65),
-            (-bank_across * 0.8 + bank_up * 0.45 + Vec3::X * 0.3).normalize(),
-        ),
+        look(eye(1), (-bank_across * 0.8 + bank_up * 0.45 + Vec3::X * 0.3).normalize()),
         // Along the canal from its quay.
-        look(city_at(0, quay, -11_000.0, KERB + 1.65), (Vec3::X - across * 0.08).normalize()),
+        look(eye(2), (Vec3::X - across * 0.08).normalize()),
         // Near the axis at the docking hub's end, down the whole 32 km.
         look((bevy::math::DVec3::new(-15_600.0, 300.0, 300.0) - city_origin()).as_vec3(), Vec3::X),
         // On a tram station's platform (the sixth, x −3,250), a train standing either side of it.
-        look(
-            city_at(
-                0,
-                mid - 1.0,
-                bc_sim::colony::transit::station_x(5) - 32.0,
-                bc_sim::colony::transit::FLOOR + 1.65,
-            ),
-            (Vec3::X - across * 0.12 + up * 0.02).normalize(),
-        ),
+        look(eye(3), (Vec3::X - across * 0.12 + up * 0.02).normalize()),
         exchange_floor_cam(),
     ]
 }
@@ -1054,88 +1047,21 @@ fn city_script(mut view: ResMut<crate::city::CityView>, mut origin: ResMut<crate
     origin.0 = city_origin();
 }
 
-/// Pilots strolling the avenue's pavements by the third view, and crossing at its corner: the
-/// people as the plaza would show them.
+/// The showcase's people and vehicles (`bc_client_core::showcase_city`): pilots who are some of the
+/// city's own people walking the avenue by the third view, given names (life leaves those out), a
+/// car and a scooter in the avenue's inner lanes; and the trams and the city's life on the
+/// showcase's clock.
 fn city_crowd(
     vis: Res<VisTime>,
     mut crowd: ResMut<crate::people::Crowd>,
     mut trams: ResMut<crate::trams::TramClock>,
+    mut borrowed: ResMut<crate::life::LifeBorrowed>,
 ) {
-    // The trams on the showcase's clock.
-    let t = vis.now * f64::from(bc_sim::TICK_HZ);
-    *trams = crate::trams::TramClock(t.floor() as u32, (t - t.floor()) as f32);
-    use bc_proto::presence::PersonPose;
-    use bc_sim::colony::frame::STRIP_WIDTH;
-    const NAMES: [&str; 16] = [
-        "Heero",
-        "Duo",
-        "Trowa",
-        "Quatre",
-        "Wufei",
-        "Relena",
-        "Zechs",
-        "Noin",
-        "Sally",
-        "Hilde",
-        "Catherine",
-        "Dorothy",
-        "Lady Une",
-        "Treize",
-        "Howard",
-        "Rashid",
-    ];
-    let mid = STRIP_WIDTH * 0.5;
-    let t = vis.now as f32;
-    crowd.0 = NAMES
-        .iter()
-        .enumerate()
-        .map(|(i, name)| {
-            let k = i as f32;
-            // Up or down the avenue, on either pavement, each at their own pace: out past its
-            // row of trees and benches (`bc_sim::colony::furniture::AVENUE_TREE`), short of its kerb.
-            let dir = if i % 2 == 0 { 1.0 } else { -1.0 };
-            let speed = 1.1 + 0.08 * (i % 7) as f32 + if i % 5 == 0 { 3.2 } else { 0.0 };
-            let side = if i % 3 == 0 { -1.0 } else { 1.0 };
-            let s = mid + side * (25.0 + (k * 3.7) % 13.0);
-            let x = -14_095.0 + (k * 23.0 + dir * speed * t).rem_euclid(160.0);
-            let yaw = if dir > 0.0 { std::f32::consts::FRAC_PI_2 } else { -std::f32::consts::FRAC_PI_2 };
-            let pose = PersonPose {
-                strip: 0,
-                x,
-                s,
-                h: 0.15,
-                yaw,
-                pitch: 0.0,
-                speed,
-                grounded: true,
-                running: speed > 5.0,
-                ride: 0,
-            };
-            (i as u16, (*name).to_string(), pose)
-        })
-        .collect();
-    // A car up the avenue's out-bound road, and a scooter down the in-bound one.
-    let traffic = [
-        ("Noin-car", bc_proto::presence::RIDE_CAR, 1.0f32, mid + 15.0, 11.0),
-        ("Hilde", bc_proto::presence::RIDE_SCOOTER, -1.0, mid - 12.0, 8.0),
-    ];
-    for (k, (name, ride, dir, s, speed)) in traffic.into_iter().enumerate() {
-        let x = -14_100.0 + (dir * speed * t + 40.0 * k as f32).rem_euclid(220.0);
-        let yaw = if dir > 0.0 { std::f32::consts::FRAC_PI_2 } else { -std::f32::consts::FRAC_PI_2 };
-        let pose = PersonPose {
-            strip: 0,
-            x,
-            s,
-            h: 0.0,
-            yaw,
-            pitch: 0.0,
-            speed,
-            grounded: true,
-            running: false,
-            ride,
-        };
-        crowd.0.push((100 + k as u16, name.to_string(), pose));
-    }
+    let (tick, frac) = bc_client_core::showcase_city::clock(vis.now);
+    *trams = crate::trams::TramClock(tick, frac);
+    let script = bc_client_core::showcase_city::crowd(vis.now);
+    crowd.0 = script.people;
+    borrowed.0 = script.borrowed;
 }
 
 /// The camera inside: its up is the colony's where it stands (towards the axis), not +Y.

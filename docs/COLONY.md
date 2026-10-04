@@ -399,6 +399,71 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
 - 60 m/s, 1.5 m/s², 20 s dwell: about 17 min end to end.
 - 12 trains per line, one every 3 min. Each train is 3 cars × 24 m.
 
+**Traffic** (`colony::traffic`: a closed form of the tick, like the trams; `docs/ARCHITECTURE.md`, "The colony inside")
+- Which streets (`|c|` is the distance from the avenue's middle line):
+
+| Street | Moving cars | Parked |
+|---|---|---|
+| The avenue's carriageways (−x on the +s side, +x on the −s side) | outer lane (\|c\| 17.9): rows ±1's track 0; middle lane (14.3): their track 1; the inner lane (10.7) empty | none |
+| Streets along the strip (k 1 to 11, 24 m; 40 m at k 4 and 8) | each half its row's ring: track 0 by the kerb, track 1 next to it; a 40 m street's third lane empty | both kerbs' bays |
+| The bank road (row 12's outer street, a lane a way) | the near lane: row 12's track 0; the far lane by the glass empty | both kerbs' bays |
+| Wide cross streets (every 4th, 40 m) | one-block cross legs between neighbouring streets along the strip, queueing at the reds | track 0's night bays only |
+| Narrow cross streets (24 m) | none (cars cross them only going straight along the strip) | both kerbs' bays, 10 m or more from a crossing |
+| Hub Gate's stretch (blocks 3 to 7), the building site, the tram's median | none | none |
+
+- Rings keep right, round each row: track 0 round one 512 m stretch (wide street to wide street), track 1 round the
+  whole row, from bx 8 to bx 200 (sixteen blocks more for each district built out, at most 248).
+- Signals at every junction of the wide cross streets: an 80 s cycle, 37 s green and 3 s amber for the cars, then
+  2 s all-red and 38 s walk for the people. Phases `(800·strip + 1200·((bx/4 + |k|) mod 2)) mod 2400` ticks: a
+  checkerboard, so at 12.8 m/s (512 m in half a cycle) both ways of every street ride a green wave. Cars are on a
+  signalised junction only 1.4 to 27.3 s into its green.
+- 12.8 m/s down the streets, 10 m/s on the cross legs, turns of 9.4 and 13.0 m radius at 4.85 and 5.7 m/s;
+  2 m/s² up, 2.5 m/s² braking.
+- Platoons of up to 10, one a cycle a ring: 7 m apart in the queue, each moving off 1.2 s after the one ahead.
+  Track 0's lap is 160 s (two platoons), track 1's 3,920 s (49). A platoon waits 16 to 21 s at each red.
+- Both ways' platoons pass a point of the avenue together, so a signals' 512 m stretch has a busy half and a quiet
+  one: looking 400 m up the avenue (+x) from its middle two blocks (4n+1, 4n+2), no car is moving in view 23 to
+  28% of the time; from the blocks either side of a wide street (4n+3, 4n+4), 0 to 2%. The showcase's third
+  camera stands in the busy half (x −13,716, block 20).
+- Out by the hour: none of the platoons stays in at the rushes; through the night track 0's platoons park whole,
+  each at its own hour, 3.075 m to the kerb side and 9 m back from their places, and pull out at dawn. Track 1
+  runs 70% full all day.
+- Track 0's places manned and bays parked, by district: Business 0.95 and 0.25, Midtown 0.9 and 0.45, Civic 0.8
+  and 0.3, Port 0.75 and 0.4, Works 0.7 and 0.4, Residential 0.6 and 0.55, University 0.6 and 0.45, Old Town 0.5
+  and 0.6, Park 0.35 and 0.2, the site 0.2 and 0.1.
+- Kinds: 68% cars (4.4 × 1.8 m), 10% taxis (4.6 × 1.8), 14% vans (5.2 × 2.0), 8% scooters (1.9 × 0.7); the bays
+  hold cars and 20% vans.
+- A strip has about 22,700 cars moving and 82,000 parked by day, 10,400 and 94,000 at night. A 300 m square (a
+  frame's question) costs 0.03 ms natively: 12 to 30 moving cars and 56 to 128 parked; a 2 km square at night
+  about 0.7 ms and 4,000 cars.
+
+**People** (`colony::walkers`: the city's own, a closed form of the tick; pilots are the plaza's)
+- Half a person's width (`RADIUS`) 0.3 m: nobody comes within 0.6 m of anybody.
+- Lines are loops with slots about 4 m apart (never under 2 m), moved on one every 45 to 108 ticks: 1.0 to
+  1.8 m/s walking, 2.8 m/s jogging. A day is whole laps of every line.
+- Where: a block's pavement on three lines 1.6 (with the kerb on the right), 2.6 and 3.6 m in from the kerb, round
+  a run of four blocks over the narrow cross streets' zebras (rows ±2 to ±12, not the canal's) or round each block
+  (rows ±1); the avenue's walks on capsules 26.7 to 31.1, 27.8 to 30.0, 33.9 to 37.6 and 35.0 to 36.5 m out; a
+  park's loop and its middle; two pairs of rings round a plaza's monument (11 to 12.4, 28 to 29.4 m); the quays;
+  the banks' promenades (joggers round 8 blocks, strollers round 2); Hub Gate's square, 2 m either side of its
+  paving's bands every 32 m, crossing half a slot apart (1.41 m at the nearest); the platforms (two files at each
+  door, a way on and a way off).
+- Standing: every 7 m along the pavements (by the walls 4.5 m in, at the kerb 0.95 m in), twos to fours in the
+  square's cells, round the monuments, at the quays' railings every 9 m; asked every 30 s. Sitting: the avenue's
+  benches, a slot off its line for two laps at a time.
+- Who's out: a slot's draw against its line's share (0.1 to 0.3) times how busy the place is: by district, day
+  and night (Business 1.0 and 0.05, Midtown 0.85 and 0.2, Old Town 0.7 and 0.25, the Works 0.35 and 0.03, …),
+  an evening's bump as the lamps come on; near a station (the avenue and two rows either side) ×1.5 at its
+  platform, falling to ×1 at 300 m; Hub Gate 1.0 and 0.3; the banks 0.5 and 0.04; nobody on the building site.
+  People come and go at a line's corners, fading over 1.5 m.
+- A strip has about 200,000 to 250,000 people out at noon, 105,000 to 125,000 at the end of dusk and 40,000 to
+  50,000 at night. A 300 m square holds 200 to 840 at noon and 10 to 330 at night, and costs 0.12 to 0.25 ms
+  natively.
+- People and cars never share ground: the only road people cross is a narrow cross street, on its zebra, and no
+  car drives one. `tests/life.rs` holds every car's footprint 0.5 m or more from anybody's middle; over 7.4
+  million people sampled, the nearest is 3.17 m (somebody at a kerb by a parked van). Nobody crosses at the
+  signals yet.
+
 **Presence**
 - Pose: about 128 bits at 15 Hz.
 - Plaza: 74-bit header plus about 118 bits a person, at most 48 people (about 720 B, about 7 KB/s).
@@ -417,7 +482,8 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
   - fmt;
   - clippy, native and wasm, for both webgl2 and webgpu;
   - `cargo test --workspace --release`;
-  - wasm determinism, including the new `CITY_GOLDEN` and `TRANSIT_GOLDEN`;
+  - wasm determinism, including the new `CITY_GOLDEN` and `TRANSIT_GOLDEN`, and the city's life (`TRAFFIC_GOLDEN`,
+    `WALKERS_GOLDEN`);
   - the `no_alloc` tests.
 - **Visual:** `scripts/e2e.sh gfx webgl2 --grep "colony|city"`. Review the `e2e/artifacts/` shots against the two
   references (colony cam 6 is image 2; city view 1 is image 1).

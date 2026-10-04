@@ -5,6 +5,7 @@
 //! High otherwise. F10 cycles it in game, and the settings keep the choice. Later milestones add
 //! their knobs to [`TierSettings`].
 
+use bc_client_core::life;
 use bevy::anti_alias::smaa::Smaa;
 use bevy::camera::Hdr;
 use bevy::core_pipeline::tonemapping::Tonemapping;
@@ -76,6 +77,7 @@ impl GfxTier {
             particles: 4_000,
             dust: 1_500,
             flare: true,
+            life: life::TIERS[2],
         };
         match self {
             // Software rasterisers and weak GPUs: plain LDR, no multisampling, no post effects,
@@ -92,6 +94,7 @@ impl GfxTier {
                 particles: 300,
                 dust: 0,
                 flare: false,
+                life: life::TIERS[0],
                 ..base
             },
             // HDR and bloom with the cheaper post-process anti-aliasing; no shadows.
@@ -104,6 +107,7 @@ impl GfxTier {
                 fx_lights: 4,
                 particles: 1_500,
                 dust: 600,
+                life: life::TIERS[1],
                 ..base
             },
             Self::High => base,
@@ -113,6 +117,7 @@ impl GfxTier {
                 fx_lights: 24,
                 particles: 10_000,
                 dust: 2_500,
+                life: life::TIERS[3],
                 ..base
             },
         }
@@ -150,6 +155,8 @@ pub struct TierSettings {
     pub dust: usize,
     /// The Sun's lens flare.
     pub flare: bool,
+    /// The city's traffic and people: how many are drawn, how far (`bc_client_core::life`).
+    pub life: life::LifeTier,
 }
 
 /// The active tier.
@@ -162,6 +169,8 @@ pub struct Gfx {
     pub tonemapping: Tonemapping,
     /// The game's own look (grade, vignette, lit smoke); `?look=0` turns it off, to compare.
     pub look: bool,
+    /// The city's traffic and people drawn; `?life=0` hides them, to compare and to measure.
+    pub life: bool,
     /// The page's pick for this GPU (what the "auto" setting means).
     pub auto: GfxTier,
 }
@@ -177,7 +186,7 @@ impl Gfx {
             _ => Tonemapping::TonyMcMapface,
         };
         let auto = GfxTier::parse(&cfg.quality_auto).unwrap_or(tier);
-        Self { tier, settings: tier.settings(), backend, tonemapping, look: cfg.look, auto }
+        Self { tier, settings: tier.settings(), backend, tonemapping, look: cfg.look, life: cfg.life, auto }
     }
 
     pub fn set_tier(&mut self, tier: GfxTier) {

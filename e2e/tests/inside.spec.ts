@@ -55,6 +55,8 @@ test("a pilot launches into the colony by the inner gate, flies down it a way, a
   await page.waitForTimeout(4_000);
   let s = await bc(page);
   expect(s.city_chunks).toBeGreaterThan(0);
+  // The city's traffic and people round the suit (logged till a run has seen them).
+  console.log(`life from the gate: ${s.ambient_people} people, ${s.ambient_cars} cars, ${s.life_ms} ms`);
   await page.screenshot({ path: "artifacts/inside.png" });
 
   // Weapons safe: the trigger does nothing.
@@ -119,6 +121,7 @@ test("a suit inside the colony lands on the avenue by Hub Gate, sees the people 
   }
   const walked = away(s);
   console.log(`walked ${walked.toFixed(1)} m up the avenue`);
+  console.log(`life on the avenue: ${s.ambient_people} people, ${s.ambient_cars} cars, ${s.life_ms} ms`);
   expect(walked).toBeGreaterThan(8);
   expect(s.footing).toBe("grounded");
   expect(s.prediction_error_m).toBeLessThan(0.5);

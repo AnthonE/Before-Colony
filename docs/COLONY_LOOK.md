@@ -58,7 +58,8 @@ sees the same and nobody can touch.
 | 1: air and light | 1.0 (golden hours), 1.1 (`bc::colony_sky`: haze by height, the windows' beams, the colour script in `city_hour.rs`), 1.2 (glass and water reflect the sky function) and 1.4 (grade and bloom by the hour) done; 1.3 has the cascades, not yet the long shadows from a height atlas; 1.5 (WebGPU extras) to do |
 | 2: facades | 2.0 to 2.4 done as paint (`bc::facade`: filtered, rooms behind the windows, materials by district and strip, wear, shopfronts, the colony's halls, roofs); 2.5 done (crowns, setbacks, spires and masts, roof plant, courts, sheds, terraces; `CITY_VERSION` 3) |
 | 3: the street | 3.1 done (`bc::city`'s paint: markings, crossings, paving and beds on the avenue, wear, lamp pools that read as lines from afar); 3.3 in part (`bc_sim::colony::furniture`: lamp posts under every pool of the city's lamps, their lanterns burning as their pools do, benches on the avenue; the colony's own lamps, the tram's masts and wires, signals and kiosks to do); 3.4 in part (the avenue's and the quays' trees, crowns of lumpy blobs by species, the parks' and plazas' trees on their lawns; the sway and impostors past L1 to do); 3.5 in part (the water's reflections, see-through railings); the rest to do (3.2 has its `wet` mask ready) |
-| 4 to 6 | to do |
+| 4: life | 4.1 and 4.2 drawn on every screen (`life.rs`, not yet seen in a browser): the traffic (`colony::traffic`: rings of cars round the block rows, signals at the wide cross streets on an 80 s cycle with a green wave both ways, platoons that park at night, cars in the bays) and the people (`colony::walkers`: lines of slots on the pavements, the avenue's walks, the quays, parks, plazas, the banks, Hub Gate's square, the benches and the platforms) are closed forms of the tick in bc-sim, the same on every screen (`TRAFFIC_GOLDEN`, `WALKERS_GOLDEN`); people cross only the narrow cross streets, which no car drives (`tests/life.rs`). The client draws them from pools at two levels of detail, within each tier's budget (see pass 4); 4.3 to do |
+| 5, 6 | to do |
 
 The Low tier compiles the cheap variants (`FACADE_LOW`, `city_sketch`): software rasterisers run every branch
 for every pixel. On SwiftShader the full city costs several seconds a frame (the gfx suite's city shots, High).
@@ -269,10 +270,12 @@ The largest gain for the least work: none of it adds geometry.
 A city with nobody in it reads as a model however good the light is. Only pilots and agents walk
 it today.
 
-- **4.1 Traffic as a closed form.** Cars on loops along the avenue's roads and the cross streets,
-  each a function of the tick and its loop (spacing, speed, stops at signals in step with pass
-  3.3). Like the trams, never sent, and the same on every screen. Drawn instanced, from a handful of
-  car meshes and liveries. At night, from a rooftop or a suit, the avenue becomes rivers of white
+- **4.1 Traffic as a closed form.** Cars on loops round the block rows, along the avenue's roads
+  and the streets along the strip and round on the wide cross streets, each a function of the tick
+  and its loop (spacing, speed, platoons queueing at the signals). The signals stand at every fourth
+  cross street on an 80 s cycle, 40 s for the cars and 40 s for the people, with a green wave both
+  ways down every street (`colony::traffic`). Like the trams, never sent, and the same on every
+  screen. Drawn instanced, from a handful of car meshes and liveries. At night, from a rooftop or a suit, the avenue becomes rivers of white
   and red lights, the classic anime night-city shot. Pilots' cars pass through them at first;
   avoiding them is a later problem, and a solvable one, since the server can evaluate the same
   closed form.
@@ -282,6 +285,38 @@ it today.
   impostors.
 - **4.3 Small motion.** Birds over the parks, flags on the civic blocks, steam from vents, the
   canal's boats, fountains on the plazas, shop signs flickering.
+
+**As drawn** (`life.rs`, `bc_client_core::life` and `life_mesh`). Each frame the client asks the closed forms for
+what's round the camera at the trams' clock, picks the nearest up to each pool's cap (anything behind the view
+counts four times as far), and puts pooled entities on them; an entity keeps its car or person while they stay
+picked. One material (`shaders/life.wgsl`) paints every part from a 64-entry palette by its vertex's slot and the
+instance's `MeshTag` (paints, lights, wear, fade), so a pool is a few draws whatever's in it. Cars are five bodies
+(Phantasy Star Online's runabouts and taxis in pale paints, Rust's worn hatches and vans), near (about 200
+triangles) and far (two boxes and their lamps, 40 at most); their lamps glow in nits, brakes in a queue, indicators
+on a turn, nothing parked; a far scooter carries its rider's two boxes, a near one's rider is a figure of their own.
+A car's look follows its ring's home district (`traffic::Car::home`; through traffic, and people, by their strip),
+so nobody changes as they cross a district's line. They're lit as the city's walls are, the street's bounce
+included (`life_lib::bounce`, `colony_sky::bounce_light`'s): without it Bevy's even ambient left a car's side in
+shade black at noon by walls that stayed lit. People are a bank of posed figures (walk 16 frames, run 12, standing, sitting; two cuts;
+eight boxes far off), swapped per frame by stride. Nothing is drawn within 9 m of a suit standing on the city, a
+civilian dissolves under a pilot on foot, no shadows, `?life=0` hides it all, and `window.__bc` has
+`ambient_people`, `ambient_cars` and `life_ms`.
+
+| | Low | Medium | High | Ultra |
+|---|---|---|---|---|
+| People asked for (half the square's side) | 60 m | 90 m | 130 m | 180 m |
+| Figures near: cap / reach | 24 / 30 m | 48 / 45 m | 96 / 60 m | 144 / 80 m |
+| Figures far: cap / reach | 40 / 60 m | 96 / 90 m | 192 / 130 m | 288 / 180 m |
+| Cars near: cap / reach | 12 / 40 m | 24 / 70 m | 40 / 110 m | 64 / 150 m |
+| Moving cars far: cap / reach | 24 / 150 m | 64 / 250 m | 128 / 400 m | 192 / 600 m |
+| Parked cars far: cap / reach | 24 / 50 m | 64 / 110 m | 128 / 200 m | 192 / 300 m |
+
+Measured natively (`bc_client_core::life`'s `how_many`): at Hub Gate at noon, 62 entities on Low, 295 on High and
+511 on Ultra, using 24, 46 and 47 meshes; downtown at the evening's rush, 88, 523 and 880 (every cap full on
+Ultra). The reaches are from the eye, so nothing is drawn from up the cap lift (700 m) or from a suit high over the
+city: that's the far lights' job, still to come. Nor from the review's first camera (170 m over Hub Gate's square,
+where no traffic runs): on Low and Medium nothing, on High no people and 13 cars at the square's edge (5 at night),
+on Ultra 99 people and 77 cars, none of them on the kilometres of avenue in view.
 
 ### Pass 5: the colony as the sky
 
@@ -322,24 +357,37 @@ for the full city, so give a screenshot a long timeout. New cameras land with
 the passes that need them: the avenue at the golden hour toward the business district, a rooftop at
 night, the canal at dusk in the wet, and a suit among the towers. Each pass's PR shows its before
 and after from the same cameras. `scripts/e2e.sh gfx webgl2 --grep city` keeps them rendering
-cleanly on every tier.
+cleanly on every tier. The street-level cameras (3, 4, 5 and 7) stand where nobody walks and no car drives
+(`bc_client_core::showcase_city::street_eyes`, checked over these hours): pass 4 moved the third into the
+avenue's planting beds, the fifth to the water's edge past the cross street, and the seventh to mid-platform.
 
 ## Next
 
 Passes 0 and 1, the paint of 2 and 3, the buildings' massing (2.5) and the street's lamps, benches and trees (3.3,
-3.4, in part) are in (see "Status"; `CITY_VERSION` 3). What reads as a prototype now is mostly emptiness, so the
-next passes, in order:
+3.4, in part) are in (see "Status"; `CITY_VERSION` 3), and so are the traffic and the people as closed forms of the
+tick (4.1, 4.2, in bc-sim) and drawn (`life.rs`). The next passes, in order:
 
-1. **Life** (4.1, 4.2): traffic and pedestrians as closed forms of the tick. This is what makes it GTA.
+1. **Life** (4.1, 4.2): drawn, not yet seen. The next browser-capable run's first job: `scripts/e2e.sh gfx webgl2
+   --grep city` and `webgpu` (the shaders compile, the third camera's row asserts people and cars), then `?perf=1`
+   on High and Low at Hub Gate and downtown, and the caps tuned to what it says. Still to come after it: the far
+   lights at night (the avenue's rivers, from a rooftop, the lift or a suit; till they land the review's first camera
+   shows little life and its second none), people crossing at the signals (the
+   people's half, unused so far: a line round two runs whose lap is a whole number of cycles, so each slot crosses
+   at a fixed time in the cycle and only those whose crossing falls in the walk are out), the signal heads (on the
+   wide junctions' corner lamp posts, from `traffic::signal`), parked cars merged into tiles, an IK walk for the
+   civilians, shadows for the near cars and figures, and the paint's stop lines across the streets along the strip
+   at the narrow junctions, where no car stops (only the wide junctions' should stay).
 2. **Clouds in the core** (5.1): the biggest single anime gain left, and it hides the far cap's disc at the
    vanishing point that the clean core now shows.
 3. **Long shadows from a height atlas** (1.3), the rooms (3.6), wet streets (3.2), signs (3.7).
 4. **What 3.3 and 3.4 left**: the tram's masts down the median with their wires (on a mesh that casts no shadow:
    strands the shader cuts out would cast solid bands), Hub Gate's square furniture (its lattice of the colony's
-   lamps, the forecourt's rings, kiosks; the busiest walking ground in the game, so it needs the strollers' and
-   the e2e routes' care), the trees' sway (a vertex shader) and rows of trees from afar past L1 (an impostor that
-   cuts out its crowns). Signals come with the traffic (4.1). An L2 chunk on the Canal strip's Old Town (bx 64)
-   draws 8,008 triangles, just over its budget, outside the budget test's sample.
+   lamps, the forecourt's rings, kiosks; the busiest walking ground in the game, so it needs the strollers', the
+   people's lines' and the e2e routes' care: new furniture keeps off every line, or `walkers`'
+   `every_line_is_clear_of_everything_solid` fails), the trees' sway (a vertex shader) and rows of trees from afar
+   past L1 (an impostor that cuts out its crowns). Signal heads follow the traffic's drawing (4.1, above). An
+   L2 chunk on the Canal strip's Old Town (bx 64) draws 8,008 triangles, just over its budget, outside the budget
+   test's sample.
 
 ## Decisions
 

@@ -204,6 +204,7 @@ impl Plugin for VisualsPlugin {
             .add_plugins((
                 crate::people::PeoplePlugin,
                 crate::trams::TramsPlugin,
+                crate::life::LifePlugin,
                 crate::inside::InsidePlugin,
             ))
             .configure_sets(

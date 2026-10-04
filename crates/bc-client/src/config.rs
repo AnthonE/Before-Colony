@@ -54,6 +54,8 @@ pub struct LaunchConfig {
     pub tonemap: String,
     /// `?look=0`: the plain look (no grade, vignette or lit smoke), for comparing against.
     pub look: bool,
+    /// `?life=0`: no traffic or people in the city (`life.rs`), for comparing against and measuring.
+    pub life: bool,
     /// `?hz=N`: the showcase's fixed clock rate (default 60), to see effects at a low frame rate.
     pub showcase_hz: f64,
 }
@@ -104,6 +106,7 @@ impl LaunchConfig {
             calm: flag("calm"),
             tonemap: string("tonemap"),
             look: get(&cfg, "look").as_bool().unwrap_or(true),
+            life: get(&cfg, "life").as_bool().unwrap_or(true),
             showcase_hz: number("hz").filter(|h| *h >= 1.0).unwrap_or(60.0).min(240.0),
         }
     }
