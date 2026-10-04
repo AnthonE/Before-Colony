@@ -184,6 +184,12 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         pbr.N = fo.n;
         facade_refl = fo.reflectance;
         ao *= fo.occlusion;
+        if (surface == 7u) {
+            // Leaves let light through: the sky's all round, and the sun's from behind a crown, so a
+            // tree in its own shade or against the light reads as green, not as a black cut-out.
+            let behind = max(dot(-normalize(pbr.N), key_dir(kk, city.sky)), 0.0);
+            glow += albedo * (city.sky.ambient.rgb * 0.5 + city.sky.key.rgb * (0.08 * behind / PI)) * ao;
+        }
         if (facade_refl > 0.0) {
             // The panes mirror the sky function: the strips overhead, the windows' glow, the haze.
             let n = normalize(pbr.N);

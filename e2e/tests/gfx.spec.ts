@@ -94,7 +94,10 @@ const scenes: Array<[string, number, number, number]> = [
 
 for (const [scene, cam, t, frames] of scenes) {
   test(`showcase ${scene} cam ${cam} t ${t} (${quality})`, async ({ page }, info) => {
-    test.setTimeout(240_000);
+    // The colony's inside is the heaviest scene: its full city shader takes several seconds a frame
+    // on SwiftShader, and the screenshot waits for one more.
+    const heavy = scene === "city";
+    test.setTimeout(heavy ? 480_000 : 240_000);
     const logs = collectConsole(page);
     await page.goto(
       `/?showcase=${scene}&cam=${cam}&t=${t}&hold=${frames}&quality=${quality}&gfx=${info.project.name}${extra ? `&${extra}` : ""}`,
@@ -109,7 +112,7 @@ for (const [scene, cam, t, frames] of scenes) {
     );
     const ready = page
       .waitForFunction(`(window.__bc?.showcase_frames ?? 0) >= ${frames}`, null, {
-        timeout: 200_000,
+        timeout: heavy ? 420_000 : 200_000,
         polling: 500,
       })
       .then(() => "");
