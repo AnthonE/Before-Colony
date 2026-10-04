@@ -1,8 +1,12 @@
-# Before Colony wire protocol (v19)
+# Before Colony wire protocol (v20)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v20 (from v19): the city's massing (crowns, setbacks, masts, roof plant: new solids for everyone)
+and its street furniture and trees (lamp posts, trunks and benches, solid to people and cars, not
+to suits) (`content::city::CITY_VERSION` 3). Nothing changes on the wire.
 
 v19 (from v18): suits standing on the colony's city, and walking it: the body reference's kind 2
 (`City`, no id), its riders placed over ±16 384 m (below).

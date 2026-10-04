@@ -1,8 +1,9 @@
 //! The colony as the people inside it know it, in closed forms everyone evaluates alike: its frames
 //! (`frame`: the strips, and a point on the floor in city coordinates), its day (`time`: the
 //! mirrors open and close on the tick's clock), its mirrors (`mirrors`), the docking hub's
-//! structures (`hub`) and its city (`city`: streets, blocks and buildings, worked out where
-//! they're asked for).
+//! structures (`hub`), its city (`city`: streets, blocks and buildings, worked out where they're
+//! asked for) and its street furniture (`furniture`: lamps, trees, benches; solid to people, not to
+//! suits).
 //!
 //! To suits and shots the colony is still `world`'s solid cylinder; this is the rest of it. Like
 //! the bodies, nothing here allocates or reads a clock of its own, and every function is the same
@@ -10,6 +11,7 @@
 
 pub mod city;
 pub mod frame;
+pub mod furniture;
 pub mod hub;
 pub mod interior;
 pub mod mirrors;

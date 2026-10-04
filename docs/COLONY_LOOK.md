@@ -56,8 +56,8 @@ sees the same and nobody can touch.
 |---|---|
 | 0: what's broken | done: the canal's water at every level, the glass tucked under the strips' edges, the city's own shadow cascades, the showcase running again |
 | 1: air and light | 1.0 (golden hours), 1.1 (`bc::colony_sky`: haze by height, the windows' beams, the colour script in `city_hour.rs`), 1.2 (glass and water reflect the sky function) and 1.4 (grade and bloom by the hour) done; 1.3 has the cascades, not yet the long shadows from a height atlas; 1.5 (WebGPU extras) to do |
-| 2: facades | 2.0 to 2.4 done as paint (`bc::facade`: filtered, rooms behind the windows, materials by district and strip, wear, shopfronts, the colony's halls, roofs); 2.5 (crowns and setbacks, a layout change) to do |
-| 3: the street | 3.1 done (`bc::city`'s paint: markings, crossings, paving and beds on the avenue, wear, lamp pools that read as lines from afar); 3.5 in part (the water's reflections, see-through railings); the rest to do (3.2 has its `wet` mask ready) |
+| 2: facades | 2.0 to 2.4 done as paint (`bc::facade`: filtered, rooms behind the windows, materials by district and strip, wear, shopfronts, the colony's halls, roofs); 2.5 done (crowns, setbacks, spires and masts, roof plant, courts, sheds, terraces; `CITY_VERSION` 3) |
+| 3: the street | 3.1 done (`bc::city`'s paint: markings, crossings, paving and beds on the avenue, wear, lamp pools that read as lines from afar); 3.3 in part (`bc_sim::colony::furniture`: lamp posts under every pool of the city's lamps, their lanterns burning as their pools do, benches on the avenue; the colony's own lamps, the tram's masts and wires, signals and kiosks to do); 3.4 in part (the avenue's and the quays' trees, crowns of lumpy blobs by species, the parks' and plazas' trees on their lawns; the sway and impostors past L1 to do); 3.5 in part (the water's reflections, see-through railings); the rest to do (3.2 has its `wet` mask ready) |
 | 4 to 6 | to do |
 
 The Low tier compiles the cheap variants (`FACADE_LOW`, `city_sketch`): software rasterisers run every branch
@@ -326,20 +326,20 @@ cleanly on every tier.
 
 ## Next
 
-Passes 0 and 1 and the paint of 2 and 3 are in (see "Status"). What reads as a prototype now is mostly geometry
-and emptiness, so the next passes, in order:
+Passes 0 and 1, the paint of 2 and 3, the buildings' massing (2.5) and the street's lamps, benches and trees (3.3,
+3.4, in part) are in (see "Status"; `CITY_VERSION` 3). What reads as a prototype now is mostly emptiness, so the
+next passes, in order:
 
-1. **The street's furniture and trees** (3.3, 3.4): lamp posts where the ground already paints their pools (the rule
-   for where they stand is in `city_lib.wgsl`'s notes), the avenue's two rows of trees, better crowns. Eye level is
-   where pilots spend their time, and it's still bare.
-2. **The buildings' massing** (2.5, a layout change with `CITY_VERSION`): setbacks, crowns and spires on towers,
-   varied footprints and roof structures, so the skyline has silhouettes. The facades are good enough now that the
-   boxes underneath are what gives the city away. The owner is open to reworking how the city is generated; this is
-   the place to do it.
-3. **Life** (4.1, 4.2): traffic and pedestrians as closed forms of the tick. This is what makes it GTA.
-4. **Clouds in the core** (5.1): the biggest single anime gain left, and it hides the far cap's disc at the
+1. **Life** (4.1, 4.2): traffic and pedestrians as closed forms of the tick. This is what makes it GTA.
+2. **Clouds in the core** (5.1): the biggest single anime gain left, and it hides the far cap's disc at the
    vanishing point that the clean core now shows.
-5. **Long shadows from a height atlas** (1.3), the rooms (3.6), wet streets (3.2), signs (3.7).
+3. **Long shadows from a height atlas** (1.3), the rooms (3.6), wet streets (3.2), signs (3.7).
+4. **What 3.3 and 3.4 left**: the tram's masts down the median with their wires (on a mesh that casts no shadow:
+   strands the shader cuts out would cast solid bands), Hub Gate's square furniture (its lattice of the colony's
+   lamps, the forecourt's rings, kiosks; the busiest walking ground in the game, so it needs the strollers' and
+   the e2e routes' care), the trees' sway (a vertex shader) and rows of trees from afar past L1 (an impostor that
+   cuts out its crowns). Signals come with the traffic (4.1). An L2 chunk on the Canal strip's Old Town (bx 64)
+   draws 8,008 triangles, just over its budget, outside the budget test's sample.
 
 ## Decisions
 

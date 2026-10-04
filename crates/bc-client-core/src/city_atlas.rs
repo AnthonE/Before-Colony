@@ -37,6 +37,7 @@ mod tests {
     use bc_sim::colony::frame::STRIP_WIDTH;
 
     const LIB: &str = include_str!("../../bc-client/src/shaders/city_lib.wgsl");
+    const FACADE: &str = include_str!("../../bc-client/src/shaders/city_facade.wgsl");
 
     fn constant(name: &str) -> f32 {
         let line = LIB
@@ -69,7 +70,90 @@ mod tests {
         assert_eq!(constant("TERMINAL_FRONT"), -bc_sim::world::COLONY_HALF_LENGTH + city::TERMINAL_DEPTH);
     }
 
-    const FACADE: &str = include_str!("../../bc-client/src/shaders/city_facade.wgsl");
+    /// The street's furniture stands where the ground's paint puts its pools and pits, from the
+    /// same numbers (`bc_sim::colony::furniture`, `city_lib.wgsl`), and `city_mesh`'s park trees keep
+    /// off the paths the paint draws. Both sides count a row's lamps as
+    /// `max(1, floor(len / LAMP_GAP + 0.5))` gaps and space them evenly along it, from corner to
+    /// corner (the lanes, the avenue, the quays) or between them (the cross streets, a park's loop):
+    /// those numbers and that one formula are the contract (the furniture's own tests check its
+    /// spacing).
+    #[test]
+    fn the_furniture_stands_where_the_ground_is_painted_for_it() {
+        use crate::city_mesh::{PARK_BEDS, PARK_DIAG, PARK_PATH, PARK_PLAZA};
+        use bc_sim::colony::furniture as f;
+        for (name, rules) in [
+            ("LAMP_GAP", f::LAMP_GAP),
+            ("LAMP_OUT", f::LAMP_OUT),
+            ("AVENUE_LAMP", f::AVENUE_LAMP),
+            ("ROAD_OUT", f::ROAD_OUT),
+            ("PARK_LOOP", f::PARK_LOOP),
+            ("PARK_LAMP", f::PARK_LAMP),
+            ("PLAZA_RING", f::PLAZA_RING),
+            ("QUAY_LAMP", f::QUAY_LAMP),
+            ("QUAY_TREE", f::QUAY_TREE),
+            ("AVENUE_TREE", f::AVENUE_TREE),
+            ("TREE_PITCH", f::TREE_PITCH),
+            ("TREE_FIRST", f::TREE_FIRST),
+            ("TREE_END", f::TREE_END),
+            ("PARK_PATH", PARK_PATH),
+            ("PARK_DIAG", PARK_DIAG),
+            ("PARK_PLAZA", PARK_PLAZA),
+            ("PARK_BEDS", PARK_BEDS),
+        ] {
+            assert_eq!(constant(name), rules, "{name}");
+        }
+        assert_eq!(constant("PLAZA_LAMPS") as usize, f::PLAZA_LAMPS);
+        // The count, down a block's sides (88 to 104 m), a park's loop (74 to 82 m) and shorter.
+        for len in [88.0f32, 96.0, 104.0, 74.0, 82.0, 44.0, 30.0, 10.0] {
+            let gaps = (len / constant("LAMP_GAP") + 0.5).floor().max(1.0);
+            assert_eq!(f::lamp_count(len), gaps as u32, "{len}");
+        }
+    }
+
+    /// `city_lib.wgsl`: the heavy parts are each called from one place (the GPU's compiler inlines
+    /// every call). The lamps' light is worked out in `lamps_near` alone, for the ground's paint; a
+    /// lantern asks `lantern_burn`, which repeats only the rows' arithmetic.
+    #[test]
+    fn the_lamps_light_is_worked_out_in_one_place() {
+        const CITY: &str = include_str!("../../bc-client/src/shaders/city.wgsl");
+        let calls = |name: &str| {
+            let call = format!("{name}(");
+            let def = format!("fn {name}(");
+            [LIB, FACADE, CITY]
+                .iter()
+                .flat_map(|src| src.lines())
+                .map(|l| l.split("//").next().unwrap_or(""))
+                .filter(|l| l.contains(&call) && !l.contains(&def))
+                .count()
+        };
+        assert_eq!(calls("lamp_row"), 1, "lamp_row");
+        assert_eq!(calls("lamps_near"), 1, "lamps_near");
+        assert_eq!(calls("lantern_burn"), 1, "lantern_burn");
+    }
+
+    /// `CLAUDE.md`: in `city.wgsl` every derivative is taken at the top of `fragment()`, before the
+    /// surface branch (WebGPU rejects them under it; naga doesn't catch it). Nothing it imports from
+    /// the city's own modules may take one.
+    #[test]
+    fn the_city_shaders_take_their_derivatives_at_the_top() {
+        const CITY: &str = include_str!("../../bc-client/src/shaders/city.wgsl");
+        let derivative = |l: &str| ["dpdx", "dpdy", "fwidth"].iter().any(|d| l.contains(d));
+        let code = |src: &'static str| src.lines().map(|l| l.split("//").next().unwrap_or(""));
+        for (name, src) in [("city_lib", LIB), ("city_facade", FACADE)] {
+            for l in code(src) {
+                assert!(!derivative(l), "{name}: {l}");
+            }
+        }
+        let lines: Vec<&str> = code(CITY).collect();
+        let first_branch = lines.iter().position(|l| l.trim_start().starts_with("if (surface")).unwrap();
+        for (k, l) in lines.iter().enumerate() {
+            assert!(
+                !derivative(l) || k < first_branch,
+                "city.wgsl line {}: a derivative under the branch",
+                k + 1
+            );
+        }
+    }
 
     #[test]
     fn the_facades_numbers_are_the_rules() {

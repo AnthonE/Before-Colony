@@ -566,6 +566,22 @@ mod tests {
     }
 
     #[test]
+    fn a_pose_in_a_lamp_post_isnt_possible() {
+        use bc_sim::colony::city::block;
+        use bc_sim::colony::furniture::{Kind, each_furniture};
+        // A street lamp by Hub Gate's offices.
+        let b = block(0, 4, 3, Stage(0)).unwrap();
+        let mut post = None;
+        each_furniture(0, &b.rect, Stage(0), |p| {
+            post = Some(*p);
+            p.kind == Kind::StreetLamp
+        });
+        let p = post.filter(|p| p.kind == Kind::StreetLamp).expect("a street lamp");
+        assert!(!possible(&PersonPose { h: p.h, ..at(0, p.s, p.x) }), "in {p:?}");
+        assert!(possible(&PersonPose { h: p.h, ..at(0, p.s, p.x + 1.0) }), "beside {p:?}");
+    }
+
+    #[test]
     fn pilots_ride_the_trams_from_platform_to_platform() {
         use bc_sim::colony::transit::{DOOR_AT, PERIOD_TICKS, PLATFORM_HALF, train};
         let plaza = Plaza::default();

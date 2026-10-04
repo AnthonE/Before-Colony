@@ -1,7 +1,8 @@
 // The city inside the colony (`city.rs`): buildings, pavements, the ground, the canal, trees, the
-// end caps, from `bc_client_core::city_mesh`'s meshes. Each vertex says what surface it is (its
-// colour's red, `city_mesh::Surface`), with a seed, ambient occlusion and its building's height;
-// walls carry metres along and up, the ground its place on the strip (`s`, `x`).
+// street's lamps and benches, the end caps, from `bc_client_core::city_mesh`'s meshes. Each vertex
+// says what surface it is (its colour's red, `city_mesh::Surface`), with a seed, ambient occlusion
+// and its building's height (or the street's code); walls carry metres along and up, the ground its
+// place on the strip (`s`, `x`).
 //
 // The colony is lit strip by strip: each by the mirror-borne sun in the window over it. On the
 // camera's strip that's the scene's one directional light, with Bevy's lighting and shadows; on the
@@ -18,9 +19,9 @@
 }
 #import bc::noise::{hash13, noise3}
 #ifdef CITY_DETAIL
-#import bc::city::{city_cell, atlas_texel, city_paint, CANAL_WIDTH}
+#import bc::city::{city_cell, atlas_texel, city_paint, lantern_burn, streets_at, PLAZA_GAIN, CANAL_WIDTH}
 #else
-#import bc::city::{city_cell, atlas_texel, city_sketch, CANAL_WIDTH}
+#import bc::city::{city_cell, atlas_texel, city_sketch, LAMP_MEAN, PLAZA_GAIN, CANAL_WIDTH}
 #endif
 #import bc::facade::{facade, FacadeIn, city_place}
 #import bc::colony_sky::{Sky, haze, strip_at, strip_up, key_dir, own_light, bounce_light, fresnel, sky_reflection, sun_glint}
@@ -125,9 +126,11 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         rough = g.roughness;
         glow = (warm * g.albedo * g.lamps * GROUND_LAMPS + g.glow * GROUND_STRIPS) * lamps
             + g.glow * (GROUND_STRIPS * 0.15);
-    } else if (surface == 1u || surface == 2u || surface == 9u || surface == 10u || surface == 11u || surface == 12u) {
-        // The buildings (`bc::facade`): walls, roofs, the site's steel, the quays' railings, the
-        // colony's halls, curtain walls; their district and block kind from the block atlas.
+    } else if (surface == 1u || surface == 2u || surface == 7u || surface == 8u || (surface >= 9u && surface <= 12u)
+        || (surface >= 19u && surface <= 21u) || surface == 25u || surface == 26u) {
+        // The buildings and the street (`bc::facade`): walls, roofs, the site's steel, the quays'
+        // railings, the colony's halls, curtain walls, crowns and roof plant; trees, lamp posts and
+        // their lanterns, benches. Their district and block kind from the block atlas.
         let place = city_place(p);
         var district = 0u;
         var kind = 0u;
@@ -156,6 +159,20 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         fi.daylight = city.day.x;
         fi.seconds = city.day.z;
         fi.frag = pbr.frag_coord.xy;
+        fi.burn = 0.0;
+        if (surface == 20u) {
+            // A lantern (its uv: where it hangs, over its pool): as bright as its lamp burns in the
+            // ground's paint, from the paint's own rows (`lantern_burn`), so a lamp that's out over a
+            // dark pool is out here too; a plaza's always burn. The Low tier paints its rows' mean
+            // light (no pools), and its lanterns burn the mean.
+#ifdef CITY_DETAIL
+            let lt = textureLoad(atlas, atlas_texel(i32(kk), ground_cell), 0);
+            let row = lantern_burn(ground_cell, streets_at(ground_cell), i32(lt.r * 255.0 + 0.5), lt.a * 255.0);
+#else
+            let row = LAMP_MEAN;
+#endif
+            fi.burn = select(row, PLAZA_GAIN, u32(tall * 255.0 + 0.5) == 1u);
+        }
         let fo = facade(fi);
         if (fo.cut > 0.5) {
             discard;
@@ -193,13 +210,6 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         glint = sun_glint(reflect(-v, n), key_dir(kk, city.sky), 60.0, city.sky) * f;
     } else if (surface == 6u) {
         albedo = vec3(0.42, 0.4, 0.36) * (0.85 + 0.2 * noise3(vec3(uv * 0.5, 2.0)));
-    } else if (surface == 7u) {
-        // Leaves.
-        let v = hash13(vec3(floor(seed * 7.0), 2.0, 9.0));
-        albedo = mix(vec3(0.1, 0.22, 0.07), vec3(0.2, 0.3, 0.09), v) * (0.8 + 0.4 * noise3(in.world_position.xyz * 0.6));
-        rough = 0.95;
-    } else if (surface == 8u) {
-        albedo = vec3(0.25, 0.18, 0.12);
     } else if (surface == 13u) {
         // An end cap's inner face: terraces stepping in towards the axis port, its lamps by night;
         // the port dark in a ring of lights.

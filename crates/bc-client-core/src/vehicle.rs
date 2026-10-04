@@ -198,12 +198,26 @@ impl Vehicle {
         }
     }
 
-    /// Where its driver gets out: beside it on the left, `(s, x)`.
+    /// Where its driver gets out: beside it on the left, or, if something stands there (a lamp post,
+    /// a tree), on the right, or behind it.
     pub fn door(&self) -> CityPos {
         let (fx, fs) = self.forward();
         let side = 0.5 * self.spec().width + 0.7;
+        let back = 0.5 * self.spec().length + 0.7;
         // Left of the heading: the walker frame's heading turned a quarter.
-        CityPos::new(self.strip, self.x + fs * side, self.s - fx * side, 0.0)
+        let spots = [(fs * side, -fx * side), (-fs * side, fx * side), (-fx * back, -fs * back)];
+        let free = |(dx, ds): (f32, f32)| {
+            let (x, s) = (self.x + dx, self.s + ds);
+            let h = ground(self.strip, s, x, Stage(0)).max(0.0) + 0.05;
+            !solid(
+                self.strip,
+                Vec3::new(x - 0.3, h, -s - 0.3),
+                Vec3::new(x + 0.3, h + 1.8, -s + 0.3),
+                Stage(0),
+            )
+        };
+        let (dx, ds) = spots.into_iter().find(|d| free(*d)).unwrap_or(spots[0]);
+        CityPos::new(self.strip, self.x + dx, self.s + ds, 0.0)
     }
 }
 
@@ -217,7 +231,9 @@ pub fn forward(yaw: f32) -> (f32, f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bc_sim::colony::city::Rect;
     use bc_sim::colony::frame::STRIP_WIDTH;
+    use bc_sim::colony::furniture::{AVENUE_LAMP, Furniture, Kind as FurnitureKind, each_furniture};
     use std::f32::consts::FRAC_PI_2;
 
     const DT: f32 = 1.0 / 60.0;
@@ -273,6 +289,50 @@ mod tests {
         let probe = Vehicle { s: v.s + 1.0, ..v };
         assert!(v.speed.abs() < 10.0 || !probe.fits(v.s + 1.0, v.x, v.yaw), "{v:?}");
         assert!(v.fits(v.s, v.x, v.yaw), "never inside a wall: {v:?}");
+    }
+
+    /// An avenue lamp near x = −12,000 on strip 0's −s pavement.
+    fn avenue_lamp() -> Furniture {
+        let s = STRIP_WIDTH * 0.5 - AVENUE_LAMP;
+        let area = Rect::new(s - 0.5, s + 0.5, -12_050.0, -11_950.0);
+        let mut found = None;
+        each_furniture(0, &area, Stage(0), |p| {
+            found = Some(*p);
+            p.kind == FurnitureKind::AvenueLamp
+        });
+        found.filter(|p| p.kind == FurnitureKind::AvenueLamp).expect("a lamp")
+    }
+
+    #[test]
+    fn a_driver_parked_against_a_lamp_post_gets_out_the_other_side() {
+        // Heading +x, its door's side 0.5 m from the post.
+        let post = avenue_lamp();
+        let reach = 0.5 * spec(Kind::Car).width + 0.5 + FurnitureKind::AvenueLamp.size().0;
+        let v = Vehicle::new(Kind::Car, 0, post.s + reach, post.x, FRAC_PI_2);
+        let d = v.door();
+        assert!(d.s > v.s + 1.5 && (d.x - v.x).abs() < 0.01, "out the other side: {d:?}");
+        let h = 0.05;
+        let clear = !solid(
+            0,
+            Vec3::new(d.x - 0.3, h, -d.s - 0.3),
+            Vec3::new(d.x + 0.3, h + 1.8, -d.s + 0.3),
+            Stage(0),
+        );
+        assert!(clear, "into the clear: {d:?}");
+    }
+
+    #[test]
+    fn a_car_driven_onto_the_pavement_stops_at_a_post() {
+        let post = avenue_lamp();
+        let mut v = Vehicle::new(Kind::Car, 0, post.s, post.x - 12.0, FRAC_PI_2);
+        let front = |v: &Vehicle| v.x + 0.5 * v.spec().length;
+        let mut most = front(&v);
+        for _ in 0..(5.0 / DT) as u32 {
+            v.step(&Drive { throttle: 1.0, ..Drive::default() }, DT);
+            most = most.max(front(&v));
+        }
+        let face = post.solid.rect.x0;
+        assert!(most <= face + 1e-3 && most > face - 1.0, "it stopped short of the post: {most} vs {face}");
     }
 
     #[test]

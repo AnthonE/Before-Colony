@@ -1,7 +1,9 @@
 // The buildings' surfaces, for `city.wgsl`: walls, the colony's halls, curtain walls, roofs, the
 // site's steel and the quays' railings. Materials by district and strip, windows with rooms behind
 // them, shopfronts with their signs, awnings and shutters, rooftops, and the wear of a city that's
-// lived in: rain runs under the sills, grime at the foot of the walls, rust, patches and soot.
+// lived in: rain runs under the sills, grime at the foot of the walls, rust, patches and soot. And
+// the street's: trees (leaves by species, bark), the colony's lamp posts and their lanterns,
+// benches.
 //
 // Everything is antialiased by the pixel's footprint (the derivatives `city.wgsl` takes at the top
 // of its fragment shader, where control flow is still uniform; nothing here takes one): a pattern
@@ -14,11 +16,14 @@
 #import bc::noise::{hash13, noise3}
 
 struct FacadeIn {
-    // `city_mesh::Surface`: 1 Wall, 2 Roof, 9 Steel, 10 Railing, 11 Hall, 12 Glass.
+    // `city_mesh::Surface`: 1 Wall, 2 Roof, 9 Steel, 10 Railing, 11 Hall, 12 Glass, 25 Crown, 26 Plant;
+    // the street's: 7 Tree, 8 Trunk, 19 Post, 20 Lantern, 21 Bench.
     surface: u32,
     // The vertex's seed as `city.wgsl` reads it (`in.color.g * 255`, 0..255).
     seed: f32,
-    // The building's top over the tallest's (240 m): 0 for an L3 block's bulk.
+    // The piece's top over the tallest's (240 m): its roof line, which copings, cornices, crowns'
+    // light bands and the windows that fit are painted from. 0 for an L3 block's bulk. (The street's
+    // surfaces: their code, `city_mesh`.)
     tall: f32,
     ao: f32,
     // Walls: metres along and up from the floor. Roofs and steel tops: the strip's (s, x).
@@ -44,6 +49,9 @@ struct FacadeIn {
     // The pixel's window coordinates (`pbr.frag_coord.xy`): the railing's cut-outs are dithered by
     // them where they're finer than a pixel.
     frag: vec2<f32>,
+    // A lantern's: how bright its lamp burns (`city.wgsl`, from the ground's own lamp rows where it
+    // hangs); 0 for anything else.
+    burn: f32,
 };
 
 struct FacadeOut {
@@ -348,6 +356,60 @@ fn f_neon(k: f32) -> vec3<f32> {
     c = select(c, vec3(1.0, 0.15, 0.1), k < 0.4);
     c = select(c, vec3(1.0, 0.85, 0.65), k < 0.25);
     return c;
+}
+
+// The lamps' light, as `city.wgsl` lights the ground's pools.
+const F_WARM: vec3<f32> = vec3(1.0, 0.78, 0.5);
+// A lantern's diffuser by night, nits at a row's gain of 1: some twenty times the picture's white at
+// night's EV 8.5 (`city_hour::EV_NIGHT`; scale by 2^(EV - 8.5) if that moves, as `GROUND_LAMPS`), so
+// it blooms. It fades out as it shrinks to two pixels (m a pixel, whole and gone): further off its
+// pools carry the street's light, and a lantern a pixel wide would sparkle.
+const F_LANTERN_NITS: f32 = 10000.0;
+
+// A species' leaves (`city_mesh::Species`), `k` this tree's place between its darker and lighter.
+fn f_leaf_colour(sp: u32, k: f32) -> vec3<f32> {
+    var a = vec3(0.075, 0.15, 0.045);
+    var b = vec3(0.15, 0.22, 0.07);
+    switch sp {
+        // A plane: yellow-green.
+        case 0u: {
+            a = vec3(0.1, 0.17, 0.05);
+            b = vec3(0.19, 0.25, 0.08);
+        }
+        // A lime: deep.
+        case 1u: {
+            a = vec3(0.06, 0.13, 0.04);
+            b = vec3(0.11, 0.19, 0.05);
+        }
+        // A poplar: bright.
+        case 2u: {
+            a = vec3(0.09, 0.17, 0.06);
+            b = vec3(0.16, 0.24, 0.09);
+        }
+        // An alder: dark.
+        case 3u: {
+            a = vec3(0.045, 0.1, 0.035);
+            b = vec3(0.08, 0.15, 0.05);
+        }
+        // A cherry: bronze-green.
+        case 4u: {
+            a = vec3(0.12, 0.11, 0.05);
+            b = vec3(0.2, 0.17, 0.07);
+        }
+        // An apple.
+        case 5u: {
+            a = vec3(0.08, 0.16, 0.05);
+            b = vec3(0.14, 0.21, 0.07);
+        }
+        // A birch: light.
+        case 7u: {
+            a = vec3(0.13, 0.2, 0.06);
+            b = vec3(0.22, 0.27, 0.09);
+        }
+        // An oak.
+        default: {}
+    }
+    return mix(a, b, k);
 }
 
 // ------------------------------------------------------------------------------- layers, frames
@@ -2094,6 +2156,221 @@ fn f_roof(i: FacadeIn) -> FacadeOut {
     return f_out(L, fr);
 }
 
+// ------------------------------------------------------------------------------ crowns, plant
+
+// A tower's crown, a lantern, a belfry (`city_mesh::Surface::Crown`): no storeys of windows but
+// fins over dark louvres, in the tower's mullion colour on a curtain-walled tower (its trim's
+// anywhere else), a solid band every storey or so, a coping, and under it a band that's lit at
+// dusk: cool white, warm, or the line's colour on Charter's towers and the colony's landmarks. A
+// stepped crown is two pieces, so two bands. From afar the fins settle to their average and the
+// band to a line of light: the crowns the night skyline is drawn with.
+fn f_crown(i: FacadeIn, fr: FFrame) -> FacadeOut {
+    let s = i.seed;
+    let uv = i.uv;
+    let fw = fr.fw;
+    let h = uv.y;
+    let top = i.tall * F_MAX_HEIGHT;
+    let night = i.lamps;
+    let lk = f_look(i.district, i.strip, i.kind, s);
+    let tm = f_tower_tint(s);
+    let panel = select(lk.trim, mix(tm[1], vec3(0.62, 0.63, 0.64), 0.4), f_has_towers(i.district, i.kind));
+    // Dark louvres, their slats catching the light, behind a fin every 0.9 m.
+    let det = f_fade_wave(fw.y, 0.2);
+    let slat = sin(h / 0.2 * F_TAU);
+    var L = f_layer(vec3(0.045, 0.05, 0.055) * (1.0 + 0.35 * slat * det), 0.55);
+    L.metal = 0.3;
+    L.tilt = vec2(0.0, 0.4 * slat * det);
+    var pl = f_layer(panel, 0.4);
+    pl.metal = 0.5;
+    pl.refl = 0.12;
+    let fin = f_pulse(uv.x / 0.9, 0.0, 0.22, fw.x / 0.9);
+    let band = f_pulse(h / 3.6, 0.0, 0.25, fw.y / 3.6);
+    L = f_blend(L, pl, max(fin, band));
+    // The coping, and the band of light under it.
+    L = f_blend(L, f_layer(panel * 1.1, 0.35), f_band(h, top - 0.45, top, fw.y));
+    let k = f_h(s, 93.0, 4.0);
+    var light = f_lamp_colour(0.85);
+    if (k < 0.3) {
+        light = f_lamp_colour(0.2);
+    } else if (k > 0.75 && (i.strip == 0u || i.kind == 7u)) {
+        light = f_line_glow(i.strip);
+    }
+    var lb = f_layer(panel * 0.9, 0.3);
+    lb.emissive = light * (1500.0 * night + 40.0);
+    L = f_blend(L, lb, f_band(h, top - 1.9, top - 1.1, fw.y));
+    // Grime runs from the coping, as on any wall.
+    L.albedo *= 1.0 - 0.2 * exp(-max(top - h, 0.0) / 3.0) * lk.wear;
+    return f_out(L, fr);
+}
+
+// What stands on a roof (`city_mesh::Surface::Plant`): plant rooms, lift overruns, water tanks,
+// chimneys, a works' rooflights. Plainer than the building it's on, its material washed out:
+// louvres round the top of a plant room and a coping; an old town's chimneys in its brick, sooty at
+// the top under a pale cap; a works' or port's rooflights a band of grimy wired glass over a
+// cladding upstand, lit by the shop floor at night. Rust runs down all of it.
+fn f_plant(i: FacadeIn, fr: FFrame) -> FacadeOut {
+    let s = i.seed;
+    let uv = i.uv;
+    let fw = fr.fw;
+    let fm = max(fw.x, fw.y);
+    let h = uv.y;
+    let top = i.tall * F_MAX_HEIGHT;
+    let d = i.district;
+    let lk = f_look(d, i.strip, i.kind, s);
+    var L = f_layer(mix(lk.base, vec3(0.5, 0.5, 0.49), 0.45), 0.85);
+    if (d == D_WORKS || d == D_PORT) {
+        L = f_layer(f_cladding(f_h(s, 63.0, 2.0)) * 0.9, 0.6);
+        let c_g = f_band(h, top - 2.3, top - 0.2, fw.y) * f_pulse(uv.x / 1.2, 0.05, 0.95, fw.x / 1.2);
+        let lit = step(f_h(s, 95.0, 1.0), 0.6) * i.lamps;
+        var g = f_far_glass(f_lamp_colour(0.7) * 260.0 * lit, i.daylight * 900.0);
+        g.albedo = mix(g.albedo, vec3(0.2, 0.2, 0.18), 0.5);
+        L = f_blend(L, g, c_g);
+    } else if (d == D_OLDTOWN) {
+        L = f_layer(lk.base, 0.9);
+        L.albedo *= 1.0 - 0.6 * smoothstep(top - 0.9, top - 0.1, h);
+        L = f_blend(L, f_layer(lk.trim, 0.8), f_band(h, top - 0.15, top, fw.y));
+    } else {
+        let det = f_fade_wave(fw.y, 0.12);
+        let c_l = f_band(h, top - 2.0, top - 0.5, fw.y) * f_pulse(uv.x / 2.4, 0.08, 0.92, fw.x / 2.4);
+        var lv = f_layer(vec3(0.3, 0.31, 0.31) * (1.0 + 0.3 * sin(h / 0.12 * F_TAU) * det), 0.6);
+        lv.metal = 0.4;
+        L = f_blend(L, lv, c_l);
+        L = f_blend(L, f_layer(vec3(0.42, 0.43, 0.44), 0.5), f_band(h, top - 0.2, top, fw.y));
+    }
+    let thread = noise3(vec3(uv.x * 5.0, h * 0.4, s));
+    L.albedo *= 1.0 - 0.3 * lk.wear * smoothstep(0.55, 0.8, thread) * f_fade(fm, 0.3);
+    return f_out(L, fr);
+}
+
+// ------------------------------------------------------------------------------------- the street
+
+// The colony's lamp posts and what they hold up (19; `tall` × 255 what: 0 a street lamp, 1 an
+// avenue lamp, 2 a path lamp, 3 a lamp's head, 4 an arm), in the colony's own language: white
+// panels (warmer in the Gardens, dustier down the Canal), joints every 1.2 m, a darker plinth, the
+// strip's line colour in a band with a light strip in it, lit by night; a head's lower edge lit in
+// the line's colour. Worn as the street is: dust at the foot; down the Canal, rust from the foot.
+fn f_post(i: FacadeIn, fr: FFrame) -> FacadeOut {
+    let kind = u32(i.tall * 255.0 + 0.5);
+    let h = i.uv.y;
+    let fw = fr.fw;
+    let level = abs(dot(i.n, fr.b)) > 0.7;
+    var white = vec3(0.74, 0.75, 0.76);
+    if (i.strip == 1u) {
+        white = vec3(0.66, 0.67, 0.66);
+    } else if (i.strip == 2u) {
+        white = vec3(0.74, 0.72, 0.67);
+    }
+    let wear = select(select(0.45, 0.6, i.strip == 1u), 0.3, i.strip == 0u);
+    var L = f_layer(white * (0.96 + 0.06 * noise3(vec3(i.uv * 0.8, i.seed))), 0.35);
+    if (!level && kind <= 2u) {
+        L.albedo *= 1.0 - 0.35 * f_pulse(h / 1.2, 0.0, 0.012, fw.y / 1.2);
+        L.albedo = mix(L.albedo, white * 0.55, 1.0 - f_band(h, 0.55, 1e4, fw.y));
+        // The band: at about eye and a half on a street lamp, lower on the shorter posts; its light
+        // strip in the middle third (or so).
+        let b = select(select(vec2(2.6, 2.9), vec2(2.3, 2.6), kind == 1u), vec2(1.9, 2.1), kind == 2u);
+        let inset = select(0.11, 0.07, kind == 2u);
+        L.albedo = mix(L.albedo, f_line(i.strip), f_band(h, b.x, b.y, fw.y));
+        L.emissive = f_line_glow(i.strip) * f_band(h, b.x + inset, b.y - inset, fw.y) * (600.0 * i.lamps + 60.0);
+        L.albedo *= 1.0 - (0.25 + 0.5 * wear) * 0.45 * (1.0 - smoothstep(0.0, 0.9, h));
+        if (i.strip == 1u) {
+            let rust = smoothstep(0.55, 0.75, noise3(vec3(i.uv.x * 9.0, h * 5.0, i.seed)))
+                * (1.0 - smoothstep(0.05, 0.5, h));
+            L.albedo = mix(L.albedo, vec3(0.28, 0.11, 0.05), rust);
+        }
+    } else if (!level && kind == 3u) {
+        // A head's sides (its uv.y up from its own underside): the line's light along the lower edge.
+        L.albedo = mix(L.albedo, f_line(i.strip), f_band(h, 0.03, 0.12, fw.y));
+        L.emissive = f_line_glow(i.strip) * f_band(h, 0.05, 0.1, fw.y) * (1200.0 * i.lamps + 60.0);
+    }
+    return f_out(L, fr);
+}
+
+// A lamp's lantern (20): a milky diffuser by day; by night it burns as the ground's lamps light the
+// street where it hangs (`burn`, which `city.wgsl` reads from the paint's own rows: a lamp that's
+// out over a dark pool is out here too), in the same warm light. It fades as it shrinks to a couple
+// of pixels: further off its pools carry the street's light, and a lantern a pixel wide sparkles.
+fn f_lantern(i: FacadeIn, fr: FFrame) -> FacadeOut {
+    var L = f_layer(vec3(0.84, 0.82, 0.78), 0.25);
+    let fp = max(length(i.dp_dx), length(i.dp_dy));
+    L.emissive = F_WARM * F_LANTERN_NITS * i.burn * i.lamps * (1.0 - smoothstep(0.2, 0.33, fp));
+    return f_out(L, fr);
+}
+
+// A bench (21): a slab of the colony's white cast stone, its top a seat of slats along it (timber
+// in the Gardens and down the Canal, greyed there; polished granite on Charter); grime at its foot.
+fn f_bench(i: FacadeIn, fr: FFrame) -> FacadeOut {
+    let fw = fr.fw;
+    var L = f_layer(vec3(0.7, 0.7, 0.68), 0.6);
+    if (dot(i.n, fr.b) > 0.7) {
+        // (Its top's uv is (s, x); x wrapped, as a roof's.)
+        let x = i.uv.y - floor(i.uv.y / F_BLOCK) * F_BLOCK;
+        if (i.strip == 0u) {
+            L = f_layer(vec3(0.5, 0.49, 0.47) * (0.9 + 0.2 * noise3(vec3(i.uv.x * 3.0, x * 3.0, i.seed))), 0.3);
+        } else {
+            let slat = f_pulse(i.uv.x / 0.1, 0.0, 0.88, fw.x / 0.1);
+            let wood = select(vec3(0.32, 0.2, 0.11), vec3(0.3, 0.27, 0.22), i.strip == 1u);
+            L = f_layer(mix(vec3(0.05), wood * (0.85 + 0.3 * noise3(vec3(i.uv.x * 20.0, x * 0.6, i.seed))), slat), 0.75);
+        }
+    } else {
+        L.albedo *= 1.0 - 0.5 * (1.0 - smoothstep(0.0, 0.25, i.uv.y));
+    }
+    return f_out(L, fr);
+}
+
+// Leaves (7; `tall` × 255: the species in the low four bits, 16 if in blossom). The mesh shades a
+// crown as one soft volume; close up it breaks into clumps of leaves about 0.7 m across, darker
+// between them, their normals each their own way. In blossom, drifts of pink or white.
+fn f_leaves(i: FacadeIn, fr: FFrame) -> FacadeOut {
+    let code = u32(i.tall * 255.0 + 0.5);
+    let sp = code & 15u;
+    let k = f_h(i.seed, f32(sp), 3.0);
+    let scale = select(1.4, 2.2, sp == 7u);
+    // (x wrapped: at 16 km a colony coordinate has no centimetres left for noise. The seams fall on
+    // every 32nd grid line, in a wide street, where no tree stands.)
+    let q = vec3(i.p.x - floor((i.p.x + 16384.0) / 4096.0) * 4096.0, i.p.y, i.p.z) * scale + vec3(i.seed * 0.37);
+    let fp = max(length(i.dp_dx), length(i.dp_dy));
+    let near = f_fade(fp, 0.6 / scale);
+    let clump = noise3(q);
+    var L = f_layer(f_leaf_colour(sp, k) * mix(1.0, 0.6 + 0.7 * clump + 0.3 * (noise3(q * 3.7) - 0.5), near), 0.75);
+    if ((code >> 4u) == 1u) {
+        let b = smoothstep(0.38, 0.62, noise3(q * 1.7 + 5.0));
+        L.albedo = mix(L.albedo, select(vec3(0.78, 0.7, 0.7), vec3(0.8, 0.42, 0.52), sp == 4u), b * 0.85);
+        L.rough = 0.85;
+    }
+    var o = f_out(L, fr);
+    if (near > 0.0) {
+        let wob = vec3(noise3(q + 11.0), noise3(q + 23.0), noise3(q + 37.0)) - 0.5;
+        o.n = normalize(o.n + wob * 1.2 * near);
+    }
+    return o;
+}
+
+// Bark (8; uv: metres round, and up the trunk or along a limb): a plane's flaking in cream and olive
+// over grey; a cherry's red-brown, glossy, ringed; a birch's white with black dashes; the rest
+// grey-brown, fissured up the trunk. The street's splash at the foot.
+fn f_bark(i: FacadeIn, fr: FFrame) -> FacadeOut {
+    let sp = u32(i.tall * 255.0 + 0.5) & 15u;
+    let uv = i.uv;
+    let fw = fr.fw;
+    let n1 = noise3(vec3(uv.x * 2.5, uv.y * 0.9, i.seed));
+    var c = vec3(0.24, 0.2, 0.16);
+    var rough = 0.9;
+    if (sp == 0u) {
+        c = mix(vec3(0.3, 0.3, 0.24), vec3(0.58, 0.55, 0.42), smoothstep(0.45, 0.6, noise3(vec3(uv * 2.2, i.seed + 3.0))));
+    } else if (sp == 4u) {
+        c = vec3(0.26, 0.11, 0.08) * (1.0 - 0.35 * f_pulse(uv.y / 0.05, 0.0, 0.25, fw.y / 0.05) * f_fade(fw.y, 0.05));
+        rough = 0.45;
+    } else if (sp == 7u) {
+        let dash = step(0.7, noise3(vec3(uv.x * 4.0, uv.y * 14.0, i.seed))) * f_fade(fw.y, 0.07);
+        c = mix(vec3(0.74, 0.72, 0.68), vec3(0.08, 0.07, 0.06), max(dash, 1.0 - smoothstep(0.2, 0.9, uv.y)));
+    } else {
+        let fiss = f_pulse(uv.x / 0.09 + 0.6 * n1, 0.0, 0.3, fw.x / 0.09) * f_fade(fw.x, 0.09);
+        c = mix(vec3(0.27, 0.24, 0.2), vec3(0.12, 0.1, 0.08), fiss);
+    }
+    c *= (0.88 + 0.24 * n1) * (1.0 - 0.4 * (1.0 - smoothstep(0.0, 0.6, uv.y)));
+    return f_out(f_layer(c, rough), fr);
+}
+
 // ------------------------------------------------------------------------------ steel, railings
 
 // The site's steel (primer, galvanised, the cranes' yellow, rusting) and the colony's own (white:
@@ -2117,10 +2394,40 @@ fn f_steel(i: FacadeIn, fr: FFrame) -> FacadeOut {
         L.albedo = mix(L.albedo, vec3(0.28, 0.11, 0.05), rust * 0.7);
         L.metal *= 1.0 - rust;
         L.rough = mix(L.rough, 0.9, rust);
+    } else if (i.kind == 1u || i.kind == 7u) {
+        L = f_mast(i, level, i.uv.y, fr.fw);
     } else {
         L.albedo *= 0.92 + 0.08 * noise3(vec3(uv * 0.5, s));
     }
     return f_out(L, fr);
+}
+
+// A building's mast, spire or stack (`bc_sim::colony::city::Part::Mast`, on a block of buildings or
+// a landmark's): a works' stack in brick or rusting steel, sooty at its top; a short spire in
+// weathered copper; a tower's mast in pale steel, banded red and white past 100 m, and a beacon on
+// its top flashing with the roofs' obstruction lights. `h` is up the wall (walls only).
+fn f_mast(i: FacadeIn, level: bool, h: f32, fw: vec2<f32>) -> FLayer {
+    let top = i.tall * F_MAX_HEIGHT;
+    let d = i.district;
+    var L = f_layer(vec3(0.62, 0.63, 0.64), 0.4);
+    L.metal = 0.7;
+    if (d == D_WORKS || d == D_PORT) {
+        let rusty = f_h(i.seed, 98.0, 1.0) < 0.4;
+        L = f_layer(select(f_brick(f_h(i.seed, 97.0, 1.0)), vec3(0.3, 0.14, 0.07), rusty), 0.85);
+        if (!level) {
+            L.albedo *= 1.0 - 0.7 * smoothstep(top - 4.0, top, h);
+        }
+    } else if (top < 72.0) {
+        L = f_layer(vec3(0.24, 0.42, 0.36), 0.6);
+        L.metal = 0.3;
+    } else if (!level && top > 100.0) {
+        L = f_blend(L, f_layer(vec3(0.55, 0.06, 0.04), 0.5), f_pulse(h / 12.0, 0.0, 0.5, fw.y / 12.0));
+    }
+    if (level && top > 72.0 && d != D_WORKS && d != D_PORT) {
+        let flash = step(fract(i.seconds * 0.75), 0.4);
+        L.emissive += vec3(1.0, 0.06, 0.03) * 3000.0 * flash * max(i.lamps, 0.15);
+    }
+    return L;
 }
 
 // A quay's railing: posts every 1.6 m and four rails, painted dark green, rust at the feet. Its
@@ -2155,6 +2462,36 @@ fn f_railing(i: FacadeIn, fr: FFrame) -> FacadeOut {
 // ---------------------------------------------------------------------------------- the Low tier
 
 #ifdef FACADE_LOW
+// The street on the Low tier: leaves their species' colour (and blossom), bark plain, posts white
+// with their band lit, lanterns lit as they burn, benches stone.
+fn f_street_low(i: FacadeIn) -> FacadeOut {
+    var fr: FFrame;
+    fr.n = i.n;
+    fr.t = vec3(1.0, 0.0, 0.0);
+    fr.b = vec3(0.0, 1.0, 0.0);
+    fr.d = vec3(0.0, 0.0, 1.0);
+    fr.fw = abs(i.duv_dx) + abs(i.duv_dy);
+    let code = u32(i.tall * 255.0 + 0.5);
+    var L = f_layer(vec3(0.72, 0.73, 0.74), 0.4);
+    if (i.surface == 7u) {
+        L = f_layer(f_leaf_colour(code & 15u, f_h(i.seed, f32(code & 15u), 3.0)), 0.8);
+        if ((code >> 4u) == 1u) {
+            L.albedo = mix(L.albedo, vec3(0.8, 0.5, 0.58), 0.5);
+        }
+    } else if (i.surface == 8u) {
+        L = f_layer(select(vec3(0.24, 0.2, 0.16), vec3(0.7, 0.68, 0.64), (code & 15u) == 7u), 0.9);
+    } else if (i.surface == 20u) {
+        L.albedo = vec3(0.84, 0.82, 0.78);
+        let fp = max(length(i.dp_dx), length(i.dp_dy));
+        L.emissive = F_WARM * F_LANTERN_NITS * i.burn * i.lamps * (1.0 - smoothstep(0.2, 0.33, fp));
+    } else if (i.surface == 19u && code <= 2u) {
+        let b = f_band(i.uv.y, 2.3, 2.9, fr.fw.y);
+        L.albedo = mix(L.albedo, f_line(i.strip), b);
+        L.emissive = f_line_glow(i.strip) * b * (600.0 * i.lamps + 60.0);
+    }
+    return f_out(L, fr);
+}
+
 // The cheap facade, for the Low tier (`FACADE_LOW`; software rasterisers get Low, CI's
 // SwiftShader among them): the same looks, windows and nights, averaged, with no rooms, lettering,
 // relief or detailed wear. On SwiftShader a city frame with the full facade takes about ten times
@@ -2212,6 +2549,15 @@ fn facade_low(i: FacadeIn) -> FacadeOut {
         L = f_blend(L, f_far_glass(f_lamp_colour(0.5) * 600.0 * (0.35 + 0.65 * night), day), max(up, foot));
         L = f_blend(L, f_layer(line, 0.3), max(f_band(h, 4.95, 5.5, fw.y), f_band(h, top - 1.9, top - 1.35, fw.y)));
         L.emissive += f_line_glow(i.strip) * max(f_band(h, 5.18, 5.27, fw.y), f_band(h, top - 1.67, top - 1.58, fw.y)) * (1200.0 * night + 80.0);
+    } else if (i.surface == 25u) {
+        // A crown: its panels' and louvres' average, and its band of light.
+        let panel = select(vec3(0.5), mix(f_tower_tint(s)[1], vec3(0.62, 0.63, 0.64), 0.4), f_has_towers(i.district, i.kind));
+        L = f_layer(mix(vec3(0.05), panel, 0.45), 0.5);
+        L.emissive = f_lamp_colour(0.85) * f_band(h, top - 1.9, top - 1.1, fw.y) * (1500.0 * night + 40.0);
+    } else if (i.surface == 26u) {
+        // Plant: the building's material, washed out.
+        let lk = f_look(i.district, i.strip, i.kind, s);
+        L = f_layer(mix(lk.base, vec3(0.5, 0.5, 0.49), 0.45), 0.85);
     } else if (i.surface == 12u && f_has_towers(i.district, i.kind)) {
         // A tower's curtain wall: spandrels, mullions, its offices' light.
         let tm = f_tower_tint(s);
@@ -2294,7 +2640,9 @@ fn f_has_towers(d: u32, kind: u32) -> bool {
     return kind == 7u || d == 0u || d == D_BUSINESS || d == D_CIVIC || d == D_MIDTOWN;
 }
 
-// A building's surface: walls (1), roofs (2), steel (9), railings (10), halls (11), glass (12).
+// A building's surface: walls (1), roofs (2), steel (9), railings (10), halls (11), glass (12),
+// crowns (25), plant (26); and the street's: leaves (7), bark (8), posts (19), lanterns (20),
+// benches (21).
 fn facade(fi: FacadeIn) -> FacadeOut {
     // The seed is a byte, but it arrives interpolated, a hair off from pixel to pixel; hashed as
     // is, that hair turns into speckle (a room's depth, whether it's lit). Back to the byte. Not
@@ -2304,7 +2652,13 @@ fn facade(fi: FacadeIn) -> FacadeOut {
     var i = fi;
     i.seed = floor(fi.seed + 0.25);
 #ifdef FACADE_LOW
-    return facade_low(i);
+    var o: FacadeOut;
+    if (i.surface == 7u || i.surface == 8u || (i.surface >= 19u && i.surface <= 21u)) {
+        o = f_street_low(i);
+    } else {
+        o = facade_low(i);
+    }
+    return o;
 #else
     // One chain of branches, no early returns: a software rasteriser (SwiftShader, in CI) runs
     // whatever follows a `return` for every pixel, masked, but skips a branch nobody takes.
@@ -2313,12 +2667,26 @@ fn facade(fi: FacadeIn) -> FacadeOut {
         o = f_roof(i);
     } else {
         let fr = f_frame(i);
-        if (i.surface == 9u) {
+        if (i.surface == 7u) {
+            o = f_leaves(i, fr);
+        } else if (i.surface == 8u) {
+            o = f_bark(i, fr);
+        } else if (i.surface == 19u) {
+            o = f_post(i, fr);
+        } else if (i.surface == 20u) {
+            o = f_lantern(i, fr);
+        } else if (i.surface == 21u) {
+            o = f_bench(i, fr);
+        } else if (i.surface == 9u) {
             o = f_steel(i, fr);
         } else if (i.surface == 10u) {
             o = f_railing(i, fr);
         } else if (i.surface == 11u) {
             o = f_hall(i, fr);
+        } else if (i.surface == 25u) {
+            o = f_crown(i, fr);
+        } else if (i.surface == 26u) {
+            o = f_plant(i, fr);
         } else if (i.surface == 12u && f_has_towers(i.district, i.kind)) {
             o = f_curtain(i, fr);
         } else {

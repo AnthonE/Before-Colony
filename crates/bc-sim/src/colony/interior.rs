@@ -215,7 +215,9 @@ pub fn probe(p: Vec3) -> Probe {
     let across = across(c.strip, c.s);
     let mut found = best;
     each_solid(c.strip, &area, Stage(0), |b: &CityBox| {
-        if b.h1 <= WALKERS_WALL {
+        // Further up or down than what's found already (less its rounding), it can't be nearer.
+        let below = (b.h0 - c.h).max(c.h - b.h1) - BOX_ROUND;
+        if b.h1 <= WALKERS_WALL && below < found.dist {
             let pr = box_probe(&c, k, b, across, up);
             if pr.dist < found.dist {
                 found = pr;
@@ -306,7 +308,7 @@ pub fn in_gate(pos: Vec3, vel: Vec3) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::colony::city::solid;
+    use crate::colony::city::solid_built;
     use crate::colony::frame::{STRIP_WIDTH, gravity};
 
     #[test]
@@ -366,13 +368,13 @@ mod tests {
                     let k = 0.8 * r;
                     let min = Vec3::new(at.x - k, (at.h - k).max(0.5), -(at.s + k));
                     let max = Vec3::new(at.x + k, at.h + k, -(at.s - k));
-                    if !solid(at.strip, min, max, Stage(0)) {
+                    if !solid_built(at.strip, min, max, Stage(0)) {
                         checked += 1;
                     } else {
                         // Pushed out of one box into another it straddles: allowed only where
                         // boxes meet (a building on its kerb).
                         let lift = Vec3::new(0.0, 3.0, 0.0);
-                        assert!(!solid(at.strip, min + lift, max + lift, Stage(0)), "{at:?}");
+                        assert!(!solid_built(at.strip, min + lift, max + lift, Stage(0)), "{at:?}");
                     }
                 }
             }

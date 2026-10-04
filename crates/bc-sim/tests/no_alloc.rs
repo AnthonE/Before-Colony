@@ -245,12 +245,12 @@ fn riders_never_allocate() {
 
 #[test]
 fn the_colony_answers_without_allocating() {
-    // The city, its day, its frames and its trams are closed forms: asking them anything allocates nothing,
-    // so a future sector inside the colony can ask them in its tick.
-    use bc_sim::colony::{city, frame, time, transit};
+    // The city, its furniture, its day, its frames and its trams are closed forms: asking them anything
+    // allocates nothing, so a future sector inside the colony can ask them in its tick.
+    use bc_sim::colony::{city, frame, furniture, time, transit};
     let mut rng = bc_sim::math::Rng::new(5);
-    let (hits, n) = bc_alloc::count(|| {
-        let mut hits = 0u32;
+    let ((hits, pieces), n) = bc_alloc::count(|| {
+        let (mut hits, mut pieces) = (0u32, 0u32);
         for i in 0..100_000u32 {
             let k = (i % 3) as u8;
             let p = glam::Vec3::new(
@@ -268,10 +268,19 @@ fn the_colony_answers_without_allocating() {
             let t = transit::train(k, (i % transit::TRAINS) as u8, i * 13, 0.5);
             hits += u32::from(t.doors);
             hits += u32::from(transit::car_walls(t.doors, |b| b.h1 > 3.0));
+            // The street furniture in a 120 m square round it.
+            if i % 16 == 0 {
+                let area = city::Rect::new(-p.z - 60.0, -p.z + 60.0, p.x - 60.0, p.x + 60.0);
+                furniture::each_furniture(k, &area, city::Stage(0), |_| {
+                    pieces += 1;
+                    false
+                });
+            }
         }
-        hits
+        (hits, pieces)
     });
     assert!(hits > 1_000, "{hits}: buildings should be hit");
+    assert!(pieces > 1_000, "{pieces}: furniture should be found");
     assert_eq!(n, 0, "heap operations asking the colony: {n}");
 }
 

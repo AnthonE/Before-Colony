@@ -53,11 +53,12 @@ const TERMINAL_FRONT: f32 = -15940.0;
 // The avenue's carriageways, across from its middle line: from the median's kerb (MEDIAN / 2) to
 // the pavements' (18 m of pavement beyond, to AVENUE / 2).
 const ROAD_OUT: f32 = 22.0;
-// The streets' lamps, where their posts will stand: along every kerb, about `LAMP_GAP` apart and
-// evenly from corner to corner of each block's side (the corners' lamps are the streets along x's),
-// each pool's middle `LAMP_OUT` out over the street from its kerb. A pool is a core `LAMP_CORE` wide
-// (σ, m) in a soft halo; seen from afar each widens `LAMP_SPREAD` times faster than the pixel along
-// its row (the eye's glare: past a few hundred metres a street's lamps run together into a line).
+// The streets' lamps, where their posts stand (`bc_sim::colony::furniture`): along every kerb, about
+// `LAMP_GAP` apart and evenly from corner to corner of each block's side (the corners' lamps are the
+// streets along x's), each pool's middle `LAMP_OUT` out over the street from its kerb. A pool is a
+// core `LAMP_CORE` wide (σ, m) in a soft halo; seen from afar each widens `LAMP_SPREAD` times faster
+// than the pixel along its row (the eye's glare: past a few hundred metres a street's lamps run
+// together into a line).
 // The city's lamps burn LAMP_MEAN on average (some dim, one in sixteen out).
 const LAMP_GAP: f32 = 30.0;
 const LAMP_OUT: f32 = 1.5;
@@ -66,9 +67,31 @@ const LAMP_HALO: f32 = 10.0;
 const LAMP_HALO_GAIN: f32 = 0.07;
 const LAMP_SPREAD: f32 = 2.5;
 const LAMP_MEAN: f32 = 0.88;
-// The avenue's lamps: across from its middle line (its pavements' kerb side); more on the tram's
-// posts down the median.
+// The avenue's lamps: across from its middle line (its pavements' kerb side); the median's are the
+// colony's (no posts yet).
 const AVENUE_LAMP: f32 = 22.7;
+// The street furniture's numbers (`bc_sim::colony::furniture`, checked by `city_atlas`'s tests): a
+// park's lamps beside the loop of its path (PARK_LOOP in from its pavement, PARK_LAMP inside it,
+// between its corners), a plaza's ring of lamps and their gain (they're the colony's: all burn), a
+// quay's lamps and its row of trees back from the water, the avenue's trees out from its middle line;
+// their pits TREE_PITCH apart from TREE_FIRST, none within TREE_END of a cross street (where the
+// crossings land). And the park's paths, which `city_mesh`'s trees keep off: the loop's half-width,
+// the diagonals', the round plaza, its beds' outer edge.
+const PARK_LOOP: f32 = 6.0;
+const PARK_LAMP: f32 = 2.4;
+const PARK_PATH: f32 = 1.5;
+const PARK_DIAG: f32 = 1.2;
+const PARK_PLAZA: f32 = 11.0;
+const PARK_BEDS: f32 = 14.0;
+const PLAZA_RING: f32 = 24.0;
+const PLAZA_LAMPS: f32 = 8.0;
+const PLAZA_GAIN: f32 = 0.8;
+const QUAY_LAMP: f32 = 2.2;
+const QUAY_TREE: f32 = 11.0;
+const AVENUE_TREE: f32 = 24.3;
+const TREE_PITCH: f32 = 8.0;
+const TREE_FIRST: f32 = 4.0;
+const TREE_END: f32 = 5.0;
 // Which side the traffic keeps to (stop lines go on the half that drives into a crossing): +1 the
 // right, −1 the left. Traffic (`COLONY_LOOK.md` pass 4.1) must keep to the same.
 const KEEP_RIGHT: f32 = 1.0;
@@ -741,88 +764,128 @@ fn road_over(o: Paint, r: Road, cell: Cell, st: Streets) -> Paint {
     return out;
 }
 
-// The city's lamp rows near a point, worked out one at a time in a loop (one copy of the work):
-// the kerbs of the street along x and of the cross street round it, the avenue's pavements and
-// median, a park's loop, a quay's edge. A row's pools fade out within about 25 m of it, so rows
-// further off are passed over.
-fn lamps_near(cell: Cell, st: Streets, kind: i32, seed: f32, fp: vec2<f32>) -> f32 {
+// One of the city's lamp rows round a point (`lamps_near` sums them, `lantern_burn` finds a
+// lantern's own): `u` along it from its start, `v` across from the line of its pools' middles (1e4:
+// no row here), how long it is and whether its lamps stand corner to corner or between the corners,
+// the pixel's footprint along and across it, which row it is (for its lamps' brightness,
+// `lamp_burns`) and its gain.
+struct LampLine {
+    u: f32,
+    v: f32,
+    len: f32,
+    corners: bool,
+    fu: f32,
+    fv: f32,
+    id: f32,
+    gain: f32,
+};
+
+// Row `i` of the seven round a point: the kerbs of the street along x and of the cross street round
+// it, the avenue's pavements and median, a park's loop, a quay's edge.
+fn lamp_line(i: i32, cell: Cell, st: Streets, kind: i32, seed: f32, fp: vec2<f32>) -> LampLine {
     let p = cell.p;
     let r = cell.rect;
     let c = s_of_avenue(p.x);
     let side = select(1.0, -1.0, c < 0.0);
     let rows = abs(cell.row) >= 1 && abs(cell.row) <= ROWS;
-    var l = 0.0;
-    for (var i = 0; i < 7; i++) {
-        var u = 0.0;
-        var v = 1e4;
-        var len = 1.0;
-        var corners = true;
-        var fu = fp.y;
-        var fv = fp.x;
-        var id = 0.0;
-        var gain = 1.0;
-        switch i {
-            case 0, 1: {
-                // The kerbs of the street along x (and the bank road's).
-                if (st.k > 0) {
-                    let kerb = select(-1.0, 1.0, i == 0);
-                    u = p.y - st.seg_x.x;
-                    len = st.seg_x.y - st.seg_x.x;
-                    v = st.ds - kerb * (st.hs - LAMP_OUT);
-                    id = f32(cell.bx) * 1.7 + f32(st.k) * 13.1 + side * 7.9 + kerb * 3.3;
-                }
-            }
-            case 2, 3: {
-                // The kerbs of the cross street, between its corners.
-                if (rows) {
-                    let kerb = select(-1.0, 1.0, i == 2);
-                    u = p.x - st.seg_s.x;
-                    len = st.seg_s.y - st.seg_s.x;
-                    v = st.dx - kerb * (st.hx - LAMP_OUT);
-                    corners = false;
-                    fu = fp.x;
-                    fv = fp.y;
-                    id = f32(st.gi) * 1.3 + f32(cell.row) * 11.7 + 100.0 + kerb * 4.1;
-                }
-            }
-            case 4, 5: {
-                // The avenue's: on its pavements' kerb side, and (dimmer) on the tram's posts.
-                if (st.k == 0) {
-                    u = p.y - st.seg_x.x;
-                    len = st.seg_x.y - st.seg_x.x;
-                    v = select(c, abs(c) - AVENUE_LAMP, i == 4);
-                    gain = select(0.55, 1.0, i == 4);
-                    id = f32(cell.bx) * 1.7 + 500.0 + select(200.0, side * 7.9, i == 4);
-                }
-            }
-            default: {
-                if (rows && kind == 2) {
-                    // A park's, beside the loop of its path.
-                    let inset = SIDEWALK + 6.0;
-                    let lr = vec4(r.x + inset, r.y - inset, r.z + inset, r.w - inset);
-                    let near_s = min(abs(p.x - lr.x), abs(p.x - lr.y)) < min(abs(p.y - lr.z), abs(p.y - lr.w));
-                    u = select(p.x - lr.x, p.y - lr.z, near_s);
-                    len = select(lr.y - lr.x, lr.w - lr.z, near_s);
-                    v = inside(lr, p) - 2.4;
-                    fu = select(fp.x, fp.y, near_s);
-                    fv = max(fp.x, fp.y);
-                    id = seed + select(0.0, 50.0, near_s);
-                    gain = 0.55;
-                } else if (rows && kind == 4) {
-                    // A quay's, along the water's edge.
-                    u = p.y - r.z;
-                    len = r.w - r.z;
-                    v = abs(p.x - 0.5 * (r.x + r.y)) - CANAL_WIDTH * 0.5 - 2.2;
-                    id = f32(cell.bx) * 1.7 + select(900.0, 950.0, p.x < 0.5 * (r.x + r.y));
-                    gain = 0.85;
-                }
+    var l = LampLine(0.0, 1e4, 1.0, true, fp.y, fp.x, 0.0, 1.0);
+    switch i {
+        case 0, 1: {
+            // The kerbs of the street along x (and the bank road's).
+            if (st.k > 0) {
+                let kerb = select(-1.0, 1.0, i == 0);
+                l.u = p.y - st.seg_x.x;
+                l.len = st.seg_x.y - st.seg_x.x;
+                l.v = st.ds - kerb * (st.hs - LAMP_OUT);
+                l.id = f32(cell.bx) * 1.7 + f32(st.k) * 13.1 + side * 7.9 + kerb * 3.3;
             }
         }
-        if (abs(v) < 26.0 + 2.0 * fv) {
-            l += gain * lamp_row(u, v, len, corners, fu, fv, id);
+        case 2, 3: {
+            // The kerbs of the cross street, between its corners (none in the canal's row: its
+            // posts would stand over the water).
+            if (rows && kind != 4) {
+                let kerb = select(-1.0, 1.0, i == 2);
+                l.u = p.x - st.seg_s.x;
+                l.len = st.seg_s.y - st.seg_s.x;
+                l.v = st.dx - kerb * (st.hx - LAMP_OUT);
+                l.corners = false;
+                l.fu = fp.x;
+                l.fv = fp.y;
+                l.id = f32(st.gi) * 1.3 + f32(cell.row) * 11.7 + 100.0 + kerb * 4.1;
+            }
+        }
+        case 4, 5: {
+            // The avenue's: on its pavements' kerb side, and (dimmer) on the tram's posts.
+            if (st.k == 0) {
+                l.u = p.y - st.seg_x.x;
+                l.len = st.seg_x.y - st.seg_x.x;
+                l.v = select(c, abs(c) - AVENUE_LAMP, i == 4);
+                l.gain = select(0.55, 1.0, i == 4);
+                l.id = f32(cell.bx) * 1.7 + 500.0 + select(200.0, side * 7.9, i == 4);
+            }
+        }
+        default: {
+            if (rows && kind == 2) {
+                // A park's, beside the loop of its path (between its corners: its diagonals run
+                // to them).
+                let inset = SIDEWALK + PARK_LOOP;
+                let lr = vec4(r.x + inset, r.y - inset, r.z + inset, r.w - inset);
+                let near_s = min(abs(p.x - lr.x), abs(p.x - lr.y)) < min(abs(p.y - lr.z), abs(p.y - lr.w));
+                l.u = select(p.x - lr.x, p.y - lr.z, near_s);
+                l.len = select(lr.y - lr.x, lr.w - lr.z, near_s);
+                l.v = inside(lr, p) - PARK_LAMP;
+                l.corners = false;
+                l.fu = select(fp.x, fp.y, near_s);
+                l.fv = max(fp.x, fp.y);
+                l.id = seed + select(0.0, 50.0, near_s);
+                l.gain = 0.55;
+            } else if (rows && kind == 4) {
+                // A quay's, along the water's edge.
+                l.u = p.y - r.z;
+                l.len = r.w - r.z;
+                l.v = abs(p.x - 0.5 * (r.x + r.y)) - CANAL_WIDTH * 0.5 - QUAY_LAMP;
+                l.id = f32(cell.bx) * 1.7 + select(900.0, 950.0, p.x < 0.5 * (r.x + r.y));
+                l.gain = 0.85;
+            }
         }
     }
     return l;
+}
+
+// The city's lamp rows near a point, worked out one at a time in a loop (one copy of the work). A
+// row's pools fade out within about 25 m of it, so rows further off are passed over.
+fn lamps_near(cell: Cell, st: Streets, kind: i32, seed: f32, fp: vec2<f32>) -> f32 {
+    var l = 0.0;
+    for (var i = 0; i < 7; i++) {
+        let row = lamp_line(i, cell, st, kind, seed, fp);
+        if (abs(row.v) < 26.0 + 2.0 * row.fv) {
+            l += row.gain * lamp_row(row.u, row.v, row.len, row.corners, row.fu, row.fv, row.id);
+        }
+    }
+    return l;
+}
+
+// How bright a lamp's lantern burns, hung over the middle of its pool at the cell's point: as its
+// own lamp burns in the paint (`lamp_burns` times its row's gain: out if that's out), without the
+// halo or its neighbours' light. Only the rows' arithmetic is repeated for it: the heavy part
+// (`lamp_row`) is called from `lamps_near` alone. Away from any pool's middle (it isn't asked
+// there): the lamps' mean.
+fn lantern_burn(cell: Cell, st: Streets, kind: i32, seed: f32) -> f32 {
+    var best = lamp_line(0, cell, st, kind, seed, vec2(0.0));
+    for (var i = 1; i < 7; i++) {
+        let row = lamp_line(i, cell, st, kind, seed, vec2(0.0));
+        if (abs(row.v) < abs(best.v)) {
+            best = row;
+        }
+    }
+    let n = max(1.0, floor(best.len / LAMP_GAP + 0.5));
+    let a = floor(best.u * n / best.len + 0.5);
+    let i0 = select(1.0, 0.0, best.corners);
+    let i1 = select(n - 1.0, n, best.corners);
+    if (abs(best.v) > 0.5 || a < i0 || a > i1) {
+        return LAMP_MEAN;
+    }
+    return best.gain * lamp_burns(a, best.id);
 }
 
 // ---- The avenue's median and pavements ----------------------------------------------------------
@@ -899,9 +962,13 @@ fn avenue_pavement(a: f32, u: f32, e: f32, strip: i32, wear: f32, g: Grain, fp: 
     if (strip == 1) {
         col = mix(col, vec3(0.42, 0.41, 0.39), lines(u, 4.8, 0.4, fu) * past(y, 4.3, fv));
     }
-    // Tree pits: a granite frame round an iron grille (Charter), gravel (Canal), grass (Gardens).
-    let pit = stripes(u - 3.2, 8.0, 1.6, fu) * span(y, 1.5, 3.1, fv);
-    let pit_in = stripes(u - 3.32, 8.0, 1.36, fu) * span(y, 1.62, 2.98, fv);
+    // Tree pits: a granite frame round an iron grille (Charter), gravel (Canal), grass (Gardens); a
+    // tree in each (`bc_sim::colony::furniture`), none where the crossings land.
+    let pit_y = AVENUE_TREE - ROAD_OUT;
+    let keep = past(e, TREE_END, fu);
+    let pit = keep * stripes(u - (TREE_FIRST - 0.8), TREE_PITCH, 1.6, fu) * span(y, pit_y - 0.8, pit_y + 0.8, fv);
+    let pit_in = keep * stripes(u - (TREE_FIRST - 0.68), TREE_PITCH, 1.36, fu)
+        * span(y, pit_y - 0.68, pit_y + 0.68, fv);
     var pit_col = vec3(0.1, 0.09, 0.08) * (1.0 - 0.6 * mix(0.5, lines(u, 0.1, 0.05, fu), fade(fu, 0.1)));
     if (strip == 1) {
         pit_col = vec3(0.3, 0.27, 0.23) * (0.8 + 0.3 * g.hi);
@@ -1155,20 +1222,20 @@ fn paint_park(cell: Cell, seed: f32, g: Grain, fp: vec2<f32>) -> Paint {
     var col = grass(g);
     col *= 1.0 + 0.07 * (2.0 * lines(p.y - r.z, 4.0, 2.0, fp.y) - 1.0) * fade(fp.y, 2.0);
     col = mix(col, vec3(0.04, 0.075, 0.03), 0.8 * tree_shade(g));
-    let inset = SIDEWALK + 6.0;
+    let inset = SIDEWALK + PARK_LOOP;
     let dl = inside(vec4(r.x + inset, r.y - inset, r.z + inset, r.w - inset), p);
-    let loop_path = band(dl, 1.5, fi);
+    let loop_path = band(dl, PARK_PATH, fi);
     let q = p - vec2(0.5 * (r.x + r.y), 0.5 * (r.z + r.w));
     let dir = normalize(vec2(r.y - r.x, r.w - r.z) - 2.0 * inset);
     let dg = min(abs(q.x * dir.y - q.y * dir.x), abs(q.x * dir.y + q.y * dir.x));
     let rc = length(q);
-    let diag = band(dg, 1.2, fi) * step(0.0, dl);
-    let plaza = 1.0 - past(rc, 11.0, fi);
+    let diag = band(dg, PARK_DIAG, fi) * step(0.0, dl);
+    let plaza = 1.0 - past(rc, PARK_PLAZA, fi);
     let path = max(max(loop_path, diag), plaza);
     // Worn grass where people cut the corners.
     col = mix(col, vec3(0.2, 0.17, 0.11), 0.45 * band(dl, 2.8, fi) * (1.0 - loop_path));
     col = mix(col, vec3(0.4, 0.36, 0.29) * (0.85 + 0.3 * g.hi), path);
-    if (rc < 14.0 + fi && fi < 3.0) {
+    if (rc < PARK_BEDS + fi && fi < 3.0) {
         // Flower beds round the plaza, a colour each.
         let ang = heading(q);
         let fh = hash13(vec3(floor((ang + PI) / (PI / 6.0)), seed, 5.0));
@@ -1176,8 +1243,8 @@ fn paint_park(cell: Cell, seed: f32, g: Grain, fp: vec2<f32>) -> Paint {
             step(0.66, fh));
         // (The beds' arcs at no less than the ring's radius: a period shrinking to 0 at the middle
         // would make NaNs there, which no zero weight can cancel.)
-        let rb = max(rc, 11.0);
-        let beds = span(rc, 11.8, 14.0, fi) * stripes((ang + PI) * rb, PI / 6.0 * rb, PI / 6.0 * rb - 1.5, fi);
+        let rb = max(rc, PARK_PLAZA);
+        let beds = span(rc, PARK_PLAZA + 0.8, PARK_BEDS, fi) * stripes((ang + PI) * rb, PI / 6.0 * rb, PI / 6.0 * rb - 1.5, fi);
         col = mix(col, mix(vec3(0.05, 0.1, 0.03), flower, smoothstep(0.35, 0.75, g.mid)), beds * fade(fi, 2.0));
     }
     var out = mk(col, mix(0.95, 0.9, path));
@@ -1213,10 +1280,10 @@ fn paint_plaza(cell: Cell, district: i32, strip: i32, lit: bool, g: Grain, fp: v
     var out = mk(col, select(0.75, 0.5, civic));
     out.glow = select(vec3(0.0), line_colour(strip) * band(rc - 8.0, 0.12, fi), civic);
     out.wet = 0.5 * smoothstep(0.74, 0.86, g.lo);
-    if (lit && abs(rc - 24.0) < 20.0 + fi) {
-        let gap = 2.0 * PI * 24.0 / 8.0;
-        let um = (heading(q) + PI) * 24.0;
-        out.lamps = 0.8 * lamps_across(rc - 24.0, LAMP_CORE, fi)
+    if (lit && abs(rc - PLAZA_RING) < 20.0 + fi) {
+        let gap = 2.0 * PI * PLAZA_RING / PLAZA_LAMPS;
+        let um = (heading(q) + PI) * PLAZA_RING;
+        out.lamps = PLAZA_GAIN * lamps_across(rc - PLAZA_RING, LAMP_CORE, fi)
             * lamps_periodic(um - gap * floor(um / gap), gap, LAMP_CORE, fi);
     }
     return out;
@@ -1224,7 +1291,7 @@ fn paint_plaza(cell: Cell, district: i32, strip: i32, lit: bool, g: Grain, fp: v
 
 // The canal's quays (the channel itself is water): granite coping at the water's edge, a yellow
 // line, mooring bollards, setts on the Canal strip (concrete elsewhere) with a quay crane's rails,
-// paving to the street (the lamps along the edge are `lamps_near`'s).
+// a row of tree pits, paving to the street (the lamps along the edge are `lamps_near`'s).
 fn paint_canal(cell: Cell, strip: i32, wear: f32, g: Grain, fp: vec2<f32>) -> Paint {
     let p = cell.p;
     let r = cell.rect;
@@ -1254,6 +1321,19 @@ fn paint_canal(cell: Cell, strip: i32, wear: f32, g: Grain, fp: vec2<f32>) -> Pa
         col = mix(col, vec3(0.2, 0.1, 0.05), 0.6 * (span(y, 2.8, 3.2, fv) + span(y, 8.8, 9.2, fv)));
         col = mix(col, vec3(0.45, 0.4, 0.36), band(y - 3.0, 0.04, fv) + band(y - 9.0, 0.04, fv));
     }
+    // A row of trees along the quay, a pit each (as the avenue's), none within TREE_END of its ends.
+    let qkeep = past(min(u, (r.w - r.z) - u), TREE_END, fu);
+    let qpit = qkeep * stripes(u - (TREE_FIRST - 0.8), TREE_PITCH, 1.6, fu) * span(y, QUAY_TREE - 0.8, QUAY_TREE + 0.8, fv);
+    let qpit_in = qkeep * stripes(u - (TREE_FIRST - 0.68), TREE_PITCH, 1.36, fu)
+        * span(y, QUAY_TREE - 0.68, QUAY_TREE + 0.68, fv);
+    var qcol = vec3(0.1, 0.09, 0.08);
+    if (strip == 1) {
+        qcol = vec3(0.3, 0.27, 0.23) * (0.8 + 0.3 * g.hi);
+    } else if (strip == 2) {
+        qcol = vec3(0.08, 0.15, 0.05) * (0.8 + 0.4 * g.hi);
+    }
+    col = mix(col, vec3(0.44, 0.43, 0.41), qpit - qpit_in);
+    col = mix(col, qcol, qpit_in);
     col *= 1.0 - 0.3 * wear * smoothstep(0.4, 0.85, g.mid);
     let coping = 1.0 - past(y, 1.2, fv);
     col = mix(col, vec3(0.44, 0.435, 0.42) * (1.0 - 0.4 * lines(u, 1.5, 0.02, fu)) * (0.9 + 0.2 * g.hi), coping);
@@ -1437,6 +1517,8 @@ fn city_paint(cell: Cell, t: vec4<f32>, strip: i32, from_afar: bool, fp: vec2<f3
         }
     } else if (abs(cell.row) >= BANK_ROW) {
         out = paint_bank(p, strip, lit, g, f);
+        // (The bank road, and its lamps, end with row 12's blocks.)
+        city_lamps = cell.bx < FOOT_START;
     } else if (!has_block) {
         out = paint_square(p, strip, lit, g, f);
         city_lamps = false;

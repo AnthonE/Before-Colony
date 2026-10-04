@@ -1091,11 +1091,12 @@ fn city_crowd(
         .enumerate()
         .map(|(i, name)| {
             let k = i as f32;
-            // Up or down the avenue, on either pavement, each at their own pace.
+            // Up or down the avenue, on either pavement, each at their own pace: out past its
+            // row of trees and benches (`bc_sim::colony::furniture::AVENUE_TREE`), short of its kerb.
             let dir = if i % 2 == 0 { 1.0 } else { -1.0 };
             let speed = 1.1 + 0.08 * (i % 7) as f32 + if i % 5 == 0 { 3.2 } else { 0.0 };
             let side = if i % 3 == 0 { -1.0 } else { 1.0 };
-            let s = mid + side * (24.0 + (k * 3.7) % 13.0);
+            let s = mid + side * (25.0 + (k * 3.7) % 13.0);
             let x = -14_095.0 + (k * 23.0 + dir * speed * t).rem_euclid(160.0);
             let yaw = if dir > 0.0 { std::f32::consts::FRAC_PI_2 } else { -std::f32::consts::FRAC_PI_2 };
             let pose = PersonPose {

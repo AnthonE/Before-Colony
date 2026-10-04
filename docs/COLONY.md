@@ -335,16 +335,44 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
 **Districts and buildings**
 - 12 districts per strip, 2048 m each, from a table per strip. Strip names (placeholders): Charter, Canal, Gardens.
 
-| District | Heights |
-|---|---|
-| Business district | towers 80–240 m |
-| Midtown | 25–80 m |
-| Residential | 12–40 m |
-| Old Town | 9–18 m |
-| Works | 15–40 m |
-| Site | frames 20–120 m, cranes to 160 m |
+| District | Heights | Built as |
+|---|---|---|
+| Business district | towers 80–240 m | towers on podiums, stepping in up to three times, crowned (a hat, a stepped top, a lantern, a penthouse), masts on the tall ones |
+| Midtown | 25–80 m | street walls setting back once or twice; towers on some lots (80–240 m) |
+| Residential | 12–40 m | penthouses, courts round yards, water tanks on the Canal's roofs, terraces in the Gardens |
+| Old Town | 9–18 m | chimneys on the party walls, mansard attics |
+| University | 9–27 m, campaniles to about 58 m | quads, some with a campanile |
+| Works, Port | 9–34 m, stacks to about 64 m | sawtooth, monitor and bayed sheds, stacks, offices on the corners |
+| Civic | 16–41 m, to about 50 m with their lanterns | attics, and lanterns on the big ones; towers on some lots (80–240 m) |
+| Site | frames 20–120 m, cranes to 160 m | |
 
 - Floors 3.6 m, ground floor 5 m, cap 240 m.
+- A building is at most eight boxes (its pieces, `city::Building::pieces`), each standing on the street or on one
+  under it; crowns and masts never pass 240 m.
+
+**Street furniture** (`colony::furniture`: like the city, a closed form of where you ask)
+- Lamps where the ground's paint has their pools (`city_lib.wgsl`, the numbers `city_atlas.rs`'s tests check):
+  down every block's kerbs about 30 m apart (`LAMP_GAP`), evenly from corner to corner along the lanes (the
+  corner posts 0.25 m in from both kerbs, before the crossings) and between the corners along the cross streets
+  (none in the canal's row); a post 0.8 m in from its kerb, its arm out to the lantern 1.5 m over the street; the
+  bank road's far kerb the same. The avenue's lamps are lanterns on 4 m posts at 22.7 m from its middle line,
+  under the trees. Path lamps beside a park's loop (its pavilions stand inside them, a metre clear) and along the
+  quays, 2.2 m from the water; eight on a plaza's ring, 24 m out.
+- Trees in the avenue's pits, every 8 m (24.3 m from its middle line, none within 5 m of a crossing), and a row
+  down each quay; benches (0.42 m high) between the avenue's trees every 16 m. Nothing stands in a crossing, a key
+  place's doorway (6 m clear) or a walk.
+- The colony's own lamps (Hub Gate's square, the banks' promenades, the median) are paint only, for now.
+- Drawn close up (L0) from the rules' boxes (`city_mesh`: posts, benches and trunks exactly their solids, the arms,
+  heads and lanterns over anyone's reach); trees at L0 and L1, a species by strip and setting: the avenue's and
+  the quays' keep their leaves at least 5.5 m up and clear of the lanterns (the parks' and plazas', walked under,
+  2.9 m).
+
+| Thing | People on foot, cars, the server's pose check (`city::solid`) | Suits (`city::each_solid`, `solid_built`) |
+|---|---|---|
+| Buildings and all their pieces | solid | solid |
+| Lamp posts, trees' trunks (3 m) | solid | stepped over |
+| Benches | stepped up onto (under `walker::STEP`, 0.45 m); a wall to a car | stepped over |
+| Crowns, arms, lanterns; the parks' and plazas' trees | not solid | not solid |
 
 **Structures**
 - Bay ring: r 1950–2650, x [−16450, −16050].
