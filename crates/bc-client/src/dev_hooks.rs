@@ -73,7 +73,8 @@ fn hide_boot_overlay() {
 }
 
 /// Dev hook (`aim_hostile`): while on, the aim follows the nearest hostile suit, as a pilot's mouse
-/// would; and, on or off, how far off that suit is (`hostile_range`, m; -1: none in sight).
+/// would (in the Blast Hall with none in sight, its nearest target); and, on or off, how far off
+/// that suit is (`hostile_range`, m; -1: none in sight).
 pub fn aim_hook(
     cmds: Res<crate::page::UiCmds>,
     mut aim: ResMut<crate::input::Aim>,
@@ -104,7 +105,14 @@ pub fn aim_hook(
         .map(|tr| tr.sample(t, &w.bodies).pos - me.pos)
         .min_by(|a, b| a.length_squared().total_cmp(&b.length_squared()));
     dev.set("hostile_range", nearest.map_or(-1.0, |r| f64::from(r.length())));
-    if *on && let Some(r) = nearest {
+    let in_hall = core.inside() && bc_sim::colony::hall::in_hall(me.pos);
+    let target = || {
+        let k = t.max(0.0).floor();
+        (0..bc_sim::colony::hall::TARGETS)
+            .map(|i| bc_sim::colony::hall::target(i, k as u32, (t - k) as f32) - me.pos)
+            .min_by(|a, b| a.length_squared().total_cmp(&b.length_squared()))
+    };
+    if *on && let Some(r) = nearest.or_else(|| in_hall.then(target).flatten()) {
         aim.dir = r.normalize_or(aim.dir);
     }
 }

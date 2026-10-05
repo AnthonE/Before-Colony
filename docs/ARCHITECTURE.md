@@ -597,6 +597,13 @@ traffic and crowds.
   round the suit, from where the sector last had it (each slot's `Metrics::pilots[slot].pos`, an
   atomic the sector writes in its tick). There the city is a body, `Body::City` ("Bodies and
   frames"), and suits land and walk on it.
+- **The Blast Hall's live fire** (`bc_sim::colony::hall`, `TRAINING.md`): weapons are free only in
+  the Proving Ground's room. Each interior tick clears the weapons' buttons of any suit elsewhere,
+  from where it is as the tick starts, and the owner's prediction clears them alike. Shots there
+  meet no suit, and `first_blocker`'s interior branch stops them at the room's bounds or at one of
+  its targets (closed forms of the tick, drawn alike on every screen), which raises a `TargetHit`
+  event. Allocation-free and deterministic (`HALL_GOLDEN`, `no_alloc`), and outside the hall the
+  interior runs exactly as before.
 
 ## AI layers
 

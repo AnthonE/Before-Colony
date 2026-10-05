@@ -32,6 +32,7 @@ pub fn setup_missiles(
     let mesh = meshes.add(Capsule3d::new(0.22, LENGTH - 0.44).mesh().rings(2).latitudes(6).longitudes(8));
     for i in 0..BODIES {
         commands.spawn((
+            crate::inside::WeaponFx,
             MissileBody(i),
             Mesh3d(mesh.clone()),
             MeshMaterial3d(surfaces.armour.clone()),
@@ -40,6 +41,7 @@ pub fn setup_missiles(
             Visibility::Hidden,
         ));
         commands.spawn((
+            crate::inside::WeaponFx,
             MissileExhaust(i),
             Mesh3d(ribbons.mesh.clone()),
             MeshMaterial3d(ribbons.exhaust.material.clone()),

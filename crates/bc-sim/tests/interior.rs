@@ -4,11 +4,15 @@
 //! nothing (the colony's law), and dock back at the inner gate.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
-use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, MELEE, SPECIAL};
+use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRIP, MELEE, SPECIAL};
+use bc_proto::events::Event;
 use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
-use bc_sim::colony::city::{Stage, solid_built};
+use bc_sim::colony::city::{Stage, place, place_door, room, solid_built};
 use bc_sim::colony::frame::{CityPos, Under, from_colony};
+use bc_sim::colony::hall::{self, hall};
 use bc_sim::colony::interior::{INNER_GATE, INNER_GATE_RADIUS, WorldKind};
+use bc_sim::content::city::{PLACES, PROVING_GROUND};
+use bc_sim::ground::Footing;
 use bc_sim::sim::Loadout;
 use bc_sim::{Sim, SimConfig, SuitId};
 use glam::Vec3;
@@ -169,4 +173,217 @@ fn buildings_stop_a_suit_flying_into_them() {
     // through it).
     assert!(end.s < wall || end.h > h + 10.0 || (end.x - x).abs() > 10.0, "{end:?} past {wall}");
     assert!(end.s > start.s + 10.0, "it flew: {end:?}");
+}
+
+/// A command flying `id` toward `to` on flight assist, no faster than `top` m/s (as `bc-server`'s
+/// inside test flies).
+fn toward(sim: &mut Sim, id: SuitId, to: Vec3, top: f32, buttons: u16) {
+    let f = sim.suits.flight[id.idx()];
+    let d = to - f.pos;
+    let want = d.normalize_or_zero() * (d.length() * 0.3).min(top);
+    let local = f.rot.conjugate() * (want - f.vel);
+    let q = |v: f32| (v * 6.0).clamp(-127.0, 127.0) as i8;
+    let t = sim.next_tick();
+    sim.set_input(
+        id,
+        InputCmd {
+            tick: t,
+            view_tick_q4: t << 4,
+            aim: d.normalize_or(Vec3::X),
+            thrust: [q(local.x), q(local.y), q(local.z)],
+            buttons: FLIGHT_ASSIST | buttons,
+            ..InputCmd::default()
+        },
+    );
+}
+
+#[test]
+fn a_suit_flies_in_through_the_blast_halls_doors_and_lands_on_its_floor() {
+    // The Blast Hall (the Proving Ground, `docs/TRAINING.md`): from over Hub Gate's square, 60 m
+    // out from its blast doors and 20 m up, straight in on flight assist to the middle of its room,
+    // and down onto its floor with the grip armed. Never in its walls on the way.
+    let (i, p) = place("proving_ground").expect("the Proving Ground");
+    let room = room(i).expect("its room");
+    let ((s, x), (ds, dx)) = place_door(p);
+    let mut sim = interior();
+    let id = launch(&mut sim, FrameId::Leo);
+    let k = id.idx();
+    sim.suits.flight[k].pos = CityPos::new(p.strip, x - dx * 60.0, s - ds * 60.0, 20.0).to_colony();
+    sim.suits.flight[k].vel = Vec3::ZERO;
+    let (ms, mx) = room.rect.middle();
+    let middle = CityPos::new(p.strip, mx, ms, 20.0).to_colony();
+    let clear = |sim: &Sim| {
+        let Under::Land(at) = from_colony(sim.suits.flight[k].pos) else { return false };
+        let r = 0.7 * 10.0;
+        let min = Vec3::new(at.x - r, (at.h - r).max(0.5), -(at.s + r));
+        let max = Vec3::new(at.x + r, at.h + r, -(at.s - r));
+        !solid_built(at.strip, min, max, Stage(0))
+    };
+    for _ in 0..30 * 30 {
+        let f = sim.suits.flight[k];
+        if f.pos.distance(middle) < 3.0 && f.vel.length() < 1.0 {
+            break;
+        }
+        toward(&mut sim, id, middle, 40.0, 0);
+        sim.step();
+        assert!(clear(&sim), "in a wall at {}", sim.suits.flight[k].pos);
+    }
+    let in_room = |sim: &Sim| match from_colony(sim.suits.flight[k].pos) {
+        Under::Land(at) => room.holds(at.s, at.x, at.h.min(room.ceiling - 1.0)) && at.strip == p.strip,
+        Under::Window { .. } => false,
+    };
+    assert!(sim.suits.flight[k].pos.distance(middle) < 3.0, "in: {}", sim.suits.flight[k].pos);
+    assert!(in_room(&sim));
+    // The grip armed: down onto the hall's floor, on its feet.
+    for _ in 0..30 * 20 {
+        if sim.suits.footing[k] == Footing::Grounded {
+            break;
+        }
+        toward(&mut sim, id, middle, 0.0, GRIP);
+        sim.step();
+    }
+    assert_eq!(sim.suits.footing[k], Footing::Grounded);
+    assert!(in_room(&sim), "standing in the hall: {}", sim.suits.flight[k].pos);
+}
+
+/// The middle of the Blast Hall's room, `h` up, in the colony's own frame.
+fn in_the_hall(h: f32) -> Vec3 {
+    let r = hall();
+    let (s, x) = r.rect.middle();
+    CityPos::new(r.strip, x, s, h).to_colony()
+}
+
+/// The way from `id`'s rifle's muzzle to `at`: where a pilot's crosshair on `at` aims it.
+fn from_the_muzzle(sim: &Sim, id: SuitId, at: Vec3) -> Vec3 {
+    let f = &sim.suits.flight[id.idx()];
+    let muzzle = bc_sim::content::frame(FrameId::Leo).loadout[0].map_or(Vec3::ZERO, |m| m.arm.muzzle());
+    (at - (f.pos + f.rot * muzzle)).normalize()
+}
+
+fn events_since(sim: &Sim, from: u32) -> Vec<Event> {
+    (from..sim.events.next_seq()).filter_map(|s| sim.events.get(s).copied()).collect()
+}
+
+/// Puts `id` at `at`, at rest, and holds it there on flight assist aiming at `aim` for `ticks`,
+/// pulling `buttons` for a tick in every three (a rifle's tap fires; held, it charges), checking
+/// each tick with `each`.
+fn hold_at(
+    sim: &mut Sim,
+    id: SuitId,
+    at: Vec3,
+    aim: Vec3,
+    buttons: u16,
+    ticks: u32,
+    mut each: impl FnMut(&Sim),
+) {
+    let f = &mut sim.suits.flight[id.idx()];
+    f.pos = at;
+    f.vel = Vec3::ZERO;
+    for n in 0..ticks {
+        let to = from_the_muzzle(sim, id, aim);
+        let pull = if n % 3 == 0 { buttons } else { 0 };
+        hold(sim, id, FLIGHT_ASSIST | pull, [0; 3], Some(to));
+        sim.step();
+        each(sim);
+    }
+}
+
+#[test]
+fn in_the_blast_hall_weapons_are_free_and_its_rounds_score_on_its_targets() {
+    // The colony's law's one exception (`docs/TRAINING.md`): a Leo in the hall turns to a target
+    // on a stand by the back wall and fires its rifle. Its rounds score on the target, every client
+    // near is told, and the shooter counts them.
+    let mut sim = interior();
+    let id = launch(&mut sim, FrameId::Leo);
+    let (k, t0) = (0, sim.tick());
+    let aim = hall::target(k, t0, 0.0);
+    // Turned to it first, then the trigger held.
+    hold_at(&mut sim, id, in_the_hall(20.0), aim, 0, 60, |_| {});
+    let from = sim.events.next_seq();
+    let at = sim.suits.flight[id.idx()].pos;
+    hold_at(&mut sim, id, at, aim, FIRE_PRIMARY, 30 * 4, |_| {});
+    let events = events_since(&sim, from);
+    let fired = events.iter().filter(|e| matches!(e, Event::BeamSpawn { .. })).count();
+    let scored = events
+        .iter()
+        .filter(|e| matches!(e, Event::TargetHit { target, shooter, .. } if usize::from(*target) == k && *shooter == id.idx() as u16))
+        .count();
+    assert!(fired >= 3, "it fired: {fired}");
+    assert!(scored * 2 >= fired, "most of {fired} scored: {scored}");
+    assert_eq!(sim.stats(id.idx()).targets as usize, scored);
+}
+
+#[test]
+fn training_rounds_touch_no_suit_and_never_leave_the_hall() {
+    // A Leo fires at a target through another suit standing in the way, then out at the blast
+    // doors: the suit in the way takes nothing, the rounds score beyond it, and nothing fired in
+    // the hall is ever outside it.
+    let mut sim = interior();
+    let a = launch(&mut sim, FrameId::Leo);
+    let b = launch(&mut sim, FrameId::Leo);
+    let t0 = sim.tick();
+    let aim = hall::target(1, t0, 0.0);
+    let from_a = in_the_hall(20.0);
+    // `b` halfway along the line of fire, held there.
+    let between = from_a + (aim - from_a) * 0.5;
+    sim.suits.flight[b.idx()].pos = between;
+    let hp = sim.suits.part_hp[b.idx()];
+    let from = sim.events.next_seq();
+    let outside = |sim: &Sim| {
+        for k in sim.projectiles.alive.iter() {
+            assert!(
+                hall::in_hall(sim.projectiles.pos[k]),
+                "a round out of the hall at {}",
+                sim.projectiles.pos[k]
+            );
+        }
+    };
+    hold_at(&mut sim, a, from_a, aim, 0, 60, |_| {});
+    let at = sim.suits.flight[a.idx()].pos;
+    let keep_b = |sim: &mut Sim| {
+        let f = &mut sim.suits.flight[b.idx()];
+        f.pos = between;
+        f.vel = Vec3::ZERO;
+    };
+    for n in 0..30 * 3 {
+        keep_b(&mut sim);
+        let to = from_the_muzzle(&sim, a, aim);
+        let pull = if n % 3 == 0 { FIRE_PRIMARY | FIRE_SECONDARY } else { FIRE_SECONDARY };
+        hold(&mut sim, a, FLIGHT_ASSIST | pull, [0; 3], Some(to));
+        sim.step();
+        outside(&sim);
+    }
+    assert_eq!(sim.suits.part_hp[b.idx()], hp, "the suit in the way took nothing");
+    let events = events_since(&sim, from);
+    assert!(!events.iter().any(|e| matches!(e, Event::Hit { .. })), "no hits on suits");
+    assert!(events.iter().any(|e| matches!(e, Event::TargetHit { target: 1, .. })), "scored beyond it");
+    // Out at the blast doors, the square beyond them: stopped at the curtain across them.
+    let p = &PLACES[PROVING_GROUND];
+    let ((s, x), _) = place_door(p);
+    let square = CityPos::new(p.strip, x, s - 60.0 * hall().inward.0, 20.0).to_colony();
+    hold_at(&mut sim, a, at, square, 0, 60, |_| {});
+    let at = sim.suits.flight[a.idx()].pos;
+    let shots = sim.stats(a.idx()).shots;
+    hold_at(&mut sim, a, at, square, FIRE_PRIMARY | FIRE_SECONDARY, 30 * 3, outside);
+    assert!(sim.stats(a.idx()).shots > shots + 5, "it fired at the doors");
+}
+
+#[test]
+fn out_through_the_blast_doors_weapons_are_safe_again() {
+    // On the square before the doors, and over the city: the trigger does nothing.
+    let mut sim = interior();
+    let id = launch(&mut sim, FrameId::Leo);
+    let p = &PLACES[PROVING_GROUND];
+    let ((s, x), _) = place_door(p);
+    let square = CityPos::new(p.strip, x, s - 30.0 * hall().inward.0, 20.0).to_colony();
+    let from = sim.events.next_seq();
+    hold_at(&mut sim, id, square, in_the_hall(20.0), FIRE_PRIMARY | FIRE_SECONDARY | MELEE, 30 * 3, |sim| {
+        assert_eq!(sim.projectiles.count(), 0);
+    });
+    assert_eq!(sim.stats(id.idx()).shots, 0);
+    assert!(!events_since(&sim, from).iter().any(|e| matches!(e, Event::BeamSpawn { .. })));
+    // Nor is anything shown ready to fire there; in the hall, it is.
+    assert_eq!(sim.own_state(id.idx()).weapon_ready, 0);
+    hold_at(&mut sim, id, in_the_hall(20.0), in_the_hall(20.0) + Vec3::X * 50.0, 0, 30, |_| {});
+    assert_ne!(sim.own_state(id.idx()).weapon_ready, 0);
 }

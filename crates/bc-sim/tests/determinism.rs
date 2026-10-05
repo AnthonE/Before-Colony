@@ -693,7 +693,7 @@ fn surface_golden_wasm() {
 /// what's solid at scattered points, the colony's day and its frames, its trams (their timetable,
 /// the stations' platforms), and the key places' rooms and the halls round them. Every client
 /// draws and walks this, and the server checks poses against it.
-const CITY_GOLDEN: u64 = 0x9917_c3f3_53ac_b12c;
+const CITY_GOLDEN: u64 = 0x36d1_4844_56ee_4f4b;
 
 fn city_hash() -> u64 {
     use bc_sim::colony::{city, frame, time};
@@ -1036,4 +1036,101 @@ fn interior_golden_native() {
 #[wasm_bindgen_test::wasm_bindgen_test]
 fn interior_golden_wasm() {
     assert_eq!(interior_hash(), INTERIOR_GOLDEN);
+}
+
+/// Hash of the Blast Hall's live fire (`colony::hall`, the colony's law's one exception): four suits
+/// in the hall turning on its targets in turn and firing their beams, guns and missiles at them for
+/// ten seconds, one of them wandering out through the blast doors and back; the targets' tracks; and
+/// every training round that scored. The server's interior and each pilot's prediction run it alike.
+const HALL_GOLDEN: u64 = 0xf345_9107_f514_24fc;
+
+fn hall_hash() -> u64 {
+    use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST};
+    use bc_proto::events::Event;
+    use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
+    use bc_sim::colony::frame::CityPos;
+    use bc_sim::colony::hall::{TARGETS, hall, in_hall, target};
+    use bc_sim::colony::interior::WorldKind;
+    use bc_sim::sim::Loadout;
+    use bc_sim::{Sim, SimConfig};
+
+    let mut sim = Sim::new(SimConfig {
+        target_dolls: 0,
+        field_rocks: 0,
+        landmarks: 0,
+        survival: true,
+        world: WorldKind::Interior,
+        ..SimConfig::default()
+    });
+    let r = hall();
+    let frames = [FrameId::Leo, FrameId::Heavyarms, FrameId::WingZero, FrameId::Sandrock];
+    let mut ids = Vec::new();
+    for (k, f) in frames.into_iter().enumerate() {
+        let id = sim.launch(f, Faction::Colonies, PilotKind::Human, &Loadout::full(f)).unwrap();
+        let (s, x) = r.front.point(-24.0 + 16.0 * k as f32, 18.0);
+        sim.suits.flight[id.idx()].pos = CityPos::new(r.strip, x, s, 15.0 + 4.0 * k as f32).to_colony();
+        ids.push(id);
+    }
+    let mut h = 0xcbf2_9ce4_8422_2325;
+    let from = sim.events.next_seq();
+    let mut outside = 0;
+    for n in 0..300u32 {
+        let t = sim.next_tick();
+        for (k, id) in ids.iter().enumerate() {
+            let f = &sim.suits.flight[id.idx()];
+            let aim = (target((k + n as usize / 40) % TARGETS, t, 0.0) - f.pos).normalize();
+            let pull = if (n + k as u32).is_multiple_of(4) { FIRE_PRIMARY } else { 0 };
+            let held = if k % 2 == 1 && n % 90 < 60 { FIRE_SECONDARY } else { 0 };
+            // The last wanders back toward the blast doors and out, and comes back in.
+            let thrust = if k == 3 { [0, 0, if n < 150 { -80 } else { 80 }] } else { [0; 3] };
+            sim.set_input(
+                *id,
+                InputCmd {
+                    tick: t,
+                    view_tick_q4: t << 4,
+                    aim,
+                    thrust,
+                    buttons: FLIGHT_ASSIST | pull | held,
+                    ..InputCmd::default()
+                },
+            );
+        }
+        sim.step();
+        outside += u32::from(!in_hall(sim.suits.flight[ids[3].idx()].pos));
+    }
+    assert!(outside > 30 && outside < 270, "out through the doors and back: {outside} ticks out");
+    for s in from..sim.events.next_seq() {
+        if let Some(Event::TargetHit { tick, target, shooter, .. }) = sim.events.get(s).copied() {
+            fnv(&mut h, tick);
+            fnv(&mut h, u32::from(target) << 16 | u32::from(shooter));
+        }
+    }
+    for t in (0..2_000u32).step_by(37) {
+        for i in 0..TARGETS {
+            let p = target(i, t, 0.25);
+            for v in [p.x, p.y, p.z] {
+                fnv(&mut h, v.to_bits());
+            }
+        }
+    }
+    let scored: u32 = ids.iter().map(|id| sim.stats(id.idx()).targets).sum();
+    assert!(scored > 0, "rounds scored");
+    fnv(&mut h, scored);
+    fnv(&mut h, sim.state_hash() as u32);
+    fnv(&mut h, (sim.state_hash() >> 32) as u32);
+    h
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn hall_golden_native() {
+    let h = hall_hash();
+    assert_eq!(h, hall_hash(), "must be reproducible within a process");
+    assert_eq!(h, HALL_GOLDEN, "the Blast Hall's hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn hall_golden_wasm() {
+    assert_eq!(hall_hash(), HALL_GOLDEN);
 }

@@ -6,8 +6,9 @@ import { bc, collectConsole } from "./util";
 
 // The colony inside (`scripts/e2e.sh colony`: a survival server with the colony open, no dolls,
 // and an agent strolling outside Hub Gate). The pilot goes out through their bay's airlock and
-// rides the cap lift down to Hub Gate, finds the agent there, walks the city's streets to the
-// Exchange floor and buys there, finds a sight, then walks back and rides up to the bay. The
+// rides the cap lift down to Hub Gate, finds the agent there, walks across the square into the
+// Proving Ground (the Blast Hall) to its desk, walks the city's streets to the Exchange floor and
+// buys there, finds a sight, then walks back and rides up to the bay. The
 // walking is the dev hook's (a guide walks the pilot's own legs); the terminal's panel is clicked.
 // Then a tram, a car, and two browsers: two pilots meet at Hub Gate, each seeing the other; one
 // rides home, gone from the other's street, and a suit an agent flies in by the inner gate comes
@@ -41,7 +42,9 @@ async function mine(page: Page, name: string) {
 }
 
 test("a pilot rides down into the colony, trades on its Exchange floor, and rides home", async ({ page }) => {
-  test.setTimeout(1_500_000);
+  // (Long: a page drawing in software walks the city slowly, and this walk calls at the Proving
+  // Ground, the Exchange floor, a sight and The Arrival's seats.)
+  test.setTimeout(2_100_000);
   const logs = collectConsole(page);
   await page.goto("/?autoplay=1&name=Relena&quality=low");
   await until(page, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 180_000);
@@ -70,6 +73,24 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   expect(city.people).toBe(2);
   expect(city.refused_poses).toBe(0);
   expect((await mine(page, "Relena")).hangar?.place).toBe("city");
+
+  // The next objective is the Proving Ground, off the square (`docs/TRAINING.md`): across it and in
+  // through the Blast Hall's blast doors to its desk, a room at a mobile suit's scale under its
+  // floodlights. Its desk has the course.
+  await until(page, "the next objective", (s) => s.objective === "REPORT TO THE PROVING GROUND", 30_000);
+  await push(page, { cmd: "walk_to", spot: "proving_ground" });
+  await until(page, "the walk", (s) => s.city_walking_to, 30_000);
+  await until(
+    page,
+    "at the Proving Ground's desk",
+    (s) => s.focus === "proving_ground" && !s.city_walking_to,
+    420_000,
+  );
+  await expect(page.locator("#use")).toContainText("PROVING GROUND", { timeout: 30_000 });
+  await until(page, "in the Blast Hall", (s) => s.city_room === "proving_ground", 30_000);
+  await page.screenshot({ path: "artifacts/colony-proving-ground.png" });
+  await push(page, { cmd: "use" });
+  await expect(page.locator("#toast")).toContainText("THE PROVING GROUND", { timeout: 30_000 });
   await until(page, "the next objective", (s) => s.objective === "FIND THE EXCHANGE FLOOR", 30_000);
 
   // The map (M): the strip, its districts, its places.

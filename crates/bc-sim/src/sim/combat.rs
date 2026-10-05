@@ -30,6 +30,10 @@ pub(crate) enum Blocker {
     Landmark(u8),
     /// The colony's hull, or an end cap.
     Colony,
+    /// Inside the colony: one of the Blast Hall's targets (it scores), or its bounds, which nothing
+    /// fired in it crosses (`colony::hall::shot_end`).
+    Target(u8),
+    Hall,
 }
 
 /// ZERO fire-time magnetism: shots this close to the ZERO firing solution snap to it.
@@ -46,6 +50,11 @@ impl Sim {
         weapon: WeaponKind,
         dir: Vec3,
     ) {
+        // Inside the colony nothing strikes a suit, even in the Blast Hall: its rounds are for
+        // training.
+        if self.interior() {
+            return;
+        }
         let _ = self.damage.try_push(DamageEvent {
             target: target as u16,
             part,
@@ -65,11 +74,15 @@ impl Sim {
     pub(super) fn weapons_step(&mut self, t: u32) {
         let mut alive = core::mem::take(&mut self.iter_bits);
         alive.copy_from(&self.suits.alive);
+        let interior = self.interior();
         for i in alive.iter() {
             let spec = frame(self.suits.frame[i]);
             let cmd = self.suits.input[i];
-            // Weapons are down while the suit changes form.
-            if self.transforming(i) {
+            // Weapons are down while the suit changes form, and inside the colony anywhere but the
+            // Blast Hall (a Full Open begun there stops firing at its doors).
+            if self.transforming(i)
+                || (interior && !crate::colony::hall::weapons_free(self.suits.flight[i].pos))
+            {
                 continue;
             }
             // Full Open: everything fires along the aim, heat or not.
@@ -239,11 +252,15 @@ impl Sim {
         let mut p = muzzle;
         let mut hit = None;
         let mut blocked = None;
+        let interior = self.interior();
         for k in 0..rewind {
             let b = p + vel * DT;
             let when = spawn_tick + k;
             let blocker = self.first_blocker(p, b, w.radius, when, frac);
-            match self.sweep_history(p, b, w.radius, i, faction, when, frac) {
+            // (Inside the colony, rounds pass suits by.)
+            let suit =
+                if interior { None } else { self.sweep_history(p, b, w.radius, i, faction, when, frac) };
+            match suit {
                 Some((s, j, part)) if blocker.is_none_or(|(t, _)| s <= t) => {
                     hit = Some((j, part));
                     break;
@@ -270,7 +287,8 @@ impl Sim {
         match (hit, blocked) {
             (Some((target, part)), _) => self.queue_damage(target, part, w.damage, i, w.kind, dir),
             (None, Some((Blocker::Rock(rock), at))) => self.rock_hit(rock, w.damage, w.kind, at, dir, i, t),
-            // A landmark or the colony just takes it.
+            (None, Some((Blocker::Target(k), _))) => self.target_hit(k, i, t),
+            // A landmark, the colony or the hall's walls just take it.
             (None, Some(_)) => {}
             (None, None) => {
                 let ttl = w.ttl_ticks().saturating_sub(rewind);
@@ -299,6 +317,14 @@ impl Sim {
         }
     }
 
+    /// A training round scored on the Blast Hall's target `k` (`colony::hall`): everyone near sees it
+    /// flash, and its shooter counts it.
+    pub(super) fn target_hit(&mut self, k: u8, shooter: usize, t: u32) {
+        self.events.push(Event::TargetHit { id: 0, tick: t, target: k, shooter: shooter as u16 });
+        let s = &mut self.suits.stats[shooter];
+        s.targets = s.targets.saturating_add(1);
+    }
+
     /// The first thing other than a suit that a sphere of radius `r` meets moving from `a` to `b`:
     /// a rock, a landmark as it was at tick `t` plus `frac` of the next, or the colony. How far
     /// along (0..1), and which. A tie goes to the rock, then the landmark. Shots, missiles and
@@ -311,6 +337,19 @@ impl Sim {
         t: u32,
         frac: f32,
     ) -> Option<(f32, Blocker)> {
+        // Inside the colony only the Blast Hall's rounds fly: its targets, and its bounds.
+        if self.interior() {
+            use crate::colony::hall::{Stop, shot_end};
+            return shot_end(a, b, r, t, frac).map(|(s, stop)| {
+                (
+                    s,
+                    match stop {
+                        Stop::Target(k) => Blocker::Target(k),
+                        Stop::Wall => Blocker::Hall,
+                    },
+                )
+            });
+        }
         let mut first = self.field.sweep(a, b, r).map(|(s, i)| (s, Blocker::Rock(i)));
         let mut meet = |s: f32, what: Blocker| {
             if first.is_none_or(|(f, _)| s < f) {
@@ -377,7 +416,12 @@ impl Sim {
             let (spatial, suits, ff) = (&mut self.spatial, &self.suits, self.cfg.friendly_fire);
             let pad = Vec3::splat(r + 14.0);
             let mut best: Option<(f32, usize, usize)> = None;
+            // (Inside the colony, rounds pass suits by.)
+            let interior = self.cfg.world == crate::colony::interior::WorldKind::Interior;
             spatial.query_box(a.min(b) - pad, a.max(b) + pad, |j| {
+                if interior {
+                    return;
+                }
                 if j == owner || (!ff && suits.faction[j] == of) {
                     return;
                 }
@@ -406,9 +450,13 @@ impl Sim {
                     self.projectiles.kill(k);
                 }
                 (_, Some((f, what))) => {
-                    if let Blocker::Rock(which) = what {
-                        let (kind, dmg, dir) = shot(&self.projectiles);
-                        self.rock_hit(which, dmg, kind, a + (b - a) * f, dir, owner, t);
+                    match what {
+                        Blocker::Rock(which) => {
+                            let (kind, dmg, dir) = shot(&self.projectiles);
+                            self.rock_hit(which, dmg, kind, a + (b - a) * f, dir, owner, t);
+                        }
+                        Blocker::Target(which) => self.target_hit(which, owner, t),
+                        _ => {}
                     }
                     self.projectiles.kill(k);
                 }

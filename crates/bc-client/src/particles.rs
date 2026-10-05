@@ -640,6 +640,7 @@ pub fn setup_particles(
     let mesh = meshes.add(mesh);
     let material = materials.add(ParticleMaterial::default());
     commands.spawn((
+        crate::inside::WeaponFx,
         Mesh3d(mesh.clone()),
         MeshMaterial3d(material.clone()),
         Transform::IDENTITY,

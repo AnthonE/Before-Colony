@@ -1,8 +1,13 @@
-# Before Colony wire protocol (v20)
+# Before Colony wire protocol (v21)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v21 (from v20): the Blast Hall, the Proving Ground off Hub Gate's square: a key place with a room
+at a mobile suit's scale behind 40 m blast doors (new solids for everyone)
+(`content::city::CITY_VERSION` 4); its live fire, the colony's law's one exception; and the event
+for a training round scoring on one of its targets (the extension's sub-kind 3, `TargetHit`).
 
 v20 (from v19): the city's massing (crowns, setbacks, masts, roof plant: new solids for everyone)
 and its street furniture and trees (lamp posts, trunks and benches, solid to people and cars, not
@@ -249,7 +254,7 @@ Events carry a 3-bit kind and an 8-bit age (ticks before the snapshot):
 | 4 | Clash | id, a, b |
 | 5 | Seizure | id, pilot, active |
 | 6 | Detach | id, from_hulk, source (suit slot, or hulk chunk), part, chunk (the limb) |
-| 7 | extension | 3-bit sub-kind: 0 = RockBreak {id, rock, by}; 1 = MissileBurst {id, missile id, position, cause (2 bits: hit, proximity, expired, blocked)}; 2 = SystemHit {id, target (entity slot), system (4), level (2)}: a blow reached a system inside a suit; 3–7 reserved |
+| 7 | extension | 3-bit sub-kind: 0 = RockBreak {id, rock, by}; 1 = MissileBurst {id, missile id, position, cause (2 bits: hit, proximity, expired, blocked)}; 2 = SystemHit {id, target (entity slot), system (4), level (2)}: a blow reached a system inside a suit; 3 = TargetHit {id, target (4 bits: one of the Blast Hall's), shooter (entity slot)}: a training round scored (v21); 4–7 reserved |
 
 Events repeat in every snapshot until the client acks one that carried them. `id` (the low 16 bits
 of the event sequence) lets clients de-duplicate the repeats.
@@ -447,7 +452,8 @@ Suits inside the colony (the Welcome sets COLONY): `launch_inside` seats the sui
 server's second sector, the colony's inside (`sector-1`, in the colony's own frame:
 `bc_sim::colony::interior`), and the server sends a new Welcome: sector 2, INTERIOR set, no field
 and no landmarks, and the client slot the inside sector knows the pilot by. Inputs go to that
-sector, its snapshots come instead, and nothing fires there. `dock` at rest in the inner gate's
+sector, its snapshots come instead, and nothing fires there but in the Blast Hall (training
+rounds, which touch no suit). `dock` at rest in the inner gate's
 ring brings the suit home, with a `sortie` and a Welcome back to sector 1 (the client slot it
 had). A client welcomed mid-session forgets what it flew in the last sector. Leaving while
 inside, the colony's tugs bring the suit back to the bay.

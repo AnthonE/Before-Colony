@@ -12,7 +12,7 @@ use crate::{BitReader, BitWriter, CHUNK_BITS, DecodeError, MISSILE_BITS, ROCK_BI
 
 const KIND_BITS: u32 = 3;
 /// Kind 7 is an extension: a sub-kind follows (0 = rock break, 1 = missile burst, 2 = a system
-/// hit; the rest reserved).
+/// hit, 3 = a target hit in the Blast Hall; the rest reserved).
 const EXT_BITS: u32 = 3;
 const DIR_BITS: u32 = 16;
 /// Beam speeds up to 16 384 m/s in 0.25 m/s steps.
@@ -22,6 +22,8 @@ const DAMAGE_BITS: u32 = 10;
 /// A suit system's id (`bc_sim::content::systems`) and level (0 working, 1 damaged, 2 failed).
 pub const SYSTEM_BITS: u32 = 4;
 pub const LEVEL_BITS: u32 = 2;
+/// One of the Blast Hall's targets (`bc_sim::colony::hall`).
+pub const TARGET_BITS: u32 = 4;
 
 /// How a missile's flight ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,6 +86,8 @@ pub enum Event {
     MissileBurst { id: u16, tick: u32, missile: u16, pos: Vec3, cause: BurstCause },
     /// A blow got through `target`'s armour to one of its systems, which is now at `level`.
     SystemHit { id: u16, tick: u32, target: u16, system: u8, level: u8 },
+    /// A training round of `shooter`'s scored on the Blast Hall's target `target` (v21).
+    TargetHit { id: u16, tick: u32, target: u8, shooter: u16 },
 }
 
 impl Event {
@@ -98,7 +102,8 @@ impl Event {
             | Event::Detach { tick, .. }
             | Event::RockBreak { tick, .. }
             | Event::MissileBurst { tick, .. }
-            | Event::SystemHit { tick, .. } => tick,
+            | Event::SystemHit { tick, .. }
+            | Event::TargetHit { tick, .. } => tick,
         }
     }
 
@@ -113,7 +118,8 @@ impl Event {
             | Event::Detach { id, .. }
             | Event::RockBreak { id, .. }
             | Event::MissileBurst { id, .. }
-            | Event::SystemHit { id, .. } => Some(id),
+            | Event::SystemHit { id, .. }
+            | Event::TargetHit { id, .. } => Some(id),
             Event::Leave { .. } => None,
         }
     }
@@ -157,6 +163,7 @@ impl Event {
             Event::SystemHit { .. } => {
                 EXT_BITS as usize + 16 + SLOT_BITS as usize + (SYSTEM_BITS + LEVEL_BITS) as usize
             }
+            Event::TargetHit { .. } => EXT_BITS as usize + 16 + TARGET_BITS as usize + SLOT_BITS as usize,
         }
     }
 
@@ -250,6 +257,14 @@ impl Event {
                 w.write_bits(u32::from(system), SYSTEM_BITS);
                 w.write_bits(u32::from(level), LEVEL_BITS);
             }
+            Event::TargetHit { id, target, shooter, .. } => {
+                w.write_bits(7, KIND_BITS);
+                w.write_u8(age as u8);
+                w.write_bits(3, EXT_BITS);
+                w.write_u16(id);
+                w.write_bits(u32::from(target), TARGET_BITS);
+                slot(w, shooter);
+            }
         }
     }
 
@@ -327,6 +342,11 @@ impl Event {
                     let level = r.read_bits(LEVEL_BITS) as u8;
                     Event::SystemHit { id, tick, target, system, level }
                 }
+                3 => {
+                    let id = r.read_u16();
+                    let target = r.read_bits(TARGET_BITS) as u8;
+                    Event::TargetHit { id, tick, target, shooter: slot(r) }
+                }
                 _ => return Err(DecodeError::Invalid),
             },
             _ => return Err(DecodeError::Invalid),
@@ -375,6 +395,7 @@ mod tests {
                 cause: BurstCause::Proximity,
             },
             Event::SystemHit { id: 10, tick: 99, target: 1_000, system: 11, level: 2 },
+            Event::TargetHit { id: 11, tick: 99, target: 11, shooter: 1_000 },
         ];
         for e in all {
             let mut buf = [0u8; 64];
@@ -392,7 +413,7 @@ mod tests {
 
     #[test]
     fn unknown_extension_sub_kinds_are_invalid() {
-        for sub in 3..8u32 {
+        for sub in 4..8u32 {
             let mut buf = [0u8; 16];
             let mut w = BitWriter::new(&mut buf);
             w.write_bits(7, KIND_BITS);

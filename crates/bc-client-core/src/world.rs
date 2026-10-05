@@ -93,6 +93,14 @@ impl Beam {
     }
 }
 
+/// A training round scoring on one of the Blast Hall's targets (`bc_sim::colony::hall`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TargetMark {
+    pub tick: u32,
+    pub target: u8,
+    pub by_me: bool,
+}
+
 /// A hit, for sparks and hit markers.
 #[derive(Clone, Debug)]
 pub struct HitMark {
@@ -244,6 +252,9 @@ pub struct World {
     pub missiles: Vec<Option<MissileTrack>>,
     /// Missiles that burst, newest last.
     pub missile_bursts: VecDeque<MissileBurstMark>,
+    /// The Blast Hall's targets struck, newest last, and how many by this pilot's rounds.
+    pub target_hits: VecDeque<TargetMark>,
+    pub my_target_hits: u32,
     seen: VecDeque<u16>,
     pub faction: Faction,
     pub my_hits: u32,
@@ -278,6 +289,8 @@ impl World {
             system_hits: VecDeque::new(),
             missiles: vec![None; 1 << MISSILE_BITS],
             missile_bursts: VecDeque::new(),
+            target_hits: VecDeque::new(),
+            my_target_hits: 0,
             seen: VecDeque::new(),
             faction,
             my_hits: 0,
@@ -645,6 +658,18 @@ impl World {
                     self.system_hits.push_back((tick, target, system, level));
                     while self.system_hits.len() > 32 {
                         self.system_hits.pop_front();
+                    }
+                }
+            }
+            Event::TargetHit { id, tick, target, shooter } => {
+                if self.first_time(id) {
+                    let by_me = Some(shooter) == me;
+                    if by_me {
+                        self.my_target_hits += 1;
+                    }
+                    self.target_hits.push_back(TargetMark { tick, target, by_me });
+                    while self.target_hits.len() > 32 {
+                        self.target_hits.pop_front();
                     }
                 }
             }

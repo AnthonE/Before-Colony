@@ -18,7 +18,8 @@ axis port's handoff, and the building site's work for suits.
 
 - A pilot flies their own suit from their bay into the colony, flies or walks it there among the
   city's towers, and flies it back to the bay. Other pilots, on foot or in suits, see it where it is.
-- **Weapons safe.** Inside, nothing fires and nothing strikes: no shot, beam, missile, blade or
+- **Weapons safe.** Inside, nothing fires and nothing strikes (but in the Blast Hall, below: no
+  blow lands even there): no shot, beam, missile, blade or
   special leaves a suit. That's the colony's law, and the simulation's too, so there's nothing to
   check against the city.
 - **The hot path stays as it is.** The sector tick allocates nothing and locks nothing
@@ -69,12 +70,19 @@ form of `bc_sim::colony` works there unchanged.
 
 ## Weapons safe
 
-In an `Interior` sim the weapon steps don't run: `fire_control`, `melee`, `missiles` and the
-special are skipped, and the buttons that start them (FIRE_PRIMARY, FIRE_SECONDARY, MELEE,
-SPECIAL) are cleared from every input on its way into the tick (`InputCmd::neutral`'s mask, kept
-for the interior). The HUD shows WEAPONS SAFE in place of the weapons' readouts. Mobile Dolls
-never enter: the interior's spawn list has none. ZERO stays (it's a predictive interface, not a
-weapon); its rollouts run against the interior's world.
+In an `Interior` sim the buttons that start a weapon (FIRE_PRIMARY, FIRE_SECONDARY, MELEE,
+SPECIAL) are cleared from a suit's input as the tick starts (`Sim::colony_law`; the pilot's
+prediction clears them alike), and stand-ins never carry them (`InputCmd::neutral`'s mask). The
+HUD shows WEAPONS SAFE in place of the weapons' readouts, and the own snapshot shows nothing ready
+to fire. Mobile Dolls never enter: the interior's spawn list has none. ZERO stays (it's a
+predictive interface, not a weapon); its rollouts run against the interior's world.
+
+**The one exception: the Blast Hall** (`TRAINING.md`, phase 5; `bc_sim::colony::hall`). In the
+Proving Ground's room the buttons are left alone and the weapon steps run, so suits there fire
+training rounds. Those touch no suit (shots, missiles and flame pass suits by, and no blow lands
+inside the colony), stop at the hall's walls, floor, roof and the curtain across its blast doors,
+and score on its targets (the `TargetHit` event). The weapon steps run in every `Interior` tick
+for it, but outside the hall they find nothing to do: every golden of the interior is unchanged.
 
 ## Getting in and out
 
@@ -147,7 +155,9 @@ weapon); its rollouts run against the interior's world.
 
 ## Open questions
 
-- **Why bring a suit inside?** The candidate: the building site. Colony projects (the Charter
+- **Why bring a suit inside?** One answer is built: the Proving Ground's course (`TRAINING.md`),
+  rings from the inner gate down to Hub Gate's square, against a clock. The other candidate: the
+  building site. Colony projects (the Charter
   Board's great works, `DESIGN.md`'s roadmap) are built by suits carrying girders and machinery in
   the interior's gravity, paid from the project's funds. Without that, a suit inside is a
   sightseer.

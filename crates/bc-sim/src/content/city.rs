@@ -6,8 +6,9 @@
 //! poses against, so it moves [`CITY_VERSION`] with the protocol's version.
 
 /// The city's version: bumped, with `bc_proto::PROTOCOL_VERSION`, on any change to the layout (2:
-/// the key places' rooms; 3: the buildings' massing, and the street's furniture and trees).
-pub const CITY_VERSION: u8 = 3;
+/// the key places' rooms; 3: the buildings' massing, and the street's furniture and trees; 4: the
+/// Blast Hall, the Proving Ground off Hub Gate's square).
+pub const CITY_VERSION: u8 = 4;
 
 /// A strip's name, in the colony's own words.
 pub const STRIP_NAMES: [&str; 3] = ["CHARTER", "CANAL", "GARDENS"];
@@ -138,6 +139,9 @@ pub enum PlaceKind {
     Exchange,
     /// The Charter Board's hall: the colony's notices.
     Charter,
+    /// The Blast Hall, where the colony's builders tested thrusters: the Charter Board's Proving
+    /// Ground, a room at a mobile suit's scale (`docs/TRAINING.md`).
+    Proving,
 }
 
 /// A key place: which block it takes (a grid cell: `bx` along, `row` across, + on the far side of
@@ -164,12 +168,32 @@ pub const fn room_size(kind: PlaceKind) -> Option<(f32, f32, f32)> {
         PlaceKind::Exchange => Some((36.0, 48.0, 12.0)),
         // The Charter Board's hall: its notices on the back wall.
         PlaceKind::Charter => Some((28.0, 36.0, 9.0)),
+        // The Blast Hall: a suit stands 18 m, and flies in it.
+        PlaceKind::Proving => Some((86.0, 84.0, 60.0)),
         PlaceKind::HubGate => None,
     }
 }
 
+/// The way into a key place's room, m wide and high: a person's door, or the Blast Hall's blast
+/// doors, standing open for a suit (and for people too).
+pub const fn door_size(kind: PlaceKind) -> (f32, f32) {
+    match kind {
+        PlaceKind::Proving => (40.0, 45.0),
+        _ => (crate::colony::city::DOOR_WIDTH, crate::colony::city::DOOR_HEIGHT),
+    }
+}
+
+/// How much of a room's width its counter takes, m: half of it, but for the Blast Hall's
+/// instructor's desk.
+pub const fn counter_width(kind: PlaceKind, width: f32) -> f32 {
+    match kind {
+        PlaceKind::Proving => 8.0,
+        _ => width * crate::colony::city::COUNTER_SHARE,
+    }
+}
+
 /// Every key place. The Hub Gates' terminals stand at the foot of the end cap, on the avenue.
-pub const PLACES: [PlaceDef; 6] = [
+pub const PLACES: [PlaceDef; 7] = [
     PlaceDef {
         kind: PlaceKind::HubGate,
         name: "HUB GATE · CHARTER",
@@ -216,7 +240,21 @@ pub const PLACES: [PlaceDef; 6] = [
         row: 1,
         door_x: 0,
     },
+    // The Blast Hall, on the square's far side from the avenue, its blast doors facing the square:
+    // the first place off it from the cap lift.
+    PlaceDef {
+        kind: PlaceKind::Proving,
+        name: "THE PROVING GROUND",
+        slug: "proving_ground",
+        strip: 0,
+        bx: 5,
+        row: 3,
+        door_x: 0,
+    },
 ];
+
+/// The Proving Ground's index in [`PLACES`] (the Blast Hall: `colony::hall`).
+pub const PROVING_GROUND: usize = 6;
 
 /// What a block is, where the layout says so rather than the district's dice.
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -109,7 +109,8 @@ impl Sim {
             }
         });
         for &(j, part, at) in &burnt[..n] {
-            if self.first_blocker(nozzle, at, 0.0, t, 0.0).is_some() {
+            // Inside the colony nothing strikes a suit, even in the Blast Hall.
+            if self.interior() || self.first_blocker(nozzle, at, 0.0, t, 0.0).is_some() {
                 continue;
             }
             self.queue_damage(j, part, w.damage, i, w.kind, dir);

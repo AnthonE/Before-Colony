@@ -85,6 +85,7 @@ pub fn firing_mounts(d: &SuitDrive) -> impl Iterator<Item = (u8, Mount)> + '_ {
 pub fn setup_fx(mut commands: Commands, ribbons: Res<Ribbons>) {
     for i in 0..BEAMS {
         commands.spawn((
+            crate::inside::WeaponFx,
             BeamVis(i),
             Mesh3d(ribbons.mesh.clone()),
             MeshMaterial3d(ribbons.rifle.material.clone()),
@@ -95,6 +96,7 @@ pub fn setup_fx(mut commands: Commands, ribbons: Res<Ribbons>) {
     }
     for i in 0..TRACERS {
         commands.spawn((
+            crate::inside::WeaponFx,
             TracerVis(i),
             Mesh3d(ribbons.mesh.clone()),
             MeshMaterial3d(ribbons.tracer.material.clone()),
@@ -105,6 +107,7 @@ pub fn setup_fx(mut commands: Commands, ribbons: Res<Ribbons>) {
     }
     for i in 0..LIGHTS {
         commands.spawn((
+            crate::inside::WeaponFx,
             FxLight(i),
             PointLight { intensity: 0.0, range: 1.0, shadow_maps_enabled: false, ..default() },
             Transform::default(),
@@ -148,8 +151,10 @@ pub fn update_fx(
         Without<BeamVis>,
     >,
     field: Option<Res<crate::rocks::VisField>>,
+    inside: Option<Res<crate::inside::FlyingInside>>,
 ) {
     let now = time.now;
+    let inside = inside.is_some_and(|f| f.0);
     let cap = gfx.settings.particles;
     let eye = cams.single().map_or(Vec3::ZERO, |c| c.translation());
 
@@ -208,14 +213,15 @@ pub fn update_fx(
             }
             state.last_tracer.insert((d.slot, k), now);
             let look = ribbons.look(m.weapon);
-            let life = f64::from(w.range / w.speed).min(1.5);
-            state.tracers.push(Tracer {
-                origin,
-                vel: d.vel + dir * w.speed,
-                born: now,
-                life,
-                weapon: m.weapon,
-            });
+            let vel = d.vel + dir * w.speed;
+            let mut life = f64::from(w.range / w.speed).min(1.5);
+            // Inside the colony only the Blast Hall's training rounds fly, and its walls stop them.
+            if inside
+                && let Some(f) = bc_sim::colony::hall::wall_end(origin, origin + vel * life as f32, w.radius)
+            {
+                life *= f64::from(f);
+            }
+            state.tracers.push(Tracer { origin, vel, born: now, life, weapon: m.weapon });
             particles.muzzle(cap, At { pos: origin, vel: d.vel }, dir, look.color, 0.7);
             state.flashes.push(Flash {
                 pos: origin,

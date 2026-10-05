@@ -81,6 +81,10 @@ impl Sim {
         if self.special_ready(i) {
             ready |= 1 << 3;
         }
+        // Inside the colony nothing is ready to fire but in the Blast Hall.
+        if self.interior() && !crate::colony::hall::weapons_free(f.pos) {
+            ready = 0;
+        }
         let charge = spec.loadout[0]
             .map(|m| weapon(m.weapon))
             .filter(|w| w.charge_span() > 0)

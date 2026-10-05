@@ -206,6 +206,7 @@ impl Plugin for VisualsPlugin {
                 crate::trams::TramsPlugin,
                 crate::life::LifePlugin,
                 crate::inside::InsidePlugin,
+                crate::course::CoursePlugin,
             ))
             .configure_sets(
                 Update,

@@ -12,7 +12,8 @@ the bay, space, home).
 | Lock-on: fighting on the ground in space (`LOCK.md`) | built |
 | The weapons pass: the hit-rate harness, charged beams, true cones, lunges that home, the burst step | built |
 | P0: a floor under loss, text chat, objectives along the chain, The Arrival's seats | built |
-| P1, P2 below | planned |
+| P1: the Proving Ground's course, the Blast Hall and its live fire (`TRAINING.md`, phases 1, 2 and 5) | built |
+| P1's rest, P2 below | planned |
 
 ## P0: before more players arrive
 
@@ -47,6 +48,34 @@ what's said on the radio over the heads of those near you. Flaneurs come and sit
 sitting, and a step in the colony e2e.
 
 ## P1: what makes the chain worth walking
+
+**The Proving Ground.** `TRAINING.md` is its design, in six phases. **Phase 1 is built:** the
+course (`bc_sim::colony::course`). It's 13 rings in the colony's air, from the inner gate down over
+the first window to the Charter strip's avenue, a slalom, a climb and a turn over the top, home
+along the avenue and onto a pad on Hub Gate's square.
+- The pilot's client times it (`bc_client_core::course::Run`) on the predicted suit: the clock runs
+  from the start ring to standing on the pad.
+- The best time is kept with the settings (`course_best_ms`).
+- `bc-client/src/course.rs` draws the rings (pilots on foot see them too), and the objectives'
+  panel and waypoint show the course while flying inside.
+- No wire, and nothing for the server.
+- Tests: the rings against the city's walls; the run's rules; a Leo flying the whole course in the
+  interior sector's simulation and landing on the pad.
+
+**Phase 2 is built too:** the Blast Hall (`PlaceKind::Proving`), a key place off Hub Gate's
+square with a room at a suit's scale (86 by 84 m, 60 m high) behind 40 m blast doors. People walk
+in to its desk and suits fly in and land on its floor. `CITY_VERSION` 4 with protocol v21; the
+objective `REPORT TO THE PROVING GROUND`.
+
+**Phase 5, live fire in the hall, is built:** the owner made the hall the colony's law's one
+exception (`bc_sim::colony::hall`). Suits in it fire training rounds that touch no suit, never
+leave it and score on its twelve targets (the `TargetHit` event); outside it the tick clears the
+weapons' buttons, as the pilot's prediction does. Tests: `hall`'s units, the interior's, a new
+`HALL_GOLDEN`, `no_alloc`, and the `inside` e2e scoring on a target.
+
+Next, in order:
+- **Boarding a trainer there** (`Request::Launch { into: Proving }`).
+- **The server's board of times**, from `Metrics::pilots`, and the targets' drill with a clock.
 
 **Contracts on the Charter Board.** `bc-econ` `contracts.rs`: jobs the colony posts (deliver this
 much ore or these parts to the dock; down Dolls over the field; bring a wreck home), each with a
