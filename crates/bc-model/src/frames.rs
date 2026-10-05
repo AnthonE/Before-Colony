@@ -12,7 +12,7 @@ use glam::{Affine3A, Quat, Vec2, Vec3};
 use crate::kit::{Paint, mirrored};
 use crate::paint;
 use crate::rig::{Bone, Side};
-use crate::{Designer, gundams};
+use crate::{Designer, gundams, leo};
 
 pub(crate) const BODY: Paint = Paint::Body;
 pub(crate) const TRIM: Paint = Paint::Trim;
@@ -30,7 +30,7 @@ pub(crate) const THROAT: Paint = Paint::Glow(paint::YELLOW);
 pub fn design(frame: FrameId, d: &mut Designer) {
     match frame {
         FrameId::WingZero => wing_zero(d),
-        FrameId::Leo => leo(d),
+        FrameId::Leo => leo::leo(d),
         FrameId::Taurus => taurus(d),
         FrameId::Virgo => virgo(d),
         FrameId::Heavyarms => gundams::heavyarms(d),
@@ -489,148 +489,6 @@ pub(crate) fn shield(d: &mut Designer, outline: &[(f32, f32)], face: Paint, spin
     s.extrude(&o, 0.35, face, place(pos, rot));
     let spine_o: Vec<Vec2> = o.iter().map(|p| Vec2::new(p.x * 0.2, p.y * 0.92)).collect();
     s.extrude(&spine_o, 0.5, spine, place(pos + v(-0.1, 0.0, 0.0), rot));
-}
-
-// --- OZ-06MS Leo. ---
-
-fn leo(d: &mut Designer) {
-    inner_frame(d, 1.35);
-    hands(d, FRAME);
-
-    // Head: a rounded helmet with the mono-eye rail.
-    let mut h = d.on(Bone::Head);
-    h.seed(0.07);
-    h.lathe(
-        &[(0.0, 6.05), (0.95, 6.15), (1.08, 6.7), (0.9, 7.3), (0.45, 7.55), (0.0, 7.6)],
-        16,
-        BODY,
-        at(0.0, 0.0, 0.1),
-    );
-    h.cube(v(1.9, 0.32, 0.5), 0.06, GLASS, at(0.0, 6.85, 0.85));
-    h.sphere(0.17, 5, EYE, at(0.35, 6.85, 1.08));
-    h.cube(v(0.7, 0.4, 0.35), 0.05, TRIM, at(0.0, 6.35, 0.95));
-    h.greeble(|h| {
-        for k in 0..3 {
-            h.cube(v(0.6, 0.06, 0.1), 0.0, FRAME, at(0.0, 6.24 + k as f32 * 0.1, 1.13));
-        }
-        h.cube(v(0.18, 0.5, 1.1), 0.04, TRIM, at(0.0, 7.45, -0.05));
-    });
-
-    // Chest: a boxy block with a grey hatch; abdomen rings.
-    let mut c = d.on(Bone::Chest);
-    c.seed(0.14);
-    c.block(v(4.4, 2.8, 3.2), v2(0.95, 0.9), v2(0.0, -0.1), 0.25, BODY, at(0.0, 4.0, 0.05));
-    c.block(v(1.7, 1.4, 0.35), v2(0.85, 1.0), Vec2::ZERO, 0.08, TRIM, at(0.0, 3.9, 1.72));
-    c.cube(v(2.2, 0.5, 2.4), 0.1, TRIM, at(0.0, 5.55, -0.1));
-    c.greeble(|c| {
-        for s in Side::BOTH {
-            c.cube(v(0.8, 0.5, 0.2), 0.04, FRAME, sided(s, at(1.4, 4.9, 1.6)));
-        }
-    });
-    let mut t = d.on(Bone::Torso);
-    t.seed(0.16);
-    for (k, r) in [1.45f32, 1.38, 1.3].iter().enumerate() {
-        t.cylinder(*r, 0.38, 16, TRIM, at(0.0, 1.05 + k as f32 * 0.42, 0.0));
-    }
-
-    // Waist and skirt.
-    let mut w = d.on(Bone::Waist);
-    w.seed(0.2);
-    w.cube(v(3.3, 0.5, 2.5), 0.08, FRAME, at(0.0, 0.25, 0.0));
-    w.block(v(1.1, 1.3, 1.7), v2(1.4, 1.1), Vec2::ZERO, 0.12, BODY, at(0.0, -0.55, 0.2));
-    for s in Side::BOTH {
-        plate(d, Bone::Waist, s, v(1.5, 1.7, 0.35), v(1.05, -0.75, 1.2), rz(0.1) * rx(0.15), 0.12, BODY);
-        plate(d, Bone::Waist, s, v(0.35, 1.6, 1.8), v(2.15, -0.5, 0.0), rz(0.12), 0.1, TRIM);
-    }
-
-    // Round shoulder armour, the Leo's mark, banded in grey.
-    for s in Side::BOTH {
-        let bone = s.pick(Bone::ShoulderL, Bone::ShoulderR);
-        let axis = sided(s, place(v(4.2, 4.6, 0.0), rz(-std::f32::consts::FRAC_PI_2)));
-        let mut sh = d.on(bone);
-        sh.seed(0.25 + s.pick(0.0, 0.4));
-        sh.lathe(
-            &[(0.0, -1.25), (1.2, -1.1), (1.75, -0.4), (1.8, 0.2), (1.35, 1.0), (0.0, 1.2)],
-            18,
-            BODY,
-            axis,
-        );
-        sh.lathe(&[(1.84, -0.1), (1.84, 0.25)], 18, TRIM, axis);
-    }
-
-    arm_segments(d, v(1.3, 1.9, 1.3), v(1.55, 2.0, 1.65), BODY, TRIM);
-
-    // Legs: thick, segmented knees, big feet.
-    for s in Side::BOTH {
-        let (thigh, shin, foot) =
-            s.pick((Bone::ThighL, Bone::ShinL, Bone::FootL), (Bone::ThighR, Bone::ShinR, Bone::FootR));
-        let (hip, knee, ankle) = (j(Bone::ThighR), j(Bone::ShinR), j(Bone::FootR));
-        d.on(thigh).seed(0.31 + s.pick(0.0, 0.2)).block(
-            v(1.7, 3.2, 1.9),
-            v2(1.05, 1.05),
-            Vec2::ZERO,
-            0.2,
-            BODY,
-            sided(s, along(knee + v(0.0, 0.4, -0.1), hip + v(0.0, -0.4, 0.0))),
-        );
-        let mut sh = d.on(shin);
-        sh.seed(0.37 + s.pick(0.0, 0.2));
-        sh.block(
-            v(2.05, 3.5, 2.35),
-            v2(0.8, 0.85),
-            Vec2::ZERO,
-            0.28,
-            BODY,
-            sided(s, along(ankle + v(0.0, 0.4, 0.05), knee + v(0.0, -0.3, 0.0))),
-        );
-        sh.block(
-            v(1.3, 1.1, 0.6),
-            v2(0.8, 0.8),
-            Vec2::ZERO,
-            0.12,
-            TRIM,
-            sided(s, place(knee + v(0.0, 0.05, 0.95), rx(-0.25))),
-        );
-        sh.greeble(|sh| {
-            sh.cube(v(1.5, 0.3, 0.3), 0.04, TRIM, sided(s, at(1.3, -7.3, 1.2)));
-        });
-        let mut f = d.on(foot);
-        f.seed(0.43 + s.pick(0.0, 0.2));
-        f.block(v(1.6, 0.95, 3.3), v2(0.8, 0.7), v2(0.0, -0.15), 0.15, BODY, sided(s, at(1.3, -8.45, 0.45)));
-        f.cube(v(1.7, 0.25, 3.5), 0.04, FRAME, sided(s, at(1.3, -8.95, 0.45)));
-    }
-
-    // Backpack: a flat box with two bells.
-    let mut b = d.on(Bone::Backpack);
-    b.seed(0.51);
-    b.block(v(2.8, 2.7, 1.7), v2(0.9, 0.9), Vec2::ZERO, 0.22, BODY, at(0.0, 4.0, -2.65));
-    b.greeble(|b| {
-        b.cube(v(2.0, 0.3, 0.3), 0.04, TRIM, at(0.0, 5.3, -3.2));
-    });
-    for s in Side::BOTH {
-        nozzle(d, Bone::Backpack, sp(s, v(0.75, 3.1, -3.55)), v(0.0, -0.25, -1.0), 0.6);
-    }
-
-    // Beam rifle, and the drum-fed machine cannon on the left forearm.
-    rifle(d, 7.5, 0.26, GUN, TRIM);
-    let el = j(Bone::ForearmL);
-    let mut f = d.on(Bone::ForearmL);
-    f.seed(0.66);
-    f.cylinder(
-        0.25,
-        3.0,
-        10,
-        GUN,
-        place(v(el.x - 0.95, el.y - 1.0, el.z + 1.6), rx(std::f32::consts::FRAC_PI_2)),
-    );
-    f.cylinder(
-        0.85,
-        0.45,
-        16,
-        GUN,
-        place(v(el.x - 1.05, el.y - 0.6, el.z + 0.2), rz(std::f32::consts::FRAC_PI_2)),
-    );
-    saber_hilt(d);
 }
 
 // --- OZ-13MS Taurus: slim, angular, a nose-cone backpack. ---

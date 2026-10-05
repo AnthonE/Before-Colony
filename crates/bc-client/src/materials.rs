@@ -28,7 +28,7 @@ const PALETTE: [(f32, f32, f32, f32); paint::COUNT] = [
     (0.72, 0.08, 0.08, 0.4),
     (0.95, 0.75, 0.1, 0.35),
     (0.11, 0.12, 0.13, 0.5),
-    (0.28, 0.38, 0.27, 0.5),
+    (0.47, 0.54, 0.33, 0.5),
     (0.44, 0.47, 0.5, 0.45),
     (0.83, 0.85, 0.88, 0.38),
     (0.2, 0.32, 0.6, 0.42),
@@ -39,6 +39,7 @@ const PALETTE: [(f32, f32, f32, f32); paint::COUNT] = [
     (0.66, 0.71, 0.8, 0.2),
     (0.26, 0.28, 0.31, 0.32),
     (0.02, 0.025, 0.03, 0.08),
+    (0.3, 0.26, 0.2, 0.55),
 ];
 
 /// Each ore kind's colour (sRGB) and how metallic it is: nickel-iron, titanium, volatiles, exotics.
@@ -123,7 +124,7 @@ pub struct HullExt {
 #[derive(ShaderType, Clone, Copy, Debug)]
 pub struct HullParams {
     /// rgb: linear base colour; a: perceptual roughness.
-    pub palette: [Vec4; 16],
+    pub palette: [Vec4; paint::CAPACITY],
     /// x: plate size (m); y: seam width (m); z: seam depth; w: grime.
     pub panel: Vec4,
     /// x: seconds.
@@ -189,8 +190,8 @@ impl Plugin for MaterialsPlugin {
     }
 }
 
-fn palette() -> [Vec4; 16] {
-    let mut out = [Vec4::new(1.0, 0.0, 1.0, 0.5); 16];
+fn palette() -> [Vec4; paint::CAPACITY] {
+    let mut out = [Vec4::new(1.0, 0.0, 1.0, 0.5); paint::CAPACITY];
     for (i, (r, g, b, rough)) in PALETTE.iter().enumerate() {
         let c = Color::srgb(*r, *g, *b).to_linear();
         out[i] = Vec4::new(c.red, c.green, c.blue, *rough);
