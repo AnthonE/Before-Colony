@@ -316,7 +316,9 @@ Measured natively (`bc_client_core::life`'s `how_many`): at Hub Gate at noon, 62
 Ultra). The reaches are from the eye, so nothing is drawn from up the cap lift (700 m) or from a suit high over the
 city: that's the far lights' job, still to come. Nor from the review's first camera (170 m over Hub Gate's square,
 where no traffic runs): on Low and Medium nothing, on High no people and 13 cars at the square's edge (5 at night),
-on Ultra 99 people and 77 cars, none of them on the kilometres of avenue in view.
+on Ultra 99 people and 77 cars, none of them on the kilometres of avenue in view. In the browser (SwiftShader,
+960×540, the third camera at noon on Low) it costs about 7% of the frame: 0.355 s against 0.33 s with `?life=0`;
+`life_ms` (the picking, on the CPU) stays at 0.2 ms.
 
 ### Pass 5: the colony as the sky
 
