@@ -15,31 +15,41 @@
 //! - [`hangar`]: a pilot's hangar, and every change they can ask of it.
 //! - [`proving`]: the Proving Ground's board, the day's best times round its course and through
 //!   the Blast Hall's drill.
+//! - [`seats`]: the colony's jobs, each a seat worked by an Arrival or by the colony's staff, and
+//!   what Arrivals get better at by working (`docs/LIFE.md`).
+//! - [`food`]: the colony's dishes, and meals as they were cooked.
+//! - [`body`]: the pilot's body: how fed they are, on the wall clock.
 //! - [`wire`]: the hangar's messages (JSON on the control stream).
 //!
 //! The server holds the truth (each pilot's [`hangar::Hangar`] in their record, one
 //! [`exchange::Exchange`] per colony); clients get views of it and send requests, and use the
 //! same catalogue to show what can be made.
 
+pub mod body;
 pub mod catalogue;
 pub mod charter;
 pub mod exchange;
 pub mod fab;
 pub mod faults;
+pub mod food;
 pub mod hangar;
 pub mod item;
 pub mod proving;
+pub mod seats;
 pub mod stores;
 pub mod suit;
 pub mod wear;
 pub mod wire;
 
+pub use body::Body;
 pub use catalogue::{Recipe, Station, recipe, recipes};
 pub use charter::{Board, Work};
 pub use exchange::{Exchange, Side};
 pub use faults::Faults;
+pub use food::{Dish, Meal};
 pub use hangar::{Bay, Hangar, Rules};
 pub use item::{Item, Material, Ore};
+pub use seats::{Job, Seats, Skills};
 pub use stores::{PartUnit, Stores};
 pub use suit::{Slot, Suit};
 pub use wire::{Place, Request, Update};
