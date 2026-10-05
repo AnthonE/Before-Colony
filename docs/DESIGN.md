@@ -558,6 +558,7 @@ held at the edge of the view while it's off it.
 | RIDE THE CAP LIFT DOWN (the colony open) | in the city | flying, the dock; in the bay, the airlock's prompt |
 | FIND THE EXCHANGE FLOOR (the colony open) | at its door | on the city's map (M), a `◆` on its door, and its range on the panel |
 | SELL ON THE EXCHANGE (the colony open) | a sale filled on the Exchange, from anywhere | as above |
+| REPORT TO THE PROVING GROUND (the colony open) | at the Blast Hall's desk | on the city's map, a `◆` on its blast doors |
 | DOWN A MOBILE DOLL | a Doll downed | the nearest Doll in sight, else their patrols over the field |
 | LAND ON HERMIT | standing on it | Hermit |
 | DOWN 5 MOBILE DOLLS | five downed, over any number of visits | as above |
@@ -837,10 +838,13 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   OF 10"), and the map ticks off the sights found by name, rings those still to find, and lists
   them.
 - **Places:** the Exchange floor (its terminal is the bay's exchange), the Charter Board (its
-  contracts and great works, above), The Arrival (a bar), and Hub Gate, whose lift goes back up to the bay.
-  Each of the first three has a room behind its door: walk in, and use the place at its counter
+  contracts and great works, above), The Arrival (a bar), the Proving Ground (the Blast Hall,
+  `TRAINING.md`), and Hub Gate, whose lift goes back up to the bay.
+  Each of the first four has a room behind its door: walk in, and use the place at its counter
   (E). The trading floor's boards run along its back wall, the Charter Board's notices are pinned
-  on its, and the bar's shelves are behind its counter. Rooms are lit by their own lamps; the eye
+  on its, and the bar's shelves are behind its counter. The Blast Hall's room is a suit's: 86 m
+  deep, 84 m wide and 60 m high, behind blast doors 40 m wide and 45 m high that a suit flies in
+  through. Its back wall shows the course in light, and its desk the pilot's best time round it. Rooms are lit by their own lamps; the eye
   adapts to them going in (and the street through the door blazes), and back to the day going out.
 - **The Arrival's seats:** two benches either side of its door, facing the avenue
   (`colony::city::arrival_seats`). E by one sits you on it (the view drops to a seated eye), and E

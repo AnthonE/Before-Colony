@@ -219,6 +219,11 @@ pub fn update_objectives(
                 .city
                 .as_ref()
                 .is_some_and(|c| c.focus == Some(usize::from(bc_client_core::objectives::exchange()))),
+        at_proving: core.hangar.place == Some(Place::City)
+            && onfoot
+                .city
+                .as_ref()
+                .is_some_and(|c| c.focus == Some(usize::from(bc_client_core::objectives::proving_ground()))),
         sales: core.hangar.sales,
     };
     let (mut done, mut downed) = (settings.0.objectives_done, settings.0.dolls_downed);

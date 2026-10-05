@@ -12,7 +12,7 @@ the bay, space, home).
 | Lock-on: fighting on the ground in space (`LOCK.md`) | built |
 | The weapons pass: the hit-rate harness, charged beams, true cones, lunges that home, the burst step | built |
 | P0: a floor under loss, text chat, objectives along the chain, The Arrival's seats | built |
-| P1: the Proving Ground's course (`TRAINING.md`, phase 1) | built |
+| P1: the Proving Ground's course and the Blast Hall (`TRAINING.md`, phases 1 and 2) | built |
 | P1's rest, P2 below | planned |
 
 ## P0: before more players arrive
@@ -62,12 +62,16 @@ along the avenue and onto a pad on Hub Gate's square.
 - Tests: the rings against the city's walls; the run's rules; a Leo flying the whole course in the
   interior sector's simulation and landing on the pad.
 
+**Phase 2 is built too:** the Blast Hall (`PlaceKind::Proving`), a key place off Hub Gate's
+square with a room at a suit's scale (86 by 84 m, 60 m high) behind 40 m blast doors. People walk
+in to its desk and suits fly in and land on its floor. `CITY_VERSION` 4 with protocol v21; the
+objective `REPORT TO THE PROVING GROUND`.
+
 Next, in order:
-- **The Blast Hall**, a key place off the square with a room at a suit's scale (`CITY_VERSION`
-  with the protocol).
+- **Live fire in the hall**: the owner made the hall the colony's law's one exception
+  (`TRAINING.md`, phase 5).
 - **Boarding a trainer there** (`Request::Launch { into: Proving }`).
 - **The server's board of times**, from `Metrics::pilots`.
-- **Live fire in the hall** waits on the owner's decision (`TRAINING.md`, phase 5).
 
 **Contracts on the Charter Board.** `bc-econ` `contracts.rs`: jobs the colony posts (deliver this
 much ore or these parts to the dock; down Dolls over the field; bring a wreck home), each with a

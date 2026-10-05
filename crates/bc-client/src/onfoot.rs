@@ -725,6 +725,22 @@ fn verb(spot: Spot, bay: Option<&Bay>, colony: bool) -> String {
     }
 }
 
+/// The Proving Ground's instructor's desk: the pilot's best round the course, its par, and how to
+/// bring a suit to it.
+fn proving_desk(best_ms: u32) -> String {
+    use bc_client_core::course::{Class, PAR_S, clock};
+    let best = if best_ms == 0 {
+        "NOT YET FLOWN".to_string()
+    } else {
+        let secs = f64::from(best_ms) / 1_000.0;
+        format!("YOUR BEST {} {}", clock(secs), Class::of(secs).name())
+    };
+    format!(
+        "THE PROVING GROUND · {best} · PAR {} · FROM YOUR BAY, Q AT THE COCKPIT BRINGS YOUR SUIT IN BY THE INNER GATE",
+        clock(PAR_S)
+    )
+}
+
 /// What using a place in the city is called on the prompt.
 fn city_verb(p: &PlaceDef) -> String {
     match p.kind {
@@ -1018,6 +1034,7 @@ pub fn drive_onfoot(
                 PlaceKind::Exchange => ui.panel = Panel::Terminal(Spot::Exchange),
                 PlaceKind::Charter => ui.panel = Panel::Board,
                 PlaceKind::Bar => ui.toast("THE ARRIVAL · THE BAR'S QUIET FOR NOW · THE SEATS ARE OUT FRONT"),
+                PlaceKind::Proving => ui.toast(proving_desk(settings.0.course_best_ms)),
             }
         }
     } else if let Some(c) = me.city.as_mut() {

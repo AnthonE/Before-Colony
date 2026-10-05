@@ -11,10 +11,10 @@ TIE Fighter"). This document is the design built from that ask. Phase 1, the cou
 | Phase | State |
 |---|---|
 | 1: the course. Rings in the colony's air from the inner gate down to a pad on Hub Gate's square, flown in your own suit, timed by your client | built |
-| 2: the Blast Hall. A hall off Hub Gate's square, walked on foot, its floor the tutorial | planned |
+| 2: the Blast Hall. A hall off Hub Gate's square, walked on foot and flown into, its desk the course's | built |
 | 3: boarding in the hall. The Charter Board's trainer, flown out through the blast doors and docked back | planned |
 | 4: the board. Times checked by the server, and the day's best on the hall's wall | planned |
-| 5: live fire in the hall | **the owner's decision** (below) |
+| 5: live fire in the hall | decided by the owner: the hall is the colony's law's one exception (below) |
 | 6: more courses, and a level ladder | planned |
 
 ## What we take from X-Wing and TIE Fighter
@@ -152,31 +152,50 @@ be the point. See the open questions.
     gate under the anime rules, it threads every ring, lands on the pad with the grip, and earns
     second class.
 
-## Phase 2: the Blast Hall
+## Phase 2: the Blast Hall (built)
 
-- **Where.** A key place on the Charter strip: a block against the end cap just past Hub Gate's
-  square, its blast doors facing the square. One block (118 m inside its sidewalks) is as big as
-  the city's grid allows without closing a street. Closing one would break the traffic's rings
-  (`ARCHITECTURE.md`, "The colony inside").
+- **Where.** A key place on the Charter strip, the first off Hub Gate's square from the cap lift:
+  the block on the square's far side from the avenue (`bx` 5, row 3), its blast doors facing the
+  square (`content::city::PLACES`, `proving_ground`). A block is 104 m between its streets (94 m
+  inside its sidewalks): as big as the city's grid allows without closing a street, and closing one
+  would break the traffic's rings (`ARCHITECTURE.md`, "The colony inside").
 - **The hall** is the rooms' machinery (`colony::city::room`) at a suit's scale:
-  - `PlaceKind::Proving`, appended to `PLACES` (indices stay);
-  - a room about 110 m deep, 100 m wide and 60 m to its ceiling;
-  - a door size per kind: a 40 m by 45 m blast door, which people walk through as well.
+  - `PlaceKind::Proving`, appended to `PLACES` (the other places keep their indices);
+  - a room 86 m deep, 84 m wide and 60 m to its ceiling, under a roof at 72 m;
+  - a door size per kind (`content::city::door_size`): the hall's blast doors are 40 m wide and
+    45 m high, and people walk through them too;
+  - a counter width per kind (`counter_width`): the instructor's desk is 8 m long;
+  - the street's lamps keep clear across the whole of the doors (`furniture`), not just 6 m round
+    their middle.
   - Its solids are the hall's (`Building::solids`), so the walker, the plaza's checks and suits
-    inside (`interior::constrain`, `probe`) all have it for free.
-  - A layout change: `CITY_VERSION` bumps with the protocol, and `CITY_GOLDEN` moves.
-- **Inside:** the trainer's gantry, a floor pad, the instructor's counter, and the course's map
-  and the board on its back wall. It's lit by its own lamps (the eye adapts, as in the other
-  rooms).
-- **The tutorial on foot:**
-  - the bay's hints (walk, use) carry over;
-  - floor markings for running, jumping and crouching;
-  - a new objective, `ReportToProvingGround` (appended, its bit kept).
+    inside (`interior::constrain`, `probe`) all have it, and a suit lands on its floor with the
+    grip as anywhere on the city.
+  - A layout change: `CITY_VERSION` 4, protocol v21, and `CITY_GOLDEN` moved (the traffic's, the
+    people's and the interior's didn't).
+- **Inside** (`city.wgsl`, the rooms' kind 4):
+  - bare blast concrete in 6 m panels, scorched low down, over a band of yellow and black
+    chevrons a suit's knee high;
+  - a floor of thruster-scarred slabs ruled in yellow every 10 m;
+  - steel trusses and floodlights 60 m up;
+  - on the back wall, the course drawn in light: its rings strung along its line, with a pulse
+    running down them.
+  - It's lit by its own lamps, and the eye adapts going in, as in the other rooms.
+- **The desk** (E at it): the pilot's best round the course and its certificate, the par, and how
+  to bring a suit in (from the bay, Q at the cockpit, by the inner gate).
+- **The objective** `REPORT TO THE PROVING GROUND` (`Objective::ProvingGround`, appended, its bit
+  kept): with the colony open, the first on foot after the cap lift, done at the hall's desk. On
+  the city's map (M) a `◆` marks the doors.
 - **Tests:**
-  - the room's geometry;
-  - a suit flies in through the blast doors and isn't stopped (an `interior` test);
-  - the walker walks in;
-  - the `colony` e2e walks in and opens the counter.
+  - the rooms' tests cover it as they do the others: a walker from the street through the doors to
+    the desk; the front wall either side of the doors, the side and back walls, the ceiling; who's
+    in it and who isn't;
+  - a Leo flies in through the blast doors from over the square without touching a wall, and
+    lands on the hall's floor with the grip (`bc-sim/tests/interior.rs`);
+  - the objectives' chain runs through it;
+  - the `colony` e2e walks across the square and in to the desk, and uses it.
+
+**Not yet:** the trainer's gantry and its floor pad (phase 3), and floor markings that teach
+running, jumping and crouching.
 
 ## Phase 3: boarding in the hall
 

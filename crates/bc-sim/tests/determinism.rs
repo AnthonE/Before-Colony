@@ -693,7 +693,7 @@ fn surface_golden_wasm() {
 /// what's solid at scattered points, the colony's day and its frames, its trams (their timetable,
 /// the stations' platforms), and the key places' rooms and the halls round them. Every client
 /// draws and walks this, and the server checks poses against it.
-const CITY_GOLDEN: u64 = 0x9917_c3f3_53ac_b12c;
+const CITY_GOLDEN: u64 = 0x36d1_4844_56ee_4f4b;
 
 fn city_hash() -> u64 {
     use bc_sim::colony::{city, frame, time};

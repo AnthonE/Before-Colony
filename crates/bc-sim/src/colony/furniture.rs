@@ -215,14 +215,14 @@ fn by_block(b: &BlockInfo, near: &Rect, give: &mut impl FnMut(Furniture) -> bool
     if !r.overlaps(near) {
         return false;
     }
-    // A key place's door: no post in its way.
+    // A key place's door: no post in its way, across the whole of the Blast Hall's.
     let door = match b.kind {
-        BlockKind::Place(i) if room(usize::from(i)).is_some() => Some(place_door(&PLACES[usize::from(i)]).0),
+        BlockKind::Place(i) => room(usize::from(i))
+            .map(|r| (place_door(&PLACES[usize::from(i)]).0, DOOR_CLEAR.max(r.door_width() * 0.5 + 2.0))),
         _ => None,
     };
-    let clear = |s: f32, x: f32| {
-        door.is_none_or(|(ds, dx)| (s - ds) * (s - ds) + (x - dx) * (x - dx) > DOOR_CLEAR * DOOR_CLEAR)
-    };
+    let clear =
+        |s: f32, x: f32| door.is_none_or(|((ds, dx), c)| (s - ds) * (s - ds) + (x - dx) * (x - dx) > c * c);
     // Down its kerbs along the lanes (row 12's outer one is the bank road's), corner to corner.
     // Row ±1's inner side is the avenue's pavement, whose lamps are the avenue's.
     let (len, n) = (r.length(), lamp_count(r.length()));

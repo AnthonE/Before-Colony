@@ -4,11 +4,12 @@
 //! nothing (the colony's law), and dock back at the inner gate.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
-use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, MELEE, SPECIAL};
+use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRIP, MELEE, SPECIAL};
 use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
-use bc_sim::colony::city::{Stage, solid_built};
+use bc_sim::colony::city::{Stage, place, place_door, room, solid_built};
 use bc_sim::colony::frame::{CityPos, Under, from_colony};
 use bc_sim::colony::interior::{INNER_GATE, INNER_GATE_RADIUS, WorldKind};
+use bc_sim::ground::Footing;
 use bc_sim::sim::Loadout;
 use bc_sim::{Sim, SimConfig, SuitId};
 use glam::Vec3;
@@ -169,4 +170,75 @@ fn buildings_stop_a_suit_flying_into_them() {
     // through it).
     assert!(end.s < wall || end.h > h + 10.0 || (end.x - x).abs() > 10.0, "{end:?} past {wall}");
     assert!(end.s > start.s + 10.0, "it flew: {end:?}");
+}
+
+/// A command flying `id` toward `to` on flight assist, no faster than `top` m/s (as `bc-server`'s
+/// inside test flies).
+fn toward(sim: &mut Sim, id: SuitId, to: Vec3, top: f32, buttons: u16) {
+    let f = sim.suits.flight[id.idx()];
+    let d = to - f.pos;
+    let want = d.normalize_or_zero() * (d.length() * 0.3).min(top);
+    let local = f.rot.conjugate() * (want - f.vel);
+    let q = |v: f32| (v * 6.0).clamp(-127.0, 127.0) as i8;
+    let t = sim.next_tick();
+    sim.set_input(
+        id,
+        InputCmd {
+            tick: t,
+            view_tick_q4: t << 4,
+            aim: d.normalize_or(Vec3::X),
+            thrust: [q(local.x), q(local.y), q(local.z)],
+            buttons: FLIGHT_ASSIST | buttons,
+            ..InputCmd::default()
+        },
+    );
+}
+
+#[test]
+fn a_suit_flies_in_through_the_blast_halls_doors_and_lands_on_its_floor() {
+    // The Blast Hall (the Proving Ground, `docs/TRAINING.md`): from over Hub Gate's square, 60 m
+    // out from its blast doors and 20 m up, straight in on flight assist to the middle of its room,
+    // and down onto its floor with the grip armed. Never in its walls on the way.
+    let (i, p) = place("proving_ground").expect("the Proving Ground");
+    let room = room(i).expect("its room");
+    let ((s, x), (ds, dx)) = place_door(p);
+    let mut sim = interior();
+    let id = launch(&mut sim, FrameId::Leo);
+    let k = id.idx();
+    sim.suits.flight[k].pos = CityPos::new(p.strip, x - dx * 60.0, s - ds * 60.0, 20.0).to_colony();
+    sim.suits.flight[k].vel = Vec3::ZERO;
+    let (ms, mx) = room.rect.middle();
+    let middle = CityPos::new(p.strip, mx, ms, 20.0).to_colony();
+    let clear = |sim: &Sim| {
+        let Under::Land(at) = from_colony(sim.suits.flight[k].pos) else { return false };
+        let r = 0.7 * 10.0;
+        let min = Vec3::new(at.x - r, (at.h - r).max(0.5), -(at.s + r));
+        let max = Vec3::new(at.x + r, at.h + r, -(at.s - r));
+        !solid_built(at.strip, min, max, Stage(0))
+    };
+    for _ in 0..30 * 30 {
+        let f = sim.suits.flight[k];
+        if f.pos.distance(middle) < 3.0 && f.vel.length() < 1.0 {
+            break;
+        }
+        toward(&mut sim, id, middle, 40.0, 0);
+        sim.step();
+        assert!(clear(&sim), "in a wall at {}", sim.suits.flight[k].pos);
+    }
+    let in_room = |sim: &Sim| match from_colony(sim.suits.flight[k].pos) {
+        Under::Land(at) => room.holds(at.s, at.x, at.h.min(room.ceiling - 1.0)) && at.strip == p.strip,
+        Under::Window { .. } => false,
+    };
+    assert!(sim.suits.flight[k].pos.distance(middle) < 3.0, "in: {}", sim.suits.flight[k].pos);
+    assert!(in_room(&sim));
+    // The grip armed: down onto the hall's floor, on its feet.
+    for _ in 0..30 * 20 {
+        if sim.suits.footing[k] == Footing::Grounded {
+            break;
+        }
+        toward(&mut sim, id, middle, 0.0, GRIP);
+        sim.step();
+    }
+    assert_eq!(sim.suits.footing[k], Footing::Grounded);
+    assert!(in_room(&sim), "standing in the hall: {}", sim.suits.flight[k].pos);
 }

@@ -26,9 +26,9 @@
 //! UVs: on walls, metres along the wall and up from the floor; on roofs and the ground, `s` and `x`.
 
 use bc_sim::colony::city::{
-    BLOCK, BlockInfo, BlockKind, Building, CANAL_DEPTH, CityBox, DOOR_HEIGHT, DOOR_WIDTH, Form, GRID_X0,
-    KERB, MAX_HEIGHT, MAX_SOLIDS, Part, Piece, RAILING, ROWS, Rect, Room, SIDEWALK, Stage, Style, WALL,
-    block, block_index, channel, grid_x, lots, mix, row_at, unit,
+    BLOCK, BlockInfo, BlockKind, Building, CANAL_DEPTH, CityBox, Form, GRID_X0, KERB, MAX_HEIGHT, MAX_SOLIDS,
+    Part, Piece, RAILING, ROWS, Rect, Room, SIDEWALK, Stage, Style, WALL, block, block_index, channel,
+    grid_x, lots, mix, row_at, unit,
 };
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, strip_edge};
 use bc_sim::colony::furniture::{self, Furniture, Kind as Furn, TRUNK, each_furniture, tree_size};
@@ -653,12 +653,13 @@ fn hall_with_room(m: &mut Builder, b: &Building, room: &Room, seed: f32, tall: f
     };
     let (top, c) = (b.height, room.ceiling);
     let (w, d) = (room.width() * 0.5, room.depth());
-    let door = DOOR_WIDTH * 0.5;
-    let lintel = KERB + DOOR_HEIGHT;
+    let door = room.door_width() * 0.5;
+    let lintel = KERB + room.door_height;
     let kind = match PLACES[usize::from(room.place)].kind {
         PlaceKind::Bar => 1.0,
         PlaceKind::Exchange => 2.0,
         PlaceKind::Charter => 3.0,
+        PlaceKind::Proving => 4.0,
         PlaceKind::HubGate => 0.0,
     } / 255.0;
     let col = |surface: Surface, seed: f32, floor: f32| {

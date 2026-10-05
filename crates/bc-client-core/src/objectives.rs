@@ -1,8 +1,8 @@
 //! Objectives: what a pilot can set out to do in the sector. The HUD shows one at a time with a
 //! waypoint to fly to (◆), and the map (M) lists them all. They're the Charter Board's first jobs
 //! for a new Arrival: land on the resource satellite and hide in its well, mine ore and bring it
-//! home, then (with the colony open) ride the cap lift down, find the Exchange floor and sell on
-//! it, down a Mobile Doll, reach Hermit, and make a name for yourself.
+//! home, then (with the colony open) ride the cap lift down, report to the Proving Ground, find the
+//! Exchange floor and sell on it, down a Mobile Doll, reach Hermit, and make a name for yourself.
 //!
 //! They can be done in any order: each is checked every frame, and the HUD shows the first in the
 //! rules' order that isn't done yet. What's done is kept with the settings (a bit per
@@ -53,6 +53,8 @@ pub enum Objective {
     ExchangeFloor,
     /// Sell something on the Exchange.
     Sell,
+    /// Report to the Proving Ground, the Blast Hall off Hub Gate's square (`docs/TRAINING.md`).
+    ProvingGround,
 }
 
 /// Where an objective's waypoint is.
@@ -72,7 +74,7 @@ pub enum Waypoint {
 }
 
 impl Objective {
-    pub const ALL: [Objective; 10] = [
+    pub const ALL: [Objective; 11] = [
         Objective::LandStation,
         Objective::Hide,
         Objective::Mine,
@@ -83,17 +85,19 @@ impl Objective {
         Objective::RideDown,
         Objective::ExchangeFloor,
         Objective::Sell,
+        Objective::ProvingGround,
     ];
 
     /// Survival's order: a pilot launches at the dock, beside the station, in a worn Leo; the
-    /// Dolls are a long way off. The ore brought home goes down the chain: to the colony, and its
-    /// Exchange.
-    const SURVIVAL: [Objective; 10] = [
+    /// Dolls are a long way off. The ore brought home goes down the chain: to the colony (its
+    /// Proving Ground off the square first), and its Exchange.
+    const SURVIVAL: [Objective; 11] = [
         Objective::LandStation,
         Objective::Hide,
         Objective::Mine,
         Objective::Deliver,
         Objective::RideDown,
+        Objective::ProvingGround,
         Objective::ExchangeFloor,
         Objective::Sell,
         Objective::Bounty,
@@ -102,7 +106,7 @@ impl Objective {
     ];
     /// Arcade's: a pilot launches by the field, in whatever suit they like, among the Dolls (and
     /// the colony is closed).
-    const ARCADE: [Objective; 10] = [
+    const ARCADE: [Objective; 11] = [
         Objective::Bounty,
         Objective::Mine,
         Objective::Deliver,
@@ -111,6 +115,7 @@ impl Objective {
         Objective::Hermit,
         Objective::Ace,
         Objective::RideDown,
+        Objective::ProvingGround,
         Objective::ExchangeFloor,
         Objective::Sell,
     ];
@@ -120,7 +125,7 @@ impl Objective {
     }
 
     /// In the order the rules show them.
-    pub fn order(survival: bool) -> &'static [Objective; 10] {
+    pub fn order(survival: bool) -> &'static [Objective; 11] {
         if survival { &Self::SURVIVAL } else { &Self::ARCADE }
     }
 
@@ -130,14 +135,19 @@ impl Objective {
             Objective::LandStation | Objective::Hide => i.landmarks >= 1,
             Objective::Hermit => i.landmarks >= 2,
             Objective::Mine => i.rocks,
-            Objective::RideDown | Objective::ExchangeFloor | Objective::Sell => i.colony,
+            Objective::RideDown | Objective::ProvingGround | Objective::ExchangeFloor | Objective::Sell => {
+                i.colony
+            }
             _ => true,
         }
     }
 
     /// Done on foot (in the bay or the city), so shown there too.
     pub fn on_foot(self) -> bool {
-        matches!(self, Objective::RideDown | Objective::ExchangeFloor | Objective::Sell)
+        matches!(
+            self,
+            Objective::RideDown | Objective::ProvingGround | Objective::ExchangeFloor | Objective::Sell
+        )
     }
 
     /// The HUD's line: terse, all caps.
@@ -155,6 +165,7 @@ impl Objective {
             Objective::RideDown => "RIDE THE CAP LIFT DOWN".into(),
             Objective::ExchangeFloor => "FIND THE EXCHANGE FLOOR".into(),
             Objective::Sell => "SELL ON THE EXCHANGE".into(),
+            Objective::ProvingGround => "REPORT TO THE PROVING GROUND".into(),
         }
     }
 
@@ -198,6 +209,10 @@ impl Objective {
                 "At the Exchange floor's door, E opens its book: sell your ore to the colony's desk or another pilot."
                     .into()
             }
+            Objective::ProvingGround => {
+                "The Blast Hall, off Hub Gate's square: M shows the city, ◆ marks its blast doors. Its desk (E) has the course."
+                    .into()
+            }
         }
     }
 
@@ -211,6 +226,7 @@ impl Objective {
             Objective::Hermit => Waypoint::Landmark(1),
             Objective::RideDown => Waypoint::Place(hub_gate()),
             Objective::ExchangeFloor | Objective::Sell => Waypoint::Place(exchange()),
+            Objective::ProvingGround => Waypoint::Place(proving_ground()),
         }
     }
 
@@ -232,6 +248,11 @@ fn hub_gate() -> u8 {
 /// The Exchange floor's index in `PLACES`.
 pub fn exchange() -> u8 {
     PLACES.iter().position(|p| p.kind == PlaceKind::Exchange).unwrap_or(0) as u8
+}
+
+/// The Proving Ground's index in `PLACES`.
+pub fn proving_ground() -> u8 {
+    PLACES.iter().position(|p| p.kind == PlaceKind::Proving).unwrap_or(0) as u8
 }
 
 /// What the pilotless suits are called.
@@ -264,6 +285,8 @@ pub struct ObjectiveInput {
     pub colony: bool,
     pub in_city: bool,
     pub at_exchange: bool,
+    /// At the Proving Ground's doors (or in it).
+    pub at_proving: bool,
     /// Sales filled on the Exchange this session (`HangarState::sales`).
     pub sales: u32,
 }
@@ -311,6 +334,9 @@ impl Objectives {
         }
         if i.at_exchange {
             *done |= Objective::ExchangeFloor.bit();
+        }
+        if i.at_proving {
+            *done |= Objective::ProvingGround.bit();
         }
         if i.sales > 0 {
             *done |= Objective::Sell.bit();
@@ -454,9 +480,15 @@ mod tests {
             Some(Objective::Bounty),
             "the colony's closed"
         );
-        // Down the lift and into the city: on foot, not flying.
+        // Down the lift and into the city: on foot, not flying. The Proving Ground is first, off
+        // the square.
         let walking = ObjectiveInput { flying: false, in_city: true, ..open };
-        assert_eq!(o.step(&mut done, &mut downed, &walking), Some(Objective::ExchangeFloor));
+        assert_eq!(o.step(&mut done, &mut downed, &walking), Some(Objective::ProvingGround));
+        assert_eq!(Objective::ProvingGround.waypoint(), Waypoint::Place(proving_ground()));
+        assert_eq!(PLACES[usize::from(proving_ground())].kind, PlaceKind::Proving);
+        assert!(Objective::ProvingGround.on_foot());
+        let reported = ObjectiveInput { at_proving: true, ..walking };
+        assert_eq!(o.step(&mut done, &mut downed, &reported), Some(Objective::ExchangeFloor));
         assert_eq!(Objective::ExchangeFloor.waypoint(), Waypoint::Place(exchange()));
         assert_eq!(PLACES[usize::from(exchange())].kind, PlaceKind::Exchange);
         let there = ObjectiveInput { at_exchange: true, ..walking };

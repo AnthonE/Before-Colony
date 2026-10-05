@@ -235,16 +235,40 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
 
     if (surface >= 14u && surface <= 18u) {
         // Inside a key place's room (`city_mesh::Surface::Interior` to `Display`), its seed what the
-        // place is: 1 the bar, 2 the Exchange, 3 the Charter Board.
+        // place is: 1 the bar, 2 the Exchange, 3 the Charter Board, 4 the Blast Hall.
         indoor = true;
         let kind = u32(seed + 0.5);
         let bar = kind == 1u;
-        if (surface == 14u) {
+        let blast = kind == 4u;
+        if (surface == 14u && blast) {
+            // The Blast Hall's walls: cast concrete in 6 m panels, scorched low down, over a band of
+            // yellow and black chevrons a suit's knee high.
+            let seam = min(fract(uv.x / 6.0), fract(uv.y / 6.0));
+            let panel = hash13(vec3(floor(uv / 6.0), 12.0));
+            let concrete = vec3(0.5, 0.5, 0.48) * (0.85 + 0.15 * panel) * (0.9 + 0.12 * noise3(vec3(uv * 0.35, 5.0)));
+            let scorch = (1.0 - smoothstep(2.0, 14.0, uv.y)) * (0.35 + 0.4 * noise3(vec3(uv * 0.08, 7.0)));
+            albedo = concrete * mix(0.7, 1.0, step(0.015, seam)) * (1.0 - 0.6 * scorch);
+            let chevron = step(0.5, fract((uv.x + uv.y) / 1.6));
+            let band = step(4.0, uv.y) * step(uv.y, 5.2);
+            albedo = mix(albedo, mix(vec3(0.04), vec3(0.95, 0.72, 0.05), chevron), band);
+            rough = 0.9;
+        } else if (surface == 14u) {
             // Plaster over a dark dado (walls' UVs are metres along, and up from the street).
             let dado = step(uv.y, 1.3);
             let plaster = select(vec3(0.74, 0.72, 0.68), vec3(0.6, 0.45, 0.32), bar);
             albedo = mix(plaster, vec3(0.2, 0.15, 0.11), dado) * (0.94 + 0.08 * noise3(vec3(uv * 0.7, 4.0)));
             rough = 0.8;
+        } else if (surface == 15u && blast) {
+            // Its floor: slabs scarred by thrusters, ruled in yellow every 10 m for a suit to stand
+            // on its marks.
+            let slab = hash13(vec3(floor(uv / 5.0), 14.0));
+            let joint = min(fract(uv.x / 5.0), fract(uv.y / 5.0));
+            albedo = vec3(0.4, 0.4, 0.39) * (0.8 + 0.2 * slab) * mix(0.75, 1.0, step(0.01, joint));
+            albedo *= 1.0 - 0.45 * smoothstep(0.55, 0.9, noise3(vec3(uv * 0.05, 3.0)));
+            let g = abs(fract(uv / 10.0 + vec2(0.5)) - vec2(0.5)) * 10.0;
+            let line = step(min(g.x, g.y), 0.15);
+            albedo = mix(albedo, vec3(0.9, 0.7, 0.1), line * 0.85);
+            rough = 0.85;
         } else if (surface == 15u) {
             // Polished stone tiles; the bar's boards.
             if (bar) {
@@ -258,6 +282,14 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
                 albedo = mix(vec3(0.62, 0.6, 0.56), vec3(0.42, 0.42, 0.44), step(0.5, tile)) * mix(0.75, 1.0, step(0.03, j));
                 rough = 0.25;
             }
+        } else if (surface == 16u && blast) {
+            // Its roof, 60 m up: dark steel trusses and big floodlights between them.
+            let g = abs(fract(uv / 12.0) - vec2(0.5));
+            let flood = step(max(g.x, g.y), 0.12);
+            let truss = step(0.47, max(g.x, g.y));
+            albedo = mix(vec3(0.25, 0.26, 0.28), vec3(0.12, 0.12, 0.13), truss);
+            glow = vec3(0.95, 0.97, 1.0) * flood * 3600.0;
+            metal = 0.5;
         } else if (surface == 16u) {
             // The ceiling and its lamps: panels in a grid (warm in the bar).
             let g = abs(fract(uv / 5.0) - vec2(0.5));
@@ -271,7 +303,22 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
             metal = select(0.6, 0.0, bar);
         } else {
             // The back wall: what the place is.
-            if (kind == 2u) {
+            if (blast) {
+                // The Proving Ground's board: the course drawn in light on a dark screen 8 to 38 m up,
+                // its rings strung along its line, a pulse running down them; the chevrons below.
+                let screen = step(8.0, uv.y) * step(uv.y, 38.0);
+                let q = vec2(fract(uv.x / 84.0) * 84.0, uv.y - 23.0);
+                let path = 9.0 * sin(q.x * 0.11) + 3.0 * sin(q.x * 0.37);
+                let rule = step(abs(fract(uv.x / 2.0) - 0.5), 0.02) + step(abs(fract(uv.y / 2.0) - 0.5), 0.02);
+                let along = step(abs(q.y - path), 0.12);
+                let c = vec2(floor(q.x / 6.5) * 6.5 + 3.25, 0.0);
+                let ring = step(abs(length(vec2(q.x - c.x, q.y - (9.0 * sin(c.x * 0.11) + 3.0 * sin(c.x * 0.37)))) - 1.6), 0.18);
+                let pulse = step(fract(q.x / 84.0 - city.day.z * 0.05), 0.08);
+                albedo = mix(vec3(0.42, 0.42, 0.4), vec3(0.03, 0.04, 0.05), screen);
+                glow = vec3(0.3, 0.9, 1.0) * screen * (min(rule, 1.0) * 25.0 + along * 400.0 + ring * (700.0 + pulse * 900.0));
+                let chevron = step(0.5, fract((uv.x + uv.y) / 1.6));
+                albedo = mix(albedo, mix(vec3(0.04), vec3(0.95, 0.72, 0.05), chevron), step(4.0, uv.y) * step(uv.y, 5.2));
+            } else if (kind == 2u) {
                 // The Exchange's boards: rows of prices, green and amber, changing every few seconds.
                 let band = step(3.0, uv.y) * step(fract((uv.y - 3.0) / 1.1), 0.7);
                 let cell = vec3(floor(uv.x / 0.9), floor((uv.y - 3.0) / 1.1), floor(city.day.z / 3.0));
