@@ -412,6 +412,15 @@ impl Predictor {
         legs_ok: bool,
         cmd: &InputCmd,
     ) -> MoveOut {
+        // Inside the colony its law clears the weapons' buttons but in the Blast Hall, from where
+        // the suit is as the tick starts, as the server's tick does (`Sim::colony_law`).
+        let lawful;
+        let cmd = if flying.mods.interior && !bc_sim::colony::hall::weapons_free(m.flight.pos) {
+            lawful = InputCmd { buttons: cmd.buttons & !bc_proto::buttons::FIRE_MASK, ..*cmd };
+            &lawful
+        } else {
+            cmd
+        };
         if transform_step(form, cmd.pressed(MODE)) {
             arms.drop_strike();
         }

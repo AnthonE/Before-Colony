@@ -173,6 +173,7 @@ pub fn setup_blasts(
     let feather = shocks.add(ShockMaterial::new(Vec3::new(5.0, 6.5, 9.0), 1.0));
     for _ in 0..SHOCKS {
         commands.spawn((
+            crate::inside::WeaponFx,
             Shock::default(),
             Mesh3d(sphere.clone()),
             MeshMaterial3d(fire.clone()),
@@ -186,6 +187,7 @@ pub fn setup_blasts(
     let cube = meshes.add(Cuboid::new(1.0, 1.0, 1.0));
     for i in 0..CHIPS {
         commands.spawn((
+            crate::inside::WeaponFx,
             Chip::default(),
             Mesh3d(cube.clone()),
             MeshMaterial3d(surfaces.armour.clone()),

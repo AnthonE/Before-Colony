@@ -244,8 +244,10 @@ impl Sim {
             let (spatial, suits, ff) = (&mut self.spatial, &self.suits, self.cfg.friendly_fire);
             let pad = Vec3::splat(spec.fuse + 14.0);
             let mut best: Option<(f32, usize, usize)> = None;
+            // (Inside the colony, the Blast Hall's missiles pass suits by.)
+            let interior = self.cfg.world == crate::colony::interior::WorldKind::Interior;
             spatial.query_box(pos.min(next) - pad, pos.max(next) + pad, |j| {
-                if j == owner || (!ff && suits.faction[j] == of) {
+                if interior || j == owner || (!ff && suits.faction[j] == of) {
                     return;
                 }
                 let fl = &suits.flight[j];
@@ -271,8 +273,10 @@ impl Sim {
                 }
                 (_, Some((s, what))) => {
                     let at = pos + (next - pos) * s;
-                    if let Blocker::Rock(which) = what {
-                        self.rock_hit(which, w.damage, w.kind, at, dir, owner, t);
+                    match what {
+                        Blocker::Rock(which) => self.rock_hit(which, w.damage, w.kind, at, dir, owner, t),
+                        Blocker::Target(which) => self.target_hit(which, owner, t),
+                        _ => {}
                     }
                     self.burst(k, at, BurstCause::Blocked, t);
                 }

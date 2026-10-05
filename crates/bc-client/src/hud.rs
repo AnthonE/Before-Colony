@@ -1057,9 +1057,14 @@ pub fn update_hud(
         };
         set(HudText::Armor, armor, Some(hull_color));
         let mut w = String::new();
-        // Inside the colony nothing fires: its law, and the sector's.
+        // Inside the colony nothing fires, by its law and the sector's, but in the Blast Hall.
         if core.welcome.is_some_and(|wl| wl.interior) {
-            w.push_str("WEAPONS SAFE · INSIDE THE COLONY\n");
+            if core.own_view().is_some_and(|v| bc_sim::colony::hall::weapons_free(v.pos)) {
+                let hits = core.world.my_target_hits;
+                w.push_str(&format!("WEAPONS FREE · THE BLAST HALL · TRAINING ROUNDS · TARGETS {hits}\n"));
+            } else {
+                w.push_str("WEAPONS SAFE · INSIDE THE COLONY\n");
+            }
         }
         for (slot, key) in [(0usize, "LMB"), (1, "RMB"), (2, "F")] {
             if let Some(m) = spec.loadout[slot] {

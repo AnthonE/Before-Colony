@@ -182,6 +182,8 @@ pub struct SuitStats {
     pub specials: u32,
     /// Missiles launched.
     pub missiles: u32,
+    /// Training rounds scored on the Blast Hall's targets (`colony::hall`).
+    pub targets: u32,
 }
 
 pub struct Suits {

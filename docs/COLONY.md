@@ -299,7 +299,8 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
     bit (I10);
   - `move_step` with real gravity instead of grip gravity, on a new `Body::City`.
 - **Colony law: weapons safe.** Fire and strike inputs are ignored inside, so no shot sweeps through the city are
-  needed. Mobile Dolls stay outside.
+  needed. Mobile Dolls stay outside. (Built later: the Blast Hall is the one exception, its training rounds kept in
+  it by closed forms of its room and targets: `docs/TRAINING.md`, phase 5.)
 - **Getting in and out.** `Request::Launch {into: Colony}` from the bay to an inner launch gate near the axis; docks
   back the same way. Later, handoff at the axis port with frame conversion (scaling path, step 2).
 - **On-foot pilots watch suits** through spectator slots chosen by position. People, trams and cars stay relayed

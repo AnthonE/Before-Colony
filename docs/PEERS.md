@@ -45,8 +45,9 @@ from every series, and still adding them (Gundam 00's Double O Riser and Susanoo
   bazookas and beam rifles in space [P1]. That is our "unhittable" risk (`CONTROLS.md`, "No lead
   pip without ZERO"). We have close quarters already, MO-II's Aft Well and Hermit's craters, where
   suits fight on their feet (`DESIGN.md`, "Surfaces"). The colony's inside stays weapons safe by
-  law (`SUITS_INSIDE.md`), so a hot interior would have to be somewhere else: the axis port's
-  scaffolds, or the building site's frames.
+  law (`SUITS_INSIDE.md`) but for the Blast Hall's training rounds (`TRAINING.md`), so a hot
+  interior would have to be somewhere else: the axis port's scaffolds, or the building site's
+  frames.
 - **Infantry beside the suits.** Pilots fight on foot among the mobile suits, planting charges in
   bases (*unverified*). Ours walk only in the bay and the city; on foot in the sector is on the
   roadmap (`DESIGN.md`, "Surfaces, next").

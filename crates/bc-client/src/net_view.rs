@@ -287,7 +287,9 @@ pub fn sync_view(
     // --- Beams: the own suit's on its own clock (leaving the muzzle as the suit is drawn there),
     // others on the render clock. ---
     // The server removes beams that strike the colony, a rock or a landmark without telling
-    // anyone, so they end, and splash, there (a landmark as it's drawn).
+    // anyone, so they end, and splash, there (a landmark as it's drawn). Inside the colony only
+    // the Blast Hall's training rounds fly: they end at its walls, its doors, or a target.
+    let inside = core.inside();
     beams.0.clear();
     for b in &world.beams {
         let t = if Some(b.shooter) == own_slot { t_own } else { t_render };
@@ -299,12 +301,33 @@ pub fn sync_view(
         let travelled = head.distance(b.origin);
         let field = &core.predict.field;
         let radius = bc_sim::content::weapon(b.weapon).radius;
-        let rock = field.sweep(b.origin, head, radius).map(|(t, i)| (t * travelled, i));
-        let hull = crate::colony::ray_hit(b.origin, dir).filter(|d| travelled >= *d);
+        if inside {
+            use bc_sim::colony::hall::{Stop, shot_end, target};
+            let (k, frac) = (t.max(0.0).floor(), (t - t.max(0.0).floor()) as f32);
+            if let Some((f, what)) = shot_end(b.origin, head, radius, k as u32, frac) {
+                let at = b.origin + (head - b.origin) * f;
+                let normal = match what {
+                    Stop::Target(i) => (at - target(usize::from(i), k as u32, frac)).normalize_or(-dir),
+                    Stop::Wall => -dir,
+                };
+                if seen.splashes.insert((b.shooter, b.shot_seq)) {
+                    events.0.push(FxEvent::Hit {
+                        pos: at,
+                        weapon: b.weapon,
+                        normal: Some(normal),
+                        target: None,
+                    });
+                }
+                continue;
+            }
+        }
+        let rock = field.sweep(b.origin, head, radius).map(|(t, i)| (t * travelled, i)).filter(|_| !inside);
+        let hull = crate::colony::ray_hit(b.origin, dir).filter(|d| !inside && travelled >= *d);
         let k = bodies.t.max(0.0).floor();
         let landmark =
             sweep_landmarks(bodies.set.landmarks(), b.origin, head, radius, k as u32, (bodies.t - k) as f32)
-                .map(|(s, id)| (s * travelled, id));
+                .map(|(s, id)| (s * travelled, id))
+                .filter(|_| !inside);
         let solid =
             [rock.map(|(d, _)| d), hull, landmark.map(|(d, _)| d)].into_iter().flatten().reduce(f32::min);
         let stop = solid.map(|d| {

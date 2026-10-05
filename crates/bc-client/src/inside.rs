@@ -7,6 +7,10 @@
 //! On foot in the city the pilot watches the suits flying near them (a spectator's snapshots of the
 //! inside's sector): they go on the city's layer too, placed relative to the render origin, which
 //! follows the walker there, as everything of the city is.
+//!
+//! Weapons fire only in the Blast Hall (`bc_sim::colony::hall`), and what it puts out (beams,
+//! tracers, flashes, sparks, blasts, missiles: [`WeaponFx`]) is drawn on the city's layer as well
+//! while the pilot flies inside, where its numbers are the colony's frame's as the camera's are.
 
 use bc_sim::colony::interior::{INNER_GATE, INNER_GATE_RADIUS};
 use bevy::camera::visibility::RenderLayers;
@@ -22,16 +26,52 @@ pub struct InsidePlugin;
 
 impl Plugin for InsidePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_gate).add_systems(
-            Update,
-            (inside_view.after(crate::view::Vis::Suits).before(crate::view::Vis::Camera), publish),
-        );
+        app.add_systems(Startup, setup_gate)
+            .add_systems(
+                Update,
+                (
+                    inside_view.after(crate::view::Vis::Suits).before(crate::view::Vis::Camera),
+                    publish,
+                    fx_layers,
+                ),
+            )
+            .init_resource::<FlyingInside>();
     }
 }
 
 /// The inner gate's ring of lights.
 #[derive(Component)]
 struct GateRing;
+
+/// The pilot flies inside the colony this frame (the render origin at its axis).
+#[derive(Resource, Default)]
+pub struct FlyingInside(pub bool);
+
+/// What weapons put out (beams, tracers, their lights, the particles, blasts, missiles): drawn on
+/// the city's layer too while the pilot flies inside, where only the Blast Hall's training rounds
+/// fly.
+#[derive(Component)]
+pub struct WeaponFx;
+
+/// Puts the weapons' effects on the city's layer too while the pilot flies inside (the render origin
+/// at the axis: their numbers are the colony's frame's), and back on space's alone when not. On foot
+/// in the city, watching, they aren't drawn: their numbers aren't the render origin's.
+fn fx_layers(
+    game: Option<NonSend<GameClient>>,
+    mut commands: Commands,
+    fx: Query<Entity, With<WeaponFx>>,
+    mut flying: ResMut<FlyingInside>,
+) {
+    let inside = game.is_some_and(|g| g.borrow().core.inside());
+    if inside == flying.0 {
+        return;
+    }
+    flying.0 = inside;
+    let layers = if inside { RenderLayers::from_layers(&[0, CITY_LAYER]) } else { RenderLayers::layer(0) };
+    for e in &fx {
+        commands.entity(e).insert(layers.clone());
+    }
+}
 
 fn setup_gate(
     mut commands: Commands,

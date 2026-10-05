@@ -297,15 +297,26 @@ impl Sim {
         }
     }
 
-    /// Sets the command a player's suit will use next tick. Inside the colony nothing fires and
-    /// nothing strikes: those buttons never reach the tick.
-    pub fn set_input(&mut self, id: SuitId, mut cmd: InputCmd) {
+    /// Sets the command a player's suit will use next tick. Inside the colony nothing fires but in
+    /// the Blast Hall: elsewhere those buttons never reach the tick ([`Sim::step`]).
+    pub fn set_input(&mut self, id: SuitId, cmd: InputCmd) {
         if self.suits.valid(id) {
-            if self.interior() {
-                cmd.buttons &= !bc_proto::buttons::FIRE_MASK;
-            }
             self.suits.input[id.idx()] = cmd;
         }
+    }
+
+    /// Inside the colony its law holds but in the Blast Hall (`colony::hall::weapons_free`): any
+    /// other suit's weapons' buttons are cleared before the tick, from where it is as the tick
+    /// starts (as its pilot's prediction clears them).
+    fn colony_law(&mut self) {
+        let mut alive = core::mem::take(&mut self.iter_bits);
+        alive.copy_from(&self.suits.alive);
+        for i in alive.iter() {
+            if !crate::colony::hall::weapons_free(self.suits.flight[i].pos) {
+                self.suits.input[i].buttons &= !bc_proto::buttons::FIRE_MASK;
+            }
+        }
+        self.iter_bits = alive;
     }
 
     /// This sector is the colony's inside (`colony::interior`).
@@ -345,25 +356,24 @@ impl Sim {
             self.squad_logic();
         }
         self.ai_step(t);
-        // Inside the colony, weapons are safe by its law: no specials, locks, shots, missiles or
-        // blades (and their buttons never get this far: `set_input`).
-        let armed = !self.interior();
-        if armed {
-            self.specials_step(t);
+        // Inside the colony, weapons are safe by its law but in the Blast Hall: elsewhere there no
+        // special, lock, shot, missile or blade starts (their buttons never get this far), and
+        // what's fired in the hall stays in it, touching no suit (`colony::hall`).
+        if self.interior() {
+            self.colony_law();
         }
+        self.specials_step(t);
         self.flight_step(t);
         self.chunk_step(t);
         self.wrecks_follow_hulks();
         self.spatial_rebuild();
         self.record_history(t);
         self.cover_step(t);
-        if armed {
-            self.lock_step();
-            self.weapons_step(t);
-            self.projectile_step(t);
-            self.missile_step(t);
-            self.melee_step(t);
-        }
+        self.lock_step();
+        self.weapons_step(t);
+        self.projectile_step(t);
+        self.missile_step(t);
+        self.melee_step(t);
         self.damage_step(t);
         // (Emptied after, not before: a blow struck between ticks lands with this tick's.)
         self.damage.clear();

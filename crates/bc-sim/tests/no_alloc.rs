@@ -334,8 +334,9 @@ fn the_citys_people_are_found_without_allocating() {
 fn the_interior_ticks_without_allocating() {
     // 64 suits flying the colony's inside: low among the towers, landing on roofs and the floor,
     // pressing fire (which the colony's law ignores); every fourth with its grip armed, landing on
-    // the city and walking it.
-    use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FLIGHT_ASSIST, GRIP};
+    // the city and walking it; and eight in the Blast Hall, where weapons are free, firing their
+    // beams, guns and missiles at its targets.
+    use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRIP};
     use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
     use bc_sim::colony::frame::CityPos;
     use bc_sim::colony::interior::WorldKind;
@@ -357,6 +358,11 @@ fn the_interior_ticks_without_allocating() {
         let h = if k % 4 == 0 { 25.0 } else { 40.0 };
         let at = CityPos::new((k % 3) as u8, -9_000.0 + k as f32 * 90.0, 300.0 + (k * 37 % 2_800) as f32, h);
         sim.suits.flight[id.idx()].pos = at.to_colony();
+        if k % 8 == 1 {
+            let r = bc_sim::colony::hall::hall();
+            let (s, x) = r.front.point(-28.0 + 8.0 * (k / 8) as f32, 16.0);
+            sim.suits.flight[id.idx()].pos = CityPos::new(r.strip, x, s, 20.0).to_colony();
+        }
         ids.push(id);
     }
     let mut total = 0;
@@ -366,13 +372,23 @@ fn the_interior_ticks_without_allocating() {
         for (k, id) in ids.iter().enumerate() {
             let f = &sim.suits.flight[id.idx()];
             let aim = (f.rot * Vec3::Z + Vec3::new(0.0, 0.1, 0.05 * (k % 5) as f32)).normalize();
-            let (buttons, thrust) = if k % 4 == 0 {
+            let (buttons, thrust) = if k % 8 == 1 {
+                let to = bc_sim::colony::hall::target(
+                    (k + n as usize / 30) % bc_sim::colony::hall::TARGETS,
+                    t,
+                    0.0,
+                );
+                let pull = if n % 3 == 0 { FIRE_PRIMARY } else { 0 };
+                cmds[k].aim = (to - f.pos).normalize();
+                (FLIGHT_ASSIST | pull | FIRE_SECONDARY, [0, 0, 0])
+            } else if k % 4 == 0 {
                 (GRIP | FLIGHT_ASSIST, [0, 0, if (n / 100).is_multiple_of(2) { 127 } else { -127 }])
             } else if (n / 50 + k as u32).is_multiple_of(3) {
                 (0, [0, 0, 0])
             } else {
                 (FLIGHT_ASSIST | FIRE_PRIMARY | BOOST, [20, 0, 127])
             };
+            let aim = if k % 8 == 1 { cmds[k].aim } else { aim };
             cmds[k] = InputCmd { tick: t, view_tick_q4: t << 4, aim, thrust, buttons, ..InputCmd::default() };
         }
         let ((), heap) = bc_alloc::count(|| {
@@ -384,6 +400,8 @@ fn the_interior_ticks_without_allocating() {
         total += heap;
     }
     assert_eq!(total, 0, "heap operations inside the interior's tick: {total}");
+    let scored: u32 = ids.iter().map(|id| sim.stats(id.idx()).targets).sum();
+    assert!(scored > 0, "the Blast Hall's rounds scored");
     let walkers =
         ids.iter().filter(|id| sim.suits.footing[id.idx()] != bc_sim::ground::Footing::Free).count();
     assert!(walkers > 4, "on the city: {walkers}");

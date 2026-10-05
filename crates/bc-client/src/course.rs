@@ -6,6 +6,10 @@
 //!
 //! The next ring burns bright and pulses, the rest of the course glows dim ahead of it, and the
 //! rings flown go out. Not running, the start ring by the inner gate burns bright.
+//!
+//! In the Blast Hall (`bc_sim::colony::hall`) weapons are free: its targets hang in its air where
+//! the tick has them (on everyone's screen), flash white when a training round scores on one, and
+//! the panel counts the pilot's.
 
 use bc_client_core::course::{Class, Event, Run, clock};
 use bc_sim::bodies::Body;
@@ -24,9 +28,10 @@ pub struct CoursePlugin;
 
 impl Plugin for CoursePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<CourseState>()
-            .add_systems(Startup, setup_course)
-            .add_systems(Update, run_course.after(crate::view::Vis::Suits).before(crate::view::Vis::Camera));
+        app.init_resource::<CourseState>().add_systems(Startup, setup_course).add_systems(
+            Update,
+            (run_course, draw_targets).after(crate::view::Vis::Suits).before(crate::view::Vis::Camera),
+        );
     }
 }
 
@@ -64,6 +69,20 @@ struct RingLooks {
 /// The next ring's glow, at the top of its pulse.
 const NEXT_GLOW: [f32; 3] = [1.6, 7.0, 8.0];
 
+/// One of the Blast Hall's targets (its index in `hall`'s).
+#[derive(Component)]
+struct HallTarget(usize);
+
+/// The targets' looks: waiting, and struck.
+#[derive(Resource)]
+struct TargetLooks {
+    idle: Handle<StandardMaterial>,
+    hit: Handle<StandardMaterial>,
+}
+
+/// How long a target flashes once struck, ticks.
+const FLASH_TICKS: f64 = 12.0;
+
 fn lit(materials: &mut Assets<StandardMaterial>, base: Color, glow: [f32; 3]) -> Handle<StandardMaterial> {
     materials.add(StandardMaterial {
         base_color: base,
@@ -98,6 +117,75 @@ fn setup_course(
         ));
     }
     commands.insert_resource(RingLooks { next, ahead });
+    // The hall's targets: holograms of a torso's size, amber, with a ring round each.
+    let idle = lit(&mut materials, Color::srgb(1.0, 0.55, 0.15), [6.0, 2.4, 0.4]);
+    let hit = lit(&mut materials, Color::WHITE, [14.0, 14.0, 14.0]);
+    let r = bc_sim::colony::hall::TARGET_RADIUS;
+    let ball = meshes.add(Sphere::new(r * 0.55).mesh().ico(3).expect("icosphere"));
+    let ring = meshes.add(Mesh::from(Torus::new(r - 0.25, r)));
+    for i in 0..bc_sim::colony::hall::TARGETS {
+        commands
+            .spawn((
+                HallTarget(i),
+                Mesh3d(ball.clone()),
+                MeshMaterial3d(idle.clone()),
+                Transform::default(),
+                Placed(bc_sim::colony::hall::target(i, 0, 0.0).as_dvec3()),
+                RenderLayers::layer(CITY_LAYER),
+                Visibility::Hidden,
+            ))
+            .with_children(|c| {
+                c.spawn((
+                    Mesh3d(ring.clone()),
+                    MeshMaterial3d(idle.clone()),
+                    Transform::from_rotation(Quat::from_rotation_x(core::f32::consts::FRAC_PI_2)),
+                    RenderLayers::layer(CITY_LAYER),
+                ));
+            });
+    }
+    commands.insert_resource(TargetLooks { idle, hit });
+}
+
+/// The Blast Hall's targets where the tick has them (the render clock flying inside, the plaza's
+/// on foot), flashing when struck, for anyone in the city.
+fn draw_targets(
+    game: Option<NonSend<GameClient>>,
+    looks: Option<Res<TargetLooks>>,
+    mut targets: Query<(&HallTarget, &mut Placed, &mut Visibility, &mut MeshMaterial3d<StandardMaterial>)>,
+) {
+    let (Some(game), Some(looks)) = (game, looks) else {
+        for (_, _, mut v, _) in &mut targets {
+            v.set_if_neq(Visibility::Hidden);
+        }
+        return;
+    };
+    let g = game.borrow();
+    let core = &g.core;
+    let shown = core.inside() || core.hangar.in_city();
+    let now = now_s();
+    let t = if core.inside() {
+        core.render_tick(now)
+    } else {
+        let (t, frac) = core.colony_tick(now);
+        f64::from(t) + f64::from(frac)
+    };
+    let (k, frac) = (t.max(0.0).floor(), (t - t.max(0.0).floor()) as f32);
+    for (target, mut placed, mut vis, mut mat) in &mut targets {
+        vis.set_if_neq(if shown { Visibility::Inherited } else { Visibility::Hidden });
+        if !shown {
+            continue;
+        }
+        placed.0 = bc_sim::colony::hall::target(target.0, k as u32, frac).as_dvec3();
+        let struck = core.world.target_hits.iter().any(|h| {
+            usize::from(h.target) == target.0
+                && (t - f64::from(h.tick)) < FLASH_TICKS
+                && t >= f64::from(h.tick)
+        });
+        let look = if struck { &looks.hit } else { &looks.idle };
+        if mat.0 != *look {
+            mat.0 = look.clone();
+        }
+    }
 }
 
 /// Steps the run on the pilot's suit flying inside the colony, says how it goes, keeps the best
@@ -169,12 +257,18 @@ fn run_course(
     }
     let best = settings.as_ref().map_or(0, |s| s.0.course_best_ms);
     let from = view.map(|v| v.pos);
-    let (lines, waypoint) = hud(&state, best, from, view.map_or(0.0, |v| v.t), now);
+    let (lines, waypoint) = match from.filter(|p| bc_sim::colony::hall::in_hall(*p)) {
+        // In the Blast Hall, not flying the course: its live fire.
+        Some(_) if !state.run.running() => (hall_lines(core.world.my_target_hits), None),
+        _ => hud(&state, best, from, view.map_or(0.0, |v| v.t), now),
+    };
     state.lines = inside.then_some(lines);
     state.waypoint = waypoint.filter(|_| inside);
     if let Some(mut dev) = dev {
         dev.set("course_next", state.run.next().map_or(-1, |n| n as i32));
         dev.set("course_best_ms", best);
+        dev.set("in_hall", from.is_some_and(bc_sim::colony::hall::in_hall));
+        dev.set("hall_targets", core.world.my_target_hits);
     }
 
     // The rings: on the city's layer for anyone in it, the next one pulsing.
@@ -264,6 +358,16 @@ fn hud(state: &CourseState, best_ms: u32, from: Option<Vec3>, t: f64, now: f64) 
         ],
         None,
     )
+}
+
+/// The panel in the Blast Hall: weapons free, and the pilot's targets struck.
+fn hall_lines(hits: u32) -> [String; 3] {
+    [
+        "PROVING GROUND   THE BLAST HALL".into(),
+        format!("WEAPONS FREE   TARGETS {hits}"),
+        "Training rounds: they score on the hall's targets and never touch a suit. Out through the blast doors, weapons are safe again."
+            .into(),
+    ]
 }
 
 fn metres(d: f32) -> String {

@@ -253,6 +253,9 @@ pub const PLACES: [PlaceDef; 7] = [
     },
 ];
 
+/// The Proving Ground's index in [`PLACES`] (the Blast Hall: `colony::hall`).
+pub const PROVING_GROUND: usize = 6;
+
 /// What a block is, where the layout says so rather than the district's dice.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Special {

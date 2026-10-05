@@ -14,7 +14,7 @@ TIE Fighter"). This document is the design built from that ask. Phase 1, the cou
 | 2: the Blast Hall. A hall off Hub Gate's square, walked on foot and flown into, its desk the course's | built |
 | 3: boarding in the hall. The Charter Board's trainer, flown out through the blast doors and docked back | planned |
 | 4: the board. Times checked by the server, and the day's best on the hall's wall | planned |
-| 5: live fire in the hall | decided by the owner: the hall is the colony's law's one exception (below) |
+| 5: live fire in the hall: the colony's law's one exception, the owner's call. Training rounds that touch no suit and score on its targets | built |
 | 6: more courses, and a level ladder | planned |
 
 ## What we take from X-Wing and TIE Fighter
@@ -220,25 +220,66 @@ running, jumping and crouching.
 - **The board:** the day's best times on the hall's back wall and at its counter, like X-Wing's
   high-score table. A signed-in pilot's best and certificate go on their record (`pilots.rs`).
 
-## Phase 5: live fire in the hall (the owner's decision)
+## Phase 5: live fire in the hall (built)
 
-The colony's law says nothing fires inside, and the interior sector clears the fire buttons
-before its tick (`SUITS_INSIDE.md`). A blast chamber begs for shooting. The options:
+The colony's law says nothing fires inside. A blast chamber begs for shooting, and **the owner
+made the hall the law's one exception** (the alternatives were keeping the law and teaching aim at
+a range off the dock, or a simulator in the browser alone). It's `bc_sim::colony::hall`: closed
+forms, which the server's interior sector and each pilot's prediction share.
 
-1. **The hall is the law's one exception.** Training rounds:
-   - fire only inside the hall's box (a closed form);
-   - hit only its targets, as X-Wing's Maze's pyramids and TIE Fighter's spheres were;
-   - add time or score, never damage.
+- **Where weapons are free:** in the hall's room, under its roof (`hall::weapons_free`).
+  - Anywhere else inside, the tick clears a suit's weapons' buttons before it runs (`Sim::colony_law`,
+    from where the suit is as the tick starts). The pilot's prediction clears them the same way,
+    so a suit's busy arms and lunges are predicted exactly.
+  - Nothing is shown ready to fire outside (the own snapshot's ready bits), so the client predicts
+    no shot there.
+  - A Full Open Attack begun in the hall stops firing at its doors.
+- **Training rounds** are the suit's own weapons: beams, guns, missiles, flame, blades. Inside
+  the colony, though:
+  - **They touch no suit.** Shots, missiles and flame pass suits by, and no blow lands
+    (`queue_damage` does nothing inside), so a sabre fight in the hall is sparring: only a clash
+    of blades parries.
+  - **They stop at the hall's bounds:** its walls, its floor, its roof, and a curtain across its
+    open blast doors. Nothing fired in the hall leaves it (`hall::shot_end`, `first_blocker`'s
+    interior branch).
+- **The targets:** twelve holograms 8 m across, hung in the hall's air by the tick
+  (`hall::target`).
+  - Four stand still by the back wall, two low and two at a suit's head.
+  - Four bob over the middle of the floor; four sweep across it high up, each on its own beat.
+  - None comes within three radii of another.
+  - Shots leave a suit's arm a few metres off its pilot's crosshair line (they fly parallel to
+    it), so a target is a suit's shoulders across: a crosshair on its middle scores from the
+    rifle's arm.
+- **Scoring:** a round that meets a target stops there and scores. The server says so with a new
+  event, `TargetHit` (extension sub-kind 3: target, shooter), sent to the shooter and to anyone
+  within 5 km of the hall, and counts it (`SuitStats::targets`).
+- **On the screen:**
+  - the targets glow amber on the city's layer for anyone in the city, and flash white when
+    struck;
+  - inside the hall the panel reads `WEAPONS FREE   TARGETS n`, and the arms panel
+    `WEAPONS FREE · THE BLAST HALL · TRAINING ROUNDS`;
+  - beams and tracers end at the hall's walls, its doors and its targets;
+  - the weapons' effects (beams, tracers, flashes, sparks, blasts, missiles) are drawn on the
+    city's layer while the pilot flies inside. Pilots on foot don't see them yet.
+- **Tests:**
+  - `hall`'s units: weapons free only in the room; the targets clear of the walls and of each
+    other; a round stops at a target or the bounds and never leaves the hall.
+  - `bc-sim/tests/interior.rs`:
+    - a Leo in the hall scores on a target, and counts it;
+    - rounds pass through a suit in the way, which takes nothing, and score beyond it;
+    - rounds fired at the blast doors stop there;
+    - on the square before the doors, the trigger does nothing and nothing is shown ready.
+  - Every existing golden is unchanged, the interior's included: outside the hall it runs exactly
+    as it did. A new one, `HALL_GOLDEN` (native and wasm), has four suits firing at the targets in
+    turn, one wandering out through the doors and back.
+  - `no_alloc`: eight suits in the hall firing their beams, guns and missiles, among the 64 flying
+    the interior, cost the tick nothing on the heap.
+  - The `inside` e2e flies a suit down to the blast doors and in through them, holds the trigger
+    on the nearest target (the `aim_hostile` hook aims at the hall's nearest target when there's
+    no hostile), and sees its rounds score.
 
-   The interior's weapon steps would run for suits in that box: a per-suit check in
-   `fire_control`, on the hot path, allocation-free. *Recommended*: it's what "a giant blast
-   chamber" asks for, and it keeps the rest of the colony safe.
-2. **Keep the law.** Aim is learned outside, at a range off the dock: holographic targets in
-   space, with the Dolls as the exam.
-3. **A simulator.** TIE Fighter lowered a "Sim-Visor" over its pilot. The hall's sim pods would
-   run a scenario in the browser alone (the client already runs `bc-sim` to predict its suit), with
-   nothing at stake. It's the cheapest for the server and the most work in the client, which today
-   only draws what the network gives it.
+**Not yet:** a drill with a clock (X-Wing's Maze added time per target; TIE Fighter's simulator took
+two seconds off), the targets' scores on the board (phase 4), and the fire seen from on foot.
 
 ## Phase 6: more courses
 

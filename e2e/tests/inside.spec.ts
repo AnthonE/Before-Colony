@@ -8,7 +8,9 @@ import { bc, collectConsole } from "./util";
 // Proving Ground's start ring, which starts the course's clock) and back into the gate's ring, and
 // docks into the bay. Another comes down over the avenue by Hub Gate,
 // lands there with its grip armed (L), sees the agent strolling outside Hub Gate, walks up the
-// avenue (W) and lets go. The flying is the dev hook's (`fly_to`); the grip and the walk are keys.
+// avenue (W) and lets go. A third flies in through the Blast Hall's doors, where weapons are free,
+// and puts training rounds into its targets. The flying is the dev hook's (`fly_to`); the grip and
+// the walk are keys.
 // (Nobody flies back up from the avenue here: at a frame every few seconds the page sends only its
 // newest commands, the server fills the rest with stand-ins, and the 2.9 km climb against the
 // colony's pull goes at a couple of metres a second. `bc-server/tests/inside.rs` flies it.)
@@ -136,5 +138,32 @@ test("a suit inside the colony lands on the avenue by Hub Gate, sees the people 
   // Letting go (L): flying again.
   await page.keyboard.press("l");
   await until(page, "flying", (s) => s.footing === "free", 30_000);
+  expect(logs.filter((l) => l.startsWith("[pageerror]"))).toEqual([]);
+});
+
+test("a suit flies into the Blast Hall, and its training rounds score on the hall's targets", async ({ page }) => {
+  // The Proving Ground (`docs/TRAINING.md`): inside the colony nothing fires but in the Blast Hall,
+  // off Hub Gate's square. Down to its blast doors and in through them; there, weapons are free,
+  // and the starter Leo's machine cannon (RMB) puts training rounds into the hall's targets.
+  test.setTimeout(1_200_000);
+  const logs = collectConsole(page);
+  await launchInside(page, "Wufei");
+
+  // Down over the square to 40 m before the blast doors, then in through them to 40 m inside.
+  await push(page, { cmd: "fly_to", spot: "proving_ground", up: 20, ahead: 40 });
+  await until(page, "the errand", (s) => s.flying_to, 30_000);
+  let s = await until(page, "before the blast doors", (s) => !s.flying_to, 600_000);
+  expect(s.in_hall).toBe(false);
+  await push(page, { cmd: "fly_to", spot: "proving_ground", up: 20, ahead: -40 });
+  await until(page, "the errand", (s) => s.flying_to, 30_000);
+  s = await until(page, "in the Blast Hall", (s) => !s.flying_to && s.in_hall, 300_000);
+
+  // Weapons free: the aim on the hall's nearest target, the trigger held.
+  await push(page, { cmd: "aim_hostile", on: true });
+  await page.mouse.down({ button: "right" });
+  s = await until(page, "rounds scoring on a target", (s) => s.hall_targets > 0, 180_000);
+  await page.mouse.up({ button: "right" });
+  console.log(`training rounds on the hall's targets: ${s.hall_targets}`);
+  await page.screenshot({ path: "artifacts/inside-blast-hall.png" });
   expect(logs.filter((l) => l.startsWith("[pageerror]"))).toEqual([]);
 });

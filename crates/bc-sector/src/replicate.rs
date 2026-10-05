@@ -58,6 +58,13 @@ fn relevant(sim: &Sim, me: usize, e: &Event) -> bool {
             (pos - sim.suits.flight[me].pos).length_squared() < BEAM_NOTICE_RANGE * BEAM_NOTICE_RANGE
         }
         Event::SystemHit { target, .. } => near(target),
+        // A target in the Blast Hall flashing: its shooter, and anyone near the hall.
+        Event::TargetHit { target, shooter, tick, .. } => {
+            near(shooter)
+                || (bc_sim::colony::hall::target(usize::from(target), tick, 0.0) - sim.suits.flight[me].pos)
+                    .length_squared()
+                    < BEAM_NOTICE_RANGE * BEAM_NOTICE_RANGE
+        }
         Event::Leave { .. } => false,
     }
 }

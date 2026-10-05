@@ -873,7 +873,9 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   the inner gate near the axis instead of out to space. In there it flies the colony's own frame:
   the spin pulls it to the floor (1 g there, less towards the axis) and Coriolis turns it aside,
   the air slows it, the hull, the end caps and the city's buildings stop it, and flight assist
-  holds it where it is. Weapons are safe by the colony's law: nothing fires. The HUD marks the
+  holds it where it is. Weapons are safe by the colony's law: nothing fires, but in the Blast
+  Hall (`TRAINING.md`), where suits fire training rounds at its targets (they touch no suit and
+  never leave the hall, and the HUD reads `WEAPONS FREE`). The HUD marks the
   inner gate; at rest in its ring of lights, Enter docks back into the bay. It's the server's
   second sector (`sector-1`), keeping the first's tick: the colony has one clock. Pilots on foot
   see the suits flying within 2.5 km of them, and a suit's pilot sees the people below (those on
