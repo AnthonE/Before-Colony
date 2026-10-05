@@ -777,6 +777,10 @@ impl Gait {
 /// The civilians' cuts: trousers and a top, or a skirt and short sleeves.
 pub const CUTS: usize = 2;
 
+/// How far back the hair's cap is tipped (rad): its brim 5 cm over the head's middle on the brow,
+/// as far under it at the nape.
+const HAIRLINE: f32 = 0.5;
+
 /// Frames a level's bank holds for one cut: every gait's, one after another.
 pub fn bank_frames(near: bool) -> usize {
     Gait::ALL.iter().map(|g| g.frames(near)).sum()
@@ -838,14 +842,11 @@ fn civilian_piece(piece: Piece, cut: usize, seated: bool) -> LifeMesh {
         }
         Piece::Head => {
             m.ball(Vec3::new(0.0, 0.11, 0.01), 0.105, 6, 6, 10, ink(slot::SKIN, 0.0));
-            m.ball(Vec3::new(0.0, 0.118, -0.004), 0.113, 6, 2, 10, ink(slot::HAIR, 0.0));
-            m.cuboid(
-                Vec3::new(-0.08, 0.03, -0.11),
-                Vec3::new(0.08, 0.15, -0.05),
-                one(slot::HAIR),
-                none,
-                flat,
-            );
+            // The hair: a cap to its brim, tipped back so its line is high on the brow, over the
+            // ears, and down to the nape (a block at the back read as a visor side on).
+            let mut cap = LifeMesh::default();
+            cap.ball(Vec3::ZERO, 0.113, 6, 3, 10, ink(slot::HAIR, 0.0));
+            m.append(&cap, Vec3::new(0.0, 0.118, -0.004), Quat::from_rotation_x(-HAIRLINE));
         }
         Piece::Pack => {}
         Piece::UpperArmL | Piece::UpperArmR => m.limb(0.29, 0.055, 0.045, 6, ink(slot::TOP, 0.0)),
@@ -1046,6 +1047,39 @@ mod tests {
         for (name, m) in all_figures() {
             check(&name, &m);
         }
+    }
+
+    /// The hair's line is high on the brow and low at the nape, and nothing of it stands in front
+    /// of the face or off the head.
+    #[test]
+    fn hair_sits_on_the_head() {
+        let head = civilian_piece(Piece::Head, 0, false);
+        let hair: Vec<Vec3> = (0..head.positions.len())
+            .filter(|i| head.slot(*i) == slot::HAIR)
+            .map(|i| Vec3::from(head.positions[i]))
+            .collect();
+        let brim = |front: bool| {
+            hair.iter()
+                .filter(|p| p.x.abs() < 0.02 && (p.z > 0.0) == front)
+                .map(|p| p.y)
+                .fold(f32::MAX, f32::min)
+        };
+        let centre = 0.118;
+        // All of it on the cap's round: no flat-sided block to stand off the head.
+        let cap = Vec3::new(0.0, centre, -0.004);
+        for p in &hair {
+            assert!((p.distance(cap) - 0.113).abs() < 1e-3, "hair off the cap at {p:?}");
+        }
+        assert!(brim(true) > centre + 0.04, "brow at {}", brim(true));
+        assert!(brim(false) < centre - 0.04, "nape at {}", brim(false));
+        let (lo, hi) = head.bounds();
+        let skin = |i: usize| head.slot(i) == slot::SKIN;
+        let face = (0..head.positions.len())
+            .filter(|i| skin(*i))
+            .map(|i| head.positions[i][2])
+            .fold(f32::MIN, f32::max);
+        assert!(hi.z <= face + 1e-4, "the face is in front: {hi:?}");
+        assert!(lo.z > -0.125 && hi.x < 0.12 && lo.x > -0.12, "a head's size: {lo:?} {hi:?}");
     }
 
     #[test]
