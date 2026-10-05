@@ -109,6 +109,8 @@ Meteor, the war. Here none of it has happened. Whether it has to is up to everyo
   reactor, the tank, the cockpit, the thrusters, the sensors, the actuators. Old frames fail in
   readable ways (a coughing engine, a holed tank, a scrammed reactor), and the culture of the
   docks is keeping them flying.
+- **SI.** Safe SI is a common part of the aligned world. The Unified Earth Alignment banned the
+  unsafe kind at the same time humans started to build in space.
 
 ## The calendar and the eras
 
@@ -165,36 +167,47 @@ The design ahead (see `DESIGN.md`, "Roadmap") is a living colony that its pilots
 ## Under everything: the island (spoilers, never said in the game)
 
 Before Colony shares one timeline with **Gates**, the survival game (`AnthonE/Gates`: its
-`WORLD.md` §11 is this section's twin, and the two change together). Gates is where the story
-begins, and it stays a mystery; Before Colony starts in the middle. Neither game explains the
-other. Both hide the truth in plain sight until a reveal one day.
+`WORLD.md` §11 is this section's twin, and the two change together). Gates is the preamble: it
+stays a mystery and never needs to go deep. Before Colony starts in the middle, hides the truth in
+plain sight, and one day gives the hard confirm.
 
-- **The SI.** Gates' island was a research island for a banned SI.
-- **The machine.** It is built into the island's geography in a way that bends space and time,
-  and it can "resurrect" a new type of people.
-- **The pilots.** The island is a training ground where future Gundam pilots are raised. That is
-  half of what makes one; the other half is innate human skill, with the right SI helpers.
+- **The machine.** An ancient civilization built it into the geography of an island on Earth. It
+  bends space and time, and it can "resurrect" a new type of people.
+- **The SI.** The Unified Earth Alignment banned it at the same time humans started to build in
+  space, and the island became a research island for it. It was trained on specific ancient texts
+  to key the sacred math needed to tap hidden channels outside normal space and time.
+- **Under the island** is a factory like NERV's, probably with bio-mecha chained up and harvested
+  for something.
+- **The pilots.** The island is a battle royale where future Gundam pilots are raised: imagine
+  Heero Yuy growing up there. That is half of what makes one; the other half is innate human
+  skill, with the right SI helpers.
 - **SI tech.** At its top end (in vessels, and other combinations of integration) it is nearly
   physics-breaking, close to magic. Even talking with an SI can be enough to cause trouble.
-- **The gate system.** It is how the SI reaches space in the end, and in space it infects the
+- **The gate system** is how the SI reaches space in the end, and in space it infects the
   autonomous mecha: the Mobile Dolls.
+- **The hard confirm.** Eventually this game sets up a gate to get from the Moon to Earth.
 
 What that makes of this game:
 
-- **The Arrivals** are the machine's people, raised on the island, who come through the gates and
-  wake in the docking hub with no records and a pilot's reflexes. They don't remember the island.
-- **Coming back** is the machine reaching through the gates. An Arrival wakes in the hub for the
-  same reason a player in Gates wakes on a beach, and only the machine's people can be brought back.
-- **The ZERO System** is an SI helper, in space before the SI is. Colonists come out shaking;
-  Arrivals, raised on the SI's island, find it familiar. Strain and seizure are what an SI does to
-  a mind it's too much for. Nothing else in this era comes as near the top end.
+- **The Arrivals** are humans, raised on the island the way the Gundam pilots were raised to
+  fight. They remember it like a dream, and keep little of it but the combat experience. Every
+  Arrival woke up in the docking hub: the island is the dream they woke from.
+- **Coming back** is the machine's reach. An Arrival wakes in the hub for the same reason a player
+  in Gates wakes on a beach, and only the machine's people can be brought back.
+- **The ZERO System** is SI tech, and not the safe kind: the futures it feeds a pilot come from
+  outside normal space and time. Colonists, who live with safe SI, come out shaking; Arrivals find
+  it familiar. Strain and seizure are what it does to a mind it's too much for. Nothing else in
+  this era comes as near the top end.
 - **The Mobile Dolls** are what the SI is coming for. Era IV's "or something else" is the day it
   reaches them.
+- **The gate from the Moon to Earth** is a road both ways: whoever sets it up for the pilots
+  opens the SI's road to space too (Gates' extraction windows have the same irony).
 
 ### Hidden in plain sight
 
-- **Never said.** No notice, terminal, hint, chart line or character names the SI, the island, the
-  machine or the gate system before the reveal, and nothing explains them.
+- **Never said.** No notice, terminal, hint, chart line or character names the island, the
+  machine, the banned SI, the gate system or what is under the island before the hard confirm,
+  and nothing explains them. Safe SI is everyday and can be shown.
 - **Every clue is ordinary on its own** (a name, a number, a sound, the way a Doll flies) and reads
   differently only to someone who knows. The clues in both games agree.
 - **Already in the game:** Arrivals without bodies wear **MD**, the Mobile Dolls' own letters; a
@@ -204,18 +217,23 @@ What that makes of this game:
   Gates, the town is **THE GATE**, and its death screen says
   `THE GATE would not take you - you woke on a beach`.
 - **Worth planting:** one shape across both games, the ring (the dock's ring of amber lights, the
-  course's lit rings; Gates' Severed Gate is a shattered gold ring), and one sound (ZERO's drone
-  sharing its notes with the hum of THE GATE's yard); a Mobile Doll that, rarely, flies for a
-  moment like a ZERO seizure.
+  course's lit rings; Gates' Severed Gate is a shattered gold ring); one sound (ZERO's drone
+  sharing its notes with the hum of THE GATE's yard); the sacred math's glyphs, carved on Gates'
+  ruins and flickering across ZERO's display in a seizure; a Mobile Doll that, rarely, flies for
+  a moment like a ZERO seizure.
+- **Inspiration, never names:** NERV is Evangelion's.
 
 ## Open questions
 
 - Era pacing: real time, milestones, or both.
-- Whether Arrivals recognise each other from the old world, or from the island.
-- What the Arrivals' memories of another world are, and why the island isn't among them: the
-  lives they had before the machine first brought them back, or a future the SI has seen (ZERO
-  shows the future the way they remember the story). Whether they can go home, and which home.
-- What an Arrival without a body is: an SI helper, a piece of the SI, or one of the machine's
-  people brought back without one. They wear the Dolls' letters already.
-- Who built the machine and who banned the SI (the Alliance?), and when the reveal comes, in which
-  game.
+- Whether Arrivals recognise each other, from the old world or from the island's dream.
+- Whether the other world the Arrivals remember, where After Colony is a story, is part of that
+  dream (the machine reaches outside normal space and time). Whether they can go home, and which
+  home.
+- How an Arrival gets from the island to the docking hub.
+- What an Arrival without a body is, when the Arrivals are humans. They wear the Dolls' letters
+  already.
+- Whether the Unified Earth Alignment is this world's name for the Earth Sphere Alliance, or a
+  body beside it.
+- What the bio-mecha under the island are harvested for (the owner's note broke off at
+  "the people").
