@@ -42,7 +42,9 @@ async function mine(page: Page, name: string) {
 }
 
 test("a pilot rides down into the colony, trades on its Exchange floor, and rides home", async ({ page }) => {
-  test.setTimeout(1_500_000);
+  // (Long: a page drawing in software walks the city slowly, and this walk calls at the Proving
+  // Ground, the Exchange floor, a sight and The Arrival's seats.)
+  test.setTimeout(2_100_000);
   const logs = collectConsole(page);
   await page.goto("/?autoplay=1&name=Relena&quality=low");
   await until(page, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 180_000);
