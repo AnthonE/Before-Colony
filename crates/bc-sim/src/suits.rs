@@ -267,6 +267,9 @@ pub struct Suits {
     pub parkable: Box<[Body]>,
     /// Suits that stand still, for replication's priorities.
     pub still: BitSet,
+    /// The Charter Board's trainers, boarded at the Blast Hall's gantry (`sim::launch`): they dock
+    /// back there, not at the inner gate.
+    pub trainer: BitSet,
     free: FreeList,
 }
 
@@ -324,6 +327,7 @@ impl Suits {
             hide_spot: boxed(cap, NO_SPOT),
             parkable: boxed(cap, Body::None),
             still: BitSet::new(cap),
+            trainer: BitSet::new(cap),
             free: FreeList::full(cap),
         }
     }
@@ -342,6 +346,7 @@ impl Suits {
         self.ai[idx] = AiState::default();
         self.credits[idx] = 0;
         self.sleeping.set(idx, false);
+        self.trainer.set(idx, false);
         self.reset_ground(idx);
         self.parkable[idx] = Body::None;
         Some(SuitId(Handle { idx: idx as u16, generation: self.generation[idx] }))

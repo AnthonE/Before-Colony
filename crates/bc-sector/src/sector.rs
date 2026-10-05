@@ -3,8 +3,13 @@
 use std::sync::Arc;
 
 use bc_proto::snapshot::header_flags;
-use bc_proto::{InputCmd, MAX_DATAGRAM, SnapshotHeader};
+use bc_proto::{Event, InputCmd, MAX_DATAGRAM, PilotKind, SnapshotHeader};
+use bc_sim::bodies::Body;
+use bc_sim::colony::course::{self, Event as CourseEvent};
+use bc_sim::colony::hall::DrillEvent;
+use bc_sim::ground::Footing;
 use bc_sim::handle::Handle;
+use bc_sim::sim::{LaunchAt, Loadout};
 use bc_sim::zero::TacticalPicture;
 use bc_sim::{Sim, SimConfig, SuitId};
 
@@ -15,6 +20,11 @@ use crate::replicate::{Work, build_snapshot, build_watch};
 
 /// Ticks between tactical pictures per ZERO pilot when an external oracle is attached (≈3.75 Hz).
 const PICTURE_INTERVAL: u32 = 8;
+
+/// A time on the Proving Ground's clock, s, in whole milliseconds.
+fn ms(secs: f64) -> u32 {
+    (secs * 1_000.0).round().clamp(0.0, f64::from(u32::MAX)) as u32
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct SectorConfig {
@@ -42,6 +52,8 @@ pub struct Sector {
     scratch: Box<[u8]>,
     work: Work,
     picture: TacticalPicture,
+    /// The sim's events up to here have been looked at for the Proving Ground's drills.
+    training_seen: u32,
 }
 
 impl Sector {
@@ -56,6 +68,7 @@ impl Sector {
             scratch: vec![0u8; MAX_DATAGRAM + 64].into_boxed_slice(),
             work: Work::new(max_suits, rocks),
             picture: TacticalPicture::default(),
+            training_seen: sim.events.next_seq(),
             sim,
             cfg,
             shared,
@@ -84,6 +97,9 @@ impl Sector {
         self.drain_advice();
         self.apply_inputs();
         self.sim.step();
+        if self.sim.interior() {
+            self.watch_training();
+        }
         self.pass_on_fates();
         if self.cfg.sim.survival {
             self.watch_losses();
@@ -131,12 +147,24 @@ impl Sector {
                         }
                     };
                     match seated {
-                        Some((id, outcome)) => {
-                            let seq = self.sim.events.next_seq();
-                            self.clients[s].seat(id, pilot, max_datagram as usize, seq);
-                            Metrics::set(&self.shared.metrics.pilots[s].suit, id.idx() as u64 + 1);
-                            self.shared.slots[s].publish(SlotState::Active, Some(id), outcome);
-                        }
+                        Some((id, outcome)) => self.seat(s, id, pilot, max_datagram, outcome),
+                        None => self.shared.slots[s].publish(SlotState::Refused, None, Outcome::Fresh),
+                    }
+                }
+                Control::Board { slot, pilot, frame, faction, max_datagram } => {
+                    let s = slot as usize;
+                    if s >= self.clients.len() {
+                        continue;
+                    }
+                    if self.clients[s].active {
+                        self.sim.leave(self.clients[s].suit);
+                    }
+                    // One of the Charter Board's trainers, everything fitted, on the Blast Hall's
+                    // gantry (none outside the colony).
+                    self.sim.ensure_free_suits(1);
+                    let trainer = Loadout::full(frame);
+                    match self.sim.launch_at(frame, faction, pilot, &trainer, LaunchAt::Gantry) {
+                        Some(id) => self.seat(s, id, pilot, max_datagram, Outcome::Fresh),
                         None => self.shared.slots[s].publish(SlotState::Refused, None, Outcome::Fresh),
                     }
                 }
@@ -222,6 +250,63 @@ impl Sector {
                     self.sim.discard_sleeper(SuitId(Handle { idx: suit, generation }));
                 }
             }
+        }
+    }
+
+    /// Seats slot `s`'s pilot in suit `id`, and says so.
+    fn seat(&mut self, s: usize, id: SuitId, pilot: PilotKind, max_datagram: u16, outcome: Outcome) {
+        let seq = self.sim.events.next_seq();
+        self.clients[s].seat(id, pilot, max_datagram as usize, seq);
+        Metrics::set(&self.shared.metrics.pilots[s].suit, id.idx() as u64 + 1);
+        self.shared.slots[s].publish(SlotState::Active, Some(id), outcome);
+    }
+
+    /// Inside the colony, the Proving Ground (`docs/TRAINING.md`): each pilot's run of the course,
+    /// stepped with where their suit stands at the end of the tick (as their prediction has it),
+    /// and their drill in the Blast Hall, fed their rounds' strikes on its targets this tick and
+    /// the clock. A course flown and a drill cleared go to the slot's session for the board, on its
+    /// report ring. Allocation-free: a few closed forms a pilot, and a look at the tick's events.
+    fn watch_training(&mut self) {
+        let t = self.sim.tick();
+        let (from, to) = (self.training_seen, self.sim.events.next_seq());
+        self.training_seen = to;
+        for seq in from..to {
+            let Some(&Event::TargetHit { tick, target, shooter, .. }) = self.sim.events.get(seq) else {
+                continue;
+            };
+            let Some(s) = self.clients.iter().position(|c| c.active && c.suit.idx() == usize::from(shooter))
+            else {
+                continue;
+            };
+            if let Some(DrillEvent::Cleared(secs)) = self.clients[s].drill.strike(target, tick) {
+                self.report(s, Report::Drill { ms: ms(secs) });
+            }
+        }
+        for s in 0..self.clients.len() {
+            let c = &mut self.clients[s];
+            if !c.active {
+                continue;
+            }
+            let _ = c.drill.tick(f64::from(t));
+            let i = c.suit.idx();
+            if !self.sim.suits.valid(c.suit) || !self.sim.suits.alive.get(i) {
+                c.course.clear();
+                continue;
+            }
+            let pos = self.sim.suits.flight[i].pos;
+            let standing = self.sim.suits.footing[i] == Footing::Grounded
+                && self.sim.suits.anchor[i].body == Body::City
+                && course::on_pad(pos);
+            if let Some(CourseEvent::Finished(secs)) = c.course.step(pos, f64::from(t), standing) {
+                self.report(s, Report::Course { ms: ms(secs) });
+            }
+        }
+    }
+
+    /// Tells slot `s`'s session `report`, on its ring (a full ring is counted, and the report lost).
+    fn report(&mut self, s: usize, report: Report) {
+        if self.ends.reports[s].push(report).is_err() {
+            Metrics::add(&self.shared.metrics.notes_dropped, 1);
         }
     }
 

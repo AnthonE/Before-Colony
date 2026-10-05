@@ -8,6 +8,9 @@
 //! - [`Sim::dock`](super::Sim::dock) takes a suit that has come to rest in the dock out of the
 //!   sector again, and says what it brings home ([`Homecoming`]): what's left of it, its hold,
 //!   whatever it has in hand, and the bounties it earned.
+//! - Inside the colony a suit can also come in at the Blast Hall's gantry
+//!   ([`Sim::launch_at`](super::Sim::launch_at), [`LaunchAt::Gantry`]): one of the Charter Board's
+//!   trainers, standing on the gantry's pad (`colony::hall`). It docks back there.
 //! - A suit its pilot left parked in a landmark's hide spot outlives the server:
 //!   [`Sim::park_record`](super::Sim::park_record) says where it stands and what it carries
 //!   ([`ParkRecord`]), and [`Sim::restore_sleeper`](super::Sim::restore_sleeper) puts it back
@@ -18,7 +21,7 @@ use bc_proto::{CARGO_KINDS, ChunkDesc, Faction, FrameId, InputCmd, NO_CHUNK, Par
 use glam::{Quat, Vec3};
 
 use super::Sim;
-use crate::bodies::{Bodies, Body};
+use crate::bodies::{Bodies, Body, Shape};
 use crate::content::salvage::DOCK_HUB_LENGTH;
 use crate::content::{Kits, Modules, Systems, frame, weapon};
 use crate::ground::{self, Anchor, CROUCH_STANCE, Footing, STANCE};
@@ -54,6 +57,28 @@ fn inner_launch_pose(n: u32) -> (Vec3, Quat) {
     let a = (n % LAUNCH_PLACES) as f32 * core::f32::consts::TAU / LAUNCH_PLACES as f32;
     let pos = INNER_GATE + Vec3::new(0.0, cos(a) * 40.0, sin(a) * 40.0);
     (pos, look_rotation(Vec3::X, crate::colony::frame::up_at(pos)))
+}
+
+/// Where on the Blast Hall's gantry a trainer stands: its origin, a stance over the pad's middle,
+/// facing in toward the targets, upright.
+fn gantry_pose() -> (Vec3, Quat) {
+    use crate::colony::{frame::up_at, hall};
+    let up = up_at(hall::gantry());
+    let (pos, _, _) = ground::place(&Shape::city(), hall::gantry() + up * STANCE, STANCE);
+    (pos, look_rotation(hall::gantry_facing(), up))
+}
+
+/// Where a suit launched into the sector comes in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LaunchAt {
+    /// From its pilot's bay: out of the docking hub in space, or by the inner gate inside the
+    /// colony.
+    #[default]
+    Bay,
+    /// Inside the colony, at the Blast Hall's gantry (`colony::hall`): one of the Charter Board's
+    /// trainers, standing on the gantry's pad facing in, gripping until its pilot is heard from.
+    /// It docks back there (`hall::in_gantry`), not at the inner gate.
+    Gantry,
 }
 
 /// A suit as its pilot built it.
@@ -153,16 +178,34 @@ impl Sim {
         pilot: PilotKind,
         loadout: &Loadout,
     ) -> Option<SuitId> {
+        self.launch_at(frame_id, faction, pilot, loadout, LaunchAt::Bay)
+    }
+
+    /// Launches `loadout` [`at`](LaunchAt) the bays' way in, or inside the colony at the Blast
+    /// Hall's gantry as a trainer. `None` as [`launch`](Self::launch), and for a gantry outside the
+    /// colony or a frame without legs to stand on it.
+    pub fn launch_at(
+        &mut self,
+        frame_id: FrameId,
+        faction: Faction,
+        pilot: PilotKind,
+        loadout: &Loadout,
+        at: LaunchAt,
+    ) -> Option<SuitId> {
         let spec = frame(frame_id);
-        if !spec.playable || loadout.parts[Part::Torso as usize] <= 0.0 {
+        let gantry = at == LaunchAt::Gantry;
+        if !spec.playable
+            || loadout.parts[Part::Torso as usize] <= 0.0
+            || (gantry && (!self.interior() || !spec.has_legs()))
+        {
             return None;
         }
         let id = self.suits.allocate(frame_id, faction, pilot)?;
         self.spawn_counter += 1;
-        let (pos, rot) = if self.interior() {
-            inner_launch_pose(self.spawn_counter)
-        } else {
-            launch_pose(self.spawn_counter)
+        let (pos, rot) = match at {
+            LaunchAt::Gantry => gantry_pose(),
+            LaunchAt::Bay if self.interior() => inner_launch_pose(self.spawn_counter),
+            LaunchAt::Bay => launch_pose(self.spawn_counter),
         };
         let i = id.idx();
         self.suits.place(i, frame_id, pos, rot, self.tick);
@@ -186,7 +229,16 @@ impl Sim {
         let f = &mut self.suits.flight[i];
         f.propellant = loadout.propellant.clamp(0.0, tank);
         f.vel = rot * Vec3::Z * speed;
-        if self.interior() {
+        if gantry {
+            // On its feet on the pad, at rest, its grip held: it stands there until its pilot is
+            // first heard from.
+            f.vel = Vec3::ZERO;
+            let a = Anchor { body: Body::City, local: pos, rot, stance: STANCE, ..Anchor::default() };
+            (self.suits.footing[i], self.suits.anchor[i]) = (Footing::Grounded, a);
+            self.suits.trainer.set(i, true);
+            self.suits.input[i] =
+                InputCmd { aim: rot * Vec3::Z, buttons: FLIGHT_ASSIST | GRIP, ..InputCmd::default() };
+        } else if self.interior() {
             // Until its pilot is first heard from, flight assist holds it at the gate: the colony's
             // pull would otherwise take it down to the floor while their page catches up.
             self.suits.input[i] =
@@ -195,8 +247,8 @@ impl Sim {
         Some(id)
     }
 
-    /// Takes suit `id` into the hangar: it must be alive, awake and at rest in the dock. What it
-    /// brings home; it's gone from the sector.
+    /// Takes suit `id` into the hangar: it must be alive, awake and at rest in the dock (a trainer,
+    /// on the Blast Hall's gantry). What it brings home; it's gone from the sector.
     pub fn dock(&mut self, id: SuitId) -> Option<Homecoming> {
         if !self.suits.valid(id) {
             return None;

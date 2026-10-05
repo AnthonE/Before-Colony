@@ -14,6 +14,9 @@
 //! - Into the colony, when it's open: the airlock leads to the cap lift, which rides down the end
 //!   cap's face (the whole city in view) to Hub Gate. There the pilot walks the city's streets
 //!   (`bc_client_core::city`), uses its places at their doors, and rides back up from Hub Gate.
+//! - In the Blast Hall (the Proving Ground, `docs/TRAINING.md`): E at its desk opens its board,
+//!   and E at its gantry's hatch boards one of the Charter Board's trainers there. Docked back on
+//!   the gantry, the pilot climbs out at the hatch.
 //!
 //! The server knows none of this: only where the pilot is (`core.hangar.place`) and what they ask
 //! for. Space skips a sequence.
@@ -30,10 +33,11 @@ use bc_econ::wire::{Outcome, Place, Request};
 use bc_econ::{Bay, Suit};
 use bc_proto::presence::{PersonPose, RIDE_SEATED};
 use bc_sim::colony::city::{
-    AVENUE as AVENUE_WIDTH, Stage, TERMINAL_HEIGHT, arrival_seats, district_at, place_door, seat_near,
+    AVENUE as AVENUE_WIDTH, KERB, Stage, TERMINAL_HEIGHT, arrival_seats, district_at, place_door, seat_near,
     terminal_rect,
 };
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, local_frame, up_at};
+use bc_sim::colony::hall;
 use bc_sim::colony::hub::BAY_RADIUS;
 use bc_sim::colony::pools::{pool, pool_near};
 use bc_sim::colony::transit::{
@@ -155,6 +159,8 @@ pub struct CityFoot {
     tick: (u32, f32),
     /// Sitting on one of The Arrival's seats (`bc_sim::colony::city::arrival_seats`).
     pub seat: Option<usize>,
+    /// At the Blast Hall's gantry's hatch, facing the pad: a trainer can be boarded.
+    pub gantry: bool,
 }
 
 /// Seated, the eye is this much lower than standing, m.
@@ -179,8 +185,19 @@ impl CityFoot {
     /// Out of Hub Gate's terminal, facing down the colony.
     fn at_hub_gate(strip: u8) -> Self {
         let ((s, x), (ds, dx)) = place_door(hub_gate(strip));
+        Self::at(strip, (s, x), (-ds, -dx))
+    }
+
+    /// Out of a trainer docked on the Blast Hall's gantry: at its hatch, facing the pad.
+    fn at_hatch() -> Self {
+        let (at, facing) = hall::hatch();
+        Self::at(hall::hall().strip, at, facing)
+    }
+
+    /// Standing at `(s, x)` on strip `strip`, facing `(ds, dx)`.
+    fn at(strip: u8, (s, x): (f32, f32), (ds, dx): (f32, f32)) -> Self {
         let feet = CityPos::new(strip, x, s, 0.0).walker();
-        let away = CityPos::new(strip, x - dx, s - ds, 0.0).walker() - feet;
+        let away = CityPos::new(strip, x + dx, s + ds, 0.0).walker() - feet;
         Self {
             strip,
             walker: Walker::at(feet, away.normalize()),
@@ -195,7 +212,47 @@ impl CityFoot {
             chase: true,
             tick: (0, 0.0),
             seat: None,
+            gantry: false,
         }
+    }
+
+    /// Whether the pilot stands at the Blast Hall's gantry's hatch, facing the pad.
+    fn hatch_in_view(&self) -> bool {
+        if self.ride.is_some()
+            || self.drive.is_some()
+            || self.seat.is_some()
+            || self.strip != hall::hall().strip
+        {
+            return false;
+        }
+        let ((s, x), (ds, dx)) = hall::hatch();
+        let at = self.feet();
+        let h = self.walker.heading();
+        // Facing, in city terms: x along is the walker's x, s across its −z.
+        let (hs, hx) = (-h.z, h.x);
+        (at.s - s).hypot(at.x - x) < DOOR_REACH && hs * ds + hx * dx > 0.3
+    }
+
+    /// Walks the pilot to the Blast Hall's gantry's hatch (in through its blast doors), facing the
+    /// pad.
+    fn walk_to_gantry(&mut self) -> bool {
+        let r = hall::hall();
+        if self.strip != r.strip {
+            return false;
+        }
+        let ((s, x), (ds, dx)) = hall::hatch();
+        let at = self.feet();
+        let walk = |(s, x): (f32, f32)| CityPos::new(r.strip, x, s, KERB).walker();
+        let mut route = Vec::new();
+        if !r.holds(at.s, at.x, at.h + 1.0) {
+            let (outside, inside) = r.threshold();
+            route = city_nav::route_from(r.strip, at, outside);
+            route.push(walk(inside));
+        }
+        route.push(walk((s, x)));
+        let facing = walk((s + ds, x + dx)) - walk((s, x));
+        self.guide = Some(Guide::new(route, Some(facing.normalize())));
+        true
     }
 
     /// Sits on seat `k`, facing out from it.
@@ -488,8 +545,11 @@ impl CityFoot {
     }
 
     /// Walks the pilot to a place's door, facing in; or (`sight_<i>`) to where sight `i` is seen
-    /// from the street.
+    /// from the street; or (`gantry`) to the Blast Hall's gantry's hatch.
     fn walk_to(&mut self, slug: &str) -> bool {
+        if slug == "gantry" {
+            return self.walk_to_gantry();
+        }
         if let Some(i) = slug.strip_prefix("sight_").and_then(|i| i.parse::<usize>().ok()) {
             if i >= bc_sim::content::city::SIGHTS.len() || sights::sight_at(i).0 != self.strip {
                 return false;
@@ -725,22 +785,6 @@ fn verb(spot: Spot, bay: Option<&Bay>, colony: bool) -> String {
     }
 }
 
-/// The Proving Ground's instructor's desk: the pilot's best round the course, its par, and how to
-/// bring a suit to it.
-fn proving_desk(best_ms: u32) -> String {
-    use bc_client_core::course::{Class, PAR_S, clock};
-    let best = if best_ms == 0 {
-        "NOT YET FLOWN".to_string()
-    } else {
-        let secs = f64::from(best_ms) / 1_000.0;
-        format!("YOUR BEST {} {}", clock(secs), Class::of(secs).name())
-    };
-    format!(
-        "THE PROVING GROUND · {best} · PAR {} · FROM YOUR BAY, Q AT THE COCKPIT BRINGS YOUR SUIT IN BY THE INNER GATE",
-        clock(PAR_S)
-    )
-}
-
 /// What using a place in the city is called on the prompt.
 fn city_verb(p: &PlaceDef) -> String {
     match p.kind {
@@ -801,6 +845,20 @@ pub fn drive_onfoot(
         match (before, place) {
             // A new session (or the link was reset): start afresh.
             (_, None) => *me = OnFoot::default(),
+            // Aboard a trainer at the Blast Hall's gantry: flying it, off the street.
+            (Some(Place::City), Some(Place::Space)) if g.core.hangar.trainer => {
+                me.city = None;
+                me.done(now);
+                ui.news(
+                    "A TRAINER OF THE CHARTER BOARD'S · WEAPONS FREE IN THE HALL · DOCK AT REST ON ITS GANTRY",
+                    false,
+                );
+            }
+            // Its trainer docked on the gantry: out at the hatch, on foot in the hall.
+            (Some(Place::Space), Some(Place::City)) if g.core.hangar.off_a_trainer() => {
+                me.city = Some(CityFoot::at_hatch());
+                me.done(now);
+            }
             (Some(Place::Hangar), Some(Place::Space)) if me.seq == Seq::Boarding => {
                 me.start(Seq::Venting, now);
                 if g.core.welcome.is_some_and(|w| w.interior) {
@@ -897,6 +955,7 @@ pub fn drive_onfoot(
         };
     }
     let used_key = (live && keys.just_pressed(KeyCode::KeyE)) || cmds.has(&UiCmd::Use);
+    let mut board_trainer = false;
     if in_city && let Some(c) = me.city.as_mut() {
         // This frame's trains first, so a walk to the tram sees which doors are open now (at a few
         // frames a second, the last frame's can have shut since).
@@ -961,11 +1020,16 @@ pub fn drive_onfoot(
             ui.toast(name);
         }
         c.focus = c.door_in_view();
+        // At the Blast Hall's gantry's hatch: E boards one of the Charter Board's trainers.
+        c.gantry = c.focus.is_none() && c.hatch_in_view();
+        board_trainer =
+            used_key && c.gantry && !ui.panel_open() && c.drive.is_none() && !got_out && !stood_up;
         // E by one of The Arrival's seats (no door in view): sit, unless someone's on it.
         if used_key
             && !stood_up
             && !got_out
             && c.focus.is_none()
+            && !c.gantry
             && c.seat.is_none()
             && c.drive.is_none()
             && c.ride.is_none()
@@ -1014,7 +1078,7 @@ pub fn drive_onfoot(
             let at = c.feet();
             pool_near(c.strip, at.s, at.x).is_some()
         };
-        if pool_here && c.focus.is_none() && !ui.panel_open() && !got_out {
+        if pool_here && c.focus.is_none() && !c.gantry && !ui.panel_open() && !got_out {
             let scooter = live && keys.just_pressed(KeyCode::KeyQ);
             if (used_key || scooter) && c.take(if scooter { Kind::Scooter } else { Kind::Car }) {
                 ui.toast(if scooter { "A SCOOTER FROM THE MOTOR POOL" } else { "A CAR FROM THE MOTOR POOL" });
@@ -1034,12 +1098,18 @@ pub fn drive_onfoot(
                 PlaceKind::Exchange => ui.panel = Panel::Terminal(Spot::Exchange),
                 PlaceKind::Charter => ui.panel = Panel::Board,
                 PlaceKind::Bar => ui.toast("THE ARRIVAL · THE BAR'S QUIET FOR NOW · THE SEATS ARE OUT FRONT"),
-                PlaceKind::Proving => ui.toast(proving_desk(settings.0.course_best_ms)),
+                // The instructor's desk: the board, the pars, and the pilot's own bests.
+                PlaceKind::Proving => ui.panel = Panel::Proving,
             }
         }
     } else if let Some(c) = me.city.as_mut() {
         c.focus = None;
         c.guide = None;
+        c.gantry = false;
+    }
+    if board_trainer {
+        me.start(Seq::Boarding, now);
+        ask(&net, &g, &Request::BoardTrainer);
     }
     if !in_city {
         g.core.set_pose(None);
@@ -1244,6 +1314,7 @@ pub fn drive_onfoot(
             Some(c) if c.drive.is_some() => String::new(),
             Some(c) if c.seat.is_some() => "SEATED · E OR A STEP TO STAND".into(),
             Some(c) if c.focus.is_some() => format!("E  {}", city_verb(&PLACES[c.focus.unwrap_or(0)])),
+            Some(c) if c.gantry => "E  BOARD A TRAINER · THE CHARTER BOARD'S LEO".into(),
             Some(c)
                 if c.ride.is_none() && {
                     let at = c.feet();
@@ -1374,7 +1445,8 @@ pub fn publish_onfoot(
                 .count();
             dev.set("watched_standing", standing as u32);
             if me.seq == Seq::Walking {
-                dev.set("focus", c.focus.map_or("", |i| PLACES[i].slug));
+                let focus = if c.gantry { "gantry" } else { c.focus.map_or("", |i| PLACES[i].slug) };
+                dev.set("focus", focus);
             }
         }
         None => {

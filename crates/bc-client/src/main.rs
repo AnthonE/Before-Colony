@@ -15,6 +15,8 @@ mod beams;
 #[cfg(target_arch = "wasm32")]
 mod blast;
 #[cfg(target_arch = "wasm32")]
+mod board;
+#[cfg(target_arch = "wasm32")]
 mod camera;
 #[cfg(target_arch = "wasm32")]
 mod chart;

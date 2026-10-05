@@ -404,8 +404,9 @@ Client → server (`Request`):
 | `cancel_order` | `id` | |
 | `watch` | `item` (or `null`) | send that item's book and history as they change |
 | `launch` | | board and launch the suit in the bay |
-| `dock` | | take the suit home (at rest inside the dock, or inside the colony the inner gate's ring) |
+| `dock` | | take the suit home (at rest inside the dock, or inside the colony the inner gate's ring; a trainer, on the Blast Hall's gantry) |
 | `launch_inside` | | board and launch the suit into the colony through the inner gate (the colony open) |
+| `board_trainer` | | on foot at the Blast Hall's gantry's hatch in the city: board one of the Charter Board's trainers there (the pilot's hangar untouched) |
 | `enter_city` | `strip` (0–2) | ride the cap lift down from the bay to that strip's Hub Gate (the colony open, and the pilot in their bay) |
 | `leave_city` | | ride the lift back up from Hub Gate to the bay |
 | `watch_board` | `on` | send the Charter Board (`charter`) as it changes, or stop |
@@ -423,8 +424,8 @@ Items are slugs: `ore.nickel_iron`, `mat.steel`, `mat.components`, `part.leo.tor
 `head`, `torso`, `arm_l`, `arm_r`, `legs`, `backpack`. Prices are credits a tonne for ores and
 materials (quantities in kg), credits a piece for everything else.
 
-Server → client (`Update`): `place` {`place`: `hangar`, `space` or `city`, `bay`, and in the city
-its `strip`}; `hangar` (credits,
+Server → client (`Update`): `place` {`place`: `hangar`, `space` or `city`, `bay`, in the city
+its `strip`, and `trainer: true` flying one of the Board's trainers (absent otherwise)}; `hangar` (credits,
 stock, parts with their condition, the bay: `empty`, `docked` or `out` with the suit, the job
 queues with their time left); `market` (every item's bid, ask, last and volume, the pilot's
 orders, the fee); `book` {`depth`, `history`}; `note` {`text`, `ok`} answering a request (or
@@ -435,7 +436,10 @@ datagrams use); `charter` (the Charter Board, while watched: the era, the contra
 `task` (`{"kind": "supply", "item", "qty", "delivered"}` or `{"kind": "patrol", "bounty",
 "earned"}`), reward, paid and seconds left, the great works with what each needs and has, their
 top contributors, the pilot's standing and the charter's signatures); `said` {`from`, `text`} (a line on the colony's radio, the speaker's own included,
-from the moment the pilot was welcomed, in the order the server heard them). A suit (in the bay, or out) carries
+from the moment the pilot was welcomed, in the order the server heard them); `proving` (the
+Proving Ground's board, in the colony: `course` and `drill`, the day's best as [{`name`, `ms`,
+`you`}] fastest first, `course_record` and `drill_record` the best ever, `course_par_ms` and
+`drill_par_ms`, and `mine` {`course_ms`, `drill_ms`}, the pilot's own bests; no keys of anyone's). A suit (in the bay, or out) carries
 `faults`, a map from system slug to `damaged` or `failed` (absent when everything works), and
 `modules`, its five equipment mounts' slugs (or `null`); a part on the shelf carries its own
 `faults`.
@@ -457,6 +461,15 @@ rounds, which touch no suit). `dock` at rest in the inner gate's
 ring brings the suit home, with a `sortie` and a Welcome back to sector 1 (the client slot it
 had). A client welcomed mid-session forgets what it flew in the last sector. Leaving while
 inside, the colony's tugs bring the suit back to the bay.
+
+The Proving Ground's trainers (`docs/TRAINING.md`): `board_trainer`, on foot at the Blast Hall's
+gantry's hatch (the plaza's last pose within 12 m), seats the pilot in a trainer standing on the
+gantry, with a Welcome to sector 2 as `launch_inside` gives and `place: space, trainer: true`; the
+pilot leaves the plaza. `dock` at rest on the gantry puts them back on foot at its hatch: a `note`,
+a Welcome back to sector 1 and `place: city` (their first pose is taken at the hatch, not Hub
+Gate). Nothing comes home from a trainer, and leaving in one loses nothing. The inside's sector
+times every pilot's course and drill; each one flown or cleared comes as a `note` (`THE BOARD ·
+…`) and a new `proving`, which everyone in the colony is sent as it changes (at most every 2 s).
 
 The inside keeps the outside's tick (v18): it ticks each time sector 1 has, right after it, so the
 colony has one clock. Its snapshots, the plaza's datagrams and the trams' timetable are the same

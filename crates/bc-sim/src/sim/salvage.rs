@@ -28,11 +28,16 @@ impl Sim {
         .then_some(k as usize)
     }
 
-    /// Whether suit `i` is in the dock, slow enough to sell.
+    /// Whether suit `i` is in the dock, slow enough to sell. Inside the colony: at rest in the inner
+    /// gate's ring, or a trainer on the Blast Hall's gantry.
     pub fn docked(&self, i: usize) -> bool {
         let f = &self.suits.flight[i];
         if self.interior() {
-            return crate::colony::interior::in_gate(f.pos, f.vel);
+            return if self.suits.trainer.get(i) {
+                crate::colony::hall::in_gantry(f.pos, f.vel)
+            } else {
+                crate::colony::interior::in_gate(f.pos, f.vel)
+            };
         }
         (f.pos - DOCK_CENTER).length_squared() < DOCK_RADIUS * DOCK_RADIUS
             && f.vel.length_squared() < DOCK_SPEED * DOCK_SPEED

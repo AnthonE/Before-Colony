@@ -7,8 +7,8 @@ import { bc, collectConsole } from "./util";
 // The colony inside (`scripts/e2e.sh colony`: a survival server with the colony open, no dolls,
 // and an agent strolling outside Hub Gate). The pilot goes out through their bay's airlock and
 // rides the cap lift down to Hub Gate, finds the agent there, walks across the square into the
-// Proving Ground (the Blast Hall) to its desk, walks the city's streets to the Exchange floor and
-// buys there, finds a sight, then walks back and rides up to the bay. The
+// Proving Ground (the Blast Hall) to its desk and its board, walks the city's streets to the
+// Exchange floor and buys there, finds a sight, then walks back and rides up to the bay. The
 // walking is the dev hook's (a guide walks the pilot's own legs); the terminal's panel is clicked.
 // Then a tram, a car, and two browsers: two pilots meet at Hub Gate, each seeing the other; one
 // rides home, gone from the other's street, and a suit an agent flies in by the inner gate comes
@@ -89,8 +89,15 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await expect(page.locator("#use")).toContainText("PROVING GROUND", { timeout: 30_000 });
   await until(page, "in the Blast Hall", (s) => s.city_room === "proving_ground", 30_000);
   await page.screenshot({ path: "artifacts/colony-proving-ground.png" });
+  // Its desk has the Proving Ground's board: the day's best round the course and through the drill,
+  // the pars, and how to board a trainer.
   await push(page, { cmd: "use" });
-  await expect(page.locator("#toast")).toContainText("THE PROVING GROUND", { timeout: 30_000 });
+  await until(page, "the board", (s) => s.terminal === "proving", 60_000);
+  await expect(page.locator("#term-body")).toContainText("THE DRILL", { timeout: 30_000 });
+  await expect(page.locator("#term-body")).toContainText("gantry", { timeout: 30_000 });
+  await page.screenshot({ path: "artifacts/colony-proving-board.png" });
+  await push(page, { cmd: "back" });
+  await until(page, "the board closed", (s) => s.panel === "none", 30_000);
   await until(page, "the next objective", (s) => s.objective === "FIND THE EXCHANGE FLOOR", 30_000);
 
   // The map (M): the strip, its districts, its places.

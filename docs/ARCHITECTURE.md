@@ -26,10 +26,10 @@
 | `bc-sector` | std, no tokio | The hot loop: a paced thread, lock-free queues, jitter buffers, interest, snapshot encoding, metrics. |
 | `bc-zero` | std + tokio | Tactical oracles off the hot path: the `TacticalOracle` trait, `JevOracle`, the worker. |
 | `bc-client-core` | std, no transport | Client state machine for the browser *and* bots: clock, inputs, prediction, interpolation, world model, the salvage view, `DollBrain`, `MinerBrain` and `LanderBrain`; the sector's bodies as the client knows them (`surface`), the camera's clamp to them, a walking suit's gait (`gait`) and the landmarks' meshes (`body_mesh`); the link state machine (dial, sign in, redial), the pointer, settings, first-flight hints, the objectives and their waypoints (`objectives`), the HUD's and page's palette; survival: the hangar as the server tells it (`hangar`), the bay's layout (`bay`) and the first-person walker and its guide (`walker`). The colony's city on foot: what the walker stands on (`city`), its routes along the streets (`city_nav`), the meshes of its blocks by level of detail (`city_mesh`) and the block atlas its shaders paint from (`city_atlas`). |
-| `bc-econ` | std | The economy, off the hot path: items (ores, materials, each line's parts, weapons, equipment), what's broken inside a suit's parts and what overhauling it takes (`faults`), recipes and the colony's valuations (`catalogue`), stores, the suit in the bay and what it launches as (`suit`), the fabricator's and foundry's job queues on the wall clock (`fab`), the Colony Exchange's order books with the colony as a market maker (`exchange`), a pilot's hangar and every request it takes (`hangar`), and the JSON messages (`wire`). |
+| `bc-econ` | std | The economy, off the hot path: items (ores, materials, each line's parts, weapons, equipment), what's broken inside a suit's parts and what overhauling it takes (`faults`), recipes and the colony's valuations (`catalogue`), stores, the suit in the bay and what it launches as (`suit`), the fabricator's and foundry's job queues on the wall clock (`fab`), the Colony Exchange's order books with the colony as a market maker (`exchange`), a pilot's hangar and every request it takes (`hangar`), the Proving Ground's board of the day's best times (`proving`), and the JSON messages (`wire`). |
 | `bc-auth` | `no_std` | Wallet sign-in: the EIP-4361 message both sides build, EIP-55 addresses, and (features) the server's signature check and a local wallet for agents and tests. The browser builds only the message. |
 | `bc-sound` | lib | The sound bank, generated in code (no audio files): cues, the mixer (culling, cooldowns, voices, panning), the cockpit's loops and alarms, the score (the title theme on the Super Famicom's sound chip, in software). Pure Rust; the browser plays it through Web Audio. |
-| `bc-server` | bin + lib | WebTransport sessions (`net/session.rs`: a pilot's session from slot to goodbye, and survival's hangar, sorties and requests), sign-in and the pilot registry (`pilots`: records behind a `PilotStore`, in memory or files, one session per wallet, resume tokens, suits left hidden that are put back at boot), the colony's exchange (`market`), egress thread, roster, dev HTTP, `/status`. |
+| `bc-server` | bin + lib | WebTransport sessions (`net/session.rs`: a pilot's session from slot to goodbye, and survival's hangar, sorties and requests, and the Proving Ground's trainers), sign-in and the pilot registry (`pilots`: records behind a `PilotStore`, in memory or files, one session per wallet, resume tokens, suits left hidden that are put back at boot), the colony's exchange (`market`), the Proving Ground's board (`proving`), egress thread, roster, dev HTTP, `/status`. |
 | `bc-bot` | lib + bins | Bot SDK (`BotClient`), `mobile_doll`, `miner`, `flaneur` (on foot in the colony) and `suit_inside` (a suit inside it) example agents, `bc-swarm` load tester. |
 | `bc-client` | wasm32 bin | Bevy app: procedural jointed suits (every frame's kit, animated from its `MeleeSpec`s, walking and kneeling on a body), sky, colony, field and landmarks (custom shaders), particles and effects (missiles, stream tracers, flame, jammer shimmer; sunlit smoke, burning wrecks, beams that keep a minimum width on screen), the camera's look (a grade on every tier, a lens vignette, a flare that rocks and suits hide), camera (chasing, or from the cockpit: a wraparound cockpit hung on the camera, its monitors showing the instruments rendered into one texture by a second UI camera, and a world-aligned radar sphere; `cockpit`), input with lock assist, HUD in the mobile-suit monitor style (chamfered plates and hazard-striped cautions from a small UI material, `ui_panel`; amber target corners, off-screen chevrons, a damage silhouette; one set of instruments drawn in the screen's corners or onto the cockpit's monitors; the page's fonts and palette: `bc_client_core::palette`), ZERO overlay, offline showcase scenes; the hangar bay drawn (`hangar`), with its haze, a flood light's shadow and contact shadows on the deck (`shade`), on foot in it with the launch and homecoming sequences (`onfoot`), and its terminals' data for the page (`terminal`). The colony from outside (`colony`: its mirrors, its ends and its lights, `dots`) and inside (`city`: the city on a render layer of its own, streamed by level of detail round a floating origin, lit strip by strip, its haze and its windows), and the cap lift and the city on foot (`onfoot`). |
 | `bc-model` | lib | The suits' procedural designs on a shared 24-bone rig, and the sockets their kits are drawn from (muzzles, blades, the Dragon Fang, missile hatches, the cockpit's eye), checked against each frame's hit capsules; the legs' two-bone IK (`ik`); ambient occlusion baked into every vertex from the whole suit at rest (`ao`); the cockpit seen from the seat (`cockpit`: the shell, its monitors' faces and their regions of the shared screen texture, the radar's place). |
@@ -70,7 +70,9 @@ network threads.
    (release it), Sleep (a signed-in pilot left: the suit stays, asleep; under survival, one parked
    in a landmark's hide spot is reported on the slot's ring, `Report::Parked`, for the pilot's
    record), Restore (at boot, put such a suit back, asleep, and answer on `SectorShared::restored`),
-   Discard (take away one put back after the server stopped waiting for it), Respawn frame.
+   Discard (take away one put back after the server stopped waiting for it), Respawn frame; inside
+   the colony, Board (seat a pilot in one of the Charter Board's trainers on the Blast Hall's
+   gantry, `Sim::launch_at`).
 2. **Inputs:** drain each slot's ring into a 64-slot jitter buffer, and process acks.
 3. **Oracle advice** in, with a 15-tick time-to-live.
 4. **Apply inputs** for tick `T`: the client's command if it arrived; otherwise the last one with fire
@@ -128,11 +130,16 @@ network threads.
    14. ZERO rollouts (staggered every 3 ticks per pilot).
    15. Shattered rocks grow back once no suit awake is near, nor a sleeper in the way (checked
        every 30 ticks).
-6. **Sleepers' fates** (destroyed, or cleared for room) onto the notes queue, for the server to tell
+6. **The Proving Ground** (the colony's inside only, `Sector::watch_training`): each pilot's run of
+   the course (`colony::course::Run`) stepped with where their suit stands at the end of the tick,
+   and their drill in the Blast Hall (`colony::hall::Drill`) fed this tick's `TargetHit` events of
+   theirs and the clock. A course flown or a drill cleared goes on the slot's report ring
+   (`Report::Course`, `Report::Drill`) for the board. A few closed forms a pilot; nothing allocated.
+7. **Sleepers' fates** (destroyed, or cleared for room) onto the notes queue, for the server to tell
    their pilots; under survival, the records of those in hide spots hit this tick onto
    `SectorShared::reparked`, for their pilots' records.
-7. **Tactical pictures** for ZERO pilots (≈4 Hz), only when an external oracle is attached.
-8. **Snapshots** for each client, straight into its ring. The egress thread is unparked.
+8. **Tactical pictures** for ZERO pilots (≈4 Hz), only when an external oracle is attached.
+9. **Snapshots** for each client, straight into its ring. The egress thread is unparked.
 
 ## Netcode
 
@@ -604,6 +611,20 @@ traffic and crowds.
   its targets (closed forms of the tick, drawn alike on every screen), which raises a `TargetHit`
   event. Allocation-free and deterministic (`HALL_GOLDEN`, `no_alloc`), and outside the hall the
   interior runs exactly as before.
+- **The Proving Ground's trainers, drill and board** (`TRAINING.md`, phases 3 and 4).
+  - **Trainers.** On foot at the hall's gantry's hatch, a pilot boards one of the Charter Board's
+    trainers (`Request::BoardTrainer`, `Control::Board`, `LaunchAt::Gantry`): a Leo standing on the
+    gantry's pad, flown through the inside's sector as a suit from the bays is. A trainer
+    (`Suits::trainer`) docks only on its gantry, which puts its pilot back on foot at the hatch
+    (`Plaza::enter_at`). Nothing of their hangar is in it.
+  - **Times.** The inside's sector times every pilot's course and drill in its tick. The run is
+    stepped with the suit's place at each tick's end, the place the pilot's prediction has for that
+    tick, so the client (stepping its own run on the predictor's samples) reads the same time. The
+    session puts the times on the day's board (`bc_econ::proving`, behind a lock as the exchange is:
+    `proving.rs`, `proving.json`) and a signed-in pilot's bests on their record.
+  - **The board** goes to everyone in the colony as `Update::Proving`, and is drawn on the hall's
+    back wall (`bc-client/src/board.rs`, laid out by the UI into a texture by a camera of its own)
+    and at its desk.
 
 ## AI layers
 
@@ -678,6 +699,7 @@ fire, beside 4 dolls).
 | `bc-sim` `colony::pools`, `bc-client-core` `vehicle` | Every motor pool stands on open road, room for a car. A car gets up to speed, brakes to a stop and then backs up; it turns the way its wheel says; it stops at a wall and is never inside one; its driver gets out beside it. The server takes a car only from a pool, at a car's speed. |
 | `bc-proto` `presence`, `bc-server` `plaza`, `bc-client-core` `plaza` and `figure` tests, `bc-server/tests/plaza.rs` | A pose goes round within half a step (14 B); 48 people fit one datagram; the bay's heartbeat carries only the tick; decoders never panic. The plaza takes walks, drops reordered poses, and doesn't pass on teleports, walls, another strip or a first pose away from Hub Gate; it shows only the strip and the near, and hides the silent. Clients draw people between the poses heard and hold them at the last; headings turn the short way. A figure is under 1,500 triangles and fits the walker's box; walking swings its legs. Over real WebTransport, two agents at Hub Gate see each other by name within 5 cm, a teleport isn't relayed, going back up removes a pilot, and the plaza keeps the clock within two ticks; riders are taken from beside a standing train's open doors to the next platform, and nobody boards a running train or stands outside its cars. |
 | `bc-server/tests/city.rs` | Over real WebTransport: with `--colony` the Welcome says so, a pilot rides down to a strip's city and back, trades on the exchange from there, can't launch from it, and `/status` follows them; without it, the lifts are closed. |
+| `bc-sector/tests/training_net.rs`, `bc-server/tests/proving.rs` | The Proving Ground: through the sector's queues, a trainer boarded on the Blast Hall's gantry clears the drill and docks back (none outside the colony), and the course flown from the inner gate is timed by the sector to the millisecond its pilot's run reads, with no heap operations. Over real WebTransport, a pilot walks from Hub Gate to the gantry's hatch, boards (their bay untouched), clears the drill, and the server's time is on the board, in `/status` and on their record; docked back, they're on foot at the hatch, their first step taken there; the board and their best outlive a restart; a pilot gone while flying a trainer wakes in their bay, their own suit there. |
 | `bc-server/tests/inside.rs`, `bc-sector/tests/watch_net.rs` | A suit launched into the colony by the inner gate flies there with its weapons safe and docks back out, and a pilot who leaves inside finds it towed home; the inside keeps the outside's tick; a suit flown down over Hub Gate sees a pilot walking there by name, where they are, and they see it (as a spectator), until they ride back up; armed, a suit lands on the avenue and walks up it, predicted as the server has it. A spectator's snapshots carry no own suit and the suits near it, tell it of one that leaves its view, and cost the tick nothing on the heap. |
 | `bc-sim` `ground::tests::city` | An armed suit over the avenue is caught by the city, comes down no faster than the brake, stands a stance over the floor, walks up the avenue at a walk and lifts off without a jump; walking into the blocks, it climbs the kerb and is stopped short of whatever stands there, never nearer anything than its stance; dropped on a roof it stands there, and walked over the edge it falls, kept off the walls it passes, and stands on what's below. The city's probe agrees with `colony::city::solid_built` (the city without its street furniture, which suits step over) everywhere in it and finds the ground straight under a suit. |
 | `e2e/tests/colony.spec.ts` | The colony in the browser (`--colony`, an agent strolling outside Hub Gate): out through the bay's airlock, down the cap lift (skipped) to Hub Gate, the agent seen there, the map, a walk through the streets to the Exchange floor to buy there through its panel, back to Hub Gate and up to the bay; the server's `/status` follows the pilot (`city`, then `hangar`), and the hot path never allocates. Then a tram from Hub Gate's platform one stop up the line, and a car from its motor pool up the avenue, with no pose refused. |

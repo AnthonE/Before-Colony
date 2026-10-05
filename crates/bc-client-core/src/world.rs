@@ -11,6 +11,7 @@ use bc_proto::{
 use bc_sim::TICK_HZ;
 use bc_sim::bodies::{Bodies, Body};
 use bc_sim::chunks::{self, held_pose, segment_pos, segment_rot};
+use bc_sim::colony::hall::{Drill, DrillEvent};
 use bc_sim::content::{SpecialKind, WeaponClass, frame, frame_name, weapon};
 use bc_sim::flight::FlightState;
 use bc_sim::ground::{Anchor, derive};
@@ -255,6 +256,11 @@ pub struct World {
     /// The Blast Hall's targets struck, newest last, and how many by this pilot's rounds.
     pub target_hits: VecDeque<TargetMark>,
     pub my_target_hits: u32,
+    /// The pilot's drill in the Blast Hall (`bc_sim::colony::hall::Drill`), fed their own rounds'
+    /// strikes and each snapshot's tick, as the server's sector feeds its own; and what it did,
+    /// oldest first (the HUD takes them).
+    pub drill: Drill,
+    pub drill_news: Vec<DrillEvent>,
     seen: VecDeque<u16>,
     pub faction: Faction,
     pub my_hits: u32,
@@ -291,6 +297,8 @@ impl World {
             missile_bursts: VecDeque::new(),
             target_hits: VecDeque::new(),
             my_target_hits: 0,
+            drill: Drill::default(),
+            drill_news: Vec::new(),
             seen: VecDeque::new(),
             faction,
             my_hits: 0,
@@ -453,6 +461,12 @@ impl World {
         for ev in events {
             self.apply_event(ev, me);
         }
+        // The drill's clock at this snapshot's tick: the pilot's strikes up to it came with it or
+        // before (but for one held over for room in a crowded datagram, when the HUD may call time
+        // early: the board goes by the server's clock).
+        if let Some(e) = self.drill.tick(f64::from(tick)) {
+            self.drill_said(e);
+        }
         // Forget tracks the server stopped updating without telling us (lost Leave).
         for slot in self.entities.iter_mut() {
             if slot.as_ref().is_some_and(|t| tick.saturating_sub(t.latest_tick) > t.stale_ticks()) {
@@ -546,6 +560,14 @@ impl World {
                     self.entity(slot).is_some_and(|e| e.latest.flags & ent_flags::WRECK != 0)
                 }
         })
+    }
+
+    /// What the drill did, for the HUD to take (a client that never does keeps the newest few).
+    fn drill_said(&mut self, e: DrillEvent) {
+        if self.drill_news.len() >= 32 {
+            self.drill_news.remove(0);
+        }
+        self.drill_news.push(e);
     }
 
     fn apply_event(&mut self, ev: &Event, me: Option<u16>) {
@@ -666,6 +688,9 @@ impl World {
                     let by_me = Some(shooter) == me;
                     if by_me {
                         self.my_target_hits += 1;
+                        if let Some(e) = self.drill.strike(target, tick) {
+                            self.drill_said(e);
+                        }
                     }
                     self.target_hits.push_back(TargetMark { tick, target, by_me });
                     while self.target_hits.len() > 32 {

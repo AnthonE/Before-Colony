@@ -94,6 +94,9 @@ for it, but outside the hall they find nothing to do: every golden of the interi
   the launch would otherwise find it fallen to the floor).
 - **Back**: at rest inside the inner gate's ring of lights, Enter docks, as the outer dock does
   today (`Request::Dock`), back to the bay.
+- **From the Blast Hall's gantry** (built, `TRAINING.md` phase 3): on foot in the city, a pilot
+  boards one of the Charter Board's trainers there (`Request::BoardTrainer`), standing on the
+  gantry's pad. It docks back only on the gantry, and its pilot climbs out there on foot.
 - **Later, through the axis port**: a suit flying out of the interior along the axis hands off to
   `sector-0` at the port, converting its state between frames (`colony_to_sector` and the spin's
   angular velocity). This is the scaling path's handoff, and waits on it.

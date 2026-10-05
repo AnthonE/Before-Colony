@@ -238,6 +238,7 @@ fn hangar_json(h: &HangarState, log: &TerminalLog) -> Value {
         "view": h.view,
         "market": h.market,
         "charter": h.charter,
+        "proving": h.proving,
         "book": h.book.as_ref().map(|(depth, history)| json!({ "depth": depth, "history": history })),
         "console": h.view.as_ref().map(console),
         "log": log.lines,

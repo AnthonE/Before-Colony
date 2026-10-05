@@ -12,7 +12,7 @@ the bay, space, home).
 | Lock-on: fighting on the ground in space (`LOCK.md`) | built |
 | The weapons pass: the hit-rate harness, charged beams, true cones, lunges that home, the burst step | built |
 | P0: a floor under loss, text chat, objectives along the chain, The Arrival's seats | built |
-| P1: the Proving Ground's course, the Blast Hall and its live fire (`TRAINING.md`, phases 1, 2 and 5) | built |
+| P1: the Proving Ground: its course, the Blast Hall, its live fire, trainers boarded there, the drill and the board (`TRAINING.md`, phases 1 to 5) | built |
 | P1's rest, P2 below | planned |
 
 ## P0: before more players arrive
@@ -53,12 +53,12 @@ sitting, and a step in the colony e2e.
 course (`bc_sim::colony::course`). It's 13 rings in the colony's air, from the inner gate down over
 the first window to the Charter strip's avenue, a slalom, a climb and a turn over the top, home
 along the avenue and onto a pad on Hub Gate's square.
-- The pilot's client times it (`bc_client_core::course::Run`) on the predicted suit: the clock runs
-  from the start ring to standing on the pad.
-- The best time is kept with the settings (`course_best_ms`).
+- The pilot's client times it on the predicted suit (`bc_sim::colony::course::Run`, stepped tick
+  by tick): the clock runs from the start ring to standing on the pad.
+- The best time is kept with the settings (`course_best_ms`), and since phase 4 on the server's
+  board.
 - `bc-client/src/course.rs` draws the rings (pilots on foot see them too), and the objectives'
   panel and waypoint show the course while flying inside.
-- No wire, and nothing for the server.
 - Tests: the rings against the city's walls; the run's rules; a Leo flying the whole course in the
   interior sector's simulation and landing on the pad.
 
@@ -73,9 +73,25 @@ leave it and score on its twelve targets (the `TargetHit` event); outside it the
 weapons' buttons, as the pilot's prediction does. Tests: `hall`'s units, the interior's, a new
 `HALL_GOLDEN`, `no_alloc`, and the `inside` e2e scoring on a target.
 
-Next, in order:
-- **Boarding a trainer there** (`Request::Launch { into: Proving }`).
-- **The server's board of times**, from `Metrics::pilots`, and the targets' drill with a clock.
+**Phase 3, boarding in the hall, is built:** on foot at the gantry's hatch, `Request::BoardTrainer`
+seats the pilot in one of the Charter Board's Leos (`Control::Board`, `Sim::launch_at` with
+`LaunchAt::Gantry`), standing on the gantry's pad. Their hangar is untouched. Docked back at rest
+on the gantry, they climb out at its hatch.
+
+**Phase 4, the board, is built, with the drill.**
+- The interior sector times every pilot's course and drill in its tick
+  (`Sector::watch_training`) with the same closed forms as their client, and reports the times
+  (`Report::Course`, `Report::Drill`).
+- The session puts them on the day's board (`bc_econ::proving`, `proving.json`) and a signed-in
+  pilot's bests on their record.
+- The board is sent to everyone in the colony (`Update::Proving`). It's drawn on the hall's back
+  wall and opened at its desk.
+- The drill is X-Wing's Maze: twenty targets lit in turn, the clock starting on the first and each
+  one struck putting time back.
+- Tests: the sim's, `bc-sector/tests/training_net.rs`, `bc-server/tests/proving.rs`, and the
+  `inside` and `colony` e2e.
+
+Next: the hall's own course and a level ladder (phase 6).
 
 **Contracts on the Charter Board.** `bc-econ` `contracts.rs`: jobs the colony posts (deliver this
 much ore or these parts to the dock; down Dolls over the field; bring a wreck home), each with a

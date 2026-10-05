@@ -265,11 +265,16 @@ pub fn update_objectives(
         });
     state.waypoint =
         if afoot { None } else { current.and_then(|o| waypoint_at(core, o.waypoint(), from, t)) };
-    // Flying inside the colony: no objectives in there. The panel is the Proving Ground's course
-    // (`course.rs`), and the waypoint its next ring, or else the inner gate.
+    // Flying inside the colony: no objectives in there. The panel is the Proving Ground's
+    // (`course.rs`), and the waypoint the course's next ring, or else where the suit docks: the inner
+    // gate, or a trainer's gantry in the Blast Hall.
     if inside {
         state.waypoint = course.waypoint.clone().or_else(|| {
-            Some((bc_sim::colony::interior::INNER_GATE, "INNER GATE: DOCK AT REST IN ITS RING".into()))
+            Some(if core.hangar.trainer {
+                (bc_sim::colony::hall::gantry(), "GANTRY: DOCK AT REST ON ITS PAD".into())
+            } else {
+                (bc_sim::colony::interior::INNER_GATE, "INNER GATE: DOCK AT REST IN ITS RING".into())
+            })
         });
     }
     let course_lines = course.lines.as_ref().filter(|_| inside);

@@ -4,9 +4,10 @@
 //!
 //! A pose is taken only if it could be: on the pilot's own strip, within the colony, not inside a
 //! wall (`bc_sim::colony::city::solid`, the walls every client walks into), no further from the
-//! last one taken than a running pilot (or a car) could go, and, the first, near the strip's Hub
-//! Gate, where the lift comes down; on a tram only from beside its open doors, and in a car only
-//! from a motor pool. Anything else isn't passed on.
+//! last one taken than a running pilot (or a car) could go, and, the first, near where they came
+//! in: the strip's Hub Gate, where the lift comes down (or the Blast Hall's gantry, climbing out of
+//! a trainer); on a tram only from beside its open doors, and in a car only from a motor pool.
+//! Anything else isn't passed on.
 //!
 //! Pilots flying suits inside the colony see the people too: those on the strip under the suit,
 //! near it in the air ([`Plaza::fill_around`]).
@@ -36,7 +37,8 @@ const SLACK: f32 = 2.0;
 /// is done, and the next frame's a moment later. Standing still a minute carries no more, and a
 /// teleport is refused.
 const BANK: f32 = 2.0;
-/// A pilot's first pose must be this near their strip's Hub Gate, m: everyone comes down its lift.
+/// A pilot's first pose must be this near where they came in, m: their strip's Hub Gate (everyone
+/// comes down its lift), or the Blast Hall's gantry.
 const ARRIVAL: f32 = 150.0;
 /// Someone not heard from this long isn't shown, s.
 const HIDE: f32 = 5.0;
@@ -64,6 +66,8 @@ pub enum Verdict {
 struct Person {
     name: String,
     strip: u8,
+    /// Where they came into the city: `(s, x)`.
+    arrival: (f32, f32),
     pose: Option<PersonPose>,
     seq: u16,
     heard: Instant,
@@ -210,6 +214,13 @@ fn possible(p: &PersonPose) -> bool {
 impl Plaza {
     /// `id` came down to strip `strip`'s Hub Gate.
     pub fn enter(&self, id: u16, name: &str, strip: u8) {
+        let strip = strip % STRIPS as u8;
+        self.enter_at(id, name, strip, hub_gate(strip));
+    }
+
+    /// `id` came into strip `strip`'s city at `(s, x)` (out of a trainer, at the Blast Hall's
+    /// gantry): their first pose must be near there.
+    pub fn enter_at(&self, id: u16, name: &str, strip: u8, arrival: (f32, f32)) {
         if let Ok(mut all) = self.people.lock() {
             let strip = strip % STRIPS as u8;
             all.insert(
@@ -217,6 +228,7 @@ impl Plaza {
                 Person {
                     name: name.into(),
                     strip,
+                    arrival,
                     pose: None,
                     seq: 0,
                     heard: Instant::now(),
@@ -280,7 +292,7 @@ impl Plaza {
                 }
             }
             None => {
-                let (s, x) = hub_gate(me.strip);
+                let (s, x) = me.arrival;
                 let ok = pose.riding().is_none() && (pose.x - x).hypot(pose.s - s) <= ARRIVAL;
                 (!ok).then_some(Why::Arrival)
             }
@@ -332,7 +344,7 @@ impl Plaza {
         shown.clear();
         let Ok(all) = self.people.lock() else { return };
         let Some(me) = all.get(&viewer) else { return };
-        let (s, x) = me.pose.map_or_else(|| hub_gate(me.strip), |p| place(&p, tick));
+        let (s, x) = me.pose.map_or(me.arrival, |p| place(&p, tick));
         let d = |ps: f32, px: f32, _: f32| (px - x).hypot(ps - s);
         nearest(&all, Some(viewer), me.strip, now, tick, NEAR, d, w, shown);
     }
@@ -361,7 +373,7 @@ impl Plaza {
     }
 
     /// Where `id` is in the colony's own frame at tick `tick` (a rider: where their train has
-    /// them); before their first pose, their strip's Hub Gate. `None` if they're not in the city.
+    /// them); before their first pose, where they came in. `None` if they're not in the city.
     pub fn where_is(&self, id: u16, tick: u32) -> Option<Vec3> {
         let all = self.people.lock().ok()?;
         let me = all.get(&id)?;
@@ -370,10 +382,7 @@ impl Plaza {
                 let (s, x) = place(&p, tick);
                 (s, x, p.h.max(0.0))
             }
-            None => {
-                let (s, x) = hub_gate(me.strip);
-                (s, x, 0.0)
-            }
+            None => (me.arrival.0, me.arrival.1, 0.0),
         };
         Some(CityPos::new(me.strip, x, s, h).to_colony())
     }
@@ -486,6 +495,21 @@ mod tests {
         assert_eq!(plaza.counts().0, 2);
         plaza.leave(2);
         assert!(seen(&plaza, 1, t1).is_empty());
+    }
+
+    #[test]
+    fn out_of_a_trainer_a_pilot_comes_in_at_the_blast_halls_gantry() {
+        // Climbing out of a trainer docked on the gantry: their first pose is at its hatch, in the
+        // hall, not at Hub Gate; one far from there isn't taken.
+        let plaza = Plaza::default();
+        let t0 = Instant::now();
+        let ((s, x), _) = bc_sim::colony::hall::hatch();
+        let strip = bc_sim::colony::hall::hall().strip;
+        plaza.enter_at(1, "Wufei", strip, (s, x));
+        let at_hatch = bc_sim::colony::frame::CityPos::new(strip, x, s, 0.0).to_colony();
+        assert!(plaza.where_is(1, 0).is_some_and(|p| p.distance(at_hatch) < 0.01));
+        assert_eq!(plaza.accept(1, 1, at(strip, s, x + 400.0), t0, 0), Verdict::Implausible);
+        assert_eq!(plaza.accept(1, 2, at(strip, s, x + 1.0), t0, 0), Verdict::Taken);
     }
 
     #[test]

@@ -166,8 +166,10 @@ tells you what's going on.
     - "after Level 8, the course stays the same, but you have five seconds less".
   - **TIE Fighter's Combat Chamber:** four missions per craft, with lessons radioed in mid-flight,
     and a bronze, silver or gold medallion for them.
-  - **What we take:** the Proving Ground (`TRAINING.md`). Its first phase is built: a ring course
-    in the colony's air, timed, with a par and a certificate.
+  - **What we take:** the Proving Ground (`TRAINING.md`), built: a ring course in the colony's air,
+    timed, with a par and a certificate; the Blast Hall's drill, its targets lit one at a time
+    against a clock that each one struck puts time back on (the Maze's added time); trainers
+    boarded in the hall; and the day's best on its wall, X-Wing's high-score table.
 - **It teaches the machine.**
   - The official guide's tips for the Maze are about energy [P9]:
     - to slow down, raise laser recharge rather than cut the throttle;
@@ -268,7 +270,8 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
 
 5. **The Proving Ground** (X-Wing and TIE Fighter; the owner's ask). A place to learn a suit before
    it counts: a hall off Hub Gate's square, walked on foot, a trainer boarded there, and a course
-   of rings through the colony's air against a clock (`TRAINING.md`). The course is built.
+   of rings through the colony's air against a clock (`TRAINING.md`). Built: the course, the hall,
+   its trainers, its drill and its board; next, the hall's own course and a level ladder.
 6. **Contracts on the Charter Board.** Jobs posted in the city, flown in space, paid at the desk:
    haul this, clear that claim, escort a hauler home (`DESIGN.md`, roadmap, "Contracts"), with the
    reward held in escrow as the Exchange holds its orders' (`bc-econ`). Star Citizen's mission

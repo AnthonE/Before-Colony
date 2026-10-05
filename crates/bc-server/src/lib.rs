@@ -17,6 +17,7 @@ pub mod market;
 pub mod net;
 pub mod pilots;
 pub mod plaza;
+pub mod proving;
 pub mod radio;
 pub mod telemetry;
 

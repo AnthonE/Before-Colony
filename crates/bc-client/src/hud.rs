@@ -1190,7 +1190,9 @@ pub fn update_hud(
             sv.push_str(&format!("SOLD +{amount} cr\n"));
         }
         if o.flags & own_flags::DOCKED != 0 {
-            sv.push_str(if survival {
+            sv.push_str(if core.hangar.trainer {
+                "ON THE GANTRY  ENTER: climb out\n"
+            } else if survival {
                 "IN THE DOCK  ENTER: into your bay\n"
             } else {
                 "DOCKED  colony salvage yard\n"
@@ -1496,14 +1498,22 @@ pub fn update_hud(
             .filter(|_| o.held != NO_CHUNK)
             .map_or(0, |c| c.desc.mass_kg * PRICE[material(c.desc.kind)]);
         if survival {
-            // Home is always marked: at rest inside the dock's ring of lights, Enter.
-            let d = km(DOCK_CENTER.distance(own_pos));
-            let text = if o.flags & own_flags::DOCKED != 0 {
-                format!("DOCK {d}  ENTER: home")
+            // Home is always marked: at rest inside the dock's ring of lights, Enter. Inside the
+            // colony that's the inner gate's ring, and for a trainer its gantry in the Blast Hall.
+            let (at, name, home) = if core.hangar.trainer {
+                (bc_sim::colony::hall::gantry(), "GANTRY", "climb out")
+            } else if core.predict.interior() {
+                (bc_sim::colony::interior::INNER_GATE, "INNER GATE", "home")
             } else {
-                format!("DOCK {d}")
+                (DOCK_CENTER, "DOCK", "home")
             };
-            dock_at = Some((DOCK_CENTER, text));
+            let d = km(at.distance(own_pos));
+            let text = if o.flags & own_flags::DOCKED != 0 {
+                format!("{name} {d}  ENTER: {home}")
+            } else {
+                format!("{name} {d}")
+            };
+            dock_at = Some((at, text));
         } else if cargo_value + held_value > 0 {
             dock_at = Some((
                 DOCK_CENTER,

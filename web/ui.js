@@ -959,6 +959,37 @@
     return `<div class="split even"><div>${left}</div><div>${right}</div></div>`;
   }
 
+  // The Proving Ground's board, at the Blast Hall's desk: the day's best round the course and
+  // through the drill (turning over at midnight UTC), the best ever, the pars, and the pilot's own
+  // bests. Every time on it is one the server checked (crates/bc-econ/src/proving.rs).
+  const clock = (ms) => {
+    const t = Math.floor(ms / 100);
+    return `${Math.floor(t / 600)}:${String(Math.floor(t / 10) % 60).padStart(2, "0")}.${t % 10}`;
+  };
+  const certificate = (ms, par) => (ms <= par ? "FIRST CLASS" : ms <= par * 1.5 ? "SECOND CLASS" : "THIRD CLASS");
+  function boardColumn(title, how, rows, record, par, mine, none) {
+    let out = `<h3>${title}</h3><div class="note">${how} Par is ${clock(par)}.</div>`;
+    out += `<div class="note">Your best: ${mine ? `<b>${clock(mine)}</b> ${certificate(mine, par)}` : none}</div>`;
+    if (!rows.length) out += `<div class="note">Nobody yet today.</div>`;
+    else {
+      out += `<table><tr><th></th><th>TODAY</th><th class="num">TIME</th><th></th></tr>` +
+        rows.map((r, k) => `<tr${r.you ? ' class="chosen"' : ""}><td class="dim">${k + 1}</td><td>${esc(r.name)}</td>` +
+          `<td class="num">${clock(r.ms)}</td><td class="dim">${certificate(r.ms, par)}</td></tr>`).join("") + `</table>`;
+    }
+    if (record) out += `<div class="note">The best ever: <b>${clock(record.ms)}</b> ${esc(record.name)}${record.you ? " (you)" : ""}</div>`;
+    return out;
+  }
+  function renderProving() {
+    const p = hangar?.proving;
+    if (!p) return `<div class="note">The Proving Ground's board hangs in the Blast Hall, off Hub Gate's square, and is kept at its desk: ride the cap lift down to see it.</div>`;
+    const course = boardColumn("THE COURSE", "Thirteen rings from by the inner gate down to Hub Gate's square, and land on its pad.",
+      p.course, p.course_record, p.course_par_ms, p.mine?.course_ms, "not yet flown.");
+    const drill = boardColumn("THE DRILL", "In the Blast Hall: twenty targets lit in turn against the clock, each struck putting time back on it.",
+      p.drill, p.drill_record, p.drill_par_ms, p.mine?.drill_ms, "not yet cleared.");
+    const how = `<div class="note">Board a trainer at the gantry's hatch, by the blast doors (E): the Charter Board's Leo, weapons free in the hall. Dock it back at rest on the gantry. From your bay, Q at the cockpit brings your own suit in by the inner gate.</div>`;
+    return `<div class="split even"><div>${course}</div><div>${drill}</div></div>${how}`;
+  }
+
   // Replacing a focused field blurs it, and a blur can fire events that would render again from
   // inside this render: once at a time.
   let rendering = false;
@@ -981,7 +1012,7 @@
     const caret = key && typeof active.selectionStart === "number" ? active.selectionStart : null;
     const body = $("term-body");
     const scroll = body.scrollTop;
-    const render = { fabricator: renderFabricator, stores: renderStores, suit: renderSuit, exchange: renderExchange, charter: renderCharter }[tab];
+    const render = { fabricator: renderFabricator, stores: renderStores, suit: renderSuit, exchange: renderExchange, charter: renderCharter, proving: renderProving }[tab];
     body.innerHTML = render ? render() : "";
     body.scrollTop = scroll;
     if (key) {
