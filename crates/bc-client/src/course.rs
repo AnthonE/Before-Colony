@@ -15,6 +15,7 @@
 
 use bc_client_core::course::{Class, Event, Run, clock};
 use bc_sim::bodies::Body;
+use bc_sim::colony::city::KERB;
 use bc_sim::colony::course::{GATES, PAD_RADIUS, centre, on_pad, pad_centre, way};
 use bc_sim::colony::frame::up_at;
 use bc_sim::colony::hall::{self, DRILL, DRILL_BONUS_S, DRILL_PAR_S, Drill, DrillEvent, GANTRY_RADIUS};
@@ -177,7 +178,7 @@ fn setup_course(
     }
     commands.insert_resource(TargetLooks { idle, hit, lit: lit_look });
     // The gantry: two rings of light on the hall's floor, round where a trainer stands (flattened
-    // to strips a few centimetres high).
+    // to strips a few centimetres high, just over the floor, which is the kerb's height).
     let dim = lit(&mut materials, Color::srgb(0.7, 0.45, 0.1), [1.2, 0.7, 0.1]);
     let bright = lit(&mut materials, Color::srgb(1.0, 0.85, 0.4), [8.0, 5.0, 1.0]);
     let up = up_at(hall::gantry());
@@ -189,7 +190,7 @@ fn setup_course(
             MeshMaterial3d(dim.clone()),
             Transform::from_rotation(Quat::from_rotation_arc(Vec3::Y, up))
                 .with_scale(Vec3::new(1.0, 0.2, 1.0)),
-            Placed((hall::gantry() + up * 0.1).as_dvec3()),
+            Placed((hall::gantry() + up * (KERB + 0.1)).as_dvec3()),
             RenderLayers::layer(CITY_LAYER),
             Visibility::Hidden,
         ));
