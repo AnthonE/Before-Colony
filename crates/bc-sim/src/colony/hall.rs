@@ -73,22 +73,24 @@ const fn sweep(v: f32, h: f32, period: u32, phase: f32) -> Track {
     Track { u: 0.0, v, h, bob: 0.0, sweep: 30.0, period, phase }
 }
 
-/// The targets: four still by the back wall (two low, two at a standing suit's head), four bobbing
-/// over the middle of the floor, four sweeping across high up, each on its own beat. However they
-/// move, none comes within three radii of another.
+/// The targets, all in the hall's back half: its front 40 m, inside the blast doors, is the firing
+/// line. Four still by the back wall (two low, two at a standing suit's head), four bobbing over
+/// the floor, four sweeping across high up, each on its own beat. However they move, none comes
+/// within three radii of another.
+pub const FIRING_LINE: f32 = 40.0;
 const TRACKS: [Track; TARGETS] = [
-    still(-30.0, 74.0, 8.0),
-    still(-10.0, 74.0, 20.0),
-    still(10.0, 74.0, 8.0),
-    still(30.0, 74.0, 20.0),
-    bob(-24.0, 40.0, 22.0, 150, 0.0),
-    bob(-8.0, 40.0, 30.0, 190, 0.3),
-    bob(8.0, 40.0, 22.0, 170, 0.6),
-    bob(24.0, 40.0, 30.0, 210, 0.9),
-    sweep(56.0, 38.0, 240, 0.0),
-    sweep(70.0, 38.0, 300, 0.25),
-    sweep(56.0, 54.0, 360, 0.5),
-    sweep(70.0, 54.0, 270, 0.75),
+    still(-30.0, 78.0, 8.0),
+    still(-10.0, 78.0, 20.0),
+    still(10.0, 78.0, 8.0),
+    still(30.0, 78.0, 20.0),
+    bob(-24.0, 50.0, 22.0, 150, 0.0),
+    bob(-8.0, 50.0, 30.0, 190, 0.3),
+    bob(8.0, 50.0, 22.0, 170, 0.6),
+    bob(24.0, 50.0, 30.0, 210, 0.9),
+    sweep(63.0, 38.0, 240, 0.0),
+    sweep(77.0, 38.0, 300, 0.25),
+    sweep(63.0, 54.0, 360, 0.5),
+    sweep(77.0, 54.0, 270, 0.75),
 ];
 
 /// Where target `i` is at tick `t` plus `frac` of the next, in the colony's own frame.
@@ -227,6 +229,12 @@ mod tests {
                     assert!(p.distance(target(j, t, 0.5)) > 3.0 * TARGET_RADIUS, "{i} and {j} at {t}");
                 }
             }
+        }
+        // All beyond the firing line.
+        for i in 0..TARGETS {
+            let Under::Land(c) = from_colony(target(i, 0, 0.0)) else { panic!() };
+            let v = (if r.front.along_s { c.x } else { c.s } - r.front.face) * r.front.sign;
+            assert!(v - TARGET_RADIUS > FIRING_LINE, "target {i} {v} m in");
         }
         // The still ones are still; the others move.
         for i in 0..TARGETS {

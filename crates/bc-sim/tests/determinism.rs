@@ -1042,7 +1042,7 @@ fn interior_golden_wasm() {
 /// in the hall turning on its targets in turn and firing their beams, guns and missiles at them for
 /// ten seconds, one of them wandering out through the blast doors and back; the targets' tracks; and
 /// every training round that scored. The server's interior and each pilot's prediction run it alike.
-const HALL_GOLDEN: u64 = 0xf863_9fbc_8bfe_516a;
+const HALL_GOLDEN: u64 = 0xf345_9107_f514_24fc;
 
 fn hall_hash() -> u64 {
     use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST};

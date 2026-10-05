@@ -243,7 +243,8 @@ forms, which the server's interior sector and each pilot's prediction share.
     open blast doors. Nothing fired in the hall leaves it (`hall::shot_end`, `first_blocker`'s
     interior branch).
 - **The targets:** twelve holograms 8 m across, hung in the hall's air by the tick
-  (`hall::target`).
+  (`hall::target`), all in its back half: its front 40 m, inside the blast doors, is the firing
+  line (`hall::FIRING_LINE`).
   - Four stand still by the back wall, two low and two at a suit's head.
   - Four bob over the middle of the floor; four sweep across it high up, each on its own beat.
   - None comes within three radii of another.
