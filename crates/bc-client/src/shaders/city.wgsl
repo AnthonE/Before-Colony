@@ -304,20 +304,26 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         } else {
             // The back wall: what the place is.
             if (blast) {
-                // The Proving Ground's board: the course drawn in light on a dark screen 8 to 38 m up,
-                // its rings strung along its line, a pulse running down them; the chevrons below.
-                let screen = step(8.0, uv.y) * step(uv.y, 38.0);
-                let q = vec2(fract(uv.x / 84.0) * 84.0, uv.y - 23.0);
+                // The Proving Ground's board: the course drawn in light on a dark screen from a
+                // person's knee to 38 m up, its rings strung along its line with a pulse running down
+                // them; at a person's eye, a row of lamps over the desk with a light running along
+                // it; yellow and black chevrons at its foot.
+                let screen = step(1.6, uv.y) * step(uv.y, 38.0);
+                let q = vec2(fract(uv.x / 84.0) * 84.0, uv.y - 16.0);
                 let path = 9.0 * sin(q.x * 0.11) + 3.0 * sin(q.x * 0.37);
                 let rule = step(abs(fract(uv.x / 2.0) - 0.5), 0.02) + step(abs(fract(uv.y / 2.0) - 0.5), 0.02);
                 let along = step(abs(q.y - path), 0.12);
                 let c = vec2(floor(q.x / 6.5) * 6.5 + 3.25, 0.0);
                 let ring = step(abs(length(vec2(q.x - c.x, q.y - (9.0 * sin(c.x * 0.11) + 3.0 * sin(c.x * 0.37)))) - 1.6), 0.18);
                 let pulse = step(fract(q.x / 84.0 - city.day.z * 0.05), 0.08);
+                let cell = fract(uv.x / 1.2);
+                let lamp = step(2.2, uv.y) * step(uv.y, 2.9) * step(0.15, cell) * step(cell, 0.85);
+                let run = step(fract(floor(uv.x / 1.2) / 13.0 - city.day.z * 0.4), 1.0 / 13.0);
                 albedo = mix(vec3(0.42, 0.42, 0.4), vec3(0.03, 0.04, 0.05), screen);
                 glow = vec3(0.3, 0.9, 1.0) * screen * (min(rule, 1.0) * 25.0 + along * 400.0 + ring * (700.0 + pulse * 900.0));
+                glow += vec3(1.0, 0.7, 0.2) * lamp * (80.0 + run * 900.0);
                 let chevron = step(0.5, fract((uv.x + uv.y) / 1.6));
-                albedo = mix(albedo, mix(vec3(0.04), vec3(0.95, 0.72, 0.05), chevron), step(4.0, uv.y) * step(uv.y, 5.2));
+                albedo = mix(albedo, mix(vec3(0.04), vec3(0.95, 0.72, 0.05), chevron), step(uv.y, 1.4));
             } else if (kind == 2u) {
                 // The Exchange's boards: rows of prices, green and amber, changing every few seconds.
                 let band = step(3.0, uv.y) * step(fract((uv.y - 3.0) / 1.1), 0.7);
