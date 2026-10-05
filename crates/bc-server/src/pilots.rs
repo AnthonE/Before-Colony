@@ -216,6 +216,9 @@ pub struct PilotRecord {
     /// Survival: the suit asleep in a landmark's hide spot, kept for the next server run.
     #[serde(default)]
     pub parked: Option<ParkedSuit>,
+    /// Their best times at the Proving Ground, as the server checked them.
+    #[serde(default)]
+    pub proving: bc_econ::proving::Bests,
 }
 
 impl PilotRecord {
@@ -231,6 +234,7 @@ impl PilotRecord {
             seen_unix: now,
             hangar: None,
             parked: None,
+            proving: bc_econ::proving::Bests::default(),
         }
     }
 }

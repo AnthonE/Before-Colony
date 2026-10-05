@@ -3,6 +3,8 @@
 use bc_proto::{InputCmd, PilotKind};
 use bc_sim::SuitId;
 use bc_sim::chunks::MAX_CHUNKS;
+use bc_sim::colony::course::Run;
+use bc_sim::colony::hall::Drill;
 use bc_sim::storage::{BitSet, boxed};
 use glam::Vec3;
 
@@ -77,6 +79,10 @@ pub(crate) struct ClientState {
     /// A spectator (`Control::Watch`): where they watch from, with no suit of their own (`active`
     /// stays false).
     pub watch: Option<Vec3>,
+    /// Inside the colony, the Proving Ground (`docs/TRAINING.md`): the pilot's run of its course
+    /// and their drill in the Blast Hall, kept by the sector to check their times.
+    pub course: Run,
+    pub drill: Drill,
 }
 
 impl ClientState {
@@ -105,6 +111,8 @@ impl ClientState {
             rock_acked: boxed(rocks, 0u8),
             lost: false,
             watch: None,
+            course: Run::default(),
+            drill: Drill::default(),
         }
     }
 
@@ -132,6 +140,8 @@ impl ClientState {
         self.obj_known = 0;
         self.rock_acked.fill(0);
         self.lost = false;
+        self.course.clear();
+        self.drill.reset();
     }
 
     /// Seats a spectator in this slot, watching from `at` (no allocation, as [`Self::seat`]).

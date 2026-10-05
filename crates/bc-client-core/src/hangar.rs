@@ -4,6 +4,7 @@
 
 use bc_econ::charter::CharterView;
 use bc_econ::exchange::Depth;
+use bc_econ::proving::BoardView;
 use bc_econ::wire::{self, HangarView, MarketView, Outcome, Place, Request, Update};
 use bc_proto::control::encode_hangar;
 
@@ -15,10 +16,16 @@ pub struct HangarState {
     pub bay: u8,
     /// In the city: the land strip they're on.
     pub strip: Option<u8>,
+    /// Flying one of the Charter Board's trainers, from the Blast Hall's gantry (and, just docked
+    /// it, on foot there).
+    pub trainer: bool,
     pub view: Option<HangarView>,
     pub market: Option<MarketView>,
     /// The Charter Board (while the pilot is looking at it).
     pub charter: Option<CharterView>,
+    /// The Proving Ground's board (in the colony, where the server keeps it up to date: forgotten
+    /// back in the bay).
+    pub proving: Option<BoardView>,
     /// The book (and price history) of the item the pilot is watching.
     pub book: Option<(Depth, Vec<u64>)>,
     /// What to tell the pilot (the text, and whether it was done or refused), oldest first. The
@@ -44,10 +51,16 @@ impl HangarState {
     pub fn apply(&mut self, update: Update) -> bool {
         self.version += 1;
         match update {
-            Update::Place { place, bay, strip } => {
+            Update::Place { place, bay, strip, trainer } => {
                 let back = (self.place == Some(Place::Space) && place == Place::Hangar)
                     || (self.place == Some(Place::City) && place != Place::City);
+                // Out of a trainer onto the hall's floor, it's still where they came from.
+                let from_trainer = self.trainer && place == Place::City;
                 (self.place, self.bay, self.strip) = (Some(place), bay, strip);
+                self.trainer = trainer || from_trainer;
+                if place == Place::Hangar {
+                    self.proving = None;
+                }
                 return back;
             }
             Update::Hangar(view) => self.view = Some(view),
@@ -69,8 +82,15 @@ impl HangarState {
                 }
             }
             Update::Said { from, text } => self.said.push((from, text)),
+            Update::Proving(view) => self.proving = Some(view),
         }
         false
+    }
+
+    /// Whether the pilot came into the city out of a trainer (at the Blast Hall's gantry, not down
+    /// the lift at Hub Gate), and is still on foot there: what puts them at the gantry's hatch.
+    pub fn off_a_trainer(&self) -> bool {
+        self.trainer && self.place == Some(Place::City)
     }
 
     /// On foot in the hangar bay.
@@ -111,16 +131,28 @@ mod tests {
         assert_eq!(wire::decode::<Request>(p), Some(Request::Launch));
 
         let mut h = HangarState::default();
-        assert!(!h.apply(Update::Place { place: Place::Hangar, bay: 7, strip: None }));
+        let place = |place, strip, trainer| Update::Place { place, bay: 7, strip, trainer };
+        assert!(!h.apply(place(Place::Hangar, None, false)));
         assert!(h.in_hangar());
-        assert!(!h.apply(Update::Place { place: Place::Space, bay: 7, strip: None }));
-        assert!(h.apply(Update::Place { place: Place::Hangar, bay: 7, strip: None }), "back from the sector");
-        assert!(!h.apply(Update::Place { place: Place::City, bay: 7, strip: Some(2) }));
+        assert!(!h.apply(place(Place::Space, None, false)));
+        assert!(h.apply(place(Place::Hangar, None, false)), "back from the sector");
+        assert!(!h.apply(place(Place::City, Some(2), false)));
         assert!(h.in_city() && h.strip == Some(2));
-        assert!(h.apply(Update::Place { place: Place::Hangar, bay: 7, strip: None }), "up from the city");
-        assert!(!h.apply(Update::Place { place: Place::City, bay: 7, strip: Some(2) }));
+        assert!(h.apply(place(Place::Hangar, None, false)), "up from the city");
+        assert!(!h.apply(place(Place::City, Some(2), false)));
         h.apply(Update::Note { text: "MADE 80 kg STEEL".into(), ok: true });
         assert_eq!(h.notes.len(), 1);
         assert_eq!(h.version, 7);
+        // Into a trainer from the city, and out of it onto the hall's floor; then up the lift.
+        assert!(!h.off_a_trainer());
+        assert!(h.apply(place(Place::Space, None, true)), "the city's watching is done with");
+        assert!(h.trainer && !h.off_a_trainer());
+        assert!(!h.apply(place(Place::City, Some(0), false)));
+        assert!(h.off_a_trainer(), "on foot at the gantry");
+        h.apply(Update::Proving(bc_econ::proving::Board::default().view("", 0)));
+        assert!(h.proving.is_some());
+        h.apply(place(Place::Hangar, None, false));
+        assert!(!h.trainer && !h.off_a_trainer());
+        assert!(h.proving.is_none(), "the board's the colony's");
     }
 }

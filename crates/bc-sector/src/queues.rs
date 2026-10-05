@@ -45,7 +45,18 @@ pub enum Control {
         comeback: Comeback,
         launch: Option<Loadout>,
     },
-    /// Takes the pilot's suit into the hangar, if it's at rest in the dock (survival rules).
+    /// Inside the colony: seats a pilot in one of the Charter Board's trainers, a new `frame` with
+    /// everything fitted, standing on the Blast Hall's gantry (`bc_sim::sim::LaunchAt::Gantry`).
+    /// It docks back there.
+    Board {
+        slot: u16,
+        pilot: PilotKind,
+        frame: FrameId,
+        faction: Faction,
+        max_datagram: u16,
+    },
+    /// Takes the pilot's suit into the hangar, if it's at rest in the dock (survival rules): a
+    /// trainer, at rest on its gantry.
     Dock {
         slot: u16,
     },
@@ -148,6 +159,12 @@ pub enum Report {
     /// after a restart, as of sector tick `tick` (a later [`Reparked`] of it is newer). Sent
     /// before the slot is published free.
     Parked { rec: ParkRecord, tick: u32 },
+    /// Inside the colony, the Proving Ground (`docs/TRAINING.md`): the pilot flew its course, in
+    /// `ms` (the sector's run of it, `bc_sim::colony::course::Run`).
+    Course { ms: u32 },
+    /// They cleared the Blast Hall's drill, in `ms` from its first target to its last
+    /// (`bc_sim::colony::hall::Drill`).
+    Drill { ms: u32 },
 }
 
 /// Per-slot status visible to the network side.

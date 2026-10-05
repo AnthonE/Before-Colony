@@ -893,8 +893,15 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
     next ring.
   - A finish is the Charter Board's flight certificate: first class within the par of 2:00, second
     within half as long again, third for flying it at all.
-  - The best time is kept in the browser, with the settings.
+  - The server times it too, in the inside's sector, and the day's best go on the Proving Ground's
+    board, on the Blast Hall's back wall and at its desk (a signed-in pilot's bests on their record).
   - Pilots on foot in the city see the rings over Hub Gate.
+
+- **The Blast Hall's trainers and drill** (`TRAINING.md`): at the gantry's hatch, on foot, E
+  boards one of the Charter Board's Leos, standing on the gantry (the pilot's own suit stays in
+  their bay); at rest on the gantry, Enter climbs out there. In the hall the drill lights its
+  targets one at a time, X-Wing's Maze: the clock starts on the first with 12 s on it, and each
+  one struck puts 3 s back. Twenty struck clears it, against a par of 25 s, for the board.
 
 ## The world (EVE-lite, roadmap)
 

@@ -12,6 +12,7 @@ use crate::charter::{Board, CharterView, Work};
 use crate::exchange::{Depth, Exchange, Quote, Side, Trader};
 use crate::hangar::{Bay, Done, Hangar, Rules};
 use crate::item::Item;
+use crate::proving::BoardView;
 use crate::stores::PartUnit;
 use crate::suit::Slot;
 
@@ -81,6 +82,10 @@ pub enum Request {
     },
     /// Ride the cap lift back up to the bay.
     LeaveCity,
+    /// On foot at the Blast Hall's gantry in the colony's city: board one of the Charter Board's
+    /// trainers and fly it from there (the inside's sector, weapons free in the hall). Nothing of
+    /// the pilot's own is taken; `dock`, at rest on the gantry, puts them back on foot there.
+    BoardTrainer,
     /// The Charter Board: post a supply contract (its reward goes into escrow), take one down,
     /// deliver to one from the stores, take or give up a patrol.
     Post {
@@ -181,6 +186,9 @@ pub enum Update {
         /// In the city: which land strip.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         strip: Option<u8>,
+        /// Flying one of the Charter Board's trainers (from the Blast Hall's gantry, back to it).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        trainer: bool,
     },
     Hangar(HangarView),
     Market(MarketView),
@@ -215,6 +223,9 @@ pub enum Update {
         from: String,
         text: String,
     },
+    /// The Proving Ground's board (in the colony, whenever it changes): the day's best times, the
+    /// records, and the pilot's own.
+    Proving(BoardView),
 }
 
 /// Someone in the city, by the slot the plaza's datagrams know them by.
@@ -352,6 +363,7 @@ pub fn apply(
         Request::Watch { .. }
         | Request::Launch
         | Request::LaunchInside
+        | Request::BoardTrainer
         | Request::Dock
         | Request::EnterCity { .. }
         | Request::LeaveCity
@@ -489,6 +501,7 @@ mod tests {
             (r#"{"t":"watch","item":null}"#, Request::Watch { item: None }),
             (r#"{"t":"launch"}"#, Request::Launch),
             (r#"{"t":"launch_inside"}"#, Request::LaunchInside),
+            (r#"{"t":"board_trainer"}"#, Request::BoardTrainer),
             (r#"{"t":"dock"}"#, Request::Dock),
             (r#"{"t":"use_kit","kit":"chaff"}"#, Request::UseKit { kit: Kit::Chaff }),
             (r#"{"t":"say","text":"o7"}"#, Request::Say { text: "o7".into() }),
@@ -499,6 +512,21 @@ mod tests {
         }
         assert_eq!(decode::<Request>(br#"{"t":"fit","item":"part.virgo.head"}"#), None);
         assert_eq!(decode::<Request>(b"not json"), None);
+    }
+
+    #[test]
+    fn a_place_says_when_its_a_trainer_and_the_proving_grounds_board_goes_round() {
+        // An old page's place, and one that isn't a trainer's, say nothing of trainers.
+        let city = Update::Place { place: Place::City, bay: 3, strip: Some(0), trainer: false };
+        assert!(!String::from_utf8(encode(&city)).unwrap().contains("trainer"));
+        let back: Update = decode(br#"{"t":"place","place":"space","bay":3}"#).unwrap();
+        assert_eq!(back, Update::Place { place: Place::Space, bay: 3, strip: None, trainer: false });
+        let flying = Update::Place { place: Place::Space, bay: 3, strip: None, trainer: true };
+        assert_eq!(decode::<Update>(&encode(&flying)), Some(flying));
+        let mut b = crate::proving::Board::default();
+        b.record(crate::proving::Feat::Course, "me", "Heero", 118_000, 1_000_000);
+        let board = Update::Proving(b.view("me", 1_000_000));
+        assert_eq!(decode::<Update>(&encode(&board)), Some(board));
     }
 
     #[test]

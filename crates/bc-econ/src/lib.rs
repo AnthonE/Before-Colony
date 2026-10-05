@@ -13,6 +13,8 @@
 //! - [`charter`]: the Charter Board: contracts with their rewards in escrow, and the colony's
 //!   great works.
 //! - [`hangar`]: a pilot's hangar, and every change they can ask of it.
+//! - [`proving`]: the Proving Ground's board, the day's best times round its course and through
+//!   the Blast Hall's drill.
 //! - [`wire`]: the hangar's messages (JSON on the control stream).
 //!
 //! The server holds the truth (each pilot's [`hangar::Hangar`] in their record, one
@@ -26,6 +28,7 @@ pub mod fab;
 pub mod faults;
 pub mod hangar;
 pub mod item;
+pub mod proving;
 pub mod stores;
 pub mod suit;
 pub mod wear;

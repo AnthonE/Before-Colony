@@ -7,13 +7,15 @@
 use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRIP, MELEE, SPECIAL};
 use bc_proto::events::Event;
 use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
+use bc_sim::bodies::{Body, STANCE};
 use bc_sim::colony::city::{Stage, place, place_door, room, solid_built};
+use bc_sim::colony::course::Class;
 use bc_sim::colony::frame::{CityPos, Under, from_colony};
-use bc_sim::colony::hall::{self, hall};
-use bc_sim::colony::interior::{INNER_GATE, INNER_GATE_RADIUS, WorldKind};
+use bc_sim::colony::hall::{self, DRILL, DRILL_PAR_S, Drill, DrillEvent, GANTRY, hall};
+use bc_sim::colony::interior::{INNER_GATE, INNER_GATE_RADIUS, WorldKind, probe};
 use bc_sim::content::city::{PLACES, PROVING_GROUND};
 use bc_sim::ground::Footing;
-use bc_sim::sim::Loadout;
+use bc_sim::sim::{LaunchAt, Loadout};
 use bc_sim::{Sim, SimConfig, SuitId};
 use glam::Vec3;
 
@@ -30,6 +32,12 @@ fn interior() -> Sim {
 
 fn launch(sim: &mut Sim, frame: FrameId) -> SuitId {
     sim.launch(frame, Faction::Colonies, PilotKind::Human, &Loadout::full(frame)).unwrap()
+}
+
+/// One of the Charter Board's trainers, boarded at the Blast Hall's gantry.
+fn trainer(sim: &mut Sim) -> SuitId {
+    let leo = FrameId::Leo;
+    sim.launch_at(leo, Faction::Colonies, PilotKind::Human, &Loadout::full(leo), LaunchAt::Gantry).unwrap()
 }
 
 /// `id` holds `buttons`, aiming where it faces (or at `aim`).
@@ -255,8 +263,13 @@ fn in_the_hall(h: f32) -> Vec3 {
 
 /// The way from `id`'s rifle's muzzle to `at`: where a pilot's crosshair on `at` aims it.
 fn from_the_muzzle(sim: &Sim, id: SuitId, at: Vec3) -> Vec3 {
+    from_the_muzzle_of(sim, id, 0, at)
+}
+
+/// The way from the muzzle of `id`'s weapon in loadout slot `slot` to `at`.
+fn from_the_muzzle_of(sim: &Sim, id: SuitId, slot: usize, at: Vec3) -> Vec3 {
     let f = &sim.suits.flight[id.idx()];
-    let muzzle = bc_sim::content::frame(FrameId::Leo).loadout[0].map_or(Vec3::ZERO, |m| m.arm.muzzle());
+    let muzzle = bc_sim::content::frame(FrameId::Leo).loadout[slot].map_or(Vec3::ZERO, |m| m.arm.muzzle());
     (at - (f.pos + f.rot * muzzle)).normalize()
 }
 
@@ -386,4 +399,154 @@ fn out_through_the_blast_doors_weapons_are_safe_again() {
     assert_eq!(sim.own_state(id.idx()).weapon_ready, 0);
     hold_at(&mut sim, id, in_the_hall(20.0), in_the_hall(20.0) + Vec3::X * 50.0, 0, 30, |_| {});
     assert_ne!(sim.own_state(id.idx()).weapon_ready, 0);
+}
+
+#[test]
+fn a_trainer_stands_on_the_gantry_till_its_pilot_is_heard_from_and_docks_only_there() {
+    // There's no gantry in space.
+    let mut space =
+        Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, survival: true, ..SimConfig::default() });
+    let leo = Loadout::full(FrameId::Leo);
+    assert!(
+        space.launch_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, &leo, LaunchAt::Gantry).is_none()
+    );
+    // In the colony, a trainer comes in on its feet on the gantry's pad, a stance over the floor,
+    // facing in toward the targets.
+    let mut sim = interior();
+    let id = trainer(&mut sim);
+    let i = id.idx();
+    assert_eq!((sim.suits.footing[i], sim.suits.anchor[i].body), (Footing::Grounded, Body::City));
+    assert!(sim.suits.trainer.get(i));
+    let at = sim.suits.flight[i].pos;
+    assert!(hall::in_hall(at) && hall::in_gantry(at, Vec3::ZERO), "{at}");
+    assert!((probe(at).dist - STANCE).abs() < 0.05, "{} m up", probe(at).dist);
+    assert!((sim.suits.flight[i].rot * Vec3::Z).dot(hall::gantry_facing()) > 0.999);
+    // Ten seconds without a word from its pilot: it stands there, gripping, docked.
+    for _ in 0..30 * 10 {
+        sim.step();
+    }
+    assert_eq!(sim.suits.footing[i], Footing::Grounded);
+    assert!(sim.suits.flight[i].pos.distance(at) < 0.01, "{}", sim.suits.flight[i].pos.distance(at));
+    assert!(sim.docked(i));
+    // A suit from the bays at rest on the gantry isn't docked there (it docks at the inner gate),
+    // and a trainer at the inner gate isn't either.
+    let other = launch(&mut sim, FrameId::Leo);
+    let f = &mut sim.suits.flight[other.idx()];
+    f.pos = at;
+    f.vel = Vec3::ZERO;
+    assert!(!sim.docked(other.idx()));
+    assert!(sim.dock(other).is_none());
+    let t = trainer(&mut sim);
+    let f = &mut sim.suits.flight[t.idx()];
+    (f.pos, f.vel) = (INNER_GATE, Vec3::ZERO);
+    sim.suits.footing[t.idx()] = Footing::Free;
+    assert!(!sim.docked(t.idx()));
+    // The one on the gantry docks: gone from the sector.
+    assert!(sim.dock(id).is_some());
+    assert!(!sim.suits.used.get(i));
+}
+
+#[test]
+fn a_trainer_flies_out_through_the_blast_doors_and_back_and_docks_on_its_gantry() {
+    let mut sim = interior();
+    let id = trainer(&mut sim);
+    let k = id.idx();
+    let r = hall();
+    let p = |u: f32, v: f32, h: f32| {
+        let (s, x) = r.front.point(u, v);
+        CityPos::new(r.strip, x, s, h).to_colony()
+    };
+    let clear = |sim: &Sim| {
+        let Under::Land(at) = from_colony(sim.suits.flight[k].pos) else { return false };
+        let r = 0.7 * 10.0;
+        let min = Vec3::new(at.x - r, (at.h - r).max(0.5), -(at.s + r));
+        let max = Vec3::new(at.x + r, at.h + r, -(at.s - r));
+        !solid_built(at.strip, min, max, Stage(0))
+    };
+    // Up off the pad (letting go of it), out through the middle of the blast doors to the square
+    // beyond them, and back in over the pad: never in a wall.
+    let way = [
+        p(GANTRY.0, GANTRY.1, 22.0),
+        p(0.0, 12.0, 22.0),
+        p(0.0, -40.0, 22.0),
+        p(0.0, 12.0, 22.0),
+        p(GANTRY.0, GANTRY.1, 22.0),
+    ];
+    let mut out = false;
+    for w in way {
+        for _ in 0..30 * 30 {
+            let f = sim.suits.flight[k];
+            if f.pos.distance(w) < 2.0 && f.vel.length() < 1.0 {
+                break;
+            }
+            toward(&mut sim, id, w, 25.0, 0);
+            sim.step();
+            assert!(clear(&sim), "in a wall at {:?}", from_colony(sim.suits.flight[k].pos));
+            out |= !hall::in_hall(sim.suits.flight[k].pos);
+        }
+        assert!(sim.suits.flight[k].pos.distance(w) < 2.0, "{} m short", sim.suits.flight[k].pos.distance(w));
+    }
+    assert!(out, "out through the doors");
+    // The grip armed, down onto the pad: on its feet, docked.
+    for _ in 0..30 * 20 {
+        if sim.suits.footing[k] == Footing::Grounded {
+            break;
+        }
+        toward(&mut sim, id, p(GANTRY.0, GANTRY.1, 0.0), 0.0, GRIP);
+        sim.step();
+    }
+    assert_eq!(sim.suits.footing[k], Footing::Grounded);
+    for _ in 0..30 {
+        hold(&mut sim, id, FLIGHT_ASSIST | GRIP, [0; 3], None);
+        sim.step();
+    }
+    assert!(sim.docked(k));
+    assert!(sim.dock(id).is_some());
+}
+
+#[test]
+fn a_trainer_on_the_gantry_clears_the_drill() {
+    // X-Wing's Maze in the hall (`docs/TRAINING.md`): the trainer stands on its pad and turns to
+    // each lit target in turn, its machine cannon's trigger held, aiming where the target will be
+    // when the rounds get there. The drill (fed its strikes as the board's sector feeds it) starts
+    // on the first and is cleared on the last, the clock never near running out. With a machine's
+    // aim it takes a few seconds, well within par: everything a pilot takes past that is aiming.
+    let mut sim = interior();
+    let id = trainer(&mut sim);
+    let k = id.idx();
+    let mut drill = Drill::default();
+    let (mut seen, mut cleared, mut struck) = (sim.events.next_seq(), None, 0);
+    let speed = bc_sim::content::weapon(bc_proto::WeaponKind::MachineCannon).speed;
+    for _ in 0..30 * 120 {
+        let t = sim.next_tick();
+        let lit = usize::from(drill.lit());
+        let from = sim.suits.flight[k].pos;
+        let flight = hall::target(lit, t, 0.0).distance(from) / speed * bc_sim::TICK_HZ as f32;
+        let at = hall::target(lit, t + flight.round() as u32, 0.0);
+        let to = from_the_muzzle_of(&sim, id, 1, at);
+        hold(&mut sim, id, FLIGHT_ASSIST | GRIP | FIRE_SECONDARY, [0; 3], Some(to));
+        sim.step();
+        for e in events_since(&sim, seen) {
+            if let Event::TargetHit { tick, target, shooter, .. } = e
+                && shooter == k as u16
+            {
+                match drill.strike(target, tick) {
+                    Some(DrillEvent::Cleared(secs)) => cleared = Some(secs),
+                    Some(DrillEvent::Out(n)) => panic!("the clock ran out at {n}"),
+                    Some(_) => struck += 1,
+                    None => {}
+                }
+            }
+        }
+        seen = sim.events.next_seq();
+        assert_eq!(drill.tick(f64::from(sim.tick())), None);
+        if cleared.is_some() {
+            break;
+        }
+    }
+    let secs = cleared.unwrap_or_else(|| panic!("cleared: {struck} of {} struck", DRILL.len()));
+    assert_eq!(struck + 1, DRILL.len());
+    assert_eq!(sim.suits.footing[k], Footing::Grounded, "it stood on the pad throughout");
+    println!("the drill, by rote from the gantry: {secs:.1} s, {}", Class::against(secs, DRILL_PAR_S).name());
+    assert!(secs < DRILL_PAR_S * 0.5, "{secs} s");
 }

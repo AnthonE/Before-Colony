@@ -30,6 +30,7 @@ use crate::market::Market;
 use crate::pilots::{
     self, Claim, Fate, FileStore, MemoryStore, ParkNews, PilotRecord, PilotStore, Pilots, Sleeper,
 };
+use crate::proving::Proving;
 use crate::{Config, Flight, OracleKind, Ruleset};
 
 /// Commands for the egress thread.
@@ -130,6 +131,8 @@ pub struct GameShared {
     pub market: Arc<Market>,
     /// The Charter Board: contracts and the colony's great works.
     pub charter: Arc<Charter>,
+    /// The Proving Ground's board: the day's best times round its course and through its drill.
+    pub proving: Arc<Proving>,
     pub econ: bc_econ::Rules,
     /// Pilots' hangars, by client slot, for `/status`.
     pub(super) hangars: Arc<RwLock<HashMap<u16, HangarEntry>>>,
@@ -274,6 +277,7 @@ pub struct StatusView {
     anime: bool,
     market: Arc<Market>,
     charter: Arc<Charter>,
+    proving: Arc<Proving>,
     hangars: Arc<RwLock<HashMap<u16, HangarEntry>>>,
     inside: Option<Arc<SectorShared>>,
     radio: Arc<crate::radio::Radio>,
@@ -387,6 +391,7 @@ impl GameRuntime {
         };
         let market = Arc::new(Market::open(cfg.data_dir.as_ref().map(|d| d.join("exchange.json"))));
         let charter = Arc::new(Charter::open(cfg.data_dir.as_ref().map(|d| d.join("charter.json"))));
+        let proving = Arc::new(Proving::open(cfg.data_dir.as_ref().map(|d| d.join("proving.json"))));
         let game = GameShared {
             sector: shared,
             egress: queue,
@@ -408,15 +413,17 @@ impl GameRuntime {
             anime: cfg.flight == Flight::Anime,
             market,
             charter,
+            proving,
             econ: bc_econ::Rules { craft_speed: cfg.craft_speed, ..bc_econ::Rules::default() },
             hangars: Arc::new(RwLock::new(HashMap::new())),
             radio: Arc::new(crate::radio::Radio::default()),
             restore_over: Arc::new(AtomicBool::new(false)),
         };
-        // The exchange's and the Charter Board's clocks, and their files.
+        // The exchange's, the Charter Board's and the Proving Ground's clocks, and their files.
         if survival {
             let market = game.market.clone();
             let charter = game.charter.clone();
+            let proving = game.proving.clone();
             let sector = game.sector.clone();
             tokio::spawn(async move {
                 let mut every = tokio::time::interval(Duration::from_secs(1));
@@ -425,14 +432,17 @@ impl GameRuntime {
                     every.tick().await;
                     market.tick(1.0);
                     charter.tick(crate::pilots::unix_now(), &market);
+                    proving.tick(crate::pilots::unix_now());
                     n += 1;
                     if n.is_multiple_of(60) {
                         market.save().await;
                         charter.save().await;
+                        proving.save().await;
                     }
                 }
                 market.save().await;
                 charter.save().await;
+                proving.save().await;
             });
         }
         // What became of sleepers: news for their pilots, a few times a second.
@@ -470,6 +480,7 @@ impl GameRuntime {
             anime: self.shared.anime,
             market: self.shared.market.clone(),
             charter: self.shared.charter.clone(),
+            proving: self.shared.proving.clone(),
             hangars: self.shared.hangars.clone(),
             inside: self.shared.inside.as_ref().map(|i| i.sector.clone()),
             radio: self.shared.radio.clone(),
@@ -487,10 +498,12 @@ impl GameRuntime {
         // The exchange's last word goes to its file.
         let market = self.shared.market.clone();
         let charter = self.shared.charter.clone();
+        let proving = self.shared.proving.clone();
         if let Ok(rt) = tokio::runtime::Handle::try_current() {
             rt.spawn(async move {
                 market.save().await;
                 charter.save().await;
+                proving.save().await;
             });
         }
         self.egress_stop.store(true, Ordering::Release);
@@ -630,6 +643,20 @@ impl StatusView {
                 "works": works,
             })
         });
+        // The day's best on the Proving Ground's board: callsigns and times (as on the hall's
+        // wall), never who's behind them.
+        let proving = self.proving.with(|b| {
+            let v = b.view("", pilots::unix_now());
+            let rows = |rows: &[bc_econ::proving::Row]| {
+                rows.iter().map(|r| serde_json::json!({ "name": r.name, "ms": r.ms })).collect::<Vec<_>>()
+            };
+            serde_json::json!({
+                "course": rows(&v.course),
+                "drill": rows(&v.drill),
+                "course_record_ms": v.course_record.map(|r| r.ms),
+                "drill_record_ms": v.drill_record.map(|r| r.ms),
+            })
+        });
         serde_json::json!({
             "tick": s.tick.load(Ordering::Acquire),
             "tick_hz": bc_sim::TICK_HZ,
@@ -655,6 +682,7 @@ impl StatusView {
             "hangars": hangars,
             "exchange": exchange,
             "charter": charter,
+            "proving": proving,
             // The colony's inside (`--colony`): its sector's suits, and its tick.
             "inside": self.inside.as_ref().map(|i| serde_json::json!({
                 "suits": l(&i.metrics.suits_alive),

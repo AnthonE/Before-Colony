@@ -9,8 +9,10 @@ import { bc, collectConsole } from "./util";
 // docks into the bay. Another comes down over the avenue by Hub Gate,
 // lands there with its grip armed (L), sees the agent strolling outside Hub Gate, walks up the
 // avenue (W) and lets go. A third flies in through the Blast Hall's doors, where weapons are free,
-// and puts training rounds into its targets. The flying is the dev hook's (`fly_to`); the grip and
-// the walk are keys.
+// and puts training rounds into its targets. A fourth rides down to the city and walks into the
+// Blast Hall to its gantry, boards one of the Charter Board's trainers there, starts the drill on
+// its lit targets, and docks back on the gantry to climb out on foot. The flying is the dev hook's
+// (`fly_to`); the grip and the walk are keys.
 // (Nobody flies back up from the avenue here: at a frame every few seconds the page sends only its
 // newest commands, the server fills the rest with stand-ins, and the 2.9 km climb against the
 // colony's pull goes at a couple of metres a second. `bc-server/tests/inside.rs` flies it.)
@@ -165,5 +167,73 @@ test("a suit flies into the Blast Hall, and its training rounds score on the hal
   await page.mouse.up({ button: "right" });
   console.log(`training rounds on the hall's targets: ${s.hall_targets}`);
   await page.screenshot({ path: "artifacts/inside-blast-hall.png" });
+  expect(logs.filter((l) => l.startsWith("[pageerror]"))).toEqual([]);
+});
+
+test("a pilot boards a trainer at the Blast Hall's gantry, starts the drill, and climbs out there", async ({ page }) => {
+  // The Proving Ground's trainers (`docs/TRAINING.md`): down the cap lift, across Hub Gate's square
+  // and in through the blast doors to the gantry's hatch, then E: one of the Charter Board's Leos,
+  // standing on the gantry, weapons free, while the pilot's own suit stays in their bay. The aim on
+  // the drill's lit target and the machine cannon's trigger held (RMB): the drill's clock starts on
+  // the first, and each one struck lights the next. Then Enter, at rest on the gantry: the pilot
+  // climbs out at its hatch, on foot in the hall.
+  test.setTimeout(1_500_000);
+  const logs = collectConsole(page);
+  await page.goto("/?autoplay=1&name=Zechs&quality=low");
+  await until(page, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 180_000);
+  await push(page, { cmd: "walk_to", spot: "airlock" });
+  await until(page, "at the airlock", (s) => s.focus === "airlock" && !s.walking_to, 120_000);
+  await push(page, { cmd: "use" });
+  await until(page, "the city", (s) => s.place === "city", 60_000);
+  await push(page, { cmd: "skip" });
+  await until(page, "Hub Gate", (s) => s.seq === "walking", 30_000);
+
+  // In through the blast doors to the gantry's hatch.
+  await push(page, { cmd: "walk_to", spot: "gantry" });
+  await until(page, "the walk", (s) => s.city_walking_to, 30_000);
+  await until(page, "at the gantry's hatch", (s) => s.focus === "gantry" && !s.city_walking_to, 420_000);
+  await expect(page.locator("#use")).toContainText("BOARD A TRAINER", { timeout: 30_000 });
+  await page.screenshot({ path: "artifacts/inside-gantry.png" });
+
+  // E: aboard a trainer, on its feet on the gantry.
+  await push(page, { cmd: "use" });
+  let s = await until(
+    page,
+    "aboard a trainer",
+    (s) => s.place === "space" && s.interior === true && s.trainer === true && s.alive,
+    120_000,
+  );
+  await expect(page.locator("#news")).toContainText("TRAINER", { timeout: 30_000 });
+  s = await until(page, "on the gantry", (s) => s.in_gantry && s.in_hall, 60_000);
+  expect(s.bay).toBe("docked");
+
+  // The drill: the aim on its lit target, the trigger held.
+  await page.locator("canvas").first().click();
+  await push(page, { cmd: "aim_hostile", on: true });
+  await page.mouse.down({ button: "right" });
+  s = await until(page, "the drill under way", (s) => s.drill_struck >= 2, 300_000);
+  await page.mouse.up({ button: "right" });
+  await push(page, { cmd: "aim_hostile", on: false });
+  console.log(`the drill: ${s.drill_struck} struck, ${Number(s.drill_left).toFixed(1)} s on the clock`);
+  await page.screenshot({ path: "artifacts/inside-drill.png" });
+
+  // At rest on the gantry, Enter: out at its hatch, on foot in the hall, out of the colony's
+  // sector (the page publishes its fields from several systems, so a frame can show one moved
+  // before another: waited for together).
+  s = await until(page, "at rest on the gantry", (s) => s.in_gantry, 60_000);
+  await page.keyboard.press("Enter");
+  s = await until(
+    page,
+    "out on foot in the hall",
+    (s) =>
+      s.place === "city" && s.seq === "walking" && s.city_room === "proving_ground" && s.interior === false,
+    120_000,
+  );
+  expect(s.bay).toBe("docked");
+  await until(page, "by the gantry's hatch", (s) => s.focus === "gantry", 60_000);
+  const status = await (await page.request.get("/status")).json();
+  expect(status.game.city.refused_poses).toBe(0);
+  expect(status.game.hot_path_allocations).toBe(0);
+  await page.screenshot({ path: "artifacts/inside-out-of-the-trainer.png" });
   expect(logs.filter((l) => l.startsWith("[pageerror]"))).toEqual([]);
 });

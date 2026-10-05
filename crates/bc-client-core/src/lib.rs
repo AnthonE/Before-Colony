@@ -249,6 +249,11 @@ impl ClientCore {
         self.pose = pose;
     }
 
+    /// On foot in the colony: where the pilot last said they are.
+    pub fn pose(&self) -> Option<PersonPose> {
+        self.pose
+    }
+
     /// The pose datagram that's due at local time `now` (s), if one is (15 a second).
     pub fn poll_pose(&mut self, now: f64) -> Option<Vec<u8>> {
         let pose = self.pose?;

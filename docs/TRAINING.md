@@ -4,18 +4,20 @@ The owner's ask (October 2026): somewhere inside the colony for pilots to train,
 workshop", or "a giant blast chamber": a tutorial area where a new pilot walks around freely,
 then gets into a Gundam and learns to fly it. They also asked for the feel of X-Wing (1993) and
 TIE Fighter (1994). What those games did, and what we take from them, is in `PEERS.md` ("X-Wing and
-TIE Fighter"). This document is the design built from that ask. Phase 1, the course, is built.
+TIE Fighter"). This document is the design built from that ask. Phases 1 to 5 are built, and the
+drill (X-Wing's Maze, in the hall).
 
 ## Status
 
 | Phase | State |
 |---|---|
-| 1: the course. Rings in the colony's air from the inner gate down to a pad on Hub Gate's square, flown in your own suit, timed by your client | built |
-| 2: the Blast Hall. A hall off Hub Gate's square, walked on foot and flown into, its desk the course's | built |
-| 3: boarding in the hall. The Charter Board's trainer, flown out through the blast doors and docked back | planned |
-| 4: the board. Times checked by the server, and the day's best on the hall's wall | planned |
+| 1: the course. Rings in the colony's air from the inner gate down to a pad on Hub Gate's square, flown in your own suit | built |
+| 2: the Blast Hall. A hall off Hub Gate's square, walked on foot and flown into | built |
+| 3: boarding in the hall. One of the Charter Board's trainers, boarded at the hall's gantry, flown out through the blast doors and docked back there | built |
+| 4: the board. Times checked by the server, the day's best on the hall's back wall and at its desk, a pilot's bests on their record | built |
 | 5: live fire in the hall: the colony's law's one exception, the owner's call. Training rounds that touch no suit and score on its targets | built |
-| 6: more courses, and a level ladder | planned |
+| The drill: the hall's targets lit one at a time against a clock, X-Wing's Maze | built |
+| 6: more courses (the hall's own among them), and a level ladder | planned |
 
 ## What we take from X-Wing and TIE Fighter
 
@@ -41,8 +43,8 @@ TIE Fighter"). This document is the design built from that ask. Phase 1, the cou
   dear, and it won't send an Arrival out to the Consortium's Dolls untried.
 - **Something to show for it.** X-Wing gave a flight badge for clearing eight levels; TIE Fighter
   gave a patch per craft and a bronze, silver or gold medallion. Ours is the Charter Board's flight
-  certificate (first, second or third class against the par), on the pilot's record once the
-  server checks times (phase 4).
+  certificate (first, second or third class against the par), and a place on the hall's board, both
+  from the times the server checks (phase 4); a signed-in pilot's bests are on their record.
 - **Recommended, never required.** X-Wing's manual: Maze, then Historical Combat, then the Tours,
   "recommended, but not required." TIE Fighter kept green pilots out of battles that mattered. Ours
   is pointed to by an objective, and gates nothing.
@@ -66,17 +68,18 @@ the square, which the hall will open onto.
 2. Ride the cap lift down to Hub Gate. A new objective, **REPORT TO THE PROVING GROUND**, marks
    the hall's door with a `◆` on the square.
 3. **On foot in the hall: the tutorial.** It's a floor to walk freely across: walk, run, jump,
-   crouch, climb the gantry's stairs. At the instructor's counter, E opens the board: the
-   course's map, the par and the day's best times. This is X-Wing's Ready Room, with its
-   viewscreen.
-4. **Board the trainer** at the gantry's hatch. It's a Leo of the Board's, not the pilot's own:
-   nothing of theirs is at stake, it carries nothing, and it can't be lost inside, where nothing
-   fires and nothing strikes.
-5. **Fly it.**
-   - Inside the hall: hover, set down on its floor pad with the grip, walk it, lift off.
-   - Out through the blast doors over the square, and round the course.
-   - Back in through the doors to dock in the gantry, then on foot again.
-6. **The certificate**, and on into the chain: the bay, the launch tunnel and space.
+   crouch. At the instructor's desk, E opens the board: the day's best round the course and
+   through the drill, the pars, the pilot's own bests. This is X-Wing's Ready Room, with its
+   viewscreen; the same board hangs high on the hall's back wall. *(Built, but for the floor
+   markings that teach running, jumping and crouching, and the gantry's stairs.)*
+4. **Board the trainer** at the gantry's hatch (built). It's a Leo of the Board's, not the pilot's
+   own: nothing of theirs is at stake, and it can't be lost inside, where no blow lands.
+5. **Fly it** (built).
+   - In the hall: weapons free, and the drill, from the gantry or anywhere on the firing line.
+   - Lift off, out through the blast doors over the square, up to the course's start ring by the
+     inner gate, and round the course down to the pad by the hall.
+   - Back in through the doors to dock on the gantry, then on foot again.
+6. **The certificate** and the board, and on into the chain: the bay, the launch tunnel and space.
 
 ## Phase 1: the course (built)
 
@@ -101,14 +104,16 @@ lift comes down.
 The rings are 20 to 60 m in radius; the slalom's are the tightest. Each faces either a set way or
 along the course (from the ring before it to the one after).
 
-**The run** (`bc_client_core::course::Run`) is the pilot's own client's:
+**The run** (`bc_sim::colony::course::Run`) is kept by the pilot's own client for its HUD, and
+by the server for the board (phase 4), alike:
 - **The clock starts** when the suit flies through the start ring the right way.
 - **The rings count in order.** A ring out of order counts for nothing.
 - **It finishes** when the suit stands on the pad, on the city, after every ring.
 - **Starting over:** flying the start ring again starts the clock again.
 - **Lapsing:** two minutes without a ring lets the run lapse.
-- **Timing** is on the suit's own clock, the prediction's ticks, with the crossing worked out to a
-  fraction of a tick. A frame rate can't buy a tenth.
+- **Timing** is on the suit's own clock, with the crossing worked out to a fraction of a tick. A
+  frame rate can't buy a tenth: the client steps its run with the prediction's ticks one by one
+  (`Predictor::sample`), as the server steps its own with the sector's.
 - **No teleporting through rings:** a move longer than 300 m (a dock, a launch, a correction)
   crosses nothing.
 - **Leaving** the colony starts the next run afresh.
@@ -145,12 +150,10 @@ be the point. See the open questions.
   is inside the colony and clear of the city by more than a hull; the straight way between rings
   is clear by two hulls; each ring faces the way the course comes through it; the pad is open
   ground on Hub Gate's square; a ring counts only when flown through the right way.
-- `bc_client_core::course`'s units:
-  - the run counts rings in order, starts over at the start ring, lapses, ignores a jump, and
-    reads its clock;
-  - **a Leo flies the whole course in the server's interior simulation**: launched at the inner
-    gate under the anime rules, it threads every ring, lands on the pad with the grip, and earns
-    second class.
+- `course`'s run: it counts rings in order, starts over at the start ring, lapses, ignores a jump,
+  and reads its clock (`bc_sim`); and **a Leo flies the whole course in the server's interior
+  simulation**: launched at the inner gate under the anime rules, it threads every ring, lands on
+  the pad with the grip, and earns second class (`bc_client_core::course`).
 
 ## Phase 2: the Blast Hall (built)
 
@@ -194,31 +197,139 @@ be the point. See the open questions.
   - the objectives' chain runs through it;
   - the `colony` e2e walks across the square and in to the desk, and uses it.
 
-**Not yet:** the trainer's gantry and its floor pad (phase 3), and floor markings that teach
-running, jumping and crouching.
+**Not yet:** floor markings that teach running, jumping and crouching.
 
-## Phase 3: boarding in the hall
+## Phase 3: boarding in the hall (built)
 
-- **The wire:** `Request::Launch { into: Proving }`, a serde default as `into: Colony` was. The
-  session hands the pilot's slot to the interior sector (Welcome sector 2) with a trainer: a Leo
-  spawned at the hall's gantry. It isn't drawn from the pilot's hangar, their stores are
-  untouched, and arcade pilots and guests can fly it too.
-- **Docking it back** in the gantry's ring returns the pilot on foot to the hall, not to the bay.
-- **The course's start moves to the blast doors** (a second course, "the hall's", keeps phase 1's
-  for suits coming in from the bays).
-- **Tests:** a server test boards in the hall, flies out through the doors and docks back; an e2e
-  boards and launches.
+**The gantry** (`bc_sim::colony::hall`): a pad on the hall's floor in its firing line, to one side
+of the way in from the blast doors (`GANTRY`: 26 m from the doors' middle, 22 m in), drawn as two
+rings of light (`bc-client/src/course.rs`), bright for a trainer's pilot. Its hatch, where a pilot
+on foot boards, is 14 m from the pad's middle toward the hall's (`hatch`).
 
-## Phase 4: the board
+**Boarding.**
+- On foot at the hatch, facing the pad, the prompt says `E  BOARD A TRAINER`. E asks
+  `Request::BoardTrainer` (`board_trainer`). The screen goes dark as it does boarding in the bay.
+- The server checks the pilot stands at the hatch: the plaza's last pose of them, within 12 m.
+- It takes a slot in the inside's sector and seats them with `Control::Board`: a Leo with
+  everything fitted and loaded (`Loadout::full`), put on the gantry by `Sim::launch_at` with
+  `LaunchAt::Gantry`. It stands on the pad facing the targets, gripping until its pilot is first
+  heard from.
+- Nothing of the pilot's hangar goes with it: their own suit stays in their bay.
+- They're off the street: out of the plaza, no longer watching the inside from it. They're
+  welcomed to the inside's sector (Welcome sector 2) as a launch through the inner gate is, and
+  their `place` update says `trainer`.
 
-- **The server checks the times.** Each session already knows where its pilot's suit is
-  (`Metrics::pilots[slot].pos`, written by the sector every tick). The session's 100 ms tick runs
-  the same `Run` on it, so `Run` moves into `bc_sim` beside the rings.
-  - At 120 m/s a sample is 12 m apart, which the segment test handles.
-  - The pad needs the suit's footing in `Metrics` as well.
-  - All of it is off the hot path.
-- **The board:** the day's best times on the hall's back wall and at its counter, like X-Wing's
-  high-score table. A signed-in pilot's best and certificate go on their record (`pilots.rs`).
+**Docking back.**
+- A trainer (`Suits::trainer`) docks only on its gantry: at rest within 14 m of the pad's middle,
+  no higher than 30 m and slower than 4 m/s (`hall::in_gantry`, through `Sim::docked`).
+- A trainer at the inner gate doesn't dock, and neither does a suit from the bays on the gantry.
+- Enter docks it there. The session puts the pilot back on foot at the hatch: the plaza takes their
+  first pose there (`Plaza::enter_at`), rather than at Hub Gate. They're welcomed back to their
+  bay's sector and watch the inside again. Nothing comes home: the Board keeps its suit.
+- A pilot who leaves while flying one loses nothing: it goes, and their bay is untouched.
+
+**On the HUD:**
+- the waypoint and the dock marker point at the gantry (`GANTRY … ENTER: climb out`);
+- `ON THE GANTRY  ENTER: climb out` while it's docked there;
+- the news `A TRAINER OF THE CHARTER BOARD'S · WEAPONS FREE IN THE HALL`.
+
+**Tests:**
+- `bc-sim/tests/interior.rs`: a trainer stands on the gantry till its pilot is heard from and docks
+  only there; one flies out through the blast doors and back, never in a wall, and docks on the
+  gantry; there's no gantry in space.
+- `hall`'s units: the pad is open floor in the firing line, the hatch beside it facing it.
+- `bc-sector/tests/training_net.rs`: boarded, cleared the drill and docked back through the
+  sector's queues; refused outside the colony.
+- `bc-server/tests/proving.rs`: over real WebTransport, walking in from Hub Gate; and a pilot gone
+  while flying one wakes in their bay, their own suit there.
+- The `inside` e2e: boards at the hatch, fires the drill, and docks back.
+
+**Not built** of the plan: the course's start moved to the blast doors, a second course for the
+hall (phase 6). Today a trainer flies up to the inner gate's start ring; the course comes home to
+the pad by the hall.
+
+## Phase 4: the board (built)
+
+**The server checks the times, in the interior sector's tick** (`Sector::watch_training`), not by
+sampling `Metrics` in the session as first planned.
+- Each pilot's run (`course::Run`, moved into `bc_sim` beside the rings) is stepped with where
+  their suit stands at the end of every tick. That's the place their prediction has for the same
+  tick, so the server's time and the client's agree to the millisecond (`training_net`).
+- Their drill (below) is fed their own rounds' `TargetHit` events and the clock.
+- It costs a couple of closed forms a pilot a tick, and allocates nothing (`training_net` counts
+  the heap).
+- A course flown or a drill cleared is reported on the slot's report ring: `Report::Course { ms }`,
+  `Report::Drill { ms }`.
+
+**The board** (`bc_econ::proving::Board`, kept by the server's `proving.rs`):
+- the day's best round the course and through the drill (days in UTC), each pilot once with their
+  best, ten kept;
+- the best ever;
+- in the data directory (`proving.json`), saved every minute and on shutdown, and turned over at
+  midnight by the server's clock.
+
+**A pilot's bests** (`Bests`) are on a signed-in pilot's record (`PilotRecord.proving`); a guest's
+last the visit.
+
+**Told:**
+- To the pilot: `THE BOARD · THE DRILL 0:21.3 · FIRST CLASS · 2ND TODAY` (or `· THE BEST EVER`,
+  or `· YOUR BEST`).
+- To everyone in the colony (in its city or flying inside it): `Update::Proving(BoardView)`,
+  whenever the board changes (at most every 2 s) and when they come in. It carries names and
+  times, their own rows marked, and nobody's key.
+- `/status`: `proving`, the day's callsigns and times.
+
+**Shown:**
+- **On the hall's back wall** (`bc-client/src/board.rs`): 64 by 20 m, from 38 m up to 58 m, over
+  the course drawn in light. It holds the day's best, eight a column, and the best ever. The UI
+  lays it out into a texture of its own, drawn by a camera of its own for a few frames each time
+  the board changes, as the cockpit's monitors are.
+- **At the desk:** E opens the terminals' panel on its PROVING GROUND tab, with the day's lists, the
+  records, the pars, the pilot's own bests, and how to board a trainer.
+- The client keeps its own bests with its settings too (`course_best_ms`, `drill_best_ms`).
+
+**Tests:**
+- `bc-econ`'s units: the board's lists, ties, the ten kept, the day's turn, the records.
+- `training_net`: the sector's times are the pilot's, and it allocates nothing.
+- `bc-server/tests/proving.rs`: a drill cleared over the wire goes on the board, with the same
+  time; to the pilot, in `/status` and on their record; and the board and the record outlive a
+  restart.
+- The `colony` e2e opens the board at the desk.
+
+## The drill (built)
+
+X-Wing's Maze in the Blast Hall (`hall::Drill`, after phase 5's live fire).
+- **Its targets light one at a time,** in a set order of twenty (`DRILL`), so every pilot flies the
+  same drill: the four still ones by the back wall first, then the bobbing, then the sweeping,
+  then a mix. The aim swings from side to side, and never stays on one target twice in a row.
+- **The clock starts on the first,** with 12 s on it; every lit target struck after it puts 3 s back
+  (`DRILL_START_S`, `DRILL_BONUS_S`). Only the pilot's own rounds on their lit target count.
+- **Cleared** when the last is struck before the clock runs out. The time is from the first to the
+  last; par 25 s (`DRILL_PAR_S`), first, second or third class as the course's.
+- **Out:** the clock runs out on the tick after its deadline, and a strike after that ends it
+  rather than counting. Strike the lit target to go again.
+- **Kept twice, alike:** by the sector for the board, and by the client's world (`World::drill`)
+  for the HUD. The client is fed its own `TargetHit` events and each snapshot's tick, so its clock
+  runs out on the server's tick.
+
+**On the screen:**
+- The lit target pulses cyan for its pilot (only theirs: others' drills are theirs).
+- The panel reads `THE DRILL   TARGET 7/20`, the time left and the time run.
+- A chime for each target struck.
+- The news `DRILL CLEARED · 0:21.3 · FIRST CLASS`, or `THE DRILL · TIME · 12 OF 20 STRUCK`.
+- The `aim_hostile` hook aims at the lit target.
+
+**The par is a pilot's, not a machine's.** A Leo on the gantry turning to each target on perfect aim
+clears it in 3.8 s in the sim, and in 6.8 s over the wire with an agent's aim. The rest of a
+pilot's time is finding the lit target and putting the crosshair on it: par is a second and a
+quarter each. The trainer's machine cannon carries 400 rounds, so a pilot who sprays runs dry:
+board again for a fresh one.
+
+**Tests:**
+- `hall`'s units: the clock starts, runs down, takes time back and runs out, and the order.
+- `bc-sim/tests/interior.rs`: a trainer on the gantry clears it, the clock never near running out.
+- `training_net` and `bc-server/tests/proving.rs`: through the sector and over the wire.
+- The `inside` e2e: a pilot in a browser starts it and strikes its lit targets.
 
 ## Phase 5: live fire in the hall (built)
 
@@ -279,13 +390,15 @@ forms, which the server's interior sector and each pilot's prediction share.
     on the nearest target (the `aim_hostile` hook aims at the hall's nearest target when there's
     no hostile), and sees its rounds score.
 
-**Not yet:** a drill with a clock (X-Wing's Maze added time per target; TIE Fighter's simulator took
-two seconds off), the targets' scores on the board (phase 4), and the fire seen from on foot.
+**Not yet:** the fire seen from on foot. (The drill with its clock, and its times on the board,
+are built: above.)
 
 ## Phase 6: more courses
 
+- **The hall's course:** one that starts and ends at the blast doors, for trainers (phase 3's plan).
 - **A level ladder:** the same rings with less time, as X-Wing's eight levels to a badge and TIE
-  Fighter's "after Level 8, the course stays the same, but you have five seconds less".
+  Fighter's "after Level 8, the course stays the same, but you have five seconds less". The drill
+  too: less on the clock, or less put back.
 - **A course for each strip:** Canal's runs under its bridges, Gardens' along its terraces.
 - **Speed rings** that boost, as X-Wing Alliance's did.
 - **Several pilots racing at once:** the rings are everyone's already.
@@ -297,6 +410,8 @@ two seconds off), the targets' scores on the board (phase 4), and the fire seen 
 - **The real rules inside:** whether propellant should burn more slowly in air, or the course stay
   a lesson in it (`SUITS_INSIDE.md`'s open question about flight in air).
 - **Rewards:** whether a first-class certificate pays (the Charter Board's bonus) or only shows.
-  Only showing until the server checks times (phase 4) is the safe start: anything the client
-  decides can be forged.
+  The server checks the times now (phase 4), so it could pay; today it only shows, on the board and
+  the pilot's record.
+- **The board's reach:** the day's best, and the best ever. A week's, or a season's, and whether a
+  guest belongs on it.
 - **Mandatory or not:** recommended, never required, as X-Wing's was.

@@ -7,12 +7,17 @@
 //!   answers its requests (fabricating, fitting, repairing, trading on the exchange), launches
 //!   the suit they built into the sector, and takes it home again when it docks, or learns it
 //!   was lost. A pilot who left their suit asleep out there wakes in it.
+//! - **The Proving Ground** (the colony open): on foot at the Blast Hall's gantry, the pilot boards
+//!   one of the Charter Board's trainers (nothing of their hangar's goes with it) and climbs out
+//!   there again when it docks. The times the inside's sector checks, round the course and through
+//!   the drill, go on the Proving Ground's board, and a signed-in pilot's bests on their record.
 //!
 //! Whatever happens, the slot is handed back in the order that keeps it race-free: stop sending,
 //! settle the roster, let the sector put the suit to sleep (or release it), then return the lease.
 
 use std::time::{Duration, Instant};
 
+use bc_econ::proving::{self as board, Bests, Feat};
 use bc_econ::wire::{self, HangarView, MarketView, Outcome as SortieOutcome, Place, Request, Update};
 use bc_econ::{Bay, Hangar, Item};
 use bc_proto::auth::Address;
@@ -109,6 +114,10 @@ pub(super) async fn run(
         board: false,
         board_seen: 0,
         board_sent: Instant::now() - MARKET_EVERY,
+        proving_seen: 0,
+        proving_sent: Instant::now() - MARKET_EVERY,
+        bests: Bests::default(),
+        trainer: false,
         news_seen: game.charter.with(|b| b.news_seq()),
         radio_heard: 0,
         mouth: Mouth::default(),
@@ -162,6 +171,13 @@ struct Session<'a> {
     board: bool,
     board_seen: u64,
     board_sent: Instant,
+    /// The version of the Proving Ground's board the pilot saw, and when it was sent; their best
+    /// times there (a signed-in pilot's, from their record).
+    proving_seen: u64,
+    proving_sent: Instant,
+    bests: Bests,
+    /// Flying one of the Charter Board's trainers, boarded at the Blast Hall's gantry.
+    trainer: bool,
     /// The newest of the board's notices the pilot has heard.
     news_seen: u64,
     /// The last line of the colony's radio passed on, and how fast the pilot may talk on it.
@@ -177,6 +193,21 @@ struct Session<'a> {
     spectating: Option<SlotLease>,
     /// Welcomed (so leaving has a roster entry, a record and a lease to settle).
     entered: bool,
+}
+
+/// How near the gantry's hatch a pilot on foot boards a trainer, m (the plaza's last pose of them).
+const HATCH_REACH: f32 = 12.0;
+
+/// Whether `at` (the colony's own frame) is at the Blast Hall's gantry's hatch.
+fn at_the_hatch(at: glam::Vec3) -> bool {
+    use bc_sim::colony::frame::{Under, from_colony};
+    let ((s, x), _) = bc_sim::colony::hall::hatch();
+    match from_colony(at) {
+        Under::Land(c) => {
+            c.strip == bc_sim::colony::hall::hall().strip && (c.s - s).hypot(c.x - x) < HATCH_REACH
+        }
+        Under::Window { .. } => false,
+    }
 }
 
 /// What a pilot is told the first time they wake in their bay.
@@ -259,6 +290,7 @@ impl Session<'_> {
         }
         // Lost everything: the Charter Board's advance (`Hangar::reissue`).
         let advanced = if self.survival() { self.hangar.reissue(pilots::unix_now()) } else { None };
+        self.bests = self.record.as_ref().map_or_else(Bests::default, |r| r.proving);
         if let Some(r) = self.record.as_mut() {
             // Woken, or gone: either way it's no longer out there asleep (in a hide spot or not).
             r.sleeper = None;
@@ -580,7 +612,46 @@ impl Session<'_> {
     async fn send_place(&mut self) -> anyhow::Result<()> {
         let bay = (self.slot % 99 + 1) as u8;
         let strip = (self.place == Place::City).then_some(self.strip);
-        self.send(&Update::Place { place: self.place, bay, strip }).await
+        self.send(&Update::Place { place: self.place, bay, strip, trainer: self.trainer }).await
+    }
+
+    /// In the colony (on foot in its city, or flying inside it): the Proving Ground's board, as
+    /// this pilot sees it.
+    fn in_the_colony(&self) -> bool {
+        self.place == Place::City || self.inside.is_some()
+    }
+
+    async fn send_proving(&mut self) -> anyhow::Result<()> {
+        self.proving_seen = self.game.proving.version();
+        self.proving_sent = Instant::now();
+        let mut view = self.game.proving.with(|b| b.view(&self.trader, pilots::unix_now()));
+        view.mine = self.bests;
+        self.send(&Update::Proving(view)).await
+    }
+
+    /// A time the inside's sector checked: on the board, on the pilot's record if it's their best,
+    /// and told to them (with where it went).
+    async fn feat(&mut self, feat: Feat, ms: u32) -> anyhow::Result<()> {
+        let now = pilots::unix_now();
+        let placed = self.game.proving.with(|b| b.record(feat, &self.trader, &self.callsign, ms, now));
+        self.game.proving.changed();
+        let best = self.bests.better(feat, ms);
+        tracing::info!(slot = self.slot, name = %self.callsign, ?feat, ms, rank = ?placed.rank, best, "the proving ground");
+        if best && let Some(r) = self.record.as_mut() {
+            r.proving = self.bests;
+            self.save().await;
+        }
+        let mut text =
+            format!("THE BOARD · {} {} · {}", feat.name(), board::clock(ms), feat.class(ms).name());
+        if placed.record {
+            text.push_str(" · THE BEST EVER");
+        } else if let Some(rank) = placed.rank.filter(|_| placed.improved) {
+            text.push_str(&format!(" · {} TODAY", board::ordinal(rank)));
+        } else if best {
+            text.push_str(" · YOUR BEST");
+        }
+        self.note(text, true).await?;
+        self.send_proving().await
     }
 
     /// Where the pilot's suit is inside the colony (the colony's own frame), while they fly it there.
@@ -768,6 +839,7 @@ impl Session<'_> {
         match req {
             Request::Launch => self.launch().await,
             Request::LaunchInside => self.launch_inside().await,
+            Request::BoardTrainer => self.board_trainer().await,
             Request::Dock => self.dock().await,
             Request::EnterCity { strip } => self.enter_city(strip).await,
             Request::LeaveCity => self.leave_city().await,
@@ -882,6 +954,7 @@ impl Session<'_> {
         tracing::info!(slot = self.slot, name = %self.callsign, strip = self.strip, "went down into the colony");
         self.watch();
         self.send_place().await?;
+        self.send_proving().await?;
         self.publish_hangar();
         Ok(())
     }
@@ -1034,7 +1107,84 @@ impl Session<'_> {
         self.welcome(false).await?;
         self.send_place().await?;
         self.send_hangar().await?;
+        self.send_proving().await?;
         self.save().await;
+        Ok(())
+    }
+
+    /// On foot at the Blast Hall's gantry (where the plaza last had them): aboard one of the
+    /// Charter Board's trainers, standing on the gantry's pad, in the inside's sector (its own
+    /// slot, rings and egress, as a launch through the inner gate is) and welcomed to it. Nothing
+    /// of the pilot's hangar goes with it, and their own suit stays in their bay.
+    async fn board_trainer(&mut self) -> anyhow::Result<()> {
+        let Some(inside) = self.game.inside.clone() else {
+            return self.note("the proving ground is closed", false).await;
+        };
+        let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        let at_hatch = self.game.plaza.where_is(self.slot, tick).is_some_and(at_the_hatch);
+        if self.place != Place::City || self.suit.is_some() || !at_hatch {
+            return self.note("the trainers are boarded at the blast hall's gantry, on foot", false).await;
+        }
+        let Some(lease) = inside.sector.leases.pop() else {
+            return self.note("the gantry is busy: the colony's inside is full", false).await;
+        };
+        let slot = lease.slot;
+        let status = &inside.sector.slots[slot as usize];
+        let epoch = status.epoch();
+        let mut board = Control::Board {
+            slot,
+            pilot: self.pilot,
+            frame: FrameId::Leo,
+            faction: self.faction,
+            max_datagram: self.max_datagram,
+        };
+        while let Err(back) = inside.sector.control.push(board) {
+            board = back;
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        let state = wait_slot(&inside.sector, slot, |s, e| e != epoch && s != SlotState::Free).await;
+        let (Some(SlotState::Active), Some(suit)) = (state, status.suit_id()) else {
+            let _ = inside.sector.leases.push(lease);
+            return self.note("the gantry is busy: try again in a moment", false).await;
+        };
+        // Off the street, and no longer watching the inside from it: flying in it.
+        self.game.plaza.leave(self.slot);
+        self.unwatch().await;
+        self.suit = Some(suit);
+        self.lost = false;
+        self.inside = Some(lease);
+        self.trainer = true;
+        self.place = Place::Space;
+        let _ = self.game.egress.push(EgressCmd::Detach(self.slot));
+        self.game.egress_thread.unpark();
+        let _ = inside.egress.push(EgressCmd::Attach(slot, self.conn.clone()));
+        inside.egress_thread.unpark();
+        tracing::info!(slot = self.slot, inside = slot, name = %self.callsign, "boarded a trainer at the blast hall's gantry");
+        self.welcome(false).await?;
+        self.send_place().await?;
+        self.send_proving().await?;
+        self.publish_hangar();
+        Ok(())
+    }
+
+    /// The trainer docked on its gantry: the pilot climbs out onto the hall's floor at its hatch,
+    /// back on foot in the city (and the Board keeps its suit).
+    async fn out_of_the_trainer(&mut self) -> anyhow::Result<()> {
+        self.unseat();
+        self.out_of_the_colony().await?;
+        self.trainer = false;
+        self.place = Place::City;
+        let hall = bc_sim::colony::hall::hall();
+        self.strip = hall.strip;
+        let (hatch, _) = bc_sim::colony::hall::hatch();
+        self.game.plaza.enter_at(self.slot, &self.callsign, self.strip, hatch);
+        self.named.clear();
+        self.watch();
+        tracing::info!(slot = self.slot, name = %self.callsign, "out of a trainer at the blast hall's gantry");
+        self.note("THE TRAINER'S BACK ON ITS GANTRY", true).await?;
+        self.send_place().await?;
+        self.send_proving().await?;
+        self.publish_hangar();
         Ok(())
     }
 
@@ -1105,6 +1255,8 @@ impl Session<'_> {
 
     async fn on_report(&mut self, report: Report) -> anyhow::Result<()> {
         match report {
+            // The Board's suit stays the Board's: nothing of it comes home.
+            Report::Home(_) if self.trainer => self.out_of_the_trainer().await?,
             Report::Home(home) => {
                 self.unseat();
                 self.out_of_the_colony().await?;
@@ -1119,13 +1271,19 @@ impl Session<'_> {
                 self.send_market().await?;
             }
             Report::DockRefused => {
-                let text = if self.inside.is_some() {
+                let text = if self.trainer {
+                    "come to rest on the blast hall's gantry to dock the trainer"
+                } else if self.inside.is_some() {
                     "come to rest inside the inner gate's ring of lights to dock"
                 } else {
                     "come to rest inside the dock's ring of lights to dock"
                 };
                 self.note(text, false).await?;
             }
+            Report::Course { ms } => self.feat(Feat::Course, ms).await?,
+            Report::Drill { ms } => self.feat(Feat::Drill, ms).await?,
+            // Nothing is lost inside the colony; the Board's trainers least of all.
+            Report::Lost { .. } if self.trainer => {}
             // Only ever sent as the pilot leaves (`leave` reads it).
             Report::Parked { .. } => {}
             Report::Lost { bounty } => {
@@ -1191,6 +1349,12 @@ impl Session<'_> {
         if settle && self.game.charter.with(|b| b.news_seq()) != self.news_seen {
             self.send_notices().await?;
         }
+        if self.in_the_colony()
+            && self.game.proving.version() != self.proving_seen
+            && self.proving_sent.elapsed() >= MARKET_EVERY
+        {
+            self.send_proving().await?;
+        }
         Ok(())
     }
 
@@ -1200,12 +1364,13 @@ impl Session<'_> {
         self.game.plaza.leave(self.slot);
         self.unwatch().await;
         // Inside the colony, the suit doesn't sleep there: the colony's tugs bring it back to the
-        // bay.
+        // bay (a trainer, back to its gantry: the pilot's own suit never left the bay).
         if self.inside.is_some() {
             self.leave_the_colony().await;
-            if self.survival() {
+            if self.survival() && !self.trainer {
                 self.hangar.recover();
             }
+            self.trainer = false;
         }
         let _ = self.game.egress.push(EgressCmd::Detach(self.slot));
         self.game.egress_thread.unpark();
@@ -1249,7 +1414,7 @@ impl Session<'_> {
                 match report {
                     Report::Parked { rec, tick } => parked = Some((rec, tick)),
                     Report::Lost { bounty: b } => bounty = b,
-                    Report::Home(_) | Report::DockRefused => {}
+                    Report::Home(_) | Report::DockRefused | Report::Course { .. } | Report::Drill { .. } => {}
                 }
             }
             let asleep = match (status.outcome(), status.suit_id()) {

@@ -384,6 +384,70 @@ impl BotClient {
         self.ask(&Request::Order { item, side: bc_econ::Side::Buy, price, qty, rest: false }).await
     }
 
+    /// The colony open, on foot in its city: walks the agent from where it stands to `to` (`(s, x)`
+    /// on its strip) with the browser's own legs and guide (`bc_client_core::{walker, city_nav}`),
+    /// in through a room's door if it's in one, the server taking every step. Fails past `secs`.
+    pub async fn walk_to(&mut self, to: (f32, f32), secs: f64) -> anyhow::Result<()> {
+        use bc_client_core::city::{CityGround, pose_of};
+        use bc_client_core::walker::{Guide, Walker};
+        use bc_sim::colony::city::{KERB, Stage, room_at};
+        use bc_sim::colony::frame::CityPos;
+        let strip = self.core.hangar.strip.unwrap_or(0);
+        // From where it last stood; just down the lift, from outside Hub Gate's door.
+        let from = match self.core.pose() {
+            Some(p) => CityPos::new(strip, p.x, p.s, p.h),
+            None => {
+                let gate = bc_sim::content::city::PLACES
+                    .iter()
+                    .find(|p| p.kind == bc_sim::content::city::PlaceKind::HubGate && p.strip == strip)
+                    .ok_or_else(|| anyhow::anyhow!("walk_to: no Hub Gate on strip {strip}"))?;
+                let ((s, x), (ds, dx)) = bc_sim::colony::city::place_door(gate);
+                CityPos::new(strip, x - dx * 6.0, s - ds * 6.0, 0.0)
+            }
+        };
+        let mut route = bc_client_core::city_nav::route_from(strip, from, to);
+        // Into the room `to` is in, through its door.
+        if let Some(r) = room_at(strip, to.0, to.1, 1.0)
+            && room_at(strip, from.s, from.x, from.h.max(0.0) + 1.0).is_none()
+        {
+            let (outside, inside) = r.threshold();
+            route = bc_client_core::city_nav::route_from(strip, from, outside);
+            let walk = |(s, x): (f32, f32)| CityPos::new(strip, x, s, KERB).walker();
+            route.push(walk(inside));
+            route.push(walk(to));
+        }
+        let ground = CityGround { strip, stage: Stage(0) };
+        let mut w = Walker::at(from.walker(), glam::Vec3::X);
+        w.grounded = true;
+        let mut guide = Guide::new(route, None);
+        let end = Instant::now() + Duration::from_secs_f64(secs);
+        while !guide.arrived() {
+            if Instant::now() > end {
+                bail!("walk_to: timed out, at {:?}", CityPos::from_walker(strip, w.feet));
+            }
+            let dt = 1.0 / bc_sim::TICK_HZ as f32;
+            let stride = guide.steer(&mut w, dt);
+            w.step(&ground, &stride, dt);
+            self.set_pose(pose_of(strip, &w));
+            self.step(&mut |_| InputCmd::default()).await?;
+        }
+        Ok(())
+    }
+
+    /// The colony open, on foot in the Blast Hall at its gantry's hatch: boards one of the Charter
+    /// Board's trainers there. Returns once the pilot is flying it (welcomed to the colony's
+    /// inside), standing on the gantry.
+    pub async fn board_trainer(&mut self) -> anyhow::Result<()> {
+        self.request(&Request::BoardTrainer).await?;
+        self.wait_until(10.0, "a trainer", |c| {
+            c.hangar.place == Some(Place::Space)
+                && c.hangar.trainer
+                && c.welcome.is_some_and(|w| w.interior)
+                && c.world.own.is_some_and(|o| o.alive)
+        })
+        .await
+    }
+
     /// Survival rules: takes the suit into the bay (it has to be at rest in the dock). Returns
     /// once the pilot is back in the hangar.
     pub async fn dock(&mut self) -> anyhow::Result<()> {

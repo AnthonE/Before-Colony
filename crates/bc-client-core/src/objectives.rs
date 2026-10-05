@@ -210,7 +210,7 @@ impl Objective {
                     .into()
             }
             Objective::ProvingGround => {
-                "The Blast Hall, off Hub Gate's square: M shows the city, ◆ marks its blast doors. Its desk (E) has the course."
+                "The Blast Hall, off Hub Gate's square: M shows the city, ◆ marks its blast doors. Its desk (E) has the board; its gantry, a trainer to fly."
                     .into()
             }
         }
