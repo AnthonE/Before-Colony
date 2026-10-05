@@ -38,11 +38,12 @@ form of `bc_sim::colony` works there unchanged.
 - **`Sim` gets a `WorldKind`** (`Space`, `Interior`), fixed at construction. Everything that differs
   is a `match` on it outside the per-entity loops, so `Space` runs the code it runs today.
 - **What's solid inside** is the colony's inside, not its outside: the hull (from within), the end
-  caps, the city's buildings and platforms (`colony::city::solid`, `each_solid`), Hub Gate's
-  terminal and the spire's inner end. A new `world::interior_constrain` keeps a suit's capsule
-  inside the hull and out of the city's boxes; `interior_sweep` replaces `colony_sweep` for the
-  (non-existent) shots and for the suits' own motion. The city's boxes are queried by a suit's
-  swept AABB, which is O(boxes near it), not O(city).
+  caps, the city's buildings and platforms (`colony::city::solid_built`, `each_solid`: not its street
+  furniture, which a suit steps over), Hub Gate's terminal and the spire's inner end. A new
+  `world::interior_constrain` keeps a suit's capsule inside the hull and out of the city's boxes;
+  `interior_sweep` replaces `colony_sweep` for the (non-existent) shots and for the suits' own
+  motion. The city's boxes are queried by a suit's swept AABB, which is O(boxes near it), not
+  O(city).
 - **Gravity and the spin's pull.** Inside the turning frame a free suit feels the centrifugal pull
   `ω² r` (1 g at the floor), and Coriolis `−2 ω × v`. Both go into `flight::integrate` for
   `Interior` only: a pure function of state, deterministic (libm), and allocation-free.
@@ -125,7 +126,7 @@ weapon); its rollouts run against the interior's world.
   `ground::tests::city`: an armed suit lands on the avenue, walks it and lifts off without a jump;
   a wall stops it, never nearer anything than its stance; dropped on a roof it stands there, and
   walked over the edge it falls, kept off the walls, and stands below; the probe agrees with
-  `colony::city::solid` and finds the ground straight under a suit.
+  `colony::city::solid_built` and finds the ground straight under a suit.
 - `no_alloc`: 64 suits flying the interior for 1,000 ticks (16 of them on the city, walking), 0
   heap operations.
 - Determinism: an interior scenario hashes the same native and wasm; every existing golden is

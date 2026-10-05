@@ -23,6 +23,8 @@ mod chat;
 #[cfg(target_arch = "wasm32")]
 mod city;
 #[cfg(target_arch = "wasm32")]
+mod city_hour;
+#[cfg(target_arch = "wasm32")]
 mod cockpit;
 #[cfg(target_arch = "wasm32")]
 mod colony;
@@ -52,6 +54,8 @@ mod input;
 mod inside;
 #[cfg(target_arch = "wasm32")]
 mod landmarks;
+#[cfg(target_arch = "wasm32")]
+mod life;
 #[cfg(target_arch = "wasm32")]
 mod map;
 #[cfg(target_arch = "wasm32")]

@@ -54,10 +54,12 @@ pub fn pose_of(strip: u8, w: &Walker) -> PersonPose {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::walker::Stride;
+    use crate::walker::{Guide, Stride};
     use bc_sim::colony::city::{
-        BLOCK, CANAL_ROW, KERB, SIDEWALK, block, block_rect, channel, grid_x, lots, place, place_door,
+        BLOCK, CANAL_ROW, KERB, Rect, SIDEWALK, block, block_rect, channel, grid_x, lots, place, place_door,
     };
+    use bc_sim::colony::frame::STRIP_WIDTH;
+    use bc_sim::colony::furniture::{AVENUE_TREE, BENCH_HEIGHT, Furniture, Kind, each_furniture};
 
     const DT: f32 = 1.0 / 60.0;
     const CITY: CityGround = CityGround { strip: 0, stage: Stage(0) };
@@ -116,6 +118,123 @@ mod tests {
             building.foot
         );
         assert!(building.foot.s1 <= b.rect.s1 - SIDEWALK + 1e-3, "the pavement's clear");
+    }
+
+    /// Strip 0's pieces of the furniture on `area` that `pick` likes, along `x`.
+    fn furniture(area: Rect, pick: impl Fn(&Furniture) -> bool) -> Vec<Furniture> {
+        let mut out = Vec::new();
+        each_furniture(0, &area, Stage(0), |p| {
+            if pick(p) {
+                out.push(*p);
+            }
+            false
+        });
+        out.sort_by(|a, b| a.x.total_cmp(&b.x));
+        out
+    }
+
+    #[test]
+    fn a_pilot_walks_into_a_lamp_post_and_the_guide_takes_them_round() {
+        // A street lamp in the middle of a lane's kerb, walked at down the pavement.
+        let b = block(0, 30, 3, Stage(0)).unwrap();
+        let post = furniture(b.rect, |p| p.kind == Kind::StreetLamp && p.facing.0 != 0.0 && p.reach > 2.0)[0];
+        let mut w = at(post.s, post.x - 5.0, KERB + 0.2, Vec3::X);
+        walk(&mut w, 3.0, Stride { forward: 1.0, ..Stride::default() });
+        let p = CITY.place(w.feet);
+        let short = Kind::StreetLamp.size().1 + 0.3;
+        assert!((post.x - p.x - short).abs() < 0.02, "stopped at the post: {p:?} vs {post:?}");
+        // The guide sidesteps it.
+        let mut g = Guide::new(vec![CityPos::new(0, post.x + 10.0, post.s, KERB).walker()], None);
+        let mut t = 0.0;
+        while !g.arrived() {
+            let s = g.steer(&mut w, DT);
+            w.step(&CITY, &s, DT);
+            t += DT;
+            assert!(t < 4.0, "caught on the post at {:?}", CITY.place(w.feet));
+        }
+    }
+
+    /// Guides a pilot standing at `from` (`(s, x, h)`) to `to`: how long it took, or where the
+    /// guide let go of them.
+    fn guided(from: (f32, f32, f32), to: (f32, f32, f32)) -> Result<f32, CityPos> {
+        let ds = to.0 - from.0;
+        let mut w = at(from.0, from.1, from.2, Vec3::new(0.0, 0.0, -ds.signum()));
+        let mut g = Guide::new(vec![CityPos::new(0, to.1, to.0, to.2).walker()], None);
+        let mut t = 0.0;
+        while !g.arrived() && t < 20.0 {
+            let s = g.steer(&mut w, DT);
+            w.step(&CITY, &s, DT);
+            t += DT;
+        }
+        let p = CITY.place(w.feet);
+        let home = (p.s - to.0).hypot(p.x - to.1) < 0.5;
+        if g.arrived() && home { Ok(t) } else { Err(p) }
+    }
+
+    #[test]
+    fn the_guide_crosses_rows_of_lamps_and_trees_wherever_it_meets_them() {
+        // Straight across the avenue's lamps and trees (and benches) from its road to the walk
+        // under them and back, and from a lane onto its pavement past the kerb's lamps and back,
+        // every 3 cm along: whichever side of a post or a trunk it catches on, the guide takes the
+        // pilot round.
+        let mut slowest = 0.0f32;
+        let mut cross = |from: (f32, f32, f32), to: (f32, f32, f32)| match guided(from, to) {
+            Ok(t) => slowest = slowest.max(t),
+            Err(p) => panic!("from {from:?} to {to:?}: let go at {p:?}"),
+        };
+        let mid = STRIP_WIDTH * 0.5;
+        // Caught on a trunk's near edge (at c = −24.3, x = −13,280), the short way round is left.
+        cross((mid - 15.0, -13_279.53, 0.0), (mid - 28.0, -13_279.53, 0.0));
+        let r = block_rect(30, 1);
+        let trees = Rect::new(mid - AVENUE_TREE - 0.5, mid - AVENUE_TREE + 0.5, r.x0, r.x1);
+        let lamps = Rect::new(mid - 23.0, mid - 22.4, r.x0, r.x1);
+        let mut posts: Vec<f32> =
+            furniture(lamps, |p| p.kind == Kind::AvenueLamp).iter().map(|p| p.x).collect();
+        posts.extend(furniture(trees, |p| p.kind == Kind::Tree).iter().take(4).map(|p| p.x));
+        assert!(posts.len() > 5, "{posts:?}");
+        for &x0 in &posts {
+            for k in 0..80 {
+                let x = x0 - 1.2 + 0.03 * k as f32;
+                cross((mid - 15.0, x, 0.0), (mid - 28.0, x, 0.0));
+                cross((mid - 28.0, x, 0.0), (mid - 15.0, x, 0.0));
+            }
+        }
+        // A lane's kerb, its lamps 0.8 m in from it on the pavement (the corners' 0.25 m).
+        let b = block(0, 30, 3, Stage(0)).unwrap();
+        let edge = b.rect.s1;
+        let kerb = Rect::new(edge - 1.0, edge, b.rect.x0, b.rect.x1);
+        let posts = furniture(kerb, |p| p.kind == Kind::StreetLamp);
+        assert!(posts.len() >= 3, "{posts:?}");
+        for p in posts {
+            for k in 0..80 {
+                let x = p.x - 1.2 + 0.03 * k as f32;
+                cross((edge + 6.0, x, 0.0), (edge - 3.0, x, KERB));
+                cross((edge - 3.0, x, KERB), (edge + 6.0, x, 0.0));
+            }
+        }
+        assert!(slowest < 8.0, "{slowest} s");
+    }
+
+    #[test]
+    fn a_pilot_steps_up_onto_a_bench_and_off_it() {
+        // Down the avenue's row of trees, over a bench to the trunk after it.
+        let r = block_rect(30, 1);
+        let s = STRIP_WIDTH * 0.5 + AVENUE_TREE;
+        let row = Rect::new(s - 0.5, s + 0.5, r.x0, r.x1);
+        let bench = furniture(row, |p| p.kind == Kind::Bench)[0];
+        let trunk = furniture(row, |p| p.kind == Kind::Tree && p.x > bench.x)[0];
+        assert!((trunk.x - bench.x - 4.0).abs() < 1e-3, "{bench:?} {trunk:?}");
+        let mut w = at(s, bench.x - 3.0, 0.2, Vec3::X);
+        assert!(w.grounded && w.feet.y.abs() < 1e-3, "{:?}", w.feet);
+        let mut top: f32 = 0.0;
+        for _ in 0..(4.0 / DT) as u32 {
+            w.step(&CITY, &Stride { forward: 1.0, ..Stride::default() }, DT);
+            top = top.max(w.feet.y);
+        }
+        let p = CITY.place(w.feet);
+        assert!((top - BENCH_HEIGHT).abs() < 0.02, "up on the bench: {top}");
+        assert!(w.grounded && p.h.abs() < 1e-3, "and down off it: {p:?}");
+        assert!((trunk.x - p.x - 0.5).abs() < 0.02, "stopped at the trunk: {p:?} vs {trunk:?}");
     }
 
     #[test]

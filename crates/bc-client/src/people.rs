@@ -388,19 +388,20 @@ fn draw_people(
 /// How long a line said on the radio stays over its speaker's head, s.
 const SAID_SECS: f64 = 8.0;
 
-/// Names over the near ones, and over each, what they last said on the radio (for a while).
+/// Names over the near ones, and over each, what they last said on the radio (for a while; a
+/// showcase has no radio).
 fn name_tags(
     origin: Res<RenderOrigin>,
     figures: Query<(&Figure, &Placed, &Transform)>,
     cams: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     mut tags: Query<(&mut Node, &mut Visibility, &mut Text)>,
-    spoken: Res<crate::chat::Spoken>,
+    spoken: Option<Res<crate::chat::Spoken>>,
 ) {
     let Ok((cam, cam_tf)) = cams.single() else { return };
     let now = crate::net::now_s();
     for (f, placed, tf) in &figures {
         let Ok((mut node, mut vis, mut text)) = tags.get_mut(f.tag) else { continue };
-        let said = spoken.0.get(&f.name).filter(|(_, at)| now - at < SAID_SECS);
+        let said = spoken.as_ref().and_then(|s| s.0.get(&f.name)).filter(|(_, at)| now - at < SAID_SECS);
         let want = match said {
             Some((line, _)) => format!("{}\n{line}", f.name),
             None => f.name.clone(),

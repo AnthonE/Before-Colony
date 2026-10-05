@@ -57,9 +57,9 @@ fn setup_gate(
     ));
 }
 
-/// `window.__bc.interior`: the pilot's sector is the colony's inside.
-fn publish(game: NonSend<GameClient>, status: Option<ResMut<crate::dev_hooks::DevStatus>>) {
-    if let Some(mut status) = status {
+/// `window.__bc.interior`: the pilot's sector is the colony's inside. (A showcase has no game.)
+fn publish(game: Option<NonSend<GameClient>>, status: Option<ResMut<crate::dev_hooks::DevStatus>>) {
+    if let (Some(game), Some(mut status)) = (game, status) {
         status.set("interior", game.borrow().core.welcome.is_some_and(|w| w.interior));
     }
 }
@@ -67,10 +67,10 @@ fn publish(game: NonSend<GameClient>, status: Option<ResMut<crate::dev_hooks::De
 /// While the pilot flies inside the colony: the render origin at the axis, every suit (and all of
 /// its pieces) on the city's layer, and the gate's ring shown. On foot in the city, the suits they
 /// watch on the city's layer too, placed relative to the render origin (`city::place_all`). Out
-/// again, the suits go back to space's layer.
+/// again, the suits go back to space's layer. A showcase has no game, and places its own.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn inside_view(
-    game: NonSend<GameClient>,
+    game: Option<NonSend<GameClient>>,
     mut origin: ResMut<RenderOrigin>,
     mut commands: Commands,
     mut suits: Query<(Entity, &SuitDrive, Option<&mut Placed>), With<SuitVisual>>,
@@ -79,6 +79,7 @@ fn inside_view(
     mut ring: Query<&mut Visibility, With<GateRing>>,
     mut was: Local<bool>,
 ) {
+    let Some(game) = game else { return };
     let (inside, watching) = {
         let g = game.borrow();
         (g.core.inside(), g.core.hangar.in_city())

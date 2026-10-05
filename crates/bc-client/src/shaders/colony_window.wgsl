@@ -9,7 +9,7 @@
     mesh_view_bindings::view,
 }
 #import bc::noise::fbm
-#import bc::city::{city_cell, atlas_texel, city_paint}
+#import bc::city::{city_cell, atlas_texel, city_sketch}
 #ifdef TONEMAP_IN_SHADER
 #import bevy_core_pipeline::tonemapping::tone_mapping
 #endif
@@ -69,6 +69,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let c = dot(p.yz, p.yz) - r_hull * r_hull;
     let t = (-b + sqrt(max(b * b - 4.0 * a * c, 0.0))) / (2.0 * max(a, 1e-6));
     let hit = p + d * t;
+    // The far wall's footprint, m across the strip and along the axis, for `city_sketch`'s
+    // filtering: taken here, before any branch. (`s0` jumps at the strips' edges and where the
+    // angle wraps; those pixels are window, or the bank's last metre.)
+    let rel0 = sector_angle(hit) + TAU / 12.0;
+    let s0 = (rel0 - floor(rel0 / (TAU / 3.0)) * (TAU / 3.0) - TAU / 6.0) * r_hull;
+    let fp = fwidth(vec2(s0, hit.x));
 
     // Sunlight thrown in by the mirrors lights the interior.
     let lit = WHITE * 0.55 * day * colony.sun.w;
@@ -85,7 +91,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let strip = i32(floor(rel / (TAU / 3.0)));
         let s = (rel - f32(strip) * (TAU / 3.0) - TAU / 6.0) * r_hull;
         let cell = city_cell(s, hit.x);
-        let g = city_paint(cell, textureLoad(atlas, atlas_texel(strip, cell), 0), true);
+        let g = city_sketch(cell, textureLoad(atlas, atlas_texel(strip, cell), 0), strip, true, fp, colony.extra.x > 0.0);
         col = g.albedo * lit + vec3(1.0, 0.72, 0.4) * g.lamps * colony.extra.x * 0.05 * SCREEN;
     }
     // Clouds about a kilometre above the far wall.

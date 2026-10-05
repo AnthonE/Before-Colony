@@ -6,8 +6,8 @@
 //! poses against, so it moves [`CITY_VERSION`] with the protocol's version.
 
 /// The city's version: bumped, with `bc_proto::PROTOCOL_VERSION`, on any change to the layout (2:
-/// the key places' rooms).
-pub const CITY_VERSION: u8 = 2;
+/// the key places' rooms; 3: the buildings' massing, and the street's furniture and trees).
+pub const CITY_VERSION: u8 = 3;
 
 /// A strip's name, in the colony's own words.
 pub const STRIP_NAMES: [&str; 3] = ["CHARTER", "CANAL", "GARDENS"];

@@ -81,7 +81,8 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
    - The city shader uses Bevy PBR on the camera's strip, with the one `Sun` light re-aimed to that strip's key light
      (shadows on High/Ultra).
    - The other two strips get a simple key-plus-sky term in their own frame.
-   - Haze has a single definition, Bevy's `DistanceFog`. Custom shaders read the same uniform.
+   - Haze has a single definition, the sky function (`bc::colony_sky`, `COLONY_LOOK.md` pass 1); Bevy's
+     `DistanceFog`, matched to it, covers only what the city's shader doesn't draw.
 5. **Walking.** `Walker` becomes generic over a `Solid` trait plus an `Env {gravity, pseudo}`. Its users:
    - `bay::Layout`, unchanged;
    - the city, in a walker frame of (x, h, −s); the handedness matters, or the city comes out mirrored;
@@ -139,7 +140,8 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
     Hull ribs and panel lines. The +X axis port with scaffolds and cranes.
   - `shaders/light_dots.wgsl`: one mesh of about 20k dots along the window frames, ring edges, spire tiers and mirror
     edges. Each dot keeps at least 1.5 px on screen, glows in HDR and blinks with its own phase.
-  - Showcase colony cams 6–8: image 2's composition, the night side, mirrors at dawn. Matching `gfx.spec.ts` rows.
+  - Showcase colony cams 6–8: image 2's composition, the night side, mirrors opening in the morning. Matching
+    `gfx.spec.ts` rows.
 - **1.3 Solid end structures** (separate PR, protocol bump).
   - `world.rs`: `hull_contact`, `colony_sweep`, `inside_colony` and `constrain` cover the spire and the ring. Both are
     shapes of revolution, so a still collider is exact, the same argument as for the hull.
@@ -333,16 +335,44 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
 **Districts and buildings**
 - 12 districts per strip, 2048 m each, from a table per strip. Strip names (placeholders): Charter, Canal, Gardens.
 
-| District | Heights |
-|---|---|
-| Business district | towers 80–240 m |
-| Midtown | 25–80 m |
-| Residential | 12–40 m |
-| Old Town | 9–18 m |
-| Works | 15–40 m |
-| Site | frames 20–120 m, cranes to 160 m |
+| District | Heights | Built as |
+|---|---|---|
+| Business district | towers 80–240 m | towers on podiums, stepping in up to three times, crowned (a hat, a stepped top, a lantern, a penthouse), masts on the tall ones |
+| Midtown | 25–80 m | street walls setting back once or twice; towers on some lots (80–240 m) |
+| Residential | 12–40 m | penthouses, courts round yards, water tanks on the Canal's roofs, terraces in the Gardens |
+| Old Town | 9–18 m | chimneys on the party walls, mansard attics |
+| University | 9–27 m, campaniles to about 58 m | quads, some with a campanile |
+| Works, Port | 9–34 m, stacks to about 64 m | sawtooth, monitor and bayed sheds, stacks, offices on the corners |
+| Civic | 16–41 m, to about 50 m with their lanterns | attics, and lanterns on the big ones; towers on some lots (80–240 m) |
+| Site | frames 20–120 m, cranes to 160 m | |
 
 - Floors 3.6 m, ground floor 5 m, cap 240 m.
+- A building is at most eight boxes (its pieces, `city::Building::pieces`), each standing on the street or on one
+  under it; crowns and masts never pass 240 m.
+
+**Street furniture** (`colony::furniture`: like the city, a closed form of where you ask)
+- Lamps where the ground's paint has their pools (`city_lib.wgsl`, the numbers `city_atlas.rs`'s tests check):
+  down every block's kerbs about 30 m apart (`LAMP_GAP`), evenly from corner to corner along the lanes (the
+  corner posts 0.25 m in from both kerbs, before the crossings) and between the corners along the cross streets
+  (none in the canal's row); a post 0.8 m in from its kerb, its arm out to the lantern 1.5 m over the street; the
+  bank road's far kerb the same. The avenue's lamps are lanterns on 4 m posts at 22.7 m from its middle line,
+  under the trees. Path lamps beside a park's loop (its pavilions stand inside them, a metre clear) and along the
+  quays, 2.2 m from the water; eight on a plaza's ring, 24 m out.
+- Trees in the avenue's pits, every 8 m (24.3 m from its middle line, none within 5 m of a crossing), and a row
+  down each quay; benches (0.42 m high) between the avenue's trees every 16 m. Nothing stands in a crossing, a key
+  place's doorway (6 m clear) or a walk.
+- The colony's own lamps (Hub Gate's square, the banks' promenades, the median) are paint only, for now.
+- Drawn close up (L0) from the rules' boxes (`city_mesh`: posts, benches and trunks exactly their solids, the arms,
+  heads and lanterns over anyone's reach); trees at L0 and L1, a species by strip and setting: the avenue's and
+  the quays' keep their leaves at least 5.5 m up and clear of the lanterns (the parks' and plazas', walked under,
+  2.9 m).
+
+| Thing | People on foot, cars, the server's pose check (`city::solid`) | Suits (`city::each_solid`, `solid_built`) |
+|---|---|---|
+| Buildings and all their pieces | solid | solid |
+| Lamp posts, trees' trunks (3 m) | solid | stepped over |
+| Benches | stepped up onto (under `walker::STEP`, 0.45 m); a wall to a car | stepped over |
+| Crowns, arms, lanterns; the parks' and plazas' trees | not solid | not solid |
 
 **Structures**
 - Bay ring: r 1950–2650, x [−16450, −16050].
@@ -353,9 +383,12 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
 - −X cap: three glass lift shafts at the strip centres.
 
 **Day and light**
-- `DAY_TICKS` 86,400 (48 min): night 8, dawn 4, day 32, dusk 4.
-- Exposure EV 13.5 by day to 9 at night; EV 8 indoors.
-- Haze 1.1e-4 /m: the opposite strip shows at about 49%, the far cap at about 3%.
+- `DAY_TICKS` 86,400 (48 min): night 8, dawn 4, day 32, dusk 4. Daylight rises and falls as sin² over the light
+  and the mirrors open with it, so the sun stays under 25° for about the first and last sixth of it (`COLONY_LOOK.md`
+  pass 1.0).
+- Exposure EV 14.5 at noon to 8.5 at night, by the colour script (`city_hour.rs`); EV 8 indoors.
+- Haze by height (`bc::colony_sky`): about 1.5e-4 /m at the floor by day, scale height about a kilometre, so the
+  street goes blue within a few kilometres while the opposite strip, across the clean core, shows at about 60%.
 
 **Lift**
 - 948 m at 40 m/s and 2.5 m/s², about 40 s.
@@ -365,6 +398,71 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
 - 11 stations about 2.45 km apart, from x −15,500 to +9,000.
 - 60 m/s, 1.5 m/s², 20 s dwell: about 17 min end to end.
 - 12 trains per line, one every 3 min. Each train is 3 cars × 24 m.
+
+**Traffic** (`colony::traffic`: a closed form of the tick, like the trams; `docs/ARCHITECTURE.md`, "The colony inside")
+- Which streets (`|c|` is the distance from the avenue's middle line):
+
+| Street | Moving cars | Parked |
+|---|---|---|
+| The avenue's carriageways (−x on the +s side, +x on the −s side) | outer lane (\|c\| 17.9): rows ±1's track 0; middle lane (14.3): their track 1; the inner lane (10.7) empty | none |
+| Streets along the strip (k 1 to 11, 24 m; 40 m at k 4 and 8) | each half its row's ring: track 0 by the kerb, track 1 next to it; a 40 m street's third lane empty | both kerbs' bays |
+| The bank road (row 12's outer street, a lane a way) | the near lane: row 12's track 0; the far lane by the glass empty | both kerbs' bays |
+| Wide cross streets (every 4th, 40 m) | one-block cross legs between neighbouring streets along the strip, queueing at the reds | track 0's night bays only |
+| Narrow cross streets (24 m) | none (cars cross them only going straight along the strip) | both kerbs' bays, 10 m or more from a crossing |
+| Hub Gate's stretch (blocks 3 to 7), the building site, the tram's median | none | none |
+
+- Rings keep right, round each row: track 0 round one 512 m stretch (wide street to wide street), track 1 round the
+  whole row, from bx 8 to bx 200 (sixteen blocks more for each district built out, at most 248).
+- Signals at every junction of the wide cross streets: an 80 s cycle, 37 s green and 3 s amber for the cars, then
+  2 s all-red and 38 s walk for the people. Phases `(800·strip + 1200·((bx/4 + |k|) mod 2)) mod 2400` ticks: a
+  checkerboard, so at 12.8 m/s (512 m in half a cycle) both ways of every street ride a green wave. Cars are on a
+  signalised junction only 1.4 to 27.3 s into its green.
+- 12.8 m/s down the streets, 10 m/s on the cross legs, turns of 9.4 and 13.0 m radius at 4.85 and 5.7 m/s;
+  2 m/s² up, 2.5 m/s² braking.
+- Platoons of up to 10, one a cycle a ring: 7 m apart in the queue, each moving off 1.2 s after the one ahead.
+  Track 0's lap is 160 s (two platoons), track 1's 3,920 s (49). A platoon waits 16 to 21 s at each red.
+- Both ways' platoons pass a point of the avenue together, so a signals' 512 m stretch has a busy half and a quiet
+  one: looking 400 m up the avenue (+x) from its middle two blocks (4n+1, 4n+2), no car is moving in view 23 to
+  28% of the time; from the blocks either side of a wide street (4n+3, 4n+4), 0 to 2%. The showcase's third
+  camera stands in the busy half (x −13,716, block 20).
+- Out by the hour: none of the platoons stays in at the rushes; through the night track 0's platoons park whole,
+  each at its own hour, 3.075 m to the kerb side and 9 m back from their places, and pull out at dawn. Track 1
+  runs 70% full all day.
+- Track 0's places manned and bays parked, by district: Business 0.95 and 0.25, Midtown 0.9 and 0.45, Civic 0.8
+  and 0.3, Port 0.75 and 0.4, Works 0.7 and 0.4, Residential 0.6 and 0.55, University 0.6 and 0.45, Old Town 0.5
+  and 0.6, Park 0.35 and 0.2, the site 0.2 and 0.1.
+- Kinds: 68% cars (4.4 × 1.8 m), 10% taxis (4.6 × 1.8), 14% vans (5.2 × 2.0), 8% scooters (1.9 × 0.7); the bays
+  hold cars and 20% vans.
+- A strip has about 22,700 cars moving and 82,000 parked by day, 10,400 and 94,000 at night. A 300 m square (a
+  frame's question) costs 0.03 ms natively: 12 to 30 moving cars and 56 to 128 parked; a 2 km square at night
+  about 0.7 ms and 4,000 cars.
+
+**People** (`colony::walkers`: the city's own, a closed form of the tick; pilots are the plaza's)
+- Half a person's width (`RADIUS`) 0.3 m: nobody comes within 0.6 m of anybody.
+- Lines are loops with slots about 4 m apart (never under 2 m), moved on one every 45 to 108 ticks: 1.0 to
+  1.8 m/s walking, 2.8 m/s jogging. A day is whole laps of every line.
+- Where: a block's pavement on three lines 1.6 (with the kerb on the right), 2.6 and 3.6 m in from the kerb, round
+  a run of four blocks over the narrow cross streets' zebras (rows ±2 to ±12, not the canal's) or round each block
+  (rows ±1); the avenue's walks on capsules 26.7 to 31.1, 27.8 to 30.0, 33.9 to 37.6 and 35.0 to 36.5 m out; a
+  park's loop and its middle; two pairs of rings round a plaza's monument (11 to 12.4, 28 to 29.4 m); the quays;
+  the banks' promenades (joggers round 8 blocks, strollers round 2); Hub Gate's square, 2 m either side of its
+  paving's bands every 32 m, crossing half a slot apart (1.41 m at the nearest); the platforms (two files at each
+  door, a way on and a way off).
+- Standing: every 7 m along the pavements (by the walls 4.5 m in, at the kerb 0.95 m in), twos to fours in the
+  square's cells, round the monuments, at the quays' railings every 9 m; asked every 30 s. Sitting: the avenue's
+  benches, a slot off its line for two laps at a time.
+- Who's out: a slot's draw against its line's share (0.1 to 0.3) times how busy the place is: by district, day
+  and night (Business 1.0 and 0.05, Midtown 0.85 and 0.2, Old Town 0.7 and 0.25, the Works 0.35 and 0.03, …),
+  an evening's bump as the lamps come on; near a station (the avenue and two rows either side) ×1.5 at its
+  platform, falling to ×1 at 300 m; Hub Gate 1.0 and 0.3; the banks 0.5 and 0.04; nobody on the building site.
+  People come and go at a line's corners, fading over 1.5 m.
+- A strip has about 200,000 to 250,000 people out at noon, 105,000 to 125,000 at the end of dusk and 40,000 to
+  50,000 at night. A 300 m square holds 200 to 840 at noon and 10 to 330 at night, and costs 0.12 to 0.25 ms
+  natively.
+- People and cars never share ground: the only road people cross is a narrow cross street, on its zebra, and no
+  car drives one. `tests/life.rs` holds every car's footprint 0.5 m or more from anybody's middle; over 7.4
+  million people sampled, the nearest is 3.17 m (somebody at a kerb by a parked van). Nobody crosses at the
+  signals yet.
 
 **Presence**
 - Pose: about 128 bits at 15 Hz.
@@ -384,7 +482,8 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
   - fmt;
   - clippy, native and wasm, for both webgl2 and webgpu;
   - `cargo test --workspace --release`;
-  - wasm determinism, including the new `CITY_GOLDEN` and `TRANSIT_GOLDEN`;
+  - wasm determinism, including the new `CITY_GOLDEN` and `TRANSIT_GOLDEN`, and the city's life (`TRAFFIC_GOLDEN`,
+    `WALKERS_GOLDEN`);
   - the `no_alloc` tests.
 - **Visual:** `scripts/e2e.sh gfx webgl2 --grep "colony|city"`. Review the `e2e/artifacts/` shots against the two
   references (colony cam 6 is image 2; city view 1 is image 1).

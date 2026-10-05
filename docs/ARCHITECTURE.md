@@ -475,8 +475,9 @@ they already work as "a body's frame and a probe". A seamless map would key posi
 The First Colony is 3.2 km across and 32 km long, with a city on each of its three land strips:
 about 13,000 blocks. None of it is stored or sent. It's a closed form of where you ask, in
 `bc_sim::colony`, `no_std`, allocation-free and deterministic like the rest of `bc-sim`
-(`CITY_GOLDEN` in `tests/determinism.rs`, and the `no_alloc` tests), so the browser and the
-server see the same walls.
+(`CITY_GOLDEN`, `TRAFFIC_GOLDEN` and `WALKERS_GOLDEN` in `tests/determinism.rs`, and the
+`no_alloc` tests), so the browser and the server see the same walls, and every screen the same
+traffic and crowds.
 
 - **Frames.** Inside, everything is in the colony's own frame, which turns with it: there the city
   stands still. A strip's **city coordinates** (`frame::CityPos`: `x` along, `s` across from its
@@ -487,22 +488,35 @@ server see the same walls.
   strip, the lamps. Every client's colony shows the same hour.
 - **The city's rules** (`colony::city`) turn a block's strip and grid cell into what stands
   there with an integer hash: its district (`content::city`), its kind (buildings, park, plaza,
-  canal, site, a key place, a landmark tower) and up to nine buildings. A key place's hall has a
-  room behind its door (`city::room`, a closed form of the place): the hall's solids are its walls
-  round the room, the door's lintel, what's over the ceiling and the counter, so the walker, the
-  server's checks and the meshes all have it. `texel` sums each block up
+  canal, site, a key place, a landmark tower) and up to nine buildings, each at most eight boxes
+  (`Building::pieces`: a body, tiers set back, a crown, roof plant, a mast). A key place's hall
+  has a room behind its door (`city::room`, a closed form of the place): the hall's solids are its
+  walls round the room, the door's lintel, what's over the ceiling and the counter, so the walker,
+  the server's checks and the meshes all have it. `texel` sums each block up
   in four bytes: the client bakes them into a 256 × 81 texture, and the shaders paint the streets
   and the city seen through the windows from it (`bc::city`, `shaders/city_lib.wgsl`, its constants
   checked against Rust by `bc_client_core::city_atlas`'s tests). Shaders never re-implement the
-  layout.
+  layout. The street's furniture (`colony::furniture`: lamp posts under the paint's pools, trees,
+  benches) is a closed form too, solid to people and their cars (`city::solid`) and not to suits,
+  which step over it (`city::each_solid`, `solid_built`).
 - **Drawing it** (`bc-client/src/city.rs`): its own render layer, switched to when the pilot is
   inside; the ground, windows and end caps built once; buildings in chunks from 2 km (one box a
   block) down to 256 m (every building, trees, railings), chosen by a quadtree round the camera
   and built within a share of the frame (a showcase builds them all first); a chunk's mesh is
   relative to its own anchor, and everything is drawn relative to a render origin that follows the
   camera by the kilometre, so `f32` stays fine far from the axis. The camera's strip is lit by the
-  scene's one directional light (with shadows); the other two, kilometres off, by a key-and-sky
-  term in their own frame; the haze is Bevy's distance fog.
+  scene's one directional light (with shadows, cascades sized to the camera's height); the other
+  two, kilometres off, by their own key, sky and ground bounce. One sky function
+  (`shaders/colony_sky.wgsl`, `bc::colony_sky`) is the air for everything inside: haze thickest near
+  the floor and clean in the core, lit by the windows' beams, and the colour seen along any ray, which
+  glass and water reflect. A colour script by the hour (`city_hour.rs`) drives it, the Sun, the
+  exposure, the grade and the bloom; Bevy's distance fog, matched to it, is left only for what the
+  city's shader doesn't draw (people, cars, trams). The buildings' surfaces are `bc::facade`
+  (`shaders/city_facade.wgsl`: materials by district and strip, wear, rooms behind the windows) and
+  the ground's is `bc::city`'s paint; both take their derivatives at the top of `city.wgsl` (they
+  must stay in uniform control flow) and are filtered by the pixel's footprint. The Low tier compiles
+  their cheap variants (`FACADE_LOW`, `city_sketch`), since software rasterisers pay for every branch.
+  `docs/COLONY_LOOK.md` is the look these serve.
 - **The trams** (`colony::transit`) are a timetable in the tick: a line down each strip's
   avenue, eleven stations, twelve trains running out and back, speeding up and slowing down at
   1.5 m/s². Every client draws every train where the tick has it (`bc-client/src/trams.rs`),
@@ -510,6 +524,56 @@ server see the same walls.
   walks inside their car, in the car's own frame (`bc_client_core::tram`): the timetable carries
   them, its acceleration pushes them, and they get on and off through doors that open only while
   the train stands at a platform.
+- **The traffic** (`colony::traffic`) is a closed form of the tick like the trams: `each_car`
+  works out the cars near an area (`each_ring_car` the moving ones, `each_bay_car` the parked
+  for good). Each block row has **rings** of cars going round it with its blocks on their right
+  (traffic keeps right): out along the street on its outer edge, back along the one on its inner
+  edge (the avenue's carriageway for rows ±1), turning at the **wide** cross streets. Track 0 (the
+  kerb lane) goes round one 512 m stretch, track 1 (the next lane) round the whole row, so no two
+  rings share a lane: nothing turns left, nothing crosses a street along the strip or the tram's
+  median, and no two paths ever cross. **Signals** stand at every junction of
+  the wide cross streets on an 80 s cycle, 40 s for all the cars at once and 40 s for the people
+  (2 s all-red, 38 s walk); 512 m at 12.8 m/s is half a cycle and the phases alternate in a
+  checkerboard, so both ways of every street ride a **green wave**. Cars run in **platoons** of up
+  to ten, one a cycle a ring, queueing nose to tail behind the stop line at each red; each car is
+  its own closed form (its place further back, its start a moment later), so none closes on the one
+  ahead. At night track 0's platoons park whole in the bays beside their queues and pull out at
+  dawn, each at its own hour; parked cars line the paint's **bays** for good elsewhere. The narrow
+  cross streets carry no cars. Cars stand on the road at `h = 0`.
+- **The city's people** (`colony::walkers`, not the pilots below) are a closed form too:
+  `each_walker` gives everybody near an area. They walk **lines**, loops laid where nothing
+  stands (round a block's pavement, or a run of four blocks' over the narrow cross streets' zebras;
+  the avenue's walks, the quays, a park's loop, a plaza's monument, the banks' promenades), with
+  **slots** evenly round each that move on one every few seconds; a day is whole laps of every
+  line, so the crowd comes round each day to the bit and nobody on a line ever closes on another.
+  Who's out is a slot's own draw against how busy the place is (its district, the hour, a station
+  near), asked at the line's corners (its **portals**), where people fade in and out. Hub Gate's
+  square is a **lattice** of crossing lines on its paving's bands, timed so that people pass each
+  other's paths half a slot apart. Sitters step off their line onto the avenue's **benches** for a
+  couple of laps and back into their slot; the **platforms** queue at the doors, board and get off
+  on the trams' timetable (`transit::stands`). Standers wait by the walls, at kerbs and railings.
+- **The two together** keep a contract, each half a test on its own side and the whole in
+  `tests/life.rs` (no car's footprint comes within `walkers::RADIUS + 0.2` m of anybody): no car
+  ever drives a narrow cross street, and the bays stay 10 m clear of every crossing (C1); people
+  are on a road only on a narrow cross street's zebra, in rows ±2 to ±12 but the canal's (C2), and
+  never on the streets along the strip, the wide cross streets, the avenue's carriageways or its
+  median (C3); queued cars stand behind their stop lines through the people's half (C4). People
+  and cars never share ground, so neither needs the other's state. Nobody uses the people's half
+  yet. Both are ghosts to pilots, their cars and suits.
+- **Life drawn** (`bc-client/src/life.rs`): every screen draws the same cars and people from the
+  closed forms at the trams' clock; nothing is sent. Each frame `bc_client_core::life::Choice`
+  asks them for what's round the camera on its strip (the cars by distance from the eye, the people
+  only near the ground), leaves out what stands within 9 m of a suit on the city, fades a civilian
+  under a pilot on foot, and picks the nearest for each of five pools (people near and far, cars
+  near and far, parked cars) up to the tier's caps (`TierSettings::life`); `life::Slots` keeps an
+  entity on the car or person it showed while they stay picked. Pools are made once at Ultra's
+  caps. One material paints every part by its vertex's slot and the `MeshTag` (`life_lib.wgsl`
+  keeps the tag layout and slots that `life`'s tests read), and never changes after start-up (a
+  change would re-specialise every entity using it): what changes, an indicator's flash included,
+  rides in the tags. A car's look is keyed on its home (`traffic::Car::home`), a person's on their
+  strip, so nobody's changes as they move. Figures are posed by swapping meshes from a bank of
+  frames (`life_mesh`), with no skinning or vertex shader. The showcase's pilots are
+  walkers it names (`showcase_city`), which life leaves out (`LifeBorrowed`).
 - **Vehicles** are their drivers' own: a bicycle model in city coordinates against the city's
   walls (`bc_client_core::vehicle`), taken at a motor pool (`colony::pools`), sent as the driver's
   pose with what they drive, and drawn round them on everyone's screen.
@@ -601,11 +665,14 @@ fire, beside 4 dolls).
 | `e2e/tests/gfx.spec.ts` | Every showcase scene renders cleanly, `gundams` included (Full Open's salvo, the jammer, the shotels and Cross Crusher, the fang at full reach, the flamethrower, Neo-Bird), `surface` (a Leo walking on MO-II as it rolls, one kneeling asleep in the Aft Well, one landing on Hermit), and the hangar bay. |
 | `e2e/tests/hangar.spec.ts` | Survival in the browser: the pilot comes in through the airlock, walks to each terminal and uses it, fabricates and trades through the panels, boards at the hatch, launches through the bay doors into space, and docks home again. |
 | `bc-sim` `colony::transit`, `bc-client-core` `tram` | The timetable comes round to the bit and runs without jumps, never past 1.5 m/s² or its top speed; trains on a track stay 300 m apart; every door of a standing train is on its platform, a hand's breadth from its edge, open only there; the platform is climbed by its steps; a car's doors let a walker through only when open. A walker on a platform walks in through an open door, rides out of the station held by the car's walls against its push, and walks out onto the next platform. |
+| `bc-sim` `colony::traffic` (`tests/traffic.rs`) | No two cars ever touch; cars keep to the roads (off everything built, the furniture, the median and the pavements), keep right in a painted lane's middle and never cross a street along the strip; no car touches a tram; no car is on a signalised junction or its crossings in the people's half, nor ever on a narrow street's crossings; cars clear the junctions well before the amber; the signals go round every way at once; cars move smoothly and never appear or vanish in view, parking and pulling out included; the traffic comes round exactly; fewer are out at night, parked in the bays; the rows run on as the site is built out; `each_car` is `each_ring_car` and `each_bay_car`. |
+| `bc-sim` `colony::walkers` (`tests/walkers.rs`), `tests/life.rs` | Nobody stands in anything solid or within 0.6 m of anybody; every line is clear of everything solid, walked every 0.25 m; the square's people cross half a slot apart; people move smoothly and come and go only faded; everybody comes round each day (the platforms each week); tiles find everybody once; busy downtown and by day, quiet at night, nobody on the site; people cross only the narrow streets, on their zebras; sitters sit on the furniture's benches and never bump anybody getting up; people board and leave trains through open doors and platforms never crowd. With the traffic: no car ever comes within reach of anybody, over 7 million people sampled at four hours. |
+| `bc-client-core` `life`, `life_mesh`, `showcase_city`, `figure` | The shader keeps the tag layout and slots; tags round-trip; lights follow the traffic (a queue brakes, the parked show nothing); a frame keeps to its tier's caps and reaches, clear of suits, borrowed walkers and pilots, the same every time; the nearest are picked, ties by id; pooled entities keep their cars and people. Vehicles fit their kinds' footprints with their wheels on the ground and their lamps at their ends; figures fit the walkers' radius in every baked frame and a sitter the space `walkers::sitting` keeps; meshes are light and face out. The planted foot slides a third of the body's travel (it slid on ahead before the knee bent on the forward swing). The showcase's pilots are the city's walkers, its vehicles keep 0.3 m off every car and person, its street cameras stand where nobody walks or drives, and the third sees people and cars at its hours. |
 | `bc-sim` `colony::pools`, `bc-client-core` `vehicle` | Every motor pool stands on open road, room for a car. A car gets up to speed, brakes to a stop and then backs up; it turns the way its wheel says; it stops at a wall and is never inside one; its driver gets out beside it. The server takes a car only from a pool, at a car's speed. |
 | `bc-proto` `presence`, `bc-server` `plaza`, `bc-client-core` `plaza` and `figure` tests, `bc-server/tests/plaza.rs` | A pose goes round within half a step (14 B); 48 people fit one datagram; the bay's heartbeat carries only the tick; decoders never panic. The plaza takes walks, drops reordered poses, and doesn't pass on teleports, walls, another strip or a first pose away from Hub Gate; it shows only the strip and the near, and hides the silent. Clients draw people between the poses heard and hold them at the last; headings turn the short way. A figure is under 1,500 triangles and fits the walker's box; walking swings its legs. Over real WebTransport, two agents at Hub Gate see each other by name within 5 cm, a teleport isn't relayed, going back up removes a pilot, and the plaza keeps the clock within two ticks; riders are taken from beside a standing train's open doors to the next platform, and nobody boards a running train or stands outside its cars. |
 | `bc-server/tests/city.rs` | Over real WebTransport: with `--colony` the Welcome says so, a pilot rides down to a strip's city and back, trades on the exchange from there, can't launch from it, and `/status` follows them; without it, the lifts are closed. |
 | `bc-server/tests/inside.rs`, `bc-sector/tests/watch_net.rs` | A suit launched into the colony by the inner gate flies there with its weapons safe and docks back out, and a pilot who leaves inside finds it towed home; the inside keeps the outside's tick; a suit flown down over Hub Gate sees a pilot walking there by name, where they are, and they see it (as a spectator), until they ride back up; armed, a suit lands on the avenue and walks up it, predicted as the server has it. A spectator's snapshots carry no own suit and the suits near it, tell it of one that leaves its view, and cost the tick nothing on the heap. |
-| `bc-sim` `ground::tests::city` | An armed suit over the avenue is caught by the city, comes down no faster than the brake, stands a stance over the floor, walks up the avenue at a walk and lifts off without a jump; walking into the blocks, it climbs the kerb and is stopped short of whatever stands there, never nearer anything than its stance; dropped on a roof it stands there, and walked over the edge it falls, kept off the walls it passes, and stands on what's below. The city's probe agrees with `colony::city::solid` everywhere in it and finds the ground straight under a suit. |
+| `bc-sim` `ground::tests::city` | An armed suit over the avenue is caught by the city, comes down no faster than the brake, stands a stance over the floor, walks up the avenue at a walk and lifts off without a jump; walking into the blocks, it climbs the kerb and is stopped short of whatever stands there, never nearer anything than its stance; dropped on a roof it stands there, and walked over the edge it falls, kept off the walls it passes, and stands on what's below. The city's probe agrees with `colony::city::solid_built` (the city without its street furniture, which suits step over) everywhere in it and finds the ground straight under a suit. |
 | `e2e/tests/colony.spec.ts` | The colony in the browser (`--colony`, an agent strolling outside Hub Gate): out through the bay's airlock, down the cap lift (skipped) to Hub Gate, the agent seen there, the map, a walk through the streets to the Exchange floor to buy there through its panel, back to Hub Gate and up to the bay; the server's `/status` follows the pilot (`city`, then `hangar`), and the hot path never allocates. Then a tram from Hub Gate's platform one stop up the line, and a car from its motor pool up the avenue, with no pose refused. |
 | `e2e/tests/surface.spec.ts` | On the bodies in the browser, signed in: the lander autopilot flies to MO-II, lands in the Aft Well and hides; leaving parks the suit there, and coming back wakes in it, grounded and hidden; then, flown by hand, it wakes there again and lifts off, free past 40 m (`FLYING`). Throughout, no hot-path allocation, every snapshot fits, and every rider names a body the client knows. |
 | `bc-client-core` tests (`nav`, `chart`, `sphere`) | The Lagrange points balance (the restricted three-body problem's pull vanishes at L1, L2, L3) and L4 and L5 make equilateral triangles in the Moon's plane, which holds the Sun; Earth and the Moon sit on one line through L1, within 2.3° of the sky's first survey. Courses run straight when the way is clear, and otherwise round the colony and the landmarks without coming near them (over, under and along the colony, round its end to the dock, through Hermit and MO-II, and 120 random pairs across the sector), never far longer than the crow's flight. The auto-nav, flown tick by tick against a real `Sim` as its client would, takes every playable frame on five trips (out of the dock round MO-II to its Aft Well, MO-II across the field to Hermit's KEYHOLE, from under the colony to a rock, Hermit home to the dock, a point high over the field), by both flight rules and through the full field, and arrives at rest every time without touching the hull, a landmark or a rock. Every place is named, found and arrived at in the open; the chart's camera zooms out to frame the Earth Sphere and back in to the sector, tracks a suit at speed to the metre, picks what's under the cursor and keeps labels apart. |

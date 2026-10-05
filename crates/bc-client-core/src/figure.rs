@@ -212,28 +212,45 @@ pub fn mesh(piece: Piece) -> PieceMesh {
 /// `phase` is the stride's (radians, one step each π), `speed` over the ground (m/s), `pitch` where
 /// they look.
 pub fn pose(phase: f32, speed: f32, pitch: f32, grounded: bool, running: bool) -> [Quat; 12] {
-    let mut q = [Quat::IDENTITY; 12];
-    let set = |q: &mut [Quat; 12], p: Piece, r: Quat| q[Piece::ALL.iter().position(|x| *x == p).unwrap()] = r;
-    // How far they're striding, 0..1.
-    let stride = (speed / if running { 7.0 } else { 4.2 }).clamp(0.0, 1.0);
-    let swing = if running { 0.75 } else { 0.45 } * stride;
-    let s = phase.sin();
-    let x = |a: f32| Quat::from_rotation_x(a);
-    if grounded {
-        // A leg swings forward (−x turns it to +z) as its other swings back; the knee bends on the
-        // way through.
-        set(&mut q, Piece::ThighL, x(-swing * s));
-        set(&mut q, Piece::ThighR, x(swing * s));
-        let knee = |t: f32| (0.15 + 0.9 * swing * (t.max(0.0))).min(1.4);
-        set(&mut q, Piece::ShinL, x(knee((phase - 0.9).sin())));
-        set(&mut q, Piece::ShinR, x(knee((phase + std::f32::consts::PI - 0.9).sin())));
+    // How far the thighs swing: running, more the faster; walking, what a walk's stride
+    // (`stride_phase`'s 1.5 m) wants once under way, so the planted foot keeps its place.
+    let swing = if running {
+        0.75 * (speed / 7.0).clamp(0.0, 1.0)
     } else {
+        WALK_SWING * (speed / 1.2).clamp(0.0, 1.0)
+    };
+    let mut q = walk(phase, swing, running);
+    let x = |a: f32| Quat::from_rotation_x(a);
+    if !grounded {
         // In the air: knees up.
         set(&mut q, Piece::ThighL, x(-0.6));
         set(&mut q, Piece::ThighR, x(-0.3));
         set(&mut q, Piece::ShinL, x(0.9));
         set(&mut q, Piece::ShinR, x(0.7));
     }
+    // The head follows the look.
+    set(&mut q, Piece::Head, x(-pitch.clamp(-0.8, 0.8) * 0.6));
+    q
+}
+
+/// A walk's thighs swing this far either way (rad): about right for its 1.5 m stride.
+pub const WALK_SWING: f32 = 0.29;
+
+/// Striding on the ground: the legs, arms and chest at `phase` (radians, one step each π) of a
+/// stride whose thighs swing `swing` rad either way ([`WALK_SWING`] walking, 0.75 at a sprint).
+/// A leg swings forward (−x turns it to +z) as its other swings back, its knee bending as it
+/// goes, so the straight leg is the one the body passes over and its foot keeps its place.
+pub fn walk(phase: f32, swing: f32, running: bool) -> [Quat; 12] {
+    let mut q = [Quat::IDENTITY; 12];
+    let stride = (swing / if running { 0.75 } else { WALK_SWING }).clamp(0.0, 1.0);
+    let s = phase.sin();
+    let x = |a: f32| Quat::from_rotation_x(a);
+    set(&mut q, Piece::ThighL, x(-swing * s));
+    set(&mut q, Piece::ThighR, x(swing * s));
+    // The knee bends while its thigh swings forward (cos(phase) > 0 for the left), most halfway.
+    let knee = |t: f32| (0.15 + 1.5 * swing * t.max(0.0)).min(1.4);
+    set(&mut q, Piece::ShinL, x(knee(phase.cos())));
+    set(&mut q, Piece::ShinR, x(knee(-phase.cos())));
     // Arms against the legs; bent more running.
     let arm = 0.8 * swing;
     let elbow = if running { -1.3 } else { -0.25 - 0.3 * stride };
@@ -241,10 +258,14 @@ pub fn pose(phase: f32, speed: f32, pitch: f32, grounded: bool, running: bool) -
     set(&mut q, Piece::UpperArmR, x(-arm * s) * Quat::from_rotation_z(-0.08));
     set(&mut q, Piece::ForearmL, x(elbow));
     set(&mut q, Piece::ForearmR, x(elbow));
-    // Leaning into a run; the head follows the look.
+    // Leaning into a run.
     set(&mut q, Piece::Chest, x(if running { 0.18 } else { 0.04 } * stride));
-    set(&mut q, Piece::Head, x(-pitch.clamp(-0.8, 0.8) * 0.6));
     q
+}
+
+/// Sets piece `p`'s turn in a pose.
+fn set(q: &mut [Quat; 12], p: Piece, r: Quat) {
+    q[Piece::ALL.iter().position(|x| *x == p).unwrap()] = r;
 }
 
 /// Sitting, the hips are this much lower than standing, m: on a bench's seat.
@@ -254,7 +275,6 @@ pub const SEAT_DROP: f32 = 0.48;
 /// with the look (by [`Piece::ALL`]'s order, as [`pose`]).
 pub fn seated(pitch: f32) -> [Quat; 12] {
     let mut q = [Quat::IDENTITY; 12];
-    let set = |q: &mut [Quat; 12], p: Piece, r: Quat| q[Piece::ALL.iter().position(|x| *x == p).unwrap()] = r;
     let x = |a: f32| Quat::from_rotation_x(a);
     set(&mut q, Piece::ThighL, x(-1.45) * Quat::from_rotation_z(0.06));
     set(&mut q, Piece::ThighR, x(-1.45) * Quat::from_rotation_z(-0.06));
@@ -330,5 +350,46 @@ mod tests {
         assert!((l.angle_between(Quat::IDENTITY) - r.angle_between(Quat::IDENTITY)).abs() < 1e-4);
         assert!((l * Vec3::NEG_Y).z > 0.2 && (r * Vec3::NEG_Y).z < -0.2);
         assert!(stride_phase(1.5, false) > stride_phase(1.5, true));
+    }
+
+    /// Each boot's sole's corners, in the figure's frame, for `turns`.
+    fn soles(turns: &[Quat; 12]) -> [[Vec3; 4]; 2] {
+        let at = joints(turns);
+        [Piece::ShinL, Piece::ShinR].map(|p| {
+            let (o, r) = at[Piece::ALL.iter().position(|x| *x == p).unwrap()];
+            [(-0.06, -0.06), (0.06, -0.06), (-0.06, 0.16), (0.06, 0.16)]
+                .map(|(x, z)| o + r * Vec3::new(x, -0.5, z))
+        })
+    }
+
+    /// How far the lower sole's lowest point moves over the ground while it's the lower one, as a
+    /// share of the body's travel, over a stride of `cycle` metres (0: planted; 1: dragged along;
+    /// more: sliding on ahead of the body, a moonwalk).
+    fn slide(cycle: f32, turns: impl Fn(f32) -> [Quat; 12]) -> f32 {
+        let n = 2_000;
+        let step = cycle / n as f32;
+        let mut moved = 0.0;
+        for i in 0..n {
+            let at = |i: usize| soles(&turns(i as f32 / n as f32 * std::f32::consts::TAU));
+            let (p, q) = (at(i), at(i + 1));
+            let lowest = |s: &[Vec3; 4]| (0..4).min_by(|a, b| s[*a].y.total_cmp(&s[*b].y)).unwrap();
+            let (l, r) = (lowest(&p[0]), lowest(&p[1]));
+            let (side, k) = if p[0][l].y <= p[1][r].y { (0, l) } else { (1, r) };
+            // The figure moves on by `step` along +z, the sole by that and its own motion.
+            let d = q[side][k] - p[side][k];
+            moved += Vec3::new(d.x, 0.0, step + d.z).length();
+        }
+        moved / cycle
+    }
+
+    #[test]
+    fn the_planted_foot_stays_put() {
+        // The civilians' walk, baked for a 1.55 m stride; a pilot strolling at 1.4 m/s
+        // (`stride_phase`'s 1.5 m stride). Measured: 0.36 both (1.15 and 1.08 when the knee bent
+        // on the back swing). The rest is the swing's sinusoid and the hips' constant height.
+        let civilian = slide(1.55, |a| walk(a, WALK_SWING, false));
+        let stroll = slide(1.5, |a| pose(a, 1.4, 0.0, true, false));
+        assert!(civilian < 0.4, "the civilian's planted foot slides {civilian:.2} of the body's travel");
+        assert!(stroll < 0.5, "a strolling pilot's planted foot slides {stroll:.2} of the body's travel");
     }
 }

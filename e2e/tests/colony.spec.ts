@@ -108,7 +108,9 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await until(page, "the walk", (s) => s.city_walking_to, 30_000);
   await until(page, "the clock tower", (s) => s.sights_found === 1, 420_000);
   await expect(page.locator("#toast")).toContainText("SIGHT FOUND", { timeout: 30_000 });
-  await until(page, "there", (s) => !s.city_walking_to, 420_000);
+  s = await until(page, "there", (s) => !s.city_walking_to, 420_000);
+  // The city's traffic and people round the square (logged till a run has seen them).
+  console.log(`life by the clock tower: ${s.ambient_people} people, ${s.ambient_cars} cars, ${s.life_ms} ms`);
   await page.focus("#bc");
   await page.keyboard.press("m");
   await expect(page.locator("#map-sights")).toContainText("SIGHTS FOUND 1/10", { timeout: 30_000 });
@@ -134,7 +136,8 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
 
   // Back to Hub Gate, and up the lift to the bay.
   await push(page, { cmd: "walk_to", spot: "hub_gate_1" });
-  await until(page, "at Hub Gate", (s) => s.focus === "hub_gate_1" && !s.city_walking_to, 420_000);
+  s = await until(page, "at Hub Gate", (s) => s.focus === "hub_gate_1" && !s.city_walking_to, 420_000);
+  console.log(`life at Hub Gate: ${s.ambient_people} people, ${s.ambient_cars} cars, ${s.life_ms} ms`);
   await expect(page.locator("#use")).toContainText("UP TO YOUR BAY", { timeout: 30_000 });
   await push(page, { cmd: "use" });
   s = await until(page, "home", (s) => s.place === "hangar", 30_000);

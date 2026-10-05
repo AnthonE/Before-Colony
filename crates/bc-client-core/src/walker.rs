@@ -34,8 +34,8 @@ impl Solid for Layout {
 pub const EYE: f32 = 1.62;
 const HALF: f32 = 0.3;
 const HEIGHT: f32 = 1.8;
-/// The highest ledge a stride steps up onto, m.
-const STEP: f32 = 0.45;
+/// The highest ledge a stride steps up onto, m: a kerb, a stair, a bench in the street.
+pub const STEP: f32 = 0.45;
 const WALK: f32 = 4.2;
 const RUN: f32 = 7.0;
 const JUMP: f32 = 3.6;
@@ -219,6 +219,11 @@ impl Walker {
 
 /// A guide stuck this long (s) gives up.
 const GIVE_UP: f32 = 6.0;
+/// Once caught on something (a lamp post, a corner), it keeps stepping aside this long (s) after
+/// it's moving again: long enough to get past a post or a trunk, not just off it. Each time it's
+/// caught again it tries the other side (the first, right: caught on a post's edge, the short way
+/// round may be either).
+const SIDESTEP: f32 = 0.25;
 
 /// Walks a pilot along a route of waypoints (from [`Layout::route`]).
 #[derive(Clone, Debug, Default)]
@@ -227,12 +232,15 @@ pub struct Guide {
     /// The way to face on arrival.
     pub facing: Option<Vec3>,
     stuck: f32,
+    aside: f32,
+    /// How many sidesteps it's begun: the odd ones go right, the even ones left.
+    sidesteps: u32,
     last: Option<Vec3>,
 }
 
 impl Guide {
     pub fn new(route: Vec<Vec3>, facing: Option<Vec3>) -> Self {
-        Self { route, facing, stuck: 0.0, last: None }
+        Self { route, facing, stuck: 0.0, aside: 0.0, sidesteps: 0, last: None }
     }
 
     pub fn arrived(&self) -> bool {
@@ -257,6 +265,14 @@ impl Guide {
             let moved = self.last.map_or(1.0, |p| (w.feet - p).length());
             self.last = Some(w.feet);
             self.stuck = if moved < 0.004 { self.stuck + dt } else { 0.0 };
+            if self.stuck > 0.4 {
+                if self.aside <= 0.0 {
+                    self.sidesteps += 1;
+                }
+                self.aside = SIDESTEP;
+            } else {
+                self.aside = (self.aside - dt).max(0.0);
+            }
             // Nudged and jumped for long enough without getting anywhere: it gives up (the way is
             // shut: a tram's doors closed on it, say), and whoever asked can ask again.
             if self.stuck > GIVE_UP {
@@ -266,7 +282,11 @@ impl Guide {
             let facing_it = d.abs() < 0.6;
             return Stride {
                 forward: if facing_it { 1.0 } else { 0.25 },
-                right: if self.stuck > 0.4 { 0.8 } else { 0.0 },
+                right: match (self.aside > 0.0, self.sidesteps % 2) {
+                    (false, _) => 0.0,
+                    (true, 1) => 0.8,
+                    (true, _) => -0.8,
+                },
                 run: flat.length() > 4.0,
                 jump: self.stuck > 1.2,
             };
@@ -354,6 +374,12 @@ mod tests {
                 assert!(t < 60.0, "{spot:?} → fabricator: lost at {:?}", w.feet);
             }
         }
+    }
+
+    #[test]
+    fn benches_are_a_step_up() {
+        // The city's benches are stepped up onto, not walked into.
+        const { assert!(bc_sim::colony::furniture::BENCH_HEIGHT < STEP) };
     }
 
     #[test]

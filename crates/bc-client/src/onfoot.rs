@@ -882,6 +882,10 @@ pub fn drive_onfoot(
     }
     let used_key = (live && keys.just_pressed(KeyCode::KeyE)) || cmds.has(&UiCmd::Use);
     if in_city && let Some(c) = me.city.as_mut() {
+        // This frame's trains first, so a walk to the tram sees which doors are open now (at a few
+        // frames a second, the last frame's can have shut since).
+        let (tick, frac) = g.core.colony_tick(now);
+        c.time(tick, frac);
         for cmd in &cmds.0 {
             if let UiCmd::WalkTo(slug) = cmd {
                 match slug.as_str() {
@@ -899,8 +903,6 @@ pub fn drive_onfoot(
         if stride != Stride::default() {
             c.guide = None;
         }
-        let (tick, frac) = g.core.colony_tick(now);
-        c.time(tick, frac);
         // Driving: W/S the throttle and the brake, A/D the wheel, Space the handbrake.
         let mut got_out = false;
         if let Some(v) = c.drive.as_mut() {

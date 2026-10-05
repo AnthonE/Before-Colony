@@ -951,7 +951,7 @@ mod tests {
 
     mod city {
         use super::super::*;
-        use crate::colony::city::{Stage, solid};
+        use crate::colony::city::{Stage, solid_built};
         use crate::colony::frame::{CityPos, STRIP_WIDTH, Under, from_colony};
         use crate::colony::interior::{ground_under, probe};
         use crate::colony::transit::station_x;
@@ -1095,7 +1095,9 @@ mod tests {
                     let p = CityPos { x: c.x + dx, s: c.s + ds, ..c }.to_colony();
                     ground_under(p).is_some_and(|g| (c.h - g - top).abs() < 0.01)
                 });
-                (same && top > 25.0 && top < 150.0).then_some(top)
+                // Clear of what stands on it: nothing nearer a suit standing there than its roof.
+                let clear = probe(CityPos { h: top + STANCE, ..c }.to_colony()).dist > STANCE - 0.05;
+                (same && clear && top > 25.0 && top < 150.0).then_some(top)
             };
             let (spot, top) = (0..2_000)
                 .find_map(|k| {
@@ -1132,7 +1134,11 @@ mod tests {
             assert!(fell, "it never stepped off the roof");
             assert!(height(&m) < top, "down from the roof: {}", height(&m));
             let under = ground_under(m.flight.pos).unwrap();
-            assert!((under - STANCE).abs() < 0.05, "standing on what's under it: {under}");
+            // (On a kerb's rounded edge, up to its height more.)
+            assert!(
+                under > STANCE - 0.05 && under < STANCE + crate::colony::city::KERB + 0.05,
+                "standing on what's under it: {under}"
+            );
         }
 
         #[test]
@@ -1148,7 +1154,7 @@ mod tests {
                 );
                 let pr = probe(c.to_colony());
                 let e = 0.02;
-                let here = solid(
+                let here = solid_built(
                     c.strip,
                     Vec3::new(c.x - e, c.h - e, -(c.s + e)),
                     Vec3::new(c.x + e, c.h + e, -(c.s - e)),

@@ -689,10 +689,11 @@ fn surface_golden_wasm() {
 }
 
 /// Hash of the colony's closed forms: the city's blocks and buildings on every strip (every fifth
-/// block along, every row), what's solid at scattered points, the colony's day and its frames,
-/// its trams (their timetable, the stations' platforms), and the key places' rooms and the halls
-/// round them. Every client draws and walks this, and the server checks poses against it.
-const CITY_GOLDEN: u64 = 0x3a9e_d960_4c23_7688;
+/// block along, every row), the buildings' pieces, the street furniture (every seventh block's),
+/// what's solid at scattered points, the colony's day and its frames, its trams (their timetable,
+/// the stations' platforms), and the key places' rooms and the halls round them. Every client
+/// draws and walks this, and the server checks poses against it.
+const CITY_GOLDEN: u64 = 0x9917_c3f3_53ac_b12c;
 
 fn city_hash() -> u64 {
     use bc_sim::colony::{city, frame, time};
@@ -705,9 +706,18 @@ fn city_hash() -> u64 {
                     fnv(&mut h, u32::from(b));
                 }
                 if let Some(b) = city::block(k, bx, row, stage) {
+                    let mut pieces = [city::Piece::default(); city::MAX_SOLIDS];
                     for bd in city::lots(&b).as_slice() {
                         for v in [bd.foot.s0, bd.foot.s1, bd.foot.x0, bd.foot.x1, bd.height, bd.top()] {
                             fnv(&mut h, v.to_bits());
+                        }
+                        // Its massing: every piece, and what it is.
+                        let n = bd.pieces(&mut pieces);
+                        for q in &pieces[..n] {
+                            fnv(&mut h, q.part as u32);
+                            for v in [q.b.rect.s0, q.b.rect.s1, q.b.rect.x0, q.b.rect.x1, q.b.h0, q.b.h1] {
+                                fnv(&mut h, v.to_bits());
+                            }
                         }
                     }
                 }
@@ -725,6 +735,22 @@ fn city_hash() -> u64 {
         let e = glam::Vec3::new(0.3, 0.9, 0.3);
         fnv(&mut h, u32::from(city::solid(k, p - e, p + e, stage)));
         fnv(&mut h, city::ground(k, -p.z, p.x, stage).to_bits());
+    }
+    // The street furniture: every piece in every seventh block's cells, across the whole strip (its
+    // kerbs, the avenue, the bank road).
+    use bc_sim::colony::furniture;
+    for k in 0..3u8 {
+        for bx in (city::HUB_GATE.0..=city::FAR_FOOT.1).step_by(7) {
+            let area = city::Rect::new(0.0, frame::STRIP_WIDTH, city::grid_x(bx), city::grid_x(bx + 1));
+            furniture::each_furniture(k, &area, stage, |p| {
+                fnv(&mut h, p.kind as u32);
+                let b = p.solid;
+                for v in [p.s, p.x, p.h, p.reach, b.rect.s0, b.rect.s1, b.rect.x0, b.rect.x1, b.h1] {
+                    fnv(&mut h, v.to_bits());
+                }
+                false
+            });
+        }
     }
     for t in (0..time::DAY_TICKS).step_by(997) {
         let d = time::day(t, 0.5);
@@ -806,12 +832,119 @@ fn city_golden_wasm() {
     assert_eq!(city_hash(), CITY_GOLDEN);
 }
 
+/// Hash of the city's traffic (`colony::traffic`): the cars in a few places (the avenue at a wide
+/// street, a district's edge, the canal's rows, the rows' ends at Hub Gate's square and on the site,
+/// the bank road) at noon, dusk, night and dawn, and the signals. Every client draws the same cars.
+const TRAFFIC_GOLDEN: u64 = 0x192f_bfdd_bab7_18d4;
+
+fn traffic_hash() -> u64 {
+    use bc_sim::colony::{city, frame::STRIP_WIDTH, traffic};
+    let stage = city::Stage(0);
+    let mid = STRIP_WIDTH * 0.5;
+    let mut h = 0xcbf2_9ce4_8422_2325;
+    let places = [
+        (40, mid - 400.0, mid + 400.0),
+        (24, 0.0, 600.0),
+        (100, mid + 400.0, mid + 900.0),
+        (8, mid - 300.0, mid + 300.0),
+        (199, STRIP_WIDTH - 500.0, STRIP_WIDTH),
+    ];
+    for (k, (bx, s0, s1)) in places.into_iter().enumerate() {
+        let x = city::grid_x(bx);
+        let area = city::Rect::new(s0, s1, x - 300.0, x + 300.0);
+        for t in [0u32, 12_345, 49_999, 57_000, 70_001, 1_000_000] {
+            traffic::each_car((k % 3) as u8, &area, stage, t, 0.37, |c| {
+                fnv(&mut h, (c.id ^ (c.id >> 32)) as u32);
+                fnv(&mut h, c.kind as u32 | u32::from(c.parked) << 4 | (c.blink as u32) << 5);
+                for v in [c.s, c.x, c.dir.0, c.dir.1, c.yaw, c.speed, c.accel] {
+                    fnv(&mut h, v.to_bits());
+                }
+                false
+            });
+        }
+    }
+    for strip in 0..3u8 {
+        for bx in [8, 40, 44, 200] {
+            for k in [0, 1, 7, 12] {
+                for t in (0..4_800).step_by(371) {
+                    let s = traffic::signal(strip, bx, k, stage, t, 0.5).expect("a wide street's signals");
+                    fnv(&mut h, s.light as u32 | u32::from(s.walk) << 2);
+                    fnv(&mut h, s.left.to_bits());
+                }
+            }
+        }
+    }
+    h
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn traffic_golden_native() {
+    let h = traffic_hash();
+    assert_eq!(h, traffic_hash(), "must be reproducible within a process");
+    assert_eq!(h, TRAFFIC_GOLDEN, "the traffic's hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn traffic_golden_wasm() {
+    assert_eq!(traffic_hash(), TRAFFIC_GOLDEN);
+}
+
+/// Hash of the city's people (`colony::walkers`): everybody on Hub Gate's square, round a station,
+/// down the avenue and its blocks, on a bank and the canal, at hours through a week, on every strip.
+/// Every client draws the same crowd from this.
+const WALKERS_GOLDEN: u64 = 0x2c14_7d45_2158_da87;
+
+fn walkers_hash() -> u64 {
+    use bc_sim::colony::{city, frame, transit, walkers};
+    let mid = frame::STRIP_WIDTH * 0.5;
+    let areas = [
+        city::Rect::new(mid - 300.0, mid + 300.0, -16_000.0, -15_350.0),
+        city::Rect::new(mid - 60.0, mid + 60.0, transit::station_x(6) - 100.0, transit::station_x(6) + 100.0),
+        city::Rect::new(mid - 500.0, mid + 500.0, -12_400.0, -11_900.0),
+        city::Rect::new(0.0, 200.0, -8_000.0, -7_000.0),
+        city::Rect::new(mid + 380.0, mid + 600.0, 2_000.0, 2_600.0),
+    ];
+    let mut h = 0xcbf2_9ce4_8422_2325;
+    for k in 0..3u8 {
+        for (n, area) in areas.iter().enumerate() {
+            for t in [0u32, 14_400, 57_600, 70_000 + 7_919 * n as u32, 1_234_567] {
+                walkers::each_walker(k, area, city::Stage(0), t, 0.37, |w| {
+                    fnv(&mut h, w.id);
+                    fnv(&mut h, w.pose as u32);
+                    fnv(&mut h, w.seed);
+                    for v in [w.s, w.x, w.h, w.yaw, w.speed, w.stride, w.fade] {
+                        fnv(&mut h, v.to_bits());
+                    }
+                    false
+                });
+            }
+        }
+    }
+    h
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn walkers_golden_native() {
+    let h = walkers_hash();
+    assert_eq!(h, walkers_hash(), "must be reproducible within a process");
+    assert_eq!(h, WALKERS_GOLDEN, "the city's people's hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn walkers_golden_wasm() {
+    assert_eq!(walkers_hash(), WALKERS_GOLDEN);
+}
+
 /// Hash after 600 ticks of suits flying the colony's inside: launched from the inner gate, some on
 /// flight assist weaving among the towers, some falling to the floor and the roofs, firing all the
 /// while (which the colony's law ignores), and two with their grips armed, landing on the avenue
 /// and walking it, running, crouching and hopping. The spin's pull, Coriolis, the air, the city's
 /// boxes and its ground, to the bit native and wasm.
-const INTERIOR_GOLDEN: u64 = 0x0010_6f5d_5bd0_5136;
+const INTERIOR_GOLDEN: u64 = 0xb564_e88b_98a8_28e1;
 
 fn interior_hash() -> u64 {
     use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FLIGHT_ASSIST, GRIP};

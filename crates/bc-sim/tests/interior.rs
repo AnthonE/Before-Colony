@@ -6,7 +6,7 @@
 
 use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, MELEE, SPECIAL};
 use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
-use bc_sim::colony::city::{Stage, solid};
+use bc_sim::colony::city::{Stage, solid_built};
 use bc_sim::colony::frame::{CityPos, Under, from_colony};
 use bc_sim::colony::interior::{INNER_GATE, INNER_GATE_RADIUS, WorldKind};
 use bc_sim::sim::Loadout;
@@ -121,9 +121,9 @@ fn a_suit_without_assist_falls_and_comes_to_rest_on_the_floor_or_a_roof() {
         let r = 0.8 * 10.0;
         let min = Vec3::new(at.x - r, at.h - r + 2.0, -(at.s + r));
         let max = Vec3::new(at.x + r, at.h + r, -(at.s - r));
-        assert!(!solid(at.strip, min, max, Stage(0)), "{at:?}");
+        assert!(!solid_built(at.strip, min, max, Stage(0)), "{at:?}");
         let below = Vec3::new(0.0, 20.0, 0.0);
-        assert!(solid(at.strip, min - below, max - below, Stage(0)), "on something: {at:?}");
+        assert!(solid_built(at.strip, min - below, max - below, Stage(0)), "on something: {at:?}");
     }
 }
 
@@ -135,7 +135,12 @@ fn buildings_stop_a_suit_flying_into_them() {
     // A building's wall across the strip from a point low over a street: the first solid at 30 m.
     let h = 30.0;
     let hit = |x: f32, s: f32| {
-        solid(0, Vec3::new(x - 1.0, h - 1.0, -(s + 1.0)), Vec3::new(x + 1.0, h + 1.0, -(s - 1.0)), Stage(0))
+        solid_built(
+            0,
+            Vec3::new(x - 1.0, h - 1.0, -(s + 1.0)),
+            Vec3::new(x + 1.0, h + 1.0, -(s - 1.0)),
+            Stage(0),
+        )
     };
     // Down the middle of a block (not a cross street): somewhere along x with a wall within 600 m
     // across from a clear point.
@@ -157,7 +162,7 @@ fn buildings_stop_a_suit_flying_into_them() {
         let r = 0.7 * 10.0;
         let min = Vec3::new(at.x - r, (at.h - r).max(0.5), -(at.s + r));
         let max = Vec3::new(at.x + r, at.h + r, -(at.s - r));
-        assert!(!solid(at.strip, min, max, Stage(0)), "inside something: {at:?}");
+        assert!(!solid_built(at.strip, min, max, Stage(0)), "inside something: {at:?}");
     }
     let Under::Land(end) = from_colony(sim.suits.flight[i].pos) else { panic!() };
     // Flown flat out at the wall for 10 s, it's against it (or has slid along or over it, never

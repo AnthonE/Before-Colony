@@ -62,6 +62,32 @@ pub fn station_x(i: usize) -> f32 {
     FIRST_STATION + STATION_GAP * i as f32
 }
 
+/// When trains stand at station `i` with their doors on side `dir` (the out-bound track's, > 0, or
+/// the in-bound one's): one does every [`HEADWAY_TICKS`], from this tick in each headway on. None
+/// on a terminus's other side: trains turn back there on the track they leave by.
+pub fn stands(strip: u8, i: usize, dir: f32) -> Option<u32> {
+    let leg = if dir > 0.0 {
+        (i < STATIONS - 1).then_some(i as u32)?
+    } else {
+        (i > 0).then_some(LEGS - i as u32)?
+    };
+    let offset = u32::from(strip % 3) * STRIP_OFFSET;
+    Some((leg * STOP_TICKS + PERIOD_TICKS - offset) % HEADWAY_TICKS)
+}
+
+/// The top of a station's island platform at `x` along the strip, if it's over it: its steps
+/// climb from either end.
+pub fn platform_top(x: f32) -> Option<f32> {
+    let near = ((x - FIRST_STATION) / STATION_GAP + 0.5) as i32;
+    let i = near.clamp(0, STATIONS as i32 - 1) as usize;
+    let from_end = 0.5 * PLATFORM_LENGTH - (x - station_x(i)).abs();
+    if from_end < 0.0 {
+        return None;
+    }
+    let step = (from_end / STEP_DEPTH) as usize;
+    Some(FLOOR * (step + 1).min(STEPS) as f32 / STEPS as f32)
+}
+
 /// Where a track runs across the strip: the out-bound (`dir` > 0) or the in-bound one, m.
 pub fn track_s(dir: f32) -> f32 {
     STRIP_WIDTH * 0.5 + if dir > 0.0 { TRACK_OFFSET } else { -TRACK_OFFSET }
@@ -304,6 +330,34 @@ mod tests {
                 }
             }
             assert!(opened > 0);
+        }
+    }
+
+    #[test]
+    fn trains_stand_when_the_timetable_says() {
+        for strip in 0..3u8 {
+            for i in 0..STATIONS {
+                for dir in [1.0f32, -1.0] {
+                    let Some(at) = stands(strip, i, dir) else {
+                        assert!((i == 0 && dir < 0.0) || (i == STATIONS - 1 && dir > 0.0));
+                        continue;
+                    };
+                    for t in [at, at + HEADWAY_TICKS * 5, at + DWELL_TICKS - 1 + HEADWAY_TICKS * 11] {
+                        let n = (0..TRAINS as u8)
+                            .filter(|&k| {
+                                let tr = train(strip, k, t, 0.0);
+                                tr.at == Some(i) && tr.dir == dir
+                            })
+                            .count();
+                        assert_eq!(n, 1, "strip {strip} station {i} dir {dir} at {t}");
+                    }
+                    let gone = (0..TRAINS as u8).all(|k| {
+                        train(strip, k, at + DWELL_TICKS, 0.0).at != Some(i)
+                            || train(strip, k, at + DWELL_TICKS, 0.0).dir != dir
+                    });
+                    assert!(gone, "the train's still there after its dwell");
+                }
+            }
         }
     }
 

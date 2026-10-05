@@ -30,11 +30,11 @@ const scenes: Array<[string, number, number, number]> = [
   // The dock's ring of lights, off the docking hub.
   ["colony", 5, 6, 12],
   // The docking hub's end: the bay ring, the spire and the mirrors in their lamps; the same at
-  // night; the bay ring's doors close to; the mirrors opening at dawn.
+  // night; the bay ring's doors close to; the mirrors opening in the early morning.
   ["colony", 6, 6, 12],
   ["colony", 6, 1900, 12],
   ["colony", 7, 6, 12],
-  ["colony", 8, 2300, 12],
+  ["colony", 8, 2620, 12],
   ["field", 1, 6, 12],
   // Wreckage after a fight: hulks, limbs shot off, loose ore.
   ["salvage", 1, 6, 12],
@@ -79,12 +79,14 @@ const scenes: Array<[string, number, number, number]> = [
   ["surface", 2, 4, 20],
   ["surface", 3, 6, 20],
   // Inside the colony: down the avenue from Hub Gate (and at night), from the cap lift, downtown
-  // at eye height, at a window bank, along the canal, from near the axis down the length, a tram
-  // station's platform, and in from the Exchange floor's door to its boards.
+  // at eye height (and at noon, its traffic and people at their busiest), at a window bank, along
+  // the canal, from near the axis down the length, a tram station's platform, and in from the
+  // Exchange floor's door to its boards.
   ["city", 1, 6, 4],
   ["city", 1, 1900, 4],
   ["city", 2, 6, 4],
   ["city", 3, 6, 4],
+  ["city", 3, 480, 4],
   ["city", 4, 6, 4],
   ["city", 5, 6, 4],
   ["city", 6, 6, 4],
@@ -94,7 +96,10 @@ const scenes: Array<[string, number, number, number]> = [
 
 for (const [scene, cam, t, frames] of scenes) {
   test(`showcase ${scene} cam ${cam} t ${t} (${quality})`, async ({ page }, info) => {
-    test.setTimeout(240_000);
+    // The colony's inside is the heaviest scene: its full city shader takes several seconds a frame
+    // on SwiftShader, and the screenshot waits for one more.
+    const heavy = scene === "city";
+    test.setTimeout(heavy ? 480_000 : 240_000);
     const logs = collectConsole(page);
     await page.goto(
       `/?showcase=${scene}&cam=${cam}&t=${t}&hold=${frames}&quality=${quality}&gfx=${info.project.name}${extra ? `&${extra}` : ""}`,
@@ -109,7 +114,7 @@ for (const [scene, cam, t, frames] of scenes) {
     );
     const ready = page
       .waitForFunction(`(window.__bc?.showcase_frames ?? 0) >= ${frames}`, null, {
-        timeout: 200_000,
+        timeout: heavy ? 420_000 : 200_000,
         polling: 500,
       })
       .then(() => "");
@@ -119,6 +124,17 @@ for (const [scene, cam, t, frames] of scenes) {
     console.log(`${scene}/${cam}: ${JSON.stringify(status)}`);
     expect(status.mode).toBe("showcase");
     expect(status.gfx_tier).toBe(quality);
+    // The city's life each camera draws (logged: from up high, the first and second, there's
+    // little or none till the far lights land). Downtown at eye height the people and traffic are
+    // always about (bc-client-core's `the_third_camera_sees_life` counts them at these hours),
+    // unless `life=0` hides them.
+    if (scene === "city") {
+      console.log(`life: ${status.ambient_people} people, ${status.ambient_cars} cars, ${status.life_ms} ms`);
+    }
+    if (scene === "city" && cam === 3 && !/(^|&)life=0/.test(extra)) {
+      expect(status.ambient_people).toBeGreaterThan(0);
+      expect(status.ambient_cars).toBeGreaterThan(0);
+    }
     const name = `gfx-${info.project.name}-${quality}-${scene}-${cam}-t${t}${suffix}.png`;
     const shot = await page.screenshot({ path: `artifacts/${name}` });
     expect(luminanceStdDev(shot)).toBeGreaterThan(3);

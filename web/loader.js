@@ -89,6 +89,8 @@ async function main() {
     tonemap: params.get("tonemap") || "",
     // `?look=0`: the plain look (no grade, vignette or lit smoke), to compare against.
     look: params.get("look") !== "0",
+    // `?life=0`: no traffic or people in the colony's city, to compare and to measure.
+    life: params.get("life") !== "0",
     // `?hz=N`: the showcase's fixed clock rate (default 60), to see effects at a low frame rate.
     hz: Number(params.get("hz") || 60),
   };
