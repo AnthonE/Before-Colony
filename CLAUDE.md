@@ -7,7 +7,7 @@ surveys what players of similar games expect of the controls (read it before cha
 compare with theirs), and `docs/ROADMAP.md` how each is built;
 `docs/STORY.md` is the world bible (setting, factions, eras, voice: read it before writing in-game text);
 `docs/COLONY.md` is the plan for the First Colony's inside (Milestone 5), `docs/SUITS_INSIDE.md` the design for
-suits inside it, `docs/COLONY_LOOK.md` its look (Rust's realism, Phantasy Star Online's clean colony, anime behind)
+suits inside it, `docs/TRAINING.md` the Proving Ground (training inside it, after X-Wing and TIE Fighter), `docs/COLONY_LOOK.md` its look (Rust's realism, Phantasy Star Online's clean colony, anime behind)
 and the passes towards it; `docs/LOCK.md` is the lock-on (it moves the suit about its target, never the aim: what it decides
 travels in the command as `bc_proto::LockOn`, so prediction stays exact).
 

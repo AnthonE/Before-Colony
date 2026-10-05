@@ -4,8 +4,9 @@ import { bc, collectConsole } from "./util";
 // Suits inside the colony (`scripts/e2e.sh inside`: a survival server with the colony open, no
 // dolls, and an agent strolling outside Hub Gate). A pilot walks to the cockpit in their bay and
 // presses Q: the suit launches into the colony by the inner gate, its own sector (the client is
-// welcomed to it). There it flies with its weapons safe, a little way down the colony and back
-// into the gate's ring, and docks into the bay. Another comes down over the avenue by Hub Gate,
+// welcomed to it). There it flies with its weapons safe, a little way down the colony (through the
+// Proving Ground's start ring, which starts the course's clock) and back into the gate's ring, and
+// docks into the bay. Another comes down over the avenue by Hub Gate,
 // lands there with its grip armed (L), sees the agent strolling outside Hub Gate, walks up the
 // avenue (W) and lets go. The flying is the dev hook's (`fly_to`); the grip and the walk are keys.
 // (Nobody flies back up from the avenue here: at a frame every few seconds the page sends only its
@@ -66,12 +67,17 @@ test("a pilot launches into the colony by the inner gate, flies down it a way, a
   s = await bc(page);
   expect(s.beams ?? 0).toBe(0);
 
-  // 200 m down the colony from the gate, out of its ring (120 m), and back into it.
+  // 400 m down the colony from the gate: out of its ring (120 m), and through the Proving Ground's
+  // start ring 300 m on (`docs/TRAINING.md`), which starts the course's clock. Then back into the
+  // gate's ring.
   const gate = posOf(s);
-  await push(page, { cmd: "fly_to", spot: "inner_gate", ahead: 200 });
+  expect(s.course_next).toBe(-1);
+  await push(page, { cmd: "fly_to", spot: "inner_gate", ahead: 400 });
   await until(page, "the errand", (s) => s.flying_to, 30_000);
   s = await until(page, "down the colony", (s) => !s.flying_to, 300_000);
-  expect(posOf(s)[0] - gate[0]).toBeGreaterThan(120);
+  expect(posOf(s)[0] - gate[0]).toBeGreaterThan(300);
+  expect(s.course_next).toBe(1);
+  await page.screenshot({ path: "artifacts/inside-course.png" });
   await push(page, { cmd: "fly_to", spot: "inner_gate" });
   await until(page, "the errand", (s) => s.flying_to, 30_000);
   await until(page, "at the inner gate", (s) => !s.flying_to, 300_000);

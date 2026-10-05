@@ -878,6 +878,18 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   would a rock, but under the colony's own pull: its walls stop it, and walked off a roof's edge
   it comes down on whatever's below.
 
+- **The Proving Ground's course** (`TRAINING.md`): 13 rings of light in the colony's air, from
+  just off the inner gate down over the first window to the Charter strip. It runs along the avenue
+  between the towers, slaloms over its carriageways, climbs and turns over the top, comes home, and
+  ends on a pad on Hub Gate's square. The clock starts at the start ring and stops when the suit
+  stands on the pad (set down with the grip armed, L).
+  - The HUD's panel shows the ring, the stretch, the clock and the range, and the `◆` marks the
+    next ring.
+  - A finish is the Charter Board's flight certificate: first class within the par of 2:00, second
+    within half as long again, third for flying it at all.
+  - The best time is kept in the browser, with the settings.
+  - Pilots on foot in the city see the rings over Hub Gate.
+
 ## The world (EVE-lite, roadmap)
 
 - The Earth Sphere is split into **sectors**: L1–L5 colony clusters, lunar orbit, Earth orbit, and

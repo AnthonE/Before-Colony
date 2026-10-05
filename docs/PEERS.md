@@ -19,6 +19,7 @@ No. Nobody ships the whole fantasy. The nearest games each have one piece of it:
 | Star Citizen (alpha) | Walk a city, ride a lift to your hangar, fly to orbit [P3] | Mechs; a 1.0, after $1 billion | Stage the transitions; shared spaces are griefed without weapons; jobs from the city |
 | The Gundam Metaverse (2022–) | Promised: virtual space colonies for the fandom [P4] | Delivered: a shop and Gunpla scanning | Every place needs a verb; people want their own build |
 | Gundam Rogue Orbit (March 2027) | Customised Gundams, colour schemes, hordes and bosses [P5] | A world; colonies | PvE that escalates; a colour scheme is expected |
+| X-Wing (1993) and TIE Fighter (1994) | A hub of doors to walk between, training before the war, a cockpit to read, music that follows the fight [P7][P8] | A world: the hub is a picture | Training as a place (`TRAINING.md`); briefings, a debrief, a film room |
 
 Before Colony already has the chain in outline: the city, the cap lift up to the bay (`DESIGN.md`,
 "The First Colony, inside"), the catapult into space and the dock home ("Sorties"). None of them
@@ -98,7 +99,7 @@ flies ships, not suits.
   suit"), and its open question about thrusters near people should be answered the same way.
 - **Jobs from the city.** Its missions are taken in a city and flown in space, which is what brings
   players back to the city. Ours would come from the Charter Board, which is one fixed line today
-  (P1 5).
+  (P1 6).
 
 ## The Gundam Metaverse
 
@@ -127,6 +128,99 @@ thrusters and a colour scheme of your own, against hordes of enemy units and tow
   doesn't want to fight people.
 - **A colour scheme is expected.** Rogue Orbit paints the suit your way; so will every Gundam game
   players hold us up against.
+
+## X-Wing and TIE Fighter
+
+LucasArts' space combat sims, made by Totally Games (Lawrence Holland and Edward Kilham) for
+MS-DOS in 1993 and 1994. The owner brought them in for their feel. They have no world and no city.
+What they have is what a new pilot needs: somewhere to learn before it counts, and a cockpit that
+tells you what's going on.
+
+- **The hub is a place with doors.**
+  - X-Wing's concourse is the spaceport of the Mon Calamari cruiser *Independence* [P7]:
+    - the left hangar door leads to the Proving Ground, the middle one to Historical Combat;
+    - the desk on the right is the Tour of Duty;
+    - small doors lead to the Tech Room and the Film Room, and Registration is bottom right;
+    - pointing at anything names it.
+  - TIE Fighter's is a two-level atrium, with stormtroopers at its doors [P8].
+  - Ours is real: Hub Gate's square, and its places behind their doors (`COLONY.md`). Their doors
+    map onto ours:
+
+    | X-Wing's door | Ours |
+    |---|---|
+    | Proving Ground | the Blast Hall (`TRAINING.md`) |
+    | Tour of Duty | the Charter Board's contracts |
+    | Tech Room | the maintenance console's stat sheet |
+    | Registration | signing in with a wallet |
+    | Film Room | nothing yet (below) |
+- **Training before it counts, against a clock.**
+  - **X-Wing's Pilot Proving Ground ("the Maze")** [P7][P9]:
+    - gates on platforms floating in space, flown in order;
+    - targets on the platforms, and on later levels turrets that fire back;
+    - all of it holographic and "safe" to hit, but a hit stops you and costs time;
+    - eight levels per craft, each with less time, then a flight badge.
+  - **TIE Fighter's Training Simulator** [P8][P10]:
+    - a twisting tunnel of fans and turning disks, each with a window to slip through;
+    - each target hit adds two seconds;
+    - "after Level 8, the course stays the same, but you have five seconds less".
+  - **TIE Fighter's Combat Chamber:** four missions per craft, with lessons radioed in mid-flight,
+    and a bronze, silver or gold medallion for them.
+  - **What we take:** the Proving Ground (`TRAINING.md`). Its first phase is built: a ring course
+    in the colony's air, timed, with a par and a certificate.
+- **It teaches the machine.**
+  - The official guide's tips for the Maze are about energy [P9]:
+    - to slow down, raise laser recharge rather than cut the throttle;
+    - shunt laser energy into the shields;
+    - balance the shields front and rear.
+  - Our suits are machines too (reactor, heat, systems, propellant: `DESIGN.md`, "Suit systems and
+    malfunctions").
+  - The first course teaches what the colony does to a suit. A later one could teach heat and the
+    tank.
+- **A cockpit you read** [P7][P8].
+  - The Combat Multiview Display: the target's name, shields, hull, systems, distance and cargo.
+    In TIE Fighter it shows the target as a 3D model, turned as the target is turned to you.
+  - A target box that's yellow out of range, red in range, and green with a firing solution.
+  - TIE Fighter's threat lights: the missile light blinks yellow while a lock is being made, and
+    turns solid red once it's made.
+  - Front and rear sensor scopes, whose dots dim with range.
+  - Ours has the lock-on's bracket, the lead `◆` and the lock tones (`LOCK.md`,
+    `bc_sound::cockpit`). The missile warning that goes from blinking to solid is the piece to
+    check ours against.
+- **Music that follows the fight.** iMUSE switched cues on events without a seam [P8]: a friendly
+  or hostile arrival, a capital ship dropping out of hyperspace, a goal done, a victory, a failure.
+  (The 1998 re-releases replaced it with looped CD audio, which fans count a loss, *unverified*.)
+  Ours crossfades between calm and combat (`bc_sound::music`). iMUSE's lesson: give the music cues
+  for events, not just a level of danger.
+- **Briefings, and a secret order** [P8][P11].
+  - The briefing is an animated map that scrolls and zooms to each group of ships.
+  - In TIE Fighter you can also put questions to the deck officer, and a cloaked figure gives
+    secret objectives: the Emperor's Secret Order. It has six circles, reached by flying its goals,
+    and a tattoo that grows with rank.
+  - Our take:
+    - the Charter Board's contracts (P1 6) should brief on the chart, which already flies its view
+      to things and draws courses (`chart.rs`);
+    - `STORY.md`'s shady contracts could carry a second order from someone else.
+- **A debrief, ranks and medals** [P7][P8].
+  - After every mission: accuracy, goals, kills and losses.
+  - Ranks by score; medals presented by Mon Mothma; patches on the pilot's sash.
+  - Ours says what came home (`DESIGN.md`, "Sorties"). A debrief, and a pilot record that shows
+    what a pilot has done, are the take.
+- **The Film Room** [P8].
+  - A mission is recorded and replayed from any ship's camera.
+  - "Enter Sim" lets you fly on from any moment.
+  - Our simulation is deterministic to the bit (`ARCHITECTURE.md`, "Determinism"), so a sortie's
+    inputs replay it exactly. A film room is cheap for us once the server keeps the inputs.
+- **Simple to fly, and your own path.**
+  - Holland: "I like to keep the controls as simple as possible, so someone can jump in and enjoy
+    the game… I want them to be able to hop into the cockpit and fly" [P12].
+  - And: "We wanted it to be a flexible game system that allowed people to do different parts, not
+    be forced to go always along the path" [P9]. Our objectives come in any order (`DESIGN.md`,
+    "Objectives and the chart"), and the Proving Ground is recommended, never required.
+- **A small cog in a war.**
+  - TIE Fighter's guide: "a starfighter is only a small part of the Imperial plan" [P10].
+  - Holland: "the heroic scale of a single guy having an impact… but still you wanted the sense of
+    the larger story going on around the hero" [P9].
+  - The Charter Board's quiet war of bounties is ours (`STORY.md`).
 
 ## The lesson under all of them
 
@@ -171,20 +265,23 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
 
 **P1: what makes the chain worth walking.**
 
-5. **Contracts on the Charter Board.** Jobs posted in the city, flown in space, paid at the desk:
+5. **The Proving Ground** (X-Wing and TIE Fighter; the owner's ask). A place to learn a suit before
+   it counts: a hall off Hub Gate's square, walked on foot, a trainer boarded there, and a course
+   of rings through the colony's air against a clock (`TRAINING.md`). The course is built.
+6. **Contracts on the Charter Board.** Jobs posted in the city, flown in space, paid at the desk:
    haul this, clear that claim, escort a hauler home (`DESIGN.md`, roadmap, "Contracts"), with the
    reward held in escrow as the Exchange holds its orders' (`bc-econ`). Star Citizen's mission
    givers, as our Charter Board.
-6. **Liveries.** Body, trim and accent colours chosen at the suit's maintenance console, carried on
+7. **Liveries.** Body, trim and accent colours chosen at the suit's maintenance console, carried on
    the suit (`bc_econ::suit::Suit`) and drawn for everyone (`livery` takes only the frame and the
    faction today). Paint costs credits: a sink that sells itself.
-7. **Doll offensives.** Squads that scale with the pilots out, an offensive now and then against
+8. **Doll offensives.** Squads that scale with the pilots out, an offensive now and then against
    the dock or MO-II, and something big: a carrier that launches Dolls. The bounties already pay
    for it (`content::salvage::bounty`).
-8. **Agents as population.** Flaneurs that ride the trams and go into the places (today's walks 60
+9. **Agents as population.** Flaneurs that ride the trams and go into the places (today's walks 60
    m back and forth, `bc-bot/examples/flaneur.rs`), and the server's own tugs, haulers and miners
    in the lanes (`DESIGN.md`, roadmap, "Traffic").
-9. **Decide where PvP lives.** This is a decision that's open, not a recommendation. Every browser
+10. **Decide where PvP lives.** This is a decision that's open, not a recommendation. Every browser
    pilot is on the Colonies' side (`bc-client/src/net.rs`) and friendly fire is off
    (`bc_sim::config`), so people can't harm each other, and `DESIGN.md`'s hunted sleepers can only
    be hunted by bots of another faction. Star Citizen has armistice zones and lawless space; EVE
@@ -193,12 +290,12 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
 
 **P2: depth, once the above is in.**
 
-10. **Cost brackets** (Battle Operation 2), for contract tiers and the Dolls sent after a pilot.
-11. **Close quarters outside the law:** the axis port's scaffolds, the building site's frames.
+11. **Cost brackets** (Battle Operation 2), for contract tiers and the Dolls sent after a pilot.
+12. **Close quarters outside the law:** the axis port's scaffolds, the building site's frames.
     Where free aim is learnt.
-12. **Suits inside the colony,** once the building site gives them work (`SUITS_INSIDE.md`, "Why
+13. **Suits inside the colony,** once the building site gives them work (`SUITS_INSIDE.md`, "Why
     bring a suit inside?"): `Stage` moved on by deliveries.
-13. **Low g near the axis,** as a place to play.
+14. **Low g near the axis,** as a place to play.
 
 ## Sources
 
@@ -223,3 +320,16 @@ checked against:
 - **[P5] Gundam Rogue Orbit.** Gematsu and AniTrendz (September 2026, the date and gameplay);
   Sortir à Paris on customisation and colour schemes.
 - **[P6] EVE Online.** EVE University's wiki, "Insurance".
+- **[P7] X-Wing.** The Collector's CD-ROM pilot manual
+  (archive.org/details/Star_Wars_X-WING_STARFIGHTER_PILOT_MANUAL); Wikipedia, "Star Wars: X-Wing
+  (video game)"; Wookieepedia, "The Maze (pilot proving ground)".
+- **[P8] TIE Fighter.** Its pilot manual (archive.org/details/tie.-fighter-manual); Wikipedia, "Star
+  Wars: TIE Fighter"; Wookieepedia, "Training simulator", "Combat chamber" and "Secret Order of the
+  Empire".
+- **[P9]** *X-Wing: The Official Strategy Guide* (1993)
+  (archive.org/details/star-wars-x-wing-the-official-strategy-guide-1993).
+- **[P10]** The TIE Fighter strategy guide (Prima) (archive.org/details/tie_figher_prima_strategy_guide).
+- **[P11]** PC Gamer, "The making of Star Wars: TIE Fighter"
+  (pcgamer.com/the-making-of-star-wars-tie-fighter).
+- **[P12]** The Digital Antiquarian, "The Second Coming of Star Wars"
+  (filfre.net/2021/02/the-second-coming-of-star-wars).

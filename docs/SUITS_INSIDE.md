@@ -147,7 +147,9 @@ weapon); its rollouts run against the interior's world.
 
 ## Open questions
 
-- **Why bring a suit inside?** The candidate: the building site. Colony projects (the Charter
+- **Why bring a suit inside?** One answer is built: the Proving Ground's course (`TRAINING.md`),
+  rings from the inner gate down to Hub Gate's square, against a clock. The other candidate: the
+  building site. Colony projects (the Charter
   Board's great works, `DESIGN.md`'s roadmap) are built by suits carrying girders and machinery in
   the interior's gravity, paid from the project's funds. Without that, a suit inside is a
   sightseer.

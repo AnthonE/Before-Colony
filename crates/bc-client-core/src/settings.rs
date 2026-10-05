@@ -146,6 +146,8 @@ pub struct Settings {
     pub dolls_downed: u32,
     /// The colony's sights found on foot (bits of `sights`, by `bc_sim::content::city::SIGHTS`).
     pub sights_found: u32,
+    /// The best time flown round the Proving Ground's course (`course`), ms; 0: never flown.
+    pub course_best_ms: u32,
     /// Locked on, the ◆ that shows where to lead the target.
     pub lead: bool,
     /// A direction key pressed twice quickly makes a burst step that way.
@@ -175,6 +177,7 @@ impl Default for Settings {
             objectives_done: 0,
             dolls_downed: 0,
             sights_found: 0,
+            course_best_ms: 0,
             lead: true,
             double_tap: true,
             vol_master: 0.8,
@@ -238,6 +241,7 @@ impl Settings {
             "objectives_done" => self.objectives_done.to_string(),
             "dolls_downed" => self.dolls_downed.to_string(),
             "sights_found" => self.sights_found.to_string(),
+            "course_best_ms" => self.course_best_ms.to_string(),
             "lead" => self.lead.to_string(),
             "double_tap" => self.double_tap.to_string(),
             "vol_master" => self.vol_master.to_string(),
@@ -286,12 +290,13 @@ impl Settings {
                 let Some(c) = CameraView::parse(value) else { return false };
                 self.camera = c;
             }
-            "hints_seen" | "objectives_done" | "dolls_downed" | "sights_found" => {
+            "hints_seen" | "objectives_done" | "dolls_downed" | "sights_found" | "course_best_ms" => {
                 let Ok(n) = value.trim().parse() else { return false };
                 match key {
                     "hints_seen" => self.hints_seen = n,
                     "objectives_done" => self.objectives_done = n,
                     "sights_found" => self.sights_found = n,
+                    "course_best_ms" => self.course_best_ms = n,
                     _ => self.dolls_downed = n,
                 }
             }
@@ -301,7 +306,7 @@ impl Settings {
     }
 
     /// Every key, in the order the file lists them.
-    const KEYS: [&'static str; 21] = [
+    const KEYS: [&'static str; 22] = [
         "name",
         "frame",
         "sensitivity",
@@ -317,6 +322,7 @@ impl Settings {
         "objectives_done",
         "dolls_downed",
         "sights_found",
+        "course_best_ms",
         "lead",
         "double_tap",
         "vol_master",
@@ -407,6 +413,7 @@ mod tests {
             objectives_done: 0b101,
             dolls_downed: 3,
             sights_found: 0b1_0010,
+            course_best_ms: 118_437,
             lead: false,
             double_tap: false,
             vol_master: 0.6,

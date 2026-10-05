@@ -176,6 +176,7 @@ pub fn update_objectives(
     mut marker: Query<(&mut Node, &mut Visibility), (With<Waypoint>, Without<ObjectivePanel>)>,
     mut label: Query<&mut Text, (With<WaypointLabel>, Without<ObjectiveText>)>,
     onfoot: Res<crate::onfoot::OnFoot>,
+    course: Res<crate::course::CourseState>,
 ) {
     let g = game.borrow();
     let core = &g.core;
@@ -259,20 +260,35 @@ pub fn update_objectives(
         });
     state.waypoint =
         if afoot { None } else { current.and_then(|o| waypoint_at(core, o.waypoint(), from, t)) };
-    // Flying inside the colony: no objectives in there, and the waypoint is the inner gate.
+    // Flying inside the colony: no objectives in there. The panel is the Proving Ground's course
+    // (`course.rs`), and the waypoint its next ring, or else the inner gate.
     if inside {
-        state.waypoint =
-            Some((bc_sim::colony::interior::INNER_GATE, "INNER GATE: DOCK AT REST IN ITS RING".into()));
+        state.waypoint = course.waypoint.clone().or_else(|| {
+            Some((bc_sim::colony::interior::INNER_GATE, "INNER GATE: DOCK AT REST IN ITS RING".into()))
+        });
     }
+    let course_lines = course.lines.as_ref().filter(|_| inside);
 
     let shown = settings.0.objectives
         && ((in_sector && own.is_some() && !inside) || (afoot && current.is_some_and(|o| o.on_foot())));
     // The panel: hidden under the map, which lists them all.
-    let want = if shown && current.is_some() && !open.0 { Visibility::Inherited } else { Visibility::Hidden };
+    let listed = (shown && current.is_some()) || (settings.0.objectives && course_lines.is_some());
+    let want = if listed && !open.0 { Visibility::Inherited } else { Visibility::Hidden };
     for mut v in &mut panel {
         v.set_if_neq(want);
     }
-    if let Some(o) = current {
+    if let Some(lines) = course_lines {
+        for (which, mut text) in &mut texts {
+            let s = match which {
+                ObjectiveText::Heading => &lines[0],
+                ObjectiveText::Title => &lines[1],
+                ObjectiveText::How => &lines[2],
+            };
+            if text.0 != *s {
+                text.0.clone_from(s);
+            }
+        }
+    } else if let Some(o) = current {
         let order = Objective::order(survival);
         let count = order.iter().filter(|o| o.available(&input)).count();
         let n = order.iter().filter(|o| o.available(&input) && done & o.bit() != 0).count();
