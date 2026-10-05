@@ -4,8 +4,8 @@
 //! the long beam rifle, and the 105 mm rifle with its drum magazine riding the left forearm. Its
 //! inner frame, hands and feet are brown; the wheels and the chest lamps' rims take the trim.
 //!
-//! The shared skeleton is stockier than the kit (its knee sits lower), so the ankle guards and
-//! feet stand tall to keep the Leo's long lower legs.
+//! On the anime skeleton: a short torso on a high waist, the skirts over the hips, the knee band on
+//! the knee three-fifths of the way down, then the long shin, the ankle guard and the tall feet.
 
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, FRAC_PI_8};
 
@@ -75,21 +75,29 @@ const DOME: [(f32, f32); 9] = [
 ];
 /// The helmet's axis (it sits a little back on the neck).
 const HEAD_Z: f32 = 0.05;
+/// How much smaller than the kit's the helmet is drawn.
+const HEAD_SCALE: f32 = 0.88;
 
 fn head(d: &mut Designer) {
-    let axis = at(0.0, 0.0, HEAD_Z);
+    // The helmet is drawn at the kit's size and scaled down about the neck: the anime's head is
+    // small, about a tenth of the suit.
+    let neck = v(0.0, 6.0, HEAD_Z);
+    let small = Affine3A::from_translation(neck)
+        * Affine3A::from_scale(Vec3::splat(HEAD_SCALE))
+        * Affine3A::from_translation(-neck);
+    let axis = small * at(0.0, 0.0, HEAD_Z);
     let mut h = d.on(Bone::Head);
     h.seed(0.07);
     h.cylinder(0.42, 0.8, 12, BROWN, at(0.0, 5.85, HEAD_Z));
     h.lathe(&DOME, 20, BODY, axis);
     // The visor frame down the face; the window in its upper half, the mono-eye behind the glass,
     // and a vent slot under it.
-    h.block(v(0.92, 1.42, 0.48), v2(0.92, 0.88), v2(0.0, -0.04), 0.06, BODY, at(0.0, 6.73, 0.8));
-    h.cube(v(0.6, 0.52, 0.08), 0.03, GLASS, at(0.0, 7.06, 0.99));
-    h.sphere(0.12, 5, EYE, at(0.0, 7.06, 1.0));
-    h.cube(v(0.52, 0.18, 0.06), 0.02, FRAME, at(0.0, 6.42, 1.03));
+    h.block(v(0.92, 1.42, 0.48), v2(0.92, 0.88), v2(0.0, -0.04), 0.06, BODY, small * at(0.0, 6.73, 0.8));
+    h.cube(v(0.6, 0.52, 0.08), 0.03, GLASS, small * at(0.0, 7.06, 0.99));
+    h.sphere(0.12, 5, EYE, small * at(0.0, 7.06, 1.0));
+    h.cube(v(0.52, 0.18, 0.06), 0.02, FRAME, small * at(0.0, 6.42, 1.03));
     // The crest: a ridge from the brow over the crown and down the back.
-    h.extrude(&crest(), 0.2, BODY, place(v(0.0, 0.0, HEAD_Z), ry(-FRAC_PI_2)));
+    h.extrude(&crest(), 0.2, BODY, small * place(v(0.0, 0.0, HEAD_Z), ry(-FRAC_PI_2)));
     // A plain cover on its right; on its left and round the back, the ribbed one.
     h.lathe_arc(&band(0.9, 0.955, 6.25, 7.2), 20, deg(-30.0), deg(50.0), BODY, axis);
     h.lathe_arc(&band(0.9, 0.96, 6.25, 7.2), 20, deg(130.0), deg(330.0), BODY, axis);
@@ -100,7 +108,7 @@ fn head(d: &mut Designer) {
         }
     });
     // The cockpit's camera is the mono-eye.
-    d.sockets.eye = Designer::local(Bone::Head, v(0.0, 7.06, 1.04));
+    d.sockets.eye = Designer::local(Bone::Head, small.transform_point3(v(0.0, 7.06, 1.04)));
 }
 
 /// The crest's outline in the head's (z, y): the dome's silhouette from the brow back, thickened.
@@ -182,14 +190,14 @@ fn chest(d: &mut Designer) {
     // waist.
     d.on(Bone::Torso).seed(0.16).lathe(
         &[
-            (0.0, 1.85),
-            (1.55, 1.85),
-            (1.75, 1.98),
-            (1.78, 2.15),
-            (1.6, 2.45),
-            (1.3, 2.8),
-            (1.2, 3.15),
-            (0.0, 3.15),
+            (0.0, 2.45),
+            (1.55, 2.45),
+            (1.72, 2.55),
+            (1.74, 2.72),
+            (1.52, 2.9),
+            (1.25, 3.1),
+            (1.2, 3.2),
+            (0.0, 3.2),
         ],
         20,
         BODY,
@@ -202,24 +210,24 @@ fn chest(d: &mut Designer) {
 fn waist(d: &mut Designer) {
     let mut w = d.on(Bone::Waist);
     w.seed(0.2);
-    // It rides high, as the kit's does: the abdomen is short.
-    w.block(v(3.3, 0.85, 2.5), v2(1.0, 1.0), Vec2::ZERO, 0.1, BODY, at(0.0, 1.65, 0.0));
+    // It rides high, over the hips, as the kit's does: the abdomen is short.
+    w.block(v(3.3, 0.8, 2.5), v2(1.0, 1.0), Vec2::ZERO, 0.1, BODY, at(0.0, 2.38, 0.0));
     // The crotch block and its round fitting.
-    w.block(v(0.95, 2.4, 1.35), v2(1.2, 1.0), Vec2::ZERO, 0.1, BODY, at(0.0, 0.35, 0.45));
-    let nub = place(v(0.0, -0.15, 1.18), rx(FRAC_PI_2));
+    w.block(v(0.95, 1.5, 1.35), v2(1.2, 1.0), Vec2::ZERO, 0.1, BODY, at(0.0, 1.5, 0.45));
+    let nub = place(v(0.0, 1.05, 1.18), rx(FRAC_PI_2));
     w.cylinder(0.36, 0.42, 14, BODY, nub);
     w.cylinder(0.22, 0.5, 10, FRAME, nub);
     for s in Side::BOTH {
         // Front skirts, angled out over the thighs.
-        let front = sided(s, place(v(1.12, 0.9, 1.22), rz(0.08) * rx(-0.12)));
-        w.block(v(1.35, 2.0, 0.36), v2(0.95, 0.9), Vec2::ZERO, 0.08, BODY, front);
-        u_mark(&mut w, 0.45, 0.42, front * at(0.0, -0.4, 0.19));
+        let front = sided(s, place(v(1.12, 1.62, 1.22), rz(0.08) * rx(-0.12)));
+        w.block(v(1.35, 1.85, 0.36), v2(0.95, 0.9), Vec2::ZERO, 0.08, BODY, front);
+        u_mark(&mut w, 0.45, 0.42, front * at(0.0, -0.35, 0.19));
         // Side skirts: boxes standing proud of the waist, flaring at the hem.
-        let side = sided(s, place(v(2.4, 1.15, 0.0), rz(0.1)));
+        let side = sided(s, place(v(2.4, 1.9, 0.0), rz(0.1)));
         w.block(v(0.75, 1.7, 1.9), v2(0.9, 0.85), Vec2::ZERO, 0.1, BODY, side);
         u_mark(&mut w, 0.5, 0.4, side * Affine3A::from_rotation_y(FRAC_PI_2) * at(0.0, -0.2, 0.39));
         // Rear skirts.
-        let rear = sided(s, place(v(0.8, 0.95, -1.3), rz(0.06) * rx(0.15)));
+        let rear = sided(s, place(v(0.8, 1.65, -1.3), rz(0.06) * rx(0.15)));
         w.block(v(1.3, 1.7, 0.36), v2(0.95, 0.9), Vec2::ZERO, 0.08, BODY, rear);
         u_mark(
             &mut w,
@@ -335,7 +343,8 @@ fn legs(d: &mut Designer) {
             s.pick((Bone::ThighL, Bone::ShinL, Bone::FootL), (Bone::ThighR, Bone::ShinR, Bone::FootR));
         let k = s.pick(0.0, 0.2);
 
-        // The thigh: an egg, fullest high up and swelling outboard, on a brown ball at the hip.
+        // The thigh: an egg, fullest high up and swelling outboard, from the knee band up under
+        // the skirts, on a brown ball at the hip.
         let mut t = d.on(thigh);
         t.seed(0.31 + k);
         t.sphere(0.75, 6, BROWN, sided(s, Affine3A::from_translation(hip)));
@@ -345,32 +354,37 @@ fn legs(d: &mut Designer) {
         );
         t.lathe(
             &[
-                (0.0, 0.6),
-                (0.68, 0.65),
-                (0.86, 1.0),
-                (1.02, 1.7),
-                (1.14, 2.5),
-                (1.2, 3.05),
-                (1.1, 3.55),
-                (0.8, 3.95),
-                (0.0, 4.1),
+                (0.0, 0.42),
+                (0.7, 0.48),
+                (0.9, 0.85),
+                (1.05, 1.5),
+                (1.15, 2.2),
+                (1.2, 2.75),
+                (1.12, 3.3),
+                (0.85, 3.75),
+                (0.0, 3.95),
             ],
             18,
             BODY,
             egg,
         );
         t.greeble(|t| {
-            t.cube(v(0.08, 0.5, 0.06), 0.0, FRAME, sided(s, place(v(1.75, -1.55, 1.2), rz(-0.55) * ry(0.3))));
             t.cube(
                 v(0.08, 0.5, 0.06),
                 0.0,
                 FRAME,
-                sided(s, place(v(0.95, -2.75, 1.3), rz(-0.55) * ry(-0.15))),
+                sided(s, place(knee + v(0.35, 2.2, 1.02), rz(-0.55) * ry(0.3))),
+            );
+            t.cube(
+                v(0.08, 0.5, 0.06),
+                0.0,
+                FRAME,
+                sided(s, place(knee + v(-0.35, 1.3, 0.92), rz(-0.55) * ry(-0.15))),
             );
         });
 
-        // The shin: knee joint, the riveted band, the tube with a ridge down its front and the
-        // booster slot down its back, and the flared guard over the ankle.
+        // The shin: knee joint, the riveted band on the knee, the long tube with a ridge down its
+        // front and the booster slot down its calf, and the flared guard over the ankle.
         let dir = knee - ankle;
         let tube = sided(s, place(ankle, toward(dir)));
         let at_shin = |h: f32| ankle + dir.normalize() * h;
@@ -379,29 +393,29 @@ fn legs(d: &mut Designer) {
         m.cylinder(0.6, 1.3, 12, BROWN, sided(s, place(knee, rz(FRAC_PI_2))));
         m.lathe(
             &[
-                (0.0, 0.75),
-                (0.74, 0.75),
-                (0.76, 1.3),
-                (0.8, 2.0),
-                (0.88, 2.7),
-                (0.95, 3.2),
-                (0.95, 3.45),
-                (0.0, 3.5),
+                (0.0, 0.95),
+                (0.74, 0.95),
+                (0.76, 1.6),
+                (0.8, 2.5),
+                (0.86, 3.5),
+                (0.93, 4.3),
+                (0.97, 4.85),
+                (0.97, 5.15),
+                (0.0, 5.2),
             ],
             18,
             BODY,
             tube * Affine3A::from_scale(v(0.92, 1.0, 1.0)),
         );
         m.block(
-            v(0.4, 1.8, 0.4),
+            v(0.4, 2.6, 0.4),
             v2(1.0, 1.0),
             Vec2::ZERO,
             0.05,
             BODY,
-            sided(s, place(at_shin(1.7) + v(0.0, 0.0, 0.66), toward(dir) * ry(FRAC_PI_4))),
+            sided(s, place(at_shin(2.9) + v(0.0, 0.0, 0.66), toward(dir) * ry(FRAC_PI_4))),
         );
-        // The band sits a little above the joint, where the kit's knee is.
-        let band_at = knee + v(0.08, 0.25, 0.05);
+        let band_at = knee + v(0.08, 0.0, 0.05);
         m.cube(v(2.25, 0.9, 2.1), 0.12, BODY, sided(s, Affine3A::from_translation(band_at)));
         m.greeble(|m| {
             for (dx, dy) in [(0.3, 0.2), (0.74, 0.2), (0.3, -0.2), (0.74, -0.2)] {
@@ -409,13 +423,13 @@ fn legs(d: &mut Designer) {
                 m.cylinder(0.17, 0.12, 10, BODY, sided(s, place(p, rx(FRAC_PI_2))));
             }
         });
-        u_mark(&mut m, 0.36, 0.34, sided(s, place(at_shin(2.95) + v(0.0, 0.0, 0.86), rx(-0.06))));
+        u_mark(&mut m, 0.36, 0.34, sided(s, place(at_shin(4.55) + v(0.0, 0.0, 0.96), rx(-0.04))));
         // The booster hardpoint: a dark slot between two fins.
-        let slot = at_shin(1.75) + v(0.0, 0.0, -0.72);
-        m.cube(v(0.5, 1.7, 0.3), 0.04, BROWN, sided(s, place(slot, toward(dir))));
+        let slot = at_shin(3.7) + v(0.0, 0.0, -0.82);
+        m.cube(v(0.5, 2.2, 0.3), 0.04, BROWN, sided(s, place(slot, toward(dir))));
         for side in [-1.0, 1.0] {
             m.block(
-                v(0.16, 1.9, 0.42),
+                v(0.16, 2.4, 0.42),
                 v2(1.0, 0.8),
                 Vec2::ZERO,
                 0.03,
@@ -425,51 +439,51 @@ fn legs(d: &mut Designer) {
         }
         m.lathe(
             &[
-                (0.0, -6.55),
-                (0.86, -6.55),
-                (0.92, -6.7),
-                (1.1, -7.35),
-                (1.2, -7.75),
-                (1.16, -7.85),
-                (0.0, -7.85),
+                (0.0, -6.35),
+                (0.86, -6.35),
+                (0.93, -6.55),
+                (1.12, -7.3),
+                (1.22, -7.78),
+                (1.18, -7.9),
+                (0.0, -7.9),
             ],
             8,
             BODY,
             sided(
                 s,
-                at(hip.x, 0.0, 0.15)
+                at(ankle.x, 0.0, 0.12)
                     * Affine3A::from_scale(v(1.0, 1.0, 1.12))
                     * Affine3A::from_rotation_y(FRAC_PI_8),
             ),
         );
 
-        // The foot: a brown wedge on a dark sole, a green tongue up into the guard, and a wheel
-        // either side of the heel.
+        // The foot: a tall brown wedge on a dark sole, a green tongue up into the guard, and a
+        // wheel either side of the heel.
         let mut f = d.on(foot);
         f.seed(0.43 + k);
         f.sphere(0.5, 5, BROWN, sided(s, Affine3A::from_translation(ankle)));
         f.block(
-            v(1.6, 0.8, 3.3),
+            v(1.6, 1.0, 3.4),
             v2(0.85, 0.6),
             v2(0.0, -0.55),
             0.12,
             BROWN,
-            sided(s, at(hip.x, -8.5, 0.45)),
+            sided(s, at(ankle.x, -8.4, 0.45)),
         );
-        f.block(v(1.4, 0.7, 0.9), v2(0.9, 0.85), Vec2::ZERO, 0.08, BROWN, sided(s, at(hip.x, -8.35, -0.95)));
-        f.cube(v(1.7, 0.2, 3.45), 0.04, FRAME, sided(s, at(hip.x, -8.975, 0.45)));
+        f.block(v(1.4, 0.9, 0.9), v2(0.9, 0.85), Vec2::ZERO, 0.08, BROWN, sided(s, at(ankle.x, -8.3, -1.0)));
+        f.cube(v(1.7, 0.2, 3.5), 0.04, FRAME, sided(s, at(ankle.x, -8.975, 0.45)));
         f.block(
             v(0.6, 1.0, 0.32),
             v2(0.85, 1.0),
             Vec2::ZERO,
             0.05,
             BODY,
-            sided(s, place(v(hip.x, -7.9, 1.25), rx(-0.4))),
+            sided(s, place(v(ankle.x, -7.75, 1.3), rx(-0.4))),
         );
-        u_mark(&mut f, 0.4, 0.3, sided(s, place(v(hip.x, -8.42, 1.45), rx(-1.0))));
+        u_mark(&mut f, 0.4, 0.3, sided(s, place(v(ankle.x, -8.33, 1.5), rx(-0.9))));
         for side in [-1.0, 1.0] {
-            let hub = sided(s, place(v(hip.x + side * 0.9, -8.42, -0.55), rz(FRAC_PI_2)));
-            f.cylinder(0.52, 0.24, 16, TRIM, hub);
+            let hub = sided(s, place(v(ankle.x + side * 0.9, -8.35, -0.55), rz(FRAC_PI_2)));
+            f.cylinder(0.55, 0.24, 16, TRIM, hub);
             f.cylinder(0.2, 0.3, 8, FRAME, hub);
         }
     }

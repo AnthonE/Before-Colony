@@ -384,8 +384,9 @@ pub fn setup_bay(
         piece(&mut commands, Vec3::new(x, CATWALK_Y - 0.2, 0.55), Vec3::new(25.6 / 48.0, 0.4, 0.1), tag);
     }
 
-    // The gantry: braces between its pillars at the knee, the waist and the top, the crane rail.
-    for y in [4.5, 9.0, 16.5, GANTRY_TOP] {
+    // The gantry: braces between its pillars at the knee, the head and the top, the crane rail (the
+    // catwalk crosses at the waist).
+    for y in [7.4, 16.5, GANTRY_TOP] {
         for z in [4.5, 9.1] {
             piece(
                 &mut commands,

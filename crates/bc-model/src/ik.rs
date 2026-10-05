@@ -8,9 +8,9 @@ use glam::{Mat3, Quat, Vec3};
 use crate::rig::Bone;
 
 /// The thigh (hip to knee), the shin (knee to ankle), and the ankle to the sole, m.
-pub const THIGH: f32 = 3.81;
-pub const SHIN: f32 = 3.51;
-pub const ANKLE_TO_SOLE: f32 = 1.07;
+pub const THIGH: f32 = 3.712;
+pub const SHIN: f32 = 5.457;
+pub const ANKLE_TO_SOLE: f32 = 1.47;
 
 /// A leg reaching from `hip` for `target` (where the ankle should be), its knee bending toward
 /// `knee_pole`: the thigh's rotation (in the frame `hip` is in) and the shin's (relative to the
@@ -69,7 +69,7 @@ mod tests {
             let (knee, ankle) = joints(hip, leg);
             assert!((knee.distance(hip) - THIGH).abs() < 1e-3);
             let reach = target.distance(hip);
-            if reach < THIGH + SHIN - 1e-3 && reach > THIGH - SHIN + 1e-3 {
+            if reach < THIGH + SHIN - 1e-3 && reach > (THIGH - SHIN).abs() + 1e-3 {
                 // In reach: there.
                 assert!(ankle.distance(target) < 1e-3, "{k}: {} m short", ankle.distance(target));
                 // The knee forward of the hip-ankle line (toward the pole).

@@ -98,14 +98,14 @@ pub(crate) fn inner_frame(d: &mut Designer, waist_r: f32) {
         &[
             (0.0, -0.1),
             (waist_r, 0.0),
-            (waist_r * 1.08, 0.5),
-            (waist_r, 1.0),
-            (waist_r * 1.1, 1.5),
-            (0.0, 1.7),
+            (waist_r * 1.08, 0.35),
+            (waist_r, 0.7),
+            (waist_r * 1.1, 1.05),
+            (0.0, 1.2),
         ],
         16,
         FRAME,
-        at(0.0, 0.3, 0.0),
+        at(0.0, 1.95, 0.0),
     );
     d.on(Bone::Head).cylinder(0.45, 0.8, 10, FRAME, at(0.0, 5.75, 0.1));
     for s in Side::BOTH {
@@ -114,7 +114,7 @@ pub(crate) fn inner_frame(d: &mut Designer, waist_r: f32) {
             0.85,
             6,
             FRAME,
-            sided(s, at(1.3, -0.7, 0.0)),
+            sided(s, Affine3A::from_translation(j(Bone::ThighR))),
         );
         d.on(s.pick(Bone::ShinL, Bone::ShinR)).seed(0.3 + k).cylinder(
             0.72,
@@ -144,6 +144,19 @@ pub(crate) fn inner_frame(d: &mut Designer, waist_r: f32) {
         );
     }
 }
+
+/// How long a thigh's and a shin's armour run between the joints (overlapping their guards a
+/// little), from the rig: on the anime skeleton the shin is the longer.
+pub(crate) fn leg_lengths() -> (f32, f32) {
+    let (hip, knee, ankle) = (j(Bone::ThighR), j(Bone::ShinR), j(Bone::FootR));
+    let thigh = (knee + v(0.0, 0.4, -0.15) - (hip + v(0.0, -0.4, 0.0))).length() + 0.2;
+    let shin = (ankle + v(0.0, 0.4, 0.0) - (knee + v(0.0, -0.3, 0.0))).length() + 0.5;
+    (thigh, shin)
+}
+
+/// Where the waist's pieces sit, up from where these designs first drew them (round the old,
+/// low hips): the waist rides over the hips.
+pub(crate) const WAIST_UP: f32 = 1.75;
 
 /// Hands: a palm and four fingers curled round a grip, and a thumb.
 pub(crate) fn hands(d: &mut Designer, paint: Paint) {
@@ -289,7 +302,7 @@ fn wing_zero(d: &mut Designer) {
     c.block(v(2.5, 0.55, 2.3), v2(0.9, 0.9), Vec2::ZERO, 0.1, BODY, at(0.0, 5.55, -0.1));
     c.block(v(1.3, 1.7, 0.4), v2(0.7, 1.0), Vec2::ZERO, 0.08, BODY, at(0.0, 4.0, 1.62));
     c.cube(v(0.8, 0.5, 0.3), 0.06, ACCENT, at(0.0, 2.95, 1.5));
-    c.cube(v(2.9, 1.2, 2.6), 0.15, BODY, at(0.0, 2.55, 0.0));
+    c.cube(v(2.9, 0.9, 2.6), 0.15, BODY, at(0.0, 2.85, 0.0));
     for s in Side::BOTH {
         c.cube(v(1.05, 0.85, 0.25), 0.05, YELLOW, sided(s, at(1.35, 4.35, 1.58)));
         c.greeble(|c| {
@@ -303,23 +316,24 @@ fn wing_zero(d: &mut Designer) {
 
     // Abdomen and waist.
     d.on(Bone::Torso).seed(0.17).block(
-        v(2.6, 1.3, 2.1),
+        v(2.6, 0.7, 2.1),
         v2(1.2, 1.1),
         Vec2::ZERO,
         0.12,
         BODY,
-        at(0.0, 1.45, 0.05),
+        at(0.0, 2.35, 0.05),
     );
     let mut w = d.on(Bone::Waist);
     w.seed(0.19);
-    w.cube(v(3.3, 0.45, 2.5), 0.08, FRAME, at(0.0, 0.25, 0.0));
-    w.block(v(1.0, 1.3, 1.6), v2(1.5, 1.1), Vec2::ZERO, 0.1, BODY, at(0.0, -0.55, 0.25));
-    w.cube(v(0.7, 0.45, 0.4), 0.05, ACCENT, at(0.0, -0.2, 1.1));
+    w.cube(v(3.3, 0.45, 2.5), 0.08, FRAME, at(0.0, 0.25 + WAIST_UP, 0.0));
+    w.block(v(1.0, 1.3, 1.6), v2(1.5, 1.1), Vec2::ZERO, 0.1, BODY, at(0.0, -0.55 + WAIST_UP, 0.25));
+    w.cube(v(0.7, 0.45, 0.4), 0.05, ACCENT, at(0.0, -0.2 + WAIST_UP, 1.1));
     for s in Side::BOTH {
-        plate(d, Bone::Waist, s, v(1.3, 1.9, 0.3), v(1.05, -0.8, 1.25), rz(0.1) * rx(0.12), 0.08, TRIM);
-        plate(d, Bone::Waist, s, v(0.3, 1.8, 1.9), v(2.2, -0.55, 0.0), rz(0.12), 0.08, BODY);
+        let (front, side) = (v(1.05, -0.8 + WAIST_UP, 1.25), v(2.3, -0.55 + WAIST_UP, 0.0));
+        plate(d, Bone::Waist, s, v(1.3, 1.9, 0.3), front, rz(0.1) * rx(0.12), 0.08, TRIM);
+        plate(d, Bone::Waist, s, v(0.3, 1.8, 1.9), side, rz(0.12), 0.08, BODY);
     }
-    plate(d, Bone::Waist, Side::R, v(2.4, 1.4, 0.3), v(0.0, -0.4, -1.35), rx(-0.12), 0.08, BODY);
+    plate(d, Bone::Waist, Side::R, v(2.4, 1.4, 0.3), v(0.0, -0.4 + WAIST_UP, -1.35), rx(-0.12), 0.08, BODY);
 
     // Shoulders: big blue blocks under white caps.
     for s in Side::BOTH {
@@ -337,12 +351,14 @@ fn wing_zero(d: &mut Designer) {
     arm_segments(d, v(1.35, 1.9, 1.35), v(1.6, 2.05, 1.7), BODY, TRIM);
 
     // Legs: white thighs, big shins with blue knees and yellow vents, red-toed feet.
+    let (thigh_len, shin_len) = leg_lengths();
     for s in Side::BOTH {
         let (thigh, shin, foot) =
             s.pick((Bone::ThighL, Bone::ShinL, Bone::FootL), (Bone::ThighR, Bone::ShinR, Bone::FootR));
         let (hip, knee, ankle) = (j(Bone::ThighR), j(Bone::ShinR), j(Bone::FootR));
+        let mid = (knee + ankle) * 0.5;
         d.on(thigh).seed(0.3 + s.pick(0.0, 0.2)).block(
-            v(1.65, 3.2, 1.8),
+            v(1.65, thigh_len, 1.8),
             v2(1.05, 1.1),
             Vec2::ZERO,
             0.15,
@@ -352,7 +368,7 @@ fn wing_zero(d: &mut Designer) {
         let mut sh = d.on(shin);
         sh.seed(0.36 + s.pick(0.0, 0.2));
         sh.block(
-            v(2.0, 3.5, 2.3),
+            v(2.0, shin_len, 2.3),
             v2(0.85, 0.9),
             v2(0.0, -0.1),
             0.2,
@@ -367,15 +383,29 @@ fn wing_zero(d: &mut Designer) {
             TRIM,
             sided(s, place(knee + v(0.0, 0.1, 0.95), rx(-0.2))),
         );
-        sh.cube(v(0.25, 1.4, 1.0), 0.04, YELLOW, sided(s, at(2.25, -6.3, -0.2)));
+        sh.cube(v(0.25, 1.4, 1.0), 0.04, YELLOW, sided(s, at(mid.x + 0.95, mid.y - 1.0, -0.2)));
         sh.greeble(|sh| {
-            sh.block(v(1.3, 1.6, 0.4), v2(0.8, 1.0), Vec2::ZERO, 0.06, TRIM, sided(s, at(1.3, -6.0, -1.25)));
+            sh.block(
+                v(1.3, 1.6, 0.4),
+                v2(0.8, 1.0),
+                Vec2::ZERO,
+                0.06,
+                TRIM,
+                sided(s, at(mid.x, mid.y - 0.7, -1.25)),
+            );
         });
         let mut f = d.on(foot);
         f.seed(0.42 + s.pick(0.0, 0.2));
-        f.block(v(1.45, 0.85, 3.1), v2(0.8, 0.65), v2(0.0, -0.2), 0.12, BODY, sided(s, at(1.3, -8.45, 0.45)));
-        f.cube(v(1.3, 0.35, 0.8), 0.06, ACCENT, sided(s, at(1.3, -8.6, 1.75)));
-        f.cube(v(1.55, 0.25, 3.3), 0.04, FRAME, sided(s, at(1.3, -8.95, 0.45)));
+        f.block(
+            v(1.45, 1.15, 3.1),
+            v2(0.8, 0.65),
+            v2(0.0, -0.2),
+            0.12,
+            BODY,
+            sided(s, at(ankle.x, -8.3, 0.45)),
+        );
+        f.cube(v(1.3, 0.35, 0.8), 0.06, ACCENT, sided(s, at(ankle.x, -8.6, 1.75)));
+        f.cube(v(1.55, 0.25, 3.3), 0.04, FRAME, sided(s, at(ankle.x, -8.95, 0.45)));
     }
 
     // Backpack, main thrusters, and the wing binders.
@@ -515,14 +545,15 @@ fn taurus(d: &mut Designer) {
         Vec2::ZERO,
         0.1,
         BODY,
-        at(0.0, 1.5, 0.05),
+        at(0.0, 2.35, 0.05),
     );
     let mut w = d.on(Bone::Waist);
     w.seed(0.21);
-    w.cube(v(3.0, 0.4, 2.2), 0.06, FRAME, at(0.0, 0.25, 0.0));
-    w.block(v(0.9, 1.2, 1.5), v2(1.5, 1.1), Vec2::ZERO, 0.08, TRIM, at(0.0, -0.5, 0.2));
+    w.cube(v(3.0, 0.4, 2.2), 0.06, FRAME, at(0.0, 0.25 + WAIST_UP, 0.0));
+    w.block(v(0.9, 1.2, 1.5), v2(1.5, 1.1), Vec2::ZERO, 0.08, TRIM, at(0.0, -0.5 + WAIST_UP, 0.2));
     for s in Side::BOTH {
-        plate(d, Bone::Waist, s, v(1.2, 1.6, 0.25), v(1.0, -0.75, 1.1), rz(0.14) * rx(0.2), 0.06, BODY);
+        let front = v(1.0, -0.75 + WAIST_UP, 1.1);
+        plate(d, Bone::Waist, s, v(1.2, 1.6, 0.25), front, rz(0.14) * rx(0.2), 0.06, BODY);
         let mut sh = d.on(s.pick(Bone::ShoulderL, Bone::ShoulderR));
         sh.seed(0.26 + s.pick(0.0, 0.4));
         sh.block(v(1.7, 1.2, 2.4), v2(0.6, 0.7), v2(0.3, -0.2), 0.12, BODY, sided(s, at(4.0, 4.9, 0.0)));
@@ -536,12 +567,13 @@ fn taurus(d: &mut Designer) {
         );
     }
     arm_segments(d, v(1.1, 1.8, 1.1), v(1.3, 1.9, 1.4), BODY, TRIM);
+    let (thigh_len, shin_len) = leg_lengths();
     for s in Side::BOTH {
         let (thigh, shin, foot) =
             s.pick((Bone::ThighL, Bone::ShinL, Bone::FootL), (Bone::ThighR, Bone::ShinR, Bone::FootR));
         let (hip, knee, ankle) = (j(Bone::ThighR), j(Bone::ShinR), j(Bone::FootR));
         d.on(thigh).seed(0.32 + s.pick(0.0, 0.2)).block(
-            v(1.4, 3.2, 1.6),
+            v(1.4, thigh_len, 1.6),
             v2(1.1, 1.1),
             Vec2::ZERO,
             0.12,
@@ -551,7 +583,7 @@ fn taurus(d: &mut Designer) {
         let mut sh = d.on(shin);
         sh.seed(0.38 + s.pick(0.0, 0.2));
         sh.block(
-            v(1.6, 3.5, 1.9),
+            v(1.6, shin_len, 1.9),
             v2(0.85, 1.1),
             v2(0.0, 0.15),
             0.15,
@@ -560,11 +592,12 @@ fn taurus(d: &mut Designer) {
         );
         // A swept fin down the back of the calf.
         let fin = [Vec2::new(0.0, 0.0), Vec2::new(0.4, 3.0), Vec2::new(-0.3, 3.2), Vec2::new(-1.2, 0.6)];
-        sh.extrude(&fin, 0.18, TRIM, sided(s, place(v(1.3, -7.2, -1.0), ry(std::f32::consts::FRAC_PI_2))));
+        let calf = ankle + v(0.0, 0.6, -1.05);
+        sh.extrude(&fin, 0.18, TRIM, sided(s, place(calf, ry(std::f32::consts::FRAC_PI_2))));
         let mut f = d.on(foot);
         f.seed(0.44 + s.pick(0.0, 0.2));
-        f.block(v(1.2, 0.8, 3.2), v2(0.6, 0.5), v2(0.0, -0.3), 0.1, BODY, sided(s, at(1.3, -8.45, 0.55)));
-        f.cube(v(1.3, 0.2, 3.3), 0.03, FRAME, sided(s, at(1.3, -8.92, 0.55)));
+        f.block(v(1.2, 1.1, 3.2), v2(0.6, 0.5), v2(0.0, -0.3), 0.1, BODY, sided(s, at(ankle.x, -8.3, 0.55)));
+        f.cube(v(1.3, 0.2, 3.3), 0.03, FRAME, sided(s, at(ankle.x, -8.92, 0.55)));
     }
 
     // The nose-cone backpack, pointing back and up (its fighter mode's nose), with fins.
@@ -615,27 +648,29 @@ fn virgo(d: &mut Designer) {
         Vec2::ZERO,
         0.15,
         TRIM,
-        at(0.0, 1.4, 0.05),
+        at(0.0, 2.35, 0.05),
     );
     let mut w = d.on(Bone::Waist);
     w.seed(0.22);
-    w.cube(v(3.8, 0.55, 2.8), 0.1, FRAME, at(0.0, 0.25, 0.0));
-    w.block(v(1.3, 1.4, 1.9), v2(1.4, 1.1), Vec2::ZERO, 0.12, BODY, at(0.0, -0.55, 0.2));
+    w.cube(v(3.8, 0.55, 2.8), 0.1, FRAME, at(0.0, 0.25 + WAIST_UP, 0.0));
+    w.block(v(1.3, 1.4, 1.9), v2(1.4, 1.1), Vec2::ZERO, 0.12, BODY, at(0.0, -0.55 + WAIST_UP, 0.2));
     for s in Side::BOTH {
-        plate(d, Bone::Waist, s, v(1.7, 1.9, 0.4), v(1.15, -0.85, 1.3), rz(0.12) * rx(0.12), 0.14, BODY);
-        plate(d, Bone::Waist, s, v(0.4, 1.9, 2.1), v(2.35, -0.6, 0.0), rz(0.14), 0.12, BODY);
+        let (front, side) = (v(1.15, -0.85 + WAIST_UP, 1.3), v(2.45, -0.6 + WAIST_UP, 0.0));
+        plate(d, Bone::Waist, s, v(1.7, 1.9, 0.4), front, rz(0.12) * rx(0.12), 0.14, BODY);
+        plate(d, Bone::Waist, s, v(0.4, 1.9, 2.1), side, rz(0.14), 0.12, BODY);
         let mut sh = d.on(s.pick(Bone::ShoulderL, Bone::ShoulderR));
         sh.seed(0.27 + s.pick(0.0, 0.4));
         sh.block(v(2.6, 2.3, 3.1), v2(0.9, 0.85), v2(0.1, 0.0), 0.3, BODY, sided(s, at(4.3, 4.9, 0.0)));
         sh.block(v(2.7, 0.4, 3.2), v2(1.0, 1.0), Vec2::ZERO, 0.06, TRIM, sided(s, at(4.3, 4.2, 0.0)));
     }
     arm_segments(d, v(1.6, 1.9, 1.6), v(1.9, 2.1, 1.95), BODY, TRIM);
+    let (thigh_len, shin_len) = leg_lengths();
     for s in Side::BOTH {
         let (thigh, shin, foot) =
             s.pick((Bone::ThighL, Bone::ShinL, Bone::FootL), (Bone::ThighR, Bone::ShinR, Bone::FootR));
         let (hip, knee, ankle) = (j(Bone::ThighR), j(Bone::ShinR), j(Bone::FootR));
         d.on(thigh).seed(0.33 + s.pick(0.0, 0.2)).block(
-            v(1.95, 3.2, 2.1),
+            v(1.95, thigh_len, 2.1),
             v2(1.05, 1.05),
             Vec2::ZERO,
             0.22,
@@ -645,7 +680,7 @@ fn virgo(d: &mut Designer) {
         let mut sh = d.on(shin);
         sh.seed(0.39 + s.pick(0.0, 0.2));
         sh.block(
-            v(2.3, 3.5, 2.6),
+            v(2.3, shin_len, 2.6),
             v2(0.8, 0.8),
             Vec2::ZERO,
             0.3,
@@ -662,8 +697,15 @@ fn virgo(d: &mut Designer) {
         );
         let mut f = d.on(foot);
         f.seed(0.45 + s.pick(0.0, 0.2));
-        f.block(v(1.8, 1.0, 3.4), v2(0.85, 0.75), v2(0.0, -0.1), 0.15, BODY, sided(s, at(1.3, -8.45, 0.4)));
-        f.cube(v(1.9, 0.25, 3.6), 0.04, FRAME, sided(s, at(1.3, -8.95, 0.4)));
+        f.block(
+            v(1.8, 1.2, 3.4),
+            v2(0.85, 0.75),
+            v2(0.0, -0.1),
+            0.15,
+            BODY,
+            sided(s, at(ankle.x, -8.3, 0.4)),
+        );
+        f.cube(v(1.9, 0.25, 3.6), 0.04, FRAME, sided(s, at(ankle.x, -8.95, 0.4)));
     }
     let mut b = d.on(Bone::Backpack);
     b.seed(0.53);

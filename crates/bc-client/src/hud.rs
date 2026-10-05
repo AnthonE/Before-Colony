@@ -477,12 +477,13 @@ fn silhouette(p: &mut ChildSpawnerCommands) {
     };
     p.spawn((Silhouette, Node { width: Val::Px(SILHOUETTE.x), height: Val::Px(SILHOUETTE.y), ..default() }))
         .with_children(|s| {
+            // The anime's proportions: a small head, a short torso, legs three-fifths of the height.
             s.spawn(block(Part::Backpack, 30.0, 12.0, 40.0, 10.0));
-            s.spawn(block(Part::Head, 38.0, 0.0, 24.0, 11.0));
-            s.spawn(block(Part::Torso, 28.0, 14.0, 44.0, 32.0));
-            s.spawn(block(Part::ArmL, 2.0, 15.0, 22.0, 34.0));
-            s.spawn(block(Part::ArmR, 76.0, 15.0, 22.0, 34.0));
-            s.spawn(block(Part::Legs, 28.0, 49.0, 44.0, 51.0));
+            s.spawn(block(Part::Head, 38.0, 0.0, 24.0, 10.0));
+            s.spawn(block(Part::Torso, 28.0, 12.0, 44.0, 28.0));
+            s.spawn(block(Part::ArmL, 2.0, 13.0, 22.0, 32.0));
+            s.spawn(block(Part::ArmR, 76.0, 13.0, 22.0, 32.0));
+            s.spawn(block(Part::Legs, 28.0, 42.0, 44.0, 58.0));
         });
 }
 

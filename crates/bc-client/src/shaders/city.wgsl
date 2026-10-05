@@ -249,7 +249,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
             let scorch = (1.0 - smoothstep(2.0, 14.0, uv.y)) * (0.35 + 0.4 * noise3(vec3(uv * 0.08, 7.0)));
             albedo = concrete * mix(0.7, 1.0, step(0.015, seam)) * (1.0 - 0.6 * scorch);
             let chevron = step(0.5, fract((uv.x + uv.y) / 1.6));
-            let band = step(4.0, uv.y) * step(uv.y, 5.2);
+            let band = step(6.3, uv.y) * step(uv.y, 7.5);
             albedo = mix(albedo, mix(vec3(0.04), vec3(0.95, 0.72, 0.05), chevron), band);
             rough = 0.9;
         } else if (surface == 14u) {
