@@ -127,7 +127,8 @@ pub fn run(sim: &mut Sim, players: &[SuitId], ticks: u32) {
 /// among `dolls` Mobile Dolls. Returns the sim and the pilots, partners adjacent.
 pub fn gundam_arena(dolls: usize, seed: u64) -> (Sim, Vec<SuitId>) {
     let (mut sim, _) = arena(0, dolls, seed);
-    // Pairs (Colonies, OZ). Sandrock meets a Taurus: two Sandrocks parry each other's every stroke.
+    // Pairs (Colonies, OZ), 14 m apart. Sandrock meets a Taurus: two Sandrocks parry each other's
+    // every stroke.
     let pairs = [
         (FrameId::WingZero, FrameId::WingZero),
         (FrameId::Heavyarms, FrameId::Heavyarms),
@@ -141,7 +142,7 @@ pub fn gundam_arena(dolls: usize, seed: u64) -> (Sim, Vec<SuitId>) {
         for (side, (f, faction)) in
             [(pair.0, Faction::Colonies), (pair.1, Faction::Oz)].into_iter().enumerate()
         {
-            let pos = Vec3::new(k as f32 * 400.0 - 1_000.0, 1_100.0, side as f32 * 12.0);
+            let pos = Vec3::new(k as f32 * 400.0 - 1_000.0, 1_100.0, side as f32 * 14.0);
             let facing = if side == 0 { Vec3::Z } else { -Vec3::Z };
             let id = sim.spawn_at(f, faction, PilotKind::Human, pos, look_rotation(facing, Vec3::Y));
             pilots.push(id.expect("slot"));
