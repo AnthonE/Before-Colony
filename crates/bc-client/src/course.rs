@@ -176,7 +176,8 @@ fn setup_course(
             });
     }
     commands.insert_resource(TargetLooks { idle, hit, lit: lit_look });
-    // The gantry: two rings of light on the hall's floor, round where a trainer stands.
+    // The gantry: two rings of light on the hall's floor, round where a trainer stands (flattened
+    // to strips a few centimetres high).
     let dim = lit(&mut materials, Color::srgb(0.7, 0.45, 0.1), [1.2, 0.7, 0.1]);
     let bright = lit(&mut materials, Color::srgb(1.0, 0.85, 0.4), [8.0, 5.0, 1.0]);
     let up = up_at(hall::gantry());
@@ -186,8 +187,9 @@ fn setup_course(
             GantryPad,
             Mesh3d(meshes.add(Mesh::from(Torus::new(r - tube, r + tube)))),
             MeshMaterial3d(dim.clone()),
-            Transform::from_rotation(Quat::from_rotation_arc(Vec3::Y, up)),
-            Placed((hall::gantry() + up * 0.3).as_dvec3()),
+            Transform::from_rotation(Quat::from_rotation_arc(Vec3::Y, up))
+                .with_scale(Vec3::new(1.0, 0.2, 1.0)),
+            Placed((hall::gantry() + up * 0.1).as_dvec3()),
             RenderLayers::layer(CITY_LAYER),
             Visibility::Hidden,
         ));
