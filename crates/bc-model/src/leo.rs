@@ -19,7 +19,7 @@ use glam::{Affine3A, Quat, Vec2, Vec3};
 use crate::frames::{
     BODY, EYE, FRAME, GUN, STEEL, TRIM, at, j, nozzle, place, rx, ry, rz, saber_hilt, sided, sp, v, v2,
 };
-use crate::kit::Paint;
+use crate::kit::{Light, Paint};
 use crate::rig::{Bone, Side};
 use crate::{Designer, On, paint};
 
@@ -27,7 +27,6 @@ use crate::{Designer, On, paint};
 const BROWN: Paint = Paint::Fixed(paint::FRAME_BROWN);
 const RED: Paint = Paint::Fixed(paint::RIB_RED);
 const VISOR: Paint = Paint::Fixed(paint::VISOR_AMBER);
-const LENS: Paint = Paint::Fixed(paint::LENS);
 
 /// Local +y along `dir`.
 fn toward(dir: Vec3) -> Quat {
@@ -105,6 +104,7 @@ pub(crate) fn leo(d: &mut Designer) {
     beam_rifle(d);
     machine_gun(d);
     saber_hilt(d);
+    stencils(d);
 }
 
 // --- Head. ---
@@ -263,7 +263,8 @@ fn chest(d: &mut Designer) {
         c.cube(v(0.76, 0.74, 0.1), 0.03, FRAME, look * at(0.0, 0.0, 0.06));
         let lens = look * Affine3A::from_rotation_x(FRAC_PI_2);
         c.cylinder(0.33, 0.12, 16, TRIM, lens * at(0.0, 0.1, 0.0));
-        c.lathe(&[(0.0, 0.1), (0.28, 0.1), (0.26, 0.17), (0.0, 0.24)], 16, LENS, lens);
+        // The lens lit soft and warm (the lamps are dark when nobody's aboard).
+        c.lathe(&[(0.0, 0.1), (0.28, 0.1), (0.26, 0.17), (0.0, 0.24)], 16, Paint::Light(Light::Lamp), lens);
         // The shoulder's socket in the chest's side.
         c.cylinder(0.72, 0.4, 14, BROWN, sided(s, place(v(1.95, 5.3, -0.05), rz(FRAC_PI_2))));
         // The back's side plates, either side of the backpack's mount, cut away at the top.
@@ -358,6 +359,12 @@ fn arms(d: &mut Designer) {
             o.cube(v(0.42, 0.34, 0.08), 0.02, BODY, pad * at(0.15, 0.2, 1.25));
         });
         slot(&mut o, 0.45, pad * at(0.0, 0.0, -1.25) * Affine3A::from_rotation_y(PI));
+        // The running light on the pad's outer face, high and forward: red on the suit's own left
+        // (+x), green on its right.
+        let nav = pad * at(0.78, 0.5, 0.82);
+        o.cube(v(0.16, 0.34, 0.42), 0.04, GUN, nav);
+        let lamp = Paint::Light(s.pick(Light::Starboard, Light::Port));
+        o.sphere(0.15, 6, lamp, nav * at(0.08, 0.0, 0.0) * Affine3A::from_scale(v(0.6, 1.0, 1.0)));
         o.cylinder(0.45, 0.8, 10, BROWN, sided(s, place(v(2.1, SHOULDER.y, 0.0), rz(FRAC_PI_2))));
 
         // The upper arm: a drum under the ball, its collar wider, on the frame.
@@ -621,6 +628,117 @@ fn shoe(x: f32, y: (f32, f32), half: (f32, f32), bottom_z: (f32, f32), top_z: (f
     })
 }
 
+// --- Stencils: thin plates just proud of the paint, up close only. ---
+
+/// How far a stencil stands off its face, and how thick it is.
+const STENCIL: (f32, f32) = (0.016, 0.03);
+
+/// A seven-segment digit's segments, a to g: (centre x, centre y, width, height) in a digit `w`
+/// wide and `h` tall, strokes `t` thick, with stencil gaps at the corners.
+fn segments(w: f32, h: f32, t: f32) -> [(f32, f32, f32, f32); 7] {
+    let gap = 0.02;
+    let (across, up) = (w - 2.0 * t - 2.0 * gap, h * 0.5 - t - 2.0 * gap);
+    let (side, row) = (w * 0.5 - t * 0.5, h * 0.25);
+    [
+        (0.0, h * 0.5 - t * 0.5, across, t),
+        (side, row, t, up),
+        (side, -row, t, up),
+        (0.0, -h * 0.5 + t * 0.5, across, t),
+        (-side, -row, t, up),
+        (-side, row, t, up),
+        (0.0, 0.0, across, t),
+    ]
+}
+
+fn stencils(d: &mut Designer) {
+    let mut o = d.on(Bone::ShoulderR);
+    o.greeble(|o| {
+        // The unit number on the right shoulder pad's outer face, reading front to back as one
+        // stands beside it (never mirrored: the left pad wears the insignia instead).
+        let pad = place(SHOULDER + v(0.55, 0.45, 0.0), rz(-0.22));
+        // The face leans in toward its top (the pad's top is drawn narrower).
+        let (up, out) = (v(-0.1375, 1.75, 0.0).normalize(), v(1.75, 0.1375, 0.0).normalize());
+        let face = pad
+            * Affine3A::from_mat3_translation(
+                glam::Mat3::from_cols(v(0.0, 0.0, -1.0), up, out),
+                v(0.806, -0.05, 0.0) + out * STENCIL.0,
+            );
+        let (w, h) = (0.55, 0.95);
+        for place in 0..2u8 {
+            let x = (f32::from(place) - 0.5) * (w + 0.1);
+            for (segment, (cx, cy, sw, sh)) in segments(w, h, 0.095).into_iter().enumerate() {
+                let paint = Paint::Digit { place, segment: segment as u8 };
+                o.cube(v(sw, sh, STENCIL.1), 0.0, paint, face * at(x + cx, cy, 0.0));
+            }
+        }
+    });
+    let mut o = d.on(Bone::ShoulderL);
+    o.greeble(|o| {
+        // The insignia on the left pad: a hexagon round a chevron, the same for every faction.
+        let pad = sided(Side::L, place(SHOULDER + v(0.55, 0.45, 0.0), rz(-0.22)));
+        let (up, out) = (v(-0.1375, 1.75, 0.0).normalize(), v(1.75, 0.1375, 0.0).normalize());
+        let face = pad
+            * Affine3A::from_mat3_translation(
+                glam::Mat3::from_cols(v(0.0, 0.0, -1.0), up, out),
+                v(0.806, -0.05, 0.0) + out * STENCIL.0,
+            );
+        let white = Paint::Fixed(paint::WHITE);
+        let r = 0.42;
+        for k in 0..6 {
+            let (a, b) = (k as f32, k as f32 + 1.0);
+            let corner = |i: f32| {
+                let t = std::f32::consts::FRAC_PI_3 * i + std::f32::consts::FRAC_PI_6;
+                v(r * t.cos(), r * t.sin(), 0.0)
+            };
+            let (p, q) = (corner(a), corner(b));
+            let bar = place((p + q) * 0.5, toward(q - p));
+            o.cube(v(0.07, r + 0.035, STENCIL.1), 0.0, white, face * bar);
+        }
+        for side in [-1.0, 1.0] {
+            let (p, q) = (v(side * 0.2, 0.1, 0.0), v(0.0, -0.13, 0.0));
+            o.cube(
+                v(0.09, (q - p).length() + 0.06, STENCIL.1),
+                0.0,
+                white,
+                face * place((p + q) * 0.5, toward(q - p)),
+            );
+        }
+        o.cube(v(0.32, 0.07, STENCIL.1), 0.0, white, face * at(0.0, 0.2, 0.0));
+    });
+    let mut c = d.on(Bone::Chest);
+    c.greeble(|c| {
+        // Hazard stripes across the belt under the hatch.
+        let belt = at(0.0, 3.32, 0.04 + 1.375 + STENCIL.0);
+        let (yellow, dark) = (Paint::Fixed(paint::YELLOW), Paint::Fixed(paint::DARK));
+        let (w, h) = (0.17, 0.2);
+        for k in -4..4 {
+            let x = k as f32 * w;
+            let stripe = [v2(x, -h * 0.5), v2(x + w, -h * 0.5), v2(x + w + h, h * 0.5), v2(x + h, h * 0.5)]
+                .map(|p| v2(p.x - h * 0.5, p.y));
+            c.extrude(&stripe, STENCIL.1, if k % 2 == 0 { yellow } else { dark }, belt);
+        }
+        // The rescue mark by the hatch, on the lower chest's left: a red triangle with its
+        // exclamation, on the face as it leans.
+        let (y0, _, _, f0) = CHEST_TIERS[0][0];
+        let (y1, _, _, f1) = CHEST_TIERS[0][1];
+        let rise = (f1 - f0) / (y1 - y0);
+        let (x, y): (f32, f32) = (-0.95, 3.92);
+        let z = f0 + rise * (y - y0) - CHEST_FALL * x.abs();
+        let n = v(-CHEST_FALL, -rise, 1.0).normalize();
+        let right = v(1.0, 0.0, CHEST_FALL).normalize();
+        let mark = Affine3A::from_mat3_translation(
+            glam::Mat3::from_cols(right, n.cross(right), n),
+            v(x, y, z) + n * STENCIL.0,
+        );
+        let s = 0.42;
+        let tri = [v2(0.0, s * 0.55), v2(-s * 0.5, -s * 0.32), v2(s * 0.5, -s * 0.32)];
+        c.extrude(&tri, STENCIL.1, Paint::Fixed(paint::RED), mark);
+        let white = Paint::Fixed(paint::WHITE);
+        c.cube(v(0.05, 0.14, STENCIL.1 * 1.4), 0.0, white, mark * at(0.0, 0.03, 0.0));
+        c.cube(v(0.05, 0.045, STENCIL.1 * 1.4), 0.0, white, mark * at(0.0, -0.1, 0.0));
+    });
+}
+
 // --- The space type's backpack: a propellant drum across the back. ---
 
 fn backpack(d: &mut Designer) {
@@ -653,7 +771,19 @@ fn backpack(d: &mut Designer) {
     b.cube(v(0.6, 0.5, 0.3), 0.04, TRIM, at(0.0, 3.25, -3.98));
     for end in [-3.25, 3.25] {
         b.cylinder(0.32, 0.2, 12, GUN, drum * at(0.0, end, 0.0));
+        // A white strobe on top of each end of the drum.
+        b.cylinder(
+            0.17,
+            0.12,
+            10,
+            GUN,
+            drum * at(0.86, end * 0.9, 0.0) * Affine3A::from_rotation_z(FRAC_PI_2),
+        );
+        b.sphere(0.14, 6, Paint::Light(Light::Strobe), drum * at(0.94, end * 0.9, 0.0));
     }
+    // The red beacon on top of the mount.
+    b.cylinder(0.2, 0.12, 10, GUN, at(0.0, 5.34, -2.3));
+    b.sphere(0.16, 6, Paint::Light(Light::Beacon), at(0.0, 5.42, -2.3));
     b.greeble(|b| {
         for y in [1.05, 1.7, 2.35] {
             for side in [-1.0, 1.0] {

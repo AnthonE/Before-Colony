@@ -134,6 +134,12 @@ def materials_for(livery, palette):
         elif code < 64:
             r, g, b, _ = palette[code - 48]
             m = material(f"glow{code - 48}", (r, g, b), 0.3, emit=(r * 4.0, g * 4.0, b * 4.0))
+        elif code >= 96:
+            # A unit number's segment: white where the number lights it, else the body's paint.
+            r, g, b, rough = palette[0] if suit_looks.digit_lit(code) else palette[body]
+            m = material(f"digit{code}", (r, g, b), rough)
+        elif code >= 80:
+            m = material(f"light{code - 80}", (0.6, 0.66, 0.76), 0.1, emit=suit_looks.LIGHTS[code - 80])
         else:
             r, g, b, rough = palette[16 + (code - 64)]
             m = material(f"fixed{16 + code - 64}", (r, g, b), rough)
@@ -243,6 +249,8 @@ VIEWS = {
     "torso": (20, 10, False, "torso"),
     "legs": (30, 5, False, "legs"),
     "feet": (35, 14, False, "feet"),
+    "shoulder": (75, 6, False, "shoulder"),
+    "chest": (-12, 4, False, "chest"),
     "feetside": (90, 0, True, "feet"),
     "feetfront": (0, 4, True, "feet"),
     "feetback": (160, 12, False, "feet"),
@@ -257,6 +265,10 @@ def frame_box(what, lo, hi):
         return Vector((-5.0, -3.5, 0.0)), Vector((5.0, 3.5, 8.2))
     if what == "legs":
         return Vector((-3.5, -2.5, lo.z)), Vector((3.5, 2.5, 3.0))
+    if what == "shoulder":
+        return Vector((2.0, -1.6, 4.0)), Vector((5.0, 1.6, 7.0))
+    if what == "chest":
+        return Vector((-2.2, -2.0, 2.8)), Vector((2.2, 2.0, 6.4))
     if what == "feet":
         return Vector((-3.2, -2.8, lo.z)), Vector((3.2, 2.0, -5.8))
     return lo, hi
@@ -377,7 +389,7 @@ def main():
         singles += [v for v in ["front", "side", "back", "three", "rear34"] if v not in singles]
     written = {}
     for view in singles:
-        aspect = {"head": 1.0, "feet": 1.6}.get(VIEWS[view][3], 0.62)
+        aspect = {"head": 1.0, "feet": 1.6, "shoulder": 1.0, "chest": 1.0}.get(VIEWS[view][3], 0.62)
         setup_scene(args.size, aspect, env)
         bpy.context.scene.cycles.samples = args.samples
         written[view] = render_view(view, args.out, args.size)

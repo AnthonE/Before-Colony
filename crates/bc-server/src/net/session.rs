@@ -437,8 +437,9 @@ impl Session<'_> {
         if let Some(a) = self.address {
             self.game.pilots.bind_suit((suit, generation), a);
         }
-        // On everyone's roster while it flies.
-        let flags = if self.address.is_some() { roster_flags::VERIFIED } else { 0 };
+        // On everyone's roster while it flies, with how weathered it is for everyone to see.
+        let verified = if self.address.is_some() { roster_flags::VERIFIED } else { 0 };
+        let flags = verified | roster_flags::weathering(self.hangar.weathering());
         if let Ok(mut r) = self.game.roster.write() {
             r.insert(
                 suit,
@@ -1394,7 +1395,9 @@ impl Session<'_> {
                     suit,
                     self.pilot,
                     &self.callsign,
-                    roster_flags::VERIFIED | roster_flags::ASLEEP,
+                    roster_flags::VERIFIED
+                        | roster_flags::ASLEEP
+                        | roster_flags::weathering(self.hangar.weathering()),
                 );
             } else {
                 forget(game, suit, self.pilot);

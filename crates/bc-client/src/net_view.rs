@@ -217,6 +217,7 @@ pub fn sync_view(
                 _ => None,
             }),
             ground: view.ground.and_then(|g| SuitGround::of(&g, &bodies)),
+            weathering: bc_client_core::weathering(world, own.slot),
         });
     }
     for (slot, track) in world.entities.iter().enumerate() {
@@ -245,6 +246,7 @@ pub fn sync_view(
             thrust,
             holding: holders.get(&(slot as u16)).copied(),
             ground: p.ground.and_then(|g| SuitGround::of(&g, &bodies)),
+            weathering: bc_client_core::weathering(world, slot as u16),
         });
     }
     seen.thrust.retain(|slot, _| world.entities.get(*slot as usize).is_some_and(Option::is_some));

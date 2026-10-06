@@ -2,7 +2,8 @@
 //! baked into one mesh per bone.
 //!
 //! Every vertex carries four numbers in its colour, which the client's hull shader reads: r, the
-//! paint slot ([`Paint`]); g, 1 on a bevel (worn edges catch the light there); b, a panel seed (so
+//! paint slot ([`Paint`]: 0-3 the livery's, 16+ fixed, 32+ bare metal, 48+ glowing, 64+ the
+//! palette's second bank, 80+ the running lights, 96+ a unit number's segments); g, 1 on a bevel (worn edges catch the light there); b, a panel seed (so
 //! neighbouring pieces don't share a plate layout); a, its ambient occlusion (1 open, less where
 //! other pieces crowd it: see [`crate::ao`]). Normals are flat on every face and bevel, and smooth
 //! on a turned shape round its axis and along its profile's gentle bends (a dome, an egg, a ball),
@@ -26,6 +27,32 @@ pub enum Paint {
     Fixed(u8),
     Metal(u8),
     Glow(u8),
+    /// One of the suit's running lights, lit by the hull shader in its own colour and rhythm; dark
+    /// on a wreck and while its pilot sleeps.
+    Light(Light),
+    /// A segment of a stencilled unit number: `place` 0 the tens, 1 the units; `segment` 0-6 the
+    /// seven-segment digit's a to g. The hull shader paints it where the suit's own number lights
+    /// it and leaves it the body's paint elsewhere, so one mesh carries every suit's number.
+    Digit {
+        place: u8,
+        segment: u8,
+    },
+}
+
+/// A suit's running lights (the hull shader's `light()` draws each).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Light {
+    /// Steady red on the suit's own left, as on an aircraft or a ship: +x, since the suit faces +z
+    /// with y up.
+    Port,
+    /// Steady green on its right (-x).
+    Starboard,
+    /// White, two quick flashes every 1.6 s.
+    Strobe,
+    /// Red anti-collision beacon, a pulse every 1.2 s.
+    Beacon,
+    /// A lamp lit steady and soft, warm white: sensor lamps, floodlights.
+    Lamp,
 }
 
 impl Paint {
@@ -40,6 +67,8 @@ impl Paint {
             Paint::Fixed(k) => 16 + u32::from(k),
             Paint::Metal(k) => 32 + u32::from(k & 15),
             Paint::Glow(k) => 48 + u32::from(k & 15),
+            Paint::Light(l) => 80 + l as u32,
+            Paint::Digit { place, segment } => 96 + u32::from(place.min(1)) * 7 + u32::from(segment.min(6)),
         };
         slot as f32 / 255.0
     }
@@ -681,5 +710,11 @@ mod tests {
         let slot = |p: Paint| (p.code() * 255.0).round() as u32;
         assert_eq!(slot(Paint::Fixed(crate::paint::GLASS)), 16 + 15);
         assert_eq!(slot(Paint::Fixed(crate::paint::FRAME_BROWN)), 64);
+        // The lights code from 80, in the order the hull shader's `light()` takes them.
+        assert_eq!(slot(Paint::Light(Light::Port)), 80);
+        assert_eq!(slot(Paint::Light(Light::Lamp)), 84);
+        // A unit number's segments from 96: the tens' a to g, then the units'.
+        assert_eq!(slot(Paint::Digit { place: 0, segment: 0 }), 96);
+        assert_eq!(slot(Paint::Digit { place: 1, segment: 6 }), 109);
     }
 }

@@ -39,6 +39,7 @@ pub mod seats;
 pub mod stores;
 pub mod suit;
 pub mod wear;
+pub mod weathering;
 pub mod wire;
 
 pub use body::Body;

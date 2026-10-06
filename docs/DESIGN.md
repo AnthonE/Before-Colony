@@ -735,6 +735,28 @@ keeping a suit flying is a steady trade in machined components. A part stripped 
 systems' wear behind: the next one fitted starts afresh. The suit's console shows each worn
 system's service life.
 
+### Weathering: a suit earns its look
+
+What a suit has been through also shows on its paint (`bc_econ::weathering`), and nothing in the
+hangar takes it back: servicing and overhauls are about what's inside. Every sortie adds to its
+record (sorties flown, time under thrust, armour lost, overheats), whose points make its level,
+0 (factory fresh) to 7 (a veteran's):
+
+| What's counted | Points |
+|---|---|
+| a sortie flown | 3 |
+| a minute under thrust (burning or boosting) | 1 |
+| armour lost, per 8 percentage points over the parts | 1 |
+| the suit overheating | 4 |
+
+Levels start at 8, 25, 55, 100, 170, 270 and 420 points: a sortie or two scuffs a suit, a few
+dozen make it a veteran. The Charter Board's second-hand Leo comes at level 2. The level goes on
+the roster with its pilot (the Roster flags' bits 2-4, `docs/PROTOCOL.md`), so everyone sees it,
+and the hull shader draws it: the paint fades paler and greyer, grime settles in the crevices and
+runs down the plates, the edges chip to the red primer and then to bare metal, past the middle
+levels flakes come off the faces too, scratches cut through it and old fights leave scorch marks.
+A suit lost takes its record with it: the next one starts clean.
+
 ### Consumables: the rack and the hotbar
 
 A suit carries a rack of consumables (`bc_sim::content::kits`), used in flight from the hotbar

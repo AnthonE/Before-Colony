@@ -1,8 +1,11 @@
-# Before Colony wire protocol (v21)
+# Before Colony wire protocol (v22)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v22 (from v21): a suit's weathering on the roster: how worn its paint is, 0 to 7, from the life it
+has had (`bc_econ::weathering`), in the Roster flags' bits 2-4, for every client to draw.
 
 v21 (from v20): the Blast Hall, the Proving Ground off Hub Gate's square: a key place with a room
 at a mobile suit's scale behind 40 m blast doors (new solids for everyone)
@@ -323,7 +326,7 @@ prefix, except the hangar's (tag 11), which may carry up to 64 KiB.
 | 1 | Hello {version, pilot kind, frame, faction, name ≤ 16 B, flags (1 SIGN_IN, 2 RESUME), resume token (32 B, only with RESUME)} | client → server (first frame) |
 | 2 | Welcome {version, client slot, tick, tick_hz, sector, zero_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY, 32 INTERIOR), landmarks (u8)} | server → client (again on moving between sectors) |
 | 3 | Reject {reason: 1 version, 2 full, 3 bad hello, 4 frame not allowed, 5 sign-in failed, 6 sign-in required, 7 resume token expired, 8 no signature in time} | server → client |
-| 4 | Roster {entity slot, pilot kind, name (empty = left), flags (1 VERIFIED, 2 ASLEEP)} | server → client |
+| 4 | Roster {entity slot, pilot kind, name (empty = left), flags (1 VERIFIED, 2 ASLEEP, bits 2-4 the suit's weathering 0-7)} | server → client |
 | 5 | Respawn {frame} | client → server |
 | 6 | Bye {reason: 0 leaving, 1 taken over, 2 idle, 3 shutdown} | either |
 | 7 | Challenge {nonce (32 B), issued_at (u64, Unix seconds), domain (u8 length + ASCII, ≤ 64 B)} | server → client |

@@ -31,7 +31,7 @@ pub const FRAME_BROWN: u8 = 16;
 pub const RIB_RED: u8 = 17;
 /// The Leo's visor window, amber glass over the mono-eye.
 pub const VISOR_AMBER: u8 = 18;
-/// Sensor lenses: the Leo's chest lamps, a pale blue-grey.
+/// Sensor lenses and the glass of a suit's lights, a pale blue-grey.
 pub const LENS: u8 = 19;
 
 /// How many there are (the palette's size).

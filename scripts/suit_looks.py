@@ -21,6 +21,24 @@ LOOKS = ["flat", "cel", "kit", "real", "worn"]
 ENV_OF = {"flat": "studio", "cel": "paper", "kit": "kit", "real": "space", "worn": "space"}
 ENVS = ["studio", "paper", "kit", "space"]
 
+# The running lights' glow (hull.wgsl's `light()`: port, starboard, a strobe and the beacon caught
+# lit, a lamp).
+LIGHTS = [(9.0, 0.3, 0.15), (0.2, 8.0, 1.2), (16.0, 16.0, 18.0), (11.0, 0.7, 0.3), (2.4, 2.1, 1.7)]
+
+# The unit number the renders give a suit (in the game each suit has its own).
+NUMBER = 7
+# Seven-segment digits, a to g in bits 0 to 6 (hull.wgsl's DIGITS).
+DIGITS = [0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F]
+
+
+def digit_lit(code, number=NUMBER):
+    """Whether a unit number's segment (paint codes 96+: the tens' a to g, then the units')
+    shows for `number`."""
+    k = code - 96
+    digit = (number // 10) % 10 if k < 7 else number % 10
+    return bool((DIGITS[digit] >> (k % 7)) & 1)
+
+
 # Tile sizes in metres: one texture repeat across the armour.
 PANEL_TILE = 4.4
 GRIME_TILE = 9.0
@@ -196,13 +214,11 @@ def decal_images(repo, dirpath):
 
 # Where each decal goes on the Leo, in the suit's frame: (image, a point near the surface, the way
 # its face looks, its width and height, m). Each is ray-cast onto the armour.
+# (The unit number, the insignia, the hazard stripes and the rescue mark are the model's own
+# stencils now, as in the game.)
 LEO_DECALS = [
-    ("number", (4.4, 5.6, 0.0), (1.0, -0.22, 0.0), 1.15, 1.15),
-    ("badge", (-4.4, 5.6, 0.0), (-1.0, -0.22, 0.0), 1.3, 1.3),
     ("badge", (1.0, 4.85, 1.6), (0.24, 0.33, 0.91), 0.7, 0.7),
     ("type", (-1.05, 4.75, 1.6), (-0.24, 0.33, 0.91), 1.15, 0.29),
-    ("stripes", (0.0, 3.2, 1.5), (0.0, 0.0, 1.0), 1.7, 0.2),
-    ("rescue", (-0.85, 3.95, 1.75), (-0.2, 0.42, 0.88), 0.42, 0.42),
     ("warning", (-1.7, 3.25, -3.9), (0.0, 0.0, -1.0), 1.7, 0.42),
 ]
 
@@ -502,6 +518,11 @@ def materials(look, livery, palette, eye, tex, decals):
             m = paint_material(f"{look}-paint{code}", (r, g, b), rough, look, tex, decals)
         elif code == 3:
             m = glass_material(f"{look}-eye", (0.05, 0.02, 0.04), look, glow=tuple(e / 6.0 for e in eye))
+        elif code >= 96:
+            r, g, b, rough = palette[0] if digit_lit(code) else palette[body]
+            m = paint_material(f"{look}-digit{code}", (r, g, b), rough, look, tex, decals)
+        elif code >= 80:
+            m = glass_material(f"{look}-light{code}", (0.6, 0.66, 0.76), look, glow=LIGHTS[code - 80])
         elif code < 32 or code >= 64:
             k = code - 16 if code < 32 else 16 + code - 64
             r, g, b, rough = palette[k]
