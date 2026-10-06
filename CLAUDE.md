@@ -5,7 +5,7 @@ WebTransport (QUIC) between them. See `docs/ARCHITECTURE.md` and `docs/DESIGN.md
 surveys what players of similar games expect of the controls (read it before changing a binding);
 `docs/PEERS.md` is what the nearest games teach us, with priorities (read it before adding a system players will
 compare with theirs), and `docs/ROADMAP.md` how each is built;
-`docs/STORY.md` is the world bible (setting, factions, eras, voice: read it before writing in-game text);
+`docs/STORY.md` is the world bible (setting, factions, eras, voice, and the secret it shares with Gates: read it before writing in-game text);
 `docs/COLONY.md` is the plan for the First Colony's inside (Milestone 5), `docs/SUITS_INSIDE.md` the design for
 suits inside it, `docs/TRAINING.md` the Proving Ground (training inside it, after X-Wing and TIE Fighter), `docs/COLONY_LOOK.md` its look (Rust's realism, Phantasy Star Online's clean colony, anime behind)
 and the passes towards it; `docs/LIFE.md` is living in it (jobs as seats worked by Arrivals or the colony's staff, the

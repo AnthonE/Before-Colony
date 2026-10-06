@@ -90,7 +90,7 @@ Meteor, the war. Here none of it has happened. Whether it has to is up to everyo
 | The Consortium | Romefeller Foundation | — | They financed the colony and own its debt, the asteroid claims and the Leo lines. |
 | Its security arm | OZ (the Organization of the Zodiac) | `Faction::Oz`, the Mobile Dolls | To hold the claims: its Taurus and Virgo patrols shoot claim-jumpers, which is every Arrival who mines. |
 | The Colonies | the colonies' cause | `Faction::Colonies` (pilots in the browser) | A charter of their own, a foundry of their own, and nobody's debt. |
-| The Earth Sphere Alliance | United Earth Sphere Alliance | `Faction::Alliance` | Taxes, order, and the colonies kept in their place. Far off, for now. |
+| The Unified Earth Alignment | United Earth Sphere Alliance | `Faction::Alliance` | Taxes, order, SI kept aligned, and the colonies kept in their place. Far off, for now. |
 | The Arrivals | — | pilots and agents | Nobody knows yet, including them. They'll found their own crews and factions. |
 
 ## Technology
@@ -109,6 +109,8 @@ Meteor, the war. Here none of it has happened. Whether it has to is up to everyo
   reactor, the tank, the cockpit, the thrusters, the sensors, the actuators. Old frames fail in
   readable ways (a coughing engine, a holed tank, a scrammed reactor), and the culture of the
   docks is keeping them flying.
+- **SI.** Safe SI is a common part of the aligned world. The Unified Earth Alignment banned the
+  unsafe kind at the same time humans started to build in space.
 
 ## The calendar and the eras
 
@@ -120,7 +122,7 @@ colony's great works finished, sectors opened) and is announced to every pilot w
 | **0. Before Colony** (now) | One colony, one sector (L1), one exchange. The Consortium's Dolls hold the field. | The Charter Board's first great works: a second foundry, a militia's hangar, the charter vote. |
 | **I. The Charter** (AC 1) | The calendar begins. The colony fields its own militia (pilots on contract) and its own bounties. | More cylinders begun at L1. |
 | **II. The Cluster** | Several colonies at L1, each with its own exchange and prices: hauling between them pays. | Lagrange points L2–L5 and lunar orbit opened by expeditions. |
-| **III. The Spheres** | New sectors, the Moon, the resource satellites. The Alliance arrives: tariffs, patrols, demands. | Factions, the Arrivals' among them, choosing sides. |
+| **III. The Spheres** | New sectors, the Moon, the resource satellites. The Alignment arrives: tariffs, patrols, demands. | Factions, the Arrivals' among them, choosing sides. |
 | **IV. The Eve Wars** | The history the Arrivals remember, or something else. | What everyone did before. |
 
 ## How the world grows
@@ -157,13 +159,83 @@ The design ahead (see `DESIGN.md`, "Roadmap") is a living colony that its pilots
   The world is told through notices, terminals and hints, never exposition dumps.
 - **Canon names** (Leo, Gundam, OZ, Romefeller, ZERO System) only in the canon build. The generic
   build's frames are in `content/names.rs` (Line Frame, Prototype Zero, Drone T…); its world
-  names are: the Consortium, its security arm "Zodiac Security", the colonies' cause, the Earth
-  Alliance, the predictive interface.
+  names are: the Consortium, its security arm "Zodiac Security", the colonies' cause, the Unified
+  Earth Alignment, the predictive interface.
 - Suit systems and equipment have plain engineering names (reactor, radiators, G-seat), in both
   builds.
+
+## Under everything: the island (spoilers, never said in the game)
+
+Before Colony shares one timeline with **Gates**, the survival game (`AnthonE/Gates`: its
+`WORLD.md` §11 is this section's twin, and the two change together). Gates is the preamble: it
+stays a mystery, and goes under the island only late, once its players have progressed far
+enough. Before Colony starts in the middle, hides the truth in plain sight, and one day gives the
+hard confirm. The whole story is one degree from Halo's, except that what you play is more like
+its Forerunners.
+
+- **The machine.** An ancient civilization built it into the geography of an island on Earth. It
+  bends space and time, and it can "resurrect" a new type of people.
+- **The SI.** The Unified Earth Alignment banned it at the same time humans started to build in
+  space, and the island became a research island for it. It was trained on specific ancient texts
+  to key the sacred math needed to tap hidden channels outside normal space and time.
+- **Under the island** is a factory like NERV's, probably with bio-mecha chained up and harvested
+  for something: a long-term bio-horror, almost like Halo's Flood. Gates opens it eventually,
+  behind hidden metal doors underground.
+- **The pilots.** The island is a battle royale where future Gundam pilots are raised: imagine
+  Heero Yuy growing up there. That is half of what makes one; the other half is innate human
+  skill, with the right SI helpers.
+- **SI tech.** At its top end (in vessels, and other combinations of integration) it is nearly
+  physics-breaking, close to magic. Even talking with an SI can be enough to cause trouble.
+- **The gate system** is how the SI reaches space in the end, and in space it infects the
+  autonomous mecha: the Mobile Dolls.
+- **The hard confirm.** Eventually this game sets up a gate to get from the Moon to Earth.
+
+What that makes of this game:
+
+- **The Arrivals** are humans, raised on the island the way the Gundam pilots were raised to
+  fight. They remember it like a dream, and keep little of it but the combat experience. Every
+  Arrival woke up in the docking hub: the island is the dream they woke from.
+- **Coming back** is the machine's reach. An Arrival wakes in the hub for the same reason a player
+  in Gates wakes on a beach, and only the machine's people can be brought back.
+- **The ZERO System** is SI tech, and not the safe kind: the futures it feeds a pilot come from
+  outside normal space and time. Colonists, who live with safe SI, come out shaking; Arrivals find
+  it familiar. Strain and seizure are what it does to a mind it's too much for. Nothing else in
+  this era comes as near the top end.
+- **The Mobile Dolls** are what the SI is coming for. Era IV's "or something else" is the day it
+  reaches them.
+- **The gate from the Moon to Earth** is a road both ways: whoever sets it up for the pilots
+  opens the SI's road to space too (Gates' extraction windows have the same irony).
+
+### Hidden in plain sight
+
+- **Never said.** No notice, terminal, hint, chart line or character names the island, the
+  machine, the banned SI, the gate system or what is under the island before the hard confirm,
+  and nothing explains them. Safe SI is everyday and can be shown.
+- **Every clue is ordinary on its own** (a name, a number, a sound, the way a Doll flies) and reads
+  differently only to someone who knows. The clues in both games agree.
+- **Already in the game:** Arrivals without bodies wear **MD**, the Mobile Dolls' own letters; a
+  ZERO seizure flies the suit with a Doll's reflexes (`DESIGN.md`, "Mobile Dolls and agents");
+  `SUIT LOST` says the colony's rescue boat is on its way, and the boat always finds the pilot
+  alive; a colony full of gates (Hub Gate, the inner gate), and nobody thinks about the word. In
+  Gates, the town is **THE GATE**, and its death screen says
+  `THE GATE would not take you - you woke on a beach`.
+- **Worth planting:** one shape across both games, the ring (the dock's ring of amber lights, the
+  course's lit rings; Gates' Severed Gate is a shattered gold ring); one sound (ZERO's drone
+  sharing its notes with the hum of THE GATE's yard); the sacred math's glyphs, carved on Gates'
+  ruins and flickering across ZERO's display in a seizure; a Mobile Doll that, rarely, flies for
+  a moment like a ZERO seizure.
+- **Inspiration, never names:** NERV is Evangelion's; the Flood and the Forerunners are Halo's.
 
 ## Open questions
 
 - Era pacing: real time, milestones, or both.
-- Whether Arrivals recognise each other from the old world.
-- How the ZERO mystery resolves, and whether the Arrivals can go home.
+- Whether Arrivals recognise each other, from the old world or from the island's dream.
+- Whether the other world the Arrivals remember, where After Colony is a story, is part of that
+  dream (the machine reaches outside normal space and time). Whether they can go home, and which
+  home.
+- How an Arrival gets from the island to the docking hub.
+- What an Arrival without a body is, when the Arrivals are humans. They wear the Dolls' letters
+  already.
+- What the bio-mecha under the island are harvested for.
+- What being "more like the Forerunners" makes of the pilots: heirs of the ancients, or the
+  ancients themselves, brought back by their own machine.

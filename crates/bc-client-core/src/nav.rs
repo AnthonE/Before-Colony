@@ -209,8 +209,8 @@ impl Place {
             }),
             Place::Suit(slot, _) => suit_about(world, slot),
             Place::Point(_) => "A point you marked on the chart.".into(),
-            Place::Earth => "Home of the Earth Sphere Alliance, and of most of humanity. No lane runs down the well \
-                 to Earth orbit yet."
+            Place::Earth => "Home of the Unified Earth Alignment, and of most of humanity. No lane runs down \
+                 the well to Earth orbit yet."
                 .into(),
             Place::Moon => "Lunar orbit opens when the Cluster's expeditions reach it. Its mass and Earth's \
                  balance at L1, which is why the colony is where it is."
@@ -390,7 +390,7 @@ fn suit_about(world: &World, slot: u16) -> String {
     let faction = match e.faction {
         Faction::Oz => "the Consortium's security arm",
         Faction::Colonies => "the colonies' cause",
-        Faction::Alliance => "the Earth Alliance",
+        Faction::Alliance => "the Unified Earth Alignment",
     };
     if e.flags & ent_flags::WRECK != 0 {
         return format!("The wreck of a {}. What's left of it can be salvaged.", frame_name(e.frame));
