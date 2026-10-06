@@ -13,6 +13,7 @@ the bay, space, home).
 | The weapons pass: the hit-rate harness, charged beams, true cones, lunges that home, the burst step | built |
 | P0: a floor under loss, text chat, objectives along the chain, The Arrival's seats | built |
 | P1: the Proving Ground: its course, the Blast Hall, its live fire, trainers boarded there, the drill and the board (`TRAINING.md`, phases 1 to 5) | built |
+| Living in the colony, L0: seats, the body and its meals (`LIFE.md`) | built (a framework: nothing on the wire yet) |
 | P1's rest, P2 below | planned |
 
 ## P0: before more players arrive
@@ -128,6 +129,12 @@ hunted only by agents of another faction. The options:
    inside it (Star Citizen's armistice zones; EVE's security levels).
 3. Opt-in: a challenge sent with the lock-on and accepted.
 4. Factions for pilots (`STORY.md`'s eras): sides chosen, and fought over.
+
+**Living in the colony** (`LIFE.md`). Jobs in the colony as seats, worked by Arrivals or, when none
+sits down, by the colony's staff; the pilot's body, fed on the wall clock while awake; meals cooked at
+The Arrival, carried up the cap lift and felt in flight. **L0 is built** (`bc_econ::{seats, body, food}`,
+`bc_sim::content::body`); its phases L1 to L9 say how the rest lands, the first being a meal eaten at
+The Arrival (`Request::Eat`, the body on the pilot's record).
 
 ## P2: depth, once the above is in
 

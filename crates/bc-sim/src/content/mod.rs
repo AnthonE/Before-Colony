@@ -1,9 +1,11 @@
-//! Content tables: mobile-suit frames and weapons, the sector's landmarks, and the colony's city.
+//! Content tables: mobile-suit frames and weapons, the sector's landmarks, the colony's city, and
+//! what being fed does to a pilot.
 //!
 //! All numbers are SI units (kg, N, m, s, rad). They are tuned for play but kept physically
 //! consistent: acceleration comes from thrust and current mass, propellant burns at
 //! `thrust / (Isp·g0)`, and delta-v is finite.
 
+pub mod body;
 pub mod city;
 mod frames;
 pub mod kits;
