@@ -12,6 +12,11 @@ and `--glb` exports the suit as glTF (`<out>.glb`). `--turn Head:0,40,0` turns a
 hangs off it) about its joint by x, y and z angles in degrees, in the suit's frame, to see a pose:
 a head turned to aim, an arm raised; give it once per bone.
 
+`--look flat|cel|kit|real|worn` draws it as flat paint (the default, for the design views), as the
+anime's cel shading with ink lines, as a plastic model kit, as realistic painted armour with its
+decals, or as armour that has seen a war (`suit_looks.py`); each has its lighting (`--env
+studio|paper|kit|space` picks another). `hero` is a low three-quarter view for comparing them.
+
 The suit's frame (x right, y up, z forward) becomes Blender's (x, -z, y): its front faces -Y, as
 Blender's front view sees it.
 """
@@ -24,6 +29,8 @@ import sys
 
 import bpy
 from mathutils import Vector
+
+import suit_looks
 
 # The client's palette (crates/bc-client/src/materials.rs): sRGB and perceptual roughness.
 PALETTE = [
@@ -167,10 +174,14 @@ def build(model, get_material):
         slot = {c: i for i, c in enumerate(mats)}
         for poly, f in zip(mesh.polygons, faces):
             poly.material_index = slot[codes[f[0]]]
+        # The baked occlusion and the bevel flag (a worn edge), for the looks.
         ao = mesh.color_attributes.new("ao", "FLOAT_COLOR", "POINT")
+        bevel = mesh.color_attributes.new("bevel", "FLOAT_COLOR", "POINT")
         for k in range(len(verts)):
-            a = cols[k * 4 + 3]
+            a, b = cols[k * 4 + 3], cols[k * 4 + 1]
             ao.data[k].color = (a, a, a, 1.0)
+            bevel.data[k].color = (b, b, b, 1.0)
+        mesh["codes"] = mats
         # The game's own normals: flat on faces and bevels, smooth over turned shapes' curves.
         nrm = bone["normals"]
         mesh.polygons.foreach_set("use_smooth", [True] * len(mesh.polygons))
@@ -215,6 +226,7 @@ def bounds():
 # frame; and a lens, mm, for the perspective ones). `art` and `figure` look as the line art (low and
 # close, from the front) and a figure's photo from behind do.
 VIEWS = {
+    "hero": (30, 3, False, "all", 55),
     "art": (-8, -16, False, "all", 30),
     "figure": (195, 6, False, "all", 60),
     "front": (0, 0, True, "all"),
@@ -250,7 +262,7 @@ def frame_box(what, lo, hi):
     return lo, hi
 
 
-def setup_scene(size, aspect):
+def setup_scene(size, aspect, env="studio"):
     scene = bpy.context.scene
     scene.render.engine = "CYCLES"
     scene.cycles.device = "CPU"
@@ -260,6 +272,9 @@ def setup_scene(size, aspect):
     scene.render.resolution_x = int(size * aspect)
     scene.render.film_transparent = False
     scene.view_settings.view_transform = "Standard"
+    if env != "studio":
+        suit_looks.environment(env, scene)
+        return
     world = bpy.data.worlds.new("bg")
     world.use_nodes = True
     bg = world.node_tree.nodes["Background"]
@@ -325,13 +340,29 @@ def main():
     ap.add_argument("--blend", action="store_true")
     ap.add_argument("--glb", action="store_true")
     ap.add_argument("--turn", action="append", default=[])
+    ap.add_argument("--look", default="flat", choices=suit_looks.LOOKS)
+    ap.add_argument("--env", choices=suit_looks.ENVS)
     args = ap.parse_args(argv)
     views = args.views or ["sheet"]
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     model = json.load(open(args.model))
-    objects = build(model, materials_for(args.livery, load_palette(repo)))
+    palette = load_palette(repo)
+    objects = build(model, materials_for(args.livery, palette))
+    if args.look != "flat":
+        # Decals are ray-cast onto the armour at rest, then the look's materials replace the flat
+        # paint slot for slot.
+        bpy.context.view_layer.update()
+        work = os.path.join(os.path.dirname(os.path.abspath(args.out)), ".suit-looks")
+        decals = suit_looks.place_decals(repo, work) if model["frame"] == "Leo" else []
+        body, trim, accent, eye = LIVERIES[args.livery]
+        get = suit_looks.materials(args.look, (body, trim, accent), palette, eye, suit_looks.textures(work), decals)
+        for o in objects.values():
+            if o.type == "MESH":
+                for i, code in enumerate(o.data["codes"]):
+                    o.data.materials[i] = get(code)
+    env = args.env or suit_looks.ENV_OF[args.look]
     for spec in args.turn:
         turn(objects, spec)
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
@@ -347,7 +378,7 @@ def main():
     written = {}
     for view in singles:
         aspect = {"head": 1.0, "feet": 1.6}.get(VIEWS[view][3], 0.62)
-        setup_scene(args.size, aspect)
+        setup_scene(args.size, aspect, env)
         bpy.context.scene.cycles.samples = args.samples
         written[view] = render_view(view, args.out, args.size)
         for o in [o for o in bpy.context.scene.objects if o.type in ("CAMERA", "LIGHT")]:
