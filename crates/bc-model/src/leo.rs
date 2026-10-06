@@ -3,10 +3,11 @@
 //! and the mono-eye behind it, red ribs wrapped round its sides and back; the two big lamps either
 //! side of it; brown shoulder balls under green armour; boxy forearms with their elbow guards and
 //! brown fists; the grey ring in the crotch and the two thrusters under the rear skirts; egg thighs,
-//! knee blocks with four rivets, long shins with the calf swelling behind, the ankle cuffs with a
-//! wheel either side, and brown feet under a green instep. The space type's propellant drum rides
-//! across its back; it carries the long beam rifle, and the 105 mm rifle with its drum magazine
-//! rides the left forearm.
+//! knee blocks with four rivets, long shins swelling to the calf and pinched in over the ankle,
+//! tall two-tier ankle guards with a tab up the front and a wheel either side, and brown feet in
+//! three blocks (the heel, the instep and a toe falling away to its tip) under the green instep
+//! armour. The space type's propellant drum rides across its back; it carries the long beam rifle,
+//! and the 105 mm rifle with its drum magazine rides the left forearm.
 //!
 //! Its inner frame, shoulders, hands and feet are brown; the wheels, the crotch ring, the hatch's
 //! handle and the lamps' rims take the trim.
@@ -129,19 +130,19 @@ fn head(d: &mut Designer) {
     h.cylinder(0.45, 0.7, 12, BROWN, at(0.0, 5.75, HEAD_Z));
     h.lathe(
         &[(0.0, JAW), (0.6, JAW), (0.72, JAW + 0.1), (0.76, RIBS.0 + 0.05), (0.0, RIBS.0 + 0.05)],
-        18,
+        24,
         BODY,
         axis,
     );
     // The ribbed band round the sides and back: dark between red ribs, open at the front for the
     // visor.
     let (from, to) = (FRAC_PI_2 + VISOR_HALF, FRAC_PI_2 - VISOR_HALF + 2.0 * PI);
-    h.lathe(&band(0.6, 0.9, RIBS.0, RIBS.1), 22, FRAME, axis);
+    h.lathe(&band(0.6, 0.9, RIBS.0, RIBS.1), 30, FRAME, axis);
     let n = 5;
     let pitch = (RIBS.1 - RIBS.0) / n as f32;
     for k in 0..n {
         let y = RIBS.0 + k as f32 * pitch + 0.025;
-        h.lathe_arc(&band(0.88, RIB_R, y, y + pitch - 0.035), 22, from, to, RED, axis);
+        h.lathe_arc(&band(0.88, RIB_R, y, y + pitch - 0.035), 30, from, to, RED, axis);
     }
     // The visor: a dark frame filling the gap in the ribs, flat across its face, the amber window
     // in it and the mono-eye behind the glass.
@@ -185,7 +186,7 @@ fn head(d: &mut Designer) {
             (0.33, CAP + 0.8),
             (0.0, CAP + 0.82),
         ],
-        22,
+        30,
         BODY,
         axis,
     );
@@ -262,7 +263,7 @@ fn chest(d: &mut Designer) {
         c.cube(v(0.76, 0.74, 0.1), 0.03, FRAME, look * at(0.0, 0.0, 0.06));
         let lens = look * Affine3A::from_rotation_x(FRAC_PI_2);
         c.cylinder(0.33, 0.12, 16, TRIM, lens * at(0.0, 0.1, 0.0));
-        c.lathe(&[(0.0, 0.24), (0.26, 0.17), (0.28, 0.1), (0.0, 0.1)], 16, LENS, lens);
+        c.lathe(&[(0.0, 0.1), (0.28, 0.1), (0.26, 0.17), (0.0, 0.24)], 16, LENS, lens);
         // The shoulder's socket in the chest's side.
         c.cylinder(0.72, 0.4, 14, BROWN, sided(s, place(v(1.95, 5.3, -0.05), rz(FRAC_PI_2))));
         // The back's side plates, either side of the backpack's mount, cut away at the top.
@@ -467,40 +468,43 @@ fn legs(d: &mut Designer) {
             slot(&mut t, 0.5, sided(s, place(knee + p, turn)));
         }
 
-        // The shin: the knee block with its four rivets, the long tube with a ridge down its
-        // front and the calf swelling behind, and the cuff over the ankle with its wheels.
+        // The shin: the knee block with its four rivets, then the long shin, narrow under the
+        // knee, swelling to the calf behind two-fifths of the way down and pinched in again over
+        // the ankle, with a ridge down its front; and the guard flaring out round the ankle, with
+        // its wheels.
         let dir = knee - ankle;
         let tube = sided(s, place(ankle, toward(dir)));
         let mut m = d.on(shin);
         m.seed(0.37 + k);
         m.cylinder(0.6, 1.3, 12, BROWN, sided(s, place(knee, rz(FRAC_PI_2))));
-        m.lathe(
-            &[
-                (0.0, 0.3),
-                (0.78, 0.3),
-                (0.84, 0.9),
-                (0.86, 1.8),
-                (0.83, 2.8),
-                (0.76, 3.8),
-                (0.7, 4.6),
-                (0.68, 5.2),
-                (0.0, 5.25),
-            ],
-            18,
-            BODY,
-            tube,
-        );
-        // The calf, swelling behind two-fifths of the way down from the knee.
-        m.sphere(1.0, 8, BODY, tube * at(0.0, 3.1, -0.36) * Affine3A::from_scale(v(0.74, 1.75, 0.8)));
-        m.block(
-            v(0.24, 3.3, 0.24),
-            v2(1.0, 1.0),
-            Vec2::ZERO,
-            0.03,
-            BODY,
-            tube * at(0.0, 2.6, 0.73) * Affine3A::from_rotation_y(FRAC_PI_4),
-        );
-        u_mark(&mut m, 0.36, 0.34, tube * at(0.0, 4.45, 0.8) * Affine3A::from_rotation_x(-0.04));
+        // Its radius up from the ankle, along the shin.
+        let profile = [
+            (0.25, 0.62),
+            (0.7, 0.64),
+            (1.3, 0.76),
+            (2.1, 0.87),
+            (2.7, 0.88),
+            (3.6, 0.8),
+            (4.4, 0.7),
+            (5.0, 0.66),
+            (5.25, 0.64),
+        ];
+        let outline: Vec<(f32, f32)> = [(0.0, 0.25)]
+            .into_iter()
+            .chain(profile.iter().map(|&(y, r)| (r, y)))
+            .chain([(0.0, 5.3)])
+            .collect();
+        m.lathe(&outline, 20, BODY, tube);
+        m.sphere(1.0, 10, BODY, tube * at(0.0, 3.0, -0.36) * Affine3A::from_scale(v(0.72, 1.7, 0.84)));
+        // The ridge, in two runs following the front's curve.
+        for pair in [[profile[6], profile[3]], [profile[3], profile[1]]] {
+            let [(y0, r0), (y1, r1)] = pair;
+            let run = v(0.0, y1 - y0, r1 - r0);
+            let mid = v(0.0, (y0 + y1) * 0.5, (r0 + r1) * 0.5 - 0.06);
+            let xf = tube * place(mid, toward(run)) * Affine3A::from_rotation_y(FRAC_PI_4);
+            m.cube(v(0.22, run.length() + 0.1, 0.22), 0.03, BODY, xf);
+        }
+        u_mark(&mut m, 0.36, 0.34, tube * at(0.0, 4.55, 0.7) * Affine3A::from_rotation_x(-0.1));
         // The knee block wraps the front and the sides, its front sloping back at the top (it
         // stays behind the hangar's brace); behind, the joint shows.
         let knee_block = knee + v(0.02, 0.05, 0.14);
@@ -518,57 +522,103 @@ fn legs(d: &mut Designer) {
                 m.cylinder(0.19, 0.14, 12, BODY, sided(s, place(p, rx(FRAC_PI_2))));
             }
         });
-        // The ankle cuff: a squat collar, deeper than wide, over the back of the foot.
-        let cuff = sided(s, at(ankle.x, ankle.y, ankle.z - 0.15) * Affine3A::from_scale(v(1.0, 1.0, 1.22)));
+        // The ankle guard: a tall collar round the foot of the shin in two tiers, flared below a
+        // ridge and narrower above it, its front rising in a tab up the shin; a slot behind and a
+        // wheel either side, low and toward the heel.
+        let x = ankle.x;
+        let cuff = sided(s, at(x, ankle.y, ankle.z - 0.1) * Affine3A::from_scale(v(1.0, 1.0, 1.1)));
         m.lathe(
             &[
-                (0.0, -0.72),
-                (0.86, -0.72),
-                (0.97, -0.6),
-                (1.0, -0.25),
-                (0.97, 0.1),
-                (0.85, 0.3),
-                (0.64, 0.36),
-                (0.0, 0.36),
+                (0.0, -0.55),
+                (0.92, -0.55),
+                (1.02, -0.43),
+                (1.05, -0.1),
+                (0.97, 0.0),
+                (0.95, 0.3),
+                (0.92, 0.36),
+                (0.88, 0.85),
+                (0.82, 1.08),
+                (0.62, 1.16),
+                (0.0, 1.16),
             ],
-            8,
+            18,
             BODY,
-            cuff * Affine3A::from_rotation_y(PI / 8.0),
+            cuff,
         );
-        slot(
-            &mut m,
-            0.45,
-            sided(s, place(v(ankle.x, ankle.y - 0.2, ankle.z - 1.55), ry(PI) * rz(FRAC_PI_2))),
+        m.hexa(
+            shoe(x, (-7.5, -6.22), (0.5, 0.34), (0.45, 1.14), (0.4, 0.92)),
+            0.1,
+            BODY,
+            sided(s, Affine3A::IDENTITY),
         );
+        slot(&mut m, 0.45, sided(s, place(v(x, -7.05, ankle.z - 1.12), ry(PI) * rz(FRAC_PI_2))));
         for side in [-1.0, 1.0] {
-            let hub =
-                sided(s, place(v(ankle.x + side * 1.02, ankle.y - 0.32, ankle.z - 0.25), rz(FRAC_PI_2)));
+            let hub = sided(s, place(v(x + side * 1.04, -7.92, ankle.z - 0.37), rz(FRAC_PI_2)));
             wheel(&mut m, 0.44, 0.3, hub);
         }
 
-        // The foot: a long brown block falling to the toe, the toe cap on its front, the dark
-        // sole, and a green instep running down from under the cuff.
+        // The foot, in three brown blocks seamed together, their sides leaning in: the heel under
+        // the guard, its back slanting in, the instep, and the long toe falling away and narrowing
+        // to its tip; the dark sole under them, and the green instep armour lying down the foot
+        // out of the guard.
         let mut f = d.on(foot);
         f.seed(0.43 + k);
         f.sphere(0.5, 5, BROWN, sided(s, Affine3A::from_translation(ankle)));
-        let (sole, x) = (-9.07, ankle.x);
-        let foot_block = |back: f32, front: f32, top_back: f32, top_front: f32, half: f32, slope: f32| {
-            let mut c = [Vec3::ZERO; 8];
-            for (i, p) in c.iter_mut().enumerate() {
-                let hi = i & 2 != 0;
-                let z = if i & 4 != 0 { front - if hi { slope } else { 0.0 } } else { back };
-                let y = if hi { if i & 4 != 0 { top_front } else { top_back } } else { sole + 0.14 };
-                *p = v(x + if i & 1 != 0 { half } else { -half }, y, z);
+        let (sole, flat) = (-9.07, sided(s, Affine3A::IDENTITY));
+        let base = sole + 0.12;
+        f.hexa(boot(x, base, (-8.1, -8.1), (0.9, 0.96), [-1.5, -1.3, -0.36, -0.36]), 0.12, BROWN, flat);
+        f.hexa(boot(x, base, (-8.04, -8.2), (0.98, 0.96), [-0.33, -0.33, 1.2, 1.2]), 0.12, BROWN, flat);
+        f.hexa(boot(x, base, (-8.22, -8.52), (0.96, 0.78), [1.23, 1.23, 2.82, 2.42]), 0.12, BROWN, flat);
+        f.cube(v(1.7, 0.14, 4.2), 0.03, FRAME, sided(s, at(x, sole + 0.07, 0.64)));
+        f.greeble(|f| {
+            // A seam across the toe, and the panel lines down the instep's and heel's sides.
+            f.cube(v(1.3, 0.03, 0.06), 0.0, FRAME, sided(s, place(v(x, -8.36, 2.0), rx(0.19))));
+            for (z, lean) in [(0.45, 0.5), (-0.9, -0.4)] {
+                for side in [-1.0, 1.0] {
+                    let tilt = rz(side * BOOT_LEAN.atan()) * ry(side * FRAC_PI_2) * rz(lean);
+                    let face = sided(s, place(v(x + side * 0.88, -8.55, z), tilt));
+                    f.cube(v(0.05, 0.55, 0.04), 0.0, FRAME, face);
+                }
             }
-            c
-        };
-        f.hexa(foot_block(-1.4, 1.3, -8.1, -8.42, 0.95, 0.0), 0.12, BROWN, sided(s, Affine3A::IDENTITY));
-        f.hexa(foot_block(1.1, 2.45, -8.4, -8.5, 0.92, 0.36), 0.1, BROWN, sided(s, Affine3A::IDENTITY));
-        f.cube(v(1.94, 0.16, 3.85), 0.04, FRAME, sided(s, at(x, sole + 0.08, 0.52)));
-        let instep = sided(s, place(v(x, -8.2, 1.05), rx(0.9)));
-        f.block(v(0.92, 1.4, 0.3), v2(0.78, 1.0), Vec2::ZERO, 0.07, BODY, instep);
-        u_mark(&mut f, 0.38, 0.32, instep * at(0.0, -0.2, 0.16));
+        });
+        f.hexa(shoe(x, (-8.24, -7.45), (0.6, 0.48), (0.3, 1.72), (0.3, 0.92)), 0.08, BODY, flat);
+        u_mark(&mut f, 0.36, 0.32, sided(s, place(v(x, -8.02, 1.53), rx(-0.79))));
     }
+}
+
+/// How far a foot block's sides lean in, per metre up.
+const BOOT_LEAN: f32 = 0.22;
+
+/// A block of a foot, centred on `x`, in the suit's frame: its sole level at `base`, narrowing
+/// along z from `half.0` at the back to `half.1` at the front, its sides leaning in as they rise
+/// ([`BOOT_LEAN`]); its top falling from `top.0` at the back to `top.1` at the front; `z` its back
+/// at the sole and at the top, then its front at the sole and at the top (a face slants where they
+/// differ). Each side lies in one plane (its half-width is linear in z and in height), so every
+/// face stays flat.
+fn boot(x: f32, base: f32, top: (f32, f32), half: (f32, f32), z: [f32; 4]) -> [Vec3; 8] {
+    let [back, back_top, front, front_top] = z;
+    let h =
+        |at: f32, y: f32| half.0 + (half.1 - half.0) * (at - back) / (front - back) - BOOT_LEAN * (y - base);
+    std::array::from_fn(|i| {
+        let (zz, y) = match (i & 4 != 0, i & 2 != 0) {
+            (false, false) => (back, base),
+            (false, true) => (back_top, top.0),
+            (true, false) => (front, base),
+            (true, true) => (front_top, top.1),
+        };
+        v(x + if i & 1 != 0 { h(zz, y) } else { -h(zz, y) }, y, zz)
+    })
+}
+
+/// A block of a boot, centred on `x`, in the suit's frame: its bottom and top level (heights `y`),
+/// its sides leaning in from `half.0` wide at the bottom to `half.1` at the top, running from back
+/// to front along z over `bottom_z` at the bottom and `top_z` at the top (a slanted face where
+/// they differ). Every face stays flat.
+fn shoe(x: f32, y: (f32, f32), half: (f32, f32), bottom_z: (f32, f32), top_z: (f32, f32)) -> [Vec3; 8] {
+    std::array::from_fn(|i| {
+        let (h, (z0, z1), height) = if i & 2 != 0 { (half.1, top_z, y.1) } else { (half.0, bottom_z, y.0) };
+        v(x + if i & 1 != 0 { h } else { -h }, height, if i & 4 != 0 { z1 } else { z0 })
+    })
 }
 
 // --- The space type's backpack: a propellant drum across the back. ---

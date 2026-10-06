@@ -171,7 +171,12 @@ def build(model, get_material):
         for k in range(len(verts)):
             a = cols[k * 4 + 3]
             ao.data[k].color = (a, a, a, 1.0)
-        # Flat faces, as the game's normals are (smooth only round turned shapes: close enough).
+        # The game's own normals: flat on faces and bevels, smooth over turned shapes' curves.
+        nrm = bone["normals"]
+        mesh.polygons.foreach_set("use_smooth", [True] * len(mesh.polygons))
+        mesh.normals_split_custom_set_from_vertices(
+            [to_blender((nrm[i], nrm[i + 1], nrm[i + 2])) for i in range(0, len(nrm), 3)]
+        )
         mesh.update()
         obj = bpy.data.objects.new(bone["name"], mesh)
         obj.parent = objects.get(parent, root)
@@ -225,6 +230,10 @@ VIEWS = {
     "headfront": (0, 0, True, "head"),
     "torso": (20, 10, False, "torso"),
     "legs": (30, 5, False, "legs"),
+    "feet": (35, 14, False, "feet"),
+    "feetside": (90, 0, True, "feet"),
+    "feetfront": (0, 4, True, "feet"),
+    "feetback": (160, 12, False, "feet"),
 }
 
 
@@ -236,6 +245,8 @@ def frame_box(what, lo, hi):
         return Vector((-5.0, -3.5, 0.0)), Vector((5.0, 3.5, 8.2))
     if what == "legs":
         return Vector((-3.5, -2.5, lo.z)), Vector((3.5, 2.5, 3.0))
+    if what == "feet":
+        return Vector((-3.2, -2.8, lo.z)), Vector((3.2, 2.0, -5.8))
     return lo, hi
 
 
@@ -335,7 +346,7 @@ def main():
         singles += [v for v in ["front", "side", "back", "three", "rear34"] if v not in singles]
     written = {}
     for view in singles:
-        aspect = 1.0 if VIEWS[view][3] == "head" else 0.62
+        aspect = {"head": 1.0, "feet": 1.6}.get(VIEWS[view][3], 0.62)
         setup_scene(args.size, aspect)
         bpy.context.scene.cycles.samples = args.samples
         written[view] = render_view(view, args.out, args.size)
