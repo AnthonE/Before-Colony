@@ -8,7 +8,8 @@
 //   15-18 heat (recent hits glow), 19 dark (nobody at the controls), 20 wreck, 21 bare metal,
 //   22-25 trim paint, 26-29 accent paint, 30-31 eye colour.
 // Merged suit meshes (bc_model) also carry per-vertex data in their colour: r the paint slot
-// (0 body, 1 trim, 2 accent, 3 eye glow, 16+ a fixed paint, 32+ bare metal, 48+ glowing), g 1 on
+// (0 body, 1 trim, 2 accent, 3 eye glow, 16+ a fixed paint, 32+ bare metal, 48+ glowing, 64+ a
+// fixed paint from the palette's second bank, entries 16 and up), g 1 on
 // bevels, b a panel seed, a ambient occlusion baked from the whole suit.
 
 #import bevy_pbr::{
@@ -21,7 +22,7 @@
 
 struct Hull {
     // rgb: base colour (linear); a: perceptual roughness.
-    palette: array<vec4<f32>, 16>,
+    palette: array<vec4<f32>, 32>,
     // x: plate size (m); y: seam width (m); z: seam depth (normal tilt); w: grime.
     panel: vec4<f32>,
     // x: seconds (embers flicker).
@@ -80,6 +81,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     } else if (slot == 3u) {
         index = 15u;
         glow = EYES[(tag >> 30u) & 3u];
+    } else if (slot >= 64u) {
+        index = slot - 48u;
     } else if (slot >= 48u) {
         index = slot - 48u;
         glow = hull.palette[index].rgb * 5.0;

@@ -38,7 +38,7 @@ pub const SETTLE_OFF: f32 = 1.2;
 /// How long a settling step takes, s.
 const SETTLE_TIME: f32 = 0.35;
 /// The hips are this far either side of the suit's middle, m (the rig's).
-pub const HIP_SPREAD: f32 = 1.3;
+pub const HIP_SPREAD: f32 = 1.4;
 /// Lifted this little, a settling step barely clears the ground, m.
 const SETTLE_APEX: f32 = 0.4;
 

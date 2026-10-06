@@ -9,6 +9,7 @@ pub mod frames;
 mod gundams;
 pub mod ik;
 pub mod kit;
+mod leo;
 pub mod paint;
 pub mod rig;
 
@@ -164,6 +165,33 @@ impl On<'_> {
     pub fn lathe(&mut self, profile: &[(f32, f32)], segments: u32, paint: Paint, xf: Affine3A) -> &mut Self {
         let s = self.segs(segments);
         self.b.lathe(profile, s, paint, self.to_bone * xf);
+        self
+    }
+
+    /// Part of a turned shape, from angle `from` to `to` round local +y (see
+    /// [`Builder::lathe_arc`](kit::Builder::lathe_arc)); `segments` as for the whole turn.
+    pub fn lathe_arc(
+        &mut self,
+        profile: &[(f32, f32)],
+        segments: u32,
+        from: f32,
+        to: f32,
+        paint: Paint,
+        xf: Affine3A,
+    ) -> &mut Self {
+        let turn = (to - from).abs() / std::f32::consts::TAU;
+        let s = ((self.segs(segments) as f32 * turn).ceil() as u32).max(2);
+        self.b.lathe_arc(profile, s, from, to, paint, self.to_bone * xf);
+        self
+    }
+
+    /// A chamfered hexahedron from its 8 corners in the suit's frame, indexed `x + 2y + 4z` (each
+    /// bit 0 for the low side, 1 for the high), then placed by `xf`: faceted armour whose faces
+    /// needn't be square to each other. Keep each face flat.
+    pub fn hexa(&mut self, corners: [Vec3; 8], chamfer: f32, paint: Paint, xf: Affine3A) -> &mut Self {
+        let c = self.chamfer(chamfer);
+        let m = self.to_bone * xf;
+        self.b.hexa(corners.map(|p| m.transform_point3(p)), c, paint);
         self
     }
 

@@ -20,7 +20,8 @@ pub enum Paint {
     Accent,
     /// Sensor glow, in the livery's eye colour.
     Eye,
-    /// A fixed palette entry ([`crate::paint`]): painted, bare metal, or glowing.
+    /// A fixed palette entry ([`crate::paint`]): painted, bare metal, or glowing. Only painted
+    /// takes the second bank (entries 16 and up); bare metal and glow take the first 16.
     Fixed(u8),
     Metal(u8),
     Glow(u8),
@@ -33,7 +34,9 @@ impl Paint {
             Paint::Trim => 1,
             Paint::Accent => 2,
             Paint::Eye => 3,
-            Paint::Fixed(k) => 16 + u32::from(k & 15),
+            // The second bank of fixed paints (16..32: [`crate::paint`]) codes from 64.
+            Paint::Fixed(k) if k >= 16 => 64 + u32::from(k & 15),
+            Paint::Fixed(k) => 16 + u32::from(k),
             Paint::Metal(k) => 32 + u32::from(k & 15),
             Paint::Glow(k) => 48 + u32::from(k & 15),
         };
@@ -296,9 +299,58 @@ impl Builder {
             let inset = (r).min((b - a).length() * 0.5);
             self.prims.push((self.pos.len(), Proxy::Capsule { a: a + dir * inset, b: b - dir * inset, r }));
         }
+        self.sweep(profile, segments.max(3), 0.0, std::f32::consts::TAU, paint, xf);
+    }
+
+    /// Part of a turned shape: `profile` swept round local +y from angle `from` to `to` (radians:
+    /// 0 along +x, a quarter turn along +z). A closed profile (its last point its first) is capped
+    /// at both ends, for ribs, cuffs and collars that wrap only part of the way round.
+    pub fn lathe_arc(
+        &mut self,
+        profile: &[(f32, f32)],
+        segments: u32,
+        from: f32,
+        to: f32,
+        paint: Paint,
+        xf: Affine3A,
+    ) {
+        if profile.len() < 2 {
+            return;
+        }
+        let ring = |r: f32, y: f32, t: f32| xf.transform_point3(Vec3::new(r * t.cos(), y, r * t.sin()));
+        // An arc wraps round empty space, so it occludes as a speck at its middle (it's no convex
+        // volume a neighbour could hide under).
+        let n = profile.len() as f32;
+        let (cr, cy) = profile.iter().fold((0.0, 0.0), |(r, y), p| (r + p.0 / n, y + p.1 / n));
+        let mid = ring(cr, cy, (from + to) * 0.5);
+        self.prims.push((self.pos.len(), Proxy::Capsule { a: mid, b: mid, r: 0.01 }));
+        self.sweep(profile, segments.max(1), from, to, paint, xf);
+        let closed = profile.len() > 3 && profile[0] == profile[profile.len() - 1];
+        if !closed {
+            return;
+        }
+        // The profile's outline, counter-clockwise in (r, y), clipped into triangles for each end.
+        let outline: Vec<Vec2> = profile[..profile.len() - 1].iter().map(|&(r, y)| Vec2::new(r, y)).collect();
+        let m = outline.len();
+        let area: f32 = (0..m).map(|i| outline[i].perp_dot(outline[(i + 1) % m])).sum();
+        let ccw: Vec<Vec2> = if area < 0.0 { outline.iter().rev().copied().collect() } else { outline };
+        let tris = ear_clip(&ccw);
+        let step = (to - from).signum() * 0.01;
+        for (t, inward) in [(from, step), (to, -step)] {
+            let inside = ring(cr, cy, t + inward);
+            for tri in &tris {
+                let verts = tri.map(|i| ring(ccw[i].x, ccw[i].y, t));
+                self.poly(&verts, inside, paint, 0.0);
+            }
+        }
+    }
+
+    /// The surface of a turned shape from angle `from` to `to`, in `segments` steps.
+    fn sweep(&mut self, profile: &[(f32, f32)], seg: u32, from: f32, to: f32, paint: Paint, xf: Affine3A) {
+        let lin = Mat3::from(xf.matrix3);
         let normal_m = lin.inverse().transpose();
-        let mirrored = lin.determinant() < 0.0;
-        let seg = segments.max(3);
+        // A mirror, or a sweep running backwards, turns the faces round.
+        let flip = (lin.determinant() < 0.0) != (to < from);
         for w in profile.windows(2) {
             let ((r0, y0), (r1, y1)) = (w[0], w[1]);
             let (dr, dy) = (r1 - r0, y1 - y0);
@@ -308,7 +360,7 @@ impl Builder {
             let base = self.pos.len() as u32;
             let col = [paint.code(), 0.0, self.seed, 1.0];
             for k in 0..=seg {
-                let t = k as f32 / seg as f32 * std::f32::consts::TAU;
+                let t = from + k as f32 / seg as f32 * (to - from);
                 let (s, co) = t.sin_cos();
                 let local_n = Vec3::new(dy * co, -dr, dy * s).normalize_or(Vec3::Y);
                 let n = (normal_m * local_n).normalize_or(Vec3::Y);
@@ -323,7 +375,7 @@ impl Builder {
                 // bottom, run counter-clockwise (a mirror reverses them).
                 let a = base + k * 2;
                 let (q0, q1, q2, q3) = (a, a + 1, a + 3, a + 2);
-                if mirrored {
+                if flip {
                     self.idx.extend_from_slice(&[q0, q2, q1, q0, q3, q2]);
                 } else {
                     self.idx.extend_from_slice(&[q0, q1, q2, q0, q2, q3]);
@@ -479,5 +531,39 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A closed profile swept part of the way round is a closed solid, faced outward: its signed
+    /// volume (the divergence theorem over its triangles) is the swept ring's, whichever way it
+    /// runs and mirrored or not.
+    #[test]
+    fn a_capped_arc_is_closed_and_faces_outward() {
+        let ring = [(1.0, -0.1), (1.2, -0.1), (1.2, 0.1), (1.0, 0.1), (1.0, -0.1)];
+        let half = std::f32::consts::PI;
+        // Half an annulus 0.2 thick (its 32-sided polygon falls short of it by a fraction of a
+        // per cent).
+        let want = 0.5 * half * (1.2f32.powi(2) - 1.0) * 0.2;
+        for (from, to) in [(0.0, half), (half, 0.0), (1.0, 1.0 + half)] {
+            for xf in [Affine3A::IDENTITY, mirrored(at(1.0, 2.0, 0.0))] {
+                let mut b = Builder::default();
+                b.lathe_arc(&ring, 32, from, to, Paint::Body, xf);
+                let volume: f32 = b
+                    .idx
+                    .chunks(3)
+                    .map(|t| {
+                        let [a, bb, c] = [t[0], t[1], t[2]].map(|i| Vec3::from(b.pos[i as usize]));
+                        a.dot(bb.cross(c)) / 6.0
+                    })
+                    .sum();
+                assert!((volume / want - 1.0).abs() < 0.02, "{from}..{to}: volume {volume}, want {want}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_second_bank_codes_from_64() {
+        let slot = |p: Paint| (p.code() * 255.0).round() as u32;
+        assert_eq!(slot(Paint::Fixed(crate::paint::GLASS)), 16 + 15);
+        assert_eq!(slot(Paint::Fixed(crate::paint::FRAME_BROWN)), 64);
     }
 }

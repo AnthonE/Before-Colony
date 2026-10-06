@@ -11,8 +11,8 @@ use glam::{Quat, Vec2, Vec3};
 
 use crate::Designer;
 use crate::frames::{
-    ACCENT, BODY, EYE, FRAME, GLASS, GUN, STEEL, THROAT, TRIM, YELLOW, along, arm_segments, at, hands,
-    inner_frame, j, nozzle, place, plate, rifle, rx, ry, rz, shield, sided, sp, v, v2,
+    ACCENT, BODY, EYE, FRAME, GLASS, GUN, STEEL, THROAT, TRIM, WAIST_UP, YELLOW, along, arm_segments, at,
+    hands, inner_frame, j, leg_lengths, nozzle, place, plate, rifle, rx, ry, rz, shield, sided, sp, v, v2,
 };
 use crate::kit::Paint;
 use crate::paint;
@@ -50,18 +50,22 @@ fn v_fin(d: &mut Designer, span: f32, rise: f32, sweep: f32) {
 fn waist(d: &mut Designer, front: Paint, side: Paint) {
     let mut w = d.on(Bone::Waist);
     w.seed(0.19);
-    w.cube(v(3.3, 0.45, 2.5), 0.08, FRAME, at(0.0, 0.25, 0.0));
-    w.block(v(1.0, 1.3, 1.6), v2(1.5, 1.1), Vec2::ZERO, 0.1, BODY, at(0.0, -0.55, 0.25));
-    w.cube(v(0.7, 0.45, 0.4), 0.05, ACCENT, at(0.0, -0.2, 1.1));
+    w.cube(v(3.3, 0.45, 2.5), 0.08, FRAME, at(0.0, 0.25 + WAIST_UP, 0.0));
+    w.block(v(1.0, 1.3, 1.6), v2(1.5, 1.1), Vec2::ZERO, 0.1, BODY, at(0.0, -0.55 + WAIST_UP, 0.25));
+    w.cube(v(0.7, 0.45, 0.4), 0.05, ACCENT, at(0.0, -0.2 + WAIST_UP, 1.1));
     for s in Side::BOTH {
-        plate(d, Bone::Waist, s, v(1.3, 1.9, 0.3), v(1.05, -0.8, 1.25), rz(0.1) * rx(0.12), 0.08, front);
-        plate(d, Bone::Waist, s, v(0.3, 1.8, 1.9), v(2.2, -0.55, 0.0), rz(0.12), 0.08, side);
+        let (fore, flank) = (v(1.05, -0.8 + WAIST_UP, 1.25), v(2.3, -0.55 + WAIST_UP, 0.0));
+        plate(d, Bone::Waist, s, v(1.3, 1.9, 0.3), fore, rz(0.1) * rx(0.12), 0.08, front);
+        plate(d, Bone::Waist, s, v(0.3, 1.8, 1.9), flank, rz(0.12), 0.08, side);
     }
-    plate(d, Bone::Waist, Side::R, v(2.4, 1.4, 0.3), v(0.0, -0.4, -1.35), rx(-0.12), 0.08, BODY);
+    plate(d, Bone::Waist, Side::R, v(2.4, 1.4, 0.3), v(0.0, -0.4 + WAIST_UP, -1.35), rx(-0.12), 0.08, BODY);
 }
 
 /// Thighs, shins and feet: `thigh` and `shin` sizes, knee guards and toes in `trim`.
 fn legs(d: &mut Designer, thigh: Vec3, shin: Vec3, trim: Paint, toe: Paint) {
+    // The blocks' widths and depths are the frame's; their lengths are the rig's.
+    let (thigh_len, shin_len) = leg_lengths();
+    let (thigh, shin) = (v(thigh.x, thigh_len, thigh.z), v(shin.x, shin_len, shin.z));
     for s in Side::BOTH {
         let (th, sh, ft) =
             s.pick((Bone::ThighL, Bone::ShinL, Bone::FootL), (Bone::ThighR, Bone::ShinR, Bone::FootR));
@@ -94,9 +98,16 @@ fn legs(d: &mut Designer, thigh: Vec3, shin: Vec3, trim: Paint, toe: Paint) {
         );
         let mut f = d.on(ft);
         f.seed(0.42 + s.pick(0.0, 0.2));
-        f.block(v(1.5, 0.9, 3.2), v2(0.8, 0.65), v2(0.0, -0.2), 0.12, BODY, sided(s, at(1.3, -8.45, 0.45)));
-        f.cube(v(1.35, 0.35, 0.8), 0.06, toe, sided(s, at(1.3, -8.6, 1.8)));
-        f.cube(v(1.6, 0.25, 3.4), 0.04, FRAME, sided(s, at(1.3, -8.95, 0.45)));
+        f.block(
+            v(1.5, 1.2, 3.2),
+            v2(0.8, 0.65),
+            v2(0.0, -0.2),
+            0.12,
+            BODY,
+            sided(s, at(ankle.x, -8.3, 0.45)),
+        );
+        f.cube(v(1.35, 0.35, 0.8), 0.06, toe, sided(s, at(ankle.x, -8.6, 1.8)));
+        f.cube(v(1.6, 0.25, 3.4), 0.04, FRAME, sided(s, at(ankle.x, -8.95, 0.45)));
     }
 }
 
@@ -154,7 +165,7 @@ pub(crate) fn heavyarms(d: &mut Designer) {
     let mut c = d.on(Bone::Chest);
     c.seed(0.12);
     c.block(v(4.9, 2.7, 3.2), v2(1.0, 0.9), v2(0.0, -0.1), 0.22, BODY, at(0.0, 4.1, 0.05));
-    c.cube(v(3.0, 1.2, 2.7), 0.15, TRIM, at(0.0, 2.55, 0.0));
+    c.cube(v(3.0, 0.9, 2.7), 0.15, TRIM, at(0.0, 2.85, 0.0));
     c.block(v(2.4, 0.55, 2.3), v2(0.9, 0.9), Vec2::ZERO, 0.1, BODY, at(0.0, 5.55, -0.1));
     for s in Side::BOTH {
         c.cube(v(1.3, 1.25, 0.3), 0.06, TRIM, sided(s, at(0.95, 3.95, 1.72)));
@@ -176,7 +187,7 @@ pub(crate) fn heavyarms(d: &mut Designer) {
         Vec2::ZERO,
         0.12,
         BODY,
-        at(0.0, 1.45, 0.05),
+        at(0.0, 2.35, 0.05),
     );
     waist(d, BODY, TRIM);
 
@@ -196,7 +207,7 @@ pub(crate) fn heavyarms(d: &mut Designer) {
     legs(d, v(1.75, 3.2, 1.9), v(2.1, 3.5, 2.4), TRIM, TRIM);
     for s in Side::BOTH {
         let thigh = s.pick(Bone::ThighL, Bone::ThighR);
-        missile_pod(d, thigh, sp(s, v(2.45, -2.6, 0.3)), v(0.7, 1.6, 1.5), Vec3::Z, 3, 2);
+        missile_pod(d, thigh, sp(s, v(2.55, -0.3, 0.3)), v(0.7, 1.6, 1.5), Vec3::Z, 3, 2);
     }
 
     backpack(d, v(2.8, 2.6, 1.7), 0.6);
@@ -252,7 +263,7 @@ pub(crate) fn deathscythe(d: &mut Designer) {
     c.seed(0.11);
     c.block(v(4.4, 2.5, 2.9), v2(1.05, 0.85), v2(0.0, -0.15), 0.2, BODY, at(0.0, 4.15, 0.05));
     c.block(v(1.4, 1.6, 0.4), v2(0.6, 1.0), Vec2::ZERO, 0.06, TRIM, at(0.0, 4.1, 1.5));
-    c.cube(v(2.8, 1.2, 2.5), 0.15, TRIM, at(0.0, 2.55, 0.0));
+    c.cube(v(2.8, 0.9, 2.5), 0.15, TRIM, at(0.0, 2.85, 0.0));
     c.block(v(2.3, 0.5, 2.2), v2(0.9, 0.9), Vec2::ZERO, 0.1, BODY, at(0.0, 5.5, -0.1));
     for s in Side::BOTH {
         c.greeble(|c| {
@@ -267,7 +278,7 @@ pub(crate) fn deathscythe(d: &mut Designer) {
         Vec2::ZERO,
         0.12,
         BODY,
-        at(0.0, 1.45, 0.05),
+        at(0.0, 2.35, 0.05),
     );
     waist(d, TRIM, BODY);
 
@@ -372,7 +383,7 @@ pub(crate) fn sandrock(d: &mut Designer) {
     let mut c = d.on(Bone::Chest);
     c.seed(0.13);
     c.block(v(5.0, 2.8, 3.3), v2(1.0, 0.9), v2(0.0, -0.1), 0.25, BODY, at(0.0, 4.05, 0.05));
-    c.cube(v(3.1, 1.2, 2.8), 0.15, TRIM, at(0.0, 2.5, 0.0));
+    c.cube(v(3.1, 0.9, 2.8), 0.15, TRIM, at(0.0, 2.85, 0.0));
     c.block(v(2.5, 0.55, 2.4), v2(0.9, 0.9), Vec2::ZERO, 0.1, BODY, at(0.0, 5.55, -0.1));
     c.cube(v(0.9, 0.6, 0.3), 0.06, ACCENT, at(0.0, 3.0, 1.55));
     c.greeble(|c| {
@@ -390,7 +401,7 @@ pub(crate) fn sandrock(d: &mut Designer) {
         Vec2::ZERO,
         0.12,
         BODY,
-        at(0.0, 1.45, 0.05),
+        at(0.0, 2.35, 0.05),
     );
     waist(d, BODY, TRIM);
 
@@ -481,7 +492,7 @@ pub(crate) fn shenlong(d: &mut Designer) {
     let mut c = d.on(Bone::Chest);
     c.seed(0.14);
     c.block(v(4.6, 2.6, 3.0), v2(1.05, 0.9), v2(0.0, -0.1), 0.22, BODY, at(0.0, 4.15, 0.05));
-    c.cube(v(2.9, 1.2, 2.6), 0.15, TRIM, at(0.0, 2.55, 0.0));
+    c.cube(v(2.9, 0.9, 2.6), 0.15, TRIM, at(0.0, 2.85, 0.0));
     c.block(v(2.4, 0.55, 2.3), v2(0.9, 0.9), Vec2::ZERO, 0.1, ACCENT, at(0.0, 5.55, -0.1));
     for s in Side::BOTH {
         c.cube(v(1.1, 1.0, 0.25), 0.05, TRIM, sided(s, at(1.25, 4.3, 1.55)));
@@ -492,7 +503,7 @@ pub(crate) fn shenlong(d: &mut Designer) {
         Vec2::ZERO,
         0.12,
         BODY,
-        at(0.0, 1.45, 0.05),
+        at(0.0, 2.35, 0.05),
     );
     waist(d, TRIM, BODY);
 

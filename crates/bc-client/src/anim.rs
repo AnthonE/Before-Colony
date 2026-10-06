@@ -44,8 +44,9 @@ const SQUASH_PER_SPEED: f32 = 0.12;
 const SQUASH_SPRING: f32 = 10.0;
 /// How fast the hips follow a stride, a crouch or a kneel (rad/s).
 const DROP_SPRING: f32 = 8.0;
-/// How high the origin rides kneeling (m): one knee on the ground.
-const KNEEL_HEIGHT: f32 = 4.6;
+/// How high the origin rides kneeling (m): one knee on the ground, the thigh over it nearly
+/// upright (the hips are 1.55 m over the origin).
+const KNEEL_HEIGHT: f32 = 2.9;
 /// A stride keeps the legs this much short of straight.
 const REACH: f32 = 0.985;
 /// How far the chest leans into a crouch (rad).
@@ -311,9 +312,10 @@ fn ground_legs(d: &SuitDrive, g: &SuitGround, gait: &Gait, lift: Vec3, kneel: bo
         h - up * (h.dot(up) - ground.dot(up))
     };
     let (ankles, poles) = if kneel {
-        // The right foot planted ahead, the left knee down with its foot behind.
+        // The right foot planted ahead, its knee up by the chest (the shin is long), the left knee
+        // down with its shin along the ground behind.
         (
-            [on_ground(0) - fwd * 3.3 + up * 0.9, on_ground(1) + fwd * 2.2 + up * ANKLE_TO_SOLE],
+            [on_ground(0) - fwd * 4.8 + up * 1.3, on_ground(1) + fwd * 3.2 + up * ANKLE_TO_SOLE],
             [hip(0) + fwd * 5.0 - up * 4.0, hip(1) + fwd * 10.0],
         )
     } else {
@@ -558,7 +560,7 @@ pub fn animate_suits(
         spring1(&mut a.drop, &mut a.drop_v, drop, DROP_SPRING, dt);
         spring1(&mut a.squash, &mut a.squash_v, 0.0, SQUASH_SPRING, dt);
         a.bob = if standing.is_some() && !kneel { a.drop } else { 0.0 };
-        a.lift = -up * (a.drop + a.squash).clamp(-MAX_BOB, MAX_BOB + KNEEL_HEIGHT);
+        a.lift = -up * (a.drop + a.squash).clamp(-MAX_BOB, MAX_BOB + STANCE - KNEEL_HEIGHT);
         // The fang's head out along the thrust, in the forearm's frame as it is now posed.
         a.reach = match a.swing {
             Some(sw) if sw.hands == Hands::Fang => {

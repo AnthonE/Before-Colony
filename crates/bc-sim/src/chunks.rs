@@ -62,7 +62,7 @@ pub fn radius(desc: &ChunkDesc) -> f32 {
             Part::Head => 1.6,
             Part::Torso => 3.5,
             Part::ArmL | Part::ArmR => 3.0,
-            Part::Legs => 4.6,
+            Part::Legs => 5.3,
             Part::Backpack => 2.6,
         },
         ChunkKind::Hulk { frame: f, .. } => frame(f).radius * 0.7,

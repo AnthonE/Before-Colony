@@ -1,6 +1,11 @@
 //! The suit skeleton: bones, where their joints sit at rest, and which hit-box part each belongs
 //! to. Every frame shares it. The rest pose follows the simulation's humanoid capsules
 //! (`bc_sim::content::frames`), so what's drawn is where the server's shots land.
+//!
+//! Its proportions are the anime's, measured off Bandai's line art of the Leo and the Tallgeese:
+//! the head about a tenth of the height, the hips a little above the suit's middle, the knee well
+//! above the shin's middle (three-fifths of the way down), long shins and tall feet. The sole is
+//! 9.07 m under the origin.
 
 use bc_proto::Part;
 use glam::Vec3;
@@ -67,14 +72,14 @@ const DEFS: [BoneDef; BONES] = [
     def(None, [0.0, 0.0, 0.0], Part::Torso),
     def(Some(Torso), [0.0, 2.2, 0.0], Part::Torso),
     def(Some(Chest), [0.0, 5.9, 0.15], Part::Head),
-    def(Some(Torso), [0.0, 0.2, 0.0], Part::Torso),
-    // Legs: hip, knee, ankle.
-    def(Some(Waist), [-1.3, -0.7, 0.0], Part::Legs),
-    def(Some(ThighL), [-1.3, -4.5, 0.3], Part::Legs),
-    def(Some(ShinL), [-1.3, -8.0, 0.1], Part::Legs),
-    def(Some(Waist), [1.3, -0.7, 0.0], Part::Legs),
-    def(Some(ThighR), [1.3, -4.5, 0.3], Part::Legs),
-    def(Some(ShinR), [1.3, -8.0, 0.1], Part::Legs),
+    def(Some(Torso), [0.0, 1.9, 0.0], Part::Torso),
+    // Legs: hip, knee, ankle, splayed a little at rest (the line art's stance).
+    def(Some(Waist), [-1.4, 1.55, 0.0], Part::Legs),
+    def(Some(ThighL), [-1.55, -2.15, 0.25], Part::Legs),
+    def(Some(ShinL), [-1.75, -7.6, 0.05], Part::Legs),
+    def(Some(Waist), [1.4, 1.55, 0.0], Part::Legs),
+    def(Some(ThighR), [1.55, -2.15, 0.25], Part::Legs),
+    def(Some(ShinR), [1.75, -7.6, 0.05], Part::Legs),
     // Arms: shoulder armour and joint, elbow, wrist; along the arm capsules.
     def(Some(Chest), [-3.1, 4.5, 0.0], Part::ArmL),
     def(Some(ShoulderL), [-3.3, 4.2, 0.0], Part::ArmL),

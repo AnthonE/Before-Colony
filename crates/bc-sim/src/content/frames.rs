@@ -64,7 +64,7 @@ impl ArmSlot {
             ArmSlot::Head => Vec3::new(0.0, 7.2, 1.4),
             ArmSlot::Pods => Vec3::new(0.0, 5.8, 1.6),
             ArmSlot::Chest => Vec3::new(0.0, 3.6, 2.6),
-            ArmSlot::LegPods => Vec3::new(0.0, -4.0, 1.8),
+            ArmSlot::LegPods => Vec3::new(0.0, -0.4, 1.8),
             ArmSlot::Nose => Vec3::new(0.0, -0.8, 9.0),
             ArmSlot::NoseGuns => Vec3::new(0.0, 0.8, 7.5),
         }
@@ -273,13 +273,15 @@ impl FrameSpec {
     }
 }
 
-/// Human-shaped hitboxes, about 17 m tall.
+/// Human-shaped hitboxes, about 17 m tall, in the anime's proportions (bc-model's rig): a short
+/// torso as wide as its skirts over the hips at 1.55 m, and one capsule round both long legs from
+/// the hips down, the knee 2.15 m under the origin. The two overlap at the hips, leaving no seam.
 const HUMANOID: [Capsule; Part::COUNT] = [
     cap([0.0, 6.4, 0.0], [0.0, 7.6, 0.2], 1.3),   // head
-    cap([0.0, 0.8, 0.0], [0.0, 4.6, 0.0], 2.5),   // torso
+    cap([0.0, 2.0, 0.0], [0.0, 4.7, 0.0], 2.5),   // torso
     cap([-3.3, 4.6, 0.0], [-3.5, 0.2, 1.2], 1.1), // left arm
     cap([3.3, 4.6, 0.0], [3.5, 0.2, 1.2], 1.1),   // right arm
-    cap([0.0, 0.2, 0.0], [0.0, -8.4, 0.3], 2.1),  // legs
+    cap([0.0, 1.6, 0.0], [0.0, -7.2, 0.2], 2.2),  // legs from the hips, splayed at rest
     cap([0.0, 3.0, -2.4], [0.0, 5.2, -2.8], 1.5), // backpack
 ];
 
