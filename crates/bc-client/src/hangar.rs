@@ -88,8 +88,9 @@ pub struct BayScene {
     alarms: Vec<Entity>,
     lamps: Vec<(Entity, f32)>,
     suit: Entity,
-    /// What the suit was last built as, to rebuild it when that changes.
-    built: Option<(FrameId, [u8; Part::COUNT], [bool; 3])>,
+    /// What the suit was last built as (its line, armour, mounts and weathering), to rebuild it
+    /// when that changes.
+    built: Option<(FrameId, [u8; Part::COUNT], [bool; 3], u8)>,
     generation: u8,
 }
 
@@ -679,7 +680,7 @@ fn drive_bay(
         *v = Visibility::Inherited;
     }
     let parts: [u8; Part::COUNT] = std::array::from_fn(|i| eighths(suit.parts[i]));
-    let key = (suit.line, parts, suit.mounts);
+    let key = (suit.line, parts, suit.mounts, suit.weathering.level());
     if scene.built != Some(key) {
         // Rebuilt from scratch (a part fitted comes back, which damage alone never does).
         scene.built = Some(key);
@@ -702,6 +703,7 @@ fn drive_bay(
             holding: None,
             // Held in its gantry, not standing on a body: it doesn't kneel asleep.
             ground: None,
+            weathering: suit.weathering.level(),
         });
         return;
     }

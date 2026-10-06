@@ -27,9 +27,15 @@ pub const GLASS: u8 = 15;
 /// entries are what a livery can name (a hull tag has four bits for each of its paints); from here
 /// on, only a model's fixed paints reach them.
 pub const FRAME_BROWN: u8 = 16;
+/// The Leo's head: the red ribs round its sides and back.
+pub const RIB_RED: u8 = 17;
+/// The Leo's visor window, amber glass over the mono-eye.
+pub const VISOR_AMBER: u8 = 18;
+/// Sensor lenses and the glass of a suit's lights, a pale blue-grey.
+pub const LENS: u8 = 19;
 
 /// How many there are (the palette's size).
-pub const COUNT: usize = 17;
+pub const COUNT: usize = 20;
 /// The most the hull shader's palette holds.
 pub const CAPACITY: usize = 32;
 const _: () = assert!(COUNT <= CAPACITY);

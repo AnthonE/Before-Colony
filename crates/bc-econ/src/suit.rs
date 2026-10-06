@@ -24,6 +24,7 @@ use crate::faults::Faults;
 use crate::item::{Item, line_serde, part_serde};
 use crate::stores::PartUnit;
 use crate::wear::Wear;
+use crate::weathering::Weathering;
 
 /// Where something is fitted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,6 +67,9 @@ pub struct Suit {
     /// What its systems have been through since they were last overhauled or serviced.
     #[serde(default, skip_serializing_if = "Wear::is_none")]
     pub wear: Wear,
+    /// What it has been through all its life, as its paint shows it.
+    #[serde(default, skip_serializing_if = "Weathering::is_new")]
+    pub weathering: Weathering,
 }
 
 fn no_kits(k: &[u8; Kit::COUNT]) -> bool {
@@ -129,6 +133,7 @@ impl Suit {
             modules: [None; MODULE_MOUNTS],
             kits: [0; Kit::COUNT],
             wear: Wear::default(),
+            weathering: Weathering::default(),
         }
     }
 
@@ -145,6 +150,7 @@ impl Suit {
             modules: [None; MODULE_MOUNTS],
             kits: [0; Kit::COUNT],
             wear: Wear::default(),
+            weathering: Weathering::default(),
         }
         .with_mounts_of_its_loadout()
     }

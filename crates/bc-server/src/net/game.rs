@@ -229,7 +229,8 @@ impl GameShared {
             // (`Pilots::apply_park_news`); and on the roster, so news of its end finds it there.
             self.pilots.save(r.clone()).await;
             let pilot = rec.pilot;
-            let flags = roster_flags::VERIFIED | roster_flags::ASLEEP;
+            let weathering = r.hangar.as_ref().map_or(0, bc_econ::hangar::Hangar::weathering);
+            let flags = roster_flags::VERIFIED | roster_flags::ASLEEP | roster_flags::weathering(weathering);
             if let Ok(mut roster) = self.roster.write() {
                 let entry = RosterEntry {
                     name: r.name.clone(),

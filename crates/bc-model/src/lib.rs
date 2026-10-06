@@ -2,6 +2,9 @@
 //! frame (`rig`) and each frame's design (`frames`). The client bakes each frame into one mesh per
 //! bone, per level of detail, and builds a suit as a tree of bone entities, so it can be posed and
 //! broken apart. Each vertex carries its ambient occlusion, baked from the whole suit at rest (`ao`).
+//!
+//! Since every frame stands on the same skeleton, a suit can also be put together from several:
+//! one frame's head on another's body, a third's arms or legs ([`Parts`], [`build_parts`]).
 
 mod ao;
 pub mod cockpit;
@@ -29,6 +32,10 @@ pub enum Lod {
 }
 
 pub const LODS: [Lod; 2] = [Lod::Near, Lod::Far];
+
+/// A chamfer at least this big (m) rounds a piece's shape rather than catching the light, so it
+/// stays at [`Lod::Far`].
+const SHAPING_CHAMFER: f32 = 0.32;
 
 /// Where things attach to a frame, in their bone's space. Directions are unit vectors; what a
 /// frame's kit lacks stays at its default (None, or empty).
@@ -67,6 +74,9 @@ pub struct Sockets {
 /// the face.
 const HEAD_EYE: Vec3 = Vec3::new(0.0, 6.75, 1.1);
 
+/// Where a humanoid head's helmet starts above its collar, in the suit's frame at rest.
+const HEAD_BASE: f32 = 6.1;
+
 /// One frame at one level of detail.
 #[derive(Clone, Debug)]
 pub struct Model {
@@ -83,12 +93,140 @@ impl Model {
 
 /// Builds `frame` at `lod`.
 pub fn build(frame: FrameId, lod: Lod) -> Model {
-    let mut d = Designer::new(lod);
-    frames::design(frame, &mut d);
+    build_parts(Parts::whole(frame), lod)
+}
+
+/// A section of a suit: the bones a part swap takes from one frame together.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Section {
+    Head,
+    /// The torso, chest and waist (and what's built into them: Wing Zero's shoulder cannons).
+    Body,
+    /// Shoulders, arms and hands, with what rides them: a shield, the Leo's 105 mm rifle, the
+    /// beam saber's hilt, Shenlong's Dragon Fang.
+    Arms,
+    Legs,
+    /// The backpack and its wings, and anything floating free round the suit (the Virgo's
+    /// Planet Defensors).
+    Backpack,
+    /// The main weapon in the right hand.
+    Weapon,
+}
+
+impl Section {
+    pub const ALL: [Section; 6] =
+        [Section::Head, Section::Body, Section::Arms, Section::Legs, Section::Backpack, Section::Weapon];
+
+    /// The section `bone` belongs to.
+    pub fn of(bone: Bone) -> Section {
+        use Bone::*;
+        match bone {
+            Head => Section::Head,
+            Torso | Chest | Waist => Section::Body,
+            ShoulderL | UpperArmL | ForearmL | HandL | ShoulderR | UpperArmR | ForearmR | HandR | Shield => {
+                Section::Arms
+            }
+            ThighL | ShinL | FootL | ThighR | ShinR | FootR => Section::Legs,
+            Backpack | WingL | WingR | Props => Section::Backpack,
+            Weapon => Section::Weapon,
+        }
+    }
+}
+
+/// Which frame's design each section of a suit is drawn from. Every frame stands on the one
+/// skeleton, so a head, a pair of arms or of legs from one fits any other's body; their sockets
+/// come with them (the eye with the head, the saber and the fang with the arms, the nozzles with
+/// the backpack, the muzzle with the weapon, each missile hatch with the bone it's on).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Parts {
+    pub head: FrameId,
+    pub body: FrameId,
+    pub arms: FrameId,
+    pub legs: FrameId,
+    pub backpack: FrameId,
+    pub weapon: FrameId,
+}
+
+impl Parts {
+    /// A frame as it was designed: every section its own.
+    pub const fn whole(frame: FrameId) -> Self {
+        Self { head: frame, body: frame, arms: frame, legs: frame, backpack: frame, weapon: frame }
+    }
+
+    /// The same, with `section` from `frame`.
+    pub fn with(mut self, section: Section, frame: FrameId) -> Self {
+        *self.slot(section) = frame;
+        self
+    }
+
+    /// The frame `section` is drawn from.
+    pub fn frame(mut self, section: Section) -> FrameId {
+        *self.slot(section)
+    }
+
+    /// The frame `bone` is drawn from.
+    pub fn of(self, bone: Bone) -> FrameId {
+        self.frame(Section::of(bone))
+    }
+
+    fn slot(&mut self, section: Section) -> &mut FrameId {
+        match section {
+            Section::Head => &mut self.head,
+            Section::Body => &mut self.body,
+            Section::Arms => &mut self.arms,
+            Section::Legs => &mut self.legs,
+            Section::Backpack => &mut self.backpack,
+            Section::Weapon => &mut self.weapon,
+        }
+    }
+}
+
+/// Builds a suit from `parts` at `lod`: each section's bones and sockets from its frame's design,
+/// the occlusion baked over the suit they make together.
+pub fn build_parts(parts: Parts, lod: Lod) -> Model {
+    // Each frame the parts come from, designed once.
+    let mut designs: Vec<(FrameId, Designer)> = Vec::new();
+    for section in Section::ALL {
+        let frame = parts.frame(section);
+        if !designs.iter().any(|(f, _)| *f == frame) {
+            let mut d = Designer::new(lod);
+            frames::design(frame, &mut d);
+            designs.push((frame, d));
+        }
+    }
+    let frames: Vec<FrameId> = designs.iter().map(|(f, _)| *f).collect();
+    let from = |frame: FrameId| frames.iter().position(|f| *f == frame).unwrap_or(0);
+    let mut bones: Vec<_> = rig::ALL
+        .iter()
+        .map(|&b| std::mem::take(&mut designs[from(parts.of(b))].1.bones[b.index()]))
+        .collect();
+    // Another frame's head is set where this body's own sat.
+    let lift = Vec3::Y * (designs[from(parts.body)].1.head_base - designs[from(parts.head)].1.head_base);
+    bones[Bone::Head.index()].translate(lift);
+    let sockets_of = |section: Section| &designs[from(parts.frame(section))].1.sockets;
+    let (head, arms, weapon) =
+        (sockets_of(Section::Head), sockets_of(Section::Arms), sockets_of(Section::Weapon));
+    let sockets = Sockets {
+        muzzle: weapon.muzzle,
+        nozzles: sockets_of(Section::Backpack).nozzles.clone(),
+        saber: arms.saber,
+        blade_left: arms.blade_left,
+        blade_right: weapon.blade_right,
+        fang: arms.fang,
+        flame: arms.flame,
+        // Each hatch with the bone it's on.
+        missiles: designs
+            .iter()
+            .flat_map(|(f, d)| d.sockets.missiles.iter().filter(move |(b, _)| parts.of(*b) == *f))
+            .copied()
+            .collect(),
+        eye: head.eye + lift,
+        eye_in_head: head.eye_in_head,
+    };
     let joints: Vec<Vec3> = rig::ALL.iter().map(|b| b.def().joint).collect();
-    ao::bake(&mut d.bones, &joints);
-    let bones = d.bones.into_iter().map(|b| (!b.is_empty()).then(|| b.finish())).collect();
-    Model { bones, sockets: d.sockets }
+    ao::bake(&mut bones, &joints);
+    let bones = bones.into_iter().map(|b| (!b.is_empty()).then(|| b.finish())).collect();
+    Model { bones, sockets }
 }
 
 /// Builds one frame: shapes are given in the suit's frame at rest (x right, y up, z forward) and
@@ -97,13 +235,17 @@ pub struct Designer {
     bones: Vec<Builder>,
     pub lod: Lod,
     pub sockets: Sockets,
+    /// Where the head's helmet starts (the foot of what shows above the collar): a head swapped
+    /// in from another frame is set there, so it sits on this body as this frame's own head did.
+    /// The Leo's head sinks into its chest, the others' stand on a neck.
+    pub head_base: f32,
 }
 
 impl Designer {
     fn new(lod: Lod) -> Self {
         let sockets =
             Sockets { eye: Self::local(Bone::Head, HEAD_EYE), eye_in_head: true, ..Sockets::default() };
-        Self { bones: (0..BONES).map(|_| Builder::default()).collect(), lod, sockets }
+        Self { bones: (0..BONES).map(|_| Builder::default()).collect(), lod, sockets, head_base: HEAD_BASE }
     }
 
     /// Shapes on `bone`.
@@ -136,8 +278,10 @@ impl On<'_> {
         self
     }
 
+    /// Bevels are dropped far off, but a chamfer big enough to shape the piece (a rounded pad)
+    /// stays.
     fn chamfer(&self, c: f32) -> f32 {
-        if self.lod == Lod::Near { c } else { 0.0 }
+        if self.lod == Lod::Near || c >= SHAPING_CHAMFER { c } else { 0.0 }
     }
 
     fn segs(&self, n: u32) -> u32 {
@@ -367,6 +511,74 @@ mod tests {
                         panic!("{frame:?} {bone:?} blocks the cockpit's view along {d}");
                     }
                 }
+            }
+        }
+    }
+
+    /// A suit put together from several frames takes each section's bones and sockets from its
+    /// own frame's design: the same shapes, paints and panel seeds (only the occlusion, baked over
+    /// the suit they make together, differs), a head set where the body's own sat.
+    #[test]
+    fn parts_come_from_their_frames() {
+        let humanoids: Vec<FrameId> =
+            FrameId::ALL.into_iter().filter(|f| *f != FrameId::WingZeroBird).collect();
+        let whole = |f: FrameId| build(f, Lod::Near);
+        let head_base = |f: FrameId| {
+            let mut d = Designer::new(Lod::Near);
+            frames::design(f, &mut d);
+            d.head_base
+        };
+        let same = |a: &Option<MeshData>, b: &Option<MeshData>, lift: f32| match (a, b) {
+            (Some(x), Some(y)) => {
+                x.positions.len() == y.positions.len()
+                    && x.positions
+                        .iter()
+                        .zip(&y.positions)
+                        .all(|(p, q)| (Vec3::from(*p) - Vec3::from(*q) - Vec3::Y * lift).length() < 1e-5)
+                    && x.indices == y.indices
+                    && x.colors.iter().zip(&y.colors).all(|(p, q)| p[..3] == q[..3])
+            }
+            (None, None) => true,
+            _ => false,
+        };
+        for (k, &a) in humanoids.iter().enumerate() {
+            let b = humanoids[(k + 1) % humanoids.len()];
+            let (ma, mb) = (whole(a), whole(b));
+            for section in Section::ALL {
+                let parts = Parts::whole(a).with(section, b);
+                assert_eq!(parts.frame(section), b);
+                let m = build_parts(parts, Lod::Near);
+                let lift = head_base(parts.body) - head_base(parts.head);
+                for bone in rig::ALL {
+                    let src = if Section::of(bone) == section { &mb } else { &ma };
+                    let i = bone.index();
+                    let dy = if bone == Bone::Head { lift } else { 0.0 };
+                    assert!(same(&m.bones[i], &src.bones[i], dy), "{a:?} with {b:?}'s {section:?}: {bone:?}");
+                }
+                let from = |s: Section| if s == section { &mb.sockets } else { &ma.sockets };
+                let got = &m.sockets;
+                assert_eq!(
+                    (got.eye, got.eye_in_head),
+                    (from(Section::Head).eye + Vec3::Y * lift, from(Section::Head).eye_in_head)
+                );
+                assert_eq!(
+                    (got.muzzle, got.blade_right),
+                    (from(Section::Weapon).muzzle, from(Section::Weapon).blade_right)
+                );
+                let arms = from(Section::Arms);
+                assert_eq!(
+                    (got.saber, got.blade_left, got.fang, got.flame),
+                    (arms.saber, arms.blade_left, arms.fang, arms.flame)
+                );
+                assert_eq!(got.nozzles, from(Section::Backpack).nozzles);
+                let want: Vec<_> = [&ma.sockets, &mb.sockets]
+                    .into_iter()
+                    .zip([a, b])
+                    .flat_map(|(s, f)| s.missiles.iter().filter(move |(bone, _)| parts.of(*bone) == f))
+                    .copied()
+                    .collect();
+                assert_eq!(got.missiles.len(), want.len(), "{a:?} with {b:?}'s {section:?}: missile hatches");
+                assert!(want.iter().all(|w| got.missiles.contains(w)));
             }
         }
     }

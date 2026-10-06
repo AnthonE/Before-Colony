@@ -42,6 +42,9 @@ pub struct SuitDrive {
     pub holding: Option<bool>,
     /// On a body: standing on it, or in the air in its grip.
     pub ground: Option<SuitGround>,
+    /// How weathered its paint is, 0 (factory fresh) to 7 (a veteran's): earned by use, and on
+    /// the roster with its pilot (`bc_econ::weathering`).
+    pub weathering: u8,
 }
 
 /// How a suit on a body is drawn on it: what its walk, its stance and its shadow need.

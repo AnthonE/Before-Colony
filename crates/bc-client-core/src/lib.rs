@@ -870,6 +870,11 @@ pub fn asleep(world: &World, slot: u16) -> bool {
     world.roster_flags.get(&slot).is_some_and(|f| f & roster_flags::ASLEEP != 0)
 }
 
+/// How weathered a suit's paint is, 0 (factory fresh, or nobody's on the roster for it) to 7.
+pub fn weathering(world: &World, slot: u16) -> u8 {
+    world.roster_flags.get(&slot).map_or(0, |f| roster_flags::weathering_of(*f))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

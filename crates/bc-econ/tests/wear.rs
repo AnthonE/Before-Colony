@@ -263,3 +263,28 @@ fn systems_wear_from_use_and_are_serviced() {
     // Nothing worn, nothing broken: nothing to do.
     assert!(h.overhaul(None).is_err());
 }
+
+/// The paint earns its look: the starter Leo comes scuffed (it's second-hand), every sortie adds
+/// to its weathering, a hard one more than a quiet one, and servicing what's inside doesn't take
+/// it back.
+#[test]
+fn sorties_weather_the_paint() {
+    let mut h = Hangar::starter();
+    let start = suit(&h).weathering;
+    assert_eq!(start.level(), 2, "second-hand: {start:?}");
+    let mut home = home_of(suit(&h));
+    h.launch().expect("it launches");
+    home.usage.burn = 6 * 60 * bc_sim::TICK_HZ;
+    // An arm shot off, the torso knocked about.
+    home.parts[Part::ArmL as usize] = 0.0;
+    home.parts[Part::Torso as usize] *= 0.5;
+    h.came_home(&home);
+    let after = suit(&h).weathering;
+    assert_eq!(after.sorties, start.sorties + 1);
+    assert_eq!(after.thrust, start.thrust + home.usage.burn);
+    assert!(after.damage > start.damage + 55, "{after:?}");
+    assert!(after.points() > start.points());
+    h.stores.add_all(&overhaul_cost(FrameId::Leo, DAMAGED), 1);
+    let _ = h.overhaul(Some(Part::Torso));
+    assert_eq!(suit(&h).weathering, after, "an overhaul is about what's inside");
+}

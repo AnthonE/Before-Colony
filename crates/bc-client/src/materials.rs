@@ -39,7 +39,10 @@ const PALETTE: [(f32, f32, f32, f32); paint::COUNT] = [
     (0.66, 0.71, 0.8, 0.2),
     (0.26, 0.28, 0.31, 0.32),
     (0.02, 0.025, 0.03, 0.08),
-    (0.3, 0.26, 0.2, 0.55),
+    (0.33, 0.24, 0.18, 0.55),
+    (0.78, 0.22, 0.16, 0.45),
+    (0.96, 0.66, 0.12, 0.12),
+    (0.62, 0.66, 0.76, 0.12),
 ];
 
 /// Each ore kind's colour (sRGB) and how metallic it is: nickel-iron, titanium, volatiles, exotics.
@@ -64,9 +67,13 @@ pub struct HullTag {
     pub eye: u8,
     /// Armour left, 0 (destroyed) to 7 (pristine).
     pub armour: u8,
+    /// Varies the plates from piece to piece (kept to 64 values; a suit's unit number is its
+    /// seed's last two digits).
     pub seed: u8,
-    /// Recent-hit glow, 0 to 31 (kept to 16 steps).
+    /// Recent-hit glow, 0 to 31 (kept to 8 steps).
     pub heat: u8,
+    /// How weathered a suit's paint is, 0 (factory fresh) to 7 (a veteran's).
+    pub weathering: u8,
     pub wreck: bool,
     /// The sensors are dark: nobody at the controls (its pilot is asleep).
     pub dark: bool,
@@ -80,15 +87,30 @@ impl HullTag {
     }
 
     pub fn livery(paint: u8, trim: u8, accent: u8, eye: u8, seed: u8) -> Self {
-        Self { paint, trim, accent, eye, armour: 7, seed, heat: 0, wreck: false, dark: false, metal: false }
+        Self {
+            paint,
+            trim,
+            accent,
+            eye,
+            armour: 7,
+            seed,
+            heat: 0,
+            weathering: 0,
+            wreck: false,
+            dark: false,
+            metal: false,
+        }
     }
 
+    /// Packed as `hull.wgsl` reads it: bits 0-3 paint, 4-6 armour, 7-12 seed, 13-15 heat, 16-18
+    /// weathering, 19 dark, 20 wreck, 21 bare metal, 22-25 trim, 26-29 accent, 30-31 eye.
     pub fn tag(self) -> MeshTag {
         MeshTag(
             u32::from(self.paint & 15)
                 | u32::from(self.armour.min(7)) << 4
-                | u32::from(self.seed) << 7
-                | u32::from(self.heat.min(31) >> 1) << 15
+                | u32::from(self.seed & 63) << 7
+                | u32::from(self.heat.min(31) >> 2) << 13
+                | u32::from(self.weathering.min(7)) << 16
                 | u32::from(self.dark) << 19
                 | u32::from(self.wreck) << 20
                 | u32::from(self.metal) << 21

@@ -72,6 +72,8 @@ pub struct Damage {
     wreck: bool,
     /// Its pilot is asleep in the cockpit.
     asleep: bool,
+    /// How weathered its paint is (0..7), as last drawn.
+    weathering: u8,
     /// Whether the suit's state when first seen has been taken in: a suit that turns up already
     /// damaged just looks it, without its losses playing out again.
     primed: bool,
@@ -91,6 +93,7 @@ impl Damage {
             lost: [false; BONES],
             wreck: false,
             asleep: false,
+            weathering: 0,
             primed: false,
             blasts: Vec::new(),
             stumps: Vec::new(),
@@ -266,6 +269,11 @@ pub fn damage_suits(
             dmg.asleep = asleep;
             changed = true;
         }
+        // Its paint as its life has worn it (news of that comes on the roster).
+        if d.weathering != dmg.weathering {
+            dmg.weathering = d.weathering;
+            changed = true;
+        }
         let blasts_due: Vec<Bone> = dmg.blasts.iter().filter(|(t, _)| *t <= now).map(|(_, b)| *b).collect();
         dmg.blasts.retain(|(t, _)| *t > now);
         for bone in blasts_due {
@@ -320,6 +328,7 @@ pub fn damage_suits(
                     heat: (dmg.heat[part] * 31.0) as u8,
                     wreck,
                     dark: asleep,
+                    weathering: d.weathering,
                     ..v.tag()
                 };
                 if let Ok(mut m) = tags.get_mut(v.bones[bone.index()]) {

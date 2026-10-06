@@ -143,9 +143,15 @@ async fn a_pilot_works_the_bay_launches_and_docks() -> anyhow::Result<()> {
     ask(&mut b, Request::Order { item: chaff, side: Side::Buy, price: ask_of(chaff), qty: 2, rest: false })
         .await?;
 
-    // Launch: out of the hub, flying.
+    // Launch: out of the hub, flying, its paint as worn as its life has made it on everyone's
+    // roster (the starter is second-hand).
+    assert_eq!(suit.weathering.level(), 2);
     b.launch().await?;
     assert_eq!(b.place(), Some(Place::Space));
+    b.wait_until(5.0, "its weathering on the roster", |c| {
+        c.world.own_slot().is_some_and(|slot| bc_client_core::weathering(&c.world, slot) == 2)
+    })
+    .await?;
     let own = b.world().own.expect("own suit");
     assert!(own.alive && own.frame == FrameId::Leo);
     assert_eq!(own.weapon_ready & 0b001, 0, "no beam rifle fitted");
@@ -168,6 +174,8 @@ async fn a_pilot_works_the_bay_launches_and_docks() -> anyhow::Result<()> {
     assert_eq!(outcome, Outcome::Docked);
     let back = docked(&b).expect("the suit is back in the bay");
     assert_eq!(back.parts, suit.parts, "nothing hit it");
+    // The paint remembers the sortie.
+    assert_eq!(back.weathering.sorties, suit.weathering.sorties + 1);
     assert!(back.modules.contains(&Some(ModuleKind::GSeat)), "the G-seat came home");
     assert!(back.propellant > 0 && back.propellant <= back.tank());
     // What the rack didn't use is back on the shelf.

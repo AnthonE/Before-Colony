@@ -20,6 +20,7 @@ use bc_sim::content::System;
 use bc_sim::content::kits::{Kit, RACK};
 
 use crate::wear::{SERVICE_FROM, service_cost};
+use crate::weathering::Weathering;
 use bc_sim::content::modules::MOUNTS;
 use bc_sim::content::systems::{DAMAGED, FAILED, OK};
 
@@ -44,6 +45,8 @@ fn worn_leo() -> Suit {
     suit.propellant = suit.tank() / 2;
     // Second-hand, and it shows inside too: its radiators are tired.
     suit.faults.set(System::Radiators, DAMAGED);
+    // And outside: a few campaigns' scuffs on its paint, before the pilot adds their own.
+    suit.weathering = Weathering { sorties: 6, thrust: 12 * 60 * bc_sim::TICK_HZ, damage: 120, overheats: 0 };
     suit
 }
 
@@ -141,6 +144,14 @@ impl Hangar {
         match &self.bay {
             Bay::Docked { suit } => Some(suit),
             _ => None,
+        }
+    }
+
+    /// How weathered the suit's paint is (`crate::weathering`), docked or out; 0 with no suit.
+    pub fn weathering(&self) -> u8 {
+        match &self.bay {
+            Bay::Docked { suit } | Bay::Out { suit } => suit.weathering.level(),
+            Bay::Empty => 0,
         }
     }
 
@@ -523,7 +534,10 @@ impl Hangar {
             Bay::Out { suit } | Bay::Docked { suit } => suit,
             Bay::Empty => Suit::complete(line_of(home.frame)),
         };
+        let before = suit.parts;
         suit.came_home(home);
+        // The paint remembers the sortie (`weathering`).
+        suit.weathering.sortie(&home.usage, &before, &suit.parts);
         // Wear from use: what's had its service life comes home a level worse.
         suit.wear.add(&home.usage);
         let (line, parts) = (suit.line, suit.parts);

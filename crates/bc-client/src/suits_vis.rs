@@ -164,7 +164,10 @@ fn build_suit(
     d: &SuitDrive,
 ) {
     let (body, trim, accent, eye) = livery(d.frame, d.faction);
-    let tag = HullTag::livery(body, trim, accent, eye, (d.slot as u8).wrapping_mul(37));
+    let tag = HullTag {
+        weathering: d.weathering,
+        ..HullTag::livery(body, trim, accent, eye, (d.slot as u8).wrapping_mul(37))
+    };
     let model = lib.model(d.frame, Lod::Near);
     let sockets = lib.sockets(d.frame);
     let mut bones = [Entity::PLACEHOLDER; BONES];

@@ -52,6 +52,19 @@ pub mod roster_flags {
     pub const VERIFIED: u8 = 1 << 0;
     /// Offline: asleep in the cockpit.
     pub const ASLEEP: u8 = 1 << 1;
+    /// How weathered the suit's paint is, 0 (factory fresh) to 7 (a veteran's): what its life
+    /// has done to it (`bc_econ::weathering`), in bits 2-4.
+    pub const WEATHERING: u8 = 0b111 << 2;
+
+    /// The flags' weathering bits for `level` (at most 7).
+    pub const fn weathering(level: u8) -> u8 {
+        (if level > 7 { 7 } else { level }) << 2
+    }
+
+    /// The weathering level in `flags`.
+    pub const fn weathering_of(flags: u8) -> u8 {
+        (flags & WEATHERING) >> 2
+    }
 }
 
 /// [`ControlMsg::Bye`] reasons.
@@ -507,6 +520,17 @@ impl Reader<'_> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn weathering_rides_its_own_bits() {
+        use super::roster_flags::*;
+        for level in 0..=7 {
+            let flags = VERIFIED | ASLEEP | weathering(level);
+            assert_eq!(weathering_of(flags), level);
+            assert_eq!(flags & (VERIFIED | ASLEEP), VERIFIED | ASLEEP);
+        }
+        assert_eq!(weathering(9), weathering(7));
+    }
+
     use super::*;
 
     #[test]
@@ -533,7 +557,7 @@ mod tests {
                 slot: 77,
                 pilot: PilotKind::Human,
                 name: Name::new("Zechs"),
-                flags: roster_flags::VERIFIED | roster_flags::ASLEEP,
+                flags: roster_flags::VERIFIED | roster_flags::ASLEEP | roster_flags::weathering(6),
             },
             ControlMsg::Respawn { frame: FrameId::Leo },
             ControlMsg::Bye { reason: bye::TAKEN_OVER },

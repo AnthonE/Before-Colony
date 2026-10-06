@@ -391,6 +391,17 @@ impl Plugin for ShowcasePlugin {
 }
 
 /// The cast of each scene, in script order.
+/// How weathered each of a scene's suits is: the lineup runs its Leos from a veteran's (next to
+/// Wing Zero) through the middling to factory fresh at the end; the Leos at work have seen use.
+fn weathering(scene: Scene, i: usize) -> u8 {
+    match scene {
+        Scene::Lineup => [0, 7, 4, 2, 1, 3, 0].get(i).copied().unwrap_or(0),
+        Scene::Duel | Scene::Chase => [0, 5, 2].get(i).copied().unwrap_or(0),
+        Scene::Salvage | Scene::Mining | Scene::Surface | Scene::Field => 4,
+        _ => 0,
+    }
+}
+
 fn cast(scene: Scene) -> Vec<(FrameId, Faction)> {
     use FrameId::*;
     match scene {
@@ -796,6 +807,7 @@ fn spawn_showcase(mut commands: Commands, mut show: ResMut<Show>, font: Res<crat
                 parts: [7; Part::COUNT],
                 holding: None,
                 ground: None,
+                weathering: weathering(show.scene, i),
             };
             commands.spawn((d, Transform::from_translation(LINEUP), Visibility::default())).id()
         })

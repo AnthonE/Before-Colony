@@ -2,10 +2,12 @@
 //! baked into one mesh per bone.
 //!
 //! Every vertex carries four numbers in its colour, which the client's hull shader reads: r, the
-//! paint slot ([`Paint`]); g, 1 on a bevel (worn edges catch the light there); b, a panel seed (so
+//! paint slot ([`Paint`]: 0-3 the livery's, 16+ fixed, 32+ bare metal, 48+ glowing, 64+ the
+//! palette's second bank, 80+ the running lights, 96+ a unit number's segments); g, 1 on a bevel (worn edges catch the light there); b, a panel seed (so
 //! neighbouring pieces don't share a plate layout); a, its ambient occlusion (1 open, less where
 //! other pieces crowd it: see [`crate::ao`]). Normals are flat on every face and bevel, and smooth
-//! only round the axis of a turned shape, so edges stay crisp.
+//! on a turned shape round its axis and along its profile's gentle bends (a dome, an egg, a ball),
+//! so edges stay crisp and curves read as curves.
 //!
 //! Each shape also leaves a simple stand-in for its volume (a [`Proxy`]) for the occlusion bake.
 
@@ -25,6 +27,32 @@ pub enum Paint {
     Fixed(u8),
     Metal(u8),
     Glow(u8),
+    /// One of the suit's running lights, lit by the hull shader in its own colour and rhythm; dark
+    /// on a wreck and while its pilot sleeps.
+    Light(Light),
+    /// A segment of a stencilled unit number: `place` 0 the tens, 1 the units; `segment` 0-6 the
+    /// seven-segment digit's a to g. The hull shader paints it where the suit's own number lights
+    /// it and leaves it the body's paint elsewhere, so one mesh carries every suit's number.
+    Digit {
+        place: u8,
+        segment: u8,
+    },
+}
+
+/// A suit's running lights (the hull shader's `light()` draws each).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Light {
+    /// Steady red on the suit's own left, as on an aircraft or a ship: +x, since the suit faces +z
+    /// with y up.
+    Port,
+    /// Steady green on its right (-x).
+    Starboard,
+    /// White, two quick flashes every 1.6 s.
+    Strobe,
+    /// Red anti-collision beacon, a pulse every 1.2 s.
+    Beacon,
+    /// A lamp lit steady and soft, warm white: sensor lamps, floodlights.
+    Lamp,
 }
 
 impl Paint {
@@ -39,6 +67,8 @@ impl Paint {
             Paint::Fixed(k) => 16 + u32::from(k),
             Paint::Metal(k) => 32 + u32::from(k & 15),
             Paint::Glow(k) => 48 + u32::from(k & 15),
+            Paint::Light(l) => 80 + l as u32,
+            Paint::Digit { place, segment } => 96 + u32::from(place.min(1)) * 7 + u32::from(segment.min(6)),
         };
         slot as f32 / 255.0
     }
@@ -114,6 +144,11 @@ impl Proxy {
     }
 }
 
+/// Where a turned shape's profile bends by less than this (radians), the segments either side
+/// share their normal, so the curve shades smooth; a sharper corner (a cylinder's rim, a band's
+/// edge) stays crisp.
+const SMOOTH_BEND: f32 = 0.6;
+
 /// A mesh being built.
 #[derive(Default)]
 pub struct Builder {
@@ -138,6 +173,19 @@ pub fn mirrored(xf: Affine3A) -> Affine3A {
 }
 
 impl Builder {
+    /// Moves everything built so far by `d`.
+    pub fn translate(&mut self, d: Vec3) {
+        if d == Vec3::ZERO {
+            return;
+        }
+        for p in &mut self.pos {
+            *p = (Vec3::from(*p) + d).to_array();
+        }
+        for (_, proxy) in &mut self.prims {
+            *proxy = proxy.shifted(d);
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.idx.is_empty()
     }
@@ -285,6 +333,7 @@ impl Builder {
     /// A turned shape round local +y: `profile` runs bottom to top as (radius, height); a radius
     /// of 0 closes that end. Smooth round the axis, faceted along the profile.
     pub fn lathe(&mut self, profile: &[(f32, f32)], segments: u32, paint: Paint, xf: Affine3A) {
+        let profile = &facing_out(profile)[..];
         let lin = Mat3::from(xf.matrix3);
         if let (Some(lo), Some(hi)) =
             (profile.iter().map(|p| p.1).reduce(f32::min), profile.iter().map(|p| p.1).reduce(f32::max))
@@ -317,6 +366,7 @@ impl Builder {
         if profile.len() < 2 {
             return;
         }
+        let profile = &facing_out(profile)[..];
         let ring = |r: f32, y: f32, t: f32| xf.transform_point3(Vec3::new(r * t.cos(), y, r * t.sin()));
         // An arc wraps round empty space, so it occludes as a speck at its middle (it's no convex
         // volume a neighbour could hide under).
@@ -351,20 +401,52 @@ impl Builder {
         let normal_m = lin.inverse().transpose();
         // A mirror, or a sweep running backwards, turns the faces round.
         let flip = (lin.determinant() < 0.0) != (to < from);
-        for w in profile.windows(2) {
-            let ((r0, y0), (r1, y1)) = (w[0], w[1]);
-            let (dr, dy) = (r1 - r0, y1 - y0);
-            if dr.abs() + dy.abs() < 1e-6 {
-                continue;
+        // Each segment's normal in the profile's (radius, height) plane, None where it has no length.
+        let normals: Vec<Option<Vec2>> = profile
+            .windows(2)
+            .map(|w| Vec2::new(w[1].1 - w[0].1, -(w[1].0 - w[0].0)).try_normalize())
+            .collect();
+        let closed = profile.len() > 3 && profile[0] == profile[profile.len() - 1];
+        // The nearest segment with a length before or after segment `i` (round the loop if closed).
+        let neighbour = |i: usize, step: isize| {
+            let n = normals.len() as isize;
+            let mut j = i as isize;
+            for _ in 1..n {
+                j += step;
+                if closed {
+                    j = j.rem_euclid(n);
+                } else if !(0..n).contains(&j) {
+                    return None;
+                }
+                if let Some(m) = normals[j as usize] {
+                    return Some(m);
+                }
             }
+            None
+        };
+        // A segment's normal at one of its ends: shared with the next segment over a gentle bend.
+        let at_end = |own: Vec2, other: Option<Vec2>| match other {
+            Some(o) if own.angle_to(o).abs() < SMOOTH_BEND => (own + o).normalize_or(own),
+            _ => own,
+        };
+        // On the axis, a gently domed cap looks straight along it (a cone's point keeps its own).
+        let on_axis = |r: f32, m: Vec2| {
+            let axis = Vec2::new(0.0, m.y.signum());
+            if r.abs() < 1e-6 && m.angle_to(axis).abs() < SMOOTH_BEND { axis } else { m }
+        };
+        for (i, w) in profile.windows(2).enumerate() {
+            let ((r0, y0), (r1, y1)) = (w[0], w[1]);
+            let Some(own) = normals[i] else { continue };
+            let ends =
+                [on_axis(r0, at_end(own, neighbour(i, -1))), on_axis(r1, at_end(own, neighbour(i, 1)))];
             let base = self.pos.len() as u32;
             let col = [paint.code(), 0.0, self.seed, 1.0];
             for k in 0..=seg {
                 let t = from + k as f32 / seg as f32 * (to - from);
                 let (s, co) = t.sin_cos();
-                let local_n = Vec3::new(dy * co, -dr, dy * s).normalize_or(Vec3::Y);
-                let n = (normal_m * local_n).normalize_or(Vec3::Y);
-                for (r, y) in [(r0, y0), (r1, y1)] {
+                for ((r, y), m) in [(r0, y0), (r1, y1)].into_iter().zip(ends) {
+                    let local_n = Vec3::new(m.x * co, m.y, m.x * s).normalize_or(Vec3::Y);
+                    let n = (normal_m * local_n).normalize_or(Vec3::Y);
                     self.pos.push(xf.transform_point3(Vec3::new(r * co, y, r * s)).to_array());
                     self.nrm.push(n.to_array());
                     self.col.push(col);
@@ -443,6 +525,24 @@ impl Builder {
     pub fn finish(self) -> MeshData {
         MeshData { positions: self.pos, normals: self.nrm, colors: self.col, indices: self.idx }
     }
+}
+
+/// A turned shape's profile, run the way that faces its surface out: one closed on the axis at both
+/// ends from bottom to top, a closed loop counter-clockwise in (radius, height). Any other runs as
+/// given, its direction saying which side is outside (a bell's lip turns back down its inside).
+fn facing_out(profile: &[(f32, f32)]) -> std::borrow::Cow<'_, [(f32, f32)]> {
+    let (Some(&first), Some(&last)) = (profile.first(), profile.last()) else {
+        return profile.into();
+    };
+    let backwards = if profile.len() > 3 && first == last {
+        let n = profile.len() - 1;
+        let area: f32 =
+            (0..n).map(|i| profile[i].0 * profile[i + 1].1 - profile[i + 1].0 * profile[i].1).sum();
+        area < 0.0
+    } else {
+        first.0 == 0.0 && last.0 == 0.0 && first.1 > last.1
+    };
+    if backwards { profile.iter().rev().copied().collect::<Vec<_>>().into() } else { profile.into() }
 }
 
 /// Triangulates a simple counter-clockwise polygon by ear clipping.
@@ -560,10 +660,61 @@ mod tests {
         }
     }
 
+    /// A ball shades round along its profile as well as round its axis (every normal off its pole
+    /// points out from its centre), while a cylinder keeps its rims crisp: its wall's normals
+    /// level, its caps' upright.
+    #[test]
+    fn turned_shapes_are_smooth_over_gentle_bends_only() {
+        let mut ball = Builder::default();
+        ball.sphere(1.0, 10, Paint::Body, at(0.0, 2.0, 0.0));
+        for (p, n) in ball.vertices() {
+            let d = p - Vec3::Y * 2.0;
+            if d.x.hypot(d.z) > 1e-3 {
+                assert!(n.angle_between(d.normalize()) < 0.02, "{p}: {n}");
+            }
+        }
+        let mut can = Builder::default();
+        can.cylinder(1.0, 2.0, 12, Paint::Body, Affine3A::IDENTITY);
+        for (p, n) in can.vertices() {
+            assert!(n.y.abs() < 1e-4 || (n.y.abs() - 1.0).abs() < 1e-4, "{p}: {n}");
+        }
+    }
+
+    /// However a closed profile is written, top down or clockwise, its solid faces out: its signed
+    /// volume is positive.
+    #[test]
+    fn closed_profiles_face_out_either_way() {
+        let lens = [(0.0, 0.1), (0.28, 0.1), (0.26, 0.17), (0.0, 0.24)];
+        let ring = [(1.0, -0.1), (1.2, -0.1), (1.2, 0.1), (1.0, 0.1), (1.0, -0.1)];
+        let volume = |b: &Builder| -> f32 {
+            b.idx
+                .chunks(3)
+                .map(|t| {
+                    let [a, bb, c] = [t[0], t[1], t[2]].map(|i| Vec3::from(b.pos[i as usize]));
+                    a.dot(bb.cross(c)) / 6.0
+                })
+                .sum()
+        };
+        for profile in [lens.to_vec(), ring.to_vec()] {
+            let backwards: Vec<_> = profile.iter().rev().copied().collect();
+            for p in [profile, backwards] {
+                let mut b = Builder::default();
+                b.lathe(&p, 24, Paint::Body, Affine3A::IDENTITY);
+                assert!(volume(&b) > 0.0, "{p:?} faces in");
+            }
+        }
+    }
+
     #[test]
     fn the_second_bank_codes_from_64() {
         let slot = |p: Paint| (p.code() * 255.0).round() as u32;
         assert_eq!(slot(Paint::Fixed(crate::paint::GLASS)), 16 + 15);
         assert_eq!(slot(Paint::Fixed(crate::paint::FRAME_BROWN)), 64);
+        // The lights code from 80, in the order the hull shader's `light()` takes them.
+        assert_eq!(slot(Paint::Light(Light::Port)), 80);
+        assert_eq!(slot(Paint::Light(Light::Lamp)), 84);
+        // A unit number's segments from 96: the tens' a to g, then the units'.
+        assert_eq!(slot(Paint::Digit { place: 0, segment: 0 }), 96);
+        assert_eq!(slot(Paint::Digit { place: 1, segment: 6 }), 109);
     }
 }
