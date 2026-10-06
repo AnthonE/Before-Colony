@@ -39,7 +39,10 @@ const PALETTE: [(f32, f32, f32, f32); paint::COUNT] = [
     (0.66, 0.71, 0.8, 0.2),
     (0.26, 0.28, 0.31, 0.32),
     (0.02, 0.025, 0.03, 0.08),
-    (0.3, 0.26, 0.2, 0.55),
+    (0.33, 0.24, 0.18, 0.55),
+    (0.78, 0.22, 0.16, 0.45),
+    (0.96, 0.66, 0.12, 0.12),
+    (0.62, 0.66, 0.76, 0.12),
 ];
 
 /// Each ore kind's colour (sRGB) and how metallic it is: nickel-iron, titanium, volatiles, exotics.

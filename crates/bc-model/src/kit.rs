@@ -138,6 +138,19 @@ pub fn mirrored(xf: Affine3A) -> Affine3A {
 }
 
 impl Builder {
+    /// Moves everything built so far by `d`.
+    pub fn translate(&mut self, d: Vec3) {
+        if d == Vec3::ZERO {
+            return;
+        }
+        for p in &mut self.pos {
+            *p = (Vec3::from(*p) + d).to_array();
+        }
+        for (_, proxy) in &mut self.prims {
+            *proxy = proxy.shifted(d);
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.idx.is_empty()
     }
