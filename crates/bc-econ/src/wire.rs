@@ -86,6 +86,17 @@ pub enum Request {
     /// trainers and fly it from there (the inside's sector, weapons free in the hall). Nothing of
     /// the pilot's own is taken; `dock`, at rest on the gantry, puts them back on foot there.
     BoardTrainer,
+    /// At the Blast Hall's desk: what the gantry readies for the pilot to board (`proving::Trainer`:
+    /// the Board's Leo, the build in their bay, or a new suit of any line). Answered with a note
+    /// and the board.
+    Trainer {
+        build: crate::proving::Trainer,
+    },
+    /// The Most Wanted: how the pilot takes an ace's bounty (`salvage`: the rights to its wreck,
+    /// which the tugs bring home; else pay).
+    AceTerms {
+        salvage: bool,
+    },
     /// The Charter Board: post a supply contract (its reward goes into escrow), take one down,
     /// deliver to one from the stores, take or give up a patrol.
     Post {
@@ -124,6 +135,13 @@ pub enum Request {
     UseKit {
         #[serde(with = "kit_serde")]
         kit: Kit,
+    },
+    /// In flight: eject from the suit (any time; never inside the colony), or, `destruct`, blow up
+    /// the doomed suit with the pilot aboard (`docs/DESIGN.md`, "Doom and ejecting"). Nothing
+    /// answers but what happens: the suit's loss, and the tugs' word on its wreck.
+    Eject {
+        #[serde(default)]
+        destruct: bool,
     },
     /// Say something on the colony's radio, to everyone connected (any rules): at most
     /// [`SAY_MAX_CHARS`] of it, cleaned ([`clean_line`]).
@@ -204,10 +222,12 @@ pub enum Update {
         text: String,
         ok: bool,
     },
-    /// A sortie ended.
+    /// A sortie ended, and (survival) its payout sheet.
     Sortie {
         outcome: Outcome,
         text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        debrief: Option<crate::debrief::Debrief>,
     },
     /// News for the pilot (a first arrival; the colony's announcements).
     News {
@@ -340,6 +360,7 @@ pub fn apply(
         | Request::TakePatrol { .. }
         | Request::DropPatrol { .. }
         | Request::Contribute { .. }
+        | Request::AceTerms { .. }
         | Request::Sign => return None,
         Request::Craft { item, batches } => hangar.craft(*item, *batches, now, rules),
         Request::CancelJob { station, index } => hangar.cancel_job(*station, *index, now),
@@ -364,11 +385,13 @@ pub fn apply(
         | Request::Launch
         | Request::LaunchInside
         | Request::BoardTrainer
+        | Request::Trainer { .. }
         | Request::Dock
         | Request::EnterCity { .. }
         | Request::LeaveCity
         | Request::WatchBoard { .. }
         | Request::UseKit { .. }
+        | Request::Eject { .. }
         | Request::Say { .. } => return None,
     })
 }
@@ -398,6 +421,7 @@ pub fn apply_charter(
             board.contribute(hangar, trader, name, work, item, qty, now)
         }
         Request::Sign => board.sign(trader, name, now),
+        Request::AceTerms { salvage } => board.set_terms(trader, salvage),
         _ => return None,
     })
 }
@@ -502,8 +526,15 @@ mod tests {
             (r#"{"t":"launch"}"#, Request::Launch),
             (r#"{"t":"launch_inside"}"#, Request::LaunchInside),
             (r#"{"t":"board_trainer"}"#, Request::BoardTrainer),
+            (
+                r#"{"t":"trainer","build":{"kind":"bay"}}"#,
+                Request::Trainer { build: crate::proving::Trainer::Bay },
+            ),
+            (r#"{"t":"ace_terms","salvage":true}"#, Request::AceTerms { salvage: true }),
             (r#"{"t":"dock"}"#, Request::Dock),
             (r#"{"t":"use_kit","kit":"chaff"}"#, Request::UseKit { kit: Kit::Chaff }),
+            (r#"{"t":"eject"}"#, Request::Eject { destruct: false }),
+            (r#"{"t":"eject","destruct":true}"#, Request::Eject { destruct: true }),
             (r#"{"t":"say","text":"o7"}"#, Request::Say { text: "o7".into() }),
         ];
         for (json, req) in cases {

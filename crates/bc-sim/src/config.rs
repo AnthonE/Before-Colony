@@ -63,6 +63,8 @@ pub struct SimConfig {
     /// spin's pull and the air, weapons safe by the colony's law. Clients are told in their
     /// Welcome. An interior has no Mobile Dolls, no field and no landmarks.
     pub world: crate::colony::interior::WorldKind,
+    /// Ticks between Zodiac's aces (`content::aces`), one out at a time among the Dolls; 0: none.
+    pub ace_every: u32,
 }
 
 impl SimConfig {
@@ -94,6 +96,7 @@ impl Default for SimConfig {
             survival: false,
             flight: crate::tuning::FlightRules::Real,
             world: crate::colony::interior::WorldKind::Space,
+            ace_every: crate::content::aces::ACE_EVERY,
         }
     }
 }

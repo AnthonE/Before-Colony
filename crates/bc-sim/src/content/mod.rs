@@ -5,6 +5,7 @@
 //! consistent: acceleration comes from thrust and current mass, propellant burns at
 //! `thrust / (Isp·g0)`, and delta-v is finite.
 
+pub mod aces;
 pub mod body;
 pub mod city;
 mod frames;
@@ -14,6 +15,8 @@ pub mod melee;
 pub mod modules;
 mod names;
 pub mod salvage;
+pub mod specials;
+pub mod stagger;
 pub mod systems;
 mod weapons;
 

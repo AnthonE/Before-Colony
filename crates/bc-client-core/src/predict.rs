@@ -19,9 +19,9 @@
 //! is measured there, so the body's motion (exact on both sides) never reads as an error. A rock
 //! that shatters underfoot does so from the tick the server broke it, however late the news.
 
-use bc_proto::buttons::{GRIP, MODE};
+use bc_proto::buttons::{GRAB, GRIP, MODE, THROW};
 use bc_proto::snapshot::{footing, own_flags};
-use bc_proto::{FrameId, InputCmd, OwnState, Part};
+use bc_proto::{FrameId, InputCmd, OwnState, Part, WeaponKind};
 use bc_sim::arms::{ArmsClock, busy_ambac};
 use bc_sim::bodies::{Bodies, Body, BodyPose, MAX_LANDMARKS, landmark_pose};
 use bc_sim::config::MAX_REWIND_TICKS;
@@ -255,6 +255,11 @@ pub struct Predictor {
     pub form: Form,
     /// The arms after the newest generated command: a strike under way, how lately a weapon fired.
     pub arms: ArmsClock,
+    /// Ticks the suit stays staggered after the newest generated command (`bc_sim::sim::stagger`).
+    pub stagger: u8,
+    /// The gun in hand as of the newest snapshot (`bc_sim::content::salvage::held_gun`), as the
+    /// world tells it: the own state says what's held, the objects what it is.
+    in_hand: Option<WeaponKind>,
     /// The suit's stat sheet and flight modifiers, as the server's (AMBAC's with the arms idle).
     flying: Flying,
     /// The suit's legs are there (it can walk and hop).
@@ -296,6 +301,8 @@ impl Default for Predictor {
             tick: 0,
             form: Form { frame: FrameId::Leo, timer: 0 },
             arms: ArmsClock::default(),
+            stagger: 0,
+            in_hand: None,
             flying: Flying::default(),
             legs_ok: true,
             unheard: InputCmd::default(),
@@ -402,12 +409,15 @@ impl Predictor {
     }
 
     /// One command's tick, in the server's order: the form steps (a change drops a strike), the
-    /// suit moves among the bodies with the arms as they stood, then the arms move on.
+    /// suit moves among the bodies with the arms as they stood, then the arms move on, and a
+    /// stagger runs down.
+    #[allow(clippy::too_many_arguments)]
     fn step(
         bodies: &Bodies,
         m: &mut Mover,
         form: &mut Form,
         arms: &mut ArmsClock,
+        stagger: &mut u8,
         flying: &Flying,
         legs_ok: bool,
         cmd: &InputCmd,
@@ -427,17 +437,36 @@ impl Predictor {
         let spec = frame(form.frame);
         let mut mods = flying.mods;
         mods.main *= sputter(&flying.tuning, cmd.tick, flying.slot);
-        if form.changing() {
-            mods.thrust *= transform_thrust(form);
-        }
         if arms.busy(cmd.tick) {
             mods.ambac = busy_ambac(mods.ambac);
         }
         mods.lunge = arms.lunging(spec);
+        // Staggered: it tumbles, its thrust cut and its weapons down, as the server flies it (and
+        // in its order: the stagger's cut, then a change of form's).
+        let staggered = *stagger > 0;
+        if staggered {
+            mods.staggered = true;
+            mods.thrust *= bc_sim::content::stagger::STAGGER_THRUST;
+        }
+        if form.changing() {
+            mods.thrust *= transform_thrust(form);
+        }
         let cx = MoveCtx { spec, mods, can_grip: spec.has_legs() && !form.changing(), legs_ok };
         let out = move_step(bodies, m, cmd, &cx, DT);
-        arms.tick(spec, cmd, form.changing(), cmd.tick);
+        // A gun in hand is let go of after the tick's guns, as the server's salvage step does.
+        let thrown = cmd.pressed(THROW) && arms.prev_buttons & THROW == 0;
+        arms.tick(spec, cmd, form.changing() || staggered, cmd.tick);
+        if !cmd.pressed(GRAB) || thrown {
+            arms.in_hand = None;
+        }
+        *stagger = stagger.saturating_sub(1);
         out
+    }
+
+    /// The gun in the suit's hand as of the newest snapshot (`bc_sim::content::salvage::held_gun`),
+    /// before it's reconciled with.
+    pub fn set_in_hand(&mut self, gun: Option<WeaponKind>) {
+        self.in_hand = gun;
     }
 
     /// Flies `cmd` from the newest state and keeps the tick.
@@ -446,8 +475,16 @@ impl Predictor {
         let mut m = self.mover();
         // (The field alone is borrowed, so the form and the arms can move.)
         let bodies = Bodies::at(&self.field, self.landmarks(), cmd.tick).inside(self.interior);
-        let out =
-            Self::step(&bodies, &mut m, &mut self.form, &mut self.arms, &self.flying, self.legs_ok, cmd);
+        let out = Self::step(
+            &bodies,
+            &mut m,
+            &mut self.form,
+            &mut self.arms,
+            &mut self.stagger,
+            &self.flying,
+            self.legs_ok,
+            cmd,
+        );
         self.set_mover(&m);
         self.keep(Sample::of(cmd.tick, &m, &out, self.form.frame, &self.arms));
     }
@@ -625,6 +662,8 @@ impl Predictor {
             InputCmd::stand_in(&last, server_tick, server_tick - last.tick)
         };
         self.arms = ArmsClock::from_own(own, server_tick, flown.buttons);
+        self.arms.in_hand = self.in_hand;
+        self.stagger = own.stagger;
         // A break dated at or before the snapshot is behind every tick replayed from it.
         let (field, deaths) = (&mut self.field, &mut self.rock_deaths);
         deaths.retain(|&(r, from)| {
@@ -821,7 +860,7 @@ mod tests {
                 None => InputCmd::stand_in(&last, t, t - last.tick),
             };
             let bodies = Bodies::at(&field, &LANDMARKS, t);
-            Predictor::step(&bodies, &mut m, &mut form, &mut arms, &mods, true, &c);
+            Predictor::step(&bodies, &mut m, &mut form, &mut arms, &mut 0, &mods, true, &c);
         }
         m.flight
     }

@@ -1,7 +1,8 @@
 //! Conversions from simulation state to the wire structs in `bc-proto`.
 
 use bc_proto::snapshot::{
-    OwnArms, ZERO_THREATS as WIRE_THREATS, ZeroThreat, ent_flags, footing, own_flags, part_buckets, zero_mode,
+    OwnArms, TARGET_STAGGERED, ZERO_THREATS as WIRE_THREATS, ZeroThreat, ent_flags, footing, own_flags,
+    part_buckets, zero_mode,
 };
 use bc_proto::{EntityState, ObjectState, OwnState, OwnSurface, RiderOn, RockState, ZeroInfo};
 use glam::Vec3;
@@ -36,6 +37,10 @@ impl Sim {
             return false;
         }
         let wreck = !s.alive.get(j);
+        // A suit blown apart by its own reactor left nothing to see.
+        if wreck && s.blown.get(j) {
+            return false;
+        }
         if wreck
             && s.respawn_at[j] != 0
             && self.tick() + 60 < s.respawn_at[j] + 60
@@ -78,11 +83,15 @@ impl Sim {
                 }
             }
         }
+        // A gun in hand takes the secondary's place (`content::salvage::held_gun`).
+        if self.gun_in_hand(i).is_some() {
+            ready = (ready & !(1 << 1)) | u8::from(self.hand_gun_ready(i)) << 1;
+        }
         if self.special_ready(i) {
             ready |= 1 << 3;
         }
-        // Inside the colony nothing is ready to fire but in the Blast Hall.
-        if self.interior() && !crate::colony::hall::weapons_free(f.pos) {
+        // Inside the colony nothing is ready to fire but in the Blast Hall; staggered, nothing is.
+        if (self.interior() && !crate::colony::hall::weapons_free(f.pos)) || self.staggered(i) {
             ready = 0;
         }
         let charge = spec.loadout[0]
@@ -193,7 +202,10 @@ impl Sim {
             g_strain: f.g_strain,
             heat: (s.heat[i] / spec.heat_cap).clamp(0.0, 1.0),
             energy: (s.energy[i] / (spec.energy_cap * s.tuning[i].energy_cap)).clamp(0.0, 1.0),
-            ammo: [s.weapons[i][0].ammo, s.weapons[i][1].ammo],
+            ammo: [
+                s.weapons[i][0].ammo,
+                if self.gun_in_hand(i).is_some() { s.held_gun[i].ammo } else { s.weapons[i][1].ammo },
+            ],
             weapon_ready: ready,
             charge,
             parts: s.part_fractions(i),
@@ -216,12 +228,29 @@ impl Sim {
             lock_target: self.designation(i).map_or(bc_proto::NO_SLOT, |j| j as u16),
             lock_progress,
             special_timer: special_timer.min(255) as u8,
-            special_cooldown: s.special[i].cooldown.div_ceil(4).min(255) as u8,
+            special_charge: self.special_charge(i),
             arms: self.own_arms(i),
             burst: f.burst,
             surface,
             cover: self.cover_code(i),
+            doom: s.doom[i]
+                .left
+                .div_ceil(u16::from(bc_proto::snapshot::DOOM_STEP))
+                .min(u16::from(bc_proto::snapshot::DOOM_MAX)) as u8,
+            impact: self.impact_steps(i),
+            stagger: s.stagger[i].min(bc_proto::snapshot::STAGGER_MAX),
+            target_impact: self
+                .designation(i)
+                .filter(|&j| s.alive.get(j))
+                .map_or(0, |j| if self.staggered(j) { TARGET_STAGGERED } else { self.impact_steps(j) }),
         }
+    }
+
+    /// Suit `i`'s impact as the own state carries it: a share of what it stands, in
+    /// [`IMPACT_MAX`](bc_proto::snapshot::IMPACT_MAX)ths.
+    fn impact_steps(&self, i: usize) -> u8 {
+        let max = bc_proto::snapshot::IMPACT_MAX;
+        crate::math::floor(self.impact_share(i) * f32::from(max) + 0.5).clamp(0.0, f32::from(max)) as u8
     }
 
     /// Suit `i`'s arms for its own pilot's client, which rolls them on tick by tick
@@ -260,6 +289,13 @@ impl Sim {
             if w.class == WeaponClass::Missile && slot < 2 && arm && ws.ammo > 0 {
                 (arms.salvo[slot], arms.salvo_gap[slot]) = (ws.salvo, ws.gap);
             }
+        }
+        // A gun in hand on the secondary's trigger: its wait, and no salvo.
+        if let Some((gun, right)) = self.gun_in_hand(i) {
+            let (w, ws) = (weapon(gun), &s.held_gun[i]);
+            let can = s.energy[i] >= w.energy && (w.ammo == 0 || ws.ammo > 0) && s.hand_works(i, right);
+            arms.wait[1] = if can { OwnArms::wait(ws.cooldown) } else { OwnArms::NEVER };
+            (arms.salvo[1], arms.salvo_gap[1]) = (0, 0);
         }
         let cooldown = OwnArms::wait(s.special[i].cooldown);
         arms.wait[3] = match spec.special {

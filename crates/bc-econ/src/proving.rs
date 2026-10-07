@@ -7,9 +7,78 @@
 //! their own marked, and nobody's key. A pilot is on each of the day's lists once, with their best;
 //! the lists turn over at midnight UTC.
 
+use bc_proto::FrameId;
 use bc_sim::colony::course::{Class, PAR_S};
 use bc_sim::colony::hall::DRILL_PAR_S;
+use bc_sim::content::kits::Kit;
+use bc_sim::sim::Loadout;
 use serde::{Deserialize, Serialize};
+
+use crate::faults::Faults;
+use crate::hangar::{Bay, Hangar};
+use crate::item::{is_line, line_serde};
+use crate::suit::Suit;
+
+/// The suit a pilot boards at the Blast Hall's gantry (`docs/DESIGN.md`, "The test range";
+/// Armored Core VI's test mode): one of the Charter Board's Leos, the build standing in their bay,
+/// or a new suit of any line the colony builds. Nothing of theirs is taken, and nothing comes home.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Trainer {
+    /// One of the Board's Leos, everything fitted.
+    #[default]
+    Board,
+    /// The suit in the pilot's bay as built, new and full: its parts, weapons and equipment, with
+    /// none of its wear, a full tank and full loads (and nothing in its rack).
+    Bay,
+    /// A new suit of `line`, everything fitted: to try before building it.
+    Line {
+        #[serde(with = "line_serde")]
+        line: FrameId,
+    },
+}
+
+impl Trainer {
+    /// The frame that boards and what it carries; or why there's nothing to board.
+    pub fn loadout(self, hangar: &Hangar) -> Result<(FrameId, Loadout), String> {
+        match self {
+            Trainer::Board => Ok((FrameId::Leo, Loadout::full(FrameId::Leo))),
+            Trainer::Bay => match &hangar.bay {
+                Bay::Docked { suit } => {
+                    let mut s = suit.clone();
+                    for p in s.parts.iter_mut().flatten() {
+                        *p = 100;
+                    }
+                    s.faults = Faults::NONE;
+                    s.propellant = s.tank();
+                    for m in 0..3 {
+                        s.ammo[m] = s.full_load(m);
+                    }
+                    s.kits = [0; Kit::COUNT];
+                    Ok((s.line, s.loadout()))
+                }
+                Bay::Out { .. } => Err("your suit is out: try it when it's back in the bay".into()),
+                Bay::Empty => Err("there's no suit standing in your bay to try".into()),
+            },
+            Trainer::Line { line } if is_line(line) => Ok((line, Suit::complete(line).loadout())),
+            Trainer::Line { .. } => Err("the colony doesn't build that".into()),
+        }
+    }
+
+    /// What the gantry readies, for the pilot.
+    pub fn name(self, hangar: &Hangar) -> String {
+        match self {
+            Trainer::Board => "ONE OF THE CHARTER BOARD'S LEOS".into(),
+            Trainer::Bay => match &hangar.bay {
+                Bay::Docked { suit } => {
+                    format!("YOUR {}, AS BUILT", bc_sim::content::frame_name(suit.line).to_uppercase())
+                }
+                _ => "YOUR BAY'S BUILD".into(),
+            },
+            Trainer::Line { line } => format!("A NEW {}", bc_sim::content::frame_name(line).to_uppercase()),
+        }
+    }
+}
 
 /// How many of the day's best each list keeps.
 pub const KEPT: usize = 10;
@@ -175,6 +244,7 @@ impl Board {
             course_par_ms: (PAR_S * 1_000.0) as u32,
             drill_par_ms: (DRILL_PAR_S * 1_000.0) as u32,
             mine: Bests::default(),
+            trainer: Trainer::Board,
         }
     }
 }
@@ -194,6 +264,9 @@ pub struct BoardView {
     /// The pilot's own best (a signed-in pilot's, ever; a guest's, this visit).
     #[serde(default)]
     pub mine: Bests,
+    /// What the gantry readies for them (`Trainer`).
+    #[serde(default)]
+    pub trainer: Trainer,
 }
 
 /// A time on the board as a pilot sees it: whose (by name), and whether it's theirs.
@@ -240,6 +313,7 @@ impl Bests {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bc_proto::Part;
 
     const NOON: u64 = 20_000 * DAY + DAY / 2;
 
@@ -314,5 +388,35 @@ mod tests {
         // A board saved before records were kept loads.
         let old: Board = serde_json::from_str(r#"{"day":3,"course":[],"drill":[]}"#).unwrap();
         assert_eq!(old.day, 3);
+    }
+
+    /// The test range: the Board's Leo; the bay's build, new and full, whatever it's been
+    /// through; a new suit of any line; and nothing when there's nothing to try.
+    #[test]
+    fn the_gantry_readies_any_build() {
+        let mut h = Hangar::starter();
+        let (frame, l) = Trainer::Board.loadout(&h).unwrap();
+        assert_eq!((frame, l), (FrameId::Leo, Loadout::full(FrameId::Leo)));
+        // The starter: a worn Leo without its beam rifle, half a tank.
+        let (frame, l) = Trainer::Bay.loadout(&h).unwrap();
+        assert_eq!(frame, FrameId::Leo);
+        assert_eq!(l.mounts & 1, 0, "its build has no rifle, and neither has its trainer");
+        assert!(l.parts.iter().all(|p| *p == 1.0), "as new: {:?}", l.parts);
+        assert_eq!(l.propellant, crate::suit::Suit::complete(FrameId::Leo).propellant as f32);
+        let leo = bc_sim::content::frame_name(FrameId::Leo).to_uppercase();
+        assert_eq!(Trainer::Bay.name(&h), format!("YOUR {leo}, AS BUILT"));
+        // Out on a sortie, or nothing there at all: nothing to try.
+        let _ = h.launch().unwrap();
+        assert!(Trainer::Bay.loadout(&h).is_err());
+        h.bay = Bay::Empty;
+        assert!(Trainer::Bay.loadout(&h).is_err());
+        // Any line the colony builds; a Mobile Doll isn't one.
+        let (frame, l) = Trainer::Line { line: FrameId::Heavyarms }.loadout(&h).unwrap();
+        assert_eq!((frame, l.parts[Part::Torso as usize]), (FrameId::Heavyarms, 1.0));
+        assert!(Trainer::Line { line: FrameId::Taurus }.loadout(&h).is_err());
+        // On the wire as the page sends it.
+        let json = serde_json::to_string(&Trainer::Line { line: FrameId::WingZero }).unwrap();
+        assert_eq!(json, r#"{"kind":"line","line":"wingzero"}"#);
+        assert_eq!(serde_json::from_str::<Trainer>(r#"{"kind":"bay"}"#).unwrap(), Trainer::Bay);
     }
 }

@@ -52,6 +52,34 @@ pub fn state_hash(sim: &Sim) -> u64 {
         }
         let (k, g, right) = s.held[i];
         h.u32(u32::from(k) | u32::from(g) << 16 | u32::from(right) << 24);
+        // One of Zodiac's aces (only then).
+        if s.ace[i] != crate::content::aces::NO_ACE {
+            h.u32(0xACE0_0000 | u32::from(s.ace[i]));
+        }
+        // The gun in hand (only while there is one).
+        if sim.gun_in_hand(i).is_some() {
+            let gun = s.held_gun[i];
+            h.u32(0x6A11_0000 | u32::from(gun.cooldown));
+            h.u32(u32::from(gun.ammo));
+        }
+        // Impact and a stagger (only once there's any: a suit never struck hashes as it always
+        // has).
+        if s.impact[i] > 0.0 || s.stagger[i] > 0 {
+            h.f32(s.impact[i]);
+            h.u32(0x57A6_0000 | u32::from(s.stagger[i]));
+        }
+        // Its special under way or charging back (only then), which the fight charges.
+        let sp = &s.special[i];
+        if sp.active || sp.timer > 0 || sp.cooldown > 0 || sp.lockout > 0 {
+            h.u32(0x5BEC_0000 | u32::from(sp.active) | u32::from(sp.timer) << 1);
+            h.u32(u32::from(sp.cooldown) | u32::from(sp.lockout) << 16);
+        }
+        // Doomed, or blown apart (only then: a suit never breached hashes as it always has).
+        let d = s.doom[i];
+        if d.left > 0 || s.blown.get(i) {
+            h.u32(0xD00E_0000 | u32::from(d.left) | u32::from(s.blown.get(i)) << 15);
+            h.u32(u32::from(d.by));
+        }
         for kg in s.cargo_kg[i] {
             h.u32(u32::from(kg));
         }

@@ -408,6 +408,27 @@ pub fn play_sound(
                     Request::at(Cue::MissileLaunch, v3(pos))
                 });
             }
+            FxEvent::Blast { pos } => {
+                sound.mixer.request(Request::at(Cue::Explosion, v3(pos)));
+                if pos.distance(ears) < 4_000.0 {
+                    heat += 0.4;
+                }
+            }
+            // The capsule's motor lighting off: the pilot's own is right behind them.
+            FxEvent::Eject { pos, own, .. } => sound.mixer.request(if own {
+                Request::own(Cue::MissileLaunch)
+            } else {
+                Request::at(Cue::MissileLaunch, v3(pos))
+            }),
+            // A frame knocked off balance rings like a struck bell.
+            FxEvent::Stagger { pos, own, .. } => {
+                sound.mixer.request(if own {
+                    Request::own(Cue::Clash)
+                } else {
+                    Request::at(Cue::Clash, v3(pos))
+                });
+                heat += if own { 0.1 } else { 0.0 };
+            }
             // The pilot's own landing thuds in the cockpit (`bc_sound::cockpit`).
             FxEvent::Transform { .. } | FxEvent::Touchdown { .. } => {}
         }

@@ -23,7 +23,7 @@
 //! The ledger: credits come into the economy only from the colony (`colony_paid`); a pilot's
 //! contract never makes or loses any (`tests/ledger.rs`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -240,6 +240,22 @@ pub struct Board {
     news_seq: u64,
     /// Credits the colony has paid out on contracts and works (the ledger's source).
     pub colony_paid: u64,
+    /// The Most Wanted (`bc_sim::content::aces`): who downed each of Zodiac's aces last...
+    #[serde(default)]
+    wanted: BTreeMap<u8, Downed>,
+    /// ...how many each pilot has downed (the ladder)...
+    #[serde(default)]
+    aces: BTreeMap<Trader, u32>,
+    /// ...and the pilots who take an ace's bounty as salvage rights to its wreck (the rest, pay).
+    #[serde(default)]
+    salvage_terms: BTreeSet<Trader>,
+}
+
+/// An ace downed: by whom (the name they went by), and when (unix seconds).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Downed {
+    pub by: String,
+    pub at: u64,
 }
 
 impl Default for Board {
@@ -256,6 +272,9 @@ impl Default for Board {
             next_id: 1,
             news_seq: 0,
             colony_paid: 0,
+            wanted: BTreeMap::new(),
+            aces: BTreeMap::new(),
+            salvage_terms: BTreeSet::new(),
         }
     }
 }
@@ -349,6 +368,54 @@ impl Board {
         if !name.is_empty() && self.names.get(trader).is_none_or(|n| n != name) {
             self.names.insert(trader.to_string(), name.to_string());
         }
+    }
+
+    /// Whether `trader` takes an ace's bounty as salvage rights to its wreck, rather than pay.
+    pub fn salvage_terms(&self, trader: &str) -> bool {
+        self.salvage_terms.contains(trader)
+    }
+
+    /// How `trader` takes an ace's bounty from now on (MechWarrior's contract terms: pay, or
+    /// salvage).
+    pub fn set_terms(&mut self, trader: &str, salvage: bool) -> Done {
+        if salvage {
+            self.salvage_terms.insert(trader.to_string());
+            Ok("TERMS: AN ACE'S WRECK FOR ITS BOUNTY · THE TUGS BRING IT HOME".into())
+        } else {
+            self.salvage_terms.remove(trader);
+            Ok("TERMS: AN ACE'S BOUNTY, PAID".into())
+        }
+    }
+
+    /// Zodiac's ace `ace` is out among the Dolls: the news.
+    pub fn ace_out(&mut self, ace: u8) {
+        let a = bc_sim::content::aces::ace(ace);
+        self.announce(format!(
+            "ZODIAC'S {} IS OUT AMONG THE DOLLS · {} CR ON IT",
+            a.name,
+            thousands(u64::from(a.bounty))
+        ));
+    }
+
+    /// Ace `ace` was downed by `trader`, going by `name`: on the Most Wanted, the ladder and the
+    /// news. Whether they take its bounty as the rights to its wreck (else as pay, [`Self::pay_ace`]).
+    pub fn ace_downed(&mut self, ace: u8, trader: &str, name: &str, now: u64) -> bool {
+        self.name(trader, name);
+        self.wanted.insert(ace, Downed { by: name.to_string(), at: now });
+        *self.aces.entry(trader.to_string()).or_default() += 1;
+        let a = bc_sim::content::aces::ace(ace);
+        self.announce(format!("ZODIAC'S {} DOWNED BY {}", a.name, name.to_uppercase()));
+        self.salvage_terms(trader)
+    }
+
+    /// The colony pays `trader` the bounty on ace `ace` (a source, with the standing they earn).
+    /// Its note.
+    pub fn pay_ace(&mut self, hangar: &mut Hangar, ace: u8, trader: &str) -> String {
+        let a = bc_sim::content::aces::ace(ace);
+        let bounty = u64::from(a.bounty);
+        self.colony_pays(trader, bounty);
+        hangar.credits += bounty;
+        format!("{} DOWNED · THE CHARTER BOARD PAYS {} CR", a.name, thousands(bounty))
     }
 
     fn name_of(&self, trader: &str) -> String {
@@ -826,8 +893,45 @@ impl Board {
             max_posted: MAX_POSTED,
             supply_pct: SUPPLY_PCT,
             works_pct: WORKS_PCT,
+            wanted: bc_sim::content::aces::ACES
+                .iter()
+                .enumerate()
+                .map(|(k, a)| WantedView {
+                    ace: k as u8,
+                    name: a.name.into(),
+                    bounty: a.bounty,
+                    out: false,
+                    last: self.wanted.get(&(k as u8)).cloned(),
+                })
+                .collect(),
+            ladder: {
+                let mut rows: Vec<(String, u32)> =
+                    self.aces.iter().map(|(t, n)| (self.name_of(t), *n)).collect();
+                rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+                rows.truncate(LADDER_KEPT);
+                rows
+            },
+            mine_aces: self.aces.get(trader).copied().unwrap_or(0),
+            salvage_terms: self.salvage_terms(trader),
         }
     }
+}
+
+/// The ladder's length, as the board shows it.
+pub const LADDER_KEPT: usize = 10;
+
+/// One of Zodiac's aces on the Most Wanted, as a pilot sees it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WantedView {
+    pub ace: u8,
+    pub name: String,
+    pub bounty: u32,
+    /// Out among the Dolls now (the server's to say).
+    #[serde(default)]
+    pub out: bool,
+    /// Who downed it last, and when.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last: Option<Downed>,
 }
 
 /// A contract, as a pilot sees it.
@@ -877,6 +981,17 @@ pub struct CharterView {
     pub max_posted: usize,
     pub supply_pct: u64,
     pub works_pct: u64,
+    /// The Most Wanted: Zodiac's aces...
+    #[serde(default)]
+    pub wanted: Vec<WantedView>,
+    /// ...the ladder, by aces downed (names and counts)...
+    #[serde(default)]
+    pub ladder: Vec<(String, u32)>,
+    /// ...the pilot's own count, and their terms (salvage rights, or pay).
+    #[serde(default)]
+    pub mine_aces: u32,
+    #[serde(default)]
+    pub salvage_terms: bool,
 }
 
 #[cfg(test)]
@@ -1036,6 +1151,57 @@ mod tests {
         assert!(b.owed("b"));
     }
 
+    /// The Most Wanted (`docs/DESIGN.md`, "Aces"): an ace downed goes on the list, the ladder and
+    /// the news; its bounty is the colony's to pay (a source, with standing) unless the pilot's terms
+    /// take its wreck instead.
+    #[test]
+    fn the_most_wanted_pays_or_leaves_the_wreck_and_keeps_the_ladder() {
+        use bc_sim::content::aces::ACES;
+        let mut b = Board::new();
+        let mut h = Hangar::default();
+        // Paid, unless the pilot says otherwise.
+        assert!(!b.salvage_terms("a"));
+        assert!(!b.ace_downed(0, "a", "Ann", 100));
+        let note = b.pay_ace(&mut h, 0, "a");
+        let bounty = u64::from(ACES[0].bounty);
+        assert_eq!(h.credits, bounty);
+        assert_eq!(b.colony_paid, bounty, "the colony pays it");
+        assert_eq!(b.standing("a"), bounty);
+        assert_eq!(note, "ARIES DOWNED · THE CHARTER BOARD PAYS 1,500 CR");
+        assert!(b.news_since(0).any(|n| n.text == "ZODIAC'S ARIES DOWNED BY ANN"));
+        // Its wreck instead, then pay again.
+        assert!(b.set_terms("b", true).unwrap().contains("WRECK"));
+        assert!(b.salvage_terms("b"));
+        assert!(b.ace_downed(1, "b", "Bo", 200));
+        assert!(b.ace_downed(2, "b", "Bo", 300));
+        b.set_terms("b", false).unwrap();
+        assert!(!b.ace_downed(3, "b", "Bo", 400));
+        // The view: the list, who downed each last, the ladder by aces downed, theirs and their terms.
+        b.set_terms("b", true).unwrap();
+        let v = b.view("b", 500);
+        assert_eq!(v.wanted.len(), ACES.len());
+        assert_eq!((v.wanted[0].name.as_str(), v.wanted[0].bounty), ("ARIES", ACES[0].bounty));
+        assert_eq!(v.wanted[0].last, Some(Downed { by: "Ann".into(), at: 100 }));
+        assert_eq!(v.wanted[4].last, None);
+        assert!(v.wanted.iter().all(|w| !w.out), "which is out is the server's to say");
+        assert_eq!(v.ladder, [("Bo".to_string(), 3), ("Ann".to_string(), 1)]);
+        assert_eq!((v.mine_aces, v.salvage_terms), (3, true));
+        assert_eq!((b.view("a", 500).mine_aces, b.view("a", 500).salvage_terms), (1, false));
+        // Downed again: by whoever downed it last.
+        b.ace_downed(0, "b", "Bo", 600);
+        assert_eq!(b.view("a", 700).wanted[0].last, Some(Downed { by: "Bo".into(), at: 600 }));
+        // Kept with the board.
+        let saved = serde_json::to_vec(&b).unwrap();
+        assert_eq!(serde_json::from_slice::<Board>(&saved).unwrap(), b);
+        // The ladder shows its top.
+        for k in 0..20 {
+            b.ace_downed(5, &format!("p{k}"), &format!("P{k}"), 800);
+        }
+        let ladder = b.view("a", 900).ladder;
+        assert_eq!(ladder.len(), LADDER_KEPT);
+        assert_eq!(ladder[0], ("Bo".to_string(), 4));
+    }
+
     #[test]
     fn a_board_and_its_view_fit_in_a_frame_and_read_back() {
         let mut b = Board::new();
@@ -1046,6 +1212,7 @@ mod tests {
             let t = format!("pilot-{k}");
             let _ = b.post(&mut h, &t, "Someone With A Long Name", STEEL, 1_000 + k, 5_000, 72, 0);
             let _ = b.contribute(&mut h, &t, "Someone", Work::SecondFoundry, ALLOY, 10, 0);
+            b.ace_downed((k % 9) as u8, &t, "Someone With A Long Name", 0);
         }
         let id = b.contracts().next().unwrap().id;
         let mut h = rich();

@@ -17,6 +17,7 @@
 //! | V | flight assist on/off · Z ZERO System on/off |
 //! | Tab, mouse wheel | the chase camera or the cockpit (wheel in: the cockpit, out: chasing) |
 //! | M | the chart: the sector and the Earth Sphere in 3D, the objectives, courses (`chart.rs`) |
+//! | U | eject: doomed, a tap ejects and a hold blows the suit up; otherwise held for a second |
 //! | 1–6 | respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock, Shenlong (when destroyed) |
 //!
 //! Down is C alone: Left Ctrl held with W would be Ctrl+W, which closes the browser's tab.
@@ -64,6 +65,12 @@ pub const CAMERA_KEY: KeyCode = KeyCode::Tab;
 pub const LOCK_KEY: KeyCode = KeyCode::KeyY;
 /// A trackpad's scroll this small (pixels in a frame) is a brush, not a turn of the wheel.
 const SCROLL_PX: f32 = 8.0;
+/// Ejects (`docs/DESIGN.md`, "Doom and ejecting"): doomed, a tap ejects and a hold of
+/// [`DESTRUCT_HOLD`] blows the suit up instead; a working suit is left only after a hold of
+/// [`EJECT_HOLD`] (a tap just says so), so nobody bails out by a slip of the finger.
+pub const EJECT_KEY: KeyCode = KeyCode::KeyU;
+pub const EJECT_HOLD: f64 = 1.0;
+pub const DESTRUCT_HOLD: f64 = 0.6;
 
 /// Where the pilot is aiming (world direction; the camera looks along it).
 #[derive(Resource)]
@@ -220,6 +227,47 @@ fn lock_on(
     }
 }
 
+/// [`EJECT_KEY`]: asks to eject, or to blow up the doomed suit, once the press says which. A press
+/// spent (`f64::INFINITY`) waits for the key to come up.
+fn eject_key(
+    game: &mut crate::net::Game,
+    keys: &ButtonInput<KeyCode>,
+    ui: &mut Ui,
+    pressed_at: &mut Option<f64>,
+) {
+    let Some(own) = game.core.world.own.filter(|o| o.alive) else {
+        *pressed_at = None;
+        return;
+    };
+    let now = crate::net::now_s();
+    if pressed_at.is_none() && keys.just_pressed(EJECT_KEY) {
+        *pressed_at = Some(now);
+    }
+    let Some(at) = *pressed_at else { return };
+    let doomed = own.doom > 0;
+    let held = keys.pressed(EJECT_KEY);
+    if at.is_finite() {
+        let ask = match (doomed, held) {
+            (true, true) if now - at >= DESTRUCT_HOLD => Some(true),
+            (false, true) if now - at >= EJECT_HOLD => Some(false),
+            (true, false) => Some(false),
+            (false, false) => {
+                ui.toast("HOLD U TO EJECT");
+                None
+            }
+            _ => return,
+        };
+        if let Some(destruct) = ask {
+            game.eject_request = Some(destruct);
+            ui.toast(if destruct { "SELF-DESTRUCT" } else { "EJECT" });
+        }
+        *pressed_at = Some(f64::INFINITY);
+    }
+    if !held {
+        *pressed_at = None;
+    }
+}
+
 /// [`CAMERA_KEY`] switches between the chase camera and the cockpit; the mouse wheel goes in (the
 /// cockpit) or out (chasing). Kept in the settings, so the next sortie starts in the same view.
 pub fn toggle_camera(
@@ -271,6 +319,7 @@ pub fn read_input(
     game: NonSend<GameClient>,
     mut deck: Local<Option<(Body, Quat)>>,
     mut lock_key: Local<Option<f64>>,
+    mut eject_at: Local<Option<f64>>,
     mut tap: Local<DoubleTap>,
 ) {
     let mut game = game.borrow_mut();
@@ -318,6 +367,11 @@ pub fn read_input(
     // Not on the chart either: its middle drag pans, which mustn't lock on or let go.
     let flying = ui.playing() && !ui.panel_open() && !indoors.0 && !map.0;
     lock_on(&mut game, &keys, &mouse, aim.dir, &mut ui, &mut lock_key, flying);
+    if flying {
+        eject_key(&mut game, &keys, &mut ui, &mut eject_at);
+    } else {
+        *eject_at = None;
+    }
     if !ui.playing() || ui.panel_open() || indoors.0 || map.0 {
         // Hands off the stick in menus, on the chart, and on foot (or while the bay launches the
         // suit); the toggles stay as they were.

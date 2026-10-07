@@ -56,6 +56,7 @@ pub fn weapon_name(kind: WeaponKind) -> &'static str {
         WeaponKind::Flamethrower => "Flamethrower",
         WeaponKind::BeamGlaive => "Beam Glaive",
         WeaponKind::BeamRifleCharged => "Charged Beam",
+        WeaponKind::Reactor => "Self-Destruct",
     }
 }
 
@@ -122,6 +123,7 @@ pub fn weapon_name(kind: WeaponKind) -> &'static str {
         WeaponKind::Flamethrower => "Flamethrower",
         WeaponKind::BeamGlaive => "Beam Polearm",
         WeaponKind::BeamRifleCharged => "Charged Beam",
+        WeaponKind::Reactor => "Self-Destruct",
     }
 }
 

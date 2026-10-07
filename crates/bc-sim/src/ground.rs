@@ -480,7 +480,14 @@ fn grounded(
     // right is up × forward, as the suit's own axes are.
     let fwd_t = normalize_or(aim_l - n0 * aim_l.dot(n0), tangent_of(a.rot * Vec3::Z, n0));
     let right_t = n0.cross(fwd_t);
-    let authority = if blackout { 0.25 } else { 1.0 };
+    // Staggered, the legs neither walk nor turn the suit: it stumbles to a stop.
+    let authority = if cx.mods.staggered {
+        0.0
+    } else if blackout {
+        0.25
+    } else {
+        1.0
+    };
     let speed = if !cx.legs_ok {
         0.0
     } else if a.stance < STANCE {
@@ -538,7 +545,13 @@ fn grounded(
             }
         }
     };
-    let rate = if cx.legs_ok { GROUND_TURN_RATE } else { LEGLESS_TURN_RATE };
+    let rate = if cx.mods.staggered {
+        0.0
+    } else if cx.legs_ok {
+        GROUND_TURN_RATE
+    } else {
+        LEGLESS_TURN_RATE
+    };
     surface_attitude(a, aim_l, n_now, rate, dt);
     (acc_l, n_now)
 }

@@ -1,8 +1,29 @@
-# Before Colony wire protocol (v22)
+# Before Colony wire protocol (v26)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v26 (from v25): the enemy's gun (`docs/DESIGN.md`, "The enemy's gun"): while the own suit holds an
+arm that carried a gun (`bc_sim::content::salvage::held_gun`), the own state's secondary (its
+rounds, its ready bit and its arms' wait) is that gun's, whose trigger it has taken. Nothing new
+on the wire: the client tells which gun from the held chunk's description.
+
+v25 (from v24): specials charged by the fight (`docs/DESIGN.md`, "Specials charged by the
+fight"): the own state's special cooldown (8 bits, ticks ÷ 4) is now the special's charge (8 bits,
+in 255ths: 255 charged), since the fight takes time off it.
+
+v24 (from v23): stagger (`docs/DESIGN.md`, "Stagger"): the events' second extension (the
+extension's sub-kind 7 is now a 4-bit sub-kind of its own), whose sub-kind 0 is `Staggered`; in
+the own state, after the doom, the suit's impact (3 bits, in sixths of what it stands), the
+stagger's ticks left (5) and the designated target's impact (3 bits, 7 while it's staggered); and
+the doom in steps of 3 ticks (5 bits) rather than ticks (7). The own state grows by 9 bits, and a
+datagram still carries 37 free suits or 40 riders.
+
+v23 (from v22): doom and ejecting (`docs/DESIGN.md`, "Doom and ejecting"): the extension's
+sub-kinds 4 (`Doomed`), 5 (`Eject`) and 6 (`Blast`); the doom's ticks in the own state (7 bits,
+after the cover); `WeaponKind` 20, the reactor's blast; and the hangar frame `eject`, which any
+rules take.
 
 v22 (from v21): a suit's weathering on the roster: how worn its paint is, 0 to 7, from the life it
 has had (`bc_econ::weathering`), in the Roster flags' bits 2-4, for every client to draw.
@@ -96,7 +117,7 @@ exactly `tick − 8`, so the 8-bit field's saturation at 15.9 ticks loses nothin
 | Section | Content |
 |---|---|
 | header (116 bits) | kind=2, tick, ack_input_tick, input_health (i8), time_echo_ms, echo_hold_ms, tidi_pct, flags |
-| own (1 + 797..817 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, systems (24), modules (20), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, the rack (8: 2 bits a consumable), a stim's clock (12, ticks), extra mass (kg, i18), cargo ×4 (kg, 14 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special cooldown (8, ticks ÷ 4), arms (46, below), burst step (17, below), footing (2), cover (2), and on a body its body (6 or 12) and stance (8) (below) |
+| own (1 + 813..833 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, systems (24), modules (20), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, the rack (8: 2 bits a consumable), a stim's clock (12, ticks), extra mass (kg, i18), cargo ×4 (kg, 14 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special charge (8, 255ths: 255 charged, or nothing to charge; ticks ÷ 4 of its cooldown before v25), arms (46, below), burst step (17, below), footing (2), cover (2), doom (5, steps of 3 ticks until a doomed suit's reactor goes, rounded up; 0: not doomed, v23; in steps since v24), impact (3, sixths of what the suit stands, v24), stagger (5, ticks left; 0: steady, v24), the designated target's impact (3, sixths; 7: staggered, v24), and on a body its body (6 or 12) and stance (8) (below) |
 | ZERO (1 + ≤200 bits) | source_jev, advice_age, threat_count, per threat {slot, 7 × p}, rec_target + p, rec_maneuver + p, threat_level + confidence, flanked, has_solution, solution (oct 2×12), hit_p |
 | events | repeated `[1][event]`, closed by `[0]` |
 | rocks | repeated `[1][rock]` (18 bits each), closed by `[0]` |
@@ -257,7 +278,7 @@ Events carry a 3-bit kind and an 8-bit age (ticks before the snapshot):
 | 4 | Clash | id, a, b |
 | 5 | Seizure | id, pilot, active |
 | 6 | Detach | id, from_hulk, source (suit slot, or hulk chunk), part, chunk (the limb) |
-| 7 | extension | 3-bit sub-kind: 0 = RockBreak {id, rock, by}; 1 = MissileBurst {id, missile id, position, cause (2 bits: hit, proximity, expired, blocked)}; 2 = SystemHit {id, target (entity slot), system (4), level (2)}: a blow reached a system inside a suit; 3 = TargetHit {id, target (4 bits: one of the Blast Hall's), shooter (entity slot)}: a training round scored (v21); 4–7 reserved |
+| 7 | extension | 3-bit sub-kind: 0 = RockBreak {id, rock, by}; 1 = MissileBurst {id, missile id, position, cause (2 bits: hit, proximity, expired, blocked)}; 2 = SystemHit {id, target (entity slot), system (4), level (2)}: a blow reached a system inside a suit; 3 = TargetHit {id, target (4 bits: one of the Blast Hall's), shooter (entity slot)}: a training round scored (v21); 4 = Doomed {id, suit}: its torso breached, its reactor going (v23); 5 = Eject {id, suit, position, velocity (3 × 14 bits over ±2 048 m/s)}: its pilot's capsule thrown clear (v23); 6 = Blast {id, suit, position}: a doomed suit blown up by its pilot, the damage arriving as Hits by weapon 20, the reactor (v23); 7 = the second extension (v24), a 4-bit sub-kind: 0 = Staggered {id, suit}: its attitude control overwhelmed, for `STAGGER_TICKS` (30) from the event's tick; 1–15 reserved |
 
 Events repeat in every snapshot until the client acks one that carried them. `id` (the low 16 bits
 of the event sequence) lets clients de-duplicate the repeats.
@@ -410,6 +431,7 @@ Client → server (`Request`):
 | `dock` | | take the suit home (at rest inside the dock, or inside the colony the inner gate's ring; a trainer, on the Blast Hall's gantry) |
 | `launch_inside` | | board and launch the suit into the colony through the inner gate (the colony open) |
 | `board_trainer` | | on foot at the Blast Hall's gantry's hatch in the city: board one of the Charter Board's trainers there (the pilot's hangar untouched) |
+| `trainer` | `build`: `{"kind": "board"}`, `{"kind": "bay"}` or `{"kind": "line", "line": …}` (a frame's slug) | the test range: what the gantry readies for `board_trainer` (the Board's Leo; the bay's build, new and full; a new suit of a line the colony builds). The `proving` board says which (`trainer`) |
 | `enter_city` | `strip` (0–2) | ride the cap lift down from the bay to that strip's Hub Gate (the colony open, and the pilot in their bay) |
 | `leave_city` | | ride the lift back up from Hub Gate to the bay |
 | `watch_board` | `on` | send the Charter Board (`charter`) as it changes, or stop |
@@ -419,7 +441,9 @@ Client → server (`Request`):
 | `take_patrol` · `drop_patrol` | `id` | take a militia patrol (one at a time), or give it up |
 | `contribute` | `work` (`second_foundry`, `militia_hangar`), `item`, `qty` | deliver to one of the colony's great works |
 | `sign` | | sign the charter (the vote open, and the pilot of standing) |
+| `ace_terms` | `salvage` | the Most Wanted: take an ace's bounty as the rights to its wreck (`true`: the tugs bring it home) or as pay (`false`, the default) |
 | `use_kit` | `kit` (`patch_kit`, `coolant`, `chaff`, `stim`) | in flight: use one from the suit's rack (the hotbar; nothing answers, the own state shows it) |
+| `eject` | `destruct` (default false) | in flight, under any rules: eject from the suit, or (`destruct`, doomed) blow it up aboard. Nothing answers but the loss (`sortie`, and under survival the tugs' `news` on the wreck 45 s on) |
 | `say` | `text` | a line on the colony's radio, to everyone connected, under any rules: control characters stripped, whitespace made single spaces, cut to 160 characters; at most 5 lines in 10 s (more get a refusing `note`). Never logged; `/status` counts them (`radio_lines`) |
 
 Items are slugs: `ore.nickel_iron`, `mat.steel`, `mat.components`, `part.leo.torso`,
@@ -432,13 +456,17 @@ its `strip`, and `trainer: true` flying one of the Board's trainers (absent othe
 stock, parts with their condition, the bay: `empty`, `docked` or `out` with the suit, the job
 queues with their time left); `market` (every item's bid, ask, last and volume, the pilot's
 orders, the fee); `book` {`depth`, `history`}; `note` {`text`, `ok`} answering a request (or
-news: a job done, an order filled); `sortie` {`outcome`: `docked`, `lost`, `recovered`, `text`};
+news: a job done, an order filled); `sortie` {`outcome`: `docked`, `lost`, `recovered`, `text`, and docked or lost its `debrief` {`lines`:
+[{`what`, `cr`}]}: the sortie's payout sheet, credits earned positive and spent negative};
 `news` {`text`} (a pilot's arrival; the colony's announcements); `people` {`people`: [{`id`,
 `name`}]} (in the city: the names of people seen there for the first time, by the slot the plaza's
 datagrams use); `charter` (the Charter Board, while watched: the era, the contracts with their
 `task` (`{"kind": "supply", "item", "qty", "delivered"}` or `{"kind": "patrol", "bounty",
 "earned"}`), reward, paid and seconds left, the great works with what each needs and has, their
-top contributors, the pilot's standing and the charter's signatures); `said` {`from`, `text`} (a line on the colony's radio, the speaker's own included,
+top contributors, the pilot's standing and the charter's signatures; and the Most Wanted:
+`wanted` [{`ace`, `name`, `bounty`, `out` (flying among the Dolls now), `last` {`by`, `at`, unix
+seconds} (who downed it last; absent: nobody)}], `ladder` [[name, aces downed]] most first, the
+pilot's own `mine_aces` and their terms, `salvage_terms`); `said` {`from`, `text`} (a line on the colony's radio, the speaker's own included,
 from the moment the pilot was welcomed, in the order the server heard them); `proving` (the
 Proving Ground's board, in the colony: `course` and `drill`, the day's best as [{`name`, `ms`,
 `you`}] fastest first, `course_record` and `drill_record` the best ever, `course_par_ms` and
@@ -447,8 +475,15 @@ Proving Ground's board, in the colony: `course` and `drill`, the day's best as [
 `modules`, its five equipment mounts' slugs (or `null`); a part on the shelf carries its own
 `faults`.
 The server sends the hangar and the market whenever they change, the market and the board at most
-every 2 s. The board's notices (a great work finished, the vote open, an era begun) come to every
-pilot as `news`, wherever they are.
+every 2 s. The board's notices (a great work finished, the vote open, an era begun, one of
+Zodiac's aces out or downed) come to every pilot as `news`, wherever they are.
+
+Zodiac's aces (`DESIGN.md`, "Aces: the Most Wanted"): the ace out among the Dolls is on the
+roster (`Roster`, pilot kind 2, a Mobile Doll) by its callsign while its suit is in the sector,
+downed too until its slot is let go; then the roster forgets it. The pilot who downs one hears
+`news` at once: the Charter Board's pay (and a `hangar`), or under salvage terms that the tugs are
+going out for its wreck, and 45 s on the `news` of what they brought home (as for a pilot's own
+wreck after ejecting; already out for that, the bounty is paid instead).
 
 A launch puts the suit in the sector at the docking hub's mouth (the pilot's slot and the Welcome
 stay the same; snapshots start), and `place` says `space`. Docking answers with a `sortie` and

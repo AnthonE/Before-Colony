@@ -125,7 +125,7 @@ fn the_cross_crusher_is_sandrocks_special() {
     let own = sim.own_state(a.idx());
     assert_ne!(own.flags & own_flags::SPECIAL_ACTIVE, 0);
     assert_eq!(own.weapon_ready & 8, 0);
-    assert_eq!(u32::from(own.special_cooldown) * 4, u32::from(cooldown));
+    assert_eq!(own.special_charge, 0, "just used: nothing charged");
     let seen = sim.entity_state(a.idx(), b.idx()).flags;
     assert_eq!(
         seen & (ent_flags::SABER | ent_flags::SPECIAL | ent_flags::MELEE_ALT),
@@ -138,6 +138,8 @@ fn the_cross_crusher_is_sandrocks_special() {
     }
     assert_eq!(hits_by(&sim, from, a, WeaponKind::CrossCrusher), 2);
     assert_eq!(sim.stats(a.idx()).specials, 1);
+    // Its own blows charge it nothing (`content::specials`): only the time gone by.
+    assert_eq!(sim.suits.special[a.idx()].cooldown, cooldown - 40);
     // Cooling down: SPECIAL does nothing, though the shotels still work.
     let from = sim.events.next_seq();
     hold(&mut sim, a, SPECIAL, Vec3::Z);

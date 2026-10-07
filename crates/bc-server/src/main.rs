@@ -28,6 +28,9 @@ struct Args {
     /// Mobile Doll NPCs to keep in the sector.
     #[arg(long, default_value_t = 24)]
     mobile_dolls: u32,
+    /// Seconds between Zodiac's aces among the Dolls, one out at a time (0: none).
+    #[arg(long, default_value_t = 300)]
+    ace_every: u64,
     /// Tactical oracle behind the ZERO System (`jev` needs TYPESAFE_API_KEY).
     #[arg(long, value_enum, default_value_t = OracleKind::Local)]
     oracle: OracleKind,
@@ -60,6 +63,12 @@ struct Args {
     /// Open the colony (survival): the bays' airlocks lead to the cap lifts, down into its city.
     #[arg(long)]
     colony: bool,
+    /// Connections taken in all, handshaking or open.
+    #[arg(long, default_value_t = bc_server::net::admit::Limits::default().connections)]
+    max_connections: u32,
+    /// Connections taken from one address (loopback excepted).
+    #[arg(long, default_value_t = bc_server::net::admit::Limits::default().per_address)]
+    per_address: u32,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -78,6 +87,7 @@ fn main() -> anyhow::Result<()> {
         http_addr: args.http,
         web_dir,
         mobile_dolls: args.mobile_dolls,
+        ace_every: std::time::Duration::from_secs(args.ace_every),
         oracle: args.oracle,
         max_clients: args.max_clients,
         seed: args.seed,
@@ -90,6 +100,11 @@ fn main() -> anyhow::Result<()> {
         craft_speed: args.craft_speed.max(0.01),
         data_dir: args.data_dir,
         colony: args.colony,
+        limits: bc_server::net::admit::Limits {
+            connections: args.max_connections.max(1),
+            per_address: args.per_address.max(1),
+            ..bc_server::net::admit::Limits::default()
+        },
         ..Config::default()
     };
     // Two workers are plenty: all game work happens on the dedicated sector thread.

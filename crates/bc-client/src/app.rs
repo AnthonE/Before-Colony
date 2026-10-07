@@ -21,7 +21,7 @@ use crate::settings::{HintState, publish_settings, update_hints, update_settings
 use crate::showcase::{Scene, ShowcasePlugin};
 use crate::suits_vis::{build_suits, pose_suits, suit_lod};
 use crate::view::{
-    BeamFeed, CameraTarget, DrawnBodies, FxEvents, MissileFeed, SuitIndex, ViewPrefs, Vis, VisTime,
+    BeamFeed, CameraTarget, DrawnBodies, FxEvents, MissileFeed, PodFeed, SuitIndex, ViewPrefs, Vis, VisTime,
 };
 
 pub fn run() {
@@ -180,6 +180,7 @@ impl Plugin for VisualsPlugin {
             .init_resource::<SuitIndex>()
             .init_resource::<BeamFeed>()
             .init_resource::<MissileFeed>()
+            .init_resource::<PodFeed>()
             .init_resource::<FxEvents>()
             .init_resource::<CameraTarget>()
             .init_resource::<FxState>()
@@ -230,6 +231,7 @@ impl Plugin for VisualsPlugin {
                         setup_fx,
                         setup_particles,
                         crate::missiles_vis::setup_missiles,
+                        crate::pods::setup_pods,
                         crate::blast::setup_blasts,
                         crate::ambience::setup_ambience,
                         crate::hangar::setup_bay,
@@ -257,6 +259,7 @@ impl Plugin for VisualsPlugin {
                 (
                     update_fx,
                     crate::missiles_vis::update_missiles,
+                    crate::pods::update_pods,
                     update_fx_lights,
                     update_particles,
                     crate::blast::update_blasts,

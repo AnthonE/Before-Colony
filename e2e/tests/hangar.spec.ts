@@ -61,6 +61,11 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   await expect(page.locator("#term-body")).toContainText("THE COLONY", { timeout: 30_000 });
   await expect(page.locator("#term-body")).toContainText("A SECOND FOUNDRY");
   await expect(page.locator("#term-body")).toContainText("BEFORE COLONY");
+  // Under it, the Most Wanted: Zodiac's aces, and the pilot's terms for their bounties.
+  await expect(page.locator("#term-body")).toContainText("MOST WANTED");
+  await expect(page.locator("#term-body")).toContainText("PISCES");
+  await page.click('[data-act="ace-terms"][data-salvage="1"]');
+  await expect(page.locator("#term-log")).toContainText("TERMS: AN ACE'S WRECK", { timeout: 30_000 });
   await page.screenshot({ path: "artifacts/charter.png" });
   await page.keyboard.press("Escape");
   await until(page, "the terminal closed", (s) => !s.terminal, 10_000);

@@ -14,7 +14,15 @@ the bay, space, home).
 | P0: a floor under loss, text chat, objectives along the chain, The Arrival's seats | built |
 | P1: the Proving Ground: its course, the Blast Hall, its live fire, trainers boarded there, the drill and the board (`TRAINING.md`, phases 1 to 5) | built |
 | Living in the colony, L0: seats, the body and its meals (`LIFE.md`) | built (a framework: nothing on the wire yet) |
-| P1's rest, P2 below | planned |
+| The mech games, 15: doom, ejecting and the self-destruct | built |
+| The mech games, 16: stagger | built |
+| The mech games, 17: specials charged by the fight | built |
+| The mech games, 18: the debrief | built |
+| The mech games, 19: the enemy's gun | built |
+| The mech games, 20: a test range | built |
+| The mech games, 21: aces, pay or salvage | built |
+| The mech games, 22: staying up under abuse | built |
+| P1's rest, P2 | planned |
 
 ## P0: before more players arrive
 
@@ -144,3 +152,146 @@ The Arrival (`Request::Eat`, the body on the pilot's record).
   frames (`COLONY.md` 1.3's colliders first), where free aim is learnt.
 - **Suits inside the colony** (`SUITS_INSIDE.md`), once the building site gives them work.
 - **Low gravity near the axis** as a place to play.
+
+## The mech games
+
+`PEERS.md`, "The mech games": what Titanfall, Armored Core VI, MechWarrior and BattleTech, Steel
+Battalion, Mecha BREAK and Daemon X Machina teach, in its list's order (15 to 22).
+
+**15. Doom and ejecting.** *Built* (protocol v23; `DESIGN.md`, "Doom and ejecting").
+- `bc_sim::sim::doom`: a pilot's breached suit is doomed for `DOOM_TICKS` (3 s), less
+  `DOOM_PER_TORSO` a blow. Then `destroy`, which also takes the old kill code out of
+  `damage_step`. `Sim::eject` ejects (a hulk, `Event::Eject`) or, doomed, blows the reactor
+  (`Event::Blast`, `WeaponKind::Reactor`'s hits on hostile suits within its reach, no hulk).
+  `Sim::tow` takes a free hulk out of the sector.
+- `bc_sector`: `Control::Eject` and `Control::Tow`. A claim per slot on the hulk of the suit its
+  pilot ejected from is towed `TOW_TICKS` (45 s) on, or at once when the session goes
+  (`Report::Towed`). `Report::Lost` says how (`Loss`).
+- `bc_econ`: `Request::Eject` (any rules), and `Hangar::towed`: salvage, with a torso that wasn't
+  doomed as a part.
+- The client: U (`input::eject_key`: doomed, a tap ejects and a hold blows the suit up;
+  otherwise a hold), the HUD's `DOOMED` countdown, a doomed suit burning (`damage`), the capsule
+  (`pods`) the camera follows, the blast (`fx`), and the kill feed. `bc-bot`: `eject`,
+  `self_destruct`, and the Mobile Doll agent ejects when doomed.
+- Tests: `bc-sim/tests/doom.rs` (doom, blows cutting it short, Dolls and sleepers without it,
+  ejecting doomed or whole, a wreck in hand not towed, the blast, nobody ejecting inside), the
+  sector's `survival_net` (the loss and the tugs, towing at once, nothing to tow after a blast),
+  the hangar's `the_tugs_bring_an_ejected_pilots_wreck_home`, the proto round trips. Every
+  determinism golden is unchanged.
+
+**16. Stagger.** *Built* (protocol v24; `DESIGN.md`, "Stagger").
+- `bc_sim::content::stagger`: each frame's stability, each weapon's impact, the stagger's second
+  and its cut in thrust, the direct hit's half again, and how a suit steadies.
+- `bc_sim::sim::stagger`: `damage_step` adds each blow's impact (`Sim::impact`); past the frame's
+  stability the suit is staggered (`Event::Staggered`), with a spin knocked into it if it's free.
+  `stagger_step` runs it down and drains the impact of suits left alone. `FlightMods::staggered`
+  takes the attitude control (`flight::integrate`) and the legs (`ground`), and the weapons,
+  blades and Full Open wait it out.
+- The owner's prediction flies it from the own state's ticks (`Predictor::stagger`), with the
+  arms clock held as through a change of form.
+- `bc_proto`: the events' second extension, and the own state's impact, stagger and the
+  designated target's impact (the doom now in steps of 3 ticks, so 37 free suits still fit a
+  datagram).
+- The client: the flight panel's `ATT` gauge, the `STAGGERED` banner, the target's gauge on its
+  bracket, the attitude jets firing wild and the sparks (`damage`), the burst, clang and shake.
+  `bc-bot`: `staggered` and `impact`.
+- Tests: `bc-sim/tests/stagger.rs` (impact building to a stagger, a tumble with no shots and a
+  quarter of the thrust, direct hits, draining, Dolls, a suit on its feet stumbling to a stop),
+  `bc-client-core/tests/stagger_predict.rs` (a Leo under both flight rules and a Heavyarms pressing
+  for its Full Open, staggered again and again, predicted exactly), `no_alloc`, the proto round
+  trips and budgets. Five determinism goldens are re-recorded, native and wasm alike: their fights
+  now stagger (the surface scenario's Heavyarms, staggered by the Dolls, fires once it's steady).
+
+**17. Specials charged by the fight.** *Built* (protocol v25; `DESIGN.md`, "Specials charged by the
+fight").
+- `bc_sim::content::specials`: a blow dealt takes 1/450 of a special's whole cooldown off what's
+  left, a blow taken 1/300 (`DEALT_FULL`, `TAKEN_FULL`). Full Open takes 45 s by itself (it was
+  30 s), the Cross Crusher 8 s.
+- `Sim::charge_special`, from `damage_step`: never from the special's own blows, nor while Full
+  Open is under way or locked out. `Sim::special_charge` is what the own state carries, in 255ths
+  (it was the cooldown in ticks ÷ 4). The state hash covers a special under way or charging.
+- The HUD's `CHARGING ||||···· 52%`; `bc-bot`'s `special_charge`. The pilot's client hears of the
+  fight's share from its own state, a snapshot late, as it hears of the blow.
+- Tests: `full_open.rs` (its barrage charges nothing; dealt and taken take their shares; the own
+  state's charge; a hard fight charges it in full), `melee.rs` (the Cross Crusher's own blows).
+  The Gundams duel's golden is re-recorded, and the lock-on scenario's for the hash's new reach.
+
+**18. The debrief.** *Built* (`DESIGN.md`, "Sorties").
+- `bc_econ::debrief`: a sortie's lines at the colony's values (`catalogue::value`): earned (bounties,
+  the hold's ore, the salvage in hand, by what it adds to the stores) and spent (propellant burnt,
+  rounds fired or lost with their mount, the rack used, the armour's repair, what was shot off; a
+  loss writes the suit off whole), and the net.
+- `Hangar::came_home_debriefed` and `lost_debriefed`, from the suit as it went out (`Bay::Out`) and
+  as it came home; the session sends the sheet with the sortie (`Update::Sortie`'s `debrief`, an
+  optional field: no new version).
+- The client: under the news for 12 s (`#debrief`), and line by line in the terminals' log;
+  `HangarState::last_debrief` for agents.
+- Tests: the debrief's and the hangar's units, and `bc-server/tests/hangar.rs` (docked, the stim the
+  rack used is on it; ejected, the suit is written off).
+
+**19. The enemy's gun.** *Built* (protocol v26; `DESIGN.md`, "The enemy's gun").
+- `bc_sim::content::salvage::held_gun`: the beam or solid-round gun an arm chunk carried in its hand
+  (no blades, launchers or guns that charge). Grabbed, the suit's `held_gun` state takes its
+  rounds (`HELD_ROUNDS`, half a load).
+- `Sim::gun_in_hand`; the weapons step fires it on FIRE_SECONDARY (`trigger_in_hand`, a plain shot
+  from the hand's muzzle, the `HELD_SLOT`), holding the suit's own secondary off. The own state's
+  secondary is the gun's while it's held; the state hash covers it.
+- The arms clock's `in_hand` (told by the client from the held chunk, `World::gun_in_hand`), let go
+  of after the tick's guns when GRAB is released or the chunk thrown, as the server's salvage step
+  does. The HUD's secondary line; `bc-bot`'s `gun_in_hand`.
+- Tests: `bc-sim/tests/held_gun.rs` (which limbs carry a gun; a Taurus's rifle fires from the left
+  hand, on its own cooldown, and the Leo's machine cannon is back once it lets go; a machine cannon
+  picked up has half a load, and fired dry it waits), `bc-client-core/tests/held_gun_predict.rs`
+  (seeded at every snapshot, the prediction keeps time with the server's arms and pose; told
+  nothing of the gun, it doesn't). The reference golden is re-recorded: its scripted pilots grab
+  arms and fire them.
+
+**20. A test range.** *Built* (`TRAINING.md`, "Phase 3"; `DESIGN.md`).
+- `bc_econ::proving::Trainer` (the Board's Leo, the bay's build new and full, a new suit of any
+  line) and `Request::Trainer`; the session keeps the pick, the board's view carries it, and
+  boarding sends its frame and loadout in `Control::Board`.
+- The page: `THE TEST RANGE` at the Blast Hall's desk. `bc-bot`: `board_trainer_as`.
+- Tests: `proving`'s units, `training_net.rs`, and `bc-server/tests/proving.rs` (a Heavyarms).
+
+**21. Aces, pay or salvage.** *Built* (`DESIGN.md`, "Aces: the Most Wanted").
+- `bc_sim::content::aces`: the nine, their bounties, `ACE_EVERY` (5 min), the Leo they fly and its
+  armour (`ACE_ARMOUR`, half as much again). `Sim::spawn_ace` fields the next on the list while
+  none is out (`SimConfig::ace_every`); `Suits::ace` says which a Doll is. `Sim::ace_out` is the
+  one in the sector, flying or downed, until its slot is let go. The state hash covers it.
+- `bc_sector`: `SectorShared::ace`, a word saying which is out, as which suit, and whether it
+  flies (`ace_word`); `Report::AceDown` to the session of the pilot who downs one, with its wreck;
+  `Control::Claim` sends the tugs for it (`TOW_TICKS` on, a claim like an ejected pilot's own),
+  and `Report::Towed` says it was the ace's.
+- `bc_econ::charter`: the Most Wanted (who downed each last), the ladder, each pilot's terms
+  (`Request::AceTerms`); `Board::ace_downed`, and `pay_ace` (the colony's money: `colony_paid`
+  and standing). `Hangar::towed_ace` takes the wreck in as salvage.
+- `bc-server`: the notes task's `AceWatch` puts the ace on the roster by its name and announces
+  it; the session pays, or claims the wreck (unless the tugs are out for the pilot's own), and
+  marks which one flies in the board's view. `--ace-every`.
+- The page: MOST WANTED under the Charter Board, with the terms. The chart names the ace.
+- Tests: `bc-sim/tests/aces.rs` (one out at a time round the list, a Leo standing more, named
+  until its slot is let go), `bc-sector/tests/aces_net.rs` (the word; downed by a pilot, their
+  session hears with the wreck, and the claim's tugs bring it home as the ace's; downed by nobody
+  here, nobody hears), `no_alloc_sector` (aces downed and claimed), the board's and the hangar's
+  units, the wire's JSON, and `bc-server/tests/aces.rs` (on the roster by name, out on the Most
+  Wanted, the news, the terms, over real WebTransport).
+
+**22. Staying up.** *Built* (`ARCHITECTURE.md`, "Under abuse").
+- The review found inputs, poses and the radio limited, sign-ins waiting on a wallet capped, and
+  the Hello on a deadline, but nothing on connections themselves (one address could open as many
+  as it liked, each a task, each handshake as slow as QUIC's idle timeout allowed), and nothing on
+  the hangar's requests (each can write the pilot's record to disk).
+- `bc-server` `net::admit`: the accept loop asks `Admission` of each attempt, before any
+  handshake. Under load (32 handshakes under way) an unvalidated address gets a QUIC Retry. An
+  address (IPv4, or IPv6 by its /64) holds at most 8 connections (`--per-address`; loopback
+  excepted) and the server 512 (`--max-connections`), and both handshakes are on 5 s deadlines.
+  A connection's `Pass` gives its place back when it's dropped.
+- `admit::Requests`: hangar requests and respawns at 10 a second, in bursts of 40; past that
+  refused, and 200 refused in a row end the session.
+- `/status` counts it all: refused (full, by address), retried, handshakes timed out, requests
+  refused, sessions ended.
+- Tests: `admit`'s units (the share, the ceiling, the Retry under load, the flood),
+  `bc-server/tests/admit.rs` (an address past its share is refused and let back in once it has
+  room; under constant load a real client proves its address and comes in; a session flooding its
+  hangar is refused, then ended, and others are none the worse).
+

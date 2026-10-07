@@ -5,7 +5,7 @@
 //! | Section | Size | Notes |
 //! |---|---|---|
 //! | header | 116 bits | tick, input ack, input-buffer health, RTT echo, time dilation |
-//! | own state | 1 + 760..780 bits | full precision: the client reconciles its prediction against it |
+//! | own state | 1 + 813..833 bits | full precision: the client reconciles its prediction against it |
 //! | ZERO | 1 + ≤200 bits | only while the pilot's ZERO System is engaged |
 //! | events | `1+n` bits each, `0` ends | repeated until the client acks a snapshot containing them |
 //! | rocks | `1+18` bits each, `0` ends | debris-field rocks whose state changed, repeated until acked |
@@ -202,8 +202,9 @@ pub struct OwnState {
     pub lock_progress: u8,
     /// Ticks left in the special under way: the transformation, Full Open Attack.
     pub special_timer: u8,
-    /// Until the special is ready again, in ticks divided by 4.
-    pub special_cooldown: u8,
+    /// How charged the frame's special is, in 255ths (255: charged, or it has nothing to charge;
+    /// v25: the fight charges it, `bc_sim::content::specials`).
+    pub special_charge: u8,
     /// What the arms are doing, for the client to roll on tick by tick.
     pub arms: OwnArms,
     /// The burst step's state (`bc_sim::flight::Burst`), for the client to roll on.
@@ -212,7 +213,32 @@ pub struct OwnState {
     pub surface: Option<OwnSurface>,
     /// What its cover amounts to ([`cover`]).
     pub cover: u8,
+    /// Doomed: the [`DOOM_STEP`]s of ticks until its reactor goes, rounded up (0: it isn't), up to
+    /// [`DOOM_MAX`] (v23 in ticks; v24 in steps). Its pilot can still eject.
+    pub doom: u8,
+    /// The impact on its attitude control, as a share of what it stands, in [`IMPACT_MAX`]ths (v24,
+    /// `bc_sim::sim::stagger`)...
+    pub impact: u8,
+    /// ...and while it's staggered, the ticks left (0: it isn't), which the client flies on.
+    pub stagger: u8,
+    /// The designated target's impact as the same share, or [`TARGET_STAGGERED`] while it's
+    /// staggered (what the lock's bracket shows: Armored Core's target gauge).
+    pub target_impact: u8,
 }
+
+/// The ticks in each step of [`OwnState::doom`] (a tenth of a second)...
+pub const DOOM_STEP: u8 = 3;
+/// ...and the most steps it carries.
+pub const DOOM_MAX: u8 = (1 << DOOM_BITS) - 1;
+const DOOM_BITS: u32 = 5;
+/// [`OwnState::impact`]'s steps (and [`OwnState::target_impact`]'s).
+pub const IMPACT_MAX: u8 = 6;
+/// The longest stagger [`OwnState::stagger`] carries, ticks.
+pub const STAGGER_MAX: u8 = (1 << STAGGER_BITS) - 1;
+/// [`OwnState::target_impact`]: the target is staggered.
+pub const TARGET_STAGGERED: u8 = 7;
+const IMPACT_BITS: u32 = 3;
+const STAGGER_BITS: u32 = 5;
 
 /// The own suit on a body: how, which, and how high it stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -318,7 +344,7 @@ pub const ARMS_MAX_SALVO_GAP: u8 = (1 << SALVO_GAP_BITS) - 1;
 /// Encoded size of a free suit's own state (after its presence bit), in bits: the flight and combat
 /// state (503), systems and equipment (24 + 20 + 7 + 7 + 4 + 7), the rack and a stim (8 + 12), salvage (18 + 14 per cargo kind +
 /// 24 + a chunk id), lock and special (10 + 4 + 8 + 8), the arms, then the footing and the cover
-/// (2 + 2).
+/// (2 + 2), the doom (5), and the impact, the stagger and the target's impact (3 + 5 + 3).
 pub const OWN_BITS_FREE: usize = 503
     + SYSTEMS_BITS as usize
     + MODULES_BITS as usize
@@ -338,7 +364,11 @@ pub const OWN_BITS_FREE: usize = 503
     + ARMS_BITS
     + BURST_BITS
     + FOOTING_BITS as usize
-    + COVER_BITS as usize;
+    + COVER_BITS as usize
+    + DOOM_BITS as usize
+    + IMPACT_BITS as usize
+    + STAGGER_BITS as usize
+    + IMPACT_BITS as usize;
 /// The largest own state: on a rock, which takes the longest [`BodyRef`], and the stance.
 pub const OWN_MAX_BITS: usize = OWN_BITS_FREE + BodyRef::MAX_BITS + STANCE_BITS as usize;
 const FOOTING_BITS: u32 = 2;
@@ -395,11 +425,15 @@ impl Default for OwnState {
             lock_target: crate::NO_SLOT,
             lock_progress: 0,
             special_timer: 0,
-            special_cooldown: 0,
+            special_charge: 0,
             arms: OwnArms::default(),
             burst: OwnBurst::default(),
             surface: None,
             cover: cover::EXPOSED,
+            doom: 0,
+            impact: 0,
+            stagger: 0,
+            target_impact: 0,
         }
     }
 }
@@ -675,7 +709,7 @@ impl<'a> SnapshotWriter<'a> {
         w.write_bits(u32::from(o.lock_target.min(crate::NO_SLOT)), SLOT_BITS);
         w.write_bits(u32::from(o.lock_progress.min(15)), LOCK_PROGRESS_BITS);
         w.write_u8(o.special_timer);
-        w.write_u8(o.special_cooldown);
+        w.write_u8(o.special_charge);
         let a = &o.arms;
         w.write_bits(u32::from(a.phase & 3), 2);
         w.write_bits(u32::from(a.timer.min(ARMS_MAX_TIMER)), ARMS_TIMER_BITS);
@@ -701,6 +735,10 @@ impl<'a> SnapshotWriter<'a> {
         });
         w.write_bits(u32::from(code), FOOTING_BITS);
         w.write_bits(u32::from(o.cover.min(cover::HIDDEN)), COVER_BITS);
+        w.write_bits(u32::from(o.doom.min(DOOM_MAX)), DOOM_BITS);
+        w.write_bits(u32::from(o.impact.min(IMPACT_MAX)), IMPACT_BITS);
+        w.write_bits(u32::from(o.stagger.min(STAGGER_MAX)), STAGGER_BITS);
+        w.write_bits(u32::from(o.target_impact.min(TARGET_STAGGERED)), IMPACT_BITS);
         if let Some(on) = o.surface {
             on.body.write(w);
             w.write_u8(on.stance_q);
@@ -997,7 +1035,7 @@ impl<'a> SnapshotReader<'a> {
         o.lock_target = r.read_bits(SLOT_BITS) as u16;
         o.lock_progress = r.read_bits(LOCK_PROGRESS_BITS) as u8;
         o.special_timer = r.read_u8();
-        o.special_cooldown = r.read_u8();
+        o.special_charge = r.read_u8();
         let a = &mut o.arms;
         a.phase = r.read_bits(2) as u8;
         a.timer = r.read_bits(ARMS_TIMER_BITS) as u8;
@@ -1024,6 +1062,10 @@ impl<'a> SnapshotReader<'a> {
         b.held = r.read_bool();
         let code = r.read_bits(FOOTING_BITS) as u8;
         o.cover = r.read_bits(COVER_BITS) as u8;
+        o.doom = r.read_bits(DOOM_BITS) as u8;
+        o.impact = r.read_bits(IMPACT_BITS) as u8;
+        o.stagger = r.read_bits(STAGGER_BITS) as u8;
+        o.target_impact = r.read_bits(IMPACT_BITS) as u8;
         o.surface = match code {
             footing::FREE => None,
             footing::GROUNDED | footing::ALOFT => {
@@ -1196,7 +1238,7 @@ mod tests {
             let back = SnapshotReader::new(&buf[..n]).unwrap().own().unwrap().unwrap();
             assert_eq!((back.surface, back.cover), (own.surface, own.cover));
         }
-        assert_eq!((OWN_BITS_FREE, OWN_BITS_FREE + 14, OWN_MAX_BITS), (797, 811, 817));
+        assert_eq!((OWN_BITS_FREE, OWN_BITS_FREE + 14, OWN_MAX_BITS), (813, 827, 833));
     }
 
     #[test]
@@ -1207,8 +1249,9 @@ mod tests {
         let at = w.w.bits_written();
         w.own(Some(&OwnState::default()));
         let n = w.finish().unwrap();
-        // The footing is the 4 bits before the end of the own state (then the cover).
-        let bit = at + 1 + OWN_BITS_FREE - 4;
+        // The footing comes 4 bits before the doom, the impact, the stagger and the target's impact,
+        // which end the own state (the cover between).
+        let bit = at + 1 + OWN_BITS_FREE - 4 - (DOOM_BITS + 2 * IMPACT_BITS + STAGGER_BITS) as usize;
         buf[bit / 8] |= 1 << (bit % 8);
         buf[(bit + 1) / 8] |= 1 << ((bit + 1) % 8);
         assert_eq!(SnapshotReader::new(&buf[..n]).unwrap().own(), Err(DecodeError::Invalid));

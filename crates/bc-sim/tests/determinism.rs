@@ -7,7 +7,7 @@
 mod common;
 
 /// Hash after 600 ticks of the reference scenario (update deliberately when the sim changes).
-const GOLDEN: u64 = 0xa6dd_ba05_8cb6_c73f;
+const GOLDEN: u64 = 0xa24f_fc0e_e3e5_b3ce;
 
 fn scenario_hash() -> u64 {
     let (mut sim, players) = common::arena(8, 24, 42);
@@ -34,7 +34,7 @@ fn golden_hash_wasm() {
 /// Hash after 450 ticks of the Gundams duelling in pairs among Mobile Dolls: every blade, the
 /// Cross Crusher, the Dragon Fang, the flamethrower, the Hyper Jammer, guided missiles, Full Open,
 /// Neo-Bird and the Gundams' guns (changes deliberately as their mechanics arrive).
-const GUNDAMS_GOLDEN: u64 = 0xacf4_f9fa_7512_0e90;
+const GUNDAMS_GOLDEN: u64 = 0x686e_f114_cbb9_93ca;
 
 fn gundams_hash() -> u64 {
     use bc_proto::events::Event;
@@ -113,7 +113,7 @@ fn gundams_golden_wasm() {
 /// Hash after 450 ticks of pilots locked on to their foes (`bc_proto::LockOn`): flight assist
 /// holding each foe's velocity in the fight's axes, levelled to the colony's up, closing in and
 /// circling, burst-stepping now and then, among Mobile Dolls.
-const LOCKON_GOLDEN: u64 = 0xf604_ed58_d20c_6335;
+const LOCKON_GOLDEN: u64 = 0xd80a_b197_e3ce_6c56;
 
 fn lockon_hash() -> u64 {
     let (mut sim, duels) = common::gundam_crowd(8, 12, 21);
@@ -363,7 +363,7 @@ fn salvage_golden_wasm() {
 /// what a sleeper is parked on more fully since suits stand on bodies: how it's turned there, when
 /// it last fought, and its hide spot; and, with wear and tear, every suit's systems, equipment and
 /// statuses. The scenario itself runs bit for bit as it did.)
-const SLEEPERS_GOLDEN: u64 = 0x82d4_286e_fe11_0a4c;
+const SLEEPERS_GOLDEN: u64 = 0x031f_a0b8_0213_103c;
 
 fn sleepers_hash() -> u64 {
     use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST};
@@ -470,7 +470,7 @@ fn sleepers_golden_wasm() {
 /// off. A guided missile goes at the Leo on its rock. (The hash covers the suits' cover since they
 /// hide, and the dolls hunting the riders come at them from above; with wear and tear, every suit's
 /// systems, equipment and statuses.)
-const SURFACE_GOLDEN: u64 = 0x711d_2ad5_d670_41cf;
+const SURFACE_GOLDEN: u64 = 0x9eed_43c1_9d47_a8ec;
 
 fn surface_hash() -> u64 {
     use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRIP, MELEE, MODE};
@@ -534,7 +534,7 @@ fn surface_hash() -> u64 {
     let (mut leo_seen, mut hopped, mut crouched, mut dug_free) = ([false; 3], false, false, false);
     let (mut round_the_edge, mut in_the_well, mut zero_landed) = (false, false, false);
     let mut hidden_at = None;
-    let (mut hits_on_runner, mut bursts) = (0, 0);
+    let (mut hits_on_runner, mut bursts, mut salvo) = (0, 0, false);
     for _ in 0..900 {
         let t = sim.next_tick();
         let cmd = |aim: Vec3, thrust: [i8; 3], buttons: u16| {
@@ -560,9 +560,14 @@ fn surface_hash() -> u64 {
             cmd(ahead, thrust, GRIP | FLIGHT_ASSIST)
         };
         sim.set_input(leo, c);
-        // Its hunter locks on, and lets one salvo go.
+        // Its hunter locks on, and lets one salvo go (once it's steady: the Dolls stagger it).
         let to_leo = (sim.suits.flight[leo.idx()].pos - sim.suits.flight[gunner.idx()].pos).normalize();
-        let fire = if t == 400 { FIRE_SECONDARY } else { 0 };
+        let fire = if t >= 400 && !salvo && !sim.staggered(gunner.idx()) {
+            salvo = true;
+            FIRE_SECONDARY
+        } else {
+            0
+        };
         sim.set_input(
             gunner,
             InputCmd { lock_target: leo.idx() as u16, ..cmd(to_leo, [0; 3], FLIGHT_ASSIST | fire) },

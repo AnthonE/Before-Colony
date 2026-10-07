@@ -58,6 +58,9 @@ pub enum MeleePhase {
 pub use crate::content::SPECIAL_MOUNT;
 /// Weapon slots from here on are the special mounts' (see [`Suits::weapon_state`]).
 pub const SPECIAL_SLOTS: usize = 3;
+/// [`Suits::weapon_state`]'s slot for the gun in hand (`content::salvage::held_gun`), after the
+/// special mounts.
+pub const HELD_SLOT: usize = SPECIAL_SLOTS + 2;
 /// Every loadout slot's weapon fitted.
 pub const ALL_MOUNTS: u8 = 0b111;
 /// Marks a hit by a twin weapon's second blade in [`MeleeState::hits`].
@@ -209,6 +212,10 @@ pub struct Suits {
     pub special: Box<[SpecialState]>,
     /// The special mounts' weapons (Full Open's chest gatlings and micro-missiles).
     pub special_weapons: Box<[[WeaponState; 2]]>,
+    /// The gun on a limb in hand, while one is (`content::salvage::held_gun`): set as it's grabbed.
+    pub held_gun: Box<[WeaponState]>,
+    /// Which of Zodiac's aces a Doll is (`content::aces`), or `NO_ACE`.
+    pub ace: Box<[u8]>,
     pub lock: Box<[LockState]>,
     /// Guided missiles tracking the suit (counted each tick).
     pub incoming: Box<[u16]>,
@@ -270,6 +277,14 @@ pub struct Suits {
     /// The Charter Board's trainers, boarded at the Blast Hall's gantry (`sim::launch`): they dock
     /// back there, not at the inner gate.
     pub trainer: BitSet,
+    /// Doomed suits: ticks until the reactor goes, and who breached the torso (`sim::doom`).
+    pub doom: Box<[crate::sim::Doom]>,
+    /// Wrecks blown apart by their own reactors (a self-destruct): nothing is left to see.
+    pub blown: BitSet,
+    /// The impact built up on each suit's attitude control, and while it's staggered the ticks
+    /// left (`sim::stagger`).
+    pub impact: Box<[f32]>,
+    pub stagger: Box<[u8]>,
     free: FreeList,
 }
 
@@ -296,6 +311,8 @@ impl Suits {
             melee: boxed(cap, MeleeState::default()),
             special: boxed(cap, SpecialState::default()),
             special_weapons: boxed(cap, [WeaponState::default(); 2]),
+            held_gun: boxed(cap, WeaponState::default()),
+            ace: boxed(cap, crate::content::aces::NO_ACE),
             lock: boxed(cap, LockState::default()),
             incoming: boxed(cap, 0u16),
             part_hp: boxed(cap, [0.0f32; Part::COUNT]),
@@ -328,6 +345,10 @@ impl Suits {
             parkable: boxed(cap, Body::None),
             still: BitSet::new(cap),
             trainer: BitSet::new(cap),
+            doom: boxed(cap, crate::sim::Doom::NONE),
+            blown: BitSet::new(cap),
+            impact: boxed(cap, 0.0f32),
+            stagger: boxed(cap, 0u8),
             free: FreeList::full(cap),
         }
     }
@@ -347,8 +368,11 @@ impl Suits {
         self.credits[idx] = 0;
         self.sleeping.set(idx, false);
         self.trainer.set(idx, false);
+        self.doom[idx] = crate::sim::Doom::NONE;
+        self.blown.set(idx, false);
         self.reset_ground(idx);
         self.parkable[idx] = Body::None;
+        self.ace[idx] = crate::content::aces::NO_ACE;
         Some(SuitId(Handle { idx: idx as u16, generation: self.generation[idx] }))
     }
 
@@ -380,6 +404,7 @@ impl Suits {
             }
         }
         self.special_weapons[idx] = sw;
+        self.held_gun[idx] = WeaponState::default();
         self.melee[idx] = MeleeState::default();
         self.special[idx] = SpecialState::default();
         self.lock[idx] = LockState::default();
@@ -397,6 +422,10 @@ impl Suits {
         self.held[idx] = (NO_CHUNK, 0, false);
         self.cargo_kg[idx] = [0; CARGO_KINDS];
         self.mounts[idx] = ALL_MOUNTS;
+        self.doom[idx] = crate::sim::Doom::NONE;
+        self.blown.set(idx, false);
+        self.impact[idx] = 0.0;
+        self.stagger[idx] = 0;
         self.reset_ground(idx);
     }
 
@@ -466,9 +495,12 @@ impl Suits {
         self.tuning[idx] = t;
     }
 
-    /// The state of weapon `slot`: a loadout slot (0..3), or a special mount (from
-    /// [`SPECIAL_SLOTS`]).
+    /// The state of weapon `slot`: a loadout slot (0..3), a special mount (from
+    /// [`SPECIAL_SLOTS`]), or the gun in hand ([`HELD_SLOT`]).
     pub fn weapon_state(&mut self, idx: usize, slot: usize) -> &mut WeaponState {
+        if slot == HELD_SLOT {
+            return &mut self.held_gun[idx];
+        }
         match slot.checked_sub(SPECIAL_SLOTS) {
             Some(k) => &mut self.special_weapons[idx][k],
             None => &mut self.weapons[idx][slot],

@@ -833,6 +833,12 @@ pub fn drive_onfoot(
         ui.news(text.clone(), outcome == Outcome::Lost);
         log.push(text, outcome != Outcome::Lost);
     }
+    // Its payout sheet, under the news, and line by line in the terminals' log.
+    for d in g.core.hangar.debriefs.drain(..) {
+        ui.debrief(&d);
+        let lines: Vec<String> = d.lines.iter().map(|l| format!("{} {:+} CR", l.what, l.cr)).collect();
+        log.push(format!("DEBRIEF · {} · NET {:+} CR", lines.join(" · "), d.net()), d.net() >= 0);
+    }
     for text in g.core.hangar.news.drain(..) {
         ui.news(text.clone(), false);
         log.push(text, true);

@@ -2,6 +2,7 @@
 //! and use tokio primitives; it talks to the sector thread only through the lock-free queues in
 //! `bc-sector`.
 
+pub mod admit;
 pub mod echo;
 pub mod endpoint;
 pub mod game;
@@ -20,6 +21,15 @@ pub struct NetStats {
     pub bytes_in: AtomicU64,
     pub bytes_out: AtomicU64,
     pub malformed: AtomicU64,
+    /// Connection attempts turned away (`admit`): the server full, an address over its share,
+    /// sent a Retry to prove their address, or too slow to finish their handshakes.
+    pub refused_full: AtomicU64,
+    pub refused_address: AtomicU64,
+    pub retried: AtomicU64,
+    pub handshake_timeouts: AtomicU64,
+    /// Hangar requests refused for coming too fast, and sessions ended for it.
+    pub requests_refused: AtomicU64,
+    pub flooders_ended: AtomicU64,
 }
 
 impl NetStats {
@@ -41,6 +51,12 @@ pub fn status_json(stats: &NetStats, game: Option<&game::StatusView>) -> serde_j
         "bytes_in": r(&stats.bytes_in),
         "bytes_out": r(&stats.bytes_out),
         "malformed": r(&stats.malformed),
+        "refused_full": r(&stats.refused_full),
+        "refused_address": r(&stats.refused_address),
+        "retried": r(&stats.retried),
+        "handshake_timeouts": r(&stats.handshake_timeouts),
+        "requests_refused": r(&stats.requests_refused),
+        "flooders_ended": r(&stats.flooders_ended),
     });
     match game {
         Some(view) => serde_json::json!({ "mode": "game", "net": net, "game": view.json() }),

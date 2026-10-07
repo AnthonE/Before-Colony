@@ -38,6 +38,29 @@ pub const BOUNCE: f32 = 0.4;
 
 /// How far beyond a chunk's size a hand reaches to grab it, m.
 pub const REACH: f32 = 8.0;
+
+/// The gun on a limb blown off a suit, which a hand that holds it can fire (`docs/DESIGN.md`,
+/// "The enemy's gun", after Daemon X Machina): an arm that carried a beam or solid-round gun in its
+/// hand. Not one that charges, and not a blade or a launcher.
+pub fn held_gun(desc: &ChunkDesc) -> Option<WeaponKind> {
+    let ChunkKind::Limb { frame: f, part: part @ (Part::ArmL | Part::ArmR), .. } = desc.kind else {
+        return None;
+    };
+    frame(f)
+        .loadout
+        .iter()
+        .flatten()
+        .filter(|m| matches!(m.arm, crate::content::ArmSlot::Left | crate::content::ArmSlot::Right))
+        .find(|m| m.arm.part() == part)
+        .map(|m| m.weapon)
+        .filter(|w| {
+            let s = weapon(*w);
+            matches!(s.class, WeaponClass::Beam | WeaponClass::Ballistic) && s.charge_ticks == 0 && !s.engulfs
+        })
+}
+
+/// The share of its load a gun picked up from a wreck still has (what wasn't fired).
+pub const HELD_ROUNDS: f32 = 0.5;
 /// The fastest a chunk can be moving relative to the hand and still be caught, m/s.
 pub const CATCH_SPEED: f32 = 12.0;
 /// The heaviest chunk that fits in a hold, kg (anything heavier is towed in hand).

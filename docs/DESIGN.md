@@ -302,7 +302,7 @@ mind on a timer.
 - **Arms aim.** A hand-held weapon fires anywhere within 50° of the body axis (shoulder mounts 20°),
   so you don't have to point the whole suit.
 - **Per-part damage.**
-  - Parts: head (sensors), torso (destroyed means dead), arms (their weapons), legs (AMBAC mass,
+  - Parts: head (sensors), torso (destroyed means lost: a pilot's suit is doomed first, below), arms (their weapons), legs (AMBAC mass,
     some thrust), backpack (main thrusters).
   - A limb shot to nothing comes off: it drifts away as wreckage (a limb chunk, which can be
     salvaged), and shots pass through where it was. A hit that blows a limb off spills half its
@@ -413,8 +413,22 @@ exactly.
   of its 8 s life.
 - **Full Open Attack** (Heavyarms, SPECIAL): for three seconds every hatch opens and everything
   fires along the aim, heat or not: the beam gatling, both launchers and the chest gatlings,
-  about 24 missiles. Then the suit is locked in an overheat for 5 s, and it's ready again 30 s
-  after it started.
+  about 24 missiles. Then the suit is locked in an overheat for 5 s. It charges back over 45 s,
+  sooner in a fight (below).
+
+### Specials charged by the fight
+
+Titanfall's Core (`PEERS.md`, "The mech games"): power is earned in the fight
+(`bc_sim::content::specials`).
+
+- A special with a cooldown (Full Open Attack, 45 s; the Cross Crusher, 8 s) charges back by itself
+  over it, and faster from the fight. Every armour point the suit's blows take off a hostile suit
+  takes 1/450 of the whole off what's left, and every point it takes, 1/300. A Heavyarms that deals
+  450 or takes 300 has its Full Open back at once.
+- The special's own blows charge nothing: not the Cross Crusher's shotels, and nothing at all
+  until Full Open's lockout is over.
+- A suit launches with its special charged. The HUD shows it charging (`H FULL OPEN ATTACK
+  CHARGING ||||···· 52%`), and the own state carries the charge (protocol v25).
 
 ### Melee
 
@@ -441,6 +455,72 @@ timings, arc and reach in its row of the weapon table.
   is Shenlong's arm, so it doesn't lunge.
 - **Clashes.** A stroke that meets a suit whose own blade is out and facing it is parried: neither
   does damage, and each recovers for its blade's clash time. The Dragon Fang can't be parried.
+
+### Doom and ejecting
+
+How a suit is lost, as the mech games handle it (`PEERS.md`, "The mech games"): Titanfall's doomed
+Titans and their pilots ejecting, Steel Battalion's eject button, and Heero blowing up his Gundam
+in Siberia (`bc_sim::sim::doom`).
+
+- **Doomed.** A pilot's suit whose torso armour is gone isn't lost at once. For 3 s it flies and
+  fights on while its reactor goes: it burns, sparks and pops, and the HUD counts it down
+  (`DOOMED 2.4 s · U EJECT · HOLD U SELF-DESTRUCT`). Every blow that lands on it meanwhile takes
+  time off: a blow of a sixth of the torso's armour takes a second, so a few more hits finish it.
+  Then it's destroyed as any suit is, credited to whoever breached it. A Mobile Doll has no pilot
+  to save, and a sleeper's pilot can't wake in time: theirs go at once. A doomed suit can't dock.
+- **Eject: U.** Doomed, a tap. Otherwise held for a second, so nobody bails out by a slip of the
+  finger. The pilot's capsule is blown clear, up out of the suit at 25 m/s, and their camera
+  follows it while the suit goes. The suit is destroyed at once (credited to whoever breached it,
+  if anyone did) and drifts on as a hulk, as ever. Never inside the colony, where nothing strikes
+  a suit.
+- **The tugs.** Under survival rules the hulk is its pilot's claim: 45 s after they're out the
+  colony's tugs reach it and bring it home to their bay. What's on it comes home as salvage does
+  (worn parts at 40%, their systems damaged), and its torso too, as a part rather than scrap, if
+  the suit wasn't doomed when they left it. Until the tugs get there it's anyone's: whoever
+  grabs it, cuts it up or tows it into the dock first has it, and the tugs say they found nothing.
+  A pilot who leaves the game meanwhile has it towed in at once.
+- **Self-destruct: hold U, doomed.** The pilot blows the reactor with themselves aboard. Every
+  hostile suit within 60 m of the blast (to its bounds) takes up to 240 to the torso, less with
+  distance: a Taurus or a Leo beside it goes, a Gundam beside it is badly hurt. Nothing of the suit
+  is left to salvage, and nobody gets its wreck. The kills and their bounties are the pilot's.
+- **What a pilot keeps.** Ejecting is the insurance: ride a doomed suit to the end and its wreck
+  is anyone's; get out and the tugs bring yours home; blow it up and nobody has it. Under arcade
+  rules the pilot just respawns, but the blast is a weapon all the same.
+- **On the wire** (protocol v23): `Event::Doomed`, `Event::Eject` (the capsule's position and
+  velocity), `Event::Blast`, the doom in the own state (in tenths of a second since v24), and
+  `WeaponKind::Reactor` for the blast's hits. Ejecting is a request on the control stream
+  (`bc_econ::wire::Request::Eject`), as the rack's kits are, for any rules; agents call
+  `BotClient::eject` and `self_destruct`.
+
+### Stagger
+
+Armored Core VI's attitude control (`PEERS.md`, "The mech games"): a fight is won by breaking a
+suit's balance, then punishing it (`bc_sim::content::stagger`, `bc_sim::sim::stagger`).
+
+- **Impact.** Every blow that lands pushes on the suit's attitude control: its armour points
+  (before the target's armour: gundanium stops damage, not a push) times its weapon's impact. A
+  beam's is 1, a solid round's 1.3, a blade's stroke 1.8, a missile's warhead and a reactor's
+  blast 2, the Twin Buster Rifle's 1.6, a flame's 0.5.
+- **Stability.** What a frame stands before it's staggered: a Taurus 240, a Leo 300,
+  Deathscythe 320, Wing Zero and Shenlong 340, a Virgo and Heavyarms 380, Sandrock 460. A suit
+  left alone for 0.8 s steadies, shedding half its stability's worth a second.
+- **Staggered, for a second.** Its attitude control does nothing: it tumbles with the spin the
+  blow knocked into it (1.2 rad/s about an axis square to the blow, free in space) and can't turn.
+  Its thrusters give a quarter of their thrust, with no boost and no burst step. On its feet it's
+  braced: it stumbles to a stop, its legs neither walking nor turning it. Its weapons, blades and
+  special are down, and a strike under way is lost.
+- **Direct hits.** Blows that land on a staggered suit do half as much again. Then it's steady,
+  its impact back to nothing, and a stagger can't be chained on a stagger.
+- **Everyone.** Mobile Dolls stagger as pilots do. The HUD's flight panel shows the suit's
+  attitude (`ATT`, filling toward `STAGGERED`), the banner says `STAGGERED` while it lasts, and
+  the designated target's bracket shows its gauge (`ATT ||||··`), as AC6's does; any staggered
+  suit's bracket says so. A staggered suit's attitude jets fire every which way and it sparks.
+- **Prediction.** The pilot's client flies the stagger as the server does: the ticks left travel
+  in the own state, and the prediction runs them down (`Predictor::stagger`).
+- **On the wire** (protocol v24): `Event::Staggered` (the events' second extension), and in the
+  own state the suit's impact (in sixths), the stagger's ticks left, and the designated target's
+  impact (`TARGET_STAGGERED` while it's staggered). Agents read `BotClient::staggered` and
+  `impact`.
 
 ## Sensors and visibility
 
@@ -512,6 +592,8 @@ can take.
   - They lead perfectly but *linearly*, strafe on a timer, feel no G and never flinch, so a pilot
     who keeps changing acceleration will out-juke them.
   - They drive their suits with the same `InputCmd` a player sends.
+- **Zodiac's aces**: now and then one of nine named aces flies among them, a Doll in a Leo tuned
+  by hand, with a bounty on it ("Aces: the Most Wanted").
 - **Agents** are external AI players on the Bot SDK (`bc-bot`). They run the same client state
   machine as the browser, get the same sensor-limited view and input rate, and obey the same G
   limits. They are labelled **MD** in-game. The bundled `DollBrain` flies an agent with the Mobile
@@ -559,6 +641,21 @@ respawns (a signed-in pilot keeps them from one session to the next; a guest's g
   exotics).
 - **Dying** spills the hold and drops what you were holding; someone else can pick it up. What a
   suit on a body spills (dying, or jettisoning) flies up off the body, never into it.
+
+### The enemy's gun
+
+Daemon X Machina's lesson (`PEERS.md`, "The mech games"): take the gun off the suit you downed
+(`bc_sim::content::salvage::held_gun`).
+
+- An arm shot off a suit with a gun in its hand still has the gun: a Taurus's or a Leo's beam
+  rifle, a Leo's machine cannon, a Virgo's beam cannon, Heavyarms' beam gatling, Sandrock's beam
+  machine gun. Not a blade, a launcher, or a gun that charges (the Twin Buster Rifle).
+- Grab it and RMB fires that gun from the hand that holds it, in place of the suit's own
+  secondary: its plain shot (the hand hasn't the suit's fire control to charge one), on its own
+  cooldown, with the suit's energy and heat. A solid-round gun comes with half its load left.
+  Let go and the suit's own secondary is back.
+- The HUD shows it on the secondary's line (`RMB BEAM RIFLE IN HAND RDY`). The pilot's client
+  predicts it exactly, told which gun from the held chunk (protocol v26).
 
 ## Mining
 
@@ -841,11 +938,36 @@ every terminal in the bay, and the Charter Board's own desk in Charter Square.
 
   Every pilot hears when one is finished, wherever they are; the board lists each work's most
   generous contributors.
-- **Standing** is the credits a pilot has earned from the colony's contracts, patrols and works:
-  it's what signing the charter takes. A pilot's contract with another pilot earns none.
+- **Standing** is the credits a pilot has earned from the colony's contracts, patrols, works and
+  aces' bounties: it's what signing the charter takes. A pilot's contract with another pilot
+  earns none.
 - **The ledger** still balances: credits enter only from the colony (what it pays on contracts
   and works joins its purchases), and escrow and deliveries never make or lose any (the ledger's
   property test covers the board too).
+
+### Aces: the Most Wanted
+
+Zodiac's aces (`bc_sim::content::aces`; Armored Core VI's Arena, MechWarrior's contracts): nine
+Mobile Dolls of the Consortium's security arm known by their callsigns, ARIES to PISCES, each with
+a bounty on it (1,500 to 4,000 CR).
+
+- **One out at a time.** Every 5 minutes (`--ace-every`), while none is out, the next on the list
+  is fielded among the Dolls: a squad of its own, high over one of the Dolls' anchors, in a Leo
+  whose Doll system was tuned by hand, its armour standing half as much again as a Doll's. Round
+  the list, and round again.
+- **Known by its name.** It goes on every pilot's roster by its callsign: the lock (`LOCK ARIES`),
+  the kill feed and the chart name it, from the moment it's out until a few seconds after it's
+  downed. The news says when one comes out (`ZODIAC'S ARIES IS OUT AMONG THE DOLLS · 1,500 CR ON
+  IT`) and who downed it.
+- **The Most Wanted**, on the Charter Board: each ace's bounty, the one out now, who downed each
+  last and when, and the ladder of pilots by aces downed.
+- **Pay or salvage** (MechWarrior's contract terms). A pilot's terms say how they take an ace's
+  bounty: paid by the Charter Board the moment it's downed (the colony's money, earning standing
+  as its contracts do), or as the rights to its wreck: the colony's tugs go out for it and bring it
+  home 45 s later, everything on it salvage (worn parts of the lines pilots build, the rest scrap),
+  unless someone else gets to it first. A gamble: a whole Leo's parts, or nothing. With the tugs
+  already out for their own wreck, it's paid; downed on the way out of the game, too.
+- Under arcade rules the aces fly as well, by name, with nobody to pay.
 
 ### Sorties
 
@@ -859,8 +981,17 @@ every terminal in the bay, and the Charter Board's own desk in Charter Square.
   too), the hold's ore, whatever was in hand, and the bounties earned.
 - **Arriving:** a pilot's first time in their bay, the news says they've arrived, and what the
   Charter Board advanced them.
+- **Ejecting:** a pilot who ejects (U) loses the suit too, but the colony's tugs bring its wreck
+  home 45 s later, unless someone else takes it first ("Doom and ejecting").
 - **Losing it:** a suit destroyed out there is gone, along with its hold. The bounties it earned are
   still paid, and the pilot is brought back to the bay through the airlock once the wreck clears.
+- **The debrief** (`bc_econ::debrief`; Armored Core VI's payout, X-Wing's debrief): every sortie
+  that ends, docked or lost, comes with its payout sheet under the news, and line by line in the
+  terminals' log. What it earned: the bounties, the hold's ore and what was in hand, at the
+  colony's values. What it cost: the propellant burnt, the rounds fired (or lost with their mount),
+  what the rack used, what the armour that came home takes to repair, and the parts, weapons and
+  equipment shot off; a suit lost is written off whole. Then the net: a sortie that earns 2,000 in
+  bounties and comes home with 2,500 of armour to mend lost money.
 - **A floor under it** (`Hangar::reissue`): a pilot back in an empty bay with no torso in the stores
   to build on, and less than a Leo torso's worth in credits, stores and parts (at the colony's
   values), finds a worn Leo in the gantry, the Charter Board's advance, as on the day they
@@ -958,7 +1089,11 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
 
 - **The Blast Hall's trainers and drill** (`TRAINING.md`): at the gantry's hatch, on foot, E
   boards one of the Charter Board's Leos, standing on the gantry (the pilot's own suit stays in
-  their bay); at rest on the gantry, Enter climbs out there. In the hall the drill lights its
+  their bay); at rest on the gantry, Enter climbs out there.
+- **The test range** (Armored Core VI's test mode; `bc_econ::proving::Trainer`): at the hall's
+  desk the pilot picks what the gantry readies: the Board's Leo, the build standing in their bay
+  (new and full, none of its wear), or a new suit of any line the colony builds, to try before
+  building it. Nothing of theirs is taken, and nothing comes home. In the hall the drill lights its
   targets one at a time, X-Wing's Maze: the clock starts on the first with 12 s on it, and each
   one struck puts 3 s back. Twenty struck clears it, against a par of 25 s, for the board.
 
@@ -992,6 +1127,7 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
 | M · N | the chart: the sector in 3D out to the Earth Sphere, the objectives and courses · the auto-nav on the course set (on or off) |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
 | 1 · 2 · 3 · 4 | survival: the rack's patch kit · coolant flush · chaff · stim |
+| U | eject: doomed, a tap ejects and a hold blows the suit up; otherwise held a second |
 | Enter | dock (survival): at rest inside the dock's ring of lights |
 | 1–6 | arcade rules: respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
 | / (Enter on foot) | talk on the colony's radio: Enter says it, Esc closes |
@@ -1142,7 +1278,7 @@ seizure or in Neo-Bird form the keys fly as they always do.
 
 **Lock assist.** A frame with missiles designates the hostile nearest the reticle (within 10°) and
 keeps it while it stays within 15°. Its bracket fills as the lock builds and reads LOCKED when it's
-acquired. The HUD shows the special's state (READY, JAMMING, FIRING, the cooldown), the lock, and
+acquired. The HUD shows the special's state (READY, JAMMING, FIRING, its charge), the lock, and
 MISSILE LOCK and MISSILE warnings, with a marker on each missile tracking you.
 
 ## Roadmap after Milestone 4

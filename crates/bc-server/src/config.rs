@@ -61,6 +61,9 @@ pub struct Config {
     pub web_dir: Option<PathBuf>,
     /// Mobile Doll NPCs to keep in the sector.
     pub mobile_dolls: u32,
+    /// One of Zodiac's aces is fielded among the Dolls at most this often, while none is out
+    /// (`bc_sim::content::aces`); zero: none.
+    pub ace_every: Duration,
     pub oracle: OracleKind,
     /// Player/agent slots in the sector.
     pub max_clients: usize,
@@ -91,6 +94,8 @@ pub struct Config {
     pub data_dir: Option<PathBuf>,
     /// The colony is open (survival): pilots may ride the cap lifts down into its city.
     pub colony: bool,
+    /// How many connections it takes, in all and from one address (`net::admit`).
+    pub limits: crate::net::admit::Limits,
 }
 
 impl Default for Config {
@@ -101,6 +106,7 @@ impl Default for Config {
             http_addr: SocketAddr::from(([127, 0, 0, 1], 8080)),
             web_dir: None,
             mobile_dolls: 24,
+            ace_every: Duration::from_secs(300),
             oracle: OracleKind::Local,
             max_clients: 64,
             seed: 0xBC_0195,
@@ -117,6 +123,7 @@ impl Default for Config {
             craft_speed: 1.0,
             data_dir: None,
             colony: false,
+            limits: crate::net::admit::Limits::default(),
         }
     }
 }

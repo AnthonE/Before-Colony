@@ -21,8 +21,11 @@ use crate::input::Aim;
 use crate::net::{GameClient, now_s};
 use crate::view::{
     BeamFeed, BeamView, CameraTarget, ChaseTarget, DrawnBodies, FxEvent, FxEvents, MissileFeed, MissileView,
-    SuitDrive, SuitGround, SuitIndex, VisTime,
+    PodFeed, PodView, SuitDrive, SuitGround, SuitIndex, VisTime,
 };
+
+/// How long a pilot's capsule thrown clear is drawn, s.
+const POD_SECS: f32 = 12.0;
 
 /// Remembers which one-shot events were already turned into effects.
 #[derive(Default)]
@@ -37,6 +40,11 @@ pub struct Seen {
     rock_breaks: HashSet<(u32, u16)>,
     /// Missile bursts shown, by (tick, missile).
     bursts: HashSet<(u32, u16)>,
+    /// Ejections and self-destructs shown, by (tick, suit).
+    ejections: HashSet<(u32, u16)>,
+    blasts: HashSet<(u32, u16)>,
+    /// Staggers shown, by (tick, suit).
+    staggers: HashSet<(u32, u16)>,
     /// Missiles already seen in flight, by (id, generation): a new one was just launched.
     missiles: HashSet<(u16, u8)>,
     /// Each suit's form last frame, by slot (a change of form flashes).
@@ -106,6 +114,7 @@ pub fn sync_view(
     mut drives: Query<&mut SuitDrive>,
     mut beams: ResMut<BeamFeed>,
     mut missiles: ResMut<MissileFeed>,
+    mut pods: ResMut<PodFeed>,
     mut events: ResMut<FxEvents>,
     mut target: ResMut<CameraTarget>,
     mut seen: Local<Seen>,
@@ -218,6 +227,9 @@ pub fn sync_view(
             }),
             ground: view.ground.and_then(|g| SuitGround::of(&g, &bodies)),
             weathering: bc_client_core::weathering(world, own.slot),
+            doomed: own.alive && own.doom > 0,
+            // As flown: the prediction runs the stagger down tick by tick.
+            staggered: own.alive && core.predict.stagger > 0,
         });
     }
     for (slot, track) in world.entities.iter().enumerate() {
@@ -247,6 +259,8 @@ pub fn sync_view(
             holding: holders.get(&(slot as u16)).copied(),
             ground: p.ground.and_then(|g| SuitGround::of(&g, &bodies)),
             weathering: bc_client_core::weathering(world, slot as u16),
+            doomed: state.flags & ent_flags::WRECK == 0 && world.doomed.contains_key(&(slot as u16)),
+            staggered: state.flags & ent_flags::WRECK == 0 && world.is_staggered(slot as u16, t_render),
         });
     }
     seen.thrust.retain(|slot, _| world.entities.get(*slot as usize).is_some_and(Option::is_some));
@@ -407,6 +421,49 @@ pub fn sync_view(
         }
     }
     seen.bursts.retain(|&(tick, id)| world.missile_bursts.iter().any(|b| b.tick == tick && b.id == id));
+    // Capsules thrown clear, for a while after.
+    pods.0.clear();
+    for e in &world.ejections {
+        let age = ((t_render - f64::from(e.tick)) / f64::from(bc_sim::TICK_HZ)) as f32;
+        if (0.0..POD_SECS).contains(&age) {
+            let suit_vel = world.pose(e.suit, f64::from(e.tick)).map_or(Vec3::ZERO, |p| p.vel);
+            pods.0.push(PodView {
+                pos: e.pos_at(t_render),
+                vel: e.vel,
+                suit_vel,
+                age,
+                own: Some(e.suit) == own_slot,
+            });
+        }
+    }
+    for e in &world.ejections {
+        if seen.ejections.insert((e.tick, e.suit)) {
+            events.0.push(FxEvent::Eject { pos: e.pos, vel: e.vel, own: Some(e.suit) == own_slot });
+        }
+    }
+    seen.ejections.retain(|&(tick, suit)| world.ejections.iter().any(|e| e.tick == tick && e.suit == suit));
+    for &(tick, suit, pos) in &world.blasts {
+        if seen.blasts.insert((tick, suit)) {
+            events.0.push(FxEvent::Blast { pos });
+        }
+    }
+    seen.blasts.retain(|&(tick, suit)| world.blasts.iter().any(|b| b.0 == tick && b.1 == suit));
+    // Staggers, as they're heard of (not one long over).
+    let lasts = f64::from(bc_sim::content::stagger::STAGGER_TICKS);
+    for (&suit, &tick) in &world.staggered {
+        if t_render - f64::from(tick) < lasts && seen.staggers.insert((tick, suit)) {
+            let own = Some(suit) == own_slot;
+            let at = if own {
+                core.own_view().map(|v| (v.pos, v.flight_vel))
+            } else {
+                world.pose(suit, t_render).map(|p| (p.pos, p.vel))
+            };
+            if let Some((pos, vel)) = at {
+                events.0.push(FxEvent::Stagger { pos, vel, own });
+            }
+        }
+    }
+    seen.staggers.retain(|&(tick, suit)| world.staggered.get(&suit) == Some(&tick));
 
     // --- One-shot effects. ---
     for h in &world.hits {
@@ -491,12 +548,14 @@ pub fn sync_view(
             .any(|l| matches!(*l, FeedLine::Kill { tick: t, victim: v, .. } if t == tick && v == victim))
     });
 
-    // --- Camera: on the suit as drawn, and the pilot's body as predicted. ---
+    // --- Camera: on the suit as drawn, and the pilot's body as predicted. Out of it, on the
+    // pilot's capsule, looking back at the wreck. ---
+    let pod = pods.0.iter().find(|p| p.own).copied().filter(|_| world.own.is_some_and(|o| !o.alive));
     target.0 = world.own.zip(drawn).map(|(own, view)| ChaseTarget {
-        pos: view.pos,
-        vel: view.vel,
+        pos: pod.map_or(view.pos, |p| p.pos),
+        vel: pod.map_or(view.vel, |p| p.vel),
         up: view.rot * Vec3::Y,
-        aim: aim.dir,
+        aim: pod.map_or(aim.dir, |p| (view.pos - p.pos).normalize_or(aim.dir)),
         cut: view.cut,
         ground: view.alive && view.ground.is_some(),
         boost: view.alive && view.boosting,

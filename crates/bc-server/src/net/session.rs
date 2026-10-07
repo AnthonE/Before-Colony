@@ -28,18 +28,20 @@ use bc_proto::presence::{PlazaWriter, PosePacket};
 use bc_proto::{
     Faction, FrameId, InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, PacketKind, PilotKind, packet_kind,
 };
-use bc_sector::{Comeback, Control, InputMsg, Metrics, Outcome, Report, SlotLease, SlotState};
+use bc_sector::{Comeback, Control, InputMsg, Loss, Metrics, Outcome, Report, SlotLease, SlotState};
 use bc_sim::sim::Loadout;
 use tokio::sync::{broadcast, oneshot};
 use wtransport::{Connection, RecvStream, SendStream};
 
 use super::NetStats;
+use super::admit::{Asked, Requests};
 use super::game::{
     EgressCmd, GameShared, HangarEntry, RateLimit, RosterEntry, RosterUpdate, forget, process_notes, reject,
     send_control, set_roster_flags, wait_slot,
 };
 use crate::pilots::{self, Fate, ParkedSuit, PilotRecord, Sleeper};
 use crate::radio::Mouth;
+use bc_econ::proving::Trainer;
 
 /// Who the Hello said the pilot is.
 pub(super) struct Who {
@@ -118,10 +120,12 @@ pub(super) async fn run(
         proving_sent: Instant::now() - MARKET_EVERY,
         bests: Bests::default(),
         trainer: false,
+        trainer_build: Trainer::Board,
         news_seen: game.charter.with(|b| b.news_seq()),
         radio_heard: 0,
         mouth: Mouth::default(),
         lost: false,
+        towing: false,
         inside: None,
         spectating: None,
         entered: false,
@@ -178,6 +182,8 @@ struct Session<'a> {
     bests: Bests,
     /// Flying one of the Charter Board's trainers, boarded at the Blast Hall's gantry.
     trainer: bool,
+    /// What the Blast Hall's gantry readies for the pilot (the test range, `proving::Trainer`).
+    trainer_build: Trainer,
     /// The newest of the board's notices the pilot has heard.
     news_seen: u64,
     /// The last line of the colony's radio passed on, and how fast the pilot may talk on it.
@@ -185,6 +191,9 @@ struct Session<'a> {
     mouth: Mouth,
     /// The suit was destroyed; its wreck is still out there.
     lost: bool,
+    /// The pilot ejected, and the colony's tugs have yet to say what they brought home of the wreck
+    /// (`Report::Towed`).
+    towing: bool,
     /// Flying inside the colony: the lease on the inside sector's slot the suit is flown through
     /// (`self.suit` names it there).
     inside: Option<SlotLease>,
@@ -280,11 +289,14 @@ impl Session<'_> {
         let mut sortie = None;
         if self.survival() && !woke && matches!(self.hangar.bay, Bay::Out { .. }) {
             sortie = Some(match news {
-                Some(Fate::Destroyed { .. }) => (SortieOutcome::Lost, self.hangar.lost(0)),
+                Some(Fate::Destroyed { .. }) => {
+                    let (text, debrief) = self.hangar.lost_debriefed(0);
+                    (SortieOutcome::Lost, text, Some(debrief))
+                }
                 // Cleared for room, or from before the server restarted: towed in.
                 _ => {
                     self.hangar.recover();
-                    (SortieOutcome::Recovered, "THE COLONY'S TUGS BROUGHT YOUR SUIT IN".to_string())
+                    (SortieOutcome::Recovered, "THE COLONY'S TUGS BROUGHT YOUR SUIT IN".to_string(), None)
                 }
             });
         }
@@ -340,8 +352,8 @@ impl Session<'_> {
             self.place = if self.suit.is_some() { Place::Space } else { Place::Hangar };
             self.settle(true);
             self.send_place().await?;
-            if let Some((outcome, text)) = sortie {
-                self.send(&Update::Sortie { outcome, text }).await?;
+            if let Some((outcome, text, debrief)) = sortie {
+                self.send(&Update::Sortie { outcome, text, debrief }).await?;
             }
             if let Some(text) = advanced {
                 self.send(&Update::News { text }).await?;
@@ -482,6 +494,8 @@ impl Session<'_> {
     ) -> anyhow::Result<()> {
         let mut roster_rx = self.game.roster_tx.subscribe();
         let mut rate = RateLimit { tokens: 240.0, last: Instant::now() };
+        // How fast it may ask things of its hangar (`admit::Requests`).
+        let mut requests = Requests::new(Instant::now());
         let mut buf = [0u8; 4_096];
         let mut every = tokio::time::interval(TICK);
         every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -535,18 +549,32 @@ impl Session<'_> {
                         None => return Ok(()),
                     }
                     while let Some((frame, used)) = Frame::decode(&pending).map_err(|e| anyhow::anyhow!("{e}"))? {
-                        let bytes = match frame {
-                            Frame::Msg(ControlMsg::Respawn { frame }) => {
+                        // Asking too fast is refused, and asking on and on ends the session.
+                        let asks = matches!(frame, Frame::Hangar(_) | Frame::Msg(ControlMsg::Respawn { .. }));
+                        let asked = if asks { requests.ask(Instant::now()) } else { Asked::Take };
+                        let bytes = match (asked, frame) {
+                            (_, Frame::Msg(ControlMsg::Bye { .. })) => return Ok(()),
+                            (Asked::Take, Frame::Msg(ControlMsg::Respawn { frame })) => {
                                 if !self.survival() {
                                     let _ = self.game.sector.control.push(Control::Respawn { slot: self.slot, frame });
                                 }
                                 None
                             }
-                            Frame::Msg(ControlMsg::Bye { .. }) => return Ok(()),
-                            Frame::Msg(_) => None,
-                            Frame::Hangar(p) => Some(p.to_vec()),
+                            (Asked::Take, Frame::Hangar(p)) => Some(p.to_vec()),
+                            _ => None,
                         };
                         pending.drain(..used);
+                        match asked {
+                            Asked::Take => {}
+                            Asked::Refuse => NetStats::add(&self.stats.requests_refused, 1),
+                            Asked::End => {
+                                NetStats::add(&self.stats.requests_refused, 1);
+                                NetStats::add(&self.stats.flooders_ended, 1);
+                                tracing::info!(slot = self.slot, name = %self.callsign, "flooding the control stream: ending the session");
+                                let _ = send_control(self.tx, ControlMsg::Bye { reason: bye::LEAVE }).await;
+                                return Ok(());
+                            }
+                        }
                         if let Some(bytes) = bytes {
                             self.on_request(&bytes).await?;
                         }
@@ -627,6 +655,7 @@ impl Session<'_> {
         self.proving_sent = Instant::now();
         let mut view = self.game.proving.with(|b| b.view(&self.trader, pilots::unix_now()));
         view.mine = self.bests;
+        view.trainer = self.trainer_build;
         self.send(&Update::Proving(view)).await
     }
 
@@ -727,7 +756,12 @@ impl Session<'_> {
     async fn send_board(&mut self) -> anyhow::Result<()> {
         self.board_seen = self.game.charter.version();
         self.board_sent = Instant::now();
-        let view = self.game.charter.with(|b| b.view(&self.trader, pilots::unix_now()));
+        let mut view = self.game.charter.with(|b| b.view(&self.trader, pilots::unix_now()));
+        // Which of Zodiac's aces flies among the Dolls now.
+        let out = bc_sector::ace_of_word(self.game.sector.ace.load(std::sync::atomic::Ordering::Acquire));
+        for w in &mut view.wanted {
+            w.out = out.is_some_and(|(_, a, flying)| flying && a == w.ace);
+        }
         self.send(&Update::Charter(view)).await
     }
 
@@ -827,9 +861,18 @@ impl Session<'_> {
 
     async fn on_request(&mut self, bytes: &[u8]) -> anyhow::Result<()> {
         let req = wire::decode::<Request>(bytes);
-        // The radio is everyone's, whatever the rules.
+        // The radio is everyone's, whatever the rules; and so is ejecting from a suit.
         if let Some(Request::Say { text }) = &req {
             return self.say(text).await;
+        }
+        if let Some(Request::Eject { destruct }) = req {
+            // In the sector (under arcade rules a pilot is always there). Inside the colony nothing
+            // strikes a suit, and nobody ejects.
+            let flying = self.place == Place::Space || !self.survival();
+            if flying && self.suit.is_some() && !self.lost && self.inside.is_none() {
+                let _ = self.game.sector.control.push(Control::Eject { slot: self.slot, destruct });
+            }
+            return Ok(());
         }
         if !self.survival() {
             return Ok(());
@@ -841,6 +884,17 @@ impl Session<'_> {
             Request::Launch => self.launch().await,
             Request::LaunchInside => self.launch_inside().await,
             Request::BoardTrainer => self.board_trainer().await,
+            Request::Trainer { build } => {
+                // Ready only what can be: the bay's build while it stands there, a line the
+                // colony builds.
+                if let Err(why) = build.loadout(&self.hangar) {
+                    return self.note(why, false).await;
+                }
+                self.trainer_build = build;
+                let text = format!("THE GANTRY READIES {}", build.name(&self.hangar));
+                self.note(text, true).await?;
+                if self.in_the_colony() { self.send_proving().await } else { Ok(()) }
+            }
             Request::Dock => self.dock().await,
             Request::EnterCity { strip } => self.enter_city(strip).await,
             Request::LeaveCity => self.leave_city().await,
@@ -861,6 +915,8 @@ impl Session<'_> {
                 }
                 Ok(())
             }
+            // (Handled above, whatever the rules.)
+            Request::Eject { .. } => Ok(()),
             Request::WatchBoard { on } => {
                 self.board = on;
                 if on { self.send_board().await } else { Ok(()) }
@@ -871,6 +927,7 @@ impl Session<'_> {
             | Request::TakePatrol { .. }
             | Request::DropPatrol { .. }
             | Request::Contribute { .. }
+            | Request::AceTerms { .. }
             | Request::Sign => {
                 let now = pilots::unix_now();
                 let (hangar, trader, name) = (&mut self.hangar, self.trader.as_str(), self.callsign.as_str());
@@ -1126,6 +1183,11 @@ impl Session<'_> {
         if self.place != Place::City || self.suit.is_some() || !at_hatch {
             return self.note("the trainers are boarded at the blast hall's gantry, on foot", false).await;
         }
+        // What the pilot asked the gantry for (the test range); the bay's build as it stands now.
+        let (frame, loadout) = match self.trainer_build.loadout(&self.hangar) {
+            Ok(it) => it,
+            Err(why) => return self.note(why, false).await,
+        };
         let Some(lease) = inside.sector.leases.pop() else {
             return self.note("the gantry is busy: the colony's inside is full", false).await;
         };
@@ -1135,9 +1197,10 @@ impl Session<'_> {
         let mut board = Control::Board {
             slot,
             pilot: self.pilot,
-            frame: FrameId::Leo,
+            frame,
             faction: self.faction,
             max_datagram: self.max_datagram,
+            loadout,
         };
         while let Err(back) = inside.sector.control.push(board) {
             board = back;
@@ -1261,12 +1324,13 @@ impl Session<'_> {
             Report::Home(home) => {
                 self.unseat();
                 self.out_of_the_colony().await?;
-                let text = self.hangar.came_home(&home);
+                let (text, debrief) = self.hangar.came_home_debriefed(&home);
                 self.patrol_bounties(home.bounty).await?;
                 self.place = Place::Hangar;
                 tracing::info!(slot = self.slot, name = %self.callsign, "docked: {text}");
                 self.save().await;
-                self.send(&Update::Sortie { outcome: SortieOutcome::Docked, text }).await?;
+                self.send(&Update::Sortie { outcome: SortieOutcome::Docked, text, debrief: Some(debrief) })
+                    .await?;
                 self.send_place().await?;
                 self.send_hangar().await?;
                 self.send_market().await?;
@@ -1281,23 +1345,96 @@ impl Session<'_> {
                 };
                 self.note(text, false).await?;
             }
+            Report::Towed { wreck, torso, ace } => {
+                self.towing = false;
+                if self.survival() {
+                    let mut notes = self.towed(wreck.as_ref(), torso, ace);
+                    tracing::info!(slot = self.slot, name = %self.callsign, found = wreck.is_some(), ?ace, "wreck towed");
+                    // Back in the bay with nothing to build on, even so: the Charter Board's advance.
+                    if !self.lost
+                        && self.suit.is_none()
+                        && let Some(text) = self.hangar.reissue(pilots::unix_now())
+                    {
+                        notes.push(text);
+                    }
+                    self.save().await;
+                    for text in notes {
+                        self.send(&Update::News { text }).await?;
+                    }
+                    self.send_hangar().await?;
+                }
+            }
+            Report::AceDown { ace, hulk, generation } => self.ace_down(ace, hulk, generation).await?,
             Report::Course { ms } => self.feat(Feat::Course, ms).await?,
             Report::Drill { ms } => self.feat(Feat::Drill, ms).await?,
             // Nothing is lost inside the colony; the Board's trainers least of all.
             Report::Lost { .. } if self.trainer => {}
             // Only ever sent as the pilot leaves (`leave` reads it).
             Report::Parked { .. } => {}
-            Report::Lost { bounty } => {
+            Report::Lost { bounty, how } => {
                 self.lost = true;
-                let text = self.hangar.lost(bounty);
+                let (mut text, debrief) = self.hangar.lost_debriefed(bounty);
+                match how {
+                    Loss::Destroyed => {}
+                    Loss::Ejected => {
+                        self.towing = true;
+                        text.push_str(" · YOU EJECTED · THE TUGS ARE GOING OUT FOR THE WRECK");
+                    }
+                    Loss::Blown => text.push_str(" · SELF-DESTRUCTED"),
+                }
                 self.patrol_bounties(bounty).await?;
                 tracing::info!(slot = self.slot, name = %self.callsign, "suit lost");
                 self.save().await;
-                self.send(&Update::Sortie { outcome: SortieOutcome::Lost, text }).await?;
+                self.send(&Update::Sortie { outcome: SortieOutcome::Lost, text, debrief: Some(debrief) })
+                    .await?;
                 self.send_hangar().await?;
             }
         }
         Ok(())
+    }
+
+    /// What the tugs brought home goes to the stores: the wreck of the suit the pilot ejected from,
+    /// or of the ace they downed (`ace`). Its notes.
+    fn towed(&mut self, wreck: Option<&bc_proto::ChunkDesc>, torso: bool, ace: Option<u8>) -> Vec<String> {
+        match ace {
+            Some(a) => self.hangar.towed_ace(wreck, bc_sim::content::aces::ace(a).name),
+            None => self.hangar.towed(wreck, torso),
+        }
+    }
+
+    /// The pilot downed one of Zodiac's aces (`bc_sim::content::aces`): on the Most Wanted, and its
+    /// bounty as their terms say: paid, or the rights to its wreck, which the tugs go out for.
+    async fn ace_down(&mut self, ace: u8, hulk: u16, generation: u8) -> anyhow::Result<()> {
+        if !self.survival() {
+            return Ok(());
+        }
+        let a = bc_sim::content::aces::ace(ace);
+        let now = pilots::unix_now();
+        let (trader, name) = (self.trader.as_str(), self.callsign.as_str());
+        let salvage = self.game.charter.with(|b| b.ace_downed(ace, trader, name, now));
+        tracing::info!(slot = self.slot, name = %self.callsign, ace = a.name, salvage, "an ace downed");
+        // The rights to its wreck, if the tugs aren't out for another already (else, pay).
+        let claimed = salvage
+            && hulk != bc_proto::NO_CHUNK
+            && !self.towing
+            && self
+                .game
+                .sector
+                .control
+                .push(Control::Claim { slot: self.slot, hulk, generation, ace })
+                .is_ok();
+        let text = if claimed {
+            self.towing = true;
+            format!("{} DOWNED · YOUR TERMS: ITS WRECK · THE TUGS ARE GOING OUT FOR IT", a.name)
+        } else {
+            let (hangar, trader) = (&mut self.hangar, self.trader.as_str());
+            let text = self.game.charter.with(|b| b.pay_ace(hangar, ace, trader));
+            self.save().await;
+            self.send_hangar().await?;
+            text
+        };
+        self.game.charter.changed();
+        self.send(&Update::News { text }).await
     }
 
     /// A tenth of a second on: the suit's reports, its wreck clearing, the stations (`settle`: once
@@ -1311,12 +1448,14 @@ impl Session<'_> {
         }
         if self.lost && self.game.sector.slots[self.slot as usize].state() == SlotState::Free {
             // The wreck is gone: the pilot is back in the hangar (and, lost everything, advanced
-            // another suit).
+            // another suit, unless the tugs are still bringing their own wreck home).
             self.lost = false;
             self.unseat();
             self.place = Place::Hangar;
             self.send_place().await?;
-            if let Some(text) = self.hangar.reissue(pilots::unix_now()) {
+            if !self.towing
+                && let Some(text) = self.hangar.reissue(pilots::unix_now())
+            {
                 self.save().await;
                 self.send(&Update::News { text }).await?;
             }
@@ -1416,8 +1555,28 @@ impl Session<'_> {
             while let Some(report) = self.lease.as_mut().and_then(|l| l.reports.pop().ok()) {
                 match report {
                     Report::Parked { rec, tick } => parked = Some((rec, tick)),
-                    Report::Lost { bounty: b } => bounty = b,
-                    Report::Home(_) | Report::DockRefused | Report::Course { .. } | Report::Drill { .. } => {}
+                    Report::Lost { bounty: b, .. } => bounty = b,
+                    Report::Towed { wreck, torso, ace } => {
+                        self.towing = false;
+                        let _ = self.towed(wreck.as_ref(), torso, ace);
+                    }
+                    // An ace downed on the way out: on the Most Wanted, and paid (whatever the
+                    // terms: there's no one here to send the tugs for).
+                    Report::AceDown { ace, .. } if self.survival() => {
+                        let now = pilots::unix_now();
+                        let (hangar, trader, name) =
+                            (&mut self.hangar, self.trader.as_str(), self.callsign.as_str());
+                        game.charter.with(|b| {
+                            b.ace_downed(ace, trader, name, now);
+                            b.pay_ace(hangar, ace, trader)
+                        });
+                        game.charter.changed();
+                    }
+                    Report::Home(_)
+                    | Report::DockRefused
+                    | Report::Course { .. }
+                    | Report::Drill { .. }
+                    | Report::AceDown { .. } => {}
                 }
             }
             let asleep = match (status.outcome(), status.suit_id()) {
@@ -1447,6 +1606,25 @@ impl Session<'_> {
                 r.sleeper = asleep;
                 r.parked = parked;
             }
+        }
+        // The wreck the tugs were going out for comes in now, before the record is saved.
+        if self.towing && self.survival() {
+            let mut ask = Control::Tow { slot };
+            while let Err(back) = game.sector.control.push(ask) {
+                ask = back;
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+            for _ in 0..500 {
+                match self.lease.as_mut().and_then(|l| l.reports.pop().ok()) {
+                    Some(Report::Towed { wreck, torso, ace }) => {
+                        let _ = self.towed(wreck.as_ref(), torso, ace);
+                        break;
+                    }
+                    Some(_) => {}
+                    None => tokio::time::sleep(Duration::from_millis(2)).await,
+                }
+            }
+            self.towing = false;
         }
         if self.survival() {
             let _ = self.settle(true);

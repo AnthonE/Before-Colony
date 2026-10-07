@@ -13,9 +13,11 @@ use crate::content::salvage::{
     CATCH_SPEED, DOCK_CENTER, DOCK_RADIUS, DOCK_SPEED, JETTISON_SPEED, PRICE, REACH, THROW_IMPULSE,
     THROW_SPEED_MAX, hold_kg, material, ore_ttl, stowable, wreck_ttl,
 };
+use crate::content::salvage::{HELD_ROUNDS, held_gun};
 use crate::content::{ArmSlot, frame};
 use crate::ground::{Footing, LUNGE_GROUND_SPEED, RELEASE_SPEED, derive};
 use crate::math::{clamp_len, hash01, normalize_or};
+use crate::suits::WeaponState;
 
 impl Sim {
     /// The chunk suit `i` holds, if it still holds it.
@@ -26,6 +28,22 @@ impl Sim {
             && self.chunks.generation[k as usize] == g
             && matches!(self.chunks.motion[k as usize], Motion::Held { holder, .. } if holder as usize == i))
         .then_some(k as usize)
+    }
+
+    /// The colony's tugs take hulk `hulk` (of `generation`) home: it leaves the sector, and what it
+    /// was is returned. `None` if it isn't there to take: gone, or in someone's hand.
+    pub fn tow(&mut self, hulk: u16, generation: u8) -> Option<ChunkDesc> {
+        let k = usize::from(hulk);
+        if hulk == NO_CHUNK
+            || !self.chunks.is_alive(hulk)
+            || self.chunks.generation[k] != generation
+            || !matches!(self.chunks.motion[k], Motion::Free(_))
+        {
+            return None;
+        }
+        let desc = self.chunks.desc[k];
+        self.chunks.kill(k);
+        Some(desc)
     }
 
     /// Whether suit `i` is in the dock, slow enough to sell. Inside the colony: at rest in the inner
@@ -104,6 +122,18 @@ impl Sim {
         let rot = quantize_held_rot(f.rot.conjugate() * segment_rot(&seg, tt));
         self.chunks.set_motion(k, Motion::Held { holder: i as u16, right, rot, since: t });
         self.suits.held[i] = (k as u16, self.chunks.generation[k], right);
+        // The gun on it, if it was an arm that carried one, with what was left in it.
+        if let Some(w) = held_gun(&self.chunks.desc[k]) {
+            let ammo = (f32::from(crate::content::weapon(w).ammo) * HELD_ROUNDS) as u16;
+            self.suits.held_gun[i] = WeaponState { ammo, ..WeaponState::default() };
+        }
+    }
+
+    /// The gun suit `i` holds in its hand (`content::salvage::held_gun`), and whether it's the
+    /// right hand.
+    pub fn gun_in_hand(&self, i: usize) -> Option<(bc_proto::WeaponKind, bool)> {
+        let k = self.held_chunk(i)?;
+        held_gun(&self.chunks.desc[k]).map(|w| (w, self.suits.held[i].2))
     }
 
     /// Lets go of chunk `k` where it is, moving as the hand was plus `push`.

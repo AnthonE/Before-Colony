@@ -242,9 +242,16 @@ fn survival_launches_docks_and_losses_never_allocate() {
     // 64 pilots flying the suits they built among 128 Mobile Dolls: every few ticks one docks and
     // one launches again; the dolls shoot some down. Now and then one is left in MO-II's Aft Well
     // as its pilot logs off (the sector records it), and the suit is put back from that record,
-    // as a restarted server would.
+    // as a restarted server would. Zodiac's aces come out among the Dolls, and pilots down them and
+    // send the tugs for their wrecks.
     let cfg = SectorConfig {
-        sim: SimConfig { target_dolls: 128, seed: 11, survival: true, ..SimConfig::default() },
+        sim: SimConfig {
+            target_dolls: 128,
+            seed: 11,
+            survival: true,
+            ace_every: 150,
+            ..SimConfig::default()
+        },
         max_clients: 64,
         ..SectorConfig::default()
     };
@@ -291,6 +298,7 @@ fn survival_launches_docks_and_losses_never_allocate() {
     let mut buf = [0u8; 2048];
     let (mut total, mut docked, mut relaunched, mut lost) = (0u64, 0u32, 0u32, 0u32);
     let (mut parked, mut restored, mut reparked, mut record) = (0u32, 0u32, 0u32, None);
+    let mut aces = 0u32;
     for step in 0..1_300u32 {
         // Network side: one pilot is put down in the Aft Well, and leaves a few ticks later; the
         // last suit recorded there is put back.
@@ -349,6 +357,17 @@ fn survival_launches_docks_and_losses_never_allocate() {
                 }
             }
         }
+        // The ace out is downed by a pilot (as the damage step leaves a suit it destroys).
+        if step >= 300
+            && let Some((i, _)) = sector.sim.ace_out()
+            && sector.sim.suits.alive.get(i)
+            && let Some(shooter) = (0..64)
+                .filter(|&s| shared.slots[s].state() == SlotState::Active)
+                .find_map(|s| shared.slots[s].suit_id())
+                .map(|(idx, _)| usize::from(idx))
+        {
+            sector.sim.strike(i, bc_proto::Part::Torso, 1.0e9, shooter, bc_proto::WeaponKind::BeamRifle);
+        }
         let next = sector.sim.next_tick();
         // And those asleep there are shot at (as the damage step leaves a suit it hits): what's
         // left of them goes to the server.
@@ -384,6 +403,12 @@ fn survival_launches_docks_and_losses_never_allocate() {
                     Report::Lost { .. } => lost += 1,
                     // (In space there's no Proving Ground to time.)
                     Report::DockRefused | Report::Course { .. } | Report::Drill { .. } => {}
+                    Report::Towed { .. } => {}
+                    // Its wreck, for the tugs (the session's to ask, on its terms).
+                    Report::AceDown { ace, hulk, generation } => {
+                        aces += 1;
+                        shared.control.push(Control::Claim { slot: l.slot, hulk, generation, ace }).unwrap();
+                    }
                     Report::Parked { rec, .. } => {
                         parked += 1;
                         record = Some(rec);
@@ -408,8 +433,9 @@ fn survival_launches_docks_and_losses_never_allocate() {
     }
     println!(
         "docked {docked}, relaunched {relaunched}, lost {lost}, parked {parked}, restored {restored}, \
-         reparked {reparked}"
+         reparked {reparked}, aces {aces}"
     );
+    assert!(aces >= 3, "aces downed {aces}");
     assert!(
         docked > 50 && relaunched > 50 && lost > 50,
         "docked {docked}, relaunched {relaunched}, lost {lost}"

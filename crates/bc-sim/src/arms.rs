@@ -8,7 +8,7 @@
 
 use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, MELEE, SPECIAL};
 use bc_proto::snapshot::{OwnArms, own_flags};
-use bc_proto::{InputCmd, OwnState};
+use bc_proto::{InputCmd, OwnState, WeaponKind};
 
 use crate::content::{
     ArmSlot, ChargedShot, FrameSpec, MeleeSpec, SPECIAL_MOUNT, SpecialKind, WeaponClass, frame, weapon,
@@ -139,6 +139,9 @@ pub struct ArmsClock {
     pub overheated: bool,
     /// The buttons of the command flown last (a press is a button that wasn't down then).
     pub prev_buttons: u16,
+    /// The gun in hand (`content::salvage::held_gun`), which takes the secondary's trigger: the
+    /// own state doesn't say which, so its pilot's client tells it from what's in the hand.
+    pub in_hand: Option<WeaponKind>,
 }
 
 impl Default for ArmsClock {
@@ -155,6 +158,7 @@ impl Default for ArmsClock {
             full_open: 0,
             overheated: false,
             prev_buttons: 0,
+            in_hand: None,
         }
     }
 }
@@ -180,6 +184,7 @@ impl ArmsClock {
             full_open: if full_open { own.special_timer } else { 0 },
             overheated: own.flags & own_flags::OVERHEAT != 0,
             prev_buttons: buttons,
+            in_hand: None,
         }
     }
 
@@ -216,7 +221,8 @@ impl ArmsClock {
     }
 
     /// Rolls the arms through tick `t` under `cmd`, after its flight, as the server's specials,
-    /// weapons and melee steps do. `changing`: the suit is changing form.
+    /// weapons and melee steps do. `changing`: the suit is changing form or staggered (its weapons,
+    /// blades and special are down).
     pub fn tick(&mut self, spec: &FrameSpec, cmd: &InputCmd, changing: bool, t: u32) {
         self.roll(spec, cmd, changing, t);
         self.prev_buttons = cmd.buttons;
@@ -232,7 +238,7 @@ impl ArmsClock {
             if self.full_open > 0 {
                 self.full_open -= 1;
                 opened_out = self.full_open == 0;
-            } else if edge(SPECIAL) && self.wait[3] == 0 && !self.overheated {
+            } else if edge(SPECIAL) && self.wait[3] == 0 && !self.overheated && !changing {
                 self.full_open = ticks.min(255) as u8;
                 self.wait[3] = OwnArms::wait(cooldown);
             }
@@ -241,6 +247,15 @@ impl ArmsClock {
         let heedless = self.full_open > 0;
         if !changing {
             for (slot, button) in [(0usize, FIRE_PRIMARY), (1, FIRE_SECONDARY)] {
+                // A gun in hand on the secondary's trigger: its plain shot, on its own cooldown.
+                if let (1, Some(gun)) = (slot, self.in_hand) {
+                    run_down(&mut self.wait[1]);
+                    if cmd.pressed(button) && self.wait[1] == 0 && !self.overheated {
+                        self.fired_at = t;
+                        self.wait[1] = OwnArms::wait(weapon(gun).cooldown);
+                    }
+                    continue;
+                }
                 let Some(mount) = spec.loadout[slot] else { continue };
                 let w = weapon(mount.weapon);
                 let blocked = self.blocks(spec, mount.arm);

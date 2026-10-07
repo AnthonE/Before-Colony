@@ -85,6 +85,8 @@ mod people;
 #[cfg(target_arch = "wasm32")]
 mod perf;
 #[cfg(target_arch = "wasm32")]
+mod pods;
+#[cfg(target_arch = "wasm32")]
 mod pointer;
 #[cfg(target_arch = "wasm32")]
 mod rocks;

@@ -74,8 +74,10 @@ pub(crate) struct ClientState {
     pub obj_known: usize,
     /// Per rock: the version the client has acked (0: as generated).
     pub rock_acked: Box<[u8]>,
-    /// Its suit's loss has been reported (survival rules).
+    /// Its suit's loss has been reported (survival rules)...
     pub lost: bool,
+    /// ...and how it was lost.
+    pub loss: crate::queues::Loss,
     /// A spectator (`Control::Watch`): where they watch from, with no suit of their own (`active`
     /// stays false).
     pub watch: Option<Vec3>,
@@ -110,6 +112,7 @@ impl ClientState {
             obj_known: 0,
             rock_acked: boxed(rocks, 0u8),
             lost: false,
+            loss: crate::queues::Loss::Destroyed,
             watch: None,
             course: Run::default(),
             drill: Drill::default(),
@@ -140,6 +143,7 @@ impl ClientState {
         self.obj_known = 0;
         self.rock_acked.fill(0);
         self.lost = false;
+        self.loss = crate::queues::Loss::Destroyed;
         self.course.clear();
         self.drill.reset();
     }

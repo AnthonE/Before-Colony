@@ -13,6 +13,7 @@
 //! - [`charter`]: the Charter Board: contracts with their rewards in escrow, and the colony's
 //!   great works.
 //! - [`hangar`]: a pilot's hangar, and every change they can ask of it.
+//! - [`debrief`]: a sortie's payout sheet, what it earned and what it cost.
 //! - [`proving`]: the Proving Ground's board, the day's best times round its course and through
 //!   the Blast Hall's drill.
 //! - [`seats`]: the colony's jobs, each a seat worked by an Arrival or by the colony's staff, and
@@ -28,6 +29,7 @@
 pub mod body;
 pub mod catalogue;
 pub mod charter;
+pub mod debrief;
 pub mod exchange;
 pub mod fab;
 pub mod faults;
@@ -45,6 +47,7 @@ pub mod wire;
 pub use body::Body;
 pub use catalogue::{Recipe, Station, recipe, recipes};
 pub use charter::{Board, Work};
+pub use debrief::Debrief;
 pub use exchange::{Exchange, Side};
 pub use faults::Faults;
 pub use food::{Dish, Meal};
