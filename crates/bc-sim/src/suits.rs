@@ -214,6 +214,8 @@ pub struct Suits {
     pub special_weapons: Box<[[WeaponState; 2]]>,
     /// The gun on a limb in hand, while one is (`content::salvage::held_gun`): set as it's grabbed.
     pub held_gun: Box<[WeaponState]>,
+    /// Which of Zodiac's aces a Doll is (`content::aces`), or `NO_ACE`.
+    pub ace: Box<[u8]>,
     pub lock: Box<[LockState]>,
     /// Guided missiles tracking the suit (counted each tick).
     pub incoming: Box<[u16]>,
@@ -310,6 +312,7 @@ impl Suits {
             special: boxed(cap, SpecialState::default()),
             special_weapons: boxed(cap, [WeaponState::default(); 2]),
             held_gun: boxed(cap, WeaponState::default()),
+            ace: boxed(cap, crate::content::aces::NO_ACE),
             lock: boxed(cap, LockState::default()),
             incoming: boxed(cap, 0u16),
             part_hp: boxed(cap, [0.0f32; Part::COUNT]),
@@ -369,6 +372,7 @@ impl Suits {
         self.blown.set(idx, false);
         self.reset_ground(idx);
         self.parkable[idx] = Body::None;
+        self.ace[idx] = crate::content::aces::NO_ACE;
         Some(SuitId(Handle { idx: idx as u16, generation: self.generation[idx] }))
     }
 

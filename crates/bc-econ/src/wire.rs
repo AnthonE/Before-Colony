@@ -92,6 +92,11 @@ pub enum Request {
     Trainer {
         build: crate::proving::Trainer,
     },
+    /// The Most Wanted: how the pilot takes an ace's bounty (`salvage`: the rights to its wreck,
+    /// which the tugs bring home; else pay).
+    AceTerms {
+        salvage: bool,
+    },
     /// The Charter Board: post a supply contract (its reward goes into escrow), take one down,
     /// deliver to one from the stores, take or give up a patrol.
     Post {
@@ -355,6 +360,7 @@ pub fn apply(
         | Request::TakePatrol { .. }
         | Request::DropPatrol { .. }
         | Request::Contribute { .. }
+        | Request::AceTerms { .. }
         | Request::Sign => return None,
         Request::Craft { item, batches } => hangar.craft(*item, *batches, now, rules),
         Request::CancelJob { station, index } => hangar.cancel_job(*station, *index, now),
@@ -415,6 +421,7 @@ pub fn apply_charter(
             board.contribute(hangar, trader, name, work, item, qty, now)
         }
         Request::Sign => board.sign(trader, name, now),
+        Request::AceTerms { salvage } => board.set_terms(trader, salvage),
         _ => return None,
     })
 }
@@ -523,6 +530,7 @@ mod tests {
                 r#"{"t":"trainer","build":{"kind":"bay"}}"#,
                 Request::Trainer { build: crate::proving::Trainer::Bay },
             ),
+            (r#"{"t":"ace_terms","salvage":true}"#, Request::AceTerms { salvage: true }),
             (r#"{"t":"dock"}"#, Request::Dock),
             (r#"{"t":"use_kit","kit":"chaff"}"#, Request::UseKit { kit: Kit::Chaff }),
             (r#"{"t":"eject"}"#, Request::Eject { destruct: false }),

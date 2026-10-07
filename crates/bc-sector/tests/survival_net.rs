@@ -122,7 +122,7 @@ fn a_pilot_who_ejects_hears_so_and_the_tugs_bring_the_wreck_home() {
     for _ in 0..3 {
         sector.tick();
     }
-    let Ok(Report::Towed { wreck: Some(desc), torso: true }) = lease.reports.pop() else {
+    let Ok(Report::Towed { wreck: Some(desc), torso: true, ace: None }) = lease.reports.pop() else {
         panic!("the tugs brought nothing home")
     };
     assert!(matches!(desc.kind, bc_proto::ChunkKind::Hulk { frame: FrameId::Leo, .. }));
@@ -147,7 +147,7 @@ fn a_wreck_is_towed_at_once_when_its_pilot_goes_and_not_at_all_when_blown_up() {
     assert!(matches!(lease.reports.pop(), Ok(Report::Lost { how: Loss::Ejected, .. })));
     // The session is going: the tugs bring it in now.
     send(&mut sector, &shared, s, Control::Tow { slot: s });
-    assert!(matches!(lease.reports.pop(), Ok(Report::Towed { wreck: Some(_), torso: true })));
+    assert!(matches!(lease.reports.pop(), Ok(Report::Towed { wreck: Some(_), torso: true, ace: None })));
     for _ in 0..TOW_TICKS + 5 {
         sector.tick();
     }

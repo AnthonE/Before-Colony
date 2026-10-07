@@ -20,8 +20,9 @@ the bay, space, home).
 | The mech games, 18: the debrief | built |
 | The mech games, 19: the enemy's gun | built |
 | The mech games, 20: a test range | built |
+| The mech games, 21: aces, pay or salvage | built |
 | The mech games, 22: staying up under abuse | built |
-| P1's rest, P2, the mech games' rest below | planned |
+| P1's rest, P2 | planned |
 
 ## P0: before more players arrive
 
@@ -251,6 +252,29 @@ fight").
   boarding sends its frame and loadout in `Control::Board`.
 - The page: `THE TEST RANGE` at the Blast Hall's desk. `bc-bot`: `board_trainer_as`.
 - Tests: `proving`'s units, `training_net.rs`, and `bc-server/tests/proving.rs` (a Heavyarms).
+
+**21. Aces, pay or salvage.** *Built* (`DESIGN.md`, "Aces: the Most Wanted").
+- `bc_sim::content::aces`: the nine, their bounties, `ACE_EVERY` (5 min), the Leo they fly and its
+  armour (`ACE_ARMOUR`, half as much again). `Sim::spawn_ace` fields the next on the list while
+  none is out (`SimConfig::ace_every`); `Suits::ace` says which a Doll is. `Sim::ace_out` is the
+  one in the sector, flying or downed, until its slot is let go. The state hash covers it.
+- `bc_sector`: `SectorShared::ace`, a word saying which is out, as which suit, and whether it
+  flies (`ace_word`); `Report::AceDown` to the session of the pilot who downs one, with its wreck;
+  `Control::Claim` sends the tugs for it (`TOW_TICKS` on, a claim like an ejected pilot's own),
+  and `Report::Towed` says it was the ace's.
+- `bc_econ::charter`: the Most Wanted (who downed each last), the ladder, each pilot's terms
+  (`Request::AceTerms`); `Board::ace_downed`, and `pay_ace` (the colony's money: `colony_paid`
+  and standing). `Hangar::towed_ace` takes the wreck in as salvage.
+- `bc-server`: the notes task's `AceWatch` puts the ace on the roster by its name and announces
+  it; the session pays, or claims the wreck (unless the tugs are out for the pilot's own), and
+  marks which one flies in the board's view. `--ace-every`.
+- The page: MOST WANTED under the Charter Board, with the terms. The chart names the ace.
+- Tests: `bc-sim/tests/aces.rs` (one out at a time round the list, a Leo standing more, named
+  until its slot is let go), `bc-sector/tests/aces_net.rs` (the word; downed by a pilot, their
+  session hears with the wreck, and the claim's tugs bring it home as the ace's; downed by nobody
+  here, nobody hears), `no_alloc_sector` (aces downed and claimed), the board's and the hangar's
+  units, the wire's JSON, and `bc-server/tests/aces.rs` (on the roster by name, out on the Most
+  Wanted, the news, the terms, over real WebTransport).
 
 **22. Staying up.** *Built* (`ARCHITECTURE.md`, "Under abuse").
 - The review found inputs, poses and the radio limited, sign-ins waiting on a wallet capped, and

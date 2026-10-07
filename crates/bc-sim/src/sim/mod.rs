@@ -21,6 +21,7 @@
 
 use alloc::boxed::Box;
 
+mod aces;
 mod combat;
 mod conceal;
 mod detection;
@@ -155,6 +156,10 @@ pub struct Sim {
     scratch: Perception,
     next_doll_spawn: u32,
     next_squad: usize,
+    /// Zodiac's aces (`aces`): when the next is due, which it is, and the one out (its suit).
+    next_ace_at: u32,
+    next_ace: u8,
+    ace_suit: u16,
     spawn_counter: u32,
     rng: Rng,
     /// Live-projectile and live-missile high-water marks (diagnostics).
@@ -219,6 +224,9 @@ impl Sim {
             scratch: Perception::default(),
             next_doll_spawn: 0,
             next_squad: 0,
+            next_ace_at: cfg.ace_every,
+            next_ace: 0,
+            ace_suit: NO_SLOT,
             spawn_counter: 0,
             rng: Rng::new(cfg.seed),
             peak_projectiles: 0,
@@ -357,6 +365,7 @@ impl Sim {
         self.tick += 1;
         let t = self.tick;
         self.spawn_dolls(t);
+        self.spawn_ace(t);
         if t.is_multiple_of(30) {
             self.squad_logic();
         }

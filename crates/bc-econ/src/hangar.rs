@@ -644,6 +644,19 @@ impl Hangar {
         notes
     }
 
+    /// The tugs went out for the wreck of one of Zodiac's aces, `name`, which the pilot downed and
+    /// took the bounty on as the rights to (`docs/DESIGN.md`, "Aces"): what they brought home goes
+    /// to the stores, as salvage does. `None`: someone else got to it first, or it's gone. Its
+    /// notes.
+    pub fn towed_ace(&mut self, wreck: Option<&ChunkDesc>, name: &str) -> Vec<String> {
+        let Some(desc) = wreck else {
+            return vec![format!("THE TUGS FOUND NOTHING OF {name}'S WRECK TO BRING HOME")];
+        };
+        let mut notes = vec![format!("THE TUGS BROUGHT {name}'S WRECK HOME")];
+        notes.extend(self.salvage(desc));
+        notes
+    }
+
     /// The suit was out when the sector lost track of it (a server restart, cleared for room):
     /// the colony's tugs bring it in as it launched.
     pub fn recover(&mut self) -> bool {
@@ -985,6 +998,30 @@ mod tests {
         let mut h = Hangar::default();
         let notes = h.towed(None, true);
         assert!(notes[0].contains("NOTHING"), "{notes:?}");
+        assert!(h.stores.parts().is_empty());
+    }
+
+    /// The tugs bring the wreck of an ace a pilot downed, taken as its bounty: all of it salvage
+    /// (an ace's torso is no pilot's own to build on); nothing if someone else got to it first.
+    #[test]
+    fn the_tugs_bring_an_aces_wreck_home() {
+        let wreck = ChunkDesc {
+            kind: ChunkKind::Hulk { frame: FrameId::Leo, faction: Faction::Oz, parts: 0b11_0011 },
+            seed: 0,
+            mass_kg: 5_000,
+        };
+        let mut h = Hangar::default();
+        let notes = h.towed_ace(Some(&wreck), "ARIES");
+        assert_eq!(notes[0], "THE TUGS BROUGHT ARIES'S WRECK HOME");
+        let parts: Vec<Part> = h.stores.parts().iter().map(|u| u.part).collect();
+        assert_eq!(parts, [Part::Head, Part::Legs, Part::Backpack]);
+        assert_eq!(
+            h.stores.get(Item::Ore(Ore::Titanium)),
+            u64::from(part_mass_kg(FrameId::Leo, Part::Torso))
+        );
+        let mut h = Hangar::default();
+        let notes = h.towed_ace(None, "ARIES");
+        assert_eq!(notes, ["THE TUGS FOUND NOTHING OF ARIES'S WRECK TO BRING HOME"]);
         assert!(h.stores.parts().is_empty());
     }
 

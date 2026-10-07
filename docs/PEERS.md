@@ -309,7 +309,8 @@ games", says how each is built.
   - **Ours:** the Blast Hall's trainers fly any build a pilot could make, with nothing bought.
 - **The Arena.** Simulated one-on-ones against 29 named AI pilots, ranked from F to S. Each first
   win pays chips, credits, an emblem and the opponent's own build [P18].
-  - **Ours:** the Consortium's aces, named Doll pilots on the Charter Board's most-wanted list.
+  - **Ours:** Zodiac's aces, the Consortium's named Doll pilots, on the Charter Board's Most
+    Wanted (`DESIGN.md`, "Aces: the Most Wanted").
 
 ### MechWarrior and BattleTech
 
@@ -456,7 +457,8 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
 20. **A test range** (Armored Core VI): the Blast Hall's trainers fly any buildable suit.
     *Built.*
 21. **Aces, pay or salvage** (Armored Core VI's Arena, MechWarrior 5's contracts): named Doll
-    aces with bounties, taken as pay or as rights to the wreck.
+    aces with bounties, taken as pay or as rights to the wreck. *Built*: Zodiac's nine, one out
+    at a time, on the Charter Board's Most Wanted with a ladder.
 22. **Staying up** (Titanfall's DDoS years): a review of the server's limits under abuse, and
     what it lacked: a Retry under load, a share per address, a ceiling, handshake deadlines and a
     limit on hangar requests (`ARCHITECTURE.md`, "Under abuse"). *Built.*

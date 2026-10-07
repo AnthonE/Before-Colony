@@ -66,6 +66,16 @@ pub enum Control {
         slot: u16,
         kit: bc_sim::content::Kit,
     },
+    /// Survival: the colony's tugs go out for wreck `hulk` of `generation` for the pilot
+    /// ([`crate::TOW_TICKS`] on, as for an ejected pilot's own): ace `ace`'s, which they downed
+    /// and take the bounty on as the rights to its wreck. A claim not yet settled is settled
+    /// first.
+    Claim {
+        slot: u16,
+        hulk: u16,
+        generation: u8,
+        ace: u8,
+    },
     /// The pilot ejects from their suit, or (`destruct`, doomed) blows it up with themselves aboard
     /// (`bc_sim::sim::Sim::eject`).
     Eject {
@@ -183,7 +193,8 @@ pub enum Report {
     /// The colony's tugs went out for the wreck of the suit its pilot ejected from
     /// ([`crate::TOW_TICKS`] after): what they brought home (`None`: nothing was left to bring,
     /// someone else having taken it, or it gone). `torso`: it wasn't doomed, so its torso is whole.
-    Towed { wreck: Option<bc_proto::ChunkDesc>, torso: bool },
+    /// `ace`: it was that ace's wreck, claimed as its bounty ([`Control::Claim`]), not their own.
+    Towed { wreck: Option<bc_proto::ChunkDesc>, torso: bool, ace: Option<u8> },
     /// Its pilot left it asleep in a landmark's hide spot: what it takes to put it back there
     /// after a restart, as of sector tick `tick` (a later [`Reparked`] of it is newer). Sent
     /// before the slot is published free.
@@ -194,6 +205,9 @@ pub enum Report {
     /// They cleared the Blast Hall's drill, in `ms` from its first target to its last
     /// (`bc_sim::colony::hall::Drill`).
     Drill { ms: u32 },
+    /// They downed ace `ace` (`bc_sim::content::aces`); its wreck is `hulk` of `generation`, for
+    /// the tugs if they take its bounty as salvage ([`Control::Claim`]).
+    AceDown { ace: u8, hulk: u16, generation: u8 },
 }
 
 /// Per-slot status visible to the network side.
@@ -295,7 +309,22 @@ pub struct SectorShared {
     pub landmarks: u8,
     /// The colony's inside (`bc_sim::colony::interior`), not space: for the Welcome.
     pub interior: bool,
+    /// The ace out among the Dolls (`bc_sim::sim::Sim::ace_out`), for the server's roster and the
+    /// Charter Board: [`ace_word`] of its suit, which it is and whether it still flies; 0, none.
+    pub ace: AtomicU32,
     started: std::time::Instant,
+}
+
+/// [`SectorShared::ace`]'s word for ace `ace` out as entity slot `suit`, `flying` or downed.
+pub fn ace_word(suit: u16, ace: u8, flying: bool) -> u32 {
+    (u32::from(suit) << 9 | u32::from(ace) << 1 | u32::from(flying)) + 1
+}
+
+/// The ace out, from [`SectorShared::ace`]'s word: its entity slot, which it is, and whether it
+/// still flies.
+pub fn ace_of_word(word: u32) -> Option<(u16, u8, bool)> {
+    let w = word.checked_sub(1)?;
+    Some(((w >> 9) as u16, (w >> 1 & 0xFF) as u8, w & 1 != 0))
 }
 
 impl SectorShared {
@@ -374,6 +403,7 @@ pub fn build(cfg: SectorConfig) -> (crate::Sector, Arc<SectorShared>, EgressEnds
         field_rocks: cfg.sim.field_rocks,
         landmarks: cfg.sim.landmark_defs().len() as u8,
         interior: cfg.sim.world == bc_sim::colony::interior::WorldKind::Interior,
+        ace: AtomicU32::new(0),
         started: std::time::Instant::now(),
     });
     let ends = SectorEnds { inputs, reports, outputs, pictures: pic_p, advice: adv_c };

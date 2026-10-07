@@ -431,6 +431,7 @@ Client → server (`Request`):
 | `dock` | | take the suit home (at rest inside the dock, or inside the colony the inner gate's ring; a trainer, on the Blast Hall's gantry) |
 | `launch_inside` | | board and launch the suit into the colony through the inner gate (the colony open) |
 | `board_trainer` | | on foot at the Blast Hall's gantry's hatch in the city: board one of the Charter Board's trainers there (the pilot's hangar untouched) |
+| `trainer` | `build`: `{"kind": "board"}`, `{"kind": "bay"}` or `{"kind": "line", "line": …}` (a frame's slug) | the test range: what the gantry readies for `board_trainer` (the Board's Leo; the bay's build, new and full; a new suit of a line the colony builds). The `proving` board says which (`trainer`) |
 | `enter_city` | `strip` (0–2) | ride the cap lift down from the bay to that strip's Hub Gate (the colony open, and the pilot in their bay) |
 | `leave_city` | | ride the lift back up from Hub Gate to the bay |
 | `watch_board` | `on` | send the Charter Board (`charter`) as it changes, or stop |
@@ -440,6 +441,7 @@ Client → server (`Request`):
 | `take_patrol` · `drop_patrol` | `id` | take a militia patrol (one at a time), or give it up |
 | `contribute` | `work` (`second_foundry`, `militia_hangar`), `item`, `qty` | deliver to one of the colony's great works |
 | `sign` | | sign the charter (the vote open, and the pilot of standing) |
+| `ace_terms` | `salvage` | the Most Wanted: take an ace's bounty as the rights to its wreck (`true`: the tugs bring it home) or as pay (`false`, the default) |
 | `use_kit` | `kit` (`patch_kit`, `coolant`, `chaff`, `stim`) | in flight: use one from the suit's rack (the hotbar; nothing answers, the own state shows it) |
 | `eject` | `destruct` (default false) | in flight, under any rules: eject from the suit, or (`destruct`, doomed) blow it up aboard. Nothing answers but the loss (`sortie`, and under survival the tugs' `news` on the wreck 45 s on) |
 | `say` | `text` | a line on the colony's radio, to everyone connected, under any rules: control characters stripped, whitespace made single spaces, cut to 160 characters; at most 5 lines in 10 s (more get a refusing `note`). Never logged; `/status` counts them (`radio_lines`) |
@@ -461,7 +463,10 @@ news: a job done, an order filled); `sortie` {`outcome`: `docked`, `lost`, `reco
 datagrams use); `charter` (the Charter Board, while watched: the era, the contracts with their
 `task` (`{"kind": "supply", "item", "qty", "delivered"}` or `{"kind": "patrol", "bounty",
 "earned"}`), reward, paid and seconds left, the great works with what each needs and has, their
-top contributors, the pilot's standing and the charter's signatures); `said` {`from`, `text`} (a line on the colony's radio, the speaker's own included,
+top contributors, the pilot's standing and the charter's signatures; and the Most Wanted:
+`wanted` [{`ace`, `name`, `bounty`, `out` (flying among the Dolls now), `last` {`by`, `at`, unix
+seconds} (who downed it last; absent: nobody)}], `ladder` [[name, aces downed]] most first, the
+pilot's own `mine_aces` and their terms, `salvage_terms`); `said` {`from`, `text`} (a line on the colony's radio, the speaker's own included,
 from the moment the pilot was welcomed, in the order the server heard them); `proving` (the
 Proving Ground's board, in the colony: `course` and `drill`, the day's best as [{`name`, `ms`,
 `you`}] fastest first, `course_record` and `drill_record` the best ever, `course_par_ms` and
@@ -470,8 +475,15 @@ Proving Ground's board, in the colony: `course` and `drill`, the day's best as [
 `modules`, its five equipment mounts' slugs (or `null`); a part on the shelf carries its own
 `faults`.
 The server sends the hangar and the market whenever they change, the market and the board at most
-every 2 s. The board's notices (a great work finished, the vote open, an era begun) come to every
-pilot as `news`, wherever they are.
+every 2 s. The board's notices (a great work finished, the vote open, an era begun, one of
+Zodiac's aces out or downed) come to every pilot as `news`, wherever they are.
+
+Zodiac's aces (`DESIGN.md`, "Aces: the Most Wanted"): the ace out among the Dolls is on the
+roster (`Roster`, pilot kind 2, a Mobile Doll) by its callsign while its suit is in the sector,
+downed too until its slot is let go; then the roster forgets it. The pilot who downs one hears
+`news` at once: the Charter Board's pay (and a `hangar`), or under salvage terms that the tugs are
+going out for its wreck, and 45 s on the `news` of what they brought home (as for a pilot's own
+wreck after ejecting; already out for that, the bounty is paid instead).
 
 A launch puts the suit in the sector at the docking hub's mouth (the pilot's slot and the Welcome
 stay the same; snapshots start), and `place` says `space`. Docking answers with a `sortie` and

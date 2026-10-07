@@ -555,6 +555,8 @@ can take.
   - They lead perfectly but *linearly*, strafe on a timer, feel no G and never flinch, so a pilot
     who keeps changing acceleration will out-juke them.
   - They drive their suits with the same `InputCmd` a player sends.
+- **Zodiac's aces**: now and then one of nine named aces flies among them, a Doll in a Leo tuned
+  by hand, with a bounty on it ("Aces: the Most Wanted").
 - **Agents** are external AI players on the Bot SDK (`bc-bot`). They run the same client state
   machine as the browser, get the same sensor-limited view and input rate, and obey the same G
   limits. They are labelled **MD** in-game. The bundled `DollBrain` flies an agent with the Mobile
@@ -899,11 +901,36 @@ every terminal in the bay, and the Charter Board's own desk in Charter Square.
 
   Every pilot hears when one is finished, wherever they are; the board lists each work's most
   generous contributors.
-- **Standing** is the credits a pilot has earned from the colony's contracts, patrols and works:
-  it's what signing the charter takes. A pilot's contract with another pilot earns none.
+- **Standing** is the credits a pilot has earned from the colony's contracts, patrols, works and
+  aces' bounties: it's what signing the charter takes. A pilot's contract with another pilot
+  earns none.
 - **The ledger** still balances: credits enter only from the colony (what it pays on contracts
   and works joins its purchases), and escrow and deliveries never make or lose any (the ledger's
   property test covers the board too).
+
+### Aces: the Most Wanted
+
+Zodiac's aces (`bc_sim::content::aces`; Armored Core VI's Arena, MechWarrior's contracts): nine
+Mobile Dolls of the Consortium's security arm known by their callsigns, ARIES to PISCES, each with
+a bounty on it (1,500 to 4,000 CR).
+
+- **One out at a time.** Every 5 minutes (`--ace-every`), while none is out, the next on the list
+  is fielded among the Dolls: a squad of its own, high over one of the Dolls' anchors, in a Leo
+  whose Doll system was tuned by hand, its armour standing half as much again as a Doll's. Round
+  the list, and round again.
+- **Known by its name.** It goes on every pilot's roster by its callsign: the lock (`LOCK ARIES`),
+  the kill feed and the chart name it, from the moment it's out until a few seconds after it's
+  downed. The news says when one comes out (`ZODIAC'S ARIES IS OUT AMONG THE DOLLS · 1,500 CR ON
+  IT`) and who downed it.
+- **The Most Wanted**, on the Charter Board: each ace's bounty, the one out now, who downed each
+  last and when, and the ladder of pilots by aces downed.
+- **Pay or salvage** (MechWarrior's contract terms). A pilot's terms say how they take an ace's
+  bounty: paid by the Charter Board the moment it's downed (the colony's money, earning standing
+  as its contracts do), or as the rights to its wreck: the colony's tugs go out for it and bring it
+  home 45 s later, everything on it salvage (worn parts of the lines pilots build, the rest scrap),
+  unless someone else gets to it first. A gamble: a whole Leo's parts, or nothing. With the tugs
+  already out for their own wreck, it's paid; downed on the way out of the game, too.
+- Under arcade rules the aces fly as well, by name, with nobody to pay.
 
 ### Sorties
 

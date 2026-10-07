@@ -756,7 +756,12 @@ impl Session<'_> {
     async fn send_board(&mut self) -> anyhow::Result<()> {
         self.board_seen = self.game.charter.version();
         self.board_sent = Instant::now();
-        let view = self.game.charter.with(|b| b.view(&self.trader, pilots::unix_now()));
+        let mut view = self.game.charter.with(|b| b.view(&self.trader, pilots::unix_now()));
+        // Which of Zodiac's aces flies among the Dolls now.
+        let out = bc_sector::ace_of_word(self.game.sector.ace.load(std::sync::atomic::Ordering::Acquire));
+        for w in &mut view.wanted {
+            w.out = out.is_some_and(|(_, a, flying)| flying && a == w.ace);
+        }
         self.send(&Update::Charter(view)).await
     }
 
@@ -922,6 +927,7 @@ impl Session<'_> {
             | Request::TakePatrol { .. }
             | Request::DropPatrol { .. }
             | Request::Contribute { .. }
+            | Request::AceTerms { .. }
             | Request::Sign => {
                 let now = pilots::unix_now();
                 let (hangar, trader, name) = (&mut self.hangar, self.trader.as_str(), self.callsign.as_str());
@@ -1339,11 +1345,11 @@ impl Session<'_> {
                 };
                 self.note(text, false).await?;
             }
-            Report::Towed { wreck, torso } => {
+            Report::Towed { wreck, torso, ace } => {
                 self.towing = false;
                 if self.survival() {
-                    let mut notes = self.hangar.towed(wreck.as_ref(), torso);
-                    tracing::info!(slot = self.slot, name = %self.callsign, found = wreck.is_some(), "wreck towed");
+                    let mut notes = self.towed(wreck.as_ref(), torso, ace);
+                    tracing::info!(slot = self.slot, name = %self.callsign, found = wreck.is_some(), ?ace, "wreck towed");
                     // Back in the bay with nothing to build on, even so: the Charter Board's advance.
                     if !self.lost
                         && self.suit.is_none()
@@ -1358,6 +1364,7 @@ impl Session<'_> {
                     self.send_hangar().await?;
                 }
             }
+            Report::AceDown { ace, hulk, generation } => self.ace_down(ace, hulk, generation).await?,
             Report::Course { ms } => self.feat(Feat::Course, ms).await?,
             Report::Drill { ms } => self.feat(Feat::Drill, ms).await?,
             // Nothing is lost inside the colony; the Board's trainers least of all.
@@ -1384,6 +1391,50 @@ impl Session<'_> {
             }
         }
         Ok(())
+    }
+
+    /// What the tugs brought home goes to the stores: the wreck of the suit the pilot ejected from,
+    /// or of the ace they downed (`ace`). Its notes.
+    fn towed(&mut self, wreck: Option<&bc_proto::ChunkDesc>, torso: bool, ace: Option<u8>) -> Vec<String> {
+        match ace {
+            Some(a) => self.hangar.towed_ace(wreck, bc_sim::content::aces::ace(a).name),
+            None => self.hangar.towed(wreck, torso),
+        }
+    }
+
+    /// The pilot downed one of Zodiac's aces (`bc_sim::content::aces`): on the Most Wanted, and its
+    /// bounty as their terms say: paid, or the rights to its wreck, which the tugs go out for.
+    async fn ace_down(&mut self, ace: u8, hulk: u16, generation: u8) -> anyhow::Result<()> {
+        if !self.survival() {
+            return Ok(());
+        }
+        let a = bc_sim::content::aces::ace(ace);
+        let now = pilots::unix_now();
+        let (trader, name) = (self.trader.as_str(), self.callsign.as_str());
+        let salvage = self.game.charter.with(|b| b.ace_downed(ace, trader, name, now));
+        tracing::info!(slot = self.slot, name = %self.callsign, ace = a.name, salvage, "an ace downed");
+        // The rights to its wreck, if the tugs aren't out for another already (else, pay).
+        let claimed = salvage
+            && hulk != bc_proto::NO_CHUNK
+            && !self.towing
+            && self
+                .game
+                .sector
+                .control
+                .push(Control::Claim { slot: self.slot, hulk, generation, ace })
+                .is_ok();
+        let text = if claimed {
+            self.towing = true;
+            format!("{} DOWNED · YOUR TERMS: ITS WRECK · THE TUGS ARE GOING OUT FOR IT", a.name)
+        } else {
+            let (hangar, trader) = (&mut self.hangar, self.trader.as_str());
+            let text = self.game.charter.with(|b| b.pay_ace(hangar, ace, trader));
+            self.save().await;
+            self.send_hangar().await?;
+            text
+        };
+        self.game.charter.changed();
+        self.send(&Update::News { text }).await
     }
 
     /// A tenth of a second on: the suit's reports, its wreck clearing, the stations (`settle`: once
@@ -1505,11 +1556,27 @@ impl Session<'_> {
                 match report {
                     Report::Parked { rec, tick } => parked = Some((rec, tick)),
                     Report::Lost { bounty: b, .. } => bounty = b,
-                    Report::Towed { wreck, torso } => {
+                    Report::Towed { wreck, torso, ace } => {
                         self.towing = false;
-                        let _ = self.hangar.towed(wreck.as_ref(), torso);
+                        let _ = self.towed(wreck.as_ref(), torso, ace);
                     }
-                    Report::Home(_) | Report::DockRefused | Report::Course { .. } | Report::Drill { .. } => {}
+                    // An ace downed on the way out: on the Most Wanted, and paid (whatever the
+                    // terms: there's no one here to send the tugs for).
+                    Report::AceDown { ace, .. } if self.survival() => {
+                        let now = pilots::unix_now();
+                        let (hangar, trader, name) =
+                            (&mut self.hangar, self.trader.as_str(), self.callsign.as_str());
+                        game.charter.with(|b| {
+                            b.ace_downed(ace, trader, name, now);
+                            b.pay_ace(hangar, ace, trader)
+                        });
+                        game.charter.changed();
+                    }
+                    Report::Home(_)
+                    | Report::DockRefused
+                    | Report::Course { .. }
+                    | Report::Drill { .. }
+                    | Report::AceDown { .. } => {}
                 }
             }
             let asleep = match (status.outcome(), status.suit_id()) {
@@ -1549,8 +1616,8 @@ impl Session<'_> {
             }
             for _ in 0..500 {
                 match self.lease.as_mut().and_then(|l| l.reports.pop().ok()) {
-                    Some(Report::Towed { wreck, torso }) => {
-                        let _ = self.hangar.towed(wreck.as_ref(), torso);
+                    Some(Report::Towed { wreck, torso, ace }) => {
+                        let _ = self.towed(wreck.as_ref(), torso, ace);
                         break;
                     }
                     Some(_) => {}

@@ -309,6 +309,7 @@ impl GameRuntime {
         let sector_cfg = SectorConfig {
             sim: SimConfig {
                 target_dolls: cfg.mobile_dolls,
+                ace_every: bc_sim::config::secs(cfg.ace_every.as_secs_f32()),
                 seed: cfg.seed,
                 max_sleepers: cfg.max_sleepers,
                 survival,
@@ -446,13 +447,15 @@ impl GameRuntime {
                 proving.save().await;
             });
         }
-        // What became of sleepers: news for their pilots, a few times a second.
+        // What became of sleepers: news for their pilots; and Zodiac's ace: a few times a second.
         let notes = game.clone();
         tokio::spawn(async move {
             let mut every = tokio::time::interval(Duration::from_millis(250));
+            let mut aces = AceWatch::default();
             while !notes.sector.stop.load(Ordering::Acquire) {
                 every.tick().await;
                 process_notes(&notes);
+                aces.watch(&notes);
             }
         });
         Ok(Self {
@@ -910,6 +913,78 @@ pub(super) fn forget(game: &GameShared, suit: u16, pilot: PilotKind) {
         r.remove(&suit);
     }
     let _ = game.roster_tx.send(RosterUpdate { suit, pilot, name: String::new(), flags: 0 });
+}
+
+/// Zodiac's ace among the Dolls (`bc_sim::content::aces`), from the sector's word
+/// (`SectorShared::ace`): on the roster by its name while it's out (downed, too, until its slot is
+/// let go: the kill feed names it), and the Charter Board's news as one comes out (survival). The
+/// board's views say which one flies, so they're out of date whenever the word moves.
+#[derive(Default)]
+struct AceWatch {
+    word: u32,
+}
+
+impl AceWatch {
+    fn watch(&mut self, game: &GameShared) {
+        let word = game.sector.ace.load(Ordering::Acquire);
+        if word == self.word {
+            return;
+        }
+        let (was, now) = (bc_sector::ace_of_word(self.word), bc_sector::ace_of_word(word));
+        self.word = word;
+        let same = |a: Option<(u16, u8, bool)>, b: Option<(u16, u8, bool)>| {
+            a.zip(b).is_some_and(|((s, k, _), (t, l, _))| (s, k) == (t, l))
+        };
+        if let Some((suit, ace, _)) = was
+            && !same(was, now)
+        {
+            // Its name off the slot it had, unless that's someone else's by now.
+            let name = bc_sim::content::aces::ace(ace).name;
+            let ours = game.roster.write().is_ok_and(|mut r| {
+                let ours = r.get(&suit).is_some_and(|e| {
+                    e.pilot == PilotKind::MobileDoll && e.client_slot == u16::MAX && e.name == name
+                });
+                if ours {
+                    r.remove(&suit);
+                }
+                ours
+            });
+            if ours {
+                let _ = game.roster_tx.send(RosterUpdate {
+                    suit,
+                    pilot: PilotKind::MobileDoll,
+                    name: String::new(),
+                    flags: 0,
+                });
+            }
+        }
+        if let Some((suit, ace, _)) = now
+            && !same(was, now)
+        {
+            let name = bc_sim::content::aces::ace(ace).name;
+            tracing::info!(suit, ace = name, "an ace is out");
+            let entry = RosterEntry {
+                name: name.to_string(),
+                pilot: PilotKind::MobileDoll,
+                client_slot: u16::MAX,
+                flags: 0,
+                address: None,
+            };
+            if let Ok(mut r) = game.roster.write() {
+                r.insert(suit, entry);
+            }
+            let _ = game.roster_tx.send(RosterUpdate {
+                suit,
+                pilot: PilotKind::MobileDoll,
+                name: name.to_string(),
+                flags: 0,
+            });
+            if game.survival {
+                game.charter.with(|b| b.ace_out(ace));
+            }
+        }
+        game.charter.changed();
+    }
 }
 
 /// What became of sleepers, from the sector: news for their pilots, and the roster forgets them.
