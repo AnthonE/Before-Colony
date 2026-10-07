@@ -44,6 +44,8 @@ pub struct LaunchShot {
     up: Vec3,
     /// A flight key cut the hold short at this moment (the blend starts then).
     cut: Option<f64>,
+    /// How many shots have begun (for the E2E tests: one may be over between their looks).
+    pub count: u32,
 }
 
 impl LaunchShot {
@@ -117,7 +119,7 @@ pub fn begin_launch_shot(
         let p = bay_pose(bay, tick.floor() as u32, tick.fract() as f32);
         (p.rot * -Vec3::X, p.rot * Vec3::Z, p.rot * -Vec3::Y)
     };
-    *shot = LaunchShot { since: Some(now), inside, bay, ahead, side, up, cut: None };
+    *shot = LaunchShot { since: Some(now), inside, bay, ahead, side, up, cut: None, count: shot.count + 1 };
     if !inside {
         ui.news(
             format!("BAY {bay:02} · OUT OF ITS DOOR · HOME: AT REST IN THE DOCK'S RING OFF THE HUB'S MOUTH"),
@@ -183,4 +185,5 @@ pub fn open_bay_doors(
 /// For the E2E tests: whether the launch shot is on.
 pub fn publish_launch_shot(shot: Res<LaunchShot>, mut dev: ResMut<crate::dev_hooks::DevStatus>) {
     dev.set("launch_shot", shot.active(crate::net::now_s()));
+    dev.set("launch_shots", shot.count);
 }

@@ -35,6 +35,8 @@ const scenes: Array<[string, number, number, number]> = [
   ["colony", 6, 1900, 12],
   ["colony", 7, 6, 12],
   ["colony", 8, 2620, 12],
+  // The launch shot: a Leo thrown out of its bay's door on the ring, the door behind it.
+  ["colony", 9, 6.4, 12],
   ["field", 1, 6, 12],
   // Wreckage after a fight: hulks, limbs shot off, loose ore.
   ["salvage", 1, 6, 12],

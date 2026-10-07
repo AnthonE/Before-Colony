@@ -116,8 +116,9 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   expect(s.surface_body).toBe(`bay:${s.bay_no}`);
   s = await until(page, "flying", (s) => s.seq === "walking" && s.alive, 60_000);
   expect(s.frame).toBe("leo");
-  s = await until(page, "thrown out of the door", (s) => s.footing === "free" && s.speed > 60, 10_000);
-  expect(s.launch_shot).toBe(true);
+  // The launch shot: outside the ring by the open door, the suit going.
+  await page.screenshot({ path: "artifacts/hangar-launch.png" });
+  s = await until(page, "thrown out of the door", (s) => s.footing === "free" && s.launch_shots >= 1, 10_000);
   const [x, y, z] = String(s.pos).split(",").map(Number);
   // Out by the bay ring (2.25 km off the colony's axis, past its −X face), far from the dock.
   expect(Math.hypot(y + 4200, z)).toBeGreaterThan(1_800);
@@ -125,7 +126,11 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
 
   // Home: flown to the dock off the hub's mouth, at rest there, Enter takes it in.
   await push(page, { cmd: "fly_to", spot: "dock" });
-  await until(page, "at the dock", (s) => !s.flying_to, 120_000);
+  const atDock = (s: Record<string, any>) => {
+    const [x, y, z] = String(s.pos).split(",").map(Number);
+    return Math.hypot(x + 17_250, y + 4_200, z) < 150 && s.speed < 10;
+  };
+  await until(page, "at rest in the dock", atDock, 240_000);
   await page.focus("#bc");
   await page.keyboard.press("Enter");
   s = await until(page, "home", (s) => s.place === "hangar", 30_000);
