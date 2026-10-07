@@ -25,7 +25,7 @@ use glam::{Quat, Vec3};
 use super::Sim;
 use crate::bodies::{Bodies, Body, Shape};
 use crate::colony::hub::{BAY_RIDE_LOCAL, BAYS, bay_pose, bay_ride_rot, is_bay};
-use crate::content::{Kits, Modules, Systems, frame, weapon};
+use crate::content::{Grade, Kits, Modules, Systems, frame, weapon};
 use crate::ground::{self, Anchor, CROUCH_STANCE, Footing, STANCE};
 use crate::handle::SuitId;
 use crate::math::{cos, floor, look_rotation, quat_normalize, sin};
@@ -76,6 +76,8 @@ pub struct Loadout {
     pub ammo: [u16; 3],
     /// In the tank, kg.
     pub propellant: f32,
+    /// What's in the tank.
+    pub grade: Grade,
     /// What's damaged or failed inside the parts.
     pub systems: Systems,
     /// The equipment on the parts.
@@ -99,6 +101,7 @@ impl Loadout {
             mounts: 0b111,
             ammo,
             propellant: spec.propellant_cap,
+            grade: Grade::Standard,
             systems: Systems::OK,
             modules: Modules::NONE,
             kits: Kits::NONE,
@@ -116,6 +119,8 @@ pub struct Homecoming {
     pub mounts: u8,
     pub ammo: [u16; 3],
     pub propellant: f32,
+    /// What's in the tank (what's left of it).
+    pub grade: Grade,
     /// What's damaged or failed inside the parts still on (a part shot off takes its own).
     pub systems: Systems,
     /// The equipment on the parts still on (a part shot off took its own).
@@ -209,6 +214,7 @@ impl Sim {
         self.suits.mounts[i] = loadout.mounts & ALL_MOUNTS;
         self.suits.systems[i] = loadout.systems.clean();
         self.suits.modules[i] = loadout.modules.clean();
+        self.suits.grade[i] = loadout.grade;
         self.suits.kits[i] = loadout.kits;
         self.suits.retune(i);
         // Charged full, a capacitor bank's worth included.
@@ -287,6 +293,7 @@ impl Sim {
             mounts: s.mounts[i],
             ammo: [s.weapons[i][0].ammo, s.weapons[i][1].ammo, s.weapons[i][2].ammo],
             propellant: s.flight[i].propellant,
+            grade: s.grade[i],
             systems: s.systems[i],
             modules: s.modules[i].without(s.gone_mask(i)),
             kits: s.kits[i],
@@ -380,6 +387,7 @@ impl Sim {
         // As worn inside as it was left, its equipment and rack with it.
         s.systems[i] = home.systems.clean();
         s.modules[i] = home.modules.clean();
+        s.grade[i] = home.grade;
         s.kits[i] = home.kits;
         s.usage[i] = home.usage;
         s.retune(i);

@@ -13,6 +13,7 @@ pub mod landmarks;
 pub mod melee;
 pub mod modules;
 mod names;
+pub mod propellant;
 pub mod salvage;
 pub mod systems;
 mod weapons;
@@ -24,6 +25,7 @@ pub use kits::{Kit, Kits};
 pub use melee::{ConeSpec, MeleeSpec, MissileSpec, Stroke};
 pub use modules::{ModuleKind, Modules};
 pub use names::{doll_name, frame_designation, frame_name, weapon_name};
+pub use propellant::Grade;
 pub use systems::{System, Systems};
 pub use weapons::{ChargedShot, Replication, WeaponClass, WeaponSpec, weapon};
 

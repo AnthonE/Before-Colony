@@ -174,6 +174,9 @@ pub struct OwnState {
     pub systems: u32,
     /// The equipment fitted, 4 bits a slot (`bc_sim::content::modules`).
     pub modules: u32,
+    /// The propellant's grade (`bc_sim::content::propellant`: 0 Standard, 1 Refined, 2 Ultra-pure):
+    /// its specific impulse, which the client's stat sheet takes in.
+    pub grade: u8,
     /// Ticks the reactor stays scrammed, and the pilot concussed.
     pub scram: u8,
     pub concussed: u8,
@@ -316,12 +319,13 @@ pub const ARMS_MAX_SALVO: u8 = (1 << SALVO_BITS) - 1;
 pub const ARMS_MAX_SALVO_GAP: u8 = (1 << SALVO_GAP_BITS) - 1;
 
 /// Encoded size of a free suit's own state (after its presence bit), in bits: the flight and combat
-/// state (503), systems and equipment (24 + 20 + 7 + 7 + 4 + 7), the rack and a stim (8 + 12), salvage (18 + 14 per cargo kind +
+/// state (503), systems, equipment and the propellant's grade (24 + 20 + 2 + 7 + 7 + 4 + 7), the rack and a stim (8 + 12), salvage (18 + 14 per cargo kind +
 /// 24 + a chunk id), lock and special (10 + 4 + 8 + 8), the arms, then the footing and the cover
 /// (2 + 2).
 pub const OWN_BITS_FREE: usize = 503
     + SYSTEMS_BITS as usize
     + MODULES_BITS as usize
+    + GRADE_BITS as usize
     + 2 * STATUS_TICK_BITS as usize
     + 4
     + STATUS_TICK_BITS as usize
@@ -347,6 +351,8 @@ const STANCE_BITS: u32 = 8;
 /// Bits for [`OwnState::systems`] (2 per system) and [`OwnState::modules`] (4 per slot).
 pub const SYSTEMS_BITS: u32 = 24;
 pub const MODULES_BITS: u32 = 20;
+/// Bits for [`OwnState::grade`].
+pub const GRADE_BITS: u32 = 2;
 /// Bits for a status timer (ticks, or ticks / 8 for a repair).
 const STATUS_TICK_BITS: u32 = 7;
 const LOCK_PROGRESS_BITS: u32 = 4;
@@ -381,6 +387,7 @@ impl Default for OwnState {
             flags: 0,
             systems: 0,
             modules: 0,
+            grade: 0,
             scram: 0,
             concussed: 0,
             repairing: 15,
@@ -657,6 +664,7 @@ impl<'a> SnapshotWriter<'a> {
         w.write_u16(o.flags);
         w.write_bits(o.systems & ((1 << SYSTEMS_BITS) - 1), SYSTEMS_BITS);
         w.write_bits(o.modules & ((1 << MODULES_BITS) - 1), MODULES_BITS);
+        w.write_bits(u32::from(o.grade) & ((1 << GRADE_BITS) - 1), GRADE_BITS);
         let tick_max = (1 << STATUS_TICK_BITS) - 1;
         w.write_bits(u32::from(o.scram).min(tick_max), STATUS_TICK_BITS);
         w.write_bits(u32::from(o.concussed).min(tick_max), STATUS_TICK_BITS);
@@ -981,6 +989,7 @@ impl<'a> SnapshotReader<'a> {
         o.flags = r.read_u16();
         o.systems = r.read_bits(SYSTEMS_BITS);
         o.modules = r.read_bits(MODULES_BITS);
+        o.grade = r.read_bits(GRADE_BITS) as u8;
         o.scram = r.read_bits(STATUS_TICK_BITS) as u8;
         o.concussed = r.read_bits(STATUS_TICK_BITS) as u8;
         o.repairing = r.read_bits(4) as u8;
@@ -1196,7 +1205,7 @@ mod tests {
             let back = SnapshotReader::new(&buf[..n]).unwrap().own().unwrap().unwrap();
             assert_eq!((back.surface, back.cover), (own.surface, own.cover));
         }
-        assert_eq!((OWN_BITS_FREE, OWN_BITS_FREE + 14, OWN_MAX_BITS), (797, 811, 817));
+        assert_eq!((OWN_BITS_FREE, OWN_BITS_FREE + 14, OWN_MAX_BITS), (799, 813, 819));
     }
 
     #[test]

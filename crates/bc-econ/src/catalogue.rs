@@ -20,7 +20,7 @@ use std::sync::OnceLock;
 
 use bc_proto::{FrameId, Part, WeaponKind};
 use bc_sim::content::salvage::{is_gundam, part_mass_kg};
-use bc_sim::content::{Kit, ModuleKind, frame, weapon};
+use bc_sim::content::{Grade, Kit, ModuleKind, frame, weapon};
 use serde::{Deserialize, Serialize};
 
 use crate::item::{Item, LINES, Material, Ore, weapons};
@@ -100,6 +100,8 @@ fn build_recipes() -> Vec<Recipe> {
         refine(Material::Steel, 80, &[(ore(Ore::NickelIron), 100)], 20),
         refine(Material::TitaniumAlloy, 80, &[(ore(Ore::Titanium), 100), (ore(Ore::Volatiles), 10)], 30),
         refine(Material::Propellant, 100, &[(ore(Ore::Volatiles), 100)], 15),
+        refine(Material::RefinedPropellant, 75, &[(ore(Ore::Volatiles), 100)], 25),
+        refine(Material::UltraPropellant, 50, &[(ore(Ore::Volatiles), 100), (EXOTICS, 3)], 40),
         refine(Material::Electronics, 20, &[(EXOTICS, 20), (STEEL, 40)], 40),
         refine(Material::Munitions, 60, &[(STEEL, 50), (ore(Ore::Volatiles), 10)], 20),
         Recipe {
@@ -294,8 +296,17 @@ pub fn rounds_per_load(w: WeaponKind) -> u16 {
 
 /// The munitions item.
 pub const MUNITIONS_ITEM: Item = MUNITIONS;
-/// The propellant item.
+/// The propellant item (Standard).
 pub const PROPELLANT_ITEM: Item = mat(Material::Propellant);
+
+/// The stores' item for propellant of `grade`.
+pub const fn propellant_item(grade: Grade) -> Item {
+    match grade {
+        Grade::Standard => PROPELLANT_ITEM,
+        Grade::Refined => mat(Material::RefinedPropellant),
+        Grade::UltraPure => mat(Material::UltraPropellant),
+    }
+}
 
 /// A suit's tank, kg.
 pub fn tank_kg(line: FrameId) -> u32 {
@@ -398,6 +409,9 @@ pub fn desk(item: Item) -> Option<Desk> {
         Item::Ore(_) => d(30_000, true, false, 3.0),
         // Propellant is cracked from the colony's own water and sold cheap.
         Item::Material(Material::Propellant) => Desk { base: 1_000, ..d(60_000, true, true, 1.0) },
+        // The purer grades go through the colony's refinery again, and less of it is wanted.
+        Item::Material(Material::RefinedPropellant) => Desk { base: 2_500, ..d(20_000, true, true, 2.0) },
+        Item::Material(Material::UltraPropellant) => Desk { base: 6_000, ..d(5_000, true, true, 3.0) },
         Item::Material(Material::Electronics) => d(2_000, true, true, 2.0),
         Item::Material(Material::Munitions) => d(10_000, true, true, 2.0),
         Item::Material(Material::Steel) => d(30_000, true, true, 2.0),

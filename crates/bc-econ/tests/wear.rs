@@ -27,6 +27,7 @@ fn home_of(s: &Suit) -> Homecoming {
         mounts: l.mounts,
         ammo: l.ammo,
         propellant: l.propellant,
+        grade: l.grade,
         systems: l.systems,
         modules: l.modules,
         kits: l.kits,

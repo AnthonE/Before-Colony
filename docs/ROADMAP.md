@@ -15,6 +15,7 @@ the bay, space, home).
 | P1: the Proving Ground: its course, the Blast Hall, its live fire, trainers boarded there, the drill and the board (`TRAINING.md`, phases 1 to 5) | built |
 | Living in the colony, L0: seats, the body and its meals (`LIFE.md`) | built (a framework: nothing on the wire yet) |
 | The loop's loose ends, first pass: the colony open by default, launching out of the pilot's own bay door, landing on the docking hub and walking in, hints along the way (below) | built |
+| Propulsion: bigger tanks, the extended tank, propellant grades (`DESIGN.md`) | built |
 | P1's rest, P2 below, the loose ends left | planned |
 
 ## The loop's loose ends

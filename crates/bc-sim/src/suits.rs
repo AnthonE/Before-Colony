@@ -6,7 +6,7 @@ use glam::{Quat, Vec3};
 
 use crate::ai::AiState;
 use crate::bodies::Body;
-use crate::content::{ArmSlot, Kits, Modules, Systems, frame};
+use crate::content::{ArmSlot, Grade, Kits, Modules, Systems, frame};
 use crate::flight::FlightState;
 use crate::ground::{Anchor, Footing};
 use crate::handle::{Handle, SuitId};
@@ -217,6 +217,8 @@ pub struct Suits {
     pub systems: Box<[Systems]>,
     /// The equipment fitted to its parts.
     pub modules: Box<[Modules]>,
+    /// What's in its tank (`content::propellant`).
+    pub grade: Box<[Grade]>,
     /// The consumables in its rack (survival: `content::kits`).
     pub kits: Box<[Kits]>,
     /// What it has been through since it launched.
@@ -301,6 +303,7 @@ impl Suits {
             part_hp: boxed(cap, [0.0f32; Part::COUNT]),
             systems: boxed(cap, Systems::OK),
             modules: boxed(cap, Modules::NONE),
+            grade: boxed(cap, Grade::Standard),
             status: boxed(cap, Status::default()),
             tuning: boxed(cap, Tuning::default()),
             zero: boxed(cap, ZeroState::default()),
@@ -387,6 +390,7 @@ impl Suits {
         self.part_hp[idx] = spec.part_hp;
         self.systems[idx] = Systems::OK;
         self.modules[idx] = Modules::NONE;
+        self.grade[idx] = Grade::Standard;
         self.kits[idx] = Kits::NONE;
         self.usage[idx] = Usage::default();
         self.status[idx] = Status::default();
@@ -461,9 +465,13 @@ impl Suits {
 
     /// Rebuilds suit `idx`'s stat sheet from its parts and systems as they stand.
     pub fn retune(&mut self, idx: usize) {
-        let mut t = crate::tuning::tuning(self.gone_mask(idx), self.systems[idx], self.modules[idx]);
-        t.g_tolerance += crate::content::kits::stim_g(self.status[idx].stim);
-        self.tuning[idx] = t;
+        self.tuning[idx] = crate::tuning::flown(
+            self.gone_mask(idx),
+            self.systems[idx],
+            self.modules[idx],
+            self.status[idx].stim,
+            self.grade[idx],
+        );
     }
 
     /// The state of weapon `slot`: a loadout slot (0..3), or a special mount (from

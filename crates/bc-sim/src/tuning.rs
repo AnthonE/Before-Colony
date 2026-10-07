@@ -11,6 +11,7 @@ use bc_proto::quant::{dequantize_unit, quantize_unit};
 use glam::Vec3;
 
 use crate::content::modules::{self as md, ModuleKind, Modules};
+use crate::content::propellant::Grade;
 use crate::content::systems::{self as sys, FAILED, System, Systems};
 use crate::content::{ArmSlot, FrameSpec};
 use crate::flight::{BoostGauge, FlightMods, GEnvelope};
@@ -206,12 +207,20 @@ pub fn own_gone(own: &bc_proto::OwnState) -> u8 {
     gone
 }
 
+/// The stat sheet a suit flies with: [`tuning`], with what its pilot took (a stim's clock: they
+/// bear more G, or less) and what's in its tank (its [`Grade`] goes further). The server
+/// (`Suits::retune`) and the owner's client ([`own_tuning`]) both build it here.
+pub fn flown(gone: u8, systems: Systems, modules: Modules, stim: u16, grade: Grade) -> Tuning {
+    let mut t = tuning(gone, systems, modules);
+    t.g_tolerance += crate::content::kits::stim_g(stim);
+    t.isp *= grade.isp();
+    t
+}
+
 /// The owner's client's copy of its suit's stat sheet, from the snapshot: the same as the one the
 /// server flies the next tick with.
 pub fn own_tuning(own: &bc_proto::OwnState) -> Tuning {
-    let mut t = tuning(own_gone(own), Systems(own.systems), Modules(own.modules));
-    t.g_tolerance += crate::content::kits::stim_g(own.stim);
-    t
+    flown(own_gone(own), Systems(own.systems), Modules(own.modules), own.stim, Grade::from_code(own.grade))
 }
 
 /// The flight model's modifiers from a suit's stat sheet under the sector's `rules`, before what

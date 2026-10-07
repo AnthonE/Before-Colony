@@ -47,13 +47,13 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   expect(s.bay_faults).toBe(1);
   await expect(page.locator("#news")).toContainText("ARRIVAL", { timeout: 30_000 });
 
-  // The exchange: 100 kg of titanium alloy from the colony, at its ask.
+  // The exchange: 50 kg of titanium alloy from the colony, at its ask.
   await use(page, "exchange");
   await until(page, "the exchange terminal", (s) => s.terminal === "exchange", 10_000);
   await expect(page.locator("#terminal")).toBeVisible();
   await page.click('[data-act="ex-filter"][data-f="goods"]');
   await page.click('tr[data-item="mat.ti_alloy"]');
-  await page.fill('[data-key="qty:buy:mat.ti_alloy"]', "100");
+  await page.fill('[data-key="qty:buy:mat.ti_alloy"]', "50");
   await page.click('[data-act="order"]');
   await expect(page.locator("#term-log")).toContainText("BOUGHT", { timeout: 30_000 });
   // The Charter Board, a tab away: the colony's contracts and its great works.
@@ -78,10 +78,11 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   await until(page, "the terminal closed", (s) => !s.terminal, 10_000);
 
   // The suit's console: overhaul the radiators with components and electronics bought from the
-  // colony, and fit a G-seat off its shelf. The stat sheet shows what it would launch as.
+  // colony, fit a G-seat off its shelf, and try a purer propellant. The stat sheet shows what it
+  // would launch as.
   await use(page, "exchange");
   await until(page, "the exchange terminal", (s) => s.terminal === "exchange", 10_000);
-  for (const [slug, qty] of [["mat.components", "20"], ["mat.electronics", "5"]]) {
+  for (const [slug, qty] of [["mat.components", "20"], ["mat.electronics", "5"], ["mat.propellant_refined", "10"]]) {
     await page.click('[data-act="ex-filter"][data-f="goods"]');
     await page.click(`tr[data-item="${slug}"]`);
     await page.fill(`[data-key="qty:buy:${slug}"]`, qty);
@@ -102,6 +103,12 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   await expect(page.locator("#term-log")).toContainText("OVERHAULED RADIATORS", { timeout: 30_000 });
   await page.click('[data-act="fit"][data-item="module.g_seat"]');
   s = await until(page, "the G-seat fitted", (s) => s.bay_modules === 1 && s.bay_faults === 0, 30_000);
+  // Refined propellant: the standard in the tank is pumped back to the stores, and back again.
+  await page.click('[data-act="fuel"][data-grade="refined"]');
+  await expect(page.locator("#term-log")).toContainText("KG REFINED", { timeout: 30_000 });
+  await expect(page.locator("#term-body")).toContainText("PROPELLANT · REFINED");
+  await page.click('[data-act="fuel"][data-grade="standard"]');
+  await expect(page.locator("#term-log")).toContainText(/KG STANDARD · 10 KG PUMPED BACK/, { timeout: 30_000 });
   await page.keyboard.press("Escape");
   await until(page, "the terminal closed", (s) => !s.terminal, 10_000);
   const before = (await bc(page)).hangar_credits;

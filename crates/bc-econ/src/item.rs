@@ -68,10 +68,14 @@ pub enum Material {
     /// Machined components (valves, pumps, actuators, bearings): what overhauls and equipment are
     /// built from.
     Components,
+    /// Propellant refined further: it goes further (`bc_sim::content::propellant`).
+    RefinedPropellant,
+    /// Propellant refined again over exotic metals: it goes further still.
+    UltraPropellant,
 }
 
 impl Material {
-    pub const ALL: [Material; 7] = [
+    pub const ALL: [Material; 9] = [
         Material::Steel,
         Material::TitaniumAlloy,
         Material::Propellant,
@@ -79,6 +83,8 @@ impl Material {
         Material::Munitions,
         Material::Gundanium,
         Material::Components,
+        Material::RefinedPropellant,
+        Material::UltraPropellant,
     ];
 
     pub fn slug(self) -> &'static str {
@@ -90,6 +96,8 @@ impl Material {
             Material::Munitions => "munitions",
             Material::Gundanium => "gundanium",
             Material::Components => "components",
+            Material::RefinedPropellant => "propellant_refined",
+            Material::UltraPropellant => "propellant_ultra",
         }
     }
 
@@ -102,6 +110,8 @@ impl Material {
             Material::Munitions => "Munitions",
             Material::Gundanium => "Gundanium alloy",
             Material::Components => "Machined components",
+            Material::RefinedPropellant => "Refined propellant",
+            Material::UltraPropellant => "Ultra-pure propellant",
         }
     }
 }

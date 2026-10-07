@@ -1,8 +1,15 @@
-# Before Colony wire protocol (v22)
+# Before Colony wire protocol (v24)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v24 (from v23): propellant grades: the own state's `grade` (2 bits, after `modules`: 0 Standard,
+1 Refined, 2 Ultra-pure, `bc_sim::content::propellant`), which multiplies the stat sheet's specific
+impulse; the hangar's `fuel` request, and a suit's `grade`.
+
+v23 (from v22): a pilot's bay on the colony's bay ring is a body (the body reference's kind 3, its
+7-bit number): a launch rides its catapult cradle in the bay's door until the grip lets go.
 
 v22 (from v21): a suit's weathering on the roster: how worn its paint is, 0 to 7, from the life it
 has had (`bc_econ::weathering`), in the Roster flags' bits 2-4, for every client to draw.
@@ -96,7 +103,7 @@ exactly `tick − 8`, so the 8-bit field's saturation at 15.9 ticks loses nothin
 | Section | Content |
 |---|---|
 | header (116 bits) | kind=2, tick, ack_input_tick, input_health (i8), time_echo_ms, echo_hold_ms, tidi_pct, flags |
-| own (1 + 797..817 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, systems (24), modules (20), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, the rack (8: 2 bits a consumable), a stim's clock (12, ticks), extra mass (kg, i18), cargo ×4 (kg, 14 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special cooldown (8, ticks ÷ 4), arms (46, below), burst step (17, below), footing (2), cover (2), and on a body its body (6 or 12) and stance (8) (below) |
+| own (1 + 799..819 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, systems (24), modules (20), the propellant's grade (2), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, the rack (8: 2 bits a consumable), a stim's clock (12, ticks), extra mass (kg, i18), cargo ×4 (kg, 14 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special cooldown (8, ticks ÷ 4), arms (46, below), burst step (17, below), footing (2), cover (2), and on a body its body (6 or 12) and stance (8) (below) |
 | ZERO (1 + ≤200 bits) | source_jev, advice_age, threat_count, per threat {slot, 7 × p}, rec_target + p, rec_maneuver + p, threat_level + confidence, flanked, has_solution, solution (oct 2×12), hit_p |
 | events | repeated `[1][event]`, closed by `[0]` |
 | rocks | repeated `[1][rock]` (18 bits each), closed by `[0]` |
@@ -137,7 +144,7 @@ body's frame. A body is named by a `BodyRef`: a 2-bit kind, then an id.
 | 0 | a rock of the debris field | 10 bits (the rock's index) |
 | 1 | a landmark (MO-II, Hermit: `bc_sim::content::landmarks`) | 4 bits (its index) |
 | 2 | the colony's city, in an interior sector (v19): its floor, its buildings and its end caps | none |
-| 3 | invalid: the record doesn't decode | |
+| 3 | a pilot's bay on the colony's bay ring (v23, `bc_sim::colony::hub`): a suit launching rides its cradle | 7 bits (its number, 1–99) |
 
 Two rules keep this cheap and exact:
 - **Body poses never travel.** Rocks don't move, and come from the Welcome's field; a landmark's
@@ -166,7 +173,8 @@ Own-state notes:
 - The client flies its suit with the stat sheet it builds from the snapshot (`bc_sim::tuning`):
   the parts left, `systems` (2 bits a system, in `bc_sim::content::System` order: 0 working,
   1 damaged, 2 failed) and `modules` (4 bits a mount, in `bc_sim::content::modules::MOUNTS`
-  order: 0 empty, else the module's code). The server builds the same one for the next tick from
+  order: 0 empty, else the module's code), and `grade` (what's in the tank: its specific impulse,
+  `bc_sim::content::propellant`). The server builds the same one for the next tick from
   the same state, so prediction matches it, coughing main thrusters (their windows come from the
   tick and the slot) and a leaking tank included; and exactly `extra_mass_kg` (cargo, what's in
   hand, modules, less the parts shot off). AMBAC's authority is the one with the arms idle; busy
@@ -405,6 +413,7 @@ Client → server (`Request`):
 | `repair` | `part` (optional: all) | repair armour as far as the stores allow |
 | `overhaul` | `part` (optional: all) | restore damaged and failed systems as far as the stores allow |
 | `scrap` | `item` | melt one down for half its materials |
+| `fuel` | `grade` (`standard`, `refined`, `ultra`) | fill the suit's tank with that grade from the stores (what it has of another is pumped back to the stores first; a launch tops up from the suit's own grade) |
 | `order` | `item`, `side` (`buy`, `sell`), `price`, `qty`, `rest` | a limit order on the exchange |
 | `cancel_order` | `id` | |
 | `watch` | `item` (or `null`) | send that item's book and history as they change |
@@ -424,7 +433,8 @@ Client → server (`Request`):
 | `use_kit` | `kit` (`patch_kit`, `coolant`, `chaff`, `stim`) | in flight: use one from the suit's rack (the hotbar; nothing answers, the own state shows it) |
 | `say` | `text` | a line on the colony's radio, to everyone connected, under any rules: control characters stripped, whitespace made single spaces, cut to 160 characters; at most 5 lines in 10 s (more get a refusing `note`). Never logged; `/status` counts them (`radio_lines`) |
 
-Items are slugs: `ore.nickel_iron`, `mat.steel`, `mat.components`, `part.leo.torso`,
+Items are slugs: `ore.nickel_iron`, `mat.steel`, `mat.components`, `mat.propellant` (and the
+purer grades `mat.propellant_refined`, `mat.propellant_ultra`), `part.leo.torso`,
 `weapon.beam_rifle`, `module.g_seat`. Parts are
 `head`, `torso`, `arm_l`, `arm_r`, `legs`, `backpack`. Prices are credits a tonne for ores and
 materials (quantities in kg), credits a piece for everything else.
@@ -446,8 +456,8 @@ Proving Ground's board, in the colony: `course` and `drill`, the day's best as [
 `you`}] fastest first, `course_record` and `drill_record` the best ever, `course_par_ms` and
 `drill_par_ms`, and `mine` {`course_ms`, `drill_ms`}, the pilot's own bests; no keys of anyone's). A suit (in the bay, or out) carries
 `faults`, a map from system slug to `damaged` or `failed` (absent when everything works), and
-`modules`, its five equipment mounts' slugs (or `null`); a part on the shelf carries its own
-`faults`.
+`modules`, its five equipment mounts' slugs (or `null`), and `grade`, its propellant's (absent:
+`standard`); a part on the shelf carries its own `faults`.
 The server sends the hangar and the market whenever they change, the market and the board at most
 every 2 s. The board's notices (a great work finished, the vote open, an era begun) come to every
 pilot as `news`, wherever they are.

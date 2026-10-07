@@ -249,7 +249,7 @@ proptest! {
                              g_strain, parts: [1.0, 0.5, 0.0, 1.0, 0.25, 0.75], extra_mass_kg: extra, cargo_kg: [0, 16_383, 2_500, 1],
                              credits, held: 1_000, weapon_ready: ready, lock_target: lock, lock_progress: progress,
                              special_timer: special[0], special_cooldown: special[1], arms, burst, surface, cover, systems, modules,
-                             scram: timers[0] & 127, concussed: timers[1] & 127, repairing, repair_left: timers[2] & 127, kits, stim,
+                             scram: timers[0] & 127, concussed: timers[1] & 127, repairing, repair_left: timers[2] & 127, kits, stim, grade: 2,
                              ..OwnState::default() };
         let mut zero = ZeroInfo { threat_count: 2, has_solution: true, solution: Vec3::X, hit_p: 0.62, ..ZeroInfo::default() };
         zero.threats[0] = ZeroThreat { slot: 9, probs: [0.1, 0.2, 0.3, 0.1, 0.1, 0.1, 0.1] };
@@ -298,6 +298,7 @@ proptest! {
         prop_assert_eq!((o.weapon_ready, o.lock_target, o.lock_progress), (ready, lock, progress));
         prop_assert_eq!((o.special_timer, o.special_cooldown), (special[0], special[1]));
         prop_assert_eq!((o.kits, o.stim), (kits, stim));
+        prop_assert_eq!(o.grade, 2);
         prop_assert_eq!((o.surface, o.cover), (surface, cover));
         // In a body's frame or the sector's, the velocity comes back exact too.
         prop_assert_eq!(o.vel, own.vel);
@@ -415,8 +416,8 @@ fn record_budgets_match_plan() {
     // state, ZERO and events.
     const { assert!(ENTITY_MAX_BITS == 211) };
     const { assert!(ZERO_HYPOTHESES == 7) };
-    const { assert!(OWN_BITS_FREE == 797) };
-    const { assert!(OWN_MAX_BITS == 817) };
+    const { assert!(OWN_BITS_FREE == 799) };
+    const { assert!(OWN_MAX_BITS == 819) };
     const { assert!(ROCK_RECORD_BITS == 18) };
     const { assert!(MISSILE_RECORD_BITS == 119) };
     const { assert!(ObjectState::MAX_BITS <= 232) };

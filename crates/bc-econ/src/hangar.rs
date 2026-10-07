@@ -4,12 +4,14 @@
 //! requests as they come and the tests can play whole careers.
 
 use bc_proto::{ChunkDesc, ChunkKind, FrameId, Part};
-use bc_sim::content::frame_name;
 use bc_sim::content::salvage::{is_gundam, part_mass_kg};
+use bc_sim::content::{Grade, frame_name};
 use bc_sim::sim::{Homecoming, Loadout};
 use serde::{Deserialize, Serialize};
 
-use crate::catalogue::{MUNITIONS_ITEM, PROPELLANT_ITEM, Station, munitions_per_load, recipe, value, worth};
+use crate::catalogue::{
+    MUNITIONS_ITEM, PROPELLANT_ITEM, Station, munitions_per_load, propellant_item, recipe, value, worth,
+};
 use crate::exchange::{Exchange, Side};
 use crate::fab::{MAX_JOBS, Works};
 use crate::faults::{Faults, overhaul_cost};
@@ -305,7 +307,7 @@ impl Hangar {
         let Bay::Docked { suit } = &mut self.bay else { return 0 };
         let over = suit.propellant.saturating_sub(suit.tank());
         suit.propellant -= over;
-        self.stores.add(PROPELLANT_ITEM, u64::from(over));
+        self.stores.add(propellant_item(suit.grade), u64::from(over));
         over
     }
 
@@ -321,10 +323,10 @@ impl Hangar {
                     return refuse("strip everything else first");
                 }
                 let condition = suit.parts[Part::Torso as usize].unwrap_or(1);
-                let propellant = suit.propellant;
+                let (propellant, grade) = (suit.propellant, suit.grade);
                 let faults = suit.faults.of_part(Part::Torso);
                 self.stores.add_part(PartUnit { line, part: Part::Torso, condition, faults });
-                self.stores.add(PROPELLANT_ITEM, u64::from(propellant));
+                self.stores.add(propellant_item(grade), u64::from(propellant));
                 self.bay = Bay::Empty;
                 Ok("THE BAY IS EMPTY".into())
             }
@@ -508,6 +510,31 @@ impl Hangar {
         Ok(format!("SCRAPPED {}: {}", item.name().to_uppercase(), what.join(", ")))
     }
 
+    /// Fuels the suit in the bay with propellant of `grade`: what's in its tank of another grade
+    /// is pumped back to the stores as what it is, and the tank is filled from the stores as far as
+    /// they go (a launch tops it up from the same grade).
+    pub fn fuel(&mut self, grade: Grade) -> Done {
+        let Bay::Docked { suit } = &mut self.bay else {
+            return refuse("there's no suit in the bay to fuel");
+        };
+        let mut pumped = 0;
+        if suit.grade != grade {
+            pumped = suit.propellant;
+            self.stores.add(propellant_item(suit.grade), u64::from(pumped));
+            (suit.propellant, suit.grade) = (0, grade);
+        }
+        let want = u64::from(suit.tank().saturating_sub(suit.propellant));
+        let got = self.stores.take_up_to(propellant_item(grade), want) as u32;
+        suit.propellant += got;
+        let name = grade.name().to_uppercase();
+        let (now, tank) = (suit.propellant, suit.tank());
+        let back = match pumped {
+            0 => String::new(),
+            kg => format!(" · {kg} KG PUMPED BACK TO THE STORES"),
+        };
+        Ok(format!("TANK {now} / {tank} KG {name}{back}"))
+    }
+
     /// Readies the suit in the bay for launch: tops up its tank and reloads its guns from the
     /// stores, and sends it out. What the simulation launches.
     pub fn launch(&mut self) -> Result<Loadout, String> {
@@ -518,9 +545,15 @@ impl Hangar {
         };
         let mut suit = suit;
         let want = u64::from(suit.tank().saturating_sub(suit.propellant));
-        suit.propellant += self.stores.take_up_to(PROPELLANT_ITEM, want) as u32;
+        suit.propellant += self.stores.take_up_to(propellant_item(suit.grade), want) as u32;
         if suit.propellant == 0 {
-            return refuse("the tank is dry and there's no propellant in the stores");
+            return refuse(match suit.grade {
+                Grade::Standard => "the tank is dry and there's no propellant in the stores".into(),
+                g => format!(
+                    "the tank is dry and there's no {} propellant in the stores",
+                    g.name().to_lowercase()
+                ),
+            });
         }
         for m in 0..3 {
             let Some(w) = suit.weapon_on(m) else { continue };
@@ -754,6 +787,7 @@ mod tests {
             mounts: l.mounts,
             ammo: l.ammo,
             propellant: l.propellant,
+            grade: l.grade,
             systems: l.systems,
             modules: l.modules,
             kits: l.kits,
@@ -811,6 +845,39 @@ mod tests {
         assert_eq!(h.stores.get(PROPELLANT_ITEM), before + 1_200);
         // Nothing to pump back: nothing said.
         assert!(!h.strip(Slot::Mount { mount: 1 }).unwrap().contains("PROPELLANT"));
+    }
+
+    /// Fuelling with another grade pumps what's in the tank back to the stores as what it is and
+    /// fills it from the new grade; a launch tops it up from the same grade, and it comes home.
+    #[test]
+    fn fuelling_with_a_purer_grade() {
+        let mut h = Hangar::starter();
+        let refined = propellant_item(Grade::Refined);
+        h.stores.add(refined, 1_000);
+        let (before, had) = (h.stores.get(PROPELLANT_ITEM), h.suit().unwrap().propellant);
+        let done = h.fuel(Grade::Refined).unwrap();
+        assert!(done.contains("REFINED") && done.contains("PUMPED BACK"), "{done}");
+        assert_eq!(h.stores.get(PROPELLANT_ITEM), before + u64::from(had));
+        assert_eq!((h.suit().unwrap().grade, h.suit().unwrap().propellant), (Grade::Refined, 1_000));
+        assert_eq!(h.stores.get(refined), 0);
+        // Its own grade again: nothing pumped back, topped up as far as the stores go.
+        h.stores.add(refined, 200);
+        assert!(!h.fuel(Grade::Refined).unwrap().contains("PUMPED"));
+        assert_eq!(h.suit().unwrap().propellant, 1_200);
+        // A launch tops up from the same grade, and none of the standard in the stores.
+        h.stores.add(refined, 300);
+        let standard = h.stores.get(PROPELLANT_ITEM);
+        let l = h.launch().unwrap();
+        assert_eq!((l.grade, l.propellant), (Grade::Refined, 1_500.0));
+        assert_eq!(h.stores.get(PROPELLANT_ITEM), standard);
+        let Bay::Out { suit } = h.bay.clone() else { panic!() };
+        let mut home = home_as(&suit);
+        home.propellant = 600.0;
+        h.came_home(&home);
+        assert_eq!((h.suit().unwrap().grade, h.suit().unwrap().propellant), (Grade::Refined, 600));
+        // Dry, with none of its grade in the stores, it says which it's out of.
+        h.suit_mut().unwrap().propellant = 0;
+        assert!(h.launch().unwrap_err().contains("refined"));
     }
 
     /// Lost and broke, a pilot is advanced a worn Leo, but not twice in half an hour, not while a

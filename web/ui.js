@@ -775,11 +775,19 @@
       out += `<div class="slot"><div class="what">${esc(m.name.toUpperCase())}</div><div class="note">${rounds}</div><div>` +
         button("STRIP", { act: "strip-mount", mount: k }) + `</div></div>`;
     });
-    // The tank as the suit has it (an auxiliary or extended tank makes it bigger).
+    // The tank as the suit has it (an auxiliary or extended tank makes it bigger), and the grades
+    // it could fly on: a purer one goes further (fuelling with another pumps this one back).
     const tank = con.stats?.tank_kg || line?.tank || 0;
-    const stores = stockOf("mat.propellant");
-    out += `<div class="slot"><div class="what">PROPELLANT</div><div>${bar(Math.round((100 * suit.propellant) / Math.max(1, tank)))}</div>` +
-      `<div class="note">${fmt(suit.propellant)}/${fmt(tank)} kg · ${fmt(stores)} kg in the stores</div></div></div>`;
+    const grades = con.grades || [];
+    const flying = grades.find((g) => g.grade === (con.grade || "standard"));
+    const stores = flying ? flying.stores : stockOf("mat.propellant");
+    out += `<div class="slot"><div class="what">PROPELLANT${flying ? ` · ${esc(flying.name.toUpperCase())}` : ""}</div>` +
+      `<div>${bar(Math.round((100 * suit.propellant) / Math.max(1, tank)))}</div>` +
+      `<div class="note">${fmt(suit.propellant)}/${fmt(tank)} kg · ${fmt(stores)} kg in the stores</div>` +
+      grades.filter((g) => g === flying || g.stores > 0).map((g) =>
+        `<div>${button(g === flying ? "TOP UP" : `FUEL ${esc(g.name.toUpperCase())}`, { act: "fuel", grade: g.grade })} ` +
+        `<span class="note">${esc(g.name)}: ${fmt(g.stores)} kg in the stores · delta-v ${fmt(Math.round(g.delta_v))} m/s · boost ${Math.round(g.boost_s)} s</span></div>`).join("") +
+      `</div></div>`;
     const st = con.stats;
     if (st) {
       const row = (k, v) => `<div><span class="dim">${k}</span> ${v}</div>`;
@@ -788,6 +796,7 @@
         row("ACCEL", `${st.accel_g.toFixed(1)} g (boost ${st.boost_g.toFixed(1)} g)`) +
         row("MASS", `${fmt(st.mass_kg)} kg`) +
         row("TANK", `${fmt(st.tank_kg)} kg`) +
+        row("BOOST", `${Math.round(st.boost_s)} s on a full tank`) +
         row("SENSORS", `${(st.sensor_m / 1000).toFixed(1)} km`) +
         row("SIGNATURE", `×${st.signature.toFixed(2)}`) +
         row("ENERGY", `${fmt(Math.round(st.energy))} (+${st.regen.toFixed(1)}/s)`) +
@@ -1079,6 +1088,9 @@
         return;
       case "scrap":
         ask({ t: "scrap", item: d.item });
+        return;
+      case "fuel":
+        ask({ t: "fuel", grade: d.grade });
         return;
       case "strip-part":
         ask({ t: "strip", slot: { kind: "part", part: d.part } });

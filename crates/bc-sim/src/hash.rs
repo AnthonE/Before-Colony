@@ -44,7 +44,13 @@ pub fn state_hash(sim: &Sim) -> u64 {
         h.u32(s.systems[i].0);
         h.u32(s.modules[i].0);
         let st = &s.status[i];
-        h.u32(u32::from(st.scram) | u32::from(st.concussed) << 8 | u32::from(st.repairing) << 16);
+        // The grade in the top byte (Standard: 0, so a suit on it hashes as it always has).
+        h.u32(
+            u32::from(st.scram)
+                | u32::from(st.concussed) << 8
+                | u32::from(st.repairing) << 16
+                | u32::from(s.grade[i] as u8) << 24,
+        );
         h.u32(u32::from(st.repair_left));
         // Consumables (only once there are any, so a suit without hashes as it always has).
         if !s.kits[i].is_empty() || st.stim > 0 || st.chaff > 0 {

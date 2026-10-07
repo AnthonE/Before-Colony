@@ -87,8 +87,8 @@ network threads.
       Open runs; a transformable frame changes form on MODE (`bc_sim::transform`, which the
       client's predictor runs too). Sleepers' specials don't run.
    3. Flight. First every suit's stat sheet is rebuilt (`bc_sim::tuning`) from its parts,
-      systems and equipment as they stood at the end of the last tick, which is what its pilot's
-      client was just told. Then `bc_sim::ground::move_step` for every live suit: a free suit flies
+      systems, equipment and propellant's grade as they stood at the end of the last tick, which
+      is what its pilot's client was just told. Then `bc_sim::ground::move_step` for every live suit: a free suit flies
       (AMBAC/RCS, per-axis thrust (damaged thrusters cough on ticks the owner's client can work
       out), propellant and any leak under the sector's flight rules (`tuning::FlightRules`: under
       anime rules only boost burns and the tank refills, on the ground too; the Welcome's ANIME

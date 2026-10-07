@@ -390,6 +390,21 @@ The owner's client builds the same stat sheet from its snapshot (the systems' le
 modules' codes), so a suit that coughs, leaks and carries a thruster kit is predicted as exactly
 as a whole one.
 
+**Propellant grades** (`bc_sim::content::propellant`). What's in the tank goes further the purer
+it is: a grade multiplies the suit's specific impulse, so under the real rules each kilogram buys
+more delta-v, and under anime rules the gauge boosts longer.
+
+| Grade | Specific impulse | A Leo's delta-v | A Leo's boost | Refined from |
+|---|---|---|---|---|
+| Standard | ×1.0 | 3.1 km/s | 48 s | 100 kg volatiles → 100 kg |
+| Refined | ×1.15 | 3.6 km/s | 55 s | 100 kg volatiles → 75 kg |
+| Ultra-pure | ×1.35 | 4.2 km/s | 64 s | 100 kg volatiles and 3 kg exotic metals → 50 kg |
+
+A suit flies one grade at a time: at the bay's console, fuelling with another pumps what's in the
+tank back to the stores as what it is, and a launch tops the tank up from the suit's own grade. The
+grade rides the owner's snapshot, so prediction burns as the server does. Mobile Dolls, arcade
+suits and the Board's trainers fly Standard.
+
 ### Neo-Bird
 
 Wing Zero holds MODE to fold into **Neo-Bird**, and lets go to unfold. A change takes 0.8 s with
@@ -717,7 +732,8 @@ with it. A suit launches with what's fitted, as worn as it is, its tank and maga
 from the stores.
 
 - **Materials** (fabricator): steel (nickel-iron), titanium alloy (titanium, a little volatiles),
-  propellant (volatiles), electronics (exotic metals and steel), munitions (steel and volatiles).
+  propellant (volatiles; refined and ultra-pure from more of them, the last over exotic metals),
+  electronics (exotic metals and steel), munitions (steel and volatiles).
   **Gundanium** (titanium alloy and exotic metals) only at the zero-G foundry, 400 credits a batch.
 - **Parts** take structure (steel), armour (titanium alloy, or gundanium for a Gundam) and wiring
   (electronics) in proportion to their mass, plus their systems: the ZERO System in Wing Zero's
@@ -744,8 +760,9 @@ they're next in their bay, so orders fill while their owners are away. Prices ar
 for bulk goods, a piece for everything else.
 
 - **The colony** trades too, from a desk per item it deals in: it buys all the raw ore it can get,
-  sells propellant cheap, and deals in materials, ordinary parts and weapons. Its middle price is
-  the item's value times (the stock it wants ÷ the stock it has)^0.6, within ⅕× and 5×; it bids 10%
+  sells propellant cheap (a full Leo tank about 3,000 credits; 7,500 refined, 18,000
+  ultra-pure), and deals in materials, ordinary parts and weapons. Its middle price is the item's
+  value times (the stock it wants ÷ the stock it has)^0.6, within ⅕× and 5×; it bids 10%
   under and asks 10% over. Pilots selling to it drive its prices down and buying drives them up,
   and its stock settles back towards what it wants over hours (what it uses up, what it imports),
   so prices drift back.

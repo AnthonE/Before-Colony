@@ -22,7 +22,7 @@ use bc_econ::Hangar;
 use bc_proto::auth::{Address, TOKEN_BYTES};
 use bc_proto::{CARGO_KINDS, Faction, FrameId, Part, PilotKind};
 use bc_sim::content::landmarks::LANDMARKS_VERSION;
-use bc_sim::content::{Kits, Modules, Systems};
+use bc_sim::content::{Grade, Kits, Modules, Systems};
 use bc_sim::sim::{Homecoming, ParkRecord};
 use futures::future::BoxFuture;
 use glam::{Quat, Vec3};
@@ -96,6 +96,10 @@ pub struct ParkedSuit {
     /// The consumables in its rack (`bc_sim::content::Kits`).
     #[serde(default)]
     pub kits: u8,
+    /// The propellant's grade (`bc_sim::content::Grade`'s code: 0, as records before it had, is
+    /// Standard).
+    #[serde(default)]
+    pub grade: u8,
 }
 
 impl ParkedSuit {
@@ -122,6 +126,7 @@ impl ParkedSuit {
             systems: h.systems.0,
             modules: h.modules.0,
             kits: h.kits.0,
+            grade: h.grade as u8,
         }
     }
 
@@ -148,6 +153,7 @@ impl ParkedSuit {
                 mounts: self.mounts,
                 ammo: self.ammo,
                 propellant: self.propellant,
+                grade: Grade::from_code(self.grade),
                 cargo_kg: self.cargo_kg,
                 held: None,
                 bounty: self.bounty,
@@ -750,6 +756,7 @@ mod tests {
                 mounts: 0b101,
                 ammo: [3, 0, 77],
                 propellant: 412.5,
+                grade: Grade::Refined,
                 cargo_kg: [1, 2, 3, 4],
                 held: None,
                 bounty: 900,

@@ -43,6 +43,7 @@ fn stripped_leo() -> Loadout {
         mounts: 0b010,
         ammo: [0, 50, 0],
         propellant: 1_200.0,
+        grade: Default::default(),
         systems: Systems::OK,
         modules: Default::default(),
         kits: Default::default(),
