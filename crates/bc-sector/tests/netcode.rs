@@ -12,7 +12,7 @@ use bc_client_core::chase::{self, ChaseRig, Follow};
 use bc_client_core::{ClientConfig, ClientCore, InputContext, LanderBrain, OwnView};
 use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRIP, MELEE, MODE};
 use bc_proto::control::ControlMsg;
-use bc_proto::snapshot::footing;
+use bc_proto::snapshot::{footing, own_flags};
 use bc_proto::{
     Event, Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, Part, PilotKind,
     WeaponKind,
@@ -107,6 +107,8 @@ struct Outcome {
     ahead: Vec<f32>,
     /// The same, at the snapshots whose own suit was touching a rock.
     touching: Vec<f32>,
+    /// Snapshots after warm-up that found the pilot blacked out.
+    out_cold: usize,
     max_len: usize,
     /// Ticks in the last 20 s for which the server had no command from this client.
     missing_late: u64,
@@ -247,6 +249,7 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
         }
     };
     let mut touching = Vec::new();
+    let mut out_cold = 0;
     let mut welcomed = false;
     let mut max_len = 0;
     let mut missing_at_20s = None;
@@ -320,6 +323,7 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
             if let Some(p) = first.get(&client.world.tick) {
                 ahead.push(p.distance(own.pos));
             }
+            out_cold += usize::from(own.flags & own_flags::BLACKOUT != 0);
             if client.predict.field.rocks().iter().any(|r| r.touches(own.pos, SUIT_CLEARANCE + 1.0)) {
                 touching.push(client.stats.prediction_error);
             }
@@ -370,6 +374,7 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
         error_times,
         ahead,
         touching,
+        out_cold,
         max_len,
         missing_late,
         other_form,
@@ -530,20 +535,23 @@ fn sprint_and_stop_draws_smoothly() {
 }
 
 /// The client predicts its suit against the same rocks as the server: ramming one and sliding round
-/// it over the bad link mispredicts no more than open flight does.
+/// it over the bad link mispredicts no more than open flight does, though every ram is a crash that
+/// knocks its pilot out (`bc_sim::flight::crash`), and a pilot out cold has a quarter of the
+/// thrust and turn to slide round it with.
 #[test]
 fn prediction_holds_up_against_rocks() {
-    let Outcome { client, mut errors, mut touching, .. } = run(1.0 / 60.0, &mut rock_rammer());
+    let Outcome { client, mut errors, mut touching, out_cold, .. } = run(1.0 / 60.0, &mut rock_rammer());
     assert!(client.predict.field.len() > 100, "the client has the server's field");
     let all = percentile(&mut errors, 0.99);
     println!(
-        "snapshots touching a rock {} of {}  prediction error there p50 {:.4} m  p99 {:.4} m  (p99 overall {all:.4} m)",
+        "snapshots touching a rock {} of {}, out cold {out_cold}  prediction error there p50 {:.4} m  p99 {:.4} m  (p99 overall {all:.4} m)",
         touching.len(),
         errors.len(),
         percentile(&mut touching, 0.5),
         percentile(&mut touching, 0.99),
     );
-    assert!(touching.len() > 300, "touching a rock at only {} snapshots", touching.len());
+    assert!(touching.len() > 200, "touching a rock at only {} snapshots", touching.len());
+    assert!(out_cold > 30, "the rams knocked the pilot out at only {out_cold} snapshots");
     assert!(percentile(&mut touching, 0.99) < 0.25, "p99 {:.3} m", percentile(&mut touching, 0.99));
     assert!(all < 0.25, "prediction error p99 {all:.3} m");
     assert!(client.world.own.expect("own state").alive);
