@@ -70,7 +70,12 @@ fn a_pilots_breached_suit_is_doomed_then_lost_to_whoever_breached_it() {
             .iter()
             .any(|e| matches!(e, Event::Doomed { suit, .. } if *suit as usize == leo.idx()))
     );
-    assert_eq!(u16::from(sim.own_state(leo.idx()).doom), DOOM_TICKS - 1, "its pilot sees the clock");
+    let step = u16::from(bc_proto::snapshot::DOOM_STEP);
+    assert_eq!(
+        u16::from(sim.own_state(leo.idx()).doom),
+        (DOOM_TICKS - 1).div_ceil(step),
+        "its pilot sees the clock"
+    );
     idle(&mut sim, &[leo], u32::from(DOOM_TICKS) - 2);
     assert!(sim.is_alive(leo.idx()), "it lasts its doom out");
     idle(&mut sim, &[leo], 1);

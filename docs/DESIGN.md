@@ -407,7 +407,7 @@ timings, arc and reach in its row of the weapon table.
 
 ### Doom and ejecting
 
-How a suit is lost, as the mech games handle it (`PEERS.md`, "Mech games"): Titanfall's doomed
+How a suit is lost, as the mech games handle it (`PEERS.md`, "The mech games"): Titanfall's doomed
 Titans and their pilots ejecting, Steel Battalion's eject button, and Heero blowing up his Gundam
 in Siberia (`bc_sim::sim::doom`).
 
@@ -436,9 +436,40 @@ in Siberia (`bc_sim::sim::doom`).
   is anyone's; get out and the tugs bring yours home; blow it up and nobody has it. Under arcade
   rules the pilot just respawns, but the blast is a weapon all the same.
 - **On the wire** (protocol v23): `Event::Doomed`, `Event::Eject` (the capsule's position and
-  velocity), `Event::Blast`, the doom's ticks in the own state, and `WeaponKind::Reactor` for the
-  blast's hits. Ejecting is a request on the control stream (`bc_econ::wire::Request::Eject`), as
-  the rack's kits are, for any rules; agents call `BotClient::eject` and `self_destruct`.
+  velocity), `Event::Blast`, the doom in the own state (in tenths of a second since v24), and
+  `WeaponKind::Reactor` for the blast's hits. Ejecting is a request on the control stream
+  (`bc_econ::wire::Request::Eject`), as the rack's kits are, for any rules; agents call
+  `BotClient::eject` and `self_destruct`.
+
+### Stagger
+
+Armored Core VI's attitude control (`PEERS.md`, "The mech games"): a fight is won by breaking a
+suit's balance, then punishing it (`bc_sim::content::stagger`, `bc_sim::sim::stagger`).
+
+- **Impact.** Every blow that lands pushes on the suit's attitude control: its armour points
+  (before the target's armour: gundanium stops damage, not a push) times its weapon's impact. A
+  beam's is 1, a solid round's 1.3, a blade's stroke 1.8, a missile's warhead and a reactor's
+  blast 2, the Twin Buster Rifle's 1.6, a flame's 0.5.
+- **Stability.** What a frame stands before it's staggered: a Taurus 240, a Leo 300,
+  Deathscythe 320, Wing Zero and Shenlong 340, a Virgo and Heavyarms 380, Sandrock 460. A suit
+  left alone for 0.8 s steadies, shedding half its stability's worth a second.
+- **Staggered, for a second.** Its attitude control does nothing: it tumbles with the spin the
+  blow knocked into it (1.2 rad/s about an axis square to the blow, free in space) and can't turn.
+  Its thrusters give a quarter of their thrust, with no boost and no burst step. On its feet it's
+  braced: it stumbles to a stop, its legs neither walking nor turning it. Its weapons, blades and
+  special are down, and a strike under way is lost.
+- **Direct hits.** Blows that land on a staggered suit do half as much again. Then it's steady,
+  its impact back to nothing, and a stagger can't be chained on a stagger.
+- **Everyone.** Mobile Dolls stagger as pilots do. The HUD's flight panel shows the suit's
+  attitude (`ATT`, filling toward `STAGGERED`), the banner says `STAGGERED` while it lasts, and
+  the designated target's bracket shows its gauge (`ATT ||||··`), as AC6's does; any staggered
+  suit's bracket says so. A staggered suit's attitude jets fire every which way and it sparks.
+- **Prediction.** The pilot's client flies the stagger as the server does: the ticks left travel
+  in the own state, and the prediction runs them down (`Predictor::stagger`).
+- **On the wire** (protocol v24): `Event::Staggered` (the events' second extension), and in the
+  own state the suit's impact (in sixths), the stagger's ticks left, and the designated target's
+  impact (`TARGET_STAGGERED` while it's staggered). Agents read `BotClient::staggered` and
+  `impact`.
 
 ## Sensors and visibility
 

@@ -90,7 +90,7 @@ impl Sim {
                 }
             }
             match self.suits.melee[i].phase {
-                MeleePhase::Idle if self.transforming(i) => {}
+                MeleePhase::Idle if self.transforming(i) || self.staggered(i) => {}
                 MeleePhase::Idle => {
                     let (cmd, prev) = (self.suits.input[i], self.suits.prev_buttons[i]);
                     if let Some(slot) = strike_slot(&cmd, prev, |slot| self.melee_ready(i, slot)) {

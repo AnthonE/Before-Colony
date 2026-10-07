@@ -216,7 +216,8 @@ impl ArmsClock {
     }
 
     /// Rolls the arms through tick `t` under `cmd`, after its flight, as the server's specials,
-    /// weapons and melee steps do. `changing`: the suit is changing form.
+    /// weapons and melee steps do. `changing`: the suit is changing form or staggered (its weapons,
+    /// blades and special are down).
     pub fn tick(&mut self, spec: &FrameSpec, cmd: &InputCmd, changing: bool, t: u32) {
         self.roll(spec, cmd, changing, t);
         self.prev_buttons = cmd.buttons;
@@ -232,7 +233,7 @@ impl ArmsClock {
             if self.full_open > 0 {
                 self.full_open -= 1;
                 opened_out = self.full_open == 0;
-            } else if edge(SPECIAL) && self.wait[3] == 0 && !self.overheated {
+            } else if edge(SPECIAL) && self.wait[3] == 0 && !self.overheated && !changing {
                 self.full_open = ticks.min(255) as u8;
                 self.wait[3] = OwnArms::wait(cooldown);
             }

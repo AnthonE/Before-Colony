@@ -27,6 +27,9 @@ use crate::math::{length, normalize_or};
 
 /// How long a doomed suit lasts, ticks, unless blows cut it short.
 pub const DOOM_TICKS: u16 = secs(3.0) as u16;
+// Its pilot's own state carries it (`bc_proto::snapshot::DOOM_MAX` steps of `DOOM_STEP` ticks).
+const _: () =
+    assert!(DOOM_TICKS <= bc_proto::snapshot::DOOM_STEP as u16 * bc_proto::snapshot::DOOM_MAX as u16);
 /// Ticks a blow takes off a doom per whole torso's armour it carries: a sixth of the torso, a
 /// second.
 pub const DOOM_PER_TORSO: f32 = 180.0;

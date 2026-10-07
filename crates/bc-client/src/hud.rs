@@ -24,7 +24,7 @@ use bc_client_core::surface::{LetGo, SurfaceHint, let_go, range_rate, surface_hi
 use bc_client_core::world::ObjectMotion;
 use bc_client_core::{ClientCore, FeedLine};
 use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRIP, MELEE, MODE};
-use bc_proto::snapshot::{cover, ent_flags, own_flags, zero_mode};
+use bc_proto::snapshot::{DOOM_STEP, IMPACT_MAX, TARGET_STAGGERED, cover, ent_flags, own_flags, zero_mode};
 use bc_proto::{ChunkKind, NO_CHUNK, NO_SLOT, OwnState, Part, PilotKind};
 use bc_sim::bodies::Body;
 use bc_sim::chunks;
@@ -964,6 +964,14 @@ pub fn update_hud(
             };
             (speed, v.g, v.g_strain, v.g_limited)
         });
+        // The blows' impact on its attitude control (`bc_sim::sim::stagger`), and the stagger once
+        // it's past what the suit stands, as flown.
+        let attitude = if core.predict.stagger > 0 {
+            format!("{} STAGGERED", bar(1.0, 10))
+        } else {
+            let share = f32::from(o.impact) / f32::from(IMPACT_MAX);
+            format!("{} {:>3.0}%", bar(share, 10), share * 100.0)
+        };
         let feet = footed(core);
         let stands = match feet.footing {
             Footing::Grounded if feet.stance < STANCE => "  CROUCHED".to_string(),
@@ -979,7 +987,7 @@ pub fn update_hud(
         set(
             HudText::Flight,
             format!(
-                "{} {}\nSPD   {:>6.0} m/s{}\n{} {} {:>3.0}%{}\nHEAT  {} {:>3.0}%\nENGY  {} {:>3.0}%\nG     {:>4.1} g {:<3} STRAIN {}",
+                "{} {}\nSPD   {:>6.0} m/s{}\n{} {} {:>3.0}%{}\nHEAT  {} {:>3.0}%\nENGY  {} {:>3.0}%\nATT   {}\nG     {:>4.1} g {:<3} STRAIN {}",
                 bc_sim::content::frame_designation(form),
                 frame_name(form).to_uppercase(),
                 speed,
@@ -999,6 +1007,7 @@ pub fn update_hud(
                 o.heat * 100.0,
                 bar(o.energy, 10),
                 o.energy * 100.0,
+                attitude,
                 g,
                 // Flight assist holding the pilot under their G tolerance.
                 if limited { "LIM" } else { "" },
@@ -1377,10 +1386,13 @@ pub fn update_hud(
         Some(o) if o.alive && o.doom > 0 => (
             format!(
                 "DOOMED {:.1} s\nU EJECT · HOLD U SELF-DESTRUCT",
-                f32::from(o.doom) / bc_sim::TICK_HZ as f32
+                secs(f32::from(o.doom) * f32::from(DOOM_STEP))
             ),
             RED,
         ),
+        // Knocked off balance (`bc_sim::sim::stagger`), as flown: its weapons are down and its
+        // thrust is cut until it steadies.
+        Some(o) if o.alive && core.predict.stagger > 0 => ("STAGGERED".into(), AMBER),
         Some(o) if o.zero_mode == zero_mode::SEIZED => ("ZERO HAS THE CONTROLS".into(), RED),
         Some(o) if o.alive && drawn.is_some_and(|v| v.blackout) => ("G-LOC  BLACKOUT".into(), RED),
         Some(o) if o.flags & own_flags::MISSILE_INCOMING != 0 => {
@@ -1790,18 +1802,29 @@ pub fn update_marks(
             Some(l) => format!("\n{}", bar(f32::from(o.lock_progress) / f32::from(l.lock_ticks), 6)),
             None => String::new(),
         });
+        // Its attitude control: the designation's impact building toward a stagger (Armored
+        // Core's gauge, from the own state), and anyone staggered (from its event).
+        let impact = lock
+            .filter(|o| o.lock_target == slot && !wreck)
+            .and_then(|o| match o.target_impact {
+                TARGET_STAGGERED => Some("\nSTAGGERED".to_string()),
+                0 => None,
+                n => Some(format!("\nATT {}", bar(f32::from(n) / f32::from(IMPACT_MAX), 6))),
+            })
+            .or_else(|| (!wreck && world.is_staggered(slot, t)).then(|| "\nSTAGGERED".to_string()));
         // Named: the nearest few, and any that matter (a lock either way, ZERO's pick).
         // Locked on: how fast it closes (+) or opens.
         let closing = locked_on.then(|| {
             let to = (pos - own_pos).normalize_or_zero();
             format!("\nLOCK-ON {:+.0} m/s", -(track.sample(t, &world.bodies).vel - own_vel).dot(to))
         });
-        let named = k < TAGGED || locked_on_you || locking.is_some() || zero_target || locked_on;
+        let named =
+            k < TAGGED || locked_on_you || locking.is_some() || zero_target || locked_on || impact.is_some();
         let tag = if !named {
             String::new()
         } else {
             format!(
-                "{}{}{}\n{}{}{}{}{}",
+                "{}{}{}\n{}{}{}{}{}{}",
                 world.name_of(slot),
                 pilot_tag(e.pilot),
                 warn,
@@ -1809,7 +1832,8 @@ pub fn update_marks(
                 if e.pilot == PilotKind::Agent { " agent" } else { "" },
                 if asleep { " ASLEEP" } else { "" },
                 locking.as_deref().unwrap_or(""),
-                closing.as_deref().unwrap_or("")
+                closing.as_deref().unwrap_or(""),
+                impact.as_deref().unwrap_or("")
             )
         };
         let color = if wreck {

@@ -43,6 +43,8 @@ pub struct Seen {
     /// Ejections and self-destructs shown, by (tick, suit).
     ejections: HashSet<(u32, u16)>,
     blasts: HashSet<(u32, u16)>,
+    /// Staggers shown, by (tick, suit).
+    staggers: HashSet<(u32, u16)>,
     /// Missiles already seen in flight, by (id, generation): a new one was just launched.
     missiles: HashSet<(u16, u8)>,
     /// Each suit's form last frame, by slot (a change of form flashes).
@@ -226,6 +228,8 @@ pub fn sync_view(
             ground: view.ground.and_then(|g| SuitGround::of(&g, &bodies)),
             weathering: bc_client_core::weathering(world, own.slot),
             doomed: own.alive && own.doom > 0,
+            // As flown: the prediction runs the stagger down tick by tick.
+            staggered: own.alive && core.predict.stagger > 0,
         });
     }
     for (slot, track) in world.entities.iter().enumerate() {
@@ -256,6 +260,7 @@ pub fn sync_view(
             ground: p.ground.and_then(|g| SuitGround::of(&g, &bodies)),
             weathering: bc_client_core::weathering(world, slot as u16),
             doomed: state.flags & ent_flags::WRECK == 0 && world.doomed.contains_key(&(slot as u16)),
+            staggered: state.flags & ent_flags::WRECK == 0 && world.is_staggered(slot as u16, t_render),
         });
     }
     seen.thrust.retain(|slot, _| world.entities.get(*slot as usize).is_some_and(Option::is_some));
@@ -443,6 +448,22 @@ pub fn sync_view(
         }
     }
     seen.blasts.retain(|&(tick, suit)| world.blasts.iter().any(|b| b.0 == tick && b.1 == suit));
+    // Staggers, as they're heard of (not one long over).
+    let lasts = f64::from(bc_sim::content::stagger::STAGGER_TICKS);
+    for (&suit, &tick) in &world.staggered {
+        if t_render - f64::from(tick) < lasts && seen.staggers.insert((tick, suit)) {
+            let own = Some(suit) == own_slot;
+            let at = if own {
+                core.own_view().map(|v| (v.pos, v.flight_vel))
+            } else {
+                world.pose(suit, t_render).map(|p| (p.pos, p.vel))
+            };
+            if let Some((pos, vel)) = at {
+                events.0.push(FxEvent::Stagger { pos, vel, own });
+            }
+        }
+    }
+    seen.staggers.retain(|&(tick, suit)| world.staggered.get(&suit) == Some(&tick));
 
     // --- One-shot effects. ---
     for h in &world.hits {

@@ -71,7 +71,7 @@ impl Sim {
             return;
         }
         let pressed = s.input[i].pressed(SPECIAL) && s.prev_buttons[i] & SPECIAL == 0;
-        if pressed && sp.cooldown == 0 && !s.overheated[i] {
+        if pressed && sp.cooldown == 0 && !s.overheated[i] && s.stagger[i] == 0 {
             sp.active = true;
             sp.timer = ticks;
             sp.cooldown = cooldown;

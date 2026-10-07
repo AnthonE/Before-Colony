@@ -502,6 +502,19 @@ pub fn update_fx(
                     color: Color::srgb(1.0, 0.75, 0.45),
                 });
             }
+            FxEvent::Stagger { pos, vel, .. } => {
+                // Its attitude control overwhelmed: a burst of electric yellow off the frame.
+                let at = At { pos, vel };
+                particles.impact(cap, at, Vec3::Y, Vec3::new(10.0, 9.0, 3.0), 1.3);
+                particles.impact(cap, at, -Vec3::Y, Vec3::new(10.0, 9.0, 3.0), 0.9);
+                state.flashes.push(Flash {
+                    pos,
+                    born: now,
+                    life: 0.18,
+                    lumens: 6.0e7,
+                    color: Color::srgb(1.0, 0.95, 0.55),
+                });
+            }
             FxEvent::Touchdown { pos, vel, normal, speed, rock } => {
                 if rock {
                     particles.dust(cap, At { pos, vel }, normal, speed / 8.0);

@@ -14,8 +14,9 @@
 //!    by humans/agents; beams emit spawn events.
 //! 5. Projectiles sweep against per-part capsules (rocks, landmarks and the colony stop them,
 //!    whichever comes first); sabers sweep their arcs.
-//! 6. Damage resolves in generation order; parts break; a pilot's breached suit is doomed (`doom`),
-//!    anyone else's dies; doomed suits' reactors run down.
+//! 6. Damage resolves in generation order; parts break; blows build impact, and staggers
+//!    (`stagger`); a pilot's breached suit is doomed (`doom`), anyone else's dies; doomed suits'
+//!    reactors run down; staggers run out.
 //! 7. Heat, energy, ZERO strain, respawns; staggered ZERO rollouts.
 
 use alloc::boxed::Box;
@@ -33,6 +34,7 @@ mod missile;
 mod salvage;
 mod sleep;
 mod specials;
+mod stagger;
 mod wire;
 mod zero;
 
@@ -381,6 +383,7 @@ impl Sim {
         // (Emptied after, not before: a blow struck between ticks lands with this tick's.)
         self.damage.clear();
         self.doom_step(t);
+        self.stagger_step(t);
         self.salvage_step(t);
         self.status_step(t);
         self.zero_step(t);
@@ -677,6 +680,10 @@ impl Sim {
             mods.ambac = busy_ambac(mods.ambac);
         }
         mods.lunge = s.melee[i].striking() && weapon(s.melee[i].weapon).melee.is_some_and(|m| m.lunge);
+        if s.stagger[i] > 0 {
+            mods.staggered = true;
+            mods.thrust *= crate::content::stagger::STAGGER_THRUST;
+        }
         mods
     }
 

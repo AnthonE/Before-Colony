@@ -47,6 +47,8 @@ pub struct SuitDrive {
     pub weathering: u8,
     /// Doomed: its torso breached and its reactor going (`Event::Doomed`), it burns.
     pub doomed: bool,
+    /// Staggered (`bc_sim::sim::stagger`): its attitude jets fire every which way, and it sparks.
+    pub staggered: bool,
 }
 
 /// How a suit on a body is drawn on it: what its walk, its stance and its shadow need.
@@ -179,6 +181,8 @@ pub enum FxEvent {
     Eject { pos: Vec3, vel: Vec3, own: bool },
     /// A doomed suit's reactor blown by its pilot: the self-destruct's blast.
     Blast { pos: Vec3 },
+    /// A suit staggered, the moment it's heard of (`own`: the pilot's).
+    Stagger { pos: Vec3, vel: Vec3, own: bool },
 }
 
 #[derive(Resource, Default)]

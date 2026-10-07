@@ -1,8 +1,15 @@
-# Before Colony wire protocol (v23)
+# Before Colony wire protocol (v24)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v24 (from v23): stagger (`docs/DESIGN.md`, "Stagger"): the events' second extension (the
+extension's sub-kind 7 is now a 4-bit sub-kind of its own), whose sub-kind 0 is `Staggered`; in
+the own state, after the doom, the suit's impact (3 bits, in sixths of what it stands), the
+stagger's ticks left (5) and the designated target's impact (3 bits, 7 while it's staggered); and
+the doom in steps of 3 ticks (5 bits) rather than ticks (7). The own state grows by 9 bits, and a
+datagram still carries 37 free suits or 40 riders.
 
 v23 (from v22): doom and ejecting (`docs/DESIGN.md`, "Doom and ejecting"): the extension's
 sub-kinds 4 (`Doomed`), 5 (`Eject`) and 6 (`Blast`); the doom's ticks in the own state (7 bits,
@@ -101,7 +108,7 @@ exactly `tick − 8`, so the 8-bit field's saturation at 15.9 ticks loses nothin
 | Section | Content |
 |---|---|
 | header (116 bits) | kind=2, tick, ack_input_tick, input_health (i8), time_echo_ms, echo_hold_ms, tidi_pct, flags |
-| own (1 + 804..824 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, systems (24), modules (20), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, the rack (8: 2 bits a consumable), a stim's clock (12, ticks), extra mass (kg, i18), cargo ×4 (kg, 14 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special cooldown (8, ticks ÷ 4), arms (46, below), burst step (17, below), footing (2), cover (2), doom (7, ticks until a doomed suit's reactor goes; 0: not doomed, v23), and on a body its body (6 or 12) and stance (8) (below) |
+| own (1 + 813..833 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, systems (24), modules (20), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, the rack (8: 2 bits a consumable), a stim's clock (12, ticks), extra mass (kg, i18), cargo ×4 (kg, 14 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special cooldown (8, ticks ÷ 4), arms (46, below), burst step (17, below), footing (2), cover (2), doom (5, steps of 3 ticks until a doomed suit's reactor goes, rounded up; 0: not doomed, v23; in steps since v24), impact (3, sixths of what the suit stands, v24), stagger (5, ticks left; 0: steady, v24), the designated target's impact (3, sixths; 7: staggered, v24), and on a body its body (6 or 12) and stance (8) (below) |
 | ZERO (1 + ≤200 bits) | source_jev, advice_age, threat_count, per threat {slot, 7 × p}, rec_target + p, rec_maneuver + p, threat_level + confidence, flanked, has_solution, solution (oct 2×12), hit_p |
 | events | repeated `[1][event]`, closed by `[0]` |
 | rocks | repeated `[1][rock]` (18 bits each), closed by `[0]` |
@@ -262,7 +269,7 @@ Events carry a 3-bit kind and an 8-bit age (ticks before the snapshot):
 | 4 | Clash | id, a, b |
 | 5 | Seizure | id, pilot, active |
 | 6 | Detach | id, from_hulk, source (suit slot, or hulk chunk), part, chunk (the limb) |
-| 7 | extension | 3-bit sub-kind: 0 = RockBreak {id, rock, by}; 1 = MissileBurst {id, missile id, position, cause (2 bits: hit, proximity, expired, blocked)}; 2 = SystemHit {id, target (entity slot), system (4), level (2)}: a blow reached a system inside a suit; 3 = TargetHit {id, target (4 bits: one of the Blast Hall's), shooter (entity slot)}: a training round scored (v21); 4 = Doomed {id, suit}: its torso breached, its reactor going (v23); 5 = Eject {id, suit, position, velocity (3 × 14 bits over ±2 048 m/s)}: its pilot's capsule thrown clear (v23); 6 = Blast {id, suit, position}: a doomed suit blown up by its pilot, the damage arriving as Hits by weapon 20, the reactor (v23); 7 reserved |
+| 7 | extension | 3-bit sub-kind: 0 = RockBreak {id, rock, by}; 1 = MissileBurst {id, missile id, position, cause (2 bits: hit, proximity, expired, blocked)}; 2 = SystemHit {id, target (entity slot), system (4), level (2)}: a blow reached a system inside a suit; 3 = TargetHit {id, target (4 bits: one of the Blast Hall's), shooter (entity slot)}: a training round scored (v21); 4 = Doomed {id, suit}: its torso breached, its reactor going (v23); 5 = Eject {id, suit, position, velocity (3 × 14 bits over ±2 048 m/s)}: its pilot's capsule thrown clear (v23); 6 = Blast {id, suit, position}: a doomed suit blown up by its pilot, the damage arriving as Hits by weapon 20, the reactor (v23); 7 = the second extension (v24), a 4-bit sub-kind: 0 = Staggered {id, suit}: its attitude control overwhelmed, for `STAGGER_TICKS` (30) from the event's tick; 1–15 reserved |
 
 Events repeat in every snapshot until the client acks one that carried them. `id` (the low 16 bits
 of the event sequence) lets clients de-duplicate the repeats.

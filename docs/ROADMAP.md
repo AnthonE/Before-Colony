@@ -15,6 +15,7 @@ the bay, space, home).
 | P1: the Proving Ground: its course, the Blast Hall, its live fire, trainers boarded there, the drill and the board (`TRAINING.md`, phases 1 to 5) | built |
 | Living in the colony, L0: seats, the body and its meals (`LIFE.md`) | built (a framework: nothing on the wire yet) |
 | The mech games, 15: doom, ejecting and the self-destruct | built |
+| The mech games, 16: stagger | built |
 | P1's rest, P2, the mech games' rest below | planned |
 
 ## P0: before more players arrive
@@ -172,3 +173,25 @@ Battalion, Mecha BREAK and Daemon X Machina teach, in its list's order (15 to 22
   the hangar's `the_tugs_bring_an_ejected_pilots_wreck_home`, the proto round trips. Every
   determinism golden is unchanged.
 
+**16. Stagger.** *Built* (protocol v24; `DESIGN.md`, "Stagger").
+- `bc_sim::content::stagger`: each frame's stability, each weapon's impact, the stagger's second
+  and its cut in thrust, the direct hit's half again, and how a suit steadies.
+- `bc_sim::sim::stagger`: `damage_step` adds each blow's impact (`Sim::impact`); past the frame's
+  stability the suit is staggered (`Event::Staggered`), with a spin knocked into it if it's free.
+  `stagger_step` runs it down and drains the impact of suits left alone. `FlightMods::staggered`
+  takes the attitude control (`flight::integrate`) and the legs (`ground`), and the weapons,
+  blades and Full Open wait it out.
+- The owner's prediction flies it from the own state's ticks (`Predictor::stagger`), with the
+  arms clock held as through a change of form.
+- `bc_proto`: the events' second extension, and the own state's impact, stagger and the
+  designated target's impact (the doom now in steps of 3 ticks, so 37 free suits still fit a
+  datagram).
+- The client: the flight panel's `ATT` gauge, the `STAGGERED` banner, the target's gauge on its
+  bracket, the attitude jets firing wild and the sparks (`damage`), the burst, clang and shake.
+  `bc-bot`: `staggered` and `impact`.
+- Tests: `bc-sim/tests/stagger.rs` (impact building to a stagger, a tumble with no shots and a
+  quarter of the thrust, direct hits, draining, Dolls, a suit on its feet stumbling to a stop),
+  `bc-client-core/tests/stagger_predict.rs` (a Leo under both flight rules and a Heavyarms pressing
+  for its Full Open, staggered again and again, predicted exactly), `no_alloc`, the proto round
+  trips and budgets. Five determinism goldens are re-recorded, native and wasm alike: their fights
+  now stagger (the surface scenario's Heavyarms, staggered by the Dolls, fires once it's steady).

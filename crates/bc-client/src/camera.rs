@@ -219,6 +219,7 @@ pub fn follow(
             FxEvent::Touchdown { pos, speed, .. } => 0.3 * (speed / 8.0).min(1.0) * near(pos, 20.0, 200.0),
             FxEvent::Blast { pos } => 1.0 * near(pos, 150.0, 2_500.0),
             FxEvent::Eject { own: true, .. } => 0.7,
+            FxEvent::Stagger { own: true, .. } => 0.6,
             _ => 0.0,
         };
     }

@@ -449,3 +449,34 @@ fn doomed_suits_ejecting_and_blowing_up_never_allocate() {
     assert!(ejected > 0 && blown > 0, "ejected {ejected}, blown {blown}");
     assert_eq!(total, 0, "heap operations inside the tick: {total}");
 }
+
+#[test]
+fn staggered_suits_never_allocate() {
+    // The busy sector, with suits knocked off balance now and then (`sim::stagger`): they tumble,
+    // their weapons down, and take direct hits meanwhile.
+    let (mut sim, players) = common::arena(64, 256, 23);
+    common::run(&mut sim, &players, 120);
+    let (mut total, mut staggered) = (0, 0);
+    for step in 0..600u32 {
+        let t = sim.next_tick();
+        let mut cmds = [bc_proto::InputCmd::default(); 64];
+        for (k, &id) in players.iter().enumerate() {
+            cmds[k] = common::scripted(&sim, id, t);
+        }
+        let ((), n) = bc_alloc::count(|| {
+            for (k, &id) in players.iter().enumerate() {
+                let i = id.idx();
+                if sim.is_alive(i) && (step + k as u32).is_multiple_of(61) {
+                    let push = bc_sim::content::stagger::stability(sim.suits.frame[i]) + 1.0;
+                    sim.strike(i, bc_proto::Part::ArmL, push, i, bc_proto::WeaponKind::BeamRifle);
+                }
+                staggered += usize::from(sim.staggered(i));
+                sim.set_input(id, cmds[k]);
+            }
+            sim.step();
+        });
+        total += n;
+    }
+    assert!(staggered > 0, "nobody staggered");
+    assert_eq!(total, 0, "heap operations inside the tick: {total}");
+}

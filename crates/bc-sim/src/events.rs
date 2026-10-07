@@ -28,7 +28,8 @@ fn with_id(mut e: Event, id: u16) -> Event {
         | Event::TargetHit { id: i, .. }
         | Event::Doomed { id: i, .. }
         | Event::Eject { id: i, .. }
-        | Event::Blast { id: i, .. } => *i = id,
+        | Event::Blast { id: i, .. }
+        | Event::Staggered { id: i, .. } => *i = id,
         Event::Leave { .. } => {}
     }
     e

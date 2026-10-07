@@ -52,6 +52,12 @@ pub fn state_hash(sim: &Sim) -> u64 {
         }
         let (k, g, right) = s.held[i];
         h.u32(u32::from(k) | u32::from(g) << 16 | u32::from(right) << 24);
+        // Impact and a stagger (only once there's any: a suit never struck hashes as it always
+        // has).
+        if s.impact[i] > 0.0 || s.stagger[i] > 0 {
+            h.f32(s.impact[i]);
+            h.u32(0x57A6_0000 | u32::from(s.stagger[i]));
+        }
         // Doomed, or blown apart (only then: a suit never breached hashes as it always has).
         let d = s.doom[i];
         if d.left > 0 || s.blown.get(i) {

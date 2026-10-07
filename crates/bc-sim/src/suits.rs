@@ -274,6 +274,10 @@ pub struct Suits {
     pub doom: Box<[crate::sim::Doom]>,
     /// Wrecks blown apart by their own reactors (a self-destruct): nothing is left to see.
     pub blown: BitSet,
+    /// The impact built up on each suit's attitude control, and while it's staggered the ticks
+    /// left (`sim::stagger`).
+    pub impact: Box<[f32]>,
+    pub stagger: Box<[u8]>,
     free: FreeList,
 }
 
@@ -334,6 +338,8 @@ impl Suits {
             trainer: BitSet::new(cap),
             doom: boxed(cap, crate::sim::Doom::NONE),
             blown: BitSet::new(cap),
+            impact: boxed(cap, 0.0f32),
+            stagger: boxed(cap, 0u8),
             free: FreeList::full(cap),
         }
     }
@@ -407,6 +413,8 @@ impl Suits {
         self.mounts[idx] = ALL_MOUNTS;
         self.doom[idx] = crate::sim::Doom::NONE;
         self.blown.set(idx, false);
+        self.impact[idx] = 0.0;
+        self.stagger[idx] = 0;
         self.reset_ground(idx);
     }
 

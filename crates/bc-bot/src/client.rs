@@ -328,10 +328,22 @@ impl BotClient {
     }
 
     /// Whether the agent's suit is doomed: its torso breached, its reactor going (`own.doom`
-    /// ticks left). Its pilot can still [`eject`](Self::eject) or
+    /// steps left). Its pilot can still [`eject`](Self::eject) or
     /// [`self_destruct`](Self::self_destruct).
     pub fn doomed(&self) -> bool {
         self.core.world.own.is_some_and(|o| o.alive && o.doom > 0)
+    }
+
+    /// Whether the agent's suit is staggered (`bc_sim::sim::stagger`): tumbling, its thrust cut
+    /// and its weapons down for a second; as flown, so it can wait it out.
+    pub fn staggered(&self) -> bool {
+        self.core.world.own.is_some_and(|o| o.alive) && self.core.predict.stagger > 0
+    }
+
+    /// The impact on the suit's attitude control, as a share of what it stands (1 staggered).
+    pub fn impact(&self) -> f32 {
+        let max = f32::from(bc_proto::snapshot::IMPACT_MAX);
+        self.core.world.own.map_or(0.0, |o| if o.stagger > 0 { 1.0 } else { f32::from(o.impact) / max })
     }
 
     /// Ejects from the suit (doomed or not; never inside the colony): the suit is lost, and under

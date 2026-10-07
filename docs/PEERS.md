@@ -446,7 +446,7 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
 15. **Doom and ejecting** (Titanfall, Steel Battalion, Heero): a doomed suit fights on for 3 s;
     U ejects, and the tugs bring the wreck home; held, U blows it up. *Built.*
 16. **Stagger** (Armored Core VI): impact overloads a suit's attitude control, and a staggered
-    suit tumbles and takes direct hits.
+    suit tumbles for a second, its thrust and weapons down, and takes direct hits. *Built.*
 17. **Specials charged by the fight** (Titanfall's Core): Full Open Attack charges slowly by
     itself and faster from damage dealt and taken.
 18. **A debrief** (Armored Core VI's payout; X-Wing's debrief): what a sortie earned and cost,

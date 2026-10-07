@@ -13,8 +13,10 @@ use crate::{BitReader, BitWriter, CHUNK_BITS, DecodeError, MISSILE_BITS, ROCK_BI
 const KIND_BITS: u32 = 3;
 /// Kind 7 is an extension: a sub-kind follows (0 = rock break, 1 = missile burst, 2 = a system
 /// hit, 3 = a target hit in the Blast Hall, 4 = a suit doomed, 5 = an ejection, 6 = a reactor's
-/// blast; 7 reserved).
+/// blast; 7 = a second extension).
 const EXT_BITS: u32 = 3;
+/// The second extension's sub-kind (0 = a suit staggered; the rest reserved).
+const EXT2_BITS: u32 = 4;
 const DIR_BITS: u32 = 16;
 /// Beam speeds up to 16 384 m/s in 0.25 m/s steps.
 const SPEED_BITS: u32 = 16;
@@ -98,6 +100,8 @@ pub enum Event {
     /// `suit` blew itself up at `pos`, its pilot aboard (v23): its self-destruct. What the blast did
     /// arrives as `Hit` events (the weapon `Reactor`), and nothing of the suit is left to salvage.
     Blast { id: u16, tick: u32, suit: u16, pos: Vec3 },
+    /// `suit`'s attitude control was overloaded: it's staggered (v24, `bc_sim::sim::stagger`).
+    Staggered { id: u16, tick: u32, suit: u16 },
 }
 
 impl Event {
@@ -116,7 +120,8 @@ impl Event {
             | Event::TargetHit { tick, .. }
             | Event::Doomed { tick, .. }
             | Event::Eject { tick, .. }
-            | Event::Blast { tick, .. } => tick,
+            | Event::Blast { tick, .. }
+            | Event::Staggered { tick, .. } => tick,
         }
     }
 
@@ -135,7 +140,8 @@ impl Event {
             | Event::TargetHit { id, .. }
             | Event::Doomed { id, .. }
             | Event::Eject { id, .. }
-            | Event::Blast { id, .. } => Some(id),
+            | Event::Blast { id, .. }
+            | Event::Staggered { id, .. } => Some(id),
             Event::Leave { .. } => None,
         }
     }
@@ -185,6 +191,7 @@ impl Event {
                 EXT_BITS as usize + 16 + SLOT_BITS as usize + 3 * (quant::POS_BITS + quant::VEL_BITS) as usize
             }
             Event::Blast { .. } => EXT_BITS as usize + 16 + SLOT_BITS as usize + 3 * quant::POS_BITS as usize,
+            Event::Staggered { .. } => (EXT_BITS + EXT2_BITS) as usize + 16 + SLOT_BITS as usize,
         }
     }
 
@@ -310,6 +317,14 @@ impl Event {
                 slot(w, suit);
                 quant::write_pos(w, pos);
             }
+            Event::Staggered { id, suit, .. } => {
+                w.write_bits(7, KIND_BITS);
+                w.write_u8(age as u8);
+                w.write_bits(7, EXT_BITS);
+                w.write_bits(0, EXT2_BITS);
+                w.write_u16(id);
+                slot(w, suit);
+            }
         }
     }
 
@@ -408,6 +423,13 @@ impl Event {
                     let suit = slot(r);
                     Event::Blast { id, tick, suit, pos: quant::read_pos(r) }
                 }
+                7 => match r.read_bits(EXT2_BITS) {
+                    0 => {
+                        let id = r.read_u16();
+                        Event::Staggered { id, tick, suit: slot(r) }
+                    }
+                    _ => return Err(DecodeError::Invalid),
+                },
                 _ => return Err(DecodeError::Invalid),
             },
             _ => return Err(DecodeError::Invalid),
@@ -466,6 +488,7 @@ mod tests {
                 vel: Vec3::new(0.0, 25.0, -150.0),
             },
             Event::Blast { id: 14, tick: 99, suit: 7, pos: Vec3::new(10.0, -20.0, 30.0) },
+            Event::Staggered { id: 15, tick: 99, suit: 1_000 },
         ];
         for e in all {
             let mut buf = [0u8; 64];
@@ -489,12 +512,13 @@ mod tests {
 
     #[test]
     fn unknown_extension_sub_kinds_are_invalid() {
-        for sub in 7..8u32 {
+        for sub in 1..1u32 << EXT2_BITS {
             let mut buf = [0u8; 16];
             let mut w = BitWriter::new(&mut buf);
             w.write_bits(7, KIND_BITS);
             w.write_u8(0);
-            w.write_bits(sub, EXT_BITS);
+            w.write_bits(7, EXT_BITS);
+            w.write_bits(sub, EXT2_BITS);
             assert_eq!(Event::read(&mut BitReader::new(&buf), 10), Err(DecodeError::Invalid));
         }
     }

@@ -420,6 +420,15 @@ pub fn play_sound(
             } else {
                 Request::at(Cue::MissileLaunch, v3(pos))
             }),
+            // A frame knocked off balance rings like a struck bell.
+            FxEvent::Stagger { pos, own, .. } => {
+                sound.mixer.request(if own {
+                    Request::own(Cue::Clash)
+                } else {
+                    Request::at(Cue::Clash, v3(pos))
+                });
+                heat += if own { 0.1 } else { 0.0 };
+            }
             // The pilot's own landing thuds in the cockpit (`bc_sound::cockpit`).
             FxEvent::Transform { .. } | FxEvent::Touchdown { .. } => {}
         }

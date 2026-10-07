@@ -1,7 +1,8 @@
 //! Conversions from simulation state to the wire structs in `bc-proto`.
 
 use bc_proto::snapshot::{
-    OwnArms, ZERO_THREATS as WIRE_THREATS, ZeroThreat, ent_flags, footing, own_flags, part_buckets, zero_mode,
+    OwnArms, TARGET_STAGGERED, ZERO_THREATS as WIRE_THREATS, ZeroThreat, ent_flags, footing, own_flags,
+    part_buckets, zero_mode,
 };
 use bc_proto::{EntityState, ObjectState, OwnState, OwnSurface, RiderOn, RockState, ZeroInfo};
 use glam::Vec3;
@@ -85,8 +86,8 @@ impl Sim {
         if self.special_ready(i) {
             ready |= 1 << 3;
         }
-        // Inside the colony nothing is ready to fire but in the Blast Hall.
-        if self.interior() && !crate::colony::hall::weapons_free(f.pos) {
+        // Inside the colony nothing is ready to fire but in the Blast Hall; staggered, nothing is.
+        if (self.interior() && !crate::colony::hall::weapons_free(f.pos)) || self.staggered(i) {
             ready = 0;
         }
         let charge = spec.loadout[0]
@@ -225,8 +226,24 @@ impl Sim {
             burst: f.burst,
             surface,
             cover: self.cover_code(i),
-            doom: s.doom[i].left.min(u16::from(bc_proto::snapshot::DOOM_MAX)) as u8,
+            doom: s.doom[i]
+                .left
+                .div_ceil(u16::from(bc_proto::snapshot::DOOM_STEP))
+                .min(u16::from(bc_proto::snapshot::DOOM_MAX)) as u8,
+            impact: self.impact_steps(i),
+            stagger: s.stagger[i].min(bc_proto::snapshot::STAGGER_MAX),
+            target_impact: self
+                .designation(i)
+                .filter(|&j| s.alive.get(j))
+                .map_or(0, |j| if self.staggered(j) { TARGET_STAGGERED } else { self.impact_steps(j) }),
         }
+    }
+
+    /// Suit `i`'s impact as the own state carries it: a share of what it stands, in
+    /// [`IMPACT_MAX`](bc_proto::snapshot::IMPACT_MAX)ths.
+    fn impact_steps(&self, i: usize) -> u8 {
+        let max = bc_proto::snapshot::IMPACT_MAX;
+        crate::math::floor(self.impact_share(i) * f32::from(max) + 0.5).clamp(0.0, f32::from(max)) as u8
     }
 
     /// Suit `i`'s arms for its own pilot's client, which rolls them on tick by tick

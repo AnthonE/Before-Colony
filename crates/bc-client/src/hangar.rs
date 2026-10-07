@@ -705,6 +705,7 @@ fn drive_bay(
             ground: None,
             weathering: suit.weathering.level(),
             doomed: false,
+            staggered: false,
         });
         return;
     }

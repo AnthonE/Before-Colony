@@ -315,6 +315,22 @@ pub fn damage_suits(
                     particles.explosion(cap, At { pos: chest, vel: d.vel }, 0.15);
                 }
             }
+            // Staggered (`bc_sim::sim::stagger`): its attitude jets fire every which way, trying
+            // to catch it, and its frame throws sparks.
+            if d.staggered {
+                for bone in [Bone::ShoulderL, Bone::ShoulderR, Bone::Backpack] {
+                    let at = bone_point(d, Some(anim), bone, Vec3::ZERO);
+                    let out =
+                        Vec3::new(dmg.rng.signed(), dmg.rng.signed(), dmg.rng.signed()).normalize_or(Vec3::Y);
+                    particles.jet(cap, At { pos: at, vel: d.vel }, out, 24.0, dt);
+                }
+                if dmg.rng.next_f32() < dt * 6.0 {
+                    let at = bone_point(d, Some(anim), Bone::Chest, Vec3::ZERO);
+                    let n =
+                        Vec3::new(dmg.rng.signed(), dmg.rng.signed(), dmg.rng.signed()).normalize_or(Vec3::Y);
+                    particles.impact(cap, At { pos: at, vel: d.vel }, n, Vec3::new(10.0, 9.0, 3.0), 0.4);
+                }
+            }
         }
         // A wreck burns on for a while, from its chest and backpack while they're still on it.
         if dmg.burn_until > now {

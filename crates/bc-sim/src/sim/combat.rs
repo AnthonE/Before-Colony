@@ -78,9 +78,10 @@ impl Sim {
         for i in alive.iter() {
             let spec = frame(self.suits.frame[i]);
             let cmd = self.suits.input[i];
-            // Weapons are down while the suit changes form, and inside the colony anywhere but the
-            // Blast Hall (a Full Open begun there stops firing at its doors).
+            // Weapons are down while the suit changes form or is staggered, and inside the colony
+            // anywhere but the Blast Hall (a Full Open begun there stops firing at its doors).
             if self.transforming(i)
+                || self.staggered(i)
                 || (interior && !crate::colony::hall::weapons_free(self.suits.flight[i].pos))
             {
                 continue;
@@ -477,6 +478,10 @@ impl Sim {
             let spec = frame(self.suits.frame[j]);
             let mut part = d.part;
             let mut amount = d.amount * spec.armor * self.suits.tuning[j].armor;
+            // A staggered suit can't turn a blow aside: it's a direct hit.
+            if self.suits.stagger[j] > 0 {
+                amount *= crate::content::stagger::DIRECT_HIT;
+            }
             // A beam wider than a limb engulfs the whole suit: it lands on the torso.
             if weapon(d.weapon).engulfs {
                 part = Part::Torso;
@@ -521,6 +526,8 @@ impl Sim {
             if self.suits.part_hp[j][Part::Torso as usize] > 0.0 {
                 self.critical(j, part, on_part, k, t);
             }
+            // The blow's push on its attitude control, armour or no armour (`stagger`).
+            self.impact(j, d.amount, d.weapon, d.dir, t);
             // A breached torso: a pilot's suit is doomed (`doom`), anyone else's destroyed.
             if self.suits.part_hp[j][Part::Torso as usize] <= 0.0 {
                 self.breach(j, amount, d.shooter, t);
