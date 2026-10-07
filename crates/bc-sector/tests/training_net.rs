@@ -72,6 +72,7 @@ fn a_trainer_boarded_at_the_gantry_clears_the_drill_and_docks_back() {
             frame: FrameId::Leo,
             faction: Faction::Colonies,
             max_datagram: MAX_DATAGRAM as u16,
+            loadout: Loadout::full(FrameId::Leo),
         })
         .unwrap();
     sector.tick();
@@ -142,10 +143,41 @@ fn a_trainer_boarded_at_the_gantry_clears_the_drill_and_docks_back() {
         frame: FrameId::Leo,
         faction: Faction::Colonies,
         max_datagram: MAX_DATAGRAM as u16,
+        loadout: Loadout::full(FrameId::Leo),
     };
     shared.control.push(board).unwrap();
     space.tick();
     assert_eq!(shared.slots[lease.slot as usize].state(), SlotState::Refused);
+}
+
+/// The test range (`bc_econ::proving::Trainer`): the gantry readies any build the pilot asks for,
+/// carrying what its loadout says.
+#[test]
+fn any_build_boards_at_the_gantry() {
+    let (mut sector, shared, lease) = inside();
+    let s = lease.slot;
+    // A Heavyarms without its missile pods' rounds and with its right arm gone, as asked.
+    let mut loadout = Loadout::full(FrameId::Heavyarms);
+    loadout.ammo[1] = 7;
+    loadout.parts[bc_proto::Part::ArmR as usize] = 0.0;
+    let board = Control::Board {
+        slot: s,
+        pilot: PilotKind::Human,
+        frame: FrameId::Heavyarms,
+        faction: Faction::Colonies,
+        max_datagram: MAX_DATAGRAM as u16,
+        loadout,
+    };
+    shared.control.push(board).unwrap();
+    sector.tick();
+    assert_eq!(shared.slots[s as usize].state(), SlotState::Active);
+    let (idx, _) = shared.slots[s as usize].suit_id().expect("a trainer");
+    let i = usize::from(idx);
+    assert!(sector.sim.suits.trainer.get(i));
+    assert_eq!(sector.sim.suits.frame[i], FrameId::Heavyarms);
+    assert_eq!(sector.sim.suits.weapons[i][1].ammo, 7);
+    assert_eq!(sector.sim.suits.part_hp[i][bc_proto::Part::ArmR as usize], 0.0);
+    assert!(hall::in_gantry(sector.sim.suits.flight[i].pos, Vec3::ZERO), "on the gantry");
 }
 
 /// The command flying a suit on flight assist toward `to` at up to `top` m/s, easing in over the

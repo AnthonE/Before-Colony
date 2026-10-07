@@ -493,6 +493,17 @@ impl BotClient {
     /// Board's trainers there. Returns once the pilot is flying it (welcomed to the colony's
     /// inside), standing on the gantry.
     pub async fn board_trainer(&mut self) -> anyhow::Result<()> {
+        self.board_trainer_as(None).await
+    }
+
+    /// [`BotClient::board_trainer`], asking the gantry first for `build` (the test range: the
+    /// Board's Leo, the build in the bay, or a new suit of any line).
+    pub async fn board_trainer_as(&mut self, build: Option<bc_econ::proving::Trainer>) -> anyhow::Result<()> {
+        if let Some(build) = build {
+            let notes = self.core.hangar.notes.len();
+            self.request(&Request::Trainer { build }).await?;
+            self.wait_until(5.0, "the gantry's answer", |c| c.hangar.notes.len() > notes).await?;
+        }
         self.request(&Request::BoardTrainer).await?;
         self.wait_until(10.0, "a trainer", |c| {
             c.hangar.place == Some(Place::Space)

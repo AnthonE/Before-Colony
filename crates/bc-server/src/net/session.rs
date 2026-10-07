@@ -41,6 +41,7 @@ use super::game::{
 };
 use crate::pilots::{self, Fate, ParkedSuit, PilotRecord, Sleeper};
 use crate::radio::Mouth;
+use bc_econ::proving::Trainer;
 
 /// Who the Hello said the pilot is.
 pub(super) struct Who {
@@ -119,6 +120,7 @@ pub(super) async fn run(
         proving_sent: Instant::now() - MARKET_EVERY,
         bests: Bests::default(),
         trainer: false,
+        trainer_build: Trainer::Board,
         news_seen: game.charter.with(|b| b.news_seq()),
         radio_heard: 0,
         mouth: Mouth::default(),
@@ -180,6 +182,8 @@ struct Session<'a> {
     bests: Bests,
     /// Flying one of the Charter Board's trainers, boarded at the Blast Hall's gantry.
     trainer: bool,
+    /// What the Blast Hall's gantry readies for the pilot (the test range, `proving::Trainer`).
+    trainer_build: Trainer,
     /// The newest of the board's notices the pilot has heard.
     news_seen: u64,
     /// The last line of the colony's radio passed on, and how fast the pilot may talk on it.
@@ -651,6 +655,7 @@ impl Session<'_> {
         self.proving_sent = Instant::now();
         let mut view = self.game.proving.with(|b| b.view(&self.trader, pilots::unix_now()));
         view.mine = self.bests;
+        view.trainer = self.trainer_build;
         self.send(&Update::Proving(view)).await
     }
 
@@ -874,6 +879,17 @@ impl Session<'_> {
             Request::Launch => self.launch().await,
             Request::LaunchInside => self.launch_inside().await,
             Request::BoardTrainer => self.board_trainer().await,
+            Request::Trainer { build } => {
+                // Ready only what can be: the bay's build while it stands there, a line the
+                // colony builds.
+                if let Err(why) = build.loadout(&self.hangar) {
+                    return self.note(why, false).await;
+                }
+                self.trainer_build = build;
+                let text = format!("THE GANTRY READIES {}", build.name(&self.hangar));
+                self.note(text, true).await?;
+                if self.in_the_colony() { self.send_proving().await } else { Ok(()) }
+            }
             Request::Dock => self.dock().await,
             Request::EnterCity { strip } => self.enter_city(strip).await,
             Request::LeaveCity => self.leave_city().await,
@@ -1161,6 +1177,11 @@ impl Session<'_> {
         if self.place != Place::City || self.suit.is_some() || !at_hatch {
             return self.note("the trainers are boarded at the blast hall's gantry, on foot", false).await;
         }
+        // What the pilot asked the gantry for (the test range); the bay's build as it stands now.
+        let (frame, loadout) = match self.trainer_build.loadout(&self.hangar) {
+            Ok(it) => it,
+            Err(why) => return self.note(why, false).await,
+        };
         let Some(lease) = inside.sector.leases.pop() else {
             return self.note("the gantry is busy: the colony's inside is full", false).await;
         };
@@ -1170,9 +1191,10 @@ impl Session<'_> {
         let mut board = Control::Board {
             slot,
             pilot: self.pilot,
-            frame: FrameId::Leo,
+            frame,
             faction: self.faction,
             max_datagram: self.max_datagram,
+            loadout,
         };
         while let Err(back) = inside.sector.control.push(board) {
             board = back;

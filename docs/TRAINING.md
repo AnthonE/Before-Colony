@@ -17,6 +17,7 @@ drill (X-Wing's Maze, in the hall).
 | 4: the board. Times checked by the server, the day's best on the hall's back wall and at its desk, a pilot's bests on their record | built |
 | 5: live fire in the hall: the colony's law's one exception, the owner's call. Training rounds that touch no suit and score on its targets | built |
 | The drill: the hall's targets lit one at a time against a clock, X-Wing's Maze | built |
+| The test range: any build boarded at the gantry (the Board's Leo, the bay's build, any line's), Armored Core VI's test mode | built |
 | 6: more courses (the hall's own among them), and a level ladder | planned |
 
 ## What we take from X-Wing and TIE Fighter
@@ -210,9 +211,9 @@ on foot boards, is 14 m from the pad's middle toward the hall's (`hatch`).
 - On foot at the hatch, facing the pad, the prompt says `E  BOARD A TRAINER`. E asks
   `Request::BoardTrainer` (`board_trainer`). The screen goes dark as it does boarding in the bay.
 - The server checks the pilot stands at the hatch: the plaza's last pose of them, within 12 m.
-- It takes a slot in the inside's sector and seats them with `Control::Board`: a Leo with
-  everything fitted and loaded (`Loadout::full`), put on the gantry by `Sim::launch_at` with
-  `LaunchAt::Gantry`. It stands on the pad facing the targets, gripping until its pilot is first
+- It takes a slot in the inside's sector and seats them with `Control::Board`: the suit the pilot
+  picked at the desk (the test range, below; by default a Leo with everything fitted and loaded,
+  `Loadout::full`), put on the gantry by `Sim::launch_at` with `LaunchAt::Gantry`. It stands on the pad facing the targets, gripping until its pilot is first
   heard from.
 - Nothing of the pilot's hangar goes with it: their own suit stays in their bay.
 - They're off the street: out of the plaza, no longer watching the inside from it. They're
@@ -243,6 +244,20 @@ on foot boards, is 14 m from the pad's middle toward the hall's (`hatch`).
 - `bc-server/tests/proving.rs`: over real WebTransport, walking in from Hub Gate; and a pilot gone
   while flying one wakes in their bay, their own suit there.
 - The `inside` e2e: boards at the hatch, fires the drill, and docks back.
+
+**The test range** (`bc_econ::proving::Trainer`; Armored Core VI's test mode, `PEERS.md`):
+- At the desk, under the board, `THE TEST RANGE` lists what the gantry can ready: the Board's Leo,
+  `YOUR BAY'S BUILD`, and a new suit of each line the colony builds. Picking one sends
+  `Request::Trainer { build }`; the session keeps it and says so (`THE GANTRY READIES A NEW
+  HEAVYARMS`), and the board's view carries it back (`trainer`), so the page shows which.
+- The bay's build is the suit standing in the pilot's bay as built (its parts, weapons and
+  equipment) but new and full: no wear, no faults, a full tank and full loads, nothing in its
+  rack. Out on a sortie, or with an empty bay, there's nothing to try.
+- Boarding takes the pick's frame and loadout to `Control::Board`. It flies, fights the drill and
+  docks back as any trainer does; nothing of the pilot's is taken, and nothing comes home.
+- Tests: the trainers' units (`proving`), `bc-sector/tests/training_net.rs` (any build boards at the
+  gantry with what its loadout says), `bc-server/tests/proving.rs` (a Heavyarms boarded at the
+  hatch).
 
 **Not built** of the plan: the course's start moved to the blast doors, a second course for the
 hall (phase 6). Today a trainer flies up to the inner gate's start ring; the course comes home to

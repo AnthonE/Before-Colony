@@ -454,6 +454,7 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
 19. **The enemy's gun** (Daemon X Machina): a weapon on a limb in hand fires from that hand.
     *Built.*
 20. **A test range** (Armored Core VI): the Blast Hall's trainers fly any buildable suit.
+    *Built.*
 21. **Aces, pay or salvage** (Armored Core VI's Arena, MechWarrior 5's contracts): named Doll
     aces with bounties, taken as pay or as rights to the wreck.
 22. **Staying up** (Titanfall's DDoS years): a review of the server's limits under abuse, and

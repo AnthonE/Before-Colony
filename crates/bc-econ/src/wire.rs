@@ -86,6 +86,12 @@ pub enum Request {
     /// trainers and fly it from there (the inside's sector, weapons free in the hall). Nothing of
     /// the pilot's own is taken; `dock`, at rest on the gantry, puts them back on foot there.
     BoardTrainer,
+    /// At the Blast Hall's desk: what the gantry readies for the pilot to board (`proving::Trainer`:
+    /// the Board's Leo, the build in their bay, or a new suit of any line). Answered with a note
+    /// and the board.
+    Trainer {
+        build: crate::proving::Trainer,
+    },
     /// The Charter Board: post a supply contract (its reward goes into escrow), take one down,
     /// deliver to one from the stores, take or give up a patrol.
     Post {
@@ -373,6 +379,7 @@ pub fn apply(
         | Request::Launch
         | Request::LaunchInside
         | Request::BoardTrainer
+        | Request::Trainer { .. }
         | Request::Dock
         | Request::EnterCity { .. }
         | Request::LeaveCity
@@ -512,6 +519,10 @@ mod tests {
             (r#"{"t":"launch"}"#, Request::Launch),
             (r#"{"t":"launch_inside"}"#, Request::LaunchInside),
             (r#"{"t":"board_trainer"}"#, Request::BoardTrainer),
+            (
+                r#"{"t":"trainer","build":{"kind":"bay"}}"#,
+                Request::Trainer { build: crate::proving::Trainer::Bay },
+            ),
             (r#"{"t":"dock"}"#, Request::Dock),
             (r#"{"t":"use_kit","kit":"chaff"}"#, Request::UseKit { kit: Kit::Chaff }),
             (r#"{"t":"eject"}"#, Request::Eject { destruct: false }),

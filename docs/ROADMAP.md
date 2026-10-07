@@ -19,6 +19,7 @@ the bay, space, home).
 | The mech games, 17: specials charged by the fight | built |
 | The mech games, 18: the debrief | built |
 | The mech games, 19: the enemy's gun | built |
+| The mech games, 20: a test range | built |
 | The mech games, 22: staying up under abuse | built |
 | P1's rest, P2, the mech games' rest below | planned |
 
@@ -243,6 +244,13 @@ fight").
   (seeded at every snapshot, the prediction keeps time with the server's arms and pose; told
   nothing of the gun, it doesn't). The reference golden is re-recorded: its scripted pilots grab
   arms and fire them.
+
+**20. A test range.** *Built* (`TRAINING.md`, "Phase 3"; `DESIGN.md`).
+- `bc_econ::proving::Trainer` (the Board's Leo, the bay's build new and full, a new suit of any
+  line) and `Request::Trainer`; the session keeps the pick, the board's view carries it, and
+  boarding sends its frame and loadout in `Control::Board`.
+- The page: `THE TEST RANGE` at the Blast Hall's desk. `bc-bot`: `board_trainer_as`.
+- Tests: `proving`'s units, `training_net.rs`, and `bc-server/tests/proving.rs` (a Heavyarms).
 
 **22. Staying up.** *Built* (`ARCHITECTURE.md`, "Under abuse").
 - The review found inputs, poses and the radio limited, sign-ins waiting on a wallet capped, and

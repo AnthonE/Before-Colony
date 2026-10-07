@@ -45,15 +45,16 @@ pub enum Control {
         comeback: Comeback,
         launch: Option<Loadout>,
     },
-    /// Inside the colony: seats a pilot in one of the Charter Board's trainers, a new `frame` with
-    /// everything fitted, standing on the Blast Hall's gantry (`bc_sim::sim::LaunchAt::Gantry`).
-    /// It docks back there.
+    /// Inside the colony: seats a pilot in one of the Charter Board's trainers, a `frame` carrying
+    /// `loadout` (the test range: any build, `bc_econ::proving::Trainer`), standing on the Blast
+    /// Hall's gantry (`bc_sim::sim::LaunchAt::Gantry`). It docks back there.
     Board {
         slot: u16,
         pilot: PilotKind,
         frame: FrameId,
         faction: Faction,
         max_datagram: u16,
+        loadout: Loadout,
     },
     /// Takes the pilot's suit into the hangar, if it's at rest in the dock (survival rules): a
     /// trainer, at rest on its gantry.

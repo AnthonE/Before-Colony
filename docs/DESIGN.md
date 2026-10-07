@@ -1025,7 +1025,11 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
 
 - **The Blast Hall's trainers and drill** (`TRAINING.md`): at the gantry's hatch, on foot, E
   boards one of the Charter Board's Leos, standing on the gantry (the pilot's own suit stays in
-  their bay); at rest on the gantry, Enter climbs out there. In the hall the drill lights its
+  their bay); at rest on the gantry, Enter climbs out there.
+- **The test range** (Armored Core VI's test mode; `bc_econ::proving::Trainer`): at the hall's
+  desk the pilot picks what the gantry readies: the Board's Leo, the build standing in their bay
+  (new and full, none of its wear), or a new suit of any line the colony builds, to try before
+  building it. Nothing of theirs is taken, and nothing comes home. In the hall the drill lights its
   targets one at a time, X-Wing's Maze: the clock starts on the first with 12 s on it, and each
   one struck puts 3 s back. Twenty struck clears it, against a par of 25 s, for the board.
 

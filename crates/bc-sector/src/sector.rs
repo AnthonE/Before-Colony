@@ -9,7 +9,7 @@ use bc_sim::colony::course::{self, Event as CourseEvent};
 use bc_sim::colony::hall::DrillEvent;
 use bc_sim::ground::Footing;
 use bc_sim::handle::Handle;
-use bc_sim::sim::{Ejected, LaunchAt, Loadout};
+use bc_sim::sim::{Ejected, LaunchAt};
 use bc_sim::zero::TacticalPicture;
 use bc_sim::{Sim, SimConfig, SuitId};
 
@@ -171,7 +171,7 @@ impl Sector {
                         None => self.shared.slots[s].publish(SlotState::Refused, None, Outcome::Fresh),
                     }
                 }
-                Control::Board { slot, pilot, frame, faction, max_datagram } => {
+                Control::Board { slot, pilot, frame, faction, max_datagram, loadout } => {
                     let s = slot as usize;
                     if s >= self.clients.len() {
                         continue;
@@ -179,11 +179,10 @@ impl Sector {
                     if self.clients[s].active {
                         self.sim.leave(self.clients[s].suit);
                     }
-                    // One of the Charter Board's trainers, everything fitted, on the Blast Hall's
-                    // gantry (none outside the colony).
+                    // One of the Charter Board's trainers, as the pilot asked for it, on the Blast
+                    // Hall's gantry (none outside the colony).
                     self.sim.ensure_free_suits(1);
-                    let trainer = Loadout::full(frame);
-                    match self.sim.launch_at(frame, faction, pilot, &trainer, LaunchAt::Gantry) {
+                    match self.sim.launch_at(frame, faction, pilot, &loadout, LaunchAt::Gantry) {
                         Some(id) => self.seat(s, id, pilot, max_datagram, Outcome::Fresh),
                         None => self.shared.slots[s].publish(SlotState::Refused, None, Outcome::Fresh),
                     }

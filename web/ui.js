@@ -1025,8 +1025,18 @@
       p.course, p.course_record, p.course_par_ms, p.mine?.course_ms, "not yet flown.");
     const drill = boardColumn("THE DRILL", "In the Blast Hall: twenty targets lit in turn against the clock, each struck putting time back on it.",
       p.drill, p.drill_record, p.drill_par_ms, p.mine?.drill_ms, "not yet cleared.");
-    const how = `<div class="note">Board a trainer at the gantry's hatch, by the blast doors (E): the Charter Board's Leo, weapons free in the hall. Dock it back at rest on the gantry. From your bay, Q at the cockpit brings your own suit in by the inner gate.</div>`;
-    return `<div class="split even"><div>${course}</div><div>${drill}</div></div>${how}`;
+    // The test range: what the gantry readies (the Board's Leo, the bay's build, any line's).
+    const chosen = p.trainer || { kind: "board" };
+    const pick = (build, label) => {
+      const on = JSON.stringify(build) === JSON.stringify(chosen);
+      return `<button class="${on ? "primary" : ""}" data-act="trainer" data-build='${esc(JSON.stringify(build))}'>${esc(label)}</button>`;
+    };
+    const trainers = [pick({ kind: "board" }, "THE BOARD'S LEO"), pick({ kind: "bay" }, "YOUR BAY'S BUILD")]
+      .concat(frames.map((f) => pick({ kind: "line", line: f.slug }, `A NEW ${String(f.name).toUpperCase()}`)))
+      .join(" ");
+    const range = `<h3>THE TEST RANGE</h3><div class="note">Try a build before it counts: the gantry readies what you pick, new and full, and nothing of yours is taken.</div><div class="row">${trainers}</div>`;
+    const how = `<div class="note">Board it at the gantry's hatch, by the blast doors (E), weapons free in the hall. Dock it back at rest on the gantry. From your bay, Q at the cockpit brings your own suit in by the inner gate.</div>`;
+    return `<div class="split even"><div>${course}</div><div>${drill}</div></div>${range}${how}`;
   }
 
   // Replacing a focused field blurs it, and a blur can fire events that would render again from
@@ -1176,6 +1186,9 @@
         return;
       case "take-patrol":
         ask({ t: "take_patrol", id: Number(d.id) });
+        return;
+      case "trainer":
+        ask({ t: "trainer", build: JSON.parse(d.build) });
         return;
       case "drop-patrol":
         ask({ t: "drop_patrol", id: Number(d.id) });
