@@ -317,8 +317,11 @@ pub fn move_step(b: &Bodies, m: &mut Mover, cmd: &InputCmd, cx: &MoveCtx, dt: f3
                     mods.roll_level = Some(l.up);
                 }
                 out.flight = flight::step_in(b.field, &mut m.flight, cmd, cx.spec, &mods, dt);
-                // The landmarks are as solid as the rocks (nothing to do far from them).
+                // The landmarks are as solid as the rocks (nothing to do far from them), and as
+                // hard to hit.
+                let v = m.flight.vel;
                 b.collide_landmarks(prev, &mut m.flight, None);
+                flight::crash(&mut m.flight, v, &mods);
             }
         }
         Footing::Grounded | Footing::Aloft => {
@@ -330,10 +333,20 @@ pub fn move_step(b: &Bodies, m: &mut Mover, cmd: &InputCmd, cx: &MoveCtx, dt: f3
             let aim_l = pose.rot.conjugate() * normalize_or(cmd.aim, m.flight.rot * Vec3::Z);
             let release = if m.footing == Footing::Grounded {
                 let blackout = m.flight.blackout;
-                let acc_l = grounded(&shape, &mut m.anchor, &mut m.footing, cmd, cx, blackout, aim_l, dt);
-                // The legs' push is felt as thrust is (contact itself is harmless).
+                let (acc_l, n) =
+                    grounded(&shape, &mut m.anchor, &mut m.footing, cmd, cx, blackout, aim_l, dt);
+                // The legs' push is felt as thrust is, and so is the ground holding the suit up
+                // against what it would fall under there: in the city, its pilot feels its g.
+                let held = match m.footing {
+                    Footing::Grounded if is_city(&shape) => {
+                        let (up, g) = city_down(m.anchor.local);
+                        up * g
+                    }
+                    Footing::Grounded => n * GRIP_ACCEL,
+                    _ => Vec3::ZERO,
+                };
+                flight::pilot_g(&mut m.flight, m.anchor.rot.conjugate() * (acc_l + held), &cx.mods, dt);
                 let accel = pose.rot * acc_l;
-                flight::pilot_g(&mut m.flight, accel, &cx.mods, dt);
                 // Legs burn nothing, so under anime rules the boost gauge fills here too.
                 flight::refill(&mut m.flight, cx.spec, &cx.mods, dt);
                 out.flight = FlightOut { boosting: false, accel, throttle: Vec3::ZERO, g_limited: false };
@@ -443,7 +456,7 @@ fn let_go(b: &Bodies, m: &mut Mover, push: f32, out: &mut MoveOut) {
 }
 
 /// A tick on the ground, in the body's frame: the stance, the walk, walls, and the attitude.
-/// Returns the legs' acceleration (body frame).
+/// Returns the legs' acceleration and the normal of the ground it ends on (body frame).
 #[allow(clippy::too_many_arguments)]
 fn grounded(
     shape: &Shape,
@@ -454,7 +467,7 @@ fn grounded(
     blackout: bool,
     aim_l: Vec3,
     dt: f32,
-) -> Vec3 {
+) -> (Vec3, Vec3) {
     let was = a.stance;
     a.stance = step_toward(a.stance, stance_target(cmd.thrust[1], a.stance, cx.legs_ok), STANCE_STEP);
     let (mut o0, mut n0, _) = place(shape, a.local, a.stance);
@@ -540,7 +553,7 @@ fn grounded(
         LEGLESS_TURN_RATE
     };
     surface_attitude(a, aim_l, n_now, rate, dt);
-    acc_l
+    (acc_l, n_now)
 }
 
 /// Where a step on the ground ends.
@@ -893,6 +906,35 @@ mod tests {
         assert_eq!(m.footing, Footing::Aloft, "10 m past the top of a 12 m rock, the ground is gone");
         assert_eq!(m.anchor.body, Body::Rock(0), "and the grip holds on");
     }
+
+    /// Standing still on a rock, a pilot feels the ground holding them up against the grip's pull
+    /// (0.61 g, headward); walking off, the legs' push comes on top.
+    #[test]
+    fn standing_a_pilot_feels_the_ground_hold_them_up() {
+        let rock = crate::field::Rock {
+            pos: Vec3::new(0.0, 900.0, 0.0),
+            radius: 40.0,
+            axes: Vec3::splat(40.0),
+            ..crate::field::Rock::default()
+        };
+        let field = Field::from_rocks(&[rock]);
+        let bodies = Bodies::at(&field, &[], 1);
+        let mut m = standing(&field);
+        let spec = crate::content::frame(bc_proto::FrameId::Leo);
+        let cx = MoveCtx { spec, mods: FlightMods::default(), can_grip: true, legs_ok: true };
+        let stand = InputCmd { aim: Vec3::Z, buttons: GRIP, ..InputCmd::default() };
+        for _ in 0..10 {
+            move_step(&bodies, &mut m, &stand, &cx, crate::config::DT);
+        }
+        assert_eq!(m.footing, Footing::Grounded);
+        let held = GRIP_ACCEL / crate::config::G0;
+        assert!((m.flight.g_load - held).abs() < 1e-3, "{} g, want {held}", m.flight.g_load);
+        let walk = InputCmd { thrust: [0, 0, 127], ..stand };
+        move_step(&bodies, &mut m, &walk, &cx, crate::config::DT);
+        assert!(m.flight.g_load > held + 0.5, "{} g", m.flight.g_load);
+        assert_eq!(m.flight.g_strain, 0.0);
+    }
+
     #[test]
     fn a_lockon_flies_by_the_fights_axes_capped_and_sane() {
         let spec = crate::content::frame(bc_proto::FrameId::Leo);
@@ -1053,6 +1095,12 @@ mod tests {
             assert_eq!((m.footing, m.anchor.body), (Footing::Grounded, Body::City));
             assert!(fastest <= LAND_SPEED_MAX + 0.5, "came down at {fastest} m/s");
             assert!((height(&m) - STANCE).abs() < 0.02, "{}", height(&m));
+            // Standing, its pilot feels the colony's g.
+            for _ in 0..10 {
+                move_step(&b, &mut m, &armed(), &cx, DT);
+            }
+            let g = crate::colony::frame::gravity(STANCE) / crate::config::G0;
+            assert!((m.flight.g_load - g).abs() < 0.01 && g > 0.99, "{} g, want {g}", m.flight.g_load);
             // Up the avenue at a walk, on the ground all the way.
             let x0 = m.flight.pos.x;
             let walk = InputCmd { thrust: [0, 0, 127], ..armed() };

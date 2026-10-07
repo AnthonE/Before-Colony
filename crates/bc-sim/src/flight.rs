@@ -9,8 +9,12 @@
 //!   A pilot's flight assist eases onto the velocity asked for (a fifth of a second) and spares
 //!   their body: short of boost, it never pulls more G than they bear for good. A Mobile Doll's
 //!   snaps onto it at full thrust.
-//! - **Pilot G**: sustained load above tolerance builds G-strain. At 1.0 the pilot blacks out and
-//!   control authority collapses until it recovers below 0.5. Mobile Dolls have no body to protect.
+//! - **Pilot G** is judged the way it pushes the pilot ([`GEnvelope`]): pressed back into the seat
+//!   by thrust ahead they bear twice what they bear headward, and with their blood driven to the
+//!   head (thrust toward their feet) half. Past what they bear their brain is short of blood and
+//!   G-strain builds, but only as fast as its oxygen runs out ([`O2_BUFFER`]): a spike is over
+//!   before it matters. A crash jolts them ([`crash`]). At 1.0 the pilot blacks out and control
+//!   authority collapses until it recovers below 0.5. Mobile Dolls have no body to protect.
 //! - **Anime rules** ([`BoostGauge`], `crate::tuning::FlightRules`): the tank is a boost gauge. Only
 //!   boost burns it; flying, turning on RCS and a blade's lunge are free, and work on an empty
 //!   tank; and it fills back up whenever boost is let go.
@@ -26,11 +30,26 @@ use crate::content::FrameSpec;
 use crate::field::Field;
 use crate::math::{atan2, clamp_to_cone, integrate_rotation, length, normalize_or, sqrt};
 
-/// Sustained G a trained human pilot tolerates before strain builds.
+/// Sustained G a trained human pilot bears headward (the suit thrusting up: their blood driven to
+/// their feet, +Gz) before strain builds. The other ways are [`GEnvelope`]'s.
 pub const HUMAN_G_TOLERANCE: f32 = 6.0;
-/// Strain per second per G above tolerance (divided by this).
-const STRAIN_GAIN_DIV: f32 = 4.0;
+/// Past what a pilot bears, their brain gets less blood the further past: this far past (g, as
+/// [`GEnvelope::scale`] weighs it), none at all...
+pub const STARVE_G: f32 = 2.0;
+/// ...and then it runs on the oxygen it has for this long, s, before they black out: the
+/// functional buffer period, about six seconds in centrifuge studies. Strain builds at most a
+/// blackout's worth in this long.
+pub const O2_BUFFER: f32 = 6.0;
 const STRAIN_RECOVERY: f32 = 0.35;
+/// The most strain builds to: out cold, a pilot comes round once it's eased under 0.5.
+const STRAIN_MAX: f32 = 1.2;
+/// A crash stops the pilot over this much give (the suit's frame and the seat), m, so one at
+/// `v` m/s jolts them at v²/2 m/s² (about 20 g at 20 m/s, for a tenth of a second).
+pub const CRASH_STROKE: f32 = 1.0;
+/// A jolt this many times what a pilot bears for good (each way, as [`GEnvelope`] weighs it)
+/// knocks them out. One they bear for good they shrug off; one between strains them in
+/// proportion.
+pub const KNOCKOUT: f32 = 4.0;
 /// How hard the attitude controller chases the aim (1/s).
 const AIM_GAIN: f32 = 3.0;
 /// The share of its turning authority the attitude controller plans to brake with: it never turns
@@ -45,7 +64,8 @@ const FA_SETTLE: f32 = 0.005;
 pub const FA_BOOST_CRUISE: f32 = 1.8;
 /// How far under a pilot's tolerance flight assist holds them, g.
 pub const FA_G_MARGIN: f32 = 0.03;
-/// Flight assist holds a healthy pilot just under what they bear for good, g, unless they boost.
+/// Flight assist holds a healthy pilot just under what they bear for good headward, g, unless they
+/// boost (other ways, as [`GEnvelope`] weighs it).
 pub const FA_G_CAP: f32 = HUMAN_G_TOLERANCE - FA_G_MARGIN;
 /// A blade's lunge drives forward at this much of full main thrust (never boosted).
 pub const LUNGE_THRUST: f32 = 1.5;
@@ -130,6 +150,45 @@ pub fn burst_tick(b: &mut Burst, cmd: &InputCmd, can: bool) -> bool {
     }
 }
 
+/// What a pilot's body bears each way, as multiples of what it bears headward
+/// ([`FlightMods::g_tolerance`]), in the suit's own axes: the pilot sits facing its nose, their
+/// head toward its up. Blood is what limits it. Driven toward the feet (the suit thrusting up) it
+/// drains from the brain; pressed back into the seat or thrown into the straps (thrust ahead or
+/// astern) it has hardly any height to fall, so a body bears far more; driven to the head
+/// (thrusting down) it bears least.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GEnvelope {
+    /// Thrust ahead presses the pilot back into the seat (+Gx, "eyeballs in").
+    pub fwd: f32,
+    /// Thrust astern throws them forward into the straps (−Gx, "eyeballs out").
+    pub back: f32,
+    /// Thrust to either side (±Gy).
+    pub side: f32,
+    /// Thrust up drives their blood to their feet (+Gz): the classic blackout.
+    pub up: f32,
+    /// Thrust down drives it to their head (−Gz): a red-out, borne least of all.
+    pub down: f32,
+}
+
+impl GEnvelope {
+    /// A human's, after centrifuge studies (NASA's Bioastronautics Data Book): eyeballs in about
+    /// twice what's borne headward, eyeballs out half as much again, footward half.
+    pub const HUMAN: Self = Self { fwd: 2.0, back: 1.5, side: 1.0, up: 1.0, down: 0.5 };
+    /// The same every way (the flight model before the envelope).
+    pub const EVEN: Self = Self { fwd: 1.0, back: 1.0, side: 1.0, up: 1.0, down: 1.0 };
+
+    /// A load `a` (in the suit's own axes: x right, y up, z ahead) weighed each way by what the
+    /// pilot bears that way: its length is the headward load that strains them as much.
+    #[inline]
+    pub fn scale(&self, a: Vec3) -> Vec3 {
+        Vec3::new(
+            a.x / self.side,
+            a.y / if a.y >= 0.0 { self.up } else { self.down },
+            a.z / if a.z >= 0.0 { self.fwd } else { self.back },
+        )
+    }
+}
+
 /// Modifiers from damage, equipment and what the arms are doing (see `crate::tuning`, which builds
 /// them the same way on the server and in the owner's prediction).
 #[derive(Clone, Copy, Debug)]
@@ -148,8 +207,10 @@ pub struct FlightMods {
     pub boost: f32,
     /// Specific impulse, of the frame's own.
     pub isp: f32,
-    /// Sustained G the pilot bears before strain builds.
+    /// Sustained G the pilot bears headward before strain builds...
     pub g_tolerance: f32,
+    /// ...and the other ways, of that ([`GEnvelope`]).
+    pub g_envelope: GEnvelope,
     /// Propellant lost from a holed tank, kg/s.
     pub leak_kg_s: f32,
     /// Mobile Dolls: no G-strain.
@@ -191,6 +252,7 @@ impl Default for FlightMods {
             boost: 1.0,
             isp: 1.0,
             g_tolerance: HUMAN_G_TOLERANCE,
+            g_envelope: GEnvelope::HUMAN,
             leak_kg_s: 0.0,
             g_immune: false,
             lunge: false,
@@ -269,7 +331,8 @@ fn clamp_axis(f: f32, pos_max: f32, neg_max: f32) -> f32 {
     f.clamp(-neg_max, pos_max)
 }
 
-/// [`step`], then kept out of the rocks: what the server and the client's prediction both run.
+/// [`step`], then kept out of the rocks (a crash, if it hit one): what the server and the
+/// client's prediction both run.
 pub fn step_in(
     field: &Field,
     s: &mut FlightState,
@@ -280,14 +343,20 @@ pub fn step_in(
 ) -> FlightOut {
     let prev = s.pos;
     let out = step(s, cmd, spec, mods, dt);
+    let v = s.vel;
     field.collide(prev, s);
+    crash(s, v, mods);
     out
 }
 
-/// Advances one suit by `dt` under `cmd`, kept inside the sector and out of the colony hull.
+/// Advances one suit by `dt` under `cmd`, kept inside the sector and out of the colony hull. The
+/// hull is a crash; the sector's bounds are no wall to hit.
 pub fn step(s: &mut FlightState, cmd: &InputCmd, spec: &FrameSpec, mods: &FlightMods, dt: f32) -> FlightOut {
     let out = integrate(s, cmd, spec, mods, dt);
-    crate::world::constrain(s);
+    crate::world::keep_in_sector(s);
+    let v = s.vel;
+    crate::world::keep_off_hull(s);
+    crash(s, v, mods);
     out
 }
 
@@ -310,8 +379,11 @@ pub fn integrate(
     let authority = if s.blackout { 0.25 } else { 1.0 };
     // Staggered, its attitude control does nothing: it tumbles as the blow left it.
     let attitude = if mods.staggered { 0.0 } else { authority };
-    // Inside the colony: what the spin and the air do to it this tick.
-    let ext = if mods.interior { Some(crate::colony::interior::accel(s.pos, s.vel, mass)) } else { None };
+    // Inside the colony: what the spin and the air do to it this tick, and the air's part of it.
+    let ext = mods.interior.then(|| {
+        let drag = crate::colony::interior::drag(s.vel, mass);
+        (crate::colony::interior::pull(s.pos, s.vel) + drag, drag)
+    });
 
     // --- Attitude: chase the aim direction, plus commanded roll (or roll-level). ---
     let fwd = s.rot * Vec3::Z;
@@ -409,7 +481,7 @@ pub fn integrate(
         let response = if mods.g_immune || length(gap) < FA_SETTLE { dt } else { FA_RESPONSE.max(dt) };
         let mut f_req = gap * (mass / response);
         // Holding a velocity inside the colony means holding against its pull too.
-        if let Some(e) = ext {
+        if let Some((e, _)) = ext {
             f_req -= (s.rot.conjugate() * e) * mass;
         }
         Vec3::new(
@@ -442,10 +514,10 @@ pub fn integrate(
         f_local = Vec3::ZERO;
     }
     // Flight assist spares its pilot's body: short of boost (or a blade's lunge), it holds them
-    // under what they bear for good, whatever their tank and the thrusters could do.
+    // under what they bear for good each way, whatever their tank and the thrusters could do.
     let guard = assisted && !boosting && !mods.lunge && !mods.g_immune;
     let most = (mods.g_tolerance - FA_G_MARGIN) * G0 * mass;
-    let pull = length(f_local);
+    let pull = length(mods.g_envelope.scale(f_local));
     let g_limited = guard && pull > most;
     if g_limited {
         f_local *= most / pull;
@@ -469,14 +541,19 @@ pub fn integrate(
     let throttle = f_local / Vec3::new(spec.side_thrust, spec.side_thrust, axial).max(Vec3::ONE);
     let accel = (s.rot * f_local) / mass;
     s.vel += accel * dt;
-    // (Not felt as G: a free fall is weightless, whatever pulls it.)
-    if let Some(e) = ext {
+    if let Some((e, _)) = ext {
         s.vel += e * dt;
     }
     s.pos += s.vel * dt;
 
-    // --- Pilot G. ---
-    pilot_g(s, accel, mods, dt);
+    // --- Pilot G: what pushes the suit, in its own axes. ---
+    // The thrust, and inside the colony the air's drag; not the spin's pull nor Coriolis, which
+    // are a free fall's (weightless, whatever pulls it).
+    let mut felt = f_local / mass;
+    if let Some((_, drag)) = ext {
+        felt += s.rot.conjugate() * drag;
+    }
+    pilot_g(s, felt, mods, dt);
     // A step is seen as boost is (its plumes, its heat on sensors).
     FlightOut { boosting: boosting || burst.is_some(), accel, throttle, g_limited }
 }
@@ -493,27 +570,52 @@ pub fn refill(s: &mut FlightState, spec: &FrameSpec, mods: &FlightMods, dt: f32)
     }
 }
 
-/// Pilot G: the suit felt `accel` (m/s²) for `dt`. Above what a pilot bears for good, strain
-/// builds; below it, strain eases. At 1.0 they black out, until it falls under 0.5. A Mobile Doll
-/// (`g_immune`) feels nothing. A pilot bears `mods.g_tolerance` for good.
-pub fn pilot_g(s: &mut FlightState, accel: Vec3, mods: &FlightMods, dt: f32) {
-    let g = length(accel) / G0;
-    s.g_load = g;
+/// Pilot G: the suit felt `felt` (m/s², in its own axes: x right, y up, z ahead) for `dt`. Weighed
+/// by what the pilot bears that way ([`GEnvelope`]), past what they bear for good their brain is
+/// short of blood and strain builds, the faster the further past, up to a blackout's worth in
+/// [`O2_BUFFER`] once it's [`STARVE_G`] past. Under it, strain eases. At 1.0 they black out, until
+/// it falls under 0.5. A Mobile Doll (`g_immune`) feels nothing. A pilot bears `mods.g_tolerance`
+/// headward for good.
+pub fn pilot_g(s: &mut FlightState, felt: Vec3, mods: &FlightMods, dt: f32) {
+    s.g_load = length(felt) / G0;
     if mods.g_immune {
         s.g_strain = 0.0;
         s.blackout = false;
+        return;
+    }
+    let over = length(mods.g_envelope.scale(felt)) / G0 - mods.g_tolerance;
+    if over > 0.0 {
+        s.g_strain += (over / STARVE_G).min(1.0) / O2_BUFFER * dt;
     } else {
-        if g > mods.g_tolerance {
-            s.g_strain += (g - mods.g_tolerance) / STRAIN_GAIN_DIV * dt;
-        } else {
-            s.g_strain -= STRAIN_RECOVERY * dt;
-        }
-        s.g_strain = s.g_strain.clamp(0.0, 1.2);
-        if s.g_strain >= 1.0 {
-            s.blackout = true;
-        } else if s.g_strain < 0.5 {
-            s.blackout = false;
-        }
+        s.g_strain -= STRAIN_RECOVERY * dt;
+    }
+    s.g_strain = s.g_strain.clamp(0.0, STRAIN_MAX);
+    black_out_or_come_round(s);
+}
+
+/// A crash: what the suit hit took its velocity from `was` to what it is (m/s, in the frame
+/// flown), stopping the pilot over [`CRASH_STROKE`]. The jolt, weighed as G is ([`GEnvelope`]),
+/// strains them past what they bear for good, and [`KNOCKOUT`] times that knocks them out. A
+/// Mobile Doll feels nothing.
+pub fn crash(s: &mut FlightState, was: Vec3, mods: &FlightMods) {
+    if mods.g_immune || s.vel == was {
+        return;
+    }
+    let dv = s.rot.conjugate() * (s.vel - was);
+    let jolt = dv * (length(dv) / (2.0 * CRASH_STROKE));
+    let over = length(mods.g_envelope.scale(jolt)) / (G0 * mods.g_tolerance) - 1.0;
+    if over > 0.0 {
+        s.g_strain = (s.g_strain + over / (KNOCKOUT - 1.0)).min(STRAIN_MAX);
+        black_out_or_come_round(s);
+    }
+}
+
+/// At a whole blackout's strain the pilot blacks out; under half of it, they come round.
+fn black_out_or_come_round(s: &mut FlightState) {
+    if s.g_strain >= 1.0 {
+        s.blackout = true;
+    } else if s.g_strain < 0.5 {
+        s.blackout = false;
     }
 }
 
@@ -601,13 +703,15 @@ mod tests {
             fly(&mut s, 0, [0; 3], &locked);
         }
         assert!((s.vel + fwd * 36.0).length() < 1.0 && s.vel.y.abs() < 0.01, "{}", s.vel);
-        // Under the real rules the pilot feels it.
+        // Under the real rules the pilot feels it (14 g up, blood to the feet), but it's over long
+        // before their brain runs short: a twentieth of a blackout.
         let mut s = state();
         for k in 0..BURST_TICKS {
             let press = if k == 0 { BURST } else { 0 };
             fly(&mut s, press, [0, 127, 0], &FlightMods::default());
         }
-        assert!(s.g_strain > 0.3 && !s.blackout, "strain {}", s.g_strain);
+        let most = BURST_TICKS as f32 * DT / O2_BUFFER;
+        assert!((s.g_strain - most).abs() < 1e-4 && !s.blackout, "strain {}", s.g_strain);
     }
 
     #[test]
@@ -633,10 +737,140 @@ mod tests {
         assert_eq!(s.propellant, 2_400.0);
     }
 
+    /// `felt` (g, in the suit's own axes) held for `secs` from fresh: where it leaves the pilot.
+    fn held(felt: Vec3, mods: &FlightMods, secs: f32) -> FlightState {
+        let mut s = state();
+        for _ in 0..crate::config::secs(secs) {
+            pilot_g(&mut s, felt * G0, mods, DT);
+        }
+        s
+    }
+
+    /// The way G pushes decides what a pilot bears. 11 g ahead presses them back into the seat,
+    /// which they bear; 11 g up drains their brain at full tilt. Astern they bear one and a half
+    /// times their headward 6 g, and down (their blood driven to their head) half: 3.5 g down is as
+    /// far past it as 7 g up or to the side.
+    #[test]
+    fn the_way_g_pushes_decides_what_a_pilot_bears() {
+        let human = FlightMods::default();
+        let a_second = |felt: Vec3| held(felt, &human, 1.0);
+        // What a second `over` g past what they bear builds.
+        let past = |over: f32| (over / STARVE_G).min(1.0) / O2_BUFFER;
+        let near = |s: FlightState, want: f32| (s.g_strain - want).abs() < 1e-4;
+        let ahead = a_second(Vec3::Z * 11.0);
+        assert_eq!(ahead.g_strain, 0.0);
+        assert!((ahead.g_load - 11.0).abs() < 1e-4, "the load is what pushes: {}", ahead.g_load);
+        assert!(near(a_second(Vec3::Y * 11.0), past(5.0)));
+        assert!(near(a_second(-Vec3::Z * 10.0), past(10.0 / 1.5 - 6.0)));
+        assert!(near(a_second(Vec3::X * 7.0), past(1.0)));
+        assert!(near(a_second(-Vec3::Y * 3.5), past(1.0)));
+        assert_eq!(a_second(Vec3::Y * 3.5).g_strain, 0.0);
+        // Loads add as their weights say: 8 g ahead and 4 g to the side is borne, 8 g ahead and
+        // 5 g up isn't.
+        assert_eq!(a_second(Vec3::new(4.0, 0.0, 8.0)).g_strain, 0.0);
+        assert!(near(a_second(Vec3::new(0.0, 5.0, 8.0)), past(sqrt(41.0) - 6.0)));
+        // Weighed the same every way, ahead is no different.
+        let even = FlightMods { g_envelope: GEnvelope::EVEN, ..human };
+        assert!(near(held(Vec3::Z * 11.0, &even, 1.0), past(5.0)));
+    }
+
+    /// Past what they bear, a pilot's brain runs on its oxygen: far past, they black out after
+    /// [`O2_BUFFER`] however far (20 g up is no quicker than 9 g), and a g past, after twice that.
+    /// A spike is over first: 0.3 s at 20 g up is a twentieth of a blackout. Out cold, they come
+    /// round in two seconds.
+    #[test]
+    fn a_pilot_blacks_out_when_their_brain_runs_out_of_oxygen() {
+        let human = FlightMods::default();
+        let out_after = |g: f32| {
+            let mut s = state();
+            let mut n = 0u32;
+            while !s.blackout && n < 3_000 {
+                pilot_g(&mut s, Vec3::Y * g * G0, &human, DT);
+                n += 1;
+            }
+            n as f32 * DT
+        };
+        assert!((out_after(9.0) - O2_BUFFER).abs() <= DT, "{} s", out_after(9.0));
+        assert_eq!(out_after(20.0), out_after(9.0));
+        assert!((out_after(7.0) - 2.0 * O2_BUFFER).abs() <= 2.0 * DT, "{} s", out_after(7.0));
+        let spike = held(Vec3::Y * 20.0, &human, 0.3);
+        assert!((spike.g_strain - 0.05).abs() < 1e-4 && !spike.blackout, "{}", spike.g_strain);
+        let mut s = FlightState { g_strain: STRAIN_MAX, blackout: true, ..state() };
+        let mut n = 0u32;
+        while s.blackout {
+            pilot_g(&mut s, Vec3::Y * G0, &human, DT);
+            n += 1;
+        }
+        let want = (STRAIN_MAX - 0.5) / STRAIN_RECOVERY;
+        assert!((n as f32 * DT - want).abs() <= DT, "came round after {} s", n as f32 * DT);
+    }
+
+    /// A crash jolts the pilot, stopped over a metre: brushing a wall at 10 m/s is nothing, face
+    /// first at 30 m/s (46 g, thrown into the straps) knocks them out, and between it strains them
+    /// in proportion. What knocks them out goes as G does: head first (their blood driven to their
+    /// head) the slowest, then feet first or side on, face first, and back first (pressed into the
+    /// seat) the fastest. A Mobile Doll feels none of it, and a suit nothing stopped nothing.
+    #[test]
+    fn a_crash_jolts_the_pilot() {
+        let human = FlightMods::default();
+        // Flying at `v` (the suit's own axes: it faces +Z, its up +Y), stopped dead.
+        let stopped = |v: Vec3, mods: &FlightMods| {
+            let mut s = state();
+            crash(&mut s, v, mods);
+            s
+        };
+        assert_eq!(stopped(Vec3::Z * 10.0, &human).g_strain, 0.0);
+        assert!(stopped(Vec3::Z * 30.0, &human).blackout);
+        // Face first at 20 m/s: 200 m/s², borne one and a half times.
+        let want = (200.0 / 1.5 / (G0 * HUMAN_G_TOLERANCE) - 1.0) / (KNOCKOUT - 1.0);
+        let s = stopped(Vec3::Z * 20.0, &human);
+        assert!((s.g_strain - want).abs() < 1e-4 && !s.blackout, "{} vs {want}", s.g_strain);
+        // The slowest crash each way that knocks the pilot out, to a tenth of a m/s: where
+        // v²/2 is KNOCKOUT times what they bear that way.
+        let knockout = |dir: Vec3| {
+            (1..1_000).map(|k| k as f32 * 0.1).find(|v| stopped(dir * *v, &human).blackout).unwrap_or(0.0)
+        };
+        let ways = [(Vec3::Y, 0.5), (-Vec3::Y, 1.0), (Vec3::X, 1.0), (Vec3::Z, 1.5), (-Vec3::Z, 2.0)];
+        for (dir, weight) in ways {
+            let want = sqrt(2.0 * CRASH_STROKE * KNOCKOUT * HUMAN_G_TOLERANCE * weight * G0);
+            let got = knockout(dir);
+            assert!(got >= want && got < want + 0.11, "{dir}: {got} m/s, want {want}");
+        }
+        let doll = FlightMods { g_immune: true, ..human };
+        assert_eq!(stopped(Vec3::Z * 2_000.0, &doll).g_strain, 0.0);
+        let mut s = FlightState { vel: Vec3::Z * 300.0, ..state() };
+        crash(&mut s, Vec3::Z * 300.0, &human);
+        assert_eq!(s.g_strain, 0.0);
+    }
+
+    /// Inside the colony a free suit feels the air but not the spin: at rest it falls weightless,
+    /// and coasting fast down the colony the drag presses it.
+    #[test]
+    fn inside_the_colony_the_air_is_felt_and_the_spin_isnt() {
+        use crate::colony::frame::CityPos;
+        use crate::colony::interior::drag;
+        let spec = frame(FrameId::Leo);
+        let mods = FlightMods { interior: true, ..FlightMods::default() };
+        let coast = InputCmd { aim: Vec3::X, ..InputCmd::default() };
+        let low = CityPos::new(0, 0.0, 1_000.0, 50.0).to_colony();
+        let mut s = FlightState { pos: low, rot: crate::math::look_rotation(Vec3::X, Vec3::Y), ..state() };
+        integrate(&mut s, &coast, spec, &mods, DT);
+        assert!(s.vel.length() > 0.3 && s.g_load == 0.0, "falling at {}: {} g", s.vel, s.g_load);
+        // Down the colony's axis at 200 m/s, where Coriolis doesn't turn it: about 3.8 g of drag.
+        s.vel = Vec3::X * 200.0;
+        let felt = length(drag(s.vel, spec.mass(s.propellant))) / G0;
+        integrate(&mut s, &coast, spec, &mods, DT);
+        assert!(felt > 3.5 && (s.g_load - felt).abs() < 1e-3, "{} g, want {felt}", s.g_load);
+    }
+
     /// The flight model as it stood in protocol v8, verbatim: what the refactor into [`integrate`],
-    /// [`pilot_g`] and `world::constrain` is held to, bit for bit.
+    /// [`pilot_g`] and `world::constrain` is held to, bit for bit. Its pilot G is not (the envelope,
+    /// the brain's oxygen and crashes came later; their own tests hold them).
     mod v8 {
         use super::super::*;
+
+        /// Strain per second per G above tolerance (divided by this).
+        const STRAIN_GAIN_DIV: f32 = 4.0;
 
         pub fn step(
             s: &mut FlightState,
@@ -774,31 +1008,16 @@ mod tests {
             crate::world::constrain(s);
             FlightOut { boosting, accel, throttle, g_limited }
         }
-
-        /// The pilot-G block of v8's `step`, verbatim.
-        pub fn pilot_g(s: &mut FlightState, accel: Vec3, mods: &FlightMods, dt: f32) {
-            let g = length(accel) / G0;
-            s.g_load = g;
-            if mods.g_immune {
-                s.g_strain = 0.0;
-                s.blackout = false;
-            } else {
-                if g > mods.g_tolerance {
-                    s.g_strain += (g - mods.g_tolerance) / STRAIN_GAIN_DIV * dt;
-                } else {
-                    s.g_strain -= STRAIN_RECOVERY * dt;
-                }
-                s.g_strain = s.g_strain.clamp(0.0, 1.2);
-                if s.g_strain >= 1.0 {
-                    s.blackout = true;
-                } else if s.g_strain < 0.5 {
-                    s.blackout = false;
-                }
-            }
-        }
     }
 
-    /// Every bit of a flight state (`==` would take -0.0 for 0.0, and never NaN for NaN).
+    /// Every bit of a flight state's motion and tank (`==` would take -0.0 for 0.0, and never NaN
+    /// for NaN)...
+    fn motion_bits(s: &FlightState) -> [u32; 14] {
+        let b = bits(s);
+        core::array::from_fn(|i| b[i])
+    }
+
+    /// ...and of all of it, the pilot's G too.
     fn bits(s: &FlightState) -> [u32; 17] {
         [
             s.pos.x.to_bits(),
@@ -893,6 +1112,8 @@ mod tests {
             boost: rng.next_f32(),
             isp: 0.7 + rng.next_f32() * 0.3,
             g_tolerance: 4.0 + rng.next_f32() * 2.0,
+            // v8 bore the same every way, so its flight assist held the pilot back the same.
+            g_envelope: GEnvelope::EVEN,
             leak_kg_s: if rng.next_u32().is_multiple_of(4) { rng.next_f32() * 3.0 } else { 0.0 },
             ..FlightMods::default()
         };
@@ -902,24 +1123,25 @@ mod tests {
     #[test]
     fn step_is_integrate_then_constrain() {
         let mut rng = Rng::new(0xF11E);
-        let mut constrained = 0;
+        let (mut constrained, mut hit) = (0, 0);
         for n in 0..10_000 {
             let (s0, cmd, spec, mods) = random_case(&mut rng);
-            let (mut a, mut b) = (s0, s0);
+            let (mut a, mut b, mut c) = (s0, s0, s0);
             let out_a = step(&mut a, &cmd, spec, &mods, DT);
             let out_b = integrate(&mut b, &cmd, spec, &mods, DT);
+            integrate(&mut c, &cmd, spec, &mods, DT);
             constrained += u32::from(crate::world::constrain(&mut b));
-            assert_eq!(bits(&a), bits(&b), "case {n}: {s0:?} {cmd:?}");
+            assert_eq!(motion_bits(&a), motion_bits(&b), "case {n}: {s0:?} {cmd:?}");
             assert_eq!(out_bits(&out_a), out_bits(&out_b), "case {n}");
-            // Pilot G on its own, against the block it was lifted from.
-            let accel = random_vec(&mut rng, 150.0);
-            let gm = FlightMods { g_immune: rng.next_u32().is_multiple_of(2), ..mods };
-            let (mut p, mut q) = (s0, s0);
-            pilot_g(&mut p, accel, &gm, DT);
-            v8::pilot_g(&mut q, accel, &gm, DT);
-            assert_eq!(bits(&p), bits(&q), "case {n}: {s0:?} felt {accel}");
+            // The sector's bounds are felt as nothing; the hull as a crash.
+            crate::world::keep_in_sector(&mut c);
+            let v = c.vel;
+            hit += u32::from(crate::world::keep_off_hull(&mut c) && c.vel != v);
+            crash(&mut c, v, &mods);
+            assert_eq!(bits(&a), bits(&c), "case {n}: {s0:?} {cmd:?}");
         }
         assert!(constrained > 3_000, "only {constrained} of the cases met the hull or the edge");
+        assert!(hit > 500, "only {hit} of the cases flew into the hull");
     }
 
     #[test]
@@ -932,7 +1154,7 @@ mod tests {
             let (mut a, mut b) = (s0, s0);
             let out_a = step(&mut a, &cmd, spec, &mods, DT);
             let out_b = v8::step(&mut b, &cmd, spec, &mods, DT);
-            assert_eq!(bits(&a), bits(&b), "case {n}: {s0:?} {cmd:?}");
+            assert_eq!(motion_bits(&a), motion_bits(&b), "case {n}: {s0:?} {cmd:?}");
             assert_eq!(out_bits(&out_a), out_bits(&out_b), "case {n}");
             // Set, they are wired in: the same case flies otherwise.
             let up = random_vec(&mut rng, 1.0).normalize_or(Vec3::Y);

@@ -33,6 +33,11 @@ pub fn colony_spin_angle(t: u32, frac: f32) -> f32 {
 /// Keeps a suit inside the sector and outside the colony hull (inelastic contact). Whether it had
 /// to move it.
 pub fn constrain(s: &mut FlightState) -> bool {
+    keep_in_sector(s) | keep_off_hull(s)
+}
+
+/// Keeps a suit inside the sector: its bounds stop it where it goes out. Whether they did.
+pub fn keep_in_sector(s: &mut FlightState) -> bool {
     let mut moved = false;
     for i in 0..3 {
         if s.pos[i] > SECTOR_LIMIT {
@@ -45,15 +50,18 @@ pub fn constrain(s: &mut FlightState) -> bool {
             moved = true;
         }
     }
-    if let Some((at, n)) = hull_contact(s.pos, HULL_MARGIN) {
-        s.pos = at;
-        let vn = s.vel.dot(n);
-        if vn < 0.0 {
-            s.vel -= n * vn;
-        }
-        moved = true;
-    }
     moved
+}
+
+/// Keeps a suit outside the colony hull, losing the speed it had into it. Whether it touched.
+pub fn keep_off_hull(s: &mut FlightState) -> bool {
+    let Some((at, n)) = hull_contact(s.pos, HULL_MARGIN) else { return false };
+    s.pos = at;
+    let vn = s.vel.dot(n);
+    if vn < 0.0 {
+        s.vel -= n * vn;
+    }
+    true
 }
 
 /// Whether a sphere of radius `r` at `p` touches the colony: if so, the nearest point out of it (on

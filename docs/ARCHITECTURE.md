@@ -92,8 +92,9 @@ network threads.
       (AMBAC/RCS, per-axis thrust (damaged thrusters cough on ticks the owner's client can work
       out), propellant and any leak under the sector's flight rules (`tuning::FlightRules`: under
       anime rules only boost burns and the tank refills, on the ground too; the Welcome's ANIME
-      flag tells the owner's client), G-strain against the pilot's own tolerance), swept against
-      the rocks, the landmarks and the colony; a suit on a body is caught, walks, hops or lets go
+      flag tells the owner's client), G-strain against the pilot's own tolerance each way), swept
+      against the rocks, the landmarks and the colony, which are crashes its pilot feels; a suit on
+      a body is caught, walks, hops or lets go
       in the body's frame, and its world pose is derived from that. Wrecks drift, and so do
       sleepers (`sim/sleep.rs`: no flight assist, no attitude hold), unless parked on a body
       (held there, moving with it).
@@ -203,7 +204,8 @@ network threads.
     and turn, as the server's suit will: over the bad link, a pilot swinging every 2 s and firing
     bursts between is first predicted to p99 0.5 mm, where carrying the snapshot's arms over the
     ticks flown ahead missed by 2–4 m on every swing.
-  - G-strain arrives exactly (`f32`), so a blackout starts on the same tick on both sides.
+  - G-strain arrives exactly (`f32`), so a blackout starts on the same tick on both sides. A crash's
+    jolt is the flight step's own (`flight::crash`), so a knock-out is predicted with it.
   - While ZERO flies the suit (a seizure) the pilot's commands aren't what it flies, so it's drawn
     from the server's state carried on at its velocity and spin, and each snapshot's correction
     blends out.
@@ -672,7 +674,7 @@ fire, beside 4 dolls).
 | `bc-sim/tests/jammer.rs` | A jamming Deathscythe leaves its enemies' sensors (past 150 m for eyes), Mobile Dolls and ZERO lose it, allies see it shimmer, locks on it drop and its own go unnoticed; firing or striking breaks it for 2 s; it drains energy and needs a fifth of it to engage. |
 | `bc-sim/tests/ranged.rs` | The flamethrower burns within its cone and reach only, a round a burn, and overheats its target; the Dragon Fang takes the flamethrower's arm along; stream weapons fire without spawn events; the buster shield flies at its speed. |
 | `bc-sim/tests/{content,melee}.rs` | Every table row sits at its id and the Gundams fly as designed; every blade reaches as far as its row says and mines, twin blades strike once each, the Dragon Fang thrusts where it's aimed, the Cross Crusher is Sandrock's special, only blades that parry clash, and a blade meets a target it chases at speed as its pilot sees it. |
-| `bc-sim/tests/{flight,combat,fire_control,lagcomp,mobile_dolls,zero,field,salvage}.rs` | Rocket equation, FA, blackout, no tunnelling, arm loss, charge, sabers and clashes, lag comp (and its clamp), dolls fight to a kill, ZERO accuracy, calibration, seizure, magnetism; suits stop at rocks at 2 km/s and rocks stop shots; limbs come off as chunks and shots pass where they were, hulks, bounces, expiry, lighter suits. |
+| `bc-sim/tests/{flight,combat,fire_control,lagcomp,mobile_dolls,zero,field,salvage}.rs` | Rocket equation, FA, blackout (the G envelope each way, the brain's oxygen, crashes and what isn't one), no tunnelling, arm loss, charge, sabers and clashes, lag comp (and its clamp), dolls fight to a kill, ZERO accuracy, calibration, seizure, magnetism; suits stop at rocks at 2 km/s and rocks stop shots; limbs come off as chunks and shots pass where they were, hulks, bounces, expiry, lighter suits. |
 | `bc-sector/tests/salvage_net.rs` | Over the same link: chunks reach the client exactly as the server moves them, across bounces; chunks that go leave the client; a kill hands its wreck to its hulk; changed rocks arrive; a miner under survival rules docks and brings its haul home. |
 | `bc-sim/tests/survival.rs`, `bc-sector/tests/survival_net.rs` | A suit launches as it was built (parts missing, worn, weapons not fitted that don't fire, what's in the tank); it docks only at rest in the dock, awake, and goes home with its hold and what it holds; the colony pays bounties on Mobile Dolls; a pilot shot down stays down. Through the sector: no loadout, no suit; launch, dock and home with the hold on the slot's report ring; a suit lost is reported, then its pilot goes home. The `no_alloc` tests cover survival ticks too. |
 | `bc-sim/tests/{systems,modules}.rs`, `bc-sim/src/tuning.rs` | Blows through thin armour reach systems about twice per part's life whatever the weapon (Mobile Dolls less), the same way every run; each system's levels do what their table says (sensors, locks, scram, leak, coughing thrusters, actuators that jam and let go); each module changes its stat, weighs what it weighs and goes with its part; damage control mends one damaged system at a time; faults and equipment launch and come home. |

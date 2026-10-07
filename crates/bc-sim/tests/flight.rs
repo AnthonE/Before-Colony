@@ -6,7 +6,11 @@ use bc_proto::{FrameId, InputCmd};
 use bc_sim::DT;
 use bc_sim::config::G0;
 use bc_sim::content::frame;
-use bc_sim::flight::{FA_G_CAP, FA_RESPONSE, FlightMods, FlightState, HUMAN_G_TOLERANCE, step};
+use bc_sim::field::{Field, Rock};
+use bc_sim::flight::{
+    FA_G_CAP, FA_G_MARGIN, FA_RESPONSE, FlightMods, FlightState, GEnvelope, HUMAN_G_TOLERANCE, O2_BUFFER,
+    step, step_in,
+};
 use glam::{Quat, Vec3};
 
 fn fresh(f: FrameId) -> FlightState {
@@ -53,25 +57,46 @@ fn delta_v_matches_the_rocket_equation() {
     assert!((dv - ideal).abs() / ideal < 0.01, "dv {dv:.1} vs ideal {ideal:.1}");
 }
 
-#[test]
-fn over_boost_blacks_a_human_out_and_they_recover() {
-    // Wing Zero on boost pulls 12 g: well past what a pilot's body takes.
-    let spec = frame(FrameId::WingZero);
-    let mut s = fresh(FrameId::WingZero);
-    let burn = InputCmd { aim: Vec3::Z, thrust: [0, 0, 127], buttons: BOOST, ..InputCmd::default() };
-    let mut ticks = 0;
-    while !s.blackout && ticks < 300 {
-        step(&mut s, &burn, spec, &FlightMods::default(), DT);
-        ticks += 1;
+/// Flies `cmd` until the pilot blacks out, for at most `secs`: how long it took, s.
+fn till_blackout(id: FrameId, s: &mut FlightState, cmd: &InputCmd, mods: &FlightMods, secs: f32) -> f32 {
+    let mut n = 0;
+    while !s.blackout && (n as f32) < secs / DT {
+        step(s, cmd, frame(id), mods, DT);
+        n += 1;
     }
+    n as f32 * DT
+}
+
+/// Thrusting toward their feet drives a pilot's blood to their head: a Wing Zero's side thrusters
+/// (4.4 g down) are past the half of their 6 g they bear that way, far enough to cut their
+/// brain's blood off, and they black out when its oxygen runs out. Let go, they come round.
+#[test]
+fn thrusting_down_blacks_a_pilot_out_and_they_recover() {
+    let mut s = fresh(FrameId::WingZero);
+    let dive = InputCmd { aim: Vec3::Z, thrust: [0, -127, 0], ..InputCmd::default() };
+    let t = till_blackout(FrameId::WingZero, &mut s, &dive, &FlightMods::default(), 30.0);
     assert!(s.blackout, "never blacked out (strain {})", s.g_strain);
-    assert!(s.g_load > 11.0, "g load {}", s.g_load);
-    assert!(ticks < 60, "blackout took {ticks} ticks");
+    assert!((t - O2_BUFFER).abs() <= 2.0 * DT, "out after {t} s");
+    assert!(s.g_load > 4.4, "g load {}", s.g_load);
     let coast = InputCmd { aim: Vec3::Z, ..InputCmd::default() };
     for _ in 0..(4 * 30) {
-        step(&mut s, &coast, spec, &FlightMods::default(), DT);
+        step(&mut s, &coast, frame(FrameId::WingZero), &FlightMods::default(), DT);
     }
     assert!(!s.blackout, "should have recovered (strain {})", s.g_strain);
+}
+
+/// A Wing Zero's boost (12 g ahead) presses its pilot back into the seat, which they bear while
+/// the tank's full; as it empties the suit lightens, and past 12 g even that's too much: flat out
+/// from a full tank, they black out a little before it's dry.
+#[test]
+fn boost_presses_a_pilot_into_the_seat_till_the_suit_is_light() {
+    let mut s = fresh(FrameId::WingZero);
+    let burn = InputCmd { aim: Vec3::Z, thrust: [0, 0, 127], buttons: BOOST, ..InputCmd::default() };
+    let t = till_blackout(FrameId::WingZero, &mut s, &burn, &FlightMods::default(), 5.0);
+    assert!(!s.blackout && s.g_strain < 0.1, "strain {} after {t} s", s.g_strain);
+    let t = t + till_blackout(FrameId::WingZero, &mut s, &burn, &FlightMods::default(), 30.0);
+    assert!(s.blackout && (12.0..25.0).contains(&t), "out after {t} s");
+    assert!(s.g_load > 14.0 && s.propellant > 0.0, "{} g, {} kg left", s.g_load, s.propellant);
 }
 
 #[test]
@@ -87,6 +112,7 @@ fn mobile_dolls_have_no_body_to_black_out() {
     assert!(!s.blackout);
 }
 
+/// The colony's hull is solid, and hitting it at 300 m/s knocks the pilot out.
 #[test]
 fn the_colony_hull_is_solid() {
     let spec = frame(FrameId::Leo);
@@ -96,15 +122,54 @@ fn the_colony_hull_is_solid() {
         ..fresh(FrameId::Leo)
     };
     let cmd = InputCmd { aim: Vec3::Z, ..InputCmd::default() };
+    let mut out_cold = false;
     for _ in 0..300 {
         step(&mut s, &cmd, spec, &FlightMods::default(), DT);
         assert!(!bc_sim::world::inside_colony(s.pos), "went through the hull at {:?}", s.pos);
+        out_cold |= s.blackout;
     }
+    assert!(out_cold, "the crash didn't knock the pilot out");
+}
+
+/// A rock is a crash too: a Leo coasting into one at 40 m/s, face first, knocks its pilot out (the
+/// jolt is about 80 g); one drifting onto it at 5 m/s is nothing. The sector's bounds are no wall:
+/// stopped at them from 300 m/s, the pilot feels nothing.
+#[test]
+fn a_rock_is_a_crash_and_the_sectors_bounds_are_not() {
+    let spec = frame(FrameId::Leo);
+    let rock = Rock {
+        pos: Vec3::new(0.0, 2_000.0, 200.0),
+        radius: 50.0,
+        axes: Vec3::splat(50.0),
+        ..Rock::default()
+    };
+    let field = Field::from_rocks(&[rock]);
+    let coast = InputCmd { aim: Vec3::Z, ..InputCmd::default() };
+    let into = |speed: f32| {
+        let mut s = FlightState { vel: Vec3::Z * speed, ..fresh(FrameId::Leo) };
+        let mut out_cold = false;
+        for _ in 0..(200.0 / speed / DT) as usize + 30 {
+            step_in(&field, &mut s, &coast, spec, &FlightMods::default(), DT);
+            out_cold |= s.blackout;
+        }
+        assert!(s.vel.z.abs() < 0.5, "stopped at the rock: {}", s.vel);
+        (out_cold, s.g_strain)
+    };
+    assert!(into(40.0).0, "a crash at 40 m/s");
+    assert_eq!(into(5.0), (false, 0.0));
+    let edge = bc_sim::config::SECTOR_LIMIT;
+    let mut s =
+        FlightState { pos: Vec3::new(edge - 5.0, 2_000.0, 0.0), vel: Vec3::X * 300.0, ..fresh(FrameId::Leo) };
+    for _ in 0..30 {
+        step(&mut s, &coast, spec, &FlightMods::default(), DT);
+    }
+    assert!(s.pos.x == edge && s.vel.x == 0.0 && s.g_strain == 0.0, "{:?}", s);
 }
 
 /// A pilot's flight assist stopping them from cruise: the speed only ever falls, never reverses,
 /// and the G tapers off at the end instead of dropping from full thrust to nothing in a tick, on a
-/// full tank and a light one.
+/// full tank and a light one. (Braking throws the pilot into the straps, which they bear half as
+/// much again as headward.)
 #[test]
 fn flight_assist_stops_smoothly() {
     for id in [FrameId::Leo, FrameId::WingZero, FrameId::WingZeroBird] {
@@ -113,7 +178,8 @@ fn flight_assist_stops_smoothly() {
             let v0 = Vec3::Z * spec.fa_speed;
             let mut s = FlightState { vel: v0, propellant: spec.propellant_cap * tank, ..fresh(id) };
             let stop = InputCmd { aim: Vec3::Z, buttons: FLIGHT_ASSIST, ..InputCmd::default() };
-            let braking = (spec.retro_thrust / spec.mass(s.propellant)).min(FA_G_CAP * G0);
+            let braking =
+                (spec.retro_thrust / spec.mass(s.propellant)).min(FA_G_CAP * GEnvelope::HUMAN.back * G0);
             let within = (spec.fa_speed / braking / DT) as usize + 45;
             let (mut prev_speed, mut prev_g) = (v0.length(), 0.0f32);
             for n in 0..within + 60 {
@@ -135,16 +201,18 @@ fn flight_assist_stops_smoothly() {
     }
 }
 
-/// Flight assist holds a Gundam's pilot under their G tolerance, however hard its thrusters could
-/// push and however light its tank: flat out from rest while swinging the aim from side to side,
-/// then braking with the velocity off the nose. The strain never builds.
+/// Flight assist holds a Gundam's pilot under what they bear each way, however hard its thrusters
+/// could push and however light its tank: flat out from rest while swinging the aim from side to
+/// side, then braking with the velocity off the nose. The strain never builds, though ahead
+/// (pressed into the seat) it lets them pull well past the 6 g they bear headward. The Neo-Bird's
+/// side thrusters are too weak ever to need holding back.
 #[test]
 fn flight_assist_spares_the_pilot() {
     for id in [FrameId::WingZero, FrameId::Deathscythe, FrameId::Shenlong, FrameId::WingZeroBird] {
         let spec = frame(id);
+        let (mut limited, mut most) = (0, 0.0f32);
         for tank in [1.0, 0.4] {
             let mut s = FlightState { propellant: spec.propellant_cap * tank, ..fresh(id) };
-            let mut limited = 0;
             for n in 0..(12 * 30) {
                 let t = n as f32 * DT;
                 let (yaw, forward) = if t < 8.0 { (1.2 * (1.5 * t).sin(), 127) } else { (0.8, 0) };
@@ -153,22 +221,20 @@ fn flight_assist_spares_the_pilot() {
                     InputCmd { aim, thrust: [0, 0, forward], buttons: FLIGHT_ASSIST, ..InputCmd::default() };
                 let out = step(&mut s, &cmd, spec, &FlightMods::default(), DT);
                 limited += usize::from(out.g_limited);
-                assert!(
-                    s.g_load < HUMAN_G_TOLERANCE,
-                    "{id:?} at {:.0}% tank pulled {} g at {t:.2} s",
-                    tank * 100.0,
-                    s.g_load
-                );
-                assert_eq!(s.g_strain, 0.0, "{id:?}: strain built at {t:.2} s");
+                most = most.max(s.g_load);
+                assert_eq!(s.g_strain, 0.0, "{id:?} at {:.0}% tank: strain built at {t:.2} s", tank * 100.0);
                 assert!(!s.blackout);
             }
-            assert!(limited > 0, "{id:?} never needed holding back");
         }
+        assert!(limited > 0 || id == FrameId::WingZeroBird, "{id:?} never needed holding back");
+        assert!(most > 1.4 * HUMAN_G_TOLERANCE, "{id:?} pulled only {most} g");
     }
 }
 
-/// Boost is the pilot's own call: with flight assist a boosting Wing Zero still pulls 12 g, and
-/// blacks its pilot out.
+/// Boost is the pilot's own call: flight assist holds nothing back from it, so a boosting Wing Zero
+/// pulls its whole 12 g, ahead, which its pilot bears. Climbing on boost as well (4.4 g up, their
+/// blood driven to their feet) is past what they bear, and they black out soon after their brain
+/// runs short.
 #[test]
 fn boosting_still_outthrusts_the_pilot() {
     let spec = frame(FrameId::WingZero);
@@ -177,11 +243,15 @@ fn boosting_still_outthrusts_the_pilot() {
         InputCmd { aim: Vec3::Z, thrust: [0, 0, 127], buttons: FLIGHT_ASSIST | BOOST, ..InputCmd::default() };
     let mut most = 0.0f32;
     for _ in 0..60 {
-        step(&mut s, &go, spec, &FlightMods::default(), DT);
+        assert!(!step(&mut s, &go, spec, &FlightMods::default(), DT).g_limited);
         most = most.max(s.g_load);
     }
     assert!(most > 11.0, "pulled only {most} g");
-    assert!(s.blackout, "strain {}", s.g_strain);
+    assert!(s.g_strain < 0.05 && !s.blackout, "strain {}", s.g_strain);
+    let mut s = fresh(FrameId::WingZero);
+    let climb = InputCmd { aim: Vec3::Z, thrust: [0, 127, 127], buttons: BOOST, ..InputCmd::default() };
+    let t = till_blackout(FrameId::WingZero, &mut s, &climb, &FlightMods::default(), 30.0);
+    assert!(s.blackout && t > O2_BUFFER && t < 1.5 * O2_BUFFER, "out after {t} s (strain {})", s.g_strain);
 }
 
 /// A pilot holding boost through a blackout (which cuts the boost itself) keeps flight assist's
@@ -305,11 +375,16 @@ fn boosters_give_what_they_have_left() {
     assert!(half.boosting && half.accel.length() < full);
     assert!(!none.boosting, "failed boosters don't boost");
     assert_eq!(none.accel.length(), plain);
-    // Under flight assist, failed boosters keep the G guard on.
+    // Under flight assist, failed boosters keep the G guard on: diving, the pilot's held to half
+    // what they bear headward.
     let mut s = fresh(FrameId::WingZero);
-    let fa = InputCmd { buttons: BOOST | FLIGHT_ASSIST, ..boost };
+    let fa = InputCmd { thrust: [0, -127, 0], buttons: BOOST | FLIGHT_ASSIST, ..boost };
     let out = step(&mut s, &fa, spec, &FlightMods { boost: 0.0, ..FlightMods::default() }, DT);
-    assert!(out.accel.length() / G0 <= FA_G_CAP + 1e-3, "{} g", out.accel.length() / G0);
+    assert!(
+        out.g_limited && out.accel.length() / G0 <= 0.5 * FA_G_CAP + 1e-3,
+        "{} g",
+        out.accel.length() / G0
+    );
 }
 
 /// A holed tank loses propellant at its rate whether the suit burns or not.
@@ -326,28 +401,29 @@ fn a_leak_drains_the_tank() {
     assert!((lost - 150.0).abs() < 0.5, "lost {lost} kg");
 }
 
-/// A hurt pilot bears less: flight assist holds them under their own tolerance, and G beyond it
-/// strains them.
+/// A hurt pilot bears less: flight assist holds them under their own tolerance (diving, half of
+/// it), and G beyond it strains them: the Wing Zero's 4.4 g sideways is past what a pilot of a
+/// failed cockpit bears (4 g), not a whole one's. A G-seat lets them bear more.
 #[test]
 fn a_pilot_bears_their_own_tolerance() {
     let spec = frame(FrameId::WingZero);
-    let hurt = FlightMods { g_tolerance: 5.0, ..FlightMods::default() };
-    let go = InputCmd { aim: Vec3::Z, thrust: [0, 0, 127], buttons: FLIGHT_ASSIST, ..InputCmd::default() };
+    let hurt = FlightMods { g_tolerance: 4.0, ..FlightMods::default() };
+    let dive = InputCmd { aim: Vec3::Z, thrust: [0, -127, 0], buttons: FLIGHT_ASSIST, ..InputCmd::default() };
     let mut s = fresh(FrameId::WingZero);
-    let out = step(&mut s, &go, spec, &hurt, DT);
-    assert!(out.g_limited && out.accel.length() / G0 < 4.98, "{} g", out.accel.length() / G0);
-    // Unassisted at ~8 g: the hurt pilot strains faster than a whole one.
-    let raw = InputCmd { buttons: 0, ..go };
+    let out = step(&mut s, &dive, spec, &hurt, DT);
+    let g = out.accel.length() / G0;
+    assert!(out.g_limited && (g - 0.5 * (4.0 - FA_G_MARGIN)).abs() < 1e-3, "{g} g");
+    let raw = InputCmd { aim: Vec3::Z, thrust: [127, 0, 0], ..InputCmd::default() };
     let (mut a, mut b) = (fresh(FrameId::WingZero), fresh(FrameId::WingZero));
-    for _ in 0..30 {
+    for _ in 0..(3 * 30) {
         step(&mut a, &raw, spec, &hurt, DT);
         step(&mut b, &raw, spec, &FlightMods::default(), DT);
     }
-    assert!(a.g_strain > b.g_strain + 0.1, "{} vs {}", a.g_strain, b.g_strain);
+    assert!(a.g_strain > 0.05 && b.g_strain == 0.0, "{} vs {}", a.g_strain, b.g_strain);
     let seat = FlightMods { g_tolerance: HUMAN_G_TOLERANCE + 1.0, ..FlightMods::default() };
     let mut c = fresh(FrameId::WingZero);
-    let out = step(&mut c, &go, spec, &seat, DT);
-    assert!(out.accel.length() / G0 > FA_G_CAP + 0.5, "a G-seat lets flight assist pull harder");
+    let out = step(&mut c, &dive, spec, &seat, DT);
+    assert!(out.accel.length() / G0 > 0.5 * FA_G_CAP + 0.4, "a G-seat lets flight assist pull harder");
 }
 
 /// Anime rules' modifiers for a whole suit (`bc_sim::tuning`, as the server and the owner's client
@@ -460,6 +536,22 @@ fn under_anime_rules_a_pilot_bears_twice_the_g() {
         step(&mut s, &burn, spec, &mods, DT);
     }
     assert!(s.g_load > 10.0 && !s.blackout && s.g_strain == 0.0, "{} g, strain {}", s.g_load, s.g_strain);
+    // Nor does a Wing Zero's on a nearly dry gauge (16 g ahead, pressing its pilot into the seat),
+    // but diving on it as well (their blood driven to their head) still blacks them out.
+    let mut s =
+        FlightState { propellant: 0.3 * frame(FrameId::WingZero).propellant_cap, ..fresh(FrameId::WingZero) };
+    let t = till_blackout(FrameId::WingZero, &mut s, &burn, &mods, 8.0);
+    assert!(
+        !s.blackout && s.g_load > 15.0 && s.g_strain == 0.0,
+        "{} g, strain {} at {t} s",
+        s.g_load,
+        s.g_strain
+    );
+    let mut s =
+        FlightState { propellant: 0.3 * frame(FrameId::WingZero).propellant_cap, ..fresh(FrameId::WingZero) };
+    let dive = InputCmd { thrust: [0, -127, 127], ..burn };
+    let t = till_blackout(FrameId::WingZero, &mut s, &dive, &mods, 8.0);
+    assert!(s.blackout && t > O2_BUFFER, "out after {t} s (strain {})", s.g_strain);
 }
 
 #[test]
