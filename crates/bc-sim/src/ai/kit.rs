@@ -24,7 +24,7 @@ use glam::Vec3;
 use super::mobile_doll::{Action, AiState, DollProfile, standoff};
 use crate::config::{DT, G0};
 use crate::content::{FrameSpec, SpecialKind, WeaponClass, weapon};
-use crate::flight::{FA_BOOST_CRUISE, FA_RESPONSE};
+use crate::flight::{FA_BOOST_CRUISE, FA_RESPONSE, GEnvelope};
 use crate::math::{angle_between, floor, length, normalize_or, sin, sqrt};
 use crate::perception::{Contact, SelfView};
 use crate::zero::fire_control;
@@ -55,7 +55,8 @@ const WEAVE_RANGE: f32 = 250.0;
 /// turns to face its target within this range, m.
 const FACE_RANGE: f32 = 120.0;
 /// Above this G-strain it stops boosting and flies at an acceleration a pilot can bear for good
-/// (below the 6 g that builds strain); closing for the kill, it spends more.
+/// (below the 6 g headward that builds strain, weighed each way as a body bears it); closing for
+/// the kill, it spends more.
 const STRAIN_EASE: f32 = 0.5;
 const STRAIN_EASE_CLOSE: f32 = 0.7;
 const CLOSE_RANGE: f32 = 300.0;
@@ -162,8 +163,9 @@ pub fn drive_kit(
     let ease = if hostile.is_some_and(|t| t.dist < CLOSE_RANGE) { STRAIN_EASE_CLOSE } else { STRAIN_EASE };
     let local = if me.g_strain > ease {
         buttons &= !(BOOST | FLIGHT_ASSIST);
-        let want = (desired * spec.fa_speed - me.vel) / 0.5;
-        let accel = me.rot.conjugate() * want.clamp_length_max(SUSTAINED_G * G0);
+        let want = me.rot.conjugate() * (desired * spec.fa_speed - me.vel) / 0.5;
+        let felt = length(GEnvelope::HUMAN.scale(want));
+        let accel = if felt > SUSTAINED_G * G0 { want * (SUSTAINED_G * G0 / felt) } else { want };
         let mass = spec.mass(me.propellant * spec.propellant_cap);
         let forward = if accel.z >= 0.0 { spec.main_thrust } else { spec.retro_thrust };
         Vec3::new(accel.x / spec.side_thrust, accel.y / spec.side_thrust, accel.z / forward) * mass

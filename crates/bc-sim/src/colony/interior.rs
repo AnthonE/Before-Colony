@@ -56,17 +56,30 @@ pub const INNER_GATE_RADIUS: f32 = 120.0;
 /// How fast a suit comes out of the inner gate, m/s.
 pub const INNER_LAUNCH_SPEED: f32 = 30.0;
 
-/// The pull a free suit feels at `pos` moving at `vel` in the colony's frame, of mass `mass_kg`:
-/// the spin's centrifugal pull, Coriolis, and the air's drag. m/s².
+/// What acts on a free suit at `pos` moving at `vel` in the colony's frame, of mass `mass_kg`: the
+/// spin's pull ([`pull`]) and the air's drag ([`drag`]). m/s².
 #[inline]
 pub fn accel(pos: Vec3, vel: Vec3, mass_kg: f32) -> Vec3 {
+    pull(pos, vel) + drag(vel, mass_kg)
+}
+
+/// The spin's pull on anything at `pos` moving at `vel` in the colony's frame: centrifugal and
+/// Coriolis, m/s². Only the frame's turning: a pilot falls free under it, and doesn't feel it.
+#[inline]
+pub fn pull(pos: Vec3, vel: Vec3) -> Vec3 {
     let w = SPIN_RATE;
     // ω = w·X: the centrifugal pull is ω²·r out from the axis, Coriolis is −2 ω × v.
     let centrifugal = Vec3::new(0.0, pos.y, pos.z) * (w * w);
     let coriolis = Vec3::new(0.0, 2.0 * w * vel.z, -2.0 * w * vel.y);
+    centrifugal + coriolis
+}
+
+/// The air's drag on a suit of mass `mass_kg` moving at `vel` through it, m/s²: a push its pilot
+/// feels, as they feel thrust.
+#[inline]
+pub fn drag(vel: Vec3, mass_kg: f32) -> Vec3 {
     let speed = vel.length();
-    let drag = vel * (-DRAG_KG_M * speed / mass_kg.max(1.0));
-    centrifugal + coriolis + drag
+    vel * (-DRAG_KG_M * speed / mass_kg.max(1.0))
 }
 
 /// Across the strip, at height `h`: the direction `s` grows in, in the colony's frame.
@@ -292,11 +305,14 @@ pub fn ground_under(p: Vec3) -> Option<f32> {
 }
 
 /// A tick of a suit's flight inside the colony: the flight model (with `mods.interior` set, the
-/// spin's pull, Coriolis and the air), then the hull, the caps and the city's boxes. The server
-/// and the owner's prediction both fly it so.
+/// spin's pull, Coriolis and the air), then the hull, the caps and the city's boxes, which are a
+/// crash to fly into (`crate::flight::crash`). The server and the owner's prediction both fly it
+/// so.
 pub fn step(f: &mut FlightState, cmd: &InputCmd, spec: &FrameSpec, mods: &FlightMods, dt: f32) -> FlightOut {
     let out = crate::flight::integrate(f, cmd, spec, mods, dt);
+    let v = f.vel;
     constrain(f, spec.radius);
+    crate::flight::crash(f, v, mods);
     out
 }
 

@@ -13,7 +13,7 @@ use glam::Vec3;
 use crate::content::modules::{self as md, ModuleKind, Modules};
 use crate::content::systems::{self as sys, FAILED, System, Systems};
 use crate::content::{ArmSlot, FrameSpec};
-use crate::flight::{BoostGauge, FlightMods};
+use crate::flight::{BoostGauge, FlightMods, GEnvelope};
 use crate::math::{hash01, normalize_or};
 
 /// How a sector's pilots fly, people and agents alike. The server says which in its Welcome, and
@@ -23,7 +23,8 @@ use crate::math::{hash01, normalize_or};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum FlightRules {
     /// The simulator: every newton burns propellant (the rocket equation decides how far a tank
-    /// goes), and a pilot bears 6 g for good.
+    /// goes), and a pilot bears 6 g for good headward (each other way as a body does:
+    /// `crate::flight::GEnvelope`).
     #[default]
     Real,
     /// Anime rules, for fun over realism: a pilot's tank is a boost gauge. Only boost burns it,
@@ -227,6 +228,7 @@ pub fn flight_mods(t: &Tuning, rules: FlightRules, g_immune: bool, extra_mass_kg
         boost: t.boost,
         isp: t.isp,
         g_tolerance: if anime { t.g_tolerance * ANIME_G } else { t.g_tolerance },
+        g_envelope: GEnvelope::HUMAN,
         leak_kg_s: t.leak_kg_s,
         g_immune,
         lunge: false,

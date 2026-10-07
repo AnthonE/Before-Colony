@@ -128,8 +128,9 @@ real flight rules; anime doubles it, as it does the stim's):
 | Hungry | nothing left | −0.5 |
 | Starving | awake on an empty stomach for 3 hours (`STARVING_AFTER_S`) | −1.0 |
 
-For scale: a pilot bears 6 g, a damaged cockpit 5, and a stim gives 1 g more for a minute. Starving
-costs what a damaged cockpit does; nothing about hunger kills.
+For scale: a pilot bears 6 g headward (twice that pressed into the seat, half diving), a damaged
+cockpit 5, and a stim gives 1 g more for a minute. Starving costs what a damaged cockpit does;
+nothing about hunger kills.
 
 **How it reaches flight (L2).** As the stim does: anything that changes flight goes through
 `bc_sim::tuning`, from state the own snapshot carries (`CLAUDE.md`). The condition is 3 bits

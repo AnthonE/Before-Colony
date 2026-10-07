@@ -7,7 +7,7 @@
 mod common;
 
 /// Hash after 600 ticks of the reference scenario (update deliberately when the sim changes).
-const GOLDEN: u64 = 0x1b41_0573_9ecb_0075;
+const GOLDEN: u64 = 0xa6dd_ba05_8cb6_c73f;
 
 fn scenario_hash() -> u64 {
     let (mut sim, players) = common::arena(8, 24, 42);
@@ -34,7 +34,7 @@ fn golden_hash_wasm() {
 /// Hash after 450 ticks of the Gundams duelling in pairs among Mobile Dolls: every blade, the
 /// Cross Crusher, the Dragon Fang, the flamethrower, the Hyper Jammer, guided missiles, Full Open,
 /// Neo-Bird and the Gundams' guns (changes deliberately as their mechanics arrive).
-const GUNDAMS_GOLDEN: u64 = 0xb7b4_0425_71c3_72c9;
+const GUNDAMS_GOLDEN: u64 = 0xacf4_f9fa_7512_0e90;
 
 fn gundams_hash() -> u64 {
     use bc_proto::events::Event;
@@ -113,7 +113,7 @@ fn gundams_golden_wasm() {
 /// Hash after 450 ticks of pilots locked on to their foes (`bc_proto::LockOn`): flight assist
 /// holding each foe's velocity in the fight's axes, levelled to the colony's up, closing in and
 /// circling, burst-stepping now and then, among Mobile Dolls.
-const LOCKON_GOLDEN: u64 = 0xa4c4_a127_b635_29a1;
+const LOCKON_GOLDEN: u64 = 0xf604_ed58_d20c_6335;
 
 fn lockon_hash() -> u64 {
     let (mut sim, duels) = common::gundam_crowd(8, 12, 21);
@@ -470,7 +470,7 @@ fn sleepers_golden_wasm() {
 /// off. A guided missile goes at the Leo on its rock. (The hash covers the suits' cover since they
 /// hide, and the dolls hunting the riders come at them from above; with wear and tear, every suit's
 /// systems, equipment and statuses.)
-const SURFACE_GOLDEN: u64 = 0x617b_2572_82e6_3136;
+const SURFACE_GOLDEN: u64 = 0x711d_2ad5_d670_41cf;
 
 fn surface_hash() -> u64 {
     use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRIP, MELEE, MODE};
@@ -944,7 +944,7 @@ fn walkers_golden_wasm() {
 /// while (which the colony's law ignores), and two with their grips armed, landing on the avenue
 /// and walking it, running, crouching and hopping. The spin's pull, Coriolis, the air, the city's
 /// boxes and its ground, to the bit native and wasm.
-const INTERIOR_GOLDEN: u64 = 0xb564_e88b_98a8_28e1;
+const INTERIOR_GOLDEN: u64 = 0x47b8_278c_5f2e_7f1f;
 
 fn interior_hash() -> u64 {
     use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FLIGHT_ASSIST, GRIP};
@@ -1042,7 +1042,7 @@ fn interior_golden_wasm() {
 /// in the hall turning on its targets in turn and firing their beams, guns and missiles at them for
 /// ten seconds, one of them wandering out through the blast doors and back; the targets' tracks; and
 /// every training round that scored. The server's interior and each pilot's prediction run it alike.
-const HALL_GOLDEN: u64 = 0xf345_9107_f514_24fc;
+const HALL_GOLDEN: u64 = 0xe1ed_a7bb_b180_ca9f;
 
 fn hall_hash() -> u64 {
     use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST};

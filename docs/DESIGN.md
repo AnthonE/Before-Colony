@@ -82,13 +82,15 @@ Dolls on them.)
     holds the plain cruise, not boost's.
   - A holed tank refills at half the rate, and a failed one not at all: it leaks dry, and the suit
     flies on without boost.
-  - Pilots bear twice the G (12 g for good), as the show's do: a Gundam's boost doesn't black its
-    pilot out. A Wing Zero boosting on a nearly empty gauge (lighter, it pulls up to 16 g) still
-    can, and so can a pilot hurt by a struck cockpit.
+  - Pilots bear twice the G every way (12 g for good headward, 24 g pressed into the seat), as the
+    show's do: a Gundam's boost doesn't black its pilot out, even a Wing Zero's on a nearly empty
+    gauge (lighter, it pulls 16 g ahead). Diving hard on boost as well still can (their blood
+    driven to their head), and so can a pilot hurt by a struck cockpit, and so can a crash.
   - What the tank makes out there stays out there: under survival, a suit comes home with no more
     propellant than it launched with.
 - **Real.** Every newton burns propellant at `|F| / (Isp·g0)` (the rest of this section), and a
-  pilot bears 6 g. The tank is the sortie's delta-v: brake before you're dry.
+  pilot bears 6 g headward, more or less the other ways (**Pilot G**, below). The tank is the
+  sortie's delta-v: brake before you're dry.
 
 - **Thrust** is limited per axis: main (forward), side (lateral and vertical) and retro. Boost
   multiplies main thrust. Every newton burns propellant at `|F| / (Isp·g0)`, so mass falls as you
@@ -103,9 +105,11 @@ Dolls on them.)
   go. With it off you are fully Newtonian. **Brake** (X) always retro-burns.
   - It eases onto the velocity asked for over about a fifth of a second, so G fades in and out
     instead of switching on and off, and a stop settles rather than slamming.
-  - It spares the pilot's body: short of boost, it never pulls more than just under 6 g, whatever
-    the thrusters could do, so flying with it never blacks you out. Boost, or flight assist off,
-    gives you everything the thrusters have. (A Mobile Doll's flight assist snaps at full thrust.)
+  - It spares the pilot's body: short of boost, it never pulls more than just under what they bear
+    for good that way (12 g ahead, 9 g braking, 6 g up or across, 3 g diving: **Pilot G**),
+    whatever the thrusters could do, so flying with it never blacks you out. Boost, or flight
+    assist off, gives you everything the thrusters have. (A Mobile Doll's flight assist snaps at
+    full thrust.)
   - Held through a blackout, boost keeps flight assist aiming at the boosted cruise, so it doesn't
     brake while you're out.
 - **The burst step** (`flight::Burst`; double-tap a direction, or BURST on the wire with the stick
@@ -114,14 +118,47 @@ Dolls on them.)
   Locked on, it goes along the fight's axes, so A and D sidestep round the target and S jumps
   back. It burns as boost does (under the anime rules too: about 40 kg of a Leo's tank, and the
   gauge doesn't refill meanwhile), needs propellant, an awake pilot and boosters that work, and
-  the next can start 1.2 s after the last's press. Under the anime rules a pilot bears it; under
-  the real ones each step costs nearly half the G-strain to a blackout. Others see it as boost
+  the next can start 1.2 s after the last's press. A pilot bears it under either rules: it's over
+  long before their brain runs short (under the real ones it costs at most a twentieth of the
+  G-strain to a blackout). Others see it as boost
   (its plumes, its heat on sensors). It's the answer to a lunge and to a shot from far off: a
   rifle shot from 2 km takes half a second, which a step turns into about 12 m.
-- **Pilot G.** Sustained load above 6 g builds G-strain. At 100% the pilot blacks out and control
-  authority collapses until strain falls below 50%. A Wing Zero on boost pulls about 12 g, so you
-  *can* out-thrust your own body, as Zechs did in the Tallgeese. Mobile Dolls have no body, so no
-  G limit. Agents are pilots, so they do have one.
+- **Pilot G** (`flight::pilot_g`) is judged the way it pushes the pilot, who sits facing the
+  suit's nose (`flight::GEnvelope`, after NASA's centrifuge studies). Their blood is what gives
+  out: driven toward their feet it drains from the brain, and across the body it has hardly any
+  height to fall.
+
+  | The suit thrusts | The pilot is | Borne for good (real rules) |
+  |---|---|---|
+  | ahead (main, boost, a lunge) | pressed back into the seat ("eyeballs in") | 12 g |
+  | astern (retro, braking) | thrown forward into the straps ("eyeballs out") | 9 g |
+  | to either side | pushed across | 6 g |
+  | up | pressed down into the seat, their blood to their feet: the classic blackout | 6 g |
+  | down | lifted out of the seat, their blood to their head: a red-out | 3 g |
+
+  Loads every way add up as the table weighs them. Past what they bear, the pilot's brain gets
+  less blood, and two g past it none at all; it then runs on the oxygen it holds, about six
+  seconds' worth (`O2_BUFFER`). So G-strain builds to a blackout in six seconds at the quickest:
+  a spike (a burst step) is over before it matters, a hard push held isn't, and the view greys
+  out and closes in on the way. At 100% the pilot blacks out and control authority collapses until
+  strain falls below 50%, two seconds once the load is off (a real G-LOC lasts nearer half a
+  minute). A Wing Zero's boost (12 g ahead) is borne while its tank is full, but lighter (16 g by
+  the end) or climbing too, it's more than its pilot takes, so you *can* out-thrust your own body,
+  as Zechs did in the Tallgeese. Mobile Dolls have no body, so no G limit. Agents are pilots, so
+  they do have one.
+- **What's felt** is what pushes the suit: its thrust, the ground holding it up, inside the colony
+  the air, and a crash. Not what it falls under: coasting is weightless, inside the colony too
+  (its spin's pull and Coriolis are a free fall's), while standing in its city a pilot feels its
+  1 g, and on a rock in its grip 0.6 g. The HUD's G is that load.
+- **Crashes** (`flight::crash`). What a suit flies into stops its pilot over about a metre of give
+  (the frame's, the seat's), so a crash at v m/s jolts them at v²/2 m/s²: 20 g at 20 m/s, for a
+  tenth of a second. Weighed as G is, a jolt they bear for good they shrug off, four times that
+  knocks them out, and between, it strains them. A 10 m/s bump is nothing; under the real rules
+  face first into a rock at 27 m/s knocks a pilot out, feet first or side on at 22, head first at
+  15 and back first at 31 (under the anime rules, two fifths faster). The rocks, the landmarks, the
+  colony's hull and, inside it, its floor, glass, caps and buildings are all hard; the sector's
+  bounds aren't a wall. A suit on its feet or in a grip doesn't crash: its legs and the grip take
+  it.
 - **Hull contact.** The colony is solid: suits slide along the hull and beams splash against it.
 - **Rocks are solid too.** A suit that flies into one stops at its surface, losing its speed into
   it, and slides along it; nothing tunnels, even at 2 km/s. Shots stop at rocks, so a rock is
@@ -492,7 +529,7 @@ can take.
   - Neo-Bird for the long haul; the jammer while closing, holding fire so as not to break it;
     Full Open with a lock inside 1.2 km; the Cross Crusher at arm's length;
   - it breaks sideways from a missile tracking it, and minds its pilot's G: strained, it flies
-    unassisted at 5 g, which a pilot bears for good;
+    unassisted at 5 g (weighed each way as a body bears it), which a pilot bears for good;
   - it lets go of boost once its tank is down to 5%, until it's half full again (under anime
     rules a boost gauge fills only once boost is let go).
   The server's own Mobile Dolls, and a ZERO seizure, keep the plain doll's reflexes.

@@ -45,9 +45,12 @@ form of `bc_sim::colony` works there unchanged.
   `interior_sweep` replaces `colony_sweep` for the (non-existent) shots and for the suits' own
   motion. The city's boxes are queried by a suit's swept AABB, which is O(boxes near it), not
   O(city).
-- **Gravity and the spin's pull.** Inside the turning frame a free suit feels the centrifugal pull
-  `ω² r` (1 g at the floor), and Coriolis `−2 ω × v`. Both go into `flight::integrate` for
-  `Interior` only: a pure function of state, deterministic (libm), and allocation-free.
+- **Gravity and the spin's pull.** Inside the turning frame a free suit is pulled by the
+  centrifugal pull `ω² r` (1 g at the floor), and Coriolis `−2 ω × v`. Both go into
+  `flight::integrate` for `Interior` only: a pure function of state, deterministic (libm), and
+  allocation-free. Its pilot feels neither (a suit falling free is weightless), but standing on
+  the city they feel its g, and flying into the floor, the glass, a cap or a building is a crash
+  (`flight::crash`).
 - **Standing and walking** (built). The city is the interior sector's one body, `Body::City`,
   still at its origin; `ground::move_step` moves every suit there as it does in space (a free
   suit taking `colony::interior::step`). With its grip armed (L) a suit coming in slow over the
@@ -65,7 +68,8 @@ form of `bc_sim::colony` works there unchanged.
   than a suit (stance from each wall) can't be stood in.
 - **Air.** The interior has air: drag on a suit (`½ ρ C A v²`, with `ρ` 1.2 kg/m³) goes into
   `integrate` for `Interior`, which caps speeds near the ground at about 120 m/s and makes hovering
-  cost propellant (`tuning`'s thrust against its weight). Whether propellant burns faster in air
+  cost propellant (`tuning`'s thrust against its weight). Its pilot feels the drag as they feel
+  thrust: nearly 4 g in a Leo coasting at 200 m/s. Whether propellant burns faster in air
   is an open question (below).
 
 ## Weapons safe
