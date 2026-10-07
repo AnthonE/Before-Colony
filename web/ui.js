@@ -1004,12 +1004,12 @@
     if (!b.wanted || !b.wanted.length) return "";
     const now = Date.now() / 1000;
     const terms = (salvage, label) => button(label, { act: "ace-terms", salvage: salvage ? "1" : "0" }, !!b.salvage_terms === salvage ? "primary" : "");
-    let out = `<section><h3>MOST WANTED</h3><div class="note">Zodiac's aces fly among the Dolls one at a time, each in a Doll tuned by hand. Down one and the Charter Board pays its bounty; or, on your terms, the tugs bring its wreck home to your stores instead, if nobody gets to it first.</div>` +
+    let out = `<section><h3>MOST WANTED</h3><div class="note">Zodiac's aces fly among the Dolls one at a time, each a Doll tuned by hand. Down one and the Charter Board pays its bounty; or, on your terms, the tugs bring its wreck home to your stores instead, if nobody gets to it first.</div>` +
       `<div class="row">${terms(false, "TERMS: THE BOUNTY")} ${terms(true, "TERMS: ITS WRECK")}</div>`;
-    out += `<table><tr><th>ACE</th><th class="num">BOUNTY</th><th>LAST DOWNED</th></tr>` +
+    out += `<table><tr><th>ACE</th><th>LAST DOWNED</th><th class="num">BOUNTY</th></tr>` +
       b.wanted.map((w) => `<tr${w.out ? ' class="chosen"' : ""}><td>${esc(w.name)}${w.out ? ' <span class="bid">OUT NOW</span>' : ""}</td>` +
-        `<td class="num">${fmt(w.bounty)} CR</td>` +
-        `<td class="dim">${w.last ? `${esc(w.last.by)}, ${secs(Math.max(0, Math.floor(now - w.last.at)))} ago` : "never"}</td></tr>`).join("") + `</table>`;
+        `<td class="dim">${w.last ? `${esc(w.last.by)}, ${secs(Math.max(0, Math.floor(now - w.last.at)))} ago` : "never"}</td>` +
+        `<td class="num">${fmt(w.bounty)} CR</td></tr>`).join("") + `</table>`;
     const ladder = b.ladder || [];
     out += ladder.length
       ? `<div class="note">Aces downed: ${ladder.map(([n, k]) => `${esc(n)} ${fmt(k)}`).join(" · ")}${b.mine_aces ? ` · you ${fmt(b.mine_aces)}` : ""}</div>`
