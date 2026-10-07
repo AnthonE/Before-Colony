@@ -106,14 +106,14 @@ pub enum SpecialKind {
     },
     /// Press (SPECIAL): Full Open Attack. Every ranged weapon (the special mounts too) fires along
     /// the aim for `ticks`, heat ignored; then a forced overheat for `lockout` ticks. Ready again
-    /// `cooldown` ticks after it starts.
+    /// `cooldown` ticks after it starts, sooner in a fight (`content::specials`).
     FullOpen {
         ticks: u16,
         lockout: u16,
         cooldown: u16,
     },
     /// Press (SPECIAL): a melee move with the special mount's weapon (Cross Crusher), ready again
-    /// `cooldown` ticks after it starts.
+    /// `cooldown` ticks after it starts, sooner in a fight (`content::specials`).
     MeleeMove {
         cooldown: u16,
     },
@@ -130,6 +130,15 @@ impl SpecialKind {
         match self {
             SpecialKind::Transform { to, .. } => Some(to),
             _ => None,
+        }
+    }
+
+    /// Ticks the special takes to charge back by itself after it's used (0: it has no cooldown,
+    /// `content::specials`).
+    pub fn cooldown(self) -> u16 {
+        match self {
+            SpecialKind::FullOpen { cooldown, .. } | SpecialKind::MeleeMove { cooldown } => cooldown,
+            SpecialKind::None | SpecialKind::Transform { .. } | SpecialKind::HyperJammer { .. } => 0,
         }
     }
 }
@@ -509,7 +518,8 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
         ],
         zero: false,
         playable: true,
-        special: SpecialKind::FullOpen { ticks: 90, lockout: 150, cooldown: 900 },
+        // 45 s to charge by itself, sooner in a fight (`content::specials`).
+        special: SpecialKind::FullOpen { ticks: 90, lockout: 150, cooldown: 1_350 },
         special_mounts: [
             mount(WeaponKind::ChestGatling, ArmSlot::Chest),
             mount(WeaponKind::MicroMissile, ArmSlot::LegPods),

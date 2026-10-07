@@ -14,6 +14,7 @@ pub mod melee;
 pub mod modules;
 mod names;
 pub mod salvage;
+pub mod specials;
 pub mod stagger;
 pub mod systems;
 mod weapons;

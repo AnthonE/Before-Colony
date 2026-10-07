@@ -376,8 +376,22 @@ exactly.
   of its 8 s life.
 - **Full Open Attack** (Heavyarms, SPECIAL): for three seconds every hatch opens and everything
   fires along the aim, heat or not: the beam gatling, both launchers and the chest gatlings,
-  about 24 missiles. Then the suit is locked in an overheat for 5 s, and it's ready again 30 s
-  after it started.
+  about 24 missiles. Then the suit is locked in an overheat for 5 s. It charges back over 45 s,
+  sooner in a fight (below).
+
+### Specials charged by the fight
+
+Titanfall's Core (`PEERS.md`, "The mech games"): power is earned in the fight
+(`bc_sim::content::specials`).
+
+- A special with a cooldown (Full Open Attack, 45 s; the Cross Crusher, 8 s) charges back by itself
+  over it, and faster from the fight. Every armour point the suit's blows take off a hostile suit
+  takes 1/450 of the whole off what's left, and every point it takes, 1/300. A Heavyarms that deals
+  450 or takes 300 has its Full Open back at once.
+- The special's own blows charge nothing: not the Cross Crusher's shotels, and nothing at all
+  until Full Open's lockout is over.
+- A suit launches with its special charged. The HUD shows it charging (`H FULL OPEN ATTACK
+  CHARGING ||||···· 52%`), and the own state carries the charge (protocol v25).
 
 ### Melee
 
@@ -1174,7 +1188,7 @@ seizure or in Neo-Bird form the keys fly as they always do.
 
 **Lock assist.** A frame with missiles designates the hostile nearest the reticle (within 10°) and
 keeps it while it stays within 15°. Its bracket fills as the lock builds and reads LOCKED when it's
-acquired. The HUD shows the special's state (READY, JAMMING, FIRING, the cooldown), the lock, and
+acquired. The HUD shows the special's state (READY, JAMMING, FIRING, its charge), the lock, and
 MISSILE LOCK and MISSILE warnings, with a marker on each missile tracking you.
 
 ## Roadmap after Milestone 4

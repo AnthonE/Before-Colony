@@ -1,8 +1,12 @@
-# Before Colony wire protocol (v24)
+# Before Colony wire protocol (v25)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v25 (from v24): specials charged by the fight (`docs/DESIGN.md`, "Specials charged by the
+fight"): the own state's special cooldown (8 bits, ticks ÷ 4) is now the special's charge (8 bits,
+in 255ths: 255 charged), since the fight takes time off it.
 
 v24 (from v23): stagger (`docs/DESIGN.md`, "Stagger"): the events' second extension (the
 extension's sub-kind 7 is now a 4-bit sub-kind of its own), whose sub-kind 0 is `Staggered`; in
@@ -108,7 +112,7 @@ exactly `tick − 8`, so the 8-bit field's saturation at 15.9 ticks loses nothin
 | Section | Content |
 |---|---|
 | header (116 bits) | kind=2, tick, ack_input_tick, input_health (i8), time_echo_ms, echo_hold_ms, tidi_pct, flags |
-| own (1 + 813..833 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, systems (24), modules (20), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, the rack (8: 2 bits a consumable), a stim's clock (12, ticks), extra mass (kg, i18), cargo ×4 (kg, 14 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special cooldown (8, ticks ÷ 4), arms (46, below), burst step (17, below), footing (2), cover (2), doom (5, steps of 3 ticks until a doomed suit's reactor goes, rounded up; 0: not doomed, v23; in steps since v24), impact (3, sixths of what the suit stands, v24), stagger (5, ticks left; 0: steady, v24), the designated target's impact (3, sixths; 7: staggered, v24), and on a body its body (6 or 12) and stance (8) (below) |
+| own (1 + 813..833 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, systems (24), modules (20), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, the rack (8: 2 bits a consumable), a stim's clock (12, ticks), extra mass (kg, i18), cargo ×4 (kg, 14 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special charge (8, 255ths: 255 charged, or nothing to charge; ticks ÷ 4 of its cooldown before v25), arms (46, below), burst step (17, below), footing (2), cover (2), doom (5, steps of 3 ticks until a doomed suit's reactor goes, rounded up; 0: not doomed, v23; in steps since v24), impact (3, sixths of what the suit stands, v24), stagger (5, ticks left; 0: steady, v24), the designated target's impact (3, sixths; 7: staggered, v24), and on a body its body (6 or 12) and stance (8) (below) |
 | ZERO (1 + ≤200 bits) | source_jev, advice_age, threat_count, per threat {slot, 7 × p}, rec_target + p, rec_maneuver + p, threat_level + confidence, flanked, has_solution, solution (oct 2×12), hit_p |
 | events | repeated `[1][event]`, closed by `[0]` |
 | rocks | repeated `[1][rock]` (18 bits each), closed by `[0]` |

@@ -791,7 +791,11 @@ fn secs(ticks: f32) -> f32 {
 fn special_line(spec: &FrameSpec, o: &OwnState, asked: bool) -> Option<String> {
     let active = o.flags & own_flags::SPECIAL_ACTIVE != 0;
     let ready = o.weapon_ready & 8 != 0;
-    let cooling = || format!("{:.0} s", secs(f32::from(o.special_cooldown) * 4.0).ceil());
+    // Charging back, by itself and faster from the fight (`bc_sim::content::specials`).
+    let cooling = || {
+        let share = f32::from(o.special_charge) / 255.0;
+        format!("CHARGING {} {:>3.0}%", bar(share, 8), (share * 100.0).floor())
+    };
     let timer = secs(f32::from(o.special_timer));
     let (name, state) = match spec.special {
         SpecialKind::None => return None,

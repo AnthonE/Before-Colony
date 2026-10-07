@@ -221,7 +221,7 @@ impl Sim {
             lock_target: self.designation(i).map_or(bc_proto::NO_SLOT, |j| j as u16),
             lock_progress,
             special_timer: special_timer.min(255) as u8,
-            special_cooldown: s.special[i].cooldown.div_ceil(4).min(255) as u8,
+            special_charge: self.special_charge(i),
             arms: self.own_arms(i),
             burst: f.burst,
             surface,

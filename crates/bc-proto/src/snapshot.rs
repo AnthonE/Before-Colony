@@ -202,8 +202,9 @@ pub struct OwnState {
     pub lock_progress: u8,
     /// Ticks left in the special under way: the transformation, Full Open Attack.
     pub special_timer: u8,
-    /// Until the special is ready again, in ticks divided by 4.
-    pub special_cooldown: u8,
+    /// How charged the frame's special is, in 255ths (255: charged, or it has nothing to charge;
+    /// v25: the fight charges it, `bc_sim::content::specials`).
+    pub special_charge: u8,
     /// What the arms are doing, for the client to roll on tick by tick.
     pub arms: OwnArms,
     /// The burst step's state (`bc_sim::flight::Burst`), for the client to roll on.
@@ -424,7 +425,7 @@ impl Default for OwnState {
             lock_target: crate::NO_SLOT,
             lock_progress: 0,
             special_timer: 0,
-            special_cooldown: 0,
+            special_charge: 0,
             arms: OwnArms::default(),
             burst: OwnBurst::default(),
             surface: None,
@@ -708,7 +709,7 @@ impl<'a> SnapshotWriter<'a> {
         w.write_bits(u32::from(o.lock_target.min(crate::NO_SLOT)), SLOT_BITS);
         w.write_bits(u32::from(o.lock_progress.min(15)), LOCK_PROGRESS_BITS);
         w.write_u8(o.special_timer);
-        w.write_u8(o.special_cooldown);
+        w.write_u8(o.special_charge);
         let a = &o.arms;
         w.write_bits(u32::from(a.phase & 3), 2);
         w.write_bits(u32::from(a.timer.min(ARMS_MAX_TIMER)), ARMS_TIMER_BITS);
@@ -1034,7 +1035,7 @@ impl<'a> SnapshotReader<'a> {
         o.lock_target = r.read_bits(SLOT_BITS) as u16;
         o.lock_progress = r.read_bits(LOCK_PROGRESS_BITS) as u8;
         o.special_timer = r.read_u8();
-        o.special_cooldown = r.read_u8();
+        o.special_charge = r.read_u8();
         let a = &mut o.arms;
         a.phase = r.read_bits(2) as u8;
         a.timer = r.read_bits(ARMS_TIMER_BITS) as u8;

@@ -34,7 +34,7 @@ fn golden_hash_wasm() {
 /// Hash after 450 ticks of the Gundams duelling in pairs among Mobile Dolls: every blade, the
 /// Cross Crusher, the Dragon Fang, the flamethrower, the Hyper Jammer, guided missiles, Full Open,
 /// Neo-Bird and the Gundams' guns (changes deliberately as their mechanics arrive).
-const GUNDAMS_GOLDEN: u64 = 0x2a4f_43ff_e952_67e7;
+const GUNDAMS_GOLDEN: u64 = 0x0576_a5fb_4fba_e085;
 
 fn gundams_hash() -> u64 {
     use bc_proto::events::Event;
@@ -113,7 +113,7 @@ fn gundams_golden_wasm() {
 /// Hash after 450 ticks of pilots locked on to their foes (`bc_proto::LockOn`): flight assist
 /// holding each foe's velocity in the fight's axes, levelled to the colony's up, closing in and
 /// circling, burst-stepping now and then, among Mobile Dolls.
-const LOCKON_GOLDEN: u64 = 0x573a_8189_79f9_7615;
+const LOCKON_GOLDEN: u64 = 0x7c9d_70e4_8317_f9f9;
 
 fn lockon_hash() -> u64 {
     let (mut sim, duels) = common::gundam_crowd(8, 12, 21);

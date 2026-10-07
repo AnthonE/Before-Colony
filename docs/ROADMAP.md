@@ -16,6 +16,7 @@ the bay, space, home).
 | Living in the colony, L0: seats, the body and its meals (`LIFE.md`) | built (a framework: nothing on the wire yet) |
 | The mech games, 15: doom, ejecting and the self-destruct | built |
 | The mech games, 16: stagger | built |
+| The mech games, 17: specials charged by the fight | built |
 | The mech games, 22: staying up under abuse | built |
 | P1's rest, P2, the mech games' rest below | planned |
 
@@ -196,6 +197,20 @@ Battalion, Mecha BREAK and Daemon X Machina teach, in its list's order (15 to 22
   for its Full Open, staggered again and again, predicted exactly), `no_alloc`, the proto round
   trips and budgets. Five determinism goldens are re-recorded, native and wasm alike: their fights
   now stagger (the surface scenario's Heavyarms, staggered by the Dolls, fires once it's steady).
+
+**17. Specials charged by the fight.** *Built* (protocol v25; `DESIGN.md`, "Specials charged by the
+fight").
+- `bc_sim::content::specials`: a blow dealt takes 1/450 of a special's whole cooldown off what's
+  left, a blow taken 1/300 (`DEALT_FULL`, `TAKEN_FULL`). Full Open takes 45 s by itself (it was
+  30 s), the Cross Crusher 8 s.
+- `Sim::charge_special`, from `damage_step`: never from the special's own blows, nor while Full
+  Open is under way or locked out. `Sim::special_charge` is what the own state carries, in 255ths
+  (it was the cooldown in ticks ÷ 4). The state hash covers a special under way or charging.
+- The HUD's `CHARGING ||||···· 52%`; `bc-bot`'s `special_charge`. The pilot's client hears of the
+  fight's share from its own state, a snapshot late, as it hears of the blow.
+- Tests: `full_open.rs` (its barrage charges nothing; dealt and taken take their shares; the own
+  state's charge; a hard fight charges it in full), `melee.rs` (the Cross Crusher's own blows).
+  The Gundams duel's golden is re-recorded, and the lock-on scenario's for the hash's new reach.
 
 **22. Staying up.** *Built* (`ARCHITECTURE.md`, "Under abuse").
 - The review found inputs, poses and the radio limited, sign-ins waiting on a wallet capped, and

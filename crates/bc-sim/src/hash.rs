@@ -58,6 +58,12 @@ pub fn state_hash(sim: &Sim) -> u64 {
             h.f32(s.impact[i]);
             h.u32(0x57A6_0000 | u32::from(s.stagger[i]));
         }
+        // Its special under way or charging back (only then), which the fight charges.
+        let sp = &s.special[i];
+        if sp.active || sp.timer > 0 || sp.cooldown > 0 || sp.lockout > 0 {
+            h.u32(0x5BEC_0000 | u32::from(sp.active) | u32::from(sp.timer) << 1);
+            h.u32(u32::from(sp.cooldown) | u32::from(sp.lockout) << 16);
+        }
         // Doomed, or blown apart (only then: a suit never breached hashes as it always has).
         let d = s.doom[i];
         if d.left > 0 || s.blown.get(i) {

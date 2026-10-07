@@ -340,6 +340,12 @@ impl BotClient {
         self.core.world.own.is_some_and(|o| o.alive) && self.core.predict.stagger > 0
     }
 
+    /// How charged the suit's special is, 0..1 (1: charged, or it has nothing to charge): by
+    /// itself over its cooldown, and faster from the fight (`bc_sim::content::specials`).
+    pub fn special_charge(&self) -> f32 {
+        self.core.world.own.map_or(0.0, |o| f32::from(o.special_charge) / 255.0)
+    }
+
     /// The impact on the suit's attitude control, as a share of what it stands (1 staggered).
     pub fn impact(&self) -> f32 {
         let max = f32::from(bc_proto::snapshot::IMPACT_MAX);

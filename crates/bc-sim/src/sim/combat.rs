@@ -512,7 +512,18 @@ impl Sim {
                 self.suits.stats[shooter].hits += 1;
                 self.suits.stats[shooter].hits_by_class[weapon(d.weapon).class as usize] += 1;
                 self.suits.stats[shooter].damage_dealt += dealt;
+                // The fight charges the shooter's special (not its own blows: `content::specials`)...
+                let own = frame(self.suits.frame[shooter])
+                    .special_mounts
+                    .iter()
+                    .flatten()
+                    .any(|m| m.weapon == d.weapon);
+                if shooter != j && self.suits.alive.get(shooter) && !own {
+                    self.charge_special(shooter, dealt / crate::content::specials::DEALT_FULL);
+                }
             }
+            // ...and the target's.
+            self.charge_special(j, dealt / crate::content::specials::TAKEN_FULL);
             self.events.push(Event::Hit {
                 id: 0,
                 tick: t,

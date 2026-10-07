@@ -448,7 +448,7 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
 16. **Stagger** (Armored Core VI): impact overloads a suit's attitude control, and a staggered
     suit tumbles for a second, its thrust and weapons down, and takes direct hits. *Built.*
 17. **Specials charged by the fight** (Titanfall's Core): Full Open Attack charges slowly by
-    itself and faster from damage dealt and taken.
+    itself and faster from damage dealt and taken. *Built*, for the Cross Crusher too.
 18. **A debrief** (Armored Core VI's payout; X-Wing's debrief): what a sortie earned and cost,
     on the way home.
 19. **The enemy's gun** (Daemon X Machina): a weapon on a limb in hand fires from that hand.
