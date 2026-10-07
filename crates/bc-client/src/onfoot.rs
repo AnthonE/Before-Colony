@@ -74,6 +74,9 @@ const KLAXON_SECS: f32 = 0.8;
 /// The catapult's run down the tunnel, s, and how hard it throws, m/s².
 const CATAPULT_SECS: f32 = 3.2;
 const CATAPULT_ACCEL: f32 = 49.0;
+/// The suit lets go of its bay's cradle this long before the catapult's throw ends on screen (the
+/// round trip to the server, so it's out of the door as the view cuts to it).
+const RELEASE_LEAD: f32 = 0.35;
 /// A homecoming: the suit glides in from this far down the tunnel, m, taking this long, s; the
 /// doors start to close once it's through; the pilot climbs out at the end.
 const ARRIVE_FROM: f32 = 170.0;
@@ -770,17 +773,27 @@ fn ask(net: &NetState, game: &crate::net::Game, req: &Request) {
     }
 }
 
+/// Whether a launch sequence at `t` seconds into `seq` still holds the suit in its bay's cradle:
+/// until the catapult's throw ends, a moment before the cut to space.
+fn holds_the_bay(seq: Seq, t: f32) -> bool {
+    match seq {
+        Seq::Boarding | Seq::Venting => true,
+        Seq::Catapult => t < CATAPULT_SECS - RELEASE_LEAD,
+        _ => false,
+    }
+}
+
 /// What using a place is called on the prompt.
 fn verb(spot: Spot, bay: Option<&Bay>, colony: bool) -> String {
     match (spot, bay) {
         (Spot::Cockpit, Some(Bay::Docked { .. })) if colony => {
-            "BOARD & LAUNCH · Q  INTO THE COLONY, BY THE INNER GATE".into()
+            "LAUNCH INTO SPACE · Q  LAUNCH INTO THE COLONY, BY THE INNER GATE".into()
         }
-        (Spot::Cockpit, Some(Bay::Docked { .. })) => "BOARD & LAUNCH".into(),
+        (Spot::Cockpit, Some(Bay::Docked { .. })) => "BOARD & LAUNCH INTO SPACE".into(),
         (Spot::Cockpit, Some(Bay::Out { .. })) => "COCKPIT: YOUR SUIT IS OUT".into(),
         (Spot::Cockpit, _) => "COCKPIT: THE GANTRY IS EMPTY".into(),
         (Spot::Airlock, _) if colony => "AIRLOCK: THE CAP LIFT, DOWN INTO THE COLONY".into(),
-        (Spot::Airlock, _) => "AIRLOCK: LEAVE THE BAY".into(),
+        (Spot::Airlock, _) => "AIRLOCK: LEAVE THE BAY · THE CAP LIFTS ARE CLOSED".into(),
         (spot, _) => spot.name().into(),
     }
 }
@@ -925,6 +938,11 @@ pub fn drive_onfoot(
             me.done(now);
         }
         _ => {}
+    }
+    // The catapult fires as its throw ends on screen (or the launch is skipped, refused, or over):
+    // the suit lets go of its bay's cradle and is thrown out of the door.
+    if g.bay_hold && !holds_the_bay(me.seq, me.t(now)) {
+        g.bay_hold = false;
     }
     let inside = me.seq.indoors() || matches!(place, Some(Place::Hangar | Place::City));
     if indoors.0 != inside {
@@ -1172,6 +1190,9 @@ pub fn drive_onfoot(
                     me.launching = Some(suit.clone());
                     me.from = (me.walker.eye(), me.walker.look());
                     me.start(Seq::Boarding, now);
+                    // Out into space, the suit rides the bay's cradle in its door until the
+                    // catapult fires at the end of the sequence (`release_bay`).
+                    g.bay_hold = !inward;
                     ask(&net, &g, if inward { &Request::LaunchInside } else { &Request::Launch });
                 }
                 (Spot::Cockpit, Some(Bay::Out { .. })) => ui.toast("YOUR SUIT IS OUT IN THE SECTOR"),
@@ -1183,8 +1204,10 @@ pub fn drive_onfoot(
                     me.start(Seq::LiftDown, now);
                     ask(&net, &g, &Request::EnterCity { strip: 0 });
                 }
+                // The colony closed (arcade rules, or `--no-colony`): the airlock only leads out.
                 (Spot::Airlock, _) => {
                     me.airlock_until = now + 1.5;
+                    ui.toast("THE CAP LIFTS ARE CLOSED: THIS SERVER KEEPS THE COLONY SHUT");
                     ui.open_pause();
                 }
                 (terminal, _) => ui.panel = Panel::Terminal(terminal),
@@ -1475,6 +1498,8 @@ pub fn publish_onfoot(
     };
     dev.set("bay", bay);
     dev.set("bay_line", line);
+    // The pilot's bay on the ring, by number: their suit launches out of its door.
+    dev.set("bay_no", u32::from(h.bay));
     // What's broken inside the suit in the bay, and what it carries.
     let suit = h.view.as_ref().and_then(|v| match &v.bay {
         Bay::Docked { suit } | Bay::Out { suit } => Some(suit),

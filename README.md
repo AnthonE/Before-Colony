@@ -21,8 +21,11 @@ A Gundam Wing mobile-suit MMO prototype.
   docking hub, with a worn-out Leo. Walk the bay in first person, fabricate parts from what you
   mine and salvage, and trade on the **Colony Exchange** (order books, with the colony as a market
   maker whose prices follow its stock). A Gundam takes tonnes of exotic metals and gundanium that
-  only the colony's zero-G foundry can make. Launch through the bay doors, dock to come home; a suit
-  destroyed out there is gone.
+  only the colony's zero-G foundry can make. Launch out of your bay's own door on the spinning bay
+  ring, and come home through the docking hub (at rest in the dock's ring of lights, or landed on
+  the hub's end face and walked in at its deck hatch); a suit destroyed out there is gone. Your
+  bay's airlock leads down the cap lift into the colony's city, where you walk, ride its trams and
+  drive its cars, and the Proving Ground trains you.
 
 - **Server:** Rust. One allocation-free, lock-free simulation thread per sector at 30 Hz.
 - **Client:** Bevy 0.19 compiled to WebAssembly, in the browser (WebGL2 or WebGPU).
@@ -62,8 +65,15 @@ BC_RULES=arcade scripts/dev.sh   # the arcade rules instead: any frame, free res
 Open <http://127.0.0.1:8080> in Chrome or Edge, enter a callsign and LAUNCH. You come in through
 your bay's airlock: click the game to look around, walk with W/A/S/D, and press E at the
 fabricator, the stores' racks, the exchange terminal, the suit's console or (up the stairs, on the
-catwalk) the cockpit hatch, which launches you. Out there, come to rest inside the dock's ring of
-lights and press Enter to go home. Esc opens the menu and F1 lists the controls. `?autoplay=1`
+catwalk) the cockpit hatch. There E launches you into space: the catapult throws your suit out of
+your bay's own door on the spinning bay ring, at the ring's 125 m/s. Q launches it into the colony
+instead, out of the port by its inner gate. Out there, go home through the docking hub on the
+colony's axis: come to rest inside the dock's ring of lights off the hub's mouth and press Enter, or
+arm the grip (L), land on the hub's end face near its middle, walk onto the deck hatch and press
+Enter. On foot, E at the airlock rides the cap lift down into the colony's city (M for its map, the
+trams stop at the platforms, E at a motor pool takes a car), and E at Hub Gate's lift brings you
+back up. The colony is open by default; `BC_COLONY=0 scripts/dev.sh` (the server's `--no-colony`)
+closes it. Esc opens the menu and F1 lists the controls. `?autoplay=1`
 skips the title screen. Add `?autopilot=1` to watch the kit-aware Mobile Doll brain fly your suit
 with the ZERO System engaged (it walks to the cockpit and launches first), and, under arcade rules,
 `?frame=leo|wingzero|heavyarms|deathscythe|sandrock|shenlong` to pick it.
@@ -86,7 +96,7 @@ self-signed certificate depends on `serverCertificateHashes` pinning, and that m
 | H | the frame's special: Neo-Bird or the Hyper Jammer on/off; Full Open Attack or the Cross Crusher |
 | V · Z | flight assist · ZERO System |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
-| Enter | dock: at rest inside the dock's ring of lights, into your bay |
+| Enter | dock: at rest inside the dock's ring of lights, or standing on the hub's deck hatch, into your bay |
 | 1–6 | arcade rules: respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
 | Esc · F1 · F10 | menu · controls · graphics quality |
 
@@ -106,7 +116,8 @@ sector with you asleep in the cockpit, drifting on as it was; you wake in it whe
 against an asteroid first (the HUD reads PARKED) and it stays put there, hidden from sensors beyond
 400 m. Mobile Dolls leave sleepers alone, but other pilots can hunt them.
 
-Server flags: `--rules survival|arcade` (default survival), `--data-dir DIR` (keep pilot records,
+Server flags: `--rules survival|arcade` (default survival), `--no-colony` (close the colony: no cap
+lifts down into its city, no suits inside it; open by default under survival rules), `--data-dir DIR` (keep pilot records,
 their hangars, and the exchange in files there; otherwise they last one run), `--craft-speed X`
 (the fabricator works X times faster, for testing), `--mobile-dolls N`, `--max-clients N`,
 `--oracle local|jev`, `--mode echo`, `--siwe-domain HOST` (the host pages are served from, which

@@ -611,7 +611,7 @@ impl Session<'_> {
     }
 
     async fn send_place(&mut self) -> anyhow::Result<()> {
-        let bay = (self.slot % 99 + 1) as u8;
+        let bay = bc_sim::colony::hub::bay_of_slot(self.slot);
         let strip = (self.place == Place::City).then_some(self.strip);
         self.send(&Update::Place { place: self.place, bay, strip, trainer: self.trainer }).await
     }
@@ -1412,12 +1412,14 @@ impl Session<'_> {
             // What the sector had left to say about the suit: that it was left in a hide spot
             // (survival), or destroyed on the way out (with the bounties it had earned). Nothing
             // of it is for whoever has the slot next.
-            let (mut parked, mut bounty) = (None, 0);
+            let (mut parked, mut bounty, mut home) = (None, 0, None);
             while let Some(report) = self.lease.as_mut().and_then(|l| l.reports.pop().ok()) {
                 match report {
                     Report::Parked { rec, tick } => parked = Some((rec, tick)),
                     Report::Lost { bounty: b } => bounty = b,
-                    Report::Home(_) | Report::DockRefused | Report::Course { .. } | Report::Drill { .. } => {}
+                    // Left before the catapult threw it out: it's still in the bay.
+                    Report::Home(h) => home = Some(h),
+                    Report::DockRefused | Report::Course { .. } | Report::Drill { .. } => {}
                 }
             }
             let asleep = match (status.outcome(), status.suit_id()) {
@@ -1440,7 +1442,14 @@ impl Session<'_> {
                 let _ = game.pilots.suit_gone((suit, generation));
                 forget(game, suit, self.pilot);
                 if self.survival() && matches!(self.hangar.bay, Bay::Out { .. }) {
-                    self.hangar.lost(bounty);
+                    match home {
+                        Some(h) => {
+                            self.hangar.came_home(&h);
+                        }
+                        None => {
+                            self.hangar.lost(bounty);
+                        }
+                    }
                 }
             }
             if let Some(r) = self.record.as_mut() {

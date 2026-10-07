@@ -90,12 +90,15 @@ for it, but outside the hall they find nothing to do: every golden of the interi
 
 ## Getting in and out
 
-- **From the bay**: a new `Request::Launch { into: Colony }`. The bay's catapult throws the suit up
+- **From the bay** (built): `Request::LaunchInside` (Q at the cockpit). The bay's catapult throws the suit up
   an inner tunnel instead of the outer one: the session hands the pilot's slot to `sector-1`
   (the Welcome's sector becomes 2), and the suit appears at an inner launch gate near the axis at
   the docking hub's end (x ≈ −15,800, r ≈ 300 m), slow, nose down the colony, on flight assist:
   until its pilot is first heard from, that holds it by the gate (a page still catching up after
-  the launch would otherwise find it fallen to the floor).
+  the launch would otherwise find it fallen to the floor). The client draws a lit port in the end
+  cap's inner face behind the gate (`colony::interior::INNER_PORT`), and its launch shot shows the
+  suit coming out of it (`bc-client`'s `launch_shot`: only the drawing; the suit is where the
+  server put it).
 - **Back**: at rest inside the inner gate's ring of lights, Enter docks, as the outer dock does
   today (`Request::Dock`), back to the bay.
 - **From the Blast Hall's gantry** (built, `TRAINING.md` phase 3): on foot in the city, a pilot

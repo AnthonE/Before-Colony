@@ -413,10 +413,15 @@ impl Predictor {
         cmd: &InputCmd,
     ) -> MoveOut {
         // Inside the colony its law clears the weapons' buttons but in the Blast Hall, from where
-        // the suit is as the tick starts, as the server's tick does (`Sim::colony_law`).
+        // the suit is as the tick starts, as the server's tick does (`Sim::colony_law`); in its
+        // bay's cradle, the bay's law clears them and a change of form (`Sim::bay_law`).
         let lawful;
+        let in_bay = m.footing != Footing::Free && matches!(m.anchor.body, Body::Bay(_));
         let cmd = if flying.mods.interior && !bc_sim::colony::hall::weapons_free(m.flight.pos) {
             lawful = InputCmd { buttons: cmd.buttons & !bc_proto::buttons::FIRE_MASK, ..*cmd };
+            &lawful
+        } else if !flying.mods.interior && in_bay {
+            lawful = InputCmd { buttons: cmd.buttons & !bc_sim::sim::bay_cleared(), ..*cmd };
             &lawful
         } else {
             cmd
@@ -493,6 +498,7 @@ impl Predictor {
     pub fn body_pose(&self, body: Body, t: f64) -> Option<BodyPose> {
         match body {
             Body::City => self.interior.then(|| BodyPose::fixed(Vec3::ZERO, glam::Quat::IDENTITY)),
+            Body::Bay(_) if self.interior => None,
             _ => body_pose(&self.field, self.landmarks(), body, t),
         }
     }
@@ -501,7 +507,17 @@ impl Predictor {
     fn shape_of(&self, body: Body) -> Option<bc_sim::bodies::Shape> {
         match body {
             Body::City => self.interior.then(bc_sim::bodies::Shape::city),
+            Body::Bay(_) if self.interior => None,
             _ => body_shape(&self.field, self.landmarks(), body),
+        }
+    }
+
+    /// The bay the suit is riding in its catapult's cradle, waiting to be thrown out of the door
+    /// (`bc_sim::colony::hub`), after the newest command.
+    pub fn bay(&self) -> Option<u8> {
+        match (self.footing, self.anchor.body) {
+            (Footing::Grounded | Footing::Aloft, Body::Bay(n)) => Some(n),
+            _ => None,
         }
     }
 

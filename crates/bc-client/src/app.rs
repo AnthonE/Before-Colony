@@ -82,6 +82,7 @@ pub fn run() {
             .insert_resource(settings)
             .insert_resource(store)
             .init_resource::<HintState>()
+            .init_resource::<crate::launch_shot::LaunchShot>()
             .insert_non_send(game_client(&cfg))
             .insert_resource(Pilot::new(cfg.name.clone(), frame))
             .init_resource::<Controls>()
@@ -122,6 +123,7 @@ pub fn run() {
                     track_bodies,
                     sync_view,
                     crate::onfoot::drive_onfoot,
+                    crate::launch_shot::begin_launch_shot,
                     crate::people::fill_crowd,
                     crate::rocks::follow_server_field,
                     crate::rocks::follow_rock_states,
@@ -132,7 +134,14 @@ pub fn run() {
             )
             .add_systems(
                 Update,
-                (follow, pilot_effects, crate::onfoot::onfoot_camera).chain().in_set(Vis::Camera),
+                (follow, crate::launch_shot::launch_camera, pilot_effects, crate::onfoot::onfoot_camera)
+                    .chain()
+                    .in_set(Vis::Camera),
+            )
+            .add_systems(
+                Update,
+                (crate::launch_shot::open_bay_doors, crate::launch_shot::publish_launch_shot)
+                    .after(crate::launch_shot::begin_launch_shot),
             )
             .add_plugins(crate::audio::AudioPlugin)
             .add_systems(First, crate::audio::build_bank)

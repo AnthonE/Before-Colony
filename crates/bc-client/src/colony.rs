@@ -13,7 +13,8 @@ use std::f32::consts::{FRAC_PI_3, FRAC_PI_6, TAU};
 
 use bc_sim::colony::frame::{FIRST_WINDOW, STRIPS, window_centre};
 use bc_sim::colony::hub::{
-    BAY_RADIUS, BAY_RING_INNER, BAY_RING_OUTER, BAY_RING_X, BAYS, SPIRE_RADIUS, SPIRE_TIERS, SPOKES,
+    BAY_DOOR_X, BAY_RADIUS, BAY_RING_INNER, BAY_RING_OUTER, BAY_RING_X, BAYS, DECK_HATCH_RADIUS,
+    SPIRE_RADIUS, SPIRE_TIERS, SPOKES,
 };
 use bc_sim::colony::mirrors::{MIRROR_LENGTH, MIRROR_THICKNESS, MIRROR_WIDTH, Mirror};
 use bc_sim::colony::time::{Day, day};
@@ -88,6 +89,11 @@ pub fn atlas_image() -> Image {
         RenderAssetUsages::RENDER_WORLD,
     )
 }
+
+/// A pilot's bay door on the bay ring, by its bay's number: open (not drawn) while a suit is
+/// launching out of it.
+#[derive(Component)]
+pub struct BayDoor(pub u8);
 
 /// The spinning part of the colony (everything visual).
 #[derive(Component)]
@@ -530,6 +536,19 @@ pub fn setup_colony(
             let amber = Vec3::new(1.0, 0.55, 0.12) * 3.4;
             let red = Vec3::new(1.0, 0.12, 0.06) * 5.0;
             let mut lamps = Dots::default();
+            // The deck hatch in the middle of the hub's mouth, where a suit landed on the face walks
+            // in: a dark plate ringed with amber lamps.
+            let mouth = -(COLONY_HALF_LENGTH + DOCK_HUB_LENGTH);
+            c.spawn((
+                Mesh3d(meshes.add(Circle::new(DECK_HATCH_RADIUS))),
+                MeshMaterial3d(surfaces.colony.clone()),
+                hull(paint::HULL_DARK, 94),
+                Transform::from_xyz(mouth - 0.4, 0.0, 0.0)
+                    .with_rotation(Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2)),
+                NotShadowCaster,
+            ));
+            lamps.ring(mouth - 0.9, DECK_HATCH_RADIUS, 32, 2.6, amber);
+            lamps.ring(mouth - 0.9, DECK_HATCH_RADIUS * 0.45, 12, 2.0, warm);
             for (i, (x, r, t)) in SPIRE_TIERS.into_iter().enumerate() {
                 let (x0, x1) = (x - t / 2.0, x + t / 2.0);
                 let chamfer = t * 0.3;
@@ -582,8 +601,14 @@ pub fn setup_colony(
                     Mesh3d(cube.clone()),
                     MeshMaterial3d(surfaces.colony.clone()),
                     hull(paint::HULL_DARK, (b % 251) as u8),
-                    radial_box(a, BAY_RADIUS, rx0 - 3.0, Vec3::new(6.0, 32.0, 40.0)),
+                    radial_box(
+                        a,
+                        BAY_RADIUS,
+                        (rx0 + BAY_DOOR_X) * 0.5,
+                        Vec3::new(rx0 - BAY_DOOR_X, 32.0, 40.0),
+                    ),
                     NotShadowCaster,
+                    BayDoor(b as u8 + 1),
                 ));
                 for (dr, dz) in [(-16.0f32, -20.0f32), (-16.0, 20.0), (16.0, -20.0), (16.0, 20.0)] {
                     let up = around(a, 1.0, 0.0);

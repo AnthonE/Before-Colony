@@ -849,11 +849,17 @@ every terminal in the bay, and the Charter Board's own desk in Charter Square.
 
 ### Sorties
 
-- **Launching:** board at the hatch. The bay vents, beacons turning red, the doors part, and the
-  catapult throws the suit down the 220 m launch tunnel into space at the hub's mouth, inside the
-  dock. (Space skips the sequence.)
-- **Docking:** come to rest (under 25 m/s) inside the dock's ring of amber lights, off the mouth
-  of the docking hub at the colony's −X end, and press Enter. The suit glides in down the tunnel,
+- **Launching:** board at the hatch (E; Q flies into the colony instead, by its inner gate). The
+  bay vents, beacons turning red, the doors part, and the catapult throws the suit down the launch
+  tunnel and out of the bay's own door on the spinning bay ring, at 40 m/s on top of the ring's
+  125 m/s: the camera opens outside the ring by the open door and watches it go, then hands over to
+  the chase camera. Until the throw the suit rides its bay's cradle in the door, carried round with
+  the ring, its weapons held. (Space skips the sequence.)
+- **Docking:** home is on the axis, where nothing moves (a door on the ring would take holding
+  0.7 g against the spin): come to rest (under 25 m/s) inside the dock's ring of amber lights, off
+  the mouth of the docking hub at the colony's −X end, and press Enter; or arm the grip, land on the
+  hub's end face near its middle (it turns with the colony, slowly there), walk onto the lit deck
+  hatch and press Enter. The suit glides in down the tunnel,
   the doors shut behind it, and the pilot climbs out onto the catwalk. What came home goes to the
   stores: the suit as it is (its systems as broken as they came, its equipment if its parts came
   too), the hold's ore, whatever was in hand, and the bounties earned.
@@ -889,7 +895,7 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   Exchange Row to Old Town's low streets, all worked out as a closed form of where you are
   (`bc_sim::colony::city`): nothing is stored, and every client and the server see the same walls.
   Gravity is the spin's: 1 g on the ground, less up a tower.
-- **Going in** (a survival server run with `--colony`): the bay's airlock leads to the cap lift,
+- **Going in** (a survival server, unless it runs with `--no-colony`): the bay's airlock leads to the cap lift,
   which rides down the end cap's face with the whole colony in view (Space skips the ride) to Hub
   Gate's terminal. From there the pilot walks the city with the bay's controls, and M shows the
   map of their strip. Districts and sights are named on the way in; a sight reached for the first

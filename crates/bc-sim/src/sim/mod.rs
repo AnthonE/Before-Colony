@@ -73,7 +73,7 @@ pub use conceal::{
     COLD_SIG, Conceal, EXPOSE_TICKS, FOUGHT_DARK_TICKS, HIDE_AWAKE_VISUAL_MUL, LURK_SETTLE_TICKS, LURK_STILL,
     POWER_DOWN_TICKS, cover,
 };
-pub use launch::{Homecoming, LAUNCH_GATE, LAUNCH_SPEED, LaunchAt, Loadout, ParkRecord};
+pub use launch::{Homecoming, LaunchAt, Loadout, ParkRecord};
 pub use sleep::{Gone, PARK_SPEED, PARKED_VISUAL, SleeperFate};
 
 /// A pending hit, applied in the damage phase.
@@ -319,6 +319,28 @@ impl Sim {
         self.iter_bits = alive;
     }
 
+    /// In its bay's cradle a suit does nothing but wait for the catapult: its weapons' buttons and
+    /// a change of form are cleared before the tick, as its pilot's prediction clears them
+    /// ([`in_bay`](Self::in_bay)).
+    fn bay_law(&mut self) {
+        let mut alive = core::mem::take(&mut self.iter_bits);
+        alive.copy_from(&self.suits.alive);
+        for i in alive.iter() {
+            if self.in_bay(i) {
+                self.suits.input[i].buttons &= !bay_cleared();
+            }
+        }
+        self.iter_bits = alive;
+    }
+
+    /// Suit `i` is riding its bay's catapult cradle (`colony::hub`), waiting to be thrown out.
+    #[inline]
+    pub fn in_bay(&self, i: usize) -> bool {
+        i < self.suits.cap
+            && self.suits.footing[i] != ground::Footing::Free
+            && matches!(self.suits.anchor[i].body, Body::Bay(_))
+    }
+
     /// This sector is the colony's inside (`colony::interior`).
     #[inline]
     pub fn interior(&self) -> bool {
@@ -361,6 +383,8 @@ impl Sim {
         // what's fired in the hall stays in it, touching no suit (`colony::hall`).
         if self.interior() {
             self.colony_law();
+        } else {
+            self.bay_law();
         }
         self.specials_step(t);
         self.flight_step(t);
@@ -1000,4 +1024,10 @@ impl Sim {
 /// A Mobile Doll's target that's asleep is no target.
 fn doll_ignores(sim: &Sim, i: usize, j: usize) -> bool {
     sim.suits.pilot[i] == PilotKind::MobileDoll && sim.suits.sleeping.get(j)
+}
+
+/// What a suit in its bay's cradle can't do (`Sim::bay_law`, and its pilot's prediction): fire,
+/// use its special, strike, or change its form.
+pub const fn bay_cleared() -> u16 {
+    bc_proto::buttons::FIRE_MASK | MODE
 }

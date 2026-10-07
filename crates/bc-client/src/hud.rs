@@ -1191,8 +1191,13 @@ pub fn update_hud(
             sv.push_str(&format!("SOLD +{amount} cr\n"));
         }
         if o.flags & own_flags::DOCKED != 0 {
+            let on_hub = o.surface.is_some_and(|s| {
+                s.body == bc_proto::BodyRef::Landmark(bc_sim::content::landmarks::DOCKING_HUB)
+            });
             sv.push_str(if core.hangar.trainer {
                 "ON THE GANTRY  ENTER: climb out\n"
+            } else if survival && on_hub {
+                "ON THE DECK HATCH  ENTER: into your bay\n"
             } else if survival {
                 "IN THE DOCK  ENTER: into your bay\n"
             } else {

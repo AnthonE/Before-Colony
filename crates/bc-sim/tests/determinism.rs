@@ -462,6 +462,62 @@ fn sleepers_golden_wasm() {
     assert_eq!(sleepers_hash(), SLEEPERS_GOLDEN);
 }
 
+/// Hash after launches from the bays (survival): eight suits ride their bays' cradles round the
+/// ring, a few firing (which the bays' law clears), let go a few ticks apart and are thrown out of
+/// their doors, and fly on under flight assist, some under the stick.
+const BAYS_GOLDEN: u64 = 0xdb3c_c513_6a8f_8ef2;
+
+fn bays_hash() -> u64 {
+    use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, GRIP};
+    use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
+    use bc_sim::sim::{LaunchAt, Loadout};
+    use glam::Vec3;
+
+    let mut sim = bc_sim::Sim::new(bc_sim::SimConfig {
+        target_dolls: 0,
+        field_rocks: 0,
+        survival: true,
+        ..bc_sim::SimConfig::default()
+    });
+    let frames = [FrameId::Leo, FrameId::WingZero, FrameId::Heavyarms, FrameId::Sandrock];
+    let ids: Vec<_> = (0..8u8)
+        .map(|k| {
+            let f = frames[usize::from(k) % frames.len()];
+            let bay = LaunchAt::Bay(1 + k * 12);
+            sim.launch_at(f, Faction::Colonies, PilotKind::Human, &Loadout::full(f), bay).unwrap()
+        })
+        .collect();
+    for n in 0..360u32 {
+        let t = sim.next_tick();
+        for (k, id) in ids.iter().enumerate() {
+            let aim = sim.suits.flight[id.idx()].rot * Vec3::Z;
+            let held = n < 20 + 15 * k as u32;
+            let buttons =
+                FLIGHT_ASSIST | if held { GRIP } else { 0 } | if k % 3 == 0 { FIRE_PRIMARY } else { 0 };
+            let thrust = if !held && k % 2 == 1 { [30, -20, 127] } else { [0, 0, 0] };
+            let cmd = InputCmd { tick: t, view_tick_q4: t << 4, aim, thrust, buttons, ..InputCmd::default() };
+            sim.set_input(*id, cmd.quantized());
+        }
+        sim.step();
+    }
+    assert!(ids.iter().all(|id| !sim.in_bay(id.idx())), "all thrown out");
+    sim.state_hash()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn bays_golden_native() {
+    let h = bays_hash();
+    assert_eq!(h, bays_hash(), "must be reproducible within a process");
+    assert_eq!(h, BAYS_GOLDEN, "bays hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn bays_golden_wasm() {
+    assert_eq!(bays_hash(), BAYS_GOLDEN);
+}
+
 /// Hash after 900 ticks on the surfaces, among Mobile Dolls. An OZ Leo is caught over a rock, lands,
 /// walks a square, hops, crouches, stands, and digs the rock out from under itself, crouched. On MO-II, a Heavyarms
 /// runs over a pylon's edge and down its side with rewound shots coming at it, and another walks

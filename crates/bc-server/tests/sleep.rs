@@ -80,8 +80,8 @@ async fn a_signed_in_pilot_sleeps_and_wakes_in_the_same_suit() -> anyhow::Result
     let w = wallet(9);
 
     let mut pilot = BotClient::connect_as(&bot(&http, "Sleeper-1"), Some(&w)).await?;
-    // The Welcome names the sector's landmarks: both, MO-II and Hermit.
-    assert_eq!(pilot.core.welcome.map(|w| w.landmarks), Some(2));
+    // The Welcome names the sector's landmarks: all three, MO-II, Hermit and the docking hub.
+    assert_eq!(pilot.core.welcome.map(|w| w.landmarks), Some(3));
     idle(&mut pilot, 0.6).await?;
     let own = pilot.core.world.own.expect("flying");
     let token = pilot.core.resume_token.expect("a signed-in pilot gets a resume token");

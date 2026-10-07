@@ -36,6 +36,7 @@ use glam::{Quat, Vec3};
 
 use crate::bodies::{Base, Bodies, Body, BodyPose, Near, Shape};
 use crate::colony::frame::{gravity, up_at};
+use crate::colony::hub::{BAY_LAUNCH_SPEED, BAY_RIDE_LOCAL, bay_g, bay_ride_rot};
 use crate::content::FrameSpec;
 use crate::flight::{self, FA_BOOST_CRUISE, FlightMods, FlightOut, FlightState, HopAssist, LockOnAssist};
 use crate::math::{
@@ -331,7 +332,14 @@ pub fn move_step(b: &Bodies, m: &mut Mover, cmd: &InputCmd, cx: &MoveCtx, dt: f3
             };
             let prev = m.flight.pos;
             let aim_l = pose.rot.conjugate() * normalize_or(cmd.aim, m.flight.rot * Vec3::Z);
-            let release = if m.footing == Footing::Grounded {
+            let in_bay = matches!(body, Body::Bay(_));
+            let release = if in_bay {
+                // Held in the cradle, standing still in the door: the pilot feels the deck
+                // holding the suit toward the axis against the spin.
+                ride_bay(&mut m.anchor, &mut m.flight, cx, dt);
+                out.flight = FlightOut::default();
+                false
+            } else if m.footing == Footing::Grounded {
                 let blackout = m.flight.blackout;
                 let (acc_l, n) =
                     grounded(&shape, &mut m.anchor, &mut m.footing, cmd, cx, blackout, aim_l, dt);
@@ -371,6 +379,7 @@ pub fn move_step(b: &Bodies, m: &mut Mover, cmd: &InputCmd, cx: &MoveCtx, dt: f3
                 _ => None,
             };
             let moved = !b.interior
+                && !in_bay
                 && (b.field.collide_except(prev, &mut m.flight, rock)
                     | b.collide_landmarks(prev, &mut m.flight, landmark)
                     | crate::world::constrain(&mut m.flight));
@@ -417,6 +426,15 @@ fn transition(b: &Bodies, m: &mut Mover, cmd: &InputCmd, cx: &MoveCtx, out: &mut
                 out.caught = true;
             }
         }
+        // In its bay's cradle: only its pilot letting go of the grip lets it go, thrown out of the
+        // door (nothing else it's asked, legs or none, changes that: the bay's law clears the rest).
+        Footing::Grounded | Footing::Aloft if matches!(m.anchor.body, Body::Bay(_)) => {
+            if !b.alive(m.anchor.body) {
+                let_go(b, m, UNPARK_SPEED, out);
+            } else if !cmd.pressed(GRIP) {
+                let_go(b, m, BAY_LAUNCH_SPEED, out);
+            }
+        }
         Footing::Grounded | Footing::Aloft => {
             let grounded = m.footing == Footing::Grounded;
             let push = if grounded { TAKEOFF_SPEED } else { 0.0 };
@@ -442,17 +460,36 @@ fn transition(b: &Bodies, m: &mut Mover, cmd: &InputCmd, cx: &MoveCtx, out: &mut
     }
 }
 
-/// Lets go of the body, pushing off along its normal at `push` m/s.
+/// Lets go of the body, pushing off along its normal at `push` m/s (out of a bay, out of its
+/// door).
 fn let_go(b: &Bodies, m: &mut Mover, push: f32, out: &mut MoveOut) {
     if push != 0.0
         && let (Some(pose), Some(shape)) = (b.pose(m.anchor.body), b.shape(m.anchor.body))
     {
-        let (_, n, _) = place(&shape, m.anchor.local, m.anchor.stance);
+        let n = match m.anchor.body {
+            Body::Bay(_) => -Vec3::X,
+            _ => place(&shape, m.anchor.local, m.anchor.stance).1,
+        };
         m.flight.vel += (pose.rot * n) * push;
     }
     m.anchor = Anchor::default();
     m.footing = Footing::Free;
     out.released = true;
+}
+
+/// A tick in a bay's cradle: the suit stands still in the door as the bay carries it round, its
+/// pilot held toward the axis by the deck at the spin's 0.7 g, the boost gauge filling as it does
+/// on any ground.
+fn ride_bay(a: &mut Anchor, f: &mut FlightState, cx: &MoveCtx, dt: f32) {
+    *a = Anchor {
+        body: a.body,
+        local: BAY_RIDE_LOCAL,
+        rot: bay_ride_rot(),
+        stance: STANCE,
+        ..Anchor::default()
+    };
+    flight::pilot_g(f, a.rot.conjugate() * (-Vec3::Y * bay_g()), &cx.mods, dt);
+    flight::refill(f, cx.spec, &cx.mods, dt);
 }
 
 /// A tick on the ground, in the body's frame: the stance, the walk, walls, and the attitude.

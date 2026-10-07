@@ -244,6 +244,56 @@ fn riders_never_allocate() {
 }
 
 #[test]
+fn bay_launches_never_allocate() {
+    // 64 pilots launched from their bays round the ring, under survival rules: each rides its
+    // bay's cradle (firing, which the bay's law clears) until it lets go, a few ticks apart, and
+    // is thrown out of its door, flight assist braking off the spin's speed.
+    use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, GRIP};
+    use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
+    use bc_sim::sim::Loadout;
+    use glam::Vec3;
+    let mut sim = bc_sim::Sim::new(bc_sim::SimConfig {
+        target_dolls: 0,
+        field_rocks: 0,
+        survival: true,
+        ..bc_sim::SimConfig::default()
+    });
+    let mut ids = Vec::new();
+    for k in 0..64 {
+        let f = [FrameId::Leo, FrameId::WingZero, FrameId::Heavyarms][k % 3];
+        ids.push(sim.launch(f, Faction::Colonies, PilotKind::Human, &Loadout::full(f)).unwrap());
+    }
+    let mut total = 0;
+    for n in 0..600u32 {
+        let t = sim.next_tick();
+        let mut cmds = [InputCmd::default(); 64];
+        for (k, id) in ids.iter().enumerate() {
+            let aim = sim.suits.flight[id.idx()].rot * Vec3::Z;
+            let grip = if n < 10 * k as u32 { GRIP } else { 0 };
+            let buttons = FLIGHT_ASSIST | FIRE_PRIMARY | grip;
+            cmds[k] = InputCmd {
+                tick: t,
+                view_tick_q4: t << 4,
+                aim,
+                thrust: [0, 0, 40],
+                buttons,
+                ..InputCmd::default()
+            };
+        }
+        let ((), heap) = bc_alloc::count(|| {
+            for (k, id) in ids.iter().enumerate() {
+                sim.set_input(*id, cmds[k]);
+            }
+            sim.step();
+        });
+        total += heap;
+    }
+    let out = ids.iter().filter(|id| !sim.in_bay(id.idx())).count();
+    assert_eq!(out, 60, "thrown out, the last four still in their bays");
+    assert_eq!(total, 0, "heap operations inside the tick: {total}");
+}
+
+#[test]
 fn the_colony_answers_without_allocating() {
     // The city, its furniture, its day, its frames, its trams and its traffic are closed forms: asking
     // them anything allocates nothing, so a future sector inside the colony can ask them in its tick.

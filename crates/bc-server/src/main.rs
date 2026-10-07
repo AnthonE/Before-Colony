@@ -57,8 +57,14 @@ struct Args {
     /// Keep pilot records and the exchange in this directory (otherwise they last one run).
     #[arg(long)]
     data_dir: Option<PathBuf>,
-    /// Open the colony (survival): the bays' airlocks lead to the cap lifts, down into its city.
+    /// Close the colony: the bays' airlocks no longer lead to the cap lifts, down into its city,
+    /// and no suit flies inside it. (It is open by default under survival rules; arcade rules
+    /// have no colony to open.)
     #[arg(long)]
+    no_colony: bool,
+    /// The colony used to be opened by hand; it's open by default now. Kept so old command lines
+    /// still run.
+    #[arg(long, hide = true)]
     colony: bool,
 }
 
@@ -89,9 +95,19 @@ fn main() -> anyhow::Result<()> {
         flight: args.flight,
         craft_speed: args.craft_speed.max(0.01),
         data_dir: args.data_dir,
-        colony: args.colony,
+        colony: args.rules == Ruleset::Survival && !args.no_colony,
         ..Config::default()
     };
+    match (args.rules, args.no_colony) {
+        (Ruleset::Survival, false) => {
+            tracing::info!("the colony is open: its cap lifts run (--no-colony closes it)")
+        }
+        (Ruleset::Survival, true) => tracing::info!("the colony is closed (--no-colony)"),
+        (Ruleset::Arcade, _) if args.colony => {
+            tracing::warn!("--colony: arcade rules have no colony to open")
+        }
+        (Ruleset::Arcade, _) => tracing::info!("the colony is closed: arcade rules have no colony"),
+    }
     // Two workers are plenty: all game work happens on the dedicated sector thread.
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()?;
     rt.block_on(async move {

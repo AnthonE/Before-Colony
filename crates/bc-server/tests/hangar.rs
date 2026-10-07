@@ -143,8 +143,8 @@ async fn a_pilot_works_the_bay_launches_and_docks() -> anyhow::Result<()> {
     ask(&mut b, Request::Order { item: chaff, side: Side::Buy, price: ask_of(chaff), qty: 2, rest: false })
         .await?;
 
-    // Launch: out of the hub, flying, its paint as worn as its life has made it on everyone's
-    // roster (the starter is second-hand).
+    // Launch: out of its bay's door, flying, its paint as worn as its life has made it on
+    // everyone's roster (the starter is second-hand).
     assert_eq!(suit.weathering.level(), 2);
     b.launch().await?;
     assert_eq!(b.place(), Some(Place::Space));
@@ -164,9 +164,28 @@ async fn a_pilot_works_the_bay_launches_and_docks() -> anyhow::Result<()> {
     assert!(own.stim > 0);
     assert!(bc_sim::tuning::own_tuning(&own).g_tolerance > g);
     assert!(b.use_kit(Kit::Stim).await.is_err(), "the rack is out of them");
-    // Brake to rest in the dock, and dock.
-    for _ in 0..100 {
-        b.step(&mut |_| InputCmd { buttons: FLIGHT_ASSIST, ..InputCmd::default() }).await?;
+    // Thrown out of its bay's door on the ring: fly home to the dock off the hub's mouth, come to
+    // rest in it, and dock.
+    let fa = bc_sim::content::frame(FrameId::Leo).fa_speed;
+    let dock = bc_sim::content::salvage::DOCK_CENTER;
+    let home = |c: &bc_client_core::InputContext| {
+        let s = &c.predict.state;
+        let d = dock - s.pos;
+        let want = d.normalize_or_zero() * (d.length() * 0.4).min(150.0);
+        let stick = s.rot.conjugate() * want / fa;
+        let q = |x: f32| (x.clamp(-1.0, 1.0) * 127.0).round() as i8;
+        InputCmd {
+            thrust: [q(stick.x), q(stick.y), q(stick.z)],
+            aim: s.rot * glam::Vec3::Z,
+            buttons: FLIGHT_ASSIST,
+            ..InputCmd::default()
+        }
+    };
+    let mut flown = 0;
+    while b.world().own.is_some_and(|o| o.pos.distance(dock) > 150.0 || o.vel.length() > 5.0) {
+        b.step(&mut |c| home(c)).await?;
+        flown += 1;
+        assert!(flown < 90 * 100, "never made it home to the dock");
     }
     b.dock().await?;
     assert_eq!(b.place(), Some(Place::Hangar));

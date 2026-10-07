@@ -1232,13 +1232,15 @@
     for (const b of document.querySelectorAll("[data-tab]")) {
       b.addEventListener("click", () => openTab(b.dataset.tab));
     }
-    // Survival rules: nothing to choose on the title but a callsign.
+    // Survival rules: nothing to choose on the title but a callsign. With the colony closed
+    // (`--no-colony`), its Proving Ground isn't there to show.
     fetch("/status", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((st) => {
         survival = !!st && (st.game?.rules ?? st.rules) === "survival";
         show($("frames-field"), !survival);
         show($("survival-field"), survival);
+        show(document.querySelector('[data-tab="proving"]'), !survival || st.game?.colony !== false);
       })
       .catch(() => {});
     $("title-controls").addEventListener("click", () => send("help", { show: true }));

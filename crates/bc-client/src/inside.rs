@@ -12,7 +12,7 @@
 //! tracers, flashes, sparks, blasts, missiles: [`WeaponFx`]) is drawn on the city's layer as well
 //! while the pilot flies inside, where its numbers are the colony's frame's as the camera's are.
 
-use bc_sim::colony::interior::{INNER_GATE, INNER_GATE_RADIUS};
+use bc_sim::colony::interior::{INNER_GATE, INNER_GATE_RADIUS, INNER_PORT, INNER_PORT_RADIUS};
 use bevy::camera::visibility::RenderLayers;
 use bevy::math::DVec3;
 use bevy::prelude::*;
@@ -92,6 +92,39 @@ fn setup_gate(
         // Its axis down the colony: a suit comes to rest in it facing the end cap.
         Transform::from_rotation(Quat::from_rotation_z(core::f32::consts::FRAC_PI_2)),
         Placed(INNER_GATE.as_dvec3()),
+        RenderLayers::layer(CITY_LAYER),
+        Visibility::Hidden,
+    ));
+    // The port behind it in the end cap's face, where suits launched in from the bays come out: a
+    // dark mouth a hair proud of the cap, its rim lit (green: the way in).
+    let mouth = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.02, 0.025, 0.03),
+        perceptual_roughness: 0.9,
+        ..default()
+    });
+    let rim = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.4, 1.0, 0.6),
+        emissive: LinearRgba::rgb(1.2, 5.0, 2.0),
+        unlit: true,
+        ..default()
+    });
+    let facing = Quat::from_rotation_y(core::f32::consts::FRAC_PI_2);
+    let port = INNER_PORT + Vec3::X * 0.5;
+    commands.spawn((
+        GateRing,
+        Mesh3d(meshes.add(Mesh::from(Circle::new(INNER_PORT_RADIUS)))),
+        MeshMaterial3d(mouth),
+        Transform::from_rotation(facing),
+        Placed(port.as_dvec3()),
+        RenderLayers::layer(CITY_LAYER),
+        Visibility::Hidden,
+    ));
+    commands.spawn((
+        GateRing,
+        Mesh3d(meshes.add(Mesh::from(Torus::new(INNER_PORT_RADIUS - 1.0, INNER_PORT_RADIUS + 1.0)))),
+        MeshMaterial3d(rim),
+        Transform::from_rotation(Quat::from_rotation_z(core::f32::consts::FRAC_PI_2)),
+        Placed((port + Vec3::X * 0.5).as_dvec3()),
         RenderLayers::layer(CITY_LAYER),
         Visibility::Hidden,
     ));

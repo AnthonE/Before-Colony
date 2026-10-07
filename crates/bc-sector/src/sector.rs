@@ -7,6 +7,7 @@ use bc_proto::{Event, InputCmd, MAX_DATAGRAM, PilotKind, SnapshotHeader};
 use bc_sim::bodies::Body;
 use bc_sim::colony::course::{self, Event as CourseEvent};
 use bc_sim::colony::hall::DrillEvent;
+use bc_sim::colony::hub::bay_of_slot;
 use bc_sim::ground::Footing;
 use bc_sim::handle::Handle;
 use bc_sim::sim::{LaunchAt, Loadout};
@@ -129,10 +130,14 @@ impl Sector {
                         .filter(|&id| self.sim.wake(id));
                     let seated = match (woke, launch) {
                         (Some(id), _) => Some((id, Outcome::Woke)),
-                        // Survival: the suit its pilot built, out of the docking hub.
+                        // Survival: the suit its pilot built, in their bay's catapult cradle (inside
+                        // the colony, by the inner gate).
                         (None, Some(loadout)) => {
                             self.sim.ensure_free_suits(1);
-                            self.sim.launch(frame, faction, pilot, &loadout).map(|id| (id, Outcome::Fresh))
+                            let bay = LaunchAt::Bay(bay_of_slot(slot));
+                            self.sim
+                                .launch_at(frame, faction, pilot, &loadout, bay)
+                                .map(|id| (id, Outcome::Fresh))
                         }
                         // Survival: nothing to wake and nothing launched, no suit.
                         (None, None) if self.cfg.sim.survival => None,
@@ -186,9 +191,19 @@ impl Sector {
                     }
                     self.clients[s].watch = None;
                     let mut asleep = None;
+                    let mut home = None;
                     if self.clients[s].active {
                         let id = self.clients[s].suit;
-                        if matches!(msg, Control::Sleep { .. }) && self.sim.sleep(id) {
+                        if self.sim.in_bay(id.idx()) {
+                            // Still in its bay's cradle: it never left, so it goes back in (and
+                            // the session hears of it before it sees the slot free).
+                            home = self.sim.dock(id);
+                            if let Some(h) = home
+                                && self.ends.reports[s].push(Report::Home(h)).is_err()
+                            {
+                                Metrics::add(&self.shared.metrics.notes_dropped, 1);
+                            }
+                        } else if matches!(msg, Control::Sleep { .. }) && self.sim.sleep(id) {
                             asleep = Some(id);
                             // Survival: left in a hide spot, it outlives the server. The session
                             // hears of it before it sees the slot free.
@@ -207,7 +222,11 @@ impl Sector {
                     }
                     while self.ends.inputs[s].pop().is_ok() {}
                     Metrics::set(&self.shared.metrics.pilots[s].suit, 0);
-                    let outcome = if asleep.is_some() { Outcome::Asleep } else { Outcome::Released };
+                    let outcome = match (asleep, home) {
+                        (Some(_), _) => Outcome::Asleep,
+                        (None, Some(_)) => Outcome::Docked,
+                        (None, None) => Outcome::Released,
+                    };
                     self.shared.slots[s].publish(SlotState::Free, asleep, outcome);
                 }
                 Control::Dock { slot } => {

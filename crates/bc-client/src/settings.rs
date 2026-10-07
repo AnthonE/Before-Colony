@@ -195,7 +195,7 @@ pub fn update_hints(
     game: NonSend<GameClient>,
     time: Res<Time<Real>>,
 ) {
-    let (alive, survival, feet, hidden, hostile_near, locked) = {
+    let (alive, survival, feet, hidden, hostile_near, locked, colony, inside, near_hub) = {
         let g = game.borrow();
         let own = g.core.world.own.filter(|o| o.alive);
         // A hostile within a couple of kilometres: something to lock on to.
@@ -215,6 +215,14 @@ pub fn update_hints(
             own.is_some_and(|o| o.cover == bc_proto::snapshot::cover::HIDDEN),
             hostile_near,
             g.hard.locked(),
+            g.core.welcome.is_some_and(|w| w.colony),
+            g.core.welcome.is_some_and(|w| w.interior),
+            // Within a couple of kilometres of the docking hub's mouth (on the colony's axis).
+            {
+                let c = bc_sim::world::COLONY_CENTER;
+                let mouth = Vec3::new(bc_sim::colony::hub::SPIRE_MOUTH_X, c.y, c.z);
+                !g.core.inside() && from.distance(mouth) < 2_000.0
+            },
         )
     };
     let grounded = feet.footing == bc_sim::ground::Footing::Grounded;
@@ -252,6 +260,11 @@ pub fn update_hints(
         hostile_near,
         locked,
         stepped: controls.buttons & bc_proto::buttons::BURST != 0,
+        colony,
+        in_city: onfoot.city.is_some(),
+        inside,
+        went_down: used && onfoot.focus == Some(bc_client_core::bay::Spot::Airlock),
+        near_hub,
     };
     let mut seen = settings.0.hints_seen;
     let hint = state.hints.step(&mut seen, now_s(), f64::from(time.delta_secs()), &input);

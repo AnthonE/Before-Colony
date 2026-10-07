@@ -53,6 +53,10 @@ const WALKERS_WALL: f32 = 2_000.0;
 pub const INNER_GATE: Vec3 = Vec3::new(-COLONY_HALF_LENGTH + 200.0, 300.0, 0.0);
 /// The inner gate's ring, m: at rest within it, a suit docks.
 pub const INNER_GATE_RADIUS: f32 = 120.0;
+/// The port in the end cap's inner face behind the inner gate, where suits launched in from the
+/// bays come out (the client draws it, and draws them coming out of it), and its radius, m.
+pub const INNER_PORT: Vec3 = Vec3::new(-COLONY_HALF_LENGTH, INNER_GATE.y, INNER_GATE.z);
+pub const INNER_PORT_RADIUS: f32 = 70.0;
 /// How fast a suit comes out of the inner gate, m/s.
 pub const INNER_LAUNCH_SPEED: f32 = 30.0;
 

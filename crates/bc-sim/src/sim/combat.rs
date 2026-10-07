@@ -470,7 +470,8 @@ impl Sim {
         for k in 0..self.damage.len() {
             let d = self.damage.as_slice()[k];
             let j = d.target as usize;
-            if !self.suits.alive.get(j) {
+            // (Nor a suit in its bay's cradle, behind the colony's armour until it's thrown out.)
+            if !self.suits.alive.get(j) || self.in_bay(j) {
                 continue;
             }
             self.suits.last_hit[j] = t;

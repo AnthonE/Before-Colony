@@ -108,6 +108,7 @@ pub fn sync_view(
     mut missiles: ResMut<MissileFeed>,
     mut events: ResMut<FxEvents>,
     mut target: ResMut<CameraTarget>,
+    shot: Res<crate::launch_shot::LaunchShot>,
     mut seen: Local<Seen>,
 ) {
     let game = game.borrow();
@@ -116,8 +117,12 @@ pub fn sync_view(
     let now = vis.now;
     // Everyone else, and every body, on the view clock.
     let t_render = bodies.t;
-    // The own suit as drawn this frame (between the ticks predicted), and the time it's drawn at.
-    let drawn = core.own_view().copied();
+    // The own suit as drawn this frame (between the ticks predicted), and the time it's drawn at;
+    // launched into the colony, coming out of the port in the end cap first (`launch_shot`).
+    let drawn = core
+        .own_view()
+        .copied()
+        .map(|v| bc_client_core::OwnView { pos: v.pos + shot.emerging(now, v.pos), ..v });
     let t_own = drawn.map_or(core.clock.own_tick(now) - 1.0, |v| v.t);
     let own_slot = world.own_slot();
 

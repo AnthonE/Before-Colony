@@ -187,7 +187,9 @@ Own-state notes:
   invalid), and whether BURST was held last tick (1), so a press is told from a held button.
 - `weapon_ready` has a bit each for the primary, secondary, melee weapon and the frame's special.
 - Footing (2 bits): 0 flying free, 1 on its feet (or knees) on a body, 2 in a body's grip in the
-  air; 3 is invalid. Unless it is 0, the body's `BodyRef` and the stance follow: how high the
+  air; 3 is invalid. Unless it is 0, the body's `BodyRef` follows (2 bits of kind: 0 a rock and
+  its 10-bit index, 1 a landmark and its 4-bit index, 2 the colony's city, 3 a pilot's bay on the
+  bay ring and its 7-bit number, `bc_sim::colony::hub`), then the stance: how high the
   suit's origin rides over the surface, in sixteenths of a metre (96 crouched to 146 standing).
   Then the position, velocity, rotation and angular velocity above are in the body's frame (the
   velocity over the body), so the client re-runs exactly what the server moves; it composes them
@@ -283,7 +285,7 @@ answer to the bit.
 
 ## The colony's people: pose and plaza datagrams
 
-Pilots on foot in the colony's city (survival, `--colony`) are relayed by their session tasks,
+Pilots on foot in the colony's city (survival, unless `--no-colony`) are relayed by their session tasks,
 off the sector's tick (`bc_proto::presence`; the server's `plaza`). Positions are a strip's city
 coordinates, where the city stands still: `x` along (22 bits over ±16,384 m), `s` across from the
 strip's edge (19 bits over 0–4,096 m), `h` up (15 bits over −8–248 m), all in 7.8 mm steps; the
@@ -450,8 +452,10 @@ The server sends the hangar and the market whenever they change, the market and 
 every 2 s. The board's notices (a great work finished, the vote open, an era begun) come to every
 pilot as `news`, wherever they are.
 
-A launch puts the suit in the sector at the docking hub's mouth (the pilot's slot and the Welcome
-stay the same; snapshots start), and `place` says `space`. Docking answers with a `sortie` and
+A launch puts the suit in the sector in its pilot's bay (the pilot's slot and the Welcome stay the
+same; snapshots start), riding the bay's catapult cradle in its door (footing 1 on body kind 3, the
+bay's number `slot % 99 + 1`, as `place`'s `bay` says) until the client lets go of the grip, which
+throws it out of the door; and `place` says `space`. Docking answers with a `sortie` and
 `place: hangar`, or a refusing `note`. A suit destroyed out there sends `sortie: lost` at once and
 `place: hangar` once the wreck clears.
 
@@ -487,7 +491,7 @@ forgets a suit it stops hearing of). Up the lift, it ends, and the client forget
 A client takes spectator snapshots only in the city, and knows the colony's city as a body for
 them (v19: the suits standing on it ride it).
 
-The colony (the Welcome sets COLONY: a survival server run with `--colony`): from the bay,
+The colony (the Welcome sets COLONY: a survival server, unless it runs with `--no-colony`): from the bay,
 `enter_city` answers `place: city` with the strip, or a refusing `note`; in the city the hangar and
 the market keep coming (the Exchange floor's terminal is the bay's), and `launch` is refused.
 `leave_city` answers `place: hangar`. The city itself is compiled content (`bc_sim::colony::city`,

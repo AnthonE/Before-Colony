@@ -28,9 +28,13 @@ impl Sim {
         .then_some(k as usize)
     }
 
-    /// Whether suit `i` is in the dock, slow enough to sell. Inside the colony: at rest in the inner
+    /// Whether suit `i` is in the dock, slow enough to sell; standing on the docking hub's deck
+    /// hatch; or still in its bay's cradle (it never left). Inside the colony: at rest in the inner
     /// gate's ring, or a trainer on the Blast Hall's gantry.
     pub fn docked(&self, i: usize) -> bool {
+        if self.in_bay(i) || self.on_deck_hatch(i) {
+            return true;
+        }
         let f = &self.suits.flight[i];
         if self.interior() {
             return if self.suits.trainer.get(i) {
@@ -41,6 +45,16 @@ impl Sim {
         }
         (f.pos - DOCK_CENTER).length_squared() < DOCK_RADIUS * DOCK_RADIUS
             && f.vel.length_squared() < DOCK_SPEED * DOCK_SPEED
+    }
+
+    /// Suit `i` is standing on the docking hub's deck hatch (`colony::hub::on_deck_hatch`).
+    pub fn on_deck_hatch(&self, i: usize) -> bool {
+        use crate::content::landmarks::DOCKING_HUB;
+        !self.interior()
+            && usize::from(DOCKING_HUB) < self.landmarks().len()
+            && self.suits.footing[i] == crate::ground::Footing::Grounded
+            && self.suits.anchor[i].body == crate::bodies::Body::Landmark(DOCKING_HUB)
+            && crate::colony::hub::on_deck_hatch(self.suits.anchor[i].local)
     }
 
     pub(super) fn salvage_step(&mut self, t: u32) {
