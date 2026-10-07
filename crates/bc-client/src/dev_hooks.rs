@@ -274,6 +274,7 @@ pub fn publish_game(
             Some(bc_proto::BodyRef::Rock(r)) => format!("rock:{r}"),
             Some(bc_proto::BodyRef::Landmark(k)) => format!("landmark:{k}"),
             Some(bc_proto::BodyRef::City) => "city".to_string(),
+            Some(bc_proto::BodyRef::Bay(n)) => format!("bay:{n}"),
             None => String::new(),
         },
     );

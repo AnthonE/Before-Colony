@@ -11,6 +11,7 @@ use bc_proto::quant::{dequantize_unit, quantize_unit};
 use glam::Vec3;
 
 use crate::content::modules::{self as md, ModuleKind, Modules};
+use crate::content::propellant::Grade;
 use crate::content::systems::{self as sys, FAILED, System, Systems};
 use crate::content::{ArmSlot, FrameSpec};
 use crate::flight::{BoostGauge, FlightMods, GEnvelope};
@@ -96,6 +97,8 @@ pub struct Tuning {
     pub repairs: bool,
     /// What the modules weigh, kg.
     pub module_kg: u32,
+    /// The ion drive's power, of its full output: the reactor's (0: none fitted).
+    pub ion: f32,
 }
 
 impl Default for Tuning {
@@ -153,6 +156,7 @@ pub fn tuning(gone: u8, systems: Systems, modules: Modules) -> Tuning {
         cone_r: sys::ACTUATORS[level(System::ActuatorR)],
         repairs: false,
         module_kg: 0,
+        ion: 0.0,
     };
     // Each module on a part still on (a suit with none flies exactly as above).
     for (_, kind) in modules.fitted(gone) {
@@ -180,6 +184,7 @@ pub fn tuning(gone: u8, systems: Systems, modules: Modules) -> Tuning {
             ModuleKind::GSeat => t.g_tolerance += md::G_SEAT,
             ModuleKind::DamageControl => t.repairs = true,
             ModuleKind::AuxiliaryTank => t.tank *= md::AUXILIARY_TANK,
+            ModuleKind::ExtendedTank => t.tank *= md::EXTENDED_TANK,
             ModuleKind::ThrusterKit => {
                 t.main *= md::THRUSTER_KIT_MAIN;
                 t.isp *= md::THRUSTER_KIT_ISP;
@@ -189,6 +194,7 @@ pub fn tuning(gone: u8, systems: Systems, modules: Modules) -> Tuning {
                 t.hold_kg += md::CARGO_RACK_KG;
                 t.ambac *= md::CARGO_RACK_AMBAC;
             }
+            ModuleKind::IonDrive => t.ion = sys::REACTOR[level(System::Reactor)],
         }
     }
     t
@@ -205,12 +211,20 @@ pub fn own_gone(own: &bc_proto::OwnState) -> u8 {
     gone
 }
 
+/// The stat sheet a suit flies with: [`tuning`], with what its pilot took (a stim's clock: they
+/// bear more G, or less) and what's in its tank (its [`Grade`] goes further). The server
+/// (`Suits::retune`) and the owner's client ([`own_tuning`]) both build it here.
+pub fn flown(gone: u8, systems: Systems, modules: Modules, stim: u16, grade: Grade) -> Tuning {
+    let mut t = tuning(gone, systems, modules);
+    t.g_tolerance += crate::content::kits::stim_g(stim);
+    t.isp *= grade.isp();
+    t
+}
+
 /// The owner's client's copy of its suit's stat sheet, from the snapshot: the same as the one the
 /// server flies the next tick with.
 pub fn own_tuning(own: &bc_proto::OwnState) -> Tuning {
-    let mut t = tuning(own_gone(own), Systems(own.systems), Modules(own.modules));
-    t.g_tolerance += crate::content::kits::stim_g(own.stim);
-    t
+    flown(own_gone(own), Systems(own.systems), Modules(own.modules), own.stim, Grade::from_code(own.grade))
 }
 
 /// The flight model's modifiers from a suit's stat sheet under the sector's `rules`, before what
@@ -239,6 +253,7 @@ pub fn flight_mods(t: &Tuning, rules: FlightRules, g_immune: bool, extra_mass_kg
         lockon: None,
         gauge: anime.then(|| BoostGauge { tank: t.tank, refill: t.refill / ANIME_REFILL_SECS }),
         interior: false,
+        ion: t.ion,
         staggered: false,
     }
 }

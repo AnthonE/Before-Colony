@@ -66,14 +66,15 @@ impl Mirror {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::colony::hub::{BAYS, bay_pose};
     use crate::colony::time::{MIRROR_NOON, MIRROR_SHUT};
     use crate::config::{SECTOR_LIMIT, SimConfig};
     use crate::content::landmarks::LANDMARKS;
     use crate::content::salvage::{DOCK_CENTER, DOCK_RADIUS};
     use crate::field::{FIELD_CENTER, Field, SPAWN_BASES};
     use crate::math::sqrt;
-    use crate::sim::LAUNCH_GATE;
     use crate::world::COLONY_CENTER;
+    use crate::world::COLONY_SPIN_PERIOD_TICKS;
 
     /// How far a point of the sector is from anything the mirrors sweep at any opening, m. They
     /// turn with the colony, so this is in its meridian half-plane: along the axis, and out from it.
@@ -166,7 +167,14 @@ mod tests {
         for p in SPAWN_BASES {
             assert!(gap(p) >= 2_000.0, "a spawn base is {} m from the mirrors", gap(p));
         }
-        assert!(gap(LAUNCH_GATE) >= 2_000.0);
+        // The bays' doors, where suits are thrown out, wherever the spin has them: on the bay
+        // ring by the end cap, which the mirrors clear by a kilometre.
+        for n in 1..=BAYS as u8 {
+            for q in 0..4 {
+                let door = bay_pose(n, q * COLONY_SPIN_PERIOD_TICKS / 4, 0.0).pos;
+                assert!(gap(door) >= 1_000.0, "bay {n}'s door is {} m from the mirrors", gap(door));
+            }
+        }
         assert!(gap(DOCK_CENTER) - DOCK_RADIUS >= 2_000.0);
         // And they stay in the sector.
         for k in 0..3 {

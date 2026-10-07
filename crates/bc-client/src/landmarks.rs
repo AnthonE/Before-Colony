@@ -143,7 +143,8 @@ pub fn setup_landmarks(
         ..default()
     });
     let bulb = meshes.add(Sphere::new(0.9).mesh().ico(1).expect("icosphere"));
-    for (k, def) in LANDMARKS.iter().enumerate() {
+    // (The docking hub is the colony's, and drawn with it: `colony.rs`.)
+    for (k, def) in LANDMARKS.iter().enumerate().filter(|(_, d)| !d.colony) {
         let rock = matches!(def.shape.base, Base::Ellipsoid(_));
         let mut group = |commands: &mut Commands, parts: Vec<MeshData>, visible: bool| {
             let group = commands

@@ -4,7 +4,7 @@
 //! for agents alike.
 
 use bc_proto::Part;
-use bc_sim::content::Kit;
+use bc_sim::content::{Grade, Kit};
 use serde::{Deserialize, Serialize};
 
 use crate::catalogue::Station;
@@ -14,7 +14,7 @@ use crate::hangar::{Bay, Done, Hangar, Rules};
 use crate::item::Item;
 use crate::proving::BoardView;
 use crate::stores::PartUnit;
-use crate::suit::Slot;
+use crate::suit::{Slot, grade_serde};
 
 /// Pilot → server.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,6 +53,12 @@ pub enum Request {
     /// Melt one `item` down.
     Scrap {
         item: Item,
+    },
+    /// Fuel the suit in the bay with propellant of `grade` (`standard`, `refined`, `ultra`): what
+    /// it has of another grade is pumped back to the stores first.
+    Fuel {
+        #[serde(with = "grade_serde")]
+        grade: Grade,
     },
     /// An order on the exchange: rest what doesn't fill at once (`rest`), or hand it back.
     Order {
@@ -370,6 +376,7 @@ pub fn apply(
         Request::Repair { part } => hangar.repair(*part),
         Request::Overhaul { part } => hangar.overhaul(*part),
         Request::Scrap { item } => hangar.scrap(*item),
+        Request::Fuel { grade } => hangar.fuel(*grade),
         Request::Order { item, side, price, qty, rest } => {
             hangar.trade(exchange, trader, *item, *side, *price, *qty, *rest)
         }
@@ -503,6 +510,8 @@ mod tests {
                 Request::Strip { slot: Slot::Mount { mount: 2 } },
             ),
             (r#"{"t":"repair"}"#, Request::Repair { part: None }),
+            (r#"{"t":"fuel","grade":"refined"}"#, Request::Fuel { grade: Grade::Refined }),
+            (r#"{"t":"fuel","grade":"ultra"}"#, Request::Fuel { grade: Grade::UltraPure }),
             (r#"{"t":"repair","part":"torso"}"#, Request::Repair { part: Some(Part::Torso) }),
             (
                 r#"{"t":"order","item":"ore.titanium","side":"sell","price":3600,"qty":2000,"rest":false}"#,

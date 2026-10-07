@@ -75,8 +75,8 @@ case "$suite" in
     pids+=($!)
     ;;
   colony|inside)
-    # Survival rules with the colony open; no dolls. An agent strolls outside Hub Gate.
-    ./target/release/bc-server --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --colony --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls 0 &
+    # Survival rules (the colony open, as by default); no dolls. An agent strolls outside Hub Gate.
+    ./target/release/bc-server --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --http "127.0.0.1:${port}" --web-dir web/dist --mobile-dolls 0 &
     pids+=($!)
     sleep 1
     ./target/release/examples/flaneur --server "$BC_URL" --name "Flaneur-01" &

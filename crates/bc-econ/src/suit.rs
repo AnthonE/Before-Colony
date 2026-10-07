@@ -12,11 +12,12 @@
 
 use bc_proto::{FrameId, Part, WeaponKind};
 use bc_sim::config::G0;
-use bc_sim::content::modules::{AUXILIARY_TANK, MOUNTS};
+use bc_sim::content::modules::MOUNTS;
 use bc_sim::content::salvage::{hold_kg, mass_without};
-use bc_sim::content::{ArmSlot, Kit, Kits, ModuleKind, Modules, frame};
+use bc_sim::content::{ArmSlot, Grade, Kit, Kits, ModuleKind, Modules, frame};
+use bc_sim::flight::ion_thrust;
 use bc_sim::sim::{Homecoming, Loadout};
-use bc_sim::tuning::tuning;
+use bc_sim::tuning::{flown, tank_cap, tuning};
 use serde::{Deserialize, Serialize};
 
 use crate::catalogue::{munitions_per_load, recipe, rounds_per_load, tank_kg};
@@ -54,6 +55,9 @@ pub struct Suit {
     pub ammo: [u16; 3],
     /// Propellant in the tank, kg.
     pub propellant: u32,
+    /// What grade it is (`bc_sim::content::propellant`): Standard unless its pilot chose another.
+    #[serde(default, skip_serializing_if = "is_standard", with = "grade_serde")]
+    pub grade: Grade,
     /// What's damaged or failed inside the parts fitted.
     #[serde(default, skip_serializing_if = "Faults::is_empty")]
     pub faults: Faults,
@@ -74,6 +78,25 @@ pub struct Suit {
 
 fn no_kits(k: &[u8; Kit::COUNT]) -> bool {
     k.iter().all(|n| *n == 0)
+}
+
+fn is_standard(g: &Grade) -> bool {
+    *g == Grade::Standard
+}
+
+/// Serde for a propellant grade as its slug.
+pub mod grade_serde {
+    use bc_sim::content::Grade;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(g: &Grade, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(g.slug())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Grade, D::Error> {
+        let slug = String::deserialize(d)?;
+        Grade::from_slug(&slug).ok_or_else(|| serde::de::Error::custom(format!("no such grade: {slug}")))
+    }
 }
 
 /// Equipment mounts on a suit.
@@ -129,6 +152,7 @@ impl Suit {
             mounts: [false; 3],
             ammo: [0; 3],
             propellant: 0,
+            grade: Grade::Standard,
             faults: Faults::NONE.with_part(Part::Torso, torso.faults),
             modules: [None; MODULE_MOUNTS],
             kits: [0; Kit::COUNT],
@@ -146,6 +170,7 @@ impl Suit {
             mounts: [true; 3],
             ammo: full.ammo,
             propellant: tank_kg(line),
+            grade: Grade::Standard,
             faults: Faults::NONE,
             modules: [None; MODULE_MOUNTS],
             kits: [0; Kit::COUNT],
@@ -215,13 +240,11 @@ impl Suit {
         m.clean()
     }
 
-    /// The tank's size, kg (bigger with an auxiliary tank on the backpack).
+    /// The tank's size, kg (bigger with an auxiliary or extended tank): what the simulation fills
+    /// it to (`tuning::tank_cap`), to the kilogram below.
     pub fn tank(&self) -> u32 {
-        if self.equipment().has(ModuleKind::AuxiliaryTank, 0) {
-            (tank_kg(self.line) as f32 * AUXILIARY_TANK) as u32
-        } else {
-            tank_kg(self.line)
-        }
+        let t = tuning(self.gone(), self.faults.0, self.equipment());
+        tank_cap(frame(self.line), &t).floor() as u32
     }
 
     /// Rounds a full load holds on mount `m` (0: it fires energy, or it's a blade).
@@ -246,6 +269,7 @@ impl Suit {
             mounts,
             ammo: self.ammo,
             propellant: self.propellant as f32,
+            grade: self.grade,
             systems: self.faults.0,
             modules: self.equipment(),
             kits: self.rack(),
@@ -288,6 +312,7 @@ impl Suit {
         // No more than it went out with: under anime rules the tank fills itself back up in
         // flight, and what it made out there isn't the stores' to keep.
         self.propellant = (home.propellant.max(0.0) as u32).min(self.tank()).min(self.propellant);
+        self.grade = home.grade;
     }
 
     /// Parts fitted, and how many of them are worn.
@@ -328,6 +353,10 @@ pub struct Stats {
     pub hold_kg: u32,
     pub tank_kg: u32,
     pub mass_kg: u32,
+    /// Under anime rules, how long a full tank boosts straight ahead, s.
+    pub boost_s: f32,
+    /// An ion drive's thrust on the suit full, g (0: none).
+    pub ion_g: f32,
     /// Sustained G the pilot bears.
     pub g_tolerance: f32,
     /// Damage taken, of the frame's own.
@@ -350,12 +379,13 @@ impl Suit {
     pub fn stats(&self) -> Stats {
         let spec = frame(self.line);
         let gone = self.gone();
-        let t = tuning(gone, self.faults.0, self.equipment());
+        let t = flown(gone, self.faults.0, self.equipment(), 0, self.grade);
         let tank = self.tank();
         let dry = mass_without(self.line, gone) + t.module_kg;
         let wet = dry + tank;
         let g = |n: f32| n / (wet as f32 * G0);
         let boost = if t.boost >= 1.0 { spec.boost_mult } else { 1.0 + (spec.boost_mult - 1.0) * t.boost };
+        let boosting = spec.main_thrust * t.main * boost;
         Stats {
             delta_v: spec.isp * t.isp * G0 * (wet as f32 / dry.max(1) as f32).ln(),
             accel_g: g(spec.main_thrust * t.main),
@@ -368,6 +398,12 @@ impl Suit {
             hold_kg: hold_kg(self.line) + t.hold_kg,
             tank_kg: tank,
             mass_kg: wet,
+            ion_g: g(ion_thrust(spec) * t.ion),
+            boost_s: if boosting > 0.0 {
+                tank as f32 * spec.exhaust_velocity() * t.isp / boosting
+            } else {
+                0.0
+            },
             g_tolerance: t.g_tolerance,
             armour: spec.armor * t.armor,
         }
@@ -410,6 +446,7 @@ mod tests {
             mounts: l.mounts,
             ammo: l.ammo,
             propellant: l.propellant,
+            grade: l.grade,
             systems: l.systems,
             modules: l.modules,
             kits: l.kits,
@@ -418,6 +455,39 @@ mod tests {
             held: None,
             bounty: 0,
         }
+    }
+
+    /// An ion drive's thrust on the stat sheet: 0.1 g of the frame on a full tank, a little less
+    /// of the suit carrying it.
+    #[test]
+    fn the_stat_sheet_shows_an_ion_drive() {
+        let mut s = Suit::complete(FrameId::Leo);
+        assert_eq!(s.stats().ion_g, 0.0);
+        s.modules[4] = Some(ModuleKind::IonDrive);
+        let g = s.stats().ion_g;
+        assert!(g > 0.09 && g < 0.1, "{g}");
+    }
+
+    /// A purer grade goes further: delta-v and boost by its specific impulse. A suit is written
+    /// with its grade only when it isn't Standard, and one written before grades flies Standard.
+    #[test]
+    fn a_purer_grade_goes_further_and_old_suits_fly_standard() {
+        let mut s = Suit::complete(FrameId::Leo);
+        let standard = s.stats();
+        assert!((standard.boost_s - 48.0).abs() < 1.0, "a Leo's tank boosts 48 s: {standard:?}");
+        s.grade = Grade::Refined;
+        let refined = s.stats();
+        s.grade = Grade::UltraPure;
+        let ultra = s.stats();
+        assert!((refined.delta_v / standard.delta_v - 1.15).abs() < 1e-3, "{refined:?}");
+        assert!((ultra.delta_v / standard.delta_v - 1.35).abs() < 1e-3, "{ultra:?}");
+        assert!((ultra.boost_s / standard.boost_s - 1.35).abs() < 1e-3, "{ultra:?}");
+        let json = serde_json::to_value(&s).unwrap();
+        assert_eq!(json["grade"], "ultra");
+        assert_eq!(serde_json::from_value::<Suit>(json).unwrap().grade, Grade::UltraPure);
+        let old = serde_json::to_value(Suit::complete(FrameId::Leo)).unwrap();
+        assert!(old.get("grade").is_none(), "{old}");
+        assert_eq!(serde_json::from_value::<Suit>(old).unwrap().grade, Grade::Standard);
     }
 
     #[test]

@@ -5,14 +5,17 @@
 
 use std::sync::Arc;
 
+use bc_proto::buttons::FLIGHT_ASSIST;
 use bc_proto::{Faction, FrameId, MAX_DATAGRAM, Part, PilotKind};
 use bc_sector::{
     Comeback, Control, Loss, Outcome, Report, Sector, SectorConfig, SectorShared, SlotLease, SlotState,
     TOW_TICKS,
 };
 use bc_sim::SimConfig;
+use bc_sim::bodies::Body;
+use bc_sim::colony::hub::{BAY_RIDE_LOCAL, bay_of_slot, bay_pose};
 use bc_sim::content::salvage::DOCK_CENTER;
-use bc_sim::sim::{LAUNCH_GATE, Loadout};
+use bc_sim::sim::Loadout;
 use glam::Vec3;
 
 fn sector() -> (Sector, Arc<SectorShared>, SlotLease) {
@@ -61,7 +64,14 @@ fn launch_dock_and_go_home_with_the_hold() {
     assert_eq!(send(&mut sector, &shared, s, join(s, Some(built))), (SlotState::Active, Outcome::Fresh));
     let (idx, _) = shared.slots[s as usize].suit_id().unwrap();
     let i = usize::from(idx);
-    assert!((sector.sim.suits.flight[i].pos - LAUNCH_GATE).length() < 200.0);
+    // In its pilot's own bay's cradle, at the door.
+    assert_eq!(sector.sim.suits.anchor[i].body, Body::Bay(bay_of_slot(s)));
+    let door = bay_pose(bay_of_slot(s), sector.sim.tick(), 0.0);
+    assert!((sector.sim.suits.flight[i].pos - door.to_world(BAY_RIDE_LOCAL)).length() < 0.01);
+    // Its pilot lets go: thrown out of the door.
+    sector.sim.suits.input[i].buttons = FLIGHT_ASSIST;
+    sector.tick();
+    assert!(!sector.sim.in_bay(i));
     // Out of the dock: refused, still flying.
     sector.sim.suits.flight[i].pos = DOCK_CENTER + Vec3::new(-2_000.0, 0.0, 0.0);
     assert_eq!(send(&mut sector, &shared, s, Control::Dock { slot: s }).0, SlotState::Active);
@@ -101,6 +111,21 @@ fn a_suit_lost_is_reported_then_its_pilot_goes_home() {
         (SlotState::Free, Outcome::Lost)
     );
     assert!(lease.reports.pop().is_err(), "reported once");
+}
+
+#[test]
+fn a_pilot_who_leaves_before_the_catapult_fires_keeps_the_suit_in_the_bay() {
+    let (mut sector, shared, mut lease) = sector();
+    let s = lease.slot;
+    send(&mut sector, &shared, s, join(s, Some(Loadout::full(FrameId::Leo))));
+    let (idx, _) = shared.slots[s as usize].suit_id().unwrap();
+    let i = usize::from(idx);
+    assert!(sector.sim.in_bay(i));
+    // Signed in, they'd sleep in a suit out there; in the bay it goes back in instead.
+    assert_eq!(send(&mut sector, &shared, s, Control::Sleep { slot: s }), (SlotState::Free, Outcome::Docked));
+    let Ok(Report::Home(home)) = lease.reports.pop() else { panic!("no homecoming") };
+    assert_eq!(home.frame, FrameId::Leo);
+    assert!(!sector.sim.suits.used.get(i), "gone from the sector");
 }
 
 #[test]
@@ -160,6 +185,10 @@ fn a_wreck_is_towed_at_once_when_its_pilot_goes_and_not_at_all_when_blown_up() {
     send(&mut sector, &shared, s, join(s, Some(Loadout::full(FrameId::Leo))));
     let (idx, _) = shared.slots[s as usize].suit_id().unwrap();
     let i = usize::from(idx);
+    // Out of its bay's cradle (where the colony's armour keeps it from harm): its pilot lets go.
+    sector.sim.suits.input[i].buttons = FLIGHT_ASSIST;
+    sector.tick();
+    assert!(!sector.sim.in_bay(i));
     // Not doomed: refused, still flying.
     send(&mut sector, &shared, s, Control::Eject { slot: s, destruct: true });
     assert!(sector.sim.is_alive(i));

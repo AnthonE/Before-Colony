@@ -134,8 +134,12 @@ fn a_suit_without_assist_falls_and_comes_to_rest_on_the_floor_or_a_roof() {
         let min = Vec3::new(at.x - r, at.h - r + 2.0, -(at.s + r));
         let max = Vec3::new(at.x + r, at.h + r, -(at.s - r));
         assert!(!solid_built(at.strip, min, max, Stage(0)), "{at:?}");
-        let below = Vec3::new(0.0, 20.0, 0.0);
-        assert!(solid_built(at.strip, min - below, max - below, Stage(0)), "on something: {at:?}");
+        // On something: the floor, or a roof, maybe by the hull's edge (it reaches its radius
+        // round the origin, a square, and a little further along the strip up off the floor).
+        let w = 10.0 * 1.05;
+        let lo = Vec3::new(at.x - w, at.h - STANCE - 2.0, -(at.s + w));
+        let hi = Vec3::new(at.x + w, at.h - STANCE + 0.5, -(at.s - w));
+        assert!(solid_built(at.strip, lo, hi, Stage(0)), "on something: {at:?}");
     }
 }
 

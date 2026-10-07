@@ -38,7 +38,8 @@ pub enum Scene {
     Lineup,
     /// Wing Zero and a Leo circling and trading fire; a Taurus is shot down on a loop.
     Duel,
-    /// A Taurus squad skimming the colony hull.
+    /// A Taurus squad skimming the colony hull; a Leo riding bay 1's catapult cradle in its door on
+    /// the bay ring, thrown out at 5.5 s (preset 9: the launch shot's view of it, at 6.4 s).
     Colony,
     /// Inside the debris field.
     Field,
@@ -181,7 +182,11 @@ impl Scene {
             }
             Self::Lineup => LINEUP_CAMS.to_vec(),
             Self::Duel => DUEL_CAMS.to_vec(),
-            Self::Colony => COLONY_CAMS.to_vec(),
+            Self::Colony => {
+                let mut cams = COLONY_CAMS.to_vec();
+                cams.push(launch_cam());
+                cams
+            }
             Self::Field => FIELD_CAMS.to_vec(),
             // The camera places itself (1: chasing, 2: the cockpit); these only seed the orbit.
             Self::Chase => vec![orbit(CHASE, 0.0, 0.3, 900.0); 2],
@@ -234,6 +239,39 @@ const fn orbit(target: Vec3, yaw: f32, pitch: f32, dist: f32) -> Orbit {
 fn orbit_from(target: Vec3, from: Vec3, dist: f32) -> Orbit {
     let d = from.normalize();
     orbit(target, d.x.atan2(d.z), d.y.clamp(-1.0, 1.0).asin(), dist)
+}
+
+/// When the colony scene's Leo is thrown out of bay 1's door, s.
+const LAUNCH_AT: f64 = 5.5;
+
+/// The colony scene's Leo at `t` s: riding bay 1's cradle in its door until [`LAUNCH_AT`], then
+/// thrown out of it as the simulation throws a suit (the door's speed and the catapult's), coasting.
+fn launch_suit(t: f64) -> (Vec3, Vec3, Quat) {
+    use bc_sim::colony::hub::{BAY_LAUNCH_SPEED, BAY_RIDE_LOCAL, bay_pose, bay_ride_rot};
+    let at = |s: f64| {
+        let k = s.max(0.0) * f64::from(TICK_HZ);
+        bay_pose(1, k.floor() as u32, k.fract() as f32)
+    };
+    let p = at(t.min(LAUNCH_AT));
+    let pos = p.to_world(BAY_RIDE_LOCAL);
+    let rot = p.rot * bay_ride_rot();
+    let vel = p.point_vel(pos);
+    if t < LAUNCH_AT {
+        return (pos, vel, rot);
+    }
+    let thrown = vel + p.rot * -Vec3::X * BAY_LAUNCH_SPEED;
+    (pos + thrown * (t - LAUNCH_AT) as f32, thrown, rot)
+}
+
+/// The launch shot's view of the colony scene's Leo just out of its door (as `launch_shot` places
+/// the camera: ahead of it and to the side, up toward the colony's axis).
+fn launch_cam() -> Orbit {
+    let (pos, _, _) = launch_suit(6.4);
+    let k = LAUNCH_AT * f64::from(TICK_HZ);
+    let p = bc_sim::colony::hub::bay_pose(1, k.floor() as u32, k.fract() as f32);
+    let (ahead, side, up) = (p.rot * -Vec3::X, p.rot * Vec3::Z, p.rot * -Vec3::Y);
+    let from = ahead * 55.0 + side * 40.0 + up * 18.0;
+    orbit_from(pos, from, from.length())
 }
 
 /// An orbit whose eye sits at `eye`, looking along `dir`.
@@ -415,7 +453,12 @@ fn cast(scene: Scene) -> Vec<(FrameId, Faction)> {
             (Leo, Faction::Oz),
         ],
         Scene::Duel => vec![(WingZero, Faction::Colonies), (Leo, Faction::Oz), (Taurus, Faction::Oz)],
-        Scene::Colony => vec![(Taurus, Faction::Oz), (Taurus, Faction::Oz), (Taurus, Faction::Oz)],
+        Scene::Colony => vec![
+            (Taurus, Faction::Oz),
+            (Taurus, Faction::Oz),
+            (Taurus, Faction::Oz),
+            (Leo, Faction::Colonies),
+        ],
         Scene::Field => vec![(Leo, Faction::Oz), (Leo, Faction::Colonies)],
         Scene::Sky => vec![],
         Scene::Chase => vec![(WingZero, Faction::Colonies), (Leo, Faction::Oz), (Taurus, Faction::Oz)],
@@ -1359,6 +1402,16 @@ fn script(
                     d.thrust = Vec3::new(0.0, 0.0, 0.8);
                 });
             }
+            // A Leo in bay 1's door, thrown out of it.
+            let (pos, vel, rot) = launch_suit(t);
+            set(3, &mut |d| {
+                d.pos = pos;
+                d.vel = vel;
+                d.rot = rot;
+                d.aim = rot * Vec3::Z;
+                d.flags = if t >= LAUNCH_AT { ent_flags::BOOST } else { 0 };
+                d.thrust = if t >= LAUNCH_AT { Vec3::new(0.0, 0.0, 0.6) } else { Vec3::ZERO };
+            });
         }
         Scene::Sky => {}
         Scene::Chase => {

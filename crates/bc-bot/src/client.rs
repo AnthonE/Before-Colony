@@ -236,11 +236,13 @@ impl BotClient {
     }
 
     /// Survival rules: boards the suit in the bay and launches it. Returns once the pilot is out
-    /// in the sector, flying it.
+    /// in the sector, flying it: thrown out of its bay's door (an agent never holds the grip, so
+    /// its suit lets go of the bay's cradle on its first command).
     pub async fn launch(&mut self) -> anyhow::Result<()> {
         self.request(&Request::Launch).await?;
         self.wait_until(10.0, "the launch", |c| {
-            c.hangar.place == Some(Place::Space) && c.world.own.is_some_and(|o| o.alive)
+            c.hangar.place == Some(Place::Space)
+                && c.world.own.is_some_and(|o| o.alive && o.surface.is_none())
         })
         .await
     }

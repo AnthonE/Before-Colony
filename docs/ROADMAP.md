@@ -14,6 +14,8 @@ the bay, space, home).
 | P0: a floor under loss, text chat, objectives along the chain, The Arrival's seats | built |
 | P1: the Proving Ground: its course, the Blast Hall, its live fire, trainers boarded there, the drill and the board (`TRAINING.md`, phases 1 to 5) | built |
 | Living in the colony, L0: seats, the body and its meals (`LIFE.md`) | built (a framework: nothing on the wire yet) |
+| The loop's loose ends, first pass: the colony open by default, launching out of the pilot's own bay door, landing on the docking hub and walking in, hints along the way (below) | built |
+| Propulsion: bigger tanks, the extended tank, propellant grades, the ion drive (`DESIGN.md`) | built |
 | The mech games, 15: doom, ejecting and the self-destruct | built |
 | The mech games, 16: stagger | built |
 | The mech games, 17: specials charged by the fight | built |
@@ -22,7 +24,57 @@ the bay, space, home).
 | The mech games, 20: a test range | built |
 | The mech games, 21: aces, pay or salvage | built |
 | The mech games, 22: staying up under abuse | built |
-| P1's rest, P2 | planned |
+| P1's rest, P2 below, the loose ends left | planned |
+
+## The loop's loose ends
+
+Players walking the loop (the bay, a launch, space, home, the city) found its seams: the colony was
+shut unless the server was told to open it, so the bay was a dead end; and a launch played the
+bay's catapult, cut to black and opened on a suit somewhere off the hub with nothing tying the two
+together. The first pass (built):
+
+- **The colony open by default** (survival): `--no-colony` closes it (`BC_COLONY=0` for
+  `dev.sh`); arcade rules have none, and the server says which at start-up. Closed, the airlock
+  says the cap lifts are closed and the bay's terminal has no Proving Ground tab.
+- **Out of your own bay door.** The suit rides its bay's catapult cradle in the door on the
+  spinning bay ring (`Body::Bay(n)`, `colony::hub`; protocol 27) until the catapult's cut ends,
+  and is thrown out with the ring's 125 m/s; the camera opens outside by the open door and watches
+  it go (`bc-client`'s `launch_shot`). Into the colony (Q), it comes out of a lit port in the end
+  cap's inner face behind the inner gate. The cockpit's prompt says which key goes where.
+- **Home by landing on the hub.** Home stays on the axis, where nothing moves (a door on the ring
+  would take 0.7 g of thrust to hold): the dock's ring of lights as before, or the grip armed, a
+  landing on the docking hub's end face near its middle (a landmark now, turning with the colony),
+  and a walk onto its deck hatch.
+- **Hints along the loop:** the airlock and the cap lift, the city (its map, trams, cars and the
+  lift back up), the hub's landing, and the inner gate.
+
+Next, each a PR of its own:
+
+- **Choose a strip at the airlock.** The lift always goes down to strip 0's Hub Gate
+  (`onfoot.rs`, `EnterCity { strip: 0 }`), though the server and the agents take any of the three
+  (COLONY.md 2.2's lift lobby, lifts 1 to 3).
+- **The ◆ on the door in the city view itself**, not only on the map (P0's objectives, above).
+- **The Arrival's door opens its menu** (`LIFE.md`, L1: eating), rather than a toast that the bar's
+  quiet.
+- **Second keys for F1 and F10** (no function row on Mac laptops and 60% keyboards: `CONTROLS.md`).
+- **The Blast Hall's floor markings and the gantry's stairs** (`TRAINING.md`'s first ten minutes).
+- **A nightly CI job for the browser suites** (`BC_E2E=1 scripts/ci.sh`): GitHub Actions runs none
+  of them today, so the loop's seams are found by players.
+- **The launch shot's clocks.** The ring is drawn on the view clock and the own suit on the input
+  clock; on the throw the suit's drawn place blends between them (`own.rs`), which shows as a lurch
+  of a door's width if the release lands after the cut. Draw the colony on the own clock during the
+  shot if it shows.
+- **Auto-nav on an ion drive's crawl.** The auto-nav plans its braking on the chemical thrusters
+  (`nav::planned_braking`); a dry suit crawling home on its drive (0.1 g) brakes far later than it
+  can, and overshoots. Plan on the drive's thrust when the tank is dry.
+
+Later:
+
+- **Landing at your own door**, with an approach assist that matches the ring's spin (or a
+  tractor at the door), so a pilot can come home the way they left.
+- **Flying out of the colony through the axis port** into space (`SUITS_INSIDE.md`'s handoff).
+- **Solid end structures** (COLONY.md 1.3; a protocol bump of its own).
+- **Trams and cars that people can't walk through** (COLONY.md phases 4 and 5's known gaps).
 
 ## P0: before more players arrive
 

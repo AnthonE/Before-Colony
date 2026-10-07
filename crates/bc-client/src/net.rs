@@ -88,8 +88,12 @@ pub struct Game {
     /// tick, and the pilot's buttons (but boost, brake and the grip) still count.
     pub nav: Option<AutoNav>,
     /// A dev hook's errand inside the colony (`fly_to`): flight assist flies the suit to this point
-    /// of the colony's frame, and lets go once it's there.
+    /// of the colony's frame (or, `fly_out`, of space's: the dock), and lets go once it's there.
     pub fly_to: Option<Vec3>,
+    pub fly_out: bool,
+    /// Launching from the bay (`onfoot`): while the suit rides its bay's catapult cradle, hold on
+    /// (flight assist and the grip, hands off) until the catapult fires, whoever flies it.
+    pub bay_hold: bool,
 }
 
 impl Game {
@@ -114,6 +118,8 @@ impl Game {
             controls_for: None,
             nav: None,
             fly_to: None,
+            fly_out: false,
+            bay_hold: false,
         }
     }
 }
@@ -250,47 +256,63 @@ fn pump(g: &mut Game, t: &Transport, now: f64) {
     if let Some(destruct) = g.eject_request.take() {
         t.send_control(g.core.request(&bc_econ::Request::Eject { destruct }));
     }
+    // In the bay's cradle until the catapult fires: held there, whatever would fly it.
+    let hold = g.bay_hold;
+    let held = move |ctx: &bc_client_core::InputContext| {
+        let own = ctx.world.own.filter(|_| hold && ctx.predict.bay().is_some())?;
+        Some(InputCmd { aim: own.rot * Vec3::Z, buttons: FLIGHT_ASSIST | GRIP, ..InputCmd::default() })
+    };
     let packets = if g.autopilot {
         let brain = &mut g.brain;
-        g.core.poll_inputs(now, &mut |ctx| match brain {
-            // ZERO stays engaged; flight assist is the brain's call (it flies unassisted to spare
-            // its pilot G-strain).
-            Brain::Doll(b) => {
-                let mut cmd = b.decide(ctx);
-                cmd.buttons |= ZERO;
-                cmd
+        g.core.poll_inputs(now, &mut |ctx| {
+            if let Some(cmd) = held(ctx) {
+                return cmd;
             }
-            Brain::Lander(b) => b.decide(ctx),
+            match brain {
+                // ZERO stays engaged; flight assist is the brain's call (it flies unassisted to
+                // spare its pilot G-strain).
+                Brain::Doll(b) => {
+                    let mut cmd = b.decide(ctx);
+                    cmd.buttons |= ZERO;
+                    cmd
+                }
+                Brain::Lander(b) => b.decide(ctx),
+            }
         })
     } else {
         let (cmd, seeded, fly_to) = (g.controls, g.controls_for, g.fly_to);
         let Game { core, nav, hard, .. } = &mut *g;
-        core.poll_inputs(now, &mut |ctx| match ctx.world.own {
-            // News of a suit the controls aren't set up for yet came in between frames (one woken
-            // on a body, say): hold on as the server does until the next frame sets them, rather
-            // than let go of the body.
-            Some(o) if seeded != Some((o.slot, o.generation)) => InputCmd {
-                aim: o.rot * Vec3::Z,
-                buttons: FLIGHT_ASSIST | if o.surface.is_some() { GRIP } else { 0 },
-                ..InputCmd::default()
-            },
-            // A dev hook's errand (`fly_to`): flight assist toward the point, slowing as it nears.
-            Some(o) if fly_to.is_some() => {
-                fly_toward(ctx, frame(o.frame).fa_speed, fly_to.unwrap_or(ctx.predict.state.pos))
+        core.poll_inputs(now, &mut |ctx| {
+            if let Some(cmd) = held(ctx) {
+                return cmd;
             }
-            // The auto-nav holds the stick: a velocity for flight assist to fly, worked out from
-            // the prediction tick by tick, in the suit's own axes (so no lock-on rides with it, and
-            // no burst step). Else, locked on, the keys move the suit about its target.
-            _ => match nav.as_mut().and_then(|n| Some((n.decide(ctx)?, n.look))) {
-                Some((n, look)) => InputCmd {
-                    thrust: n.thrust,
-                    aim: if look { n.aim } else { cmd.aim },
-                    buttons: (cmd.buttons & !(BOOST | BRAKE | GRIP | BURST)) | n.buttons,
-                    lockon: None,
-                    ..cmd
+            match ctx.world.own {
+                // News of a suit the controls aren't set up for yet came in between frames (one woken
+                // on a body, say): hold on as the server does until the next frame sets them, rather
+                // than let go of the body.
+                Some(o) if seeded != Some((o.slot, o.generation)) => InputCmd {
+                    aim: o.rot * Vec3::Z,
+                    buttons: FLIGHT_ASSIST | if o.surface.is_some() { GRIP } else { 0 },
+                    ..InputCmd::default()
                 },
-                None => lockon::shape(cmd, hard, ctx),
-            },
+                // A dev hook's errand (`fly_to`): flight assist toward the point, slowing as it nears.
+                Some(o) if fly_to.is_some() => {
+                    fly_toward(ctx, frame(o.frame).fa_speed, fly_to.unwrap_or(ctx.predict.state.pos))
+                }
+                // The auto-nav holds the stick: a velocity for flight assist to fly, worked out from
+                // the prediction tick by tick, in the suit's own axes (so no lock-on rides with it, and
+                // no burst step). Else, locked on, the keys move the suit about its target.
+                _ => match nav.as_mut().and_then(|n| Some((n.decide(ctx)?, n.look))) {
+                    Some((n, look)) => InputCmd {
+                        thrust: n.thrust,
+                        aim: if look { n.aim } else { cmd.aim },
+                        buttons: (cmd.buttons & !(BOOST | BRAKE | GRIP | BURST)) | n.buttons,
+                        lockon: None,
+                        ..cmd
+                    },
+                    None => lockon::shape(cmd, hard, ctx),
+                },
+            }
         })
     };
     for p in &packets {
@@ -317,10 +339,14 @@ fn fly_toward(ctx: &bc_client_core::InputContext, fa_speed: f32, to: Vec3) -> In
 
 /// Where a `fly_to` errand goes, in the colony's frame: `up` metres over a place's door (by its
 /// slug), `ahead` metres out from it; or the inner gate (`inner_gate`), `ahead` metres down the
-/// colony from it.
+/// colony from it. Out in space (the sector's frame): the dock off the hub's mouth (`dock`), `up`
+/// metres over its middle.
 fn fly_target(slug: &str, up: f32, ahead: f32) -> Option<Vec3> {
     if slug == "inner_gate" {
         return Some(bc_sim::colony::interior::INNER_GATE + Vec3::X * ahead);
+    }
+    if slug == "dock" {
+        return Some(bc_sim::content::salvage::DOCK_CENTER + Vec3::Y * up);
     }
     let (_, p) = bc_sim::colony::city::place(slug)?;
     let ((s, x), (ds, dx)) = bc_sim::colony::city::place_door(p);
@@ -344,11 +370,13 @@ pub fn drive(
     for cmd in &cmds.0 {
         if let crate::page::UiCmd::FlyTo(to) = cmd {
             g.fly_to = to.as_ref().and_then(|(slug, up, ahead)| fly_target(slug, *up, *ahead));
+            g.fly_out = to.as_ref().is_some_and(|(slug, ..)| slug == "dock");
         }
     }
-    // The errand's done once the suit is there (or gone, or out of the colony).
+    // The errand's done once the suit is there (or gone, or out of the colony, or into it).
     let here = g.core.own_view().filter(|v| v.alive).map(|v| v.pos);
-    if g.fly_to.is_some_and(|to| !g.core.inside() || here.is_none_or(|p| p.distance(to) < 8.0)) {
+    let astray = g.core.inside() == g.fly_out;
+    if g.fly_to.is_some_and(|to| astray || here.is_none_or(|p| p.distance(to) < 8.0)) {
         g.fly_to = None;
     }
     dev.set("flying_to", g.fly_to.is_some());

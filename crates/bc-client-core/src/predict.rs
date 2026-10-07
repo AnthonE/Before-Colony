@@ -68,6 +68,8 @@ pub struct Sample {
     pub throttle: Vec3,
     /// Flight assist held the pilot's G down.
     pub g_limited: bool,
+    /// The ion drive worked.
+    pub ion: bool,
     /// The frame flown.
     pub frame: FrameId,
     /// The mount of a strike in its windup or stroke after the tick.
@@ -98,6 +100,7 @@ impl Sample {
         boosting: false,
         throttle: Vec3::ZERO,
         g_limited: false,
+        ion: false,
         frame: FrameId::Leo,
         strike: None,
         footing: Footing::Free,
@@ -124,6 +127,7 @@ impl Sample {
             boosting: out.flight.boosting,
             throttle: out.flight.throttle,
             g_limited: out.flight.g_limited,
+            ion: out.flight.ion > 0.0,
             frame,
             strike: arms.striking(),
             footing: m.footing,
@@ -158,6 +162,7 @@ pub struct OwnPose {
     pub boosting: bool,
     pub throttle: Vec3,
     pub g_limited: bool,
+    pub ion: bool,
     pub frame: FrameId,
     /// The mount of a strike in its windup or stroke.
     pub strike: Option<u8>,
@@ -189,6 +194,7 @@ impl OwnPose {
             boosting: b.boosting,
             throttle: a.throttle.lerp(b.throttle, u),
             g_limited: b.g_limited,
+            ion: b.ion,
             frame: b.frame,
             strike: b.strike,
             ground: None,
@@ -209,6 +215,7 @@ impl OwnPose {
             boosting: a.boosting,
             throttle: a.throttle,
             g_limited: a.g_limited,
+            ion: a.ion,
             frame: a.frame,
             strike: a.strike,
             ground: None,
@@ -361,18 +368,27 @@ fn mover_from(own: &OwnState, bodies: &Bodies) -> Mover {
 }
 
 /// What the own suit flies with between snapshots: its stat sheet (built from the snapshot as the
-/// server builds it), the flight modifiers from it, and its slot (whose sputter it is).
+/// server builds it), the flight modifiers from it, its slot (whose sputter it is), and the last
+/// tick its reactor is scrammed through (its ion drive off until after it).
 #[derive(Clone, Copy, Debug, Default)]
 struct Flying {
     mods: FlightMods,
     tuning: Tuning,
     slot: u16,
+    scram_through: u32,
 }
 
 impl Predictor {
-    fn mods_from(own: &OwnState, rules: FlightRules) -> Flying {
+    /// From the own state at `server_tick`. The server counts a scram down after each tick's
+    /// flight, so the reactor is out for the `scram` ticks after it.
+    fn mods_from(own: &OwnState, rules: FlightRules, server_tick: u32) -> Flying {
         let tuning = own_tuning(own);
-        Flying { mods: flight_mods(&tuning, rules, false, own.extra_mass_kg), tuning, slot: own.slot }
+        Flying {
+            mods: flight_mods(&tuning, rules, false, own.extra_mass_kg),
+            tuning,
+            slot: own.slot,
+            scram_through: server_tick + u32::from(own.scram),
+        }
     }
 
     /// How the sector's suits fly, from the Welcome.
@@ -423,10 +439,15 @@ impl Predictor {
         cmd: &InputCmd,
     ) -> MoveOut {
         // Inside the colony its law clears the weapons' buttons but in the Blast Hall, from where
-        // the suit is as the tick starts, as the server's tick does (`Sim::colony_law`).
+        // the suit is as the tick starts, as the server's tick does (`Sim::colony_law`); in its
+        // bay's cradle, the bay's law clears them and a change of form (`Sim::bay_law`).
         let lawful;
+        let in_bay = m.footing != Footing::Free && matches!(m.anchor.body, Body::Bay(_));
         let cmd = if flying.mods.interior && !bc_sim::colony::hall::weapons_free(m.flight.pos) {
             lawful = InputCmd { buttons: cmd.buttons & !bc_proto::buttons::FIRE_MASK, ..*cmd };
+            &lawful
+        } else if !flying.mods.interior && in_bay {
+            lawful = InputCmd { buttons: cmd.buttons & !bc_sim::sim::bay_cleared(), ..*cmd };
             &lawful
         } else {
             cmd
@@ -437,6 +458,10 @@ impl Predictor {
         let spec = frame(form.frame);
         let mut mods = flying.mods;
         mods.main *= sputter(&flying.tuning, cmd.tick, flying.slot);
+        // A scrammed reactor powers no ion drive, for as long as the own state said.
+        if cmd.tick <= flying.scram_through {
+            mods.ion = 0.0;
+        }
         if arms.busy(cmd.tick) {
             mods.ambac = busy_ambac(mods.ambac);
         }
@@ -530,6 +555,7 @@ impl Predictor {
     pub fn body_pose(&self, body: Body, t: f64) -> Option<BodyPose> {
         match body {
             Body::City => self.interior.then(|| BodyPose::fixed(Vec3::ZERO, glam::Quat::IDENTITY)),
+            Body::Bay(_) if self.interior => None,
             _ => body_pose(&self.field, self.landmarks(), body, t),
         }
     }
@@ -538,7 +564,17 @@ impl Predictor {
     fn shape_of(&self, body: Body) -> Option<bc_sim::bodies::Shape> {
         match body {
             Body::City => self.interior.then(bc_sim::bodies::Shape::city),
+            Body::Bay(_) if self.interior => None,
             _ => body_shape(&self.field, self.landmarks(), body),
+        }
+    }
+
+    /// The bay the suit is riding in its catapult's cradle, waiting to be thrown out of the door
+    /// (`bc_sim::colony::hub`), after the newest command.
+    pub fn bay(&self) -> Option<u8> {
+        match (self.footing, self.anchor.body) {
+            (Footing::Grounded | Footing::Aloft, Body::Bay(n)) => Some(n),
+            _ => None,
         }
     }
 
@@ -645,7 +681,7 @@ impl Predictor {
             form.timer = u16::from(own.special_timer);
         }
         self.form = form;
-        self.flying = Self::mods_from(own, self.rules);
+        self.flying = Self::mods_from(own, self.rules, server_tick);
         self.flying.mods.interior = self.interior;
         self.legs_ok = own.parts[Part::Legs as usize] > 0.0;
         // The server's state for that tick (the G and thrust aren't sent; see below).
@@ -846,7 +882,7 @@ mod tests {
         let field = Field::empty();
         let (mut m, mods) = (
             mover_from(own, &Bodies::at(&field, &LANDMARKS, 100)),
-            Predictor::mods_from(own, FlightRules::Real),
+            Predictor::mods_from(own, FlightRules::Real, 100),
         );
         let mut form = Form { frame: own.frame, timer: 0 };
         let mut arms = ArmsClock::from_own(own, 100, 0);

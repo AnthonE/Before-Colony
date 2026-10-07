@@ -149,7 +149,7 @@ fn sleepers_cleared_for_room_are_reported() {
 #[test]
 fn suits_on_bodies_are_counted_and_the_welcome_names_the_landmarks() {
     let (mut sector, shared) = sector(16);
-    assert_eq!(shared.landmarks, 2, "MO-II and Hermit");
+    assert_eq!(shared.landmarks, 3, "MO-II, Hermit and the docking hub");
     send(&mut sector, &shared, 0, join(0, Comeback::default()));
     let (idx, generation) = shared.slots[0].suit_id().unwrap();
     // Standing on Hermit (out of its hide spots) as its pilot leaves: parked on its feet.
@@ -166,7 +166,7 @@ fn suits_on_bodies_are_counted_and_the_welcome_names_the_landmarks() {
     assert_eq!((count(&m.grounded), count(&m.hidden), count(&m.sleepers_hidden)), (1, 1, 1), "dark");
 
     // A sector of fewer landmarks says so; one asking for more than there are has them all.
-    for (asked, has) in [(0, 0), (1, 1), (9, 2)] {
+    for (asked, has) in [(0, 0), (1, 1), (9, 3)] {
         let cfg = SectorConfig {
             sim: SimConfig { target_dolls: 0, field_rocks: 0, landmarks: asked, ..SimConfig::default() },
             max_clients: 1,
@@ -222,13 +222,19 @@ fn sector_with_leases(survival: bool) -> (Sector, Arc<SectorShared>, Vec<SlotLea
     (sector, shared, leases)
 }
 
-/// Seats a Leo in `slot` (launched from the hub, under survival rules) and puts it on `body`
+/// Seats a Leo in `slot` (launched from its bay, under survival rules) and puts it on `body`
 /// along `dir` (if any), standing; a few ticks on, its pilot leaves. The suit.
 fn leave_on(sector: &mut Sector, shared: &SectorShared, slot: u16, on: Option<(Body, Vec3)>) -> SuitId {
     let msg = if sector.config().sim.survival { launch(slot) } else { join(slot, Comeback::default()) };
     assert_eq!(send(sector, shared, slot, msg), (SlotState::Active, Outcome::Fresh));
     let (idx, generation) = shared.slots[usize::from(slot)].suit_id().unwrap();
     let id = SuitId(Handle { idx, generation });
+    if sector.sim.in_bay(usize::from(idx)) {
+        // Out of its bay's cradle: its pilot lets go of the grip.
+        sector.sim.suits.input[usize::from(idx)].buttons = bc_proto::buttons::FLIGHT_ASSIST;
+        sector.tick();
+        assert!(!sector.sim.in_bay(usize::from(idx)));
+    }
     if let Some((body, dir)) = on {
         assert!(sector.sim.place_on(id, body, dir), "on {body:?}");
     }

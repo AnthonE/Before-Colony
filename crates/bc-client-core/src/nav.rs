@@ -654,9 +654,11 @@ pub fn eta(dist: f32, speed: f32, cruise: f32, brake: f32) -> f32 {
 
 /// About how much propellant (kg) a suit of `spec` carrying `propellant` burns going `dist` m by
 /// the real flight rules: up to the speed the trip allows (no higher than `cruise`), and down
-/// again (braking at `brake`), by the rocket equation.
+/// again (braking at `brake`), by the rocket equation. `isp` is its stat sheet's specific impulse
+/// (the propellant's grade, a thruster kit).
 pub fn burn_estimate(
     spec: &bc_sim::content::FrameSpec,
+    isp: f32,
     propellant: f32,
     dist: f32,
     cruise: f32,
@@ -664,7 +666,7 @@ pub fn burn_estimate(
 ) -> f32 {
     let peak = (brake * dist.max(0.0)).sqrt().min(cruise);
     let mass = spec.mass(propellant);
-    (mass * (1.0 - (-2.0 * peak / spec.exhaust_velocity()).exp())).min(propellant.max(0.0))
+    (mass * (1.0 - (-2.0 * peak / (spec.exhaust_velocity() * isp)).exp())).min(propellant.max(0.0))
 }
 
 /// What a pilot flying by hand is told about getting there: speed up, hold it, or brake now.
@@ -968,10 +970,12 @@ mod tests {
         // Up to 220 m/s and back down costs a Leo what the rocket equation says, and a short hop
         // less than a long one.
         let leo = bc_sim::content::frame(bc_proto::FrameId::Leo);
-        let burn = burn_estimate(leo, 2_000.0, 20_000.0, 220.0, 8.0);
+        let burn = burn_estimate(leo, 1.0, 2_000.0, 20_000.0, 220.0, 8.0);
         let want = leo.mass(2_000.0) * (1.0 - (-440.0 / leo.exhaust_velocity()).exp());
         assert!((burn - want).abs() < 1.0, "{burn} {want}");
-        assert!(burn_estimate(leo, 2_000.0, 500.0, 220.0, 8.0) < burn);
+        assert!(burn_estimate(leo, 1.0, 2_000.0, 500.0, 220.0, 8.0) < burn);
+        // A purer propellant burns less for the same trip.
+        assert!(burn_estimate(leo, 1.35, 2_000.0, 20_000.0, 220.0, 8.0) < burn * 0.8);
     }
 
     #[test]

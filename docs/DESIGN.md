@@ -77,20 +77,21 @@ Dolls on them.)
 - **Anime** (the default). The tank is a **boost gauge** (the flight panel reads `BOOST`).
   - Only boost burns it, with all the thrust boost gives, as ever. Flying, turning on RCS,
     flight assist's braking and a blade's lunge burn nothing, and work on an empty gauge.
-  - Let go of Shift and it fills back up: a whole tank in 20 s, in flight or standing on a body.
+  - Let go of Shift and it fills back up: a whole tank in 20 s (about 13 s with an ion drive), in
+    flight or standing on a body.
     Leaning on boost with the gauge dry gets nothing (no boost, no refill), and flight assist
     holds the plain cruise, not boost's.
   - A holed tank refills at half the rate, and a failed one not at all: it leaks dry, and the suit
     flies on without boost.
   - Pilots bear twice the G every way (12 g for good headward, 24 g pressed into the seat), as the
     show's do: a Gundam's boost doesn't black its pilot out, even a Wing Zero's on a nearly empty
-    gauge (lighter, it pulls 16 g ahead). Diving hard on boost as well still can (their blood
+    gauge (lighter, it pulls nearly 18 g ahead). Diving hard on boost as well still can (their blood
     driven to their head), and so can a pilot hurt by a struck cockpit, and so can a crash.
   - What the tank makes out there stays out there: under survival, a suit comes home with no more
     propellant than it launched with.
 - **Real.** Every newton burns propellant at `|F| / (Isp·g0)` (the rest of this section), and a
   pilot bears 6 g headward, more or less the other ways (**Pilot G**, below). The tank is the
-  sortie's delta-v: brake before you're dry.
+  sortie's delta-v: brake before you're dry, or carry an ion drive home.
 
 - **Thrust** is limited per axis: main (forward), side (lateral and vertical) and retro. Boost
   multiplies main thrust. Every newton burns propellant at `|F| / (Isp·g0)`, so mass falls as you
@@ -142,7 +143,7 @@ Dolls on them.)
   a spike (a burst step) is over before it matters, a hard push held isn't, and the view greys
   out and closes in on the way. At 100% the pilot blacks out and control authority collapses until
   strain falls below 50%, two seconds once the load is off (a real G-LOC lasts nearer half a
-  minute). A Wing Zero's boost (12 g ahead) is borne while its tank is full, but lighter (16 g by
+  minute). A Wing Zero's boost (12 g ahead) is borne while its tank is full, but lighter (nearly 18 g by
   the end) or climbing too, it's more than its pilot takes, so you *can* out-thrust your own body,
   as Zechs did in the Tallgeese. Mobile Dolls have no body, so no G limit. Agents are pilots, so
   they do have one.
@@ -163,21 +164,23 @@ Dolls on them.)
 - **Rocks are solid too.** A suit that flies into one stops at its surface, losing its speed into
   it, and slides along it; nothing tunnels, even at 2 km/s. Shots stop at rocks, so a rock is
   cover. The field comes from a seed, so your browser predicts against the same rocks.
-- **So are MO-II and Hermit.** A suit meets them as it meets a rock, but relative to the moving
-  surface, which carries it along. A shot meets whatever is first along its path: a rock, a
+- **So are MO-II, Hermit and the docking hub.** A suit meets them as it meets a rock, but relative
+  to the moving surface, which carries it along. (The hub's spire turns with the colony: only near
+  the middle of its end face is it slow enough to land on, where its deck hatch is. The bay ring
+  beyond it is drawn only.) A shot meets whatever is first along its path: a rock, a
   landmark, the colony or a suit. So a suit skimming the hull is hit, and one behind it isn't.
 
 | Frame | Role | Dry mass | Accel (boost) | Δv | Armour | Loadout |
 |---|---|---|---|---|---|---|
-| Leo (OZ-06MS) | line suit | 7.1 t | 3.5 g (5.6 g) | ≈2.6 km/s | titanium | beam rifle · machine cannon · beam saber |
-| Wing Gundam Zero (XXXG-00W0) | hero suit | 8.0 t | 8 g (12 g) | ≈3.7 km/s | gundanium (×0.55 damage) | Twin Buster Rifle · machine cannons · beam saber · **ZERO System** |
-| Neo-Bird (Wing Zero's other form) | interceptor | 8.0 t | 8.5 g (11.9 g) | ≈3.7 km/s | as Wing Zero | Twin Buster Rifle (fixed forward) · machine cannons · **ZERO System** |
-| Gundam Heavyarms (XXXG-01H) | gunship | 8.8 t | 5.2 g (7.3 g) | ≈2.8 km/s | gundanium (×0.55) | beam gatling · homing missiles · army knife · **Full Open Attack** |
-| Gundam Sandrock (XXXG-01SR) | brawler | 9.6 t | 4.6 g (6.9 g) | ≈2.4 km/s | gundanium (×0.45) | beam machine gun · homing missiles · heat shotels · **Cross Crusher** |
-| Gundam Deathscythe (XXXG-01D) | infiltrator | 7.3 t | 7 g (11.2 g) | ≈3.3 km/s | gundanium (×0.55) | buster shield · head vulcans · beam scythe · **Hyper Jammer** |
-| Shenlong Gundam (XXXG-01S) | duellist | 7.5 t | 7.4 g (11.8 g) | ≈3.3 km/s | gundanium (×0.55) | Dragon Fang · flamethrower · beam glaive |
-| Taurus (OZ-13MS) | Mobile Doll | 6.5 t | 5 g | | titanium | beam rifle |
-| Virgo (OZ-02MD) | Mobile Doll | 9.5 t | 3 g | | heavy (×0.8) | beam cannon, Planet Defensors (visual) |
+| Leo (OZ-06MS) | line suit | 7.1 t | 3.5 g (5.6 g) | ≈3.1 km/s | titanium | beam rifle · machine cannon · beam saber |
+| Wing Gundam Zero (XXXG-00W0) | hero suit | 8.0 t | 8 g (12 g) | ≈4.5 km/s | gundanium (×0.55 damage) | Twin Buster Rifle · machine cannons · beam saber · **ZERO System** |
+| Neo-Bird (Wing Zero's other form) | interceptor | 8.0 t | 8.5 g (11.9 g) | ≈4.5 km/s | as Wing Zero | Twin Buster Rifle (fixed forward) · machine cannons · **ZERO System** |
+| Gundam Heavyarms (XXXG-01H) | gunship | 8.8 t | 5.2 g (7.3 g) | ≈3.4 km/s | gundanium (×0.55) | beam gatling · homing missiles · army knife · **Full Open Attack** |
+| Gundam Sandrock (XXXG-01SR) | brawler | 9.6 t | 4.6 g (6.9 g) | ≈3.0 km/s | gundanium (×0.45) | beam machine gun · homing missiles · heat shotels · **Cross Crusher** |
+| Gundam Deathscythe (XXXG-01D) | infiltrator | 7.3 t | 7 g (11.2 g) | ≈4.0 km/s | gundanium (×0.55) | buster shield · head vulcans · beam scythe · **Hyper Jammer** |
+| Shenlong Gundam (XXXG-01S) | duellist | 7.5 t | 7.4 g (11.8 g) | ≈4.0 km/s | gundanium (×0.55) | Dragon Fang · flamethrower · beam glaive |
+| Taurus (OZ-13MS) | Mobile Doll | 6.5 t | 5 g | ≈2.9 km/s | titanium | beam rifle |
+| Virgo (OZ-02MD) | Mobile Doll | 9.5 t | 3 g | ≈2.5 km/s | heavy (×0.8) | beam cannon, Planet Defensors (visual) |
 
 ## Surfaces (`bc-sim/src/ground.rs`)
 
@@ -334,7 +337,7 @@ through each suit's stat sheet, `bc_sim::tuning`.)
 | head | sensors | sensor range ×0.7 | ×0.4: the sub-camera |
 | head | fire control | missile locks build at half the rate and fall apart twice as fast | no locks; ZERO's firing solution no longer pulls shots |
 | torso | reactor | energy regeneration ×0.5 | ×0.15 |
-| torso | propellant tank | leaks 3 kg/s | leaks 15 kg/s (a Leo's tank in under 3 minutes) |
+| torso | propellant tank | leaks 3 kg/s | leaks 15 kg/s (a Leo's tank in under 4 minutes) |
 | torso | radiators | heat dissipation ×0.6 | ×0.25 |
 | torso | gyros | AMBAC ×0.75 | ×0.5 |
 | torso | cockpit | the pilot bears 5 g (flight assist holds them under it) | 4 g |
@@ -379,6 +382,8 @@ fixed design with a physical trade-off (`bc_sim::content::modules`):
 | G-seat | torso | the pilot bears 1 g more | 150 kg |
 | Damage control | torso | restores one damaged system every 25 s (never a failed one) | 4 energy/s while it works |
 | Auxiliary tank | backpack | tank ×1.4 (a Leo's delta-v about +30%) | 200 kg |
+| Extended tank | torso | tank ×1.25 (a Leo's delta-v about +18%; ×1.75 with an auxiliary tank, 5.25 t) | 150 kg |
+| Ion drive | backpack | 0.1 g on the reactor's power alone (below) | 250 kg; half the reactor's regeneration while it works |
 | Thruster kit | backpack | main thrust ×1.15 | specific impulse ×0.88 |
 | Leg verniers | legs | lateral and vertical thrust ×1.25 | 150 kg |
 | Cargo rack | legs | hold +1,000 kg | AMBAC ×0.9, 250 kg |
@@ -386,6 +391,33 @@ fixed design with a physical trade-off (`bc_sim::content::modules`):
 The owner's client builds the same stat sheet from its snapshot (the systems' levels and the
 modules' codes), so a suit that coughs, leaks and carries a thruster kit is predicted as exactly
 as a whole one.
+
+**The ion drive** is the suits' electric thruster: 0.1 g of the frame on a full tank (9.9 kN on a
+Leo), on the reactor's power alone, as much as its reactor gives (half on a damaged one, 15% on a
+failed one; nothing while it's scrammed). Under the real rules the first of each tick's thrust is
+the drive's and burns nothing, so gentle flying is free and hard burns cost a little less; and a dry
+tank still gives that much (RCS stays dry: the suit turns on AMBAC), a crawl home where a suit
+without one only drifts. Under anime rules it fills the boost gauge half as fast again (a whole tank
+in about 13 s). While it works it takes up to half the reactor's regeneration. It competes for the
+backpack with the auxiliary tank and the thruster kit; the HUD shows `ION` while it's working. The
+owner's client predicts it as the server flies it, scram and all (the own state's `scram` says for
+how long), and the reactor's draw, which only the server keeps, never changes the flight.
+
+**Propellant grades** (`bc_sim::content::propellant`). What's in the tank goes further the purer
+it is: a grade multiplies the suit's specific impulse, so under the real rules each kilogram buys
+more delta-v, and under anime rules the gauge boosts longer.
+
+| Grade | Specific impulse | A Leo's delta-v | A Leo's boost | Refined from |
+|---|---|---|---|---|
+| Standard | ×1.0 | 3.1 km/s | 48 s | 100 kg volatiles → 100 kg |
+| Refined | ×1.15 | 3.6 km/s | 55 s | 100 kg volatiles → 75 kg |
+| Ultra-pure | ×1.35 | 4.2 km/s | 64 s | 100 kg volatiles and 3 kg exotic metals → 50 kg |
+
+A suit flies one grade at a time: at the bay's console, fuelling with another pumps what's in the
+tank back to the stores as what it is, and a launch tops the tank up from the suit's own grade. The
+grade rides the owner's snapshot, so prediction burns as the server does. Mobile Dolls, arcade
+suits and the Board's Leos fly Standard; a build tried at the test range flies its own grade, its
+tank full.
 
 ### Neo-Bird
 
@@ -811,7 +843,8 @@ with it. A suit launches with what's fitted, as worn as it is, its tank and maga
 from the stores.
 
 - **Materials** (fabricator): steel (nickel-iron), titanium alloy (titanium, a little volatiles),
-  propellant (volatiles), electronics (exotic metals and steel), munitions (steel and volatiles).
+  propellant (volatiles; refined and ultra-pure from more of them, the last over exotic metals),
+  electronics (exotic metals and steel), munitions (steel and volatiles).
   **Gundanium** (titanium alloy and exotic metals) only at the zero-G foundry, 400 credits a batch.
 - **Parts** take structure (steel), armour (titanium alloy, or gundanium for a Gundam) and wiring
   (electronics) in proportion to their mass, plus their systems: the ZERO System in Wing Zero's
@@ -838,8 +871,9 @@ they're next in their bay, so orders fill while their owners are away. Prices ar
 for bulk goods, a piece for everything else.
 
 - **The colony** trades too, from a desk per item it deals in: it buys all the raw ore it can get,
-  sells propellant cheap, and deals in materials, ordinary parts and weapons. Its middle price is
-  the item's value times (the stock it wants ÷ the stock it has)^0.6, within ⅕× and 5×; it bids 10%
+  sells propellant cheap (a full Leo tank about 3,000 credits; 7,500 refined, 18,000
+  ultra-pure), and deals in materials, ordinary parts and weapons. Its middle price is the item's
+  value times (the stock it wants ÷ the stock it has)^0.6, within ⅕× and 5×; it bids 10%
   under and asks 10% over. Pilots selling to it drive its prices down and buying drives them up,
   and its stock settles back towards what it wants over hours (what it uses up, what it imports),
   so prices drift back.
@@ -971,11 +1005,17 @@ a bounty on it (1,500 to 4,000 CR).
 
 ### Sorties
 
-- **Launching:** board at the hatch. The bay vents, beacons turning red, the doors part, and the
-  catapult throws the suit down the 220 m launch tunnel into space at the hub's mouth, inside the
-  dock. (Space skips the sequence.)
-- **Docking:** come to rest (under 25 m/s) inside the dock's ring of amber lights, off the mouth
-  of the docking hub at the colony's −X end, and press Enter. The suit glides in down the tunnel,
+- **Launching:** board at the hatch (E; Q flies into the colony instead, by its inner gate). The
+  bay vents, beacons turning red, the doors part, and the catapult throws the suit down the launch
+  tunnel and out of the bay's own door on the spinning bay ring, at 40 m/s on top of the ring's
+  125 m/s: the camera opens outside the ring by the open door and watches it go, then hands over to
+  the chase camera. Until the throw the suit rides its bay's cradle in the door, carried round with
+  the ring, its weapons held. (Space skips the sequence.)
+- **Docking:** home is on the axis, where nothing moves (a door on the ring would take holding
+  0.7 g against the spin): come to rest (under 25 m/s) inside the dock's ring of amber lights, off
+  the mouth of the docking hub at the colony's −X end, and press Enter; or arm the grip, land on the
+  hub's end face near its middle (it turns with the colony, slowly there), walk onto the lit deck
+  hatch and press Enter. The suit glides in down the tunnel,
   the doors shut behind it, and the pilot climbs out onto the catwalk. What came home goes to the
   stores: the suit as it is (its systems as broken as they came, its equipment if its parts came
   too), the hold's ore, whatever was in hand, and the bounties earned.
@@ -1020,7 +1060,7 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   Exchange Row to Old Town's low streets, all worked out as a closed form of where you are
   (`bc_sim::colony::city`): nothing is stored, and every client and the server see the same walls.
   Gravity is the spin's: 1 g on the ground, less up a tower.
-- **Going in** (a survival server run with `--colony`): the bay's airlock leads to the cap lift,
+- **Going in** (a survival server, unless it runs with `--no-colony`): the bay's airlock leads to the cap lift,
   which rides down the end cap's face with the whole colony in view (Space skips the ride) to Hub
   Gate's terminal. From there the pilot walks the city with the bay's controls, and M shows the
   map of their strip. Districts and sights are named on the way in; a sight reached for the first

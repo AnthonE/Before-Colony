@@ -66,6 +66,7 @@ impl BodySet {
             BodyRef::Rock(r) => usize::from(r) < self.field.len(),
             BodyRef::Landmark(k) => usize::from(k) < self.landmarks().len(),
             BodyRef::City => self.interior,
+            BodyRef::Bay(n) => !self.interior && bc_sim::colony::hub::is_bay(n),
         }
     }
 
@@ -78,6 +79,7 @@ impl BodySet {
     pub fn pose_at(&self, b: Body, t: f64) -> Option<BodyPose> {
         match b {
             Body::City => self.interior.then(|| BodyPose::fixed(Vec3::ZERO, Quat::IDENTITY)),
+            Body::Bay(_) if self.interior => None,
             _ => body_pose(&self.field, self.landmarks(), b, t),
         }
     }
@@ -86,6 +88,7 @@ impl BodySet {
     pub fn shape(&self, b: Body) -> Option<Shape> {
         match b {
             Body::City => self.interior.then(Shape::city),
+            Body::Bay(_) if self.interior => None,
             _ => body_shape(&self.field, self.landmarks(), b),
         }
     }
@@ -109,6 +112,9 @@ pub fn body_pose(field: &Field, landmarks: &[LandmarkDef], b: Body, t: f64) -> O
         Body::None | Body::City => None,
         Body::Rock(r) => field.rocks().get(usize::from(r)).map(|rock| BodyPose::fixed(rock.pos, rock.rot)),
         Body::Landmark(i) => landmarks.get(usize::from(i)).map(|d| landmark_pose(d, k as u32, frac)),
+        Body::Bay(n) => {
+            bc_sim::colony::hub::is_bay(n).then(|| bc_sim::colony::hub::bay_pose(n, k as u32, frac))
+        }
     }
 }
 
@@ -118,6 +124,7 @@ pub fn body_shape(field: &Field, landmarks: &[LandmarkDef], b: Body) -> Option<S
         Body::None | Body::City => None,
         Body::Rock(r) => field.rocks().get(usize::from(r)).map(|rock| Shape::ellipsoid(rock.axes)),
         Body::Landmark(i) => landmarks.get(usize::from(i)).map(|d| d.shape),
+        Body::Bay(n) => bc_sim::colony::hub::is_bay(n).then(bc_sim::colony::hub::bay_shape),
     }
 }
 

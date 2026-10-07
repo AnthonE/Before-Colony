@@ -279,6 +279,14 @@ fn survival_launches_docks_and_losses_never_allocate() {
             l.modules.set(1, Some(ModuleKind::DamageControl));
             l.modules.set(4, Some(ModuleKind::AuxiliaryTank));
         }
+        // Every third flies a purer propellant, in a bigger tank, and half of them on an ion drive.
+        if slot % 3 == 1 {
+            l.grade = bc_sim::content::Grade::Refined;
+            l.modules.set(2, Some(bc_sim::content::ModuleKind::ExtendedTank));
+            if !slot.is_multiple_of(2) {
+                l.modules.set(4, Some(bc_sim::content::ModuleKind::IonDrive));
+            }
+        }
         l
     };
     let launch = |slot: u16| Control::Join {
@@ -380,13 +388,18 @@ fn survival_launches_docks_and_losses_never_allocate() {
         for l in &mut leases {
             let mut p =
                 InputPacket { ack_snapshot: next.saturating_sub(3), count: 1, ..InputPacket::default() };
+            // Gripping: put down on a body, a suit stays there (and walks). Half of those launched
+            // let go of their bay's cradle and are thrown out; the rest ride their bays.
+            let in_bay = shared.slots[l.slot as usize]
+                .suit_id()
+                .is_some_and(|(idx, _)| sector.sim.in_bay(usize::from(idx)));
+            let grip = if in_bay && l.slot % 2 == 1 { 0 } else { GRIP };
             p.cmds[0] = InputCmd {
                 tick: next + 2,
                 view_tick_q4: (next << 4) - 30,
                 aim: Vec3::new(0.3, 0.2, -1.0).normalize(),
                 thrust: [0, 20, 60],
-                // Gripping: put down on a body, a suit stays there (and walks).
-                buttons: FLIGHT_ASSIST | FIRE_PRIMARY | GRIP,
+                buttons: FLIGHT_ASSIST | FIRE_PRIMARY | grip,
                 ..InputCmd::default()
             }
             .quantized();

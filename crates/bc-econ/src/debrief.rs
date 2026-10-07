@@ -7,7 +7,7 @@
 use bc_sim::content::kits::Kit;
 use serde::{Deserialize, Serialize};
 
-use crate::catalogue::{MUNITIONS_ITEM, PROPELLANT_ITEM, munitions_per_load, value, worth};
+use crate::catalogue::{MUNITIONS_ITEM, munitions_per_load, propellant_item, value, worth};
 use crate::item::Item;
 use crate::stores::Stores;
 use crate::suit::{Suit, repair_cost};
@@ -60,10 +60,11 @@ impl Debrief {
         d.earned("BOUNTIES", u64::from(bounty));
         d.earned("ORE", ore);
         d.earned("SALVAGE", salvage);
-        // What it burnt (under anime rules the tank tops itself up out there, so never more
-        // than it went out with).
+        // What it burnt, of its own grade (under anime rules the tank tops itself up out there, so
+        // never more than it went out with).
         let burnt = out.propellant.saturating_sub(back.propellant);
-        d.spent("PROPELLANT", worth(PROPELLANT_ITEM, value(PROPELLANT_ITEM), u64::from(burnt)));
+        let fuel = propellant_item(out.grade);
+        d.spent("PROPELLANT", worth(fuel, value(fuel), u64::from(burnt)));
         // Rounds fired, or lost with their mount.
         let mut fired = [0u16; 3];
         for (m, f) in fired.iter_mut().enumerate() {
@@ -142,7 +143,8 @@ fn rounds_worth(suit: &Suit, rounds: &[u16; 3]) -> u64 {
 /// and what's in its tank, its guns and its rack.
 pub fn suit_worth(suit: &Suit) -> u64 {
     let fitted: u64 = suit.items().iter().map(|(item, c)| value(*item) * u64::from(*c) / 100).sum();
-    let tank = worth(PROPELLANT_ITEM, value(PROPELLANT_ITEM), u64::from(suit.propellant));
+    let fuel = propellant_item(suit.grade);
+    let tank = worth(fuel, value(fuel), u64::from(suit.propellant));
     let rack: u64 =
         Kit::ALL.into_iter().map(|k| value(Item::Kit(k)) * u64::from(suit.kits[k as usize])).sum();
     fitted + tank + rounds_worth(suit, &suit.ammo) + rack
@@ -159,8 +161,9 @@ pub fn stores_worth(stores: &Stores) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalogue::rounds_per_load;
+    use crate::catalogue::{PROPELLANT_ITEM, rounds_per_load};
     use bc_proto::{FrameId, Part};
+    use bc_sim::content::Grade;
 
     fn line(d: &Debrief, what: &str) -> i64 {
         d.lines.iter().find(|l| l.what == what).map_or(0, |l| l.cr)
@@ -196,6 +199,20 @@ mod tests {
         let arm = value(Item::Part(FrameId::Leo, Part::ArmL)) + value(Item::Weapon(w));
         assert_eq!(line(&d, "SHOT OFF"), -(arm as i64));
         assert_eq!(d.net(), d.lines.iter().map(|l| l.cr).sum::<i64>());
+    }
+
+    /// The propellant a sortie burnt is charged at what it was: a purer grade costs more.
+    #[test]
+    fn propellant_is_charged_at_its_grade() {
+        let charged = |grade: Grade| {
+            let out = Suit { grade, ..Suit::complete(FrameId::Leo) };
+            let back = Suit { propellant: out.propellant - 500, ..out.clone() };
+            -line(&Debrief::docked(&out, &back, &[0; Kit::COUNT], 0, 0, 0), "PROPELLANT")
+        };
+        let refined = propellant_item(Grade::Refined);
+        assert_eq!(charged(Grade::Refined), worth(refined, value(refined), 500) as i64);
+        assert!(charged(Grade::UltraPure) > charged(Grade::Refined));
+        assert!(charged(Grade::Refined) > charged(Grade::Standard));
     }
 
     #[test]

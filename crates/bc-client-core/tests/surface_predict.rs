@@ -366,3 +366,46 @@ fn the_owners_feet_keep_time_with_the_servers() {
     assert_ne!(rock_run.poses[broke as usize].3, Footing::Free, "let go the very tick it broke");
     assert_eq!(rock_run.poses[broke as usize + 1].3, Footing::Free);
 }
+
+#[test]
+fn a_launch_rides_its_bay_and_is_thrown_out_where_the_server_throws_it() {
+    use bc_proto::buttons::MODE;
+    use bc_sim::sim::{LaunchAt, Loadout};
+    // A Leo launched from bay 37 (survival): it rides the bay's cradle round the ring, its pilot
+    // pressing fire and changing form (the bay's law clears both), then lets go at tick 60 and is
+    // thrown out of the door, flying on under flight assist and the stick.
+    let cfg = SimConfig { target_dolls: 0, field_rocks: 0, survival: true, ..SimConfig::default() };
+    let field = (cfg.field_seed, cfg.field_rocks);
+    let mut sim = Sim::new(cfg);
+    let leo = Loadout::full(FrameId::Leo);
+    let id =
+        sim.launch_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, &leo, LaunchAt::Bay(37)).unwrap();
+    let i = id.idx();
+    let s = &sim.suits.flight[i];
+    let mut run = Run {
+        cmds: vec![InputCmd::default()],
+        owns: vec![over_the_wire(&sim.own_state(i))],
+        poses: vec![(s.pos, s.vel, s.rot, sim.footing(i), sim.suits.anchor[i])],
+        breaks: Vec::new(),
+        field,
+    };
+    let aim = s.rot * Vec3::Z;
+    for t in 1..=160 {
+        let buttons = if t < 60 { FLIGHT_ASSIST | GRIP | FIRE_PRIMARY | MODE } else { FLIGHT_ASSIST };
+        let thrust = if t < 100 { [0, 0, 0] } else { [40, 0, 127] };
+        let cmd = InputCmd { tick: t, view_tick_q4: t << 4, aim, thrust, buttons, ..InputCmd::default() }
+            .quantized();
+        sim.set_input(id, cmd);
+        sim.step();
+        run.cmds.push(cmd);
+        run.owns.push(over_the_wire(&sim.own_state(i)));
+        let s = &sim.suits.flight[i];
+        run.poses.push((s.pos, s.vel, s.rot, sim.footing(i), sim.suits.anchor[i]));
+    }
+    assert_eq!(run.poses[59].4.body, Body::Bay(37));
+    assert_eq!(run.poses[60].3, Footing::Free, "thrown out at 60");
+    assert_eq!(sim.stats(i).shots, 0, "nothing fired in the bay");
+    let seen = check("bay 37", &run);
+    println!("bay 37: {seen:?}");
+    assert!(seen.checked >= 140 && seen.released == 1, "{seen:?}");
+}

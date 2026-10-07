@@ -1,8 +1,15 @@
-# Before Colony wire protocol (v26)
+# Before Colony wire protocol (v27)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v27 (from v26): a pilot's bay on the colony's bay ring is a body (the body reference's kind 3, its
+7-bit number): a launch rides its catapult cradle in the bay's door until the grip lets go.
+Propellant grades: the own state's `grade` (2 bits, after `modules`: 0 Standard, 1 Refined,
+2 Ultra-pure, `bc_sim::content::propellant`), which multiplies the stat sheet's specific impulse;
+the hangar's `fuel` request, and a suit's `grade`. The hold's cargo takes 13 bits a kind (it was
+14: the largest hold takes 4,000 kg), so the own state shrinks by 2 bits.
 
 v26 (from v25): the enemy's gun (`docs/DESIGN.md`, "The enemy's gun"): while the own suit holds an
 arm that carried a gun (`bc_sim::content::salvage::held_gun`), the own state's secondary (its
@@ -117,7 +124,7 @@ exactly `tick − 8`, so the 8-bit field's saturation at 15.9 ticks loses nothin
 | Section | Content |
 |---|---|
 | header (116 bits) | kind=2, tick, ack_input_tick, input_health (i8), time_echo_ms, echo_hold_ms, tidi_pct, flags |
-| own (1 + 813..833 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, systems (24), modules (20), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, the rack (8: 2 bits a consumable), a stim's clock (12, ticks), extra mass (kg, i18), cargo ×4 (kg, 14 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special charge (8, 255ths: 255 charged, or nothing to charge; ticks ÷ 4 of its cooldown before v25), arms (46, below), burst step (17, below), footing (2), cover (2), doom (5, steps of 3 ticks until a doomed suit's reactor goes, rounded up; 0: not doomed, v23; in steps since v24), impact (3, sixths of what the suit stands, v24), stagger (5, ticks left; 0: steady, v24), the designated target's impact (3, sixths; 7: staggered, v24), and on a body its body (6 or 12) and stance (8) (below) |
+| own (1 + 811..831 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, systems (24), modules (20), the propellant's grade (2), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, the rack (8: 2 bits a consumable), a stim's clock (12, ticks), extra mass (kg, i18), cargo ×4 (kg, 13 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special charge (8, 255ths: 255 charged, or nothing to charge; ticks ÷ 4 of its cooldown before v25), arms (46, below), burst step (17, below), footing (2), cover (2), doom (5, steps of 3 ticks until a doomed suit's reactor goes, rounded up; 0: not doomed, v23; in steps since v24), impact (3, sixths of what the suit stands, v24), stagger (5, ticks left; 0: steady, v24), the designated target's impact (3, sixths; 7: staggered, v24), and on a body its body (6 or 12) and stance (8) (below) |
 | ZERO (1 + ≤200 bits) | source_jev, advice_age, threat_count, per threat {slot, 7 × p}, rec_target + p, rec_maneuver + p, threat_level + confidence, flanked, has_solution, solution (oct 2×12), hit_p |
 | events | repeated `[1][event]`, closed by `[0]` |
 | rocks | repeated `[1][rock]` (18 bits each), closed by `[0]` |
@@ -158,7 +165,7 @@ body's frame. A body is named by a `BodyRef`: a 2-bit kind, then an id.
 | 0 | a rock of the debris field | 10 bits (the rock's index) |
 | 1 | a landmark (MO-II, Hermit: `bc_sim::content::landmarks`) | 4 bits (its index) |
 | 2 | the colony's city, in an interior sector (v19): its floor, its buildings and its end caps | none |
-| 3 | invalid: the record doesn't decode | |
+| 3 | a pilot's bay on the colony's bay ring (v27, `bc_sim::colony::hub`): a suit launching rides its cradle | 7 bits (its number, 1–99) |
 
 Two rules keep this cheap and exact:
 - **Body poses never travel.** Rocks don't move, and come from the Welcome's field; a landmark's
@@ -187,7 +194,8 @@ Own-state notes:
 - The client flies its suit with the stat sheet it builds from the snapshot (`bc_sim::tuning`):
   the parts left, `systems` (2 bits a system, in `bc_sim::content::System` order: 0 working,
   1 damaged, 2 failed) and `modules` (4 bits a mount, in `bc_sim::content::modules::MOUNTS`
-  order: 0 empty, else the module's code). The server builds the same one for the next tick from
+  order: 0 empty, else the module's code), and `grade` (what's in the tank: its specific impulse,
+  `bc_sim::content::propellant`). The server builds the same one for the next tick from
   the same state, so prediction matches it, coughing main thrusters (their windows come from the
   tick and the slot) and a leaking tank included; and exactly `extra_mass_kg` (cargo, what's in
   hand, modules, less the parts shot off). AMBAC's authority is the one with the arms idle; busy
@@ -208,7 +216,9 @@ Own-state notes:
   invalid), and whether BURST was held last tick (1), so a press is told from a held button.
 - `weapon_ready` has a bit each for the primary, secondary, melee weapon and the frame's special.
 - Footing (2 bits): 0 flying free, 1 on its feet (or knees) on a body, 2 in a body's grip in the
-  air; 3 is invalid. Unless it is 0, the body's `BodyRef` and the stance follow: how high the
+  air; 3 is invalid. Unless it is 0, the body's `BodyRef` follows (2 bits of kind: 0 a rock and
+  its 10-bit index, 1 a landmark and its 4-bit index, 2 the colony's city, 3 a pilot's bay on the
+  bay ring and its 7-bit number, `bc_sim::colony::hub`), then the stance: how high the
   suit's origin rides over the surface, in sixteenths of a metre (96 crouched to 146 standing).
   Then the position, velocity, rotation and angular velocity above are in the body's frame (the
   velocity over the body), so the client re-runs exactly what the server moves; it composes them
@@ -304,7 +314,7 @@ answer to the bit.
 
 ## The colony's people: pose and plaza datagrams
 
-Pilots on foot in the colony's city (survival, `--colony`) are relayed by their session tasks,
+Pilots on foot in the colony's city (survival, unless `--no-colony`) are relayed by their session tasks,
 off the sector's tick (`bc_proto::presence`; the server's `plaza`). Positions are a strip's city
 coordinates, where the city stands still: `x` along (22 bits over ±16,384 m), `s` across from the
 strip's edge (19 bits over 0–4,096 m), `h` up (15 bits over −8–248 m), all in 7.8 mm steps; the
@@ -424,6 +434,7 @@ Client → server (`Request`):
 | `repair` | `part` (optional: all) | repair armour as far as the stores allow |
 | `overhaul` | `part` (optional: all) | restore damaged and failed systems as far as the stores allow |
 | `scrap` | `item` | melt one down for half its materials |
+| `fuel` | `grade` (`standard`, `refined`, `ultra`) | fill the suit's tank with that grade from the stores (what it has of another is pumped back to the stores first; a launch tops up from the suit's own grade) |
 | `order` | `item`, `side` (`buy`, `sell`), `price`, `qty`, `rest` | a limit order on the exchange |
 | `cancel_order` | `id` | |
 | `watch` | `item` (or `null`) | send that item's book and history as they change |
@@ -446,7 +457,8 @@ Client → server (`Request`):
 | `eject` | `destruct` (default false) | in flight, under any rules: eject from the suit, or (`destruct`, doomed) blow it up aboard. Nothing answers but the loss (`sortie`, and under survival the tugs' `news` on the wreck 45 s on) |
 | `say` | `text` | a line on the colony's radio, to everyone connected, under any rules: control characters stripped, whitespace made single spaces, cut to 160 characters; at most 5 lines in 10 s (more get a refusing `note`). Never logged; `/status` counts them (`radio_lines`) |
 
-Items are slugs: `ore.nickel_iron`, `mat.steel`, `mat.components`, `part.leo.torso`,
+Items are slugs: `ore.nickel_iron`, `mat.steel`, `mat.components`, `mat.propellant` (and the
+purer grades `mat.propellant_refined`, `mat.propellant_ultra`), `part.leo.torso`,
 `weapon.beam_rifle`, `module.g_seat`. Parts are
 `head`, `torso`, `arm_l`, `arm_r`, `legs`, `backpack`. Prices are credits a tonne for ores and
 materials (quantities in kg), credits a piece for everything else.
@@ -472,8 +484,8 @@ Proving Ground's board, in the colony: `course` and `drill`, the day's best as [
 `you`}] fastest first, `course_record` and `drill_record` the best ever, `course_par_ms` and
 `drill_par_ms`, and `mine` {`course_ms`, `drill_ms`}, the pilot's own bests; no keys of anyone's). A suit (in the bay, or out) carries
 `faults`, a map from system slug to `damaged` or `failed` (absent when everything works), and
-`modules`, its five equipment mounts' slugs (or `null`); a part on the shelf carries its own
-`faults`.
+`modules`, its five equipment mounts' slugs (or `null`), and `grade`, its propellant's (absent:
+`standard`); a part on the shelf carries its own `faults`.
 The server sends the hangar and the market whenever they change, the market and the board at most
 every 2 s. The board's notices (a great work finished, the vote open, an era begun, one of
 Zodiac's aces out or downed) come to every pilot as `news`, wherever they are.
@@ -485,8 +497,10 @@ downed too until its slot is let go; then the roster forgets it. The pilot who d
 going out for its wreck, and 45 s on the `news` of what they brought home (as for a pilot's own
 wreck after ejecting; already out for that, the bounty is paid instead).
 
-A launch puts the suit in the sector at the docking hub's mouth (the pilot's slot and the Welcome
-stay the same; snapshots start), and `place` says `space`. Docking answers with a `sortie` and
+A launch puts the suit in the sector in its pilot's bay (the pilot's slot and the Welcome stay the
+same; snapshots start), riding the bay's catapult cradle in its door (footing 1 on body kind 3, the
+bay's number `slot % 99 + 1`, as `place`'s `bay` says) until the client lets go of the grip, which
+throws it out of the door; and `place` says `space`. Docking answers with a `sortie` and
 `place: hangar`, or a refusing `note`. A suit destroyed out there sends `sortie: lost` at once and
 `place: hangar` once the wreck clears.
 
@@ -522,7 +536,7 @@ forgets a suit it stops hearing of). Up the lift, it ends, and the client forget
 A client takes spectator snapshots only in the city, and knows the colony's city as a body for
 them (v19: the suits standing on it ride it).
 
-The colony (the Welcome sets COLONY: a survival server run with `--colony`): from the bay,
+The colony (the Welcome sets COLONY: a survival server, unless it runs with `--no-colony`): from the bay,
 `enter_city` answers `place: city` with the strip, or a refusing `note`; in the city the hangar and
 the market keep coming (the Exchange floor's terminal is the bay's), and `launch` is refused.
 `leave_city` answers `place: hangar`. The city itself is compiled content (`bc_sim::colony::city`,

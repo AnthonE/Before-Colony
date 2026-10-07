@@ -42,7 +42,7 @@ travels in the command as `bc_proto::LockOn`, so prediction stays exact).
 
 ## Commands
 - `scripts/ci.sh` — everything CI runs (`BC_E2E=1` adds the browser tests).
-- `scripts/dev.sh` — build the web client, run a survival sector with Mobile Dolls, an AI agent and a miner (`BC_RULES=arcade` for the arcade rules, `BC_FLIGHT=real` for the simulator's flight instead of anime rules, `BC_DATA=dir` to keep pilots and the exchange, `BC_COLONY=1` to open the colony's inside: the server's `--colony`).
+- `scripts/dev.sh` — build the web client, run a survival sector with Mobile Dolls, an AI agent and a miner (`BC_RULES=arcade` for the arcade rules, `BC_FLIGHT=real` for the simulator's flight instead of anime rules, `BC_DATA=dir` to keep pilots and the exchange; the colony's inside is open by default under survival rules, `BC_COLONY=0` closes it: the server's `--no-colony`).
 - `cargo test --workspace --release` — all native tests (bc-client is a no-op natively; release
   because the simulation-heavy tests are slow unoptimised).
 - `cargo clippy --workspace --all-targets -- -D warnings` and

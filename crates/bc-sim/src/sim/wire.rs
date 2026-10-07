@@ -214,6 +214,7 @@ impl Sim {
             flags,
             systems: s.systems[i].0,
             modules: s.modules[i].0,
+            grade: s.grade[i] as u8,
             scram: s.status[i].scram,
             concussed: s.status[i].concussed,
             repairing: s.status[i].repairing,

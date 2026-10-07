@@ -1907,7 +1907,8 @@ pub fn chart_panels(
             let eta = nav::eta(left, closing.max(0.0), cruise, brake);
             s += &format!("\nBY AUTO-NAV  {}  ·  {}", range(left), clock(eta));
             if real {
-                let burn = nav::burn_estimate(spec, o.propellant, left, cruise, brake);
+                let isp = bc_sim::tuning::own_tuning(&o).isp;
+                let burn = nav::burn_estimate(spec, isp, o.propellant, left, cruise, brake);
                 s += &format!("\nBURNS ABOUT  {burn:.0} KG OF {:.0}", o.propellant);
             }
             if course.is_some_and(|c| c.points.len() > 2) {

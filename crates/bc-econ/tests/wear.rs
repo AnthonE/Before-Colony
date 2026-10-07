@@ -27,6 +27,7 @@ fn home_of(s: &Suit) -> Homecoming {
         mounts: l.mounts,
         ammo: l.ammo,
         propellant: l.propellant,
+        grade: l.grade,
         systems: l.systems,
         modules: l.modules,
         kits: l.kits,
@@ -171,7 +172,7 @@ fn the_colony_trades_components_and_equipment() {
 #[test]
 fn the_stat_sheet_follows_the_suit() {
     let whole = Suit::complete(FrameId::Leo).stats();
-    assert!((whole.delta_v - 2_600.0).abs() < 300.0, "{whole:?}");
+    assert!((whole.delta_v - 3_100.0).abs() < 300.0, "{whole:?}");
     assert!(whole.boost_g > whole.accel_g);
     let mut s = Suit::complete(FrameId::Leo);
     s.modules[4] = Some(ModuleKind::AuxiliaryTank);

@@ -4,8 +4,8 @@ import { bc, collectConsole } from "./util";
 // Survival in the browser (`scripts/e2e.sh hangar`: a survival server whose fabricator works 60×
 // faster, and no dolls). The pilot comes in through their bay's airlock, walks to the exchange
 // terminal and buys titanium alloy from the colony, makes a combat knife with it at the
-// fabricator, boards at the cockpit hatch and launches through the bay doors, and docks home
-// again. The walking is the dev hook's (a guide walks the pilot's own legs, as an agent's are
+// fabricator, boards at the cockpit hatch and launches: thrown out of its bay's door on the ring,
+// it flies home (a dev hook's errand) to the dock off the hub's mouth and docks. The walking is the dev hook's (a guide walks the pilot's own legs, as an agent's are
 // walked); the terminals' panels are clicked.
 
 const push = (page: Page, cmd: Record<string, unknown>) =>
@@ -47,13 +47,13 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   expect(s.bay_faults).toBe(1);
   await expect(page.locator("#news")).toContainText("ARRIVAL", { timeout: 30_000 });
 
-  // The exchange: 100 kg of titanium alloy from the colony, at its ask.
+  // The exchange: 50 kg of titanium alloy from the colony, at its ask.
   await use(page, "exchange");
   await until(page, "the exchange terminal", (s) => s.terminal === "exchange", 10_000);
   await expect(page.locator("#terminal")).toBeVisible();
   await page.click('[data-act="ex-filter"][data-f="goods"]');
   await page.click('tr[data-item="mat.ti_alloy"]');
-  await page.fill('[data-key="qty:buy:mat.ti_alloy"]', "100");
+  await page.fill('[data-key="qty:buy:mat.ti_alloy"]', "50");
   await page.click('[data-act="order"]');
   await expect(page.locator("#term-log")).toContainText("BOUGHT", { timeout: 30_000 });
   // The Charter Board, a tab away: the colony's contracts and its great works.
@@ -83,10 +83,11 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   await until(page, "the terminal closed", (s) => !s.terminal, 10_000);
 
   // The suit's console: overhaul the radiators with components and electronics bought from the
-  // colony, and fit a G-seat off its shelf. The stat sheet shows what it would launch as.
+  // colony, fit a G-seat off its shelf, and try a purer propellant. The stat sheet shows what it
+  // would launch as.
   await use(page, "exchange");
   await until(page, "the exchange terminal", (s) => s.terminal === "exchange", 10_000);
-  for (const [slug, qty] of [["mat.components", "20"], ["mat.electronics", "5"]]) {
+  for (const [slug, qty] of [["mat.components", "20"], ["mat.electronics", "5"], ["mat.propellant_refined", "10"]]) {
     await page.click('[data-act="ex-filter"][data-f="goods"]');
     await page.click(`tr[data-item="${slug}"]`);
     await page.fill(`[data-key="qty:buy:${slug}"]`, qty);
@@ -107,19 +108,41 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   await expect(page.locator("#term-log")).toContainText("OVERHAULED RADIATORS", { timeout: 30_000 });
   await page.click('[data-act="fit"][data-item="module.g_seat"]');
   s = await until(page, "the G-seat fitted", (s) => s.bay_modules === 1 && s.bay_faults === 0, 30_000);
+  // Refined propellant: the standard in the tank is pumped back to the stores, and back again.
+  await page.click('[data-act="fuel"][data-grade="refined"]');
+  await expect(page.locator("#term-log")).toContainText("KG REFINED", { timeout: 30_000 });
+  await expect(page.locator("#term-body")).toContainText("PROPELLANT · REFINED");
+  await page.click('[data-act="fuel"][data-grade="standard"]');
+  await expect(page.locator("#term-log")).toContainText(/KG STANDARD · 10 KG PUMPED BACK/, { timeout: 30_000 });
   await page.keyboard.press("Escape");
   await until(page, "the terminal closed", (s) => !s.terminal, 10_000);
   const before = (await bc(page)).hangar_credits;
   expect(before).toBeLessThan(2000);
 
-  // Up the stairs to the hatch, and out through the bay doors.
+  // Up the stairs to the hatch, and out through the bay doors: the suit rides its bay's cradle
+  // in the door on the spinning ring until the catapult fires, and is thrown out of it.
   await use(page, "cockpit");
   s = await until(page, "the launch", (s) => s.place === "space", 60_000);
   expect(s.bay).toBe("out");
+  s = await until(page, "in its bay's cradle", (s) => String(s.surface_body).startsWith("bay:"), 30_000);
+  expect(s.surface_body).toBe(`bay:${s.bay_no}`);
   s = await until(page, "flying", (s) => s.seq === "walking" && s.alive, 60_000);
   expect(s.frame).toBe("leo");
+  // The launch shot: outside the ring by the open door, the suit going.
+  await page.screenshot({ path: "artifacts/hangar-launch.png" });
+  s = await until(page, "thrown out of the door", (s) => s.footing === "free" && s.launch_shots >= 1, 10_000);
+  const [x, y, z] = String(s.pos).split(",").map(Number);
+  // Out by the bay ring (2.25 km off the colony's axis, past its −X face), far from the dock.
+  expect(Math.hypot(y + 4200, z)).toBeGreaterThan(1_800);
+  expect(x).toBeLessThan(-16_400);
 
-  // It comes out inside the dock, slow: Enter takes it home.
+  // Home: flown to the dock off the hub's mouth, at rest there, Enter takes it in.
+  await push(page, { cmd: "fly_to", spot: "dock" });
+  const atDock = (s: Record<string, any>) => {
+    const [x, y, z] = String(s.pos).split(",").map(Number);
+    return Math.hypot(x + 17_250, y + 4_200, z) < 150 && s.speed < 10;
+  };
+  await until(page, "at rest in the dock", atDock, 240_000);
   await page.focus("#bc");
   await page.keyboard.press("Enter");
   s = await until(page, "home", (s) => s.place === "hangar", 30_000);

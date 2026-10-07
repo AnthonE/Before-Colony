@@ -59,6 +59,8 @@ mod inside;
 #[cfg(target_arch = "wasm32")]
 mod landmarks;
 #[cfg(target_arch = "wasm32")]
+mod launch_shot;
+#[cfg(target_arch = "wasm32")]
 mod life;
 #[cfg(target_arch = "wasm32")]
 mod map;

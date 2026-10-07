@@ -74,6 +74,8 @@ impl Sim {
             return None;
         }
         match s.footing[i] {
+            // (Not in its bay's cradle: that's a launch waiting, and the bay goes home with it.)
+            Footing::Grounded if matches!(s.anchor[i].body, Body::Bay(_)) => None,
             Footing::Grounded => (length(s.anchor[i].vel) <= PARK_SPEED).then_some(s.anchor[i].body),
             Footing::Aloft => None,
             Footing::Free => {
@@ -191,8 +193,9 @@ impl Sim {
                         hold(&pose, &a, f);
                         self.suits.anchor[i] = a;
                     }
-                    // (No sleeper is parked on the colony's city: the inside keeps none.)
-                    Some(Body::City | Body::None) | None => {}
+                    // (No sleeper is parked on the colony's city: the inside keeps none. Nor in a
+                    // bay's cradle: the sector takes a suit still in it home.)
+                    Some(Body::City | Body::Bay(_) | Body::None) | None => {}
                 }
             }
         }
@@ -394,7 +397,7 @@ fn anchor_normal(pos: Vec3, anchor: Anchor, field: &Field) -> Vec3 {
         Body::Rock(r) => {
             field.rocks().get(usize::from(r)).map_or(Vec3::Y, |rock| normalize_or(pos - rock.pos, Vec3::Y))
         }
-        // Landmarks (and the colony's city) never go away.
-        Body::Landmark(_) | Body::City | Body::None => Vec3::Y,
+        // Landmarks (and the colony's city, and the bays) never go away.
+        Body::Landmark(_) | Body::City | Body::Bay(_) | Body::None => Vec3::Y,
     }
 }

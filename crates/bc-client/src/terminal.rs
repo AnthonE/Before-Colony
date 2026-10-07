@@ -15,18 +15,20 @@
 use std::collections::VecDeque;
 
 use bc_client_core::hangar::HangarState;
-use bc_econ::catalogue::{desk, gundam_tech, munitions_per_load, recipes, rounds_per_load, tank_kg, value};
+use bc_econ::catalogue::{
+    desk, gundam_tech, munitions_per_load, propellant_item, recipes, rounds_per_load, tank_kg, value,
+};
 use bc_econ::exchange::FEE_BP;
 use bc_econ::faults::overhaul_cost;
 use bc_econ::item::{LINES, part_name, part_slug};
-use bc_econ::suit::repair_cost;
+use bc_econ::suit::{Suit, repair_cost};
 use bc_econ::wear::{SERVICE_FROM, service_cost};
 use bc_econ::wire::HangarView;
 use bc_econ::{Bay, Hangar, Item};
 use bc_proto::Part;
 use bc_sim::content::modules::MOUNTS;
 use bc_sim::content::systems::FAILED;
-use bc_sim::content::{System, frame, frame_name, weapon_name};
+use bc_sim::content::{Grade, System, frame, frame_name, weapon_name};
 use bevy::prelude::*;
 use serde_json::{Value, json};
 use wasm_bindgen::JsValue;
@@ -220,11 +222,29 @@ fn console(v: &HangarView) -> Value {
         .filter(|(sys, _)| suit.parts[sys.part() as usize].is_some())
         .map(|(sys, used)| json!({ "system": sys.slug(), "used": used }))
         .collect();
+    // Each grade of propellant: what the stores hold of it, and how far the suit would go on it.
+    let grades: Vec<Value> = Grade::ALL
+        .into_iter()
+        .map(|g| {
+            let st = Suit { grade: g, ..suit.clone() }.stats();
+            let item = propellant_item(g);
+            json!({
+                "grade": g.slug(),
+                "name": g.name(),
+                "item": item.slug(),
+                "stores": v.stock.iter().find(|(i, _)| *i == item).map_or(0, |(_, q)| *q),
+                "delta_v": st.delta_v,
+                "boost_s": st.boost_s,
+            })
+        })
+        .collect();
     json!({
         "launch": launch,
         "repairs": repairs,
         "overhauls": overhauls,
         "fits": fits,
+        "grade": suit.grade.slug(),
+        "grades": grades,
         "stats": suit.stats(),
         "wear": wear,
         "service_cost": amounts(&service_cost(suit.line)),

@@ -7,7 +7,7 @@
 mod common;
 
 /// Hash after 600 ticks of the reference scenario (update deliberately when the sim changes).
-const GOLDEN: u64 = 0xa24f_fc0e_e3e5_b3ce;
+const GOLDEN: u64 = 0x50e0_4a8d_3999_6f4a;
 
 fn scenario_hash() -> u64 {
     let (mut sim, players) = common::arena(8, 24, 42);
@@ -34,7 +34,7 @@ fn golden_hash_wasm() {
 /// Hash after 450 ticks of the Gundams duelling in pairs among Mobile Dolls: every blade, the
 /// Cross Crusher, the Dragon Fang, the flamethrower, the Hyper Jammer, guided missiles, Full Open,
 /// Neo-Bird and the Gundams' guns (changes deliberately as their mechanics arrive).
-const GUNDAMS_GOLDEN: u64 = 0x686e_f114_cbb9_93ca;
+const GUNDAMS_GOLDEN: u64 = 0xdabf_caea_d2b7_5323;
 
 fn gundams_hash() -> u64 {
     use bc_proto::events::Event;
@@ -113,7 +113,7 @@ fn gundams_golden_wasm() {
 /// Hash after 450 ticks of pilots locked on to their foes (`bc_proto::LockOn`): flight assist
 /// holding each foe's velocity in the fight's axes, levelled to the colony's up, closing in and
 /// circling, burst-stepping now and then, among Mobile Dolls.
-const LOCKON_GOLDEN: u64 = 0xd80a_b197_e3ce_6c56;
+const LOCKON_GOLDEN: u64 = 0x43b0_44d0_8ba4_760a;
 
 fn lockon_hash() -> u64 {
     let (mut sim, duels) = common::gundam_crowd(8, 12, 21);
@@ -176,7 +176,7 @@ fn field_hash() -> u64 {
 
 /// Hash after suits have flown into rocks and fired into them, wearing them down, while a Leo cuts
 /// a small one apart with its saber.
-const ROCKS_GOLDEN: u64 = 0x91c4_8251_0774_173a;
+const ROCKS_GOLDEN: u64 = 0x6378_6be2_b299_4043;
 
 fn rocks_hash() -> u64 {
     use bc_proto::buttons::{FIRE_PRIMARY, MELEE};
@@ -262,7 +262,7 @@ fn field_and_rocks_golden_wasm() {
 
 /// Hash after a salvage run: pilots gather ore, stow it, tow a hulk, throw, jettison, and sell (and
 /// refuel) at the dock.
-const SALVAGE_GOLDEN: u64 = 0xea7b_0f6f_3c58_79f6;
+const SALVAGE_GOLDEN: u64 = 0xc054_f0e1_980b_312d;
 
 fn salvage_hash() -> u64 {
     use bc_proto::buttons::{FLIGHT_ASSIST, GRAB, JETTISON, STOW, THROW};
@@ -363,7 +363,7 @@ fn salvage_golden_wasm() {
 /// what a sleeper is parked on more fully since suits stand on bodies: how it's turned there, when
 /// it last fought, and its hide spot; and, with wear and tear, every suit's systems, equipment and
 /// statuses. The scenario itself runs bit for bit as it did.)
-const SLEEPERS_GOLDEN: u64 = 0x031f_a0b8_0213_103c;
+const SLEEPERS_GOLDEN: u64 = 0x37ad_696f_595c_443f;
 
 fn sleepers_hash() -> u64 {
     use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST};
@@ -462,6 +462,62 @@ fn sleepers_golden_wasm() {
     assert_eq!(sleepers_hash(), SLEEPERS_GOLDEN);
 }
 
+/// Hash after launches from the bays (survival): eight suits ride their bays' cradles round the
+/// ring, a few firing (which the bays' law clears), let go a few ticks apart and are thrown out of
+/// their doors, and fly on under flight assist, some under the stick.
+const BAYS_GOLDEN: u64 = 0x6475_b9ab_de9f_3a06;
+
+fn bays_hash() -> u64 {
+    use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, GRIP};
+    use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
+    use bc_sim::sim::{LaunchAt, Loadout};
+    use glam::Vec3;
+
+    let mut sim = bc_sim::Sim::new(bc_sim::SimConfig {
+        target_dolls: 0,
+        field_rocks: 0,
+        survival: true,
+        ..bc_sim::SimConfig::default()
+    });
+    let frames = [FrameId::Leo, FrameId::WingZero, FrameId::Heavyarms, FrameId::Sandrock];
+    let ids: Vec<_> = (0..8u8)
+        .map(|k| {
+            let f = frames[usize::from(k) % frames.len()];
+            let bay = LaunchAt::Bay(1 + k * 12);
+            sim.launch_at(f, Faction::Colonies, PilotKind::Human, &Loadout::full(f), bay).unwrap()
+        })
+        .collect();
+    for n in 0..360u32 {
+        let t = sim.next_tick();
+        for (k, id) in ids.iter().enumerate() {
+            let aim = sim.suits.flight[id.idx()].rot * Vec3::Z;
+            let held = n < 20 + 15 * k as u32;
+            let buttons =
+                FLIGHT_ASSIST | if held { GRIP } else { 0 } | if k % 3 == 0 { FIRE_PRIMARY } else { 0 };
+            let thrust = if !held && k % 2 == 1 { [30, -20, 127] } else { [0, 0, 0] };
+            let cmd = InputCmd { tick: t, view_tick_q4: t << 4, aim, thrust, buttons, ..InputCmd::default() };
+            sim.set_input(*id, cmd.quantized());
+        }
+        sim.step();
+    }
+    assert!(ids.iter().all(|id| !sim.in_bay(id.idx())), "all thrown out");
+    sim.state_hash()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn bays_golden_native() {
+    let h = bays_hash();
+    assert_eq!(h, bays_hash(), "must be reproducible within a process");
+    assert_eq!(h, BAYS_GOLDEN, "bays hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn bays_golden_wasm() {
+    assert_eq!(bays_hash(), BAYS_GOLDEN);
+}
+
 /// Hash after 900 ticks on the surfaces, among Mobile Dolls. An OZ Leo is caught over a rock, lands,
 /// walks a square, hops, crouches, stands, and digs the rock out from under itself, crouched. On MO-II, a Heavyarms
 /// runs over a pylon's edge and down its side with rewound shots coming at it, and another walks
@@ -470,7 +526,7 @@ fn sleepers_golden_wasm() {
 /// off. A guided missile goes at the Leo on its rock. (The hash covers the suits' cover since they
 /// hide, and the dolls hunting the riders come at them from above; with wear and tear, every suit's
 /// systems, equipment and statuses.)
-const SURFACE_GOLDEN: u64 = 0x9eed_43c1_9d47_a8ec;
+const SURFACE_GOLDEN: u64 = 0xab8c_ca44_bd94_3d6c;
 
 fn surface_hash() -> u64 {
     use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRIP, MELEE, MODE};
@@ -949,7 +1005,7 @@ fn walkers_golden_wasm() {
 /// while (which the colony's law ignores), and two with their grips armed, landing on the avenue
 /// and walking it, running, crouching and hopping. The spin's pull, Coriolis, the air, the city's
 /// boxes and its ground, to the bit native and wasm.
-const INTERIOR_GOLDEN: u64 = 0x47b8_278c_5f2e_7f1f;
+const INTERIOR_GOLDEN: u64 = 0xe677_0f40_4287_8031;
 
 fn interior_hash() -> u64 {
     use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FLIGHT_ASSIST, GRIP};
@@ -983,10 +1039,12 @@ fn interior_hash() -> u64 {
     for (k, f) in frames.into_iter().enumerate() {
         let id = sim.launch(f, Faction::Colonies, PilotKind::Human, &Loadout::full(f)).unwrap();
         if k >= 6 {
-            // Over the avenue, low enough for an armed grip to catch.
+            // Over the avenue, at rest and low enough for an armed grip to catch.
             let x = (station_x(2) + station_x(3)) * 0.5 + (k as f32 - 6.0) * 60.0;
             let at = CityPos::new(0, x, STRIP_WIDTH * 0.5 + 24.0, 25.0);
-            sim.suits.flight[id.idx()].pos = at.to_colony();
+            let f = &mut sim.suits.flight[id.idx()];
+            f.pos = at.to_colony();
+            f.vel = Vec3::ZERO;
         } else if k >= 3 {
             // Over the city, low among the buildings.
             let at =
@@ -1047,7 +1105,7 @@ fn interior_golden_wasm() {
 /// in the hall turning on its targets in turn and firing their beams, guns and missiles at them for
 /// ten seconds, one of them wandering out through the blast doors and back; the targets' tracks; and
 /// every training round that scored. The server's interior and each pilot's prediction run it alike.
-const HALL_GOLDEN: u64 = 0xe1ed_a7bb_b180_ca9f;
+const HALL_GOLDEN: u64 = 0x9bde_f2bb_4b4e_ecd4;
 
 fn hall_hash() -> u64 {
     use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST};

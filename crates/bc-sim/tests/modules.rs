@@ -55,6 +55,8 @@ fn each_module_changes_its_stat() {
     check(ModuleKind::GSeat, &|a, b| b.g_tolerance > a.g_tolerance);
     check(ModuleKind::DamageControl, &|_, b| b.repairs);
     check(ModuleKind::AuxiliaryTank, &|a, b| b.tank > a.tank);
+    check(ModuleKind::ExtendedTank, &|a, b| b.tank > a.tank);
+    check(ModuleKind::IonDrive, &|a, b| b.ion > a.ion);
     check(ModuleKind::ThrusterKit, &|a, b| b.main > a.main && b.isp < a.isp);
     check(ModuleKind::LegVerniers, &|a, b| b.side > a.side);
     check(ModuleKind::CargoRack, &|a, b| b.hold_kg > a.hold_kg && b.ambac < a.ambac);
@@ -72,6 +74,24 @@ fn a_bigger_tank_fills_and_modules_weigh() {
     assert!((s.suits.flight[id].propellant - cap * 1.4).abs() < 1.0);
     s.step();
     assert_eq!(s.flight_mods(id).extra_mass_kg, 800);
+}
+
+/// The extended tank (torso) and the auxiliary tank (backpack) stack: a Leo holds 1.75 tanks.
+#[test]
+fn the_tanks_stack() {
+    let mut s = sim();
+    let mut l = Loadout::full(FrameId::Leo);
+    l.modules = with(&[ModuleKind::ExtendedTank, ModuleKind::AuxiliaryTank]);
+    l.propellant = 10_000.0;
+    let id = s.launch(FrameId::Leo, Faction::Colonies, PilotKind::Human, &l).unwrap().idx();
+    assert_eq!(s.suits.flight[id].propellant, 5_250.0);
+    assert_eq!(s.tuning(id).tank, 1.75);
+    s.step();
+    assert_eq!(s.flight_mods(id).extra_mass_kg, 350);
+    // The backpack shot off takes the auxiliary tank: the extended one's left.
+    s.suits.part_hp[id][Part::Backpack as usize] = 0.0;
+    s.step();
+    assert_eq!(s.tuning(id).tank, 1.25);
 }
 
 /// A part shot off takes its module with it: a sensor array on a head that's gone sees nothing

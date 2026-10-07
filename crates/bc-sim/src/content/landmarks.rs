@@ -11,6 +11,10 @@
 //!   a bowl in the aft module's end face on the spin axis, is a hide spot.
 //! - **Hermit**, a big asteroid 1.8 km long: static, and it can't be mined or broken. A crater bowl
 //!   at each of three poles is a hide spot.
+//! - **The docking hub** off the colony's −X end cap ([`DOCKING_HUB`]): its spire and the modules
+//!   stacked on it, turning with the colony (`colony::hub`). Near its middle its end face moves
+//!   slowly enough to land on, and a suit standing on the deck hatch there docks. (The colony draws
+//!   it; it's a landmark so that it's solid, and walked like any other.)
 //!
 //! Hide spots are bowls cut from the shape (exact spheres), so their rims are real cover.
 
@@ -18,9 +22,15 @@ use glam::{Quat, Vec3};
 
 use super::names;
 use crate::bodies::{Base, Prim, Shape, SphereCut};
+use crate::colony::hub::{SPIRE_RADIUS, SPIRE_TIERS};
+use crate::content::salvage::DOCK_HUB_LENGTH;
+use crate::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_SPIN_PERIOD_TICKS};
 
 /// Bumped with `PROTOCOL_VERSION` on any change to [`LANDMARKS`] (it keys what's saved about them).
-pub const LANDMARKS_VERSION: u16 = 1;
+pub const LANDMARKS_VERSION: u16 = 2;
+
+/// The docking hub's index among [`LANDMARKS`].
+pub const DOCKING_HUB: u8 = 2;
 
 /// A place on a landmark where a suit can hide: crouched still in it, or parked in it, sensors
 /// lose it.
@@ -61,10 +71,12 @@ pub struct LandmarkDef {
     /// Whether a suit can grip it.
     pub grippable: bool,
     pub hides: &'static [HideSpot],
+    /// Part of the colony, which draws it (the client's landmark meshes leave it out).
+    pub colony: bool,
 }
 
 /// The landmarks, by id. A sector has the first `SimConfig::landmarks` of them.
-pub static LANDMARKS: [LandmarkDef; 2] = [MO_II, HERMIT];
+pub static LANDMARKS: [LandmarkDef; 3] = [MO_II, HERMIT, HUB];
 
 const MO_II: LandmarkDef = LandmarkDef {
     name: names::MO_II,
@@ -82,6 +94,7 @@ const MO_II: LandmarkDef = LandmarkDef {
     bound: 335.0,
     grippable: true,
     hides: &[HideSpot { name: "AFT WELL", center: Vec3::new(-235.0, 0.0, 0.0), radius: 40.0, visual: 150.0 }],
+    colony: false,
 };
 
 const MO_II_PRIMS: [Prim; 8] = [
@@ -121,7 +134,47 @@ const HERMIT: LandmarkDef = LandmarkDef {
         HideSpot { name: "KEYHOLE", center: Vec3::new(0.0, 0.0, -730.0), radius: 45.0, visual: 150.0 },
         HideSpot { name: "FAR SIDE", center: Vec3::new(-870.0, 0.0, 0.0), radius: 45.0, visual: 150.0 },
     ],
+    colony: false,
 };
+
+/// The docking hub's middle: halfway along its spire, on the colony's axis.
+const HUB_CENTER: Vec3 =
+    Vec3::new(COLONY_CENTER.x - COLONY_HALF_LENGTH - DOCK_HUB_LENGTH * 0.5, COLONY_CENTER.y, COLONY_CENTER.z);
+/// Where its end face (the spire's mouth) is, in its frame: x.
+pub const HUB_MOUTH_X: f32 = -DOCK_HUB_LENGTH * 0.5;
+
+const HUB: LandmarkDef = LandmarkDef {
+    name: "DOCKING HUB",
+    center: HUB_CENTER,
+    orbit_radius: 0.0,
+    orbit_period: 0,
+    orbit_phase: 0,
+    rot0: Quat::IDENTITY,
+    // It turns with the colony, on its clock (`world::colony_spin_angle`).
+    spin_axis: Vec3::X,
+    spin_period: COLONY_SPIN_PERIOD_TICKS,
+    shape: Shape { base: Base::Union(&HUB_PRIMS), cuts: &[] },
+    // The widest tier's rim at the cap's end: (450, 560) out.
+    bound: 720.0,
+    grippable: true,
+    hides: &[],
+    colony: true,
+};
+
+/// The spire, its mouth at x = −450 and its root in the end cap at +450, and the modules stacked
+/// on it (`colony::hub::SPIRE_TIERS`, in its frame).
+const HUB_PRIMS: [Prim; 5] = [
+    Prim::CylinderX { c: Vec3::ZERO, half_len: DOCK_HUB_LENGTH * 0.5, r: SPIRE_RADIUS, round: 6.0 },
+    hub_tier(0),
+    hub_tier(1),
+    hub_tier(2),
+    hub_tier(3),
+];
+
+const fn hub_tier(k: usize) -> Prim {
+    let (x, r, t) = SPIRE_TIERS[k];
+    Prim::CylinderX { c: Vec3::new(x - HUB_CENTER.x, 0.0, 0.0), half_len: t * 0.5, r, round: 4.0 }
+}
 
 /// A crater bowl at each of three poles (exact surface points, whose normals are the axes): each
 /// about 30 m deep with a 60 m rim.
@@ -135,11 +188,13 @@ const HERMIT_CUTS: [SphereCut; 3] = [
 mod tests {
     use super::*;
     use crate::bodies::{Bodies, Body, MAX_CUTS, MAX_LANDMARKS, Probe};
+    use crate::colony::hub::{BAYS, bay_pose};
     use crate::config::{DT, SECTOR_LIMIT, SimConfig};
     use crate::content::salvage::{DOCK_CENTER, DOCK_HUB_LENGTH, DOCK_RADIUS};
     use crate::field::{FIELD_CENTER, Field, SPAWN_BASES};
     use crate::math::{Rng, angle_between, cos, length, normalize_or, sin, sqrt};
-    use crate::sim::{LAUNCH_GATE, Sim};
+    use crate::sim::Sim;
+    use crate::world::COLONY_SPIN_PERIOD_TICKS;
     use crate::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS};
     use core::f32::consts::{PI, TAU};
 
@@ -235,7 +290,9 @@ mod tests {
 
     #[test]
     fn landmark_surface_speed_within_budget() {
-        for d in &LANDMARKS {
+        // (The docking hub turns with the colony: only near its middle is it slow enough to land
+        // on, which is where its deck hatch is.)
+        for d in LANDMARKS.iter().filter(|d| !d.colony) {
             let spin = if d.spin_period == 0 { 0.0 } else { TAU / (d.spin_period as f32 * DT) };
             let drift =
                 if d.orbit_radius == 0.0 { 0.0 } else { d.orbit_radius * TAU / (d.orbit_period as f32 * DT) };
@@ -248,6 +305,28 @@ mod tests {
         let worst =
             mo.orbit_radius * TAU / (mo.orbit_period as f32 * DT) + far * TAU / (mo.spin_period as f32 * DT);
         assert!((worst - 2.87).abs() < 5e-3, "MO-II's surface moves at up to {worst} m/s");
+        // The hub's deck hatch: its rim well under a catch's speed, and on the hub's end face.
+        let hub = &LANDMARKS[usize::from(DOCKING_HUB)];
+        let rim = crate::colony::hub::DECK_HATCH_RADIUS * TAU / (hub.spin_period as f32 * DT);
+        assert!(rim < crate::ground::CATCH_SPEED * 0.5, "the deck hatch's rim moves at {rim} m/s");
+        let mouth = Vec3::new(HUB_MOUTH_X - crate::ground::STANCE, 20.0, 0.0);
+        assert!(crate::colony::hub::on_deck_hatch(mouth));
+        assert!((hub.shape.probe(mouth).dist - crate::ground::STANCE).abs() < 0.01);
+        assert!(!crate::colony::hub::on_deck_hatch(Vec3::new(HUB_MOUTH_X - 9.0, 60.0, 0.0)));
+    }
+
+    #[test]
+    fn the_docking_hub_turns_with_the_colony_where_its_drawn() {
+        let hub = &LANDMARKS[usize::from(DOCKING_HUB)];
+        for t in [0, 1_000, 3_404] {
+            let p = crate::bodies::landmark_pose(hub, t, 0.5);
+            let want = crate::math::quat_axis_angle(Vec3::X, crate::world::colony_spin_angle(t, 0.5));
+            assert!(p.rot.dot(want).abs() > 1.0 - 1e-6, "tick {t}");
+            assert_eq!(p.pos, hub.center);
+        }
+        // Its mouth where the colony draws it, its root in the end cap.
+        assert_eq!(hub.center.x + HUB_MOUTH_X, crate::colony::hub::SPIRE_MOUTH_X);
+        assert_eq!(hub.center.x - HUB_MOUTH_X, COLONY_CENTER.x - COLONY_HALF_LENGTH);
     }
 
     #[test]
@@ -268,13 +347,21 @@ mod tests {
             Vec3::new(0.0, 4_000.0, 0.0),
             Vec3::new(0.0, 4_000.0, 8_000.0),
         ];
-        for (k, d) in LANDMARKS.iter().enumerate() {
+        // The bays' doors, where suits are thrown out, round the ring as the spin carries them.
+        let doors = |c: Vec3| {
+            (1..=BAYS as u8)
+                .flat_map(|n| (0..4).map(move |q| bay_pose(n, q * COLONY_SPIN_PERIOD_TICKS / 4, 0.0).pos))
+                .map(|p| length(c - p))
+                .fold(f32::MAX, f32::min)
+        };
+        // (The docking hub is the colony's own.)
+        for (k, d) in LANDMARKS.iter().enumerate().filter(|(_, d)| !d.colony) {
             let swept = d.bound + d.orbit_radius;
             let c = d.center;
             let gaps = [
                 ("the field", length(c - FIELD_CENTER) - FIELD_REACH),
                 ("the colony", colony(c)),
-                ("the launch gate", length(c - LAUNCH_GATE)),
+                ("the bays' doors", doors(c)),
                 ("the dock", length(c - DOCK_CENTER) - DOCK_RADIUS),
             ];
             for (what, gap) in gaps {

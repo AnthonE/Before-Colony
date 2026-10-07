@@ -16,6 +16,7 @@ use bc_proto::BodyRef;
 use glam::{Quat, Vec3};
 
 use crate::collide::segment_near_point;
+use crate::colony::hub::{bay_pose, bay_shape, is_bay};
 use crate::config::DT;
 use crate::content::landmarks::LandmarkDef;
 use crate::field::{Field, SUIT_CLEARANCE};
@@ -64,6 +65,11 @@ pub enum Body {
     /// (`colony::interior::probe`). Only in an interior sector, whose frame is the colony's own,
     /// so it stands still at the origin.
     City,
+    /// A pilot's bay on the colony's bay ring, by number (1..=`colony::hub::BAYS`), turning with
+    /// the colony (`colony::hub::bay_pose`): a launching suit rides its catapult cradle in the door
+    /// until its pilot lets go. Nothing grips it, collides with it or walks it. Only outside the
+    /// colony.
+    Bay(u8),
 }
 
 impl Body {
@@ -75,6 +81,7 @@ impl Body {
             Body::Rock(r) => u32::from(r),
             Body::Landmark(k) => 0x0001_0000 | u32::from(k),
             Body::City => 0x0002_0000,
+            Body::Bay(n) => 0x0003_0000 | u32::from(n),
         }
     }
 
@@ -85,6 +92,7 @@ impl Body {
             Body::Rock(r) => Some(BodyRef::Rock(r)),
             Body::Landmark(k) => Some(BodyRef::Landmark(k)),
             Body::City => Some(BodyRef::City),
+            Body::Bay(n) => Some(BodyRef::Bay(n)),
         }
     }
 }
@@ -95,6 +103,7 @@ impl From<BodyRef> for Body {
             BodyRef::Rock(r) => Body::Rock(r),
             BodyRef::Landmark(k) => Body::Landmark(k),
             BodyRef::City => Body::City,
+            BodyRef::Bay(n) => Body::Bay(n),
         }
     }
 }
@@ -626,6 +635,7 @@ impl<'a> Bodies<'a> {
         match b {
             Body::None => None,
             Body::City => self.interior.then_some(CITY_POSE),
+            Body::Bay(n) => (!self.interior && is_bay(n)).then(|| bay_pose(n, t, frac)),
             Body::Rock(r) => {
                 self.field.rocks().get(usize::from(r)).map(|rock| BodyPose::fixed(rock.pos, rock.rot))
             }
@@ -633,12 +643,13 @@ impl<'a> Bodies<'a> {
         }
     }
 
-    /// Whether `b` is there to stand on: a rock not shattered, a landmark of this sector, or the
-    /// city of the colony this sector is the inside of.
+    /// Whether `b` is there to stand on: a rock not shattered, a landmark of this sector, the
+    /// city of the colony this sector is the inside of, or (outside it) a bay.
     pub fn alive(&self, b: Body) -> bool {
         match b {
             Body::None => false,
             Body::City => self.interior,
+            Body::Bay(n) => !self.interior && is_bay(n),
             Body::Rock(r) => usize::from(r) < self.field.len() && !self.field.is_dead(usize::from(r)),
             Body::Landmark(k) => usize::from(k) < self.landmarks.len(),
         }
@@ -652,7 +663,7 @@ impl<'a> Bodies<'a> {
                 Body::Rock(r) => self.field.rocks()[usize::from(r)].axes.min_element() >= GRIP_MIN_AXIS,
                 Body::Landmark(k) => self.landmarks[usize::from(k)].grippable,
                 Body::City => true,
-                Body::None => false,
+                Body::None | Body::Bay(_) => false,
             }
     }
 
@@ -661,6 +672,7 @@ impl<'a> Bodies<'a> {
         match b {
             Body::None => None,
             Body::City => self.interior.then(Shape::city),
+            Body::Bay(n) => (!self.interior && is_bay(n)).then(bay_shape),
             Body::Rock(r) => self.field.rocks().get(usize::from(r)).map(|rock| Shape::ellipsoid(rock.axes)),
             Body::Landmark(k) => self.landmarks.get(usize::from(k)).map(|d| d.shape),
         }
@@ -790,7 +802,7 @@ impl<'a> Bodies<'a> {
         let reach = match b {
             Body::Rock(r) => self.field.rocks()[usize::from(r)].radius,
             Body::Landmark(k) => self.landmarks[usize::from(k)].bound,
-            Body::City | Body::None => return None,
+            Body::City | Body::Bay(_) | Body::None => return None,
         } + 1.0;
         let dir = normalize_or(dir_local, Vec3::Y);
         let p = match shape.base {
@@ -1465,8 +1477,12 @@ mod tests {
         assert!(b.pose(Body::None).is_none() && !b.alive(Body::None) && b.shape(Body::None).is_none());
         assert_eq!(b.pose(Body::Landmark(0)), Some(landmark_pose(&LANDMARKS[0], 0, 0.0)));
         assert_eq!(b.pose_at(Body::Landmark(0), 77, 0.5), Some(landmark_pose(&LANDMARKS[0], 77, 0.5)));
-        assert!(b.grippable(Body::Landmark(0)) && b.grippable(Body::Landmark(1)));
-        assert!(b.pose(Body::Landmark(2)).is_none() && !b.alive(Body::Landmark(2)));
+        assert!(
+            b.grippable(Body::Landmark(0))
+                && b.grippable(Body::Landmark(1))
+                && b.grippable(Body::Landmark(2))
+        );
+        assert!(b.pose(Body::Landmark(3)).is_none() && !b.alive(Body::Landmark(3)));
         // A shattered rock is gone, but still posed (the seed says where it was).
         field.set_dead(0, true);
         let b = Bodies::at(&field, &LANDMARKS, 0);

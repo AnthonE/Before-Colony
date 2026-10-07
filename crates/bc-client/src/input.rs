@@ -331,9 +331,10 @@ pub fn read_input(
         aim.dir = own.rot * Vec3::Z;
         aim.initialized_for = Some((own.slot, own.generation));
         // A fresh suit comes out in its first form, jammer off. One woken on a body holds on to
-        // it, standing or crouched as it was left.
+        // it, standing or crouched as it was left. (One in its bay's cradle is held there by the
+        // launch, `Game::bay_hold`, and the grip isn't the pilot's to keep.)
         controls.mode = false;
-        controls.grip = own.surface.is_some();
+        controls.grip = own.surface.is_some_and(|s| !matches!(s.body, bc_proto::BodyRef::Bay(_)));
         controls.crouch = own
             .surface
             .is_some_and(|s| s.footing == footing::GROUNDED && f32::from(s.stance_q) / 16.0 < STANCE);

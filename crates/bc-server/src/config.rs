@@ -92,7 +92,9 @@ pub struct Config {
     pub craft_speed: f64,
     /// Where pilot records and the exchange are kept (none: in memory, for this run only).
     pub data_dir: Option<PathBuf>,
-    /// The colony is open (survival): pilots may ride the cap lifts down into its city.
+    /// The colony is open (survival): pilots may ride the cap lifts down into its city. The
+    /// server's command line opens it by default (`--no-colony` closes it); this default stays
+    /// closed, so a test that doesn't ask for the colony gets no second sector.
     pub colony: bool,
     /// How many connections it takes, in all and from one address (`net::admit`).
     pub limits: crate::net::admit::Limits,

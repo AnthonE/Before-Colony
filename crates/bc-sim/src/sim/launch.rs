@@ -2,9 +2,11 @@
 //! again. (Under arcade rules, [`Sim::join`](super::Sim::join) hands out any frame at its
 //! faction's spawn point instead.)
 //!
-//! - [`Sim::launch`](super::Sim::launch) puts a [`Loadout`] in the sector at the docking hub's
-//!   mouth: the parts its pilot fitted (as worn as they are), the weapons fitted on its mounts,
-//!   the rounds loaded and the propellant in the tank.
+//! - [`Sim::launch`](super::Sim::launch) puts a [`Loadout`] in the sector in its pilot's bay
+//!   ([`LaunchAt::Bay`]): the parts its pilot fitted (as worn as they are), the weapons fitted on
+//!   its mounts, the rounds loaded and the propellant in the tank. It rides the bay's catapult
+//!   cradle in the door, turning with the colony, until its pilot lets go of the grip, and is
+//!   thrown out of the door (`colony::hub`).
 //! - [`Sim::dock`](super::Sim::dock) takes a suit that has come to rest in the dock out of the
 //!   sector again, and says what it brings home ([`Homecoming`]): what's left of it, its hold,
 //!   whatever it has in hand, and the bounties it earned.
@@ -22,33 +24,15 @@ use glam::{Quat, Vec3};
 
 use super::Sim;
 use crate::bodies::{Bodies, Body, Shape};
-use crate::content::salvage::DOCK_HUB_LENGTH;
-use crate::content::{Kits, Modules, Systems, frame, weapon};
+use crate::colony::hub::{BAY_RIDE_LOCAL, BAYS, bay_pose, bay_ride_rot, is_bay};
+use crate::content::{Grade, Kits, Modules, Systems, frame, weapon};
 use crate::ground::{self, Anchor, CROUCH_STANCE, Footing, STANCE};
 use crate::handle::SuitId;
 use crate::math::{cos, floor, look_rotation, quat_normalize, sin};
 use crate::suits::{ALL_MOUNTS, NO_SPOT, Usage};
-use crate::world::{COLONY_CENTER, COLONY_HALF_LENGTH};
 
-/// Where suits come out: on the docking hub's axis, just off its mouth, inside the dock (a suit
-/// that launches can turn round and dock again).
-pub const LAUNCH_GATE: Vec3 = Vec3::new(
-    COLONY_CENTER.x - COLONY_HALF_LENGTH - DOCK_HUB_LENGTH - 80.0,
-    COLONY_CENTER.y,
-    COLONY_CENTER.z,
-);
-/// How fast a suit leaves the hub, m/s (outward, along −X).
-pub const LAUNCH_SPEED: f32 = 12.0;
-/// Launches are spread round the axis on a ring this wide, m, a place apart each.
-const LAUNCH_RING: f32 = 100.0;
+/// Launches into the colony are spread round the inner gate, a place apart each.
 const LAUNCH_PLACES: u32 = 12;
-
-/// Where the `n`th launch comes out, facing out of the hub.
-fn launch_pose(n: u32) -> (Vec3, Quat) {
-    let a = (n % LAUNCH_PLACES) as f32 * core::f32::consts::TAU / LAUNCH_PLACES as f32;
-    let pos = LAUNCH_GATE + Vec3::new(0.0, cos(a) * LAUNCH_RING, sin(a) * LAUNCH_RING);
-    (pos, look_rotation(-Vec3::X, Vec3::Y))
-}
 
 /// Where the `n`th suit comes into the colony from the bays: round the inner gate, nose down the
 /// colony, its head towards the axis (up, in there).
@@ -69,12 +53,11 @@ fn gantry_pose() -> (Vec3, Quat) {
 }
 
 /// Where a suit launched into the sector comes in.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LaunchAt {
-    /// From its pilot's bay: out of the docking hub in space, or by the inner gate inside the
-    /// colony.
-    #[default]
-    Bay,
+    /// From its pilot's bay, by number (`colony::hub::bay_of_slot`): in space, riding the bay's
+    /// catapult cradle in its door until its pilot lets go; inside the colony, by the inner gate.
+    Bay(u8),
     /// Inside the colony, at the Blast Hall's gantry (`colony::hall`): one of the Charter Board's
     /// trainers, standing on the gantry's pad facing in, gripping until its pilot is heard from.
     /// It docks back there (`hall::in_gantry`), not at the inner gate.
@@ -93,6 +76,8 @@ pub struct Loadout {
     pub ammo: [u16; 3],
     /// In the tank, kg.
     pub propellant: f32,
+    /// What's in the tank.
+    pub grade: Grade,
     /// What's damaged or failed inside the parts.
     pub systems: Systems,
     /// The equipment on the parts.
@@ -116,6 +101,7 @@ impl Loadout {
             mounts: 0b111,
             ammo,
             propellant: spec.propellant_cap,
+            grade: Grade::Standard,
             systems: Systems::OK,
             modules: Modules::NONE,
             kits: Kits::NONE,
@@ -133,6 +119,8 @@ pub struct Homecoming {
     pub mounts: u8,
     pub ammo: [u16; 3],
     pub propellant: f32,
+    /// What's in the tank (what's left of it).
+    pub grade: Grade,
     /// What's damaged or failed inside the parts still on (a part shot off takes its own).
     pub systems: Systems,
     /// The equipment on the parts still on (a part shot off took its own).
@@ -169,8 +157,11 @@ pub struct ParkRecord {
 }
 
 impl Sim {
-    /// Launches `loadout` from the docking hub, flown by `pilot`. `None` if the sector is full, the
-    /// frame isn't one pilots fly, or there's no torso.
+    /// Launches `loadout` from a bay, flown by `pilot` (a bay of its own each, round the ring, for
+    /// tests and scenarios: the sector launches each pilot from theirs, [`launch_at`]). `None` if
+    /// the sector is full, the frame isn't one pilots fly, or there's no torso.
+    ///
+    /// [`launch_at`]: Self::launch_at
     pub fn launch(
         &mut self,
         frame_id: FrameId,
@@ -178,12 +169,14 @@ impl Sim {
         pilot: PilotKind,
         loadout: &Loadout,
     ) -> Option<SuitId> {
-        self.launch_at(frame_id, faction, pilot, loadout, LaunchAt::Bay)
+        let bay = (self.spawn_counter % BAYS + 1) as u8;
+        self.launch_at(frame_id, faction, pilot, loadout, LaunchAt::Bay(bay))
     }
 
-    /// Launches `loadout` [`at`](LaunchAt) the bays' way in, or inside the colony at the Blast
-    /// Hall's gantry as a trainer. `None` as [`launch`](Self::launch), and for a gantry outside the
-    /// colony or a frame without legs to stand on it.
+    /// Launches `loadout` [`at`](LaunchAt) its pilot's bay (in space, riding its cradle; inside the
+    /// colony, by the inner gate), or inside the colony at the Blast Hall's gantry as a trainer.
+    /// `None` as [`launch`](Self::launch), for a gantry outside the colony or a frame without legs
+    /// to stand on it, and for a bay the ring doesn't have.
     pub fn launch_at(
         &mut self,
         frame_id: FrameId,
@@ -197,15 +190,21 @@ impl Sim {
         if !spec.playable
             || loadout.parts[Part::Torso as usize] <= 0.0
             || (gantry && (!self.interior() || !spec.has_legs()))
+            || matches!(at, LaunchAt::Bay(n) if !is_bay(n))
         {
             return None;
         }
         let id = self.suits.allocate(frame_id, faction, pilot)?;
         self.spawn_counter += 1;
-        let (pos, rot) = match at {
-            LaunchAt::Gantry => gantry_pose(),
-            LaunchAt::Bay if self.interior() => inner_launch_pose(self.spawn_counter),
-            LaunchAt::Bay => launch_pose(self.spawn_counter),
+        // In its bay's cradle, as the bay stands this tick.
+        let cradle = match at {
+            LaunchAt::Bay(n) if !self.interior() => Some((n, bay_pose(n, self.tick, 0.0))),
+            _ => None,
+        };
+        let (pos, rot) = match (at, cradle) {
+            (LaunchAt::Gantry, _) => gantry_pose(),
+            (_, Some((_, pose))) => (pose.to_world(BAY_RIDE_LOCAL), pose.rot * bay_ride_rot()),
+            (LaunchAt::Bay(_), None) => inner_launch_pose(self.spawn_counter),
         };
         let i = id.idx();
         self.suits.place(i, frame_id, pos, rot, self.tick);
@@ -215,6 +214,7 @@ impl Sim {
         self.suits.mounts[i] = loadout.mounts & ALL_MOUNTS;
         self.suits.systems[i] = loadout.systems.clean();
         self.suits.modules[i] = loadout.modules.clean();
+        self.suits.grade[i] = loadout.grade;
         self.suits.kits[i] = loadout.kits;
         self.suits.retune(i);
         // Charged full, a capacitor bank's worth included.
@@ -225,11 +225,24 @@ impl Sim {
             }
         }
         let tank = crate::tuning::tank_cap(spec, &self.suits.tuning[i]);
-        let speed = if self.interior() { crate::colony::interior::INNER_LAUNCH_SPEED } else { LAUNCH_SPEED };
         let f = &mut self.suits.flight[i];
         f.propellant = loadout.propellant.clamp(0.0, tank);
-        f.vel = rot * Vec3::Z * speed;
-        if gantry {
+        f.vel = rot * Vec3::Z * crate::colony::interior::INNER_LAUNCH_SPEED;
+        if let Some((n, pose)) = cradle {
+            // Standing in its bay's door, carried round with it, its grip held: it rides there
+            // until its pilot lets go, and is thrown out of the door.
+            let a = Anchor {
+                body: Body::Bay(n),
+                local: BAY_RIDE_LOCAL,
+                rot: bay_ride_rot(),
+                stance: STANCE,
+                ..Anchor::default()
+            };
+            ground::derive(&pose, &a, f);
+            (self.suits.footing[i], self.suits.anchor[i]) = (Footing::Grounded, a);
+            self.suits.input[i] =
+                InputCmd { aim: rot * Vec3::Z, buttons: FLIGHT_ASSIST | GRIP, ..InputCmd::default() };
+        } else if gantry {
             // On its feet on the pad, at rest, its grip held: it stands there until its pilot is
             // first heard from.
             f.vel = Vec3::ZERO;
@@ -281,6 +294,7 @@ impl Sim {
             mounts: s.mounts[i],
             ammo: [s.weapons[i][0].ammo, s.weapons[i][1].ammo, s.weapons[i][2].ammo],
             propellant: s.flight[i].propellant,
+            grade: s.grade[i],
             systems: s.systems[i],
             modules: s.modules[i].without(s.gone_mask(i)),
             kits: s.kits[i],
@@ -374,6 +388,7 @@ impl Sim {
         // As worn inside as it was left, its equipment and rack with it.
         s.systems[i] = home.systems.clean();
         s.modules[i] = home.modules.clean();
+        s.grade[i] = home.grade;
         s.kits[i] = home.kits;
         s.usage[i] = home.usage;
         s.retune(i);
