@@ -12,11 +12,11 @@
 
 use bc_proto::{FrameId, Part, WeaponKind};
 use bc_sim::config::G0;
-use bc_sim::content::modules::{AUXILIARY_TANK, MOUNTS};
+use bc_sim::content::modules::MOUNTS;
 use bc_sim::content::salvage::{hold_kg, mass_without};
 use bc_sim::content::{ArmSlot, Kit, Kits, ModuleKind, Modules, frame};
 use bc_sim::sim::{Homecoming, Loadout};
-use bc_sim::tuning::tuning;
+use bc_sim::tuning::{tank_cap, tuning};
 use serde::{Deserialize, Serialize};
 
 use crate::catalogue::{munitions_per_load, recipe, rounds_per_load, tank_kg};
@@ -215,13 +215,11 @@ impl Suit {
         m.clean()
     }
 
-    /// The tank's size, kg (bigger with an auxiliary tank on the backpack).
+    /// The tank's size, kg (bigger with an auxiliary or extended tank): what the simulation fills
+    /// it to (`tuning::tank_cap`), to the kilogram below.
     pub fn tank(&self) -> u32 {
-        if self.equipment().has(ModuleKind::AuxiliaryTank, 0) {
-            (tank_kg(self.line) as f32 * AUXILIARY_TANK) as u32
-        } else {
-            tank_kg(self.line)
-        }
+        let t = tuning(self.gone(), self.faults.0, self.equipment());
+        tank_cap(frame(self.line), &t).floor() as u32
     }
 
     /// Rounds a full load holds on mount `m` (0: it fires energy, or it's a blade).

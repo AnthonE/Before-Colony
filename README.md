@@ -15,7 +15,7 @@ A Gundam Wing mobile-suit MMO prototype.
   they already know (`docs/STORY.md`).
 - **Suits break from the inside.** Behind each part's armour are its systems (reactor, tank,
   cockpit, thrusters, sensors, actuators): blows through thinning armour damage them, and a
-  damaged suit coughs, leaks, scrams, jams and smokes. Twelve equipment modules (a G-seat, an
+  damaged suit coughs, leaks, scrams, jams and smokes. Thirteen equipment modules (a G-seat, an
   auxiliary tank, radiators, plating, damage control…) trade one stat for another.
 - **Survival:** you build your own suit. You start on foot in your hangar bay in the colony's
   docking hub, with a worn-out Leo. Walk the bay in first person, fabricate parts from what you

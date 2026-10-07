@@ -34,10 +34,12 @@ pub enum ModuleKind {
     LegVerniers = 11,
     /// Legs: a bigger hold, and slower turns.
     CargoRack = 12,
+    /// Torso: a bigger tank again (it stacks with the auxiliary tank).
+    ExtendedTank = 13,
 }
 
 impl ModuleKind {
-    pub const COUNT: usize = 12;
+    pub const COUNT: usize = 13;
     pub const ALL: [ModuleKind; Self::COUNT] = [
         ModuleKind::SensorArray,
         ModuleKind::FireControlComputer,
@@ -51,6 +53,7 @@ impl ModuleKind {
         ModuleKind::ThrusterKit,
         ModuleKind::LegVerniers,
         ModuleKind::CargoRack,
+        ModuleKind::ExtendedTank,
     ];
 
     /// The kind with code `v` (0 and unknown codes: none).
@@ -83,6 +86,7 @@ impl ModuleKind {
             ModuleKind::ThrusterKit => 160,
             ModuleKind::LegVerniers => 150,
             ModuleKind::CargoRack => 250,
+            ModuleKind::ExtendedTank => 150,
         }
     }
 
@@ -100,6 +104,7 @@ impl ModuleKind {
             ModuleKind::ThrusterKit => "thruster_kit",
             ModuleKind::LegVerniers => "leg_verniers",
             ModuleKind::CargoRack => "cargo_rack",
+            ModuleKind::ExtendedTank => "extended_tank",
         }
     }
 
@@ -121,6 +126,7 @@ impl ModuleKind {
             ModuleKind::ThrusterKit => "Thruster kit",
             ModuleKind::LegVerniers => "Leg verniers",
             ModuleKind::CargoRack => "Cargo rack",
+            ModuleKind::ExtendedTank => "Extended tank",
         }
     }
 
@@ -139,6 +145,7 @@ impl ModuleKind {
             ModuleKind::ThrusterKit => "main thrust ×1.15; specific impulse ×0.88",
             ModuleKind::LegVerniers => "lateral and vertical thrust ×1.25; +150 kg",
             ModuleKind::CargoRack => "hold +1,000 kg; AMBAC ×0.9; +250 kg",
+            ModuleKind::ExtendedTank => "tank ×1.25 (×1.75 with an auxiliary tank); +150 kg",
         }
     }
 }
@@ -159,6 +166,7 @@ pub const RADIATOR_PACKAGE_SIGNATURE: f32 = 1.15;
 pub const COMPOSITE_PLATING: f32 = 0.88;
 pub const G_SEAT: f32 = 1.0;
 pub const AUXILIARY_TANK: f32 = 1.4;
+pub const EXTENDED_TANK: f32 = 1.25;
 pub const THRUSTER_KIT_MAIN: f32 = 1.15;
 pub const THRUSTER_KIT_ISP: f32 = 0.88;
 pub const LEG_VERNIERS: f32 = 1.25;

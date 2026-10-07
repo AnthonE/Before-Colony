@@ -84,7 +84,7 @@ Dolls on them.)
     flies on without boost.
   - Pilots bear twice the G every way (12 g for good headward, 24 g pressed into the seat), as the
     show's do: a Gundam's boost doesn't black its pilot out, even a Wing Zero's on a nearly empty
-    gauge (lighter, it pulls 16 g ahead). Diving hard on boost as well still can (their blood
+    gauge (lighter, it pulls nearly 18 g ahead). Diving hard on boost as well still can (their blood
     driven to their head), and so can a pilot hurt by a struck cockpit, and so can a crash.
   - What the tank makes out there stays out there: under survival, a suit comes home with no more
     propellant than it launched with.
@@ -142,7 +142,7 @@ Dolls on them.)
   a spike (a burst step) is over before it matters, a hard push held isn't, and the view greys
   out and closes in on the way. At 100% the pilot blacks out and control authority collapses until
   strain falls below 50%, two seconds once the load is off (a real G-LOC lasts nearer half a
-  minute). A Wing Zero's boost (12 g ahead) is borne while its tank is full, but lighter (16 g by
+  minute). A Wing Zero's boost (12 g ahead) is borne while its tank is full, but lighter (nearly 18 g by
   the end) or climbing too, it's more than its pilot takes, so you *can* out-thrust your own body,
   as Zechs did in the Tallgeese. Mobile Dolls have no body, so no G limit. Agents are pilots, so
   they do have one.
@@ -171,15 +171,15 @@ Dolls on them.)
 
 | Frame | Role | Dry mass | Accel (boost) | Δv | Armour | Loadout |
 |---|---|---|---|---|---|---|
-| Leo (OZ-06MS) | line suit | 7.1 t | 3.5 g (5.6 g) | ≈2.6 km/s | titanium | beam rifle · machine cannon · beam saber |
-| Wing Gundam Zero (XXXG-00W0) | hero suit | 8.0 t | 8 g (12 g) | ≈3.7 km/s | gundanium (×0.55 damage) | Twin Buster Rifle · machine cannons · beam saber · **ZERO System** |
-| Neo-Bird (Wing Zero's other form) | interceptor | 8.0 t | 8.5 g (11.9 g) | ≈3.7 km/s | as Wing Zero | Twin Buster Rifle (fixed forward) · machine cannons · **ZERO System** |
-| Gundam Heavyarms (XXXG-01H) | gunship | 8.8 t | 5.2 g (7.3 g) | ≈2.8 km/s | gundanium (×0.55) | beam gatling · homing missiles · army knife · **Full Open Attack** |
-| Gundam Sandrock (XXXG-01SR) | brawler | 9.6 t | 4.6 g (6.9 g) | ≈2.4 km/s | gundanium (×0.45) | beam machine gun · homing missiles · heat shotels · **Cross Crusher** |
-| Gundam Deathscythe (XXXG-01D) | infiltrator | 7.3 t | 7 g (11.2 g) | ≈3.3 km/s | gundanium (×0.55) | buster shield · head vulcans · beam scythe · **Hyper Jammer** |
-| Shenlong Gundam (XXXG-01S) | duellist | 7.5 t | 7.4 g (11.8 g) | ≈3.3 km/s | gundanium (×0.55) | Dragon Fang · flamethrower · beam glaive |
-| Taurus (OZ-13MS) | Mobile Doll | 6.5 t | 5 g | | titanium | beam rifle |
-| Virgo (OZ-02MD) | Mobile Doll | 9.5 t | 3 g | | heavy (×0.8) | beam cannon, Planet Defensors (visual) |
+| Leo (OZ-06MS) | line suit | 7.1 t | 3.5 g (5.6 g) | ≈3.1 km/s | titanium | beam rifle · machine cannon · beam saber |
+| Wing Gundam Zero (XXXG-00W0) | hero suit | 8.0 t | 8 g (12 g) | ≈4.5 km/s | gundanium (×0.55 damage) | Twin Buster Rifle · machine cannons · beam saber · **ZERO System** |
+| Neo-Bird (Wing Zero's other form) | interceptor | 8.0 t | 8.5 g (11.9 g) | ≈4.5 km/s | as Wing Zero | Twin Buster Rifle (fixed forward) · machine cannons · **ZERO System** |
+| Gundam Heavyarms (XXXG-01H) | gunship | 8.8 t | 5.2 g (7.3 g) | ≈3.4 km/s | gundanium (×0.55) | beam gatling · homing missiles · army knife · **Full Open Attack** |
+| Gundam Sandrock (XXXG-01SR) | brawler | 9.6 t | 4.6 g (6.9 g) | ≈3.0 km/s | gundanium (×0.45) | beam machine gun · homing missiles · heat shotels · **Cross Crusher** |
+| Gundam Deathscythe (XXXG-01D) | infiltrator | 7.3 t | 7 g (11.2 g) | ≈4.0 km/s | gundanium (×0.55) | buster shield · head vulcans · beam scythe · **Hyper Jammer** |
+| Shenlong Gundam (XXXG-01S) | duellist | 7.5 t | 7.4 g (11.8 g) | ≈4.0 km/s | gundanium (×0.55) | Dragon Fang · flamethrower · beam glaive |
+| Taurus (OZ-13MS) | Mobile Doll | 6.5 t | 5 g | ≈2.9 km/s | titanium | beam rifle |
+| Virgo (OZ-02MD) | Mobile Doll | 9.5 t | 3 g | ≈2.5 km/s | heavy (×0.8) | beam cannon, Planet Defensors (visual) |
 
 ## Surfaces (`bc-sim/src/ground.rs`)
 
@@ -336,7 +336,7 @@ through each suit's stat sheet, `bc_sim::tuning`.)
 | head | sensors | sensor range ×0.7 | ×0.4: the sub-camera |
 | head | fire control | missile locks build at half the rate and fall apart twice as fast | no locks; ZERO's firing solution no longer pulls shots |
 | torso | reactor | energy regeneration ×0.5 | ×0.15 |
-| torso | propellant tank | leaks 3 kg/s | leaks 15 kg/s (a Leo's tank in under 3 minutes) |
+| torso | propellant tank | leaks 3 kg/s | leaks 15 kg/s (a Leo's tank in under 4 minutes) |
 | torso | radiators | heat dissipation ×0.6 | ×0.25 |
 | torso | gyros | AMBAC ×0.75 | ×0.5 |
 | torso | cockpit | the pilot bears 5 g (flight assist holds them under it) | 4 g |
@@ -381,6 +381,7 @@ fixed design with a physical trade-off (`bc_sim::content::modules`):
 | G-seat | torso | the pilot bears 1 g more | 150 kg |
 | Damage control | torso | restores one damaged system every 25 s (never a failed one) | 4 energy/s while it works |
 | Auxiliary tank | backpack | tank ×1.4 (a Leo's delta-v about +30%) | 200 kg |
+| Extended tank | torso | tank ×1.25 (a Leo's delta-v about +18%; ×1.75 with an auxiliary tank, 5.25 t) | 150 kg |
 | Thruster kit | backpack | main thrust ×1.15 | specific impulse ×0.88 |
 | Leg verniers | legs | lateral and vertical thrust ×1.25 | 150 kg |
 | Cargo rack | legs | hold +1,000 kg | AMBAC ×0.9, 250 kg |

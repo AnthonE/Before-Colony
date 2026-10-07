@@ -160,6 +160,7 @@ fn module_recipe(k: ModuleKind) -> Recipe {
         GSeat => (&[(COMPONENTS, 60), (ELECTRONICS, 10), (STEEL, 60)], 60),
         DamageControl => (&[(COMPONENTS, 100), (ELECTRONICS, 30)], 180),
         AuxiliaryTank => (&[(COMPONENTS, 40), (TI_ALLOY, 120)], 90),
+        ExtendedTank => (&[(COMPONENTS, 30), (TI_ALLOY, 80)], 75),
         ThrusterKit => (&[(COMPONENTS, 80), (TI_ALLOY, 60), (EXOTICS, 10)], 150),
         LegVerniers => (&[(COMPONENTS, 60), (TI_ALLOY, 60)], 90),
         CargoRack => (&[(COMPONENTS, 30), (STEEL, 200)], 60),

@@ -180,6 +180,7 @@ pub fn tuning(gone: u8, systems: Systems, modules: Modules) -> Tuning {
             ModuleKind::GSeat => t.g_tolerance += md::G_SEAT,
             ModuleKind::DamageControl => t.repairs = true,
             ModuleKind::AuxiliaryTank => t.tank *= md::AUXILIARY_TANK,
+            ModuleKind::ExtendedTank => t.tank *= md::EXTENDED_TANK,
             ModuleKind::ThrusterKit => {
                 t.main *= md::THRUSTER_KIT_MAIN;
                 t.isp *= md::THRUSTER_KIT_ISP;

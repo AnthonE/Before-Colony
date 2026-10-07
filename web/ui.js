@@ -775,7 +775,8 @@
       out += `<div class="slot"><div class="what">${esc(m.name.toUpperCase())}</div><div class="note">${rounds}</div><div>` +
         button("STRIP", { act: "strip-mount", mount: k }) + `</div></div>`;
     });
-    const tank = line?.tank || 0;
+    // The tank as the suit has it (an auxiliary or extended tank makes it bigger).
+    const tank = con.stats?.tank_kg || line?.tank || 0;
     const stores = stockOf("mat.propellant");
     out += `<div class="slot"><div class="what">PROPELLANT</div><div>${bar(Math.round((100 * suit.propellant) / Math.max(1, tank)))}</div>` +
       `<div class="note">${fmt(suit.propellant)}/${fmt(tank)} kg · ${fmt(stores)} kg in the stores</div></div></div>`;

@@ -23,12 +23,15 @@ fn every_row_is_where_its_id_says() {
 #[test]
 fn the_gundams_fly_as_designed() {
     let design = [
-        (FrameId::Heavyarms, 5.2, 2.79),
-        (FrameId::Deathscythe, 7.0, 3.32),
-        (FrameId::Sandrock, 4.6, 2.43),
-        (FrameId::Shenlong, 7.4, 3.32),
-        (FrameId::WingZeroBird, 8.5, 3.75),
-        (FrameId::WingZero, 8.0, 3.75),
+        (FrameId::Leo, 3.5, 3.11),
+        (FrameId::Heavyarms, 5.2, 3.39),
+        (FrameId::Deathscythe, 7.0, 3.99),
+        (FrameId::Sandrock, 4.6, 2.97),
+        (FrameId::Shenlong, 7.4, 4.03),
+        (FrameId::WingZeroBird, 8.5, 4.52),
+        (FrameId::WingZero, 8.0, 4.52),
+        (FrameId::Taurus, 5.0, 2.87),
+        (FrameId::Virgo, 3.0, 2.49),
     ];
     for (f, g, dv) in design {
         let s = frame(f);

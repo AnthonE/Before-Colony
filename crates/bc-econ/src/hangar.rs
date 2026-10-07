@@ -289,8 +289,27 @@ impl Hangar {
     }
 
     /// Takes what's in `slot` off the suit into the stores. The torso can't come off while
-    /// anything else is on it; taking it off leaves the bay empty.
+    /// anything else is on it; taking it off leaves the bay empty. A tank that comes off (an
+    /// auxiliary or extended tank, or the part it's on) leaves what no longer fits pumped back to
+    /// the stores.
     pub fn strip(&mut self, slot: Slot) -> Done {
+        let done = self.strip_off(slot)?;
+        Ok(match self.settle_tank() {
+            0 => done,
+            kg => format!("{done} · {kg} KG PROPELLANT BACK TO THE STORES"),
+        })
+    }
+
+    /// Pumps what the suit's tank no longer holds back to the stores; how much, kg.
+    fn settle_tank(&mut self) -> u32 {
+        let Bay::Docked { suit } = &mut self.bay else { return 0 };
+        let over = suit.propellant.saturating_sub(suit.tank());
+        suit.propellant -= over;
+        self.stores.add(PROPELLANT_ITEM, u64::from(over));
+        over
+    }
+
+    fn strip_off(&mut self, slot: Slot) -> Done {
         let suit = self.suit_mut()?;
         let line = suit.line;
         match slot {
@@ -751,10 +770,47 @@ mod tests {
         let l = h.launch().unwrap();
         assert!(l.parts.iter().all(|p| *p > 0.0 && *p < 1.0), "worn but whole");
         assert_eq!(l.mounts, 0b110, "no beam rifle");
-        assert_eq!(l.propellant, 1_800.0, "the stores topped the tank up as far as they could");
+        assert_eq!(l.propellant, 2_100.0, "the stores topped the tank up as far as they could");
         assert_eq!(l.ammo[1], 400);
         assert!(matches!(h.bay, Bay::Out { .. }));
         assert!(h.launch().is_err());
+    }
+
+    /// The bay's tank is the simulation's: a Leo's holds 3 t, 4.2 t with an auxiliary tank on the
+    /// backpack, 3.75 t with an extended tank in the torso, 5.25 t with both.
+    #[test]
+    fn the_tanks_hold_what_the_suit_flies_with() {
+        use bc_sim::content::ModuleKind::{AuxiliaryTank, ExtendedTank};
+        for (fitted, kg) in [
+            (vec![], 3_000),
+            (vec![(4, AuxiliaryTank)], 4_200),
+            (vec![(1, ExtendedTank)], 3_750),
+            (vec![(1, ExtendedTank), (4, AuxiliaryTank)], 5_250),
+        ] {
+            let mut s = Suit::complete(FrameId::Leo);
+            for (m, k) in fitted {
+                s.modules[m] = Some(k);
+            }
+            assert_eq!(s.tank(), kg);
+            assert_eq!(s.stats().tank_kg, kg);
+        }
+    }
+
+    /// Taking a tank off pumps back to the stores what no longer fits.
+    #[test]
+    fn stripping_a_tank_pumps_back_what_no_longer_fits() {
+        let mut h = Hangar::starter();
+        let Bay::Docked { suit } = &mut h.bay else { panic!("a suit in the bay") };
+        suit.modules[4] = Some(bc_sim::content::ModuleKind::AuxiliaryTank);
+        suit.propellant = suit.tank();
+        assert_eq!(suit.propellant, 4_200);
+        let before = h.stores.get(PROPELLANT_ITEM);
+        let done = h.strip(Slot::Module { module: 4 }).unwrap();
+        assert!(done.contains("1200 KG PROPELLANT BACK"), "{done}");
+        assert_eq!(h.suit().unwrap().propellant, 3_000);
+        assert_eq!(h.stores.get(PROPELLANT_ITEM), before + 1_200);
+        // Nothing to pump back: nothing said.
+        assert!(!h.strip(Slot::Mount { mount: 1 }).unwrap().contains("PROPELLANT"));
     }
 
     /// Lost and broke, a pilot is advanced a worn Leo, but not twice in half an hour, not while a
