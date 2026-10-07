@@ -1592,9 +1592,11 @@ pub fn chart_draw(
             let place = Place::Suit(e.slot, e.generation);
             pickable(place, p, 9.0, 2);
             if n < 6 || c.selected == Some(place) {
-                let tag = match e.pilot {
-                    PilotKind::MobileDoll => "MD".to_string(),
-                    _ => world.roster.get(&e.slot).map_or(String::new(), |(name, _)| name.to_uppercase()),
+                // A Doll is "MD" but for Zodiac's ace, which goes by its name.
+                let tag = match (e.pilot, world.roster.get(&e.slot)) {
+                    (_, Some((name, _))) => name.to_uppercase(),
+                    (PilotKind::MobileDoll, None) => "MD".to_string(),
+                    _ => String::new(),
                 };
                 let what = if wreck { "WRECK".into() } else { tag };
                 label(p + up * s * 1.6, format!("{what}  {}", range(p.distance(from))), color, 35);

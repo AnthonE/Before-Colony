@@ -43,6 +43,11 @@ fn crits_per_life(f: FrameId, pilot: PilotKind, amount: f32, lives: usize) -> f3
         let from = sim.events.next_seq();
         // Stop short of the blow that would destroy it (that one reaches nothing).
         while sim.suits.part_hp[j][Part::Torso as usize] > amount * spec.armor + 1e-3 {
+            assert!(sim.is_alive(j) && !sim.doomed(j), "breached: the blows overshot");
+            // Each blow on a steady suit: this is about armour and what's behind it, not balance
+            // (a staggered suit takes direct hits, `stagger`).
+            sim.suits.impact[j] = 0.0;
+            sim.suits.stagger[j] = 0;
             sim.strike(j, Part::Torso, amount, usize::MAX, WeaponKind::BeamRifle);
             sim.step();
         }

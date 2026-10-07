@@ -267,7 +267,8 @@ impl Sim {
             return None;
         }
         let i = id.idx();
-        if !self.suits.alive.get(i) || self.suits.sleeping.get(i) || !self.docked(i) {
+        // (A doomed suit's reactor is going: there's no docking it.)
+        if !self.suits.alive.get(i) || self.suits.sleeping.get(i) || self.doomed(i) || !self.docked(i) {
             return None;
         }
         let held = self.held_chunk(i);

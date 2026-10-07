@@ -202,6 +202,11 @@ async fn a_pilot_works_the_bay_launches_and_docks() -> anyhow::Result<()> {
         b.core.hangar.view.as_ref().unwrap().stock.iter().find(|(i, _)| *i == item).map_or(0, |e| e.1)
     };
     assert_eq!((held(stim), held(chaff)), (0, 2));
+    // The debrief: the stim the rack used, at the colony's value, and nothing earned.
+    let debrief = b.core.hangar.last_debrief.clone().expect("a debrief");
+    let rack = bc_econ::catalogue::value(stim) as i64;
+    assert!(debrief.lines.iter().any(|l| l.what == "THE RACK" && l.cr == -rack), "{debrief:?}");
+    assert!(debrief.lines.iter().all(|l| l.cr < 0) && debrief.net() <= -rack, "{debrief:?}");
     b.close().await;
     server.shutdown();
     Ok(())
@@ -344,6 +349,46 @@ async fn a_pilot_who_lost_everything_is_advanced_a_worn_leo() -> anyhow::Result<
         tokio::time::sleep(Duration::from_millis(300)).await;
         ruin(&dir)?;
     }
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(())
+}
+
+/// Ejecting (`docs/DESIGN.md`, "Doom and ejecting"): a pilot who gets out of their suit loses it,
+/// and hears so; if they leave before the colony's tugs reach the wreck, it's towed in at once,
+/// and what's on it (its whole torso included: it wasn't doomed) waits in their stores next time.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_pilot_who_ejects_has_the_wreck_towed_home() -> anyhow::Result<()> {
+    let dir = std::env::temp_dir().join(format!("bc-hangar-eject-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let w = wallet(12);
+    let me = Identity::Wallet { address: w.address(), resume: None };
+    let server = bc_server::start(config(Some(dir.clone()))?).await?;
+    let http = format!("http://{}", server.http_addr);
+    let mut b = BotClient::connect_with(&bot(&http, "Heero"), me, Some(&w)).await?;
+    b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
+    b.launch().await?;
+    assert!(!b.doomed());
+    assert!(b.self_destruct().await.is_err(), "only a doomed suit blows up");
+    b.eject().await?;
+    b.wait_until(10.0, "the loss", |c| c.hangar.sorties.iter().any(|s| s.0 == Outcome::Lost)).await?;
+    let (_, text) = b.core.hangar.sorties.last().cloned().unwrap();
+    assert!(text.contains("YOU EJECTED"), "{text}");
+    // Its debrief writes the suit off (the tugs' haul comes later, as news).
+    let debrief = b.core.hangar.last_debrief.clone().expect("a debrief");
+    assert!(debrief.lines.iter().any(|l| l.what == "THE SUIT" && l.cr < 0), "{debrief:?}");
+    b.wait_until(10.0, "back in the hangar", |c| c.hangar.in_hangar()).await?;
+    assert!(docked(&b).is_none(), "the suit is gone");
+    // Gone before the tugs get there: the wreck comes in now.
+    b.close().await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let mut b = BotClient::connect_with(&bot(&http, "Heero"), me, Some(&w)).await?;
+    b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
+    let parts: Vec<(Part, u8)> =
+        b.core.hangar.view.as_ref().unwrap().parts.iter().map(|u| (u.part, u.condition)).collect();
+    assert!(parts.contains(&(Part::Torso, 40)), "its torso came home: {parts:?}");
+    assert!(parts.contains(&(Part::Head, 40)), "{parts:?}");
+    b.close().await;
+    server.shutdown();
     let _ = std::fs::remove_dir_all(&dir);
     Ok(())
 }

@@ -329,6 +329,61 @@ impl BotClient {
         self.wait_until(1.0, kit.name(), |c| count(c) < before).await
     }
 
+    /// Whether the agent's suit is doomed: its torso breached, its reactor going (`own.doom`
+    /// steps left). Its pilot can still [`eject`](Self::eject) or
+    /// [`self_destruct`](Self::self_destruct).
+    pub fn doomed(&self) -> bool {
+        self.core.world.own.is_some_and(|o| o.alive && o.doom > 0)
+    }
+
+    /// Whether the agent's suit is staggered (`bc_sim::sim::stagger`): tumbling, its thrust cut
+    /// and its weapons down for a second; as flown, so it can wait it out.
+    pub fn staggered(&self) -> bool {
+        self.core.world.own.is_some_and(|o| o.alive) && self.core.predict.stagger > 0
+    }
+
+    /// The gun in the suit's hand, if it holds an arm that carried one (`bc_sim::content::salvage::
+    /// held_gun`): FIRE_SECONDARY fires it while it's held.
+    pub fn gun_in_hand(&self) -> Option<bc_proto::WeaponKind> {
+        self.core.world.gun_in_hand()
+    }
+
+    /// How charged the suit's special is, 0..1 (1: charged, or it has nothing to charge): by
+    /// itself over its cooldown, and faster from the fight (`bc_sim::content::specials`).
+    pub fn special_charge(&self) -> f32 {
+        self.core.world.own.map_or(0.0, |o| f32::from(o.special_charge) / 255.0)
+    }
+
+    /// The impact on the suit's attitude control, as a share of what it stands (1 staggered).
+    pub fn impact(&self) -> f32 {
+        let max = f32::from(bc_proto::snapshot::IMPACT_MAX);
+        self.core.world.own.map_or(0.0, |o| if o.stagger > 0 { 1.0 } else { f32::from(o.impact) / max })
+    }
+
+    /// Ejects from the suit (doomed or not; never inside the colony): the suit is lost, and under
+    /// survival rules the colony's tugs go out for its wreck (`docs/DESIGN.md`, "Doom and
+    /// ejecting"). Returns once the own snapshot shows the suit gone (or fails after a second).
+    pub async fn eject(&mut self) -> anyhow::Result<()> {
+        self.leave_suit(false).await
+    }
+
+    /// Doomed: blows the suit up with the agent aboard, hurting every enemy suit close by
+    /// (nothing is left of it to salvage). Returns once the suit is gone (or fails after a second:
+    /// it wasn't doomed).
+    pub async fn self_destruct(&mut self) -> anyhow::Result<()> {
+        anyhow::ensure!(self.doomed(), "only a doomed suit can be blown up");
+        self.leave_suit(true).await
+    }
+
+    async fn leave_suit(&mut self, destruct: bool) -> anyhow::Result<()> {
+        anyhow::ensure!(self.core.world.own.is_some_and(|o| o.alive), "no suit to leave");
+        self.request(&Request::Eject { destruct }).await?;
+        self.wait_until(1.0, if destruct { "self-destruct" } else { "eject" }, |c| {
+            c.world.own.is_none_or(|o| !o.alive)
+        })
+        .await
+    }
+
     /// Survival rules: delivers what the stores hold of `item` to the Charter Board's supply
     /// contracts that ask for it (the colony's pay above its desks), best paying first. What the
     /// board said to each delivery.
@@ -440,6 +495,17 @@ impl BotClient {
     /// Board's trainers there. Returns once the pilot is flying it (welcomed to the colony's
     /// inside), standing on the gantry.
     pub async fn board_trainer(&mut self) -> anyhow::Result<()> {
+        self.board_trainer_as(None).await
+    }
+
+    /// [`BotClient::board_trainer`], asking the gantry first for `build` (the test range: the
+    /// Board's Leo, the build in the bay, or a new suit of any line).
+    pub async fn board_trainer_as(&mut self, build: Option<bc_econ::proving::Trainer>) -> anyhow::Result<()> {
+        if let Some(build) = build {
+            let notes = self.core.hangar.notes.len();
+            self.request(&Request::Trainer { build }).await?;
+            self.wait_until(5.0, "the gantry's answer", |c| c.hangar.notes.len() > notes).await?;
+        }
         self.request(&Request::BoardTrainer).await?;
         self.wait_until(10.0, "a trainer", |c| {
             c.hangar.place == Some(Place::Space)

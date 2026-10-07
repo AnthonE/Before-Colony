@@ -72,6 +72,9 @@ pub struct Game {
     pub pilot: Option<Autopilot>,
     pub brain: Brain,
     pub respawn_request: Option<FrameId>,
+    /// The pilot asked to leave their suit: eject (`false`), or blow up their doomed suit (`true`)
+    /// (`input::eject_key`).
+    pub eject_request: Option<bool>,
     /// The suit designated: the lock-on's target, else lock assist's (frames with missiles).
     pub lock: Option<u16>,
     /// The pilot's lock-on (Y, or the middle button): `bc_client_core::lockon`.
@@ -108,6 +111,7 @@ impl Game {
             pilot,
             brain: Brain::new(pilot),
             respawn_request: None,
+            eject_request: None,
             lock: None,
             hard: Lock::default(),
             controls: InputCmd::default(),
@@ -248,6 +252,9 @@ fn pump(g: &mut Game, t: &Transport, now: f64) {
     }
     if let Some(frame) = g.respawn_request.take() {
         t.send_control(g.core.respawn(frame));
+    }
+    if let Some(destruct) = g.eject_request.take() {
+        t.send_control(g.core.request(&bc_econ::Request::Eject { destruct }));
     }
     // In the bay's cradle until the catapult fires: held there, whatever would fly it.
     let hold = g.bay_hold;

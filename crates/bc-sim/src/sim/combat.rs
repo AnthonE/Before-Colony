@@ -17,7 +17,7 @@ use crate::content::{ArmSlot, Mount, Replication, WeaponClass, WeaponSpec, frame
 use crate::flight::FlightState;
 use crate::ground::{Footing, derive};
 use crate::math::{angle_between, clamp_to_cone, hash01, normalize_or};
-use crate::suits::{SPECIAL_SLOTS, WeaponState};
+use crate::suits::{HELD_SLOT, SPECIAL_SLOTS, WeaponState};
 use crate::tuning;
 use crate::world::colony_sweep;
 
@@ -78,20 +78,27 @@ impl Sim {
         for i in alive.iter() {
             let spec = frame(self.suits.frame[i]);
             let cmd = self.suits.input[i];
-            // Weapons are down while the suit changes form, and inside the colony anywhere but the
-            // Blast Hall (a Full Open begun there stops firing at its doors).
+            // Weapons are down while the suit changes form or is staggered, and inside the colony
+            // anywhere but the Blast Hall (a Full Open begun there stops firing at its doors).
             if self.transforming(i)
+                || self.staggered(i)
                 || (interior && !crate::colony::hall::weapons_free(self.suits.flight[i].pos))
             {
                 continue;
             }
             // Full Open: everything fires along the aim, heat or not.
             let full_open = self.full_open(i);
+            // A gun in hand takes the secondary's trigger (`content::salvage::held_gun`).
+            let in_hand = self.gun_in_hand(i);
             for slot in 0..2 {
                 let Some(mount) = spec.loadout[slot] else { continue };
                 let button = if slot == 0 { FIRE_PRIMARY } else { FIRE_SECONDARY };
-                let wants = full_open || cmd.pressed(button);
+                let wants = full_open || (cmd.pressed(button) && !(slot == 1 && in_hand.is_some()));
                 self.trigger(i, slot, mount, wants, full_open, &cmd, t);
+            }
+            if let Some((gun, right)) = in_hand {
+                let arm = if right { ArmSlot::Right } else { ArmSlot::Left };
+                self.trigger_in_hand(i, Mount { weapon: gun, arm }, cmd.pressed(FIRE_SECONDARY), &cmd, t);
             }
             if full_open {
                 for (k, mount) in spec.special_mounts.iter().enumerate() {
@@ -178,6 +185,28 @@ impl Sim {
         }
     }
 
+    /// The gun in suit `i`'s hand, on `mount` (the hand): it fires its plain shot (the hand hasn't
+    /// the suit's fire control to charge it), on its own cooldown, rounds, energy and heat.
+    fn trigger_in_hand(&mut self, i: usize, mount: Mount, wants: bool, cmd: &InputCmd, t: u32) {
+        let w = weapon(mount.weapon);
+        let ws = &mut self.suits.held_gun[i];
+        ws.cooldown = ws.cooldown.saturating_sub(1);
+        if wants && self.hand_gun_ready(i) {
+            self.fire(i, HELD_SLOT, mount, w, cmd, t);
+        }
+    }
+
+    /// Whether the gun in suit `i`'s hand can fire now.
+    pub(super) fn hand_gun_ready(&self, i: usize) -> bool {
+        let Some((gun, right)) = self.gun_in_hand(i) else { return false };
+        let (w, ws) = (weapon(gun), &self.suits.held_gun[i]);
+        ws.cooldown == 0
+            && !self.suits.overheated[i]
+            && self.suits.energy[i] >= w.energy
+            && (w.ammo == 0 || ws.ammo > 0)
+            && self.suits.hand_works(i, right)
+    }
+
     /// Whether suit `i`'s loadout `slot` would fire on the next tick if its trigger were pulled:
     /// its cooldown run out by then, cool enough, the energy and rounds for it, the arm free. (A
     /// script that pulls only then fires as one that holds the trigger down, under either rule.)
@@ -240,10 +269,11 @@ impl Sim {
         if let Some(n) = s.usage[i].shots.get_mut(slot) {
             *n = n.saturating_add(1);
         }
-        // (The special mounts fire only in Full Open, which shows by itself.)
+        // (The special mounts fire only in Full Open, which shows by itself; a gun in hand, on the
+        // secondary's trigger, shows as the secondary.)
         if slot == 0 {
             s.fired_primary[i] = t;
-        } else if slot == 1 {
+        } else if slot == 1 || slot == HELD_SLOT {
             s.fired_secondary[i] = t;
         }
         self.break_jammer(i, t);
@@ -478,6 +508,10 @@ impl Sim {
             let spec = frame(self.suits.frame[j]);
             let mut part = d.part;
             let mut amount = d.amount * spec.armor * self.suits.tuning[j].armor;
+            // A staggered suit can't turn a blow aside: it's a direct hit.
+            if self.suits.stagger[j] > 0 {
+                amount *= crate::content::stagger::DIRECT_HIT;
+            }
             // A beam wider than a limb engulfs the whole suit: it lands on the torso.
             if weapon(d.weapon).engulfs {
                 part = Part::Torso;
@@ -508,7 +542,18 @@ impl Sim {
                 self.suits.stats[shooter].hits += 1;
                 self.suits.stats[shooter].hits_by_class[weapon(d.weapon).class as usize] += 1;
                 self.suits.stats[shooter].damage_dealt += dealt;
+                // The fight charges the shooter's special (not its own blows: `content::specials`)...
+                let own = frame(self.suits.frame[shooter])
+                    .special_mounts
+                    .iter()
+                    .flatten()
+                    .any(|m| m.weapon == d.weapon);
+                if shooter != j && self.suits.alive.get(shooter) && !own {
+                    self.charge_special(shooter, dealt / crate::content::specials::DEALT_FULL);
+                }
             }
+            // ...and the target's.
+            self.charge_special(j, dealt / crate::content::specials::TAKEN_FULL);
             self.events.push(Event::Hit {
                 id: 0,
                 tick: t,
@@ -522,37 +567,63 @@ impl Sim {
             if self.suits.part_hp[j][Part::Torso as usize] > 0.0 {
                 self.critical(j, part, on_part, k, t);
             }
+            // The blow's push on its attitude control, armour or no armour (`stagger`).
+            self.impact(j, d.amount, d.weapon, d.dir, t);
+            // A breached torso: a pilot's suit is doomed (`doom`), anyone else's destroyed.
             if self.suits.part_hp[j][Part::Torso as usize] <= 0.0 {
-                self.suits.alive.set(j, false);
-                self.suits.stats[j].deaths += 1;
-                if shooter < self.suits.cap && shooter != j {
-                    self.suits.stats[shooter].kills += 1;
-                    // Survival: the colony pays for every Mobile Doll a pilot brings down.
-                    if self.cfg.survival
-                        && self.suits.pilot[j] == PilotKind::MobileDoll
-                        && self.suits.pilot[shooter] != PilotKind::MobileDoll
-                    {
-                        let c = &mut self.suits.credits[shooter];
-                        *c = c.saturating_add(bounty(self.suits.frame[j]));
-                    }
-                }
-                // What it spills goes off the body it stood on (the wreck is off it).
-                let up = self.spill_up(j);
-                let hulk = self.wreck(j, t);
-                self.spill_over(j, t, true, up);
-                self.events.push(Event::Kill { id: 0, tick: t, victim: j as u16, killer: d.shooter, hulk });
-                let wait = if self.suits.pilot[j] == PilotKind::MobileDoll {
-                    secs(3.0)
-                } else {
-                    secs(self.cfg.respawn_secs)
-                };
-                self.suits.respawn_at[j] = t + wait.max(1);
-                self.suits.zero[j] = Default::default();
-                if self.suits.sleeping.get(j) {
-                    self.note_fate(j, super::Gone::Destroyed { killer: d.shooter }, t);
-                }
+                self.breach(j, amount, d.shooter, t);
             }
         }
+    }
+
+    /// Suit `j` is destroyed, by `killer` (a suit slot, or [`NO_SLOT`](bc_proto::NO_SLOT)): what's
+    /// left of it drifts on as a hulk (`hulk`; a suit blown up leaves none), what it held and carried
+    /// spills, and it waits to respawn or be cleared. Returns the hulk's chunk id.
+    pub(super) fn destroy(&mut self, j: usize, killer: u16, t: u32, hulk: bool) -> u16 {
+        self.suits.alive.set(j, false);
+        self.suits.doom[j] = super::Doom::NONE;
+        self.suits.stats[j].deaths += 1;
+        let k = usize::from(killer);
+        if k < self.suits.cap && k != j {
+            self.suits.stats[k].kills += 1;
+            // Survival: the colony pays for every Mobile Doll a pilot brings down.
+            if self.cfg.survival
+                && self.suits.pilot[j] == PilotKind::MobileDoll
+                && self.suits.pilot[k] != PilotKind::MobileDoll
+            {
+                let c = &mut self.suits.credits[k];
+                *c = c.saturating_add(bounty(self.suits.frame[j]));
+            }
+        }
+        let wreck = if hulk {
+            // What it spills goes off the body it stood on (the wreck is off it).
+            let up = self.spill_up(j);
+            let wreck = self.wreck(j, t);
+            self.spill_over(j, t, true, up);
+            wreck
+        } else {
+            // Blown apart: what was in hand is let go, and nothing else is left.
+            if let Some(k) = self.held_chunk(j) {
+                self.release(j, k, Vec3::ZERO, t);
+            }
+            self.suits.cargo_kg[j] = [0; bc_proto::CARGO_KINDS];
+            self.suits.footing[j] = Footing::Free;
+            self.suits.anchor[j] = crate::ground::Anchor::default();
+            self.suits.blown.set(j, true);
+            NO_CHUNK
+        };
+        self.events.push(Event::Kill { id: 0, tick: t, victim: j as u16, killer, hulk: wreck });
+        let wait = if self.suits.pilot[j] == PilotKind::MobileDoll {
+            secs(3.0)
+        } else {
+            secs(self.cfg.respawn_secs)
+        };
+        self.suits.respawn_at[j] = t + wait.max(1);
+        self.suits.zero[j] = Default::default();
+        if self.suits.sleeping.get(j) {
+            self.note_fate(j, super::Gone::Destroyed { killer }, t);
+        }
+        wreck
     }
 
     /// Whether the blow `on_part` (armour points) that the `k`th hit of this tick dealt to suit

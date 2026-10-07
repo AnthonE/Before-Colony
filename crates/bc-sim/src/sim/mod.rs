@@ -14,14 +14,18 @@
 //!    by humans/agents; beams emit spawn events.
 //! 5. Projectiles sweep against per-part capsules (rocks, landmarks and the colony stop them,
 //!    whichever comes first); sabers sweep their arcs.
-//! 6. Damage resolves in generation order; parts break; suits die.
+//! 6. Damage resolves in generation order; parts break; blows build impact, and staggers
+//!    (`stagger`); a pilot's breached suit is doomed (`doom`), anyone else's dies; doomed suits'
+//!    reactors run down; staggers run out.
 //! 7. Heat, energy, ZERO strain, respawns; staggered ZERO rollouts.
 
 use alloc::boxed::Box;
 
+mod aces;
 mod combat;
 mod conceal;
 mod detection;
+mod doom;
 mod flame;
 mod kits;
 mod launch;
@@ -31,6 +35,7 @@ mod missile;
 mod salvage;
 mod sleep;
 mod specials;
+mod stagger;
 mod wire;
 mod zero;
 
@@ -73,6 +78,7 @@ pub use conceal::{
     COLD_SIG, Conceal, EXPOSE_TICKS, FOUGHT_DARK_TICKS, HIDE_AWAKE_VISUAL_MUL, LURK_SETTLE_TICKS, LURK_STILL,
     POWER_DOWN_TICKS, cover,
 };
+pub use doom::{DOOM_PER_TORSO, DOOM_TICKS, Doom, EJECT_SPEED, Ejected};
 pub use launch::{Homecoming, LaunchAt, Loadout, ParkRecord};
 pub use sleep::{Gone, PARK_SPEED, PARKED_VISUAL, SleeperFate};
 
@@ -150,6 +156,10 @@ pub struct Sim {
     scratch: Perception,
     next_doll_spawn: u32,
     next_squad: usize,
+    /// Zodiac's aces (`aces`): when the next is due, which it is, and the one out (its suit).
+    next_ace_at: u32,
+    next_ace: u8,
+    ace_suit: u16,
     spawn_counter: u32,
     rng: Rng,
     /// Live-projectile and live-missile high-water marks (diagnostics).
@@ -214,6 +224,9 @@ impl Sim {
             scratch: Perception::default(),
             next_doll_spawn: 0,
             next_squad: 0,
+            next_ace_at: cfg.ace_every,
+            next_ace: 0,
+            ace_suit: NO_SLOT,
             spawn_counter: 0,
             rng: Rng::new(cfg.seed),
             peak_projectiles: 0,
@@ -374,6 +387,7 @@ impl Sim {
         self.tick += 1;
         let t = self.tick;
         self.spawn_dolls(t);
+        self.spawn_ace(t);
         if t.is_multiple_of(30) {
             self.squad_logic();
         }
@@ -401,6 +415,8 @@ impl Sim {
         self.damage_step(t);
         // (Emptied after, not before: a blow struck between ticks lands with this tick's.)
         self.damage.clear();
+        self.doom_step(t);
+        self.stagger_step(t);
         self.salvage_step(t);
         self.status_step(t);
         self.zero_step(t);
@@ -701,6 +717,10 @@ impl Sim {
             mods.ambac = busy_ambac(mods.ambac);
         }
         mods.lunge = s.melee[i].striking() && weapon(s.melee[i].weapon).melee.is_some_and(|m| m.lunge);
+        if s.stagger[i] > 0 {
+            mods.staggered = true;
+            mods.thrust *= crate::content::stagger::STAGGER_THRUST;
+        }
         mods
     }
 

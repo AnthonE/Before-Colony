@@ -217,12 +217,15 @@ pub enum WeaponKind {
     BeamGlaive = 18,
     /// The beam rifle's charged shot: twice as fast and as thick, held for and let go.
     BeamRifleCharged = 19,
+    /// A suit's own reactor, blown by its pilot in its last seconds (its self-destruct): the blast,
+    /// which no suit carries as a weapon (v23).
+    Reactor = 20,
 }
 
 impl WeaponKind {
     /// Room for 32 kinds on the wire.
     pub const BITS: u32 = 5;
-    pub const COUNT: usize = 20;
+    pub const COUNT: usize = 21;
     pub const ALL: [WeaponKind; Self::COUNT] = [
         WeaponKind::BeamRifle,
         WeaponKind::MachineCannon,
@@ -244,6 +247,7 @@ impl WeaponKind {
         WeaponKind::Flamethrower,
         WeaponKind::BeamGlaive,
         WeaponKind::BeamRifleCharged,
+        WeaponKind::Reactor,
     ];
 
     pub fn from_bits(v: u32) -> Option<Self> {

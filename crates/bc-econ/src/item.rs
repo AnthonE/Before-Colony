@@ -175,6 +175,7 @@ pub fn weapon_slug(kind: WeaponKind) -> &'static str {
         WeaponKind::Flamethrower => "flamethrower",
         WeaponKind::BeamGlaive => "beam_glaive",
         WeaponKind::BeamRifleCharged => "beam_rifle_charged",
+        WeaponKind::Reactor => "reactor",
     }
 }
 

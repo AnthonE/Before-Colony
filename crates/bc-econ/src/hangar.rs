@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::catalogue::{
     MUNITIONS_ITEM, PROPELLANT_ITEM, Station, munitions_per_load, propellant_item, recipe, value, worth,
 };
+use crate::debrief::{Debrief, stores_worth};
 use crate::exchange::{Exchange, Side};
 use crate::fab::{MAX_JOBS, Works};
 use crate::faults::{Faults, overhaul_cost};
@@ -582,10 +583,16 @@ impl Hangar {
     /// The suit came home: what's left of it stands in the bay again, its hold and whatever it
     /// towed in go to the stores, and its bounties are paid. What to tell the pilot.
     pub fn came_home(&mut self, home: &Homecoming) -> String {
+        self.came_home_debriefed(home).0
+    }
+
+    /// [`Hangar::came_home`], and the sortie's payout sheet (`debrief`).
+    pub fn came_home_debriefed(&mut self, home: &Homecoming) -> (String, Debrief) {
         let mut suit = match std::mem::take(&mut self.bay) {
             Bay::Out { suit } | Bay::Docked { suit } => suit,
             Bay::Empty => Suit::complete(line_of(home.frame)),
         };
+        let out = suit.clone();
         let before = suit.parts;
         suit.came_home(home);
         // The paint remembers the sortie (`weathering`).
@@ -601,14 +608,20 @@ impl Hangar {
         suit.kits = [0; Kit::COUNT];
         self.bay = Bay::Docked { suit };
         let mut notes = vec!["DOCKED".to_string()];
+        let mut ore_worth = 0;
         for (kind, kg) in home.cargo_kg.iter().enumerate() {
             if let (Some(ore), true) = (Ore::from_cargo(kind), *kg > 0) {
-                self.stores.add(Item::Ore(ore), u64::from(*kg));
-                notes.push(format!("{} {}", Item::Ore(ore).amount(u64::from(*kg)), ore.name()));
+                let item = Item::Ore(ore);
+                self.stores.add(item, u64::from(*kg));
+                ore_worth += worth(item, value(item), u64::from(*kg));
+                notes.push(format!("{} {}", item.amount(u64::from(*kg)), ore.name()));
             }
         }
+        let mut salvage_worth = 0;
         if let Some(desc) = home.held {
+            let had = stores_worth(&self.stores);
             notes.extend(self.salvage(&desc));
+            salvage_worth = stores_worth(&self.stores).saturating_sub(had);
         }
         if home.bounty > 0 {
             self.credits += u64::from(home.bounty);
@@ -617,14 +630,83 @@ impl Hangar {
         for sys in worn {
             notes.push(format!("{} WORN: OVERHAUL IT", sys.name().to_uppercase()));
         }
-        notes.join(" · ")
+        let mut kits_back = [0u8; Kit::COUNT];
+        for kit in Kit::ALL {
+            kits_back[kit as usize] = home.kits.get(kit);
+        }
+        let back = match &self.bay {
+            Bay::Docked { suit } => suit,
+            _ => &out,
+        };
+        let debrief = Debrief::docked(&out, back, &kits_back, home.bounty, ore_worth, salvage_worth);
+        (notes.join(" · "), debrief)
     }
 
     /// The suit was destroyed: the bay stays empty; the bounties it earned are still paid.
     pub fn lost(&mut self, bounty: u32) -> String {
-        self.bay = Bay::Empty;
+        self.lost_debriefed(bounty).0
+    }
+
+    /// [`Hangar::lost`], and the sortie's payout sheet (`debrief`): the suit as it went out is
+    /// gone.
+    pub fn lost_debriefed(&mut self, bounty: u32) -> (String, Debrief) {
+        let out = match std::mem::take(&mut self.bay) {
+            Bay::Out { suit } => Some(suit),
+            _ => None,
+        };
+        let debrief = Debrief::lost(out.as_ref(), bounty);
         self.credits += u64::from(bounty);
-        if bounty > 0 { format!("SUIT LOST · BOUNTY {bounty} CR") } else { "SUIT LOST".into() }
+        let text = if bounty > 0 { format!("SUIT LOST · BOUNTY {bounty} CR") } else { "SUIT LOST".into() };
+        (text, debrief)
+    }
+
+    /// The colony's tugs went out for the wreck of the suit its pilot ejected from
+    /// (`docs/DESIGN.md`, "Doom and ejecting"): what they brought home goes to the stores, as
+    /// salvage does, but for a torso that wasn't doomed (`torso`), which comes home as a part
+    /// rather than scrap. `None`: there was nothing left to bring. Its notes.
+    pub fn towed(&mut self, wreck: Option<&ChunkDesc>, torso: bool) -> Vec<String> {
+        let Some(desc) = wreck else {
+            return vec!["THE TUGS FOUND NOTHING OF YOUR WRECK TO BRING HOME".into()];
+        };
+        let mut notes = vec!["THE TUGS BROUGHT YOUR WRECK HOME".to_string()];
+        match desc.kind {
+            ChunkKind::Hulk { frame, parts, faction } if torso && parts & (1 << Part::Torso as u8) != 0 => {
+                let line = line_of(frame);
+                if is_line(line) {
+                    let faults = Faults::all(Part::Torso, DAMAGED);
+                    self.stores.add_part(PartUnit {
+                        line,
+                        part: Part::Torso,
+                        condition: SALVAGED_HULK,
+                        faults,
+                    });
+                    notes.push(format!(
+                        "SALVAGED {} ({SALVAGED_HULK}%)",
+                        Item::Part(line, Part::Torso).name().to_uppercase()
+                    ));
+                }
+                let rest = ChunkDesc {
+                    kind: ChunkKind::Hulk { frame, faction, parts: parts & !(1 << Part::Torso as u8) },
+                    ..*desc
+                };
+                notes.extend(self.salvage(&rest));
+            }
+            _ => notes.extend(self.salvage(desc)),
+        }
+        notes
+    }
+
+    /// The tugs went out for the wreck of one of Zodiac's aces, `name`, which the pilot downed and
+    /// took the bounty on as the rights to (`docs/DESIGN.md`, "Aces"): what they brought home goes
+    /// to the stores, as salvage does. `None`: someone else got to it first, or it's gone. Its
+    /// notes.
+    pub fn towed_ace(&mut self, wreck: Option<&ChunkDesc>, name: &str) -> Vec<String> {
+        let Some(desc) = wreck else {
+            return vec![format!("THE TUGS FOUND NOTHING OF {name}'S WRECK TO BRING HOME")];
+        };
+        let mut notes = vec![format!("THE TUGS BROUGHT {name}'S WRECK HOME")];
+        notes.extend(self.salvage(desc));
+        notes
     }
 
     /// The suit was out when the sector lost track of it (a server restart, cleared for room):
@@ -972,6 +1054,98 @@ mod tests {
         h.fit(Item::Part(FrameId::Leo, Part::ArmR)).unwrap();
         assert_eq!(h.suit().unwrap().parts[Part::ArmR as usize], Some(40));
         assert!(h.fit(Item::Part(FrameId::Leo, Part::Head)).is_err(), "it has a head");
+    }
+
+    /// A sortie's payout sheet (`debrief`): the ore and salvage at the colony's values, the bounty,
+    /// and what it cost, from the suit as it went out and as it came home; a loss writes it off.
+    #[test]
+    fn a_sortie_is_debriefed() {
+        let mut h = Hangar::starter();
+        let _ = h.launch().unwrap();
+        let Bay::Out { suit } = h.bay.clone() else { panic!() };
+        let mut home = home_as(&suit);
+        home.cargo_kg = [1_200, 0, 0, 0];
+        home.propellant = suit.propellant as f32 - 400.0;
+        home.parts[Part::ArmR as usize] = 0.0;
+        home.bounty = 250;
+        home.held = Some(ChunkDesc {
+            kind: ChunkKind::Limb { frame: FrameId::Leo, faction: Faction::Oz, part: Part::Head },
+            seed: 0,
+            mass_kg: 600,
+        });
+        let (_, d) = h.came_home_debriefed(&home);
+        let line = |what: &str| d.lines.iter().find(|l| l.what == what).map_or(0, |l| l.cr);
+        let ore = Item::Ore(Ore::NickelIron);
+        assert_eq!(line("BOUNTIES"), 250);
+        assert_eq!(line("ORE"), worth(ore, value(ore), 1_200) as i64);
+        let head = value(Item::Part(FrameId::Leo, Part::Head)) * u64::from(SALVAGED_LIMB) / 100;
+        assert_eq!(line("SALVAGE"), head as i64);
+        assert_eq!(line("PROPELLANT"), -(worth(PROPELLANT_ITEM, value(PROPELLANT_ITEM), 400) as i64));
+        assert!(line("SHOT OFF") < 0, "its right arm: {d:?}");
+        assert_eq!(d.net(), d.lines.iter().map(|l| l.cr).sum::<i64>());
+        // Lost: the suit as it went out is written off, and the bounty paid.
+        let _ = h.launch().unwrap();
+        let Bay::Out { suit } = h.bay.clone() else { panic!() };
+        let (_, d) = h.lost_debriefed(100);
+        let lines: Vec<(&str, i64)> = d.lines.iter().map(|l| (l.what.as_str(), l.cr)).collect();
+        assert_eq!(lines, [("BOUNTIES", 100), ("THE SUIT", -(crate::debrief::suit_worth(&suit) as i64))]);
+    }
+
+    /// The tugs bring an ejected pilot's wreck home: what's on it as salvage, its torso a part if it
+    /// wasn't doomed (scrap if it was); nothing at all if there was nothing left to bring.
+    #[test]
+    fn the_tugs_bring_an_ejected_pilots_wreck_home() {
+        let wreck = ChunkDesc {
+            kind: ChunkKind::Hulk { frame: FrameId::Leo, faction: Faction::Colonies, parts: 0b11_0011 },
+            seed: 0,
+            mass_kg: 5_000,
+        };
+        let parts = |h: &Hangar| -> Vec<(Part, u8)> {
+            h.stores.parts().iter().map(|u| (u.part, u.condition)).collect()
+        };
+        // Doomed: its torso is scrap, the rest worn parts.
+        let mut h = Hangar::default();
+        let notes = h.towed(Some(&wreck), false);
+        assert!(notes[0].contains("TUGS BROUGHT YOUR WRECK HOME"), "{notes:?}");
+        assert_eq!(parts(&h), [(Part::Head, 40), (Part::Legs, 40), (Part::Backpack, 40)]);
+        assert_eq!(
+            h.stores.get(Item::Ore(Ore::Titanium)),
+            u64::from(part_mass_kg(FrameId::Leo, Part::Torso))
+        );
+        // Left whole: its torso comes home too, a suit to build on.
+        let mut h = Hangar::default();
+        h.towed(Some(&wreck), true);
+        assert_eq!(parts(&h), [(Part::Head, 40), (Part::Torso, 40), (Part::Legs, 40), (Part::Backpack, 40)]);
+        assert_eq!(h.stores.get(Item::Ore(Ore::Titanium)), 0);
+        // Taken by someone else, or gone: nothing.
+        let mut h = Hangar::default();
+        let notes = h.towed(None, true);
+        assert!(notes[0].contains("NOTHING"), "{notes:?}");
+        assert!(h.stores.parts().is_empty());
+    }
+
+    /// The tugs bring the wreck of an ace a pilot downed, taken as its bounty: all of it salvage
+    /// (an ace's torso is no pilot's own to build on); nothing if someone else got to it first.
+    #[test]
+    fn the_tugs_bring_an_aces_wreck_home() {
+        let wreck = ChunkDesc {
+            kind: ChunkKind::Hulk { frame: FrameId::Leo, faction: Faction::Oz, parts: 0b11_0011 },
+            seed: 0,
+            mass_kg: 5_000,
+        };
+        let mut h = Hangar::default();
+        let notes = h.towed_ace(Some(&wreck), "ARIES");
+        assert_eq!(notes[0], "THE TUGS BROUGHT ARIES'S WRECK HOME");
+        let parts: Vec<Part> = h.stores.parts().iter().map(|u| u.part).collect();
+        assert_eq!(parts, [Part::Head, Part::Legs, Part::Backpack]);
+        assert_eq!(
+            h.stores.get(Item::Ore(Ore::Titanium)),
+            u64::from(part_mass_kg(FrameId::Leo, Part::Torso))
+        );
+        let mut h = Hangar::default();
+        let notes = h.towed_ace(None, "ARIES");
+        assert_eq!(notes, ["THE TUGS FOUND NOTHING OF ARIES'S WRECK TO BRING HOME"]);
+        assert!(h.stores.parts().is_empty());
     }
 
     #[test]

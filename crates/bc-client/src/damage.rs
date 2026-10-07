@@ -298,6 +298,39 @@ pub fn damage_suits(
                 let out = (d.rot * Vec3::new(0.6, 0.2, -0.8)).normalize_or(Vec3::Y);
                 particles.jet(cap, At { pos: at, vel: d.vel }, out, 60.0, dt);
             }
+            // Doomed (`bc_sim::sim::doom`): its reactor going, it burns from the chest, throws
+            // sparks everywhere, and now and then something inside it goes off.
+            if d.doomed {
+                let chest = bone_point(d, Some(anim), Bone::Chest, Vec3::ZERO);
+                particles.burn(cap, At { pos: chest, vel: d.vel }, 1.0, dt);
+                if dmg.rng.next_f32() < dt * 9.0 {
+                    let bone = [Bone::Chest, Bone::Backpack, Bone::ShoulderL, Bone::ShoulderR]
+                        [(dmg.rng.next_f32() * 4.0) as usize % 4];
+                    let at = bone_point(d, Some(anim), bone, Vec3::ZERO);
+                    let n =
+                        Vec3::new(dmg.rng.signed(), dmg.rng.signed(), dmg.rng.signed()).normalize_or(Vec3::Y);
+                    particles.impact(cap, At { pos: at, vel: d.vel }, n, Vec3::new(9.0, 6.0, 2.0), 0.6);
+                }
+                if dmg.rng.next_f32() < dt * 1.5 {
+                    particles.explosion(cap, At { pos: chest, vel: d.vel }, 0.15);
+                }
+            }
+            // Staggered (`bc_sim::sim::stagger`): its attitude jets fire every which way, trying
+            // to catch it, and its frame throws sparks.
+            if d.staggered {
+                for bone in [Bone::ShoulderL, Bone::ShoulderR, Bone::Backpack] {
+                    let at = bone_point(d, Some(anim), bone, Vec3::ZERO);
+                    let out =
+                        Vec3::new(dmg.rng.signed(), dmg.rng.signed(), dmg.rng.signed()).normalize_or(Vec3::Y);
+                    particles.jet(cap, At { pos: at, vel: d.vel }, out, 24.0, dt);
+                }
+                if dmg.rng.next_f32() < dt * 6.0 {
+                    let at = bone_point(d, Some(anim), Bone::Chest, Vec3::ZERO);
+                    let n =
+                        Vec3::new(dmg.rng.signed(), dmg.rng.signed(), dmg.rng.signed()).normalize_or(Vec3::Y);
+                    particles.impact(cap, At { pos: at, vel: d.vel }, n, Vec3::new(10.0, 9.0, 3.0), 0.4);
+                }
+            }
         }
         // A wreck burns on for a while, from its chest and backpack while they're still on it.
         if dmg.burn_until > now {

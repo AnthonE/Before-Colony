@@ -109,7 +109,15 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
         }
     });
 
-    tokio::spawn(net::endpoint::accept_loop(endpoint, cfg.mode, stats.clone(), shared, shutdown_rx));
+    let admission = net::admit::Admission::new(cfg.limits);
+    tokio::spawn(net::endpoint::accept_loop(
+        endpoint,
+        cfg.mode,
+        stats.clone(),
+        shared,
+        admission,
+        shutdown_rx,
+    ));
 
     tracing::info!(
         mode = ?cfg.mode,

@@ -1832,6 +1832,11 @@ fn spill_from_a_rider_lands_outside_its_body() {
             let at = sim.suits.flight[i].pos;
             let leo = suit(&mut sim, FrameId::Leo, Faction::Oz, at + n * 300.0, -n);
             one_beam(&mut sim, leo, id, 0);
+            // Doomed, it holds on until its reactor goes.
+            for _ in 0..bc_sim::sim::DOOM_TICKS {
+                drive(&mut sim, id, [0; 3], GRIP, n);
+                step(&mut sim);
+            }
             assert!(!sim.suits.alive.get(i), "it didn't die");
         } else {
             drive(&mut sim, id, [0; 3], GRIP | bc_proto::buttons::JETTISON, n);

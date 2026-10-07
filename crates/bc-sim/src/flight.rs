@@ -243,6 +243,9 @@ pub struct FlightMods {
     /// The ion drive's power, of its full output ([`ion_thrust`]): 0 without one, or with the
     /// reactor scrammed.
     pub ion: f32,
+    /// Staggered (`sim::stagger`): its attitude control does nothing, so it tumbles as the blow
+    /// left it, and it can neither boost nor step (its thrust is cut in [`FlightMods::thrust`]).
+    pub staggered: bool,
 }
 
 impl Default for FlightMods {
@@ -268,6 +271,7 @@ impl Default for FlightMods {
             gauge: None,
             interior: false,
             ion: 0.0,
+            staggered: false,
         }
     }
 }
@@ -398,6 +402,8 @@ pub fn integrate(
     // Under the real rules an ion drive gives the first of the thrust, dry or not.
     let f_ion = if mods.gauge.is_none() && mods.ion > 0.0 { ion_thrust(spec) * mods.ion } else { 0.0 };
     let authority = if s.blackout { 0.25 } else { 1.0 };
+    // Staggered, its attitude control does nothing: it tumbles as the blow left it.
+    let attitude = if mods.staggered { 0.0 } else { authority };
     // Inside the colony: what the spin and the air do to it this tick, and the air's part of it.
     let ext = mods.interior.then(|| {
         let drag = crate::colony::interior::drag(s.vel, mass);
@@ -412,9 +418,9 @@ pub fn integrate(
     let cos_a = fwd.dot(aim);
     let angle = atan2(sin_a, cos_a);
     let rcs = cmd.pressed(RCS_SHARP) && powered;
-    let max_rate = if rcs { spec.rcs_rate } else { spec.ambac_rate } * authority;
-    let ambac = spec.ambac_accel * mods.ambac * authority * turn;
-    let rcs_accel = if rcs { spec.rcs_accel * authority * turn } else { 0.0 };
+    let max_rate = if rcs { spec.rcs_rate } else { spec.ambac_rate } * attitude;
+    let ambac = spec.ambac_accel * mods.ambac * attitude * turn;
+    let rcs_accel = if rcs { spec.rcs_accel * attitude * turn } else { 0.0 };
     let accel_cap = ambac + rcs_accel;
     // Toward the aim, but never faster than it can stop from in time: arms busy firing or with a
     // blade take AMBAC's limbs, not its top rate, and it mustn't swing past the aim for it.
@@ -428,7 +434,7 @@ pub fn integrate(
         Vec3::ZERO
     };
     match mods.roll_level {
-        None => w_des += fwd * (cmd.roll_f32() * spec.roll_rate * authority),
+        None => w_des += fwd * (cmd.roll_f32() * spec.roll_rate * attitude),
         Some(n) => {
             // The roll from up to `n`, both seen along the nose (none if `n` is along the nose).
             let up_s = s.rot * Vec3::Y;
@@ -436,7 +442,7 @@ pub fn integrate(
             let n_p = n - fwd * n.dot(fwd);
             let roll = if n_p.length_squared() > 0.01 {
                 let ang = atan2(fwd.dot(u_p.cross(n_p)), u_p.dot(n_p));
-                (ROLL_LEVEL_GAIN * ang).clamp(-spec.roll_rate * authority, spec.roll_rate * authority)
+                (ROLL_LEVEL_GAIN * ang).clamp(-spec.roll_rate * attitude, spec.roll_rate * attitude)
             } else {
                 0.0
             };
@@ -456,7 +462,7 @@ pub fn integrate(
     // --- Translation. ---
     // Boosters that can't boost don't: no boosted cruise, and flight assist keeps its G guard.
     let can_boost = mods.boost > 0.0;
-    let boosting = cmd.pressed(BOOST) && has_prop && !s.blackout && can_boost;
+    let boosting = cmd.pressed(BOOST) && has_prop && !s.blackout && can_boost && !mods.staggered;
     // Exactly the frame's multiplier when the boosters are whole (a lerp needn't round back to it).
     let boost_mult =
         if mods.boost >= 1.0 { spec.boost_mult } else { 1.0 + (spec.boost_mult - 1.0) * mods.boost };
@@ -465,13 +471,17 @@ pub fn integrate(
     let retro = spec.retro_thrust * mods.retro;
     let brake = cmd.pressed(BRAKE);
     // A burst step, along the stick at its press (in the fight's axes when locked on).
-    let burst = burst_tick(&mut s.burst, cmd, has_prop && !s.blackout && can_boost).then(|| {
-        let d = Vec3::new(f32::from(s.burst.dir[0]), f32::from(s.burst.dir[1]), f32::from(s.burst.dir[2]));
-        match mods.lockon {
-            Some(l) => normalize_or(s.rot.conjugate() * (l.right * d.x + l.up * d.y + l.fwd * d.z), Vec3::Z),
-            None => normalize_or(d, Vec3::Z),
-        }
-    });
+    let burst =
+        burst_tick(&mut s.burst, cmd, has_prop && !s.blackout && can_boost && !mods.staggered).then(|| {
+            let d =
+                Vec3::new(f32::from(s.burst.dir[0]), f32::from(s.burst.dir[1]), f32::from(s.burst.dir[2]));
+            match mods.lockon {
+                Some(l) => {
+                    normalize_or(s.rot.conjugate() * (l.right * d.x + l.up * d.y + l.fwd * d.z), Vec3::Z)
+                }
+                None => normalize_or(d, Vec3::Z),
+            }
+        });
     let assisted = (brake || cmd.pressed(FLIGHT_ASSIST)) && burst.is_none();
     let stick = if brake { Vec3::ZERO } else { cmd.thrust_vec() };
     let mut f_local = if assisted {

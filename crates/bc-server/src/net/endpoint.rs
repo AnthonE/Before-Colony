@@ -8,6 +8,7 @@ use wtransport::endpoint::endpoint_side::Server;
 use wtransport::{Endpoint, Identity, ServerConfig};
 
 use super::NetStats;
+use super::admit::{Admission, HANDSHAKE, Refusal, Verdict};
 use crate::Mode;
 
 /// Path clients must request; anything else gets a 404.
@@ -40,11 +41,13 @@ pub fn make_endpoint(port: u16, identity: Identity) -> anyhow::Result<Endpoint<S
     }
 }
 
+/// Takes connections as `admission` allows (`admit`), each to its session, until shutdown.
 pub async fn accept_loop(
     endpoint: Endpoint<Server>,
     mode: Mode,
     stats: Arc<NetStats>,
     game: Option<super::game::GameShared>,
+    admission: Arc<Admission>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) {
     loop {
@@ -52,13 +55,39 @@ pub async fn accept_loop(
             incoming = endpoint.accept() => incoming,
             _ = shutdown.changed() => break,
         };
+        let from = incoming.remote_address().ip();
+        let validated = incoming.remote_address_validated();
+        let mut pass = match admission.admit(from, validated) {
+            Verdict::Admit(pass) => pass,
+            Verdict::Retry => {
+                NetStats::add(&stats.retried, 1);
+                incoming.retry();
+                continue;
+            }
+            Verdict::Refuse(why) => {
+                NetStats::add(
+                    match why {
+                        Refusal::Full => &stats.refused_full,
+                        Refusal::Address => &stats.refused_address,
+                    },
+                    1,
+                );
+                incoming.refuse();
+                continue;
+            }
+        };
         let stats = stats.clone();
         let game = game.clone();
         tokio::spawn(async move {
-            let request = match incoming.await {
-                Ok(request) => request,
-                Err(e) => {
+            // Both handshakes within their deadline, or the place goes to someone else.
+            let request = match tokio::time::timeout(HANDSHAKE, incoming).await {
+                Ok(Ok(request)) => request,
+                Ok(Err(e)) => {
                     tracing::debug!("handshake failed: {e}");
+                    return;
+                }
+                Err(_) => {
+                    NetStats::add(&stats.handshake_timeouts, 1);
                     return;
                 }
             };
@@ -66,13 +95,18 @@ pub async fn accept_loop(
                 request.not_found().await;
                 return;
             }
-            let conn = match request.accept().await {
-                Ok(conn) => conn,
-                Err(e) => {
+            let conn = match tokio::time::timeout(HANDSHAKE, request.accept()).await {
+                Ok(Ok(conn)) => conn,
+                Ok(Err(e)) => {
                     tracing::debug!("session accept failed: {e}");
                     return;
                 }
+                Err(_) => {
+                    NetStats::add(&stats.handshake_timeouts, 1);
+                    return;
+                }
             };
+            pass.established();
             NetStats::add(&stats.sessions_total, 1);
             NetStats::add(&stats.sessions_active, 1);
             match (mode, game) {
@@ -81,6 +115,7 @@ pub async fn accept_loop(
                 (Mode::Game, None) => tracing::error!("game mode without a sector"),
             }
             stats.sessions_active.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            drop(pass);
         });
     }
     endpoint.close(0u32.into(), b"server shutting down");

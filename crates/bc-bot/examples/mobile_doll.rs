@@ -44,6 +44,12 @@ async fn main() -> anyhow::Result<()> {
     let mut last_report = started;
     loop {
         bot.step(&mut |ctx| brain.decide(ctx)).await?;
+        // Doomed: get out, so the tugs bring the wreck home.
+        if bot.doomed()
+            && let Err(e) = bot.eject().await
+        {
+            tracing::warn!("eject: {e:#}");
+        }
         // Survival: back in the hangar without a suit (it was lost). A guest's bay is stocked
         // afresh each visit, so the agent comes back for another.
         if bot.survival() && bot.place() == Some(bc_econ::wire::Place::Hangar) && !bot.sortie().await? {

@@ -19,6 +19,8 @@
   let toastTimer = null;
   let newsSeq = 0;
   let newsTimer = null;
+  let debriefSeq = 0;
+  let debriefTimer = null;
   // Survival rules (the server's /status says): the title has no frame to choose.
   let survival = false;
 
@@ -300,6 +302,43 @@
         newsTimer = setTimeout(() => show(n, false), 5000);
       }
     }
+
+    // A sortie's payout sheet: what it earned and cost, for a while under its news.
+    if (v.debriefSeq !== debriefSeq) {
+      debriefSeq = v.debriefSeq;
+      const box = $("debrief");
+      if (v.debrief && v.debrief.length) {
+        const cr = (n) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${Math.abs(n).toLocaleString("en-US")} CR`;
+        const lines = $("debrief-lines");
+        lines.replaceChildren(
+          ...v.debrief.map(([what, n]) => {
+            const row = document.createElement("div");
+            const a = document.createElement("span");
+            const b = document.createElement("span");
+            a.textContent = what;
+            b.textContent = cr(n);
+            b.className = n >= 0 ? "earned" : "spent";
+            row.append(a, b);
+            return row;
+          }),
+        );
+        const net = $("debrief-net");
+        net.replaceChildren();
+        const a = document.createElement("span");
+        const b = document.createElement("span");
+        a.textContent = "NET";
+        b.textContent = cr(v.debriefNet);
+        net.append(a, b);
+        net.classList.toggle("bad", v.debriefNet < 0);
+        show(box, true);
+        clearTimeout(debriefTimer);
+        debriefTimer = setTimeout(() => show(box, false), 12000);
+      } else {
+        show(box, false);
+      }
+    }
+    // A panel opened over it puts it away.
+    if (v.panel !== "none") show($("debrief"), false);
 
     if (v.toastSeq !== toastSeq) {
       toastSeq = v.toastSeq;
@@ -967,7 +1006,26 @@
       }
       right += `</section>`;
     }
-    return `<div class="split even"><div>${left}</div><div>${right}</div></div>`;
+    return `<div class="split even"><div>${left}</div><div>${right}</div></div>${renderWanted(b)}`;
+  }
+
+  // The Most Wanted: Zodiac's aces, one out among the Dolls at a time, each with a bounty on it;
+  // who downed each last, the ladder, and the pilot's terms (the bounty paid, or its wreck).
+  function renderWanted(b) {
+    if (!b.wanted || !b.wanted.length) return "";
+    const now = Date.now() / 1000;
+    const terms = (salvage, label) => button(label, { act: "ace-terms", salvage: salvage ? "1" : "0" }, !!b.salvage_terms === salvage ? "primary" : "");
+    let out = `<section><h3>MOST WANTED</h3><div class="note">Zodiac's aces fly among the Dolls one at a time, each a Doll tuned by hand. Down one and the Charter Board pays its bounty; or, on your terms, the tugs bring its wreck home to your stores instead, if nobody gets to it first.</div>` +
+      `<div class="row">${terms(false, "TERMS: THE BOUNTY")} ${terms(true, "TERMS: ITS WRECK")}</div>`;
+    out += `<table><tr><th>ACE</th><th>LAST DOWNED</th><th class="num">BOUNTY</th></tr>` +
+      b.wanted.map((w) => `<tr${w.out ? ' class="chosen"' : ""}><td>${esc(w.name)}${w.out ? ' <span class="bid">OUT NOW</span>' : ""}</td>` +
+        `<td class="dim">${w.last ? `${esc(w.last.by)}, ${secs(Math.max(0, Math.floor(now - w.last.at)))} ago` : "never"}</td>` +
+        `<td class="num">${fmt(w.bounty)} CR</td></tr>`).join("") + `</table>`;
+    const ladder = b.ladder || [];
+    out += ladder.length
+      ? `<div class="note">Aces downed: ${ladder.map(([n, k]) => `${esc(n)} ${fmt(k)}`).join(" · ")}${b.mine_aces ? ` · you ${fmt(b.mine_aces)}` : ""}</div>`
+      : `<div class="note">Nobody has downed one yet.</div>`;
+    return out + `</section>`;
   }
 
   // The Proving Ground's board, at the Blast Hall's desk: the day's best round the course and
@@ -997,8 +1055,18 @@
       p.course, p.course_record, p.course_par_ms, p.mine?.course_ms, "not yet flown.");
     const drill = boardColumn("THE DRILL", "In the Blast Hall: twenty targets lit in turn against the clock, each struck putting time back on it.",
       p.drill, p.drill_record, p.drill_par_ms, p.mine?.drill_ms, "not yet cleared.");
-    const how = `<div class="note">Board a trainer at the gantry's hatch, by the blast doors (E): the Charter Board's Leo, weapons free in the hall. Dock it back at rest on the gantry. From your bay, Q at the cockpit brings your own suit in by the inner gate.</div>`;
-    return `<div class="split even"><div>${course}</div><div>${drill}</div></div>${how}`;
+    // The test range: what the gantry readies (the Board's Leo, the bay's build, any line's).
+    const chosen = p.trainer || { kind: "board" };
+    const pick = (build, label) => {
+      const on = JSON.stringify(build) === JSON.stringify(chosen);
+      return `<button class="${on ? "primary" : ""}" data-act="trainer" data-build='${esc(JSON.stringify(build))}'>${esc(label)}</button>`;
+    };
+    const trainers = [pick({ kind: "board" }, "THE BOARD'S LEO"), pick({ kind: "bay" }, "YOUR BAY'S BUILD")]
+      .concat(frames.map((f) => pick({ kind: "line", line: f.slug }, `A NEW ${String(f.name).toUpperCase()}`)))
+      .join(" ");
+    const range = `<h3>THE TEST RANGE</h3><div class="note">Try a build before it counts: the gantry readies what you pick, new and full, and nothing of yours is taken.</div><div class="row">${trainers}</div>`;
+    const how = `<div class="note">Board it at the gantry's hatch, by the blast doors (E), weapons free in the hall. Dock it back at rest on the gantry. From your bay, Q at the cockpit brings your own suit in by the inner gate.</div>`;
+    return `<div class="split even"><div>${course}</div><div>${drill}</div></div>${range}${how}`;
   }
 
   // Replacing a focused field blurs it, and a blur can fire events that would render again from
@@ -1152,6 +1220,9 @@
       case "take-patrol":
         ask({ t: "take_patrol", id: Number(d.id) });
         return;
+      case "trainer":
+        ask({ t: "trainer", build: JSON.parse(d.build) });
+        return;
       case "drop-patrol":
         ask({ t: "drop_patrol", id: Number(d.id) });
         return;
@@ -1166,6 +1237,9 @@
       }
       case "sign":
         ask({ t: "sign" });
+        return;
+      case "ace-terms":
+        ask({ t: "ace_terms", salvage: d.salvage === "1" });
         return;
       case "post": {
         const item = draft("post:item", "mat.steel");

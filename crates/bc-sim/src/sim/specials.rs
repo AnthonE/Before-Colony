@@ -1,4 +1,5 @@
-//! Frame specials: what they share (a cooldown), each one's step, and whether one is ready.
+//! Frame specials: what they share (a cooldown, which the fight charges: `content::specials`),
+//! each one's step, and whether one is ready.
 
 use bc_proto::buttons::{MODE, SPECIAL};
 
@@ -55,7 +56,7 @@ impl Sim {
 
     /// Full Open Attack: a SPECIAL press opens every hatch for `ticks` (the weapons fire on their
     /// own, heat or not); then the suit is forced into an overheat it can't fire through for
-    /// `lockout` ticks. Ready again `cooldown` ticks after it starts.
+    /// `lockout` ticks. Ready again `cooldown` ticks after it starts, sooner in a fight.
     fn full_open_step(&mut self, i: usize, ticks: u16, lockout: u16, cooldown: u16, t: u32) {
         let s = &mut self.suits;
         let cap = frame(s.frame[i]).heat_cap;
@@ -71,13 +72,31 @@ impl Sim {
             return;
         }
         let pressed = s.input[i].pressed(SPECIAL) && s.prev_buttons[i] & SPECIAL == 0;
-        if pressed && sp.cooldown == 0 && !s.overheated[i] {
+        if pressed && sp.cooldown == 0 && !s.overheated[i] && s.stagger[i] == 0 {
             sp.active = true;
             sp.timer = ticks;
             sp.cooldown = cooldown;
             s.stats[i].specials += 1;
             self.break_jammer(i, t);
         }
+    }
+
+    /// The fight charges suit `i`'s special (`content::specials`): `share` of its whole cooldown
+    /// comes off what's left of it, unless it's under way or Full Open's lockout lasts.
+    pub(super) fn charge_special(&mut self, i: usize, share: f32) {
+        let full = frame(self.suits.frame[i]).special.cooldown();
+        let sp = &mut self.suits.special[i];
+        if full == 0 || sp.active || sp.lockout > 0 || sp.cooldown == 0 || share <= 0.0 {
+            return;
+        }
+        sp.cooldown = sp.cooldown.saturating_sub((share * f32::from(full)) as u16);
+    }
+
+    /// How charged suit `i`'s special is, in 255ths (255: charged, or it has no cooldown).
+    pub fn special_charge(&self, i: usize) -> u8 {
+        let full = u32::from(frame(self.suits.frame[i]).special.cooldown());
+        let left = u32::from(self.suits.special[i].cooldown).min(full);
+        ((full - left) * 255).checked_div(full).map_or(255, |c| c as u8)
     }
 
     /// Whether suit `i`'s special can be used now.

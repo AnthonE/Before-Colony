@@ -469,6 +469,52 @@ pub fn update_fx(
                     color: Color::srgb(1.0, 0.7, 0.35),
                 });
             }
+            FxEvent::Eject { pos, vel, .. } => {
+                // The hatch blows and the capsule's motor lights.
+                let at = At { pos, vel };
+                particles.launch(cap, at);
+                particles.impact(cap, at, vel.normalize_or(Vec3::Y), Vec3::new(9.0, 7.0, 4.0), 1.2);
+                state.flashes.push(Flash {
+                    pos,
+                    born: now,
+                    life: 0.25,
+                    lumens: 1.5e8,
+                    color: Color::srgb(1.0, 0.8, 0.5),
+                });
+            }
+            FxEvent::Blast { pos } => {
+                // The reactor goes: a flash that lights the field, a fireball and a shockwave as big
+                // as the blast's reach.
+                let at = At { pos, vel: Vec3::ZERO };
+                particles.explosion(cap, at, 2.4);
+                blasts.shockwave(pos, Vec3::ZERO, weapon(WeaponKind::Reactor).range * 2.0);
+                blasts.chips(
+                    pos,
+                    Vec3::ZERO,
+                    24,
+                    HullTag { heat: 31, armour: 2, ..HullTag::paint(paint::DARK, 0) },
+                );
+                state.flashes.push(Flash {
+                    pos,
+                    born: now,
+                    life: 2.0,
+                    lumens: 4.0e9,
+                    color: Color::srgb(1.0, 0.75, 0.45),
+                });
+            }
+            FxEvent::Stagger { pos, vel, .. } => {
+                // Its attitude control overwhelmed: a burst of electric yellow off the frame.
+                let at = At { pos, vel };
+                particles.impact(cap, at, Vec3::Y, Vec3::new(10.0, 9.0, 3.0), 1.3);
+                particles.impact(cap, at, -Vec3::Y, Vec3::new(10.0, 9.0, 3.0), 0.9);
+                state.flashes.push(Flash {
+                    pos,
+                    born: now,
+                    life: 0.18,
+                    lumens: 6.0e7,
+                    color: Color::srgb(1.0, 0.95, 0.55),
+                });
+            }
             FxEvent::Touchdown { pos, vel, normal, speed, rock } => {
                 if rock {
                     particles.dust(cap, At { pos, vel }, normal, speed / 8.0);

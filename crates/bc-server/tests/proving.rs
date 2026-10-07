@@ -177,10 +177,14 @@ async fn a_pilot_boards_a_trainer_in_the_blast_hall_clears_the_drill_and_climbs_
     })
     .await?;
 
-    // Gone while flying a trainer: the Board's suit is the Board's again, and the pilot wakes in
-    // their bay, their own suit there as they left it.
+    // The test range: the gantry readies any line's suit, here a Heavyarms. Gone while flying it,
+    // the Board's suit is the Board's again, and the pilot wakes in their bay, their own suit there
+    // as they left it.
     b.walk_to(hall::hatch().0, 180.0).await?;
-    b.board_trainer().await?;
+    let heavyarms = bc_econ::proving::Trainer::Line { line: FrameId::Heavyarms };
+    b.board_trainer_as(Some(heavyarms)).await?;
+    assert_eq!(b.world().own.map(|o| o.frame), Some(FrameId::Heavyarms));
+    assert_eq!(b.core.hangar.proving.as_ref().map(|v| v.trainer), Some(heavyarms));
     assert_eq!(server.status()["game"]["inside"]["suits"], 1);
     b.close().await;
     tokio::time::sleep(Duration::from_millis(500)).await;

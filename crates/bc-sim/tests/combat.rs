@@ -145,11 +145,12 @@ fn twin_buster_rifle_charges_then_one_shots_a_leo() {
         }
     }
     assert!(fired_at.unwrap() >= 17, "fired before charging: tick {fired_at:?}");
+    // A pilot's Leo: breached outright, so doomed (`sim::doom`).
     assert!(
         events_since(&sim, from)
             .iter()
-            .any(|e| matches!(e, Event::Kill { victim, .. } if *victim as usize == leo.idx())),
-        "the Twin Buster Rifle should destroy a Leo outright"
+            .any(|e| matches!(e, Event::Doomed { suit, .. } if *suit as usize == leo.idx())),
+        "the Twin Buster Rifle should breach a Leo outright"
     );
 }
 

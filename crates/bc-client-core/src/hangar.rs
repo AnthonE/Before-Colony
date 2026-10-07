@@ -2,6 +2,7 @@
 //! stores, the suit, the stations' jobs), the exchange, and what they've been told. The server
 //! decides everything; this keeps its latest word, and turns what the pilot asks into frames.
 
+use bc_econ::Debrief;
 use bc_econ::charter::CharterView;
 use bc_econ::exchange::Depth;
 use bc_econ::proving::BoardView;
@@ -33,6 +34,10 @@ pub struct HangarState {
     pub notes: Vec<(String, bool)>,
     /// Sorties that ended, oldest first. The UI takes them.
     pub sorties: Vec<(Outcome, String)>,
+    /// Their payout sheets (`bc_econ::debrief`), oldest first: the UI takes them...
+    pub debriefs: Vec<Debrief>,
+    /// ...and the last one is kept.
+    pub last_debrief: Option<Debrief>,
     /// News, oldest first. The UI takes it.
     pub news: Vec<String>,
     /// In the city: the names of the people seen there, by the slot the plaza knows them by.
@@ -74,7 +79,13 @@ impl HangarState {
                 }
                 self.notes.push((text, ok));
             }
-            Update::Sortie { outcome, text } => self.sorties.push((outcome, text)),
+            Update::Sortie { outcome, text, debrief } => {
+                self.sorties.push((outcome, text));
+                if let Some(d) = debrief {
+                    self.debriefs.push(d.clone());
+                    self.last_debrief = Some(d);
+                }
+            }
             Update::News { text } => self.news.push(text),
             Update::People { people } => {
                 for p in people {
