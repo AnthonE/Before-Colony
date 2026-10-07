@@ -41,6 +41,16 @@ fn part_center(sim: &Sim, id: SuitId, part: Part) -> Vec3 {
 
 /// A Leo 600 m off along `-dir` fires one rifle shot along `dir` through `at`. Returns the
 /// events of the next 20 ticks.
+/// Steps until a pilot's suit breached just now has outlasted its doom (`sim::doom`): what happened
+/// meanwhile.
+fn through_doom(sim: &mut Sim) -> Vec<Event> {
+    let from = sim.events.next_seq();
+    for _ in 0..bc_sim::sim::DOOM_TICKS {
+        sim.step();
+    }
+    events_since(sim, from)
+}
+
 fn shoot_through(sim: &mut Sim, at: Vec3, dir: Vec3) -> Vec<Event> {
     let rot = look_rotation(dir, Vec3::Y);
     let muzzle = rot * Vec3::new(3.4, 0.6, 3.0);
@@ -131,7 +141,9 @@ fn a_destroyed_suit_leaves_a_hulk() {
     sim.suits.part_hp[taurus.idx()][Part::ArmL as usize] = 0.0;
     sim.suits.part_hp[taurus.idx()][Part::Torso as usize] = 1.0;
     let torso = part_center(&sim, taurus, Part::Torso);
-    let ev = shoot_through(&mut sim, torso, -Vec3::Z);
+    let mut ev = shoot_through(&mut sim, torso, -Vec3::Z);
+    // (A pilot's suit, so it's doomed first.)
+    ev.extend(through_doom(&mut sim));
     let hulk = ev
         .iter()
         .find_map(|e| match *e {
@@ -485,6 +497,8 @@ fn dying_spills_everything_but_credits() {
     sim.suits.part_hp[leo.idx()][Part::Torso as usize] = 1.0;
     let chest = part_center(&sim, leo, Part::Torso);
     shoot_through(&mut sim, chest, -Vec3::Z);
+    assert!(sim.doomed(leo.idx()), "breached");
+    through_doom(&mut sim);
     assert!(!sim.suits.alive.get(leo.idx()), "still alive");
     let Motion::Free(_) = sim.chunks.motion[k] else { panic!("still held by the dead") };
     assert!(

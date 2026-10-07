@@ -28,7 +28,7 @@ use bc_proto::presence::{PlazaWriter, PosePacket};
 use bc_proto::{
     Faction, FrameId, InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, PacketKind, PilotKind, packet_kind,
 };
-use bc_sector::{Comeback, Control, InputMsg, Metrics, Outcome, Report, SlotLease, SlotState};
+use bc_sector::{Comeback, Control, InputMsg, Loss, Metrics, Outcome, Report, SlotLease, SlotState};
 use bc_sim::sim::Loadout;
 use tokio::sync::{broadcast, oneshot};
 use wtransport::{Connection, RecvStream, SendStream};
@@ -122,6 +122,7 @@ pub(super) async fn run(
         radio_heard: 0,
         mouth: Mouth::default(),
         lost: false,
+        towing: false,
         inside: None,
         spectating: None,
         entered: false,
@@ -185,6 +186,9 @@ struct Session<'a> {
     mouth: Mouth,
     /// The suit was destroyed; its wreck is still out there.
     lost: bool,
+    /// The pilot ejected, and the colony's tugs have yet to say what they brought home of the wreck
+    /// (`Report::Towed`).
+    towing: bool,
     /// Flying inside the colony: the lease on the inside sector's slot the suit is flown through
     /// (`self.suit` names it there).
     inside: Option<SlotLease>,
@@ -827,9 +831,18 @@ impl Session<'_> {
 
     async fn on_request(&mut self, bytes: &[u8]) -> anyhow::Result<()> {
         let req = wire::decode::<Request>(bytes);
-        // The radio is everyone's, whatever the rules.
+        // The radio is everyone's, whatever the rules; and so is ejecting from a suit.
         if let Some(Request::Say { text }) = &req {
             return self.say(text).await;
+        }
+        if let Some(Request::Eject { destruct }) = req {
+            // In the sector (under arcade rules a pilot is always there). Inside the colony nothing
+            // strikes a suit, and nobody ejects.
+            let flying = self.place == Place::Space || !self.survival();
+            if flying && self.suit.is_some() && !self.lost && self.inside.is_none() {
+                let _ = self.game.sector.control.push(Control::Eject { slot: self.slot, destruct });
+            }
+            return Ok(());
         }
         if !self.survival() {
             return Ok(());
@@ -861,6 +874,8 @@ impl Session<'_> {
                 }
                 Ok(())
             }
+            // (Handled above, whatever the rules.)
+            Request::Eject { .. } => Ok(()),
             Request::WatchBoard { on } => {
                 self.board = on;
                 if on { self.send_board().await } else { Ok(()) }
@@ -1281,15 +1296,42 @@ impl Session<'_> {
                 };
                 self.note(text, false).await?;
             }
+            Report::Towed { wreck, torso } => {
+                self.towing = false;
+                if self.survival() {
+                    let mut notes = self.hangar.towed(wreck.as_ref(), torso);
+                    tracing::info!(slot = self.slot, name = %self.callsign, found = wreck.is_some(), "wreck towed");
+                    // Back in the bay with nothing to build on, even so: the Charter Board's advance.
+                    if !self.lost
+                        && self.suit.is_none()
+                        && let Some(text) = self.hangar.reissue(pilots::unix_now())
+                    {
+                        notes.push(text);
+                    }
+                    self.save().await;
+                    for text in notes {
+                        self.send(&Update::News { text }).await?;
+                    }
+                    self.send_hangar().await?;
+                }
+            }
             Report::Course { ms } => self.feat(Feat::Course, ms).await?,
             Report::Drill { ms } => self.feat(Feat::Drill, ms).await?,
             // Nothing is lost inside the colony; the Board's trainers least of all.
             Report::Lost { .. } if self.trainer => {}
             // Only ever sent as the pilot leaves (`leave` reads it).
             Report::Parked { .. } => {}
-            Report::Lost { bounty } => {
+            Report::Lost { bounty, how } => {
                 self.lost = true;
-                let text = self.hangar.lost(bounty);
+                let mut text = self.hangar.lost(bounty);
+                match how {
+                    Loss::Destroyed => {}
+                    Loss::Ejected => {
+                        self.towing = true;
+                        text.push_str(" · YOU EJECTED · THE TUGS ARE GOING OUT FOR THE WRECK");
+                    }
+                    Loss::Blown => text.push_str(" · SELF-DESTRUCTED"),
+                }
                 self.patrol_bounties(bounty).await?;
                 tracing::info!(slot = self.slot, name = %self.callsign, "suit lost");
                 self.save().await;
@@ -1311,12 +1353,14 @@ impl Session<'_> {
         }
         if self.lost && self.game.sector.slots[self.slot as usize].state() == SlotState::Free {
             // The wreck is gone: the pilot is back in the hangar (and, lost everything, advanced
-            // another suit).
+            // another suit, unless the tugs are still bringing their own wreck home).
             self.lost = false;
             self.unseat();
             self.place = Place::Hangar;
             self.send_place().await?;
-            if let Some(text) = self.hangar.reissue(pilots::unix_now()) {
+            if !self.towing
+                && let Some(text) = self.hangar.reissue(pilots::unix_now())
+            {
                 self.save().await;
                 self.send(&Update::News { text }).await?;
             }
@@ -1416,7 +1460,11 @@ impl Session<'_> {
             while let Some(report) = self.lease.as_mut().and_then(|l| l.reports.pop().ok()) {
                 match report {
                     Report::Parked { rec, tick } => parked = Some((rec, tick)),
-                    Report::Lost { bounty: b } => bounty = b,
+                    Report::Lost { bounty: b, .. } => bounty = b,
+                    Report::Towed { wreck, torso } => {
+                        self.towing = false;
+                        let _ = self.hangar.towed(wreck.as_ref(), torso);
+                    }
                     Report::Home(_) | Report::DockRefused | Report::Course { .. } | Report::Drill { .. } => {}
                 }
             }
@@ -1447,6 +1495,25 @@ impl Session<'_> {
                 r.sleeper = asleep;
                 r.parked = parked;
             }
+        }
+        // The wreck the tugs were going out for comes in now, before the record is saved.
+        if self.towing && self.survival() {
+            let mut ask = Control::Tow { slot };
+            while let Err(back) = game.sector.control.push(ask) {
+                ask = back;
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+            for _ in 0..500 {
+                match self.lease.as_mut().and_then(|l| l.reports.pop().ok()) {
+                    Some(Report::Towed { wreck, torso }) => {
+                        let _ = self.hangar.towed(wreck.as_ref(), torso);
+                        break;
+                    }
+                    Some(_) => {}
+                    None => tokio::time::sleep(Duration::from_millis(2)).await,
+                }
+            }
+            self.towing = false;
         }
         if self.survival() {
             let _ = self.settle(true);

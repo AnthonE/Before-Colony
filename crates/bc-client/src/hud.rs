@@ -1254,6 +1254,10 @@ pub fn update_hud(
             FeedLine::Clash { a, b, .. } => {
                 feed.push_str(&format!("{} x {} CLASH\n", world.name_of(a), world.name_of(b)))
             }
+            FeedLine::Eject { pilot, .. } => feed.push_str(&format!("{} EJECTED\n", world.name_of(pilot))),
+            FeedLine::Blast { pilot, .. } => {
+                feed.push_str(&format!("{} SELF-DESTRUCTED\n", world.name_of(pilot)))
+            }
         }
     }
     set(HudText::Feed, feed, None);
@@ -1336,7 +1340,15 @@ pub fn update_hud(
         && !core.predict.interior()
         && own_now.is_some_and(|p| off_the_hull(p) < HULL_NEAR);
     let signed_in = core.welcome.is_some_and(|w| w.signed_in);
+    // Out of the suit: the pilot ejected from it (`Event::Eject`), or blew it up.
+    let (ejected, blown) = if own.is_some_and(|o| !o.alive) { world.my_loss() } else { (false, false) };
     let (alert, alert_color) = match own {
+        Some(o) if !o.alive && survival && ejected => {
+            ("EJECTED\nthe colony's boat is coming for you, its tugs for your wreck".into(), AMBER)
+        }
+        Some(o) if !o.alive && survival && blown => {
+            ("SELF-DESTRUCTED\nthe colony's rescue boat is on its way".into(), RED)
+        }
         Some(o) if !o.alive && survival => ("SUIT LOST\nthe colony's rescue boat is on its way".into(), RED),
         Some(o) if !o.alive => {
             let menu: Vec<String> = PLAYABLE_ORDER
@@ -1347,13 +1359,28 @@ pub fn update_hud(
             let respawn = f32::from(o.respawn_in) * 4.0 / 30.0;
             (
                 format!(
-                    "DESTROYED\nrespawn in {respawn:.0} s\n{}\n{}",
+                    "{}\nrespawn in {respawn:.0} s\n{}\n{}",
+                    if ejected {
+                        "EJECTED"
+                    } else if blown {
+                        "SELF-DESTRUCTED"
+                    } else {
+                        "DESTROYED"
+                    },
                     menu[..3].join("  "),
                     menu[3..].join("  ")
                 ),
                 RED,
             )
         }
+        // The torso breached: the reactor is going. Get out, or take someone with you.
+        Some(o) if o.alive && o.doom > 0 => (
+            format!(
+                "DOOMED {:.1} s\nU EJECT · HOLD U SELF-DESTRUCT",
+                f32::from(o.doom) / bc_sim::TICK_HZ as f32
+            ),
+            RED,
+        ),
         Some(o) if o.zero_mode == zero_mode::SEIZED => ("ZERO HAS THE CONTROLS".into(), RED),
         Some(o) if o.alive && drawn.is_some_and(|v| v.blackout) => ("G-LOC  BLACKOUT".into(), RED),
         Some(o) if o.flags & own_flags::MISSILE_INCOMING != 0 => {

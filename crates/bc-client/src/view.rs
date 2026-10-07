@@ -45,6 +45,8 @@ pub struct SuitDrive {
     /// How weathered its paint is, 0 (factory fresh) to 7 (a veteran's): earned by use, and on
     /// the roster with its pilot (`bc_econ::weathering`).
     pub weathering: u8,
+    /// Doomed: its torso breached and its reactor going (`Event::Doomed`), it burns.
+    pub doomed: bool,
 }
 
 /// How a suit on a body is drawn on it: what its walk, its stance and its shadow need.
@@ -127,6 +129,23 @@ pub struct MissileView {
 #[derive(Resource, Default)]
 pub struct MissileFeed(pub Vec<MissileView>);
 
+/// A pilot's capsule thrown clear of their suit, as drawn this frame (`pods`).
+#[derive(Clone, Copy, Debug)]
+pub struct PodView {
+    pub pos: Vec3,
+    pub vel: Vec3,
+    /// The suit's velocity as it left (what the capsule was thrown clear of).
+    pub suit_vel: Vec3,
+    /// Seconds since it left.
+    pub age: f32,
+    /// The pilot's own.
+    pub own: bool,
+}
+
+/// Every capsule worth drawing this frame.
+#[derive(Resource, Default)]
+pub struct PodFeed(pub Vec<PodView>);
+
 /// One-shot visual events. Producers push each event exactly once; the effects drain them.
 #[derive(Clone, Copy, Debug)]
 pub enum FxEvent {
@@ -155,6 +174,11 @@ pub enum FxEvent {
     /// A suit landing on a body: where its feet came down, how the surface moves there and which
     /// way it faces, how hard it landed (m/s), and whether it's rock (dust flies) or hull.
     Touchdown { pos: Vec3, vel: Vec3, normal: Vec3, speed: f32, rock: bool },
+    /// A pilot's capsule blown clear of their suit: where, and how fast it goes (`own`: the
+    /// pilot's).
+    Eject { pos: Vec3, vel: Vec3, own: bool },
+    /// A doomed suit's reactor blown by its pilot: the self-destruct's blast.
+    Blast { pos: Vec3 },
 }
 
 #[derive(Resource, Default)]

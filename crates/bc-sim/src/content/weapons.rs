@@ -486,6 +486,17 @@ static WEAPONS: [WeaponSpec; WeaponKind::COUNT] = [
         energy: 16.0,
         ..BASE
     },
+    // No suit carries it: a doomed suit's reactor, blown by its pilot (`sim::doom`). Its damage at
+    // the heart of the blast, its reach the blast's (to a suit's bounds), its speed the front's.
+    WeaponSpec {
+        kind: WeaponKind::Reactor,
+        class: WeaponClass::Ballistic,
+        replication: Replication::Anim,
+        damage: 240.0,
+        speed: 2_000.0,
+        range: 60.0,
+        ..BASE
+    },
 ];
 
 // Every row sits at its kind's index, and each class has the parameters it needs.

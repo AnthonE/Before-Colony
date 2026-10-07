@@ -265,7 +265,7 @@ mind on a timer.
 - **Arms aim.** A hand-held weapon fires anywhere within 50° of the body axis (shoulder mounts 20°),
   so you don't have to point the whole suit.
 - **Per-part damage.**
-  - Parts: head (sensors), torso (destroyed means dead), arms (their weapons), legs (AMBAC mass,
+  - Parts: head (sensors), torso (destroyed means lost: a pilot's suit is doomed first, below), arms (their weapons), legs (AMBAC mass,
     some thrust), backpack (main thrusters).
   - A limb shot to nothing comes off: it drifts away as wreckage (a limb chunk, which can be
     salvaged), and shots pass through where it was. A hit that blows a limb off spills half its
@@ -404,6 +404,41 @@ timings, arc and reach in its row of the weapon table.
   is Shenlong's arm, so it doesn't lunge.
 - **Clashes.** A stroke that meets a suit whose own blade is out and facing it is parried: neither
   does damage, and each recovers for its blade's clash time. The Dragon Fang can't be parried.
+
+### Doom and ejecting
+
+How a suit is lost, as the mech games handle it (`PEERS.md`, "Mech games"): Titanfall's doomed
+Titans and their pilots ejecting, Steel Battalion's eject button, and Heero blowing up his Gundam
+in Siberia (`bc_sim::sim::doom`).
+
+- **Doomed.** A pilot's suit whose torso armour is gone isn't lost at once. For 3 s it flies and
+  fights on while its reactor goes: it burns, sparks and pops, and the HUD counts it down
+  (`DOOMED 2.4 s · U EJECT · HOLD U SELF-DESTRUCT`). Every blow that lands on it meanwhile takes
+  time off: a blow of a sixth of the torso's armour takes a second, so a few more hits finish it.
+  Then it's destroyed as any suit is, credited to whoever breached it. A Mobile Doll has no pilot
+  to save, and a sleeper's pilot can't wake in time: theirs go at once. A doomed suit can't dock.
+- **Eject: U.** Doomed, a tap. Otherwise held for a second, so nobody bails out by a slip of the
+  finger. The pilot's capsule is blown clear, up out of the suit at 25 m/s, and their camera
+  follows it while the suit goes. The suit is destroyed at once (credited to whoever breached it,
+  if anyone did) and drifts on as a hulk, as ever. Never inside the colony, where nothing strikes
+  a suit.
+- **The tugs.** Under survival rules the hulk is its pilot's claim: 45 s after they're out the
+  colony's tugs reach it and bring it home to their bay. What's on it comes home as salvage does
+  (worn parts at 40%, their systems damaged), and its torso too, as a part rather than scrap, if
+  the suit wasn't doomed when they left it. Until the tugs get there it's anyone's: whoever
+  grabs it, cuts it up or tows it into the dock first has it, and the tugs say they found nothing.
+  A pilot who leaves the game meanwhile has it towed in at once.
+- **Self-destruct: hold U, doomed.** The pilot blows the reactor with themselves aboard. Every
+  hostile suit within 60 m of the blast (to its bounds) takes up to 240 to the torso, less with
+  distance: a Taurus or a Leo beside it goes, a Gundam beside it is badly hurt. Nothing of the suit
+  is left to salvage, and nobody gets its wreck. The kills and their bounties are the pilot's.
+- **What a pilot keeps.** Ejecting is the insurance: ride a doomed suit to the end and its wreck
+  is anyone's; get out and the tugs bring yours home; blow it up and nobody has it. Under arcade
+  rules the pilot just respawns, but the blast is a weapon all the same.
+- **On the wire** (protocol v23): `Event::Doomed`, `Event::Eject` (the capsule's position and
+  velocity), `Event::Blast`, the doom's ticks in the own state, and `WeaponKind::Reactor` for the
+  blast's hits. Ejecting is a request on the control stream (`bc_econ::wire::Request::Eject`), as
+  the rack's kits are, for any rules; agents call `BotClient::eject` and `self_destruct`.
 
 ## Sensors and visibility
 
@@ -822,6 +857,8 @@ every terminal in the bay, and the Charter Board's own desk in Charter Square.
   too), the hold's ore, whatever was in hand, and the bounties earned.
 - **Arriving:** a pilot's first time in their bay, the news says they've arrived, and what the
   Charter Board advanced them.
+- **Ejecting:** a pilot who ejects (U) loses the suit too, but the colony's tugs bring its wreck
+  home 45 s later, unless someone else takes it first ("Doom and ejecting").
 - **Losing it:** a suit destroyed out there is gone, along with its hold. The bounties it earned are
   still paid, and the pilot is brought back to the bay through the airlock once the wreck clears.
 - **A floor under it** (`Hangar::reissue`): a pilot back in an empty bay with no torso in the stores
@@ -955,6 +992,7 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
 | M · N | the chart: the sector in 3D out to the Earth Sphere, the objectives and courses · the auto-nav on the course set (on or off) |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
 | 1 · 2 · 3 · 4 | survival: the rack's patch kit · coolant flush · chaff · stim |
+| U | eject: doomed, a tap ejects and a hold blows the suit up; otherwise held a second |
 | Enter | dock (survival): at rest inside the dock's ring of lights |
 | 1–6 | arcade rules: respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
 | / (Enter on foot) | talk on the colony's radio: Enter says it, Esc closes |

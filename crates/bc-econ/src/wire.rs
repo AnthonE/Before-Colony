@@ -125,6 +125,13 @@ pub enum Request {
         #[serde(with = "kit_serde")]
         kit: Kit,
     },
+    /// In flight: eject from the suit (any time; never inside the colony), or, `destruct`, blow up
+    /// the doomed suit with the pilot aboard (`docs/DESIGN.md`, "Doom and ejecting"). Nothing
+    /// answers but what happens: the suit's loss, and the tugs' word on its wreck.
+    Eject {
+        #[serde(default)]
+        destruct: bool,
+    },
     /// Say something on the colony's radio, to everyone connected (any rules): at most
     /// [`SAY_MAX_CHARS`] of it, cleaned ([`clean_line`]).
     Say {
@@ -369,6 +376,7 @@ pub fn apply(
         | Request::LeaveCity
         | Request::WatchBoard { .. }
         | Request::UseKit { .. }
+        | Request::Eject { .. }
         | Request::Say { .. } => return None,
     })
 }
@@ -504,6 +512,8 @@ mod tests {
             (r#"{"t":"board_trainer"}"#, Request::BoardTrainer),
             (r#"{"t":"dock"}"#, Request::Dock),
             (r#"{"t":"use_kit","kit":"chaff"}"#, Request::UseKit { kit: Kit::Chaff }),
+            (r#"{"t":"eject"}"#, Request::Eject { destruct: false }),
+            (r#"{"t":"eject","destruct":true}"#, Request::Eject { destruct: true }),
             (r#"{"t":"say","text":"o7"}"#, Request::Say { text: "o7".into() }),
         ];
         for (json, req) in cases {

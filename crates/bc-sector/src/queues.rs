@@ -65,6 +65,18 @@ pub enum Control {
         slot: u16,
         kit: bc_sim::content::Kit,
     },
+    /// The pilot ejects from their suit, or (`destruct`, doomed) blows it up with themselves aboard
+    /// (`bc_sim::sim::Sim::eject`).
+    Eject {
+        slot: u16,
+        destruct: bool,
+    },
+    /// The tugs take the slot's claim (the wreck its pilot ejected from) home now, rather than
+    /// when they'd have got there: its session is going. [`Report::Towed`] answers, if there was
+    /// one.
+    Tow {
+        slot: u16,
+    },
     /// A pilot on foot in the colony's city watches this sector's suits (the colony's inside) from
     /// `at`, in its frame: the slot gets snapshots of the suits near there, and no suit of its own.
     /// Sent again as the pilot walks, it moves where they watch from; `Leave` ends it.
@@ -145,6 +157,18 @@ pub enum Outcome {
     Lost = 5,
 }
 
+/// How a suit was lost (survival rules).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Loss {
+    /// Destroyed with its pilot aboard.
+    #[default]
+    Destroyed,
+    /// Its pilot ejected: the tugs go out for its wreck ([`Report::Towed`]).
+    Ejected,
+    /// Its pilot blew it up, aboard: nothing is left of it.
+    Blown,
+}
+
 /// What the sector tells a slot's session about its suit (survival rules), through the slot's
 /// report ring.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -153,8 +177,12 @@ pub enum Report {
     Home(Homecoming),
     /// It asked to dock, but it isn't at rest in the dock.
     DockRefused,
-    /// The suit was destroyed; the bounties it had earned.
-    Lost { bounty: u32 },
+    /// The suit was destroyed (and how); the bounties it had earned.
+    Lost { bounty: u32, how: Loss },
+    /// The colony's tugs went out for the wreck of the suit its pilot ejected from
+    /// ([`crate::TOW_TICKS`] after): what they brought home (`None`: nothing was left to bring,
+    /// someone else having taken it, or it gone). `torso`: it wasn't doomed, so its torso is whole.
+    Towed { wreck: Option<bc_proto::ChunkDesc>, torso: bool },
     /// Its pilot left it asleep in a landmark's hide spot: what it takes to put it back there
     /// after a restart, as of sector tick `tick` (a later [`Reparked`] of it is newer). Sent
     /// before the slot is published free.

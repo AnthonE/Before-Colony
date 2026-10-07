@@ -384,6 +384,7 @@ fn survival_launches_docks_and_losses_never_allocate() {
                     Report::Lost { .. } => lost += 1,
                     // (In space there's no Proving Ground to time.)
                     Report::DockRefused | Report::Course { .. } | Report::Drill { .. } => {}
+                    Report::Towed { .. } => {}
                     Report::Parked { rec, .. } => {
                         parked += 1;
                         record = Some(rec);

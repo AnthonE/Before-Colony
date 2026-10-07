@@ -9,17 +9,33 @@ use bc_sim::colony::course::{self, Event as CourseEvent};
 use bc_sim::colony::hall::DrillEvent;
 use bc_sim::ground::Footing;
 use bc_sim::handle::Handle;
-use bc_sim::sim::{LaunchAt, Loadout};
+use bc_sim::sim::{Ejected, LaunchAt, Loadout};
 use bc_sim::zero::TacticalPicture;
 use bc_sim::{Sim, SimConfig, SuitId};
 
 use crate::clients::ClientState;
 use crate::metrics::Metrics;
-use crate::queues::{Control, Outcome, Reparked, Report, Restored, SectorEnds, SectorShared, SlotState};
+use crate::queues::{
+    Control, Loss, Outcome, Reparked, Report, Restored, SectorEnds, SectorShared, SlotState,
+};
 use crate::replicate::{Work, build_snapshot, build_watch};
 
 /// Ticks between tactical pictures per ZERO pilot when an external oracle is attached (≈3.75 Hz).
 const PICTURE_INTERVAL: u32 = 8;
+
+/// How long after a pilot ejects the colony's tugs reach their wreck and take it home, ticks
+/// (survival rules): until then it's anyone's to grab, cut up or tow in first.
+pub const TOW_TICKS: u32 = bc_sim::config::secs(45.0);
+
+/// A pilot's claim on the wreck of the suit they ejected from: the hulk chunk and its generation,
+/// whether its torso is whole, and when the tugs get there.
+#[derive(Clone, Copy, Debug)]
+struct Claim {
+    hulk: u16,
+    generation: u8,
+    torso: bool,
+    due: u32,
+}
 
 /// A time on the Proving Ground's clock, s, in whole milliseconds.
 fn ms(secs: f64) -> u32 {
@@ -54,6 +70,8 @@ pub struct Sector {
     picture: TacticalPicture,
     /// The sim's events up to here have been looked at for the Proving Ground's drills.
     training_seen: u32,
+    /// Per slot: the wreck its pilot ejected from, which the tugs are going out for (survival).
+    claims: Box<[Option<Claim>]>,
 }
 
 impl Sector {
@@ -69,6 +87,7 @@ impl Sector {
             work: Work::new(max_suits, rocks),
             picture: TacticalPicture::default(),
             training_seen: sim.events.next_seq(),
+            claims: (0..cfg.max_clients).map(|_| None).collect(),
             sim,
             cfg,
             shared,
@@ -103,6 +122,7 @@ impl Sector {
         self.pass_on_fates();
         if self.cfg.sim.survival {
             self.watch_losses();
+            self.run_tugs();
         }
         if self.cfg.oracle {
             self.send_pictures();
@@ -184,6 +204,9 @@ impl Sector {
                     if s >= self.clients.len() {
                         continue;
                     }
+                    // A wreck the tugs were going out for is brought in now, for the session to
+                    // settle before it goes.
+                    self.tow(s);
                     self.clients[s].watch = None;
                     let mut asleep = None;
                     if self.clients[s].active {
@@ -231,6 +254,29 @@ impl Sector {
                 Control::UseKit { slot, kit } => {
                     if let Some(c) = self.clients.get(slot as usize).filter(|c| c.active) {
                         let _ = self.sim.use_kit(c.suit, kit);
+                    }
+                }
+                Control::Tow { slot } => {
+                    if (slot as usize) < self.claims.len() {
+                        self.tow(slot as usize);
+                    }
+                }
+                Control::Eject { slot, destruct } => {
+                    let s = slot as usize;
+                    let Some(c) = self.clients.get_mut(s).filter(|c| c.active) else { continue };
+                    match self.sim.eject(c.suit, destruct) {
+                        Some(Ejected::Out { hulk, generation, torso }) => {
+                            c.loss = Loss::Ejected;
+                            // Survival: the tugs go out for it (a claim not yet settled is
+                            // settled first).
+                            if self.cfg.sim.survival && hulk != bc_proto::NO_CHUNK {
+                                self.tow(s);
+                                let due = self.sim.tick() + TOW_TICKS;
+                                self.claims[s] = Some(Claim { hulk, generation, torso, due });
+                            }
+                        }
+                        Some(Ejected::Blown) => c.loss = Loss::Blown,
+                        None => {}
                     }
                 }
                 Control::Respawn { slot, frame } => {
@@ -348,11 +394,29 @@ impl Sector {
             } else if !c.lost && !self.sim.is_alive(c.suit.idx()) {
                 c.lost = true;
                 let bounty = self.sim.suits.credits[c.suit.idx()];
-                if self.ends.reports[s].push(Report::Lost { bounty }).is_err() {
+                if self.ends.reports[s].push(Report::Lost { bounty, how: c.loss }).is_err() {
                     Metrics::add(&self.shared.metrics.notes_dropped, 1);
                 }
             }
         }
+    }
+
+    /// Survival: the tugs reach each wreck whose pilot ejected [`TOW_TICKS`] after they're out.
+    fn run_tugs(&mut self) {
+        let t = self.sim.tick();
+        for s in 0..self.claims.len() {
+            if self.claims[s].is_some_and(|c| t >= c.due) {
+                self.tow(s);
+            }
+        }
+    }
+
+    /// The tugs take slot `s`'s claim home now, if it has one: what they bring, if anything's left
+    /// to bring, goes to its session.
+    fn tow(&mut self, s: usize) {
+        let Some(c) = self.claims[s].take() else { return };
+        let wreck = self.sim.tow(c.hulk, c.generation);
+        self.report(s, Report::Towed { wreck, torso: c.torso });
     }
 
     /// Sleepers destroyed or cleared this tick, on to the server; and under survival rules, what's

@@ -521,37 +521,61 @@ impl Sim {
             if self.suits.part_hp[j][Part::Torso as usize] > 0.0 {
                 self.critical(j, part, on_part, k, t);
             }
+            // A breached torso: a pilot's suit is doomed (`doom`), anyone else's destroyed.
             if self.suits.part_hp[j][Part::Torso as usize] <= 0.0 {
-                self.suits.alive.set(j, false);
-                self.suits.stats[j].deaths += 1;
-                if shooter < self.suits.cap && shooter != j {
-                    self.suits.stats[shooter].kills += 1;
-                    // Survival: the colony pays for every Mobile Doll a pilot brings down.
-                    if self.cfg.survival
-                        && self.suits.pilot[j] == PilotKind::MobileDoll
-                        && self.suits.pilot[shooter] != PilotKind::MobileDoll
-                    {
-                        let c = &mut self.suits.credits[shooter];
-                        *c = c.saturating_add(bounty(self.suits.frame[j]));
-                    }
-                }
-                // What it spills goes off the body it stood on (the wreck is off it).
-                let up = self.spill_up(j);
-                let hulk = self.wreck(j, t);
-                self.spill_over(j, t, true, up);
-                self.events.push(Event::Kill { id: 0, tick: t, victim: j as u16, killer: d.shooter, hulk });
-                let wait = if self.suits.pilot[j] == PilotKind::MobileDoll {
-                    secs(3.0)
-                } else {
-                    secs(self.cfg.respawn_secs)
-                };
-                self.suits.respawn_at[j] = t + wait.max(1);
-                self.suits.zero[j] = Default::default();
-                if self.suits.sleeping.get(j) {
-                    self.note_fate(j, super::Gone::Destroyed { killer: d.shooter }, t);
-                }
+                self.breach(j, amount, d.shooter, t);
             }
         }
+    }
+
+    /// Suit `j` is destroyed, by `killer` (a suit slot, or [`NO_SLOT`](bc_proto::NO_SLOT)): what's
+    /// left of it drifts on as a hulk (`hulk`; a suit blown up leaves none), what it held and carried
+    /// spills, and it waits to respawn or be cleared. Returns the hulk's chunk id.
+    pub(super) fn destroy(&mut self, j: usize, killer: u16, t: u32, hulk: bool) -> u16 {
+        self.suits.alive.set(j, false);
+        self.suits.doom[j] = super::Doom::NONE;
+        self.suits.stats[j].deaths += 1;
+        let k = usize::from(killer);
+        if k < self.suits.cap && k != j {
+            self.suits.stats[k].kills += 1;
+            // Survival: the colony pays for every Mobile Doll a pilot brings down.
+            if self.cfg.survival
+                && self.suits.pilot[j] == PilotKind::MobileDoll
+                && self.suits.pilot[k] != PilotKind::MobileDoll
+            {
+                let c = &mut self.suits.credits[k];
+                *c = c.saturating_add(bounty(self.suits.frame[j]));
+            }
+        }
+        let wreck = if hulk {
+            // What it spills goes off the body it stood on (the wreck is off it).
+            let up = self.spill_up(j);
+            let wreck = self.wreck(j, t);
+            self.spill_over(j, t, true, up);
+            wreck
+        } else {
+            // Blown apart: what was in hand is let go, and nothing else is left.
+            if let Some(k) = self.held_chunk(j) {
+                self.release(j, k, Vec3::ZERO, t);
+            }
+            self.suits.cargo_kg[j] = [0; bc_proto::CARGO_KINDS];
+            self.suits.footing[j] = Footing::Free;
+            self.suits.anchor[j] = crate::ground::Anchor::default();
+            self.suits.blown.set(j, true);
+            NO_CHUNK
+        };
+        self.events.push(Event::Kill { id: 0, tick: t, victim: j as u16, killer, hulk: wreck });
+        let wait = if self.suits.pilot[j] == PilotKind::MobileDoll {
+            secs(3.0)
+        } else {
+            secs(self.cfg.respawn_secs)
+        };
+        self.suits.respawn_at[j] = t + wait.max(1);
+        self.suits.zero[j] = Default::default();
+        if self.suits.sleeping.get(j) {
+            self.note_fate(j, super::Gone::Destroyed { killer }, t);
+        }
+        wreck
     }
 
     /// Whether the blow `on_part` (armour points) that the `k`th hit of this tick dealt to suit

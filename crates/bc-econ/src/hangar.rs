@@ -575,6 +575,42 @@ impl Hangar {
         if bounty > 0 { format!("SUIT LOST · BOUNTY {bounty} CR") } else { "SUIT LOST".into() }
     }
 
+    /// The colony's tugs went out for the wreck of the suit its pilot ejected from
+    /// (`docs/DESIGN.md`, "Doom and ejecting"): what they brought home goes to the stores, as
+    /// salvage does, but for a torso that wasn't doomed (`torso`), which comes home as a part
+    /// rather than scrap. `None`: there was nothing left to bring. Its notes.
+    pub fn towed(&mut self, wreck: Option<&ChunkDesc>, torso: bool) -> Vec<String> {
+        let Some(desc) = wreck else {
+            return vec!["THE TUGS FOUND NOTHING OF YOUR WRECK TO BRING HOME".into()];
+        };
+        let mut notes = vec!["THE TUGS BROUGHT YOUR WRECK HOME".to_string()];
+        match desc.kind {
+            ChunkKind::Hulk { frame, parts, faction } if torso && parts & (1 << Part::Torso as u8) != 0 => {
+                let line = line_of(frame);
+                if is_line(line) {
+                    let faults = Faults::all(Part::Torso, DAMAGED);
+                    self.stores.add_part(PartUnit {
+                        line,
+                        part: Part::Torso,
+                        condition: SALVAGED_HULK,
+                        faults,
+                    });
+                    notes.push(format!(
+                        "SALVAGED {} ({SALVAGED_HULK}%)",
+                        Item::Part(line, Part::Torso).name().to_uppercase()
+                    ));
+                }
+                let rest = ChunkDesc {
+                    kind: ChunkKind::Hulk { frame, faction, parts: parts & !(1 << Part::Torso as u8) },
+                    ..*desc
+                };
+                notes.extend(self.salvage(&rest));
+            }
+            _ => notes.extend(self.salvage(desc)),
+        }
+        notes
+    }
+
     /// The suit was out when the sector lost track of it (a server restart, cleared for room):
     /// the colony's tugs bring it in as it launched.
     pub fn recover(&mut self) -> bool {
@@ -849,6 +885,39 @@ mod tests {
         h.fit(Item::Part(FrameId::Leo, Part::ArmR)).unwrap();
         assert_eq!(h.suit().unwrap().parts[Part::ArmR as usize], Some(40));
         assert!(h.fit(Item::Part(FrameId::Leo, Part::Head)).is_err(), "it has a head");
+    }
+
+    /// The tugs bring an ejected pilot's wreck home: what's on it as salvage, its torso a part if it
+    /// wasn't doomed (scrap if it was); nothing at all if there was nothing left to bring.
+    #[test]
+    fn the_tugs_bring_an_ejected_pilots_wreck_home() {
+        let wreck = ChunkDesc {
+            kind: ChunkKind::Hulk { frame: FrameId::Leo, faction: Faction::Colonies, parts: 0b11_0011 },
+            seed: 0,
+            mass_kg: 5_000,
+        };
+        let parts = |h: &Hangar| -> Vec<(Part, u8)> {
+            h.stores.parts().iter().map(|u| (u.part, u.condition)).collect()
+        };
+        // Doomed: its torso is scrap, the rest worn parts.
+        let mut h = Hangar::default();
+        let notes = h.towed(Some(&wreck), false);
+        assert!(notes[0].contains("TUGS BROUGHT YOUR WRECK HOME"), "{notes:?}");
+        assert_eq!(parts(&h), [(Part::Head, 40), (Part::Legs, 40), (Part::Backpack, 40)]);
+        assert_eq!(
+            h.stores.get(Item::Ore(Ore::Titanium)),
+            u64::from(part_mass_kg(FrameId::Leo, Part::Torso))
+        );
+        // Left whole: its torso comes home too, a suit to build on.
+        let mut h = Hangar::default();
+        h.towed(Some(&wreck), true);
+        assert_eq!(parts(&h), [(Part::Head, 40), (Part::Torso, 40), (Part::Legs, 40), (Part::Backpack, 40)]);
+        assert_eq!(h.stores.get(Item::Ore(Ore::Titanium)), 0);
+        // Taken by someone else, or gone: nothing.
+        let mut h = Hangar::default();
+        let notes = h.towed(None, true);
+        assert!(notes[0].contains("NOTHING"), "{notes:?}");
+        assert!(h.stores.parts().is_empty());
     }
 
     #[test]

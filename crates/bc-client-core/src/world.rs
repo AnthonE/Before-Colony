@@ -132,9 +132,57 @@ impl HitMark {
 /// Kill feed and other notices.
 #[derive(Clone, Debug)]
 pub enum FeedLine {
-    Kill { tick: u32, victim: u16, killer: u16 },
-    Seizure { tick: u32, pilot: u16, active: bool },
-    Clash { tick: u32, a: u16, b: u16 },
+    Kill {
+        tick: u32,
+        victim: u16,
+        killer: u16,
+    },
+    Seizure {
+        tick: u32,
+        pilot: u16,
+        active: bool,
+    },
+    Clash {
+        tick: u32,
+        a: u16,
+        b: u16,
+    },
+    /// A pilot ejected from their suit.
+    Eject {
+        tick: u32,
+        pilot: u16,
+    },
+    /// A pilot blew up their doomed suit.
+    Blast {
+        tick: u32,
+        pilot: u16,
+    },
+}
+
+/// A pilot's capsule thrown clear of their suit (`Event::Eject`): it coasts from `pos` at `vel`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EjectMark {
+    pub tick: u32,
+    pub suit: u16,
+    pub pos: Vec3,
+    pub vel: Vec3,
+}
+
+impl World {
+    /// How the pilot's own suit was last lost: they ejected from it, or blew it up.
+    pub fn my_loss(&self) -> (bool, bool) {
+        let Some((at, me)) = self.my_loss_tick.zip(self.own_slot()) else { return (false, false) };
+        let ejected = self.ejections.iter().any(|e| e.suit == me && e.tick == at);
+        let blown = self.blasts.iter().any(|b| b.1 == me && b.0 == at);
+        (ejected, blown)
+    }
+}
+
+impl EjectMark {
+    /// Where the capsule is at tick `t` (plus a fraction): it coasts.
+    pub fn pos_at(&self, t: f64) -> Vec3 {
+        self.pos + self.vel * ((t - f64::from(self.tick)) as f32 * bc_sim::config::DT)
+    }
 }
 
 /// How a chunk moves, as the client knows it.
@@ -256,6 +304,15 @@ pub struct World {
     /// The Blast Hall's targets struck, newest last, and how many by this pilot's rounds.
     pub target_hits: VecDeque<TargetMark>,
     pub my_target_hits: u32,
+    /// Suits doomed (their torsos breached, their reactors going), by slot: the tick it began.
+    pub doomed: HashMap<u16, u32>,
+    /// The tick the pilot's own suit was last lost (its `Kill`): an ejection or a blast of theirs
+    /// that tick is how.
+    pub my_loss_tick: Option<u32>,
+    /// Pilots' capsules thrown clear, newest last.
+    pub ejections: VecDeque<EjectMark>,
+    /// Reactors blown by their pilots, newest last: (tick, suit, where).
+    pub blasts: VecDeque<(u32, u16, Vec3)>,
     /// The pilot's drill in the Blast Hall (`bc_sim::colony::hall::Drill`), fed their own rounds'
     /// strikes and each snapshot's tick, as the server's sector feeds its own; and what it did,
     /// oldest first (the HUD takes them).
@@ -297,6 +354,10 @@ impl World {
             missile_bursts: VecDeque::new(),
             target_hits: VecDeque::new(),
             my_target_hits: 0,
+            doomed: HashMap::new(),
+            my_loss_tick: None,
+            ejections: VecDeque::new(),
+            blasts: VecDeque::new(),
             drill: Drill::default(),
             drill_news: Vec::new(),
             seen: VecDeque::new(),
@@ -644,6 +705,7 @@ impl World {
                 } else {
                     self.hulks.insert(victim, hulk);
                 }
+                self.doomed.remove(&victim);
                 if Some(killer) == me && killer != victim {
                     self.my_kills += 1;
                     if self.entity(victim).is_some_and(|tr| tr.latest.pilot == PilotKind::MobileDoll) {
@@ -652,6 +714,7 @@ impl World {
                 }
                 if Some(victim) == me {
                     self.my_deaths += 1;
+                    self.my_loss_tick = Some(tick);
                 }
                 self.push_feed(FeedLine::Kill { tick, victim, killer });
             }
@@ -681,6 +744,29 @@ impl World {
                     while self.system_hits.len() > 32 {
                         self.system_hits.pop_front();
                     }
+                }
+            }
+            Event::Doomed { id, tick, suit } => {
+                if self.first_time(id) {
+                    self.doomed.insert(suit, tick);
+                }
+            }
+            Event::Eject { id, tick, suit, pos, vel } => {
+                if self.first_time(id) {
+                    self.ejections.push_back(EjectMark { tick, suit, pos, vel });
+                    while self.ejections.len() > 16 {
+                        self.ejections.pop_front();
+                    }
+                    self.push_feed(FeedLine::Eject { tick, pilot: suit });
+                }
+            }
+            Event::Blast { id, tick, suit, pos } => {
+                if self.first_time(id) {
+                    self.blasts.push_back((tick, suit, pos));
+                    while self.blasts.len() > 16 {
+                        self.blasts.pop_front();
+                    }
+                    self.push_feed(FeedLine::Blast { tick, pilot: suit });
                 }
             }
             Event::TargetHit { id, tick, target, shooter } => {

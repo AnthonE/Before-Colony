@@ -128,6 +128,11 @@ pub const BINDINGS: &[Binding] = &[
         "1 / 2 / 3 / 4",
         "Survival: the rack's patch kit, coolant flush, chaff, stim (up to 3 of each, loaded at launch)",
     ),
+    b(
+        Group::Weapons,
+        "U",
+        "Eject. DOOMED (torso breached, 3 s to the reactor going): tap to eject, the tugs bring your wreck home; hold to self-destruct, taking enemies close by with you. Otherwise hold 1 s to leave the suit",
+    ),
     b(Group::Salvage, "G", "Grab on/off: the free hand takes what it touches"),
     b(Group::Salvage, "B", "Stow what's in hand"),
     b(Group::Salvage, "T", "Throw"),

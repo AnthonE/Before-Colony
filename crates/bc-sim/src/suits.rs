@@ -270,6 +270,10 @@ pub struct Suits {
     /// The Charter Board's trainers, boarded at the Blast Hall's gantry (`sim::launch`): they dock
     /// back there, not at the inner gate.
     pub trainer: BitSet,
+    /// Doomed suits: ticks until the reactor goes, and who breached the torso (`sim::doom`).
+    pub doom: Box<[crate::sim::Doom]>,
+    /// Wrecks blown apart by their own reactors (a self-destruct): nothing is left to see.
+    pub blown: BitSet,
     free: FreeList,
 }
 
@@ -328,6 +332,8 @@ impl Suits {
             parkable: boxed(cap, Body::None),
             still: BitSet::new(cap),
             trainer: BitSet::new(cap),
+            doom: boxed(cap, crate::sim::Doom::NONE),
+            blown: BitSet::new(cap),
             free: FreeList::full(cap),
         }
     }
@@ -347,6 +353,8 @@ impl Suits {
         self.credits[idx] = 0;
         self.sleeping.set(idx, false);
         self.trainer.set(idx, false);
+        self.doom[idx] = crate::sim::Doom::NONE;
+        self.blown.set(idx, false);
         self.reset_ground(idx);
         self.parkable[idx] = Body::None;
         Some(SuitId(Handle { idx: idx as u16, generation: self.generation[idx] }))
@@ -397,6 +405,8 @@ impl Suits {
         self.held[idx] = (NO_CHUNK, 0, false);
         self.cargo_kg[idx] = [0; CARGO_KINDS];
         self.mounts[idx] = ALL_MOUNTS;
+        self.doom[idx] = crate::sim::Doom::NONE;
+        self.blown.set(idx, false);
         self.reset_ground(idx);
     }
 

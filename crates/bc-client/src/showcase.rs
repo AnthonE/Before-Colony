@@ -808,6 +808,7 @@ fn spawn_showcase(mut commands: Commands, mut show: ResMut<Show>, font: Res<crat
                 holding: None,
                 ground: None,
                 weathering: weathering(show.scene, i),
+                doomed: false,
             };
             commands.spawn((d, Transform::from_translation(LINEUP), Visibility::default())).id()
         })

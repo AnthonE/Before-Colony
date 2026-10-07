@@ -28,6 +28,22 @@ impl Sim {
         .then_some(k as usize)
     }
 
+    /// The colony's tugs take hulk `hulk` (of `generation`) home: it leaves the sector, and what it
+    /// was is returned. `None` if it isn't there to take: gone, or in someone's hand.
+    pub fn tow(&mut self, hulk: u16, generation: u8) -> Option<ChunkDesc> {
+        let k = usize::from(hulk);
+        if hulk == NO_CHUNK
+            || !self.chunks.is_alive(hulk)
+            || self.chunks.generation[k] != generation
+            || !matches!(self.chunks.motion[k], Motion::Free(_))
+        {
+            return None;
+        }
+        let desc = self.chunks.desc[k];
+        self.chunks.kill(k);
+        Some(desc)
+    }
+
     /// Whether suit `i` is in the dock, slow enough to sell. Inside the colony: at rest in the inner
     /// gate's ring, or a trainer on the Blast Hall's gantry.
     pub fn docked(&self, i: usize) -> bool {

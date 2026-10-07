@@ -93,7 +93,7 @@ have: Space and C are jump and crouch on foot in Space Engineers, and up and dow
 so on a body they become a hop (held: lift off on the thrusters) and a crouch at no cost to anyone
 [B4]. The grip needed one new key.
 - **L, for Land or Latch.** It was free (I, K, L, M, N, O, P, U and Y were unbound; M is the chart
-  now, N its auto-nav, and Y the lock-on), it is pressed
+  now, N its auto-nav, Y the lock-on, and U the eject), it is pressed
   once per landing rather than in a fight, and Elite puts landing gear on it (*unverified*).
 - **Rejected:** P, Space Engineers' landing gear (*unverified*), is the showcase's key; N, Star
   Citizen's landing key (*unverified*), lost to L's mnemonic; T and Enter are throw and dock, and
@@ -104,6 +104,12 @@ so on a body they become a hop (held: lift off on the thrusters) and a crouch at
 - **Crouch is a toggle on the ground**, not a held key. Hiding means lying crouched and still for as
   long as it takes, and holding C for minutes would be a chore. The simulation keeps the stance
   until told otherwise, so a stalled tab stays crouched and hidden. In flight C is still held down.
+
+**Ejecting: U** (`DESIGN.md`, "Doom and ejecting"). Titanfall ejects on its use key, which is our
+roll (E). Of the keys still free (I, K, O, U), U is the one the left hand reaches from W without
+leaving the keyboard's left half. Steel Battalion hid its eject button under a plastic flap so that
+nobody pressed it by mistake (`PEERS.md`, [P20]); ours is a hold of a second, except in the 3 s of a doom, when a
+tap ejects at once and a hold blows the suit up instead.
 
 ## Where we break convention, and what it costs
 

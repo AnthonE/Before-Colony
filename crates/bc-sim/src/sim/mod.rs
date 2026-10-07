@@ -14,7 +14,8 @@
 //!    by humans/agents; beams emit spawn events.
 //! 5. Projectiles sweep against per-part capsules (rocks, landmarks and the colony stop them,
 //!    whichever comes first); sabers sweep their arcs.
-//! 6. Damage resolves in generation order; parts break; suits die.
+//! 6. Damage resolves in generation order; parts break; a pilot's breached suit is doomed (`doom`),
+//!    anyone else's dies; doomed suits' reactors run down.
 //! 7. Heat, energy, ZERO strain, respawns; staggered ZERO rollouts.
 
 use alloc::boxed::Box;
@@ -22,6 +23,7 @@ use alloc::boxed::Box;
 mod combat;
 mod conceal;
 mod detection;
+mod doom;
 mod flame;
 mod kits;
 mod launch;
@@ -73,6 +75,7 @@ pub use conceal::{
     COLD_SIG, Conceal, EXPOSE_TICKS, FOUGHT_DARK_TICKS, HIDE_AWAKE_VISUAL_MUL, LURK_SETTLE_TICKS, LURK_STILL,
     POWER_DOWN_TICKS, cover,
 };
+pub use doom::{DOOM_PER_TORSO, DOOM_TICKS, Doom, EJECT_SPEED, Ejected};
 pub use launch::{Homecoming, LAUNCH_GATE, LAUNCH_SPEED, LaunchAt, Loadout, ParkRecord};
 pub use sleep::{Gone, PARK_SPEED, PARKED_VISUAL, SleeperFate};
 
@@ -377,6 +380,7 @@ impl Sim {
         self.damage_step(t);
         // (Emptied after, not before: a blow struck between ticks lands with this tick's.)
         self.damage.clear();
+        self.doom_step(t);
         self.salvage_step(t);
         self.status_step(t);
         self.zero_step(t);

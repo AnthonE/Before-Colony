@@ -58,6 +58,13 @@ fn relevant(sim: &Sim, me: usize, e: &Event) -> bool {
             (pos - sim.suits.flight[me].pos).length_squared() < BEAM_NOTICE_RANGE * BEAM_NOTICE_RANGE
         }
         Event::SystemHit { target, .. } => near(target),
+        // A suit doomed is seen burning by whoever sees it; a capsule thrown clear, and a reactor
+        // blown, as far off as a beam.
+        Event::Doomed { suit, .. } => near(suit),
+        Event::Eject { suit, pos, .. } | Event::Blast { suit, pos, .. } => {
+            near(suit)
+                || (pos - sim.suits.flight[me].pos).length_squared() < BEAM_NOTICE_RANGE * BEAM_NOTICE_RANGE
+        }
         // A target in the Blast Hall flashing: its shooter, and anyone near the hall.
         Event::TargetHit { target, shooter, tick, .. } => {
             near(shooter)

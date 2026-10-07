@@ -52,6 +52,12 @@ pub fn state_hash(sim: &Sim) -> u64 {
         }
         let (k, g, right) = s.held[i];
         h.u32(u32::from(k) | u32::from(g) << 16 | u32::from(right) << 24);
+        // Doomed, or blown apart (only then: a suit never breached hashes as it always has).
+        let d = s.doom[i];
+        if d.left > 0 || s.blown.get(i) {
+            h.u32(0xD00E_0000 | u32::from(d.left) | u32::from(s.blown.get(i)) << 15);
+            h.u32(u32::from(d.by));
+        }
         for kg in s.cargo_kg[i] {
             h.u32(u32::from(kg));
         }

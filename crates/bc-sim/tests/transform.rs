@@ -135,7 +135,8 @@ fn zero_stays_engaged_and_a_dead_bird_comes_back_as_wing_zero() {
     sim.suits.part_hp[wz.idx()][Part::Head as usize] = 1.0;
     sim.suits.part_hp[wz.idx()][Part::Torso as usize] = 1.0;
     let mut dead = false;
-    for _ in 0..60 {
+    // (Its pilot's suit is doomed first: `sim::doom`.)
+    for _ in 0..60 + u32::from(bc_sim::sim::DOOM_TICKS) {
         hold(&mut sim, wz, MODE | ZERO, [0; 3]);
         let t = sim.next_tick();
         let lf = sim.suits.flight[leo.idx()];

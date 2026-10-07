@@ -36,6 +36,10 @@ impl Sim {
             return false;
         }
         let wreck = !s.alive.get(j);
+        // A suit blown apart by its own reactor left nothing to see.
+        if wreck && s.blown.get(j) {
+            return false;
+        }
         if wreck
             && s.respawn_at[j] != 0
             && self.tick() + 60 < s.respawn_at[j] + 60
@@ -221,6 +225,7 @@ impl Sim {
             burst: f.burst,
             surface,
             cover: self.cover_code(i),
+            doom: s.doom[i].left.min(u16::from(bc_proto::snapshot::DOOM_MAX)) as u8,
         }
     }
 

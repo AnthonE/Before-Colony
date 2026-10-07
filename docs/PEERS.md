@@ -20,6 +20,7 @@ No. Nobody ships the whole fantasy. The nearest games each have one piece of it:
 | The Gundam Metaverse (2022–) | Promised: virtual space colonies for the fandom [P4] | Delivered: a shop and Gunpla scanning | Every place needs a verb; people want their own build |
 | Gundam Rogue Orbit (March 2027) | Customised Gundams, colour schemes, hordes and bosses [P5] | A world; colonies | PvE that escalates; a colour scheme is expected |
 | X-Wing (1993) and TIE Fighter (1994) | A hub of doors to walk between, training before the war, a cockpit to read, music that follows the fight [P7][P8] | A world: the hub is a picture | Training as a place (`TRAINING.md`); briefings, a debrief, a film room |
+| The mech games: Titanfall (2014, 2016), Armored Core VI (2023), MechWarrior and BattleTech, Steel Battalion (2002), Mecha BREAK (2025), Daemon X Machina (2019) | How losing a mech is handled, how a fight builds to its climax, how a build is tried and paid for [P13]–[P22] | A world: matches and missions | Doom and ejecting, stagger, power earned in the fight, a debrief, a test range, aces, salvage as pay, the enemy's gun |
 
 Before Colony already has the chain in outline: the city, the cap lift up to the bay (`DESIGN.md`,
 "The First Colony, inside"), the catapult into space and the dock home ("Sorties"). None of them
@@ -225,6 +226,145 @@ tells you what's going on.
     the larger story going on around the hero" [P9].
   - The Charter Board's quiet war of bounties is ours (`STORY.md`).
 
+## The mech games
+
+The owner asked what Titanfall and games like it teach. They are match or mission games, with no
+world between fights. What they have is how a mech fight feels: how a mech is lost, how a fight
+builds to its climax, how a build is tried and paid for. `CONTROLS.md` already took their
+controls (Armored Core VI's Quick Boost became our burst step, Zone of the Enders our lunges,
+Titanfall 2's executions the cut to third person). This is the rest. `ROADMAP.md`, "The mech
+games", says how each is built.
+
+### Titanfall (2014) and Titanfall 2 (2016)
+
+- **A mech is doomed before it's lost.** A Titan at zero health is *doomed*, not destroyed
+  [P13].
+  - In Titanfall 1 its doomed health drains away over a few seconds: 4.5 s at most, three times
+    as long with the Survivor kit.
+  - In Titanfall 2 it doesn't drain by itself, and a doomed Titan can fight on all match.
+  - Either way the pilot can eject, thrown high into the air (killing one up there is "goosing").
+  - Kits eject the pilot the moment the Titan is doomed (Auto-Eject; Titanfall 2's Stealth
+    Auto-Eject also cloaks them). Nuclear Ejection detonates the Titan's core after the pilot is
+    out: three seconds, then massive damage to everything near, its own pilot included if they
+    don't get clear.
+  - **Ours** (`DESIGN.md`, "Doom and ejecting"): a pilot's breached suit is doomed for 3 s, and
+    blows landing on it cut the time short (Titanfall 1's way). U ejects, and the colony's tugs
+    bring the wreck home. Held, U blows the reactor with the pilot aboard, Heero's way (below).
+- **AI troops make a match a battlefield.** Attrition fills both sides with AI grunts, spectres,
+  stalkers and reapers. They score points: a grunt 1, a reaper 3, a pilot 5 [P13]. Respawn's
+  community manager: the AI "gave players who are newer something to shoot at and gave them a
+  way to help their team", and "really helps make the battlefield feel alive" [P14].
+  - **Ours:** the Mobile Dolls already are that. Wherever PvP comes to live (P1 10), keep the
+    Dolls in the fight and pay for both.
+- **Power is earned in the fight.**
+  - Titanfall 1 built a Titan on a countdown that kills shortened: 4 minutes from the start of a
+    match, 2 after losing one [P15].
+  - Titanfall 2's technical test took the passive gain out. After players objected, Respawn put
+    "a small passive amount of Titan meter every few seconds" back [P15].
+  - Its Core ability builds on its own, faster from damage dealt and kills, and a battery adds a
+    fifth [P13].
+  - **Ours:** Full Open Attack charges the same way, slowly by itself and faster from the fight.
+    It charges from blows taken too: that part is ours, not Titanfall's.
+- **Being on foot is a choice, not just being prey.** A pilot can rodeo an enemy Titan. In
+  Titanfall 1 they tear off its plating and shoot into the hull; in Titanfall 2 they pull out its
+  battery, which a friendly Titan takes for its shield and Core. Pilots carry anti-Titan weapons
+  as well [P13].
+  - **Ours:** pilots aren't on foot in the sector yet (`DESIGN.md`, "Surfaces, next"). When they
+    are, they need something to do against a suit, or nobody will step out.
+- **A mech you can read at a glance.** Titanfall 2 replaced Titanfall 1's three chassis, which
+  took any loadout, with six Titans of fixed kits [P13][P16].
+  - Producer Drew McCoy: "people had a hard time reading an enemy Titan and what its weaknesses
+    were". The answer was distinct silhouettes, so players can "tell at a glance everything that
+    [they] need to know" [P16].
+  - Respawn's Carlos Pineda: Titanfall 1's Titan fights were "too repetitive", two Titans firing
+    until one went down [P16].
+  - **Ours:** the Gundams already read at a glance. A survival Leo carries what its pilot fits,
+    and its weapons must show on the model.
+- **A great game can still die.**
+  - Titanfall 2 reviewed 86–89 on Metacritic but sold below EA's forecast of 9–10 million. It
+    launched between Battlefield 1 and Call of Duty: Infinite Warfare, "a rough window to launch
+    our game" (Vince Zampella) [P17].
+  - From early 2021 both games' servers were hit by DDoS attacks that made their online play
+    unplayable. Respawn: "DDoSing in particular is just a hard problem to solve. Really hard."
+    Titanfall 1 came off sale in December 2021 [P17].
+  - **Ours:** an MMO's server is the game. What it does to stay up under abuse is `ROADMAP.md`'s
+    review.
+
+### Armored Core VI: Fires of Rubicon (2023)
+
+- **Stagger.** "If an AC takes too many hits over a short period of time, its Attitude Control
+  System will be overloaded, making it vulnerable for a short time", and a hit then is "a direct
+  hit, dealing heavy damage" [P18]. Weapons differ in impact, and frames in how much they stand
+  (attitude stability) and how fast they recover. How long a stagger lasts and how much more a
+  direct hit does aren't published.
+  - **Ours:** impact builds on a suit's attitude control until it's staggered (`DESIGN.md`,
+    "Stagger"). It's the answer to our "unhittable" risk: a staggered suit tumbles and can't
+    dodge.
+- **Every mission's pay is net.** Ammunition and repairs are taken out of each mission's pay
+  [P18].
+  - **Ours:** a debrief on the way home: what the sortie earned, and what it cost.
+- **Try before you buy.** The garage's test mode flies the assembled AC against a target,
+  standing still or shooting back. Parts sell back for what they cost, so a player can "buy just
+  to try" [P18].
+  - **Ours:** the Blast Hall's trainers fly any build a pilot could make, with nothing bought.
+- **The Arena.** Simulated one-on-ones against 29 named AI pilots, ranked from F to S. Each first
+  win pays chips, credits, an emblem and the opponent's own build [P18].
+  - **Ours:** the Consortium's aces, named Doll pilots on the Charter Board's most-wanted list.
+
+### MechWarrior and BattleTech
+
+- **A contract is negotiated.** MechWarrior 5: Mercenaries (2019) lets a mercenary trade pay
+  against a share of the salvage and damage insurance. The points to spend come from reputation
+  and standing with the employer [P19]. In BattleTech (2018): "Demand less salvage and less pay,
+  and you'll earn more reputation" [P19].
+  - **Ours:** an ace's bounty is taken as pay or as salvage rights to its wreck.
+- **A war map needs players to fill it.** MechWarrior Online's Faction Play made the Inner
+  Sphere's planets something player units fought over (a beta in December 2014, open to all in
+  December 2015).
+  - In 2016 PGI merged its fronts into one conflict: "we expect Faction Play queue times to
+    drastically improve". In 2019 it replaced the queues with a single one [P19].
+  - **Ours:** if pilots ever take sides (P1 10, option 4), plan the front for few players, and
+    let agents fill it.
+
+### Steel Battalion (2002) and Line of Contact (2004)
+
+- **Ejecting is the pilot's job.** The controller had 44 inputs, three pedals, and an eject
+  button under a plastic flap. "If the player does not eject when prompted, the player's in-game
+  character will die and the game will delete its own saved data." Every mission started with a
+  start-up sequence of switches [P20].
+  - **Ours:** ejecting is a choice with a price (the wreck), never a deleted save.
+- **An online war in turns.** Line of Contact, on Xbox Live, ran its war in rounds of eight
+  weekly turns, with up to four factions fighting over one island. A pilot's rank, and each
+  vertical tank with its own serial number, were kept on the server [P20].
+
+### Mecha BREAK (2025)
+
+- **Extraction.** Its PvPvE mode (Mashmak in the beta, Operation STORM at launch) is played on a
+  256 km² battlefield. Squads loot, fight AI and each other, and get out alive with what they
+  carry [P21]. That's our survival sortie.
+- **Monetisation sank it.**
+  - Its open beta peaked at 317,522 players and was rated Mostly Negative, over monetisation
+    and progression [P21].
+  - At launch a $40 limited-time offer popped up straight after the tutorial [P21].
+  - Its Steam players averaged 21,833 a month in July 2025, and 826 in September 2026 [P21].
+  - **Ours:** paint, and everything else, costs credits earned in the game (P1 7).
+
+### Daemon X Machina (2019), and Hawken
+
+- **Take the enemy's gun.** "Defeated enemies may drop ammo and weapons, which the player can
+  obtain and use on the fly." A pilot can also leave their mech and fight on foot [P22].
+  - **Ours:** a limb grabbed from a wreck fires its weapon from the hand that holds it.
+- **PvP alone wasn't enough.** Hawken, a free-to-play mech arena, shut its PC servers in January
+  2018. Hawken Reborn (2023) came back as PvE in Early Access, and has had no update in nearly two
+  years [P22]. It's Rogue Orbit's lesson again: PvE that escalates.
+
+### And Gundam Wing
+
+Heero tries to destroy his Gundam in episode 2, and Duo stops him. In episode 10, caught in Lady
+Une's trap in Siberia, he blows up Wing Gundam with himself aboard. Trowa takes care of him
+afterwards [P23]. That's our self-destruct: the pilot stays aboard, and nothing is left for the
+enemy.
+
 ## The lesson under all of them
 
 Nobody has built the whole thing because it is a city sim, a flight sim and a mech combat game at
@@ -301,6 +441,22 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
     bring a suit inside?"): `Stage` moved on by deliveries.
 14. **Low g near the axis,** as a place to play.
 
+**From the mech games** (October 2026; how each is built is `ROADMAP.md`, "The mech games").
+
+15. **Doom and ejecting** (Titanfall, Steel Battalion, Heero): a doomed suit fights on for 3 s;
+    U ejects, and the tugs bring the wreck home; held, U blows it up. *Built.*
+16. **Stagger** (Armored Core VI): impact overloads a suit's attitude control, and a staggered
+    suit tumbles and takes direct hits.
+17. **Specials charged by the fight** (Titanfall's Core): Full Open Attack charges slowly by
+    itself and faster from damage dealt and taken.
+18. **A debrief** (Armored Core VI's payout; X-Wing's debrief): what a sortie earned and cost,
+    on the way home.
+19. **The enemy's gun** (Daemon X Machina): a weapon on a limb in hand fires from that hand.
+20. **A test range** (Armored Core VI): the Blast Hall's trainers fly any buildable suit.
+21. **Aces, pay or salvage** (Armored Core VI's Arena, MechWarrior 5's contracts): named Doll
+    aces with bounties, taken as pay or as rights to the wreck.
+22. **Staying up** (Titanfall's DDoS years): a review of the server's limits under abuse.
+
 ## Sources
 
 The starting point was a survey the project's owner brought in October 2026. Its claims were
@@ -337,3 +493,35 @@ checked against:
   (pcgamer.com/the-making-of-star-wars-tie-fighter).
 - **[P12]** The Digital Antiquarian, "The Second Coming of Star Wars"
   (filfre.net/2021/02/the-second-coming-of-star-wars).
+- **[P13] Titanfall's mechanics.** titanfall.wiki.gg: "Doomed State", "Survivor", "Auto-Eject",
+  "Stealth Auto-Eject", "Nuclear Ejection", "Goosing", "Attrition", "Core Ability", "Rodeo",
+  "Battery"; Game Informer, "10 tips for success in Titanfall" (13 March 2014); Wikipedia,
+  "Titanfall (video game)" and "Titanfall 2".
+- **[P14]** Xbox Wire, "Intelligent Design: Inside Titanfall's Artificial Intelligence" (18
+  February 2014).
+- **[P15] Titan meter.** Wikipedia (as [P13]); GamersNexus, "Titanfall: everything we know so
+  far" (23 January 2014); TheSixthAxis on the changes after Titanfall 2's technical test (25
+  August 2016).
+- **[P16] Titanfall 2's Titans.** Rolling Stone, 2016 (Drew McCoy), seen as a search result only;
+  PC Gamer, 7 July 2016, as Wikipedia cites it; Inven Global, "Redesigning Titan combat" (Carlos
+  Pineda at GDC 2017, labs.invenglobal.com/articles/1230).
+- **[P17] Titanfall 2's sales and servers.** VideoGamer (3 August 2016, EA's forecast); MP1st (1
+  November 2017, EA on sales); Gamereactor (8 August 2017, Vince Zampella); Wikipedia (the DDoS
+  attacks); PC Gamer, "Respawn to Titanfall players: 'Help is coming'" (April 2021) and on the
+  Apex Legends hack (July 2021), seen as search results only; Shacknews 127921 (Titanfall's
+  sales ended, 1 December 2021).
+- **[P18] Armored Core VI.** PlayStation Blog, 27 April 2023 (the ACS); armoredcore6.wiki.fextralife.com
+  ("Stats", "Missions", "Arena"); Gigazine and PCGamesN on the garage (August 2023); GGRecon on
+  the Arena.
+- **[P19] MechWarrior and BattleTech.** Sarna, "MechWarrior 5: Mercenaries" and "MechWarrior
+  Online"; IGN's BattleTech preview (15 November 2017) via GameBanshee; Engadget (12 December
+  2014); CGM (December 2015); PGI's patch notes 1.4.90 (13 December 2016) and of 21 May 2019.
+- **[P20] Steel Battalion.** Wikipedia, "Steel Battalion" and "Steel Battalion: Line of
+  Contact"; Time Extension, "The making of Steel Battalion" (6 January 2024).
+- **[P21] Mecha BREAK.** Game Developer's launch press release (1 July 2025); its Steam page;
+  Wccftech's Mashmak preview (24 February 2025); PCGamesN (5 March 2025); Technode (4 July 2025);
+  SteamCharts (app 2452280).
+- **[P22] Daemon X Machina and Hawken.** Nintendo's store page and Wikipedia, "Daemon X Machina";
+  Wikipedia, "Hawken (video game)"; Hawken Reborn's Steam page.
+- **[P23] Gundam Wing.** Wikipedia, "List of Mobile Suit Gundam Wing episodes" (episodes 2, 10
+  and 12).

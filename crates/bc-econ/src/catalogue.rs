@@ -262,8 +262,11 @@ fn weapon_recipe(w: WeaponKind) -> Recipe {
         DragonFang => (&[(GUNDANIUM, 150), (STEEL, 200), (ELECTRONICS, 40)], 150),
         Flamethrower => (&[(STEEL, 150), (ELECTRONICS, 20)], 90),
         BeamGlaive => (&[(GUNDANIUM, 60), (ELECTRONICS, 50), (EXOTICS, 70)], 150),
-        // Not items (Mobile Dolls' guns, a special's own mounts, a charged shot): never asked for.
-        BeamCannon | ChestGatling | MicroMissile | CrossCrusher | BeamRifleCharged => (&[(STEEL, 100)], 60),
+        // Not items (Mobile Dolls' guns, a special's own mounts, a charged shot, a reactor's blast):
+        // never asked for.
+        BeamCannon | ChestGatling | MicroMissile | CrossCrusher | BeamRifleCharged | Reactor => {
+            (&[(STEEL, 100)], 60)
+        }
     };
     Recipe {
         output: Item::Weapon(w),

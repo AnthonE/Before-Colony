@@ -14,7 +14,8 @@ the bay, space, home).
 | P0: a floor under loss, text chat, objectives along the chain, The Arrival's seats | built |
 | P1: the Proving Ground: its course, the Blast Hall, its live fire, trainers boarded there, the drill and the board (`TRAINING.md`, phases 1 to 5) | built |
 | Living in the colony, L0: seats, the body and its meals (`LIFE.md`) | built (a framework: nothing on the wire yet) |
-| P1's rest, P2 below | planned |
+| The mech games, 15: doom, ejecting and the self-destruct | built |
+| P1's rest, P2, the mech games' rest below | planned |
 
 ## P0: before more players arrive
 
@@ -144,3 +145,30 @@ The Arrival (`Request::Eat`, the body on the pilot's record).
   frames (`COLONY.md` 1.3's colliders first), where free aim is learnt.
 - **Suits inside the colony** (`SUITS_INSIDE.md`), once the building site gives them work.
 - **Low gravity near the axis** as a place to play.
+
+## The mech games
+
+`PEERS.md`, "The mech games": what Titanfall, Armored Core VI, MechWarrior and BattleTech, Steel
+Battalion, Mecha BREAK and Daemon X Machina teach, in its list's order (15 to 22).
+
+**15. Doom and ejecting.** *Built* (protocol v23; `DESIGN.md`, "Doom and ejecting").
+- `bc_sim::sim::doom`: a pilot's breached suit is doomed for `DOOM_TICKS` (3 s), less
+  `DOOM_PER_TORSO` a blow. Then `destroy`, which also takes the old kill code out of
+  `damage_step`. `Sim::eject` ejects (a hulk, `Event::Eject`) or, doomed, blows the reactor
+  (`Event::Blast`, `WeaponKind::Reactor`'s hits on hostile suits within its reach, no hulk).
+  `Sim::tow` takes a free hulk out of the sector.
+- `bc_sector`: `Control::Eject` and `Control::Tow`. A claim per slot on the hulk of the suit its
+  pilot ejected from is towed `TOW_TICKS` (45 s) on, or at once when the session goes
+  (`Report::Towed`). `Report::Lost` says how (`Loss`).
+- `bc_econ`: `Request::Eject` (any rules), and `Hangar::towed`: salvage, with a torso that wasn't
+  doomed as a part.
+- The client: U (`input::eject_key`: doomed, a tap ejects and a hold blows the suit up;
+  otherwise a hold), the HUD's `DOOMED` countdown, a doomed suit burning (`damage`), the capsule
+  (`pods`) the camera follows, the blast (`fx`), and the kill feed. `bc-bot`: `eject`,
+  `self_destruct`, and the Mobile Doll agent ejects when doomed.
+- Tests: `bc-sim/tests/doom.rs` (doom, blows cutting it short, Dolls and sleepers without it,
+  ejecting doomed or whole, a wreck in hand not towed, the blast, nobody ejecting inside), the
+  sector's `survival_net` (the loss and the tugs, towing at once, nothing to tow after a blast),
+  the hangar's `the_tugs_bring_an_ejected_pilots_wreck_home`, the proto round trips. Every
+  determinism golden is unchanged.
+

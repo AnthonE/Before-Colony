@@ -327,6 +327,37 @@ impl BotClient {
         self.wait_until(1.0, kit.name(), |c| count(c) < before).await
     }
 
+    /// Whether the agent's suit is doomed: its torso breached, its reactor going (`own.doom`
+    /// ticks left). Its pilot can still [`eject`](Self::eject) or
+    /// [`self_destruct`](Self::self_destruct).
+    pub fn doomed(&self) -> bool {
+        self.core.world.own.is_some_and(|o| o.alive && o.doom > 0)
+    }
+
+    /// Ejects from the suit (doomed or not; never inside the colony): the suit is lost, and under
+    /// survival rules the colony's tugs go out for its wreck (`docs/DESIGN.md`, "Doom and
+    /// ejecting"). Returns once the own snapshot shows the suit gone (or fails after a second).
+    pub async fn eject(&mut self) -> anyhow::Result<()> {
+        self.leave_suit(false).await
+    }
+
+    /// Doomed: blows the suit up with the agent aboard, hurting every enemy suit close by
+    /// (nothing is left of it to salvage). Returns once the suit is gone (or fails after a second:
+    /// it wasn't doomed).
+    pub async fn self_destruct(&mut self) -> anyhow::Result<()> {
+        anyhow::ensure!(self.doomed(), "only a doomed suit can be blown up");
+        self.leave_suit(true).await
+    }
+
+    async fn leave_suit(&mut self, destruct: bool) -> anyhow::Result<()> {
+        anyhow::ensure!(self.core.world.own.is_some_and(|o| o.alive), "no suit to leave");
+        self.request(&Request::Eject { destruct }).await?;
+        self.wait_until(1.0, if destruct { "self-destruct" } else { "eject" }, |c| {
+            c.world.own.is_none_or(|o| !o.alive)
+        })
+        .await
+    }
+
     /// Survival rules: delivers what the stores hold of `item` to the Charter Board's supply
     /// contracts that ask for it (the colony's pay above its desks), best paying first. What the
     /// board said to each delivery.

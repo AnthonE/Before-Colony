@@ -415,8 +415,8 @@ fn record_budgets_match_plan() {
     // state, ZERO and events.
     const { assert!(ENTITY_MAX_BITS == 211) };
     const { assert!(ZERO_HYPOTHESES == 7) };
-    const { assert!(OWN_BITS_FREE == 797) };
-    const { assert!(OWN_MAX_BITS == 817) };
+    const { assert!(OWN_BITS_FREE == 804) };
+    const { assert!(OWN_MAX_BITS == 824) };
     const { assert!(ROCK_RECORD_BITS == 18) };
     const { assert!(MISSILE_RECORD_BITS == 119) };
     const { assert!(ObjectState::MAX_BITS <= 232) };

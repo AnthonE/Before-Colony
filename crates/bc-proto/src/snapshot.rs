@@ -5,7 +5,7 @@
 //! | Section | Size | Notes |
 //! |---|---|---|
 //! | header | 116 bits | tick, input ack, input-buffer health, RTT echo, time dilation |
-//! | own state | 1 + 760..780 bits | full precision: the client reconciles its prediction against it |
+//! | own state | 1 + 804..824 bits | full precision: the client reconciles its prediction against it |
 //! | ZERO | 1 + ≤200 bits | only while the pilot's ZERO System is engaged |
 //! | events | `1+n` bits each, `0` ends | repeated until the client acks a snapshot containing them |
 //! | rocks | `1+18` bits each, `0` ends | debris-field rocks whose state changed, repeated until acked |
@@ -212,7 +212,14 @@ pub struct OwnState {
     pub surface: Option<OwnSurface>,
     /// What its cover amounts to ([`cover`]).
     pub cover: u8,
+    /// Doomed: ticks until its reactor goes (0: it isn't), up to [`DOOM_MAX`] (v23). Its pilot
+    /// can still eject.
+    pub doom: u8,
 }
+
+/// The longest doom [`OwnState::doom`] carries, ticks.
+pub const DOOM_MAX: u8 = (1 << DOOM_BITS) - 1;
+const DOOM_BITS: u32 = 7;
 
 /// The own suit on a body: how, which, and how high it stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -338,7 +345,8 @@ pub const OWN_BITS_FREE: usize = 503
     + ARMS_BITS
     + BURST_BITS
     + FOOTING_BITS as usize
-    + COVER_BITS as usize;
+    + COVER_BITS as usize
+    + DOOM_BITS as usize;
 /// The largest own state: on a rock, which takes the longest [`BodyRef`], and the stance.
 pub const OWN_MAX_BITS: usize = OWN_BITS_FREE + BodyRef::MAX_BITS + STANCE_BITS as usize;
 const FOOTING_BITS: u32 = 2;
@@ -400,6 +408,7 @@ impl Default for OwnState {
             burst: OwnBurst::default(),
             surface: None,
             cover: cover::EXPOSED,
+            doom: 0,
         }
     }
 }
@@ -701,6 +710,7 @@ impl<'a> SnapshotWriter<'a> {
         });
         w.write_bits(u32::from(code), FOOTING_BITS);
         w.write_bits(u32::from(o.cover.min(cover::HIDDEN)), COVER_BITS);
+        w.write_bits(u32::from(o.doom.min(DOOM_MAX)), DOOM_BITS);
         if let Some(on) = o.surface {
             on.body.write(w);
             w.write_u8(on.stance_q);
@@ -1024,6 +1034,7 @@ impl<'a> SnapshotReader<'a> {
         b.held = r.read_bool();
         let code = r.read_bits(FOOTING_BITS) as u8;
         o.cover = r.read_bits(COVER_BITS) as u8;
+        o.doom = r.read_bits(DOOM_BITS) as u8;
         o.surface = match code {
             footing::FREE => None,
             footing::GROUNDED | footing::ALOFT => {
@@ -1196,7 +1207,7 @@ mod tests {
             let back = SnapshotReader::new(&buf[..n]).unwrap().own().unwrap().unwrap();
             assert_eq!((back.surface, back.cover), (own.surface, own.cover));
         }
-        assert_eq!((OWN_BITS_FREE, OWN_BITS_FREE + 14, OWN_MAX_BITS), (797, 811, 817));
+        assert_eq!((OWN_BITS_FREE, OWN_BITS_FREE + 14, OWN_MAX_BITS), (804, 818, 824));
     }
 
     #[test]
@@ -1207,8 +1218,8 @@ mod tests {
         let at = w.w.bits_written();
         w.own(Some(&OwnState::default()));
         let n = w.finish().unwrap();
-        // The footing is the 4 bits before the end of the own state (then the cover).
-        let bit = at + 1 + OWN_BITS_FREE - 4;
+        // The footing comes 4 bits before the doom, which ends the own state (the cover between).
+        let bit = at + 1 + OWN_BITS_FREE - 4 - DOOM_BITS as usize;
         buf[bit / 8] |= 1 << (bit % 8);
         buf[(bit + 1) / 8] |= 1 << ((bit + 1) % 8);
         assert_eq!(SnapshotReader::new(&buf[..n]).unwrap().own(), Err(DecodeError::Invalid));
