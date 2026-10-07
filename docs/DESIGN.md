@@ -163,8 +163,10 @@ Dolls on them.)
 - **Rocks are solid too.** A suit that flies into one stops at its surface, losing its speed into
   it, and slides along it; nothing tunnels, even at 2 km/s. Shots stop at rocks, so a rock is
   cover. The field comes from a seed, so your browser predicts against the same rocks.
-- **So are MO-II and Hermit.** A suit meets them as it meets a rock, but relative to the moving
-  surface, which carries it along. A shot meets whatever is first along its path: a rock, a
+- **So are MO-II, Hermit and the docking hub.** A suit meets them as it meets a rock, but relative
+  to the moving surface, which carries it along. (The hub's spire turns with the colony: only near
+  the middle of its end face is it slow enough to land on, where its deck hatch is. The bay ring
+  beyond it is drawn only.) A shot meets whatever is first along its path: a rock, a
   landmark, the colony or a suit. So a suit skimming the hull is hit, and one behind it isn't.
 
 | Frame | Role | Dry mass | Accel (boost) | Δv | Armour | Loadout |
