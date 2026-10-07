@@ -34,6 +34,7 @@ use tokio::sync::{broadcast, oneshot};
 use wtransport::{Connection, RecvStream, SendStream};
 
 use super::NetStats;
+use super::admit::{Asked, Requests};
 use super::game::{
     EgressCmd, GameShared, HangarEntry, RateLimit, RosterEntry, RosterUpdate, forget, process_notes, reject,
     send_control, set_roster_flags, wait_slot,
@@ -486,6 +487,8 @@ impl Session<'_> {
     ) -> anyhow::Result<()> {
         let mut roster_rx = self.game.roster_tx.subscribe();
         let mut rate = RateLimit { tokens: 240.0, last: Instant::now() };
+        // How fast it may ask things of its hangar (`admit::Requests`).
+        let mut requests = Requests::new(Instant::now());
         let mut buf = [0u8; 4_096];
         let mut every = tokio::time::interval(TICK);
         every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -539,18 +542,32 @@ impl Session<'_> {
                         None => return Ok(()),
                     }
                     while let Some((frame, used)) = Frame::decode(&pending).map_err(|e| anyhow::anyhow!("{e}"))? {
-                        let bytes = match frame {
-                            Frame::Msg(ControlMsg::Respawn { frame }) => {
+                        // Asking too fast is refused, and asking on and on ends the session.
+                        let asks = matches!(frame, Frame::Hangar(_) | Frame::Msg(ControlMsg::Respawn { .. }));
+                        let asked = if asks { requests.ask(Instant::now()) } else { Asked::Take };
+                        let bytes = match (asked, frame) {
+                            (_, Frame::Msg(ControlMsg::Bye { .. })) => return Ok(()),
+                            (Asked::Take, Frame::Msg(ControlMsg::Respawn { frame })) => {
                                 if !self.survival() {
                                     let _ = self.game.sector.control.push(Control::Respawn { slot: self.slot, frame });
                                 }
                                 None
                             }
-                            Frame::Msg(ControlMsg::Bye { .. }) => return Ok(()),
-                            Frame::Msg(_) => None,
-                            Frame::Hangar(p) => Some(p.to_vec()),
+                            (Asked::Take, Frame::Hangar(p)) => Some(p.to_vec()),
+                            _ => None,
                         };
                         pending.drain(..used);
+                        match asked {
+                            Asked::Take => {}
+                            Asked::Refuse => NetStats::add(&self.stats.requests_refused, 1),
+                            Asked::End => {
+                                NetStats::add(&self.stats.requests_refused, 1);
+                                NetStats::add(&self.stats.flooders_ended, 1);
+                                tracing::info!(slot = self.slot, name = %self.callsign, "flooding the control stream: ending the session");
+                                let _ = send_control(self.tx, ControlMsg::Bye { reason: bye::LEAVE }).await;
+                                return Ok(());
+                            }
+                        }
                         if let Some(bytes) = bytes {
                             self.on_request(&bytes).await?;
                         }

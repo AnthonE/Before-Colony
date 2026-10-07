@@ -16,6 +16,7 @@ the bay, space, home).
 | Living in the colony, L0: seats, the body and its meals (`LIFE.md`) | built (a framework: nothing on the wire yet) |
 | The mech games, 15: doom, ejecting and the self-destruct | built |
 | The mech games, 16: stagger | built |
+| The mech games, 22: staying up under abuse | built |
 | P1's rest, P2, the mech games' rest below | planned |
 
 ## P0: before more players arrive
@@ -195,3 +196,23 @@ Battalion, Mecha BREAK and Daemon X Machina teach, in its list's order (15 to 22
   for its Full Open, staggered again and again, predicted exactly), `no_alloc`, the proto round
   trips and budgets. Five determinism goldens are re-recorded, native and wasm alike: their fights
   now stagger (the surface scenario's Heavyarms, staggered by the Dolls, fires once it's steady).
+
+**22. Staying up.** *Built* (`ARCHITECTURE.md`, "Under abuse").
+- The review found inputs, poses and the radio limited, sign-ins waiting on a wallet capped, and
+  the Hello on a deadline, but nothing on connections themselves (one address could open as many
+  as it liked, each a task, each handshake as slow as QUIC's idle timeout allowed), and nothing on
+  the hangar's requests (each can write the pilot's record to disk).
+- `bc-server` `net::admit`: the accept loop asks `Admission` of each attempt, before any
+  handshake. Under load (32 handshakes under way) an unvalidated address gets a QUIC Retry. An
+  address (IPv4, or IPv6 by its /64) holds at most 8 connections (`--per-address`; loopback
+  excepted) and the server 512 (`--max-connections`), and both handshakes are on 5 s deadlines.
+  A connection's `Pass` gives its place back when it's dropped.
+- `admit::Requests`: hangar requests and respawns at 10 a second, in bursts of 40; past that
+  refused, and 200 refused in a row end the session.
+- `/status` counts it all: refused (full, by address), retried, handshakes timed out, requests
+  refused, sessions ended.
+- Tests: `admit`'s units (the share, the ceiling, the Retry under load, the flood),
+  `bc-server/tests/admit.rs` (an address past its share is refused and let back in once it has
+  room; under constant load a real client proves its address and comes in; a session flooding its
+  hangar is refused, then ended, and others are none the worse).
+

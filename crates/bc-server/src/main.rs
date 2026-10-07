@@ -60,6 +60,12 @@ struct Args {
     /// Open the colony (survival): the bays' airlocks lead to the cap lifts, down into its city.
     #[arg(long)]
     colony: bool,
+    /// Connections taken in all, handshaking or open.
+    #[arg(long, default_value_t = bc_server::net::admit::Limits::default().connections)]
+    max_connections: u32,
+    /// Connections taken from one address (loopback excepted).
+    #[arg(long, default_value_t = bc_server::net::admit::Limits::default().per_address)]
+    per_address: u32,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -90,6 +96,11 @@ fn main() -> anyhow::Result<()> {
         craft_speed: args.craft_speed.max(0.01),
         data_dir: args.data_dir,
         colony: args.colony,
+        limits: bc_server::net::admit::Limits {
+            connections: args.max_connections.max(1),
+            per_address: args.per_address.max(1),
+            ..bc_server::net::admit::Limits::default()
+        },
         ..Config::default()
     };
     // Two workers are plenty: all game work happens on the dedicated sector thread.

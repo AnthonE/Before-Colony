@@ -91,6 +91,8 @@ pub struct Config {
     pub data_dir: Option<PathBuf>,
     /// The colony is open (survival): pilots may ride the cap lifts down into its city.
     pub colony: bool,
+    /// How many connections it takes, in all and from one address (`net::admit`).
+    pub limits: crate::net::admit::Limits,
 }
 
 impl Default for Config {
@@ -117,6 +119,7 @@ impl Default for Config {
             craft_speed: 1.0,
             data_dir: None,
             colony: false,
+            limits: crate::net::admit::Limits::default(),
         }
     }
 }

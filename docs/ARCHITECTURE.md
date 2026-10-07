@@ -716,6 +716,36 @@ fire, beside 4 dolls).
 | `bc-sector/tests/sleep_net.rs`, `bc-server/tests/hide.rs` | A rider that wakes keeps its grip until its pilot is heard from; under survival a suit parked in a hide spot is reported, and restored into a fresh sector exactly where it was, dark after 8 s. Through a real server: a hidden suit is put back at boot (in `/status` and the roster before anyone connects) and its pilot wakes in it, grounded and crouched within 1 cm of where it was, with its hold; a record saved for other landmarks (an older `LANDMARKS_VERSION`) is towed home; a restored sleeper destroyed isn't restored again, and one hunted comes back as its hunters left it; a restore answered too late is discarded; `/status` counts hidden sleepers and gives no positions. |
 | `bc-model` tests | Every design stays within 2.6 m of its hit capsules (Neo-Bird's own), no two frames share a mesh, every kit has the sockets it's drawn from, a suit of mixed parts takes each section's bones and sockets from its own frame, the cockpit's eye sees out past the suit it rides (nothing drawn inside the near plane or across the crosshair's 15°), and the triangle budgets; the cockpit keeps a clear box round the crosshair and its screens share one texture without stretching; the occlusion bake (open where nothing's near, shaded where pieces meet, and quick enough for startup). |
 
+## Under abuse
+
+Titanfall's servers were DDoSed out of the game for years (`PEERS.md`, "Staying up"). A flood of
+packets is for the network in front of the server to stop: a host's scrubbing, anycast, a firewall's
+rate limits on the UDP port. The server keeps a flood of connections or requests from crowding the
+pilots out, and its limits are counted on `/status`.
+
+- **Connections** (`bc-server` `net::admit`, in the accept loop):
+  - With more than 32 handshakes under way, an address that hasn't proved it hears back is sent a
+    QUIC Retry first. Spoofed sources never get a handshake, and until an address is validated
+    QUIC sends it at most three times what it sent.
+  - One address holds at most 8 connections, handshaking or open (`--per-address`): an IPv4
+    address (mapped into IPv6 or not), or an IPv6 address's /64, which is what one subscriber is
+    given. Loopback is excepted: the server's own agents connect from it.
+  - At most 512 connections in all (`--max-connections`). Past either cap the attempt is refused.
+  - QUIC's handshake and then WebTransport's must each finish within 5 s.
+- **A session** (`net::game`, `net::session`):
+  - Its control stream must open, and its Hello arrive, within 5 s each.
+  - At most 128 sign-ins wait on a wallet at once, each for at most a minute (`Config::sign_wait`).
+  - Control frames are at most 256 bytes and hangar frames 64 KiB, so a stream's buffer stays small.
+  - Inputs and on-foot poses: 120 a second, in bursts of 240; past that they're dropped.
+  - Hangar requests and respawns: 10 a second, in bursts of 40. Past that they're refused, and a
+    session refused 200 times in a row is ended.
+  - The radio: 5 lines in 10 s, 160 characters each.
+  - A session in the sector that sends no input for a minute is ended (`Config::idle_timeout`).
+- **The sector** is out of reach: its slots are leased (a session without one is refused at its
+  Hello), and its queues are bounded, so a session can't make the tick allocate or wait.
+- **Not covered here:** the HTTP server is the development one. Deployed, it goes behind a reverse
+  proxy or a CDN with timeouts and its own limits.
+
 ## Scaling path
 
 1. **One sector per server** (now), and a second for the colony's inside. The server builds one

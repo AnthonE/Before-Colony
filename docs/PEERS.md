@@ -455,7 +455,9 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
 20. **A test range** (Armored Core VI): the Blast Hall's trainers fly any buildable suit.
 21. **Aces, pay or salvage** (Armored Core VI's Arena, MechWarrior 5's contracts): named Doll
     aces with bounties, taken as pay or as rights to the wreck.
-22. **Staying up** (Titanfall's DDoS years): a review of the server's limits under abuse.
+22. **Staying up** (Titanfall's DDoS years): a review of the server's limits under abuse, and
+    what it lacked: a Retry under load, a share per address, a ceiling, handshake deadlines and a
+    limit on hangar requests (`ARCHITECTURE.md`, "Under abuse"). *Built.*
 
 ## Sources
 
