@@ -693,6 +693,10 @@ impl Sim {
         let mut mods = tuning::flight_mods(&tuned, self.cfg.flight, doll, extra_mass_kg);
         mods.interior = self.interior();
         mods.main *= tuning::sputter(&tuned, t, i as u16);
+        // A scrammed reactor powers no ion drive (the owner's client knows for how long).
+        if s.status[i].scram > 0 {
+            mods.ion = 0.0;
+        }
         if busy {
             mods.ambac = busy_ambac(mods.ambac);
         }
@@ -751,6 +755,7 @@ impl Sim {
         let bodies = Bodies::at(&self.field, self.landmarks(), t).inside(interior);
         for i in used.iter() {
             let asleep = self.suits.sleeping.get(i);
+            self.suits.ion_load[i] = 0.0;
             if !self.suits.alive.get(i) {
                 // Wrecks drift (and fetch up against rocks and landmarks).
                 let f = &mut self.suits.flight[i];
@@ -778,6 +783,7 @@ impl Sim {
                 }
                 (s.flight[i], s.footing[i], s.anchor[i]) = (m.flight, m.footing, m.anchor);
                 s.boosting[i] = out.flight.boosting;
+                s.ion_load[i] = out.flight.ion;
                 if !asleep {
                     let u = &mut s.usage[i];
                     u.burn += u32::from(out.flight.throttle.z > 0.1);
@@ -923,9 +929,13 @@ impl Sim {
                 if s.special[i].lockout > 0 {
                     s.overheated[i] = true;
                 }
-                // A scrammed reactor gives nothing until it's back.
+                // A scrammed reactor gives nothing until it's back, and an ion drive at work takes
+                // its share.
                 let st = &mut s.status[i];
-                let regen = if st.scram > 0 { 0.0 } else { spec.energy_regen * tuned.regen };
+                let mut regen = if st.scram > 0 { 0.0 } else { spec.energy_regen * tuned.regen };
+                if s.ion_load[i] > 0.0 {
+                    regen *= 1.0 - crate::content::modules::ION_DRIVE_REGEN * s.ion_load[i];
+                }
                 st.scram = st.scram.saturating_sub(1);
                 st.concussed = st.concussed.saturating_sub(1);
                 st.stim = st.stim.saturating_sub(1);

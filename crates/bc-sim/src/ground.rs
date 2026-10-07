@@ -355,9 +355,13 @@ pub fn move_step(b: &Bodies, m: &mut Mover, cmd: &InputCmd, cx: &MoveCtx, dt: f3
                 };
                 flight::pilot_g(&mut m.flight, m.anchor.rot.conjugate() * (acc_l + held), &cx.mods, dt);
                 let accel = pose.rot * acc_l;
-                // Legs burn nothing, so under anime rules the boost gauge fills here too.
+                // Legs burn nothing, so under anime rules the boost gauge fills here too (an ion
+                // drive working at it).
+                let before = m.flight.propellant;
                 flight::refill(&mut m.flight, cx.spec, &cx.mods, dt);
-                out.flight = FlightOut { boosting: false, accel, throttle: Vec3::ZERO, g_limited: false };
+                let ion = if cx.mods.ion > 0.0 && m.flight.propellant > before { 1.0 } else { 0.0 };
+                out.flight =
+                    FlightOut { boosting: false, accel, throttle: Vec3::ZERO, g_limited: false, ion };
                 false
             } else {
                 let (fo, touch, rel) =

@@ -59,6 +59,8 @@ pub struct OwnView {
     pub throttle: Vec3,
     /// Flight assist is holding the pilot's G down.
     pub g_limited: bool,
+    /// The ion drive is working.
+    pub ion: bool,
     /// The form drawn.
     pub frame: FrameId,
     /// The mount of a strike in its windup or stroke, as predicted: the swing starts with the
@@ -193,6 +195,7 @@ impl Drawn {
             boosting: src.boosting,
             throttle: src.throttle,
             g_limited: src.g_limited,
+            ion: src.ion,
             frame: src.frame,
             strike: src.strike,
             ground: src.ground,
@@ -222,6 +225,7 @@ mod tests {
             boosting: false,
             throttle: Vec3::ZERO,
             g_limited: false,
+            ion: false,
             frame: FrameId::Leo,
             strike: None,
             ground: None,

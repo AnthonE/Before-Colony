@@ -15,7 +15,7 @@ the bay, space, home).
 | P1: the Proving Ground: its course, the Blast Hall, its live fire, trainers boarded there, the drill and the board (`TRAINING.md`, phases 1 to 5) | built |
 | Living in the colony, L0: seats, the body and its meals (`LIFE.md`) | built (a framework: nothing on the wire yet) |
 | The loop's loose ends, first pass: the colony open by default, launching out of the pilot's own bay door, landing on the docking hub and walking in, hints along the way (below) | built |
-| Propulsion: bigger tanks, the extended tank, propellant grades (`DESIGN.md`) | built |
+| Propulsion: bigger tanks, the extended tank, propellant grades, the ion drive (`DESIGN.md`) | built |
 | P1's rest, P2 below, the loose ends left | planned |
 
 ## The loop's loose ends
@@ -56,6 +56,9 @@ Next, each a PR of its own:
   clock; on the throw the suit's drawn place blends between them (`own.rs`), which shows as a lurch
   of a door's width if the release lands after the cut. Draw the colony on the own clock during the
   shot if it shows.
+- **Auto-nav on an ion drive's crawl.** The auto-nav plans its braking on the chemical thrusters
+  (`nav::planned_braking`); a dry suit crawling home on its drive (0.1 g) brakes far later than it
+  can, and overshoots. Plan on the drive's thrust when the tank is dry.
 
 Later:
 

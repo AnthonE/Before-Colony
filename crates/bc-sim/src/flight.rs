@@ -18,6 +18,9 @@
 //! - **Anime rules** ([`BoostGauge`], `crate::tuning::FlightRules`): the tank is a boost gauge. Only
 //!   boost burns it; flying, turning on RCS and a blade's lunge are free, and work on an empty
 //!   tank; and it fills back up whenever boost is let go.
+//! - **An ion drive** ([`ion_thrust`], `FlightMods::ion`): under the real rules the first of each
+//!   tick's thrust is the drive's, on the reactor's power, and burns nothing; a dry tank still
+//!   gives that much. Under anime rules it fills the gauge faster.
 
 use bc_proto::InputCmd;
 use bc_proto::buttons::{BOOST, BRAKE, BURST, FLIGHT_ASSIST, RCS_SHARP};
@@ -27,6 +30,7 @@ use glam::{Quat, Vec3};
 
 use crate::config::G0;
 use crate::content::FrameSpec;
+use crate::content::modules as md;
 use crate::field::Field;
 use crate::math::{atan2, clamp_to_cone, integrate_rotation, length, normalize_or, sqrt};
 
@@ -236,6 +240,9 @@ pub struct FlightMods {
     /// Inside the colony, in its own frame (`colony::interior`): the spin's pull, Coriolis and the
     /// air act on the suit, and flight assist holds against them.
     pub interior: bool,
+    /// The ion drive's power, of its full output ([`ion_thrust`]): 0 without one, or with the
+    /// reactor scrammed.
+    pub ion: f32,
 }
 
 impl Default for FlightMods {
@@ -260,6 +267,7 @@ impl Default for FlightMods {
             lockon: None,
             gauge: None,
             interior: false,
+            ion: 0.0,
         }
     }
 }
@@ -320,6 +328,21 @@ pub struct FlightOut {
     pub throttle: Vec3,
     /// Flight assist held the pilot's G down this tick.
     pub g_limited: bool,
+    /// How hard the ion drive worked, of its power (0..1): the thrust it gave under the real
+    /// rules; under anime rules, filling the gauge.
+    pub ion: f32,
+}
+
+/// An ion drive's thrust at full power on frame `spec`, N: [`ION_DRIVE_G`](md::ION_DRIVE_G) of the
+/// frame on a full tank.
+pub fn ion_thrust(spec: &FrameSpec) -> f32 {
+    md::ION_DRIVE_G * G0 * spec.mass(spec.propellant_cap)
+}
+
+/// The sum of a thrust's axes, N: what it burns by.
+#[inline]
+fn l1(f: Vec3) -> f32 {
+    f.x.abs() + f.y.abs() + f.z.abs()
 }
 
 #[inline]
@@ -372,6 +395,8 @@ pub fn integrate(
     let has_prop = s.propellant > 0.0;
     // Under anime rules only boost needs propellant.
     let powered = has_prop || mods.gauge.is_some();
+    // Under the real rules an ion drive gives the first of the thrust, dry or not.
+    let f_ion = if mods.gauge.is_none() && mods.ion > 0.0 { ion_thrust(spec) * mods.ion } else { 0.0 };
     let authority = if s.blackout { 0.25 } else { 1.0 };
     // Inside the colony: what the spin and the air do to it this tick, and the air's part of it.
     let ext = mods.interior.then(|| {
@@ -501,7 +526,15 @@ pub fn integrate(
     }
     f_local *= mods.thrust * authority;
     if !powered {
-        f_local = Vec3::ZERO;
+        // Dry: what an ion drive gives alone (nothing without one).
+        let demand = l1(f_local);
+        f_local = if f_ion <= 0.0 {
+            Vec3::ZERO
+        } else if demand > f_ion {
+            f_local * (f_ion / demand)
+        } else {
+            f_local
+        };
     }
     // Flight assist spares its pilot's body: short of boost (or a blade's lunge), it holds them
     // under what they bear for good each way, whatever their tank and the thrusters could do.
@@ -512,19 +545,26 @@ pub fn integrate(
     if g_limited {
         f_local *= most / pull;
     }
-    // Under anime rules only boost burns (and a burst step, which is one).
+    // Under anime rules only boost burns (and a burst step, which is one); an ion drive's share
+    // burns nothing.
+    let demand = l1(f_local);
     if mods.gauge.is_none() || boosting || burst.is_some() {
-        let burn =
-            (f_local.x.abs() + f_local.y.abs() + f_local.z.abs()) * dt / (spec.exhaust_velocity() * mods.isp);
+        let chemical = if f_ion > 0.0 { (demand - f_ion).max(0.0) } else { demand };
+        let burn = chemical * dt / (spec.exhaust_velocity() * mods.isp);
         s.propellant = (s.propellant - burn).max(0.0);
     }
+    let mut ion = if f_ion > 0.0 { demand.min(f_ion) / f_ion } else { 0.0 };
     if mods.leak_kg_s > 0.0 {
         s.propellant = (s.propellant - mods.leak_kg_s * dt).max(0.0);
     }
     // It fills only once boost is let go (and a step is done), so a pilot leaning on an empty gauge
     // gets nothing.
     if !(cmd.pressed(BOOST) && can_boost) && burst.is_none() {
+        let before = s.propellant;
         refill(s, spec, mods, dt);
+        if mods.ion > 0.0 && s.propellant > before {
+            ion = 1.0;
+        }
     }
     let axial = if f_local.z >= 0.0 { spec.main_thrust } else { spec.retro_thrust };
     // Against the healthy caps: damaged thrusters read as a lower throttle (the sound, the plumes).
@@ -545,7 +585,7 @@ pub fn integrate(
     }
     pilot_g(s, felt, mods, dt);
     // A step is seen as boost is (its plumes, its heat on sensors).
-    FlightOut { boosting: boosting || burst.is_some(), accel, throttle, g_limited }
+    FlightOut { boosting: boosting || burst.is_some(), accel, throttle, g_limited, ion }
 }
 
 /// Anime rules ([`BoostGauge`]): `dt` of the tank filling back up, to its size. Nothing under the
@@ -554,8 +594,10 @@ pub fn integrate(
 pub fn refill(s: &mut FlightState, spec: &FrameSpec, mods: &FlightMods, dt: f32) {
     if let Some(g) = mods.gauge {
         let tank = spec.propellant_cap * g.tank;
+        // An ion drive fills it faster.
+        let rate = if mods.ion > 0.0 { g.refill * (1.0 + md::ION_DRIVE_REFILL * mods.ion) } else { g.refill };
         if s.propellant < tank {
-            s.propellant = (s.propellant + tank * g.refill * dt).min(tank);
+            s.propellant = (s.propellant + tank * rate * dt).min(tank);
         }
     }
 }
@@ -996,7 +1038,7 @@ mod tests {
             }
 
             crate::world::constrain(s);
-            FlightOut { boosting, accel, throttle, g_limited }
+            FlightOut { boosting, accel, throttle, g_limited, ion: 0.0 }
         }
     }
 

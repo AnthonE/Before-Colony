@@ -56,6 +56,7 @@ fn each_module_changes_its_stat() {
     check(ModuleKind::DamageControl, &|_, b| b.repairs);
     check(ModuleKind::AuxiliaryTank, &|a, b| b.tank > a.tank);
     check(ModuleKind::ExtendedTank, &|a, b| b.tank > a.tank);
+    check(ModuleKind::IonDrive, &|a, b| b.ion > a.ion);
     check(ModuleKind::ThrusterKit, &|a, b| b.main > a.main && b.isp < a.isp);
     check(ModuleKind::LegVerniers, &|a, b| b.side > a.side);
     check(ModuleKind::CargoRack, &|a, b| b.hold_kg > a.hold_kg && b.ambac < a.ambac);

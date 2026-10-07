@@ -272,10 +272,13 @@ fn survival_launches_docks_and_losses_never_allocate() {
             l.modules.set(1, Some(ModuleKind::DamageControl));
             l.modules.set(4, Some(ModuleKind::AuxiliaryTank));
         }
-        // Every third flies a purer propellant, in a bigger tank.
+        // Every third flies a purer propellant, in a bigger tank, and half of them on an ion drive.
         if slot % 3 == 1 {
             l.grade = bc_sim::content::Grade::Refined;
             l.modules.set(2, Some(bc_sim::content::ModuleKind::ExtendedTank));
+            if !slot.is_multiple_of(2) {
+                l.modules.set(4, Some(bc_sim::content::ModuleKind::IonDrive));
+            }
         }
         l
     };

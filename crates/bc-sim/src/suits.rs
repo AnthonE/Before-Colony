@@ -219,6 +219,9 @@ pub struct Suits {
     pub modules: Box<[Modules]>,
     /// What's in its tank (`content::propellant`).
     pub grade: Box<[Grade]>,
+    /// How hard its ion drive worked this tick, of its power (`flight::FlightOut::ion`): what it
+    /// takes from the reactor.
+    pub ion_load: Box<[f32]>,
     /// The consumables in its rack (survival: `content::kits`).
     pub kits: Box<[Kits]>,
     /// What it has been through since it launched.
@@ -304,6 +307,7 @@ impl Suits {
             systems: boxed(cap, Systems::OK),
             modules: boxed(cap, Modules::NONE),
             grade: boxed(cap, Grade::Standard),
+            ion_load: boxed(cap, 0.0f32),
             status: boxed(cap, Status::default()),
             tuning: boxed(cap, Tuning::default()),
             zero: boxed(cap, ZeroState::default()),
@@ -391,6 +395,7 @@ impl Suits {
         self.systems[idx] = Systems::OK;
         self.modules[idx] = Modules::NONE;
         self.grade[idx] = Grade::Standard;
+        self.ion_load[idx] = 0.0;
         self.kits[idx] = Kits::NONE;
         self.usage[idx] = Usage::default();
         self.status[idx] = Status::default();

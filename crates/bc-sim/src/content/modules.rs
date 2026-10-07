@@ -36,10 +36,14 @@ pub enum ModuleKind {
     CargoRack = 12,
     /// Torso: a bigger tank again (it stacks with the auxiliary tank).
     ExtendedTank = 13,
+    /// Backpack: an electric thruster on the reactor's power. Under the real rules the first of
+    /// the thrust burns no propellant and a dry tank still crawls; under anime rules the gauge
+    /// fills faster. It draws on the reactor while it works.
+    IonDrive = 14,
 }
 
 impl ModuleKind {
-    pub const COUNT: usize = 13;
+    pub const COUNT: usize = 14;
     pub const ALL: [ModuleKind; Self::COUNT] = [
         ModuleKind::SensorArray,
         ModuleKind::FireControlComputer,
@@ -54,6 +58,7 @@ impl ModuleKind {
         ModuleKind::LegVerniers,
         ModuleKind::CargoRack,
         ModuleKind::ExtendedTank,
+        ModuleKind::IonDrive,
     ];
 
     /// The kind with code `v` (0 and unknown codes: none).
@@ -65,7 +70,7 @@ impl ModuleKind {
     pub fn part(self) -> Part {
         match self {
             ModuleKind::SensorArray | ModuleKind::FireControlComputer => Part::Head,
-            ModuleKind::AuxiliaryTank | ModuleKind::ThrusterKit => Part::Backpack,
+            ModuleKind::AuxiliaryTank | ModuleKind::ThrusterKit | ModuleKind::IonDrive => Part::Backpack,
             ModuleKind::LegVerniers | ModuleKind::CargoRack => Part::Legs,
             _ => Part::Torso,
         }
@@ -87,6 +92,7 @@ impl ModuleKind {
             ModuleKind::LegVerniers => 150,
             ModuleKind::CargoRack => 250,
             ModuleKind::ExtendedTank => 150,
+            ModuleKind::IonDrive => 250,
         }
     }
 
@@ -105,6 +111,7 @@ impl ModuleKind {
             ModuleKind::LegVerniers => "leg_verniers",
             ModuleKind::CargoRack => "cargo_rack",
             ModuleKind::ExtendedTank => "extended_tank",
+            ModuleKind::IonDrive => "ion_drive",
         }
     }
 
@@ -127,6 +134,7 @@ impl ModuleKind {
             ModuleKind::LegVerniers => "Leg verniers",
             ModuleKind::CargoRack => "Cargo rack",
             ModuleKind::ExtendedTank => "Extended tank",
+            ModuleKind::IonDrive => "Ion drive",
         }
     }
 
@@ -146,6 +154,9 @@ impl ModuleKind {
             ModuleKind::LegVerniers => "lateral and vertical thrust ×1.25; +150 kg",
             ModuleKind::CargoRack => "hold +1,000 kg; AMBAC ×0.9; +250 kg",
             ModuleKind::ExtendedTank => "tank ×1.25 (×1.75 with an auxiliary tank); +150 kg",
+            ModuleKind::IonDrive => {
+                "0.1 g on the reactor alone (real rules: burns nothing, crawls home dry); boost refills ×1.5; regen ×0.5 while it works; +250 kg"
+            }
         }
     }
 }
@@ -172,6 +183,12 @@ pub const THRUSTER_KIT_ISP: f32 = 0.88;
 pub const LEG_VERNIERS: f32 = 1.25;
 pub const CARGO_RACK_KG: u32 = 1_000;
 pub const CARGO_RACK_AMBAC: f32 = 0.9;
+/// The ion drive: its thrust at full power, g of the frame on a full tank; how much faster it fills
+/// a boost gauge at full power (anime rules); how much of the reactor's regeneration it takes while
+/// it works at full power.
+pub const ION_DRIVE_G: f32 = 0.1;
+pub const ION_DRIVE_REFILL: f32 = 0.5;
+pub const ION_DRIVE_REGEN: f32 = 0.5;
 /// Damage control: ticks to restore one damaged system, and the energy it draws meanwhile, /s.
 pub const REPAIR_TICKS: u16 = 750;
 pub const REPAIR_ENERGY: f32 = 4.0;

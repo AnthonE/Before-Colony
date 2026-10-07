@@ -797,6 +797,7 @@
         row("MASS", `${fmt(st.mass_kg)} kg`) +
         row("TANK", `${fmt(st.tank_kg)} kg`) +
         row("BOOST", `${Math.round(st.boost_s)} s on a full tank`) +
+        (st.ion_g > 0 ? row("ION DRIVE", `${st.ion_g.toFixed(2)} g on the reactor alone`) : "") +
         row("SENSORS", `${(st.sensor_m / 1000).toFixed(1)} km`) +
         row("SIGNATURE", `×${st.signature.toFixed(2)}`) +
         row("ENERGY", `${fmt(Math.round(st.energy))} (+${st.regen.toFixed(1)}/s)`) +

@@ -97,6 +97,8 @@ pub struct Tuning {
     pub repairs: bool,
     /// What the modules weigh, kg.
     pub module_kg: u32,
+    /// The ion drive's power, of its full output: the reactor's (0: none fitted).
+    pub ion: f32,
 }
 
 impl Default for Tuning {
@@ -154,6 +156,7 @@ pub fn tuning(gone: u8, systems: Systems, modules: Modules) -> Tuning {
         cone_r: sys::ACTUATORS[level(System::ActuatorR)],
         repairs: false,
         module_kg: 0,
+        ion: 0.0,
     };
     // Each module on a part still on (a suit with none flies exactly as above).
     for (_, kind) in modules.fitted(gone) {
@@ -191,6 +194,7 @@ pub fn tuning(gone: u8, systems: Systems, modules: Modules) -> Tuning {
                 t.hold_kg += md::CARGO_RACK_KG;
                 t.ambac *= md::CARGO_RACK_AMBAC;
             }
+            ModuleKind::IonDrive => t.ion = sys::REACTOR[level(System::Reactor)],
         }
     }
     t
@@ -249,6 +253,7 @@ pub fn flight_mods(t: &Tuning, rules: FlightRules, g_immune: bool, extra_mass_kg
         lockon: None,
         gauge: anime.then(|| BoostGauge { tank: t.tank, refill: t.refill / ANIME_REFILL_SECS }),
         interior: false,
+        ion: t.ion,
     }
 }
 

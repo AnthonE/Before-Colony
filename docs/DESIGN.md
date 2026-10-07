@@ -77,7 +77,8 @@ Dolls on them.)
 - **Anime** (the default). The tank is a **boost gauge** (the flight panel reads `BOOST`).
   - Only boost burns it, with all the thrust boost gives, as ever. Flying, turning on RCS,
     flight assist's braking and a blade's lunge burn nothing, and work on an empty gauge.
-  - Let go of Shift and it fills back up: a whole tank in 20 s, in flight or standing on a body.
+  - Let go of Shift and it fills back up: a whole tank in 20 s (about 13 s with an ion drive), in
+    flight or standing on a body.
     Leaning on boost with the gauge dry gets nothing (no boost, no refill), and flight assist
     holds the plain cruise, not boost's.
   - A holed tank refills at half the rate, and a failed one not at all: it leaks dry, and the suit
@@ -90,7 +91,7 @@ Dolls on them.)
     propellant than it launched with.
 - **Real.** Every newton burns propellant at `|F| / (Isp·g0)` (the rest of this section), and a
   pilot bears 6 g headward, more or less the other ways (**Pilot G**, below). The tank is the
-  sortie's delta-v: brake before you're dry.
+  sortie's delta-v: brake before you're dry, or carry an ion drive home.
 
 - **Thrust** is limited per axis: main (forward), side (lateral and vertical) and retro. Boost
   multiplies main thrust. Every newton burns propellant at `|F| / (Isp·g0)`, so mass falls as you
@@ -382,6 +383,7 @@ fixed design with a physical trade-off (`bc_sim::content::modules`):
 | Damage control | torso | restores one damaged system every 25 s (never a failed one) | 4 energy/s while it works |
 | Auxiliary tank | backpack | tank ×1.4 (a Leo's delta-v about +30%) | 200 kg |
 | Extended tank | torso | tank ×1.25 (a Leo's delta-v about +18%; ×1.75 with an auxiliary tank, 5.25 t) | 150 kg |
+| Ion drive | backpack | 0.1 g on the reactor's power alone (below) | 250 kg; half the reactor's regeneration while it works |
 | Thruster kit | backpack | main thrust ×1.15 | specific impulse ×0.88 |
 | Leg verniers | legs | lateral and vertical thrust ×1.25 | 150 kg |
 | Cargo rack | legs | hold +1,000 kg | AMBAC ×0.9, 250 kg |
@@ -389,6 +391,17 @@ fixed design with a physical trade-off (`bc_sim::content::modules`):
 The owner's client builds the same stat sheet from its snapshot (the systems' levels and the
 modules' codes), so a suit that coughs, leaks and carries a thruster kit is predicted as exactly
 as a whole one.
+
+**The ion drive** is the suits' electric thruster: 0.1 g of the frame on a full tank (9.9 kN on a
+Leo), on the reactor's power alone, as much as its reactor gives (half on a damaged one, 15% on a
+failed one; nothing while it's scrammed). Under the real rules the first of each tick's thrust is
+the drive's and burns nothing, so gentle flying is free and hard burns cost a little less; and a dry
+tank still gives that much (RCS stays dry: the suit turns on AMBAC), a crawl home where a suit
+without one only drifts. Under anime rules it fills the boost gauge half as fast again (a whole tank
+in about 13 s). While it works it takes up to half the reactor's regeneration. It competes for the
+backpack with the auxiliary tank and the thruster kit; the HUD shows `ION` while it's working. The
+owner's client predicts it as the server flies it, scram and all (the own state's `scram` says for
+how long), and the reactor's draw, which only the server keeps, never changes the flight.
 
 **Propellant grades** (`bc_sim::content::propellant`). What's in the tank goes further the purer
 it is: a grade multiplies the suit's specific impulse, so under the real rules each kilogram buys

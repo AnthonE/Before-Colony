@@ -979,7 +979,7 @@ pub fn update_hud(
         set(
             HudText::Flight,
             format!(
-                "{} {}\nSPD   {:>6.0} m/s{}\n{} {} {:>3.0}%{}\nHEAT  {} {:>3.0}%\nENGY  {} {:>3.0}%\nG     {:>4.1} g {:<3} STRAIN {}",
+                "{} {}\nSPD   {:>6.0} m/s{}\n{} {} {:>3.0}%{}{}\nHEAT  {} {:>3.0}%\nENGY  {} {:>3.0}%\nG     {:>4.1} g {:<3} STRAIN {}",
                 bc_sim::content::frame_designation(form),
                 frame_name(form).to_uppercase(),
                 speed,
@@ -987,6 +987,8 @@ pub fn update_hud(
                 if anime { "BOOST" } else { "PROP " },
                 bar(s.propellant / tank, 10),
                 100.0 * s.propellant / tank,
+                // The ion drive at work: thrust that burns nothing, or the gauge filling faster.
+                if view.is_some_and(|v| v.ion) { " ION" } else { "" },
                 if tuned.leak_kg_s > 0.0 {
                     format!(" LEAK -{:.0} kg/s", tuned.leak_kg_s)
                 } else if s.burst.cooldown > 0 {

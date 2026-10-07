@@ -15,6 +15,7 @@ use bc_sim::config::G0;
 use bc_sim::content::modules::MOUNTS;
 use bc_sim::content::salvage::{hold_kg, mass_without};
 use bc_sim::content::{ArmSlot, Grade, Kit, Kits, ModuleKind, Modules, frame};
+use bc_sim::flight::ion_thrust;
 use bc_sim::sim::{Homecoming, Loadout};
 use bc_sim::tuning::{flown, tank_cap, tuning};
 use serde::{Deserialize, Serialize};
@@ -354,6 +355,8 @@ pub struct Stats {
     pub mass_kg: u32,
     /// Under anime rules, how long a full tank boosts straight ahead, s.
     pub boost_s: f32,
+    /// An ion drive's thrust on the suit full, g (0: none).
+    pub ion_g: f32,
     /// Sustained G the pilot bears.
     pub g_tolerance: f32,
     /// Damage taken, of the frame's own.
@@ -395,6 +398,7 @@ impl Suit {
             hold_kg: hold_kg(self.line) + t.hold_kg,
             tank_kg: tank,
             mass_kg: wet,
+            ion_g: g(ion_thrust(spec) * t.ion),
             boost_s: if boosting > 0.0 {
                 tank as f32 * spec.exhaust_velocity() * t.isp / boosting
             } else {
@@ -451,6 +455,17 @@ mod tests {
             held: None,
             bounty: 0,
         }
+    }
+
+    /// An ion drive's thrust on the stat sheet: 0.1 g of the frame on a full tank, a little less
+    /// of the suit carrying it.
+    #[test]
+    fn the_stat_sheet_shows_an_ion_drive() {
+        let mut s = Suit::complete(FrameId::Leo);
+        assert_eq!(s.stats().ion_g, 0.0);
+        s.modules[4] = Some(ModuleKind::IonDrive);
+        let g = s.stats().ion_g;
+        assert!(g > 0.09 && g < 0.1, "{g}");
     }
 
     /// A purer grade goes further: delta-v and boost by its specific impulse. A suit is written

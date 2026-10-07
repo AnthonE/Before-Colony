@@ -163,6 +163,7 @@ fn module_recipe(k: ModuleKind) -> Recipe {
         DamageControl => (&[(COMPONENTS, 100), (ELECTRONICS, 30)], 180),
         AuxiliaryTank => (&[(COMPONENTS, 40), (TI_ALLOY, 120)], 90),
         ExtendedTank => (&[(COMPONENTS, 30), (TI_ALLOY, 80)], 75),
+        IonDrive => (&[(COMPONENTS, 80), (ELECTRONICS, 40), (EXOTICS, 30), (TI_ALLOY, 40)], 180),
         ThrusterKit => (&[(COMPONENTS, 80), (TI_ALLOY, 60), (EXOTICS, 10)], 150),
         LegVerniers => (&[(COMPONENTS, 60), (TI_ALLOY, 60)], 90),
         CargoRack => (&[(COMPONENTS, 30), (STEEL, 200)], 60),

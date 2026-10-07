@@ -797,6 +797,7 @@ impl ClientCore {
             boosting: own.alive && own.flags & own_flags::BOOSTING != 0,
             throttle: Vec3::ZERO,
             g_limited: false,
+            ion: false,
             frame: own.frame,
             strike: (own.alive && matches!(own.arms.phase, 1 | 2)).then_some(own.arms.slot),
             ground: None,
