@@ -211,10 +211,12 @@ pub enum Update {
         text: String,
         ok: bool,
     },
-    /// A sortie ended.
+    /// A sortie ended, and (survival) its payout sheet.
     Sortie {
         outcome: Outcome,
         text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        debrief: Option<crate::debrief::Debrief>,
     },
     /// News for the pilot (a first arrival; the colony's announcements).
     News {

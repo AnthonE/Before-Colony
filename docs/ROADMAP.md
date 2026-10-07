@@ -17,6 +17,7 @@ the bay, space, home).
 | The mech games, 15: doom, ejecting and the self-destruct | built |
 | The mech games, 16: stagger | built |
 | The mech games, 17: specials charged by the fight | built |
+| The mech games, 18: the debrief | built |
 | The mech games, 22: staying up under abuse | built |
 | P1's rest, P2, the mech games' rest below | planned |
 
@@ -211,6 +212,19 @@ fight").
 - Tests: `full_open.rs` (its barrage charges nothing; dealt and taken take their shares; the own
   state's charge; a hard fight charges it in full), `melee.rs` (the Cross Crusher's own blows).
   The Gundams duel's golden is re-recorded, and the lock-on scenario's for the hash's new reach.
+
+**18. The debrief.** *Built* (`DESIGN.md`, "Sorties").
+- `bc_econ::debrief`: a sortie's lines at the colony's values (`catalogue::value`): earned (bounties,
+  the hold's ore, the salvage in hand, by what it adds to the stores) and spent (propellant burnt,
+  rounds fired or lost with their mount, the rack used, the armour's repair, what was shot off; a
+  loss writes the suit off whole), and the net.
+- `Hangar::came_home_debriefed` and `lost_debriefed`, from the suit as it went out (`Bay::Out`) and
+  as it came home; the session sends the sheet with the sortie (`Update::Sortie`'s `debrief`, an
+  optional field: no new version).
+- The client: under the news for 12 s (`#debrief`), and line by line in the terminals' log;
+  `HangarState::last_debrief` for agents.
+- Tests: the debrief's and the hangar's units, and `bc-server/tests/hangar.rs` (docked, the stim the
+  rack used is on it; ejected, the suit is written off).
 
 **22. Staying up.** *Built* (`ARCHITECTURE.md`, "Under abuse").
 - The review found inputs, poses and the radio limited, sign-ins waiting on a wallet capped, and

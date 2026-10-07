@@ -19,6 +19,8 @@
   let toastTimer = null;
   let newsSeq = 0;
   let newsTimer = null;
+  let debriefSeq = 0;
+  let debriefTimer = null;
   // Survival rules (the server's /status says): the title has no frame to choose.
   let survival = false;
 
@@ -300,6 +302,43 @@
         newsTimer = setTimeout(() => show(n, false), 5000);
       }
     }
+
+    // A sortie's payout sheet: what it earned and cost, for a while under its news.
+    if (v.debriefSeq !== debriefSeq) {
+      debriefSeq = v.debriefSeq;
+      const box = $("debrief");
+      if (v.debrief && v.debrief.length) {
+        const cr = (n) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${Math.abs(n).toLocaleString("en-US")} CR`;
+        const lines = $("debrief-lines");
+        lines.replaceChildren(
+          ...v.debrief.map(([what, n]) => {
+            const row = document.createElement("div");
+            const a = document.createElement("span");
+            const b = document.createElement("span");
+            a.textContent = what;
+            b.textContent = cr(n);
+            b.className = n >= 0 ? "earned" : "spent";
+            row.append(a, b);
+            return row;
+          }),
+        );
+        const net = $("debrief-net");
+        net.replaceChildren();
+        const a = document.createElement("span");
+        const b = document.createElement("span");
+        a.textContent = "NET";
+        b.textContent = cr(v.debriefNet);
+        net.append(a, b);
+        net.classList.toggle("bad", v.debriefNet < 0);
+        show(box, true);
+        clearTimeout(debriefTimer);
+        debriefTimer = setTimeout(() => show(box, false), 12000);
+      } else {
+        show(box, false);
+      }
+    }
+    // A panel opened over it puts it away.
+    if (v.panel !== "none") show($("debrief"), false);
 
     if (v.toastSeq !== toastSeq) {
       toastSeq = v.toastSeq;

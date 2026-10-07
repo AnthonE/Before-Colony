@@ -449,7 +449,8 @@ its `strip`, and `trainer: true` flying one of the Board's trainers (absent othe
 stock, parts with their condition, the bay: `empty`, `docked` or `out` with the suit, the job
 queues with their time left); `market` (every item's bid, ask, last and volume, the pilot's
 orders, the fee); `book` {`depth`, `history`}; `note` {`text`, `ok`} answering a request (or
-news: a job done, an order filled); `sortie` {`outcome`: `docked`, `lost`, `recovered`, `text`};
+news: a job done, an order filled); `sortie` {`outcome`: `docked`, `lost`, `recovered`, `text`, and docked or lost its `debrief` {`lines`:
+[{`what`, `cr`}]}: the sortie's payout sheet, credits earned positive and spent negative};
 `news` {`text`} (a pilot's arrival; the colony's announcements); `people` {`people`: [{`id`,
 `name`}]} (in the city: the names of people seen there for the first time, by the slot the plaza's
 datagrams use); `charter` (the Charter Board, while watched: the era, the contracts with their

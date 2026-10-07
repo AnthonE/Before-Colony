@@ -285,11 +285,14 @@ impl Session<'_> {
         let mut sortie = None;
         if self.survival() && !woke && matches!(self.hangar.bay, Bay::Out { .. }) {
             sortie = Some(match news {
-                Some(Fate::Destroyed { .. }) => (SortieOutcome::Lost, self.hangar.lost(0)),
+                Some(Fate::Destroyed { .. }) => {
+                    let (text, debrief) = self.hangar.lost_debriefed(0);
+                    (SortieOutcome::Lost, text, Some(debrief))
+                }
                 // Cleared for room, or from before the server restarted: towed in.
                 _ => {
                     self.hangar.recover();
-                    (SortieOutcome::Recovered, "THE COLONY'S TUGS BROUGHT YOUR SUIT IN".to_string())
+                    (SortieOutcome::Recovered, "THE COLONY'S TUGS BROUGHT YOUR SUIT IN".to_string(), None)
                 }
             });
         }
@@ -345,8 +348,8 @@ impl Session<'_> {
             self.place = if self.suit.is_some() { Place::Space } else { Place::Hangar };
             self.settle(true);
             self.send_place().await?;
-            if let Some((outcome, text)) = sortie {
-                self.send(&Update::Sortie { outcome, text }).await?;
+            if let Some((outcome, text, debrief)) = sortie {
+                self.send(&Update::Sortie { outcome, text, debrief }).await?;
             }
             if let Some(text) = advanced {
                 self.send(&Update::News { text }).await?;
@@ -1293,12 +1296,13 @@ impl Session<'_> {
             Report::Home(home) => {
                 self.unseat();
                 self.out_of_the_colony().await?;
-                let text = self.hangar.came_home(&home);
+                let (text, debrief) = self.hangar.came_home_debriefed(&home);
                 self.patrol_bounties(home.bounty).await?;
                 self.place = Place::Hangar;
                 tracing::info!(slot = self.slot, name = %self.callsign, "docked: {text}");
                 self.save().await;
-                self.send(&Update::Sortie { outcome: SortieOutcome::Docked, text }).await?;
+                self.send(&Update::Sortie { outcome: SortieOutcome::Docked, text, debrief: Some(debrief) })
+                    .await?;
                 self.send_place().await?;
                 self.send_hangar().await?;
                 self.send_market().await?;
@@ -1340,7 +1344,7 @@ impl Session<'_> {
             Report::Parked { .. } => {}
             Report::Lost { bounty, how } => {
                 self.lost = true;
-                let mut text = self.hangar.lost(bounty);
+                let (mut text, debrief) = self.hangar.lost_debriefed(bounty);
                 match how {
                     Loss::Destroyed => {}
                     Loss::Ejected => {
@@ -1352,7 +1356,8 @@ impl Session<'_> {
                 self.patrol_bounties(bounty).await?;
                 tracing::info!(slot = self.slot, name = %self.callsign, "suit lost");
                 self.save().await;
-                self.send(&Update::Sortie { outcome: SortieOutcome::Lost, text }).await?;
+                self.send(&Update::Sortie { outcome: SortieOutcome::Lost, text, debrief: Some(debrief) })
+                    .await?;
                 self.send_hangar().await?;
             }
         }

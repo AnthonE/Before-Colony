@@ -183,6 +183,11 @@ async fn a_pilot_works_the_bay_launches_and_docks() -> anyhow::Result<()> {
         b.core.hangar.view.as_ref().unwrap().stock.iter().find(|(i, _)| *i == item).map_or(0, |e| e.1)
     };
     assert_eq!((held(stim), held(chaff)), (0, 2));
+    // The debrief: the stim the rack used, at the colony's value, and nothing earned.
+    let debrief = b.core.hangar.last_debrief.clone().expect("a debrief");
+    let rack = bc_econ::catalogue::value(stim) as i64;
+    assert!(debrief.lines.iter().any(|l| l.what == "THE RACK" && l.cr == -rack), "{debrief:?}");
+    assert!(debrief.lines.iter().all(|l| l.cr < 0) && debrief.net() <= -rack, "{debrief:?}");
     b.close().await;
     server.shutdown();
     Ok(())
@@ -349,6 +354,9 @@ async fn a_pilot_who_ejects_has_the_wreck_towed_home() -> anyhow::Result<()> {
     b.wait_until(10.0, "the loss", |c| c.hangar.sorties.iter().any(|s| s.0 == Outcome::Lost)).await?;
     let (_, text) = b.core.hangar.sorties.last().cloned().unwrap();
     assert!(text.contains("YOU EJECTED"), "{text}");
+    // Its debrief writes the suit off (the tugs' haul comes later, as news).
+    let debrief = b.core.hangar.last_debrief.clone().expect("a debrief");
+    assert!(debrief.lines.iter().any(|l| l.what == "THE SUIT" && l.cr < 0), "{debrief:?}");
     b.wait_until(10.0, "back in the hangar", |c| c.hangar.in_hangar()).await?;
     assert!(docked(&b).is_none(), "the suit is gone");
     // Gone before the tugs get there: the wreck comes in now.

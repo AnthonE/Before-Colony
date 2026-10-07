@@ -906,6 +906,13 @@ every terminal in the bay, and the Charter Board's own desk in Charter Square.
   home 45 s later, unless someone else takes it first ("Doom and ejecting").
 - **Losing it:** a suit destroyed out there is gone, along with its hold. The bounties it earned are
   still paid, and the pilot is brought back to the bay through the airlock once the wreck clears.
+- **The debrief** (`bc_econ::debrief`; Armored Core VI's payout, X-Wing's debrief): every sortie
+  that ends, docked or lost, comes with its payout sheet under the news, and line by line in the
+  terminals' log. What it earned: the bounties, the hold's ore and what was in hand, at the
+  colony's values. What it cost: the propellant burnt, the rounds fired (or lost with their mount),
+  what the rack used, what the armour that came home takes to repair, and the parts, weapons and
+  equipment shot off; a suit lost is written off whole. Then the net: a sortie that earns 2,000 in
+  bounties and comes home with 2,500 of armour to mend lost money.
 - **A floor under it** (`Hangar::reissue`): a pilot back in an empty bay with no torso in the stores
   to build on, and less than a Leo torso's worth in credits, stores and parts (at the colony's
   values), finds a worn Leo in the gantry, the Charter Board's advance, as on the day they

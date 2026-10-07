@@ -188,6 +188,10 @@ pub struct Ui {
     news: String,
     /// Whether the news is bad (a suit lost).
     news_bad: bool,
+    /// A sortie's payout sheet (`bc_econ::debrief`): its lines, what and credits, and its net.
+    debrief_seq: u32,
+    debrief: Vec<(String, i64)>,
+    debrief_net: i64,
     /// The colony radio's line is open: the pilot is typing (no keys reach the suit).
     pub chat: bool,
     /// The radio's latest lines, who and what, and how many have been heard (`chat.rs`).
@@ -227,6 +231,13 @@ impl Ui {
         self.news_seq += 1;
         self.news = text.into();
         self.news_bad = bad;
+    }
+
+    /// A sortie's payout sheet, under its news for a while.
+    pub fn debrief(&mut self, d: &bc_econ::Debrief) {
+        self.debrief_seq += 1;
+        self.debrief = d.lines.iter().map(|l| (l.what.clone(), l.cr)).collect();
+        self.debrief_net = d.net();
     }
 
     /// The terminal open, if one is.
@@ -386,6 +397,9 @@ pub struct View {
     news_seq: u32,
     news: String,
     news_bad: bool,
+    debrief_seq: u32,
+    debrief: Vec<(String, i64)>,
+    debrief_net: i64,
     chat: bool,
     radio_seq: u32,
     radio: Vec<(String, String)>,
@@ -430,6 +444,9 @@ impl View {
             news_seq: ui.news_seq,
             news: ui.news.clone(),
             news_bad: ui.news_bad,
+            debrief_seq: ui.debrief_seq,
+            debrief: ui.debrief.clone(),
+            debrief_net: ui.debrief_net,
             chat: ui.chat,
             radio_seq: ui.radio_seq,
             radio: ui.radio.clone(),
@@ -478,6 +495,13 @@ impl View {
         set(&o, "newsSeq", self.news_seq);
         set(&o, "news", self.news.as_str());
         set(&o, "newsBad", self.news_bad);
+        set(&o, "debriefSeq", self.debrief_seq);
+        let debrief = Array::new();
+        for (what, cr) in &self.debrief {
+            debrief.push(&Array::of2(&JsValue::from_str(what), &JsValue::from_f64(*cr as f64)));
+        }
+        set(&o, "debrief", debrief);
+        set(&o, "debriefNet", self.debrief_net as f64);
         set(&o, "chat", self.chat);
         set(&o, "radioSeq", self.radio_seq);
         let radio = Array::new();

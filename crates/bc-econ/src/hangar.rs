@@ -10,6 +10,7 @@ use bc_sim::sim::{Homecoming, Loadout};
 use serde::{Deserialize, Serialize};
 
 use crate::catalogue::{MUNITIONS_ITEM, PROPELLANT_ITEM, Station, munitions_per_load, recipe, value, worth};
+use crate::debrief::{Debrief, stores_worth};
 use crate::exchange::{Exchange, Side};
 use crate::fab::{MAX_JOBS, Works};
 use crate::faults::{Faults, overhaul_cost};
@@ -530,10 +531,16 @@ impl Hangar {
     /// The suit came home: what's left of it stands in the bay again, its hold and whatever it
     /// towed in go to the stores, and its bounties are paid. What to tell the pilot.
     pub fn came_home(&mut self, home: &Homecoming) -> String {
+        self.came_home_debriefed(home).0
+    }
+
+    /// [`Hangar::came_home`], and the sortie's payout sheet (`debrief`).
+    pub fn came_home_debriefed(&mut self, home: &Homecoming) -> (String, Debrief) {
         let mut suit = match std::mem::take(&mut self.bay) {
             Bay::Out { suit } | Bay::Docked { suit } => suit,
             Bay::Empty => Suit::complete(line_of(home.frame)),
         };
+        let out = suit.clone();
         let before = suit.parts;
         suit.came_home(home);
         // The paint remembers the sortie (`weathering`).
@@ -549,14 +556,20 @@ impl Hangar {
         suit.kits = [0; Kit::COUNT];
         self.bay = Bay::Docked { suit };
         let mut notes = vec!["DOCKED".to_string()];
+        let mut ore_worth = 0;
         for (kind, kg) in home.cargo_kg.iter().enumerate() {
             if let (Some(ore), true) = (Ore::from_cargo(kind), *kg > 0) {
-                self.stores.add(Item::Ore(ore), u64::from(*kg));
-                notes.push(format!("{} {}", Item::Ore(ore).amount(u64::from(*kg)), ore.name()));
+                let item = Item::Ore(ore);
+                self.stores.add(item, u64::from(*kg));
+                ore_worth += worth(item, value(item), u64::from(*kg));
+                notes.push(format!("{} {}", item.amount(u64::from(*kg)), ore.name()));
             }
         }
+        let mut salvage_worth = 0;
         if let Some(desc) = home.held {
+            let had = stores_worth(&self.stores);
             notes.extend(self.salvage(&desc));
+            salvage_worth = stores_worth(&self.stores).saturating_sub(had);
         }
         if home.bounty > 0 {
             self.credits += u64::from(home.bounty);
@@ -565,14 +578,34 @@ impl Hangar {
         for sys in worn {
             notes.push(format!("{} WORN: OVERHAUL IT", sys.name().to_uppercase()));
         }
-        notes.join(" · ")
+        let mut kits_back = [0u8; Kit::COUNT];
+        for kit in Kit::ALL {
+            kits_back[kit as usize] = home.kits.get(kit);
+        }
+        let back = match &self.bay {
+            Bay::Docked { suit } => suit,
+            _ => &out,
+        };
+        let debrief = Debrief::docked(&out, back, &kits_back, home.bounty, ore_worth, salvage_worth);
+        (notes.join(" · "), debrief)
     }
 
     /// The suit was destroyed: the bay stays empty; the bounties it earned are still paid.
     pub fn lost(&mut self, bounty: u32) -> String {
-        self.bay = Bay::Empty;
+        self.lost_debriefed(bounty).0
+    }
+
+    /// [`Hangar::lost`], and the sortie's payout sheet (`debrief`): the suit as it went out is
+    /// gone.
+    pub fn lost_debriefed(&mut self, bounty: u32) -> (String, Debrief) {
+        let out = match std::mem::take(&mut self.bay) {
+            Bay::Out { suit } => Some(suit),
+            _ => None,
+        };
+        let debrief = Debrief::lost(out.as_ref(), bounty);
         self.credits += u64::from(bounty);
-        if bounty > 0 { format!("SUIT LOST · BOUNTY {bounty} CR") } else { "SUIT LOST".into() }
+        let text = if bounty > 0 { format!("SUIT LOST · BOUNTY {bounty} CR") } else { "SUIT LOST".into() };
+        (text, debrief)
     }
 
     /// The colony's tugs went out for the wreck of the suit its pilot ejected from
@@ -885,6 +918,41 @@ mod tests {
         h.fit(Item::Part(FrameId::Leo, Part::ArmR)).unwrap();
         assert_eq!(h.suit().unwrap().parts[Part::ArmR as usize], Some(40));
         assert!(h.fit(Item::Part(FrameId::Leo, Part::Head)).is_err(), "it has a head");
+    }
+
+    /// A sortie's payout sheet (`debrief`): the ore and salvage at the colony's values, the bounty,
+    /// and what it cost, from the suit as it went out and as it came home; a loss writes it off.
+    #[test]
+    fn a_sortie_is_debriefed() {
+        let mut h = Hangar::starter();
+        let _ = h.launch().unwrap();
+        let Bay::Out { suit } = h.bay.clone() else { panic!() };
+        let mut home = home_as(&suit);
+        home.cargo_kg = [1_200, 0, 0, 0];
+        home.propellant = suit.propellant as f32 - 400.0;
+        home.parts[Part::ArmR as usize] = 0.0;
+        home.bounty = 250;
+        home.held = Some(ChunkDesc {
+            kind: ChunkKind::Limb { frame: FrameId::Leo, faction: Faction::Oz, part: Part::Head },
+            seed: 0,
+            mass_kg: 600,
+        });
+        let (_, d) = h.came_home_debriefed(&home);
+        let line = |what: &str| d.lines.iter().find(|l| l.what == what).map_or(0, |l| l.cr);
+        let ore = Item::Ore(Ore::NickelIron);
+        assert_eq!(line("BOUNTIES"), 250);
+        assert_eq!(line("ORE"), worth(ore, value(ore), 1_200) as i64);
+        let head = value(Item::Part(FrameId::Leo, Part::Head)) * u64::from(SALVAGED_LIMB) / 100;
+        assert_eq!(line("SALVAGE"), head as i64);
+        assert_eq!(line("PROPELLANT"), -(worth(PROPELLANT_ITEM, value(PROPELLANT_ITEM), 400) as i64));
+        assert!(line("SHOT OFF") < 0, "its right arm: {d:?}");
+        assert_eq!(d.net(), d.lines.iter().map(|l| l.cr).sum::<i64>());
+        // Lost: the suit as it went out is written off, and the bounty paid.
+        let _ = h.launch().unwrap();
+        let Bay::Out { suit } = h.bay.clone() else { panic!() };
+        let (_, d) = h.lost_debriefed(100);
+        let lines: Vec<(&str, i64)> = d.lines.iter().map(|l| (l.what.as_str(), l.cr)).collect();
+        assert_eq!(lines, [("BOUNTIES", 100), ("THE SUIT", -(crate::debrief::suit_worth(&suit) as i64))]);
     }
 
     /// The tugs bring an ejected pilot's wreck home: what's on it as salvage, its torso a part if it
