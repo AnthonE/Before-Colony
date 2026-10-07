@@ -603,6 +603,21 @@ respawns (a signed-in pilot keeps them from one session to the next; a guest's g
 - **Dying** spills the hold and drops what you were holding; someone else can pick it up. What a
   suit on a body spills (dying, or jettisoning) flies up off the body, never into it.
 
+### The enemy's gun
+
+Daemon X Machina's lesson (`PEERS.md`, "The mech games"): take the gun off the suit you downed
+(`bc_sim::content::salvage::held_gun`).
+
+- An arm shot off a suit with a gun in its hand still has the gun: a Taurus's or a Leo's beam
+  rifle, a Leo's machine cannon, a Virgo's beam cannon, Heavyarms' beam gatling, Sandrock's beam
+  machine gun. Not a blade, a launcher, or a gun that charges (the Twin Buster Rifle).
+- Grab it and RMB fires that gun from the hand that holds it, in place of the suit's own
+  secondary: its plain shot (the hand hasn't the suit's fire control to charge one), on its own
+  cooldown, with the suit's energy and heat. A solid-round gun comes with half its load left.
+  Let go and the suit's own secondary is back.
+- The HUD shows it on the secondary's line (`RMB BEAM RIFLE IN HAND RDY`). The pilot's client
+  predicts it exactly, told which gun from the held chunk (protocol v26).
+
 ## Mining
 
 The rocks hold ore: most are nickel-iron, some titanium or volatiles, a few exotics. Their veins

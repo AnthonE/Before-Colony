@@ -1,8 +1,13 @@
-# Before Colony wire protocol (v25)
+# Before Colony wire protocol (v26)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v26 (from v25): the enemy's gun (`docs/DESIGN.md`, "The enemy's gun"): while the own suit holds an
+arm that carried a gun (`bc_sim::content::salvage::held_gun`), the own state's secondary (its
+rounds, its ready bit and its arms' wait) is that gun's, whose trigger it has taken. Nothing new
+on the wire: the client tells which gun from the held chunk's description.
 
 v25 (from v24): specials charged by the fight (`docs/DESIGN.md`, "Specials charged by the
 fight"): the own state's special cooldown (8 bits, ticks ÷ 4) is now the special's charge (8 bits,

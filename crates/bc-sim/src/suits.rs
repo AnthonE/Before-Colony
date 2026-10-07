@@ -58,6 +58,9 @@ pub enum MeleePhase {
 pub use crate::content::SPECIAL_MOUNT;
 /// Weapon slots from here on are the special mounts' (see [`Suits::weapon_state`]).
 pub const SPECIAL_SLOTS: usize = 3;
+/// [`Suits::weapon_state`]'s slot for the gun in hand (`content::salvage::held_gun`), after the
+/// special mounts.
+pub const HELD_SLOT: usize = SPECIAL_SLOTS + 2;
 /// Every loadout slot's weapon fitted.
 pub const ALL_MOUNTS: u8 = 0b111;
 /// Marks a hit by a twin weapon's second blade in [`MeleeState::hits`].
@@ -209,6 +212,8 @@ pub struct Suits {
     pub special: Box<[SpecialState]>,
     /// The special mounts' weapons (Full Open's chest gatlings and micro-missiles).
     pub special_weapons: Box<[[WeaponState; 2]]>,
+    /// The gun on a limb in hand, while one is (`content::salvage::held_gun`): set as it's grabbed.
+    pub held_gun: Box<[WeaponState]>,
     pub lock: Box<[LockState]>,
     /// Guided missiles tracking the suit (counted each tick).
     pub incoming: Box<[u16]>,
@@ -304,6 +309,7 @@ impl Suits {
             melee: boxed(cap, MeleeState::default()),
             special: boxed(cap, SpecialState::default()),
             special_weapons: boxed(cap, [WeaponState::default(); 2]),
+            held_gun: boxed(cap, WeaponState::default()),
             lock: boxed(cap, LockState::default()),
             incoming: boxed(cap, 0u16),
             part_hp: boxed(cap, [0.0f32; Part::COUNT]),
@@ -394,6 +400,7 @@ impl Suits {
             }
         }
         self.special_weapons[idx] = sw;
+        self.held_gun[idx] = WeaponState::default();
         self.melee[idx] = MeleeState::default();
         self.special[idx] = SpecialState::default();
         self.lock[idx] = LockState::default();
@@ -484,9 +491,12 @@ impl Suits {
         self.tuning[idx] = t;
     }
 
-    /// The state of weapon `slot`: a loadout slot (0..3), or a special mount (from
-    /// [`SPECIAL_SLOTS`]).
+    /// The state of weapon `slot`: a loadout slot (0..3), a special mount (from
+    /// [`SPECIAL_SLOTS`]), or the gun in hand ([`HELD_SLOT`]).
     pub fn weapon_state(&mut self, idx: usize, slot: usize) -> &mut WeaponState {
+        if slot == HELD_SLOT {
+            return &mut self.held_gun[idx];
+        }
         match slot.checked_sub(SPECIAL_SLOTS) {
             Some(k) => &mut self.special_weapons[idx][k],
             None => &mut self.weapons[idx][slot],

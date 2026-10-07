@@ -169,6 +169,17 @@ pub struct EjectMark {
 }
 
 impl World {
+    /// The gun in the own suit's hand, if it holds one (`bc_sim::content::salvage::held_gun`): the
+    /// own state says what's held, the objects what it is.
+    pub fn gun_in_hand(&self) -> Option<bc_proto::WeaponKind> {
+        let own = self.own.filter(|o| o.alive)?;
+        self.objects
+            .get(usize::from(own.held))
+            .and_then(Option::as_ref)
+            .filter(|o| matches!(o.motion, ObjectMotion::Held { holder, .. } if holder == own.slot))
+            .and_then(|o| bc_sim::content::salvage::held_gun(&o.desc))
+    }
+
     /// Whether suit `slot` is staggered at tick `t`, as its event said (`bc_sim::sim::stagger`).
     pub fn is_staggered(&self, slot: u16, t: f64) -> bool {
         let lasts = f64::from(bc_sim::content::stagger::STAGGER_TICKS);

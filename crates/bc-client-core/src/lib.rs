@@ -611,6 +611,8 @@ impl ClientCore {
             if new_life {
                 self.predict.forget_before(h.tick);
             }
+            // A gun in hand: what the secondary's trigger fires.
+            self.predict.set_in_hand(self.world.gun_in_hand());
             self.predict.reconcile(h.tick, &own, &self.inputs);
             self.stats.prediction_error = self.predict.last_error;
             // Keep the suit where it was drawn, and blend what the news changed out.

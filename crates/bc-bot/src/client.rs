@@ -340,6 +340,12 @@ impl BotClient {
         self.core.world.own.is_some_and(|o| o.alive) && self.core.predict.stagger > 0
     }
 
+    /// The gun in the suit's hand, if it holds an arm that carried one (`bc_sim::content::salvage::
+    /// held_gun`): FIRE_SECONDARY fires it while it's held.
+    pub fn gun_in_hand(&self) -> Option<bc_proto::WeaponKind> {
+        self.core.world.gun_in_hand()
+    }
+
     /// How charged the suit's special is, 0..1 (1: charged, or it has nothing to charge): by
     /// itself over its cooldown, and faster from the fight (`bc_sim::content::specials`).
     pub fn special_charge(&self) -> f32 {

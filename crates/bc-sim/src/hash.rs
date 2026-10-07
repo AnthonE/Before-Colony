@@ -52,6 +52,12 @@ pub fn state_hash(sim: &Sim) -> u64 {
         }
         let (k, g, right) = s.held[i];
         h.u32(u32::from(k) | u32::from(g) << 16 | u32::from(right) << 24);
+        // The gun in hand (only while there is one).
+        if sim.gun_in_hand(i).is_some() {
+            let gun = s.held_gun[i];
+            h.u32(0x6A11_0000 | u32::from(gun.cooldown));
+            h.u32(u32::from(gun.ammo));
+        }
         // Impact and a stagger (only once there's any: a suit never struck hashes as it always
         // has).
         if s.impact[i] > 0.0 || s.stagger[i] > 0 {

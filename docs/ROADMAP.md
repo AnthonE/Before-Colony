@@ -18,6 +18,7 @@ the bay, space, home).
 | The mech games, 16: stagger | built |
 | The mech games, 17: specials charged by the fight | built |
 | The mech games, 18: the debrief | built |
+| The mech games, 19: the enemy's gun | built |
 | The mech games, 22: staying up under abuse | built |
 | P1's rest, P2, the mech games' rest below | planned |
 
@@ -225,6 +226,23 @@ fight").
   `HangarState::last_debrief` for agents.
 - Tests: the debrief's and the hangar's units, and `bc-server/tests/hangar.rs` (docked, the stim the
   rack used is on it; ejected, the suit is written off).
+
+**19. The enemy's gun.** *Built* (protocol v26; `DESIGN.md`, "The enemy's gun").
+- `bc_sim::content::salvage::held_gun`: the beam or solid-round gun an arm chunk carried in its hand
+  (no blades, launchers or guns that charge). Grabbed, the suit's `held_gun` state takes its
+  rounds (`HELD_ROUNDS`, half a load).
+- `Sim::gun_in_hand`; the weapons step fires it on FIRE_SECONDARY (`trigger_in_hand`, a plain shot
+  from the hand's muzzle, the `HELD_SLOT`), holding the suit's own secondary off. The own state's
+  secondary is the gun's while it's held; the state hash covers it.
+- The arms clock's `in_hand` (told by the client from the held chunk, `World::gun_in_hand`), let go
+  of after the tick's guns when GRAB is released or the chunk thrown, as the server's salvage step
+  does. The HUD's secondary line; `bc-bot`'s `gun_in_hand`.
+- Tests: `bc-sim/tests/held_gun.rs` (which limbs carry a gun; a Taurus's rifle fires from the left
+  hand, on its own cooldown, and the Leo's machine cannon is back once it lets go; a machine cannon
+  picked up has half a load, and fired dry it waits), `bc-client-core/tests/held_gun_predict.rs`
+  (seeded at every snapshot, the prediction keeps time with the server's arms and pose; told
+  nothing of the gun, it doesn't). The reference golden is re-recorded: its scripted pilots grab
+  arms and fire them.
 
 **22. Staying up.** *Built* (`ARCHITECTURE.md`, "Under abuse").
 - The review found inputs, poses and the radio limited, sign-ins waiting on a wallet capped, and

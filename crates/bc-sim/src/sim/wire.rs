@@ -83,6 +83,10 @@ impl Sim {
                 }
             }
         }
+        // A gun in hand takes the secondary's place (`content::salvage::held_gun`).
+        if self.gun_in_hand(i).is_some() {
+            ready = (ready & !(1 << 1)) | u8::from(self.hand_gun_ready(i)) << 1;
+        }
         if self.special_ready(i) {
             ready |= 1 << 3;
         }
@@ -198,7 +202,10 @@ impl Sim {
             g_strain: f.g_strain,
             heat: (s.heat[i] / spec.heat_cap).clamp(0.0, 1.0),
             energy: (s.energy[i] / (spec.energy_cap * s.tuning[i].energy_cap)).clamp(0.0, 1.0),
-            ammo: [s.weapons[i][0].ammo, s.weapons[i][1].ammo],
+            ammo: [
+                s.weapons[i][0].ammo,
+                if self.gun_in_hand(i).is_some() { s.held_gun[i].ammo } else { s.weapons[i][1].ammo },
+            ],
             weapon_ready: ready,
             charge,
             parts: s.part_fractions(i),
@@ -282,6 +289,13 @@ impl Sim {
             if w.class == WeaponClass::Missile && slot < 2 && arm && ws.ammo > 0 {
                 (arms.salvo[slot], arms.salvo_gap[slot]) = (ws.salvo, ws.gap);
             }
+        }
+        // A gun in hand on the secondary's trigger: its wait, and no salvo.
+        if let Some((gun, right)) = self.gun_in_hand(i) {
+            let (w, ws) = (weapon(gun), &s.held_gun[i]);
+            let can = s.energy[i] >= w.energy && (w.ammo == 0 || ws.ammo > 0) && s.hand_works(i, right);
+            arms.wait[1] = if can { OwnArms::wait(ws.cooldown) } else { OwnArms::NEVER };
+            (arms.salvo[1], arms.salvo_gap[1]) = (0, 0);
         }
         let cooldown = OwnArms::wait(s.special[i].cooldown);
         arms.wait[3] = match spec.special {

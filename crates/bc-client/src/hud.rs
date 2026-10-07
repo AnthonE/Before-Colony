@@ -1080,7 +1080,16 @@ pub fn update_hud(
                 w.push_str("WEAPONS SAFE · INSIDE THE COLONY\n");
             }
         }
+        // A gun in hand takes the secondary's trigger (`bc_sim::content::salvage::held_gun`).
+        let in_hand = world.gun_in_hand();
         for (slot, key) in [(0usize, "LMB"), (1, "RMB"), (2, "F")] {
+            if let (1, Some(gun)) = (slot, in_hand) {
+                let ready = o.weapon_ready & 0b10 != 0;
+                let ammo = if weapon(gun).ammo > 0 { format!(" {:>3}", o.ammo[1]) } else { String::new() };
+                let name = format!("{} IN HAND", weapon_name(gun).to_uppercase());
+                w.push_str(&format!("{key:<3} {name:<18}{}{ammo}\n", if ready { " RDY" } else { " ---" }));
+                continue;
+            }
             if let Some(m) = spec.loadout[slot] {
                 let ready = o.weapon_ready & (1 << slot) != 0;
                 let ammo = if weapon(m.weapon).ammo > 0 {

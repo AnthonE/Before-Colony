@@ -17,7 +17,7 @@ use crate::content::{ArmSlot, Mount, Replication, WeaponClass, WeaponSpec, frame
 use crate::flight::FlightState;
 use crate::ground::{Footing, derive};
 use crate::math::{angle_between, clamp_to_cone, hash01, normalize_or};
-use crate::suits::{SPECIAL_SLOTS, WeaponState};
+use crate::suits::{HELD_SLOT, SPECIAL_SLOTS, WeaponState};
 use crate::tuning;
 use crate::world::colony_sweep;
 
@@ -88,11 +88,17 @@ impl Sim {
             }
             // Full Open: everything fires along the aim, heat or not.
             let full_open = self.full_open(i);
+            // A gun in hand takes the secondary's trigger (`content::salvage::held_gun`).
+            let in_hand = self.gun_in_hand(i);
             for slot in 0..2 {
                 let Some(mount) = spec.loadout[slot] else { continue };
                 let button = if slot == 0 { FIRE_PRIMARY } else { FIRE_SECONDARY };
-                let wants = full_open || cmd.pressed(button);
+                let wants = full_open || (cmd.pressed(button) && !(slot == 1 && in_hand.is_some()));
                 self.trigger(i, slot, mount, wants, full_open, &cmd, t);
+            }
+            if let Some((gun, right)) = in_hand {
+                let arm = if right { ArmSlot::Right } else { ArmSlot::Left };
+                self.trigger_in_hand(i, Mount { weapon: gun, arm }, cmd.pressed(FIRE_SECONDARY), &cmd, t);
             }
             if full_open {
                 for (k, mount) in spec.special_mounts.iter().enumerate() {
@@ -179,6 +185,28 @@ impl Sim {
         }
     }
 
+    /// The gun in suit `i`'s hand, on `mount` (the hand): it fires its plain shot (the hand hasn't
+    /// the suit's fire control to charge it), on its own cooldown, rounds, energy and heat.
+    fn trigger_in_hand(&mut self, i: usize, mount: Mount, wants: bool, cmd: &InputCmd, t: u32) {
+        let w = weapon(mount.weapon);
+        let ws = &mut self.suits.held_gun[i];
+        ws.cooldown = ws.cooldown.saturating_sub(1);
+        if wants && self.hand_gun_ready(i) {
+            self.fire(i, HELD_SLOT, mount, w, cmd, t);
+        }
+    }
+
+    /// Whether the gun in suit `i`'s hand can fire now.
+    pub(super) fn hand_gun_ready(&self, i: usize) -> bool {
+        let Some((gun, right)) = self.gun_in_hand(i) else { return false };
+        let (w, ws) = (weapon(gun), &self.suits.held_gun[i]);
+        ws.cooldown == 0
+            && !self.suits.overheated[i]
+            && self.suits.energy[i] >= w.energy
+            && (w.ammo == 0 || ws.ammo > 0)
+            && self.suits.hand_works(i, right)
+    }
+
     /// Whether suit `i`'s loadout `slot` would fire on the next tick if its trigger were pulled:
     /// its cooldown run out by then, cool enough, the energy and rounds for it, the arm free. (A
     /// script that pulls only then fires as one that holds the trigger down, under either rule.)
@@ -241,10 +269,11 @@ impl Sim {
         if let Some(n) = s.usage[i].shots.get_mut(slot) {
             *n = n.saturating_add(1);
         }
-        // (The special mounts fire only in Full Open, which shows by itself.)
+        // (The special mounts fire only in Full Open, which shows by itself; a gun in hand, on the
+        // secondary's trigger, shows as the secondary.)
         if slot == 0 {
             s.fired_primary[i] = t;
-        } else if slot == 1 {
+        } else if slot == 1 || slot == HELD_SLOT {
             s.fired_secondary[i] = t;
         }
         self.break_jammer(i, t);
