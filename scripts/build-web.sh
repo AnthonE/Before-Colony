@@ -2,7 +2,8 @@
 # Builds the browser client into web/dist/<variant>/ (variants: webgl2, webgpu).
 #   scripts/build-web.sh            # webgl2 only (fast path)
 #   scripts/build-web.sh webgl2 webgpu
-# Env: BC_WEB_PROFILE (default wasm-release), BC_WEB_OPT=1 to run wasm-opt when available.
+# Env: BC_WEB_PROFILE (default wasm-release), BC_WEB_OPT=1 to run wasm-opt when available;
+# CARGO_TARGET_DIR is followed.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -38,7 +39,7 @@ for v in "${variants[@]}"; do
   out="web/dist/$v"
   rm -rf "$out"
   wasm-bindgen --target web --no-typescript --out-dir "$out" --out-name bc \
-    "target/wasm32-unknown-unknown/$profile/bc-client.wasm"
+    "${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/$profile/bc-client.wasm"
   if [ "${BC_WEB_OPT:-0}" = "1" ] && command -v wasm-opt >/dev/null; then
     echo "==> wasm-opt -Oz $v"
     wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int -o "$out/bc_bg.wasm" "$out/bc_bg.wasm"

@@ -1,15 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
-import { bc, collectConsole } from "./util";
+import { bc, built, collectConsole } from "./util";
 
 // Wallet sign-in in the browser. A stub wallet (window.ethereum) signs with a throwaway test key,
 // through the same path a real one takes: personal_sign over the text the game writes, checked
 // by the server. Then the resume token (a dropped link and a reload come back without asking the
 // wallet again), a second tab taking the pilot over, and sleeping in the cockpit: leaving signed
 // in keeps the suit in the sector, and coming back wakes in it.
-const SIGNER = resolve(dirname(fileURLToPath(import.meta.url)), "../../target/release/examples/sign");
+const SIGNER = built("examples/sign");
 // Test key 1's address.
 const ADDRESS = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf";
 
