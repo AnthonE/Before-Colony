@@ -226,9 +226,10 @@ web/, scripts/, e2e/   page shell, build and dev scripts, Playwright tests
 wasm determinism, and a benchmark smoke run. `BC_E2E=1 scripts/ci.sh` adds the browser tests.
 `scripts/e2e.sh SUITE [webgl2|webgpu]` runs one of them against a fresh server (the suites are
 listed at its top): `BC_HTTP_PORT` moves the server off 8080 (the tests find it through `BC_URL`,
-which the script sets), and `BC_GFX_QUALITY` (the `gfx` suite; default high) and `BC_QUALITY`
-(`slice`) pick the graphics tier. `scripts/build-web.sh` builds with the cargo profile
-`BC_WEB_PROFILE` (default `wasm-release`).
+which the script sets) and `BC_WT_PORT` its WebTransport off 4433, and `BC_GFX_QUALITY` (the `gfx`
+suite; default high) and `BC_QUALITY` (`slice`) pick the graphics tier. `scripts/build-web.sh` builds
+with the cargo profile `BC_WEB_PROFILE` (default `wasm-release`). GitHub Actions runs the browser
+tests nightly, each suite on its own runner (`.github/workflows/e2e.yml`; also by hand).
 
 ## Legal
 

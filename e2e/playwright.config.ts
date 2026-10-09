@@ -1,14 +1,16 @@
 import { defineConfig } from "@playwright/test";
 
 // The server is started by scripts/e2e.sh (it needs a different mode per suite).
-// Chromium comes from /opt/pw-browsers (PLAYWRIGHT_BROWSERS_PATH); never `playwright install`.
+// In the dev container Chromium comes from /opt/pw-browsers (PLAYWRIGHT_BROWSERS_PATH); never
+// `playwright install` there. The nightly CI job (.github/workflows/e2e.yml) installs its own.
 const common = ["--no-proxy-server", "--autoplay-policy=no-user-gesture-required"];
 
 export default defineConfig({
   testDir: "./tests",
   timeout: 180_000,
   retries: 0,
-  reporter: [["list"]],
+  // CI keeps an HTML report (playwright-report/) to upload when a suite fails.
+  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : [["list"]],
   outputDir: "./test-results",
   use: {
     baseURL: process.env.BC_URL ?? "http://127.0.0.1:8080",
