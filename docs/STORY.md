@@ -127,7 +127,8 @@ colony's great works finished, sectors opened) and is announced to every pilot w
 
 ## How the world grows
 
-The design ahead (see `DESIGN.md`, "Roadmap") is a living colony that its pilots build and run:
+The design ahead (see `DESIGN.md`, "Roadmap after Milestone 4", and `ROADMAP.md`) is a living
+colony that its pilots build and run:
 
 - **Colony projects** (the SimCity half): great works the Charter Board posts, each needing
   tonnes of materials; pilots deliver and are paid at the desks' prices and in standing.

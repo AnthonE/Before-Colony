@@ -63,7 +63,7 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
      - The colony day, from the tick.
      - The city layout as a function of integer cell coordinates, with an integer hash and fixed-size per-block
        arrays.
-     - Queries: `solid(strip, aabb, stage)`, `block_info`, `lots`, `ground`, `key_place`.
+     - Queries: `solid(strip, aabb, stage)`, `block` (a `BlockInfo`), `lots` (its `Lots`), `ground`, `key_place`.
    - **Content** (`bc_sim::content::city`): district tables, places and names. `CITY_VERSION` moves with
      `PROTOCOL_VERSION`, like `LANDMARKS_VERSION`.
    - `FIRST_WINDOW` and the strip angles move here, so the outside and the inside always agree.
@@ -100,6 +100,7 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
      the sector simulation: they need no prediction or lag compensation.
 7. **Ship safely.** The city sits behind a server `--colony` flag (Welcome flag 16 `COLONY`; 8 is `ANIME`) until presence and
    trams work. The new exterior ships on its own first. The city is survival-only, because it hangs off the bay.
+   (Done, and the gate dropped since: the colony is open by default under survival rules; `--no-colony` closes it.)
 
 ## Phases (PR-sized steps)
 
@@ -116,7 +117,8 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
     `?t=` onto ticks.
   - Tests: periodic, continuous.
 - **0.3 City rules v1.** `colony/city.rs`, `content/city.rs`:
-  - `BlockId`, `block_info`, `lots -> [Building; 9]`, `solid`, `ground`, `district_at`, `key_place`;
+  - `BlockId`, `block_info`, `lots -> [Building; 9]`, `solid`, `ground`, `district_at`, `key_place` (built as `block`,
+    returning a `BlockInfo`, and `lots`, returning `Lots`);
   - `Stage(u8)`, so the building site can grow with colony projects later.
   - Tests:
     - `CITY_GOLDEN` hash in `bc-sim/tests/determinism.rs`, native and wasm;
@@ -154,7 +156,7 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
     `day().lamps`.
   - A native test `include_str!`s the WGSL and checks its constants against Rust.
 
-### Phase 2: into the colony (single pilot, behind `--colony`)
+### Phase 2: into the colony (single pilot, behind `--colony` then; open by default now)
 - **2.1 Wire and server** (protocol bump).
   - `bc-econ/src/wire.rs`: `Place::City`; `Request::EnterCity {strip}` and `LeaveCity`; `Update::Place` gains
     `strip: Option<u8>` (serde default).
@@ -164,12 +166,14 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
   - New `bc-server/tests/city.rs`. Update `PROTOCOL.md`.
 - **2.2 Airlock to the lift lobby.**
   - `bay.rs`: doors that let you through when open (`hits` skips them); corridor and lobby blocks beyond x < −18;
-    `Spot::Lift(k)` (`lift_1` to `lift_3`); `route` reaches them.
+    `Spot::Lift(k)` (`lift_1` to `lift_3`); `route` reaches them. (Built instead as a cut: the airlock,
+    `Spot::Airlock`, rides the cap lift straight down to strip 0's Hub Gate, with no lobby or choice of lift yet.)
   - `hangar.rs` draws the corridor and lobby with a sign per strip.
   - The prompt becomes "AIRLOCK: TO THE LIFTS". "LEAVE THE BAY" stays in the pause menu.
   - Walker tests: to each lift and back. `hangar.spec.ts` stays green.
 - **2.3 The venue and the interior shell.**
-  - New `venue.rs`: `Venue`, `RenderOrigin`/`Placed` and re-basing, and switching each scene's visibility.
+  - New `venue.rs`: `Venue`, `RenderOrigin`/`Placed` and re-basing, and switching each scene's visibility. (Built
+    with no `venue.rs` or `Venue`: `RenderOrigin` and `Placed` are in `city.rs`.)
   - `sky.rs`:
     - a city branch in `apply_light_tier`: exposure by time of day, fog, cluster config, shadow bounds;
     - `eclipse` is skipped inside, and the `Sun` is aimed by `key_light`;
@@ -220,7 +224,7 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
     - walk to the Exchange floor and buy;
     - back up to the bay;
     - `/status` place changes, and `hot_path_allocations` stays 0.
-  - New `scripts/e2e.sh colony` (survival, `--colony`, no dolls) and a step in `ci.sh`.
+  - New `scripts/e2e.sh colony` (survival, the colony open, no dolls) and a step in `ci.sh`.
 - **2.6 Key places v1** (strip 0, all within about 700 m of the lift).
   - Hub Gate.
   - The Exchange floor: its terminal opens `Panel::Terminal(Spot::Exchange)`, the bay's panel and requests.
@@ -247,25 +251,26 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
     is within 1 tick.
 - **3.3 Client.** `bc-client-core/src/plaza.rs`:
   - `PlazaView` (Hermite interpolation in each anchor's frame; anchor switches without a pop);
-  - `plaza_clock` (the existing `Clock`);
+  - `plaza_clock` (the existing `Clock`; built as the plaza datagram's tick feeding the core's one `Clock`);
   - `colony_tick`, `set_pose` and `poll_pose`.
 
   `lib.rs` dispatches on `packet_kind`. `net.rs` sends poses on the 8 ms timer. bc-bot gets `enter_city`,
-  `send_pose` and `people`, a `flaneur` example and `bc-swarm --walkers`. Bodiless agents appear as telepresence
-  drones tagged MD (decide in STORY.md).
+  `send_pose` (built as `set_pose`) and `people`, a `flaneur` example and `bc-swarm --walkers`. Bodiless agents
+  appear as telepresence drones tagged MD (decide in STORY.md).
 - **3.4 Pilots drawn.** `bc-model/src/pilot.rs`: a flight-suit pilot on the shared 24-bone rig at human scale,
-  coloured per pilot, about 1.5k triangles near and 150 far, AO-baked.
-  - `people_vis.rs`: walk, run, idle and sit, posed with the `gait`/`ik` machinery; name tags within 40 m; nothing
-    beyond 1.5 km.
+  coloured per pilot, about 1.5k triangles near and 150 far, AO-baked. (Built as `bc_client_core::figure`: rigid
+  pieces turned at their joints, not the rig.)
+  - `people_vis.rs` (built as `people.rs`): walk, run, idle and sit, posed with the `gait`/`ik` machinery; name
+    tags within 40 m; nothing beyond 1.5 km.
   - Tests: triangle budget, fits the walker's box. A showcase crowd.
 - **3.5 Two-pilot e2e.** Two browser contexts each see the other: name, and position within 2 m. `/status` counts 2.
 
 ### Phase 4: trams (in v1; without them only about 2 km round Hub Gate is practical)
 - **4.1 Timetable.** `colony/transit.rs` with station tables in content: `train(line, k, t, frac) -> TrainState`, the
   cars' solids, and platforms in the city rules.
-  - Tests: `TRANSIT_GOLDEN`; exactly periodic; trains at least 300 m apart; |a| ≤ 1.5 m/s²; doors line up with
-    platforms at each stop.
-- **4.2 Riding.** `trams_vis.rs`.
+  - Tests: `TRANSIT_GOLDEN` (folded into `CITY_GOLDEN`); exactly periodic; trains at least 300 m apart;
+    |a| ≤ 1.5 m/s²; doors line up with platforms at each stop.
+- **4.2 Riding.** `trams_vis.rs` (built as `trams.rs`, the riding in `bc_client_core::tram`).
   - The walker rides in the car frame with `Env.pseudo = −a`. Board and alight at open doors; seats; "NEXT TRAIN"
     boards; sound cues (`bc-sound`).
   - Presence carries the `Tram` anchor; the server checks boarding against the timetable within ±1 s.
@@ -483,8 +488,8 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
   - fmt;
   - clippy, native and wasm, for both webgl2 and webgpu;
   - `cargo test --workspace --release`;
-  - wasm determinism, including the new `CITY_GOLDEN` and `TRANSIT_GOLDEN`, and the city's life (`TRAFFIC_GOLDEN`,
-    `WALKERS_GOLDEN`);
+  - wasm determinism, including the new `CITY_GOLDEN` (the trams' timetable with it), and the city's life
+    (`TRAFFIC_GOLDEN`, `WALKERS_GOLDEN`);
   - the `no_alloc` tests.
 - **Visual:** `scripts/e2e.sh gfx webgl2 --grep "colony|city"`. Review the `e2e/artifacts/` shots against the two
   references (colony cam 6 is image 2; city view 1 is image 1).
@@ -516,5 +521,5 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
   on the detail level.
 - **Looking like image 1.** Facade shader (window grid, lamps by the day), districts that give the skyline a shape,
   heavy haze, ribs, and review shots composed like the references.
-- **Scope.** Each phase merges behind `--colony`. The exterior (Phase 1) ships first. Vehicles and suits come after
-  v1.
+- **Scope.** Each phase merges behind `--colony` (until v1; the colony is open by default now, and `--no-colony`
+  closes it). The exterior (Phase 1) ships first. Vehicles and suits come after v1.

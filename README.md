@@ -32,11 +32,16 @@ A Gundam Wing mobile-suit MMO prototype.
 - **Client:** Bevy 0.19 compiled to WebAssembly, in the browser (WebGL2 or WebGPU).
 - **Transport:** WebTransport, HTTP/3 over QUIC. Unreliable datagrams carry inputs and snapshots.
 
-**Status:** Milestone 4, wear and tear: the systems inside the parts, statuses, equipment
-modules and overhauls, and the world bible (`docs/STORY.md`). Milestone 3 brought survival: the
-hangar bay on foot, building suits, and the Colony Exchange (see `docs/DESIGN.md`). Milestone 2
-brought the five Gundams. One sector (L1 Colony
-Cluster). Pilots and agents fly
+**Status:** Milestone 5, the First Colony's inside (`docs/COLONY.md`), most of it built: its city
+at full scale, shared with other pilots, walked, ridden by tram, driven, and flown by suits; and
+the Proving Ground's course, Blast Hall and drill (`docs/TRAINING.md`). Alongside it
+(`docs/ROADMAP.md`): the lock-on, the Charter Board's contracts and great works, a floor under
+loss, the colony's radio, bigger tanks, propellant grades and the ion drive, and what the mech
+games teach (doom and ejecting, stagger, a debrief, a test range, aces…). Milestone 4 brought
+wear and tear: the systems inside the parts, statuses, equipment modules and overhauls, and the
+world bible (`docs/STORY.md`). Milestone 3 brought survival: the hangar bay on foot, building
+suits, and the Colony Exchange (see `docs/DESIGN.md`). Milestone 2 brought the five Gundams. One
+sector (L1 Colony Cluster). Pilots and agents fly
 the Leo, Wing Gundam Zero (which folds into Neo-Bird), Heavyarms, Deathscythe, Sandrock and
 Shenlong, against Taurus and Virgo Mobile Dolls. Each Gundam brings its kit and its signature:
 - **Heavyarms:** lock-on homing missiles, and the Full Open Attack.
@@ -93,12 +98,19 @@ self-signed certificate depends on `serverCertificateHashes` pinning, and that m
 | Mouse | aim (click locks the pointer, Esc releases it) |
 | W/S · A/D · Space/C · Q/E | thrust forward/back · left/right · up/down · roll |
 | Shift · X · R | boost · brake · RCS fast turns |
+| L | grip: armed, coming in slow and close lands you on a rock or a landmark; again, let go |
 | LMB · RMB · F | primary · secondary · melee (saber, scythe, shotels, glaive, knife) |
+| Y · middle click | lock on to the hostile nearest the crosshair (again: the next one; held: let go) |
 | H | the frame's special: Neo-Bird or the Hyper Jammer on/off; Full Open Attack or the Cross Crusher |
 | V · Z | flight assist · ZERO System |
+| Tab · mouse wheel | the cockpit or the chase camera |
+| M · N | the chart, out to the Earth Sphere (set a course on it) · the auto-nav on the course (on/off) |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
+| U | eject: doomed, a tap ejects and a hold blows the suit up; otherwise held a second |
 | Enter | dock: at rest inside the dock's ring of lights, or standing on the hub's deck hatch, into your bay |
+| 1–4 | survival: the rack's patch kit · coolant flush · chaff · stim |
 | 1–6 | arcade rules: respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
+| / | talk on the colony's radio (Enter on foot): Enter says it, Esc closes |
 | Esc · F1 · F10 | menu · controls · graphics quality |
 
 On foot: the mouse looks, W/A/S/D walk, Shift runs, Space jumps, E uses what you look at.
@@ -122,8 +134,17 @@ lifts down into its city, no suits inside it; open by default under survival rul
 their hangars, and the exchange in files there; otherwise they last one run), `--craft-speed X`
 (the fabricator works X times faster, for testing), `--mobile-dolls N`, `--max-clients N`,
 `--oracle local|jev`, `--mode echo`, `--siwe-domain HOST` (the host pages are served from, which
-wallets sign in to; defaults to `--http`), `--require-auth` (no human guests). Records go through a
-`PilotStore` trait a Redis or Mongo store can implement.
+wallets sign in to; defaults to `--http`), `--require-auth` (no human guests), `--flight anime|real`
+(default anime: the tank is a boost gauge that refills; real: every newton burns propellant),
+`--ace-every SECS` (between Zodiac's aces among the Dolls, default 300; 0: none), `--http ADDR`
+(default 127.0.0.1:8080), `--wt-port N` (WebTransport's UDP port, default 4433), `--web-dir DIR`
+(the built client, default `web/dist`), `--seed N` (the simulation's), `--max-connections N` and
+`--per-address N` (connections taken in all and from one address, loopback excepted; default 512
+and 8). Records go through a `PilotStore` trait a Redis or Mongo store can implement.
+
+`scripts/dev.sh` takes its settings from the environment: `BC_RULES`, `BC_FLIGHT` (`anime|real`),
+`BC_COLONY=0`, `BC_DATA=DIR` (the server's `--data-dir`), `BC_DOLLS` (24), `BC_AGENTS` and
+`BC_MINERS` (1 each), `BC_ORACLE` (`local|jev`).
 
 ### The ZERO System with TypeSafe Jev
 
@@ -133,6 +154,7 @@ TYPESAFE_API_KEY=... cargo run -p bc-zero --example jev_smoke   # one live call,
 ```
 
 Without a key the in-sim local oracle runs alone, and the System works fully offline.
+`TYPESAFE_BASE_URL` points the server at another Jev endpoint (a proxy, or a test's mock).
 
 ### Agents
 
@@ -176,7 +198,7 @@ write your own brain as a closure: see `crates/bc-bot/src/lib.rs`.
 - One sector, and one colony (one exchange). Without `--data-dir`, pilot records and hangars are
   kept in memory, so a server restart forgets them; a Redis or Mongo `PilotStore` is the next step.
   Suits left asleep in the sector don't survive a restart (their pilots' suits are towed home).
-  The roadmap is in `docs/DESIGN.md`.
+  The roadmap is in `docs/ROADMAP.md`.
 
 ## Repository
 
@@ -193,12 +215,20 @@ crates/bc-client       Bevy browser client (wasm32)
 crates/bc-model        the suits' procedural designs and their sockets
 crates/bc-sound        the generated sound bank, mixer, cockpit sounds and music
 crates/bc-alloc        counting allocator for the zero-allocation proofs
+crates/bc-auth         wallet sign-in (SIWE): the message both sides build, and the server's check
 docs/                  DESIGN.md · ARCHITECTURE.md · PROTOCOL.md · STORY.md (the world) · CONTROLS.md
+                       LOCK.md · PEERS.md · ROADMAP.md · COLONY.md · COLONY_LOOK.md · SUITS_INSIDE.md · TRAINING.md
+                       LIFE.md
 web/, scripts/, e2e/   page shell, build and dev scripts, Playwright tests
 ```
 
 `scripts/ci.sh` runs everything CI does: format, clippy (the hot-path bans are errors), all tests,
 wasm determinism, and a benchmark smoke run. `BC_E2E=1 scripts/ci.sh` adds the browser tests.
+`scripts/e2e.sh SUITE [webgl2|webgpu]` runs one of them against a fresh server (the suites are
+listed at its top): `BC_HTTP_PORT` moves the server off 8080 (the tests find it through `BC_URL`,
+which the script sets), and `BC_GFX_QUALITY` (the `gfx` suite; default high) and `BC_QUALITY`
+(`slice`) pick the graphics tier. `scripts/build-web.sh` builds with the cargo profile
+`BC_WEB_PROFILE` (default `wasm-release`).
 
 ## Legal
 

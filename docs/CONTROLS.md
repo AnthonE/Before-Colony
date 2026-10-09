@@ -135,8 +135,9 @@ tap ejects at once and a hold blows the suit up instead.
      aims. Against the complaints: the target is the hostile nearest the crosshair, the next is a
      tap away, it's let go by holding the key, and its bracket is always marked.
    - **Why Y.** It was free and sits by T/G/H; Bevy's keys are physical positions, so QWERTZ keeps
-     it there. The middle button's click is a second key for it; holding the middle button stays
-     free for looking around (P1 #7). Y is chat in Counter-Strike: chat (`PEERS.md`) takes `/`.
+     it there. The middle button is a second key for it, held as well as clicked (holding it lets
+     go, as holding Y does), so it isn't free for looking around (P1 #7). Y is chat in
+     Counter-Strike: chat (`PEERS.md`) takes `/`.
 5. **A lead pip.** Elite, Star Citizen and Everspace 2 all give one [B1][B2][B3]. With 4 km/s beams
    at kilometre ranges, expect "unhittable" complaints. **Done:** locked on, a ◆ marks where the
    primary's shot meets the target if it flies on as it is, with the time the shot takes (a
@@ -197,8 +198,11 @@ tap ejects at once and a hold blows the suit up instead.
 7. **Hold to look around** without moving the aim (the camera looks, the suit doesn't turn).
    - Every space game has it: Alt in Everspace 2 and Space Engineers, Z in Star Citizen, the middle
      mouse button in Elite [B5].
-   - Alt is risky in a browser (on its own it can reach the browser's menu), so use the middle
-     button.
+   - Alt is risky in a browser (on its own it can reach the browser's menu), so this said to use
+     the middle button. That has gone to the lock-on since (`LOCK.md`: a click locks on, a hold
+     lets go), and Z is the ZERO System. Still open: Alt, as Everspace 2 and Space Engineers
+     have it, if it can be kept from the browser's menu, or a key of the player's own once
+     rebinding (item 4) is in.
 8. **A basic lead pip** as an optional training aid. **Done** (item 5 above).
 
 **P2: depth, once the above is in.**

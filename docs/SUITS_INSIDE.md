@@ -40,11 +40,12 @@ form of `bc_sim::colony` works there unchanged.
   is a `match` on it outside the per-entity loops, so `Space` runs the code it runs today.
 - **What's solid inside** is the colony's inside, not its outside: the hull (from within), the end
   caps, the city's buildings and platforms (`colony::city::solid_built`, `each_solid`: not its street
-  furniture, which a suit steps over), Hub Gate's terminal and the spire's inner end. A new
-  `world::interior_constrain` keeps a suit's capsule inside the hull and out of the city's boxes;
-  `interior_sweep` replaces `colony_sweep` for the (non-existent) shots and for the suits' own
-  motion. The city's boxes are queried by a suit's swept AABB, which is O(boxes near it), not
-  O(city).
+  furniture, which a suit steps over), Hub Gate's terminal and the spire's inner end.
+  `colony::interior::constrain`, run after the flight model by `interior::step`, keeps a suit's
+  capsule inside the hull and out of the city's boxes. Nothing sweeps inside: a suit's motion is
+  pushed back out by `constrain`, and the only shots there are the Blast Hall's training rounds,
+  which stop at its walls (`colony::hall::shot_end`, asked inside in place of `colony_sweep`).
+  The city's boxes are queried by the area round a suit, which is O(boxes near it), not O(city).
 - **Gravity and the spin's pull.** Inside the turning frame a free suit is pulled by the
   centrifugal pull `ω² r` (1 g at the floor), and Coriolis `−2 ω × v`. Both go into
   `flight::integrate` for `Interior` only: a pure function of state, deterministic (libm), and
@@ -138,7 +139,7 @@ for it, but outside the hall they find nothing to do: every golden of the interi
 ## Verification
 
 - `bc-sim` unit tests: a suit launched in holds by the inner gate till its pilot is heard from;
-  `interior_constrain` keeps capsules inside the hull and out of every box
+  `interior::constrain` keeps capsules inside the hull and out of every box
   (dense sampling, as `colony_sweep_matches_dense_sampling`); a dropped suit falls at 1 g at the
   floor and less higher up; Coriolis deflects a dropped suit to −spin; drag caps speed;
   `ground::tests::city`: an armed suit lands on the avenue, walks it and lifts off without a jump;

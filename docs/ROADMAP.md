@@ -105,8 +105,8 @@ on the door in the city view itself.
 closed form of the door; benches drawn there), E to sit, others see you sit (the presence's
 `ride` 15 is seated: no new bits, wire v16 for the meaning; the plaza takes it only on a seat), and
 what's said on the radio over the heads of those near you. Flaneurs come and sit (`flaneur
---sit`, two of them under `BC_COLONY=1`). Tests: the seats' geometry, the plaza's rules for
-sitting, and a step in the colony e2e.
+--sit`, two of them whenever `dev.sh` opens the colony, as it does unless `BC_COLONY=0`). Tests:
+the seats' geometry, the plaza's rules for sitting, and a step in the colony e2e.
 
 ## P1: what makes the chain worth walking
 
@@ -154,15 +154,26 @@ on the gantry, they climb out at its hatch.
 
 Next: the hall's own course and a level ladder (phase 6).
 
-**Contracts on the Charter Board.** `bc-econ` `contracts.rs`: jobs the colony posts (deliver this
-much ore or these parts to the dock; down Dolls over the field; bring a wreck home), each with a
-reward held in escrow as the Exchange holds orders. Taken only at the Charter Board's hall in the
-city (its door opens `Panel::Terminal(Spot::Charter)`), done in space, paid at the dock on the way
-home (`Homecoming`, bounties). Wire: `Request::{Contracts, Take, Abandon}`, `Update::Contracts`.
-Colony projects are contracts too: deliveries to the building site move its `Stage`
-(`bc_sim::colony::city::Stage`, today `Stage(0)` everywhere), which becomes world state the Welcome
-carries and every client draws from. Tests: econ unit tests (escrow balances, as the Exchange's
-property test does), a server test that takes, flies and is paid; the colony e2e opens the board.
+**Contracts on the Charter Board.** *Begun* (`bc_econ::charter`; `DESIGN.md`, "The Charter Board").
+One board per colony, kept with the exchange: a tab on every terminal in the bay, and the desk in
+Charter Square (its door opens `Panel::Board`). Built:
+- *Supply* contracts: a pilot's holds its reward in escrow from the moment it's posted, the
+  colony posts its own as its stocks run low, and anyone but the issuer delivers part of one from
+  their stores and is paid pro rata on the spot.
+- *Patrols*, once the militia's hangar is built: down Dolls for so much in bounties within the
+  hour, counted as each sortie ends.
+- The great works and the charter vote, paid in credits and in standing.
+- Wire: `Request::{Post, Withdraw, Deliver, TakePatrol, DropPatrol, Contribute, Sign, WatchBoard}`,
+  `Update::Charter`.
+- Tests: `bc-econ`'s units (the colony's postings, pro rata, what's unpaid going back, the works,
+  a patrol), the ledger's property test with the board in it (`tests/ledger.rs`), and
+  `bc-server/tests/charter.rs` (post, deliver, build, and the board over a restart).
+
+Still to come: more jobs flown in space (bring a wreck home, escort a hauler, clear a claim); the
+building site that the works build out, whose `Stage` (`bc_sim::colony::city::Stage`) is still
+`Stage(0)` everywhere, and which becomes world state the Welcome carries and every client draws
+from (today the works change the world only through their effects: the foundry's fee, the
+patrols); and the colony e2e opening the board.
 
 **Liveries.** Body, trim, accent and eye colours chosen at the suit's maintenance console from a
 palette, carried on the suit (`bc_econ::suit::Suit.paint`), paid for in credits (a sink), and drawn

@@ -69,10 +69,11 @@ mechs and nothing to do.
   long, with three cities in it (`STORY.md`, "The First Colony"), and the cap lift's ride down the
   end cap with the whole colony in view is the moment players will remember (`Seq::LiftDown`,
   `bc-client/src/onfoot.rs`). Keep it skippable, but give every new pilot their first ride (P0 3).
-- **Hanging out needs a way to talk.** A VRChat world is a room full of voices. Ours is silent:
-  there's no chat, emote, wave or seat anywhere, and The Arrival, our bar, says only `QUIET FOR
-  NOW` (`onfoot.rs`). Pilots pass each other in flight suits of their own colours and can do
-  nothing together.
+- **Hanging out needs a way to talk.** A VRChat world is a room full of voices. Ours was silent,
+  with no chat, emote, wave or seat anywhere. Since P0 there's the colony's radio (in the city,
+  what's said shows over the speaker's head) and seats out in front of The Arrival, our bar;
+  still no emote or wave, and inside, the bar is `QUIET FOR NOW` (`onfoot.rs`). Pilots pass each
+  other in flight suits of their own colours; together they can talk and sit, and nothing more.
 - **Physics as a toy.** Its players run the circle because they can. Our gravity falls with height
   (`bc_sim::colony::frame::gravity`: 1 g on the ground, less up a tower), and nobody is given a
   reason to feel it. A place near the axis, where a jump carries a long way, would be one.
@@ -100,8 +101,8 @@ flies ships, not suits.
   (`COLONY.md`, phase 5). Suits inside must keep to it (`SUITS_INSIDE.md`: "nothing touches a
   suit"), and its open question about thrusters near people should be answered the same way.
 - **Jobs from the city.** Its missions are taken in a city and flown in space, which is what brings
-  players back to the city. Ours would come from the Charter Board, which is one fixed line today
-  (P1 6).
+  players back to the city. Ours come from the Charter Board (P1 6), begun: its patrols are
+  taken at its desk in the city (or a bay terminal's tab) and flown in space.
 
 ## The Gundam Metaverse
 
@@ -387,25 +388,30 @@ The rule to keep: **connect before deepening.** A new system should send pilots 
 
 How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
 
-**P0: small, and worth doing before more players arrive.**
+**P0: small, and worth doing before more players arrive.** All four are built (`ROADMAP.md`, "P0").
 
-1. **A floor under loss.** A signed-in pilot whose only suit is destroyed, with nothing to build
-   with and nothing to sell, has no way back into a cockpit. The starter kit goes only to a pilot
+1. **A floor under loss.** A signed-in pilot whose only suit was destroyed, with nothing to build
+   with and nothing to sell, had no way back into a cockpit. The starter kit goes only to a pilot
    with no record (`Hangar::starter`, `bc-econ/src/hangar.rs`; `enter`,
-   `bc-server/src/net/session.rs`), and there's no insurance, loan or reissue. (A guest gets a
+   `bc-server/src/net/session.rs`), and there was no insurance, loan or reissue. (A guest gets a
    fresh one every visit.) EVE insures every ship at 40% for nothing, as new players' safety net
-   [P6]. Ours: the Charter Board reissues a worn Leo to a pilot with an empty bay who couldn't
-   build one. `STORY.md`'s "debt of 2,000 credits" isn't in the code; this is where to make it real,
-   or drop it.
-2. **Text chat.** The first thing anyone does in a shared place is say something. In the city to
-   everyone near (the plaza's interest, `bc-server/src/plaza.rs`), in space to the sector; on the
-   control stream, off the hot path. T and Enter are throw and dock (`CONTROLS.md`, "Where we break
-   convention" 3): pick its key first.
-3. **Objectives along the chain.** Every objective today is in space
-   (`bc-client-core/src/objectives.rs`). Add the colony's: ride the cap lift down, find the
-   Exchange floor, sell on the book. A new pilot should find out the colony is there.
-4. **The Arrival does something.** Seats (`COLONY.md`, 2.6), and it's where chat is easiest to
-   find.
+   [P6]. Ours, built: the Charter Board reissues a worn Leo to a pilot with an empty bay who can't
+   build one, at most once every half hour (`Hangar::reissue`). `STORY.md`'s "debt of 2,000
+   credits" wasn't in the code; it's "an advance" now.
+2. **Text chat.** The first thing anyone does in a shared place is say something. The plan was
+   everyone near in the city (the plaza's interest, `bc-server/src/plaza.rs`) and the sector in
+   space. What's built is one channel, the colony's radio, to everyone connected
+   (`bc-server/src/radio.rs`, `bc-client/src/chat.rs`), on the control stream, off the hot path.
+   T and Enter are throw and dock (`CONTROLS.md`, "Where we break convention" 3), so it opens on
+   `/` (and on Enter on foot, where Enter docks nothing).
+3. **Objectives along the chain.** Every objective was in space
+   (`bc-client-core/src/objectives.rs`). The colony's are in now: ride the cap lift down, find the
+   Exchange floor, sell on the Exchange, and report to the Proving Ground. A new pilot should find
+   out the colony is there. Still open: a marker on the door in the city view itself (the map has
+   one).
+4. **The Arrival does something.** Seats out front (`COLONY.md`, 2.6), sat on and seen sat on,
+   and it's where chat is easiest to find: what's said on the radio shows over the heads of those
+   near you. Built; its own menu is next (`LIFE.md`, L1).
 
 **P1: what makes the chain worth walking.**
 
@@ -416,7 +422,8 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
 6. **Contracts on the Charter Board.** Jobs posted in the city, flown in space, paid at the desk:
    haul this, clear that claim, escort a hauler home (`DESIGN.md`, roadmap, "Contracts"), with the
    reward held in escrow as the Exchange holds its orders' (`bc-econ`). Star Citizen's mission
-   givers, as our Charter Board.
+   givers, as our Charter Board. Begun (`bc_econ::charter`): supply contracts, the militia's
+   patrols and the great works.
 7. **Liveries.** Body, trim and accent colours chosen at the suit's maintenance console, carried on
    the suit (`bc_econ::suit::Suit`) and drawn for everyone (`livery` takes only the frame and the
    faction today). Paint costs credits: a sink that sells itself.
