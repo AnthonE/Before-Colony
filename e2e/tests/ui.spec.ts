@@ -134,7 +134,8 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   // O, as F10 (no function row on a Mac laptop or a 60% keyboard): the next graphics tier.
   await page.focus("#bc");
   await page.keyboard.press("o");
-  await expect.poll(async () => (await bc(page)).gfx_tier).toBe("medium");
+  // The first frame on a new tier builds its pipelines, which takes a software renderer seconds.
+  await expect.poll(async () => (await bc(page)).gfx_tier, { timeout: 15_000 }).toBe("medium");
 
   // Esc: the menu; Resume closes it.
   await page.focus("#bc");

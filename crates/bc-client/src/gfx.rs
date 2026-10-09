@@ -199,7 +199,10 @@ pub struct GfxPlugin(pub Gfx);
 
 impl Plugin for GfxPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(self.0).add_systems(Update, (cycle_tier, apply_camera_tier, apply_resolution));
+        // The tier a key chose is on the camera, and in `window.__bc`, the frame it was chosen: the
+        // next can take a software renderer seconds, building the new tier's pipelines.
+        app.insert_resource(self.0)
+            .add_systems(Update, (cycle_tier, apply_camera_tier.after(cycle_tier), apply_resolution));
     }
 }
 
