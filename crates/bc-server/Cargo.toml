@@ -29,7 +29,6 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 hex.workspace = true
 crossbeam-queue.workspace = true
-rtrb.workspace = true
 futures.workspace = true
 glam.workspace = true
 getrandom = "0.3"

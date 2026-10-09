@@ -160,7 +160,10 @@ async fn walk(k: usize, server: &str, secs: u64, totals: &Totals) -> anyhow::Res
     let mut bot = BotClient::connect(&cfg).await?;
     anyhow::ensure!(bot.survival(), "walkers need survival rules");
     bot.wait_until(10.0, "the hangar", |c| c.hangar.in_hangar()).await?;
-    anyhow::ensure!(bot.core.welcome.as_ref().is_some_and(|w| w.colony), "the colony isn't open (--colony)");
+    anyhow::ensure!(
+        bot.core.welcome.as_ref().is_some_and(|w| w.colony),
+        "the colony is closed (--no-colony)"
+    );
     let strip = (k % 3) as u8;
     bot.enter_city(strip).await?;
     totals.walking.fetch_add(1, Ordering::Relaxed);

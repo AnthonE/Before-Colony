@@ -1,4 +1,4 @@
-//! Suits inside the colony over real WebTransport (survival, `--colony`): a pilot launches their
+//! Suits inside the colony over real WebTransport (survival, the colony open): a pilot launches their
 //! suit from the bay into the colony through the inner gate (the inside's own sector, a Welcome
 //! to it), flies it there with the weapons safe, docks back at the inner gate, and is welcomed back
 //! to their bay with the suit in it. A pilot who leaves while inside finds the suit towed home. The

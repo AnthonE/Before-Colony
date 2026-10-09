@@ -1,4 +1,4 @@
-//! The Proving Ground over real WebTransport (survival, `--colony`; `docs/TRAINING.md`). A pilot
+//! The Proving Ground over real WebTransport (survival, the colony open; `docs/TRAINING.md`). A pilot
 //! signed in rides down to Hub Gate and walks into the Blast Hall to its gantry, and boards one of
 //! the Charter Board's trainers there (their own suit stays in their bay). From the gantry they
 //! clear the drill, and the time the server checked goes on the Proving Ground's board: told to

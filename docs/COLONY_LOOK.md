@@ -58,7 +58,7 @@ sees the same and nobody can touch.
 | 1: air and light | 1.0 (golden hours), 1.1 (`bc::colony_sky`: haze by height, the windows' beams, the colour script in `city_hour.rs`), 1.2 (glass and water reflect the sky function) and 1.4 (grade and bloom by the hour) done; 1.3 has the cascades, not yet the long shadows from a height atlas; 1.5 (WebGPU extras) to do |
 | 2: facades | 2.0 to 2.4 done as paint (`bc::facade`: filtered, rooms behind the windows, materials by district and strip, wear, shopfronts, the colony's halls, roofs); 2.5 done (crowns, setbacks, spires and masts, roof plant, courts, sheds, terraces; `CITY_VERSION` 3) |
 | 3: the street | 3.1 done (`bc::city`'s paint: markings, crossings, paving and beds on the avenue, wear, lamp pools that read as lines from afar); 3.3 in part (`bc_sim::colony::furniture`: lamp posts under every pool of the city's lamps, their lanterns burning as their pools do, benches on the avenue; the colony's own lamps, the tram's masts and wires, signals and kiosks to do); 3.4 in part (the avenue's and the quays' trees, crowns of lumpy blobs by species, the parks' and plazas' trees on their lawns; the sway and impostors past L1 to do); 3.5 in part (the water's reflections, see-through railings); the rest to do (3.2 has its `wet` mask ready) |
-| 4: life | 4.1 and 4.2 drawn on every screen (`life.rs`, not yet seen in a browser): the traffic (`colony::traffic`: rings of cars round the block rows, signals at the wide cross streets on an 80 s cycle with a green wave both ways, platoons that park at night, cars in the bays) and the people (`colony::walkers`: lines of slots on the pavements, the avenue's walks, the quays, parks, plazas, the banks, Hub Gate's square, the benches and the platforms) are closed forms of the tick in bc-sim, the same on every screen (`TRAFFIC_GOLDEN`, `WALKERS_GOLDEN`); people cross only the narrow cross streets, which no car drives (`tests/life.rs`). The client draws them from pools at two levels of detail, within each tier's budget (see pass 4); 4.3 to do |
+| 4: life | 4.1 and 4.2 drawn on every screen (`life.rs`; seen in a browser on Low, SwiftShader, at about 7% of the frame, and the gfx suite asserts people and cars at the third city camera): the traffic (`colony::traffic`: rings of cars round the block rows, signals at the wide cross streets on an 80 s cycle with a green wave both ways, platoons that park at night, cars in the bays) and the people (`colony::walkers`: lines of slots on the pavements, the avenue's walks, the quays, parks, plazas, the banks, Hub Gate's square, the benches and the platforms) are closed forms of the tick in bc-sim, the same on every screen (`TRAFFIC_GOLDEN`, `WALKERS_GOLDEN`); people cross only the narrow cross streets, which no car drives (`tests/life.rs`). The client draws them from pools at two levels of detail, within each tier's budget (see pass 4); 4.3 to do |
 | 5, 6 | to do |
 
 The Low tier compiles the cheap variants (`FACADE_LOW`, `city_sketch`): software rasterisers run every branch
@@ -194,7 +194,7 @@ The largest gain for the least work: none of it adds geometry.
   wet pavement sample `colony_sky(reflect(v, n))` with Fresnel. The result: the white window bands,
   the far strips, the haze, the lamps at night. No cube map, no compute, and it works on WebGL2.
 - **1.3 Shadows at the city's scale.** The city sets the Sun's `CascadeShadowConfig` itself on the
-  way in (today it never does: see "Where it stands"). On WebGL2, one cascade sized to the camera,
+  way in (today it never does: see "Where it stood"). On WebGL2, one cascade sized to the camera,
   about 300 m on foot and more from a suit or a rooftop. On WebGPU, three cascades out to 3 km.
   Beyond the shadow map, **long shadows from a height atlas**: bake each lot's roof height
   (16 m texels, `city_atlas`) and march a few steps toward the key light in `city.wgsl`. At dawn and
@@ -369,9 +369,9 @@ Passes 0 and 1, the paint of 2 and 3, the buildings' massing (2.5) and the stree
 3.4, in part) are in (see "Status"; `CITY_VERSION` 3), and so are the traffic and the people as closed forms of the
 tick (4.1, 4.2, in bc-sim) and drawn (`life.rs`). The next passes, in order:
 
-1. **Life** (4.1, 4.2): drawn, not yet seen. The next browser-capable run's first job: `scripts/e2e.sh gfx webgl2
-   --grep city` and `webgpu` (the shaders compile, the third camera's row asserts people and cars), then `?perf=1`
-   on High and Low at Hub Gate and downtown, and the caps tuned to what it says. Still to come after it: the far
+1. **Life** (4.1, 4.2): drawn, and seen in a browser on Low (SwiftShader, WebGL2: pass 4's numbers; the third
+   camera's gfx row asserts people and cars). Still to do: the `webgpu` run, then `?perf=1` on High and Low at Hub
+   Gate and downtown, and the caps tuned to what it says. Still to come after it: the far
    lights at night (the avenue's rivers, from a rooftop, the lift or a suit; till they land the review's first camera
    shows little life and its second none), people crossing at the signals (the
    people's half, unused so far: a line round two runs whose lap is a whole number of cycles, so each slot crosses

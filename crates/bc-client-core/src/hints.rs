@@ -122,7 +122,7 @@ impl Hint {
                 "V turns flight assist off: then nothing slows you down, like a real spacecraft."
             }
             Hint::Salvage => "G grabs wreckage and ore, B stows it. Bring it to the colony's dock.",
-            Hint::Menu => "Esc opens the menu. F1 lists every control.",
+            Hint::Menu => "Esc opens the menu. F1 (or ?) lists every control.",
             Hint::Walk => "W A S D walk, Shift runs, Space jumps. The mouse looks.",
             Hint::Use => {
                 "Look at a terminal and press E: the fabricator and the stores on the right, the \

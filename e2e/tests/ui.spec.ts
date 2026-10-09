@@ -59,11 +59,19 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   );
   await wait("a sound", "window.__bc?.audio_started > 0");
 
-  // F1: the controls sheet, over the world.
+  // F1, or ? for keyboards without a function row: the controls sheet, over the world. ? goes to
+  // the page only: the game never reads the / under it, so the radio stays shut.
   await page.keyboard.press("F1");
   await expect(page.locator("#help")).toBeVisible();
   await page.keyboard.press("F1");
   await expect(page.locator("#help")).toBeHidden();
+  await page.focus("#bc");
+  await page.keyboard.press("?");
+  await expect(page.locator("#help")).toBeVisible();
+  await expect(page.locator("#chat-input")).toBeHidden();
+  await page.keyboard.press("?");
+  await expect(page.locator("#help")).toBeHidden();
+  await expect(page.locator("#chat-input")).toBeHidden();
 
   // Tab: into the cockpit and back out to the chase camera. The view is a setting, kept for the
   // next sortie. (A suit shot down meanwhile is watched from behind whatever the setting.)
@@ -74,7 +82,8 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   };
   await page.focus("#bc");
   await page.keyboard.press("Tab");
-  await expect.poll(camera).toBe("cockpit/cockpit");
+  // The first switch builds the cockpit's pipelines, which takes a software renderer seconds.
+  await expect.poll(camera, { timeout: 15_000 }).toBe("cockpit/cockpit");
   await expect.poll(saved, { timeout: 10_000 }).toContain("camera = cockpit");
   // From the seat: the monitors round the view carry the instruments.
   await page.waitForTimeout(1_500);
@@ -107,6 +116,9 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   await page.keyboard.press("Enter");
   await expect(page.locator("#chat-input")).toBeHidden();
   await expect(page.locator("#chat-log")).toContainText("E2E-Title o7 from the e2e");
+  // The O typed there was a letter, not F10's second key (the status is published 4 times a second).
+  await page.waitForTimeout(500);
+  expect((await bc(page)).gfx_tier).toBe("low");
   const radio = await (await request.get("/status")).json();
   expect(radio.game?.radio_lines).toBe(1);
   // Esc closes it without a word, and without opening the menu.
@@ -118,6 +130,12 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   await expect(page.locator("#chat-input")).toBeHidden();
   await expect(page.locator("#pause")).toBeHidden();
   await expect(page.locator("#chat-log")).not.toContainText("never mind");
+
+  // O, as F10 (no function row on a Mac laptop or a 60% keyboard): the next graphics tier.
+  await page.focus("#bc");
+  await page.keyboard.press("o");
+  // The first frame on a new tier builds its pipelines, which takes a software renderer seconds.
+  await expect.poll(async () => (await bc(page)).gfx_tier, { timeout: 15_000 }).toBe("medium");
 
   // Esc: the menu; Resume closes it.
   await page.focus("#bc");

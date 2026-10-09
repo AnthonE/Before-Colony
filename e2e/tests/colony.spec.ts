@@ -1,8 +1,6 @@
 import { spawn } from "node:child_process";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { chromium, expect, test, type Page } from "@playwright/test";
-import { bc, collectConsole } from "./util";
+import { bc, built, collectConsole } from "./util";
 
 // The colony inside (`scripts/e2e.sh colony`: a survival server with the colony open, no dolls,
 // and an agent strolling outside Hub Gate). The pilot goes out through their bay's airlock and
@@ -15,7 +13,7 @@ import { bc, collectConsole } from "./util";
 // down onto the avenue by the other, each seeing the other.
 
 // The agent in a suit inside the colony (`crates/bc-bot/examples/suit_inside.rs`).
-const SUIT = resolve(dirname(fileURLToPath(import.meta.url)), "../../target/release/examples/suit_inside");
+const SUIT = built("examples/suit_inside");
 const BC_URL = process.env.BC_URL ?? "http://127.0.0.1:8080";
 
 const push = (page: Page, cmd: Record<string, unknown>) =>

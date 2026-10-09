@@ -2,8 +2,8 @@
 //!
 //! The tier comes from `?quality=low|medium|high|ultra`, else the pilot's saved choice (game mode),
 //! else `web/loader.js`'s pick for the GPU: Low for software rasterisers (SwiftShader, llvmpipe),
-//! High otherwise. F10 cycles it in game, and the settings keep the choice. Later milestones add
-//! their knobs to [`TierSettings`].
+//! High otherwise. F10 (or O) cycles it in game, and the settings keep the choice. Later milestones
+//! add their knobs to [`TierSettings`].
 
 use bc_client_core::life;
 use bevy::anti_alias::smaa::Smaa;
@@ -48,7 +48,7 @@ impl GfxTier {
         }
     }
 
-    /// The next tier, wrapping (F10).
+    /// The next tier, wrapping (F10, or O).
     pub fn next(self) -> Self {
         match self {
             Self::Low => Self::Medium,
@@ -199,18 +199,27 @@ pub struct GfxPlugin(pub Gfx);
 
 impl Plugin for GfxPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(self.0).add_systems(Update, (cycle_tier, apply_camera_tier, apply_resolution));
+        // The tier a key chose is on the camera, and in `window.__bc`, the frame it was chosen: the
+        // next can take a software renderer seconds, building the new tier's pipelines.
+        app.insert_resource(self.0)
+            .add_systems(Update, (cycle_tier, apply_camera_tier.after(cycle_tier), apply_resolution));
     }
 }
 
-/// F10: next tier (kept in the settings, in game mode).
+/// F10's second key: the function row needs Fn on a Mac laptop, and a 60% keyboard has none
+/// (`docs/CONTROLS.md`, item 6). Nothing else binds O, in any mode.
+pub const TIER_KEY: KeyCode = KeyCode::KeyO;
+
+/// F10 or O: next tier (kept in the settings, in game mode). O is a letter, so not while the
+/// radio's line is open: what's typed there is never a key.
 fn cycle_tier(
     keys: Res<ButtonInput<KeyCode>>,
     mut gfx: ResMut<Gfx>,
     ui: Option<ResMut<crate::page::Ui>>,
     settings: Option<ResMut<crate::settings::SettingsRes>>,
 ) {
-    if keys.just_pressed(KeyCode::F10) {
+    let typing = ui.as_ref().is_some_and(|ui| ui.chat);
+    if keys.just_pressed(KeyCode::F10) || (keys.just_pressed(TIER_KEY) && !typing) {
         let next = gfx.tier.next();
         gfx.set_tier(next);
         info!("graphics tier: {}", next.name());

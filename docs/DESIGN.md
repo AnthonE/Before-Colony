@@ -397,8 +397,11 @@ Leo), on the reactor's power alone, as much as its reactor gives (half on a dama
 failed one; nothing while it's scrammed). Under the real rules the first of each tick's thrust is
 the drive's and burns nothing, so gentle flying is free and hard burns cost a little less; and a dry
 tank still gives that much (RCS stays dry: the suit turns on AMBAC), a crawl home where a suit
-without one only drifts. Under anime rules it fills the boost gauge half as fast again (a whole tank
-in about 13 s). While it works it takes up to half the reactor's regeneration. It competes for the
+without one only drifts. The auto-nav knows it: on a dry tank it plans its braking on half the
+drive's thrust, and on a tank too low for the trip it plans for the tank to run dry on the way in
+and the drive to take off the rest, so the crawl ends at rest where it was going (and the chart's
+times count on the crawl). Under anime rules it fills the boost gauge half as fast again (a whole
+tank in about 13 s). While it works it takes up to half the reactor's regeneration. It competes for the
 backpack with the auxiliary tank and the thruster kit; the HUD shows `ION` while it's working. The
 owner's client predicts it as the server flies it, scram and all (the own state's `scram` says for
 how long), and the reactor's draw, which only the server keeps, never changes the flight.
@@ -1171,7 +1174,7 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
 | Enter | dock (survival): at rest inside the dock's ring of lights |
 | 1–6 | arcade rules: respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
 | / (Enter on foot) | talk on the colony's radio: Enter says it, Esc closes |
-| Esc · F1 · F10 | menu · the controls sheet · graphics quality |
+| Esc · F1 or ? · F10 or O | menu · the controls sheet · graphics quality |
 
 On a body (see "Surfaces"): W/A/S/D walk, Shift runs, Space hops (held, it lifts off on the
 thrusters), C crouches (a toggle), X stops, a blade's lunge dashes along the ground, and Q/E do
@@ -1183,9 +1186,12 @@ in view (E again, or Esc, steps away from a terminal).
 
 The list players see (the title screen's controls sheet and F1) is
 `bc_client_core::controls::BINDINGS`; keep it in step with this table. Down is C alone: Left Ctrl
-held with W is Ctrl+W, which closes the browser's tab. Turning flight assist on or off says so in
-the middle of the screen, because V is the camera key in other games. `docs/CONTROLS.md` compares
-this scheme with what players of other games expect, and lists what they'll ask for.
+held with W is Ctrl+W, which closes the browser's tab. F1 and F10 have second keys, `?` and O,
+because a Mac laptop needs Fn for the function row and a 60% keyboard has none; `?` goes by the
+character, wherever the layout puts it, and typed into the radio's line it's only a question mark.
+Turning flight assist on or off says so in the middle of the screen, because V is the camera key
+in other games. `docs/CONTROLS.md` compares this scheme with what players of other games expect,
+and lists what they'll ask for.
 
 **The cockpit.** Tab (or the mouse wheel) switches between the chase camera and the cockpit: the
 view from the head's main camera, which is what a mobile suit's cockpit monitors show. It looks

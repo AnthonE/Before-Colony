@@ -1,5 +1,14 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { PNG } from "pngjs";
 import type { Page } from "@playwright/test";
+
+/** A program cargo built for the suites, e.g. `examples/sign`: in BC_BIN_DIR, which scripts/e2e.sh
+ *  sets (it follows CARGO_TARGET_DIR), or else the repository's target/release. */
+export function built(name: string): string {
+  const dir = process.env.BC_BIN_DIR ?? resolve(dirname(fileURLToPath(import.meta.url)), "../../target/release");
+  return resolve(dir, name);
+}
 
 /** Standard deviation of screenshot luminance: a blank or single-colour frame is ~0. */
 export function luminanceStdDev(png: Buffer): number {

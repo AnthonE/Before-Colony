@@ -1,6 +1,7 @@
 //! The key bindings, once: the title screen's controls sheet, the F1 overlay and the pause menu's
 //! Controls page are all drawn from [`BINDINGS`], so they can't disagree with each other or with
-//! the input code (the browser client's `input.rs`).
+//! the input code (the browser client's `input.rs`). A function key always has a second key: the
+//! function row needs Fn on a Mac laptop, and a 60% keyboard has none (`docs/CONTROLS.md`).
 
 /// A group of bindings, in the order they're shown.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -181,8 +182,8 @@ pub const BINDINGS: &[Binding] = &[
     ),
     b(Group::System, "/ (Enter on foot)", "Talk on the colony's radio: Enter says it, Esc closes"),
     b(Group::System, "Esc", "Menu"),
-    b(Group::System, "F1", "This list"),
-    b(Group::System, "F10", "Graphics quality"),
+    b(Group::System, "F1 / ?", "This list"),
+    b(Group::System, "F10 / O", "Graphics quality"),
     b(
         Group::System,
         "1 - 6",
@@ -223,6 +224,21 @@ mod tests {
         // Anywhere else a suit crouched still only runs cold (`conceal`: half its signature).
         let c = BINDINGS.iter().find(|b| b.group == Group::Surface && b.keys == "C").unwrap();
         assert!(c.action.contains("cold") && c.action.contains("in a hide spot it hides"), "{}", c.action);
+    }
+
+    #[test]
+    fn every_function_key_has_a_second_key() {
+        let function = |k: &str| {
+            k.strip_prefix('F').is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+        };
+        for b in BINDINGS {
+            let keys: Vec<&str> = b.keys.split(" / ").collect();
+            if keys.iter().any(|k| function(k)) {
+                assert!(keys.iter().any(|k| !function(k)), "{} needs a key off the function row", b.keys);
+            }
+        }
+        let system = |k: &str| BINDINGS.iter().any(|b| b.group == Group::System && b.keys == k);
+        assert!(system("F1 / ?") && system("F10 / O"));
     }
 
     #[test]

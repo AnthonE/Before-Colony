@@ -485,8 +485,8 @@ fn setup_chart_scene(
     });
 }
 
-/// The graphics tier on the chart's camera too (at the start, and whenever F10 changes it): HDR
-/// and bloom where the tier has them, so the chart's light glows; multisampling for its lines.
+/// The graphics tier on the chart's camera too (at the start, and whenever F10 or O changes it):
+/// HDR and bloom where the tier has them, so the chart's light glows; multisampling for its lines.
 fn apply_chart_tier(mut commands: Commands, gfx: Res<Gfx>, cams: Query<Entity, With<ChartCamera>>) {
     if !gfx.is_changed() {
         return;
@@ -1902,10 +1902,12 @@ pub fn chart_panels(
         if let (Some(spec), Some(o)) = (spec, core.world.own) {
             let course = p.arrival(world, t, m.pos).map(|a| nav::plot(&world.bodies, t, m.pos, a.point));
             let left = course.as_ref().map_or(d, |c| c.length());
-            let brake = nav::planned_braking(spec, o.propellant, o.extra_mass_kg as f32);
+            // On the thrust it has: a dry tank crawls on an ion drive, or goes nowhere.
+            let brake = nav::planned_braking(spec, core.predict.mods(), o.propellant, left);
             let cruise = spec.fa_speed.min(nav::NAV_CRUISE);
             let eta = nav::eta(left, closing.max(0.0), cruise, brake);
-            s += &format!("\nBY AUTO-NAV  {}  ·  {}", range(left), clock(eta));
+            let eta = if eta.is_finite() { clock(eta) } else { "TANK DRY".to_string() };
+            s += &format!("\nBY AUTO-NAV  {}  ·  {eta}", range(left));
             if real {
                 let isp = bc_sim::tuning::own_tuning(&o).isp;
                 let burn = nav::burn_estimate(spec, isp, o.propellant, left, cruise, brake);
@@ -2189,14 +2191,19 @@ pub fn show_course(
         (Some(_), _) => "AUTO-NAV".to_string(),
         (None, Some(o)) => {
             let spec = frame(o.frame);
-            let brake = nav::planned_braking(spec, o.propellant, o.extra_mass_kg as f32);
+            // On the thrust it has: a dry tank crawls on an ion drive, or goes nowhere.
+            let brake = nav::planned_braking(spec, core.predict.mods(), o.propellant, left);
             let eta = nav::eta(left, closing.max(0.0), spec.fa_speed.min(nav::NAV_CRUISE), brake);
-            let cue = match nav::cue(left, closing, brake) {
-                nav::Cue::Brake => "  BRAKE",
-                nav::Cue::Burn => "",
-                nav::Cue::Coast => "",
-            };
-            format!("{}{cue}", clock(eta))
+            if !eta.is_finite() {
+                "TANK DRY".to_string()
+            } else {
+                let cue = match nav::cue(left, closing, brake) {
+                    nav::Cue::Brake => "  BRAKE",
+                    nav::Cue::Burn => "",
+                    nav::Cue::Coast => "",
+                };
+                format!("{}{cue}", clock(eta))
+            }
         }
         _ => String::new(),
     };

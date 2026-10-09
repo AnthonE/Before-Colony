@@ -92,7 +92,7 @@ pub struct HangarEntry {
     pub stores_pieces: u64,
 }
 
-/// The colony's inside (`--colony`, survival): a second sector, `sector-1`, in the colony's own
+/// The colony's inside (survival, unless `--no-colony`): a second sector, `sector-1`, in the colony's own
 /// frame (`bc_sim::colony::interior`), with its own slots, rings and egress. Pilots launch into it
 /// from their bays through the inner gate, and dock back out of it.
 #[derive(Clone)]
@@ -145,6 +145,9 @@ pub struct GameShared {
 
 /// How long the sector gets to put back the suits left in hide spots, at boot.
 const RESTORE_WAIT: Duration = Duration::from_secs(2);
+/// How long a session that has ended keeps its connection open for its last word to reach the
+/// client, which closes it on reading that.
+const LINGER: Duration = Duration::from_secs(3);
 
 impl GameShared {
     /// Survival, at boot, before anyone can connect: puts the suits pilots left in landmarks'
@@ -687,7 +690,7 @@ impl StatusView {
             "exchange": exchange,
             "charter": charter,
             "proving": proving,
-            // The colony's inside (`--colony`): its sector's suits, and its tick.
+            // The colony's inside (unless `--no-colony`): its sector's suits, and its tick.
             "inside": self.inside.as_ref().map(|i| serde_json::json!({
                 "suits": l(&i.metrics.suits_alive),
                 // Pilots on foot in the city watching its suits.
@@ -802,9 +805,14 @@ impl RateLimit {
 }
 
 pub async fn run_session(conn: Connection, game: GameShared, stats: Arc<NetStats>) {
-    if let Err(e) = session(conn, game, stats).await {
+    if let Err(e) = session(&conn, game, stats).await {
         tracing::debug!("session ended: {e}");
     }
+    // The session's last word (a Bye, a Reject) is written but may not have left yet, and dropping
+    // the connection closes it at once, which lets the client throw away what it hadn't read: a
+    // slow page then hears its link drop instead of why, and redials (a pilot signed in elsewhere
+    // would try to take their suit back). The client closes on reading it; give it the time.
+    let _ = tokio::time::timeout(LINGER, conn.closed()).await;
 }
 
 pub(super) async fn reject(tx: &mut SendStream, reason: RejectReason) -> anyhow::Result<()> {
@@ -860,7 +868,7 @@ async fn identify(
     }
 }
 
-async fn session(conn: Connection, game: GameShared, stats: Arc<NetStats>) -> anyhow::Result<()> {
+async fn session(conn: &Connection, game: GameShared, stats: Arc<NetStats>) -> anyhow::Result<()> {
     let (mut tx, mut rx) = tokio::time::timeout(Duration::from_secs(5), conn.accept_bi()).await??;
     let mut pending = Vec::new();
     let hello = tokio::time::timeout(Duration::from_secs(5), read_control(&mut rx, &mut pending)).await??;
@@ -886,7 +894,7 @@ async fn session(conn: Connection, game: GameShared, stats: Arc<NetStats>) -> an
         None => (None, None),
     };
     let who = super::session::Who { pilot, frame, faction, name, address };
-    let result = super::session::run(&conn, &game, &stats, &mut tx, &mut rx, pending, who, kicked).await;
+    let result = super::session::run(conn, &game, &stats, &mut tx, &mut rx, pending, who, kicked).await;
     if let Some((address, session)) = held {
         // What was said of their suit in a hide spot while they flew, now that the session has
         // saved its record.

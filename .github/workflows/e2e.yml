@@ -1,0 +1,94 @@
+name: Browser tests
+
+# The Playwright suites (`BC_E2E=1 scripts/ci.sh`) against a real server, nightly and by hand:
+# too slow for every push. One job builds the server, its agents and the web client; each suite
+# then runs on its own runner from that build, and reports its own pass or fail.
+on:
+  schedule:
+    - cron: "23 4 * * *" # nightly, 04:23 UTC
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build the server and the web client
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      # rust-toolchain.toml pins the compiler and the wasm32 target.
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Install wasm-bindgen-cli (must match the crate)
+        run: cargo install wasm-bindgen-cli --version 0.2.128 --locked
+      - name: Build the server, the agents and the signer (what scripts/e2e.sh builds)
+        run: cargo build --release -p bc-server -p bc-bot -p bc-auth --bins --examples
+      - name: Build the web client
+        run: ./scripts/build-web.sh webgl2
+      # A tarball keeps the programs' execute bits, which an artifact drops. The programs are the
+      # binaries and examples cargo built, less its copies named with a hash.
+      - name: Pack the build
+        run: |
+          find target/release target/release/examples -maxdepth 1 -type f -executable \
+            -regextype posix-extended ! -regex '.*-[0-9a-f]{16}' > programs.txt
+          cat programs.txt
+          tar -czf e2e-build.tar.gz web/dist -T programs.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: e2e-build
+          path: e2e-build.tar.gz
+          retention-days: 3
+
+  suite:
+    name: ${{ matrix.suite }}
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 270
+    strategy:
+      # One suite's failure never cancels the others.
+      fail-fast: false
+      matrix:
+        suite: [spike, slice, gfx, frames, lockon, ui, login, hangar, surface, colony, chart, inside]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: e2e-build
+      - name: Unpack the build
+        run: tar -xzf e2e-build.tar.gz && rm e2e-build.tar.gz
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: e2e/pnpm-lock.yaml
+      - name: Install the test dependencies
+        working-directory: e2e
+        run: pnpm install --frozen-lockfile
+      # Playwright's own Chromium, matching the locked @playwright/test, with its system libraries.
+      - name: Install Chromium
+        working-directory: e2e
+        run: pnpm exec playwright install --with-deps chromium
+      # Each test has its own limit; gfx's 55 scenes run well over an hour in software, and their
+      # limits add up to more. This one, under the job's, is for a hang, so that it fails here and
+      # its traces are kept.
+      - name: Run the ${{ matrix.suite }} suite (WebGL2 on SwiftShader)
+        timeout-minutes: 240
+        env:
+          BC_PREBUILT: "1"
+        run: ./scripts/e2e.sh ${{ matrix.suite }} webgl2
+      - name: Keep the traces, the report and the screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-${{ matrix.suite }}
+          path: |
+            e2e/test-results
+            e2e/playwright-report
+            e2e/artifacts
+          if-no-files-found: ignore
+          retention-days: 14

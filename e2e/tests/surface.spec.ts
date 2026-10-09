@@ -1,8 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
-import { bc, collectConsole } from "./util";
+import { bc, built, collectConsole } from "./util";
 
 // Suits on the bodies, end to end: signed in with a stub wallet, the lander autopilot flies from
 // the Colonies' base to MO-II, lands in its Aft Well with its grip, crouches and lies still until
@@ -10,7 +8,7 @@ import { bc, collectConsole } from "./util";
 // still on the ground and still hidden. Then, flown by hand, it wakes there again and lifts off
 // on the thrusters, free past 40 m. All the while the server allocates nothing in its tick, every
 // snapshot fits a datagram, and every rider names a body the client knows.
-const SIGNER = resolve(dirname(fileURLToPath(import.meta.url)), "../../target/release/examples/sign");
+const SIGNER = built("examples/sign");
 // Test key 2's address.
 const ADDRESS = "0x2b5ad5c4795c026514f8317c7a215e218dccd6cf";
 const NAME = "E2E-Hider";
@@ -128,7 +126,9 @@ test("land in MO-II's Aft Well, hide there, park on leaving, wake hidden and lif
   await page.keyboard.down("Space");
   await waitOn(page, "lifted off", (b) => b.footing === "free", 30_000);
   await page.keyboard.up("Space");
-  await expect.poll(async () => page.locator("#toast").textContent(), { timeout: 2_000 }).toBe("FLYING");
+  // The HUD says so from the suit as drawn, which a software renderer's few frames a second bring
+  // in a moment after the server's word.
+  await expect.poll(async () => page.locator("#toast").textContent(), { timeout: 10_000 }).toBe("FLYING");
 
   const errors = logs.filter((l) => /%cERROR|\[pageerror\]|panicked/.test(l));
   if (errors.length) console.log(errors.join("\n"));

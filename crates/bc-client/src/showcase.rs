@@ -5,7 +5,7 @@
 //! Time runs on a fixed 60 Hz step from `?t=` (`?hz=` for another rate, `?realtime=1` for the wall
 //! clock), so a screenshot after N frames is the same on any machine; `?hold=N` stops the clock
 //! after N frames. Controls: drag to orbit, wheel to zoom, WASD/Space/C to move,
-//! 1-9 camera presets, P to pause, F10 to cycle the graphics tier.
+//! 1-9 camera presets, P to pause, F10 (or O) to cycle the graphics tier.
 
 use bc_client_core::BodySet;
 use bc_client_core::world::{ObjectMotion, ObjectTrack};
@@ -1149,7 +1149,7 @@ fn overlay(
 ) {
     if let Ok(mut t) = text.single_mut() {
         **t = format!(
-            "SHOWCASE {}  t {:.1}s  cam {}  {}{}\ndrag orbit | wheel zoom | WASD Space C move | 1-9 cameras | P pause | F10 tier",
+            "SHOWCASE {}  t {:.1}s  cam {}  {}{}\ndrag orbit | wheel zoom | WASD Space C move | 1-9 cameras | P pause | F10 / O tier",
             show.scene.name(),
             vis.now,
             show.preset,

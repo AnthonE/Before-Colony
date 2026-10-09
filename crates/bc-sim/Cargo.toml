@@ -24,7 +24,6 @@ libm.workspace = true
 bc-alloc.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-proptest.workspace = true
 criterion.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]

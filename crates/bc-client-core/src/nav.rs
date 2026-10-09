@@ -22,9 +22,9 @@ use bc_sim::bodies::Body;
 use bc_sim::config::{G0, SECTOR_LIMIT};
 use bc_sim::content::landmarks::LandmarkDef;
 use bc_sim::content::salvage::{DOCK_CENTER, DOCK_RADIUS};
-use bc_sim::content::{doll_name, frame, frame_name};
+use bc_sim::content::{FrameSpec, doll_name, frame, frame_name};
 use bc_sim::field::FIELD_CENTER;
-use bc_sim::flight::FA_G_CAP;
+use bc_sim::flight::{FA_G_CAP, FlightMods, ion_thrust};
 use bc_sim::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS, colony_sweep};
 use glam::Vec3;
 
@@ -56,7 +56,8 @@ pub const OFF_HULL: f32 = 800.0;
 /// enough to cross the sector in two minutes, slow enough to turn round the colony's ring.
 pub const NAV_CRUISE: f32 = 300.0;
 /// It plans to brake with this share of the weakest of its thrusters, so it arrives without
-/// leaning on all of them, whichever way the pilot has the suit turned.
+/// leaning on all of them, whichever way the pilot has the suit turned (and of an ion drive's
+/// thrust, which shares itself among the axes: along any line it gives at least 1/√3 of it).
 const BRAKE_SHARE: f32 = 0.5;
 /// It's there when this close to the arrival point (m) and this slow over it (m/s).
 pub const ARRIVE_RANGE: f32 = 40.0;
@@ -613,19 +614,63 @@ pub fn plot(bodies: &BodySet, t: f64, from: Vec3, to: Vec3) -> Course {
     Course { points }
 }
 
-/// How hard the auto-nav plans to brake, m/s²: a share of the weakest thrusters of the suit it
-/// flies (with what it carries), within what flight assist will pull on its pilot.
-pub fn planned_braking(spec: &bc_sim::content::FrameSpec, propellant: f32, extra_kg: f32) -> f32 {
-    let mass = spec.mass(propellant) + extra_kg.max(0.0);
+/// How hard the auto-nav plans to brake, m/s², on a trip of `dist` m by a suit of `spec` with
+/// `propellant` kg in its tank, flying with `mods` (its stat sheet under the sector's rules, as its
+/// prediction flies it: `Predictor::mods`). It's a share of the suit's weakest thrusters (with what
+/// it carries), within what flight assist will pull on its pilot; but under the real rules a dry
+/// tank brakes on an ion drive alone, a share of its thrust (on nothing without one), and a tank
+/// too low for the trip runs dry on the way in and leaves the rest to the drive: then it's the
+/// braking that stops the suit, from the fastest it flies the trip, in the distance the tank's
+/// burn and the drive's crawl take together.
+pub fn planned_braking(spec: &FrameSpec, mods: &FlightMods, propellant: f32, dist: f32) -> f32 {
+    let extra = (mods.extra_mass_kg as f32).max(0.0);
+    let mass = spec.mass(propellant) + extra;
     let weakest = spec.main_thrust.min(spec.side_thrust).min(spec.retro_thrust);
-    (weakest / mass * BRAKE_SHARE).clamp(1.0, FA_G_CAP * G0 * BRAKE_SHARE)
+    let thrusters = (weakest / mass * BRAKE_SHARE).clamp(1.0, FA_G_CAP * G0 * BRAKE_SHARE);
+    // Under anime rules flying burns nothing: an empty gauge brakes as a full one does.
+    if mods.gauge.is_some() {
+        return thrusters;
+    }
+    let drive = ion_thrust(spec) * mods.ion / (spec.mass(0.0) + extra) * BRAKE_SHARE;
+    if propellant <= 0.0 {
+        return drive;
+    }
+    // Without a drive the tank is all it has, as ever.
+    if drive <= 0.0 {
+        return thrusters;
+    }
+    // What the tank takes off before it's dry, by the rocket equation (counting none of the
+    // drive's share, which burns nothing); and the fastest the trip is flown: as fast as the suit
+    // can still stop from in `dist`, on the tank and then the drive, and no faster than its cruise.
+    let tank = spec.exhaust_velocity() * mods.isp * (mass / (mass - propellant)).ln();
+    let d = dist.max(0.0);
+    let top = if 2.0 * thrusters * d <= tank * tank {
+        (2.0 * thrusters * d).sqrt()
+    } else {
+        // (top² − rest²)/2a + rest²/2b = d, braking at a on the tank and b on the drive, with
+        // rest = top − tank.
+        let k = tank / thrusters;
+        tank + drive * (-k + (k * k - (tank * k - 2.0 * d) / drive).sqrt())
+    };
+    let top = top.min(spec.fa_speed.min(NAV_CRUISE));
+    // The tank takes all of it off, as ever; or the drive takes the rest.
+    let rest = top - tank;
+    if rest <= 0.0 {
+        return thrusters;
+    }
+    let v2 = top * top;
+    v2 / ((v2 - rest * rest) / thrusters + rest * rest / drive)
 }
 
 /// How long to cover `dist` m starting at `speed` m/s toward it (negative: away), cruising at
-/// `cruise` and braking at `brake` m/s² to stop at the end (and speeding up as hard), s.
+/// `cruise` and braking at `brake` m/s² to stop at the end (and speeding up as hard), s: never,
+/// with nothing to brake with (a dry tank and no drive).
 pub fn eta(dist: f32, speed: f32, cruise: f32, brake: f32) -> f32 {
     if dist <= 0.0 {
         return 0.0;
+    }
+    if brake <= 0.0 {
+        return f32::INFINITY;
     }
     let mut t = 0.0;
     let mut v = speed;
@@ -777,10 +822,10 @@ impl AutoNav {
             }
         }
         let spec = frame(own.frame);
-        let brake = planned_braking(spec, s.propellant, own.extra_mass_kg as f32);
+        let left = self.course.length();
+        let brake = planned_braking(spec, ctx.predict.mods(), s.propellant, left);
         let cruise = spec.fa_speed.min(NAV_CRUISE);
         let next = self.course.next().unwrap_or(arrival.point);
-        let left = self.course.length();
         // As fast as it can still stop from at the end, easing in over the last few metres.
         let mut speed =
             (2.0 * brake * (left - ARRIVE_RANGE * 0.25).max(0.0)).sqrt().min(left * 0.6).min(cruise);
@@ -809,13 +854,13 @@ impl AutoNav {
         let mut want = pace + dir * speed;
         want = sidestep_rocks(ctx, s.pos, want);
         // And never carry on toward something it couldn't stop short of: whatever the course
-        // says, it adds nothing to its way toward it, and flight assist brakes.
+        // says, it adds nothing to its way toward it, and flight assist brakes. (With nothing to
+        // brake with, it can't stop short of anything.)
         let moving = s.vel - pace;
         if let Some(way) = moving.try_normalize() {
             let v = moving.length();
             let stop = v * v / (2.0 * brake * 2.0);
-            let free = obstacles.free_along(s.pos, way, stop + 300.0);
-            if stop + BACKSTOP > free {
+            if !stop.is_finite() || stop + BACKSTOP > obstacles.free_along(s.pos, way, stop + 300.0) {
                 want -= way * want.dot(way).max(0.0);
             }
         }
@@ -870,7 +915,10 @@ mod tests {
     use super::*;
     use crate::{InputHistory, Predictor};
     use bc_proto::{FrameId, InputCmd, OwnState, SnapshotHeader, SnapshotReader, SnapshotWriter};
-    use bc_sim::tuning::FlightRules;
+    use bc_sim::content::modules::MOUNTS;
+    use bc_sim::content::systems::DAMAGED;
+    use bc_sim::content::{ModuleKind, Modules, System, Systems};
+    use bc_sim::tuning::{FlightRules, flight_mods, tuning};
     use bc_sim::{Sim, SimConfig};
     use std::sync::Arc;
 
@@ -1019,6 +1067,32 @@ mod tests {
         place: Place,
         ticks: u32,
     ) -> (Option<u32>, f32, f32, u32) {
+        let trip = fly_fitted(rules, frame_id, rocks, start, place, ticks, |_, _| {});
+        (trip.arrived, trip.hull, trip.landmark, trip.touched)
+    }
+
+    /// What a trip on the auto-nav came to: the tick it arrived (if it did), the closest it came
+    /// to the colony's hull and to each landmark's surface, how many rocks it touched, and where
+    /// it was after each tick.
+    struct Trip {
+        arrived: Option<u32>,
+        hull: f32,
+        landmark: f32,
+        touched: u32,
+        path: Vec<Vec3>,
+    }
+
+    /// [`fly_by`], with the suit fitted out by `fit` (the sim, and its index there) before it sets
+    /// off.
+    fn fly_fitted(
+        rules: FlightRules,
+        frame_id: FrameId,
+        rocks: u16,
+        start: Vec3,
+        place: Place,
+        ticks: u32,
+        fit: impl FnOnce(&mut Sim, usize),
+    ) -> Trip {
         let mut sim = Sim::new(SimConfig {
             target_dolls: 0,
             field_rocks: rocks,
@@ -1035,6 +1109,7 @@ mod tests {
             )
             .unwrap();
         let i = id.idx();
+        fit(&mut sim, i);
         let (mut world, mut predict, mut history) =
             (World::new(Faction::Colonies), Predictor::default(), InputHistory::default());
         world.bodies = BodySet::new(Arc::new(sim.field.clone()), sim.landmarks().len() as u8);
@@ -1042,7 +1117,13 @@ mod tests {
         predict.set_landmarks(sim.landmarks().len() as u8);
         predict.set_rules(rules);
         let mut nav = AutoNav::new(place);
-        let (mut hull, mut landmark, mut touched) = (f32::INFINITY, f32::INFINITY, 0);
+        let mut trip = Trip {
+            arrived: None,
+            hull: f32::INFINITY,
+            landmark: f32::INFINITY,
+            touched: 0,
+            path: Vec::new(),
+        };
         for t in 1..=ticks {
             let own = over_the_wire(&sim.own_state(i));
             world.apply(t - 1, Some(own), None, &[], &[]);
@@ -1056,10 +1137,8 @@ mod tests {
                 predict: &predict,
             };
             let Some(cmd) = nav.decide(&ctx) else {
-                return match nav.state {
-                    NavState::Arrived => (Some(t), hull, landmark, touched),
-                    _ => (None, hull, landmark, touched),
-                };
+                trip.arrived = (nav.state == NavState::Arrived).then_some(t);
+                return trip;
             };
             let cmd = InputCmd {
                 tick: t,
@@ -1074,14 +1153,15 @@ mod tests {
             sim.set_input(id, cmd);
             sim.step();
             let p = sim.suits.flight[i].pos;
-            hull = hull.min(colony_clearance(p));
+            trip.path.push(p);
+            trip.hull = trip.hull.min(colony_clearance(p));
             let b = bc_sim::bodies::Bodies::at(&sim.field, sim.landmarks(), sim.tick());
             for (k, def) in sim.landmarks().iter().enumerate() {
                 let pose = b.pose(Body::Landmark(k as u8)).unwrap();
-                landmark = landmark.min(def.shape.probe(pose.to_local(p)).dist);
+                trip.landmark = trip.landmark.min(def.shape.probe(pose.to_local(p)).dist);
             }
             let radius = frame(frame_id).radius;
-            touched += u32::from(
+            trip.touched += u32::from(
                 sim.field
                     .rocks()
                     .iter()
@@ -1089,7 +1169,7 @@ mod tests {
                     .any(|(k, r)| !sim.field.is_dead(k) && r.touches(p, radius)),
             );
         }
-        (None, hull, landmark, touched)
+        trip
     }
 
     #[test]
@@ -1157,6 +1237,108 @@ mod tests {
             }
         }
         eprintln!("{report}");
+    }
+
+    /// A suit's modules with an ion drive on its backpack.
+    fn ion_drive_fitted() -> Modules {
+        let mut m = Modules::NONE;
+        let slot = MOUNTS.iter().position(|p| *p == ModuleKind::IonDrive.part()).unwrap();
+        m.set(slot, Some(ModuleKind::IonDrive));
+        m
+    }
+
+    /// Fits suit `i` with an ion drive and leaves `propellant` kg in its tank.
+    fn ion_drive(sim: &mut Sim, i: usize, propellant: f32) {
+        sim.suits.modules[i] = ion_drive_fitted();
+        sim.suits.retune(i);
+        sim.suits.flight[i].propellant = propellant;
+    }
+
+    #[test]
+    fn the_braking_planned_is_what_the_suit_has_to_brake_with() {
+        let leo = frame(FrameId::Leo);
+        let weakest = leo.main_thrust.min(leo.side_thrust).min(leo.retro_thrust);
+        let thrusters =
+            |kg: f32, extra: f32| (weakest / (leo.mass(kg) + extra) * 0.5).clamp(1.0, FA_G_CAP * G0 * 0.5);
+        let mods = |systems: Systems, modules: Modules, rules: FlightRules| {
+            flight_mods(&tuning(0, systems, modules), rules, false, modules.mass_kg(0) as i32)
+        };
+        let plain = mods(Systems::OK, Modules::NONE, FlightRules::Real);
+        let ion = mods(Systems::OK, ion_drive_fitted(), FlightRules::Real);
+        let drive = ion_thrust(leo) / (leo.mass(0.0) + 250.0) * 0.5;
+        for d in [100.0, 5_000.0, 50_000.0] {
+            // Without a drive, a share of the weakest thrusters as ever, and nothing on a dry tank.
+            for kg in [1.0, 300.0, 3_000.0] {
+                assert_eq!(planned_braking(leo, &plain, kg, d), thrusters(kg, 0.0));
+            }
+            assert_eq!(planned_braking(leo, &plain, 0.0, d), 0.0);
+            // With one: a full tank brakes as ever, a dry one on half the drive.
+            assert_eq!(planned_braking(leo, &ion, 3_000.0, d), thrusters(3_000.0, 250.0));
+            assert_eq!(planned_braking(leo, &ion, 0.0, d), drive);
+            // Under anime rules flying burns nothing: an empty gauge brakes as a full one.
+            for m in [Modules::NONE, ion_drive_fitted()] {
+                let anime = mods(Systems::OK, m, FlightRules::Anime);
+                let extra = m.mass_kg(0) as f32;
+                assert_eq!(planned_braking(leo, &anime, 0.0, d), thrusters(0.0, extra));
+            }
+        }
+        // Half the drive on a damaged reactor.
+        let damaged = mods(Systems::OK.with(System::Reactor, DAMAGED), ion_drive_fitted(), FlightRules::Real);
+        assert_eq!(planned_braking(leo, &damaged, 0.0, 5_000.0), drive * 0.5);
+        // A low tank (60 kg, some 70 m/s): the thrusters' on a short hop it covers, and less the
+        // further the trip, down toward the drive's; all but empty, the drive's.
+        let low = |d: f32| planned_braking(leo, &ion, 60.0, d);
+        assert_eq!(low(100.0), thrusters(60.0, 250.0));
+        assert!(low(100.0) > low(500.0) && low(500.0) > low(5_000.0) && low(5_000.0) > low(20_000.0));
+        assert!(low(20_000.0) > drive, "{} {drive}", low(20_000.0));
+        assert!((planned_braking(leo, &ion, 0.01, 5_000.0) - drive).abs() < 0.01 * drive);
+    }
+
+    /// How far a trip from `from` went past `to`, along the way between them, m.
+    fn past(trip: &Trip, from: Vec3, to: Vec3) -> f32 {
+        let way = (to - from).normalize();
+        trip.path.iter().map(|p| (*p - to).dot(way)).fold(f32::MIN, f32::max)
+    }
+
+    /// High over the field, 5 km to a point marked on the chart, with nothing in between.
+    const CRAWL_FROM: Vec3 = Vec3::new(-4_000.0, 7_000.0, 6_000.0);
+    const CRAWL_TO: Vec3 = Vec3::new(-1_000.0, 8_000.0, 2_000.0);
+
+    #[test]
+    fn a_dry_suit_crawls_on_its_ion_drive_to_where_it_was_sent_and_stops_there() {
+        // A Leo with an ion drive and a dry tank: a little over 0.1 g, all the way.
+        let (from, to) = (CRAWL_FROM, CRAWL_TO);
+        let trip =
+            fly_fitted(FlightRules::Real, FrameId::Leo, 0, from, Place::Point(to), 30 * 400, |sim, i| {
+                ion_drive(sim, i, 0.0)
+            });
+        let past = past(&trip, from, to);
+        let t = trip.arrived.unwrap_or_else(|| panic!("never arrived (went {past:.0} m past it)"));
+        assert!(past < ARRIVE_RANGE, "went {past:.0} m past it");
+        assert!(t < 30 * 200, "took {} s", t / 30);
+    }
+
+    #[test]
+    fn a_tank_that_runs_dry_on_the_way_in_leaves_the_rest_to_the_drive() {
+        // The same Leo on a low tank: heading in at 150 m/s with 60 kg left (some 70 m/s of
+        // braking), and setting off from rest with 300 kg (enough to get up to its cruise, not to
+        // stop from it as well).
+        let (from, to) = (CRAWL_FROM, CRAWL_TO);
+        for (kg, speed) in [(60.0, 150.0), (300.0, 0.0)] {
+            let trip =
+                fly_fitted(FlightRules::Real, FrameId::Leo, 0, from, Place::Point(to), 30 * 400, |sim, i| {
+                    ion_drive(sim, i, kg);
+                    let way = (to - from).normalize();
+                    let f = &mut sim.suits.flight[i];
+                    (f.vel, f.rot) = (way * speed, bc_sim::math::look_rotation(way, Vec3::Y));
+                });
+            let past = past(&trip, from, to);
+            let t = trip
+                .arrived
+                .unwrap_or_else(|| panic!("{kg} kg at {speed} m/s never arrived (went {past:.0} m past it)"));
+            assert!(past < ARRIVE_RANGE, "{kg} kg at {speed} m/s went {past:.0} m past it");
+            assert!(t < 30 * 200, "{kg} kg at {speed} m/s took {} s", t / 30);
+        }
     }
 
     #[test]

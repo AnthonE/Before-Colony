@@ -136,9 +136,10 @@ The writer reserves room for every list terminator still owed before it writes a
 snapshot is never cut off mid-list.
 
 Header flags, by bit: 0 SPECTATOR (v18): a spectator's snapshot, sent to a pilot on foot in the
-colony's city by its inside sector (below, "Suits inside the colony"). It has no own state and no
-ZERO, no events but Leave notices, no rocks, missiles or objects; its `ack_input_tick`,
-`input_health` and echo say nothing (the pilot sends no input).
+colony's city by its inside sector (below, in "Survival: the hangar's messages": a pilot on foot
+watching the inside's suits). It has no own state and no ZERO, no events but Leave notices, no
+rocks, missiles or objects; its `ack_input_tick`, `input_health` and echo say nothing (the pilot
+sends no input).
 
 What fits, in the 8 800 bits of a 1 100-byte datagram: the fixed part is the header, the own state,
 ZERO's presence bit and the five lists' terminators.

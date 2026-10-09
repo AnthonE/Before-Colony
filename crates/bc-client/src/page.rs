@@ -39,7 +39,7 @@ pub enum UiCmd {
     Disconnect,
     /// Esc: close whatever is on top, or open the pause menu.
     Back,
-    /// F1: show or hide the controls sheet (`None`: toggle).
+    /// F1 or `?`: show or hide the controls sheet (`None`: toggle).
     Help(Option<bool>),
     /// Open (`true`) or close the settings panel.
     Settings(bool),
@@ -133,7 +133,7 @@ pub enum Panel {
 pub struct Ui {
     pub screen: Screen,
     pub panel: Panel,
-    /// The controls sheet (F1) is up. It isn't modal: flying goes on under it.
+    /// The controls sheet (F1 or `?`) is up. It isn't modal: flying goes on under it.
     pub help: bool,
     /// When the pause menu last opened (Esc arriving just after the browser dropped the lock must
     /// not close it again).
@@ -313,7 +313,7 @@ pub fn drain_inbox(mut cmds: ResMut<UiCmds>) {
     inbox.set_length(0);
 }
 
-/// Esc, F1, Resume and the pause menu's own buttons (the link's commands are `session`'s).
+/// Esc, F1 (or `?`), Resume and the pause menu's own buttons (the link's commands are `session`'s).
 pub fn apply_ui_cmds(cmds: Res<UiCmds>, mut ui: ResMut<Ui>, mut map: ResMut<crate::map::MapOpen>) {
     for cmd in &cmds.0 {
         match cmd {
