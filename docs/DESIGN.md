@@ -397,8 +397,11 @@ Leo), on the reactor's power alone, as much as its reactor gives (half on a dama
 failed one; nothing while it's scrammed). Under the real rules the first of each tick's thrust is
 the drive's and burns nothing, so gentle flying is free and hard burns cost a little less; and a dry
 tank still gives that much (RCS stays dry: the suit turns on AMBAC), a crawl home where a suit
-without one only drifts. Under anime rules it fills the boost gauge half as fast again (a whole tank
-in about 13 s). While it works it takes up to half the reactor's regeneration. It competes for the
+without one only drifts. The auto-nav knows it: on a dry tank it plans its braking on half the
+drive's thrust, and on a tank too low for the trip it plans for the tank to run dry on the way in
+and the drive to take off the rest, so the crawl ends at rest where it was going (and the chart's
+times count on the crawl). Under anime rules it fills the boost gauge half as fast again (a whole
+tank in about 13 s). While it works it takes up to half the reactor's regeneration. It competes for the
 backpack with the auxiliary tank and the thruster kit; the HUD shows `ION` while it's working. The
 owner's client predicts it as the server flies it, scram and all (the own state's `scram` says for
 how long), and the reactor's draw, which only the server keeps, never changes the flight.
