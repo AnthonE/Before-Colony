@@ -92,7 +92,7 @@ pub struct HangarEntry {
     pub stores_pieces: u64,
 }
 
-/// The colony's inside (`--colony`, survival): a second sector, `sector-1`, in the colony's own
+/// The colony's inside (survival, unless `--no-colony`): a second sector, `sector-1`, in the colony's own
 /// frame (`bc_sim::colony::interior`), with its own slots, rings and egress. Pilots launch into it
 /// from their bays through the inner gate, and dock back out of it.
 #[derive(Clone)]
@@ -687,7 +687,7 @@ impl StatusView {
             "exchange": exchange,
             "charter": charter,
             "proving": proving,
-            // The colony's inside (`--colony`): its sector's suits, and its tick.
+            // The colony's inside (unless `--no-colony`): its sector's suits, and its tick.
             "inside": self.inside.as_ref().map(|i| serde_json::json!({
                 "suits": l(&i.metrics.suits_alive),
                 // Pilots on foot in the city watching its suits.

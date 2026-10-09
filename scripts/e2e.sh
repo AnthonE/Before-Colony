@@ -13,8 +13,9 @@
 #   scripts/e2e.sh inside [project]  # survival, the colony open: Q at the cockpit launches the suit into the colony, it flies a way down it (through the course's start ring) and docks back at the inner gate; another lands on the avenue, sees the stroller there and walks it; a third flies into the Blast Hall and scores on its targets; a fourth boards a trainer at the hall's gantry, starts the drill and docks back on foot
 #   scripts/e2e.sh chart [project]   # the chart: the Earth Sphere and back, a course to MO-II's Aft Well, the auto-nav flying it
 # Anything after the project goes to Playwright, e.g. `scripts/e2e.sh gfx webgl2 --grep "duel|hangar"`.
-# The suits' suites run the arcade rules (any frame, free respawns) unless BC_RULES says otherwise,
-# and every game-mode suite the anime flight rules unless BC_FLIGHT (anime|real) does.
+# The suits' suites run the arcade rules (any frame, free respawns) unless BC_RULES says otherwise
+# (hangar, colony and inside always run survival), and every game-mode suite the anime flight rules
+# unless BC_FLIGHT (anime|real) does.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 suite="${1:-slice}"

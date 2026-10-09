@@ -63,7 +63,10 @@ async fn main() -> anyhow::Result<()> {
     };
     anyhow::ensure!(bot.survival(), "the colony's inside is survival's");
     bot.wait_until(10.0, "the hangar", |c| c.hangar.in_hangar()).await?;
-    anyhow::ensure!(bot.core.welcome.as_ref().is_some_and(|w| w.colony), "the colony isn't open (--colony)");
+    anyhow::ensure!(
+        bot.core.welcome.as_ref().is_some_and(|w| w.colony),
+        "the colony is closed (--no-colony)"
+    );
     let strip = a.strip % 3;
     bot.enter_city(strip).await?;
     let gate = PLACES.iter().find(|p| p.kind == PlaceKind::HubGate && p.strip == strip).expect("a Hub Gate");
