@@ -1372,13 +1372,22 @@
     true,
   );
 
-  // Esc and F1 are the page's (Chrome keeps the Esc that ends a pointer lock to itself; the game
+  // Esc, F1 and ? are the page's (Chrome keeps the Esc that ends a pointer lock to itself; the game
   // notices the lock going instead). Capture phase, so the game's canvas can't swallow them.
+  // ? is F1's second key (Mac laptops need Fn for the function row, and 60% keyboards have none):
+  // the web's own key for a list of shortcuts. It goes by the character, wherever the layout puts
+  // it, and never reaches the game, which would read the key under it (/ opens the radio; on
+  // AZERTY it's M's place, the chart). Typed into a field (the radio's line, a callsign, a
+  // terminal's), it's a question mark.
+  const typing = (e) =>
+    e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement ||
+    (view.screen === "playing" && !!view.chat);
   window.addEventListener(
     "keydown",
     (e) => {
-      if (e.key === "F1") {
+      if (e.key === "F1" || (e.key === "?" && !e.metaKey && !typing(e))) {
         e.preventDefault();
+        if (e.key === "?") e.stopPropagation();
         if (!e.repeat) send("help");
       } else if ((e.key === "e" || e.key === "E") && !e.repeat && view.panel === "terminal" &&
         !(e.target instanceof HTMLInputElement)) {

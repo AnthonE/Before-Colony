@@ -485,8 +485,8 @@ fn setup_chart_scene(
     });
 }
 
-/// The graphics tier on the chart's camera too (at the start, and whenever F10 changes it): HDR
-/// and bloom where the tier has them, so the chart's light glows; multisampling for its lines.
+/// The graphics tier on the chart's camera too (at the start, and whenever F10 or O changes it):
+/// HDR and bloom where the tier has them, so the chart's light glows; multisampling for its lines.
 fn apply_chart_tier(mut commands: Commands, gfx: Res<Gfx>, cams: Query<Entity, With<ChartCamera>>) {
     if !gfx.is_changed() {
         return;

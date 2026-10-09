@@ -93,7 +93,7 @@ have: Space and C are jump and crouch on foot in Space Engineers, and up and dow
 so on a body they become a hop (held: lift off on the thrusters) and a crouch at no cost to anyone
 [B4]. The grip needed one new key.
 - **L, for Land or Latch.** It was free (I, K, L, M, N, O, P, U and Y were unbound; M is the chart
-  now, N its auto-nav, Y the lock-on, and U the eject), it is pressed
+  now, N its auto-nav, Y the lock-on, U the eject, and O F10's second key), it is pressed
   once per landing rather than in a fight, and Elite puts landing gear on it (*unverified*).
 - **Rejected:** P, Space Engineers' landing gear (*unverified*), is the showcase's key; N, Star
   Citizen's landing key (*unverified*), lost to L's mnemonic; T and Enter are throw and dock, and
@@ -144,7 +144,18 @@ tap ejects at once and a hold blows the suit up instead.
    setting). ZERO's solution is better than a linear pip, since it weighs the target's likely
    maneuvers, and replaces it when ZERO has one.
 6. **F1 and F10 are function keys.** On Mac laptops they need Fn, and 60% keyboards have none [C1].
-   They need second keys.
+   - **Done:** `?` is a second F1 and O a second F10, and the function keys still work. The
+     controls sheet lists both, and so do the prompts that name F1.
+   - **Why `?`.** It is the web's key for a page's list of shortcuts: GitHub and Gmail both show
+     theirs on it [C7]. The page reads it by the character, so it is wherever the layout prints it,
+     and the game never sees the key under it. On US and UK layouts that key is `/`, the radio:
+     with Shift held to boost or run, `/` comes out as `?`, and the radio opens once Shift is let
+     go. AZERTY puts `?` on the chart's key (M's place), with the same cost. Typed into the radio's
+     line, a callsign or a terminal's field, it is only a question mark.
+   - **Why O.** None of the games in the survey puts graphics quality on a key, so there was no
+     habit to follow. Of the letters still free (I, K and O), O is for options, and it is out of
+     reach of the left hand on W A S D, so a fight never presses it by mistake. While the radio's
+     line is open it is a letter, not a key.
 7. **Left Ctrl was a hidden "down"**, and holding it with W is Ctrl+W, which closes the browser tab.
    Browsers reserve that shortcut outside fullscreen, and itch.io players report tabs closing on
    them exactly this way [C1]. **Done:** down is C alone.
@@ -300,3 +311,6 @@ The three surveys behind this document were run in September 2026. The main sour
   Xbox Accessibility Guidelines 107 (remapping) and 117 (camera and sensitivity).
 - **[C6] Motion sickness.** PubMed 22097636 (rotation axes) and 18516842 (incidence); Purdue's
   "virtual nose" study; Meta's locomotion comfort guidance.
+- **[C7] Help keys** (checked October 2026). GitHub Docs, "Keyboard shortcuts" ("Typing ? on GitHub
+  brings up a dialog box that lists the keyboard shortcuts"); Gmail Help, "Keyboard shortcuts for
+  Gmail" (support.google.com/mail/answer/6594: "press the question key (Shift + slash)").

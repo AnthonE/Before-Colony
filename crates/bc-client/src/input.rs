@@ -1,8 +1,8 @@
 //! Keyboard and mouse: pointer-lock free aim, 6DOF thrust, weapons, and state toggles.
 //!
 //! The same list, for players, is `bc_client_core::controls::BINDINGS` (the title screen and F1
-//! show it); keep them together. Esc and F1 belong to the page (`page.rs`), and the pointer's lock
-//! to `pointer.rs`.
+//! show it); keep them together. Esc, F1 and `?` belong to the page (`page.rs`, `web/ui.js`), F10
+//! and O to `gfx.rs`, and the pointer's lock to `pointer.rs`.
 //!
 //! | Key | Action |
 //! |---|---|

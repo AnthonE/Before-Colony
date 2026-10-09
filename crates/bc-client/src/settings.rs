@@ -1,7 +1,7 @@
 //! The pilot's settings in the browser: read from localStorage when the game starts, changed from
-//! the page's settings panel (and F10, and launching), saved half a second after the last change.
-//! What they are, their ranges and the text they're kept as are `bc_client_core::settings`'s; the
-//! page's panel is drawn from its `KNOBS`.
+//! the page's settings panel (and F10 or O, and launching), saved half a second after the last
+//! change. What they are, their ranges and the text they're kept as are `bc_client_core::settings`'s;
+//! the page's panel is drawn from its `KNOBS`.
 //!
 //! First-flight hints live here too: which ones the pilot has seen is a setting.
 

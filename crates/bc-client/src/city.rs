@@ -758,7 +758,7 @@ fn light_city(
     let sky = look.sky_params(&d, spin, seconds, gfx.tier != GfxTier::Low);
     let o = origin.0.as_vec3();
     if let Some(mut m) = materials.get_mut(&streamer.material) {
-        // F10 recompiles the city for the new tier (each variant once).
+        // F10 (or O) recompiles the city for the new tier (each variant once).
         m.extension.low = gfx.tier == GfxTier::Low;
         m.extension.city = CityParams {
             origin: o.extend(strip as f32),

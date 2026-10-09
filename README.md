@@ -79,11 +79,11 @@ arm the grip (L), land on the hub's end face near its middle, walk onto the deck
 Enter. On foot, E at the airlock rides the cap lift down into the colony's city (M for its map, the
 trams stop at the platforms, E at a motor pool takes a car), and E at Hub Gate's lift brings you
 back up. The colony is open by default; `BC_COLONY=0 scripts/dev.sh` (the server's `--no-colony`)
-closes it. Esc opens the menu and F1 lists the controls. `?autoplay=1`
+closes it. Esc opens the menu and F1 (or ?) lists the controls. `?autoplay=1`
 skips the title screen. Add `?autopilot=1` to watch the kit-aware Mobile Doll brain fly your suit
 with the ZERO System engaged (it walks to the cockpit and launches first), and, under arcade rules,
 `?frame=leo|wingzero|heavyarms|deathscythe|sandrock|shenlong` to pick it.
-`?quality=low|medium|high|ultra` picks a graphics tier for the visit (F10 cycles them; the settings
+`?quality=low|medium|high|ultra` picks a graphics tier for the visit (F10 or O cycles them; the settings
 keep the choice). Without a server,
 `?showcase=gundams|lineup|duel|colony|field|sky|chase|salvage|mining|hangar` plays an offline scene
 (`?hz=20` runs its clock slower, to see effects at a low frame rate). `?look=0` turns off the game's
@@ -111,7 +111,7 @@ self-signed certificate depends on `serverCertificateHashes` pinning, and that m
 | 1–4 | survival: the rack's patch kit · coolant flush · chaff · stim |
 | 1–6 | arcade rules: respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
 | / | talk on the colony's radio (Enter on foot): Enter says it, Esc closes |
-| Esc · F1 · F10 | menu · controls · graphics quality |
+| Esc · F1 or ? · F10 or O | menu · controls · graphics quality |
 
 On foot: the mouse looks, W/A/S/D walk, Shift runs, Space jumps, E uses what you look at.
 
