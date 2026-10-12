@@ -358,3 +358,52 @@ fight").
   room; under constant load a real client proves its address and comes in; a session flooding its
   hangar is refused, then ended, and others are none the worse).
 
+## Mecha Royale
+
+`PEERS.md`, "Mecha Royale (2026)": what a browser mech battle royale's build teaches, in its list's
+order (23 to 28).
+
+**23. Guns that shoot missiles down.** *Built* (protocol v28).
+- `WeaponSpec::shoots_down`: the stream weapons' rounds (vulcans, gatlings, machine guns; a const
+  check keeps it to projectiles).
+- `Sim::round_meets_missile`, from `projectile_step`: the first hostile missile (not the round's
+  owner's, nor its faction's without friendly fire) within the round's radius and the missile's
+  body, both swept over the tick (the missiles fly after the rounds). It must come before the
+  round's suit and blocker. `Sim::shot_down` bursts it (`BurstCause::ShotDown`, the cause's 3 bits).
+  Not inside the colony, and not in a remote pilot's lag-compensated start (missiles fly in the
+  present). No allocation; nothing when no missile flies.
+- Tests: `bc-sim/tests/missiles.rs` (a vulcan stream across a salvo's path bursts it; the owner's
+  own rounds and a friendly's don't), the proto round trips.
+
+**24. The HUD says why.** *Built.*
+- `bc_client_core::holdup`: why a loadout weapon won't fire, in the server's order (safe inside
+  the colony, staggered, changing form, overheated, empty, its arm lost, its hand full, low energy,
+  cycling for more than half a second), from the own state; and `drain`, the alarm for a leaking
+  tank or a suit run hot, with the rack's kit for it. `World::hand_holding` says which hand holds.
+- The HUD: the reason after the weapon's line, the drain on the alert line.
+- Tests: `holdup`'s units.
+
+**25. A death report.** *Built* (protocol v28).
+- `Event::Kill`'s `weapon`: the breaching blow's (`Doom::with`, kept from the blow that doomed it,
+  through `destroy`), none for a pilot who ejected whole. Five bits, 0 for none.
+- `World::my_loss_by` (named as it happened), `FeedLine::Kill`'s weapon; the HUD's death screen
+  (`BY WING-07 · BEAM RIFLE`) and kill feed.
+- Tests: the proto round trips (a weapon, none, an unknown weapon refused).
+
+**26. A boot that says when it's stuck.** *Built.*
+- `web/index.html`: the watchdog, a plain script ahead of everything (`window.bcBoot`): the step's
+  line and meter, a stall timer per step re-armed by progress, script load failures, errors and
+  rejections, the last console errors (a panic's message), and on failure the reasons and RELOAD,
+  TRY WEBGL 2 and COPY DETAILS.
+- `web/loader.js`: the steps; the wasm fetched with its bytes counted (`fetchCounted`, a meter
+  when it isn't compressed in flight); the loading screen up until the first frame (`bcHideBoot`
+  from `dev_hooks`); the WebGPU adapter request given 4 s.
+
+**27. Wrecks that die their own way.** *Built.*
+- `bc_client_core::wreck::plan`: from the suit's slot and life, three to five secondary blasts at
+  the parts still on it, one in six ending with the reactor's, and the burn's length; `damage`
+  plays it (the reactor's with a ring and its armour).
+- Tests: `wreck`'s units (the same suit the same way, others not; blasts in order, on what's left).
+
+**28. Crews.** Open. Gunner seats on a carrier or a transport, under a captain's fire policy
+(Mecha Royale's "designate & lock" or free fire). It needs a vehicle with seats first.

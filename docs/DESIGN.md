@@ -446,6 +446,10 @@ exactly.
   seeker asks the sensors' question ("Sensors and visibility"). A missile bursts within 4 m of an
   enemy suit (friends are safe), where it meets a rock, a landmark or the colony, or at the end
   of its 8 s life.
+- **Shot down.** The rounds of the vulcans, gatlings and machine guns burst a hostile missile they
+  pass within 4 m of (`sim::missile`, "Point defence"; `PEERS.md`, "Mecha Royale"). Holding a
+  stream on a salvo coming in is a counter in the pilot's own hands, paid for in rounds, heat and
+  the shots not fired back. Beams that fly as single shots, blades and missiles don't.
 - **Full Open Attack** (Heavyarms, SPECIAL): for three seconds every hatch opens and everything
   fires along the aim, heat or not: the beam gatling, both launchers and the chest gatlings,
   about 24 missiles. Then the suit is locked in an overheat for 5 s. It charges back over 45 s,

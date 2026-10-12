@@ -13,6 +13,14 @@
 //! - **Ends.** A proximity fuse against enemy suits, or meeting a rock, a landmark or the colony
 //!   (whichever comes first along its path), or its life running out: each is a `MissileBurst`
 //!   event. There's no lag compensation: missiles fly in the present.
+//! - **Point defence.** The rounds of a gun that `shoots_down` (vulcans, gatlings, machine guns)
+//!   burst a hostile missile they meet in flight ([`BurstCause::ShotDown`]): Heavyarms' gatlings
+//!   and the head vulcans do it in the show, and Mecha Royale's assault rifle taught us how much a
+//!   counter in the pilot's own hands is worth (`docs/PEERS.md`). A round passing within
+//!   [`INTERCEPT_REACH`] does it; the round and the missile are both swept over the tick, so a
+//!   crossing at speed isn't missed. Only in the present: a remote
+//!   pilot's round meets missiles once its lag-compensated start is flown (`combat::fire`), as
+//!   missiles fly in the present.
 
 use bc_proto::events::{BurstCause, Event};
 use bc_proto::{InputCmd, MissileState, NO_SLOT, Part};
@@ -20,7 +28,7 @@ use glam::Vec3;
 
 use super::Sim;
 use super::combat::Blocker;
-use crate::collide::{segment_near_point, sweep_capsules};
+use crate::collide::{segment_near_point, segment_segment, sweep_capsules};
 use crate::config::DT;
 use crate::content::{MissileSpec, Mount, SpecialKind, WeaponSpec, frame, weapon};
 use crate::math::clamp_to_cone;
@@ -30,6 +38,14 @@ use crate::suits::WeaponState;
 
 /// A missile's body, for direct hits and what blocks it (m).
 const BODY_RADIUS: f32 = 0.5;
+/// How near a round must pass a missile to burst it (m): far wider than its body, since its skin,
+/// seeker and motor are fragile and a gun's stream is a cone of rounds. It's what makes the
+/// counter work in a pilot's hands: a stream held on a missile coming straight in leaves a muzzle
+/// on the arm, some 3.5 m off the suit's axis, and passes it that far off.
+pub const INTERCEPT_REACH: f32 = 4.0;
+/// Further than a missile flies in a tick (m): its launch, its motor's whole Δv and a suit's speed
+/// under it come to well under this at 30 Hz.
+const MISSILE_STEP_MAX: f32 = 120.0;
 
 /// A lock's progress when it's acquired: twice the launcher's lock time, so fire control can
 /// build it at half, whole or one and a half steps a tick.
@@ -285,6 +301,47 @@ impl Sim {
         }
         self.missile_bits = live;
         self.peak_missiles = self.peak_missiles.max(self.missiles.count());
+    }
+
+    /// The first hostile missile a round of radius `r` passes within [`INTERCEPT_REACH`] of, flying
+    /// from `a` to `b` this tick (fired by `owner`, of `faction`): how far along its path (0..1),
+    /// and which. Both move over the tick (the missiles haven't flown yet: `missile_step`
+    /// follows), so the round's path is taken relative to each missile's.
+    pub(super) fn round_meets_missile(
+        &self,
+        a: Vec3,
+        b: Vec3,
+        r: f32,
+        owner: usize,
+        faction: bc_proto::Faction,
+    ) -> Option<(f32, usize)> {
+        let m = &self.missiles;
+        if m.count() == 0 {
+            return None;
+        }
+        let reach = r + INTERCEPT_REACH;
+        // Nothing further off than the round's and a missile's step this tick, and the reach.
+        let near = length(b - a) + MISSILE_STEP_MAX + reach;
+        let mut first: Option<(f32, usize)> = None;
+        for k in m.alive.iter() {
+            if usize::from(m.owner[k]) == owner
+                || (!self.cfg.friendly_fire && m.owner_faction[k] == faction)
+                || (m.pos[k] - a).length_squared() > near * near
+            {
+                continue;
+            }
+            let (from, to) = (a - m.pos[k], b - m.pos[k] - m.vel[k] * DT);
+            let (s, _, d2) = segment_segment(from, to, Vec3::ZERO, Vec3::ZERO);
+            if d2 <= reach * reach && first.is_none_or(|(f, _)| s < f) {
+                first = Some((s, k));
+            }
+        }
+        first
+    }
+
+    /// Missile `k` is shot down at `at`.
+    pub(super) fn shot_down(&mut self, k: usize, at: Vec3, t: u32) {
+        self.burst(k, at, BurstCause::ShotDown, t);
     }
 
     /// Missile `k` bursts at `at`.

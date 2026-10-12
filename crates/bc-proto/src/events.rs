@@ -40,20 +40,40 @@ pub enum BurstCause {
     Expired = 2,
     /// It met the colony or a rock.
     Blocked = 3,
+    /// A gun's round met it in flight: shot down (v28, `bc_sim::sim::missile`'s point defence).
+    ShotDown = 4,
 }
 
 impl BurstCause {
-    pub const BITS: u32 = 2;
+    pub const BITS: u32 = 3;
 
-    pub fn from_bits(v: u32) -> Self {
-        match v {
+    pub fn from_bits(v: u32) -> Option<Self> {
+        Some(match v {
             0 => BurstCause::Hit,
             1 => BurstCause::Proximity,
             2 => BurstCause::Expired,
-            _ => BurstCause::Blocked,
-        }
+            3 => BurstCause::Blocked,
+            4 => BurstCause::ShotDown,
+            _ => return None,
+        })
     }
 }
+
+/// The weapon of a `Kill`'s last blow on the wire: 0 for none (an ejection, say), else the
+/// weapon's kind plus one.
+fn write_last_blow(w: &mut BitWriter<'_>, weapon: Option<WeaponKind>) {
+    w.write_bits(weapon.map_or(0, |k| k as u32 + 1), WeaponKind::BITS);
+}
+
+fn read_last_blow(r: &mut BitReader<'_>) -> Result<Option<WeaponKind>, DecodeError> {
+    match r.read_bits(WeaponKind::BITS) {
+        0 => Ok(None),
+        v => WeaponKind::from_bits(v - 1).map(Some).ok_or(DecodeError::Invalid),
+    }
+}
+
+// Every kind, plus one, and the "none" fit the field.
+const _: () = assert!(WeaponKind::COUNT < 1 << WeaponKind::BITS);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Event {
@@ -72,7 +92,9 @@ pub enum Event {
     /// A hit landed on `target`'s `part`. `damage` is a fraction of that part's full armour.
     Hit { id: u16, tick: u32, target: u16, part: Part, shooter: u16, weapon: WeaponKind, damage: f32 },
     /// `victim` was destroyed; its wreck is now the hulk chunk `hulk` (`NO_CHUNK` if none).
-    Kill { id: u16, tick: u32, victim: u16, killer: u16, hulk: u16 },
+    /// `weapon` is what struck the blow that breached it (v28: the death report's "with"), `None`
+    /// when no blow did (its pilot ejected whole).
+    Kill { id: u16, tick: u32, victim: u16, killer: u16, weapon: Option<WeaponKind>, hulk: u16 },
     /// `slot` left this client's sensor coverage. Idempotent, so it needs no `id`.
     Leave { tick: u32, slot: u16 },
     /// Two beam sabers met: both swings were parried.
@@ -164,7 +186,9 @@ impl Event {
                     + WeaponKind::BITS as usize
                     + DAMAGE_BITS as usize
             }
-            Event::Kill { .. } => 16 + 2 * SLOT_BITS as usize + CHUNK_BITS as usize,
+            Event::Kill { .. } => {
+                16 + 2 * SLOT_BITS as usize + WeaponKind::BITS as usize + CHUNK_BITS as usize
+            }
             Event::Clash { .. } => 16 + 2 * SLOT_BITS as usize,
             Event::Leave { .. } => SLOT_BITS as usize,
             Event::Seizure { .. } => 16 + SLOT_BITS as usize + 1,
@@ -223,12 +247,13 @@ impl Event {
                 w.write_bits(weapon as u32, WeaponKind::BITS);
                 w.write_bits(quantize_unit(damage, DAMAGE_BITS), DAMAGE_BITS);
             }
-            Event::Kill { id, victim, killer, hulk, .. } => {
+            Event::Kill { id, victim, killer, weapon, hulk, .. } => {
                 w.write_bits(2, KIND_BITS);
                 w.write_u8(age as u8);
                 w.write_u16(id);
                 slot(w, victim);
                 slot(w, killer);
+                write_last_blow(w, weapon);
                 w.write_bits(u32::from(hulk), CHUNK_BITS);
             }
             Event::Leave { slot: s, .. } => {
@@ -358,8 +383,9 @@ impl Event {
                 let id = r.read_u16();
                 let victim = slot(r);
                 let killer = slot(r);
+                let weapon = read_last_blow(r)?;
                 let hulk = r.read_bits(CHUNK_BITS) as u16;
-                Event::Kill { id, tick, victim, killer, hulk }
+                Event::Kill { id, tick, victim, killer, weapon, hulk }
             }
             3 => Event::Leave { tick, slot: slot(r) },
             4 => {
@@ -392,7 +418,8 @@ impl Event {
                     let id = r.read_u16();
                     let missile = r.read_bits(MISSILE_BITS) as u16;
                     let pos = quant::read_pos(r);
-                    let cause = BurstCause::from_bits(r.read_bits(BurstCause::BITS));
+                    let cause =
+                        BurstCause::from_bits(r.read_bits(BurstCause::BITS)).ok_or(DecodeError::Invalid)?;
                     Event::MissileBurst { id, tick, missile, pos, cause }
                 }
                 2 => {
@@ -463,7 +490,15 @@ mod tests {
                 weapon: WeaponKind::BeamSaber,
                 damage: 1.0,
             },
-            Event::Kill { id: 3, tick: 92, victim: 5, killer: 4, hulk: 812 },
+            Event::Kill {
+                id: 3,
+                tick: 92,
+                victim: 5,
+                killer: 4,
+                weapon: Some(WeaponKind::Reactor),
+                hulk: 812,
+            },
+            Event::Kill { id: 3, tick: 92, victim: 5, killer: 1_023, weapon: None, hulk: 1_023 },
             Event::Leave { tick: 93, slot: 1_000 },
             Event::Clash { id: 4, tick: 94, a: 1, b: 2 },
             Event::Seizure { id: 5, tick: 95, pilot: 7, active: true },
@@ -477,6 +512,7 @@ mod tests {
                 pos: Vec3::new(1_000.0, -2_000.0, 3_000.0),
                 cause: BurstCause::Proximity,
             },
+            Event::MissileBurst { id: 9, tick: 99, missile: 3, pos: Vec3::ZERO, cause: BurstCause::ShotDown },
             Event::SystemHit { id: 10, tick: 99, target: 1_000, system: 11, level: 2 },
             Event::TargetHit { id: 11, tick: 99, target: 11, shooter: 1_000 },
             Event::Doomed { id: 12, tick: 99, suit: 1_000 },
@@ -508,6 +544,22 @@ mod tests {
                 assert_eq!(back, e);
             }
         }
+    }
+
+    #[test]
+    fn unknown_burst_causes_and_weapons_are_invalid() {
+        for cause in 5..1u32 << BurstCause::BITS {
+            assert_eq!(BurstCause::from_bits(cause), None);
+        }
+        let mut buf = [0u8; 16];
+        let mut w = BitWriter::new(&mut buf);
+        w.write_bits(2, KIND_BITS);
+        w.write_u8(0);
+        w.write_u16(1);
+        w.write_bits(5, SLOT_BITS);
+        w.write_bits(4, SLOT_BITS);
+        w.write_bits(WeaponKind::COUNT as u32 + 1, WeaponKind::BITS);
+        assert_eq!(Event::read(&mut BitReader::new(&buf), 10), Err(DecodeError::Invalid));
     }
 
     #[test]

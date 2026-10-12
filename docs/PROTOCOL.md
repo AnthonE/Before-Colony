@@ -1,8 +1,13 @@
-# Before Colony wire protocol (v27)
+# Before Colony wire protocol (v28)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v28 (from v27): the death report and point defence (`PEERS.md`, "Mecha Royale"): `Kill` carries
+the weapon of the blow that breached the suit (5 bits after the killer: 0 none, else the weapon's
+kind plus one), and a missile burst's cause takes 3 bits, the new 4 being shot down by a gun's
+round. Every other cause and unknown weapon is refused.
 
 v27 (from v26): a pilot's bay on the colony's bay ring is a body (the body reference's kind 3, its
 7-bit number): a launch rides its catapult cradle in the bay's door until the grip lets go.
@@ -284,12 +289,12 @@ Events carry a 3-bit kind and an 8-bit age (ticks before the snapshot):
 |---|---|---|
 | 0 | BeamSpawn | id, shooter, weapon, shot_seq, origin, velocity (direction + speed) |
 | 1 | Hit | id, target, part, shooter, weapon, damage fraction |
-| 2 | Kill | id, victim, killer, hulk (the chunk its wreck became, 1023 = none) |
+| 2 | Kill | id, victim, killer, weapon (5 bits: the breaching blow's kind plus one, 0 none; v28), hulk (the chunk its wreck became, 1023 = none) |
 | 3 | Leave | slot: left your sensors (idempotent, no id) |
 | 4 | Clash | id, a, b |
 | 5 | Seizure | id, pilot, active |
 | 6 | Detach | id, from_hulk, source (suit slot, or hulk chunk), part, chunk (the limb) |
-| 7 | extension | 3-bit sub-kind: 0 = RockBreak {id, rock, by}; 1 = MissileBurst {id, missile id, position, cause (2 bits: hit, proximity, expired, blocked)}; 2 = SystemHit {id, target (entity slot), system (4), level (2)}: a blow reached a system inside a suit; 3 = TargetHit {id, target (4 bits: one of the Blast Hall's), shooter (entity slot)}: a training round scored (v21); 4 = Doomed {id, suit}: its torso breached, its reactor going (v23); 5 = Eject {id, suit, position, velocity (3 × 14 bits over ±2 048 m/s)}: its pilot's capsule thrown clear (v23); 6 = Blast {id, suit, position}: a doomed suit blown up by its pilot, the damage arriving as Hits by weapon 20, the reactor (v23); 7 = the second extension (v24), a 4-bit sub-kind: 0 = Staggered {id, suit}: its attitude control overwhelmed, for `STAGGER_TICKS` (30) from the event's tick; 1–15 reserved |
+| 7 | extension | 3-bit sub-kind: 0 = RockBreak {id, rock, by}; 1 = MissileBurst {id, missile id, position, cause (3 bits: hit, proximity, expired, blocked, shot down (v28))}; 2 = SystemHit {id, target (entity slot), system (4), level (2)}: a blow reached a system inside a suit; 3 = TargetHit {id, target (4 bits: one of the Blast Hall's), shooter (entity slot)}: a training round scored (v21); 4 = Doomed {id, suit}: its torso breached, its reactor going (v23); 5 = Eject {id, suit, position, velocity (3 × 14 bits over ±2 048 m/s)}: its pilot's capsule thrown clear (v23); 6 = Blast {id, suit, position}: a doomed suit blown up by its pilot, the damage arriving as Hits by weapon 20, the reactor (v23); 7 = the second extension (v24), a 4-bit sub-kind: 0 = Staggered {id, suit}: its attitude control overwhelmed, for `STAGGER_TICKS` (30) from the event's tick; 1–15 reserved |
 
 Events repeat in every snapshot until the client acks one that carried them. `id` (the low 16 bits
 of the event sequence) lets clients de-duplicate the repeats.

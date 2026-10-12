@@ -5,7 +5,8 @@
 //! - plates come away as a part wears down;
 //! - a part shot to nothing breaks away and the stump sparks. In game the piece that flies off is
 //!   the server's limb chunk (`salvage_vis`); the offline showcase flies its own;
-//! - a suit that dies goes up in secondary blasts, and what's left drifts on as a hulk;
+//! - a suit that dies goes up in secondary blasts, as its own seeded plan has them
+//!   (`bc_client_core::wreck`), and what's left burns and drifts on as a hulk;
 //! - what's broken inside shows: a damaged system sparks, a failed one smokes, a holed tank vents
 //!   a jet of propellant (from the entity flags, the own suit's included).
 //!
@@ -30,8 +31,6 @@ use crate::view::{FxEvent, FxEvents, SuitDrive, VisTime};
 
 /// Seconds a part stays hot after a hit.
 const HEAT_SECS: f32 = 1.6;
-/// Seconds a wreck burns after it's destroyed.
-const BURN_SECS: f64 = 20.0;
 /// Seconds a broken-off piece flies before it's gone, and a stump sparks.
 const DEBRIS_SECS: f32 = 30.0;
 const STUMP_SECS: f64 = 5.0;
@@ -45,6 +44,18 @@ fn breaks(part: Part) -> &'static [Bone] {
         Part::Legs => &[Bone::ThighL, Bone::ThighR],
         Part::Backpack => &[Bone::Backpack],
         Part::Torso => &[],
+    }
+}
+
+/// Where a part's secondary blast goes off.
+fn blast_bone(part: Part) -> Bone {
+    match part {
+        Part::Head => Bone::Head,
+        Part::Torso => Bone::Chest,
+        Part::ArmL => Bone::ShoulderL,
+        Part::ArmR => Bone::ShoulderR,
+        Part::Legs => Bone::Waist,
+        Part::Backpack => Bone::Backpack,
     }
 }
 
@@ -77,11 +88,14 @@ pub struct Damage {
     /// Whether the suit's state when first seen has been taken in: a suit that turns up already
     /// damaged just looks it, without its losses playing out again.
     primed: bool,
-    /// Secondary blasts still to come, and stumps still sparking: (until when, where).
-    blasts: Vec<(f64, Bone)>,
+    /// Secondary blasts still to come (when, where, how big), and stumps still sparking (until
+    /// when, where).
+    blasts: Vec<(f64, Bone, f32)>,
     stumps: Vec<(f64, Bone)>,
-    /// Burning from when it was destroyed until then (a wreck seen already dead doesn't).
+    /// Burning from when it was destroyed until then, for this long in all (a wreck seen already
+    /// dead doesn't).
     burn_until: f64,
+    burn_secs: f64,
     rng: Rng,
 }
 
@@ -98,6 +112,7 @@ impl Damage {
             blasts: Vec::new(),
             stumps: Vec::new(),
             burn_until: 0.0,
+            burn_secs: 1.0,
             rng: Rng::new(0xDA3A_6E00 ^ u64::from(slot)),
         }
     }
@@ -250,13 +265,16 @@ pub fn damage_suits(
             }
             dmg.parts[part as usize] = now_eighths;
         }
-        // Death: secondary blasts through the frame; what's left drifts on as a hulk.
+        // Death: secondary blasts through the frame, as this suit's own plan has them (every
+        // client's the same, `bc_client_core::wreck`); what's left burns and drifts on as a hulk.
         let wreck = d.flags & ent_flags::WRECK != 0;
         if wreck && !dmg.wreck {
-            for (k, bone) in [Bone::Backpack, Bone::ShoulderR, Bone::Chest].into_iter().enumerate() {
-                dmg.blasts.push((now + 0.12 + 0.2 * k as f64, bone));
+            let plan = bc_client_core::wreck::plan(d.slot, d.generation, d.parts);
+            for c in plan.cook_offs() {
+                dmg.blasts.push((now + f64::from(c.delay), blast_bone(c.part), c.scale));
             }
-            dmg.burn_until = now + BURN_SECS;
+            dmg.burn_secs = f64::from(plan.burn_secs);
+            dmg.burn_until = now + dmg.burn_secs;
             changed = true;
         }
         if wreck != dmg.wreck {
@@ -274,11 +292,17 @@ pub fn damage_suits(
             dmg.weathering = d.weathering;
             changed = true;
         }
-        let blasts_due: Vec<Bone> = dmg.blasts.iter().filter(|(t, _)| *t <= now).map(|(_, b)| *b).collect();
-        dmg.blasts.retain(|(t, _)| *t > now);
-        for bone in blasts_due {
+        let blasts_due: Vec<(Bone, f32)> =
+            dmg.blasts.iter().filter(|(t, ..)| *t <= now).map(|&(_, b, scale)| (b, scale)).collect();
+        dmg.blasts.retain(|(t, ..)| *t > now);
+        for (bone, scale) in blasts_due {
             let at = bone_point(d, Some(anim), bone, Vec3::ZERO);
-            particles.explosion(cap, At { pos: at, vel: d.vel }, 0.35);
+            particles.explosion(cap, At { pos: at, vel: d.vel }, scale);
+            // The reactor going: a ring, and the armour off it.
+            if scale >= 1.0 {
+                blasts.shockwave(at, d.vel, 45.0);
+                blasts.chips(at, d.vel, 10, HullTag { heat: 31, armour: 2, ..v.tag() });
+            }
         }
         // What's broken inside: sparks, smoke, a vapour jet (not from a wreck).
         if !wreck {
@@ -334,7 +358,7 @@ pub fn damage_suits(
         }
         // A wreck burns on for a while, from its chest and backpack while they're still on it.
         if dmg.burn_until > now {
-            let strength = ((dmg.burn_until - now) / BURN_SECS) as f32;
+            let strength = ((dmg.burn_until - now) / dmg.burn_secs) as f32;
             for bone in [Bone::Chest, Bone::Backpack] {
                 if !dmg.lost[bone.index()] {
                     let at = bone_point(d, Some(anim), bone, Vec3::ZERO);

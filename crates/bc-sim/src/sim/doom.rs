@@ -36,15 +36,17 @@ pub const DOOM_PER_TORSO: f32 = 180.0;
 /// How fast the pilot's capsule leaves the suit, m/s: up out of it, and a little back.
 pub const EJECT_SPEED: f32 = 25.0;
 
-/// A suit's doom: ticks until its reactor goes (0: it isn't doomed), and who breached it.
+/// A suit's doom: ticks until its reactor goes (0: it isn't doomed), who breached it, and with
+/// what (the death report's "with": `Event::Kill`'s weapon).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Doom {
     pub left: u16,
     pub by: u16,
+    pub with: Option<WeaponKind>,
 }
 
 impl Doom {
-    pub const NONE: Doom = Doom { left: 0, by: NO_SLOT };
+    pub const NONE: Doom = Doom { left: 0, by: NO_SLOT, with: None };
 }
 
 impl Default for Doom {
@@ -75,9 +77,10 @@ impl Sim {
         self.suits.pilot[i] != PilotKind::MobileDoll && !self.suits.sleeping.get(i)
     }
 
-    /// A blow of `amount` (armour points, after armour) on suit `j`'s breached torso, from `shooter`:
-    /// it dooms the suit, cuts its doom short, or (no one aboard to save) destroys it.
-    pub(super) fn breach(&mut self, j: usize, amount: f32, shooter: u16, t: u32) {
+    /// A blow of `amount` (armour points, after armour) on suit `j`'s breached torso, from
+    /// `shooter`'s `weapon`: it dooms the suit, cuts its doom short, or (no one aboard to save)
+    /// destroys it.
+    pub(super) fn breach(&mut self, j: usize, amount: f32, shooter: u16, weapon: WeaponKind, t: u32) {
         let doom = self.suits.doom[j];
         if doom.left > 0 {
             let torso = frame(self.suits.frame[j]).part_hp[Part::Torso as usize].max(1.0);
@@ -85,13 +88,13 @@ impl Sim {
             let left = doom.left.saturating_sub(cut);
             self.suits.doom[j].left = left;
             if left == 0 {
-                self.destroy(j, doom.by, t, true);
+                self.destroy(j, doom.by, doom.with, t, true);
             }
         } else if self.doomable(j) {
-            self.suits.doom[j] = Doom { left: DOOM_TICKS, by: shooter };
+            self.suits.doom[j] = Doom { left: DOOM_TICKS, by: shooter, with: Some(weapon) };
             self.events.push(Event::Doomed { id: 0, tick: t, suit: j as u16 });
         } else {
-            self.destroy(j, shooter, t, true);
+            self.destroy(j, shooter, Some(weapon), t, true);
         }
     }
 
@@ -106,7 +109,7 @@ impl Sim {
             }
             self.suits.doom[i].left = d.left - 1;
             if d.left == 1 {
-                self.destroy(i, d.by, t, true);
+                self.destroy(i, d.by, d.with, t, true);
             }
         }
         self.iter_bits = alive;
@@ -130,7 +133,7 @@ impl Sim {
                 return None;
             }
             self.blast(i, t);
-            self.destroy(i, doom.by, t, false);
+            self.destroy(i, doom.by, doom.with, t, false);
             return Some(Ejected::Blown);
         }
         let f = self.suits.flight[i];
@@ -139,8 +142,8 @@ impl Sim {
         let pos = f.pos + f.rot * (top.a + top.b) * 0.5 + up * 2.0;
         let vel = f.vel + normalize_or(up * 4.0 + back, up) * EJECT_SPEED;
         self.events.push(Event::Eject { id: 0, tick: t, suit: i as u16, pos, vel });
-        let by = if doom.left > 0 { doom.by } else { NO_SLOT };
-        let hulk = self.destroy(i, by, t, true);
+        let (by, with) = if doom.left > 0 { (doom.by, doom.with) } else { (NO_SLOT, None) };
+        let hulk = self.destroy(i, by, with, t, true);
         let generation = if hulk == NO_CHUNK { 0 } else { self.chunks.generation[usize::from(hulk)] };
         Some(Ejected::Out { hulk, generation, torso: doom.left == 0 })
     }
