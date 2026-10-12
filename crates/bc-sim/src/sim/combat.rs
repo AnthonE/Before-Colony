@@ -470,6 +470,19 @@ impl Sim {
             // Rocks, landmarks and the colony stop shots (rocks are worked by them): whichever is
             // met first along this tick's path, a suit included. A suit skimming the hull is hit.
             let blocker = self.first_blocker(a, b, r, t, 0.0);
+            // A round that shoots missiles down meets one before anything else on its path: it
+            // bursts there (point defence, `sim::missile`).
+            if !interior && weapon(self.projectiles.kind[k]).shoots_down {
+                let suit_at = best.map(|(s, ..)| s);
+                if let Some((s, m)) = self.round_meets_missile(a, b, r, owner, of)
+                    && suit_at.is_none_or(|f| s < f)
+                    && blocker.is_none_or(|(f, _)| s <= f)
+                {
+                    self.shot_down(m, a + (b - a) * s, t);
+                    self.projectiles.kill(k);
+                    continue;
+                }
+            }
             let shot = |p: &crate::projectiles::Projectiles| {
                 (p.kind[k], p.damage[k], normalize_or(p.vel[k], Vec3::Z))
             };
@@ -571,15 +584,23 @@ impl Sim {
             self.impact(j, d.amount, d.weapon, d.dir, t);
             // A breached torso: a pilot's suit is doomed (`doom`), anyone else's destroyed.
             if self.suits.part_hp[j][Part::Torso as usize] <= 0.0 {
-                self.breach(j, amount, d.shooter, t);
+                self.breach(j, amount, d.shooter, d.weapon, t);
             }
         }
     }
 
-    /// Suit `j` is destroyed, by `killer` (a suit slot, or [`NO_SLOT`](bc_proto::NO_SLOT)): what's
-    /// left of it drifts on as a hulk (`hulk`; a suit blown up leaves none), what it held and carried
-    /// spills, and it waits to respawn or be cleared. Returns the hulk's chunk id.
-    pub(super) fn destroy(&mut self, j: usize, killer: u16, t: u32, hulk: bool) -> u16 {
+    /// Suit `j` is destroyed, by `killer` (a suit slot, or [`NO_SLOT`](bc_proto::NO_SLOT)) with
+    /// `weapon` (the breaching blow's): what's left of it drifts on as a hulk (`hulk`; a suit blown
+    /// up leaves none), what it held and carried spills, and it waits to respawn or be cleared.
+    /// Returns the hulk's chunk id.
+    pub(super) fn destroy(
+        &mut self,
+        j: usize,
+        killer: u16,
+        weapon: Option<WeaponKind>,
+        t: u32,
+        hulk: bool,
+    ) -> u16 {
         self.suits.alive.set(j, false);
         self.suits.doom[j] = super::Doom::NONE;
         self.suits.stats[j].deaths += 1;
@@ -612,7 +633,7 @@ impl Sim {
             self.suits.blown.set(j, true);
             NO_CHUNK
         };
-        self.events.push(Event::Kill { id: 0, tick: t, victim: j as u16, killer, hulk: wreck });
+        self.events.push(Event::Kill { id: 0, tick: t, victim: j as u16, killer, weapon, hulk: wreck });
         let wait = if self.suits.pilot[j] == PilotKind::MobileDoll {
             secs(3.0)
         } else {

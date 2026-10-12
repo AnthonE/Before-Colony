@@ -25,6 +25,7 @@ pub mod figure;
 pub mod gait;
 pub mod hangar;
 pub mod hints;
+pub mod holdup;
 pub mod inputs;
 pub mod interp;
 pub mod life;
@@ -48,6 +49,7 @@ pub mod tram;
 pub mod vehicle;
 pub mod walker;
 pub mod world;
+pub mod wreck;
 
 use bc_proto::auth::{Address, Domain, NONCE_BYTES, Signature, TOKEN_BYTES};
 use bc_proto::buttons::FIRE_PRIMARY;

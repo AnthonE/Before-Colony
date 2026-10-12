@@ -19,6 +19,7 @@
 //! when the next tick would catch it (the simulation's own test). On a body the flight panel says
 //! how the suit stands, and its speed is over the body; the alerts say how well hidden it is.
 
+use bc_client_core::holdup::{Holdup, drain, holdup};
 use bc_client_core::palette;
 use bc_client_core::surface::{LetGo, SurfaceHint, let_go, range_rate, surface_hint};
 use bc_client_core::world::ObjectMotion;
@@ -1074,8 +1075,10 @@ pub fn update_hud(
         set(HudText::Armor, armor, Some(hull_color));
         let mut w = String::new();
         // Inside the colony nothing fires, by its law and the sector's, but in the Blast Hall.
+        let safe = core.welcome.is_some_and(|wl| wl.interior)
+            && !core.own_view().is_some_and(|v| bc_sim::colony::hall::weapons_free(v.pos));
         if core.welcome.is_some_and(|wl| wl.interior) {
-            if core.own_view().is_some_and(|v| bc_sim::colony::hall::weapons_free(v.pos)) {
+            if !safe {
                 let hits = core.world.my_target_hits;
                 w.push_str(&format!("WEAPONS FREE · THE BLAST HALL · TRAINING ROUNDS · TARGETS {hits}\n"));
             } else {
@@ -1111,12 +1114,18 @@ pub fn update_hud(
                 } else {
                     String::new()
                 };
+                // Not ready: why, and what to do about it (`bc_client_core::holdup`). (Inside the
+                // colony the line above says it once for all.)
+                let why = holdup(spec, &o, slot, safe, core.predict.stagger > 0, world.hand_holding())
+                    .filter(|h| *h != Holdup::Safe)
+                    .map_or(String::new(), |h| format!("  {}", h.words()));
                 w.push_str(&format!(
-                    "{key:<3} {:<18}{}{}{}\n",
+                    "{key:<3} {:<18}{}{}{}{}\n",
                     weapon_name(m.weapon).to_uppercase(),
                     if ready { " RDY" } else { " ---" },
                     ammo,
-                    extra
+                    extra,
+                    why
                 ));
             }
         }
@@ -1272,9 +1281,15 @@ pub fn update_hud(
     let mut feed = String::new();
     for line in world.feed.iter().rev().take(6) {
         match *line {
-            FeedLine::Kill { victim, killer, .. } => {
-                feed.push_str(&format!("{} > {}\n", world.name_of(killer), world.name_of(victim)))
-            }
+            // With what: the weapon of the blow that breached it (Mecha Royale's kill feed).
+            FeedLine::Kill { victim, killer, weapon, .. } => feed.push_str(&format!(
+                "{} > {}{}\n",
+                world.name_of(killer),
+                world.name_of(victim),
+                weapon
+                    .filter(|_| killer != NO_SLOT)
+                    .map_or(String::new(), |w| format!(" · {}", weapon_name(w)))
+            )),
             FeedLine::Seizure { pilot, active, .. } => feed.push_str(&format!(
                 "{} {}\n",
                 world.name_of(pilot),
@@ -1371,14 +1386,18 @@ pub fn update_hud(
     let signed_in = core.welcome.is_some_and(|w| w.signed_in);
     // Out of the suit: the pilot ejected from it (`Event::Eject`), or blew it up.
     let (ejected, blown) = if own.is_some_and(|o| !o.alive) { world.my_loss() } else { (false, false) };
+    // Who did it and with what, on its own line (the death report, `docs/PEERS.md`).
+    let by = world.my_loss_by.as_ref().map_or(String::new(), |(name, w)| loss_line(name, *w));
     let (alert, alert_color) = match own {
         Some(o) if !o.alive && survival && ejected => {
-            ("EJECTED\nthe colony's boat is coming for you, its tugs for your wreck".into(), AMBER)
+            (format!("EJECTED\n{by}the colony's boat is coming for you, its tugs for your wreck"), AMBER)
         }
         Some(o) if !o.alive && survival && blown => {
-            ("SELF-DESTRUCTED\nthe colony's rescue boat is on its way".into(), RED)
+            (format!("SELF-DESTRUCTED\n{by}the colony's rescue boat is on its way"), RED)
         }
-        Some(o) if !o.alive && survival => ("SUIT LOST\nthe colony's rescue boat is on its way".into(), RED),
+        Some(o) if !o.alive && survival => {
+            (format!("SUIT LOST\n{by}the colony's rescue boat is on its way"), RED)
+        }
         Some(o) if !o.alive => {
             let menu: Vec<String> = PLAYABLE_ORDER
                 .iter()
@@ -1388,7 +1407,7 @@ pub fn update_hud(
             let respawn = f32::from(o.respawn_in) * 4.0 / 30.0;
             (
                 format!(
-                    "{}\nrespawn in {respawn:.0} s\n{}\n{}",
+                    "{}\n{by}respawn in {respawn:.0} s\n{}\n{}",
                     if ejected {
                         "EJECTED"
                     } else if blown {
@@ -1439,6 +1458,9 @@ pub fn update_hud(
             (format!("{name} {what}"), if *level >= FAILED { RED } else { AMBER })
         }
         Some(o) if o.flags & own_flags::TRANSFORMING != 0 => ("TRANSFORMING".into(), CYAN),
+        // Something draining the suit with nobody shooting: the cause and the cure, for as long
+        // as it lasts (`bc_client_core::holdup::drain`).
+        Some(o) if let Some(why) = drain(&o) => (why, AMBER),
         Some(o) if o.alive && lurk.lost_at.is_some_and(|at| now - at < LOST_SECS) => {
             ("GRIP LOST".into(), AMBER)
         }
@@ -1964,5 +1986,14 @@ pub fn update_panels(
         };
         fill.0 = c;
         *edge = BorderColor::all(e);
+    }
+}
+
+/// The death report's line: who brought the suit down, and with what (the breaching blow's weapon),
+/// ending in a newline so it sits between the verdict and what comes next.
+fn loss_line(name: &str, weapon: Option<bc_proto::WeaponKind>) -> String {
+    match weapon {
+        Some(w) => format!("BY {name} · {}\n", weapon_name(w).to_uppercase()),
+        None => format!("BY {name}\n"),
     }
 }

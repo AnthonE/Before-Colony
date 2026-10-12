@@ -15,12 +15,20 @@ const status = (msg) => {
   const el = document.getElementById("boot-status");
   if (el) el.textContent = msg;
 };
+// The loading screen's step (the watchdog in index.html: it says which, and notices one that
+// stops moving); a page without the watchdog just shows the line.
+const step = (name, line, fraction) => (window.bcBoot ? window.bcBoot.step(name, line, fraction) : status(line));
+
+// Resolves to `fallback` if `promise` hasn't settled in `ms`.
+const within = (promise, ms, fallback) =>
+  Promise.race([promise, new Promise((done) => setTimeout(() => done(fallback), ms))]);
 
 async function pickGraphics() {
   const forced = params.get("gfx");
   if (forced === "webgl2" || forced === "webgpu") return forced;
   try {
-    if (navigator.gpu && (await navigator.gpu.requestAdapter())) {
+    // Some drivers never answer the adapter request: past a few seconds, WebGL 2 it is.
+    if (navigator.gpu && (await within(navigator.gpu.requestAdapter(), 4000, null))) {
       // Only use WebGPU if that build was shipped.
       const probe = await fetch("./webgpu/bc.js", { method: "HEAD" });
       if (probe.ok) return "webgpu";
@@ -57,7 +65,8 @@ function autoQuality(renderer) {
 // Fades the loading screen out, then hides it for good (called when the first frame is drawn).
 window.bcHideBoot = () => {
   const boot = document.getElementById("boot");
-  if (!boot || boot.classList.contains("fading")) return;
+  if (window.bcBoot) window.bcBoot.done();
+  if (!boot || boot.classList.contains("fading") || boot.classList.contains("failed")) return;
   boot.classList.add("fading");
   setTimeout(() => boot.classList.add("hidden"), 650);
 };
@@ -98,7 +107,8 @@ async function main() {
     if (!("WebTransport" in window)) {
       // The game still loads (the title screen says what's wrong); the echo spike can't.
       if (config.echo) {
-        status("this browser has no WebTransport: use Chrome or Edge");
+        if (window.bcBoot) window.bcBoot.fail("this browser has no WebTransport: use Chrome or Edge");
+        else status("this browser has no WebTransport: use Chrome or Edge");
         return;
       }
       config.noWebTransport = true;
@@ -107,21 +117,60 @@ async function main() {
     }
   }
   window.BC_CONFIG = config;
+  step("graphics", "choosing WebGPU or WebGL 2…");
   const gfx = await pickGraphics();
   window.BC_CONFIG.gfx = gfx;
-  status(`loading ${gfx} build (${config.quality})…`);
+  step("client", `fetching the ${gfx} client (${config.quality})…`);
   const mod = await import(`./${gfx}/bc.js`);
+  const wasm = fetchCounted(new URL(`./${gfx}/bc_bg.wasm`, location.href), (got, total) =>
+    step("client", `fetching the ${gfx} client · ${(got / 1048576).toFixed(1)} MB`, total ? got / total : null),
+  );
   // Bevy's App::run hands control to the browser event loop by throwing a control-flow
-  // exception on some targets; that is expected.
+  // exception on some targets; that is expected. The loading screen stays up until the client's
+  // first frame (`bcHideBoot`, from `dev_hooks`).
   try {
-    await mod.default();
+    await mod.default({ module_or_path: wasm });
   } catch (e) {
     if (!String(e).includes("Using exceptions for control flow")) throw e;
   }
-  window.bcHideBoot();
+}
+
+// Fetches the client's wasm, telling `progress` the bytes so far (and the whole, when the server
+// says it and the bytes aren't compressed in flight: then `total` is 0). Once it's all in, the
+// step moves on to starting it.
+async function fetchCounted(url, progress) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url.pathname}: the server answered ${res.status}`);
+  const compressed = !!res.headers.get("content-encoding");
+  const total = compressed ? 0 : Number(res.headers.get("content-length")) || 0;
+  const started = () => step("start", "starting the client…");
+  if (!res.body) {
+    started();
+    return res;
+  }
+  const reader = res.body.getReader();
+  let got = 0;
+  const body = new ReadableStream({
+    async pull(ctrl) {
+      const { done, value } = await reader.read();
+      if (done) {
+        started();
+        ctrl.close();
+        return;
+      }
+      got += value.byteLength;
+      progress(got, total);
+      ctrl.enqueue(value);
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
+    },
+  });
+  return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
 }
 
 main().catch((e) => {
   console.error(e);
-  status(`failed: ${e}`);
+  if (window.bcBoot) window.bcBoot.fail(String(e.message || e));
+  else status(`failed: ${e}`);
 });

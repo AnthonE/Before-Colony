@@ -71,6 +71,10 @@ pub struct WeaponSpec {
     pub cone: Option<ConeSpec>,
     /// Tap fires, hold charges ([`ChargedShot`]): the beam rifle's sniper shot.
     pub charged: Option<ChargedShot>,
+    /// Its rounds shoot missiles down: one that meets a hostile missile in flight bursts it
+    /// (`sim::missile`'s point defence). The streams of light rounds: vulcans, gatlings, machine
+    /// guns, as Heavyarms' gatlings and every Gundam's head vulcans do in the show.
+    pub shoots_down: bool,
 }
 
 /// A shot charged by holding the trigger (`crate::arms::charged_pull`): a press fires the weapon as
@@ -134,9 +138,10 @@ const BASE: WeaponSpec = WeaponSpec {
     missile: None,
     cone: None,
     charged: None,
+    shoots_down: false,
 };
 
-const STREAM: WeaponSpec = WeaponSpec { replication: Replication::Stream, ..BASE };
+const STREAM: WeaponSpec = WeaponSpec { replication: Replication::Stream, shoots_down: true, ..BASE };
 const GUN: WeaponSpec = WeaponSpec { class: WeaponClass::Ballistic, ..STREAM };
 const BLADE: WeaponSpec = WeaponSpec { class: WeaponClass::Melee, replication: Replication::Anim, ..BASE };
 
@@ -524,6 +529,8 @@ const _: () = {
             WeaponClass::Cone => assert!(w.cone.is_some()),
             WeaponClass::Beam | WeaponClass::Ballistic => assert!(w.speed > 0.0 && w.range > 0.0),
         }
+        // Only rounds that fly as projectiles can meet a missile.
+        assert!(!w.shoots_down || matches!(w.class, WeaponClass::Beam | WeaponClass::Ballistic));
         // The owner's client rolls its arms on from what the snapshot carries (`crate::arms`): a
         // strike's phases, a salvo's rounds and gaps must fit it, and a charge (sent as 6 bits of
         // fraction) must come back to the tick.

@@ -47,6 +47,17 @@ canvas#bc {
 #boot .sub { margin-top: 12px; font-size: 12px; opacity: 0.7; letter-spacing: 0.15em; }
 /* The loading screen fades out as the game shows (then it's hidden for good). */
 #boot.fading { opacity: 0; }
+/* The boot's meter: how far the step it's on has got (a sweep while that's unknown). */
+#boot .boot-meter { margin-top: 14px; width: min(320px, 70vw); height: 2px; background: rgba(159, 232, 255, 0.15); overflow: hidden; }
+#boot-fill { height: 100%; width: 0; background: var(--cyan); transition: width 0.2s; }
+#boot-fill.unknown { width: 30%; animation: boot-sweep 1.4s ease-in-out infinite; }
+@keyframes boot-sweep { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+/* A boot that failed: what happened, and the ways on (the watchdog in index.html). */
+#boot.failed { color: var(--red); }
+#boot.failed .boot-meter { display: none; }
+#boot .boot-error { margin-top: 16px; pointer-events: auto; letter-spacing: 0.05em; text-align: center; max-width: min(640px, 90vw); }
+#boot .boot-error pre { color: var(--white); opacity: 0.75; font-size: 11px; white-space: pre-wrap; text-align: left; max-height: 30vh; overflow: auto; }
+#boot .boot-error .row { justify-content: center; }
 
 /* --- The page around the game (ui.js). --- */
 /* The palette, shared with the cockpit HUD: bc_client_core::palette holds the same values (a test

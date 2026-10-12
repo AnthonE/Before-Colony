@@ -5,12 +5,110 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Before Colony</title>
   <link rel="stylesheet" href="style.css">
+  <!-- The boot watchdog: the loading screen names the step it's on, and a client that never starts
+       says so (Mecha Royale's lesson, docs/PEERS.md: a load that dies quietly reads as "loading"
+       forever). A plain script ahead of everything, so it works when nothing else does: it hears
+       the loader's steps (window.bcBoot.step), errors anywhere on the page, and a panic's message
+       (console.error), and it gives up on a step only once that step has stopped moving: a slow
+       download still arriving is never called broken. -->
+  <script>
+  (function () {
+    var STALL_MS = { loader: 20000, graphics: 15000, client: 30000, start: 60000 };
+    var state = { step: "loader", detail: "", failed: false, done: false, errors: [], at: Date.now() };
+    var timer = 0;
+    function el(id) { return document.getElementById(id); }
+    function arm() {
+      clearTimeout(timer);
+      var ms = STALL_MS[state.step];
+      if (ms && !state.done && !state.failed) {
+        timer = setTimeout(function () {
+          fail(state.step === "client" ? "the download stalled" : "nothing happened for " + ms / 1000 + " s",
+            "stalled at: " + state.step);
+        }, ms);
+      }
+    }
+    function fail(message, detail) {
+      if (state.failed || state.done) return;
+      state.failed = true;
+      clearTimeout(timer);
+      var boot = el("boot");
+      if (boot) boot.classList.add("failed");
+      var s = el("boot-status");
+      if (s) s.textContent = "failed: " + message;
+      var why = el("boot-why");
+      if (why) why.textContent = [detail || ""].concat(state.errors.slice(-3)).filter(Boolean).join("\n");
+      var box = el("boot-error");
+      if (box) box.classList.remove("hidden");
+      var gl = el("boot-webgl2");
+      if (gl && window.BC_CONFIG && window.BC_CONFIG.gfx === "webgl2") gl.classList.add("hidden");
+    }
+    window.bcBoot = {
+      // A step begins (its line shows) or moves on (`fraction` of it done: the meter, re-arming the
+      // stall timer).
+      step: function (name, line, fraction) {
+        if (state.failed || state.done) return;
+        state.step = name;
+        var s = el("boot-status");
+        if (s && line) s.textContent = line;
+        var fill = el("boot-fill");
+        if (fill) {
+          fill.classList.toggle("unknown", fraction == null);
+          fill.style.width = fraction == null ? "" : Math.round(Math.min(1, fraction) * 100) + "%";
+        }
+        arm();
+      },
+      fail: fail,
+      // The first frame is drawn: the watch is over.
+      done: function () { state.done = true; clearTimeout(timer); },
+      failed: function () { return state.failed; },
+      report: function () {
+        var c = window.BC_CONFIG || {};
+        return ["Before Colony boot report", "step: " + state.step, "after: " + (Date.now() - state.at) + " ms",
+          "graphics: " + (c.gfx || "?") + " (" + (c.quality || "?") + ")", "renderer: " + (c.renderer || "?"),
+          "page: " + location.href, "browser: " + navigator.userAgent, ""].concat(state.errors).join("\n");
+      },
+    };
+    // A panic's message reaches the console before the trap that ends it: keep the last few.
+    var error = console.error;
+    console.error = function () {
+      try {
+        state.errors.push(Array.prototype.map.call(arguments, String).join(" ").slice(0, 600));
+        if (state.errors.length > 8) state.errors.shift();
+      } catch (_) {}
+      return error.apply(console, arguments);
+    };
+    // Errors anywhere while the loading screen is up (resource errors don't bubble: the capture
+    // phase hears them). Winit's control-flow exception is how Bevy hands the browser its loop.
+    window.addEventListener("error", function (e) {
+      var t = e.target;
+      // A script that didn't load (the loader's, or the client's): any other element's is no
+      // reason to stop.
+      var msg = t && t.tagName ? (t.tagName === "SCRIPT" ? "could not load " + t.src : "") : e.message;
+      if (!msg || /exceptions for control flow/.test(msg)) return;
+      fail(msg);
+    }, true);
+    window.addEventListener("unhandledrejection", function (e) {
+      var msg = String(e.reason && e.reason.message || e.reason);
+      if (!/exceptions for control flow/.test(msg)) fail(msg);
+    });
+    arm();
+  })();
+  </script>
 </head>
 <body>
   <canvas id="bc" tabindex="0"></canvas>
   <div id="boot">
     <div class="title">BEFORE COLONY</div>
     <div class="sub" id="boot-status">loading…</div>
+    <div class="boot-meter"><div id="boot-fill" class="unknown"></div></div>
+    <div id="boot-error" class="boot-error hidden">
+      <pre id="boot-why"></pre>
+      <div class="row">
+        <button id="boot-reload" type="button" class="primary" onclick="location.reload()">RELOAD</button>
+        <button id="boot-webgl2" type="button" onclick="var u = new URL(location.href); u.searchParams.set('gfx', 'webgl2'); location.href = u.href">TRY WEBGL 2</button>
+        <button id="boot-copy" type="button" onclick="navigator.clipboard && navigator.clipboard.writeText(bcBoot.report()).then(function () { this.textContent = 'COPIED'; }.bind(this), function () {})">COPY DETAILS</button>
+      </div>
+    </div>
   </div>
 
   <!-- The title screen: callsign, mobile suit, launch; and the link's state while connecting. -->
@@ -154,6 +252,6 @@
   <div id="toast" class="toast hidden"></div>
 
   <script src="ui.js"></script>
-  <script type="module" src="loader.js"></script>
+  <script type="module" src="loader.js" onerror="bcBoot.fail('could not load loader.js')"></script>
 </body>
 </html>

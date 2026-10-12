@@ -6,7 +6,7 @@ use bc_proto::events::{BurstCause, Event};
 use bc_proto::snapshot::{ent_flags, own_flags};
 use bc_proto::{
     BodyRef, CHUNK_BITS, ChunkDesc, EntityState, Faction, FrameId, MAX_ENTITIES, MISSILE_BITS, MissileState,
-    NO_CHUNK, ObjectState, OwnState, Part, PilotKind, RockState, Segment, WeaponKind, ZeroInfo,
+    NO_CHUNK, NO_SLOT, ObjectState, OwnState, Part, PilotKind, RockState, Segment, WeaponKind, ZeroInfo,
 };
 use bc_sim::TICK_HZ;
 use bc_sim::bodies::{Bodies, Body};
@@ -136,6 +136,8 @@ pub enum FeedLine {
         tick: u32,
         victim: u16,
         killer: u16,
+        /// What struck the breaching blow (`None`: no blow did).
+        weapon: Option<WeaponKind>,
     },
     Seizure {
         tick: u32,
@@ -178,6 +180,16 @@ impl World {
             .and_then(Option::as_ref)
             .filter(|o| matches!(o.motion, ObjectMotion::Held { holder, .. } if holder == own.slot))
             .and_then(|o| bc_sim::content::salvage::held_gun(&o.desc))
+    }
+
+    /// Which of the own suit's hands holds something: `Some(true)` the right, `Some(false)` the
+    /// left, `None` neither.
+    pub fn hand_holding(&self) -> Option<bool> {
+        let own = self.own.filter(|o| o.alive && o.held != NO_CHUNK)?;
+        match self.objects.get(usize::from(own.held)).and_then(Option::as_ref)?.motion {
+            ObjectMotion::Held { holder, right, .. } if holder == own.slot => Some(right),
+            _ => None,
+        }
     }
 
     /// Whether suit `slot` is staggered at tick `t`, as its event said (`bc_sim::sim::stagger`).
@@ -328,6 +340,10 @@ pub struct World {
     /// The tick the pilot's own suit was last lost (its `Kill`): an ejection or a blast of theirs
     /// that tick is how.
     pub my_loss_tick: Option<u32>,
+    /// Who brought the pilot's own suit down last and with what, as named when it happened (the
+    /// death report: Mecha Royale's "Killed by X · weapon", `docs/PEERS.md`). `None` when nobody
+    /// did: they ejected whole, or it was their own doing.
+    pub my_loss_by: Option<(String, Option<WeaponKind>)>,
     /// Pilots' capsules thrown clear, newest last.
     pub ejections: VecDeque<EjectMark>,
     /// Reactors blown by their pilots, newest last: (tick, suit, where).
@@ -376,6 +392,7 @@ impl World {
             doomed: HashMap::new(),
             staggered: HashMap::new(),
             my_loss_tick: None,
+            my_loss_by: None,
             ejections: VecDeque::new(),
             blasts: VecDeque::new(),
             drill: Drill::default(),
@@ -716,7 +733,7 @@ impl World {
                     self.beams.remove(k);
                 }
             }
-            Event::Kill { id, tick, victim, killer, hulk } => {
+            Event::Kill { id, tick, victim, killer, weapon, hulk } => {
                 if !self.first_time(id) {
                     return;
                 }
@@ -736,8 +753,10 @@ impl World {
                 if Some(victim) == me {
                     self.my_deaths += 1;
                     self.my_loss_tick = Some(tick);
+                    self.my_loss_by =
+                        (killer != NO_SLOT && killer != victim).then(|| (self.name_of(killer), weapon));
                 }
-                self.push_feed(FeedLine::Kill { tick, victim, killer });
+                self.push_feed(FeedLine::Kill { tick, victim, killer, weapon });
             }
             Event::Clash { id, tick, a, b } => {
                 if self.first_time(id) {

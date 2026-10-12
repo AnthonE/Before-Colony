@@ -3,7 +3,8 @@
 //! the motor's Δv outruns it; a jammer breaks the seeker's hold, and so does a target parking and
 //! going dark (but not before it has, nor to its friends); missiles pass friends; a missile that
 //! finds nothing bursts at the end of its life; a full pool swallows launches; chaff throws a salvo
-//! off and keeps the next lock from building.
+//! off and keeps the next lock from building; a gun's rounds shoot a hostile salvo down, but never
+//! their own side's.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
 mod common;
@@ -392,4 +393,74 @@ fn a_guided_missile_keeps_a_friend_s_parked_suit_in_its_sights() {
         sim.step();
     }
     assert!(missile_hits(&sim, from, leo) > 0, "an ally's seeker lost it");
+}
+
+/// Heavyarms locks a Leo 1.5 km ahead and fires one salvo at it while `gunner` holds its machine
+/// cannon on the nearest missile: the Leo itself (`None`), or another Leo of `Some(faction)` 30 m
+/// beside it. How the salvo's missiles ended.
+fn salvo_under_fire(beside: Option<Faction>) -> Vec<BurstCause> {
+    let mut sim = empty();
+    let ha = suit(&mut sim, FrameId::Heavyarms, Faction::Colonies, AT, Vec3::Z);
+    let leo = suit(&mut sim, FrameId::Leo, Faction::Oz, AT + Vec3::Z * 1_500.0, -Vec3::Z);
+    let gunner = match beside {
+        None => leo,
+        Some(faction) => suit(&mut sim, FrameId::Leo, faction, AT + Vec3::new(30.0, 0.0, 1_500.0), -Vec3::Z),
+    };
+    assert!(weapon(frame(FrameId::Leo).loadout[1].unwrap().weapon).shoots_down);
+    for _ in 0..LOCK_TICKS {
+        press(&mut sim, ha, 0, leo);
+        coast(&mut sim, leo, Vec3::ZERO);
+        coast(&mut sim, gunner, Vec3::ZERO);
+        sim.step();
+    }
+    assert!(sim.missile_lock(ha.idx()).is_some());
+    let from = sim.events.next_seq();
+    for k in 0..6 * 30 {
+        press(&mut sim, ha, if k == 0 { FIRE_SECONDARY } else { 0 }, leo);
+        coast(&mut sim, leo, Vec3::ZERO);
+        sim.suits.flight[gunner.idx()].vel = Vec3::ZERO;
+        let me = sim.suits.flight[gunner.idx()].pos;
+        let nearest = sim
+            .missiles
+            .alive
+            .iter()
+            .map(|m| sim.missiles.pos[m])
+            .min_by(|a, b| a.distance_squared(me).total_cmp(&b.distance_squared(me)));
+        let t = sim.next_tick();
+        let aim = nearest.map_or(-Vec3::Z, |p| (p - me).normalize());
+        let buttons = if nearest.is_some() { FIRE_SECONDARY } else { 0 };
+        let cmd = InputCmd {
+            tick: t,
+            view_tick_q4: t << 4,
+            aim,
+            buttons,
+            lock_target: NO_SLOT,
+            ..InputCmd::default()
+        };
+        sim.set_input(gunner, cmd);
+        sim.step();
+    }
+    events_since(&sim, from)
+        .iter()
+        .filter_map(|e| match e {
+            Event::MissileBurst { cause, .. } => Some(*cause),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_guns_rounds_shoot_a_hostile_salvo_down() {
+    // The target itself, its machine cannon on the missiles coming at it.
+    let bursts = salvo_under_fire(None);
+    let down = bursts.iter().filter(|c| **c == BurstCause::ShotDown).count();
+    assert!(down >= 1, "nothing shot down: {bursts:?}");
+    assert!(bursts.len() <= usize::from(weapon(WeaponKind::HomingMissile).salvo));
+}
+
+#[test]
+fn a_friendly_gun_lets_its_own_sides_missiles_by() {
+    let bursts = salvo_under_fire(Some(Faction::Colonies));
+    assert!(!bursts.is_empty());
+    assert!(!bursts.contains(&BurstCause::ShotDown), "{bursts:?}");
 }

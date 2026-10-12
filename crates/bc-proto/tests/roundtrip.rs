@@ -257,7 +257,7 @@ proptest! {
             Event::BeamSpawn { id: 7, tick: 9_995, shooter: 3, weapon: WeaponKind::BeamRifle, shot_seq: 4,
                                origin: Vec3::new(100.0, 200.0, -300.0), velocity: Vec3::new(0.0, 0.0, 4000.0) },
             Event::Hit { id: 8, tick: 9_998, target: 9, part: Part::ArmR, shooter: 3, weapon: WeaponKind::BeamRifle, damage: 0.25 },
-            Event::Kill { id: 9, tick: 9_999, victim: 9, killer: 3, hulk: NO_CHUNK },
+            Event::Kill { id: 9, tick: 9_999, victim: 9, killer: 3, weapon: Some(WeaponKind::BeamRifle), hulk: NO_CHUNK },
             Event::Detach { id: 10, tick: 9_999, source: 9, from_hulk: false, part: Part::ArmL, chunk: 55 },
             Event::Leave { tick: 10_000, slot: 44 },
             Event::MissileBurst { id: 11, tick: 10_000, missile: 12, pos: Vec3::ZERO, cause: BurstCause::Hit },

@@ -21,6 +21,7 @@ No. Nobody ships the whole fantasy. The nearest games each have one piece of it:
 | Gundam Rogue Orbit (March 2027) | Customised Gundams, colour schemes, hordes and bosses [P5] | A world; colonies | PvE that escalates; a colour scheme is expected |
 | X-Wing (1993) and TIE Fighter (1994) | A hub of doors to walk between, training before the war, a cockpit to read, music that follows the fight [P7][P8] | A world: the hub is a picture | Training as a place (`TRAINING.md`); briefings, a debrief, a film room |
 | The mech games: Titanfall (2014, 2016), Armored Core VI (2023), MechWarrior and BattleTech, Steel Battalion (2002), Mecha BREAK (2025), Daemon X Machina (2019) | How losing a mech is handled, how a fight builds to its climax, how a build is tried and paid for [P13]–[P22] | A world: matches and missions | Doom and ejecting, stagger, power earned in the fight, a debrief, a test range, aces, salvage as pay, the enemy's gun |
+| Mecha Royale (2026, indie.fun) | A browser mech battle royale: parts fitted in the field, crews in one mech, missile locks with counters [P24] | A world: it's matches | Guns that shoot missiles down; a HUD that says why; a death report; a boot that says when it's stuck; wrecks that die their own way |
 
 Before Colony already has the chain in outline: the city, the cap lift up to the bay (`DESIGN.md`,
 "The First Colony, inside"), the catapult into space and the dock home ("Sorties"). None of them
@@ -367,6 +368,58 @@ Une's trap in Siberia, he blows up Wing Gundam with himself aboard. Trowa takes 
 afterwards [P23]. That's our self-destruct: the pilot stays aboard, and nothing is left for the
 enemy.
 
+### Mecha Royale (2026)
+
+A browser battle royale on indie.fun (October 2026), built on three.js with WebGPU or WebGL 2. The
+mechs are ground walkers that drop together into a closing storm, start bare-fisted and fit the
+weapons and limbs they find. It was built on a pirate-ship game (its text still has the helm, rum
+and treasure maps). We read its public build: the page's notes, the game's bundle and its English
+text [P24].
+
+- **Missile locks with counters.** Three launchers trade lock time against reach: a cluster rack
+  (280 m, 1.2 s, held within 11°), a rocket pod, and an LRM pod (the longest reach, 2.8 s, 7°).
+  Every lock has a counter in a part: a flare rack (five decoys, each drags one locked missile
+  off), a jammer head (nothing can lock on, and that's all it does), an interceptor laser (it
+  shoots missiles down on the battery's power), and its assault rifle, whose rounds shoot
+  missiles down.
+  - **Ours:** the lock, chaff, the jammer and fire control were built already (`LOCK.md`;
+    `content::kits`; the Hyper Jammer; `ModuleKind::FireControlComputer`). What was missing was
+    the counter in the pilot's own hands: now the rounds of the vulcans, gatlings and machine
+    guns shoot missiles down (`sim::missile`, "Point defence"). Only one launcher builds locks,
+    so the launchers' trade-off waits for a second one.
+- **The HUD says why.** Its notes quote players: "i was just standing still but my HP was going
+  down". It answers with one alarm line that names the cause and the cure for as long as a drain
+  lasts, and with an ammunition readout that says why a dead trigger is dead.
+  - **Ours:** a weapon that won't fire said `---`, which could mean hot, empty, jammed or
+    staggered. Now it says which, and what to do (`bc_client_core::holdup`); a leaking tank or
+    a suit run hot gets the alarm line, with the rack's kit for it.
+- **A death report.** "Killed by X · weapon", and a kill feed with the weapon in it.
+  - **Ours:** the death screen said `SUIT LOST`. Now `Event::Kill` carries the breaching blow's
+    weapon (protocol v28), the screen says who and with what, and so does the feed.
+- **A boot that says when it's stuck.** Two of its loads failed silently on a "loading 0%"
+  forever: a script that threw before any of its code ran, and an import that 404'd. Its answer
+  is a plain script ahead of everything that names each real step, hears any script that fails
+  to load, and calls a step stuck only once it has stopped moving, never a slow download.
+  - **Ours:** the same, in `web/index.html`'s watchdog and `web/loader.js`: the steps (choosing
+    WebGPU or WebGL 2, fetching the client with a meter, starting it, its first frame), a panic's
+    message on the screen, and ways on (reload, try WebGL 2, copy the details). A WebGPU adapter
+    request that never answers falls back to WebGL 2 after 4 s.
+- **Wrecks that die their own way.** A mech's id seeds its whole death (limbs flying with their
+  spin, plates shed, which way it topples, cook-offs, smouldering points), so every client sees
+  the same death with nothing sent.
+  - **Ours:** a wreck went up in the same three blasts at the same times. Now its slot and life
+    seed the plan (`bc_client_core::wreck`): three to five blasts through what's left of it, now
+    and then the reactor going last with a ring of armour, and a burn of its own length. Limbs
+    stay the server's (a part shot off is its salvage chunk).
+- **Crews.** A mech holds a crew: the captain takes the helm, crewmates take the shoulder pods,
+  and the captain chooses "designate & lock" (the crew fire on one target) or free fire.
+  - **Ours, later:** a Gundam has one pilot, as in the show. A carrier or a transport with gunner
+    seats could take the idea (`ROADMAP.md`, "Mecha Royale").
+- **What we leave.** Its storm ring, lobbies and drop points fit a match, not a sector that
+  stays. Its supply crates and rarity tiers would undercut an economy where a part's worth is its
+  condition and its salvage. Its token and its pay for posting on X are monetisation of the kind
+  that sank Mecha BREAK's reviews; ours is credits earned in the game (P1 7).
+
 ## The lesson under all of them
 
 Nobody has built the whole thing because it is a city sim, a flight sim and a mech combat game at
@@ -470,6 +523,18 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
     what it lacked: a Retry under load, a share per address, a ceiling, handshake deadlines and a
     limit on hangar requests (`ARCHITECTURE.md`, "Under abuse"). *Built.*
 
+**From Mecha Royale** (October 2026; how each is built is `ROADMAP.md`, "Mecha Royale").
+
+23. **Guns that shoot missiles down:** the rounds of the vulcans, gatlings and machine guns burst
+    a hostile missile they meet. *Built.*
+24. **The HUD says why:** a weapon that won't fire says why, and a silent drain gets an alarm with
+    its cure. *Built.*
+25. **A death report:** who brought the suit down and with what, on the death screen and in the
+    feed. *Built* (protocol v28).
+26. **A boot that says when it's stuck:** named steps, a meter, a watchdog, and ways on. *Built.*
+27. **Wrecks that die their own way,** seeded by the suit. *Built.*
+28. **Crews:** gunner seats on a carrier or a transport, under a captain's fire policy. Open.
+
 ## Sources
 
 The starting point was a survey the project's owner brought in October 2026. Its claims were
@@ -538,3 +603,6 @@ checked against:
   Wikipedia, "Hawken (video game)"; Hawken Reborn's Steam page.
 - **[P23] Gundam Wing.** Wikipedia, "List of Mobile Suit Gundam Wing episodes" (episodes 2, 10
   and 12).
+- **[P24] Mecha Royale.** Its page (indie.fun/play/mecha-royale), its build's page and its
+  comments, its game bundle and its English text catalogue, as served to a browser (12 October
+  2026). Numbers are from the bundle's weapon tables.
