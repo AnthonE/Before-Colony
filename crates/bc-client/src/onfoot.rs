@@ -864,12 +864,16 @@ pub fn drive_onfoot(
         match (before, place) {
             // A new session (or the link was reset): start afresh.
             (_, None) => *me = OnFoot::default(),
-            // Aboard a trainer at the Blast Hall's gantry: flying it, off the street.
+            // Aboard a trainer at the Blast Hall's gantry (the one the test range picked): flying it,
+            // off the street.
             (Some(Place::City), Some(Place::Space)) if g.core.hangar.trainer => {
                 me.city = None;
                 me.done(now);
+                let name = g.core.hangar.trainer_name();
                 ui.news(
-                    "A TRAINER OF THE CHARTER BOARD'S · WEAPONS FREE IN THE HALL · DOCK AT REST ON ITS GANTRY",
+                    format!(
+                        "ABOARD A TRAINER · {name} · WEAPONS FREE IN THE HALL · DOCK AT REST ON ITS GANTRY"
+                    ),
                     false,
                 );
             }
@@ -1044,7 +1048,7 @@ pub fn drive_onfoot(
             ui.toast(name);
         }
         c.focus = c.door_in_view();
-        // At the Blast Hall's gantry's hatch: E boards one of the Charter Board's trainers.
+        // At the Blast Hall's gantry's hatch: E boards the trainer the test range picked.
         c.gantry = c.focus.is_none() && c.hatch_in_view();
         board_trainer =
             used_key && c.gantry && !ui.panel_open() && c.drive.is_none() && !got_out && !stood_up;
@@ -1313,6 +1317,11 @@ pub fn drive_onfoot(
         None => "",
     };
     ui.on_foot = on_foot || in_city;
+    ui.driving = match me.city.as_ref().and_then(|c| c.drive).filter(|_| in_city) {
+        Some(v) if v.kind == Kind::Car => "car",
+        Some(_) => "scooter",
+        None => "",
+    };
     // The map (M), and where the pilot stands on it.
     ui.map &= me.city.is_some();
     let map_at = me.city.as_ref().filter(|_| ui.map).map(|c| {
@@ -1328,8 +1337,8 @@ pub fn drive_onfoot(
         ui.map_found = settings.0.sights_found;
     }
     // On foot in the city, or flying a suit inside the colony: the camera sees its city.
-    let inside = place == Some(Place::Space) && g.core.welcome.is_some_and(|w| w.interior);
-    let city_now = me.city.is_some() || inside;
+    let flying_inside = place == Some(Place::Space) && g.core.welcome.is_some_and(|w| w.interior);
+    let city_now = me.city.is_some() || flying_inside;
     if city_view.active != city_now {
         *city_view = CityView { active: city_now, sync: false };
     }
@@ -1343,7 +1352,7 @@ pub fn drive_onfoot(
             Some(c) if c.drive.is_some() => String::new(),
             Some(c) if c.seat.is_some() => "SEATED · E OR A STEP TO STAND".into(),
             Some(c) if c.focus.is_some() => format!("E  {}", city_verb(&PLACES[c.focus.unwrap_or(0)])),
-            Some(c) if c.gantry => "E  BOARD A TRAINER · THE CHARTER BOARD'S LEO".into(),
+            Some(c) if c.gantry => format!("E  BOARD A TRAINER · {}", g.core.hangar.trainer_name()),
             Some(c)
                 if c.ride.is_none() && {
                     let at = c.feet();
@@ -1365,11 +1374,15 @@ pub fn drive_onfoot(
         s if s.skippable() => "SPACE  SKIP".into(),
         _ => String::new(),
     };
+    // Indoors (the bay, the city, a sequence there): the bay's line. Flying, the HUD has the corner.
     ui.bay_line = if inside {
         format!("BAY {:02} · {} CR", g.core.hangar.bay, thousands(g.core.hangar.credits()))
     } else {
         String::new()
     };
+    // Leaving from inside the colony, the suit is brought home (`page`'s menu says so).
+    ui.inside = flying_inside;
+    ui.trainer = flying_inside && g.core.hangar.trainer;
 }
 
 /// The camera at the pilot's eyes (or where a sequence puts it), after the chase camera has had

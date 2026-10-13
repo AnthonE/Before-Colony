@@ -61,6 +61,16 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await push(page, { cmd: "skip" });
   s = await until(page, "Hub Gate", (s) => s.seq === "walking", 30_000);
   expect(s.strip).toBe(0);
+  // On foot here as in the bay: the bay's line and a dot to aim by, and a click walks.
+  await expect(page.locator("#bay-line")).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator("#dot")).toBeVisible();
+  await expect(page.locator("#prompt-main")).toHaveText(/TO WALK$/);
+  // The menu says what leaving down here does: nothing's out, and the pilot wakes in their bay.
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#pause")).toBeVisible();
+  await expect(page.locator("#disconnect-button")).toHaveText("LEAVE THE CITY");
+  await page.locator('#pause [data-cmd="resume"]').click();
+  await expect(page.locator("#pause")).toBeHidden();
   // Its square is named on arrival.
   await until(page, "Charter Square", (s) => s.district === "CHARTER SQUARE", 30_000);
   // Someone's there already: the agent strolling outside Hub Gate, in a flight suit of their own,
@@ -98,13 +108,20 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await until(page, "the board closed", (s) => s.panel === "none", 30_000);
   await until(page, "the next objective", (s) => s.objective === "FIND THE EXCHANGE FLOOR", 30_000);
 
-  // The map (M): the strip, its districts, its places.
+  // The map (M): the strip, its districts, its places (over the dot). M closes it, and so does Esc
+  // (not opening the menu).
   await page.focus("#bc");
   await page.keyboard.press("m");
   await expect(page.locator("#map")).toBeVisible({ timeout: 30_000 });
   await expect(page.locator("#map-title")).toContainText("CHARTER SQUARE", { timeout: 30_000 });
+  await expect(page.locator("#dot")).toBeHidden();
   await page.keyboard.press("m");
   await expect(page.locator("#map")).toBeHidden({ timeout: 30_000 });
+  await page.keyboard.press("m");
+  await expect(page.locator("#map")).toBeVisible({ timeout: 30_000 });
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#map")).toBeHidden({ timeout: 30_000 });
+  await expect(page.locator("#pause")).toBeHidden();
 
   // Down the avenue, round the corner and in through the Exchange floor's door to its counter: a
   // room, lit by its lamps (the eye adapts to EV 8). The panel is the bay's.

@@ -111,7 +111,9 @@ impl Hint {
         }
     }
 
-    pub fn text(self) -> &'static str {
+    /// What it says; `colony`: the colony is open (the launch's way into it, Q, is offered only
+    /// then).
+    pub fn text(self, colony: bool) -> &'static str {
         match self {
             Hint::Thrust => "W A S D and Space / C thrust. The mouse aims; Q / E roll.",
             Hint::Boost => "Shift boosts (it spends propellant: watch the gauge), X brakes, R turns fast.",
@@ -128,8 +130,11 @@ impl Hint {
                 "Look at a terminal and press E: the fabricator and the stores on the right, the \
                  exchange by the doors, the suit's console at its feet."
             }
-            Hint::Launch => {
+            Hint::Launch if colony => {
                 "Up the stairs to the catwalk: at the cockpit hatch E launches the suit out of your bay's door into space (Q, into the colony)."
+            }
+            Hint::Launch => {
+                "Up the stairs to the catwalk: at the cockpit hatch E launches the suit out of your bay's door into space."
             }
             Hint::Airlock => {
                 "The airlock you came in by: E rides the cap lift down into the colony's city, on foot."
@@ -443,6 +448,13 @@ mod tests {
         for _ in 0..4_000 {
             assert_ne!(run(&mut h, &mut seen, &mut t, 0.05, arcade), Some(Hint::Dock));
         }
+    }
+
+    #[test]
+    fn the_launch_offers_the_colony_only_when_it_is_open() {
+        assert!(Hint::Launch.text(true).contains("(Q, into the colony)"));
+        assert!(!Hint::Launch.text(false).contains('Q'));
+        assert!(!Hint::Launch.text(false).contains("colony"));
     }
 
     #[test]

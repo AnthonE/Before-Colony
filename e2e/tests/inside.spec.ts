@@ -70,6 +70,9 @@ test("a pilot launches into the colony by the inner gate, flies down it a way, a
   await page.mouse.up();
   s = await bc(page);
   expect(s.beams ?? 0).toBe(0);
+  // Flying, the HUD has the corner and the aim: no bay line, no dot.
+  await expect(page.locator("#bay-line")).toBeHidden();
+  await expect(page.locator("#dot")).toBeHidden();
 
   // 400 m down the colony from the gate: out of its ring (120 m), and through the Proving Ground's
   // start ring 300 m on (`docs/TRAINING.md`), which starts the course's clock. Then back into the
@@ -192,7 +195,8 @@ test("a pilot boards a trainer at the Blast Hall's gantry, starts the drill, and
   await push(page, { cmd: "walk_to", spot: "gantry" });
   await until(page, "the walk", (s) => s.city_walking_to, 30_000);
   await until(page, "at the gantry's hatch", (s) => s.focus === "gantry" && !s.city_walking_to, 420_000);
-  await expect(page.locator("#use")).toContainText("BOARD A TRAINER", { timeout: 30_000 });
+  // What the test range picked: the Charter Board's Leo, till the pilot picks another at the desk.
+  await expect(page.locator("#use")).toContainText("BOARD A TRAINER · THE CHARTER BOARD'S LEO", { timeout: 30_000 });
   await page.screenshot({ path: "artifacts/inside-gantry.png" });
 
   // E: aboard a trainer, on its feet on the gantry.
@@ -203,7 +207,7 @@ test("a pilot boards a trainer at the Blast Hall's gantry, starts the drill, and
     (s) => s.place === "space" && s.interior === true && s.trainer === true && s.alive,
     120_000,
   );
-  await expect(page.locator("#news")).toContainText("TRAINER", { timeout: 30_000 });
+  await expect(page.locator("#news")).toContainText("TRAINER · THE CHARTER BOARD'S LEO", { timeout: 30_000 });
   s = await until(page, "on the gantry", (s) => s.in_gantry && s.in_hall, 60_000);
   expect(s.bay).toBe("docked");
 

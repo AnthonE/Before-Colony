@@ -183,7 +183,7 @@
   <!-- In the colony: the map (M) of the strip the pilot walks, the whole of it along the top and
        the streets round them below (not modal: walking goes on under it). -->
   <div id="map" class="map hidden">
-    <div class="map-head"><span id="map-title"></span><span class="note">M to close</span></div>
+    <div class="map-head"><span id="map-title"></span><span class="note">M or Esc to close</span></div>
     <canvas id="map-strip" data-h="30"></canvas>
     <canvas id="map-near" data-h="380"></canvas>
     <div id="map-sights" class="map-sights"></div>
@@ -220,11 +220,9 @@
     </div>
   </div>
 
-  <!-- On foot in the bay: the bay's line, a dot to aim by, and what can be used. -->
-  <div id="onfoot" class="hidden">
-    <div id="bay-line" class="bay-line"></div>
-    <div id="dot" class="dot"></div>
-  </div>
+  <!-- Indoors (the bay, the city): the bay's line. On foot: a dot to aim by, and what can be used. -->
+  <div id="bay-line" class="bay-line hidden"></div>
+  <div id="dot" class="dot hidden"></div>
   <div id="use" class="use hidden"></div>
   <div id="news" class="news hidden"></div>
   <!-- A sortie's payout sheet (bc_econ::debrief): what it earned and cost, and the net. -->

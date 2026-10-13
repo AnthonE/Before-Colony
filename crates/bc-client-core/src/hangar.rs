@@ -2,11 +2,11 @@
 //! stores, the suit, the stations' jobs), the exchange, and what they've been told. The server
 //! decides everything; this keeps its latest word, and turns what the pilot asks into frames.
 
-use bc_econ::Debrief;
 use bc_econ::charter::CharterView;
 use bc_econ::exchange::Depth;
-use bc_econ::proving::BoardView;
+use bc_econ::proving::{BoardView, Trainer};
 use bc_econ::wire::{self, HangarView, MarketView, Outcome, Place, Request, Update};
+use bc_econ::{Bay, Debrief};
 use bc_proto::control::encode_hangar;
 
 #[derive(Clone, Debug, Default)]
@@ -104,6 +104,21 @@ impl HangarState {
         self.trainer && self.place == Some(Place::City)
     }
 
+    /// What the Blast Hall's gantry readies for the pilot, by name: the test range's pick (the
+    /// Proving Ground's board carries it), the Charter Board's Leo till they pick another.
+    pub fn trainer_name(&self) -> String {
+        let pick = self.proving.as_ref().map_or(Trainer::Board, |p| p.trainer);
+        let frame = |line| bc_sim::content::frame_name(line).to_uppercase();
+        match pick {
+            Trainer::Board => "THE CHARTER BOARD'S LEO".into(),
+            Trainer::Bay => match self.view.as_ref().map(|v| &v.bay) {
+                Some(Bay::Docked { suit }) => format!("YOUR {}, AS BUILT", frame(suit.line)),
+                _ => "YOUR BAY'S BUILD".into(),
+            },
+            Trainer::Line { line } => format!("A NEW {}", frame(line)),
+        }
+    }
+
     /// On foot in the hangar bay.
     pub fn in_hangar(&self) -> bool {
         self.place == Some(Place::Hangar)
@@ -165,5 +180,23 @@ mod tests {
         h.apply(place(Place::Hangar, None, false));
         assert!(!h.trainer && !h.off_a_trainer());
         assert!(h.proving.is_none(), "the board's the colony's");
+    }
+
+    #[test]
+    fn the_gantry_names_the_trainer_picked() {
+        let mut h = HangarState::default();
+        assert_eq!(h.trainer_name(), "THE CHARTER BOARD'S LEO", "before the board's word");
+        h.apply(Update::Hangar(HangarView::of(&bc_econ::Hangar::starter(), 0)));
+        let mut board = bc_econ::proving::Board::default().view("", 0);
+        h.apply(Update::Proving(board.clone()));
+        assert_eq!(h.trainer_name(), "THE CHARTER BOARD'S LEO");
+        // The suits by their names (canon or not, as the build has them).
+        let name = |f| bc_sim::content::frame_name(f).to_uppercase();
+        board.trainer = Trainer::Bay;
+        h.apply(Update::Proving(board.clone()));
+        assert_eq!(h.trainer_name(), format!("YOUR {}, AS BUILT", name(bc_proto::FrameId::Leo)));
+        board.trainer = Trainer::Line { line: bc_proto::FrameId::Heavyarms };
+        h.apply(Update::Proving(board));
+        assert_eq!(h.trainer_name(), format!("A NEW {}", name(bc_proto::FrameId::Heavyarms)));
     }
 }

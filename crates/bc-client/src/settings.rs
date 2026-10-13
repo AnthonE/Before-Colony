@@ -271,7 +271,7 @@ pub fn update_hints(
     if seen != settings.0.hints_seen {
         settings.0.hints_seen = seen;
     }
-    let text = hint.filter(|_| flying || walking).map(|h| h.text()).unwrap_or_default();
+    let text = hint.filter(|_| flying || walking).map(|h| h.text(colony)).unwrap_or_default();
     if ui.hint != text {
         ui.hint = text.to_string();
     }

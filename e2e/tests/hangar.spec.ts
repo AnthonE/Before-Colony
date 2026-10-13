@@ -46,6 +46,10 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   // Second-hand inside too: its radiators are tired. A new arrival is told where they are.
   expect(s.bay_faults).toBe(1);
   await expect(page.locator("#news")).toContainText("ARRIVAL", { timeout: 30_000 });
+  // On foot: the bay's line (its number, the credits) and a dot to aim by.
+  await expect(page.locator("#bay-line")).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator("#bay-line")).toHaveText(/^BAY \d\d · [\d,]+ CR$/);
+  await expect(page.locator("#dot")).toBeVisible();
 
   // The exchange: 50 kg of titanium alloy from the colony, at its ask.
   await use(page, "exchange");
@@ -128,6 +132,9 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   expect(s.surface_body).toBe(`bay:${s.bay_no}`);
   s = await until(page, "flying", (s) => s.seq === "walking" && s.alive, 60_000);
   expect(s.frame).toBe("leo");
+  // Flying, the HUD has the corner and the aim: no bay line, no dot.
+  await expect(page.locator("#bay-line")).toBeHidden({ timeout: 30_000 });
+  await expect(page.locator("#dot")).toBeHidden();
   // The launch shot: outside the ring by the open door, the suit going.
   await page.screenshot({ path: "artifacts/hangar-launch.png" });
   s = await until(page, "thrown out of the door", (s) => s.footing === "free" && s.launch_shots >= 1, 10_000);

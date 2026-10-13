@@ -236,18 +236,31 @@
     show($("pause"), s === "playing" && v.panel === "pause");
     // Signed in, leaving puts the pilot to sleep in the cockpit: in a hide spot the suit is left
     // hidden (and under survival rules it outlasts a restart), at rest on a body it's parked, in
-    // the air in a body's grip it comes down and parks; a guest's suit goes with them.
+    // the air in a body's grip it comes down and parks; a guest's suit goes with them. On foot (in
+    // the bay, or down in the city) nothing is out, and they wake in their bay. Flying inside the
+    // colony, nothing sleeps there: its tugs bring the suit home to the bay (a trainer goes back to
+    // its gantry, and the pilot's own suit never left the bay).
+    const afoot = v.place === "hangar" || v.place === "city";
     const hidden = v.signedIn && v.hideSpot && v.survival;
     $("disconnect-button").textContent = v.place === "hangar" ? "LEAVE THE BAY"
+      : v.place === "city" ? "LEAVE THE CITY"
       : !v.signedIn ? "DISCONNECT"
+      : v.inside ? "DOCK & DISCONNECT"
       : hidden ? "LEAVE SUIT HIDDEN"
       : v.parkable ? "PARK & DISCONNECT"
       : "SLEEP & DISCONNECT";
     const who = address ? `Signed in as ${short(address)}. ` : "Signed in. ";
-    if (v.place === "hangar") {
+    if (afoot) {
       $("pause-who").textContent = v.signedIn
-        ? who + "Your hangar is kept while you're away: its stores, its suit, its jobs, your orders on the exchange."
+        ? who + "Your hangar is kept while you're away: its stores, its suit, its jobs, your orders on the exchange." +
+          (v.place === "city" ? " You wake in your bay next time, not down here." : "")
         : "Playing as a guest: your hangar, and everything in it, is gone when you leave. Connect a wallet to keep it.";
+    } else if (v.inside) {
+      $("pause-who").textContent = !v.signedIn
+        ? "Flying as a guest: your hangar, and everything in it, is gone when you leave."
+        : who + (v.trainer
+          ? "The trainer goes back to its gantry in the Blast Hall. Your own suit never left your bay: you wake there next time."
+          : "Nothing sleeps inside the colony: its tugs bring your suit home to your bay, and you wake there next time.");
     } else {
       $("pause-who").textContent = !v.signedIn
         ? "Flying as a guest: your suit is lost when you leave."
@@ -268,14 +281,18 @@
     show($("map"), s === "playing" && !!v.map && v.panel === "none");
     if (s === "playing" && v.map && v.panel === "none") drawMap(v.map, v.mapGoal, v.mapFound || 0);
     show($("prompt"), s === "playing" && v.clickToFly && !v.help && !v.sequence);
-    const verb = v.place === "hangar" && v.onFoot ? "WALK" : "FLY";
+    // On foot in the bay or the city a click walks (at the wheel, drives); else it flies.
+    const verb = v.driving === "car" ? "DRIVE" : v.driving ? "RIDE" : afoot ? "WALK" : "FLY";
     $("prompt-main").textContent = v.refused ? `CLICK AGAIN TO ${verb}` : `CLICK TO ${verb}`;
 
-    // Survival rules: on foot in the hangar bay, its line, a dot to aim by, and what can be used.
+    // Survival rules, indoors (the bay, the city): the bay's line. On foot, a dot to aim by (E uses
+    // what it's on, the pointer locked or not), but not at the wheel or under the map; and what can
+    // be used.
     const playing = s === "playing";
-    show($("onfoot"), playing && !!v.bayLine && v.panel === "none");
-    $("bay-line").textContent = v.bayLine || "";
-    show($("dot"), playing && v.onFoot && !v.clickToFly);
+    const bayLine = $("bay-line");
+    bayLine.textContent = v.bayLine || "";
+    show(bayLine, playing && !!v.bayLine && v.panel === "none");
+    show($("dot"), playing && v.onFoot && !v.driving && !v.map && !v.help && v.panel === "none");
     const use = $("use");
     use.textContent = v.prompt || "";
     show(use, playing && !!v.prompt && v.panel === "none" && !v.help);
