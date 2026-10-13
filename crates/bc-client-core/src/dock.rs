@@ -9,7 +9,7 @@
 //! [`Home::approach`] of it, where the HUD's marker says to come to rest), so the dock's refusals
 //! ("come to rest inside ...") come where they teach something. Anywhere else, and under arcade
 //! rules (where the dock buys a hold by itself), Enter opens the radio, as it does on foot
-//! (the browser's `chat.rs`); on the chart it sets a course.
+//! (the browser's `chat.rs`); on the chart it sets a course. [`EnterKey`] routes each press.
 
 use bc_proto::snapshot::own_flags;
 use bc_sim::colony::{hall, interior};
@@ -96,6 +96,39 @@ impl Home {
     }
 }
 
+/// Where a press of Enter goes. It's decided once a frame, before anything acts on it (the
+/// browser's radio decides, and its docking and the docking hints read what was decided), so one
+/// press never does both, nor neither, though the suit moves on between them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum EnterKey {
+    /// Not pressed, or nothing here takes it: a panel up, a sequence playing, the chart (which
+    /// keeps it for a course).
+    #[default]
+    Unused,
+    /// The suit asks to dock.
+    Dock,
+    /// The radio's line opens.
+    Radio,
+}
+
+impl EnterKey {
+    /// A press of Enter, with the keys the game's (`free`: in the world, no panel up, the radio's
+    /// line shut): walking (`on_foot`), the radio's; in a suit (`in_suit`: off the chart and out of
+    /// the bay's sequences), the dock's where the suit docks ([`enter_docks`]: `docks`), the
+    /// radio's anywhere else.
+    pub fn route(pressed: bool, free: bool, on_foot: bool, in_suit: bool, docks: bool) -> Self {
+        if !pressed || !free {
+            EnterKey::Unused
+        } else if on_foot {
+            EnterKey::Radio
+        } else if in_suit {
+            if docks { EnterKey::Dock } else { EnterKey::Radio }
+        } else {
+            EnterKey::Unused
+        }
+    }
+}
+
 /// Where the pilot's own suit docks.
 pub fn home(core: &ClientCore) -> Home {
     Home::of(core.predict.interior(), core.hangar.trainer)
@@ -118,6 +151,23 @@ mod tests {
     use bc_sim::colony::hub::{BAY_DOOR_X, BAY_RADIUS, SPIRE_MOUTH_X, SPIRE_RADIUS};
     use bc_sim::field::FIELD_CENTER;
     use bc_sim::world::COLONY_CENTER;
+
+    /// One press goes one place: on foot to the radio; in a suit to the dock where it docks, else
+    /// to the radio; nowhere with a panel up, on the chart or in a sequence.
+    #[test]
+    fn one_press_of_enter_goes_one_place() {
+        use EnterKey::{Dock, Radio, Unused};
+        let route = EnterKey::route;
+        assert_eq!(route(true, true, true, false, false), Radio, "on foot");
+        assert_eq!(route(true, true, true, false, true), Radio, "on foot, though the suit is docked");
+        assert_eq!(route(true, true, false, true, true), Dock, "coming in to dock");
+        assert_eq!(route(true, true, false, true, false), Radio, "out in the field");
+        assert_eq!(route(true, true, false, false, true), Unused, "on the chart, or in a sequence");
+        assert_eq!(route(true, false, false, true, true), Unused, "a panel up, or the line open");
+        assert_eq!(route(true, false, true, false, false), Unused, "a terminal's panel");
+        assert_eq!(route(false, true, false, true, true), Unused, "not pressed");
+        assert_eq!(EnterKey::default(), Unused);
+    }
 
     #[test]
     fn a_trainer_docks_on_its_gantry_and_a_suit_inside_at_the_inner_gate() {

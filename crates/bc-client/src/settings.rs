@@ -192,6 +192,7 @@ pub fn update_hints(
     cmds: Res<UiCmds>,
     indoors: Res<crate::hangar::Indoors>,
     onfoot: Res<crate::onfoot::OnFoot>,
+    enter: Res<crate::chat::Enter>,
     game: NonSend<GameClient>,
     time: Res<Time<Real>>,
 ) {
@@ -248,7 +249,9 @@ pub fn update_hints(
         strolling: keys.any_pressed(walk_keys),
         using: used && onfoot.focus.is_some(),
         boarding: used && onfoot.focus == Some(bc_client_core::bay::Spot::Cockpit),
-        docking: keys.just_pressed(KeyCode::Enter),
+        // Only a press that asks the dock (`chat::radio` routed it): away from where the suit
+        // docks, Enter opens the radio, and that's not docking.
+        docking: enter.0 == bc_client_core::dock::EnterKey::Dock,
         near_surface: feet.near,
         gripping: feet.footing != bc_sim::ground::Footing::Free,
         grounded,

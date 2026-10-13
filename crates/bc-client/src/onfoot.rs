@@ -831,7 +831,7 @@ pub fn drive_onfoot(
     mut log: ResMut<TerminalLog>,
     mut curtain: Query<&mut BackgroundColor, With<Curtain>>,
     mut city_view: ResMut<CityView>,
-    map: Res<crate::map::MapOpen>,
+    (map, enter): (Res<crate::map::MapOpen>, Res<crate::chat::Enter>),
 ) {
     let now = now_s();
     let dt = time.delta_secs().min(0.1);
@@ -1244,16 +1244,10 @@ pub fn drive_onfoot(
     }
 
     // In the sector: Enter docks where the suit is docked or coming in to (`dock::enter_docks`,
-    // where the HUD's marker says so); anywhere else it opens the radio (`chat.rs`), and on the
-    // chart it sets a course.
+    // where the HUD's marker says so); anywhere else it opens the radio, and on the chart it sets a
+    // course. The radio (`chat.rs`) decided where this press went, earlier in the frame.
     let flying = place == Some(Place::Space) && me.seq == Seq::Walking;
-    if flying
-        && ui.playing()
-        && !ui.panel_open()
-        && !map.0
-        && (keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter))
-        && dock::enter_docks(&g.core)
-    {
+    if flying && ui.playing() && !ui.panel_open() && !map.0 && enter.0 == dock::EnterKey::Dock {
         ask(&net, &g, &Request::Dock);
     }
     // In the sector: 1-4 use the rack's consumables (the hotbar), while the suit is alive.

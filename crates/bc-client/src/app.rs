@@ -94,6 +94,7 @@ pub fn run() {
             .init_resource::<crate::terminal::TerminalLog>()
             .init_resource::<crate::map::MapOpen>()
             .init_resource::<crate::chat::Spoken>()
+            .init_resource::<crate::chat::Enter>()
             .init_resource::<crate::map::ObjectiveState>()
             .add_plugins(crate::chart::ChartPlugin)
             .add_systems(First, drain_inbox)
@@ -111,6 +112,10 @@ pub fn run() {
                     drive_link,
                     apply_ui_cmds,
                     crate::dev_hooks::aim_hook,
+                    // Before the pointer's step, so the frame that opens the radio's line lets the
+                    // pointer go as the page focuses the line; and before the hints and the docking,
+                    // which read where Enter went (`chat::Enter`).
+                    crate::chat::radio,
                     crate::input::toggle_camera,
                     crate::map::toggle_map,
                     update_settings,
@@ -122,8 +127,6 @@ pub fn run() {
                     track_bodies,
                     sync_view,
                     crate::onfoot::drive_onfoot,
-                    // After the docking: Enter does one or the other (`bc_client_core::dock`).
-                    crate::chat::radio,
                     crate::launch_shot::begin_launch_shot,
                     crate::people::fill_crowd,
                     crate::rocks::follow_server_field,
