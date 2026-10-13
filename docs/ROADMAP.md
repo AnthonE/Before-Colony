@@ -15,6 +15,7 @@ the bay, space, home).
 | P1: the Proving Ground: its course, the Blast Hall, its live fire, trainers boarded there, the drill and the board (`TRAINING.md`, phases 1 to 5) | built |
 | Living in the colony, L0: seats, the body and its meals (`LIFE.md`) | built (a framework: nothing on the wire yet) |
 | The loop's loose ends, first pass: the colony open by default, launching out of the pilot's own bay door, landing on the docking hub and walking in, hints along the way (below) | built |
+| The loop's loose ends, since: a strip chosen at the airlock, second keys for F1 and F10, the nightly browser suites, the auto-nav on an ion drive's crawl (below) | built |
 | Propulsion: bigger tanks, the extended tank, propellant grades, the ion drive (`DESIGN.md`) | built |
 | The mech games, 15: doom, ejecting and the self-destruct | built |
 | The mech games, 16: stagger | built |
@@ -24,6 +25,13 @@ the bay, space, home).
 | The mech games, 20: a test range | built |
 | The mech games, 21: aces, pay or salvage | built |
 | The mech games, 22: staying up under abuse | built |
+| Mecha Royale, 23: guns that shoot missiles down | built |
+| Mecha Royale, 24: the HUD says why | built |
+| Mecha Royale, 25: a death report | built |
+| Mecha Royale, 26: a boot that says when it's stuck | built |
+| Mecha Royale, 27: wrecks that die their own way | built |
+| Mecha Royale, 28: crews | open |
+| Contracts on the Charter Board: supply contracts, patrols, the great works and the charter vote (P1, below) | begun |
 | P1's rest, P2 below, the loose ends left | planned |
 
 ## The loop's loose ends
@@ -38,9 +46,10 @@ together. The first pass (built):
   says the cap lifts are closed and the bay's terminal has no Proving Ground tab.
 - **Out of your own bay door.** The suit rides its bay's catapult cradle in the door on the
   spinning bay ring (`Body::Bay(n)`, `colony::hub`; protocol 27) until the catapult's cut ends,
-  and is thrown out with the ring's 125 m/s; the camera opens outside by the open door and watches
-  it go (`bc-client`'s `launch_shot`). Into the colony (Q), it comes out of a lit port in the end
-  cap's inner face behind the inner gate. The cockpit's prompt says which key goes where.
+  and is thrown out at 40 m/s (`BAY_LAUNCH_SPEED`) on top of the ring's own 125 m/s; the camera
+  opens outside by the open door and watches it go (`bc-client`'s `launch_shot`). Into the colony
+  (Q), it comes out of a lit port in the end cap's inner face behind the inner gate. The cockpit's
+  prompt says which key goes where (Q only with the colony open).
 - **Home by landing on the hub.** Home stays on the axis, where nothing moves (a door on the ring
   would take 0.7 g of thrust to hold): the dock's ring of lights as before, or the grip armed, a
   landing on the docking hub's end face near its middle (a landmark now, turning with the colony),
@@ -48,25 +57,34 @@ together. The first pass (built):
 - **Hints along the loop:** the airlock and the cap lift, the city (its map, trams, cars and the
   lift back up), the hub's landing, and the inner gate.
 
+Built since, each a PR of its own:
+
+- **A strip chosen at the airlock.** The airlock leads to three cap lifts, one down each strip's
+  end cap (`bc_client_core::bay::Lift`; built as a cut, with no lobby: COLONY.md 2.2). E rides
+  lift 1 to the Charter strip, Q chooses the next (2 Canal, 3 Gardens), the prompt names it, and
+  `EnterCity { strip }` takes the one chosen; the choice goes back to the Charter strip's once the
+  airlock is out of view. On another strip than an objective's place, the objective says the way
+  there, and the city's map names the place and its strip. Tests: `bay`'s and `objectives`'
+  units, and a step in the colony e2e (the Canal strip's lift down to The Depots and back up).
+- **Second keys for F1 and F10:** `?` and O (`CONTROLS.md`, "Where we break convention" 6).
+- **A nightly CI job for the browser suites** (`.github/workflows/e2e.yml`): one job builds the
+  server, its agents and the web client, and each suite runs on its own runner from that build,
+  nightly and by hand.
+- **Auto-nav on an ion drive's crawl.** `nav::planned_braking` plans on the thrust the suit has
+  (`Predictor::mods`): under the real rules a dry tank brakes on the drive, and a tank too low for
+  the trip plans on what's left of it and then the drive. Tests: `nav`'s units (a dry Leo with a
+  drive stops short of a point 5 km off, where it used to go 4.2 km past).
+
 Next, each a PR of its own:
 
-- **Choose a strip at the airlock.** The lift always goes down to strip 0's Hub Gate
-  (`onfoot.rs`, `EnterCity { strip: 0 }`), though the server and the agents take any of the three
-  (COLONY.md 2.2's lift lobby, lifts 1 to 3).
 - **The ◆ on the door in the city view itself**, not only on the map (P0's objectives, above).
 - **The Arrival's door opens its menu** (`LIFE.md`, L1: eating), rather than a toast that the bar's
   quiet.
-- **Second keys for F1 and F10** (no function row on Mac laptops and 60% keyboards: `CONTROLS.md`).
 - **The Blast Hall's floor markings and the gantry's stairs** (`TRAINING.md`'s first ten minutes).
-- **A nightly CI job for the browser suites** (`BC_E2E=1 scripts/ci.sh`): GitHub Actions runs none
-  of them today, so the loop's seams are found by players.
 - **The launch shot's clocks.** The ring is drawn on the view clock and the own suit on the input
   clock; on the throw the suit's drawn place blends between them (`own.rs`), which shows as a lurch
   of a door's width if the release lands after the cut. Draw the colony on the own clock during the
   shot if it shows.
-- **Auto-nav on an ion drive's crawl.** The auto-nav plans its braking on the chemical thrusters
-  (`nav::planned_braking`); a dry suit crawling home on its drive (0.1 g) brakes far later than it
-  can, and overshoots. Plan on the drive's thrust when the tank is dry.
 
 Later:
 
@@ -81,19 +99,23 @@ Later:
 **A floor under loss.** *Built.* A signed-in pilot whose only suit is gone, with less than a
 torso's worth of credits, stores and parts (at the colony's values, `catalogue::value`), finds a
 worn Leo in the gantry from the Charter Board, at most once every 30 minutes (`Hangar::reissue`,
-with a `reissued_at`; `bc-server` `session.rs::enter` and the return from a loss). The news says
-so. `STORY.md`'s "debt" is now "an advance". Tests: `bc-econ` (lost, broke, reissued; not again
-within the half hour; not while there's a torso to build on or a torso's worth) and
-`bc-server/tests/hangar.rs` (over a server restart, from the pilot's record). Known, and not made
-worse: a new wallet is a new starter kit.
+with a `reissued_at`; `bc-server` `session.rs::enter`, the return from a loss, and once a second
+on the session's tick while the pilot is on foot with the bay empty and no wreck coming home, so
+it comes the moment it's due; `reissue` checks the half hour before it values the stores, so
+asking is cheap). The news says so. `STORY.md`'s "debt" is now "an advance". Tests: `bc-econ`
+(lost, broke, reissued; not again within the half hour, however often asked; not while there's a
+torso to build on or a torso's worth) and `bc-server/tests/hangar.rs` (over a server restart, from
+the pilot's record; and in the bay as the half hour runs out). Known, and not made worse: a new
+wallet is a new starter kit.
 
 **Text chat.** *Built* (`bc-server` `radio.rs`, `bc-client` `chat.rs`). `Request::Say { text }` and `Update::Said { from, text }` on control-stream frames
 tagged 11 (`bc_econ::wire`, `PROTOCOL.md`). One channel, the colony's radio, for everyone connected:
 a ring in the server's shared state, read by each session on its 100 ms tick (off the hot path).
 At most 5 lines in 10 s and 160 characters a line, control characters stripped, never logged (only
-counted on `/status`). `/` opens it (Enter too, on foot, where Enter docks nothing); keys don't reach
-the suit while typing. Agents: `bc-bot` `say` and `heard`. Tests: a two-bot server test; the page's
-`ui` e2e types a line.
+counted on `/status`). `/` opens it, and so does Enter wherever it docks nothing: on foot, and in
+a suit away from where it docks (`bc_client_core::dock::EnterKey` routes each press once a frame);
+keys don't reach the suit while typing. Agents: `bc-bot` `say` and `heard`. Tests: a two-bot
+server test; the page's `ui` e2e types a line, and opens the line with Enter in flight.
 
 **Objectives along the chain.** *Built* (`bc_client_core::objectives`, appended so their bits
 stay): ride the cap lift down, find the Exchange floor, sell on the Exchange (with the colony
@@ -135,7 +157,8 @@ weapons' buttons, as the pilot's prediction does. Tests: `hall`'s units, the int
 `HALL_GOLDEN`, `no_alloc`, and the `inside` e2e scoring on a target.
 
 **Phase 3, boarding in the hall, is built:** on foot at the gantry's hatch, `Request::BoardTrainer`
-seats the pilot in one of the Charter Board's Leos (`Control::Board`, `Sim::launch_at` with
+seats the pilot in one of the Charter Board's Leos, or the build the test range picked (item 20,
+below; the hatch's prompt names it), with `Control::Board` (`Sim::launch_at` with
 `LaunchAt::Gantry`), standing on the gantry's pad. Their hangar is untouched. Docked back at rest
 on the gantry, they climb out at its hatch.
 
@@ -192,9 +215,10 @@ and sit at The Arrival; the server's own tugs, haulers and miners flying the lan
 same protocol, started with the server). Tests: the plaza test with a walking flaneur; a sector
 test with traffic.
 
-**Where PvP lives: a decision for the owner.** Today every browser pilot is on the Colonies' side
-and friendly fire is off, so people can't harm each other, and `DESIGN.md`'s hunted sleepers can be
-hunted only by agents of another faction. The options:
+**Where PvP lives: a decision for the owner.** Today every human pilot flies for the Colonies (the
+server decides, whatever the client asks, and the Welcome says so: protocol v29) and friendly fire
+is off, so people can't harm each other, and `DESIGN.md`'s hunted sleepers can be hunted only by
+agents of another faction (the Alliance: nobody but the Mobile Dolls flies for Oz). The options:
 1. As now: pilots against the Consortium's Dolls, never each other.
 2. Lawless space past the colony's reach (say, beyond 8 km of the hull): PvP there, the colony's law
    inside it (Star Citizen's armistice zones; EVE's security levels).

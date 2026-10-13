@@ -166,10 +166,14 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
   - New `bc-server/tests/city.rs`. Update `PROTOCOL.md`.
 - **2.2 Airlock to the lift lobby.**
   - `bay.rs`: doors that let you through when open (`hits` skips them); corridor and lobby blocks beyond x < −18;
-    `Spot::Lift(k)` (`lift_1` to `lift_3`); `route` reaches them. (Built instead as a cut: the airlock,
-    `Spot::Airlock`, rides the cap lift straight down to strip 0's Hub Gate, with no lobby or choice of lift yet.)
-  - `hangar.rs` draws the corridor and lobby with a sign per strip.
-  - The prompt becomes "AIRLOCK: TO THE LIFTS". "LEAVE THE BAY" stays in the pause menu.
+    `Spot::Lift(k)` (`lift_1` to `lift_3`); `route` reaches them. (Built instead as a cut, with no corridor
+    or lobby: at the airlock, `Spot::Airlock`, E rides a cap lift straight down to its strip's Hub Gate, lift 1
+    to the Charter strip unless Q chose the next, 2 Canal or 3 Gardens (`bay::Lift`). The choice goes back to
+    lift 1 once the airlock is out of view.)
+  - `hangar.rs` draws the corridor and lobby with a sign per strip. (Not built: the airlock's prompt names the
+    lift instead, `E  AIRLOCK: CAP LIFT 1, DOWN TO THE CHARTER STRIP · Q  LIFT 2, CANAL`.)
+  - The prompt becomes "AIRLOCK: TO THE LIFTS". "LEAVE THE BAY" stays in the pause menu (and down in the city it's
+    "LEAVE THE CITY").
   - Walker tests: to each lift and back. `hangar.spec.ts` stays green.
 - **2.3 The venue and the interior shell.**
   - New `venue.rs`: `Venue`, `RenderOrigin`/`Placed` and re-basing, and switching each scene's visibility. (Built

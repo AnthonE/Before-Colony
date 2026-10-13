@@ -834,7 +834,15 @@ the same code the agents walk with), and uses things by looking at them within r
   would launch.
 - **The cockpit hatch** (on the catwalk): board and launch.
 - **The airlock** (left wall): the way out of the bay (leave the game), or, when the colony's
-  open, to the cap lift down into it.
+  open, to the cap lifts down into it: E rides the Charter strip's, and Q chooses the next
+  strip's (below, "Going in").
+
+On foot, in the bay and in the city, the bay's line (`BAY 07 · 2,000 CR`) sits at the top of the
+screen and a dot in the middle marks what E would use, whether or not the pointer is locked (not
+at the wheel, nor under the city's map, the controls sheet or a panel). Flying, neither shows: the
+HUD has the corner and the crosshair. With the pointer free, the page asks for a click to take
+control in the words for where the pilot is: CLICK TO WALK on foot, DRIVE at a car's wheel, RIDE
+on a scooter, FLY in a suit.
 
 The terminals are panels on the page over the live bay. Everything they show is the server's word,
 and everything they do is a request the server checks (`bc_econ::wire`).
@@ -1012,20 +1020,25 @@ a bounty on it (1,500 to 4,000 CR).
 
 ### Sorties
 
-- **Launching:** board at the hatch (E; Q flies into the colony instead, by its inner gate). The
-  bay vents, beacons turning red, the doors part, and the catapult throws the suit down the launch
-  tunnel and out of the bay's own door on the spinning bay ring, at 40 m/s on top of the ring's
-  125 m/s: the camera opens outside the ring by the open door and watches it go, then hands over to
-  the chase camera. Until the throw the suit rides its bay's cradle in the door, carried round with
-  the ring, its weapons held. (Space skips the sequence.)
+- **Launching:** board at the hatch (E; with the colony open, Q flies into it instead, by its inner
+  gate: the cockpit's prompt and the launch's hint offer Q only then). The bay vents, beacons
+  turning red, the doors part, and the catapult throws the suit down the launch tunnel and out of
+  the bay's own door on the spinning bay ring, at 40 m/s on top of the ring's 125 m/s: the camera
+  opens outside the ring by the open door and watches it go, then hands over to the chase camera.
+  Until the throw the suit rides its bay's cradle in the door, carried round with the ring, its
+  weapons held. (Space skips the sequence.)
 - **Docking:** home is on the axis, where nothing moves (a door on the ring would take holding
   0.7 g against the spin): come to rest (under 25 m/s) inside the dock's ring of amber lights, off
   the mouth of the docking hub at the colony's −X end, and press Enter; or arm the grip, land on the
   hub's end face near its middle (it turns with the colony, slowly there), walk onto the lit deck
-  hatch and press Enter. The suit glides in down the tunnel,
-  the doors shut behind it, and the pilot climbs out onto the catwalk. What came home goes to the
-  stores: the suit as it is (its systems as broken as they came, its equipment if its parts came
-  too), the hold's ore, whatever was in hand, and the bounties earned.
+  hatch and press Enter. The HUD always marks home (`DOCK`), and coming in (within twice the
+  ring's radius of it, the hub's mouth and its deck hatch included) it says `AT REST IN ITS RING:
+  ENTER`. Enter asks the dock only there, or once docked (`bc_client_core::dock`), so its
+  refusals ("come to rest inside ...") come where they teach something; anywhere else Enter opens
+  the radio. The suit glides in down the tunnel, the doors shut behind it, and the pilot climbs
+  out onto the catwalk. What came home goes to the stores: the suit as it is (its systems as broken
+  as they came, its equipment if its parts came too), the hold's ore, whatever was in hand, and the
+  bounties earned.
 - **Arriving:** a pilot's first time in their bay, the news says they've arrived, and what the
   Charter Board advanced them.
 - **Ejecting:** a pilot who ejects (U) loses the suit too, but the colony's tugs bring its wreck
@@ -1044,7 +1057,10 @@ a bounty on it (1,500 to 4,000 CR).
   values), finds a worn Leo in the gantry, the Charter Board's advance, as on the day they
   arrived; the news says so. At most once every 30 minutes, so it's a floor, not a free suit.
   (An Arrival's 2,000 cr is less than a torso: lose the first suit and the Board stands you
-  another.) A new wallet is still a new starter kit.
+  another.) It comes when they're back in the bay, and while they're on foot with the bay empty
+  (and no wreck on its way home) the session asks again once a second, so the advance comes the
+  moment the half hour is up rather than on their next visit. A new wallet is still a new starter
+  kit.
 - **Away:** a signed-in pilot who leaves keeps everything: their hangar, its jobs, their orders.
   Left out in the sector, their suit sleeps where it is (below), and they wake in it; one the
   sector lost track of is towed in. A guest's hangar lasts the visit.
@@ -1067,13 +1083,19 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   Exchange Row to Old Town's low streets, all worked out as a closed form of where you are
   (`bc_sim::colony::city`): nothing is stored, and every client and the server see the same walls.
   Gravity is the spin's: 1 g on the ground, less up a tower.
-- **Going in** (a survival server, unless it runs with `--no-colony`): the bay's airlock leads to the cap lift,
-  which rides down the end cap's face with the whole colony in view (Space skips the ride) to Hub
-  Gate's terminal. From there the pilot walks the city with the bay's controls, and M shows the
-  map of their strip. Districts and sights are named on the way in; a sight reached for the first
-  time goes on the pilot's found-list (kept in their settings: "SIGHT FOUND · THE CLOCK TOWER · 2
-  OF 10"), and the map ticks off the sights found by name, rings those still to find, and lists
-  them.
+- **Going in** (a survival server, unless it runs with `--no-colony`): the bay's airlock leads to
+  the cap lifts, one down each strip's end cap (`bc_client_core::bay::Lift`). E rides lift 1, to
+  the Charter strip, where the key places are; Q first chooses the next (2 Canal, 3 Gardens, and
+  round again), the prompt naming it (`E  AIRLOCK: CAP LIFT 2, DOWN TO THE CANAL STRIP · Q  LIFT
+  3, GARDENS`), and the choice goes back to the Charter strip's once the airlock is out of view.
+  The lift rides down the end cap's face with the whole colony in view (Space skips the ride) to
+  that strip's Hub Gate. From there the pilot walks the city with the bay's controls, and M shows
+  the map of their strip (M or Esc closes it). On another strip than an objective's place, the
+  objective says the way there (up the lift from Hub Gate, and down its strip's lift), and the map
+  names the place and its strip. Districts and sights are named on the way in; a sight reached for
+  the first time goes on the pilot's found-list (kept in their settings: "SIGHT FOUND · THE CLOCK
+  TOWER · 2 OF 10"), and the map ticks off the sights found by name, rings those still to find,
+  and lists them.
 - **Places:** the Exchange floor (its terminal is the bay's exchange), the Charter Board (its
   contracts and great works, above), The Arrival (a bar), the Proving Ground (the Blast Hall,
   `TRAINING.md`), and Hub Gate, whose lift goes back up to the bay.
@@ -1112,14 +1134,17 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   the air slows it, the hull, the end caps and the city's buildings stop it, and flight assist
   holds it where it is. Weapons are safe by the colony's law: nothing fires, but in the Blast
   Hall (`TRAINING.md`), where suits fire training rounds at its targets (they touch no suit and
-  never leave the hall, and the HUD reads `WEAPONS FREE`). The HUD marks the
-  inner gate; at rest in its ring of lights, Enter docks back into the bay. It's the server's
-  second sector (`sector-1`), keeping the first's tick: the colony has one clock. Pilots on foot
-  see the suits flying within 2.5 km of them, and a suit's pilot sees the people below (those on
-  the strip under it within 1.5 km, their cars too) and the trams, where everyone on foot sees
-  them. With the grip armed (L) a suit lands on the city, the avenue or a roof, and walks it as it
-  would a rock, but under the colony's own pull: its walls stop it, and walked off a roof's edge
-  it comes down on whatever's below.
+  never leave the hall, and the HUD reads `WEAPONS FREE`). The HUD marks the inner gate; at rest
+  in its ring of lights, Enter docks back into the bay (away from it, Enter opens the radio).
+  Nothing sleeps or parks inside: a pilot who leaves while flying there (the menu's DOCK &
+  DISCONNECT) has the colony's tugs bring the suit home to their bay, and is told so once when
+  they're back (`THE COLONY'S TUGS BROUGHT YOUR SUIT IN FROM THE INNER GATE`); a trainer goes back
+  to its gantry. It's the server's second sector (`sector-1`), keeping the first's tick: the colony
+  has one clock. Pilots on foot see the suits flying within 2.5 km of them, and a suit's pilot sees
+  the people below (those on the strip under it within 1.5 km, their cars too) and the trams, where
+  everyone on foot sees them. With the grip armed (L) a suit lands on the city, the avenue or a
+  roof, and walks it as it would a rock, but under the colony's own pull: its walls stop it, and
+  walked off a roof's edge it comes down on whatever's below.
 
 - **The Proving Ground's course** (`TRAINING.md`): 13 rings of light in the colony's air, from
   just off the inner gate down over the first window to the Charter strip. It runs along the avenue
@@ -1135,8 +1160,10 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   - Pilots on foot in the city see the rings over Hub Gate.
 
 - **The Blast Hall's trainers and drill** (`TRAINING.md`): at the gantry's hatch, on foot, E
-  boards one of the Charter Board's Leos, standing on the gantry (the pilot's own suit stays in
-  their bay); at rest on the gantry, Enter climbs out there.
+  boards the trainer the test range picked (below), standing on the gantry (the pilot's own suit
+  stays in their bay); the hatch's prompt and the news on boarding name it (`E  BOARD A TRAINER ·
+  THE CHARTER BOARD'S LEO`, `YOUR LEO, AS BUILT`, `A NEW GUNDAM HEAVYARMS`). At rest on the
+  gantry, Enter climbs out there.
 - **The test range** (Armored Core VI's test mode; `bc_econ::proving::Trainer`): at the hall's
   desk the pilot picks what the gantry readies: the Board's Leo, the build standing in their bay
   (new and full, none of its wear), or a new suit of any line the colony builds, to try before
@@ -1175,9 +1202,9 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
 | 1 · 2 · 3 · 4 | survival: the rack's patch kit · coolant flush · chaff · stim |
 | U | eject: doomed, a tap ejects and a hold blows the suit up; otherwise held a second |
-| Enter | dock (survival): at rest inside the dock's ring of lights |
+| Enter | survival: dock where the HUD's marker says ENTER (into your bay: at rest inside the dock's ring of lights, or standing on the docking hub's deck hatch; inside the colony, at rest in the inner gate's ring; in a trainer, at rest on the Blast Hall's gantry); anywhere else, the radio |
 | 1–6 | arcade rules: respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
-| / (Enter on foot) | talk on the colony's radio: Enter says it, Esc closes |
+| / (or Enter) | talk on the colony's radio (Enter opens it on foot, and in a suit wherever there's nothing to dock): Enter says it, Esc closes |
 | Esc · F1 or ? · F10 or O | menu · the controls sheet · graphics quality |
 
 On a body (see "Surfaces"): W/A/S/D walk, Shift runs, Space hops (held, it lifts off on the
@@ -1186,7 +1213,9 @@ nothing; L lets go. Aloft in a body's grip the keys fly as ever, but flight assi
 speed over the body, or a run's with Shift, and never holds altitude.
 
 On foot in the hangar bay: the mouse looks, W/A/S/D walk, Shift runs, Space jumps, E uses what's
-in view (E again, or Esc, steps away from a terminal).
+in view (E again, or Esc, steps away from a terminal). With the colony open, Q at the cockpit
+launches into it, and Q at the airlock chooses the next strip's cap lift. In the city, M opens the
+map, and M or Esc closes it.
 
 The list players see (the title screen's controls sheet and F1) is
 `bc_client_core::controls::BINDINGS`; keep it in step with this table. Down is C alone: Left Ctrl
@@ -1239,13 +1268,17 @@ The link says what went wrong in words (a server that's down or unreachable, a f
 older than the server, a wallet that declined), offers Retry, and redials by itself, with backoff,
 when a link that was in the world drops. A signed-in redial doesn't ask the wallet again, and
 signing in from a second window takes the pilot over (the first lets go and doesn't fight back). Esc (or the browser taking the pointer back) opens the menu: Resume, Controls,
-Disconnect. The sector doesn't pause. Menus are HTML over the live scene; the cockpit HUD is Bevy's.
+Disconnect (with the chart or the city's map up, Esc closes that instead). The sector doesn't pause. Menus are HTML over the live scene; the cockpit HUD is Bevy's.
 
 **Sleeping in the cockpit.** A signed-in pilot who leaves (the menu's disconnect button, closing
 the tab, a link that stays down, a minute without input) doesn't take the suit along: it stays in
 the sector with its pilot asleep in the cockpit, and they wake in it when they're back. The menu's
 button says what will become of it: LEAVE SUIT HIDDEN on the ground in a hide spot (survival),
-PARK & DISCONNECT where it would park, SLEEP & DISCONNECT anywhere else.
+PARK & DISCONNECT where it would park, SLEEP & DISCONNECT anywhere else. Inside the colony nothing
+sleeps: flying there it says DOCK & DISCONNECT, and the colony's tugs bring the suit home to the
+bay, as the pilot hears once when they're back (a trainer goes back to its gantry: their own suit
+never left the bay). On foot it says LEAVE THE BAY or LEAVE THE CITY: nothing is out, and they
+wake in their bay. A guest flying sees DISCONNECT.
 - *Drifting.* Nobody flies a sleeping suit: no flight assist, no attitude hold. It carries on at the
   velocity and spin it had, fully Newtonian, and fetches up against rocks, landmarks and the colony
   as a wreck would. Its eyes go dark, and brackets read ASLEEP. Nobody works its special either: a
@@ -1254,15 +1287,18 @@ PARK & DISCONNECT where it would park, SLEEP & DISCONNECT anywhere else.
   its surface, under 3 m/s over it), when its pilot leaves is parked instead: held where it was,
   kneeling if it was crouched, and moving with the body. One aloft in a body's grip settles onto it
   first, and parks where it lands. The HUD reads PARKED while you're somewhere you could park (HIDE
-  SPOT in one). Shatter the rock and the suit floats free.
+  SPOT in one), which is never inside the colony. Shatter the rock and the suit floats free.
 - *Powering down.* A parked suit stays in sight for 8 s after its pilot leaves, or 60 s after it
   last fired or was hit, whichever is later, so nobody logs off out of a fight. (A suit that has
   never fought is dark after the 8 s.) Then its reactor idles: its enemies' sensors and seekers lose
   it, and their eyes find it only within 400 m, or 150 m in a hide spot. Its allies see it all
   along.
-- *Hunted.* Mobile Dolls leave sleepers alone; other pilots can shoot them down and salvage what's
-  left. A sleeper destroyed stays gone, and its pilot is told by whom when they're back. Parked is
-  safer than drifting, and hidden safer still.
+- *Hunted.* Mobile Dolls leave sleepers alone; pilots of another side can shoot them down and
+  salvage what's left. Every human pilot flies for the Colonies (the server decides, whatever the
+  client asks) and friendly fire is off, so today only agents of another side hunt them, and
+  people can't harm each other: where PvP lives is an open decision (`ROADMAP.md`, "Where PvP
+  lives"). A sleeper destroyed stays gone, and its pilot is told by whom when they're back. Parked
+  is safer than drifting, and hidden safer still.
 - *Room.* At most 256 sleepers a sector; past that, or when the sector's suits run out, the longest
   asleep is cleared (those in hide spots last), and its pilot is told.
 - *A restart.* Under survival rules, a suit left on its feet in a landmark's hide spot is saved with
@@ -1309,7 +1345,9 @@ driver), the chip's Gaussian interpolation, its ADSR rates and its echo with the
 at 32 kHz. `cargo run -p bc-sound --release --example title -- title.wav` writes it out.
 
 **The colony's radio.** One channel for everyone connected, under any rules: `/` opens a line on
-the page (Enter too, on foot), Enter says it, Esc closes it, and no keys reach the suit meanwhile.
+the page (Enter too, on foot, and in a suit wherever Enter has nothing to dock: `bc_client_core::dock`
+decides where each press goes, so one never does both), Enter says it, Esc closes it, and no keys
+reach the suit meanwhile.
 The latest lines show on the left for a while after one comes in. Lines are cleaned (no control
 characters, one line, 160 characters at most), a pilot says at most 5 in 10 s, and the server
 keeps no log of them (`/status` counts them). Agents talk on it too (`bc-bot` `say` and `heard`).
@@ -1364,7 +1402,7 @@ the nearest games teach, and which of the items below come first and why.
   `PilotStore`, off the hot path).
 - **Suits:**
   - Tallgeese, Epyon (its own ZERO).
-  - Shooting missiles down; deployable Planet Defensors.
+  - Deployable Planet Defensors.
   - Wing Zero's fold drawn as it happens (today the model swaps, with a flash); Heavyarms'
     hatches opening for Full Open.
 - **Agents:** an MCP server so LLM agents can fly as squad commanders, and a Python gym on the

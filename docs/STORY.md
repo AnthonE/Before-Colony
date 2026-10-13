@@ -88,9 +88,9 @@ Meteor, the war. Here none of it has happened. Whether it has to is up to everyo
 | In the world | Canon name | In the simulation | What they want |
 |---|---|---|---|
 | The Consortium | Romefeller Foundation | — | They financed the colony and own its debt, the asteroid claims and the Leo lines. |
-| Its security arm | OZ (the Organization of the Zodiac) | `Faction::Oz`, the Mobile Dolls | To hold the claims: its Taurus and Virgo patrols shoot claim-jumpers, which is every Arrival who mines. |
-| The Colonies | the colonies' cause | `Faction::Colonies` (pilots in the browser) | A charter of their own, a foundry of their own, and nobody's debt. |
-| The Unified Earth Alignment | United Earth Sphere Alliance | `Faction::Alliance` | Taxes, order, SI kept aligned, and the colonies kept in their place. Far off, for now. |
+| Its security arm | OZ (the Organization of the Zodiac) | `Faction::Oz`, the Mobile Dolls alone (a pilot's claim to it flies for the Colonies) | To hold the claims: its Taurus and Virgo patrols shoot claim-jumpers, which is every Arrival who mines. |
+| The Colonies | the colonies' cause | `Faction::Colonies` (every human pilot, as the server decides, and agents that ask for it) | A charter of their own, a foundry of their own, and nobody's debt. |
+| The Unified Earth Alignment | United Earth Sphere Alliance | `Faction::Alliance` (agents that ask for it) | Taxes, order, SI kept aligned, and the colonies kept in their place. Far off, for now. |
 | The Arrivals | — | pilots and agents | Nobody knows yet, including them. They'll found their own crews and factions. |
 
 ## Technology

@@ -456,7 +456,8 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
    space. What's built is one channel, the colony's radio, to everyone connected
    (`bc-server/src/radio.rs`, `bc-client/src/chat.rs`), on the control stream, off the hot path.
    T and Enter are throw and dock (`CONTROLS.md`, "Where we break convention" 3), so it opens on
-   `/` (and on Enter on foot, where Enter docks nothing).
+   `/`, and on Enter wherever Enter docks nothing: on foot, and in a suit away from where it docks
+   (`bc_client_core::dock`).
 3. **Objectives along the chain.** Every objective was in space
    (`bc-client-core/src/objectives.rs`). The colony's are in now: ride the cap lift down, find the
    Exchange floor, sell on the Exchange, and report to the Proving Ground. A new pilot should find
@@ -486,12 +487,13 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
 9. **Agents as population.** Flaneurs that ride the trams and go into the places (today's walks 60
    m back and forth, `bc-bot/examples/flaneur.rs`), and the server's own tugs, haulers and miners
    in the lanes (`DESIGN.md`, roadmap, "Traffic").
-10. **Decide where PvP lives.** This is a decision that's open, not a recommendation. Every browser
-   pilot is on the Colonies' side (`bc-client/src/net.rs`) and friendly fire is off
-   (`bc_sim::config`), so people can't harm each other, and `DESIGN.md`'s hunted sleepers can only
-   be hunted by bots of another faction. Star Citizen has armistice zones and lawless space; EVE
-   grades its space by security. `STORY.md`'s "law and heat" is ours, and it needs a map of where
-   the law holds.
+10. **Decide where PvP lives.** This is a decision that's open, not a recommendation. Every human
+   pilot flies for the Colonies, whatever their client asks (the server decides: `bc-server`'s
+   `net::game::side`, and the Welcome says so), and friendly fire is off (`bc_sim::config`), so
+   people can't harm each other, and `DESIGN.md`'s hunted sleepers can only be hunted by agents of
+   another faction (an agent may fly for the Alliance; nobody but the Mobile Dolls flies for Oz).
+   Star Citizen has armistice zones and lawless space; EVE grades its space by security.
+   `STORY.md`'s "law and heat" is ours, and it needs a map of where the law holds.
 
 **P2: depth, once the above is in.**
 

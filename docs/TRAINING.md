@@ -208,7 +208,9 @@ rings of light (`bc-client/src/course.rs`), bright for a trainer's pilot. Its ha
 on foot boards, is 14 m from the pad's middle toward the hall's (`hatch`).
 
 **Boarding.**
-- On foot at the hatch, facing the pad, the prompt says `E  BOARD A TRAINER`. E asks
+- On foot at the hatch, facing the pad, the prompt says `E  BOARD A TRAINER` and names what the
+  test range picked (below): `THE CHARTER BOARD'S LEO` till the pilot picks another, `YOUR LEO, AS
+  BUILT`, `A NEW GUNDAM HEAVYARMS` (`HangarState::trainer_name`). E asks
   `Request::BoardTrainer` (`board_trainer`). The screen goes dark as it does boarding in the bay.
 - The server checks the pilot stands at the hatch: the plaza's last pose of them, within 12 m.
 - It takes a slot in the inside's sector and seats them with `Control::Board`: the suit the pilot
@@ -227,12 +229,17 @@ on foot boards, is 14 m from the pad's middle toward the hall's (`hatch`).
 - Enter docks it there. The session puts the pilot back on foot at the hatch: the plaza takes their
   first pose there (`Plaza::enter_at`), rather than at Hub Gate. They're welcomed back to their
   bay's sector and watch the inside again. Nothing comes home: the Board keeps its suit.
-- A pilot who leaves while flying one loses nothing: it goes, and their bay is untouched.
+- A pilot who leaves while flying one loses nothing: it goes, and their bay is untouched. The
+  pause menu's button says DOCK & DISCONNECT, and the menu that the trainer goes back to its
+  gantry and they wake in their bay.
 
 **On the HUD:**
-- the waypoint and the dock marker point at the gantry (`GANTRY … ENTER: climb out`);
+- the waypoint and the dock marker point at the gantry (`GANTRY …`; coming in, within twice the
+  pad's radius, `AT REST ON ITS PAD: ENTER`; docked, `ENTER: climb out`). Away from it Enter opens
+  the radio (`bc_client_core::dock`);
 - `ON THE GANTRY  ENTER: climb out` while it's docked there;
-- the news `A TRAINER OF THE CHARTER BOARD'S · WEAPONS FREE IN THE HALL`.
+- the news `ABOARD A TRAINER · THE CHARTER BOARD'S LEO · WEAPONS FREE IN THE HALL · DOCK AT REST
+  ON ITS GANTRY`, naming the trainer as the hatch's prompt did.
 
 **Tests:**
 - `bc-sim/tests/interior.rs`: a trainer stands on the gantry till its pilot is heard from and docks

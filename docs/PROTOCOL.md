@@ -1,8 +1,13 @@
-# Before Colony wire protocol (v28)
+# Before Colony wire protocol (v29)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v29 (from v28): the Welcome's last byte is the side the pilot flies for, which is the server's to
+say (below, "Control stream": a claim to Oz flies for the Colonies, as every human pilot does), and
+the client takes its friends and foes from it. In the own state, PARKABLE is never set inside the
+colony (its meaning only: no bits change).
 
 v28 (from v27): the death report and point defence (`PEERS.md`, "Mecha Royale"): `Kill` carries
 the weapon of the blow that breached the suit (5 bits after the killer: 0 none, else the weapon's
@@ -238,7 +243,7 @@ Own-state notes:
   LOCK_ACQUIRED (your missile lock), MISSILE_LOCK (someone's missile lock is on you),
   MISSILE_INCOMING (a guided missile is tracking you), PARKABLE (you're on your feet on a body, or
   resting against a rock or a landmark, slowly enough to park: a signed-in pilot who leaves now
-  stays parked there).
+  stays parked there; never inside the colony, which keeps no sleepers).
 - Charge is the primary's, as a fraction: the Twin Buster's charge, or on a weapon with a charged
   shot (the beam rifle) how long its trigger has been held, from the press to a full charge (1:
   let go and the charged shot, weapon kind 19, leaves). CHARGING, here and on the entity, is the
@@ -415,6 +420,8 @@ asleep. Everyone's roster shows it with ASLEEP (and snapshots with the entity fl
 next session wakes in it: the Welcome sets WOKE. If it's gone, the pilot starts in a new suit and a
 Notice says why: destroyed while they slept (and by whom), or lost (cleared to make room, or the
 server restarted). A suit that was already a wreck is simply gone. Guests' suits go when they do.
+Inside the colony nothing sleeps: the colony's tugs bring a suit flown there home to its bay
+(below, "Survival: the hangar's messages").
 
 Under survival rules, a suit left on its feet in a landmark's hide spot outlives a restart: the
 server puts it back, asleep, before anyone connects, and its pilot wakes in it as above (WOKE).
@@ -479,7 +486,8 @@ queues with their time left); `market` (every item's bid, ask, last and volume, 
 orders, the fee); `book` {`depth`, `history`}; `note` {`text`, `ok`} answering a request (or
 news: a job done, an order filled); `sortie` {`outcome`: `docked`, `lost`, `recovered`, `text`, and docked or lost its `debrief` {`lines`:
 [{`what`, `cr`}]}: the sortie's payout sheet, credits earned positive and spent negative};
-`news` {`text`} (a pilot's arrival; the colony's announcements); `people` {`people`: [{`id`,
+`news` {`text`} (a pilot's arrival, the Charter Board's advance, word kept for a pilot while they
+were away; the colony's announcements); `people` {`people`: [{`id`,
 `name`}]} (in the city: the names of people seen there for the first time, by the slot the plaza's
 datagrams use); `charter` (the Charter Board, while watched: the era, the contracts with their
 `task` (`{"kind": "supply", "item", "qty", "delivered"}` or `{"kind": "patrol", "bounty",
@@ -521,7 +529,8 @@ sector, its snapshots come instead, and nothing fires there but in the Blast Hal
 rounds, which touch no suit). `dock` at rest in the inner gate's
 ring brings the suit home, with a `sortie` and a Welcome back to sector 1 (the client slot it
 had). A client welcomed mid-session forgets what it flew in the last sector. Leaving while
-inside, the colony's tugs bring the suit back to the bay.
+inside, the colony's tugs bring the suit back to the bay, and the pilot's next session tells them
+so once, as `news`.
 
 The Proving Ground's trainers (`docs/TRAINING.md`): `board_trainer`, on foot at the Blast Hall's
 gantry's hatch (the plaza's last pose within 12 m), seats the pilot in a trainer standing on the
