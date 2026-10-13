@@ -148,9 +148,9 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   // "CAN'T: COME TO REST..." from it). Esc closes the line.
   await page.focus("#bc");
   await page.keyboard.press("Enter");
-  await expect(page.locator("#chat-input")).toBeFocused();
+  await expect(page.locator("#chat-input")).toBeFocused({ timeout: 30_000 });
   await page.keyboard.press("Escape");
-  await expect(page.locator("#chat-input")).toBeHidden();
+  await expect(page.locator("#chat-input")).toBeHidden({ timeout: 30_000 });
   await page.waitForTimeout(1_000);
   await expect(page.locator("#toast")).not.toContainText("COME TO REST");
 

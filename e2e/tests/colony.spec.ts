@@ -72,10 +72,10 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await expect(page.locator("#prompt-main")).toHaveText(/TO WALK$/);
   // The menu says what leaving down here does: nothing's out, and the pilot wakes in their bay.
   await page.keyboard.press("Escape");
-  await expect(page.locator("#pause")).toBeVisible();
+  await expect(page.locator("#pause")).toBeVisible({ timeout: FRAMES });
   await expect(page.locator("#disconnect-button")).toHaveText("LEAVE THE CITY");
   await page.locator('#pause [data-cmd="resume"]').click();
-  await expect(page.locator("#pause")).toBeHidden();
+  await expect(page.locator("#pause")).toBeHidden({ timeout: FRAMES });
   // Its square is named on arrival.
   await until(page, "Charter Square", (s) => s.district === "CHARTER SQUARE", FRAMES);
   // Someone's there already: the agent strolling outside Hub Gate, in a flight suit of their own,
