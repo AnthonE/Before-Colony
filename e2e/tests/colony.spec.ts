@@ -101,12 +101,13 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   // Its desk has the Proving Ground's board: the day's best round the course and through the drill,
   // the pars, and how to board a trainer.
   await push(page, { cmd: "use" });
-  await until(page, "the board", (s) => s.terminal === "proving", 60_000);
+  // (A panel over the city drawn in software: a frame there has taken a minute.)
+  await until(page, "the board", (s) => s.terminal === "proving", 180_000);
   await expect(page.locator("#term-body")).toContainText("THE DRILL", { timeout: 30_000 });
   await expect(page.locator("#term-body")).toContainText("gantry", { timeout: 30_000 });
   await page.screenshot({ path: "artifacts/colony-proving-board.png" });
   await push(page, { cmd: "back" });
-  await until(page, "the board closed", (s) => s.panel === "none", 30_000);
+  await until(page, "the board closed", (s) => s.panel === "none", 180_000);
   await until(page, "the next objective", (s) => s.objective === "FIND THE EXCHANGE FLOOR", 30_000);
 
   // The map (M): the strip, its districts, its places (over the dot). M closes it, and so does Esc
@@ -134,7 +135,7 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await page.screenshot({ path: "artifacts/colony-exchange-floor.png" });
   await until(page, "the last objective", (s) => s.objective === "SELL ON THE EXCHANGE", 30_000);
   await push(page, { cmd: "use" });
-  await until(page, "the exchange terminal", (s) => s.terminal === "exchange", 60_000);
+  await until(page, "the exchange terminal", (s) => s.terminal === "exchange", 180_000);
   await expect(page.locator("#terminal")).toBeVisible();
   await page.click('[data-act="ex-filter"][data-f="goods"]');
   await page.click('tr[data-item="mat.ti_alloy"]');
@@ -142,7 +143,7 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await page.click('[data-act="order"]');
   await expect(page.locator("#term-log")).toContainText("BOUGHT", { timeout: 30_000 });
   await page.keyboard.press("Escape");
-  await until(page, "the terminal closed", (s) => !s.terminal, 60_000);
+  await until(page, "the terminal closed", (s) => !s.terminal, 180_000);
   expect((await bc(page)).hangar_credits).toBeLessThan(2000);
 
   // On to the nearest sight, the clock tower over Charter Square: found, on the found-list, and
@@ -379,16 +380,20 @@ test("two pilots meet at Hub Gate; one rides home, and a suit comes down by the 
   await until(a, "at the pool", (s) => !s.city_walking_to, 240_000);
 
   // Each sees the other, by name, where the other stands (within 2 m), and the server has both.
+  // (Seen a moment late, as everyone is: on a page drawing in software a walk's last frame, and the
+  // pose it sends, can be seconds and metres long, so the sight is waited on to catch up.)
   for (const [me, other, them] of [
     [a, b, "Duo"],
     [b, a, "Heero"],
   ] as const) {
-    const s = await until(me, `${them} in view`, (s) => seenAt(s, them) !== undefined, 120_000);
-    await me.waitForTimeout(1_000);
-    const seen = seenAt(await bc(me), them)!;
+    await until(me, `${them} in view`, (s) => seenAt(s, them) !== undefined, 120_000);
     const feet = String((await bc(other)).city_feet).split(",").map(Number);
-    console.log(`${them}: seen at ${seen}, stands at ${feet} (${s.people} in view)`);
-    expect(Math.hypot(seen[0] - feet[0], seen[1] - feet[1])).toBeLessThan(2);
+    const near = (s: Record<string, any>) => {
+      const seen = seenAt(s, them);
+      return seen !== undefined && Math.hypot(seen[0] - feet[0], seen[1] - feet[1]) < 2;
+    };
+    const s = await until(me, `${them} seen where they stand, ${feet}`, near, 60_000);
+    console.log(`${them}: seen at ${seenAt(s, them)}, stands at ${feet} (${s.people} in view)`);
   }
   let status = await (await a.request.get("/status")).json();
   expect(status.game.city.people).toBeGreaterThanOrEqual(3);
