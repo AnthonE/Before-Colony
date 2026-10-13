@@ -48,6 +48,13 @@ pub fn run() {
         }),
         ..default()
     }))
+    // Every frame the browser offers, whether or not the canvas has the keyboard: the page's own
+    // panels (the terminals, the menu, the radio's line) take it as part of play. Bevy's default
+    // drops an unfocused canvas to its reactive mode, which on the web can stop updating altogether
+    // until an event comes (seen as the game standing still once the Exchange floor's terminal
+    // closed, its page drawing rAF frames all the while). A hidden tab still rests: the browser
+    // stops its animation frames, and the link's own timer keeps the session (`net::start_net_loop`).
+    .insert_resource(bevy::winit::WinitSettings::continuous())
     .insert_resource(LaunchConfigRes(cfg.clone()))
     .insert_resource(ClearColor(Color::BLACK))
     .insert_resource(prefs)
