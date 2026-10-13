@@ -1122,6 +1122,7 @@ pub struct CharterView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::debrief::Line;
 
     fn rich() -> Hangar {
         let mut h = Hangar { credits: 1_000_000, ..Hangar::default() };
@@ -1261,19 +1262,62 @@ mod tests {
         assert!(b.take("a", "A", ids[1], 100).is_err(), "one at a time");
         assert!(b.take("b", "B", ids[0], 100).is_err(), "taken");
         let mut h = Hangar::default();
-        assert_eq!(b.bounties(&mut h, "a", 250, 200, false).len(), 1);
+        assert_eq!(
+            b.bounties(&mut h, "a", 250, 200, false),
+            [format!("PATROL #{}: 250 OF 1,000 CR", ids[0])]
+        );
         assert!(b.bounties(&mut Hangar::default(), "b", 5_000, 200, false).is_empty());
+        assert!(h.sortie_pay.is_empty(), "nothing paid yet");
+        // The colony closed: flown, its issuer pays into the pilot's account, collected in the bay.
         let notes = b.bounties(&mut h, "a", 800, 300, false);
-        assert!(notes[0].contains("FLOWN"), "{notes:?}");
+        assert_eq!(notes, [format!("PATROL #{} FLOWN · THE MILITIA PAYS 1,500 CR", ids[0])]);
+        assert_eq!(h.sortie_pay, [Line { what: format!("PATROL #{}", ids[0]), cr: PATROL_REWARD as i64 }]);
+        assert!(!b.waiting("a"));
         b.collect(&mut h, "a");
         assert_eq!(h.credits, PATROL_REWARD);
         assert_eq!(b.colony_paid, PATROL_REWARD);
+        assert_eq!(b.standing("a"), PATROL_REWARD);
         // Another runs out of time: it goes back on the board.
         b.take("b", "B", ids[1], 1_000).unwrap();
         b.tick(1_000 + PATROL_SECS, &ex);
         assert!(b.contract(ids[1]).is_none());
         assert_eq!(b.contracts().filter(|c| matches!(c.task, Task::Patrol { .. })).count(), COLONY_PATROLS);
         assert!(b.owed("b"));
+        // The colony open: flown, its reward waits at the Board's desk, in its issuer's name.
+        let id = b.contracts().find(|c| matches!(c.task, Task::Patrol { .. })).unwrap().id;
+        b.contracts.get_mut(&id).unwrap().issuer_name = "The Colony's Watch".into();
+        b.take("c", "C", id, 2_000).unwrap();
+        let mut h = Hangar { credits: 10, ..Hangar::default() };
+        let notes = b.bounties(&mut h, "c", PATROL_BOUNTY, 2_100, true);
+        assert_eq!(
+            notes,
+            [format!(
+                "PATROL #{id} FLOWN · THE COLONY'S WATCH'S 1,500 CR WAITS FOR YOU AT THE CHARTER BOARD'S DESK"
+            )]
+        );
+        assert_eq!(h.credits, 10, "not into the hangar");
+        assert!(!b.owed("c"), "nor the bay's account");
+        assert_eq!(b.view("c", 2_100).waiting, Some(Waiting { credits: PATROL_REWARD, goods: vec![] }));
+        assert_eq!(b.standing("c"), PATROL_REWARD);
+        assert_eq!(b.colony_paid, 2 * PATROL_REWARD);
+        let line = Line { what: format!("PATROL #{id} · AT THE BOARD"), cr: PATROL_REWARD as i64 };
+        assert_eq!(h.sortie_pay, [line]);
+        assert_eq!(b.collect_at_desk(&mut h, "c"), [format!("PATROL #{id}: THE COLONY'S WATCH'S 1,500 CR")]);
+        assert_eq!(h.credits, 10 + PATROL_REWARD);
+        assert!(!b.waiting("c") && b.view("c", 2_200).waiting.is_none());
+        // Given up, a patrol goes back on the board with its own bounty, none of it earned.
+        let id =
+            b.contracts().find(|c| matches!(c.task, Task::Patrol { .. }) && c.holder.is_none()).unwrap().id;
+        b.contracts.get_mut(&id).unwrap().task = Task::Patrol { bounty: 700, earned: 0 };
+        b.take("d", "D", id, 3_000).unwrap();
+        assert_eq!(
+            b.bounties(&mut Hangar::default(), "d", 300, 3_100, true),
+            [format!("PATROL #{id}: 300 OF 700 CR")]
+        );
+        assert!(b.drop_patrol("c", id, 3_200).is_err(), "not theirs");
+        b.drop_patrol("d", id, 3_200).unwrap();
+        let c = b.contract(id).unwrap();
+        assert_eq!((c.task, c.holder.as_deref()), (Task::Patrol { bounty: 700, earned: 0 }, None));
     }
 
     /// The Most Wanted (`docs/DESIGN.md`, "Aces"): an ace downed goes on the list, the ladder and
@@ -1293,6 +1337,8 @@ mod tests {
         assert_eq!(b.colony_paid, bounty, "the colony pays it");
         assert_eq!(b.standing("a"), bounty);
         assert_eq!(note, "ARIES DOWNED · THE CHARTER BOARD PAYS 1,500 CR");
+        assert_eq!(h.sortie_pay, [Line { what: "ACE ARIES".into(), cr: bounty as i64 }]);
+        assert!(!b.waiting("a") && b.view("a", 100).waiting.is_none());
         assert!(b.news_since(0).any(|n| n.text == "ZODIAC'S ARIES DOWNED BY ANN"));
         // Its wreck instead (for a pilot of standing), then pay again.
         b.contribute(&mut rich(), "b", "Bo", Work::SecondFoundry, STEEL, 100, 150).unwrap();
@@ -1328,6 +1374,135 @@ mod tests {
         assert_eq!(ladder[0], ("Bo".to_string(), 4));
     }
 
+    /// With the colony open, an ace's bounty waits at the Charter Board's desk: the colony pays it
+    /// (with standing) as ever, and it's on the sortie's sheet, but not in the hangar till it's
+    /// collected there.
+    #[test]
+    fn an_aces_bounty_waits_at_the_boards_desk() {
+        let mut b = Board::new();
+        let mut h = Hangar { credits: 100, ..Hangar::default() };
+        assert!(!b.ace_downed(0, "a", "Ann", 100));
+        let note = b.pay_ace(&mut h, 0, "a", true);
+        let bounty = u64::from(bc_sim::content::aces::ACES[0].bounty);
+        assert_eq!(note, "ARIES DOWNED · ITS 1,500 CR BOUNTY WAITS FOR YOU AT THE CHARTER BOARD'S DESK");
+        assert_eq!(h.credits, 100);
+        assert_eq!((b.standing("a"), b.colony_paid), (bounty, bounty));
+        assert_eq!(h.sortie_pay, [Line { what: "ACE ARIES · AT THE BOARD".into(), cr: bounty as i64 }]);
+        assert_eq!(b.view("a", 200).waiting, Some(Waiting { credits: bounty, goods: vec![] }));
+        assert!(b.waiting("a") && !b.owed("a"));
+        assert!(b.collect(&mut h, "a").is_empty(), "the bay's collection doesn't hand it over");
+        assert_eq!(b.held(), (bounty, BTreeMap::new()));
+        assert_eq!(b.collect_at_desk(&mut h, "a"), ["ARIES'S BOUNTY: 1,500 CR"]);
+        assert_eq!(h.credits, 100 + bounty);
+        assert!(!b.waiting("a") && b.view("a", 300).waiting.is_none());
+        assert!(b.collect_at_desk(&mut h, "a").is_empty());
+        assert_eq!(b.held(), (0, BTreeMap::new()));
+    }
+
+    /// A flight certificate (any time at the Proving Ground) earns one beam rifle per hangar from
+    /// the colony's desk, waiting at the Board's; the colony's desk out of them, a rifle's worth.
+    #[test]
+    fn a_flight_certificate_earns_one_beam_rifle_at_the_boards_desk() {
+        let rifle = Item::Weapon(WeaponKind::BeamRifle);
+        let mut b = Board::new();
+        let mut ex = Exchange::new();
+        let mut h = Hangar::starter();
+        assert_eq!(ex.colony_stock(rifle), Some(3.0));
+        let news = b.certify(&mut h, "a", "Ann", &mut ex).unwrap();
+        assert_eq!(
+            news,
+            "THE CHARTER BOARD HAS YOUR FLIGHT CERTIFICATE · A BEAM RIFLE WAITS FOR YOU AT ITS DESK, ON CHARTER SQUARE"
+        );
+        assert!(h.certified);
+        assert_eq!(ex.colony_stock(rifle), Some(2.0), "from the colony's desk");
+        assert_eq!(b.colony_paid, 0, "goods moved, not made");
+        assert_eq!(b.standing("a"), 0);
+        assert_eq!(b.view("a", 0).waiting, Some(Waiting { credits: 0, goods: vec![(rifle, 1)] }));
+        assert_eq!(h.stores.get(rifle), 0, "it waits at the desk");
+        assert_eq!(b.held(), (0, BTreeMap::from([(rifle, 1)])));
+        // Once.
+        assert_eq!(b.certify(&mut h, "a", "Ann", &mut ex), None);
+        assert_eq!(ex.colony_stock(rifle), Some(2.0));
+        let notes = b.collect_at_desk(&mut h, "a");
+        assert_eq!(
+            notes,
+            ["FROM THE CHARTER BOARD, FOR YOUR FLIGHT CERTIFICATE: A BEAM RIFLE, TO YOUR STORES"]
+        );
+        assert_eq!(h.stores.get(rifle), 1);
+        assert!(!b.waiting("a") && b.view("a", 0).waiting.is_none());
+        // It goes on the worn Leo's empty mount.
+        h.fit(rifle).unwrap();
+        assert!(h.suit().unwrap().mounts.iter().all(|m| *m));
+        assert_eq!(b.certify(&mut h, "a", "Ann", &mut ex), None);
+        // The colony's desk out of rifles: a rifle's worth, paid by the colony, with no standing.
+        assert!(ex.colony_take(rifle, 10));
+        let mut h = Hangar::starter();
+        let v = value(rifle);
+        let news = b.certify(&mut h, "b", "Bo", &mut ex).unwrap();
+        assert_eq!(
+            news,
+            format!(
+                "THE CHARTER BOARD HAS YOUR FLIGHT CERTIFICATE · A BEAM RIFLE'S WORTH, {} CR, WAITS FOR YOU AT ITS DESK, ON CHARTER SQUARE",
+                thousands(v)
+            )
+        );
+        assert_eq!(b.colony_paid, v);
+        assert_eq!(b.standing("b"), 0, "no standing for it");
+        assert_eq!(b.view("b", 0).waiting, Some(Waiting { credits: v, goods: vec![] }));
+        assert_eq!(b.certify(&mut h, "b", "Bo", &mut ex), None);
+        assert_eq!(b.colony_paid, v);
+        let c0 = h.credits;
+        let notes = b.collect_at_desk(&mut h, "b");
+        assert_eq!(
+            notes,
+            [format!("FROM THE CHARTER BOARD, FOR YOUR FLIGHT CERTIFICATE: {} CR", thousands(v))]
+        );
+        assert_eq!(h.credits, c0 + v);
+        assert_eq!(b.held(), (0, BTreeMap::new()));
+    }
+
+    #[test]
+    fn an_aces_wreck_is_signed_over_only_to_pilots_of_standing() {
+        let mut b = Board::new();
+        assert_eq!(
+            b.set_terms("a", true).unwrap_err(),
+            "the board signs an ace's wreck over only to pilots of standing: deliver to the colony's contracts or its works first"
+        );
+        assert!(!b.salvage_terms("a"));
+        assert!(b.set_terms("a", false).is_ok(), "pay is anyone's");
+        b.contribute(&mut rich(), "a", "Ann", Work::SecondFoundry, STEEL, 100, 0).unwrap();
+        assert!(b.standing("a") > 0);
+        assert!(b.set_terms("a", true).unwrap().contains("WRECK"));
+        assert!(b.salvage_terms("a"));
+        // A pilot already on them (before the rule) keeps them, and may say so again.
+        b.salvage_terms.insert("old".into());
+        assert!(b.set_terms("old", true).is_ok());
+        assert!(b.salvage_terms("old"));
+    }
+
+    /// What was saved before the Board's desk, and a view an old server sends, still read.
+    #[test]
+    fn a_board_and_a_view_from_before_the_desk_read() {
+        let mut b = Board::new();
+        let ex = Exchange::new();
+        b.tick(0, &ex);
+        b.contribute(&mut rich(), "a", "Ann", Work::SecondFoundry, STEEL, 100, 0).unwrap();
+        let mut old = serde_json::to_value(&b).unwrap();
+        assert!(old.as_object_mut().unwrap().remove("at_desk").is_some());
+        assert_eq!(serde_json::from_str::<Board>(&old.to_string()).unwrap(), b);
+        // A view with nothing waiting says nothing of it, and one without it reads as nothing.
+        let view = b.view("a", 0);
+        let json = serde_json::to_value(&view).unwrap();
+        assert!(json.get("waiting").is_none(), "{json}");
+        assert_eq!(serde_json::from_str::<CharterView>(&json.to_string()).unwrap(), view);
+        // As the page reads it.
+        let w = Waiting { credits: 1_500, goods: vec![(Item::Weapon(WeaponKind::BeamRifle), 1)] };
+        assert_eq!(
+            serde_json::to_string(&w).unwrap(),
+            r#"{"credits":1500,"goods":[["weapon.beam_rifle",1]]}"#
+        );
+    }
+
     #[test]
     fn a_board_and_its_view_fit_in_a_frame_and_read_back() {
         let mut b = Board::new();
@@ -1343,12 +1518,16 @@ mod tests {
         let id = b.contracts().next().unwrap().id;
         let mut h = rich();
         b.deliver(&mut h, &mut ex, "x", "X", id, 1, 1).unwrap();
+        // Something waits at the desk for the pilot who looks.
+        b.certify(&mut h, "pilot-3", "Someone With A Long Name", &mut ex).unwrap();
+        b.pay_ace(&mut h, 8, "pilot-3", true);
         let view = crate::wire::encode(&crate::wire::Update::Charter(b.view("pilot-3", 5)));
         assert!(view.len() < 16_000, "{}", view.len());
         let back: crate::wire::Update = crate::wire::decode(&view).unwrap();
         let crate::wire::Update::Charter(v) = back else { panic!() };
         assert_eq!(v.contracts.len(), VIEW_CONTRACTS);
         assert!(v.contracts[0].mine);
+        assert!(v.waiting.as_ref().is_some_and(|w| w.credits > 0 && w.goods.len() == 1), "{:?}", v.waiting);
         let saved = serde_json::to_vec(&b).unwrap();
         assert_eq!(serde_json::from_slice::<Board>(&saved).unwrap(), b);
     }

@@ -382,7 +382,10 @@ mod tests {
     #[test]
     fn a_pilots_bests_keep_the_fastest_and_certificates_go_by_each_par() {
         let mut m = Bests::default();
+        assert!(!m.any(), "never flown");
         assert!(m.better(Feat::Drill, 30_000));
+        assert!(m.any());
+        assert!(Bests { course_ms: Some(200_000), drill_ms: None }.any(), "any time, any class");
         assert!(!m.better(Feat::Drill, 31_000));
         assert!(m.better(Feat::Drill, 22_000));
         assert_eq!((m.get(Feat::Drill), m.get(Feat::Course)), (Some(22_000), None));

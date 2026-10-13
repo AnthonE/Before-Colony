@@ -1311,5 +1311,54 @@ mod tests {
         h.craft(Item::Material(Material::Munitions), 1, 5, &Rules::default()).unwrap();
         let json = serde_json::to_string(&h).unwrap();
         assert_eq!(serde_json::from_str::<Hangar>(&json).unwrap(), h);
+        // Uncertified, with nothing on a sortie's sheet, it says nothing of either, and a hangar
+        // kept before them reads as uncertified, with nothing.
+        assert!(!json.contains("certified") && !json.contains("sortie_pay"), "{json}");
+        h.certified = true;
+        h.board_paid("ACE ARIES".into(), 1_500);
+        let json = serde_json::to_string(&h).unwrap();
+        assert!(json.contains(r#""certified":true"#) && json.contains("sortie_pay"), "{json}");
+        assert_eq!(serde_json::from_str::<Hangar>(&json).unwrap(), h);
+        let mut old = serde_json::to_value(&h).unwrap();
+        let o = old.as_object_mut().unwrap();
+        assert!(o.remove("certified").is_some() && o.remove("sortie_pay").is_some());
+        let old: Hangar = serde_json::from_str(&old.to_string()).unwrap();
+        assert!(!old.certified && old.sortie_pay.is_empty());
+        assert_eq!(Hangar { certified: true, sortie_pay: h.sortie_pay.clone(), ..old }, h);
+    }
+
+    /// What the Charter Board pays for a sortie goes on its sheet, home or lost, once; the next
+    /// launch starts a clean one, so what the Board pays late for the last stays off it.
+    #[test]
+    fn the_boards_pay_goes_on_the_sorties_sheet() {
+        let mut h = Hangar::starter();
+        h.board_paid("ACE ARIES".into(), 1_500);
+        let _ = h.launch().unwrap();
+        assert!(h.sortie_pay.is_empty(), "a new sortie, a new sheet");
+        h.board_paid("PATROL #3".into(), 1_500);
+        h.board_paid("ACE GEMINI · AT THE BOARD".into(), 1_800);
+        h.board_paid("NOTHING".into(), 0);
+        assert_eq!(h.sortie_pay.len(), 2);
+        let credits = h.credits;
+        let Bay::Out { suit } = h.bay.clone() else { panic!() };
+        let mut home = home_as(&suit);
+        home.propellant -= 300.0;
+        home.bounty = 250;
+        let (_, d) = h.came_home_debriefed(&home);
+        let lines: Vec<(&str, i64)> = d.lines.iter().map(|l| (l.what.as_str(), l.cr)).collect();
+        assert_eq!(
+            lines[..3],
+            [("BOUNTIES", 250), ("PATROL #3", 1_500), ("ACE GEMINI · AT THE BOARD", 1_800)]
+        );
+        assert!(lines.len() > 3 && lines[3..].iter().all(|l| l.1 < 0), "{lines:?}");
+        assert_eq!(h.credits, credits + 250, "the sheet pays nothing itself: the Board did");
+        assert!(h.sortie_pay.is_empty());
+        // Lost: on that sheet too.
+        let _ = h.launch().unwrap();
+        h.board_paid("ACE CANCER".into(), 2_000);
+        let (_, d) = h.lost_debriefed(0);
+        assert_eq!(d.lines[0], Line { what: "ACE CANCER".into(), cr: 2_000 });
+        assert_eq!(d.lines[1].what, "THE SUIT");
+        assert!(h.sortie_pay.is_empty());
     }
 }

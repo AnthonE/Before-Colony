@@ -764,6 +764,26 @@ mod tests {
         assert!(ex.depth(torso, 5).asks.iter().any(|l| l.colony));
     }
 
+    /// The colony hands over what its desk holds whole, outside the books (the Charter Board's
+    /// issue): its price rises as if it had sold it, and no credits move.
+    #[test]
+    fn the_colony_issues_what_its_desk_holds() {
+        let mut ex = Exchange::new();
+        let rifle = Item::Weapon(bc_proto::WeaponKind::BeamRifle);
+        let ask = ex.top(rifle).1.unwrap().0;
+        assert_eq!(ex.colony_issue(rifle, 2), 2);
+        assert_eq!(ex.colony_stock(rifle), Some(1.0));
+        assert!(ex.top(rifle).1.unwrap().0 > ask, "dearer, with less on the shelf");
+        assert_eq!(ex.colony_issue(rifle, 5), 1, "only what it has");
+        assert_eq!(ex.colony_issue(rifle, 1), 0);
+        assert_eq!(ex.colony_stock(rifle), Some(0.0));
+        assert_eq!(ex.top(rifle).1, None, "none left to sell");
+        // Gundam technology isn't the colony's to give.
+        assert_eq!(ex.colony_issue(GUNDANIUM, 10), 0);
+        assert_eq!(ex.colony_stock(GUNDANIUM), None);
+        assert_eq!((ex.colony_paid, ex.colony_took, ex.fees), (0, 0, 0));
+    }
+
     #[test]
     fn refusals() {
         let mut ex = Exchange::new();
