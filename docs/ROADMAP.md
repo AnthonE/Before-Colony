@@ -12,6 +12,7 @@ the bay, space, home).
 | Lock-on: fighting on the ground in space (`LOCK.md`) | built |
 | The weapons pass: the hit-rate harness, charged beams, true cones, lunges that home, the burst step | built |
 | P0: a floor under loss, text chat, objectives along the chain, The Arrival's seats | built |
+| Objectives that lead somewhere, desks worth the walk: nineteen objectives from the cap lift to gundanium, each city desk's one thing, the Charter Board's pay at its desk, a flight certificate's beam rifle, The Arrival's Most Wanted (below) | built |
 | P1: the Proving Ground: its course, the Blast Hall, its live fire, trainers boarded there, the drill and the board (`TRAINING.md`, phases 1 to 5) | built |
 | Living in the colony, L0: seats, the body and its meals (`LIFE.md`) | built (a framework: nothing on the wire yet) |
 | The loop's loose ends, first pass: the colony open by default, launching out of the pilot's own bay door, landing on the docking hub and walking in, hints along the way (below) | built |
@@ -78,8 +79,9 @@ Built since, each a PR of its own:
 Next, each a PR of its own:
 
 - **The ◆ on the door in the city view itself**, not only on the map (P0's objectives, above).
-- **The Arrival's door opens its menu** (`LIFE.md`, L1: eating), rather than a toast that the bar's
-  quiet.
+- **The Arrival's menu** (`LIFE.md`, L1: eating). Its door now opens the Most Wanted, pinned up
+  behind the bar (`Panel::Arrival`, the terminals' `wanted` tab); the menu joins it there as a
+  second tab, `menu`, at the same door.
 - **The Blast Hall's floor markings and the gantry's stairs** (`TRAINING.md`'s first ten minutes).
 - **The launch shot's clocks.** The ring is drawn on the view clock and the own suit on the input
   clock; on the throw the suit's drawn place blends between them (`own.rs`), which shows as a lurch
@@ -118,10 +120,21 @@ keys don't reach the suit while typing. Agents: `bc-bot` `say` and `heard`. Test
 server test; the page's `ui` e2e types a line, and opens the line with Enter in flight.
 
 **Objectives along the chain.** *Built* (`bc_client_core::objectives`, appended so their bits
-stay): ride the cap lift down, find the Exchange floor, sell on the Exchange (with the colony
-open, the Welcome's COLONY flag). On foot the panel shows the first of them not done, with the
-range to the place's door, and the city's map marks the door with a `◆`. Still open: a marker
-on the door in the city view itself.
+stay; `DESIGN.md`, "Objectives and the chart"). Nineteen, in survival's order after
+`TRAINING.md`'s first ten minutes: ride the cap lift down, report to the Proving Ground and earn a
+flight certificate, a straight walk down the avenue to the Exchange floor and the Charter Board's
+desk, standing with the colony, home to arm the suit, then out (MO-II, the Aft Well, ore home and
+sold, the Dolls, Hermit, five Dolls), and on to the Most Wanted at The Arrival, one of Zodiac's
+aces, a new Gundam on the test range and gundanium. Those in the city need the colony open (the
+Welcome's COLONY flag), the rest of the new ones survival, and arcade has none of the last eight.
+Each has a realm (space, the bay, the city, or any terminal on foot): flying, the HUD shows the
+first space one not done, so a pilot who launches first is never pulled home; on foot, the first
+in order, passing over a space one flown past. Each how-line starts with the way there from where
+the pilot is, and the city's map marks the door with a `◆` (Hub Gate's, for the bay's and
+space's). Tests: `objectives`' units (the
+bits, the new Arrival's chain, flying first, a skipped hide, arcade, the colony closed, every
+how-line's prefix, the ace's waypoint), and the colony e2e walking the desks in turn. Still open:
+a marker on the door in the city view itself.
 
 **The Arrival does something.** *Built.* Seats by its door (`bc_sim::colony::city::arrival_seats`, a
 closed form of the door; benches drawn there), E to sit, others see you sit (the presence's
@@ -179,24 +192,41 @@ Next: the hall's own course and a level ladder (phase 6).
 
 **Contracts on the Charter Board.** *Begun* (`bc_econ::charter`; `DESIGN.md`, "The Charter Board").
 One board per colony, kept with the exchange: a tab on every terminal in the bay, and the desk in
-Charter Square (its door opens `Panel::Board`). Built:
+its hall on Charter Square (its door opens `Panel::Board`). Built:
 - *Supply* contracts: a pilot's holds its reward in escrow from the moment it's posted, the
   colony posts its own as its stocks run low, and anyone but the issuer delivers part of one from
   their stores and is paid pro rata on the spot.
 - *Patrols*, once the militia's hangar is built: down Dolls for so much in bounties within the
   hour, counted as each sortie ends.
 - The great works and the charter vote, paid in credits and in standing.
+- *Desks worth the walk* (the colony open): posting, taking a patrol and signing are the Charter
+  Board's desk's (`Request::desk`, refused elsewhere with where to go: `bc-server`'s `desk.rs`
+  checks the pilot stands in the place's room); an order resting on the book is the Exchange
+  floor's (elsewhere it's downgraded to trade at once); ace terms are The Arrival's; the test
+  range's pick is the Blast Hall's. The bay's terminals point at them. With the colony closed the
+  bay does it all, as before.
+- *The Board's pay waits at its desk* (the colony open): patrols' rewards, aces' bounties and a
+  flight certificate's beam rifle (`Board::certify`, once a record or a guest's visit; the
+  colony's desk out of rifles, a rifle's worth with no standing) wait in its `at_desk` account,
+  shown as the board's `waiting`, and are paid out on walking into its hall. Patrol and ace pay are
+  lines on the sortie's debrief. Salvage terms need standing.
 - Wire: `Request::{Post, Withdraw, Deliver, TakePatrol, DropPatrol, Contribute, Sign, WatchBoard}`,
-  `Update::Charter`.
+  `Update::Charter` (with `waiting`).
 - Tests: `bc-econ`'s units (the colony's postings, pro rata, what's unpaid going back, the works,
-  a patrol), the ledger's property test with the board in it (`tests/ledger.rs`), and
-  `bc-server/tests/charter.rs` (post, deliver, build, and the board over a restart).
+  a patrol, the certificate's two paths, pay at the desk, salvage terms and standing), the
+  ledger's property test with the board in it (`tests/ledger.rs`, certificates and aces' pay
+  included), `bc-server/tests/charter.rs` (post, deliver, build, and the board over a restart,
+  the colony closed), `bc-server/tests/desks.rs` (the bay pointed at the desks; a certified pilot
+  walked to each desk and paid at the Board's), and the colony e2e opening the board at its desk
+  (a delivery to the second foundry, a contract posted and withdrawn) and the Most Wanted at The
+  Arrival.
 
 Still to come: more jobs flown in space (bring a wreck home, escort a hauler, clear a claim); the
 building site that the works build out, whose `Stage` (`bc_sim::colony::city::Stage`) is still
 `Stage(0)` everywhere, and which becomes world state the Welcome carries and every client draws
 from (today the works change the world only through their effects: the foundry's fee, the
-patrols); and the colony e2e opening the board.
+patrols); and the Board's own standing patrol (left out: a new faucet, and it would undercut the
+militia's hangar).
 
 **Liveries.** Body, trim, accent and eye colours chosen at the suit's maintenance console from a
 palette, carried on the suit (`bc_econ::suit::Suit.paint`), paid for in credits (a sink), and drawn
@@ -355,7 +385,8 @@ fight").
 - `bc-server`: the notes task's `AceWatch` puts the ace on the roster by its name and announces
   it; the session pays, or claims the wreck (unless the tugs are out for the pilot's own), and
   marks which one flies in the board's view. `--ace-every`.
-- The page: MOST WANTED under the Charter Board, with the terms. The chart names the ace.
+- The page: MOST WANTED at The Arrival's counter, with the terms (under the bay's Charter Board
+  tab with the colony closed; with it open, the tab points there). The chart names the ace.
 - Tests: `bc-sim/tests/aces.rs` (one out at a time round the list, a Leo standing more, named
   until its slot is let go), `bc-sector/tests/aces_net.rs` (the word; downed by a pilot, their
   session hears with the wreck, and the claim's tugs bring it home as the ace's; downed by nobody

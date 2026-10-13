@@ -724,29 +724,62 @@ held at the edge of the view while it's off it.
 
 | Objective | Done when | Waypoint |
 |---|---|---|
+| RIDE THE CAP LIFT DOWN (the colony open) | in the city | flying, the dock; in the bay, the airlock's prompt |
+| REPORT TO THE PROVING GROUND (the colony open) | at the Blast Hall's desk | on the city's map (M), a `◆` on its blast doors, and its range on the panel |
+| EARN A FLIGHT CERTIFICATE (the colony open) | a time on the Proving Ground's board, the course or the drill (the server's word) | as above |
+| FIND THE EXCHANGE FLOOR (the colony open) | at its door | on the city's map, a `◆` on its door |
+| REPORT TO THE CHARTER BOARD (the colony open) | at its desk, in its hall on Charter Square | as above |
+| EARN STANDING WITH THE COLONY (survival) | standing above 0: a delivery to one of the colony's contracts or a great work | as above |
+| ARM YOUR SUIT (survival) | every weapon mount of the bay's suit filled (the worn Leo comes without its beam rifle) | flying, the dock |
 | LAND ON MO-II | standing on it | MO-II |
 | HIDE IN THE AFT WELL | hidden in it (the server's word) | the Aft Well |
 | MINE 200 KG OF ORE | 200 kg in the hold and in hand | the nearest big rock |
 | BRING THE ORE HOME (survival) · SELL ORE AT THE DOCK (arcade) | in the dock's ring with something aboard | the dock |
-| RIDE THE CAP LIFT DOWN (the colony open) | in the city | flying, the dock; in the bay, the airlock's prompt |
-| FIND THE EXCHANGE FLOOR (the colony open) | at its door | on the city's map (M), a `◆` on its door, and its range on the panel |
-| SELL ON THE EXCHANGE (the colony open) | a sale filled on the Exchange, from anywhere | as above |
-| REPORT TO THE PROVING GROUND (the colony open) | at the Blast Hall's desk | on the city's map, a `◆` on its blast doors |
+| SELL ON THE EXCHANGE (the colony open) | a sale filled on the Exchange, from any terminal | as above |
 | DOWN A MOBILE DOLL | a Doll downed | the nearest Doll in sight, else their patrols over the field |
 | LAND ON HERMIT | standing on it | Hermit |
 | DOWN 5 MOBILE DOLLS | five downed, over any number of visits | as above |
+| READ THE MOST WANTED (the colony open) | at The Arrival's counter, off Charter Square | on the city's map, a `◆` on its door |
+| DOWN ONE OF ZODIAC'S ACES (survival) | an ace downed (the Charter Board's ladder says so) | the ace out now, by its callsign; else as for the Dolls |
+| TRY A NEW GUNDAM ON THE TEST RANGE (the colony open) | flying a new Gundam the test range readied on the Blast Hall's gantry | on the city's map, the Proving Ground |
+| MAKE GUNDANIUM (survival) | gundanium in the stores, or a job making it | flying, the dock |
 
-- **Any order.** Each is checked every frame, so doing one early counts; the HUD shows the first
-  in the rules' order not yet done. Survival starts at the dock beside MO-II, in a worn Leo with
-  no rifle, so it lands and hides first and fights last; arcade starts among the Dolls, so it
-  fights first. The ore brought home goes down the chain, into the colony and onto its Exchange
-  (`PEERS.md`'s "connect before deepening"). On foot (in the bay, or the city) the panel shows the
-  first of those not yet done, since the flight's wait for the next sortie.
+That's survival's order (`TRAINING.md`'s first ten minutes, then a straight walk down the avenue
+past Hub Gate, the Blast Hall, the Exchange floor to the Charter Board, home to arm, and out).
+Arcade keeps its first eleven in their old order (DOWN A MOBILE DOLL first) and has none of the
+last eight. Without canon names the Gundam is a prototype (`TRY A NEW PROTOTYPE ON THE TEST
+RANGE`).
+
+- **Any order.** Each is checked every frame, so doing one early counts. Survival starts in the
+  bay, in a worn Leo with no rifle: with the colony open the Arrival rides down to the city first,
+  is certified, finds the desks and earns standing, then goes home to arm and launches; out there
+  it lands and hides first, and fights last. Arcade starts among the Dolls, so it fights first. The ore
+  brought home goes down the chain, into the colony and onto its Exchange (`PEERS.md`'s "connect
+  before deepening").
+- **Where each is done** (`Realm`): in space (landing, hiding, mining, bringing it home, the Dolls,
+  Hermit, the aces), in the bay (the cap lift, arming, gundanium), in the city (the desks, the
+  certificate, the test range), or at any terminal on foot (selling, standing).
+- **What the HUD shows depends on where the pilot is.** Flying, it's the first not done that's done
+  in space, so a pilot who launches first is never pulled home while one is open; if there's none,
+  the first not done, its how-line starting with the way home. On foot, in the bay or the city,
+  it's the first not done in the rules' order, passing over one in space the pilot has flown past
+  (a hide skipped after mining waits for the next flight; the chart still lists it). Only space
+  objectives are passed over: a city one is done by its door coming into focus, so passing them
+  over would skip them by accident. Every how-line starts with the way there from where the pilot
+  stands ("At your airlock, E rides the cap lift down." in the bay for a city one, "Back up to your
+  bay first: E at Hub Gate's lift." in the city for a bay one, "Back up to your bay (E at Hub
+  Gate's lift), and launch from its cockpit." in the city for a space one, "Home first: dock at
+  the ◆." in flight for any on foot), and on foot in the city the map's `◆` for one in the bay or
+  in space is on Hub Gate, the way up.
+  A pilot who has just armed sees `LAND ON MO-II`, starting "Up the stairs: E at the cockpit's
+  hatch launches."
 - **Kept with the settings**, as the hints are: what's done and the Dolls downed carry over from
   one visit to the next in the same browser. An objective done says so (`OBJECTIVE DONE - …`).
   The settings panel can hide the objective and its waypoint.
 - **Not rewards.** They point the way to what pays (bounties, the dock's prices, the stores), and
-  nothing about them is the server's: it pays what it always has.
+  nothing about them is the server's: it pays what it always has. The certificate's beam rifle is
+  the Charter Board's, for a time on its board (below), and the objective only takes the server's
+  word that there is one.
 
 **The chart (M)** is a holographic map of everything a pilot can find, in 3D, from a single rock
 out to Earth and the Moon (`bc-client`'s `chart.rs`, on `bc_client_core::{chart, nav, sphere}`).
@@ -845,7 +878,11 @@ control in the words for where the pilot is: CLICK TO WALK on foot, DRIVE at a c
 on a scooter, FLY in a suit.
 
 The terminals are panels on the page over the live bay. Everything they show is the server's word,
-and everything they do is a request the server checks (`bc_econ::wire`).
+and everything they do is a request the server checks (`bc_econ::wire`). Their tabs are the
+fabricator, the stores, the suit, the Exchange, the Charter Board and (the colony open) the Proving
+Ground. With the colony open the bay's do the routine work, and point at the city's desks for what
+only a desk does (an order that waits on the book, posting a contract, taking a patrol, the
+charter, an ace's terms, the test range); a desk's terminal in the city shows only its own tab.
 
 ### Building a suit
 
@@ -897,6 +934,14 @@ for bulk goods, a piece for everything else.
   Dolls shot down). The ledger balances: credits are neither made nor lost in a trade (a property
   test checks it).
 - Each item's last trade price is sampled once a minute: the terminal draws the last hour.
+- **Resting orders are the Exchange floor's.** With the colony open, an order whose remainder
+  waits on the book is placed at the Exchange floor's counter, on Charter Square: market-making
+  inside the colony's 10% spread, or selling Gundam tech to a pilot who isn't online, takes the
+  walk. A bay's terminal (or any other desk) trades at once and hands back what doesn't fill: the
+  server downgrades such an order rather than refusing it, and its note ends `WHAT DIDN'T FILL CAME
+  BACK: AN ORDER WAITS ON THE BOOK ONLY FROM THE EXCHANGE FLOOR, ON CHARTER SQUARE`. The bay's
+  exchange has no REST checkbox, and says where one is. A pilot's orders are listed and cancelled
+  from anywhere. With the colony closed the bay places them, as before.
 
 ### Wear from use
 
@@ -962,7 +1007,28 @@ client predicts with, as the server flies with it).
 ### The Charter Board: contracts and the great works
 
 The colony's notices (`bc_econ::charter`, one board per colony, kept with the exchange): a tab on
-every terminal in the bay, and the Charter Board's own desk in Charter Square.
+every terminal in the bay, and the Charter Board's own desk in its hall on Charter Square.
+
+- **Its desk** (the colony open). Contracts are posted, patrols taken and the charter signed in
+  person, at the desk; asked anywhere else, the server refuses with where to go ("that's done in
+  person at the charter board's desk, in its hall on charter square"), and the bay's tab shows a
+  dim `AT ITS DESK` for a patrol and one note in place of the POST form and SIGN. Delivering,
+  withdrawing, giving up a patrol and the great works stay on every terminal. With the colony
+  closed, the bay does it all, as before.
+- **The Board's own pay waits at its desk** (the colony open): the certificate's beam rifle (below),
+  patrols' rewards and aces' bounties are held for the pilot, and paid out the moment they walk
+  into its hall. Until then the bay's tab says what it holds (`THE BOARD HOLDS 1,500 CR FOR YOU ·
+  PAID OUT AT ITS DESK, ON CHARTER SQUARE`), and the news names the desk. Escrow refunds and the
+  goods delivered to a pilot's own contracts still arrive in the bay. A guest's pay goes with them
+  when they leave, as their orders do; a signed-in pilot's waits with the board.
+- **A flight certificate earns a beam rifle, once** (`Board::certify`). The first time a pilot has
+  a time on the Proving Ground's board, the course or the drill and any class, the Board issues
+  them a beam rifle from the colony's desk for it, to collect at its own (`THE CHARTER BOARD HAS
+  YOUR FLIGHT CERTIFICATE · A BEAM RIFLE WAITS FOR YOU AT ITS DESK, ON CHARTER SQUARE`): the worn
+  Leo's missing rifle, earned. The colony's desk out of rifles (it keeps 3), it pays a rifle's
+  worth instead, with no standing. Once per signed-in record (the hangar's `certified`), once per
+  visit for a guest; a veteran is certified from their record's bests on their next visit to the
+  city. It's goods moved, not made: one more faucet the size of the starter's advance.
 
 - **Contracts.** Jobs with their pay posted beside them. *Supply*: deliver so much of an item.
   Anyone but its issuer delivers part of it from their stores and is paid pro rata on the spot,
@@ -974,8 +1040,11 @@ every terminal in the bay, and the Charter Board's own desk in Charter Square.
   electronics, munitions, components), at 135% of their value, for two hours each. Agents deliver
   too: the miner hands its ore to the colony's contracts before it sells the rest.
 - **Patrols** (once the militia has its hangar): take one, and down Mobile Dolls for 1,000 CR of
-  bounties within the hour; the militia pays 1,500 CR on top. One pilot holds a patrol at a time,
-  and a pilot holds one at a time; the bounties count when the suit comes home (or is lost).
+  bounties within the hour; its issuer pays 1,500 CR on top (`PATROL #3 FLOWN · THE MILITIA PAYS
+  1,500 CR`, or, the colony open, `... THE MILITIA'S 1,500 CR WAITS FOR YOU AT THE CHARTER BOARD'S
+  DESK`). One pilot holds a patrol at a time, and a pilot holds one at a time; the bounties count
+  when the suit comes home (or is lost), and the reward is on that sortie's sheet. Given up, it
+  goes back on the board with its own bounty.
 - **The great works.** The era's projects, each needing tonnes of materials, delivered from the
   stores at 120% of the colony's value:
   - *A second foundry* (12 t of steel, 6 t of titanium alloy, 800 kg of electronics, 1.5 t of
@@ -988,8 +1057,9 @@ every terminal in the bay, and the Charter Board's own desk in Charter Square.
   Every pilot hears when one is finished, wherever they are; the board lists each work's most
   generous contributors.
 - **Standing** is the credits a pilot has earned from the colony's contracts, patrols, works and
-  aces' bounties: it's what signing the charter takes. A pilot's contract with another pilot
-  earns none.
+  aces' bounties: it's what signing the charter takes, and what the Board asks before it signs an
+  ace's wreck over (below). A pilot's contract with another pilot earns none, and nor does the
+  certificate's rifle.
 - **The ledger** still balances: credits enter only from the colony (what it pays on contracts
   and works joins its purchases), and escrow and deliveries never make or lose any (the ledger's
   property test covers the board too).
@@ -1008,14 +1078,22 @@ a bounty on it (1,500 to 4,000 CR).
   the kill feed and the chart name it, from the moment it's out until a few seconds after it's
   downed. The news says when one comes out (`ZODIAC'S ARIES IS OUT AMONG THE DOLLS · 1,500 CR ON
   IT`) and who downed it.
-- **The Most Wanted**, on the Charter Board: each ace's bounty, the one out now, who downed each
-  last and when, and the ladder of pilots by aces downed.
+- **The Most Wanted**, pinned up behind the bar at The Arrival, off Charter Square (E at its
+  counter): each ace's bounty, the one out now, who downed each last and when, and the ladder of
+  pilots by aces downed. The bay's Charter Board tab points there (`THE MOST WANTED IS PINNED UP
+  AT THE ARRIVAL, OFF CHARTER SQUARE · OUT NOW: ARIES, 1,500 CR`); with the colony closed it's on
+  that tab, whole.
 - **Pay or salvage** (MechWarrior's contract terms). A pilot's terms say how they take an ace's
   bounty: paid by the Charter Board the moment it's downed (the colony's money, earning standing
-  as its contracts do), or as the rights to its wreck: the colony's tugs go out for it and bring it
-  home 45 s later, everything on it salvage (worn parts of the lines pilots build, the rest scrap),
-  unless someone else gets to it first. A gamble: a whole Leo's parts, or nothing. With the tugs
-  already out for their own wreck, it's paid; downed on the way out of the game, too.
+  as its contracts do; the colony open, it waits at the Board's desk), or as the rights to its
+  wreck: the colony's tugs go out for it and bring it home 45 s later, everything on it salvage
+  (worn parts of the lines pilots build, the rest scrap), unless someone else gets to it first. A
+  gamble: a whole Leo's parts, or nothing. With the tugs already out for their own wreck, it's
+  paid; downed on the way out of the game, too. The terms are settled at The Arrival's counter
+  (the colony open), and the Board signs a wreck over only to pilots of standing: at 0, salvage
+  terms are refused ("the board signs an ace's wreck over only to pilots of standing: deliver to
+  the colony's contracts or its works first"), and pay terms are always there. The board reaches
+  the pilot as soon as an ace is downed, so the ladder and what waits are current.
 - Under arcade rules the aces fly as well, by name, with nobody to pay.
 
 ### Sorties
@@ -1051,7 +1129,9 @@ a bounty on it (1,500 to 4,000 CR).
   colony's values. What it cost: the propellant burnt, the rounds fired (or lost with their mount),
   what the rack used, what the armour that came home takes to repair, and the parts, weapons and
   equipment shot off; a suit lost is written off whole. Then the net: a sortie that earns 2,000 in
-  bounties and comes home with 2,500 of armour to mend lost money.
+  bounties and comes home with 2,500 of armour to mend lost money. The Charter Board's pay for the
+  sortie is on it among the earnings: a patrol flown (`PATROL #3`) and an ace's bounty (`ACE
+  ARIES`), each with ` · AT THE BOARD` when it waits at its desk. They count in the net.
 - **A floor under it** (`Hangar::reissue`): a pilot back in an empty bay with no torso in the stores
   to build on, and less than a Leo torso's worth in credits, stores and parts (at the colony's
   values), finds a worn Leo in the gantry, the Charter Board's advance, as on the day they
@@ -1097,8 +1177,11 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   TOWER · 2 OF 10"), and the map ticks off the sights found by name, rings those still to find,
   and lists them.
 - **Places:** the Exchange floor (its terminal is the bay's exchange), the Charter Board (its
-  contracts and great works, above), The Arrival (a bar), the Proving Ground (the Blast Hall,
-  `TRAINING.md`), and Hub Gate, whose lift goes back up to the bay.
+  contracts and great works, above), The Arrival (a bar, the Most Wanted behind it), the Proving
+  Ground (the Blast Hall, `TRAINING.md`), and Hub Gate, whose lift goes back up to the bay. With
+  the colony open each does one thing only it does, and its terminal shows only that (`COLONY.md`,
+  2.6): an order that waits on the book, the Charter Board's posting, patrols, charter and pay,
+  an ace's terms, the test range's pick.
   Each of the first four has a room behind its door: walk in, and use the place at its counter
   (E). The trading floor's boards run along its back wall, the Charter Board's notices are pinned
   on its, and the bar's shelves are behind its counter. The Blast Hall's room is a suit's: 86 m

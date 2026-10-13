@@ -48,7 +48,9 @@ drill (X-Wing's Maze, in the hall).
   from the times the server checks (phase 4); a signed-in pilot's bests are on their record.
 - **Recommended, never required.** X-Wing's manual: Maze, then Historical Combat, then the Tours,
   "recommended, but not required." TIE Fighter kept green pilots out of battles that mattered. Ours
-  is pointed to by an objective, and gates nothing.
+  is pointed to by an objective (**EARN A FLIGHT CERTIFICATE**), and gates nothing: the Board
+  trusts a certified pilot with a beam rifle, the one the worn Leo came without, collected at its
+  desk on Charter Square. A pilot who never flies it can still buy or build one.
 - **A tutorial that talks to you while you fly.** TIE Fighter's Combat Chamber missions carried
   in-flight lessons from your wingmen and command. Ours is the HUD's panel: one plain line for the
   ring ahead (`STORY.md`: told through notices, never exposition dumps).
@@ -80,7 +82,13 @@ the square, which the hall will open onto.
    - Lift off, out through the blast doors over the square, up to the course's start ring by the
      inner gate, and round the course down to the pad by the hall.
    - Back in through the doors to dock on the gantry, then on foot again.
-6. **The certificate** and the board, and on into the chain: the bay, the launch tunnel and space.
+6. **The certificate** and the board (built). Any time on the board is a certificate, and the
+   first earns the Board's beam rifle (`bc_econ::charter::Board::certify`): `THE CHARTER BOARD HAS
+   YOUR FLIGHT CERTIFICATE · A BEAM RIFLE WAITS FOR YOU AT ITS DESK, ON CHARTER SQUARE`. The
+   objectives then walk the Arrival down the avenue: the Exchange floor, then the Charter Board's
+   desk in its hall, where the rifle is paid out on walking in and standing is earned with the
+   colony (the 200 kg of steel they came with, to the second foundry). Then home to the bay to fit
+   the rifle at the suit's console, and on into the chain: the launch tunnel and space.
 
 ## Phase 1: the course (built)
 
@@ -431,9 +439,11 @@ are built: above.)
 - **Live fire** (phase 5).
 - **The real rules inside:** whether propellant should burn more slowly in air, or the course stay
   a lesson in it (`SUITS_INSIDE.md`'s open question about flight in air).
-- **Rewards:** whether a first-class certificate pays (the Charter Board's bonus) or only shows.
-  The server checks the times now (phase 4), so it could pay; today it only shows, on the board and
-  the pilot's record.
+- **Rewards** (closed): whether a first-class certificate pays (the Charter Board's bonus) or only
+  shows. Any certificate, of any class, earns the Board's beam rifle once (a signed-in record's
+  once, a guest's once a visit), collected at its desk; the colony's desk out of rifles, a rifle's
+  worth in credits, with no standing. The class only shows, on the board and the pilot's record:
+  no class bonus, and no class gates the test range's Gundams (`PEERS.md`).
 - **The board's reach:** the day's best, and the best ever. A week's, or a season's, and whether a
   guest belongs on it.
 - **Mandatory or not:** recommended, never required, as X-Wing's was.

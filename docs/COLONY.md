@@ -229,11 +229,23 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
     - back up to the bay;
     - `/status` place changes, and `hot_path_allocations` stays 0.
   - New `scripts/e2e.sh colony` (survival, the colony open, no dolls) and a step in `ci.sh`.
-- **2.6 Key places v1** (strip 0, all within about 700 m of the lift).
-  - Hub Gate.
-  - The Exchange floor: its terminal opens `Panel::Terminal(Spot::Exchange)`, the bay's panel and requests.
-  - The Charter Board hall: news, bounty rates, the site's stage.
-  - The Arrival, a bar: you can sit (its seats out front, `arrival_seats`; inside is still to come).
+- **2.6 Key places v1** (strip 0, all within about 700 m of the lift). With the colony open, each desk does one
+  thing only it does (`bc_econ::wire::Request::desk`; the server checks the pilot stands in the place's room,
+  `bc-server`'s `net/desk.rs`), its terminal shows only its own tab, and the bay's terminals point at it. Each
+  door's prompt names that thing.
+  - Hub Gate: the lift back up to the bay.
+  - The Exchange floor (`THE EXCHANGE FLOOR · ORDERS THAT WAIT ON THE BOOK`): its terminal opens
+    `Panel::Terminal(Spot::Exchange)`, the bay's panel and requests, and only here does an order at the pilot's
+    own price rest on the book for other pilots. Elsewhere it trades at once and hands back what doesn't fill.
+  - The Charter Board hall (`THE CHARTER BOARD · CONTRACTS, PATROLS AND THE CHARTER`): news, bounty rates, the
+    site's stage. Its desk (`Panel::Board`) is where contracts are posted, patrols taken and the charter signed,
+    and where what the Board holds for a pilot (a certificate's beam rifle, patrols' rewards, aces' bounties) is
+    paid out, on walking in.
+  - The Arrival, a bar (`THE ARRIVAL · THE MOST WANTED`): you can sit (its seats out front, `arrival_seats`), and
+    at its counter (`Panel::Arrival`, the terminals' `wanted` tab) Zodiac's Most Wanted is pinned up behind the
+    bar, where a pilot's terms for an ace's bounty are settled. Its menu joins it there later (`LIFE.md`, L1).
+  - The Proving Ground, the Blast Hall (`THE PROVING GROUND · THE BOARD AND THE TEST RANGE`, `TRAINING.md`): its
+    desk has the board, and only there is the test range's trainer picked.
   - About 10 landmarks, named on approach, with a found-list kept in settings.
   - An M map overlay on the page, from published JSON.
   - Indoor rooms use EV 8.

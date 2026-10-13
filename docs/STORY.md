@@ -73,12 +73,14 @@ Meteor, the war. Here none of it has happened. Whether it has to is up to everyo
   building site: the Charter line in blue, the Canal line in teal, the Gardens line in green.
   Its stations take their districts' names.
 - **Places an Arrival goes.** The **Exchange floor** on Charter Square (the Colony Exchange's
-  hall: the same book the bays' terminals trade on); the **Charter Board**'s hall, where its
-  notices go up; **The Arrival**, a bar off the square where pilots meet; and **the Proving
-  Ground** off the square, the Blast Hall where the colony's builders tested thrusters, where the
-  Charter Board tries an Arrival in a suit before it trusts them with one. The colony's law holds
-  inside: no weapons fired within its walls, but in the Blast Hall, where a suit fires training
-  rounds at holograms and nothing it fires leaves the hall.
+  hall: the same book the bays' terminals trade on, and the only place an order waits on it); the
+  **Charter Board**'s hall, where its notices go up, contracts are posted and the charter signed,
+  and what the Board owes a pilot is paid out across its desk; **The Arrival**, a bar off the
+  square where pilots meet, and where the Board pins up Zodiac's Most Wanted behind the bar; and
+  **the Proving Ground** off the square, the Blast Hall where the colony's builders tested
+  thrusters, where the Charter Board tries an Arrival in a suit before it trusts them with one.
+  The colony's law holds inside: no weapons fired within its walls, but in the Blast Hall, where a
+  suit fires training rounds at holograms and nothing it fires leaves the hall.
 - **The economy.** A boomtown. Ore comes in from the field, parts and suits go out from the bays,
   and prices float with what the colony holds. Frames are old and patched, so systems fail, and
   keeping a suit flying is a trade of its own (overhauls, machined components, equipment).
