@@ -111,7 +111,6 @@ pub fn run() {
                     drive_link,
                     apply_ui_cmds,
                     crate::dev_hooks::aim_hook,
-                    crate::chat::radio,
                     crate::input::toggle_camera,
                     crate::map::toggle_map,
                     update_settings,
@@ -123,6 +122,8 @@ pub fn run() {
                     track_bodies,
                     sync_view,
                     crate::onfoot::drive_onfoot,
+                    // After the docking: Enter does one or the other (`bc_client_core::dock`).
+                    crate::chat::radio,
                     crate::launch_shot::begin_launch_shot,
                     crate::people::fill_crowd,
                     crate::rocks::follow_server_field,

@@ -7,7 +7,11 @@
 //! facing the bay doors it launches through; a catwalk crosses in front of its chest at the
 //! cockpit hatch, reached by the stairs along the left wall. Metres: x right (looking at the bay
 //! doors), y up, z from the bay doors back; the floor's centre is the origin.
+//!
+//! The airlock leads to the cap lifts ([`Lift`]), one down each land strip's end cap.
 
+use bc_sim::colony::frame::STRIPS;
+use bc_sim::content::city::STRIP_NAMES;
 use glam::Vec3;
 
 /// What a solid box is, for drawing it.
@@ -124,6 +128,54 @@ impl Spot {
             Spot::Cockpit => HATCH,
             Spot::Airlock => Vec3::new(-16.9, 1.5, -20.0),
         }
+    }
+}
+
+/// A cap lift from the airlock: one down each land strip's end cap to its Hub Gate
+/// (`docs/COLONY.md`, 2.2), lift 1 to the Charter strip, 2 to Canal, 3 to Gardens. At the airlock
+/// E rides the one chosen and Q chooses the next. The choice starts at the Charter strip's, where
+/// the colony's key places are, each time the airlock comes into view.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Lift(u8);
+
+const _: () = assert!(STRIP_NAMES.len() == STRIPS, "a name for every strip's lift");
+
+impl Lift {
+    /// Strip `strip`'s.
+    pub fn to(strip: u8) -> Self {
+        Lift(strip % STRIPS as u8)
+    }
+
+    /// The next strip's (after the last, the first's again).
+    pub fn next(self) -> Self {
+        Lift((self.0 + 1) % STRIPS as u8)
+    }
+
+    /// The strip it goes down to.
+    pub fn strip(self) -> u8 {
+        self.0
+    }
+
+    /// Its number on the sign, from 1.
+    pub fn number(self) -> u8 {
+        self.0 + 1
+    }
+
+    /// Its strip's name, in the colony's own words.
+    pub fn name(self) -> &'static str {
+        STRIP_NAMES[usize::from(self.0)]
+    }
+
+    /// What the airlock's prompt says after "E  ": this lift down, and the one Q chooses.
+    pub fn prompt(self) -> String {
+        let next = self.next();
+        format!(
+            "AIRLOCK: CAP LIFT {}, DOWN TO THE {} STRIP · Q  LIFT {}, {}",
+            self.number(),
+            self.name(),
+            next.number(),
+            next.name()
+        )
     }
 }
 
@@ -338,6 +390,40 @@ mod tests {
         // Looking away uses nothing.
         let (feet, facing) = Spot::Fabricator.stand();
         assert_eq!(Layout::spot_in_view(feet + Vec3::Y * 1.62, -facing), None);
+    }
+
+    /// E at the airlock rides the Charter strip's lift down, unless Q chose another; Q goes
+    /// round all three, each named on the prompt.
+    #[test]
+    fn q_at_the_airlock_goes_round_the_strips_lifts() {
+        let first = Lift::default();
+        assert_eq!((first.strip(), first.number(), first.name()), (0, 1, "CHARTER"));
+        assert_eq!(first.prompt(), "AIRLOCK: CAP LIFT 1, DOWN TO THE CHARTER STRIP · Q  LIFT 2, CANAL");
+        let mut lift = first;
+        let mut seen = Vec::new();
+        for _ in 0..STRIPS {
+            seen.push(lift.strip());
+            assert!(
+                lift.prompt().contains(&format!("DOWN TO THE {} STRIP", lift.name())),
+                "{}",
+                lift.prompt()
+            );
+            lift = lift.next();
+        }
+        assert_eq!(seen, [0, 1, 2]);
+        assert_eq!(lift, first, "after the last, the first again");
+        assert_eq!(
+            Lift::to(2).prompt(),
+            "AIRLOCK: CAP LIFT 3, DOWN TO THE GARDENS STRIP · Q  LIFT 1, CHARTER"
+        );
+        assert_eq!(Lift::to(4), Lift::to(1));
+        // Every lift comes down by its strip's Hub Gate.
+        for k in 0..STRIPS as u8 {
+            let gate = bc_sim::content::city::PLACES.iter().filter(|p| {
+                p.kind == bc_sim::content::city::PlaceKind::HubGate && p.strip == Lift::to(k).strip()
+            });
+            assert_eq!(gate.count(), 1, "strip {k}");
+        }
     }
 
     #[test]

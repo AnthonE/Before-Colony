@@ -21,6 +21,7 @@ use bc_sim::field::FIELD_CENTER;
 use glam::Vec3;
 
 use crate::ClientCore;
+use crate::bay::Lift;
 
 /// Ore in the hold that counts as having mined, kg.
 pub const MINE_KG: u32 = 200;
@@ -216,6 +217,31 @@ impl Objective {
         }
     }
 
+    /// How to go about it on foot on strip `strip` of the city (`None`: not down there):
+    /// [`Objective::how`], unless its place is on another strip. Then the way there: back up to the
+    /// bay, and down that strip's cap lift.
+    pub fn how_on(self, survival: bool, strip: Option<u8>) -> String {
+        let place = match self.waypoint() {
+            Waypoint::Place(k) => PLACES.get(usize::from(k)),
+            _ => None,
+        };
+        match (place, strip) {
+            (Some(p), Some(here)) if p.strip != here => {
+                let lift = Lift::to(p.strip);
+                let down = if lift == Lift::default() {
+                    format!("from your airlock E rides lift {} down to it", lift.number())
+                } else {
+                    format!("at your airlock Q chooses lift {}, and E rides it down", lift.number())
+                };
+                format!(
+                    "It's on the {} strip: ride the lift up from Hub Gate here (E), and {down}.",
+                    word(lift.name())
+                )
+            }
+            _ => self.how(survival),
+        }
+    }
+
     pub fn waypoint(self) -> Waypoint {
         match self {
             Objective::LandStation => Waypoint::Landmark(0),
@@ -253,6 +279,13 @@ pub fn exchange() -> u8 {
 /// The Proving Ground's index in `PLACES`.
 pub fn proving_ground() -> u8 {
     PLACES.iter().position(|p| p.kind == PlaceKind::Proving).unwrap_or(0) as u8
+}
+
+/// A name as it's written in a sentence: "CHARTER" is "Charter".
+fn word(name: &str) -> String {
+    let lower = name.to_lowercase();
+    let mut chars = lower.chars();
+    chars.next().map_or_else(String::new, |c| c.to_uppercase().chain(chars).collect())
 }
 
 /// What the pilotless suits are called.
@@ -499,6 +532,27 @@ mod tests {
         let mut early = home;
         o.step(&mut early, &mut downed, &ObjectiveInput { sales: 2, ..open });
         assert!(early & Objective::Sell.bit() != 0);
+    }
+
+    /// The key places are on the Charter strip: on another, the objective says how to get there
+    /// rather than pointing at a square that strip's Hub Gate doesn't have.
+    #[test]
+    fn on_another_strip_the_way_to_a_place_goes_up_and_down_its_lift() {
+        for o in [Objective::ProvingGround, Objective::ExchangeFloor, Objective::Sell] {
+            let Waypoint::Place(k) = o.waypoint() else { panic!("{o:?} has a place") };
+            let home = PLACES[usize::from(k)].strip;
+            assert_eq!(o.how_on(true, Some(home)), o.how(true), "{o:?} on its own strip");
+            assert_eq!(o.how_on(true, None), o.how(true), "{o:?} in the bay");
+            let other = o.how_on(true, Some((home + 1) % 3));
+            assert_eq!(home, 0);
+            assert_eq!(
+                other,
+                "It's on the Charter strip: ride the lift up from Hub Gate here (E), and from your airlock E rides lift 1 down to it."
+            );
+        }
+        // Nothing of the city's in the sector's.
+        assert_eq!(Objective::Mine.how_on(true, Some(2)), Objective::Mine.how(true));
+        assert_eq!(word("GARDENS"), "Gardens");
     }
 
     #[test]

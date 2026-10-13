@@ -313,7 +313,10 @@ pub fn update_objectives(
             let s = match which {
                 ObjectiveText::Heading => format!("OBJECTIVE {}/{count}   M - MAP", n + 1),
                 ObjectiveText::Title => format!("{}{progress}{dist}", o.title(survival)),
-                ObjectiveText::How => o.how(survival),
+                // Down in the city on another strip than its place's: the way there.
+                ObjectiveText::How => {
+                    o.how_on(survival, onfoot.city.as_ref().filter(|_| afoot).map(|c| c.strip))
+                }
             };
             if text.0 != s {
                 text.0 = s;

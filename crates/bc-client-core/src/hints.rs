@@ -137,7 +137,7 @@ impl Hint {
                 "Up the stairs to the catwalk: at the cockpit hatch E launches the suit out of your bay's door into space."
             }
             Hint::Airlock => {
-                "The airlock you came in by: E rides the cap lift down into the colony's city, on foot."
+                "The airlock you came in by: E rides the cap lift down into the colony's city, on foot. Q chooses another strip's lift."
             }
             Hint::City => {
                 "M is the city's map. Walk onto a platform to ride a tram, E at a motor pool takes a car; E at Hub Gate's lift goes back up to your bay."

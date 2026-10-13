@@ -8,9 +8,10 @@ import { bc, built, collectConsole } from "./util";
 // Proving Ground (the Blast Hall) to its desk and its board, walks the city's streets to the
 // Exchange floor and buys there, finds a sight, then walks back and rides up to the bay. The
 // walking is the dev hook's (a guide walks the pilot's own legs); the terminal's panel is clicked.
-// Then a tram, a car, and two browsers: two pilots meet at Hub Gate, each seeing the other; one
-// rides home, gone from the other's street, and a suit an agent flies in by the inner gate comes
-// down onto the avenue by the other, each seeing the other.
+// Then a tram, a car, the Canal strip's cap lift (Q at the airlock), and two browsers: two pilots
+// meet at Hub Gate, each seeing the other; one rides home, gone from the other's street, and a
+// suit an agent flies in by the inner gate comes down onto the avenue by the other, each seeing
+// the other.
 
 // The agent in a suit inside the colony (`crates/bc-bot/examples/suit_inside.rs`).
 const SUIT = built("examples/suit_inside");
@@ -278,6 +279,49 @@ test("a pilot takes a car from Hub Gate's motor pool and drives up the avenue", 
   const status = await (await page.request.get("/status")).json();
   console.log(`refused: ${JSON.stringify(status.game.city.refused_by)}`);
   expect(status.game.city.refused_poses).toBe(0);
+  const bad = logs.filter((l) => /\[error\]|\[pageerror\]|%cERROR|panicked/i.test(l));
+  if (bad.length) console.log(bad.join("\n"));
+  expect(bad).toEqual([]);
+});
+
+test("a pilot chooses the Canal strip's cap lift at the airlock, and rides up again from its Hub Gate", async ({
+  page,
+}) => {
+  test.setTimeout(600_000);
+  const logs = collectConsole(page);
+  await page.goto("/?autoplay=1&name=Sally&quality=low");
+  await until(page, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 180_000);
+  await push(page, { cmd: "walk_to", spot: "airlock" });
+  await until(page, "at the airlock", (s) => s.focus === "airlock" && !s.walking_to, 120_000);
+  // E is the Charter strip's lift; Q chooses the next strip's, and the prompt names it.
+  await expect(page.locator("#use")).toContainText("CAP LIFT 1, DOWN TO THE CHARTER STRIP", { timeout: 30_000 });
+  await page.focus("#bc");
+  await page.keyboard.press("q");
+  await expect(page.locator("#use")).toContainText("CAP LIFT 2, DOWN TO THE CANAL STRIP", { timeout: 30_000 });
+  await push(page, { cmd: "use" });
+  await until(page, "the ride down", (s) => s.seq === "lift_down", 30_000);
+  await until(page, "the city", (s) => s.place === "city", 30_000);
+  await push(page, { cmd: "skip" });
+  let s = await until(page, "the Canal strip's Hub Gate", (s) => s.seq === "walking", 30_000);
+  expect(s.strip).toBe(1);
+  await until(page, "the Depots", (s) => s.district === "THE DEPOTS", 30_000);
+  const status = await (await page.request.get("/status")).json();
+  expect(status.game.city.by_strip[1]).toBeGreaterThanOrEqual(1);
+
+  // Up again from the Canal strip's own Hub Gate.
+  await push(page, { cmd: "walk_to", spot: "hub_gate_2" });
+  await until(page, "at Hub Gate", (s) => s.focus === "hub_gate_2" && !s.city_walking_to, 120_000);
+  await expect(page.locator("#use")).toContainText("UP TO YOUR BAY", { timeout: 30_000 });
+  await push(page, { cmd: "use" });
+  await until(page, "home", (s) => s.place === "hangar", 30_000);
+  s = await until(page, "on foot in the bay", (s) => s.seq === "walking" && s.strip === -1, 30_000);
+  // Back at the airlock, E is the Charter strip's lift again.
+  await push(page, { cmd: "walk_to", spot: "airlock" });
+  await until(page, "at the airlock", (s) => s.focus === "airlock" && !s.walking_to, 120_000);
+  await expect(page.locator("#use")).toContainText("CAP LIFT 1, DOWN TO THE CHARTER STRIP", { timeout: 30_000 });
+  const after = (await (await page.request.get("/status")).json()).game;
+  expect(after.city.refused_poses).toBe(0);
+  expect(after.hot_path_allocations).toBe(0);
   const bad = logs.filter((l) => /\[error\]|\[pageerror\]|%cERROR|panicked/i.test(l));
   if (bad.length) console.log(bad.join("\n"));
   expect(bad).toEqual([]);

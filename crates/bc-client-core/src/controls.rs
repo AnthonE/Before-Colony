@@ -72,8 +72,13 @@ pub const BINDINGS: &[Binding] = &[
     b(Group::OnFoot, "Q (at the cockpit)", "With the colony open: launch into it, by the inner gate"),
     b(
         Group::OnFoot,
+        "Q (at the airlock)",
+        "With the colony open: the next strip's cap lift (1 Charter, 2 Canal, 3 Gardens); E rides it down to that strip's Hub Gate",
+    ),
+    b(
+        Group::OnFoot,
         "E",
-        "Use: the fabricator, the stores, the exchange, the suit's console, the cockpit, the airlock (the cap lift down into the colony, when it's open)",
+        "Use: the fabricator, the stores, the exchange, the suit's console, the cockpit, the airlock (the cap lift down into the colony, when it's open: the Charter strip's, unless Q chose another)",
     ),
     b(Group::Colony, "W / A / S / D", "Walk the streets (Shift runs, Space jumps, as in the bay)"),
     b(
@@ -108,6 +113,11 @@ pub const BINDINGS: &[Binding] = &[
     b(Group::Flight, "Double-tap W/A/S/D/Space/C", "Burst step that way (locked on: in the fight's axes)"),
     b(Group::Flight, "L", "Land: arm the grip (come in slow and close to a rock or a landmark)"),
     b(Group::Flight, "N", "Auto-nav on/off: flies the course set on the chart (M)"),
+    b(
+        Group::Flight,
+        "Enter",
+        "Survival: dock where the HUD's marker says ENTER. Into your bay: at rest inside the dock's ring of lights (the colony's -X end), or standing on the docking hub's deck hatch; inside the colony, at rest in the inner gate's ring; in a trainer, at rest on the Blast Hall's gantry. Anywhere else, the radio",
+    ),
     b(Group::Surface, "L", "Grip off: let go (pushes off)"),
     b(Group::Surface, "W / A / S / D", "Walk"),
     b(Group::Surface, "Shift", "Run"),
@@ -138,11 +148,6 @@ pub const BINDINGS: &[Binding] = &[
     b(Group::Salvage, "B", "Stow what's in hand"),
     b(Group::Salvage, "T", "Throw"),
     b(Group::Salvage, "J", "Jettison the hold"),
-    b(
-        Group::Salvage,
-        "Enter",
-        "Dock: at rest inside the dock's ring of lights (the colony's -X end), into your bay",
-    ),
     b(
         Group::Chart,
         "M / Esc",
@@ -180,7 +185,11 @@ pub const BINDINGS: &[Binding] = &[
         "H / 2 / 3 / T / P",
         "Back to your suit / the sector / the Earth Sphere / top-down / the chart's plane",
     ),
-    b(Group::System, "/ (Enter on foot)", "Talk on the colony's radio: Enter says it, Esc closes"),
+    b(
+        Group::System,
+        "/ (or Enter)",
+        "Talk on the colony's radio (Enter opens it on foot, and in a suit wherever there's nothing to dock): Enter says it, Esc closes",
+    ),
     b(Group::System, "Esc", "Menu"),
     b(Group::System, "F1 / ?", "This list"),
     b(Group::System, "F10 / O", "Graphics quality"),
@@ -239,6 +248,22 @@ mod tests {
         }
         let system = |k: &str| BINDINGS.iter().any(|b| b.group == Group::System && b.keys == k);
         assert!(system("F1 / ?") && system("F10 / O"));
+    }
+
+    /// Enter is flight's (it docks where there's docking, and is the radio's elsewhere), and the
+    /// radio's row says so.
+    #[test]
+    fn enter_docks_in_flight_and_opens_the_radio_elsewhere() {
+        let enter: Vec<&Binding> = BINDINGS.iter().filter(|b| b.keys == "Enter").collect();
+        assert_eq!(enter.len(), 1, "one row for Enter outside the chart");
+        assert_eq!(enter[0].group, Group::Flight);
+        for place in ["dock's ring of lights", "deck hatch", "inner gate", "gantry", "radio"] {
+            assert!(enter[0].action.contains(place), "{place}: {}", enter[0].action);
+        }
+        let radio = BINDINGS.iter().find(|b| b.group == Group::System && b.keys.starts_with('/')).unwrap();
+        assert!(radio.keys.contains("Enter") && radio.action.contains("nothing to dock"), "{}", radio.action);
+        let lift = BINDINGS.iter().find(|b| b.keys == "Q (at the airlock)").unwrap();
+        assert_eq!(lift.group, Group::OnFoot);
     }
 
     #[test]

@@ -1582,16 +1582,15 @@ pub fn update_hud(
         if survival {
             // Home is always marked: at rest inside the dock's ring of lights, Enter. Inside the
             // colony that's the inner gate's ring, and for a trainer its gantry in the Blast Hall.
-            let (at, name, home) = if core.hangar.trainer {
-                (bc_sim::colony::hall::gantry(), "GANTRY", "climb out")
-            } else if core.predict.interior() {
-                (bc_sim::colony::interior::INNER_GATE, "INNER GATE", "home")
-            } else {
-                (DOCK_CENTER, "DOCK", "home")
-            };
+            // Coming in, it says to come to rest: there, as docked, Enter docks (anywhere else
+            // it's the radio's, `bc_client_core::dock`).
+            let home = bc_client_core::dock::home(core);
+            let (at, name) = (home.at(), home.name());
             let d = km(at.distance(own_pos));
             let text = if o.flags & own_flags::DOCKED != 0 {
-                format!("{name} {d}  ENTER: {home}")
+                format!("{name} {d}  ENTER: {}", home.verb())
+            } else if home.near(own_pos) {
+                format!("{name} {d}  {}: ENTER", home.rest())
             } else {
                 format!("{name} {d}")
             };

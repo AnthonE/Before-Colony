@@ -11,9 +11,11 @@
 //! - Coming home (Enter, at rest inside the dock's ring of lights): the suit glides in down the
 //!   tunnel, the doors shut behind it and the pilot climbs out onto the catwalk. After a suit is
 //!   lost the pilot comes back in through the airlock, to an empty gantry.
-//! - Into the colony, when it's open: the airlock leads to the cap lift, which rides down the end
-//!   cap's face (the whole city in view) to Hub Gate. There the pilot walks the city's streets
-//!   (`bc_client_core::city`), uses its places at their doors, and rides back up from Hub Gate.
+//! - Into the colony, when it's open: the airlock leads to the cap lifts, one to each land strip
+//!   (`bay::Lift`: E rides the Charter strip's, Q chooses the next), which ride down the end cap's
+//!   face (the whole city in view) to that strip's Hub Gate. There the pilot walks the city's
+//!   streets (`bc_client_core::city`), uses its places at their doors, and rides back up from Hub
+//!   Gate.
 //! - In the Blast Hall (the Proving Ground, `docs/TRAINING.md`): E at its desk opens its board,
 //!   and E at its gantry's hatch boards one of the Charter Board's trainers there. Docked back on
 //!   the gantry, the pilot climbs out at the hatch.
@@ -21,9 +23,10 @@
 //! The server knows none of this: only where the pilot is (`core.hangar.place`) and what they ask
 //! for. Space skips a sequence.
 
-use bc_client_core::bay::{CATWALK_Y, HATCH, Layout, SPAWN, SUIT_AT, Spot};
+use bc_client_core::bay::{CATWALK_Y, HATCH, Layout, Lift, SPAWN, SUIT_AT, Spot};
 use bc_client_core::city::CityGround;
 use bc_client_core::city_nav;
+use bc_client_core::dock;
 use bc_client_core::sights;
 use bc_client_core::tram::{self, CarInside, CityAndTrains, Rider};
 use bc_client_core::vehicle::{Drive, Kind, Vehicle};
@@ -611,6 +614,8 @@ pub struct OnFoot {
     reveal: Option<f64>,
     /// The airlock's door stands open until then.
     airlock_until: f64,
+    /// The cap lift E at the airlock rides down (Q chooses the next strip's).
+    lift: Lift,
     /// On foot in the colony (or riding down to it).
     pub city: Option<CityFoot>,
 }
@@ -631,6 +636,7 @@ impl Default for OnFoot {
             from: (Vec3::ZERO, Vec3::Z),
             reveal: None,
             airlock_until: 0.0,
+            lift: Lift::default(),
             city: None,
         }
     }
@@ -783,8 +789,8 @@ fn holds_the_bay(seq: Seq, t: f32) -> bool {
     }
 }
 
-/// What using a place is called on the prompt.
-fn verb(spot: Spot, bay: Option<&Bay>, colony: bool) -> String {
+/// What using a place is called on the prompt (`lift`: the cap lift the airlock's E rides).
+fn verb(spot: Spot, bay: Option<&Bay>, colony: bool, lift: Lift) -> String {
     match (spot, bay) {
         (Spot::Cockpit, Some(Bay::Docked { .. })) if colony => {
             "LAUNCH INTO SPACE · Q  LAUNCH INTO THE COLONY, BY THE INNER GATE".into()
@@ -792,7 +798,7 @@ fn verb(spot: Spot, bay: Option<&Bay>, colony: bool) -> String {
         (Spot::Cockpit, Some(Bay::Docked { .. })) => "BOARD & LAUNCH INTO SPACE".into(),
         (Spot::Cockpit, Some(Bay::Out { .. })) => "COCKPIT: YOUR SUIT IS OUT".into(),
         (Spot::Cockpit, _) => "COCKPIT: THE GANTRY IS EMPTY".into(),
-        (Spot::Airlock, _) if colony => "AIRLOCK: THE CAP LIFT, DOWN INTO THE COLONY".into(),
+        (Spot::Airlock, _) if colony => lift.prompt(),
         (Spot::Airlock, _) => "AIRLOCK: LEAVE THE BAY · THE CAP LIFTS ARE CLOSED".into(),
         (spot, _) => spot.name().into(),
     }
@@ -1186,6 +1192,13 @@ pub fn drive_onfoot(
             me.walker.step(&me.layout, &stride, h);
         }
         me.focus = Layout::spot_in_view(me.walker.eye(), me.walker.look());
+        // At the airlock (the colony open), Q chooses the next strip's cap lift; out of its view,
+        // the choice goes back to the Charter strip's.
+        if me.focus != Some(Spot::Airlock) {
+            me.lift = Lift::default();
+        } else if colony && live && keys.just_pressed(KeyCode::KeyQ) {
+            me.lift = me.lift.next();
+        }
 
         // Using what's in view.
         // Q at the cockpit (the colony open): launch into the colony, by the inner gate.
@@ -1207,12 +1220,14 @@ pub fn drive_onfoot(
                 }
                 (Spot::Cockpit, Some(Bay::Out { .. })) => ui.toast("YOUR SUIT IS OUT IN THE SECTOR"),
                 (Spot::Cockpit, _) => ui.toast("THE GANTRY IS EMPTY: BUILD A SUIT AT THE FABRICATOR"),
-                // Down into the colony, to the Charter strip's Hub Gate.
+                // Down into the colony, to the chosen strip's Hub Gate (the Charter strip's, unless
+                // Q chose another).
                 (Spot::Airlock, _) if colony => {
+                    let strip = me.lift.strip();
                     me.airlock_until = now + 1.5;
-                    me.city = Some(CityFoot::at_hub_gate(0));
+                    me.city = Some(CityFoot::at_hub_gate(strip));
                     me.start(Seq::LiftDown, now);
-                    ask(&net, &g, &Request::EnterCity { strip: 0 });
+                    ask(&net, &g, &Request::EnterCity { strip });
                 }
                 // The colony closed (arcade rules, or `--no-colony`): the airlock only leads out.
                 (Spot::Airlock, _) => {
@@ -1228,13 +1243,16 @@ pub fn drive_onfoot(
         me.guide = None;
     }
 
-    // In the sector: Enter docks (on the chart, it sets a course).
+    // In the sector: Enter docks where the suit is docked or coming in to (`dock::enter_docks`,
+    // where the HUD's marker says so); anywhere else it opens the radio (`chat.rs`), and on the
+    // chart it sets a course.
     let flying = place == Some(Place::Space) && me.seq == Seq::Walking;
     if flying
         && ui.playing()
         && !ui.panel_open()
         && !map.0
         && (keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter))
+        && dock::enter_docks(&g.core)
     {
         ask(&net, &g, &Request::Dock);
     }
@@ -1344,9 +1362,9 @@ pub fn drive_onfoot(
     }
     ui.sequence = me.seq != Seq::Walking;
     ui.prompt = match me.seq {
-        Seq::Walking if on_foot => {
-            me.focus.map_or_else(String::new, |s| format!("E  {}", verb(s, hangar_bay.as_ref(), colony)))
-        }
+        Seq::Walking if on_foot => me
+            .focus
+            .map_or_else(String::new, |s| format!("E  {}", verb(s, hangar_bay.as_ref(), colony, me.lift))),
         Seq::Walking if in_city => match me.city.as_ref() {
             Some(c) if c.drive.is_some_and(|v| v.speed.abs() < 3.0) => "E  GET OUT".into(),
             Some(c) if c.drive.is_some() => String::new(),

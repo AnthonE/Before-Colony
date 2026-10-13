@@ -485,6 +485,16 @@
       g.moveTo(gx, gy - d); g.lineTo(gx + d, gy); g.lineTo(gx, gy + d); g.lineTo(gx - d, gy);
       g.closePath();
       g.stroke();
+    } else if (goal) {
+      // On another strip (the key places are on Charter's): which, in words.
+      const there = city.strips.find((k) => k.places.some((p) => p.slug === goal));
+      const place = there?.places.find((p) => p.slug === goal);
+      if (place) {
+        g.fillStyle = css.getPropertyValue("--pink").trim();
+        g.textBaseline = "bottom";
+        g.fillText(`\u25c6 ${place.name} · ON THE ${there.name} STRIP`, 6 * dpr, H - 6 * dpr);
+        g.textBaseline = "top";
+      }
     }
     // The found-list: every strip's sights, those found by name.
     const all = city.strips.flatMap((k) => k.sights);

@@ -142,6 +142,15 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   // Out by the bay ring (2.25 km off the colony's axis, past its −X face), far from the dock.
   expect(Math.hypot(y + 4200, z)).toBeGreaterThan(1_800);
   expect(x).toBeLessThan(-16_400);
+  // Out here there's nothing to dock: Enter opens the radio, and asks the dock nothing (no
+  // "CAN'T: COME TO REST..." from it). Esc closes the line.
+  await page.focus("#bc");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#chat-input")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#chat-input")).toBeHidden();
+  await page.waitForTimeout(1_000);
+  await expect(page.locator("#toast")).not.toContainText("COME TO REST");
 
   // Home: flown to the dock off the hub's mouth, at rest there, Enter takes it in.
   await push(page, { cmd: "fly_to", spot: "dock" });

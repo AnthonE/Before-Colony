@@ -128,6 +128,13 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   await page.keyboard.type("never mind");
   await page.keyboard.press("Escape");
   await expect(page.locator("#chat-input")).toBeHidden();
+  // Enter opens it too, out here where there's nothing to dock (under arcade rules the dock is
+  // never Enter's).
+  await page.focus("#bc");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#chat-input")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#chat-input")).toBeHidden();
   await expect(page.locator("#pause")).toBeHidden();
   await expect(page.locator("#chat-log")).not.toContainText("never mind");
 

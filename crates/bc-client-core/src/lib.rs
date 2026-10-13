@@ -20,6 +20,7 @@ pub mod city_nav;
 pub mod clock;
 pub mod controls;
 pub mod course;
+pub mod dock;
 pub mod doubletap;
 pub mod figure;
 pub mod gait;

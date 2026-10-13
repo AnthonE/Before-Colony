@@ -14,9 +14,15 @@
 //! | Shift | boost · X brake · R RCS (fast turns, burns propellant) |
 //! | LMB / RMB / F | primary / secondary / melee |
 //! | H | the frame's special: Neo-Bird or the Hyper Jammer on/off, or held: Full Open, Cross Crusher |
+//! | Y / middle click | lock on (`bc_client_core::lockon`): again, the next; held, let go |
 //! | V | flight assist on/off · Z ZERO System on/off |
+//! | G / B / T / J | grab on/off, stow what's in hand, throw it, jettison the hold |
 //! | Tab, mouse wheel | the chase camera or the cockpit (wheel in: the cockpit, out: chasing) |
 //! | M | the chart: the sector and the Earth Sphere in 3D, the objectives, courses (`chart.rs`) |
+//! | N | the auto-nav on/off: flies the chart's course (`chart.rs`) |
+//! | Enter | survival: dock, where the suit is docked or coming in to (`bc_client_core::dock`, `onfoot.rs`); elsewhere the radio (`chat.rs`); on the chart, a course |
+//! | / | the colony's radio (`chat.rs`) |
+//! | 1–4 | survival: the rack's consumables, while the suit is alive (`onfoot.rs`) |
 //! | U | eject: doomed, a tap ejects and a hold blows the suit up; otherwise held for a second |
 //! | 1–6 | respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock, Shenlong (when destroyed) |
 //!

@@ -1,10 +1,14 @@
-//! The colony's radio in the browser (`bc_econ::wire::Request::Say`): `/` opens the page's line
-//! (Enter too, on foot, where Enter docks nothing), Enter sends what's typed, Esc closes it. While
-//! it's open no keys reach the suit (`Ui::panel_open`). What's heard goes to the page, which shows
-//! the latest lines for a while.
+//! The colony's radio in the browser (`bc_econ::wire::Request::Say`): `/` opens the page's line,
+//! and so does Enter wherever it docks nothing: on foot, and in a suit away from where it docks
+//! (`bc_client_core::dock::enter_docks`, which the docking in `onfoot.rs` reads too; on the chart
+//! Enter sets a course). Enter sends what's typed, Esc closes it. While it's open no keys reach
+//! the suit (`Ui::panel_open`). What's heard goes to the page, which shows the latest lines for a
+//! while.
 
+use bc_client_core::dock;
 use bevy::prelude::*;
 
+use crate::map::MapOpen;
 use crate::net::{GameClient, NetState};
 use crate::page::{Ui, UiCmd, UiCmds};
 
@@ -23,6 +27,7 @@ pub fn radio(
     mut spoken: ResMut<Spoken>,
     net: NonSend<NetState>,
     game: NonSend<GameClient>,
+    chart: Res<MapOpen>,
 ) {
     let mut g = game.borrow_mut();
     // What's been heard.
@@ -49,9 +54,14 @@ pub fn radio(
             _ => {}
         }
     }
+    // Enter: on foot; in a suit (out of the bay's sequences, off the chart), unless it docks. This
+    // runs after the docking (`onfoot::drive_onfoot`), on the same frame's state, so one Enter
+    // never does both, nor neither.
+    let enter = keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter);
+    let in_suit = !ui.on_foot && !ui.sequence && !chart.0;
     let open = keys.just_pressed(KeyCode::Slash)
         || keys.just_pressed(KeyCode::NumpadDivide)
-        || (ui.on_foot && keys.just_pressed(KeyCode::Enter));
+        || (enter && (ui.on_foot || (in_suit && !dock::enter_docks(&g.core))));
     if open && ui.panel == crate::page::Panel::None {
         ui.chat = true;
     }
