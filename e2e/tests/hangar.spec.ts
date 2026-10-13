@@ -34,7 +34,9 @@ async function use(page: Page, spot: string) {
 }
 
 test("a pilot works their bay, launches through its doors, and docks home", async ({ page }) => {
-  test.setTimeout(600_000);
+  // (Long, and its waits on the game's own state a minute: a page drawing in software, a loaded
+  // machine's, takes seconds a frame, and a passing run there took 8.6 minutes of the 10 it had.)
+  test.setTimeout(900_000);
   const logs = collectConsole(page);
   await page.goto("/?autoplay=1&name=Tester&quality=low");
   let s = await until(page, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 180_000);
@@ -53,7 +55,7 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
 
   // The exchange: 50 kg of titanium alloy from the colony, at its ask.
   await use(page, "exchange");
-  await until(page, "the exchange terminal", (s) => s.terminal === "exchange", 10_000);
+  await until(page, "the exchange terminal", (s) => s.terminal === "exchange", 60_000);
   await expect(page.locator("#terminal")).toBeVisible();
   await page.click('[data-act="ex-filter"][data-f="goods"]');
   await page.click('tr[data-item="mat.ti_alloy"]');
@@ -72,11 +74,11 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   await expect(page.locator("#term-log")).toContainText("TERMS: AN ACE'S WRECK", { timeout: 30_000 });
   await page.screenshot({ path: "artifacts/charter.png" });
   await page.keyboard.press("Escape");
-  await until(page, "the terminal closed", (s) => !s.terminal, 10_000);
+  await until(page, "the terminal closed", (s) => !s.terminal, 60_000);
 
   // The fabricator: a knife from 60 kg of steel and 20 of titanium alloy.
   await use(page, "fabricator");
-  await until(page, "the fabricator", (s) => s.terminal === "fabricator", 10_000);
+  await until(page, "the fabricator", (s) => s.terminal === "fabricator", 60_000);
   await page.click('[data-act="fab-filter"][data-f="weapons"]');
   await page.click('[data-act="make"][data-item="weapon.army_knife"]');
   await expect(page.locator("#term-log")).toContainText("QUEUED", { timeout: 30_000 });
@@ -84,13 +86,13 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   await page.click('[data-tab="stores"]');
   await expect(page.locator("#term-body")).toContainText(/Knife/);
   await page.keyboard.press("Escape");
-  await until(page, "the terminal closed", (s) => !s.terminal, 10_000);
+  await until(page, "the terminal closed", (s) => !s.terminal, 60_000);
 
   // The suit's console: overhaul the radiators with components and electronics bought from the
   // colony, fit a G-seat off its shelf, and try a purer propellant. The stat sheet shows what it
   // would launch as.
   await use(page, "exchange");
-  await until(page, "the exchange terminal", (s) => s.terminal === "exchange", 10_000);
+  await until(page, "the exchange terminal", (s) => s.terminal === "exchange", 60_000);
   for (const [slug, qty] of [["mat.components", "20"], ["mat.electronics", "5"], ["mat.propellant_refined", "10"]]) {
     await page.click('[data-act="ex-filter"][data-f="goods"]');
     await page.click(`tr[data-item="${slug}"]`);
@@ -104,9 +106,9 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   await page.click('[data-act="order"]');
   await expect(page.locator("#term-log")).toContainText(/G-seat/i, { timeout: 30_000 });
   await page.keyboard.press("Escape");
-  await until(page, "the terminal closed", (s) => !s.terminal, 10_000);
+  await until(page, "the terminal closed", (s) => !s.terminal, 60_000);
   await use(page, "suit");
-  await until(page, "the suit's console", (s) => s.terminal === "suit", 10_000);
+  await until(page, "the suit's console", (s) => s.terminal === "suit", 60_000);
   await expect(page.locator("#term-body")).toContainText("AS IT WOULD LAUNCH");
   await page.click('[data-act="overhaul"][data-part="torso"]');
   await expect(page.locator("#term-log")).toContainText("OVERHAULED RADIATORS", { timeout: 30_000 });
@@ -119,7 +121,7 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   await page.click('[data-act="fuel"][data-grade="standard"]');
   await expect(page.locator("#term-log")).toContainText(/KG STANDARD · 10 KG PUMPED BACK/, { timeout: 30_000 });
   await page.keyboard.press("Escape");
-  await until(page, "the terminal closed", (s) => !s.terminal, 10_000);
+  await until(page, "the terminal closed", (s) => !s.terminal, 60_000);
   const before = (await bc(page)).hangar_credits;
   expect(before).toBeLessThan(2000);
 
@@ -158,7 +160,7 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
     const [x, y, z] = String(s.pos).split(",").map(Number);
     return Math.hypot(x + 17_250, y + 4_200, z) < 150 && s.speed < 10;
   };
-  await until(page, "at rest in the dock", atDock, 240_000);
+  await until(page, "at rest in the dock", atDock, 360_000);
   await page.focus("#bc");
   await page.keyboard.press("Enter");
   s = await until(page, "home", (s) => s.place === "hangar", 30_000);

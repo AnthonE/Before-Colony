@@ -95,6 +95,14 @@ const LIFT_SECS: f32 = 12.0;
 const LIFT_UP_SECS: f32 = 6.0;
 /// How near a place's door the pilot must stand to use it, m.
 const DOOR_REACH: f32 = 3.5;
+/// How much walking a slow frame catches up, s. The pilot's own legs: a second's worth (no further,
+/// blind, after a hitch). A guide's (the dev hooks' errands, the autopilot's): more, so its walk
+/// across the city keeps to the clock on a page drawing it in software at a few seconds a frame
+/// (held to a second a frame, a walk took several times as long, and a tram's open doors shut
+/// before it reached them); and less than the shortest errand (Hub Gate's door to its motor pool,
+/// 5.4 s), so every walk is seen under way for a frame.
+const OWN_CATCH_UP: f32 = 1.0;
+const GUIDE_CATCH_UP: f32 = 4.0;
 
 /// Where the pilot is in the bay's sequences.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -835,8 +843,8 @@ pub fn drive_onfoot(
 ) {
     let now = now_s();
     let dt = time.delta_secs().min(0.1);
-    // Walking keeps up with slow frames (up to a second's worth).
-    let walk_dt = time.delta_secs().min(1.0);
+    // Walking keeps up with slow frames (`OWN_CATCH_UP`, a guide's `GUIDE_CATCH_UP`).
+    let walk_dt = |guided: bool| time.delta_secs().min(if guided { GUIDE_CATCH_UP } else { OWN_CATCH_UP });
     let mut g = game.borrow_mut();
     let autopilot = g.autopilot;
 
@@ -1016,7 +1024,7 @@ pub fn drive_onfoot(
         let mut got_out = false;
         if let Some(v) = c.drive.as_mut() {
             let drive = Drive { throttle: own.forward, steer: -own.right, handbrake: own.jump };
-            let mut left = walk_dt;
+            let mut left = walk_dt(false);
             while left > 1e-4 {
                 let h = left.min(0.05);
                 left -= h;
@@ -1036,7 +1044,7 @@ pub fn drive_onfoot(
             c.stand();
             stood_up = true;
         }
-        let mut left = if c.drive.is_some() || c.seat.is_some() { 0.0 } else { walk_dt };
+        let mut left = if c.drive.is_some() || c.seat.is_some() { 0.0 } else { walk_dt(c.guide.is_some()) };
         while left > 1e-4 {
             let h = left.min(0.1);
             left -= h;
@@ -1085,9 +1093,9 @@ pub fn drive_onfoot(
         }
         g.core.set_pose(Some(c.pose()));
         // Sent here, the frame it's taken, if one's due (and nowhere else, so a stale one never
-        // takes its turn): after a slow frame the walk has caught up by up to a second's worth,
-        // and a pose a frame late would reach the server only a moment after the one before it,
-        // too far for that moment.
+        // takes its turn): after a slow frame the walk has caught up by up to a second's worth (a
+        // guide's, `GUIDE_CATCH_UP`), and a pose a frame late would reach the server only a moment
+        // after the one before it, too far for that moment.
         if let (Some(t), Some(p)) = (net.get(), g.core.poll_pose(now)) {
             t.send_datagram(&p);
         }
@@ -1179,7 +1187,7 @@ pub fn drive_onfoot(
             me.guide = None;
         }
         // In slices, so a slow frame walks as far as a fast one would.
-        let mut left = walk_dt;
+        let mut left = walk_dt(me.guide.is_some());
         while left > 1e-4 {
             let h = left.min(0.1);
             left -= h;
