@@ -10,7 +10,12 @@
 //! - **The Proving Ground** (the colony open): on foot at the Blast Hall's gantry, the pilot boards
 //!   one of the Charter Board's trainers (nothing of their hangar's goes with it) and climbs out
 //!   there again when it docks. The times the inside's sector checks, round the course and through
-//!   the drill, go on the Proving Ground's board, and a signed-in pilot's bests on their record.
+//!   the drill, go on the Proving Ground's board, and a signed-in pilot's bests on their record. Any
+//!   time there is a flight certificate, and the Charter Board issues a beam rifle for it, once.
+//! - **The city's desks** (the colony open): what only a desk does (`Request::desk`: a resting
+//!   order, posting, patrols, the charter, an ace's terms, the test range) is done in its room
+//!   (`desk::place_at`), and what the Charter Board pays out (the certificate's rifle, patrols'
+//!   rewards, aces' bounties) is collected in its hall. With the colony shut, the bay does it all.
 //!
 //! Whatever happens, the slot is handed back in the order that keeps it race-free: stop sending,
 //! settle the roster, let the sector put the suit to sleep (or release it), then return the lease.
@@ -29,12 +34,14 @@ use bc_proto::{
     Faction, FrameId, InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, PacketKind, PilotKind, packet_kind,
 };
 use bc_sector::{Comeback, Control, InputMsg, Loss, Metrics, Outcome, Report, SlotLease, SlotState};
+use bc_sim::content::city::PlaceKind;
 use bc_sim::sim::Loadout;
 use tokio::sync::{broadcast, oneshot};
 use wtransport::{Connection, RecvStream, SendStream};
 
 use super::NetStats;
 use super::admit::{Asked, Requests};
+use super::desk;
 use super::game::{
     EgressCmd, GameShared, HangarEntry, RateLimit, RosterEntry, RosterUpdate, forget, process_notes, reject,
     send_control, set_roster_flags, wait_slot,
@@ -660,6 +667,14 @@ impl Session<'_> {
         self.place == Place::City || self.inside.is_some()
     }
 
+    /// On foot in the city, in the room of a `kind` place (where the plaza last had them: the whole
+    /// room counts, so a pose a moment behind at its counter still does).
+    fn at_desk(&self, kind: PlaceKind) -> bool {
+        let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        self.place == Place::City
+            && self.game.plaza.where_is(self.slot, tick).is_some_and(|at| desk::place_at(at) == Some(kind))
+    }
+
     async fn send_proving(&mut self) -> anyhow::Result<()> {
         self.proving_seen = self.game.proving.version();
         self.proving_sent = Instant::now();
@@ -691,7 +706,26 @@ impl Session<'_> {
             text.push_str(" · YOUR BEST");
         }
         self.note(text, true).await?;
+        self.certify().await?;
         self.send_proving().await
+    }
+
+    /// A time at the Proving Ground is a flight certificate: the Charter Board trusts the pilot with
+    /// a beam rifle for it, once (`Board::certify`), waiting at its desk. Told as news.
+    async fn certify(&mut self) -> anyhow::Result<()> {
+        if !self.survival() || !self.bests.any() || self.hangar.certified {
+            return Ok(());
+        }
+        let (hangar, trader, name) = (&mut self.hangar, self.trader.as_str(), self.callsign.as_str());
+        let (market, charter) = (&self.game.market, &self.game.charter);
+        let Some(text) = charter.with(|b| market.with(|ex| b.certify(hangar, trader, name, ex))) else {
+            return Ok(());
+        };
+        charter.changed();
+        market.changed();
+        tracing::info!(slot = self.slot, name = %self.callsign, "certified by the charter board");
+        self.save().await;
+        self.send(&Update::News { text }).await
     }
 
     /// Where the pilot's suit is inside the colony (the colony's own frame), while they fly it there.
@@ -788,11 +822,14 @@ impl Session<'_> {
         Ok(())
     }
 
-    /// A sortie earned `bounty`: it counts toward the patrol the pilot holds.
+    /// A sortie earned `bounty`: it counts toward the patrol the pilot holds, whose reward (the
+    /// colony open) waits at the Charter Board's desk. Before the sortie's sheet is made, which
+    /// carries it.
     async fn patrol_bounties(&mut self, bounty: u32) -> anyhow::Result<()> {
         let now = pilots::unix_now();
+        let at_desk = self.game.colony;
         let (hangar, trader) = (&mut self.hangar, self.trader.as_str());
-        let notes = self.game.charter.with(|b| b.bounties(hangar, trader, u64::from(bounty), now, false));
+        let notes = self.game.charter.with(|b| b.bounties(hangar, trader, u64::from(bounty), now, at_desk));
         if notes.is_empty() {
             return Ok(());
         }
@@ -803,7 +840,9 @@ impl Session<'_> {
         Ok(())
     }
 
-    /// Runs the stations' clocks and collects what the exchange owes. What happened, to tell.
+    /// Runs the stations' clocks and collects what the exchange and the Charter Board owe: what the
+    /// Board pays out at its desk only there while the colony is open (anywhere, with it shut).
+    /// What happened, to tell.
     fn settle(&mut self, collect: bool) -> Vec<String> {
         let mut notes: Vec<String> = self
             .hangar
@@ -813,12 +852,18 @@ impl Session<'_> {
             .collect();
         if collect {
             let trader = self.trader.clone();
+            let at_desk = self.game.charter.with(|b| b.waiting(&trader))
+                && (!self.game.colony || self.at_desk(PlaceKind::Charter));
             let hangar = &mut self.hangar;
             if self.game.market.with(|ex| ex.owed(&trader)) {
                 notes.extend(self.game.market.with(|ex| hangar.collect(ex, &trader)));
             }
             if self.game.charter.with(|b| b.owed(&trader)) {
                 notes.extend(self.game.charter.with(|b| b.collect(hangar, &trader)));
+                self.game.charter.changed();
+            }
+            if at_desk {
+                notes.extend(self.game.charter.with(|b| b.collect_at_desk(hangar, &trader)));
                 self.game.charter.changed();
             }
         }
@@ -888,9 +933,25 @@ impl Session<'_> {
         if !self.survival() {
             return Ok(());
         }
-        let Some(req) = req else {
+        let Some(mut req) = req else {
             return self.note("the hangar didn't understand that", false).await;
         };
+        // The colony open, what only a desk in its city does is done there (`Request::desk`): an
+        // order at the pilot's own price made anywhere else trades at once, and the rest is
+        // refused, saying where to go.
+        let mut floor_only = false;
+        if self.game.colony
+            && let Some(kind) = req.desk()
+            && !self.at_desk(kind)
+        {
+            match &mut req {
+                Request::Order { rest, .. } => {
+                    *rest = false;
+                    floor_only = true;
+                }
+                _ => return self.note(wire::desk_refusal(kind), false).await,
+            }
+        }
         match req {
             Request::Launch => self.launch().await,
             Request::LaunchInside => self.launch_inside().await,
@@ -973,6 +1034,9 @@ impl Session<'_> {
                     self.game.market.changed();
                 }
                 match done {
+                    Some(Ok(text)) if floor_only => {
+                        self.note(format!("{text} · {}", wire::FLOOR_ONLY), true).await?
+                    }
                     Some(Ok(text)) => self.note(text, true).await?,
                     Some(Err(why)) => self.note(why, false).await?,
                     None => {}
@@ -1024,6 +1088,8 @@ impl Session<'_> {
         self.watch();
         self.send_place().await?;
         self.send_proving().await?;
+        // A veteran's record has its times already: the Board has seen their certificate.
+        self.certify().await?;
         self.publish_hangar();
         Ok(())
     }
@@ -1335,8 +1401,9 @@ impl Session<'_> {
             Report::Home(home) => {
                 self.unseat();
                 self.out_of_the_colony().await?;
-                let (text, debrief) = self.hangar.came_home_debriefed(&home);
+                // A patrol's reward goes on the sheet.
                 self.patrol_bounties(home.bounty).await?;
+                let (text, debrief) = self.hangar.came_home_debriefed(&home);
                 self.place = Place::Hangar;
                 tracing::info!(slot = self.slot, name = %self.callsign, "docked: {text}");
                 self.save().await;
@@ -1384,6 +1451,7 @@ impl Session<'_> {
             Report::Parked { .. } => {}
             Report::Lost { bounty, how } => {
                 self.lost = true;
+                self.patrol_bounties(bounty).await?;
                 let (mut text, debrief) = self.hangar.lost_debriefed(bounty);
                 match how {
                     Loss::Destroyed => {}
@@ -1393,7 +1461,6 @@ impl Session<'_> {
                     }
                     Loss::Blown => text.push_str(" · SELF-DESTRUCTED"),
                 }
-                self.patrol_bounties(bounty).await?;
                 tracing::info!(slot = self.slot, name = %self.callsign, "suit lost");
                 self.save().await;
                 self.send(&Update::Sortie { outcome: SortieOutcome::Lost, text, debrief: Some(debrief) })
@@ -1438,13 +1505,17 @@ impl Session<'_> {
             self.towing = true;
             format!("{} DOWNED · YOUR TERMS: ITS WRECK · THE TUGS ARE GOING OUT FOR IT", a.name)
         } else {
+            // The colony open, its bounty waits at the Charter Board's desk.
+            let at_desk = self.game.colony;
             let (hangar, trader) = (&mut self.hangar, self.trader.as_str());
-            let text = self.game.charter.with(|b| b.pay_ace(hangar, ace, trader, false));
+            let text = self.game.charter.with(|b| b.pay_ace(hangar, ace, trader, at_desk));
             self.save().await;
             self.send_hangar().await?;
             text
         };
         self.game.charter.changed();
+        // The aces they've downed, and what waits for them, whether or not they watch the board.
+        self.send_board().await?;
         self.send(&Update::News { text }).await
     }
 
@@ -1598,14 +1669,15 @@ impl Session<'_> {
                         let _ = self.towed(wreck.as_ref(), torso, ace);
                     }
                     // An ace downed on the way out: on the Most Wanted, and paid (whatever the
-                    // terms: there's no one here to send the tugs for).
+                    // terms: there's no one here to send the tugs for), at the Charter Board's
+                    // desk while the colony is open.
                     Report::AceDown { ace, .. } if self.survival() => {
                         let now = pilots::unix_now();
                         let (hangar, trader, name) =
                             (&mut self.hangar, self.trader.as_str(), self.callsign.as_str());
                         game.charter.with(|b| {
                             b.ace_downed(ace, trader, name, now);
-                            b.pay_ace(hangar, ace, trader, false)
+                            b.pay_ace(hangar, ace, trader, game.colony)
                         });
                         game.charter.changed();
                     }
@@ -1672,13 +1744,19 @@ impl Session<'_> {
         if self.survival() {
             let _ = self.settle(true);
             if self.address.is_none() {
-                // A guest's orders go with them.
+                // A guest's orders go with them, and what the Charter Board held for them at its
+                // desk (a signed-in pilot's waits there).
                 let trader = self.trader.clone();
                 game.market.with(|ex| {
                     ex.cancel_all(&trader);
                     let _ = ex.collect(&trader);
                 });
                 game.market.changed();
+                if game.charter.with(|b| b.waiting(&trader)) {
+                    let hangar = &mut self.hangar;
+                    let _ = game.charter.with(|b| b.collect_at_desk(hangar, &trader));
+                    game.charter.changed();
+                }
             }
             if let Ok(mut all) = game.hangars.write() {
                 all.remove(&slot);
