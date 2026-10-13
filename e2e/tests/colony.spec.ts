@@ -38,6 +38,26 @@ async function until(
   }
 }
 
+// Clicks a terminal's button (or row), in the page itself, once it's there. The terminal's panel
+// is drawn afresh whenever the hangar, the market or the board changes (every few seconds), and a
+// page drawing in software has taken longer than that over Playwright's own click (scrolled into
+// view, then stable over two frames): it kept finding the button gone, for minutes.
+async function press(page: Page, selector: string) {
+  await expect(page.locator(selector).first()).toBeVisible({ timeout: FRAMES });
+  await page.evaluate((sel) => (document.querySelector(sel) as HTMLElement).click(), selector);
+}
+
+// Every toast the page has shown since it loaded: a later one (the same sight's name, reached
+// again a step on) can replace one before a page drawing in software is looked at again.
+const KEEP_TOASTS = () =>
+  addEventListener("DOMContentLoaded", () => {
+    const t = document.getElementById("toast");
+    const seen: string[] = ((window as any).bcToasts = []);
+    const keep = new MutationObserver(() => seen.push(t?.textContent ?? ""));
+    if (t) keep.observe(t, { childList: true, characterData: true, subtree: true });
+  });
+const toasts = (page: Page) => page.evaluate(() => ((window as any).bcToasts ?? []).join("\n"));
+
 async function mine(page: Page, name: string) {
   const status = await (await page.request.get("/status")).json();
   return { status, hangar: status.game.hangars.find((h: any) => h.name === name) };
@@ -49,12 +69,14 @@ const FRAMES = 120_000;
 
 test("a pilot rides down into the colony, trades on its Exchange floor, and rides home", async ({ page }) => {
   // (Long: a page drawing in software walks the city slowly, and this walk calls at the Proving
-  // Ground, the Exchange floor, the Charter Board's desk, a sight and The Arrival.)
-  test.setTimeout(2_700_000);
+  // Ground, the Exchange floor, the Charter Board's desk, a sight and The Arrival. 45 minutes
+  // weren't enough for a run at a few frames a minute.)
+  test.setTimeout(3_300_000);
   const logs = collectConsole(page);
   // The flight certificate (objective bit 11) is taken as earned: a browser drawing in software
   // can't clear the drill in time, and the server's tests fly it (`crates/bc-server/tests/proving.rs`).
   await page.addInitScript(() => localStorage.setItem("bc.settings", "version = 1\nobjectives_done = 2048\n"));
+  await page.addInitScript(KEEP_TOASTS);
   await page.goto("/?autoplay=1&name=Relena&quality=low");
   await until(page, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 180_000);
   expect((await mine(page, "Relena")).status.game.colony).toBe(true);
@@ -149,11 +171,11 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await push(page, { cmd: "use" });
   await until(page, "the exchange terminal", (s) => s.terminal === "exchange", 180_000);
   await expect(page.locator("#terminal")).toBeVisible();
-  await page.click('[data-act="ex-filter"][data-f="goods"]');
-  await page.click('tr[data-item="mat.ti_alloy"]');
+  await press(page, '[data-act="ex-filter"][data-f="goods"]');
+  await press(page, 'tr[data-item="mat.ti_alloy"]');
   await expect(page.locator('[data-key="rest"]')).toBeVisible({ timeout: FRAMES });
   await page.fill('[data-key="qty:buy:mat.ti_alloy"]', "10");
-  await page.click('[data-act="order"]');
+  await press(page, '[data-act="order"]');
   await expect(page.locator("#term-log")).toContainText("BOUGHT", { timeout: FRAMES });
   await page.keyboard.press("Escape");
   await until(page, "the terminal closed", (s) => !s.terminal, 180_000);
@@ -161,7 +183,8 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
 
   // On along the square to the Charter Board's hall, and its desk: only the board's tab, with what
   // only it does (posting a contract, taking a patrol, the charter). The 200 kg of steel the pilot
-  // came with go to the second foundry, for standing; a contract posted here is withdrawn again.
+  // came with go to the second foundry (a fresh server's is short of steel), for standing; a
+  // contract posted here is withdrawn again.
   await push(page, { cmd: "walk_to", spot: "charter_board" });
   await until(page, "the walk", (s) => s.city_walking_to, FRAMES);
   await until(page, "at the Charter Board's desk", (s) => s.focus === "charter_board" && !s.city_walking_to, 420_000);
@@ -171,14 +194,14 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await expect(page.locator('[data-act="post"]')).toBeVisible({ timeout: FRAMES });
   await expect(page.locator('[data-tab="fabricator"]')).toBeHidden();
   await page.screenshot({ path: "artifacts/colony-charter-desk.png" });
-  await page.click('[data-act="contribute"][data-work="second_foundry"][data-item="mat.steel"]');
+  await press(page, '[data-act="contribute"][data-work="second_foundry"][data-item="mat.steel"]');
   await expect(page.locator("#term-log")).toContainText("A SECOND FOUNDRY: DELIVERED", { timeout: FRAMES });
   await page.fill('[data-key="post:qty"]', "10");
   await page.fill('[data-key="post:reward"]', "50");
   await page.fill('[data-key="post:hours"]', "1");
-  await page.click('[data-act="post"]');
+  await press(page, '[data-act="post"]');
   await expect(page.locator("#term-log")).toContainText("POSTED", { timeout: FRAMES });
-  await page.click('[data-act="withdraw"]');
+  await press(page, '[data-act="withdraw"]');
   await expect(page.locator("#term-log")).toContainText("WITHDRAWN", { timeout: FRAMES });
   await page.keyboard.press("Escape");
   await until(page, "the terminal closed", (s) => !s.terminal, 180_000);
@@ -191,7 +214,7 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await push(page, { cmd: "walk_to", spot: "sight_1" });
   await until(page, "the walk", (s) => s.city_walking_to, FRAMES);
   await until(page, "the clock tower", (s) => s.sights_found === 1, 420_000);
-  await expect(page.locator("#toast")).toContainText("SIGHT FOUND", { timeout: FRAMES });
+  await expect.poll(() => toasts(page), { timeout: FRAMES }).toContain("SIGHT FOUND");
   s = await until(page, "there", (s) => !s.city_walking_to, 420_000);
   // The city's traffic and people round the square (logged till a run has seen them).
   console.log(`life by the clock tower: ${s.ambient_people} people, ${s.ambient_cars} cars, ${s.life_ms} ms`);
@@ -229,7 +252,7 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await expect(page.locator("#term-body")).toContainText("MOST WANTED", { timeout: FRAMES });
   await expect(page.locator("#term-body")).toContainText("PISCES");
   await page.screenshot({ path: "artifacts/colony-arrival.png" });
-  await page.click('[data-act="ace-terms"][data-salvage="1"]');
+  await press(page, '[data-act="ace-terms"][data-salvage="1"]');
   await expect(page.locator("#term-log")).toContainText("TERMS: AN ACE'S WRECK", { timeout: FRAMES });
   await page.keyboard.press("Escape");
   await until(page, "the terminal closed", (s) => !s.terminal, 180_000);

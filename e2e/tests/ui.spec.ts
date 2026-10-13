@@ -4,7 +4,7 @@ import { bc, collectConsole } from "./util";
 // The page around the game, as a player meets it: the title screen, launching, the controls sheet,
 // the menu, disconnecting, a link that drops and comes back, and a server that can't be reached.
 test("title, launch, menu, reconnect, disconnect", async ({ page, request }, info) => {
-  test.setTimeout(240_000);
+  test.setTimeout(360_000);
   const logs = collectConsole(page);
   const wait = async (what: string, pred: string, timeout = 60_000) => {
     try {
@@ -141,8 +141,9 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   // O, as F10 (no function row on a Mac laptop or a 60% keyboard): the next graphics tier.
   await page.focus("#bc");
   await page.keyboard.press("o");
-  // The first frame on a new tier builds its pipelines, which takes a software renderer seconds.
-  await expect.poll(async () => (await bc(page)).gfx_tier, { timeout: 15_000 }).toBe("medium");
+  // The first frame on a new tier builds its pipelines, which takes a software renderer seconds
+  // (half a minute, on a machine drawing a frame every few seconds).
+  await expect.poll(async () => (await bc(page)).gfx_tier, { timeout: 90_000 }).toBe("medium");
 
   // Esc: the menu; Resume closes it.
   await page.focus("#bc");
