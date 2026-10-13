@@ -1016,8 +1016,7 @@ pub fn drive_onfoot(
         if look != Vec2::ZERO {
             c.walker.turn(-look.x, -look.y);
         }
-        let mut stride = own;
-        if stride != Stride::default() {
+        if own != Stride::default() {
             c.guide = None;
         }
         // Driving: W/S the throttle and the brake, A/D the wheel, Space the handbrake.
@@ -1048,12 +1047,19 @@ pub fn drive_onfoot(
         while left > 1e-4 {
             let h = left.min(0.1);
             left -= h;
-            if let Some(guide) = c.guide.as_mut() {
-                stride = guide.steer(&mut c.walker, h);
-                if guide.arrived() && guide.facing.is_none_or(|f| c.walker.heading().dot(f) > 0.97) {
-                    c.guide = None;
+            // The guide's stride while it walks them; once it's done, or a tram's door has taken
+            // them aboard (and the guide with it), their own: not the guide's last, which would
+            // walk them on across the car and out of its far door for the rest of a long frame.
+            let stride = match c.guide.as_mut() {
+                Some(guide) => {
+                    let stride = guide.steer(&mut c.walker, h);
+                    if guide.arrived() && guide.facing.is_none_or(|f| c.walker.heading().dot(f) > 0.97) {
+                        c.guide = None;
+                    }
+                    stride
                 }
-            }
+                None => own,
+            };
             if let Some(news) = c.step(&stride, h) {
                 ui.toast(news);
             }
@@ -1178,25 +1184,29 @@ pub fn drive_onfoot(
             me.guide = Some(Guide::new(route, Some(facing)));
         }
         let me = &mut *me;
-        let mut stride = own;
         if look != Vec2::ZERO {
             me.walker.turn(-look.x, -look.y);
         }
-        if stride != Stride::default() {
+        if own != Stride::default() {
             // The pilot's own feet take over.
             me.guide = None;
         }
-        // In slices, so a slow frame walks as far as a fast one would.
+        // In slices, so a slow frame walks as far as a fast one would (the guide's stride while it
+        // walks them, then their own).
         let mut left = walk_dt(me.guide.is_some());
         while left > 1e-4 {
             let h = left.min(0.1);
             left -= h;
-            if let Some(guide) = me.guide.as_mut() {
-                stride = guide.steer(&mut me.walker, h);
-                if guide.arrived() && guide.facing.is_none_or(|f| me.walker.heading().dot(f) > 0.97) {
-                    me.guide = None;
+            let stride = match me.guide.as_mut() {
+                Some(guide) => {
+                    let stride = guide.steer(&mut me.walker, h);
+                    if guide.arrived() && guide.facing.is_none_or(|f| me.walker.heading().dot(f) > 0.97) {
+                        me.guide = None;
+                    }
+                    stride
                 }
-            }
+                None => own,
+            };
             me.walker.step(&me.layout, &stride, h);
         }
         me.focus = Layout::spot_in_view(me.walker.eye(), me.walker.look());
