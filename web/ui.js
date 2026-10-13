@@ -296,14 +296,18 @@
     const use = $("use");
     use.textContent = v.prompt || "";
     show(use, playing && !!v.prompt && v.panel === "none" && !v.help);
-    // A terminal: opened on the tab of the one used; the book stops coming when it closes.
+    // A terminal: opened on the tab of the one used; the book stops coming when it closes. Down in
+    // the city it's a desk's, and shows only what that desk does.
     const termOpen = playing && v.panel === "terminal";
     show($("terminal"), termOpen);
     if (termOpen && !terminalShown) {
       terminalShown = true;
+      desk = v.place === "city" ? v.terminal || "" : "";
+      showTabs();
       openTab(v.terminal || tab);
     } else if (!termOpen && terminalShown) {
       terminalShown = false;
+      desk = "";
       watch("");
       watchBoard(false);
     }
@@ -611,6 +615,24 @@
   let hangar = null;
   let tab = "fabricator";
   let terminalShown = false;
+  // The desk in the city whose terminal is open ("exchange", "charter", "proving", "wanted"), or ""
+  // in the bay. Each desk does its one thing, and only that tab shows.
+  let desk = "";
+  // The colony's open (`--no-colony` closes it): the hangar's word once it comes, the /status
+  // page's until then.
+  let statusColony = true;
+  const colonyOpen = () => hangar?.colony ?? statusColony;
+  // In the bay with the colony open, what only a desk does is pointed at, not offered.
+  const pointers = () => !desk && colonyOpen();
+  // What each desk shows (L1's menu joins The Arrival's).
+  const DESK_TABS = { exchange: ["exchange"], charter: ["charter"], proving: ["proving"], wanted: ["wanted"] };
+  function showTabs() {
+    const only = desk ? DESK_TABS[desk] || [desk] : null;
+    for (const b of document.querySelectorAll("[data-tab]")) {
+      const t = b.dataset.tab;
+      show(b, only ? only.includes(t) : t !== "wanted" && (t !== "proving" || colonyOpen()));
+    }
+  }
   let fabFilter = "materials";
   let exFilter = "goods";
   let watching = "";
@@ -661,7 +683,10 @@
 
   function hangarIn(json) {
     hangar = JSON.parse(json);
-    if (terminalShown) renderTerminal();
+    if (terminalShown) {
+      showTabs();
+      renderTerminal();
+    }
   }
 
   // The fabricator: what can be made (materials, each line's parts, weapons), and the queues.
@@ -890,10 +915,18 @@
   }
 
   // The Colony Exchange: quotes, the watched item's book and history, the order form, and the
-  // pilot's orders.
+  // pilot's orders. An order at the pilot's own price that waits on the book is the Exchange
+  // floor's to place: the bay's terminal (the colony open) trades at once, and hands back what
+  // doesn't fill.
+  const FLOOR_POINTER = "Your bay's terminal trades at once: what doesn't fill comes back. An order at your own price that waits on the book for other pilots is placed on the Exchange floor, on Charter Square.";
+  const restOn = () => !pointers() && !!draft("rest", true);
   function renderExchange() {
     const m = hangar?.market;
     if (!m) return `<div class="note">Waiting for the exchange…</div>`;
+    const head = desk === "exchange"
+      ? `<div class="status">THE EXCHANGE FLOOR: AN ORDER AT YOUR OWN PRICE WAITS ON THE BOOK HERE, FOR OTHER PILOTS</div>`
+      : "";
+    const rest = restOn();
     const filters = [["goods", "RAW & MATERIALS"], ["parts", "PARTS"], ["weapons", "WEAPONS"], ["modules", "EQUIPMENT"], ["kits", "CONSUMABLES"]];
     let left = `<div class="filters">${filters
       .map(([f, label]) => button(label, { act: "ex-filter", f }, exFilter === f ? "active" : ""))
@@ -943,11 +976,12 @@
         button("SELL", { act: "side", side: "sell" }, side === "sell" ? "primary" : "") + `</div>` +
         `<div class="form"><label>PRICE ${input(priceKey, draft(priceKey, String(dfltPrice || 0)), 'inputmode="numeric"')} ${unit(watching)}</label>` +
         `<label>${it.bulk ? "KG" : "PIECES"} ${input(qtyKey, draft(qtyKey, String(dfltQty)), 'inputmode="numeric"')}</label>` +
-        `<label><input type="checkbox" data-key="rest" ${draft("rest", true) ? "checked" : ""}> REST ON THE BOOK</label></div>` +
+        (pointers() ? "" : `<label><input type="checkbox" data-key="rest" ${rest ? "checked" : ""}> REST ON THE BOOK</label>`) + `</div>` +
         `<div class="form">${button(side === "buy" ? "PLACE BUY ORDER" : "PLACE SELL ORDER", { act: "order" }, "primary")}` +
         `<span class="note">${side === "buy" ? `up to ${fmt(total)} CR held until it fills` : `${fmt(total)} CR less a ${fmt(fee)} CR fee`}` +
-        `${draft("rest", true) ? "; what doesn't fill at once waits on the book" : "; what doesn't fill at once is handed back"}</span></div>`;
+        `${rest ? "; what doesn't fill at once waits on the book" : "; what doesn't fill at once is handed back"}</span></div>`;
     }
+    if (pointers()) right += `<div class="note">${esc(FLOOR_POINTER)}</div>`;
     let orders = `<section><h3>YOUR ORDERS</h3>`;
     if (!m.orders.length) orders += `<div class="note">None resting.</div>`;
     else {
@@ -960,7 +994,7 @@
       orders += `</table>`;
     }
     orders += `</section>`;
-    return `<div class="split"><div>${left}</div><div>${right}${orders}</div></div>`;
+    return `${head}<div class="split"><div>${left}</div><div>${right}${orders}</div></div>`;
   }
 
   // The Charter Board: contracts (the colony's, the militia's, other pilots'), posting one, the
@@ -983,40 +1017,63 @@
     } else {
       job = `PATROL: Dolls downed for ${fmt(t.bounty)} CR of bounties` +
         (c.holder ? ` <span class="dim">(${fmt(t.earned)} so far · ${esc(c.holder)})</span>` : "");
-      act = c.held ? button("GIVE UP", { act: "drop-patrol", id: c.id }) : c.holder ? `<span class="dim">TAKEN</span>` : button("TAKE", { act: "take-patrol", id: c.id }, "primary");
+      // A patrol's taken at the Charter Board's desk (the colony open); given up anywhere.
+      act = c.held ? button("GIVE UP", { act: "drop-patrol", id: c.id })
+        : c.holder ? `<span class="dim">TAKEN</span>`
+        : pointers() ? `<span class="dim">AT ITS DESK</span>`
+        : button("TAKE", { act: "take-patrol", id: c.id }, "primary");
     }
     const pays = t.kind === "supply" && c.paid ? `${fmt(c.reward)} <span class="dim">(${fmt(c.paid)} paid)</span>` : fmt(c.reward);
     return `<tr${c.mine || c.held ? ' class="chosen"' : ""}><td class="dim">#${c.id}</td><td class="${c.colony ? "bid" : ""}">${esc(c.issuer)}</td>` +
       `<td>${job}</td><td class="num">${pays} CR</td><td class="num dim">${secs(c.secs_left)}</td><td class="act">${act}</td></tr>`;
   }
 
+  // What only the Charter Board's desk does (the colony open): posting, patrols, the charter, and
+  // the Board's pay.
+  const CHARTER_POINTER = "Contracts are posted, patrols taken and the charter signed in person, at the Charter Board's desk in its hall on Charter Square.";
+  // What the Board holds for the pilot at its desk: "1,500 CR AND 1 BEAM RIFLE".
+  const boardHolds = (w) => [
+    ...(w.credits ? [`${fmt(w.credits)} CR`] : []),
+    ...(w.goods || []).map(([slug, q]) => `${amount(slug, q)} ${nameOf(slug).toUpperCase()}`),
+  ].join(" AND ");
   function renderCharter() {
     const b = hangar?.charter;
     if (!b) return `<div class="note">Waiting for the Charter Board…</div>`;
+    let head = "";
+    if (desk === "charter") {
+      head = `<div class="status">THE CHARTER BOARD'S DESK: CONTRACTS ARE POSTED HERE, PATROLS TAKEN AND THE CHARTER SIGNED, AND WHAT THE BOARD HOLDS FOR YOU IS PAID OUT</div>`;
+    } else if (b.waiting && boardHolds(b.waiting)) {
+      head = `<div class="status warn">THE BOARD HOLDS ${esc(boardHolds(b.waiting))} FOR YOU · PAID OUT AT ITS DESK, ON CHARTER SQUARE</div>`;
+    }
     let left = `<h3>CONTRACTS</h3><div class="note">The colony's pay ${b.supply_pct}% of its desks' value; a pilot's reward is held in escrow until it's delivered. Deliveries come from your stores, paid on the spot.</div>`;
     if (!b.contracts.length) left += `<div class="note">Nothing posted.</div>`;
     else {
       left += `<table><tr><th></th><th>FROM</th><th>JOB</th><th class="num">PAYS</th><th class="num">LEFT</th><th></th></tr>` +
         b.contracts.map(contractRow).join("") + `</table>`;
     }
-    // Posting one.
-    const goods = catalogue.items.filter((i) => i.kind === "ore" || i.kind === "material" || i.kind === "weapon" || i.kind === "module" || i.kind === "kit" || i.kind === "part");
-    const pick = draft("post:item", "mat.steel");
-    const qty = Math.max(0, Math.floor(Number(draft("post:qty", isBulk(pick) ? "1000" : "1")) || 0));
-    const reward = Math.max(0, Math.floor(Number(draft("post:reward", String(worth(pick, items.get(pick)?.value || 0, qty)))) || 0));
-    left += `<section><h3>POST A CONTRACT</h3><div class="form"><label>WANTED <select data-key="post:item">` +
-      goods.map((i) => `<option value="${esc(i.slug)}"${i.slug === pick ? " selected" : ""}>${esc(i.name)}</option>`).join("") +
-      `</select></label><label>${isBulk(pick) ? "KG" : "PIECES"} ${input("post:qty", draft("post:qty", isBulk(pick) ? "1000" : "1"), 'inputmode="numeric"')}</label>` +
-      `<label>REWARD ${input("post:reward", draft("post:reward", String(reward)), 'inputmode="numeric"')} CR</label>` +
-      `<label>HOURS ${input("post:hours", draft("post:hours", "24"), 'inputmode="numeric" class="narrow"')}</label></div>` +
-      `<div class="form">${button("POST", { act: "post" }, "primary")}<span class="note">${fmt(reward)} CR into escrow; what isn't delivered in time comes back. Up to ${b.max_posted} posted at once.</span></div></section>`;
+    if (pointers()) {
+      // Posting one, taking a patrol and signing are the desk's.
+      left += `<section><div class="note">${esc(CHARTER_POINTER)}</div></section>`;
+    } else {
+      // Posting one.
+      const goods = catalogue.items.filter((i) => i.kind === "ore" || i.kind === "material" || i.kind === "weapon" || i.kind === "module" || i.kind === "kit" || i.kind === "part");
+      const pick = draft("post:item", "mat.steel");
+      const qty = Math.max(0, Math.floor(Number(draft("post:qty", isBulk(pick) ? "1000" : "1")) || 0));
+      const reward = Math.max(0, Math.floor(Number(draft("post:reward", String(worth(pick, items.get(pick)?.value || 0, qty)))) || 0));
+      left += `<section><h3>POST A CONTRACT</h3><div class="form"><label>WANTED <select data-key="post:item">` +
+        goods.map((i) => `<option value="${esc(i.slug)}"${i.slug === pick ? " selected" : ""}>${esc(i.name)}</option>`).join("") +
+        `</select></label><label>${isBulk(pick) ? "KG" : "PIECES"} ${input("post:qty", draft("post:qty", isBulk(pick) ? "1000" : "1"), 'inputmode="numeric"')}</label>` +
+        `<label>REWARD ${input("post:reward", draft("post:reward", String(reward)), 'inputmode="numeric"')} CR</label>` +
+        `<label>HOURS ${input("post:hours", draft("post:hours", "24"), 'inputmode="numeric" class="narrow"')}</label></div>` +
+        `<div class="form">${button("POST", { act: "post" }, "primary")}<span class="note">${fmt(reward)} CR into escrow; what isn't delivered in time comes back. Up to ${b.max_posted} posted at once.</span></div></section>`;
+    }
 
     let right = `<h3>${esc(b.era_name)}</h3><div class="note">Your standing with the colony: <b>${fmt(b.standing)}</b>. The great works pay ${b.works_pct}% of the colony's value, and in standing.</div>`;
     for (const w of b.works) {
       right += `<section class="work${w.done ? " done" : ""}"><h3>${esc(w.name.toUpperCase())}${w.done ? ' <span class="bid">FINISHED</span>' : ""}</h3><div class="note">${esc(w.summary)}</div>`;
       if (w.work === "charter_vote") {
         right += `<div class="note">Signatures: ${b.signatures} of ${b.signatures_needed}.${w.open ? "" : w.done ? "" : " The vote opens when the era's works are finished."}</div>`;
-        if (w.open && !b.signed) right += `<div class="form">${button("SIGN THE CHARTER", { act: "sign" }, b.standing ? "primary" : "")}</div>`;
+        if (w.open && !b.signed && !pointers()) right += `<div class="form">${button("SIGN THE CHARTER", { act: "sign" }, b.standing ? "primary" : "")}</div>`;
         if (b.signed) right += `<div class="note bid">You signed.</div>`;
       } else {
         right += `<table>` + w.needs.map(([item, need, have]) => {
@@ -1033,17 +1090,30 @@
       }
       right += `</section>`;
     }
-    return `<div class="split even"><div>${left}</div><div>${right}</div></div>${renderWanted(b)}`;
+    // The Most Wanted is pinned up at The Arrival (the colony open); with it closed, it's here.
+    return `${head}<div class="split even"><div>${left}</div><div>${right}</div></div>${colonyOpen() ? wantedPointer(b) : renderWanted(b)}`;
+  }
+
+  // Where the Most Wanted is, and who's out now.
+  function wantedPointer(b) {
+    if (!b.wanted || !b.wanted.length) return "";
+    const out = b.wanted.find((w) => w.out);
+    return `<section><div class="status">THE MOST WANTED IS PINNED UP AT THE ARRIVAL, OFF CHARTER SQUARE` +
+      (out ? ` · OUT NOW: ${esc(String(out.name).toUpperCase())}, ${fmt(out.bounty)} CR` : "") + `</div></section>`;
   }
 
   // The Most Wanted: Zodiac's aces, one out among the Dolls at a time, each with a bounty on it;
-  // who downed each last, the ladder, and the pilot's terms (the bounty paid, or its wreck).
+  // who downed each last, the ladder, and the pilot's terms (the bounty paid, or its wreck). The
+  // Board signs a wreck over only to pilots of standing: the button stays, and the server says so.
   function renderWanted(b) {
     if (!b.wanted || !b.wanted.length) return "";
     const now = Date.now() / 1000;
     const terms = (salvage, label) => button(label, { act: "ace-terms", salvage: salvage ? "1" : "0" }, !!b.salvage_terms === salvage ? "primary" : "");
-    let out = `<section><h3>MOST WANTED</h3><div class="note">Zodiac's aces fly among the Dolls one at a time, each a Doll tuned by hand. Down one and the Charter Board pays its bounty; or, on your terms, the tugs bring its wreck home to your stores instead, if nobody gets to it first.</div>` +
+    let out = `<section><h3>MOST WANTED</h3><div class="note">Zodiac's aces fly among the Dolls one at a time, each a Doll tuned by hand. Down one and the Charter Board pays its bounty${colonyOpen() ? ", waiting at its desk" : ""}; or, on your terms, the tugs bring its wreck home to your stores instead, if nobody gets to it first.</div>` +
       `<div class="row">${terms(false, "TERMS: THE BOUNTY")} ${terms(true, "TERMS: ITS WRECK")}</div>`;
+    if (!b.standing && !b.salvage_terms) {
+      out += `<div class="note">THE BOARD SIGNS AN ACE'S WRECK OVER ONLY TO PILOTS OF STANDING: DELIVER TO THE COLONY FIRST</div>`;
+    }
     out += `<table><tr><th>ACE</th><th>LAST DOWNED</th><th class="num">BOUNTY</th></tr>` +
       b.wanted.map((w) => `<tr${w.out ? ' class="chosen"' : ""}><td>${esc(w.name)}${w.out ? ' <span class="bid">OUT NOW</span>' : ""}</td>` +
         `<td class="dim">${w.last ? `${esc(w.last.by)}, ${secs(Math.max(0, Math.floor(now - w.last.at)))} ago` : "never"}</td>` +
@@ -1053,6 +1123,15 @@
       ? `<div class="note">Aces downed: ${ladder.map(([n, k]) => `${esc(n)} ${fmt(k)}`).join(" · ")}${b.mine_aces ? ` · you ${fmt(b.mine_aces)}` : ""}</div>`
       : `<div class="note">Nobody has downed one yet.</div>`;
     return out + `</section>`;
+  }
+
+  // The Arrival, off Charter Square: the Most Wanted pinned up behind its bar, and the pilot's terms
+  // settled at its counter (L1's menu joins it as a second tab).
+  function renderArrival() {
+    const b = hangar?.charter;
+    if (!b) return `<div class="note">Waiting for the Most Wanted…</div>`;
+    return `<h3>THE ARRIVAL</h3><div class="note">Pinned up behind the bar: Zodiac's aces, the Charter Board's bounty on each, and who downed each last. Your terms are settled here.</div>` +
+      renderWanted(b);
   }
 
   // The Proving Ground's board, at the Blast Hall's desk: the day's best round the course and
@@ -1118,7 +1197,7 @@
     const caret = key && typeof active.selectionStart === "number" ? active.selectionStart : null;
     const body = $("term-body");
     const scroll = body.scrollTop;
-    const render = { fabricator: renderFabricator, stores: renderStores, suit: renderSuit, exchange: renderExchange, charter: renderCharter, proving: renderProving }[tab];
+    const render = { fabricator: renderFabricator, stores: renderStores, suit: renderSuit, exchange: renderExchange, charter: renderCharter, proving: renderProving, wanted: renderArrival }[tab];
     body.innerHTML = render ? render() : "";
     body.scrollTop = scroll;
     if (key) {
@@ -1152,7 +1231,8 @@
 
   function openTab(t) {
     tab = t;
-    watchBoard(t === "charter");
+    // The board comes for the Charter Board's tab and The Arrival's Most Wanted alike.
+    watchBoard(t === "charter" || t === "wanted");
     if (t === "exchange" && !watching) {
       const held = hangar?.view?.stock?.find(([s]) => isBulk(s));
       watch(held ? held[0] : "ore.nickel_iron");
@@ -1227,7 +1307,7 @@
         const dfltQty = side === "sell" ? Math.min(stockOf(watching), it.bulk ? 1000 : 1) || (it.bulk ? 1000 : 1) : it.bulk ? 1000 : 1;
         const qty = Math.floor(Number(draft(`qty:${side}:${watching}`, String(dfltQty))) || 0);
         if (price <= 0 || qty <= 0) return;
-        ask({ t: "order", item: watching, side, price, qty, rest: !!draft("rest", true) });
+        ask({ t: "order", item: watching, side, price, qty, rest: restOn() });
         return;
       }
       case "cancel-order":
@@ -1348,14 +1428,16 @@
       b.addEventListener("click", () => openTab(b.dataset.tab));
     }
     // Survival rules: nothing to choose on the title but a callsign. With the colony closed
-    // (`--no-colony`), its Proving Ground isn't there to show.
+    // (`--no-colony`), its Proving Ground isn't there to show, and the bay does what its desks would
+    // (until the hangar's own word on it comes).
     fetch("/status", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((st) => {
         survival = !!st && (st.game?.rules ?? st.rules) === "survival";
         show($("frames-field"), !survival);
         show($("survival-field"), survival);
-        show(document.querySelector('[data-tab="proving"]'), !survival || st.game?.colony !== false);
+        statusColony = !survival || st.game?.colony !== false;
+        showTabs();
       })
       .catch(() => {});
     $("title-controls").addEventListener("click", () => send("help", { show: true }));

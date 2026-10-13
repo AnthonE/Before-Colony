@@ -2,11 +2,12 @@ import { expect, test, type Page } from "@playwright/test";
 import { bc, collectConsole } from "./util";
 
 // Survival in the browser (`scripts/e2e.sh hangar`: a survival server whose fabricator works 60×
-// faster, and no dolls). The pilot comes in through their bay's airlock, walks to the exchange
-// terminal and buys titanium alloy from the colony, makes a combat knife with it at the
-// fabricator, boards at the cockpit hatch and launches: thrown out of its bay's door on the ring,
-// it flies home (a dev hook's errand) to the dock off the hub's mouth and docks. The walking is the dev hook's (a guide walks the pilot's own legs, as an agent's are
-// walked); the terminals' panels are clicked.
+// faster, the colony open, and no dolls). The pilot comes in through their bay's airlock, walks to
+// the exchange terminal and buys titanium alloy from the colony (the bay's terminal points at the
+// city's desks for what only they do), makes a combat knife with it at the fabricator, boards at
+// the cockpit hatch and launches: thrown out of its bay's door on the ring, it flies home (a dev
+// hook's errand) to the dock off the hub's mouth and docks. The walking is the dev hook's (a guide
+// walks the pilot's own legs, as an agent's are walked); the terminals' panels are clicked.
 
 const push = (page: Page, cmd: Record<string, unknown>) =>
   page.evaluate((c) => ((window as any).bcInbox ||= []).push(c), cmd);
@@ -53,25 +54,30 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   await expect(page.locator("#bay-line")).toHaveText(/^BAY \d\d · [\d,]+ CR$/);
   await expect(page.locator("#dot")).toBeVisible();
 
-  // The exchange: 50 kg of titanium alloy from the colony, at its ask.
+  // The exchange: 50 kg of titanium alloy from the colony, at its ask. The bay's terminal trades at
+  // once (the colony's open): no order rests on the book from here, and it says where one does.
   await use(page, "exchange");
   await until(page, "the exchange terminal", (s) => s.terminal === "exchange", 60_000);
   await expect(page.locator("#terminal")).toBeVisible();
   await page.click('[data-act="ex-filter"][data-f="goods"]');
   await page.click('tr[data-item="mat.ti_alloy"]');
+  await expect(page.locator('[data-key="rest"]')).toHaveCount(0);
+  await expect(page.locator("#term-body")).toContainText("on the Exchange floor");
   await page.fill('[data-key="qty:buy:mat.ti_alloy"]', "50");
   await page.click('[data-act="order"]');
   await expect(page.locator("#term-log")).toContainText("BOUGHT", { timeout: 30_000 });
-  // The Charter Board, a tab away: the colony's contracts and its great works.
+  // The Charter Board, a tab away: the colony's contracts and its great works. Posting, patrols and
+  // the charter are its desk's, down in the city, and the Most Wanted is pinned up at The Arrival:
+  // the bay's tab points at them (no POST, no terms), and has no Most Wanted tab of its own.
   await page.click('[data-tab="charter"]');
   await expect(page.locator("#term-body")).toContainText("THE COLONY", { timeout: 30_000 });
   await expect(page.locator("#term-body")).toContainText("A SECOND FOUNDRY");
   await expect(page.locator("#term-body")).toContainText("BEFORE COLONY");
-  // Under it, the Most Wanted: Zodiac's aces, and the pilot's terms for their bounties.
-  await expect(page.locator("#term-body")).toContainText("MOST WANTED");
-  await expect(page.locator("#term-body")).toContainText("PISCES");
-  await page.click('[data-act="ace-terms"][data-salvage="1"]');
-  await expect(page.locator("#term-log")).toContainText("TERMS: AN ACE'S WRECK", { timeout: 30_000 });
+  await expect(page.locator("#term-body")).toContainText("at the Charter Board's desk");
+  await expect(page.locator('[data-act="post"]')).toHaveCount(0);
+  await expect(page.locator('[data-act="ace-terms"]')).toHaveCount(0);
+  await expect(page.locator("#term-body")).toContainText("PINNED UP AT THE ARRIVAL");
+  await expect(page.locator('[data-tab="wanted"]')).toBeHidden();
   await page.screenshot({ path: "artifacts/charter.png" });
   await page.keyboard.press("Escape");
   await until(page, "the terminal closed", (s) => !s.terminal, 60_000);

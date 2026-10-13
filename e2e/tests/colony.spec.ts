@@ -6,8 +6,11 @@ import { bc, built, collectConsole } from "./util";
 // and an agent strolling outside Hub Gate). The pilot goes out through their bay's airlock and
 // rides the cap lift down to Hub Gate, finds the agent there, walks across the square into the
 // Proving Ground (the Blast Hall) to its desk and its board, walks the city's streets to the
-// Exchange floor and buys there, finds a sight, then walks back and rides up to the bay. The
-// walking is the dev hook's (a guide walks the pilot's own legs); the terminal's panel is clicked.
+// Exchange floor and buys there, on to the Charter Board's desk (a delivery to a great work, a
+// contract posted and withdrawn), finds a sight, sits at The Arrival and reads its Most Wanted,
+// then walks back and rides up to the bay. Each desk shows only what it does, and the objectives
+// lead from one to the next. The walking is the dev hook's (a guide walks the pilot's own legs);
+// the terminals' panels are clicked.
 // Then a tram, a car, the Canal strip's cap lift (Q at the airlock), and two browsers: two pilots
 // meet at Hub Gate, each seeing the other; one rides home, gone from the other's street, and a
 // suit an agent flies in by the inner gate comes down onto the avenue by the other, each seeing
@@ -46,9 +49,12 @@ const FRAMES = 120_000;
 
 test("a pilot rides down into the colony, trades on its Exchange floor, and rides home", async ({ page }) => {
   // (Long: a page drawing in software walks the city slowly, and this walk calls at the Proving
-  // Ground, the Exchange floor, a sight and The Arrival's seats.)
+  // Ground, the Exchange floor, the Charter Board's desk, a sight and The Arrival.)
   test.setTimeout(2_700_000);
   const logs = collectConsole(page);
+  // The flight certificate (objective bit 11) is taken as earned: a browser drawing in software
+  // can't clear the drill in time, and the server's tests fly it (`crates/bc-server/tests/proving.rs`).
+  await page.addInitScript(() => localStorage.setItem("bc.settings", "version = 1\nobjectives_done = 2048\n"));
   await page.goto("/?autoplay=1&name=Relena&quality=low");
   await until(page, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 180_000);
   expect((await mine(page, "Relena")).status.game.colony).toBe(true);
@@ -130,25 +136,54 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await expect(page.locator("#pause")).toBeHidden();
 
   // Down the avenue, round the corner and in through the Exchange floor's door to its counter: a
-  // room, lit by its lamps (the eye adapts to EV 8). The panel is the bay's.
+  // room, lit by its lamps (the eye adapts to EV 8). The panel is the bay's exchange, and here an
+  // order can rest on the book (the bay's can't).
   await push(page, { cmd: "walk_to", spot: "exchange_floor" });
   await until(page, "the walk", (s) => s.city_walking_to, FRAMES);
   await until(page, "at the Exchange floor", (s) => s.focus === "exchange_floor" && !s.city_walking_to, 420_000);
   await expect(page.locator("#use")).toContainText("EXCHANGE", { timeout: FRAMES });
   s = await until(page, "indoors", (s) => s.city_room === "exchange_floor" && s.city_ev < 8.5, FRAMES);
   await page.screenshot({ path: "artifacts/colony-exchange-floor.png" });
-  await until(page, "the last objective", (s) => s.objective === "SELL ON THE EXCHANGE", FRAMES);
+  // Its door in focus is the floor found: next, the Charter Board.
+  await until(page, "the next objective", (s) => s.objective === "REPORT TO THE CHARTER BOARD", FRAMES);
   await push(page, { cmd: "use" });
   await until(page, "the exchange terminal", (s) => s.terminal === "exchange", 180_000);
   await expect(page.locator("#terminal")).toBeVisible();
   await page.click('[data-act="ex-filter"][data-f="goods"]');
   await page.click('tr[data-item="mat.ti_alloy"]');
+  await expect(page.locator('[data-key="rest"]')).toBeVisible({ timeout: FRAMES });
   await page.fill('[data-key="qty:buy:mat.ti_alloy"]', "10");
   await page.click('[data-act="order"]');
   await expect(page.locator("#term-log")).toContainText("BOUGHT", { timeout: FRAMES });
   await page.keyboard.press("Escape");
   await until(page, "the terminal closed", (s) => !s.terminal, 180_000);
   expect((await bc(page)).hangar_credits).toBeLessThan(2000);
+
+  // On along the square to the Charter Board's hall, and its desk: only the board's tab, with what
+  // only it does (posting a contract, taking a patrol, the charter). The 200 kg of steel the pilot
+  // came with go to the second foundry, for standing; a contract posted here is withdrawn again.
+  await push(page, { cmd: "walk_to", spot: "charter_board" });
+  await until(page, "the walk", (s) => s.city_walking_to, FRAMES);
+  await until(page, "at the Charter Board's desk", (s) => s.focus === "charter_board" && !s.city_walking_to, 420_000);
+  await expect(page.locator("#use")).toContainText("CHARTER BOARD", { timeout: FRAMES });
+  await push(page, { cmd: "use" });
+  await until(page, "the Charter Board", (s) => s.terminal === "charter", 180_000);
+  await expect(page.locator('[data-act="post"]')).toBeVisible({ timeout: FRAMES });
+  await expect(page.locator('[data-tab="fabricator"]')).toBeHidden();
+  await page.screenshot({ path: "artifacts/colony-charter-desk.png" });
+  await page.click('[data-act="contribute"][data-work="second_foundry"][data-item="mat.steel"]');
+  await expect(page.locator("#term-log")).toContainText("A SECOND FOUNDRY: DELIVERED", { timeout: FRAMES });
+  await page.fill('[data-key="post:qty"]', "10");
+  await page.fill('[data-key="post:reward"]', "50");
+  await page.fill('[data-key="post:hours"]', "1");
+  await page.click('[data-act="post"]');
+  await expect(page.locator("#term-log")).toContainText("POSTED", { timeout: FRAMES });
+  await page.click('[data-act="withdraw"]');
+  await expect(page.locator("#term-log")).toContainText("WITHDRAWN", { timeout: FRAMES });
+  await page.keyboard.press("Escape");
+  await until(page, "the terminal closed", (s) => !s.terminal, 180_000);
+  // The desk found and standing earned: next, the rifle (from the stores, at the bay's console).
+  await until(page, "the next objective", (s) => s.objective === "ARM YOUR SUIT", FRAMES);
 
   // On to the nearest sight, the clock tower over Charter Square: found, on the found-list, and
   // the map lists it.
@@ -182,6 +217,26 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await until(page, "standing", (s) => s.seated < 0, FRAMES);
   await page.keyboard.up("w");
   expect((await mine(page, "Relena")).status.game.city.refused_by?.seat ?? 0).toBe(0);
+
+  // In to The Arrival's counter: the Most Wanted pinned up behind the bar, and the pilot's terms
+  // (with standing, its wreck can be theirs).
+  await push(page, { cmd: "walk_to", spot: "bar" });
+  await until(page, "the walk", (s) => s.city_walking_to, FRAMES);
+  await until(page, "at The Arrival's counter", (s) => s.focus === "bar" && !s.city_walking_to, 420_000);
+  await expect(page.locator("#use")).toContainText("THE ARRIVAL", { timeout: FRAMES });
+  await push(page, { cmd: "use" });
+  await until(page, "the Most Wanted", (s) => s.terminal === "wanted", 180_000);
+  await expect(page.locator("#term-body")).toContainText("MOST WANTED", { timeout: FRAMES });
+  await expect(page.locator("#term-body")).toContainText("PISCES");
+  await page.screenshot({ path: "artifacts/colony-arrival.png" });
+  await page.click('[data-act="ace-terms"][data-salvage="1"]');
+  await expect(page.locator("#term-log")).toContainText("TERMS: AN ACE'S WRECK", { timeout: FRAMES });
+  await page.keyboard.press("Escape");
+  await until(page, "the terminal closed", (s) => !s.terminal, 180_000);
+  // The Exchange floor, the Charter Board's desk, standing and the Most Wanted read: each its
+  // objective's bit (8, 12, 13 and 15).
+  s = await until(page, "the desks' objectives", (s) => (s.objectives_done & 45312) === 45312, FRAMES);
+  expect(s.objectives_done & 45312).toBe(45312);
 
   // Back to Hub Gate, and up the lift to the bay.
   await push(page, { cmd: "walk_to", spot: "hub_gate_1" });
