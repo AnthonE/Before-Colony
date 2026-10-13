@@ -773,6 +773,15 @@ RANGE`).
   in space is on Hub Gate, the way up.
   A pilot who has just armed sees `LAND ON MO-II`, starting "Up the stairs: E at the cockpit's
   hatch launches."
+- **Back to the Board's desk while it holds something.** On foot, REPORT TO THE CHARTER BOARD
+  shows again, though done, while the Board holds something for the pilot at its desk (a
+  certificate earned after walking past it, a patrol's reward, an ace's bounty), with its `◆` on
+  the hall's door: ARM YOUR SUIT never sends a pilot home to a console whose stores haven't the
+  Board's rifle yet. The server sends the board as something is put there and as it's handed over,
+  whether or not the pilot watches it. Flying, nothing changes. The lines name no work that may
+  have all it needs: EARN STANDING says the board lists what each still needs (the 200 kg of
+  steel an Arrival came with does while a great work is short of it), and ARM YOUR SUIT offers the
+  Board's rifle only with the colony open, where a certificate can be earned.
 - **Kept with the settings**, as the hints are: what's done and the Dolls downed carry over from
   one visit to the next in the same browser. An objective done says so (`OBJECTIVE DONE - …`).
   The settings panel can hide the objective and its waypoint.
@@ -1018,9 +1027,11 @@ every terminal in the bay, and the Charter Board's own desk in its hall on Chart
 - **The Board's own pay waits at its desk** (the colony open): the certificate's beam rifle (below),
   patrols' rewards and aces' bounties are held for the pilot, and paid out the moment they walk
   into its hall. Until then the bay's tab says what it holds (`THE BOARD HOLDS 1,500 CR FOR YOU ·
-  PAID OUT AT ITS DESK, ON CHARTER SQUARE`), and the news names the desk. Escrow refunds and the
-  goods delivered to a pilot's own contracts still arrive in the bay. A guest's pay goes with them
-  when they leave, as their orders do; a signed-in pilot's waits with the board.
+  PAID OUT AT ITS DESK, ON CHARTER SQUARE`), the news names the desk, and on foot the objectives
+  lead back to it (REPORT TO THE CHARTER BOARD, again). Escrow refunds and the goods delivered to a
+  pilot's own contracts still arrive in the bay. A guest's pay goes with them when they leave, as
+  their orders do; a signed-in pilot's waits with the board, whose file is written the moment
+  something is put there (not only with the clock's minute), before the pilot's record.
 - **A flight certificate earns a beam rifle, once** (`Board::certify`). The first time a pilot has
   a time on the Proving Ground's board, the course or the drill and any class, the Board issues
   them a beam rifle from the colony's desk for it, to collect at its own (`THE CHARTER BOARD HAS
@@ -1028,7 +1039,8 @@ every terminal in the bay, and the Charter Board's own desk in its hall on Chart
   Leo's missing rifle, earned. The colony's desk out of rifles (it keeps 3), it pays a rifle's
   worth instead, with no standing. Once per signed-in record (the hangar's `certified`), once per
   visit for a guest; a veteran is certified from their record's bests on their next visit to the
-  city. It's goods moved, not made: one more faucet the size of the starter's advance.
+  city. The Board keeps no name for it, so a guest who only flies a trainer leaves no key in
+  `charter.json`. It's goods moved, not made: one more faucet the size of the starter's advance.
 
 - **Contracts.** Jobs with their pay posted beside them. *Supply*: deliver so much of an item.
   Anyone but its issuer delivers part of it from their stores and is paid pro rata on the spot,

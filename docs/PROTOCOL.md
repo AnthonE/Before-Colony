@@ -523,7 +523,9 @@ seconds} (who downed it last; absent: nobody)}], `ladder` [[name, aces downed]] 
 pilot's own `mine_aces` and their terms, `salvage_terms`; and `waiting` {`credits`, `goods`:
 [[item, qty]]}, what the Board holds for the pilot at its desk (a certificate's beam rifle,
 patrols' rewards, aces' bounties: `"waiting":{"credits":1500,"goods":[["weapon.beam_rifle",1]]}`),
-paid out when they stand in its hall, absent when nothing waits); `said` {`from`, `text`} (a line
+paid out when they stand in its hall, absent when nothing waits; watched or not, a `charter` is
+sent as something comes to wait there (a certificate, a patrol flown, an ace downed), as it's
+handed over, and on joining while something does); `said` {`from`, `text`} (a line
 on the colony's radio, the speaker's own included,
 from the moment the pilot was welcomed, in the order the server heard them); `proving` (the
 Proving Ground's board, in the colony: `course` and `drill`, the day's best as [{`name`, `ms`,

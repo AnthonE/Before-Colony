@@ -133,6 +133,14 @@ async fn a_pilot_boards_a_trainer_in_the_blast_hall_clears_the_drill_and_climbs_
     assert!(note.contains("FIRST CLASS") && note.contains("THE BEST EVER"), "{note}");
     // A time on the board is a flight certificate: the Charter Board has a beam rifle for them.
     b.wait_until(5.0, "the certificate", |c| c.hangar.news.iter().any(|n| n.contains(CERTIFIED))).await?;
+    // The rifle is kept as the record's flag is, not with the clock's save a minute on: its desk
+    // account is in the Board's file already. And the Board keeps no name for a certificate.
+    let board: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("charter.json"))?)?;
+    let desk = board["at_desk"].as_object().expect("the board's desk accounts");
+    assert_eq!(desk.len(), 1, "{desk:?}");
+    let notes = desk.values().next().unwrap()["notes"].to_string();
+    assert!(notes.contains("FOR YOUR FLIGHT CERTIFICATE"), "{notes}");
+    assert_eq!(board["names"], serde_json::json!({}), "no name kept for a certificate");
     b.wait_until(5.0, "the board", |c| c.hangar.proving.as_ref().is_some_and(|v| !v.drill.is_empty()))
         .await?;
     let v = b.core.hangar.proving.clone().unwrap();

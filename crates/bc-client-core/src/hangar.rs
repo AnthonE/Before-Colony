@@ -161,6 +161,13 @@ impl HangarState {
         self.charter.as_ref().map_or(0, |c| c.mine_aces)
     }
 
+    /// Whether the Charter Board holds something for the pilot at its desk (a certificate's rifle,
+    /// a patrol's reward, an ace's bounty), as it last told it: the server tells it as it's put
+    /// there and as it's handed over.
+    pub fn board_holds(&self) -> bool {
+        self.charter.as_ref().is_some_and(|c| c.waiting.is_some())
+    }
+
     /// Whether the pilot has gundanium in their stores, or a job making it.
     pub fn smelting(&self) -> bool {
         let gundanium = Item::Material(Material::Gundanium);
@@ -272,8 +279,18 @@ mod tests {
         let mut charter = bc_econ::Board::new().view("a", 0);
         charter.standing = 120;
         charter.mine_aces = 2;
-        h.apply(Update::Charter(charter));
+        h.apply(Update::Charter(charter.clone()));
         assert_eq!((h.standing(), h.aces_downed()), (120, 2));
+        assert!(!h.board_holds());
+        charter.waiting = Some(bc_econ::charter::Waiting {
+            credits: 0,
+            goods: vec![(Item::Weapon(bc_proto::WeaponKind::BeamRifle), 1)],
+        });
+        h.apply(Update::Charter(charter.clone()));
+        assert!(h.board_holds(), "a certificate's rifle at its desk");
+        charter.waiting = None;
+        h.apply(Update::Charter(charter));
+        assert!(!h.board_holds(), "handed over");
         // Gundanium: a job making it, or some in the stores.
         let gundanium = Item::Material(Material::Gundanium);
         let mut view = HangarView::of(&starter, 0);

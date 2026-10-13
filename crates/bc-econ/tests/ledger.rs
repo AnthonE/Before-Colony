@@ -194,7 +194,7 @@ proptest! {
                 }
                 Op::Certify { who } => {
                     let first = !hangars[who].certified;
-                    let news = board.certify(&mut hangars[who], TRADERS[who], "P", &mut ex);
+                    let news = board.certify(&mut hangars[who], TRADERS[who], &mut ex);
                     prop_assert_eq!(news.is_some(), first);
                 }
                 Op::PayAce { who, ace, at_desk } => {

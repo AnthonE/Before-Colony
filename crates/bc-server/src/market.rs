@@ -18,6 +18,9 @@ pub struct Market {
     version: AtomicU64,
     path: Option<PathBuf>,
     drift: Mutex<f64>,
+    /// One write to the file at a time (the clock's, and a session's that keeps what it just
+    /// issued), each a whole exchange, in the order taken.
+    saving: tokio::sync::Mutex<()>,
 }
 
 impl Market {
@@ -46,6 +49,7 @@ impl Market {
             version: AtomicU64::new(1),
             path,
             drift: Mutex::new(0.0),
+            saving: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -78,6 +82,7 @@ impl Market {
     /// Writes the exchange to its file, if it has one.
     pub async fn save(&self) {
         let Some(path) = self.path.clone() else { return };
+        let _one = self.saving.lock().await;
         let bytes = match self.with(|ex| serde_json::to_vec(ex)) {
             Ok(b) => b,
             Err(e) => {

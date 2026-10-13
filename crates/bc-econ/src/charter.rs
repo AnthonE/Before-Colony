@@ -450,19 +450,14 @@ impl Board {
     /// of any class: `docs/TRAINING.md`), and trusts them with a beam rifle, once per hangar: one
     /// from the colony's desk, waiting at the Board's (goods moved, not made), or, the desk out of
     /// them, a rifle's worth in credits (a source, without standing). The news to give them;
-    /// `None` if it has issued one already.
-    pub fn certify(
-        &mut self,
-        hangar: &mut Hangar,
-        trader: &str,
-        name: &str,
-        ex: &mut Exchange,
-    ) -> Option<String> {
+    /// `None` if it has issued one already. The flag is the hangar's, and the Board keeps no name
+    /// for it: a guest who only flies a trainer leaves nothing of theirs in `charter.json` once
+    /// their desk account is collected.
+    pub fn certify(&mut self, hangar: &mut Hangar, trader: &str, ex: &mut Exchange) -> Option<String> {
         if hangar.certified {
             return None;
         }
         hangar.certified = true;
-        self.name(trader, name);
         let rifle = Item::Weapon(WeaponKind::BeamRifle);
         if ex.colony_issue(rifle, 1) == 1 {
             let desk = self.desk_owes(trader);
@@ -1408,7 +1403,7 @@ mod tests {
         let mut ex = Exchange::new();
         let mut h = Hangar::starter();
         assert_eq!(ex.colony_stock(rifle), Some(3.0));
-        let news = b.certify(&mut h, "a", "Ann", &mut ex).unwrap();
+        let news = b.certify(&mut h, "a", &mut ex).unwrap();
         assert_eq!(
             news,
             "THE CHARTER BOARD HAS YOUR FLIGHT CERTIFICATE · A BEAM RIFLE WAITS FOR YOU AT ITS DESK, ON CHARTER SQUARE"
@@ -1420,8 +1415,9 @@ mod tests {
         assert_eq!(b.view("a", 0).waiting, Some(Waiting { credits: 0, goods: vec![(rifle, 1)] }));
         assert_eq!(h.stores.get(rifle), 0, "it waits at the desk");
         assert_eq!(b.held(), (0, BTreeMap::from([(rifle, 1)])));
+        assert!(b.names.is_empty(), "no name kept for a certificate: {:?}", b.names);
         // Once.
-        assert_eq!(b.certify(&mut h, "a", "Ann", &mut ex), None);
+        assert_eq!(b.certify(&mut h, "a", &mut ex), None);
         assert_eq!(ex.colony_stock(rifle), Some(2.0));
         let notes = b.collect_at_desk(&mut h, "a");
         assert_eq!(
@@ -1433,12 +1429,12 @@ mod tests {
         // It goes on the worn Leo's empty mount.
         h.fit(rifle).unwrap();
         assert!(h.suit().unwrap().mounts.iter().all(|m| *m));
-        assert_eq!(b.certify(&mut h, "a", "Ann", &mut ex), None);
+        assert_eq!(b.certify(&mut h, "a", &mut ex), None);
         // The colony's desk out of rifles: a rifle's worth, paid by the colony, with no standing.
         assert!(ex.colony_take(rifle, 10));
         let mut h = Hangar::starter();
         let v = value(rifle);
-        let news = b.certify(&mut h, "b", "Bo", &mut ex).unwrap();
+        let news = b.certify(&mut h, "b", &mut ex).unwrap();
         assert_eq!(
             news,
             format!(
@@ -1449,7 +1445,7 @@ mod tests {
         assert_eq!(b.colony_paid, v);
         assert_eq!(b.standing("b"), 0, "no standing for it");
         assert_eq!(b.view("b", 0).waiting, Some(Waiting { credits: v, goods: vec![] }));
-        assert_eq!(b.certify(&mut h, "b", "Bo", &mut ex), None);
+        assert_eq!(b.certify(&mut h, "b", &mut ex), None);
         assert_eq!(b.colony_paid, v);
         let c0 = h.credits;
         let notes = b.collect_at_desk(&mut h, "b");
@@ -1459,6 +1455,8 @@ mod tests {
         );
         assert_eq!(h.credits, c0 + v);
         assert_eq!(b.held(), (0, BTreeMap::new()));
+        // Collected, nothing of either pilot is left on the Board (a guest's visit leaves no key).
+        assert!(b.names.is_empty() && b.at_desk.is_empty() && b.accounts.is_empty());
     }
 
     #[test]
@@ -1519,7 +1517,7 @@ mod tests {
         let mut h = rich();
         b.deliver(&mut h, &mut ex, "x", "X", id, 1, 1).unwrap();
         // Something waits at the desk for the pilot who looks.
-        b.certify(&mut h, "pilot-3", "Someone With A Long Name", &mut ex).unwrap();
+        b.certify(&mut h, "pilot-3", &mut ex).unwrap();
         b.pay_ace(&mut h, 8, "pilot-3", true);
         let view = crate::wire::encode(&crate::wire::Update::Charter(b.view("pilot-3", 5)));
         assert!(view.len() < 16_000, "{}", view.len());

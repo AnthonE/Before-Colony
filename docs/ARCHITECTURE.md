@@ -309,7 +309,10 @@ network threads.
   held, its bounties) or a refusal, and reports a suit lost the same way. The session applies them
   to the hangar and saves the record. The exchange is one `bc_econ::Exchange` behind a mutex in the
   server (`market.rs`): the tick never sees it. With `--data-dir`, records and the exchange are
-  files (written atomically; the exchange every minute and on shutdown).
+  files (written atomically; the exchange every minute and on shutdown). The Charter Board's file
+  is written the same way, and also at once when the Board takes on something a record's flag
+  stands for (a certificate's rifle, an ace's bounty waiting at its desk), before the record, so a
+  restart between them can't strand it; each file takes one write at a time.
 
 ## Bodies and frames: suits on moving ground
 

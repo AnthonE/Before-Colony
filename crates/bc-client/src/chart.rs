@@ -2056,12 +2056,15 @@ fn objectives_list(state: &ObjectiveState, done: u32, downed: u32, survival: boo
     let input = state.input();
     let open: Vec<Objective> =
         Objective::order(survival).iter().copied().filter(|o| o.available(input)).collect();
-    let finished = open.iter().filter(|o| done & o.bit() != 0).count();
+    // The one shown counts as to do, though done (the Charter Board's desk, while the Board holds
+    // something for the pilot there).
+    let todo = |o: &&Objective| done & o.bit() == 0 || state.current == Some(**o);
+    let finished = open.iter().filter(|o| !todo(o)).count();
     let mut list = String::new();
     if finished > 0 {
         list.push_str(&format!("[x] {finished} OF {} DONE\n", open.len()));
     }
-    let todo = open.iter().filter(|o| done & o.bit() == 0);
+    let todo = open.iter().filter(todo);
     let mut listed = 0;
     for (k, o) in todo.clone().enumerate() {
         let current = state.current == Some(*o);

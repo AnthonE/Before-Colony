@@ -16,6 +16,9 @@ pub struct Charter {
     board: Mutex<Board>,
     version: AtomicU64,
     path: Option<PathBuf>,
+    /// One write to the file at a time (the clock's, and a session's that keeps what it just
+    /// paid out), each a whole board, in the order taken.
+    saving: tokio::sync::Mutex<()>,
 }
 
 impl Charter {
@@ -29,7 +32,12 @@ impl Charter {
         if let Some(b) = &loaded {
             tracing::info!(era = b.era(), contracts = b.contracts().count(), "charter board restored");
         }
-        Self { board: Mutex::new(loaded.unwrap_or_default()), version: AtomicU64::new(1), path }
+        Self {
+            board: Mutex::new(loaded.unwrap_or_default()),
+            version: AtomicU64::new(1),
+            path,
+            saving: tokio::sync::Mutex::new(()),
+        }
     }
 
     /// Runs `f` on the board.
@@ -58,6 +66,7 @@ impl Charter {
     /// Writes the board to its file, if it has one.
     pub async fn save(&self) {
         let Some(path) = self.path.clone() else { return };
+        let _one = self.saving.lock().await;
         let bytes = match self.with(|b| serde_json::to_vec(b)) {
             Ok(b) => b,
             Err(e) => {

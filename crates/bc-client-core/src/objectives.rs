@@ -13,8 +13,9 @@
 //! from one visit to the next in the same browser. Which one the HUD shows depends on where the
 //! pilot is ([`Here`]): flying, the first not done that's done in space (so a pilot who launches
 //! first is never pulled home while one is open); on foot, the first not done in the rules' order,
-//! passing over one in space the pilot has flown past. Each has a [`Realm`], where it's done, and
-//! its how-line begins with the way there from where the pilot is ([`Objective::how_from`]).
+//! passing over one in space the pilot has flown past, and back to the Charter Board's desk while
+//! the Board holds something for them there. Each has a [`Realm`], where it's done, and its
+//! how-line begins with the way there from where the pilot is ([`Objective::how_from`]).
 //!
 //! Everything they're checked against is what the client already knows: where the suit stands and
 //! what it holds, its cover, the dock's flag and its kills, and the server's word on the hangar,
@@ -276,8 +277,8 @@ impl Objective {
         }
     }
 
-    /// How to go about it: one plain line.
-    pub fn how(self, survival: bool) -> String {
+    /// How to go about it: one plain line, under survival or arcade rules, the colony open or not.
+    pub fn how(self, survival: bool, colony: bool) -> String {
         let station = LANDMARKS[0].name;
         match self {
             Objective::LandStation => {
@@ -332,12 +333,18 @@ impl Objective {
                 "Its hall is on Charter Square, past the Exchange floor: M shows the city, ◆ marks its door. What the Board holds for you is paid out at its desk (E), and contracts are posted, patrols taken and the charter signed there."
                     .into()
             }
+            // What the works still need is the board's to say: the colony's needs are met in time,
+            // and once the charter's signed its works are done.
             Objective::Standing => {
-                "Deliver to one of the colony's contracts or a great work, at the Charter Board's desk or its tab on your bay's terminals: the second foundry takes any steel, and the 200 kg you came with will do. Paid over its value, and in standing."
+                "Deliver to one of the colony's contracts or a great work, at the Charter Board's desk or its tab on your bay's terminals: the board lists what each still needs, and while a great work is short of steel the 200 kg you came with will do. Paid over its value, and in standing."
                     .into()
             }
+            Objective::Arm if colony => format!(
+                "Your {} came without its beam rifle. At the suit's console in your bay (E at its feet), fit one from your stores: the Charter Board's for a flight certificate (paid out at its desk, on Charter Square), or one bought on the Exchange or built at the fabricator.",
+                leo()
+            ),
             Objective::Arm => format!(
-                "Your {} came without its beam rifle. At the suit's console in your bay (E at its feet), fit one from your stores: the Charter Board's, or one bought on the Exchange or built at the fabricator.",
+                "Your {} came without its beam rifle. At the suit's console in your bay (E at its feet), fit one from your stores: one bought on the Exchange or built at the fabricator.",
                 leo()
             ),
             Objective::MostWanted => {
@@ -362,7 +369,7 @@ impl Objective {
     /// How to go about it on foot on strip `strip` of the city (`None`: not down there):
     /// [`Objective::how`], unless its place is on another strip. Then the way there: back up to the
     /// bay, and down that strip's cap lift.
-    pub fn how_on(self, survival: bool, strip: Option<u8>) -> String {
+    pub fn how_on(self, survival: bool, colony: bool, strip: Option<u8>) -> String {
         let place = match self.waypoint() {
             Waypoint::Place(k) => PLACES.get(usize::from(k)),
             _ => None,
@@ -380,18 +387,20 @@ impl Objective {
                     word(lift.name())
                 )
             }
-            _ => self.how(survival),
+            _ => self.how(survival, colony),
         }
     }
 
     /// The panel's how-line from where the pilot is: [`Objective::how`] where it's done (on
     /// another strip of the city, [`Objective::how_on`]'s way there), else the way there first.
-    pub fn how_from(self, survival: bool, here: Here) -> String {
+    pub fn how_from(self, survival: bool, colony: bool, here: Here) -> String {
         let first = match (self.realm(), here) {
             (Realm::Space, Here::Space) | (Realm::Bay | Realm::Afoot, Here::Bay) => {
-                return self.how(survival);
+                return self.how(survival, colony);
             }
-            (Realm::City | Realm::Afoot, Here::City(strip)) => return self.how_on(survival, Some(strip)),
+            (Realm::City | Realm::Afoot, Here::City(strip)) => {
+                return self.how_on(survival, colony, Some(strip));
+            }
             (Realm::City, Here::Bay) => "At your airlock, E rides the cap lift down. ",
             (Realm::Bay, Here::City(_)) => "Back up to your bay first: E at Hub Gate's lift. ",
             (Realm::Space, Here::Bay) => "Up the stairs: E at the cockpit's hatch launches. ",
@@ -400,7 +409,7 @@ impl Objective {
             }
             (Realm::City | Realm::Bay | Realm::Afoot, Here::Space) => "Home first: dock at the ◆. ",
         };
-        format!("{first}{}", self.how(survival))
+        format!("{first}{}", self.how(survival, colony))
     }
 
     pub fn waypoint(self) -> Waypoint {
@@ -535,6 +544,8 @@ pub struct ObjectiveInput {
     pub tried_prototype: bool,
     /// Gundanium in the stores or in the making (`HangarState::smelting`).
     pub smelting: bool,
+    /// The Charter Board holds something for the pilot at its desk (`HangarState::board_holds`).
+    pub waiting: bool,
 }
 
 /// What the objectives remember between frames.
@@ -600,7 +611,10 @@ impl Objectives {
     /// first in the rules' order that's done in space (else the first: its how-line begins with
     /// the way home). On foot, the first in the rules' order, passing over one in space the pilot
     /// has flown past (one done in space comes later in the order): the flight still shows it, and
-    /// the chart lists it.
+    /// the chart lists it. On foot, too, the Charter Board's desk is open again while the Board
+    /// holds something for the pilot there (a certificate's rifle earned after the walk past it):
+    /// its line says it's paid out there, and its `◆` is on the hall's door, not the way home to a
+    /// console with no rifle in the stores yet.
     pub fn current(done: u32, i: &ObjectiveInput) -> Option<Objective> {
         let order = Objective::order(i.survival);
         let open = |o: &Objective| done & o.bit() == 0 && o.available(i);
@@ -612,12 +626,13 @@ impl Objectives {
                 .find(|o| open(o) && space(o))
                 .or_else(|| order.iter().copied().find(open)),
             Here::Bay | Here::City(_) => {
+                let due = |o: &Objective| *o == Objective::CharterDesk && i.waiting && o.available(i);
                 let flown_past =
                     |k: usize| order[k + 1..].iter().any(|later| space(later) && done & later.bit() != 0);
                 order
                     .iter()
                     .enumerate()
-                    .find(|&(k, o)| open(o) && !(space(o) && flown_past(k)))
+                    .find(|&(k, o)| (open(o) && !(space(o) && flown_past(k))) || due(o))
                     .map(|(_, o)| *o)
             }
         }
@@ -749,7 +764,8 @@ mod tests {
             let order = Objective::order(survival);
             assert_eq!(bits(order), all);
             for o in order {
-                assert!(!o.title(survival).is_empty() && !o.how(survival).is_empty());
+                assert!(!o.title(survival).is_empty() && !o.how(survival, true).is_empty());
+                assert!(!o.how(survival, false).is_empty());
                 assert_eq!(o.title(survival), o.title(survival).to_uppercase(), "the HUD is all caps");
             }
         }
@@ -821,7 +837,7 @@ mod tests {
         let (mut o, mut done, mut downed) = (Objectives::default(), 0u32, 0u32);
         let bay = in_bay(open());
         assert_eq!(o.step(&mut done, &mut downed, &bay), Some(Objective::RideDown));
-        assert_eq!(Objective::RideDown.how_from(true, Here::Bay), Objective::RideDown.how(true));
+        assert_eq!(Objective::RideDown.how_from(true, true, Here::Bay), Objective::RideDown.how(true, true));
         let city = in_city(open());
         let step = |o: &mut Objectives, done: &mut u32, i: ObjectiveInput| {
             let mut downed = 0;
@@ -849,7 +865,7 @@ mod tests {
         );
         assert_eq!(step(&mut o, &mut done, ObjectiveInput { standing: true, ..city }), Some(Objective::Arm));
         assert!(
-            Objective::Arm.how_from(true, Here::City(0)).starts_with("Back up to your bay first"),
+            Objective::Arm.how_from(true, true, Here::City(0)).starts_with("Back up to your bay first"),
             "the rifle's fitted in the bay"
         );
         // Home, and armed: out.
@@ -857,9 +873,12 @@ mod tests {
             step(&mut o, &mut done, ObjectiveInput { armed: true, ..bay }),
             Some(Objective::LandStation)
         );
-        assert!(Objective::LandStation.how_from(true, Here::Bay).starts_with("Up the stairs"));
+        assert!(Objective::LandStation.how_from(true, true, Here::Bay).starts_with("Up the stairs"));
         assert_eq!(step(&mut o, &mut done, open()), Some(Objective::LandStation));
-        assert_eq!(Objective::LandStation.how_from(true, Here::Space), Objective::LandStation.how(true));
+        assert_eq!(
+            Objective::LandStation.how_from(true, true, Here::Space),
+            Objective::LandStation.how(true, true)
+        );
     }
 
     /// A pilot who launches first is never pulled home while there's something to do out there;
@@ -873,7 +892,9 @@ mod tests {
             done |= space.bit();
         }
         assert_eq!(Objectives::current(done, &open()), Some(Objective::RideDown));
-        assert!(Objective::RideDown.how_from(true, Here::Space).starts_with("Home first: dock at the ◆. "));
+        assert!(
+            Objective::RideDown.how_from(true, true, Here::Space).starts_with("Home first: dock at the ◆. ")
+        );
     }
 
     /// One in space skipped (Hide, after Mine): on foot it's passed over for what's next; the
@@ -957,6 +978,67 @@ mod tests {
         // Flying, home done: the Dolls.
         let home = bits(&[Objective::LandStation, Objective::Hide, Objective::Mine, Objective::Deliver]);
         assert_eq!(Objectives::current(home, &closed), Some(Objective::Bounty));
+        // No certificate to earn, so no Board's rifle to fit: the Exchange's or the fabricator's.
+        let arm = Objective::Arm.how(true, false);
+        assert!(!arm.contains("Charter Board") && arm.contains("bought on the Exchange"), "{arm}");
+        assert!(Objective::Arm.how(true, true).contains("the Charter Board's for a flight certificate"));
+        // Whatever the Board holds is collected anywhere with the colony shut: no desk to go to.
+        let waiting = ObjectiveInput { waiting: true, ..in_bay(closed) };
+        assert_eq!(Objectives::current(0, &waiting), Some(Objective::Standing));
+    }
+
+    /// The Standing line names no work that may have all it needs (or be done, the charter signed):
+    /// what each still needs is the board's to say.
+    #[test]
+    fn the_standing_line_holds_however_far_the_works_have_come() {
+        let how = Objective::Standing.how(true, true);
+        assert!(how.contains("the board lists what each still needs"), "{how}");
+        assert!(how.contains("while a great work is short of steel"), "{how}");
+        assert!(!how.contains("second foundry"), "{how}");
+    }
+
+    /// A certificate earned after the walk past the Charter Board's desk: its rifle waits there,
+    /// so on foot the desk is next again (not the way home to a console with no rifle in the
+    /// stores), until it's handed over. Flying, nothing changes.
+    #[test]
+    fn a_rifle_waiting_at_the_boards_desk_leads_back_to_it() {
+        let walked = bits(&[
+            Objective::RideDown,
+            Objective::ProvingGround,
+            Objective::ExchangeFloor,
+            Objective::CharterDesk,
+            Objective::Standing,
+        ]);
+        let (mut o, mut downed) = (Objectives::default(), 0u32);
+        let mut done = walked;
+        assert_eq!(o.step(&mut done, &mut downed, &in_city(open())), Some(Objective::Certify));
+        // The drill cleared: the Board has the rifle at its desk.
+        let hall = ObjectiveInput { certified: true, waiting: true, ..in_city(open()) };
+        assert_eq!(o.step(&mut done, &mut downed, &hall), Some(Objective::CharterDesk));
+        assert!(done & Objective::Certify.bit() != 0);
+        let bay = ObjectiveInput { waiting: true, ..in_bay(open()) };
+        assert_eq!(o.step(&mut done, &mut downed, &bay), Some(Objective::CharterDesk));
+        assert!(
+            Objective::CharterDesk
+                .how_from(true, true, Here::Bay)
+                .starts_with("At your airlock, E rides the cap lift down. ")
+        );
+        assert!(
+            Objective::CharterDesk
+                .how(true, true)
+                .contains("What the Board holds for you is paid out at its desk")
+        );
+        // Flying, the sector's own come first, as ever.
+        let flying = ObjectiveInput { waiting: true, ..open() };
+        assert_eq!(o.step(&mut done, &mut downed, &flying), Some(Objective::LandStation));
+        // Handed over on walking into its hall: home to arm.
+        assert_eq!(o.step(&mut done, &mut downed, &in_city(open())), Some(Objective::Arm));
+        assert_eq!(done & Objective::Arm.bit(), 0);
+        // Everything done, a bounty waiting: the desk on foot, nothing in flight.
+        let all = bits(&Objective::ALL);
+        assert_eq!(Objectives::current(all, &bay), Some(Objective::CharterDesk));
+        assert_eq!(Objectives::current(all, &flying), None);
+        assert_eq!(Objectives::current(all, &in_bay(open())), None);
     }
 
     /// The how-line from where the pilot is: the way there first, each a sentence.
@@ -971,8 +1053,8 @@ mod tests {
             (Objective::Sell, Realm::Afoot),
         ] {
             assert_eq!(o.realm(), realm);
-            let how = o.how(true);
-            let from = |here| o.how_from(true, here);
+            let how = o.how(true, true);
+            let from = |here| o.how_from(true, true, here);
             let (space, bay, city, other_strip) = match realm {
                 Realm::Space => {
                     let up = format!(
@@ -1005,7 +1087,7 @@ mod tests {
         // Wherever the pilot is, the line ends with how it's done.
         for o in Objective::ALL {
             for here in [Here::Space, Here::Bay, Here::City(0)] {
-                assert!(o.how_from(true, here).ends_with(&o.how(true)), "{o:?} from {here:?}");
+                assert!(o.how_from(true, true, here).ends_with(&o.how(true, true)), "{o:?} from {here:?}");
             }
         }
     }
@@ -1024,9 +1106,9 @@ mod tests {
         ] {
             let Waypoint::Place(k) = o.waypoint() else { panic!("{o:?} has a place") };
             let home = PLACES[usize::from(k)].strip;
-            assert_eq!(o.how_on(true, Some(home)), o.how(true), "{o:?} on its own strip");
-            assert_eq!(o.how_on(true, None), o.how(true), "{o:?} in the bay");
-            let other = o.how_on(true, Some((home + 1) % 3));
+            assert_eq!(o.how_on(true, true, Some(home)), o.how(true, true), "{o:?} on its own strip");
+            assert_eq!(o.how_on(true, true, None), o.how(true, true), "{o:?} in the bay");
+            let other = o.how_on(true, true, Some((home + 1) % 3));
             assert_eq!(home, 0);
             assert_eq!(
                 other,
@@ -1039,7 +1121,7 @@ mod tests {
             assert_eq!((gate.kind, gate.strip), (PlaceKind::HubGate, strip));
         }
         // Nothing of the city's in the sector's.
-        assert_eq!(Objective::Mine.how_on(true, Some(2)), Objective::Mine.how(true));
+        assert_eq!(Objective::Mine.how_on(true, true, Some(2)), Objective::Mine.how(true, true));
         assert_eq!(word("GARDENS"), "Gardens");
     }
 

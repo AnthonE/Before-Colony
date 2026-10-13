@@ -87,8 +87,11 @@ the square, which the hall will open onto.
    YOUR FLIGHT CERTIFICATE · A BEAM RIFLE WAITS FOR YOU AT ITS DESK, ON CHARTER SQUARE`. The
    objectives then walk the Arrival down the avenue: the Exchange floor, then the Charter Board's
    desk in its hall, where the rifle is paid out on walking in and standing is earned with the
-   colony (the 200 kg of steel they came with, to the second foundry). Then home to the bay to fit
-   the rifle at the suit's console, and on into the chain: the launch tunnel and space.
+   colony (on a fresh server, the 200 kg of steel they came with, to the second foundry while it's
+   short of steel; the board lists what each work and contract still needs). Then home to the bay
+   to fit the rifle at the suit's console, and on into the chain: the launch tunnel and space. A
+   pilot who walked past the Board's desk before flying is led back to it while the rifle waits
+   there.
 
 ## Phase 1: the course (built)
 

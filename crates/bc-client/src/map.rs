@@ -244,6 +244,7 @@ pub fn update_objectives(
         // Flying one of the colony's new lines off the test range.
         tried_prototype: h.trainer && own.is_some_and(|o| bc_sim::content::salvage::is_gundam(o.frame)),
         smelting: h.smelting(),
+        waiting: h.board_holds(),
     };
     let (mut done, mut downed) = (settings.0.objectives_done, settings.0.dolls_downed);
     let before = done;
@@ -314,7 +315,9 @@ pub fn update_objectives(
     } else if let Some(o) = current {
         let order = Objective::order(survival);
         let count = order.iter().filter(|o| o.available(&input)).count();
-        let n = order.iter().filter(|o| o.available(&input) && done & o.bit() != 0).count();
+        // Those done but this one (the Charter Board's desk is shown again, done, while the Board
+        // holds something there).
+        let n = order.iter().filter(|x| x.available(&input) && done & x.bit() != 0 && **x != o).count();
         let progress =
             o.progress(&input, downed).map_or(String::new(), |(a, b)| format!("   {a}/{b}{}", unit(o)));
         let dist = match (&state.waypoint, to_door) {
@@ -328,7 +331,7 @@ pub fn update_objectives(
                 ObjectiveText::Title => format!("{}{progress}{dist}", o.title(survival)),
                 // From where the pilot is: the way there first (down in the city on another strip
                 // than its place's, up and down the lifts).
-                ObjectiveText::How => o.how_from(survival, here),
+                ObjectiveText::How => o.how_from(survival, input.colony, here),
             };
             if text.0 != s {
                 text.0 = s;

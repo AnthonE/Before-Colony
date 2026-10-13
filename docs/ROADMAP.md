@@ -129,11 +129,13 @@ aces, a new Gundam on the test range and gundanium. Those in the city need the c
 Welcome's COLONY flag), the rest of the new ones survival, and arcade has none of the last eight.
 Each has a realm (space, the bay, the city, or any terminal on foot): flying, the HUD shows the
 first space one not done, so a pilot who launches first is never pulled home; on foot, the first
-in order, passing over a space one flown past. Each how-line starts with the way there from where
+in order, passing over a space one flown past, and back to the Charter Board's desk while the
+Board holds something for the pilot there. Each how-line starts with the way there from where
 the pilot is, and the city's map marks the door with a `◆` (Hub Gate's, for the bay's and
 space's). Tests: `objectives`' units (the
 bits, the new Arrival's chain, flying first, a skipped hide, arcade, the colony closed, every
-how-line's prefix, the ace's waypoint), and the colony e2e walking the desks in turn. Still open:
+how-line's prefix, the ace's waypoint, a rifle waiting at the Board's desk), and the colony e2e
+walking the desks in turn. Still open:
 a marker on the door in the city view itself.
 
 **The Arrival does something.** *Built.* Seats by its door (`bc_sim::colony::city::arrival_seats`, a
