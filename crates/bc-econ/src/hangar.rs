@@ -123,18 +123,20 @@ impl Hangar {
     /// A floor under loss: a pilot with no suit in the bay, no torso in the stores to build one on,
     /// and less than a torso's worth in credits, stores and parts (at the colony's values) is
     /// advanced a worn Leo by the Charter Board, as on the day they arrived: at most once every
-    /// [`REISSUE_EVERY_SECS`] (`now` is unix seconds). The notice to give them, if it did.
+    /// [`REISSUE_EVERY_SECS`] (`now` is unix seconds). The notice to give them, if it did. Cheap
+    /// to ask again and again (a session asks once a second while the bay stands empty): the
+    /// stores are valued only once the bay is empty and the half hour is up.
     pub fn reissue(&mut self, now: u64) -> Option<String> {
         let line = FrameId::Leo;
         if !matches!(self.bay, Bay::Empty) || self.stores.parts().iter().any(|p| p.part == Part::Torso) {
             return None;
         }
+        if self.reissued_at.is_some_and(|at| now < at + REISSUE_EVERY_SECS) {
+            return None;
+        }
         let goods: u64 = self.stores.stock().map(|(item, qty)| worth(item, value(item), qty)).sum();
         let parts: u64 = self.stores.parts().iter().map(|p| value(p.item())).sum();
         if self.credits + goods + parts >= value(Item::Part(line, Part::Torso)) {
-            return None;
-        }
-        if self.reissued_at.is_some_and(|at| now < at + REISSUE_EVERY_SECS) {
             return None;
         }
         self.bay = Bay::Docked { suit: worn_leo() };
@@ -999,6 +1001,22 @@ mod tests {
         let old = serde_json::to_string(&Hangar::default()).unwrap();
         assert!(!old.contains("reissued_at"));
         assert_eq!(serde_json::from_str::<Hangar>(&old).unwrap().reissued_at, None);
+    }
+
+    /// Asked once a second while the bay stands empty (as a session asks), the advance comes the
+    /// moment the half hour is up, and asking before then changes nothing.
+    #[test]
+    fn asked_every_second_the_advance_comes_when_the_half_hour_is_up() {
+        let t0 = 1_800_000_000;
+        let mut h = Hangar { reissued_at: Some(t0), ..Hangar::default() };
+        let due = t0 + REISSUE_EVERY_SECS;
+        for now in t0..due {
+            assert_eq!(h.reissue(now), None, "{} s early", due - now);
+        }
+        assert_eq!((&h.bay, h.reissued_at), (&Bay::Empty, Some(t0)), "asking changed nothing");
+        assert!(h.reissue(due).is_some());
+        assert_eq!(h.reissued_at, Some(due));
+        assert_eq!(h.suit(), Hangar::starter().suit());
     }
 
     #[test]

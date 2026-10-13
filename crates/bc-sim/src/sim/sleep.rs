@@ -74,8 +74,10 @@ impl Sim {
             return None;
         }
         match s.footing[i] {
-            // (Not in its bay's cradle: that's a launch waiting, and the bay goes home with it.)
-            Footing::Grounded if matches!(s.anchor[i].body, Body::Bay(_)) => None,
+            // (Not in its bay's cradle: that's a launch waiting, and the bay goes home with it. Nor
+            // on the colony's city: the inside keeps no sleepers, and the tugs take a suit left
+            // there home.)
+            Footing::Grounded if matches!(s.anchor[i].body, Body::Bay(_) | Body::City) => None,
             Footing::Grounded => (length(s.anchor[i].vel) <= PARK_SPEED).then_some(s.anchor[i].body),
             Footing::Aloft => None,
             Footing::Free => {

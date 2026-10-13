@@ -353,6 +353,63 @@ async fn a_pilot_who_lost_everything_is_advanced_a_worn_leo() -> anyhow::Result<
     Ok(())
 }
 
+/// Writes when the Charter Board last advanced the signed-in pilot in `dir` a suit (unix seconds).
+fn advanced_at(dir: &std::path::Path, at: u64) -> anyhow::Result<()> {
+    let file = std::fs::read_dir(dir.join("pilots"))?
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .find(|p| p.extension().is_some_and(|e| e == "json"))
+        .expect("the pilot's record");
+    let mut rec: serde_json::Value = serde_json::from_slice(&std::fs::read(&file)?)?;
+    rec["hangar"]["reissued_at"] = at.into();
+    std::fs::write(&file, serde_json::to_vec(&rec)?)?;
+    Ok(())
+}
+
+/// Broke in the bay with the half hour since the last advance not quite up, a pilot isn't left to
+/// wait for their next visit: the Charter Board's advance comes the moment it's due, with the news.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_broke_pilot_is_advanced_a_leo_the_moment_the_half_hour_is_up() -> anyhow::Result<()> {
+    let dir = std::env::temp_dir().join(format!("bc-hangar-due-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let w = wallet(13);
+    let me = Identity::Wallet { address: w.address(), resume: None };
+    let advanced =
+        |c: &bc_client_core::ClientCore| c.hangar.news.iter().any(|n| n.contains("ADVANCES YOU A WORN"));
+    // Arrived, and gone.
+    {
+        let server = bc_server::start(config(Some(dir.clone()))?).await?;
+        let http = format!("http://{}", server.http_addr);
+        let mut b = BotClient::connect_with(&bot(&http, "Hilde"), me, Some(&w)).await?;
+        b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
+        b.close().await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        server.shutdown();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+    // Lost everything since, and advanced a suit the last time a little under half an hour ago.
+    ruin(&dir)?;
+    let early = 8;
+    advanced_at(&dir, bc_server::pilots::unix_now() + early - bc_econ::hangar::REISSUE_EVERY_SECS)?;
+    let server = bc_server::start(config(Some(dir.clone()))?).await?;
+    let http = format!("http://{}", server.http_addr);
+    let mut b = BotClient::connect_with(&bot(&http, "Hilde"), me, Some(&w)).await?;
+    b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
+    assert!(docked(&b).is_none() && !advanced(&b.core), "advanced before it was due");
+    b.wait_until(early as f64 + 10.0, "the advance", advanced).await?;
+    b.wait_until(5.0, "the suit in the gantry", |c| {
+        matches!(c.hangar.view.as_ref().map(|v| &v.bay), Some(Bay::Docked { .. }))
+    })
+    .await?;
+    assert_eq!(docked(&b).map(|s| s.line), Some(FrameId::Leo));
+    assert_eq!(b.core.hangar.news.iter().filter(|n| n.contains("ADVANCES YOU A WORN")).count(), 1);
+    b.close().await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    server.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(())
+}
+
 /// Ejecting (`docs/DESIGN.md`, "Doom and ejecting"): a pilot who gets out of their suit loses it,
 /// and hears so; if they leave before the colony's tugs reach the wreck, it's towed in at once,
 /// and what's on it (its whole torso included: it wasn't doomed) waits in their stores next time.

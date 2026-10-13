@@ -39,12 +39,12 @@ pub fn parse_frame(s: &str) -> Option<bc_proto::FrameId> {
     bc_proto::FrameId::from_slug(s).filter(|f| bc_sim::content::playable(*f))
 }
 
-/// Parses `colonies | oz | alliance`.
+/// Parses a side an agent may fly for: `colonies | alliance`. Oz is the Mobile Dolls' own, the
+/// server's alone (it flies a claim to it for the Colonies).
 pub fn parse_faction(s: &str) -> Option<bc_proto::Faction> {
     use bc_proto::Faction;
     match s.to_ascii_lowercase().as_str() {
         "colonies" | "colony" => Some(Faction::Colonies),
-        "oz" => Some(Faction::Oz),
         "alliance" => Some(Faction::Alliance),
         _ => None,
     }

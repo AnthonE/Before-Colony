@@ -194,6 +194,8 @@ async fn a_pilot_boards_a_trainer_in_the_blast_hall_clears_the_drill_and_climbs_
     b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
     assert!(matches!(b.core.hangar.view.as_ref().unwrap().bay, Bay::Docked { .. }), "the bay's untouched");
     assert!(!b.core.hangar.trainer && !b.core.welcome.unwrap().interior);
+    // Nor do the tugs say they brought anything in: their own suit never left.
+    assert!(!b.core.hangar.news.iter().any(|n| n.contains("TUGS")), "{:?}", b.core.hangar.news);
     assert_eq!(server.status()["game"]["hot_path_allocations"], 0);
     b.close().await;
     server.shutdown();

@@ -1,7 +1,8 @@
 //! Suits inside the colony over real WebTransport (survival, the colony open): a pilot launches their
 //! suit from the bay into the colony through the inner gate (the inside's own sector, a Welcome
 //! to it), flies it there with the weapons safe, docks back at the inner gate, and is welcomed back
-//! to their bay with the suit in it. A pilot who leaves while inside finds the suit towed home. The
+//! to their bay with the suit in it. A pilot who leaves while inside finds the suit towed home, and
+//! hears so (nothing parks inside: a suit standing on the avenue doesn't offer to). The
 //! inside keeps space's tick, so the colony has one clock; a suit flown down over Hub Gate sees the
 //! people walking there, and they see it (each on-foot pilot watches the inside's suits near them).
 //! With its grip armed, a suit lands on the avenue and walks it, predicted as the server has it.
@@ -15,7 +16,7 @@ use bc_client_core::walker::Walker;
 use bc_econ::Bay;
 use bc_econ::wire::{Place, Request};
 use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, GRIP};
-use bc_proto::snapshot::footing;
+use bc_proto::snapshot::{footing, own_flags};
 use bc_proto::{BodyRef, Faction, FrameId, InputCmd};
 use bc_server::{Config, Mode, Ruleset};
 use bc_sim::colony::city::place_door;
@@ -241,6 +242,8 @@ async fn a_suit_inside_lands_on_the_avenue_and_walks_it() -> anyhow::Result<()> 
     b.run_for(Duration::from_millis(500), &mut |_| hold).await?;
     let own = b.world().own.expect("own suit");
     assert_eq!(own.surface.map(|s| s.footing), Some(footing::GROUNDED));
+    // Standing still, but nothing parks inside the colony: the HUD doesn't offer it.
+    assert_eq!(own.flags & own_flags::PARKABLE, 0, "parkable on the avenue");
     let walked = (own.pos - start).dot(up);
     assert!(walked > 10.0, "walked {walked} m up the avenue");
     assert!(b.core.stats.prediction_error < 0.05, "predicted {} m off", b.core.stats.prediction_error);
@@ -327,6 +330,16 @@ async fn a_pilot_who_leaves_inside_finds_the_suit_towed_home() -> anyhow::Result
     b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
     assert!(matches!(b.core.hangar.view.as_ref().unwrap().bay, Bay::Docked { .. }), "towed home");
     assert!(!b.core.welcome.unwrap().interior);
+    // And told so, once.
+    let towed =
+        |c: &bc_client_core::ClientCore| c.hangar.news.iter().any(|n| n.contains("FROM THE INNER GATE"));
+    b.wait_until(5.0, "word of the tugs", towed).await?;
+    b.close().await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let mut b = BotClient::connect_as(&bot(&http, "Wufei"), Some(&wallet)).await?;
+    b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
+    b.run_for(Duration::from_millis(500), &mut |_| InputCmd::default()).await?;
+    assert!(!towed(&b.core), "told twice: {:?}", b.core.hangar.news);
     b.close().await;
     server.shutdown();
     let _ = std::fs::remove_dir_all(&dir);

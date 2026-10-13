@@ -223,6 +223,9 @@ fn at_the_hatch(at: glam::Vec3) -> bool {
 pub const ARRIVAL: &str =
     "ARRIVAL REGISTERED · THE CHARTER BOARD ADVANCES YOU 2,000 CR AND A LEO · WELCOME TO THE FIRST COLONY";
 
+/// What a pilot who left while flying inside the colony is told when they're back.
+pub const TOWED_FROM_THE_GATE: &str = "THE COLONY'S TUGS BROUGHT YOUR SUIT IN FROM THE INNER GATE";
+
 impl Session<'_> {
     fn survival(&self) -> bool {
         self.game.survival
@@ -302,6 +305,8 @@ impl Session<'_> {
         }
         // Lost everything: the Charter Board's advance (`Hangar::reissue`).
         let advanced = if self.survival() { self.hangar.reissue(pilots::unix_now()) } else { None };
+        // Word kept for them while they were away (`PilotRecord::word`), told once.
+        let word = self.record.as_mut().map(|r| std::mem::take(&mut r.word)).unwrap_or_default();
         self.bests = self.record.as_ref().map_or_else(Bests::default, |r| r.proving);
         if let Some(r) = self.record.as_mut() {
             // Woken, or gone: either way it's no longer out there asleep (in a hide spot or not).
@@ -354,6 +359,9 @@ impl Session<'_> {
             self.send_place().await?;
             if let Some((outcome, text, debrief)) = sortie {
                 self.send(&Update::Sortie { outcome, text, debrief }).await?;
+            }
+            for text in word {
+                self.send(&Update::News { text }).await?;
             }
             if let Some(text) = advanced {
                 self.send(&Update::News { text }).await?;
@@ -1437,8 +1445,18 @@ impl Session<'_> {
         self.send(&Update::News { text }).await
     }
 
+    /// The Charter Board's advance (`Hangar::reissue`), if the pilot is due one: kept, and told.
+    /// Whether it came.
+    async fn advance(&mut self) -> anyhow::Result<bool> {
+        let Some(text) = self.hangar.reissue(pilots::unix_now()) else { return Ok(false) };
+        tracing::info!(slot = self.slot, name = %self.callsign, "advanced a worn suit");
+        self.save().await;
+        self.send(&Update::News { text }).await?;
+        Ok(true)
+    }
+
     /// A tenth of a second on: the suit's reports, its wreck clearing, the stations (`settle`: once
-    /// a second) and the market.
+    /// a second), the Charter Board's advance, and the market.
     async fn on_tick(&mut self, settle: bool) -> anyhow::Result<()> {
         while let Ok(report) = self.lease().reports.pop() {
             self.on_report(report).await?;
@@ -1453,15 +1471,24 @@ impl Session<'_> {
             self.unseat();
             self.place = Place::Hangar;
             self.send_place().await?;
-            if !self.towing
-                && let Some(text) = self.hangar.reissue(pilots::unix_now())
-            {
-                self.save().await;
-                self.send(&Update::News { text }).await?;
+            if !self.towing {
+                self.advance().await?;
             }
             self.send_hangar().await?;
             self.send_market().await?;
             self.publish_hangar();
+        }
+        // On foot with nothing in the bay, and no wreck on its way home: the Charter Board's advance
+        // as soon as one is due (`Hangar::reissue` says no, cheaply, until the half hour is up), not
+        // only when they next come in.
+        if settle
+            && self.suit.is_none()
+            && !self.lost
+            && !self.towing
+            && matches!(self.hangar.bay, Bay::Empty)
+            && self.advance().await?
+        {
+            self.send_hangar().await?;
         }
         if settle {
             let notes = self.settle(true);
@@ -1504,11 +1531,16 @@ impl Session<'_> {
         self.game.plaza.leave(self.slot);
         self.unwatch().await;
         // Inside the colony, the suit doesn't sleep there: the colony's tugs bring it back to the
-        // bay (a trainer, back to its gantry: the pilot's own suit never left the bay).
+        // bay, and the pilot hears so when they're back (a trainer goes back to its gantry: the
+        // pilot's own suit never left the bay).
         if self.inside.is_some() {
             self.leave_the_colony().await;
-            if self.survival() && !self.trainer {
-                self.hangar.recover();
+            if self.survival()
+                && !self.trainer
+                && self.hangar.recover()
+                && let Some(r) = self.record.as_mut()
+            {
+                r.word.push(TOWED_FROM_THE_GATE.to_string());
             }
             self.trainer = false;
         }
