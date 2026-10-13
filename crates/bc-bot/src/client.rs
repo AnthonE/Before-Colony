@@ -20,6 +20,8 @@ pub struct BotConfig {
     pub server: String,
     pub name: String,
     pub frame: FrameId,
+    /// The side asked for. The server says the side flown for in its Welcome (a claim to Oz, the
+    /// Mobile Dolls' own, flies for the Colonies), and [`World::faction`] follows it.
     pub faction: Faction,
 }
 

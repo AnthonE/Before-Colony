@@ -90,6 +90,8 @@ pub struct ClientConfig {
     pub name: String,
     pub pilot: PilotKind,
     pub frame: FrameId,
+    /// The side the Hello asks for; once welcomed, the side flown for, which is the server's to say
+    /// (the Welcome's: a claim to Oz, the Mobile Dolls' own, flies for the Colonies).
     pub faction: Faction,
 }
 
@@ -426,6 +428,7 @@ impl ClientCore {
                 field_rocks,
                 flags,
                 landmarks,
+                faction,
                 ..
             } => {
                 if version != PROTOCOL_VERSION {
@@ -437,6 +440,10 @@ impl ClientCore {
                 if self.welcome.is_some() {
                     self.left_the_sector();
                 }
+                // The side flown for is the server's to say, whatever the Hello asked: friends and
+                // foes go by it from here (and a reconnect asks for it).
+                self.cfg.faction = faction;
+                self.world.faction = faction;
                 self.predict.set_interior(flags & welcome_flags::INTERIOR != 0);
                 self.predict.set_landmarks(landmarks);
                 let anime = flags & welcome_flags::ANIME != 0;
@@ -909,6 +916,7 @@ mod tests {
             field_rocks: rocks,
             flags: 0,
             landmarks: 0,
+            faction: Faction::Colonies,
         }));
         assert_eq!(core.phase, Phase::InGame);
         // A line through a rock, and through nothing else.
@@ -949,5 +957,44 @@ mod tests {
         let n = w.finish().unwrap();
         core.on_datagram(&buf[..n], 2.0);
         assert!(camera_clamp(&core.world.bodies, 90.0, from, to).distance(to) > 1.0);
+    }
+
+    /// An agent asks for Oz, the Mobile Dolls' own; the server flies it for the Colonies and its
+    /// Welcome says so. Friends and foes go by that side from then on, in the next sector too, and
+    /// a reconnect asks for it.
+    #[test]
+    fn the_side_flown_for_is_the_welcomes() {
+        let mut core = ClientCore::new(ClientConfig {
+            name: "Zechs".into(),
+            pilot: PilotKind::Agent,
+            frame: FrameId::Leo,
+            faction: Faction::Oz,
+        });
+        let welcome = |faction, flags| {
+            encode(ControlMsg::Welcome {
+                version: PROTOCOL_VERSION,
+                client_slot: 4,
+                tick: 0,
+                tick_hz: bc_sim::config::TICK_HZ as u8,
+                sector: 1,
+                zero_allowed: false,
+                max_datagram: 1_100,
+                field_seed: 7,
+                field_rocks: 0,
+                flags,
+                landmarks: 0,
+                faction,
+            })
+        };
+        core.on_control(&welcome(Faction::Colonies, 0));
+        assert_eq!(core.phase, Phase::InGame);
+        assert_eq!(core.world.faction, Faction::Colonies);
+        // Into the colony's inside: what was flown is forgotten, the side isn't.
+        core.on_control(&welcome(Faction::Colonies, welcome_flags::INTERIOR));
+        assert_eq!(core.world.faction, Faction::Colonies);
+        let Ok(Some((ControlMsg::Hello { faction, .. }, _))) = ControlMsg::decode(&core.hello()) else {
+            panic!("a Hello");
+        };
+        assert_eq!(faction, Faction::Colonies);
     }
 }

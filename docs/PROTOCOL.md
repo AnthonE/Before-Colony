@@ -361,7 +361,7 @@ prefix, except the hangar's (tag 11), which may carry up to 64 KiB.
 | Tag | Message | Direction |
 |---|---|---|
 | 1 | Hello {version, pilot kind, frame, faction, name ≤ 16 B, flags (1 SIGN_IN, 2 RESUME), resume token (32 B, only with RESUME)} | client → server (first frame) |
-| 2 | Welcome {version, client slot, tick, tick_hz, sector, zero_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY, 32 INTERIOR), landmarks (u8)} | server → client (again on moving between sectors) |
+| 2 | Welcome {version, client slot, tick, tick_hz, sector, zero_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY, 32 INTERIOR), landmarks (u8), faction (u8: the side flown for)} | server → client (again on moving between sectors) |
 | 3 | Reject {reason: 1 version, 2 full, 3 bad hello, 4 frame not allowed, 5 sign-in failed, 6 sign-in required, 7 resume token expired, 8 no signature in time} | server → client |
 | 4 | Roster {entity slot, pilot kind, name (empty = left), flags (1 VERIFIED, 2 ASLEEP, bits 2-4 the suit's weathering 0-7)} | server → client |
 | 5 | Respawn {frame} | client → server |
@@ -372,7 +372,10 @@ prefix, except the hangar's (tag 11), which may carry up to 64 KiB.
 | 10 | Notice {code: 1 your sleeping suit was destroyed, 2 your sleeping suit is gone; name ≤ 16 B (who, for 1)} | server → client |
 | 11 | Hangar {JSON, `bc_econ::wire`: a Request up, an Update down} | either (survival rules; the radio's `say` and `said` under any) |
 
-Pilots claiming to be a server-side Mobile Doll are downgraded to `Agent`.
+Pilots claiming to be a server-side Mobile Doll are downgraded to `Agent`. The side is the server's
+to say: Oz is the Mobile Dolls' own, so a claim to it flies for the Colonies, as every human pilot
+does; an agent asking for the Alliance flies for it. The Welcome's `faction` is the side flown for,
+and a client takes its friends and foes from it, not from what its Hello asked.
 
 A Hello is read version first: one from another protocol version answers `Reject {version}` even
 if the rest of it (a frame this build doesn't know) would not parse.

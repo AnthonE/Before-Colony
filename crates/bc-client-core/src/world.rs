@@ -354,6 +354,8 @@ pub struct World {
     pub drill: Drill,
     pub drill_news: Vec<DrillEvent>,
     seen: VecDeque<u16>,
+    /// The side the pilot flies for, as the Welcome says (friends and foes, and lock-on targets,
+    /// go by it).
     pub faction: Faction,
     pub my_hits: u32,
     pub my_kills: u32,

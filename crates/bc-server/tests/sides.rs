@@ -1,6 +1,7 @@
 //! Sides over real WebTransport: the side a pilot flies for is the server's to say. Oz is the
 //! Mobile Dolls' own, and they never hunt it: an agent claiming it flies for the Colonies, from
-//! their spawn, and is seen so by the pilot beside it; an agent asking for the Alliance flies for it.
+//! their spawn, is told so in its Welcome (its friends and foes go by it), and is seen so by the
+//! pilot beside it; an agent asking for the Alliance flies for it.
 
 use bc_bot::{BotClient, BotConfig};
 use bc_proto::{Faction, FrameId};
@@ -32,6 +33,10 @@ async fn a_claim_to_oz_flies_for_the_colonies() -> anyhow::Result<()> {
     spy.wait_until(5.0, "its suit", |c| c.world.own.is_some()).await?;
     let own = spy.world().own.expect("own suit");
     assert!(own.pos.distance(COLONIES) < 400.0, "at the Colonies' spawn: {}", own.pos);
+    // Its Welcome said so: it takes the Colonies for friends and the Dolls for foes, as the
+    // server does.
+    assert_eq!(spy.world().faction, Faction::Colonies);
+    assert_eq!(spy.core.cfg.faction, Faction::Colonies, "a reconnect asks for it");
     // Beside a pilot of the Colonies, who sees it flying for them.
     let mut mate = BotClient::connect(&agent(&http, "Howard", Faction::Colonies)).await?;
     mate.wait_until(5.0, "Zechs on sensors", |c| c.world.entity(own.slot).is_some()).await?;
@@ -41,6 +46,7 @@ async fn a_claim_to_oz_flies_for_the_colonies() -> anyhow::Result<()> {
     other.wait_until(5.0, "its suit", |c| c.world.own.is_some()).await?;
     let at = other.world().own.expect("own suit").pos;
     assert!(at.distance(ALLIANCE) < 400.0, "at the Alliance's spawn: {at}");
+    assert_eq!(other.world().faction, Faction::Alliance);
     spy.close().await;
     mate.close().await;
     other.close().await;

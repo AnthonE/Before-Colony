@@ -416,6 +416,8 @@ impl Session<'_> {
                 field_rocks: sector.field_rocks,
                 flags,
                 landmarks: sector.landmarks,
+                // The side flown for (`game::side`), whatever the Hello asked.
+                faction: self.faction,
             },
         )
         .await

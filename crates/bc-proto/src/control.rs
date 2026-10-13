@@ -188,6 +188,10 @@ pub enum ControlMsg {
         /// How many of the compiled landmarks (`bc_sim::content::landmarks::LANDMARKS`) the sector
         /// has: the first this many. Riders name them by index.
         landmarks: u8,
+        /// The side the pilot flies for. It's the server's to say, whatever the Hello asked (a claim
+        /// to Oz, the Mobile Dolls' own, flies for the Colonies), and the client takes its friends
+        /// and foes from it.
+        faction: Faction,
     },
     /// Server → client, then the stream closes.
     Reject { reason: RejectReason },
@@ -250,6 +254,7 @@ impl ControlMsg {
                 field_rocks,
                 flags,
                 landmarks,
+                faction,
             } => {
                 p.u8(2);
                 p.u16(version);
@@ -263,6 +268,7 @@ impl ControlMsg {
                 p.u16(field_rocks);
                 p.u8(flags);
                 p.u8(landmarks);
+                p.u8(faction as u8);
             }
             ControlMsg::Reject { reason } => {
                 p.u8(3);
@@ -369,6 +375,7 @@ impl ControlMsg {
                 field_rocks: r.u16()?,
                 flags: r.u8()?,
                 landmarks: r.u8()?,
+                faction: Faction::from_bits(u32::from(r.u8()?)),
             },
             3 => ControlMsg::Reject { reason: RejectReason::from_u8(r.u8()?) },
             4 => ControlMsg::Roster {
@@ -549,6 +556,7 @@ mod tests {
                 field_rocks: 160,
                 flags: welcome_flags::SIGNED_IN | welcome_flags::WOKE,
                 landmarks: 2,
+                faction: Faction::Alliance,
             },
             ControlMsg::Reject { reason: RejectReason::FrameNotAllowed },
             ControlMsg::Reject { reason: RejectReason::VersionMismatch },
@@ -596,8 +604,8 @@ mod tests {
     }
 
     #[test]
-    fn welcome_carries_landmarks() {
-        let welcome = |landmarks| ControlMsg::Welcome {
+    fn welcome_carries_landmarks_and_the_side() {
+        let welcome = |landmarks, faction| ControlMsg::Welcome {
             version: PROTOCOL_VERSION,
             client_slot: 0,
             tick: 1,
@@ -609,16 +617,19 @@ mod tests {
             field_rocks: 0,
             flags: 0,
             landmarks,
+            faction,
         };
         let mut buf = [0u8; MAX_FRAME];
-        for landmarks in [0, 2, 16, 255] {
-            let n = welcome(landmarks).encode(&mut buf).unwrap();
+        let sides = [Faction::Colonies, Faction::Alliance, Faction::Oz, Faction::Colonies];
+        for (landmarks, faction) in [0, 2, 16, 255].into_iter().zip(sides) {
+            let n = welcome(landmarks, faction).encode(&mut buf).unwrap();
             // Tag, version, slot, tick, tick_hz, sector, zero_allowed, max_datagram, field seed and
-            // rocks, flags, and the landmarks' one byte last.
-            assert_eq!(n, 2 + 1 + 2 + 2 + 4 + 1 + 1 + 1 + 2 + 4 + 2 + 1 + 1);
-            assert_eq!(buf[n - 1], landmarks);
-            assert_eq!(ControlMsg::decode(&buf[..n]).unwrap(), Some((welcome(landmarks), n)));
-            // A Welcome without it (an older server's) is cut short.
+            // rocks, flags, the landmarks' one byte, and the side's last.
+            assert_eq!(n, 2 + 1 + 2 + 2 + 4 + 1 + 1 + 1 + 2 + 4 + 2 + 1 + 1 + 1);
+            assert_eq!(buf[n - 2], landmarks);
+            assert_eq!(buf[n - 1], faction as u8);
+            assert_eq!(ControlMsg::decode(&buf[..n]).unwrap(), Some((welcome(landmarks, faction), n)));
+            // A Welcome without the side (an older server's) is cut short.
             buf[0] -= 1;
             assert_eq!(ControlMsg::decode(&buf[..n - 1]), Err(DecodeError::Truncated));
         }

@@ -868,9 +868,10 @@ async fn identify(
     }
 }
 
-/// The side a pilot flies for, whatever their Hello asked. Oz is the Mobile Dolls' own, and they
-/// never hunt it: a claim to it flies for the Colonies. So does every human pilot (the browser asks
-/// for nothing else); an agent keeps the side it asked for, of the others.
+/// The side a pilot flies for, whatever their Hello asked (their Welcome tells them, and their
+/// client takes its friends and foes from it). Oz is the Mobile Dolls' own, and they never hunt it:
+/// a claim to it flies for the Colonies. So does every human pilot (the browser asks for nothing
+/// else); an agent keeps the side it asked for, of the others.
 fn side(pilot: PilotKind, asked: Faction) -> Faction {
     let side = match (pilot, asked) {
         (PilotKind::Human, _) | (_, Faction::Oz) => Faction::Colonies,

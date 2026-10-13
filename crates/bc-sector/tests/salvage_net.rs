@@ -125,6 +125,7 @@ fn run_with(
                     field_rocks: shared.field_rocks,
                     flags: 0,
                     landmarks: shared.landmarks,
+                    faction: Faction::Colonies,
                 }
                 .encode(&mut w)
                 .unwrap();
