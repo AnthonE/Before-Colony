@@ -812,11 +812,15 @@ fn verb(spot: Spot, bay: Option<&Bay>, colony: bool, lift: Lift) -> String {
     }
 }
 
-/// What using a place in the city is called on the prompt.
+/// What using a place in the city is called on the prompt: its name, and the one thing only its
+/// desk does.
 fn city_verb(p: &PlaceDef) -> String {
     match p.kind {
         PlaceKind::HubGate => "THE CAP LIFT, UP TO YOUR BAY".into(),
-        _ => p.name.into(),
+        PlaceKind::Exchange => "THE EXCHANGE FLOOR · ORDERS THAT WAIT ON THE BOOK".into(),
+        PlaceKind::Charter => "THE CHARTER BOARD · CONTRACTS, PATROLS AND THE CHARTER".into(),
+        PlaceKind::Bar => "THE ARRIVAL · THE MOST WANTED".into(),
+        PlaceKind::Proving => "THE PROVING GROUND · THE BOARD AND THE TEST RANGE".into(),
     }
 }
 
@@ -1145,7 +1149,8 @@ pub fn drive_onfoot(
                 }
                 PlaceKind::Exchange => ui.panel = Panel::Terminal(Spot::Exchange),
                 PlaceKind::Charter => ui.panel = Panel::Board,
-                PlaceKind::Bar => ui.toast("THE ARRIVAL · THE BAR'S QUIET FOR NOW · THE SEATS ARE OUT FRONT"),
+                // Behind the bar: Zodiac's Most Wanted, and the pilot's terms.
+                PlaceKind::Bar => ui.panel = Panel::Arrival,
                 // The instructor's desk: the board, the pars, and the pilot's own bests.
                 PlaceKind::Proving => ui.panel = Panel::Proving,
             }
@@ -1471,6 +1476,8 @@ pub fn publish_onfoot(
     dev.set("place", ui.place);
     // The colony's sights found on foot (the found-list, kept in the settings).
     dev.set("sights_found", sights::count(settings.0.sights_found) as u32);
+    // The objectives done (a bit per `bc_client_core::objectives::Objective`).
+    dev.set("objectives_done", settings.0.objectives_done);
     dev.set("seq", me.seq.name());
     dev.set("focus", me.focus.map_or("", Spot::slug));
     dev.set("terminal", ui.terminal_tab());

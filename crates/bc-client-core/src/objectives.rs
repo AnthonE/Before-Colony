@@ -1,19 +1,29 @@
-//! Objectives: what a pilot can set out to do in the sector. The HUD shows one at a time with a
-//! waypoint to fly to (◆), and the map (M) lists them all. They're the Charter Board's first jobs
-//! for a new Arrival: land on the resource satellite and hide in its well, mine ore and bring it
-//! home, then (with the colony open) ride the cap lift down, report to the Proving Ground, find the
-//! Exchange floor and sell on it, down a Mobile Doll, reach Hermit, and make a name for yourself.
+//! Objectives: what a pilot can set out to do in the sector and the colony. The HUD shows one at a
+//! time with a waypoint to fly to (◆), and the map (M) lists them all. They're the Charter Board's
+//! first jobs for a new Arrival, after `docs/TRAINING.md`'s first ten minutes: with the colony open,
+//! ride the cap lift down, report to the Proving Ground and earn a flight certificate there, then a
+//! straight walk down the avenue to the Exchange floor and the Charter Board's desk, standing with
+//! the colony, and home to arm the suit with the Board's beam rifle. Then out: land on the resource
+//! satellite and hide in its well, mine ore and bring it home, sell it, down a Mobile Doll, reach
+//! Hermit, down five, read Zodiac's Most Wanted at The Arrival and down one of its aces, try a new
+//! Gundam on the test range, and make gundanium.
 //!
-//! They can be done in any order: each is checked every frame, and the HUD shows the first in the
-//! rules' order that isn't done yet. What's done is kept with the settings (a bit per
-//! [`Objective`], and how many Dolls the pilot has downed), so it carries over from one visit to
-//! the next in the same browser.
+//! They can be done in any order: each is checked every frame, and what's done is kept with the
+//! settings (a bit per [`Objective`], and how many Dolls the pilot has downed), so it carries over
+//! from one visit to the next in the same browser. Which one the HUD shows depends on where the
+//! pilot is ([`Here`]): flying, the first not done that's done in space (so a pilot who launches
+//! first is never pulled home while one is open); on foot, the first not done in the rules' order,
+//! passing over one in space the pilot has flown past. Each has a [`Realm`], where it's done, and
+//! its how-line begins with the way there from where the pilot is ([`Objective::how_from`]).
 //!
 //! Everything they're checked against is what the client already knows: where the suit stands and
-//! what it holds, its cover, the dock's flag and its kills. None of it is a reward: bounties and
-//! sales are the server's, as ever. These point the way to them.
+//! what it holds, its cover, the dock's flag and its kills, and the server's word on the hangar,
+//! the Charter Board and the Proving Ground. None of it is a reward: bounties, sales, the
+//! certificate's rifle are the server's, as ever. These point the way to them.
 
+use bc_proto::FrameId;
 use bc_sim::bodies::Body;
+use bc_sim::content::aces::ACES;
 use bc_sim::content::city::{PLACES, PlaceKind};
 use bc_sim::content::landmarks::LANDMARKS;
 use bc_sim::content::salvage::DOCK_CENTER;
@@ -25,8 +35,8 @@ use crate::bay::Lift;
 
 /// Ore in the hold that counts as having mined, kg.
 pub const MINE_KG: u32 = 200;
-/// Dolls downed that make a name.
-pub const ACE: u32 = 5;
+/// Dolls downed that make a name (and Zodiac's aces are next).
+pub const FIVE_DOLLS: u32 = 5;
 /// A rock this big (its smallest half-axis, m) is the miner's waypoint: it can be landed on, and
 /// holds tonnes.
 const BIG_ROCK: f32 = 10.0;
@@ -46,8 +56,8 @@ pub enum Objective {
     Bounty,
     /// Land on Hermit (the second landmark).
     Hermit,
-    /// Down [`ACE`] Mobile Dolls.
-    Ace,
+    /// Down [`FIVE_DOLLS`] Mobile Dolls.
+    FiveDolls,
     /// Ride a cap lift down from the bays into the colony (the colony open).
     RideDown,
     /// Find the Colony Exchange's floor in the city.
@@ -56,6 +66,47 @@ pub enum Objective {
     Sell,
     /// Report to the Proving Ground, the Blast Hall off Hub Gate's square (`docs/TRAINING.md`).
     ProvingGround,
+    /// Earn a flight certificate there: a time on its board, the drill's or the course's (the
+    /// server's word). The Charter Board trusts a certified pilot with a beam rifle.
+    Certify,
+    /// Report to the Charter Board's desk, in its hall on Charter Square.
+    CharterDesk,
+    /// Earn standing with the colony: deliver to its contracts or its great works.
+    Standing,
+    /// Arm the bay's suit: every weapon its frame carries fitted (the worn Leo an Arrival is handed
+    /// came without its beam rifle).
+    Arm,
+    /// Read Zodiac's Most Wanted, pinned up behind the bar at The Arrival.
+    MostWanted,
+    /// Down one of Zodiac's aces (the Charter Board's count).
+    ZodiacAce,
+    /// Fly a new Gundam off the test range, from the Blast Hall's gantry.
+    TryPrototype,
+    /// Make gundanium (or have it in the making) at the colony's zero-G foundry.
+    Gundanium,
+}
+
+/// Where an objective is done.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Realm {
+    /// Flying in the sector.
+    Space,
+    /// On foot in the pilot's own bay.
+    Bay,
+    /// On foot in the colony's city.
+    City,
+    /// On foot at any terminal: in the bay, or at a desk in the city.
+    Afoot,
+}
+
+/// Where the pilot is, for the objectives: flying (or not yet anywhere), on foot in their bay, or
+/// on foot on strip `n` of the city.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Here {
+    #[default]
+    Space,
+    Bay,
+    City(u8),
 }
 
 /// Where an objective's waypoint is.
@@ -69,56 +120,83 @@ pub enum Waypoint {
     Dock,
     /// The nearest Mobile Doll in sight, else their patrols over the field.
     Dolls,
+    /// The nearest of Zodiac's aces in sight (by its name on the roster), else as [`Waypoint::Dolls`].
+    Ace,
     /// A place in the colony's city (an index into `content::city::PLACES`): flying, the way
     /// home to the dock comes first; on foot, its door.
     Place(u8),
 }
 
 impl Objective {
-    pub const ALL: [Objective; 11] = [
+    pub const ALL: [Objective; 19] = [
         Objective::LandStation,
         Objective::Hide,
         Objective::Mine,
         Objective::Deliver,
         Objective::Bounty,
         Objective::Hermit,
-        Objective::Ace,
+        Objective::FiveDolls,
         Objective::RideDown,
         Objective::ExchangeFloor,
         Objective::Sell,
         Objective::ProvingGround,
+        Objective::Certify,
+        Objective::CharterDesk,
+        Objective::Standing,
+        Objective::Arm,
+        Objective::MostWanted,
+        Objective::ZodiacAce,
+        Objective::TryPrototype,
+        Objective::Gundanium,
     ];
 
-    /// Survival's order: a pilot launches at the dock, beside the station, in a worn Leo; the
-    /// Dolls are a long way off. The ore brought home goes down the chain: to the colony (its
-    /// Proving Ground off the square first), and its Exchange.
-    const SURVIVAL: [Objective; 11] = [
+    /// Survival's order: `docs/TRAINING.md`'s first ten minutes, a new Arrival on foot in their bay
+    /// with a worn Leo: down the cap lift, and a straight walk along the avenue from Hub Gate past
+    /// the Blast Hall to the Exchange floor and the Charter Board's hall; then home to arm the suit,
+    /// and out. The ore brought home is sold; then the Dolls, and their aces.
+    const SURVIVAL: [Objective; 19] = [
+        Objective::RideDown,
+        Objective::ProvingGround,
+        Objective::Certify,
+        Objective::ExchangeFloor,
+        Objective::CharterDesk,
+        Objective::Standing,
+        Objective::Arm,
         Objective::LandStation,
         Objective::Hide,
         Objective::Mine,
         Objective::Deliver,
-        Objective::RideDown,
-        Objective::ProvingGround,
-        Objective::ExchangeFloor,
         Objective::Sell,
         Objective::Bounty,
         Objective::Hermit,
-        Objective::Ace,
+        Objective::FiveDolls,
+        Objective::MostWanted,
+        Objective::ZodiacAce,
+        Objective::TryPrototype,
+        Objective::Gundanium,
     ];
     /// Arcade's: a pilot launches by the field, in whatever suit they like, among the Dolls (and
-    /// the colony is closed).
-    const ARCADE: [Objective; 11] = [
+    /// the colony is closed: what's the colony's or the bay's doesn't show).
+    const ARCADE: [Objective; 19] = [
         Objective::Bounty,
         Objective::Mine,
         Objective::Deliver,
         Objective::LandStation,
         Objective::Hide,
         Objective::Hermit,
-        Objective::Ace,
+        Objective::FiveDolls,
         Objective::RideDown,
         Objective::ProvingGround,
         Objective::ExchangeFloor,
         Objective::Sell,
+        Objective::Certify,
+        Objective::CharterDesk,
+        Objective::Standing,
+        Objective::Arm,
+        Objective::MostWanted,
+        Objective::ZodiacAce,
+        Objective::TryPrototype,
+        Objective::Gundanium,
     ];
 
     pub fn bit(self) -> u32 {
@@ -126,29 +204,49 @@ impl Objective {
     }
 
     /// In the order the rules show them.
-    pub fn order(survival: bool) -> &'static [Objective; 11] {
+    pub fn order(survival: bool) -> &'static [Objective; 19] {
         if survival { &Self::SURVIVAL } else { &Self::ARCADE }
     }
 
-    /// Whether the sector has what it needs (a landmark, rocks, the colony open).
+    /// Whether the sector has what it needs (a landmark, rocks, the colony open, a hangar).
     pub fn available(self, i: &ObjectiveInput) -> bool {
         match self {
             Objective::LandStation | Objective::Hide => i.landmarks >= 1,
             Objective::Hermit => i.landmarks >= 2,
             Objective::Mine => i.rocks,
-            Objective::RideDown | Objective::ProvingGround | Objective::ExchangeFloor | Objective::Sell => {
-                i.colony
-            }
-            _ => true,
+            Objective::RideDown
+            | Objective::ProvingGround
+            | Objective::ExchangeFloor
+            | Objective::Sell
+            | Objective::Certify
+            | Objective::CharterDesk
+            | Objective::MostWanted
+            | Objective::TryPrototype => i.colony,
+            Objective::Standing | Objective::Arm | Objective::ZodiacAce | Objective::Gundanium => i.survival,
+            Objective::Deliver | Objective::Bounty | Objective::FiveDolls => true,
         }
     }
 
-    /// Done on foot (in the bay or the city), so shown there too.
-    pub fn on_foot(self) -> bool {
-        matches!(
-            self,
-            Objective::RideDown | Objective::ProvingGround | Objective::ExchangeFloor | Objective::Sell
-        )
+    /// Where it's done.
+    pub fn realm(self) -> Realm {
+        match self {
+            Objective::LandStation
+            | Objective::Hide
+            | Objective::Mine
+            | Objective::Deliver
+            | Objective::Bounty
+            | Objective::Hermit
+            | Objective::FiveDolls
+            | Objective::ZodiacAce => Realm::Space,
+            Objective::RideDown | Objective::Arm | Objective::Gundanium => Realm::Bay,
+            Objective::ProvingGround
+            | Objective::Certify
+            | Objective::ExchangeFloor
+            | Objective::CharterDesk
+            | Objective::MostWanted
+            | Objective::TryPrototype => Realm::City,
+            Objective::Sell | Objective::Standing => Realm::Afoot,
+        }
     }
 
     /// The HUD's line: terse, all caps.
@@ -162,11 +260,19 @@ impl Objective {
             Objective::Deliver => "SELL ORE AT THE DOCK".into(),
             Objective::Bounty => format!("DOWN A {}", doll().to_uppercase()),
             Objective::Hermit => format!("LAND ON {}", LANDMARKS[1].name),
-            Objective::Ace => format!("DOWN {ACE} {}S", doll().to_uppercase()),
+            Objective::FiveDolls => format!("DOWN {FIVE_DOLLS} {}S", doll().to_uppercase()),
             Objective::RideDown => "RIDE THE CAP LIFT DOWN".into(),
             Objective::ExchangeFloor => "FIND THE EXCHANGE FLOOR".into(),
             Objective::Sell => "SELL ON THE EXCHANGE".into(),
             Objective::ProvingGround => "REPORT TO THE PROVING GROUND".into(),
+            Objective::Certify => "EARN A FLIGHT CERTIFICATE".into(),
+            Objective::CharterDesk => "REPORT TO THE CHARTER BOARD".into(),
+            Objective::Standing => "EARN STANDING WITH THE COLONY".into(),
+            Objective::Arm => "ARM YOUR SUIT".into(),
+            Objective::MostWanted => "READ THE MOST WANTED".into(),
+            Objective::ZodiacAce => "DOWN ONE OF ZODIAC'S ACES".into(),
+            Objective::TryPrototype => format!("TRY A NEW {} ON THE TEST RANGE", proto().to_uppercase()),
+            Objective::Gundanium => "MAKE GUNDANIUM".into(),
         }
     }
 
@@ -198,20 +304,56 @@ impl Objective {
                 "The big asteroid, 15 km out past the field. Its craters hide a suit: {}.",
                 LANDMARKS[1].hides.iter().map(|h| h.name).collect::<Vec<_>>().join(", ")
             ),
-            Objective::Ace => "Make a name for yourself. Every one downed is a bounty paid.".into(),
+            Objective::FiveDolls => {
+                "Every one is a bounty paid, and counts toward a patrol you hold. Five, and Zodiac's aces are next."
+                    .into()
+            }
             Objective::RideDown => {
                 "Home in your bay, walk to the airlock and press E: the cap lift rides down the end cap into the colony."
                     .into()
             }
             Objective::ExchangeFloor => {
-                "From Hub Gate, along the avenue: M shows the city, ◆ marks the Exchange's door.".into()
+                "From Hub Gate, along the avenue: M shows the city, ◆ marks the Exchange's door. Its floor is where an order at your own price waits on the book."
+                    .into()
             }
             Objective::Sell => {
-                "At the Exchange floor's door, E opens its book: sell your ore to the colony's desk or another pilot."
+                "At any terminal's EXCHANGE tab, your bay's or the Exchange floor's: sell what you brought home to the colony's desk or to another pilot."
                     .into()
             }
             Objective::ProvingGround => {
                 "The Blast Hall, off Hub Gate's square: M shows the city, ◆ marks its blast doors. Its desk (E) has the board; its gantry, a trainer to fly."
+                    .into()
+            }
+            Objective::Certify => format!(
+                "In the Blast Hall, E at the gantry's hatch boards one of the Board's {}s: clear the drill, or fly the course from the inner gate. Any time the Board takes is a certificate, and it trusts a certified pilot with a beam rifle.",
+                leo()
+            ),
+            Objective::CharterDesk => {
+                "Its hall is on Charter Square, past the Exchange floor: M shows the city, ◆ marks its door. What the Board holds for you is paid out at its desk (E), and contracts are posted, patrols taken and the charter signed there."
+                    .into()
+            }
+            Objective::Standing => {
+                "Deliver to one of the colony's contracts or a great work, at the Charter Board's desk or its tab on your bay's terminals: the second foundry takes any steel, and the 200 kg you came with will do. Paid over its value, and in standing."
+                    .into()
+            }
+            Objective::Arm => format!(
+                "Your {} came without its beam rifle. At the suit's console in your bay (E at its feet), fit one from your stores: the Charter Board's, or one bought on the Exchange or built at the fabricator.",
+                leo()
+            ),
+            Objective::MostWanted => {
+                "Zodiac's aces are pinned up behind the bar at The Arrival, off Charter Square (E at its counter): who's out, the bounty on each, and your terms for it."
+                    .into()
+            }
+            Objective::ZodiacAce => format!(
+                "One flies among the {}s at a time, its callsign on your lock (Y), its ◆ on your HUD. The Charter Board pays its bounty; or, on your terms, the tugs bring its wreck home.",
+                doll()
+            ),
+            Objective::TryPrototype => format!(
+                "At the Proving Ground's desk, THE TEST RANGE readies a new {} on the gantry: board it at the hatch (E) and fly it. Nothing of yours is at stake, and it's what you're building towards.",
+                proto()
+            ),
+            Objective::Gundanium => {
+                "Only the colony's zero-G foundry makes it, from titanium alloy and exotics, for a fee: queue it at your bay's fabricator. Exotics are in the field's rarest rocks."
                     .into()
             }
         }
@@ -242,17 +384,41 @@ impl Objective {
         }
     }
 
+    /// The panel's how-line from where the pilot is: [`Objective::how`] where it's done (on
+    /// another strip of the city, [`Objective::how_on`]'s way there), else the way there first.
+    pub fn how_from(self, survival: bool, here: Here) -> String {
+        let first = match (self.realm(), here) {
+            (Realm::Space, Here::Space) | (Realm::Bay | Realm::Afoot, Here::Bay) => {
+                return self.how(survival);
+            }
+            (Realm::City | Realm::Afoot, Here::City(strip)) => return self.how_on(survival, Some(strip)),
+            (Realm::City, Here::Bay) => "At your airlock, E rides the cap lift down. ",
+            (Realm::Bay, Here::City(_)) => "Back up to your bay first: E at Hub Gate's lift. ",
+            (Realm::Space, Here::Bay) => "Up the stairs: E at the cockpit's hatch launches. ",
+            (Realm::Space, Here::City(_)) => {
+                "Back up to your bay (E at Hub Gate's lift), and launch from its cockpit. "
+            }
+            (Realm::City | Realm::Bay | Realm::Afoot, Here::Space) => "Home first: dock at the ◆. ",
+        };
+        format!("{first}{}", self.how(survival))
+    }
+
     pub fn waypoint(self) -> Waypoint {
         match self {
             Objective::LandStation => Waypoint::Landmark(0),
             Objective::Hide => Waypoint::HideSpot(0, 0),
             Objective::Mine => Waypoint::Rock,
-            Objective::Deliver => Waypoint::Dock,
-            Objective::Bounty | Objective::Ace => Waypoint::Dolls,
+            Objective::Deliver | Objective::Arm | Objective::Gundanium => Waypoint::Dock,
+            Objective::Bounty | Objective::FiveDolls => Waypoint::Dolls,
+            Objective::ZodiacAce => Waypoint::Ace,
             Objective::Hermit => Waypoint::Landmark(1),
             Objective::RideDown => Waypoint::Place(hub_gate()),
             Objective::ExchangeFloor | Objective::Sell => Waypoint::Place(exchange()),
-            Objective::ProvingGround => Waypoint::Place(proving_ground()),
+            Objective::ProvingGround | Objective::Certify | Objective::TryPrototype => {
+                Waypoint::Place(proving_ground())
+            }
+            Objective::CharterDesk | Objective::Standing => Waypoint::Place(charter()),
+            Objective::MostWanted => Waypoint::Place(bar()),
         }
     }
 
@@ -260,25 +426,45 @@ impl Objective {
     pub fn progress(self, i: &ObjectiveInput, downed: u32) -> Option<(u32, u32)> {
         match self {
             Objective::Mine => Some((i.cargo_kg.min(MINE_KG), MINE_KG)),
-            Objective::Ace => Some((downed.min(ACE), ACE)),
+            Objective::FiveDolls => Some((downed.min(FIVE_DOLLS), FIVE_DOLLS)),
             _ => None,
         }
     }
 }
 
+/// The index in `PLACES` of the first place of kind `kind`.
+fn place_of(kind: PlaceKind) -> u8 {
+    PLACES.iter().position(|p| p.kind == kind).unwrap_or(0) as u8
+}
+
 /// Where the browser's cap lift comes down (`PLACES`' index): the first strip's Hub Gate.
 fn hub_gate() -> u8 {
-    PLACES.iter().position(|p| p.kind == PlaceKind::HubGate && p.strip == 0).unwrap_or(0) as u8
+    hub_gate_on(0)
+}
+
+/// Strip `strip`'s Hub Gate (`PLACES`' index): its cap lift, the way up to the bays.
+pub fn hub_gate_on(strip: u8) -> u8 {
+    PLACES.iter().position(|p| p.kind == PlaceKind::HubGate && p.strip == strip).unwrap_or(0) as u8
 }
 
 /// The Exchange floor's index in `PLACES`.
 pub fn exchange() -> u8 {
-    PLACES.iter().position(|p| p.kind == PlaceKind::Exchange).unwrap_or(0) as u8
+    place_of(PlaceKind::Exchange)
 }
 
 /// The Proving Ground's index in `PLACES`.
 pub fn proving_ground() -> u8 {
-    PLACES.iter().position(|p| p.kind == PlaceKind::Proving).unwrap_or(0) as u8
+    place_of(PlaceKind::Proving)
+}
+
+/// The Charter Board's hall's index in `PLACES`.
+pub fn charter() -> u8 {
+    place_of(PlaceKind::Charter)
+}
+
+/// The Arrival's (the bar off Charter Square) index in `PLACES`.
+pub fn bar() -> u8 {
+    place_of(PlaceKind::Bar)
 }
 
 /// A name as it's written in a sentence: "CHARTER" is "Charter".
@@ -293,11 +479,23 @@ fn doll() -> &'static str {
     bc_sim::content::doll_name()
 }
 
+/// What the Charter Board's suits (an Arrival's worn one, its trainers) are called.
+fn leo() -> &'static str {
+    bc_sim::content::frame_name(FrameId::Leo)
+}
+
+/// What a new line of the colony's own is called.
+fn proto() -> &'static str {
+    bc_sim::content::prototype_word()
+}
+
 /// What the pilot is doing this frame.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ObjectiveInput {
     /// Survival rules (else arcade).
     pub survival: bool,
+    /// Where the pilot is: flying (or not yet anywhere), in their bay, or down in the city.
+    pub here: Here,
     /// Flying in the sector, alive.
     pub flying: bool,
     /// How many landmarks the sector has, and whether it has rocks.
@@ -322,6 +520,21 @@ pub struct ObjectiveInput {
     pub at_proving: bool,
     /// Sales filled on the Exchange this session (`HangarState::sales`).
     pub sales: u32,
+    /// The Proving Ground's board holds a time of the pilot's own (`HangarState::has_certificate`).
+    pub certified: bool,
+    /// At the Charter Board's door, and at The Arrival's.
+    pub at_charter: bool,
+    pub at_arrival: bool,
+    /// Standing with the colony (`HangarState::standing`).
+    pub standing: bool,
+    /// The bay's suit has every weapon it carries fitted (`HangarState::armed`).
+    pub armed: bool,
+    /// One of Zodiac's aces downed (`HangarState::aces_downed`).
+    pub aces: bool,
+    /// Flying a new Gundam off the test range (a trainer, alive).
+    pub tried_prototype: bool,
+    /// Gundanium in the stores or in the making (`HangarState::smelting`).
+    pub smelting: bool,
 }
 
 /// What the objectives remember between frames.
@@ -335,8 +548,8 @@ pub struct Objectives {
 
 impl Objectives {
     /// Steps once a frame: marks what's done in `done` (bits of [`Objective`]) and counts the
-    /// Dolls downed in `downed`. Returns the objective to show: the first in the rules' order that
-    /// isn't done and the sector has room for, or none once they all are.
+    /// Dolls downed in `downed`. Returns the objective to show ([`Objectives::current`]), or none
+    /// once they all are done.
     pub fn step(&mut self, done: &mut u32, downed: &mut u32, i: &ObjectiveInput) -> Option<Objective> {
         // A new session counts from nothing. A kill counts whenever it lands (a missile can bring
         // a Doll down after its shooter is).
@@ -345,13 +558,13 @@ impl Objectives {
         }
         *downed = downed.saturating_add(i.doll_kills - self.kills_seen);
         self.kills_seen = i.doll_kills;
+        let mut mark = |o: Objective, now: bool| {
+            if now {
+                *done |= o.bit();
+            }
+        };
         if i.flying {
             let aboard = i.cargo_kg.max(self.last_cargo);
-            let mut mark = |o: Objective, now: bool| {
-                if now {
-                    *done |= o.bit();
-                }
-            };
             mark(Objective::LandStation, i.landed_on == Some(0));
             mark(Objective::Hide, i.hidden_on == Some(0));
             mark(Objective::Mine, i.cargo_kg >= MINE_KG);
@@ -361,31 +574,53 @@ impl Objectives {
         } else {
             self.last_cargo = 0;
         }
-        // Down the chain, on foot.
-        if i.in_city {
-            *done |= Objective::RideDown.bit();
-        }
-        if i.at_exchange {
-            *done |= Objective::ExchangeFloor.bit();
-        }
-        if i.at_proving {
-            *done |= Objective::ProvingGround.bit();
-        }
-        if i.sales > 0 {
-            *done |= Objective::Sell.bit();
-        }
+        // Down the chain, on foot, and the server's word: each whenever it happens.
+        mark(Objective::RideDown, i.in_city);
+        mark(Objective::ExchangeFloor, i.at_exchange);
+        mark(Objective::ProvingGround, i.at_proving);
+        mark(Objective::Sell, i.sales > 0);
+        mark(Objective::Certify, i.certified);
+        mark(Objective::CharterDesk, i.at_charter);
+        mark(Objective::Standing, i.standing);
+        mark(Objective::Arm, i.armed);
+        mark(Objective::MostWanted, i.at_arrival);
+        mark(Objective::ZodiacAce, i.aces);
+        mark(Objective::TryPrototype, i.tried_prototype);
+        mark(Objective::Gundanium, i.smelting);
         if *downed >= 1 {
             *done |= Objective::Bounty.bit();
         }
-        if *downed >= ACE {
-            *done |= Objective::Ace.bit();
+        if *downed >= FIVE_DOLLS {
+            *done |= Objective::FiveDolls.bit();
         }
         Self::current(*done, i)
     }
 
-    /// The first objective in the rules' order not in `done` that the sector has room for.
+    /// The objective to show, of those not in `done` that the sector has room for. Flying, the
+    /// first in the rules' order that's done in space (else the first: its how-line begins with
+    /// the way home). On foot, the first in the rules' order, passing over one in space the pilot
+    /// has flown past (one done in space comes later in the order): the flight still shows it, and
+    /// the chart lists it.
     pub fn current(done: u32, i: &ObjectiveInput) -> Option<Objective> {
-        Objective::order(i.survival).iter().copied().find(|o| done & o.bit() == 0 && o.available(i))
+        let order = Objective::order(i.survival);
+        let open = |o: &Objective| done & o.bit() == 0 && o.available(i);
+        let space = |o: &Objective| o.realm() == Realm::Space;
+        match i.here {
+            Here::Space => order
+                .iter()
+                .copied()
+                .find(|o| open(o) && space(o))
+                .or_else(|| order.iter().copied().find(open)),
+            Here::Bay | Here::City(_) => {
+                let flown_past =
+                    |k: usize| order[k + 1..].iter().any(|later| space(later) && done & later.bit() != 0);
+                order
+                    .iter()
+                    .enumerate()
+                    .find(|&(k, o)| open(o) && !(space(o) && flown_past(k)))
+                    .map(|(_, o)| *o)
+            }
+        }
     }
 }
 
@@ -432,6 +667,31 @@ pub fn waypoint_at(core: &ClientCore, w: Waypoint, from: Vec3, t: f64) -> Option
                 None => (FIELD_CENTER, "PATROLS".to_string()),
             })
         }
+        // An ace is a Doll the roster names as one of Zodiac's (as `bc-server/tests/aces.rs` tells
+        // them); with none in sight, the Dolls.
+        Waypoint::Ace => {
+            let world = &core.world;
+            let ace = world
+                .entities
+                .iter()
+                .flatten()
+                .filter_map(|tr| {
+                    let e = &tr.latest;
+                    if e.pilot != bc_proto::PilotKind::MobileDoll
+                        || e.flags & bc_proto::snapshot::ent_flags::WRECK != 0
+                    {
+                        return None;
+                    }
+                    let (name, _) = world.roster.get(&e.slot)?;
+                    let ace = ACES.iter().find(|a| a.name == name.as_str())?;
+                    Some((tr.sample(t, &world.bodies).pos, ace.name))
+                })
+                .min_by(|a, b| a.0.distance_squared(from).total_cmp(&b.0.distance_squared(from)));
+            match ace {
+                Some((p, name)) => Some((p, name.to_string())),
+                None => waypoint_at(core, Waypoint::Dolls, from, t),
+            }
+        }
     }
 }
 
@@ -439,22 +699,82 @@ pub fn waypoint_at(core: &ClientCore, w: Waypoint, from: Vec3, t: f64) -> Option
 mod tests {
     use super::*;
 
+    /// The eight that came with the desks, in bit order.
+    const NEW: [Objective; 8] = [
+        Objective::Certify,
+        Objective::CharterDesk,
+        Objective::Standing,
+        Objective::Arm,
+        Objective::MostWanted,
+        Objective::ZodiacAce,
+        Objective::TryPrototype,
+        Objective::Gundanium,
+    ];
+
     fn flying(survival: bool) -> ObjectiveInput {
         ObjectiveInput { survival, flying: true, landmarks: 2, rocks: true, ..Default::default() }
     }
 
+    /// Survival with the colony open, flying; on foot in the bay; on foot on strip 0 of the city.
+    fn open() -> ObjectiveInput {
+        ObjectiveInput { colony: true, ..flying(true) }
+    }
+    fn in_bay(i: ObjectiveInput) -> ObjectiveInput {
+        ObjectiveInput { flying: false, here: Here::Bay, ..i }
+    }
+    fn in_city(i: ObjectiveInput) -> ObjectiveInput {
+        ObjectiveInput { flying: false, here: Here::City(0), in_city: true, ..i }
+    }
+
+    fn bits(os: &[Objective]) -> u32 {
+        os.iter().fold(0, |a, o| a | o.bit())
+    }
+
     #[test]
     fn every_objective_has_its_bit_and_both_orders_list_them_all() {
-        let bits: u32 = Objective::ALL.iter().map(|o| o.bit()).fold(0, |a, b| a | b);
-        assert_eq!(bits.count_ones() as usize, Objective::ALL.len());
+        let all = bits(&Objective::ALL);
+        assert_eq!(all.count_ones() as usize, Objective::ALL.len());
+        assert_eq!(Objective::ALL.len(), 19);
+        for (k, o) in Objective::ALL.iter().enumerate() {
+            assert_eq!(o.bit(), 1 << k, "ALL is in bit order: {o:?}");
+        }
+        // The bits never move: old settings keep their meanings.
+        assert_eq!(Objective::FiveDolls.bit(), 1 << 6);
+        assert_eq!(Objective::ProvingGround.bit(), 1 << 10);
+        for (k, o) in NEW.iter().enumerate() {
+            assert_eq!(o.bit(), 1 << (11 + k), "{o:?}");
+        }
+        assert_eq!(Objective::Gundanium.bit(), 1 << 18);
         for survival in [true, false] {
             let order = Objective::order(survival);
-            assert_eq!(order.iter().map(|o| o.bit()).fold(0, |a, b| a | b), bits);
+            assert_eq!(bits(order), all);
             for o in order {
                 assert!(!o.title(survival).is_empty() && !o.how(survival).is_empty());
                 assert_eq!(o.title(survival), o.title(survival).to_uppercase(), "the HUD is all caps");
             }
         }
+        let titles: Vec<String> = NEW.iter().map(|o| o.title(true)).collect();
+        let proto = bc_sim::content::prototype_word().to_uppercase();
+        assert_eq!(
+            titles,
+            [
+                "EARN A FLIGHT CERTIFICATE".to_string(),
+                "REPORT TO THE CHARTER BOARD".into(),
+                "EARN STANDING WITH THE COLONY".into(),
+                "ARM YOUR SUIT".into(),
+                "READ THE MOST WANTED".into(),
+                "DOWN ONE OF ZODIAC'S ACES".into(),
+                format!("TRY A NEW {proto} ON THE TEST RANGE"),
+                "MAKE GUNDANIUM".into(),
+            ]
+        );
+        if bc_sim::content::prototype_word() == "Gundam" {
+            assert_eq!(Objective::TryPrototype.title(true), "TRY A NEW GUNDAM ON THE TEST RANGE");
+        }
+        assert_eq!(
+            Objective::FiveDolls.title(true),
+            format!("DOWN 5 {}S", bc_sim::content::doll_name().to_uppercase())
+        );
     }
 
     #[test]
@@ -493,52 +813,215 @@ mod tests {
         assert_eq!(done & Objective::Deliver.bit(), 0);
     }
 
-    /// With the colony open, the ore brought home goes down the chain: the cap lift, the Exchange
-    /// floor, a sale. With it closed, those don't show; and each counts done on foot, whenever it
-    /// happens.
+    /// A new Arrival, survival with the colony open, on foot in their bay: down the cap lift, the
+    /// Proving Ground and its certificate, a straight walk along the avenue to the Exchange floor
+    /// and the Charter Board's desk, standing; then home to arm the suit, and out.
     #[test]
-    fn the_chain_runs_down_into_the_colony_and_its_exchange() {
-        let (mut o, mut downed) = (Objectives::default(), 0u32);
-        let home = Objective::LandStation.bit()
-            | Objective::Hide.bit()
-            | Objective::Mine.bit()
-            | Objective::Deliver.bit();
-        let open = ObjectiveInput { colony: true, ..flying(true) };
-        let mut done = home;
-        assert_eq!(o.step(&mut done, &mut downed, &open), Some(Objective::RideDown));
-        assert!(Objective::RideDown.on_foot() && !Objective::Mine.on_foot());
-        let mut closed = home;
+    fn a_new_arrivals_chain_walks_the_avenue_then_goes_home_to_arm_and_out() {
+        let (mut o, mut done, mut downed) = (Objectives::default(), 0u32, 0u32);
+        let bay = in_bay(open());
+        assert_eq!(o.step(&mut done, &mut downed, &bay), Some(Objective::RideDown));
+        assert_eq!(Objective::RideDown.how_from(true, Here::Bay), Objective::RideDown.how(true));
+        let city = in_city(open());
+        let step = |o: &mut Objectives, done: &mut u32, i: ObjectiveInput| {
+            let mut downed = 0;
+            o.step(done, &mut downed, &i)
+        };
+        assert_eq!(step(&mut o, &mut done, city), Some(Objective::ProvingGround));
         assert_eq!(
-            o.step(&mut closed, &mut downed, &flying(true)),
-            Some(Objective::Bounty),
-            "the colony's closed"
+            step(&mut o, &mut done, ObjectiveInput { at_proving: true, ..city }),
+            Some(Objective::Certify)
         );
-        // Down the lift and into the city: on foot, not flying. The Proving Ground is first, off
-        // the square.
-        let walking = ObjectiveInput { flying: false, in_city: true, ..open };
-        assert_eq!(o.step(&mut done, &mut downed, &walking), Some(Objective::ProvingGround));
-        assert_eq!(Objective::ProvingGround.waypoint(), Waypoint::Place(proving_ground()));
-        assert_eq!(PLACES[usize::from(proving_ground())].kind, PlaceKind::Proving);
-        assert!(Objective::ProvingGround.on_foot());
-        let reported = ObjectiveInput { at_proving: true, ..walking };
-        assert_eq!(o.step(&mut done, &mut downed, &reported), Some(Objective::ExchangeFloor));
-        assert_eq!(Objective::ExchangeFloor.waypoint(), Waypoint::Place(exchange()));
-        assert_eq!(PLACES[usize::from(exchange())].kind, PlaceKind::Exchange);
-        let there = ObjectiveInput { at_exchange: true, ..walking };
-        assert_eq!(o.step(&mut done, &mut downed, &there), Some(Objective::Sell));
-        let sold = ObjectiveInput { sales: 1, ..there };
-        assert_eq!(o.step(&mut done, &mut downed, &sold), Some(Objective::Bounty));
-        // A sale made from the bay's terminal before ever going down counts too.
-        let mut early = home;
-        o.step(&mut early, &mut downed, &ObjectiveInput { sales: 2, ..open });
-        assert!(early & Objective::Sell.bit() != 0);
+        assert_eq!(Objective::Certify.waypoint(), Waypoint::Place(proving_ground()));
+        assert_eq!(
+            step(&mut o, &mut done, ObjectiveInput { certified: true, ..city }),
+            Some(Objective::ExchangeFloor)
+        );
+        assert_eq!(
+            step(&mut o, &mut done, ObjectiveInput { at_exchange: true, ..city }),
+            Some(Objective::CharterDesk)
+        );
+        assert_eq!(Objective::CharterDesk.waypoint(), Waypoint::Place(charter()));
+        assert_eq!(PLACES[usize::from(charter())].kind, PlaceKind::Charter);
+        assert_eq!(
+            step(&mut o, &mut done, ObjectiveInput { at_charter: true, ..city }),
+            Some(Objective::Standing)
+        );
+        assert_eq!(step(&mut o, &mut done, ObjectiveInput { standing: true, ..city }), Some(Objective::Arm));
+        assert!(
+            Objective::Arm.how_from(true, Here::City(0)).starts_with("Back up to your bay first"),
+            "the rifle's fitted in the bay"
+        );
+        // Home, and armed: out.
+        assert_eq!(
+            step(&mut o, &mut done, ObjectiveInput { armed: true, ..bay }),
+            Some(Objective::LandStation)
+        );
+        assert!(Objective::LandStation.how_from(true, Here::Bay).starts_with("Up the stairs"));
+        assert_eq!(step(&mut o, &mut done, open()), Some(Objective::LandStation));
+        assert_eq!(Objective::LandStation.how_from(true, Here::Space), Objective::LandStation.how(true));
+    }
+
+    /// A pilot who launches first is never pulled home while there's something to do out there;
+    /// once there isn't, the first left begins with the way home.
+    #[test]
+    fn a_pilot_flying_first_is_never_pulled_home_while_a_space_objective_is_open() {
+        let (mut o, mut done, mut downed) = (Objectives::default(), 0u32, 0u32);
+        assert_eq!(o.step(&mut done, &mut downed, &open()), Some(Objective::LandStation));
+        for space in Objective::order(true).iter().filter(|o| o.realm() == Realm::Space) {
+            assert_eq!(Objectives::current(done, &open()), Some(*space));
+            done |= space.bit();
+        }
+        assert_eq!(Objectives::current(done, &open()), Some(Objective::RideDown));
+        assert!(Objective::RideDown.how_from(true, Here::Space).starts_with("Home first: dock at the ◆. "));
+    }
+
+    /// One in space skipped (Hide, after Mine): on foot it's passed over for what's next; the
+    /// flight still shows it.
+    #[test]
+    fn a_space_objective_flown_past_waits_for_the_flight() {
+        let walked = bits(&[
+            Objective::RideDown,
+            Objective::ProvingGround,
+            Objective::Certify,
+            Objective::ExchangeFloor,
+            Objective::CharterDesk,
+            Objective::Standing,
+            Objective::Arm,
+        ]);
+        let done = walked | bits(&[Objective::LandStation, Objective::Mine, Objective::Deliver]);
+        assert_eq!(Objectives::current(done, &in_bay(open())), Some(Objective::Sell));
+        assert_eq!(Objectives::current(done, &in_city(open())), Some(Objective::Sell));
+        assert_eq!(Objectives::current(done, &open()), Some(Objective::Hide));
+        // Not flown past (nothing later in space done): on foot, it's still next.
+        let landed = walked | Objective::LandStation.bit();
+        assert_eq!(Objectives::current(landed, &in_bay(open())), Some(Objective::Hide));
+        // Passing over is space's alone: a city one skipped still shows.
+        let walked_past = done & !Objective::ExchangeFloor.bit();
+        assert_eq!(Objectives::current(walked_past, &in_city(open())), Some(Objective::ExchangeFloor));
+    }
+
+    /// Each of the new ones is done by its own input, and by nothing else.
+    #[test]
+    fn each_new_objective_is_marked_by_its_own_input_alone() {
+        for base in [in_bay(open()), in_city(open()), open()] {
+            let base = ObjectiveInput { in_city: false, ..base };
+            let (mut o, mut done, mut downed) = (Objectives::default(), 0u32, 0u32);
+            o.step(&mut done, &mut downed, &base);
+            assert_eq!(done, 0, "nothing's done by being there");
+            for (want, i) in [
+                (Objective::Certify, ObjectiveInput { certified: true, ..base }),
+                (Objective::CharterDesk, ObjectiveInput { at_charter: true, ..base }),
+                (Objective::Standing, ObjectiveInput { standing: true, ..base }),
+                (Objective::Arm, ObjectiveInput { armed: true, ..base }),
+                (Objective::MostWanted, ObjectiveInput { at_arrival: true, ..base }),
+                (Objective::ZodiacAce, ObjectiveInput { aces: true, ..base }),
+                (Objective::TryPrototype, ObjectiveInput { tried_prototype: true, ..base }),
+                (Objective::Gundanium, ObjectiveInput { smelting: true, ..base }),
+            ] {
+                let (mut o, mut done, mut downed) = (Objectives::default(), 0u32, 0u32);
+                o.step(&mut done, &mut downed, &i);
+                assert_eq!(done, want.bit(), "{want:?}");
+                // Sticky: it stays done once the input's gone.
+                o.step(&mut done, &mut downed, &base);
+                assert_eq!(done, want.bit(), "{want:?} stays done");
+            }
+        }
+    }
+
+    /// Arcade: the colony's closed and there's no hangar, so none of the new ones shows; the Dolls
+    /// come first.
+    #[test]
+    fn arcade_has_none_of_the_colonys_or_the_bays() {
+        let arcade = flying(false);
+        for o in NEW {
+            assert!(!o.available(&arcade), "{o:?}");
+        }
+        assert_eq!(Objectives::current(0, &arcade), Some(Objective::Bounty));
+        assert_eq!(Objective::order(false)[0], Objective::Bounty);
+    }
+
+    /// Survival with the colony closed: what's the colony's doesn't show; the bay's and the
+    /// Board's do (the Board's tab is on the bay's terminals).
+    #[test]
+    fn with_the_colony_closed_the_colonys_objectives_dont_show() {
+        let closed = flying(true);
+        for o in [Objective::Certify, Objective::CharterDesk, Objective::MostWanted, Objective::TryPrototype]
+        {
+            assert!(!o.available(&closed), "{o:?}");
+        }
+        for o in [Objective::Standing, Objective::Arm, Objective::ZodiacAce, Objective::Gundanium] {
+            assert!(o.available(&closed), "{o:?}");
+        }
+        assert_eq!(Objectives::current(0, &in_bay(closed)), Some(Objective::Standing));
+        // Flying, home done: the Dolls.
+        let home = bits(&[Objective::LandStation, Objective::Hide, Objective::Mine, Objective::Deliver]);
+        assert_eq!(Objectives::current(home, &closed), Some(Objective::Bounty));
+    }
+
+    /// The how-line from where the pilot is: the way there first, each a sentence.
+    #[test]
+    fn the_how_line_begins_with_the_way_there() {
+        let charter_strip = "It's on the Charter strip: ride the lift up from Hub Gate here (E), and from your airlock E rides lift 1 down to it.";
+        let home = "Home first: dock at the ◆. ";
+        for (o, realm) in [
+            (Objective::Mine, Realm::Space),
+            (Objective::Arm, Realm::Bay),
+            (Objective::CharterDesk, Realm::City),
+            (Objective::Sell, Realm::Afoot),
+        ] {
+            assert_eq!(o.realm(), realm);
+            let how = o.how(true);
+            let from = |here| o.how_from(true, here);
+            let (space, bay, city, other_strip) = match realm {
+                Realm::Space => {
+                    let up = format!(
+                        "Back up to your bay (E at Hub Gate's lift), and launch from its cockpit. {how}"
+                    );
+                    (
+                        how.clone(),
+                        format!("Up the stairs: E at the cockpit's hatch launches. {how}"),
+                        up.clone(),
+                        up,
+                    )
+                }
+                Realm::Bay => {
+                    let up = format!("Back up to your bay first: E at Hub Gate's lift. {how}");
+                    (format!("{home}{how}"), how.clone(), up.clone(), up)
+                }
+                Realm::City => (
+                    format!("{home}{how}"),
+                    format!("At your airlock, E rides the cap lift down. {how}"),
+                    how.clone(),
+                    charter_strip.to_string(),
+                ),
+                Realm::Afoot => (format!("{home}{how}"), how.clone(), how.clone(), charter_strip.to_string()),
+            };
+            assert_eq!(from(Here::Space), space, "{o:?} flying");
+            assert_eq!(from(Here::Bay), bay, "{o:?} in the bay");
+            assert_eq!(from(Here::City(0)), city, "{o:?} on its strip");
+            assert_eq!(from(Here::City(1)), other_strip, "{o:?} on another strip");
+        }
+        // Wherever the pilot is, the line ends with how it's done.
+        for o in Objective::ALL {
+            for here in [Here::Space, Here::Bay, Here::City(0)] {
+                assert!(o.how_from(true, here).ends_with(&o.how(true)), "{o:?} from {here:?}");
+            }
+        }
     }
 
     /// The key places are on the Charter strip: on another, the objective says how to get there
     /// rather than pointing at a square that strip's Hub Gate doesn't have.
     #[test]
     fn on_another_strip_the_way_to_a_place_goes_up_and_down_its_lift() {
-        for o in [Objective::ProvingGround, Objective::ExchangeFloor, Objective::Sell] {
+        for o in [
+            Objective::ProvingGround,
+            Objective::ExchangeFloor,
+            Objective::Sell,
+            Objective::Certify,
+            Objective::CharterDesk,
+            Objective::MostWanted,
+        ] {
             let Waypoint::Place(k) = o.waypoint() else { panic!("{o:?} has a place") };
             let home = PLACES[usize::from(k)].strip;
             assert_eq!(o.how_on(true, Some(home)), o.how(true), "{o:?} on its own strip");
@@ -549,6 +1032,11 @@ mod tests {
                 other,
                 "It's on the Charter strip: ride the lift up from Hub Gate here (E), and from your airlock E rides lift 1 down to it."
             );
+        }
+        assert_eq!(PLACES[usize::from(bar())].kind, PlaceKind::Bar);
+        for strip in 0..3 {
+            let gate = &PLACES[usize::from(hub_gate_on(strip))];
+            assert_eq!((gate.kind, gate.strip), (PlaceKind::HubGate, strip));
         }
         // Nothing of the city's in the sector's.
         assert_eq!(Objective::Mine.how_on(true, Some(2)), Objective::Mine.how(true));
@@ -565,12 +1053,13 @@ mod tests {
             Some(Objective::Mine)
         );
         assert_eq!(downed, 3);
-        assert_eq!(done & Objective::Ace.bit(), 0);
+        assert_eq!(done & Objective::FiveDolls.bit(), 0);
+        assert_eq!(Objective::FiveDolls.progress(&i, downed), Some((3, FIVE_DOLLS)));
         // A new session's world counts from nothing again.
         o.step(&mut done, &mut downed, &ObjectiveInput { doll_kills: 0, ..i });
         o.step(&mut done, &mut downed, &ObjectiveInput { doll_kills: 2, ..i });
         assert_eq!(downed, 5);
-        assert!(done & Objective::Ace.bit() != 0);
+        assert!(done & Objective::FiveDolls.bit() != 0);
         // A kill that lands after the pilot is down (a missile still in flight) counts, once.
         o.step(&mut done, &mut downed, &ObjectiveInput { doll_kills: 3, flying: false, ..i });
         o.step(&mut done, &mut downed, &ObjectiveInput { doll_kills: 3, ..i });
@@ -583,5 +1072,51 @@ mod tests {
         assert_eq!(Objectives::current(0, &i), Some(Objective::Deliver));
         let all: u32 = Objective::ALL.iter().map(|o| o.bit()).sum();
         assert_eq!(Objectives::current(all, &flying(true)), None);
+        assert_eq!(Objectives::current(all, &in_city(open())), None);
+    }
+
+    /// Zodiac's ace is the Doll the roster names as one, nearer Dolls or not; with none out, the
+    /// Dolls'.
+    #[test]
+    fn the_aces_waypoint_is_the_ace_by_its_name_else_the_dolls() {
+        use crate::interp::EntityTrack;
+        use bc_proto::snapshot::EntityState;
+        use bc_proto::{Faction, PilotKind};
+        let mut core = crate::ClientCore::new(crate::ClientConfig {
+            name: "test".into(),
+            pilot: PilotKind::Human,
+            frame: FrameId::Leo,
+            faction: Faction::Colonies,
+        });
+        let doll = |slot: u16, pos: Vec3| EntityState {
+            slot,
+            faction: Faction::Oz,
+            pilot: PilotKind::MobileDoll,
+            pos,
+            ..EntityState::default()
+        };
+        let world = &mut core.world;
+        world.entities[3] = Some(EntityTrack::new(10, doll(3, Vec3::new(100.0, 0.0, 0.0))));
+        world.roster.insert(3, ("Doll 3".into(), PilotKind::MobileDoll));
+        let from = Vec3::ZERO;
+        let dolls = waypoint_at(&core, Waypoint::Dolls, from, 10.0);
+        assert_eq!(waypoint_at(&core, Waypoint::Ace, from, 10.0), dolls, "no ace out: the Dolls");
+        assert_eq!(dolls, Some((Vec3::new(100.0, 0.0, 0.0), bc_sim::content::doll_name().to_uppercase())));
+        let world = &mut core.world;
+        world.entities[5] = Some(EntityTrack::new(10, doll(5, Vec3::new(0.0, 0.0, 900.0))));
+        world.roster.insert(5, ("ARIES".into(), PilotKind::MobileDoll));
+        assert_eq!(
+            waypoint_at(&core, Waypoint::Ace, from, 10.0),
+            Some((Vec3::new(0.0, 0.0, 900.0), "ARIES".to_string())),
+            "the ace, past a nearer Doll"
+        );
+        // Its wreck is no waypoint.
+        let world = &mut core.world;
+        let wreck = EntityState {
+            flags: bc_proto::snapshot::ent_flags::WRECK,
+            ..doll(5, Vec3::new(0.0, 0.0, 900.0))
+        };
+        world.entities[5] = Some(EntityTrack::new(10, wreck));
+        assert_eq!(waypoint_at(&core, Waypoint::Ace, from, 10.0), dolls);
     }
 }

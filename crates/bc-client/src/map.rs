@@ -5,7 +5,9 @@
 //! The objectives themselves (what they are, when each is done, where its waypoint is) are
 //! `bc_client_core::objectives`; this draws them, and keeps what's done in the settings.
 
-use bc_client_core::objectives::{Objective, ObjectiveInput, Objectives, Waypoint as Goal, waypoint_at};
+use bc_client_core::objectives::{
+    self as obj, Here, Objective, ObjectiveInput, Objectives, Realm, Waypoint as Goal, waypoint_at,
+};
 use bc_client_core::palette;
 use bc_econ::wire::Place;
 use bc_proto::NO_CHUNK;
@@ -199,8 +201,24 @@ pub fn update_objectives(
         .filter(|o| o.held != NO_CHUNK)
         .and_then(|o| core.world.objects.get(usize::from(o.held))?.as_ref())
         .map_or(0, |c| c.desc.mass_kg);
+    // On foot: in the bay (riding the lift down, still), or down in the city on one of its strips.
+    let afoot = ui.playing() && ui.on_foot;
+    let here = if !afoot {
+        Here::Space
+    } else if core.hangar.in_city() {
+        Here::City(onfoot.city.as_ref().map_or(core.hangar.strip.unwrap_or(0), |c| c.strip))
+    } else {
+        Here::Bay
+    };
+    // Down in the city, at place `k`'s door.
+    let at_door = |k: u8| {
+        core.hangar.place == Some(Place::City)
+            && onfoot.city.as_ref().is_some_and(|c| c.focus == Some(usize::from(k)))
+    };
+    let h = &core.hangar;
     let input = ObjectiveInput {
         survival,
+        here,
         flying: in_sector && own.is_some(),
         landmarks: core.world.bodies.landmarks().len() as u8,
         rocks: !core.world.bodies.field.is_empty(),
@@ -213,18 +231,19 @@ pub fn update_objectives(
         docked: own.is_some_and(|o| o.flags & own_flags::DOCKED != 0),
         doll_kills: core.world.doll_kills,
         colony: core.welcome.is_some_and(|w| w.colony),
-        in_city: core.hangar.place == Some(Place::City),
-        at_exchange: core.hangar.place == Some(Place::City)
-            && onfoot
-                .city
-                .as_ref()
-                .is_some_and(|c| c.focus == Some(usize::from(bc_client_core::objectives::exchange()))),
-        at_proving: core.hangar.place == Some(Place::City)
-            && onfoot
-                .city
-                .as_ref()
-                .is_some_and(|c| c.focus == Some(usize::from(bc_client_core::objectives::proving_ground()))),
-        sales: core.hangar.sales,
+        in_city: h.place == Some(Place::City),
+        at_exchange: at_door(obj::exchange()),
+        at_proving: at_door(obj::proving_ground()),
+        sales: h.sales,
+        certified: h.has_certificate(),
+        at_charter: at_door(obj::charter()),
+        at_arrival: at_door(obj::bar()),
+        standing: h.standing() > 0,
+        armed: h.armed(),
+        aces: h.aces_downed() > 0,
+        // Flying one of the colony's new lines off the test range.
+        tried_prototype: h.trainer && own.is_some_and(|o| bc_sim::content::salvage::is_gundam(o.frame)),
+        smelting: h.smelting(),
     };
     let (mut done, mut downed) = (settings.0.objectives_done, settings.0.dolls_downed);
     let before = done;
@@ -238,24 +257,18 @@ pub fn update_objectives(
         ui.toast(format!("OBJECTIVE DONE - {}", o.title(survival)));
     }
     let from = view.map_or(Vec3::ZERO, |v| v.pos);
-    // On foot, the first of those done on foot (the flight's wait for the next sortie).
-    let afoot = ui.playing() && ui.on_foot;
-    let current = if afoot {
-        Objective::order(survival)
-            .iter()
-            .copied()
-            .find(|o| o.on_foot() && done & o.bit() == 0 && o.available(&input))
-    } else {
-        current
-    };
     state.current = current;
     state.input = input;
     // On foot, the way is on the page's map (M): the place's door, and how far off where it's used
-    // is (its counter, in through its door).
-    let goal = current.and_then(|o| match o.waypoint() {
-        Goal::Place(k) => PLACES.get(usize::from(k)).map(|p| (usize::from(k), p)),
-        _ => None,
-    });
+    // is (its counter, in through its door). In the city, one that's the bay's or space's is up
+    // this strip's Hub Gate's lift.
+    let goal = current
+        .and_then(|o| match (o.waypoint(), o.realm(), here) {
+            (Goal::Place(k), ..) => Some(k),
+            (_, Realm::Bay | Realm::Space, Here::City(strip)) => Some(obj::hub_gate_on(strip)),
+            _ => None,
+        })
+        .and_then(|k| PLACES.get(usize::from(k)).map(|p| (usize::from(k), p)));
     ui.map_goal = goal.filter(|_| afoot).map(|(_, p)| p.slug);
     let to_door =
         goal.zip(onfoot.city.as_ref()).filter(|((_, p), c)| p.strip == c.strip).map(|((i, _), c)| {
@@ -279,8 +292,8 @@ pub fn update_objectives(
     }
     let course_lines = course.lines.as_ref().filter(|_| inside);
 
-    let shown = settings.0.objectives
-        && ((in_sector && own.is_some() && !inside) || (afoot && current.is_some_and(|o| o.on_foot())));
+    let shown =
+        settings.0.objectives && ((in_sector && own.is_some() && !inside) || (afoot && current.is_some()));
     // The panel: hidden under the map, which lists them all.
     let listed = (shown && current.is_some()) || (settings.0.objectives && course_lines.is_some());
     let want = if listed && !open.0 { Visibility::Inherited } else { Visibility::Hidden };
@@ -313,10 +326,9 @@ pub fn update_objectives(
             let s = match which {
                 ObjectiveText::Heading => format!("OBJECTIVE {}/{count}   M - MAP", n + 1),
                 ObjectiveText::Title => format!("{}{progress}{dist}", o.title(survival)),
-                // Down in the city on another strip than its place's: the way there.
-                ObjectiveText::How => {
-                    o.how_on(survival, onfoot.city.as_ref().filter(|_| afoot).map(|c| c.strip))
-                }
+                // From where the pilot is: the way there first (down in the city on another strip
+                // than its place's, up and down the lifts).
+                ObjectiveText::How => o.how_from(survival, here),
             };
             if text.0 != s {
                 text.0 = s;

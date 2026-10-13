@@ -2045,29 +2045,40 @@ pub fn chart_panels(
     }
 }
 
-/// The objectives, one a line: done, current or not, with their progress.
+/// The most objectives still to do the chart lists one a line: its panel shares the left of the
+/// view with the places, and the rest wait their turn.
+const CHART_TODO: usize = 10;
+
+/// The objectives: those done counted on one line, then those to do in the rules' order, the
+/// current one marked, with their progress (at most [`CHART_TODO`] of them, the current always).
 fn objectives_list(state: &ObjectiveState, done: u32, downed: u32, survival: bool) -> String {
     use bc_client_core::objectives::Objective;
     let input = state.input();
+    let open: Vec<Objective> =
+        Objective::order(survival).iter().copied().filter(|o| o.available(input)).collect();
+    let finished = open.iter().filter(|o| done & o.bit() != 0).count();
     let mut list = String::new();
-    for o in Objective::order(survival) {
-        if !o.available(input) {
+    if finished > 0 {
+        list.push_str(&format!("[x] {finished} OF {} DONE\n", open.len()));
+    }
+    let todo = open.iter().filter(|o| done & o.bit() == 0);
+    let mut listed = 0;
+    for (k, o) in todo.clone().enumerate() {
+        let current = state.current == Some(*o);
+        if k >= CHART_TODO && !current {
             continue;
         }
-        let mark = if done & o.bit() != 0 {
-            "[x]"
-        } else if state.current == Some(*o) {
-            "[>]"
-        } else {
-            "[ ]"
-        };
+        listed += 1;
+        let mark = if current { "[>]" } else { "[ ]" };
         let progress = match o.progress(input, downed) {
-            Some((a, b)) if done & o.bit() == 0 => {
-                format!("  {a}/{b}{}", if *o == Objective::Mine { " KG" } else { "" })
-            }
-            _ => String::new(),
+            Some((a, b)) => format!("  {a}/{b}{}", if *o == Objective::Mine { " KG" } else { "" }),
+            None => String::new(),
         };
         list.push_str(&format!("{mark} {}{progress}\n", o.title(survival)));
+    }
+    let more = todo.count() - listed;
+    if more > 0 {
+        list.push_str(&format!("    AND {more} MORE\n"));
     }
     if state.current.is_none() {
         list.push_str("Every objective done. The sector is yours.");

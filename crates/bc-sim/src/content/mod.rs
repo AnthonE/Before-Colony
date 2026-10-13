@@ -27,7 +27,7 @@ pub use frames::{
 pub use kits::{Kit, Kits};
 pub use melee::{ConeSpec, MeleeSpec, MissileSpec, Stroke};
 pub use modules::{ModuleKind, Modules};
-pub use names::{doll_name, frame_designation, frame_name, weapon_name};
+pub use names::{doll_name, frame_designation, frame_name, prototype_word, weapon_name};
 pub use propellant::Grade;
 pub use systems::{System, Systems};
 pub use weapons::{ChargedShot, Replication, WeaponClass, WeaponSpec, weapon};

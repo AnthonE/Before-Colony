@@ -6,7 +6,7 @@ use bc_econ::charter::CharterView;
 use bc_econ::exchange::Depth;
 use bc_econ::proving::{BoardView, Trainer};
 use bc_econ::wire::{self, HangarView, MarketView, Outcome, Place, Request, Update};
-use bc_econ::{Bay, Debrief};
+use bc_econ::{Bay, Debrief, Item, Material};
 use bc_proto::control::encode_hangar;
 
 #[derive(Clone, Debug, Default)]
@@ -133,6 +133,42 @@ impl HangarState {
     pub fn credits(&self) -> u64 {
         self.view.as_ref().map_or(0, |v| v.credits)
     }
+
+    /// Whether the Proving Ground's board holds a time of the pilot's own (the server's word:
+    /// what earns the Charter Board's flight certificate).
+    pub fn has_certificate(&self) -> bool {
+        self.proving.as_ref().is_some_and(|p| p.mine.any())
+    }
+
+    /// Whether the bay's suit (standing in it, or out) has every weapon its frame carries fitted:
+    /// the worn Leo an Arrival is handed hasn't its beam rifle.
+    pub fn armed(&self) -> bool {
+        match self.view.as_ref().map(|v| &v.bay) {
+            Some(Bay::Docked { suit } | Bay::Out { suit }) => {
+                (0..3).all(|m| suit.weapon_on(m).is_none() || suit.mounts[m])
+            }
+            _ => false,
+        }
+    }
+
+    /// The pilot's standing with the colony, as the Charter Board last told it.
+    pub fn standing(&self) -> u64 {
+        self.charter.as_ref().map_or(0, |c| c.standing)
+    }
+
+    /// Zodiac's aces the pilot has downed, as the Charter Board last told it.
+    pub fn aces_downed(&self) -> u32 {
+        self.charter.as_ref().map_or(0, |c| c.mine_aces)
+    }
+
+    /// Whether the pilot has gundanium in their stores, or a job making it.
+    pub fn smelting(&self) -> bool {
+        let gundanium = Item::Material(Material::Gundanium);
+        self.view.as_ref().is_some_and(|v| {
+            v.stock.iter().any(|&(item, q)| item == gundanium && q > 0)
+                || v.jobs.iter().any(|j| j.item == gundanium)
+        })
+    }
 }
 
 /// A request as a control-stream frame.
@@ -198,5 +234,75 @@ mod tests {
         board.trainer = Trainer::Line { line: bc_proto::FrameId::Heavyarms };
         h.apply(Update::Proving(board));
         assert_eq!(h.trainer_name(), format!("A NEW {}", name(bc_proto::FrameId::Heavyarms)));
+    }
+
+    /// What the objectives read off the server's word: a certificate, a suit armed, standing, aces
+    /// downed, gundanium.
+    #[test]
+    fn the_objectives_read_the_servers_word() {
+        let mut h = HangarState::default();
+        assert!(!h.has_certificate() && !h.armed() && !h.smelting(), "nothing told yet");
+        assert_eq!((h.standing(), h.aces_downed()), (0, 0));
+        // The worn Leo an Arrival is handed hasn't its beam rifle; a complete one, docked or out, is
+        // armed.
+        let starter = bc_econ::Hangar::starter();
+        h.apply(Update::Hangar(HangarView::of(&starter, 0)));
+        assert!(!h.armed(), "the starter's Leo came without its rifle");
+        let leo = bc_econ::Suit::complete(bc_proto::FrameId::Leo);
+        let mut whole = bc_econ::Hangar { bay: Bay::Docked { suit: leo.clone() }, ..starter.clone() };
+        h.apply(Update::Hangar(HangarView::of(&whole, 0)));
+        assert!(h.armed());
+        whole.bay = Bay::Out { suit: leo };
+        h.apply(Update::Hangar(HangarView::of(&whole, 0)));
+        assert!(h.armed(), "out on a sortie, as fitted");
+        whole.bay = Bay::Empty;
+        h.apply(Update::Hangar(HangarView::of(&whole, 0)));
+        assert!(!h.armed(), "no suit in the bay");
+        // A time of their own on the Proving Ground's board.
+        let mut board = bc_econ::proving::Board::default().view("", 0);
+        h.apply(Update::Proving(board.clone()));
+        assert!(!h.has_certificate());
+        board.mine.drill_ms = Some(60_000);
+        h.apply(Update::Proving(board.clone()));
+        assert!(h.has_certificate());
+        board.mine = bc_econ::proving::Bests { course_ms: Some(150_000), drill_ms: None };
+        h.apply(Update::Proving(board));
+        assert!(h.has_certificate(), "the course counts as well");
+        // The Charter Board's word.
+        let mut charter = bc_econ::Board::new().view("a", 0);
+        charter.standing = 120;
+        charter.mine_aces = 2;
+        h.apply(Update::Charter(charter));
+        assert_eq!((h.standing(), h.aces_downed()), (120, 2));
+        // Gundanium: a job making it, or some in the stores.
+        let gundanium = Item::Material(Material::Gundanium);
+        let mut view = HangarView::of(&starter, 0);
+        view.jobs.push(wire::JobView {
+            station: bc_econ::Station::Foundry,
+            item: gundanium,
+            batches: 1,
+            done: 0,
+            secs: 600,
+            secs_left: 600,
+        });
+        h.apply(Update::Hangar(view));
+        assert!(h.smelting(), "queued at the foundry");
+        let mut view = HangarView::of(&starter, 0);
+        view.jobs.push(wire::JobView {
+            station: bc_econ::Station::Fabricator,
+            item: Item::Material(Material::Steel),
+            batches: 1,
+            done: 0,
+            secs: 60,
+            secs_left: 60,
+        });
+        h.apply(Update::Hangar(view.clone()));
+        assert!(!h.smelting(), "steel's no gundanium");
+        view.stock.push((gundanium, 0));
+        h.apply(Update::Hangar(view.clone()));
+        assert!(!h.smelting(), "none of it");
+        view.stock.push((gundanium, 4));
+        h.apply(Update::Hangar(view));
+        assert!(h.smelting(), "in the stores");
     }
 }

@@ -70,6 +70,12 @@ pub fn doll_name() -> &'static str {
     "Mobile Doll"
 }
 
+/// What a new line of suit, the colony's own, is called in a sentence ("try a new Gundam").
+#[cfg(feature = "canon-names")]
+pub fn prototype_word() -> &'static str {
+    "Gundam"
+}
+
 #[cfg(not(feature = "canon-names"))]
 pub fn frame_name(id: FrameId) -> &'static str {
     match id {
@@ -133,4 +139,9 @@ pub(crate) const MO_II: &str = "ORE SAT";
 #[cfg(not(feature = "canon-names"))]
 pub fn doll_name() -> &'static str {
     "Drone"
+}
+
+#[cfg(not(feature = "canon-names"))]
+pub fn prototype_word() -> &'static str {
+    "Prototype"
 }
