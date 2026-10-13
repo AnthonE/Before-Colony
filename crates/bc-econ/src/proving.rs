@@ -296,6 +296,11 @@ impl Bests {
         }
     }
 
+    /// Any time recorded: the Charter Board's flight certificate, of whatever class.
+    pub fn any(&self) -> bool {
+        self.course_ms.is_some() || self.drill_ms.is_some()
+    }
+
     /// A time flown: whether it's their best yet (kept, then).
     pub fn better(&mut self, feat: Feat, ms: u32) -> bool {
         let best = match feat {

@@ -791,7 +791,8 @@ impl Session<'_> {
     /// A sortie earned `bounty`: it counts toward the patrol the pilot holds.
     async fn patrol_bounties(&mut self, bounty: u32) -> anyhow::Result<()> {
         let now = pilots::unix_now();
-        let notes = self.game.charter.with(|b| b.bounties(&self.trader, u64::from(bounty), now));
+        let (hangar, trader) = (&mut self.hangar, self.trader.as_str());
+        let notes = self.game.charter.with(|b| b.bounties(hangar, trader, u64::from(bounty), now, false));
         if notes.is_empty() {
             return Ok(());
         }
@@ -1438,7 +1439,7 @@ impl Session<'_> {
             format!("{} DOWNED · YOUR TERMS: ITS WRECK · THE TUGS ARE GOING OUT FOR IT", a.name)
         } else {
             let (hangar, trader) = (&mut self.hangar, self.trader.as_str());
-            let text = self.game.charter.with(|b| b.pay_ace(hangar, ace, trader));
+            let text = self.game.charter.with(|b| b.pay_ace(hangar, ace, trader, false));
             self.save().await;
             self.send_hangar().await?;
             text
@@ -1604,7 +1605,7 @@ impl Session<'_> {
                             (&mut self.hangar, self.trader.as_str(), self.callsign.as_str());
                         game.charter.with(|b| {
                             b.ace_downed(ace, trader, name, now);
-                            b.pay_ace(hangar, ace, trader)
+                            b.pay_ace(hangar, ace, trader, false)
                         });
                         game.charter.changed();
                     }

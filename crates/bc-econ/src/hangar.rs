@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::catalogue::{
     MUNITIONS_ITEM, PROPELLANT_ITEM, Station, munitions_per_load, propellant_item, recipe, value, worth,
 };
-use crate::debrief::{Debrief, stores_worth};
+use crate::debrief::{Debrief, Line, stores_worth};
 use crate::exchange::{Exchange, Side};
 use crate::fab::{MAX_JOBS, Works};
 use crate::faults::{Faults, overhaul_cost};
@@ -39,7 +39,7 @@ pub const SALVAGED_HULK: u8 = 40;
 pub const MAX_BATCHES: u32 = 500;
 
 /// What the Charter Board hands an Arrival: a worn, second-hand Leo with no beam rifle (that's the
-/// first thing to buy or build) and half a tank.
+/// first thing to earn at the Proving Ground, buy or build) and half a tank.
 fn worn_leo() -> Suit {
     let mut suit = Suit::complete(FrameId::Leo);
     suit.parts = [Some(70), Some(60), Some(55), Some(65), Some(60), Some(70)];
@@ -76,6 +76,15 @@ pub struct Hangar {
     /// When the Charter Board last advanced this pilot a suit ([`Hangar::reissue`]), unix seconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reissued_at: Option<u64>,
+    /// The Charter Board has seen this pilot's flight certificate and issued its beam rifle for it
+    /// (`charter::Board::certify`): once.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub certified: bool,
+    /// What the Charter Board paid for the sortie under way (a patrol flown, an ace's bounty), for
+    /// its payout sheet: drained into it as the sortie ends, cleared as the next one launches.
+    /// Kept, so a sleeper's wake keeps it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sortie_pay: Vec<Line>,
 }
 
 /// How a request went: what to tell the pilot.
@@ -111,7 +120,8 @@ impl Rules {
 
 impl Hangar {
     /// What a new pilot starts with: a worn, second-hand Leo (no beam rifle: that's the first
-    /// thing to buy or build), a little propellant and munitions, and enough credits to get going.
+    /// thing to earn at the Proving Ground, buy or build), a little propellant and munitions, and
+    /// enough credits to get going.
     pub fn starter() -> Self {
         let mut stores = Stores::default();
         stores.add(PROPELLANT_ITEM, 600);
@@ -579,7 +589,24 @@ impl Hangar {
         }
         let loadout = suit.loadout();
         self.bay = Bay::Out { suit };
+        // A new sortie's sheet: what the Board paid late for the last one stays off it.
+        self.sortie_pay.clear();
         Ok(loadout)
+    }
+
+    /// The Charter Board paid `cr` for the sortie, as `what` (`PATROL #3`, `ACE ARIES`): a line on
+    /// its payout sheet.
+    pub fn board_paid(&mut self, what: String, cr: u64) {
+        if cr > 0 {
+            self.sortie_pay.push(Line { what, cr: i64::try_from(cr).unwrap_or(i64::MAX) });
+        }
+    }
+
+    /// The Board's pay for the sortie, onto its sheet.
+    fn drain_sortie_pay(&mut self, debrief: &mut Debrief) {
+        for l in std::mem::take(&mut self.sortie_pay) {
+            debrief.paid(&l.what, l.cr.unsigned_abs());
+        }
     }
 
     /// The suit came home: what's left of it stands in the bay again, its hold and whatever it
@@ -588,7 +615,8 @@ impl Hangar {
         self.came_home_debriefed(home).0
     }
 
-    /// [`Hangar::came_home`], and the sortie's payout sheet (`debrief`).
+    /// [`Hangar::came_home`], and the sortie's payout sheet (`debrief`), with what the Charter
+    /// Board paid for it ([`Hangar::board_paid`]).
     pub fn came_home_debriefed(&mut self, home: &Homecoming) -> (String, Debrief) {
         let mut suit = match std::mem::take(&mut self.bay) {
             Bay::Out { suit } | Bay::Docked { suit } => suit,
@@ -640,7 +668,8 @@ impl Hangar {
             Bay::Docked { suit } => suit,
             _ => &out,
         };
-        let debrief = Debrief::docked(&out, back, &kits_back, home.bounty, ore_worth, salvage_worth);
+        let mut debrief = Debrief::docked(&out, back, &kits_back, home.bounty, ore_worth, salvage_worth);
+        self.drain_sortie_pay(&mut debrief);
         (notes.join(" · "), debrief)
     }
 
@@ -650,13 +679,14 @@ impl Hangar {
     }
 
     /// [`Hangar::lost`], and the sortie's payout sheet (`debrief`): the suit as it went out is
-    /// gone.
+    /// gone, and what the Charter Board paid for the sortie is on it.
     pub fn lost_debriefed(&mut self, bounty: u32) -> (String, Debrief) {
         let out = match std::mem::take(&mut self.bay) {
             Bay::Out { suit } => Some(suit),
             _ => None,
         };
-        let debrief = Debrief::lost(out.as_ref(), bounty);
+        let mut debrief = Debrief::lost(out.as_ref(), bounty);
+        self.drain_sortie_pay(&mut debrief);
         self.credits += u64::from(bounty);
         let text = if bounty > 0 { format!("SUIT LOST · BOUNTY {bounty} CR") } else { "SUIT LOST".into() };
         (text, debrief)

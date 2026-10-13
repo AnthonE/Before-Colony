@@ -4,6 +4,7 @@
 //! for agents alike.
 
 use bc_proto::Part;
+use bc_sim::content::city::PlaceKind;
 use bc_sim::content::{Grade, Kit};
 use serde::{Deserialize, Serialize};
 
@@ -155,6 +156,73 @@ pub enum Request {
         text: String,
     },
 }
+
+impl Request {
+    /// The desk in the colony's city that alone does what this asks, while the colony is open
+    /// (`docs/COLONY.md`, 2.6 "Key places"): an order at the pilot's own price that waits on the book is
+    /// placed on the Exchange floor; contracts are posted, patrols taken and the charter signed at
+    /// the Charter Board's desk; terms for an ace's bounty are settled at The Arrival; the test
+    /// range is picked at the Proving Ground's desk. `None`: any terminal does it (the bay's
+    /// included). Every request is listed, so a new one has to choose.
+    pub fn desk(&self) -> Option<PlaceKind> {
+        match self {
+            Request::Order { rest: true, .. } => Some(PlaceKind::Exchange),
+            Request::Post { .. } | Request::TakePatrol { .. } | Request::Sign => Some(PlaceKind::Charter),
+            Request::AceTerms { .. } => Some(PlaceKind::Bar),
+            Request::Trainer { .. } => Some(PlaceKind::Proving),
+            Request::Order { rest: false, .. }
+            | Request::Craft { .. }
+            | Request::CancelJob { .. }
+            | Request::Fit { .. }
+            | Request::Strip { .. }
+            | Request::Dismantle
+            | Request::Repair { .. }
+            | Request::Overhaul { .. }
+            | Request::Scrap { .. }
+            | Request::Fuel { .. }
+            | Request::CancelOrder { .. }
+            | Request::Watch { .. }
+            | Request::Launch
+            | Request::LaunchInside
+            | Request::Dock
+            | Request::EnterCity { .. }
+            | Request::LeaveCity
+            | Request::BoardTrainer
+            | Request::Withdraw { .. }
+            | Request::Deliver { .. }
+            | Request::DropPatrol { .. }
+            | Request::Contribute { .. }
+            | Request::WatchBoard { .. }
+            | Request::UseKit { .. }
+            | Request::Eject { .. }
+            | Request::Say { .. } => None,
+        }
+    }
+}
+
+/// Why a request that only desk `k` does was refused elsewhere (shown as `CAN'T: ` and the text
+/// in upper case): where to go.
+pub fn desk_refusal(k: PlaceKind) -> &'static str {
+    match k {
+        PlaceKind::Exchange => {
+            "a price that waits on the book is placed at the exchange floor's counter, on charter square"
+        }
+        PlaceKind::Charter => {
+            "that's done in person at the charter board's desk, in its hall on charter square"
+        }
+        PlaceKind::Bar => {
+            "your terms for an ace's bounty are settled at the arrival's counter, off charter square"
+        }
+        PlaceKind::Proving => "the test range is picked at the proving ground's desk, in the blast hall",
+        // `Request::desk` never names it.
+        PlaceKind::HubGate => "that's done at hub gate",
+    }
+}
+
+/// What a trade's note gains when an order meant to wait on the book was placed away from the
+/// Exchange floor: it traded at once, and what didn't fill came back.
+pub const FLOOR_ONLY: &str =
+    "WHAT DIDN'T FILL CAME BACK: AN ORDER WAITS ON THE BOOK ONLY FROM THE EXCHANGE FLOOR, ON CHARTER SQUARE";
 
 /// The longest line the colony's radio carries, characters.
 pub const SAY_MAX_CHARS: usize = 160;

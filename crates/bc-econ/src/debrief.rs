@@ -39,6 +39,17 @@ impl Debrief {
         }
     }
 
+    /// What the Charter Board paid for the sortie (a patrol flown, an ace's bounty): earned, so it
+    /// goes after what's already earned and before the first cost. Nothing, if it comes to
+    /// nothing.
+    pub fn paid(&mut self, what: &str, cr: u64) {
+        if cr == 0 {
+            return;
+        }
+        let at = self.lines.iter().position(|l| l.cr < 0).unwrap_or(self.lines.len());
+        self.lines.insert(at, Line { what: what.into(), cr: i64::try_from(cr).unwrap_or(i64::MAX) });
+    }
+
     fn spent(&mut self, what: &str, cr: u64) {
         if cr > 0 {
             self.lines.push(Line { what: what.into(), cr: -i64::try_from(cr).unwrap_or(i64::MAX) });

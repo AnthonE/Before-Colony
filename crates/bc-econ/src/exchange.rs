@@ -605,6 +605,17 @@ impl Exchange {
         }
     }
 
+    /// The colony hands over up to `qty` of `item` from its desk's stock outside the books (the
+    /// Charter Board's issue: a flight certificate's beam rifle): its desk holds less, so its
+    /// prices rise as if it had sold it. How many it handed over: none if it doesn't deal in
+    /// `item`, or has none of it whole.
+    pub fn colony_issue(&mut self, item: Item, qty: u64) -> u64 {
+        let Some(s) = self.colony.get_mut(&item) else { return 0 };
+        let n = qty.min(s.held.max(0.0).floor() as u64);
+        s.held -= n as f64;
+        n
+    }
+
     #[cfg(test)]
     pub(crate) fn colony_take(&mut self, item: Item, qty: u64) -> bool {
         self.colony.get_mut(&item).map(|s| s.held = (s.held - qty as f64).max(0.0)).is_some()
