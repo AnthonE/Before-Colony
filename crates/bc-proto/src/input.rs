@@ -392,6 +392,42 @@ mod tests {
         assert_eq!((far.ref_vel.x, far.ref_vel.y), (LOCKON_VEL_MAX, -LOCKON_VEL_MAX));
     }
 
+    /// What CI run 277's proptest shrank to: a lock-on's up straight across the octahedral map's
+    /// seam (x = 0, below the horizon). The client predicts with the quantized command and sends
+    /// that, so the server must decode exactly it, to the bit, and so must an aim there.
+    #[test]
+    fn a_direction_on_the_seam_comes_back_as_quantized() {
+        let bits = |v: Vec3| v.to_array().map(f32::to_bits);
+        let seam = [
+            Vec3::new(0.0, 0.9640605, -0.26568264),
+            Vec3::new(-0.0, 0.9640605, -0.26568264),
+            Vec3::new(0.0, -0.6, -0.8),
+            Vec3::new(0.6, 0.0, -0.8),
+            Vec3::new(-0.6, -0.0, -0.8),
+            Vec3::new(-1e-9, 0.6, -0.8).normalize(),
+            Vec3::NEG_Z,
+        ];
+        for d in seam {
+            let cmd = InputCmd {
+                tick: 100,
+                view_tick_q4: 100 << 4,
+                aim: d,
+                lockon: Some(LockOn { ref_vel: Vec3::ZERO, up: d }),
+                ..InputCmd::default()
+            }
+            .quantized();
+            let mut p = InputPacket { count: 1, ..Default::default() };
+            p.cmds[0] = cmd;
+            let mut buf = [0u8; 64];
+            let n = p.encode(&mut buf).unwrap();
+            let back = InputPacket::decode(&buf[..n]).unwrap().cmds[0];
+            let (up, back_up) = (cmd.lockon.unwrap().up, back.lockon.unwrap().up);
+            assert_eq!(bits(back_up), bits(up), "{d}: up {up} came back {back_up}");
+            assert_eq!(bits(back.aim), bits(cmd.aim), "{d}: aim {} came back {}", cmd.aim, back.aim);
+            assert_eq!(bits(cmd.quantized().lockon.unwrap().up), bits(up), "{d}");
+        }
+    }
+
     #[test]
     fn a_silent_client_stays_locked_on_for_a_while() {
         let lockon = Some(LockOn { ref_vel: Vec3::new(120.0, 0.0, -40.0), up: Vec3::Y });

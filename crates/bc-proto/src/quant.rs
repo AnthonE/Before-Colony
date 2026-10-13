@@ -166,25 +166,49 @@ pub fn oct_unproject(e: Vec2) -> Vec3 {
     if len <= f32::EPSILON { Vec3::Z } else { n / len }
 }
 
-pub fn write_dir(w: &mut BitWriter<'_>, n: Vec3, bits_per_axis: u32) {
+/// A unit vector's octahedral code, `bits` per axis.
+///
+/// The map unfolds the lower hemisphere onto the square's corners, and folds each of its edges in
+/// half: `(x, ±1)` and `(-x, ±1)` are the same direction (x = 0, below the horizon), as are `(±1, y)`
+/// and `(±1, -y)`, and all four corners are -Z. The projection picks between the two by the sign of
+/// x (or y), and the direction such a code decodes to carries its x as a rounding residual of either
+/// sign (±4e-8): left to that, a quantized direction would encode again as the mirror code and decode
+/// with the residual's sign flipped, so it wouldn't be its own quantization, and the owner's
+/// prediction (which flies the quantized command, then sends it) would part from the server (which
+/// flies what it decodes). So such a direction always takes the one code with that coordinate
+/// positive.
+fn dir_code(n: Vec3, bits: u32) -> [u32; 2] {
     let e = oct_project(n);
-    w.write_bits(quantize_signed(e.x, 1.0, bits_per_axis), bits_per_axis);
-    w.write_bits(quantize_signed(e.y, 1.0, bits_per_axis), bits_per_axis);
+    let m = max_q(bits);
+    let [mut x, mut y] = [quantize_signed(e.x, 1.0, bits), quantize_signed(e.y, 1.0, bits)];
+    if y == 0 || y == m {
+        x = x.max(m - x);
+    }
+    if x == 0 || x == m {
+        y = y.max(m - y);
+    }
+    [x, y]
+}
+
+fn dir_from_code([x, y]: [u32; 2], bits: u32) -> Vec3 {
+    oct_unproject(Vec2::new(dequantize_signed(x, 1.0, bits), dequantize_signed(y, 1.0, bits)))
+}
+
+pub fn write_dir(w: &mut BitWriter<'_>, n: Vec3, bits_per_axis: u32) {
+    for c in dir_code(n, bits_per_axis) {
+        w.write_bits(c, bits_per_axis);
+    }
 }
 
 pub fn read_dir(r: &mut BitReader<'_>, bits_per_axis: u32) -> Vec3 {
-    let x = dequantize_signed(r.read_bits(bits_per_axis), 1.0, bits_per_axis);
-    let y = dequantize_signed(r.read_bits(bits_per_axis), 1.0, bits_per_axis);
-    oct_unproject(Vec2::new(x, y))
+    let x = r.read_bits(bits_per_axis);
+    dir_from_code([x, r.read_bits(bits_per_axis)], bits_per_axis)
 }
 
 /// Round-trips a direction through the wire encoding, so the client predicts with exactly the value
-/// the server will decode.
+/// the server will decode. Quantizing what this returns gives it back, to the bit.
 pub fn quantize_dir(n: Vec3, bits_per_axis: u32) -> Vec3 {
-    let e = oct_project(n);
-    let x = dequantize_signed(quantize_signed(e.x, 1.0, bits_per_axis), 1.0, bits_per_axis);
-    let y = dequantize_signed(quantize_signed(e.y, 1.0, bits_per_axis), 1.0, bits_per_axis);
-    oct_unproject(Vec2::new(x, y))
+    dir_from_code(dir_code(n, bits_per_axis), bits_per_axis)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -285,6 +309,51 @@ mod tests {
         for d in dirs {
             let back = quantize_dir(d, 16);
             assert!(back.dot(d) > 0.99999, "{d} -> {back}");
+        }
+    }
+
+    /// Every code decodes to a direction that encodes as that code again, except that a code on
+    /// the square's folded edges whose mirror is the one its direction keeps goes to that mirror,
+    /// which decodes to the same direction. So quantizing a quantized direction changes nothing,
+    /// to the bit: for every 9- and 10-bit code, and every edge code and a sweep of the rest at the
+    /// other widths on the wire.
+    #[test]
+    fn a_quantized_direction_is_its_own_quantization() {
+        let bits_of = |v: Vec3| v.to_array().map(f32::to_bits);
+        for bits in [9u32, 10, 12, 16] {
+            let m = max_q(bits);
+            let check = |c: [u32; 2]| {
+                let d = dir_from_code(c, bits);
+                let k = dir_code(d, bits);
+                let edge = c[0] == 0 || c[0] == m || c[1] == 0 || c[1] == m;
+                assert!(k == c || edge, "{bits} bits: {c:?} -> {d} -> {k:?}");
+                let q = dir_from_code(k, bits);
+                assert!(q.dot(d) > 1.0 - 1e-6, "{bits} bits: {c:?} -> {d}, {k:?} -> {q}");
+                assert_eq!(dir_code(q, bits), k, "{bits} bits: {c:?} -> {d} -> {k:?} -> {q}");
+                assert_eq!(bits_of(quantize_dir(q, bits)), bits_of(q), "{bits} bits: {c:?}");
+            };
+            let stride = if bits <= 10 { 1 } else { 61 };
+            for x in (0..=m).step_by(stride) {
+                for y in (0..=m).step_by(stride) {
+                    check([x, y]);
+                }
+            }
+            for i in 0..=m {
+                for c in [[i, 0], [i, m], [0, i], [m, i]] {
+                    check(c);
+                }
+            }
+        }
+        // The seam itself, either side of zero: x = ±0 below the horizon takes one code, and so
+        // does a direction a hair either side of it.
+        for bits in [10u32, 16] {
+            let d = quantize_dir(Vec3::new(0.0, 0.9640605, -0.26568264), bits);
+            for x in [0.0, -0.0, 1e-9, -1e-9] {
+                let near = Vec3::new(x, 0.9640605, -0.26568264).normalize();
+                assert_eq!(bits_of(quantize_dir(near, bits)), bits_of(d), "{bits} bits: {near}");
+            }
+            assert_eq!(bits_of(quantize_dir(d, bits)), bits_of(d));
+            assert_eq!(bits_of(quantize_dir(-d, bits)), bits_of(quantize_dir(quantize_dir(-d, bits), bits)));
         }
     }
 
