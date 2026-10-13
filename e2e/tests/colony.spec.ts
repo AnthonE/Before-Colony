@@ -378,10 +378,20 @@ test("two pilots meet at Hub Gate; one rides home, and a suit comes down by the 
   await both((p) => until(p, "the city", (s) => s.place === "city", 120_000));
   await both((p) => push(p, { cmd: "skip" }));
   await both((p) => until(p, "Hub Gate", (s) => s.seq === "walking" && s.strip === 0, 120_000));
-  // Heero steps over to the motor pool beside the door; Duo stays at it.
+  // Heero steps over to the motor pool beside the door; Duo stays at it. (Over there and stopped:
+  // a page drawing in software can walk the few seconds of it in one or two long frames, too soon
+  // for a look to catch the walk under way.)
+  const from = String((await bc(a)).city_feet).split(",").map(Number);
   await push(a, { cmd: "walk_to", spot: "pool" });
-  await until(a, "the walk", (s) => s.city_walking_to, 60_000);
-  await until(a, "at the pool", (s) => !s.city_walking_to, 240_000);
+  await until(
+    a,
+    "at the pool",
+    (s) => {
+      const [x, y] = String(s.city_feet).split(",").map(Number);
+      return !s.city_walking_to && Math.hypot(x - from[0], y - from[1]) > 10;
+    },
+    240_000,
+  );
 
   // Each sees the other, by name, where the other stands (within 2 m), and the server has both.
   // (Seen a moment late, as everyone is: on a page drawing in software a walk's last frame, and the

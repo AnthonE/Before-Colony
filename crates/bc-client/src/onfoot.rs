@@ -100,7 +100,7 @@ const DOOR_REACH: f32 = 3.5;
 /// across the city keeps to the clock on a page drawing it in software at a few seconds a frame
 /// (held to a second a frame, a walk took several times as long, and a tram's open doors shut
 /// before it reached them); and less than the shortest errand (Hub Gate's door to its motor pool,
-/// 5.4 s), so every walk is seen under way for a frame.
+/// 5.4 s), so none ends in the frame that begins it.
 const OWN_CATCH_UP: f32 = 1.0;
 const GUIDE_CATCH_UP: f32 = 4.0;
 
