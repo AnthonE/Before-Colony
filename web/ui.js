@@ -1237,6 +1237,9 @@
       const held = hangar?.view?.stock?.find(([s]) => isBulk(s));
       watch(held ? held[0] : "ore.nickel_iron");
     }
+    // A tab, or a desk's terminal, opens at its top: the scroll kept through redraws is the last
+    // page's (walked from the Charter Board's form to The Arrival, its heading was out of view).
+    $("term-body").scrollTop = 0;
     renderTerminal();
   }
 
