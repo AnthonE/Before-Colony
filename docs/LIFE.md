@@ -236,11 +236,14 @@ Each is PR-sized and tested end to end, as `ROADMAP.md`'s items are.
   `bc_sim::content::body` (the conditions and their G). Unit tests for each; nothing on the wire yet.
 - **L1: eating at The Arrival.** The body on the pilot's record (`PilotRecord`), woken on entering
   and put to sleep on leaving (`session.rs`'s `enter` and `leave`), settled on the session's tick.
-  `Request::Eat { dish }` at The Arrival's counter (the plaza's last pose within reach of its door,
-  as `at_the_hatch` checks the gantry's), paid in credits to the staff (a sink); `Update::Body` with
-  the condition and the food left. The on-foot HUD shows the condition; The Arrival's door opens its
-  menu. Tests: `bc-server/tests/life.rs` (a pilot eats, logs out, wakes peckish), and a step in the
-  `colony` e2e.
+  `Request::Eat { dish }` at The Arrival's counter (`Request::desk` names it The Arrival's, and the
+  server's `at_desk(PlaceKind::Bar)` checks it as it checks the desks' requests: the plaza's last
+  pose inside its room), paid in credits to the staff (a sink); `Update::Body` with the condition
+  and the food left. The on-foot HUD shows the condition. The Arrival's door already opens the Most
+  Wanted (`Panel::Arrival`, the terminals' `wanted` tab); the menu joins it at `Panel::Arrival` as
+  a second tab, `menu` (ui.js's `DESK_TABS` gives The Arrival `wanted` alone today, and `menu`
+  then). Tests: `bc-server/tests/life.rs` (a pilot eats, logs out, wakes peckish), and a step in
+  the `colony` e2e.
 - **L2: being fed in flight.** The condition in the own snapshot, `fed_g` in `own_tuning` and the
   sector's tuning, the HUD's line in the cockpit. A protocol bump; the predictor's tests.
 - **L3: the cook's seat.** `Seats` kept by the server (one per colony, in its data directory, as the

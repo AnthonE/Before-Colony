@@ -12,9 +12,11 @@ the bay, space, home).
 | Lock-on: fighting on the ground in space (`LOCK.md`) | built |
 | The weapons pass: the hit-rate harness, charged beams, true cones, lunges that home, the burst step | built |
 | P0: a floor under loss, text chat, objectives along the chain, The Arrival's seats | built |
+| Objectives that lead somewhere, desks worth the walk: nineteen objectives from the cap lift to gundanium, each city desk's one thing, the Charter Board's pay at its desk, a flight certificate's beam rifle, The Arrival's Most Wanted (below) | built |
 | P1: the Proving Ground: its course, the Blast Hall, its live fire, trainers boarded there, the drill and the board (`TRAINING.md`, phases 1 to 5) | built |
 | Living in the colony, L0: seats, the body and its meals (`LIFE.md`) | built (a framework: nothing on the wire yet) |
 | The loop's loose ends, first pass: the colony open by default, launching out of the pilot's own bay door, landing on the docking hub and walking in, hints along the way (below) | built |
+| The loop's loose ends, since: a strip chosen at the airlock, second keys for F1 and F10, the nightly browser suites, the auto-nav on an ion drive's crawl (below) | built |
 | Propulsion: bigger tanks, the extended tank, propellant grades, the ion drive (`DESIGN.md`) | built |
 | The mech games, 15: doom, ejecting and the self-destruct | built |
 | The mech games, 16: stagger | built |
@@ -24,6 +26,13 @@ the bay, space, home).
 | The mech games, 20: a test range | built |
 | The mech games, 21: aces, pay or salvage | built |
 | The mech games, 22: staying up under abuse | built |
+| Mecha Royale, 23: guns that shoot missiles down | built |
+| Mecha Royale, 24: the HUD says why | built |
+| Mecha Royale, 25: a death report | built |
+| Mecha Royale, 26: a boot that says when it's stuck | built |
+| Mecha Royale, 27: wrecks that die their own way | built |
+| Mecha Royale, 28: crews | open |
+| Contracts on the Charter Board: supply contracts, patrols, the great works and the charter vote (P1, below) | begun |
 | P1's rest, P2 below, the loose ends left | planned |
 
 ## The loop's loose ends
@@ -38,9 +47,10 @@ together. The first pass (built):
   says the cap lifts are closed and the bay's terminal has no Proving Ground tab.
 - **Out of your own bay door.** The suit rides its bay's catapult cradle in the door on the
   spinning bay ring (`Body::Bay(n)`, `colony::hub`; protocol 27) until the catapult's cut ends,
-  and is thrown out with the ring's 125 m/s; the camera opens outside by the open door and watches
-  it go (`bc-client`'s `launch_shot`). Into the colony (Q), it comes out of a lit port in the end
-  cap's inner face behind the inner gate. The cockpit's prompt says which key goes where.
+  and is thrown out at 40 m/s (`BAY_LAUNCH_SPEED`) on top of the ring's own 125 m/s; the camera
+  opens outside by the open door and watches it go (`bc-client`'s `launch_shot`). Into the colony
+  (Q), it comes out of a lit port in the end cap's inner face behind the inner gate. The cockpit's
+  prompt says which key goes where (Q only with the colony open).
 - **Home by landing on the hub.** Home stays on the axis, where nothing moves (a door on the ring
   would take 0.7 g of thrust to hold): the dock's ring of lights as before, or the grip armed, a
   landing on the docking hub's end face near its middle (a landmark now, turning with the colony),
@@ -48,25 +58,35 @@ together. The first pass (built):
 - **Hints along the loop:** the airlock and the cap lift, the city (its map, trams, cars and the
   lift back up), the hub's landing, and the inner gate.
 
+Built since, each a PR of its own:
+
+- **A strip chosen at the airlock.** The airlock leads to three cap lifts, one down each strip's
+  end cap (`bc_client_core::bay::Lift`; built as a cut, with no lobby: COLONY.md 2.2). E rides
+  lift 1 to the Charter strip, Q chooses the next (2 Canal, 3 Gardens), the prompt names it, and
+  `EnterCity { strip }` takes the one chosen; the choice goes back to the Charter strip's once the
+  airlock is out of view. On another strip than an objective's place, the objective says the way
+  there, and the city's map names the place and its strip. Tests: `bay`'s and `objectives`'
+  units, and a step in the colony e2e (the Canal strip's lift down to The Depots and back up).
+- **Second keys for F1 and F10:** `?` and O (`CONTROLS.md`, "Where we break convention" 6).
+- **A nightly CI job for the browser suites** (`.github/workflows/e2e.yml`): one job builds the
+  server, its agents and the web client, and each suite runs on its own runner from that build,
+  nightly and by hand.
+- **Auto-nav on an ion drive's crawl.** `nav::planned_braking` plans on the thrust the suit has
+  (`Predictor::mods`): under the real rules a dry tank brakes on the drive, and a tank too low for
+  the trip plans on what's left of it and then the drive. Tests: `nav`'s units (a dry Leo with a
+  drive stops short of a point 5 km off, where it used to go 4.2 km past).
+
 Next, each a PR of its own:
 
-- **Choose a strip at the airlock.** The lift always goes down to strip 0's Hub Gate
-  (`onfoot.rs`, `EnterCity { strip: 0 }`), though the server and the agents take any of the three
-  (COLONY.md 2.2's lift lobby, lifts 1 to 3).
 - **The ◆ on the door in the city view itself**, not only on the map (P0's objectives, above).
-- **The Arrival's door opens its menu** (`LIFE.md`, L1: eating), rather than a toast that the bar's
-  quiet.
-- **Second keys for F1 and F10** (no function row on Mac laptops and 60% keyboards: `CONTROLS.md`).
+- **The Arrival's menu** (`LIFE.md`, L1: eating). Its door now opens the Most Wanted, pinned up
+  behind the bar (`Panel::Arrival`, the terminals' `wanted` tab); the menu joins it there as a
+  second tab, `menu`, at the same door.
 - **The Blast Hall's floor markings and the gantry's stairs** (`TRAINING.md`'s first ten minutes).
-- **A nightly CI job for the browser suites** (`BC_E2E=1 scripts/ci.sh`): GitHub Actions runs none
-  of them today, so the loop's seams are found by players.
 - **The launch shot's clocks.** The ring is drawn on the view clock and the own suit on the input
   clock; on the throw the suit's drawn place blends between them (`own.rs`), which shows as a lurch
   of a door's width if the release lands after the cut. Draw the colony on the own clock during the
   shot if it shows.
-- **Auto-nav on an ion drive's crawl.** The auto-nav plans its braking on the chemical thrusters
-  (`nav::planned_braking`); a dry suit crawling home on its drive (0.1 g) brakes far later than it
-  can, and overshoots. Plan on the drive's thrust when the tank is dry.
 
 Later:
 
@@ -75,31 +95,57 @@ Later:
 - **Flying out of the colony through the axis port** into space (`SUITS_INSIDE.md`'s handoff).
 - **Solid end structures** (COLONY.md 1.3; a protocol bump of its own).
 - **Trams and cars that people can't walk through** (COLONY.md phases 4 and 5's known gaps).
+- **A server gate on the bay's own work asked from a city desk** (fitting, crafting, repairs):
+  today only the page keeps a desk's terminal to its one tab.
+- **A line counting toward gundanium** on the objective (the titanium alloy and exotics for a
+  foundry batch): two counts, where the panel shows one.
+- **A first-class certificate that pays**, if the owner wants a class to earn more than the
+  Board's rifle; today it only shows (`TRAINING.md`, "Rewards").
+- **A broker's fee on trades made away from the Exchange floor** (from a bay's terminal), so the
+  walk to the floor pays for itself.
 
 ## P0: before more players arrive
 
 **A floor under loss.** *Built.* A signed-in pilot whose only suit is gone, with less than a
 torso's worth of credits, stores and parts (at the colony's values, `catalogue::value`), finds a
 worn Leo in the gantry from the Charter Board, at most once every 30 minutes (`Hangar::reissue`,
-with a `reissued_at`; `bc-server` `session.rs::enter` and the return from a loss). The news says
-so. `STORY.md`'s "debt" is now "an advance". Tests: `bc-econ` (lost, broke, reissued; not again
-within the half hour; not while there's a torso to build on or a torso's worth) and
-`bc-server/tests/hangar.rs` (over a server restart, from the pilot's record). Known, and not made
-worse: a new wallet is a new starter kit.
+with a `reissued_at`; `bc-server` `session.rs::enter`, the return from a loss, and once a second
+on the session's tick while the pilot is on foot with the bay empty and no wreck coming home, so
+it comes the moment it's due; `reissue` checks the half hour before it values the stores, so
+asking is cheap). The news says so. `STORY.md`'s "debt" is now "an advance". Tests: `bc-econ`
+(lost, broke, reissued; not again within the half hour, however often asked; not while there's a
+torso to build on or a torso's worth) and `bc-server/tests/hangar.rs` (over a server restart, from
+the pilot's record; and in the bay as the half hour runs out). Known, and not made worse: a new
+wallet is a new starter kit.
 
 **Text chat.** *Built* (`bc-server` `radio.rs`, `bc-client` `chat.rs`). `Request::Say { text }` and `Update::Said { from, text }` on control-stream frames
 tagged 11 (`bc_econ::wire`, `PROTOCOL.md`). One channel, the colony's radio, for everyone connected:
 a ring in the server's shared state, read by each session on its 100 ms tick (off the hot path).
 At most 5 lines in 10 s and 160 characters a line, control characters stripped, never logged (only
-counted on `/status`). `/` opens it (Enter too, on foot, where Enter docks nothing); keys don't reach
-the suit while typing. Agents: `bc-bot` `say` and `heard`. Tests: a two-bot server test; the page's
-`ui` e2e types a line.
+counted on `/status`). `/` opens it, and so does Enter wherever it docks nothing: on foot, and in
+a suit away from where it docks (`bc_client_core::dock::EnterKey` routes each press once a frame);
+keys don't reach the suit while typing. Agents: `bc-bot` `say` and `heard`. Tests: a two-bot
+server test; the page's `ui` e2e types a line, and opens the line with Enter in flight.
 
 **Objectives along the chain.** *Built* (`bc_client_core::objectives`, appended so their bits
-stay): ride the cap lift down, find the Exchange floor, sell on the Exchange (with the colony
-open, the Welcome's COLONY flag). On foot the panel shows the first of them not done, with the
-range to the place's door, and the city's map marks the door with a `◆`. Still open: a marker
-on the door in the city view itself.
+stay; `DESIGN.md`, "Objectives and the chart"). Nineteen, in survival's order after
+`TRAINING.md`'s first ten minutes: ride the cap lift down, report to the Proving Ground and earn a
+flight certificate, a straight walk down the avenue to the Exchange floor and the Charter Board's
+desk, standing with the colony, home to arm the suit, then out (MO-II, the Aft Well, ore home and
+sold, the Dolls, Hermit, five Dolls), and on to the Most Wanted at The Arrival, one of Zodiac's
+aces, a new Gundam on the test range and gundanium. The colony's (the cap lift, the city's, selling
+on the Exchange) need the colony open (the Welcome's COLONY flag), standing, arming, the aces and
+gundanium survival, and arcade has none of the last eight.
+Each has a realm (space, the bay, the city, or any terminal on foot): flying, the HUD shows the
+first space one not done, so a pilot who launches first is never pulled home; on foot, the first
+in order, passing over a space one flown past, and back to the Charter Board's desk while the
+Board holds something for the pilot there. Each how-line starts with the way there from where
+the pilot is, and the city's map marks the door with a `◆` (Hub Gate's, for the bay's and
+space's). Tests: `objectives`' units (the
+bits, the new Arrival's chain, flying first, a skipped hide, arcade, the colony closed, every
+how-line's prefix, the ace's waypoint, a rifle waiting at the Board's desk), and the colony e2e
+walking the desks in turn. Still open:
+a marker on the door in the city view itself.
 
 **The Arrival does something.** *Built.* Seats by its door (`bc_sim::colony::city::arrival_seats`, a
 closed form of the door; benches drawn there), E to sit, others see you sit (the presence's
@@ -135,7 +181,8 @@ weapons' buttons, as the pilot's prediction does. Tests: `hall`'s units, the int
 `HALL_GOLDEN`, `no_alloc`, and the `inside` e2e scoring on a target.
 
 **Phase 3, boarding in the hall, is built:** on foot at the gantry's hatch, `Request::BoardTrainer`
-seats the pilot in one of the Charter Board's Leos (`Control::Board`, `Sim::launch_at` with
+seats the pilot in one of the Charter Board's Leos, or the build the test range picked (item 20,
+below; the hatch's prompt names it), with `Control::Board` (`Sim::launch_at` with
 `LaunchAt::Gantry`), standing on the gantry's pad. Their hangar is untouched. Docked back at rest
 on the gantry, they climb out at its hatch.
 
@@ -156,24 +203,44 @@ Next: the hall's own course and a level ladder (phase 6).
 
 **Contracts on the Charter Board.** *Begun* (`bc_econ::charter`; `DESIGN.md`, "The Charter Board").
 One board per colony, kept with the exchange: a tab on every terminal in the bay, and the desk in
-Charter Square (its door opens `Panel::Board`). Built:
+its hall on Charter Square (its door opens `Panel::Board`). Built:
 - *Supply* contracts: a pilot's holds its reward in escrow from the moment it's posted, the
   colony posts its own as its stocks run low, and anyone but the issuer delivers part of one from
   their stores and is paid pro rata on the spot.
 - *Patrols*, once the militia's hangar is built: down Dolls for so much in bounties within the
   hour, counted as each sortie ends.
 - The great works and the charter vote, paid in credits and in standing.
+- *Desks worth the walk* (the colony open): posting, taking a patrol and signing are the Charter
+  Board's desk's (`Request::desk`, refused elsewhere with where to go: `bc-server`'s `desk.rs`
+  checks the pilot stands in the place's room); an order resting on the book is the Exchange
+  floor's (elsewhere it's downgraded to trade at once); ace terms are The Arrival's; the test
+  range's pick is the Blast Hall's. The bay's terminals point at them. With the colony closed the
+  bay does it all, as before.
+- *The Board's pay waits at its desk* (the colony open): patrols' rewards, aces' bounties and a
+  flight certificate's beam rifle (`Board::certify`, once a record or a guest's visit; the
+  colony's desk out of rifles, a rifle's worth with no standing) wait in its `at_desk` account,
+  shown as the board's `waiting`, and are paid out on walking into its hall. Patrol and ace pay are
+  lines on the sortie's debrief. Salvage terms need standing.
 - Wire: `Request::{Post, Withdraw, Deliver, TakePatrol, DropPatrol, Contribute, Sign, WatchBoard}`,
-  `Update::Charter`.
+  `Update::Charter` (with `waiting`).
 - Tests: `bc-econ`'s units (the colony's postings, pro rata, what's unpaid going back, the works,
-  a patrol), the ledger's property test with the board in it (`tests/ledger.rs`), and
-  `bc-server/tests/charter.rs` (post, deliver, build, and the board over a restart).
+  a patrol, the certificate's two paths, pay at the desk, salvage terms and standing), the
+  ledger's property test with the board in it (`tests/ledger.rs`, certificates and aces' pay
+  included), `bc-server/tests/charter.rs` (post, deliver, build, and the board over a restart,
+  the colony closed), `bc-server/tests/desks.rs` (the bay pointed at the desks; a certified pilot
+  walked to each desk and paid at the Board's), and the colony e2e opening the board at its desk
+  (a delivery to the second foundry, a contract posted and withdrawn) and the Most Wanted at The
+  Arrival.
 
-Still to come: more jobs flown in space (bring a wreck home, escort a hauler, clear a claim); the
-building site that the works build out, whose `Stage` (`bc_sim::colony::city::Stage`) is still
-`Stage(0)` everywhere, and which becomes world state the Welcome carries and every client draws
-from (today the works change the world only through their effects: the foundry's fee, the
-patrols); and the colony e2e opening the board.
+Still to come: more jobs flown in space (bring a wreck home, escort a hauler, clear a claim), with
+their briefings on the chart; the building site that the works build out, whose `Stage`
+(`bc_sim::colony::city::Stage`) is still `Stage(0)` everywhere, and which becomes world state the
+Welcome carries and every client draws from (today the works change the world only through their
+effects: the foundry's fee, the patrols); and the Board's own standing patrol (one, paying 500 CR
+on 500 of bounties, issued by THE CHARTER BOARD), so that patrols, the desk's TAKE and the
+debrief's `PATROL` line work before the militia's hangar is built (patrols come only with it
+today, so a fresh server has none). It's a new faucet and undercuts the hangar's point: the
+owner's call.
 
 **Liveries.** Body, trim, accent and eye colours chosen at the suit's maintenance console from a
 palette, carried on the suit (`bc_econ::suit::Suit.paint`), paid for in credits (a sink), and drawn
@@ -192,9 +259,10 @@ and sit at The Arrival; the server's own tugs, haulers and miners flying the lan
 same protocol, started with the server). Tests: the plaza test with a walking flaneur; a sector
 test with traffic.
 
-**Where PvP lives: a decision for the owner.** Today every browser pilot is on the Colonies' side
-and friendly fire is off, so people can't harm each other, and `DESIGN.md`'s hunted sleepers can be
-hunted only by agents of another faction. The options:
+**Where PvP lives: a decision for the owner.** Today every human pilot flies for the Colonies (the
+server decides, whatever the client asks, and the Welcome says so: protocol v29) and friendly fire
+is off, so people can't harm each other, and `DESIGN.md`'s hunted sleepers can be hunted only by
+agents of another faction (the Alliance: nobody but the Mobile Dolls flies for Oz). The options:
 1. As now: pilots against the Consortium's Dolls, never each other.
 2. Lawless space past the colony's reach (say, beyond 8 km of the hull): PvP there, the colony's law
    inside it (Star Citizen's armistice zones; EVE's security levels).
@@ -287,6 +355,9 @@ fight").
 - `Hangar::came_home_debriefed` and `lost_debriefed`, from the suit as it went out (`Bay::Out`) and
   as it came home; the session sends the sheet with the sortie (`Update::Sortie`'s `debrief`, an
   optional field: no new version).
+- The Charter Board's pay for the sortie (`Hangar::board_paid`, kept in the record's `sortie_pay`
+  till the sheet is made, cleared by the next launch): `PATROL #3` and `ACE ARIES`, with ` · AT THE
+  BOARD` when it waits at its desk, put among the earnings before the costs (`Debrief::paid`).
 - The client: under the news for 12 s (`#debrief`), and line by line in the terminals' log;
   `HangarState::last_debrief` for agents.
 - Tests: the debrief's and the hangar's units, and `bc-server/tests/hangar.rs` (docked, the stim the
@@ -313,7 +384,8 @@ fight").
 - `bc_econ::proving::Trainer` (the Board's Leo, the bay's build new and full, a new suit of any
   line) and `Request::Trainer`; the session keeps the pick, the board's view carries it, and
   boarding sends its frame and loadout in `Control::Board`.
-- The page: `THE TEST RANGE` at the Blast Hall's desk. `bc-bot`: `board_trainer_as`.
+- The page: `THE TEST RANGE` at the Blast Hall's desk, and only there (`Request::desk`: the server
+  refuses a pick from anywhere but the hall's room). `bc-bot`: `board_trainer_as`.
 - Tests: `proving`'s units, `training_net.rs`, and `bc-server/tests/proving.rs` (a Heavyarms).
 
 **21. Aces, pay or salvage.** *Built* (`DESIGN.md`, "Aces: the Most Wanted").
@@ -326,18 +398,22 @@ fight").
   `Control::Claim` sends the tugs for it (`TOW_TICKS` on, a claim like an ejected pilot's own),
   and `Report::Towed` says it was the ace's.
 - `bc_econ::charter`: the Most Wanted (who downed each last), the ladder, each pilot's terms
-  (`Request::AceTerms`); `Board::ace_downed`, and `pay_ace` (the colony's money: `colony_paid`
-  and standing). `Hangar::towed_ace` takes the wreck in as salvage.
+  (`Request::AceTerms`, settled at The Arrival's counter with the colony open; salvage terms only
+  for pilots of standing); `Board::ace_downed`, and `pay_ace` (the colony's money: `colony_paid`
+  and standing; into the hangar, or, the colony open, waiting at the Board's desk).
+  `Hangar::towed_ace` takes the wreck in as salvage.
 - `bc-server`: the notes task's `AceWatch` puts the ace on the roster by its name and announces
   it; the session pays, or claims the wreck (unless the tugs are out for the pilot's own), and
   marks which one flies in the board's view. `--ace-every`.
-- The page: MOST WANTED under the Charter Board, with the terms. The chart names the ace.
+- The page: MOST WANTED at The Arrival's counter, with the terms (under the bay's Charter Board
+  tab with the colony closed; with it open, the tab points there). The chart names the ace.
 - Tests: `bc-sim/tests/aces.rs` (one out at a time round the list, a Leo standing more, named
   until its slot is let go), `bc-sector/tests/aces_net.rs` (the word; downed by a pilot, their
   session hears with the wreck, and the claim's tugs bring it home as the ace's; downed by nobody
   here, nobody hears), `no_alloc_sector` (aces downed and claimed), the board's and the hangar's
   units, the wire's JSON, and `bc-server/tests/aces.rs` (on the roster by name, out on the Most
-  Wanted, the news, the terms, over real WebTransport).
+  Wanted, the news, the terms, salvage refused until the pilot has standing, over real
+  WebTransport).
 
 **22. Staying up.** *Built* (`ARCHITECTURE.md`, "Under abuse").
 - The review found inputs, poses and the radio limited, sign-ins waiting on a wallet capped, and

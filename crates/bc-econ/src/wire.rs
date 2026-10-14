@@ -4,6 +4,7 @@
 //! for agents alike.
 
 use bc_proto::Part;
+use bc_sim::content::city::PlaceKind;
 use bc_sim::content::{Grade, Kit};
 use serde::{Deserialize, Serialize};
 
@@ -155,6 +156,73 @@ pub enum Request {
         text: String,
     },
 }
+
+impl Request {
+    /// The desk in the colony's city that alone does what this asks, while the colony is open
+    /// (`docs/COLONY.md`, 2.6 "Key places"): an order at the pilot's own price that waits on the book is
+    /// placed on the Exchange floor; contracts are posted, patrols taken and the charter signed at
+    /// the Charter Board's desk; terms for an ace's bounty are settled at The Arrival; the test
+    /// range is picked at the Proving Ground's desk. `None`: any terminal does it (the bay's
+    /// included). Every request is listed, so a new one has to choose.
+    pub fn desk(&self) -> Option<PlaceKind> {
+        match self {
+            Request::Order { rest: true, .. } => Some(PlaceKind::Exchange),
+            Request::Post { .. } | Request::TakePatrol { .. } | Request::Sign => Some(PlaceKind::Charter),
+            Request::AceTerms { .. } => Some(PlaceKind::Bar),
+            Request::Trainer { .. } => Some(PlaceKind::Proving),
+            Request::Order { rest: false, .. }
+            | Request::Craft { .. }
+            | Request::CancelJob { .. }
+            | Request::Fit { .. }
+            | Request::Strip { .. }
+            | Request::Dismantle
+            | Request::Repair { .. }
+            | Request::Overhaul { .. }
+            | Request::Scrap { .. }
+            | Request::Fuel { .. }
+            | Request::CancelOrder { .. }
+            | Request::Watch { .. }
+            | Request::Launch
+            | Request::LaunchInside
+            | Request::Dock
+            | Request::EnterCity { .. }
+            | Request::LeaveCity
+            | Request::BoardTrainer
+            | Request::Withdraw { .. }
+            | Request::Deliver { .. }
+            | Request::DropPatrol { .. }
+            | Request::Contribute { .. }
+            | Request::WatchBoard { .. }
+            | Request::UseKit { .. }
+            | Request::Eject { .. }
+            | Request::Say { .. } => None,
+        }
+    }
+}
+
+/// Why a request that only desk `k` does was refused elsewhere (shown as `CAN'T: ` and the text
+/// in upper case): where to go.
+pub fn desk_refusal(k: PlaceKind) -> &'static str {
+    match k {
+        PlaceKind::Exchange => {
+            "a price that waits on the book is placed at the exchange floor's counter, on charter square"
+        }
+        PlaceKind::Charter => {
+            "that's done in person at the charter board's desk, in its hall on charter square"
+        }
+        PlaceKind::Bar => {
+            "your terms for an ace's bounty are settled at the arrival's counter, off charter square"
+        }
+        PlaceKind::Proving => "the test range is picked at the proving ground's desk, in the blast hall",
+        // `Request::desk` never names it.
+        PlaceKind::HubGate => "that's done at hub gate",
+    }
+}
+
+/// What a trade's note gains when an order meant to wait on the book was placed away from the
+/// Exchange floor: it traded at once, and what didn't fill came back.
+pub const FLOOR_ONLY: &str =
+    "WHAT DIDN'T FILL CAME BACK: AN ORDER WAITS ON THE BOOK ONLY FROM THE EXCHANGE FLOOR, ON CHARTER SQUARE";
 
 /// The longest line the colony's radio carries, characters.
 pub const SAY_MAX_CHARS: usize = 160;
@@ -552,6 +620,69 @@ mod tests {
         }
         assert_eq!(decode::<Request>(br#"{"t":"fit","item":"part.virgo.head"}"#), None);
         assert_eq!(decode::<Request>(b"not json"), None);
+    }
+
+    /// Each desk in the city does its one thing (the colony open), and any terminal the rest:
+    /// every request, one of each.
+    #[test]
+    fn each_desk_does_its_one_thing_and_any_terminal_the_rest() {
+        use PlaceKind::{Bar, Charter, Exchange as Floor, Proving};
+        let steel = Item::Material(Material::Steel);
+        let order = |rest| Request::Order { item: steel, side: Side::Sell, price: 1, qty: 1, rest };
+        let cases: Vec<(Request, Option<PlaceKind>)> = vec![
+            (order(true), Some(Floor)),
+            (order(false), None),
+            (Request::Post { item: steel, qty: 10, reward: 50, hours: 1 }, Some(Charter)),
+            (Request::TakePatrol { id: 1 }, Some(Charter)),
+            (Request::Sign, Some(Charter)),
+            (Request::AceTerms { salvage: true }, Some(Bar)),
+            (Request::AceTerms { salvage: false }, Some(Bar)),
+            (Request::Trainer { build: crate::proving::Trainer::Board }, Some(Proving)),
+            (Request::Craft { item: steel, batches: 1 }, None),
+            (Request::CancelJob { station: Station::Foundry, index: 0 }, None),
+            (Request::Fit { item: steel }, None),
+            (Request::Strip { slot: Slot::Mount { mount: 0 } }, None),
+            (Request::Dismantle, None),
+            (Request::Repair { part: None }, None),
+            (Request::Overhaul { part: None }, None),
+            (Request::Scrap { item: steel }, None),
+            (Request::Fuel { grade: Grade::Standard }, None),
+            (Request::CancelOrder { id: 1 }, None),
+            (Request::Watch { item: None }, None),
+            (Request::Launch, None),
+            (Request::LaunchInside, None),
+            (Request::Dock, None),
+            (Request::EnterCity { strip: 0 }, None),
+            (Request::LeaveCity, None),
+            (Request::BoardTrainer, None),
+            (Request::Withdraw { id: 1 }, None),
+            (Request::Deliver { id: 1, qty: 1 }, None),
+            (Request::DropPatrol { id: 1 }, None),
+            (Request::Contribute { work: Work::SecondFoundry, item: steel, qty: 1 }, None),
+            (Request::WatchBoard { on: true }, None),
+            (Request::UseKit { kit: Kit::Chaff }, None),
+            (Request::Eject { destruct: false }, None),
+            (Request::Say { text: "o7".into() }, None),
+        ];
+        for (req, desk) in &cases {
+            assert_eq!(req.desk(), *desk, "{req:?}");
+        }
+        let tags: std::collections::BTreeSet<String> = cases
+            .iter()
+            .map(|(r, _)| serde_json::to_value(r).unwrap()["t"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(tags.len(), 31, "every request: {tags:?}");
+        // Each refusal says where to go, as the server's notes and the e2e read them.
+        for (k, place) in [
+            (Floor, "the exchange floor's counter"),
+            (Charter, "the charter board's desk"),
+            (Bar, "the arrival's counter"),
+            (Proving, "the proving ground's desk"),
+            (PlaceKind::HubGate, "hub gate"),
+        ] {
+            assert!(desk_refusal(k).contains(place), "{k:?}: {}", desk_refusal(k));
+        }
+        assert_eq!(FLOOR_ONLY, FLOOR_ONLY.to_uppercase());
     }
 
     #[test]

@@ -252,9 +252,12 @@ fn console(v: &HangarView) -> Value {
     })
 }
 
-fn hangar_json(h: &HangarState, log: &TerminalLog) -> Value {
+/// The hangar as the page takes it; `colony`: the colony's open (the Welcome's COLONY flag), so the
+/// bay's terminals point at the desks in the city for what only they do.
+fn hangar_json(h: &HangarState, log: &TerminalLog, colony: bool) -> Value {
     json!({
         "bay": h.bay,
+        "colony": colony,
         "view": h.view,
         "market": h.market,
         "charter": h.charter,
@@ -291,5 +294,6 @@ pub fn publish_terminal(
         return;
     }
     *sent = Some(now);
-    call_ui("hangar", &JsValue::from_str(&hangar_json(h, &log).to_string()));
+    let colony = g.core.welcome.is_some_and(|w| w.colony);
+    call_ui("hangar", &JsValue::from_str(&hangar_json(h, &log, colony).to_string()));
 }

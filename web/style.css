@@ -278,7 +278,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .chat-input { display: none; width: 100%; box-sizing: border-box; margin-top: 6px; pointer-events: auto; }
 .chat.open .chat-input { display: block; }
 
-/* --- On foot in the hangar bay (survival rules). --- */
+/* --- On foot in the hangar bay or the city (survival rules). --- */
 .bay-line {
   position: fixed;
   top: 12px;

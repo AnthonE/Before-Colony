@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 use wasm_bindgen::{JsCast, JsValue};
 
-/// Fields published to `window.__bc` a few times a second.
+/// Fields published to `window.__bc` a few times a second (every frame on a slow page).
 #[derive(Resource, Default)]
 pub struct DevStatus {
     pub fields: Vec<(&'static str, JsValue)>,
@@ -27,11 +27,18 @@ impl Plugin for DevHooksPlugin {
     }
 }
 
+/// Below this frame rate every frame publishes: frames come in bunches on a page drawing in
+/// software (a quick one, then one seconds long, even a minute with a terminal open over the city),
+/// and a frame skipped for coming soon after the last would leave a test reading a state the game
+/// has left (a terminal Esc has closed) for as long as the next one takes.
+const SLOW_FPS: f32 = 8.0;
+
 fn publish(
     time: Res<Time<Real>>,
     mut last: Local<f32>,
     mut frames: Local<u32>,
     mut fps_window: Local<(f32, u32)>,
+    mut slow: Local<bool>,
     mut status: ResMut<DevStatus>,
 ) {
     *frames += 1;
@@ -42,9 +49,10 @@ fn publish(
     if now - fps_window.0 >= 2.0 {
         let fps = (*frames - fps_window.1) as f32 / (now - fps_window.0);
         *fps_window = (now, *frames);
+        *slow = fps < SLOW_FPS;
         status.set("fps", fps);
     }
-    if now - *last < 0.25 {
+    if now - *last < 0.25 && !*slow {
         return;
     }
     *last = now;

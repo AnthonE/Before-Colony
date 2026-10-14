@@ -166,10 +166,14 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
   - New `bc-server/tests/city.rs`. Update `PROTOCOL.md`.
 - **2.2 Airlock to the lift lobby.**
   - `bay.rs`: doors that let you through when open (`hits` skips them); corridor and lobby blocks beyond x < −18;
-    `Spot::Lift(k)` (`lift_1` to `lift_3`); `route` reaches them. (Built instead as a cut: the airlock,
-    `Spot::Airlock`, rides the cap lift straight down to strip 0's Hub Gate, with no lobby or choice of lift yet.)
-  - `hangar.rs` draws the corridor and lobby with a sign per strip.
-  - The prompt becomes "AIRLOCK: TO THE LIFTS". "LEAVE THE BAY" stays in the pause menu.
+    `Spot::Lift(k)` (`lift_1` to `lift_3`); `route` reaches them. (Built instead as a cut, with no corridor
+    or lobby: at the airlock, `Spot::Airlock`, E rides a cap lift straight down to its strip's Hub Gate, lift 1
+    to the Charter strip unless Q chose the next, 2 Canal or 3 Gardens (`bay::Lift`). The choice goes back to
+    lift 1 once the airlock is out of view.)
+  - `hangar.rs` draws the corridor and lobby with a sign per strip. (Not built: the airlock's prompt names the
+    lift instead, `E  AIRLOCK: CAP LIFT 1, DOWN TO THE CHARTER STRIP · Q  LIFT 2, CANAL`.)
+  - The prompt becomes "AIRLOCK: TO THE LIFTS". "LEAVE THE BAY" stays in the pause menu (and down in the city it's
+    "LEAVE THE CITY").
   - Walker tests: to each lift and back. `hangar.spec.ts` stays green.
 - **2.3 The venue and the interior shell.**
   - New `venue.rs`: `Venue`, `RenderOrigin`/`Placed` and re-basing, and switching each scene's visibility. (Built
@@ -225,11 +229,23 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
     - back up to the bay;
     - `/status` place changes, and `hot_path_allocations` stays 0.
   - New `scripts/e2e.sh colony` (survival, the colony open, no dolls) and a step in `ci.sh`.
-- **2.6 Key places v1** (strip 0, all within about 700 m of the lift).
-  - Hub Gate.
-  - The Exchange floor: its terminal opens `Panel::Terminal(Spot::Exchange)`, the bay's panel and requests.
-  - The Charter Board hall: news, bounty rates, the site's stage.
-  - The Arrival, a bar: you can sit (its seats out front, `arrival_seats`; inside is still to come).
+- **2.6 Key places v1** (strip 0, all within about 700 m of the lift). With the colony open, each desk does one
+  thing only it does (`bc_econ::wire::Request::desk`; the server checks the pilot stands in the place's room,
+  `bc-server`'s `net/desk.rs`), its terminal shows only its own tab, and the bay's terminals point at it. Each
+  door's prompt names that thing.
+  - Hub Gate: the lift back up to the bay.
+  - The Exchange floor (`THE EXCHANGE FLOOR · ORDERS THAT WAIT ON THE BOOK`): its terminal opens
+    `Panel::Terminal(Spot::Exchange)`, the bay's panel and requests, and only here does an order at the pilot's
+    own price rest on the book for other pilots. Elsewhere it trades at once and hands back what doesn't fill.
+  - The Charter Board hall (`THE CHARTER BOARD · CONTRACTS, PATROLS AND THE CHARTER`): news, bounty rates, the
+    site's stage. Its desk (`Panel::Board`) is where contracts are posted, patrols taken and the charter signed,
+    and where what the Board holds for a pilot (a certificate's beam rifle, patrols' rewards, aces' bounties) is
+    paid out, on walking in.
+  - The Arrival, a bar (`THE ARRIVAL · THE MOST WANTED`): you can sit (its seats out front, `arrival_seats`), and
+    at its counter (`Panel::Arrival`, the terminals' `wanted` tab) Zodiac's Most Wanted is pinned up behind the
+    bar, where a pilot's terms for an ace's bounty are settled. Its menu joins it there later (`LIFE.md`, L1).
+  - The Proving Ground, the Blast Hall (`THE PROVING GROUND · THE BOARD AND THE TEST RANGE`, `TRAINING.md`): its
+    desk has the board, and only there is the test range's trainer picked.
   - About 10 landmarks, named on approach, with a found-list kept in settings.
   - An M map overlay on the page, from published JSON.
   - Indoor rooms use EV 8.

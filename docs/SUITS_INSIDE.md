@@ -101,7 +101,14 @@ for it, but outside the hall they find nothing to do: every golden of the interi
   suit coming out of it (`bc-client`'s `launch_shot`: only the drawing; the suit is where the
   server put it).
 - **Back**: at rest inside the inner gate's ring of lights, Enter docks, as the outer dock does
-  today (`Request::Dock`), back to the bay.
+  today (`Request::Dock`), back to the bay. Coming in (within twice the ring's radius) the HUD's
+  marker says `AT REST IN ITS RING: ENTER`; away from it Enter opens the radio
+  (`bc_client_core::dock`).
+- **Leaving inside** (built): nothing sleeps or parks in the colony (`Sim::parkable` is never the
+  city, so the HUD never reads PARKED there). A pilot who leaves while flying their own suit inside
+  has the colony's tugs bring it home to their bay (`Hangar::recover`), and hears so once when
+  they're back (`PilotRecord::word`: `THE COLONY'S TUGS BROUGHT YOUR SUIT IN FROM THE INNER GATE`);
+  the pause menu's button says DOCK & DISCONNECT. A trainer goes back to its gantry.
 - **From the Blast Hall's gantry** (built, `TRAINING.md` phase 3): on foot in the city, a pilot
   boards one of the Charter Board's trainers there (`Request::BoardTrainer`), standing on the
   gantry's pad. It docks back only on the gantry, and its pilot climbs out there on foot.
@@ -178,5 +185,4 @@ for it, but outside the hall they find nothing to do: every golden of the interi
   (they're the plaza's, off the tick). Should it keep off them, or they off it?
 - **How many suits a sector**: the interior shares nothing with space, so its budget is its own;
   64 is the guess.
-- **Sleeping inside**: a pilot who leaves with their suit inside; parked on a roof, or sent back to
-  the bay.
+- **Sleeping inside**: decided, sent back to the bay ("Leaving inside", above).

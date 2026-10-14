@@ -1,7 +1,8 @@
 //! Keeps the cursor's lock in step with what the pilot is doing (see
 //! `bc_client_core::pointer`): asks the browser each frame whether the pointer is really locked,
 //! locks it on a click into the world or Resume, frees it for menus and the chart, and opens the
-//! pause menu when the browser takes it back (Esc, alt-tab).
+//! pause menu when the browser takes it back (Esc, alt-tab; with the colony's map up, it closes
+//! the map instead).
 
 use bc_client_core::pointer::{Grab, Pointer, PointerIn};
 use bevy::prelude::*;
@@ -50,7 +51,8 @@ pub fn update_pointer(
         }
         Grab::Leave => {}
     }
-    if out.open_pause {
+    // The lock going with the colony's map up (Esc) closes the map instead of opening the menu.
+    if out.open_pause && !ui.esc_closes_map() {
         ui.open_pause();
     }
     if out.refused {

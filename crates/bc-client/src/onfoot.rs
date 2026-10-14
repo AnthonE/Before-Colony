@@ -11,9 +11,11 @@
 //! - Coming home (Enter, at rest inside the dock's ring of lights): the suit glides in down the
 //!   tunnel, the doors shut behind it and the pilot climbs out onto the catwalk. After a suit is
 //!   lost the pilot comes back in through the airlock, to an empty gantry.
-//! - Into the colony, when it's open: the airlock leads to the cap lift, which rides down the end
-//!   cap's face (the whole city in view) to Hub Gate. There the pilot walks the city's streets
-//!   (`bc_client_core::city`), uses its places at their doors, and rides back up from Hub Gate.
+//! - Into the colony, when it's open: the airlock leads to the cap lifts, one to each land strip
+//!   (`bay::Lift`: E rides the Charter strip's, Q chooses the next), which ride down the end cap's
+//!   face (the whole city in view) to that strip's Hub Gate. There the pilot walks the city's
+//!   streets (`bc_client_core::city`), uses its places at their doors, and rides back up from Hub
+//!   Gate.
 //! - In the Blast Hall (the Proving Ground, `docs/TRAINING.md`): E at its desk opens its board,
 //!   and E at its gantry's hatch boards one of the Charter Board's trainers there. Docked back on
 //!   the gantry, the pilot climbs out at the hatch.
@@ -21,9 +23,10 @@
 //! The server knows none of this: only where the pilot is (`core.hangar.place`) and what they ask
 //! for. Space skips a sequence.
 
-use bc_client_core::bay::{CATWALK_Y, HATCH, Layout, SPAWN, SUIT_AT, Spot};
+use bc_client_core::bay::{CATWALK_Y, HATCH, Layout, Lift, SPAWN, SUIT_AT, Spot};
 use bc_client_core::city::CityGround;
 use bc_client_core::city_nav;
+use bc_client_core::dock;
 use bc_client_core::sights;
 use bc_client_core::tram::{self, CarInside, CityAndTrains, Rider};
 use bc_client_core::vehicle::{Drive, Kind, Vehicle};
@@ -92,6 +95,14 @@ const LIFT_SECS: f32 = 12.0;
 const LIFT_UP_SECS: f32 = 6.0;
 /// How near a place's door the pilot must stand to use it, m.
 const DOOR_REACH: f32 = 3.5;
+/// How much walking a slow frame catches up, s. The pilot's own legs: a second's worth (no further,
+/// blind, after a hitch). A guide's (the dev hooks' errands, the autopilot's): more, so its walk
+/// across the city keeps to the clock on a page drawing it in software at a few seconds a frame
+/// (held to a second a frame, a walk took several times as long, and a tram's open doors shut
+/// before it reached them); and less than the shortest errand (Hub Gate's door to its motor pool,
+/// 5.4 s), so none ends in the frame that begins it.
+const OWN_CATCH_UP: f32 = 1.0;
+const GUIDE_CATCH_UP: f32 = 4.0;
 
 /// Where the pilot is in the bay's sequences.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -611,6 +622,8 @@ pub struct OnFoot {
     reveal: Option<f64>,
     /// The airlock's door stands open until then.
     airlock_until: f64,
+    /// The cap lift E at the airlock rides down (Q chooses the next strip's).
+    lift: Lift,
     /// On foot in the colony (or riding down to it).
     pub city: Option<CityFoot>,
 }
@@ -631,6 +644,7 @@ impl Default for OnFoot {
             from: (Vec3::ZERO, Vec3::Z),
             reveal: None,
             airlock_until: 0.0,
+            lift: Lift::default(),
             city: None,
         }
     }
@@ -783,8 +797,8 @@ fn holds_the_bay(seq: Seq, t: f32) -> bool {
     }
 }
 
-/// What using a place is called on the prompt.
-fn verb(spot: Spot, bay: Option<&Bay>, colony: bool) -> String {
+/// What using a place is called on the prompt (`lift`: the cap lift the airlock's E rides).
+fn verb(spot: Spot, bay: Option<&Bay>, colony: bool, lift: Lift) -> String {
     match (spot, bay) {
         (Spot::Cockpit, Some(Bay::Docked { .. })) if colony => {
             "LAUNCH INTO SPACE · Q  LAUNCH INTO THE COLONY, BY THE INNER GATE".into()
@@ -792,17 +806,21 @@ fn verb(spot: Spot, bay: Option<&Bay>, colony: bool) -> String {
         (Spot::Cockpit, Some(Bay::Docked { .. })) => "BOARD & LAUNCH INTO SPACE".into(),
         (Spot::Cockpit, Some(Bay::Out { .. })) => "COCKPIT: YOUR SUIT IS OUT".into(),
         (Spot::Cockpit, _) => "COCKPIT: THE GANTRY IS EMPTY".into(),
-        (Spot::Airlock, _) if colony => "AIRLOCK: THE CAP LIFT, DOWN INTO THE COLONY".into(),
+        (Spot::Airlock, _) if colony => lift.prompt(),
         (Spot::Airlock, _) => "AIRLOCK: LEAVE THE BAY · THE CAP LIFTS ARE CLOSED".into(),
         (spot, _) => spot.name().into(),
     }
 }
 
-/// What using a place in the city is called on the prompt.
+/// What using a place in the city is called on the prompt: its name, and the one thing only its
+/// desk does.
 fn city_verb(p: &PlaceDef) -> String {
     match p.kind {
         PlaceKind::HubGate => "THE CAP LIFT, UP TO YOUR BAY".into(),
-        _ => p.name.into(),
+        PlaceKind::Exchange => "THE EXCHANGE FLOOR · ORDERS THAT WAIT ON THE BOOK".into(),
+        PlaceKind::Charter => "THE CHARTER BOARD · CONTRACTS, PATROLS AND THE CHARTER".into(),
+        PlaceKind::Bar => "THE ARRIVAL · THE MOST WANTED".into(),
+        PlaceKind::Proving => "THE PROVING GROUND · THE BOARD AND THE TEST RANGE".into(),
     }
 }
 
@@ -825,12 +843,12 @@ pub fn drive_onfoot(
     mut log: ResMut<TerminalLog>,
     mut curtain: Query<&mut BackgroundColor, With<Curtain>>,
     mut city_view: ResMut<CityView>,
-    map: Res<crate::map::MapOpen>,
+    (map, enter): (Res<crate::map::MapOpen>, Res<crate::chat::Enter>),
 ) {
     let now = now_s();
     let dt = time.delta_secs().min(0.1);
-    // Walking keeps up with slow frames (up to a second's worth).
-    let walk_dt = time.delta_secs().min(1.0);
+    // Walking keeps up with slow frames (`OWN_CATCH_UP`, a guide's `GUIDE_CATCH_UP`).
+    let walk_dt = |guided: bool| time.delta_secs().min(if guided { GUIDE_CATCH_UP } else { OWN_CATCH_UP });
     let mut g = game.borrow_mut();
     let autopilot = g.autopilot;
 
@@ -864,12 +882,16 @@ pub fn drive_onfoot(
         match (before, place) {
             // A new session (or the link was reset): start afresh.
             (_, None) => *me = OnFoot::default(),
-            // Aboard a trainer at the Blast Hall's gantry: flying it, off the street.
+            // Aboard a trainer at the Blast Hall's gantry (the one the test range picked): flying it,
+            // off the street.
             (Some(Place::City), Some(Place::Space)) if g.core.hangar.trainer => {
                 me.city = None;
                 me.done(now);
+                let name = g.core.hangar.trainer_name();
                 ui.news(
-                    "A TRAINER OF THE CHARTER BOARD'S · WEAPONS FREE IN THE HALL · DOCK AT REST ON ITS GANTRY",
+                    format!(
+                        "ABOARD A TRAINER · {name} · WEAPONS FREE IN THE HALL · DOCK AT REST ON ITS GANTRY"
+                    ),
                     false,
                 );
             }
@@ -998,15 +1020,14 @@ pub fn drive_onfoot(
         if look != Vec2::ZERO {
             c.walker.turn(-look.x, -look.y);
         }
-        let mut stride = own;
-        if stride != Stride::default() {
+        if own != Stride::default() {
             c.guide = None;
         }
         // Driving: W/S the throttle and the brake, A/D the wheel, Space the handbrake.
         let mut got_out = false;
         if let Some(v) = c.drive.as_mut() {
             let drive = Drive { throttle: own.forward, steer: -own.right, handbrake: own.jump };
-            let mut left = walk_dt;
+            let mut left = walk_dt(false);
             while left > 1e-4 {
                 let h = left.min(0.05);
                 left -= h;
@@ -1026,16 +1047,23 @@ pub fn drive_onfoot(
             c.stand();
             stood_up = true;
         }
-        let mut left = if c.drive.is_some() || c.seat.is_some() { 0.0 } else { walk_dt };
+        let mut left = if c.drive.is_some() || c.seat.is_some() { 0.0 } else { walk_dt(c.guide.is_some()) };
         while left > 1e-4 {
             let h = left.min(0.1);
             left -= h;
-            if let Some(guide) = c.guide.as_mut() {
-                stride = guide.steer(&mut c.walker, h);
-                if guide.arrived() && guide.facing.is_none_or(|f| c.walker.heading().dot(f) > 0.97) {
-                    c.guide = None;
+            // The guide's stride while it walks them; once it's done, or a tram's door has taken
+            // them aboard (and the guide with it), their own: not the guide's last, which would
+            // walk them on across the car and out of its far door for the rest of a long frame.
+            let stride = match c.guide.as_mut() {
+                Some(guide) => {
+                    let stride = guide.steer(&mut c.walker, h);
+                    if guide.arrived() && guide.facing.is_none_or(|f| c.walker.heading().dot(f) > 0.97) {
+                        c.guide = None;
+                    }
+                    stride
                 }
-            }
+                None => own,
+            };
             if let Some(news) = c.step(&stride, h) {
                 ui.toast(news);
             }
@@ -1044,7 +1072,7 @@ pub fn drive_onfoot(
             ui.toast(name);
         }
         c.focus = c.door_in_view();
-        // At the Blast Hall's gantry's hatch: E boards one of the Charter Board's trainers.
+        // At the Blast Hall's gantry's hatch: E boards the trainer the test range picked.
         c.gantry = c.focus.is_none() && c.hatch_in_view();
         board_trainer =
             used_key && c.gantry && !ui.panel_open() && c.drive.is_none() && !got_out && !stood_up;
@@ -1075,9 +1103,9 @@ pub fn drive_onfoot(
         }
         g.core.set_pose(Some(c.pose()));
         // Sent here, the frame it's taken, if one's due (and nowhere else, so a stale one never
-        // takes its turn): after a slow frame the walk has caught up by up to a second's worth,
-        // and a pose a frame late would reach the server only a moment after the one before it,
-        // too far for that moment.
+        // takes its turn): after a slow frame the walk has caught up by up to a second's worth (a
+        // guide's, `GUIDE_CATCH_UP`), and a pose a frame late would reach the server only a moment
+        // after the one before it, too far for that moment.
         if let (Some(t), Some(p)) = (net.get(), g.core.poll_pose(now)) {
             t.send_datagram(&p);
         }
@@ -1121,7 +1149,8 @@ pub fn drive_onfoot(
                 }
                 PlaceKind::Exchange => ui.panel = Panel::Terminal(Spot::Exchange),
                 PlaceKind::Charter => ui.panel = Panel::Board,
-                PlaceKind::Bar => ui.toast("THE ARRIVAL · THE BAR'S QUIET FOR NOW · THE SEATS ARE OUT FRONT"),
+                // Behind the bar: Zodiac's Most Wanted, and the pilot's terms.
+                PlaceKind::Bar => ui.panel = Panel::Arrival,
                 // The instructor's desk: the board, the pars, and the pilot's own bests.
                 PlaceKind::Proving => ui.panel = Panel::Proving,
             }
@@ -1160,28 +1189,39 @@ pub fn drive_onfoot(
             me.guide = Some(Guide::new(route, Some(facing)));
         }
         let me = &mut *me;
-        let mut stride = own;
         if look != Vec2::ZERO {
             me.walker.turn(-look.x, -look.y);
         }
-        if stride != Stride::default() {
+        if own != Stride::default() {
             // The pilot's own feet take over.
             me.guide = None;
         }
-        // In slices, so a slow frame walks as far as a fast one would.
-        let mut left = walk_dt;
+        // In slices, so a slow frame walks as far as a fast one would (the guide's stride while it
+        // walks them, then their own).
+        let mut left = walk_dt(me.guide.is_some());
         while left > 1e-4 {
             let h = left.min(0.1);
             left -= h;
-            if let Some(guide) = me.guide.as_mut() {
-                stride = guide.steer(&mut me.walker, h);
-                if guide.arrived() && guide.facing.is_none_or(|f| me.walker.heading().dot(f) > 0.97) {
-                    me.guide = None;
+            let stride = match me.guide.as_mut() {
+                Some(guide) => {
+                    let stride = guide.steer(&mut me.walker, h);
+                    if guide.arrived() && guide.facing.is_none_or(|f| me.walker.heading().dot(f) > 0.97) {
+                        me.guide = None;
+                    }
+                    stride
                 }
-            }
+                None => own,
+            };
             me.walker.step(&me.layout, &stride, h);
         }
         me.focus = Layout::spot_in_view(me.walker.eye(), me.walker.look());
+        // At the airlock (the colony open), Q chooses the next strip's cap lift; out of its view,
+        // the choice goes back to the Charter strip's.
+        if me.focus != Some(Spot::Airlock) {
+            me.lift = Lift::default();
+        } else if colony && live && keys.just_pressed(KeyCode::KeyQ) {
+            me.lift = me.lift.next();
+        }
 
         // Using what's in view.
         // Q at the cockpit (the colony open): launch into the colony, by the inner gate.
@@ -1203,12 +1243,14 @@ pub fn drive_onfoot(
                 }
                 (Spot::Cockpit, Some(Bay::Out { .. })) => ui.toast("YOUR SUIT IS OUT IN THE SECTOR"),
                 (Spot::Cockpit, _) => ui.toast("THE GANTRY IS EMPTY: BUILD A SUIT AT THE FABRICATOR"),
-                // Down into the colony, to the Charter strip's Hub Gate.
+                // Down into the colony, to the chosen strip's Hub Gate (the Charter strip's, unless
+                // Q chose another).
                 (Spot::Airlock, _) if colony => {
+                    let strip = me.lift.strip();
                     me.airlock_until = now + 1.5;
-                    me.city = Some(CityFoot::at_hub_gate(0));
+                    me.city = Some(CityFoot::at_hub_gate(strip));
                     me.start(Seq::LiftDown, now);
-                    ask(&net, &g, &Request::EnterCity { strip: 0 });
+                    ask(&net, &g, &Request::EnterCity { strip });
                 }
                 // The colony closed (arcade rules, or `--no-colony`): the airlock only leads out.
                 (Spot::Airlock, _) => {
@@ -1224,14 +1266,11 @@ pub fn drive_onfoot(
         me.guide = None;
     }
 
-    // In the sector: Enter docks (on the chart, it sets a course).
+    // In the sector: Enter docks where the suit is docked or coming in to (`dock::enter_docks`,
+    // where the HUD's marker says so); anywhere else it opens the radio, and on the chart it sets a
+    // course. The radio (`chat.rs`) decided where this press went, earlier in the frame.
     let flying = place == Some(Place::Space) && me.seq == Seq::Walking;
-    if flying
-        && ui.playing()
-        && !ui.panel_open()
-        && !map.0
-        && (keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::NumpadEnter))
-    {
+    if flying && ui.playing() && !ui.panel_open() && !map.0 && enter.0 == dock::EnterKey::Dock {
         ask(&net, &g, &Request::Dock);
     }
     // In the sector: 1-4 use the rack's consumables (the hotbar), while the suit is alive.
@@ -1313,6 +1352,11 @@ pub fn drive_onfoot(
         None => "",
     };
     ui.on_foot = on_foot || in_city;
+    ui.driving = match me.city.as_ref().and_then(|c| c.drive).filter(|_| in_city) {
+        Some(v) if v.kind == Kind::Car => "car",
+        Some(_) => "scooter",
+        None => "",
+    };
     // The map (M), and where the pilot stands on it.
     ui.map &= me.city.is_some();
     let map_at = me.city.as_ref().filter(|_| ui.map).map(|c| {
@@ -1328,22 +1372,22 @@ pub fn drive_onfoot(
         ui.map_found = settings.0.sights_found;
     }
     // On foot in the city, or flying a suit inside the colony: the camera sees its city.
-    let inside = place == Some(Place::Space) && g.core.welcome.is_some_and(|w| w.interior);
-    let city_now = me.city.is_some() || inside;
+    let flying_inside = place == Some(Place::Space) && g.core.welcome.is_some_and(|w| w.interior);
+    let city_now = me.city.is_some() || flying_inside;
     if city_view.active != city_now {
         *city_view = CityView { active: city_now, sync: false };
     }
     ui.sequence = me.seq != Seq::Walking;
     ui.prompt = match me.seq {
-        Seq::Walking if on_foot => {
-            me.focus.map_or_else(String::new, |s| format!("E  {}", verb(s, hangar_bay.as_ref(), colony)))
-        }
+        Seq::Walking if on_foot => me
+            .focus
+            .map_or_else(String::new, |s| format!("E  {}", verb(s, hangar_bay.as_ref(), colony, me.lift))),
         Seq::Walking if in_city => match me.city.as_ref() {
             Some(c) if c.drive.is_some_and(|v| v.speed.abs() < 3.0) => "E  GET OUT".into(),
             Some(c) if c.drive.is_some() => String::new(),
             Some(c) if c.seat.is_some() => "SEATED · E OR A STEP TO STAND".into(),
             Some(c) if c.focus.is_some() => format!("E  {}", city_verb(&PLACES[c.focus.unwrap_or(0)])),
-            Some(c) if c.gantry => "E  BOARD A TRAINER · THE CHARTER BOARD'S LEO".into(),
+            Some(c) if c.gantry => format!("E  BOARD A TRAINER · {}", g.core.hangar.trainer_name()),
             Some(c)
                 if c.ride.is_none() && {
                     let at = c.feet();
@@ -1365,11 +1409,15 @@ pub fn drive_onfoot(
         s if s.skippable() => "SPACE  SKIP".into(),
         _ => String::new(),
     };
+    // Indoors (the bay, the city, a sequence there): the bay's line. Flying, the HUD has the corner.
     ui.bay_line = if inside {
         format!("BAY {:02} · {} CR", g.core.hangar.bay, thousands(g.core.hangar.credits()))
     } else {
         String::new()
     };
+    // Leaving from inside the colony, the suit is brought home (`page`'s menu says so).
+    ui.inside = flying_inside;
+    ui.trainer = flying_inside && g.core.hangar.trainer;
 }
 
 /// The camera at the pilot's eyes (or where a sequence puts it), after the chase camera has had
@@ -1428,6 +1476,8 @@ pub fn publish_onfoot(
     dev.set("place", ui.place);
     // The colony's sights found on foot (the found-list, kept in the settings).
     dev.set("sights_found", sights::count(settings.0.sights_found) as u32);
+    // The objectives done (a bit per `bc_client_core::objectives::Objective`).
+    dev.set("objectives_done", settings.0.objectives_done);
     dev.set("seq", me.seq.name());
     dev.set("focus", me.focus.map_or("", Spot::slug));
     dev.set("terminal", ui.terminal_tab());

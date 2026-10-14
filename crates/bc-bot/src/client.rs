@@ -20,6 +20,8 @@ pub struct BotConfig {
     pub server: String,
     pub name: String,
     pub frame: FrameId,
+    /// The side asked for. The server says the side flown for in its Welcome (a claim to Oz, the
+    /// Mobile Dolls' own, flies for the Colonies), and [`World::faction`] follows it.
     pub faction: Faction,
 }
 
@@ -443,25 +445,12 @@ impl BotClient {
 
     /// The colony open, on foot in its city: walks the agent from where it stands to `to` (`(s, x)`
     /// on its strip) with the browser's own legs and guide (`bc_client_core::{walker, city_nav}`),
-    /// in through a room's door if it's in one, the server taking every step. Fails past `secs`.
+    /// in through the door of the room `to` is in when it starts outside one, the server taking
+    /// every step. Fails past `secs`.
     pub async fn walk_to(&mut self, to: (f32, f32), secs: f64) -> anyhow::Result<()> {
-        use bc_client_core::city::{CityGround, pose_of};
-        use bc_client_core::walker::{Guide, Walker};
-        use bc_sim::colony::city::{KERB, Stage, room_at};
+        use bc_sim::colony::city::{KERB, room_at};
         use bc_sim::colony::frame::CityPos;
-        let strip = self.core.hangar.strip.unwrap_or(0);
-        // From where it last stood; just down the lift, from outside Hub Gate's door.
-        let from = match self.core.pose() {
-            Some(p) => CityPos::new(strip, p.x, p.s, p.h),
-            None => {
-                let gate = bc_sim::content::city::PLACES
-                    .iter()
-                    .find(|p| p.kind == bc_sim::content::city::PlaceKind::HubGate && p.strip == strip)
-                    .ok_or_else(|| anyhow::anyhow!("walk_to: no Hub Gate on strip {strip}"))?;
-                let ((s, x), (ds, dx)) = bc_sim::colony::city::place_door(gate);
-                CityPos::new(strip, x - dx * 6.0, s - ds * 6.0, 0.0)
-            }
-        };
+        let (strip, from) = self.city_feet("walk_to")?;
         let mut route = bc_client_core::city_nav::route_from(strip, from, to);
         // Into the room `to` is in, through its door.
         if let Some(r) = room_at(strip, to.0, to.1, 1.0)
@@ -473,6 +462,53 @@ impl BotClient {
             route.push(walk(inside));
             route.push(walk(to));
         }
+        self.guided(strip, from, route, secs, "walk_to").await
+    }
+
+    /// The colony open, on foot in its city: walks the agent to where key place `i`
+    /// (`bc_sim::content::city::PLACES`) is used, as the browser's guide does
+    /// (`city_nav::route_to_place`): along the streets to its door and in to its counter (Hub
+    /// Gate: to its door). Fails past `secs`.
+    pub async fn walk_to_place(&mut self, i: usize, secs: f64) -> anyhow::Result<()> {
+        anyhow::ensure!(i < bc_sim::content::city::PLACES.len(), "walk_to_place: no place {i}");
+        let (strip, from) = self.city_feet("walk_to_place")?;
+        let route = bc_client_core::city_nav::route_to_place(strip, from, i);
+        self.guided(strip, from, route, secs, "walk_to_place").await
+    }
+
+    /// The strip the agent is on in the city, and where it stands: where it last stood, or, just
+    /// down the lift, outside Hub Gate's door.
+    fn city_feet(&self, what: &str) -> anyhow::Result<(u8, bc_sim::colony::frame::CityPos)> {
+        use bc_sim::colony::frame::CityPos;
+        let strip = self.core.hangar.strip.unwrap_or(0);
+        let from = match self.core.pose() {
+            Some(p) => CityPos::new(strip, p.x, p.s, p.h),
+            None => {
+                let gate = bc_sim::content::city::PLACES
+                    .iter()
+                    .find(|p| p.kind == bc_sim::content::city::PlaceKind::HubGate && p.strip == strip)
+                    .ok_or_else(|| anyhow::anyhow!("{what}: no Hub Gate on strip {strip}"))?;
+                let ((s, x), (ds, dx)) = bc_sim::colony::city::place_door(gate);
+                CityPos::new(strip, x - dx * 6.0, s - ds * 6.0, 0.0)
+            }
+        };
+        Ok((strip, from))
+    }
+
+    /// Walks the agent's legs (`walker::Walker`) from `from` along `route` (the walker's frame on
+    /// `strip`) with the browser's guide, sending each step as it goes. Fails past `secs`.
+    async fn guided(
+        &mut self,
+        strip: u8,
+        from: bc_sim::colony::frame::CityPos,
+        route: Vec<glam::Vec3>,
+        secs: f64,
+        what: &str,
+    ) -> anyhow::Result<()> {
+        use bc_client_core::city::{CityGround, pose_of};
+        use bc_client_core::walker::{Guide, Walker};
+        use bc_sim::colony::city::Stage;
+        use bc_sim::colony::frame::CityPos;
         let ground = CityGround { strip, stage: Stage(0) };
         let mut w = Walker::at(from.walker(), glam::Vec3::X);
         w.grounded = true;
@@ -480,7 +516,7 @@ impl BotClient {
         let end = Instant::now() + Duration::from_secs_f64(secs);
         while !guide.arrived() {
             if Instant::now() > end {
-                bail!("walk_to: timed out, at {:?}", CityPos::from_walker(strip, w.feet));
+                bail!("{what}: timed out, at {:?}", CityPos::from_walker(strip, w.feet));
             }
             let dt = 1.0 / bc_sim::TICK_HZ as f32;
             let stride = guide.steer(&mut w, dt);

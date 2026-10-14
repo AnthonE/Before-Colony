@@ -39,6 +39,17 @@ impl Debrief {
         }
     }
 
+    /// What the Charter Board paid for the sortie (a patrol flown, an ace's bounty): earned, so it
+    /// goes after what's already earned and before the first cost. Nothing, if it comes to
+    /// nothing.
+    pub fn paid(&mut self, what: &str, cr: u64) {
+        if cr == 0 {
+            return;
+        }
+        let at = self.lines.iter().position(|l| l.cr < 0).unwrap_or(self.lines.len());
+        self.lines.insert(at, Line { what: what.into(), cr: i64::try_from(cr).unwrap_or(i64::MAX) });
+    }
+
     fn spent(&mut self, what: &str, cr: u64) {
         if cr > 0 {
             self.lines.push(Line { what: what.into(), cr: -i64::try_from(cr).unwrap_or(i64::MAX) });
@@ -213,6 +224,38 @@ mod tests {
         assert_eq!(charged(Grade::Refined), worth(refined, value(refined), 500) as i64);
         assert!(charged(Grade::UltraPure) > charged(Grade::Refined));
         assert!(charged(Grade::Refined) > charged(Grade::Standard));
+    }
+
+    /// The Charter Board's pay for a sortie (a patrol flown, an ace's bounty) is earned: after
+    /// what the sortie earned itself and before its costs, and in the net; nothing, if nothing.
+    #[test]
+    fn the_boards_pay_goes_before_the_costs() {
+        let out = Suit::complete(FrameId::Leo);
+        let back = Suit { propellant: out.propellant - 500, ..out.clone() };
+        let mut d = Debrief::docked(&out, &back, &[0; Kit::COUNT], 400, 0, 0);
+        let fuel = line(&d, "PROPELLANT");
+        assert!(fuel < 0);
+        d.paid("PATROL #3 · AT THE BOARD", 1_500);
+        d.paid("ACE ARIES", 0);
+        d.paid("ACE GEMINI", 1_800);
+        let lines: Vec<(&str, i64)> = d.lines.iter().map(|l| (l.what.as_str(), l.cr)).collect();
+        assert_eq!(
+            lines,
+            [
+                ("BOUNTIES", 400),
+                ("PATROL #3 · AT THE BOARD", 1_500),
+                ("ACE GEMINI", 1_800),
+                ("PROPELLANT", fuel)
+            ]
+        );
+        assert_eq!(d.net(), 400 + 1_500 + 1_800 + fuel);
+        // A sheet with nothing on it yet, or no costs: at its end.
+        let mut d = Debrief::lost(None, 0);
+        d.paid("ACE ARIES", 1_500);
+        d.paid("PATROL #4", 1_000);
+        let lines: Vec<(&str, i64)> = d.lines.iter().map(|l| (l.what.as_str(), l.cr)).collect();
+        assert_eq!(lines, [("ACE ARIES", 1_500), ("PATROL #4", 1_000)]);
+        assert_eq!(d.net(), 2_500);
     }
 
     #[test]

@@ -724,29 +724,73 @@ held at the edge of the view while it's off it.
 
 | Objective | Done when | Waypoint |
 |---|---|---|
+| RIDE THE CAP LIFT DOWN (the colony open) | in the city | flying, the dock; in the bay, the airlock's prompt |
+| REPORT TO THE PROVING GROUND (the colony open) | at the Blast Hall's desk | on the city's map (M), a `◆` on its blast doors, and its range on the panel |
+| EARN A FLIGHT CERTIFICATE (the colony open) | a time on the Proving Ground's board, the course or the drill (the server's word) | as above |
+| FIND THE EXCHANGE FLOOR (the colony open) | at its counter | on the city's map, a `◆` on its door |
+| REPORT TO THE CHARTER BOARD (the colony open) | at its desk, in its hall on Charter Square | as above |
+| EARN STANDING WITH THE COLONY (survival) | standing above 0: a delivery to one of the colony's contracts or a great work | as above |
+| ARM YOUR SUIT (survival) | every weapon mount of the bay's suit filled (the worn Leo comes without its beam rifle) | flying, the dock |
 | LAND ON MO-II | standing on it | MO-II |
 | HIDE IN THE AFT WELL | hidden in it (the server's word) | the Aft Well |
 | MINE 200 KG OF ORE | 200 kg in the hold and in hand | the nearest big rock |
 | BRING THE ORE HOME (survival) · SELL ORE AT THE DOCK (arcade) | in the dock's ring with something aboard | the dock |
-| RIDE THE CAP LIFT DOWN (the colony open) | in the city | flying, the dock; in the bay, the airlock's prompt |
-| FIND THE EXCHANGE FLOOR (the colony open) | at its door | on the city's map (M), a `◆` on its door, and its range on the panel |
-| SELL ON THE EXCHANGE (the colony open) | a sale filled on the Exchange, from anywhere | as above |
-| REPORT TO THE PROVING GROUND (the colony open) | at the Blast Hall's desk | on the city's map, a `◆` on its blast doors |
+| SELL ON THE EXCHANGE (the colony open) | a sale filled on the Exchange, from any terminal | as above |
 | DOWN A MOBILE DOLL | a Doll downed | the nearest Doll in sight, else their patrols over the field |
 | LAND ON HERMIT | standing on it | Hermit |
 | DOWN 5 MOBILE DOLLS | five downed, over any number of visits | as above |
+| READ THE MOST WANTED (the colony open) | at The Arrival's counter, off Charter Square | on the city's map, a `◆` on its door |
+| DOWN ONE OF ZODIAC'S ACES (survival) | an ace downed (the Charter Board's ladder says so) | the ace out now, by its callsign; else as for the Dolls |
+| TRY A NEW GUNDAM ON THE TEST RANGE (the colony open) | flying a new Gundam the test range readied on the Blast Hall's gantry | on the city's map, the Proving Ground |
+| MAKE GUNDANIUM (survival) | gundanium in the stores, or a job making it | flying, the dock |
 
-- **Any order.** Each is checked every frame, so doing one early counts; the HUD shows the first
-  in the rules' order not yet done. Survival starts at the dock beside MO-II, in a worn Leo with
-  no rifle, so it lands and hides first and fights last; arcade starts among the Dolls, so it
-  fights first. The ore brought home goes down the chain, into the colony and onto its Exchange
-  (`PEERS.md`'s "connect before deepening"). On foot (in the bay, or the city) the panel shows the
-  first of those not yet done, since the flight's wait for the next sortie.
+That's survival's order (`TRAINING.md`'s first ten minutes, then a straight walk down the avenue
+past Hub Gate, the Blast Hall, the Exchange floor to the Charter Board, home to arm, and out).
+Arcade keeps its first eleven in their old order (DOWN A MOBILE DOLL first) and has none of the
+last eight. Without canon names the Gundam is a prototype (`TRY A NEW PROTOTYPE ON THE TEST
+RANGE`).
+
+- **Any order.** Each is checked every frame, so doing one early counts. Survival starts in the
+  bay, in a worn Leo with no rifle: with the colony open the Arrival rides down to the city first,
+  is certified, finds the desks and earns standing, then goes home to arm and launches; out there
+  it lands and hides first, and fights last. Arcade starts among the Dolls, so it fights first. The ore
+  brought home goes down the chain, into the colony and onto its Exchange (`PEERS.md`'s "connect
+  before deepening").
+- **Where each is done** (`Realm`): in space (landing, hiding, mining, bringing it home, the Dolls,
+  Hermit, the aces), in the bay (the cap lift, arming, gundanium), in the city (the desks, the
+  certificate, the test range), or at any terminal on foot (selling, standing).
+- **What the HUD shows depends on where the pilot is.** Flying, it's the first not done that's done
+  in space, so a pilot who launches first is never pulled home while one is open; if there's none,
+  the first not done, its how-line starting with the way home. On foot, in the bay or the city,
+  it's the first not done in the rules' order, passing over one in space the pilot has flown past
+  (a hide skipped after mining waits for the next flight; the chart still lists it). Only space
+  objectives are passed over: a city one is done by its door coming into focus, so passing them
+  over would skip them by accident. Every how-line starts with the way there from where the pilot
+  stands ("At your airlock, E rides the cap lift down." in the bay for a city one, "Back up to your
+  bay first: E at Hub Gate's lift." in the city for a bay one, "Back up to your bay (E at Hub
+  Gate's lift), and launch from its cockpit." in the city for a space one, "Home first: dock at
+  the ◆." in flight for any on foot), and on foot in the city the map's `◆` for one in the bay or
+  in space is on Hub Gate, the way up.
+  A pilot who has just armed sees `LAND ON MO-II`, starting "Up the stairs: E at the cockpit's
+  hatch launches."
+- **Back to the Board's desk while it holds something.** On foot, REPORT TO THE CHARTER BOARD
+  shows again, though done, while the Board holds something for the pilot at its desk (a
+  certificate earned after walking past it, a patrol's reward, an ace's bounty), in its place in
+  the rules' order, with its `◆` on the hall's door: ARM YOUR SUIT never sends a pilot home to a
+  console whose stores haven't the Board's rifle yet. While it shows, the panel's count and the
+  chart's list keep it as one to do. The server sends the board as something is put there and as
+  it's handed over, whether or not the pilot watches it. Flying, nothing changes. The lines name
+  no work that may have all it needs: EARN STANDING says the board lists what each still needs
+  (the 200 kg of steel an Arrival came with does while a great work is short of it), and ARM YOUR
+  SUIT offers the Board's rifle only with the colony open, where a certificate can be earned.
 - **Kept with the settings**, as the hints are: what's done and the Dolls downed carry over from
   one visit to the next in the same browser. An objective done says so (`OBJECTIVE DONE - …`).
-  The settings panel can hide the objective and its waypoint.
+  The settings panel can hide the objective and its waypoint. The chart (M) lists them: how many
+  are done on one line, then at most ten still to do in the rules' order, the one shown marked.
 - **Not rewards.** They point the way to what pays (bounties, the dock's prices, the stores), and
-  nothing about them is the server's: it pays what it always has.
+  nothing about them is the server's: it pays what it always has. The certificate's beam rifle is
+  the Charter Board's, for a time on its board (below), and the objective only takes the server's
+  word that there is one.
 
 **The chart (M)** is a holographic map of everything a pilot can find, in 3D, from a single rock
 out to Earth and the Moon (`bc-client`'s `chart.rs`, on `bc_client_core::{chart, nav, sphere}`).
@@ -834,10 +878,23 @@ the same code the agents walk with), and uses things by looking at them within r
   would launch.
 - **The cockpit hatch** (on the catwalk): board and launch.
 - **The airlock** (left wall): the way out of the bay (leave the game), or, when the colony's
-  open, to the cap lift down into it.
+  open, to the cap lifts down into it: E rides the Charter strip's, and Q chooses the next
+  strip's (below, "Going in").
+
+On foot, in the bay and in the city, the bay's line (`BAY 07 · 2,000 CR`) sits at the top of the
+screen and a dot in the middle marks what E would use, whether or not the pointer is locked (not
+at the wheel, nor under the city's map, the controls sheet or a panel). Flying, neither shows: the
+HUD has the corner and the crosshair. With the pointer free, the page asks for a click to take
+control in the words for where the pilot is: CLICK TO WALK on foot, DRIVE at a car's wheel, RIDE
+on a scooter, FLY in a suit.
 
 The terminals are panels on the page over the live bay. Everything they show is the server's word,
-and everything they do is a request the server checks (`bc_econ::wire`).
+and everything they do is a request the server checks (`bc_econ::wire`). Their tabs are the
+fabricator, the stores, the suit, the Exchange, the Charter Board and (the colony open) the Proving
+Ground. With the colony open the bay's do the routine work, and point at the city's desks for what
+only a desk does (an order that waits on the book, posting a contract, taking a patrol, the
+charter, an ace's terms, the test range); a desk's terminal in the city shows only its own tab
+(The Arrival's counter has the one no bay terminal shows, the Most Wanted).
 
 ### Building a suit
 
@@ -889,6 +946,14 @@ for bulk goods, a piece for everything else.
   Dolls shot down). The ledger balances: credits are neither made nor lost in a trade (a property
   test checks it).
 - Each item's last trade price is sampled once a minute: the terminal draws the last hour.
+- **Resting orders are the Exchange floor's.** With the colony open, an order whose remainder
+  waits on the book is placed at the Exchange floor's counter, on Charter Square: market-making
+  inside the colony's 10% spread, or selling Gundam tech to a pilot who isn't online, takes the
+  walk. Asked from anywhere else (a bay's terminal, say) it trades at once and hands back what
+  doesn't fill: the server downgrades it rather than refusing it, and its note ends `WHAT DIDN'T
+  FILL CAME BACK: AN ORDER WAITS ON THE BOOK ONLY FROM THE EXCHANGE FLOOR, ON CHARTER SQUARE`. The
+  bay's exchange has no REST checkbox, and says where one is. A pilot's orders are listed and
+  cancelled from anywhere. With the colony closed the bay places them, as before.
 
 ### Wear from use
 
@@ -954,7 +1019,34 @@ client predicts with, as the server flies with it).
 ### The Charter Board: contracts and the great works
 
 The colony's notices (`bc_econ::charter`, one board per colony, kept with the exchange): a tab on
-every terminal in the bay, and the Charter Board's own desk in Charter Square.
+every terminal in the bay, and the Charter Board's own desk in its hall on Charter Square.
+
+- **Its desk** (the colony open). Contracts are posted, patrols taken and the charter signed in
+  person, at the desk; asked anywhere else, the server refuses with where to go ("that's done in
+  person at the charter board's desk, in its hall on charter square"), and the bay's tab shows a
+  dim `AT ITS DESK` for a patrol, one note in place of the POST form, and no SIGN. Delivering,
+  withdrawing, giving up a patrol and the great works stay on the bay's terminals too. With the
+  colony closed, the bay does it all, as before.
+- **The Board's own pay waits at its desk** (the colony open): the certificate's beam rifle (below),
+  patrols' rewards and aces' bounties are held for the pilot, and paid out the moment they walk
+  into its hall. Until then the bay's tab says what it holds (`THE BOARD HOLDS 1,500 CR FOR YOU ·
+  PAID OUT AT ITS DESK, ON CHARTER SQUARE`), the news names the desk, and on foot the objectives
+  lead back to it (REPORT TO THE CHARTER BOARD, again). Escrow refunds and the goods delivered to a
+  pilot's own contracts still arrive in the bay. A guest's pay goes with them when they leave, as
+  their orders do; a signed-in pilot's waits with the board. Its file is written with the clock's
+  minute, and at once, before the pilot's record, when a certificate's rifle or an ace's bounty is
+  put there (the record keeps the certificate's flag and the sortie's line).
+- **A flight certificate earns a beam rifle, once** (`Board::certify`). The first time a pilot has
+  a time on the Proving Ground's board, the course or the drill and any class, the Board issues
+  them a beam rifle from the colony's desk for it, to collect at its own (`THE CHARTER BOARD HAS
+  YOUR FLIGHT CERTIFICATE · A BEAM RIFLE WAITS FOR YOU AT ITS DESK, ON CHARTER SQUARE`): the worn
+  Leo's missing rifle, earned. The colony's desk out of rifles (it keeps 3), it pays a rifle's
+  worth instead, with no standing. Once per signed-in record (the hangar's `certified`), once per
+  visit for a guest; a veteran is certified from their record's bests on their next visit to the
+  city. The Board keeps no name for it, so a guest who only flies a trainer leaves no key in
+  `charter.json`. The rifle is goods moved, not made (the colony's desk holds one fewer, and its
+  price rises as if sold); its worth in credits is the colony's money. Either way, one more faucet
+  the size of the starter's advance.
 
 - **Contracts.** Jobs with their pay posted beside them. *Supply*: deliver so much of an item.
   Anyone but its issuer delivers part of it from their stores and is paid pro rata on the spot,
@@ -966,8 +1058,12 @@ every terminal in the bay, and the Charter Board's own desk in Charter Square.
   electronics, munitions, components), at 135% of their value, for two hours each. Agents deliver
   too: the miner hands its ore to the colony's contracts before it sells the rest.
 - **Patrols** (once the militia has its hangar): take one, and down Mobile Dolls for 1,000 CR of
-  bounties within the hour; the militia pays 1,500 CR on top. One pilot holds a patrol at a time,
-  and a pilot holds one at a time; the bounties count when the suit comes home (or is lost).
+  bounties within the hour; its issuer pays 1,500 CR on top (`PATROL #3 FLOWN · THE MILITIA PAYS
+  1,500 CR`, or, the colony open, `... THE MILITIA'S 1,500 CR WAITS FOR YOU AT THE CHARTER BOARD'S
+  DESK`). One pilot holds a patrol at a time, and a pilot holds one at a time; the bounties count
+  when the suit comes home (or is lost), and the reward is on that sortie's sheet (the patrol's
+  word is told once the sortie is settled and the record kept, so a link dropped as it's told
+  can't lose the sortie). Given up, it goes back on the board with its own bounty.
 - **The great works.** The era's projects, each needing tonnes of materials, delivered from the
   stores at 120% of the colony's value:
   - *A second foundry* (12 t of steel, 6 t of titanium alloy, 800 kg of electronics, 1.5 t of
@@ -980,8 +1076,9 @@ every terminal in the bay, and the Charter Board's own desk in Charter Square.
   Every pilot hears when one is finished, wherever they are; the board lists each work's most
   generous contributors.
 - **Standing** is the credits a pilot has earned from the colony's contracts, patrols, works and
-  aces' bounties: it's what signing the charter takes. A pilot's contract with another pilot
-  earns none.
+  aces' bounties: it's what signing the charter takes, and what the Board asks before it signs an
+  ace's wreck over (below). A pilot's contract with another pilot earns none, and nor does the
+  certificate's rifle.
 - **The ledger** still balances: credits enter only from the colony (what it pays on contracts
   and works joins its purchases), and escrow and deliveries never make or lose any (the ledger's
   property test covers the board too).
@@ -1000,32 +1097,46 @@ a bounty on it (1,500 to 4,000 CR).
   the kill feed and the chart name it, from the moment it's out until a few seconds after it's
   downed. The news says when one comes out (`ZODIAC'S ARIES IS OUT AMONG THE DOLLS · 1,500 CR ON
   IT`) and who downed it.
-- **The Most Wanted**, on the Charter Board: each ace's bounty, the one out now, who downed each
-  last and when, and the ladder of pilots by aces downed.
+- **The Most Wanted**, pinned up behind the bar at The Arrival, off Charter Square (E at its
+  counter): each ace's bounty, the one out now, who downed each last and when, and the ladder of
+  pilots by aces downed. The Charter Board's tab (the bay's, and at its desk) points there (`THE
+  MOST WANTED IS PINNED UP AT THE ARRIVAL, OFF CHARTER SQUARE · OUT NOW: ARIES, 1,500 CR`); with
+  the colony closed it's on that tab, whole.
 - **Pay or salvage** (MechWarrior's contract terms). A pilot's terms say how they take an ace's
   bounty: paid by the Charter Board the moment it's downed (the colony's money, earning standing
-  as its contracts do), or as the rights to its wreck: the colony's tugs go out for it and bring it
-  home 45 s later, everything on it salvage (worn parts of the lines pilots build, the rest scrap),
-  unless someone else gets to it first. A gamble: a whole Leo's parts, or nothing. With the tugs
-  already out for their own wreck, it's paid; downed on the way out of the game, too.
+  as its contracts do; the colony open, it waits at the Board's desk), or as the rights to its
+  wreck: the colony's tugs go out for it and bring it home 45 s later, everything on it salvage
+  (worn parts of the lines pilots build, the rest scrap), unless someone else gets to it first. A
+  gamble: a whole Leo's parts, or nothing. With the tugs already out for their own wreck, it's
+  paid; downed on the way out of the game, too. The terms are settled at The Arrival's counter
+  (the colony open), and the Board signs a wreck over only to pilots of standing: at 0, salvage
+  terms are refused ("the board signs an ace's wreck over only to pilots of standing: deliver to
+  the colony's contracts or its works first"; the counter says so under the terms), and pay terms
+  are always there. A pilot already on salvage terms keeps them. The board reaches the pilot as
+  soon as an ace is downed, so the ladder and what waits are current.
 - Under arcade rules the aces fly as well, by name, with nobody to pay.
 
 ### Sorties
 
-- **Launching:** board at the hatch (E; Q flies into the colony instead, by its inner gate). The
-  bay vents, beacons turning red, the doors part, and the catapult throws the suit down the launch
-  tunnel and out of the bay's own door on the spinning bay ring, at 40 m/s on top of the ring's
-  125 m/s: the camera opens outside the ring by the open door and watches it go, then hands over to
-  the chase camera. Until the throw the suit rides its bay's cradle in the door, carried round with
-  the ring, its weapons held. (Space skips the sequence.)
+- **Launching:** board at the hatch (E; with the colony open, Q flies into it instead, by its inner
+  gate: the cockpit's prompt and the launch's hint offer Q only then). The bay vents, beacons
+  turning red, the doors part, and the catapult throws the suit down the launch tunnel and out of
+  the bay's own door on the spinning bay ring, at 40 m/s on top of the ring's 125 m/s: the camera
+  opens outside the ring by the open door and watches it go, then hands over to the chase camera.
+  Until the throw the suit rides its bay's cradle in the door, carried round with the ring, its
+  weapons held. (Space skips the sequence.)
 - **Docking:** home is on the axis, where nothing moves (a door on the ring would take holding
   0.7 g against the spin): come to rest (under 25 m/s) inside the dock's ring of amber lights, off
   the mouth of the docking hub at the colony's −X end, and press Enter; or arm the grip, land on the
   hub's end face near its middle (it turns with the colony, slowly there), walk onto the lit deck
-  hatch and press Enter. The suit glides in down the tunnel,
-  the doors shut behind it, and the pilot climbs out onto the catwalk. What came home goes to the
-  stores: the suit as it is (its systems as broken as they came, its equipment if its parts came
-  too), the hold's ore, whatever was in hand, and the bounties earned.
+  hatch and press Enter. The HUD always marks home (`DOCK`), and coming in (within twice the
+  ring's radius of it, the hub's mouth and its deck hatch included) it says `AT REST IN ITS RING:
+  ENTER`. Enter asks the dock only there, or once docked (`bc_client_core::dock`), so its
+  refusals ("come to rest inside ...") come where they teach something; anywhere else Enter opens
+  the radio. The suit glides in down the tunnel, the doors shut behind it, and the pilot climbs
+  out onto the catwalk. What came home goes to the stores: the suit as it is (its systems as broken
+  as they came, its equipment if its parts came too), the hold's ore, whatever was in hand, and the
+  bounties earned.
 - **Arriving:** a pilot's first time in their bay, the news says they've arrived, and what the
   Charter Board advanced them.
 - **Ejecting:** a pilot who ejects (U) loses the suit too, but the colony's tugs bring its wreck
@@ -1038,13 +1149,18 @@ a bounty on it (1,500 to 4,000 CR).
   colony's values. What it cost: the propellant burnt, the rounds fired (or lost with their mount),
   what the rack used, what the armour that came home takes to repair, and the parts, weapons and
   equipment shot off; a suit lost is written off whole. Then the net: a sortie that earns 2,000 in
-  bounties and comes home with 2,500 of armour to mend lost money.
+  bounties and comes home with 2,500 of armour to mend lost money. The Charter Board's pay for the
+  sortie is on it among the earnings: a patrol flown (`PATROL #3`) and an ace's bounty (`ACE
+  ARIES`), each with ` · AT THE BOARD` when it waits at its desk. They count in the net.
 - **A floor under it** (`Hangar::reissue`): a pilot back in an empty bay with no torso in the stores
   to build on, and less than a Leo torso's worth in credits, stores and parts (at the colony's
   values), finds a worn Leo in the gantry, the Charter Board's advance, as on the day they
   arrived; the news says so. At most once every 30 minutes, so it's a floor, not a free suit.
   (An Arrival's 2,000 cr is less than a torso: lose the first suit and the Board stands you
-  another.) A new wallet is still a new starter kit.
+  another.) It comes when they're back in the bay, and while they're on foot with the bay empty
+  (and no wreck on its way home) the session asks again once a second, so the advance comes the
+  moment the half hour is up rather than on their next visit. A new wallet is still a new starter
+  kit.
 - **Away:** a signed-in pilot who leaves keeps everything: their hangar, its jobs, their orders.
   Left out in the sector, their suit sleeps where it is (below), and they wake in it; one the
   sector lost track of is towed in. A guest's hangar lasts the visit.
@@ -1067,16 +1183,25 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   Exchange Row to Old Town's low streets, all worked out as a closed form of where you are
   (`bc_sim::colony::city`): nothing is stored, and every client and the server see the same walls.
   Gravity is the spin's: 1 g on the ground, less up a tower.
-- **Going in** (a survival server, unless it runs with `--no-colony`): the bay's airlock leads to the cap lift,
-  which rides down the end cap's face with the whole colony in view (Space skips the ride) to Hub
-  Gate's terminal. From there the pilot walks the city with the bay's controls, and M shows the
-  map of their strip. Districts and sights are named on the way in; a sight reached for the first
-  time goes on the pilot's found-list (kept in their settings: "SIGHT FOUND · THE CLOCK TOWER · 2
-  OF 10"), and the map ticks off the sights found by name, rings those still to find, and lists
-  them.
+- **Going in** (a survival server, unless it runs with `--no-colony`): the bay's airlock leads to
+  the cap lifts, one down each strip's end cap (`bc_client_core::bay::Lift`). E rides lift 1, to
+  the Charter strip, where the key places are; Q first chooses the next (2 Canal, 3 Gardens, and
+  round again), the prompt naming it (`E  AIRLOCK: CAP LIFT 2, DOWN TO THE CANAL STRIP · Q  LIFT
+  3, GARDENS`), and the choice goes back to the Charter strip's once the airlock is out of view.
+  The lift rides down the end cap's face with the whole colony in view (Space skips the ride) to
+  that strip's Hub Gate. From there the pilot walks the city with the bay's controls, and M shows
+  the map of their strip (M or Esc closes it). On another strip than an objective's place, the
+  objective says the way there (up the lift from Hub Gate, and down its strip's lift), and the map
+  names the place and its strip. Districts and sights are named on the way in; a sight reached for
+  the first time goes on the pilot's found-list (kept in their settings: "SIGHT FOUND · THE CLOCK
+  TOWER · 2 OF 10"), and the map ticks off the sights found by name, rings those still to find,
+  and lists them.
 - **Places:** the Exchange floor (its terminal is the bay's exchange), the Charter Board (its
-  contracts and great works, above), The Arrival (a bar), the Proving Ground (the Blast Hall,
-  `TRAINING.md`), and Hub Gate, whose lift goes back up to the bay.
+  contracts and great works, above), The Arrival (a bar, the Most Wanted behind it), the Proving
+  Ground (the Blast Hall, `TRAINING.md`), and Hub Gate, whose lift goes back up to the bay. With
+  the colony open each does one thing only it does, and its terminal shows only that (`COLONY.md`,
+  2.6): an order that waits on the book, the Charter Board's posting, patrols, charter and pay,
+  an ace's terms, the test range's pick.
   Each of the first four has a room behind its door: walk in, and use the place at its counter
   (E). The trading floor's boards run along its back wall, the Charter Board's notices are pinned
   on its, and the bar's shelves are behind its counter. The Blast Hall's room is a suit's: 86 m
@@ -1112,14 +1237,17 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   the air slows it, the hull, the end caps and the city's buildings stop it, and flight assist
   holds it where it is. Weapons are safe by the colony's law: nothing fires, but in the Blast
   Hall (`TRAINING.md`), where suits fire training rounds at its targets (they touch no suit and
-  never leave the hall, and the HUD reads `WEAPONS FREE`). The HUD marks the
-  inner gate; at rest in its ring of lights, Enter docks back into the bay. It's the server's
-  second sector (`sector-1`), keeping the first's tick: the colony has one clock. Pilots on foot
-  see the suits flying within 2.5 km of them, and a suit's pilot sees the people below (those on
-  the strip under it within 1.5 km, their cars too) and the trams, where everyone on foot sees
-  them. With the grip armed (L) a suit lands on the city, the avenue or a roof, and walks it as it
-  would a rock, but under the colony's own pull: its walls stop it, and walked off a roof's edge
-  it comes down on whatever's below.
+  never leave the hall, and the HUD reads `WEAPONS FREE`). The HUD marks the inner gate; at rest
+  in its ring of lights, Enter docks back into the bay (away from it, Enter opens the radio).
+  Nothing sleeps or parks inside: a pilot who leaves while flying there (the menu's DOCK &
+  DISCONNECT) has the colony's tugs bring the suit home to their bay, and is told so once when
+  they're back (`THE COLONY'S TUGS BROUGHT YOUR SUIT IN FROM THE INNER GATE`); a trainer goes back
+  to its gantry. It's the server's second sector (`sector-1`), keeping the first's tick: the colony
+  has one clock. Pilots on foot see the suits flying within 2.5 km of them, and a suit's pilot sees
+  the people below (those on the strip under it within 1.5 km, their cars too) and the trams, where
+  everyone on foot sees them. With the grip armed (L) a suit lands on the city, the avenue or a
+  roof, and walks it as it would a rock, but under the colony's own pull: its walls stop it, and
+  walked off a roof's edge it comes down on whatever's below.
 
 - **The Proving Ground's course** (`TRAINING.md`): 13 rings of light in the colony's air, from
   just off the inner gate down over the first window to the Charter strip. It runs along the avenue
@@ -1129,20 +1257,24 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   - The HUD's panel shows the ring, the stretch, the clock and the range, and the `◆` marks the
     next ring.
   - A finish is the Charter Board's flight certificate: first class within the par of 2:00, second
-    within half as long again, third for flying it at all.
+    within half as long again, third for flying it at all. The first time on the board, the
+    course's or the drill's, of any class, earns the Board's beam rifle ("The Charter Board").
   - The server times it too, in the inside's sector, and the day's best go on the Proving Ground's
     board, on the Blast Hall's back wall and at its desk (a signed-in pilot's bests on their record).
   - Pilots on foot in the city see the rings over Hub Gate.
 
 - **The Blast Hall's trainers and drill** (`TRAINING.md`): at the gantry's hatch, on foot, E
-  boards one of the Charter Board's Leos, standing on the gantry (the pilot's own suit stays in
-  their bay); at rest on the gantry, Enter climbs out there.
+  boards the trainer the test range picked (below), standing on the gantry (the pilot's own suit
+  stays in their bay); the hatch's prompt and the news on boarding name it (`E  BOARD A TRAINER ·
+  THE CHARTER BOARD'S LEO`, `YOUR LEO, AS BUILT`, `A NEW GUNDAM HEAVYARMS`). At rest on the
+  gantry, Enter climbs out there.
 - **The test range** (Armored Core VI's test mode; `bc_econ::proving::Trainer`): at the hall's
-  desk the pilot picks what the gantry readies: the Board's Leo, the build standing in their bay
-  (new and full, none of its wear), or a new suit of any line the colony builds, to try before
-  building it. Nothing of theirs is taken, and nothing comes home. In the hall the drill lights its
-  targets one at a time, X-Wing's Maze: the clock starts on the first with 12 s on it, and each
-  one struck puts 3 s back. Twenty struck clears it, against a par of 25 s, for the board.
+  desk, and only there, the pilot picks what the gantry readies: the Board's Leo, the build
+  standing in their bay (new and full, none of its wear), or a new suit of any line the colony
+  builds, to try before building it. Nothing of theirs is taken, and nothing comes home. In the
+  hall the drill lights its targets one at a time, X-Wing's Maze: the clock starts on the first
+  with 12 s on it, and each one struck puts 3 s back. Twenty struck clears it, against a par of
+  25 s, for the board.
 
 ## The world (EVE-lite, roadmap)
 
@@ -1175,9 +1307,9 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
 | 1 · 2 · 3 · 4 | survival: the rack's patch kit · coolant flush · chaff · stim |
 | U | eject: doomed, a tap ejects and a hold blows the suit up; otherwise held a second |
-| Enter | dock (survival): at rest inside the dock's ring of lights |
+| Enter | survival: dock where the HUD's marker says ENTER (into your bay: at rest inside the dock's ring of lights, or standing on the docking hub's deck hatch; inside the colony, at rest in the inner gate's ring; in a trainer, at rest on the Blast Hall's gantry); anywhere else, the radio |
 | 1–6 | arcade rules: respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
-| / (Enter on foot) | talk on the colony's radio: Enter says it, Esc closes |
+| / (or Enter) | talk on the colony's radio (Enter opens it on foot, and in a suit wherever there's nothing to dock): Enter says it, Esc closes |
 | Esc · F1 or ? · F10 or O | menu · the controls sheet · graphics quality |
 
 On a body (see "Surfaces"): W/A/S/D walk, Shift runs, Space hops (held, it lifts off on the
@@ -1186,7 +1318,9 @@ nothing; L lets go. Aloft in a body's grip the keys fly as ever, but flight assi
 speed over the body, or a run's with Shift, and never holds altitude.
 
 On foot in the hangar bay: the mouse looks, W/A/S/D walk, Shift runs, Space jumps, E uses what's
-in view (E again, or Esc, steps away from a terminal).
+in view (E again, or Esc, steps away from a terminal). With the colony open, Q at the cockpit
+launches into it, and Q at the airlock chooses the next strip's cap lift. In the city, M opens the
+map, and M or Esc closes it.
 
 The list players see (the title screen's controls sheet and F1) is
 `bc_client_core::controls::BINDINGS`; keep it in step with this table. Down is C alone: Left Ctrl
@@ -1239,13 +1373,17 @@ The link says what went wrong in words (a server that's down or unreachable, a f
 older than the server, a wallet that declined), offers Retry, and redials by itself, with backoff,
 when a link that was in the world drops. A signed-in redial doesn't ask the wallet again, and
 signing in from a second window takes the pilot over (the first lets go and doesn't fight back). Esc (or the browser taking the pointer back) opens the menu: Resume, Controls,
-Disconnect. The sector doesn't pause. Menus are HTML over the live scene; the cockpit HUD is Bevy's.
+Disconnect (with the chart or the city's map up, Esc closes that instead). The sector doesn't pause. Menus are HTML over the live scene; the cockpit HUD is Bevy's.
 
 **Sleeping in the cockpit.** A signed-in pilot who leaves (the menu's disconnect button, closing
 the tab, a link that stays down, a minute without input) doesn't take the suit along: it stays in
 the sector with its pilot asleep in the cockpit, and they wake in it when they're back. The menu's
 button says what will become of it: LEAVE SUIT HIDDEN on the ground in a hide spot (survival),
-PARK & DISCONNECT where it would park, SLEEP & DISCONNECT anywhere else.
+PARK & DISCONNECT where it would park, SLEEP & DISCONNECT anywhere else. Inside the colony nothing
+sleeps: flying there it says DOCK & DISCONNECT, and the colony's tugs bring the suit home to the
+bay, as the pilot hears once when they're back (a trainer goes back to its gantry: their own suit
+never left the bay). On foot it says LEAVE THE BAY or LEAVE THE CITY: nothing is out, and they
+wake in their bay. A guest flying sees DISCONNECT.
 - *Drifting.* Nobody flies a sleeping suit: no flight assist, no attitude hold. It carries on at the
   velocity and spin it had, fully Newtonian, and fetches up against rocks, landmarks and the colony
   as a wreck would. Its eyes go dark, and brackets read ASLEEP. Nobody works its special either: a
@@ -1254,15 +1392,18 @@ PARK & DISCONNECT where it would park, SLEEP & DISCONNECT anywhere else.
   its surface, under 3 m/s over it), when its pilot leaves is parked instead: held where it was,
   kneeling if it was crouched, and moving with the body. One aloft in a body's grip settles onto it
   first, and parks where it lands. The HUD reads PARKED while you're somewhere you could park (HIDE
-  SPOT in one). Shatter the rock and the suit floats free.
+  SPOT in one), which is never inside the colony. Shatter the rock and the suit floats free.
 - *Powering down.* A parked suit stays in sight for 8 s after its pilot leaves, or 60 s after it
   last fired or was hit, whichever is later, so nobody logs off out of a fight. (A suit that has
   never fought is dark after the 8 s.) Then its reactor idles: its enemies' sensors and seekers lose
   it, and their eyes find it only within 400 m, or 150 m in a hide spot. Its allies see it all
   along.
-- *Hunted.* Mobile Dolls leave sleepers alone; other pilots can shoot them down and salvage what's
-  left. A sleeper destroyed stays gone, and its pilot is told by whom when they're back. Parked is
-  safer than drifting, and hidden safer still.
+- *Hunted.* Mobile Dolls leave sleepers alone; pilots of another side can shoot them down and
+  salvage what's left. Every human pilot flies for the Colonies (the server decides, whatever the
+  client asks) and friendly fire is off, so today only agents of another side hunt them, and
+  people can't harm each other: where PvP lives is an open decision (`ROADMAP.md`, "Where PvP
+  lives"). A sleeper destroyed stays gone, and its pilot is told by whom when they're back. Parked
+  is safer than drifting, and hidden safer still.
 - *Room.* At most 256 sleepers a sector; past that, or when the sector's suits run out, the longest
   asleep is cleared (those in hide spots last), and its pilot is told.
 - *A restart.* Under survival rules, a suit left on its feet in a landmark's hide spot is saved with
@@ -1309,7 +1450,9 @@ driver), the chip's Gaussian interpolation, its ADSR rates and its echo with the
 at 32 kHz. `cargo run -p bc-sound --release --example title -- title.wav` writes it out.
 
 **The colony's radio.** One channel for everyone connected, under any rules: `/` opens a line on
-the page (Enter too, on foot), Enter says it, Esc closes it, and no keys reach the suit meanwhile.
+the page (Enter too, on foot, and in a suit wherever Enter has nothing to dock: `bc_client_core::dock`
+decides where each press goes, so one never does both), Enter says it, Esc closes it, and no keys
+reach the suit meanwhile.
 The latest lines show on the left for a while after one comes in. Lines are cleaned (no control
 characters, one line, 160 characters at most), a pilot says at most 5 in 10 s, and the server
 keeps no log of them (`/status` counts them). Agents talk on it too (`bc-bot` `say` and `heard`).
@@ -1364,7 +1507,7 @@ the nearest games teach, and which of the items below come first and why.
   `PilotStore`, off the hot path).
 - **Suits:**
   - Tallgeese, Epyon (its own ZERO).
-  - Shooting missiles down; deployable Planet Defensors.
+  - Deployable Planet Defensors.
   - Wing Zero's fold drawn as it happens (today the model swaps, with a flash); Heavyarms'
     hatches opening for Full Open.
 - **Agents:** an MCP server so LLM agents can fly as squad commanders, and a Python gym on the

@@ -302,6 +302,7 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
                     field_rocks: shared.field_rocks,
                     flags: 0,
                     landmarks: shared.landmarks,
+                    faction: Faction::Colonies,
                 }
                 .encode(&mut w)
                 .unwrap();
@@ -1111,6 +1112,7 @@ fn party(mut guests: Vec<Guest>, before_tick: &mut dyn FnMut(&mut Sector)) -> Pa
                         field_rocks: shared.field_rocks,
                         flags: 0,
                         landmarks: shared.landmarks,
+                        faction: g.faction,
                     }
                     .encode(&mut w)
                     .unwrap();

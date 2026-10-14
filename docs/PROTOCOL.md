@@ -1,8 +1,13 @@
-# Before Colony wire protocol (v28)
+# Before Colony wire protocol (v29)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v29 (from v28): the Welcome's last byte is the side the pilot flies for, which is the server's to
+say (below, "Control stream": a claim to Oz flies for the Colonies, as every human pilot does), and
+the client takes its friends and foes from it. In the own state, PARKABLE is never set inside the
+colony (its meaning only: no bits change).
 
 v28 (from v27): the death report and point defence (`PEERS.md`, "Mecha Royale"): `Kill` carries
 the weapon of the blow that breached the suit (5 bits after the killer: 0 none, else the weapon's
@@ -238,7 +243,7 @@ Own-state notes:
   LOCK_ACQUIRED (your missile lock), MISSILE_LOCK (someone's missile lock is on you),
   MISSILE_INCOMING (a guided missile is tracking you), PARKABLE (you're on your feet on a body, or
   resting against a rock or a landmark, slowly enough to park: a signed-in pilot who leaves now
-  stays parked there).
+  stays parked there; never inside the colony, which keeps no sleepers).
 - Charge is the primary's, as a fraction: the Twin Buster's charge, or on a weapon with a charged
   shot (the beam rifle) how long its trigger has been held, from the press to a full charge (1:
   let go and the charged shot, weapon kind 19, leaves). CHARGING, here and on the entity, is the
@@ -361,7 +366,7 @@ prefix, except the hangar's (tag 11), which may carry up to 64 KiB.
 | Tag | Message | Direction |
 |---|---|---|
 | 1 | Hello {version, pilot kind, frame, faction, name ≤ 16 B, flags (1 SIGN_IN, 2 RESUME), resume token (32 B, only with RESUME)} | client → server (first frame) |
-| 2 | Welcome {version, client slot, tick, tick_hz, sector, zero_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY, 32 INTERIOR), landmarks (u8)} | server → client (again on moving between sectors) |
+| 2 | Welcome {version, client slot, tick, tick_hz, sector, zero_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY, 32 INTERIOR), landmarks (u8), faction (u8: the side flown for)} | server → client (again on moving between sectors) |
 | 3 | Reject {reason: 1 version, 2 full, 3 bad hello, 4 frame not allowed, 5 sign-in failed, 6 sign-in required, 7 resume token expired, 8 no signature in time} | server → client |
 | 4 | Roster {entity slot, pilot kind, name (empty = left), flags (1 VERIFIED, 2 ASLEEP, bits 2-4 the suit's weathering 0-7)} | server → client |
 | 5 | Respawn {frame} | client → server |
@@ -372,7 +377,10 @@ prefix, except the hangar's (tag 11), which may carry up to 64 KiB.
 | 10 | Notice {code: 1 your sleeping suit was destroyed, 2 your sleeping suit is gone; name ≤ 16 B (who, for 1)} | server → client |
 | 11 | Hangar {JSON, `bc_econ::wire`: a Request up, an Update down} | either (survival rules; the radio's `say` and `said` under any) |
 
-Pilots claiming to be a server-side Mobile Doll are downgraded to `Agent`.
+Pilots claiming to be a server-side Mobile Doll are downgraded to `Agent`. The side is the server's
+to say: Oz is the Mobile Dolls' own, so a claim to it flies for the Colonies, as every human pilot
+does; an agent asking for the Alliance flies for it. The Welcome's `faction` is the side flown for,
+and a client takes its friends and foes from it, not from what its Hello asked.
 
 A Hello is read version first: one from another protocol version answers `Reject {version}` even
 if the rest of it (a frame this build doesn't know) would not parse.
@@ -412,6 +420,8 @@ asleep. Everyone's roster shows it with ASLEEP (and snapshots with the entity fl
 next session wakes in it: the Welcome sets WOKE. If it's gone, the pilot starts in a new suit and a
 Notice says why: destroyed while they slept (and by whom), or lost (cleared to make room, or the
 server restarted). A suit that was already a wreck is simply gone. Guests' suits go when they do.
+Inside the colony nothing sleeps: the colony's tugs bring a suit flown there home to its bay
+(below, "Survival: the hangar's messages").
 
 Under survival rules, a suit left on its feet in a landmark's hide spot outlives a restart: the
 server puts it back, asleep, before anyone connects, and its pilot wakes in it as above (WOKE).
@@ -441,27 +451,47 @@ Client → server (`Request`):
 | `overhaul` | `part` (optional: all) | restore damaged and failed systems as far as the stores allow |
 | `scrap` | `item` | melt one down for half its materials |
 | `fuel` | `grade` (`standard`, `refined`, `ultra`) | fill the suit's tank with that grade from the stores (what it has of another is pumped back to the stores first; a launch tops up from the suit's own grade) |
-| `order` | `item`, `side` (`buy`, `sell`), `price`, `qty`, `rest` | a limit order on the exchange |
+| `order` | `item`, `side` (`buy`, `sell`), `price`, `qty`, `rest` | a limit order on the exchange; `rest: true` leaves what doesn't fill on the book (desk: the Exchange floor) |
 | `cancel_order` | `id` | |
 | `watch` | `item` (or `null`) | send that item's book and history as they change |
 | `launch` | | board and launch the suit in the bay |
 | `dock` | | take the suit home (at rest inside the dock, or inside the colony the inner gate's ring; a trainer, on the Blast Hall's gantry) |
 | `launch_inside` | | board and launch the suit into the colony through the inner gate (the colony open) |
 | `board_trainer` | | on foot at the Blast Hall's gantry's hatch in the city: board one of the Charter Board's trainers there (the pilot's hangar untouched) |
-| `trainer` | `build`: `{"kind": "board"}`, `{"kind": "bay"}` or `{"kind": "line", "line": …}` (a frame's slug) | the test range: what the gantry readies for `board_trainer` (the Board's Leo; the bay's build, new and full; a new suit of a line the colony builds). The `proving` board says which (`trainer`) |
+| `trainer` | `build`: `{"kind": "board"}`, `{"kind": "bay"}` or `{"kind": "line", "line": …}` (a frame's slug) | the test range: what the gantry readies for `board_trainer` (the Board's Leo; the bay's build, new and full; a new suit of a line the colony builds). The `proving` board says which (`trainer`) (desk: the Proving Ground, the Blast Hall's room) |
 | `enter_city` | `strip` (0–2) | ride the cap lift down from the bay to that strip's Hub Gate (the colony open, and the pilot in their bay) |
 | `leave_city` | | ride the lift back up from Hub Gate to the bay |
 | `watch_board` | `on` | send the Charter Board (`charter`) as it changes, or stop |
-| `post` | `item`, `qty`, `reward`, `hours` (1–72) | post a supply contract; the reward goes into escrow |
+| `post` | `item`, `qty`, `reward`, `hours` (1–72) | post a supply contract; the reward goes into escrow (desk: the Charter Board's) |
 | `withdraw` | `id` | take one's own contract down (what it hasn't paid comes back) |
 | `deliver` | `id`, `qty` | deliver to a supply contract from the stores, paid pro rata on the spot |
-| `take_patrol` · `drop_patrol` | `id` | take a militia patrol (one at a time), or give it up |
+| `take_patrol` · `drop_patrol` | `id` | take a militia patrol (one at a time; desk: the Charter Board's), or give it up (anywhere) |
 | `contribute` | `work` (`second_foundry`, `militia_hangar`), `item`, `qty` | deliver to one of the colony's great works |
-| `sign` | | sign the charter (the vote open, and the pilot of standing) |
-| `ace_terms` | `salvage` | the Most Wanted: take an ace's bounty as the rights to its wreck (`true`: the tugs bring it home) or as pay (`false`, the default) |
+| `sign` | | sign the charter (the vote open, and the pilot of standing; desk: the Charter Board's) |
+| `ace_terms` | `salvage` | the Most Wanted: take an ace's bounty as the rights to its wreck (`true`: the tugs bring it home; only with standing, unless already on those terms) or as pay (`false`, the default) (desk: The Arrival) |
 | `use_kit` | `kit` (`patch_kit`, `coolant`, `chaff`, `stim`) | in flight: use one from the suit's rack (the hotbar; nothing answers, the own state shows it) |
 | `eject` | `destruct` (default false) | in flight, under any rules: eject from the suit, or (`destruct`, doomed) blow it up aboard. Nothing answers but the loss (`sortie`, and under survival the tugs' `news` on the wreck 45 s on) |
 | `say` | `text` | a line on the colony's radio, to everyone connected, under any rules: control characters stripped, whitespace made single spaces, cut to 160 characters; at most 5 lines in 10 s (more get a refusing `note`). Never logged; `/status` counts them (`radio_lines`) |
+
+**Desks** (`Request::desk`, the colony open: the Welcome's COLONY flag). A request marked with a
+desk above is that place's alone, and the server takes it only from a pilot on foot in the city
+standing in that place's room (the plaza's last pose; the whole room counts). Anywhere else
+(the bay, another desk, the street) `post`, `take_patrol`, `sign`, `ace_terms` and `trainer` are
+refused with a `note` saying where to go (the page shows it as `CAN'T: ` and the text in capitals):
+
+| Desk | Refusal |
+|---|---|
+| the Exchange floor | `a price that waits on the book is placed at the exchange floor's counter, on charter square` (never sent: see below) |
+| the Charter Board's | `that's done in person at the charter board's desk, in its hall on charter square` |
+| The Arrival | `your terms for an ace's bounty are settled at the arrival's counter, off charter square` |
+| the Proving Ground | `the test range is picked at the proving ground's desk, in the blast hall` |
+
+An `order` with `rest: true` away from the floor isn't refused: it's taken as `rest: false` (it
+trades at once and what doesn't fill comes back), and its `note` ends `· WHAT DIDN'T FILL CAME
+BACK: AN ORDER WAITS ON THE BOOK ONLY FROM THE EXCHANGE FLOOR, ON CHARTER SQUARE`. Everything
+else (`withdraw`, `deliver`, `contribute`, `drop_patrol`, `watch_board`, `watch`, `cancel_order`,
+an order with `rest: false`, and all the hangar's work) is taken anywhere. With the colony closed
+nothing is a desk's, and the bay does it all.
 
 Items are slugs: `ore.nickel_iron`, `mat.steel`, `mat.components`, `mat.propellant` (and the
 purer grades `mat.propellant_refined`, `mat.propellant_ultra`), `part.leo.torso`,
@@ -475,8 +505,14 @@ stock, parts with their condition, the bay: `empty`, `docked` or `out` with the 
 queues with their time left); `market` (every item's bid, ask, last and volume, the pilot's
 orders, the fee); `book` {`depth`, `history`}; `note` {`text`, `ok`} answering a request (or
 news: a job done, an order filled); `sortie` {`outcome`: `docked`, `lost`, `recovered`, `text`, and docked or lost its `debrief` {`lines`:
-[{`what`, `cr`}]}: the sortie's payout sheet, credits earned positive and spent negative};
-`news` {`text`} (a pilot's arrival; the colony's announcements); `people` {`people`: [{`id`,
+[{`what`, `cr`}]}: the sortie's payout sheet, credits earned positive and spent negative; the
+Charter Board's pay for the sortie is among the earnings, before the costs: `PATROL #3` for a
+patrol flown, `ACE ARIES` for an ace's bounty, each with ` · AT THE BOARD` appended when it waits
+at its desk};
+`news` {`text`} (a pilot's arrival, the Charter Board's advance, its flight certificate's rifle
+(`THE CHARTER BOARD HAS YOUR FLIGHT CERTIFICATE · ...`, once, on a pilot's first time on the
+Proving Ground's board or their first visit to the city with one), word kept for a pilot while
+they were away; the colony's announcements); `people` {`people`: [{`id`,
 `name`}]} (in the city: the names of people seen there for the first time, by the slot the plaza's
 datagrams use); `charter` (the Charter Board, while watched: the era, the contracts with their
 `task` (`{"kind": "supply", "item", "qty", "delivered"}` or `{"kind": "patrol", "bounty",
@@ -484,7 +520,15 @@ datagrams use); `charter` (the Charter Board, while watched: the era, the contra
 top contributors, the pilot's standing and the charter's signatures; and the Most Wanted:
 `wanted` [{`ace`, `name`, `bounty`, `out` (flying among the Dolls now), `last` {`by`, `at`, unix
 seconds} (who downed it last; absent: nobody)}], `ladder` [[name, aces downed]] most first, the
-pilot's own `mine_aces` and their terms, `salvage_terms`); `said` {`from`, `text`} (a line on the colony's radio, the speaker's own included,
+pilot's own `mine_aces` and their terms, `salvage_terms`; and `waiting` {`credits`, `goods`:
+[[item, qty]]}, what the Board holds for the pilot at its desk (a certificate's beam rifle,
+patrols' rewards, aces' bounties: `"waiting":{"credits":1500,"goods":[["weapon.beam_rifle",1]]}`),
+paid out when they stand in its hall, absent when nothing waits; watched or not, a `charter` is
+also sent after a certificate, after a sortie that counted toward the pilot's patrol (its `note`s
+come once the sortie is settled and the record kept, before the `sortie`), after an ace the pilot
+downed (paid or claimed), as what waits at the desk is handed over, and, the colony open, on
+joining while something waits there); `said` {`from`, `text`} (a line
+on the colony's radio, the speaker's own included,
 from the moment the pilot was welcomed, in the order the server heard them); `proving` (the
 Proving Ground's board, in the colony: `course` and `drill`, the day's best as [{`name`, `ms`,
 `you`}] fastest first, `course_record` and `drill_record` the best ever, `course_par_ms` and
@@ -499,9 +543,12 @@ Zodiac's aces out or downed) come to every pilot as `news`, wherever they are.
 Zodiac's aces (`DESIGN.md`, "Aces: the Most Wanted"): the ace out among the Dolls is on the
 roster (`Roster`, pilot kind 2, a Mobile Doll) by its callsign while its suit is in the sector,
 downed too until its slot is let go; then the roster forgets it. The pilot who downs one hears
-`news` at once: the Charter Board's pay (and a `hangar`), or under salvage terms that the tugs are
-going out for its wreck, and 45 s on the `news` of what they brought home (as for a pilot's own
-wreck after ejecting; already out for that, the bounty is paid instead).
+`news` at once: the Charter Board's pay or, the colony open, that it waits at the Board's desk
+(`ARIES DOWNED · ITS 1,500 CR BOUNTY WAITS FOR YOU AT THE CHARTER BOARD'S DESK`), with a `hangar`
+either way; or under salvage terms that the tugs are going out for its wreck, and 45 s on the `news`
+of what they brought home (as for a pilot's own wreck after ejecting; already out for that, the
+bounty is paid instead). Paid or claimed, a `charter` (`mine_aces`, `waiting`) comes just before
+that first `news`.
 
 A launch puts the suit in the sector in its pilot's bay (the pilot's slot and the Welcome stay the
 same; snapshots start), riding the bay's catapult cradle in its door (footing 1 on body kind 3, the
@@ -518,7 +565,8 @@ sector, its snapshots come instead, and nothing fires there but in the Blast Hal
 rounds, which touch no suit). `dock` at rest in the inner gate's
 ring brings the suit home, with a `sortie` and a Welcome back to sector 1 (the client slot it
 had). A client welcomed mid-session forgets what it flew in the last sector. Leaving while
-inside, the colony's tugs bring the suit back to the bay.
+inside, the colony's tugs bring the suit back to the bay, and the pilot's next session tells them
+so once, as `news`.
 
 The Proving Ground's trainers (`docs/TRAINING.md`): `board_trainer`, on foot at the Blast Hall's
 gantry's hatch (the plaza's last pose within 12 m), seats the pilot in a trainer standing on the

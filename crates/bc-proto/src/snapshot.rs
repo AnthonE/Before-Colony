@@ -100,7 +100,7 @@ pub mod own_flags {
     /// A guided missile is tracking you.
     pub const MISSILE_INCOMING: u16 = 1 << 14;
     /// At rest on a body (standing on it, or against a rock or a landmark): a signed-in pilot who
-    /// leaves now stays parked here.
+    /// leaves now stays parked here. Never inside the colony, which keeps no sleepers.
     pub const PARKABLE: u16 = 1 << 15;
 }
 

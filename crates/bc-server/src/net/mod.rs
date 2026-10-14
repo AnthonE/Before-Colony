@@ -3,6 +3,7 @@
 //! `bc-sector`.
 
 pub mod admit;
+mod desk;
 pub mod echo;
 pub mod endpoint;
 pub mod game;

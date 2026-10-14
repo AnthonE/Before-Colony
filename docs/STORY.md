@@ -73,12 +73,14 @@ Meteor, the war. Here none of it has happened. Whether it has to is up to everyo
   building site: the Charter line in blue, the Canal line in teal, the Gardens line in green.
   Its stations take their districts' names.
 - **Places an Arrival goes.** The **Exchange floor** on Charter Square (the Colony Exchange's
-  hall: the same book the bays' terminals trade on); the **Charter Board**'s hall, where its
-  notices go up; **The Arrival**, a bar off the square where pilots meet; and **the Proving
-  Ground** off the square, the Blast Hall where the colony's builders tested thrusters, where the
-  Charter Board tries an Arrival in a suit before it trusts them with one. The colony's law holds
-  inside: no weapons fired within its walls, but in the Blast Hall, where a suit fires training
-  rounds at holograms and nothing it fires leaves the hall.
+  hall: the same book the bays' terminals trade on, and the only place an order waits on it); the
+  **Charter Board**'s hall, where its notices go up, contracts are posted and the charter signed,
+  and what the Board owes a pilot is paid out across its desk; **The Arrival**, a bar off the
+  square where pilots meet, and where the Board pins up Zodiac's Most Wanted behind the bar; and
+  **the Proving Ground** off the square, the Blast Hall where the colony's builders tested
+  thrusters, where the Charter Board tries an Arrival in a suit before it trusts them with one.
+  The colony's law holds inside: no weapons fired within its walls, but in the Blast Hall, where a
+  suit fires training rounds at holograms and nothing it fires leaves the hall.
 - **The economy.** A boomtown. Ore comes in from the field, parts and suits go out from the bays,
   and prices float with what the colony holds. Frames are old and patched, so systems fail, and
   keeping a suit flying is a trade of its own (overhauls, machined components, equipment).
@@ -88,9 +90,9 @@ Meteor, the war. Here none of it has happened. Whether it has to is up to everyo
 | In the world | Canon name | In the simulation | What they want |
 |---|---|---|---|
 | The Consortium | Romefeller Foundation | — | They financed the colony and own its debt, the asteroid claims and the Leo lines. |
-| Its security arm | OZ (the Organization of the Zodiac) | `Faction::Oz`, the Mobile Dolls | To hold the claims: its Taurus and Virgo patrols shoot claim-jumpers, which is every Arrival who mines. |
-| The Colonies | the colonies' cause | `Faction::Colonies` (pilots in the browser) | A charter of their own, a foundry of their own, and nobody's debt. |
-| The Unified Earth Alignment | United Earth Sphere Alliance | `Faction::Alliance` | Taxes, order, SI kept aligned, and the colonies kept in their place. Far off, for now. |
+| Its security arm | OZ (the Organization of the Zodiac) | `Faction::Oz`, the Mobile Dolls alone (a pilot's claim to it flies for the Colonies) | To hold the claims: its Taurus and Virgo patrols shoot claim-jumpers, which is every Arrival who mines. |
+| The Colonies | the colonies' cause | `Faction::Colonies` (every human pilot, as the server decides, and agents that ask for it) | A charter of their own, a foundry of their own, and nobody's debt. |
+| The Unified Earth Alignment | United Earth Sphere Alliance | `Faction::Alliance` (agents that ask for it) | Taxes, order, SI kept aligned, and the colonies kept in their place. Far off, for now. |
 | The Arrivals | — | pilots and agents | Nobody knows yet, including them. They'll found their own crews and factions. |
 
 ## Technology

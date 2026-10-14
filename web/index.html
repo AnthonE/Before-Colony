@@ -183,7 +183,7 @@
   <!-- In the colony: the map (M) of the strip the pilot walks, the whole of it along the top and
        the streets round them below (not modal: walking goes on under it). -->
   <div id="map" class="map hidden">
-    <div class="map-head"><span id="map-title"></span><span class="note">M to close</span></div>
+    <div class="map-head"><span id="map-title"></span><span class="note">M or Esc to close</span></div>
     <canvas id="map-strip" data-h="30"></canvas>
     <canvas id="map-near" data-h="380"></canvas>
     <div id="map-sights" class="map-sights"></div>
@@ -199,8 +199,11 @@
   </div>
 
   <!-- A terminal in the hangar bay (survival rules): the fabricator, the stores, the suit's
-       maintenance console, the Colony Exchange, the Charter Board, and (at the Blast Hall's desk) the
-       Proving Ground's board. Drawn from the server's word (terminal.rs). -->
+       maintenance console, the Colony Exchange and the Charter Board (and, the colony open, the
+       Proving Ground's tab pointing down to its board). Down in the city each desk's terminal shows
+       only its own tab: the Exchange floor's, the Charter Board's desk, the Blast Hall's desk (the
+       Proving Ground's board) and The Arrival's counter (the Most Wanted). Drawn from the server's
+       word (terminal.rs); which tabs show is ui.js's showTabs. -->
   <div id="terminal" class="overlay dim hidden">
     <div class="card terminal">
       <div class="term-head">
@@ -210,6 +213,7 @@
           <button type="button" data-tab="suit">SUIT</button>
           <button type="button" data-tab="exchange">EXCHANGE</button>
           <button type="button" data-tab="charter">CHARTER BOARD</button>
+          <button type="button" data-tab="wanted" class="hidden">MOST WANTED</button>
           <button type="button" data-tab="proving">PROVING GROUND</button>
         </div>
         <div id="term-credits" class="term-credits"></div>
@@ -220,11 +224,9 @@
     </div>
   </div>
 
-  <!-- On foot in the bay: the bay's line, a dot to aim by, and what can be used. -->
-  <div id="onfoot" class="hidden">
-    <div id="bay-line" class="bay-line"></div>
-    <div id="dot" class="dot"></div>
-  </div>
+  <!-- Indoors (the bay, the city): the bay's line. On foot: a dot to aim by, and what can be used. -->
+  <div id="bay-line" class="bay-line hidden"></div>
+  <div id="dot" class="dot hidden"></div>
   <div id="use" class="use hidden"></div>
   <div id="news" class="news hidden"></div>
   <!-- A sortie's payout sheet (bc_econ::debrief): what it earned and cost, and the net. -->

@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::catalogue::{
     MUNITIONS_ITEM, PROPELLANT_ITEM, Station, munitions_per_load, propellant_item, recipe, value, worth,
 };
-use crate::debrief::{Debrief, stores_worth};
+use crate::debrief::{Debrief, Line, stores_worth};
 use crate::exchange::{Exchange, Side};
 use crate::fab::{MAX_JOBS, Works};
 use crate::faults::{Faults, overhaul_cost};
@@ -39,7 +39,7 @@ pub const SALVAGED_HULK: u8 = 40;
 pub const MAX_BATCHES: u32 = 500;
 
 /// What the Charter Board hands an Arrival: a worn, second-hand Leo with no beam rifle (that's the
-/// first thing to buy or build) and half a tank.
+/// first thing to earn at the Proving Ground, buy or build) and half a tank.
 fn worn_leo() -> Suit {
     let mut suit = Suit::complete(FrameId::Leo);
     suit.parts = [Some(70), Some(60), Some(55), Some(65), Some(60), Some(70)];
@@ -76,6 +76,15 @@ pub struct Hangar {
     /// When the Charter Board last advanced this pilot a suit ([`Hangar::reissue`]), unix seconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reissued_at: Option<u64>,
+    /// The Charter Board has seen this pilot's flight certificate and issued its beam rifle for it
+    /// (`charter::Board::certify`): once.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub certified: bool,
+    /// What the Charter Board paid for the sortie under way (a patrol flown, an ace's bounty), for
+    /// its payout sheet: drained into it as the sortie ends, cleared as the next one launches.
+    /// Kept, so a sleeper's wake keeps it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sortie_pay: Vec<Line>,
 }
 
 /// How a request went: what to tell the pilot.
@@ -111,7 +120,8 @@ impl Rules {
 
 impl Hangar {
     /// What a new pilot starts with: a worn, second-hand Leo (no beam rifle: that's the first
-    /// thing to buy or build), a little propellant and munitions, and enough credits to get going.
+    /// thing to earn at the Proving Ground, buy or build), a little propellant and munitions, and
+    /// enough credits to get going.
     pub fn starter() -> Self {
         let mut stores = Stores::default();
         stores.add(PROPELLANT_ITEM, 600);
@@ -123,18 +133,20 @@ impl Hangar {
     /// A floor under loss: a pilot with no suit in the bay, no torso in the stores to build one on,
     /// and less than a torso's worth in credits, stores and parts (at the colony's values) is
     /// advanced a worn Leo by the Charter Board, as on the day they arrived: at most once every
-    /// [`REISSUE_EVERY_SECS`] (`now` is unix seconds). The notice to give them, if it did.
+    /// [`REISSUE_EVERY_SECS`] (`now` is unix seconds). The notice to give them, if it did. Cheap
+    /// to ask again and again (a session asks once a second while the bay stands empty): the
+    /// stores are valued only once the bay is empty and the half hour is up.
     pub fn reissue(&mut self, now: u64) -> Option<String> {
         let line = FrameId::Leo;
         if !matches!(self.bay, Bay::Empty) || self.stores.parts().iter().any(|p| p.part == Part::Torso) {
             return None;
         }
+        if self.reissued_at.is_some_and(|at| now < at + REISSUE_EVERY_SECS) {
+            return None;
+        }
         let goods: u64 = self.stores.stock().map(|(item, qty)| worth(item, value(item), qty)).sum();
         let parts: u64 = self.stores.parts().iter().map(|p| value(p.item())).sum();
         if self.credits + goods + parts >= value(Item::Part(line, Part::Torso)) {
-            return None;
-        }
-        if self.reissued_at.is_some_and(|at| now < at + REISSUE_EVERY_SECS) {
             return None;
         }
         self.bay = Bay::Docked { suit: worn_leo() };
@@ -577,7 +589,24 @@ impl Hangar {
         }
         let loadout = suit.loadout();
         self.bay = Bay::Out { suit };
+        // A new sortie's sheet: what the Board paid late for the last one stays off it.
+        self.sortie_pay.clear();
         Ok(loadout)
+    }
+
+    /// The Charter Board paid `cr` for the sortie, as `what` (`PATROL #3`, `ACE ARIES`): a line on
+    /// its payout sheet.
+    pub fn board_paid(&mut self, what: String, cr: u64) {
+        if cr > 0 {
+            self.sortie_pay.push(Line { what, cr: i64::try_from(cr).unwrap_or(i64::MAX) });
+        }
+    }
+
+    /// The Board's pay for the sortie, onto its sheet.
+    fn drain_sortie_pay(&mut self, debrief: &mut Debrief) {
+        for l in std::mem::take(&mut self.sortie_pay) {
+            debrief.paid(&l.what, l.cr.unsigned_abs());
+        }
     }
 
     /// The suit came home: what's left of it stands in the bay again, its hold and whatever it
@@ -586,7 +615,8 @@ impl Hangar {
         self.came_home_debriefed(home).0
     }
 
-    /// [`Hangar::came_home`], and the sortie's payout sheet (`debrief`).
+    /// [`Hangar::came_home`], and the sortie's payout sheet (`debrief`), with what the Charter
+    /// Board paid for it ([`Hangar::board_paid`]).
     pub fn came_home_debriefed(&mut self, home: &Homecoming) -> (String, Debrief) {
         let mut suit = match std::mem::take(&mut self.bay) {
             Bay::Out { suit } | Bay::Docked { suit } => suit,
@@ -638,7 +668,8 @@ impl Hangar {
             Bay::Docked { suit } => suit,
             _ => &out,
         };
-        let debrief = Debrief::docked(&out, back, &kits_back, home.bounty, ore_worth, salvage_worth);
+        let mut debrief = Debrief::docked(&out, back, &kits_back, home.bounty, ore_worth, salvage_worth);
+        self.drain_sortie_pay(&mut debrief);
         (notes.join(" · "), debrief)
     }
 
@@ -648,13 +679,14 @@ impl Hangar {
     }
 
     /// [`Hangar::lost`], and the sortie's payout sheet (`debrief`): the suit as it went out is
-    /// gone.
+    /// gone, and what the Charter Board paid for the sortie is on it.
     pub fn lost_debriefed(&mut self, bounty: u32) -> (String, Debrief) {
         let out = match std::mem::take(&mut self.bay) {
             Bay::Out { suit } => Some(suit),
             _ => None,
         };
-        let debrief = Debrief::lost(out.as_ref(), bounty);
+        let mut debrief = Debrief::lost(out.as_ref(), bounty);
+        self.drain_sortie_pay(&mut debrief);
         self.credits += u64::from(bounty);
         let text = if bounty > 0 { format!("SUIT LOST · BOUNTY {bounty} CR") } else { "SUIT LOST".into() };
         (text, debrief)
@@ -1001,6 +1033,22 @@ mod tests {
         assert_eq!(serde_json::from_str::<Hangar>(&old).unwrap().reissued_at, None);
     }
 
+    /// Asked once a second while the bay stands empty (as a session asks), the advance comes the
+    /// moment the half hour is up, and asking before then changes nothing.
+    #[test]
+    fn asked_every_second_the_advance_comes_when_the_half_hour_is_up() {
+        let t0 = 1_800_000_000;
+        let mut h = Hangar { reissued_at: Some(t0), ..Hangar::default() };
+        let due = t0 + REISSUE_EVERY_SECS;
+        for now in t0..due {
+            assert_eq!(h.reissue(now), None, "{} s early", due - now);
+        }
+        assert_eq!((&h.bay, h.reissued_at), (&Bay::Empty, Some(t0)), "asking changed nothing");
+        assert!(h.reissue(due).is_some());
+        assert_eq!(h.reissued_at, Some(due));
+        assert_eq!(h.suit(), Hangar::starter().suit());
+    }
+
     #[test]
     fn a_tank_comes_home_no_fuller_than_it_went_out() {
         // Under anime rules the tank refills in flight: what it made out there isn't the stores'.
@@ -1263,5 +1311,54 @@ mod tests {
         h.craft(Item::Material(Material::Munitions), 1, 5, &Rules::default()).unwrap();
         let json = serde_json::to_string(&h).unwrap();
         assert_eq!(serde_json::from_str::<Hangar>(&json).unwrap(), h);
+        // Uncertified, with nothing on a sortie's sheet, it says nothing of either, and a hangar
+        // kept before them reads as uncertified, with nothing.
+        assert!(!json.contains("certified") && !json.contains("sortie_pay"), "{json}");
+        h.certified = true;
+        h.board_paid("ACE ARIES".into(), 1_500);
+        let json = serde_json::to_string(&h).unwrap();
+        assert!(json.contains(r#""certified":true"#) && json.contains("sortie_pay"), "{json}");
+        assert_eq!(serde_json::from_str::<Hangar>(&json).unwrap(), h);
+        let mut old = serde_json::to_value(&h).unwrap();
+        let o = old.as_object_mut().unwrap();
+        assert!(o.remove("certified").is_some() && o.remove("sortie_pay").is_some());
+        let old: Hangar = serde_json::from_str(&old.to_string()).unwrap();
+        assert!(!old.certified && old.sortie_pay.is_empty());
+        assert_eq!(Hangar { certified: true, sortie_pay: h.sortie_pay.clone(), ..old }, h);
+    }
+
+    /// What the Charter Board pays for a sortie goes on its sheet, home or lost, once; the next
+    /// launch starts a clean one, so what the Board pays late for the last stays off it.
+    #[test]
+    fn the_boards_pay_goes_on_the_sorties_sheet() {
+        let mut h = Hangar::starter();
+        h.board_paid("ACE ARIES".into(), 1_500);
+        let _ = h.launch().unwrap();
+        assert!(h.sortie_pay.is_empty(), "a new sortie, a new sheet");
+        h.board_paid("PATROL #3".into(), 1_500);
+        h.board_paid("ACE GEMINI · AT THE BOARD".into(), 1_800);
+        h.board_paid("NOTHING".into(), 0);
+        assert_eq!(h.sortie_pay.len(), 2);
+        let credits = h.credits;
+        let Bay::Out { suit } = h.bay.clone() else { panic!() };
+        let mut home = home_as(&suit);
+        home.propellant -= 300.0;
+        home.bounty = 250;
+        let (_, d) = h.came_home_debriefed(&home);
+        let lines: Vec<(&str, i64)> = d.lines.iter().map(|l| (l.what.as_str(), l.cr)).collect();
+        assert_eq!(
+            lines[..3],
+            [("BOUNTIES", 250), ("PATROL #3", 1_500), ("ACE GEMINI · AT THE BOARD", 1_800)]
+        );
+        assert!(lines.len() > 3 && lines[3..].iter().all(|l| l.1 < 0), "{lines:?}");
+        assert_eq!(h.credits, credits + 250, "the sheet pays nothing itself: the Board did");
+        assert!(h.sortie_pay.is_empty());
+        // Lost: on that sheet too.
+        let _ = h.launch().unwrap();
+        h.board_paid("ACE CANCER".into(), 2_000);
+        let (_, d) = h.lost_debriefed(0);
+        assert_eq!(d.lines[0], Line { what: "ACE CANCER".into(), cr: 2_000 });
+        assert_eq!(d.lines[1].what, "THE SUIT");
+        assert!(h.sortie_pay.is_empty());
     }
 }

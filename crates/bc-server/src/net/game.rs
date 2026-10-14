@@ -12,7 +12,7 @@ use std::time::Duration;
 use bc_econ::Bay;
 use bc_proto::auth::{Address, Domain, NONCE_BYTES};
 use bc_proto::control::{ControlMsg, Frame, MAX_FRAME, RejectReason, hello_flags, roster_flags};
-use bc_proto::{MAX_DATAGRAM, PROTOCOL_VERSION, PilotKind};
+use bc_proto::{Faction, MAX_DATAGRAM, PROTOCOL_VERSION, PilotKind};
 use bc_sector::{
     Control, EgressEnds, Metrics, Reparked, Restored, SectorConfig, SectorShared, SectorThread, SlotState,
     read_packet,
@@ -868,6 +868,21 @@ async fn identify(
     }
 }
 
+/// The side a pilot flies for, whatever their Hello asked (their Welcome tells them, and their
+/// client takes its friends and foes from it). Oz is the Mobile Dolls' own, and they never hunt it:
+/// a claim to it flies for the Colonies. So does every human pilot (the browser asks for nothing
+/// else); an agent keeps the side it asked for, of the others.
+fn side(pilot: PilotKind, asked: Faction) -> Faction {
+    let side = match (pilot, asked) {
+        (PilotKind::Human, _) | (_, Faction::Oz) => Faction::Colonies,
+        (_, asked) => asked,
+    };
+    if side != asked {
+        tracing::debug!(?pilot, ?asked, "a claim to another side: flies for the Colonies");
+    }
+    side
+}
+
 async fn session(conn: &Connection, game: GameShared, stats: Arc<NetStats>) -> anyhow::Result<()> {
     let (mut tx, mut rx) = tokio::time::timeout(Duration::from_secs(5), conn.accept_bi()).await??;
     let mut pending = Vec::new();
@@ -882,8 +897,10 @@ async fn session(conn: &Connection, game: GameShared, stats: Arc<NetStats>) -> a
     if !game.survival && !bc_sim::content::playable(frame) {
         return reject(&mut tx, RejectReason::FrameNotAllowed).await;
     }
-    // Only the Bot SDK may claim to be an agent; nobody may claim to be a server-side doll.
+    // Only the Bot SDK may claim to be an agent; nobody may claim to be a server-side doll, nor fly
+    // for the Dolls' side (`side`).
     let pilot = if pilot == PilotKind::MobileDoll { PilotKind::Agent } else { pilot };
+    let faction = side(pilot, faction);
     let address = identify(&game, &mut tx, &mut rx, &mut pending, flags, &resume, pilot).await?;
     // A pilot flies in one place at a time: a newer session takes over.
     let (held, kicked) = match address {
@@ -1056,4 +1073,23 @@ pub fn process_notes(game: &GameShared) {
 fn park_news(game: &GameShared, address: Address, news: ParkNews) {
     let pilots = game.pilots.clone();
     tokio::spawn(async move { pilots.apply_park_news(address, news).await });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nobody_flies_for_oz_and_a_human_flies_for_the_colonies() {
+        use Faction::{Alliance, Colonies, Oz};
+        // The Dolls' side is theirs alone, whoever claims it.
+        assert_eq!(side(PilotKind::Agent, Oz), Colonies);
+        assert_eq!(side(PilotKind::Human, Oz), Colonies);
+        // A human pilot flies for the Colonies, whatever their client asks.
+        assert_eq!(side(PilotKind::Human, Alliance), Colonies);
+        assert_eq!(side(PilotKind::Human, Colonies), Colonies);
+        // An agent keeps the side it asked for (bc-swarm's squads alternate).
+        assert_eq!(side(PilotKind::Agent, Colonies), Colonies);
+        assert_eq!(side(PilotKind::Agent, Alliance), Alliance);
+    }
 }

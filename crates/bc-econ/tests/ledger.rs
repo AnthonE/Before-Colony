@@ -1,6 +1,7 @@
 //! The exchange's books balance: whatever pilots do, credits and goods only enter or leave the
 //! economy through the colony (what it pays and takes) and its fees; nothing is made or lost in
-//! escrow, fills, cancels or collection, on the exchange or on the Charter Board's contracts.
+//! escrow, fills, cancels or collection, on the exchange, on the Charter Board's contracts or at its
+//! desk (a flight certificate's rifle, from the colony's own; aces' bounties).
 
 use std::collections::BTreeMap;
 
@@ -63,6 +64,18 @@ enum Op {
     Wait {
         secs: u64,
     },
+    /// The Charter Board sees a pilot's flight certificate (once each: a rifle from the colony's
+    /// desk while it has one, else its worth).
+    Certify {
+        who: usize,
+    },
+    /// A pilot downs one of Zodiac's aces, and the colony pays its bounty (into the hangar, or at
+    /// the Board's desk).
+    PayAce {
+        who: usize,
+        ace: u8,
+        at_desk: bool,
+    },
 }
 
 fn op() -> impl Strategy<Value = Op> {
@@ -76,6 +89,8 @@ fn op() -> impl Strategy<Value = Op> {
         3 => (0..4usize, 0..12usize, 1..3_000u64).prop_map(|(who, nth, qty)| Op::Deliver { who, nth, qty }),
         1 => (0..4usize, 0..4usize).prop_map(|(who, nth)| Op::Withdraw { who, nth }),
         1 => (0..8_000u64).prop_map(|secs| Op::Wait { secs }),
+        1 => (0..4usize).prop_map(|who| Op::Certify { who }),
+        1 => (0..4usize, 0..9u8, any::<bool>()).prop_map(|(who, ace, at_desk)| Op::PayAce { who, ace, at_desk }),
     ]
 }
 
@@ -153,6 +168,7 @@ proptest! {
                 Op::Collect { who } => {
                     hangars[who].collect(&mut ex, TRADERS[who]);
                     board.collect(&mut hangars[who], TRADERS[who]);
+                    board.collect_at_desk(&mut hangars[who], TRADERS[who]);
                 }
                 Op::Post { who, item, qty, reward } => {
                     let item = items()[item];
@@ -176,6 +192,15 @@ proptest! {
                     now += secs;
                     board.tick(now, &ex);
                 }
+                Op::Certify { who } => {
+                    let first = !hangars[who].certified;
+                    let news = board.certify(&mut hangars[who], TRADERS[who], &mut ex);
+                    prop_assert_eq!(news.is_some(), first);
+                }
+                Op::PayAce { who, ace, at_desk } => {
+                    board.ace_downed(ace, TRADERS[who], "P", now);
+                    let _ = board.pay_ace(&mut hangars[who], ace, TRADERS[who], at_desk);
+                }
             }
             let (c, g) = ledger(&hangars, &ex, &board);
             // Credits: in only from the colony's purchases, out to its sales and fees.
@@ -196,6 +221,7 @@ proptest! {
             ex.cancel_all(t);
             hangars[k].collect(&mut ex, t);
             board.collect(&mut hangars[k], t);
+            board.collect_at_desk(&mut hangars[k], t);
         }
         prop_assert_eq!(ex.escrowed(), (0, BTreeMap::new()));
         prop_assert_eq!(board.held(), (0, BTreeMap::new()));

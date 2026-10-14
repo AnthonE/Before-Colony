@@ -25,8 +25,13 @@ A Gundam Wing mobile-suit MMO prototype.
   only the colony's zero-G foundry can make. Launch out of your bay's own door on the spinning bay
   ring, and come home through the docking hub (at rest in the dock's ring of lights, or landed on
   the hub's end face and walked in at its deck hatch); a suit destroyed out there is gone. Your
-  bay's airlock leads down the cap lift into the colony's city, where you walk, ride its trams and
-  drive its cars, and the Proving Ground trains you.
+  bay's airlock leads down the cap lifts (one to each of its three strips) into the colony's
+  city, where you walk, ride its trams and drive its cars, and the Proving Ground trains you. Its
+  desks each do one thing only they do: an order that waits on the book at the Exchange floor,
+  contracts, patrols, the charter and the Charter Board's pay at its desk (a flight certificate
+  earns your worn Leo its missing beam rifle there), Zodiac's Most Wanted at The Arrival, and the
+  test range at the Proving Ground. The objectives walk a new Arrival from desk to desk, home to
+  arm, and out.
 
 - **Server:** Rust. One allocation-free, lock-free simulation thread per sector at 30 Hz.
 - **Client:** Bevy 0.19 compiled to WebAssembly, in the browser (WebGL2 or WebGPU).
@@ -34,10 +39,13 @@ A Gundam Wing mobile-suit MMO prototype.
 
 **Status:** Milestone 5, the First Colony's inside (`docs/COLONY.md`), most of it built: its city
 at full scale, shared with other pilots, walked, ridden by tram, driven, and flown by suits; and
-the Proving Ground's course, Blast Hall and drill (`docs/TRAINING.md`). Alongside it
-(`docs/ROADMAP.md`): the lock-on, the Charter Board's contracts and great works, a floor under
-loss, the colony's radio, bigger tanks, propellant grades and the ion drive, and what the mech
-games teach (doom and ejecting, stagger, a debrief, a test range, aces…). Milestone 4 brought
+the Proving Ground's course, Blast Hall and drill (`docs/TRAINING.md`); and its desks, each with
+its one thing, the objectives leading from one to the next. Alongside it (`docs/ROADMAP.md`): the
+lock-on, the Charter Board's contracts and great works (and its pay at its desk), a floor under
+loss, the colony's radio, bigger tanks, propellant grades and the ion drive, what the mech
+games teach (doom and ejecting, stagger, a debrief, a test range, aces…), and what Mecha Royale
+teaches (guns that shoot missiles down, the HUD saying why a weapon won't fire, a death report, a
+boot that says when it's stuck, wrecks that die their own way). Milestone 4 brought
 wear and tear: the systems inside the parts, statuses, equipment modules and overhauls, and the
 world bible (`docs/STORY.md`). Milestone 3 brought survival: the hangar bay on foot, building
 suits, and the Colony Exchange (see `docs/DESIGN.md`). Milestone 2 brought the five Gundams. One
@@ -72,21 +80,26 @@ Open <http://127.0.0.1:8080> in Chrome or Edge, enter a callsign and LAUNCH. You
 your bay's airlock: click the game to look around, walk with W/A/S/D, and press E at the
 fabricator, the stores' racks, the exchange terminal, the suit's console or (up the stairs, on the
 catwalk) the cockpit hatch. There E launches you into space: the catapult throws your suit out of
-your bay's own door on the spinning bay ring, at the ring's 125 m/s. Q launches it into the colony
-instead, out of the port by its inner gate. Out there, go home through the docking hub on the
-colony's axis: come to rest inside the dock's ring of lights off the hub's mouth and press Enter, or
-arm the grip (L), land on the hub's end face near its middle, walk onto the deck hatch and press
-Enter. On foot, E at the airlock rides the cap lift down into the colony's city (M for its map, the
-trams stop at the platforms, E at a motor pool takes a car), and E at Hub Gate's lift brings you
-back up. The colony is open by default; `BC_COLONY=0 scripts/dev.sh` (the server's `--no-colony`)
-closes it. Esc opens the menu and F1 (or ?) lists the controls. `?autoplay=1`
-skips the title screen. Add `?autopilot=1` to watch the kit-aware Mobile Doll brain fly your suit
+your bay's own door on the spinning bay ring, at 40 m/s on top of the ring's own 125 m/s. Q
+launches it into the colony instead, out of the port by its inner gate. Out there, go home through
+the docking hub on the colony's axis: come to rest inside the dock's ring of lights off the hub's
+mouth and press Enter, or arm the grip (L), land on the hub's end face near its middle, walk onto
+the deck hatch and press Enter. Enter docks only where the HUD's marker says ENTER; anywhere else
+it opens the radio. On foot, E at the airlock rides the cap lift down to the Charter strip's Hub
+Gate (Q there first chooses the Canal or the Gardens strip's lift instead): M opens the city's map
+(M or Esc closes it), the trams stop at the platforms, E at a motor pool takes a car, and E at
+Hub Gate's lift brings you back up. E at a desk's counter opens its terminal, with the one tab
+that desk keeps: the Exchange floor's exchange, the Charter Board's (what it holds for you is paid
+out as you walk into its hall), The Arrival's Most Wanted, the Proving Ground's board and test
+range; the bay's terminals point at them. The colony is open by default; `BC_COLONY=0 scripts/dev.sh`
+(the server's `--no-colony`) closes it. Esc opens the menu and F1 (or ?) lists the controls.
+`?autoplay=1` skips the title screen. Add `?autopilot=1` to watch the kit-aware Mobile Doll brain fly your suit
 with the ZERO System engaged (it walks to the cockpit and launches first), and, under arcade rules,
 `?frame=leo|wingzero|heavyarms|deathscythe|sandrock|shenlong` to pick it.
 `?quality=low|medium|high|ultra` picks a graphics tier for the visit (F10 or O cycles them; the settings
 keep the choice). Without a server,
-`?showcase=gundams|lineup|duel|colony|field|sky|chase|salvage|mining|hangar` plays an offline scene
-(`?hz=20` runs its clock slower, to see effects at a low frame rate). `?look=0` turns off the game's
+`?showcase=gundams|lineup|duel|colony|field|sky|chase|salvage|mining|hangar|surface|city` plays an
+offline scene (`?hz=20` runs its clock slower, to see effects at a low frame rate). `?look=0` turns off the game's
 own look (its grade, vignette, lit smoke and the bay's haze) and `?tonemap=agx|aces` swaps the
 tonemapper, for comparing.
 
@@ -107,13 +120,15 @@ self-signed certificate depends on `serverCertificateHashes` pinning, and that m
 | M · N | the chart, out to the Earth Sphere (set a course on it) · the auto-nav on the course (on/off) |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
 | U | eject: doomed, a tap ejects and a hold blows the suit up; otherwise held a second |
-| Enter | dock: at rest inside the dock's ring of lights, or standing on the hub's deck hatch, into your bay |
+| Enter | survival: dock where the HUD's marker says ENTER (into your bay: at rest inside the dock's ring of lights, or standing on the hub's deck hatch; inside the colony, at rest in the inner gate's ring; in a trainer, at rest on the Blast Hall's gantry); anywhere else, the radio |
 | 1–4 | survival: the rack's patch kit · coolant flush · chaff · stim |
 | 1–6 | arcade rules: respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
-| / | talk on the colony's radio (Enter on foot): Enter says it, Esc closes |
+| / (or Enter) | talk on the colony's radio (Enter opens it on foot, and in a suit wherever there's nothing to dock): Enter says it, Esc closes |
 | Esc · F1 or ? · F10 or O | menu · controls · graphics quality |
 
-On foot: the mouse looks, W/A/S/D walk, Shift runs, Space jumps, E uses what you look at.
+On foot: the mouse looks, W/A/S/D walk, Shift runs, Space jumps, E uses what you look at. With
+the colony open, Q at the cockpit launches into it, and Q at the airlock chooses the next strip's
+cap lift.
 
 Frames with missiles lock on by themselves: hold the reticle on a hostile until its bracket reads
 LOCKED, then fire.
@@ -127,11 +142,17 @@ without asking the wallet again; signing in from a second window takes the pilot
 **Logging off.** Signed in, SLEEP & DISCONNECT (or just closing the tab) leaves your Gundam in the
 sector with you asleep in the cockpit, drifting on as it was; you wake in it when you're back. Rest
 against an asteroid first (the HUD reads PARKED) and it stays put there, hidden from sensors beyond
-400 m. Mobile Dolls leave sleepers alone, but other pilots can hunt them.
+400 m. Mobile Dolls leave sleepers alone. Pilots of another side can hunt them, but every human
+pilot flies for the Colonies (the server decides) and friendly fire is off, so today only an agent
+flying for the Alliance could hunt yours (where PvP lives is an open decision: `docs/ROADMAP.md`).
+Flying inside the colony nothing sleeps: DOCK & DISCONNECT, and its tugs bring the suit home to
+your bay (you're told so when you're back). On foot, in the bay or the city, nothing is out, and
+you wake in your bay.
 
 Server flags: `--rules survival|arcade` (default survival), `--no-colony` (close the colony: no cap
 lifts down into its city, no suits inside it; open by default under survival rules), `--data-dir DIR` (keep pilot records,
-their hangars, and the exchange in files there; otherwise they last one run), `--craft-speed X`
+their hangars, the exchange, the Charter Board and the Proving Ground's board in files there;
+otherwise they last one run), `--craft-speed X`
 (the fabricator works X times faster, for testing), `--mobile-dolls N`, `--max-clients N`,
 `--oracle local|jev`, `--mode echo`, `--siwe-domain HOST` (the host pages are served from, which
 wallets sign in to; defaults to `--http`), `--require-auth` (no human guests), `--flight anime|real`
@@ -159,14 +180,16 @@ Without a key the in-sim local oracle runs alone, and the System works fully off
 ### Agents
 
 ```sh
-cargo run -p bc-bot --release --example mobile_doll -- --name Agent-01 --faction colonies
+cargo run -p bc-bot --release --example mobile_doll -- --name Agent-01 --faction colonies   # or alliance
 cargo run -p bc-bot --release --example miner -- --name Miner-01   # mines, docks, and sells its ore on the exchange
 cargo run -p bc-bot --release --bin bc-swarm -- --bots 64 --secs 60   # load test
 ```
 
 Agents speak the same protocol through the same client core as the browser. They are shown in-game
 as **MD** pilots. Two brains come with it: `DollBrain` (the Mobile Doll AI) and `MinerBrain`. Or
-write your own brain as a closure: see `crates/bc-bot/src/lib.rs`.
+write your own brain as a closure: see `crates/bc-bot/src/lib.rs`. The side an agent flies for is
+the server's to say, and its Welcome says it: `--faction` takes `colonies` or `alliance` (Oz is the
+Mobile Dolls' own, and a claim to it flies for the Colonies, as every human pilot does).
 
 ## What's been measured
 
@@ -193,11 +216,12 @@ write your own brain as a closure: see `crates/bc-bot/src/lib.rs`.
   software WebGPU loses its device at startup, even on a bare WebGPU page with no Bevy.
 - The browser build is large: 49 MiB of wasm, 7 MiB over the wire with brotli. Trimming Bevy
   features and running `wasm-opt` (`BC_WEB_OPT=1`) are the next steps.
-- Wing Zero's change into Neo-Bird isn't animated yet (the model swaps, with a flash), and
-  missiles can't be shot down yet.
+- Wing Zero's change into Neo-Bird isn't animated yet (the model swaps, with a flash).
 - One sector, and one colony (one exchange). Without `--data-dir`, pilot records and hangars are
   kept in memory, so a server restart forgets them; a Redis or Mongo `PilotStore` is the next step.
-  Suits left asleep in the sector don't survive a restart (their pilots' suits are towed home).
+  Suits left asleep in the sector don't survive a restart, except, under survival rules with
+  `--data-dir`, one left on its feet in a landmark's hide spot, which is put back where it was.
+  Every other sleeper is cleared (under survival, towed home to its pilot's bay).
   The roadmap is in `docs/ROADMAP.md`.
 
 ## Repository

@@ -134,8 +134,9 @@ impl ParkedSuit {
     pub fn record(&self) -> Option<ParkRecord> {
         let frame = FrameId::from_slug(&self.frame)?;
         let faction = match self.faction.as_str() {
-            "oz" => Faction::Oz,
-            "colonies" => Faction::Colonies,
+            // Nobody flies for the Dolls' side (`net::game`'s `side`): one kept from before that
+            // was so comes back for the Colonies.
+            "oz" | "colonies" => Faction::Colonies,
             "alliance" => Faction::Alliance,
             _ => return None,
         };
@@ -225,6 +226,10 @@ pub struct PilotRecord {
     /// Their best times at the Proving Ground, as the server checked them.
     #[serde(default)]
     pub proving: bc_econ::proving::Bests,
+    /// Survival: word for the pilot when they're next back, told then as news (what the colony's
+    /// tugs did with the suit they left flying inside the colony).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub word: Vec<String>,
 }
 
 impl PilotRecord {
@@ -241,6 +246,7 @@ impl PilotRecord {
             hangar: None,
             parked: None,
             proving: bc_econ::proving::Bests::default(),
+            word: Vec::new(),
         }
     }
 }
@@ -784,6 +790,21 @@ mod tests {
         // A frame or a side there isn't: nothing to put back.
         let odd = ParkedSuit { faction: "zeon".into(), ..ParkedSuit::new(&rec, 77) };
         assert_eq!(odd.record(), None);
+        // Nobody flies for the Dolls' side: one kept from before that comes back for the Colonies.
+        let oz = ParkedSuit { faction: "oz".into(), ..ParkedSuit::new(&rec, 77) };
+        assert_eq!(oz.record().map(|r| r.faction), Some(Faction::Colonies));
+    }
+
+    #[test]
+    fn word_for_a_pilot_waits_in_their_record() {
+        let mut r = PilotRecord::new(&Address([11; 20]));
+        // None kept: none written.
+        let none = serde_json::to_value(&r).unwrap();
+        assert!(none.get("word").is_none(), "{none}");
+        assert_eq!(serde_json::from_value::<PilotRecord>(none).unwrap().word, Vec::<String>::new());
+        r.word.push("THE COLONY'S TUGS BROUGHT YOUR SUIT IN".into());
+        let again: PilotRecord = serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
+        assert_eq!(again, r);
     }
 
     /// `a`'s record, saying their suit `suit` of this run is asleep in a hide spot as of `tick`.

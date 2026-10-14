@@ -430,3 +430,41 @@ fn what_a_pilot_could_park_on_is_worked_out_once_a_tick() {
     sim.step();
     assert_eq!(sim.suits.parkable[i], Body::None, "asleep, it's parked already");
 }
+
+/// Inside the colony a suit standing still on the avenue could park on nothing: the inside keeps
+/// no sleepers (a pilot who leaves there has their suit towed home), so it never says it could.
+#[test]
+fn a_suit_standing_inside_the_colony_could_park_on_nothing() {
+    use bc_proto::buttons::FLIGHT_ASSIST;
+    use bc_proto::snapshot::own_flags::PARKABLE;
+    use bc_sim::colony::frame::{CityPos, STRIP_WIDTH};
+    use bc_sim::colony::interior::WorldKind;
+    use bc_sim::colony::transit::station_x;
+    use bc_sim::ground::Footing;
+    use bc_sim::sim::{Loadout, PARK_SPEED};
+    let mut sim = Sim::new(SimConfig {
+        target_dolls: 0,
+        field_rocks: 0,
+        landmarks: 0,
+        survival: true,
+        world: WorldKind::Interior,
+        ..SimConfig::default()
+    });
+    let leo = FrameId::Leo;
+    let id = sim.launch(leo, Faction::Colonies, PilotKind::Human, &Loadout::full(leo)).unwrap();
+    let i = id.idx();
+    // Over the avenue, at rest and low enough for an armed grip to catch; down, and standing still.
+    let at = CityPos::new(0, (station_x(2) + station_x(3)) * 0.5, STRIP_WIDTH * 0.5 + 24.0, 25.0);
+    let f = &mut sim.suits.flight[i];
+    (f.pos, f.vel) = (at.to_colony(), Vec3::ZERO);
+    for _ in 0..30 * 10 {
+        let aim = sim.suits.flight[i].rot * Vec3::Z;
+        drive(&mut sim, id, [0; 3], GRIP | FLIGHT_ASSIST, aim);
+        sim.step();
+    }
+    assert_eq!((sim.suits.footing[i], sim.suits.anchor[i].body), (Footing::Grounded, Body::City));
+    assert!(sim.suits.anchor[i].vel.length() <= PARK_SPEED, "standing still");
+    assert_eq!(sim.parkable(i), None);
+    assert_eq!(sim.suits.parkable[i], Body::None);
+    assert_eq!(sim.own_state(i).flags & PARKABLE, 0);
+}

@@ -4,6 +4,7 @@
 //! clear the drill, and the time the server checked goes on the Proving Ground's board: told to
 //! them, on the board every pilot in the colony is sent, in `/status` and on their record. Docked
 //! back on the gantry, they climb out on foot in the hall, where the plaza takes their first step.
+//! Their time is a flight certificate, and the Charter Board issues them a beam rifle for it, once.
 //! The board and their best outlive the server; a pilot gone while flying a trainer wakes in their
 //! bay, their own suit there.
 
@@ -23,6 +24,9 @@ use bc_sim::colony::frame::CityPos;
 use bc_sim::colony::hall::{self, DRILL_PAR_S, DrillEvent};
 use bc_sim::content::{frame, weapon};
 use glam::Vec3;
+
+/// The Charter Board's news of a pilot's flight certificate.
+const CERTIFIED: &str = "HAS YOUR FLIGHT CERTIFICATE";
 
 fn wallet() -> LocalWallet {
     let mut secret = [0u8; 32];
@@ -127,6 +131,16 @@ async fn a_pilot_boards_a_trainer_in_the_blast_hall_clears_the_drill_and_climbs_
     .await?;
     let note = b.core.hangar.notes.iter().find(|(t, _)| t.starts_with("THE BOARD")).unwrap().0.clone();
     assert!(note.contains("FIRST CLASS") && note.contains("THE BEST EVER"), "{note}");
+    // A time on the board is a flight certificate: the Charter Board has a beam rifle for them.
+    b.wait_until(5.0, "the certificate", |c| c.hangar.news.iter().any(|n| n.contains(CERTIFIED))).await?;
+    // The rifle is kept as the record's flag is, not with the clock's save a minute on: its desk
+    // account is in the Board's file already. And the Board keeps no name for a certificate.
+    let board: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.join("charter.json"))?)?;
+    let desk = board["at_desk"].as_object().expect("the board's desk accounts");
+    assert_eq!(desk.len(), 1, "{desk:?}");
+    let notes = desk.values().next().unwrap()["notes"].to_string();
+    assert!(notes.contains("FOR YOUR FLIGHT CERTIFICATE"), "{notes}");
+    assert_eq!(board["names"], serde_json::json!({}), "no name kept for a certificate");
     b.wait_until(5.0, "the board", |c| c.hangar.proving.as_ref().is_some_and(|v| !v.drill.is_empty()))
         .await?;
     let v = b.core.hangar.proving.clone().unwrap();
@@ -176,6 +190,9 @@ async fn a_pilot_boards_a_trainer_in_the_blast_hall_clears_the_drill_and_climbs_
         c.hangar.proving.as_ref().is_some_and(|v| v.mine.drill_ms == Some(ms))
     })
     .await?;
+    // The Board issues its rifle once: back in the colony, it doesn't again.
+    b.run_for(Duration::from_secs(3), &mut |_| InputCmd::default()).await?;
+    assert!(!b.core.hangar.news.iter().any(|n| n.contains(CERTIFIED)), "{:?}", b.core.hangar.news);
 
     // The test range: the gantry readies any line's suit, here a Heavyarms. Gone while flying it,
     // the Board's suit is the Board's again, and the pilot wakes in their bay, their own suit there
@@ -194,6 +211,8 @@ async fn a_pilot_boards_a_trainer_in_the_blast_hall_clears_the_drill_and_climbs_
     b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
     assert!(matches!(b.core.hangar.view.as_ref().unwrap().bay, Bay::Docked { .. }), "the bay's untouched");
     assert!(!b.core.hangar.trainer && !b.core.welcome.unwrap().interior);
+    // Nor do the tugs say they brought anything in: their own suit never left.
+    assert!(!b.core.hangar.news.iter().any(|n| n.contains("TUGS")), "{:?}", b.core.hangar.news);
     assert_eq!(server.status()["game"]["hot_path_allocations"], 0);
     b.close().await;
     server.shutdown();

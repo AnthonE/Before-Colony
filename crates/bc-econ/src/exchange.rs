@@ -605,6 +605,17 @@ impl Exchange {
         }
     }
 
+    /// The colony hands over up to `qty` of `item` from its desk's stock outside the books (the
+    /// Charter Board's issue: a flight certificate's beam rifle): its desk holds less, so its
+    /// prices rise as if it had sold it. How many it handed over: none if it doesn't deal in
+    /// `item`, or has none of it whole.
+    pub fn colony_issue(&mut self, item: Item, qty: u64) -> u64 {
+        let Some(s) = self.colony.get_mut(&item) else { return 0 };
+        let n = qty.min(s.held.max(0.0).floor() as u64);
+        s.held -= n as f64;
+        n
+    }
+
     #[cfg(test)]
     pub(crate) fn colony_take(&mut self, item: Item, qty: u64) -> bool {
         self.colony.get_mut(&item).map(|s| s.held = (s.held - qty as f64).max(0.0)).is_some()
@@ -751,6 +762,26 @@ mod tests {
         assert!(r.fills[1].price >= colony_ask);
         let torso = Item::Part(FrameId::Leo, Part::Torso);
         assert!(ex.depth(torso, 5).asks.iter().any(|l| l.colony));
+    }
+
+    /// The colony hands over what its desk holds whole, outside the books (the Charter Board's
+    /// issue): its price rises as if it had sold it, and no credits move.
+    #[test]
+    fn the_colony_issues_what_its_desk_holds() {
+        let mut ex = Exchange::new();
+        let rifle = Item::Weapon(bc_proto::WeaponKind::BeamRifle);
+        let ask = ex.top(rifle).1.unwrap().0;
+        assert_eq!(ex.colony_issue(rifle, 2), 2);
+        assert_eq!(ex.colony_stock(rifle), Some(1.0));
+        assert!(ex.top(rifle).1.unwrap().0 > ask, "dearer, with less on the shelf");
+        assert_eq!(ex.colony_issue(rifle, 5), 1, "only what it has");
+        assert_eq!(ex.colony_issue(rifle, 1), 0);
+        assert_eq!(ex.colony_stock(rifle), Some(0.0));
+        assert_eq!(ex.top(rifle).1, None, "none left to sell");
+        // Gundam technology isn't the colony's to give.
+        assert_eq!(ex.colony_issue(GUNDANIUM, 10), 0);
+        assert_eq!(ex.colony_stock(GUNDANIUM), None);
+        assert_eq!((ex.colony_paid, ex.colony_took, ex.fees), (0, 0, 0));
     }
 
     #[test]

@@ -126,6 +126,8 @@ pub enum Panel {
     Board,
     /// The Proving Ground's board, at the Blast Hall's desk: the terminals' panel, on its tab.
     Proving,
+    /// The Most Wanted, pinned up behind the bar at The Arrival: the terminals' panel, on its tab.
+    Arrival,
 }
 
 /// The page's state, as Rust decides it.
@@ -165,10 +167,16 @@ pub struct Ui {
     pub retry_in: u32,
     toast_seq: u32,
     toast: String,
-    /// Survival rules: where the pilot is (`hangar`, `space`, or empty: arcade, or not yet told),
-    /// and whether they're walking about the bay (no sequence going on).
+    /// Survival rules: where the pilot is (`hangar`, `space`, `city`, or empty: arcade, or not yet
+    /// told), and whether they're walking about the bay or the city (no sequence going on).
     pub place: &'static str,
     pub on_foot: bool,
+    /// At the wheel in the city: `car` or `scooter` (empty: not).
+    pub driving: &'static str,
+    /// Flying inside the colony (its own sector), and in a trainer from the Blast Hall's gantry:
+    /// leaving there, the colony's tugs bring the suit back to the bay (a trainer, to its gantry).
+    pub inside: bool,
+    pub trainer: bool,
     /// A launch or homecoming is playing (nothing to click, nothing to fly).
     pub sequence: bool,
     /// On foot: what the pilot can use where they stand ("E  FABRICATOR"), and their bay's line
@@ -178,6 +186,8 @@ pub struct Ui {
     /// In the colony: the map (M) is up, and where the pilot stands on it (strip, `x` along, `s`
     /// across, heading in the map's terms: radians from +x towards −s).
     pub map: bool,
+    /// When Esc last closed the map (the browser's lock going, and the page's key, are one Esc).
+    map_closed_at: Option<f64>,
     pub map_at: Option<[f32; 4]>,
     /// The objective's place on the map, by slug (its door gets the ◆).
     pub map_goal: Option<&'static str>,
@@ -214,6 +224,19 @@ impl Ui {
             self.panel = Panel::Pause;
             self.paused_at = now_s();
         }
+    }
+
+    /// Esc with the colony's map up closes it, as M does. Chrome keeps the Esc that ends a pointer
+    /// lock to itself (the lock going would open the menu) and other browsers pass it on too:
+    /// whichever comes first closes the map, and the other, a moment later, is the same Esc.
+    pub fn esc_closes_map(&mut self) -> bool {
+        let now = now_s();
+        if self.map && self.panel == Panel::None {
+            self.map = false;
+            self.map_closed_at = Some(now);
+            return true;
+        }
+        self.map_closed_at.is_some_and(|at| now - at < 0.4)
     }
 
     fn close_settings(&mut self, from_pause: bool) {
@@ -253,6 +276,7 @@ impl Ui {
         match self.panel {
             Panel::Board => "charter",
             Panel::Proving => "proving",
+            Panel::Arrival => "wanted",
             _ => self.terminal().map_or("", Spot::slug),
         }
     }
@@ -323,10 +347,14 @@ pub fn apply_ui_cmds(cmds: Res<UiCmds>, mut ui: ResMut<Ui>, mut map: ResMut<crat
                 } else if map.0 && ui.panel == Panel::None {
                     // Esc closes the chart, as M does.
                     map.0 = false;
+                } else if ui.esc_closes_map() {
+                    // The colony's map, likewise.
                 } else {
                     match ui.panel {
                         Panel::Settings { from_pause } => ui.close_settings(from_pause),
-                        Panel::Terminal(_) | Panel::Board | Panel::Proving => ui.panel = Panel::None,
+                        Panel::Terminal(_) | Panel::Board | Panel::Proving | Panel::Arrival => {
+                            ui.panel = Panel::None
+                        }
                         Panel::None if ui.playing() => ui.open_pause(),
                         // Esc that belonged to the browser dropping the lock (which opened the
                         // menu) must not close it again.
@@ -354,7 +382,11 @@ pub fn apply_ui_cmds(cmds: Res<UiCmds>, mut ui: ResMut<Ui>, mut map: ResMut<crat
         }
     }
     // The menu and the terminals are the world's; settings may open over the title too.
-    if !ui.playing() && matches!(ui.panel, Panel::Pause | Panel::Terminal(_) | Panel::Board | Panel::Proving)
+    if !ui.playing()
+        && matches!(
+            ui.panel,
+            Panel::Pause | Panel::Terminal(_) | Panel::Board | Panel::Proving | Panel::Arrival
+        )
     {
         ui.panel = Panel::None;
     }
@@ -388,6 +420,9 @@ pub struct View {
     terminal: &'static str,
     place: &'static str,
     on_foot: bool,
+    driving: &'static str,
+    inside: bool,
+    trainer: bool,
     sequence: bool,
     prompt: String,
     bay_line: String,
@@ -413,7 +448,7 @@ impl View {
                 Panel::None => "none",
                 Panel::Pause => "pause",
                 Panel::Settings { .. } => "settings",
-                Panel::Terminal(_) | Panel::Board | Panel::Proving => "terminal",
+                Panel::Terminal(_) | Panel::Board | Panel::Proving | Panel::Arrival => "terminal",
             },
             help: ui.help,
             click_to_fly: ui.click_to_fly,
@@ -435,6 +470,9 @@ impl View {
             terminal: ui.terminal_tab(),
             place: ui.place,
             on_foot: ui.on_foot,
+            driving: ui.driving,
+            inside: ui.inside,
+            trainer: ui.trainer,
             sequence: ui.sequence,
             prompt: ui.prompt.clone(),
             bay_line: ui.bay_line.clone(),
@@ -477,6 +515,9 @@ impl View {
         set(&o, "terminal", self.terminal);
         set(&o, "place", self.place);
         set(&o, "onFoot", self.on_foot);
+        set(&o, "driving", self.driving);
+        set(&o, "inside", self.inside);
+        set(&o, "trainer", self.trainer);
         set(&o, "sequence", self.sequence);
         set(&o, "prompt", self.prompt.as_str());
         set(&o, "bayLine", self.bay_line.as_str());

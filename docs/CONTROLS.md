@@ -96,8 +96,8 @@ so on a body they become a hop (held: lift off on the thrusters) and a crouch at
   now, N its auto-nav, Y the lock-on, U the eject, and O F10's second key), it is pressed
   once per landing rather than in a fight, and Elite puts landing gear on it (*unverified*).
 - **Rejected:** P, Space Engineers' landing gear (*unverified*), is the showcase's key; N, Star
-  Citizen's landing key (*unverified*), lost to L's mnemonic; T and Enter are throw and dock, and
-  the usual chat keys to plan around (item 3 below); Ctrl combinations are out (Ctrl+W closes the
+  Citizen's landing key (*unverified*), lost to L's mnemonic; T is throw and Enter docks, and
+  they're the usual chat keys (item 3 below); Ctrl combinations are out (Ctrl+W closes the
   tab), and so are Alt and the function keys.
 - **The grip is a state** on the wire, as flight assist is: a stalled client keeps its suit on the
   body, and a lost packet can't flip it.
@@ -123,7 +123,14 @@ tap ejects at once and a hold blows the suit up instead.
 2. **Z is the ZERO System.** Z toggles flight assist in Elite, dampeners in Space Engineers and
    look-around in Star Citizen. Our mnemonic is worth keeping, but it will surprise sim players.
 3. **T is throw and Enter is dock.** T is "target ahead" in Elite and Star Wars: Squadrons [B5], and
-   T and Enter are the usual chat keys. An MMO will want chat: plan the keys before chat lands.
+   T and Enter are the usual chat keys.
+   - **Done:** the colony's radio opens on `/`, and on Enter wherever Enter has nothing to dock:
+     on foot, and in a suit away from where it docks (always, under arcade rules). Enter asks the
+     dock only where the HUD's marker says ENTER: within twice the ring's radius of the dock (the
+     hub's mouth and its deck hatch with it), of the inner gate, or of a trainer's gantry pad
+     (`bc_client_core::dock`), so the dock's refusals come only where they teach something. One
+     press goes one place, decided once a frame. On the chart Enter still sets a course.
+   - **Still open:** T, the other usual chat key, stays throw.
 4. **The lock moves you; it doesn't aim for you.** Most Gundam games lock on: Extreme Vs., Gundam
    Breaker, SD Gundam Battle Alliance, even the cockpit arcade game Senjou no Kizuna [A1]. Lock-on is
    also the most common complaint in mech games: too strong, unreliable, or grabbing the wrong target

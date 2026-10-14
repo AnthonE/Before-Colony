@@ -6,11 +6,15 @@ import { bc, built, collectConsole } from "./util";
 // and an agent strolling outside Hub Gate). The pilot goes out through their bay's airlock and
 // rides the cap lift down to Hub Gate, finds the agent there, walks across the square into the
 // Proving Ground (the Blast Hall) to its desk and its board, walks the city's streets to the
-// Exchange floor and buys there, finds a sight, then walks back and rides up to the bay. The
-// walking is the dev hook's (a guide walks the pilot's own legs); the terminal's panel is clicked.
-// Then a tram, a car, and two browsers: two pilots meet at Hub Gate, each seeing the other; one
-// rides home, gone from the other's street, and a suit an agent flies in by the inner gate comes
-// down onto the avenue by the other, each seeing the other.
+// Exchange floor and buys there, on to the Charter Board's desk (a delivery to a great work, a
+// contract posted and withdrawn), finds a sight, sits at The Arrival and reads its Most Wanted,
+// then walks back and rides up to the bay. Each desk shows only what it does, and the objectives
+// lead from one to the next. The walking is the dev hook's (a guide walks the pilot's own legs);
+// the terminals' panels are clicked.
+// Then a tram, a car, the Canal strip's cap lift (Q at the airlock), and two browsers: two pilots
+// meet at Hub Gate, each seeing the other; one rides home, gone from the other's street, and a
+// suit an agent flies in by the inner gate comes down onto the avenue by the other, each seeing
+// the other.
 
 // The agent in a suit inside the colony (`crates/bc-bot/examples/suit_inside.rs`).
 const SUIT = built("examples/suit_inside");
@@ -34,38 +38,77 @@ async function until(
   }
 }
 
+// Clicks a terminal's button (or row), in the page itself, once it's there. The terminal's panel
+// is drawn afresh whenever the hangar, the market or the board changes (every few seconds), and a
+// page drawing in software has taken longer than that over Playwright's own click (scrolled into
+// view, then stable over two frames): it kept finding the button gone, for minutes.
+async function press(page: Page, selector: string) {
+  await expect(page.locator(selector).first()).toBeVisible({ timeout: FRAMES });
+  await page.evaluate((sel) => (document.querySelector(sel) as HTMLElement).click(), selector);
+}
+
+// Every toast the page has shown since it loaded: a later one (the same sight's name, reached
+// again a step on) can replace one before a page drawing in software is looked at again.
+const KEEP_TOASTS = () =>
+  addEventListener("DOMContentLoaded", () => {
+    const t = document.getElementById("toast");
+    const seen: string[] = ((window as any).bcToasts = []);
+    const keep = new MutationObserver(() => seen.push(t?.textContent ?? ""));
+    if (t) keep.observe(t, { childList: true, characterData: true, subtree: true });
+  });
+const toasts = (page: Page) => page.evaluate(() => ((window as any).bcToasts ?? []).join("\n"));
+
 async function mine(page: Page, name: string) {
   const status = await (await page.request.get("/status")).json();
   return { status, hangar: status.game.hangars.find((h: any) => h.name === name) };
 }
 
+// What a frame or two shows, waited on in the city: a page drawing it in software, its panels and
+// its map over it, has taken from seconds to a minute over a frame in the suite's runs.
+const FRAMES = 120_000;
+
 test("a pilot rides down into the colony, trades on its Exchange floor, and rides home", async ({ page }) => {
   // (Long: a page drawing in software walks the city slowly, and this walk calls at the Proving
-  // Ground, the Exchange floor, a sight and The Arrival's seats.)
-  test.setTimeout(2_100_000);
+  // Ground, the Exchange floor, the Charter Board's desk, a sight and The Arrival. 45 minutes
+  // weren't enough for a run at a few frames a minute.)
+  test.setTimeout(3_300_000);
   const logs = collectConsole(page);
+  // The flight certificate (objective bit 11) is taken as earned: a browser drawing in software
+  // can't clear the drill in time, and the server's tests fly it (`crates/bc-server/tests/proving.rs`).
+  await page.addInitScript(() => localStorage.setItem("bc.settings", "version = 1\nobjectives_done = 2048\n"));
+  await page.addInitScript(KEEP_TOASTS);
   await page.goto("/?autoplay=1&name=Relena&quality=low");
   await until(page, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 180_000);
   expect((await mine(page, "Relena")).status.game.colony).toBe(true);
   // The objectives on foot run down the chain: first, the cap lift.
-  await until(page, "the first objective on foot", (s) => s.objective === "RIDE THE CAP LIFT DOWN", 30_000);
+  await until(page, "the first objective on foot", (s) => s.objective === "RIDE THE CAP LIFT DOWN", FRAMES);
 
   // The airlock leads to the cap lift.
   await push(page, { cmd: "walk_to", spot: "airlock" });
   await until(page, "at the airlock", (s) => s.focus === "airlock" && !s.walking_to, 120_000);
   await expect(page.locator("#use")).toContainText("CAP LIFT");
   await push(page, { cmd: "use" });
-  await until(page, "the ride down", (s) => s.seq === "lift_down", 30_000);
-  let s = await until(page, "the city", (s) => s.place === "city", 30_000);
+  await until(page, "the ride down", (s) => s.seq === "lift_down", FRAMES);
+  let s = await until(page, "the city", (s) => s.place === "city", FRAMES);
   // The ride can be skipped.
   await push(page, { cmd: "skip" });
-  s = await until(page, "Hub Gate", (s) => s.seq === "walking", 30_000);
+  s = await until(page, "Hub Gate", (s) => s.seq === "walking", FRAMES);
   expect(s.strip).toBe(0);
+  // On foot here as in the bay: the bay's line and a dot to aim by, and a click walks.
+  await expect(page.locator("#bay-line")).toBeVisible({ timeout: FRAMES });
+  await expect(page.locator("#dot")).toBeVisible();
+  await expect(page.locator("#prompt-main")).toHaveText(/TO WALK$/);
+  // The menu says what leaving down here does: nothing's out, and the pilot wakes in their bay.
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#pause")).toBeVisible({ timeout: FRAMES });
+  await expect(page.locator("#disconnect-button")).toHaveText("LEAVE THE CITY");
+  await page.locator('#pause [data-cmd="resume"]').click();
+  await expect(page.locator("#pause")).toBeHidden({ timeout: FRAMES });
   // Its square is named on arrival.
-  await until(page, "Charter Square", (s) => s.district === "CHARTER SQUARE", 30_000);
+  await until(page, "Charter Square", (s) => s.district === "CHARTER SQUARE", FRAMES);
   // Someone's there already: the agent strolling outside Hub Gate, in a flight suit of their own,
   // and the server has the two of them down here.
-  s = await until(page, "the flaneur", (s) => s.people >= 1 && String(s.people_names).includes("Flaneur-01"), 30_000);
+  s = await until(page, "the flaneur", (s) => s.people >= 1 && String(s.people_names).includes("Flaneur-01"), FRAMES);
   expect(s.people_nearest).toBeLessThan(120);
   const city = (await mine(page, "Relena")).status.game.city;
   expect(city.people).toBe(2);
@@ -75,99 +118,157 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   // The next objective is the Proving Ground, off the square (`docs/TRAINING.md`): across it and in
   // through the Blast Hall's blast doors to its desk, a room at a mobile suit's scale under its
   // floodlights. Its desk has the course.
-  await until(page, "the next objective", (s) => s.objective === "REPORT TO THE PROVING GROUND", 30_000);
+  await until(page, "the next objective", (s) => s.objective === "REPORT TO THE PROVING GROUND", FRAMES);
   await push(page, { cmd: "walk_to", spot: "proving_ground" });
-  await until(page, "the walk", (s) => s.city_walking_to, 30_000);
+  await until(page, "the walk", (s) => s.city_walking_to, FRAMES);
   await until(
     page,
     "at the Proving Ground's desk",
     (s) => s.focus === "proving_ground" && !s.city_walking_to,
     420_000,
   );
-  await expect(page.locator("#use")).toContainText("PROVING GROUND", { timeout: 30_000 });
-  await until(page, "in the Blast Hall", (s) => s.city_room === "proving_ground", 30_000);
+  await expect(page.locator("#use")).toContainText("PROVING GROUND", { timeout: FRAMES });
+  await until(page, "in the Blast Hall", (s) => s.city_room === "proving_ground", FRAMES);
   await page.screenshot({ path: "artifacts/colony-proving-ground.png" });
   // Its desk has the Proving Ground's board: the day's best round the course and through the drill,
   // the pars, and how to board a trainer.
   await push(page, { cmd: "use" });
-  await until(page, "the board", (s) => s.terminal === "proving", 60_000);
-  await expect(page.locator("#term-body")).toContainText("THE DRILL", { timeout: 30_000 });
-  await expect(page.locator("#term-body")).toContainText("gantry", { timeout: 30_000 });
+  // (A panel over the city drawn in software: a frame there has taken a minute.)
+  await until(page, "the board", (s) => s.terminal === "proving", 180_000);
+  await expect(page.locator("#term-body")).toContainText("THE DRILL", { timeout: FRAMES });
+  await expect(page.locator("#term-body")).toContainText("gantry", { timeout: FRAMES });
   await page.screenshot({ path: "artifacts/colony-proving-board.png" });
   await push(page, { cmd: "back" });
-  await until(page, "the board closed", (s) => s.panel === "none", 30_000);
-  await until(page, "the next objective", (s) => s.objective === "FIND THE EXCHANGE FLOOR", 30_000);
+  await until(page, "the board closed", (s) => s.panel === "none", 180_000);
+  await until(page, "the next objective", (s) => s.objective === "FIND THE EXCHANGE FLOOR", FRAMES);
 
-  // The map (M): the strip, its districts, its places.
+  // The map (M): the strip, its districts, its places (over the dot). M closes it, and so does Esc
+  // (not opening the menu).
   await page.focus("#bc");
   await page.keyboard.press("m");
-  await expect(page.locator("#map")).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator("#map-title")).toContainText("CHARTER SQUARE", { timeout: 30_000 });
+  await expect(page.locator("#map")).toBeVisible({ timeout: FRAMES });
+  await expect(page.locator("#map-title")).toContainText("CHARTER SQUARE", { timeout: FRAMES });
+  await expect(page.locator("#dot")).toBeHidden();
   await page.keyboard.press("m");
-  await expect(page.locator("#map")).toBeHidden({ timeout: 30_000 });
+  await expect(page.locator("#map")).toBeHidden({ timeout: FRAMES });
+  await page.keyboard.press("m");
+  await expect(page.locator("#map")).toBeVisible({ timeout: FRAMES });
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#map")).toBeHidden({ timeout: FRAMES });
+  await expect(page.locator("#pause")).toBeHidden();
 
   // Down the avenue, round the corner and in through the Exchange floor's door to its counter: a
-  // room, lit by its lamps (the eye adapts to EV 8). The panel is the bay's.
+  // room, lit by its lamps (the eye adapts to EV 8). The panel is the bay's exchange, and here an
+  // order can rest on the book (the bay's can't).
   await push(page, { cmd: "walk_to", spot: "exchange_floor" });
-  await until(page, "the walk", (s) => s.city_walking_to, 30_000);
+  await until(page, "the walk", (s) => s.city_walking_to, FRAMES);
   await until(page, "at the Exchange floor", (s) => s.focus === "exchange_floor" && !s.city_walking_to, 420_000);
-  await expect(page.locator("#use")).toContainText("EXCHANGE", { timeout: 30_000 });
-  s = await until(page, "indoors", (s) => s.city_room === "exchange_floor" && s.city_ev < 8.5, 30_000);
+  await expect(page.locator("#use")).toContainText("EXCHANGE", { timeout: FRAMES });
+  s = await until(page, "indoors", (s) => s.city_room === "exchange_floor" && s.city_ev < 8.5, FRAMES);
   await page.screenshot({ path: "artifacts/colony-exchange-floor.png" });
-  await until(page, "the last objective", (s) => s.objective === "SELL ON THE EXCHANGE", 30_000);
+  // Its door in focus is the floor found: next, the Charter Board.
+  await until(page, "the next objective", (s) => s.objective === "REPORT TO THE CHARTER BOARD", FRAMES);
   await push(page, { cmd: "use" });
-  await until(page, "the exchange terminal", (s) => s.terminal === "exchange", 60_000);
+  await until(page, "the exchange terminal", (s) => s.terminal === "exchange", 180_000);
   await expect(page.locator("#terminal")).toBeVisible();
-  await page.click('[data-act="ex-filter"][data-f="goods"]');
-  await page.click('tr[data-item="mat.ti_alloy"]');
+  await press(page, '[data-act="ex-filter"][data-f="goods"]');
+  await press(page, 'tr[data-item="mat.ti_alloy"]');
+  await expect(page.locator('[data-key="rest"]')).toBeVisible({ timeout: FRAMES });
   await page.fill('[data-key="qty:buy:mat.ti_alloy"]', "10");
-  await page.click('[data-act="order"]');
-  await expect(page.locator("#term-log")).toContainText("BOUGHT", { timeout: 30_000 });
+  await press(page, '[data-act="order"]');
+  await expect(page.locator("#term-log")).toContainText("BOUGHT", { timeout: FRAMES });
   await page.keyboard.press("Escape");
-  await until(page, "the terminal closed", (s) => !s.terminal, 60_000);
+  await until(page, "the terminal closed", (s) => !s.terminal, 180_000);
   expect((await bc(page)).hangar_credits).toBeLessThan(2000);
+
+  // On along the square to the Charter Board's hall, and its desk: only the board's tab, with what
+  // only it does (posting a contract, taking a patrol, the charter). The 200 kg of steel the pilot
+  // came with go to the second foundry (a fresh server's is short of steel), for standing; a
+  // contract posted here is withdrawn again.
+  await push(page, { cmd: "walk_to", spot: "charter_board" });
+  await until(page, "the walk", (s) => s.city_walking_to, FRAMES);
+  await until(page, "at the Charter Board's desk", (s) => s.focus === "charter_board" && !s.city_walking_to, 420_000);
+  await expect(page.locator("#use")).toContainText("CHARTER BOARD", { timeout: FRAMES });
+  await push(page, { cmd: "use" });
+  await until(page, "the Charter Board", (s) => s.terminal === "charter", 180_000);
+  await expect(page.locator('[data-act="post"]')).toBeVisible({ timeout: FRAMES });
+  await expect(page.locator('[data-tab="fabricator"]')).toBeHidden();
+  await page.screenshot({ path: "artifacts/colony-charter-desk.png" });
+  await press(page, '[data-act="contribute"][data-work="second_foundry"][data-item="mat.steel"]');
+  await expect(page.locator("#term-log")).toContainText("A SECOND FOUNDRY: DELIVERED", { timeout: FRAMES });
+  await page.fill('[data-key="post:qty"]', "10");
+  await page.fill('[data-key="post:reward"]', "50");
+  await page.fill('[data-key="post:hours"]', "1");
+  await press(page, '[data-act="post"]');
+  await expect(page.locator("#term-log")).toContainText("POSTED", { timeout: FRAMES });
+  await press(page, '[data-act="withdraw"]');
+  await expect(page.locator("#term-log")).toContainText("WITHDRAWN", { timeout: FRAMES });
+  await page.keyboard.press("Escape");
+  await until(page, "the terminal closed", (s) => !s.terminal, 180_000);
+  // The desk found and standing earned: next, the rifle (from the stores, at the bay's console).
+  await until(page, "the next objective", (s) => s.objective === "ARM YOUR SUIT", FRAMES);
 
   // On to the nearest sight, the clock tower over Charter Square: found, on the found-list, and
   // the map lists it.
   expect((await bc(page)).sights_found).toBe(0);
   await push(page, { cmd: "walk_to", spot: "sight_1" });
-  await until(page, "the walk", (s) => s.city_walking_to, 30_000);
+  await until(page, "the walk", (s) => s.city_walking_to, FRAMES);
   await until(page, "the clock tower", (s) => s.sights_found === 1, 420_000);
-  await expect(page.locator("#toast")).toContainText("SIGHT FOUND", { timeout: 30_000 });
+  await expect.poll(() => toasts(page), { timeout: FRAMES }).toContain("SIGHT FOUND");
   s = await until(page, "there", (s) => !s.city_walking_to, 420_000);
   // The city's traffic and people round the square (logged till a run has seen them).
   console.log(`life by the clock tower: ${s.ambient_people} people, ${s.ambient_cars} cars, ${s.life_ms} ms`);
   await page.focus("#bc");
   await page.keyboard.press("m");
-  await expect(page.locator("#map-sights")).toContainText("SIGHTS FOUND 1/10", { timeout: 30_000 });
+  await expect(page.locator("#map-sights")).toContainText("SIGHTS FOUND 1/10", { timeout: FRAMES });
   await expect(page.locator("#map-sights")).toContainText("THE CLOCK TOWER");
   await page.screenshot({ path: "artifacts/colony-map-sights.png" });
   await page.keyboard.press("m");
-  await expect(page.locator("#map")).toBeHidden({ timeout: 30_000 });
+  await expect(page.locator("#map")).toBeHidden({ timeout: FRAMES });
 
   // The Arrival's seats: over to one, E to sit (the pilot's seen sitting), a step to stand.
   await push(page, { cmd: "walk_to", spot: "seat" });
-  await until(page, "the walk", (s) => s.city_walking_to, 30_000);
+  await until(page, "the walk", (s) => s.city_walking_to, FRAMES);
   await until(page, "by the seats", (s) => !s.city_walking_to, 420_000);
-  await expect(page.locator("#use")).toContainText("SIT", { timeout: 30_000 });
+  await expect(page.locator("#use")).toContainText("SIT", { timeout: FRAMES });
   await push(page, { cmd: "use" });
-  await until(page, "seated", (s) => s.seated >= 0, 30_000);
-  await expect(page.locator("#use")).toContainText("SEATED", { timeout: 30_000 });
+  await until(page, "seated", (s) => s.seated >= 0, FRAMES);
+  await expect(page.locator("#use")).toContainText("SEATED", { timeout: FRAMES });
   await page.screenshot({ path: "artifacts/colony-seated.png" });
   await page.focus("#bc");
   await page.keyboard.down("w");
-  await until(page, "standing", (s) => s.seated < 0, 30_000);
+  await until(page, "standing", (s) => s.seated < 0, FRAMES);
   await page.keyboard.up("w");
   expect((await mine(page, "Relena")).status.game.city.refused_by?.seat ?? 0).toBe(0);
+
+  // In to The Arrival's counter: the Most Wanted pinned up behind the bar, and the pilot's terms
+  // (with standing, its wreck can be theirs).
+  await push(page, { cmd: "walk_to", spot: "bar" });
+  await until(page, "the walk", (s) => s.city_walking_to, FRAMES);
+  await until(page, "at The Arrival's counter", (s) => s.focus === "bar" && !s.city_walking_to, 420_000);
+  await expect(page.locator("#use")).toContainText("THE ARRIVAL", { timeout: FRAMES });
+  await push(page, { cmd: "use" });
+  await until(page, "the Most Wanted", (s) => s.terminal === "wanted", 180_000);
+  await expect(page.locator("#term-body")).toContainText("MOST WANTED", { timeout: FRAMES });
+  await expect(page.locator("#term-body")).toContainText("PISCES");
+  await page.screenshot({ path: "artifacts/colony-arrival.png" });
+  await press(page, '[data-act="ace-terms"][data-salvage="1"]');
+  await expect(page.locator("#term-log")).toContainText("TERMS: AN ACE'S WRECK", { timeout: FRAMES });
+  await page.keyboard.press("Escape");
+  await until(page, "the terminal closed", (s) => !s.terminal, 180_000);
+  // The Exchange floor, the Charter Board's desk, standing and the Most Wanted read: each its
+  // objective's bit (8, 12, 13 and 15).
+  s = await until(page, "the desks' objectives", (s) => (s.objectives_done & 45312) === 45312, FRAMES);
+  expect(s.objectives_done & 45312).toBe(45312);
 
   // Back to Hub Gate, and up the lift to the bay.
   await push(page, { cmd: "walk_to", spot: "hub_gate_1" });
   s = await until(page, "at Hub Gate", (s) => s.focus === "hub_gate_1" && !s.city_walking_to, 420_000);
   console.log(`life at Hub Gate: ${s.ambient_people} people, ${s.ambient_cars} cars, ${s.life_ms} ms`);
-  await expect(page.locator("#use")).toContainText("UP TO YOUR BAY", { timeout: 30_000 });
+  await expect(page.locator("#use")).toContainText("UP TO YOUR BAY", { timeout: FRAMES });
   await push(page, { cmd: "use" });
-  s = await until(page, "home", (s) => s.place === "hangar", 30_000);
-  s = await until(page, "on foot in the bay", (s) => s.seq === "walking" && s.strip === -1, 30_000);
+  s = await until(page, "home", (s) => s.place === "hangar", FRAMES);
+  s = await until(page, "on foot in the bay", (s) => s.seq === "walking" && s.strip === -1, FRAMES);
   expect(s.bay).toBe("docked");
 
   // The server agrees, and its hot path never allocated.
@@ -266,6 +367,49 @@ test("a pilot takes a car from Hub Gate's motor pool and drives up the avenue", 
   expect(bad).toEqual([]);
 });
 
+test("a pilot chooses the Canal strip's cap lift at the airlock, and rides up again from its Hub Gate", async ({
+  page,
+}) => {
+  test.setTimeout(600_000);
+  const logs = collectConsole(page);
+  await page.goto("/?autoplay=1&name=Sally&quality=low");
+  await until(page, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 180_000);
+  await push(page, { cmd: "walk_to", spot: "airlock" });
+  await until(page, "at the airlock", (s) => s.focus === "airlock" && !s.walking_to, 120_000);
+  // E is the Charter strip's lift; Q chooses the next strip's, and the prompt names it.
+  await expect(page.locator("#use")).toContainText("CAP LIFT 1, DOWN TO THE CHARTER STRIP", { timeout: 30_000 });
+  await page.focus("#bc");
+  await page.keyboard.press("q");
+  await expect(page.locator("#use")).toContainText("CAP LIFT 2, DOWN TO THE CANAL STRIP", { timeout: 30_000 });
+  await push(page, { cmd: "use" });
+  await until(page, "the ride down", (s) => s.seq === "lift_down", 30_000);
+  await until(page, "the city", (s) => s.place === "city", 30_000);
+  await push(page, { cmd: "skip" });
+  let s = await until(page, "the Canal strip's Hub Gate", (s) => s.seq === "walking", 30_000);
+  expect(s.strip).toBe(1);
+  await until(page, "the Depots", (s) => s.district === "THE DEPOTS", 30_000);
+  const status = await (await page.request.get("/status")).json();
+  expect(status.game.city.by_strip[1]).toBeGreaterThanOrEqual(1);
+
+  // Up again from the Canal strip's own Hub Gate.
+  await push(page, { cmd: "walk_to", spot: "hub_gate_2" });
+  await until(page, "at Hub Gate", (s) => s.focus === "hub_gate_2" && !s.city_walking_to, 120_000);
+  await expect(page.locator("#use")).toContainText("UP TO YOUR BAY", { timeout: 30_000 });
+  await push(page, { cmd: "use" });
+  await until(page, "home", (s) => s.place === "hangar", 30_000);
+  s = await until(page, "on foot in the bay", (s) => s.seq === "walking" && s.strip === -1, 30_000);
+  // Back at the airlock, E is the Charter strip's lift again.
+  await push(page, { cmd: "walk_to", spot: "airlock" });
+  await until(page, "at the airlock", (s) => s.focus === "airlock" && !s.walking_to, 120_000);
+  await expect(page.locator("#use")).toContainText("CAP LIFT 1, DOWN TO THE CHARTER STRIP", { timeout: 30_000 });
+  const after = (await (await page.request.get("/status")).json()).game;
+  expect(after.city.refused_poses).toBe(0);
+  expect(after.hot_path_allocations).toBe(0);
+  const bad = logs.filter((l) => /\[error\]|\[pageerror\]|%cERROR|panicked/i.test(l));
+  if (bad.length) console.log(bad.join("\n"));
+  expect(bad).toEqual([]);
+});
+
 // Where `name` is in `s.people_at` ("name@x,s,h;…"): along, across, up.
 function seenAt(s: Record<string, any>, name: string): number[] | undefined {
   const hit = String(s.people_at ?? "")
@@ -312,22 +456,36 @@ test("two pilots meet at Hub Gate; one rides home, and a suit comes down by the 
   await both((p) => until(p, "the city", (s) => s.place === "city", 120_000));
   await both((p) => push(p, { cmd: "skip" }));
   await both((p) => until(p, "Hub Gate", (s) => s.seq === "walking" && s.strip === 0, 120_000));
-  // Heero steps over to the motor pool beside the door; Duo stays at it.
+  // Heero steps over to the motor pool beside the door; Duo stays at it. (Over there and stopped:
+  // a page drawing in software can walk the few seconds of it in one or two long frames, too soon
+  // for a look to catch the walk under way.)
+  const from = String((await bc(a)).city_feet).split(",").map(Number);
   await push(a, { cmd: "walk_to", spot: "pool" });
-  await until(a, "the walk", (s) => s.city_walking_to, 60_000);
-  await until(a, "at the pool", (s) => !s.city_walking_to, 240_000);
+  await until(
+    a,
+    "at the pool",
+    (s) => {
+      const [x, y] = String(s.city_feet).split(",").map(Number);
+      return !s.city_walking_to && Math.hypot(x - from[0], y - from[1]) > 10;
+    },
+    240_000,
+  );
 
   // Each sees the other, by name, where the other stands (within 2 m), and the server has both.
+  // (Seen a moment late, as everyone is: on a page drawing in software a walk's last frame, and the
+  // pose it sends, can be seconds and metres long, so the sight is waited on to catch up.)
   for (const [me, other, them] of [
     [a, b, "Duo"],
     [b, a, "Heero"],
   ] as const) {
-    const s = await until(me, `${them} in view`, (s) => seenAt(s, them) !== undefined, 120_000);
-    await me.waitForTimeout(1_000);
-    const seen = seenAt(await bc(me), them)!;
+    await until(me, `${them} in view`, (s) => seenAt(s, them) !== undefined, 120_000);
     const feet = String((await bc(other)).city_feet).split(",").map(Number);
-    console.log(`${them}: seen at ${seen}, stands at ${feet} (${s.people} in view)`);
-    expect(Math.hypot(seen[0] - feet[0], seen[1] - feet[1])).toBeLessThan(2);
+    const near = (s: Record<string, any>) => {
+      const seen = seenAt(s, them);
+      return seen !== undefined && Math.hypot(seen[0] - feet[0], seen[1] - feet[1]) < 2;
+    };
+    const s = await until(me, `${them} seen where they stand, ${feet}`, near, 60_000);
+    console.log(`${them}: seen at ${seenAt(s, them)}, stands at ${feet} (${s.people} in view)`);
   }
   let status = await (await a.request.get("/status")).json();
   expect(status.game.city.people).toBeGreaterThanOrEqual(3);

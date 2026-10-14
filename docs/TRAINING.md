@@ -18,6 +18,7 @@ drill (X-Wing's Maze, in the hall).
 | 5: live fire in the hall: the colony's law's one exception, the owner's call. Training rounds that touch no suit and score on its targets | built |
 | The drill: the hall's targets lit one at a time against a clock, X-Wing's Maze | built |
 | The test range: any build boarded at the gantry (the Board's Leo, the bay's build, any line's), Armored Core VI's test mode | built |
+| The certificate's reward: the Charter Board's beam rifle, once, paid out at its desk on Charter Square (the first ten minutes, step 6) | built |
 | 6: more courses (the hall's own among them), and a level ladder | planned |
 
 ## What we take from X-Wing and TIE Fighter
@@ -48,7 +49,9 @@ drill (X-Wing's Maze, in the hall).
   from the times the server checks (phase 4); a signed-in pilot's bests are on their record.
 - **Recommended, never required.** X-Wing's manual: Maze, then Historical Combat, then the Tours,
   "recommended, but not required." TIE Fighter kept green pilots out of battles that mattered. Ours
-  is pointed to by an objective, and gates nothing.
+  is pointed to by an objective (**EARN A FLIGHT CERTIFICATE**), and gates nothing: the Board
+  trusts a certified pilot with a beam rifle, the one the worn Leo came without, collected at its
+  desk on Charter Square. A pilot who never flies it can still buy or build one.
 - **A tutorial that talks to you while you fly.** TIE Fighter's Combat Chamber missions carried
   in-flight lessons from your wingmen and command. Ours is the HUD's panel: one plain line for the
   ring ahead (`STORY.md`: told through notices, never exposition dumps).
@@ -80,7 +83,16 @@ the square, which the hall will open onto.
    - Lift off, out through the blast doors over the square, up to the course's start ring by the
      inner gate, and round the course down to the pad by the hall.
    - Back in through the doors to dock on the gantry, then on foot again.
-6. **The certificate** and the board, and on into the chain: the bay, the launch tunnel and space.
+6. **The certificate** and the board (built). Any time on the board is a certificate, and the
+   first earns the Board's beam rifle (`bc_econ::charter::Board::certify`): `THE CHARTER BOARD HAS
+   YOUR FLIGHT CERTIFICATE · A BEAM RIFLE WAITS FOR YOU AT ITS DESK, ON CHARTER SQUARE`. The
+   objectives then walk the Arrival down the avenue: the Exchange floor, then the Charter Board's
+   desk in its hall, where the rifle is paid out on walking in and standing is earned with the
+   colony (on a fresh server, the 200 kg of steel they came with, to the second foundry while it's
+   short of steel; the board lists what each work and contract still needs). Then home to the bay
+   to fit the rifle at the suit's console, and on into the chain: the launch tunnel and space. A
+   pilot who walked past the Board's desk before flying is led back to it while the rifle waits
+   there.
 
 ## Phase 1: the course (built)
 
@@ -208,7 +220,9 @@ rings of light (`bc-client/src/course.rs`), bright for a trainer's pilot. Its ha
 on foot boards, is 14 m from the pad's middle toward the hall's (`hatch`).
 
 **Boarding.**
-- On foot at the hatch, facing the pad, the prompt says `E  BOARD A TRAINER`. E asks
+- On foot at the hatch, facing the pad, the prompt says `E  BOARD A TRAINER` and names what the
+  test range picked (below): `THE CHARTER BOARD'S LEO` till the pilot picks another, `YOUR LEO, AS
+  BUILT`, `A NEW GUNDAM HEAVYARMS` (`HangarState::trainer_name`). E asks
   `Request::BoardTrainer` (`board_trainer`). The screen goes dark as it does boarding in the bay.
 - The server checks the pilot stands at the hatch: the plaza's last pose of them, within 12 m.
 - It takes a slot in the inside's sector and seats them with `Control::Board`: the suit the pilot
@@ -227,12 +241,17 @@ on foot boards, is 14 m from the pad's middle toward the hall's (`hatch`).
 - Enter docks it there. The session puts the pilot back on foot at the hatch: the plaza takes their
   first pose there (`Plaza::enter_at`), rather than at Hub Gate. They're welcomed back to their
   bay's sector and watch the inside again. Nothing comes home: the Board keeps its suit.
-- A pilot who leaves while flying one loses nothing: it goes, and their bay is untouched.
+- A pilot who leaves while flying one loses nothing: it goes, and their bay is untouched. The
+  pause menu's button says DOCK & DISCONNECT, and the menu that the trainer goes back to its
+  gantry and they wake in their bay.
 
 **On the HUD:**
-- the waypoint and the dock marker point at the gantry (`GANTRY … ENTER: climb out`);
+- the waypoint and the dock marker point at the gantry (`GANTRY …`; coming in, within twice the
+  pad's radius, `AT REST ON ITS PAD: ENTER`; docked, `ENTER: climb out`). Away from it Enter opens
+  the radio (`bc_client_core::dock`);
 - `ON THE GANTRY  ENTER: climb out` while it's docked there;
-- the news `A TRAINER OF THE CHARTER BOARD'S · WEAPONS FREE IN THE HALL`.
+- the news `ABOARD A TRAINER · THE CHARTER BOARD'S LEO · WEAPONS FREE IN THE HALL · DOCK AT REST
+  ON ITS GANTRY`, naming the trainer as the hatch's prompt did.
 
 **Tests:**
 - `bc-sim/tests/interior.rs`: a trainer stands on the gantry till its pilot is heard from and docks
@@ -249,7 +268,9 @@ on foot boards, is 14 m from the pad's middle toward the hall's (`hatch`).
 - At the desk, under the board, `THE TEST RANGE` lists what the gantry can ready: the Board's Leo,
   `YOUR BAY'S BUILD`, and a new suit of each line the colony builds. Picking one sends
   `Request::Trainer { build }`; the session keeps it and says so (`THE GANTRY READIES A NEW
-  HEAVYARMS`), and the board's view carries it back (`trainer`), so the page shows which.
+  HEAVYARMS`), and the board's view carries it back (`trainer`), so the page shows which. It's
+  the desk's alone (`Request::desk`): asked from anywhere but the hall's room, the server refuses
+  it (`the test range is picked at the proving ground's desk, in the blast hall`).
 - The bay's build is the suit standing in the pilot's bay as built (its parts, weapons and
   equipment) but new and full: no wear, no faults, a full tank and full loads, nothing in its
   rack. Out on a sortie, or with an empty bay, there's nothing to try.
@@ -307,8 +328,10 @@ last the visit.
 - `bc-econ`'s units: the board's lists, ties, the ten kept, the day's turn, the records.
 - `training_net`: the sector's times are the pilot's, and it allocates nothing.
 - `bc-server/tests/proving.rs`: a drill cleared over the wire goes on the board, with the same
-  time; to the pilot, in `/status` and on their record; and the board and the record outlive a
-  restart.
+  time; to the pilot, in `/status` and on their record; it's a certificate, whose rifle is in the
+  Board's file at once and isn't issued again; and the board and the record outlive a restart.
+  `bc-server/tests/desks.rs`: a veteran's record certifies them on going down, and the rifle is
+  paid out at the Charter Board's desk.
 - The `colony` e2e opens the board at the desk.
 
 ## The drill (built)
@@ -424,9 +447,11 @@ are built: above.)
 - **Live fire** (phase 5).
 - **The real rules inside:** whether propellant should burn more slowly in air, or the course stay
   a lesson in it (`SUITS_INSIDE.md`'s open question about flight in air).
-- **Rewards:** whether a first-class certificate pays (the Charter Board's bonus) or only shows.
-  The server checks the times now (phase 4), so it could pay; today it only shows, on the board and
-  the pilot's record.
+- **Rewards** (closed): whether a first-class certificate pays (the Charter Board's bonus) or only
+  shows. Any certificate, of any class, earns the Board's beam rifle once (a signed-in record's
+  once, a guest's once a visit), collected at its desk; the colony's desk out of rifles, a rifle's
+  worth in credits, with no standing. The class only shows, on the board and the pilot's record:
+  no class bonus, and no class gates the test range's Gundams (`PEERS.md`).
 - **The board's reach:** the day's best, and the best ever. A week's, or a season's, and whether a
   guest belongs on it.
 - **Mandatory or not:** recommended, never required, as X-Wing's was.

@@ -73,8 +73,9 @@ mechs and nothing to do.
 - **Hanging out needs a way to talk.** A VRChat world is a room full of voices. Ours was silent,
   with no chat, emote, wave or seat anywhere. Since P0 there's the colony's radio (in the city,
   what's said shows over the speaker's head) and seats out in front of The Arrival, our bar;
-  still no emote or wave, and inside, the bar is `QUIET FOR NOW` (`onfoot.rs`). Pilots pass each
-  other in flight suits of their own colours; together they can talk and sit, and nothing more.
+  still no emote or wave, and inside, its counter has Zodiac's Most Wanted pinned up behind the
+  bar but no menu yet (`LIFE.md`, L1). Pilots pass each other in flight suits of their own colours;
+  together they can talk and sit, and nothing more.
 - **Physics as a toy.** Its players run the circle because they can. Our gravity falls with height
   (`bc_sim::colony::frame::gravity`: 1 g on the ground, less up a tower), and nobody is given a
   reason to feel it. A place near the axis, where a jump carries a long way, would be one.
@@ -93,8 +94,9 @@ flies ships, not suits.
 - **Time to fun.** Its players have waited minutes for a ship to be "delivered", and its instanced
   hangars and elevators have lost ships and dropped people through floors [P3]. Our boarding,
   venting and catapult take about 10 s, and Space skips them (`onfoot.rs`). But a survival pilot
-  then flies about 15 km from the launch gate to the Dolls, the fifth of their objectives. Measure
-  the time from the title screen to the first thing that happens, and keep it short.
+  then flies about 15 km from the launch gate to the Dolls, the fifth of their objectives in
+  space. Measure the time from the title screen to the first thing that happens, and keep it
+  short.
 - **Weapons-free zones are griefed without weapons.** Its armistice zones have been abused by
   holding cargo elevators, ramming landing pads and, until it was patched, "healing" players into a
   stupor and stripping them [P3]. Our shared spaces already refuse that: other pilots are ghosts to
@@ -103,7 +105,8 @@ flies ships, not suits.
   suit"), and its open question about thrusters near people should be answered the same way.
 - **Jobs from the city.** Its missions are taken in a city and flown in space, which is what brings
   players back to the city. Ours come from the Charter Board (P1 6), begun: its patrols are
-  taken at its desk in the city (or a bay terminal's tab) and flown in space.
+  taken at its desk in the city and flown in space, and what it pays for them waits at that desk
+  (with the colony closed, a bay terminal's tab does both).
 
 ## The Gundam Metaverse
 
@@ -111,10 +114,14 @@ Bandai Namco announced it in 2022: Gundam's fandom in virtual space colonies, on
 anime, music and Gunpla, joined by a hub. It opened in 2023 as the "Gunpla Colony" test: a shop
 for real Gunpla, and your own Gunpla scanned with a phone to see in 3D [P4].
 
-- **Every place needs a verb.** A colony that's a shop isn't a place to be. Ours has three places
-  and one of them works: the Exchange floor, whose terminal is the bays' Exchange. The Charter
-  Board's hall says `ARRIVALS REGISTER AT THE DESK · NOTICES BY THE DOOR` and nothing more, The
-  Arrival is quiet, and the building site is `Stage(0)` everywhere it's asked
+- **Every place needs a verb.** A colony that's a shop isn't a place to be. Each of ours now has
+  one thing only it does, and its door's prompt names it (`COLONY.md`, 2.6): Hub Gate the lift
+  home; the Exchange floor an order at your own price that waits on the book; the Charter Board's
+  desk posting contracts, taking patrols, the charter, and paying out what the Board holds for a
+  pilot (a flight certificate's beam rifle among it); The Arrival the Most Wanted and a pilot's
+  terms for an ace; the Proving Ground its board and the test range. The bay's terminals do the
+  routine work and point at the desks for the rest, and the objectives walk a new Arrival to each
+  in turn. Still a shop front: the building site is `Stage(0)` everywhere it's asked
   (`bc_sim::colony::city::Stage`), so nothing a pilot does can build it out.
 - **People want their own build.** Gunpla is a kit *you* built and painted, and scanning it in was
   the Metaverse's pitch. Every Colonies Leo in our sector is the same blue, white and red
@@ -153,7 +160,7 @@ tells you what's going on.
     | X-Wing's door | Ours |
     |---|---|
     | Proving Ground | the Blast Hall (`TRAINING.md`) |
-    | Tour of Duty | the Charter Board's contracts |
+    | Tour of Duty | the Charter Board's desk: its contracts, patrols and pay |
     | Tech Room | the maintenance console's stat sheet |
     | Registration | signing in with a wallet |
     | Film Room | nothing yet (below) |
@@ -172,7 +179,8 @@ tells you what's going on.
   - **What we take:** the Proving Ground (`TRAINING.md`), built: a ring course in the colony's air,
     timed, with a par and a certificate; the Blast Hall's drill, its targets lit one at a time
     against a clock that each one struck puts time back on (the Maze's added time); trainers
-    boarded in the hall; and the day's best on its wall, X-Wing's high-score table.
+    boarded in the hall; and the day's best on its wall, X-Wing's high-score table. A first
+    certificate earns the Charter Board's beam rifle, X-Wing's badge as something to fly with.
 - **It teaches the machine.**
   - The official guide's tips for the Maze are about energy [P9]:
     - to slow down, raise laser recharge rather than cut the throttle;
@@ -312,7 +320,7 @@ games", says how each is built.
 - **The Arena.** Simulated one-on-ones against 29 named AI pilots, ranked from F to S. Each first
   win pays chips, credits, an emblem and the opponent's own build [P18].
   - **Ours:** Zodiac's aces, the Consortium's named Doll pilots, on the Charter Board's Most
-    Wanted (`DESIGN.md`, "Aces: the Most Wanted").
+    Wanted, pinned up at The Arrival (`DESIGN.md`, "Aces: the Most Wanted").
 
 ### MechWarrior and BattleTech
 
@@ -320,7 +328,8 @@ games", says how each is built.
   against a share of the salvage and damage insurance. The points to spend come from reputation
   and standing with the employer [P19]. In BattleTech (2018): "Demand less salvage and less pay,
   and you'll earn more reputation" [P19].
-  - **Ours:** an ace's bounty is taken as pay or as salvage rights to its wreck.
+  - **Ours:** an ace's bounty is taken as pay or as salvage rights to its wreck, and the Board
+    signs a wreck over only to pilots of standing with the colony.
 - **A war map needs players to fill it.** MechWarrior Online's Faction Play made the Inner
   Sphere's planets something player units fought over (a beta in December 2014, open to all in
   December 2015).
@@ -456,15 +465,21 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
    space. What's built is one channel, the colony's radio, to everyone connected
    (`bc-server/src/radio.rs`, `bc-client/src/chat.rs`), on the control stream, off the hot path.
    T and Enter are throw and dock (`CONTROLS.md`, "Where we break convention" 3), so it opens on
-   `/` (and on Enter on foot, where Enter docks nothing).
+   `/`, and on Enter wherever Enter docks nothing: on foot, and in a suit away from where it docks
+   (`bc_client_core::dock`).
 3. **Objectives along the chain.** Every objective was in space
-   (`bc-client-core/src/objectives.rs`). The colony's are in now: ride the cap lift down, find the
-   Exchange floor, sell on the Exchange, and report to the Proving Ground. A new pilot should find
-   out the colony is there. Still open: a marker on the door in the city view itself (the map has
-   one).
+   (`bc-client-core/src/objectives.rs`). Now they lead somewhere: a new Arrival rides the cap lift
+   down, reports to the Proving Ground and earns a flight certificate, walks the avenue to the
+   Exchange floor and the Charter Board's desk, earns standing, goes home to arm the suit with the
+   Board's rifle, and only then flies out; later, the Most Wanted at The Arrival, an ace, a new
+   Gundam on the test range and gundanium. Flying, the HUD keeps to what's done in space; on foot,
+   to the chain's order (and back to the Charter Board's desk while it holds something for the
+   pilot), and each how-line starts with the way there. Still open: a marker on the door in the
+   city view itself (the map has one).
 4. **The Arrival does something.** Seats out front (`COLONY.md`, 2.6), sat on and seen sat on,
    and it's where chat is easiest to find: what's said on the radio shows over the heads of those
-   near you. Built; its own menu is next (`LIFE.md`, L1).
+   near you. Built; and at its counter, Zodiac's Most Wanted pinned up behind the bar, where a
+   pilot's terms for an ace are settled. Its own menu joins it there next (`LIFE.md`, L1).
 
 **P1: what makes the chain worth walking.**
 
@@ -476,7 +491,9 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
    haul this, clear that claim, escort a hauler home (`DESIGN.md`, roadmap, "Contracts"), with the
    reward held in escrow as the Exchange holds its orders' (`bc-econ`). Star Citizen's mission
    givers, as our Charter Board. Begun (`bc_econ::charter`): supply contracts, the militia's
-   patrols and the great works.
+   patrols and the great works; posted, taken and signed at its desk, where its own pay (patrols'
+   rewards, aces' bounties, a certificate's rifle) waits to be collected, and its patrol and ace
+   pay are lines on the sortie's debrief.
 7. **Liveries.** Body, trim and accent colours chosen at the suit's maintenance console, carried on
    the suit (`bc_econ::suit::Suit`) and drawn for everyone (`livery` takes only the frame and the
    faction today). Paint costs credits: a sink that sells itself.
@@ -486,12 +503,13 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
 9. **Agents as population.** Flaneurs that ride the trams and go into the places (today's walks 60
    m back and forth, `bc-bot/examples/flaneur.rs`), and the server's own tugs, haulers and miners
    in the lanes (`DESIGN.md`, roadmap, "Traffic").
-10. **Decide where PvP lives.** This is a decision that's open, not a recommendation. Every browser
-   pilot is on the Colonies' side (`bc-client/src/net.rs`) and friendly fire is off
-   (`bc_sim::config`), so people can't harm each other, and `DESIGN.md`'s hunted sleepers can only
-   be hunted by bots of another faction. Star Citizen has armistice zones and lawless space; EVE
-   grades its space by security. `STORY.md`'s "law and heat" is ours, and it needs a map of where
-   the law holds.
+10. **Decide where PvP lives.** This is a decision that's open, not a recommendation. Every human
+   pilot flies for the Colonies, whatever their client asks (the server decides: `bc-server`'s
+   `net::game::side`, and the Welcome says so), and friendly fire is off (`bc_sim::config`), so
+   people can't harm each other, and `DESIGN.md`'s hunted sleepers can only be hunted by agents of
+   another faction (an agent may fly for the Alliance; nobody but the Mobile Dolls flies for Oz).
+   Star Citizen has armistice zones and lawless space; EVE grades its space by security.
+   `STORY.md`'s "law and heat" is ours, and it needs a map of where the law holds.
 
 **P2: depth, once the above is in.**
 
@@ -514,11 +532,12 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
     on the way home. *Built.*
 19. **The enemy's gun** (Daemon X Machina): a weapon on a limb in hand fires from that hand.
     *Built.*
-20. **A test range** (Armored Core VI): the Blast Hall's trainers fly any buildable suit.
-    *Built.*
+20. **A test range** (Armored Core VI): the Blast Hall's trainers fly any buildable suit, picked
+    at its desk. *Built.*
 21. **Aces, pay or salvage** (Armored Core VI's Arena, MechWarrior 5's contracts): named Doll
     aces with bounties, taken as pay or as rights to the wreck. *Built*: Zodiac's nine, one out
-    at a time, on the Charter Board's Most Wanted with a ladder.
+    at a time, on the Charter Board's Most Wanted (at The Arrival) with a ladder; salvage
+    terms need standing, and a bounty waits at the Board's desk.
 22. **Staying up** (Titanfall's DDoS years): a review of the server's limits under abuse, and
     what it lacked: a Retry under load, a share per address, a ceiling, handshake deadlines and a
     limit on hangar requests (`ARCHITECTURE.md`, "Under abuse"). *Built.*
