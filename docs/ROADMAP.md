@@ -95,6 +95,14 @@ Later:
 - **Flying out of the colony through the axis port** into space (`SUITS_INSIDE.md`'s handoff).
 - **Solid end structures** (COLONY.md 1.3; a protocol bump of its own).
 - **Trams and cars that people can't walk through** (COLONY.md phases 4 and 5's known gaps).
+- **A server gate on the bay's own work asked from a city desk** (fitting, crafting, repairs):
+  today only the page keeps a desk's terminal to its one tab.
+- **A line counting toward gundanium** on the objective (the titanium alloy and exotics for a
+  foundry batch): two counts, where the panel shows one.
+- **A first-class certificate that pays**, if the owner wants a class to earn more than the
+  Board's rifle; today it only shows (`TRAINING.md`, "Rewards").
+- **A broker's fee on trades made away from the Exchange floor** (from a bay's terminal), so the
+  walk to the floor pays for itself.
 
 ## P0: before more players arrive
 
@@ -125,8 +133,9 @@ stay; `DESIGN.md`, "Objectives and the chart"). Nineteen, in survival's order af
 flight certificate, a straight walk down the avenue to the Exchange floor and the Charter Board's
 desk, standing with the colony, home to arm the suit, then out (MO-II, the Aft Well, ore home and
 sold, the Dolls, Hermit, five Dolls), and on to the Most Wanted at The Arrival, one of Zodiac's
-aces, a new Gundam on the test range and gundanium. Those in the city need the colony open (the
-Welcome's COLONY flag), the rest of the new ones survival, and arcade has none of the last eight.
+aces, a new Gundam on the test range and gundanium. The colony's (the cap lift, the city's, selling
+on the Exchange) need the colony open (the Welcome's COLONY flag), standing, arming, the aces and
+gundanium survival, and arcade has none of the last eight.
 Each has a realm (space, the bay, the city, or any terminal on foot): flying, the HUD shows the
 first space one not done, so a pilot who launches first is never pulled home; on foot, the first
 in order, passing over a space one flown past, and back to the Charter Board's desk while the
@@ -223,12 +232,15 @@ its hall on Charter Square (its door opens `Panel::Board`). Built:
   (a delivery to the second foundry, a contract posted and withdrawn) and the Most Wanted at The
   Arrival.
 
-Still to come: more jobs flown in space (bring a wreck home, escort a hauler, clear a claim); the
-building site that the works build out, whose `Stage` (`bc_sim::colony::city::Stage`) is still
-`Stage(0)` everywhere, and which becomes world state the Welcome carries and every client draws
-from (today the works change the world only through their effects: the foundry's fee, the
-patrols); and the Board's own standing patrol (left out: a new faucet, and it would undercut the
-militia's hangar).
+Still to come: more jobs flown in space (bring a wreck home, escort a hauler, clear a claim), with
+their briefings on the chart; the building site that the works build out, whose `Stage`
+(`bc_sim::colony::city::Stage`) is still `Stage(0)` everywhere, and which becomes world state the
+Welcome carries and every client draws from (today the works change the world only through their
+effects: the foundry's fee, the patrols); and the Board's own standing patrol (one, paying 500 CR
+on 500 of bounties, issued by THE CHARTER BOARD), so that patrols, the desk's TAKE and the
+debrief's `PATROL` line work before the militia's hangar is built (patrols come only with it
+today, so a fresh server has none). It's a new faucet and undercuts the hangar's point: the
+owner's call.
 
 **Liveries.** Body, trim, accent and eye colours chosen at the suit's maintenance console from a
 palette, carried on the suit (`bc_econ::suit::Suit.paint`), paid for in credits (a sink), and drawn
@@ -343,6 +355,9 @@ fight").
 - `Hangar::came_home_debriefed` and `lost_debriefed`, from the suit as it went out (`Bay::Out`) and
   as it came home; the session sends the sheet with the sortie (`Update::Sortie`'s `debrief`, an
   optional field: no new version).
+- The Charter Board's pay for the sortie (`Hangar::board_paid`, kept in the record's `sortie_pay`
+  till the sheet is made, cleared by the next launch): `PATROL #3` and `ACE ARIES`, with ` · AT THE
+  BOARD` when it waits at its desk, put among the earnings before the costs (`Debrief::paid`).
 - The client: under the news for 12 s (`#debrief`), and line by line in the terminals' log;
   `HangarState::last_debrief` for agents.
 - Tests: the debrief's and the hangar's units, and `bc-server/tests/hangar.rs` (docked, the stim the
@@ -369,7 +384,8 @@ fight").
 - `bc_econ::proving::Trainer` (the Board's Leo, the bay's build new and full, a new suit of any
   line) and `Request::Trainer`; the session keeps the pick, the board's view carries it, and
   boarding sends its frame and loadout in `Control::Board`.
-- The page: `THE TEST RANGE` at the Blast Hall's desk. `bc-bot`: `board_trainer_as`.
+- The page: `THE TEST RANGE` at the Blast Hall's desk, and only there (`Request::desk`: the server
+  refuses a pick from anywhere but the hall's room). `bc-bot`: `board_trainer_as`.
 - Tests: `proving`'s units, `training_net.rs`, and `bc-server/tests/proving.rs` (a Heavyarms).
 
 **21. Aces, pay or salvage.** *Built* (`DESIGN.md`, "Aces: the Most Wanted").
@@ -382,8 +398,10 @@ fight").
   `Control::Claim` sends the tugs for it (`TOW_TICKS` on, a claim like an ejected pilot's own),
   and `Report::Towed` says it was the ace's.
 - `bc_econ::charter`: the Most Wanted (who downed each last), the ladder, each pilot's terms
-  (`Request::AceTerms`); `Board::ace_downed`, and `pay_ace` (the colony's money: `colony_paid`
-  and standing). `Hangar::towed_ace` takes the wreck in as salvage.
+  (`Request::AceTerms`, settled at The Arrival's counter with the colony open; salvage terms only
+  for pilots of standing); `Board::ace_downed`, and `pay_ace` (the colony's money: `colony_paid`
+  and standing; into the hangar, or, the colony open, waiting at the Board's desk).
+  `Hangar::towed_ace` takes the wreck in as salvage.
 - `bc-server`: the notes task's `AceWatch` puts the ace on the roster by its name and announces
   it; the session pays, or claims the wreck (unless the tugs are out for the pilot's own), and
   marks which one flies in the board's view. `--ace-every`.
@@ -394,7 +412,8 @@ fight").
   session hears with the wreck, and the claim's tugs bring it home as the ace's; downed by nobody
   here, nobody hears), `no_alloc_sector` (aces downed and claimed), the board's and the hangar's
   units, the wire's JSON, and `bc-server/tests/aces.rs` (on the roster by name, out on the Most
-  Wanted, the news, the terms, over real WebTransport).
+  Wanted, the news, the terms, salvage refused until the pilot has standing, over real
+  WebTransport).
 
 **22. Staying up.** *Built* (`ARCHITECTURE.md`, "Under abuse").
 - The review found inputs, poses and the radio limited, sign-ins waiting on a wallet capped, and

@@ -94,8 +94,9 @@ flies ships, not suits.
 - **Time to fun.** Its players have waited minutes for a ship to be "delivered", and its instanced
   hangars and elevators have lost ships and dropped people through floors [P3]. Our boarding,
   venting and catapult take about 10 s, and Space skips them (`onfoot.rs`). But a survival pilot
-  then flies about 15 km from the launch gate to the Dolls, the fifth of their objectives. Measure
-  the time from the title screen to the first thing that happens, and keep it short.
+  then flies about 15 km from the launch gate to the Dolls, the fifth of their objectives in
+  space. Measure the time from the title screen to the first thing that happens, and keep it
+  short.
 - **Weapons-free zones are griefed without weapons.** Its armistice zones have been abused by
   holding cargo elevators, ramming landing pads and, until it was patched, "healing" players into a
   stupor and stripping them [P3]. Our shared spaces already refuse that: other pilots are ghosts to
@@ -159,7 +160,7 @@ tells you what's going on.
     | X-Wing's door | Ours |
     |---|---|
     | Proving Ground | the Blast Hall (`TRAINING.md`) |
-    | Tour of Duty | the Charter Board's contracts |
+    | Tour of Duty | the Charter Board's desk: its contracts, patrols and pay |
     | Tech Room | the maintenance console's stat sheet |
     | Registration | signing in with a wallet |
     | Film Room | nothing yet (below) |
@@ -178,7 +179,8 @@ tells you what's going on.
   - **What we take:** the Proving Ground (`TRAINING.md`), built: a ring course in the colony's air,
     timed, with a par and a certificate; the Blast Hall's drill, its targets lit one at a time
     against a clock that each one struck puts time back on (the Maze's added time); trainers
-    boarded in the hall; and the day's best on its wall, X-Wing's high-score table.
+    boarded in the hall; and the day's best on its wall, X-Wing's high-score table. A first
+    certificate earns the Charter Board's beam rifle, X-Wing's badge as something to fly with.
 - **It teaches the machine.**
   - The official guide's tips for the Maze are about energy [P9]:
     - to slow down, raise laser recharge rather than cut the throttle;
@@ -326,7 +328,8 @@ games", says how each is built.
   against a share of the salvage and damage insurance. The points to spend come from reputation
   and standing with the employer [P19]. In BattleTech (2018): "Demand less salvage and less pay,
   and you'll earn more reputation" [P19].
-  - **Ours:** an ace's bounty is taken as pay or as salvage rights to its wreck.
+  - **Ours:** an ace's bounty is taken as pay or as salvage rights to its wreck, and the Board
+    signs a wreck over only to pilots of standing with the colony.
 - **A war map needs players to fill it.** MechWarrior Online's Faction Play made the Inner
   Sphere's planets something player units fought over (a beta in December 2014, open to all in
   December 2015).
@@ -470,8 +473,9 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
    Exchange floor and the Charter Board's desk, earns standing, goes home to arm the suit with the
    Board's rifle, and only then flies out; later, the Most Wanted at The Arrival, an ace, a new
    Gundam on the test range and gundanium. Flying, the HUD keeps to what's done in space; on foot,
-   to the chain's order, and each how-line starts with the way there. Still open: a marker on the
-   door in the city view itself (the map has one).
+   to the chain's order (and back to the Charter Board's desk while it holds something for the
+   pilot), and each how-line starts with the way there. Still open: a marker on the door in the
+   city view itself (the map has one).
 4. **The Arrival does something.** Seats out front (`COLONY.md`, 2.6), sat on and seen sat on,
    and it's where chat is easiest to find: what's said on the radio shows over the heads of those
    near you. Built; and at its counter, Zodiac's Most Wanted pinned up behind the bar, where a
@@ -528,8 +532,8 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
     on the way home. *Built.*
 19. **The enemy's gun** (Daemon X Machina): a weapon on a limb in hand fires from that hand.
     *Built.*
-20. **A test range** (Armored Core VI): the Blast Hall's trainers fly any buildable suit.
-    *Built.*
+20. **A test range** (Armored Core VI): the Blast Hall's trainers fly any buildable suit, picked
+    at its desk. *Built.*
 21. **Aces, pay or salvage** (Armored Core VI's Arena, MechWarrior 5's contracts): named Doll
     aces with bounties, taken as pay or as rights to the wreck. *Built*: Zodiac's nine, one out
     at a time, on the Charter Board's Most Wanted (at The Arrival) with a ladder; salvage

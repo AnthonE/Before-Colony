@@ -26,7 +26,12 @@ A Gundam Wing mobile-suit MMO prototype.
   ring, and come home through the docking hub (at rest in the dock's ring of lights, or landed on
   the hub's end face and walked in at its deck hatch); a suit destroyed out there is gone. Your
   bay's airlock leads down the cap lifts (one to each of its three strips) into the colony's
-  city, where you walk, ride its trams and drive its cars, and the Proving Ground trains you.
+  city, where you walk, ride its trams and drive its cars, and the Proving Ground trains you. Its
+  desks each do one thing only they do: an order that waits on the book at the Exchange floor,
+  contracts, patrols, the charter and the Charter Board's pay at its desk (a flight certificate
+  earns your worn Leo its missing beam rifle there), Zodiac's Most Wanted at The Arrival, and the
+  test range at the Proving Ground. The objectives walk a new Arrival from desk to desk, home to
+  arm, and out.
 
 - **Server:** Rust. One allocation-free, lock-free simulation thread per sector at 30 Hz.
 - **Client:** Bevy 0.19 compiled to WebAssembly, in the browser (WebGL2 or WebGPU).
@@ -34,8 +39,9 @@ A Gundam Wing mobile-suit MMO prototype.
 
 **Status:** Milestone 5, the First Colony's inside (`docs/COLONY.md`), most of it built: its city
 at full scale, shared with other pilots, walked, ridden by tram, driven, and flown by suits; and
-the Proving Ground's course, Blast Hall and drill (`docs/TRAINING.md`). Alongside it
-(`docs/ROADMAP.md`): the lock-on, the Charter Board's contracts and great works, a floor under
+the Proving Ground's course, Blast Hall and drill (`docs/TRAINING.md`); and its desks, each with
+its one thing, the objectives leading from one to the next. Alongside it (`docs/ROADMAP.md`): the
+lock-on, the Charter Board's contracts and great works (and its pay at its desk), a floor under
 loss, the colony's radio, bigger tanks, propellant grades and the ion drive, what the mech
 games teach (doom and ejecting, stagger, a debrief, a test range, aces…), and what Mecha Royale
 teaches (guns that shoot missiles down, the HUD saying why a weapon won't fire, a death report, a
@@ -82,7 +88,10 @@ the deck hatch and press Enter. Enter docks only where the HUD's marker says ENT
 it opens the radio. On foot, E at the airlock rides the cap lift down to the Charter strip's Hub
 Gate (Q there first chooses the Canal or the Gardens strip's lift instead): M opens the city's map
 (M or Esc closes it), the trams stop at the platforms, E at a motor pool takes a car, and E at
-Hub Gate's lift brings you back up. The colony is open by default; `BC_COLONY=0 scripts/dev.sh`
+Hub Gate's lift brings you back up. E at a desk's counter opens its terminal, with the one tab
+that desk keeps: the Exchange floor's exchange, the Charter Board's (what it holds for you is paid
+out as you walk into its hall), The Arrival's Most Wanted, the Proving Ground's board and test
+range; the bay's terminals point at them. The colony is open by default; `BC_COLONY=0 scripts/dev.sh`
 (the server's `--no-colony`) closes it. Esc opens the menu and F1 (or ?) lists the controls.
 `?autoplay=1` skips the title screen. Add `?autopilot=1` to watch the kit-aware Mobile Doll brain fly your suit
 with the ZERO System engaged (it walks to the cockpit and launches first), and, under arcade rules,
@@ -142,7 +151,8 @@ you wake in your bay.
 
 Server flags: `--rules survival|arcade` (default survival), `--no-colony` (close the colony: no cap
 lifts down into its city, no suits inside it; open by default under survival rules), `--data-dir DIR` (keep pilot records,
-their hangars, and the exchange in files there; otherwise they last one run), `--craft-speed X`
+their hangars, the exchange, the Charter Board and the Proving Ground's board in files there;
+otherwise they last one run), `--craft-speed X`
 (the fabricator works X times faster, for testing), `--mobile-dolls N`, `--max-clients N`,
 `--oracle local|jev`, `--mode echo`, `--siwe-domain HOST` (the host pages are served from, which
 wallets sign in to; defaults to `--http`), `--require-auth` (no human guests), `--flight anime|real`

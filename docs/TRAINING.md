@@ -18,6 +18,7 @@ drill (X-Wing's Maze, in the hall).
 | 5: live fire in the hall: the colony's law's one exception, the owner's call. Training rounds that touch no suit and score on its targets | built |
 | The drill: the hall's targets lit one at a time against a clock, X-Wing's Maze | built |
 | The test range: any build boarded at the gantry (the Board's Leo, the bay's build, any line's), Armored Core VI's test mode | built |
+| The certificate's reward: the Charter Board's beam rifle, once, paid out at its desk on Charter Square (the first ten minutes, step 6) | built |
 | 6: more courses (the hall's own among them), and a level ladder | planned |
 
 ## What we take from X-Wing and TIE Fighter
@@ -267,7 +268,9 @@ on foot boards, is 14 m from the pad's middle toward the hall's (`hatch`).
 - At the desk, under the board, `THE TEST RANGE` lists what the gantry can ready: the Board's Leo,
   `YOUR BAY'S BUILD`, and a new suit of each line the colony builds. Picking one sends
   `Request::Trainer { build }`; the session keeps it and says so (`THE GANTRY READIES A NEW
-  HEAVYARMS`), and the board's view carries it back (`trainer`), so the page shows which.
+  HEAVYARMS`), and the board's view carries it back (`trainer`), so the page shows which. It's
+  the desk's alone (`Request::desk`): asked from anywhere but the hall's room, the server refuses
+  it (`the test range is picked at the proving ground's desk, in the blast hall`).
 - The bay's build is the suit standing in the pilot's bay as built (its parts, weapons and
   equipment) but new and full: no wear, no faults, a full tank and full loads, nothing in its
   rack. Out on a sortie, or with an empty bay, there's nothing to try.
@@ -325,8 +328,10 @@ last the visit.
 - `bc-econ`'s units: the board's lists, ties, the ten kept, the day's turn, the records.
 - `training_net`: the sector's times are the pilot's, and it allocates nothing.
 - `bc-server/tests/proving.rs`: a drill cleared over the wire goes on the board, with the same
-  time; to the pilot, in `/status` and on their record; and the board and the record outlive a
-  restart.
+  time; to the pilot, in `/status` and on their record; it's a certificate, whose rifle is in the
+  Board's file at once and isn't issued again; and the board and the record outlive a restart.
+  `bc-server/tests/desks.rs`: a veteran's record certifies them on going down, and the rifle is
+  paid out at the Charter Board's desk.
 - The `colony` e2e opens the board at the desk.
 
 ## The drill (built)

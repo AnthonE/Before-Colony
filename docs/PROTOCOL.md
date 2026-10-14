@@ -524,8 +524,10 @@ pilot's own `mine_aces` and their terms, `salvage_terms`; and `waiting` {`credit
 [[item, qty]]}, what the Board holds for the pilot at its desk (a certificate's beam rifle,
 patrols' rewards, aces' bounties: `"waiting":{"credits":1500,"goods":[["weapon.beam_rifle",1]]}`),
 paid out when they stand in its hall, absent when nothing waits; watched or not, a `charter` is
-sent as something comes to wait there (a certificate, a patrol flown, an ace downed), as it's
-handed over, and on joining while something does); `said` {`from`, `text`} (a line
+also sent after a certificate, after a sortie that counted toward the pilot's patrol (its `note`s
+come once the sortie is settled and the record kept, before the `sortie`), after an ace the pilot
+downed (paid or claimed), as what waits at the desk is handed over, and, the colony open, on
+joining while something waits there); `said` {`from`, `text`} (a line
 on the colony's radio, the speaker's own included,
 from the moment the pilot was welcomed, in the order the server heard them); `proving` (the
 Proving Ground's board, in the colony: `course` and `drill`, the day's best as [{`name`, `ms`,
@@ -541,11 +543,12 @@ Zodiac's aces out or downed) come to every pilot as `news`, wherever they are.
 Zodiac's aces (`DESIGN.md`, "Aces: the Most Wanted"): the ace out among the Dolls is on the
 roster (`Roster`, pilot kind 2, a Mobile Doll) by its callsign while its suit is in the sector,
 downed too until its slot is let go; then the roster forgets it. The pilot who downs one hears
-`news` at once: the Charter Board's pay (and a `hangar`; the colony open, the pay waits at the
-Board's desk instead: `ARIES DOWNED · ITS 1,500 CR BOUNTY WAITS FOR YOU AT THE CHARTER BOARD'S
-DESK`), or under salvage terms that the tugs are going out for its wreck, and 45 s on the `news`
+`news` at once: the Charter Board's pay or, the colony open, that it waits at the Board's desk
+(`ARIES DOWNED · ITS 1,500 CR BOUNTY WAITS FOR YOU AT THE CHARTER BOARD'S DESK`), with a `hangar`
+either way; or under salvage terms that the tugs are going out for its wreck, and 45 s on the `news`
 of what they brought home (as for a pilot's own wreck after ejecting; already out for that, the
-bounty is paid instead). Either way a `charter` follows (`mine_aces`, `waiting`).
+bounty is paid instead). Paid or claimed, a `charter` (`mine_aces`, `waiting`) comes just before
+that first `news`.
 
 A launch puts the suit in the sector in its pilot's bay (the pilot's slot and the Welcome stay the
 same; snapshots start), riding the bay's catapult cradle in its door (footing 1 on body kind 3, the

@@ -241,8 +241,9 @@ Each is PR-sized and tested end to end, as `ROADMAP.md`'s items are.
   pose inside its room), paid in credits to the staff (a sink); `Update::Body` with the condition
   and the food left. The on-foot HUD shows the condition. The Arrival's door already opens the Most
   Wanted (`Panel::Arrival`, the terminals' `wanted` tab); the menu joins it at `Panel::Arrival` as
-  a second tab, `menu` (ui.js's desk map gives The Arrival both). Tests: `bc-server/tests/life.rs`
-  (a pilot eats, logs out, wakes peckish), and a step in the `colony` e2e.
+  a second tab, `menu` (ui.js's `DESK_TABS` gives The Arrival `wanted` alone today, and `menu`
+  then). Tests: `bc-server/tests/life.rs` (a pilot eats, logs out, wakes peckish), and a step in
+  the `colony` e2e.
 - **L2: being fed in flight.** The condition in the own snapshot, `fed_g` in `own_tuning` and the
   sector's tuning, the HUD's line in the cockpit. A protocol bump; the predictor's tests.
 - **L3: the cook's seat.** `Seats` kept by the server (one per colony, in its data directory, as the
