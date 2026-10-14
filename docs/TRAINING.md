@@ -265,10 +265,11 @@ on foot boards, is 14 m from the pad's middle toward the hall's (`hatch`).
 - The `inside` e2e: boards at the hatch, fires the drill, and docks back.
 
 **The test range** (`bc_econ::proving::Trainer`; Armored Core VI's test mode, `PEERS.md`):
-- At the desk, under the board, `THE TEST RANGE` lists what the gantry can ready: the Board's Argo,
-  `YOUR BAY'S BUILD`, and a new suit of each line the colony builds. Picking one sends
-  `Request::Trainer { build }`; the session keeps it and says so (`THE GANTRY READIES A NEW
-  ANTARES`), and the board's view carries it back (`trainer`), so the page shows which. It's
+- At the desk, its first step, `PICK A SUIT · THE TEST RANGE`, lists what the gantry can ready:
+  the Board's Argo, `YOUR BAY'S BUILD`, and a new suit of each line the colony builds. Picking one
+  sends `Request::Trainer { build }`; the session keeps it and says so (`THE GANTRY READIES A NEW
+  ANTARES`), and the board's view carries it back (`trainer`), so the page ticks it and names it
+  over the steps (`READY ON THE GANTRY: A NEW ANTARES`). It's
   the desk's alone (`Request::desk`): asked from anywhere but the hall's room, the server refuses
   it (`the test range is picked at the proving ground's desk, in the blast hall`).
 - The bay's build is the suit standing in the pilot's bay as built (its parts, weapons and
@@ -320,8 +321,15 @@ last the visit.
   the course drawn in light. It holds the day's best, eight a column, and the best ever. The UI
   lays it out into a texture of its own, drawn by a camera of its own for a few frames each time
   the board changes, as the cockpit's monitors are.
-- **At the desk:** E opens the terminals' panel on its PROVING GROUND tab, with the day's lists, the
-  records, the pars, the pilot's own bests, and how to board a trainer.
+- **At the desk:** E opens the terminals' panel on its PROVING GROUND tab. It reads as four steps,
+  under a line naming the suit the gantry has ready:
+  1. **PICK A SUIT · THE TEST RANGE** (below);
+  2. **BOARD IT**: where the gantry is (the amber ring left of the blast doors, coming in), and
+     `WALK ME TO THE GANTRY`, which closes the desk and walks the pilot to the hatch, facing the pad
+     (the page's `walk_to` `gantry`; a move key takes their feet back);
+  3. **FLY A TEST**: the drill and the course side by side, each with how it starts, the par and
+     its classes, the pilot's own best, the day's list and the record;
+  4. **BRING IT BACK**: docking on the gantry, and bringing one's own suit in instead.
 - The client keeps its own bests with its settings too (`course_best_ms`, `drill_best_ms`).
 
 **Tests:**

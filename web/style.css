@@ -437,6 +437,23 @@ button:disabled { opacity: 0.4; cursor: default; }
 .term-body .stats .statgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 4px 14px; font-size: 12px; }
 .term-body .status { padding: 8px 10px; border-left: 3px solid var(--cyan); background: color-mix(in srgb, var(--cyan) 6%, transparent); margin-bottom: 12px; font-size: 12px; line-height: 1.5; }
 .term-body .status.warn { border-color: var(--amber); }
+/* A desk read as steps (the Proving Ground's): a number, a heading, a plain line to act on. */
+.term-body .steps { display: flex; flex-direction: column; gap: 14px; }
+.term-body .step { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 12px; margin-bottom: 0; }
+.term-body .step-n {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--cyan);
+  color: var(--cyan);
+  font-family: var(--label-font);
+  font-weight: 600;
+  font-size: 12px;
+}
+.term-body .say { font-size: 12px; line-height: 1.5; opacity: 0.85; margin-bottom: 4px; }
+.term-body .step .filters { margin: 8px 0 0; }
 .term-body .status.bad { border-color: var(--red); }
 .term-body .form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; font-size: 12px; }
 .term-body .form label { display: flex; gap: 6px; align-items: center; }

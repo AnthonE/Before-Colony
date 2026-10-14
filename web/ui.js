@@ -1144,7 +1144,7 @@
   };
   const certificate = (ms, par) => (ms <= par ? "FIRST CLASS" : ms <= par * 1.5 ? "SECOND CLASS" : "THIRD CLASS");
   function boardColumn(title, how, rows, record, par, mine, none) {
-    let out = `<h3>${title}</h3><div class="note">${how} Par is ${clock(par)}.</div>`;
+    let out = `<h3>${title}</h3><div class="say">${how}</div><div class="note">Par is ${clock(par)}: first class within it, second within half as long again, third any time.</div>`;
     out += `<div class="note">Your best: ${mine ? `<b>${clock(mine)}</b> ${certificate(mine, par)}` : none}</div>`;
     if (!rows.length) out += `<div class="note">Nobody yet today.</div>`;
     else {
@@ -1155,25 +1155,44 @@
     if (record) out += `<div class="note">The best ever: <b>${clock(record.ms)}</b> ${esc(record.name)}${record.you ? " (you)" : ""}</div>`;
     return out;
   }
+  // The desk reads as the four things to do, in order: pick a suit (the test range), board it at
+  // the gantry (or be walked there), fly the drill or the course in it, and dock it back.
   function renderProving() {
     const p = hangar?.proving;
     if (!p) return `<div class="note">The Proving Ground's board hangs in the Blast Hall, off Hub Gate's square, and is kept at its desk: ride the cap lift down to see it.</div>`;
-    const course = boardColumn("THE COURSE", "Thirteen rings from by the inner gate down to Hub Gate's square, and land on its pad.",
-      p.course, p.course_record, p.course_par_ms, p.mine?.course_ms, "not yet flown.");
-    const drill = boardColumn("THE DRILL", "In the Blast Hall: twenty targets lit in turn against the clock, each struck putting time back on it.",
+    // The test range is the desk's alone (the server refuses it anywhere else).
+    const atDesk = desk === "proving";
+    const drill = boardColumn("THE DRILL · HERE IN THE HALL",
+      "On the gantry your suit faces the targets. Strike the one pulsing cyan (fire: LMB) and the clock starts with 12 s on it; each lit target struck puts 3 s back. Twenty to clear.",
       p.drill, p.drill_record, p.drill_par_ms, p.mine?.drill_ms, "not yet cleared.");
+    const course = boardColumn("THE COURSE · OUT IN THE COLONY",
+      "Fly out through the blast doors and up to the start ring by the inner gate (◆ on your HUD). Thirteen rings in order, then land on the pad on Hub Gate's square with the grip (L).",
+      p.course, p.course_record, p.course_par_ms, p.mine?.course_ms, "not yet flown.");
     // The test range: what the gantry readies (the Board's Argo, the bay's build, any line's).
     const chosen = p.trainer || { kind: "board" };
+    const lineName = (slug) => String(frames.find((f) => f.slug === slug)?.name || slug).toUpperCase();
+    const ready = chosen.kind === "bay" ? "YOUR BAY'S BUILD" : chosen.kind === "line" ? `A NEW ${lineName(chosen.line)}` : "THE CHARTER BOARD'S ARGO";
     const pick = (build, label) => {
-      const on = JSON.stringify(build) === JSON.stringify(chosen);
-      return `<button class="${on ? "primary" : ""}" data-act="trainer" data-build='${esc(JSON.stringify(build))}'>${esc(label)}</button>`;
+      const on = build.kind === chosen.kind && (build.kind !== "line" || build.line === chosen.line);
+      return `<button type="button" class="${on ? "active" : ""}" data-act="trainer" data-build='${esc(JSON.stringify(build))}'>${on ? "✓ " : ""}${esc(label)}</button>`;
     };
     const trainers = [pick({ kind: "board" }, "THE BOARD'S ARGO"), pick({ kind: "bay" }, "YOUR BAY'S BUILD")]
       .concat(frames.map((f) => pick({ kind: "line", line: f.slug }, `A NEW ${String(f.name).toUpperCase()}`)))
-      .join(" ");
-    const range = `<h3>THE TEST RANGE</h3><div class="note">Try a build before it counts: the gantry readies what you pick, new and full, and nothing of yours is taken.</div><div class="row">${trainers}</div>`;
-    const how = `<div class="note">Board it at the gantry's hatch, by the blast doors (E), weapons free in the hall. Dock it back at rest on the gantry. From your bay, Q at the cockpit brings your own suit in by the inner gate.</div>`;
-    return `<div class="split even"><div>${course}</div><div>${drill}</div></div>${range}${how}`;
+      .join("");
+    const step = (n, title, body) =>
+      `<section class="step"><div class="step-n">${n}</div><div><h3>${title}</h3>${body}</div></section>`;
+    const head = `<div class="status">READY ON THE GANTRY: <b>${esc(ready)}</b><br>` +
+      `Clear the drill or fly the course in it: any time the Board takes is your flight certificate, and the Board trusts a certified pilot with a beam rifle.</div>`;
+    const steps = [
+      step(1, "PICK A SUIT · THE TEST RANGE", atDesk
+        ? `<div class="say">Keep the Board's Argo, or try another. The gantry readies it new, full and loaded: nothing of yours is taken, and nothing comes home.</div><div class="filters">${trainers}</div>`
+        : `<div class="say">The test range is picked at the desk in the Blast Hall, off Hub Gate's square.</div>`),
+      step(2, "BOARD IT", `<div class="say">The gantry is the amber ring on the floor just inside the blast doors, on your left as you come in. Stand at its hatch, facing the ring, and press E.</div>` +
+        (atDesk ? `<div class="row">${button("WALK ME TO THE GANTRY", { act: "to-gantry" }, "primary")}<span class="note">Closes the desk. Any move key takes your feet back.</span></div>` : "")),
+      step(3, "FLY A TEST", `<div class="split even"><div>${drill}</div><div>${course}</div></div>`),
+      step(4, "BRING IT BACK", `<div class="say">Settle on the gantry's ring at rest and press Enter: you climb out at its hatch, and the Board keeps its suit. Or fly your own in: from your bay, Q at the cockpit brings it in by the inner gate, by the course's start ring.</div>`),
+    ];
+    return `${head}<div class="steps">${steps.join("")}</div>`;
   }
 
   // Replacing a focused field blurs it, and a blur can fire events that would render again from
@@ -1333,6 +1352,11 @@
         return;
       case "trainer":
         ask({ t: "trainer", build: JSON.parse(d.build) });
+        return;
+      case "to-gantry":
+        // Off the desk, and walked to the gantry's hatch, facing the pad (onfoot.rs's guide).
+        send("resume");
+        send("walk_to", { spot: "gantry" });
         return;
       case "drop-patrol":
         ask({ t: "drop_patrol", id: Number(d.id) });
