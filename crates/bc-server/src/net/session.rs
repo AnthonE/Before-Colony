@@ -849,6 +849,15 @@ impl Session<'_> {
         notes
     }
 
+    /// A patrol flown (`notes` from [`Self::patrol_bounties`]): the Board's file is written before
+    /// the record whose sortie sheet carries its reward, as for an ace's bounty, so a restart in
+    /// between can't leave the line on the sheet and the reward gone from the desk.
+    async fn keep_patrol(&mut self, notes: &[String]) {
+        if !notes.is_empty() {
+            self.game.charter.save().await;
+        }
+    }
+
     /// [`Self::patrol_bounties`]' notes, told once the sortie's settled; and the board, whose
     /// patrol moved on (and what waits at its desk), whether or not they watch it.
     async fn tell_patrol(&mut self, notes: Vec<String>) -> anyhow::Result<()> {
@@ -1429,6 +1438,7 @@ impl Session<'_> {
                 let (text, debrief) = self.hangar.came_home_debriefed(&home);
                 self.place = Place::Hangar;
                 tracing::info!(slot = self.slot, name = %self.callsign, "docked: {text}");
+                self.keep_patrol(&patrol).await;
                 self.save().await;
                 self.tell_patrol(patrol).await?;
                 self.send(&Update::Sortie { outcome: SortieOutcome::Docked, text, debrief: Some(debrief) })
@@ -1486,6 +1496,7 @@ impl Session<'_> {
                     Loss::Blown => text.push_str(" · SELF-DESTRUCTED"),
                 }
                 tracing::info!(slot = self.slot, name = %self.callsign, "suit lost");
+                self.keep_patrol(&patrol).await;
                 self.save().await;
                 self.tell_patrol(patrol).await?;
                 self.send(&Update::Sortie { outcome: SortieOutcome::Lost, text, debrief: Some(debrief) })
@@ -1603,8 +1614,10 @@ impl Session<'_> {
                 self.save().await;
             }
             // Nothing waits at the Board's desk now, whether or not they watch the board (the
-            // objectives read it).
+            // objectives read it). Its file is written now, after the record that holds what it
+            // handed over, not on the clock's minute: a restart in between would hand it over again.
             if handed {
+                self.game.charter.save().await;
                 self.send_board().await?;
             }
         }

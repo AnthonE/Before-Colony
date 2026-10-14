@@ -312,9 +312,11 @@ network threads.
   files (written atomically; the exchange every minute and on shutdown). The Charter Board's file
   is written the same way, and also at once, before the pilot's record, when the Board takes on
   something the record will say it has: a certificate's rifle (the exchange too, whose colony desk
-  it came from; the record keeps the `certified` flag) and an ace's bounty waiting at its desk (the
-  record keeps the sortie's line), so a restart between them can't leave a pilot certified with
-  nothing waiting. Each file takes one write at a time (`Charter` and `Market` hold a tokio mutex
+  it came from; the record keeps the `certified` flag), and an ace's bounty or a patrol's reward
+  waiting at its desk (the record keeps the sortie's line), so a restart between them can't leave
+  a pilot certified, or paid on the sheet, with nothing waiting. When its desk hands what it held
+  over, the file is written straight after the record that now holds it, so a restart can't hand
+  it over twice. Each file takes one write at a time (`Charter` and `Market` hold a tokio mutex
   over the write), so a session's can't interleave with the clock's.
 
 ## Bodies and frames: suits on moving ground

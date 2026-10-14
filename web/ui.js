@@ -1042,7 +1042,8 @@
     let head = "";
     if (desk === "charter") {
       head = `<div class="status">THE CHARTER BOARD'S DESK: CONTRACTS ARE POSTED HERE, PATROLS TAKEN AND THE CHARTER SIGNED, AND WHAT THE BOARD HOLDS FOR YOU IS PAID OUT</div>`;
-    } else if (b.waiting && boardHolds(b.waiting)) {
+    } else if (b.waiting && boardHolds(b.waiting) && colonyOpen()) {
+      // (With the colony shut the Board pays out anywhere, within the second: nothing to walk to.)
       head = `<div class="status warn">THE BOARD HOLDS ${esc(boardHolds(b.waiting))} FOR YOU · PAID OUT AT ITS DESK, ON CHARTER SQUARE</div>`;
     }
     let left = `<h3>CONTRACTS</h3><div class="note">The colony's pay ${b.supply_pct}% of its desks' value; a pilot's reward is held in escrow until it's delivered. Deliveries come from your stores, paid on the spot.</div>`;
