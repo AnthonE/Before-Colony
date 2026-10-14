@@ -131,7 +131,7 @@ pub enum RejectReason {
     VersionMismatch = 1,
     ServerFull = 2,
     BadHello = 3,
-    /// The frame asked for isn't one pilots may fly (a Mobile Doll's, or a form like Neo-Bird).
+    /// The frame asked for isn't one pilots may fly (a drone's, or a form like Aquila).
     FrameNotAllowed = 4,
     /// The signature didn't prove the address.
     AuthFailed = 5,
@@ -178,7 +178,7 @@ pub enum ControlMsg {
         tick: u32,
         tick_hz: u8,
         sector: u8,
-        zero_allowed: bool,
+        orrery_allowed: bool,
         max_datagram: u16,
         /// The debris field: build it with `bc_sim::field::Field::generate(field_seed, field_rocks)`.
         field_seed: u32,
@@ -189,7 +189,7 @@ pub enum ControlMsg {
         /// has: the first this many. Riders name them by index.
         landmarks: u8,
         /// The side the pilot flies for. It's the server's to say, whatever the Hello asked (a claim
-        /// to Oz, the Mobile Dolls' own, flies for the Colonies), and the client takes its friends
+        /// to the Almagest, the drones' own, flies for the Colonies), and the client takes its friends
         /// and foes from it.
         faction: Faction,
     },
@@ -248,7 +248,7 @@ impl ControlMsg {
                 tick,
                 tick_hz,
                 sector,
-                zero_allowed,
+                orrery_allowed,
                 max_datagram,
                 field_seed,
                 field_rocks,
@@ -262,7 +262,7 @@ impl ControlMsg {
                 p.u32(tick);
                 p.u8(tick_hz);
                 p.u8(sector);
-                p.u8(u8::from(zero_allowed));
+                p.u8(u8::from(orrery_allowed));
                 p.u16(max_datagram);
                 p.u32(field_seed);
                 p.u16(field_rocks);
@@ -355,8 +355,8 @@ impl ControlMsg {
                     ControlMsg::Hello {
                         version,
                         pilot: PilotKind::Human,
-                        frame: FrameId::Leo,
-                        faction: Faction::Oz,
+                        frame: FrameId::Argo,
+                        faction: Faction::Almagest,
                         name: Name::default(),
                         flags: 0,
                         resume: [0; TOKEN_BYTES],
@@ -369,7 +369,7 @@ impl ControlMsg {
                 tick: r.u32()?,
                 tick_hz: r.u8()?,
                 sector: r.u8()?,
-                zero_allowed: r.u8()? != 0,
+                orrery_allowed: r.u8()? != 0,
                 max_datagram: r.u16()?,
                 field_seed: r.u32()?,
                 field_rocks: r.u16()?,
@@ -543,14 +543,14 @@ mod tests {
     #[test]
     fn frames_round_trip_and_split() {
         let msgs = [
-            ControlMsg::hello(PilotKind::Agent, FrameId::WingZero, Faction::Colonies, "Heero ユイ"),
+            ControlMsg::hello(PilotKind::Agent, FrameId::Altair, Faction::Colonies, "Kai 星野"),
             ControlMsg::Welcome {
                 version: PROTOCOL_VERSION,
                 client_slot: 3,
                 tick: 123_456,
                 tick_hz: 30,
                 sector: 1,
-                zero_allowed: true,
+                orrery_allowed: true,
                 max_datagram: 1100,
                 field_seed: 0xDEB12,
                 field_rocks: 160,
@@ -564,17 +564,17 @@ mod tests {
             ControlMsg::Roster {
                 slot: 77,
                 pilot: PilotKind::Human,
-                name: Name::new("Zechs"),
+                name: Name::new("Viktor"),
                 flags: roster_flags::VERIFIED | roster_flags::ASLEEP | roster_flags::weathering(6),
             },
-            ControlMsg::Respawn { frame: FrameId::Leo },
+            ControlMsg::Respawn { frame: FrameId::Argo },
             ControlMsg::Bye { reason: bye::TAKEN_OVER },
             ControlMsg::Hello {
                 version: PROTOCOL_VERSION,
                 pilot: PilotKind::Human,
-                frame: FrameId::Sandrock,
+                frame: FrameId::Canopus,
                 faction: Faction::Colonies,
-                name: Name::new("Quatre"),
+                name: Name::new("Rafi"),
                 flags: hello_flags::RESUME,
                 resume: [0xAB; TOKEN_BYTES],
             },
@@ -585,7 +585,7 @@ mod tests {
             },
             ControlMsg::Auth { address: Address([0x7E; 20]), signature: Signature([0x1C; 65]) },
             ControlMsg::Token { token: [9; TOKEN_BYTES] },
-            ControlMsg::Notice { code: notice::SLEEPER_DESTROYED, name: Name::new("Taurus-03") },
+            ControlMsg::Notice { code: notice::SLEEPER_DESTROYED, name: Name::new("Corvus-03") },
         ];
         let mut stream = [0u8; 2_048];
         let mut len = 0;
@@ -611,7 +611,7 @@ mod tests {
             tick: 1,
             tick_hz: 30,
             sector: 1,
-            zero_allowed: false,
+            orrery_allowed: false,
             max_datagram: 1100,
             field_seed: 7,
             field_rocks: 0,
@@ -620,10 +620,10 @@ mod tests {
             faction,
         };
         let mut buf = [0u8; MAX_FRAME];
-        let sides = [Faction::Colonies, Faction::Alliance, Faction::Oz, Faction::Colonies];
+        let sides = [Faction::Colonies, Faction::Alliance, Faction::Almagest, Faction::Colonies];
         for (landmarks, faction) in [0, 2, 16, 255].into_iter().zip(sides) {
             let n = welcome(landmarks, faction).encode(&mut buf).unwrap();
-            // Tag, version, slot, tick, tick_hz, sector, zero_allowed, max_datagram, field seed and
+            // Tag, version, slot, tick, tick_hz, sector, orrery_allowed, max_datagram, field seed and
             // rocks, flags, the landmarks' one byte, and the side's last.
             assert_eq!(n, 2 + 1 + 2 + 2 + 4 + 1 + 1 + 1 + 2 + 4 + 2 + 1 + 1 + 1);
             assert_eq!(buf[n - 2], landmarks);
@@ -684,7 +684,7 @@ mod tests {
     #[test]
     fn a_guest_hello_carries_no_token() {
         let mut buf = [0u8; MAX_FRAME];
-        let n = ControlMsg::hello(PilotKind::Human, FrameId::Leo, Faction::Colonies, "")
+        let n = ControlMsg::hello(PilotKind::Human, FrameId::Argo, Faction::Colonies, "")
             .encode(&mut buf)
             .unwrap();
         // Tag, version, pilot, frame, faction, an empty name, flags.
@@ -699,7 +699,7 @@ mod tests {
         let mut len = ControlMsg::Bye { reason: bye::LEAVE }.encode(&mut stream).unwrap();
         len += encode_hangar(json, &mut stream[len..]).unwrap();
         len += encode_hangar(&big, &mut stream[len..]).unwrap();
-        len += ControlMsg::Respawn { frame: FrameId::Leo }.encode(&mut stream[len..]).unwrap();
+        len += ControlMsg::Respawn { frame: FrameId::Argo }.encode(&mut stream[len..]).unwrap();
         let mut pos = 0;
         let mut frames = 0;
         while let Some((frame, used)) = Frame::decode(&stream[pos..len]).unwrap() {
@@ -728,8 +728,8 @@ mod tests {
 
     #[test]
     fn name_truncates_on_char_boundary() {
-        let n = Name::new("ゼクス・マーキス-Zechs");
+        let n = Name::new("ヴィクトル・ヴォルコフ-Viktor");
         assert!(n.as_str().len() <= MAX_NAME);
-        assert!(n.as_str().starts_with("ゼクス"));
+        assert!(n.as_str().starts_with("ヴィクトル"));
     }
 }

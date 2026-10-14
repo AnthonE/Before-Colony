@@ -10,7 +10,7 @@
 //!   selling the other way, a step at a time. Its stock settles back to what it wants over hours:
 //!   what it consumes when it has too much (a sink), what it imports when it has too little (a
 //!   source). So prices move with what pilots bring in and take out, and drift back.
-//! - The colony won't touch Gundam technology: gundanium, and the Gundams' parts and weapons trade
+//! - The colony won't touch Lodestar technology: siderium, and the Lodestars' parts and weapons trade
 //!   only between pilots.
 //! - **Fees.** A seller pays the colony 2% of every sale: credits leave the economy.
 //! - What a trader is owed (goods bought, sale proceeds, escrow handed back) waits in their
@@ -688,7 +688,7 @@ mod tests {
     use bc_proto::{FrameId, Part};
 
     const TI: Item = Item::Ore(Ore::Titanium);
-    const GUNDANIUM: Item = Item::Material(Material::Gundanium);
+    const SIDERIUM: Item = Item::Material(Material::Siderium);
 
     #[test]
     fn selling_to_the_colony_moves_its_price_and_time_brings_it_back() {
@@ -719,29 +719,29 @@ mod tests {
     #[test]
     fn pilots_trade_with_each_other_at_the_resting_price() {
         let mut ex = Exchange::new();
-        // Nobody else deals in gundanium.
-        assert_eq!(ex.top(GUNDANIUM), (None, None));
-        let r = ex.place("bob", GUNDANIUM, Side::Sell, 40_000, 300, 0, true).unwrap();
+        // Nobody else deals in siderium.
+        assert_eq!(ex.top(SIDERIUM), (None, None));
+        let r = ex.place("bob", SIDERIUM, Side::Sell, 40_000, 300, 0, true).unwrap();
         assert!(r.fills.is_empty() && r.resting.is_some());
-        let r2 = ex.place("carol", GUNDANIUM, Side::Sell, 38_000, 100, 0, true).unwrap();
+        let r2 = ex.place("carol", SIDERIUM, Side::Sell, 38_000, 100, 0, true).unwrap();
         assert!(r2.resting.is_some());
-        assert_eq!(ex.top(GUNDANIUM).1, Some((38_000, 100)));
+        assert_eq!(ex.top(SIDERIUM).1, Some((38_000, 100)));
         // Alice buys 250 kg up to 41,000 cr/t: 100 from carol at 38,000, 150 from bob at 40,000.
-        let escrow = Exchange::escrow_for(GUNDANIUM, 41_000, 250);
-        let r3 = ex.place("alice", GUNDANIUM, Side::Buy, 41_000, 250, escrow, true).unwrap();
+        let escrow = Exchange::escrow_for(SIDERIUM, 41_000, 250);
+        let r3 = ex.place("alice", SIDERIUM, Side::Buy, 41_000, 250, escrow, true).unwrap();
         assert_eq!(r3.fills.len(), 2);
         assert_eq!((r3.fills[0].price, r3.fills[0].qty), (38_000, 100));
         assert_eq!((r3.fills[1].price, r3.fills[1].qty), (40_000, 150));
         assert!(r3.resting.is_none());
         let alice = ex.collect("alice");
-        assert_eq!(alice.goods[&GUNDANIUM], 250);
+        assert_eq!(alice.goods[&SIDERIUM], 250);
         assert_eq!(alice.credits, escrow - 3_800 - 6_000, "the price improvement comes back");
         assert_eq!(ex.collect("carol").credits, 3_800 - 76);
         assert_eq!(ex.collect("bob").credits, 6_000 - 120);
         // Bob's 150 kg still rest; cancelling hands them back.
         assert_eq!(ex.orders("bob").count(), 1);
         assert!(ex.cancel("bob", r.resting.unwrap()));
-        assert_eq!(ex.collect("bob").goods[&GUNDANIUM], 150);
+        assert_eq!(ex.collect("bob").goods[&SIDERIUM], 150);
         assert!(!ex.cancel("bob", r.resting.unwrap()));
     }
 
@@ -760,7 +760,7 @@ mod tests {
         assert_eq!(r.fills[0].price, colony_ask - 100);
         assert_eq!(r.fills[1].seller, None, "then the colony");
         assert!(r.fills[1].price >= colony_ask);
-        let torso = Item::Part(FrameId::Leo, Part::Torso);
+        let torso = Item::Part(FrameId::Argo, Part::Torso);
         assert!(ex.depth(torso, 5).asks.iter().any(|l| l.colony));
     }
 
@@ -778,9 +778,9 @@ mod tests {
         assert_eq!(ex.colony_issue(rifle, 1), 0);
         assert_eq!(ex.colony_stock(rifle), Some(0.0));
         assert_eq!(ex.top(rifle).1, None, "none left to sell");
-        // Gundam technology isn't the colony's to give.
-        assert_eq!(ex.colony_issue(GUNDANIUM, 10), 0);
-        assert_eq!(ex.colony_stock(GUNDANIUM), None);
+        // Lodestar technology isn't the colony's to give.
+        assert_eq!(ex.colony_issue(SIDERIUM, 10), 0);
+        assert_eq!(ex.colony_stock(SIDERIUM), None);
         assert_eq!((ex.colony_paid, ex.colony_took, ex.fees), (0, 0, 0));
     }
 
@@ -790,18 +790,18 @@ mod tests {
         assert_eq!(ex.place("a", TI, Side::Sell, 0, 10, 0, true), Err(Refused::Bounds));
         assert_eq!(ex.place("a", TI, Side::Buy, 5_000, 1_000, 4_999, true), Err(Refused::Escrow));
         for k in 0..MAX_ORDERS as u64 {
-            ex.place("a", GUNDANIUM, Side::Sell, 90_000 + k, 10, 0, true).unwrap();
+            ex.place("a", SIDERIUM, Side::Sell, 90_000 + k, 10, 0, true).unwrap();
         }
-        assert_eq!(ex.place("a", GUNDANIUM, Side::Sell, 1, 10, 0, true), Err(Refused::TooManyOrders));
+        assert_eq!(ex.place("a", SIDERIUM, Side::Sell, 1, 10, 0, true), Err(Refused::TooManyOrders));
         ex.cancel_all("a");
         assert_eq!(ex.orders("a").count(), 0);
-        assert_eq!(ex.collect("a").goods[&GUNDANIUM], 10 * MAX_ORDERS as u64);
+        assert_eq!(ex.collect("a").goods[&SIDERIUM], 10 * MAX_ORDERS as u64);
     }
 
     #[test]
     fn it_round_trips_as_json() {
         let mut ex = Exchange::new();
-        ex.place("bob", GUNDANIUM, Side::Sell, 40_000, 300, 0, true).unwrap();
+        ex.place("bob", SIDERIUM, Side::Sell, 40_000, 300, 0, true).unwrap();
         ex.place("amy", TI, Side::Sell, 1, 5_000, 0, false).unwrap();
         ex.tick(3_600.0);
         let json = serde_json::to_string(&ex).unwrap();

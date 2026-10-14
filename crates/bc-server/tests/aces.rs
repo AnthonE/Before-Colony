@@ -1,5 +1,5 @@
-//! Zodiac's aces over real WebTransport (survival rules; `docs/DESIGN.md`, "Aces"): an ace fielded
-//! among the Dolls goes on every pilot's roster by its name, and on the Charter Board's Most Wanted
+//! The Almagest's aces over real WebTransport (survival rules; `docs/DESIGN.md`, "Aces"): an ace fielded
+//! among the drones goes on every pilot's roster by its name, and on the Charter Board's Most Wanted
 //! as out, with the news; a pilot of standing sets their terms (the bounty, or its wreck). The
 //! sector's tests (`bc-sector/tests/aces_net.rs`) down one and claim its wreck.
 
@@ -13,11 +13,11 @@ use bc_proto::{Faction, FrameId, PilotKind};
 use bc_server::{Config, Mode, Ruleset};
 
 fn bot(http: &str, name: &str) -> BotConfig {
-    BotConfig { server: http.into(), name: name.into(), frame: FrameId::Leo, faction: Faction::Colonies }
+    BotConfig { server: http.into(), name: name.into(), frame: FrameId::Argo, faction: Faction::Colonies }
 }
 
 fn named(c: &bc_client_core::ClientCore, ace: &str) -> bool {
-    c.world.roster.values().any(|(n, p)| n == ace && *p == PilotKind::MobileDoll)
+    c.world.roster.values().any(|(n, p)| n == ace && *p == PilotKind::Drone)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -27,7 +27,7 @@ async fn an_ace_out_is_named_on_the_roster_and_on_the_most_wanted() -> anyhow::R
         rules: Ruleset::Survival,
         wt_port: 0,
         http_addr: "127.0.0.1:0".parse()?,
-        mobile_dolls: 2,
+        drones: 2,
         ace_every: Duration::from_secs(1),
         max_clients: 4,
         ..Config::default()
@@ -35,21 +35,21 @@ async fn an_ace_out_is_named_on_the_roster_and_on_the_most_wanted() -> anyhow::R
     .await?;
     let http = format!("http://{}", server.http_addr);
 
-    let mut a = BotClient::connect(&bot(&http, "Wufei")).await?;
+    let mut a = BotClient::connect(&bot(&http, "Lin")).await?;
     a.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
     a.request(&Request::WatchBoard { on: true }).await?;
-    // On the roster by its name, a Doll still.
-    a.wait_until(10.0, "ARIES on the roster", |c| named(c, "ARIES")).await?;
+    // On the roster by its name, a drone still.
+    a.wait_until(10.0, "LYRA on the roster", |c| named(c, "LYRA")).await?;
     // Out on the Most Wanted, and in the news.
-    a.wait_until(10.0, "ARIES out on the board", |c| {
+    a.wait_until(10.0, "LYRA out on the board", |c| {
         c.hangar.charter.as_ref().is_some_and(|v| {
-            v.wanted.first().is_some_and(|w| w.name == "ARIES" && w.out)
+            v.wanted.first().is_some_and(|w| w.name == "LYRA" && w.out)
                 && v.wanted.iter().filter(|w| w.out).count() == 1
         })
     })
     .await?;
     a.wait_until(5.0, "the news", |c| {
-        c.hangar.news.iter().any(|n| n == "ZODIAC'S ARIES IS OUT AMONG THE DOLLS · 1,500 CR ON IT")
+        c.hangar.news.iter().any(|n| n == "THE ALMAGEST'S LYRA IS OUT AMONG THE DRONES · 1,500 CR ON IT")
     })
     .await?;
     // Paid, until the pilot takes its wreck instead: signed over only to pilots of standing.
@@ -66,8 +66,8 @@ async fn an_ace_out_is_named_on_the_roster_and_on_the_most_wanted() -> anyhow::R
     })
     .await?;
     // A pilot who comes in later hears its name too.
-    let mut b = BotClient::connect(&bot(&http, "Trowa")).await?;
-    b.wait_until(5.0, "ARIES on the newcomer's roster", |c| named(c, "ARIES")).await?;
+    let mut b = BotClient::connect(&bot(&http, "Tomas")).await?;
+    b.wait_until(5.0, "LYRA on the newcomer's roster", |c| named(c, "LYRA")).await?;
     a.close().await;
     b.close().await;
     server.shutdown();

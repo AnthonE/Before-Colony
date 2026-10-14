@@ -360,14 +360,14 @@ mod tests {
         use bc_sim::ground::BODY_CLEAR;
         use std::sync::Arc;
 
-        // Its back to MO-II's fore module, as near as a suit on it can be (BODY_CLEAR), and facing
+        // Its back to Fornax's fore module, as near as a suit on it can be (BODY_CLEAR), and facing
         // away: the camera's place is inside the module, and straight back from the suit it would
         // stop a metre behind its origin, in its torso.
         let bodies = BodySet::new(Arc::new(Field::empty()), 1);
-        let mo_ii = Body::Landmark(0);
+        let fornax = Body::Landmark(0);
         let t = 100.0;
-        let pose = bodies.pose_at(mo_ii, t).unwrap();
-        let shape = bodies.shape(mo_ii).unwrap();
+        let pose = bodies.pose_at(fornax, t).unwrap();
+        let shape = bodies.shape(fornax).unwrap();
         let clear = |x: Vec3| shape.probe(pose.to_local(x)).dist;
         let (aim, up) = (pose.rot * Vec3::X, pose.rot * Vec3::Y);
         let pos = pose.to_world(Vec3::new(260.0 + BODY_CLEAR, 40.0, 40.0));

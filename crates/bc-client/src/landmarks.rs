@@ -1,4 +1,4 @@
-//! The sector's landmarks: MO-II, the resource satellite rolling on its station-keeping circle, and
+//! The sector's landmarks: Fornax, the resource satellite rolling on its station-keeping circle, and
 //! Hermit, the big asteroid. Each is drawn from the very shape suits stand on
 //! (`bc_client_core::body_mesh`), so feet meet what's drawn, and posed every frame by the
 //! simulation's own closed form ([`bc_sim::bodies::landmark_pose`]) at the view clock's time, as

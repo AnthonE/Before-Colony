@@ -196,10 +196,10 @@ mod tests {
     #[test]
     fn the_foundry_refunds_its_fees() {
         let mut q = Queue::default();
-        let gundanium = Item::Material(Material::Gundanium);
-        q.push(gundanium, 3, 180, 0, 100);
-        assert_eq!(q.settle(200), [(gundanium, 100)]);
+        let siderium = Item::Material(Material::Siderium);
+        q.push(siderium, 3, 180, 0, 100);
+        assert_eq!(q.settle(200), [(siderium, 100)]);
         let (_, fee) = q.cancel(0, 200).unwrap();
-        assert_eq!(fee, 2 * recipe(gundanium).unwrap().fee);
+        assert_eq!(fee, 2 * recipe(siderium).unwrap().fee);
     }
 }

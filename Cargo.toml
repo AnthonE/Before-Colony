@@ -18,7 +18,7 @@ bc-auth = { path = "crates/bc-auth", default-features = false }
 bc-proto = { path = "crates/bc-proto" }
 bc-sim = { path = "crates/bc-sim", default-features = false }
 bc-sector = { path = "crates/bc-sector" }
-bc-zero = { path = "crates/bc-zero" }
+bc-orrery = { path = "crates/bc-orrery" }
 bc-client-core = { path = "crates/bc-client-core" }
 bc-model = { path = "crates/bc-model" }
 bc-bot = { path = "crates/bc-bot" }

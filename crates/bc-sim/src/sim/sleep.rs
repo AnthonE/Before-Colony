@@ -10,8 +10,8 @@
 //!   [`FOUGHT_DARK_TICKS`](super::FOUGHT_DARK_TICKS) after its last fight, and then it is hidden
 //!   from its enemies' sensors beyond visual range (`conceal`). One aloft in a body's grip settles
 //!   onto it first, and parks where it lands. Shatter the rock and it floats free.
-//! - **Asleep, nobody works the frame's special:** a Neo-Bird stays a bird, and a jammer goes off.
-//! - **Hunted.** Mobile Dolls leave sleepers alone; players can hunt them. A sleeper destroyed stays
+//! - **Asleep, nobody works the frame's special:** an Aquila stays a bird, and a jammer goes off.
+//! - **Hunted.** Drones leave sleepers alone; players can hunt them. A sleeper destroyed stays
 //!   gone (no respawn) and its pilot is told when they're back ([`SleeperFate`]).
 //! - **Room.** When suit slots run short, the longest asleep is cleared, those in a hide spot last.
 //!
@@ -133,11 +133,11 @@ impl Sim {
         let t = self.tick();
         let s = &mut self.suits;
         // Hands off everything but the frame's mode and the grip on the ground: no thrust, no
-        // assist, no ZERO, nothing held (the hold stays), and the special off (a jammer, Full Open).
+        // assist, no Orrery, nothing held (the hold stays), and the special off (a jammer, Full Salvo).
         let aim = s.flight[i].rot * Vec3::Z;
         s.aim[i] = aim;
         s.input[i] = InputCmd::neutral(t, aim, s.input[i].buttons & (MODE | GRIP));
-        s.zero[i] = Default::default();
+        s.orrery[i] = Default::default();
         s.boosting[i] = false;
         s.special[i].active = false;
         s.sleeping.set(i, true);

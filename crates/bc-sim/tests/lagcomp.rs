@@ -5,17 +5,17 @@ use bc_proto::buttons::FIRE_PRIMARY;
 use bc_proto::events::Event;
 use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
 use bc_sim::math::look_rotation;
-use bc_sim::zero::fire_control::intercept;
+use bc_sim::orrery::fire_control::intercept;
 use bc_sim::{DT, Sim, SimConfig};
 use glam::Vec3;
 
-/// A Leo fires once at a target crossing at 200 m/s, aiming from a view `view_age` ticks old.
+/// An Argo fires once at a target crossing at 200 m/s, aiming from a view `view_age` ticks old.
 /// Returns whether the shot hit.
 fn duel(view_age: u32, compensate: bool) -> bool {
-    let mut sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
+    let mut sim = Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() });
     let shooter = sim
         .spawn_at(
-            FrameId::Leo,
+            FrameId::Argo,
             Faction::Colonies,
             PilotKind::Human,
             Vec3::new(0.0, 1_000.0, 0.0),
@@ -24,8 +24,8 @@ fn duel(view_age: u32, compensate: bool) -> bool {
         .unwrap();
     let target = sim
         .spawn_at(
-            FrameId::Leo,
-            Faction::Oz,
+            FrameId::Argo,
+            Faction::Almagest,
             PilotKind::Human,
             Vec3::new(-120.0, 1_000.0, 1_000.0),
             look_rotation(-Vec3::Z, Vec3::Y),

@@ -10,7 +10,7 @@ use bc_sim::sim::Loadout;
 use bc_sim::{Sim, SimConfig, SuitId};
 
 fn sim() -> Sim {
-    Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, survival: true, ..SimConfig::default() })
+    Sim::new(SimConfig { target_drones: 0, field_rocks: 0, survival: true, ..SimConfig::default() })
 }
 
 fn with(kinds: &[ModuleKind]) -> Modules {
@@ -23,10 +23,10 @@ fn with(kinds: &[ModuleKind]) -> Modules {
 }
 
 fn launch(sim: &mut Sim, kinds: &[ModuleKind], systems: Systems) -> SuitId {
-    let mut l = Loadout::full(FrameId::Leo);
+    let mut l = Loadout::full(FrameId::Argo);
     l.modules = with(kinds);
     l.systems = systems;
-    let id = sim.launch(FrameId::Leo, Faction::Colonies, PilotKind::Human, &l).unwrap();
+    let id = sim.launch(FrameId::Argo, Faction::Colonies, PilotKind::Human, &l).unwrap();
     sim.step();
     id
 }
@@ -48,7 +48,7 @@ fn each_module_changes_its_stat() {
     check(ModuleKind::CapacitorBank, &|a, b| b.energy_cap > a.energy_cap);
     let mut s = sim();
     let id = launch(&mut s, &[ModuleKind::CapacitorBank], Systems::OK).idx();
-    assert!(s.suits.energy[id] > frame(FrameId::Leo).energy_cap * 1.4, "launched charged full");
+    assert!(s.suits.energy[id] > frame(FrameId::Argo).energy_cap * 1.4, "launched charged full");
     check(ModuleKind::ReactorBooster, &|a, b| b.regen > a.regen && b.heat < a.heat);
     check(ModuleKind::RadiatorPackage, &|a, b| b.heat > a.heat && b.signature > a.signature);
     check(ModuleKind::CompositePlating, &|a, b| b.armor < a.armor);
@@ -59,31 +59,31 @@ fn each_module_changes_its_stat() {
     check(ModuleKind::IonDrive, &|a, b| b.ion > a.ion);
     check(ModuleKind::ThrusterKit, &|a, b| b.main > a.main && b.isp < a.isp);
     check(ModuleKind::LegVerniers, &|a, b| b.side > a.side);
-    check(ModuleKind::CargoRack, &|a, b| b.hold_kg > a.hold_kg && b.ambac < a.ambac);
+    check(ModuleKind::CargoRack, &|a, b| b.hold_kg > a.hold_kg && b.limb_trim < a.limb_trim);
 }
 
 /// The auxiliary tank holds more at launch; modules weigh the suit down.
 #[test]
 fn a_bigger_tank_fills_and_modules_weigh() {
     let mut s = sim();
-    let mut l = Loadout::full(FrameId::Leo);
+    let mut l = Loadout::full(FrameId::Argo);
     l.modules = with(&[ModuleKind::AuxiliaryTank, ModuleKind::CompositePlating]);
     l.propellant = 10_000.0;
-    let id = s.launch(FrameId::Leo, Faction::Colonies, PilotKind::Human, &l).unwrap().idx();
-    let cap = frame(FrameId::Leo).propellant_cap;
+    let id = s.launch(FrameId::Argo, Faction::Colonies, PilotKind::Human, &l).unwrap().idx();
+    let cap = frame(FrameId::Argo).propellant_cap;
     assert!((s.suits.flight[id].propellant - cap * 1.4).abs() < 1.0);
     s.step();
     assert_eq!(s.flight_mods(id).extra_mass_kg, 800);
 }
 
-/// The extended tank (torso) and the auxiliary tank (backpack) stack: a Leo holds 1.75 tanks.
+/// The extended tank (torso) and the auxiliary tank (backpack) stack: an Argo holds 1.75 tanks.
 #[test]
 fn the_tanks_stack() {
     let mut s = sim();
-    let mut l = Loadout::full(FrameId::Leo);
+    let mut l = Loadout::full(FrameId::Argo);
     l.modules = with(&[ModuleKind::ExtendedTank, ModuleKind::AuxiliaryTank]);
     l.propellant = 10_000.0;
-    let id = s.launch(FrameId::Leo, Faction::Colonies, PilotKind::Human, &l).unwrap().idx();
+    let id = s.launch(FrameId::Argo, Faction::Colonies, PilotKind::Human, &l).unwrap().idx();
     assert_eq!(s.suits.flight[id].propellant, 5_250.0);
     assert_eq!(s.tuning(id).tank, 1.75);
     s.step();

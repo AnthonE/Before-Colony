@@ -1,6 +1,6 @@
 //! The built-in tactical oracle: fast utility scores turned into calibrated-looking distributions
 //! with a softmax, and the same confidence statistic Jev reports. It runs inside the tick,
-//! deterministically and without allocating, so the ZERO System works with no network at all.
+//! deterministically and without allocating, so the Orrery works with no network at all.
 
 use bc_proto::NO_SLOT;
 use glam::Vec3;

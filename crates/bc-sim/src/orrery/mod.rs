@@ -1,4 +1,4 @@
-//! The ZERO System: predicts the future of a fight and advises (and, past its limit, overrides)
+//! The Orrery: predicts the future of a fight and advises (and, past its limit, overrides)
 //! its pilot.
 //!
 //! - [`hypotheses`]: the maneuvers a threat can make next (thrust along each body axis, or coast;
@@ -8,7 +8,7 @@
 //! - [`fire_control`]: intercept solutions and the hit probability across hypotheses.
 //! - [`local_oracle`]: the built-in tactical oracle (softmax over utilities, Jev-style confidence).
 //! - [`advice`]: the typed picture/advice exchanged with external oracles such as TypeSafe Jev.
-//! - [`strain`]: ZERO strain, seizure and lockout.
+//! - [`strain`]: the Orrery strain, seizure and lockout.
 
 pub mod advice;
 pub mod fire_control;
@@ -22,10 +22,10 @@ use glam::Vec3;
 
 pub use advice::{ADVICE_TTL, TacticalAdvice, TacticalPicture, ThreatBrief};
 pub use hypotheses::{Maneuver, N_HYP};
-pub use strain::ZeroState;
+pub use strain::OrreryState;
 
-/// Threats with full predictions per ZERO pilot.
-pub const ZERO_THREATS: usize = 2;
+/// Threats with full predictions per the Orrery pilot.
+pub const ORRERY_THREATS: usize = 2;
 
 /// Chance a suit is still flying the same maneuver over the prediction horizon. Used to turn the
 /// filtered "what is it doing now" posterior into a predictive "what will it do next" distribution,
@@ -57,12 +57,12 @@ pub fn predictive(post: &[f32; N_HYP]) -> [f32; N_HYP] {
     out
 }
 
-/// The ZERO System's latest conclusions for its pilot.
+/// The Orrery's latest conclusions for its pilot.
 #[derive(Clone, Copy, Debug)]
-pub struct ZeroOut {
+pub struct OrreryOut {
     pub computed_at: u32,
     pub n_threats: u8,
-    pub threats: [ThreatTrack; ZERO_THREATS],
+    pub threats: [ThreatTrack; ORRERY_THREATS],
     pub rec_target: u16,
     pub rec_target_p: f32,
     /// Recommended own maneuver ([`Maneuver`] index).
@@ -80,12 +80,12 @@ pub struct ZeroOut {
     pub advice_age: u8,
 }
 
-impl Default for ZeroOut {
+impl Default for OrreryOut {
     fn default() -> Self {
         Self {
             computed_at: 0,
             n_threats: 0,
-            threats: [ThreatTrack::default(); ZERO_THREATS],
+            threats: [ThreatTrack::default(); ORRERY_THREATS],
             rec_target: NO_SLOT,
             rec_target_p: 0.0,
             rec_maneuver: 0,

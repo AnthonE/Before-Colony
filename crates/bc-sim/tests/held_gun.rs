@@ -15,18 +15,18 @@ use bc_sim::{Sim, SimConfig, SuitId};
 use glam::Vec3;
 
 fn sim() -> Sim {
-    Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() })
+    Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() })
 }
 
-fn leo(sim: &mut Sim) -> SuitId {
+fn argo(sim: &mut Sim) -> SuitId {
     let at = Vec3::new(0.0, 1_000.0, 0.0);
-    sim.spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, at, look_rotation(Vec3::Z, Vec3::Y))
+    sim.spawn_at(FrameId::Argo, Faction::Colonies, PilotKind::Human, at, look_rotation(Vec3::Z, Vec3::Y))
         .unwrap()
 }
 
 fn limb(frame: FrameId, part: Part) -> ChunkDesc {
     ChunkDesc {
-        kind: ChunkKind::Limb { frame, faction: Faction::Oz, part },
+        kind: ChunkKind::Limb { frame, faction: Faction::Almagest, part },
         seed: 1,
         mass_kg: part_mass_kg(frame, part),
     }
@@ -66,29 +66,29 @@ fn shots_of(sim: &Sim, from: u32, id: SuitId) -> Vec<(WeaponKind, Vec3)> {
 #[test]
 fn which_limbs_carry_a_gun_a_hand_can_fire() {
     let gun = |f, p| held_gun(&limb(f, p));
-    assert_eq!(gun(FrameId::Taurus, Part::ArmR), Some(WeaponKind::BeamRifle));
-    assert_eq!(gun(FrameId::Leo, Part::ArmL), Some(WeaponKind::MachineCannon));
-    assert_eq!(gun(FrameId::Heavyarms, Part::ArmR), Some(WeaponKind::BeamGatling));
+    assert_eq!(gun(FrameId::Corvus, Part::ArmR), Some(WeaponKind::BeamRifle));
+    assert_eq!(gun(FrameId::Argo, Part::ArmL), Some(WeaponKind::MachineCannon));
+    assert_eq!(gun(FrameId::Antares, Part::ArmR), Some(WeaponKind::BeamGatling));
     // A blade, nothing, a gun that charges: no.
-    assert_eq!(gun(FrameId::Heavyarms, Part::ArmL), None, "the army knife");
-    assert_eq!(gun(FrameId::Taurus, Part::ArmL), None);
-    assert_eq!(gun(FrameId::WingZero, Part::ArmR), None, "the Twin Buster Rifle");
-    assert_eq!(gun(FrameId::Leo, Part::Head), None);
+    assert_eq!(gun(FrameId::Antares, Part::ArmL), None, "the combat knife");
+    assert_eq!(gun(FrameId::Corvus, Part::ArmL), None);
+    assert_eq!(gun(FrameId::Altair, Part::ArmR), None, "the Heavy Beam Rifle");
+    assert_eq!(gun(FrameId::Argo, Part::Head), None);
     let ore = ChunkDesc { kind: ChunkKind::Ore { ore: 0 }, seed: 0, mass_kg: 400 };
     assert_eq!(held_gun(&ore), None);
 }
 
 #[test]
-fn a_taurus_rifle_in_hand_fires_from_the_hand() {
+fn a_corvus_rifle_in_hand_fires_from_the_hand() {
     let mut sim = sim();
-    let me = leo(&mut sim);
+    let me = argo(&mut sim);
     let i = me.idx();
-    let k = by_the_left_hand(&mut sim, me, limb(FrameId::Taurus, Part::ArmR));
+    let k = by_the_left_hand(&mut sim, me, limb(FrameId::Corvus, Part::ArmR));
     hold(&mut sim, me, GRAB, 2);
     assert_eq!(sim.held_chunk(i), Some(k));
     assert_eq!(sim.gun_in_hand(i), Some((WeaponKind::BeamRifle, false)));
     assert_ne!(sim.own_state(i).weapon_ready & 0b010, 0, "the secondary's trigger is the rifle's");
-    // RMB: the rifle in the left hand, not the Leo's machine cannon (which it holds the arm of).
+    // RMB: the rifle in the left hand, not the Argo's machine cannon (which it holds the arm of).
     let (cannon, from) = (sim.suits.weapons[i][1].ammo, sim.events.next_seq());
     hold(&mut sim, me, GRAB | FIRE_SECONDARY, 1);
     let shots = shots_of(&sim, from, me);
@@ -115,9 +115,9 @@ fn a_taurus_rifle_in_hand_fires_from_the_hand() {
 #[test]
 fn a_machine_cannon_picked_up_has_half_a_load_left() {
     let mut sim = sim();
-    let me = leo(&mut sim);
+    let me = argo(&mut sim);
     let i = me.idx();
-    by_the_left_hand(&mut sim, me, limb(FrameId::Leo, Part::ArmL));
+    by_the_left_hand(&mut sim, me, limb(FrameId::Argo, Part::ArmL));
     hold(&mut sim, me, GRAB, 2);
     let load = weapon(WeaponKind::MachineCannon).ammo;
     let left = (f32::from(load) * HELD_ROUNDS) as u16;

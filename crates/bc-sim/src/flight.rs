@@ -2,19 +2,19 @@
 //!
 //! - **Newtonian 6DOF**, no drag. Thrust is limited per axis (main, side, retro) and burns
 //!   propellant at `|F| / (Isp·g0)`, so mass drops and delta-v is finite.
-//! - **AMBAC** turns the suit by swinging its limbs: free but modest. Damaged limbs and busy arms
+//! - **Limb trim** turns the suit by swinging its limbs: free but modest. Damaged limbs and busy arms
 //!   reduce it. **RCS** (held) adds much more authority at a propellant cost.
 //! - **Flight assist** turns the thrust stick into a velocity command (it brakes to a stop when
 //!   released); off, the stick is raw thrust and velocity persists. **Brake** always retro-burns.
 //!   A pilot's flight assist eases onto the velocity asked for (a fifth of a second) and spares
-//!   their body: short of boost, it never pulls more G than they bear for good. A Mobile Doll's
+//!   their body: short of boost, it never pulls more G than they bear for good. A drone's
 //!   snaps onto it at full thrust.
 //! - **Pilot G** is judged the way it pushes the pilot ([`GEnvelope`]): pressed back into the seat
 //!   by thrust ahead they bear twice what they bear headward, and with their blood driven to the
 //!   head (thrust toward their feet) half. Past what they bear their brain is short of blood and
 //!   G-strain builds, but only as fast as its oxygen runs out ([`O2_BUFFER`]): a spike is over
 //!   before it matters. A crash jolts them ([`crash`]). At 1.0 the pilot blacks out and control
-//!   authority collapses until it recovers below 0.5. Mobile Dolls have no body to protect.
+//!   authority collapses until it recovers below 0.5. Drones have no body to protect.
 //! - **Anime rules** ([`BoostGauge`], `crate::tuning::FlightRules`): the tank is a boost gauge. Only
 //!   boost burns it; flying, turning on RCS and a blade's lunge are free, and work on an empty
 //!   tank; and it fills back up whenever boost is let go.
@@ -197,8 +197,8 @@ impl GEnvelope {
 /// them the same way on the server and in the owner's prediction).
 #[derive(Clone, Copy, Debug)]
 pub struct FlightMods {
-    /// AMBAC authority 0..1 (lost limbs, busy arms).
-    pub ambac: f32,
+    /// Limb trim authority 0..1 (lost limbs, busy arms).
+    pub limb_trim: f32,
     /// Thrust authority on every axis, applied after flight assist asks for its force (a change of
     /// form cutting it).
     pub thrust: f32,
@@ -217,7 +217,7 @@ pub struct FlightMods {
     pub g_envelope: GEnvelope,
     /// Propellant lost from a holed tank, kg/s.
     pub leak_kg_s: f32,
-    /// Mobile Dolls: no G-strain.
+    /// Drones: no G-strain.
     pub g_immune: bool,
     /// Beam saber lunge: full forward thrust at [`LUNGE_THRUST`]×.
     pub lunge: bool,
@@ -251,7 +251,7 @@ pub struct FlightMods {
 impl Default for FlightMods {
     fn default() -> Self {
         Self {
-            ambac: 1.0,
+            limb_trim: 1.0,
             thrust: 1.0,
             main: 1.0,
             side: 1.0,
@@ -418,12 +418,12 @@ pub fn integrate(
     let cos_a = fwd.dot(aim);
     let angle = atan2(sin_a, cos_a);
     let rcs = cmd.pressed(RCS_SHARP) && powered;
-    let max_rate = if rcs { spec.rcs_rate } else { spec.ambac_rate } * attitude;
-    let ambac = spec.ambac_accel * mods.ambac * attitude * turn;
+    let max_rate = if rcs { spec.rcs_rate } else { spec.limb_trim_rate } * attitude;
+    let limb_trim = spec.limb_trim_accel * mods.limb_trim * attitude * turn;
     let rcs_accel = if rcs { spec.rcs_accel * attitude * turn } else { 0.0 };
-    let accel_cap = ambac + rcs_accel;
+    let accel_cap = limb_trim + rcs_accel;
     // Toward the aim, but never faster than it can stop from in time: arms busy firing or with a
-    // blade take AMBAC's limbs, not its top rate, and it mustn't swing past the aim for it.
+    // blade take limb trim's limbs, not its top rate, and it mustn't swing past the aim for it.
     let rate =
         |angle: f32| (angle * AIM_GAIN).min(max_rate).min(sqrt(2.0 * ATTITUDE_BRAKE * accel_cap * angle));
     let mut w_des = if sin_a > 1e-6 {
@@ -616,7 +616,7 @@ pub fn refill(s: &mut FlightState, spec: &FrameSpec, mods: &FlightMods, dt: f32)
 /// by what the pilot bears that way ([`GEnvelope`]), past what they bear for good their brain is
 /// short of blood and strain builds, the faster the further past, up to a blackout's worth in
 /// [`O2_BUFFER`] once it's [`STARVE_G`] past. Under it, strain eases. At 1.0 they black out, until
-/// it falls under 0.5. A Mobile Doll (`g_immune`) feels nothing. A pilot bears `mods.g_tolerance`
+/// it falls under 0.5. A drone (`g_immune`) feels nothing. A pilot bears `mods.g_tolerance`
 /// headward for good.
 pub fn pilot_g(s: &mut FlightState, felt: Vec3, mods: &FlightMods, dt: f32) {
     s.g_load = length(felt) / G0;
@@ -638,7 +638,7 @@ pub fn pilot_g(s: &mut FlightState, felt: Vec3, mods: &FlightMods, dt: f32) {
 /// A crash: what the suit hit took its velocity from `was` to what it is (m/s, in the frame
 /// flown), stopping the pilot over [`CRASH_STROKE`]. The jolt, weighed as G is ([`GEnvelope`]),
 /// strains them past what they bear for good, and [`KNOCKOUT`] times that knocks them out. A
-/// Mobile Doll feels nothing.
+/// drone feels nothing.
 pub fn crash(s: &mut FlightState, was: Vec3, mods: &FlightMods) {
     if mods.g_immune || s.vel == was {
         return;
@@ -678,7 +678,7 @@ mod tests {
     /// cone once the aim's further off than that; with no cone it drives along the nose.
     #[test]
     fn a_lunge_drives_along_the_aim_within_its_cone() {
-        let spec = frame(FrameId::Leo);
+        let spec = frame(FrameId::Argo);
         let lunge = |deg: f32, cone: f32| {
             let mut s = state();
             let a = deg.to_radians();
@@ -701,7 +701,7 @@ mod tests {
     /// locked on, along the fight's axes; and flight assist brings the suit back after it.
     #[test]
     fn a_burst_step_dashes_along_the_stick_once_per_cooldown() {
-        let spec = frame(FrameId::Leo);
+        let spec = frame(FrameId::Argo);
         let anime = FlightMods {
             gauge: Some(BoostGauge { tank: 1.0, refill: 0.1 }),
             g_tolerance: HUMAN_G_TOLERANCE * 2.0,
@@ -760,7 +760,7 @@ mod tests {
     fn no_thrust_keeps_velocity() {
         let mut s = FlightState { vel: Vec3::new(10.0, -5.0, 120.0), ..state() };
         let cmd = InputCmd { aim: Vec3::Z, ..InputCmd::default() };
-        let spec = frame(FrameId::Leo);
+        let spec = frame(FrameId::Argo);
         for _ in 0..90 {
             step(&mut s, &cmd, spec, &FlightMods::default(), crate::config::DT);
         }
@@ -769,11 +769,11 @@ mod tests {
     }
 
     #[test]
-    fn ambac_turns_without_propellant() {
+    fn limb_trim_turns_without_propellant() {
         let mut s = state();
         let cmd = InputCmd { aim: Vec3::X, ..InputCmd::default() };
         for _ in 0..90 {
-            step(&mut s, &cmd, frame(FrameId::Leo), &FlightMods::default(), crate::config::DT);
+            step(&mut s, &cmd, frame(FrameId::Argo), &FlightMods::default(), crate::config::DT);
         }
         assert!((s.rot * Vec3::Z).dot(Vec3::X) > 0.99);
         assert_eq!(s.propellant, 2_400.0);
@@ -851,7 +851,7 @@ mod tests {
     /// first at 30 m/s (46 g, thrown into the straps) knocks them out, and between it strains them
     /// in proportion. What knocks them out goes as G does: head first (their blood driven to their
     /// head) the slowest, then feet first or side on, face first, and back first (pressed into the
-    /// seat) the fastest. A Mobile Doll feels none of it, and a suit nothing stopped nothing.
+    /// seat) the fastest. A drone feels none of it, and a suit nothing stopped nothing.
     #[test]
     fn a_crash_jolts_the_pilot() {
         let human = FlightMods::default();
@@ -878,8 +878,8 @@ mod tests {
             let got = knockout(dir);
             assert!(got >= want && got < want + 0.11, "{dir}: {got} m/s, want {want}");
         }
-        let doll = FlightMods { g_immune: true, ..human };
-        assert_eq!(stopped(Vec3::Z * 2_000.0, &doll).g_strain, 0.0);
+        let drone = FlightMods { g_immune: true, ..human };
+        assert_eq!(stopped(Vec3::Z * 2_000.0, &drone).g_strain, 0.0);
         let mut s = FlightState { vel: Vec3::Z * 300.0, ..state() };
         crash(&mut s, Vec3::Z * 300.0, &human);
         assert_eq!(s.g_strain, 0.0);
@@ -891,7 +891,7 @@ mod tests {
     fn inside_the_colony_the_air_is_felt_and_the_spin_isnt() {
         use crate::colony::frame::CityPos;
         use crate::colony::interior::drag;
-        let spec = frame(FrameId::Leo);
+        let spec = frame(FrameId::Argo);
         let mods = FlightMods { interior: true, ..FlightMods::default() };
         let coast = InputCmd { aim: Vec3::X, ..InputCmd::default() };
         let low = CityPos::new(0, 0.0, 1_000.0, 50.0).to_colony();
@@ -936,12 +936,12 @@ mod tests {
             let cos_a = fwd.dot(aim);
             let angle = atan2(sin_a, cos_a);
             let rcs = cmd.pressed(RCS_SHARP) && has_prop;
-            let max_rate = if rcs { spec.rcs_rate } else { spec.ambac_rate } * authority;
-            let ambac = spec.ambac_accel * mods.ambac * authority * turn;
+            let max_rate = if rcs { spec.rcs_rate } else { spec.limb_trim_rate } * authority;
+            let limb_trim = spec.limb_trim_accel * mods.limb_trim * authority * turn;
             let rcs_accel = if rcs { spec.rcs_accel * authority * turn } else { 0.0 };
-            let accel_cap = ambac + rcs_accel;
+            let accel_cap = limb_trim + rcs_accel;
             // Toward the aim, but never faster than it can stop from in time: arms busy firing or with a
-            // blade take AMBAC's limbs, not its top rate, and it mustn't swing past the aim for it.
+            // blade take limb trim's limbs, not its top rate, and it mustn't swing past the aim for it.
             let rate = |angle: f32| {
                 (angle * AIM_GAIN).min(max_rate).min(sqrt(2.0 * ATTITUDE_BRAKE * accel_cap * angle))
             };
@@ -1142,7 +1142,7 @@ mod tests {
         };
         let spec = frame(FrameId::ALL[rng.next_u32() as usize % FrameId::COUNT]);
         let mods = FlightMods {
-            ambac: rng.next_f32(),
+            limb_trim: rng.next_f32(),
             thrust: rng.next_f32(),
             g_immune: rng.next_u32().is_multiple_of(2),
             lunge: rng.next_u32().is_multiple_of(8),
@@ -1238,7 +1238,7 @@ mod tests {
     /// on it holds station on it, and the stick's speed comes on top. Brake brakes to the target.
     #[test]
     fn locked_on_flight_assist_keeps_pace_with_its_target() {
-        let spec = frame(FrameId::Leo);
+        let spec = frame(FrameId::Argo);
         // Mostly ahead, where the main thrusters push; some across, where the side ones do.
         let target = Vec3::new(50.0, -60.0, 380.0);
         assert!(target.length() > spec.fa_speed);
@@ -1265,7 +1265,7 @@ mod tests {
 
     #[test]
     fn roll_level_rolls_the_feet_down_and_keeps_the_nose() {
-        let spec = frame(FrameId::Leo);
+        let spec = frame(FrameId::Argo);
         // Lying on its side (up along +X) over a surface below it (its normal +Y), rolling hard
         // the other way: roll-level flies instead of the roll command.
         let mut s = FlightState { rot: crate::math::look_rotation(Vec3::Z, Vec3::X), ..state() };
@@ -1281,7 +1281,7 @@ mod tests {
 
     #[test]
     fn hop_assist_never_holds_altitude_and_climbs_when_asked() {
-        let spec = frame(FrameId::Leo);
+        let spec = frame(FrameId::Argo);
         let hop = HopAssist { up: Vec3::Y, cruise: 8.0, climb: 20.0 };
         let fly = |thrust: [i8; 3], hop: Option<HopAssist>| {
             let mut s = FlightState { vel: Vec3::new(0.0, -5.0, 0.0), ..state() };

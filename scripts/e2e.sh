@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # Runs a Playwright suite against a freshly started server.
 #   scripts/e2e.sh spike [project]   # transport smoke test (server in echo mode)
-#   scripts/e2e.sh slice [project]   # the vertical slice (game mode, dolls + an agent bot)
+#   scripts/e2e.sh slice [project]   # the vertical slice (game mode, drones + an agent bot)
 #   scripts/e2e.sh gfx [project]     # every showcase scene renders cleanly (BC_GFX_QUALITY=high)
-#   scripts/e2e.sh frames [project]  # the autopilot flies each Gundam's kit against the dolls
-#   scripts/e2e.sh lockon [project]  # Y locks on to a Doll, W carries the suit in, holding Y lets go
+#   scripts/e2e.sh frames [project]  # the autopilot flies each Lodestar's kit against the drones
+#   scripts/e2e.sh lockon [project]  # Y locks on to a drone, W carries the suit in, holding Y lets go
 #   scripts/e2e.sh ui [project]      # the title screen, the menu, reconnecting, disconnecting
 #   scripts/e2e.sh login [project]   # wallet sign-in (a stub wallet with a test key), resume, take-over
 #   scripts/e2e.sh hangar [project]  # survival: on foot in the bay, its terminals, launching and docking
-#   scripts/e2e.sh surface [project] # the lander lands in MO-II's Aft Well, hides, parks and wakes there
+#   scripts/e2e.sh surface [project] # the lander lands in Fornax's Aft Well, hides, parks and wakes there
 #   scripts/e2e.sh colony [project]  # survival, the colony open: the cap lift, another pilot at Hub Gate, the streets, the Exchange floor, a sight; two browsers meet at Hub Gate, one rides home, and an agent's suit lands by the other
 #   scripts/e2e.sh inside [project]  # survival, the colony open: Q at the cockpit launches the suit into the colony, it flies a way down it (through the course's start ring) and docks back at the inner gate; another lands on the avenue, sees the stroller there and walks it; a third flies into the Blast Hall and scores on its targets; a fourth boards a trainer at the hall's gantry, starts the drill and docks back on foot
-#   scripts/e2e.sh chart [project]   # the chart: the Earth Sphere and back, a course to MO-II's Aft Well, the auto-nav flying it
+#   scripts/e2e.sh chart [project]   # the chart: Earth-Moon space and back, a course to Fornax's Aft Well, the auto-nav flying it
 # Anything after the project goes to Playwright, e.g. `scripts/e2e.sh gfx webgl2 --grep "duel|hangar"`.
 # The suits' suites run the arcade rules (any frame, free respawns) unless BC_RULES says otherwise
 # (hangar, colony and inside always run survival), and every game-mode suite the anime flight rules
@@ -47,48 +47,48 @@ case "$suite" in
     pids+=($!)
     ;;
   slice)
-    "${server[@]}" --mode game --rules "${BC_RULES:-arcade}" --flight "${BC_FLIGHT:-anime}" --mobile-dolls "${BC_DOLLS:-24}" &
+    "${server[@]}" --mode game --rules "${BC_RULES:-arcade}" --flight "${BC_FLIGHT:-anime}" --drones "${BC_DRONES:-24}" &
     pids+=($!)
     sleep 1
-    "$bin/examples/mobile_doll" --server "$BC_URL" --name "Agent-01" &
+    "$bin/examples/drone" --server "$BC_URL" --name "Agent-01" &
     pids+=($!)
     ;;
   frames)
-    "${server[@]}" --mode game --rules "${BC_RULES:-arcade}" --flight "${BC_FLIGHT:-anime}" --mobile-dolls "${BC_DOLLS:-24}" &
+    "${server[@]}" --mode game --rules "${BC_RULES:-arcade}" --flight "${BC_FLIGHT:-anime}" --drones "${BC_DRONES:-24}" &
     pids+=($!)
     ;;
   lockon)
-    # A few Dolls to lock on to.
-    "${server[@]}" --mode game --rules "${BC_RULES:-arcade}" --flight "${BC_FLIGHT:-anime}" --mobile-dolls "${BC_DOLLS:-8}" &
+    # A few drones to lock on to.
+    "${server[@]}" --mode game --rules "${BC_RULES:-arcade}" --flight "${BC_FLIGHT:-anime}" --drones "${BC_DRONES:-8}" &
     pids+=($!)
     ;;
   ui)
-    "${server[@]}" --mode game --rules "${BC_RULES:-arcade}" --flight "${BC_FLIGHT:-anime}" --mobile-dolls "${BC_DOLLS:-4}" &
+    "${server[@]}" --mode game --rules "${BC_RULES:-arcade}" --flight "${BC_FLIGHT:-anime}" --drones "${BC_DRONES:-4}" &
     pids+=($!)
     ;;
   login)
-    # No dolls: an idle pilot shot down can't sleep (a wreck is simply gone).
-    "${server[@]}" --mode game --rules "${BC_RULES:-arcade}" --flight "${BC_FLIGHT:-anime}" --mobile-dolls 0 &
+    # No drones: an idle pilot shot down can't sleep (a wreck is simply gone).
+    "${server[@]}" --mode game --rules "${BC_RULES:-arcade}" --flight "${BC_FLIGHT:-anime}" --drones 0 &
     pids+=($!)
     ;;
   chart)
-    # No dolls: nothing interrupts the auto-nav's flight.
-    "${server[@]}" --mode game --rules "${BC_RULES:-arcade}" --flight "${BC_FLIGHT:-anime}" --mobile-dolls 0 &
+    # No drones: nothing interrupts the auto-nav's flight.
+    "${server[@]}" --mode game --rules "${BC_RULES:-arcade}" --flight "${BC_FLIGHT:-anime}" --drones 0 &
     pids+=($!)
     ;;
   surface)
-    # No dolls: nothing hunts the hider (and a wreck can't park).
-    "${server[@]}" --mode game --rules "${BC_RULES:-arcade}" --flight "${BC_FLIGHT:-anime}" --mobile-dolls 0 &
+    # No drones: nothing hunts the hider (and a wreck can't park).
+    "${server[@]}" --mode game --rules "${BC_RULES:-arcade}" --flight "${BC_FLIGHT:-anime}" --drones 0 &
     pids+=($!)
     ;;
   hangar)
     # Survival rules; the fabricator works fast so a job finishes inside the test.
-    "${server[@]}" --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --craft-speed 60 --mobile-dolls 0 &
+    "${server[@]}" --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --craft-speed 60 --drones 0 &
     pids+=($!)
     ;;
   colony|inside)
-    # Survival rules (the colony open, as by default); no dolls. An agent strolls outside Hub Gate.
-    "${server[@]}" --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --mobile-dolls 0 &
+    # Survival rules (the colony open, as by default); no drones. An agent strolls outside Hub Gate.
+    "${server[@]}" --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --drones 0 &
     pids+=($!)
     sleep 1
     "$bin/examples/flaneur" --server "$BC_URL" --name "Flaneur-01" &

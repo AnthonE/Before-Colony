@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { bc, collectConsole } from "./util";
 
-// Lock-on (docs/LOCK.md) in a real browser against the server's Mobile Dolls, flown with the keys
-// (headless Chromium can't lock the pointer, so a dev hook keeps the aim on the nearest Doll): Y
+// Lock-on (docs/LOCK.md) in a real browser against the server's drones, flown with the keys
+// (headless Chromium can't lock the pointer, so a dev hook keeps the aim on the nearest drone): Y
 // locks it, holding W carries the suit in to it, flying locked on, its prediction keeping to the
 // server's; holding Y lets go.
-test("lock on to a Doll, close in on it, and let go", async ({ page, request }, info) => {
+test("lock on to a drone, close in on it, and let go", async ({ page, request }, info) => {
   test.setTimeout(420_000);
   const logs = collectConsole(page);
   const wait = async (what: string, pred: string, timeout = 60_000) => {
@@ -20,25 +20,25 @@ test("lock on to a Doll, close in on it, and let go", async ({ page, request }, 
   await page.goto(`/?quality=low&gfx=${info.project.name}`);
   await expect(page.locator("#title")).toBeVisible({ timeout: 60_000 });
   await page.locator("#callsign").fill("E2E-Lock");
-  // Wing Zero: a Leo flying in on eight Dolls is often shot down before it's halfway there.
-  await page.locator('#frames .frame[data-slug="wingzero"]').click();
+  // Altair: an Argo flying in on eight drones is often shot down before it's halfway there.
+  await page.locator('#frames .frame[data-slug="altair"]').click();
   await page.locator("#launch-button").click();
   await wait("in the world", "window.__bc?.link === 'ingame' && window.__bc?.alive && window.__bc?.entities > 0");
   await page.focus("#bc");
 
-  // On to the nearest Doll (a dev hook keeps the aim on it, as a pilot's mouse would: headless
+  // On to the nearest drone (a dev hook keeps the aim on it, as a pilot's mouse would: headless
   // Chromium can't lock the pointer), flying in until one is within a lock's reach.
   await page.evaluate(() => (window as any).bcInbox.push({ cmd: "aim_hostile", on: true }));
   await page.keyboard.down("w");
-  await wait("a Doll within reach", "window.__bc?.hostile_range > 0 && window.__bc?.hostile_range < 3000", 120_000);
+  await wait("a drone within reach", "window.__bc?.hostile_range > 0 && window.__bc?.hostile_range < 3000", 120_000);
   await page.keyboard.up("w");
 
-  // Y: the Doll under the crosshair.
+  // Y: the drone under the crosshair.
   await page.keyboard.press("y");
   await wait("a lock", "window.__bc?.lock_slot >= 0 && window.__bc?.lock_range > 0", 20_000);
   const start = (await bc(page)).lock_range as number;
 
-  // W and boost, held: in to it (a Doll keeps its distance, so boost), flying locked on, the
+  // W and boost, held: in to it (a drone keeps its distance, so boost), flying locked on, the
   // prediction keeping to the server's.
   await page.keyboard.down("Shift");
   await page.keyboard.down("w");

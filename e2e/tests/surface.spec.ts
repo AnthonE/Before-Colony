@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { bc, built, collectConsole } from "./util";
 
 // Suits on the bodies, end to end: signed in with a stub wallet, the lander autopilot flies from
-// the Colonies' base to MO-II, lands in its Aft Well with its grip, crouches and lies still until
+// the Colonies' base to Fornax, lands in its Aft Well with its grip, crouches and lies still until
 // it's hidden. Leaving there parks the suit (asleep, in the hide spot); coming back wakes in it,
 // still on the ground and still hidden. Then, flown by hand, it wakes there again and lifts off
 // on the thrusters, free past 40 m. All the while the server allocates nothing in its tick, every
@@ -13,7 +13,7 @@ const SIGNER = built("examples/sign");
 const ADDRESS = "0x2b5ad5c4795c026514f8317c7a215e218dccd6cf";
 const NAME = "E2E-Hider";
 
-test("land in MO-II's Aft Well, hide there, park on leaving, wake hidden and lift off", async ({ context, page, request }, info) => {
+test("land in Fornax's Aft Well, hide there, park on leaving, wake hidden and lift off", async ({ context, page, request }, info) => {
   test.setTimeout(600_000);
   await context.exposeFunction("__signHex", (hex: string) => {
     const message = Buffer.from(hex.slice(2), "hex");
@@ -56,7 +56,7 @@ test("land in MO-II's Aft Well, hide there, park on leaving, wake hidden and lif
   };
 
   // The lander flies; the title waits for the wallet (`autoplay=0`) so the pilot signs in.
-  await page.goto(`/?quality=low&gfx=${info.project.name}&frame=leo&autopilot=lander:hide:0:0&autoplay=0`);
+  await page.goto(`/?quality=low&gfx=${info.project.name}&frame=argo&autopilot=lander:hide:0:0&autoplay=0`);
   await expect(page.locator("#title")).toBeVisible({ timeout: 60_000 });
   await page.locator("#wallet-button").click();
   await expect(page.locator("#wallet-account")).toContainText(ADDRESS.slice(0, 6));
@@ -65,7 +65,7 @@ test("land in MO-II's Aft Well, hide there, park on leaving, wake hidden and lif
   await waitOn(page, "signed in", (b) => b.link === "ingame" && b.signed_in && b.alive);
   expect((await bc(page)).autopilot).toBe(true);
 
-  // About 15 km to MO-II at the lander's cruise, then down into the Aft Well.
+  // About 15 km to Fornax at the lander's cruise, then down into the Aft Well.
   const flown = Date.now();
   let landed = await waitOn(
     page,
@@ -113,7 +113,7 @@ test("land in MO-II's Aft Well, hide there, park on leaving, wake hidden and lif
   await page.locator("#disconnect-button").click();
   await waitOn(page, "the title again", (b) => b.link === "idle");
   await expect.poll(asleep, { timeout: 10_000 }).toBeTruthy();
-  await page.goto(`/?quality=low&gfx=${info.project.name}&frame=leo&autoplay=0`);
+  await page.goto(`/?quality=low&gfx=${info.project.name}&frame=argo&autoplay=0`);
   await expect(page.locator("#wallet-account")).toContainText(ADDRESS.slice(0, 6), { timeout: 60_000 });
   await page.locator("#callsign").fill(NAME);
   await page.locator("#launch-button").click();

@@ -2,7 +2,7 @@
 
 The owner's ask (October 2026): somewhere inside the colony for pilots to train, "some sort of
 workshop", or "a giant blast chamber": a tutorial area where a new pilot walks around freely,
-then gets into a Gundam and learns to fly it. They also asked for the feel of X-Wing (1993) and
+then gets into a Lodestar and learns to fly it. They also asked for the feel of X-Wing (1993) and
 TIE Fighter (1994). What those games did, and what we take from them, is in `PEERS.md` ("X-Wing and
 TIE Fighter"). This document is the design built from that ask. Phases 1 to 5 are built, and the
 drill (X-Wing's Maze, in the hall).
@@ -17,7 +17,7 @@ drill (X-Wing's Maze, in the hall).
 | 4: the board. Times checked by the server, the day's best on the hall's back wall and at its desk, a pilot's bests on their record | built |
 | 5: live fire in the hall: the colony's law's one exception, the owner's call. Training rounds that touch no suit and score on its targets | built |
 | The drill: the hall's targets lit one at a time against a clock, X-Wing's Maze | built |
-| The test range: any build boarded at the gantry (the Board's Leo, the bay's build, any line's), Armored Core VI's test mode | built |
+| The test range: any build boarded at the gantry (the Board's Argo, the bay's build, any line's), Armored Core VI's test mode | built |
 | The certificate's reward: the Charter Board's beam rifle, once, paid out at its desk on Charter Square (the first ten minutes, step 6) | built |
 | 6: more courses (the hall's own among them), and a level ladder | planned |
 
@@ -41,8 +41,8 @@ drill (X-Wing's Maze, in the hall).
   - walls that stop you;
   - and, at the end, the grip.
 - **A reason in the world.** TIE Fighter's manual: "Although thousands of TIE fighters are in
-  use… that does not mean they are expendable." Ours: the Charter Board's Leos are second-hand and
-  dear, and it won't send an Arrival out to the Consortium's Dolls untried.
+  use… that does not mean they are expendable." Ours: the Charter Board's Argos are second-hand and
+  dear, and it won't send an Arrival out to the Consortium's drones untried.
 - **Something to show for it.** X-Wing gave a flight badge for clearing eight levels; TIE Fighter
   gave a patch per craft and a bronze, silver or gold medallion. Ours is the Charter Board's flight
   certificate (first, second or third class against the par), and a place on the hall's board, both
@@ -50,7 +50,7 @@ drill (X-Wing's Maze, in the hall).
 - **Recommended, never required.** X-Wing's manual: Maze, then Historical Combat, then the Tours,
   "recommended, but not required." TIE Fighter kept green pilots out of battles that mattered. Ours
   is pointed to by an objective (**EARN A FLIGHT CERTIFICATE**), and gates nothing: the Board
-  trusts a certified pilot with a beam rifle, the one the worn Leo came without, collected at its
+  trusts a certified pilot with a beam rifle, the one the worn Argo came without, collected at its
   desk on Charter Square. A pilot who never flies it can still buy or build one.
 - **A tutorial that talks to you while you fly.** TIE Fighter's Combat Chamber missions carried
   in-flight lessons from your wingmen and command. Ours is the HUD's panel: one plain line for the
@@ -61,7 +61,7 @@ drill (X-Wing's Maze, in the hall).
 The colony's builders tested thrusters and suit engines in a hall at the foot of the docking hub's
 end cap. It was built to take a burn at full throttle without cracking its walls: **the Blast
 Hall**. Now that the docks are open, the Charter Board runs it as **the Proving Ground**, where an
-Arrival shows they can fly a Leo before the Board trusts them with one. The course runs from the
+Arrival shows they can fly an Argo before the Board trusts them with one. The course runs from the
 hall out through the colony's air. In phase 1 it runs the other way: from the inner gate down to
 the square, which the hall will open onto.
 
@@ -76,7 +76,7 @@ the square, which the hall will open onto.
    through the drill, the pars, the pilot's own bests. This is X-Wing's Ready Room, with its
    viewscreen; the same board hangs high on the hall's back wall. *(Built, but for the floor
    markings that teach running, jumping and crouching, and the gantry's stairs.)*
-4. **Board the trainer** at the gantry's hatch (built). It's a Leo of the Board's, not the pilot's
+4. **Board the trainer** at the gantry's hatch (built). It's an Argo of the Board's, not the pilot's
    own: nothing of theirs is at stake, and it can't be lost inside, where no blow lands.
 5. **Fly it** (built).
    - In the hall: weapons free, and the drill, from the gantry or anywhere on the firing line.
@@ -136,8 +136,8 @@ by the server for the board (phase 4), alike:
 - **Second class:** within half as long again.
 - **Third class:** flown at all.
 
-The test's Leo flies through every ring's middle by rote, at a steady 80 m/s on flight assist, and
-lands carefully. It takes 2:25.7: second class. A Leo flies level at about 190 m/s (240 on boost),
+The test's Argo flies through every ring's middle by rote, at a steady 80 m/s on flight assist, and
+lands carefully. It takes 2:25.7: second class. An Argo flies level at about 190 m/s (240 on boost),
 so a pilot who flies a line beats two minutes. The best time is kept with the settings
 (`course_best_ms`), as the sights found are.
 
@@ -153,7 +153,7 @@ so a pilot who flies a line beats two minutes. The best time is kept with the se
 - **News.** Finishing puts the time and the certificate in the middle of the screen
   (`COURSE FLOWN · 1:58.2 · FIRST CLASS`).
 
-**By the real flight rules** (`BC_FLIGHT=real`) a Leo's tank runs dry soon after the turn over the
+**By the real flight rules** (`BC_FLIGHT=real`) an Argo's tank runs dry soon after the turn over the
 top. It's holding itself up in air, and every newton of that burns propellant. The course is the
 anime rules' (the server's default). Under the real rules it's a lesson in propellant, which may
 be the point. See the open questions.
@@ -164,7 +164,7 @@ be the point. See the open questions.
   is clear by two hulls; each ring faces the way the course comes through it; the pad is open
   ground on Hub Gate's square; a ring counts only when flown through the right way.
 - `course`'s run: it counts rings in order, starts over at the start ring, lapses, ignores a jump,
-  and reads its clock (`bc_sim`); and **a Leo flies the whole course in the server's interior
+  and reads its clock (`bc_sim`); and **an Argo flies the whole course in the server's interior
   simulation**: launched at the inner gate under the anime rules, it threads every ring, lands on
   the pad with the grip, and earns second class (`bc_client_core::course`).
 
@@ -205,7 +205,7 @@ be the point. See the open questions.
   - the rooms' tests cover it as they do the others: a walker from the street through the doors to
     the desk; the front wall either side of the doors, the side and back walls, the ceiling; who's
     in it and who isn't;
-  - a Leo flies in through the blast doors from over the square without touching a wall, and
+  - an Argo flies in through the blast doors from over the square without touching a wall, and
     lands on the hall's floor with the grip (`bc-sim/tests/interior.rs`);
   - the objectives' chain runs through it;
   - the `colony` e2e walks across the square and in to the desk, and uses it.
@@ -221,12 +221,12 @@ on foot boards, is 14 m from the pad's middle toward the hall's (`hatch`).
 
 **Boarding.**
 - On foot at the hatch, facing the pad, the prompt says `E  BOARD A TRAINER` and names what the
-  test range picked (below): `THE CHARTER BOARD'S LEO` till the pilot picks another, `YOUR LEO, AS
-  BUILT`, `A NEW GUNDAM HEAVYARMS` (`HangarState::trainer_name`). E asks
+  test range picked (below): `THE CHARTER BOARD'S ARGO` till the pilot picks another, `YOUR ARGO, AS
+  BUILT`, `A NEW ANTARES` (`HangarState::trainer_name`). E asks
   `Request::BoardTrainer` (`board_trainer`). The screen goes dark as it does boarding in the bay.
 - The server checks the pilot stands at the hatch: the plaza's last pose of them, within 12 m.
 - It takes a slot in the inside's sector and seats them with `Control::Board`: the suit the pilot
-  picked at the desk (the test range, below; by default a Leo with everything fitted and loaded,
+  picked at the desk (the test range, below; by default an Argo with everything fitted and loaded,
   `Loadout::full`), put on the gantry by `Sim::launch_at` with `LaunchAt::Gantry`. It stands on the pad facing the targets, gripping until its pilot is first
   heard from.
 - Nothing of the pilot's hangar goes with it: their own suit stays in their bay.
@@ -250,7 +250,7 @@ on foot boards, is 14 m from the pad's middle toward the hall's (`hatch`).
   pad's radius, `AT REST ON ITS PAD: ENTER`; docked, `ENTER: climb out`). Away from it Enter opens
   the radio (`bc_client_core::dock`);
 - `ON THE GANTRY  ENTER: climb out` while it's docked there;
-- the news `ABOARD A TRAINER · THE CHARTER BOARD'S LEO · WEAPONS FREE IN THE HALL · DOCK AT REST
+- the news `ABOARD A TRAINER · THE CHARTER BOARD'S ARGO · WEAPONS FREE IN THE HALL · DOCK AT REST
   ON ITS GANTRY`, naming the trainer as the hatch's prompt did.
 
 **Tests:**
@@ -265,10 +265,10 @@ on foot boards, is 14 m from the pad's middle toward the hall's (`hatch`).
 - The `inside` e2e: boards at the hatch, fires the drill, and docks back.
 
 **The test range** (`bc_econ::proving::Trainer`; Armored Core VI's test mode, `PEERS.md`):
-- At the desk, under the board, `THE TEST RANGE` lists what the gantry can ready: the Board's Leo,
+- At the desk, under the board, `THE TEST RANGE` lists what the gantry can ready: the Board's Argo,
   `YOUR BAY'S BUILD`, and a new suit of each line the colony builds. Picking one sends
   `Request::Trainer { build }`; the session keeps it and says so (`THE GANTRY READIES A NEW
-  HEAVYARMS`), and the board's view carries it back (`trainer`), so the page shows which. It's
+  ANTARES`), and the board's view carries it back (`trainer`), so the page shows which. It's
   the desk's alone (`Request::desk`): asked from anywhere but the hall's room, the server refuses
   it (`the test range is picked at the proving ground's desk, in the blast hall`).
 - The bay's build is the suit standing in the pilot's bay as built (its parts, weapons and
@@ -277,7 +277,7 @@ on foot boards, is 14 m from the pad's middle toward the hall's (`hatch`).
 - Boarding takes the pick's frame and loadout to `Control::Board`. It flies, fights the drill and
   docks back as any trainer does; nothing of the pilot's is taken, and nothing comes home.
 - Tests: the trainers' units (`proving`), `bc-sector/tests/training_net.rs` (any build boards at the
-  gantry with what its loadout says), `bc-server/tests/proving.rs` (a Heavyarms boarded at the
+  gantry with what its loadout says), `bc-server/tests/proving.rs` (an Antares boarded at the
   hatch).
 
 **Not built** of the plan: the course's start moved to the blast doors, a second course for the
@@ -357,7 +357,7 @@ X-Wing's Maze in the Blast Hall (`hall::Drill`, after phase 5's live fire).
 - The news `DRILL CLEARED · 0:21.3 · FIRST CLASS`, or `THE DRILL · TIME · 12 OF 20 STRUCK`.
 - The `aim_hostile` hook aims at the lit target.
 
-**The par is a pilot's, not a machine's.** A Leo on the gantry turning to each target on perfect aim
+**The par is a pilot's, not a machine's.** An Argo on the gantry turning to each target on perfect aim
 clears it in 3.8 s in the sim, and in 6.8 s over the wire with an agent's aim. The rest of a
 pilot's time is finding the lit target and putting the crosshair on it: par is a second and a
 quarter each. The trainer's machine cannon carries 400 rounds, so a pilot who sprays runs dry:
@@ -382,7 +382,7 @@ forms, which the server's interior sector and each pilot's prediction share.
     so a suit's busy arms and lunges are predicted exactly.
   - Nothing is shown ready to fire outside (the own snapshot's ready bits), so the client predicts
     no shot there.
-  - A Full Open Attack begun in the hall stops firing at its doors.
+  - A Full Salvo begun in the hall stops firing at its doors.
 - **Training rounds** are the suit's own weapons: beams, guns, missiles, flame, blades. Inside
   the colony, though:
   - **They touch no suit.** Shots, missiles and flame pass suits by, and no blow lands
@@ -415,7 +415,7 @@ forms, which the server's interior sector and each pilot's prediction share.
   - `hall`'s units: weapons free only in the room; the targets clear of the walls and of each
     other; a round stops at a target or the bounds and never leaves the hall.
   - `bc-sim/tests/interior.rs`:
-    - a Leo in the hall scores on a target, and counts it;
+    - an Argo in the hall scores on a target, and counts it;
     - rounds pass through a suit in the way, which takes nothing, and score beyond it;
     - rounds fired at the blast doors stop there;
     - on the square before the doors, the trigger does nothing and nothing is shown ready.
@@ -440,7 +440,7 @@ are built: above.)
 - **A course for each strip:** Canal's runs under its bridges, Gardens' along its terraces.
 - **Speed rings** that boost, as X-Wing Alliance's did.
 - **Several pilots racing at once:** the rings are everyone's already.
-- **A ZERO trial** for the Wing Zero.
+- **An Orrery trial** for the Altair.
 
 ## Open questions
 
@@ -451,7 +451,7 @@ are built: above.)
   shows. Any certificate, of any class, earns the Board's beam rifle once (a signed-in record's
   once, a guest's once a visit), collected at its desk; the colony's desk out of rifles, a rifle's
   worth in credits, with no standing. The class only shows, on the board and the pilot's record:
-  no class bonus, and no class gates the test range's Gundams (`PEERS.md`).
+  no class bonus, and no class gates the test range's Lodestars (`PEERS.md`).
 - **The board's reach:** the day's best, and the best ever. A week's, or a season's, and whether a
   guest belongs on it.
 - **Mandatory or not:** recommended, never required, as X-Wing's was.

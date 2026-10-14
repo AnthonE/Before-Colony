@@ -19,7 +19,7 @@ fn config(colony: bool) -> anyhow::Result<Config> {
         rules: Ruleset::Survival,
         wt_port: 0,
         http_addr: "127.0.0.1:0".parse()?,
-        mobile_dolls: 0,
+        drones: 0,
         max_clients: 8,
         colony,
         ..Config::default()
@@ -27,7 +27,7 @@ fn config(colony: bool) -> anyhow::Result<Config> {
 }
 
 fn bot(http: &str, name: &str) -> BotConfig {
-    BotConfig { server: http.into(), name: name.into(), frame: FrameId::Leo, faction: Faction::Colonies }
+    BotConfig { server: http.into(), name: name.into(), frame: FrameId::Argo, faction: Faction::Colonies }
 }
 
 /// Asks, and waits for the note that answers: its text, and whether it was done.
@@ -62,7 +62,7 @@ async fn status_place(server: &bc_server::ServerHandle, want: &str) -> String {
 async fn a_pilot_rides_down_into_the_colony_trades_and_rides_back() -> anyhow::Result<()> {
     let server = bc_server::start(config(true)?).await?;
     let http = format!("http://{}", server.http_addr);
-    let mut b = BotClient::connect(&bot(&http, "Relena")).await?;
+    let mut b = BotClient::connect(&bot(&http, "Maren")).await?;
     in_the_bay(&mut b).await?;
     assert!(b.core.welcome.as_ref().is_some_and(|w| w.colony), "the Welcome says the colony's open");
     assert_eq!(server.status()["game"]["colony"], true);

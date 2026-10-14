@@ -1,12 +1,12 @@
-//! An AI agent that flies with the Mobile Doll brain and the frame's whole kit.
+//! An AI agent that flies with the drone brain and the frame's whole kit.
 //!
-//!   cargo run -p bc-bot --release --example mobile_doll -- --server http://127.0.0.1:8080 --name Agent-01
-//!   ... --frame deathscythe   (any frame pilots fly: leo, wingzero, heavyarms, deathscythe,
-//!                              sandrock, shenlong)
+//!   cargo run -p bc-bot --release --example drone -- --server http://127.0.0.1:8080 --name Agent-01
+//!   ... --frame algol   (any frame pilots fly: argo, altair, antares, algol,
+//!                              canopus, thuban)
 
 use std::time::Duration;
 
-use bc_bot::{BotClient, BotConfig, DollBrain, parse_faction, parse_frame};
+use bc_bot::{BotClient, BotConfig, DroneBrain, parse_faction, parse_frame};
 use clap::Parser;
 
 #[derive(Parser)]
@@ -15,7 +15,7 @@ struct Args {
     server: String,
     #[arg(long, default_value = "Agent-01")]
     name: String,
-    #[arg(long, default_value = "leo")]
+    #[arg(long, default_value = "argo")]
     frame: String,
     #[arg(long, default_value = "colonies")]
     faction: String,
@@ -38,8 +38,8 @@ async fn main() -> anyhow::Result<()> {
         faction: parse_faction(&a.faction).ok_or_else(|| anyhow::anyhow!("unknown faction {}", a.faction))?,
     };
     let mut bot = connect(&cfg).await;
-    tracing::info!(name = %a.name, "connected as an agent (shown in-game as MD)");
-    let mut brain = DollBrain::new(0xA11CE);
+    tracing::info!(name = %a.name, "connected as an agent (shown in-game as DR)");
+    let mut brain = DroneBrain::new(0xA11CE);
     let started = std::time::Instant::now();
     let mut last_report = started;
     loop {

@@ -1,5 +1,5 @@
 // The HUD's panels (`ui_panel.rs`): a translucent plate with two corners cut off and a thin edge,
-// as the mobile-suit monitor draws its readouts; or (mode 1) hazard stripes, for a caution.
+// as the mech monitor draws its readouts; or (mode 1) hazard stripes, for a caution.
 
 #import bevy_ui::ui_vertex_output::UiVertexOutput
 

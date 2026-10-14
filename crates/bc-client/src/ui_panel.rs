@@ -1,4 +1,4 @@
-//! The HUD's panels in the mobile-suit monitor's style: translucent plates with two corners cut
+//! The HUD's panels in the mech monitor's style: translucent plates with two corners cut
 //! off and a thin edge, and hazard stripes for a caution (`shaders/ui_panel.wgsl`).
 
 use bevy::asset::embedded_asset;

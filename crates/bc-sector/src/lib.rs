@@ -11,7 +11,7 @@
 //!   whose consumer end also travels in the [`SlotLease`].
 //! - outbound packets: one `rtrb` byte ring per slot, drained by the egress thread. The sector
 //!   `unpark()`s that thread once per tick (a futex wake; waking tokio would take a mutex).
-//! - tactical pictures and advice: an SPSC ring each way, to the ZERO oracle worker.
+//! - tactical pictures and advice: an SPSC ring each way, to the Orrery oracle worker.
 //!
 //! No tokio dependency, no locks, and no allocation after [`build`] (enforced by `clippy.toml`
 //! and the `no_alloc_sector` test).

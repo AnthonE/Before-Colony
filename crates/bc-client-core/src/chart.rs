@@ -1,12 +1,12 @@
 //! The chart's view (`bc-client`'s `chart.rs` draws it): an orbit camera that zooms from a suit's
-//! length out to the whole Earth Sphere without a cut, and the screen-space work the chart does
+//! length out to the whole Earth-Moon space without a cut, and the screen-space work the chart does
 //! (what's under the cursor, keeping labels from piling up, the scale and its readouts).
 //!
 //! - **Orbit, pan, zoom.** Dragging turns the view about its focus; panning slides the focus
 //!   across the screen; zooming in closes on the point under the cursor, as a map does. The focus
 //!   can be held on something that moves (the pilot's suit), which panning lets go of.
-//! - **Seamless to the Earth Sphere.** Zooming out past the sector pulls the focus toward the
-//!   Earth Sphere's middle, a little each step, so the sector slides off toward L1 as Earth, the
+//! - **Seamless to Earth-Moon space.** Zooming out past the sector pulls the focus toward the
+//!   Earth-Moon space's middle, a little each step, so the sector slides off toward L1 as Earth, the
 //!   Moon and the Lagrange points come into view; zooming back in at the sector brings it home.
 //! - **Eased.** Every change sets a goal the view eases to (exactly, at any frame rate), so a
 //!   jump across 300,000 km is a flight, not a cut.
@@ -18,7 +18,7 @@ use crate::sphere;
 /// How close the view comes to its focus, and how far out it goes, m.
 pub const MIN_DIST: f32 = 60.0;
 pub const MAX_DIST: f32 = 2.6e9;
-/// Zooming out between these distances (m), the focus is pulled toward the Earth Sphere's middle.
+/// Zooming out between these distances (m), the focus is pulled toward Earth-Moon space's middle.
 pub const SPHERE_FROM: f32 = 60_000.0;
 pub const SPHERE_TO: f32 = 4.0e8;
 /// The view's field of view (vertical), rad.
@@ -32,7 +32,7 @@ const PITCH_LIMIT: f32 = 1.5;
 /// Radians of turn per pixel dragged.
 const TURN_PER_PX: f32 = 0.0055;
 
-/// The Earth Sphere's middle as the chart frames it: the barycentre, about which the Moon and the
+/// Earth-Moon space's middle as the chart frames it: the barycentre, about which the Moon and the
 /// Lagrange points lie.
 pub fn sphere_centre() -> Vec3 {
     sphere::barycentre()
@@ -89,7 +89,7 @@ fn smooth(e0: f32, e1: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// How much of a zoom out at `dist` m pulls toward the Earth Sphere, 0..1 (by the log of the
+/// How much of a zoom out at `dist` m pulls toward Earth-Moon space, 0..1 (by the log of the
 /// distance: 0 inside the sector's scale, 1 at the whole sphere's).
 pub fn sphere_pull(dist: f32) -> f32 {
     smooth(SPHERE_FROM.ln(), SPHERE_TO.ln(), dist.max(1.0).ln())
@@ -114,8 +114,8 @@ impl ChartCam {
     }
 
     /// Zooms by `steps` of the wheel (positive: in), toward `at` (the point under the cursor, at
-    /// the focus's depth) when zooming in. Zooming out past the sector pulls toward the Earth
-    /// Sphere. Zooming in toward something else lets go of what it was tracking.
+    /// the focus's depth) when zooming in. Zooming out past the sector pulls toward Earth-Moon
+    /// space. Zooming in toward something else lets go of what it was tracking.
     pub fn zoom(&mut self, steps: f32, at: Option<Vec3>) {
         let old = self.goal.dist;
         let new = (old * ZOOM_STEP.powf(-steps)).clamp(MIN_DIST, MAX_DIST);
@@ -315,7 +315,7 @@ mod tests {
     fn zooming_out_finds_the_earth_sphere_and_back_in_finds_the_sector() {
         let mut c = ChartCam::default();
         settle(&mut c, Some(Vec3::ZERO));
-        // All the way out, a step at a time: the view ends up framing the Earth Sphere.
+        // All the way out, a step at a time: the view ends up framing Earth-Moon space.
         for _ in 0..80 {
             c.zoom(-1.0, None);
         }

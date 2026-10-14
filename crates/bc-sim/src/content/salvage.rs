@@ -22,9 +22,9 @@ pub fn mass_without(frame_id: FrameId, lost: u8) -> u32 {
     Part::ALL.iter().filter(|p| lost & (1 << **p as u8) == 0).map(|p| part_mass_kg(frame_id, *p)).sum()
 }
 
-/// How long wreckage drifts before it's cleared: Mobile Dolls' and pilots'.
-pub fn wreck_ttl(doll: bool) -> u32 {
-    if doll { secs(60.0) } else { secs(180.0) }
+/// How long wreckage drifts before it's cleared: drones' and pilots'.
+pub fn wreck_ttl(drone: bool) -> u32 {
+    if drone { secs(60.0) } else { secs(180.0) }
 }
 
 /// Parts that come off when destroyed (the torso is the suit).
@@ -108,36 +108,36 @@ pub const REGROW_SLEEPER_CLEAR: f32 = 40.0;
 /// the blade has to reach it.
 pub const SABER_DIG: f32 = 2.5;
 
-/// Each frame's hold, kg (Mobile Dolls carry nothing).
+/// Each frame's hold, kg (drones carry nothing).
 pub fn hold_kg(frame_id: FrameId) -> u32 {
     match frame_id {
-        FrameId::Leo => 3_000,
-        FrameId::WingZero | FrameId::WingZeroBird | FrameId::Deathscythe | FrameId::Shenlong => 1_500,
-        // Heavyarms' magazines and Sandrock's desert kit leave a little less room.
-        FrameId::Heavyarms => 1_000,
-        FrameId::Sandrock => 2_000,
-        FrameId::Taurus | FrameId::Virgo => 0,
+        FrameId::Argo => 3_000,
+        FrameId::Altair | FrameId::Aquila | FrameId::Algol | FrameId::Thuban => 1_500,
+        // Antares' magazines and Canopus's desert kit leave a little less room.
+        FrameId::Antares => 1_000,
+        FrameId::Canopus => 2_000,
+        FrameId::Corvus | FrameId::Cetus => 0,
     }
 }
 
-/// What the colony pays (survival rules) for bringing down a Mobile Doll of `frame_id`, credits.
+/// What the colony pays (survival rules) for bringing down a drone of `frame_id`, credits.
 pub fn bounty(frame_id: FrameId) -> u32 {
     match frame_id {
-        FrameId::Virgo => 600,
+        FrameId::Cetus => 600,
         _ => 250,
     }
 }
 
-/// The Gundams: built of gundanium, which only zero-G can make.
-pub fn is_gundam(frame_id: FrameId) -> bool {
+/// The Lodestars: built of siderium, which only zero-G can make.
+pub fn is_lodestar(frame_id: FrameId) -> bool {
     matches!(
         frame_id,
-        FrameId::WingZero
-            | FrameId::WingZeroBird
-            | FrameId::Heavyarms
-            | FrameId::Deathscythe
-            | FrameId::Sandrock
-            | FrameId::Shenlong
+        FrameId::Altair
+            | FrameId::Aquila
+            | FrameId::Antares
+            | FrameId::Algol
+            | FrameId::Canopus
+            | FrameId::Thuban
     )
 }
 
@@ -146,13 +146,13 @@ pub fn ore_ttl() -> u32 {
     secs(300.0)
 }
 
-/// What a chunk is made of, as cargo: ore is its kind; a Gundam's parts are gundanium (sold with
+/// What a chunk is made of, as cargo: ore is its kind; a Lodestar's parts are siderium (sold with
 /// the exotics), everyone else's titanium.
 pub fn material(kind: ChunkKind) -> usize {
     match kind {
         ChunkKind::Ore { ore } => usize::from(ore) % CARGO_KINDS,
         ChunkKind::Limb { frame: f, .. } | ChunkKind::Hulk { frame: f, .. } => {
-            if is_gundam(f) {
+            if is_lodestar(f) {
                 3
             } else {
                 1
@@ -178,10 +178,10 @@ mod tests {
             assert!((all as f32 - dry).abs() <= 30.0, "{f:?}: {all} vs {dry}");
             assert_eq!(all % 10, 0);
         }
-        let leo = FrameId::Leo;
+        let argo = FrameId::Argo;
         assert_eq!(
-            mass_without(leo, 1 << Part::ArmL as u8),
-            mass_without(leo, 0) - part_mass_kg(leo, Part::ArmL)
+            mass_without(argo, 1 << Part::ArmL as u8),
+            mass_without(argo, 0) - part_mass_kg(argo, Part::ArmL)
         );
     }
 }

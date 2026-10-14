@@ -25,13 +25,13 @@ struct Args {
     /// Built web client directory to serve at `/`.
     #[arg(long, default_value = "web/dist")]
     web_dir: PathBuf,
-    /// Mobile Doll NPCs to keep in the sector.
-    #[arg(long, default_value_t = 24)]
-    mobile_dolls: u32,
-    /// Seconds between Zodiac's aces among the Dolls, one out at a time (0: none).
+    /// Drone NPCs to keep in the sector (`--mobile-dolls`, its name before 2026-10-14, still works).
+    #[arg(long, alias = "mobile-dolls", default_value_t = 24)]
+    drones: u32,
+    /// Seconds between the Almagest's aces among the drones, one out at a time (0: none).
     #[arg(long, default_value_t = 300)]
     ace_every: u64,
-    /// Tactical oracle behind the ZERO System (`jev` needs TYPESAFE_API_KEY).
+    /// Tactical oracle behind the Orrery (`jev` needs TYPESAFE_API_KEY).
     #[arg(long, value_enum, default_value_t = OracleKind::Local)]
     oracle: OracleKind,
     /// Player/agent slots.
@@ -92,7 +92,7 @@ fn main() -> anyhow::Result<()> {
         wt_port: args.wt_port,
         http_addr: args.http,
         web_dir,
-        mobile_dolls: args.mobile_dolls,
+        drones: args.drones,
         ace_every: std::time::Duration::from_secs(args.ace_every),
         oracle: args.oracle,
         max_clients: args.max_clients,

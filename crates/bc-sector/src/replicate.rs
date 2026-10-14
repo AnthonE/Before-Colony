@@ -226,8 +226,8 @@ pub(crate) fn build_snapshot(
     w.header(header);
     let own = sim.own_state(me);
     w.own(Some(&own));
-    let zero = sim.zero_info(me);
-    w.zero(zero.as_ref());
+    let orrery = sim.orrery_info(me);
+    w.orrery(orrery.as_ref());
 
     // --- Interest: update the known set first so fresh Leave notices go out in this snapshot. ---
     let candidates = &mut work.entities;
@@ -368,7 +368,7 @@ pub(crate) fn build_snapshot(
 /// haze).
 pub(crate) const WATCH_RANGE: f32 = 2_500.0;
 
-/// Writes one snapshot for a spectator watching from `at`: no own suit and no ZERO, the suits
+/// Writes one snapshot for a spectator watching from `at`: no own suit and no Orrery, the suits
 /// within [`WATCH_RANGE`] of them by the same priority accumulation as everyone's (weighted by
 /// distance), and notices of those that left their view or the sector. Nothing else: no events
 /// (inside the colony nothing fires), rocks, missiles or salvage.
@@ -384,7 +384,7 @@ pub(crate) fn build_watch(
     let mut w = SnapshotWriter::new(buf, client.max_datagram);
     w.header(header);
     w.own(None);
-    w.zero(None);
+    w.orrery(None);
     let candidates = &mut work.entities;
     let mut n_cand = 0;
     for j in 0..sim.suits.cap {
@@ -446,10 +446,10 @@ mod tests {
 
     use super::*;
 
-    /// A Leo standing on MO-II along `dir` (its frame).
-    fn on_mo_ii(sim: &mut Sim, dir: Vec3) -> SuitId {
+    /// An Argo standing on Fornax along `dir` (its frame).
+    fn on_fornax(sim: &mut Sim, dir: Vec3) -> SuitId {
         let id = sim
-            .spawn_at(FrameId::Leo, Faction::Oz, PilotKind::Human, Vec3::Y * 5_000.0, Quat::IDENTITY)
+            .spawn_at(FrameId::Argo, Faction::Almagest, PilotKind::Human, Vec3::Y * 5_000.0, Quat::IDENTITY)
             .unwrap();
         assert!(sim.place_on(id, Body::Landmark(0), dir));
         id
@@ -457,11 +457,17 @@ mod tests {
 
     #[test]
     fn still_riders_yield_bandwidth() {
-        let mut sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
-        let (still, walking) = (on_mo_ii(&mut sim, Vec3::new(-1.5, 1.0, 0.0)), on_mo_ii(&mut sim, Vec3::Y));
+        let mut sim = Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() });
+        let (still, walking) = (on_fornax(&mut sim, Vec3::new(-1.5, 1.0, 0.0)), on_fornax(&mut sim, Vec3::Y));
         let at = sim.suits.flight[still.idx()].pos;
         let me = sim
-            .spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, at + Vec3::Y * 400.0, Quat::IDENTITY)
+            .spawn_at(
+                FrameId::Argo,
+                Faction::Colonies,
+                PilotKind::Human,
+                at + Vec3::Y * 400.0,
+                Quat::IDENTITY,
+            )
             .unwrap()
             .idx();
         for _ in 0..40 {

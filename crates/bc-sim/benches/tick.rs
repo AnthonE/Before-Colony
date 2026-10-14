@@ -1,7 +1,7 @@
-//! Tick cost of a busy sector: 64 pilots (32 with ZERO engaged), all firing, plus 256 Mobile Dolls;
-//! the same with 64 Gundam pilots duelling in every playable frame (jammers, Neo-Birds, Full
-//! Opens, missile salvos); and a crowd on the bodies, 128 suits walking, hopping and digging on
-//! MO-II, Hermit and the rocks with 64 hunters over them. Budget at 30 Hz is 33 ms; the target is
+//! Tick cost of a busy sector: 64 pilots (32 with the Orrery engaged), all firing, plus 256 drones;
+//! the same with 64 Lodestar pilots duelling in every playable frame (jammers, Aquilas, Full
+//! Salvos, missile salvos); and a crowd on the bodies, 128 suits walking, hopping and digging on
+//! Fornax, Hermit and the rocks with 64 hunters over them. Budget at 30 Hz is 33 ms; the target is
 //! median < 2 ms and p99 < 4 ms on one core.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
@@ -29,7 +29,7 @@ fn percentiles() {
     samples.sort();
     let p = |q: f64| samples[((samples.len() as f64 - 1.0) * q) as usize];
     println!(
-        "tick (64 pilots + 256 dolls, {} live projectiles peak): p50 {:?}  p90 {:?}  p99 {:?}  max {:?}",
+        "tick (64 pilots + 256 drones, {} live projectiles peak): p50 {:?}  p90 {:?}  p99 {:?}  max {:?}",
         sim.peak_projectiles,
         p(0.5),
         p(0.9),
@@ -40,11 +40,11 @@ fn percentiles() {
     assert!(p(0.99) < Duration::from_millis(4), "p99 over budget");
 }
 
-/// The Gundams' arena: 32 duels in every playable frame, each pilot designating its foe, striking,
-/// changing mode and firing its specials, plus 256 dolls. Magazines are refilled every 3 s, so the
+/// The Lodestars' arena: 32 duels in every playable frame, each pilot designating its foe, striking,
+/// changing mode and firing its specials, plus 256 drones. Magazines are refilled every 3 s, so the
 /// missile boats keep hundreds of missiles in the air.
-fn percentiles_gundams() {
-    let (mut sim, duels) = common::gundam_crowd(32, 256, 7);
+fn percentiles_lodestars() {
+    let (mut sim, duels) = common::lodestar_crowd(32, 256, 7);
     let step = |sim: &mut bc_sim::Sim| {
         let t = sim.next_tick();
         if t.is_multiple_of(90) {
@@ -84,7 +84,7 @@ fn percentiles_gundams() {
     samples.sort();
     let p = |q: f64| samples[((samples.len() as f64 - 1.0) * q) as usize];
     println!(
-        "tick (64 Gundam pilots + 256 dolls, {missiles} missiles peak): p50 {:?}  p90 {:?}  p99 {:?}  max {:?}",
+        "tick (64 Lodestar pilots + 256 drones, {missiles} missiles peak): p50 {:?}  p90 {:?}  p99 {:?}  max {:?}",
         p(0.5),
         p(0.9),
         p(0.99),
@@ -94,9 +94,9 @@ fn percentiles_gundams() {
     assert!(p(0.99) < Duration::from_millis(4), "p99 over budget");
 }
 
-/// The crowd on the bodies: 128 riders on MO-II, Hermit and the rocks, walking, running, hopping,
-/// crouching, digging and letting go (and caught again), 64 Heavyarms firing guns and missiles at
-/// them, and 256 dolls; every 10 ticks a rider falls asleep where it stands, and every 30 one wakes.
+/// The crowd on the bodies: 128 riders on Fornax, Hermit and the rocks, walking, running, hopping,
+/// crouching, digging and letting go (and caught again), 64 Antares firing guns and missiles at
+/// them, and 256 drones; every 10 ticks a rider falls asleep where it stands, and every 30 one wakes.
 fn percentiles_riders() {
     let (mut sim, riders, hunters, _) = common::rider_crowd(256, 7);
     let step = |sim: &mut bc_sim::Sim, n: usize| {
@@ -144,7 +144,7 @@ fn percentiles_riders() {
     samples.sort();
     let p = |q: f64| samples[((samples.len() as f64 - 1.0) * q) as usize];
     println!(
-        "tick (128 riders + 64 hunters + 256 dolls, {:.0} grounded and {:.0} aloft a tick): p50 {:?}  p90 {:?}  p99 {:?}  max {:?}",
+        "tick (128 riders + 64 hunters + 256 drones, {:.0} grounded and {:.0} aloft a tick): p50 {:?}  p90 {:?}  p99 {:?}  max {:?}",
         f64::from(grounded) / 2_000.0,
         f64::from(aloft) / 2_000.0,
         p(0.5),
@@ -158,11 +158,11 @@ fn percentiles_riders() {
 
 fn bench(c: &mut Criterion) {
     percentiles();
-    percentiles_gundams();
+    percentiles_lodestars();
     percentiles_riders();
     let (mut sim, players) = common::arena(64, 256, 7);
     common::run(&mut sim, &players, 150);
-    c.bench_function("sector tick: 64 pilots + 256 dolls", |b| {
+    c.bench_function("sector tick: 64 pilots + 256 drones", |b| {
         b.iter(|| {
             let t = sim.next_tick();
             for &id in &players {

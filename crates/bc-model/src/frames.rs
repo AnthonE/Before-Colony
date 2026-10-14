@@ -1,5 +1,5 @@
-//! The frames, built from the kit on the shared skeleton: Wing Zero and the Oz suits here, the
-//! other Gundams and Neo-Bird in `gundams`. Each is described for the suit's right side and
+//! The frames, built from the kit on the shared skeleton: Altair and the Almagest suits here, the
+//! other Lodestars and Aquila in `lodestars`. Each is described for the suit's right side and
 //! mirrored for the left; coordinates are the suit's frame at rest, in metres (x right, y up, z
 //! forward, origin at the torso; about 17 m from sole to crown).
 //!
@@ -12,7 +12,7 @@ use glam::{Affine3A, Quat, Vec2, Vec3};
 use crate::kit::{Paint, mirrored};
 use crate::paint;
 use crate::rig::{Bone, Side};
-use crate::{Designer, gundams, leo};
+use crate::{Designer, argo, lodestars};
 
 pub(crate) const BODY: Paint = Paint::Body;
 pub(crate) const TRIM: Paint = Paint::Trim;
@@ -29,15 +29,15 @@ pub(crate) const THROAT: Paint = Paint::Glow(paint::YELLOW);
 
 pub fn design(frame: FrameId, d: &mut Designer) {
     match frame {
-        FrameId::WingZero => wing_zero(d),
-        FrameId::Leo => leo::leo(d),
-        FrameId::Taurus => taurus(d),
-        FrameId::Virgo => virgo(d),
-        FrameId::Heavyarms => gundams::heavyarms(d),
-        FrameId::Deathscythe => gundams::deathscythe(d),
-        FrameId::Sandrock => gundams::sandrock(d),
-        FrameId::Shenlong => gundams::shenlong(d),
-        FrameId::WingZeroBird => gundams::neo_bird(d),
+        FrameId::Altair => altair(d),
+        FrameId::Argo => argo::argo(d),
+        FrameId::Corvus => corvus(d),
+        FrameId::Cetus => cetus(d),
+        FrameId::Antares => lodestars::antares(d),
+        FrameId::Algol => lodestars::algol(d),
+        FrameId::Canopus => lodestars::canopus(d),
+        FrameId::Thuban => lodestars::thuban(d),
+        FrameId::Aquila => lodestars::aquila(d),
     }
 }
 
@@ -270,13 +270,13 @@ pub(crate) fn plate(
     d.on(bone).block(size, v2(0.9, 0.95), Vec2::ZERO, chamfer, paint, sided(s, place(pos, rot)));
 }
 
-// --- XXXG-00W0 Wing Gundam Zero. ---
+// --- PX-00 Altair. ---
 
-fn wing_zero(d: &mut Designer) {
+fn altair(d: &mut Designer) {
     inner_frame(d, 1.25);
     hands(d, FRAME);
 
-    // Head: white helmet, yellow V-fin, green eyes, red chin, vulcans at the temples.
+    // Head: white helmet, yellow V-fin, green eyes, red chin, head guns at the temples.
     let mut h = d.on(Bone::Head);
     h.seed(0.05);
     h.block(v(1.5, 1.25, 1.7), v2(0.85, 0.8), v2(0.0, -0.05), 0.12, BODY, at(0.0, 6.75, 0.1));
@@ -461,7 +461,7 @@ fn wing_zero(d: &mut Designer) {
         );
     }
 
-    // Twin Buster Rifle: long, blue and grey, yellow bands.
+    // Heavy Beam Rifle: long, blue and grey, yellow bands.
     rifle(d, 10.5, 0.36, GUN, TRIM);
     let g = j(Bone::Weapon);
     d.on(Bone::Weapon).greeble(|w| {
@@ -521,9 +521,9 @@ pub(crate) fn shield(d: &mut Designer, outline: &[(f32, f32)], face: Paint, spin
     s.extrude(&spine_o, 0.5, spine, place(pos + v(-0.1, 0.0, 0.0), rot));
 }
 
-// --- OZ-13MS Taurus: slim, angular, a nose-cone backpack. ---
+// --- AL-11D Corvus: slim, angular, a nose-cone backpack. ---
 
-fn taurus(d: &mut Designer) {
+fn corvus(d: &mut Designer) {
     inner_frame(d, 1.15);
     hands(d, FRAME);
 
@@ -621,9 +621,9 @@ fn taurus(d: &mut Designer) {
     saber_hilt(d);
 }
 
-// --- OZ-02MD Virgo: bulky, dark, a beam cannon and Planet Defensors. ---
+// --- AL-09D Cetus: bulky, dark, a beam cannon and shield pods. ---
 
-fn virgo(d: &mut Designer) {
+fn cetus(d: &mut Designer) {
     inner_frame(d, 1.5);
     hands(d, FRAME);
 
@@ -726,7 +726,7 @@ fn virgo(d: &mut Designer) {
     );
     saber_hilt(d);
 
-    // Planet Defensors: four discs riding round the suit.
+    // shield pods: four discs riding round the suit.
     for k in 0..4 {
         let a = k as f32 * std::f32::consts::FRAC_PI_2 + 0.785;
         let pos = v(6.0 * a.cos(), 2.5 + 2.2 * a.sin(), -1.0);

@@ -13,7 +13,7 @@
   let view = { screen: "title", panel: "none", help: false };
   const SIGNING = "APPROVE THE SIGN-IN IN YOUR WALLET…\nIt proves the address is yours. It authorizes nothing and moves no funds.";
   let frames = [];
-  let chosen = "wingzero";
+  let chosen = "altair";
   let autoplay = false;
   let toastSeq = 0;
   let toastTimer = null;
@@ -40,7 +40,7 @@
       name.textContent = f.name;
       const des = document.createElement("div");
       des.className = "designation";
-      des.textContent = f.designation + (f.zero ? " · ZERO SYSTEM" : "");
+      des.textContent = f.designation + (f.orrery ? " · ORRERY" : "");
       const kit = document.createElement("div");
       kit.className = "kit";
       kit.textContent = f.weapons.join(" · ");
@@ -705,8 +705,8 @@
       return it.kind === "part" && it.line === fabFilter;
     });
     const line = lines.get(fabFilter);
-    if (line?.gundam) {
-      out += `<div class="status warn">GUNDAM TECHNOLOGY. Its armour is gundanium, which only the colony's zero-G foundry can make, and the colony won't trade it: OZ is hunting for it. Only pilots buy and sell it.</div>`;
+    if (line?.lodestar) {
+      out += `<div class="status warn">LODESTAR TECHNOLOGY. Its armour is siderium, which only the colony's zero-G foundry can make, and the colony won't trade it: the Almagest is hunting for it. Only pilots buy and sell it.</div>`;
     }
     out += `<table><tr><th>MAKES</th><th>A BATCH NEEDS</th><th>WHERE</th><th class="num">TIME</th><th class="num">BATCHES</th><th></th></tr>`;
     for (const r of shown) {
@@ -716,7 +716,7 @@
         .map(([slug, q]) => `<span class="${stockOf(slug) >= q * n ? "have" : "short"}">${amount(slug, q)} ${esc(nameOf(slug))}</span>`)
         .join(", ");
       const fee = r.fee ? ` · ${fmt(r.fee)} CR` : "";
-      const g = items.get(r.output)?.gundam ? " gundam" : "";
+      const g = items.get(r.output)?.lodestar ? " lodestar" : "";
       const out_ = items.get(r.output);
       const what = out_?.summary
         ? `<div class="note">${esc(out_.summary)}${out_.part ? ` · fits the ${esc(partName(out_.part))}` : ""}</div>`
@@ -785,7 +785,7 @@
     if (!parts.length) out += `<tr><td colspan="3" class="dim">None.</td></tr>`;
     for (const u of parts) {
       const slug = `part.${u.line}.${u.part}`;
-      out += `<tr><td class="${items.get(slug)?.gundam ? "gundam" : ""}">${esc(nameOf(slug))}${faultNote(u.faults)}</td><td>${bar(u.condition)}</td><td class="act">` +
+      out += `<tr><td class="${items.get(slug)?.lodestar ? "lodestar" : ""}">${esc(nameOf(slug))}${faultNote(u.faults)}</td><td>${bar(u.condition)}</td><td class="act">` +
         (fits.has(slug) ? button("FIT", { act: "fit", item: slug }) + " " : "") +
         button("SCRAP", { act: "scrap", item: slug }, "danger") + " " + button("SELL", { act: "sell", item: slug }) + `</td></tr>`;
     }
@@ -814,7 +814,7 @@
     let out = con.launch
       ? `<div class="status bad">NOT READY TO LAUNCH: ${esc(con.launch)}.</div>`
       : `<div class="status">READY TO LAUNCH. Climb the stairs to the catwalk and board at the cockpit hatch (E). The tank and the magazines are topped up from the stores as it goes.</div>`;
-    out += `<h3>${esc(line?.name.toUpperCase() || suit.line)}${line?.gundam ? " · GUNDAM" : ""}</h3><div class="slots">`;
+    out += `<h3>${esc(line?.name.toUpperCase() || suit.line)}${line?.lodestar ? " · LODESTAR" : ""}</h3><div class="slots">`;
     catalogue.parts.forEach((p, k) => {
       const c = suit.parts[k];
       const slug = `part.${suit.line}.${p.slug}`;
@@ -939,7 +939,7 @@
       const quiet = q.bid == null && q.ask == null && !q.volume && !stockOf(q.item);
       if (kind === "parts" && quiet) continue;
       left += `<tr class="pick${q.item === watching ? " chosen" : ""}" data-act="watch" data-item="${esc(q.item)}">` +
-        `<td class="${it.gundam ? "gundam" : ""}">${esc(it.name)}</td>` +
+        `<td class="${it.lodestar ? "lodestar" : ""}">${esc(it.name)}</td>` +
         `<td class="num bid">${q.bid != null ? fmt(q.bid) : "-"}</td><td class="num ask">${q.ask != null ? fmt(q.ask) : "-"}</td>` +
         `<td class="num">${q.last != null ? fmt(q.last) : "-"}</td><td class="num dim">${fmt(q.volume)}</td></tr>`;
     }
@@ -951,7 +951,7 @@
       const q = m.quotes.find((x) => x.item === watching) || {};
       const book = hangar.book && hangar.book.depth.item === watching ? hangar.book : null;
       right = `<h3>${esc(it.name.toUpperCase())}</h3><div class="note">` +
-        (it.gundam ? "Gundam technology: pilots only; the colony won't touch it." : it.colony_buys || it.colony_sells
+        (it.lodestar ? "Lodestar technology: pilots only; the colony won't touch it." : it.colony_buys || it.colony_sells
           ? `The colony ${it.colony_buys && it.colony_sells ? "buys and sells" : it.colony_buys ? "buys" : "sells"} it; its prices follow its stock.`
           : "Pilots only.") + ` You hold ${amount(watching, stockOf(watching))}.</div>`;
       const hist = book?.history || [];
@@ -1015,7 +1015,7 @@
           button("DELIVER", { act: "deliver", id: c.id }, stockOf(t.item) ? "primary" : "");
       }
     } else {
-      job = `PATROL: Dolls downed for ${fmt(t.bounty)} CR of bounties` +
+      job = `PATROL: drones downed for ${fmt(t.bounty)} CR of bounties` +
         (c.holder ? ` <span class="dim">(${fmt(t.earned)} so far · ${esc(c.holder)})</span>` : "");
       // A patrol's taken at the Charter Board's desk (the colony open); given up anywhere.
       act = c.held ? button("GIVE UP", { act: "drop-patrol", id: c.id })
@@ -1103,14 +1103,14 @@
       (out ? ` · OUT NOW: ${esc(String(out.name).toUpperCase())}, ${fmt(out.bounty)} CR` : "") + `</div></section>`;
   }
 
-  // The Most Wanted: Zodiac's aces, one out among the Dolls at a time, each with a bounty on it;
+  // The Most Wanted: the Almagest's aces, one out among the drones at a time, each with a bounty on it;
   // who downed each last, the ladder, and the pilot's terms (the bounty paid, or its wreck). The
   // Board signs a wreck over only to pilots of standing: the button stays, and the server says so.
   function renderWanted(b) {
     if (!b.wanted || !b.wanted.length) return "";
     const now = Date.now() / 1000;
     const terms = (salvage, label) => button(label, { act: "ace-terms", salvage: salvage ? "1" : "0" }, !!b.salvage_terms === salvage ? "primary" : "");
-    let out = `<section><h3>MOST WANTED</h3><div class="note">Zodiac's aces fly among the Dolls one at a time, each a Doll tuned by hand. Down one and the Charter Board pays its bounty${colonyOpen() ? ", waiting at its desk" : ""}; or, on your terms, the tugs bring its wreck home to your stores instead, if nobody gets to it first.</div>` +
+    let out = `<section><h3>MOST WANTED</h3><div class="note">The Almagest's aces fly among the drones one at a time, each a drone tuned by hand. Down one and the Charter Board pays its bounty${colonyOpen() ? ", waiting at its desk" : ""}; or, on your terms, the tugs bring its wreck home to your stores instead, if nobody gets to it first.</div>` +
       `<div class="row">${terms(false, "TERMS: THE BOUNTY")} ${terms(true, "TERMS: ITS WRECK")}</div>`;
     if (!b.standing && !b.salvage_terms) {
       out += `<div class="note">THE BOARD SIGNS AN ACE'S WRECK OVER ONLY TO PILOTS OF STANDING: DELIVER TO THE COLONY FIRST</div>`;
@@ -1131,7 +1131,7 @@
   function renderArrival() {
     const b = hangar?.charter;
     if (!b) return `<div class="note">Waiting for the Most Wanted…</div>`;
-    return `<h3>THE ARRIVAL</h3><div class="note">Pinned up behind the bar: Zodiac's aces, the Charter Board's bounty on each, and who downed each last. Your terms are settled here.</div>` +
+    return `<h3>THE ARRIVAL</h3><div class="note">Pinned up behind the bar: the Almagest's aces, the Charter Board's bounty on each, and who downed each last. Your terms are settled here.</div>` +
       renderWanted(b);
   }
 
@@ -1162,13 +1162,13 @@
       p.course, p.course_record, p.course_par_ms, p.mine?.course_ms, "not yet flown.");
     const drill = boardColumn("THE DRILL", "In the Blast Hall: twenty targets lit in turn against the clock, each struck putting time back on it.",
       p.drill, p.drill_record, p.drill_par_ms, p.mine?.drill_ms, "not yet cleared.");
-    // The test range: what the gantry readies (the Board's Leo, the bay's build, any line's).
+    // The test range: what the gantry readies (the Board's Argo, the bay's build, any line's).
     const chosen = p.trainer || { kind: "board" };
     const pick = (build, label) => {
       const on = JSON.stringify(build) === JSON.stringify(chosen);
       return `<button class="${on ? "primary" : ""}" data-act="trainer" data-build='${esc(JSON.stringify(build))}'>${esc(label)}</button>`;
     };
-    const trainers = [pick({ kind: "board" }, "THE BOARD'S LEO"), pick({ kind: "bay" }, "YOUR BAY'S BUILD")]
+    const trainers = [pick({ kind: "board" }, "THE BOARD'S ARGO"), pick({ kind: "bay" }, "YOUR BAY'S BUILD")]
       .concat(frames.map((f) => pick({ kind: "line", line: f.slug }, `A NEW ${String(f.name).toUpperCase()}`)))
       .join(" ");
     const range = `<h3>THE TEST RANGE</h3><div class="note">Try a build before it counts: the gantry readies what you pick, new and full, and nothing of yours is taken.</div><div class="row">${trainers}</div>`;

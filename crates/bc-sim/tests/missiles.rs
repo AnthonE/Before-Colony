@@ -21,7 +21,7 @@ use common::{lone_rock, resting_on};
 use glam::Vec3;
 
 fn empty() -> Sim {
-    Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() })
+    Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() })
 }
 
 fn suit(sim: &mut Sim, frame: FrameId, faction: Faction, pos: Vec3, facing: Vec3) -> SuitId {
@@ -72,20 +72,20 @@ fn missile_hits(sim: &Sim, from: u32, target: SuitId) -> usize {
 
 #[test]
 fn a_lock_builds_while_held_and_falls_apart_twice_as_fast() {
-    let spec = frame(FrameId::Heavyarms).lock_spec().expect("a launcher");
+    let spec = frame(FrameId::Antares).lock_spec().expect("a launcher");
     assert_eq!(u32::from(spec.lock_ticks), LOCK_TICKS);
     let mut sim = empty();
-    let ha = suit(&mut sim, FrameId::Heavyarms, Faction::Colonies, AT, Vec3::Z);
-    let leo = suit(&mut sim, FrameId::Leo, Faction::Oz, AT + Vec3::Z * 2_000.0, -Vec3::Z);
+    let ha = suit(&mut sim, FrameId::Antares, Faction::Colonies, AT, Vec3::Z);
+    let argo = suit(&mut sim, FrameId::Argo, Faction::Almagest, AT + Vec3::Z * 2_000.0, -Vec3::Z);
     for k in 1..=LOCK_TICKS {
-        press(&mut sim, ha, 0, leo);
+        press(&mut sim, ha, 0, argo);
         sim.step();
         let own = sim.own_state(ha.idx());
         assert_eq!(own.flags & own_flags::LOCK_ACQUIRED != 0, k == LOCK_TICKS, "tick {k}");
     }
     assert_eq!(sim.own_state(ha.idx()).lock_progress, 15);
-    let theirs = sim.own_state(leo.idx()).flags;
-    assert_ne!(theirs & own_flags::MISSILE_LOCK, 0, "the Leo knows it's locked");
+    let theirs = sim.own_state(argo.idx()).flags;
+    assert_ne!(theirs & own_flags::MISSILE_LOCK, 0, "the Argo knows it's locked");
     // Aimed away from it (the designation held), the lock goes in half the time.
     let mut ticks = 0;
     while sim.suits.lock[ha.idx()].target != NO_SLOT {
@@ -94,7 +94,7 @@ fn a_lock_builds_while_held_and_falls_apart_twice_as_fast() {
             tick: t,
             view_tick_q4: t << 4,
             aim: Vec3::X,
-            lock_target: leo.idx() as u16,
+            lock_target: argo.idx() as u16,
             ..InputCmd::default()
         };
         sim.set_input(ha, cmd);
@@ -103,11 +103,12 @@ fn a_lock_builds_while_held_and_falls_apart_twice_as_fast() {
         assert!(ticks < 30);
     }
     assert_eq!(ticks, LOCK_TICKS.div_ceil(2));
-    assert_eq!(sim.own_state(leo.idx()).flags & own_flags::MISSILE_LOCK, 0);
+    assert_eq!(sim.own_state(argo.idx()).flags & own_flags::MISSILE_LOCK, 0);
     // Past the lock's range it never builds.
     let mut sim = empty();
-    let ha = suit(&mut sim, FrameId::Heavyarms, Faction::Colonies, AT, Vec3::Z);
-    let far = suit(&mut sim, FrameId::Leo, Faction::Oz, AT + Vec3::Z * (spec.lock_range + 100.0), -Vec3::Z);
+    let ha = suit(&mut sim, FrameId::Antares, Faction::Colonies, AT, Vec3::Z);
+    let far =
+        suit(&mut sim, FrameId::Argo, Faction::Almagest, AT + Vec3::Z * (spec.lock_range + 100.0), -Vec3::Z);
     for _ in 0..30 {
         press(&mut sim, ha, 0, far);
         sim.step();
@@ -115,37 +116,37 @@ fn a_lock_builds_while_held_and_falls_apart_twice_as_fast() {
     assert_eq!(sim.suits.lock[ha.idx()].progress, 0);
 }
 
-/// Heavyarms locks a Leo 1.5 km ahead coasting at `leo_vel`, fires one salvo, and watches for
+/// Antares locks an Argo 1.5 km ahead coasting at `argo_vel`, fires one salvo, and watches for
 /// `secs`; `each` runs every tick.
 fn salvo_at(
     target: FrameId,
-    leo_vel: Vec3,
+    argo_vel: Vec3,
     secs: u32,
     each: &mut dyn FnMut(&mut Sim, SuitId, u32),
 ) -> (Sim, SuitId, u32) {
     let mut sim = empty();
-    let ha = suit(&mut sim, FrameId::Heavyarms, Faction::Colonies, AT, Vec3::Z);
-    let leo = suit(&mut sim, target, Faction::Oz, AT + Vec3::Z * 1_500.0, -Vec3::Z);
+    let ha = suit(&mut sim, FrameId::Antares, Faction::Colonies, AT, Vec3::Z);
+    let argo = suit(&mut sim, target, Faction::Almagest, AT + Vec3::Z * 1_500.0, -Vec3::Z);
     for _ in 0..LOCK_TICKS {
-        press(&mut sim, ha, 0, leo);
-        coast(&mut sim, leo, Vec3::ZERO);
+        press(&mut sim, ha, 0, argo);
+        coast(&mut sim, argo, Vec3::ZERO);
         sim.step();
     }
     assert!(sim.missile_lock(ha.idx()).is_some());
     let from = sim.events.next_seq();
     for k in 0..secs * 30 {
-        press(&mut sim, ha, if k == 0 { FIRE_SECONDARY } else { 0 }, leo);
-        coast(&mut sim, leo, leo_vel);
-        each(&mut sim, leo, k);
+        press(&mut sim, ha, if k == 0 { FIRE_SECONDARY } else { 0 }, argo);
+        coast(&mut sim, argo, argo_vel);
+        each(&mut sim, argo, k);
         sim.step();
     }
-    (sim, leo, from)
+    (sim, argo, from)
 }
 
 #[test]
 fn a_guided_salvo_runs_down_a_crossing_target() {
-    let (sim, leo, from) = salvo_at(FrameId::Leo, Vec3::X * 120.0, 8, &mut |_, _, _| {});
-    let hits = missile_hits(&sim, from, leo);
+    let (sim, argo, from) = salvo_at(FrameId::Argo, Vec3::X * 120.0, 8, &mut |_, _, _| {});
+    let hits = missile_hits(&sim, from, argo);
     let salvo = usize::from(weapon(WeaponKind::HomingMissile).salvo);
     assert!(hits >= salvo - 1, "{hits} of {salvo} hit");
     assert!(
@@ -158,38 +159,38 @@ fn a_guided_salvo_runs_down_a_crossing_target() {
 
 #[test]
 fn chaff_throws_a_salvo_off_and_keeps_locks_off() {
-    let (sim, leo, from) = salvo_at(FrameId::Leo, Vec3::X * 120.0, 8, &mut |sim, leo, k| {
+    let (sim, argo, from) = salvo_at(FrameId::Argo, Vec3::X * 120.0, 8, &mut |sim, argo, k| {
         if k == 0 {
-            sim.suits.kits[leo.idx()].set(Kit::Chaff, 1);
+            sim.suits.kits[argo.idx()].set(Kit::Chaff, 1);
         }
         // The salvo is on its way: chaff.
         if k == 20 {
-            assert!(sim.suits.incoming[leo.idx()] > 0);
-            assert!(sim.use_kit(leo, Kit::Chaff));
-            assert!(!sim.use_kit(leo, Kit::Chaff), "the rack is empty");
+            assert!(sim.suits.incoming[argo.idx()] > 0);
+            assert!(sim.use_kit(argo, Kit::Chaff));
+            assert!(!sim.use_kit(argo, Kit::Chaff), "the rack is empty");
         }
     });
-    assert_eq!(missile_hits(&sim, from, leo), 0);
-    assert_eq!(sim.suits.kits[leo.idx()].get(Kit::Chaff), 0);
+    assert_eq!(missile_hits(&sim, from, argo), 0);
+    assert_eq!(sim.suits.kits[argo.idx()].get(Kit::Chaff), 0);
     // A lock started under the chaff doesn't build until it clears.
     let mut sim = empty();
-    let ha = suit(&mut sim, FrameId::Heavyarms, Faction::Colonies, AT, Vec3::Z);
-    let leo = suit(&mut sim, FrameId::Leo, Faction::Oz, AT + Vec3::Z * 1_500.0, -Vec3::Z);
-    sim.suits.kits[leo.idx()].set(Kit::Chaff, 1);
+    let ha = suit(&mut sim, FrameId::Antares, Faction::Colonies, AT, Vec3::Z);
+    let argo = suit(&mut sim, FrameId::Argo, Faction::Almagest, AT + Vec3::Z * 1_500.0, -Vec3::Z);
+    sim.suits.kits[argo.idx()].set(Kit::Chaff, 1);
     for k in 0..LOCK_TICKS {
-        press(&mut sim, ha, 0, leo);
-        coast(&mut sim, leo, Vec3::ZERO);
+        press(&mut sim, ha, 0, argo);
+        coast(&mut sim, argo, Vec3::ZERO);
         sim.step();
         if k == LOCK_TICKS / 2 {
             assert!(sim.suits.lock[ha.idx()].progress > 0);
-            assert!(sim.use_kit(leo, Kit::Chaff));
+            assert!(sim.use_kit(argo, Kit::Chaff));
             assert_eq!(sim.suits.lock[ha.idx()].progress, 0, "broken at once");
         }
     }
     assert!(sim.missile_lock(ha.idx()).is_none());
     for _ in 0..u32::from(bc_sim::content::kits::CHAFF_TICKS) + LOCK_TICKS {
-        press(&mut sim, ha, 0, leo);
-        coast(&mut sim, leo, Vec3::ZERO);
+        press(&mut sim, ha, 0, argo);
+        coast(&mut sim, argo, Vec3::ZERO);
         sim.step();
     }
     assert!(sim.missile_lock(ha.idx()).is_some(), "once it clears, the lock builds again");
@@ -199,8 +200,8 @@ fn chaff_throws_a_salvo_off_and_keeps_locks_off() {
 fn a_target_faster_than_the_motor_outruns_it() {
     let spec = weapon(WeaponKind::HomingMissile).missile.unwrap();
     let fast = spec.launch_speed + spec.dv + 300.0;
-    let (sim, leo, from) = salvo_at(FrameId::Leo, Vec3::Z * fast, 9, &mut |_, _, _| {});
-    assert_eq!(missile_hits(&sim, from, leo), 0);
+    let (sim, argo, from) = salvo_at(FrameId::Argo, Vec3::Z * fast, 9, &mut |_, _, _| {});
+    assert_eq!(missile_hits(&sim, from, argo), 0);
     let expired = events_since(&sim, from)
         .iter()
         .filter(|e| matches!(e, Event::MissileBurst { cause: BurstCause::Expired, .. }))
@@ -210,7 +211,7 @@ fn a_target_faster_than_the_motor_outruns_it() {
 
 #[test]
 fn a_jammer_breaks_the_seekers_hold() {
-    // Deathscythe jams a second after the launch and breaks the other way.
+    // Algol jams a second after the launch and breaks the other way.
     let mut jamming = |sim: &mut Sim, ds: SuitId, k: u32| {
         if k >= 30 {
             coast(sim, ds, Vec3::X * -150.0);
@@ -222,7 +223,7 @@ fn a_jammer_breaks_the_seekers_hold() {
             );
         }
     };
-    let (sim, ds, from) = salvo_at(FrameId::Deathscythe, Vec3::X * 150.0, 8, &mut jamming);
+    let (sim, ds, from) = salvo_at(FrameId::Algol, Vec3::X * 150.0, 8, &mut jamming);
     assert_eq!(missile_hits(&sim, from, ds), 0, "the missiles still found it");
     // Without the jammer, the same break doesn't save it.
     let mut breaking = |sim: &mut Sim, ds: SuitId, k: u32| {
@@ -230,7 +231,7 @@ fn a_jammer_breaks_the_seekers_hold() {
             coast(sim, ds, Vec3::X * -150.0);
         }
     };
-    let (sim, ds, from) = salvo_at(FrameId::Deathscythe, Vec3::X * 150.0, 8, &mut breaking);
+    let (sim, ds, from) = salvo_at(FrameId::Algol, Vec3::X * 150.0, 8, &mut breaking);
     assert!(missile_hits(&sim, from, ds) > 0);
 }
 
@@ -238,9 +239,9 @@ fn a_jammer_breaks_the_seekers_hold() {
 fn missiles_pass_friends_and_burst_at_the_end_of_their_life() {
     let spec = weapon(WeaponKind::HomingMissile).missile.unwrap();
     let mut sim = empty();
-    let ha = suit(&mut sim, FrameId::Heavyarms, Faction::Colonies, AT, Vec3::Z);
+    let ha = suit(&mut sim, FrameId::Antares, Faction::Colonies, AT, Vec3::Z);
     // A friend right in the way, and nothing else.
-    let friend = suit(&mut sim, FrameId::Leo, Faction::Colonies, AT + Vec3::new(0.0, 5.8, 200.0), -Vec3::Z);
+    let friend = suit(&mut sim, FrameId::Argo, Faction::Colonies, AT + Vec3::new(0.0, 5.8, 200.0), -Vec3::Z);
     let from = sim.events.next_seq();
     let mut launched_at = None;
     for k in 0..u32::from(spec.life) + 30 {
@@ -273,13 +274,13 @@ fn missiles_pass_friends_and_burst_at_the_end_of_their_life() {
 #[test]
 fn a_full_pool_swallows_launches() {
     let mut sim = empty();
-    let ha = suit(&mut sim, FrameId::Heavyarms, Faction::Colonies, AT, Vec3::Z);
+    let ha = suit(&mut sim, FrameId::Antares, Faction::Colonies, AT, Vec3::Z);
     while sim
         .missiles
         .spawn(
             WeaponKind::HomingMissile,
             0,
-            Faction::Oz,
+            Faction::Almagest,
             (NO_SLOT, 0),
             AT + Vec3::Y * 500.0,
             Vec3::ZERO,
@@ -303,23 +304,23 @@ fn a_full_pool_swallows_launches() {
     assert_eq!(sim.missiles.count(), MAX_MISSILES);
 }
 
-/// Heavyarms locks a Leo resting against a lone rock 1.5 km off, crossing at 150 m/s so that
-/// only homing brings its missiles in, and lets a salvo go; once it's away, the Leo parks there,
-/// asleep, and `parked` runs (on the sim, the Leo, and the tick it slept). The hits it took.
+/// Antares locks an Argo resting against a lone rock 1.5 km off, crossing at 150 m/s so that
+/// only homing brings its missiles in, and lets a salvo go; once it's away, the Argo parks there,
+/// asleep, and `parked` runs (on the sim, the Argo, and the tick it slept). The hits it took.
 fn salvo_at_a_suit_that_parks(parked: impl FnOnce(&mut Sim, SuitId, u32)) -> usize {
-    let mut sim = Sim::new(SimConfig { target_dolls: 0, ..SimConfig::default() });
+    let mut sim = Sim::new(SimConfig { target_drones: 0, ..SimConfig::default() });
     let (_, rock) = lone_rock(&sim, 20.0, 1_500.0);
-    let (leo, out) = resting_on(&mut sim, &rock);
+    let (argo, out) = resting_on(&mut sim, &rock);
     // Ten seconds on the clock, so its sleep can be backdated by that much.
     for _ in 0..300 {
         sim.step();
     }
-    let at = sim.suits.flight[leo.idx()].pos;
-    let ha = suit(&mut sim, FrameId::Heavyarms, Faction::Oz, at + out * 1_500.0, -out);
+    let at = sim.suits.flight[argo.idx()].pos;
+    let ha = suit(&mut sim, FrameId::Antares, Faction::Almagest, at + out * 1_500.0, -out);
     let across = out.cross(Vec3::Y).normalize() * 150.0;
     for _ in 0..LOCK_TICKS {
         sim.suits.flight[ha.idx()].vel = across;
-        press(&mut sim, ha, 0, leo);
+        press(&mut sim, ha, 0, argo);
         sim.step();
     }
     assert!(sim.missile_lock(ha.idx()).is_some());
@@ -327,26 +328,26 @@ fn salvo_at_a_suit_that_parks(parked: impl FnOnce(&mut Sim, SuitId, u32)) -> usi
     let from = sim.events.next_seq();
     let mut k = 0;
     while sim.missiles.count() < salvo {
-        press(&mut sim, ha, if k == 0 { FIRE_SECONDARY } else { 0 }, leo);
+        press(&mut sim, ha, if k == 0 { FIRE_SECONDARY } else { 0 }, argo);
         sim.step();
         k += 1;
         assert!(k < 30, "the salvo never left");
     }
     // The whole salvo away and homing, its target parks.
-    assert!(sim.sleep(leo) && sim.is_parked(leo.idx()));
+    assert!(sim.sleep(argo) && sim.is_parked(argo.idx()));
     let t = sim.tick();
-    parked(&mut sim, leo, t);
+    parked(&mut sim, argo, t);
     for _ in 0..8 * 30 {
         sim.step();
     }
-    missile_hits(&sim, from, leo)
+    missile_hits(&sim, from, argo)
 }
 
 #[test]
 fn a_guided_missile_loses_a_suit_that_parks_and_goes_dark() {
     // As if it had slept for 10 s: its reactor has idled down, and the seekers lose it on their
     // next look.
-    let hits = salvo_at_a_suit_that_parks(|sim, leo, t| sim.suits.slept_at[leo.idx()] = t - 300);
+    let hits = salvo_at_a_suit_that_parks(|sim, argo, t| sim.suits.slept_at[argo.idx()] = t - 300);
     assert_eq!(hits, 0, "the seekers kept a parked suit gone dark");
 }
 
@@ -359,17 +360,17 @@ fn a_guided_missile_keeps_a_suit_that_parks_while_it_powers_down() {
 
 #[test]
 fn a_guided_missile_keeps_a_friend_s_parked_suit_in_its_sights() {
-    // Concealment is from enemies only: an OZ salvo that locked an OZ sleeper (friendly fire on)
+    // Concealment is from enemies only: an Almagest salvo that locked an Almagest sleeper (friendly fire on)
     // runs it down however dark it is to the Colonies.
-    let mut sim = Sim::new(SimConfig { target_dolls: 0, friendly_fire: true, ..SimConfig::default() });
+    let mut sim = Sim::new(SimConfig { target_drones: 0, friendly_fire: true, ..SimConfig::default() });
     let (_, rock) = lone_rock(&sim, 20.0, 1_500.0);
-    let (leo, out) = resting_on(&mut sim, &rock);
-    sim.suits.faction[leo.idx()] = Faction::Oz;
+    let (argo, out) = resting_on(&mut sim, &rock);
+    sim.suits.faction[argo.idx()] = Faction::Almagest;
     for _ in 0..300 {
         sim.step();
     }
-    let at = sim.suits.flight[leo.idx()].pos;
-    let ha = suit(&mut sim, FrameId::Heavyarms, Faction::Oz, at + out * 1_500.0, -out);
+    let at = sim.suits.flight[argo.idx()].pos;
+    let ha = suit(&mut sim, FrameId::Antares, Faction::Almagest, at + out * 1_500.0, -out);
     let across = out.cross(Vec3::Y).normalize() * 150.0;
     let salvo = usize::from(weapon(WeaponKind::HomingMissile).salvo);
     // An ally is no designation: the salvo is given its target by hand, as a lock would.
@@ -377,47 +378,47 @@ fn a_guided_missile_keeps_a_friend_s_parked_suit_in_its_sights() {
     let mut k = 0;
     while sim.missiles.count() < salvo {
         sim.suits.flight[ha.idx()].vel = across;
-        press(&mut sim, ha, if k == 0 { FIRE_SECONDARY } else { 0 }, leo);
+        press(&mut sim, ha, if k == 0 { FIRE_SECONDARY } else { 0 }, argo);
         sim.step();
         for m in sim.missiles.alive.iter() {
-            sim.missiles.target[m] = leo.idx() as u16;
-            sim.missiles.target_gen[m] = sim.suits.generation[leo.idx()];
+            sim.missiles.target[m] = argo.idx() as u16;
+            sim.missiles.target_gen[m] = sim.suits.generation[argo.idx()];
         }
         k += 1;
         assert!(k < 30, "the salvo never left");
     }
-    assert!(sim.sleep(leo) && sim.is_parked(leo.idx()));
-    sim.suits.slept_at[leo.idx()] = sim.tick() - 300;
-    assert_eq!(sim.concealment(leo.idx()).sig, 0.0, "dark to its enemies");
+    assert!(sim.sleep(argo) && sim.is_parked(argo.idx()));
+    sim.suits.slept_at[argo.idx()] = sim.tick() - 300;
+    assert_eq!(sim.concealment(argo.idx()).sig, 0.0, "dark to its enemies");
     for _ in 0..8 * 30 {
         sim.step();
     }
-    assert!(missile_hits(&sim, from, leo) > 0, "an ally's seeker lost it");
+    assert!(missile_hits(&sim, from, argo) > 0, "an ally's seeker lost it");
 }
 
-/// Heavyarms locks a Leo 1.5 km ahead and fires one salvo at it while `gunner` holds its machine
-/// cannon on the nearest missile: the Leo itself (`None`), or another Leo of `Some(faction)` 30 m
+/// Antares locks an Argo 1.5 km ahead and fires one salvo at it while `gunner` holds its machine
+/// cannon on the nearest missile: the Argo itself (`None`), or another Argo of `Some(faction)` 30 m
 /// beside it. How the salvo's missiles ended.
 fn salvo_under_fire(beside: Option<Faction>) -> Vec<BurstCause> {
     let mut sim = empty();
-    let ha = suit(&mut sim, FrameId::Heavyarms, Faction::Colonies, AT, Vec3::Z);
-    let leo = suit(&mut sim, FrameId::Leo, Faction::Oz, AT + Vec3::Z * 1_500.0, -Vec3::Z);
+    let ha = suit(&mut sim, FrameId::Antares, Faction::Colonies, AT, Vec3::Z);
+    let argo = suit(&mut sim, FrameId::Argo, Faction::Almagest, AT + Vec3::Z * 1_500.0, -Vec3::Z);
     let gunner = match beside {
-        None => leo,
-        Some(faction) => suit(&mut sim, FrameId::Leo, faction, AT + Vec3::new(30.0, 0.0, 1_500.0), -Vec3::Z),
+        None => argo,
+        Some(faction) => suit(&mut sim, FrameId::Argo, faction, AT + Vec3::new(30.0, 0.0, 1_500.0), -Vec3::Z),
     };
-    assert!(weapon(frame(FrameId::Leo).loadout[1].unwrap().weapon).shoots_down);
+    assert!(weapon(frame(FrameId::Argo).loadout[1].unwrap().weapon).shoots_down);
     for _ in 0..LOCK_TICKS {
-        press(&mut sim, ha, 0, leo);
-        coast(&mut sim, leo, Vec3::ZERO);
+        press(&mut sim, ha, 0, argo);
+        coast(&mut sim, argo, Vec3::ZERO);
         coast(&mut sim, gunner, Vec3::ZERO);
         sim.step();
     }
     assert!(sim.missile_lock(ha.idx()).is_some());
     let from = sim.events.next_seq();
     for k in 0..6 * 30 {
-        press(&mut sim, ha, if k == 0 { FIRE_SECONDARY } else { 0 }, leo);
-        coast(&mut sim, leo, Vec3::ZERO);
+        press(&mut sim, ha, if k == 0 { FIRE_SECONDARY } else { 0 }, argo);
+        coast(&mut sim, argo, Vec3::ZERO);
         sim.suits.flight[gunner.idx()].vel = Vec3::ZERO;
         let me = sim.suits.flight[gunner.idx()].pos;
         let nearest = sim

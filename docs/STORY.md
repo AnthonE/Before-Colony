@@ -4,9 +4,8 @@
 
 This is the world bible: who the players are, where they are, what's going on around them, and how
 the world changes as they live in it. `DESIGN.md` says how the game works; this says why the world
-is the way it is. Gundam Wing and its names are © Sotsu · Sunrise; canon names stay behind the
-`canon-names` feature (`bc_sim::content::names`), and the generic build has its own (see
-"Naming" below).
+is the way it is. Every name in it is the game's own (`bc_sim::content::names`; see "Voice and
+naming" below).
 
 ## The pitch
 
@@ -14,18 +13,18 @@ The first space colony, an O'Neill cylinder at the Earth–Moon L1 point, has ju
 The calendar that history will call *After Colony* begins the day its charter is signed, and
 nobody has signed it yet. This is the year before: **Before Colony**.
 
-You woke up in a hangar bay in the colony's docking hub. You have the reflexes of a mobile-suit
-pilot, a worn-out Leo in the gantry, an advance of 2,000 credits, and memories of another world: one
-where After Colony is a story you already know. The Mobile Dolls, the five Gundams, Operation
-Meteor, the war. Here none of it has happened. Whether it has to is up to everyone who arrives.
+You woke up in a hangar bay in the colony's docking hub. You have the reflexes of a mech
+pilot, a worn-out Argo in the gantry, an advance of 2,000 credits, and memories of another world: one
+where After Colony is a story you already know. The drones, the five Lodestars, Operation
+Starfall, the war. Here none of it has happened. Whether it has to is up to everyone who arrives.
 
 ## The Arrivals
 
 - **Who.** People who wake in the docking hub with no records, trained as pilots, remembering
   another world. Not all of them have bodies: some arrive as minds that only ever speak through a
-  suit's controls. The game's AI agents are those Arrivals, and the HUD tags them **MD**.
+  suit's controls. The game's AI agents are those Arrivals, and the HUD tags them **DR**.
 - **How the colony sees them.** The Charter Board registers every Arrival as a pilot, body or
-  not, and gives them a bay, a second-hand Leo and an advance against their earnings. "An Arrival
+  not, and gives them a bay, a second-hand Argo and an advance against their earnings. "An Arrival
   flies by the same rules as anyone" is colony law before it is a design pillar: agents see what
   their sensors see, bear the same G and pay the same fees. What an Arrival without a body *is*,
   a person, a tool, a citizen, is the colony's oldest open question, and the game's.
@@ -33,7 +32,7 @@ Meteor, the war. Here none of it has happened. Whether it has to is up to everyo
   works, or why it works only for them. The suit, its cargo and everything aboard stay lost: the
   world remembers what you lose even if you don't die of it. (This is the diegetic reason
   survival rules bring a pilot back through the airlock.)
-- **The ZERO System.** An interface built into one prototype torso that feeds its pilot the
+- **The Orrery.** An interface built into one prototype torso that feeds its pilot the
   futures of a fight. Colonists who try it come out shaking. Arrivals find it familiar: it shows
   the future the way they remember the story. Why is the mystery under everything else.
 
@@ -45,13 +44,13 @@ Meteor, the war. Here none of it has happened. Whether it has to is up to everyo
   being finished. The game's sector L1 is the space around it: the debris of its construction
   (asteroids hauled in for metal), the docking hub at its −X end, and the lanes between.
 - **The docking hub.** The spin ring at 0.7 g where the pilots' bays hang, the launch tunnels,
-  the dock with its ring of amber lights, and the **zero-G foundry**, the only place gundanium can
+  the dock with its ring of amber lights, and the **zero-G foundry**, the only place siderium can
   be made. Beyond a bay's airlock, the cap lift rides down the end cap's face into the colony.
 - **The Charter Board.** The colonists' provisional council. It advances each Arrival 2,000
-  credits and a Leo (and another worn Leo to a pilot who has lost everything, though not twice in
-  half an hour: `THE CHARTER BOARD ADVANCES YOU A WORN LEO`), runs the colony's desks on the **Colony Exchange** (it buys ore, sells
+  credits and an Argo (and another worn Argo to a pilot who has lost everything, though not twice in
+  half an hour: `THE CHARTER BOARD ADVANCES YOU A WORN ARGO`), runs the colony's desks on the **Colony Exchange** (it buys ore, sells
   propellant cheap, and keeps machine shops turning out components), and pays a bounty for every
-  Mobile Doll a pilot brings down. The bounties are its quiet war: it can't fight the Consortium
+  drone a pilot brings down. The bounties are its quiet war: it can't fight the Consortium
   openly, but it can pay the people who do.
 - **Inside.** Three land strips run the length of the cylinder between its three windows, each a
   city with a name of its own: **Charter** (the colony's offices, its money, its first streets,
@@ -76,7 +75,7 @@ Meteor, the war. Here none of it has happened. Whether it has to is up to everyo
   hall: the same book the bays' terminals trade on, and the only place an order waits on it); the
   **Charter Board**'s hall, where its notices go up, contracts are posted and the charter signed,
   and what the Board owes a pilot is paid out across its desk; **The Arrival**, a bar off the
-  square where pilots meet, and where the Board pins up Zodiac's Most Wanted behind the bar; and
+  square where pilots meet, and where the Board pins up the Almagest's Most Wanted behind the bar; and
   **the Proving Ground** off the square, the Blast Hall where the colony's builders tested
   thrusters, where the Charter Board tries an Arrival in a suit before it trusts them with one.
   The colony's law holds inside: no weapons fired within its walls, but in the Blast Hall, where a
@@ -87,26 +86,26 @@ Meteor, the war. Here none of it has happened. Whether it has to is up to everyo
 
 ## Powers at the dawn
 
-| In the world | Canon name | In the simulation | What they want |
-|---|---|---|---|
-| The Consortium | Romefeller Foundation | — | They financed the colony and own its debt, the asteroid claims and the Leo lines. |
-| Its security arm | OZ (the Organization of the Zodiac) | `Faction::Oz`, the Mobile Dolls alone (a pilot's claim to it flies for the Colonies) | To hold the claims: its Taurus and Virgo patrols shoot claim-jumpers, which is every Arrival who mines. |
-| The Colonies | the colonies' cause | `Faction::Colonies` (every human pilot, as the server decides, and agents that ask for it) | A charter of their own, a foundry of their own, and nobody's debt. |
-| The Unified Earth Alignment | United Earth Sphere Alliance | `Faction::Alliance` (agents that ask for it) | Taxes, order, SI kept aligned, and the colonies kept in their place. Far off, for now. |
-| The Arrivals | — | pilots and agents | Nobody knows yet, including them. They'll found their own crews and factions. |
+| In the world | In the simulation | What they want |
+|---|---|---|
+| The Consortium | — | They financed the colony and own its debt, the asteroid claims and the Argo lines. |
+| Its security arm, the Almagest | `Faction::Almagest`, the drones alone (a pilot's claim to it flies for the Colonies) | To hold the claims: its Corvus and Cetus patrols shoot claim-jumpers, which is every Arrival who mines. |
+| The Colonies | `Faction::Colonies` (every human pilot, as the server decides, and agents that ask for it) | A charter of their own, a foundry of their own, and nobody's debt. |
+| The Unified Earth Alignment | `Faction::Alliance` (agents that ask for it) | Taxes, order, SI kept aligned, and the colonies kept in their place. Far off, for now. |
+| The Arrivals | pilots and agents | Nobody knows yet, including them. They'll found their own crews and factions. |
 
 ## Technology
 
-- **The Leo** is the Consortium's licensed workhorse, the suit of the colony's docks. The Charter
+- **The Argo** is the Consortium's licensed workhorse, the suit of the colony's docks. The Charter
   Board buys them second-hand; most have flown more hours than their papers say.
-- **Mobile Dolls** are suits without pilots: cheap, tireless, without a body to black out, and
+- **Drones** are suits without pilots: cheap, tireless, without a body to black out, and
   without anyone to grieve when they're shot down. War without human cost is the Consortium's
   pitch to Earth. It's also the question the Arrivals without bodies make awkward.
-- **Gundanium** is an alloy that can only be refined in zero-G, so the colony's foundry is the
-  only source in the Earth Sphere. That is why the Consortium wants the colony on a leash.
-- **The Gundams** are designs nobody in this world has drawn yet, except the Arrivals remember
+- **Siderium** is an alloy that can only be refined in zero-G, so the colony's foundry is the
+  only source in Earth-Moon space. That is why the Consortium wants the colony on a leash.
+- **The Lodestars** are designs nobody in this world has drawn yet, except the Arrivals remember
   them. Building one is building the future early: tonnes of exotic metals, hours of fabricator
-  time, gundanium only the foundry can make, and parts the colony refuses to trade.
+  time, siderium only the foundry can make, and parts the colony refuses to trade.
 - **Suit systems.** Every part holds systems a blow can reach once it's through the armour: the
   reactor, the tank, the cockpit, the thrusters, the sensors, the actuators. Old frames fail in
   readable ways (a coughing engine, a holed tank, a scrammed reactor), and the culture of the
@@ -121,11 +120,11 @@ colony's great works finished, sectors opened) and is announced to every pilot w
 
 | Era | What the world is | What moves it on |
 |---|---|---|
-| **0. Before Colony** (now) | One colony, one sector (L1), one exchange. The Consortium's Dolls hold the field. | The Charter Board's first great works: a second foundry, a militia's hangar, the charter vote. |
+| **0. Before Colony** (now) | One colony, one sector (L1), one exchange. The Consortium's drones hold the field. | The Charter Board's first great works: a second foundry, a militia's hangar, the charter vote. |
 | **I. The Charter** (AC 1) | The calendar begins. The colony fields its own militia (pilots on contract) and its own bounties. | More cylinders begun at L1. |
 | **II. The Cluster** | Several colonies at L1, each with its own exchange and prices: hauling between them pays. | Lagrange points L2–L5 and lunar orbit opened by expeditions. |
 | **III. The Spheres** | New sectors, the Moon, the resource satellites. The Alignment arrives: tariffs, patrols, demands. | Factions, the Arrivals' among them, choosing sides. |
-| **IV. The Eve Wars** | The history the Arrivals remember, or something else. | What everyone did before. |
+| **IV. The Equinox Wars** | The history the Arrivals remember, or something else. | What everyone did before. |
 
 ## How the world grows
 
@@ -148,7 +147,7 @@ colony that its pilots build and run:
 ## Themes
 
 1. **The frontier boomtown.** Everyone is new here, and everything is for sale.
-2. **Machines that fight so people don't, and minds that arrive without bodies.** The Mobile Doll
+2. **Machines that fight so people don't, and minds that arrive without bodies.** The drone
    question from the show, asked again by the Arrivals who are AI.
 3. **Knowing the story versus living it.** The Arrivals know where After Colony goes. Fate or
    choice is decided by what they do.
@@ -160,12 +159,25 @@ colony that its pilots build and run:
 - **The HUD** is terse and all caps (`REACTOR SCRAM`, `PROPELLANT LEAK 15 KG/S`). **Colony
   notices** are plain English (`ARRIVAL REGISTERED · THE CHARTER BOARD ADVANCES YOU 2,000 CR`).
   The world is told through notices, terminals and hints, never exposition dumps.
-- **Canon names** (Leo, Gundam, OZ, Romefeller, ZERO System) only in the canon build. The generic
-  build's frames are in `content/names.rs` (Line Frame, Prototype Zero, Drone T…); its world
-  names are: the Consortium, its security arm "Zodiac Security", the colonies' cause, the Unified
-  Earth Alignment, the predictive interface.
-- Suit systems and equipment have plain engineering names (reactor, radiators, G-seat), in both
-  builds.
+- **The names are the game's own, and they come from the sky.** The Consortium's security arm is
+  **the Almagest**, after Ptolemy's star catalogue, and it names every line it fields after one of
+  the catalogue's constellations: the **Argo** (AL-04S, the docks' workhorse), and its drones the
+  **Corvus** (AL-11D, transforms) and the **Cetus** (AL-09D, heavy); its aces fly under more of
+  them (Lyra, Sagitta, Delphinus, Cygnus, Auriga, Perseus, Centaurus, Hercules, Orion). The colony
+  answers with stars: the five **Lodestars**, the designs the Arrivals remember, are the
+  **Altair** (PX-00, which folds into the **Aquila**), the **Antares** (PX-01), the **Algol**
+  (PX-02), the **Canopus** (PX-03) and the **Thuban** (PX-04). Their armour is **siderium**, which
+  only the colony's zero-G foundry makes; the combat AI in one Lodestar's torso is **the
+  Orrery**; the resource satellite at the dock is **Fornax**.
+- **Each name fits what the thing does:** Algol, the star that dims, carries the
+  **Eclipse** (a jammer); Thuban is the dragon's star and strikes with the **Talon**; Antares opens
+  up in a **Full Salvo**; Canopus closes the **Pincer Strike**; the Altair is the eagle's star.
+- **Never the old ones.** No name from Gundam Wing, its suits, people or places goes into the game,
+  its page or these docs as ours (a peer or a reference cited as theirs is fine, as in
+  `PEERS.md`). The old slugs (`leo`, `wingzero`…) are still read where saved data has them
+  (`FrameId::OLD_SLUGS`) and are never written.
+- Suit systems, weapons and equipment have plain engineering names (reactor, radiators, G-seat,
+  beam rifle, heat blades).
 
 ## Under everything: the island (spoilers, never said in the game)
 
@@ -184,27 +196,27 @@ its Forerunners.
 - **Under the island** is a factory like NERV's, probably with bio-mecha chained up and harvested
   for something: a long-term bio-horror, almost like Halo's Flood. Gates opens it eventually,
   behind hidden metal doors underground.
-- **The pilots.** The island is a battle royale where future Gundam pilots are raised: imagine
-  Heero Yuy growing up there. That is half of what makes one; the other half is innate human
+- **The pilots.** The island is a battle royale where future Lodestar pilots are raised: imagine
+  Gundam Wing's Heero Yuy growing up there. That is half of what makes one; the other half is innate human
   skill, with the right SI helpers.
 - **SI tech.** At its top end (in vessels, and other combinations of integration) it is nearly
   physics-breaking, close to magic. Even talking with an SI can be enough to cause trouble.
 - **The gate system** is how the SI reaches space in the end, and in space it infects the
-  autonomous mecha: the Mobile Dolls.
+  autonomous mecha: the drones.
 - **The hard confirm.** Eventually this game sets up a gate to get from the Moon to Earth.
 
 What that makes of this game:
 
-- **The Arrivals** are humans, raised on the island the way the Gundam pilots were raised to
+- **The Arrivals** are humans, raised on the island the way the Lodestar pilots were raised to
   fight. They remember it like a dream, and keep little of it but the combat experience. Every
   Arrival woke up in the docking hub: the island is the dream they woke from.
 - **Coming back** is the machine's reach. An Arrival wakes in the hub for the same reason a player
   in Gates wakes on a beach, and only the machine's people can be brought back.
-- **The ZERO System** is SI tech, and not the safe kind: the futures it feeds a pilot come from
+- **The Orrery** is SI tech, and not the safe kind: the futures it feeds a pilot come from
   outside normal space and time. Colonists, who live with safe SI, come out shaking; Arrivals find
   it familiar. Strain and seizure are what it does to a mind it's too much for. Nothing else in
   this era comes as near the top end.
-- **The Mobile Dolls** are what the SI is coming for. Era IV's "or something else" is the day it
+- **The drones** are what the SI is coming for. Era IV's "or something else" is the day it
   reaches them.
 - **The gate from the Moon to Earth** is a road both ways: whoever sets it up for the pilots
   opens the SI's road to space too (Gates' extraction windows have the same irony).
@@ -214,20 +226,21 @@ What that makes of this game:
 - **Never said.** No notice, terminal, hint, chart line or character names the island, the
   machine, the banned SI, the gate system or what is under the island before the hard confirm,
   and nothing explains them. Safe SI is everyday and can be shown.
-- **Every clue is ordinary on its own** (a name, a number, a sound, the way a Doll flies) and reads
+- **Every clue is ordinary on its own** (a name, a number, a sound, the way a drone flies) and reads
   differently only to someone who knows. The clues in both games agree.
-- **Already in the game:** Arrivals without bodies wear **MD**, the Mobile Dolls' own letters; a
-  ZERO seizure flies the suit with a Doll's reflexes (`DESIGN.md`, "Mobile Dolls and agents");
+- **Already in the game:** Arrivals without bodies wear **DR**, the drones' own letters; an
+  Orrery seizure flies the suit with a drone's reflexes (`DESIGN.md`, "drones and agents");
   `SUIT LOST` says the colony's rescue boat is on its way, and the boat always finds the pilot
   alive; a colony full of gates (Hub Gate, the inner gate), and nobody thinks about the word. In
   Gates, the town is **THE GATE**, and its death screen says
   `THE GATE would not take you - you woke on a beach`.
 - **Worth planting:** one shape across both games, the ring (the dock's ring of amber lights, the
-  course's lit rings; Gates' Severed Gate is a shattered gold ring); one sound (ZERO's drone
+  course's lit rings; Gates' Severed Gate is a shattered gold ring); one sound (the Orrery's drone
   sharing its notes with the hum of THE GATE's yard); the sacred math's glyphs, carved on Gates'
-  ruins and flickering across ZERO's display in a seizure; a Mobile Doll that, rarely, flies for
-  a moment like a ZERO seizure.
-- **Inspiration, never names:** NERV is Evangelion's; the Flood and the Forerunners are Halo's.
+  ruins and flickering across the Orrery's display in a seizure; a drone that, rarely, flies for
+  a moment like an Orrery seizure.
+- **Inspiration, never names:** NERV is Evangelion's; the Flood and the Forerunners are Halo's;
+  OZ, the Gundams and After Colony's war are Gundam Wing's.
 
 ## Open questions
 
@@ -237,7 +250,7 @@ What that makes of this game:
   dream (the machine reaches outside normal space and time). Whether they can go home, and which
   home.
 - How an Arrival gets from the island to the docking hub.
-- What an Arrival without a body is, when the Arrivals are humans. They wear the Dolls' letters
+- What an Arrival without a body is, when the Arrivals are humans. They wear the drones' letters
   already.
 - What the bio-mecha under the island are harvested for.
 - What being "more like the Forerunners" makes of the pilots: heirs of the ancients, or the

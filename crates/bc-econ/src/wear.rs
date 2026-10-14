@@ -148,17 +148,17 @@ mod tests {
         let sortie = Usage { burn: MAIN_S * tick / 2, boost: 0, shots: [0, 800, 0], overheats: 2 };
         w.add(&sortie);
         let mut faults = Faults::NONE;
-        assert!(w.wear_out(&mut faults, FrameId::Leo, |_| true).is_empty());
+        assert!(w.wear_out(&mut faults, FrameId::Argo, |_| true).is_empty());
         w.add(&sortie);
-        let worn = w.wear_out(&mut faults, FrameId::Leo, |_| true);
+        let worn = w.wear_out(&mut faults, FrameId::Argo, |_| true);
         assert!(worn.contains(&System::MainThrusters), "{worn:?}");
-        assert!(worn.contains(&mount_system(FrameId::Leo, 1)), "{worn:?}");
+        assert!(worn.contains(&mount_system(FrameId::Argo, 1)), "{worn:?}");
         assert!(!worn.contains(&System::Reactor));
         assert_eq!(faults.level(System::MainThrusters), bc_sim::content::systems::DAMAGED);
         assert_eq!(w.main, 0, "its life starts again");
         // The reactor, after six overheats; a part not fitted doesn't wear.
         w.add(&Usage { overheats: 2, ..Usage::default() });
-        assert!(w.wear_out(&mut faults, FrameId::Leo, |p| p != Part::Torso).is_empty());
-        assert!(w.systems(FrameId::Leo).iter().any(|(s, f)| *s == System::Reactor && *f >= 1.0));
+        assert!(w.wear_out(&mut faults, FrameId::Argo, |p| p != Part::Torso).is_empty());
+        assert!(w.systems(FrameId::Argo).iter().any(|(s, f)| *s == System::Reactor && *f >= 1.0));
     }
 }

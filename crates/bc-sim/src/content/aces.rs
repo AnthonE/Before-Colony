@@ -1,8 +1,8 @@
-//! Zodiac's aces (`docs/DESIGN.md`, "Aces"; Armored Core VI's Arena, `docs/PEERS.md`): named Mobile
-//! Doll units of the Consortium's security arm, each with a bounty on the Charter Board's Most
-//! Wanted list. One is out among the Dolls at a time, the next on the list fielded every
-//! [`ACE_EVERY`] while none is (`Sim`'s `spawn_ace`). Each flies a Leo with its Doll system tuned
-//! by hand, so it stands more than a Doll does and its wreck is worth salvaging; a pilot who downs
+//! The Almagest's aces (`docs/DESIGN.md`, "Aces"; Armored Core VI's Arena, `docs/PEERS.md`): named
+//! drone units of the Consortium's security arm, each with a bounty on the Charter Board's Most
+//! Wanted list. One is out among the drones at a time, the next on the list fielded every
+//! [`ACE_EVERY`] while none is (`Sim`'s `spawn_ace`). Each flies an Argo with its drone system tuned
+//! by hand, so it stands more than a drone does and its wreck is worth salvaging; a pilot who downs
 //! one takes its bounty as pay, or as the rights to its wreck (the server's to settle).
 
 use bc_proto::FrameId;
@@ -20,15 +20,15 @@ pub struct Ace {
 
 /// The list, in the order they're fielded (and fielded again, round and round).
 pub const ACES: [Ace; 9] = [
-    Ace { name: "ARIES", bounty: 1_500 },
-    Ace { name: "GEMINI", bounty: 1_800 },
-    Ace { name: "CANCER", bounty: 2_000 },
-    Ace { name: "LIBRA", bounty: 2_200 },
-    Ace { name: "SCORPIO", bounty: 2_500 },
-    Ace { name: "SAGITTARIUS", bounty: 2_800 },
-    Ace { name: "CAPRICORN", bounty: 3_200 },
-    Ace { name: "AQUARIUS", bounty: 3_600 },
-    Ace { name: "PISCES", bounty: 4_000 },
+    Ace { name: "LYRA", bounty: 1_500 },
+    Ace { name: "SAGITTA", bounty: 1_800 },
+    Ace { name: "DELPHINUS", bounty: 2_000 },
+    Ace { name: "CYGNUS", bounty: 2_200 },
+    Ace { name: "AURIGA", bounty: 2_500 },
+    Ace { name: "PERSEUS", bounty: 2_800 },
+    Ace { name: "CENTAURUS", bounty: 3_200 },
+    Ace { name: "HERCULES", bounty: 3_600 },
+    Ace { name: "ORION", bounty: 4_000 },
 ];
 
 /// [`crate::suits::Suits::ace`] of a suit that's no ace.
@@ -37,8 +37,8 @@ pub const NO_ACE: u8 = u8::MAX;
 /// (`SimConfig::ace_every`'s default).
 pub const ACE_EVERY: u32 = secs(300.0);
 /// What an ace flies...
-pub const ACE_FRAME: FrameId = FrameId::Leo;
-/// ...and how much more it stands than a Doll in one: its parts' armour, times this.
+pub const ACE_FRAME: FrameId = FrameId::Argo;
+/// ...and how much more it stands than a drone in one: its parts' armour, times this.
 pub const ACE_ARMOUR: f32 = 1.5;
 
 /// Ace `ace` on the list (round and round).

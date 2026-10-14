@@ -164,7 +164,7 @@ struct Scenario<'a> {
 impl Default for Scenario<'_> {
     fn default() -> Self {
         Self {
-            frame: FrameId::Leo,
+            frame: FrameId::Argo,
             input_period: 1.0 / 60.0,
             lost: &[],
             faults: Systems::OK,
@@ -202,7 +202,7 @@ fn run_as(
 fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd) -> Outcome {
     let Scenario { frame, input_period, lost, faults, modules, stall, render_hz, link, place } = *sc;
     let cfg = SectorConfig {
-        sim: SimConfig { target_dolls: 0, seed: 1, ..SimConfig::default() },
+        sim: SimConfig { target_drones: 0, seed: 1, ..SimConfig::default() },
         max_clients: 4,
         ..SectorConfig::default()
     };
@@ -223,7 +223,7 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
     let mut up = Link::new(1, link);
     let mut down = Link::new(2, link);
     let mut client = ClientCore::new(ClientConfig {
-        name: "Heero".into(),
+        name: "Kai".into(),
         pilot: PilotKind::Human,
         frame,
         faction: Faction::Colonies,
@@ -296,7 +296,7 @@ fn run_scenario(sc: &Scenario, brain: &mut dyn FnMut(&InputContext) -> InputCmd)
                     tick: sector.sim.tick(),
                     tick_hz: 30,
                     sector: 1,
-                    zero_allowed: true,
+                    orrery_allowed: true,
                     max_datagram: MAX_DATAGRAM as u16,
                     field_seed: shared.field_seed,
                     field_rocks: shared.field_rocks,
@@ -474,12 +474,11 @@ fn sprinter(ctx: &InputContext) -> InputCmd {
 /// doesn't surge toward and away at the tick rate.
 #[test]
 fn sprint_and_stop_draws_smoothly() {
-    // A Wing Zero boosting on a light tank: no more than 16 g.
+    // An Altair boosting on a light tank: no more than 16 g.
     const MOST: f32 = 16.0 * 9.806_65;
     const TICK: f32 = 1.0 / 30.0;
     for hz in [60.0, 144.0] {
-        let sc =
-            Scenario { frame: FrameId::WingZero, render_hz: Some(hz), link: CLEAN, ..Scenario::default() };
+        let sc = Scenario { frame: FrameId::Altair, render_hz: Some(hz), link: CLEAN, ..Scenario::default() };
         let Outcome { drawn, mut errors, .. } = run_scenario(&sc, &mut sprinter);
         assert!(drawn.len() > (30.0 * hz) as usize, "{} frames drawn", drawn.len());
         // How fast the drawn suit moves over each frame: it steps back, or changes by more than a
@@ -558,7 +557,7 @@ fn prediction_holds_up_against_rocks() {
     assert!(client.world.own.expect("own state").alive);
 }
 
-/// A suit with parts shot off flies with weaker AMBAC and thrust. The client predicts it with the
+/// A suit with parts shot off flies with weaker limb trim and thrust. The client predicts it with the
 /// factors the server sends, which the server rounds the same way before flying with them.
 #[test]
 fn prediction_holds_up_for_a_damaged_suit() {
@@ -566,7 +565,7 @@ fn prediction_holds_up_for_a_damaged_suit() {
     let Outcome { client, mut errors, .. } = run_with(1.0 / 60.0, &mut weaving_pilot, &lost);
     let own = client.world.own.expect("own state");
     let tuned = bc_sim::tuning::own_tuning(&own);
-    assert!(tuned.main < 0.5 && tuned.ambac < 0.75, "the damage took: {tuned:?}");
+    assert!(tuned.main < 0.5 && tuned.limb_trim < 0.75, "the damage took: {tuned:?}");
     let p99 = percentile(&mut errors, 0.99);
     println!("damaged suit: prediction error p50 {:.4} m  p99 {p99:.4} m", percentile(&mut errors, 0.5));
     assert!(p99 < 0.01, "prediction error p99 {p99:.3} m");
@@ -603,7 +602,7 @@ fn prediction_holds_up_for_a_suit_with_failing_systems() {
     assert!(p99 < 0.01, "prediction error p99 {p99:.3} m");
 }
 
-/// A Wing Zero weaving and changing into Neo-Bird and back every 3 s over the bad link. The client
+/// An Altair weaving and changing into Aquila and back every 3 s over the bad link. The client
 /// steps each change as the server does, so its prediction stays exact through them.
 #[test]
 fn prediction_holds_up_through_changes_of_form() {
@@ -614,11 +613,10 @@ fn prediction_holds_up_through_changes_of_form() {
         }
         cmd
     };
-    let Outcome { client, mut errors, other_form, .. } =
-        run_as(FrameId::WingZero, 1.0 / 60.0, &mut brain, &[]);
+    let Outcome { client, mut errors, other_form, .. } = run_as(FrameId::Altair, 1.0 / 60.0, &mut brain, &[]);
     let p99 = percentile(&mut errors, 0.99);
     println!(
-        "changing form: {other_form} of {} snapshots as Neo-Bird, prediction error p50 {:.4} m  p99 {p99:.4} m",
+        "changing form: {other_form} of {} snapshots as Aquila, prediction error p50 {:.4} m  p99 {p99:.4} m",
         errors.len(),
         percentile(&mut errors, 0.5)
     );
@@ -641,12 +639,12 @@ fn swordsman(ctx: &InputContext) -> InputCmd {
     cmd
 }
 
-/// Strikes lunge, and busy arms slow AMBAC's turning. The client rolls its suit's arms on tick by
+/// Strikes lunge, and busy arms slow limb trim's turning. The client rolls its suit's arms on tick by
 /// tick as the server does, so even the ticks it flies ahead of any news (what's drawn) are where
 /// the server's suit turns out to be, over the bad link.
 #[test]
 fn prediction_holds_up_through_strikes_and_fire() {
-    for frame in [FrameId::Leo, FrameId::Deathscythe, FrameId::Sandrock] {
+    for frame in [FrameId::Argo, FrameId::Algol, FrameId::Canopus] {
         let Outcome { client, mut errors, mut ahead, .. } = run_as(frame, 1.0 / 60.0, &mut swordsman, &[]);
         let p99 = percentile(&mut errors, 0.99);
         let ahead_p99 = percentile(&mut ahead, 0.99);
@@ -662,16 +660,16 @@ fn prediction_holds_up_through_strikes_and_fire() {
     }
 }
 
-const MO_II: Body = Body::Landmark(0);
+const FORNAX: Body = Body::Landmark(0);
 const HERMIT: Body = Body::Landmark(1);
-/// Where on MO-II a lander comes down and paces its square (its frame, out from its middle): on
+/// Where on Fornax a lander comes down and paces its square (its frame, out from its middle): on
 /// the core 94 m fore of the middle, clear of the pylons and the fore module.
-const ON_MO_II: Vec3 = Vec3::new(1.0, 0.45, 0.45);
-/// Where on Hermit a suit stands for a static body to set MO-II against: clear of its bowls.
+const ON_FORNAX: Vec3 = Vec3::new(1.0, 0.45, 0.45);
+/// Where on Hermit a suit stands for a static body to set Fornax against: clear of its bowls.
 const ON_HERMIT: Vec3 = Vec3::new(0.5, 1.0, 0.3);
-/// How fast any point of MO-II's surface moves (its spin and its drift), m/s. A suit standing or
-/// hopping on the core where [`ON_MO_II`] puts it moves slower than that (2.2 m/s at most).
-const MO_II_SURFACE_SPEED: f32 = 2.87;
+/// How fast any point of Fornax's surface moves (its spin and its drift), m/s. A suit standing or
+/// hopping on the core where [`ON_FORNAX`] puts it moves slower than that (2.2 m/s at most).
+const FORNAX_SURFACE_SPEED: f32 = 2.87;
 
 /// Stands the suit on `body`, where its surface is out from its middle along `dir`.
 fn stand(sector: &mut Sector, i: usize, body: Body, dir: Vec3) {
@@ -693,8 +691,8 @@ fn hover(sector: &mut Sector, i: usize, body: Body, dir: Vec3, range: f32) {
     sim.suits.input[i].aim = rot * Vec3::Z;
 }
 
-fn on_mo_ii(sector: &mut Sector, i: usize) {
-    stand(sector, i, MO_II, ON_MO_II);
+fn on_fornax(sector: &mut Sector, i: usize) {
+    stand(sector, i, FORNAX, ON_FORNAX);
 }
 
 fn on_hermit(sector: &mut Sector, i: usize) {
@@ -702,18 +700,18 @@ fn on_hermit(sector: &mut Sector, i: usize) {
 }
 
 /// 600 m out over where [`lander`] walks.
-fn over_mo_ii(sector: &mut Sector, i: usize) {
-    hover(sector, i, MO_II, ON_MO_II, 600.0);
+fn over_fornax(sector: &mut Sector, i: usize) {
+    hover(sector, i, FORNAX, ON_FORNAX, 600.0);
 }
 
 /// 1 400 m out over where [`lander`] walks: as far as a [`gunner`] shoots.
-fn far_over_mo_ii(sector: &mut Sector, i: usize) {
-    hover(sector, i, MO_II, ON_MO_II, 1_400.0);
+fn far_over_fornax(sector: &mut Sector, i: usize) {
+    hover(sector, i, FORNAX, ON_FORNAX, 1_400.0);
 }
 
 /// 40 m over where [`lander`] walks: a free suit beside the station.
-fn beside_mo_ii(sector: &mut Sector, i: usize) {
-    hover(sector, i, MO_II, ON_MO_II, 40.0);
+fn beside_fornax(sector: &mut Sector, i: usize) {
+    hover(sector, i, FORNAX, ON_FORNAX, 40.0);
 }
 
 /// 600 m out over where [`on_hermit`] stands a suit.
@@ -721,13 +719,13 @@ fn over_hermit(sector: &mut Sector, i: usize) {
     hover(sector, i, HERMIT, ON_HERMIT, 600.0);
 }
 
-/// A lander walking its square on MO-II, hopping every 3 s ([`Plan::Walk`]).
+/// A lander walking its square on Fornax, hopping every 3 s ([`Plan::Walk`]).
 fn lander() -> impl FnMut(&InputContext) -> InputCmd {
-    let mut brain = LanderBrain::new(Plan::Walk { body: MO_II, dir_local: ON_MO_II });
+    let mut brain = LanderBrain::new(Plan::Walk { body: FORNAX, dir_local: ON_FORNAX });
     move |ctx: &InputContext| brain.decide(ctx)
 }
 
-/// [`lander`], letting go once it has been on MO-II for 5 s: it pushes off, flies out over its
+/// [`lander`], letting go once it has been on Fornax for 5 s: it pushes off, flies out over its
 /// spot and comes down on it again.
 fn letting_go() -> impl FnMut(&InputContext) -> InputCmd {
     let mut brain = lander();
@@ -753,9 +751,9 @@ fn crouched(ctx: &InputContext) -> InputCmd {
     InputCmd { aim, thrust: [0, -127, 0], buttons: GRIP, ..InputCmd::default() }
 }
 
-/// Holds still with flight assist, looking at MO-II.
+/// Holds still with flight assist, looking at Fornax.
 fn watching(ctx: &InputContext) -> InputCmd {
-    let at = ctx.predict.body_pose(MO_II, f64::from(ctx.tick)).map_or(Vec3::ZERO, |p| p.pos);
+    let at = ctx.predict.body_pose(FORNAX, f64::from(ctx.tick)).map_or(Vec3::ZERO, |p| p.pos);
     InputCmd {
         aim: (at - ctx.predict.state.pos).normalize_or(Vec3::Z),
         buttons: FLIGHT_ASSIST,
@@ -765,7 +763,7 @@ fn watching(ctx: &InputContext) -> InputCmd {
 
 /// Flies a 30 m square at walking speed with flight assist: a free target to set a rider against.
 fn pacing(ctx: &InputContext) -> InputCmd {
-    // 8 m/s of the Leo's 220 m/s cruise is a stick of 4.6.
+    // 8 m/s of the Argo's 220 m/s cruise is a stick of 4.6.
     let stick = [[5, 0, 0], [0, 0, 5], [-5, 0, 0], [0, 0, -5]][(ctx.tick / 112 % 4) as usize];
     InputCmd {
         aim: ctx.predict.state.rot * Vec3::Z,
@@ -823,17 +821,17 @@ fn server_at(server: &HashMap<u32, Vec3>, t: f64) -> Option<Vec3> {
     Some(server.get(&k)?.lerp(*server.get(&(k + 1))?, (t - f64::from(k)) as f32))
 }
 
-/// A lander walks its square on MO-II as the station rolls and drifts, hopping every 3 s: the
+/// A lander walks its square on Fornax as the station rolls and drifts, hopping every 3 s: the
 /// client predicts it there in the station's frame, over a clean link as exactly as in open
 /// space and over the bad one as well as flying.
 #[test]
-fn prediction_holds_up_grounded_on_mo_ii() {
+fn prediction_holds_up_grounded_on_fornax() {
     for (link, most, name) in [(CLEAN, 0.01, "clean"), (BAD, 0.25, "bad")] {
-        let sc = Scenario { link, place: Some(on_mo_ii), ..Scenario::default() };
+        let sc = Scenario { link, place: Some(on_fornax), ..Scenario::default() };
         let Outcome { client, mut errors, grounded, aloft, .. } = run_scenario(&sc, &mut lander());
         let p99 = percentile(&mut errors, 0.99);
         println!(
-            "{name} link, on MO-II: {grounded} snapshots standing and {aloft} hopping of {}; prediction error (its frame) p50 {:.4} m  p99 {p99:.4} m  max {:.4} m; {} relocations",
+            "{name} link, on Fornax: {grounded} snapshots standing and {aloft} hopping of {}; prediction error (its frame) p50 {:.4} m  p99 {p99:.4} m  max {:.4} m; {} relocations",
             errors.len(),
             percentile(&mut errors, 0.5),
             errors[errors.len() - 1],
@@ -841,21 +839,21 @@ fn prediction_holds_up_grounded_on_mo_ii() {
         );
         assert!(errors.len() > 800, "snapshots measured: {}", errors.len());
         assert!(grounded > 400 && aloft > 200, "standing at {grounded} snapshots, hopping at {aloft}");
-        assert_eq!(grounded + aloft, errors.len(), "never let go of MO-II");
+        assert_eq!(grounded + aloft, errors.len(), "never let go of Fornax");
         assert!(p99 < most, "{name} link: prediction error p99 {p99:.4} m");
         assert!(client.predict.relocations <= 1, "{} relocations", client.predict.relocations);
         assert!(client.world.own.expect("own state").alive);
     }
 }
 
-/// The own suit on MO-II is drawn on the station as the station is drawn (on the view clock),
+/// The own suit on Fornax is drawn on the station as the station is drawn (on the view clock),
 /// which is where it truly is (at the input clock's time) moved on or back by the station's
-/// motion between the two clocks: never further from it than the fastest point of MO-II moves
+/// motion between the two clocks: never further from it than the fastest point of Fornax moves
 /// in that time.
 #[test]
 fn drawn_own_rider_stays_within_the_clock_bound() {
     for (link, name) in [(CLEAN, "clean"), (BAD, "bad")] {
-        let sc = Scenario { render_hz: Some(60.0), link, place: Some(on_mo_ii), ..Scenario::default() };
+        let sc = Scenario { render_hz: Some(60.0), link, place: Some(on_fornax), ..Scenario::default() };
         let Outcome { drawn, server, .. } = run_scenario(&sc, &mut lander());
         assert!(drawn.len() > 30 * 60, "{} frames drawn", drawn.len());
         let (mut over, mut off, mut gaps, mut on, mut seen) = (f32::MIN, 0.0f32, (f64::MAX, 0.0f64), 0, 0);
@@ -865,17 +863,17 @@ fn drawn_own_rider_stays_within_the_clock_bound() {
             seen += 1;
             let gap = v.t - v.t_view;
             gaps = (gaps.0.min(gap), gaps.1.max(gap));
-            let bound = MO_II_SURFACE_SPEED * gap as f32 / 30.0 + 0.05;
+            let bound = FORNAX_SURFACE_SPEED * gap as f32 / 30.0 + 0.05;
             off = off.max(v.pos.distance(truth));
             over = over.max(v.pos.distance(truth) - bound);
-            on += usize::from(v.ground.is_some_and(|g| g.body == MO_II));
+            on += usize::from(v.ground.is_some_and(|g| g.body == FORNAX));
         }
         println!(
-            "{name} link: {seen} frames, {on} on MO-II; the clocks {:.1} to {:.1} ticks apart; drawn up to {off:.3} m from where it was, {:.3} m inside the bound at worst",
+            "{name} link: {seen} frames, {on} on Fornax; the clocks {:.1} to {:.1} ticks apart; drawn up to {off:.3} m from where it was, {:.3} m inside the bound at worst",
             gaps.0, gaps.1, -over
         );
         assert!(seen > drawn.len() - 30, "{seen} of {} frames checked", drawn.len());
-        assert_eq!(on, seen, "drawn on MO-II throughout");
+        assert_eq!(on, seen, "drawn on Fornax throughout");
         assert!(gaps.1 > 2.0, "the clocks were only {:.1} ticks apart", gaps.1);
         assert!(
             over <= 0.0,
@@ -884,14 +882,14 @@ fn drawn_own_rider_stays_within_the_clock_bound() {
     }
 }
 
-/// Letting go of MO-II and landing on it again changes how the own suit is drawn (on the station
+/// Letting go of Fornax and landing on it again changes how the own suit is drawn (on the station
 /// as drawn, or where it is), by the station's motion between the clocks. That is blended out,
 /// as a correction is: the camera never cuts, and the drawn suit never jumps (moves further in a
 /// frame than it is drawn moving).
 #[test]
 fn attach_and_detach_blend_without_a_cut() {
     for (hz, link) in [(60.0, CLEAN), (144.0, CLEAN), (60.0, BAD), (144.0, BAD)] {
-        let sc = Scenario { render_hz: Some(hz), link, place: Some(on_mo_ii), ..Scenario::default() };
+        let sc = Scenario { render_hz: Some(hz), link, place: Some(on_fornax), ..Scenario::default() };
         let Outcome { drawn, mut errors, .. } = run_scenario(&sc, &mut letting_go());
         let (mut attached, mut detached, mut cuts, mut step) = (0, 0, 0, f32::MIN);
         for w in drawn.windows(2) {
@@ -937,7 +935,7 @@ impl<'a> Guest<'a> {
         brain: impl FnMut(&InputContext) -> InputCmd + 'a,
     ) -> Self {
         Self {
-            frame: FrameId::Leo,
+            frame: FrameId::Argo,
             faction,
             link,
             place: Some(place),
@@ -1015,7 +1013,7 @@ fn party(mut guests: Vec<Guest>, before_tick: &mut dyn FnMut(&mut Sector)) -> Pa
     }
     const HZ: f64 = 60.0;
     let cfg = SectorConfig {
-        sim: SimConfig { target_dolls: 0, seed: 1, ..SimConfig::default() },
+        sim: SimConfig { target_drones: 0, seed: 1, ..SimConfig::default() },
         max_clients: 4,
         ..SectorConfig::default()
     };
@@ -1106,7 +1104,7 @@ fn party(mut guests: Vec<Guest>, before_tick: &mut dyn FnMut(&mut Sector)) -> Pa
                         tick: sector.sim.tick(),
                         tick_hz: 30,
                         sector: 1,
-                        zero_allowed: true,
+                        orrery_allowed: true,
                         max_datagram: g.max_datagram,
                         field_seed: shared.field_seed,
                         field_rocks: shared.field_rocks,
@@ -1183,7 +1181,7 @@ fn party(mut guests: Vec<Guest>, before_tick: &mut dyn FnMut(&mut Sector)) -> Pa
     Party { sector, visits, server, shots }
 }
 
-/// A watcher hovering 600 m off MO-II draws a lander walking its square on it (hopping, as the
+/// A watcher hovering 600 m off Fornax draws a lander walking its square on it (hopping, as the
 /// station rolls and drifts) where the server had it at the moment drawn: what lag compensation
 /// judges its shots against. A rider is sent and interpolated in the station's frame, so the
 /// station's motion costs nothing.
@@ -1191,8 +1189,8 @@ fn party(mut guests: Vec<Guest>, before_tick: &mut dyn FnMut(&mut Sector)) -> Pa
 fn remote_riders_are_drawn_where_the_server_had_them() {
     for (link, name) in [(CLEAN, "clean"), (BAD, "bad")] {
         let guests = vec![
-            Guest::new(Faction::Colonies, link, on_mo_ii, lander()),
-            Guest::new(Faction::Colonies, link, over_mo_ii, watching),
+            Guest::new(Faction::Colonies, link, on_fornax, lander()),
+            Guest::new(Faction::Colonies, link, over_fornax, watching),
         ];
         let party = party(guests, &mut |_| {});
         let watcher = &party.visits[1];
@@ -1221,7 +1219,7 @@ fn remote_riders_are_drawn_where_the_server_had_them() {
     }
 }
 
-/// A rider crouched still on MO-II is drawn glued to the station as it rolls, over the bad link
+/// A rider crouched still on Fornax is drawn glued to the station as it rolls, over the bad link
 /// and through 4 s in which nothing at all reaches the watcher: in the station's frame it doesn't
 /// move, so there is nothing to mispredict, however long the news takes.
 #[test]
@@ -1229,34 +1227,34 @@ fn still_riders_stay_glued_through_loss() {
     const OUTAGE: (f64, f64) = (20.0, 24.0);
     let blackout = LinkSpec { outage: Some(OUTAGE), ..BAD };
     let guests = vec![
-        Guest::new(Faction::Colonies, BAD, on_mo_ii, crouched),
-        Guest::new(Faction::Colonies, blackout, over_mo_ii, watching),
+        Guest::new(Faction::Colonies, BAD, on_fornax, crouched),
+        Guest::new(Faction::Colonies, blackout, over_fornax, watching),
     ];
     let party = party(guests, &mut |_| {});
     let watcher = &party.visits[1];
     let bodies = &watcher.client.world.bodies;
-    // Once it has crouched and settled (the server finds it still), in MO-II's frame as drawn.
+    // Once it has crouched and settled (the server finds it still), in Fornax's frame as drawn.
     let (mut first, mut drift, mut off, mut through, mut n) = (None, 0.0f32, 0.0f32, 0, 0);
     for f in watcher.frames.iter().filter(|f| f.t > 8.0) {
         let Some(drawn) = f.suits[0] else { continue };
         let truth = party.server[&(f.view.floor() as u32)][0];
-        assert!(truth.still && truth.body == MO_II, "still on MO-II at {:.1}", f.view);
-        let local = bodies.pose_at(MO_II, f.view).expect("MO-II").to_local(drawn);
+        assert!(truth.still && truth.body == FORNAX, "still on Fornax at {:.1}", f.view);
+        let local = bodies.pose_at(FORNAX, f.view).expect("Fornax").to_local(drawn);
         drift = drift.max(local.distance(*first.get_or_insert(local)));
         off = off.max(local.distance(truth.local));
         through += usize::from((OUTAGE.0 + 0.2..OUTAGE.1).contains(&f.t));
         n += 1;
     }
     let deck = bodies
-        .pose_at(MO_II, 8.0 * 30.0)
+        .pose_at(FORNAX, 8.0 * 30.0)
         .unwrap()
         .pos
-        .distance(bodies.pose_at(MO_II, 40.0 * 30.0).unwrap().pos);
+        .distance(bodies.pose_at(FORNAX, 40.0 * 30.0).unwrap().pos);
     println!(
         "{n} frames ({through} with no news): drawn drifting {drift:.4} m over the deck (which moved {deck:.1} m), {off:.4} m from the server's rider at most"
     );
     assert!(n > 30 * 60 && through > 3 * 60, "{n} frames drew it, {through} in the outage");
-    assert!(drift < 0.01, "drifted {drift:.4} m over MO-II");
+    assert!(drift < 0.01, "drifted {drift:.4} m over Fornax");
     // (Its place on the deck is sent to 1.5625 cm: within half that on each axis.)
     assert!(off < 0.0136, "drawn {off:.4} m off the server's rider");
     assert_eq!(watcher.client.world.stats.unresolved_bodies, 0);
@@ -1278,20 +1276,20 @@ fn hit_rate(party: &Party, g: usize) -> (f32, u32) {
     (stats.hits as f32 / stats.shots.max(1) as f32, stats.shots)
 }
 
-/// A pilot 1 400 m off MO-II shoots at a lander walking its square on the station (and hopping),
+/// A pilot 1 400 m off Fornax shoots at a lander walking its square on the station (and hopping),
 /// aiming where it draws the rider, led by the shot's flight. Lag compensation judges it against
 /// the rider where the server had it then, which is where it was drawn: it hits as often as it
 /// hits a suit flying the same square at the same speed beside the station, free.
 #[test]
 fn a_pilot_hits_a_walking_rider_it_aims_at() {
     let run = |target: Guest| {
-        let guests = vec![target, Guest::new(Faction::Oz, BAD, far_over_mo_ii, gunner)];
+        let guests = vec![target, Guest::new(Faction::Almagest, BAD, far_over_fornax, gunner)];
         let party = party(guests, &mut refit);
         assert!(party.visits[0].client.world.own.expect("own").alive);
         hit_rate(&party, 1)
     };
-    let (rider, shots) = run(Guest::new(Faction::Colonies, BAD, on_mo_ii, lander()));
-    let (free, free_shots) = run(Guest::new(Faction::Colonies, BAD, beside_mo_ii, pacing));
+    let (rider, shots) = run(Guest::new(Faction::Colonies, BAD, on_fornax, lander()));
+    let (free, free_shots) = run(Guest::new(Faction::Colonies, BAD, beside_fornax, pacing));
     println!(
         "hits on the rider {:.0}% of {shots} shots; on the free suit {:.0}% of {free_shots}",
         rider * 100.0,
@@ -1302,16 +1300,16 @@ fn a_pilot_hits_a_walking_rider_it_aims_at() {
     assert!(rider >= free, "hit the rider {:.0}%, the free suit {:.0}%", rider * 100.0, free * 100.0);
 }
 
-/// A rider standing on MO-II shoots at a suit pacing 600 m off it. It saw itself on the station as
+/// A rider standing on Fornax shoots at a suit pacing 600 m off it. It saw itself on the station as
 /// the station was drawn (the view clock's, some ticks behind where the station truly is), and the
 /// server fires the shot from there, on the station as it was then: so each shot leaves the muzzle
 /// the pilot saw (where its client drew it), and hits as often as from Hermit, which doesn't move.
 #[test]
-fn a_rider_shooting_from_mo_ii_hits_what_it_saw() {
+fn a_rider_shooting_from_fornax_hits_what_it_saw() {
     let run = |stand: fn(&mut Sector, usize), over: fn(&mut Sector, usize)| {
         let guests = vec![
             Guest::new(Faction::Colonies, BAD, stand, gunner),
-            Guest::new(Faction::Oz, BAD, over, pacing),
+            Guest::new(Faction::Almagest, BAD, over, pacing),
         ];
         let party = party(guests, &mut refit);
         let gunner = &party.visits[0];
@@ -1327,10 +1325,10 @@ fn a_rider_shooting_from_mo_ii_hits_what_it_saw() {
         let lead = gunner.client.clock.lead;
         (rate, shots, percentile(&mut off, 0.99), off.len(), lead)
     };
-    let (moving, shots, off, matched, lead) = run(on_mo_ii, over_mo_ii);
+    let (moving, shots, off, matched, lead) = run(on_fornax, over_fornax);
     let (fixed, fixed_shots, fixed_off, _, _) = run(on_hermit, over_hermit);
     println!(
-        "from MO-II {:.0}% of {shots} shots hit (muzzles {matched} matched, p99 {off:.4} m off the drawn one; lead {lead:.1} ticks); from Hermit {:.0}% of {fixed_shots} (p99 {fixed_off:.4} m)",
+        "from Fornax {:.0}% of {shots} shots hit (muzzles {matched} matched, p99 {off:.4} m off the drawn one; lead {lead:.1} ticks); from Hermit {:.0}% of {fixed_shots} (p99 {fixed_off:.4} m)",
         moving * 100.0,
         fixed * 100.0
     );
@@ -1338,11 +1336,11 @@ fn a_rider_shooting_from_mo_ii_hits_what_it_saw() {
     assert!(matched as u32 > shots * 9 / 10, "{matched} of {shots} shots drawn");
     assert!(
         off < 0.01 && fixed_off < 0.01,
-        "the shots left {off:.4} m (MO-II), {fixed_off:.4} m (Hermit) off the drawn muzzle"
+        "the shots left {off:.4} m (Fornax), {fixed_off:.4} m (Hermit) off the drawn muzzle"
     );
     assert!(
         (moving - fixed).abs() <= 0.05,
-        "hit {:.0}% from MO-II, {:.0}% from Hermit",
+        "hit {:.0}% from Fornax, {:.0}% from Hermit",
         moving * 100.0,
         fixed * 100.0
     );
@@ -1355,7 +1353,7 @@ fn a_rider_shooting_from_mo_ii_hits_what_it_saw() {
 fn a_charged_shot_is_drawn_as_it_leaves() {
     let guests = vec![
         Guest::new(Faction::Colonies, BAD, on_hermit, sniper),
-        Guest::new(Faction::Oz, BAD, over_hermit, pacing),
+        Guest::new(Faction::Almagest, BAD, over_hermit, pacing),
     ];
     let party = party(guests, &mut refit);
     let sniper = &party.visits[0];
@@ -1397,7 +1395,7 @@ fn crowd(walking: usize) -> impl FnMut(&mut Sector) {
         let sim = &mut sector.sim;
         for k in 0..CROWD {
             let id = sim
-                .spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, Vec3::ZERO, Quat::IDENTITY)
+                .spawn_at(FrameId::Argo, Faction::Colonies, PilotKind::Human, Vec3::ZERO, Quat::IDENTITY)
                 .expect("room");
             let dir =
                 ON_HERMIT + Vec3::new((k % 6) as f32 * 0.03 - 0.075, 0.0, (k / 6) as f32 * 0.03 - 0.045);

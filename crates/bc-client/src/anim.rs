@@ -1,20 +1,20 @@
 //! Procedural animation: each suit's bones posed every frame from its [`SuitDrive`].
 //! - The arm holding the main weapon aims where the pilot aims (inside the simulation's 50° cone);
 //!   the head looks there, the chest turns a little toward it.
-//! - AMBAC, as physics: the limbs swing against the suit's rotation (less with busy arms).
+//! - Limb trim, as physics: the limbs swing against the suit's rotation (less with busy arms).
 //! - Thrust posture: legs trail in forward burns and swing forward when braking, and swing away
 //!   from sideways thrust; wing binders flare on boost.
 //! - A blade sweeps the simulation's arc on its timing (windup, cut, recovery), both from the
 //!   weapon's `MeleeSpec`, carried by the arm that holds it: twin blades mirror each other, and
-//!   the Dragon Fang's head flies out along the aim on its cable and back.
-//! - Neo-Bird holds its shape: it's an aircraft, not a figure.
-//! - Weapons kick when they fire; the Virgo's Planet Defensors circle.
+//!   the Talon's head flies out along the aim on its cable and back.
+//! - Aquila holds its shape: it's an aircraft, not a figure.
+//! - Weapons kick when they fire; the Cetus's shield pods circle.
 //! - Wrecks go limp.
 //! - On a body, the suit walks (`bc_client_core::gait`): each foot planted on the surface where
 //!   the body's shape has it, held there in the body's frame, the legs reaching it by two-bone IK
 //!   (`bc_model::ik`), the soles turned flat to the ground. The hips drop as far as a stride needs,
 //!   the knees fold with a crouch and the chest leans into it; a landing squashes the legs and they
-//!   spring back. A pilot asleep in the cockpit, or a suit with its legs shot off, kneels. AMBAC and
+//!   spring back. A pilot asleep in the cockpit, or a suit with its legs shot off, kneels. Limb trim and
 //!   the thrust posture are the air's, not the ground's.
 //!
 //! Every joint rides a critically damped spring toward its target, so motion stays smooth
@@ -61,8 +61,8 @@ pub enum Hands {
     Right,
     /// Twin blades: the right hand's sweeps the arc, the left's its mirror image.
     Both,
-    /// The Dragon Fang: the right hand is the head that flies out.
-    Fang,
+    /// The Talon: the right hand is the head that flies out.
+    Talon,
 }
 
 /// A melee strike being drawn.
@@ -83,7 +83,7 @@ pub fn striking(d: &SuitDrive) -> Option<(WeaponKind, MeleeSpec, Hands)> {
     let m = spec.melee_mount(spec.striking_slot(d.flags))?;
     let melee = weapon(m.weapon).melee?;
     let hands = match (melee.stroke, m.arm) {
-        (Stroke::Thrust, _) => Hands::Fang,
+        (Stroke::Thrust, _) => Hands::Talon,
         _ if melee.twin || m.arm == ArmSlot::Both => Hands::Both,
         (_, ArmSlot::Right) => Hands::Right,
         _ => Hands::Left,
@@ -98,7 +98,7 @@ impl Hands {
             Hands::Left => !right,
             Hands::Right => right,
             Hands::Both => true,
-            Hands::Fang => false,
+            Hands::Talon => false,
         }
     }
 }
@@ -127,7 +127,7 @@ impl Swing {
         }
     }
 
-    /// How far out the Dragon Fang's head is (m): out through the stroke, back in the recovery.
+    /// How far out the Talon's head is (m): out through the stroke, back in the recovery.
     fn reach(&self) -> f32 {
         let m = &self.spec;
         let (windup, cut, recovery) =
@@ -161,7 +161,7 @@ pub struct Anim {
     /// Each bone's rotation from rest (scaled axis, parent's frame) and its spring velocity.
     pub rot: [Vec3; BONES],
     vel: [Vec3; BONES],
-    /// The Dragon Fang's head, out from the wrist on its cable (in the forearm's frame).
+    /// The Talon's head, out from the wrist on its cable (in the forearm's frame).
     pub reach: Vec3,
     prev_rot: Option<Quat>,
     /// Smoothed angular velocity in the suit's frame (rad/s).
@@ -169,7 +169,7 @@ pub struct Anim {
     /// The melee strike under way.
     pub swing: Option<Swing>,
     saber_flag: bool,
-    /// The Planet Defensors' angle.
+    /// The shield pods' angle.
     orbit: f32,
     /// The walk on a body (the feet, in its frame).
     pub gait: Gait,
@@ -224,7 +224,7 @@ impl Anim {
         d.pos + d.rot * p
     }
 
-    /// Where `bone`'s joint sits in its parent's frame, posed: at rest, but for the Dragon Fang's
+    /// Where `bone`'s joint sits in its parent's frame, posed: at rest, but for the Talon's
     /// head out on its cable, and the torso dropped on a body.
     pub fn rest(&self, bone: Bone) -> Vec3 {
         match bone {
@@ -383,7 +383,7 @@ pub fn animate_suits(
 
         let mut target = [Vec3::ZERO; BONES];
         let mut stiff = [9.0f32; BONES];
-        let bird = d.frame == FrameId::WingZeroBird;
+        let bird = d.frame == FrameId::Aquila;
         // On a body: standing on it (walking, crouched or kneeling), or in the air in its grip.
         let ground = d.ground.filter(|_| !wreck && !bird);
         let standing = ground.filter(|g| !g.aloft);
@@ -422,7 +422,7 @@ pub fn animate_suits(
         a.falling = ground.filter(|g| g.aloft).map(|g| (-g.rel_vel.dot(g.up)).max(0.0));
         let up = ground.map_or(Vec3::Y, |g| (d.rot.inverse() * g.up).normalize_or(Vec3::Y));
         let mut drop = 0.0;
-        // The arm that holds the main weapon aims it (Deathscythe's buster shield is on the left).
+        // The arm that holds the main weapon aims it (Algol's claw shield is on the left).
         let aim_left = frame(d.frame).loadout[0].is_some_and(|m| m.arm == ArmSlot::Left);
         let (aim_up, aim_fore) =
             if aim_left { (Bone::UpperArmL, Bone::ForearmL) } else { (Bone::UpperArmR, Bone::ForearmR) };
@@ -479,7 +479,7 @@ pub fn animate_suits(
                 }
                 drop = if kneel { (g.height - KNEEL_HEIGHT).max(0.0) } else { legs.drop };
             } else {
-                // AMBAC: limbs swing against the rotation.
+                // Limb trim: limbs swing against the rotation.
                 let reaction = (-a.spin * 0.22).clamp_length_max(0.6);
                 for b in [Bone::ThighL, Bone::ThighR] {
                     target[b.index()] += reaction;
@@ -527,7 +527,7 @@ pub fn animate_suits(
                         carry(false, true);
                     }
                     // The arm points the head at where it's going.
-                    Hands::Fang => {
+                    Hands::Talon => {
                         let r = turn(Vec3::Z, sw.dir, 50f32.to_radians());
                         target[Bone::UpperArmR.index()] = (r - chest) * 0.45;
                         target[Bone::ForearmR.index()] = (r - chest) * 0.55;
@@ -563,13 +563,13 @@ pub fn animate_suits(
         a.lift = -up * (a.drop + a.squash).clamp(-MAX_BOB, MAX_BOB + STANCE - KNEEL_HEIGHT);
         // The fang's head out along the thrust, in the forearm's frame as it is now posed.
         a.reach = match a.swing {
-            Some(sw) if sw.hands == Hands::Fang => {
+            Some(sw) if sw.hands == Hands::Talon => {
                 let forearm = a.world_rot(Bone::ForearmR);
                 forearm.inverse() * sw.dir * sw.reach()
             }
             _ => Vec3::ZERO,
         };
-        // The Planet Defensors circle the suit.
+        // The shield pods circle the suit.
         a.orbit = (a.orbit + dt * 0.6) % std::f32::consts::TAU;
         a.rot[Bone::Props.index()] = Vec3::new(0.0, a.orbit, 0.0);
 

@@ -19,7 +19,7 @@ fn wallet(k: u8) -> LocalWallet {
 }
 
 fn bot(http: &str, name: &str) -> BotConfig {
-    BotConfig { server: http.into(), name: name.into(), frame: FrameId::Leo, faction: Faction::Colonies }
+    BotConfig { server: http.into(), name: name.into(), frame: FrameId::Argo, faction: Faction::Colonies }
 }
 
 fn config(max_sleepers: usize) -> anyhow::Result<Config> {
@@ -28,7 +28,7 @@ fn config(max_sleepers: usize) -> anyhow::Result<Config> {
         rules: Ruleset::Arcade,
         wt_port: 0,
         http_addr: "127.0.0.1:0".parse()?,
-        mobile_dolls: 0,
+        drones: 0,
         max_clients: 8,
         max_sleepers,
         ..Config::default()
@@ -80,7 +80,7 @@ async fn a_signed_in_pilot_sleeps_and_wakes_in_the_same_suit() -> anyhow::Result
     let w = wallet(9);
 
     let mut pilot = BotClient::connect_as(&bot(&http, "Sleeper-1"), Some(&w)).await?;
-    // The Welcome names the sector's landmarks: all three, MO-II, Hermit and the docking hub.
+    // The Welcome names the sector's landmarks: all three, Fornax, Hermit and the docking hub.
     assert_eq!(pilot.core.welcome.map(|w| w.landmarks), Some(3));
     idle(&mut pilot, 0.6).await?;
     let own = pilot.core.world.own.expect("flying");

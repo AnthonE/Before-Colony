@@ -125,9 +125,9 @@ pub const BINDINGS: &[Binding] = &[
     b(Group::Surface, "C", "Crouch (toggle): crouched still, a suit runs cold, and in a hide spot it hides"),
     b(Group::Weapons, "Left mouse", "Primary weapon (a beam rifle: hold to charge, let go when full)"),
     b(Group::Weapons, "Right mouse", "Secondary weapon"),
-    b(Group::Weapons, "F", "Melee: saber, scythe, shotels, glaive, knife"),
-    b(Group::Weapons, "H", "Special: Neo-Bird, Hyper Jammer, Full Open Attack, Cross Crusher"),
-    b(Group::Weapons, "Z", "ZERO System on/off"),
+    b(Group::Weapons, "F", "Melee: saber, scythe, blades, glaive, knife"),
+    b(Group::Weapons, "H", "Special: Aquila, Eclipse, Full Salvo, Pincer Strike"),
+    b(Group::Weapons, "Z", "Orrery on/off"),
     b(Group::Weapons, "Hold on target", "Missile lock (fire once it reads LOCKED)"),
     b(
         Group::Weapons,
@@ -156,7 +156,7 @@ pub const BINDINGS: &[Binding] = &[
     b(
         Group::Chart,
         "Drag / right-drag / wheel",
-        "Turn the view / pan / zoom (out past the sector to the Earth Sphere)",
+        "Turn the view / pan / zoom (out past the sector to Earth-Moon space)",
     ),
     b(
         Group::Chart,
@@ -183,7 +183,7 @@ pub const BINDINGS: &[Binding] = &[
     b(
         Group::Chart,
         "H / 2 / 3 / T / P",
-        "Back to your suit / the sector / the Earth Sphere / top-down / the chart's plane",
+        "Back to your suit / the sector / Earth-Moon space / top-down / the chart's plane",
     ),
     b(
         Group::System,
@@ -196,7 +196,7 @@ pub const BINDINGS: &[Binding] = &[
     b(
         Group::System,
         "1 - 6",
-        "Arcade rules, when destroyed: relaunch as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock, Shenlong",
+        "Arcade rules, when destroyed: relaunch as Argo, Altair, Antares, Algol, Canopus, Thuban",
     ),
 ];
 

@@ -8,7 +8,7 @@
 //! ([`Predictor::pose_at_on`]) rather than stepping at the tick rate, and a correction can be
 //! measured where the suit was drawn; the client blends it out (`own`).
 //!
-//! A change of form (Wing Zero ↔ Neo-Bird) is predicted too: each command steps the form as the
+//! A change of form (Altair ↔ Aquila) is predicted too: each command steps the form as the
 //! server does (`bc_sim::transform`), which sets the frame flown and cuts thrust mid-change. So are
 //! the arms (`bc_sim::arms`): a blade's lunge drives the suit, and busy arms slow its turning, on
 //! the very ticks they do on the server.
@@ -22,7 +22,7 @@
 use bc_proto::buttons::{GRAB, GRIP, MODE, THROW};
 use bc_proto::snapshot::{footing, own_flags};
 use bc_proto::{FrameId, InputCmd, OwnState, Part, WeaponKind};
-use bc_sim::arms::{ArmsClock, busy_ambac};
+use bc_sim::arms::{ArmsClock, busy_limb_trim};
 use bc_sim::bodies::{Bodies, Body, BodyPose, MAX_LANDMARKS, landmark_pose};
 use bc_sim::config::MAX_REWIND_TICKS;
 use bc_sim::content::frame;
@@ -101,7 +101,7 @@ impl Sample {
         throttle: Vec3::ZERO,
         g_limited: false,
         ion: false,
-        frame: FrameId::Leo,
+        frame: FrameId::Argo,
         strike: None,
         footing: Footing::Free,
         body: Body::None,
@@ -267,7 +267,7 @@ pub struct Predictor {
     /// The gun in hand as of the newest snapshot (`bc_sim::content::salvage::held_gun`), as the
     /// world tells it: the own state says what's held, the objects what it is.
     in_hand: Option<WeaponKind>,
-    /// The suit's stat sheet and flight modifiers, as the server's (AMBAC's with the arms idle).
+    /// The suit's stat sheet and flight modifiers, as the server's (limb trim's with the arms idle).
     flying: Flying,
     /// The suit's legs are there (it can walk and hop).
     legs_ok: bool,
@@ -306,7 +306,7 @@ impl Default for Predictor {
             footing: Footing::Free,
             anchor: Anchor::default(),
             tick: 0,
-            form: Form { frame: FrameId::Leo, timer: 0 },
+            form: Form { frame: FrameId::Argo, timer: 0 },
             arms: ArmsClock::default(),
             stagger: 0,
             in_hand: None,
@@ -463,7 +463,7 @@ impl Predictor {
             mods.ion = 0.0;
         }
         if arms.busy(cmd.tick) {
-            mods.ambac = busy_ambac(mods.ambac);
+            mods.limb_trim = busy_limb_trim(mods.limb_trim);
         }
         mods.lunge = arms.lunging(spec);
         // Staggered: it tumbles, its thrust cut and its weapons down, as the server flies it (and
@@ -579,7 +579,7 @@ impl Predictor {
     }
 
     /// The normal of the ground under the suit (sector frame) while it stands on a body, else zero:
-    /// which way is up off it, for perception and the ZERO System, as the server has it.
+    /// which way is up off it, for perception and the Orrery, as the server has it.
     pub fn surface_n(&self) -> Vec3 {
         let a = &self.anchor;
         if self.footing != Footing::Grounded {
@@ -867,7 +867,7 @@ mod tests {
     use bc_proto::buttons::FLIGHT_ASSIST;
 
     fn own_at(pos: Vec3) -> OwnState {
-        OwnState { alive: true, frame: FrameId::Leo, pos, propellant: 2_400.0, ..OwnState::default() }
+        OwnState { alive: true, frame: FrameId::Argo, pos, propellant: 2_400.0, ..OwnState::default() }
     }
 
     fn cmd(tick: u32, forward: i8) -> InputCmd {
@@ -974,7 +974,7 @@ mod tests {
         use bc_proto::buttons::GRIP;
         use bc_proto::snapshot::{OwnSurface, footing};
 
-        // Woken on its feet on MO-II's aft module. Until the client's first command reaches the
+        // Woken on its feet on Fornax's aft module. Until the client's first command reaches the
         // server, the server flies the suit on what it left it with, gripping: so does the
         // prediction, through the ticks before that command.
         let local = Vec3::new(-230.0, 0.0, 80.0 + bc_sim::ground::STANCE);
@@ -1011,7 +1011,7 @@ mod tests {
         use bc_proto::buttons::GRIP;
         use bc_proto::snapshot::{OwnSurface, footing};
 
-        // Standing still on MO-II's aft module, its grip held.
+        // Standing still on Fornax's aft module, its grip held.
         let local = Vec3::new(-230.0, 0.0, 80.0 + bc_sim::ground::STANCE);
         let own = OwnState {
             pos: local,
@@ -1032,15 +1032,15 @@ mod tests {
             history.push(c);
             p.advance(&c, &history);
         }
-        let mo_ii = |t: f64| p.body_pose(Body::Landmark(0), t).unwrap();
+        let fornax = |t: f64| p.body_pose(Body::Landmark(0), t).unwrap();
         // Its place on the body at the input clock's time, on the body as at the view clock's.
         for (own_t, view_t) in [(4_008.25, 4_002.5), (4_009.0, 4_001.0), (4_010.4, 4_004.0)] {
             let pose = p.pose_at_on(own_t, view_t).unwrap();
-            let deck = mo_ii(view_t);
+            let deck = fornax(view_t);
             assert!(pose.pos.distance(deck.to_world(local)) < 1e-3, "at {own_t} on {view_t}");
             assert!(pose.vel.distance(deck.point_vel(pose.pos)) < 1e-3);
             assert!(pose.dpos.distance(deck.point_vel(pose.pos)) < 1e-3, "moves with the deck as drawn");
-            let g = pose.ground.expect("on MO-II");
+            let g = pose.ground.expect("on Fornax");
             assert!(g.body == Body::Landmark(0) && !g.aloft && (g.height - 9.125).abs() < 1e-3);
         }
         // On one clock, it's where it truly is.
@@ -1067,12 +1067,12 @@ mod tests {
             let n = w.finish().unwrap();
             SnapshotReader::new(&buf[..n]).unwrap().own().unwrap().unwrap()
         };
-        // A Leo standing on MO-II's rim, its pilot seeing the world 6 ticks back (lag compensated),
+        // An Argo standing on Fornax's rim, its pilot seeing the world 6 ticks back (lag compensated),
         // fires: the server puts the muzzle on the deck as it was then, where the pilot saw it.
-        let mut sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
+        let mut sim = Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() });
         let id = sim
             .spawn_at(
-                FrameId::Leo,
+                FrameId::Argo,
                 Faction::Colonies,
                 PilotKind::Human,
                 Vec3::splat(5_000.0),
@@ -1113,7 +1113,7 @@ mod tests {
         p.reconcile(t - 1, &owns[t as usize - 1], &history);
         let cmd = history.get(t).unwrap();
         p.advance(&cmd, &history);
-        let mount = bc_sim::content::frame(FrameId::Leo).loadout[0].unwrap();
+        let mount = bc_sim::content::frame(FrameId::Argo).loadout[0].unwrap();
         let f = p.as_seen(&cmd);
         let muzzle = f.pos + f.rot * mount.arm.muzzle();
         assert!(muzzle.distance(origin) < 1e-3, "{} m off the server's", muzzle.distance(origin));
@@ -1137,13 +1137,13 @@ mod tests {
             let n = w.finish().unwrap();
             SnapshotReader::new(&buf[..n]).unwrap().own().unwrap().unwrap()
         };
-        // A Leo standing on a rock, which breaks during tick 20: the server lets it go on 21.
-        let cfg = SimConfig { target_dolls: 0, ..SimConfig::default() };
+        // An Argo standing on a rock, which breaks during tick 20: the server lets it go on 21.
+        let cfg = SimConfig { target_drones: 0, ..SimConfig::default() };
         let mut sim = Sim::new(cfg);
         let r = (0..sim.field.len()).find(|&i| sim.field.rocks()[i].axes.min_element() >= 12.0).unwrap();
         let id = sim
             .spawn_at(
-                FrameId::Leo,
+                FrameId::Argo,
                 Faction::Colonies,
                 PilotKind::Human,
                 Vec3::splat(5_000.0),

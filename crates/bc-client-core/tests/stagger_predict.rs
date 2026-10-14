@@ -1,6 +1,6 @@
 //! Stagger, flown against the real simulation the way the browser flies it: a pilot flies about a
-//! Taurus, firing, while blows stagger their suit again and again (a Heavyarms pressing for its Full
-//! Open all the while, staggered or not). The owner's prediction, seeded from snapshots a few ticks
+//! Corvus, firing, while blows stagger their suit again and again (an Antares pressing for its Full
+//! Salvo all the while, staggered or not). The owner's prediction, seeded from snapshots a few ticks
 //! old, flies exactly what the server flies: the stagger's ticks travel in the own snapshot, and
 //! while they run the suit tumbles with its thrust cut and its weapons and special down.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
@@ -36,12 +36,17 @@ const EVERY: u32 = 70;
 /// Flies `frame` for 900 ticks under `rules`; returns how many times it was staggered, how many of
 /// those it pressed SPECIAL through, and the prediction's worst miss, m.
 fn fly(frame: FrameId, rules: FlightRules) -> (u32, u32, f32) {
-    let cfg = SimConfig { target_dolls: 0, field_rocks: 0, flight: rules, ..SimConfig::default() };
+    let cfg = SimConfig { target_drones: 0, field_rocks: 0, flight: rules, ..SimConfig::default() };
     let mut sim = Sim::new(cfg);
     let face = look_rotation(Vec3::Z, Vec3::Y);
     let me = sim.spawn_at(frame, Faction::Colonies, PilotKind::Human, Vec3::new(0.0, 2_000.0, 0.0), face);
-    let foe =
-        sim.spawn_at(FrameId::Taurus, Faction::Oz, PilotKind::Human, Vec3::new(300.0, 2_000.0, 900.0), face);
+    let foe = sim.spawn_at(
+        FrameId::Corvus,
+        Faction::Almagest,
+        PilotKind::Human,
+        Vec3::new(300.0, 2_000.0, 900.0),
+        face,
+    );
     let (me, foe) = (me.unwrap(), foe.unwrap());
     let (i, j) = (me.idx(), foe.idx());
     // Torsos nothing here gets through: this is about the push, not the damage.
@@ -110,9 +115,9 @@ fn fly(frame: FrameId, rules: FlightRules) -> (u32, u32, f32) {
 }
 
 #[test]
-fn a_staggered_leo_is_predicted_exactly() {
+fn a_staggered_argo_is_predicted_exactly() {
     for rules in [FlightRules::Anime, FlightRules::Real] {
-        let (staggers, _, worst) = fly(FrameId::Leo, rules);
+        let (staggers, _, worst) = fly(FrameId::Argo, rules);
         println!("{rules:?}: {staggers} staggers; prediction ≤ {worst:.5} m off");
         assert!(staggers >= 10, "{staggers} staggers");
         assert!(worst < 0.01, "{rules:?}: predicted {worst} m off the server");
@@ -120,8 +125,8 @@ fn a_staggered_leo_is_predicted_exactly() {
 }
 
 #[test]
-fn a_staggered_heavyarms_pressing_for_its_full_open_is_predicted_exactly() {
-    let (staggers, pressed, worst) = fly(FrameId::Heavyarms, FlightRules::Anime);
+fn a_staggered_antares_pressing_for_its_full_salvo_is_predicted_exactly() {
+    let (staggers, pressed, worst) = fly(FrameId::Antares, FlightRules::Anime);
     println!("{staggers} staggers, SPECIAL pressed {pressed} times staggered; prediction ≤ {worst:.5} m off");
     assert!(staggers >= 10 && pressed >= 3, "{staggers} staggers, {pressed} presses staggered");
     assert!(worst < 0.01, "predicted {worst} m off the server");

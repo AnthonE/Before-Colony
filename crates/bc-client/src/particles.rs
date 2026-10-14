@@ -506,7 +506,7 @@ impl Particles {
         self.shower(cap, 24, at, None, (40.0, 160.0), (0.2, 0.5), (0.3, 0.15), 0.03, Ramp::Glow(pink));
     }
 
-    /// Ionised gas glowing along a Twin Buster shot's path, lingering after the shot has passed.
+    /// Ionised gas glowing along a heavy beam rifle shot's path, lingering after the shot has passed.
     /// `length` is the streak drawn this frame, ending at `head`.
     pub fn trail(&mut self, cap: usize, head: Vec3, dir: Vec3, length: f32, color: Vec3, dt: f32) {
         // Each stretch of the path spends a few frames inside the streak, so spawning in
@@ -545,7 +545,7 @@ impl Particles {
     }
 
     /// Energy drawn into a charging gun: sparks of it falling in toward the muzzle, where a glow
-    /// gathers. `size` 1 is the Twin Buster Rifle's (sparks from 6–12 m out).
+    /// gathers. `size` 1 is the Heavy Beam Rifle's (sparks from 6–12 m out).
     pub fn charge(&mut self, cap: usize, at: At, dt: f32, color: Vec3, size: f32) {
         let expected = 110.0 * size * dt;
         let n = expected as u32 + u32::from(self.rng.next_f32() < expected.fract());

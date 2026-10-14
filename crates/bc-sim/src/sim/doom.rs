@@ -1,11 +1,12 @@
 //! Losing a suit the way the mech games teach it (`docs/PEERS.md`, "Mech games"): Titanfall's
 //! Titans are doomed before they're destroyed and their pilots eject, Steel Battalion makes
-//! ejecting the pilot's own job, and Heero blows up his Gundam rather than leave it to anyone.
+//! ejecting the pilot's own job, and Gundam Wing's Heero blows up his Gundam rather than leave it
+//! to anyone.
 //!
 //! - **Doom.** A pilot's suit whose torso is breached isn't lost at once: for [`DOOM_TICKS`] it
 //!   flies and fights on while its reactor goes. Every blow that lands meanwhile takes time off it
 //!   ([`DOOM_PER_TORSO`]: a blow of a sixth of the torso's armour, a second). Then it's destroyed
-//!   as any suit is, credited to whoever breached it. A Mobile Doll has no pilot to save and a
+//!   as any suit is, credited to whoever breached it. A drone has no pilot to save and a
 //!   sleeper's can't wake in time: theirs go at once.
 //! - **Eject** ([`Sim::eject`]). The pilot leaves, doomed or not (never inside the colony, where
 //!   nothing strikes a suit): the suit is destroyed at once and their capsule is thrown clear
@@ -74,7 +75,7 @@ impl Sim {
 
     /// Whether a breach dooms suit `i` rather than destroying it: someone is aboard, awake.
     pub(super) fn doomable(&self, i: usize) -> bool {
-        self.suits.pilot[i] != PilotKind::MobileDoll && !self.suits.sleeping.get(i)
+        self.suits.pilot[i] != PilotKind::Drone && !self.suits.sleeping.get(i)
     }
 
     /// A blow of `amount` (armour points, after armour) on suit `j`'s breached torso, from

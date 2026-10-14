@@ -1,58 +1,55 @@
-//! Display names. Gundam Wing names are © Sotsu · Sunrise and only compiled in with the
-//! `canon-names` feature; without it the game ships generic names.
+//! Display names. They are the game's own (`docs/STORY.md`, "Voice and naming"): the Almagest names
+//! its lines after the constellations of Ptolemy's catalogue, the colony its Lodestars after stars.
 
 use bc_proto::{FrameId, WeaponKind};
 
-#[cfg(feature = "canon-names")]
 pub fn frame_name(id: FrameId) -> &'static str {
     match id {
-        FrameId::Leo => "Leo",
-        FrameId::WingZero => "Wing Gundam Zero",
-        FrameId::Taurus => "Taurus",
-        FrameId::Virgo => "Virgo",
-        FrameId::Heavyarms => "Gundam Heavyarms",
-        FrameId::Deathscythe => "Gundam Deathscythe",
-        FrameId::Sandrock => "Gundam Sandrock",
-        FrameId::Shenlong => "Shenlong Gundam",
-        FrameId::WingZeroBird => "Wing Zero (Neo-Bird)",
+        FrameId::Argo => "Argo",
+        FrameId::Altair => "Altair",
+        FrameId::Corvus => "Corvus",
+        FrameId::Cetus => "Cetus",
+        FrameId::Antares => "Antares",
+        FrameId::Algol => "Algol",
+        FrameId::Canopus => "Canopus",
+        FrameId::Thuban => "Thuban",
+        FrameId::Aquila => "Altair (Aquila)",
     }
 }
 
-#[cfg(feature = "canon-names")]
 pub fn frame_designation(id: FrameId) -> &'static str {
     match id {
-        FrameId::Leo => "OZ-06MS",
-        FrameId::WingZero => "XXXG-00W0",
-        FrameId::Taurus => "OZ-13MS",
-        FrameId::Virgo => "OZ-02MD",
-        FrameId::Heavyarms => "XXXG-01H",
-        FrameId::Deathscythe => "XXXG-01D",
-        FrameId::Sandrock => "XXXG-01SR",
-        FrameId::Shenlong => "XXXG-01S",
-        FrameId::WingZeroBird => "XXXG-00W0",
+        FrameId::Argo => "AL-04S",
+        FrameId::Altair => "PX-00",
+        FrameId::Corvus => "AL-11D",
+        FrameId::Cetus => "AL-09D",
+        FrameId::Antares => "PX-01",
+        FrameId::Algol => "PX-02",
+        FrameId::Canopus => "PX-03",
+        FrameId::Thuban => "PX-04",
+        FrameId::Aquila => "PX-00",
     }
 }
 
-#[cfg(feature = "canon-names")]
 pub fn weapon_name(kind: WeaponKind) -> &'static str {
     match kind {
         WeaponKind::BeamRifle => "Beam Rifle",
         WeaponKind::MachineCannon => "Machine Cannon",
         WeaponKind::BeamSaber => "Beam Saber",
-        WeaponKind::TwinBusterRifle => "Twin Buster Rifle",
+        WeaponKind::HeavyBeamRifle => "Heavy Beam Rifle",
         WeaponKind::BeamCannon => "Beam Cannon",
         WeaponKind::BeamGatling => "Beam Gatling",
         WeaponKind::HomingMissile => "Homing Missiles",
-        WeaponKind::ArmyKnife => "Army Knife",
+        WeaponKind::CombatKnife => "Combat Knife",
         WeaponKind::ChestGatling => "Chest Gatlings",
         WeaponKind::MicroMissile => "Micro-Missiles",
-        WeaponKind::BusterShield => "Buster Shield",
-        WeaponKind::HeadVulcan => "Head Vulcans",
+        WeaponKind::ClawShield => "Claw Shield",
+        WeaponKind::HeadGun => "Head Guns",
         WeaponKind::BeamScythe => "Beam Scythe",
         WeaponKind::BeamMachineGun => "Beam Machine Gun",
-        WeaponKind::HeatShotel => "Heat Shotels",
-        WeaponKind::CrossCrusher => "Cross Crusher",
-        WeaponKind::DragonFang => "Dragon Fang",
+        WeaponKind::HeatBlade => "Heat Blades",
+        WeaponKind::PincerStrike => "Pincer Strike",
+        WeaponKind::Talon => "Talon",
         WeaponKind::Flamethrower => "Flamethrower",
         WeaponKind::BeamGlaive => "Beam Glaive",
         WeaponKind::BeamRifleCharged => "Charged Beam",
@@ -61,87 +58,14 @@ pub fn weapon_name(kind: WeaponKind) -> &'static str {
 }
 
 /// The resource satellite that serves the colony's dock (a landmark).
-#[cfg(feature = "canon-names")]
-pub(crate) const MO_II: &str = "MO-II";
+pub(crate) const FORNAX: &str = "FORNAX";
 
 /// What the pilotless suits are called.
-#[cfg(feature = "canon-names")]
-pub fn doll_name() -> &'static str {
-    "Mobile Doll"
-}
-
-/// What a new line of suit, the colony's own, is called in a sentence ("try a new Gundam").
-#[cfg(feature = "canon-names")]
-pub fn prototype_word() -> &'static str {
-    "Gundam"
-}
-
-#[cfg(not(feature = "canon-names"))]
-pub fn frame_name(id: FrameId) -> &'static str {
-    match id {
-        FrameId::Leo => "Line Frame",
-        FrameId::WingZero => "Prototype Zero",
-        FrameId::Taurus => "Drone T",
-        FrameId::Virgo => "Drone V",
-        FrameId::Heavyarms => "Prototype Arsenal",
-        FrameId::Deathscythe => "Prototype Reaper",
-        FrameId::Sandrock => "Prototype Bulwark",
-        FrameId::Shenlong => "Prototype Dragon",
-        FrameId::WingZeroBird => "Prototype Zero (flight form)",
-    }
-}
-
-#[cfg(not(feature = "canon-names"))]
-pub fn frame_designation(id: FrameId) -> &'static str {
-    match id {
-        FrameId::Leo => "LF-06",
-        FrameId::WingZero => "PX-00",
-        FrameId::Taurus => "MD-13",
-        FrameId::Virgo => "MD-02",
-        FrameId::Heavyarms => "PX-01A",
-        FrameId::Deathscythe => "PX-01R",
-        FrameId::Sandrock => "PX-01B",
-        FrameId::Shenlong => "PX-01D",
-        FrameId::WingZeroBird => "PX-00",
-    }
-}
-
-#[cfg(not(feature = "canon-names"))]
-pub fn weapon_name(kind: WeaponKind) -> &'static str {
-    match kind {
-        WeaponKind::BeamRifle => "Beam Rifle",
-        WeaponKind::MachineCannon => "Autocannon",
-        WeaponKind::BeamSaber => "Beam Blade",
-        WeaponKind::TwinBusterRifle => "Heavy Beam Rifle",
-        WeaponKind::BeamCannon => "Beam Cannon",
-        WeaponKind::BeamGatling => "Beam Repeater",
-        WeaponKind::HomingMissile => "Homing Missiles",
-        WeaponKind::ArmyKnife => "Combat Knife",
-        WeaponKind::ChestGatling => "Chest Guns",
-        WeaponKind::MicroMissile => "Micro-Missiles",
-        WeaponKind::BusterShield => "Claw Shield",
-        WeaponKind::HeadVulcan => "Head Guns",
-        WeaponKind::BeamScythe => "Beam Reaper",
-        WeaponKind::BeamMachineGun => "Beam Carbine",
-        WeaponKind::HeatShotel => "Heat Blades",
-        WeaponKind::CrossCrusher => "Pincer Strike",
-        WeaponKind::DragonFang => "Claw Arm",
-        WeaponKind::Flamethrower => "Flamethrower",
-        WeaponKind::BeamGlaive => "Beam Polearm",
-        WeaponKind::BeamRifleCharged => "Charged Beam",
-        WeaponKind::Reactor => "Self-Destruct",
-    }
-}
-
-#[cfg(not(feature = "canon-names"))]
-pub(crate) const MO_II: &str = "ORE SAT";
-
-#[cfg(not(feature = "canon-names"))]
-pub fn doll_name() -> &'static str {
+pub fn drone_name() -> &'static str {
     "Drone"
 }
 
-#[cfg(not(feature = "canon-names"))]
+/// What a new line of suit, the colony's own, is called in a sentence ("try a new Lodestar").
 pub fn prototype_word() -> &'static str {
-    "Prototype"
+    "Lodestar"
 }

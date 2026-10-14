@@ -1149,7 +1149,7 @@ pub fn drive_onfoot(
                 }
                 PlaceKind::Exchange => ui.panel = Panel::Terminal(Spot::Exchange),
                 PlaceKind::Charter => ui.panel = Panel::Board,
-                // Behind the bar: Zodiac's Most Wanted, and the pilot's terms.
+                // Behind the bar: the Almagest's Most Wanted, and the pilot's terms.
                 PlaceKind::Bar => ui.panel = Panel::Arrival,
                 // The instructor's desk: the board, the pars, and the pilot's own bests.
                 PlaceKind::Proving => ui.panel = Panel::Proving,

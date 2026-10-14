@@ -7,14 +7,14 @@ use bc_proto::missiles::{MISSILE_RECORD_BITS, MISSILE_VEL_BITS, MISSILE_VEL_MAX}
 use bc_proto::objects::{ROCK_RECORD_BITS, SPIN_MAX};
 use bc_proto::quant::{self, VEL_MAX};
 use bc_proto::snapshot::{
-    ENTITY_MAX_BITS, OWN_BITS_FREE, OWN_MAX_BITS, OwnArms, OwnBurst, ZERO_HYPOTHESES, ZeroThreat,
+    ENTITY_MAX_BITS, ORRERY_HYPOTHESES, OWN_BITS_FREE, OWN_MAX_BITS, OrreryThreat, OwnArms, OwnBurst,
     entity_pos_step, footing,
 };
 use bc_proto::types::{RIDER_VEL_BITS, RIDER_VEL_MAX};
 use bc_proto::{
     BodyRef, ChunkDesc, ChunkKind, EntityState, Faction, FrameId, InputCmd, InputPacket, LockOn,
-    MAX_DATAGRAM, MissileState, NO_CHUNK, ObjectState, OwnState, OwnSurface, Part, PilotKind, RiderOn,
-    RockState, Segment, SnapshotHeader, SnapshotReader, SnapshotWriter, WeaponKind, ZeroInfo,
+    MAX_DATAGRAM, MissileState, NO_CHUNK, ObjectState, OrreryInfo, OwnState, OwnSurface, Part, PilotKind,
+    RiderOn, RockState, Segment, SnapshotHeader, SnapshotReader, SnapshotWriter, WeaponKind,
 };
 use glam::{Quat, Vec3};
 use proptest::prelude::*;
@@ -251,8 +251,8 @@ proptest! {
                              special_timer: special[0], special_charge: special[1], arms, burst, surface, cover, systems, modules,
                              scram: timers[0] & 127, concussed: timers[1] & 127, repairing, repair_left: timers[2] & 127, kits, stim, grade: 2,
                              ..OwnState::default() };
-        let mut zero = ZeroInfo { threat_count: 2, has_solution: true, solution: Vec3::X, hit_p: 0.62, ..ZeroInfo::default() };
-        zero.threats[0] = ZeroThreat { slot: 9, probs: [0.1, 0.2, 0.3, 0.1, 0.1, 0.1, 0.1] };
+        let mut orrery = OrreryInfo { threat_count: 2, has_solution: true, solution: Vec3::X, hit_p: 0.62, ..OrreryInfo::default() };
+        orrery.threats[0] = OrreryThreat { slot: 9, probs: [0.1, 0.2, 0.3, 0.1, 0.1, 0.1, 0.1] };
         let events = [
             Event::BeamSpawn { id: 7, tick: 9_995, shooter: 3, weapon: WeaponKind::BeamRifle, shot_seq: 4,
                                origin: Vec3::new(100.0, 200.0, -300.0), velocity: Vec3::new(0.0, 0.0, 4000.0) },
@@ -268,7 +268,7 @@ proptest! {
         let mut w = SnapshotWriter::new(&mut buf, MAX_DATAGRAM);
         w.header(&header);
         w.own(Some(&own));
-        w.zero(Some(&zero));
+        w.orrery(Some(&orrery));
         for e in &events { prop_assert!(w.event(e, 0)); }
         for r in &rocks { prop_assert!(w.rock(r, 0)); }
         // Missiles leave room for twenty entities and six of the largest objects.
@@ -303,7 +303,7 @@ proptest! {
         // In a body's frame or the sector's, the velocity comes back exact too.
         prop_assert_eq!(o.vel, own.vel);
         prop_assert!(o.rot.dot(own.rot).abs() > 0.9999);
-        let z = r.zero().unwrap().unwrap();
+        let z = r.orrery().unwrap().unwrap();
         prop_assert_eq!(z.threat_count, 2);
         prop_assert!((z.hit_p - 0.62).abs() < 0.01);
         let mut got_events = 0;
@@ -363,7 +363,7 @@ proptest! {
         let mut w = SnapshotWriter::new(&mut buf, 256);
         w.header(&SnapshotHeader::default());
         w.own(None);
-        w.zero(None);
+        w.orrery(None);
         prop_assert!(w.entity(&e, 0));
         let n = w.finish().unwrap();
         let back = SnapshotReader::new(&buf[..n]).unwrap().next_entity().unwrap().unwrap();
@@ -379,7 +379,7 @@ proptest! {
         let mut w = SnapshotWriter::new(&mut buf, 256);
         w.header(&SnapshotHeader::default());
         w.own(None);
-        w.zero(None);
+        w.orrery(None);
         prop_assert!(w.entity(&still, 0));
         let n = w.finish().unwrap();
         let back = SnapshotReader::new(&buf[..n]).unwrap().next_entity().unwrap().unwrap();
@@ -391,7 +391,7 @@ proptest! {
         let _ = InputPacket::decode(&bytes);
         if let Ok(mut r) = SnapshotReader::new(&bytes) {
             let _ = r.own();
-            let _ = r.zero();
+            let _ = r.orrery();
             for _ in 0..64 { if !matches!(r.next_event(), Ok(Some(_))) { break } }
             for _ in 0..64 { if !matches!(r.next_rock(), Ok(Some(_))) { break } }
             for _ in 0..64 { if !matches!(r.next_missile(), Ok(Some(_))) { break } }
@@ -413,9 +413,9 @@ proptest! {
 #[test]
 fn record_budgets_match_plan() {
     // ~26 bytes per entity (24 for a suit on a body); ~30 fit in a datagram next to header, own
-    // state, ZERO and events.
+    // state, the Orrery and events.
     const { assert!(ENTITY_MAX_BITS == 211) };
-    const { assert!(ZERO_HYPOTHESES == 7) };
+    const { assert!(ORRERY_HYPOTHESES == 7) };
     const { assert!(OWN_BITS_FREE == 811) };
     const { assert!(OWN_MAX_BITS == 831) };
     const { assert!(ROCK_RECORD_BITS == 18) };
@@ -427,14 +427,14 @@ fn record_budgets_match_plan() {
     assert_eq!(EntityState::default().encoded_bits(), ENTITY_MAX_BITS);
 }
 
-/// How many entities fill a whole datagram after the header and `own`, with ZERO off and no
+/// How many entities fill a whole datagram after the header and `own`, with the Orrery off and no
 /// objects.
 fn entities_that_fit(own: &OwnState, e: &EntityState) -> usize {
     let mut buf = [0u8; 1500];
     let mut w = SnapshotWriter::new(&mut buf, MAX_DATAGRAM);
     w.header(&SnapshotHeader::default());
     w.own(Some(own));
-    w.zero(None);
+    w.orrery(None);
     let mut n = 0;
     while w.entity(e, 0) {
         n += 1;

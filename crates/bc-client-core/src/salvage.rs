@@ -1,5 +1,5 @@
 //! What a miner or salvager sees, kept apart from [`Perception`](bc_sim::perception::Perception)
-//! (which the Mobile Doll AI reads every tick): its hold and what's in its hand, the loose chunks
+//! (which the drone AI reads every tick): its hold and what's in its hand, the loose chunks
 //! near it, and a way round the colony to the dock.
 
 use bc_proto::snapshot::own_flags;

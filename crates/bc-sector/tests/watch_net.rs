@@ -23,7 +23,7 @@ fn read(bytes: &[u8]) -> (bool, Vec<(u16, Vec3)>, Vec<u16>) {
     let mut r = SnapshotReader::new(bytes).expect("a snapshot");
     let spectator = r.header().flags & header_flags::SPECTATOR != 0;
     let own = r.own().expect("own section");
-    let _ = r.zero().expect("zero section");
+    let _ = r.orrery().expect("zero section");
     let mut left = Vec::new();
     while let Ok(Some(e)) = r.next_event() {
         if let Event::Leave { slot, .. } = e {
@@ -43,7 +43,7 @@ fn read(bytes: &[u8]) -> (bool, Vec<(u16, Vec3)>, Vec<u16>) {
 fn a_pilot_on_foot_watches_the_suits_near_them_inside() {
     let cfg = SectorConfig {
         sim: SimConfig {
-            target_dolls: 0,
+            target_drones: 0,
             field_rocks: 0,
             landmarks: 0,
             max_sleepers: 0,
@@ -61,11 +61,11 @@ fn a_pilot_on_foot_watches_the_suits_near_them_inside() {
         .push(Control::Join {
             slot: pilot.slot,
             pilot: PilotKind::Human,
-            frame: FrameId::Leo,
+            frame: FrameId::Argo,
             faction: Faction::Colonies,
             max_datagram: MAX_DATAGRAM as u16,
             comeback: Comeback::default(),
-            launch: Some(Loadout::full(FrameId::Leo)),
+            launch: Some(Loadout::full(FrameId::Argo)),
         })
         .unwrap();
     // Watching from under the inner gate, 600 m off.

@@ -22,9 +22,9 @@ impl Sim {
                 continue;
             }
             match frame(self.suits.frame[i]).special {
-                SpecialKind::HyperJammer { drain, min_energy, .. } => self.jammer_step(i, drain, min_energy),
-                SpecialKind::FullOpen { ticks, lockout, cooldown } => {
-                    self.full_open_step(i, ticks, lockout, cooldown, t)
+                SpecialKind::Eclipse { drain, min_energy, .. } => self.jammer_step(i, drain, min_energy),
+                SpecialKind::FullSalvo { ticks, lockout, cooldown } => {
+                    self.full_salvo_step(i, ticks, lockout, cooldown, t)
                 }
                 SpecialKind::Transform { .. } => self.transform(i),
                 SpecialKind::None | SpecialKind::MeleeMove { .. } => {}
@@ -54,10 +54,10 @@ impl Sim {
         self.suits.form(i).changing()
     }
 
-    /// Full Open Attack: a SPECIAL press opens every hatch for `ticks` (the weapons fire on their
+    /// Full Salvo: a SPECIAL press opens every hatch for `ticks` (the weapons fire on their
     /// own, heat or not); then the suit is forced into an overheat it can't fire through for
     /// `lockout` ticks. Ready again `cooldown` ticks after it starts, sooner in a fight.
-    fn full_open_step(&mut self, i: usize, ticks: u16, lockout: u16, cooldown: u16, t: u32) {
+    fn full_salvo_step(&mut self, i: usize, ticks: u16, lockout: u16, cooldown: u16, t: u32) {
         let s = &mut self.suits;
         let cap = frame(s.frame[i]).heat_cap;
         let sp = &mut s.special[i];
@@ -82,7 +82,7 @@ impl Sim {
     }
 
     /// The fight charges suit `i`'s special (`content::specials`): `share` of its whole cooldown
-    /// comes off what's left of it, unless it's under way or Full Open's lockout lasts.
+    /// comes off what's left of it, unless it's under way or Full Salvo's lockout lasts.
     pub(super) fn charge_special(&mut self, i: usize, share: f32) {
         let full = frame(self.suits.frame[i]).special.cooldown();
         let sp = &mut self.suits.special[i];
@@ -106,11 +106,11 @@ impl Sim {
                 self.suits.melee[i].phase == MeleePhase::Idle && self.melee_ready(i, SPECIAL_MOUNT)
             }
             // On, or enough energy to engage.
-            SpecialKind::HyperJammer { min_energy, .. } => {
+            SpecialKind::Eclipse { min_energy, .. } => {
                 self.suits.special[i].active
                     || self.suits.energy[i] >= min_energy * frame(self.suits.frame[i]).energy_cap
             }
-            SpecialKind::FullOpen { .. } => {
+            SpecialKind::FullSalvo { .. } => {
                 let sp = &self.suits.special[i];
                 !sp.active && sp.cooldown == 0 && !self.suits.overheated[i]
             }

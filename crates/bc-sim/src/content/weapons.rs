@@ -53,17 +53,17 @@ pub struct WeaponSpec {
     pub energy: f32,
     /// Magazine size (0 = energy weapon, unlimited rounds).
     pub ammo: u16,
-    /// Ticks of charge before the shot leaves (Twin Buster Rifle); visible to everyone.
+    /// Ticks of charge before the shot leaves (Heavy Beam Rifle); visible to everyone.
     pub charge_ticks: u16,
     /// Random cone half-angle, radians.
     pub spread: f32,
     /// A hit swallows the whole suit: it lands on the torso whatever it touched first (the Twin
-    /// Buster Rifle's beam is wider than a suit).
+    /// Heavy Beam Rifle's beam is wider than a suit).
     pub engulfs: bool,
     /// Shots per trigger pull, and ticks between them.
     pub salvo: u8,
     pub salvo_gap: u8,
-    /// While this weapon's strike is out, the other weapons on its arm wait (the Dragon Fang is
+    /// While this weapon's strike is out, the other weapons on its arm wait (the Talon is
     /// the arm).
     pub blocks_arm: bool,
     pub melee: Option<MeleeSpec>,
@@ -72,8 +72,8 @@ pub struct WeaponSpec {
     /// Tap fires, hold charges ([`ChargedShot`]): the beam rifle's sniper shot.
     pub charged: Option<ChargedShot>,
     /// Its rounds shoot missiles down: one that meets a hostile missile in flight bursts it
-    /// (`sim::missile`'s point defence). The streams of light rounds: vulcans, gatlings, machine
-    /// guns, as Heavyarms' gatlings and every Gundam's head vulcans do in the show.
+    /// (`sim::missile`'s point defence). The streams of light rounds: head guns, gatlings, machine
+    /// guns, as gatlings and head guns do in the anime.
     pub shoots_down: bool,
 }
 
@@ -96,7 +96,7 @@ impl ChargedShot {
 }
 
 impl WeaponSpec {
-    /// How long a charge takes on this weapon, ticks (0: it doesn't charge): the Twin Buster's own
+    /// How long a charge takes on this weapon, ticks (0: it doesn't charge): the heavy beam rifle's own
     /// charge, or a charged shot's hold from the press.
     pub const fn charge_span(&self) -> u16 {
         match self.charged {
@@ -214,7 +214,7 @@ static WEAPONS: [WeaponSpec; WeaponKind::COUNT] = [
         ..BLADE
     },
     WeaponSpec {
-        kind: WeaponKind::TwinBusterRifle,
+        kind: WeaponKind::HeavyBeamRifle,
         damage: 220.0,
         speed: 8_000.0,
         radius: 5.0,
@@ -267,7 +267,7 @@ static WEAPONS: [WeaponSpec; WeaponKind::COUNT] = [
         ..BASE
     },
     WeaponSpec {
-        kind: WeaponKind::ArmyKnife,
+        kind: WeaponKind::CombatKnife,
         damage: 55.0,
         radius: 0.6,
         range: 5.0,
@@ -324,7 +324,7 @@ static WEAPONS: [WeaponSpec; WeaponKind::COUNT] = [
         ..BASE
     },
     WeaponSpec {
-        kind: WeaponKind::BusterShield,
+        kind: WeaponKind::ClawShield,
         damage: 80.0,
         speed: 450.0,
         radius: 1.2,
@@ -335,7 +335,7 @@ static WEAPONS: [WeaponSpec; WeaponKind::COUNT] = [
         ..BASE
     },
     WeaponSpec {
-        kind: WeaponKind::HeadVulcan,
+        kind: WeaponKind::HeadGun,
         damage: 3.0,
         speed: 1_000.0,
         radius: 0.2,
@@ -380,7 +380,7 @@ static WEAPONS: [WeaponSpec; WeaponKind::COUNT] = [
         ..STREAM
     },
     WeaponSpec {
-        kind: WeaponKind::HeatShotel,
+        kind: WeaponKind::HeatBlade,
         damage: 70.0,
         radius: 0.7,
         range: 8.0,
@@ -400,7 +400,7 @@ static WEAPONS: [WeaponSpec; WeaponKind::COUNT] = [
         ..BLADE
     },
     WeaponSpec {
-        kind: WeaponKind::CrossCrusher,
+        kind: WeaponKind::PincerStrike,
         damage: 100.0,
         radius: 1.6,
         range: 9.0,
@@ -421,7 +421,7 @@ static WEAPONS: [WeaponSpec; WeaponKind::COUNT] = [
         ..BLADE
     },
     WeaponSpec {
-        kind: WeaponKind::DragonFang,
+        kind: WeaponKind::Talon,
         damage: 85.0,
         radius: 1.4,
         range: 35.0,

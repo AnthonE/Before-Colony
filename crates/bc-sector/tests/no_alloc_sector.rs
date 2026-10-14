@@ -2,7 +2,7 @@
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
 use bc_alloc::CountingAlloc;
-use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, ZERO};
+use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, ORRERY};
 use bc_proto::{Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, PilotKind};
 use bc_sector::{Comeback, Control, InputMsg, Outcome, SectorConfig, read_packet};
 use bc_sim::SimConfig;
@@ -14,7 +14,7 @@ static ALLOC: CountingAlloc = CountingAlloc;
 #[test]
 fn sector_tick_never_allocates() {
     let cfg = SectorConfig {
-        sim: SimConfig { target_dolls: 256, seed: 3, ..SimConfig::default() },
+        sim: SimConfig { target_drones: 256, seed: 3, ..SimConfig::default() },
         max_clients: 64,
         oracle: true,
         ..SectorConfig::default()
@@ -22,7 +22,7 @@ fn sector_tick_never_allocates() {
     let (mut sector, shared, mut egress, mut oracle) = bc_sector::build(cfg);
     let mut leases = Vec::new();
     while let Some(l) = shared.leases.pop() {
-        let frame = if l.slot % 2 == 0 { FrameId::WingZero } else { FrameId::Leo };
+        let frame = if l.slot % 2 == 0 { FrameId::Altair } else { FrameId::Argo };
         shared
             .control
             .push(Control::Join {
@@ -53,7 +53,7 @@ fn sector_tick_never_allocates() {
                 let join = Control::Join {
                     slot: back,
                     pilot: PilotKind::Human,
-                    frame: FrameId::Leo,
+                    frame: FrameId::Argo,
                     faction: Faction::Colonies,
                     max_datagram: MAX_DATAGRAM as u16,
                     comeback: Comeback { sleeper: Some(id), credits: 500 },
@@ -78,7 +78,7 @@ fn sector_tick_never_allocates() {
                 view_tick_q4: (next << 4) - 30,
                 aim: Vec3::new(a, 0.1, 1.0).normalize(),
                 thrust: [40, 0, 90],
-                buttons: FLIGHT_ASSIST | FIRE_PRIMARY | ZERO,
+                buttons: FLIGHT_ASSIST | FIRE_PRIMARY | ORRERY,
                 ..InputCmd::default()
             }
             .quantized();
@@ -86,7 +86,7 @@ fn sector_tick_never_allocates() {
         }
         let ((), n) = bc_alloc::count(|| sector.tick());
         if step >= 300 {
-            total += n; // the first 300 ticks let the doll spawner fill the sector
+            total += n; // the first 300 ticks let the drone spawner fill the sector
         }
         if let Some(slot) = leaving {
             let st = &shared.slots[slot as usize];
@@ -127,17 +127,17 @@ fn a_missile_barrage_never_allocates() {
     use bc_proto::SnapshotReader;
     use bc_proto::buttons::{FIRE_SECONDARY, SPECIAL};
 
-    // 32 missile boats (Heavyarms and Sandrocks, each locking the nearest doll) against 128 Mobile
-    // Dolls, with Full Open Attacks.
+    // 32 missile boats (Antares and Canopus, each locking the nearest drone) against 128
+    // drones, with Full Salvos.
     let cfg = SectorConfig {
-        sim: SimConfig { target_dolls: 128, seed: 9, ..SimConfig::default() },
+        sim: SimConfig { target_drones: 128, seed: 9, ..SimConfig::default() },
         max_clients: 32,
         ..SectorConfig::default()
     };
     let (mut sector, shared, mut egress, _oracle) = bc_sector::build(cfg);
     let mut leases = Vec::new();
     while let Some(l) = shared.leases.pop() {
-        let frame = if l.slot % 2 == 0 { FrameId::Heavyarms } else { FrameId::Sandrock };
+        let frame = if l.slot % 2 == 0 { FrameId::Antares } else { FrameId::Canopus };
         shared
             .control
             .push(Control::Join {
@@ -157,7 +157,7 @@ fn a_missile_barrage_never_allocates() {
     for step in 0..1_200u32 {
         let next = sector.sim.next_tick();
         for (n, l) in leases.iter_mut().enumerate() {
-            // Aim at and designate the nearest Oz suit (outside the counted region).
+            // Aim at and designate the nearest Almagest suit (outside the counted region).
             let me = sector
                 .sim
                 .suits
@@ -172,7 +172,7 @@ fn a_missile_barrage_never_allocates() {
                         .suits
                         .alive
                         .iter()
-                        .filter(|&j| sector.sim.suits.faction[j] == Faction::Oz)
+                        .filter(|&j| sector.sim.suits.faction[j] == Faction::Almagest)
                         .min_by(|&a, &b| {
                             let d = |j: usize| (sector.sim.suits.flight[j].pos - at).length_squared();
                             d(a).total_cmp(&d(b))
@@ -210,7 +210,7 @@ fn a_missile_barrage_never_allocates() {
             while let Some(len) = read_packet(ring, &mut buf) {
                 assert!(len <= MAX_DATAGRAM);
                 let mut r = SnapshotReader::new(&buf[..len]).expect("a snapshot");
-                let (_, _) = (r.own().expect("own"), r.zero().expect("zero"));
+                let (_, _) = (r.own().expect("own"), r.orrery().expect("orrery"));
                 while let Ok(Some(_)) = r.next_event() {}
                 while let Ok(Some(_)) = r.next_rock() {}
                 while let Ok(Some(_)) = r.next_missile() {
@@ -239,14 +239,14 @@ fn survival_launches_docks_and_losses_never_allocate() {
     use bc_sim::handle::Handle;
     use bc_sim::sim::Loadout;
 
-    // 64 pilots flying the suits they built among 128 Mobile Dolls: every few ticks one docks and
-    // one launches again; the dolls shoot some down. Now and then one is left in MO-II's Aft Well
+    // 64 pilots flying the suits they built among 128 drones: every few ticks one docks and
+    // one launches again; the drones shoot some down. Now and then one is left in Fornax's Aft Well
     // as its pilot logs off (the sector records it), and the suit is put back from that record,
-    // as a restarted server would. Zodiac's aces come out among the Dolls, and pilots down them and
+    // as a restarted server would. The Almagest's aces come out among the drones, and pilots down them and
     // send the tugs for their wrecks.
     let cfg = SectorConfig {
         sim: SimConfig {
-            target_dolls: 128,
+            target_drones: 128,
             seed: 11,
             survival: true,
             ace_every: 150,
@@ -257,7 +257,7 @@ fn survival_launches_docks_and_losses_never_allocate() {
     };
     let (mut sector, shared, mut egress, _oracle) = bc_sector::build(cfg);
     let loadout = |slot: u16| {
-        let mut l = Loadout::full(FrameId::Leo);
+        let mut l = Loadout::full(FrameId::Argo);
         // A full rack: the hotbar's uses below.
         for kit in bc_sim::content::Kit::ALL {
             l.kits.set(kit, 3);
@@ -292,7 +292,7 @@ fn survival_launches_docks_and_losses_never_allocate() {
     let launch = |slot: u16| Control::Join {
         slot,
         pilot: PilotKind::Human,
-        frame: FrameId::Leo,
+        frame: FrameId::Argo,
         faction: Faction::Colonies,
         max_datagram: MAX_DATAGRAM as u16,
         comeback: Comeback::default(),
@@ -467,19 +467,19 @@ fn riders_and_hides_never_allocate() {
     use bc_sim::bodies::{Body, GRIP_MIN_AXIS};
     use bc_sim::handle::Handle;
 
-    // 64 pilots among 256 Mobile Dolls, 16 of them on bodies: four lying crouched in MO-II's Aft
+    // 64 pilots among 256 drones, 16 of them on bodies: four lying crouched in Fornax's Aft
     // Well, four walking its core, four on Hermit and four on big rocks. Those walk, run, hop and
     // crouch; two of the hiders log off where they lie and stay asleep, and the walkers take
     // turns to sleep and wake on their feet.
     let cfg = SectorConfig {
-        sim: SimConfig { target_dolls: 256, seed: 3, ..SimConfig::default() },
+        sim: SimConfig { target_drones: 256, seed: 3, ..SimConfig::default() },
         max_clients: 64,
         ..SectorConfig::default()
     };
     let (mut sector, shared, mut egress, _oracle) = bc_sector::build(cfg);
     let mut leases = Vec::new();
     while let Some(l) = shared.leases.pop() {
-        let frame = if l.slot % 2 == 0 { FrameId::Leo } else { FrameId::Heavyarms };
+        let frame = if l.slot % 2 == 0 { FrameId::Argo } else { FrameId::Antares };
         shared
             .control
             .push(Control::Join {
@@ -538,7 +538,7 @@ fn riders_and_hides_never_allocate() {
                 let join = Control::Join {
                     slot: back,
                     pilot: PilotKind::Human,
-                    frame: FrameId::Leo,
+                    frame: FrameId::Argo,
                     faction: Faction::Colonies,
                     max_datagram: MAX_DATAGRAM as u16,
                     comeback: Comeback { sleeper: Some(id), credits: 0 },
@@ -573,7 +573,7 @@ fn riders_and_hides_never_allocate() {
                     120..135 => ([-60, -127, 80], grip),
                     _ => ([0, 64, 0], grip),
                 },
-                _ => ([40, 0, 90], FLIGHT_ASSIST | FIRE_PRIMARY | ZERO),
+                _ => ([40, 0, 90], FLIGHT_ASSIST | FIRE_PRIMARY | ORRERY),
             };
             p.cmds[0] = InputCmd {
                 tick: next + 2,
@@ -588,7 +588,7 @@ fn riders_and_hides_never_allocate() {
         }
         let ((), n) = bc_alloc::count(|| sector.tick());
         if step >= 300 {
-            total += n; // the first 300 ticks let the doll spawner fill the sector
+            total += n; // the first 300 ticks let the drone spawner fill the sector
             let m = &shared.metrics;
             let load = |c| bc_sector::Metrics::load(c);
             grounded = grounded.max(load(&m.grounded));

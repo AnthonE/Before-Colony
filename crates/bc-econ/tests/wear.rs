@@ -22,7 +22,7 @@ fn suit(h: &Hangar) -> &Suit {
 fn home_of(s: &Suit) -> Homecoming {
     let l = s.loadout();
     Homecoming {
-        frame: FrameId::Leo,
+        frame: FrameId::Argo,
         parts: l.parts,
         mounts: l.mounts,
         ammo: l.ammo,
@@ -38,15 +38,15 @@ fn home_of(s: &Suit) -> Homecoming {
     }
 }
 
-/// A new pilot's Leo is second-hand inside too; an overhaul puts it right, if the stores have
+/// A new pilot's Argo is second-hand inside too; an overhaul puts it right, if the stores have
 /// the machined components and electronics for it.
 #[test]
-fn the_starter_leo_needs_an_overhaul() {
+fn the_starter_argo_needs_an_overhaul() {
     let mut h = Hangar::starter();
     assert_eq!(suit(&h).faults.level(System::Radiators), DAMAGED);
     assert_eq!(suit(&h).loadout().systems.get(System::Radiators), DAMAGED, "it launches as it is");
     assert!(h.overhaul(None).is_err(), "nothing in the stores to do it with");
-    h.stores.add_all(&overhaul_cost(FrameId::Leo, DAMAGED), 1);
+    h.stores.add_all(&overhaul_cost(FrameId::Argo, DAMAGED), 1);
     let note = h.overhaul(Some(Part::Torso)).unwrap();
     assert!(note.contains("RADIATORS"), "{note}");
     assert!(suit(&h).faults.is_empty());
@@ -94,26 +94,26 @@ fn faults_travel_with_parts_and_equipment_comes_off_with_them() {
     assert_eq!(h.stores.get(Item::Module(ModuleKind::CompositePlating)), 2);
     h.dismantle().unwrap();
     assert_eq!(h.bay, Bay::Empty);
-    assert_eq!(h.stores.get(Item::Part(FrameId::Leo, Part::Torso)), 0, "worn and faulted: not new");
-    h.fit(Item::Part(FrameId::Leo, Part::Torso)).unwrap();
+    assert_eq!(h.stores.get(Item::Part(FrameId::Argo, Part::Torso)), 0, "worn and faulted: not new");
+    h.fit(Item::Part(FrameId::Argo, Part::Torso)).unwrap();
     assert_eq!(suit(&h).faults.level(System::Radiators), DAMAGED, "back in with it");
     // A new part is new; one with faults isn't, whatever its armour.
     let mut s = bc_econ::Stores::default();
     s.add_part(PartUnit {
         faults: Faults::all(Part::Head, DAMAGED),
-        ..PartUnit::new(FrameId::Leo, Part::Head)
+        ..PartUnit::new(FrameId::Argo, Part::Head)
     });
-    assert_eq!(s.get(Item::Part(FrameId::Leo, Part::Head)), 0);
-    s.add_part(PartUnit::new(FrameId::Leo, Part::Head));
-    assert_eq!(s.get(Item::Part(FrameId::Leo, Part::Head)), 1);
-    let best = s.take_best_part(FrameId::Leo, Part::Head).unwrap();
+    assert_eq!(s.get(Item::Part(FrameId::Argo, Part::Head)), 0);
+    s.add_part(PartUnit::new(FrameId::Argo, Part::Head));
+    assert_eq!(s.get(Item::Part(FrameId::Argo, Part::Head)), 1);
+    let best = s.take_best_part(FrameId::Argo, Part::Head).unwrap();
     assert!(best.faults.is_empty(), "the sound one first");
 }
 
 /// An auxiliary tank makes the tank bigger, so the launch fills more.
 #[test]
 fn an_auxiliary_tank_holds_more() {
-    let mut s = Suit::complete(FrameId::Leo);
+    let mut s = Suit::complete(FrameId::Argo);
     let base = s.tank();
     s.modules[4] = Some(ModuleKind::AuxiliaryTank);
     assert!(s.tank() > base);
@@ -171,10 +171,10 @@ fn the_colony_trades_components_and_equipment() {
 /// and costs acceleration, a G-seat lets the pilot bear more, failed boosters don't boost.
 #[test]
 fn the_stat_sheet_follows_the_suit() {
-    let whole = Suit::complete(FrameId::Leo).stats();
+    let whole = Suit::complete(FrameId::Argo).stats();
     assert!((whole.delta_v - 3_100.0).abs() < 300.0, "{whole:?}");
     assert!(whole.boost_g > whole.accel_g);
-    let mut s = Suit::complete(FrameId::Leo);
+    let mut s = Suit::complete(FrameId::Argo);
     s.modules[4] = Some(ModuleKind::AuxiliaryTank);
     s.modules[1] = Some(ModuleKind::GSeat);
     let modded = s.stats();
@@ -265,7 +265,7 @@ fn systems_wear_from_use_and_are_serviced() {
     assert!(h.overhaul(None).is_err());
 }
 
-/// The paint earns its look: the starter Leo comes scuffed (it's second-hand), every sortie adds
+/// The paint earns its look: the starter Argo comes scuffed (it's second-hand), every sortie adds
 /// to its weathering, a hard one more than a quiet one, and servicing what's inside doesn't take
 /// it back.
 #[test]
@@ -285,7 +285,7 @@ fn sorties_weather_the_paint() {
     assert_eq!(after.thrust, start.thrust + home.usage.burn);
     assert!(after.damage > start.damage + 55, "{after:?}");
     assert!(after.points() > start.points());
-    h.stores.add_all(&overhaul_cost(FrameId::Leo, DAMAGED), 1);
+    h.stores.add_all(&overhaul_cost(FrameId::Argo, DAMAGED), 1);
     let _ = h.overhaul(Some(Part::Torso));
     assert_eq!(suit(&h).weathering, after, "an overhaul is about what's inside");
 }

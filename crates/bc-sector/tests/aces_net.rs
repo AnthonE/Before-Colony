@@ -1,4 +1,4 @@
-//! Zodiac's aces through the sector (`docs/DESIGN.md`, "Aces"): which one is out goes in the
+//! The Almagest's aces through the sector (`docs/DESIGN.md`, "Aces"): which one is out goes in the
 //! shared word for the server; downed by a pilot, their session hears of it with its wreck; and
 //! claimed as the bounty, the tugs bring that wreck home `TOW_TICKS` on, as the ace's.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
@@ -18,7 +18,7 @@ use bc_sim::sim::Loadout;
 fn sector() -> (Sector, Arc<SectorShared>, SlotLease) {
     let cfg = SectorConfig {
         sim: SimConfig {
-            target_dolls: 1,
+            target_drones: 1,
             field_rocks: 0,
             seed: 5,
             survival: true,
@@ -39,11 +39,11 @@ fn launch(sector: &mut Sector, shared: &SectorShared, slot: u16) -> usize {
         .push(Control::Join {
             slot,
             pilot: PilotKind::Human,
-            frame: FrameId::Leo,
+            frame: FrameId::Argo,
             faction: Faction::Colonies,
             max_datagram: MAX_DATAGRAM as u16,
             comeback: Comeback::default(),
-            launch: Some(Loadout::full(FrameId::Leo)),
+            launch: Some(Loadout::full(FrameId::Argo)),
         })
         .unwrap();
     sector.tick();
@@ -130,9 +130,9 @@ fn an_ace_nobody_here_downed_is_nobody_s() {
 }
 
 #[test]
-fn no_ace_without_dolls() {
+fn no_ace_without_drones() {
     let cfg = SectorConfig {
-        sim: SimConfig { target_dolls: 0, field_rocks: 0, ace_every: 30, ..SimConfig::default() },
+        sim: SimConfig { target_drones: 0, field_rocks: 0, ace_every: 30, ..SimConfig::default() },
         max_clients: 1,
         ..SectorConfig::default()
     };

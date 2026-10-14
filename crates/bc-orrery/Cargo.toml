@@ -1,6 +1,6 @@
 [package]
-name = "bc-zero"
-description = "Before Colony ZERO tactical oracle: local heuristic and TypeSafe Jev backends, off the hot path"
+name = "bc-orrery"
+description = "Before Colony the Orrery tactical oracle: local heuristic and TypeSafe Jev backends, off the hot path"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,7 +10,7 @@ repository.workspace = true
 
 [dependencies]
 bc-proto.workspace = true
-bc-sim = { workspace = true, features = ["deterministic", "canon-names"] }
+bc-sim = { workspace = true, features = ["deterministic"] }
 tokio.workspace = true
 reqwest.workspace = true
 rustls.workspace = true

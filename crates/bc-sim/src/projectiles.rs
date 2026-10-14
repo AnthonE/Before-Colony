@@ -29,7 +29,7 @@ impl Projectiles {
             alive: BitSet::new(cap),
             kind: boxed(cap, WeaponKind::BeamRifle),
             owner: boxed(cap, 0u16),
-            owner_faction: boxed(cap, Faction::Oz),
+            owner_faction: boxed(cap, Faction::Almagest),
             pos: boxed(cap, Vec3::ZERO),
             vel: boxed(cap, Vec3::ZERO),
             expire: boxed(cap, 0u32),

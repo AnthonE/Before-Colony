@@ -1,6 +1,6 @@
 [package]
 name = "bc-model"
-description = "Before Colony procedural mobile-suit models: a modelling kit, the shared skeleton and each frame's design, as plain mesh data"
+description = "Before Colony procedural mech models: a modelling kit, the shared skeleton and each frame's design, as plain mesh data"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -95,7 +95,7 @@ The colony's seats (`Seats::colony`):
 | Courier | the streets (6) | routing across 32 km of real traffic, trams and lifts | meals and parcels to the bays |
 | Customs | Hub Gate (3, one a strip) | the cap lift's scanner: who and what comes down | the colony's law (5, below) |
 | Dockmaster | the dock (1) | approach slots for suits coming home | quicker, safer docking |
-| Foundry | the zero-G foundry (2) | keeping the melt in its band | gundanium's yield |
+| Foundry | the zero-G foundry (2) | keeping the melt in its band | siderium's yield |
 | Mechanic | the bays (3) | overhauls done for hire | suits kept flying (`DESIGN.md`, "Wear from use") |
 
 ## 2. The body: meals on the wall clock
@@ -196,10 +196,10 @@ second foundry, the militia's hangar, the charter vote. What they lack is being 
   building site down the strip towards the far cap. The city is a closed form of the tick, where
   you ask and the stage, so a district built out is one number every client draws from. You'd see it
   from space. (`CITY_VERSION` moves with the protocol.)
-- **Works unlock things:** tech (gundanium at half the fee, the militia's patrols, a test stand for a
-  Tallgeese), seats (a hospital adds medics; a market hall in Canal adds cooks), eras (`STORY.md`).
+- **Works unlock things:** tech (siderium at half the fee, the militia's patrols, a test stand for the
+  Almagest's prototype), seats (a hospital adds medics; a market hall in Canal adds cooks), eras (`STORY.md`).
 - **Somebody pushes back.** The Consortium owns the colony's debt and doesn't want the charter
-  signed. Its Doll offensives (`ROADMAP.md`, P1) strike the building site while it's being built,
+  signed. Its drone offensives (`ROADMAP.md`, P1) strike the building site while it's being built,
   and pilots who would rather take the Consortium's money can be paid to slow the work. A server-wide
   tug of war, with players on both sides.
 

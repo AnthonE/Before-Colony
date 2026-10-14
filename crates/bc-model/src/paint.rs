@@ -6,11 +6,11 @@ pub const RED: u8 = 2;
 pub const YELLOW: u8 = 3;
 /// Joints, hands and the inner frame.
 pub const DARK: u8 = 4;
-pub const OZ_GREEN: u8 = 5;
-pub const OZ_GREY: u8 = 6;
-pub const TAURUS_WHITE: u8 = 7;
-pub const TAURUS_BLUE: u8 = 8;
-pub const VIRGO_OLIVE: u8 = 9;
+pub const ALMAGEST_GREEN: u8 = 5;
+pub const ALMAGEST_GREY: u8 = 6;
+pub const CORVUS_WHITE: u8 = 7;
+pub const CORVUS_BLUE: u8 = 8;
+pub const CETUS_OLIVE: u8 = 9;
 pub const ALLIANCE_TAN: u8 = 10;
 /// Colony hull plating.
 pub const HULL: u8 = 11;
@@ -23,13 +23,13 @@ pub const GUNMETAL: u8 = 14;
 /// Visors and sensor glass.
 pub const GLASS: u8 = 15;
 
-/// The Oz suits' inner frame: the Leo's joints, hands and feet, a dark olive brown. The first 16
+/// The Almagest suits' inner frame: the Argo's joints, hands and feet, a dark olive brown. The first 16
 /// entries are what a livery can name (a hull tag has four bits for each of its paints); from here
 /// on, only a model's fixed paints reach them.
 pub const FRAME_BROWN: u8 = 16;
-/// The Leo's head: the red ribs round its sides and back.
+/// The Argo's head: the red ribs round its sides and back.
 pub const RIB_RED: u8 = 17;
-/// The Leo's visor window, amber glass over the mono-eye.
+/// The Argo's visor window, amber glass over the mono-eye.
 pub const VISOR_AMBER: u8 = 18;
 /// Sensor lenses and the glass of a suit's lights, a pale blue-grey.
 pub const LENS: u8 = 19;

@@ -1,4 +1,4 @@
-//! Survival rules over real WebTransport: a pilot starts on foot in their hangar with a worn Leo,
+//! Survival rules over real WebTransport: a pilot starts on foot in their hangar with a worn Argo,
 //! works the bay (fits and strips parts, trades on the exchange, queues the fabricator), launches
 //! the suit, flies it back into the dock and docks, and finds it standing in the bay again. A
 //! signed-in pilot's hangar is theirs: it's there when they come back, even after the server
@@ -27,7 +27,7 @@ fn config(data_dir: Option<PathBuf>) -> anyhow::Result<Config> {
         rules: Ruleset::Survival,
         wt_port: 0,
         http_addr: "127.0.0.1:0".parse()?,
-        mobile_dolls: 0,
+        drones: 0,
         max_clients: 8,
         craft_speed: 20.0,
         data_dir,
@@ -36,7 +36,7 @@ fn config(data_dir: Option<PathBuf>) -> anyhow::Result<Config> {
 }
 
 fn bot(http: &str, name: &str) -> BotConfig {
-    BotConfig { server: http.into(), name: name.into(), frame: FrameId::Leo, faction: Faction::Colonies }
+    BotConfig { server: http.into(), name: name.into(), frame: FrameId::Argo, faction: Faction::Colonies }
 }
 
 fn wallet(k: u8) -> LocalWallet {
@@ -70,18 +70,18 @@ async fn ask(b: &mut BotClient, req: Request) -> anyhow::Result<String> {
 async fn a_pilot_works_the_bay_launches_and_docks() -> anyhow::Result<()> {
     let server = bc_server::start(config(None)?).await?;
     let http = format!("http://{}", server.http_addr);
-    let mut b = BotClient::connect(&bot(&http, "Duo")).await?;
+    let mut b = BotClient::connect(&bot(&http, "Nico")).await?;
     assert!(b.survival());
     b.wait_until(5.0, "the hangar", |c| {
         c.hangar.in_hangar() && c.hangar.view.is_some() && c.hangar.market.is_some()
     })
     .await?;
-    // The starter kit: a worn Leo with no beam rifle, and 2,000 credits.
+    // The starter kit: a worn Argo with no beam rifle, and 2,000 credits.
     let suit = docked(&b).expect("a suit in the bay");
-    assert_eq!(suit.line, FrameId::Leo);
+    assert_eq!(suit.line, FrameId::Argo);
     assert_eq!(suit.mounts, [false, true, true]);
     assert_eq!(b.core.hangar.credits(), 2_000);
-    // A new arrival is told so, and their Leo's radiators are tired.
+    // A new arrival is told so, and their Argo's radiators are tired.
     b.wait_until(5.0, "the arrival news", |c| !c.hangar.news.is_empty()).await?;
     assert!(b.core.hangar.news[0].contains("ARRIVAL"), "{:?}", b.core.hangar.news);
     assert_eq!(suit.faults.level(System::Radiators), DAMAGED);
@@ -93,7 +93,7 @@ async fn a_pilot_works_the_bay_launches_and_docks() -> anyhow::Result<()> {
     let text = ask(&mut b, Request::Strip { slot: Slot::Part { part: Part::ArmL } }).await?;
     assert!(text.contains("OFF"), "{text}");
     assert_eq!(docked(&b).unwrap().mounts, [false, false, false]);
-    ask(&mut b, Request::Fit { item: Item::Part(FrameId::Leo, Part::ArmL) }).await?;
+    ask(&mut b, Request::Fit { item: Item::Part(FrameId::Argo, Part::ArmL) }).await?;
     ask(&mut b, Request::Fit { item: Item::Weapon(WeaponKind::MachineCannon) }).await?;
     ask(&mut b, Request::Fit { item: Item::Weapon(WeaponKind::BeamSaber) }).await?;
     assert_eq!(docked(&b).unwrap().mounts, [false, true, true]);
@@ -153,7 +153,7 @@ async fn a_pilot_works_the_bay_launches_and_docks() -> anyhow::Result<()> {
     })
     .await?;
     let own = b.world().own.expect("own suit");
-    assert!(own.alive && own.frame == FrameId::Leo);
+    assert!(own.alive && own.frame == FrameId::Argo);
     assert_eq!(own.weapon_ready & 0b001, 0, "no beam rifle fitted");
     let g = bc_sim::tuning::own_tuning(&own).g_tolerance;
     assert!(g > 6.0, "it flies with its G-seat");
@@ -166,7 +166,7 @@ async fn a_pilot_works_the_bay_launches_and_docks() -> anyhow::Result<()> {
     assert!(b.use_kit(Kit::Stim).await.is_err(), "the rack is out of them");
     // Thrown out of its bay's door on the ring: fly home to the dock off the hub's mouth, come to
     // rest in it, and dock.
-    let fa = bc_sim::content::frame(FrameId::Leo).fa_speed;
+    let fa = bc_sim::content::frame(FrameId::Argo).fa_speed;
     let dock = bc_sim::content::salvage::DOCK_CENTER;
     let home = |c: &bc_client_core::InputContext| {
         let s = &c.predict.state;
@@ -221,7 +221,7 @@ async fn a_signed_in_pilots_hangar_outlives_the_server() -> anyhow::Result<()> {
         let server = bc_server::start(config(Some(dir.clone()))?).await?;
         let http = format!("http://{}", server.http_addr);
         let mut b = BotClient::connect_with(
-            &bot(&http, "Heero"),
+            &bot(&http, "Kai"),
             Identity::Wallet { address: w.address(), resume: None },
             Some(&w),
         )
@@ -229,7 +229,7 @@ async fn a_signed_in_pilots_hangar_outlives_the_server() -> anyhow::Result<()> {
         b.wait_until(5.0, "the hangar", |c| c.hangar.view.is_some()).await?;
         // The head off, and melted down.
         ask(&mut b, Request::Strip { slot: Slot::Part { part: Part::Head } }).await?;
-        ask(&mut b, Request::Scrap { item: Item::Part(FrameId::Leo, Part::Head) }).await?;
+        ask(&mut b, Request::Scrap { item: Item::Part(FrameId::Argo, Part::Head) }).await?;
         assert!(docked(&b).unwrap().parts[Part::Head as usize].is_none());
         b.close().await;
         tokio::time::sleep(Duration::from_millis(300)).await;
@@ -240,7 +240,7 @@ async fn a_signed_in_pilots_hangar_outlives_the_server() -> anyhow::Result<()> {
     let server = bc_server::start(config(Some(dir.clone()))?).await?;
     let http = format!("http://{}", server.http_addr);
     let mut b = BotClient::connect_with(
-        &bot(&http, "Heero"),
+        &bot(&http, "Kai"),
         Identity::Wallet { address: w.address(), resume: None },
         Some(&w),
     )
@@ -266,14 +266,14 @@ async fn a_suit_left_out_there_is_woken_in_or_towed_home() -> anyhow::Result<()>
     {
         let server = bc_server::start(config(Some(dir.clone()))?).await?;
         let http = format!("http://{}", server.http_addr);
-        let mut b = BotClient::connect_with(&bot(&http, "Trowa"), me, Some(&w)).await?;
+        let mut b = BotClient::connect_with(&bot(&http, "Tomas"), me, Some(&w)).await?;
         b.wait_until(5.0, "the hangar", |c| c.hangar.view.is_some()).await?;
         b.launch().await?;
         let slot = b.world().own.unwrap().slot;
         // Gone mid-sortie: the suit sleeps out there, and the bay says it's out.
         b.drop_link();
         tokio::time::sleep(Duration::from_millis(500)).await;
-        let mut b = BotClient::connect_with(&bot(&http, "Trowa"), me, Some(&w)).await?;
+        let mut b = BotClient::connect_with(&bot(&http, "Tomas"), me, Some(&w)).await?;
         assert!(b.core.welcome.unwrap().woke);
         b.wait_until(5.0, "back in the cockpit", |c| {
             c.hangar.place == Some(Place::Space) && c.world.own.is_some()
@@ -289,7 +289,7 @@ async fn a_suit_left_out_there_is_woken_in_or_towed_home() -> anyhow::Result<()>
     // The server restarted: the sleeper is gone, and the colony's tugs brought the suit in.
     let server = bc_server::start(config(Some(dir.clone()))?).await?;
     let http = format!("http://{}", server.http_addr);
-    let mut b = BotClient::connect_with(&bot(&http, "Trowa"), me, Some(&w)).await?;
+    let mut b = BotClient::connect_with(&bot(&http, "Tomas"), me, Some(&w)).await?;
     b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
     assert_eq!(b.core.hangar.sorties.last().map(|s| s.0), Some(Outcome::Recovered));
     assert!(docked(&b).is_some(), "standing in the bay");
@@ -316,11 +316,11 @@ fn ruin(dir: &std::path::Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// A floor under loss: a signed-in pilot back after losing everything finds a worn Leo in the
+/// A floor under loss: a signed-in pilot back after losing everything finds a worn Argo in the
 /// gantry, advanced by the Charter Board, and the news says so; lost and broke again within the
 /// half hour, they don't get a second.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_pilot_who_lost_everything_is_advanced_a_worn_leo() -> anyhow::Result<()> {
+async fn a_pilot_who_lost_everything_is_advanced_a_worn_argo() -> anyhow::Result<()> {
     let dir = std::env::temp_dir().join(format!("bc-hangar-floor-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let w = wallet(11);
@@ -329,15 +329,15 @@ async fn a_pilot_who_lost_everything_is_advanced_a_worn_leo() -> anyhow::Result<
     for visit in 0..3 {
         let server = bc_server::start(config(Some(dir.clone()))?).await?;
         let http = format!("http://{}", server.http_addr);
-        let mut b = BotClient::connect_with(&bot(&http, "Duo"), me, Some(&w)).await?;
+        let mut b = BotClient::connect_with(&bot(&http, "Nico"), me, Some(&w)).await?;
         b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
         match visit {
-            // Arrived: the Arrival's own Leo.
+            // Arrived: the Arrival's own Argo.
             0 => assert!(docked(&b).is_some() && !advanced(&b)),
             // Lost and broke: advanced another.
             1 => {
                 let suit = docked(&b).expect("a suit in the gantry");
-                assert_eq!(suit.line, FrameId::Leo);
+                assert_eq!(suit.line, FrameId::Argo);
                 assert!(advanced(&b), "news: {:?}", b.core.hangar.news);
             }
             // Again, inside the half hour: nothing.
@@ -369,7 +369,7 @@ fn advanced_at(dir: &std::path::Path, at: u64) -> anyhow::Result<()> {
 /// Broke in the bay with the half hour since the last advance not quite up, a pilot isn't left to
 /// wait for their next visit: the Charter Board's advance comes the moment it's due, with the news.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_broke_pilot_is_advanced_a_leo_the_moment_the_half_hour_is_up() -> anyhow::Result<()> {
+async fn a_broke_pilot_is_advanced_a_argo_the_moment_the_half_hour_is_up() -> anyhow::Result<()> {
     let dir = std::env::temp_dir().join(format!("bc-hangar-due-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let w = wallet(13);
@@ -401,7 +401,7 @@ async fn a_broke_pilot_is_advanced_a_leo_the_moment_the_half_hour_is_up() -> any
         matches!(c.hangar.view.as_ref().map(|v| &v.bay), Some(Bay::Docked { .. }))
     })
     .await?;
-    assert_eq!(docked(&b).map(|s| s.line), Some(FrameId::Leo));
+    assert_eq!(docked(&b).map(|s| s.line), Some(FrameId::Argo));
     assert_eq!(b.core.hangar.news.iter().filter(|n| n.contains("ADVANCES YOU A WORN")).count(), 1);
     b.close().await;
     tokio::time::sleep(Duration::from_millis(300)).await;
@@ -421,7 +421,7 @@ async fn a_pilot_who_ejects_has_the_wreck_towed_home() -> anyhow::Result<()> {
     let me = Identity::Wallet { address: w.address(), resume: None };
     let server = bc_server::start(config(Some(dir.clone()))?).await?;
     let http = format!("http://{}", server.http_addr);
-    let mut b = BotClient::connect_with(&bot(&http, "Heero"), me, Some(&w)).await?;
+    let mut b = BotClient::connect_with(&bot(&http, "Kai"), me, Some(&w)).await?;
     b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
     b.launch().await?;
     assert!(!b.doomed());
@@ -438,7 +438,7 @@ async fn a_pilot_who_ejects_has_the_wreck_towed_home() -> anyhow::Result<()> {
     // Gone before the tugs get there: the wreck comes in now.
     b.close().await;
     tokio::time::sleep(Duration::from_millis(500)).await;
-    let mut b = BotClient::connect_with(&bot(&http, "Heero"), me, Some(&w)).await?;
+    let mut b = BotClient::connect_with(&bot(&http, "Kai"), me, Some(&w)).await?;
     b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
     let parts: Vec<(Part, u8)> =
         b.core.hangar.view.as_ref().unwrap().parts.iter().map(|u| (u.part, u.condition)).collect();

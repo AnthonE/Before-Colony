@@ -17,7 +17,7 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   };
   await page.goto(`/?quality=low&gfx=${info.project.name}`);
 
-  // The title: a callsign, the six Gundams (and the Leo), the controls.
+  // The title: a callsign, the six Lodestars (and the Argo), the controls.
   await expect(page.locator("#title")).toBeVisible({ timeout: 60_000 });
   await expect(page.locator("#frames .frame")).toHaveCount(6);
   await expect(page.locator("#controls-list tr").first()).toBeAttached();
@@ -37,12 +37,12 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   await expect(page.locator("#launch-button")).toHaveText("RETRY");
   await page.evaluate(() => ((window as any).bcDiscover = (window as any).__realDiscover));
 
-  // Launch in the Heavyarms.
-  await page.locator('#frames .frame[data-slug="heavyarms"]').click();
+  // Launch in the Antares.
+  await page.locator('#frames .frame[data-slug="antares"]').click();
   await page.locator("#launch-button").click();
   await wait("in the world", "window.__bc?.link === 'ingame' && window.__bc?.snapshots >= 30");
   await expect(page.locator("#title")).toBeHidden();
-  await expect.poll(async () => (await bc(page)).frame).toBe("heavyarms");
+  await expect.poll(async () => (await bc(page)).frame).toBe("antares");
   // Headless Chromium can't lock the pointer, so the prompt stays up.
   await expect(page.locator("#prompt")).toBeVisible();
   const me = async () => {
@@ -93,10 +93,10 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   await expect.poll(saved, { timeout: 10_000 }).toContain("camera = chase");
 
   // Anime flight rules (the server's default): the tank is a boost gauge. And an objective with a
-  // waypoint: under arcade rules the first is a Doll, and the patrols (or a Doll in sight) mark it.
+  // waypoint: under arcade rules the first is a drone, and the patrols (or a drone in sight) mark it.
   expect((await bc(page)).anime).toBe(true);
-  await expect.poll(async () => (await bc(page)).objective).toBe("DOWN A MOBILE DOLL");
-  await expect.poll(async () => (await bc(page)).waypoint).toMatch(/MOBILE DOLL|PATROLS/);
+  await expect.poll(async () => (await bc(page)).objective).toBe("DOWN A DRONE");
+  await expect.poll(async () => (await bc(page)).waypoint).toMatch(/DRONE|PATROLS/);
   await page.screenshot({ path: `artifacts/ui-${info.project.name}-objective.png` });
   // M: the map of the sector, over the world; M again closes it.
   await page.keyboard.press("m");
@@ -240,11 +240,11 @@ test("settings persist across a reload", async ({ page }, info) => {
   await expect(page.locator("#settings")).toBeHidden();
 
   await page.locator("#callsign").fill("E2E-Settings");
-  await page.locator('#frames .frame[data-slug="sandrock"]').click();
+  await page.locator('#frames .frame[data-slug="canopus"]').click();
   await page.locator("#launch-button").click();
   await page.waitForFunction("window.__bc?.link === 'ingame'", null, { timeout: 60_000 });
   await expect.poll(saved, { timeout: 10_000 }).toContain("name = E2E-Settings");
   await page.reload();
   await expect(page.locator("#callsign")).toHaveValue("E2E-Settings", { timeout: 60_000 });
-  await expect(page.locator("#frames .frame.chosen")).toHaveAttribute("data-slug", "sandrock");
+  await expect(page.locator("#frames .frame.chosen")).toHaveAttribute("data-slug", "canopus");
 });

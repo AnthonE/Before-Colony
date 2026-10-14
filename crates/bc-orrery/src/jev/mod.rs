@@ -1,4 +1,4 @@
-//! TypeSafe **Jev** as a ZERO System oracle.
+//! TypeSafe **Jev** as an Orrery oracle.
 //!
 //! Jev ("System One" model) answers typed questions: `choice`, `score` and `noul`, each with
 //! calibrated probabilities. One `POST /v1/systemone` carries every question for a pilot at once.

@@ -57,7 +57,7 @@ use bc_proto::buttons::FIRE_PRIMARY;
 use bc_proto::control::{ControlMsg, Frame, RejectReason, hello_flags, roster_flags, welcome_flags};
 use bc_proto::events::Event;
 use bc_proto::presence::{PersonPose, PlazaReader, PosePacket};
-use bc_proto::snapshot::{header_flags, own_flags, zero_mode};
+use bc_proto::snapshot::{header_flags, orrery_mode, own_flags};
 use bc_proto::{
     Faction, FrameId, InputCmd, InputPacket, PROTOCOL_VERSION, PacketKind, PilotKind, SnapshotReader,
     WeaponKind, packet_kind,
@@ -70,7 +70,7 @@ use bc_sim::math::{clamp_to_cone, integrate_rotation, normalize_or};
 use bc_sim::tuning::FlightRules;
 use glam::Vec3;
 
-pub use brains::{DollBrain, LanderBrain, MinerBrain};
+pub use brains::{DroneBrain, LanderBrain, MinerBrain};
 pub use clock::Clock;
 pub use hangar::HangarState;
 pub use inputs::InputHistory;
@@ -91,7 +91,7 @@ pub struct ClientConfig {
     pub pilot: PilotKind,
     pub frame: FrameId,
     /// The side the Hello asks for; once welcomed, the side flown for, which is the server's to say
-    /// (the Welcome's: a claim to Oz, the Mobile Dolls' own, flies for the Colonies).
+    /// (the Welcome's: a claim to the Almagest, the drones' own, flies for the Colonies).
     pub faction: Faction,
 }
 
@@ -110,7 +110,7 @@ pub enum Identity {
 pub struct Welcome {
     pub client_slot: u16,
     pub tick_hz: u8,
-    pub zero_allowed: bool,
+    pub orrery_allowed: bool,
     pub max_datagram: u16,
     /// The sector's debris field.
     pub field_seed: u32,
@@ -206,7 +206,7 @@ pub struct ClientCore {
     pub last_cmd: InputCmd,
     /// The own suit as drawn, between frames.
     drawn: own::Drawn,
-    /// Felt acceleration between the last two snapshots, g: the reading while ZERO flies the suit
+    /// Felt acceleration between the last two snapshots, g: the reading while the Orrery flies the suit
     /// (and the prediction, flying the pilot's commands, is beside the point).
     heard_g: f32,
     /// Survival, on foot in the colony: the people near the pilot, and the pilot's own pose to
@@ -422,7 +422,7 @@ impl ClientCore {
                 version,
                 client_slot,
                 tick_hz,
-                zero_allowed,
+                orrery_allowed,
                 max_datagram,
                 field_seed,
                 field_rocks,
@@ -451,7 +451,7 @@ impl ClientCore {
                 self.welcome = Some(Welcome {
                     client_slot,
                     tick_hz,
-                    zero_allowed,
+                    orrery_allowed,
                     max_datagram,
                     field_seed,
                     field_rocks,
@@ -536,7 +536,7 @@ impl ClientCore {
         if spectator && !self.world.bodies.interior() {
             self.world.bodies = std::mem::take(&mut self.world.bodies).inside(true);
         }
-        let (Ok(own), Ok(zero)) = (r.own(), r.zero()) else {
+        let (Ok(own), Ok(orrery)) = (r.own(), r.orrery()) else {
             self.stats.decode_errors += 1;
             return;
         };
@@ -597,7 +597,7 @@ impl ClientCore {
         }
         let heard = self.world.own.filter(|o| o.alive).map(|o| (self.world.tick, o.vel));
         self.world.apply_missiles(h.tick, &missiles);
-        self.world.apply(h.tick, own, zero, &events, &ents);
+        self.world.apply(h.tick, own, orrery, &events, &ents);
         // (The world has the own suit in the sector's frame, whatever frame it came in.)
         if let (Some(now), Some((t0, v0))) = (self.world.own.filter(|o| o.alive), heard) {
             self.heard_g = (now.vel - v0).length() / ((h.tick - t0) as f32 * DT) / G0;
@@ -783,12 +783,12 @@ impl ClientCore {
     }
 
     /// What the own suit is drawn from at `t` (input-clock ticks), and whether it's alive: the
-    /// prediction, between the ticks it has flown; or, for the wreck and while ZERO flies the suit
+    /// prediction, between the ticks it has flown; or, for the wreck and while the Orrery flies the suit
     /// (not the pilot's commands), the server's word carried on at its velocity and spin. On a
     /// body, its place on the body then, on the body as drawn at `t_view` (view-clock ticks).
     fn own_source(&self, t: f64, t_view: f64) -> Option<(OwnPose, bool)> {
         let own = self.world.own?;
-        let seized = own.zero_mode == zero_mode::SEIZED;
+        let seized = own.orrery_mode == orrery_mode::SEIZED;
         if own.alive
             && !seized
             && self.predict.initialized
@@ -901,7 +901,7 @@ mod tests {
         let mut core = ClientCore::new(ClientConfig {
             name: "test".into(),
             pilot: PilotKind::Human,
-            frame: FrameId::Leo,
+            frame: FrameId::Argo,
             faction: Faction::Colonies,
         });
         core.on_control(&encode(ControlMsg::Welcome {
@@ -910,7 +910,7 @@ mod tests {
             tick: 0,
             tick_hz: bc_sim::config::TICK_HZ as u8,
             sector: 0,
-            zero_allowed: false,
+            orrery_allowed: false,
             max_datagram: 1_100,
             field_seed: seed,
             field_rocks: rocks,
@@ -939,7 +939,7 @@ mod tests {
         let mut w = SnapshotWriter::new(&mut buf, 1_100);
         w.header(&SnapshotHeader { tick: 41, ..SnapshotHeader::default() });
         w.own(None);
-        w.zero(None);
+        w.orrery(None);
         assert!(w.event(&Event::RockBreak { id: 1, tick: 40, rock: i as u16, by: 3 }, 0));
         assert!(w.rock(&RockState::new(i as u16, true, 0.0, 0.0), 0));
         let n = w.finish().unwrap();
@@ -952,23 +952,23 @@ mod tests {
         let mut w = SnapshotWriter::new(&mut buf, 1_100);
         w.header(&SnapshotHeader { tick: 90, ..SnapshotHeader::default() });
         w.own(None);
-        w.zero(None);
+        w.orrery(None);
         assert!(w.rock(&RockState::new(i as u16, false, 1.0, 1.0), 0));
         let n = w.finish().unwrap();
         core.on_datagram(&buf[..n], 2.0);
         assert!(camera_clamp(&core.world.bodies, 90.0, from, to).distance(to) > 1.0);
     }
 
-    /// An agent asks for Oz, the Mobile Dolls' own; the server flies it for the Colonies and its
+    /// An agent asks for the Almagest, the drones' own; the server flies it for the Colonies and its
     /// Welcome says so. Friends and foes go by that side from then on, in the next sector too, and
     /// a reconnect asks for it.
     #[test]
     fn the_side_flown_for_is_the_welcomes() {
         let mut core = ClientCore::new(ClientConfig {
-            name: "Zechs".into(),
+            name: "Viktor".into(),
             pilot: PilotKind::Agent,
-            frame: FrameId::Leo,
-            faction: Faction::Oz,
+            frame: FrameId::Argo,
+            faction: Faction::Almagest,
         });
         let welcome = |faction, flags| {
             encode(ControlMsg::Welcome {
@@ -977,7 +977,7 @@ mod tests {
                 tick: 0,
                 tick_hz: bc_sim::config::TICK_HZ as u8,
                 sector: 1,
-                zero_allowed: false,
+                orrery_allowed: false,
                 max_datagram: 1_100,
                 field_seed: 7,
                 field_rocks: 0,

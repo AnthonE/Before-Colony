@@ -480,8 +480,8 @@ mod tests {
         let plaza = Plaza::default();
         let t0 = Instant::now();
         let (s, x) = hub_gate(0);
-        plaza.enter(1, "Heero", 0);
-        plaza.enter(2, "Duo", 0);
+        plaza.enter(1, "Kai", 0);
+        plaza.enter(2, "Nico", 0);
         assert_eq!(plaza.accept(1, 1, at(0, s, x + 2.0), t0, 0), Verdict::Taken);
         assert_eq!(plaza.accept(2, 1, at(0, s + 3.0, x + 2.0), t0, 0), Verdict::Taken);
         let me = seen(&plaza, 1, t0);
@@ -505,7 +505,7 @@ mod tests {
         let t0 = Instant::now();
         let ((s, x), _) = bc_sim::colony::hall::hatch();
         let strip = bc_sim::colony::hall::hall().strip;
-        plaza.enter_at(1, "Wufei", strip, (s, x));
+        plaza.enter_at(1, "Lin", strip, (s, x));
         let at_hatch = bc_sim::colony::frame::CityPos::new(strip, x, s, 0.0).to_colony();
         assert!(plaza.where_is(1, 0).is_some_and(|p| p.distance(at_hatch) < 0.01));
         assert_eq!(plaza.accept(1, 1, at(strip, s, x + 400.0), t0, 0), Verdict::Implausible);
@@ -571,7 +571,7 @@ mod tests {
         let plaza = Plaza::default();
         let t0 = Instant::now();
         let (s, x) = hub_gate(0);
-        plaza.enter(1, "Trowa", 0);
+        plaza.enter(1, "Tomas", 0);
         // Not down the lift: far from Hub Gate.
         assert_eq!(plaza.accept(1, 1, at(0, s, x + 2_000.0), t0, 0), Verdict::Implausible);
         assert_eq!(plaza.accept(1, 2, at(0, s, x + 2.0), t0, 0), Verdict::Taken);
@@ -622,7 +622,7 @@ mod tests {
         let tr = train(0, k, tick, 0.0);
         let door = tr.car_x(0) + DOOR_AT;
         let island = STRIP_WIDTH * 0.5 + tr.dir * (PLATFORM_HALF - 0.3);
-        plaza.enter(1, "Trowa", 0);
+        plaza.enter(1, "Tomas", 0);
         plaza.enter(2, "Catherine", 0);
         for id in [1, 2] {
             assert_eq!(plaza.accept(id, 1, at(0, s, x + 2.0), t0, tick), Verdict::Taken);
@@ -664,7 +664,7 @@ mod tests {
         let plaza = Plaza::default();
         let t0 = Instant::now();
         let (s, x) = hub_gate(0);
-        plaza.enter(1, "Quatre", 0);
+        plaza.enter(1, "Rafi", 0);
         assert_eq!(plaza.accept(1, 1, at(0, s, x + 2.0), t0, 0), Verdict::Taken);
         let seat = arrival_seats()[1];
         let sit = |s: f32, x: f32| PersonPose { ride: RIDE_SEATED, yaw: seat.yaw, ..at(0, s, x) };
@@ -699,7 +699,7 @@ mod tests {
         let t0 = Instant::now();
         let (s, x) = hub_gate(0);
         let (ps, px) = pool(0, 0);
-        plaza.enter(1, "Duo", 0);
+        plaza.enter(1, "Nico", 0);
         assert_eq!(plaza.accept(1, 1, at(0, s, x + 2.0), t0, 0), Verdict::Taken);
         // Not from the middle of the street.
         let car = |s: f32, x: f32| PersonPose { ride: RIDE_CAR, ..at(0, s, x) };
@@ -748,9 +748,9 @@ mod tests {
         let plaza = Plaza::default();
         let t0 = Instant::now();
         let (s, x) = hub_gate(0);
-        plaza.enter(1, "Relena", 0);
+        plaza.enter(1, "Maren", 0);
         plaza.enter(2, "Pagan", 0);
-        plaza.enter(3, "Lady Une", 1);
+        plaza.enter(3, "Major Ines", 1);
         assert_eq!(plaza.accept(1, 1, at(0, s, x + 2.0), t0, 0), Verdict::Taken);
         assert_eq!(plaza.accept(2, 1, at(0, s + 20.0, x + 60.0), t0, 0), Verdict::Taken);
         let (s1, x1) = hub_gate(1);
@@ -784,18 +784,18 @@ mod tests {
         let plaza = Plaza::default();
         let t0 = Instant::now();
         let (s, x) = hub_gate(0);
-        plaza.enter(1, "Quatre", 0);
+        plaza.enter(1, "Rafi", 0);
         plaza.accept(1, 1, at(0, s, x), t0, 0);
-        plaza.enter(2, "Wufei", 1);
+        plaza.enter(2, "Lin", 1);
         let (s1, x1) = hub_gate(1);
         plaza.accept(2, 1, at(1, s1, x1), t0, 0);
         assert!(seen(&plaza, 1, t0).is_empty(), "another strip");
         // Quiet for longer than HIDE: not shown.
-        plaza.enter(3, "Zechs", 0);
+        plaza.enter(3, "Viktor", 0);
         plaza.accept(3, 1, at(0, s + 1.0, x), t0, 0);
         assert_eq!(seen(&plaza, 1, t0).len(), 1);
         assert!(seen(&plaza, 1, t0 + Duration::from_secs(6)).is_empty());
-        assert_eq!(plaza.name(3).as_deref(), Some("Zechs"));
+        assert_eq!(plaza.name(3).as_deref(), Some("Viktor"));
         assert_eq!(plaza.counts().1, [2, 1, 0]);
     }
 }

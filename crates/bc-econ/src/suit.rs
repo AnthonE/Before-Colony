@@ -133,10 +133,10 @@ mod equipment_serde {
     }
 }
 
-/// The frame line a form belongs to (Neo-Bird is Wing Zero).
+/// The frame line a form belongs to (Aquila is Altair).
 pub fn line_of(frame_id: FrameId) -> FrameId {
     match frame_id {
-        FrameId::WingZeroBird => FrameId::WingZero,
+        FrameId::Aquila => FrameId::Altair,
         f => f,
     }
 }
@@ -461,7 +461,7 @@ mod tests {
     /// of the suit carrying it.
     #[test]
     fn the_stat_sheet_shows_an_ion_drive() {
-        let mut s = Suit::complete(FrameId::Leo);
+        let mut s = Suit::complete(FrameId::Argo);
         assert_eq!(s.stats().ion_g, 0.0);
         s.modules[4] = Some(ModuleKind::IonDrive);
         let g = s.stats().ion_g;
@@ -472,9 +472,9 @@ mod tests {
     /// with its grade only when it isn't Standard, and one written before grades flies Standard.
     #[test]
     fn a_purer_grade_goes_further_and_old_suits_fly_standard() {
-        let mut s = Suit::complete(FrameId::Leo);
+        let mut s = Suit::complete(FrameId::Argo);
         let standard = s.stats();
-        assert!((standard.boost_s - 48.0).abs() < 1.0, "a Leo's tank boosts 48 s: {standard:?}");
+        assert!((standard.boost_s - 48.0).abs() < 1.0, "an Argo's tank boosts 48 s: {standard:?}");
         s.grade = Grade::Refined;
         let refined = s.stats();
         s.grade = Grade::UltraPure;
@@ -485,7 +485,7 @@ mod tests {
         let json = serde_json::to_value(&s).unwrap();
         assert_eq!(json["grade"], "ultra");
         assert_eq!(serde_json::from_value::<Suit>(json).unwrap().grade, Grade::UltraPure);
-        let old = serde_json::to_value(Suit::complete(FrameId::Leo)).unwrap();
+        let old = serde_json::to_value(Suit::complete(FrameId::Argo)).unwrap();
         assert!(old.get("grade").is_none(), "{old}");
         assert_eq!(serde_json::from_value::<Suit>(old).unwrap().grade, Grade::Standard);
     }
@@ -504,7 +504,7 @@ mod tests {
 
     #[test]
     fn worn_parts_round_trip_through_the_simulation_exactly() {
-        let mut suit = Suit::complete(FrameId::Leo);
+        let mut suit = Suit::complete(FrameId::Argo);
         suit.parts = [Some(55), Some(61), None, Some(33), Some(100), Some(7)];
         let mut back = suit.clone();
         back.came_home(&home(&suit));
@@ -513,9 +513,9 @@ mod tests {
 
     #[test]
     fn a_part_shot_off_takes_its_weapon() {
-        let mut suit = Suit::complete(FrameId::Leo);
+        let mut suit = Suit::complete(FrameId::Argo);
         let mut h = home(&suit);
-        // The Leo's left arm holds the machine cannon and the saber.
+        // The Argo's left arm holds the machine cannon and the saber.
         h.parts[Part::ArmL as usize] = 0.0;
         h.ammo[1] = 120;
         suit.came_home(&h);
@@ -527,22 +527,22 @@ mod tests {
         s.parts[Part::ArmL as usize] = Some(100);
         assert_eq!(s.slot_for(Item::Weapon(WeaponKind::MachineCannon)), Some(Slot::Mount { mount: 1 }));
         assert_eq!(s.slot_for(Item::Weapon(WeaponKind::BeamRifle)), None, "already fitted");
-        assert_eq!(s.slot_for(Item::Weapon(WeaponKind::TwinBusterRifle)), None, "not a Leo's");
-        assert_eq!(s.slot_for(Item::Part(FrameId::WingZero, Part::ArmL)), None, "another line's");
+        assert_eq!(s.slot_for(Item::Weapon(WeaponKind::HeavyBeamRifle)), None, "not an Argo's");
+        assert_eq!(s.slot_for(Item::Part(FrameId::Altair, Part::ArmL)), None, "another line's");
     }
 
     #[test]
     fn repairs_cost_in_proportion_and_scrap_gives_half_back() {
-        let full = repair_cost(FrameId::Leo, Part::Torso, 0, 100);
-        let half = repair_cost(FrameId::Leo, Part::Torso, 50, 100);
-        let r = recipe(Item::Part(FrameId::Leo, Part::Torso)).unwrap();
+        let full = repair_cost(FrameId::Argo, Part::Torso, 0, 100);
+        let half = repair_cost(FrameId::Argo, Part::Torso, 50, 100);
+        let r = recipe(Item::Part(FrameId::Argo, Part::Torso)).unwrap();
         for ((item, f), (_, h)) in full.iter().zip(&half) {
             let need = r.inputs.iter().find(|(i, _)| i == item).unwrap().1;
             assert_eq!(*f, (need * 60).div_ceil(100));
             assert!(*h * 2 >= *f && *h * 2 <= *f + 1, "{item}: {h} vs {f}");
         }
-        assert!(repair_cost(FrameId::Leo, Part::Head, 100, 100).is_empty());
-        let scrap = scrap_yield(Item::Part(FrameId::Leo, Part::Torso), 100);
+        assert!(repair_cost(FrameId::Argo, Part::Head, 100, 100).is_empty());
+        let scrap = scrap_yield(Item::Part(FrameId::Argo, Part::Torso), 100);
         let steel = scrap.iter().find(|(i, _)| *i == Item::Material(Material::Steel)).unwrap().1;
         let need = r.inputs.iter().find(|(i, _)| *i == Item::Material(Material::Steel)).unwrap().1;
         assert_eq!(steel, need / 2);

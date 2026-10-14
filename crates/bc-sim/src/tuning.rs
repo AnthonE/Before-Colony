@@ -18,7 +18,7 @@ use crate::flight::{BoostGauge, FlightMods, GEnvelope};
 use crate::math::{hash01, normalize_or};
 
 /// How a sector's pilots fly, people and agents alike. The server says which in its Welcome, and
-/// the owner's client predicts by the same rules. Mobile Dolls fly by the real rules either way:
+/// the owner's client predicts by the same rules. Drones fly by the real rules either way:
 /// machines built cheap, they burn every newton and run dry, which is what lets a pilot catch the
 /// ones that have been out a while.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -30,7 +30,7 @@ pub enum FlightRules {
     Real,
     /// Anime rules, for fun over realism: a pilot's tank is a boost gauge. Only boost burns it,
     /// flying is free, and it fills back up from dry in [`ANIME_REFILL_SECS`] once boost is let go
-    /// (on the ground too). Pilots bear [`ANIME_G`] times the G, as the show's do.
+    /// (on the ground too). Pilots bear [`ANIME_G`] times the G, as the anime's do.
     Anime,
 }
 
@@ -53,8 +53,8 @@ pub fn wire(x: f32) -> f32 {
 /// What a suit's frame is multiplied by.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tuning {
-    /// AMBAC's authority with the arms idle.
-    pub ambac: f32,
+    /// Limb trim's authority with the arms idle.
+    pub limb_trim: f32,
     /// Main, side and retro thrusters' authority.
     pub main: f32,
     pub side: f32,
@@ -88,7 +88,7 @@ pub struct Tuning {
     /// Missile lock progress a tick (0: no locks), and how fast a lost one falls apart.
     pub lock_step: u8,
     pub lock_decay: u8,
-    /// The ZERO System's firing solution pulls shots onto it.
+    /// The Orrery's firing solution pulls shots onto it.
     pub magnetism: bool,
     /// How far each arm's weapons reach off the body's axis, of their full reach.
     pub cone_l: f32,
@@ -118,7 +118,7 @@ pub fn is_gone(gone: u8, part: Part) -> bool {
 pub fn tuning(gone: u8, systems: Systems, modules: Modules) -> Tuning {
     let lost = |p: Part| is_gone(gone, p);
     let level = |s: System| usize::from(systems.level(s, gone));
-    // Limbs swing to turn the suit (AMBAC): each one gone takes its share.
+    // Limbs swing to turn the suit (limb trim): each one gone takes its share.
     let mut limbs: f32 = 1.0;
     if lost(Part::ArmL) {
         limbs -= 0.2;
@@ -131,7 +131,7 @@ pub fn tuning(gone: u8, systems: Systems, modules: Modules) -> Tuning {
     }
     let legs = sys::LEG_THRUSTERS[level(System::LegThrusters)];
     let mut t = Tuning {
-        ambac: wire(limbs.max(0.1)) * sys::GYROS[level(System::Gyros)],
+        limb_trim: wire(limbs.max(0.1)) * sys::GYROS[level(System::Gyros)],
         main: sys::MAIN_THRUSTERS[level(System::MainThrusters)],
         side: legs,
         retro: legs,
@@ -192,7 +192,7 @@ pub fn tuning(gone: u8, systems: Systems, modules: Modules) -> Tuning {
             ModuleKind::LegVerniers => t.side *= md::LEG_VERNIERS,
             ModuleKind::CargoRack => {
                 t.hold_kg += md::CARGO_RACK_KG;
-                t.ambac *= md::CARGO_RACK_AMBAC;
+                t.limb_trim *= md::CARGO_RACK_LIMB_TRIM;
             }
             ModuleKind::IonDrive => t.ion = sys::REACTOR[level(System::Reactor)],
         }
@@ -229,12 +229,12 @@ pub fn own_tuning(own: &bc_proto::OwnState) -> Tuning {
 
 /// The flight model's modifiers from a suit's stat sheet under the sector's `rules`, before what
 /// the arms are doing (busy arms, a lunge), a change of form and a sputter, which the caller
-/// applies tick by tick. A Mobile Doll (`g_immune`: no body) flies by the real rules whatever
+/// applies tick by tick. A drone (`g_immune`: no body) flies by the real rules whatever
 /// the sector's.
 pub fn flight_mods(t: &Tuning, rules: FlightRules, g_immune: bool, extra_mass_kg: i32) -> FlightMods {
     let anime = rules.anime() && !g_immune;
     FlightMods {
-        ambac: t.ambac,
+        limb_trim: t.limb_trim,
         thrust: 1.0,
         main: t.main,
         side: t.side,
@@ -327,8 +327,8 @@ mod tests {
         let m = flight_mods(&t, FlightRules::Real, false, 0);
         let d = FlightMods::default();
         assert_eq!(
-            (m.ambac, m.thrust, m.main, m.side, m.retro, m.boost, m.isp, m.g_tolerance, m.leak_kg_s),
-            (d.ambac, d.thrust, d.main, d.side, d.retro, d.boost, d.isp, d.g_tolerance, d.leak_kg_s)
+            (m.limb_trim, m.thrust, m.main, m.side, m.retro, m.boost, m.isp, m.g_tolerance, m.leak_kg_s),
+            (d.limb_trim, d.thrust, d.main, d.side, d.retro, d.boost, d.isp, d.g_tolerance, d.leak_kg_s)
         );
         assert_eq!((t.sensor, t.regen, t.heat, t.cone_l, t.cone_r), (1.0, 1.0, 1.0, 1.0, 1.0));
         assert_eq!(t.lock_step, 2);
@@ -342,7 +342,7 @@ mod tests {
         assert_eq!(t.main, sys::MAIN_THRUSTERS[2]);
         assert_eq!(t.boost, 0.0);
         assert_eq!(t.side, sys::LEG_THRUSTERS[2]);
-        assert!(t.ambac < 0.75, "{t:?}");
+        assert!(t.limb_trim < 0.75, "{t:?}");
         assert_eq!(t.cone_r, sys::ACTUATORS[2]);
         assert_eq!(
             tuning(1 << Part::Head as u8, Systems::OK, Modules::NONE).sensor,
@@ -360,7 +360,7 @@ mod tests {
             assert_eq!(t(System::Reactor).regen, sys::REACTOR[l]);
             assert_eq!(t(System::Tank).leak_kg_s, sys::LEAK_KG_S[l]);
             assert_eq!(t(System::Radiators).heat, sys::RADIATORS[l]);
-            assert_eq!(t(System::Gyros).ambac, sys::GYROS[l]);
+            assert_eq!(t(System::Gyros).limb_trim, sys::GYROS[l]);
             assert_eq!(t(System::Cockpit).g_tolerance, sys::COCKPIT_G[l]);
             assert_eq!(t(System::ActuatorL).cone_l, sys::ACTUATORS[l]);
             assert_eq!(t(System::LegThrusters).side, sys::LEG_THRUSTERS[l]);

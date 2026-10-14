@@ -24,7 +24,7 @@ pub struct SuitDrive {
     pub frame: FrameId,
     pub faction: Faction,
     pub generation: u8,
-    /// The pilot's own suit (no ZERO shell; the HUD and post effects show ZERO instead).
+    /// The pilot's own suit (no Orrery shell; the HUD and post effects show the Orrery instead).
     pub own: bool,
     pub pos: Vec3,
     pub rot: Quat,
@@ -166,7 +166,7 @@ pub enum FxEvent {
     RockBreak { pos: Vec3, radius: f32, ore: Vec3 },
     /// The pilot's own suit taking a hit (as well as its [`FxEvent::Hit`]).
     Struck { weapon: WeaponKind },
-    /// A suit changing form (Wing Zero ↔ Neo-Bird), the moment it does.
+    /// A suit changing form (Altair ↔ Aquila), the moment it does.
     Transform { pos: Vec3, vel: Vec3, rot: Quat },
     /// A missile leaving its launcher (`own`: the pilot's).
     MissileLaunch { pos: Vec3, own: bool },
@@ -230,10 +230,10 @@ pub struct ChaseTarget {
     pub g_strain: f32,
     /// The pilot has blacked out (G-LOC).
     pub blackout: bool,
-    /// The ZERO System is engaged, and how close it is to seizing control (0..1).
-    pub zero: bool,
-    pub zero_strain: f32,
-    /// A ZERO seizure has the controls.
+    /// The Orrery is engaged, and how close it is to seizing control (0..1).
+    pub orrery: bool,
+    pub orrery_strain: f32,
+    /// An Orrery seizure has the controls.
     pub seized: bool,
 }
 

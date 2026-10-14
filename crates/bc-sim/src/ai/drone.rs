@@ -4,10 +4,10 @@ use glam::Vec3;
 
 use crate::content::{FrameSpec, weapon};
 use crate::math::{Rng, angle_between, clamp_len, length, normalize_or};
+use crate::orrery::fire_control;
 use crate::perception::{Contact, Perception, SelfView};
-use crate::zero::fire_control;
 
-/// What a doll is doing.
+/// What a drone is doing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Action {
     #[default]
@@ -19,7 +19,7 @@ pub enum Action {
     Regroup,
 }
 
-/// Per-doll brain state.
+/// Per-drone brain state.
 #[derive(Clone, Copy, Debug)]
 pub struct AiState {
     pub action: Action,
@@ -66,8 +66,8 @@ impl Default for AiState {
 
 /// Tunables for a brain.
 #[derive(Clone, Copy, Debug)]
-pub struct DollProfile {
-    /// Distance the doll tries to fight at, m.
+pub struct DroneProfile {
+    /// Distance the drone tries to fight at, m.
     pub preferred_range: f32,
     /// Aim error, radians (1σ-ish).
     pub aim_error: f32,
@@ -76,12 +76,12 @@ pub struct DollProfile {
     /// Seconds between strafe reversals: min + random span.
     pub strafe_min_s: f32,
     pub strafe_span_s: f32,
-    /// Flies the frame's whole kit (see `kit`); otherwise only the primary, like a Mobile Doll.
+    /// Flies the frame's whole kit (see `kit`); otherwise only the primary, like a drone.
     pub kit: bool,
 }
 
-/// OZ Mobile Doll defaults.
-pub const DOLL: DollProfile = DollProfile {
+/// Almagest drone defaults.
+pub const DRONE: DroneProfile = DroneProfile {
     preferred_range: 1_600.0,
     aim_error: 0.0025,
     fire_range_frac: 0.8,
@@ -90,8 +90,8 @@ pub const DOLL: DollProfile = DollProfile {
     kit: false,
 };
 
-/// A ZERO seizure: closer, sharper, relentless.
-pub const SEIZED: DollProfile = DollProfile {
+/// An Orrery seizure: closer, sharper, relentless.
+pub const SEIZED: DroneProfile = DroneProfile {
     preferred_range: 700.0,
     aim_error: 0.0008,
     fire_range_frac: 0.9,
@@ -100,9 +100,9 @@ pub const SEIZED: DollProfile = DollProfile {
     kit: false,
 };
 
-/// Agents and the browser autopilot: the doll's judgement flying the whole kit (its preferred range
+/// Agents and the browser autopilot: the drone's judgement flying the whole kit (its preferred range
 /// is the frame's, see [`AiHints`](crate::content::AiHints)).
-pub const PILOT: DollProfile = DollProfile {
+pub const PILOT: DroneProfile = DroneProfile {
     preferred_range: 1_200.0,
     aim_error: 0.0015,
     fire_range_frac: 0.85,
@@ -130,7 +130,7 @@ fn rng_of(ai: &AiState, tick: u32) -> Rng {
 }
 
 /// Re-plans: picks a target and an action by utility.
-pub fn think(p: &Perception, ai: &mut AiState, tick: u32, profile: &DollProfile, primary_range: f32) {
+pub fn think(p: &Perception, ai: &mut AiState, tick: u32, profile: &DroneProfile, primary_range: f32) {
     let mut rng = rng_of(ai, tick);
     // --- Target selection (with hysteresis). ---
     let mut best: Option<(&Contact, f32)> = None;
@@ -222,7 +222,7 @@ pub fn drive(
     target: Option<&Contact>,
     ai: &mut AiState,
     tick: u32,
-    profile: &DollProfile,
+    profile: &DroneProfile,
     spec: &FrameSpec,
 ) -> InputCmd {
     if profile.kit {
@@ -294,7 +294,7 @@ pub fn drive(
         buttons,
         lock_target: target.map_or(NO_SLOT, |t| t.slot),
         shot_seq: ai.shot_seq,
-        // Dolls never lock on: perfect leads and perfect pace together would be unbeatable.
+        // Drones never lock on: perfect leads and perfect pace together would be unbeatable.
         lockon: None,
     }
 }

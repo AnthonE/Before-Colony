@@ -532,7 +532,7 @@ pub fn landmark_touching(landmarks: &[LandmarkDef], p: Vec3, r: f32, t: u32) -> 
 
 /// A suit's move `a→b` (body frame) that starts touching `shape`, where [`Shape::trace`] stops
 /// looking, slid along the surface it touches from just off it ([`SLIDE_LIFT`]): how far along the
-/// slide (0..1) it meets something else, and where. A union has thin features (MO-II's mast), so
+/// slide (0..1) it meets something else, and where. A union has thin features (Fornax's mast), so
 /// the end of a move alone says nothing of what it passed on the way. Only a surface turned away
 /// from the one it slides on ([`SLIDE_TURN_COS`]) counts: the same curved wall met again a little
 /// on is still the slide.
@@ -844,7 +844,7 @@ mod tests {
     use crate::math::{Rng, angle_between};
     use core::f32::consts::PI;
 
-    fn mo_ii() -> Shape {
+    fn fornax() -> Shape {
         LANDMARKS[0].shape
     }
 
@@ -852,8 +852,8 @@ mod tests {
         LANDMARKS[1].shape
     }
 
-    fn mo_ii_prims() -> &'static [Prim] {
-        let Base::Union(prims) = mo_ii().base else { unreachable!("MO-II is a union") };
+    fn fornax_prims() -> &'static [Prim] {
+        let Base::Union(prims) = fornax().base else { unreachable!("Fornax is a union") };
         prims
     }
 
@@ -954,7 +954,7 @@ mod tests {
             Prim::Capsule { a: Vec3::new(-10.0, 0.0, 4.0), b: Vec3::new(10.0, 5.0, -3.0), r: 3.0 },
         ];
         let mut rng = Rng::new(2);
-        for prim in mo_ii_prims().iter().chain(&others) {
+        for prim in fornax_prims().iter().chain(&others) {
             let (lo, hi) = extent(prim);
             let pad = Vec3::splat(20.0);
             let mut smooth = 0;
@@ -1032,7 +1032,7 @@ mod tests {
         let rock = Shape::ellipsoid(Vec3::new(30.0, 10.0, 12.0));
         let bare = Shape::ellipsoid(Vec3::new(900.0, 620.0, 760.0));
         let mut rng = Rng::new(3);
-        for (shape, reach) in [(mo_ii(), 335.0), (hermit(), 900.0), (bare, 900.0), (rock, 30.0)] {
+        for (shape, reach) in [(fornax(), 335.0), (hermit(), 900.0), (bare, 900.0), (rock, 30.0)] {
             let (mut outside, mut inside) = (0, 0);
             while outside < 400 {
                 let p = match (rng.next_u32() % 3, shape.base) {
@@ -1135,9 +1135,9 @@ mod tests {
     fn traces_match_dense_sampling() {
         let mut rng = Rng::new(4);
         let radii = [0.0, 0.5, 2.0, 8.0];
-        // MO-II: sphere tracing. Every hit it reports is a contact, never later than a step after
+        // Fornax: sphere tracing. Every hit it reports is a contact, never later than a step after
         // the first one, and it misses only grazes shorter than a step.
-        let shape = mo_ii();
+        let shape = fornax();
         let (mut hits, mut grazes) = (0, 0);
         for _ in 0..10_000 {
             let r = radii[(rng.next_u32() % 4) as usize];
@@ -1145,7 +1145,7 @@ mod tests {
                 let target = if rng.next_f32() < 0.2 {
                     Vec3::new(-240.0, 0.0, 0.0) + unit(&mut rng) * 60.0
                 } else {
-                    let (lo, hi) = extent(&mo_ii_prims()[(rng.next_u32() % 8) as usize]);
+                    let (lo, hi) = extent(&fornax_prims()[(rng.next_u32() % 8) as usize]);
                     point(&mut rng, lo - Vec3::splat(10.0), hi + Vec3::splat(10.0))
                 };
                 let a = target + unit(&mut rng) * (5.0 + rng.next_f32() * 50.0);
@@ -1180,7 +1180,7 @@ mod tests {
                 (None, None) => {}
             }
         }
-        assert!(hits > 3_000 && grazes < 200, "MO-II: {hits} hits, {grazes} grazes missed");
+        assert!(hits > 3_000 && grazes < 200, "Fornax: {hits} hits, {grazes} grazes missed");
 
         // Long segments, up to TRACE_MAX_LEN (a tick of the fastest shot is 267 m), skimming the
         // core, the pylons and the modules: the steps spread to reach b, so the trace still steps
@@ -1229,7 +1229,7 @@ mod tests {
                 None => assert!(long.is_none(), "{a} → {b} r {r}: missed a contact at {long:?} m"),
             }
         }
-        assert!(hits > 2_500 && far > 1_000, "MO-II, long: {hits} hits, {far} past 48 m");
+        assert!(hits > 2_500 && far > 1_000, "Fornax, long: {hits} hits, {far} past 48 m");
 
         // Hermit: solved exactly, so it matches the sampled model (refined by bisection) to 1e-4.
         let shape = hermit();
@@ -1304,7 +1304,7 @@ mod tests {
         let mut rng = Rng::new(9);
         let radii = [0.0, 0.5, 2.0, 8.0];
         // Up to TRACE_MAX_LEN it is the trace itself, bit for bit.
-        for shape in [mo_ii(), hermit()] {
+        for shape in [fornax(), hermit()] {
             let reach = if matches!(shape.base, Base::Union(_)) { 400.0 } else { 1_000.0 };
             for _ in 0..2_000 {
                 let r = radii[(rng.next_u32() % 4) as usize];
@@ -1317,10 +1317,10 @@ mod tests {
                 );
             }
         }
-        // Longer, skimming MO-II's core, pylons and modules end to end: in pieces of at most
+        // Longer, skimming Fornax's core, pylons and modules end to end: in pieces of at most
         // TRACE_MAX_LEN, whose steps are at most 6 m, it steps over no contact longer than that,
         // and a hit is at most a step late. In one go its steps would be up to 25 m.
-        let shape = mo_ii();
+        let shape = fornax();
         let (mut hits, mut past) = (0, 0);
         for _ in 0..600 {
             let r = radii[(rng.next_u32() % 4) as usize];
@@ -1352,9 +1352,9 @@ mod tests {
     }
     #[test]
     fn a_trace_that_starts_touching_goes_in_or_leaves() {
-        // On Hermit's +X pole and on MO-II's +Y pylon, standing off by the sphere's radius.
+        // On Hermit's +X pole and on Fornax's +Y pylon, standing off by the sphere's radius.
         for (shape, at, n) in
-            [(hermit(), Vec3::new(908.0, 0.0, 0.0), Vec3::X), (mo_ii(), Vec3::new(0.0, 94.0, 0.0), Vec3::Y)]
+            [(hermit(), Vec3::new(908.0, 0.0, 0.0), Vec3::X), (fornax(), Vec3::new(0.0, 94.0, 0.0), Vec3::Y)]
         {
             let side = n.cross(Vec3::Z);
             assert_eq!(shape.trace(at, at - n * 20.0, 8.0), Some(0.0), "going in");
@@ -1434,7 +1434,7 @@ mod tests {
         assert!(worst_iq > 0.05, "the gradient was only {worst_iq} rad off: the test tests nothing");
         // A union's and a cut's are the probe's own.
         let p = Vec3::new(-100.0, 70.0, 3.0);
-        assert_eq!(mo_ii().normal_from(p), mo_ii().probe(p).normal);
+        assert_eq!(fornax().normal_from(p), fornax().probe(p).normal);
     }
 
     #[test]
@@ -1510,7 +1510,7 @@ mod tests {
         // Drifting toward the second twin and away from the first.
         f.vel = -Vec3::X * 5.0;
         assert_eq!(b.nearest_grippable(&f, 100.0, 10.0, 2.0).unwrap().body, Body::Rock(1));
-        // Over MO-II's +Y pylon, moving with it.
+        // Over Fornax's +Y pylon, moving with it.
         let t = 1_234;
         let b = Bodies::at(&field, &LANDMARKS, t);
         let pose = b.pose(Body::Landmark(0)).unwrap();
@@ -1548,7 +1548,7 @@ mod tests {
         // Unless it rides it.
         let mut riding = FlightState { pos: big.to_world(Vec3::new(880.0, 0.0, 0.0)), ..s };
         assert!(!b.collide_landmarks(prev, &mut riding, Some(1)));
-        // Landing on MO-II's turning pylon at 10 m/s relative: the relative speed in is lost,
+        // Landing on Fornax's turning pylon at 10 m/s relative: the relative speed in is lost,
         // what it has along the surface is kept.
         let mo = b.pose(Body::Landmark(0)).unwrap();
         let prev = mo.to_world(Vec3::new(0.0, 100.0, 0.0));
@@ -1569,7 +1569,7 @@ mod tests {
     fn shots_meet_landmarks_where_they_were() {
         let field = Field::empty();
         let b = Bodies::at(&field, &LANDMARKS, 500);
-        // Across MO-II's middle, along its local −Z: in through the −Z... +Z pylon's face (z = 86).
+        // Across Fornax's middle, along its local −Z: in through the −Z... +Z pylon's face (z = 86).
         for (t, frac) in [(500, 0.0), (500 + 27_000, 0.5), (3, 0.25)] {
             let mo = landmark_pose(&LANDMARKS[0], t, frac);
             let (a, c) = (mo.to_world(Vec3::new(0.0, 0.0, 300.0)), mo.to_world(Vec3::new(0.0, 0.0, -300.0)));

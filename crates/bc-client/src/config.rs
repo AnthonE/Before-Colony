@@ -11,8 +11,8 @@ pub struct LaunchConfig {
     pub wt_url: String,
     /// SHA-256 of the dev server's self-signed certificate (hex), if any.
     pub cert_hash: Option<Vec<u8>>,
-    /// `?autopilot=`: who flies this pilot (the E2E tests'), if anyone: `1`, the Mobile Doll AI;
-    /// `lander`, a lander that walks MO-II; `lander:walk:<landmark>`, one that walks a landmark;
+    /// `?autopilot=`: who flies this pilot (the E2E tests'), if anyone: `1`, the drone AI;
+    /// `lander`, a lander that walks Fornax; `lander:walk:<landmark>`, one that walks a landmark;
     /// `lander:hide:<landmark>:<spot>`, one that hides in a landmark's hide spot.
     pub autopilot: Option<Autopilot>,
     /// `?autoplay=1` (implied by `?autopilot=`, unless `?autoplay=0`): skip the title screen and
@@ -22,8 +22,8 @@ pub struct LaunchConfig {
     pub no_web_transport: bool,
     /// `?name=` pilot name.
     pub name: String,
-    /// `?frame=`: a playable frame's slug (`leo`, `wingzero`, `heavyarms`, `deathscythe`,
-    /// `sandrock`, `shenlong`).
+    /// `?frame=`: a playable frame's slug (`argo`, `altair`, `antares`, `algol`,
+    /// `canopus`, `thuban`).
     pub frame: String,
     /// `?mode=echo`: transport smoke test only.
     pub echo: bool,
@@ -115,8 +115,8 @@ impl LaunchConfig {
 /// Who flies the pilot's suit for them (`?autopilot=`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Autopilot {
-    /// The Mobile Doll brain, with ZERO engaged.
-    Doll,
+    /// The drone brain, with the Orrery engaged.
+    Drone,
     /// A lander: it flies to a body, lands on it with its grip, and walks or hides there.
     Lander(Plan),
 }
@@ -133,7 +133,7 @@ impl Autopilot {
             dir_local: Vec3::new(1.0, 0.45, 0.45),
         };
         match parts.as_slice() {
-            ["1"] => Some(Self::Doll),
+            ["1"] => Some(Self::Drone),
             ["lander"] => Some(Self::Lander(walk(0))),
             ["lander", "walk", ..] => Some(Self::Lander(walk(num(2)?))),
             ["lander", "hide", ..] => Some(Self::Lander(Plan::Hide { landmark: num(2)?, spot: num(3)? })),
@@ -142,7 +142,7 @@ impl Autopilot {
     }
 }
 
-/// A frame pilots may fly, by its slug (`leo`, `wingzero`, `heavyarms`…); anything else: None.
+/// A frame pilots may fly, by its slug (`argo`, `altair`, `antares`…); anything else: None.
 pub fn parse_frame(s: &str) -> Option<bc_proto::FrameId> {
     bc_proto::FrameId::from_slug(s).filter(|f| bc_sim::content::playable(*f))
 }

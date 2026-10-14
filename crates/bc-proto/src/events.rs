@@ -99,7 +99,7 @@ pub enum Event {
     Leave { tick: u32, slot: u16 },
     /// Two beam sabers met: both swings were parried.
     Clash { id: u16, tick: u32, a: u16, b: u16 },
-    /// A pilot's ZERO System seized (or released) control.
+    /// A pilot's the Orrery seized (or released) control.
     Seizure { id: u16, tick: u32, pilot: u16, active: bool },
     /// `part` came off suit `source` (or, `from_hulk`, off hulk chunk `source`) and is now the limb
     /// chunk `chunk`.
@@ -476,7 +476,7 @@ mod tests {
                 id: 1,
                 tick: 90,
                 shooter: 4,
-                weapon: WeaponKind::TwinBusterRifle,
+                weapon: WeaponKind::HeavyBeamRifle,
                 shot_seq: 9,
                 origin: Vec3::ZERO,
                 velocity: Vec3::new(0.0, 0.0, 8_000.0),

@@ -1,5 +1,5 @@
 //! How often a shot hits: every gun and beam, fired with a perfect *linear* lead (where the target
-//! would be if it flew on as it is: the lock-on's ◆, `docs/LOCK.md`) at a Leo coasting across at
+//! would be if it flew on as it is: the lock-on's ◆, `docs/LOCK.md`) at an Argo coasting across at
 //! 150 m/s or jinking under flight assist, from 300 m to 3 km. What it measures is what projectile
 //! speed, shot radius and spread are worth; `DESIGN.md` ("Hitting") keeps the table.
 //!
@@ -11,7 +11,7 @@ use bc_proto::events::Event;
 use bc_proto::{Faction, FrameId, InputCmd, PilotKind, WeaponKind};
 use bc_sim::content::{WeaponClass, frame, weapon};
 use bc_sim::math::{hash01, look_rotation};
-use bc_sim::zero::fire_control::intercept;
+use bc_sim::orrery::fire_control::intercept;
 use bc_sim::{Sim, SimConfig};
 use glam::Vec3;
 
@@ -29,9 +29,9 @@ enum Target {
 }
 
 /// One shot, fired with a perfect linear lead from `frame_id`'s `slot` (`charged`: its charged
-/// shot, the trigger held to a full charge and let go) at a Leo `range` m off: whether it hit.
+/// shot, the trigger held to a full charge and let go) at an Argo `range` m off: whether it hit.
 fn shot(frame_id: FrameId, slot: usize, charged: bool, range: f32, target: Target, seed: u32) -> bool {
-    let cfg = SimConfig { max_suits: 8, target_dolls: 0, field_rocks: 0, ..SimConfig::default() };
+    let cfg = SimConfig { max_suits: 8, target_drones: 0, field_rocks: 0, ..SimConfig::default() };
     let mut sim = Sim::new(cfg);
     // Each trial's clock starts somewhere of its own, so a gun's spread (drawn from the tick) is
     // sampled afresh, the geometry the same.
@@ -41,8 +41,8 @@ fn shot(frame_id: FrameId, slot: usize, charged: bool, range: f32, target: Targe
     let at = Vec3::new(0.0, 2_000.0, 0.0);
     let me = sim.spawn_at(frame_id, Faction::Colonies, PilotKind::Human, at, look_rotation(Vec3::Z, Vec3::Y));
     let it = sim.spawn_at(
-        FrameId::Leo,
-        Faction::Oz,
+        FrameId::Argo,
+        Faction::Almagest,
         PilotKind::Human,
         at + Vec3::Z * range,
         look_rotation(-Vec3::Z, Vec3::Y),
@@ -75,7 +75,7 @@ fn shot(frame_id: FrameId, slot: usize, charged: bool, range: f32, target: Targe
         };
         sim.set_input(it, InputCmd { tick: t, view_tick_q4: t << 4, ..jink }.quantized());
         // The shooter leads it, perfectly but linearly, and pulls the trigger once it's settled on
-        // the lead (the Twin Buster holds it till the shot leaves; a charged shot is held to a
+        // the lead (the heavy beam rifle holds it till the shot leaves; a charged shot is held to a
         // full charge and let go, its tap's shot going first).
         let (s, o) = (sim.suits.flight[i], sim.suits.flight[j]);
         let muzzle = s.pos + s.rot * mount.arm.muzzle();
@@ -96,7 +96,7 @@ fn shot(frame_id: FrameId, slot: usize, charged: bool, range: f32, target: Targe
         let from = sim.events.next_seq();
         sim.step();
         // Nothing else to judge: armour back as it was, so a big hit doesn't end the trial.
-        sim.suits.part_hp[j] = frame(FrameId::Leo).part_hp;
+        sim.suits.part_hp[j] = frame(FrameId::Argo).part_hp;
         if fired.is_none() && sim.stats(i).shots > u32::from(charge.is_some()) {
             fired = Some(tick);
         }
@@ -126,16 +126,16 @@ fn rate(frame_id: FrameId, slot: usize, charged: bool, range: f32, target: Targe
 fn hit_rates_by_weapon_and_range() {
     // Every gun and beam that leaves a muzzle, on the frame that carries it (and charged).
     let guns: [(FrameId, usize, bool); 10] = [
-        (FrameId::Leo, 0, false),
-        (FrameId::Leo, 0, true),
-        (FrameId::Leo, 1, false),
-        (FrameId::WingZero, 0, false),
-        (FrameId::Virgo, 0, false),
-        (FrameId::Heavyarms, 0, false),
-        (FrameId::Sandrock, 0, false),
-        (FrameId::Deathscythe, 0, false),
-        (FrameId::Deathscythe, 1, false),
-        (FrameId::Taurus, 0, false),
+        (FrameId::Argo, 0, false),
+        (FrameId::Argo, 0, true),
+        (FrameId::Argo, 1, false),
+        (FrameId::Altair, 0, false),
+        (FrameId::Cetus, 0, false),
+        (FrameId::Antares, 0, false),
+        (FrameId::Canopus, 0, false),
+        (FrameId::Algol, 0, false),
+        (FrameId::Algol, 1, false),
+        (FrameId::Corvus, 0, false),
     ];
     println!(
         "{:<18} {:>6} {:>5} {:>5} |  coasting (%) / jinking (%) at {RANGES:?} m",
@@ -158,7 +158,7 @@ fn hit_rates_by_weapon_and_range() {
         );
         // A linear lead is all a coasting target needs: a beam without spread hits it every time
         // to a kilometre.
-        if w.spread == 0.0 && w.kind != WeaponKind::BusterShield {
+        if w.spread == 0.0 && w.kind != WeaponKind::ClawShield {
             assert!(
                 coast[..3].iter().all(|&c| c >= 90.0),
                 "{:?} missed a coasting target: {coast:?}",

@@ -20,7 +20,7 @@ use glam::Vec3;
 
 fn sector() -> (Sector, Arc<SectorShared>, SlotLease) {
     let cfg = SectorConfig {
-        sim: SimConfig { target_dolls: 0, field_rocks: 0, seed: 5, survival: true, ..SimConfig::default() },
+        sim: SimConfig { target_drones: 0, field_rocks: 0, seed: 5, survival: true, ..SimConfig::default() },
         max_clients: 2,
         ..SectorConfig::default()
     };
@@ -33,7 +33,7 @@ fn join(slot: u16, launch: Option<Loadout>) -> Control {
     Control::Join {
         slot,
         pilot: PilotKind::Human,
-        frame: FrameId::Leo,
+        frame: FrameId::Argo,
         faction: Faction::Colonies,
         max_datagram: MAX_DATAGRAM as u16,
         comeback: Comeback::default(),
@@ -59,7 +59,7 @@ fn nothing_to_launch_no_suit() {
 fn launch_dock_and_go_home_with_the_hold() {
     let (mut sector, shared, mut lease) = sector();
     let s = lease.slot;
-    let mut built = Loadout::full(FrameId::Leo);
+    let mut built = Loadout::full(FrameId::Argo);
     built.parts[Part::ArmR as usize] = 0.0;
     assert_eq!(send(&mut sector, &shared, s, join(s, Some(built))), (SlotState::Active, Outcome::Fresh));
     let (idx, _) = shared.slots[s as usize].suit_id().unwrap();
@@ -93,7 +93,7 @@ fn launch_dock_and_go_home_with_the_hold() {
 fn a_suit_lost_is_reported_then_its_pilot_goes_home() {
     let (mut sector, shared, mut lease) = sector();
     let s = lease.slot;
-    send(&mut sector, &shared, s, join(s, Some(Loadout::full(FrameId::Leo))));
+    send(&mut sector, &shared, s, join(s, Some(Loadout::full(FrameId::Argo))));
     let (idx, _) = shared.slots[s as usize].suit_id().unwrap();
     let i = usize::from(idx);
     sector.sim.suits.credits[i] = 850;
@@ -117,14 +117,14 @@ fn a_suit_lost_is_reported_then_its_pilot_goes_home() {
 fn a_pilot_who_leaves_before_the_catapult_fires_keeps_the_suit_in_the_bay() {
     let (mut sector, shared, mut lease) = sector();
     let s = lease.slot;
-    send(&mut sector, &shared, s, join(s, Some(Loadout::full(FrameId::Leo))));
+    send(&mut sector, &shared, s, join(s, Some(Loadout::full(FrameId::Argo))));
     let (idx, _) = shared.slots[s as usize].suit_id().unwrap();
     let i = usize::from(idx);
     assert!(sector.sim.in_bay(i));
     // Signed in, they'd sleep in a suit out there; in the bay it goes back in instead.
     assert_eq!(send(&mut sector, &shared, s, Control::Sleep { slot: s }), (SlotState::Free, Outcome::Docked));
     let Ok(Report::Home(home)) = lease.reports.pop() else { panic!("no homecoming") };
-    assert_eq!(home.frame, FrameId::Leo);
+    assert_eq!(home.frame, FrameId::Argo);
     assert!(!sector.sim.suits.used.get(i), "gone from the sector");
 }
 
@@ -132,7 +132,7 @@ fn a_pilot_who_leaves_before_the_catapult_fires_keeps_the_suit_in_the_bay() {
 fn a_pilot_who_ejects_hears_so_and_the_tugs_bring_the_wreck_home() {
     let (mut sector, shared, mut lease) = sector();
     let s = lease.slot;
-    send(&mut sector, &shared, s, join(s, Some(Loadout::full(FrameId::Leo))));
+    send(&mut sector, &shared, s, join(s, Some(Loadout::full(FrameId::Argo))));
     let (idx, _) = shared.slots[s as usize].suit_id().unwrap();
     let i = usize::from(idx);
     // Out of a whole suit.
@@ -150,7 +150,7 @@ fn a_pilot_who_ejects_hears_so_and_the_tugs_bring_the_wreck_home() {
     let Ok(Report::Towed { wreck: Some(desc), torso: true, ace: None }) = lease.reports.pop() else {
         panic!("the tugs brought nothing home")
     };
-    assert!(matches!(desc.kind, bc_proto::ChunkKind::Hulk { frame: FrameId::Leo, .. }));
+    assert!(matches!(desc.kind, bc_proto::ChunkKind::Hulk { frame: FrameId::Argo, .. }));
     assert!(
         sector
             .sim
@@ -167,7 +167,7 @@ fn a_pilot_who_ejects_hears_so_and_the_tugs_bring_the_wreck_home() {
 fn a_wreck_is_towed_at_once_when_its_pilot_goes_and_not_at_all_when_blown_up() {
     let (mut sector, shared, mut lease) = sector();
     let s = lease.slot;
-    send(&mut sector, &shared, s, join(s, Some(Loadout::full(FrameId::Leo))));
+    send(&mut sector, &shared, s, join(s, Some(Loadout::full(FrameId::Argo))));
     send(&mut sector, &shared, s, Control::Eject { slot: s, destruct: false });
     assert!(matches!(lease.reports.pop(), Ok(Report::Lost { how: Loss::Ejected, .. })));
     // The session is going: the tugs bring it in now.
@@ -182,7 +182,7 @@ fn a_wreck_is_towed_at_once_when_its_pilot_goes_and_not_at_all_when_blown_up() {
     while shared.slots[s as usize].state() != SlotState::Free {
         sector.tick();
     }
-    send(&mut sector, &shared, s, join(s, Some(Loadout::full(FrameId::Leo))));
+    send(&mut sector, &shared, s, join(s, Some(Loadout::full(FrameId::Argo))));
     let (idx, _) = shared.slots[s as usize].suit_id().unwrap();
     let i = usize::from(idx);
     // Out of its bay's cradle (where the colony's armour keeps it from harm): its pilot lets go.

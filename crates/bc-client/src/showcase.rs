@@ -34,38 +34,38 @@ use crate::view::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scene {
-    /// Every frame and livery side by side, with thrusters, saber, charge, ZERO aura and a wreck.
+    /// Every frame and livery side by side, with thrusters, saber, charge, the Orrery aura and a wreck.
     Lineup,
-    /// Wing Zero and a Leo circling and trading fire; a Taurus is shot down on a loop.
+    /// Altair and an Argo circling and trading fire; a Corvus is shot down on a loop.
     Duel,
-    /// A Taurus squad skimming the colony hull; a Leo riding bay 1's catapult cradle in its door on
+    /// A Corvus squad skimming the colony hull; an Argo riding bay 1's catapult cradle in its door on
     /// the bay ring, thrown out at 5.5 s (preset 9: the launch shot's view of it, at 6.4 s).
     Colony,
     /// Inside the debris field.
     Field,
     /// The sky: presets look at Earth, the Moon, the Sun and the galactic core.
     Sky,
-    /// The pilot's view: the chase camera over Wing Zero through the field (preset 2: from its
+    /// The pilot's view: the chase camera over Altair through the field (preset 2: from its
     /// cockpit), and what the pilot's body puts on the picture. Every 20 s: a boost (2-5 s), two
-    /// hits (6 s), a hard turn that greys out to a blackout (8-12.5 s), then ZERO (from 13 s) and
+    /// hits (6 s), a hard turn that greys out to a blackout (8-12.5 s), then the Orrery (from 13 s) and
     /// its seizure (17-19 s).
     Chase,
-    /// After a fight by a rock: hulks, limbs shot off and loose ore tumbling, and a Leo come to
+    /// After a fight by a rock: hulks, limbs shot off and loose ore tumbling, and an Argo come to
     /// pick through them.
     Salvage,
-    /// A Leo mining: every 1.5 s its saber cuts into a rock, which cracks as it's worked while
+    /// An Argo mining: every 1.5 s its saber cuts into a rock, which cracks as it's worked while
     /// chips of ore drift off, until it shatters (at 9.75 s of every 12) and grows back.
     Mining,
-    /// The pilots' frames side by side, each at its signature, on a 6 s loop: a Leo's machine
-    /// cannon, Wing Zero charging, Heavyarms' Full Open Attack (missile salvos from its pods),
-    /// Deathscythe jamming and reaping, Sandrock's shotels and Cross Crusher, Shenlong's Dragon
-    /// Fang and flamethrower, and Neo-Bird on full burn.
-    Gundams,
+    /// The pilots' frames side by side, each at its signature, on a 6 s loop: an Argo's machine
+    /// cannon, Altair charging, Antares' Full Salvo (missile salvos from its pods),
+    /// Algol jamming and reaping, Canopus's blades and Pincer Strike, Thuban's
+    /// Talon and flamethrower, and Aquila on full burn.
+    Lodestars,
     /// A hangar bay in the docking hub, on foot: the suit in its gantry (`?frame=`), the catwalk
     /// across its chest, the stations. Every 14 s the bay cycles: the alarm turns and the doors
     /// part (4-7.5 s), stand open, and close again (10.5-14 s).
     Hangar,
-    /// Suits on the landmarks: a Leo walking circles on MO-II's core as the station rolls (preset
+    /// Suits on the landmarks: an Argo walking circles on Fornax's core as the station rolls (preset
     /// 1), one kneeling asleep in its Aft Well (2), and one coming down on Hermit in its grip,
     /// landing in a puff of dust at 6.1 s of every 8 (3).
     Surface,
@@ -86,7 +86,7 @@ impl Scene {
             "mining" => Some(Self::Mining),
             "sky" => Some(Self::Sky),
             "chase" | "pilot" => Some(Self::Chase),
-            "gundams" => Some(Self::Gundams),
+            "lodestars" => Some(Self::Lodestars),
             "hangar" | "bay" => Some(Self::Hangar),
             "surface" | "landmarks" => Some(Self::Surface),
             "city" | "inside" => Some(Self::City),
@@ -104,7 +104,7 @@ impl Scene {
             Self::Chase => "chase",
             Self::Salvage => "salvage",
             Self::Mining => "mining",
-            Self::Gundams => "gundams",
+            Self::Lodestars => "lodestars",
             Self::Hangar => "hangar",
             Self::Surface => "surface",
             Self::City => "city",
@@ -138,28 +138,28 @@ impl Scene {
                     toward(eye(console), o + Vec3::new(14.0, 2.0, 4.0)),
                 ]
             }
-            Self::Gundams => {
-                let at = |i: usize, up: f32| gundam_pos(i) + Vec3::new(0.0, up, 8.0);
+            Self::Lodestars => {
+                let at = |i: usize, up: f32| lodestar_pos(i) + Vec3::new(0.0, up, 8.0);
                 vec![
-                    orbit(GUNDAMS + Vec3::new(0.0, 0.0, 15.0), 0.3, 0.12, 150.0),
-                    // Heavyarms in Full Open, from ahead and below its salvos.
+                    orbit(LODESTARS + Vec3::new(0.0, 0.0, 15.0), 0.3, 0.12, 150.0),
+                    // Antares in Full Salvo, from ahead and below its salvos.
                     orbit(at(2, 2.0), 0.55, 0.05, 48.0),
                     orbit(at(3, 2.0), -0.6, 0.12, 40.0),
                     orbit(at(4, 0.0), 0.7, 0.1, 38.0),
-                    // Shenlong from the side, to see the fang go out its 35 m.
-                    orbit(gundam_pos(5) + Vec3::new(0.0, 0.0, 18.0), 1.35, 0.1, 55.0),
+                    // Thuban from the side, to see the fang go out its 35 m.
+                    orbit(lodestar_pos(5) + Vec3::new(0.0, 0.0, 18.0), 1.35, 0.1, 55.0),
                     orbit(at(6, 0.0), 0.9, 0.25, 36.0),
                     orbit(at(1, 0.0), 0.4, 0.1, 40.0),
                 ]
             }
             Self::Surface => {
-                let pose = mo_ii_at(2.0);
+                let pose = fornax_at(2.0);
                 let walk = pose.to_world(WALK_AT);
                 let well = pose.to_world(well_floor() + Vec3::NEG_X * 6.0);
                 let (spot, n) = hermit_spot();
                 // Close by each, a moment into its row's run.
                 let (at, fwd) = lap(2.2);
-                let walker = mo_ii_at(2.2).to_world(at);
+                let walker = fornax_at(2.2).to_world(at);
                 let side = (pose.rot * fwd).cross(pose.rot * Vec3::Y);
                 vec![
                     // The walker on the core's top, from the sunward side.
@@ -205,7 +205,7 @@ impl Scene {
                 let (face, stance) = mining_stance(&rock, side);
                 let across = side.cross(Vec3::Y).normalize();
                 vec![
-                    // Beside the Leo and a little below, so the sky is behind the cut (the colony is
+                    // Beside the Argo and a little below, so the sky is behind the cut (the colony is
                     // under the field).
                     orbit_from((face + stance) * 0.5, across + side * 0.5 - Vec3::Y * 0.4, 38.0),
                     // Further back, to see the rock whole as it shatters.
@@ -241,10 +241,10 @@ fn orbit_from(target: Vec3, from: Vec3, dist: f32) -> Orbit {
     orbit(target, d.x.atan2(d.z), d.y.clamp(-1.0, 1.0).asin(), dist)
 }
 
-/// When the colony scene's Leo is thrown out of bay 1's door, s.
+/// When the colony scene's Argo is thrown out of bay 1's door, s.
 const LAUNCH_AT: f64 = 5.5;
 
-/// The colony scene's Leo at `t` s: riding bay 1's cradle in its door until [`LAUNCH_AT`], then
+/// The colony scene's Argo at `t` s: riding bay 1's cradle in its door until [`LAUNCH_AT`], then
 /// thrown out of it as the simulation throws a suit (the door's speed and the catapult's), coasting.
 fn launch_suit(t: f64) -> (Vec3, Vec3, Quat) {
     use bc_sim::colony::hub::{BAY_LAUNCH_SPEED, BAY_RIDE_LOCAL, bay_pose, bay_ride_rot};
@@ -263,7 +263,7 @@ fn launch_suit(t: f64) -> (Vec3, Vec3, Quat) {
     (pos + thrown * (t - LAUNCH_AT) as f32, thrown, rot)
 }
 
-/// The launch shot's view of the colony scene's Leo just out of its door (as `launch_shot` places
+/// The launch shot's view of the colony scene's Argo just out of its door (as `launch_shot` places
 /// the camera: ahead of it and to the side, up toward the colony's axis).
 fn launch_cam() -> Orbit {
     let (pos, _, _) = launch_suit(6.4);
@@ -313,9 +313,9 @@ const FIELD_CAMS: [Orbit; 3] = [
 ];
 
 const LINEUP: Vec3 = Vec3::new(0.0, 1_200.0, 0.0);
-const GUNDAMS: Vec3 = Vec3::new(0.0, 1_300.0, 600.0);
-/// The gundams scene's loop (s).
-const GUNDAMS_CYCLE: f64 = 6.0;
+const LODESTARS: Vec3 = Vec3::new(0.0, 1_300.0, 600.0);
+/// The lodestars scene's loop (s).
+const LODESTARS_CYCLE: f64 = 6.0;
 const DUEL: Vec3 = Vec3::new(0.0, 1_500.0, 0.0);
 const SQUAD_START: Vec3 = Vec3::new(-3_000.0, COLONY_CENTER.y + COLONY_RADIUS + 45.0, 0.0);
 const FIELD: Vec3 = Vec3::new(2_600.0, 900.0, 1_400.0);
@@ -429,8 +429,8 @@ impl Plugin for ShowcasePlugin {
 }
 
 /// The cast of each scene, in script order.
-/// How weathered each of a scene's suits is: the lineup runs its Leos from a veteran's (next to
-/// Wing Zero) through the middling to factory fresh at the end; the Leos at work have seen use.
+/// How weathered each of a scene's suits is: the lineup runs its Argos from a veteran's (next to
+/// Altair) through the middling to factory fresh at the end; the Argos at work have seen use.
 fn weathering(scene: Scene, i: usize) -> u8 {
     match scene {
         Scene::Lineup => [0, 7, 4, 2, 1, 3, 0].get(i).copied().unwrap_or(0),
@@ -444,44 +444,50 @@ fn cast(scene: Scene) -> Vec<(FrameId, Faction)> {
     use FrameId::*;
     match scene {
         Scene::Lineup => vec![
-            (WingZero, Faction::Colonies),
-            (Leo, Faction::Oz),
-            (Leo, Faction::Colonies),
-            (Leo, Faction::Alliance),
-            (Taurus, Faction::Oz),
-            (Virgo, Faction::Oz),
-            (Leo, Faction::Oz),
+            (Altair, Faction::Colonies),
+            (Argo, Faction::Almagest),
+            (Argo, Faction::Colonies),
+            (Argo, Faction::Alliance),
+            (Corvus, Faction::Almagest),
+            (Cetus, Faction::Almagest),
+            (Argo, Faction::Almagest),
         ],
-        Scene::Duel => vec![(WingZero, Faction::Colonies), (Leo, Faction::Oz), (Taurus, Faction::Oz)],
+        Scene::Duel => {
+            vec![(Altair, Faction::Colonies), (Argo, Faction::Almagest), (Corvus, Faction::Almagest)]
+        }
         Scene::Colony => vec![
-            (Taurus, Faction::Oz),
-            (Taurus, Faction::Oz),
-            (Taurus, Faction::Oz),
-            (Leo, Faction::Colonies),
+            (Corvus, Faction::Almagest),
+            (Corvus, Faction::Almagest),
+            (Corvus, Faction::Almagest),
+            (Argo, Faction::Colonies),
         ],
-        Scene::Field => vec![(Leo, Faction::Oz), (Leo, Faction::Colonies)],
+        Scene::Field => vec![(Argo, Faction::Almagest), (Argo, Faction::Colonies)],
         Scene::Sky => vec![],
-        Scene::Chase => vec![(WingZero, Faction::Colonies), (Leo, Faction::Oz), (Taurus, Faction::Oz)],
-        Scene::Salvage => vec![(Leo, Faction::Colonies)],
-        Scene::Mining => vec![(Leo, Faction::Colonies)],
-        Scene::Gundams => vec![
-            (Leo, Faction::Colonies),
-            (WingZero, Faction::Colonies),
-            (Heavyarms, Faction::Colonies),
-            (Deathscythe, Faction::Colonies),
-            (Sandrock, Faction::Colonies),
-            (Shenlong, Faction::Colonies),
-            (WingZeroBird, Faction::Colonies),
+        Scene::Chase => {
+            vec![(Altair, Faction::Colonies), (Argo, Faction::Almagest), (Corvus, Faction::Almagest)]
+        }
+        Scene::Salvage => vec![(Argo, Faction::Colonies)],
+        Scene::Mining => vec![(Argo, Faction::Colonies)],
+        Scene::Lodestars => vec![
+            (Argo, Faction::Colonies),
+            (Altair, Faction::Colonies),
+            (Antares, Faction::Colonies),
+            (Algol, Faction::Colonies),
+            (Canopus, Faction::Colonies),
+            (Thuban, Faction::Colonies),
+            (Aquila, Faction::Colonies),
         ],
         Scene::Hangar => vec![],
-        Scene::Surface => vec![(Leo, Faction::Colonies), (Leo, Faction::Colonies), (Leo, Faction::Alliance)],
+        Scene::Surface => {
+            vec![(Argo, Faction::Colonies), (Argo, Faction::Colonies), (Argo, Faction::Alliance)]
+        }
         Scene::City => vec![],
     }
 }
 
-/// Where each of the gundams scene's suits stands.
-fn gundam_pos(i: usize) -> Vec3 {
-    GUNDAMS + Vec3::new(-90.0 + 30.0 * i as f32, 0.0, 0.0)
+/// Where each of the lodestars scene's suits stands.
+fn lodestar_pos(i: usize) -> Vec3 {
+    LODESTARS + Vec3::new(-90.0 + 30.0 * i as f32, 0.0, 0.0)
 }
 
 /// Whether a strike of `weapon` begun every `period` s (at `phase`) is under way at `t`: the
@@ -491,15 +497,15 @@ fn striking(t: f64, period: f64, phase: f64, weapon: WeaponKind) -> bool {
     (t - phase).rem_euclid(period) < d
 }
 
-/// Heavyarms' scripted missiles: one leaves a pod every 0.2 s for the first 3 s of each loop, flies
+/// Antares' scripted missiles: one leaves a pod every 0.2 s for the first 3 s of each loop, flies
 /// out and up for 1.8 s, and bursts. (born, from, heading)
 fn salvo(t: f64) -> impl Iterator<Item = (f64, Vec3, Vec3)> {
-    let loop0 = (t / GUNDAMS_CYCLE).floor() * GUNDAMS_CYCLE;
-    [loop0 - GUNDAMS_CYCLE, loop0].into_iter().flat_map(|l| {
+    let loop0 = (t / LODESTARS_CYCLE).floor() * LODESTARS_CYCLE;
+    [loop0 - LODESTARS_CYCLE, loop0].into_iter().flat_map(|l| {
         (0..15).map(move |k| {
             let born = l + 0.2 * k as f64;
             let side = if k % 2 == 0 { 1.0 } else { -1.0 };
-            let from = gundam_pos(2) + Vec3::new(3.45 * side, 6.2, 1.2);
+            let from = lodestar_pos(2) + Vec3::new(3.45 * side, 6.2, 1.2);
             let spread = (k as f32 * 1.7).sin() * 0.35;
             let heading = Vec3::new(0.25 * side + spread * 0.5, 0.35 + spread * 0.3, 1.0).normalize();
             (born, from, heading)
@@ -545,35 +551,39 @@ fn wreckage() -> Vec<(ChunkKind, u32, Vec3, Vec3, Vec3)> {
     let without = |parts: &[Part]| parts.iter().fold(all, |m, p| m & !(1 << *p as u8));
     vec![
         (
-            ChunkKind::Hulk { frame: Leo, faction: Faction::Oz, parts: without(&[Part::ArmR, Part::Head]) },
+            ChunkKind::Hulk {
+                frame: Argo,
+                faction: Faction::Almagest,
+                parts: without(&[Part::ArmR, Part::Head]),
+            },
             6_000,
             Vec3::ZERO,
             Vec3::new(0.1, 0.0, -0.05),
             Vec3::new(0.05, 0.12, 0.03),
         ),
         (
-            ChunkKind::Hulk { frame: Taurus, faction: Faction::Oz, parts: without(&[Part::Legs]) },
+            ChunkKind::Hulk { frame: Corvus, faction: Faction::Almagest, parts: without(&[Part::Legs]) },
             4_800,
             Vec3::new(38.0, -9.0, 28.0),
             Vec3::new(-0.1, 0.05, 0.0),
             Vec3::new(0.1, -0.06, 0.08),
         ),
         (
-            ChunkKind::Limb { frame: Leo, faction: Faction::Oz, part: Part::ArmR },
+            ChunkKind::Limb { frame: Argo, faction: Faction::Almagest, part: Part::ArmR },
             570,
             Vec3::new(13.0, 5.0, -10.0),
             Vec3::new(0.6, 0.2, -0.2),
             Vec3::new(0.4, 0.9, 0.1),
         ),
         (
-            ChunkKind::Limb { frame: Leo, faction: Faction::Oz, part: Part::Head },
+            ChunkKind::Limb { frame: Argo, faction: Faction::Almagest, part: Part::Head },
             280,
             Vec3::new(5.0, 13.0, 5.0),
             Vec3::new(0.1, 0.3, 0.2),
             Vec3::new(1.1, 0.3, 0.5),
         ),
         (
-            ChunkKind::Limb { frame: Taurus, faction: Faction::Oz, part: Part::Legs },
+            ChunkKind::Limb { frame: Corvus, faction: Faction::Almagest, part: Part::Legs },
             1_170,
             Vec3::new(52.0, -22.0, 12.0),
             Vec3::new(0.2, -0.1, 0.1),
@@ -631,7 +641,7 @@ const STROKES: [f64; 7] = [0.5, 2.0, 3.5, 5.0, 6.5, 8.0, 9.5];
 const LAND: f64 = 0.25;
 const MINING_BREAK: f64 = 9.75;
 
-/// The mining scene: a rock about a suit's size near the field scene, and the side of it the Leo
+/// The mining scene: a rock about a suit's size near the field scene, and the side of it the Argo
 /// works (out of the rock, toward the sun).
 fn mining_site(field: &Field) -> (usize, Rock, Vec3) {
     let (i, rock) = field
@@ -644,13 +654,13 @@ fn mining_site(field: &Field) -> (usize, Rock, Vec3) {
     (i, rock, (crate::sky::SUN_DIR + Vec3::new(0.0, -0.2, 0.6)).normalize())
 }
 
-/// The face of the rock the Leo cuts, and where it holds station off it.
+/// The face of the rock the Argo cuts, and where it holds station off it.
 fn mining_stance(rock: &Rock, side: Vec3) -> (Vec3, Vec3) {
     let face = rock.surface(rock.pos + side * 1_000.0, 0.0);
     (face, face + side * 7.5)
 }
 
-/// The surface scene's walker circles here on MO-II's core (its frame: on the core's top, between
+/// The surface scene's walker circles here on Fornax's core (its frame: on the core's top, between
 /// the +Y pylon and the fore module), this wide (m), a lap in this long (s).
 const WALK_AT: Vec3 = Vec3::new(120.0, 60.0 + STANCE, 0.0);
 const WALK_RADIUS: f32 = 12.0;
@@ -661,25 +671,25 @@ const LANDING_CYCLE: f64 = 8.0;
 const FALL_FROM: f64 = 2.75;
 const FALL_HEIGHT: f32 = 24.0;
 
-/// Where the surface scene's walker is on its lap `t` s in, and which way it's walking (MO-II's
+/// Where the surface scene's walker is on its lap `t` s in, and which way it's walking (Fornax's
 /// frame; not yet put on the ground).
 fn lap(t: f64) -> (Vec3, Vec3) {
     let a = TAU * (t / WALK_LAP).fract() as f32;
     (WALK_AT + Vec3::new(a.cos(), 0.0, a.sin()) * WALK_RADIUS, Vec3::new(-a.sin(), 0.0, a.cos()))
 }
 
-/// MO-II as the simulation has it `t` s into the scene.
-fn mo_ii_at(t: f64) -> BodyPose {
+/// Fornax as the simulation has it `t` s into the scene.
+fn fornax_at(t: f64) -> BodyPose {
     let ticks = (t * f64::from(TICK_HZ)).max(0.0);
     landmark_pose(&LANDMARKS[0], ticks.floor() as u32, ticks.fract() as f32)
 }
 
-/// The Aft Well's floor (MO-II's frame).
+/// The Aft Well's floor (Fornax's frame).
 fn well_floor() -> Vec3 {
     LANDMARKS[0].hides[0].center
 }
 
-/// Where the surface scene's Leo lands on Hermit, and the surface's normal there (sector frame):
+/// Where the surface scene's Argo lands on Hermit, and the surface's normal there (sector frame):
 /// on its sunward shoulder.
 fn hermit_spot() -> (Vec3, Vec3) {
     let def = &LANDMARKS[1];
@@ -962,7 +972,7 @@ fn spawn_instruments(
 }
 
 /// Readouts for the chase scene's flight: its speed and G, the two hits (the torso's armour),
-/// ZERO from 13 s. Shown only from the cockpit.
+/// the Orrery from 13 s. Shown only from the cockpit.
 fn demo_instruments(
     vis: Res<VisTime>,
     prefs: Res<ViewPrefs>,
@@ -992,11 +1002,11 @@ fn demo_instruments(
     } else {
         1.0
     };
-    let zero = u >= 13.0;
+    let orrery = u >= 13.0;
     for (h, mut text) in &mut texts {
         let s = match h {
             HudText::Flight => format!(
-                "XXXG-00W0 WING GUNDAM ZERO\nSPD {speed:>6.0} m/s\nPROP {} {:>3.0}%\nHEAT {} {:>3.0}%\nENGY {} {:>3.0}%\nG   {g:>4.1} g",
+                "PX-00 ALTAIR\nSPD {speed:>6.0} m/s\nPROP {} {:>3.0}%\nHEAT {} {:>3.0}%\nENGY {} {:>3.0}%\nG   {g:>4.1} g",
                 bar(prop, 10),
                 prop * 100.0,
                 bar(0.18, 10),
@@ -1012,12 +1022,12 @@ fn demo_instruments(
                 a
             }
             HudText::Weapons => format!(
-                "LMB TWIN BUSTER RIFLE  RDY\nRMB MACHINE CANNON     RDY 380\nF   BEAM SABER         RDY\nH   NEO-BIRD           READY\nZERO {}",
-                if zero { "ACTIVE" } else { "STANDBY (Z)" }
+                "LMB HEAVY BEAM RIFLE  RDY\nRMB MACHINE CANNON     RDY 380\nF   BEAM SABER         RDY\nH   AQUILA             READY\nORRERY {}",
+                if orrery { "ACTIVE" } else { "STANDBY (Z)" }
             ),
             HudText::Salvage => "HOLD ·········· 0 kg/1.5 t\nCR 1 250\nG grab   J jettison".into(),
-            HudText::Zero if zero => "TARGET   OZ-06MS LEO  78%\nMANEUVER BREAK-HIGH  64%\nTHREAT   HIGH  (conf 0.81)\nFLANKED  12%".into(),
-            HudText::Zero => "STANDBY".into(),
+            HudText::Orrery if orrery => "TARGET   AL-04S ARGO  78%\nMANEUVER BREAK-HIGH  64%\nTHREAT   HIGH  (conf 0.81)\nFLANKED  12%".into(),
+            HudText::Orrery => "STANDBY".into(),
             _ => continue,
         };
         if text.0 != s {
@@ -1206,13 +1216,13 @@ struct Shot {
 impl Shot {
     fn speed(&self) -> f32 {
         match self.weapon {
-            WeaponKind::TwinBusterRifle => 8_000.0,
+            WeaponKind::HeavyBeamRifle => 8_000.0,
             _ => 4_000.0,
         }
     }
 }
 
-/// Duel positions: Wing Zero and the Leo on opposite sides of a slowly turning circle, a Taurus
+/// Duel positions: Altair and the Argo on opposite sides of a slowly turning circle, a Corvus
 /// crossing through; all as pure functions of time.
 fn duel_pos(i: usize, t: f64) -> Vec3 {
     let w = 0.25 * t as f32;
@@ -1227,18 +1237,18 @@ fn duel_pos(i: usize, t: f64) -> Vec3 {
 }
 
 fn duel_shots(t: f64) -> impl Iterator<Item = Shot> {
-    // The Leo's rifle every 1.2 s at Wing Zero; Wing Zero's Twin Buster every 5 s at the Taurus
-    // (which dies at 7 s of every 10), otherwise at the Leo.
+    // The Argo's rifle every 1.2 s at Altair; Altair's heavy beam rifle every 5 s at the Corvus
+    // (which dies at 7 s of every 10), otherwise at the Argo.
     let rifle =
         (0..).map(|k| Shot { t: 0.3 + k as f64 * 1.2, shooter: 1, target: 0, weapon: WeaponKind::BeamRifle });
-    let buster = (0..).map(|k| {
+    let heavy_beam = (0..).map(|k| {
         let t = 2.0 + k as f64 * 5.0;
         let target = if (t % 10.0 - 7.0).abs() < 0.01 { 2 } else { 1 };
-        Shot { t, shooter: 0, target, weapon: WeaponKind::TwinBusterRifle }
+        Shot { t, shooter: 0, target, weapon: WeaponKind::HeavyBeamRifle }
     });
     rifle
         .take_while(move |s| s.t <= t)
-        .chain(buster.take_while(move |s| s.t <= t))
+        .chain(heavy_beam.take_while(move |s| s.t <= t))
         .filter(move |s| t - s.t < 1.5)
 }
 
@@ -1269,7 +1279,7 @@ fn script(
                 ent_flags::BOOST,
                 ent_flags::SABER,
                 ent_flags::FIRING_SECONDARY,
-                ent_flags::ZERO,
+                ent_flags::ORRERY,
                 ent_flags::BOOST,
                 ent_flags::WRECK,
             ];
@@ -1292,7 +1302,7 @@ fn script(
                     d.aim = d.rot * Vec3::new(0.45 * a.sin(), 0.3 * (a * 0.7).cos(), 1.0).normalize();
                     d.flags = f;
                     d.thrust = if f == ent_flags::BOOST { Vec3::Z } else { Vec3::ZERO };
-                    // The Alliance Leo has lost its left arm and is badly hurt; the wreck is gone.
+                    // The Alliance Argo has lost its left arm and is badly hurt; the wreck is gone.
                     d.parts = match i {
                         3 => [5, 3, 0, 4, 2, 7],
                         6 => [0; Part::COUNT],
@@ -1315,7 +1325,7 @@ fn script(
                     d.aim = (foe - p).normalize_or(Vec3::Z);
                     d.rot = if i == 2 { facing(vel) } else { facing(foe - p) };
                     d.thrust = if dead { Vec3::ZERO } else { Vec3::new(0.3, 0.0, 0.7) };
-                    // The Taurus is worn down until it dies; the Leo is hurt by the Twin Buster.
+                    // The Corvus is worn down until it dies; the Argo is hurt by the heavy beam rifle.
                     let u = t % 10.0;
                     d.parts = match i {
                         2 => {
@@ -1344,7 +1354,7 @@ fn script(
                 });
             }
             for s in duel_shots(t) {
-                let spec = frame(if s.shooter == 0 { FrameId::WingZero } else { FrameId::Leo });
+                let spec = frame(if s.shooter == 0 { FrameId::Altair } else { FrameId::Argo });
                 let from = duel_pos(s.shooter, s.t);
                 let to = duel_pos(s.target, s.t);
                 let muzzle =
@@ -1375,7 +1385,7 @@ fn script(
                 }
             }
             if crossed((t / 10.0).floor() * 10.0 + 7.0) {
-                // The Taurus flies on at 90 m/s along x as it goes up.
+                // The Corvus flies on at 90 m/s along x as it goes up.
                 events.0.push(FxEvent::Kill {
                     pos: duel_pos(2, t),
                     vel: Vec3::new(90.0, 0.0, 0.0),
@@ -1402,7 +1412,7 @@ fn script(
                     d.thrust = Vec3::new(0.0, 0.0, 0.8);
                 });
             }
-            // A Leo in bay 1's door, thrown out of it.
+            // An Argo in bay 1's door, thrown out of it.
             let (pos, vel, rot) = launch_suit(t);
             set(3, &mut |d| {
                 d.pos = pos;
@@ -1441,13 +1451,13 @@ fn script(
                 };
                 d.parts = [7, torso, 7, 7, 7, 7];
             });
-            // A Leo ahead, turned back to fire at the pilot, and a Taurus crossing.
-            let leo = chase_pos(t + 1.6) + Vec3::new(0.0, 25.0, 0.0);
+            // An Argo ahead, turned back to fire at the pilot, and a Corvus crossing.
+            let argo = chase_pos(t + 1.6) + Vec3::new(0.0, 25.0, 0.0);
             set(1, &mut |d| {
-                d.pos = leo;
+                d.pos = argo;
                 d.vel = vel;
-                d.rot = facing(own - leo);
-                d.aim = (own - leo).normalize_or(Vec3::Z);
+                d.rot = facing(own - argo);
+                d.aim = (own - argo).normalize_or(Vec3::Z);
                 d.flags = 0;
                 d.thrust = Vec3::ZERO;
             });
@@ -1460,7 +1470,7 @@ fn script(
                 d.flags = ent_flags::BOOST;
                 d.thrust = Vec3::Z;
             });
-            // The Leo's two rifle shots strike home.
+            // The Argo's two rifle shots strike home.
             for shot in [6.0, 6.4] {
                 let fired = cycle + shot;
                 let from = chase_pos(fired + 1.6) + Vec3::new(0.0, 25.0, 0.0);
@@ -1506,13 +1516,13 @@ fn script(
                 boost,
                 g_strain: g,
                 blackout: (10.5..12.5).contains(&u),
-                zero: u >= 13.0,
-                zero_strain: smooth(13.0, 17.0, u),
+                orrery: u >= 13.0,
+                orrery_strain: smooth(13.0, 17.0, u),
                 seized: (17.0..19.0).contains(&u),
             });
         }
         Scene::Salvage => {
-            // The Leo hangs off the Leo hulk, looking it over.
+            // The Argo hangs off the Argo hulk, looking it over.
             let site = salvage_site();
             let hulk = site + Vec3::new(0.1, 0.0, -0.05) * t as f32;
             set(0, &mut |d| {
@@ -1546,12 +1556,12 @@ fn script(
         // The bay is driven by `hangar_script`; the city by `city_script`.
         Scene::Hangar | Scene::City => {}
         Scene::Surface => {
-            let pose = mo_ii_at(t);
-            let mo_ii = Body::Landmark(0);
+            let pose = fornax_at(t);
+            let fornax = Body::Landmark(0);
             let shape = LANDMARKS[0].shape;
-            // On MO-II, as the station rolls under it: a suit's place, way and speed on it (its
+            // On Fornax, as the station rolls under it: a suit's place, way and speed on it (its
             // frame), put on the ground.
-            let on_mo_ii = |local: Vec3, fwd: Vec3, speed: f32, d: &mut SuitDrive| {
+            let on_fornax = |local: Vec3, fwd: Vec3, speed: f32, d: &mut SuitDrive| {
                 let (origin, n, _) = place(&shape, local, STANCE);
                 let up = pose.rot * n;
                 let rel = pose.rot * ((fwd - n * fwd.dot(n)).normalize_or(Vec3::ZERO) * speed);
@@ -1559,7 +1569,7 @@ fn script(
                 d.rot = standing(pose.rot * fwd, up);
                 d.vel = pose.point_vel(d.pos) + rel;
                 d.ground = Some(SuitGround {
-                    body: mo_ii,
+                    body: fornax,
                     pose,
                     shape,
                     aloft: false,
@@ -1572,14 +1582,14 @@ fn script(
             let speed = TAU * WALK_RADIUS / WALK_LAP as f32;
             set(0, &mut |d| {
                 let (local, fwd) = lap(t);
-                on_mo_ii(local, fwd, speed, d);
+                on_fornax(local, fwd, speed, d);
                 d.aim = (d.rot * Vec3::new(0.2, 0.05, 1.0)).normalize();
                 d.flags = 0;
                 d.thrust = Vec3::ZERO;
             });
             // Asleep on the Aft Well's floor: it kneels, its eyes dark.
             set(1, &mut |d| {
-                on_mo_ii(well_floor() + Vec3::NEG_X * STANCE, Vec3::Y, 0.0, d);
+                on_fornax(well_floor() + Vec3::NEG_X * STANCE, Vec3::Y, 0.0, d);
                 d.aim = d.rot * Vec3::Z;
                 d.flags = ent_flags::ASLEEP;
                 d.thrust = Vec3::ZERO;
@@ -1621,13 +1631,13 @@ fn script(
                 });
             });
         }
-        Scene::Gundams => {
-            let u = t.rem_euclid(GUNDAMS_CYCLE);
+        Scene::Lodestars => {
+            let u = t.rem_euclid(LODESTARS_CYCLE);
             for i in 0..7 {
                 let flags = match i {
                     0 => ent_flags::FIRING_SECONDARY,
                     1 => ent_flags::CHARGING,
-                    // Full Open for half the loop, the gatling otherwise.
+                    // Full Salvo for half the loop, the gatling otherwise.
                     2 if u < 3.0 => {
                         ent_flags::SPECIAL | ent_flags::FIRING_PRIMARY | ent_flags::FIRING_SECONDARY
                     }
@@ -1637,25 +1647,23 @@ fn script(
                         let reap = striking(t, 2.0, 0.5, WeaponKind::BeamScythe);
                         ent_flags::SPECIAL | if reap { ent_flags::SABER } else { 0 }
                     }
-                    // The shotels, and the Cross Crusher every other time.
-                    4 if striking(t, 3.0, 0.2, WeaponKind::CrossCrusher)
+                    // The blades, and the Pincer Strike every other time.
+                    4 if striking(t, 3.0, 0.2, WeaponKind::PincerStrike)
                         && (t / 3.0).floor() as i64 % 2 == 1 =>
                     {
                         ent_flags::SABER | ent_flags::SPECIAL
                     }
-                    4 if striking(t, 3.0, 0.2, WeaponKind::HeatShotel) => ent_flags::SABER,
+                    4 if striking(t, 3.0, 0.2, WeaponKind::HeatBlade) => ent_flags::SABER,
                     // The fang, then the flame.
-                    5 if striking(t, 3.0, 0.3, WeaponKind::DragonFang) => {
-                        ent_flags::SABER | ent_flags::MELEE_ALT
-                    }
+                    5 if striking(t, 3.0, 0.3, WeaponKind::Talon) => ent_flags::SABER | ent_flags::MELEE_ALT,
                     5 if (1.6..2.8).contains(&t.rem_euclid(3.0)) => ent_flags::FIRING_SECONDARY,
                     6 => ent_flags::BOOST,
                     _ => 0,
                 };
                 set(i, &mut |d| {
-                    let bird = d.frame == FrameId::WingZeroBird;
+                    let bird = d.frame == FrameId::Aquila;
                     let bob = (t * 0.7 + i as f64).sin() as f32;
-                    d.pos = gundam_pos(i) + Vec3::new(0.0, bob * 0.8, 0.0);
+                    d.pos = lodestar_pos(i) + Vec3::new(0.0, bob * 0.8, 0.0);
                     d.rot = if bird {
                         Quat::from_rotation_z(bob * 0.25) * Quat::from_rotation_x(-0.1)
                     } else {
@@ -1667,7 +1675,7 @@ fn script(
                     d.thrust = if flags & ent_flags::BOOST != 0 { Vec3::Z } else { Vec3::ZERO };
                 });
             }
-            // Heavyarms' salvos.
+            // Antares' salvos.
             for (born, from, heading) in salvo(t) {
                 let age = (t - born) as f32;
                 if (0.0..1.8).contains(&age) {

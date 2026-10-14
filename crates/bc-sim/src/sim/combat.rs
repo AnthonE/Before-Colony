@@ -36,7 +36,7 @@ pub(crate) enum Blocker {
     Hall,
 }
 
-/// ZERO fire-time magnetism: shots this close to the ZERO firing solution snap to it.
+/// The Orrery fire-time magnetism: shots this close to the Orrery firing solution snap to it.
 pub const MAGNET_ANGLE: f32 = 0.026; // 1.5°
 
 impl Sim {
@@ -79,28 +79,28 @@ impl Sim {
             let spec = frame(self.suits.frame[i]);
             let cmd = self.suits.input[i];
             // Weapons are down while the suit changes form or is staggered, and inside the colony
-            // anywhere but the Blast Hall (a Full Open begun there stops firing at its doors).
+            // anywhere but the Blast Hall (a Full Salvo begun there stops firing at its doors).
             if self.transforming(i)
                 || self.staggered(i)
                 || (interior && !crate::colony::hall::weapons_free(self.suits.flight[i].pos))
             {
                 continue;
             }
-            // Full Open: everything fires along the aim, heat or not.
-            let full_open = self.full_open(i);
+            // Full Salvo: everything fires along the aim, heat or not.
+            let full_salvo = self.full_salvo(i);
             // A gun in hand takes the secondary's trigger (`content::salvage::held_gun`).
             let in_hand = self.gun_in_hand(i);
             for slot in 0..2 {
                 let Some(mount) = spec.loadout[slot] else { continue };
                 let button = if slot == 0 { FIRE_PRIMARY } else { FIRE_SECONDARY };
-                let wants = full_open || (cmd.pressed(button) && !(slot == 1 && in_hand.is_some()));
-                self.trigger(i, slot, mount, wants, full_open, &cmd, t);
+                let wants = full_salvo || (cmd.pressed(button) && !(slot == 1 && in_hand.is_some()));
+                self.trigger(i, slot, mount, wants, full_salvo, &cmd, t);
             }
             if let Some((gun, right)) = in_hand {
                 let arm = if right { ArmSlot::Right } else { ArmSlot::Left };
                 self.trigger_in_hand(i, Mount { weapon: gun, arm }, cmd.pressed(FIRE_SECONDARY), &cmd, t);
             }
-            if full_open {
+            if full_salvo {
                 for (k, mount) in spec.special_mounts.iter().enumerate() {
                     if let Some(mount) = *mount {
                         self.trigger(i, SPECIAL_SLOTS + k, mount, true, true, &cmd, t);
@@ -113,7 +113,7 @@ impl Sim {
 
     /// One weapon's tick: `slot` is a loadout slot (0, 1) or a special mount (from
     /// [`SPECIAL_SLOTS`]). Its cooldown runs down; if `wants` and it's ready, a gun fires and a
-    /// launcher starts a salvo. `heedless` fires through an overheat (Full Open).
+    /// launcher starts a salvo. `heedless` fires through an overheat (Full Salvo).
     #[allow(clippy::too_many_arguments)]
     fn trigger(
         &mut self,
@@ -129,7 +129,7 @@ impl Sim {
         match w.class {
             WeaponClass::Beam | WeaponClass::Ballistic | WeaponClass::Missile => {}
             WeaponClass::Cone => return self.flame(i, slot, mount, w, cmd, t),
-            // Blades strike in `melee_step` (the Dragon Fang is a primary).
+            // Blades strike in `melee_step` (the Talon is a primary).
             WeaponClass::Melee => return,
         }
         let mut ws: WeaponState = *self.suits.weapon_state(i, slot);
@@ -227,8 +227,7 @@ impl Sim {
         // Lag compensation for remote pilots: fly the shot through the world as they saw it, but
         // no further back than MAX_REWIND_TICKS (a view older than that counts as exactly that old).
         let view_q4 = cmd.view_tick_q4.max(t.saturating_sub(MAX_REWIND_TICKS) << 4);
-        let rewind =
-            if self.suits.pilot[i] == PilotKind::MobileDoll { 0 } else { t.saturating_sub(view_q4 >> 4) };
+        let rewind = if self.suits.pilot[i] == PilotKind::Drone { 0 } else { t.saturating_sub(view_q4 >> 4) };
         let frac = if rewind > 0 { (view_q4 & 15) as f32 / 16.0 } else { 0.0 };
         let spawn_tick = t - rewind;
         let mut f = self.suits.flight[i];
@@ -238,8 +237,8 @@ impl Sim {
         }
         let fwd = f.rot * Vec3::Z;
         let mut dir = clamp_to_cone(normalize_or(cmd.aim, fwd), fwd, self.cone(i, mount.arm));
-        let z = &self.suits.zero[i];
-        // ZERO's pull needs the fire control that aims by it.
+        let z = &self.suits.orrery[i];
+        // The Orrery's pull needs the fire control that aims by it.
         if self.suits.tuning[i].magnetism
             && z.active()
             && z.out.has_solution
@@ -269,7 +268,7 @@ impl Sim {
         if let Some(n) = s.usage[i].shots.get_mut(slot) {
             *n = n.saturating_add(1);
         }
-        // (The special mounts fire only in Full Open, which shows by itself; a gun in hand, on the
+        // (The special mounts fire only in Full Salvo, which shows by itself; a gun in hand, on the
         // secondary's trigger, shows as the secondary.)
         if slot == 0 {
             s.fired_primary[i] = t;
@@ -607,10 +606,10 @@ impl Sim {
         let k = usize::from(killer);
         if k < self.suits.cap && k != j {
             self.suits.stats[k].kills += 1;
-            // Survival: the colony pays for every Mobile Doll a pilot brings down.
+            // Survival: the colony pays for every drone a pilot brings down.
             if self.cfg.survival
-                && self.suits.pilot[j] == PilotKind::MobileDoll
-                && self.suits.pilot[k] != PilotKind::MobileDoll
+                && self.suits.pilot[j] == PilotKind::Drone
+                && self.suits.pilot[k] != PilotKind::Drone
             {
                 let c = &mut self.suits.credits[k];
                 *c = c.saturating_add(bounty(self.suits.frame[j]));
@@ -634,13 +633,10 @@ impl Sim {
             NO_CHUNK
         };
         self.events.push(Event::Kill { id: 0, tick: t, victim: j as u16, killer, weapon, hulk: wreck });
-        let wait = if self.suits.pilot[j] == PilotKind::MobileDoll {
-            secs(3.0)
-        } else {
-            secs(self.cfg.respawn_secs)
-        };
+        let wait =
+            if self.suits.pilot[j] == PilotKind::Drone { secs(3.0) } else { secs(self.cfg.respawn_secs) };
         self.suits.respawn_at[j] = t + wait.max(1);
-        self.suits.zero[j] = Default::default();
+        self.suits.orrery[j] = Default::default();
         if self.suits.sleeping.get(j) {
             self.note_fate(j, super::Gone::Destroyed { killer }, t);
         }
@@ -655,15 +651,15 @@ impl Sim {
         if left <= 0.0 || max <= 0.0 || on_part <= 0.0 {
             return;
         }
-        let doll = self.suits.pilot[j] == PilotKind::MobileDoll;
+        let drone = self.suits.pilot[j] == PilotKind::Drone;
         let blow = on_part / max;
         let salt = (j as u32) << 11 | k as u32;
-        if hash01(t ^ 0xC417, salt) >= systems::crit_chance(blow, left / max, doll) {
+        if hash01(t ^ 0xC417, salt) >= systems::crit_chance(blow, left / max, drone) {
             return;
         }
-        // Which of the part's working systems it finds (a Mobile Doll has no pilot to hurt).
+        // Which of the part's working systems it finds (a drone has no pilot to hurt).
         let now = self.suits.systems[j];
-        let open = |s: &System| now.get(*s) < FAILED && !(doll && *s == System::Cockpit);
+        let open = |s: &System| now.get(*s) < FAILED && !(drone && *s == System::Cockpit);
         let total: u32 = System::of_part(part).filter(open).map(System::weight).sum();
         if total == 0 {
             return;
@@ -743,8 +739,8 @@ impl Sim {
             seed: self.chunk_seed(j, part as u32, t),
             mass_kg: part_mass_kg(fid, part),
         };
-        let doll = self.suits.pilot[j] == PilotKind::MobileDoll;
-        let chunk = self.chunks.spawn(desc, Motion::Free(seg), t + wreck_ttl(doll), t).unwrap_or(NO_CHUNK);
+        let drone = self.suits.pilot[j] == PilotKind::Drone;
+        let chunk = self.chunks.spawn(desc, Motion::Free(seg), t + wreck_ttl(drone), t).unwrap_or(NO_CHUNK);
         self.events.push(Event::Detach { id: 0, tick: t, source: j as u16, from_hulk: false, part, chunk });
     }
 
@@ -768,8 +764,8 @@ impl Sim {
             seed: self.chunk_seed(j, 7, t),
             mass_kg: mass_without(fid, gone),
         };
-        let doll = self.suits.pilot[j] == PilotKind::MobileDoll;
-        let Some(hulk) = self.chunks.spawn(desc, Motion::Free(seg), t + wreck_ttl(doll), t) else {
+        let drone = self.suits.pilot[j] == PilotKind::Drone;
+        let Some(hulk) = self.chunks.spawn(desc, Motion::Free(seg), t + wreck_ttl(drone), t) else {
             return NO_CHUNK;
         };
         self.suits.hulk[j] = (hulk, self.chunks.generation[hulk as usize]);

@@ -1,4 +1,4 @@
-//! Procedural mobile suits as plain mesh data: a modelling kit (`kit`), one skeleton for every
+//! Procedural suits as plain mesh data: a modelling kit (`kit`), one skeleton for every
 //! frame (`rig`) and each frame's design (`frames`). The client bakes each frame into one mesh per
 //! bone, per level of detail, and builds a suit as a tree of bone entities, so it can be posed and
 //! broken apart. Each vertex carries its ambient occlusion, baked from the whole suit at rest (`ao`).
@@ -7,12 +7,12 @@
 //! one frame's head on another's body, a third's arms or legs ([`Parts`], [`build_parts`]).
 
 mod ao;
+mod argo;
 pub mod cockpit;
 pub mod frames;
-mod gundams;
 pub mod ik;
 pub mod kit;
-mod leo;
+mod lodestars;
 pub mod paint;
 pub mod rig;
 
@@ -48,23 +48,23 @@ pub struct Sockets {
     /// The beam saber's hilt on [`Bone::HandL`], and the blade's direction.
     pub saber: (Vec3, Vec3),
     /// A blade in the left hand, on [`Bone::HandL`]: where it starts (the top of its hilt, or a
-    /// polearm's emitter) and the way it points. Heavyarms' army knife, Sandrock's left heat
-    /// shotel, Shenlong's beam glaive.
+    /// polearm's emitter) and the way it points. Antares' combat knife, Canopus's left heat
+    /// blade, Thuban's beam glaive.
     pub blade_left: Option<(Vec3, Vec3)>,
     /// A blade in the right hand, on [`Bone::Weapon`]: where it starts (the top of its hilt, or
-    /// the beam emitter) and the way it points. Deathscythe's beam scythe, Sandrock's right heat
-    /// shotel.
+    /// the beam emitter) and the way it points. Algol's beam scythe, Canopus's right heat
+    /// blade.
     pub blade_right: Option<(Vec3, Vec3)>,
-    /// Shenlong's Dragon Fang, on [`Bone::HandR`]: the tip of the dragon head's snout and the way
+    /// Thuban's Talon, on [`Bone::HandR`]: the tip of the dragon head's snout and the way
     /// it faces (where the head flies out on its cable).
-    pub fang: Option<(Vec3, Vec3)>,
+    pub talon: Option<(Vec3, Vec3)>,
     /// The flamethrower's nozzle in the dragon's mouth, on [`Bone::HandR`], and the way it fires.
     pub flame: Option<(Vec3, Vec3)>,
     /// Missile launch points (the pods' hatches), each on the bone it rides: shoulder pods, leg
     /// pods.
     pub missiles: Vec<(Bone, Vec3)>,
     /// The cockpit view's eye, on [`Bone::Head`]: the head's main camera, whose picture is what the
-    /// cockpit's monitors show (Neo-Bird's looks out over its nose from the canopy).
+    /// cockpit's monitors show (Aquila's looks out over its nose from the canopy).
     pub eye: Vec3,
     /// The eye is inside the head, so the cockpit view doesn't draw the head.
     pub eye_in_head: bool,
@@ -100,14 +100,14 @@ pub fn build(frame: FrameId, lod: Lod) -> Model {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Section {
     Head,
-    /// The torso, chest and waist (and what's built into them: Wing Zero's shoulder cannons).
+    /// The torso, chest and waist (and what's built into them: Altair's shoulder cannons).
     Body,
-    /// Shoulders, arms and hands, with what rides them: a shield, the Leo's 105 mm rifle, the
-    /// beam saber's hilt, Shenlong's Dragon Fang.
+    /// Shoulders, arms and hands, with what rides them: a shield, the Argo's 105 mm rifle, the
+    /// beam saber's hilt, Thuban's Talon.
     Arms,
     Legs,
-    /// The backpack and its wings, and anything floating free round the suit (the Virgo's
-    /// Planet Defensors).
+    /// The backpack and its wings, and anything floating free round the suit (the Cetus's
+    /// shield pods).
     Backpack,
     /// The main weapon in the right hand.
     Weapon,
@@ -212,7 +212,7 @@ pub fn build_parts(parts: Parts, lod: Lod) -> Model {
         saber: arms.saber,
         blade_left: arms.blade_left,
         blade_right: weapon.blade_right,
-        fang: arms.fang,
+        talon: arms.talon,
         flame: arms.flame,
         // Each hatch with the bone it's on.
         missiles: designs
@@ -237,7 +237,7 @@ pub struct Designer {
     pub sockets: Sockets,
     /// Where the head's helmet starts (the foot of what shows above the collar): a head swapped
     /// in from another frame is set there, so it sits on this body as this frame's own head did.
-    /// The Leo's head sinks into its chest, the others' stand on a neck.
+    /// The Argo's head sinks into its chest, the others' stand on a neck.
     pub head_base: f32,
 }
 
@@ -407,7 +407,7 @@ mod tests {
         };
         for frame in FrameId::ALL {
             // The simulation's capsules for this frame (bc_sim::content::frames), by part: the
-            // humanoid ones, or Neo-Bird's as an aircraft.
+            // humanoid ones, or Aquila's as an aircraft.
             let caps = &bc_sim::content::frame(frame).capsules;
             let m = build(frame, Lod::Near);
             for bone in rig::ALL {
@@ -520,8 +520,7 @@ mod tests {
     /// the suit they make together, differs), a head set where the body's own sat.
     #[test]
     fn parts_come_from_their_frames() {
-        let humanoids: Vec<FrameId> =
-            FrameId::ALL.into_iter().filter(|f| *f != FrameId::WingZeroBird).collect();
+        let humanoids: Vec<FrameId> = FrameId::ALL.into_iter().filter(|f| *f != FrameId::Aquila).collect();
         let whole = |f: FrameId| build(f, Lod::Near);
         let head_base = |f: FrameId| {
             let mut d = Designer::new(Lod::Near);
@@ -567,8 +566,8 @@ mod tests {
                 );
                 let arms = from(Section::Arms);
                 assert_eq!(
-                    (got.saber, got.blade_left, got.fang, got.flame),
-                    (arms.saber, arms.blade_left, arms.fang, arms.flame)
+                    (got.saber, got.blade_left, got.talon, got.flame),
+                    (arms.saber, arms.blade_left, arms.talon, arms.flame)
                 );
                 assert_eq!(got.nozzles, from(Section::Backpack).nozzles);
                 let want: Vec<_> = [&ma.sockets, &mb.sockets]
@@ -628,7 +627,7 @@ mod tests {
                     (WeaponClass::Melee, WeaponKind::BeamSaber, _) => {
                         on(Bone::HandL, s.saber.0) && unit(s.saber.1)
                     }
-                    (WeaponClass::Melee, WeaponKind::DragonFang, _) => placed(Bone::HandR, s.fang),
+                    (WeaponClass::Melee, WeaponKind::Talon, _) => placed(Bone::HandR, s.talon),
                     (WeaponClass::Melee, _, ArmSlot::Left) => placed(Bone::HandL, s.blade_left),
                     (WeaponClass::Melee, _, ArmSlot::Right) => placed(Bone::Weapon, s.blade_right),
                     (WeaponClass::Melee, _, ArmSlot::Both) => {
@@ -656,7 +655,7 @@ mod tests {
             for (bone, socket) in [
                 (Bone::HandL, s.blade_left),
                 (Bone::Weapon, s.blade_right),
-                (Bone::HandR, s.fang),
+                (Bone::HandR, s.talon),
                 (Bone::HandR, s.flame),
             ] {
                 if let Some((p, d)) = socket {

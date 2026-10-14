@@ -8,7 +8,7 @@ use glam::Vec3;
 pub enum Stroke {
     /// Sweeps an arc from `arc_from` to `arc_to` (in the suit's frame), `range` long.
     Swing,
-    /// Drives straight out along the aim to `range` and back (Shenlong's Dragon Fang).
+    /// Drives straight out along the aim to `range` and back (Thuban's Talon).
     Thrust,
 }
 
@@ -30,9 +30,9 @@ pub struct MeleeSpec {
     pub cut_dir: Vec3,
     /// Samples along the stroke per active tick (a long blade's tip travels far in a tick).
     pub sub_steps: u8,
-    /// A second blade, from the other hand, mirrored left-right (heat shotels).
+    /// A second blade, from the other hand, mirrored left-right (heat blades).
     pub twin: bool,
-    /// Needs both arms (Cross Crusher); otherwise a twin strike loses the blade of a missing arm.
+    /// Needs both arms (Pincer Strike); otherwise a twin strike loses the blade of a missing arm.
     pub both_arms: bool,
     /// Drives the suit forward through the windup and the stroke.
     pub lunge: bool,

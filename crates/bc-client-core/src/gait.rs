@@ -249,7 +249,7 @@ mod tests {
         Shape { base: Base::Union(&FLOOR), cuts: &[] }
     }
 
-    /// Walking along the top of MO-II's core (its frame), at `speed` m/s along +X.
+    /// Walking along the top of Fornax's core (its frame), at `speed` m/s along +X.
     fn on_the_core(x: f32, speed: f32) -> (Vec3, Vec3) {
         (Vec3::new(x, 60.0 + STANCE, 0.0), Vec3::X * speed)
     }
@@ -265,7 +265,7 @@ mod tests {
     }
 
     #[test]
-    fn planted_feet_do_not_slide_on_mo_ii() {
+    fn planted_feet_do_not_slide_on_fornax() {
         let shape = LANDMARKS[0].shape;
         let mut g = Gait::default();
         // Clear of the pylons (|x| < 40) and the fore module (from x = 200).
@@ -276,7 +276,7 @@ mod tests {
             let (local, vel) = on_the_core(x, 8.0);
             g.step(&stand(&shape, local, vel), DT);
             x += 8.0 * DT;
-            // MO-II as drawn this frame (it rolls and drifts under the walk).
+            // Fornax as drawn this frame (it rolls and drifts under the walk).
             let t = 2_000.0 + k as f32 * DT * 30.0;
             let deck = landmark_pose(&LANDMARKS[0], t as u32, t.fract());
             for (side, foot) in g.feet.iter().enumerate() {

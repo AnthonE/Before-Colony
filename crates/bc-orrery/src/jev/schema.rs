@@ -6,7 +6,7 @@
 //!
 //! Missing answers mean "no opinion" (zeros), which the blend ignores.
 
-use bc_sim::zero::N_HYP;
+use bc_sim::orrery::N_HYP;
 use serde_json::Value;
 
 use super::questions::{MANEUVER_LABELS, OWN_LABELS};

@@ -1,5 +1,5 @@
 //! Surfaces. The landmarks are solid, and one ordered test says what stops a shot: free and
-//! sleeping suits fetch up against MO-II and Hermit as against rocks; chunks bounce off them
+//! sleeping suits fetch up against Fornax and Hermit as against rocks; chunks bounce off them
 //! relative to their moving surfaces; and shots, missiles and flame meet whatever comes first along
 //! their path, a suit, a rock, a landmark or the colony, so a suit skimming the hull is hit and one
 //! behind it is not.
@@ -14,10 +14,10 @@
 mod common;
 
 use bc_proto::buttons::{
-    BOOST, BRAKE, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, GRIP, MELEE, MODE, THROW, ZERO,
+    BOOST, BRAKE, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, GRIP, MELEE, MODE, ORRERY, THROW,
 };
 use bc_proto::events::{BurstCause, Event};
-use bc_proto::snapshot::{footing, zero_mode};
+use bc_proto::snapshot::{footing, orrery_mode};
 use bc_proto::{
     BodyRef, ChunkDesc, ChunkKind, EntityState, Faction, FrameId, InputCmd, MAX_DATAGRAM, NO_SLOT, OwnState,
     OwnSurface, Part, PilotKind, RiderOn, Segment, SnapshotHeader, SnapshotReader, SnapshotWriter,
@@ -41,13 +41,13 @@ use bc_sim::sim::cover;
 use bc_sim::world::{COLONY_CENTER, COLONY_RADIUS, colony_sweep};
 use bc_sim::{DT, Sim, SimConfig, SuitId};
 use common::{
-    check_invariants, grippable_rock, landmark_probe, landmark_surface, on_hermit, on_mo_ii, standing_on,
+    check_invariants, grippable_rock, landmark_probe, landmark_surface, on_fornax, on_hermit, standing_on,
 };
 use glam::{Quat, Vec3};
 
-/// A sector with no rocks and no dolls, and `landmarks` of the landmarks.
+/// A sector with no rocks and no drones, and `landmarks` of the landmarks.
 fn sector(landmarks: u8) -> Sim {
-    Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, landmarks, ..SimConfig::default() })
+    Sim::new(SimConfig { target_drones: 0, field_rocks: 0, landmarks, ..SimConfig::default() })
 }
 
 fn suit(sim: &mut Sim, frame: FrameId, faction: Faction, pos: Vec3, facing: Vec3) -> SuitId {
@@ -86,43 +86,43 @@ fn over_hull(deg: f32, up: f32) -> Vec3 {
     COLONY_CENTER + Vec3::new(0.0, a.cos(), a.sin()) * (COLONY_RADIUS + up)
 }
 
-/// A Leo at `from` fires one beam at `target`'s centre, having seen the world `rewind` ticks ago,
+/// An Argo at `from` fires one beam at `target`'s centre, having seen the world `rewind` ticks ago,
 /// and the sim runs on until it's spent. The hits it landed, and the muzzle it left.
-fn one_beam(sim: &mut Sim, leo: SuitId, target: SuitId, rewind: u32) -> (usize, Vec3) {
+fn one_beam(sim: &mut Sim, argo: SuitId, target: SuitId, rewind: u32) -> (usize, Vec3) {
     // History to rewind into.
     for _ in 0..10 {
-        hands_off(sim, leo);
+        hands_off(sim, argo);
         sim.step();
     }
     let from = sim.events.next_seq();
-    let f = sim.suits.flight[leo.idx()];
-    let muzzle = f.pos + f.rot * frame(FrameId::Leo).loadout[0].unwrap().arm.muzzle();
+    let f = sim.suits.flight[argo.idx()];
+    let muzzle = f.pos + f.rot * frame(FrameId::Argo).loadout[0].unwrap().arm.muzzle();
     let aim = (sim.suits.flight[target.idx()].pos - muzzle).normalize();
-    hold(sim, leo, FIRE_PRIMARY, aim, rewind);
+    hold(sim, argo, FIRE_PRIMARY, aim, rewind);
     sim.step();
     for _ in 0..60 {
-        hold(sim, leo, 0, aim, rewind);
+        hold(sim, argo, 0, aim, rewind);
         sim.step();
     }
     assert!(
         events_since(sim, from).iter().any(|e| matches!(e, Event::BeamSpawn { .. })),
         "the rifle never fired"
     );
-    assert!(sim.projectiles.alive.iter().all(|k| sim.projectiles.owner[k] as usize != leo.idx()));
+    assert!(sim.projectiles.alive.iter().all(|k| sim.projectiles.owner[k] as usize != argo.idx()));
     (hits_on(sim, from, target), muzzle)
 }
 
 #[test]
 fn colony_no_longer_eats_shots_before_suits() {
-    // A Taurus skimming the hull, 12.5 m over it (a suit keeps 12 m off), fired at from above and
+    // A Corvus skimming the hull, 12.5 m over it (a suit keeps 12 m off), fired at from above and
     // behind: the path runs through it and on into the hull. The suit is first, so it's hit,
     // whether the shot flies live or is rewound (then the whole path is flown at once).
     for rewind in [0, 8] {
         let mut sim = sector(2);
-        let target = suit(&mut sim, FrameId::Taurus, Faction::Oz, over_hull(0.0, 12.5), Vec3::Z);
+        let target = suit(&mut sim, FrameId::Corvus, Faction::Almagest, over_hull(0.0, 12.5), Vec3::Z);
         let above = over_hull(-4.0, 150.0);
-        let leo = suit(&mut sim, FrameId::Leo, Faction::Colonies, above, over_hull(0.0, 12.5) - above);
-        let (hits, muzzle) = one_beam(&mut sim, leo, target, rewind);
+        let argo = suit(&mut sim, FrameId::Argo, Faction::Colonies, above, over_hull(0.0, 12.5) - above);
+        let (hits, muzzle) = one_beam(&mut sim, argo, target, rewind);
         let at = sim.suits.flight[target.idx()].pos;
         let on = muzzle + (at - muzzle) * 1.5;
         assert!(
@@ -138,9 +138,9 @@ fn colony_no_longer_eats_shots_before_suits() {
     for rewind in [0, 8] {
         let mut sim = sector(2);
         let (a, b) = (over_hull(-6.0, 20.0), over_hull(6.0, 12.5));
-        let target = suit(&mut sim, FrameId::Taurus, Faction::Oz, b, a - b);
-        let leo = suit(&mut sim, FrameId::Leo, Faction::Colonies, a, b - a);
-        let (hits, muzzle) = one_beam(&mut sim, leo, target, rewind);
+        let target = suit(&mut sim, FrameId::Corvus, Faction::Almagest, b, a - b);
+        let argo = suit(&mut sim, FrameId::Argo, Faction::Colonies, a, b - a);
+        let (hits, muzzle) = one_beam(&mut sim, argo, target, rewind);
         let at = sim.suits.flight[target.idx()].pos;
         assert!(colony_sweep(muzzle, at, 0.6).is_some_and(|s| s < 0.9), "the hull isn't in the way");
         assert_eq!(hits, 0, "rewound {rewind}: the shot went through the colony");
@@ -149,7 +149,7 @@ fn colony_no_longer_eats_shots_before_suits() {
     // A missile flown blind straight down at the hull bursts where it touches it, not where it was
     // the tick before.
     let mut sim = sector(2);
-    let ha = suit(&mut sim, FrameId::Heavyarms, Faction::Colonies, over_hull(0.0, 300.0), -Vec3::Y);
+    let ha = suit(&mut sim, FrameId::Antares, Faction::Colonies, over_hull(0.0, 300.0), -Vec3::Y);
     let from = sim.events.next_seq();
     for k in 0..300 {
         let t = sim.next_tick();
@@ -180,24 +180,24 @@ fn colony_no_longer_eats_shots_before_suits() {
     }
 }
 
-/// A Leo `out` m off landmark `k`'s surface straight out from its origin along `dir` (its frame),
+/// An Argo `out` m off landmark `k`'s surface straight out from its origin along `dir` (its frame),
 /// coasting straight at it at `speed` m/s relative to the surface there.
 fn coasting_at(sim: &mut Sim, k: u8, dir: Vec3, out: f32, speed: f32) -> SuitId {
     let (p, n) = landmark_surface(sim, k, dir);
-    let id = suit(sim, FrameId::Leo, Faction::Colonies, p + n * out, -n);
+    let id = suit(sim, FrameId::Argo, Faction::Colonies, p + n * out, -n);
     let (pose, _) = landmark_probe(sim, k, p);
     sim.suits.flight[id.idx()].vel = pose.point_vel(p) - n * speed;
     id
 }
 
 #[test]
-fn free_suits_stop_at_mo_ii_and_hermit() {
+fn free_suits_stop_at_fornax_and_hermit() {
     // Pylon tops and sides, the fore module's face, the mast's tip, the Aft Well's floor; Hermit's
     // long and short ends, a flank, and a crater floor.
-    let mo_ii = [Vec3::Y, Vec3::Z, Vec3::new(1.0, 0.3, 0.2), Vec3::X, -Vec3::X, Vec3::new(0.3, -1.0, 0.6)];
+    let fornax = [Vec3::Y, Vec3::Z, Vec3::new(1.0, 0.3, 0.2), Vec3::X, -Vec3::X, Vec3::new(0.3, -1.0, 0.6)];
     let hermit = [Vec3::X, -Vec3::Y, Vec3::new(1.0, 1.0, 1.0), Vec3::Y, Vec3::new(-0.2, 0.4, -1.0)];
     let approaches: Vec<(u8, Vec3)> =
-        mo_ii.iter().map(|&d| (0, d)).chain(hermit.iter().map(|&d| (1, d))).collect();
+        fornax.iter().map(|&d| (0, d)).chain(hermit.iter().map(|&d| (1, d))).collect();
     for landmarks in [2, 0] {
         let mut sim = sector(landmarks);
         // Flying, and asleep: a pilot who left mid-approach drifts in and fetches up the same way.
@@ -234,7 +234,7 @@ fn free_suits_stop_at_mo_ii_and_hermit() {
             continue;
         }
         // Each met it, and came to rest against it: nothing left of its speed into the surface,
-        // relative to the surface (MO-II's spin may since have turned it out from under a suit a
+        // relative to the surface (Fornax's spin may since have turned it out from under a suit a
         // little).
         for &(k, dir, id, nearest) in &suits {
             let f = &sim.suits.flight[id.idx()];
@@ -254,11 +254,11 @@ fn free_suits_stop_at_mo_ii_and_hermit() {
 }
 
 #[test]
-fn a_suit_sliding_fast_along_mo_ii_meets_its_mast() {
+fn a_suit_sliding_fast_along_fornax_meets_its_mast() {
     // Pressed against the fore module's +X face (as its last push out of it left it) and sliding
     // along it at 540 m/s, 18 m a tick, toward the 8 m mast standing out of that face: it stops
     // against the mast, never coming out on its far side. Touching the face at the start of every
-    // tick, its move isn't swept against the face, but it is against the rest of MO-II.
+    // tick, its move isn't swept against the face, but it is against the rest of Fornax.
     let sim = sector(1);
     let b = Bodies::at(&sim.field, sim.landmarks(), 100);
     let pose = b.pose(Body::Landmark(0)).unwrap();
@@ -295,7 +295,7 @@ fn free_segment(sim: &Sim, k: usize) -> Segment {
 fn chunks_bounce_off_landmarks_relative_to_their_surface() {
     let mut sim = sector(2);
     let r = chunks::radius(&ChunkDesc { kind: ChunkKind::Ore { ore: 8 }, seed: 1, mass_kg: 800 });
-    // Thrown at MO-II and Hermit from all round, 12 m/s into the surface and 3 m/s across it,
+    // Thrown at Fornax and Hermit from all round, 12 m/s into the surface and 3 m/s across it,
     // relative to it.
     let mut thrown = Vec::new();
     for (n, dir) in [
@@ -319,7 +319,7 @@ fn chunks_bounce_off_landmarks_relative_to_their_surface() {
             thrown.push((k, c, free_segment(&sim, c), 0));
         }
     }
-    // One at rest just off the face of MO-II's +Y pylon that its spin (and drift) is turning into
+    // One at rest just off the face of Fornax's +Y pylon that its spin (and drift) is turning into
     // it; and one at rest just off Hermit, which doesn't move. (A chunk's velocity travels on a
     // grid with no zero: "at rest" is 0.125 m/s on each axis, so the one by Hermit sits where that
     // takes it away.)
@@ -374,27 +374,27 @@ fn chunks_bounce_off_landmarks_relative_to_their_surface() {
 #[test]
 fn landmarks_shield_suits_from_shots_and_flame() {
     for landmarks in [2, 0] {
-        // A beam across MO-II's core at a suit beyond it, live and rewound.
+        // A beam across Fornax's core at a suit beyond it, live and rewound.
         for rewind in [0, 8] {
             let mut sim = sector(landmarks);
             let mo = landmark_pose(&LANDMARKS[0], sim.tick(), 0.0);
             let (a, b) =
                 (mo.to_world(Vec3::new(20.0, 400.0, 0.0)), mo.to_world(Vec3::new(-20.0, -150.0, 0.0)));
-            let target = suit(&mut sim, FrameId::Taurus, Faction::Oz, b, a - b);
-            let leo = suit(&mut sim, FrameId::Leo, Faction::Colonies, a, b - a);
-            let (hits, _) = one_beam(&mut sim, leo, target, rewind);
+            let target = suit(&mut sim, FrameId::Corvus, Faction::Almagest, b, a - b);
+            let argo = suit(&mut sim, FrameId::Argo, Faction::Colonies, a, b - a);
+            let (hits, _) = one_beam(&mut sim, argo, target, rewind);
             assert_eq!(hits, usize::from(landmarks == 0), "{landmarks} landmarks, rewound {rewind}");
         }
-        // Shenlong's flame at a Leo across the mast.
+        // Thuban's flame at an Argo across the mast.
         let mut sim = sector(landmarks);
         let mo = landmark_pose(&LANDMARKS[0], sim.tick(), 0.0);
         let (a, b) = (mo.to_world(Vec3::new(295.0, 0.0, 25.0)), mo.to_world(Vec3::new(295.0, 0.0, -25.0)));
-        let shenlong = suit(&mut sim, FrameId::Shenlong, Faction::Colonies, a, b - a);
-        let leo = suit(&mut sim, FrameId::Leo, Faction::Oz, b, a - b);
+        let thuban = suit(&mut sim, FrameId::Thuban, Faction::Colonies, a, b - a);
+        let argo = suit(&mut sim, FrameId::Argo, Faction::Almagest, b, a - b);
         let from = sim.events.next_seq();
         for _ in 0..30 {
-            let aim = (sim.suits.flight[leo.idx()].pos - sim.suits.flight[shenlong.idx()].pos).normalize();
-            hold(&mut sim, shenlong, FIRE_SECONDARY, aim, 0);
+            let aim = (sim.suits.flight[argo.idx()].pos - sim.suits.flight[thuban.idx()].pos).normalize();
+            hold(&mut sim, thuban, FIRE_SECONDARY, aim, 0);
             sim.step();
         }
         let burns = events_since(&sim, from)
@@ -409,9 +409,9 @@ fn landmarks_shield_suits_from_shots_and_flame() {
 // On the surface: catching, walking, hopping, letting go
 // -------------------------------------------------------------------------------------------------
 
-/// A sector with the default field and both landmarks, and no dolls.
+/// A sector with the default field and both landmarks, and no drones.
 fn grip_sector() -> Sim {
-    Sim::new(SimConfig { target_dolls: 0, ..SimConfig::default() })
+    Sim::new(SimConfig { target_drones: 0, ..SimConfig::default() })
 }
 
 fn bodies(sim: &Sim) -> Bodies<'_> {
@@ -456,10 +456,10 @@ fn along(n: Vec3) -> Vec3 {
     (Vec3::Z - n * n.z).normalize_or(Vec3::X - n * n.x)
 }
 
-/// A Leo with its feet `up` m over `body`'s surface along `dir`, nose along the surface and body
+/// An Argo with its feet `up` m over `body`'s surface along `dir`, nose along the surface and body
 /// rolled `roll` rad off upright, drifting toward the surface at `sink` m/s relative to it.
 fn over(sim: &mut Sim, body: Body, dir: Vec3, up: f32, roll: f32, sink: f32) -> SuitId {
-    over_in(sim, FrameId::Leo, body, dir, up, roll, sink)
+    over_in(sim, FrameId::Argo, body, dir, up, roll, sink)
 }
 
 /// [`over`], in `frame`.
@@ -542,12 +542,12 @@ fn without_grip_nothing_attaches_and_flight_is_v8() {
     // held, and each flies exactly as the flight model always has.
     let face = rock.surface(rock.pos + Vec3::Y * (rock.radius + 50.0), SUIT_CLEARANCE + 1.0);
     let miner = sim
-        .spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, face, look_rotation(-Vec3::Y, Vec3::Z))
+        .spawn_at(FrameId::Argo, Faction::Colonies, PilotKind::Human, face, look_rotation(-Vec3::Y, Vec3::Z))
         .unwrap();
     let dir = Vec3::new(1.0, 0.1, 0.3).normalize();
     let rammer = sim
         .spawn_at(
-            FrameId::Leo,
+            FrameId::Argo,
             Faction::Colonies,
             PilotKind::Human,
             rock.pos - dir * (rock.radius + 300.0),
@@ -557,7 +557,7 @@ fn without_grip_nothing_attaches_and_flight_is_v8() {
     sim.suits.flight[rammer.idx()].vel = dir * 120.0;
     let open = sim
         .spawn_at(
-            FrameId::Leo,
+            FrameId::Argo,
             Faction::Colonies,
             PilotKind::Human,
             Vec3::new(0.0, 5_000.0, 9_000.0),
@@ -635,7 +635,7 @@ fn catch_and_release_have_hysteresis() {
     // Up past 40 m on the thrusters, then braked to a stop far up, armed: one hop, one release as
     // its feet pass 40 m, and never caught again.
     let mut sim = grip_sector();
-    let id = on_hermit(&mut sim, FrameId::Leo, Vec3::new(0.3, 1.0, 0.2));
+    let id = on_hermit(&mut sim, FrameId::Argo, Vec3::new(0.3, 1.0, 0.2));
     let i = id.idx();
     let aim = sim.suits.flight[i].rot * Vec3::Z;
     let mut last_aloft = 0.0;
@@ -660,7 +660,7 @@ fn catch_and_release_have_hysteresis() {
     assert!(pr.dist - STANCE > CATCH_RANGE + 20.0, "it ends {} m up", pr.dist - STANCE);
 
     // Too fast along the ground on raw thrust: lost, then caught again once braked slow enough.
-    let id = on_hermit(&mut sim, FrameId::Leo, Vec3::new(0.5, 1.0, 0.2));
+    let id = on_hermit(&mut sim, FrameId::Argo, Vec3::new(0.5, 1.0, 0.2));
     let i = id.idx();
     let (n, _) = ground(&sim, id);
     let fwd = along(n);
@@ -725,7 +725,7 @@ fn roll_level_turns_the_feet_down_without_moving_the_nose() {
 fn walks_around_a_rock_keeping_its_stance() {
     let mut sim = grip_sector();
     let (r, rock) = grippable_rock(&sim, 300.0);
-    let id = standing_on(&mut sim, FrameId::Leo, Faction::Colonies, Body::Rock(r as u16), Vec3::Y);
+    let id = standing_on(&mut sim, FrameId::Argo, Faction::Colonies, Body::Rock(r as u16), Vec3::Y);
     let i = id.idx();
     let mut walked = 0.0;
     let mut normals = Vec::new();
@@ -746,30 +746,30 @@ fn walks_around_a_rock_keeping_its_stance() {
     assert!(spread < -0.9, "it never got round the {} m rock", rock.radius);
 }
 
-/// Aim along MO-II's frame direction `dir` (it spins about its own x, so the aim turns with it).
-fn mo_ii_aim(sim: &Sim, dir: Vec3) -> Vec3 {
+/// Aim along Fornax's frame direction `dir` (it spins about its own x, so the aim turns with it).
+fn fornax_aim(sim: &Sim, dir: Vec3) -> Vec3 {
     bodies(sim).pose(Body::Landmark(0)).unwrap().rot * dir.normalize()
 }
 
 #[test]
 fn inner_corners_block_rounded_edges_do_not_and_walls_slide() {
-    let mut sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
+    let mut sim = Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() });
     // On the core at x = -90, walking +x at the pylon standing on the core at -40..40: its foot is
     // an inner corner, so the suit stops short of it (no nearer than BODY_CLEAR to the wall).
-    let id = on_mo_ii(&mut sim, FrameId::Leo, Vec3::new(-1.5, 1.0, 0.0));
+    let id = on_fornax(&mut sim, FrameId::Argo, Vec3::new(-1.5, 1.0, 0.0));
     let i = id.idx();
     for _ in 0..300 {
-        let aim = mo_ii_aim(&sim, Vec3::X);
+        let aim = fornax_aim(&sim, Vec3::X);
         drive(&mut sim, id, [0, 0, 127], GRIP, aim);
         step(&mut sim);
         assert_eq!(sim.footing(i), Footing::Grounded);
     }
     let at = sim.suits.anchor[i].local;
     assert!((-50.0..-44.0).contains(&at.x), "stopped at x = {} by the pylon at -40", at.x);
-    assert!(ground(&sim, id).0.dot(mo_ii_aim(&sim, Vec3::Y)) > 0.99, "still on the core's top");
+    assert!(ground(&sim, id).0.dot(fornax_aim(&sim, Vec3::Y)) > 0.99, "still on the core's top");
     // Into the wall at 45°: it slides along it, keeping what isn't into the wall.
     for _ in 0..60 {
-        let aim = mo_ii_aim(&sim, Vec3::new(1.0, 0.0, 1.0));
+        let aim = fornax_aim(&sim, Vec3::new(1.0, 0.0, 1.0));
         drive(&mut sim, id, [0, 0, 127], GRIP, aim);
         step(&mut sim);
     }
@@ -778,17 +778,17 @@ fn inner_corners_block_rounded_edges_do_not_and_walls_slide() {
     assert!(slid.x < -44.0, "and never into it: x = {}", slid.x);
 
     // On the pylon's top, walking -x: over its rounded edge and down its side, never stopped.
-    let id = on_mo_ii(&mut sim, FrameId::Leo, Vec3::Y);
+    let id = on_fornax(&mut sim, FrameId::Argo, Vec3::Y);
     let i = id.idx();
     let mut down_the_side = false;
     for _ in 0..240 {
         let aim = sim.suits.flight[i].rot * Vec3::Z;
-        let aim = if sim.suits.anchor[i].local.x > -30.0 { mo_ii_aim(&sim, -Vec3::X) } else { aim };
+        let aim = if sim.suits.anchor[i].local.x > -30.0 { fornax_aim(&sim, -Vec3::X) } else { aim };
         drive(&mut sim, id, [0, 0, 127], GRIP, aim);
         step(&mut sim);
         assert_eq!(sim.footing(i), Footing::Grounded);
         let (n, _) = ground(&sim, id);
-        down_the_side |= n.dot(mo_ii_aim(&sim, -Vec3::X)) > 0.95;
+        down_the_side |= n.dot(fornax_aim(&sim, -Vec3::X)) > 0.95;
     }
     assert!(down_the_side, "it never walked round the edge onto the pylon's side");
 }
@@ -800,7 +800,7 @@ fn a_suit_stopped_at_a_rim_keeps_no_speed() {
     // left of its run to replicate, to give its shots, or to let go with.
     let mut sim = grip_sector();
     let deep = Body::Landmark(1);
-    let id = standing_on(&mut sim, FrameId::Leo, Faction::Colonies, deep, Vec3::new(120.0, 600.0, 0.0));
+    let id = standing_on(&mut sim, FrameId::Argo, Faction::Colonies, deep, Vec3::new(120.0, 600.0, 0.0));
     let i = id.idx();
     let mut stopped = 0;
     for k in 0..300 {
@@ -824,7 +824,7 @@ fn running_off_a_ledge_lands_running() {
     // Running, a hop keeps the run: aloft, flight assist holds run speed along the surface, so the
     // suit comes down still running, and the grip never lets go.
     let mut sim = grip_sector();
-    let id = on_hermit(&mut sim, FrameId::Leo, Vec3::new(0.3, 1.0, 0.2));
+    let id = on_hermit(&mut sim, FrameId::Argo, Vec3::new(0.3, 1.0, 0.2));
     let i = id.idx();
     let (mut aloft, mut landed_at) = (0, None);
     for k in 0..400 {
@@ -854,9 +854,9 @@ fn running_off_a_ledge_lands_running() {
 }
 
 #[test]
-fn standing_on_mo_ii_rides_it_round() {
-    let mut sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
-    let id = on_mo_ii(&mut sim, FrameId::Leo, Vec3::new(-1.5, 1.0, 0.0));
+fn standing_on_fornax_rides_it_round() {
+    let mut sim = Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() });
+    let id = on_fornax(&mut sim, FrameId::Argo, Vec3::new(-1.5, 1.0, 0.0));
     let i = id.idx();
     step(&mut sim);
     let (start, local) = (sim.suits.flight[i], sim.suits.anchor[i].local);
@@ -884,7 +884,7 @@ fn standing_on_mo_ii_rides_it_round() {
 #[test]
 fn a_tap_hops_and_holding_space_lifts_off() {
     let mut sim = grip_sector();
-    let id = on_hermit(&mut sim, FrameId::Leo, Vec3::new(0.3, 1.0, 0.2));
+    let id = on_hermit(&mut sim, FrameId::Argo, Vec3::new(0.3, 1.0, 0.2));
     let i = id.idx();
     let aim = sim.suits.flight[i].rot * Vec3::Z;
     let (n0, _) = ground(&sim, id);
@@ -929,7 +929,7 @@ fn a_tap_hops_and_holding_space_lifts_off() {
 #[test]
 fn crouch_is_sticky_and_space_stands_then_hops() {
     let mut sim = grip_sector();
-    let id = on_hermit(&mut sim, FrameId::Leo, Vec3::new(0.3, 1.0, 0.2));
+    let id = on_hermit(&mut sim, FrameId::Argo, Vec3::new(0.3, 1.0, 0.2));
     let i = id.idx();
     let aim = sim.suits.flight[i].rot * Vec3::Z;
     for _ in 0..20 {
@@ -960,9 +960,9 @@ fn crouch_is_sticky_and_space_stands_then_hops() {
 
 #[test]
 fn grip_off_pushes_off_with_the_surface_velocity() {
-    let mut sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
-    // On the aft module's corner, where MO-II's surface moves fastest.
-    let id = on_mo_ii(&mut sim, FrameId::Leo, Vec3::new(-230.0, 80.0, 80.0));
+    let mut sim = Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() });
+    // On the aft module's corner, where Fornax's surface moves fastest.
+    let id = on_fornax(&mut sim, FrameId::Argo, Vec3::new(-230.0, 80.0, 80.0));
     let i = id.idx();
     let aim = sim.suits.flight[i].rot * Vec3::Z;
     for _ in 0..30 {
@@ -990,7 +990,7 @@ fn grip_off_pushes_off_with_the_surface_velocity() {
 #[test]
 fn legless_suits_grip_kneel_and_lift_on_thrusters() {
     let mut sim = grip_sector();
-    let id = on_hermit(&mut sim, FrameId::Leo, Vec3::new(0.3, 1.0, 0.2));
+    let id = on_hermit(&mut sim, FrameId::Argo, Vec3::new(0.3, 1.0, 0.2));
     let i = id.idx();
     sim.suits.part_hp[i][Part::Legs as usize] = 0.0;
     let aim = sim.suits.flight[i].rot * Vec3::Z;
@@ -1026,9 +1026,9 @@ fn legless_suits_grip_kneel_and_lift_on_thrusters() {
 }
 
 #[test]
-fn neo_bird_cannot_grip_and_transforming_takes_off() {
+fn aquila_cannot_grip_and_transforming_takes_off() {
     let mut sim = grip_sector();
-    let id = on_hermit(&mut sim, FrameId::WingZero, Vec3::new(0.3, 1.0, 0.2));
+    let id = on_hermit(&mut sim, FrameId::Altair, Vec3::new(0.3, 1.0, 0.2));
     let i = id.idx();
     let aim = sim.suits.flight[i].rot * Vec3::Z;
     let (n, _) = ground(&sim, id);
@@ -1056,9 +1056,8 @@ fn neo_bird_cannot_grip_and_transforming_takes_off() {
         );
         step(&mut sim);
     }
-    assert_eq!(sim.suits.frame[i], FrameId::WingZeroBird);
-    let bird =
-        over_in(&mut sim, FrameId::WingZeroBird, Body::Landmark(1), Vec3::new(0.5, 1.0, 0.2), 5.0, 0.0, 1.0);
+    assert_eq!(sim.suits.frame[i], FrameId::Aquila);
+    let bird = over_in(&mut sim, FrameId::Aquila, Body::Landmark(1), Vec3::new(0.5, 1.0, 0.2), 5.0, 0.0, 1.0);
     let bi = bird.idx();
     for _ in 0..120 {
         drive(&mut sim, bird, [0; 3], GRIP | MODE, aim);
@@ -1084,7 +1083,7 @@ fn other_rocks_landmarks_and_the_colony_stay_solid_to_a_rider() {
     let walkers = [(0usize, -hermit_n), (1, Vec3::X), (3, -hull_up)];
     let ids = walkers.map(|(r, toward)| {
         let side = along(toward);
-        standing_on(&mut sim, FrameId::Leo, Faction::Colonies, Body::Rock(r as u16), side)
+        standing_on(&mut sim, FrameId::Argo, Faction::Colonies, Body::Rock(r as u16), side)
     });
     let mut closest = [f32::INFINITY; 3];
     for _ in 0..300 {
@@ -1122,7 +1121,7 @@ fn other_rocks_landmarks_and_the_colony_stay_solid_to_a_rider() {
 #[test]
 fn grounded_suits_can_aim_overhead() {
     let mut sim = grip_sector();
-    let id = on_hermit(&mut sim, FrameId::Leo, Vec3::new(0.3, 1.0, 0.2));
+    let id = on_hermit(&mut sim, FrameId::Argo, Vec3::new(0.3, 1.0, 0.2));
     let (n, _) = ground(&sim, id);
     for _ in 0..60 {
         drive(&mut sim, id, [0; 3], GRIP, n);
@@ -1152,14 +1151,14 @@ fn throw_recoil_moves_a_grounded_suit_along_the_ground() {
     // A rider's world velocity is derived from its anchor every tick, so a throw's push back has to
     // go into the anchor: the suit slides back along the ground and the legs stop it.
     let mut sim = grip_sector();
-    let id = on_hermit(&mut sim, FrameId::Leo, Vec3::new(0.3, 1.0, 0.2));
+    let id = on_hermit(&mut sim, FrameId::Argo, Vec3::new(0.3, 1.0, 0.2));
     let i = id.idx();
     let (n, _) = ground(&sim, id);
     let ahead = sim.suits.flight[i].rot * Vec3::Z;
     let k = a_tonne_in_hand(&mut sim, id);
     let mods = sim.flight_mods(i);
     let suit_kg =
-        frame(FrameId::Leo).mass(sim.suits.flight[i].propellant) + mods.extra_mass_kg as f32 - 1_000.0;
+        frame(FrameId::Argo).mass(sim.suits.flight[i].propellant) + mods.extra_mass_kg as f32 - 1_000.0;
     let (before, start) = (sim.suits.flight[i].vel, sim.suits.anchor[i].local);
     drive(&mut sim, id, [0; 3], GRIP | GRAB | THROW, ahead);
     step(&mut sim);
@@ -1209,7 +1208,7 @@ fn throw_recoil_never_takes_a_rider_past_its_speed() {
     // until the next tick. `step` checks I11 as the tick leaves it.
     for aloft in [false, true] {
         let mut sim = grip_sector();
-        let id = on_hermit(&mut sim, FrameId::Leo, Vec3::new(0.3, 1.0, 0.2));
+        let id = on_hermit(&mut sim, FrameId::Argo, Vec3::new(0.3, 1.0, 0.2));
         let i = id.idx();
         let ahead = sim.suits.flight[i].rot * Vec3::Z;
         a_tonne_in_hand(&mut sim, id);
@@ -1240,7 +1239,7 @@ fn throw_recoil_never_takes_a_rider_past_its_speed() {
 fn shattering_the_rock_underfoot_sets_the_suit_free() {
     let mut sim = grip_sector();
     let (r, _) = grippable_rock(&sim, 300.0);
-    let id = standing_on(&mut sim, FrameId::Leo, Faction::Colonies, Body::Rock(r as u16), Vec3::Y);
+    let id = standing_on(&mut sim, FrameId::Argo, Faction::Colonies, Body::Rock(r as u16), Vec3::Y);
     let i = id.idx();
     let aim = sim.suits.flight[i].rot * Vec3::Z;
     drive(&mut sim, id, [0; 3], GRIP, aim);
@@ -1258,7 +1257,7 @@ fn shattering_the_rock_underfoot_sets_the_suit_free() {
 fn a_grounded_suit_sleeps_parked_and_wakes_grounded_and_crouched() {
     let mut sim = grip_sector();
     let (r, _) = grippable_rock(&sim, 300.0);
-    let id = standing_on(&mut sim, FrameId::Leo, Faction::Colonies, Body::Rock(r as u16), Vec3::Y);
+    let id = standing_on(&mut sim, FrameId::Argo, Faction::Colonies, Body::Rock(r as u16), Vec3::Y);
     let i = id.idx();
     let aim = sim.suits.flight[i].rot * Vec3::Z;
     for _ in 0..20 {
@@ -1289,7 +1288,7 @@ fn a_grounded_suit_sleeps_parked_and_wakes_grounded_and_crouched() {
 #[test]
 fn an_aloft_suit_that_sleeps_settles_then_parks() {
     let mut sim = grip_sector();
-    let id = on_hermit(&mut sim, FrameId::Leo, Vec3::new(0.3, 1.0, 0.2));
+    let id = on_hermit(&mut sim, FrameId::Argo, Vec3::new(0.3, 1.0, 0.2));
     let i = id.idx();
     let aim = sim.suits.flight[i].rot * Vec3::Z;
     drive(&mut sim, id, [0, 127, 0], GRIP, aim);
@@ -1319,7 +1318,7 @@ fn a_sleeper_climbing_out_of_the_grip_still_comes_down_and_parks() {
     // would let it coast on past 40 m and out of the grip for good. It stops where it is and
     // comes down instead.
     let mut sim = grip_sector();
-    let id = on_hermit(&mut sim, FrameId::Leo, Vec3::new(0.3, 1.0, 0.2));
+    let id = on_hermit(&mut sim, FrameId::Argo, Vec3::new(0.3, 1.0, 0.2));
     let i = id.idx();
     let aim = sim.suits.flight[i].rot * Vec3::Z;
     let mut climb = 0.0;
@@ -1346,15 +1345,15 @@ fn a_sleeper_climbing_out_of_the_grip_still_comes_down_and_parks() {
 }
 
 #[test]
-fn parked_on_mo_ii_moves_with_it_and_carries_point_velocity() {
-    let mut sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
+fn parked_on_fornax_moves_with_it_and_carries_point_velocity() {
+    let mut sim = Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() });
     let deck = Body::Landmark(0);
     // Asleep on its feet on the core, and one that was only resting against the aft module.
-    let standing = on_mo_ii(&mut sim, FrameId::Leo, Vec3::new(-1.5, 1.0, 0.0));
+    let standing = on_fornax(&mut sim, FrameId::Argo, Vec3::new(-1.5, 1.0, 0.0));
     let (p, n) = surface_of(&sim, deck, Vec3::new(-1.0, 0.1, 0.05));
     let pos = p + n * (SUIT_CLEARANCE + 0.5);
     let resting = sim
-        .spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, pos, look_rotation(n, Vec3::Y))
+        .spawn_at(FrameId::Argo, Faction::Colonies, PilotKind::Human, pos, look_rotation(n, Vec3::Y))
         .unwrap();
     sim.suits.flight[resting.idx()].vel = bodies(&sim).pose(deck).unwrap().point_vel(pos);
     assert_eq!(sim.parkable(resting.idx()), Some(deck));
@@ -1375,7 +1374,7 @@ fn parked_on_mo_ii_moves_with_it_and_carries_point_velocity() {
         }
     }
     for (id, s) in [standing, resting].iter().zip(start) {
-        assert!(sim.suits.flight[id.idx()].pos.distance(s) > 10.0, "it went round with MO-II");
+        assert!(sim.suits.flight[id.idx()].pos.distance(s) > 10.0, "it went round with Fornax");
     }
     // Awake, the one that rested lets go, moving as the deck does there.
     assert!(sim.wake(resting));
@@ -1388,43 +1387,43 @@ fn parked_on_mo_ii_moves_with_it_and_carries_point_velocity() {
 fn sleepers_run_no_specials() {
     let mut sim = grip_sector();
     let (_, rock) = grippable_rock(&sim, 300.0);
-    let (zero, _) = common::resting_as(&mut sim, FrameId::WingZero, &rock, Vec3::Y);
-    let (scythe, _) = common::resting_as(&mut sim, FrameId::Deathscythe, &rock, -Vec3::Y);
+    let (altair, _) = common::resting_as(&mut sim, FrameId::Altair, &rock, Vec3::Y);
+    let (scythe, _) = common::resting_as(&mut sim, FrameId::Algol, &rock, -Vec3::Y);
     for _ in 0..40 {
-        for id in [zero, scythe] {
+        for id in [altair, scythe] {
             let aim = sim.suits.flight[id.idx()].rot * Vec3::Z;
             drive(&mut sim, id, [0; 3], MODE, aim);
         }
         step(&mut sim);
     }
-    assert_eq!(sim.suits.frame[zero.idx()], FrameId::WingZeroBird);
+    assert_eq!(sim.suits.frame[altair.idx()], FrameId::Aquila);
     assert!(sim.suits.special[scythe.idx()].active, "the jammer is on");
-    for id in [zero, scythe] {
+    for id in [altair, scythe] {
         assert!(sim.sleep(id) && sim.is_parked(id.idx()), "suit {} didn't park", id.idx());
     }
     for _ in 0..600 {
         step(&mut sim);
-        assert_eq!(sim.suits.frame[zero.idx()], FrameId::WingZeroBird, "a parked bird stays a bird");
+        assert_eq!(sim.suits.frame[altair.idx()], FrameId::Aquila, "a parked bird stays a bird");
         assert!(!sim.suits.special[scythe.idx()].active, "and a parked jammer stays off");
-        assert!(sim.is_parked(zero.idx()) && sim.is_parked(scythe.idx()));
+        assert!(sim.is_parked(altair.idx()) && sim.is_parked(scythe.idx()));
     }
 }
 
 #[test]
 fn seized_riders_keep_their_grip() {
     let mut sim = grip_sector();
-    let id = on_hermit(&mut sim, FrameId::WingZero, Vec3::new(0.3, 1.0, 0.2));
+    let id = on_hermit(&mut sim, FrameId::Altair, Vec3::new(0.3, 1.0, 0.2));
     let i = id.idx();
     let aim = sim.suits.flight[i].rot * Vec3::Z;
-    drive(&mut sim, id, [0; 3], GRIP | ZERO, aim);
+    drive(&mut sim, id, [0; 3], GRIP | ORRERY, aim);
     step(&mut sim);
     // The System seizes the suit (strain at full): it flies it for 3 s, grip and all.
     sim.suits.ai[i].anchor = sim.suits.flight[i].pos;
-    sim.suits.zero[i].mode = zero_mode::SEIZED;
-    sim.suits.zero[i].timer = 90;
+    sim.suits.orrery[i].mode = orrery_mode::SEIZED;
+    sim.suits.orrery[i].timer = 90;
     for k in 0..89 {
         step(&mut sim);
-        assert_eq!(sim.suits.zero[i].mode, zero_mode::SEIZED);
+        assert_eq!(sim.suits.orrery[i].mode, orrery_mode::SEIZED);
         assert!(sim.suits.input[i].pressed(GRIP), "the seizure dropped the grip at {k}");
         assert_ne!(sim.footing(i), Footing::Free, "and let go at {k}");
     }
@@ -1436,7 +1435,7 @@ fn on_the_wire(sim: &Sim, viewer: usize, j: usize) -> (OwnState, EntityState) {
     let mut w = SnapshotWriter::new(&mut buf, MAX_DATAGRAM);
     w.header(&SnapshotHeader { tick: sim.tick(), ..SnapshotHeader::default() });
     w.own(Some(&sim.own_state(viewer)));
-    w.zero(None);
+    w.orrery(None);
     assert!(w.entity(&sim.entity_state(j, viewer), 0));
     let n = w.finish().unwrap();
     let mut r = SnapshotReader::new(&buf[..n]).unwrap();
@@ -1454,13 +1453,13 @@ fn composed(sim: &Sim, body: BodyRef, pos: Vec3, rot: Quat, vel: Vec3) -> Flight
 
 #[test]
 fn riders_go_on_the_wire_in_their_bodys_frame() {
-    let mut sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
+    let mut sim = Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() });
     let deck = BodyRef::Landmark(0);
-    let rider = on_mo_ii(&mut sim, FrameId::Leo, Vec3::new(-1.5, 1.0, 0.0));
+    let rider = on_fornax(&mut sim, FrameId::Argo, Vec3::new(-1.5, 1.0, 0.0));
     let r = rider.idx();
     let at = sim.suits.flight[r].pos;
     let viewer = sim
-        .spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, at + Vec3::Y * 300.0, Quat::IDENTITY)
+        .spawn_at(FrameId::Argo, Faction::Colonies, PilotKind::Human, at + Vec3::Y * 300.0, Quat::IDENTITY)
         .unwrap()
         .idx();
     let aim = sim.suits.flight[r].rot * Vec3::Z;
@@ -1516,7 +1515,7 @@ fn riders_go_on_the_wire_in_their_bodys_frame() {
     let (p, n) = surface_of(&sim, Body::Landmark(0), Vec3::new(-1.0, 0.1, 0.05));
     let pos = p + n * (SUIT_CLEARANCE + 0.5);
     let resting = sim
-        .spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, pos, look_rotation(n, Vec3::Y))
+        .spawn_at(FrameId::Argo, Faction::Colonies, PilotKind::Human, pos, look_rotation(n, Vec3::Y))
         .unwrap();
     sim.suits.flight[resting.idx()].vel = bodies(&sim).pose(Body::Landmark(0)).unwrap().point_vel(pos);
     assert!(sim.sleep(resting) && sim.is_parked(resting.idx()));
@@ -1541,24 +1540,24 @@ fn hands_off_gripping(sim: &mut Sim, id: SuitId, aim: Vec3, ticks: u32) {
 // -------------------------------------------------------------------------------------------------
 
 #[test]
-fn shots_hit_a_suit_standing_on_mo_ii_and_the_hull_shields_one_on_the_far_side() {
+fn shots_hit_a_suit_standing_on_fornax_and_the_hull_shields_one_on_the_far_side() {
     for rewind in [0, 8] {
-        // On the +y pylon's top, and a Leo 400 m over it.
+        // On the +y pylon's top, and an Argo 400 m over it.
         let mut sim = sector(2);
-        let target = standing_on(&mut sim, FrameId::Taurus, Faction::Oz, Body::Landmark(0), Vec3::Y);
+        let target = standing_on(&mut sim, FrameId::Corvus, Faction::Almagest, Body::Landmark(0), Vec3::Y);
         let (n, _) = ground(&sim, target);
         let at = sim.suits.flight[target.idx()].pos;
-        let leo = suit(&mut sim, FrameId::Leo, Faction::Colonies, at + n * 400.0, -n);
-        let (hits, _) = one_beam(&mut sim, leo, target, rewind);
+        let argo = suit(&mut sim, FrameId::Argo, Faction::Colonies, at + n * 400.0, -n);
+        let (hits, _) = one_beam(&mut sim, argo, target, rewind);
         assert_eq!(hits, 1, "rewound {rewind}: a rider in plain sight wasn't hit");
-        // On the -y pylon's, with MO-II's core between them.
+        // On the -y pylon's, with Fornax's core between them.
         let mut sim = sector(2);
-        let target = standing_on(&mut sim, FrameId::Taurus, Faction::Oz, Body::Landmark(0), -Vec3::Y);
+        let target = standing_on(&mut sim, FrameId::Corvus, Faction::Almagest, Body::Landmark(0), -Vec3::Y);
         let (n, _) = ground(&sim, target);
         let at = sim.suits.flight[target.idx()].pos;
-        let leo = suit(&mut sim, FrameId::Leo, Faction::Colonies, at - n * 500.0, n);
-        let (hits, _) = one_beam(&mut sim, leo, target, rewind);
-        assert_eq!(hits, 0, "rewound {rewind}: the shot went through MO-II");
+        let argo = suit(&mut sim, FrameId::Argo, Faction::Colonies, at - n * 500.0, n);
+        let (hits, _) = one_beam(&mut sim, argo, target, rewind);
+        assert_eq!(hits, 0, "rewound {rewind}: the shot went through Fornax");
     }
 }
 
@@ -1568,7 +1567,7 @@ fn crouched_in_the_deep_the_rim_stops_a_level_shot_and_a_shot_from_above_hits() 
     let hermit = landmark_pose(&LANDMARKS[1], 0, 0.0);
     for (from, hit) in [(Vec3::new(500.0, 600.0, 0.0), false), (Vec3::new(40.0, 1_100.0, 30.0), true)] {
         let mut sim = sector(2);
-        let target = standing_on(&mut sim, FrameId::Taurus, Faction::Oz, Body::Landmark(1), Vec3::Y);
+        let target = standing_on(&mut sim, FrameId::Corvus, Faction::Almagest, Body::Landmark(1), Vec3::Y);
         for _ in 0..20 {
             let aim = sim.suits.flight[target.idx()].rot * Vec3::Z;
             drive(&mut sim, target, [0, -127, 0], GRIP, aim);
@@ -1577,17 +1576,17 @@ fn crouched_in_the_deep_the_rim_stops_a_level_shot_and_a_shot_from_above_hits() 
         assert_eq!(sim.suits.anchor[target.idx()].stance, CROUCH_STANCE);
         let at = hermit.to_world(from);
         let facing = sim.suits.flight[target.idx()].pos - at;
-        let leo = suit(&mut sim, FrameId::Leo, Faction::Colonies, at, facing);
-        let (hits, _) = one_beam(&mut sim, leo, target, 0);
+        let argo = suit(&mut sim, FrameId::Argo, Faction::Colonies, at, facing);
+        let (hits, _) = one_beam(&mut sim, argo, target, 0);
         assert_eq!(hits, usize::from(hit), "from {from}: {hits} hits");
     }
 }
 
 #[test]
-fn a_lag_compensated_shot_from_a_rider_on_mo_ii_leaves_where_it_was_seen() {
-    // On the fore module's rim, 120 m off MO-II's axis: the deck there moves 2.9 m/s.
+fn a_lag_compensated_shot_from_a_rider_on_fornax_leaves_where_it_was_seen() {
+    // On the fore module's rim, 120 m off Fornax's axis: the deck there moves 2.9 m/s.
     let mut sim = sector(2);
-    let id = on_mo_ii(&mut sim, FrameId::Leo, Vec3::new(230.0, 80.0, 80.0));
+    let id = on_fornax(&mut sim, FrameId::Argo, Vec3::new(230.0, 80.0, 80.0));
     let i = id.idx();
     let (n, _) = ground(&sim, id);
     for _ in 0..10 {
@@ -1615,7 +1614,7 @@ fn a_lag_compensated_shot_from_a_rider_on_mo_ii_leaves_where_it_was_seen() {
         })
         .expect("it fired");
     assert_eq!(origin.1, t - rewind);
-    let muzzle = frame(FrameId::Leo).loadout[0].unwrap().arm.muzzle();
+    let muzzle = frame(FrameId::Argo).loadout[0].unwrap().arm.muzzle();
     let mut seen = sim.suits.flight[i];
     bc_sim::ground::derive(&landmark_pose(&LANDMARKS[0], t - rewind, 0.0), &sim.suits.anchor[i], &mut seen);
     let (seen, now) =
@@ -1632,11 +1631,11 @@ fn missile_seekers_drop_parked_and_hidden_targets_but_not_ones_in_the_open() {
         Hidden,
         Parked,
     }
-    // A Leo in Hermit's Deep, and a salvo 1 km over it that only its seekers can bring in: flying
+    // An Argo in Hermit's Deep, and a salvo 1 km over it that only its seekers can bring in: flying
     // blind, it would pass 500 m off.
     let hits = |target: Target| {
         let mut sim = sector(2);
-        let id = standing_on(&mut sim, FrameId::Leo, Faction::Colonies, Body::Landmark(1), Vec3::Y);
+        let id = standing_on(&mut sim, FrameId::Argo, Faction::Colonies, Body::Landmark(1), Vec3::Y);
         let i = id.idx();
         let crouch = if target == Target::Open { 0 } else { -127 };
         for _ in 0..(20 + bc_sim::sim::LURK_SETTLE_TICKS) {
@@ -1655,7 +1654,7 @@ fn missile_seekers_drop_parked_and_hidden_targets_but_not_ones_in_the_open() {
         let (n, _) = ground(&sim, id);
         let at = sim.suits.flight[i].pos;
         let side = n.cross(Vec3::X).normalize();
-        let ha = suit(&mut sim, FrameId::Heavyarms, Faction::Oz, at + n * 3_000.0, -n);
+        let ha = suit(&mut sim, FrameId::Antares, Faction::Almagest, at + n * 3_000.0, -n);
         let from = sim.events.next_seq();
         let spec = bc_sim::content::weapon(WeaponKind::HomingMissile).missile.unwrap();
         for k in 0..4 {
@@ -1665,7 +1664,7 @@ fn missile_seekers_drop_parked_and_hidden_targets_but_not_ones_in_the_open() {
             sim.missiles.spawn(
                 WeaponKind::HomingMissile,
                 ha.idx() as u16,
-                Faction::Oz,
+                Faction::Almagest,
                 target,
                 pos,
                 vel,
@@ -1687,10 +1686,10 @@ fn missile_seekers_drop_parked_and_hidden_targets_but_not_ones_in_the_open() {
     assert_eq!(hits(Target::Parked), 0, "the seekers kept a parked suit gone dark");
 }
 
-/// A Leo standing on top of a big rock (a lone one, 40 m or more across), and the rock's index.
+/// An Argo standing on top of a big rock (a lone one, 40 m or more across), and the rock's index.
 fn on_a_rock(sim: &mut Sim) -> (SuitId, usize) {
     let (r, _) = common::lone_rock(sim, 40.0, 300.0);
-    (standing_on(sim, FrameId::Leo, Faction::Colonies, Body::Rock(r as u16), Vec3::Y), r)
+    (standing_on(sim, FrameId::Argo, Faction::Colonies, Body::Rock(r as u16), Vec3::Y), r)
 }
 
 /// `id` crouches (or stands), then swings its saber aiming `c` (the cosine to the ground's
@@ -1709,7 +1708,7 @@ fn swing_at_the_ground(sim: &mut Sim, id: SuitId, r: usize, c: f32, crouch: bool
 
 #[test]
 fn melee_does_not_dig_the_rock_underfoot_unless_aimed_down() {
-    // Whether a saber swung aiming `c` (crouched or standing) cut the rock its Leo stands on.
+    // Whether a saber swung aiming `c` (crouched or standing) cut the rock its Argo stands on.
     let cuts = |c: f32, crouch: bool| {
         let mut sim = grip_sector();
         let (id, r) = on_a_rock(&mut sim);
@@ -1761,16 +1760,16 @@ fn digging_down_can_shatter_it_and_frees_the_suit() {
 }
 
 #[test]
-fn melee_between_riders_of_mo_ii_meets_as_seen() {
-    // Two Leos on the fore module's top, one facing the other's back `d` m ahead along the deck,
+fn melee_between_riders_of_fornax_meets_as_seen() {
+    // Two Argos on the fore module's top, one facing the other's back `d` m ahead along the deck,
     // both still. The first swings its saber (and lunges) with its pilot's view `rewind` ticks old.
     let hits = |d: f32, rewind: u32| {
         let mut sim = sector(2);
-        let a = on_mo_ii(&mut sim, FrameId::Leo, Vec3::new(230.0, 80.0, -40.0));
+        let a = on_fornax(&mut sim, FrameId::Argo, Vec3::new(230.0, 80.0, -40.0));
         let b = standing_on(
             &mut sim,
-            FrameId::Leo,
-            Faction::Oz,
+            FrameId::Argo,
+            Faction::Almagest,
             Body::Landmark(0),
             Vec3::new(230.0, 80.0, -40.0 + d),
         );
@@ -1814,11 +1813,11 @@ fn melee_between_riders_of_mo_ii_meets_as_seen() {
 
 #[test]
 fn spill_from_a_rider_lands_outside_its_body() {
-    // A Leo on Hermit's flank with a full hold, leaning back to aim straight up: behind it is into
+    // An Argo on Hermit's flank with a full hold, leaning back to aim straight up: behind it is into
     // the ground.
     let spills = |dies: bool| {
         let mut sim = grip_sector();
-        let id = on_hermit(&mut sim, FrameId::Leo, Vec3::new(0.3, 1.0, 0.2));
+        let id = on_hermit(&mut sim, FrameId::Argo, Vec3::new(0.3, 1.0, 0.2));
         let i = id.idx();
         let (n, _) = ground(&sim, id);
         for _ in 0..40 {
@@ -1830,8 +1829,8 @@ fn spill_from_a_rider_lands_outside_its_body() {
         if dies {
             sim.suits.part_hp[i][bc_proto::Part::Torso as usize] = 1.0;
             let at = sim.suits.flight[i].pos;
-            let leo = suit(&mut sim, FrameId::Leo, Faction::Oz, at + n * 300.0, -n);
-            one_beam(&mut sim, leo, id, 0);
+            let argo = suit(&mut sim, FrameId::Argo, Faction::Almagest, at + n * 300.0, -n);
+            one_beam(&mut sim, argo, id, 0);
             // Doomed, it holds on until its reactor goes.
             for _ in 0..bc_sim::sim::DOOM_TICKS {
                 drive(&mut sim, id, [0; 3], GRIP, n);
@@ -1868,25 +1867,25 @@ fn spill_from_a_rider_lands_outside_its_body() {
 // -------------------------------------------------------------------------------------------------
 
 #[test]
-fn dolls_hunt_riders_from_above_and_do_not_push_into_landmarks() {
-    use bc_sim::ai::{DOLL, drive as doll_drive};
+fn drones_hunt_riders_from_above_and_do_not_push_into_landmarks() {
+    use bc_sim::ai::{DRONE, drive as drone_drive};
     use bc_sim::perception::Perception;
 
     let mut sim = sector(2);
-    // A tough Leo on Hermit's flank.
-    let rider = on_hermit(&mut sim, FrameId::Leo, Vec3::new(0.3, 1.0, 0.2));
+    // A tough Argo on Hermit's flank.
+    let rider = on_hermit(&mut sim, FrameId::Argo, Vec3::new(0.3, 1.0, 0.2));
     let r = rider.idx();
     sim.suits.part_hp[r] = [1e9; bc_proto::Part::COUNT];
     let (n, _) = ground(&sim, rider);
     let at = sim.suits.flight[r].pos;
     let side = n.cross(Vec3::X).normalize();
-    // One doll level with it 1.4 km off along the ground, and one skimming the rock round the far
+    // One drone level with it 1.4 km off along the ground, and one skimming the rock round the far
     // side of it, 60 m up.
     let spawn = |sim: &mut Sim, pos: Vec3| {
         sim.spawn_at(
-            FrameId::Taurus,
-            Faction::Oz,
-            PilotKind::MobileDoll,
+            FrameId::Corvus,
+            Faction::Almagest,
+            PilotKind::Drone,
             pos,
             look_rotation(at - pos, Vec3::Y),
         )
@@ -1897,7 +1896,7 @@ fn dolls_hunt_riders_from_above_and_do_not_push_into_landmarks() {
     let skimmer = spawn(&mut sim, p + m * (STANCE + 60.0));
     for &d in &[level, skimmer] {
         let (_, pr) = landmark_probe(&sim, 1, sim.suits.flight[d.idx()].pos);
-        assert!(pr.dist > 50.0, "doll {} starts in the rock", d.idx());
+        assert!(pr.dist > 50.0, "Drone {} starts in the rock", d.idx());
     }
     let above = |sim: &Sim, d: SuitId| (sim.suits.flight[d.idx()].pos - at).dot(n);
     let hold = |sim: &mut Sim| {
@@ -1906,22 +1905,22 @@ fn dolls_hunt_riders_from_above_and_do_not_push_into_landmarks() {
         step(sim);
     };
     hold(&mut sim);
-    // The doll level with it is pushed up off the ground's plane there: its brain, given the rider
+    // The drone level with it is pushed up off the ground's plane there: its brain, given the rider
     // on the ground, and the same rider flying.
     assert!(above(&sim, level).abs() < 1.0);
     let mut p = Perception::default();
     sim.perceive_into(level.idx(), &mut p);
-    let c = *p.get(r as u16).expect("the doll sees the rider");
+    let c = *p.get(r as u16).expect("the drone sees the rider");
     assert!(c.surface_n.dot(n) > 0.999, "perception has it on the ground: {}", c.surface_n);
     let flying = bc_sim::perception::Contact { surface_n: Vec3::ZERO, ..c };
     let stick_up = |c: &bc_sim::perception::Contact| {
         let mut ai = sim.suits.ai[level.idx()];
-        let cmd = doll_drive(&p.me, Some(c), &mut ai, sim.tick(), &DOLL, frame(FrameId::Taurus));
+        let cmd = drone_drive(&p.me, Some(c), &mut ai, sim.tick(), &DRONE, frame(FrameId::Corvus));
         let [x, y, z] = cmd.thrust.map(|v| f32::from(v) / 127.0);
         (p.me.rot * Vec3::new(x, y, z)).dot(n)
     };
     assert!(stick_up(&c) > stick_up(&flying) + 0.5, "no push up off the ground's plane");
-    // Hunting it, neither doll's stick ever drives it into Hermit, and the one that was level with
+    // Hunting it, neither drone's stick ever drives it into Hermit, and the one that was level with
     // it ends over it.
     let mut hunted = false;
     for _ in 0..900 {
@@ -1932,34 +1931,34 @@ fn dolls_hunt_riders_from_above_and_do_not_push_into_landmarks() {
             if pr.dist - STANCE < 150.0 {
                 let [x, y, z] = sim.suits.input[d.idx()].thrust.map(|v| f32::from(v) / 127.0);
                 let into = (f.rot * Vec3::new(x, y, z)).dot(pr.normal);
-                assert!(into > -0.02, "doll {} pushed into Hermit ({into}) at {}", d.idx(), sim.tick());
+                assert!(into > -0.02, "Drone {} pushed into Hermit ({into}) at {}", d.idx(), sim.tick());
             }
             hunted |= sim.suits.ai[d.idx()].target == r as u16;
         }
     }
-    assert!(hunted, "the dolls never went for the rider");
-    assert!(above(&sim, level) > 60.0, "the doll level with it stayed level ({} m)", above(&sim, level));
+    assert!(hunted, "the drones never went for the rider");
+    assert!(above(&sim, level) > 60.0, "the drone level with it stayed level ({} m)", above(&sim, level));
 }
 
 #[test]
-fn zero_never_predicts_a_grounded_contact_into_its_surface() {
+fn orrery_never_predicts_a_grounded_contact_into_its_surface() {
+    use bc_sim::orrery::hypotheses::{Maneuver, accel, accel_on};
+    use bc_sim::orrery::local_oracle::{hypothesis_accels, own_maneuver_distribution};
+    use bc_sim::orrery::rollout::rollout;
     use bc_sim::perception::Perception;
-    use bc_sim::zero::hypotheses::{Maneuver, accel, accel_on};
-    use bc_sim::zero::local_oracle::{hypothesis_accels, own_maneuver_distribution};
-    use bc_sim::zero::rollout::rollout;
 
     let mut sim = sector(2);
-    // A Wing Zero on Hermit's flank, walking, and an OZ one 800 m over it with ZERO engaged.
-    let rider = on_hermit(&mut sim, FrameId::WingZero, Vec3::new(0.3, 1.0, 0.2));
+    // An Altair on Hermit's flank, walking, and an Almagest one 800 m over it with the Orrery engaged.
+    let rider = on_hermit(&mut sim, FrameId::Altair, Vec3::new(0.3, 1.0, 0.2));
     let r = rider.idx();
     let (n, _) = ground(&sim, rider);
     let at = sim.suits.flight[r].pos;
-    let watcher = suit(&mut sim, FrameId::WingZero, Faction::Oz, at + n * 800.0 + along(n) * 300.0, -n);
+    let watcher = suit(&mut sim, FrameId::Altair, Faction::Almagest, at + n * 800.0 + along(n) * 300.0, -n);
     for _ in 0..30 {
         let aim = (sim.suits.flight[watcher.idx()].pos - sim.suits.flight[r].pos).normalize();
         drive(&mut sim, rider, [0, 0, 127], GRIP, aim);
         let aim = (sim.suits.flight[r].pos - sim.suits.flight[watcher.idx()].pos).normalize();
-        drive(&mut sim, watcher, [0; 3], ZERO | FLIGHT_ASSIST, aim);
+        drive(&mut sim, watcher, [0; 3], ORRERY | FLIGHT_ASSIST, aim);
         step(&mut sim);
     }
     assert_eq!(sim.footing(r), Footing::Grounded);
@@ -1975,7 +1974,7 @@ fn zero_never_predicts_a_grounded_contact_into_its_surface() {
         }
     }
     // Flying, its Down would have gone into it.
-    let spec = frame(FrameId::WingZero);
+    let spec = frame(FrameId::Altair);
     let down = rollout(c.pos, c.vel, accel(spec, c.rot, Maneuver::Down));
     assert!(down.iter().any(|&q| height(q) < 0.0), "(the flying hypotheses keep out of it anyway)");
     // And the rider, told how to break by its own System, is never told to break into the ground.

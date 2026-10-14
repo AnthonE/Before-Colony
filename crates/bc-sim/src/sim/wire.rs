@@ -1,10 +1,10 @@
 //! Conversions from simulation state to the wire structs in `bc-proto`.
 
 use bc_proto::snapshot::{
-    OwnArms, TARGET_STAGGERED, ZERO_THREATS as WIRE_THREATS, ZeroThreat, ent_flags, footing, own_flags,
-    part_buckets, zero_mode,
+    ORRERY_THREATS as WIRE_THREATS, OrreryThreat, OwnArms, TARGET_STAGGERED, ent_flags, footing, orrery_mode,
+    own_flags, part_buckets,
 };
-use bc_proto::{EntityState, ObjectState, OwnState, OwnSurface, RiderOn, RockState, ZeroInfo};
+use bc_proto::{EntityState, ObjectState, OrreryInfo, OwnState, OwnSurface, RiderOn, RockState};
 use glam::Vec3;
 
 use super::Sim;
@@ -44,7 +44,7 @@ impl Sim {
         if wreck
             && s.respawn_at[j] != 0
             && self.tick() + 60 < s.respawn_at[j] + 60
-            && s.pilot[j] != bc_proto::PilotKind::MobileDoll
+            && s.pilot[j] != bc_proto::PilotKind::Drone
         {
             // Dead pilots waiting to respawn vanish after their wreck has been seen for a moment.
             if self.tick() > s.respawn_at[j].saturating_sub(crate::config::secs(self.cfg.respawn_secs) - 60) {
@@ -128,8 +128,8 @@ impl Sim {
         if s.parkable[i] != Body::None {
             flags |= own_flags::PARKABLE;
         }
-        if spec.zero || self.cfg.zero_on_all_frames {
-            flags |= own_flags::ZERO_CAPABLE;
+        if spec.orrery || self.cfg.orrery_on_all_frames {
+            flags |= own_flags::ORRERY_CAPABLE;
         }
         if s.input[i].pressed(bc_proto::buttons::FLIGHT_ASSIST) {
             flags |= own_flags::FLIGHT_ASSIST;
@@ -165,10 +165,10 @@ impl Sim {
         if self.transforming(i) {
             flags |= own_flags::TRANSFORMING;
         }
-        // The special's timer: a change of form, Full Open, or (the jammer) the break until it
+        // The special's timer: a change of form, Full Salvo, or (the jammer) the break until it
         // hides the suit again.
         let special_timer = match spec.special {
-            SpecialKind::HyperJammer { .. } => s.special[i].break_until.saturating_sub(t),
+            SpecialKind::Eclipse { .. } => s.special[i].break_until.saturating_sub(t),
             _ => u32::from(s.special[i].timer),
         };
         let respawn_in =
@@ -209,8 +209,8 @@ impl Sim {
             weapon_ready: ready,
             charge,
             parts: s.part_fractions(i),
-            zero_strain: s.zero[i].strain,
-            zero_mode: s.zero[i].mode,
+            orrery_strain: s.orrery[i].strain,
+            orrery_mode: s.orrery[i].mode,
             flags,
             systems: s.systems[i].0,
             modules: s.modules[i].0,
@@ -307,10 +307,8 @@ impl Sim {
                     s.energy[i] >= w.energy && w.melee.is_some_and(|m| self.melee_arms_ok(i, *mount, &m))
                 })
                 .map_or(OwnArms::NEVER, |_| cooldown),
-            SpecialKind::FullOpen { .. } => cooldown,
-            SpecialKind::HyperJammer { .. } | SpecialKind::Transform { .. } | SpecialKind::None => {
-                OwnArms::NEVER
-            }
+            SpecialKind::FullSalvo { .. } => cooldown,
+            SpecialKind::Eclipse { .. } | SpecialKind::Transform { .. } | SpecialKind::None => OwnArms::NEVER,
         };
         arms
     }
@@ -356,10 +354,10 @@ impl Sim {
         {
             flags |= ent_flags::CHARGING;
         }
-        if s.zero[j].active() {
-            flags |= ent_flags::ZERO;
+        if s.orrery[j].active() {
+            flags |= ent_flags::ORRERY;
         }
-        if s.zero[j].mode == zero_mode::SEIZED {
+        if s.orrery[j].mode == orrery_mode::SEIZED {
             flags |= ent_flags::SEIZED;
         }
         if s.overheated[j] {
@@ -390,9 +388,9 @@ impl Sim {
             flags |= ent_flags::LOCKED_ON_YOU;
         }
         // Allies see a jamming suit's shimmer; its enemies (close enough to see it at all) don't.
-        // Full Open shows to everyone.
+        // Full Salvo shows to everyone.
         if (self.jamming(j).is_some() && viewer.is_some_and(|v| s.faction[j] == s.faction[v]))
-            || self.full_open(j)
+            || self.full_salvo(j)
             || self.transforming(j)
         {
             flags |= ent_flags::SPECIAL;
@@ -444,14 +442,14 @@ impl Sim {
         RockState::new(i as u16, s.destroyed.get(i), s.hp[i] / max_hp(r), ore)
     }
 
-    /// What the ZERO System shows pilot `i` (only while engaged).
-    pub fn zero_info(&self, i: usize) -> Option<ZeroInfo> {
-        let z = &self.suits.zero[i];
+    /// What the Orrery shows pilot `i` (only while engaged).
+    pub fn orrery_info(&self, i: usize) -> Option<OrreryInfo> {
+        let z = &self.suits.orrery[i];
         if !z.active() || z.out.computed_at == 0 {
             return None;
         }
         let o = &z.out;
-        let mut info = ZeroInfo {
+        let mut info = OrreryInfo {
             source_jev: o.source_jev,
             advice_age: o.advice_age,
             threat_count: o.n_threats.min(WIRE_THREATS as u8),
@@ -465,10 +463,10 @@ impl Sim {
             has_solution: o.has_solution,
             solution: o.solution,
             hit_p: o.hit_p,
-            ..ZeroInfo::default()
+            ..OrreryInfo::default()
         };
         for k in 0..info.threat_count as usize {
-            info.threats[k] = ZeroThreat { slot: o.threats[k].slot, probs: o.threats[k].probs };
+            info.threats[k] = OrreryThreat { slot: o.threats[k].slot, probs: o.threats[k].probs };
         }
         Some(info)
     }

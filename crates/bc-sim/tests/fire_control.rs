@@ -2,7 +2,7 @@
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
 use bc_sim::math::Rng;
-use bc_sim::zero::fire_control::{intercept, miss_distance};
+use bc_sim::orrery::fire_control::{intercept, miss_distance};
 use glam::Vec3;
 
 #[test]

@@ -1,4 +1,4 @@
-//! Heavyarms' Full Open Attack: a SPECIAL press fires everything along the aim for three seconds,
+//! Antares' Full Salvo: a SPECIAL press fires everything along the aim for three seconds,
 //! heat or not (both launchers' salvos, the chest gatlings, the beam gatling); then the suit is
 //! locked in an overheat, and the attack is ready again only after its cooldown.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
@@ -12,7 +12,7 @@ use bc_sim::{Sim, SimConfig, SuitId};
 use glam::Vec3;
 
 fn empty() -> Sim {
-    Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() })
+    Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() })
 }
 
 fn suit(sim: &mut Sim, frame: FrameId, faction: Faction, pos: Vec3, facing: Vec3) -> SuitId {
@@ -30,18 +30,18 @@ fn hold(sim: &mut Sim, id: SuitId, buttons: u16) {
 const AT: Vec3 = Vec3::new(0.0, 1_000.0, 0.0);
 
 #[test]
-fn full_open_fires_everything_then_locks_the_suit_out() {
-    let SpecialKind::FullOpen { ticks, lockout, cooldown } = frame(FrameId::Heavyarms).special else {
-        panic!("Heavyarms' special is Full Open")
+fn full_salvo_fires_everything_then_locks_the_suit_out() {
+    let SpecialKind::FullSalvo { ticks, lockout, cooldown } = frame(FrameId::Antares).special else {
+        panic!("Antares' special is Full Salvo")
     };
     let mut sim = empty();
-    let ha = suit(&mut sim, FrameId::Heavyarms, Faction::Colonies, AT, Vec3::Z);
-    let watcher = suit(&mut sim, FrameId::Leo, Faction::Oz, AT + Vec3::Z * 800.0, -Vec3::Z);
+    let ha = suit(&mut sim, FrameId::Antares, Faction::Colonies, AT, Vec3::Z);
+    let watcher = suit(&mut sim, FrameId::Argo, Faction::Almagest, AT + Vec3::Z * 800.0, -Vec3::Z);
     assert!(sim.special_ready(ha.idx()));
     assert_ne!(sim.own_state(ha.idx()).weapon_ready & 8, 0);
     hold(&mut sim, ha, SPECIAL);
     sim.step();
-    assert!(sim.full_open(ha.idx()));
+    assert!(sim.full_salvo(ha.idx()));
     assert_eq!(sim.stats(ha.idx()).specials, 1);
     assert_ne!(sim.own_state(ha.idx()).flags & own_flags::SPECIAL_ACTIVE, 0);
     assert_ne!(sim.entity_state(ha.idx(), watcher.idx()).flags & ent_flags::SPECIAL, 0, "the hatches show");
@@ -52,8 +52,8 @@ fn full_open_fires_everything_then_locks_the_suit_out() {
         sim.step();
         peak_missiles = peak_missiles.max(sim.missiles.count());
     }
-    assert!(!sim.full_open(ha.idx()));
-    let spec = frame(FrameId::Heavyarms);
+    assert!(!sim.full_salvo(ha.idx()));
+    let spec = frame(FrameId::Antares);
     // Every launcher fires a salvo each time it's cooled, as far as its rounds go.
     let missiles: usize = spec
         .loadout
@@ -91,26 +91,26 @@ fn full_open_fires_everything_then_locks_the_suit_out() {
     assert!(sim.special_ready(ha.idx()));
     hold(&mut sim, ha, SPECIAL);
     sim.step();
-    assert!(sim.full_open(ha.idx()));
+    assert!(sim.full_salvo(ha.idx()));
 }
 
-/// Titanfall's Core (`content::specials`): Full Open charges back by itself over its cooldown, and
+/// Titanfall's Core (`content::specials`): Full Salvo charges back by itself over its cooldown, and
 /// faster from the fight, from blows dealt and from blows taken, though not from its own barrage.
 #[test]
-fn the_fight_charges_full_open_back() {
+fn the_fight_charges_full_salvo_back() {
     use bc_proto::{Part, WeaponKind};
     use bc_sim::content::specials::{DEALT_FULL, TAKEN_FULL};
-    let SpecialKind::FullOpen { ticks, lockout, cooldown } = frame(FrameId::Heavyarms).special else {
-        panic!("Heavyarms' special is Full Open")
+    let SpecialKind::FullSalvo { ticks, lockout, cooldown } = frame(FrameId::Antares).special else {
+        panic!("Antares' special is Full Salvo")
     };
     let mut sim = empty();
-    let ha = suit(&mut sim, FrameId::Heavyarms, Faction::Colonies, AT, Vec3::Z);
-    let leo = suit(&mut sim, FrameId::Leo, Faction::Oz, AT + Vec3::Z * 800.0, -Vec3::Z);
-    for id in [ha, leo] {
+    let ha = suit(&mut sim, FrameId::Antares, Faction::Colonies, AT, Vec3::Z);
+    let argo = suit(&mut sim, FrameId::Argo, Faction::Almagest, AT + Vec3::Z * 800.0, -Vec3::Z);
+    for id in [ha, argo] {
         sim.suits.part_hp[id.idx()][Part::Torso as usize] = 1.0e6;
     }
     assert_eq!(sim.own_state(ha.idx()).special_charge, 255, "it launches charged");
-    // Its barrage, then its lockout: the Leo takes everything, and the attack charges nothing.
+    // Its barrage, then its lockout: the Argo takes everything, and the attack charges nothing.
     hold(&mut sim, ha, SPECIAL);
     sim.step();
     for _ in 0..ticks + lockout {
@@ -120,17 +120,17 @@ fn the_fight_charges_full_open_back() {
     assert!(sim.stats(ha.idx()).damage_dealt > 100.0, "the barrage hit");
     let left = sim.suits.special[ha.idx()].cooldown;
     assert_eq!(left, cooldown - ticks - lockout, "only the time gone by");
-    // A blow dealt: its share of the whole comes off (a Leo's armour takes all of it).
+    // A blow dealt: its share of the whole comes off (an Argo's armour takes all of it).
     let i = ha.idx();
-    sim.strike(leo.idx(), Part::Torso, 90.0, i, WeaponKind::BeamGatling);
+    sim.strike(argo.idx(), Part::Torso, 90.0, i, WeaponKind::BeamGatling);
     hold(&mut sim, ha, 0);
     sim.step();
     let dealt = (90.0 / DEALT_FULL * f32::from(cooldown)) as u16;
     assert_eq!(sim.suits.special[i].cooldown, left - 1 - dealt);
-    // A blow taken counts for more (gundanium turns most of it).
+    // A blow taken counts for more (siderium turns most of it).
     let left = sim.suits.special[i].cooldown;
-    let armour = frame(FrameId::Heavyarms).armor;
-    sim.strike(i, Part::ArmL, 100.0, leo.idx(), WeaponKind::BeamRifle);
+    let armour = frame(FrameId::Antares).armor;
+    sim.strike(i, Part::ArmL, 100.0, argo.idx(), WeaponKind::BeamRifle);
     hold(&mut sim, ha, 0);
     sim.step();
     let taken = (100.0 * armour / TAKEN_FULL * f32::from(cooldown)) as u16;
@@ -142,7 +142,7 @@ fn the_fight_charges_full_open_back() {
     assert!(charge > 0 && charge < 255 && sim.own_state(i).weapon_ready & 8 == 0);
     // ...and a hard fight charges it in full, long before its time.
     for _ in 0..4 {
-        sim.strike(leo.idx(), Part::Torso, 120.0, i, WeaponKind::BeamGatling);
+        sim.strike(argo.idx(), Part::Torso, 120.0, i, WeaponKind::BeamGatling);
         hold(&mut sim, ha, 0);
         sim.step();
     }

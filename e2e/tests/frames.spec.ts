@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { bc, collectConsole, luminanceStdDev } from "./util";
 
-// Every Gundam in a real browser against the server's Mobile Dolls: the kit-aware autopilot
+// Every Lodestar in a real browser against the server's drones: the kit-aware autopilot
 // (`?autopilot=1`) flies each frame for up to three minutes, until the server's counters and the
 // client's show its mechanics at work. One page at a time, small and at low quality, since
 // SwiftShader renders a frame or two a second.
@@ -13,34 +13,34 @@ type Status = Record<string, any>;
 // [frame slug, what the server must count for it, what the client must have seen].
 const frames: Array<[string, (p: Pilot) => boolean, (s: Status) => boolean, string]> = [
   [
-    "heavyarms",
+    "antares",
     (p) => p.specials >= 1 && p.missiles >= 4 && p.hits >= 1,
     (s) => s.missiles_seen >= 1 && s.locks_acquired >= 1,
-    "Full Open, 4+ missiles and a hit; missiles seen and a lock acquired",
+    "Full Salvo, 4+ missiles and a hit; missiles seen and a lock acquired",
   ],
   [
-    "deathscythe",
+    "algol",
     (p) => p.specials >= 1 && p.hits_by_class.melee >= 1,
     (s) => s.jamming_seen >= 1,
     "jammed and reaped; the jammer seen",
   ],
   [
-    "sandrock",
+    "canopus",
     (p) => p.missiles >= 2 && p.hits_by_class.missile + p.hits_by_class.melee >= 1,
     (s) => s.missiles_seen >= 1,
-    "2+ missiles and a missile or shotel hit; missiles seen",
+    "2+ missiles and a missile or blade hit; missiles seen",
   ],
   [
-    "shenlong",
+    "thuban",
     (p) => p.hits_by_class.melee + p.hits_by_class.cone >= 1,
     (s) => s.hits_melee + s.hits_cone >= 1,
     "a fang, glaive or flame hit, on both sides",
   ],
   [
-    "wingzero",
+    "altair",
     (p) => p.specials >= 2 && p.hits >= 1,
-    (s) => s.transforms >= 2 && s.zero_ghosts > 0,
-    "out as Neo-Bird and back, and a hit; ZERO's futures drawn",
+    (s) => s.transforms >= 2 && s.orrery_ghosts > 0,
+    "out as Aquila and back, and a hit; the Orrery's futures drawn",
   ],
 ];
 
@@ -78,7 +78,7 @@ for (const [slug, server, client, what] of frames) {
     console.log(`${slug}: inputs ${g.inputs}, stale ${g.inputs_stale}, missing ${g.inputs_missing}`);
     console.log(`${slug}: client ${JSON.stringify(seen)}`);
     if (!done) console.log(logs.slice(-30).join("\n"));
-    expect(final?.frame === slug || (slug === "wingzero" && final?.frame === "neobird")).toBe(true);
+    expect(final?.frame === slug || (slug === "altair" && final?.frame === "aquila")).toBe(true);
     expect(done).toBe(true);
     expect(status.game.hot_path_allocations).toBe(0);
     expect(seen.max_snapshot).toBeLessThanOrEqual(1100);

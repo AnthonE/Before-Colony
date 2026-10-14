@@ -120,14 +120,14 @@ fn finish(look: Look) -> (u8, bool) {
         Look::Floor => (paint::GUNMETAL, false),
         Look::Ceiling => (paint::HULL_DARK, false),
         Look::Wall => (paint::HULL, false),
-        Look::BayDoor | Look::AirlockDoor => (paint::OZ_GREY, false),
+        Look::BayDoor | Look::AirlockDoor => (paint::ALMAGEST_GREY, false),
         Look::Catwalk | Look::Stair => (paint::GUNMETAL, true),
         Look::Rail => (paint::YELLOW, false),
         Look::Pillar => (paint::YELLOW, false),
-        Look::Machine => (paint::OZ_GREY, false),
+        Look::Machine => (paint::ALMAGEST_GREY, false),
         Look::Rack => (paint::HULL_DARK, true),
         Look::Console => (paint::DARK, false),
-        Look::Crate => (paint::VIRGO_OLIVE, false),
+        Look::Crate => (paint::CETUS_OLIVE, false),
         Look::Suit => (paint::DARK, false),
     }
 }
@@ -223,7 +223,7 @@ pub fn setup_bay(
             .spawn((
                 Mesh3d(cube.clone()),
                 MeshMaterial3d(plating.clone()),
-                HullTag::paint(paint::OZ_GREY, if side < 0.0 { 11 } else { 12 }).tag(),
+                HullTag::paint(paint::ALMAGEST_GREY, if side < 0.0 { 11 } else { 12 }).tag(),
                 Transform::from_translation(at).with_scale(size),
                 ChildOf(root),
             ))
@@ -467,7 +467,7 @@ pub fn setup_bay(
     for level in 0..3 {
         for k in 0..8 {
             shade = shade.wrapping_add(29);
-            let paint = [paint::VIRGO_OLIVE, paint::ALLIANCE_TAN, paint::OZ_GREY, paint::TAURUS_BLUE]
+            let paint = [paint::CETUS_OLIVE, paint::ALLIANCE_TAN, paint::ALMAGEST_GREY, paint::CORVUS_BLUE]
                 [(shade % 4) as usize];
             let z = -17.2 + k as f32 * 1.45;
             let y = 0.55 + level as f32 * 1.35;

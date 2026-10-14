@@ -134,9 +134,9 @@ impl ParkedSuit {
     pub fn record(&self) -> Option<ParkRecord> {
         let frame = FrameId::from_slug(&self.frame)?;
         let faction = match self.faction.as_str() {
-            // Nobody flies for the Dolls' side (`net::game`'s `side`): one kept from before that
-            // was so comes back for the Colonies.
-            "oz" | "colonies" => Faction::Colonies,
+            // Nobody flies for the drones' side (`net::game`'s `side`): one kept from before that
+            // was so comes back for the Colonies ("oz" is what records from before 2026-10-14 say).
+            "almagest" | "oz" | "colonies" => Faction::Colonies,
             "alliance" => Faction::Alliance,
             _ => return None,
         };
@@ -169,7 +169,7 @@ impl ParkedSuit {
 
 fn faction_slug(f: Faction) -> &'static str {
     match f {
-        Faction::Oz => "oz",
+        Faction::Almagest => "almagest",
         Faction::Colonies => "colonies",
         Faction::Alliance => "alliance",
     }
@@ -705,8 +705,8 @@ mod tests {
         assert_eq!(p.suit_gone((12, 2)), None, "another occupant of the slot");
         assert_eq!(p.suit_gone((12, 3)), Some(a));
         assert_eq!(p.suit_gone((12, 3)), None, "once");
-        p.tell(a, Fate::Destroyed { by: "Zechs".into() });
-        assert_eq!(p.take_news(&a), Some(Fate::Destroyed { by: "Zechs".into() }));
+        p.tell(a, Fate::Destroyed { by: "Viktor".into() });
+        assert_eq!(p.take_news(&a), Some(Fate::Destroyed { by: "Viktor".into() }));
         assert_eq!(p.take_news(&a), None);
     }
 
@@ -747,17 +747,17 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
-    fn hidden_heavyarms() -> ParkRecord {
+    fn hidden_antares() -> ParkRecord {
         ParkRecord {
             landmark: 1,
             local: Vec3::new(0.1, 596.0, -0.3),
             rot: Quat::from_xyzw(0.1, 0.7, -0.1, 0.7).normalize(),
             stance: 6.0,
-            frame: FrameId::Heavyarms,
+            frame: FrameId::Antares,
             faction: Faction::Alliance,
             pilot: PilotKind::Agent,
             home: Homecoming {
-                frame: FrameId::Heavyarms,
+                frame: FrameId::Antares,
                 parts: [1.0, 0.8, 0.0, 0.5, 1.0, 0.25],
                 mounts: 0b101,
                 ammo: [3, 0, 77],
@@ -777,7 +777,7 @@ mod tests {
 
     #[test]
     fn a_parked_suit_is_kept_as_the_sector_recorded_it() {
-        let rec = hidden_heavyarms();
+        let rec = hidden_antares();
         let mut r = PilotRecord::new(&Address([10; 20]));
         r.parked = Some(ParkedSuit::new(&rec, 77));
         let again: PilotRecord = serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
@@ -788,11 +788,13 @@ mod tests {
         old.as_object_mut().unwrap().remove("parked");
         assert_eq!(serde_json::from_value::<PilotRecord>(old).unwrap().parked, None);
         // A frame or a side there isn't: nothing to put back.
-        let odd = ParkedSuit { faction: "zeon".into(), ..ParkedSuit::new(&rec, 77) };
+        let odd = ParkedSuit { faction: "nobody".into(), ..ParkedSuit::new(&rec, 77) };
         assert_eq!(odd.record(), None);
-        // Nobody flies for the Dolls' side: one kept from before that comes back for the Colonies.
-        let oz = ParkedSuit { faction: "oz".into(), ..ParkedSuit::new(&rec, 77) };
-        assert_eq!(oz.record().map(|r| r.faction), Some(Faction::Colonies));
+        // Nobody flies for the drones' side: one kept from before that comes back for the Colonies.
+        let almagest = ParkedSuit { faction: "almagest".into(), ..ParkedSuit::new(&rec, 77) };
+        assert_eq!(almagest.record().map(|r| r.faction), Some(Faction::Colonies));
+        let old_side = ParkedSuit { faction: "oz".into(), ..ParkedSuit::new(&rec, 77) };
+        assert_eq!(old_side.record().map(|r| r.faction), Some(Faction::Colonies));
     }
 
     #[test]
@@ -809,7 +811,7 @@ mod tests {
 
     /// `a`'s record, saying their suit `suit` of this run is asleep in a hide spot as of `tick`.
     async fn left_hidden(p: &Pilots, a: Address, suit: (u16, u16), tick: u32) -> ParkRecord {
-        let rec = hidden_heavyarms();
+        let rec = hidden_antares();
         let mut r = p.load_or_new(&a).await;
         r.sleeper = Some(Sleeper { run: p.run, suit: suit.0, generation: suit.1, since_unix: 50 });
         r.parked = Some(ParkedSuit { tick, ..ParkedSuit::new(&rec, 50) });
@@ -852,7 +854,7 @@ mod tests {
         let p = pilots();
         let a = Address([12; 20]);
         let claim = p.claim(a).await;
-        let rec = hidden_heavyarms();
+        let rec = hidden_antares();
         p.apply_park_news(a, ParkNews::Hit { suit: (40, 2), tick: 130, rec }).await;
         p.apply_park_news(a, ParkNews::Gone { suit: (40, 2) }).await;
         left_hidden(&p, a, (40, 2), 100).await;
@@ -875,7 +877,7 @@ mod tests {
     fn a_suit_put_back_but_gone_before_it_was_bound_is_not_bound() {
         let p = pilots();
         let a = Address([13; 20]);
-        let fate = Fate::Destroyed { by: "Zechs".into() };
+        let fate = Fate::Destroyed { by: "Viktor".into() };
         // The sector reports it gone before the server has bound its pilot to it.
         assert_eq!(p.sleeper_gone((40, 2), fate.clone()), None);
         assert_eq!(p.bind_restored((40, 2), a), Err(fate));

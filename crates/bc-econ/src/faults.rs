@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use bc_proto::{FrameId, Part};
-use bc_sim::content::salvage::is_gundam;
+use bc_sim::content::salvage::is_lodestar;
 use bc_sim::content::systems::{DAMAGED, FAILED, OK};
 use bc_sim::content::{System, Systems};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -74,7 +74,7 @@ impl Faults {
 }
 
 /// What restoring `sys` of a `line` suit from `level` to working takes: machined components and
-/// electronics (twice and a half as much for a failed one), and a Gundam's exotic metals.
+/// electronics (twice and a half as much for a failed one), and a Lodestar's exotic metals.
 pub fn overhaul_cost(line: FrameId, level: u8) -> Vec<(Item, u64)> {
     let (components, electronics, exotics) = match level {
         DAMAGED => (20, 5, 5),
@@ -82,7 +82,7 @@ pub fn overhaul_cost(line: FrameId, level: u8) -> Vec<(Item, u64)> {
         _ => return Vec::new(),
     };
     let mut v = vec![(COMPONENTS, components), (ELECTRONICS, electronics)];
-    if is_gundam(line) {
+    if is_lodestar(line) {
         v.push((EXOTICS, exotics));
     }
     v
@@ -156,11 +156,11 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_system_costs_more_to_restore_and_a_gundams_more_still() {
-        let leo = overhaul_cost(FrameId::Leo, DAMAGED);
-        let worse = overhaul_cost(FrameId::Leo, FAILED);
-        assert!(worse[0].1 > leo[0].1);
-        assert!(overhaul_cost(FrameId::WingZero, DAMAGED).len() > leo.len());
-        assert!(overhaul_cost(FrameId::Leo, OK).is_empty());
+    fn a_failed_system_costs_more_to_restore_and_a_lodestars_more_still() {
+        let argo = overhaul_cost(FrameId::Argo, DAMAGED);
+        let worse = overhaul_cost(FrameId::Argo, FAILED);
+        assert!(worse[0].1 > argo[0].1);
+        assert!(overhaul_cost(FrameId::Altair, DAMAGED).len() > argo.len());
+        assert!(overhaul_cost(FrameId::Argo, OK).is_empty());
     }
 }

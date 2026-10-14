@@ -4,7 +4,7 @@
 //!   with the suit as drawn, so it sits still at any cruising speed and swings only with
 //!   acceleration and turns (`bc_client_core::chase`, exact at any frame rate);
 //! - the cockpit (first person): the view from the head's main camera, which is what the cockpit's
-//!   monitors show, riding the head as it turns (the head itself isn't drawn; Neo-Bird's looks out
+//!   monitors show, riding the head as it turns (the head itself isn't drawn; Aquila's looks out
 //!   over its nose). A wreck is watched from the chase camera, which keeps pace all along so the
 //!   switch between them is a clean cut. With the head shot off, the sub-camera's picture is
 //!   duller;
@@ -13,11 +13,11 @@
 //!   (`bc_client_core::chase::reach`, `bc_client_core::surface::camera_clamp`, the bodies as
 //!   drawn). From the cockpit the walk bobs the eye a little (30% of the hips'
 //!   drop), for comfort;
-//! - the field of view widens on boost, and blasts, hits and the Twin Buster Rifle shake it;
+//! - the field of view widens on boost, and blasts, hits and the Heavy Beam Rifle shake it;
 //! - G-strain greys the view out and closes it to a tunnel, and a blackout (G-LOC) takes it to
 //!   black;
 //! - a hit flashes the edges red;
-//! - ZERO tints the view while it's engaged (`zero_vision`); a seizure warps, fringes and tears it.
+//! - The Orrery tints the view while it's engaged (`orrery_vision`); a seizure warps, fringes and tears it.
 //!
 //! The field of view and how much shake, kicks and warps to keep are the pilot's (`ViewPrefs`);
 //! `?calm=1`, or the browser's reduced-motion setting, starts them turned down.
@@ -34,9 +34,9 @@ use bevy::render::view::ColorGrading;
 use crate::anim::Anim;
 use crate::damage::Damage;
 use crate::model::SuitMeshLib;
+use crate::orrery_vision::OrreryVision;
 use crate::suits_vis::{SuitBone, SuitVisual};
 use crate::view::{CameraTarget, DrawnBodies, FxEvent, FxEvents, SuitDrive, ViewPrefs, VisTime};
-use crate::zero_vision::ZeroVision;
 
 #[derive(Component)]
 pub struct MainCamera;
@@ -62,9 +62,9 @@ pub struct Chase {
     trauma: f32,
     /// The red flash of a hit, 0..1.
     flash: f32,
-    /// Blackout, ZERO engaged and seizure, each eased 0..1.
+    /// Blackout, the Orrery engaged and seizure, each eased 0..1.
     black: f32,
-    zero: f32,
+    orrery: f32,
     seizure: f32,
     /// Looking out of the cockpit this frame, and whether the head (its main camera) is gone.
     cockpit: bool,
@@ -205,12 +205,12 @@ pub fn follow(
             FxEvent::Struck { weapon } => {
                 c.flash = 1.0;
                 match weapon {
-                    WeaponKind::TwinBusterRifle => 0.9,
+                    WeaponKind::HeavyBeamRifle => 0.9,
                     WeaponKind::BeamRifleCharged => 0.6,
                     _ => 0.35,
                 }
             }
-            FxEvent::Muzzle { pos, weapon: WeaponKind::TwinBusterRifle, .. } => 0.6 * near(pos, 60.0, 900.0),
+            FxEvent::Muzzle { pos, weapon: WeaponKind::HeavyBeamRifle, .. } => 0.6 * near(pos, 60.0, 900.0),
             FxEvent::Clash { pos, .. } => 0.4 * near(pos, 40.0, 400.0),
             FxEvent::RockBreak { pos, radius, .. } => 0.7 * near(pos, radius * 2.0, radius * 40.0),
             FxEvent::MissileBurst { pos, struck, .. } => {
@@ -261,7 +261,7 @@ fn smoothstep(lo: f32, hi: f32, x: f32) -> f32 {
 }
 
 /// The pilot's body on the picture: G-strain greying the view out, tunnel vision and blackout; a
-/// red flash when hit; ZERO's vision, and its seizure's warp and colour fringes. On tiers with
+/// red flash when hit; the Orrery's vision, and its seizure's warp and colour fringes. On tiers with
 /// post effects (the components are there only then).
 #[allow(clippy::type_complexity)]
 pub fn pilot_effects(
@@ -276,12 +276,12 @@ pub fn pilot_effects(
             Option<&mut ChromaticAberration>,
             Option<&mut LensDistortion>,
             Option<&mut ColorGrading>,
-            Option<&mut ZeroVision>,
+            Option<&mut OrreryVision>,
         ),
         With<MainCamera>,
     >,
 ) {
-    let Ok((vignette, aberration, lens, grading, zero)) = cam.single_mut() else { return };
+    let Ok((vignette, aberration, lens, grading, orrery)) = cam.single_mut() else { return };
     let dt = time.dt.min(0.1);
     let calm = motion(&prefs);
     let t = target.0.unwrap_or_default();
@@ -291,7 +291,7 @@ pub fn pilot_effects(
         |x: &mut f32, to: f32, rate: f32| *x += (to - *x) * if cut { 1.0 } else { 1.0 - (-rate * dt).exp() };
     // Blacking out takes a moment; coming back takes longer.
     ease(&mut c.black, if t.blackout { 1.0 } else { 0.0 }, if t.blackout { 3.0 } else { 0.8 });
-    ease(&mut c.zero, if t.zero || t.seized { 1.0 } else { 0.0 }, 2.0);
+    ease(&mut c.orrery, if t.orrery || t.seized { 1.0 } else { 0.0 }, 2.0);
     ease(&mut c.seizure, if t.seized { 1.0 } else { 0.0 }, 5.0);
     let sub = if c.sub_camera() { 1.0 } else { 0.0 };
     ease(&mut c.sub, sub, 4.0);
@@ -317,7 +317,7 @@ pub fn pilot_effects(
         g.global.exposure = base.exposure - 1.2 * grey - 8.0 * c.black * c.black;
     }
     if let Some(mut a) = aberration {
-        a.intensity = (0.05 * c.seizure + 0.008 * c.zero * t.zero_strain + 0.02 * c.sub) * calm;
+        a.intensity = (0.05 * c.seizure + 0.008 * c.orrery * t.orrery_strain + 0.02 * c.sub) * calm;
     }
     if let Some(mut l) = lens {
         // In a seizure the view breathes in and out.
@@ -325,9 +325,9 @@ pub fn pilot_effects(
         l.intensity = c.seizure * calm * (0.1 + 0.12 * pulse);
         l.scale = 1.0 + 0.2 * l.intensity.abs();
     }
-    if let Some(mut z) = zero {
-        z.engaged = c.zero;
-        z.strain = t.zero_strain;
+    if let Some(mut z) = orrery {
+        z.engaged = c.orrery;
+        z.strain = t.orrery_strain;
         z.seizure = c.seizure * calm;
         z.time = (time.now % 1_000.0) as f32;
         z.flicker = if prefs.flashing { 1.0 } else { 0.0 };

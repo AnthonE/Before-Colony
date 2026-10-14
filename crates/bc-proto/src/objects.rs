@@ -324,7 +324,7 @@ mod tests {
     #[test]
     fn records_round_trip() {
         let desc = ChunkDesc {
-            kind: ChunkKind::Hulk { frame: FrameId::Virgo, faction: Faction::Alliance, parts: 0b10_1011 },
+            kind: ChunkKind::Hulk { frame: FrameId::Cetus, faction: Faction::Alliance, parts: 0b10_1011 },
             seed: 200,
             mass_kg: 9_310,
         };
@@ -344,7 +344,7 @@ mod tests {
             generation: 1,
             desc: ChunkDesc {
                 kind: ChunkKind::Limb {
-                    frame: FrameId::WingZero,
+                    frame: FrameId::Altair,
                     faction: Faction::Colonies,
                     part: Part::ArmR,
                 },

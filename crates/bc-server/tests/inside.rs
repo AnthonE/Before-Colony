@@ -32,21 +32,21 @@ fn config() -> anyhow::Result<Config> {
         colony: true,
         wt_port: 0,
         http_addr: "127.0.0.1:0".parse()?,
-        mobile_dolls: 0,
+        drones: 0,
         max_clients: 8,
         ..Config::default()
     })
 }
 
 fn bot(http: &str, name: &str) -> BotConfig {
-    BotConfig { server: http.into(), name: name.into(), frame: FrameId::Leo, faction: Faction::Colonies }
+    BotConfig { server: http.into(), name: name.into(), frame: FrameId::Argo, faction: Faction::Colonies }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_suit_flies_into_the_colony_and_docks_back_out() -> anyhow::Result<()> {
     let server = bc_server::start(config()?).await?;
     let http = format!("http://{}", server.http_addr);
-    let mut b = BotClient::connect(&bot(&http, "Quatre")).await?;
+    let mut b = BotClient::connect(&bot(&http, "Rafi")).await?;
     b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
     let hangar_slot = b.core.welcome.unwrap().client_slot;
 
@@ -127,7 +127,7 @@ async fn a_suit_inside_and_the_people_below_see_each_other_on_one_clock() -> any
     let server = bc_server::start(config()?).await?;
     let http = format!("http://{}", server.http_addr);
     // Someone strolling outside Hub Gate's door on the Charter strip.
-    let mut walker = BotClient::connect(&bot(&http, "Relena")).await?;
+    let mut walker = BotClient::connect(&bot(&http, "Maren")).await?;
     walker.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar()).await?;
     walker.enter_city(0).await?;
     let ((s, x), (ds, dx)) = place_door(&PLACES[0]);
@@ -138,7 +138,7 @@ async fn a_suit_inside_and_the_people_below_see_each_other_on_one_clock() -> any
     walker.set_pose(pose);
 
     // A suit in by the inner gate: the inside's sector keeps space's tick.
-    let mut pilot = BotClient::connect(&bot(&http, "Quatre")).await?;
+    let mut pilot = BotClient::connect(&bot(&http, "Rafi")).await?;
     pilot.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
     pilot.launch_inside().await?;
     let status = server.status();
@@ -153,7 +153,7 @@ async fn a_suit_inside_and_the_people_below_see_each_other_on_one_clock() -> any
         let own = pilot.world().own.expect("own suit");
         pilot.step(&mut |_| toward(&own, over, 150.0)).await?;
         walker.step(&mut |_| InputCmd::default()).await?;
-        if let Some(p) = pilot.people().into_iter().find(|p| p.1 == "Relena") {
+        if let Some(p) = pilot.people().into_iter().find(|p| p.1 == "Maren") {
             seen = Some(p);
             break;
         }
@@ -170,7 +170,7 @@ async fn a_suit_inside_and_the_people_below_see_each_other_on_one_clock() -> any
         .await?;
     let watched: Vec<_> = walker.world().entities.iter().flatten().map(|t| t.latest).collect();
     let own = pilot.world().own.expect("own suit");
-    assert_eq!(watched[0].frame, FrameId::Leo);
+    assert_eq!(watched[0].frame, FrameId::Argo);
     assert!(watched[0].pos.distance(own.pos) < 60.0, "{} vs {}", watched[0].pos, own.pos);
     assert!(walker.world().own.is_none(), "no suit of their own");
     assert_eq!(server.status()["game"]["inside"]["watchers"], 1);
@@ -204,7 +204,7 @@ async fn a_suit_inside_lands_on_the_avenue_and_walks_it() -> anyhow::Result<()> 
     w.grounded = true;
     walker.set_pose(pose_of(0, &w));
 
-    let mut b = BotClient::connect(&bot(&http, "Trowa")).await?;
+    let mut b = BotClient::connect(&bot(&http, "Tomas")).await?;
     b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
     b.launch_inside().await?;
 
@@ -319,14 +319,14 @@ async fn a_pilot_who_leaves_inside_finds_the_suit_towed_home() -> anyhow::Result
     let mut secret = [0u8; 32];
     secret[31] = 9;
     let wallet = LocalWallet::from_secret(&secret).expect("a valid key");
-    let mut b = BotClient::connect_as(&bot(&http, "Wufei"), Some(&wallet)).await?;
+    let mut b = BotClient::connect_as(&bot(&http, "Lin"), Some(&wallet)).await?;
     b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
     b.launch_inside().await?;
     b.close().await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     let status = server.status();
     assert_eq!(status["game"]["inside"]["suits"], 0, "{}", status["game"]["inside"]);
-    let mut b = BotClient::connect_as(&bot(&http, "Wufei"), Some(&wallet)).await?;
+    let mut b = BotClient::connect_as(&bot(&http, "Lin"), Some(&wallet)).await?;
     b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
     assert!(matches!(b.core.hangar.view.as_ref().unwrap().bay, Bay::Docked { .. }), "towed home");
     assert!(!b.core.welcome.unwrap().interior);
@@ -336,7 +336,7 @@ async fn a_pilot_who_leaves_inside_finds_the_suit_towed_home() -> anyhow::Result
     b.wait_until(5.0, "word of the tugs", towed).await?;
     b.close().await;
     tokio::time::sleep(Duration::from_millis(500)).await;
-    let mut b = BotClient::connect_as(&bot(&http, "Wufei"), Some(&wallet)).await?;
+    let mut b = BotClient::connect_as(&bot(&http, "Lin"), Some(&wallet)).await?;
     b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
     b.run_for(Duration::from_millis(500), &mut |_| InputCmd::default()).await?;
     assert!(!towed(&b.core), "told twice: {:?}", b.core.hangar.news);

@@ -1,5 +1,5 @@
 //! The owner's prediction flies the suit the server flies through strikes and their lunges, busy
-//! arms, charged shots (the Twin Buster's, and the beam rifle's held and let go), missile salvos, Full Open and changes of form: seeded from any snapshot, it
+//! arms, charged shots (the heavy beam rifle's, and the beam rifle's held and let go), missile salvos, Full Salvo and changes of form: seeded from any snapshot, it
 //! replays the pilot's commands and its arms keep time with the server's, tick after tick.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
@@ -37,7 +37,7 @@ fn held(t: u32, period: u32, windows: &[(u32, u32)]) -> bool {
 
 /// The pilot's buttons at tick `t` for `f`: every weapon, pressed and held in overlapping rhythms
 /// (a strike asked for while another's under way, fire held through a strike), the special, and
-/// for Wing Zero a change of form mid-strike and mid-charge.
+/// for Altair a change of form mid-strike and mid-charge.
 fn buttons(f: FrameId, t: u32) -> u16 {
     let mut b = FLIGHT_ASSIST;
     let on = |cond: bool, bit: u16| if cond { bit } else { 0 };
@@ -47,12 +47,12 @@ fn buttons(f: FrameId, t: u32) -> u16 {
     b |= on(held(t, 53, &[(5, 6), (20, 31), (44, 45)]), MELEE);
     b |= on(held(t, 131, &[(60, 62)]), BOOST);
     match f {
-        // A strike and a charge dropped by a change of form, then flown as the Neo-Bird a while.
-        FrameId::WingZero => b |= on((250..400).contains(&t), MODE),
-        // Full Open, and a press while it's cooling down.
-        FrameId::Heavyarms => b |= on(t == 100 || t == 300, SPECIAL),
-        // The Cross Crusher, twice (the second while it's cooling down), and one mid-strike.
-        FrameId::Sandrock => b |= on(t == 80 || t == 200 || t == 400 || t == 457, SPECIAL),
+        // A strike and a charge dropped by a change of form, then flown as the Aquila a while.
+        FrameId::Altair => b |= on((250..400).contains(&t), MODE),
+        // Full Salvo, and a press while it's cooling down.
+        FrameId::Antares => b |= on(t == 100 || t == 300, SPECIAL),
+        // The Pincer Strike, twice (the second while it's cooling down), and one mid-strike.
+        FrameId::Canopus => b |= on(t == 80 || t == 200 || t == 400 || t == 457, SPECIAL),
         _ => {}
     }
     b
@@ -84,7 +84,7 @@ struct Flown {
 }
 
 fn fly(f: FrameId) -> Flown {
-    let mut sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
+    let mut sim = Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() });
     let id = sim
         .spawn_at(
             f,
@@ -117,14 +117,15 @@ fn fly(f: FrameId) -> Flown {
 
 /// Whether tick `t` held nothing a client can't foresee: no mount started or stopped waiting on
 /// what isn't sent (energy, ammunition, a limb), and no overheat came or went but the lockout
-/// after Full Open.
+/// after Full Salvo.
 fn foreseeable(f: FrameId, owns: &[OwnState], t: usize) -> bool {
     let (a, b) = (&owns[t - 1], &owns[t]);
     let never = |o: &OwnState| o.arms.wait.map(|w| w == OwnArms::NEVER);
     let hot = |o: &OwnState| o.flags & own_flags::OVERHEAT != 0;
     let opened = |o: &OwnState| o.flags & own_flags::SPECIAL_ACTIVE != 0;
-    let full_open_ended = matches!(frame(f).special, SpecialKind::FullOpen { .. }) && opened(a) && !opened(b);
-    never(a) == never(b) && (hot(a) == hot(b) || full_open_ended)
+    let full_salvo_ended =
+        matches!(frame(f).special, SpecialKind::FullSalvo { .. }) && opened(a) && !opened(b);
+    never(a) == never(b) && (hot(a) == hot(b) || full_salvo_ended)
 }
 
 #[derive(Default, Debug)]
@@ -194,14 +195,9 @@ fn check(f: FrameId) -> Seen {
 
 #[test]
 fn the_owners_arms_keep_time_with_the_servers() {
-    for f in [
-        FrameId::Leo,
-        FrameId::WingZero,
-        FrameId::Heavyarms,
-        FrameId::Deathscythe,
-        FrameId::Sandrock,
-        FrameId::Shenlong,
-    ] {
+    for f in
+        [FrameId::Argo, FrameId::Altair, FrameId::Antares, FrameId::Algol, FrameId::Canopus, FrameId::Thuban]
+    {
         let seen = check(f);
         println!("{f:?}: {seen:?}");
         // Most of the run is checked, strikes and all.
@@ -212,11 +208,11 @@ fn the_owners_arms_keep_time_with_the_servers() {
 
 #[test]
 fn the_scripts_reach_every_arm_the_client_rolls() {
-    // Salvos: Sandrock's and Heavyarms' homing missiles.
-    for f in [FrameId::Sandrock, FrameId::Heavyarms] {
+    // Salvos: Canopus's and Antares' homing missiles.
+    for f in [FrameId::Canopus, FrameId::Antares] {
         let seen = check(f);
         assert!(seen.salvo_rounds >= 4, "{f:?}: {seen:?}");
     }
-    // Wing Zero changes form and back.
-    assert!(check(FrameId::WingZero).changes >= 2);
+    // Altair changes form and back.
+    assert!(check(FrameId::Altair).changes >= 2);
 }

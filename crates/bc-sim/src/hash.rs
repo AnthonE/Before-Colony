@@ -58,7 +58,7 @@ pub fn state_hash(sim: &Sim) -> u64 {
         }
         let (k, g, right) = s.held[i];
         h.u32(u32::from(k) | u32::from(g) << 16 | u32::from(right) << 24);
-        // One of Zodiac's aces (only then).
+        // One of the Almagest's aces (only then).
         if s.ace[i] != crate::content::aces::NO_ACE {
             h.u32(0xACE0_0000 | u32::from(s.ace[i]));
         }

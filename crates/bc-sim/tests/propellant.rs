@@ -12,11 +12,11 @@ use bc_sim::{Sim, SimConfig, SuitId};
 use glam::Vec3;
 
 fn sim() -> Sim {
-    Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, survival: true, ..SimConfig::default() })
+    Sim::new(SimConfig { target_drones: 0, field_rocks: 0, survival: true, ..SimConfig::default() })
 }
 
 fn launch(sim: &mut Sim, grade: Grade, modules: &[ModuleKind]) -> SuitId {
-    let mut l = Loadout::full(FrameId::Leo);
+    let mut l = Loadout::full(FrameId::Argo);
     l.grade = grade;
     let mut m = Modules::NONE;
     for k in modules {
@@ -24,7 +24,7 @@ fn launch(sim: &mut Sim, grade: Grade, modules: &[ModuleKind]) -> SuitId {
         m.set(slot, Some(*k));
     }
     l.modules = m;
-    let id = sim.launch(FrameId::Leo, Faction::Colonies, PilotKind::Human, &l).unwrap();
+    let id = sim.launch(FrameId::Argo, Faction::Colonies, PilotKind::Human, &l).unwrap();
     sim.step();
     id
 }

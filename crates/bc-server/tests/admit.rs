@@ -17,7 +17,7 @@ fn config(limits: Limits) -> anyhow::Result<Config> {
         rules: Ruleset::Arcade,
         wt_port: 0,
         http_addr: "127.0.0.1:0".parse()?,
-        mobile_dolls: 0,
+        drones: 0,
         max_clients: 8,
         limits,
         ..Config::default()
@@ -25,8 +25,12 @@ fn config(limits: Limits) -> anyhow::Result<Config> {
 }
 
 async fn pilot(http: &str, name: &str) -> anyhow::Result<BotClient> {
-    let cfg =
-        BotConfig { server: http.into(), name: name.into(), frame: FrameId::Leo, faction: Faction::Colonies };
+    let cfg = BotConfig {
+        server: http.into(),
+        name: name.into(),
+        frame: FrameId::Argo,
+        faction: Faction::Colonies,
+    };
     BotClient::connect(&cfg).await
 }
 
@@ -48,21 +52,21 @@ async fn an_address_past_its_share_is_refused_until_it_has_room() -> anyhow::Res
     let limits = Limits { per_address: 1, loopback_excepted: false, ..Limits::default() };
     let server = bc_server::start(config(limits)?).await?;
     let http = format!("http://{}", server.http_addr);
-    let mut heero = pilot(&http, "Heero").await?;
-    assert!(flying(&mut heero, 3.0).await?, "the first never got its suit");
-    assert!(pilot(&http, "Duo").await.is_err(), "a second connection from the address got in");
+    let mut kai = pilot(&http, "Kai").await?;
+    assert!(flying(&mut kai, 3.0).await?, "the first never got its suit");
+    assert!(pilot(&http, "Nico").await.is_err(), "a second connection from the address got in");
     assert_eq!(server.status()["net"]["refused_address"], 1);
-    // Heero goes: the address has room again.
-    drop(heero);
+    // Kai goes: the address has room again.
+    drop(kai);
     let end = Instant::now() + Duration::from_secs(5);
-    let mut duo = loop {
-        match pilot(&http, "Duo").await {
+    let mut nico = loop {
+        match pilot(&http, "Nico").await {
             Ok(bot) => break bot,
             Err(e) if Instant::now() > end => return Err(e.context("never let back in")),
             Err(_) => tokio::time::sleep(Duration::from_millis(100)).await,
         }
     };
-    assert!(flying(&mut duo, 3.0).await?);
+    assert!(flying(&mut nico, 3.0).await?);
     server.shutdown();
     Ok(())
 }
@@ -73,8 +77,8 @@ async fn under_load_a_client_proves_its_address_and_comes_in() -> anyhow::Result
     let limits = Limits { retry_above: 0, ..Limits::default() };
     let server = bc_server::start(config(limits)?).await?;
     let http = format!("http://{}", server.http_addr);
-    let mut trowa = pilot(&http, "Trowa").await?;
-    assert!(flying(&mut trowa, 3.0).await?, "a Retry kept a real client out");
+    let mut tomas = pilot(&http, "Tomas").await?;
+    assert!(flying(&mut tomas, 3.0).await?, "a Retry kept a real client out");
     let retried = server.status()["net"]["retried"].as_u64().unwrap_or(0);
     assert!(retried >= 1, "no Retry was sent");
     server.shutdown();
@@ -85,12 +89,12 @@ async fn under_load_a_client_proves_its_address_and_comes_in() -> anyhow::Result
 async fn a_session_flooding_its_hangar_is_refused_then_ended() -> anyhow::Result<()> {
     let server = bc_server::start(config(Limits::default())?).await?;
     let http = format!("http://{}", server.http_addr);
-    let mut quatre = pilot(&http, "Quatre").await?;
-    assert!(flying(&mut quatre, 3.0).await?);
+    let mut rafi = pilot(&http, "Rafi").await?;
+    assert!(flying(&mut rafi, 3.0).await?);
     // Far more than a burst, as fast as it can write them.
     let flood = Requests::BURST as u32 + Requests::ENDS_AFTER + 20;
     for _ in 0..flood {
-        if quatre.request(&Request::Watch { item: None }).await.is_err() {
+        if rafi.request(&Request::Watch { item: None }).await.is_err() {
             break;
         }
     }
@@ -98,7 +102,7 @@ async fn a_session_flooding_its_hangar_is_refused_then_ended() -> anyhow::Result
     let end = Instant::now() + Duration::from_secs(5);
     let mut ended = false;
     while Instant::now() < end {
-        if quatre.step(&mut |_| Default::default()).await.is_err() {
+        if rafi.step(&mut |_| Default::default()).await.is_err() {
             ended = true;
             break;
         }
@@ -108,8 +112,8 @@ async fn a_session_flooding_its_hangar_is_refused_then_ended() -> anyhow::Result
     assert_eq!(net["flooders_ended"], 1);
     assert!(net["requests_refused"].as_u64().unwrap_or(0) >= u64::from(Requests::ENDS_AFTER));
     // Others are none the worse for it.
-    let mut wufei = pilot(&http, "Wufei").await?;
-    assert!(flying(&mut wufei, 3.0).await?);
+    let mut lin = pilot(&http, "Lin").await?;
+    assert!(flying(&mut lin, 3.0).await?);
     server.shutdown();
     Ok(())
 }

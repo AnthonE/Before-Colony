@@ -1,5 +1,5 @@
-//! Guns by class: the flamethrower burns and overheats what's in its cone, the Dragon Fang takes its
-//! arm (and the flamethrower on it) along, stream weapons fire without spawn events, and the buster
+//! Guns by class: the flamethrower burns and overheats what's in its cone, the Talon takes its
+//! arm (and the flamethrower on it) along, stream weapons fire without spawn events, and the heavy beam rifle
 //! shield is a slow beam.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
@@ -14,7 +14,7 @@ use bc_sim::{Sim, SimConfig, SuitId};
 use glam::Vec3;
 
 fn empty() -> Sim {
-    Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() })
+    Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() })
 }
 
 fn suit(sim: &mut Sim, frame: FrameId, faction: Faction, pos: Vec3, facing: Vec3) -> SuitId {
@@ -39,12 +39,12 @@ fn hits_by(sim: &Sim, from: u32, a: SuitId, kind: WeaponKind) -> usize {
 
 const AT: Vec3 = Vec3::new(0.0, 1_000.0, 0.0);
 
-/// Shenlong flames a Leo placed at `offset` for `ticks`, aiming straight ahead. Returns the burns
-/// that landed and the Leo.
+/// Thuban flames an Argo placed at `offset` for `ticks`, aiming straight ahead. Returns the burns
+/// that landed and the Argo.
 fn flame_at(offset: Vec3, ticks: u32) -> (Sim, SuitId, SuitId, usize) {
     let mut sim = empty();
-    let a = suit(&mut sim, FrameId::Shenlong, Faction::Colonies, AT, Vec3::Z);
-    let b = suit(&mut sim, FrameId::Leo, Faction::Oz, AT + offset, -Vec3::Z);
+    let a = suit(&mut sim, FrameId::Thuban, Faction::Colonies, AT, Vec3::Z);
+    let b = suit(&mut sim, FrameId::Argo, Faction::Almagest, AT + offset, -Vec3::Z);
     let from = sim.events.next_seq();
     for _ in 0..ticks {
         hold(&mut sim, a, FIRE_SECONDARY, Vec3::Z);
@@ -64,7 +64,7 @@ fn the_flamethrower_burns_what_is_in_its_cone() {
     assert_eq!(u32::from(sim.suits.weapons[a.idx()][1].ammo), u32::from(w.ammo) - burns as u32);
     assert_ne!(sim.entity_state(a.idx(), b.idx()).flags & ent_flags::FIRING_SECONDARY, 0, "the flame shows");
     assert_eq!(sim.stats(a.idx()).hits_by_class[WeaponClass::Cone as usize], burns as u32);
-    // It reaches a Leo at its range, but not 30° off the flame, nor past its reach.
+    // It reaches an Argo at its range, but not 30° off the flame, nor past its reach.
     assert!(flame_at(Vec3::Z * w.range, 60).3 > 0);
     assert_eq!(flame_at(Vec3::new(40.0 * 0.5, 0.0, 40.0 * 0.866), 60).3, 0);
     assert_eq!(flame_at(Vec3::Z * (w.range + 15.0), 60).3, 0);
@@ -72,18 +72,18 @@ fn the_flamethrower_burns_what_is_in_its_cone() {
 
 #[test]
 fn the_flame_overheats_its_target() {
-    let leo = frame(FrameId::Leo);
+    let argo = frame(FrameId::Argo);
     let (sim, _, b, _) = flame_at(Vec3::Z * 30.0, 30);
     assert!(sim.suits.heat[b.idx()] > 30.0, "heat {}", sim.suits.heat[b.idx()]);
     let (sim, _, b, _) = flame_at(Vec3::Z * 30.0, 120);
-    assert!(sim.suits.overheated[b.idx()], "heat {} of {}", sim.suits.heat[b.idx()], leo.heat_cap);
+    assert!(sim.suits.overheated[b.idx()], "heat {} of {}", sim.suits.heat[b.idx()], argo.heat_cap);
 }
 
 #[test]
-fn the_dragon_fang_takes_its_arm_along() {
+fn the_talon_takes_its_arm_along() {
     let mut sim = empty();
-    let a = suit(&mut sim, FrameId::Shenlong, Faction::Colonies, AT, Vec3::Z);
-    suit(&mut sim, FrameId::Leo, Faction::Oz, AT + Vec3::Z * 30.0, -Vec3::Z);
+    let a = suit(&mut sim, FrameId::Thuban, Faction::Colonies, AT, Vec3::Z);
+    suit(&mut sim, FrameId::Argo, Faction::Almagest, AT + Vec3::Z * 30.0, -Vec3::Z);
     let mut strikes = 0;
     let mut burns_while_out = 0;
     let mut burns = 0;
@@ -107,8 +107,8 @@ fn the_dragon_fang_takes_its_arm_along() {
 #[test]
 fn stream_weapons_fire_without_events() {
     let mut sim = empty();
-    let a = suit(&mut sim, FrameId::Heavyarms, Faction::Colonies, AT, Vec3::Z);
-    let b = suit(&mut sim, FrameId::Leo, Faction::Oz, AT + Vec3::new(3.4, 0.6, 400.0), -Vec3::Z);
+    let a = suit(&mut sim, FrameId::Antares, Faction::Colonies, AT, Vec3::Z);
+    let b = suit(&mut sim, FrameId::Argo, Faction::Almagest, AT + Vec3::new(3.4, 0.6, 400.0), -Vec3::Z);
     let from = sim.events.next_seq();
     for _ in 0..60 {
         hold(&mut sim, a, FIRE_PRIMARY, Vec3::Z);
@@ -120,13 +120,13 @@ fn stream_weapons_fire_without_events() {
 }
 
 #[test]
-fn the_buster_shield_is_a_slow_beam() {
+fn the_claw_shield_is_a_slow_beam() {
     let mut sim = empty();
-    let a = suit(&mut sim, FrameId::Deathscythe, Faction::Colonies, AT, Vec3::Z);
+    let a = suit(&mut sim, FrameId::Algol, Faction::Colonies, AT, Vec3::Z);
     let d = 400.0;
-    suit(&mut sim, FrameId::Leo, Faction::Oz, AT + Vec3::new(-3.4, 0.6, d), -Vec3::Z);
+    suit(&mut sim, FrameId::Argo, Faction::Almagest, AT + Vec3::new(-3.4, 0.6, d), -Vec3::Z);
     let from = sim.events.next_seq();
-    let w = weapon(WeaponKind::BusterShield);
+    let w = weapon(WeaponKind::ClawShield);
     let mut spawned = None;
     let mut hit = None;
     for k in 0..60u32 {
@@ -134,8 +134,8 @@ fn the_buster_shield_is_a_slow_beam() {
         sim.step();
         for e in events_since(&sim, from) {
             match e {
-                Event::BeamSpawn { weapon: WeaponKind::BusterShield, .. } => spawned = spawned.or(Some(k)),
-                Event::Hit { weapon: WeaponKind::BusterShield, .. } => hit = hit.or(Some(k)),
+                Event::BeamSpawn { weapon: WeaponKind::ClawShield, .. } => spawned = spawned.or(Some(k)),
+                Event::Hit { weapon: WeaponKind::ClawShield, .. } => hit = hit.or(Some(k)),
                 _ => {}
             }
         }

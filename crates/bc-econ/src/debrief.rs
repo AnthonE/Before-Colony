@@ -182,7 +182,7 @@ mod tests {
 
     #[test]
     fn a_sortie_home_is_paid_and_charged_for_what_it_did() {
-        let out = Suit::complete(FrameId::Leo);
+        let out = Suit::complete(FrameId::Argo);
         let mut back = out.clone();
         // It burnt 500 kg, fired a third of its machine cannon's rounds, used its stim, took its
         // torso down to 70% and lost its left arm, with the machine cannon on it.
@@ -207,7 +207,7 @@ mod tests {
         assert_eq!(line(&d, "ROUNDS"), -(worth(MUNITIONS_ITEM, value(MUNITIONS_ITEM), kg) as i64));
         assert_eq!(line(&d, "THE RACK"), -(value(Item::Kit(Kit::Stim)) as i64));
         assert!(line(&d, "ARMOUR") < 0);
-        let arm = value(Item::Part(FrameId::Leo, Part::ArmL)) + value(Item::Weapon(w));
+        let arm = value(Item::Part(FrameId::Argo, Part::ArmL)) + value(Item::Weapon(w));
         assert_eq!(line(&d, "SHOT OFF"), -(arm as i64));
         assert_eq!(d.net(), d.lines.iter().map(|l| l.cr).sum::<i64>());
     }
@@ -216,7 +216,7 @@ mod tests {
     #[test]
     fn propellant_is_charged_at_its_grade() {
         let charged = |grade: Grade| {
-            let out = Suit { grade, ..Suit::complete(FrameId::Leo) };
+            let out = Suit { grade, ..Suit::complete(FrameId::Argo) };
             let back = Suit { propellant: out.propellant - 500, ..out.clone() };
             -line(&Debrief::docked(&out, &back, &[0; Kit::COUNT], 0, 0, 0), "PROPELLANT")
         };
@@ -230,41 +230,41 @@ mod tests {
     /// what the sortie earned itself and before its costs, and in the net; nothing, if nothing.
     #[test]
     fn the_boards_pay_goes_before_the_costs() {
-        let out = Suit::complete(FrameId::Leo);
+        let out = Suit::complete(FrameId::Argo);
         let back = Suit { propellant: out.propellant - 500, ..out.clone() };
         let mut d = Debrief::docked(&out, &back, &[0; Kit::COUNT], 400, 0, 0);
         let fuel = line(&d, "PROPELLANT");
         assert!(fuel < 0);
         d.paid("PATROL #3 · AT THE BOARD", 1_500);
-        d.paid("ACE ARIES", 0);
-        d.paid("ACE GEMINI", 1_800);
+        d.paid("ACE LYRA", 0);
+        d.paid("ACE SAGITTA", 1_800);
         let lines: Vec<(&str, i64)> = d.lines.iter().map(|l| (l.what.as_str(), l.cr)).collect();
         assert_eq!(
             lines,
             [
                 ("BOUNTIES", 400),
                 ("PATROL #3 · AT THE BOARD", 1_500),
-                ("ACE GEMINI", 1_800),
+                ("ACE SAGITTA", 1_800),
                 ("PROPELLANT", fuel)
             ]
         );
         assert_eq!(d.net(), 400 + 1_500 + 1_800 + fuel);
         // A sheet with nothing on it yet, or no costs: at its end.
         let mut d = Debrief::lost(None, 0);
-        d.paid("ACE ARIES", 1_500);
+        d.paid("ACE LYRA", 1_500);
         d.paid("PATROL #4", 1_000);
         let lines: Vec<(&str, i64)> = d.lines.iter().map(|l| (l.what.as_str(), l.cr)).collect();
-        assert_eq!(lines, [("ACE ARIES", 1_500), ("PATROL #4", 1_000)]);
+        assert_eq!(lines, [("ACE LYRA", 1_500), ("PATROL #4", 1_000)]);
         assert_eq!(d.net(), 2_500);
     }
 
     #[test]
     fn a_suit_lost_is_written_off() {
-        let out = Suit::complete(FrameId::Leo);
+        let out = Suit::complete(FrameId::Argo);
         let d = Debrief::lost(Some(&out), 250);
         assert_eq!(line(&d, "BOUNTIES"), 250);
         assert_eq!(line(&d, "THE SUIT"), -(suit_worth(&out) as i64));
-        assert!(suit_worth(&out) > 10_000, "a whole Leo is worth something");
+        assert!(suit_worth(&out) > 10_000, "a whole Argo is worth something");
         // A loss the hangar can't account for: just what it earned.
         assert_eq!(Debrief::lost(None, 0).lines, vec![]);
     }
@@ -276,9 +276,9 @@ mod tests {
         s.add(PROPELLANT_ITEM, 2_000);
         s.add_part(crate::stores::PartUnit {
             condition: 50,
-            ..crate::stores::PartUnit::new(FrameId::Leo, Part::Head)
+            ..crate::stores::PartUnit::new(FrameId::Argo, Part::Head)
         });
-        let head = value(Item::Part(FrameId::Leo, Part::Head)) / 2;
+        let head = value(Item::Part(FrameId::Argo, Part::Head)) / 2;
         assert_eq!(stores_worth(&s), worth(PROPELLANT_ITEM, value(PROPELLANT_ITEM), 2_000) + head);
     }
 }

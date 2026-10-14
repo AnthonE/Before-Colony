@@ -1,5 +1,5 @@
 //! What the pilot hears of their own suit: the engines as they're worked, the lock tone building,
-//! warnings, the hold and the dock, the ZERO System, the grip and the feet on a body, the reactor
+//! warnings, the hold and the dock, the Orrery, the grip and the feet on a body, the reactor
 //! going dark in hiding. A model of the cockpit's state in, loop levels and one-shot cues out, so
 //! every rule is a test.
 
@@ -14,7 +14,7 @@ pub const LOOPS: [Cue; 9] = [
     Cue::LockSolid,
     Cue::MissileAlarm,
     Cue::GStrain,
-    Cue::ZeroDrone,
+    Cue::OrreryDrone,
     Cue::CockpitHum,
 ];
 
@@ -33,7 +33,7 @@ pub struct CockpitIn {
     /// G-strain, 0..1.
     pub g_strain: f32,
     pub blackout: bool,
-    /// The Twin Buster Rifle's charge, 0..1.
+    /// The Heavy Beam Rifle's charge, 0..1.
     pub charge: f32,
     pub saber: bool,
     /// A missile lock building on a target, 0..1 (0: none).
@@ -44,7 +44,7 @@ pub struct CockpitIn {
     /// A missile is inbound.
     pub incoming: bool,
     pub docked: bool,
-    pub zero: bool,
+    pub orrery: bool,
     pub seized: bool,
     pub jamming: bool,
     pub transforming: bool,
@@ -140,8 +140,8 @@ impl Cockpit {
                 if i.cargo_kg < p.cargo_kg && !i.docked && i.credits == p.credits {
                     cue(Cue::Jettison, 1.0);
                 }
-                if i.zero && !p.zero {
-                    cue(Cue::ZeroOn, 1.0);
+                if i.orrery && !p.orrery {
+                    cue(Cue::OrreryOn, 1.0);
                 }
                 if i.seized && !p.seized {
                     cue(Cue::Seizure, 1.0);
@@ -242,7 +242,7 @@ impl Cockpit {
                     on(i.g_strain > 0.45) * ((i.g_strain - 0.45) / 0.55).clamp(0.0, 1.0),
                     0.9 + 0.8 * i.g_strain,
                 ),
-                Cue::ZeroDrone => (on(i.zero || i.seized) * if i.seized { 1.0 } else { 0.7 }, 1.0),
+                Cue::OrreryDrone => (on(i.orrery || i.seized) * if i.seized { 1.0 } else { 0.7 }, 1.0),
                 Cue::CockpitHum => (on(true), 1.0),
                 _ => (0.0, 1.0),
             };

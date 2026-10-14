@@ -14,7 +14,7 @@ use bc_sim::{Sim, SimConfig, SuitId};
 use glam::Vec3;
 
 fn sim() -> Sim {
-    Sim::new(SimConfig { target_dolls: 0, ..SimConfig::default() })
+    Sim::new(SimConfig { target_drones: 0, ..SimConfig::default() })
 }
 
 /// The smallest rock bigger than `min` m with nothing else within `clear` m of it.
@@ -33,12 +33,13 @@ fn lone_rock(sim: &Sim, min: f32, clear: f32) -> (usize, Rock) {
     best.expect("a lone rock")
 }
 
-/// A Leo `gap` metres past the clearance it keeps from rock `r`'s surface, facing it.
+/// An Argo `gap` metres past the clearance it keeps from rock `r`'s surface, facing it.
 fn miner(sim: &mut Sim, r: &Rock, gap: f32) -> SuitId {
     let dir = Vec3::new(1.0, 0.1, 0.3).normalize();
     let surface = r.surface(r.pos - dir * (r.radius + 50.0), 0.0);
     let pos = surface - dir * (SUIT_CLEARANCE + gap);
-    sim.spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, pos, look_rotation(dir, Vec3::Y)).unwrap()
+    sim.spawn_at(FrameId::Argo, Faction::Colonies, PilotKind::Human, pos, look_rotation(dir, Vec3::Y))
+        .unwrap()
 }
 
 fn events_since(sim: &Sim, from: u32) -> Vec<Event> {
@@ -88,14 +89,14 @@ fn sabers_chip_ore_and_shatter_rocks_without_waste() {
     let (i, rock) = lone_rock(&sim, 8.0, 60.0);
     let ore = sim.rocks.ore_kg[i];
     assert_eq!(ore, max_ore_kg(&rock));
-    let leo = miner(&mut sim, &rock, 0.0);
+    let argo = miner(&mut sim, &rock, 0.0);
     let from = sim.events.next_seq();
     // A stroke every 1.5 s (a swing and its cooldown take 1.2 s); the blade reaches into the rock.
-    work(&mut sim, leo, rock.pos, 30, |t| if t % 45 < 3 { MELEE } else { 0 });
+    work(&mut sim, argo, rock.pos, 30, |t| if t % 45 < 3 { MELEE } else { 0 });
     let chipped = loose_ore(&sim, rock.ore);
     assert!(chipped > 0, "the first stroke chipped nothing off");
     assert!(sim.rocks.hp[i] < rocks_max(&rock), "the rock took no damage");
-    work(&mut sim, leo, rock.pos, 30 * 30, |t| if t % 45 < 3 { MELEE } else { 0 });
+    work(&mut sim, argo, rock.pos, 30 * 30, |t| if t % 45 < 3 { MELEE } else { 0 });
     assert!(sim.rocks.destroyed.get(i), "the rock never shattered (hp {})", sim.rocks.hp[i]);
     assert!(sim.field.is_dead(i));
     assert!(
@@ -128,8 +129,8 @@ fn beams_waste_ore() {
     let mut sim = sim();
     let (i, rock) = lone_rock(&sim, 8.0, 60.0);
     let ore = sim.rocks.ore_kg[i];
-    let leo = miner(&mut sim, &rock, 200.0);
-    work(&mut sim, leo, rock.pos, 30 * 90, |_| FIRE_PRIMARY);
+    let argo = miner(&mut sim, &rock, 200.0);
+    work(&mut sim, argo, rock.pos, 30 * 90, |_| FIRE_PRIMARY);
     assert!(sim.rocks.destroyed.get(i), "the rifle never broke it (hp {})", sim.rocks.hp[i]);
     let loose = loose_ore(&sim, rock.ore);
     assert!(loose + 200 < ore, "beams should boil ore off: {loose} of {ore} kg recovered");
@@ -141,14 +142,14 @@ fn a_shattered_rock_lets_suits_through_and_grows_back_when_left_alone() {
     let (i, rock) = lone_rock(&sim, 8.0, 60.0);
     // One stroke shatters it.
     sim.rocks.hp[i] = 1.0;
-    let leo = miner(&mut sim, &rock, 0.0);
-    work(&mut sim, leo, rock.pos, 40, |t| if t % 30 < 3 { MELEE } else { 0 });
+    let argo = miner(&mut sim, &rock, 0.0);
+    work(&mut sim, argo, rock.pos, 40, |t| if t % 30 < 3 { MELEE } else { 0 });
     assert!(sim.rocks.destroyed.get(i));
     // The miner holds station where it is.
-    sim.suits.flight[leo.idx()].vel = Vec3::ZERO;
+    sim.suits.flight[argo.idx()].vel = Vec3::ZERO;
     let t = sim.next_tick();
     sim.set_input(
-        leo,
+        argo,
         InputCmd { tick: t, view_tick_q4: t << 4, buttons: FLIGHT_ASSIST, ..InputCmd::default() },
     );
     // Straight through where it was.
@@ -166,7 +167,7 @@ fn a_shattered_rock_lets_suits_through_and_grows_back_when_left_alone() {
     }
     assert!(sim.rocks.destroyed.get(i), "grew back under the miner's nose");
     // ...until the miner leaves.
-    sim.leave(leo);
+    sim.leave(argo);
     for _ in 0..(40 * 30) {
         sim.step();
     }
@@ -177,10 +178,10 @@ fn a_shattered_rock_lets_suits_through_and_grows_back_when_left_alone() {
 
 #[test]
 fn a_saber_cuts_limbs_off_a_hulk() {
-    let mut sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
-    let leo = sim
+    let mut sim = Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() });
+    let argo = sim
         .spawn_at(
-            FrameId::Leo,
+            FrameId::Argo,
             Faction::Colonies,
             PilotKind::Human,
             Vec3::new(0.0, 1_000.0, 0.0),
@@ -190,16 +191,16 @@ fn a_saber_cuts_limbs_off_a_hulk() {
     let t = sim.tick();
     let all: u8 = (1 << Part::COUNT) - 1;
     let desc = ChunkDesc {
-        kind: ChunkKind::Hulk { frame: FrameId::Taurus, faction: Faction::Oz, parts: all },
+        kind: ChunkKind::Hulk { frame: FrameId::Corvus, faction: Faction::Almagest, parts: all },
         seed: 3,
-        mass_kg: bc_sim::content::salvage::mass_without(FrameId::Taurus, 0),
+        mass_kg: bc_sim::content::salvage::mass_without(FrameId::Corvus, 0),
     };
     // Right in front, within the blade's reach.
-    let at = sim.suits.flight[leo.idx()].pos + Vec3::new(-2.0, 1.0, 12.0);
+    let at = sim.suits.flight[argo.idx()].pos + Vec3::new(-2.0, 1.0, 12.0);
     let seg = Segment { t0: t, pos: at, ..Segment::default() }.quantized();
     let k = sim.chunks.spawn(desc, Motion::Free(seg), t + 9_000, t).unwrap() as usize;
     let from = sim.events.next_seq();
-    work(&mut sim, leo, at, 40, |t| if t % 30 < 3 { MELEE } else { 0 });
+    work(&mut sim, argo, at, 40, |t| if t % 30 < 3 { MELEE } else { 0 });
     let cut = events_since(&sim, from).into_iter().find_map(|e| match e {
         Event::Detach { source, from_hulk: true, part, chunk, .. } if source as usize == k => {
             Some((part, chunk))
@@ -211,7 +212,7 @@ fn a_saber_cuts_limbs_off_a_hulk() {
     assert_eq!(parts, all & !(1 << part as u8));
     assert_eq!(
         sim.chunks.desc[limb as usize].kind,
-        ChunkKind::Limb { frame: FrameId::Taurus, faction: Faction::Oz, part }
+        ChunkKind::Limb { frame: FrameId::Corvus, faction: Faction::Almagest, part }
     );
     assert_eq!(
         sim.chunks.desc[k].mass_kg + sim.chunks.desc[limb as usize].mass_kg,
@@ -228,13 +229,13 @@ fn a_sleeper_900_m_off_does_not_keep_a_shattered_rock_from_growing_back() {
     let mut sim = sim();
     let (i, rock) = lone_rock(&sim, 8.0, 60.0);
     sim.rocks.hp[i] = 1.0;
-    let leo = miner(&mut sim, &rock, 0.0);
-    work(&mut sim, leo, rock.pos, 40, |t| if t % 30 < 3 { MELEE } else { 0 });
+    let argo = miner(&mut sim, &rock, 0.0);
+    work(&mut sim, argo, rock.pos, 40, |t| if t % 30 < 3 { MELEE } else { 0 });
     assert!(sim.rocks.destroyed.get(i));
-    sim.leave(leo);
+    sim.leave(argo);
     let at = rock.pos + Vec3::new(0.3, 1.0, -0.2).normalize() * 900.0;
     let facing = look_rotation(Vec3::Z, Vec3::Y);
-    let sleeper = sim.spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, at, facing).unwrap();
+    let sleeper = sim.spawn_at(FrameId::Argo, Faction::Colonies, PilotKind::Human, at, facing).unwrap();
     assert!(sim.sleep(sleeper));
     // Well past the ten minutes it takes, it has grown back beside the sleeper.
     for _ in 0..(11 * 60 * 30) {

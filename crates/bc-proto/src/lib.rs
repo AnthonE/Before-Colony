@@ -8,7 +8,7 @@
 //!   - client → server [`PosePacket`] and server → client plaza ([`PlazaWriter`] / [`PlazaReader`]):
 //!     pilots on foot in the colony ([`presence`]).
 //!   - server → client snapshot ([`SnapshotWriter`] / [`SnapshotReader`]): header, full-precision
-//!     own state, ZERO info, events and changed rocks repeated until acked, the missiles in flight
+//!     own state, the Orrery info, events and changed rocks repeated until acked, the missiles in flight
 //!     nearby, then as many prioritised entities and salvage objects as fit in [`MAX_DATAGRAM`]
 //!     bytes.
 //! - Control stream (reliable, length-prefixed frames): [`control`] handshake and roster messages,
@@ -38,12 +38,12 @@ pub use missiles::MissileState;
 pub use objects::{ChunkDesc, ChunkKind, ObjectState, RockState, Segment};
 pub use presence::{PersonPose, PlazaReader, PlazaWriter, PosePacket};
 pub use snapshot::{
-    EntityState, OwnState, OwnSurface, RiderOn, SnapshotHeader, SnapshotReader, SnapshotWriter, ZeroInfo,
+    EntityState, OrreryInfo, OwnState, OwnSurface, RiderOn, SnapshotHeader, SnapshotReader, SnapshotWriter,
 };
 pub use types::{BodyRef, Faction, FrameId, Part, PilotKind, WeaponKind};
 
 /// Bumped on any incompatible wire change; the handshake rejects mismatches.
-pub const PROTOCOL_VERSION: u16 = 29;
+pub const PROTOCOL_VERSION: u16 = 30;
 
 /// Upper bound for every datagram we send. 1200 bytes is the smallest UDP payload QUIC guarantees;
 /// the QUIC short header, AEAD tag and HTTP/3 datagram prefix need ~30–40 of those.

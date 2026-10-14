@@ -26,7 +26,7 @@ pub const TEXTURE: [u32; 2] = [1024, 1024];
 /// What a screen shows (the client lays its instruments out by this).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Show {
-    /// The ZERO System and the target, across the top.
+    /// The Orrery and the target, across the top.
     Top,
     /// The suit's status and its damage silhouette (upper left).
     Suit,

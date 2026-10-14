@@ -26,7 +26,7 @@ pub const SAMPLE_RATE: u32 = 48_000;
 pub enum Bus {
     /// Weapons, hits, explosions: the world.
     Effects,
-    /// The suit: engines, lock tones, alarms, the ZERO System.
+    /// The suit: engines, lock tones, alarms, the Orrery.
     Cockpit,
     /// Menus.
     Ui,
@@ -80,7 +80,7 @@ cues!(
     // Weapons (positional).
     BeamRifle,
     BeamHeavy,
-    BusterFire,
+    HeavyBeamFire,
     Gun,
     BeamGun,
     Flame,
@@ -106,7 +106,7 @@ cues!(
     LockBeep,
     LowFuel,
     RcsPuff,
-    ZeroOn,
+    OrreryOn,
     Seizure,
     Destroyed,
     Launch,
@@ -125,7 +125,7 @@ cues!(
     LockSolid,
     MissileAlarm,
     GStrain,
-    ZeroDrone,
+    OrreryDrone,
     CockpitHum,
     MusicCalm,
     MusicCombat,
@@ -183,7 +183,7 @@ impl Cue {
         match self {
             Cue::BeamRifle => def(Effects, 6, 2_500.0, 0.03, 0.55, 0.04),
             Cue::BeamHeavy => def(Effects, 7, 3_500.0, 0.05, 0.7, 0.04),
-            Cue::BusterFire => def(Effects, 9, 8_000.0, 0.3, 1.0, 0.0),
+            Cue::HeavyBeamFire => def(Effects, 9, 8_000.0, 0.3, 1.0, 0.0),
             Cue::Gun => def(Effects, 4, 1_800.0, 0.025, 0.35, 0.1),
             Cue::BeamGun => def(Effects, 4, 2_000.0, 0.03, 0.35, 0.08),
             Cue::Flame => def(Effects, 4, 800.0, 0.08, 0.4, 0.1),
@@ -207,7 +207,7 @@ impl Cue {
             Cue::LockBeep => def(Cockpit, 6, 0.0, 0.05, 0.3, 0.0),
             Cue::LowFuel => def(Cockpit, 7, 0.0, 1.0, 0.35, 0.0),
             Cue::RcsPuff => def(Cockpit, 3, 0.0, 0.1, 0.25, 0.15),
-            Cue::ZeroOn => def(Cockpit, 9, 0.0, 1.0, 0.7, 0.0),
+            Cue::OrreryOn => def(Cockpit, 9, 0.0, 1.0, 0.7, 0.0),
             Cue::Seizure => def(Cockpit, 9, 0.0, 1.0, 0.7, 0.0),
             Cue::Destroyed => def(Cockpit, 10, 0.0, 1.0, 0.9, 0.0),
             Cue::Launch => def(Cockpit, 8, 0.0, 1.0, 0.6, 0.0),
@@ -226,7 +226,7 @@ impl Cue {
             Cue::LockSolid => looped(Cockpit, 0.2),
             Cue::MissileAlarm => looped(Cockpit, 0.3),
             Cue::GStrain => looped(Cockpit, 0.5),
-            Cue::ZeroDrone => looped(Cockpit, 0.35),
+            Cue::OrreryDrone => looped(Cockpit, 0.35),
             Cue::CockpitHum => looped(Cockpit, 0.12),
             Cue::MusicCalm => looped(Music, 0.5),
             Cue::MusicCombat => looped(Music, 0.5),

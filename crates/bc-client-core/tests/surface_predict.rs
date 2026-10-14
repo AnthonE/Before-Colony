@@ -1,5 +1,5 @@
 //! The owner's prediction lands, walks, hops, crouches, lifts off and lets go where the server does,
-//! on a rock, on Hermit and on the rolling MO-II: seeded from any snapshot (in the body's frame, on
+//! on a rock, on Hermit and on the rolling Fornax: seeded from any snapshot (in the body's frame, on
 //! one), it replays the pilot's commands through the same catches, touchdowns and releases on the
 //! same ticks, and stands where the server stands, in the body's frame, tick after tick. A rock
 //! dug out from underfoot lets go of its rider on the tick the server says, however late the news.
@@ -111,13 +111,13 @@ struct Run {
     field: (u32, u16),
 }
 
-/// A Leo `height` m over `body` along `dir_local` (its frame), moving with its surface, flown by
+/// An Argo `height` m over `body` along `dir_local` (its frame), moving with its surface, flown by
 /// [`act`] for `ticks`.
 fn fly(cfg: SimConfig, body: Body, dir_local: Vec3, height: f32, ticks: u32, dig: bool) -> Run {
     fly_by(cfg, body, dir_local, height, ticks, |t| act(t, dig), None)
 }
 
-/// A Leo `height` m over `body` along `dir_local` (its frame), moving with its surface, flown by
+/// An Argo `height` m over `body` along `dir_local` (its frame), moving with its surface, flown by
 /// `act` for `ticks`; aimed toward `toward` on the body (its frame), or a fixed way along it.
 fn fly_by(
     cfg: SimConfig,
@@ -135,7 +135,7 @@ fn fly_by(
     let (at, n) = bodies.surface_along(body, dir_local).unwrap();
     let start = pose.to_world(at + n * (STANCE + height));
     let id = sim
-        .spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, start, look_rotation(Vec3::Z, Vec3::Y))
+        .spawn_at(FrameId::Argo, Faction::Colonies, PilotKind::Human, start, look_rotation(Vec3::Z, Vec3::Y))
         .unwrap();
     let i = id.idx();
     sim.suits.flight[i].vel = pose.point_vel(start);
@@ -310,13 +310,13 @@ fn grippable_rock(cfg: &SimConfig) -> u16 {
 
 #[test]
 fn the_owners_feet_keep_time_with_the_servers() {
-    let rocks = SimConfig { target_dolls: 0, ..SimConfig::default() };
+    let rocks = SimConfig { target_drones: 0, ..SimConfig::default() };
     let rock = grippable_rock(&rocks);
-    let open = SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() };
+    let open = SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() };
     let runs = [
         ("a rock", fly(rocks, Body::Rock(rock), Vec3::new(0.2, 1.0, 0.3), 18.0, 900, true)),
         ("Hermit", fly(open, Body::Landmark(1), Vec3::new(0.3, 1.0, 0.2), 20.0, 900, false)),
-        ("MO-II", fly(open, Body::Landmark(0), Vec3::new(1.0, 0.6, 0.6), 20.0, 900, false)),
+        ("Fornax", fly(open, Body::Landmark(0), Vec3::new(1.0, 0.6, 0.6), 20.0, 900, false)),
     ];
     for (name, run) in &runs {
         let seen = check(name, run);
@@ -327,9 +327,9 @@ fn the_owners_feet_keep_time_with_the_servers() {
         // Let go (and pushed off), and at the end either dug out or lifted off.
         assert!(seen.released >= 2, "{name}: {seen:?}");
     }
-    // Across MO-II's aft face to the Aft Well: its rim is a wall, so the suit stops at it, hops
+    // Across Fornax's aft face to the Aft Well: its rim is a wall, so the suit stops at it, hops
     // in, and crouches on the bowl's floor.
-    let open = SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() };
+    let open = SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() };
     let well = Vec3::new(-235.0, 0.0, 0.0);
     let hop_in = |t: u32| Act {
         thrust: [
@@ -371,15 +371,15 @@ fn the_owners_feet_keep_time_with_the_servers() {
 fn a_launch_rides_its_bay_and_is_thrown_out_where_the_server_throws_it() {
     use bc_proto::buttons::MODE;
     use bc_sim::sim::{LaunchAt, Loadout};
-    // A Leo launched from bay 37 (survival): it rides the bay's cradle round the ring, its pilot
+    // An Argo launched from bay 37 (survival): it rides the bay's cradle round the ring, its pilot
     // pressing fire and changing form (the bay's law clears both), then lets go at tick 60 and is
     // thrown out of the door, flying on under flight assist and the stick.
-    let cfg = SimConfig { target_dolls: 0, field_rocks: 0, survival: true, ..SimConfig::default() };
+    let cfg = SimConfig { target_drones: 0, field_rocks: 0, survival: true, ..SimConfig::default() };
     let field = (cfg.field_seed, cfg.field_rocks);
     let mut sim = Sim::new(cfg);
-    let leo = Loadout::full(FrameId::Leo);
+    let argo = Loadout::full(FrameId::Argo);
     let id =
-        sim.launch_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, &leo, LaunchAt::Bay(37)).unwrap();
+        sim.launch_at(FrameId::Argo, Faction::Colonies, PilotKind::Human, &argo, LaunchAt::Bay(37)).unwrap();
     let i = id.idx();
     let s = &sim.suits.flight[i];
     let mut run = Run {

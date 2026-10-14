@@ -1,4 +1,4 @@
-//! The modelling kit: procedural shapes for building mobile suits, placed in a bone's own space and
+//! The modelling kit: procedural shapes for building suits, placed in a bone's own space and
 //! baked into one mesh per bone.
 //!
 //! Every vertex carries four numbers in its colour, which the client's hull shader reads: r, the

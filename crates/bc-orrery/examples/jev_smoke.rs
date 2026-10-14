@@ -1,11 +1,11 @@
 //! Calls the real TypeSafe Jev API with a sample tactical picture and prints the advice.
 //!
-//!   TYPESAFE_API_KEY=... cargo run -p bc-zero --example jev_smoke
+//!   TYPESAFE_API_KEY=... cargo run -p bc-orrery --example jev_smoke
 
+use bc_orrery::jev::{MANEUVER_LABELS, OWN_LABELS, THREAT_LEVEL_LABELS, build_request};
+use bc_orrery::{JevOracle, TacticalOracle, TacticalPicture};
 use bc_proto::{FrameId, PilotKind};
-use bc_sim::zero::advice::ThreatBrief;
-use bc_zero::jev::{MANEUVER_LABELS, OWN_LABELS, THREAT_LEVEL_LABELS, build_request};
-use bc_zero::{JevOracle, TacticalOracle, TacticalPicture};
+use bc_sim::orrery::advice::ThreatBrief;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
@@ -13,14 +13,14 @@ async fn main() -> anyhow::Result<()> {
     let mut p = TacticalPicture {
         pilot: 1,
         tick: 1,
-        frame: FrameId::WingZero,
+        frame: FrameId::Altair,
         speed: 120.0,
         ..TacticalPicture::default()
     };
     p.threats[0] = ThreatBrief {
         slot: 7,
-        frame: FrameId::Taurus,
-        pilot: PilotKind::MobileDoll,
+        frame: FrameId::Corvus,
+        pilot: PilotKind::Drone,
         distance: 900.0,
         closing_speed: 160.0,
         bearing_deg: 10.0,
@@ -31,8 +31,8 @@ async fn main() -> anyhow::Result<()> {
     };
     p.threats[1] = ThreatBrief {
         slot: 8,
-        frame: FrameId::Virgo,
-        pilot: PilotKind::MobileDoll,
+        frame: FrameId::Cetus,
+        pilot: PilotKind::Drone,
         distance: 2_200.0,
         bearing_deg: 110.0,
         ..ThreatBrief::default()

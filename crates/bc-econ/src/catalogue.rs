@@ -2,24 +2,24 @@
 //!
 //! - **Refining** (the bay's fabricator): ore into steel, titanium alloy, propellant, electronics
 //!   and munitions.
-//! - **Gundanium** can only be made in zero-G: the colony's foundry at the docking hub makes it
+//! - **Siderium** can only be made in zero-G: the colony's foundry at the docking hub makes it
 //!   for a fee, slowly.
 //! - **Parts** of a suit weigh what the simulation says they weigh (`part_mass_kg`), and are made
-//!   of structure (steel), armour (titanium alloy, or gundanium for a Gundam) and electronics; a
-//!   Gundam's torso carries its reactor and its system (the ZERO System, the Hyper Jammer).
+//!   of structure (steel), armour (titanium alloy, or siderium for a Lodestar) and electronics; a
+//!   Lodestar's torso carries its reactor and its system (the Orrery, the Eclipse).
 //! - **Weapons** each have a recipe; the ones that fire rounds need munitions to load.
 //! - **Machined components** (steel, a little electronics and titanium alloy) are what overhauls
 //!   restore a suit's systems with, and what equipment **modules** are mostly made of.
 //! - **Consumables** for a suit's rack (patch kits, coolant flushes, chaff, stims) are made a few
 //!   at a time at the fabricator, and the colony sells them.
 //!
-//! A Gundam costs about six Leos, most of it exotics and foundry time: getting one is the game.
+//! A Lodestar costs about six Argos, most of it exotics and foundry time: getting one is the game.
 
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 use bc_proto::{FrameId, Part, WeaponKind};
-use bc_sim::content::salvage::{is_gundam, part_mass_kg};
+use bc_sim::content::salvage::{is_lodestar, part_mass_kg};
 use bc_sim::content::{Grade, Kit, ModuleKind, frame, weapon};
 use serde::{Deserialize, Serialize};
 
@@ -81,7 +81,7 @@ const fn mat(m: Material) -> Item {
 const STEEL: Item = mat(Material::Steel);
 const TI_ALLOY: Item = mat(Material::TitaniumAlloy);
 pub(crate) const ELECTRONICS: Item = mat(Material::Electronics);
-const GUNDANIUM: Item = mat(Material::Gundanium);
+const SIDERIUM: Item = mat(Material::Siderium);
 const MUNITIONS: Item = mat(Material::Munitions);
 pub(crate) const EXOTICS: Item = ore(Ore::Exotics);
 pub(crate) const COMPONENTS: Item = mat(Material::Components);
@@ -105,7 +105,7 @@ fn build_recipes() -> Vec<Recipe> {
         refine(Material::Electronics, 20, &[(EXOTICS, 20), (STEEL, 40)], 40),
         refine(Material::Munitions, 60, &[(STEEL, 50), (ore(Ore::Volatiles), 10)], 20),
         Recipe {
-            output: GUNDANIUM,
+            output: SIDERIUM,
             makes: 100,
             inputs: vec![(TI_ALLOY, 200), (EXOTICS, 40)],
             station: Station::Foundry,
@@ -182,9 +182,9 @@ fn module_recipe(k: ModuleKind) -> Recipe {
 /// systems need.
 fn part_recipe(line: FrameId, part: Part) -> Recipe {
     let m = part_mass_kg(line, part) as f32;
-    let gundam = is_gundam(line);
+    let lodestar = is_lodestar(line);
     let (armour, armour_share, steel_share, wiring) =
-        if gundam { (GUNDANIUM, 0.5, 0.4, 2.0) } else { (TI_ALLOY, 0.35, 0.6, 1.0) };
+        if lodestar { (SIDERIUM, 0.5, 0.4, 2.0) } else { (TI_ALLOY, 0.35, 0.6, 1.0) };
     let electronics = wiring
         * match part {
             Part::Head => 0.08,
@@ -201,43 +201,43 @@ fn part_recipe(line: FrameId, part: Part) -> Recipe {
     add(armour, m * armour_share);
     add(STEEL, m * steel_share);
     add(ELECTRONICS, m * electronics);
-    // A Gundam's reactor, and each Gundam's own system.
-    if gundam && part == Part::Torso {
+    // A Lodestar's reactor, and each Lodestar's own system.
+    if lodestar && part == Part::Torso {
         add(EXOTICS, m * 0.05);
     }
     match (line, part) {
-        // The ZERO System.
-        (FrameId::WingZero, Part::Torso) => {
+        // The Orrery.
+        (FrameId::Altair, Part::Torso) => {
             add(ELECTRONICS, 200.0);
             add(EXOTICS, 150.0);
         }
-        // The wings, and the frame that folds into Neo-Bird.
-        (FrameId::WingZero, Part::Backpack) => {
-            add(GUNDANIUM, 100.0);
+        // The wings, and the frame that folds into Aquila.
+        (FrameId::Altair, Part::Backpack) => {
+            add(SIDERIUM, 100.0);
             add(ELECTRONICS, 60.0);
         }
-        // The Hyper Jammer.
-        (FrameId::Deathscythe, Part::Torso) => {
+        // The Eclipse.
+        (FrameId::Algol, Part::Torso) => {
             add(ELECTRONICS, 150.0);
             add(EXOTICS, 100.0);
         }
-        // Full Open's chest gatlings and micro-missile pods.
-        (FrameId::Heavyarms, Part::Torso) => {
+        // Full Salvo's chest gatlings and micro-missile pods.
+        (FrameId::Antares, Part::Torso) => {
             add(STEEL, 300.0);
             add(ELECTRONICS, 40.0);
         }
-        (FrameId::Heavyarms, Part::Legs) => {
+        (FrameId::Antares, Part::Legs) => {
             add(STEEL, 200.0);
             add(ELECTRONICS, 30.0);
         }
-        // The arms that close the Cross Crusher.
-        (FrameId::Sandrock, Part::ArmL | Part::ArmR) => add(GUNDANIUM, 50.0),
+        // The arms that close the Pincer Strike.
+        (FrameId::Canopus, Part::ArmL | Part::ArmR) => add(SIDERIUM, 50.0),
         _ => {}
     }
-    if line == FrameId::Leo && part == Part::Torso {
+    if line == FrameId::Argo && part == Part::Torso {
         add(ELECTRONICS, 40.0);
     }
-    let secs = (10.0 + m / 40.0) * if gundam { 1.5 } else { 1.0 };
+    let secs = (10.0 + m / 40.0) * if lodestar { 1.5 } else { 1.0 };
     Recipe {
         output: Item::Part(line, part),
         makes: 1,
@@ -254,21 +254,21 @@ fn weapon_recipe(w: WeaponKind) -> Recipe {
         BeamRifle => (&[(TI_ALLOY, 120), (ELECTRONICS, 40), (EXOTICS, 20)], 60),
         MachineCannon => (&[(STEEL, 150), (ELECTRONICS, 10)], 40),
         BeamSaber => (&[(TI_ALLOY, 30), (ELECTRONICS, 20), (EXOTICS, 10)], 40),
-        TwinBusterRifle => (&[(GUNDANIUM, 300), (ELECTRONICS, 150), (EXOTICS, 300)], 300),
+        HeavyBeamRifle => (&[(SIDERIUM, 300), (ELECTRONICS, 150), (EXOTICS, 300)], 300),
         BeamGatling => (&[(TI_ALLOY, 200), (ELECTRONICS, 60), (EXOTICS, 40)], 120),
         HomingMissile => (&[(STEEL, 250), (ELECTRONICS, 60)], 90),
-        ArmyKnife => (&[(STEEL, 60), (TI_ALLOY, 20)], 20),
-        BusterShield => (&[(GUNDANIUM, 150), (ELECTRONICS, 40), (EXOTICS, 40)], 150),
-        HeadVulcan => (&[(STEEL, 60), (ELECTRONICS, 10)], 30),
-        BeamScythe => (&[(GUNDANIUM, 80), (ELECTRONICS, 60), (EXOTICS, 80)], 180),
+        CombatKnife => (&[(STEEL, 60), (TI_ALLOY, 20)], 20),
+        ClawShield => (&[(SIDERIUM, 150), (ELECTRONICS, 40), (EXOTICS, 40)], 150),
+        HeadGun => (&[(STEEL, 60), (ELECTRONICS, 10)], 30),
+        BeamScythe => (&[(SIDERIUM, 80), (ELECTRONICS, 60), (EXOTICS, 80)], 180),
         BeamMachineGun => (&[(TI_ALLOY, 150), (ELECTRONICS, 50), (EXOTICS, 30)], 90),
-        HeatShotel => (&[(GUNDANIUM, 200), (ELECTRONICS, 30)], 150),
-        DragonFang => (&[(GUNDANIUM, 150), (STEEL, 200), (ELECTRONICS, 40)], 150),
+        HeatBlade => (&[(SIDERIUM, 200), (ELECTRONICS, 30)], 150),
+        Talon => (&[(SIDERIUM, 150), (STEEL, 200), (ELECTRONICS, 40)], 150),
         Flamethrower => (&[(STEEL, 150), (ELECTRONICS, 20)], 90),
-        BeamGlaive => (&[(GUNDANIUM, 60), (ELECTRONICS, 50), (EXOTICS, 70)], 150),
-        // Not items (Mobile Dolls' guns, a special's own mounts, a charged shot, a reactor's blast):
+        BeamGlaive => (&[(SIDERIUM, 60), (ELECTRONICS, 50), (EXOTICS, 70)], 150),
+        // Not items (drones' guns, a special's own mounts, a charged shot, a reactor's blast):
         // never asked for.
-        BeamCannon | ChestGatling | MicroMissile | CrossCrusher | BeamRifleCharged | Reactor => {
+        BeamCannon | ChestGatling | MicroMissile | PincerStrike | BeamRifleCharged | Reactor => {
             (&[(STEEL, 100)], 60)
         }
     };
@@ -287,7 +287,7 @@ pub fn munitions_per_load(w: WeaponKind) -> u64 {
     match w {
         WeaponKind::MachineCannon => 100,
         WeaponKind::HomingMissile => 120,
-        WeaponKind::HeadVulcan => 30,
+        WeaponKind::HeadGun => 30,
         WeaponKind::Flamethrower => 150,
         _ => 0,
     }
@@ -346,7 +346,7 @@ fn build_values() -> BTreeMap<Item, u64> {
     for o in Ore::ALL {
         v.insert(Item::Ore(o), ore_value(o));
     }
-    // Recipes list inputs before what's made from them, except gundanium (made from titanium
+    // Recipes list inputs before what's made from them, except siderium (made from titanium
     // alloy, listed after it): a few passes settle everything.
     for _ in 0..3 {
         for r in recipes() {
@@ -366,14 +366,14 @@ fn build_values() -> BTreeMap<Item, u64> {
     v
 }
 
-/// Gundam technology: gundanium, anything made with it, and the Gundams' own parts. The colony
-/// won't touch it (it's what OZ is hunting for); only pilots trade it.
-pub fn gundam_tech(item: Item) -> bool {
+/// Lodestar technology: siderium, anything made with it, and the Lodestars' own parts. The colony
+/// won't touch it (it's what Almagest is hunting for); only pilots trade it.
+pub fn lodestar_tech(item: Item) -> bool {
     match item {
-        Item::Material(Material::Gundanium) => true,
-        Item::Part(line, _) => is_gundam(line),
+        Item::Material(Material::Siderium) => true,
+        Item::Part(line, _) => is_lodestar(line),
         Item::Ore(_) | Item::Material(_) => false,
-        Item::Weapon(_) => recipe(item).is_some_and(|r| r.inputs.iter().any(|(i, _)| gundam_tech(*i))),
+        Item::Weapon(_) => recipe(item).is_some_and(|r| r.inputs.iter().any(|(i, _)| lodestar_tech(*i))),
         Item::Module(_) | Item::Kit(_) => false,
     }
 }
@@ -395,7 +395,7 @@ pub struct Desk {
 
 /// The colony's desk for `item`, if it trades it.
 pub fn desk(item: Item) -> Option<Desk> {
-    if gundam_tech(item) {
+    if lodestar_tech(item) {
         return None;
     }
     let base = value(item);
@@ -422,7 +422,7 @@ pub fn desk(item: Item) -> Option<Desk> {
         // The colony's machine shops turn them out, and its own repair crews use them up.
         Item::Material(Material::Components) => d(8_000, true, true, 2.0),
         Item::Material(_) => d(15_000, true, true, 2.0),
-        // The militia's Leos, and ordinary weapons.
+        // The militia's Argos, and ordinary weapons.
         Item::Part(..) | Item::Weapon(_) => d(3, true, true, 6.0),
         // Ordinary equipment, a couple of each on the shelf.
         Item::Module(_) => d(2, true, true, 6.0),
@@ -472,49 +472,43 @@ mod tests {
             }
             assert!(value(r.output) > 0, "{} has no value", r.output);
         }
-        assert_eq!(recipe(GUNDANIUM).unwrap().station, Station::Foundry);
+        assert_eq!(recipe(SIDERIUM).unwrap().station, Station::Foundry);
     }
 
     #[test]
-    fn a_gundam_is_several_leos_and_mostly_exotics() {
-        let leo = suit_raw(FrameId::Leo);
+    fn a_lodestar_is_several_argos_and_mostly_exotics() {
+        let argo = suit_raw(FrameId::Argo);
         let exotics = |m: &BTreeMap<Item, f64>| m.get(&EXOTICS).copied().unwrap_or(0.0);
         let total =
             |m: &BTreeMap<Item, f64>| m.iter().map(|(i, kg)| value(*i) as f64 * kg / 1_000.0).sum::<f64>();
-        for line in [
-            FrameId::WingZero,
-            FrameId::Heavyarms,
-            FrameId::Deathscythe,
-            FrameId::Sandrock,
-            FrameId::Shenlong,
-        ] {
+        for line in [FrameId::Altair, FrameId::Antares, FrameId::Algol, FrameId::Canopus, FrameId::Thuban] {
             let g = suit_raw(line);
-            assert!(total(&g) > 3.0 * total(&leo), "{line:?}: {} vs a Leo's {}", total(&g), total(&leo));
-            assert!(exotics(&g) > 6.0 * exotics(&leo), "{line:?}");
+            assert!(total(&g) > 3.0 * total(&argo), "{line:?}: {} vs an Argo's {}", total(&g), total(&argo));
+            assert!(exotics(&g) > 6.0 * exotics(&argo), "{line:?}");
             assert!(exotics(&g) > 1_500.0, "{line:?}: {} kg of exotics", exotics(&g));
         }
-        // A Leo is a few mining trips' worth of ore (a hold is 3 t).
-        let ore: f64 = leo.values().sum();
+        // An Argo is a few mining trips' worth of ore (a hold is 3 t).
+        let ore: f64 = argo.values().sum();
         assert!((6_000.0..14_000.0).contains(&ore), "{ore}");
     }
 
     #[test]
-    fn the_colony_values_work_and_keeps_out_of_gundam_tech() {
+    fn the_colony_values_work_and_keeps_out_of_lodestar_tech() {
         assert_eq!(value(Item::Ore(Ore::Titanium)), 4_000);
         // Refining adds value.
         assert!(value(STEEL) > value(Item::Ore(Ore::NickelIron)));
-        assert!(value(GUNDANIUM) > value(TI_ALLOY));
-        assert!(gundam_tech(GUNDANIUM));
-        assert!(gundam_tech(Item::Part(FrameId::Deathscythe, Part::Head)));
-        assert!(gundam_tech(Item::Weapon(WeaponKind::TwinBusterRifle)));
-        assert!(!gundam_tech(Item::Weapon(WeaponKind::BeamRifle)));
-        assert!(!gundam_tech(Item::Part(FrameId::Leo, Part::Torso)));
-        assert!(desk(GUNDANIUM).is_none());
-        assert!(desk(Item::Part(FrameId::Leo, Part::ArmL)).is_some_and(|d| d.buys && d.sells));
+        assert!(value(SIDERIUM) > value(TI_ALLOY));
+        assert!(lodestar_tech(SIDERIUM));
+        assert!(lodestar_tech(Item::Part(FrameId::Algol, Part::Head)));
+        assert!(lodestar_tech(Item::Weapon(WeaponKind::HeavyBeamRifle)));
+        assert!(!lodestar_tech(Item::Weapon(WeaponKind::BeamRifle)));
+        assert!(!lodestar_tech(Item::Part(FrameId::Argo, Part::Torso)));
+        assert!(desk(SIDERIUM).is_none());
+        assert!(desk(Item::Part(FrameId::Argo, Part::ArmL)).is_some_and(|d| d.buys && d.sells));
         assert!(desk(Item::Ore(Ore::Exotics)).is_some_and(|d| d.buys && !d.sells));
-        // A full Leo tank bought from the colony is a trip's running cost, not a fortune.
+        // A full Argo tank bought from the colony is a trip's running cost, not a fortune.
         let tank =
-            worth(PROPELLANT_ITEM, desk(PROPELLANT_ITEM).unwrap().base, u64::from(tank_kg(FrameId::Leo)));
+            worth(PROPELLANT_ITEM, desk(PROPELLANT_ITEM).unwrap().base, u64::from(tank_kg(FrameId::Argo)));
         assert!((1_000..5_000).contains(&tank), "{tank}");
     }
 

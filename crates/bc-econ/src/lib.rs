@@ -1,7 +1,7 @@
 //! Before Colony's economy: everything a pilot owns, makes and trades, off the simulation's hot
 //! path.
 //!
-//! - [`item`]: ores, materials, mobile-suit parts for each frame line, weapons.
+//! - [`item`]: ores, materials, mech parts for each frame line, weapons.
 //! - [`catalogue`]: what everything is made of, how long it takes, and what the colony pays.
 //! - [`stores`]: a hangar's stock, and its parts one by one with their condition.
 //! - [`faults`]: what's damaged or failed inside a suit's parts, and what restoring it takes.

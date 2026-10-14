@@ -105,12 +105,12 @@ impl HangarState {
     }
 
     /// What the Blast Hall's gantry readies for the pilot, by name: the test range's pick (the
-    /// Proving Ground's board carries it), the Charter Board's Leo till they pick another.
+    /// Proving Ground's board carries it), the Charter Board's Argo till they pick another.
     pub fn trainer_name(&self) -> String {
         let pick = self.proving.as_ref().map_or(Trainer::Board, |p| p.trainer);
         let frame = |line| bc_sim::content::frame_name(line).to_uppercase();
         match pick {
-            Trainer::Board => "THE CHARTER BOARD'S LEO".into(),
+            Trainer::Board => "THE CHARTER BOARD'S ARGO".into(),
             Trainer::Bay => match self.view.as_ref().map(|v| &v.bay) {
                 Some(Bay::Docked { suit }) => format!("YOUR {}, AS BUILT", frame(suit.line)),
                 _ => "YOUR BAY'S BUILD".into(),
@@ -141,7 +141,7 @@ impl HangarState {
     }
 
     /// Whether the bay's suit (standing in it, or out) has every weapon its frame carries fitted:
-    /// the worn Leo an Arrival is handed hasn't its beam rifle.
+    /// the worn Argo an Arrival is handed hasn't its beam rifle.
     pub fn armed(&self) -> bool {
         match self.view.as_ref().map(|v| &v.bay) {
             Some(Bay::Docked { suit } | Bay::Out { suit }) => {
@@ -156,7 +156,7 @@ impl HangarState {
         self.charter.as_ref().map_or(0, |c| c.standing)
     }
 
-    /// Zodiac's aces the pilot has downed, as the Charter Board last told it.
+    /// The Almagest's aces the pilot has downed, as the Charter Board last told it.
     pub fn aces_downed(&self) -> u32 {
         self.charter.as_ref().map_or(0, |c| c.mine_aces)
     }
@@ -168,12 +168,12 @@ impl HangarState {
         self.charter.as_ref().is_some_and(|c| c.waiting.is_some())
     }
 
-    /// Whether the pilot has gundanium in their stores, or a job making it.
+    /// Whether the pilot has siderium in their stores, or a job making it.
     pub fn smelting(&self) -> bool {
-        let gundanium = Item::Material(Material::Gundanium);
+        let siderium = Item::Material(Material::Siderium);
         self.view.as_ref().is_some_and(|v| {
-            v.stock.iter().any(|&(item, q)| item == gundanium && q > 0)
-                || v.jobs.iter().any(|j| j.item == gundanium)
+            v.stock.iter().any(|&(item, q)| item == siderium && q > 0)
+                || v.jobs.iter().any(|j| j.item == siderium)
         })
     }
 }
@@ -228,38 +228,38 @@ mod tests {
     #[test]
     fn the_gantry_names_the_trainer_picked() {
         let mut h = HangarState::default();
-        assert_eq!(h.trainer_name(), "THE CHARTER BOARD'S LEO", "before the board's word");
+        assert_eq!(h.trainer_name(), "THE CHARTER BOARD'S ARGO", "before the board's word");
         h.apply(Update::Hangar(HangarView::of(&bc_econ::Hangar::starter(), 0)));
         let mut board = bc_econ::proving::Board::default().view("", 0);
         h.apply(Update::Proving(board.clone()));
-        assert_eq!(h.trainer_name(), "THE CHARTER BOARD'S LEO");
-        // The suits by their names (canon or not, as the build has them).
+        assert_eq!(h.trainer_name(), "THE CHARTER BOARD'S ARGO");
+        // The suits by their names.
         let name = |f| bc_sim::content::frame_name(f).to_uppercase();
         board.trainer = Trainer::Bay;
         h.apply(Update::Proving(board.clone()));
-        assert_eq!(h.trainer_name(), format!("YOUR {}, AS BUILT", name(bc_proto::FrameId::Leo)));
-        board.trainer = Trainer::Line { line: bc_proto::FrameId::Heavyarms };
+        assert_eq!(h.trainer_name(), format!("YOUR {}, AS BUILT", name(bc_proto::FrameId::Argo)));
+        board.trainer = Trainer::Line { line: bc_proto::FrameId::Antares };
         h.apply(Update::Proving(board));
-        assert_eq!(h.trainer_name(), format!("A NEW {}", name(bc_proto::FrameId::Heavyarms)));
+        assert_eq!(h.trainer_name(), format!("A NEW {}", name(bc_proto::FrameId::Antares)));
     }
 
     /// What the objectives read off the server's word: a certificate, a suit armed, standing, aces
-    /// downed, gundanium.
+    /// downed, siderium.
     #[test]
     fn the_objectives_read_the_servers_word() {
         let mut h = HangarState::default();
         assert!(!h.has_certificate() && !h.armed() && !h.smelting(), "nothing told yet");
         assert_eq!((h.standing(), h.aces_downed()), (0, 0));
-        // The worn Leo an Arrival is handed hasn't its beam rifle; a complete one, docked or out, is
+        // The worn Argo an Arrival is handed hasn't its beam rifle; a complete one, docked or out, is
         // armed.
         let starter = bc_econ::Hangar::starter();
         h.apply(Update::Hangar(HangarView::of(&starter, 0)));
-        assert!(!h.armed(), "the starter's Leo came without its rifle");
-        let leo = bc_econ::Suit::complete(bc_proto::FrameId::Leo);
-        let mut whole = bc_econ::Hangar { bay: Bay::Docked { suit: leo.clone() }, ..starter.clone() };
+        assert!(!h.armed(), "the starter's Argo came without its rifle");
+        let argo = bc_econ::Suit::complete(bc_proto::FrameId::Argo);
+        let mut whole = bc_econ::Hangar { bay: Bay::Docked { suit: argo.clone() }, ..starter.clone() };
         h.apply(Update::Hangar(HangarView::of(&whole, 0)));
         assert!(h.armed());
-        whole.bay = Bay::Out { suit: leo };
+        whole.bay = Bay::Out { suit: argo };
         h.apply(Update::Hangar(HangarView::of(&whole, 0)));
         assert!(h.armed(), "out on a sortie, as fitted");
         whole.bay = Bay::Empty;
@@ -291,12 +291,12 @@ mod tests {
         charter.waiting = None;
         h.apply(Update::Charter(charter));
         assert!(!h.board_holds(), "handed over");
-        // Gundanium: a job making it, or some in the stores.
-        let gundanium = Item::Material(Material::Gundanium);
+        // Siderium: a job making it, or some in the stores.
+        let siderium = Item::Material(Material::Siderium);
         let mut view = HangarView::of(&starter, 0);
         view.jobs.push(wire::JobView {
             station: bc_econ::Station::Foundry,
-            item: gundanium,
+            item: siderium,
             batches: 1,
             done: 0,
             secs: 600,
@@ -314,11 +314,11 @@ mod tests {
             secs_left: 60,
         });
         h.apply(Update::Hangar(view.clone()));
-        assert!(!h.smelting(), "steel's no gundanium");
-        view.stock.push((gundanium, 0));
+        assert!(!h.smelting(), "steel's no siderium");
+        view.stock.push((siderium, 0));
         h.apply(Update::Hangar(view.clone()));
         assert!(!h.smelting(), "none of it");
-        view.stock.push((gundanium, 4));
+        view.stock.push((siderium, 4));
         h.apply(Update::Hangar(view));
         assert!(h.smelting(), "in the stores");
     }

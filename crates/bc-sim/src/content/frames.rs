@@ -5,7 +5,7 @@ use glam::Vec3;
 use super::{MissileSpec, WeaponClass, weapon};
 use crate::config::G0;
 
-/// The mount of a frame's special melee move (the Cross Crusher), after the three loadout slots.
+/// The mount of a frame's special melee move (the Pincer Strike), after the three loadout slots.
 pub const SPECIAL_MOUNT: u8 = 3;
 
 /// A capsule in the suit's local frame (x right, y up, z forward; origin at the torso centre).
@@ -25,21 +25,21 @@ const fn cap(a: [f32; 3], b: [f32; 3], r: f32) -> Capsule {
 pub enum ArmSlot {
     Right,
     Left,
-    /// Head/shoulder mounts (Wing Zero's machine cannons): tied to the torso.
+    /// Head/shoulder mounts (Altair's machine cannons): tied to the torso.
     Shoulder,
-    /// In the head (vulcans).
+    /// In the head (head guns).
     Head,
     /// Shoulder missile pods.
     Pods,
-    /// Chest hatches (Heavyarms' gatlings).
+    /// Chest hatches (Antares' gatlings).
     Chest,
-    /// Leg pods (Heavyarms' micro-missiles).
+    /// Leg pods (Antares' micro-missiles).
     LegPods,
     /// Both hands at once (twin blades): needs both arms, and is lost with either.
     Both,
-    /// Neo-Bird's nose: the Twin Buster Rifles, pointing along the fuselage.
+    /// Aquila's nose: the Heavy Beam Rifles, pointing along the fuselage.
     Nose,
-    /// Neo-Bird's nose guns.
+    /// Aquila's nose guns.
     NoseGuns,
 }
 
@@ -88,31 +88,31 @@ impl ArmSlot {
 pub enum SpecialKind {
     None,
     /// Toggle (MODE): change into frame `to` over `ticks`, with weapons down and main thrust at
-    /// `thrust` of normal meanwhile (Wing Zero ↔ Neo-Bird).
+    /// `thrust` of normal meanwhile (Altair ↔ Aquila).
     Transform {
         to: FrameId,
         ticks: u8,
         thrust: f32,
     },
-    /// Toggle (MODE): the Hyper Jammer. Enemy sensors see the suit at `sig` of its signature, and
+    /// Toggle (MODE): the Eclipse. Enemy sensors see the suit at `sig` of its signature, and
     /// eyes only within `visual` m. It drains `drain` energy/s, needs `min_energy` (0..1) to engage,
     /// and firing or striking breaks it for `break_ticks`.
-    HyperJammer {
+    Eclipse {
         drain: f32,
         min_energy: f32,
         break_ticks: u16,
         sig: f32,
         visual: f32,
     },
-    /// Press (SPECIAL): Full Open Attack. Every ranged weapon (the special mounts too) fires along
+    /// Press (SPECIAL): Full Salvo. Every ranged weapon (the special mounts too) fires along
     /// the aim for `ticks`, heat ignored; then a forced overheat for `lockout` ticks. Ready again
     /// `cooldown` ticks after it starts, sooner in a fight (`content::specials`).
-    FullOpen {
+    FullSalvo {
         ticks: u16,
         lockout: u16,
         cooldown: u16,
     },
-    /// Press (SPECIAL): a melee move with the special mount's weapon (Cross Crusher), ready again
+    /// Press (SPECIAL): a melee move with the special mount's weapon (Pincer Strike), ready again
     /// `cooldown` ticks after it starts, sooner in a fight (`content::specials`).
     MeleeMove {
         cooldown: u16,
@@ -122,7 +122,7 @@ pub enum SpecialKind {
 impl SpecialKind {
     /// Held as the MODE state (a toggle), rather than pressed as SPECIAL.
     pub fn is_toggle(self) -> bool {
-        matches!(self, SpecialKind::Transform { .. } | SpecialKind::HyperJammer { .. })
+        matches!(self, SpecialKind::Transform { .. } | SpecialKind::Eclipse { .. })
     }
 
     /// The form a transformation changes into.
@@ -137,8 +137,8 @@ impl SpecialKind {
     /// `content::specials`).
     pub fn cooldown(self) -> u16 {
         match self {
-            SpecialKind::FullOpen { cooldown, .. } | SpecialKind::MeleeMove { cooldown } => cooldown,
-            SpecialKind::None | SpecialKind::Transform { .. } | SpecialKind::HyperJammer { .. } => 0,
+            SpecialKind::FullSalvo { cooldown, .. } | SpecialKind::MeleeMove { cooldown } => cooldown,
+            SpecialKind::None | SpecialKind::Transform { .. } | SpecialKind::Eclipse { .. } => 0,
         }
     }
 }
@@ -150,7 +150,7 @@ pub struct AiHints {
     pub engage_range: f32,
     /// Closes to melee rather than shooting from range.
     pub melee_first: bool,
-    /// How dangerous the ZERO System rates it (1 = a Leo).
+    /// How dangerous the Orrery rates it (1 = an Argo).
     pub threat: f32,
 }
 
@@ -161,7 +161,7 @@ pub struct Mount {
     pub arm: ArmSlot,
 }
 
-/// Everything the simulation needs to know about a mobile-suit frame.
+/// Everything the simulation needs to know about a mech frame.
 #[derive(Clone, Copy, Debug)]
 pub struct FrameSpec {
     pub id: FrameId,
@@ -178,9 +178,9 @@ pub struct FrameSpec {
     pub retro_thrust: f32,
     /// Main-thruster multiplier while boosting.
     pub boost_mult: f32,
-    /// AMBAC: attitude control by moving limbs. No propellant, limited authority.
-    pub ambac_accel: f32,
-    pub ambac_rate: f32,
+    /// Limb trim: attitude control by moving limbs. No propellant, limited authority.
+    pub limb_trim_accel: f32,
+    pub limb_trim_rate: f32,
     /// RCS thrusters add this much attitude authority, at a propellant cost.
     pub rcs_accel: f32,
     pub rcs_rate: f32,
@@ -195,7 +195,7 @@ pub struct FrameSpec {
     pub capsules: [Capsule; Part::COUNT],
     /// Armour points per part.
     pub part_hp: [f32; Part::COUNT],
-    /// Damage multiplier (gundanium ≈ 0.55).
+    /// Damage multiplier (siderium ≈ 0.55).
     pub armor: f32,
     pub sensor_range: f32,
     /// Multiplies other suits' sensor range against this one.
@@ -206,14 +206,14 @@ pub struct FrameSpec {
     pub heat_dissipation: f32,
     /// Primary (LMB), secondary (RMB), melee (F).
     pub loadout: [Option<Mount>; 3],
-    /// Carries the ZERO System.
-    pub zero: bool,
-    /// Pilots and agents may choose it (Mobile Dolls' frames and alternate forms: no).
+    /// Carries the Orrery.
+    pub orrery: bool,
+    /// Pilots and agents may choose it (drones' frames and alternate forms: no).
     pub playable: bool,
     /// What the frame's special key does.
     pub special: SpecialKind,
-    /// Weapons only the special uses (Full Open's chest gatlings and micro-missiles, the Cross
-    /// Crusher).
+    /// Weapons only the special uses (Full Salvo's chest gatlings and micro-missiles, the Pincer
+    /// Strike).
     pub special_mounts: [Option<Mount>; 2],
     pub ai: AiHints,
 }
@@ -225,11 +225,11 @@ impl FrameSpec {
         self.dry_mass + propellant.max(0.0)
     }
 
-    /// Whether the frame has legs to stand on: every frame but the Neo-Bird. Without them a suit
+    /// Whether the frame has legs to stand on: every frame but the Aquila. Without them a suit
     /// can't grip a surface.
     #[inline]
     pub fn has_legs(&self) -> bool {
-        self.id != FrameId::WingZeroBird
+        self.id != FrameId::Aquila
     }
 
     /// Exhaust velocity, m/s.
@@ -270,7 +270,7 @@ impl FrameSpec {
     }
 
     /// Which mount a strike seen in entity `flags` comes from: the special's melee move (SPECIAL),
-    /// a blade in a gun slot (MELEE_ALT: the Dragon Fang), or the melee slot.
+    /// a blade in a gun slot (MELEE_ALT: the Talon), or the melee slot.
     pub fn striking_slot(&self, flags: u16) -> u8 {
         if flags & ent_flags::SPECIAL != 0 && self.melee_mount(SPECIAL_MOUNT).is_some() {
             SPECIAL_MOUNT
@@ -294,12 +294,12 @@ const HUMANOID: [Capsule; Part::COUNT] = [
     cap([0.0, 3.0, -2.4], [0.0, 5.2, -2.8], 1.5), // backpack
 ];
 
-/// Neo-Bird's hitboxes: the folded suit as an aircraft, nose along +z.
+/// Aquila's hitboxes: the folded suit as an aircraft, nose along +z.
 const BIRD: [Capsule; Part::COUNT] = [
     cap([0.0, 0.5, 5.5], [0.0, 0.5, 7.5], 1.2),    // head: the nose
     cap([0.0, 0.0, -4.5], [0.0, 0.0, 5.0], 2.3),   // torso: the fuselage
     cap([-1.5, 0.0, 0.0], [-8.0, 0.0, -2.0], 1.0), // left arm: the left wing
-    cap([1.5, 0.0, 0.0], [8.0, 0.0, -2.0], 1.0),   // right arm: the right wing and buster rifles
+    cap([1.5, 0.0, 0.0], [8.0, 0.0, -2.0], 1.0),   // right arm: the right wing and heavy beam rifles
     cap([0.0, 0.0, -4.5], [0.0, 0.5, -10.0], 1.6), // legs: the tail
     cap([0.0, 1.8, -1.0], [0.0, 2.2, -4.0], 1.4),  // backpack: the dorsal thrusters
 ];
@@ -319,24 +319,18 @@ const fn hints(engage_range: f32, melee_first: bool, threat: f32) -> AiHints {
     AiHints { engage_range, melee_first, threat }
 }
 
-/// Neo-Bird ↔ Wing Zero: 0.8 s, weapons down, a third of the main thrust.
+/// Aquila ↔ Altair: 0.8 s, weapons down, a third of the main thrust.
 const TRANSFORM_TICKS: u8 = 24;
 const TRANSFORM_THRUST: f32 = 0.3;
 
 /// The frames pilots can choose, in the order of the respawn keys (1–6).
-pub const PLAYABLE_ORDER: [FrameId; 6] = [
-    FrameId::Leo,
-    FrameId::WingZero,
-    FrameId::Heavyarms,
-    FrameId::Deathscythe,
-    FrameId::Sandrock,
-    FrameId::Shenlong,
-];
+pub const PLAYABLE_ORDER: [FrameId; 6] =
+    [FrameId::Argo, FrameId::Altair, FrameId::Antares, FrameId::Algol, FrameId::Canopus, FrameId::Thuban];
 
 static FRAMES: [FrameSpec; FrameId::COUNT] = [
-    // OZ-06MS Leo (space): the everyman suit. 3.5 g, 5.6 g on boost.
+    // AL-04S Argo (space): the everyman suit. 3.5 g, 5.6 g on boost.
     FrameSpec {
-        id: FrameId::Leo,
+        id: FrameId::Argo,
         dry_mass: 7_100.0,
         propellant_cap: 3_000.0,
         isp: 900.0,
@@ -344,8 +338,8 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
         side_thrust: thrust_for(1.75, 10_100.0),
         retro_thrust: thrust_for(2.1, 10_100.0),
         boost_mult: 1.6,
-        ambac_accel: 1.4,
-        ambac_rate: 1.0,
+        limb_trim_accel: 1.4,
+        limb_trim_rate: 1.0,
         rcs_accel: 4.0,
         rcs_rate: 2.5,
         rcs_propellant: 1.2,
@@ -366,16 +360,16 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
             Some(Mount { weapon: WeaponKind::MachineCannon, arm: LEFT }),
             Some(Mount { weapon: WeaponKind::BeamSaber, arm: LEFT }),
         ],
-        zero: false,
+        orrery: false,
         playable: true,
         special: SpecialKind::None,
         special_mounts: [None, None],
         ai: hints(0.0, false, 1.0),
     },
-    // XXXG-00W0 Wing Gundam Zero: gundanium armour, 8 g (12 g boost: past what a pilot can take),
-    // Twin Buster Rifle and the ZERO System.
+    // PX-00 Altair: siderium armour, 8 g (12 g boost: past what a pilot can take),
+    // Heavy Beam Rifle and the Orrery.
     FrameSpec {
-        id: FrameId::WingZero,
+        id: FrameId::Altair,
         dry_mass: 8_000.0,
         propellant_cap: 3_750.0,
         isp: 1_200.0,
@@ -383,8 +377,8 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
         side_thrust: thrust_for(4.4, 11_750.0),
         retro_thrust: thrust_for(5.2, 11_750.0),
         boost_mult: 1.5,
-        ambac_accel: 2.0,
-        ambac_rate: 1.4,
+        limb_trim_accel: 2.0,
+        limb_trim_rate: 1.4,
         rcs_accel: 6.0,
         rcs_rate: 3.5,
         rcs_propellant: 1.6,
@@ -401,23 +395,23 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
         heat_cap: 140.0,
         heat_dissipation: 26.0,
         loadout: [
-            Some(Mount { weapon: WeaponKind::TwinBusterRifle, arm: RIGHT }),
+            Some(Mount { weapon: WeaponKind::HeavyBeamRifle, arm: RIGHT }),
             Some(Mount { weapon: WeaponKind::MachineCannon, arm: ArmSlot::Shoulder }),
             Some(Mount { weapon: WeaponKind::BeamSaber, arm: LEFT }),
         ],
-        zero: true,
+        orrery: true,
         playable: true,
         special: SpecialKind::Transform {
-            to: FrameId::WingZeroBird,
+            to: FrameId::Aquila,
             ticks: TRANSFORM_TICKS,
             thrust: TRANSFORM_THRUST,
         },
         special_mounts: [None, None],
         ai: hints(0.0, false, 2.0),
     },
-    // OZ-13MS Taurus: agile Mobile Doll, 5 g.
+    // AL-11D Corvus: agile drone, 5 g.
     FrameSpec {
-        id: FrameId::Taurus,
+        id: FrameId::Corvus,
         dry_mass: 6_500.0,
         propellant_cap: 2_500.0,
         isp: 900.0,
@@ -425,8 +419,8 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
         side_thrust: thrust_for(2.75, 9_000.0),
         retro_thrust: thrust_for(3.0, 9_000.0),
         boost_mult: 1.5,
-        ambac_accel: 1.8,
-        ambac_rate: 1.2,
+        limb_trim_accel: 1.8,
+        limb_trim_rate: 1.2,
         rcs_accel: 6.0,
         rcs_rate: 3.0,
         rcs_propellant: 1.0,
@@ -443,15 +437,15 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
         heat_cap: 100.0,
         heat_dissipation: 20.0,
         loadout: [Some(Mount { weapon: WeaponKind::BeamRifle, arm: RIGHT }), None, None],
-        zero: false,
+        orrery: false,
         playable: false,
         special: SpecialKind::None,
         special_mounts: [None, None],
         ai: hints(0.0, false, 1.0),
     },
-    // OZ-02MD Virgo: heavy Mobile Doll with a beam cannon, 3 g.
+    // AL-09D Cetus: heavy drone with a beam cannon, 3 g.
     FrameSpec {
-        id: FrameId::Virgo,
+        id: FrameId::Cetus,
         dry_mass: 9_500.0,
         propellant_cap: 3_100.0,
         isp: 900.0,
@@ -459,8 +453,8 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
         side_thrust: thrust_for(1.35, 12_600.0),
         retro_thrust: thrust_for(1.5, 12_600.0),
         boost_mult: 1.3,
-        ambac_accel: 1.0,
-        ambac_rate: 0.8,
+        limb_trim_accel: 1.0,
+        limb_trim_rate: 0.8,
         rcs_accel: 3.0,
         rcs_rate: 2.0,
         rcs_propellant: 1.4,
@@ -477,16 +471,16 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
         heat_cap: 160.0,
         heat_dissipation: 24.0,
         loadout: [Some(Mount { weapon: WeaponKind::BeamCannon, arm: RIGHT }), None, None],
-        zero: false,
+        orrery: false,
         playable: false,
         special: SpecialKind::None,
         special_mounts: [None, None],
         ai: hints(0.0, false, 1.3),
     },
-    // XXXG-01H Gundam Heavyarms: a walking arsenal. Gatlings, missile volleys, and the Full Open
-    // Attack; gundanium armour, 5.2 g.
+    // PX-01 Antares: a walking arsenal. Gatlings, missile volleys, and the Full Salvo
+    // Attack; siderium armour, 5.2 g.
     FrameSpec {
-        id: FrameId::Heavyarms,
+        id: FrameId::Antares,
         dry_mass: 8_800.0,
         propellant_cap: 3_250.0,
         isp: 1_100.0,
@@ -494,8 +488,8 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
         side_thrust: thrust_for(2.6, 12_050.0),
         retro_thrust: thrust_for(3.0, 12_050.0),
         boost_mult: 1.4,
-        ambac_accel: 1.5,
-        ambac_rate: 1.0,
+        limb_trim_accel: 1.5,
+        limb_trim_rate: 1.0,
         rcs_accel: 5.0,
         rcs_rate: 3.0,
         rcs_propellant: 1.5,
@@ -514,22 +508,22 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
         loadout: [
             mount(WeaponKind::BeamGatling, RIGHT),
             mount(WeaponKind::HomingMissile, ArmSlot::Pods),
-            mount(WeaponKind::ArmyKnife, LEFT),
+            mount(WeaponKind::CombatKnife, LEFT),
         ],
-        zero: false,
+        orrery: false,
         playable: true,
         // 45 s to charge by itself, sooner in a fight (`content::specials`).
-        special: SpecialKind::FullOpen { ticks: 90, lockout: 150, cooldown: 1_350 },
+        special: SpecialKind::FullSalvo { ticks: 90, lockout: 150, cooldown: 1_350 },
         special_mounts: [
             mount(WeaponKind::ChestGatling, ArmSlot::Chest),
             mount(WeaponKind::MicroMissile, ArmSlot::LegPods),
         ],
         ai: hints(1_800.0, false, 1.8),
     },
-    // XXXG-01D Gundam Deathscythe: the god of death. Beam scythe and buster shield, and the Hyper
-    // Jammer that hides it from sensors; 7 g.
+    // PX-02 Algol: the demon star. Beam scythe and claw shield, and the
+    // Eclipse that hides it from sensors; 7 g.
     FrameSpec {
-        id: FrameId::Deathscythe,
+        id: FrameId::Algol,
         dry_mass: 7_300.0,
         propellant_cap: 3_100.0,
         isp: 1_150.0,
@@ -537,8 +531,8 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
         side_thrust: thrust_for(4.0, 10_400.0),
         retro_thrust: thrust_for(4.6, 10_400.0),
         boost_mult: 1.6,
-        ambac_accel: 2.3,
-        ambac_rate: 1.6,
+        limb_trim_accel: 2.3,
+        limb_trim_rate: 1.6,
         rcs_accel: 6.5,
         rcs_rate: 3.8,
         rcs_propellant: 1.3,
@@ -555,13 +549,13 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
         heat_cap: 120.0,
         heat_dissipation: 24.0,
         loadout: [
-            mount(WeaponKind::BusterShield, LEFT),
-            mount(WeaponKind::HeadVulcan, ArmSlot::Head),
+            mount(WeaponKind::ClawShield, LEFT),
+            mount(WeaponKind::HeadGun, ArmSlot::Head),
             mount(WeaponKind::BeamScythe, RIGHT),
         ],
-        zero: false,
+        orrery: false,
         playable: true,
-        special: SpecialKind::HyperJammer {
+        special: SpecialKind::Eclipse {
             drain: 30.0,
             min_energy: 0.2,
             break_ticks: 60,
@@ -571,10 +565,10 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
         special_mounts: [None, None],
         ai: hints(0.0, true, 1.7),
     },
-    // XXXG-01SR Gundam Sandrock: built for the desert and the heaviest armour of the five. Beam
-    // machine gun, homing missiles, twin heat shotels and the Cross Crusher; 4.6 g.
+    // PX-03 Canopus: built for the desert and the heaviest armour of the five. Beam
+    // machine gun, homing missiles, twin heat blades and the Pincer Strike; 4.6 g.
     FrameSpec {
-        id: FrameId::Sandrock,
+        id: FrameId::Canopus,
         dry_mass: 9_600.0,
         propellant_cap: 3_400.0,
         isp: 1_000.0,
@@ -582,8 +576,8 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
         side_thrust: thrust_for(2.3, 13_000.0),
         retro_thrust: thrust_for(2.7, 13_000.0),
         boost_mult: 1.5,
-        ambac_accel: 1.5,
-        ambac_rate: 1.0,
+        limb_trim_accel: 1.5,
+        limb_trim_rate: 1.0,
         rcs_accel: 5.0,
         rcs_rate: 2.8,
         rcs_propellant: 1.6,
@@ -602,18 +596,18 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
         loadout: [
             mount(WeaponKind::BeamMachineGun, RIGHT),
             mount(WeaponKind::HomingMissile, ArmSlot::Pods),
-            mount(WeaponKind::HeatShotel, ArmSlot::Both),
+            mount(WeaponKind::HeatBlade, ArmSlot::Both),
         ],
-        zero: false,
+        orrery: false,
         playable: true,
         special: SpecialKind::MeleeMove { cooldown: 240 },
-        special_mounts: [mount(WeaponKind::CrossCrusher, ArmSlot::Both), None],
+        special_mounts: [mount(WeaponKind::PincerStrike, ArmSlot::Both), None],
         ai: hints(1_200.0, false, 1.6),
     },
-    // XXXG-01S Shenlong Gundam: a duellist. The Dragon Fang (its right arm, flung out on a cable),
+    // PX-04 Thuban: a duellist. The Talon (its right arm, flung out on a cable),
     // a flamethrower in the same arm, and a beam glaive; 7.4 g.
     FrameSpec {
-        id: FrameId::Shenlong,
+        id: FrameId::Thuban,
         dry_mass: 7_500.0,
         propellant_cap: 3_400.0,
         isp: 1_100.0,
@@ -621,8 +615,8 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
         side_thrust: thrust_for(4.5, 10_900.0),
         retro_thrust: thrust_for(5.0, 10_900.0),
         boost_mult: 1.6,
-        ambac_accel: 2.2,
-        ambac_rate: 1.5,
+        limb_trim_accel: 2.2,
+        limb_trim_rate: 1.5,
         rcs_accel: 6.5,
         rcs_rate: 3.8,
         rcs_propellant: 1.3,
@@ -639,20 +633,20 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
         heat_cap: 140.0,
         heat_dissipation: 30.0,
         loadout: [
-            mount(WeaponKind::DragonFang, RIGHT),
+            mount(WeaponKind::Talon, RIGHT),
             mount(WeaponKind::Flamethrower, RIGHT),
             mount(WeaponKind::BeamGlaive, LEFT),
         ],
-        zero: false,
+        orrery: false,
         playable: true,
         special: SpecialKind::None,
         special_mounts: [None, None],
         ai: hints(0.0, true, 1.7),
     },
-    // Wing Gundam Zero as Neo-Bird: faster in a straight line, clumsy in turns, the Twin Buster
-    // Rifles fixed along the nose and no melee. Its armour, energy, heat and tank are Wing Zero's.
+    // Altair as Aquila: faster in a straight line, clumsy in turns, the heavy beam
+    // rifles fixed along the nose and no melee. Its armour, energy, heat and tank are Altair's.
     FrameSpec {
-        id: FrameId::WingZeroBird,
+        id: FrameId::Aquila,
         dry_mass: 8_000.0,
         propellant_cap: 3_750.0,
         isp: 1_200.0,
@@ -660,8 +654,8 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
         side_thrust: thrust_for(1.5, 11_750.0),
         retro_thrust: thrust_for(2.0, 11_750.0),
         boost_mult: 1.4,
-        ambac_accel: 0.8,
-        ambac_rate: 0.6,
+        limb_trim_accel: 0.8,
+        limb_trim_rate: 0.6,
         rcs_accel: 4.5,
         rcs_rate: 2.2,
         rcs_propellant: 1.6,
@@ -678,14 +672,14 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
         heat_cap: 140.0,
         heat_dissipation: 26.0,
         loadout: [
-            mount(WeaponKind::TwinBusterRifle, ArmSlot::Nose),
+            mount(WeaponKind::HeavyBeamRifle, ArmSlot::Nose),
             mount(WeaponKind::MachineCannon, ArmSlot::NoseGuns),
             None,
         ],
-        zero: true,
+        orrery: true,
         playable: false,
         special: SpecialKind::Transform {
-            to: FrameId::WingZero,
+            to: FrameId::Altair,
             ticks: TRANSFORM_TICKS,
             thrust: TRANSFORM_THRUST,
         },

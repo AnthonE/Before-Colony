@@ -78,13 +78,13 @@ pub fn run() {
                 realtime: cfg.showcase_realtime,
                 hz: cfg.showcase_hz,
                 hold: cfg.showcase_hold,
-                frame: crate::config::parse_frame(&cfg.frame).unwrap_or(bc_proto::FrameId::WingZero),
+                frame: crate::config::parse_frame(&cfg.frame).unwrap_or(bc_proto::FrameId::Altair),
             },
         ));
     } else if let Some((settings, store)) = saved {
         let frame = crate::config::parse_frame(&cfg.frame)
             .or_else(|| crate::config::parse_frame(&settings.0.frame))
-            .unwrap_or(bc_proto::FrameId::WingZero);
+            .unwrap_or(bc_proto::FrameId::Altair);
         app.add_plugins((NetPlugin { dial_at_startup: false }, VisualsPlugin, SessionPlugin))
             .insert_resource(settings)
             .insert_resource(store)
@@ -174,7 +174,7 @@ pub fn run() {
                     crate::chart::chart_draw,
                     crate::chart::chart_panels,
                     crate::chart::show_course,
-                    crate::zero_overlay::draw_ghosts,
+                    crate::orrery_overlay::draw_ghosts,
                     publish_game,
                     crate::onfoot::publish_onfoot,
                 )
@@ -216,7 +216,7 @@ impl Plugin for VisualsPlugin {
                 crate::beams::BeamsPlugin,
                 crate::blast::BlastPlugin,
                 crate::ambience::AmbiencePlugin,
-                crate::zero_vision::ZeroVisionPlugin,
+                crate::orrery_vision::OrreryVisionPlugin,
                 crate::hangar::HangarPlugin,
                 crate::shade::ShadePlugin,
                 crate::cockpit::CockpitPlugin,

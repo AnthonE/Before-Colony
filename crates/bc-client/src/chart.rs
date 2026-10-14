@@ -1,13 +1,13 @@
 //! The chart (M): a holographic map of everything a pilot can find, from a rock in the field out
-//! to the Earth Sphere, that they can turn about, zoom through, pick from and set a course on.
+//! to Earth-Moon space, that they can turn about, zoom through, pick from and set a course on.
 //!
 //! - **Seen in 3D.** The sector is drawn as light on its own layer (`holo`): the colony turning
-//!   with its windows lit, the docking hub and the dock's ring, MO-II rolling on its circle,
+//!   with its windows lit, the docking hub and the dock's ring, Fornax rolling on its circle,
 //!   Hermit and its craters, the field's rocks, every suit in sight with where it's heading, and
 //!   missiles. A plane through the pilot (or the sector's middle, `P`) is ruled in a grid with
 //!   range rings round the pilot, and a stalk drops from everything to it, so "above" and "below"
 //!   read at a glance.
-//! - **Out to the Earth Sphere.** Zooming out past the sector carries on, without a cut, to Earth,
+//! - **Out to Earth-Moon space.** Zooming out past the sector carries on, without a cut, to Earth,
 //!   the Moon and the five Lagrange points at their true distances (`bc_client_core::sphere`):
 //!   the sector is a light at L1, between them. The rest can be found and read about, but no lane
 //!   leaves L1 yet.
@@ -25,13 +25,13 @@
 //! |---|---|
 //! | drag | turn the view about its focus |
 //! | right or middle drag, Shift+drag | pan |
-//! | wheel | zoom (in toward the cursor; out, past the sector, to the Earth Sphere) |
+//! | wheel | zoom (in toward the cursor; out, past the sector, to Earth-Moon space) |
 //! | click · double-click | select · focus on it (or, on empty space, mark a nav point) |
 //! | right click | set a course to it |
 //! | Enter · N · Backspace | set a course to the selection · auto-nav · clear the course |
 //! | W/A/S/D, R/F, Q/E | pan, rise and sink, turn |
 //! | [ · ] | the previous or next place the chart lists (and the view flies to it) |
-//! | H · 1 · 2 · 3 · T · P | back to your suit · the views: you, the sector, the Earth Sphere · top-down · the plane |
+//! | H · 1 · 2 · 3 · T · P | back to your suit · the views: you, the sector, Earth-Moon space · top-down · the plane |
 
 use std::f32::consts::{FRAC_PI_2, TAU};
 
@@ -92,7 +92,7 @@ const REPLOT_S: f64 = 0.5;
 const OWN_AHEAD_S: f32 = 30.0;
 const SUIT_AHEAD_S: f32 = 10.0;
 /// The scales the chart's two worlds fade between (m of view distance): the sector's lines out
-/// between the first two, the Earth Sphere's in between the last two.
+/// between the first two, Earth-Moon space's in between the last two.
 const SECTOR_FADE: (f32, f32) = (600_000.0, 6_000_000.0);
 const SPHERE_FADE: (f32, f32) = (1_500_000.0, 30_000_000.0);
 
@@ -502,7 +502,7 @@ fn apply_chart_tier(mut commands: Commands, gfx: Res<Gfx>, cams: Query<Entity, W
     }
 }
 
-/// The places the chart lists, for a click to go to: the sector's, then the Earth Sphere's.
+/// The places the chart lists, for a click to go to: the sector's, then Earth-Moon space's.
 fn listed() -> Vec<Place> {
     let mut out = vec![Place::Colony, Place::Dock, Place::Field];
     for (k, def) in LANDMARKS.iter().enumerate() {
@@ -633,7 +633,7 @@ fn setup_chart_ui(
                     .with_children(|row| {
                         chip(row, ChartButton::You, "YOU  H");
                         chip(row, ChartButton::Sector, "SECTOR  2");
-                        chip(row, ChartButton::Sphere, "EARTH SPHERE  3");
+                        chip(row, ChartButton::Sphere, "EARTH-MOON  3");
                         chip(row, ChartButton::TopDown, "TOP  T");
                         chip(row, ChartButton::Plane, "PLANE  P");
                     });
@@ -1006,7 +1006,7 @@ pub fn chart_input(
     }
 }
 
-/// The whole Earth Sphere, seen from above the Moon's orbit (tilted toward the Moon's side), so
+/// The whole Earth-Moon space, seen from above the Moon's orbit (tilted toward the Moon's side), so
 /// the orbit is a ring rather than a line.
 fn sphere_view(c: &mut Chart) {
     c.cam.fly_to(view::sphere_centre(), 1.3e9, false);
@@ -1035,7 +1035,7 @@ fn focus_on(c: &mut Chart, world: &bc_client_core::World, p: Place, t: f64) {
     let dist = match p {
         Place::Earth | Place::Moon => at.reach * 7.0,
         Place::Sun => {
-            // Look sunward from the Earth Sphere: the Sun itself is a light at infinity.
+            // Look sunward from Earth-Moon space: the Sun itself is a light at infinity.
             c.cam.fly_to(view::sphere_centre(), 1.2e9, false);
             return;
         }
@@ -1223,7 +1223,7 @@ pub fn track_course(
     }
 }
 
-/// How bright the sector's lines are at this view distance, and the Earth Sphere's.
+/// How bright the sector's lines are at this view distance, and Earth-Moon space's.
 fn fades(dist: f32) -> (f32, f32) {
     let s = |a: f32, b: f32, x: f32| {
         let t = ((x.ln() - a.ln()) / (b.ln() - a.ln())).clamp(0.0, 1.0);
@@ -1592,10 +1592,10 @@ pub fn chart_draw(
             let place = Place::Suit(e.slot, e.generation);
             pickable(place, p, 9.0, 2);
             if n < 6 || c.selected == Some(place) {
-                // A Doll is "MD" but for Zodiac's ace, which goes by its name.
+                // A drone is "DR" but for the Almagest's ace, which goes by its name.
                 let tag = match (e.pilot, world.roster.get(&e.slot)) {
                     (_, Some((name, _))) => name.to_uppercase(),
-                    (PilotKind::MobileDoll, None) => "MD".to_string(),
+                    (PilotKind::Drone, None) => "DR".to_string(),
                     _ => String::new(),
                 };
                 let what = if wreck { "WRECK".into() } else { tag };
@@ -1672,7 +1672,7 @@ pub fn chart_draw(
         }
     }
 
-    // The Earth Sphere: the Moon's orbit, the Lagrange points, the lanes not yet open, the Sun.
+    // Earth-Moon space: the Moon's orbit, the Lagrange points, the lanes not yet open, the Sun.
     let sector_mark = 1.0 - sector;
     if sphere_a > 0.01 || sector_mark > 0.01 {
         let a = sphere_a;
@@ -1961,14 +1961,14 @@ pub fn chart_panels(
         format!("{status}\n{} · THE SECTOR DOESN'T PAUSE", warn.join(" · ")).trim_start().to_string()
     };
     let objectives_text =
-        objectives_list(&objectives, settings.0.objectives_done, settings.0.dolls_downed, survival);
+        objectives_list(&objectives, settings.0.objectives_done, settings.0.drones_downed, survival);
     let dist = c.cam.now.dist;
     let width = 2.0 * dist * (view::FOV * 0.5).tan() * c.view.size.x / c.view.size.y.max(1.0);
     let scale = format!(
         "VIEW  {} ACROSS   ·   {}",
         range(width),
         if dist > SECTOR_FADE.1 {
-            "THE EARTH SPHERE"
+            "EARTH-MOON SPACE"
         } else if dist > 60_000.0 {
             "SECTOR L1 AND BEYOND"
         } else {

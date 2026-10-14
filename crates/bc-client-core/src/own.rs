@@ -226,7 +226,7 @@ mod tests {
             throttle: Vec3::ZERO,
             g_limited: false,
             ion: false,
-            frame: FrameId::Leo,
+            frame: FrameId::Argo,
             strike: None,
             ground: None,
             touchdown: None,
@@ -280,21 +280,21 @@ mod tests {
         use bc_sim::bodies::landmark_pose;
         use bc_sim::content::landmarks::LANDMARKS;
 
-        // Standing still on MO-II's aft module, 8 ticks between the clocks, drawn at 60 Hz: drawn
+        // Standing still on Fornax's aft module, 8 ticks between the clocks, drawn at 60 Hz: drawn
         // as flying free (where it is at the input clock's time) until it's caught, then on the
         // deck as drawn at the view clock's.
-        let mo_ii = |t: f64| landmark_pose(&LANDMARKS[0], t.floor() as u32, t.fract() as f32);
+        let fornax = |t: f64| landmark_pose(&LANDMARKS[0], t.floor() as u32, t.fract() as f32);
         let body = Body::Landmark(0);
         let local = Vec3::new(-230.0, 0.0, 80.0 + bc_sim::ground::STANCE);
         let world = |t: f64| {
-            let p = mo_ii(t);
+            let p = fornax(t);
             let pos = p.to_world(local);
             OwnPose { rot: p.rot, ..pose(pos, p.point_vel(pos)) }
         };
         let on_deck = |own: f64, view: f64| {
-            let p = mo_ii(view);
+            let p = fornax(view);
             let ground = GroundPose { body, aloft: false, up: Vec3::Y, rel_vel: Vec3::ZERO, height: 9.125 };
-            OwnPose { ground: Some(ground), ..world(own).moved_with(&mo_ii(own), &p) }
+            OwnPose { ground: Some(ground), ..world(own).moved_with(&fornax(own), &p) }
         };
         let gap = 8.0;
         let frame_dt = 1.0 / 60.0;
@@ -307,8 +307,8 @@ mod tests {
             let at = Moment { own: 9_000.0 + now * 30.0, view: 9_000.0 + now * 30.0 - gap, now };
             let caught = k >= 20;
             let src = if caught { on_deck(at.own, at.view) } else { world(at.own) };
-            d.reframe(&src, at, &|_, t| Some(mo_ii(t)));
-            let deck = caught.then(|| mo_ii(at.view).rot);
+            d.reframe(&src, at, &|_, t| Some(fornax(t)));
+            let deck = caught.then(|| fornax(at.view).rot);
             let v = d.draw(at, &src, true, frame_dt, 1.0, deck);
             if let Some(p) = prev {
                 assert!(!v.cut, "cut at frame {k}");
@@ -324,7 +324,7 @@ mod tests {
             }
             prev = Some(v);
         }
-        // The body's motion over 8 ticks (up to 2.87 m/s on MO-II), blended over many frames.
+        // The body's motion over 8 ticks (up to 2.87 m/s on Fornax), blended over many frames.
         assert!(jump > 0.2 && jump < 2.87 * 8.0 / 30.0 + 0.01, "the switch moved it {jump} m");
         assert!(worst_step < 0.1, "a step of {worst_step} m");
     }

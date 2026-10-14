@@ -152,7 +152,7 @@ impl ModuleKind {
             ModuleKind::AuxiliaryTank => "tank ×1.4; +200 kg",
             ModuleKind::ThrusterKit => "main thrust ×1.15; specific impulse ×0.88",
             ModuleKind::LegVerniers => "lateral and vertical thrust ×1.25; +150 kg",
-            ModuleKind::CargoRack => "hold +1,000 kg; AMBAC ×0.9; +250 kg",
+            ModuleKind::CargoRack => "hold +1,000 kg; limb trim ×0.9; +250 kg",
             ModuleKind::ExtendedTank => "tank ×1.25 (×1.75 with an auxiliary tank); +150 kg",
             ModuleKind::IonDrive => {
                 "0.1 g on the reactor alone (real rules: burns nothing, crawls home dry); boost refills ×1.5; regen ×0.5 while it works; +250 kg"
@@ -182,7 +182,7 @@ pub const THRUSTER_KIT_MAIN: f32 = 1.15;
 pub const THRUSTER_KIT_ISP: f32 = 0.88;
 pub const LEG_VERNIERS: f32 = 1.25;
 pub const CARGO_RACK_KG: u32 = 1_000;
-pub const CARGO_RACK_AMBAC: f32 = 0.9;
+pub const CARGO_RACK_LIMB_TRIM: f32 = 0.9;
 /// The ion drive: its thrust at full power, g of the frame on a full tank; how much faster it fills
 /// a boost gauge at full power (anime rules); how much of the reactor's regeneration it takes while
 /// it works at full power.

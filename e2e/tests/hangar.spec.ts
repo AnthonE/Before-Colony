@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { bc, collectConsole } from "./util";
 
 // Survival in the browser (`scripts/e2e.sh hangar`: a survival server whose fabricator works 60×
-// faster, the colony open, and no dolls). The pilot comes in through their bay's airlock, walks to
+// faster, the colony open, and no drones). The pilot comes in through their bay's airlock, walks to
 // the exchange terminal and buys titanium alloy from the colony (the bay's terminal points at the
 // city's desks for what only they do), makes a combat knife with it at the fabricator, boards at
 // the cockpit hatch and launches: thrown out of its bay's door on the ring, it flies home (a dev
@@ -41,9 +41,9 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   const logs = collectConsole(page);
   await page.goto("/?autoplay=1&name=Tester&quality=low");
   let s = await until(page, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 180_000);
-  // The starter kit: a worn Leo in the gantry, and 2,000 credits.
+  // The starter kit: a worn Argo in the gantry, and 2,000 credits.
   expect(s.bay).toBe("docked");
-  expect(s.bay_line).toBe("leo");
+  expect(s.bay_line).toBe("argo");
   expect(s.hangar_credits).toBe(2000);
   expect(s.alive).toBe(false);
   // Second-hand inside too: its radiators are tired. A new arrival is told where they are.
@@ -86,7 +86,7 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   await use(page, "fabricator");
   await until(page, "the fabricator", (s) => s.terminal === "fabricator", 60_000);
   await page.click('[data-act="fab-filter"][data-f="weapons"]');
-  await page.click('[data-act="make"][data-item="weapon.army_knife"]');
+  await page.click('[data-act="make"][data-item="weapon.combat_knife"]');
   await expect(page.locator("#term-log")).toContainText("QUEUED", { timeout: 30_000 });
   await expect(page.locator("#term-log")).toContainText("MADE", { timeout: 60_000 });
   await page.click('[data-tab="stores"]');
@@ -139,7 +139,7 @@ test("a pilot works their bay, launches through its doors, and docks home", asyn
   s = await until(page, "in its bay's cradle", (s) => String(s.surface_body).startsWith("bay:"), 30_000);
   expect(s.surface_body).toBe(`bay:${s.bay_no}`);
   s = await until(page, "flying", (s) => s.seq === "walking" && s.alive, 60_000);
-  expect(s.frame).toBe("leo");
+  expect(s.frame).toBe("argo");
   // Flying, the HUD has the corner and the aim: no bay line, no dot.
   await expect(page.locator("#bay-line")).toBeHidden({ timeout: 30_000 });
   await expect(page.locator("#dot")).toBeHidden();

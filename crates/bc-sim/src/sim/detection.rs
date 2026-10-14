@@ -1,7 +1,7 @@
-//! What a suit's sensors pick up, what it designates, and Deathscythe's Hyper Jammer.
+//! What a suit's sensors pick up, what it designates, and Algol's Eclipse.
 //!
 //! Everything that asks "can `i` see `j`?" asks [`Sim::detects`]: replication (so an undetected
-//! suit leaves its enemies' clients), Mobile Doll and ZERO perception, locks. A jamming suit shows
+//! suit leaves its enemies' clients), drone and the Orrery perception, locks. A jamming suit shows
 //! its enemies a fiftieth of its signature, and their eyes see it only close in. Firing, striking
 //! or using a special shows through the jammer for a while. A suit parked, hidden or running cold
 //! (`conceal`) shows its enemies less again; its allies see it all.
@@ -40,12 +40,12 @@ impl Sim {
         sensors::detects_within(s.flight[viewer].pos, range, s.flight[j].pos, sig, visual)
     }
 
-    /// While suit `j`'s Hyper Jammer is on (and not broken): its signature multiplier and the range
+    /// While suit `j`'s Eclipse is on (and not broken): its signature multiplier and the range
     /// eyes see it within.
     pub fn jamming(&self, j: usize) -> Option<(f32, f32)> {
         let sp = &self.suits.special[j];
         match frame(self.suits.frame[j]).special {
-            SpecialKind::HyperJammer { sig, visual, .. }
+            SpecialKind::Eclipse { sig, visual, .. }
                 if sp.active && self.tick() >= sp.break_until && self.suits.alive.get(j) =>
             {
                 Some((sig, visual))
@@ -71,7 +71,7 @@ impl Sim {
 
     /// Firing, striking or a special shows through suit `i`'s jammer for a while.
     pub(super) fn break_jammer(&mut self, i: usize, t: u32) {
-        if let SpecialKind::HyperJammer { break_ticks, .. } = frame(self.suits.frame[i]).special {
+        if let SpecialKind::Eclipse { break_ticks, .. } = frame(self.suits.frame[i]).special {
             self.suits.special[i].break_until = t + u32::from(break_ticks);
         }
     }

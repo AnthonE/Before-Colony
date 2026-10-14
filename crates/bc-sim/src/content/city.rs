@@ -140,7 +140,7 @@ pub enum PlaceKind {
     /// The Charter Board's hall: the colony's notices.
     Charter,
     /// The Blast Hall, where the colony's builders tested thrusters: the Charter Board's Proving
-    /// Ground, a room at a mobile suit's scale (`docs/TRAINING.md`).
+    /// Ground, a room at a suit's scale (`docs/TRAINING.md`).
     Proving,
 }
 

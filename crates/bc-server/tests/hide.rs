@@ -35,7 +35,7 @@ fn wallet(k: u8) -> LocalWallet {
 }
 
 fn bot(http: &str, name: &str) -> BotConfig {
-    BotConfig { server: http.into(), name: name.into(), frame: FrameId::Leo, faction: Faction::Colonies }
+    BotConfig { server: http.into(), name: name.into(), frame: FrameId::Argo, faction: Faction::Colonies }
 }
 
 fn config(dir: &Path) -> anyhow::Result<Config> {
@@ -44,7 +44,7 @@ fn config(dir: &Path) -> anyhow::Result<Config> {
         rules: Ruleset::Survival,
         wt_port: 0,
         http_addr: "127.0.0.1:0".parse()?,
-        mobile_dolls: 0,
+        drones: 0,
         max_clients: 8,
         data_dir: Some(dir.to_path_buf()),
         ..Config::default()
@@ -62,13 +62,13 @@ fn store(dir: &Path) -> FileStore {
     FileStore::new(dir.join("pilots")).expect("a pilot store")
 }
 
-/// A Leo crouched in MO-II's Aft Well with ore in its hold, a bounty and a wounded arm, as the
+/// An Argo crouched in Fornax's Aft Well with ore in its hold, a bounty and a wounded arm, as the
 /// sector records it when its pilot leaves.
-fn hidden_leo() -> ParkRecord {
-    let mut sim = Sim::new(SimConfig { target_dolls: 0, ..SimConfig::default() });
+fn hidden_argo() -> ParkRecord {
+    let mut sim = Sim::new(SimConfig { target_drones: 0, ..SimConfig::default() });
     let id = sim
         .spawn_at(
-            FrameId::Leo,
+            FrameId::Argo,
             Faction::Colonies,
             PilotKind::Agent,
             Vec3::new(0.0, 5_000.0, 9_000.0),
@@ -96,7 +96,7 @@ fn hidden_leo() -> ParkRecord {
 fn left_hidden(w: &LocalWallet, name: &str, rec: &ParkRecord, landmarks_version: u16) -> PilotRecord {
     let mut r = PilotRecord::new(&w.address());
     r.name = name.into();
-    r.frame = "leo".into();
+    r.frame = "argo".into();
     let mut hangar = Hangar::starter();
     hangar.bay = match std::mem::take(&mut hangar.bay) {
         Bay::Docked { suit } | Bay::Out { suit } => Bay::Out { suit },
@@ -131,13 +131,13 @@ fn sleepers(status: &serde_json::Value) -> Vec<String> {
 async fn a_hidden_suit_is_restored_at_boot_and_wakes_in_place() -> anyhow::Result<()> {
     let dir = data_dir("wakes");
     let w = wallet(21);
-    let rec = hidden_leo();
-    store(&dir).save(left_hidden(&w, "Wufei", &rec, LANDMARKS_VERSION)).await?;
+    let rec = hidden_argo();
+    store(&dir).save(left_hidden(&w, "Lin", &rec, LANDMARKS_VERSION)).await?;
 
     let server = bc_server::start(config(&dir)?).await?;
     // Out there before anyone connects: parked, and on the roster asleep.
     until("the suit back in the Aft Well", 5.0, || count(&server.status(), "sleepers_parked") == 1).await?;
-    assert_eq!(sleepers(&server.status()), ["Wufei"]);
+    assert_eq!(sleepers(&server.status()), ["Lin"]);
     let on_disk = store(&dir).load(&key(&w.address())).await?.expect("the record");
     let sleeper = on_disk.sleeper.expect("asleep in this run");
     assert_ne!(sleeper.run, 1, "the sleeper of this run");
@@ -146,7 +146,7 @@ async fn a_hidden_suit_is_restored_at_boot_and_wakes_in_place() -> anyhow::Resul
     // Its pilot is back: awake in it, crouched in the Aft Well where it was left, with its hold.
     let http = format!("http://{}", server.http_addr);
     let me = Identity::Wallet { address: w.address(), resume: None };
-    let mut b = BotClient::connect_with(&bot(&http, "Wufei"), me, Some(&w)).await?;
+    let mut b = BotClient::connect_with(&bot(&http, "Lin"), me, Some(&w)).await?;
     assert!(b.core.welcome.is_some_and(|w| w.woke), "it should wake in its suit");
     let mut grip = |_: &bc_client_core::InputContext| InputCmd { buttons: GRIP, ..InputCmd::default() };
     for _ in 0..500 {
@@ -192,7 +192,7 @@ async fn a_stale_parked_record_is_towed_home() -> anyhow::Result<()> {
     let dir = data_dir("stale");
     let w = wallet(22);
     // Left on landmarks that have changed since.
-    store(&dir).save(left_hidden(&w, "Quatre", &hidden_leo(), LANDMARKS_VERSION + 1)).await?;
+    store(&dir).save(left_hidden(&w, "Rafi", &hidden_argo(), LANDMARKS_VERSION + 1)).await?;
 
     let server = bc_server::start(config(&dir)?).await?;
     let on_disk = store(&dir).load(&key(&w.address())).await?.expect("the record");
@@ -205,7 +205,7 @@ async fn a_stale_parked_record_is_towed_home() -> anyhow::Result<()> {
     // Its pilot is back to the colony's tugs having brought it in.
     let http = format!("http://{}", server.http_addr);
     let me = Identity::Wallet { address: w.address(), resume: None };
-    let mut b = BotClient::connect_with(&bot(&http, "Quatre"), me, Some(&w)).await?;
+    let mut b = BotClient::connect_with(&bot(&http, "Rafi"), me, Some(&w)).await?;
     assert!(!b.core.welcome.is_some_and(|w| w.woke));
     b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && !c.hangar.sorties.is_empty()).await?;
     let (outcome, text) = b.core.hangar.sorties.last().cloned().expect("a sortie");
@@ -222,7 +222,7 @@ async fn a_stale_parked_record_is_towed_home() -> anyhow::Result<()> {
 async fn a_restored_sleeper_destroyed_is_not_restored_again() -> anyhow::Result<()> {
     let dir = data_dir("destroyed");
     let w = wallet(23);
-    store(&dir).save(left_hidden(&w, "Trowa", &hidden_leo(), LANDMARKS_VERSION)).await?;
+    store(&dir).save(left_hidden(&w, "Tomas", &hidden_argo(), LANDMARKS_VERSION)).await?;
     let cfg = config(&dir)?;
     let boot = || GameRuntime::start(&cfg, Arc::new(NetStats::default()), "127.0.0.1".into());
 
@@ -264,7 +264,7 @@ async fn a_restored_sleeper_destroyed_is_not_restored_again() -> anyhow::Result<
 async fn status_counts_hidden_sleepers_without_positions() -> anyhow::Result<()> {
     let dir = data_dir("status");
     let w = wallet(24);
-    store(&dir).save(left_hidden(&w, "Duo", &hidden_leo(), LANDMARKS_VERSION)).await?;
+    store(&dir).save(left_hidden(&w, "Nico", &hidden_argo(), LANDMARKS_VERSION)).await?;
     let server = bc_server::start(config(&dir)?).await?;
     // In sight while it powers down (8 s from boot), then dark: counted as hidden.
     let status = server.status();
@@ -279,7 +279,7 @@ async fn status_counts_hidden_sleepers_without_positions() -> anyhow::Result<()>
     let mut keys: Vec<&str> = entry.as_object().expect("an entry").keys().map(String::as_str).collect();
     keys.sort_unstable();
     assert_eq!(keys, ["address", "name", "suit"]);
-    assert_eq!(entry["name"], "Duo");
+    assert_eq!(entry["name"], "Nico");
     assert!(status["game"]["pilots"].as_array().is_some_and(Vec::is_empty), "nobody flying");
     server.shutdown();
     let _ = std::fs::remove_dir_all(&dir);
@@ -290,8 +290,8 @@ async fn status_counts_hidden_sleepers_without_positions() -> anyhow::Result<()>
 async fn a_hidden_suit_comes_back_as_it_was_left_by_its_hunters() -> anyhow::Result<()> {
     let dir = data_dir("hunted");
     let w = wallet(25);
-    let rec = hidden_leo();
-    store(&dir).save(left_hidden(&w, "Heero", &rec, LANDMARKS_VERSION)).await?;
+    let rec = hidden_argo();
+    store(&dir).save(left_hidden(&w, "Kai", &rec, LANDMARKS_VERSION)).await?;
     let cfg = config(&dir)?;
     let boot = || GameRuntime::start(&cfg, Arc::new(NetStats::default()), "127.0.0.1".into());
 
@@ -337,7 +337,7 @@ async fn a_suit_put_back_after_boot_stopped_waiting_goes_again() -> anyhow::Resu
     let game = GameRuntime::start(&cfg, Arc::new(NetStats::default()), "127.0.0.1".into())?;
     let shared = game.shared();
     assert_eq!(shared.restore_parked(cfg.max_sleepers).await, 0);
-    shared.sector.control.push(Control::Restore { key: 0, rec: hidden_leo() }).expect("room");
+    shared.sector.control.push(Control::Restore { key: 0, rec: hidden_argo() }).expect("room");
     let view = game.status_view();
     tokio::time::sleep(Duration::from_millis(1_000)).await;
     let status = view.json();

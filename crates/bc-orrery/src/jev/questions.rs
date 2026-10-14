@@ -1,7 +1,7 @@
 //! The batched questions for one pilot.
 
-use bc_sim::zero::N_HYP;
-use bc_sim::zero::hypotheses::Maneuver;
+use bc_sim::orrery::N_HYP;
+use bc_sim::orrery::hypotheses::Maneuver;
 use serde_json::{Map, Value, json};
 
 use super::state;

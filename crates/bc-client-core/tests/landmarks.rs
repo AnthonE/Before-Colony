@@ -1,4 +1,4 @@
-//! The owner's prediction fetches up against MO-II and Hermit where the server does: seeded from
+//! The owner's prediction fetches up against Fornax and Hermit where the server does: seeded from
 //! any snapshot on the way in, at the contact or after it, it replays the pilot's commands into
 //! the same stop against the same (moving) surface.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
@@ -40,14 +40,14 @@ fn the_prediction_stops_at_a_landmark_where_the_server_does() {
     for (k, dir) in
         [(0u8, Vec3::Y), (0, Vec3::new(1.0, 0.3, 0.2)), (1, Vec3::X), (1, Vec3::new(-0.2, 0.4, -1.0))]
     {
-        let mut sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
+        let mut sim = Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() });
         let bodies = Bodies::at(&sim.field, sim.landmarks(), 0);
         let pose = bodies.pose(Body::Landmark(k)).unwrap();
         let (p, n) = bodies.surface_along(Body::Landmark(k), dir).unwrap();
         let (p, n) = (pose.to_world(p), pose.rot * n);
         let id = sim
             .spawn_at(
-                FrameId::Leo,
+                FrameId::Argo,
                 Faction::Colonies,
                 PilotKind::Human,
                 p + n * 150.0,

@@ -94,7 +94,7 @@ pub enum Request {
     /// the pilot's own is taken; `dock`, at rest on the gantry, puts them back on foot there.
     BoardTrainer,
     /// At the Blast Hall's desk: what the gantry readies for the pilot to board (`proving::Trainer`:
-    /// the Board's Leo, the build in their bay, or a new suit of any line). Answered with a note
+    /// the Board's Argo, the build in their bay, or a new suit of any line). Answered with a note
     /// and the board.
     Trainer {
         build: crate::proving::Trainer,
@@ -596,8 +596,8 @@ mod tests {
                 Request::CancelJob { station: Station::Foundry, index: 0 },
             ),
             (
-                r#"{"t":"watch","item":"part.leo.torso"}"#,
-                Request::Watch { item: Some(Item::Part(FrameId::Leo, Part::Torso)) },
+                r#"{"t":"watch","item":"part.argo.torso"}"#,
+                Request::Watch { item: Some(Item::Part(FrameId::Argo, Part::Torso)) },
             ),
             (r#"{"t":"watch","item":null}"#, Request::Watch { item: None }),
             (r#"{"t":"launch"}"#, Request::Launch),
@@ -618,7 +618,7 @@ mod tests {
             assert_eq!(decode::<Request>(json.as_bytes()).as_ref(), Some(req), "{json}");
             assert_eq!(decode::<Request>(&encode(req)).as_ref(), Some(req));
         }
-        assert_eq!(decode::<Request>(br#"{"t":"fit","item":"part.virgo.head"}"#), None);
+        assert_eq!(decode::<Request>(br#"{"t":"fit","item":"part.cetus.head"}"#), None);
         assert_eq!(decode::<Request>(b"not json"), None);
     }
 
@@ -695,7 +695,7 @@ mod tests {
         let flying = Update::Place { place: Place::Space, bay: 3, strip: None, trainer: true };
         assert_eq!(decode::<Update>(&encode(&flying)), Some(flying));
         let mut b = crate::proving::Board::default();
-        b.record(crate::proving::Feat::Course, "me", "Heero", 118_000, 1_000_000);
+        b.record(crate::proving::Feat::Course, "me", "Kai", 118_000, 1_000_000);
         let board = Update::Proving(b.view("me", 1_000_000));
         assert_eq!(decode::<Update>(&encode(&board)), Some(board));
     }
@@ -723,7 +723,7 @@ mod tests {
         }
         h.craft(Item::Material(Material::Munitions), 2, 0, &Rules::default()).unwrap();
         for _ in 0..20 {
-            h.stores.add(Item::Part(FrameId::WingZero, Part::ArmL), 1);
+            h.stores.add(Item::Part(FrameId::Altair, Part::ArmL), 1);
         }
         let _ = apply(
             &Request::Order {

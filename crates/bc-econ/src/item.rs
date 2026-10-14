@@ -1,10 +1,10 @@
 //! What can sit in a hangar's stores, be built, and be traded: ores as mined, refined materials,
-//! mobile-suit parts for each frame line, and weapons.
+//! mech parts for each frame line, and weapons.
 //!
 //! Ores and materials are bulk goods, counted in kilograms; parts and weapons are counted one by
 //! one (each part also has a condition: `crate::stores`). On the wire and in the pilot records an
-//! item is its slug (`ore.titanium`, `mat.gundanium`, `part.wingzero.torso`,
-//! `weapon.twin_buster_rifle`), so records stay readable and survive reordering.
+//! item is its slug (`ore.titanium`, `mat.siderium`, `part.altair.torso`,
+//! `weapon.heavy_beam_rifle`), so records stay readable and survive reordering.
 
 use std::cmp::Ordering;
 use std::fmt;
@@ -50,12 +50,12 @@ impl Ore {
     }
 }
 
-/// Refined stock, made in the bay's fabricator (gundanium only in the colony's zero-G foundry).
+/// Refined stock, made in the bay's fabricator (siderium only in the colony's zero-G foundry).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Material {
     /// Structure: frames, actuators, shells.
     Steel,
-    /// Armour plate for everyone who isn't a Gundam.
+    /// Armour plate for everyone who isn't a Lodestar.
     TitaniumAlloy,
     /// Reaction mass for the thrusters.
     Propellant,
@@ -63,8 +63,8 @@ pub enum Material {
     Electronics,
     /// Rounds, missiles and flamethrower fuel.
     Munitions,
-    /// The Gundams' armour: it can only be made in zero-G.
-    Gundanium,
+    /// The Lodestars' armour: it can only be made in zero-G.
+    Siderium,
     /// Machined components (valves, pumps, actuators, bearings): what overhauls and equipment are
     /// built from.
     Components,
@@ -81,7 +81,7 @@ impl Material {
         Material::Propellant,
         Material::Electronics,
         Material::Munitions,
-        Material::Gundanium,
+        Material::Siderium,
         Material::Components,
         Material::RefinedPropellant,
         Material::UltraPropellant,
@@ -94,7 +94,7 @@ impl Material {
             Material::Propellant => "propellant",
             Material::Electronics => "electronics",
             Material::Munitions => "munitions",
-            Material::Gundanium => "gundanium",
+            Material::Siderium => "siderium",
             Material::Components => "components",
             Material::RefinedPropellant => "propellant_refined",
             Material::UltraPropellant => "propellant_ultra",
@@ -108,7 +108,7 @@ impl Material {
             Material::Propellant => "Propellant",
             Material::Electronics => "Electronics",
             Material::Munitions => "Munitions",
-            Material::Gundanium => "Gundanium alloy",
+            Material::Siderium => "Siderium alloy",
             Material::Components => "Machined components",
             Material::RefinedPropellant => "Refined propellant",
             Material::UltraPropellant => "Ultra-pure propellant",
@@ -118,6 +118,13 @@ impl Material {
 
 /// The frame lines a pilot can build: the ones pilots may fly, in the respawn keys' order.
 pub const LINES: [FrameId; 6] = PLAYABLE_ORDER;
+
+/// The buildable line a slug names: its own, or the one it had before 2026-10-14
+/// ([`FrameId::OLD_SLUGS`]), which saved suits and stores still carry.
+pub fn line_from_slug(s: &str) -> Option<FrameId> {
+    let old = |l: FrameId| FrameId::OLD_SLUGS.iter().any(|&(o, f)| f == l && o == s);
+    LINES.into_iter().find(|&l| l.slug() == s || old(l))
+}
 
 /// Whether suits of `line` can be built (and their parts fitted).
 pub fn is_line(line: FrameId) -> bool {
@@ -158,20 +165,20 @@ pub fn weapon_slug(kind: WeaponKind) -> &'static str {
         WeaponKind::BeamRifle => "beam_rifle",
         WeaponKind::MachineCannon => "machine_cannon",
         WeaponKind::BeamSaber => "beam_saber",
-        WeaponKind::TwinBusterRifle => "twin_buster_rifle",
+        WeaponKind::HeavyBeamRifle => "heavy_beam_rifle",
         WeaponKind::BeamCannon => "beam_cannon",
         WeaponKind::BeamGatling => "beam_gatling",
         WeaponKind::HomingMissile => "homing_missiles",
-        WeaponKind::ArmyKnife => "army_knife",
+        WeaponKind::CombatKnife => "combat_knife",
         WeaponKind::ChestGatling => "chest_gatlings",
         WeaponKind::MicroMissile => "micro_missiles",
-        WeaponKind::BusterShield => "buster_shield",
-        WeaponKind::HeadVulcan => "head_vulcans",
+        WeaponKind::ClawShield => "claw_shield",
+        WeaponKind::HeadGun => "head_guns",
         WeaponKind::BeamScythe => "beam_scythe",
         WeaponKind::BeamMachineGun => "beam_machine_gun",
-        WeaponKind::HeatShotel => "heat_shotels",
-        WeaponKind::CrossCrusher => "cross_crusher",
-        WeaponKind::DragonFang => "dragon_fang",
+        WeaponKind::HeatBlade => "heat_blades",
+        WeaponKind::PincerStrike => "pincer_strike",
+        WeaponKind::Talon => "talon",
         WeaponKind::Flamethrower => "flamethrower",
         WeaponKind::BeamGlaive => "beam_glaive",
         WeaponKind::BeamRifleCharged => "beam_rifle_charged",
@@ -179,8 +186,19 @@ pub fn weapon_slug(kind: WeaponKind) -> &'static str {
     }
 }
 
+/// The weapon slugs before 2026-10-14, read (in saved stores and the book) and never written.
+const OLD_WEAPON_SLUGS: [(&str, WeaponKind); 7] = [
+    ("twin_buster_rifle", WeaponKind::HeavyBeamRifle),
+    ("army_knife", WeaponKind::CombatKnife),
+    ("buster_shield", WeaponKind::ClawShield),
+    ("head_vulcans", WeaponKind::HeadGun),
+    ("heat_shotels", WeaponKind::HeatBlade),
+    ("cross_crusher", WeaponKind::PincerStrike),
+    ("dragon_fang", WeaponKind::Talon),
+];
+
 /// The weapons that are items: every weapon on a buildable line's loadout (a special's own
-/// mounts, like Full Open's chest gatlings, come with the suit).
+/// mounts, like Full Salvo's chest gatlings, come with the suit).
 pub fn weapons() -> impl Iterator<Item = WeaponKind> {
     WeaponKind::ALL.into_iter().filter(|w| is_item_weapon(*w))
 }
@@ -314,13 +332,14 @@ impl FromStr for Item {
                 Item::Ore(Ore::ALL.into_iter().find(|x| x.slug() == o).ok_or_else(bad)?)
             }
             (Some("mat"), Some(m), None, None) => {
+                let m = if m == "gundanium" { Material::Siderium.slug() } else { m };
                 Item::Material(Material::ALL.into_iter().find(|x| x.slug() == m).ok_or_else(bad)?)
             }
             (Some("part"), Some(line), Some(part), None) => {
-                let line = LINES.into_iter().find(|l| l.slug() == line).ok_or_else(bad)?;
-                Item::Part(line, parse_part(part).ok_or_else(bad)?)
+                Item::Part(line_from_slug(line).ok_or_else(bad)?, parse_part(part).ok_or_else(bad)?)
             }
             (Some("weapon"), Some(w), None, None) => {
+                let w = OLD_WEAPON_SLUGS.iter().find(|(o, _)| *o == w).map_or(w, |&(_, k)| weapon_slug(k));
                 Item::Weapon(weapons().find(|x| weapon_slug(*x) == w).ok_or_else(bad)?)
             }
             (Some("module"), Some(k), None, None) => Item::Module(ModuleKind::from_slug(k).ok_or_else(bad)?),
@@ -377,7 +396,7 @@ pub mod part_serde {
 
 /// Serde for a [`FrameId`] as its slug (buildable lines only).
 pub mod line_serde {
-    use super::LINES;
+    use super::line_from_slug;
     use bc_proto::FrameId;
     use serde::{Deserialize, Deserializer, Serializer};
 
@@ -387,10 +406,7 @@ pub mod line_serde {
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<FrameId, D::Error> {
         let s = String::deserialize(d)?;
-        LINES
-            .into_iter()
-            .find(|l| l.slug() == s)
-            .ok_or_else(|| serde::de::Error::custom(format!("no such line: {s}")))
+        line_from_slug(&s).ok_or_else(|| serde::de::Error::custom(format!("no such line: {s}")))
     }
 }
 
@@ -411,8 +427,14 @@ mod tests {
             let json = serde_json::to_string(&item).unwrap();
             assert_eq!(serde_json::from_str::<Item>(&json).unwrap(), item);
         }
-        assert_eq!("part.wingzero.torso".parse(), Ok(Item::Part(FrameId::WingZero, Part::Torso)));
-        assert!("part.taurus.head".parse::<Item>().is_err(), "a Mobile Doll's line isn't built");
+        assert_eq!("part.altair.torso".parse(), Ok(Item::Part(FrameId::Altair, Part::Torso)));
+        assert!("part.corvus.head".parse::<Item>().is_err(), "a drone's line isn't built");
+        // What saved stores and the book said before the names were the game's own.
+        assert_eq!("part.leo.torso".parse::<Item>(), Ok(Item::Part(FrameId::Argo, Part::Torso)));
+        assert_eq!("part.wingzero.head".parse::<Item>(), Ok(Item::Part(FrameId::Altair, Part::Head)));
+        assert_eq!("mat.gundanium".parse::<Item>(), Ok(Item::Material(Material::Siderium)));
+        assert_eq!("weapon.heat_shotels".parse::<Item>(), Ok(Item::Weapon(WeaponKind::HeatBlade)));
+        assert!("part.taurus.head".parse::<Item>().is_err(), "nor under its old name");
         assert!("weapon.chest_gatlings".parse::<Item>().is_err(), "comes with the suit");
         assert!("ore.titanium.x".parse::<Item>().is_err());
         assert_eq!("module.g_seat".parse(), Ok(Item::Module(ModuleKind::GSeat)));
@@ -423,10 +445,10 @@ mod tests {
     #[test]
     fn weapons_are_the_loadouts() {
         let w: Vec<WeaponKind> = weapons().collect();
-        assert!(w.contains(&WeaponKind::TwinBusterRifle));
+        assert!(w.contains(&WeaponKind::HeavyBeamRifle));
         assert!(w.contains(&WeaponKind::MachineCannon));
-        assert!(!w.contains(&WeaponKind::BeamCannon), "the Virgo's");
-        assert!(!w.contains(&WeaponKind::CrossCrusher), "Sandrock's special");
+        assert!(!w.contains(&WeaponKind::BeamCannon), "the Cetus's");
+        assert!(!w.contains(&WeaponKind::PincerStrike), "Canopus's special");
     }
 
     #[test]

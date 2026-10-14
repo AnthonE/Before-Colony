@@ -18,7 +18,7 @@ use bevy::window::PrimaryWindow;
 use crate::camera::MainCamera;
 use crate::config::LaunchConfig;
 use crate::dev_hooks::DevStatus;
-use crate::zero_vision::ZeroVision;
+use crate::orrery_vision::OrreryVision;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GfxTier {
@@ -133,7 +133,7 @@ pub struct TierSettings {
     pub msaa: u32,
     /// Post-process anti-aliasing (SMAA) when multisampling is off.
     pub smaa: bool,
-    /// The pilot's post effects: G-strain grey-out and tunnel vision, hit flashes, ZERO's vision
+    /// The pilot's post effects: G-strain grey-out and tunnel vision, hit flashes, the Orrery's vision
     /// and its seizure's warp and fringes (see `camera::pilot_effects`).
     pub post: bool,
     /// Highest device-pixel ratio the backbuffer is rendered at; the browser upscales the rest.
@@ -290,10 +290,10 @@ fn apply_camera_tier(
                 Vignette { intensity: base_vignette(gfx.look), ..default() },
                 ChromaticAberration { intensity: 0.0, ..default() },
                 LensDistortion { intensity: 0.0, ..default() },
-                ZeroVision::default(),
+                OrreryVision::default(),
             ));
         } else {
-            e.remove::<(Vignette, ChromaticAberration, LensDistortion, ZeroVision)>();
+            e.remove::<(Vignette, ChromaticAberration, LensDistortion, OrreryVision)>();
         }
     }
 }

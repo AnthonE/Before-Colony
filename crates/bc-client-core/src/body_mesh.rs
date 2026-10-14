@@ -4,7 +4,7 @@
 //!
 //! - Rounded boxes and the rounded cylinder are built in their flat and rounded zones separately,
 //!   with the rounding in equal angles, so the curve is as fine as asked wherever it is.
-//! - A box face a sphere is cut from (MO-II's Aft Well) is the bowl, as a polar grid, and the face
+//! - A box face a sphere is cut from (Fornax's Aft Well) is the bowl, as a polar grid, and the face
 //!   round it out to the box's rounded edges.
 //! - An ellipsoid (Hermit) is a cube-sphere; where its crater bowls are cut, its triangles are
 //!   dropped and the bowl put in, stitched to the hole round its rim.
@@ -558,8 +558,8 @@ mod tests {
                 Base::City => unreachable!("no landmark is the colony's city"),
             }
         }
-        // MO-II's Aft Well is dished into its aft module's end face.
-        let Base::Union(prims) = LANDMARKS[0].shape.base else { unreachable!("MO-II is a union") };
+        // Fornax's Aft Well is dished into its aft module's end face.
+        let Base::Union(prims) = LANDMARKS[0].shape.base else { unreachable!("Fornax is a union") };
         let aft = &shape_meshes(&LANDMARKS[0].shape)[1];
         let floor = Vec3::new(-235.0, 0.0, 0.0);
         assert!(aft.positions.iter().any(|p| Vec3::from_array(*p).distance(floor) < 1e-3), "{:?}", prims[1]);

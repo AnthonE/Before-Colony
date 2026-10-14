@@ -17,7 +17,7 @@ fn wallet(k: u8) -> LocalWallet {
 }
 
 fn bot(http: &str, name: &str) -> BotConfig {
-    BotConfig { server: http.into(), name: name.into(), frame: FrameId::Leo, faction: Faction::Colonies }
+    BotConfig { server: http.into(), name: name.into(), frame: FrameId::Argo, faction: Faction::Colonies }
 }
 
 fn pilot<'a>(status: &'a serde_json::Value, name: &str) -> Option<&'a serde_json::Value> {
@@ -35,7 +35,7 @@ async fn wallets_sign_in_resume_and_take_over() -> anyhow::Result<()> {
         rules: Ruleset::Arcade,
         wt_port: 0,
         http_addr: "127.0.0.1:0".parse()?,
-        mobile_dolls: 0,
+        drones: 0,
         max_clients: 8,
         ..Config::default()
     };

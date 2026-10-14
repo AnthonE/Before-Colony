@@ -1,5 +1,5 @@
-//! Melee: every blade strikes as its table row says (reach, twin blades, the Dragon Fang's thrust,
-//! the Cross Crusher as Sandrock's special), clashes need two blades that parry, and every blade
+//! Melee: every blade strikes as its table row says (reach, twin blades, the Talon's thrust,
+//! the Pincer Strike as Canopus's special), clashes need two blades that parry, and every blade
 //! mines.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
@@ -15,7 +15,7 @@ use bc_sim::{Sim, SimConfig, SuitId};
 use glam::Vec3;
 
 fn empty() -> Sim {
-    Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() })
+    Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() })
 }
 
 fn suit(sim: &mut Sim, frame: FrameId, faction: Faction, pos: Vec3, facing: Vec3) -> SuitId {
@@ -56,12 +56,12 @@ fn hits_by(sim: &Sim, from: u32, a: SuitId, kind: WeaponKind) -> usize {
         .count()
 }
 
-/// Hits by `kind` from `f` on a Leo `d` m ahead, facing it, in one strike (the button pressed for a
+/// Hits by `kind` from `f` on an Argo `d` m ahead, facing it, in one strike (the button pressed for a
 /// tick, aiming straight ahead).
 fn strike_hits(f: FrameId, button: u16, kind: WeaponKind, d: f32) -> usize {
     let mut sim = empty();
     let a = suit(&mut sim, f, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
-    suit(&mut sim, FrameId::Leo, Faction::Oz, Vec3::new(0.0, 1_000.0, d), -Vec3::Z);
+    suit(&mut sim, FrameId::Argo, Faction::Almagest, Vec3::new(0.0, 1_000.0, d), -Vec3::Z);
     let from = sim.events.next_seq();
     for k in 0..40 {
         hold(&mut sim, a, if k == 0 { button } else { 0 }, Vec3::Z);
@@ -76,47 +76,48 @@ fn every_blade_strikes_within_its_reach() {
     for f in FrameId::ALL {
         for (button, kind) in blades(f) {
             let range = weapon(kind).range;
-            assert!(strike_hits(f, button, kind, range) > 0, "{f:?}'s {kind:?} misses a Leo {range} m ahead");
+            assert!(
+                strike_hits(f, button, kind, range) > 0,
+                "{f:?}'s {kind:?} misses an Argo {range} m ahead"
+            );
             // The lunge carries a blade some way, but nothing reaches 20 m past its length.
             assert_eq!(strike_hits(f, button, kind, range + 20.0), 0, "{f:?}'s {kind:?} reaches too far");
             n += 1;
         }
     }
-    assert_eq!(n, 8, "the saber twice, the knife, scythe, shotels, Cross Crusher, fang and glaive");
-    // Reach is the table's: Deathscythe's scythe takes a Leo that a Leo's saber can't.
-    assert_eq!(strike_hits(FrameId::Leo, MELEE, WeaponKind::BeamSaber, 20.0), 0);
-    assert!(strike_hits(FrameId::Deathscythe, MELEE, WeaponKind::BeamScythe, 20.0) > 0);
-    // The Dragon Fang doesn't lunge: its 35 m is all the reach it has.
-    assert!(strike_hits(FrameId::Shenlong, FIRE_PRIMARY, WeaponKind::DragonFang, 33.0) > 0);
-    assert_eq!(strike_hits(FrameId::Shenlong, FIRE_PRIMARY, WeaponKind::DragonFang, 44.0), 0);
+    assert_eq!(n, 8, "the saber twice, the knife, scythe, blades, Pincer Strike, fang and glaive");
+    // Reach is the table's: Algol's scythe takes an Argo that an Argo's saber can't.
+    assert_eq!(strike_hits(FrameId::Argo, MELEE, WeaponKind::BeamSaber, 20.0), 0);
+    assert!(strike_hits(FrameId::Algol, MELEE, WeaponKind::BeamScythe, 20.0) > 0);
+    // The Talon doesn't lunge: its 35 m is all the reach it has.
+    assert!(strike_hits(FrameId::Thuban, FIRE_PRIMARY, WeaponKind::Talon, 33.0) > 0);
+    assert_eq!(strike_hits(FrameId::Thuban, FIRE_PRIMARY, WeaponKind::Talon, 44.0), 0);
 }
 
 #[test]
 fn twin_blades_strike_once_each() {
-    // Both shotels cut a Leo straight ahead, each once.
-    assert_eq!(strike_hits(FrameId::Sandrock, MELEE, WeaponKind::HeatShotel, 8.0), 2);
+    // Both blades cut an Argo straight ahead, each once.
+    assert_eq!(strike_hits(FrameId::Canopus, MELEE, WeaponKind::HeatBlade, 8.0), 2);
     // With an arm gone, one blade is left.
     let mut sim = empty();
-    let a = suit(&mut sim, FrameId::Sandrock, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
-    suit(&mut sim, FrameId::Leo, Faction::Oz, Vec3::new(0.0, 1_000.0, 8.0), -Vec3::Z);
+    let a = suit(&mut sim, FrameId::Canopus, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
+    suit(&mut sim, FrameId::Argo, Faction::Almagest, Vec3::new(0.0, 1_000.0, 8.0), -Vec3::Z);
     sim.suits.part_hp[a.idx()][Part::ArmL as usize] = 0.0;
     let from = sim.events.next_seq();
     for k in 0..40 {
         hold(&mut sim, a, if k == 0 { MELEE } else { 0 }, Vec3::Z);
         sim.step();
     }
-    assert_eq!(hits_by(&sim, from, a, WeaponKind::HeatShotel), 1);
+    assert_eq!(hits_by(&sim, from, a, WeaponKind::HeatBlade), 1);
     assert!(sim.stats(a.idx()).hits_by_class[WeaponClass::Melee as usize] == 1);
 }
 
 #[test]
-fn the_cross_crusher_is_sandrocks_special() {
+fn the_pincer_strike_is_canopus_special() {
     let mut sim = empty();
-    let a = suit(&mut sim, FrameId::Sandrock, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
-    let b = suit(&mut sim, FrameId::Leo, Faction::Oz, Vec3::new(0.0, 1_000.0, 9.0), -Vec3::Z);
-    let SpecialKind::MeleeMove { cooldown } = frame(FrameId::Sandrock).special else {
-        panic!("a melee move")
-    };
+    let a = suit(&mut sim, FrameId::Canopus, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
+    let b = suit(&mut sim, FrameId::Argo, Faction::Almagest, Vec3::new(0.0, 1_000.0, 9.0), -Vec3::Z);
+    let SpecialKind::MeleeMove { cooldown } = frame(FrameId::Canopus).special else { panic!("a melee move") };
     assert!(sim.special_ready(a.idx()));
     assert_ne!(sim.own_state(a.idx()).weapon_ready & 8, 0, "the HUD shows the special ready");
     let from = sim.events.next_seq();
@@ -131,29 +132,29 @@ fn the_cross_crusher_is_sandrocks_special() {
         seen & (ent_flags::SABER | ent_flags::SPECIAL | ent_flags::MELEE_ALT),
         ent_flags::SABER | ent_flags::SPECIAL
     );
-    // It pincers the Leo with both blades.
+    // It pincers the Argo with both blades.
     for _ in 0..40 {
         hold(&mut sim, a, 0, Vec3::Z);
         sim.step();
     }
-    assert_eq!(hits_by(&sim, from, a, WeaponKind::CrossCrusher), 2);
+    assert_eq!(hits_by(&sim, from, a, WeaponKind::PincerStrike), 2);
     assert_eq!(sim.stats(a.idx()).specials, 1);
     // Its own blows charge it nothing (`content::specials`): only the time gone by.
     assert_eq!(sim.suits.special[a.idx()].cooldown, cooldown - 40);
-    // Cooling down: SPECIAL does nothing, though the shotels still work.
+    // Cooling down: SPECIAL does nothing, though the blades still work.
     let from = sim.events.next_seq();
     hold(&mut sim, a, SPECIAL, Vec3::Z);
     sim.step();
     assert_eq!(sim.suits.melee[a.idx()].phase, MeleePhase::Idle);
     hold(&mut sim, a, MELEE, Vec3::Z);
     sim.step();
-    assert_eq!(sim.suits.melee[a.idx()].weapon, WeaponKind::HeatShotel);
+    assert_eq!(sim.suits.melee[a.idx()].weapon, WeaponKind::HeatBlade);
     for _ in 0..cooldown {
         hold(&mut sim, a, 0, Vec3::Z);
         sim.step();
     }
     assert!(sim.special_ready(a.idx()), "ready again after {cooldown} ticks");
-    assert_eq!(hits_by(&sim, from, a, WeaponKind::CrossCrusher), 0);
+    assert_eq!(hits_by(&sim, from, a, WeaponKind::PincerStrike), 0);
     // It needs both arms.
     sim.suits.part_hp[a.idx()][Part::ArmL as usize] = 0.0;
     assert!(!sim.special_ready(a.idx()));
@@ -164,12 +165,12 @@ fn the_cross_crusher_is_sandrocks_special() {
 }
 
 #[test]
-fn the_dragon_fang_thrusts_where_shenlong_aims() {
+fn the_talon_thrusts_where_thuban_aims() {
     let mut sim = empty();
-    let a = suit(&mut sim, FrameId::Shenlong, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
-    // A Leo 25° off the nose, 25 m out.
+    let a = suit(&mut sim, FrameId::Thuban, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
+    // An Argo 25° off the nose, 25 m out.
     let off = Vec3::new(25f32.to_radians().sin(), 0.0, 25f32.to_radians().cos());
-    let b = suit(&mut sim, FrameId::Leo, Faction::Oz, Vec3::new(0.0, 1_000.0, 0.0) + off * 25.0, -off);
+    let b = suit(&mut sim, FrameId::Argo, Faction::Almagest, Vec3::new(0.0, 1_000.0, 0.0) + off * 25.0, -off);
     let hand = sim.suits.flight[a.idx()].pos + Vec3::new(3.4, 0.6, 3.0);
     let at = (sim.suits.flight[b.idx()].pos + Vec3::Y * 2.5 - hand).normalize();
     let from = sim.events.next_seq();
@@ -189,18 +190,18 @@ fn the_dragon_fang_thrusts_where_shenlong_aims() {
             );
         }
     }
-    assert_eq!(hits_by(&sim, from, a, WeaponKind::DragonFang), 3);
+    assert_eq!(hits_by(&sim, from, a, WeaponKind::Talon), 3);
     assert_eq!(out, 3 * 10, "three strikes of 4 + 6 ticks");
     // Straight ahead it misses.
     let mut sim = empty();
-    let a = suit(&mut sim, FrameId::Shenlong, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
-    suit(&mut sim, FrameId::Leo, Faction::Oz, Vec3::new(0.0, 1_000.0, 0.0) + off * 25.0, -off);
+    let a = suit(&mut sim, FrameId::Thuban, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
+    suit(&mut sim, FrameId::Argo, Faction::Almagest, Vec3::new(0.0, 1_000.0, 0.0) + off * 25.0, -off);
     let from = sim.events.next_seq();
     for _ in 0..40 {
         hold(&mut sim, a, FIRE_PRIMARY, Vec3::Z);
         sim.step();
     }
-    assert_eq!(hits_by(&sim, from, a, WeaponKind::DragonFang), 0);
+    assert_eq!(hits_by(&sim, from, a, WeaponKind::Talon), 0);
 }
 
 /// Two suits face to face `d` m apart strike so both blades are out at once. Returns the events
@@ -208,7 +209,7 @@ fn the_dragon_fang_thrusts_where_shenlong_aims() {
 fn duel(fa: FrameId, ba: u16, fb: FrameId, bb: u16, d: f32) -> (Sim, SuitId, SuitId, u32) {
     let mut sim = empty();
     let a = suit(&mut sim, fa, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
-    let b = suit(&mut sim, fb, Faction::Oz, Vec3::new(0.0, 1_000.0, d), -Vec3::Z);
+    let b = suit(&mut sim, fb, Faction::Almagest, Vec3::new(0.0, 1_000.0, d), -Vec3::Z);
     let windup = |f: FrameId, button: u16| {
         let (_, kind) = *blades(f).iter().find(|(b, _)| *b == button).unwrap();
         weapon(kind).melee.unwrap().windup
@@ -231,7 +232,7 @@ fn duel(fa: FrameId, ba: u16, fb: FrameId, bb: u16, d: f32) -> (Sim, SuitId, Sui
 #[test]
 fn blades_clash_only_with_blades_that_parry() {
     // A scythe meets a saber: both parried, each recovering for as long as its own blade takes.
-    let (sim, a, b, from) = duel(FrameId::Deathscythe, MELEE, FrameId::Leo, MELEE, 11.0);
+    let (sim, a, b, from) = duel(FrameId::Algol, MELEE, FrameId::Argo, MELEE, 11.0);
     assert!(events_since(&sim, from).iter().any(|e| matches!(e, Event::Clash { .. })), "no clash");
     assert!(
         events_since(&sim, from).iter().all(|e| !matches!(e, Event::Hit { .. })),
@@ -245,14 +246,14 @@ fn blades_clash_only_with_blades_that_parry() {
     assert_eq!(ma.timer + u8::from(a.idx() > b.idx()), scythe);
     assert_eq!(mb.timer + u8::from(b.idx() > a.idx()), saber);
 
-    // Twin shotels parry a saber too.
-    let (sim, _, _, from) = duel(FrameId::Sandrock, MELEE, FrameId::Leo, MELEE, 11.0);
+    // Twin blades parry a saber too.
+    let (sim, _, _, from) = duel(FrameId::Canopus, MELEE, FrameId::Argo, MELEE, 11.0);
     assert!(events_since(&sim, from).iter().any(|e| matches!(e, Event::Clash { .. })));
 
-    // Nothing parries the Dragon Fang: it goes through a saber's swing.
-    let (sim, a, _, from) = duel(FrameId::Shenlong, FIRE_PRIMARY, FrameId::Leo, MELEE, 14.0);
+    // Nothing parries the Talon: it goes through a saber's swing.
+    let (sim, a, _, from) = duel(FrameId::Thuban, FIRE_PRIMARY, FrameId::Argo, MELEE, 14.0);
     assert!(events_since(&sim, from).iter().all(|e| !matches!(e, Event::Clash { .. })));
-    assert!(hits_by(&sim, from, a, WeaponKind::DragonFang) > 0);
+    assert!(hits_by(&sim, from, a, WeaponKind::Talon) > 0);
 }
 
 /// The smallest rock bigger than `min` m with nothing else within `clear` m of it.
@@ -275,7 +276,7 @@ fn lone_rock(sim: &Sim, min: f32, clear: f32) -> (usize, Rock) {
 fn every_blade_mines() {
     for f in FrameId::ALL {
         for (button, kind) in blades(f) {
-            let mut sim = Sim::new(SimConfig { target_dolls: 0, ..SimConfig::default() });
+            let mut sim = Sim::new(SimConfig { target_drones: 0, ..SimConfig::default() });
             let (i, rock) = lone_rock(&sim, 8.0, 60.0);
             let dir = Vec3::new(1.0, 0.1, 0.3).normalize();
             let surface = rock.surface(rock.pos - dir * (rock.radius + 50.0), 0.0);
@@ -300,15 +301,15 @@ fn every_blade_mines() {
     }
 }
 
-/// A blade meets what it chases at speed: striking a Leo 12 m ahead that flies with it at 170 m/s,
-/// each sample meets the Leo as the pilot sees it (its latency ago), not where it was when the
+/// A blade meets what it chases at speed: striking an Argo 12 m ahead that flies with it at 170 m/s,
+/// each sample meets the Argo as the pilot sees it (its latency ago), not where it was when the
 /// strike began (by the stroke, 30 m behind).
 #[test]
 fn a_blade_meets_what_it_chases_at_speed() {
     for lag in [0, 3] {
         let mut sim = empty();
-        let a = suit(&mut sim, FrameId::Leo, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
-        let b = suit(&mut sim, FrameId::Leo, Faction::Oz, Vec3::new(0.0, 1_000.0, 12.0), -Vec3::Z);
+        let a = suit(&mut sim, FrameId::Argo, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
+        let b = suit(&mut sim, FrameId::Argo, Faction::Almagest, Vec3::new(0.0, 1_000.0, 12.0), -Vec3::Z);
         let vel = Vec3::Z * 170.0;
         let from = sim.events.next_seq();
         // (After a few ticks, so there's history to look back into.)
@@ -323,7 +324,7 @@ fn a_blade_meets_what_it_chases_at_speed() {
                 ..InputCmd::default()
             };
             sim.set_input(a, cmd);
-            // Both fly on together (the lunge aside); the Leo keeps 12 m ahead as its pilot sees it.
+            // Both fly on together (the lunge aside); the Argo keeps 12 m ahead as its pilot sees it.
             let at = sim.suits.flight[a.idx()].pos;
             sim.suits.flight[a.idx()].vel = vel;
             sim.suits.flight[b.idx()].vel = vel;

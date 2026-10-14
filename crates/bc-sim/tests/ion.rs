@@ -15,7 +15,7 @@ use bc_sim::{Sim, SimConfig, SuitId, config::G0};
 use glam::Vec3;
 
 fn sim(flight: FlightRules) -> Sim {
-    Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, flight, ..SimConfig::default() })
+    Sim::new(SimConfig { target_drones: 0, field_rocks: 0, flight, ..SimConfig::default() })
 }
 
 fn with(kinds: &[ModuleKind]) -> Modules {
@@ -27,11 +27,11 @@ fn with(kinds: &[ModuleKind]) -> Modules {
     m
 }
 
-/// A Leo flying free, with `kinds` fitted, its systems at `systems`, `propellant` in its tank.
-fn leo(sim: &mut Sim, kinds: &[ModuleKind], systems: Systems, propellant: f32) -> SuitId {
+/// An Argo flying free, with `kinds` fitted, its systems at `systems`, `propellant` in its tank.
+fn argo(sim: &mut Sim, kinds: &[ModuleKind], systems: Systems, propellant: f32) -> SuitId {
     let at = Vec3::new(0.0, 9_000.0, 0.0);
     let id = sim
-        .spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, at, look_rotation(Vec3::Z, Vec3::Y))
+        .spawn_at(FrameId::Argo, Faction::Colonies, PilotKind::Human, at, look_rotation(Vec3::Z, Vec3::Y))
         .unwrap();
     let i = id.idx();
     sim.suits.modules[i] = with(kinds);
@@ -66,31 +66,31 @@ fn the_drive_runs_on_the_reactor() {
     assert_eq!(tuning(0, Systems::OK.with(System::Reactor, FAILED), drive).ion, 0.15);
     // The backpack shot off takes the drive with it.
     assert_eq!(tuning(1 << Part::Backpack as u8, Systems::OK, drive).ion, 0.0);
-    let leo = frame(FrameId::Leo);
-    assert_eq!(ion_thrust(leo), ION_DRIVE_G * G0 * leo.mass(leo.propellant_cap));
+    let argo = frame(FrameId::Argo);
+    assert_eq!(ion_thrust(argo), ION_DRIVE_G * G0 * argo.mass(argo.propellant_cap));
 }
 
 /// Gentle thrust, under the drive's, burns nothing; full thrust burns all but the drive's share.
 #[test]
 fn the_drive_s_share_burns_nothing() {
-    let spec = frame(FrameId::Leo);
+    let spec = frame(FrameId::Argo);
     let f_ion = ion_thrust(spec);
-    // 3/127 of a Leo's main thrust is under the drive's.
+    // 3/127 of an Argo's main thrust is under the drive's.
     assert!(spec.main_thrust * 3.0 / 127.0 < f_ion);
     let mut s = sim(FlightRules::Real);
-    let id = leo(&mut s, &[ModuleKind::IonDrive], Systems::OK, 1_000.0);
+    let id = argo(&mut s, &[ModuleKind::IonDrive], Systems::OK, 1_000.0);
     thrust(&mut s, id, 3, 30);
     let f = s.suits.flight[id.idx()];
     assert_eq!(f.propellant, 1_000.0, "nothing burnt");
     assert!(f.vel.z > 0.3, "it moved: {}", f.vel);
     let mut s = sim(FlightRules::Real);
-    let id = leo(&mut s, &[], Systems::OK, 1_000.0);
+    let id = argo(&mut s, &[], Systems::OK, 1_000.0);
     thrust(&mut s, id, 3, 30);
     assert!(s.suits.flight[id.idx()].propellant < 1_000.0, "without the drive it burns");
     // Full thrust: the drive's share comes off the burn.
     let burnt = |kinds: &[ModuleKind]| {
         let mut s = sim(FlightRules::Real);
-        let id = leo(&mut s, kinds, Systems::OK, 1_000.0);
+        let id = argo(&mut s, kinds, Systems::OK, 1_000.0);
         thrust(&mut s, id, 127, 1);
         1_000.0 - s.suits.flight[id.idx()].propellant
     };
@@ -103,9 +103,9 @@ fn the_drive_s_share_burns_nothing() {
 /// stops it until it's back.
 #[test]
 fn a_dry_tank_crawls_home_on_the_drive() {
-    let spec = frame(FrameId::Leo);
+    let spec = frame(FrameId::Argo);
     let mut s = sim(FlightRules::Real);
-    let id = leo(&mut s, &[ModuleKind::IonDrive], Systems::OK, 0.0);
+    let id = argo(&mut s, &[ModuleKind::IonDrive], Systems::OK, 0.0);
     let i = id.idx();
     thrust(&mut s, id, 127, 30);
     let mass = spec.mass(0.0) + ModuleKind::IonDrive.mass_kg() as f32;
@@ -122,7 +122,7 @@ fn a_dry_tank_crawls_home_on_the_drive() {
     assert!(s.suits.flight[i].vel.z > before.z, "and back on once the reactor is");
     // No drive: dry is dry.
     let mut s = sim(FlightRules::Real);
-    let id = leo(&mut s, &[], Systems::OK, 0.0);
+    let id = argo(&mut s, &[], Systems::OK, 0.0);
     thrust(&mut s, id, 127, 30);
     assert_eq!(s.suits.flight[id.idx()].vel, Vec3::ZERO);
 }
@@ -133,7 +133,7 @@ fn a_dry_tank_crawls_home_on_the_drive() {
 fn the_drive_fills_the_gauge_faster() {
     let filled = |kinds: &[ModuleKind], systems: Systems| {
         let mut s = sim(FlightRules::Anime);
-        let id = leo(&mut s, kinds, systems, 0.0);
+        let id = argo(&mut s, kinds, systems, 0.0);
         thrust(&mut s, id, 0, 30);
         s.suits.flight[id.idx()].propellant
     };
@@ -151,7 +151,7 @@ fn the_drive_fills_the_gauge_faster() {
 fn the_drive_draws_on_the_reactor() {
     let regen = |kinds: &[ModuleKind]| {
         let mut s = sim(FlightRules::Real);
-        let id = leo(&mut s, kinds, Systems::OK, 0.0);
+        let id = argo(&mut s, kinds, Systems::OK, 0.0);
         s.suits.energy[id.idx()] = 0.0;
         thrust(&mut s, id, 127, 30);
         s.suits.energy[id.idx()]

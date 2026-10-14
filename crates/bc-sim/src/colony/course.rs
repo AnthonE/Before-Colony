@@ -3,7 +3,7 @@
 //! out over the first window to the Charter strip. Then it runs along the avenue between the towers
 //! and slaloms over its carriageways. It climbs, comes over the top and heads home. It ends on a pad
 //! on Hub Gate's square, where landing on its feet stops the clock. X-Wing's Proving Ground, flown in
-//! a mobile suit: the course teaches what the colony's inside does to a suit. There's no pull near
+//! a suit: the course teaches what the colony's inside does to a suit. There's no pull near
 //! the axis and a g at the floor, Coriolis on the way down, the air, the city's walls, and the grip.
 //!
 //! Like the rest of the colony it's a closed form: the gates are content, and whether a suit's move
@@ -154,7 +154,7 @@ pub fn on_pad(p: Vec3) -> bool {
     }
 }
 
-/// The course's par, s. A Leo flown by rote through every ring's middle on flight assist at a
+/// The course's par, s. An Argo flown by rote through every ring's middle on flight assist at a
 /// steady 80 m/s, then brought to rest over the pad and set down on it, takes about 2:25; it can
 /// fly level at 190 m/s (240 boosting), so a pilot who flies a line beats two minutes.
 pub const PAR_S: f64 = 120.0;
@@ -297,7 +297,7 @@ mod tests {
     use crate::colony::interior::{INNER_GATE, ground_under, probe};
     use crate::math::{angle_between, cos, sin};
 
-    /// A suit's hull, m: no Leo-sized suit flown through a gate's middle touches anything.
+    /// A suit's hull, m: no Argo-sized suit flown through a gate's middle touches anything.
     const HULL: f32 = 10.0;
 
     /// Points over the disc of gate `i` within `k` of its radius: its centre, and rings round it.

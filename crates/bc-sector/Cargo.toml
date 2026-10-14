@@ -10,7 +10,7 @@ repository.workspace = true
 
 [dependencies]
 bc-proto.workspace = true
-bc-sim = { workspace = true, features = ["deterministic", "canon-names"] }
+bc-sim = { workspace = true, features = ["deterministic"] }
 crossbeam-queue.workspace = true
 glam.workspace = true
 rtrb.workspace = true

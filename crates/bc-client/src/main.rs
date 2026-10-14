@@ -79,6 +79,10 @@ mod noise;
 #[cfg(target_arch = "wasm32")]
 mod onfoot;
 #[cfg(target_arch = "wasm32")]
+mod orrery_overlay;
+#[cfg(target_arch = "wasm32")]
+mod orrery_vision;
+#[cfg(target_arch = "wasm32")]
 mod page;
 #[cfg(target_arch = "wasm32")]
 mod particles;
@@ -116,10 +120,6 @@ mod transport;
 mod ui_panel;
 #[cfg(target_arch = "wasm32")]
 mod view;
-#[cfg(target_arch = "wasm32")]
-mod zero_overlay;
-#[cfg(target_arch = "wasm32")]
-mod zero_vision;
 
 #[cfg(target_arch = "wasm32")]
 fn main() {

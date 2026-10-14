@@ -1,6 +1,6 @@
 # Suits inside the First Colony (Milestone 5, phase 6): the design
 
-The owner's call (`COLONY.md`): mobile suits can go inside the colony, and by the colony's law their
+The owner's call (`COLONY.md`): suits can go inside the colony, and by the colony's law their
 weapons are safe there. This is the design it was built from.
 
 **Built:** the interior sector (`WorldKind::Interior`, `sector-1`), its pull, Coriolis and air,
@@ -70,7 +70,7 @@ form of `bc_sim::colony` works there unchanged.
 - **Air.** The interior has air: drag on a suit (`½ ρ C A v²`, with `ρ` 1.2 kg/m³) goes into
   `integrate` for `Interior`, which caps speeds near the ground at about 120 m/s and makes hovering
   cost propellant (`tuning`'s thrust against its weight). Its pilot feels the drag as they feel
-  thrust: nearly 4 g in a Leo coasting at 200 m/s. Whether propellant burns faster in air
+  thrust: nearly 4 g in an Argo coasting at 200 m/s. Whether propellant burns faster in air
   is an open question (below).
 
 ## Weapons safe
@@ -79,7 +79,7 @@ In an `Interior` sim the buttons that start a weapon (FIRE_PRIMARY, FIRE_SECONDA
 SPECIAL) are cleared from a suit's input as the tick starts (`Sim::colony_law`; the pilot's
 prediction clears them alike), and stand-ins never carry them (`InputCmd::neutral`'s mask). The
 HUD shows WEAPONS SAFE in place of the weapons' readouts, and the own snapshot shows nothing ready
-to fire. Mobile Dolls never enter: the interior's spawn list has none. ZERO stays (it's a
+to fire. Drones never enter: the interior's spawn list has none. The Orrery stays (it's a
 predictive interface, not a weapon); its rollouts run against the interior's world.
 
 **The one exception: the Blast Hall** (`TRAINING.md`, phase 5; `bc_sim::colony::hall`). In the

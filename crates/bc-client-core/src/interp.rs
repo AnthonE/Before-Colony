@@ -2,7 +2,7 @@
 //!
 //! A suit on a body (a rider) is sent in the body's frame, and is interpolated there: its place on
 //! the body, then the body where it is at the moment drawn. So a rider standing still on the
-//! rolling MO-II stays glued to the deck, and one walking on it is drawn exactly where the server
+//! rolling Fornax stays glued to the deck, and one walking on it is drawn exactly where the server
 //! had it on the deck, at every moment, however the body moves. A suit that lands, or takes off,
 //! between two snapshots is carried from one frame into the other exactly, with no pop.
 
@@ -259,9 +259,9 @@ mod tests {
         BodySet::new(Arc::new(Field::empty()), 2)
     }
 
-    const MO_II: Body = Body::Landmark(0);
+    const FORNAX: Body = Body::Landmark(0);
 
-    /// A rider on MO-II at `local`, moving over it at `vel` (its frame), as the wire has it.
+    /// A rider on Fornax at `local`, moving over it at `vel` (its frame), as the wire has it.
     fn rider(local: Vec3, vel: Vec3) -> EntityState {
         EntityState {
             on: Some(RiderOn { body: BodyRef::Landmark(0), aloft: false }),
@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn a_rider_interpolates_in_its_body_frame() {
-        // Walking along the top of MO-II's core at 8 m/s, sampled every 3 ticks, as MO-II rolls and
+        // Walking along the top of Fornax's core at 8 m/s, sampled every 3 ticks, as Fornax rolls and
         // drifts under it.
         let bodies = sector();
         let top = Vec3::new(100.0, 60.0 + STANCE, 0.0);
@@ -302,13 +302,13 @@ mod tests {
         for k in 0..=200 {
             let t = 3_000.0 + f64::from(k) * 0.1;
             let pose = track.sample(t, &bodies);
-            let p = bodies.pose_at(MO_II, t).unwrap();
+            let p = bodies.pose_at(FORNAX, t).unwrap();
             let want = p.to_world(local(t));
             worst = worst.max(pose.pos.distance(want));
             // Its velocity is the deck's under it, plus its walk.
             assert!(pose.vel.distance(p.point_vel(want) + p.rot * walk) < 1e-3, "at {t}");
-            let g = pose.ground.expect("on MO-II");
-            assert!(g.body == MO_II && !g.aloft);
+            let g = pose.ground.expect("on Fornax");
+            assert!(g.body == FORNAX && !g.aloft);
             assert!((g.height - STANCE).abs() < 1e-3 && g.up.distance(p.rot * Vec3::Y) < 1e-4);
             assert!(g.rel_vel.distance(p.rot * walk) < 1e-3);
         }
@@ -319,17 +319,17 @@ mod tests {
 
     #[test]
     fn a_frame_switch_between_samples_is_continuous() {
-        // Flying free at tick 100 and 103, then caught by MO-II: in its frame from 106 on.
+        // Flying free at tick 100 and 103, then caught by Fornax: in its frame from 106 on.
         let bodies = sector();
-        let p103 = bodies.pose_at(MO_II, 103.0).unwrap();
-        let p106 = bodies.pose_at(MO_II, 106.0).unwrap();
+        let p103 = bodies.pose_at(FORNAX, 103.0).unwrap();
+        let p106 = bodies.pose_at(FORNAX, 106.0).unwrap();
         let landing = Vec3::new(0.0, 60.0 + STANCE + 12.0, 10.0);
         let fall = Vec3::new(0.0, -6.0, 2.0);
         let free_at = |p: &BodyPose, local: Vec3| {
             let pos = p.to_world(local);
             EntityState { pos, vel: p.point_vel(pos) + p.rot * fall, aim: Vec3::Z, ..EntityState::default() }
         };
-        let mut track = EntityTrack::new(100, free_at(&bodies.pose_at(MO_II, 100.0).unwrap(), landing));
+        let mut track = EntityTrack::new(100, free_at(&bodies.pose_at(FORNAX, 100.0).unwrap(), landing));
         let a = free_at(&p103, landing + fall * (3.0 / HZ));
         track.push(103, a);
         let mut caught = rider(landing + fall * (6.0 / HZ), fall);
@@ -359,7 +359,7 @@ mod tests {
         track.push(5_010, rider(local, Vec3::ZERO));
         for k in 0..=80 {
             let t = 5_010.0 + f64::from(k) * 0.1;
-            let p = bodies.pose_at(MO_II, t).unwrap();
+            let p = bodies.pose_at(FORNAX, t).unwrap();
             let pose = track.sample(t, &bodies);
             assert!(pose.pos.distance(p.to_world(local)) < 1e-3, "slid off at {t}");
             assert!(pose.vel.distance(p.point_vel(pose.pos)) < 1e-3, "at {t}");

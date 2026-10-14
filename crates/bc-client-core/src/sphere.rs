@@ -1,4 +1,4 @@
-//! The Earth Sphere as seen from Sector L1: where the Sun, Earth, the Moon and the five Lagrange
+//! Earth-Moon space as seen from Sector L1: where the Sun, Earth, the Moon and the five Lagrange
 //! points are, in the sector's own frame and metres (its origin is the L1 point, where the First
 //! Colony keeps station between Earth and the Moon).
 //!
@@ -7,8 +7,8 @@
 //! window is where the chart says it is. Distances are true (the Earth–Moon system's: 384,400 km
 //! apart, L1 85% of the way to the Moon); the sky enlarges the discs to read at a glance.
 //!
-//! The sector's frame doesn't turn with the Moon's month: like the sky, the chart holds the Earth
-//! Sphere where the sector's first survey put it.
+//! The sector's frame doesn't turn with the Moon's month: like the sky, the chart holds Earth-Moon
+//! space where the sector's first survey put it.
 
 use glam::{Quat, Vec3};
 

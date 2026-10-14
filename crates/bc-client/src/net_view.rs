@@ -9,7 +9,7 @@ use bc_client_core::interp::Pose;
 use bc_client_core::world::ObjectMotion;
 use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY};
 use bc_proto::events::BurstCause;
-use bc_proto::snapshot::{ent_flags, own_flags, zero_mode};
+use bc_proto::snapshot::{ent_flags, orrery_mode, own_flags};
 use bc_sim::TICK_HZ;
 use bc_sim::bodies::sweep_landmarks;
 use bc_sim::content::{SPECIAL_MOUNT, SpecialKind, frame};
@@ -183,21 +183,21 @@ pub fn sync_view(
             flags |= ent_flags::FIRING_SECONDARY;
         }
         // The strike as predicted, so the swing starts with the lunge: the special's melee move,
-        // a blade in a gun slot (the Dragon Fang), or the F weapon.
+        // a blade in a gun slot (the Talon), or the F weapon.
         flags |= match view.strike {
             Some(SPECIAL_MOUNT) => ent_flags::SABER | ent_flags::SPECIAL,
             Some(0 | 1) => ent_flags::SABER | ent_flags::MELEE_ALT,
             Some(_) => ent_flags::SABER,
             None => 0,
         };
-        // Any other special engaged (the melee move is the strike's): the jammer, Full Open, a
+        // Any other special engaged (the melee move is the strike's): the jammer, Full Salvo, a
         // change of form.
         if own.flags & (own_flags::SPECIAL_ACTIVE | own_flags::TRANSFORMING) != 0
             && spec.melee_mount(SPECIAL_MOUNT).is_none()
         {
             flags |= ent_flags::SPECIAL;
-            // Full Open Attack fires everything.
-            if matches!(spec.special, SpecialKind::FullOpen { .. }) {
+            // Full Salvo fires everything.
+            if matches!(spec.special, SpecialKind::FullSalvo { .. }) {
                 flags |= ent_flags::FIRING_PRIMARY | ent_flags::FIRING_SECONDARY;
             }
         }
@@ -566,8 +566,8 @@ pub fn sync_view(
         boost: view.alive && view.boosting,
         g_strain: view.g_strain.clamp(0.0, 1.0),
         blackout: view.alive && view.blackout,
-        zero: own.alive && own.zero_mode == zero_mode::ACTIVE,
-        zero_strain: own.zero_strain.clamp(0.0, 1.0),
-        seized: own.alive && own.zero_mode == zero_mode::SEIZED,
+        orrery: own.alive && own.orrery_mode == orrery_mode::ACTIVE,
+        orrery_strain: own.orrery_strain.clamp(0.0, 1.0),
+        seized: own.alive && own.orrery_mode == orrery_mode::SEIZED,
     });
 }

@@ -5,7 +5,7 @@ use std::time::Duration;
 /// What the server runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum Mode {
-    /// The game: one sector simulation plus Mobile Doll NPCs.
+    /// The game: one sector simulation plus drone NPCs.
     Game,
     /// Transport smoke test: datagrams and stream bytes are echoed back.
     Echo,
@@ -14,16 +14,16 @@ pub enum Mode {
 /// How pilots get their suits.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum Ruleset {
-    /// The game: pilots start in their hangar bay, fly the suit they built (a worn Leo, to begin
+    /// The game: pilots start in their hangar bay, fly the suit they built (a worn Argo, to begin
     /// with), dock to bring home what they found, and lose it for good when it's destroyed. Their
     /// credits, stores and suit are kept (signed in); the Colony Exchange is shared.
     Survival,
     /// Any frame from the title screen, free respawns, and the dock buys the hold: for trying the
-    /// Gundams out, the load tests and the combat end-to-end tests.
+    /// Lodestars out, the load tests and the combat end-to-end tests.
     Arcade,
 }
 
-/// How pilots fly (`bc_sim::tuning::FlightRules`; Mobile Dolls fly by the real rules either way).
+/// How pilots fly (`bc_sim::tuning::FlightRules`; drones fly by the real rules either way).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum Flight {
     /// For fun over realism: the tank is a boost gauge (only boost burns it, and it fills back up
@@ -42,7 +42,7 @@ impl Flight {
     }
 }
 
-/// Which tactical oracle feeds the ZERO System. The in-sim local oracle always runs; `jev` adds
+/// Which tactical oracle feeds the Orrery. The in-sim local oracle always runs; `jev` adds
 /// TypeSafe Jev as a blended prior when `TYPESAFE_API_KEY` is set.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum OracleKind {
@@ -59,9 +59,9 @@ pub struct Config {
     pub http_addr: SocketAddr,
     /// Built web client to serve at `/` (optional).
     pub web_dir: Option<PathBuf>,
-    /// Mobile Doll NPCs to keep in the sector.
-    pub mobile_dolls: u32,
-    /// One of Zodiac's aces is fielded among the Dolls at most this often, while none is out
+    /// Drone NPCs to keep in the sector.
+    pub drones: u32,
+    /// One of the Almagest's aces is fielded among the drones at most this often, while none is out
     /// (`bc_sim::content::aces`); zero: none.
     pub ace_every: Duration,
     pub oracle: OracleKind,
@@ -107,7 +107,7 @@ impl Default for Config {
             wt_port: 4433,
             http_addr: SocketAddr::from(([127, 0, 0, 1], 8080)),
             web_dir: None,
-            mobile_dolls: 24,
+            drones: 24,
             ace_every: Duration::from_secs(300),
             oracle: OracleKind::Local,
             max_clients: 64,
