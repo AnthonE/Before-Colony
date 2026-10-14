@@ -2,8 +2,8 @@
 
 use bc_proto::{FrameId, Part, PilotKind};
 use bc_sim::content::frame_name;
-use bc_sim::zero::advice::ThreatBrief;
-use bc_sim::zero::{N_HYP, hypotheses::Maneuver};
+use bc_sim::orrery::advice::ThreatBrief;
+use bc_sim::orrery::{N_HYP, hypotheses::Maneuver};
 use serde_json::{Value, json};
 
 use crate::TacticalPicture;
@@ -55,7 +55,7 @@ fn pilot(p: PilotKind) -> &'static str {
     match p {
         PilotKind::Human => "human pilot",
         PilotKind::Agent => "AI agent",
-        PilotKind::MobileDoll => "Mobile Doll (unmanned, predictable, no G limit)",
+        PilotKind::Drone => "Drone (unmanned, predictable, no G limit)",
     }
 }
 
@@ -97,7 +97,7 @@ pub(crate) fn threat_line(t: &ThreatBrief) -> String {
         "{} flown by a {}, {}, {}, {}, hull {}{}{}",
         frame_name(t.frame),
         match t.pilot {
-            PilotKind::MobileDoll => "Mobile Doll",
+            PilotKind::Drone => "Drone",
             PilotKind::Agent => "AI agent",
             PilotKind::Human => "human",
         },
@@ -113,8 +113,8 @@ pub(crate) fn threat_line(t: &ThreatBrief) -> String {
 /// The `state` document for one pilot.
 pub(crate) fn state(p: &TacticalPicture) -> Value {
     let frame = match p.frame {
-        FrameId::WingZero => "Wing Gundam Zero (gundanium armour, ZERO System)",
-        FrameId::WingZeroBird => "Wing Gundam Zero in Neo-Bird flight form (gundanium armour, ZERO System)",
+        FrameId::Altair => "Altair (siderium armour, the Orrery)",
+        FrameId::Aquila => "Altair in Aquila flight form (siderium armour, the Orrery)",
         f => frame_name(f),
     };
     let threats: Vec<Value> = p
@@ -138,7 +138,7 @@ pub(crate) fn state(p: &TacticalPicture) -> Value {
         })
         .collect();
     json!({
-        "situation": "Zero-gravity mobile suit combat near an L1 space colony. Beams take a fraction of a second to arrive, so maneuvering matters.",
+        "situation": "Zero-gravity suit combat near an L1 space colony. Beams take a fraction of a second to arrive, so maneuvering matters.",
         "pilot": {
             "suit": frame,
             "hull": hull(p.parts[Part::Torso as usize]),
@@ -147,7 +147,7 @@ pub(crate) fn state(p: &TacticalPicture) -> Value {
             "energy": level(p.energy, ["almost empty", "partial", "full"]),
             "propellant": level(p.propellant, ["low", "half", "full"]),
             "g_strain": level(p.g_strain, ["none", "rising", "near blackout"]),
-            "zero_strain": level(p.zero_strain, ["low", "high", "near seizure"]),
+            "orrery_strain": level(p.orrery_strain, ["low", "high", "near seizure"]),
             "speed": match p.speed { s if s < 20.0 => "nearly stationary", s if s < 200.0 => "cruising", _ => "fast" },
         },
         "threats": threats,

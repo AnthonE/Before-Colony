@@ -161,7 +161,7 @@ impl Sim {
             let asleep = self.suits.sleeping.get(i);
             let parked = self.is_parked(i);
             let lurking = self.lurking(i);
-            let pilot = !asleep && self.suits.pilot[i] != PilotKind::MobileDoll;
+            let pilot = !asleep && self.suits.pilot[i] != PilotKind::Drone;
             let parkable = if pilot { self.parkable(i).unwrap_or(Body::None) } else { Body::None };
             let s = &mut self.suits;
             let (footing, a) = (s.footing[i], s.anchor[i]);

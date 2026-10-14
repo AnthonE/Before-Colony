@@ -628,6 +628,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "bc-orrery"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "bc-proto",
+ "bc-sim",
+ "reqwest",
+ "rtrb",
+ "rustls",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "bc-proto"
 version = "0.1.0"
 dependencies = [
@@ -661,10 +678,10 @@ dependencies = [
  "bc-bot",
  "bc-client-core",
  "bc-econ",
+ "bc-orrery",
  "bc-proto",
  "bc-sector",
  "bc-sim",
- "bc-zero",
  "clap",
  "crossbeam-queue",
  "futures",
@@ -698,23 +715,6 @@ name = "bc-sound"
 version = "0.1.0"
 dependencies = [
  "bc-alloc",
-]
-
-[[package]]
-name = "bc-zero"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "bc-proto",
- "bc-sim",
- "reqwest",
- "rtrb",
- "rustls",
- "serde_json",
- "thiserror 2.0.21",
- "tokio",
- "tracing",
 ]
 
 [[package]]

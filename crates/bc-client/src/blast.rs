@@ -1,6 +1,6 @@
 //! What's left of an explosion after the flash: a shockwave shell racing outward
 //! (`shaders/shock.wgsl`) and spinning chips of armour flying straight away; and the energy ring
-//! a Twin Buster shot throws off round the muzzle (a flattened shell). All pooled.
+//! a heavy beam rifle shot throws off round the muzzle (a flattened shell). All pooled.
 
 use bc_sim::math::Rng;
 use bevy::asset::embedded_asset;
@@ -95,7 +95,7 @@ pub struct Shock {
     /// A flat ring square to local z (else a sphere), and its orientation.
     ring: bool,
     rot: Quat,
-    /// A ring's look: a Twin Buster shot's plasma, or (pale) the feathers of a Neo-Bird changing.
+    /// A ring's look: a heavy beam rifle shot's plasma, or (pale) the feathers of an Aquila changing.
     pale: bool,
 }
 

@@ -6,7 +6,7 @@ use bc_proto::events::{BurstCause, Event};
 use bc_proto::snapshot::{ent_flags, own_flags};
 use bc_proto::{
     BodyRef, CHUNK_BITS, ChunkDesc, EntityState, Faction, FrameId, MAX_ENTITIES, MISSILE_BITS, MissileState,
-    NO_CHUNK, NO_SLOT, ObjectState, OwnState, Part, PilotKind, RockState, Segment, WeaponKind, ZeroInfo,
+    NO_CHUNK, NO_SLOT, ObjectState, OrreryInfo, OwnState, Part, PilotKind, RockState, Segment, WeaponKind,
 };
 use bc_sim::TICK_HZ;
 use bc_sim::bodies::{Bodies, Body};
@@ -15,10 +15,10 @@ use bc_sim::colony::hall::{Drill, DrillEvent};
 use bc_sim::content::{SpecialKind, WeaponClass, frame, frame_name, weapon};
 use bc_sim::flight::FlightState;
 use bc_sim::ground::{Anchor, derive};
+use bc_sim::orrery::N_HYP;
+use bc_sim::orrery::hypotheses::{self, Maneuver};
+use bc_sim::orrery::rollout::{STEPS, rollout};
 use bc_sim::perception::{Contact, KitView, Perception, SelfView};
-use bc_sim::zero::N_HYP;
-use bc_sim::zero::hypotheses::{self, Maneuver};
-use bc_sim::zero::rollout::{STEPS, rollout};
 use glam::{Quat, Vec3};
 
 use crate::interp::{EntityTrack, Pose};
@@ -255,7 +255,7 @@ impl ObjectTrack {
     }
 }
 
-/// One threat's predicted futures, for the ZERO overlay.
+/// One threat's predicted futures, for the Orrery overlay.
 #[derive(Clone, Debug)]
 pub struct Ghost {
     pub slot: u16,
@@ -263,16 +263,16 @@ pub struct Ghost {
     pub paths: [[Vec3; STEPS]; N_HYP],
 }
 
-/// What the pilot's kit has done and what the client has seen of the Gundams' mechanics, counted
+/// What the pilot's kit has done and what the client has seen of the Lodestars' mechanics, counted
 /// as snapshots arrive (so the counts don't depend on how fast the page renders).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct KitStats {
     /// The pilot's own hits, by `WeaponClass`.
     pub hits_by_class: [u32; 5],
-    /// Times the own suit's special engaged: a change of form, the jammer, Full Open, the Cross
-    /// Crusher.
+    /// Times the own suit's special engaged: a change of form, the jammer, Full Salvo, the Pincer
+    /// Strike.
     pub specials: u32,
-    /// Changes of the own suit's form that completed (Wing Zero ↔ Neo-Bird).
+    /// Changes of the own suit's form that completed (Altair ↔ Aquila).
     pub transforms: u32,
     /// Missile locks the own suit acquired.
     pub locks: u32,
@@ -280,10 +280,10 @@ pub struct KitStats {
     pub missiles_seen: u32,
     pub bursts_seen: u32,
     /// Snapshots in which some suit (the own included) was seen jamming, burning with a
-    /// flamethrower, or striking with the Dragon Fang.
+    /// flamethrower, or striking with the Talon.
     pub jamming: u32,
     pub flame: u32,
-    pub fang: u32,
+    pub talon: u32,
 }
 
 /// What the world has had to throw away.
@@ -309,7 +309,7 @@ pub struct World {
     pub own: Option<OwnState>,
     /// The own state as it was sent (on a body, in the body's frame).
     own_sent: Option<OwnState>,
-    pub zero: Option<ZeroInfo>,
+    pub orrery: Option<OrreryInfo>,
     pub beams: Vec<Beam>,
     pub hits: Vec<HitMark>,
     pub feed: VecDeque<FeedLine>,
@@ -359,8 +359,8 @@ pub struct World {
     pub faction: Faction,
     pub my_hits: u32,
     pub my_kills: u32,
-    /// Of them, Mobile Dolls (as last seen).
-    pub doll_kills: u32,
+    /// Of them, drones (as last seen).
+    pub drone_kills: u32,
     pub my_deaths: u32,
     pub hits_taken: u32,
     pub kit: KitStats,
@@ -376,7 +376,7 @@ impl World {
             entities: vec![None; MAX_ENTITIES],
             own: None,
             own_sent: None,
-            zero: None,
+            orrery: None,
             beams: Vec::new(),
             hits: Vec::new(),
             feed: VecDeque::new(),
@@ -403,7 +403,7 @@ impl World {
             faction,
             my_hits: 0,
             my_kills: 0,
-            doll_kills: 0,
+            drone_kills: 0,
             my_deaths: 0,
             hits_taken: 0,
             kit: KitStats::default(),
@@ -432,7 +432,7 @@ impl World {
         true
     }
 
-    /// Display name for an entity slot: the pilot's name, or a Mobile Doll callsign.
+    /// Display name for an entity slot: the pilot's name, or a drone callsign.
     pub fn name_of(&self, slot: u16) -> String {
         if let Some((name, _)) = self.roster.get(&slot) {
             return name.clone();
@@ -510,7 +510,7 @@ impl World {
         &mut self,
         tick: u32,
         own: Option<OwnState>,
-        zero: Option<ZeroInfo>,
+        orrery: Option<OrreryInfo>,
         events: &[Event],
         ents: &[EntityState],
     ) {
@@ -527,7 +527,7 @@ impl World {
         self.tick = tick;
         self.own = own;
         self.own_sent = own_sent;
-        self.zero = zero;
+        self.orrery = orrery;
         let me = own.map(|o| o.slot);
         if let Some(now) = own {
             self.count_own(now, prev_own);
@@ -542,8 +542,8 @@ impl World {
                 continue;
             }
             let e = *e;
-            let (jamming, flame, fang) = kit_seen(&e);
-            seen = (seen.0 | jamming, seen.1 | flame, seen.2 | fang);
+            let (jamming, flame, talon) = kit_seen(&e);
+            seen = (seen.0 | jamming, seen.1 | flame, seen.2 | talon);
             let slot = e.slot as usize;
             match &mut self.entities[slot] {
                 Some(track) if track.latest.generation == e.generation => track.push(tick, e),
@@ -553,11 +553,11 @@ impl World {
         let own_jamming = own.is_some_and(|o| {
             o.alive
                 && o.flags & own_flags::SPECIAL_ACTIVE != 0
-                && matches!(frame(o.frame).special, SpecialKind::HyperJammer { .. })
+                && matches!(frame(o.frame).special, SpecialKind::Eclipse { .. })
         });
         self.kit.jamming += u32::from(seen.0 || own_jamming);
         self.kit.flame += u32::from(seen.1);
-        self.kit.fang += u32::from(seen.2);
+        self.kit.talon += u32::from(seen.2);
         for ev in events {
             self.apply_event(ev, me);
         }
@@ -748,8 +748,8 @@ impl World {
                 self.staggered.remove(&victim);
                 if Some(killer) == me && killer != victim {
                     self.my_kills += 1;
-                    if self.entity(victim).is_some_and(|tr| tr.latest.pilot == PilotKind::MobileDoll) {
-                        self.doll_kills += 1;
+                    if self.entity(victim).is_some_and(|tr| tr.latest.pilot == PilotKind::Drone) {
+                        self.drone_kills += 1;
                     }
                 }
                 if Some(victim) == me {
@@ -892,7 +892,7 @@ impl World {
         self.entity(slot).map(|e| e.sample(t, &self.bodies))
     }
 
-    /// Builds the same [`Perception`] the server's Mobile Dolls use, from this client's view.
+    /// Builds the same [`Perception`] the server's drones use, from this client's view.
     pub fn perception(&self, t: f64, predict: &Predictor) -> Option<Perception> {
         let own = self.own?;
         let spec = frame(own.frame);
@@ -956,10 +956,10 @@ impl World {
         Some(p)
     }
 
-    /// The ZERO System's predicted futures for each tracked threat, drawn from this client's view
+    /// The Orrery's predicted futures for each tracked threat, drawn from this client's view
     /// with the same rollout code the server uses.
-    pub fn zero_ghosts(&self, t: f64) -> Vec<Ghost> {
-        let Some(z) = &self.zero else { return Vec::new() };
+    pub fn orrery_ghosts(&self, t: f64) -> Vec<Ghost> {
+        let Some(z) = &self.orrery else { return Vec::new() };
         let mut out = Vec::new();
         for th in &z.threats[..z.threat_count as usize] {
             let Some(track) = self.entity(th.slot) else { continue };
@@ -1012,21 +1012,21 @@ fn own_in_sector(own: &OwnState, bodies: &Bodies) -> OwnState {
     }
 }
 
-/// What a contact shows of the Gundams' mechanics: (jamming, a flamethrower burning, the Dragon
-/// Fang striking).
+/// What a contact shows of the Lodestars' mechanics: (jamming, a flamethrower burning, the
+/// Talon striking).
 fn kit_seen(e: &EntityState) -> (bool, bool, bool) {
     if e.flags & ent_flags::WRECK != 0 {
         return (false, false, false);
     }
     let spec = frame(e.frame);
-    let jamming =
-        e.flags & ent_flags::SPECIAL != 0 && matches!(spec.special, SpecialKind::HyperJammer { .. });
+    let jamming = e.flags & ent_flags::SPECIAL != 0 && matches!(spec.special, SpecialKind::Eclipse { .. });
     let burning = |slot: usize, bit: u16| {
         e.flags & bit != 0 && spec.loadout[slot].is_some_and(|m| weapon(m.weapon).class == WeaponClass::Cone)
     };
     let flame = burning(0, ent_flags::FIRING_PRIMARY) || burning(1, ent_flags::FIRING_SECONDARY);
-    let fang = e.flags & (ent_flags::SABER | ent_flags::MELEE_ALT) == ent_flags::SABER | ent_flags::MELEE_ALT;
-    (jamming, flame, fang)
+    let talon =
+        e.flags & (ent_flags::SABER | ent_flags::MELEE_ALT) == ent_flags::SABER | ent_flags::MELEE_ALT;
+    (jamming, flame, talon)
 }
 
 #[cfg(test)]
@@ -1035,7 +1035,7 @@ mod tests {
     use crate::interp::EntityTrack;
 
     fn hostile_at(world: &mut World, slot: u16, pos: Vec3) {
-        let e = EntityState { slot, faction: Faction::Oz, pos, ..EntityState::default() };
+        let e = EntityState { slot, faction: Faction::Almagest, pos, ..EntityState::default() };
         world.entities[usize::from(slot)] = Some(EntityTrack::new(10, e));
     }
 
@@ -1044,7 +1044,7 @@ mod tests {
         use bc_proto::RiderOn;
         EntityState {
             slot,
-            faction: Faction::Oz,
+            faction: Faction::Almagest,
             on: Some(RiderOn { body, aloft: false }),
             pos: local,
             vel,
@@ -1074,7 +1074,7 @@ mod tests {
         assert!(world.entity(4).is_none() && world.entity(5).is_none());
         assert_eq!(world.stats.unresolved_bodies, 2);
         // The rest are kept as sent, and drawn on their bodies.
-        let on_deck = world.entity(3).expect("on MO-II").latest;
+        let on_deck = world.entity(3).expect("on Fornax").latest;
         assert_eq!(on_deck.pos, local);
         let deck = world.bodies.pose_at(Body::Landmark(0), f64::from(t)).unwrap();
         let drawn = world.pose(3, f64::from(t)).unwrap();
@@ -1164,7 +1164,7 @@ mod tests {
         };
         let free = EntityState {
             slot: 5,
-            faction: Faction::Oz,
+            faction: Faction::Almagest,
             pos: Vec3::splat(-17_000.0),
             ..EntityState::default()
         };
@@ -1197,7 +1197,7 @@ mod tests {
         // Nothing within 10°: no lock.
         assert_eq!(world.lock_assist(Vec3::ZERO, -Vec3::Z, None, 10.0), None);
         // Friends and wrecks aren't locked.
-        world.faction = Faction::Oz;
+        world.faction = Faction::Almagest;
         assert_eq!(world.lock_assist(Vec3::ZERO, Vec3::Z, None, 10.0), None);
     }
 }

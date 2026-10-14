@@ -190,7 +190,7 @@ pub struct Surfaces {
     pub mirror: Handle<HullMaterial>,
     /// A hangar bay's walls, deck and machinery: plates a couple of metres across, well worn.
     pub plating: Handle<HullMaterial>,
-    /// A station's hull (MO-II): plates several metres across, weathered.
+    /// A station's hull (Fornax): plates several metres across, weathered.
     pub station: Handle<HullMaterial>,
     pub rock: Handle<RockMaterial>,
     /// Keeps the shared WGSL library loaded, so shaders can import it.

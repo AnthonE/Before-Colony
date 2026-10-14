@@ -17,11 +17,11 @@ const suffix = extra ? `-${extra.replace(/[^a-z0-9=]+/gi, "_")}` : "";
 const scenes: Array<[string, number, number, number]> = [
   ["lineup", 1, 6, 12],
   ["lineup", 2, 6, 12],
-  // The Taurus exploding as Wing Zero's shot lands, with the Leo's machine-cannon tracers.
+  // The Corvus exploding as Altair's shot lands, with the Argo's machine-cannon tracers.
   ["duel", 1, 6.75, 30],
-  // Two seconds on: the Taurus's wreck drifting on out of its blast, burning, trailing smoke.
+  // Two seconds on: the Corvus's wreck drifting on out of its blast, burning, trailing smoke.
   ["duel", 1, 6.9, 120],
-  // The Twin Buster Rifle mid-shot.
+  // The Heavy Beam Rifle mid-shot.
   ["duel", 2, 1.85, 12],
   // Beam sabers clashing.
   ["duel", 3, 4.4, 12],
@@ -35,7 +35,7 @@ const scenes: Array<[string, number, number, number]> = [
   ["colony", 6, 1900, 12],
   ["colony", 7, 6, 12],
   ["colony", 8, 2620, 12],
-  // The launch shot: a Leo thrown out of its bay's door on the ring, the door behind it.
+  // The launch shot: an Argo thrown out of its bay's door on the ring, the door behind it.
   ["colony", 9, 6.4, 12],
   ["field", 1, 6, 12],
   // Wreckage after a fight: hulks, limbs shot off, loose ore.
@@ -48,33 +48,33 @@ const scenes: Array<[string, number, number, number]> = [
   ["sky", 2, 6, 12],
   ["sky", 3, 6, 12],
   ["sky", 4, 6, 12],
-  // The pilot's view: boosting; hit; greying out; ZERO engaged; ZERO's seizure.
+  // The pilot's view: boosting; hit; greying out; the Orrery engaged; the Orrery's seizure.
   ["chase", 1, 4.5, 12],
   ["chase", 1, 5.95, 12],
   ["chase", 1, 9.9, 12],
   ["chase", 1, 15.5, 12],
   ["chase", 1, 17.8, 12],
-  // The same from the cockpit (the head's main camera): boosting; hit; ZERO engaged.
+  // The same from the cockpit (the head's main camera): boosting; hit; the Orrery engaged.
   ["chase", 2, 4.5, 12],
   ["chase", 2, 5.95, 12],
   ["chase", 2, 15.5, 12],
-  // The Gundams: all in a row (Full Open's salvo bursting, Shenlong's flame); Heavyarms in Full
-  // Open; Deathscythe jamming, mid-reap; Sandrock's shotels, then its Cross Crusher; Shenlong's
-  // fang at full reach, then its flamethrower; Neo-Bird on full burn.
-  ["gundams", 1, 7.95, 12],
-  ["gundams", 2, 7.95, 12],
-  ["gundams", 3, 6.75, 12],
-  ["gundams", 4, 6.45, 12],
-  ["gundams", 4, 9.45, 12],
-  ["gundams", 5, 6.63, 12],
-  ["gundams", 5, 7.9, 12],
-  ["gundams", 6, 6, 12],
+  // The Lodestars: all in a row (Full Salvo's salvo bursting, Thuban's flame); Antares in Full
+  // Salvo; Algol jamming, mid-reap; Canopus's blades, then its Pincer Strike; Thuban's
+  // fang at full reach, then its flamethrower; Aquila on full burn.
+  ["lodestars", 1, 7.95, 12],
+  ["lodestars", 2, 7.95, 12],
+  ["lodestars", 3, 6.75, 12],
+  ["lodestars", 4, 6.45, 12],
+  ["lodestars", 4, 9.45, 12],
+  ["lodestars", 5, 6.63, 12],
+  ["lodestars", 5, 7.9, 12],
+  ["lodestars", 6, 6, 12],
   // The hangar bay: just in from the airlock; from its back corner with the doors opening; from
   // the cockpit, down the launch tunnel with the doors open.
   ["hangar", 1, 2, 12],
   ["hangar", 4, 6, 12],
   ["hangar", 5, 8.5, 12],
-  // Suits on the landmarks: a Leo walking MO-II's core as the station rolls; one kneeling asleep
+  // Suits on the landmarks: an Argo walking Fornax's core as the station rolls; one kneeling asleep
   // in the Aft Well, its rim lights round it; one landing on Hermit in a puff of dust.
   // (The walker's stride needs a moment to get going.)
   ["surface", 1, 2, 45],

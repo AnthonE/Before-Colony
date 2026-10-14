@@ -27,7 +27,7 @@ pub fn render(cue: Cue) -> Vec<f32> {
             mix_in(&mut b, &boom(&mut r, 0.8, 52.0, 0.25), 0, 0.8);
             b
         }
-        Cue::BusterFire => buster(&mut r),
+        Cue::HeavyBeamFire => heavy_beam(&mut r),
         Cue::Gun => gun(&mut r),
         Cue::BeamGun => beam(&mut r, 0.16, 1_900.0, 700.0, 0.035, 0.25),
         Cue::Flame => flame(&mut r),
@@ -60,7 +60,7 @@ pub fn render(cue: Cue) -> Vec<f32> {
             b
         }
         Cue::RcsPuff => puff(&mut r),
-        Cue::ZeroOn => zero_on(&mut r),
+        Cue::OrreryOn => orrery_on(&mut r),
         Cue::Seizure => seizure(&mut r),
         Cue::Destroyed => destroyed(&mut r),
         Cue::Launch => launch(&mut r),
@@ -96,7 +96,7 @@ pub fn render(cue: Cue) -> Vec<f32> {
         Cue::LockSolid => tone_loop(0.5, 1_760.0, 0.25),
         Cue::MissileAlarm => missile_alarm(),
         Cue::GStrain => heartbeat(),
-        Cue::ZeroDrone => zero_drone(&mut r),
+        Cue::OrreryDrone => orrery_drone(&mut r),
         Cue::CockpitHum => cockpit_hum(&mut r),
         Cue::MusicCalm => crate::music::calm(),
         Cue::MusicCombat => crate::music::combat(),
@@ -154,9 +154,9 @@ fn boom(r: &mut Rng, dur: f32, hz: f32, tau: f32) -> Vec<f32> {
     out
 }
 
-/// The Twin Buster Rifle: a boom you feel, a roar that falls through the spectrum, and the beam's
+/// The Heavy Beam Rifle: a boom you feel, a roar that falls through the spectrum, and the beam's
 /// sizzle riding on top, with a tail.
-fn buster(r: &mut Rng) -> Vec<f32> {
+fn heavy_beam(r: &mut Rng) -> Vec<f32> {
     let dur = 2.4;
     let n = samples(dur);
     let mut out = boom(r, dur, 38.0, 0.7);
@@ -379,7 +379,7 @@ fn transform(r: &mut Rng) -> Vec<f32> {
     out
 }
 
-/// A digital warble sweeping from one pitch to another (the Hyper Jammer).
+/// A digital warble sweeping from one pitch to another (the Eclipse).
 fn warble(r: &mut Rng, dur: f32, from_hz: f32, to_hz: f32) -> Vec<f32> {
     let n = samples(dur);
     let mut out = Vec::with_capacity(n);
@@ -553,8 +553,8 @@ fn puff(r: &mut Rng) -> Vec<f32> {
         .collect()
 }
 
-/// The ZERO System engaging: a dark chord swelling out of a single high ping.
-fn zero_on(r: &mut Rng) -> Vec<f32> {
+/// The Orrery engaging: a dark chord swelling out of a single high ping.
+fn orrery_on(r: &mut Rng) -> Vec<f32> {
     let dur = 2.6;
     let n = samples(dur);
     let chord = [55.0f32, 82.41, 110.0, 164.81, 220.0 * 1.003];
@@ -570,7 +570,7 @@ fn zero_on(r: &mut Rng) -> Vec<f32> {
     reverb(&out, 0.35)
 }
 
-/// A ZERO seizure: the signal tearing: pitch jumps, dropouts, crushed bursts.
+/// An Orrery seizure: the signal tearing: pitch jumps, dropouts, crushed bursts.
 fn seizure(r: &mut Rng) -> Vec<f32> {
     let dur = 1.3;
     let n = samples(dur);
@@ -780,7 +780,7 @@ fn boost_loop(r: &mut Rng) -> Vec<f32> {
     loop_seam(raw, samples(0.4))
 }
 
-/// The Twin Buster Rifle charging: a whine the player drives upward with playback rate.
+/// The Heavy Beam Rifle charging: a whine the player drives upward with playback rate.
 fn charge_loop() -> Vec<f32> {
     // Whole cycles of every partial in exactly one second, so the loop needs no seam.
     let n = samples(1.0);
@@ -852,8 +852,8 @@ fn heartbeat() -> Vec<f32> {
     out
 }
 
-/// The ZERO System running: a low drone with a slow, uneasy beat.
-fn zero_drone(r: &mut Rng) -> Vec<f32> {
+/// The Orrery running: a low drone with a slow, uneasy beat.
+fn orrery_drone(r: &mut Rng) -> Vec<f32> {
     let secs = 6.0;
     let mut lp = Lp::new(300.0);
     let raw: Vec<f32> = (0..samples(secs))

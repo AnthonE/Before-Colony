@@ -1,5 +1,5 @@
 //! The burst step, flown against the real simulation the way the browser flies it: a pilot
-//! double-taps its way about, free and then locked on to a Taurus (where a step goes along the
+//! double-taps its way about, free and then locked on to a Corvus (where a step goes along the
 //! fight's axes), each step 36 m/s along the keys. All the while the owner's prediction, seeded
 //! from snapshots a few ticks old, flies exactly what the server flies: the step's state travels in
 //! the own snapshot, and its press in the command.
@@ -36,13 +36,18 @@ const EVERY: u32 = 50;
 #[test]
 fn steps_free_and_locked_on_are_predicted_exactly() {
     let cfg =
-        SimConfig { target_dolls: 0, field_rocks: 0, flight: FlightRules::Anime, ..SimConfig::default() };
+        SimConfig { target_drones: 0, field_rocks: 0, flight: FlightRules::Anime, ..SimConfig::default() };
     let mut sim = Sim::new(cfg);
     let face = look_rotation(Vec3::Z, Vec3::Y);
     let me =
-        sim.spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, Vec3::new(0.0, 2_000.0, 0.0), face);
-    let foe =
-        sim.spawn_at(FrameId::Taurus, Faction::Oz, PilotKind::Human, Vec3::new(300.0, 2_000.0, 600.0), face);
+        sim.spawn_at(FrameId::Argo, Faction::Colonies, PilotKind::Human, Vec3::new(0.0, 2_000.0, 0.0), face);
+    let foe = sim.spawn_at(
+        FrameId::Corvus,
+        Faction::Almagest,
+        PilotKind::Human,
+        Vec3::new(300.0, 2_000.0, 600.0),
+        face,
+    );
     let (me, foe) = (me.unwrap(), foe.unwrap());
     let (i, j) = (me.idx(), foe.idx());
 

@@ -13,20 +13,20 @@ use bc_sim::colony::walkers::{Pose, each_walker};
 
 /// The pilots' names, as the showcase has always had them.
 pub const NAMES: [&str; 16] = [
-    "Heero",
-    "Duo",
-    "Trowa",
-    "Quatre",
-    "Wufei",
-    "Relena",
-    "Zechs",
-    "Noin",
+    "Kai",
+    "Nico",
+    "Tomas",
+    "Rafi",
+    "Lin",
+    "Maren",
+    "Viktor",
+    "Petra",
     "Sally",
     "Hilde",
     "Catherine",
     "Dorothy",
-    "Lady Une",
-    "Treize",
+    "Major Ines",
+    "Aurel",
     "Howard",
     "Rashid",
 ];
@@ -98,7 +98,7 @@ pub fn crowd(t: f64) -> Script {
     // other, each in its inner lane, on its own loop.
     let ts = t as f32;
     for (k, (name, ride, dir, s, speed)) in [
-        ("Noin-car", RIDE_CAR, 1.0f32, mid - INNER_LANE, 11.0),
+        ("Petra-car", RIDE_CAR, 1.0f32, mid - INNER_LANE, 11.0),
         ("Hilde", RIDE_SCOOTER, -1.0, mid + INNER_LANE, 8.0),
     ]
     .into_iter()

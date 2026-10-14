@@ -464,7 +464,7 @@ mod tests {
         let r = hall();
         let Under::Land(c) = from_colony(gantry()) else { panic!() };
         assert_eq!(c.strip, r.strip);
-        // In the room, in the firing line, and a Leo's hull (10 m) and more from its walls.
+        // In the room, in the firing line, and an Argo's hull (10 m) and more from its walls.
         assert!(r.rect.inset(12.0).contains(c.s, c.x), "{c:?} in {:?}", r.rect);
         assert!(GANTRY.1 + GANTRY_RADIUS < FIRING_LINE, "short of the targets");
         // Clear of the way in from the blast doors, and nothing stands there for a suit's height.

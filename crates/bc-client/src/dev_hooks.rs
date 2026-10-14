@@ -185,8 +185,8 @@ pub fn publish_game(
         w.entities.iter().flatten().filter(|t| t.latest.pilot == PilotKind::Agent).count() as u32,
     );
     dev.set(
-        "dolls_seen",
-        w.entities.iter().flatten().filter(|t| t.latest.pilot == PilotKind::MobileDoll).count() as u32,
+        "drones_seen",
+        w.entities.iter().flatten().filter(|t| t.latest.pilot == PilotKind::Drone).count() as u32,
     );
     dev.set("my_hits", w.my_hits);
     dev.set("my_kills", w.my_kills);
@@ -205,8 +205,8 @@ pub fn publish_game(
             .filter(|t| t.latest.flags & bc_proto::snapshot::ent_flags::ASLEEP != 0)
             .count() as u32,
     );
-    dev.set("zero_active", w.zero.is_some());
-    dev.set("zero_jev", w.zero.is_some_and(|z| z.source_jev));
+    dev.set("orrery_active", w.orrery.is_some());
+    dev.set("orrery_jev", w.orrery.is_some_and(|z| z.source_jev));
     dev.set("rtt_ms", core.clock.rtt * 1_000.0);
     dev.set("prediction_error_m", core.stats.prediction_error);
     // The lock-on: the suit locked (-1: none), how far it is over the fight's ground and above or
@@ -234,7 +234,7 @@ pub fn publish_game(
     );
     dev.set("rocks", core.predict.field.len() as u32);
     dev.set("rocks_destroyed", w.rocks.values().filter(|r| r.destroyed).count() as u32);
-    // The Gundams' mechanics, as this client saw them (counted per snapshot in `World`).
+    // The Lodestars' mechanics, as this client saw them (counted per snapshot in `World`).
     let kit = &w.kit;
     for (key, class) in [
         ("hits_beam", WeaponClass::Beam),
@@ -252,11 +252,11 @@ pub fn publish_game(
     dev.set("bursts_seen", kit.bursts_seen);
     dev.set("jamming_seen", kit.jamming);
     dev.set("flame_seen", kit.flame);
-    dev.set("fang_seen", kit.fang);
+    dev.set("talon_seen", kit.talon);
     dev.set("missiles", w.missiles().count() as u32);
     if let Some(o) = w.own {
         dev.set("frame", o.frame.slug());
-        dev.set("bird", o.frame == bc_proto::FrameId::WingZeroBird);
+        dev.set("bird", o.frame == bc_proto::FrameId::Aquila);
         dev.set("special_active", o.flags & bc_proto::snapshot::own_flags::SPECIAL_ACTIVE != 0);
         dev.set("lock_progress", u32::from(o.lock_progress));
         dev.set("attached", o.held != bc_proto::NO_CHUNK);

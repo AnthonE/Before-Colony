@@ -1,10 +1,10 @@
-//! The kit-aware pilot (agents and the browser autopilot) flies every Gundam's kit: each fights
-//! three Taurus and a Virgo for a minute, deterministically, and shows its mechanics at work.
+//! The kit-aware pilot (agents and the browser autopilot) flies every Lodestar's kit: each fights
+//! three Corvus and a Cetus for a minute, deterministically, and shows its mechanics at work.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
 use bc_proto::events::Event;
 use bc_proto::{Faction, FrameId, PilotKind};
-use bc_sim::ai::{self, AiState, DollProfile, PILOT};
+use bc_sim::ai::{self, AiState, DroneProfile, PILOT};
 use bc_sim::content::{WeaponClass, frame, weapon};
 use bc_sim::math::look_rotation;
 use bc_sim::perception::Perception;
@@ -22,21 +22,21 @@ struct Evidence {
     frames: Vec<FrameId>,
 }
 
-/// `f` (Colonies) starts `gap` m from three Taurus and a Virgo (Oz), and fights them for `secs`.
+/// `f` (Colonies) starts `gap` m from three Corvus and a Cetus (the Almagest), and fights them for `secs`.
 fn fight(f: FrameId, gap: f32, secs: u32) -> Evidence {
     fight_by(FlightRules::Real, f, gap, secs)
 }
 
 /// [`fight`], under the given flight rules.
 fn fight_by(flight: FlightRules, f: FrameId, gap: f32, secs: u32) -> Evidence {
-    let mut sim = Sim::new(SimConfig { target_dolls: 0, seed: 21, flight, ..SimConfig::default() });
+    let mut sim = Sim::new(SimConfig { target_drones: 0, seed: 21, flight, ..SimConfig::default() });
     let home = Vec3::new(-2_000.0, 1_200.0, 3_000.0);
     let me =
         sim.spawn_at(f, Faction::Colonies, PilotKind::Human, home, look_rotation(Vec3::X, Vec3::Y)).unwrap();
     for k in 0..4 {
         let pos = home + Vec3::new(gap, (k as f32 - 1.5) * 120.0, (k as f32 - 1.5) * 200.0);
-        let frame = if k == 3 { FrameId::Virgo } else { FrameId::Taurus };
-        sim.spawn_at(frame, Faction::Oz, PilotKind::MobileDoll, pos, look_rotation(-Vec3::X, Vec3::Y))
+        let frame = if k == 3 { FrameId::Cetus } else { FrameId::Corvus };
+        sim.spawn_at(frame, Faction::Almagest, PilotKind::Drone, pos, look_rotation(-Vec3::X, Vec3::Y))
             .unwrap();
     }
     let mut ev = Evidence::default();
@@ -73,7 +73,7 @@ fn pilot(sim: &mut Sim, me: SuitId, brain: &mut AiState, p: &mut Perception) -> 
     let spec = frame(sim.suits.frame[me.idx()]);
     let range = spec.loadout[0].map_or(3_000.0, |m| weapon(m.weapon).range);
     let profile = match spec.ai.engage_range {
-        r if r > 0.0 => DollProfile { preferred_range: r, ..PILOT },
+        r if r > 0.0 => DroneProfile { preferred_range: r, ..PILOT },
         _ => PILOT,
     };
     if t >= brain.think_at {
@@ -89,41 +89,41 @@ fn hits(ev: &Evidence, class: WeaponClass) -> u32 {
 }
 
 #[test]
-fn heavyarms_locks_on_and_opens_fire() {
-    let ev = fight(FrameId::Heavyarms, 2_500.0, 60);
-    println!("Heavyarms: {ev:?}");
-    assert!(ev.specials >= 1, "no Full Open");
+fn antares_locks_on_and_opens_fire() {
+    let ev = fight(FrameId::Antares, 2_500.0, 60);
+    println!("Antares: {ev:?}");
+    assert!(ev.specials >= 1, "no Full Salvo");
     assert!(ev.missiles >= 4, "missiles in the air: {}", ev.missiles);
     assert!(hits(&ev, WeaponClass::Missile) >= 1 && hits(&ev, WeaponClass::Beam) >= 1);
 }
 
 #[test]
-fn deathscythe_closes_unseen_and_reaps() {
-    let ev = fight(FrameId::Deathscythe, 2_500.0, 90);
-    println!("Deathscythe: {ev:?}");
+fn algol_closes_unseen_and_reaps() {
+    let ev = fight(FrameId::Algol, 2_500.0, 90);
+    println!("Algol: {ev:?}");
     assert!(ev.specials >= 1, "never jammed");
     assert!(hits(&ev, WeaponClass::Melee) >= 1, "the scythe never landed");
 }
 
 #[test]
-fn sandrock_fires_missiles_and_cuts() {
-    let ev = fight(FrameId::Sandrock, 2_500.0, 60);
-    println!("Sandrock: {ev:?}");
+fn canopus_fires_missiles_and_cuts() {
+    let ev = fight(FrameId::Canopus, 2_500.0, 60);
+    println!("Canopus: {ev:?}");
     assert!(ev.missiles >= 2, "missiles in the air: {}", ev.missiles);
     assert!(hits(&ev, WeaponClass::Missile) + hits(&ev, WeaponClass::Melee) >= 1);
 }
 
 #[test]
-fn shenlong_fights_with_fang_and_flame() {
-    let ev = fight(FrameId::Shenlong, 2_500.0, 90);
-    println!("Shenlong: {ev:?}");
+fn thuban_fights_with_talon_and_flame() {
+    let ev = fight(FrameId::Thuban, 2_500.0, 90);
+    println!("Thuban: {ev:?}");
     assert!(hits(&ev, WeaponClass::Melee) + hits(&ev, WeaponClass::Cone) >= 1);
 }
 
 #[test]
-fn wing_zero_flies_out_as_neo_bird_and_fights_as_itself() {
-    let ev = fight(FrameId::WingZero, 6_000.0, 60);
-    println!("Wing Zero: {ev:?}");
+fn altair_flies_out_as_aquila_and_fights_as_itself() {
+    let ev = fight(FrameId::Altair, 6_000.0, 60);
+    println!("Altair: {ev:?}");
     let changes = ev.frames.len() - 1;
     assert!(changes >= 2, "forms flown: {:?}", ev.frames);
     assert!(ev.specials >= 2);
@@ -135,25 +135,19 @@ fn wing_zero_flies_out_as_neo_bird_and_fights_as_itself() {
 /// an empty gauge that never fills), and boosts again once it's half full.
 #[test]
 fn under_anime_rules_a_dry_gauge_is_let_go_until_half_full() {
-    let cfg = SimConfig { target_dolls: 0, seed: 21, flight: FlightRules::Anime, ..SimConfig::default() };
+    let cfg = SimConfig { target_drones: 0, seed: 21, flight: FlightRules::Anime, ..SimConfig::default() };
     let mut sim = Sim::new(cfg);
     let home = Vec3::new(-2_000.0, 1_200.0, 3_000.0);
     let me = sim
-        .spawn_at(
-            FrameId::Shenlong,
-            Faction::Colonies,
-            PilotKind::Human,
-            home,
-            look_rotation(Vec3::X, Vec3::Y),
-        )
+        .spawn_at(FrameId::Thuban, Faction::Colonies, PilotKind::Human, home, look_rotation(Vec3::X, Vec3::Y))
         .unwrap();
     let far = home + Vec3::new(5_000.0, 0.0, 0.0);
-    sim.spawn_at(FrameId::Taurus, Faction::Oz, PilotKind::MobileDoll, far, look_rotation(-Vec3::X, Vec3::Y))
+    sim.spawn_at(FrameId::Corvus, Faction::Almagest, PilotKind::Drone, far, look_rotation(-Vec3::X, Vec3::Y))
         .unwrap();
     sim.suits.flight[me.idx()].propellant = 0.0;
     let mut brain = AiState { rng: 7, anchor: far, ..AiState::default() };
     let mut p = Perception::default();
-    let tank = frame(FrameId::Shenlong).propellant_cap;
+    let tank = frame(FrameId::Thuban).propellant_cap;
     let (mut held_dry, mut boosted_again) = (0, false);
     for _ in 0..20 * 30 {
         let cmd = pilot(&mut sim, me, &mut brain, &mut p);
@@ -173,12 +167,12 @@ fn under_anime_rules_a_dry_gauge_is_let_go_until_half_full() {
 /// Every frame still shows its kit under anime rules, from further off.
 #[test]
 fn under_anime_rules_the_kit_pilot_minds_its_boost_gauge() {
-    let shenlong = fight_by(FlightRules::Anime, FrameId::Shenlong, 6_000.0, 90);
-    println!("Shenlong: {shenlong:?}");
-    assert!(hits(&shenlong, WeaponClass::Melee) + hits(&shenlong, WeaponClass::Cone) >= 1);
-    let deathscythe = fight_by(FlightRules::Anime, FrameId::Deathscythe, 6_000.0, 90);
-    println!("Deathscythe: {deathscythe:?}");
-    assert!(hits(&deathscythe, WeaponClass::Melee) >= 1, "the scythe never landed");
-    let heavyarms = fight_by(FlightRules::Anime, FrameId::Heavyarms, 2_500.0, 60);
-    assert!(hits(&heavyarms, WeaponClass::Missile) >= 1 && hits(&heavyarms, WeaponClass::Beam) >= 1);
+    let thuban = fight_by(FlightRules::Anime, FrameId::Thuban, 6_000.0, 90);
+    println!("Thuban: {thuban:?}");
+    assert!(hits(&thuban, WeaponClass::Melee) + hits(&thuban, WeaponClass::Cone) >= 1);
+    let algol = fight_by(FlightRules::Anime, FrameId::Algol, 6_000.0, 90);
+    println!("Algol: {algol:?}");
+    assert!(hits(&algol, WeaponClass::Melee) >= 1, "the scythe never landed");
+    let antares = fight_by(FlightRules::Anime, FrameId::Antares, 2_500.0, 60);
+    assert!(hits(&antares, WeaponClass::Missile) >= 1 && hits(&antares, WeaponClass::Beam) >= 1);
 }

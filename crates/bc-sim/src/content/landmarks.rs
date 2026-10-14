@@ -5,7 +5,7 @@
 //! a closed form in the integer tick. Changing anything here changes the game every client
 //! simulates, so it bumps [`LANDMARKS_VERSION`] with the protocol version.
 //!
-//! - **MO-II**, the resource satellite serving the colony's dock: a 400 m core with a module at
+//! - **Fornax**, the resource satellite serving the colony's dock: a 400 m core with a module at
 //!   each end, four pylons and a mast. It rolls about its long axis every 320 s and keeps station
 //!   on a 200 m circle every 30 min, so its surface never moves faster than 2.87 m/s. The Aft Well,
 //!   a bowl in the aft module's end face on the spin axis, is a hide spot.
@@ -76,10 +76,10 @@ pub struct LandmarkDef {
 }
 
 /// The landmarks, by id. A sector has the first `SimConfig::landmarks` of them.
-pub static LANDMARKS: [LandmarkDef; 3] = [MO_II, HERMIT, HUB];
+pub static LANDMARKS: [LandmarkDef; 3] = [FORNAX, HERMIT, HUB];
 
-const MO_II: LandmarkDef = LandmarkDef {
-    name: names::MO_II,
+const FORNAX: LandmarkDef = LandmarkDef {
+    name: names::FORNAX,
     center: Vec3::new(-17_500.0, 1_500.0, 3_000.0),
     orbit_radius: 200.0,
     // 30 min round the circle: 0.70 m/s.
@@ -89,7 +89,7 @@ const MO_II: LandmarkDef = LandmarkDef {
     spin_axis: Vec3::X,
     // 320 s a turn: the modules' outer edges, 110.65 m out, move at 2.17 m/s.
     spin_period: 9_600,
-    shape: Shape { base: Base::Union(&MO_II_PRIMS), cuts: &MO_II_CUTS },
+    shape: Shape { base: Base::Union(&FORNAX_PRIMS), cuts: &FORNAX_CUTS },
     // The mast's tip, at x = 334.
     bound: 335.0,
     grippable: true,
@@ -97,7 +97,7 @@ const MO_II: LandmarkDef = LandmarkDef {
     colony: false,
 };
 
-const MO_II_PRIMS: [Prim; 8] = [
+const FORNAX_PRIMS: [Prim; 8] = [
     // The core, 400 m long.
     Prim::CylinderX { c: Vec3::ZERO, half_len: 200.0, r: 60.0, round: 4.0 },
     // The aft module (the Aft Well is cut into its −X face) and the fore module.
@@ -114,7 +114,7 @@ const MO_II_PRIMS: [Prim; 8] = [
 
 /// The Aft Well: a bowl 25 m deep with a 53.6 m rim in the x = −260 face, its floor at x = −235
 /// on the spin axis, and 35 m of module behind it.
-const MO_II_CUTS: [SphereCut; 1] = [SphereCut { c: Vec3::new(-305.0, 0.0, 0.0), r: 70.0 }];
+const FORNAX_CUTS: [SphereCut; 1] = [SphereCut { c: Vec3::new(-305.0, 0.0, 0.0), r: 70.0 }];
 
 const HERMIT: LandmarkDef = LandmarkDef {
     name: "HERMIT",
@@ -301,10 +301,10 @@ mod tests {
         }
         let mo = &LANDMARKS[0];
         let (far, _) = extremes(mo);
-        assert!((far - (74.0 * sqrt(2.0) + 6.0)).abs() < 1e-3, "MO-II's modules reach {far} m out");
+        assert!((far - (74.0 * sqrt(2.0) + 6.0)).abs() < 1e-3, "Fornax's modules reach {far} m out");
         let worst =
             mo.orbit_radius * TAU / (mo.orbit_period as f32 * DT) + far * TAU / (mo.spin_period as f32 * DT);
-        assert!((worst - 2.87).abs() < 5e-3, "MO-II's surface moves at up to {worst} m/s");
+        assert!((worst - 2.87).abs() < 5e-3, "Fornax's surface moves at up to {worst} m/s");
         // The hub's deck hatch: its rim well under a catch's speed, and on the hub's end face.
         let hub = &LANDMARKS[usize::from(DOCKING_HUB)];
         let rim = crate::colony::hub::DECK_HATCH_RADIUS * TAU / (hub.spin_period as f32 * DT);
@@ -430,11 +430,11 @@ mod tests {
     }
 
     #[test]
-    fn mo_ii_features_are_at_least_6_m_thick() {
+    fn fornax_features_are_at_least_6_m_thick() {
         // From anywhere on its surface, straight in, there's 6 m of it: a trace's shortest step
         // (1 m) can't pass through anything, nor can a suit grounded on the far side of a wall.
         let shape = LANDMARKS[0].shape;
-        let Base::Union(prims) = shape.base else { unreachable!("MO-II is a union") };
+        let Base::Union(prims) = shape.base else { unreachable!("Fornax is a union") };
         for prim in prims {
             let thin = match *prim {
                 Prim::Sphere { r, .. } | Prim::Capsule { r, .. } => 2.0 * r,
@@ -472,7 +472,7 @@ mod tests {
     #[test]
     fn a_sector_has_the_landmarks_its_config_asks_for() {
         let with = |landmarks| {
-            Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, landmarks, ..SimConfig::default() })
+            Sim::new(SimConfig { target_drones: 0, field_rocks: 0, landmarks, ..SimConfig::default() })
         };
         assert_eq!(with(SimConfig::default().landmarks).landmarks().len(), LANDMARKS.len());
         assert_eq!(with(1).landmarks().len(), 1);

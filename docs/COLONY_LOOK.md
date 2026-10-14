@@ -3,7 +3,7 @@
 `COLONY.md` built the city: every block, street and room from closed forms, walked, ridden and
 shared. This plan is about how it looks. The owner's brief: a survival game's realism, as in
 Rust, with anime filling in behind it, and the colony city of Phantasy Star Online remembered
-from childhood. GTA in space with mobile suits, a long-term project, and it should look good
+from childhood. GTA in space with suits, a long-term project, and it should look good
 early.
 
 ## The look: worn and real, with a clean colony and an anime sky
@@ -29,7 +29,7 @@ Three layers, each with its own job:
     light and violet shadows. Dusk is magenta haze with the lamps coming on. Night is deep blue with
     warm windows and cold signs.
   - **The sky is the colony.** The other two strips hang overhead through kilometres of haze, the
-    windows burn white, and clouds hang in the core. The Endless Waltz OVA and every Gundam colony
+    windows burn white, and clouds hang in the core. The Endless Waltz OVA and every Lodestar colony
     interior lean on that shot.
   - **Light that glints and blooms.** Glass catches the window strips, wet asphalt mirrors the
     signs, and lamps, signals and tail lights flare.
@@ -323,7 +323,7 @@ on Ultra 99 people and 77 cars, none of them on the kilometres of avenue in view
 ### Pass 5: the colony as the sky
 
 - **5.1 Clouds in the core.** A soft cloud layer in a band of radius (about 1.6 to 2.2 km), lit by
-  the windows, drifting and changing with the hour. Real colonies would have them and Gundam's do.
+  the windows, drifting and changing with the hour. Real colonies would have them and Lodestar's do.
   Seen from the street, they sit between you and the city overhead.
 - **5.2 The city overhead by night.** The other strips' streets, windows and traffic glittering
   through the haze. The far strips' shading (`city.wgsl`, "elsewhere") already carries their

@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 
 use bc_proto::buttons::RCS_SHARP;
-use bc_proto::snapshot::{own_flags, zero_mode};
+use bc_proto::snapshot::{orrery_mode, own_flags};
 use bc_proto::{NO_CHUNK, NO_SLOT, WeaponKind};
 use bc_sim::content::{SpecialKind, WeaponClass, frame, weapon};
 use bc_sound::cockpit::{Cockpit, CockpitIn};
@@ -225,7 +225,7 @@ impl Plugin for AudioPlugin {
 /// What each weapon sounds like leaving the muzzle.
 fn muzzle_cue(w: WeaponKind) -> Cue {
     match w {
-        WeaponKind::TwinBusterRifle => Cue::BusterFire,
+        WeaponKind::HeavyBeamRifle => Cue::HeavyBeamFire,
         WeaponKind::BeamCannon | WeaponKind::BeamRifleCharged => Cue::BeamHeavy,
         WeaponKind::BeamGatling | WeaponKind::BeamMachineGun => Cue::BeamGun,
         WeaponKind::Flamethrower => Cue::Flame,
@@ -258,7 +258,7 @@ fn cockpit_in(game: &GameClient, in_world: bool, footfalls: u32) -> CockpitIn {
         }
         _ => 0.0,
     };
-    let jammer = matches!(spec.special, SpecialKind::HyperJammer { .. });
+    let jammer = matches!(spec.special, SpecialKind::Eclipse { .. });
     CockpitIn {
         in_world: true,
         alive: o.alive,
@@ -277,8 +277,8 @@ fn cockpit_in(game: &GameClient, in_world: bool, footfalls: u32) -> CockpitIn {
         warned: o.flags & own_flags::MISSILE_LOCK != 0,
         incoming: o.flags & own_flags::MISSILE_INCOMING != 0,
         docked: o.flags & own_flags::DOCKED != 0,
-        zero: o.zero_mode == zero_mode::ACTIVE,
-        seized: o.zero_mode == zero_mode::SEIZED,
+        orrery: o.orrery_mode == orrery_mode::ACTIVE,
+        seized: o.orrery_mode == orrery_mode::SEIZED,
         jamming: jammer && o.flags & own_flags::SPECIAL_ACTIVE != 0,
         transforming: o.flags & own_flags::TRANSFORMING != 0,
         held: o.held != NO_CHUNK,

@@ -132,7 +132,7 @@ pub struct Settings {
     pub fov: f32,
     /// How much of the camera shake, kicks and warps to keep, 0..1.
     pub shake: f32,
-    /// Full-screen flicker and flashes (a ZERO seizure's); off for photosensitive pilots.
+    /// Full-screen flicker and flashes (an Orrery seizure's); off for photosensitive pilots.
     pub flashing: bool,
     pub gfx: GfxChoice,
     /// Show the first-flight hints.
@@ -141,9 +141,9 @@ pub struct Settings {
     pub hints_seen: u32,
     /// Show the current objective and its waypoint.
     pub objectives: bool,
-    /// The objectives done (bits of `objectives::Objective`), and the Mobile Dolls downed.
+    /// The objectives done (bits of `objectives::Objective`), and the drones downed.
     pub objectives_done: u32,
-    pub dolls_downed: u32,
+    pub drones_downed: u32,
     /// The colony's sights found on foot (bits of `sights`, by `bc_sim::content::city::SIGHTS`).
     pub sights_found: u32,
     /// The best time flown round the Proving Ground's course (`course`), ms; 0: never flown.
@@ -178,7 +178,7 @@ impl Default for Settings {
             hints_seen: 0,
             objectives: true,
             objectives_done: 0,
-            dolls_downed: 0,
+            drones_downed: 0,
             sights_found: 0,
             course_best_ms: 0,
             drill_best_ms: 0,
@@ -243,7 +243,7 @@ impl Settings {
             "hints_seen" => self.hints_seen.to_string(),
             "objectives" => self.objectives.to_string(),
             "objectives_done" => self.objectives_done.to_string(),
-            "dolls_downed" => self.dolls_downed.to_string(),
+            "drones_downed" => self.drones_downed.to_string(),
             "sights_found" => self.sights_found.to_string(),
             "course_best_ms" => self.course_best_ms.to_string(),
             "drill_best_ms" => self.drill_best_ms.to_string(),
@@ -295,8 +295,9 @@ impl Settings {
                 let Some(c) = CameraView::parse(value) else { return false };
                 self.camera = c;
             }
-            "hints_seen" | "objectives_done" | "dolls_downed" | "sights_found" | "course_best_ms"
-            | "drill_best_ms" => {
+            // `dolls_downed` is what settings saved before 2026-10-14 call `drones_downed`.
+            "hints_seen" | "objectives_done" | "drones_downed" | "dolls_downed" | "sights_found"
+            | "course_best_ms" | "drill_best_ms" => {
                 let Ok(n) = value.trim().parse() else { return false };
                 match key {
                     "hints_seen" => self.hints_seen = n,
@@ -304,7 +305,7 @@ impl Settings {
                     "sights_found" => self.sights_found = n,
                     "course_best_ms" => self.course_best_ms = n,
                     "drill_best_ms" => self.drill_best_ms = n,
-                    _ => self.dolls_downed = n,
+                    _ => self.drones_downed = n,
                 }
             }
             _ => return false,
@@ -327,7 +328,7 @@ impl Settings {
         "hints_seen",
         "objectives",
         "objectives_done",
-        "dolls_downed",
+        "drones_downed",
         "sights_found",
         "course_best_ms",
         "drill_best_ms",
@@ -372,7 +373,7 @@ pub fn parse(text: &str, defaults: Settings) -> Loaded {
             if let Ok(v) = value.parse() {
                 version = v;
             }
-        } else if Settings::KEYS.contains(&key) {
+        } else if Settings::KEYS.contains(&key) || key == "dolls_downed" {
             settings.set(key, value);
         } else if key_shaped(key) {
             // A newer build's knob: keep its last value.
@@ -406,8 +407,8 @@ mod tests {
     #[test]
     fn round_trips() {
         let s = Settings {
-            name: "Heero".into(),
-            frame: "wingzero".into(),
+            name: "Kai".into(),
+            frame: "altair".into(),
             sensitivity: 1.35,
             invert_y: true,
             camera: CameraView::Cockpit,
@@ -419,7 +420,7 @@ mod tests {
             hints_seen: 0b1011,
             objectives: false,
             objectives_done: 0b101,
-            dolls_downed: 3,
+            drones_downed: 3,
             sights_found: 0b1_0010,
             course_best_ms: 118_437,
             drill_best_ms: 21_300,
@@ -496,10 +497,17 @@ mod tests {
     }
 
     #[test]
+    fn a_count_saved_under_its_old_name_still_reads() {
+        let loaded = parse("version = 1\ndolls_downed = 7\n", Settings::default());
+        assert_eq!(loaded.settings.drones_downed, 7);
+        assert!(!serialize(&loaded.settings, 1, &loaded.unknown).contains("dolls_downed"));
+    }
+
+    #[test]
     fn names_stay_one_short_line() {
         let mut s = Settings::default();
-        s.set("name", "  Zechs\nMerquise the Lightning Count  ");
-        assert_eq!(s.name, "ZechsMerquise th");
+        s.set("name", "  Viktor\nVolkov the Iron Count  ");
+        assert_eq!(s.name, "ViktorVolkov the");
         let back = parse(&serialize(&s, 1, &[]), Settings::default());
         assert_eq!(back.settings.name, s.name);
     }

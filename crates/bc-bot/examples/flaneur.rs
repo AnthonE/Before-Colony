@@ -50,8 +50,12 @@ async fn main() -> anyhow::Result<()> {
         .with_target(false)
         .init();
     let a = Args::parse();
-    let cfg =
-        BotConfig { server: a.server, name: a.name.clone(), frame: FrameId::Leo, faction: Faction::Colonies };
+    let cfg = BotConfig {
+        server: a.server,
+        name: a.name.clone(),
+        frame: FrameId::Argo,
+        faction: Faction::Colonies,
+    };
     let mut bot = loop {
         match BotClient::connect(&cfg).await {
             Ok(b) => break b,

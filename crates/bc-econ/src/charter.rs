@@ -7,7 +7,7 @@
 //!     stores and is paid pro rata on the spot; what's delivered goes to the issuer (to the
 //!     colony's desk, or to the pilot's account here, collected next time they're in their bay).
 //!     The colony posts its own as its stocks run low, at a premium over its desks' prices;
-//!   - *patrol* (once the militia has a hangar): take it, and down Mobile Dolls for a given sum of
+//!   - *patrol* (once the militia has a hangar): take it, and down drones for a given sum of
 //!     bounties before the time's up; the militia pays its reward on top of the bounties. One
 //!     pilot holds a patrol at a time.
 //!
@@ -68,7 +68,7 @@ const VIEW_CONTRACTS: usize = 40;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Work {
-    /// A second zero-G foundry on the spire: gundanium at half the fee, twice as fast.
+    /// A second zero-G foundry on the spire: siderium at half the fee, twice as fast.
     SecondFoundry,
     /// A hangar for the colony's militia: it posts patrols over the field.
     MilitiaHangar,
@@ -98,10 +98,10 @@ impl Work {
     pub fn summary(self) -> &'static str {
         match self {
             Work::SecondFoundry => {
-                "A second zero-G foundry on the spire. Gundanium at half the fee, made twice as fast."
+                "A second zero-G foundry on the spire. Siderium at half the fee, made twice as fast."
             }
             Work::MilitiaHangar => {
-                "A hangar for the colony's own militia. Pilots on contract patrol the field against the Dolls."
+                "A hangar for the colony's own militia. Pilots on contract patrol the field against the drones."
             }
             Work::CharterVote => {
                 "The colony governs itself. Pilots of standing sign, and the calendar begins: AC 1."
@@ -135,10 +135,10 @@ impl Work {
     fn finished(self) -> &'static str {
         match self {
             Work::SecondFoundry => {
-                "THE SECOND FOUNDRY IS LIT · GUNDANIUM AT HALF THE FEE, TWICE AS FAST · THE CHARTER BOARD THANKS ITS PILOTS"
+                "THE SECOND FOUNDRY IS LIT · SIDERIUM AT HALF THE FEE, TWICE AS FAST · THE CHARTER BOARD THANKS ITS PILOTS"
             }
             Work::MilitiaHangar => {
-                "THE MILITIA'S HANGAR IS OPEN · PATROLS ON THE CHARTER BOARD · THE COLONY PAYS FOR EVERY DOLL DOWNED ON CONTRACT"
+                "THE MILITIA'S HANGAR IS OPEN · PATROLS ON THE CHARTER BOARD · THE COLONY PAYS FOR EVERY DRONE DOWNED ON CONTRACT"
             }
             Work::CharterVote => {
                 "THE CHARTER IS SIGNED · THE COLONY GOVERNS ITSELF · THE CALENDAR BEGINS: AC 1"
@@ -161,7 +161,7 @@ pub fn era_name(era: u8) -> String {
 pub enum Task {
     /// Deliver `qty` of `item`; `delivered` so far.
     Supply { item: Item, qty: u64, delivered: u64 },
-    /// Down Mobile Dolls for `bounty` credits of bounties while holding it; `earned` so far.
+    /// Down drones for `bounty` credits of bounties while holding it; `earned` so far.
     Patrol { bounty: u64, earned: u64 },
 }
 
@@ -250,7 +250,7 @@ pub struct Board {
     news_seq: u64,
     /// Credits the colony has paid out on contracts and works (the ledger's source).
     pub colony_paid: u64,
-    /// The Most Wanted (`bc_sim::content::aces`): who downed each of Zodiac's aces last...
+    /// The Most Wanted (`bc_sim::content::aces`): who downed each of the Almagest's aces last...
     #[serde(default)]
     wanted: BTreeMap<u8, Downed>,
     /// ...how many each pilot has downed (the ladder)...
@@ -403,11 +403,11 @@ impl Board {
         }
     }
 
-    /// Zodiac's ace `ace` is out among the Dolls: the news.
+    /// The Almagest's ace `ace` is out among the drones: the news.
     pub fn ace_out(&mut self, ace: u8) {
         let a = bc_sim::content::aces::ace(ace);
         self.announce(format!(
-            "ZODIAC'S {} IS OUT AMONG THE DOLLS · {} CR ON IT",
+            "THE ALMAGEST'S {} IS OUT AMONG THE DRONES · {} CR ON IT",
             a.name,
             thousands(u64::from(a.bounty))
         ));
@@ -420,7 +420,7 @@ impl Board {
         self.wanted.insert(ace, Downed { by: name.to_string(), at: now });
         *self.aces.entry(trader.to_string()).or_default() += 1;
         let a = bc_sim::content::aces::ace(ace);
-        self.announce(format!("ZODIAC'S {} DOWNED BY {}", a.name, name.to_uppercase()));
+        self.announce(format!("THE ALMAGEST'S {} DOWNED BY {}", a.name, name.to_uppercase()));
         self.salvage_terms(trader)
     }
 
@@ -789,7 +789,7 @@ impl Board {
         let Task::Patrol { bounty, .. } = c.task else { unreachable!() };
         self.name(trader, name);
         Ok(format!(
-            "PATROL #{id} TAKEN · DOWN DOLLS FOR {} CR OF BOUNTIES WITHIN THE HOUR",
+            "PATROL #{id} TAKEN · DOWN DRONES FOR {} CR OF BOUNTIES WITHIN THE HOUR",
             thousands(bounty)
         ))
     }
@@ -1037,13 +1037,13 @@ pub struct Waiting {
 /// The ladder's length, as the board shows it.
 pub const LADDER_KEPT: usize = 10;
 
-/// One of Zodiac's aces on the Most Wanted, as a pilot sees it.
+/// One of the Almagest's aces on the Most Wanted, as a pilot sees it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WantedView {
     pub ace: u8,
     pub name: String,
     pub bounty: u32,
-    /// Out among the Dolls now (the server's to say).
+    /// Out among the drones now (the server's to say).
     #[serde(default)]
     pub out: bool,
     /// Who downed it last, and when.
@@ -1098,7 +1098,7 @@ pub struct CharterView {
     pub max_posted: usize,
     pub supply_pct: u64,
     pub works_pct: u64,
-    /// The Most Wanted: Zodiac's aces...
+    /// The Most Wanted: the Almagest's aces...
     #[serde(default)]
     pub wanted: Vec<WantedView>,
     /// ...the ladder, by aces downed (names and counts)...
@@ -1331,10 +1331,10 @@ mod tests {
         assert_eq!(h.credits, bounty);
         assert_eq!(b.colony_paid, bounty, "the colony pays it");
         assert_eq!(b.standing("a"), bounty);
-        assert_eq!(note, "ARIES DOWNED · THE CHARTER BOARD PAYS 1,500 CR");
-        assert_eq!(h.sortie_pay, [Line { what: "ACE ARIES".into(), cr: bounty as i64 }]);
+        assert_eq!(note, "LYRA DOWNED · THE CHARTER BOARD PAYS 1,500 CR");
+        assert_eq!(h.sortie_pay, [Line { what: "ACE LYRA".into(), cr: bounty as i64 }]);
         assert!(!b.waiting("a") && b.view("a", 100).waiting.is_none());
-        assert!(b.news_since(0).any(|n| n.text == "ZODIAC'S ARIES DOWNED BY ANN"));
+        assert!(b.news_since(0).any(|n| n.text == "THE ALMAGEST'S LYRA DOWNED BY ANN"));
         // Its wreck instead (for a pilot of standing), then pay again.
         b.contribute(&mut rich(), "b", "Bo", Work::SecondFoundry, STEEL, 100, 150).unwrap();
         assert!(b.set_terms("b", true).unwrap().contains("WRECK"));
@@ -1347,7 +1347,7 @@ mod tests {
         b.set_terms("b", true).unwrap();
         let v = b.view("b", 500);
         assert_eq!(v.wanted.len(), ACES.len());
-        assert_eq!((v.wanted[0].name.as_str(), v.wanted[0].bounty), ("ARIES", ACES[0].bounty));
+        assert_eq!((v.wanted[0].name.as_str(), v.wanted[0].bounty), ("LYRA", ACES[0].bounty));
         assert_eq!(v.wanted[0].last, Some(Downed { by: "Ann".into(), at: 100 }));
         assert_eq!(v.wanted[4].last, None);
         assert!(v.wanted.iter().all(|w| !w.out), "which is out is the server's to say");
@@ -1379,15 +1379,15 @@ mod tests {
         assert!(!b.ace_downed(0, "a", "Ann", 100));
         let note = b.pay_ace(&mut h, 0, "a", true);
         let bounty = u64::from(bc_sim::content::aces::ACES[0].bounty);
-        assert_eq!(note, "ARIES DOWNED · ITS 1,500 CR BOUNTY WAITS FOR YOU AT THE CHARTER BOARD'S DESK");
+        assert_eq!(note, "LYRA DOWNED · ITS 1,500 CR BOUNTY WAITS FOR YOU AT THE CHARTER BOARD'S DESK");
         assert_eq!(h.credits, 100);
         assert_eq!((b.standing("a"), b.colony_paid), (bounty, bounty));
-        assert_eq!(h.sortie_pay, [Line { what: "ACE ARIES · AT THE BOARD".into(), cr: bounty as i64 }]);
+        assert_eq!(h.sortie_pay, [Line { what: "ACE LYRA · AT THE BOARD".into(), cr: bounty as i64 }]);
         assert_eq!(b.view("a", 200).waiting, Some(Waiting { credits: bounty, goods: vec![] }));
         assert!(b.waiting("a") && !b.owed("a"));
         assert!(b.collect(&mut h, "a").is_empty(), "the bay's collection doesn't hand it over");
         assert_eq!(b.held(), (bounty, BTreeMap::new()));
-        assert_eq!(b.collect_at_desk(&mut h, "a"), ["ARIES'S BOUNTY: 1,500 CR"]);
+        assert_eq!(b.collect_at_desk(&mut h, "a"), ["LYRA'S BOUNTY: 1,500 CR"]);
         assert_eq!(h.credits, 100 + bounty);
         assert!(!b.waiting("a") && b.view("a", 300).waiting.is_none());
         assert!(b.collect_at_desk(&mut h, "a").is_empty());
@@ -1426,7 +1426,7 @@ mod tests {
         );
         assert_eq!(h.stores.get(rifle), 1);
         assert!(!b.waiting("a") && b.view("a", 0).waiting.is_none());
-        // It goes on the worn Leo's empty mount.
+        // It goes on the worn Argo's empty mount.
         h.fit(rifle).unwrap();
         assert!(h.suit().unwrap().mounts.iter().all(|m| *m));
         assert_eq!(b.certify(&mut h, "a", &mut ex), None);

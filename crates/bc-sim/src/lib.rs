@@ -1,7 +1,7 @@
 //! Before Colony simulation core.
 //!
 //! `#![no_std]`. The server runs it authoritatively and the browser runs the same code to predict
-//! its own suit (and to draw ZERO's predicted futures). After [`Sim::new`] nothing allocates: storage
+//! its own suit (and to draw the Orrery's predicted futures). After [`Sim::new`] nothing allocates: storage
 //! is fixed-capacity structure-of-arrays, and `storage.rs` is the only file that touches the heap.
 
 #![no_std]
@@ -25,6 +25,7 @@ pub mod hash;
 pub mod lagcomp;
 pub mod math;
 pub mod missiles;
+pub mod orrery;
 pub mod perception;
 pub mod projectiles;
 pub mod rocks;
@@ -36,7 +37,6 @@ pub mod suits;
 pub mod transform;
 pub mod tuning;
 pub mod world;
-pub mod zero;
 
 pub use config::{DT, SimConfig, TICK_HZ};
 pub use handle::SuitId;

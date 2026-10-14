@@ -1,11 +1,11 @@
-//! The ZERO System's tactical oracle layer, off the hot path.
+//! The Orrery's tactical oracle layer, off the hot path.
 //!
 //! The simulation always runs its own deterministic local oracle inside the tick
-//! (`bc_sim::zero::local_oracle`). This crate adds external oracles that answer typed questions
+//! (`bc_sim::orrery::local_oracle`). This crate adds external oracles that answer typed questions
 //! with calibrated probabilities; today that is TypeSafe's **Jev**. Their answers are blended into
 //! the local ones (`p ∝ p_local^½ · p_jev^½`) while fresh (15 ticks).
 //!
-//! Flow: the sector pushes a [`TacticalPicture`] per ZERO pilot (≈4 Hz) into a lock-free ring. The
+//! Flow: the sector pushes a [`TacticalPicture`] per the Orrery pilot (≈4 Hz) into a lock-free ring. The
 //! [`spawn_worker`] task keeps only the latest picture per pilot, runs ≤ 8 oracle calls at once, and
 //! pushes [`TacticalAdvice`] back through another ring. The tick never waits: a failing or slow
 //! oracle simply means no advice.
@@ -14,7 +14,7 @@ pub mod jev;
 pub mod local;
 pub mod worker;
 
-pub use bc_sim::zero::{TacticalAdvice, TacticalPicture};
+pub use bc_sim::orrery::{TacticalAdvice, TacticalPicture};
 pub use jev::JevOracle;
 pub use local::LocalOracle;
 pub use worker::{WorkerHandle, spawn_worker};

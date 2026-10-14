@@ -112,7 +112,7 @@ impl Loadout {
 /// What a suit brings home when it docks, or what its pilot gets when it's lost (the bounty).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Homecoming {
-    /// The frame line (Neo-Bird comes home as Wing Zero).
+    /// The frame line (Aquila comes home as Altair).
     pub frame: FrameId,
     /// Armour per part as a fraction of the frame's; 0: gone (shot off, or never fitted).
     pub parts: [f32; Part::COUNT],
@@ -133,7 +133,7 @@ pub struct Homecoming {
     pub cargo_kg: [u16; CARGO_KINDS],
     /// Whatever it had in hand (a hulk it towed in, a limb, ore).
     pub held: Option<ChunkDesc>,
-    /// Credits the colony pays for the Mobile Dolls it destroyed.
+    /// Credits the colony pays for the drones it destroyed.
     pub bounty: u32,
 }
 
@@ -287,7 +287,7 @@ impl Sim {
         let s = &self.suits;
         Homecoming {
             frame: match s.frame[i] {
-                FrameId::WingZeroBird => FrameId::WingZero,
+                FrameId::Aquila => FrameId::Altair,
                 f => f,
             },
             parts: s.part_fractions(i),

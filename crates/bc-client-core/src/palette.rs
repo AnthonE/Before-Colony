@@ -34,7 +34,7 @@ pub const AMBER: Hex = Hex("#ffb547");
 pub const RED: Hex = Hex("#ff4b4b");
 /// Friendlies, what can be grabbed, a safe place to park.
 pub const GREEN: Hex = Hex("#8dffa8");
-/// The ZERO System.
+/// The Orrery.
 pub const PINK: Hex = Hex("#ff5fc8");
 /// Values on the panels: the suit's own readouts, what's whole.
 pub const WHITE: Hex = Hex("#eef4fb");

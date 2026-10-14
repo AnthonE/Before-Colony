@@ -10,10 +10,10 @@ use crate::content::{ArmSlot, Grade, Kits, Modules, Systems, frame};
 use crate::flight::FlightState;
 use crate::ground::{Anchor, Footing};
 use crate::handle::{Handle, SuitId};
+use crate::orrery::OrreryState;
 use crate::storage::{BitSet, FreeList, boxed};
 use crate::transform::Form;
 use crate::tuning::Tuning;
-use crate::zero::ZeroState;
 
 /// Per-weapon runtime state.
 #[derive(Clone, Copy, Debug, Default)]
@@ -22,7 +22,7 @@ pub struct WeaponState {
     pub cooldown: u16,
     /// Rounds left (ammo weapons).
     pub ammo: u16,
-    /// Ticks spent charging (Twin Buster Rifle), 0 = not charging.
+    /// Ticks spent charging (Heavy Beam Rifle), 0 = not charging.
     pub charge: u16,
     /// Missiles still to leave in the salvo under way, and ticks until the next.
     pub salvo: u8,
@@ -45,7 +45,7 @@ impl Default for LockState {
     }
 }
 
-/// Phases of a melee strike (a saber swing, a scythe's reap, the Dragon Fang's thrust).
+/// Phases of a melee strike (a saber swing, a scythe's reap, the Talon's thrust).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum MeleePhase {
     #[default]
@@ -121,13 +121,13 @@ impl MeleeState {
 /// A frame's special (see [`SpecialKind`](crate::content::SpecialKind)).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SpecialState {
-    /// Engaged: the jammer on, Full Open firing.
+    /// Engaged: the jammer on, Full Salvo firing.
     pub active: bool,
-    /// Ticks left in what's under way: a transformation, Full Open.
+    /// Ticks left in what's under way: a transformation, Full Salvo.
     pub timer: u16,
     /// Ticks until the special can be used again.
     pub cooldown: u16,
-    /// Ticks of forced overheat left after Full Open.
+    /// Ticks of forced overheat left after Full Salvo.
     pub lockout: u16,
     /// The jammer is broken (by firing, striking) until this tick.
     pub break_until: u32,
@@ -181,7 +181,7 @@ pub struct SuitStats {
     pub damage_dealt: f32,
     /// Hits landed, by weapon class (beam, ballistic, missile, melee, cone).
     pub hits_by_class: [u32; 5],
-    /// Specials used: transformations, Full Open Attacks, Cross Crushers, jammer engagements.
+    /// Specials used: transformations, Full Salvos, Pincer Strikes, jammer engagements.
     pub specials: u32,
     /// Missiles launched.
     pub missiles: u32,
@@ -210,11 +210,11 @@ pub struct Suits {
     pub weapons: Box<[[WeaponState; 3]]>,
     pub melee: Box<[MeleeState]>,
     pub special: Box<[SpecialState]>,
-    /// The special mounts' weapons (Full Open's chest gatlings and micro-missiles).
+    /// The special mounts' weapons (Full Salvo's chest gatlings and micro-missiles).
     pub special_weapons: Box<[[WeaponState; 2]]>,
     /// The gun on a limb in hand, while one is (`content::salvage::held_gun`): set as it's grabbed.
     pub held_gun: Box<[WeaponState]>,
-    /// Which of Zodiac's aces a Doll is (`content::aces`), or `NO_ACE`.
+    /// Which of the Almagest's aces a drone is (`content::aces`), or `NO_ACE`.
     pub ace: Box<[u8]>,
     pub lock: Box<[LockState]>,
     /// Guided missiles tracking the suit (counted each tick).
@@ -237,14 +237,14 @@ pub struct Suits {
     pub status: Box<[Status]>,
     /// The stat sheet, rebuilt at the top of each tick's flight (`crate::tuning`).
     pub tuning: Box<[Tuning]>,
-    pub zero: Box<[ZeroState]>,
+    pub orrery: Box<[OrreryState]>,
     pub ai: Box<[AiState]>,
     /// Tick the suit last fired (signature bloom, "firing" flags).
     pub last_fired: Box<[u32]>,
     /// Tick of the last primary/secondary shot, for replication flags.
     pub fired_primary: Box<[u32]>,
     pub fired_secondary: Box<[u32]>,
-    /// While a wreck: tick it disappears (dolls) or respawns (pilots).
+    /// While a wreck: tick it disappears (drones) or respawns (pilots).
     pub respawn_at: Box<[u32]>,
     /// Frame to respawn in.
     pub respawn_frame: Box<[FrameId]>,
@@ -301,8 +301,8 @@ impl Suits {
             generation: boxed(cap, 0u16),
             used: BitSet::new(cap),
             alive: BitSet::new(cap),
-            frame: boxed(cap, FrameId::Leo),
-            faction: boxed(cap, Faction::Oz),
+            frame: boxed(cap, FrameId::Argo),
+            faction: boxed(cap, Faction::Almagest),
             pilot: boxed(cap, PilotKind::Human),
             flight: boxed(cap, FlightState::default()),
             aim: boxed(cap, Vec3::Z),
@@ -327,13 +327,13 @@ impl Suits {
             ion_load: boxed(cap, 0.0f32),
             status: boxed(cap, Status::default()),
             tuning: boxed(cap, Tuning::default()),
-            zero: boxed(cap, ZeroState::default()),
+            orrery: boxed(cap, OrreryState::default()),
             ai: boxed(cap, AiState::default()),
             last_fired: boxed(cap, 0u32),
             fired_primary: boxed(cap, 0u32),
             fired_secondary: boxed(cap, 0u32),
             respawn_at: boxed(cap, 0u32),
-            respawn_frame: boxed(cap, FrameId::Leo),
+            respawn_frame: boxed(cap, FrameId::Argo),
             stats: boxed(cap, SuitStats::default()),
             hulk: boxed(cap, (NO_CHUNK, 0u8)),
             held: boxed(cap, (NO_CHUNK, 0u8, false)),
@@ -425,7 +425,7 @@ impl Suits {
         self.usage[idx] = Usage::default();
         self.status[idx] = Status::default();
         self.tuning[idx] = Tuning::default();
-        self.zero[idx] = ZeroState::default();
+        self.orrery[idx] = OrreryState::default();
         self.respawn_at[idx] = 0;
         self.hulk[idx] = (NO_CHUNK, 0);
         self.held[idx] = (NO_CHUNK, 0, false);
@@ -448,7 +448,7 @@ impl Suits {
         self.still.set(idx, false);
     }
 
-    /// Frees a slot entirely (disconnect, or a Mobile Doll wreck clearing).
+    /// Frees a slot entirely (disconnect, or a drone wreck clearing).
     pub fn release(&mut self, idx: usize) {
         if self.used.get(idx) {
             self.used.set(idx, false);

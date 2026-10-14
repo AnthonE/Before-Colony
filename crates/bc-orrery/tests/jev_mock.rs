@@ -11,9 +11,9 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::post;
+use bc_orrery::{JevOracle, OracleError, TacticalOracle, TacticalPicture};
 use bc_proto::{FrameId, NO_SLOT, PilotKind};
-use bc_sim::zero::advice::{PICTURE_THREATS, ThreatBrief};
-use bc_zero::{JevOracle, OracleError, TacticalOracle, TacticalPicture};
+use bc_sim::orrery::advice::{PICTURE_THREATS, ThreatBrief};
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
@@ -90,15 +90,15 @@ fn picture() -> TacticalPicture {
     let mut p = TacticalPicture {
         pilot: 5,
         tick: 900,
-        frame: FrameId::WingZero,
+        frame: FrameId::Altair,
         speed: 140.0,
         ..TacticalPicture::default()
     };
     let briefs = [
         ThreatBrief {
             slot: 11,
-            frame: FrameId::Taurus,
-            pilot: PilotKind::MobileDoll,
+            frame: FrameId::Corvus,
+            pilot: PilotKind::Drone,
             distance: 850.0,
             closing_speed: 180.0,
             bearing_deg: 8.0,
@@ -110,8 +110,8 @@ fn picture() -> TacticalPicture {
         },
         ThreatBrief {
             slot: 12,
-            frame: FrameId::Virgo,
-            pilot: PilotKind::MobileDoll,
+            frame: FrameId::Cetus,
+            pilot: PilotKind::Drone,
             distance: 2_400.0,
             closing_speed: -20.0,
             bearing_deg: 95.0,
@@ -120,7 +120,7 @@ fn picture() -> TacticalPicture {
         },
         ThreatBrief {
             slot: 13,
-            frame: FrameId::Leo,
+            frame: FrameId::Argo,
             pilot: PilotKind::Human,
             distance: 4_100.0,
             bearing_deg: 170.0,
@@ -154,7 +154,7 @@ async fn request_contract_and_parsing() {
     let t1 = &body["state"]["threats"][0];
     assert_eq!(t1["distance"], "close (under 1 km)");
     assert_eq!(t1["range_rate"], "closing fast");
-    assert_eq!(t1["pilot"], "Mobile Doll (unmanned, predictable, no G limit)");
+    assert_eq!(t1["pilot"], "Drone (unmanned, predictable, no G limit)");
     // Parsing.
     assert!(advice.from_jev);
     assert_eq!(advice.pilot, 5);
@@ -212,9 +212,12 @@ async fn worker_moves_pictures_to_advice() {
     let (url, _m) = mock().await;
     let (mut pic_tx, pic_rx) = rtrb::RingBuffer::new(16);
     let (adv_tx, mut adv_rx) = rtrb::RingBuffer::new(16);
-    let _worker =
-        bc_zero::spawn_worker(pic_rx, adv_tx, JevOracle::with_endpoint("k".into(), url, "jev-latest".into()))
-            .unwrap();
+    let _worker = bc_orrery::spawn_worker(
+        pic_rx,
+        adv_tx,
+        JevOracle::with_endpoint("k".into(), url, "jev-latest".into()),
+    )
+    .unwrap();
     pic_tx.push(picture()).unwrap();
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {

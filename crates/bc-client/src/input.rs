@@ -13,18 +13,18 @@
 //! | on a body: W/A/S/D, Shift, Space, C | walk, run, hop (held: lift off), crouch (a toggle) |
 //! | Shift | boost · X brake · R RCS (fast turns, burns propellant) |
 //! | LMB / RMB / F | primary / secondary / melee |
-//! | H | the frame's special: Neo-Bird or the Hyper Jammer on/off, or held: Full Open, Cross Crusher |
+//! | H | the frame's special: Aquila or the Eclipse on/off, or held: Full Salvo, Pincer Strike |
 //! | Y / middle click | lock on (`bc_client_core::lockon`): again, the next; held, let go |
-//! | V | flight assist on/off · Z ZERO System on/off |
+//! | V | flight assist on/off · Z the Orrery on/off |
 //! | G / B / T / J | grab on/off, stow what's in hand, throw it, jettison the hold |
 //! | Tab, mouse wheel | the chase camera or the cockpit (wheel in: the cockpit, out: chasing) |
-//! | M | the chart: the sector and the Earth Sphere in 3D, the objectives, courses (`chart.rs`) |
+//! | M | the chart: the sector and Earth-Moon space in 3D, the objectives, courses (`chart.rs`) |
 //! | N | the auto-nav on/off: flies the chart's course (`chart.rs`) |
 //! | Enter | survival: dock, where the suit is docked or coming in to (`bc_client_core::dock`, `onfoot.rs`); elsewhere the radio (`chat.rs`); on the chart, a course |
 //! | / | the colony's radio (`chat.rs`) |
 //! | 1–4 | survival: the rack's consumables, while the suit is alive (`onfoot.rs`) |
 //! | U | eject: doomed, a tap ejects and a hold blows the suit up; otherwise held for a second |
-//! | 1–6 | respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock, Shenlong (when destroyed) |
+//! | 1–6 | respawn as Argo, Altair, Antares, Algol, Canopus, Thuban (when destroyed) |
 //!
 //! Down is C alone: Left Ctrl held with W would be Ctrl+W, which closes the browser's tab.
 //!
@@ -44,7 +44,7 @@ use bc_client_core::lockon::{Broke, HOLD_TO_RELEASE};
 use bc_client_core::settings::CameraView;
 use bc_proto::buttons::{
     BOOST, BRAKE, BURST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, GRIP, JETTISON, MELEE, MODE,
-    RCS_SHARP, SPECIAL, STOW, THROW, ZERO,
+    ORRERY, RCS_SHARP, SPECIAL, STOW, THROW,
 };
 use bc_proto::snapshot::footing;
 use bc_proto::{InputCmd, NO_SLOT};
@@ -98,10 +98,10 @@ pub struct Controls {
     pub roll: f32,
     pub buttons: u16,
     pub flight_assist: bool,
-    pub zero: bool,
+    pub orrery: bool,
     /// The free hand grabs whatever comes in reach (and holds it) while on.
     pub grab: bool,
-    /// The frame's toggled special (Neo-Bird, the Hyper Jammer) is asked for.
+    /// The frame's toggled special (Aquila, the Eclipse) is asked for.
     pub mode: bool,
     /// The grip is armed (L): coming in slow and close to a body, the suit is caught and landed;
     /// on one, it holds on.
@@ -121,7 +121,7 @@ impl Default for Controls {
             roll: 0.0,
             buttons: 0,
             flight_assist: true,
-            zero: false,
+            orrery: false,
             grab: false,
             mode: false,
             grip: false,
@@ -141,8 +141,8 @@ impl Controls {
         if self.flight_assist {
             buttons |= FLIGHT_ASSIST;
         }
-        if self.zero {
-            buttons |= ZERO;
+        if self.orrery {
+            buttons |= ORRERY;
         }
         if self.grab {
             buttons |= GRAB;
@@ -519,7 +519,7 @@ pub fn read_input(
         });
     }
     if keys.just_pressed(KeyCode::KeyZ) {
-        controls.zero = !controls.zero;
+        controls.orrery = !controls.orrery;
     }
     if keys.just_pressed(KeyCode::KeyL) {
         controls.grip = !controls.grip;

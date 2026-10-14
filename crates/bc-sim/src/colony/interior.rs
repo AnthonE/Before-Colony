@@ -30,7 +30,7 @@ pub enum WorldKind {
     Interior,
 }
 
-/// Air: ½ ρ C_d A for a suit, kg/m (ρ 1.2 kg/m³, C_d·A 15 m²). A Leo falling flat out comes to
+/// Air: ½ ρ C_d A for a suit, kg/m (ρ 1.2 kg/m³, C_d·A 15 m²). An Argo falling flat out comes to
 /// about 95 m/s.
 pub const DRAG_KG_M: f32 = 0.5 * 1.2 * 15.0;
 /// How far a suit's hull keeps from the end caps, m.

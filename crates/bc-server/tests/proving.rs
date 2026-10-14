@@ -35,7 +35,7 @@ fn wallet() -> LocalWallet {
 }
 
 fn bot(http: &str, name: &str) -> BotConfig {
-    BotConfig { server: http.into(), name: name.into(), frame: FrameId::Leo, faction: Faction::Colonies }
+    BotConfig { server: http.into(), name: name.into(), frame: FrameId::Argo, faction: Faction::Colonies }
 }
 
 fn config(dir: &Path) -> anyhow::Result<Config> {
@@ -45,7 +45,7 @@ fn config(dir: &Path) -> anyhow::Result<Config> {
         colony: true,
         wt_port: 0,
         http_addr: "127.0.0.1:0".parse()?,
-        mobile_dolls: 0,
+        drones: 0,
         max_clients: 8,
         data_dir: Some(dir.to_path_buf()),
         ..Config::default()
@@ -72,7 +72,7 @@ async fn a_pilot_boards_a_trainer_in_the_blast_hall_clears_the_drill_and_climbs_
     let server = bc_server::start(config(&dir)?).await?;
     let http = format!("http://{}", server.http_addr);
     let w = wallet();
-    let mut b = BotClient::connect_as(&bot(&http, "Wufei"), Some(&w)).await?;
+    let mut b = BotClient::connect_as(&bot(&http, "Lin"), Some(&w)).await?;
     b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
     // Not from the bay: the trainers are boarded at the gantry, on foot.
     assert!(b.ask(&Request::BoardTrainer).await.is_err());
@@ -92,7 +92,7 @@ async fn a_pilot_boards_a_trainer_in_the_blast_hall_clears_the_drill_and_climbs_
     // The drill, from the gantry: the machine cannon's trigger held on the lit target, where it
     // will be when the rounds get there (as the server resolves them), until it's cleared.
     let speed = weapon(WeaponKind::MachineCannon).speed;
-    let muzzle = frame(FrameId::Leo).loadout[1].map_or(Vec3::ZERO, |m| m.arm.muzzle());
+    let muzzle = frame(FrameId::Argo).loadout[1].map_or(Vec3::ZERO, |m| m.arm.muzzle());
     let mut cleared = None;
     let end = std::time::Instant::now() + Duration::from_secs(90);
     while cleared.is_none() {
@@ -144,11 +144,11 @@ async fn a_pilot_boards_a_trainer_in_the_blast_hall_clears_the_drill_and_climbs_
     b.wait_until(5.0, "the board", |c| c.hangar.proving.as_ref().is_some_and(|v| !v.drill.is_empty()))
         .await?;
     let v = b.core.hangar.proving.clone().unwrap();
-    assert_eq!((v.drill[0].name.as_str(), v.drill[0].ms, v.drill[0].you), ("Wufei", ms, true));
+    assert_eq!((v.drill[0].name.as_str(), v.drill[0].ms, v.drill[0].you), ("Lin", ms, true));
     assert_eq!(v.drill_record.as_ref().map(|r| r.ms), Some(ms));
     assert_eq!(v.mine.drill_ms, Some(ms));
     let status = server.status();
-    assert_eq!(status["game"]["proving"]["drill"][0]["name"], "Wufei");
+    assert_eq!(status["game"]["proving"]["drill"][0]["name"], "Lin");
     assert_eq!(status["game"]["proving"]["drill"][0]["ms"], ms);
 
     // At rest on the gantry, docked: out of the trainer on foot in the hall, by its hatch.
@@ -183,7 +183,7 @@ async fn a_pilot_boards_a_trainer_in_the_blast_hall_clears_the_drill_and_climbs_
     let server = bc_server::start(config(&dir)?).await?;
     let http = format!("http://{}", server.http_addr);
     assert_eq!(server.status()["game"]["proving"]["drill"][0]["ms"], ms);
-    let mut b = BotClient::connect_as(&bot(&http, "Wufei"), Some(&w)).await?;
+    let mut b = BotClient::connect_as(&bot(&http, "Lin"), Some(&w)).await?;
     b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar()).await?;
     b.enter_city(strip).await?;
     b.wait_until(5.0, "the board", |c| {
@@ -194,20 +194,20 @@ async fn a_pilot_boards_a_trainer_in_the_blast_hall_clears_the_drill_and_climbs_
     b.run_for(Duration::from_secs(3), &mut |_| InputCmd::default()).await?;
     assert!(!b.core.hangar.news.iter().any(|n| n.contains(CERTIFIED)), "{:?}", b.core.hangar.news);
 
-    // The test range: the gantry readies any line's suit, here a Heavyarms. Gone while flying it,
+    // The test range: the gantry readies any line's suit, here an Antares. Gone while flying it,
     // the Board's suit is the Board's again, and the pilot wakes in their bay, their own suit there
     // as they left it.
     b.walk_to(hall::hatch().0, 180.0).await?;
-    let heavyarms = bc_econ::proving::Trainer::Line { line: FrameId::Heavyarms };
-    b.board_trainer_as(Some(heavyarms)).await?;
-    assert_eq!(b.world().own.map(|o| o.frame), Some(FrameId::Heavyarms));
-    assert_eq!(b.core.hangar.proving.as_ref().map(|v| v.trainer), Some(heavyarms));
+    let antares = bc_econ::proving::Trainer::Line { line: FrameId::Antares };
+    b.board_trainer_as(Some(antares)).await?;
+    assert_eq!(b.world().own.map(|o| o.frame), Some(FrameId::Antares));
+    assert_eq!(b.core.hangar.proving.as_ref().map(|v| v.trainer), Some(antares));
     assert_eq!(server.status()["game"]["inside"]["suits"], 1);
     b.close().await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     let status = server.status();
     assert_eq!(status["game"]["inside"]["suits"], 0, "{}", status["game"]["inside"]);
-    let mut b = BotClient::connect_as(&bot(&http, "Wufei"), Some(&w)).await?;
+    let mut b = BotClient::connect_as(&bot(&http, "Lin"), Some(&w)).await?;
     b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar() && c.hangar.view.is_some()).await?;
     assert!(matches!(b.core.hangar.view.as_ref().unwrap().bay, Bay::Docked { .. }), "the bay's untouched");
     assert!(!b.core.hangar.trainer && !b.core.welcome.unwrap().interior);

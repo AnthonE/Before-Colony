@@ -2,7 +2,7 @@
 //! parts, weapons fitted or not, what's loaded and in the tank): it rides the bay's catapult
 //! cradle in its door, turning with the colony, until its pilot lets go, and is thrown out. It
 //! docks to go home with what it carries, and doesn't come back once it's destroyed. The colony
-//! pays for Mobile Dolls.
+//! pays for drones.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
 use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, GRIP, MELEE, MODE};
@@ -19,7 +19,7 @@ use bc_sim::{Sim, SimConfig, SuitId};
 use glam::{Quat, Vec3};
 
 fn survival() -> Sim {
-    Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, survival: true, ..SimConfig::default() })
+    Sim::new(SimConfig { target_drones: 0, field_rocks: 0, survival: true, ..SimConfig::default() })
 }
 
 fn hold(sim: &mut Sim, id: SuitId, buttons: u16, aim: Vec3) {
@@ -35,9 +35,9 @@ fn fly_out(sim: &mut Sim, id: SuitId) {
     assert!(!sim.in_bay(id.idx()) && sim.footing(id.idx()) == Footing::Free);
 }
 
-/// A Leo with a worn torso, no right arm (so no beam rifle), its left arm's machine cannon fitted
+/// An Argo with a worn torso, no right arm (so no beam rifle), its left arm's machine cannon fitted
 /// and 50 rounds loaded, but no saber; half a tank.
-fn stripped_leo() -> Loadout {
+fn stripped_argo() -> Loadout {
     Loadout {
         parts: [0.5, 0.8, 1.0, 0.0, 0.25, 1.0],
         mounts: 0b010,
@@ -53,9 +53,9 @@ fn stripped_leo() -> Loadout {
 #[test]
 fn a_suit_launches_as_it_was_built() {
     let mut sim = survival();
-    let id = sim.launch(FrameId::Leo, Faction::Colonies, PilotKind::Human, &stripped_leo()).unwrap();
+    let id = sim.launch(FrameId::Argo, Faction::Colonies, PilotKind::Human, &stripped_argo()).unwrap();
     let i = id.idx();
-    let spec = frame(FrameId::Leo);
+    let spec = frame(FrameId::Argo);
     // In its bay's cradle, standing in the door facing out of it, carried round the axis with
     // the bay at its 125 m/s, its head toward the axis.
     let Body::Bay(n) = sim.suits.anchor[i].body else { panic!("in its bay") };
@@ -74,19 +74,19 @@ fn a_suit_launches_as_it_was_built() {
     let mods = sim.flight_mods(i);
     assert_eq!(
         mods.extra_mass_kg,
-        mass_without(FrameId::Leo, 1 << Part::ArmR as u8) as i32 - mass_without(FrameId::Leo, 0) as i32
+        mass_without(FrameId::Argo, 1 << Part::ArmR as u8) as i32 - mass_without(FrameId::Argo, 0) as i32
     );
     // What it reports to its pilot: the machine cannon ready, nothing else.
     let own = sim.own_state(i);
     assert_eq!(own.weapon_ready & 0b111, 0b010);
     assert_eq!(own.ammo, [0, 50]);
     // No torso, no suit.
-    let mut none = stripped_leo();
+    let mut none = stripped_argo();
     none.parts[Part::Torso as usize] = 0.0;
-    assert!(sim.launch(FrameId::Leo, Faction::Colonies, PilotKind::Human, &none).is_none());
-    // Nor a Mobile Doll's frame.
+    assert!(sim.launch(FrameId::Argo, Faction::Colonies, PilotKind::Human, &none).is_none());
+    // Nor a drone's frame.
     assert!(
-        sim.launch(FrameId::Taurus, Faction::Colonies, PilotKind::Human, &Loadout::full(FrameId::Taurus))
+        sim.launch(FrameId::Corvus, Faction::Colonies, PilotKind::Human, &Loadout::full(FrameId::Corvus))
             .is_none()
     );
 }
@@ -94,8 +94,9 @@ fn a_suit_launches_as_it_was_built() {
 #[test]
 fn a_suit_rides_its_bay_until_its_pilot_lets_go_and_is_thrown_out_of_the_door() {
     let mut sim = survival();
-    let id =
-        sim.launch(FrameId::Leo, Faction::Colonies, PilotKind::Human, &Loadout::full(FrameId::Leo)).unwrap();
+    let id = sim
+        .launch(FrameId::Argo, Faction::Colonies, PilotKind::Human, &Loadout::full(FrameId::Argo))
+        .unwrap();
     let i = id.idx();
     let Body::Bay(n) = sim.suits.anchor[i].body else { panic!("in its bay") };
     // Held, it goes round with the colony in its door, whatever else it's asked: no shot, no
@@ -135,11 +136,11 @@ fn a_suit_rides_its_bay_until_its_pilot_lets_go_and_is_thrown_out_of_the_door() 
     // On its way out of the door, away from the colony, and no longer docked.
     assert!(sim.suits.flight[i].pos.x < door.pos.x + BAY_RIDE_LOCAL.x - 1.0 && !sim.docked(i));
     // A bay the ring doesn't have launches nothing.
-    let leo = Loadout::full(FrameId::Leo);
+    let argo = Loadout::full(FrameId::Argo);
     use bc_sim::sim::LaunchAt;
     for bad in [0, 100] {
         assert!(
-            sim.launch_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, &leo, LaunchAt::Bay(bad))
+            sim.launch_at(FrameId::Argo, Faction::Colonies, PilotKind::Human, &argo, LaunchAt::Bay(bad))
                 .is_none()
         );
     }
@@ -157,8 +158,8 @@ fn a_suit_rides_its_bay_until_its_pilot_lets_go_and_is_thrown_out_of_the_door() 
 fn weapons_that_arent_fitted_dont_fire() {
     let mut sim = survival();
     // Everything fitted but the machine cannon and the saber.
-    let loadout = Loadout { mounts: 0b001, ..Loadout::full(FrameId::Leo) };
-    let id = sim.launch(FrameId::Leo, Faction::Colonies, PilotKind::Human, &loadout).unwrap();
+    let loadout = Loadout { mounts: 0b001, ..Loadout::full(FrameId::Argo) };
+    let id = sim.launch(FrameId::Argo, Faction::Colonies, PilotKind::Human, &loadout).unwrap();
     let aim = sim.suits.flight[id.idx()].rot * Vec3::Z;
     for _ in 0..60 {
         hold(&mut sim, id, FIRE_SECONDARY | MELEE, aim);
@@ -183,7 +184,7 @@ fn park_in_dock(sim: &mut Sim, id: SuitId) {
 #[test]
 fn a_suit_at_rest_in_the_dock_goes_home_with_what_it_carries() {
     let mut sim = survival();
-    let id = sim.launch(FrameId::Leo, Faction::Colonies, PilotKind::Human, &stripped_leo()).unwrap();
+    let id = sim.launch(FrameId::Argo, Faction::Colonies, PilotKind::Human, &stripped_argo()).unwrap();
     let i = id.idx();
     fly_out(&mut sim, id);
     // Out in the sector it can't dock.
@@ -194,7 +195,7 @@ fn a_suit_at_rest_in_the_dock_goes_home_with_what_it_carries() {
     sim.suits.credits[i] = 750;
     // A limb in hand.
     let desc = ChunkDesc {
-        kind: ChunkKind::Limb { frame: FrameId::Taurus, faction: Faction::Oz, part: Part::Legs },
+        kind: ChunkKind::Limb { frame: FrameId::Corvus, faction: Faction::Almagest, part: Part::Legs },
         seed: 3,
         mass_kg: 1_170,
     };
@@ -211,8 +212,8 @@ fn a_suit_at_rest_in_the_dock_goes_home_with_what_it_carries() {
     assert_eq!(sim.suits.cargo_kg[i], [900, 0, 120, 30]);
     assert!(sim.docked(i));
     let home = sim.dock(id).expect("docked");
-    assert_eq!(home.frame, FrameId::Leo);
-    assert_eq!(home.parts, stripped_leo().parts);
+    assert_eq!(home.frame, FrameId::Argo);
+    assert_eq!(home.parts, stripped_argo().parts);
     assert_eq!(home.mounts, 0b010);
     assert_eq!(home.ammo, [0, 50, 0]);
     assert!(home.propellant > 1_100.0 && home.propellant <= 1_200.0);
@@ -228,7 +229,7 @@ fn a_suit_at_rest_in_the_dock_goes_home_with_what_it_carries() {
 #[test]
 fn too_fast_or_asleep_it_doesnt_dock() {
     let mut sim = survival();
-    let id = sim.launch(FrameId::Leo, Faction::Colonies, PilotKind::Human, &stripped_leo()).unwrap();
+    let id = sim.launch(FrameId::Argo, Faction::Colonies, PilotKind::Human, &stripped_argo()).unwrap();
     fly_out(&mut sim, id);
     park_in_dock(&mut sim, id);
     sim.suits.flight[id.idx()].vel = Vec3::new(40.0, 0.0, 0.0);
@@ -241,7 +242,7 @@ fn too_fast_or_asleep_it_doesnt_dock() {
     // Launches come out of their bays' doors, each its own, round the ring.
     let mut bays = Vec::new();
     for _ in 0..12 {
-        let id = sim.launch(FrameId::Leo, Faction::Colonies, PilotKind::Human, &stripped_leo()).unwrap();
+        let id = sim.launch(FrameId::Argo, Faction::Colonies, PilotKind::Human, &stripped_argo()).unwrap();
         let Body::Bay(n) = sim.suits.anchor[id.idx()].body else { panic!("in its bay") };
         let door = bay_pose(n, sim.tick(), 0.0);
         assert!((sim.suits.flight[id.idx()].pos - door.to_world(BAY_RIDE_LOCAL)).length() < 0.01);
@@ -251,18 +252,12 @@ fn too_fast_or_asleep_it_doesnt_dock() {
     }
 }
 
-/// Shoots suit `target` down with a Wing Zero's Twin Buster Rifle from 300 m. The shooter.
+/// Shoots suit `target` down with an Altair's Heavy Beam Rifle from 300 m. The shooter.
 fn shoot_down(sim: &mut Sim, target: SuitId) -> SuitId {
     let at = sim.suits.flight[target.idx()].pos;
     let pos = at + Vec3::new(0.0, 0.0, -300.0);
     let shooter = sim
-        .spawn_at(
-            FrameId::WingZero,
-            Faction::Colonies,
-            PilotKind::Human,
-            pos,
-            look_rotation(Vec3::Z, Vec3::Y),
-        )
+        .spawn_at(FrameId::Altair, Faction::Colonies, PilotKind::Human, pos, look_rotation(Vec3::Z, Vec3::Y))
         .unwrap();
     for _ in 0..200 {
         if !sim.is_alive(target.idx()) {
@@ -277,34 +272,34 @@ fn shoot_down(sim: &mut Sim, target: SuitId) -> SuitId {
 }
 
 #[test]
-fn the_colony_pays_for_mobile_dolls() {
+fn the_colony_pays_for_drones() {
     let mut sim = survival();
-    let doll = sim
+    let drone = sim
         .spawn_at(
-            FrameId::Virgo,
-            Faction::Oz,
-            PilotKind::MobileDoll,
+            FrameId::Cetus,
+            Faction::Almagest,
+            PilotKind::Drone,
             Vec3::new(0.0, 1_500.0, 0.0),
             Quat::IDENTITY,
         )
         .unwrap();
-    // A doll that doesn't fight back.
-    sim.suits.part_hp[doll.idx()] = [1.0; Part::COUNT];
-    let shooter = shoot_down(&mut sim, doll);
-    assert_eq!(sim.suits.credits[shooter.idx()], bounty(FrameId::Virgo));
+    // A drone that doesn't fight back.
+    sim.suits.part_hp[drone.idx()] = [1.0; Part::COUNT];
+    let shooter = shoot_down(&mut sim, drone);
+    assert_eq!(sim.suits.credits[shooter.idx()], bounty(FrameId::Cetus));
     // Under arcade rules it doesn't.
-    let mut arcade = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
-    let doll = arcade
+    let mut arcade = Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() });
+    let drone = arcade
         .spawn_at(
-            FrameId::Taurus,
-            Faction::Oz,
-            PilotKind::MobileDoll,
+            FrameId::Corvus,
+            Faction::Almagest,
+            PilotKind::Drone,
             Vec3::new(0.0, 1_500.0, 0.0),
             Quat::IDENTITY,
         )
         .unwrap();
-    arcade.suits.part_hp[doll.idx()] = [1.0; Part::COUNT];
-    let shooter = shoot_down(&mut arcade, doll);
+    arcade.suits.part_hp[drone.idx()] = [1.0; Part::COUNT];
+    let shooter = shoot_down(&mut arcade, drone);
     assert_eq!(arcade.suits.credits[shooter.idx()], 0);
 }
 
@@ -312,11 +307,11 @@ fn the_colony_pays_for_mobile_dolls() {
 fn a_pilot_shot_down_stays_down() {
     for survival in [true, false] {
         let mut sim =
-            Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, survival, ..SimConfig::default() });
+            Sim::new(SimConfig { target_drones: 0, field_rocks: 0, survival, ..SimConfig::default() });
         let pilot = sim
             .spawn_at(
-                FrameId::Leo,
-                Faction::Oz,
+                FrameId::Argo,
+                Faction::Almagest,
                 PilotKind::Human,
                 Vec3::new(0.0, 1_500.0, 0.0),
                 Quat::IDENTITY,
@@ -338,8 +333,9 @@ fn a_suit_lands_on_the_docking_hub_walks_onto_its_deck_hatch_and_docks() {
     use bc_sim::bodies::Bodies;
     use bc_sim::content::landmarks::{DOCKING_HUB, HUB_MOUTH_X};
     let mut sim = survival();
-    let id =
-        sim.launch(FrameId::Leo, Faction::Colonies, PilotKind::Human, &Loadout::full(FrameId::Leo)).unwrap();
+    let id = sim
+        .launch(FrameId::Argo, Faction::Colonies, PilotKind::Human, &Loadout::full(FrameId::Argo))
+        .unwrap();
     let i = id.idx();
     fly_out(&mut sim, id);
     let hub = Body::Landmark(DOCKING_HUB);
@@ -388,5 +384,5 @@ fn a_suit_lands_on_the_docking_hub_walks_onto_its_deck_hatch_and_docks() {
     assert!(on, "walked onto the hatch: {:?}", sim.suits.anchor[i].local);
     assert!(sim.docked(i));
     let home = sim.dock(id).expect("docked on the hatch");
-    assert_eq!(home.frame, FrameId::Leo);
+    assert_eq!(home.frame, FrameId::Argo);
 }

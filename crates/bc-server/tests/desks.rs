@@ -34,7 +34,7 @@ fn config(data_dir: Option<PathBuf>) -> anyhow::Result<Config> {
         colony: true,
         wt_port: 0,
         http_addr: "127.0.0.1:0".parse()?,
-        mobile_dolls: 0,
+        drones: 0,
         max_clients: 8,
         data_dir,
         ..Config::default()
@@ -42,7 +42,7 @@ fn config(data_dir: Option<PathBuf>) -> anyhow::Result<Config> {
 }
 
 fn bot(http: &str, name: &str) -> BotConfig {
-    BotConfig { server: http.into(), name: name.into(), frame: FrameId::Leo, faction: Faction::Colonies }
+    BotConfig { server: http.into(), name: name.into(), frame: FrameId::Argo, faction: Faction::Colonies }
 }
 
 fn wallet() -> LocalWallet {
@@ -95,7 +95,7 @@ async fn trade(b: &mut BotClient, req: Request) -> anyhow::Result<String> {
 async fn the_bay_points_at_the_desks() -> anyhow::Result<()> {
     let server = bc_server::start(config(None)?).await?;
     let http = format!("http://{}", server.http_addr);
-    let mut b = BotClient::connect(&bot(&http, "Relena")).await?;
+    let mut b = BotClient::connect(&bot(&http, "Maren")).await?;
     b.wait_until(5.0, "the hangar", |c| {
         c.hangar.in_hangar() && c.hangar.view.is_some() && c.hangar.market.is_some()
     })
@@ -243,7 +243,7 @@ async fn a_certified_pilot_is_paid_at_the_charter_boards_desk() -> anyhow::Resul
     // Of standing now, but an ace's terms are The Arrival's.
     refused(&mut b, Request::AceTerms { salvage: true }, "the arrival's counter").await?;
 
-    // Home, the Board's rifle on the Leo it came without.
+    // Home, the Board's rifle on the Argo it came without.
     b.leave_city().await?;
     done(&mut b, Request::Fit { item: RIFLE }).await?;
     b.wait_until(5.0, "the rifle fitted", |c| {

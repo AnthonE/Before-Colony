@@ -4,7 +4,7 @@
 //! weapons all but stop, and blows that land meanwhile are direct hits.
 //!
 //! What a frame stands is its *stability*; how hard a weapon hits, its *impact* per armour point
-//! of the blow (before the target's armour: a gundanium plate stops damage, not a blow's push).
+//! of the blow (before the target's armour: a siderium plate stops damage, not a blow's push).
 
 use bc_proto::{FrameId, WeaponKind};
 
@@ -29,23 +29,23 @@ pub const RECOVER_RATE: f32 = 0.5;
 /// times each weapon's [`impact`]). Heavier and steadier frames stand more.
 pub fn stability(frame: FrameId) -> f32 {
     match frame {
-        FrameId::Leo => 300.0,
-        FrameId::Taurus => 240.0,
-        FrameId::Virgo => 380.0,
-        FrameId::WingZero | FrameId::WingZeroBird => 340.0,
-        FrameId::Heavyarms => 380.0,
-        FrameId::Sandrock => 460.0,
-        FrameId::Deathscythe => 320.0,
-        FrameId::Shenlong => 340.0,
+        FrameId::Argo => 300.0,
+        FrameId::Corvus => 240.0,
+        FrameId::Cetus => 380.0,
+        FrameId::Altair | FrameId::Aquila => 340.0,
+        FrameId::Antares => 380.0,
+        FrameId::Canopus => 460.0,
+        FrameId::Algol => 320.0,
+        FrameId::Thuban => 340.0,
     }
 }
 
 /// A weapon's impact per armour point of a blow: a beam's 1, a solid round's more, a missile's
-/// warhead and a blade's stroke more still, a flame's little. The Twin Buster Rifle and a reactor's
+/// warhead and a blade's stroke more still, a flame's little. The Heavy Beam Rifle and a reactor's
 /// blast hit hardest of all.
 pub fn impact(kind: WeaponKind) -> f32 {
     match kind {
-        WeaponKind::TwinBusterRifle => 1.6,
+        WeaponKind::HeavyBeamRifle => 1.6,
         WeaponKind::Reactor => 2.0,
         _ => match weapon(kind).class {
             WeaponClass::Beam => 1.0,

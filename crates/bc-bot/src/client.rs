@@ -20,8 +20,8 @@ pub struct BotConfig {
     pub server: String,
     pub name: String,
     pub frame: FrameId,
-    /// The side asked for. The server says the side flown for in its Welcome (a claim to Oz, the
-    /// Mobile Dolls' own, flies for the Colonies), and [`World::faction`] follows it.
+    /// The side asked for. The server says the side flown for in its Welcome (a claim to the Almagest, the
+    /// drones' own, flies for the Colonies), and [`World::faction`] follows it.
     pub faction: Faction,
 }
 
@@ -535,7 +535,7 @@ impl BotClient {
     }
 
     /// [`BotClient::board_trainer`], asking the gantry first for `build` (the test range: the
-    /// Board's Leo, the build in the bay, or a new suit of any line).
+    /// Board's Argo, the build in the bay, or a new suit of any line).
     pub async fn board_trainer_as(&mut self, build: Option<bc_econ::proving::Trainer>) -> anyhow::Result<()> {
         if let Some(build) = build {
             let notes = self.core.hangar.notes.len();

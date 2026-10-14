@@ -12,7 +12,7 @@ the bay, space, home).
 | Lock-on: fighting on the ground in space (`LOCK.md`) | built |
 | The weapons pass: the hit-rate harness, charged beams, true cones, lunges that home, the burst step | built |
 | P0: a floor under loss, text chat, objectives along the chain, The Arrival's seats | built |
-| Objectives that lead somewhere, desks worth the walk: nineteen objectives from the cap lift to gundanium, each city desk's one thing, the Charter Board's pay at its desk, a flight certificate's beam rifle, The Arrival's Most Wanted (below) | built |
+| Objectives that lead somewhere, desks worth the walk: nineteen objectives from the cap lift to siderium, each city desk's one thing, the Charter Board's pay at its desk, a flight certificate's beam rifle, The Arrival's Most Wanted (below) | built |
 | P1: the Proving Ground: its course, the Blast Hall, its live fire, trainers boarded there, the drill and the board (`TRAINING.md`, phases 1 to 5) | built |
 | Living in the colony, L0: seats, the body and its meals (`LIFE.md`) | built (a framework: nothing on the wire yet) |
 | The loop's loose ends, first pass: the colony open by default, launching out of the pilot's own bay door, landing on the docking hub and walking in, hints along the way (below) | built |
@@ -73,7 +73,7 @@ Built since, each a PR of its own:
   nightly and by hand.
 - **Auto-nav on an ion drive's crawl.** `nav::planned_braking` plans on the thrust the suit has
   (`Predictor::mods`): under the real rules a dry tank brakes on the drive, and a tank too low for
-  the trip plans on what's left of it and then the drive. Tests: `nav`'s units (a dry Leo with a
+  the trip plans on what's left of it and then the drive. Tests: `nav`'s units (a dry Argo with a
   drive stops short of a point 5 km off, where it used to go 4.2 km past).
 
 Next, each a PR of its own:
@@ -97,7 +97,7 @@ Later:
 - **Trams and cars that people can't walk through** (COLONY.md phases 4 and 5's known gaps).
 - **A server gate on the bay's own work asked from a city desk** (fitting, crafting, repairs):
   today only the page keeps a desk's terminal to its one tab.
-- **A line counting toward gundanium** on the objective (the titanium alloy and exotics for a
+- **A line counting toward siderium** on the objective (the titanium alloy and exotics for a
   foundry batch): two counts, where the panel shows one.
 - **A first-class certificate that pays**, if the owner wants a class to earn more than the
   Board's rifle; today it only shows (`TRAINING.md`, "Rewards").
@@ -108,7 +108,7 @@ Later:
 
 **A floor under loss.** *Built.* A signed-in pilot whose only suit is gone, with less than a
 torso's worth of credits, stores and parts (at the colony's values, `catalogue::value`), finds a
-worn Leo in the gantry from the Charter Board, at most once every 30 minutes (`Hangar::reissue`,
+worn Argo in the gantry from the Charter Board, at most once every 30 minutes (`Hangar::reissue`,
 with a `reissued_at`; `bc-server` `session.rs::enter`, the return from a loss, and once a second
 on the session's tick while the pilot is on foot with the bay empty and no wreck coming home, so
 it comes the moment it's due; `reissue` checks the half hour before it values the stores, so
@@ -131,11 +131,11 @@ server test; the page's `ui` e2e types a line, and opens the line with Enter in 
 stay; `DESIGN.md`, "Objectives and the chart"). Nineteen, in survival's order after
 `TRAINING.md`'s first ten minutes: ride the cap lift down, report to the Proving Ground and earn a
 flight certificate, a straight walk down the avenue to the Exchange floor and the Charter Board's
-desk, standing with the colony, home to arm the suit, then out (MO-II, the Aft Well, ore home and
-sold, the Dolls, Hermit, five Dolls), and on to the Most Wanted at The Arrival, one of Zodiac's
-aces, a new Gundam on the test range and gundanium. The colony's (the cap lift, the city's, selling
+desk, standing with the colony, home to arm the suit, then out (Fornax, the Aft Well, ore home and
+sold, the drones, Hermit, five drones), and on to the Most Wanted at The Arrival, one of the Almagest's
+aces, a new Lodestar on the test range and siderium. The colony's (the cap lift, the city's, selling
 on the Exchange) need the colony open (the Welcome's COLONY flag), standing, arming, the aces and
-gundanium survival, and arcade has none of the last eight.
+siderium survival, and arcade has none of the last eight.
 Each has a realm (space, the bay, the city, or any terminal on foot): flying, the HUD shows the
 first space one not done, so a pilot who launches first is never pulled home; on foot, the first
 in order, passing over a space one flown past, and back to the Charter Board's desk while the
@@ -166,7 +166,7 @@ along the avenue and onto a pad on Hub Gate's square.
   board.
 - `bc-client/src/course.rs` draws the rings (pilots on foot see them too), and the objectives'
   panel and waypoint show the course while flying inside.
-- Tests: the rings against the city's walls; the run's rules; a Leo flying the whole course in the
+- Tests: the rings against the city's walls; the run's rules; an Argo flying the whole course in the
   interior sector's simulation and landing on the pad.
 
 **Phase 2 is built too:** the Blast Hall (`PlaceKind::Proving`), a key place off Hub Gate's
@@ -181,7 +181,7 @@ weapons' buttons, as the pilot's prediction does. Tests: `hall`'s units, the int
 `HALL_GOLDEN`, `no_alloc`, and the `inside` e2e scoring on a target.
 
 **Phase 3, boarding in the hall, is built:** on foot at the gantry's hatch, `Request::BoardTrainer`
-seats the pilot in one of the Charter Board's Leos, or the build the test range picked (item 20,
+seats the pilot in one of the Charter Board's Argos, or the build the test range picked (item 20,
 below; the hatch's prompt names it), with `Control::Board` (`Sim::launch_at` with
 `LaunchAt::Gantry`), standing on the gantry's pad. Their hangar is untouched. Docked back at rest
 on the gantry, they climb out at its hatch.
@@ -207,7 +207,7 @@ its hall on Charter Square (its door opens `Panel::Board`). Built:
 - *Supply* contracts: a pilot's holds its reward in escrow from the moment it's posted, the
   colony posts its own as its stocks run low, and anyone but the issuer delivers part of one from
   their stores and is paid pro rata on the spot.
-- *Patrols*, once the militia's hangar is built: down Dolls for so much in bounties within the
+- *Patrols*, once the militia's hangar is built: down drones for so much in bounties within the
   hour, counted as each sortie ends.
 - The great works and the charter vote, paid in credits and in standing.
 - *Desks worth the walk* (the colony open): posting, taking a patrol and signing are the Charter
@@ -248,10 +248,10 @@ for everyone: sent with the roster on the control stream (it changes rarely), so
 nothing; `suits_vis::livery` takes it when there is one. Tests: econ (paint costs, survives strip and
 refit), the hangar e2e paints a suit.
 
-**Doll offensives.** The patrol scales with the pilots out (`SimConfig::target_dolls` as a base plus
-a share per awake pilot, within the sector's suits), and now and then an offensive: a wing of Dolls
-from one direction against the dock or MO-II, announced by the Charter Board, with a bounty on top.
-Then something big: a carrier that launches Dolls (a new frame: content, model, a kit). All in the
+**Drone offensives.** The patrol scales with the pilots out (`SimConfig::target_drones` as a base plus
+a share per awake pilot, within the sector's suits), and now and then an offensive: a wing of drones
+from one direction against the dock or Fornax, announced by the Charter Board, with a bounty on top.
+Then something big: a carrier that launches drones (a new frame: content, model, a kit). All in the
 sector tick, so no allocation and determinism goldens for the new scenarios.
 
 **Agents as population.** Flaneurs that walk routes (`city_nav`) between the places, ride the trams
@@ -262,8 +262,8 @@ test with traffic.
 **Where PvP lives: a decision for the owner.** Today every human pilot flies for the Colonies (the
 server decides, whatever the client asks, and the Welcome says so: protocol v29) and friendly fire
 is off, so people can't harm each other, and `DESIGN.md`'s hunted sleepers can be hunted only by
-agents of another faction (the Alliance: nobody but the Mobile Dolls flies for Oz). The options:
-1. As now: pilots against the Consortium's Dolls, never each other.
+agents of another faction (the Alliance: nobody but the drones flies for the Almagest). The options:
+1. As now: pilots against the Consortium's drones, never each other.
 2. Lawless space past the colony's reach (say, beyond 8 km of the hull): PvP there, the colony's law
    inside it (Star Citizen's armistice zones; EVE's security levels).
 3. Opt-in: a challenge sent with the lock-on and accepted.
@@ -278,7 +278,7 @@ The Arrival (`Request::Eat`, the body on the pilot's record).
 ## P2: depth, once the above is in
 
 - **Cost brackets** (Battle Operation 2): a suit's cost from its stat sheet or its parts' prices,
-  used to tier contracts and to size the Dolls sent after a pilot.
+  used to tier contracts and to size the drones sent after a pilot.
 - **Close quarters outside the law:** solid structures at the axis port and the building site's
   frames (`COLONY.md` 1.3's colliders first), where free aim is learnt.
 - **Suits inside the colony** (`SUITS_INSIDE.md`), once the building site gives them work.
@@ -303,8 +303,8 @@ Battalion, Mecha BREAK and Daemon X Machina teach, in its list's order (15 to 22
 - The client: U (`input::eject_key`: doomed, a tap ejects and a hold blows the suit up;
   otherwise a hold), the HUD's `DOOMED` countdown, a doomed suit burning (`damage`), the capsule
   (`pods`) the camera follows, the blast (`fx`), and the kill feed. `bc-bot`: `eject`,
-  `self_destruct`, and the Mobile Doll agent ejects when doomed.
-- Tests: `bc-sim/tests/doom.rs` (doom, blows cutting it short, Dolls and sleepers without it,
+  `self_destruct`, and the drone agent ejects when doomed.
+- Tests: `bc-sim/tests/doom.rs` (doom, blows cutting it short, drones and sleepers without it,
   ejecting doomed or whole, a wreck in hand not towed, the blast, nobody ejecting inside), the
   sector's `survival_net` (the loss and the tugs, towing at once, nothing to tow after a blast),
   the hangar's `the_tugs_bring_an_ejected_pilots_wreck_home`, the proto round trips. Every
@@ -317,7 +317,7 @@ Battalion, Mecha BREAK and Daemon X Machina teach, in its list's order (15 to 22
   stability the suit is staggered (`Event::Staggered`), with a spin knocked into it if it's free.
   `stagger_step` runs it down and drains the impact of suits left alone. `FlightMods::staggered`
   takes the attitude control (`flight::integrate`) and the legs (`ground`), and the weapons,
-  blades and Full Open wait it out.
+  blades and Full Salvo wait it out.
 - The owner's prediction flies it from the own state's ticks (`Predictor::stagger`), with the
   arms clock held as through a change of form.
 - `bc_proto`: the events' second extension, and the own state's impact, stagger and the
@@ -327,25 +327,25 @@ Battalion, Mecha BREAK and Daemon X Machina teach, in its list's order (15 to 22
   bracket, the attitude jets firing wild and the sparks (`damage`), the burst, clang and shake.
   `bc-bot`: `staggered` and `impact`.
 - Tests: `bc-sim/tests/stagger.rs` (impact building to a stagger, a tumble with no shots and a
-  quarter of the thrust, direct hits, draining, Dolls, a suit on its feet stumbling to a stop),
-  `bc-client-core/tests/stagger_predict.rs` (a Leo under both flight rules and a Heavyarms pressing
-  for its Full Open, staggered again and again, predicted exactly), `no_alloc`, the proto round
+  quarter of the thrust, direct hits, draining, drones, a suit on its feet stumbling to a stop),
+  `bc-client-core/tests/stagger_predict.rs` (an Argo under both flight rules and an Antares pressing
+  for its Full Salvo, staggered again and again, predicted exactly), `no_alloc`, the proto round
   trips and budgets. Five determinism goldens are re-recorded, native and wasm alike: their fights
-  now stagger (the surface scenario's Heavyarms, staggered by the Dolls, fires once it's steady).
+  now stagger (the surface scenario's Antares, staggered by the drones, fires once it's steady).
 
 **17. Specials charged by the fight.** *Built* (protocol v25; `DESIGN.md`, "Specials charged by the
 fight").
 - `bc_sim::content::specials`: a blow dealt takes 1/450 of a special's whole cooldown off what's
-  left, a blow taken 1/300 (`DEALT_FULL`, `TAKEN_FULL`). Full Open takes 45 s by itself (it was
-  30 s), the Cross Crusher 8 s.
+  left, a blow taken 1/300 (`DEALT_FULL`, `TAKEN_FULL`). Full Salvo takes 45 s by itself (it was
+  30 s), the Pincer Strike 8 s.
 - `Sim::charge_special`, from `damage_step`: never from the special's own blows, nor while Full
-  Open is under way or locked out. `Sim::special_charge` is what the own state carries, in 255ths
+  Salvo is under way or locked out. `Sim::special_charge` is what the own state carries, in 255ths
   (it was the cooldown in ticks ÷ 4). The state hash covers a special under way or charging.
 - The HUD's `CHARGING ||||···· 52%`; `bc-bot`'s `special_charge`. The pilot's client hears of the
   fight's share from its own state, a snapshot late, as it hears of the blow.
-- Tests: `full_open.rs` (its barrage charges nothing; dealt and taken take their shares; the own
-  state's charge; a hard fight charges it in full), `melee.rs` (the Cross Crusher's own blows).
-  The Gundams duel's golden is re-recorded, and the lock-on scenario's for the hash's new reach.
+- Tests: `full_salvo.rs` (its barrage charges nothing; dealt and taken take their shares; the own
+  state's charge; a hard fight charges it in full), `melee.rs` (the Pincer Strike's own blows).
+  The Lodestars duel's golden is re-recorded, and the lock-on scenario's for the hash's new reach.
 
 **18. The debrief.** *Built* (`DESIGN.md`, "Sorties").
 - `bc_econ::debrief`: a sortie's lines at the colony's values (`catalogue::value`): earned (bounties,
@@ -373,25 +373,25 @@ fight").
 - The arms clock's `in_hand` (told by the client from the held chunk, `World::gun_in_hand`), let go
   of after the tick's guns when GRAB is released or the chunk thrown, as the server's salvage step
   does. The HUD's secondary line; `bc-bot`'s `gun_in_hand`.
-- Tests: `bc-sim/tests/held_gun.rs` (which limbs carry a gun; a Taurus's rifle fires from the left
-  hand, on its own cooldown, and the Leo's machine cannon is back once it lets go; a machine cannon
+- Tests: `bc-sim/tests/held_gun.rs` (which limbs carry a gun; a Corvus's rifle fires from the left
+  hand, on its own cooldown, and the Argo's machine cannon is back once it lets go; a machine cannon
   picked up has half a load, and fired dry it waits), `bc-client-core/tests/held_gun_predict.rs`
   (seeded at every snapshot, the prediction keeps time with the server's arms and pose; told
   nothing of the gun, it doesn't). The reference golden is re-recorded: its scripted pilots grab
   arms and fire them.
 
 **20. A test range.** *Built* (`TRAINING.md`, "Phase 3"; `DESIGN.md`).
-- `bc_econ::proving::Trainer` (the Board's Leo, the bay's build new and full, a new suit of any
+- `bc_econ::proving::Trainer` (the Board's Argo, the bay's build new and full, a new suit of any
   line) and `Request::Trainer`; the session keeps the pick, the board's view carries it, and
   boarding sends its frame and loadout in `Control::Board`.
 - The page: `THE TEST RANGE` at the Blast Hall's desk, and only there (`Request::desk`: the server
   refuses a pick from anywhere but the hall's room). `bc-bot`: `board_trainer_as`.
-- Tests: `proving`'s units, `training_net.rs`, and `bc-server/tests/proving.rs` (a Heavyarms).
+- Tests: `proving`'s units, `training_net.rs`, and `bc-server/tests/proving.rs` (an Antares).
 
 **21. Aces, pay or salvage.** *Built* (`DESIGN.md`, "Aces: the Most Wanted").
-- `bc_sim::content::aces`: the nine, their bounties, `ACE_EVERY` (5 min), the Leo they fly and its
+- `bc_sim::content::aces`: the nine, their bounties, `ACE_EVERY` (5 min), the Argo they fly and its
   armour (`ACE_ARMOUR`, half as much again). `Sim::spawn_ace` fields the next on the list while
-  none is out (`SimConfig::ace_every`); `Suits::ace` says which a Doll is. `Sim::ace_out` is the
+  none is out (`SimConfig::ace_every`); `Suits::ace` says which a drone is. `Sim::ace_out` is the
   one in the sector, flying or downed, until its slot is let go. The state hash covers it.
 - `bc_sector`: `SectorShared::ace`, a word saying which is out, as which suit, and whether it
   flies (`ace_word`); `Report::AceDown` to the session of the pilot who downs one, with its wreck;
@@ -407,7 +407,7 @@ fight").
   marks which one flies in the board's view. `--ace-every`.
 - The page: MOST WANTED at The Arrival's counter, with the terms (under the bay's Charter Board
   tab with the colony closed; with it open, the tab points there). The chart names the ace.
-- Tests: `bc-sim/tests/aces.rs` (one out at a time round the list, a Leo standing more, named
+- Tests: `bc-sim/tests/aces.rs` (one out at a time round the list, an Argo standing more, named
   until its slot is let go), `bc-sector/tests/aces_net.rs` (the word; downed by a pilot, their
   session hears with the wreck, and the claim's tugs bring it home as the ace's; downed by nobody
   here, nobody hears), `no_alloc_sector` (aces downed and claimed), the board's and the hangar's
@@ -440,7 +440,7 @@ fight").
 order (23 to 28).
 
 **23. Guns that shoot missiles down.** *Built* (protocol v28).
-- `WeaponSpec::shoots_down`: the stream weapons' rounds (vulcans, gatlings, machine guns; a const
+- `WeaponSpec::shoots_down`: the stream weapons' rounds (head guns, gatlings, machine guns; a const
   check keeps it to projectiles).
 - `Sim::round_meets_missile`, from `projectile_step`: the first hostile missile (not the round's
   owner's, nor its faction's without friendly fire) within the round's radius and the missile's
@@ -448,7 +448,7 @@ order (23 to 28).
   round's suit and blocker. `Sim::shot_down` bursts it (`BurstCause::ShotDown`, the cause's 3 bits).
   Not inside the colony, and not in a remote pilot's lag-compensated start (missiles fly in the
   present). No allocation; nothing when no missile flies.
-- Tests: `bc-sim/tests/missiles.rs` (a vulcan stream across a salvo's path bursts it; the owner's
+- Tests: `bc-sim/tests/missiles.rs` (a head-gun stream across a salvo's path bursts it; the owner's
   own rounds and a friendly's don't), the proto round trips.
 
 **24. The HUD says why.** *Built.*

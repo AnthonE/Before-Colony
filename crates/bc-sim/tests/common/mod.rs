@@ -2,8 +2,8 @@
 #![allow(dead_code, clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
 use bc_proto::buttons::{
-    BOOST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, GRIP, JETTISON, MELEE, RCS_SHARP, STOW, THROW,
-    ZERO,
+    BOOST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, GRIP, JETTISON, MELEE, ORRERY, RCS_SHARP, STOW,
+    THROW,
 };
 use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, PilotKind};
 use bc_sim::bodies::{Bodies, Body, BodyPose, Probe};
@@ -16,14 +16,14 @@ use bc_sim::math::{hash01, look_rotation};
 use bc_sim::{Sim, SimConfig, SuitId};
 use glam::Vec3;
 
-/// A busy sector: `humans` player-controlled suits (half Wing Zero with ZERO engaged) and `dolls`
-/// Mobile Dolls, spread over a few km so everyone has contacts.
-pub fn arena(humans: usize, dolls: usize, seed: u64) -> (Sim, Vec<SuitId>) {
-    let cfg = SimConfig { target_dolls: 0, seed, max_suits: 512, ..SimConfig::default() };
+/// A busy sector: `humans` player-controlled suits (half Altair with the Orrery engaged) and `drones`
+/// drones, spread over a few km so everyone has contacts.
+pub fn arena(humans: usize, drones: usize, seed: u64) -> (Sim, Vec<SuitId>) {
+    let cfg = SimConfig { target_drones: 0, seed, max_suits: 512, ..SimConfig::default() };
     let mut sim = Sim::new(cfg);
     let mut players = Vec::new();
     for k in 0..humans {
-        let frame = if k % 2 == 0 { FrameId::WingZero } else { FrameId::Leo };
+        let frame = if k % 2 == 0 { FrameId::Altair } else { FrameId::Argo };
         let a = k as f32 * 0.37;
         let pos = Vec3::new(a.cos() * 1_800.0, 800.0 + (k % 5) as f32 * 60.0, a.sin() * 1_800.0);
         let id = sim
@@ -31,19 +31,19 @@ pub fn arena(humans: usize, dolls: usize, seed: u64) -> (Sim, Vec<SuitId>) {
             .expect("slot");
         players.push(id);
     }
-    for k in 0..dolls {
+    for k in 0..drones {
         let a = k as f32 * 0.61;
         let r = 1_000.0 + (k % 7) as f32 * 150.0;
         let pos = Vec3::new(a.cos() * r, 1_200.0 + (k % 3) as f32 * 80.0, a.sin() * r);
-        let frame = if k % 4 == 3 { FrameId::Virgo } else { FrameId::Taurus };
-        sim.spawn_at(frame, Faction::Oz, PilotKind::MobileDoll, pos, look_rotation(-pos, Vec3::Y))
+        let frame = if k % 4 == 3 { FrameId::Cetus } else { FrameId::Corvus };
+        sim.spawn_at(frame, Faction::Almagest, PilotKind::Drone, pos, look_rotation(-pos, Vec3::Y))
             .expect("slot");
     }
     (sim, players)
 }
 
 /// Deterministic "human-like" input: weaving thrust, aim sweeping toward the centre, bursts of fire,
-/// ZERO engaged on Wing Zeros, occasional boosts and saber swings.
+/// the Orrery engaged on Altairs, occasional boosts and saber swings.
 pub fn scripted(sim: &Sim, id: SuitId, tick: u32) -> InputCmd {
     let i = id.idx() as u32;
     let pos = sim.suits.flight[id.idx()].pos;
@@ -66,8 +66,8 @@ pub fn scripted(sim: &Sim, id: SuitId, tick: u32) -> InputCmd {
     if (tick + i).is_multiple_of(97) {
         buttons |= MELEE;
     }
-    if sim.suits.frame[id.idx()] == FrameId::WingZero {
-        buttons |= ZERO;
+    if sim.suits.frame[id.idx()] == FrameId::Altair {
+        buttons |= ORRERY;
     }
     // Salvage: the free hand reaches for wreckage in stretches; now and then stow, throw, or dump
     // the hold.
@@ -123,24 +123,24 @@ pub fn run(sim: &mut Sim, players: &[SuitId], ticks: u32) {
     }
 }
 
-/// The Gundams' arena: every pilots' frame in pairs (one per side) 12 m apart, spread along x,
-/// among `dolls` Mobile Dolls. Returns the sim and the pilots, partners adjacent.
-pub fn gundam_arena(dolls: usize, seed: u64) -> (Sim, Vec<SuitId>) {
-    let (mut sim, _) = arena(0, dolls, seed);
-    // Pairs (Colonies, OZ), 14 m apart. Sandrock meets a Taurus: two Sandrocks parry each other's
+/// The Lodestars' arena: every pilots' frame in pairs (one per side) 12 m apart, spread along x,
+/// among `drones` Drones. Returns the sim and the pilots, partners adjacent.
+pub fn lodestar_arena(drones: usize, seed: u64) -> (Sim, Vec<SuitId>) {
+    let (mut sim, _) = arena(0, drones, seed);
+    // Pairs (Colonies, the Almagest), 14 m apart. Canopus meets a Corvus: two Canopus suits parry each other's
     // every stroke.
     let pairs = [
-        (FrameId::WingZero, FrameId::WingZero),
-        (FrameId::Heavyarms, FrameId::Heavyarms),
-        (FrameId::Deathscythe, FrameId::Deathscythe),
-        (FrameId::Sandrock, FrameId::Taurus),
-        (FrameId::Shenlong, FrameId::Shenlong),
-        (FrameId::Leo, FrameId::Leo),
+        (FrameId::Altair, FrameId::Altair),
+        (FrameId::Antares, FrameId::Antares),
+        (FrameId::Algol, FrameId::Algol),
+        (FrameId::Canopus, FrameId::Corvus),
+        (FrameId::Thuban, FrameId::Thuban),
+        (FrameId::Argo, FrameId::Argo),
     ];
     let mut pilots = Vec::new();
     for (k, pair) in pairs.iter().enumerate() {
         for (side, (f, faction)) in
-            [(pair.0, Faction::Colonies), (pair.1, Faction::Oz)].into_iter().enumerate()
+            [(pair.0, Faction::Colonies), (pair.1, Faction::Almagest)].into_iter().enumerate()
         {
             let pos = Vec3::new(k as f32 * 400.0 - 1_000.0, 1_100.0, side as f32 * 14.0);
             let facing = if side == 0 { Vec3::Z } else { -Vec3::Z };
@@ -151,14 +151,14 @@ pub fn gundam_arena(dolls: usize, seed: u64) -> (Sim, Vec<SuitId>) {
     (sim, pilots)
 }
 
-/// A busy sector of Gundams: `pairs` duels round a ring (the Colonies side cycling through every
-/// playable frame, each meeting its own kind, or a Taurus for Sandrock), and `dolls` Mobile Dolls.
-pub fn gundam_crowd(pairs: usize, dolls: usize, seed: u64) -> (Sim, Vec<(SuitId, SuitId)>) {
-    let (mut sim, _) = arena(0, dolls, seed);
+/// A busy sector of Lodestars: `pairs` duels round a ring (the Colonies side cycling through every
+/// playable frame, each meeting its own kind, or a Corvus for Canopus), and `drones` Drones.
+pub fn lodestar_crowd(pairs: usize, drones: usize, seed: u64) -> (Sim, Vec<(SuitId, SuitId)>) {
+    let (mut sim, _) = arena(0, drones, seed);
     let mut duels = Vec::new();
     for k in 0..pairs {
         let f = bc_sim::content::PLAYABLE_ORDER[k % bc_sim::content::PLAYABLE_ORDER.len()];
-        let foe = if f == FrameId::Sandrock { FrameId::Taurus } else { f };
+        let foe = if f == FrameId::Canopus { FrameId::Corvus } else { f };
         let a = k as f32 * 0.43;
         let at = Vec3::new(a.cos() * 2_000.0, 1_000.0 + (k % 4) as f32 * 90.0, a.sin() * 2_000.0);
         let out = at.normalize();
@@ -166,13 +166,13 @@ pub fn gundam_crowd(pairs: usize, dolls: usize, seed: u64) -> (Sim, Vec<(SuitId,
             sim.spawn_at(f, faction, PilotKind::Human, pos, look_rotation(facing, Vec3::Y)).expect("slot")
         };
         let x = spawn(f, Faction::Colonies, at, out);
-        let y = spawn(foe, Faction::Oz, at + out * 300.0, -out);
+        let y = spawn(foe, Faction::Almagest, at + out * 300.0, -out);
         duels.push((x, y));
     }
     (sim, duels)
 }
 
-/// Deterministic input for a Gundam pilot duelling `foe`: aim at it and designate it, close in,
+/// Deterministic input for a Lodestar pilot duelling `foe`: aim at it and designate it, close in,
 /// strike with every blade and the special, fire in bursts.
 pub fn duel_scripted(sim: &Sim, id: SuitId, foe: SuitId, tick: u32) -> InputCmd {
     let i = id.idx() as u32;
@@ -190,7 +190,7 @@ pub fn duel_scripted(sim: &Sim, id: SuitId, foe: SuitId, tick: u32) -> InputCmd 
     if ahead && to.length() < 14.0 && (tick + 3 * i).is_multiple_of(11) {
         buttons |= bc_proto::buttons::SPECIAL;
     }
-    // The frame's mode (the Hyper Jammer, Neo-Bird) for stretches of three seconds.
+    // The frame's mode (the Eclipse, Aquila) for stretches of three seconds.
     if (tick / 90 + i).is_multiple_of(2) {
         buttons |= bc_proto::buttons::MODE;
     }
@@ -261,10 +261,10 @@ pub fn lone_rock(sim: &Sim, min: f32, clear: f32) -> (usize, Rock) {
         .expect("a lone rock")
 }
 
-/// A Colonies Leo at rest against rock `r`, just off its surface and facing away from it, and the
+/// A Colonies Argo at rest against rock `r`, just off its surface and facing away from it, and the
 /// way out from the rock there.
 pub fn resting_on(sim: &mut Sim, r: &Rock) -> (SuitId, Vec3) {
-    resting_as(sim, FrameId::Leo, r, -Vec3::new(1.0, 0.1, 0.3).normalize())
+    resting_as(sim, FrameId::Argo, r, -Vec3::new(1.0, 0.1, 0.3).normalize())
 }
 
 /// A Colonies `frame` at rest against rock `r` on its side `out` of it, facing away from it, and
@@ -327,8 +327,8 @@ pub fn standing_on(sim: &mut Sim, frame: FrameId, faction: Faction, body: Body, 
     id
 }
 
-/// A Colonies `frame` standing on MO-II along `dir_local`.
-pub fn on_mo_ii(sim: &mut Sim, frame: FrameId, dir_local: Vec3) -> SuitId {
+/// A Colonies `frame` standing on Fornax along `dir_local`.
+pub fn on_fornax(sim: &mut Sim, frame: FrameId, dir_local: Vec3) -> SuitId {
     standing_on(sim, frame, Faction::Colonies, Body::Landmark(0), dir_local)
 }
 
@@ -427,12 +427,12 @@ pub fn check_invariants(sim: &Sim) {
     }
 }
 
-/// A crowd on the bodies: 128 suits standing on MO-II, Hermit and the first 16 rocks they can
-/// grip (Leos of the Colonies and Heavyarms of the Alliance by turns), 64 OZ Heavyarms each 700 m
-/// over one of them, and `dolls` Mobile Dolls. Returns the sim, the riders, the hunters with their
+/// A crowd on the bodies: 128 suits standing on Fornax, Hermit and the first 16 rocks they can
+/// grip (Argos of the Colonies and Antares of the Alliance by turns), 64 the Almagest Antares each 700 m
+/// over one of them, and `drones` Drones. Returns the sim, the riders, the hunters with their
 /// prey, and a rock with riders on it.
-pub fn rider_crowd(dolls: usize, seed: u64) -> (Sim, Vec<SuitId>, Vec<(SuitId, SuitId)>, usize) {
-    let (mut sim, _) = arena(0, dolls, seed);
+pub fn rider_crowd(drones: usize, seed: u64) -> (Sim, Vec<SuitId>, Vec<(SuitId, SuitId)>, usize) {
+    let (mut sim, _) = arena(0, drones, seed);
     let rocks: Vec<u16> = (0..sim.field.len())
         .filter(|&r| sim.field.rocks()[r].axes.min_element() >= GRIP_MIN_AXIS)
         .map(|r| r as u16)
@@ -446,9 +446,9 @@ pub fn rider_crowd(dolls: usize, seed: u64) -> (Sim, Vec<SuitId>, Vec<(SuitId, S
         };
         let dir = Vec3::new(hash01(k, 1) - 0.5, hash01(k, 2) - 0.5, hash01(k, 3) - 0.5).normalize_or(Vec3::Y);
         let (frame, faction) = if k % 2 == 0 {
-            (FrameId::Leo, Faction::Colonies)
+            (FrameId::Argo, Faction::Colonies)
         } else {
-            (FrameId::Heavyarms, Faction::Alliance)
+            (FrameId::Antares, Faction::Alliance)
         };
         riders.push(standing_on(&mut sim, frame, faction, body, dir));
     }
@@ -458,8 +458,8 @@ pub fn rider_crowd(dolls: usize, seed: u64) -> (Sim, Vec<SuitId>, Vec<(SuitId, S
             let at = sim.suits.flight[prey.idx()].pos + Vec3::new(0.0, 700.0, 300.0 + 20.0 * k as f32);
             let id = sim
                 .spawn_at(
-                    FrameId::Heavyarms,
-                    Faction::Oz,
+                    FrameId::Antares,
+                    Faction::Almagest,
                     PilotKind::Human,
                     at,
                     look_rotation(-Vec3::Y, Vec3::Z),

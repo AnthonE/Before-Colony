@@ -11,8 +11,8 @@ static ALLOC: CountingAlloc = CountingAlloc;
 
 #[test]
 fn busy_sector_ticks_without_allocating() {
-    // 64 pilots (32 Wing Zeros with ZERO engaged, all firing, boosting, swinging sabers) and
-    // 256 Mobile Dolls.
+    // 64 pilots (32 Altairs with the Orrery engaged, all firing, boosting, swinging sabers) and
+    // 256 drones.
     let (mut sim, players) = common::arena(64, 256, 7);
     // Warm up outside the measured region (first contacts, first deaths, respawn paths).
     common::run(&mut sim, &players, 120);
@@ -72,9 +72,9 @@ fn anime_rules_tick_without_allocating() {
 }
 
 #[test]
-fn gundams_duel_without_allocating() {
-    // Every Gundam's blades, twin blades, the fang and the Cross Crusher, among Mobile Dolls.
-    let (mut sim, pilots) = common::gundam_arena(64, 11);
+fn lodestars_duel_without_allocating() {
+    // Every Lodestar's blades, twin blades, the fang and the Pincer Strike, among drones.
+    let (mut sim, pilots) = common::lodestar_arena(64, 11);
     let mut total = 0;
     for _ in 0..600 {
         let t = sim.next_tick();
@@ -99,8 +99,8 @@ fn gundams_duel_without_allocating() {
 
 #[test]
 fn locked_on_pilots_never_allocate() {
-    // Thirty duels, every pilot locked on to its foe, among Mobile Dolls.
-    let (mut sim, duels) = common::gundam_crowd(30, 64, 13);
+    // Thirty duels, every pilot locked on to its foe, among drones.
+    let (mut sim, duels) = common::lodestar_crowd(30, 64, 13);
     common::run(&mut sim, &[], 30);
     let mut total = 0;
     for _ in 0..600 {
@@ -124,7 +124,7 @@ fn locked_on_pilots_never_allocate() {
 
 #[test]
 fn sleepers_never_allocate() {
-    // 64 pilots among 256 Mobile Dolls. Every tick a pilot falls asleep, and every third tick a
+    // 64 pilots among 256 drones. Every tick a pilot falls asleep, and every third tick a
     // sleeper wakes, well past the cap on sleepers (so the longest asleep are cleared); sleepers
     // are shot down among the fighting; pilots whose suits are gone come back in new ones; the
     // fates are read out every tick. None of it may touch the heap.
@@ -150,7 +150,7 @@ fn sleepers_never_allocate() {
                 if !sim.suits.valid(*id) {
                     sim.ensure_free_suits(1);
                     if let Some(new) = sim.join(
-                        bc_proto::FrameId::Leo,
+                        bc_proto::FrameId::Argo,
                         bc_proto::Faction::Colonies,
                         bc_proto::PilotKind::Human,
                     ) {
@@ -177,8 +177,8 @@ fn riders_never_allocate() {
     use bc_proto::InputCmd;
     use bc_sim::ground::Footing;
 
-    // 128 suits standing on MO-II, Hermit and the rocks they can grip, 64 Heavyarms hunting them
-    // with guns and missiles, and 256 Mobile Dolls. The riders walk, run, hop, crouch, dig, let go
+    // 128 suits standing on Fornax, Hermit and the rocks they can grip, 64 Antares hunting them
+    // with guns and missiles, and 256 drones. The riders walk, run, hop, crouch, dig, let go
     // and are caught again; every 10 ticks one falls asleep where it is, every 30 one wakes, and a
     // rock with riders on it is shattered; some of those asleep go dark. None of it may touch the
     // heap.
@@ -253,14 +253,14 @@ fn bay_launches_never_allocate() {
     use bc_sim::sim::Loadout;
     use glam::Vec3;
     let mut sim = bc_sim::Sim::new(bc_sim::SimConfig {
-        target_dolls: 0,
+        target_drones: 0,
         field_rocks: 0,
         survival: true,
         ..bc_sim::SimConfig::default()
     });
     let mut ids = Vec::new();
     for k in 0..64 {
-        let f = [FrameId::Leo, FrameId::WingZero, FrameId::Heavyarms][k % 3];
+        let f = [FrameId::Argo, FrameId::Altair, FrameId::Antares][k % 3];
         ids.push(sim.launch(f, Faction::Colonies, PilotKind::Human, &Loadout::full(f)).unwrap());
     }
     let mut total = 0;
@@ -393,7 +393,7 @@ fn the_interior_ticks_without_allocating() {
     use bc_sim::sim::Loadout;
     use glam::Vec3;
     let mut sim = bc_sim::Sim::new(bc_sim::SimConfig {
-        target_dolls: 0,
+        target_drones: 0,
         field_rocks: 0,
         landmarks: 0,
         survival: true,
@@ -402,7 +402,7 @@ fn the_interior_ticks_without_allocating() {
     });
     let mut ids = Vec::new();
     for k in 0..64 {
-        let f = [FrameId::Leo, FrameId::WingZero, FrameId::Heavyarms][k % 3];
+        let f = [FrameId::Argo, FrameId::Altair, FrameId::Antares][k % 3];
         let id = sim.launch(f, Faction::Colonies, PilotKind::Human, &Loadout::full(f)).unwrap();
         // (Those with their grips armed low enough to be caught.)
         let h = if k % 4 == 0 { 25.0 } else { 40.0 };
@@ -460,7 +460,7 @@ fn the_interior_ticks_without_allocating() {
 #[test]
 fn doomed_suits_ejecting_and_blowing_up_never_allocate() {
     // The busy sector, with pilots' torsos breached now and then: doomed, a third ride it out, a
-    // third eject and a third blow themselves up among the Dolls (`sim::doom`).
+    // third eject and a third blow themselves up among the drones (`sim::doom`).
     let (mut sim, players) = common::arena(64, 256, 17);
     common::run(&mut sim, &players, 120);
     let (mut total, mut ejected, mut blown) = (0, 0, 0);

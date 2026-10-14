@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use bc_bot::{BotClient, BotConfig, DollBrain, Stroll};
+use bc_bot::{BotClient, BotConfig, DroneBrain, Stroll};
 use bc_proto::{Faction, FrameId, InputCmd};
 use bc_sim::content::PLAYABLE_ORDER;
 use clap::Parser;
@@ -68,7 +68,7 @@ async fn main() -> anyhow::Result<()> {
                     return;
                 }
             };
-            // Under survival rules they fly the starter Leo out of their hangars (run the server
+            // Under survival rules they fly the starter Argo out of their hangars (run the server
             // with --rules arcade to fly every frame).
             if let Err(e) = bot.sortie().await {
                 eprintln!("bot {k}: {e:#}");
@@ -76,7 +76,7 @@ async fn main() -> anyhow::Result<()> {
                 return;
             }
             totals.connected.fetch_add(1, Ordering::Relaxed);
-            let mut brain = DollBrain::new(k as u32 * 7919 + 1);
+            let mut brain = DroneBrain::new(k as u32 * 7919 + 1);
             let mut worst = 0.0f32;
             let end = std::time::Instant::now() + Duration::from_secs(secs);
             while std::time::Instant::now() < end {
@@ -154,7 +154,7 @@ async fn walk(k: usize, server: &str, secs: u64, totals: &Totals) -> anyhow::Res
     let cfg = BotConfig {
         server: server.to_string(),
         name: format!("Walker-{k:03}"),
-        frame: FrameId::Leo,
+        frame: FrameId::Argo,
         faction: Faction::Colonies,
     };
     let mut bot = BotClient::connect(&cfg).await?;

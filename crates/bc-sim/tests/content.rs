@@ -1,5 +1,5 @@
-//! The content tables: every frame and weapon is where its id says, the Gundams fly as the design
-//! describes, and Neo-Bird is Wing Zero in another shape (same armour, energy, heat and tank).
+//! The content tables: every frame and weapon is where its id says, the Lodestars fly as the design
+//! describes, and Aquila is Altair in another shape (same armour, energy, heat and tank).
 
 use bc_proto::{FrameId, Part, WeaponKind};
 use bc_sim::config::G0;
@@ -21,17 +21,17 @@ fn every_row_is_where_its_id_says() {
 
 /// Acceleration on a full tank (g) and Δv (km/s), as `docs/DESIGN.md` lists them.
 #[test]
-fn the_gundams_fly_as_designed() {
+fn the_lodestars_fly_as_designed() {
     let design = [
-        (FrameId::Leo, 3.5, 3.11),
-        (FrameId::Heavyarms, 5.2, 3.39),
-        (FrameId::Deathscythe, 7.0, 3.99),
-        (FrameId::Sandrock, 4.6, 2.97),
-        (FrameId::Shenlong, 7.4, 4.03),
-        (FrameId::WingZeroBird, 8.5, 4.52),
-        (FrameId::WingZero, 8.0, 4.52),
-        (FrameId::Taurus, 5.0, 2.87),
-        (FrameId::Virgo, 3.0, 2.49),
+        (FrameId::Argo, 3.5, 3.11),
+        (FrameId::Antares, 5.2, 3.39),
+        (FrameId::Algol, 7.0, 3.99),
+        (FrameId::Canopus, 4.6, 2.97),
+        (FrameId::Thuban, 7.4, 4.03),
+        (FrameId::Aquila, 8.5, 4.52),
+        (FrameId::Altair, 8.0, 4.52),
+        (FrameId::Corvus, 5.0, 2.87),
+        (FrameId::Cetus, 3.0, 2.49),
     ];
     for (f, g, dv) in design {
         let s = frame(f);
@@ -44,26 +44,26 @@ fn the_gundams_fly_as_designed() {
 }
 
 #[test]
-fn neo_bird_is_wing_zero_in_another_shape() {
-    let (wz, bird) = (frame(FrameId::WingZero), frame(FrameId::WingZeroBird));
+fn aquila_is_altair_in_another_shape() {
+    let (wz, bird) = (frame(FrameId::Altair), frame(FrameId::Aquila));
     assert_eq!(wz.part_hp, bird.part_hp);
     assert_eq!((wz.dry_mass, wz.propellant_cap, wz.isp), (bird.dry_mass, bird.propellant_cap, bird.isp));
     assert_eq!((wz.energy_cap, wz.energy_regen), (bird.energy_cap, bird.energy_regen));
     assert_eq!((wz.heat_cap, wz.heat_dissipation), (bird.heat_cap, bird.heat_dissipation));
-    assert_eq!((wz.armor, wz.zero), (bird.armor, bird.zero));
+    assert_eq!((wz.armor, wz.orrery), (bird.armor, bird.orrery));
     // Each transforms into the other, taking the same time.
     let (SpecialKind::Transform { to: a, ticks: ta, .. }, SpecialKind::Transform { to: b, ticks: tb, .. }) =
         (wz.special, bird.special)
     else {
         panic!("both forms transform");
     };
-    assert_eq!((a, b), (FrameId::WingZeroBird, FrameId::WingZero));
+    assert_eq!((a, b), (FrameId::Aquila, FrameId::Altair));
     assert_eq!(ta, tb);
     // Faster in a straight line, worse in turns, and no melee.
     assert!(bird.fa_speed > wz.fa_speed && bird.main_thrust > wz.main_thrust);
-    assert!(bird.ambac_rate < wz.ambac_rate && bird.side_thrust < wz.side_thrust);
+    assert!(bird.limb_trim_rate < wz.limb_trim_rate && bird.side_thrust < wz.side_thrust);
     assert!(bird.loadout[2].is_none());
-    assert_eq!(bird.loadout[0].map(|m| m.weapon), Some(WeaponKind::TwinBusterRifle));
+    assert_eq!(bird.loadout[0].map(|m| m.weapon), Some(WeaponKind::HeavyBeamRifle));
     // Its wings are wider than a humanoid's arms.
     assert!(bird.capsules[Part::ArmR as usize].b.x > 7.0);
 }
@@ -78,7 +78,7 @@ fn only_pilots_frames_are_playable() {
     for f in PLAYABLE_ORDER {
         assert!(playable(f), "{f:?} can be flown");
     }
-    for f in [FrameId::Taurus, FrameId::Virgo, FrameId::WingZeroBird] {
+    for f in [FrameId::Corvus, FrameId::Cetus, FrameId::Aquila] {
         assert!(!playable(f), "{f:?} must not be chosen");
     }
 }
@@ -111,13 +111,13 @@ fn every_mount_fits_its_weapon() {
                 let w = s.special_mounts[0].map(|m| weapon(m.weapon));
                 assert!(w.is_some_and(|w| w.class == WeaponClass::Melee), "{f:?}");
             }
-            SpecialKind::FullOpen { .. } => assert!(s.special_mounts.iter().all(Option::is_some), "{f:?}"),
+            SpecialKind::FullSalvo { .. } => assert!(s.special_mounts.iter().all(Option::is_some), "{f:?}"),
             _ => {}
         }
     }
     // The existing arsenal keeps its replication: beams by event, cannon rounds by flag.
     assert_eq!(weapon(WeaponKind::BeamRifle).replication, Replication::PerShot);
     assert_eq!(weapon(WeaponKind::MachineCannon).replication, Replication::Stream);
-    assert!(weapon(WeaponKind::TwinBusterRifle).engulfs);
+    assert!(weapon(WeaponKind::HeavyBeamRifle).engulfs);
     assert!(WeaponKind::ALL.iter().filter(|k| weapon(**k).engulfs).count() == 1);
 }

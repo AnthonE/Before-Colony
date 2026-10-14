@@ -199,7 +199,7 @@ pub fn range_rate(rel_vel: Vec3, outward: Vec3) -> f32 {
 pub enum LetGo {
     /// It climbed out of the grip on the thrusters, as asked: flying.
     Flying,
-    /// Its pilot changed its form, which can't hold on (a Neo-Bird can't grip): taking off, as
+    /// Its pilot changed its form, which can't hold on (an Aquila can't grip): taking off, as
     /// asked.
     Transformed,
     /// Of its own accord: too high, too fast, the rock gone, blown off. `GRIP LOST`.
@@ -247,16 +247,16 @@ mod tests {
         let set = BodySet::new(field.clone(), 2);
         assert!(set.knows(BodyRef::Rock(159)) && !set.knows(BodyRef::Rock(160)));
         assert!(set.knows(BodyRef::Landmark(1)) && !set.knows(BodyRef::Landmark(2)));
-        let mo_ii = Body::Landmark(0);
+        let fornax = Body::Landmark(0);
         for t in [0u32, 1, 9_599, 9_600, 54_001, 1_000_000] {
             // On the tick, exactly the simulation's.
-            assert_eq!(set.pose_at(mo_ii, f64::from(t)), set.at(t).pose(mo_ii), "at {t}");
+            assert_eq!(set.pose_at(fornax, f64::from(t)), set.at(t).pose(fornax), "at {t}");
             // Between ticks, the closed form at the fraction.
-            assert_eq!(set.pose_at(mo_ii, f64::from(t) + 0.25), Some(landmark_pose(&LANDMARKS[0], t, 0.25)));
+            assert_eq!(set.pose_at(fornax, f64::from(t) + 0.25), Some(landmark_pose(&LANDMARKS[0], t, 0.25)));
         }
         let rock = field.rocks()[7];
         assert_eq!(set.pose_at(Body::Rock(7), 12.5).map(|p| p.pos), Some(rock.pos));
-        // A sector with only MO-II has no Hermit.
+        // A sector with only Fornax has no Hermit.
         let one = BodySet::new(field, 1);
         assert!(one.pose_at(Body::Landmark(1), 0.0).is_none() && !one.knows(BodyRef::Landmark(1)));
     }
@@ -264,11 +264,11 @@ mod tests {
     #[test]
     fn the_ring_is_green_exactly_when_the_simulation_would_catch() {
         let set = BodySet::new(Arc::new(Field::empty()), 2);
-        // Over the top of MO-II's +Y pylon, as it rolls and drifts.
-        let mo_ii = Body::Landmark(0);
+        // Over the top of Fornax's +Y pylon, as it rolls and drifts.
+        let fornax = Body::Landmark(0);
         let b = set.at(500);
-        let pose = b.pose(mo_ii).unwrap();
-        let (p, n) = b.surface_along(mo_ii, Vec3::Y).unwrap();
+        let pose = b.pose(fornax).unwrap();
+        let (p, n) = b.surface_along(fornax, Vec3::Y).unwrap();
         let (p, n) = (pose.to_world(p), pose.rot * n);
         let over = |h: f32, rel: Vec3| {
             let pos = p + n * (STANCE + h);
@@ -276,7 +276,7 @@ mod tests {
         };
         // Slow and close: green, the ring on the surface under the suit.
         let hint = surface_hint(&b, &over(18.0, -n * 3.2)).expect("a surface");
-        assert!(hint.catch && hint.body == mo_ii);
+        assert!(hint.catch && hint.body == fornax);
         assert!((hint.height - 18.0).abs() < 0.05 && (hint.speed - 3.2).abs() < 1e-3);
         assert!(hint.point.distance(p) < 0.05, "{:?} off {p:?}", hint.point);
         // Too fast, or too high: shown, not green.

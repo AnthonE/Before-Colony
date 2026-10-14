@@ -20,12 +20,12 @@ use crate::item::{is_line, line_serde};
 use crate::suit::Suit;
 
 /// The suit a pilot boards at the Blast Hall's gantry (`docs/DESIGN.md`, "The test range";
-/// Armored Core VI's test mode): one of the Charter Board's Leos, the build standing in their bay,
+/// Armored Core VI's test mode): one of the Charter Board's Argos, the build standing in their bay,
 /// or a new suit of any line the colony builds. Nothing of theirs is taken, and nothing comes home.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Trainer {
-    /// One of the Board's Leos, everything fitted.
+    /// One of the Board's Argos, everything fitted.
     #[default]
     Board,
     /// The suit in the pilot's bay as built, new and full: its parts, weapons and equipment, with
@@ -42,7 +42,7 @@ impl Trainer {
     /// The frame that boards and what it carries; or why there's nothing to board.
     pub fn loadout(self, hangar: &Hangar) -> Result<(FrameId, Loadout), String> {
         match self {
-            Trainer::Board => Ok((FrameId::Leo, Loadout::full(FrameId::Leo))),
+            Trainer::Board => Ok((FrameId::Argo, Loadout::full(FrameId::Argo))),
             Trainer::Bay => match &hangar.bay {
                 Bay::Docked { suit } => {
                     let mut s = suit.clone();
@@ -68,7 +68,7 @@ impl Trainer {
     /// What the gantry readies, for the pilot.
     pub fn name(self, hangar: &Hangar) -> String {
         match self {
-            Trainer::Board => "ONE OF THE CHARTER BOARD'S LEOS".into(),
+            Trainer::Board => "ONE OF THE CHARTER BOARD'S ARGOS".into(),
             Trainer::Bay => match &hangar.bay {
                 Bay::Docked { suit } => {
                     format!("YOUR {}, AS BUILT", bc_sim::content::frame_name(suit.line).to_uppercase())
@@ -325,24 +325,24 @@ mod tests {
     #[test]
     fn a_pilot_is_on_the_days_list_once_with_their_best_fastest_first() {
         let mut b = Board::default();
-        let p = b.record(Feat::Course, "a", "Heero", 130_000, NOON);
+        let p = b.record(Feat::Course, "a", "Kai", 130_000, NOON);
         assert_eq!(p, Placed { rank: Some(1), improved: true, record: true });
-        assert_eq!(b.record(Feat::Course, "b", "Duo", 118_000, NOON + 1).rank, Some(1));
+        assert_eq!(b.record(Feat::Course, "b", "Nico", 118_000, NOON + 1).rank, Some(1));
         // Slower than their best: they keep it, and it's no record.
-        let p = b.record(Feat::Course, "a", "Heero", 140_000, NOON + 2);
+        let p = b.record(Feat::Course, "a", "Kai", 140_000, NOON + 2);
         assert_eq!(p, Placed { rank: Some(2), improved: false, record: false });
         // Better: moved up, and the old one's gone.
-        let p = b.record(Feat::Course, "a", "Heero", 117_500, NOON + 3);
+        let p = b.record(Feat::Course, "a", "Kai", 117_500, NOON + 3);
         assert_eq!(p, Placed { rank: Some(1), improved: true, record: true });
         let v = b.view("a", NOON + 4);
         let rows: Vec<_> = v.course.iter().map(|r| (r.name.as_str(), r.ms, r.you)).collect();
-        assert_eq!(rows, [("Heero", 117_500, true), ("Duo", 118_000, false)]);
+        assert_eq!(rows, [("Kai", 117_500, true), ("Nico", 118_000, false)]);
         assert_eq!(v.course_record.as_ref().map(|r| r.ms), Some(117_500));
         assert!(v.drill.is_empty() && v.drill_record.is_none());
         assert_eq!((v.course_par_ms, v.drill_par_ms), (120_000, 25_000));
         // A tie goes to whoever flew it first.
-        b.record(Feat::Course, "c", "Trowa", 117_500, NOON + 5);
-        assert_eq!(b.view("c", NOON + 6).course[1].name, "Trowa");
+        b.record(Feat::Course, "c", "Tomas", 117_500, NOON + 5);
+        assert_eq!(b.view("c", NOON + 6).course[1].name, "Tomas");
         // Nobody's key is in the view.
         let json = serde_json::to_string(&b.view("a", NOON)).unwrap();
         assert!(!json.contains("\"who\"") && !json.contains("\"a\""), "{json}");
@@ -398,33 +398,33 @@ mod tests {
         assert_eq!(old.day, 3);
     }
 
-    /// The test range: the Board's Leo; the bay's build, new and full, whatever it's been
+    /// The test range: the Board's Argo; the bay's build, new and full, whatever it's been
     /// through; a new suit of any line; and nothing when there's nothing to try.
     #[test]
     fn the_gantry_readies_any_build() {
         let mut h = Hangar::starter();
         let (frame, l) = Trainer::Board.loadout(&h).unwrap();
-        assert_eq!((frame, l), (FrameId::Leo, Loadout::full(FrameId::Leo)));
-        // The starter: a worn Leo without its beam rifle, half a tank.
+        assert_eq!((frame, l), (FrameId::Argo, Loadout::full(FrameId::Argo)));
+        // The starter: a worn Argo without its beam rifle, half a tank.
         let (frame, l) = Trainer::Bay.loadout(&h).unwrap();
-        assert_eq!(frame, FrameId::Leo);
+        assert_eq!(frame, FrameId::Argo);
         assert_eq!(l.mounts & 1, 0, "its build has no rifle, and neither has its trainer");
         assert!(l.parts.iter().all(|p| *p == 1.0), "as new: {:?}", l.parts);
-        assert_eq!(l.propellant, crate::suit::Suit::complete(FrameId::Leo).propellant as f32);
-        let leo = bc_sim::content::frame_name(FrameId::Leo).to_uppercase();
-        assert_eq!(Trainer::Bay.name(&h), format!("YOUR {leo}, AS BUILT"));
+        assert_eq!(l.propellant, crate::suit::Suit::complete(FrameId::Argo).propellant as f32);
+        let argo = bc_sim::content::frame_name(FrameId::Argo).to_uppercase();
+        assert_eq!(Trainer::Bay.name(&h), format!("YOUR {argo}, AS BUILT"));
         // Out on a sortie, or nothing there at all: nothing to try.
         let _ = h.launch().unwrap();
         assert!(Trainer::Bay.loadout(&h).is_err());
         h.bay = Bay::Empty;
         assert!(Trainer::Bay.loadout(&h).is_err());
-        // Any line the colony builds; a Mobile Doll isn't one.
-        let (frame, l) = Trainer::Line { line: FrameId::Heavyarms }.loadout(&h).unwrap();
-        assert_eq!((frame, l.parts[Part::Torso as usize]), (FrameId::Heavyarms, 1.0));
-        assert!(Trainer::Line { line: FrameId::Taurus }.loadout(&h).is_err());
+        // Any line the colony builds; a drone isn't one.
+        let (frame, l) = Trainer::Line { line: FrameId::Antares }.loadout(&h).unwrap();
+        assert_eq!((frame, l.parts[Part::Torso as usize]), (FrameId::Antares, 1.0));
+        assert!(Trainer::Line { line: FrameId::Corvus }.loadout(&h).is_err());
         // On the wire as the page sends it.
-        let json = serde_json::to_string(&Trainer::Line { line: FrameId::WingZero }).unwrap();
-        assert_eq!(json, r#"{"kind":"line","line":"wingzero"}"#);
+        let json = serde_json::to_string(&Trainer::Line { line: FrameId::Altair }).unwrap();
+        assert_eq!(json, r#"{"kind":"line","line":"altair"}"#);
         assert_eq!(serde_json::from_str::<Trainer>(r#"{"kind":"bay"}"#).unwrap(), Trainer::Bay);
     }
 }

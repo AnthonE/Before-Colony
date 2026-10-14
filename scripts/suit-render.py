@@ -2,11 +2,11 @@
 at a design from the views its reference art is drawn in.
 
     pip install bpy==4.2.0   # Blender as a Python module (Python 3.11)
-    cargo run -q -p bc-model --example suit_json -- leo > leo.json
-    python3 scripts/suit-render.py leo.json out/leo [front back side three rear34 head ...]
+    cargo run -q -p bc-model --example suit_json -- argo > argo.json
+    python3 scripts/suit-render.py argo.json out/argo [front back side three rear34 head ...]
 
 Each view is written to `<out>-<view>.png`; `sheet` (the default) lays front, side, back and the
-three-quarter views out on one image. `--livery oz|colonies|alliance|white` picks the paint,
+three-quarter views out on one image. `--livery almagest|colonies|alliance|white` picks the paint,
 `--size N` the height in pixels, `--blend` also saves the scene (`<out>.blend`) to open in Blender,
 and `--glb` exports the suit as glTF (`<out>.glb`). `--turn Head:0,40,0` turns a bone (and what
 hangs off it) about its joint by x, y and z angles in degrees, in the suit's frame, to see a pose:
@@ -53,7 +53,7 @@ PALETTE = [
 ]
 # Body, trim, accent and eye glow (crates/bc-client/src/suits_vis.rs, hull.wgsl's EYES).
 LIVERIES = {
-    "oz": (5, 6, 4, (6.0, 0.4, 2.2)),
+    "almagest": (5, 6, 4, (6.0, 0.4, 2.2)),
     "colonies": (8, 0, 2, (0.2, 6.0, 1.2)),
     "alliance": (10, 4, 2, (6.0, 0.4, 2.2)),
     "white": (0, 1, 2, (0.2, 6.0, 1.2)),
@@ -346,7 +346,7 @@ def main():
     ap.add_argument("model")
     ap.add_argument("out")
     ap.add_argument("views", nargs="*")
-    ap.add_argument("--livery", default="oz", choices=sorted(LIVERIES))
+    ap.add_argument("--livery", default="almagest", choices=sorted(LIVERIES))
     ap.add_argument("--size", type=int, default=900)
     ap.add_argument("--samples", type=int, default=48)
     ap.add_argument("--blend", action="store_true")
@@ -367,7 +367,7 @@ def main():
         # paint slot for slot.
         bpy.context.view_layer.update()
         work = os.path.join(os.path.dirname(os.path.abspath(args.out)), ".suit-looks")
-        decals = suit_looks.place_decals(repo, work) if model["frame"] == "Leo" else []
+        decals = suit_looks.place_decals(repo, work) if model["frame"] == "Argo" else []
         body, trim, accent, eye = LIVERIES[args.livery]
         get = suit_looks.materials(args.look, (body, trim, accent), palette, eye, suit_looks.textures(work), decals)
         for o in objects.values():

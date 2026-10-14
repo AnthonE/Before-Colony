@@ -23,7 +23,7 @@ use glam::Vec3;
 
 fn sector(max_sleepers: usize) -> (Sector, Arc<SectorShared>) {
     let cfg = SectorConfig {
-        sim: SimConfig { target_dolls: 0, seed: 5, max_sleepers, ..SimConfig::default() },
+        sim: SimConfig { target_drones: 0, seed: 5, max_sleepers, ..SimConfig::default() },
         max_clients: 4,
         ..SectorConfig::default()
     };
@@ -35,7 +35,7 @@ fn join(slot: u16, comeback: Comeback) -> Control {
     Control::Join {
         slot,
         pilot: PilotKind::Human,
-        frame: FrameId::Leo,
+        frame: FrameId::Argo,
         faction: Faction::Colonies,
         max_datagram: MAX_DATAGRAM as u16,
         comeback,
@@ -43,16 +43,16 @@ fn join(slot: u16, comeback: Comeback) -> Control {
     }
 }
 
-/// Survival: a Leo built new, launched from the hub.
+/// Survival: an Argo built new, launched from the hub.
 fn launch(slot: u16) -> Control {
     Control::Join {
         slot,
         pilot: PilotKind::Human,
-        frame: FrameId::Leo,
+        frame: FrameId::Argo,
         faction: Faction::Colonies,
         max_datagram: MAX_DATAGRAM as u16,
         comeback: Comeback::default(),
-        launch: Some(Loadout::full(FrameId::Leo)),
+        launch: Some(Loadout::full(FrameId::Argo)),
     }
 }
 
@@ -149,7 +149,7 @@ fn sleepers_cleared_for_room_are_reported() {
 #[test]
 fn suits_on_bodies_are_counted_and_the_welcome_names_the_landmarks() {
     let (mut sector, shared) = sector(16);
-    assert_eq!(shared.landmarks, 3, "MO-II, Hermit and the docking hub");
+    assert_eq!(shared.landmarks, 3, "Fornax, Hermit and the docking hub");
     send(&mut sector, &shared, 0, join(0, Comeback::default()));
     let (idx, generation) = shared.slots[0].suit_id().unwrap();
     // Standing on Hermit (out of its hide spots) as its pilot leaves: parked on its feet.
@@ -168,7 +168,7 @@ fn suits_on_bodies_are_counted_and_the_welcome_names_the_landmarks() {
     // A sector of fewer landmarks says so; one asking for more than there are has them all.
     for (asked, has) in [(0, 0), (1, 1), (9, 3)] {
         let cfg = SectorConfig {
-            sim: SimConfig { target_dolls: 0, field_rocks: 0, landmarks: asked, ..SimConfig::default() },
+            sim: SimConfig { target_drones: 0, field_rocks: 0, landmarks: asked, ..SimConfig::default() },
             max_clients: 1,
             ..SectorConfig::default()
         };
@@ -212,7 +212,7 @@ fn a_rider_that_wakes_keeps_its_grip_until_its_pilot_is_heard_from() {
 /// A sector under survival rules (or arcade), and every slot's lease (its report ring), by slot.
 fn sector_with_leases(survival: bool) -> (Sector, Arc<SectorShared>, Vec<SlotLease>) {
     let cfg = SectorConfig {
-        sim: SimConfig { target_dolls: 0, seed: 5, survival, ..SimConfig::default() },
+        sim: SimConfig { target_drones: 0, seed: 5, survival, ..SimConfig::default() },
         max_clients: 4,
         ..SectorConfig::default()
     };
@@ -222,7 +222,7 @@ fn sector_with_leases(survival: bool) -> (Sector, Arc<SectorShared>, Vec<SlotLea
     (sector, shared, leases)
 }
 
-/// Seats a Leo in `slot` (launched from its bay, under survival rules) and puts it on `body`
+/// Seats an Argo in `slot` (launched from its bay, under survival rules) and puts it on `body`
 /// along `dir` (if any), standing; a few ticks on, its pilot leaves. The suit.
 fn leave_on(sector: &mut Sector, shared: &SectorShared, slot: u16, on: Option<(Body, Vec3)>) -> SuitId {
     let msg = if sector.config().sim.survival { launch(slot) } else { join(slot, Comeback::default()) };
@@ -245,7 +245,7 @@ fn leave_on(sector: &mut Sector, shared: &SectorShared, slot: u16, on: Option<(B
     id
 }
 
-/// Down in MO-II's Aft Well.
+/// Down in Fornax's Aft Well.
 const AFT_WELL: (Body, Vec3) = (Body::Landmark(0), Vec3::new(-1.0, 0.02, 0.02));
 
 /// Everything the slot's session has been told.
@@ -292,7 +292,7 @@ fn a_suit_parked_in_a_hide_spot_reports_it() {
     assert_eq!(*tick, sector.sim.tick() - 1, "recorded as it slept, before the tick");
     let a = sector.sim.suits.anchor[i];
     assert_eq!((rec.landmark, rec.local, rec.rot, rec.stance), (0, a.local, a.rot, a.stance));
-    assert_eq!((rec.frame, rec.faction, rec.pilot), (FrameId::Leo, Faction::Colonies, PilotKind::Human));
+    assert_eq!((rec.frame, rec.faction, rec.pilot), (FrameId::Argo, Faction::Colonies, PilotKind::Human));
     assert_eq!(rec.home.held, None);
     assert_eq!(rec.home.parts, sector.sim.suits.part_fractions(i));
     assert!(LANDMARKS[0].hides[0].center.distance(rec.local) <= LANDMARKS[0].hides[0].radius);
@@ -375,7 +375,7 @@ fn restore_brings_a_parked_sleeper_back() {
         shared.control.push(Control::Restore { key, rec: bad }).unwrap();
     }
     let cfg = SectorConfig {
-        sim: SimConfig { target_dolls: 0, landmarks: 0, ..SimConfig::default() },
+        sim: SimConfig { target_drones: 0, landmarks: 0, ..SimConfig::default() },
         max_clients: 1,
         ..SectorConfig::default()
     };

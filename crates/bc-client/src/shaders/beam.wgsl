@@ -1,6 +1,6 @@
 // Beams, tracers and beam-saber blades: a white-hot core inside a coloured glow, with a flicker
 // that runs along it, rounded off at the head. Shots fade along the tail; blades (MeshTag bit 8)
-// burn full length from the hilt. The Twin Buster Rifle adds a twisting striation.
+// burn full length from the hilt. The Heavy Beam Rifle adds a twisting striation.
 
 #import bc::ribbon::{RibbonOut, ribbon_cap, ribbon_vertex}
 #import bc::glow::glow_out

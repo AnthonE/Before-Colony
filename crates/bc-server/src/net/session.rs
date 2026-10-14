@@ -228,7 +228,7 @@ fn at_the_hatch(at: glam::Vec3) -> bool {
 
 /// What a pilot is told the first time they wake in their bay.
 pub const ARRIVAL: &str =
-    "ARRIVAL REGISTERED · THE CHARTER BOARD ADVANCES YOU 2,000 CR AND A LEO · WELCOME TO THE FIRST COLONY";
+    "ARRIVAL REGISTERED · THE CHARTER BOARD ADVANCES YOU 2,000 CR AND AN ARGO · WELCOME TO THE FIRST COLONY";
 
 /// What a pilot who left while flying inside the colony is told when they're back.
 pub const TOWED_FROM_THE_GATE: &str = "THE COLONY'S TUGS BROUGHT YOUR SUIT IN FROM THE INNER GATE";
@@ -421,7 +421,7 @@ impl Session<'_> {
                 tick: sector.tick.load(std::sync::atomic::Ordering::Acquire),
                 tick_hz: bc_sim::TICK_HZ as u8,
                 sector: number,
-                zero_allowed: true,
+                orrery_allowed: true,
                 max_datagram: self.max_datagram,
                 field_seed: sector.field_seed,
                 field_rocks: sector.field_rocks,
@@ -813,7 +813,7 @@ impl Session<'_> {
         self.board_seen = self.game.charter.version();
         self.board_sent = Instant::now();
         let mut view = self.game.charter.with(|b| b.view(&self.trader, pilots::unix_now()));
-        // Which of Zodiac's aces flies among the Dolls now.
+        // Which of the Almagest's aces flies among the drones now.
         let out = bc_sector::ace_of_word(self.game.sector.ace.load(std::sync::atomic::Ordering::Acquire));
         for w in &mut view.wanted {
             w.out = out.is_some_and(|(_, a, flying)| flying && a == w.ace);
@@ -1516,7 +1516,7 @@ impl Session<'_> {
         }
     }
 
-    /// The pilot downed one of Zodiac's aces (`bc_sim::content::aces`): on the Most Wanted, and its
+    /// The pilot downed one of the Almagest's aces (`bc_sim::content::aces`): on the Most Wanted, and its
     /// bounty as their terms say: paid, or the rights to its wreck, which the tugs go out for.
     async fn ace_down(&mut self, ace: u8, hulk: u16, generation: u8) -> anyhow::Result<()> {
         if !self.survival() {

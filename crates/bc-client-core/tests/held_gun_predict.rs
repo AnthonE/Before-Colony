@@ -1,4 +1,4 @@
-//! The enemy's gun, against the real simulation: a Leo grabs a Taurus's arm and fires its rifle in
+//! The enemy's gun, against the real simulation: an Argo grabs a Corvus's arm and fires its rifle in
 //! bursts from the hand while turning hard (firing busies the arms, which slows the turn), then
 //! lets go and fires its own machine cannon. Seeded from any snapshot and told which gun is in
 //! hand, the owner's prediction keeps time with the server's arms tick after tick, and flies the
@@ -57,17 +57,17 @@ struct Flown {
 }
 
 fn fly() -> Flown {
-    let mut sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
+    let mut sim = Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() });
     let face = look_rotation(Vec3::Z, Vec3::Y);
     let me =
-        sim.spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, Vec3::new(0.0, 4_000.0, 0.0), face);
+        sim.spawn_at(FrameId::Argo, Faction::Colonies, PilotKind::Human, Vec3::new(0.0, 4_000.0, 0.0), face);
     let me = me.unwrap();
     let i = me.idx();
-    // A Taurus's right arm, at rest by the Leo's left hand.
+    // A Corvus's right arm, at rest by the Argo's left hand.
     let desc = ChunkDesc {
-        kind: ChunkKind::Limb { frame: FrameId::Taurus, faction: Faction::Oz, part: Part::ArmR },
+        kind: ChunkKind::Limb { frame: FrameId::Corvus, faction: Faction::Almagest, part: Part::ArmR },
         seed: 3,
-        mass_kg: part_mass_kg(FrameId::Taurus, Part::ArmR),
+        mass_kg: part_mass_kg(FrameId::Corvus, Part::ArmR),
     };
     let f = sim.suits.flight[i];
     let at = f.pos + f.rot * ArmSlot::Left.muzzle() - Vec3::X * (chunks::radius(&desc) + 0.5);
@@ -153,7 +153,7 @@ fn a_gun_in_hand_is_predicted_exactly() {
     println!("{checked} windows checked");
     assert!(checked > 350, "{checked} windows checked");
     assert_eq!(off, None);
-    // Told nothing of the gun, the prediction fires the Leo's own machine cannon on the
+    // Told nothing of the gun, the prediction fires the Argo's own machine cannon on the
     // secondary's trigger, and keeps its arms busy between the rifle's shots.
     let (_, off) = check(&run, false);
     println!("uninformed: {off:?}");

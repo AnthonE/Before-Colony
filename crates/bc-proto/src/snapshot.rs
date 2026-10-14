@@ -6,7 +6,7 @@
 //! |---|---|---|
 //! | header | 116 bits | tick, input ack, input-buffer health, RTT echo, time dilation |
 //! | own state | 1 + 811..831 bits | full precision: the client reconciles its prediction against it |
-//! | ZERO | 1 + ≤200 bits | only while the pilot's ZERO System is engaged |
+//! | The Orrery | 1 + ≤200 bits | only while the pilot's the Orrery is engaged |
 //! | events | `1+n` bits each, `0` ends | repeated until the client acks a snapshot containing them |
 //! | rocks | `1+18` bits each, `0` ends | debris-field rocks whose state changed, repeated until acked |
 //! | missiles | `1+119` bits each, `0` ends | missiles in flight nearby, those tracking you first |
@@ -35,10 +35,10 @@ use crate::{
     SLOT_BITS,
 };
 
-/// Maneuver hypotheses the ZERO System weighs per threat (see `bc_sim::zero`).
-pub const ZERO_HYPOTHESES: usize = 7;
+/// Maneuver hypotheses the Orrery weighs per threat (see `bc_sim::orrery`).
+pub const ORRERY_HYPOTHESES: usize = 7;
 /// Threats with full predicted futures in one snapshot.
-pub const ZERO_THREATS: usize = 2;
+pub const ORRERY_THREATS: usize = 2;
 const P_BITS: u32 = 7;
 
 /// Per-snapshot metadata.
@@ -73,12 +73,12 @@ pub mod own_flags {
     /// G-strain blackout: control authority reduced.
     pub const BLACKOUT: u16 = 1 << 1;
     pub const OVERHEAT: u16 = 1 << 2;
-    /// Twin Buster Rifle charging.
+    /// Heavy Beam Rifle charging.
     pub const CHARGING: u16 = 1 << 3;
-    /// A melee strike is under way, recovery included (any blade, the Dragon Fang).
+    /// A melee strike is under way, recovery included (any blade, the Talon).
     pub const SABER_ACTIVE: u16 = 1 << 4;
-    /// This frame carries the ZERO System.
-    pub const ZERO_CAPABLE: u16 = 1 << 5;
+    /// This frame carries the Orrery.
+    pub const ORRERY_CAPABLE: u16 = 1 << 5;
     /// Flight assist engaged (as applied by the server).
     pub const FLIGHT_ASSIST: u16 = 1 << 6;
     /// Something has a weapons lock on you.
@@ -88,9 +88,9 @@ pub mod own_flags {
     /// Melee lunge (the windup and stroke of a blade that lunges): the flight model drives
     /// forward at full thrust.
     pub const LUNGE: u16 = 1 << 9;
-    /// The frame's special is engaged: the Hyper Jammer, Full Open Attack, Cross Crusher.
+    /// The frame's special is engaged: the Eclipse, Full Salvo, Pincer Strike.
     pub const SPECIAL_ACTIVE: u16 = 1 << 10;
-    /// Changing form (Wing Zero ↔ Neo-Bird): weapons are down and thrust is reduced until
+    /// Changing form (Altair ↔ Aquila): weapons are down and thrust is reduced until
     /// [`OwnState::special_timer`] runs out.
     pub const TRANSFORMING: u16 = 1 << 11;
     /// Your missile lock on [`OwnState::lock_target`] is acquired: guided missiles will follow it.
@@ -126,11 +126,11 @@ pub mod cover {
     pub const HIDDEN: u8 = 3;
 }
 
-/// ZERO System state for [`OwnState::zero_mode`].
-pub mod zero_mode {
+/// The Orrery state for [`OwnState::orrery_mode`].
+pub mod orrery_mode {
     pub const OFF: u8 = 0;
     pub const ACTIVE: u8 = 1;
-    /// ZERO has seized control.
+    /// The Orrery has seized control.
     pub const SEIZED: u8 = 2;
     /// Cooling down after a seizure; cannot be engaged.
     pub const LOCKOUT: u8 = 3;
@@ -162,12 +162,12 @@ pub struct OwnState {
     pub ammo: [u16; 2],
     /// Bits 0..4: primary, secondary, melee, special ready.
     pub weapon_ready: u8,
-    /// 0..1 Twin Buster Rifle charge.
+    /// 0..1 Heavy Beam Rifle charge.
     pub charge: f32,
     /// Armour left per [`Part`], 0..1 (any left at all arrives as more than 0).
     pub parts: [f32; Part::COUNT],
-    pub zero_strain: f32,
-    pub zero_mode: u8,
+    pub orrery_strain: f32,
+    pub orrery_mode: u8,
     pub flags: u16,
     /// Each system's level inside the parts, 2 bits each (`bc_sim::content::Systems`): with the
     /// parts, what the client builds the suit's stat sheet from, as the server does.
@@ -203,7 +203,7 @@ pub struct OwnState {
     pub lock_target: u16,
     /// Missile lock progress on it, 0..15 (15 = acquired).
     pub lock_progress: u8,
-    /// Ticks left in the special under way: the transformation, Full Open Attack.
+    /// Ticks left in the special under way: the transformation, Full Salvo.
     pub special_timer: u8,
     /// How charged the frame's special is, in 255ths (255: charged, or it has nothing to charge;
     /// v25: the fight charges it, `bc_sim::content::specials`).
@@ -281,7 +281,7 @@ pub const BURST_MAX_COOLDOWN: u8 = 63;
 pub const BURST_BITS: usize = 4 + 6 + 6 + 1;
 
 /// The own suit's arms, which its client rolls on from each snapshot as the server does
-/// (`bc_sim::arms`): busy arms slow AMBAC's turning, and a blade's lunge drives the suit.
+/// (`bc_sim::arms`): busy arms slow limb trim's turning, and a blade's lunge drives the suit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OwnArms {
     /// The strike under way: 0 none, 1 windup, 2 stroke, 3 recovery.
@@ -390,7 +390,7 @@ const LOCK_PROGRESS_BITS: u32 = 4;
 pub const KITS_BITS: u32 = 8;
 pub const STIM_BITS: u32 = 12;
 const EXTRA_MASS_BITS: u32 = 18;
-/// Bits for each of [`OwnState::cargo_kg`]: up to 8,191 kg of a kind (the largest hold, a Leo's
+/// Bits for each of [`OwnState::cargo_kg`]: up to 8,191 kg of a kind (the largest hold, an Argo's
 /// with a cargo rack, takes 4,000 kg in all).
 const CARGO_BITS: u32 = 13;
 const CREDIT_BITS: u32 = 24;
@@ -400,7 +400,7 @@ impl Default for OwnState {
         Self {
             slot: 0,
             generation: 0,
-            frame: FrameId::Leo,
+            frame: FrameId::Argo,
             alive: false,
             pos: Vec3::ZERO,
             vel: Vec3::ZERO,
@@ -414,8 +414,8 @@ impl Default for OwnState {
             weapon_ready: 0,
             charge: 0.0,
             parts: [1.0; Part::COUNT],
-            zero_strain: 0.0,
-            zero_mode: zero_mode::OFF,
+            orrery_strain: 0.0,
+            orrery_mode: orrery_mode::OFF,
             flags: 0,
             systems: 0,
             modules: 0,
@@ -463,17 +463,17 @@ pub mod ent_flags {
     pub const SABER: u16 = 1 << 2;
     pub const BOOST: u16 = 1 << 3;
     pub const CHARGING: u16 = 1 << 4;
-    pub const ZERO: u16 = 1 << 5;
+    pub const ORRERY: u16 = 1 << 5;
     pub const SEIZED: u16 = 1 << 6;
     pub const OVERHEAT: u16 = 1 << 7;
     /// Destroyed: a drifting wreck.
     pub const WRECK: u16 = 1 << 8;
     /// This suit is locked on to the receiving pilot.
     pub const LOCKED_ON_YOU: u16 = 1 << 9;
-    /// The frame's special is engaged: jamming (seen only by allies), Full Open Attack,
-    /// transforming, Cross Crusher.
+    /// The frame's special is engaged: jamming (seen only by allies), Full Salvo,
+    /// transforming, Pincer Strike.
     pub const SPECIAL: u16 = 1 << 10;
-    /// The melee strike under way comes from a ranged slot (Shenlong's Dragon Fang), not the F
+    /// The melee strike under way comes from a ranged slot (Thuban's Talon), not the F
     /// weapon.
     pub const MELEE_ALT: u16 = 1 << 11;
     /// Its pilot is offline, asleep in the cockpit.
@@ -514,8 +514,8 @@ impl Default for EntityState {
         Self {
             slot: 0,
             generation: 0,
-            frame: FrameId::Leo,
-            faction: Faction::Oz,
+            frame: FrameId::Argo,
+            faction: Faction::Almagest,
             pilot: PilotKind::Human,
             on: None,
             pos: Vec3::ZERO,
@@ -572,21 +572,21 @@ impl EntityState {
 
 /// One threat's predicted futures: probability of each maneuver hypothesis.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct ZeroThreat {
+pub struct OrreryThreat {
     pub slot: u16,
-    pub probs: [f32; ZERO_HYPOTHESES],
+    pub probs: [f32; ORRERY_HYPOTHESES],
 }
 
-/// What the ZERO System shows its pilot. The client re-runs the same rollouts from its own view to
+/// What the Orrery shows its pilot. The client re-runs the same rollouts from its own view to
 /// draw the ghost trails, so only IDs and probabilities travel.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct ZeroInfo {
+pub struct OrreryInfo {
     /// Jev advice was blended into these probabilities.
     pub source_jev: bool,
     /// Age of that advice in ticks/2 (0..15).
     pub advice_age: u8,
     pub threat_count: u8,
-    pub threats: [ZeroThreat; ZERO_THREATS],
+    pub threats: [OrreryThreat; ORRERY_THREATS],
     /// Recommended target and its probability.
     pub rec_target: u16,
     pub rec_target_p: f32,
@@ -639,7 +639,7 @@ impl List {
     }
 }
 
-/// Budget-aware snapshot encoder. Call `header`, `own`, `zero`, then `event`s, `rock`s,
+/// Budget-aware snapshot encoder. Call `header`, `own`, `orrery`, then `event`s, `rock`s,
 /// `missile`s, `entity`s and `object`s in that order (starting a list closes the ones before it),
 /// then `finish`.
 pub struct SnapshotWriter<'a> {
@@ -695,8 +695,8 @@ impl<'a> SnapshotWriter<'a> {
             let q = quantize_unit(p, 8);
             w.write_bits(if p > 0.0 { q.max(1) } else { 0 }, 8);
         }
-        w.write_bits(quantize_unit(o.zero_strain, 8), 8);
-        w.write_bits(u32::from(o.zero_mode & 3), 2);
+        w.write_bits(quantize_unit(o.orrery_strain, 8), 8);
+        w.write_bits(u32::from(o.orrery_mode & 3), 2);
         w.write_u16(o.flags);
         w.write_bits(o.systems & ((1 << SYSTEMS_BITS) - 1), SYSTEMS_BITS);
         w.write_bits(o.modules & ((1 << MODULES_BITS) - 1), MODULES_BITS);
@@ -755,16 +755,16 @@ impl<'a> SnapshotWriter<'a> {
         }
     }
 
-    pub fn zero(&mut self, zero: Option<&ZeroInfo>) {
+    pub fn orrery(&mut self, orrery: Option<&OrreryInfo>) {
         let w = &mut self.w;
-        let Some(z) = zero else {
+        let Some(z) = orrery else {
             w.write_bool(false);
             return;
         };
         w.write_bool(true);
         w.write_bool(z.source_jev);
         w.write_bits(u32::from(z.advice_age.min(15)), 4);
-        let n = z.threat_count.min(ZERO_THREATS as u8);
+        let n = z.threat_count.min(ORRERY_THREATS as u8);
         w.write_bits(u32::from(n), 2);
         for t in &z.threats[..n as usize] {
             w.write_bits(u32::from(t.slot), SLOT_BITS);
@@ -910,7 +910,7 @@ impl<'a> SnapshotWriter<'a> {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Stage {
     Own,
-    Zero,
+    Orrery,
     Events,
     Rocks,
     Missiles,
@@ -960,8 +960,8 @@ impl<'a> SnapshotReader<'a> {
     fn skip_to(&mut self, stage: Stage) -> Result<(), DecodeError> {
         while self.stage < stage {
             match self.stage {
-                Stage::Own | Stage::Zero => {
-                    self.zero()?;
+                Stage::Own | Stage::Orrery => {
+                    self.orrery()?;
                 }
                 Stage::Events => {
                     self.next_event()?;
@@ -997,7 +997,7 @@ impl<'a> SnapshotReader<'a> {
         if self.stage != Stage::Own {
             return Err(DecodeError::Invalid);
         }
-        self.stage = Stage::Zero;
+        self.stage = Stage::Orrery;
         let r = &mut self.r;
         if !r.read_bool() {
             self.check()?;
@@ -1024,8 +1024,8 @@ impl<'a> SnapshotReader<'a> {
         for p in &mut o.parts {
             *p = dequantize_unit(r.read_bits(8), 8);
         }
-        o.zero_strain = dequantize_unit(r.read_bits(8), 8);
-        o.zero_mode = r.read_bits(2) as u8;
+        o.orrery_strain = dequantize_unit(r.read_bits(8), 8);
+        o.orrery_mode = r.read_bits(2) as u8;
         o.flags = r.read_u16();
         o.systems = r.read_bits(SYSTEMS_BITS);
         o.modules = r.read_bits(MODULES_BITS);
@@ -1088,11 +1088,11 @@ impl<'a> SnapshotReader<'a> {
         Ok(Some(o))
     }
 
-    pub fn zero(&mut self) -> Result<Option<ZeroInfo>, DecodeError> {
-        if self.stage < Stage::Zero {
+    pub fn orrery(&mut self) -> Result<Option<OrreryInfo>, DecodeError> {
+        if self.stage < Stage::Orrery {
             self.own()?;
         }
-        if self.stage != Stage::Zero {
+        if self.stage != Stage::Orrery {
             return Err(DecodeError::Invalid);
         }
         self.stage = Stage::Events;
@@ -1101,9 +1101,12 @@ impl<'a> SnapshotReader<'a> {
             self.check()?;
             return Ok(None);
         }
-        let mut z =
-            ZeroInfo { source_jev: r.read_bool(), advice_age: r.read_bits(4) as u8, ..ZeroInfo::default() };
-        z.threat_count = (r.read_bits(2) as u8).min(ZERO_THREATS as u8);
+        let mut z = OrreryInfo {
+            source_jev: r.read_bool(),
+            advice_age: r.read_bits(4) as u8,
+            ..OrreryInfo::default()
+        };
+        z.threat_count = (r.read_bits(2) as u8).min(ORRERY_THREATS as u8);
         for t in &mut z.threats[..z.threat_count as usize] {
             t.slot = r.read_bits(SLOT_BITS) as u16;
             for p in &mut t.probs {
@@ -1289,7 +1292,7 @@ mod tests {
             let mut w = SnapshotWriter::new(&mut buf, 256);
             w.header(&SnapshotHeader::default());
             w.own(None);
-            w.zero(None);
+            w.orrery(None);
             // A first record opens the list (and closes the ones before it).
             assert!(w.entity(&free, 0));
             let at = w.w.bits_written();
@@ -1324,7 +1327,7 @@ mod tests {
         let mut w = SnapshotWriter::new(&mut buf, 1100);
         w.header(&SnapshotHeader { tick: 50, ..SnapshotHeader::default() });
         w.own(None);
-        w.zero(None);
+        w.orrery(None);
         assert!(w.rock(&RockState::new(9, true, 0.0, 0.0), 0));
         let missile = MissileState { id: 77, guided: true, ..MissileState::default() };
         assert!(w.missile(&missile, 0));

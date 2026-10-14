@@ -9,10 +9,10 @@ pub enum PilotKind {
     /// A person at a keyboard.
     #[default]
     Human = 0,
-    /// An external AI agent connected through the Bot SDK. Shown in-game as a Mobile Doll (MD) pilot.
+    /// An external AI agent connected through the Bot SDK. Shown in-game as a drone (DR) pilot.
     Agent = 1,
-    /// A server-side Mobile Doll NPC.
-    MobileDoll = 2,
+    /// A server-side drone NPC.
+    Drone = 2,
 }
 
 impl PilotKind {
@@ -21,55 +21,55 @@ impl PilotKind {
     pub fn from_bits(v: u32) -> Self {
         match v {
             1 => PilotKind::Agent,
-            2 => PilotKind::MobileDoll,
+            2 => PilotKind::Drone,
             _ => PilotKind::Human,
         }
     }
 
-    /// Mobile Dolls and agents are both machine pilots (G-immune dolls; agents are labelled MD).
+    /// Drones and agents are both machine pilots (G-immune drones; agents are labelled DR).
     pub fn is_machine(self) -> bool {
         !matches!(self, PilotKind::Human)
     }
 }
 
-/// Mobile suit frame (index into the content tables).
+/// Suit frame (index into the content tables).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum FrameId {
-    /// OZ-06MS Leo (space type): the everyman suit.
+    /// AL-04S Argo (space type): the everyman suit.
     #[default]
-    Leo = 0,
-    /// XXXG-00W0 Wing Gundam Zero: carries the ZERO System.
-    WingZero = 1,
-    /// OZ-13MS Taurus: transformable Mobile Doll.
-    Taurus = 2,
-    /// OZ-02MD Virgo: heavy Mobile Doll.
-    Virgo = 3,
-    /// XXXG-01H Gundam Heavyarms: gatlings and missile volleys; Full Open Attack.
-    Heavyarms = 4,
-    /// XXXG-01D Gundam Deathscythe: beam scythe and buster shield; Hyper Jammer.
-    Deathscythe = 5,
-    /// XXXG-01SR Gundam Sandrock: heat shotels and the heaviest armour; Cross Crusher.
-    Sandrock = 6,
-    /// XXXG-01S Shenlong Gundam: Dragon Fang, flamethrower, beam glaive.
-    Shenlong = 7,
-    /// Wing Gundam Zero in Neo-Bird form. Not chosen directly: a Wing Zero transforms into it.
-    WingZeroBird = 8,
+    Argo = 0,
+    /// PX-00 Altair: carries the Orrery.
+    Altair = 1,
+    /// AL-11D Corvus: transformable drone.
+    Corvus = 2,
+    /// AL-09D Cetus: heavy drone.
+    Cetus = 3,
+    /// PX-01 Antares: gatlings and missile volleys; Full Salvo.
+    Antares = 4,
+    /// PX-02 Algol: beam scythe and claw shield; Eclipse.
+    Algol = 5,
+    /// PX-03 Canopus: heat blades and the heaviest armour; Pincer Strike.
+    Canopus = 6,
+    /// PX-04 Thuban: Talon, flamethrower, beam glaive.
+    Thuban = 7,
+    /// Altair in Aquila form. Not chosen directly: an Altair transforms into it.
+    Aquila = 8,
 }
 
 impl FrameId {
     pub const BITS: u32 = 4;
     pub const COUNT: usize = 9;
     pub const ALL: [FrameId; Self::COUNT] = [
-        FrameId::Leo,
-        FrameId::WingZero,
-        FrameId::Taurus,
-        FrameId::Virgo,
-        FrameId::Heavyarms,
-        FrameId::Deathscythe,
-        FrameId::Sandrock,
-        FrameId::Shenlong,
-        FrameId::WingZeroBird,
+        FrameId::Argo,
+        FrameId::Altair,
+        FrameId::Corvus,
+        FrameId::Cetus,
+        FrameId::Antares,
+        FrameId::Algol,
+        FrameId::Canopus,
+        FrameId::Thuban,
+        FrameId::Aquila,
     ];
 
     pub fn from_bits(v: u32) -> Option<Self> {
@@ -83,20 +83,21 @@ impl FrameId {
     /// Short lowercase name for URLs and command lines.
     pub fn slug(self) -> &'static str {
         match self {
-            FrameId::Leo => "leo",
-            FrameId::WingZero => "wingzero",
-            FrameId::Taurus => "taurus",
-            FrameId::Virgo => "virgo",
-            FrameId::Heavyarms => "heavyarms",
-            FrameId::Deathscythe => "deathscythe",
-            FrameId::Sandrock => "sandrock",
-            FrameId::Shenlong => "shenlong",
-            FrameId::WingZeroBird => "neobird",
+            FrameId::Argo => "argo",
+            FrameId::Altair => "altair",
+            FrameId::Corvus => "corvus",
+            FrameId::Cetus => "cetus",
+            FrameId::Antares => "antares",
+            FrameId::Algol => "algol",
+            FrameId::Canopus => "canopus",
+            FrameId::Thuban => "thuban",
+            FrameId::Aquila => "aquila",
         }
     }
 
-    /// Parses a [`slug`](Self::slug), ignoring case, spaces, `-` and `_` ("Wing-Zero" works), plus
-    /// the short forms `wing` and `zero`. Allocates nothing.
+    /// Parses a [`slug`](Self::slug), ignoring case, spaces, `-` and `_` ("ALTAIR" works), plus the
+    /// slugs the frames had before they took the game's own names ([`OLD_SLUGS`](Self::OLD_SLUGS)),
+    /// which saved pilots, settings and links still carry. Allocates nothing.
     pub fn from_slug(s: &str) -> Option<Self> {
         fn same(input: &str, slug: &str) -> bool {
             let mut a =
@@ -110,25 +111,39 @@ impl FrameId {
                 }
             }
         }
-        const SHORT: [(&str, FrameId); 2] = [("wing", FrameId::WingZero), ("zero", FrameId::WingZero)];
         Self::ALL
             .iter()
             .copied()
             .find(|f| same(s, f.slug()))
-            .or_else(|| SHORT.iter().find(|(a, _)| same(s, a)).map(|(_, f)| *f))
+            .or_else(|| Self::OLD_SLUGS.iter().find(|(a, _)| same(s, a)).map(|(_, f)| *f))
     }
+
+    /// The slugs before 2026-10-14, read and never written.
+    pub const OLD_SLUGS: [(&'static str, FrameId); 11] = [
+        ("leo", FrameId::Argo),
+        ("wingzero", FrameId::Altair),
+        ("wing", FrameId::Altair),
+        ("zero", FrameId::Altair),
+        ("taurus", FrameId::Corvus),
+        ("virgo", FrameId::Cetus),
+        ("heavyarms", FrameId::Antares),
+        ("deathscythe", FrameId::Algol),
+        ("sandrock", FrameId::Canopus),
+        ("shenlong", FrameId::Thuban),
+        ("neobird", FrameId::Aquila),
+    ];
 }
 
 /// Allegiance. Friendly fire is off between members of the same faction.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Faction {
-    /// Organization of the Zodiac (and its Mobile Dolls).
+    /// the Almagest (and its drones).
     #[default]
-    Oz = 0,
-    /// Colony resistance: the Gundam pilots' side (Operation Meteor).
+    Almagest = 0,
+    /// Colony resistance: the Lodestar pilots' side (Operation Starfall).
     Colonies = 1,
-    /// United Earth Sphere Alliance remnants.
+    /// United Earth-Moon space Alliance remnants.
     Alliance = 2,
 }
 
@@ -139,7 +154,7 @@ impl Faction {
         match v {
             1 => Faction::Colonies,
             2 => Faction::Alliance,
-            _ => Faction::Oz,
+            _ => Faction::Almagest,
         }
     }
 }
@@ -156,7 +171,7 @@ pub enum Part {
     ArmL = 2,
     /// Right arm: primary weapon.
     ArmR = 3,
-    /// Legs: AMBAC mass and auxiliary thrusters.
+    /// Legs: limb trim mass and auxiliary thrusters.
     Legs = 4,
     /// Backpack: main thrusters.
     Backpack = 5,
@@ -183,37 +198,37 @@ pub enum WeaponKind {
     MachineCannon = 1,
     /// Melee arc.
     BeamSaber = 2,
-    /// Wing Zero's charged, very thick, very fast beam.
-    TwinBusterRifle = 3,
-    /// Heavy Mobile Doll beam cannon (Virgo).
+    /// Altair's charged, very thick, very fast beam.
+    HeavyBeamRifle = 3,
+    /// Heavy drone beam cannon (Cetus).
     BeamCannon = 4,
-    /// Heavyarms' arm-mounted beam gatling: a stream of light bolts.
+    /// Antares' arm-mounted beam gatling: a stream of light bolts.
     BeamGatling = 5,
     /// Shoulder-pod homing missiles, fired in salvos; guided once locked on.
     HomingMissile = 6,
-    /// Heavyarms' army knife (melee).
-    ArmyKnife = 7,
-    /// Heavyarms' chest gatlings (Full Open Attack only).
+    /// Antares' combat knife (melee).
+    CombatKnife = 7,
+    /// Antares' chest gatlings (Full Salvo only).
     ChestGatling = 8,
-    /// Heavyarms' leg-pod micro-missiles (Full Open Attack only).
+    /// Antares' leg-pod micro-missiles (Full Salvo only).
     MicroMissile = 9,
-    /// Deathscythe's buster shield: thrown, its beam claws open, slow.
-    BusterShield = 10,
-    /// Head vulcans.
-    HeadVulcan = 11,
-    /// Deathscythe's beam scythe: long-reach melee.
+    /// Algol's claw shield: thrown, its beam claws open, slow.
+    ClawShield = 10,
+    /// Head guns.
+    HeadGun = 11,
+    /// Algol's beam scythe: long-reach melee.
     BeamScythe = 12,
-    /// Sandrock's beam machine gun.
+    /// Canopus's beam machine gun.
     BeamMachineGun = 13,
-    /// Sandrock's twin heat shotels: two blades at once.
-    HeatShotel = 14,
-    /// Sandrock's Cross Crusher: both shotels in a pincer.
-    CrossCrusher = 15,
-    /// Shenlong's Dragon Fang: the right arm extends on its cable to strike ~35 m out.
-    DragonFang = 16,
-    /// Shenlong's flamethrower: a short cone that burns and heats its target.
+    /// Canopus's twin heat blades: two blades at once.
+    HeatBlade = 14,
+    /// Canopus's Pincer Strike: both blades in a pincer.
+    PincerStrike = 15,
+    /// Thuban's Talon: the right arm extends on its cable to strike ~35 m out.
+    Talon = 16,
+    /// Thuban's flamethrower: a short cone that burns and heats its target.
     Flamethrower = 17,
-    /// Shenlong's beam glaive: an overhead chop.
+    /// Thuban's beam glaive: an overhead chop.
     BeamGlaive = 18,
     /// The beam rifle's charged shot: twice as fast and as thick, held for and let go.
     BeamRifleCharged = 19,
@@ -230,20 +245,20 @@ impl WeaponKind {
         WeaponKind::BeamRifle,
         WeaponKind::MachineCannon,
         WeaponKind::BeamSaber,
-        WeaponKind::TwinBusterRifle,
+        WeaponKind::HeavyBeamRifle,
         WeaponKind::BeamCannon,
         WeaponKind::BeamGatling,
         WeaponKind::HomingMissile,
-        WeaponKind::ArmyKnife,
+        WeaponKind::CombatKnife,
         WeaponKind::ChestGatling,
         WeaponKind::MicroMissile,
-        WeaponKind::BusterShield,
-        WeaponKind::HeadVulcan,
+        WeaponKind::ClawShield,
+        WeaponKind::HeadGun,
         WeaponKind::BeamScythe,
         WeaponKind::BeamMachineGun,
-        WeaponKind::HeatShotel,
-        WeaponKind::CrossCrusher,
-        WeaponKind::DragonFang,
+        WeaponKind::HeatBlade,
+        WeaponKind::PincerStrike,
+        WeaponKind::Talon,
         WeaponKind::Flamethrower,
         WeaponKind::BeamGlaive,
         WeaponKind::BeamRifleCharged,
@@ -402,10 +417,14 @@ mod tests {
         for f in FrameId::ALL {
             assert_eq!(FrameId::from_slug(f.slug()), Some(f));
         }
-        assert_eq!(FrameId::from_slug("Wing-Zero"), Some(FrameId::WingZero));
-        assert_eq!(FrameId::from_slug("zero"), Some(FrameId::WingZero));
-        assert_eq!(FrameId::from_slug("DEATH_SCYTHE"), Some(FrameId::Deathscythe));
-        assert_eq!(FrameId::from_slug("leopard"), None);
+        assert_eq!(FrameId::from_slug("ALTAIR"), Some(FrameId::Altair));
+        assert_eq!(FrameId::from_slug("Can-o-pus"), Some(FrameId::Canopus));
+        // What a saved pilot or an old link still says.
+        assert_eq!(FrameId::from_slug("leo"), Some(FrameId::Argo));
+        assert_eq!(FrameId::from_slug("Wing Zero"), Some(FrameId::Altair));
+        assert_eq!(FrameId::from_slug("DEATH_SCYTHE"), Some(FrameId::Algol));
+        assert_eq!(FrameId::from_slug("neobird"), Some(FrameId::Aquila));
+        assert_eq!(FrameId::from_slug("argonaut"), None);
         assert_eq!(FrameId::from_slug(""), None);
     }
 }

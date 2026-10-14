@@ -296,7 +296,7 @@ pub struct GameRuntime {
     egress_stop: Arc<AtomicBool>,
     shared: GameShared,
     oracle: &'static str,
-    _oracle_worker: Option<bc_zero::WorkerHandle>,
+    _oracle_worker: Option<bc_orrery::WorkerHandle>,
 }
 
 impl GameRuntime {
@@ -311,7 +311,7 @@ impl GameRuntime {
         let survival = cfg.rules == Ruleset::Survival;
         let sector_cfg = SectorConfig {
             sim: SimConfig {
-                target_dolls: cfg.mobile_dolls,
+                target_drones: cfg.drones,
                 ace_every: bc_sim::config::secs(cfg.ace_every.as_secs_f32()),
                 seed: cfg.seed,
                 max_sleepers: cfg.max_sleepers,
@@ -328,13 +328,13 @@ impl GameRuntime {
         let stop = Arc::new(AtomicBool::new(false));
         let egress = spawn_egress(egress_ends, queue.clone(), stats.clone(), stop.clone(), "egress-0")?;
         let egress_thread = egress.thread().clone();
-        // The colony's inside: a second sector in its own frame, no Dolls, no field, no landmarks.
+        // The colony's inside: a second sector in its own frame, no drones, no field, no landmarks.
         // It keeps this sector's tick (`bc_sector::spawn_follower`): the colony has one clock, so its
         // day, its trams and its people are the same moment for a pilot on foot and one in a suit.
         let (inside, inside_threads) = if survival && cfg.colony {
             let inside_cfg = SectorConfig {
                 sim: SimConfig {
-                    target_dolls: 0,
+                    target_drones: 0,
                     seed: cfg.seed ^ 0x1_51DE,
                     field_rocks: 0,
                     landmarks: 0,
@@ -369,21 +369,21 @@ impl GameRuntime {
         let oracle_worker = match jev_key.filter(|_| use_jev) {
             Some(key) => {
                 let jev = match &cfg.jev_url {
-                    Some(url) => bc_zero::JevOracle::with_endpoint(
+                    Some(url) => bc_orrery::JevOracle::with_endpoint(
                         key,
                         url.clone(),
-                        bc_zero::jev::DEFAULT_MODEL.into(),
+                        bc_orrery::jev::DEFAULT_MODEL.into(),
                     ),
-                    None => bc_zero::JevOracle::new(key),
+                    None => bc_orrery::JevOracle::new(key),
                 };
-                Some(bc_zero::spawn_worker(oracle_ends.pictures, oracle_ends.advice, jev)?)
+                Some(bc_orrery::spawn_worker(oracle_ends.pictures, oracle_ends.advice, jev)?)
             }
             None => None,
         };
         let (roster_tx, _) = broadcast::channel(256);
         let oracle = if use_jev { "jev+local" } else { "local" };
         tracing::info!(
-            dolls = cfg.mobile_dolls,
+            drones = cfg.drones,
             max_clients = cfg.max_clients,
             oracle,
             rules = ?cfg.rules,
@@ -450,7 +450,7 @@ impl GameRuntime {
                 proving.save().await;
             });
         }
-        // What became of sleepers: news for their pilots; and Zodiac's ace: a few times a second.
+        // What became of sleepers: news for their pilots; and the Almagest's ace: a few times a second.
         let notes = game.clone();
         tokio::spawn(async move {
             let mut every = tokio::time::interval(Duration::from_millis(250));
@@ -869,12 +869,12 @@ async fn identify(
 }
 
 /// The side a pilot flies for, whatever their Hello asked (their Welcome tells them, and their
-/// client takes its friends and foes from it). Oz is the Mobile Dolls' own, and they never hunt it:
+/// client takes its friends and foes from it). The Almagest is the drones' own, and they never hunt it:
 /// a claim to it flies for the Colonies. So does every human pilot (the browser asks for nothing
 /// else); an agent keeps the side it asked for, of the others.
 fn side(pilot: PilotKind, asked: Faction) -> Faction {
     let side = match (pilot, asked) {
-        (PilotKind::Human, _) | (_, Faction::Oz) => Faction::Colonies,
+        (PilotKind::Human, _) | (_, Faction::Almagest) => Faction::Colonies,
         (_, asked) => asked,
     };
     if side != asked {
@@ -897,9 +897,9 @@ async fn session(conn: &Connection, game: GameShared, stats: Arc<NetStats>) -> a
     if !game.survival && !bc_sim::content::playable(frame) {
         return reject(&mut tx, RejectReason::FrameNotAllowed).await;
     }
-    // Only the Bot SDK may claim to be an agent; nobody may claim to be a server-side doll, nor fly
-    // for the Dolls' side (`side`).
-    let pilot = if pilot == PilotKind::MobileDoll { PilotKind::Agent } else { pilot };
+    // Only the Bot SDK may claim to be an agent; nobody may claim to be a server-side drone, nor fly
+    // for the drones' side (`side`).
+    let pilot = if pilot == PilotKind::Drone { PilotKind::Agent } else { pilot };
     let faction = side(pilot, faction);
     let address = identify(&game, &mut tx, &mut rx, &mut pending, flags, &resume, pilot).await?;
     // A pilot flies in one place at a time: a newer session takes over.
@@ -940,7 +940,7 @@ pub(super) fn forget(game: &GameShared, suit: u16, pilot: PilotKind) {
     let _ = game.roster_tx.send(RosterUpdate { suit, pilot, name: String::new(), flags: 0 });
 }
 
-/// Zodiac's ace among the Dolls (`bc_sim::content::aces`), from the sector's word
+/// The Almagest's ace among the drones (`bc_sim::content::aces`), from the sector's word
 /// (`SectorShared::ace`): on the roster by its name while it's out (downed, too, until its slot is
 /// let go: the kill feed names it), and the Charter Board's news as one comes out (survival). The
 /// board's views say which one flies, so they're out of date whenever the word moves.
@@ -967,7 +967,7 @@ impl AceWatch {
             let name = bc_sim::content::aces::ace(ace).name;
             let ours = game.roster.write().is_ok_and(|mut r| {
                 let ours = r.get(&suit).is_some_and(|e| {
-                    e.pilot == PilotKind::MobileDoll && e.client_slot == u16::MAX && e.name == name
+                    e.pilot == PilotKind::Drone && e.client_slot == u16::MAX && e.name == name
                 });
                 if ours {
                     r.remove(&suit);
@@ -977,7 +977,7 @@ impl AceWatch {
             if ours {
                 let _ = game.roster_tx.send(RosterUpdate {
                     suit,
-                    pilot: PilotKind::MobileDoll,
+                    pilot: PilotKind::Drone,
                     name: String::new(),
                     flags: 0,
                 });
@@ -990,7 +990,7 @@ impl AceWatch {
             tracing::info!(suit, ace = name, "an ace is out");
             let entry = RosterEntry {
                 name: name.to_string(),
-                pilot: PilotKind::MobileDoll,
+                pilot: PilotKind::Drone,
                 client_slot: u16::MAX,
                 flags: 0,
                 address: None,
@@ -1000,7 +1000,7 @@ impl AceWatch {
             }
             let _ = game.roster_tx.send(RosterUpdate {
                 suit,
-                pilot: PilotKind::MobileDoll,
+                pilot: PilotKind::Drone,
                 name: name.to_string(),
                 flags: 0,
             });
@@ -1080,11 +1080,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn nobody_flies_for_oz_and_a_human_flies_for_the_colonies() {
-        use Faction::{Alliance, Colonies, Oz};
-        // The Dolls' side is theirs alone, whoever claims it.
-        assert_eq!(side(PilotKind::Agent, Oz), Colonies);
-        assert_eq!(side(PilotKind::Human, Oz), Colonies);
+    fn nobody_flies_for_almagest_and_a_human_flies_for_the_colonies() {
+        use Faction::{Alliance, Almagest, Colonies};
+        // The drones' side is theirs alone, whoever claims it.
+        assert_eq!(side(PilotKind::Agent, Almagest), Colonies);
+        assert_eq!(side(PilotKind::Human, Almagest), Colonies);
         // A human pilot flies for the Colonies, whatever their client asks.
         assert_eq!(side(PilotKind::Human, Alliance), Colonies);
         assert_eq!(side(PilotKind::Human, Colonies), Colonies);

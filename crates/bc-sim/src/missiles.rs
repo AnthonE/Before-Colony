@@ -43,7 +43,7 @@ impl Missiles {
             generation: boxed(cap, 0u8),
             kind: boxed(cap, WeaponKind::HomingMissile),
             owner: boxed(cap, 0u16),
-            owner_faction: boxed(cap, Faction::Oz),
+            owner_faction: boxed(cap, Faction::Almagest),
             target: boxed(cap, NO_SLOT),
             target_gen: boxed(cap, 0u16),
             pos: boxed(cap, Vec3::ZERO),

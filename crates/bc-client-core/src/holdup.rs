@@ -17,9 +17,9 @@ pub enum Holdup {
     Safe,
     /// Knocked off balance: every weapon is down until it steadies.
     Staggered,
-    /// Changing form (Wing Zero ↔ Neo-Bird).
+    /// Changing form (Altair ↔ Aquila).
     Transforming,
-    /// Too hot to fire until it cools (Full Open fires through it).
+    /// Too hot to fire until it cools (Full Salvo fires through it).
     Overheated,
     /// Its rounds are spent.
     Empty,
@@ -157,10 +157,10 @@ mod tests {
 
     #[test]
     fn says_what_holds_each_weapon_back() {
-        let spec = frame(FrameId::Leo);
-        let gun = spec.loadout[1].expect("the Leo's machine cannon");
+        let spec = frame(FrameId::Argo);
+        let gun = spec.loadout[1].expect("the Argo's machine cannon");
         assert_eq!(gun.weapon, WeaponKind::MachineCannon);
-        let mut o = own(FrameId::Leo);
+        let mut o = own(FrameId::Argo);
         let why = |o: &OwnState, holding| holdup(spec, o, 1, false, false, holding);
         o.weapon_ready = 0b11;
         assert_eq!(why(&o, None), None);
@@ -189,9 +189,9 @@ mod tests {
 
     #[test]
     fn an_energy_weapon_without_the_energy_says_so() {
-        let spec = frame(FrameId::Leo);
+        let spec = frame(FrameId::Argo);
         assert_eq!(spec.loadout[0].map(|m| m.weapon), Some(WeaponKind::BeamRifle));
-        let mut o = own(FrameId::Leo);
+        let mut o = own(FrameId::Argo);
         o.energy = 0.0;
         assert_eq!(holdup(spec, &o, 0, false, false, None), Some(Holdup::LowEnergy));
         // A blade has its own terms.
@@ -200,7 +200,7 @@ mod tests {
 
     #[test]
     fn the_alarm_names_a_silent_drain_and_its_cure() {
-        let mut o = own(FrameId::Leo);
+        let mut o = own(FrameId::Argo);
         assert_eq!(drain(&o), None);
         o.flags = own_flags::OVERHEAT;
         assert_eq!(drain(&o).as_deref(), Some("OVERHEATED · weapons hold · let it cool"));

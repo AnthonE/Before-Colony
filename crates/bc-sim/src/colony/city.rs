@@ -1765,7 +1765,7 @@ pub fn solid(strip: u8, min: Vec3, max: Vec3, stage: Stage) -> bool {
 }
 
 /// Whether the box touches the built city: the floor, a kerb, a building, a railing, a platform,
-/// the end caps. That's [`solid`] without the street furniture, which a mobile suit steps over:
+/// the end caps. That's [`solid`] without the street furniture, which a suit steps over:
 /// what a suit's hull meets (`interior`, through [`each_solid`]).
 pub fn solid_built(strip: u8, min: Vec3, max: Vec3, stage: Stage) -> bool {
     let area = Rect::new(-max.z, -min.z, min.x, max.x);

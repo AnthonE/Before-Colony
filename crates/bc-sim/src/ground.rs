@@ -773,12 +773,12 @@ mod tests {
             }
         }
         assert!(worst < 1e-2, "rocks: feet {worst} m off the surface");
-        // Hermit, bowls and all, and MO-II's faces, edges and Aft Well.
+        // Hermit, bowls and all, and Fornax's faces, edges and Aft Well.
         let hermit = LANDMARKS[1].shape;
-        let mo_ii = LANDMARKS[0].shape;
+        let fornax = LANDMARKS[0].shape;
         let hermit_spots =
             [Vec3::new(0.0, 598.0, 0.0), Vec3::new(20.0, 600.0, 10.0), Vec3::new(0.0, 0.0, -740.0)];
-        let mo_ii_spots = [
+        let fornax_spots = [
             Vec3::new(-100.0, 70.0, 0.0),  // core top
             Vec3::new(-100.0, 50.0, 40.0), // core, 40° round
             Vec3::new(0.0, 95.0, 0.0),     // pylon top
@@ -790,7 +790,7 @@ mod tests {
             Vec3::new(300.0, 12.0, 0.0),   // the mast
         ];
         let mut worst: f32 = 0.0;
-        for (shape, spots) in [(hermit, &hermit_spots[..]), (mo_ii, &mo_ii_spots[..])] {
+        for (shape, spots) in [(hermit, &hermit_spots[..]), (fornax, &fornax_spots[..])] {
             for &p in spots {
                 for stance in [STANCE, CROUCH_STANCE] {
                     worst = worst.max(settled(&shape, p, stance).abs());
@@ -810,7 +810,7 @@ mod tests {
     #[test]
     fn a_placed_origin_stays_put() {
         // Standing still, a suit is placed again every tick: it mustn't creep, on the most
-        // lopsided rocks (3.05 to 1, tips and all), on Hermit or on MO-II.
+        // lopsided rocks (3.05 to 1, tips and all), on Hermit or on Fornax.
         let mut rng = Rng::new(5);
         let mut worst: f32 = 0.0;
         let mut check = |shape: &Shape, p: Vec3, stance: f32| {
@@ -843,9 +843,9 @@ mod tests {
 
     #[test]
     fn landing_in_an_inner_corner_settles_clear_of_both_walls() {
-        // Where MO-II's +Z pylon rises from its core: set down on the one, an origin can be nearer
+        // Where Fornax's +Z pylon rises from its core: set down on the one, an origin can be nearer
         // than its stance to the other. It settles where neither is.
-        let mo_ii = LANDMARKS[0].shape;
+        let fornax = LANDMARKS[0].shape;
         let mut rng = Rng::new(8);
         let mut cornered = 0;
         for _ in 0..500 {
@@ -855,11 +855,11 @@ mod tests {
                 52.0 + 12.0 * rng.next_f32(),
             );
             for stance in [STANCE, CROUCH_STANCE] {
-                let (o, n, _) = place(&mo_ii, p, stance);
-                cornered += usize::from(!placed(&mo_ii, o, stance));
-                let (o, _) = settle(&mo_ii, o, n, stance);
-                assert!(placed(&mo_ii, o, stance), "{p} didn't settle");
-                assert!(mo_ii.probe(o).dist >= stance - PLACE_TOL, "{p} settled in the corner");
+                let (o, n, _) = place(&fornax, p, stance);
+                cornered += usize::from(!placed(&fornax, o, stance));
+                let (o, _) = settle(&fornax, o, n, stance);
+                assert!(placed(&fornax, o, stance), "{p} didn't settle");
+                assert!(fornax.probe(o).dist >= stance - PLACE_TOL, "{p} settled in the corner");
             }
         }
         assert!(cornered > 20, "only {cornered} origins were cornered: the test tests nothing");
@@ -940,7 +940,7 @@ mod tests {
         let bodies = Bodies::at(&field, &[], 1);
         let mut m = standing(&field);
         m.anchor.vel = Vec3::Z * 300.0;
-        let spec = crate::content::frame(bc_proto::FrameId::Leo);
+        let spec = crate::content::frame(bc_proto::FrameId::Argo);
         let cx = MoveCtx { spec, mods: FlightMods::default(), can_grip: true, legs_ok: true };
         let cmd = InputCmd { buttons: GRIP, ..InputCmd::default() };
         move_step(&bodies, &mut m, &cmd, &cx, crate::config::DT);
@@ -961,7 +961,7 @@ mod tests {
         let field = Field::from_rocks(&[rock]);
         let bodies = Bodies::at(&field, &[], 1);
         let mut m = standing(&field);
-        let spec = crate::content::frame(bc_proto::FrameId::Leo);
+        let spec = crate::content::frame(bc_proto::FrameId::Argo);
         let cx = MoveCtx { spec, mods: FlightMods::default(), can_grip: true, legs_ok: true };
         let stand = InputCmd { aim: Vec3::Z, buttons: GRIP, ..InputCmd::default() };
         for _ in 0..10 {
@@ -978,7 +978,7 @@ mod tests {
 
     #[test]
     fn a_lockon_flies_by_the_fights_axes_capped_and_sane() {
-        let spec = crate::content::frame(bc_proto::FrameId::Leo);
+        let spec = crate::content::frame(bc_proto::FrameId::Argo);
         let f = FlightState::default();
         let lock = |ref_vel: Vec3, up: Vec3, aim: Vec3| {
             let cmd = InputCmd { aim, lockon: Some(bc_proto::LockOn { ref_vel, up }), ..InputCmd::default() };
@@ -1011,7 +1011,7 @@ mod tests {
         };
         let field = Field::from_rocks(&[rock]);
         let bodies = Bodies::at(&field, &[], 1);
-        let spec = crate::content::frame(bc_proto::FrameId::Leo);
+        let spec = crate::content::frame(bc_proto::FrameId::Argo);
         let cx = MoveCtx { spec, mods: FlightMods::default(), can_grip: true, legs_ok: true };
         let lockon = Some(bc_proto::LockOn { ref_vel: Vec3::new(150.0, 0.0, -40.0), up: Vec3::X });
         let walk = InputCmd { aim: Vec3::Z, thrust: [40, 0, 127], buttons: GRIP, ..InputCmd::default() };
@@ -1062,7 +1062,7 @@ mod tests {
         }
 
         fn ctx() -> MoveCtx<'static> {
-            let spec = crate::content::frame(bc_proto::FrameId::Leo);
+            let spec = crate::content::frame(bc_proto::FrameId::Argo);
             MoveCtx {
                 spec,
                 mods: FlightMods { interior: true, ..FlightMods::default() },
@@ -1071,7 +1071,7 @@ mod tests {
             }
         }
 
-        /// A Leo upright at `c`, nose along the axis.
+        /// An Argo upright at `c`, nose along the axis.
         fn at(c: CityPos) -> Mover {
             let pos = c.to_colony();
             Mover {

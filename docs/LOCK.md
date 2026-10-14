@@ -14,7 +14,7 @@ where players learn to hit). This is the design, and what's built of it.
   owner's prediction fly the same numbers (`ARCHITECTURE.md`).
 - **Nothing new on the hot path.** The tick stays allocation-free and lock-free, and every
   determinism golden that doesn't lock on stays where it was.
-- **The same for everyone.** Agents can lock on through the same command; Mobile Dolls never do (a
+- **The same for everyone.** Agents can lock on through the same command; drones never do (a
   perfect lead with perfect pace would be unbeatable).
 
 ## The feel
@@ -45,8 +45,8 @@ where players learn to hit). This is the design, and what's built of it.
 - **When it lets go.** The target downed, out of sight (off sensors, jamming, hidden) for a second,
   past 5 km, or your own suit gone.
 - **When it stands aside** (the target stays locked and marked, the keys fly as they always do):
-  flight assist off, on a body or coming down onto one with the grip armed, ZERO flying the suit, and
-  Neo-Bird (it can't circle).
+  flight assist off, on a body or coming down onto one with the grip armed, the Orrery flying the suit, and
+  Aquila (it can't circle).
 
 ## How it works
 
@@ -70,7 +70,7 @@ asks for is a velocity flight assist could hold anyway).
   predicted;
 - **W** closes at `min(glide(d − stop, a), cruise)`, where `glide(e, a) = min(|e|/2τ, √(2a|e|) − aτ)`
   is the stopping curve through flight assist's lag (τ = 0.2 s) and `a` is what the suit's retro
-  thrusters can brake with (at most 3 g): a Leo plans on 16.5 m/s², so it never flies past;
+  thrusters can brake with (at most 3 g): an Argo plans on 16.5 m/s², so it never flies past;
 - idle, it holds the range with the same curve at 6 m/s²;
 - **A/D** circle no faster than the side thrusters can turn the circle and the suit can turn to
   keep facing it, leaning in by `w²τ/d` for flight assist's lag so the circle doesn't widen;
@@ -80,8 +80,8 @@ asks for is a velocity flight assist could hold anyway).
   command, so it's read back exactly as meant) and scaled onto the stick.
 
 **On the HUD.** The locked target's bracket, name, range and closing speed; the ◆ lead marker for the
-primary weapon (`bc_sim::zero::fire_control::intercept`, the target's velocity as drawn, the shot's
-speed on top of the suit's; a beam rifle's charged shot's once the charge is full), hidden while ZERO has a solution (which weighs the target's maneuvers);
+primary weapon (`bc_sim::orrery::fire_control::intercept`, the target's velocity as drawn, the shot's
+speed on top of the suit's; a beam rifle's charged shot's once the charge is full), hidden while the Orrery has a solution (which weighs the target's maneuvers);
 and SPD and the velocity marker relative to the target.
 
 ## Balance
@@ -100,7 +100,7 @@ and SPD and the velocity marker relative to the target.
 | Pick | 10° of the crosshair, else 60°, else the nearest within 4 km |
 | Breaks | past 5 km, or 30 ticks unheard |
 | Release | key held 0.35 s |
-| Stop | 0.7 × blade reach + 5 m (Leo 11.3 m), 15 m without a blade |
+| Stop | 0.7 × blade reach + 5 m (Argo 11.3 m), 15 m without a blade |
 | Braking planned | 80% of retro thrust, at most 30 m/s² |
 | Range hold, floor settle | 6 m/s², settling at most half the cruise |
 | Reference cap | the frame's cruise × 1.8 |
@@ -113,9 +113,9 @@ and SPD and the velocity marker relative to the target.
   keeping pace with a target faster than cruise; braking to it; roll-level; ignored on a body;
   `colony_up`'s geometry; `LOCKON_GOLDEN` native and wasm; `locked_on_pilots_never_allocate`.
 - `bc-client-core/tests/lockon_predict.rs`: against the real simulation, a pilot locks a target
-  coasting away at 260 m/s (faster than a Leo's cruise) 250 m above it, closes to the stop on its
+  coasting away at 260 m/s (faster than an Argo's cruise) 250 m above it, closes to the stop on its
   level keeping pace with it, rolled level, circles it within 5% of the range, and the prediction
   stays within a centimetre of the server throughout.
 - A target crossing the nose takes longer to pace than one ahead: matching its speed across falls
-  to the side thrusters (a Leo's take about half a minute to match 260 m/s). That's the flight
+  to the side thrusters (an Argo's take about half a minute to match 260 m/s). That's the flight
   model, not the lock.

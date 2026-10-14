@@ -28,7 +28,7 @@ static ALLOC: CountingAlloc = CountingAlloc;
 fn inside() -> (Sector, std::sync::Arc<bc_sector::SectorShared>, SlotLease) {
     let cfg = SectorConfig {
         sim: SimConfig {
-            target_dolls: 0,
+            target_drones: 0,
             field_rocks: 0,
             landmarks: 0,
             max_sleepers: 0,
@@ -69,10 +69,10 @@ fn a_trainer_boarded_at_the_gantry_clears_the_drill_and_docks_back() {
         .push(Control::Board {
             slot: s,
             pilot: PilotKind::Human,
-            frame: FrameId::Leo,
+            frame: FrameId::Argo,
             faction: Faction::Colonies,
             max_datagram: MAX_DATAGRAM as u16,
-            loadout: Loadout::full(FrameId::Leo),
+            loadout: Loadout::full(FrameId::Argo),
         })
         .unwrap();
     sector.tick();
@@ -87,7 +87,7 @@ fn a_trainer_boarded_at_the_gantry_clears_the_drill_and_docks_back() {
     // be when the rounds get there). The test keeps a drill of its own, fed from the sim's events
     // as the pilot's client is fed them, to check the sector's time against.
     let speed = bc_sim::content::weapon(WeaponKind::MachineCannon).speed;
-    let muzzle = bc_sim::content::frame(FrameId::Leo).loadout[1].map_or(Vec3::ZERO, |m| m.arm.muzzle());
+    let muzzle = bc_sim::content::frame(FrameId::Argo).loadout[1].map_or(Vec3::ZERO, |m| m.arm.muzzle());
     let mut mine = Drill::default();
     let (mut seen, mut cleared, mut heap) = (sector.sim.events.next_seq(), None, 0);
     for _ in 0..30 * 60 {
@@ -131,7 +131,7 @@ fn a_trainer_boarded_at_the_gantry_clears_the_drill_and_docks_back() {
     assert!(!sector.sim.suits.used.get(i));
     // Outside the colony there's no gantry: nobody's seated.
     let cfg = SectorConfig {
-        sim: SimConfig { target_dolls: 0, field_rocks: 0, survival: true, ..SimConfig::default() },
+        sim: SimConfig { target_drones: 0, field_rocks: 0, survival: true, ..SimConfig::default() },
         max_clients: 1,
         ..SectorConfig::default()
     };
@@ -140,10 +140,10 @@ fn a_trainer_boarded_at_the_gantry_clears_the_drill_and_docks_back() {
     let board = Control::Board {
         slot: lease.slot,
         pilot: PilotKind::Human,
-        frame: FrameId::Leo,
+        frame: FrameId::Argo,
         faction: Faction::Colonies,
         max_datagram: MAX_DATAGRAM as u16,
-        loadout: Loadout::full(FrameId::Leo),
+        loadout: Loadout::full(FrameId::Argo),
     };
     shared.control.push(board).unwrap();
     space.tick();
@@ -156,14 +156,14 @@ fn a_trainer_boarded_at_the_gantry_clears_the_drill_and_docks_back() {
 fn any_build_boards_at_the_gantry() {
     let (mut sector, shared, lease) = inside();
     let s = lease.slot;
-    // A Heavyarms without its missile pods' rounds and with its right arm gone, as asked.
-    let mut loadout = Loadout::full(FrameId::Heavyarms);
+    // An Antares without its missile pods' rounds and with its right arm gone, as asked.
+    let mut loadout = Loadout::full(FrameId::Antares);
     loadout.ammo[1] = 7;
     loadout.parts[bc_proto::Part::ArmR as usize] = 0.0;
     let board = Control::Board {
         slot: s,
         pilot: PilotKind::Human,
-        frame: FrameId::Heavyarms,
+        frame: FrameId::Antares,
         faction: Faction::Colonies,
         max_datagram: MAX_DATAGRAM as u16,
         loadout,
@@ -174,7 +174,7 @@ fn any_build_boards_at_the_gantry() {
     let (idx, _) = shared.slots[s as usize].suit_id().expect("a trainer");
     let i = usize::from(idx);
     assert!(sector.sim.suits.trainer.get(i));
-    assert_eq!(sector.sim.suits.frame[i], FrameId::Heavyarms);
+    assert_eq!(sector.sim.suits.frame[i], FrameId::Antares);
     assert_eq!(sector.sim.suits.weapons[i][1].ammo, 7);
     assert_eq!(sector.sim.suits.part_hp[i][bc_proto::Part::ArmR as usize], 0.0);
     assert!(hall::in_gantry(sector.sim.suits.flight[i].pos, Vec3::ZERO), "on the gantry");
@@ -206,11 +206,11 @@ fn the_course_flown_through_the_sector_is_timed_as_its_pilot_times_it() {
     let join = Control::Join {
         slot: s,
         pilot: PilotKind::Human,
-        frame: FrameId::Leo,
+        frame: FrameId::Argo,
         faction: Faction::Colonies,
         max_datagram: MAX_DATAGRAM as u16,
         comeback: Comeback::default(),
-        launch: Some(Loadout::full(FrameId::Leo)),
+        launch: Some(Loadout::full(FrameId::Argo)),
     };
     shared.control.push(join).unwrap();
     sector.tick();

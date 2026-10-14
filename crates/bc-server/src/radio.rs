@@ -82,15 +82,15 @@ mod tests {
     fn sessions_hear_what_was_said_after_them_and_the_ring_forgets() {
         let radio = Radio::default();
         assert!(radio.since(0).is_empty());
-        radio.say("Heero", "mission accepted".into());
+        radio.say("Kai", "mission accepted".into());
         let joined = radio.said();
-        radio.say("Duo", "o7".into());
+        radio.say("Nico", "o7".into());
         let heard = radio.since(joined);
         assert_eq!(heard.len(), 1);
-        assert_eq!((heard[0].from.as_str(), heard[0].text.as_str()), ("Duo", "o7"));
+        assert_eq!((heard[0].from.as_str(), heard[0].text.as_str()), ("Nico", "o7"));
         assert!(radio.since(radio.said()).is_empty());
         for k in 0..KEPT + 10 {
-            radio.say("Trowa", k.to_string());
+            radio.say("Tomas", k.to_string());
         }
         let all = radio.since(0);
         assert_eq!(all.len(), KEPT);

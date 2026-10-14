@@ -29,7 +29,7 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
 | 0: foundations (frames, day, city rules, routes) | done. The routes follow the street grid (avenue, then a cross street, then a lane) rather than an A* over a graph; that's enough while the grid has no closures. |
 | 1.1, 1.2, 1.4: mirrors, the −X end and its lights, the windows showing the city | done |
 | 1.3: solid end structures | to do (needs a protocol bump of its own) |
-| 2: into the colony | done, and open by default (survival; the server's `--no-colony` closes it, `BC_COLONY=0` for `dev.sh`): the lift (a cut down the end cap's face, not a lift lobby beyond the airlock), the city drawn and streamed, walking it, the Exchange floor, the Charter Board, The Arrival, districts and sights named on the way, the map (M), the `colony` e2e suite. `/status`'s `"city"` counts, and `__bc`'s `city_chunks`/`city_tris`/`city_ms` (what the streamer shows, and the slowest frame's building lately). The sights' found-list (`bc_client_core::sights`, the `sights_found` setting): each sight goes on it the first time it's reached, and the map ticks them off and lists them (`__bc.sights_found`). Indoor rooms: the Exchange floor, the Charter Board and The Arrival each have a room behind their door (`colony::city::room`: its walls, ceiling and door are the hall's solids, so walked and checked like any wall; `CITY_VERSION` 2), used at its counter inside, drawn close up with its own surfaces (its back wall shows the place), lit by its lamps, and the eye adapts to EV 8 inside (`__bc.city_room`, `city_ev`). The Proving Ground off Hub Gate's square (the Blast Hall, `docs/TRAINING.md`) has a room at a mobile suit's scale behind 40 m blast doors (`CITY_VERSION` 4). |
+| 2: into the colony | done, and open by default (survival; the server's `--no-colony` closes it, `BC_COLONY=0` for `dev.sh`): the lift (a cut down the end cap's face, not a lift lobby beyond the airlock), the city drawn and streamed, walking it, the Exchange floor, the Charter Board, The Arrival, districts and sights named on the way, the map (M), the `colony` e2e suite. `/status`'s `"city"` counts, and `__bc`'s `city_chunks`/`city_tris`/`city_ms` (what the streamer shows, and the slowest frame's building lately). The sights' found-list (`bc_client_core::sights`, the `sights_found` setting): each sight goes on it the first time it's reached, and the map ticks them off and lists them (`__bc.sights_found`). Indoor rooms: the Exchange floor, the Charter Board and The Arrival each have a room behind their door (`colony::city::room`: its walls, ceiling and door are the hall's solids, so walked and checked like any wall; `CITY_VERSION` 2), used at its counter inside, drawn close up with its own surfaces (its back wall shows the place), lit by its lamps, and the eye adapts to EV 8 inside (`__bc.city_room`, `city_ev`). The Proving Ground off Hub Gate's square (the Blast Hall, `docs/TRAINING.md`) has a room at a suit's scale behind 40 m blast doors (`CITY_VERSION` 4). |
 | 3: shared presence | done: pose and plaza datagrams (kinds 3 and 4), the server's plaza with its checks, the plaza's tick keeping the clock on foot, other pilots drawn in flight suits with their names, `bc-bot`'s `enter_city`/`set_pose`/`people` and the `flaneur` agent, `bc-server/tests/plaza.rs`, and the browser seeing an agent at Hub Gate (`colony` e2e). Figures are rigid pieces turned at their joints (`bc_client_core::figure`), not the suits' 24-bone rig; seated at The Arrival's tables since (ROADMAP P0). `bc-swarm --walkers N` (agents strolling by each strip's Hub Gate, `bc_bot::Stroll`, the flaneur's legs). Two browsers in one e2e (`colony`): two pilots meet at Hub Gate, each seeing the other where they stand; one rides home and is gone from the other's street, and a suit an agent flies in (`bc-bot`'s `suit_inside`) comes down onto the avenue by the other, each seeing the other. |
 | 4: trams | done: the timetable (`colony::transit`: 11 stations 2.45 km apart, 12 trains, 81 s runs at 1.5 m/s² to 56.8 m/s, 19.8 s stops, out on the +s track and back on the −s), island platforms with steps in the city's walls, trains drawn from the clock, riding in the car's frame (`bc_client_core::tram`) with the push of its acceleration, line and station names on the way, the presence anchor for riders (4 bits) and the server's boarding checks, the `colony` e2e ride of one stop, and a platform view in the showcase. The hash of the colony covers it (`CITY_GOLDEN`, not a separate `TRANSIT_GOLDEN`). Known: at the ends of the line a train changes tracks during its stop (no crossover is drawn); trains pass through people standing on the tracks; no seats, no gangways between cars, no sounds yet. |
 | 5: vehicles | done: motor pools (`colony::pools`: Hub Gate's and one by each station), a bicycle model for cars and scooters against the city's walls (`bc_client_core::vehicle`), the server's checks (a driver's first pose at a pool, no faster than 45.5 m/s), the DRIVING controls, the chase and seat cameras, vehicles drawn in their drivers' colours, and a `colony` e2e drive. Vehicles are their drivers' alone: nobody else can take or ride one, and a car left behind is gone. No collisions between vehicles, or with people. |
@@ -228,7 +228,7 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
     - walk to the Exchange floor and buy;
     - back up to the bay;
     - `/status` place changes, and `hot_path_allocations` stays 0.
-  - New `scripts/e2e.sh colony` (survival, the colony open, no dolls) and a step in `ci.sh`.
+  - New `scripts/e2e.sh colony` (survival, the colony open, no drones) and a step in `ci.sh`.
 - **2.6 Key places v1** (strip 0, all within about 700 m of the lift). With the colony open, each desk does one
   thing only it does (`bc_econ::wire::Request::desk`; the server checks the pilot stands in the place's room,
   `bc-server`'s `net/desk.rs`), its terminal shows only its own tab, and the bay's terminals point at it. Each
@@ -242,7 +242,7 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
     and where what the Board holds for a pilot (a certificate's beam rifle, patrols' rewards, aces' bounties) is
     paid out, on walking in.
   - The Arrival, a bar (`THE ARRIVAL · THE MOST WANTED`): you can sit (its seats out front, `arrival_seats`), and
-    at its counter (`Panel::Arrival`, the terminals' `wanted` tab) Zodiac's Most Wanted is pinned up behind the
+    at its counter (`Panel::Arrival`, the terminals' `wanted` tab) the Almagest's Most Wanted is pinned up behind the
     bar, where a pilot's terms for an ace's bounty are settled. Its menu joins it there later (`LIFE.md`, L1).
   - The Proving Ground, the Blast Hall (`THE PROVING GROUND · THE BOARD AND THE TEST RANGE`, `TRAINING.md`): its
     desk has the board, and only there is the test range's trainer picked.
@@ -272,7 +272,7 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
 
   `lib.rs` dispatches on `packet_kind`. `net.rs` sends poses on the 8 ms timer. bc-bot gets `enter_city`,
   `send_pose` (built as `set_pose`) and `people`, a `flaneur` example and `bc-swarm --walkers`. Bodiless agents
-  appear as telepresence drones tagged MD (decide in STORY.md).
+  appear as telepresence drones tagged DR (decide in STORY.md).
 - **3.4 Pilots drawn.** `bc-model/src/pilot.rs`: a flight-suit pilot on the shared 24-bone rig at human scale,
   coloured per pilot, about 1.5k triangles near and 150 far, AO-baked. (Built as `bc_client_core::figure`: rigid
   pieces turned at their joints, not the rig.)
@@ -320,7 +320,7 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
     bit (I10);
   - `move_step` with real gravity instead of grip gravity, on a new `Body::City`.
 - **Colony law: weapons safe.** Fire and strike inputs are ignored inside, so no shot sweeps through the city are
-  needed. Mobile Dolls stay outside. (Built later: the Blast Hall is the one exception, its training rounds kept in
+  needed. Drones stay outside. (Built later: the Blast Hall is the one exception, its training rounds kept in
   it by closed forms of its room and targets: `docs/TRAINING.md`, phase 5.)
 - **Getting in and out.** `Request::LaunchInside` from the bay to an inner launch gate near the axis; docks
   back the same way. Later, handoff at the axis port with frame conversion (scaling path, step 2).

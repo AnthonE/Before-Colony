@@ -1,5 +1,5 @@
-//! The Operation Meteor Gundams and Neo-Bird, on the same skeleton and helpers as `frames`. Each
-//! carries its own kit, and the sockets the client draws that kit from: blades, the Dragon Fang
+//! The Operation Starfall Lodestars and Aquila, on the same skeleton and helpers as `frames`. Each
+//! carries its own kit, and the sockets the client draws that kit from: blades, the Talon
 //! and its flamethrower, missile hatches.
 //!
 //! Blades held in a hand stay short (the hand's armour must stay near its hit capsule); long
@@ -147,9 +147,9 @@ fn missile_pod(d: &mut Designer, bone: Bone, pos: Vec3, size: Vec3, face: Vec3, 
     d.sockets.missiles.push((bone, Designer::local(bone, front)));
 }
 
-// --- XXXG-01H Gundam Heavyarms: a walking arsenal. ---
+// --- PX-01 Antares: a walking arsenal. ---
 
-pub(crate) fn heavyarms(d: &mut Designer) {
+pub(crate) fn antares(d: &mut Designer) {
     inner_frame(d, 1.3);
     hands(d, FRAME);
 
@@ -161,7 +161,7 @@ pub(crate) fn heavyarms(d: &mut Designer) {
     h.block(v(0.5, 0.45, 0.5), v2(0.5, 0.6), v2(0.0, -0.1), 0.05, TRIM, at(0.0, 7.2, 0.75));
     h.cube(v(0.32, 0.3, 1.2), 0.08, BODY, at(0.0, 7.4, -0.1));
 
-    // Chest: broad, red below, with the hatches over the gatlings Full Open fires.
+    // Chest: broad, red below, with the hatches over the gatlings Full Salvo fires.
     let mut c = d.on(Bone::Chest);
     c.seed(0.12);
     c.block(v(4.9, 2.7, 3.2), v2(1.0, 0.9), v2(0.0, -0.1), 0.22, BODY, at(0.0, 4.1, 0.05));
@@ -229,7 +229,7 @@ pub(crate) fn heavyarms(d: &mut Designer) {
     });
     d.sockets.muzzle = Designer::local(Bone::Weapon, v(g.x, g.y + 0.5, g.z + 6.3));
 
-    // The army knife in the left hand, blade forward.
+    // The combat knife in the left hand, blade forward.
     let wr = j(Bone::HandL);
     let hilt = v(wr.x - 0.1, wr.y - 0.55, wr.z + 0.2);
     let dir = v(0.0, 0.3, 0.95).normalize();
@@ -242,9 +242,9 @@ pub(crate) fn heavyarms(d: &mut Designer) {
     d.sockets.saber = (Designer::local(Bone::HandL, base), dir);
 }
 
-// --- XXXG-01D Gundam Deathscythe: bat-wing binders, a beam scythe, the buster shield. ---
+// --- PX-02 Algol: bat-wing binders, a beam scythe, the claw shield. ---
 
-pub(crate) fn deathscythe(d: &mut Designer) {
+pub(crate) fn algol(d: &mut Designer) {
     inner_frame(d, 1.2);
     hands(d, FRAME);
 
@@ -352,7 +352,7 @@ pub(crate) fn deathscythe(d: &mut Designer) {
     d.sockets.saber =
         (Designer::local(Bone::HandL, v(wr.x, wr.y - 0.5, wr.z + 0.4)), v(0.0, 0.62, 0.78).normalize());
 
-    // The buster shield: a long pointed shield whose tip opens on the beam.
+    // The claw shield: a long pointed shield whose tip opens on the beam.
     shield(
         d,
         &[(0.0, 4.4), (0.9, 2.4), (1.4, -0.6), (0.9, -2.6), (-0.9, -2.6), (-1.4, -0.6), (-0.9, 2.4)],
@@ -365,9 +365,9 @@ pub(crate) fn deathscythe(d: &mut Designer) {
     });
 }
 
-// --- XXXG-01SR Gundam Sandrock: heat shotels, a beam machine gun, the Cross Crusher. ---
+// --- PX-03 Canopus: heat blades, a beam machine gun, the Pincer Strike. ---
 
-pub(crate) fn sandrock(d: &mut Designer) {
+pub(crate) fn canopus(d: &mut Designer) {
     inner_frame(d, 1.4);
     hands(d, FRAME);
 
@@ -426,27 +426,27 @@ pub(crate) fn sandrock(d: &mut Designer) {
     legs(d, v(1.85, 3.2, 2.0), v(2.2, 3.5, 2.5), TRIM, ACCENT);
     backpack(d, v(2.9, 2.6, 1.7), 0.6);
 
-    // The beam machine gun in the right hand, the right shotel slung under it; the left shotel in
+    // The beam machine gun in the right hand, the right blade slung under it; the left blade in
     // the left hand. Both blades glow at the edge.
     rifle(d, 5.0, 0.3, GUN, TRIM);
     let g = j(Bone::Weapon);
     let dir_r = v(0.15, -0.35, 0.92).normalize();
     let hilt_r = g + v(0.0, -0.6, 0.2);
-    shotel(d, Bone::Weapon, hilt_r, dir_r, 1.0);
+    blade(d, Bone::Weapon, hilt_r, dir_r, 1.0);
     d.sockets.blade_right = Some((Designer::local(Bone::Weapon, hilt_r), dir_r));
     let wr = j(Bone::HandL);
     let hilt_l = v(wr.x - 0.1, wr.y - 0.5, wr.z + 0.3);
     let dir_l = v(-0.05, 0.6, 0.8).normalize();
-    shotel(d, Bone::HandL, hilt_l, dir_l, -1.0);
+    blade(d, Bone::HandL, hilt_l, dir_l, -1.0);
     d.sockets.blade_left = Some((Designer::local(Bone::HandL, hilt_l), dir_l));
     d.sockets.saber = (Designer::local(Bone::HandL, hilt_l), dir_l);
 
     shield(d, &[(0.0, 2.8), (1.3, 2.2), (1.3, -1.6), (0.0, -2.8), (-1.3, -1.6), (-1.3, 2.2)], TRIM, BODY);
 }
 
-/// A heat shotel on `bone`: a grip at `hilt`, a crescent blade out along `dir` curving to side
+/// A heat blade on `bone`: a grip at `hilt`, a crescent blade out along `dir` curving to side
 /// `curl` (+1 right, -1 left), its inner edge glowing.
-fn shotel(d: &mut Designer, bone: Bone, hilt: Vec3, dir: Vec3, curl: f32) {
+fn blade(d: &mut Designer, bone: Bone, hilt: Vec3, dir: Vec3, curl: f32) {
     let rot = toward(dir) * ry(FRAC_PI_2);
     let mut s = d.on(bone);
     s.cylinder(0.2, 1.0, 8, GUN, place(hilt - dir * 0.3, toward(dir)));
@@ -474,9 +474,9 @@ fn shotel(d: &mut Designer, bone: Bone, hilt: Vec3, dir: Vec3, curl: f32) {
     s.extrude(&e, 0.16, HOT, place(hilt, rot));
 }
 
-// --- XXXG-01S Shenlong Gundam: the dragon arm, a beam glaive. ---
+// --- PX-04 Thuban: the dragon arm, a beam glaive. ---
 
-pub(crate) fn shenlong(d: &mut Designer) {
+pub(crate) fn thuban(d: &mut Designer) {
     inner_frame(d, 1.25);
     hands(d, FRAME);
 
@@ -606,7 +606,7 @@ pub(crate) fn shenlong(d: &mut Designer) {
     let snout = v(rw.x, rw.y + 0.25, rw.z + 3.1);
     let mouth = v(rw.x, rw.y - 0.05, rw.z + 2.6);
     hd.cylinder(0.18, 0.5, 8, THROAT, place(mouth, rx(FRAC_PI_2)));
-    d.sockets.fang = Some((Designer::local(Bone::HandR, snout), Vec3::Z));
+    d.sockets.talon = Some((Designer::local(Bone::HandR, snout), Vec3::Z));
     d.sockets.flame = Some((Designer::local(Bone::HandR, mouth + v(0.0, 0.0, 0.3)), Vec3::Z));
     let g = j(Bone::Weapon);
     let mut jaw = d.on(Bone::Weapon);
@@ -647,12 +647,12 @@ pub(crate) fn shenlong(d: &mut Designer) {
     );
 }
 
-// --- Neo-Bird: Wing Zero folded into its flight form. ---
+// --- Aquila: Altair folded into its flight form. ---
 
 /// The nose leads along +z; the wings are the arms, the tail the legs, the dorsal thrusters the
-/// backpack, the shield the nose cone, and the Twin Buster Rifles hang under the fuselage (see
+/// backpack, the shield the nose cone, and the Heavy Beam Rifles hang under the fuselage (see
 /// the simulation's `BIRD` capsules).
-pub(crate) fn neo_bird(d: &mut Designer) {
+pub(crate) fn aquila(d: &mut Designer) {
     // Fuselage: the chest and torso stretched along z.
     let mut t = d.on(Bone::Torso);
     t.seed(0.1);
@@ -782,7 +782,7 @@ pub(crate) fn neo_bird(d: &mut Designer) {
         }
     }
 
-    // The Twin Buster Rifles, joined under the fuselage.
+    // The Heavy Beam Rifles, joined under the fuselage.
     let mut g = d.on(Bone::Weapon);
     g.seed(0.61);
     for s in Side::BOTH {

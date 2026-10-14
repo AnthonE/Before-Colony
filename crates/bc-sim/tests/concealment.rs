@@ -28,16 +28,16 @@ use common::{check_invariants, lone_rock, resting_on, standing_on};
 use glam::Vec3;
 
 fn with_rocks() -> Sim {
-    Sim::new(SimConfig { target_dolls: 0, ..SimConfig::default() })
+    Sim::new(SimConfig { target_drones: 0, ..SimConfig::default() })
 }
 
-/// No rocks, no dolls: just the landmarks.
+/// No rocks, no drones: just the landmarks.
 fn landmarks_only() -> Sim {
-    Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() })
+    Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() })
 }
 
-fn leo(sim: &mut Sim, faction: Faction, pos: Vec3, facing: Vec3) -> SuitId {
-    sim.spawn_at(FrameId::Leo, faction, PilotKind::Human, pos, look_rotation(facing, Vec3::Y)).unwrap()
+fn argo(sim: &mut Sim, faction: Faction, pos: Vec3, facing: Vec3) -> SuitId {
+    sim.spawn_at(FrameId::Argo, faction, PilotKind::Human, pos, look_rotation(facing, Vec3::Y)).unwrap()
 }
 
 fn steps(sim: &mut Sim, n: u32) {
@@ -62,10 +62,10 @@ fn up(sim: &Sim, id: SuitId) -> Vec3 {
     b.pose(a.body).unwrap().rot * place(&b.shape(a.body).unwrap(), a.local, a.stance).1
 }
 
-/// A Colonies Leo standing on `body` along `dir` crouches and then lies still, gripping, until it's
+/// A Colonies Argo standing on `body` along `dir` crouches and then lies still, gripping, until it's
 /// crouched: the tick its stillness starts from.
 fn crouched_on(sim: &mut Sim, body: Body, dir: Vec3) -> (SuitId, u32) {
-    let id = standing_on(sim, FrameId::Leo, Faction::Colonies, body, dir);
+    let id = standing_on(sim, FrameId::Argo, Faction::Colonies, body, dir);
     crouch(sim, id)
 }
 
@@ -100,8 +100,8 @@ fn parked_suits_power_down_before_they_hide() {
     let i = id.idx();
     steps(&mut sim, 5);
     let at = sim.suits.flight[i].pos;
-    let far = leo(&mut sim, Faction::Alliance, at + out * 1_000.0, -out);
-    let near = leo(&mut sim, Faction::Alliance, at + out * (PARKED_VISUAL - 50.0), -out);
+    let far = argo(&mut sim, Faction::Alliance, at + out * 1_000.0, -out);
+    let near = argo(&mut sim, Faction::Alliance, at + out * (PARKED_VISUAL - 50.0), -out);
     assert!(sim.sleep(id) && sim.is_parked(i));
     let slept = sim.tick();
     // Its reactor idles down: for 8 s it's on sensors as ever...
@@ -126,7 +126,7 @@ fn a_suit_that_fought_stays_visible_60s() {
     let i = id.idx();
     steps(&mut sim, 5);
     let at = sim.suits.flight[i].pos;
-    let far = leo(&mut sim, Faction::Alliance, at + out * 1_000.0, -out);
+    let far = argo(&mut sim, Faction::Alliance, at + out * 1_000.0, -out);
     let side = out.cross(Vec3::Y).normalize();
     drive(&mut sim, id, [0; 3], FIRE_PRIMARY, side);
     sim.step();
@@ -151,7 +151,7 @@ fn a_suit_that_fought_stays_visible_60s() {
     let i = id.idx();
     steps(&mut sim, 5);
     let at = sim.suits.flight[i].pos;
-    let shooter = leo(&mut sim, Faction::Alliance, at + out * 300.0, -out);
+    let shooter = argo(&mut sim, Faction::Alliance, at + out * 300.0, -out);
     let from = sim.events.next_seq();
     let mut hit = None;
     for _ in 0..60 {
@@ -168,7 +168,7 @@ fn a_suit_that_fought_stays_visible_60s() {
     }
     assert!(hit.is_some(), "the shot never hit it");
     let hit = sim.suits.last_hit[i];
-    let far = leo(&mut sim, Faction::Alliance, at + out * 1_000.0, -out);
+    let far = argo(&mut sim, Faction::Alliance, at + out * 1_000.0, -out);
     assert!(sim.sleep(id) && sim.is_parked(i));
     while sim.tick() < hit + FOUGHT_DARK_TICKS {
         assert!(sim.detects(far.idx(), i), "dark {} ticks after it was hit", sim.tick() - hit);
@@ -187,7 +187,7 @@ fn never_having_fired_is_not_having_fought() {
     let i = id.idx();
     steps(&mut sim, 5);
     let at = sim.suits.flight[i].pos;
-    let far = leo(&mut sim, Faction::Alliance, at + out * 1_000.0, -out);
+    let far = argo(&mut sim, Faction::Alliance, at + out * 1_000.0, -out);
     assert_eq!((sim.suits.last_fired[i], sim.suits.last_hit[i]), (0, 0));
     assert!(sim.sleep(id));
     let slept = sim.tick();
@@ -204,8 +204,8 @@ fn allies_see_parked_and_hidden_suits() {
     let i = id.idx();
     steps(&mut sim, 5);
     let at = sim.suits.flight[i].pos;
-    let friend = leo(&mut sim, Faction::Colonies, at + out * 2_000.0, -out);
-    let enemy = leo(&mut sim, Faction::Alliance, at - out * 2_000.0, out);
+    let friend = argo(&mut sim, Faction::Colonies, at + out * 2_000.0, -out);
+    let enemy = argo(&mut sim, Faction::Alliance, at - out * 2_000.0, out);
     assert!(sim.sleep(id));
     steps(&mut sim, POWER_DOWN_TICKS + 1);
     assert!(!sim.detects(enemy.idx(), i));
@@ -219,8 +219,8 @@ fn allies_see_parked_and_hidden_suits() {
     lie_still(&mut sim, id, LURK_SETTLE_TICKS + 1);
     assert_eq!(sim.cover_code(i), cover::HIDDEN);
     let (at, n) = (sim.suits.flight[i].pos, up(&sim, id));
-    let friend = leo(&mut sim, Faction::Colonies, at + n * 2_000.0, -n);
-    let enemy = leo(&mut sim, Faction::Oz, at + n * 2_000.0 + Vec3::X * 50.0, -n);
+    let friend = argo(&mut sim, Faction::Colonies, at + n * 2_000.0, -n);
+    let enemy = argo(&mut sim, Faction::Almagest, at + n * 2_000.0 + Vec3::X * 50.0, -n);
     lie_still(&mut sim, id, 1);
     assert!(!sim.detects(enemy.idx(), i));
     assert!(sim.detects(friend.idx(), i), "an ally lost a hidden suit");
@@ -229,7 +229,7 @@ fn allies_see_parked_and_hidden_suits() {
 #[test]
 fn crouched_still_in_a_hide_spot_goes_dark_in_3s_seen_only_within_225m() {
     let mut sim = landmarks_only();
-    let id = standing_on(&mut sim, FrameId::Leo, Faction::Colonies, Body::Landmark(1), Vec3::Y);
+    let id = standing_on(&mut sim, FrameId::Argo, Faction::Colonies, Body::Landmark(1), Vec3::Y);
     let i = id.idx();
     lie_still(&mut sim, id, 1);
     assert_eq!(sim.suits.hide_spot[i], 0, "it stands in THE DEEP");
@@ -238,7 +238,7 @@ fn crouched_still_in_a_hide_spot_goes_dark_in_3s_seen_only_within_225m() {
     let visual = LANDMARKS[1].hides[0].visual * HIDE_AWAKE_VISUAL_MUL;
     assert_eq!(visual, 225.0);
     let [far, inside, outside] =
-        [2_000.0, visual - 25.0, visual + 25.0].map(|d| leo(&mut sim, Faction::Oz, at + n * d, -n));
+        [2_000.0, visual - 25.0, visual + 25.0].map(|d| argo(&mut sim, Faction::Almagest, at + n * d, -n));
     let (_, down) = crouch(&mut sim, id);
     assert_eq!(sim.cover_code(i), cover::SETTLING, "crouched still, it's settling");
     assert_eq!(sim.suits.still_since[i], down);
@@ -268,7 +268,7 @@ fn firing_exposes_for_5s_in_the_same_tick() {
     let i = id.idx();
     lie_still(&mut sim, id, LURK_SETTLE_TICKS);
     let (at, n) = (sim.suits.flight[i].pos, up(&sim, id));
-    let far = leo(&mut sim, Faction::Oz, at + n * 2_000.0, -n);
+    let far = argo(&mut sim, Faction::Almagest, at + n * 2_000.0, -n);
     lie_still(&mut sim, id, 1);
     assert!(!sim.detects(far.idx(), i));
     let since = sim.suits.still_since[i];
@@ -299,10 +299,10 @@ fn cold_crouched_still_anywhere_halves_signature() {
     let i = id.idx();
     assert_eq!(sim.suits.hide_spot[i], bc_sim::suits::NO_SPOT);
     let (at, n) = (sim.suits.flight[i].pos, up(&sim, id));
-    // A Leo's sensors reach 6 km for a Leo; cold, half that.
-    let range = frame(FrameId::Leo).sensor_range * frame(FrameId::Leo).signature;
+    // An Argo's sensors reach 6 km for an Argo; cold, half that.
+    let range = frame(FrameId::Argo).sensor_range * frame(FrameId::Argo).signature;
     let [beyond, within] = [range * COLD_SIG + 500.0, range * COLD_SIG - 500.0]
-        .map(|d| leo(&mut sim, Faction::Oz, at + n * d, -n));
+        .map(|d| argo(&mut sim, Faction::Almagest, at + n * d, -n));
     let settling = down + LURK_SETTLE_TICKS - sim.tick() - 1;
     lie_still(&mut sim, id, settling);
     assert!(sim.detects(beyond.idx(), i), "cold before it settled");
@@ -322,7 +322,7 @@ fn regrowth_ignores_distant_sleepers_but_not_one_in_the_way() {
         let mut sim = with_rocks();
         let (i, rock) = lone_rock(&sim, 8.0, 60.0);
         sim.rocks.hp[i] = 1.0;
-        let shooter = leo(&mut sim, Faction::Colonies, rock.pos + Vec3::Z * 300.0, -Vec3::Z);
+        let shooter = argo(&mut sim, Faction::Colonies, rock.pos + Vec3::Z * 300.0, -Vec3::Z);
         for _ in 0..30 {
             drive(&mut sim, shooter, [0; 3], FIRE_PRIMARY, -Vec3::Z);
             sim.step();
@@ -330,7 +330,7 @@ fn regrowth_ignores_distant_sleepers_but_not_one_in_the_way() {
         assert!(sim.rocks.destroyed.get(i), "the rock didn't shatter");
         sim.leave(shooter);
         let at = rock.pos + Vec3::new(0.3, 1.0, -0.2).normalize() * off;
-        let id = leo(&mut sim, Faction::Colonies, at, Vec3::Z);
+        let id = argo(&mut sim, Faction::Colonies, at, Vec3::Z);
         if asleep {
             assert!(sim.sleep(id));
         }
@@ -349,13 +349,13 @@ fn regrowth_ignores_distant_sleepers_but_not_one_in_the_way() {
 #[test]
 fn hidden_sleepers_are_evicted_last() {
     let mut sim =
-        Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, max_sleepers: 2, ..SimConfig::default() });
+        Sim::new(SimConfig { target_drones: 0, field_rocks: 0, max_sleepers: 2, ..SimConfig::default() });
     // The first asleep, in THE DEEP; then two more out in the open.
     let (hidden, _) = crouched_on(&mut sim, Body::Landmark(1), Vec3::Y);
     lie_still(&mut sim, hidden, 1);
     assert_eq!(sim.suits.hide_spot[hidden.idx()], 0);
     let open: Vec<SuitId> = (0..2)
-        .map(|k| leo(&mut sim, Faction::Colonies, Vec3::new(k as f32 * 100.0, 5_000.0, 9_000.0), Vec3::Z))
+        .map(|k| argo(&mut sim, Faction::Colonies, Vec3::new(k as f32 * 100.0, 5_000.0, 9_000.0), Vec3::Z))
         .collect();
     assert!(sim.sleep(hidden));
     steps(&mut sim, 1);
@@ -384,7 +384,7 @@ fn a_suit_that_slept_hidden_wakes_hidden() {
     lie_still(&mut sim, id, LURK_SETTLE_TICKS + 1);
     assert_eq!(sim.cover_code(i), cover::HIDDEN);
     let (at, n) = (sim.suits.flight[i].pos, up(&sim, id));
-    let far = leo(&mut sim, Faction::Oz, at + n * 2_000.0, -n);
+    let far = argo(&mut sim, Faction::Almagest, at + n * 2_000.0, -n);
     lie_still(&mut sim, id, 1);
     assert!(!sim.detects(far.idx(), i));
     // Its pilot leaves: the suit kneels there, and powers down in plain sight like any other.
@@ -412,11 +412,11 @@ fn what_a_pilot_could_park_on_is_worked_out_once_a_tick() {
     let (r, rock) = lone_rock(&sim, 20.0, 1_500.0);
     let (id, out) = resting_on(&mut sim, &rock);
     let i = id.idx();
-    let doll = sim
+    let drone = sim
         .spawn_at(
-            FrameId::Taurus,
-            Faction::Oz,
-            PilotKind::MobileDoll,
+            FrameId::Corvus,
+            Faction::Almagest,
+            PilotKind::Drone,
             rock.surface(rock.pos - out * (rock.radius + 50.0), 0.0) - out * (SUIT_CLEARANCE + 0.5),
             look_rotation(-out, Vec3::Y),
         )
@@ -425,7 +425,7 @@ fn what_a_pilot_could_park_on_is_worked_out_once_a_tick() {
     sim.step();
     assert_eq!(sim.suits.parkable[i], Body::Rock(r as u16));
     assert_ne!(sim.own_state(i).flags & PARKABLE, 0);
-    assert_eq!(sim.suits.parkable[doll.idx()], Body::None, "a doll never parks: nobody asks");
+    assert_eq!(sim.suits.parkable[drone.idx()], Body::None, "a drone never parks: nobody asks");
     assert!(sim.sleep(id));
     sim.step();
     assert_eq!(sim.suits.parkable[i], Body::None, "asleep, it's parked already");
@@ -443,15 +443,15 @@ fn a_suit_standing_inside_the_colony_could_park_on_nothing() {
     use bc_sim::ground::Footing;
     use bc_sim::sim::{Loadout, PARK_SPEED};
     let mut sim = Sim::new(SimConfig {
-        target_dolls: 0,
+        target_drones: 0,
         field_rocks: 0,
         landmarks: 0,
         survival: true,
         world: WorldKind::Interior,
         ..SimConfig::default()
     });
-    let leo = FrameId::Leo;
-    let id = sim.launch(leo, Faction::Colonies, PilotKind::Human, &Loadout::full(leo)).unwrap();
+    let argo = FrameId::Argo;
+    let id = sim.launch(argo, Faction::Colonies, PilotKind::Human, &Loadout::full(argo)).unwrap();
     let i = id.idx();
     // Over the avenue, at rest and low enough for an armed grip to catch; down, and standing still.
     let at = CityPos::new(0, (station_x(2) + station_x(3)) * 0.5, STRIP_WIDTH * 0.5 + 24.0, 25.0);

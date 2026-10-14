@@ -158,7 +158,7 @@ def _font(repo, size, bold=True):
 
 
 def decal_images(repo, dirpath):
-    """The stencils: a unit number, the Oz badge, the type's name, hazard stripes, the rescue
+    """The stencils: a unit number, the Almagest badge, the type's name, hazard stripes, the rescue
     mark and a propellant warning. RGBA, white (or coloured) on clear."""
     os.makedirs(dirpath, exist_ok=True)
     out = {}
@@ -175,16 +175,16 @@ def decal_images(repo, dirpath):
 
     img = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    # A badge: a hexagon's outline, a bar across, and OZ.
+    # A badge: a hexagon's outline, a bar across, and AL, the Almagest's letters.
     hexagon = [(256 + 230 * math.cos(math.radians(60 * k + 30)), 256 + 230 * math.sin(math.radians(60 * k + 30))) for k in range(6)]
     d.polygon(hexagon, outline=(236, 234, 222, 255), width=22)
-    d.text((256, 262), "OZ", font=_font(repo, 210), fill=(236, 234, 222, 255), anchor="mm")
+    d.text((256, 262), "AL", font=_font(repo, 210), fill=(236, 234, 222, 255), anchor="mm")
     d.rectangle([90, 382, 422, 398], fill=(236, 234, 222, 255))
     save("badge", img)
 
     img = Image.new("RGBA", (1024, 256), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.text((512, 100), "OZ-06MS  LEO", font=_font(repo, 120), fill=(236, 234, 222, 255), anchor="mm")
+    d.text((512, 100), "AL-04S  ARGO", font=_font(repo, 120), fill=(236, 234, 222, 255), anchor="mm")
     d.text((512, 205), "SPECIAL FORCES  ORBITAL", font=_font(repo, 56, bold=False), fill=(236, 234, 222, 220), anchor="mm")
     save("type", img)
 
@@ -212,11 +212,11 @@ def decal_images(repo, dirpath):
     return out
 
 
-# Where each decal goes on the Leo, in the suit's frame: (image, a point near the surface, the way
+# Where each decal goes on the Argo, in the suit's frame: (image, a point near the surface, the way
 # its face looks, its width and height, m). Each is ray-cast onto the armour.
 # (The unit number, the insignia, the hazard stripes and the rescue mark are the model's own
 # stencils now, as in the game.)
-LEO_DECALS = [
+ARGO_DECALS = [
     ("badge", (1.0, 4.85, 1.6), (0.24, 0.33, 0.91), 0.7, 0.7),
     ("type", (-1.05, 4.75, 1.6), (-0.24, 0.33, 0.91), 1.15, 0.29),
     ("warning", (-1.7, 3.25, -3.9), (0.0, 0.0, -1.0), 1.7, 0.42),
@@ -227,7 +227,7 @@ def to_blender(p):
     return Vector((p[0], -p[2], p[1]))
 
 
-def place_decals(repo, dirpath, specs=LEO_DECALS):
+def place_decals(repo, dirpath, specs=ARGO_DECALS):
     """Empties standing on the armour where each decal goes, oriented to the surface: their local
     x and y span the decal, z its depth."""
     images = decal_images(repo, dirpath)

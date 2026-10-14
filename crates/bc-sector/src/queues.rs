@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use bc_proto::{Faction, FrameId, InputPacket, PilotKind};
 use bc_sim::SuitId;
+use bc_sim::orrery::{TacticalAdvice, TacticalPicture};
 use bc_sim::sim::{Homecoming, Loadout, ParkRecord, SleeperFate};
-use bc_sim::zero::{TacticalAdvice, TacticalPicture};
 use crossbeam_queue::ArrayQueue;
 
 use crate::metrics::Metrics;
@@ -309,7 +309,7 @@ pub struct SectorShared {
     pub landmarks: u8,
     /// The colony's inside (`bc_sim::colony::interior`), not space: for the Welcome.
     pub interior: bool,
-    /// The ace out among the Dolls (`bc_sim::sim::Sim::ace_out`), for the server's roster and the
+    /// The ace out among the drones (`bc_sim::sim::Sim::ace_out`), for the server's roster and the
     /// Charter Board: [`ace_word`] of its suit, which it is and whether it still flies; 0, none.
     pub ace: AtomicU32,
     started: std::time::Instant,

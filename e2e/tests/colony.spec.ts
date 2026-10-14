@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { chromium, expect, test, type Page } from "@playwright/test";
 import { bc, built, collectConsole } from "./util";
 
-// The colony inside (`scripts/e2e.sh colony`: a survival server with the colony open, no dolls,
+// The colony inside (`scripts/e2e.sh colony`: a survival server with the colony open, no drones,
 // and an agent strolling outside Hub Gate). The pilot goes out through their bay's airlock and
 // rides the cap lift down to Hub Gate, finds the agent there, walks across the square into the
 // Proving Ground (the Blast Hall) to its desk and its board, walks the city's streets to the
@@ -77,9 +77,9 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   // can't clear the drill in time, and the server's tests fly it (`crates/bc-server/tests/proving.rs`).
   await page.addInitScript(() => localStorage.setItem("bc.settings", "version = 1\nobjectives_done = 2048\n"));
   await page.addInitScript(KEEP_TOASTS);
-  await page.goto("/?autoplay=1&name=Relena&quality=low");
+  await page.goto("/?autoplay=1&name=Maren&quality=low");
   await until(page, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 180_000);
-  expect((await mine(page, "Relena")).status.game.colony).toBe(true);
+  expect((await mine(page, "Maren")).status.game.colony).toBe(true);
   // The objectives on foot run down the chain: first, the cap lift.
   await until(page, "the first objective on foot", (s) => s.objective === "RIDE THE CAP LIFT DOWN", FRAMES);
 
@@ -110,13 +110,13 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   // and the server has the two of them down here.
   s = await until(page, "the flaneur", (s) => s.people >= 1 && String(s.people_names).includes("Flaneur-01"), FRAMES);
   expect(s.people_nearest).toBeLessThan(120);
-  const city = (await mine(page, "Relena")).status.game.city;
+  const city = (await mine(page, "Maren")).status.game.city;
   expect(city.people).toBe(2);
   expect(city.refused_poses).toBe(0);
-  expect((await mine(page, "Relena")).hangar?.place).toBe("city");
+  expect((await mine(page, "Maren")).hangar?.place).toBe("city");
 
   // The next objective is the Proving Ground, off the square (`docs/TRAINING.md`): across it and in
-  // through the Blast Hall's blast doors to its desk, a room at a mobile suit's scale under its
+  // through the Blast Hall's blast doors to its desk, a room at a suit's scale under its
   // floodlights. Its desk has the course.
   await until(page, "the next objective", (s) => s.objective === "REPORT TO THE PROVING GROUND", FRAMES);
   await push(page, { cmd: "walk_to", spot: "proving_ground" });
@@ -239,7 +239,7 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await page.keyboard.down("w");
   await until(page, "standing", (s) => s.seated < 0, FRAMES);
   await page.keyboard.up("w");
-  expect((await mine(page, "Relena")).status.game.city.refused_by?.seat ?? 0).toBe(0);
+  expect((await mine(page, "Maren")).status.game.city.refused_by?.seat ?? 0).toBe(0);
 
   // In to The Arrival's counter: the Most Wanted pinned up behind the bar, and the pilot's terms
   // (with standing, its wreck can be theirs).
@@ -250,7 +250,7 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await push(page, { cmd: "use" });
   await until(page, "the Most Wanted", (s) => s.terminal === "wanted", 180_000);
   await expect(page.locator("#term-body")).toContainText("MOST WANTED", { timeout: FRAMES });
-  await expect(page.locator("#term-body")).toContainText("PISCES");
+  await expect(page.locator("#term-body")).toContainText("ORION");
   await page.screenshot({ path: "artifacts/colony-arrival.png" });
   await press(page, '[data-act="ace-terms"][data-salvage="1"]');
   await expect(page.locator("#term-log")).toContainText("TERMS: AN ACE'S WRECK", { timeout: FRAMES });
@@ -272,7 +272,7 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   expect(s.bay).toBe("docked");
 
   // The server agrees, and its hot path never allocated.
-  const { status, hangar } = await mine(page, "Relena");
+  const { status, hangar } = await mine(page, "Maren");
   expect(hangar?.place).toBe("hangar");
   expect(status.game.hot_path_allocations).toBe(0);
   const bad = logs.filter((l) => /\[error\]|\[pageerror\]|%cERROR|panicked/i.test(l));
@@ -445,8 +445,8 @@ test("two pilots meet at Hub Gate; one rides home, and a suit comes down by the 
     }
     throw new Error(`${name} never got in`);
   };
-  await inBay(a, "Heero");
-  await inBay(b, "Duo");
+  await inBay(a, "Kai");
+  await inBay(b, "Nico");
   const both = async (f: (p: Page) => Promise<unknown>) => Promise.all([f(a), f(b)]);
 
   // Both down the cap lift to Hub Gate.
@@ -456,7 +456,7 @@ test("two pilots meet at Hub Gate; one rides home, and a suit comes down by the 
   await both((p) => until(p, "the city", (s) => s.place === "city", 120_000));
   await both((p) => push(p, { cmd: "skip" }));
   await both((p) => until(p, "Hub Gate", (s) => s.seq === "walking" && s.strip === 0, 120_000));
-  // Heero steps over to the motor pool beside the door; Duo stays at it. (Over there and stopped:
+  // Kai steps over to the motor pool beside the door; Nico stays at it. (Over there and stopped:
   // a page drawing in software can walk the few seconds of it in one or two long frames, too soon
   // for a look to catch the walk under way.)
   const from = String((await bc(a)).city_feet).split(",").map(Number);
@@ -475,8 +475,8 @@ test("two pilots meet at Hub Gate; one rides home, and a suit comes down by the 
   // (Seen a moment late, as everyone is: on a page drawing in software a walk's last frame, and the
   // pose it sends, can be seconds and metres long, so the sight is waited on to catch up.)
   for (const [me, other, them] of [
-    [a, b, "Duo"],
-    [b, a, "Heero"],
+    [a, b, "Nico"],
+    [b, a, "Kai"],
   ] as const) {
     await until(me, `${them} in view`, (s) => seenAt(s, them) !== undefined, 120_000);
     const feet = String((await bc(other)).city_feet).split(",").map(Number);
@@ -491,24 +491,24 @@ test("two pilots meet at Hub Gate; one rides home, and a suit comes down by the 
   expect(status.game.city.people).toBeGreaterThanOrEqual(3);
   expect(status.game.city.by_strip[0]).toBeGreaterThanOrEqual(3);
 
-  // Duo rides back up to the bay, and is gone from Heero's street.
+  // Nico rides back up to the bay, and is gone from Kai's street.
   await push(b, { cmd: "walk_to", spot: "hub_gate_1" });
   await until(b, "at Hub Gate's door", (s) => s.focus === "hub_gate_1" && !s.city_walking_to, 240_000);
   await push(b, { cmd: "use" });
   await until(b, "the bay", (s) => s.place === "hangar" && s.seq === "walking" && s.strip === -1, 120_000);
-  await until(a, "Duo gone", (s) => seenAt(s, "Duo") === undefined, 60_000);
+  await until(a, "Nico gone", (s) => seenAt(s, "Nico") === undefined, 60_000);
   status = await (await a.request.get("/status")).json();
   expect(status.game.city.people).toBe(2);
-  // (Heero's page has the machine to itself for the rest.)
+  // (Kai's page has the machine to itself for the rest.)
   await cb.close();
   await second.close();
 
   // A suit comes in by the inner gate and down onto the avenue 60 m up from Hub Gate's door: an
   // agent flies it (a page drawing in software beside another can't fly a suit down 2.9 km), and
-  // says every few seconds who it sees below. Heero, on foot by the door, watches it come and
-  // stand there, and the suit's pilot sees Heero.
+  // says every few seconds who it sees below. Kai, on foot by the door, watches it come and
+  // stand there, and the suit's pilot sees Kai.
   let said = "";
-  const agent = spawn(SUIT, ["--server", BC_URL, "--name", "Wufei", "--land"]);
+  const agent = spawn(SUIT, ["--server", BC_URL, "--name", "Lin", "--land"]);
   for (const out of [agent.stdout, agent.stderr]) out.on("data", (d: Buffer) => (said += d.toString()));
   const lines = () => said.replace(/\x1b\[[0-9;]*m/g, "").split("\n");
   try {
@@ -519,13 +519,13 @@ test("two pilots meet at Hub Gate; one rides home, and a suit comes down by the 
     expect(s.watched_nearest).toBeLessThan(150);
     await a.screenshot({ path: "artifacts/colony-suit-on-the-avenue.png" });
     const t0 = Date.now();
-    while (!lines().some((l) => /sees \[.*\bHeero\b.*\] standing=true/.test(l))) {
-      if (Date.now() - t0 > 120_000) throw new Error(`the suit never saw Heero:\n${lines().slice(-20).join("\n")}`);
+    while (!lines().some((l) => /sees \[.*\bKai\b.*\] standing=true/.test(l))) {
+      if (Date.now() - t0 > 120_000) throw new Error(`the suit never saw Kai:\n${lines().slice(-20).join("\n")}`);
       await a.waitForTimeout(1_000);
     }
     console.log(lines().filter((l) => l.includes("sees [")).slice(-1)[0]);
 
-    // The server: Heero (and the flaneur) watching, one suit inside, nobody's pose refused, and the
+    // The server: Kai (and the flaneur) watching, one suit inside, nobody's pose refused, and the
     // hot path clean.
     status = await (await a.request.get("/status")).json();
     expect(status.game.inside.watchers).toBeGreaterThanOrEqual(1);

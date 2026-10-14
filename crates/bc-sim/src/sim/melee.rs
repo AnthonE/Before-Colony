@@ -1,4 +1,4 @@
-//! Melee: beam sabers and every other blade, the Dragon Fang's thrust, and the Cross Crusher.
+//! Melee: beam sabers and every other blade, the Talon's thrust, and the Pincer Strike.
 //!
 //! A strike winds up, is out (and can hit) for a few ticks, then recovers. Its motion comes from
 //! the weapon's [`MeleeSpec`]: a swing sweeps its blade through an arc, `sub_steps` samples a tick;
@@ -6,8 +6,8 @@
 //! mirrored blade from the other hand.
 //!
 //! What starts a strike, in priority order: the SPECIAL press for a frame whose special is a melee
-//! move (the Cross Crusher), the MELEE press for the melee slot, then fire held on a melee weapon in
-//! a gun slot (the Dragon Fang is Shenlong's primary).
+//! move (the Pincer Strike), the MELEE press for the melee slot, then fire held on a melee weapon in
+//! a gun slot (the Talon is Thuban's primary).
 //!
 //! A suit standing on a rock doesn't cut it by swinging near its feet: only a strike aimed down
 //! into it digs it (and may shatter it out from under the suit).
@@ -56,7 +56,7 @@ impl Sim {
         }
     }
 
-    /// Whether `arm` is out with a strike that takes the arm with it (the Dragon Fang), so the
+    /// Whether `arm` is out with a strike that takes the arm with it (the Talon), so the
     /// arm's other weapons wait.
     pub(super) fn arm_blocked(&self, i: usize, arm: ArmSlot) -> bool {
         let st = &self.suits.melee[i];
@@ -173,11 +173,8 @@ impl Sim {
         // As the pilot saw it: the others as they were its latency ago (not frozen at the start of
         // the strike, which would leave a fast target behind), and the suit itself, on a body, on
         // the body as it was then.
-        let rewind = if self.suits.pilot[i] == PilotKind::MobileDoll {
-            0
-        } else {
-            (st.lag_q4 >> 4).min(MAX_REWIND_TICKS)
-        };
+        let rewind =
+            if self.suits.pilot[i] == PilotKind::Drone { 0 } else { (st.lag_q4 >> 4).min(MAX_REWIND_TICKS) };
         let when = t - rewind;
         let mut f = self.suits.flight[i];
         if rewind > 0 {

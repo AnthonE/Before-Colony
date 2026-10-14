@@ -1,5 +1,5 @@
-//! Zodiac's aces (`content::aces`): one out among the Dolls at a time, a Leo standing half as much
-//! again as a Doll's, fielded round the list every `ace_every` while none is out.
+//! The Almagest's aces (`content::aces`): one out among the drones at a time, an Argo standing half as much
+//! again as a drone's, fielded round the list every `ace_every` while none is out.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
 use bc_proto::{Faction, Part, PilotKind, WeaponKind};
@@ -8,7 +8,7 @@ use bc_sim::content::frame;
 use bc_sim::{Sim, SimConfig};
 
 fn sim(ace_every: u32) -> Sim {
-    Sim::new(SimConfig { target_dolls: 4, field_rocks: 0, ace_every, ..SimConfig::default() })
+    Sim::new(SimConfig { target_drones: 4, field_rocks: 0, ace_every, ..SimConfig::default() })
 }
 
 fn run(sim: &mut Sim, ticks: u32) {
@@ -29,17 +29,17 @@ fn an_ace_is_fielded_one_at_a_time_round_the_list() {
     assert_eq!(sim.ace_of(i), Some(0));
     assert_eq!(
         (sim.suits.frame[i], sim.suits.faction[i], sim.suits.pilot[i]),
-        (ACE_FRAME, Faction::Oz, PilotKind::MobileDoll)
+        (ACE_FRAME, Faction::Almagest, PilotKind::Drone)
     );
     let torso = frame(ACE_FRAME).part_hp[Part::Torso as usize] * ACE_ARMOUR;
-    assert_eq!(sim.suits.part_hp[i][Part::Torso as usize], torso, "it stands more than a Doll");
+    assert_eq!(sim.suits.part_hp[i][Part::Torso as usize], torso, "it stands more than a drone");
     // While it's out, no other.
     run(&mut sim, 90);
     assert_eq!(sim.ace_out(), Some((i, 0)));
     let aces = sim.suits.used.iter().filter(|&j| sim.ace_of(j).is_some()).count();
     assert_eq!(aces, 1);
     // Downed, it's still out (and still the ace, for whoever looks at its kill) until its slot is
-    // let go, a Doll's few seconds on...
+    // let go, a drone's few seconds on...
     sim.strike(i, Part::Torso, torso * 10.0, usize::MAX, WeaponKind::BeamRifle);
     run(&mut sim, 1);
     assert!(!sim.is_alive(i));
@@ -62,7 +62,7 @@ fn an_ace_is_fielded_one_at_a_time_round_the_list() {
 
 #[test]
 fn a_slot_an_ace_had_is_nobody_s_ace_after() {
-    // Every Doll fielded after an ace downed in its slot is a plain Doll (but the next ace).
+    // Every drone fielded after an ace downed in its slot is a plain drone (but the next ace).
     let mut sim = sim(30);
     run(&mut sim, 31);
     let (i, _) = sim.ace_out().expect("the first ace");
@@ -76,12 +76,12 @@ fn a_slot_an_ace_had_is_nobody_s_ace_after() {
 }
 
 #[test]
-fn no_aces_unless_asked_and_none_without_dolls() {
+fn no_aces_unless_asked_and_none_without_drones() {
     let mut sim = sim(0);
     run(&mut sim, 120);
     assert_eq!(sim.ace_out(), None);
     let mut sim =
-        Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ace_every: 30, ..SimConfig::default() });
+        Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ace_every: 30, ..SimConfig::default() });
     run(&mut sim, 120);
     assert_eq!(sim.ace_out(), None);
     // The default fields one every five minutes.

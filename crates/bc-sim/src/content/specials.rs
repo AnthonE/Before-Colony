@@ -1,8 +1,8 @@
 //! Specials charged by the fight, after Titanfall's Core (`docs/PEERS.md`, "The mech games"; the
-//! simulation's side is `sim::specials`): a special with a cooldown (Full Open Attack, the Cross
-//! Crusher) charges back by itself over it, and faster from the fight. Every armour point the
+//! simulation's side is `sim::specials`): a special with a cooldown (Full Salvo, the Pincer
+//! Strike) charges back by itself over it, and faster from the fight. Every armour point the
 //! suit's blows take off a hostile suit, and every point it takes, comes off what's left. The
-//! special's own blows charge nothing, and Full Open charges nothing until its lockout is over.
+//! special's own blows charge nothing, and Full Salvo charges nothing until its lockout is over.
 //!
 //! The pilot's client hears of the fight's share from its own state (it can't foresee a hit), so
 //! its prediction of a special a blow made ready lags by a snapshot, as it does for the blow.

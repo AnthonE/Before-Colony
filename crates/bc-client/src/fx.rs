@@ -1,8 +1,8 @@
 //! Weapons and battle effects, drawn from the view model (the [`BeamFeed`], [`FxEvent`]s and the
 //! suits' [`SuitDrive`]s):
-//! - beams, and the tracers of stream weapons (gatlings, machine guns, vulcans: drawn from the
+//! - beams, and the tracers of stream weapons (gatlings, machine guns, head guns: drawn from the
 //!   firing flags at each weapon's speed and colour), as glowing ribbons (pooled, see `beams`);
-//! - muzzle flashes, impacts, blade clashes, the Twin Buster Rifle's charge, ring and ionised
+//! - muzzle flashes, impacts, blade clashes, the Heavy Beam Rifle's charge, ring and ionised
 //!   trail, the flamethrower's jet, missile bursts, attitude jets and suits exploding, as
 //!   particles (`particles`), shells and armour chips (`blast`);
 //! - and the point lights those effects cast on the suits around them.
@@ -66,19 +66,20 @@ pub struct FxState {
 }
 
 /// A suit's ranged mounts firing this frame: the loadout's guns by their firing flags, and during
-/// Full Open Attack every gun, the special mounts' too. Mounts are numbered like the simulation's
+/// Full Salvo every gun, the special mounts' too. Mounts are numbered like the simulation's
 /// (0, 1: the loadout's guns; 3, 4: the special mounts).
 pub fn firing_mounts(d: &SuitDrive) -> impl Iterator<Item = (u8, Mount)> + '_ {
     let spec = frame(d.frame);
     let wreck = d.flags & ent_flags::WRECK != 0;
-    let full_open = d.flags & ent_flags::SPECIAL != 0 && matches!(spec.special, SpecialKind::FullOpen { .. });
+    let full_salvo =
+        d.flags & ent_flags::SPECIAL != 0 && matches!(spec.special, SpecialKind::FullSalvo { .. });
     let loadout =
         [(0u8, ent_flags::FIRING_PRIMARY), (1, ent_flags::FIRING_SECONDARY)].into_iter().filter_map(
             move |(k, bit)| spec.loadout[usize::from(k)].filter(|_| d.flags & bit != 0).map(|m| (k, m)),
         );
     let special = (0..2u8).filter_map(move |k| spec.special_mounts[usize::from(k)].map(|m| (k + 3, m)));
     loadout
-        .chain(special.filter(move |_| full_open))
+        .chain(special.filter(move |_| full_salvo))
         .filter(move |(_, m)| !wreck && weapon(m.weapon).class != WeaponClass::Melee)
 }
 
@@ -169,10 +170,10 @@ pub fn update_fx(
                     mat.0 = look.material.clone();
                 }
                 show(&mut v, true);
-                if b.weapon == WeaponKind::TwinBusterRifle {
+                if b.weapon == WeaponKind::HeavyBeamRifle {
                     particles.trail(cap, b.head, b.dir, length, look.color, time.dt);
                 }
-                // A bright bolt-head, so a shot reads end-on and far away (the Twin Buster's own
+                // A bright bolt-head, so a shot reads end-on and far away (the heavy beam rifle's own
                 // head is already vast).
                 let size = (look.half_width * 1.6).min(3.0);
                 particles.glow(cap, At { pos: b.head, vel: Vec3::ZERO }, size, look.color * 0.5);
@@ -312,13 +313,14 @@ pub fn update_fx(
         }
     }
 
-    // --- A gun drawing in energy while it charges: the Twin Buster Rifle, a beam rifle's shot. ---
+    // --- A gun drawing in energy while it charges: the Heavy Beam Rifle, a beam rifle's shot. ---
     for (d, anim, _) in &suits {
         if d.flags & ent_flags::CHARGING != 0 && d.flags & ent_flags::WRECK == 0 {
             // At the drawn muzzle, which the arm is holding on the aim.
             let muzzle = bone_point(d, anim, Bone::Weapon, lib.sockets(d.frame).muzzle);
-            let buster = frame(d.frame).loadout[0].is_some_and(|m| m.weapon == WeaponKind::TwinBusterRifle);
-            let (glow, size, light) = if buster {
+            let heavy_beam =
+                frame(d.frame).loadout[0].is_some_and(|m| m.weapon == WeaponKind::HeavyBeamRifle);
+            let (glow, size, light) = if heavy_beam {
                 (Vec3::new(12.0, 7.0, 16.0), 1.0, Color::linear_rgb(0.9, 0.6, 1.0))
             } else {
                 (ribbons.sniper.color * 1.6, 0.35, color(ribbons.sniper.color))
@@ -340,7 +342,7 @@ pub fn update_fx(
         match ev {
             FxEvent::Hit { pos, weapon, normal, target } => {
                 let look = ribbons.look(weapon);
-                let big = weapon == WeaponKind::TwinBusterRifle;
+                let big = weapon == WeaponKind::HeavyBeamRifle;
                 // Sparks fly off the struck surface (or back toward the camera's side of it), and
                 // on with the suit they came off.
                 let normal = normal.unwrap_or_else(|| (eye - pos).normalize_or(Vec3::Y));
@@ -392,8 +394,8 @@ pub fn update_fx(
                         bone_point(d, anim, Bone::Weapon, lib.sockets(d.frame).muzzle)
                     });
                 let look = ribbons.look(weapon);
-                let buster = weapon == WeaponKind::TwinBusterRifle;
-                let scale = if buster {
+                let heavy_beam = weapon == WeaponKind::HeavyBeamRifle;
+                let scale = if heavy_beam {
                     4.0
                 } else if weapon == WeaponKind::BeamRifleCharged {
                     2.0
@@ -401,7 +403,7 @@ pub fn update_fx(
                     1.0
                 };
                 particles.muzzle(cap, At { pos, vel }, dir, look.color, scale);
-                if buster {
+                if heavy_beam {
                     blasts.ring(pos + dir * 6.0, vel, dir, 28.0);
                 }
                 state.flashes.push(Flash {
@@ -544,7 +546,7 @@ pub struct LightWish {
     lumens: f32,
 }
 
-/// Lights the suits around flashes, blasts, sabers and Twin Buster beams: the pooled point lights
+/// Lights the suits around flashes, blasts, sabers and heavy beam rifle beams: the pooled point lights
 /// go to the effects nearest the camera, up to the tier's budget.
 #[allow(clippy::too_many_arguments)]
 pub fn update_fx_lights(
@@ -590,7 +592,7 @@ pub fn update_fx_lights(
             wishes.push(LightWish { pos: m.pos, color: Color::srgb(1.0, 0.7, 0.4), lumens: 1.5e7 });
         }
         for b in &feed.0 {
-            if b.weapon == WeaponKind::TwinBusterRifle {
+            if b.weapon == WeaponKind::HeavyBeamRifle {
                 wishes.push(LightWish { pos: b.head, color: Color::srgb(0.95, 0.75, 1.0), lumens: 8.0e8 });
             }
         }

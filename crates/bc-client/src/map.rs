@@ -229,7 +229,7 @@ pub fn update_objectives(
         },
         cargo_kg: own.map_or(0, |o| o.cargo_kg.iter().map(|kg| u32::from(*kg)).sum::<u32>()) + held,
         docked: own.is_some_and(|o| o.flags & own_flags::DOCKED != 0),
-        doll_kills: core.world.doll_kills,
+        drone_kills: core.world.drone_kills,
         colony: core.welcome.is_some_and(|w| w.colony),
         in_city: h.place == Some(Place::City),
         at_exchange: at_door(obj::exchange()),
@@ -242,16 +242,16 @@ pub fn update_objectives(
         armed: h.armed(),
         aces: h.aces_downed() > 0,
         // Flying one of the colony's new lines off the test range.
-        tried_prototype: h.trainer && own.is_some_and(|o| bc_sim::content::salvage::is_gundam(o.frame)),
+        tried_prototype: h.trainer && own.is_some_and(|o| bc_sim::content::salvage::is_lodestar(o.frame)),
         smelting: h.smelting(),
         waiting: h.board_holds(),
     };
-    let (mut done, mut downed) = (settings.0.objectives_done, settings.0.dolls_downed);
+    let (mut done, mut downed) = (settings.0.objectives_done, settings.0.drones_downed);
     let before = done;
     let current = state.objectives.step(&mut done, &mut downed, &input);
-    if done != settings.0.objectives_done || downed != settings.0.dolls_downed {
+    if done != settings.0.objectives_done || downed != settings.0.drones_downed {
         settings.0.objectives_done = done;
-        settings.0.dolls_downed = downed;
+        settings.0.drones_downed = downed;
     }
     // Say so when one is done.
     if let Some(o) = Objective::ALL.iter().find(|o| before & o.bit() == 0 && done & o.bit() != 0) {

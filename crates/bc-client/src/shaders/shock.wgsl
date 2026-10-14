@@ -1,5 +1,5 @@
 // Glowing shells, lit only where they graze the line of sight: an explosion's shock front (a
-// sphere), the ZERO System's aura, and — on a flat disc, MeshTag bit 8 — the ring a Twin Buster
+// sphere), the Orrery's aura, and — on a flat disc, MeshTag bit 8 — the ring a heavy beam rifle
 // shot throws off round the muzzle. Fade (255 fresh .. 0 gone) rides in the MeshTag's low byte.
 
 #import bevy_pbr::{forward_io::VertexOutput, mesh_functions::get_tag, mesh_view_bindings::view}

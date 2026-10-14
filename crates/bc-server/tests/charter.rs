@@ -19,7 +19,7 @@ fn config(data_dir: Option<PathBuf>) -> anyhow::Result<Config> {
         rules: Ruleset::Survival,
         wt_port: 0,
         http_addr: "127.0.0.1:0".parse()?,
-        mobile_dolls: 0,
+        drones: 0,
         max_clients: 8,
         data_dir,
         ..Config::default()
@@ -27,7 +27,7 @@ fn config(data_dir: Option<PathBuf>) -> anyhow::Result<Config> {
 }
 
 fn bot(http: &str, name: &str) -> BotConfig {
-    BotConfig { server: http.into(), name: name.into(), frame: FrameId::Leo, faction: Faction::Colonies }
+    BotConfig { server: http.into(), name: name.into(), frame: FrameId::Argo, faction: Faction::Colonies }
 }
 
 fn stock(b: &BotClient, item: Item) -> u64 {
@@ -56,31 +56,30 @@ async fn pilots_post_deliver_and_build_the_colony() -> anyhow::Result<()> {
     let http = format!("http://{}", server.http_addr);
     let steel = Item::Material(Material::Steel);
 
-    let mut a = arrive(&http, "Heero").await?;
-    let mut b = arrive(&http, "Duo").await?;
+    let mut a = arrive(&http, "Kai").await?;
+    let mut b = arrive(&http, "Nico").await?;
     let view = a.core.hangar.charter.clone().unwrap();
     assert_eq!(view.era, 0);
     assert_eq!(view.works.len(), Work::ALL.len());
 
-    // Heero posts for 400 kg of steel, 2,000 cr in escrow.
+    // Kai posts for 400 kg of steel, 2,000 cr in escrow.
     let c0 = a.core.hangar.credits();
     let text = a.ask(&Request::Post { item: steel, qty: 400, reward: 2_000, hours: 1 }).await?;
     assert!(text.contains("POSTED"), "{text}");
     a.wait_until(5.0, "the escrow", |c| c.hangar.credits() == c0 - 2_000).await?;
-    b.wait_until(5.0, "the contract on Duo's board", |c| {
-        c.hangar.charter.as_ref().is_some_and(|v| v.contracts.iter().any(|k| k.issuer == "Heero"))
+    b.wait_until(5.0, "the contract on Nico's board", |c| {
+        c.hangar.charter.as_ref().is_some_and(|v| v.contracts.iter().any(|k| k.issuer == "Kai"))
     })
     .await?;
-    let id =
-        b.core.hangar.charter.as_ref().unwrap().contracts.iter().find(|k| k.issuer == "Heero").unwrap().id;
+    let id = b.core.hangar.charter.as_ref().unwrap().contracts.iter().find(|k| k.issuer == "Kai").unwrap().id;
 
-    // Duo delivers a quarter of it from the starter's steel.
+    // Nico delivers a quarter of it from the starter's steel.
     let d0 = b.core.hangar.credits();
     let text = b.ask(&Request::Deliver { id, qty: 100 }).await?;
     assert!(text.contains("PAID 500 CR"), "{text}");
     b.wait_until(5.0, "the pay", |c| c.hangar.credits() == d0 + 500).await?;
     assert!(a.ask(&Request::Deliver { id, qty: 1 }).await.is_err(), "not to one's own contract");
-    // The steel waits for Heero in the bay.
+    // The steel waits for Kai in the bay.
     let s0 = stock(&a, steel);
     a.wait_until(5.0, "the steel", |c| {
         c.hangar.view.as_ref().is_some_and(|v| v.stock.iter().any(|(i, q)| *i == steel && *q == s0 + 100))
@@ -110,11 +109,11 @@ async fn pilots_post_deliver_and_build_the_colony() -> anyhow::Result<()> {
     // The board outlives the server.
     let server = bc_server::start(config(Some(dir.clone()))?).await?;
     let http = format!("http://{}", server.http_addr);
-    let c = arrive(&http, "Trowa").await?;
+    let c = arrive(&http, "Tomas").await?;
     let v = c.core.hangar.charter.as_ref().unwrap();
     let foundry = v.works.iter().find(|w| w.work == Work::SecondFoundry).unwrap();
     assert_eq!(foundry.needs.iter().find(|(i, _, _)| *i == steel).unwrap().2, 100);
-    assert_eq!(foundry.top, vec![("Duo".to_string(), pay)]);
+    assert_eq!(foundry.top, vec![("Nico".to_string(), pay)]);
     assert!(v.contracts.iter().all(|k| matches!(k.task, Task::Supply { .. })));
     c.close().await;
     server.shutdown();

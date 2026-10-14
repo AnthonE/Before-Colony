@@ -3,7 +3,7 @@
 //!
 //! - **Places** ([`Place`]) are everything the chart names: the colony, the dock, the debris field,
 //!   the landmarks and their hide spots, the field's rocks, the suits in sight, a point marked on
-//!   the chart, and beyond the sector the Earth Sphere (`sphere`): Earth, the Moon, the Sun and
+//!   the chart, and beyond the sector Earth-Moon space (`sphere`): Earth, the Moon, the Sun and
 //!   the Lagrange points, which can be found but not yet flown to.
 //! - **The course** ([`plot`]) is the shortest way from the suit to where it's going that keeps
 //!   off the colony and the landmarks: straight there when nothing is in the way, else through a
@@ -22,7 +22,7 @@ use bc_sim::bodies::Body;
 use bc_sim::config::{G0, SECTOR_LIMIT};
 use bc_sim::content::landmarks::LandmarkDef;
 use bc_sim::content::salvage::{DOCK_CENTER, DOCK_RADIUS};
-use bc_sim::content::{FrameSpec, doll_name, frame, frame_name};
+use bc_sim::content::{FrameSpec, drone_name, frame, frame_name};
 use bc_sim::field::FIELD_CENTER;
 use bc_sim::flight::{FA_G_CAP, FlightMods, ion_thrust};
 use bc_sim::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS, colony_sweep};
@@ -125,13 +125,13 @@ pub struct Arrival {
 }
 
 impl Place {
-    /// Whether a course can be set to it: everything in the sector. The Earth Sphere's places are
+    /// Whether a course can be set to it: everything in the sector. Earth-Moon space's places are
     /// charted, but no lane leaves L1 yet.
     pub fn reachable(self) -> bool {
         !matches!(self, Place::Earth | Place::Moon | Place::Sun | Place::Lagrange(_))
     }
 
-    /// In the Earth Sphere, beyond the sector.
+    /// In Earth-Moon space, beyond the sector.
     pub fn beyond(self) -> bool {
         !self.reachable()
     }
@@ -165,7 +165,7 @@ impl Place {
             Place::Landmark(_) => "LANDMARK",
             Place::HideSpot(..) => "HIDE SPOT",
             Place::Rock(_) => "ROCK",
-            Place::Suit(..) => "MOBILE SUIT",
+            Place::Suit(..) => "SUIT",
             Place::Point(_) => "NAV POINT",
             Place::Earth => "PLANET",
             Place::Moon => "MOON",
@@ -188,7 +188,7 @@ impl Place {
                  and tops up propellant."
                 .into(),
             Place::Field => "The debris of the colony's construction: asteroids hauled in for their metal. The \
-                 Consortium's Dolls patrol over it, and shoot claim-jumpers."
+                 Consortium's drones patrol over it, and shoot claim-jumpers."
                 .into(),
             Place::Landmark(k) => landmark(world, k).map_or_else(String::new, about_landmark),
             Place::HideSpot(k, s) => match landmark(world, k).and_then(|d| Some((d, d.hides.get(usize::from(s))?))) {
@@ -221,7 +221,7 @@ impl Place {
         }
     }
 
-    /// Where it is at render tick `t` (the Earth Sphere's places, where the chart puts them).
+    /// Where it is at render tick `t` (Earth-Moon space's places, where the chart puts them).
     pub fn locate(self, world: &World, t: f64) -> Option<Located> {
         let still = |pos: Vec3, reach: f32| Some(Located { pos, vel: Vec3::ZERO, reach });
         let bodies = &world.bodies;
@@ -369,9 +369,9 @@ fn suit_name(world: &World, slot: u16) -> String {
     };
     let e = &tr.latest;
     match world.roster.get(&slot) {
-        Some((name, _)) if e.pilot != PilotKind::MobileDoll => name.to_uppercase(),
-        _ if e.pilot == PilotKind::MobileDoll => {
-            format!("{} {}", frame_name(e.frame), doll_name()).to_uppercase()
+        Some((name, _)) if e.pilot != PilotKind::Drone => name.to_uppercase(),
+        _ if e.pilot == PilotKind::Drone => {
+            format!("{} {}", frame_name(e.frame), drone_name()).to_uppercase()
         }
         _ => frame_name(e.frame).to_uppercase(),
     }
@@ -384,12 +384,12 @@ fn suit_about(world: &World, slot: u16) -> String {
     let e = &tr.latest;
     let side = if e.faction == world.faction { "Friendly" } else { "Hostile" };
     let who = match e.pilot {
-        PilotKind::MobileDoll => "no pilot: a Mobile Doll",
-        PilotKind::Agent => "flown by an Arrival without a body (MD)",
+        PilotKind::Drone => "no pilot: a drone",
+        PilotKind::Agent => "flown by an Arrival without a body (DR)",
         PilotKind::Human => "a pilot",
     };
     let faction = match e.faction {
-        Faction::Oz => "the Consortium's security arm",
+        Faction::Almagest => "the Consortium's security arm",
         Faction::Colonies => "the colonies' cause",
         Faction::Alliance => "the Unified Earth Alignment",
     };
@@ -966,7 +966,7 @@ mod tests {
             (Vec3::new(-19_000.0, -4_000.0, 4_000.0), Vec3::new(19_000.0, -4_200.0, -4_100.0)),
             // The field to the dock, round the −X end.
             (Vec3::new(-4_000.0, 800.0, -3_000.0), DOCK_CENTER),
-            // Through Hermit, and through MO-II.
+            // Through Hermit, and through Fornax.
             (hermit + Vec3::new(-3_000.0, 0.0, 0.0), hermit + Vec3::new(3_000.0, 100.0, 0.0)),
             (mo + Vec3::new(-1_500.0, 50.0, 0.0), mo + Vec3::new(1_500.0, 0.0, 30.0)),
         ];
@@ -1015,15 +1015,15 @@ mod tests {
         assert_eq!(cue(10_000.0, 10.0, 10.0), Cue::Burn);
         assert_eq!(cue(10_000.0, 250.0, 10.0), Cue::Coast);
         assert_eq!(cue(10_000.0, -5.0, 10.0), Cue::Burn);
-        // Up to 220 m/s and back down costs a Leo what the rocket equation says, and a short hop
+        // Up to 220 m/s and back down costs an Argo what the rocket equation says, and a short hop
         // less than a long one.
-        let leo = bc_sim::content::frame(bc_proto::FrameId::Leo);
-        let burn = burn_estimate(leo, 1.0, 2_000.0, 20_000.0, 220.0, 8.0);
-        let want = leo.mass(2_000.0) * (1.0 - (-440.0 / leo.exhaust_velocity()).exp());
+        let argo = bc_sim::content::frame(bc_proto::FrameId::Argo);
+        let burn = burn_estimate(argo, 1.0, 2_000.0, 20_000.0, 220.0, 8.0);
+        let want = argo.mass(2_000.0) * (1.0 - (-440.0 / argo.exhaust_velocity()).exp());
         assert!((burn - want).abs() < 1.0, "{burn} {want}");
-        assert!(burn_estimate(leo, 1.0, 2_000.0, 500.0, 220.0, 8.0) < burn);
+        assert!(burn_estimate(argo, 1.0, 2_000.0, 500.0, 220.0, 8.0) < burn);
         // A purer propellant burns less for the same trip.
-        assert!(burn_estimate(leo, 1.35, 2_000.0, 20_000.0, 220.0, 8.0) < burn * 0.8);
+        assert!(burn_estimate(argo, 1.35, 2_000.0, 20_000.0, 220.0, 8.0) < burn * 0.8);
     }
 
     #[test]
@@ -1094,7 +1094,7 @@ mod tests {
         fit: impl FnOnce(&mut Sim, usize),
     ) -> Trip {
         let mut sim = Sim::new(SimConfig {
-            target_dolls: 0,
+            target_drones: 0,
             field_rocks: rocks,
             flight: rules,
             ..SimConfig::default()
@@ -1176,7 +1176,7 @@ mod tests {
     fn the_auto_nav_flies_round_the_colony_to_the_dock_and_stops_in_it() {
         // From over the field, the far side of the colony from the dock.
         let (arrived, hull, landmark, _) =
-            fly(FrameId::Leo, 0, Vec3::new(6_000.0, -2_000.0, 6_500.0), Place::Dock, 30 * 240);
+            fly(FrameId::Argo, 0, Vec3::new(6_000.0, -2_000.0, 6_500.0), Place::Dock, 30 * 240);
         let t = arrived.expect("never arrived");
         assert!(hull > 150.0, "came within {hull} m of the hull");
         assert!(landmark > 30.0, "came within {landmark} m of a landmark");
@@ -1185,14 +1185,9 @@ mod tests {
 
     #[test]
     fn the_auto_nav_comes_to_rest_over_a_hide_spot_on_a_rolling_station() {
-        // From Hermit to over MO-II's Aft Well, which faces away.
-        let (arrived, _, landmark, _) = fly(
-            FrameId::WingZero,
-            0,
-            Vec3::new(-14_000.0, 2_200.0, 4_500.0),
-            Place::HideSpot(0, 0),
-            30 * 180,
-        );
+        // From Hermit to over Fornax's Aft Well, which faces away.
+        let (arrived, _, landmark, _) =
+            fly(FrameId::Altair, 0, Vec3::new(-14_000.0, 2_200.0, 4_500.0), Place::HideSpot(0, 0), 30 * 180);
         assert!(arrived.is_some(), "never arrived");
         assert!(landmark > 20.0, "came within {landmark} m of a landmark");
     }
@@ -1201,7 +1196,7 @@ mod tests {
     fn the_auto_nav_threads_the_field_without_touching_a_rock() {
         // Across the field's middle, rocks and all, to Hermit.
         let (arrived, _, landmark, touched) =
-            fly(FrameId::Heavyarms, 160, Vec3::new(-6_000.0, 700.0, 3_000.0), Place::Landmark(1), 30 * 240);
+            fly(FrameId::Antares, 160, Vec3::new(-6_000.0, 700.0, 3_000.0), Place::Landmark(1), 30 * 240);
         assert!(arrived.is_some(), "never arrived");
         assert_eq!(touched, 0, "touched rocks");
         assert!(landmark > 60.0, "came within {landmark} m of a landmark");
@@ -1211,9 +1206,9 @@ mod tests {
     fn every_frame_flies_the_auto_nav_everywhere_without_touching_anything() {
         let mo = Vec3::new(-17_500.0, 1_500.0, 3_000.0);
         let trips = [
-            // Out of the dock to MO-II's Aft Well, round the station.
+            // Out of the dock to Fornax's Aft Well, round the station.
             (DOCK_CENTER + Vec3::new(-200.0, 0.0, 0.0), Place::HideSpot(0, 0)),
-            // From MO-II across the field to Hermit's KEYHOLE.
+            // From Fornax across the field to Hermit's KEYHOLE.
             (mo + Vec3::new(600.0, 200.0, 0.0), Place::HideSpot(1, 1)),
             // From under the colony to a rock in the field.
             (Vec3::new(3_000.0, -12_000.0, -2_000.0), Place::Rock(40)),
@@ -1256,42 +1251,42 @@ mod tests {
 
     #[test]
     fn the_braking_planned_is_what_the_suit_has_to_brake_with() {
-        let leo = frame(FrameId::Leo);
-        let weakest = leo.main_thrust.min(leo.side_thrust).min(leo.retro_thrust);
+        let argo = frame(FrameId::Argo);
+        let weakest = argo.main_thrust.min(argo.side_thrust).min(argo.retro_thrust);
         let thrusters =
-            |kg: f32, extra: f32| (weakest / (leo.mass(kg) + extra) * 0.5).clamp(1.0, FA_G_CAP * G0 * 0.5);
+            |kg: f32, extra: f32| (weakest / (argo.mass(kg) + extra) * 0.5).clamp(1.0, FA_G_CAP * G0 * 0.5);
         let mods = |systems: Systems, modules: Modules, rules: FlightRules| {
             flight_mods(&tuning(0, systems, modules), rules, false, modules.mass_kg(0) as i32)
         };
         let plain = mods(Systems::OK, Modules::NONE, FlightRules::Real);
         let ion = mods(Systems::OK, ion_drive_fitted(), FlightRules::Real);
-        let drive = ion_thrust(leo) / (leo.mass(0.0) + 250.0) * 0.5;
+        let drive = ion_thrust(argo) / (argo.mass(0.0) + 250.0) * 0.5;
         for d in [100.0, 5_000.0, 50_000.0] {
             // Without a drive, a share of the weakest thrusters as ever, and nothing on a dry tank.
             for kg in [1.0, 300.0, 3_000.0] {
-                assert_eq!(planned_braking(leo, &plain, kg, d), thrusters(kg, 0.0));
+                assert_eq!(planned_braking(argo, &plain, kg, d), thrusters(kg, 0.0));
             }
-            assert_eq!(planned_braking(leo, &plain, 0.0, d), 0.0);
+            assert_eq!(planned_braking(argo, &plain, 0.0, d), 0.0);
             // With one: a full tank brakes as ever, a dry one on half the drive.
-            assert_eq!(planned_braking(leo, &ion, 3_000.0, d), thrusters(3_000.0, 250.0));
-            assert_eq!(planned_braking(leo, &ion, 0.0, d), drive);
+            assert_eq!(planned_braking(argo, &ion, 3_000.0, d), thrusters(3_000.0, 250.0));
+            assert_eq!(planned_braking(argo, &ion, 0.0, d), drive);
             // Under anime rules flying burns nothing: an empty gauge brakes as a full one.
             for m in [Modules::NONE, ion_drive_fitted()] {
                 let anime = mods(Systems::OK, m, FlightRules::Anime);
                 let extra = m.mass_kg(0) as f32;
-                assert_eq!(planned_braking(leo, &anime, 0.0, d), thrusters(0.0, extra));
+                assert_eq!(planned_braking(argo, &anime, 0.0, d), thrusters(0.0, extra));
             }
         }
         // Half the drive on a damaged reactor.
         let damaged = mods(Systems::OK.with(System::Reactor, DAMAGED), ion_drive_fitted(), FlightRules::Real);
-        assert_eq!(planned_braking(leo, &damaged, 0.0, 5_000.0), drive * 0.5);
+        assert_eq!(planned_braking(argo, &damaged, 0.0, 5_000.0), drive * 0.5);
         // A low tank (60 kg, some 70 m/s): the thrusters' on a short hop it covers, and less the
         // further the trip, down toward the drive's; all but empty, the drive's.
-        let low = |d: f32| planned_braking(leo, &ion, 60.0, d);
+        let low = |d: f32| planned_braking(argo, &ion, 60.0, d);
         assert_eq!(low(100.0), thrusters(60.0, 250.0));
         assert!(low(100.0) > low(500.0) && low(500.0) > low(5_000.0) && low(5_000.0) > low(20_000.0));
         assert!(low(20_000.0) > drive, "{} {drive}", low(20_000.0));
-        assert!((planned_braking(leo, &ion, 0.01, 5_000.0) - drive).abs() < 0.01 * drive);
+        assert!((planned_braking(argo, &ion, 0.01, 5_000.0) - drive).abs() < 0.01 * drive);
     }
 
     /// How far a trip from `from` went past `to`, along the way between them, m.
@@ -1306,10 +1301,10 @@ mod tests {
 
     #[test]
     fn a_dry_suit_crawls_on_its_ion_drive_to_where_it_was_sent_and_stops_there() {
-        // A Leo with an ion drive and a dry tank: a little over 0.1 g, all the way.
+        // An Argo with an ion drive and a dry tank: a little over 0.1 g, all the way.
         let (from, to) = (CRAWL_FROM, CRAWL_TO);
         let trip =
-            fly_fitted(FlightRules::Real, FrameId::Leo, 0, from, Place::Point(to), 30 * 400, |sim, i| {
+            fly_fitted(FlightRules::Real, FrameId::Argo, 0, from, Place::Point(to), 30 * 400, |sim, i| {
                 ion_drive(sim, i, 0.0)
             });
         let past = past(&trip, from, to);
@@ -1320,18 +1315,25 @@ mod tests {
 
     #[test]
     fn a_tank_that_runs_dry_on_the_way_in_leaves_the_rest_to_the_drive() {
-        // The same Leo on a low tank: heading in at 150 m/s with 60 kg left (some 70 m/s of
+        // The same Argo on a low tank: heading in at 150 m/s with 60 kg left (some 70 m/s of
         // braking), and setting off from rest with 300 kg (enough to get up to its cruise, not to
         // stop from it as well).
         let (from, to) = (CRAWL_FROM, CRAWL_TO);
         for (kg, speed) in [(60.0, 150.0), (300.0, 0.0)] {
-            let trip =
-                fly_fitted(FlightRules::Real, FrameId::Leo, 0, from, Place::Point(to), 30 * 400, |sim, i| {
+            let trip = fly_fitted(
+                FlightRules::Real,
+                FrameId::Argo,
+                0,
+                from,
+                Place::Point(to),
+                30 * 400,
+                |sim, i| {
                     ion_drive(sim, i, kg);
                     let way = (to - from).normalize();
                     let f = &mut sim.suits.flight[i];
                     (f.vel, f.rot) = (way * speed, bc_sim::math::look_rotation(way, Vec3::Y));
-                });
+                },
+            );
             let past = past(&trip, from, to);
             let t = trip
                 .arrived

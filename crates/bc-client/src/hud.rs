@@ -1,6 +1,6 @@
-//! Cockpit HUD, drawn as a mobile suit's monitor: flight and armour readouts with the suit's damage
+//! Cockpit HUD, drawn as a suit's monitor: flight and armour readouts with the suit's damage
 //! silhouette, weapons and the frame's special, missile lock, amber target corners and markers on
-//! missiles tracking you, chevrons at the view's edge on what's off it, kill feed, the ZERO
+//! missiles tracking you, chevrons at the view's edge on what's off it, kill feed, the Orrery
 //! System's recommendations, and cautions in a hazard-striped banner. In the page's fonts
 //! (`UiFont`) and palette (`bc_client_core::palette`), on chamfered plates (`ui_panel`).
 //!
@@ -8,7 +8,7 @@
 //! cockpit, into the texture the cockpit's monitors show (`place_instruments`, `cockpit`).
 //!
 //! The crosshair is the aim. A weapon bears only within its mount's reach of the body's axis (a
-//! hand's 50°, Neo-Bird's nose 2°), so while the suit is still turning onto the aim the crosshair
+//! hand's 50°, Aquila's nose 2°), so while the suit is still turning onto the aim the crosshair
 //! dims and a second marker shows where the primary weapon would fire. The velocity vector shows
 //! which way the suit is drifting (`-o-`), or, moving backwards, the way it's drifting from
 //! (`-x-`): relative to the body it's on, or to a landmark within 2 km.
@@ -25,7 +25,7 @@ use bc_client_core::surface::{LetGo, SurfaceHint, let_go, range_rate, surface_hi
 use bc_client_core::world::ObjectMotion;
 use bc_client_core::{ClientCore, FeedLine};
 use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRIP, MELEE, MODE};
-use bc_proto::snapshot::{DOOM_STEP, IMPACT_MAX, TARGET_STAGGERED, cover, ent_flags, own_flags, zero_mode};
+use bc_proto::snapshot::{DOOM_STEP, IMPACT_MAX, TARGET_STAGGERED, cover, ent_flags, orrery_mode, own_flags};
 use bc_proto::{ChunkKind, NO_CHUNK, NO_SLOT, OwnState, Part, PilotKind};
 use bc_sim::bodies::Body;
 use bc_sim::chunks;
@@ -38,10 +38,10 @@ use bc_sim::content::{
 };
 use bc_sim::content::{Kit, Kits, System, Systems};
 use bc_sim::ground::{Footing, RELEASE_SPEED, STANCE};
+use bc_sim::orrery::fire_control::intercept;
+use bc_sim::orrery::hypotheses::Maneuver;
 use bc_sim::sim::LURK_SETTLE_TICKS;
 use bc_sim::world::{COLONY_CENTER, COLONY_HALF_LENGTH, COLONY_RADIUS};
-use bc_sim::zero::fire_control::intercept;
-use bc_sim::zero::hypotheses::Maneuver;
 use bevy::prelude::*;
 use bevy::text::LetterSpacing;
 
@@ -64,7 +64,7 @@ const CYAN: Color = colour(palette::CYAN);
 const AMBER: Color = colour(palette::AMBER);
 const RED: Color = colour(palette::RED);
 const GREEN: Color = colour(palette::GREEN);
-const ZERO_PINK: Color = colour(palette::PINK);
+const ORRERY_PINK: Color = colour(palette::PINK);
 const WHITE: Color = colour(palette::WHITE);
 /// Target brackets on suits, then markers on missiles tracking the pilot.
 const BRACKETS: usize = 24;
@@ -79,7 +79,7 @@ pub enum HudText {
     Armor,
     Weapons,
     Feed,
-    Zero,
+    Orrery,
     Alert,
     Salvage,
 }
@@ -354,7 +354,7 @@ const EDGE_MARKERS: usize = 12;
 #[derive(Resource, Clone)]
 pub struct HudLooks {
     plate: Handle<PanelMaterial>,
-    zero: Handle<PanelMaterial>,
+    orrery: Handle<PanelMaterial>,
     caution: Handle<PanelMaterial>,
     notice: Handle<PanelMaterial>,
 }
@@ -363,7 +363,7 @@ impl HudLooks {
     pub fn new(panels: &mut Assets<PanelMaterial>) -> Self {
         Self {
             plate: panels.add(PanelMaterial::plate(PLATE, PLATE_EDGE, 12.0, 1.0)),
-            zero: panels.add(PanelMaterial::plate(
+            orrery: panels.add(PanelMaterial::plate(
                 Color::srgba(0.09, 0.02, 0.08, 0.72),
                 Color::srgba(1.0, 0.45, 0.8, 0.5),
                 12.0,
@@ -422,7 +422,7 @@ fn panel(
     color: Color,
     extra: impl FnOnce(&mut ChildSpawnerCommands),
 ) {
-    let look = if show == Show::Top { looks.zero.clone() } else { looks.plate.clone() };
+    let look = if show == Show::Top { looks.orrery.clone() } else { looks.plate.clone() };
     p.spawn((
         Panel(show),
         Node {
@@ -440,7 +440,7 @@ fn panel(
             Text::new(title),
             f.heading(10.0),
             BaseSize(10.0),
-            TextColor(if show == Show::Top { ZERO_PINK } else { LABEL }),
+            TextColor(if show == Show::Top { ORRERY_PINK } else { LABEL }),
             LetterSpacing::Px(2.0),
         ));
         p.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(12.0), ..default() })
@@ -602,7 +602,7 @@ pub fn setup_hud(mut commands: Commands, font: Res<UiFont>, mut panels: ResMut<A
             ));
             p.spawn((
                 LeadMarker,
-                label(f, 16.0, ZERO_PINK, abs(Some(0.0), None, Some(0.0), None)),
+                label(f, 16.0, ORRERY_PINK, abs(Some(0.0), None, Some(0.0), None)),
                 Visibility::Hidden,
             ));
             // Target corners, each with its tag to the right.
@@ -673,7 +673,7 @@ pub fn spawn_instruments(commands: &mut Commands, f: &UiFont, looks: &HudLooks) 
             Visibility::Hidden,
         ))
         .with_children(|p| {
-            panel(p, f, looks, Show::Top, "ZERO SYSTEM", HudText::Zero, ZERO_PINK, |_| {});
+            panel(p, f, looks, Show::Top, "ORRERY", HudText::Orrery, ORRERY_PINK, |_| {});
             panel(p, f, looks, Show::Suit, "SUIT", HudText::Armor, WHITE, silhouette);
             panel(p, f, looks, Show::Flight, "FLIGHT", HudText::Flight, WHITE, |_| {});
             panel(p, f, looks, Show::Arms, "ARMS", HudText::Weapons, WHITE, |_| {});
@@ -801,7 +801,7 @@ fn special_line(spec: &FrameSpec, o: &OwnState, asked: bool) -> Option<String> {
     let (name, state) = match spec.special {
         SpecialKind::None => return None,
         SpecialKind::Transform { to, .. } => {
-            let name = if to == bc_proto::FrameId::WingZeroBird { "NEO-BIRD" } else { "MS MODE" };
+            let name = if to == bc_proto::FrameId::Aquila { "AQUILA" } else { "SUIT MODE" };
             let state = if o.flags & own_flags::TRANSFORMING != 0 {
                 format!("CHANGING {timer:.1} s")
             } else {
@@ -809,16 +809,16 @@ fn special_line(spec: &FrameSpec, o: &OwnState, asked: bool) -> Option<String> {
             };
             (name, state)
         }
-        SpecialKind::HyperJammer { .. } => {
+        SpecialKind::Eclipse { .. } => {
             let state = match (active, asked) {
                 (true, _) => "JAMMING",
                 // Held, but broken by firing, or short of energy.
                 (false, true) => "SUPPRESSED",
                 (false, false) => "OFF",
             };
-            ("HYPER JAMMER", state.into())
+            ("ECLIPSE", state.into())
         }
-        SpecialKind::FullOpen { .. } => {
+        SpecialKind::FullSalvo { .. } => {
             let state = if active {
                 format!("FIRING {timer:.1} s")
             } else if ready {
@@ -826,7 +826,7 @@ fn special_line(spec: &FrameSpec, o: &OwnState, asked: bool) -> Option<String> {
             } else {
                 cooling()
             };
-            ("FULL OPEN ATTACK", state)
+            ("FULL SALVO", state)
         }
         SpecialKind::MeleeMove { .. } => {
             let state = if active {
@@ -836,7 +836,7 @@ fn special_line(spec: &FrameSpec, o: &OwnState, asked: bool) -> Option<String> {
             } else {
                 cooling()
             };
-            ("CROSS CRUSHER", state)
+            ("PINCER STRIKE", state)
         }
     };
     Some(format!("H   {name:<18} {state}\n"))
@@ -901,7 +901,7 @@ pub fn update_hud(
     // The lock-on's target, as drawn.
     let locked = game.hard.target(world, t).filter(|_| world.own.is_some_and(|o| o.alive));
     let own = world.own;
-    let zero = world.zero;
+    let orrery = world.orrery;
     // Survival rules: the pilot flies what they built, and docks to go home.
     let survival = core.welcome.is_some_and(|w| w.survival);
     // Anime flight rules: the tank is the boost gauge.
@@ -919,9 +919,9 @@ pub fn update_hud(
 
     // --- Status (top left). ---
     // As flown: the command the prediction flies (the autopilot's too, which flies unassisted when
-    // G-strain builds); the server's word while ZERO has the controls.
+    // G-strain builds); the server's word while the Orrery has the controls.
     let assisted = match own {
-        Some(o) if o.zero_mode == zero_mode::SEIZED => o.flags & own_flags::FLIGHT_ASSIST != 0,
+        Some(o) if o.orrery_mode == orrery_mode::SEIZED => o.flags & own_flags::FLIGHT_ASSIST != 0,
         Some(_) if core.inputs.newest != 0 => core.last_cmd.buttons & FLIGHT_ASSIST != 0,
         _ => controls.flight_assist,
     };
@@ -1102,7 +1102,7 @@ pub fn update_hud(
                 } else {
                     String::new()
                 };
-                // The Twin Buster's charge, or a charged shot's once the tap is past (full: let go).
+                // The heavy beam rifle's charge, or a charged shot's once the tap is past (full: let go).
                 let gun = weapon(m.weapon);
                 let shown = match gun.charged {
                     Some(c) => o.charge * f32::from(c.full()) > f32::from(c.tap) + 0.5,
@@ -1144,14 +1144,14 @@ pub fn update_hud(
             w.push_str(&line);
             w.push('\n');
         }
-        if o.flags & own_flags::ZERO_CAPABLE != 0 {
-            let z = match o.zero_mode {
-                zero_mode::ACTIVE => "ACTIVE",
-                zero_mode::SEIZED => "SEIZED",
-                zero_mode::LOCKOUT => "LOCKOUT",
+        if o.flags & own_flags::ORRERY_CAPABLE != 0 {
+            let z = match o.orrery_mode {
+                orrery_mode::ACTIVE => "ACTIVE",
+                orrery_mode::SEIZED => "SEIZED",
+                orrery_mode::LOCKOUT => "LOCKOUT",
                 _ => "STANDBY (Z)",
             };
-            w.push_str(&format!("ZERO {z}  STRAIN {}", bar(o.zero_strain, 8)));
+            w.push_str(&format!("ORRERY {z}  STRAIN {}", bar(o.orrery_strain, 8)));
             w.push('\n');
         }
         // The rack (survival): keys 1-4.
@@ -1242,8 +1242,8 @@ pub fn update_hud(
         set(HudText::Salvage, String::new(), None);
     }
 
-    // --- ZERO panel. ---
-    match zero {
+    // --- The Orrery panel. ---
+    match orrery {
         Some(z) => {
             let target =
                 if z.rec_target != bc_proto::NO_SLOT { world.name_of(z.rec_target) } else { "-".into() };
@@ -1271,10 +1271,10 @@ pub fn update_hud(
                     th.probs[best] * 100.0
                 ));
             }
-            set(HudText::Zero, s, None);
+            set(HudText::Orrery, s, None);
         }
         // On the cockpit's top monitor, idle; chasing, the panel isn't shown.
-        None => set(HudText::Zero, if chase.cockpit() { "STANDBY".into() } else { String::new() }, None),
+        None => set(HudText::Orrery, if chase.cockpit() { "STANDBY".into() } else { String::new() }, None),
     }
 
     // --- Kill feed. ---
@@ -1293,7 +1293,7 @@ pub fn update_hud(
             FeedLine::Seizure { pilot, active, .. } => feed.push_str(&format!(
                 "{} {}\n",
                 world.name_of(pilot),
-                if active { "ZERO SEIZURE" } else { "released" }
+                if active { "ORRERY SEIZURE" } else { "released" }
             )),
             FeedLine::Clash { a, b, .. } => {
                 feed.push_str(&format!("{} x {} CLASH\n", world.name_of(a), world.name_of(b)))
@@ -1432,7 +1432,7 @@ pub fn update_hud(
         // Knocked off balance (`bc_sim::sim::stagger`), as flown: its weapons are down and its
         // thrust is cut until it steadies.
         Some(o) if o.alive && core.predict.stagger > 0 => ("STAGGERED".into(), AMBER),
-        Some(o) if o.zero_mode == zero_mode::SEIZED => ("ZERO HAS THE CONTROLS".into(), RED),
+        Some(o) if o.orrery_mode == orrery_mode::SEIZED => ("ORRERY HAS THE CONTROLS".into(), RED),
         Some(o) if o.alive && drawn.is_some_and(|v| v.blackout) => ("G-LOC  BLACKOUT".into(), RED),
         Some(o) if o.flags & own_flags::MISSILE_INCOMING != 0 => {
             let near = incoming.first().map_or(String::new(), |(d, _)| format!("  {}", km(*d)));
@@ -1499,7 +1499,7 @@ pub fn update_hud(
     // --- Screen-space markers. ---
     let Ok((cam, cam_tf)) = camera.single() else { return };
     if let Ok((mut node, mut text, mut vis)) = lead.single_mut() {
-        // ZERO's firing solution, which weighs the target's maneuvers; else, locked on, where a
+        // The Orrery's firing solution, which weighs the target's maneuvers; else, locked on, where a
         // shot from the primary meets the target if it flies on as it is (the ◆, and how long
         // the shot takes).
         // A full charge leads for the charged shot.
@@ -1510,7 +1510,7 @@ pub fn update_hud(
                 _ => w,
             })
         });
-        let mark = match (zero, own, locked, drawn) {
+        let mark = match (orrery, own, locked, drawn) {
             (Some(z), Some(o), _, _) if z.has_solution && o.alive => {
                 Some((own_pos + z.solution * 1_500.0, format!("[ ]{:.0}%", z.hit_p * 100.0), 16.0))
             }
@@ -1775,7 +1775,7 @@ pub fn update_marks(
     let world = &core.world;
     let t = core.render_tick(now_s());
     let own = world.own;
-    let zero = world.zero;
+    let orrery = world.orrery;
     let own_pos = core.own_view().map_or(Vec3::ZERO, |v| v.pos);
     let Ok((cam, cam_tf)) = camera.single() else { return };
     let Some(rect) = cam.logical_viewport_rect() else { return };
@@ -1835,7 +1835,7 @@ pub fn update_marks(
         }
         // Its pilot is offline, asleep in the cockpit.
         let asleep = e.flags & ent_flags::ASLEEP != 0 && !wreck;
-        let zero_target = zero.is_some_and(|z| z.rec_target == slot);
+        let orrery_target = orrery.is_some_and(|z| z.rec_target == slot);
         let warn = if locked_on_you { "  LOCK!" } else { "" };
         // The pilot's own missile lock on it: building, or acquired.
         let locking = lock.filter(|o| o.lock_target == slot).map(|o| match frame(o.frame).lock_spec() {
@@ -1853,14 +1853,18 @@ pub fn update_marks(
                 n => Some(format!("\nATT {}", bar(f32::from(n) / f32::from(IMPACT_MAX), 6))),
             })
             .or_else(|| (!wreck && world.is_staggered(slot, t)).then(|| "\nSTAGGERED".to_string()));
-        // Named: the nearest few, and any that matter (a lock either way, ZERO's pick).
+        // Named: the nearest few, and any that matter (a lock either way, the Orrery's pick).
         // Locked on: how fast it closes (+) or opens.
         let closing = locked_on.then(|| {
             let to = (pos - own_pos).normalize_or_zero();
             format!("\nLOCK-ON {:+.0} m/s", -(track.sample(t, &world.bodies).vel - own_vel).dot(to))
         });
-        let named =
-            k < TAGGED || locked_on_you || locking.is_some() || zero_target || locked_on || impact.is_some();
+        let named = k < TAGGED
+            || locked_on_you
+            || locking.is_some()
+            || orrery_target
+            || locked_on
+            || impact.is_some();
         let tag = if !named {
             String::new()
         } else {
@@ -1883,8 +1887,8 @@ pub fn update_marks(
             CYAN
         } else if locking.is_some() {
             AMBER
-        } else if zero_target {
-            ZERO_PINK
+        } else if orrery_target {
+            ORRERY_PINK
         } else if asleep {
             Color::srgb(0.55, 0.66, 0.8)
         } else if hostile {
@@ -1966,9 +1970,9 @@ pub fn update_panels(
     }
     let game = game.borrow();
     let own = game.core.world.own;
-    let zero = game.core.world.zero.is_some();
+    let orrery = game.core.world.orrery.is_some();
     for (p, mut vis) in &mut panels {
-        let shown = p.0 != Show::Top || zero || chase.cockpit();
+        let shown = p.0 != Show::Top || orrery || chase.cockpit();
         vis.set_if_neq(if shown { Visibility::Inherited } else { Visibility::Hidden });
     }
     for (b, mut fill, mut edge) in &mut blocks {

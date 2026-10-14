@@ -1,4 +1,4 @@
-//! Changing form (Wing Zero ↔ Neo-Bird). The server and the owner's client step it alike, so the
+//! Changing form (Altair ↔ Aquila). The server and the owner's client step it alike, so the
 //! client's prediction flies through a transformation exactly as the server does.
 //!
 //! A transformable frame's playable form is its MODE-off form: holding MODE asks for the other.
@@ -55,19 +55,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mode_turns_wing_zero_into_neo_bird_and_back() {
-        let SpecialKind::Transform { ticks, .. } = frame(FrameId::WingZero).special else { panic!() };
-        let mut f = Form { frame: FrameId::WingZero, timer: 0 };
+    fn mode_turns_altair_into_aquila_and_back() {
+        let SpecialKind::Transform { ticks, .. } = frame(FrameId::Altair).special else { panic!() };
+        let mut f = Form { frame: FrameId::Altair, timer: 0 };
         assert!(!transform_step(&mut f, false));
         assert!(transform_step(&mut f, true));
         for k in 1..u16::from(ticks) {
             // Letting go doesn't stop a change under way.
             assert!(!transform_step(&mut f, k % 2 == 0));
-            assert_eq!((f.frame, f.changing()), (FrameId::WingZero, true));
+            assert_eq!((f.frame, f.changing()), (FrameId::Altair, true));
             assert!(transform_thrust(&f) < 1.0);
         }
         transform_step(&mut f, true);
-        assert_eq!(f, Form { frame: FrameId::WingZeroBird, timer: 0 });
+        assert_eq!(f, Form { frame: FrameId::Aquila, timer: 0 });
         assert_eq!(transform_thrust(&f), 1.0);
         // Held, it stays a bird; let go, it changes back.
         assert!(!transform_step(&mut f, true));
@@ -75,10 +75,10 @@ mod tests {
         for _ in 0..ticks {
             transform_step(&mut f, false);
         }
-        assert_eq!(f, Form { frame: FrameId::WingZero, timer: 0 });
+        assert_eq!(f, Form { frame: FrameId::Altair, timer: 0 });
         // Frames that don't transform never change.
-        let mut leo = Form { frame: FrameId::Leo, timer: 0 };
-        assert!(!transform_step(&mut leo, true));
-        assert_eq!(leo, Form { frame: FrameId::Leo, timer: 0 });
+        let mut argo = Form { frame: FrameId::Argo, timer: 0 };
+        assert!(!transform_step(&mut argo, true));
+        assert_eq!(argo, Form { frame: FrameId::Argo, timer: 0 });
     }
 }

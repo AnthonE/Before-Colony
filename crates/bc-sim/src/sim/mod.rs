@@ -4,8 +4,8 @@
 //! [`Sim::new`]; the `no_alloc` test counts heap operations across thousands of ticks.
 //!
 //! Pipeline for tick `T`:
-//! 1. Mobile Doll AI (and ZERO seizures) write `InputCmd`s (dolls re-plan every 3rd tick, staggered).
-//! 2. Flight: AMBAC/RCS attitude, thrust, propellant, G-strain; or, in a body's grip, walking on it
+//! 1. Drone AI (and the Orrery seizures) write `InputCmd`s (drones re-plan every 3rd tick, staggered).
+//! 2. Flight: limb trim/RCS attitude, thrust, propellant, G-strain; or, in a body's grip, walking on it
 //!    and hopping over it (`ground`); sleepers are held to what they're parked on; wrecks drift;
 //!    rocks and landmarks stop them all.
 //! 3. Spatial hash rebuild, then lag-compensation history is recorded (`history[T]` = snapshot `T`).
@@ -17,7 +17,7 @@
 //! 6. Damage resolves in generation order; parts break; blows build impact, and staggers
 //!    (`stagger`); a pilot's breached suit is doomed (`doom`), anyone else's dies; doomed suits'
 //!    reactors run down; staggers run out.
-//! 7. Heat, energy, ZERO strain, respawns; staggered ZERO rollouts.
+//! 7. Heat, energy, the Orrery strain, respawns; staggered the Orrery rollouts.
 
 use alloc::boxed::Box;
 
@@ -32,20 +32,20 @@ mod launch;
 mod melee;
 mod mining;
 mod missile;
+mod orrery;
 mod salvage;
 mod sleep;
 mod specials;
 mod stagger;
 mod wire;
-mod zero;
 
-use bc_proto::buttons::{GRAB, GRIP, MODE, ZERO};
+use bc_proto::buttons::{GRAB, GRIP, MODE, ORRERY};
 use bc_proto::events::Event;
 use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, Part, PilotKind, Segment, WeaponKind};
 use glam::{Quat, Vec3};
 
-use crate::ai::{self, DOLL, SEIZED};
-use crate::arms::{BUSY_FIRE_TICKS, busy_ambac};
+use crate::ai::{self, DRONE, SEIZED};
+use crate::arms::{BUSY_FIRE_TICKS, busy_limb_trim};
 use crate::bodies::{Bodies, landmark_pose, landmark_touching, sweep_landmarks};
 use crate::chunks::{self, Chunks, Motion, held_pose, segment_pos, segment_rot};
 use crate::config::{DT, SECTOR_LIMIT, SimConfig, secs};
@@ -60,6 +60,8 @@ use crate::handle::SuitId;
 use crate::lagcomp::History;
 use crate::math::{Rng, length, look_rotation, normalize_or};
 use crate::missiles::{MAX_MISSILES, Missiles};
+use crate::orrery::TacticalAdvice;
+use crate::orrery::strain::StrainEvent;
 use crate::perception::{Contact, KitView, Perception, SelfView};
 use crate::projectiles::Projectiles;
 use crate::rocks::RockStates;
@@ -68,8 +70,6 @@ use crate::storage::{BitSet, FixedVec, boxed};
 use crate::suits::{MeleePhase, Suits};
 use crate::transform::transform_thrust;
 use crate::tuning::{self, Tuning};
-use crate::zero::TacticalAdvice;
-use crate::zero::strain::StrainEvent;
 
 pub use crate::bodies::Body;
 pub use crate::ground::{Anchor, Footing};
@@ -109,7 +109,7 @@ struct Squad {
     focus: u16,
 }
 
-/// Patrol anchors for Mobile Doll squads: a ring above the colony.
+/// Patrol anchors for drone squads: a ring above the colony.
 const ANCHORS: [Vec3; 8] = [
     Vec3::new(2_800.0, 900.0, 0.0),
     Vec3::new(1_980.0, 1_300.0, 1_980.0),
@@ -126,7 +126,7 @@ fn spawn_point(faction: Faction, n: u32) -> (Vec3, Quat) {
     let base = match faction {
         Faction::Colonies => Vec3::new(-4_200.0, 700.0, -3_200.0),
         Faction::Alliance => Vec3::new(4_200.0, 700.0, -3_200.0),
-        Faction::Oz => Vec3::new(0.0, 2_200.0, 4_200.0),
+        Faction::Almagest => Vec3::new(0.0, 2_200.0, 4_200.0),
     };
     let k = (n % 16) as f32;
     let offset = Vec3::new((k % 4.0) * 60.0 - 90.0, crate::math::floor(k / 4.0) * 40.0, 0.0);
@@ -154,9 +154,9 @@ pub struct Sim {
     squads: [Squad; MAX_SQUADS],
     advice: Box<[TacticalAdvice]>,
     scratch: Perception,
-    next_doll_spawn: u32,
+    next_drone_spawn: u32,
     next_squad: usize,
-    /// Zodiac's aces (`aces`): when the next is due, which it is, and the one out (its suit).
+    /// The Almagest's aces (`aces`): when the next is due, which it is, and the one out (its suit).
     next_ace_at: u32,
     next_ace: u8,
     ace_suit: u16,
@@ -222,7 +222,7 @@ impl Sim {
             squads: [Squad { anchor: Vec3::ZERO, focus: NO_SLOT }; MAX_SQUADS],
             advice: boxed(cap, TacticalAdvice::default()),
             scratch: Perception::default(),
-            next_doll_spawn: 0,
+            next_drone_spawn: 0,
             next_squad: 0,
             next_ace_at: cfg.ace_every,
             next_ace: 0,
@@ -291,11 +291,11 @@ impl Sim {
     ) -> Option<SuitId> {
         let id = self.suits.allocate(frame_id, faction, pilot)?;
         self.suits.place(id.idx(), frame_id, pos, rot, self.tick);
-        if pilot == PilotKind::MobileDoll {
+        if pilot == PilotKind::Drone {
             let i = id.idx();
             self.suits.ai[i].anchor = pos;
             self.suits.ai[i].rng = self.rng.next_u32() | 1;
-            self.suits.ai[i].think_at = self.tick + (i as u32 % self.cfg.doll_think_interval.max(1));
+            self.suits.ai[i].think_at = self.tick + (i as u32 % self.cfg.drone_think_interval.max(1));
         }
         Some(id)
     }
@@ -386,7 +386,7 @@ impl Sim {
     pub fn step(&mut self) {
         self.tick += 1;
         let t = self.tick;
-        self.spawn_dolls(t);
+        self.spawn_drones(t);
         self.spawn_ace(t);
         if t.is_multiple_of(30) {
             self.squad_logic();
@@ -419,7 +419,7 @@ impl Sim {
         self.stagger_step(t);
         self.salvage_step(t);
         self.status_step(t);
-        self.zero_step(t);
+        self.orrery_step(t);
         self.field_step(t);
         self.peak_projectiles = self.peak_projectiles.max(self.projectiles.count());
     }
@@ -428,23 +428,23 @@ impl Sim {
     // Spawning
     // ---------------------------------------------------------------------------------------------
 
-    fn doll_count(&mut self) -> u32 {
+    fn drone_count(&mut self) -> u32 {
         let mut n = 0;
         for i in self.suits.used.iter() {
-            if self.suits.pilot[i] == PilotKind::MobileDoll {
+            if self.suits.pilot[i] == PilotKind::Drone {
                 n += 1;
             }
         }
         n
     }
 
-    fn spawn_dolls(&mut self, t: u32) {
-        if t < self.next_doll_spawn || self.cfg.target_dolls == 0 {
+    fn spawn_drones(&mut self, t: u32) {
+        if t < self.next_drone_spawn || self.cfg.target_drones == 0 {
             return;
         }
-        self.next_doll_spawn = t + secs(4.0);
-        let have = self.doll_count();
-        if have >= self.cfg.target_dolls {
+        self.next_drone_spawn = t + secs(4.0);
+        let have = self.drone_count();
+        if have >= self.cfg.target_drones {
             return;
         }
         let squad = self.next_squad % MAX_SQUADS;
@@ -452,12 +452,12 @@ impl Sim {
         let anchor =
             ANCHORS[squad % ANCHORS.len()] + Vec3::new(0.0, (squad / ANCHORS.len()) as f32 * 350.0, 0.0);
         self.squads[squad] = Squad { anchor, focus: NO_SLOT };
-        let n = (self.cfg.target_dolls - have).min(u32::from(SQUAD_SIZE));
+        let n = (self.cfg.target_drones - have).min(u32::from(SQUAD_SIZE));
         for k in 0..n {
-            let frame_id = if k == 3 { FrameId::Virgo } else { FrameId::Taurus };
+            let frame_id = if k == 3 { FrameId::Cetus } else { FrameId::Corvus };
             let pos = anchor + Vec3::new((k as f32 - 1.5) * 90.0, (k % 2) as f32 * 40.0, 0.0);
             let rot = look_rotation(-anchor, Vec3::Y);
-            if let Some(id) = self.spawn_at(frame_id, Faction::Oz, PilotKind::MobileDoll, pos, rot) {
+            if let Some(id) = self.spawn_at(frame_id, Faction::Almagest, PilotKind::Drone, pos, rot) {
                 self.suits.ai[id.idx()].squad = squad as u8;
             }
         }
@@ -468,7 +468,7 @@ impl Sim {
         for (s, squad) in self.squads.iter_mut().enumerate() {
             let mut best = (f32::MAX, NO_SLOT);
             for j in self.suits.alive.iter() {
-                if self.suits.faction[j] == Faction::Oz || self.suits.sleeping.get(j) {
+                if self.suits.faction[j] == Faction::Almagest || self.suits.sleeping.get(j) {
                     continue;
                 }
                 let d = length(self.suits.flight[j].pos - squad.anchor);
@@ -480,7 +480,7 @@ impl Sim {
             let _ = s;
         }
         for i in self.suits.alive.iter() {
-            if self.suits.pilot[i] == PilotKind::MobileDoll {
+            if self.suits.pilot[i] == PilotKind::Drone {
                 let sq = self.suits.ai[i].squad as usize % MAX_SQUADS;
                 self.suits.ai[i].order_target = self.squads[sq].focus;
                 self.suits.ai[i].anchor = self.squads[sq].anchor;
@@ -502,10 +502,10 @@ impl Sim {
         let mut found = core::mem::take(&mut self.query_bits);
         found.clear();
         self.spatial.query_sphere(me.pos, range * 1.3, |j| found.set(j, true));
-        // Mobile Dolls don't hunt sleeping pilots.
-        let doll = self.suits.pilot[i] == PilotKind::MobileDoll;
+        // Drones don't hunt sleeping pilots.
+        let drone = self.suits.pilot[i] == PilotKind::Drone;
         for j in found.iter() {
-            if j == i || !self.suits.alive.get(j) || (doll && self.suits.sleeping.get(j)) {
+            if j == i || !self.suits.alive.get(j) || (drone && self.suits.sleeping.get(j)) {
                 continue;
             }
             // Cheap sensor test first; only detected suits get a full contact built.
@@ -611,23 +611,23 @@ impl Sim {
     // ---------------------------------------------------------------------------------------------
 
     fn ai_step(&mut self, t: u32) {
-        let interval = self.cfg.doll_think_interval.max(1);
+        let interval = self.cfg.drone_think_interval.max(1);
         let mut scratch = core::mem::take(&mut self.scratch);
         let mut alive = core::mem::take(&mut self.iter_bits);
         alive.copy_from(&self.suits.alive);
         for i in alive.iter() {
-            let seized = self.suits.zero[i].mode == bc_proto::snapshot::zero_mode::SEIZED;
-            if self.suits.pilot[i] != PilotKind::MobileDoll && !seized {
+            let seized = self.suits.orrery[i].mode == bc_proto::snapshot::orrery_mode::SEIZED;
+            if self.suits.pilot[i] != PilotKind::Drone && !seized {
                 continue;
             }
-            let profile = if seized { &SEIZED } else { &DOLL };
+            let profile = if seized { &SEIZED } else { &DRONE };
             let spec = frame(self.suits.frame[i]);
             let range = spec.loadout[0].map_or(3_000.0, |m| weapon(m.weapon).range);
             let mut ai_state = self.suits.ai[i];
             if t >= ai_state.think_at {
                 self.perceive_into(i, &mut scratch);
                 if seized {
-                    ai_state.order_target = self.suits.zero[i].out.rec_target;
+                    ai_state.order_target = self.suits.orrery[i].out.rec_target;
                 }
                 ai::think(&scratch, &mut ai_state, t, profile, range);
                 ai_state.think_at = t + interval;
@@ -635,7 +635,7 @@ impl Sim {
             // Its target, followed between thinks, unless it has gone behind a jammer.
             let target = (ai_state.target != NO_SLOT
                 && self.suits.is_alive(ai_state.target as usize)
-                && !(doll_ignores(self, i, ai_state.target as usize))
+                && !(drone_ignores(self, i, ai_state.target as usize))
                 && !self.jammed_from(i, ai_state.target as usize))
             .then(|| self.contact_of(ai_state.target as usize, i, t));
             let me = self.self_view(i);
@@ -645,7 +645,7 @@ impl Sim {
                 // Keep the System engaged while it holds the controls, the pilot's grip on what's
                 // in hand and on the ground, and the frame's mode (a seizure neither transforms the
                 // suit, drops its jammer, nor lets go of the surface it stands on).
-                cmd.buttons |= ZERO | (self.suits.input[i].buttons & (GRAB | MODE | GRIP));
+                cmd.buttons |= ORRERY | (self.suits.input[i].buttons & (GRAB | MODE | GRIP));
             }
             self.suits.ai[i] = ai_state;
             self.suits.input[i] = cmd;
@@ -705,8 +705,8 @@ impl Sim {
         let tuned = self.tuning(i);
         let extra_mass_kg = mass_without(fid, s.gone_mask(i)) as i32 - mass_without(fid, 0) as i32
             + (s.cargo_total_kg(i) + held + tuned.module_kg) as i32;
-        let doll = s.pilot[i] == PilotKind::MobileDoll;
-        let mut mods = tuning::flight_mods(&tuned, self.cfg.flight, doll, extra_mass_kg);
+        let drone = s.pilot[i] == PilotKind::Drone;
+        let mut mods = tuning::flight_mods(&tuned, self.cfg.flight, drone, extra_mass_kg);
         mods.interior = self.interior();
         mods.main *= tuning::sputter(&tuned, t, i as u16);
         // A scrammed reactor powers no ion drive (the owner's client knows for how long).
@@ -714,7 +714,7 @@ impl Sim {
             mods.ion = 0.0;
         }
         if busy {
-            mods.ambac = busy_ambac(mods.ambac);
+            mods.limb_trim = busy_limb_trim(mods.limb_trim);
         }
         mods.lunge = s.melee[i].striking() && weapon(s.melee[i].weapon).melee.is_some_and(|m| m.lunge);
         if s.stagger[i] > 0 {
@@ -737,9 +737,9 @@ impl Sim {
         tuning::cone(arm, &self.suits.tuning[i])
     }
 
-    /// AMBAC's authority with the arms idle: what the limbs shot off leave of it.
-    pub fn idle_ambac(&self, i: usize) -> f32 {
-        self.tuning(i).ambac
+    /// Limb trim's authority with the arms idle: what the limbs shot off leave of it.
+    pub fn idle_limb_trim(&self, i: usize) -> f32 {
+        self.tuning(i).limb_trim
     }
 
     /// What suit `i` brings to its step besides its command: its flight modifiers (with a change of
@@ -925,7 +925,7 @@ impl Sim {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Status: heat, energy, ZERO strain, respawns
+    // Status: heat, energy, the Orrery strain, respawns
     // ---------------------------------------------------------------------------------------------
 
     fn status_step(&mut self, t: u32) {
@@ -945,7 +945,7 @@ impl Sim {
                 } else if s.overheated[i] && s.heat[i] < spec.heat_cap * 0.5 {
                     s.overheated[i] = false;
                 }
-                // After Full Open, the weapons stay locked out however fast it cools.
+                // After Full Salvo, the weapons stay locked out however fast it cools.
                 if s.special[i].lockout > 0 {
                     s.overheated[i] = true;
                 }
@@ -967,12 +967,12 @@ impl Sim {
                 let s = &mut self.suits;
                 // Asleep, nobody's there for the System to strain.
                 if !s.sleeping.get(i) {
-                    let want = s.input[i].pressed(ZERO);
-                    let capable = spec.zero || self.cfg.zero_on_all_frames;
+                    let want = s.input[i].pressed(ORRERY);
+                    let capable = spec.orrery || self.cfg.orrery_on_all_frames;
                     let g = s.flight[i].g_strain;
-                    match s.zero[i].update(want, capable, g, DT) {
+                    match s.orrery[i].update(want, capable, g, DT) {
                         StrainEvent::Seized => {
-                            s.zero[i].out.computed_at = 0;
+                            s.orrery[i].out.computed_at = 0;
                             self.events.push(Event::Seizure {
                                 id: 0,
                                 tick: t,
@@ -995,9 +995,7 @@ impl Sim {
             } else if self.suits.respawn_at[i] != 0 && t >= self.suits.respawn_at[i] {
                 // A sleeper destroyed is gone: nobody is there to respawn. Under survival rules
                 // nobody respawns: the pilot is back in the hangar, and has to build another suit.
-                if self.suits.pilot[i] == PilotKind::MobileDoll
-                    || self.suits.sleeping.get(i)
-                    || self.cfg.survival
+                if self.suits.pilot[i] == PilotKind::Drone || self.suits.sleeping.get(i) || self.cfg.survival
                 {
                     self.suits.release(i);
                 } else {
@@ -1051,9 +1049,9 @@ impl Sim {
     }
 }
 
-/// A Mobile Doll's target that's asleep is no target.
-fn doll_ignores(sim: &Sim, i: usize, j: usize) -> bool {
-    sim.suits.pilot[i] == PilotKind::MobileDoll && sim.suits.sleeping.get(j)
+/// A drone's target that's asleep is no target.
+fn drone_ignores(sim: &Sim, i: usize, j: usize) -> bool {
+    sim.suits.pilot[i] == PilotKind::Drone && sim.suits.sleeping.get(j)
 }
 
 /// What a suit in its bay's cradle can't do (`Sim::bay_law`, and its pilot's prediction): fire,

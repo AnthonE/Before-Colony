@@ -13,7 +13,7 @@ bc-auth = { workspace = true, features = ["sign"] }
 bc-client-core.workspace = true
 bc-econ.workspace = true
 bc-proto.workspace = true
-bc-sim = { workspace = true, features = ["deterministic", "canon-names"] }
+bc-sim = { workspace = true, features = ["deterministic"] }
 wtransport.workspace = true
 tokio.workspace = true
 anyhow.workspace = true

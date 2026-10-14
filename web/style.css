@@ -74,7 +74,7 @@ canvas#bc {
   --panel: color-mix(in srgb, var(--ink) 82%, transparent);
   --edge: color-mix(in srgb, var(--label) 33%, transparent);
   --label-font: "Chakra Petch", system-ui, sans-serif;
-  /* The mobile-suit monitor's panel: two corners cut. */
+  /* The mech monitor's panel: two corners cut. */
   --chamfer: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
 }
 .hidden { display: none !important; }
@@ -410,7 +410,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .term-body .have { color: var(--cyan); }
 .term-body .short { color: var(--red); }
 .term-body .dim { opacity: 0.55; }
-.term-body .gundam { color: var(--amber); }
+.term-body .lodestar { color: var(--amber); }
 .term-body section { margin-bottom: 16px; }
 .term-body .filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
 .term-body .filters button.active { border-color: var(--cyan); background: color-mix(in srgb, var(--cyan) 20%, transparent); }

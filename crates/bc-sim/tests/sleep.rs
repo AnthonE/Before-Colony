@@ -1,5 +1,5 @@
 //! Sleepers: an offline pilot's suit drifts on what it had, or parks on the rock it rests against
-//! and hides there; a shattered rock sets it adrift; Mobile Dolls leave it alone; destroyed, it
+//! and hides there; a shattered rock sets it adrift; drones leave it alone; destroyed, it
 //! stays gone and is reported; the longest asleep make room for the living.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
@@ -15,15 +15,15 @@ use common::{lone_rock, resting_on};
 use glam::Vec3;
 
 fn sim() -> Sim {
-    Sim::new(SimConfig { target_dolls: 0, ..SimConfig::default() })
+    Sim::new(SimConfig { target_drones: 0, ..SimConfig::default() })
 }
 
 fn empty() -> Sim {
-    Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() })
+    Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() })
 }
 
-fn leo(sim: &mut Sim, faction: Faction, pos: Vec3, facing: Vec3) -> SuitId {
-    sim.spawn_at(FrameId::Leo, faction, PilotKind::Human, pos, look_rotation(facing, Vec3::Y)).unwrap()
+fn argo(sim: &mut Sim, faction: Faction, pos: Vec3, facing: Vec3) -> SuitId {
+    sim.spawn_at(FrameId::Argo, faction, PilotKind::Human, pos, look_rotation(facing, Vec3::Y)).unwrap()
 }
 
 fn steps(sim: &mut Sim, n: u32) {
@@ -46,7 +46,7 @@ fn fates(sim: &mut Sim) -> Vec<SleeperFate> {
 #[test]
 fn a_sleeper_drifts_on_what_it_had() {
     let mut sim = empty();
-    let id = leo(&mut sim, Faction::Colonies, Vec3::new(0.0, 5_000.0, 9_000.0), Vec3::Z);
+    let id = argo(&mut sim, Faction::Colonies, Vec3::new(0.0, 5_000.0, 9_000.0), Vec3::Z);
     let i = id.idx();
     // Flying with flight assist on (which would brake it), when the pilot drops.
     let v = Vec3::new(12.0, -3.0, 5.0);
@@ -83,8 +83,8 @@ fn resting_on_a_rock_it_parks_and_hides_there() {
     steps(&mut sim, 300);
     assert!(sim.suits.flight[i].pos.distance(at) < 1e-3, "held where it sat");
     // Cold and still: eyes find it close in, sensors don't, even an enemy's facing it.
-    let far = leo(&mut sim, Faction::Alliance, at + out * 1_000.0, -out);
-    let near = leo(&mut sim, Faction::Alliance, at + out * 300.0, -out);
+    let far = argo(&mut sim, Faction::Alliance, at + out * 1_000.0, -out);
+    let near = argo(&mut sim, Faction::Alliance, at + out * 300.0, -out);
     steps(&mut sim, 1);
     assert!(!sim.detects(far.idx(), i), "a parked sleeper is off sensors at 1 km");
     assert!(sim.detects(near.idx(), i), "but in plain sight at 300 m");
@@ -96,8 +96,8 @@ fn resting_on_a_rock_it_parks_and_hides_there() {
 #[test]
 fn a_drifting_sleeper_is_seen_as_ever() {
     let mut sim = empty();
-    let id = leo(&mut sim, Faction::Colonies, Vec3::new(0.0, 5_000.0, 9_000.0), Vec3::Z);
-    let other = leo(&mut sim, Faction::Alliance, Vec3::new(0.0, 5_000.0, 10_000.0), -Vec3::Z);
+    let id = argo(&mut sim, Faction::Colonies, Vec3::new(0.0, 5_000.0, 9_000.0), Vec3::Z);
+    let other = argo(&mut sim, Faction::Alliance, Vec3::new(0.0, 5_000.0, 10_000.0), -Vec3::Z);
     assert!(sim.sleep(id));
     steps(&mut sim, 1);
     assert!(sim.detects(other.idx(), id.idx()));
@@ -120,25 +120,25 @@ fn shattering_the_rock_sets_a_parked_sleeper_adrift() {
 }
 
 #[test]
-fn mobile_dolls_leave_sleepers_alone() {
-    let mut sim = Sim::new(SimConfig { target_dolls: 4, field_rocks: 0, ..SimConfig::default() });
+fn drones_leave_sleepers_alone() {
+    let mut sim = Sim::new(SimConfig { target_drones: 4, field_rocks: 0, ..SimConfig::default() });
     steps(&mut sim, 5);
-    let doll =
-        sim.suits.alive.iter().find(|&d| sim.suits.pilot[d] == PilotKind::MobileDoll).expect("dolls spawned");
-    let near = sim.suits.flight[doll].pos + Vec3::new(0.0, 0.0, 700.0);
-    let id = leo(&mut sim, Faction::Colonies, near, -Vec3::Z);
+    let drone =
+        sim.suits.alive.iter().find(|&d| sim.suits.pilot[d] == PilotKind::Drone).expect("Drones spawned");
+    let near = sim.suits.flight[drone].pos + Vec3::new(0.0, 0.0, 700.0);
+    let id = argo(&mut sim, Faction::Colonies, near, -Vec3::Z);
     let i = id.idx();
     assert!(sim.sleep(id));
     let hp = sim.suits.part_hp[i];
     let targeted = |sim: &Sim| {
         sim.suits.alive.iter().any(|d| {
-            sim.suits.pilot[d] == PilotKind::MobileDoll
+            sim.suits.pilot[d] == PilotKind::Drone
                 && (sim.suits.ai[d].target == i as u16 || sim.suits.ai[d].order_target == i as u16)
         })
     };
     for _ in 0..600 {
         sim.step();
-        assert!(!targeted(&sim), "a doll went for a sleeping pilot");
+        assert!(!targeted(&sim), "a drone went for a sleeping pilot");
     }
     assert_eq!(sim.suits.part_hp[i], hp, "and nothing hit it");
     // Awake again, it's fair game.
@@ -148,36 +148,36 @@ fn mobile_dolls_leave_sleepers_alone() {
         sim.step();
         hunted |= targeted(&sim) || sim.suits.part_hp[i] != hp;
     }
-    assert!(hunted, "the dolls ignore an awake pilot too");
+    assert!(hunted, "the drones ignore an awake pilot too");
 }
 
 #[test]
 fn a_sleeper_destroyed_is_gone_and_its_pilot_told() {
     let mut sim = empty();
-    let zero = sim
+    let altair = sim
         .spawn_at(
-            FrameId::WingZero,
+            FrameId::Altair,
             Faction::Colonies,
             PilotKind::Human,
             Vec3::new(0.0, 1_000.0, 0.0),
             look_rotation(Vec3::Z, Vec3::Y),
         )
         .unwrap();
-    let sleeper = leo(&mut sim, Faction::Oz, Vec3::new(3.4, 1_000.6, 1_500.0), -Vec3::Z);
+    let sleeper = argo(&mut sim, Faction::Almagest, Vec3::new(3.4, 1_000.6, 1_500.0), -Vec3::Z);
     assert!(sim.sleep(sleeper));
     let from = sim.events.next_seq();
     for _ in 0..60 {
-        hold(&mut sim, zero, FIRE_PRIMARY, Vec3::Z);
+        hold(&mut sim, altair, FIRE_PRIMARY, Vec3::Z);
         sim.step();
     }
     let killed = (from..sim.events.next_seq())
         .filter_map(|s| sim.events.get(s).copied())
         .any(|e| matches!(e, Event::Kill { victim, .. } if victim as usize == sleeper.idx()));
-    assert!(killed, "the buster should have destroyed it");
+    assert!(killed, "the heavy beam rifle should have destroyed it");
     let f = fates(&mut sim);
     assert_eq!(f.len(), 1);
     assert_eq!(f[0].suit as usize, sleeper.idx());
-    assert_eq!(f[0].gone, Gone::Destroyed { killer: zero.idx() as u16 });
+    assert_eq!(f[0].gone, Gone::Destroyed { killer: altair.idx() as u16 });
     assert!(fates(&mut sim).is_empty(), "told once");
     // No respawn for a sleeper: nobody's there to fly it. The slot is freed.
     steps(&mut sim, 200);
@@ -188,7 +188,7 @@ fn a_sleeper_destroyed_is_gone_and_its_pilot_told() {
 #[test]
 fn waking_hands_the_controls_back() {
     let mut sim = empty();
-    let id = leo(&mut sim, Faction::Colonies, Vec3::new(0.0, 5_000.0, 9_000.0), Vec3::Z);
+    let id = argo(&mut sim, Faction::Colonies, Vec3::new(0.0, 5_000.0, 9_000.0), Vec3::Z);
     assert!(sim.sleep(id));
     // Asleep, a command is nobody's: it goes nowhere.
     let t = sim.next_tick();
@@ -220,7 +220,7 @@ fn waking_hands_the_controls_back() {
 #[test]
 fn a_destroyed_suit_cannot_sleep() {
     let mut sim = empty();
-    let id = leo(&mut sim, Faction::Colonies, Vec3::new(0.0, 5_000.0, 9_000.0), Vec3::Z);
+    let id = argo(&mut sim, Faction::Colonies, Vec3::new(0.0, 5_000.0, 9_000.0), Vec3::Z);
     sim.suits.alive.set(id.idx(), false);
     assert!(!sim.sleep(id));
 }
@@ -228,14 +228,14 @@ fn a_destroyed_suit_cannot_sleep() {
 #[test]
 fn the_longest_asleep_make_room() {
     let mut sim = Sim::new(SimConfig {
-        target_dolls: 0,
+        target_drones: 0,
         field_rocks: 0,
         max_sleepers: 2,
         max_suits: 4,
         ..SimConfig::default()
     });
     let ids: Vec<SuitId> = (0..3)
-        .map(|k| leo(&mut sim, Faction::Colonies, Vec3::new(k as f32 * 100.0, 5_000.0, 9_000.0), Vec3::Z))
+        .map(|k| argo(&mut sim, Faction::Colonies, Vec3::new(k as f32 * 100.0, 5_000.0, 9_000.0), Vec3::Z))
         .collect();
     assert!(sim.sleep(ids[0]));
     steps(&mut sim, 1);
@@ -256,13 +256,13 @@ fn the_longest_asleep_make_room() {
 }
 
 #[test]
-fn a_sleeping_neo_bird_stays_a_bird() {
-    // Asleep, the suit's input keeps MODE (and nobody works the frame's special), so a Neo-Bird
+fn a_sleeping_aquila_stays_a_bird() {
+    // Asleep, the suit's input keeps MODE (and nobody works the frame's special), so an Aquila
     // parked by its pilot is still a bird when they're back.
     let mut sim = empty();
     let id = sim
         .spawn_at(
-            FrameId::WingZero,
+            FrameId::Altair,
             Faction::Colonies,
             PilotKind::Human,
             Vec3::new(0.0, 5_000.0, 9_000.0),
@@ -274,10 +274,10 @@ fn a_sleeping_neo_bird_stays_a_bird() {
         hold(&mut sim, id, MODE, Vec3::Z);
         sim.step();
     }
-    assert_eq!(sim.suits.frame[i], FrameId::WingZeroBird, "MODE held a second makes a bird");
+    assert_eq!(sim.suits.frame[i], FrameId::Aquila, "MODE held a second makes a bird");
     assert!(sim.sleep(id));
     steps(&mut sim, 600);
-    assert_eq!(sim.suits.frame[i], FrameId::WingZeroBird, "the sleeping bird kept its form");
+    assert_eq!(sim.suits.frame[i], FrameId::Aquila, "the sleeping bird kept its form");
     assert!(!sim.suits.form(i).changing());
     // Awake, its pilot has the mode again: held, it stays a bird.
     assert!(sim.wake(id));
@@ -285,15 +285,15 @@ fn a_sleeping_neo_bird_stays_a_bird() {
         hold(&mut sim, id, MODE, Vec3::Z);
         sim.step();
     }
-    assert_eq!(sim.suits.frame[i], FrameId::WingZeroBird);
+    assert_eq!(sim.suits.frame[i], FrameId::Aquila);
 }
 
 #[test]
-fn a_sleeping_deathscythe_drops_its_jammer() {
+fn a_sleeping_algol_drops_its_jammer() {
     let mut sim = empty();
     let id = sim
         .spawn_at(
-            FrameId::Deathscythe,
+            FrameId::Algol,
             Faction::Colonies,
             PilotKind::Human,
             Vec3::new(0.0, 5_000.0, 9_000.0),
@@ -305,7 +305,7 @@ fn a_sleeping_deathscythe_drops_its_jammer() {
         hold(&mut sim, id, MODE, Vec3::Z);
         sim.step();
     }
-    assert!(sim.suits.special[i].active, "MODE engages the Hyper Jammer");
+    assert!(sim.suits.special[i].active, "MODE engages the Eclipse");
     let energy = sim.suits.energy[i];
     assert!(sim.sleep(id));
     steps(&mut sim, 120);

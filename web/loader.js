@@ -77,7 +77,7 @@ async function main() {
   const qualityParam = (params.get("quality") || "").toLowerCase();
   const qualityAuto = autoQuality(renderer);
   const config = {
-    // `1`: the Mobile Doll brain; `lander[:plan]`: a lander (see config.rs).
+    // `1`: the drone brain; `lander[:plan]`: a lander (see config.rs).
     autopilot: params.get("autopilot") || "",
     autoplay: params.get("autoplay") || "",
     echo: params.get("mode") === "echo",

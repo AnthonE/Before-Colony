@@ -20,10 +20,10 @@ fn items() -> Vec<Item> {
         Item::Ore(Ore::Titanium),
         Item::Ore(Ore::Exotics),
         Item::Material(Material::Steel),
-        Item::Material(Material::Gundanium),
+        Item::Material(Material::Siderium),
         Item::Material(Material::Propellant),
-        Item::Part(FrameId::Leo, Part::ArmL),
-        Item::Part(FrameId::WingZero, Part::Head),
+        Item::Part(FrameId::Argo, Part::ArmL),
+        Item::Part(FrameId::Altair, Part::Head),
         Item::Weapon(WeaponKind::BeamRifle),
     ]
 }
@@ -69,7 +69,7 @@ enum Op {
     Certify {
         who: usize,
     },
-    /// A pilot downs one of Zodiac's aces, and the colony pays its bounty (into the hangar, or at
+    /// A pilot downs one of the Almagest's aces, and the colony pays its bounty (into the hangar, or at
     /// the Board's desk).
     PayAce {
         who: usize,

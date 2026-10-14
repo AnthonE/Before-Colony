@@ -15,7 +15,7 @@
 //! point the guns.
 
 use bc_proto::buttons::{BURST, FLIGHT_ASSIST};
-use bc_proto::snapshot::{ent_flags, zero_mode};
+use bc_proto::snapshot::{ent_flags, orrery_mode};
 use bc_proto::{FrameId, InputCmd, LockOn};
 use bc_sim::config::DT;
 use bc_sim::content::{frame, weapon};
@@ -53,7 +53,7 @@ const STOP_REACH: f32 = 0.7;
 const STOP_PAD: f32 = 5.0;
 /// Where W stops for a suit without a blade, m.
 const STOP_BARE: f32 = 15.0;
-/// Circling, the suit turns to keep the target ahead no faster than this share of its AMBAC rate.
+/// Circling, the suit turns to keep the target ahead no faster than this share of its limb trim rate.
 const ORBIT_TURN: f32 = 0.7;
 /// Settling onto the floor no faster than this share of the cruise.
 const SETTLE_SHARE: f32 = 0.5;
@@ -191,7 +191,7 @@ pub fn stop_range(frame_id: FrameId) -> f32 {
 /// lock were held (its thrust the keys: x right, y up, z forward), and `lock` the pilot's lock.
 /// Flying free with flight assist on, the stick is reshaped to move about the target and the
 /// [`LockOn`] it holds relative to goes with it. Otherwise (on a body or coming down onto one,
-/// flight assist off, ZERO flying the suit, folded into Neo-Bird) the keys go as they are; the
+/// flight assist off, the Orrery flying the suit, folded into Aquila) the keys go as they are; the
 /// target is still designated either way.
 pub fn shape(cmd: InputCmd, lock: &mut Lock, ctx: &InputContext) -> InputCmd {
     let Some(slot) = lock.slot() else { return cmd };
@@ -202,8 +202,8 @@ pub fn shape(cmd: InputCmd, lock: &mut Lock, ctx: &InputContext) -> InputCmd {
     let Some(own) = world.own.filter(|o| o.alive) else { return out };
     let Some(track) = world.entity(slot) else { return out };
     let free = p.mover().footing == Footing::Free;
-    let seized = own.zero_mode == zero_mode::SEIZED;
-    let bird = p.form.frame == FrameId::WingZeroBird;
+    let seized = own.orrery_mode == orrery_mode::SEIZED;
+    let bird = p.form.frame == FrameId::Aquila;
     let landing = cmd.pressed(bc_proto::buttons::GRIP) && surface_hint(&p.bodies(ctx.tick), &s).is_some();
     if !free || !cmd.pressed(FLIGHT_ASSIST) || seized || bird || landing {
         return out;
@@ -266,7 +266,7 @@ pub fn shape(cmd: InputCmd, lock: &mut Lock, ctx: &InputContext) -> InputCmd {
     };
     // Around it: as fast as the side thrusters can turn the circle and the suit can turn to keep
     // facing it, leaning in for flight assist's lag so the circle doesn't widen.
-    let orbit = cruise.min((side * d).sqrt()).min(ORBIT_TURN * spec.ambac_rate * d);
+    let orbit = cruise.min((side * d).sqrt()).min(ORBIT_TURN * spec.limb_trim_rate * d);
     let across = orbit * keys.x;
     closing += across * across * FA_RESPONSE / d.max(stop);
     // Off the floor, or back down onto it.
@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn w_stops_outside_the_blade() {
-        assert!((stop_range(FrameId::Leo) - (9.0 * 0.7 + 5.0)).abs() < 1e-4);
-        assert!(stop_range(FrameId::Deathscythe) > stop_range(FrameId::Heavyarms));
+        assert!((stop_range(FrameId::Argo) - (9.0 * 0.7 + 5.0)).abs() < 1e-4);
+        assert!(stop_range(FrameId::Algol) > stop_range(FrameId::Antares));
     }
 }

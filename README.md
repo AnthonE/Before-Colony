@@ -1,9 +1,9 @@
 # Before Colony
 
-A Gundam Wing mobile-suit MMO prototype.
-- Free-aim, Newtonian combat in the Earth Sphere.
-- Mobile Doll AI, and AI agents that play by the same rules as humans.
-- The **ZERO System**: a combat AI in your cockpit that predicts the fight's futures (optionally
+A space mech MMO prototype.
+- Free-aim, Newtonian combat in Earth-Moon space.
+- Drone AI, and AI agents that play by the same rules as humans.
+- **The Orrery**: a combat AI in your cockpit that predicts the fight's futures (optionally
   asking TypeSafe's **Jev**) and seizes the controls when its pilot can't take any more.
 - Salvage and mining: shoot limbs off and tow the hulks, cut rocks apart with a beam saber, and
   bring it all home.
@@ -19,9 +19,9 @@ A Gundam Wing mobile-suit MMO prototype.
   auxiliary tank, an ion drive, radiators, plating, damage control…) trade one stat for another,
   and three grades of propellant go further the purer they are.
 - **Survival:** you build your own suit. You start on foot in your hangar bay in the colony's
-  docking hub, with a worn-out Leo. Walk the bay in first person, fabricate parts from what you
+  docking hub, with a worn-out Argo. Walk the bay in first person, fabricate parts from what you
   mine and salvage, and trade on the **Colony Exchange** (order books, with the colony as a market
-  maker whose prices follow its stock). A Gundam takes tonnes of exotic metals and gundanium that
+  maker whose prices follow its stock). A Lodestar takes tonnes of exotic metals and siderium that
   only the colony's zero-G foundry can make. Launch out of your bay's own door on the spinning bay
   ring, and come home through the docking hub (at rest in the dock's ring of lights, or landed on
   the hub's end face and walked in at its deck hatch); a suit destroyed out there is gone. Your
@@ -29,7 +29,7 @@ A Gundam Wing mobile-suit MMO prototype.
   city, where you walk, ride its trams and drive its cars, and the Proving Ground trains you. Its
   desks each do one thing only they do: an order that waits on the book at the Exchange floor,
   contracts, patrols, the charter and the Charter Board's pay at its desk (a flight certificate
-  earns your worn Leo its missing beam rifle there), Zodiac's Most Wanted at The Arrival, and the
+  earns your worn Argo its missing beam rifle there), the Almagest's Most Wanted at The Arrival, and the
   test range at the Proving Ground. The objectives walk a new Arrival from desk to desk, home to
   arm, and out.
 
@@ -48,17 +48,17 @@ teaches (guns that shoot missiles down, the HUD saying why a weapon won't fire, 
 boot that says when it's stuck, wrecks that die their own way). Milestone 4 brought
 wear and tear: the systems inside the parts, statuses, equipment modules and overhauls, and the
 world bible (`docs/STORY.md`). Milestone 3 brought survival: the hangar bay on foot, building
-suits, and the Colony Exchange (see `docs/DESIGN.md`). Milestone 2 brought the five Gundams. One
+suits, and the Colony Exchange (see `docs/DESIGN.md`). Milestone 2 brought the five Lodestars. One
 sector (L1 Colony Cluster). Pilots and agents fly
-the Leo, Wing Gundam Zero (which folds into Neo-Bird), Heavyarms, Deathscythe, Sandrock and
-Shenlong, against Taurus and Virgo Mobile Dolls. Each Gundam brings its kit and its signature:
-- **Heavyarms:** lock-on homing missiles, and the Full Open Attack.
-- **Deathscythe:** the Hyper Jammer, which hides it from enemy sensors, dolls, ZERO and missile
+the Argo, Altair (which folds into Aquila), Antares, Algol, Canopus and
+Thuban, against Corvus and Cetus drones. Each Lodestar brings its kit and its signature:
+- **Antares:** lock-on homing missiles, and the Full Salvo.
+- **Algol:** the Eclipse, which hides it from enemy sensors, drones, the Orrery and missile
   seekers, and a beam scythe.
-- **Sandrock:** twin heat shotels, and the Cross Crusher.
-- **Shenlong:** the Dragon Fang, a claw that strikes 35 m out, and a flamethrower that overheats its
+- **Canopus:** twin heat blades, and the Pincer Strike.
+- **Thuban:** the Talon, a claw that strikes 35 m out, and a flamethrower that overheats its
   target.
-- **Wing Zero:** Neo-Bird, and the Twin Buster Rifle; the ZERO System in both forms.
+- **Altair:** Aquila, and the Heavy Beam Rifle; the Orrery in both forms.
 
 Salvage and mining, and agents via the Bot SDK, carry over from Milestone 1. The suits are
 procedural, jointed models whose armour and limbs come off. The sky, colony and asteroid field are
@@ -72,7 +72,7 @@ Prerequisites:
 - Node 18+ (compresses the wasm)
 
 ```sh
-scripts/dev.sh                   # builds the client, starts a survival sector with 24 Mobile Dolls, an AI agent and a miner
+scripts/dev.sh                   # builds the client, starts a survival sector with 24 drones, an AI agent and a miner
 BC_RULES=arcade scripts/dev.sh   # the arcade rules instead: any frame, free respawns
 ```
 
@@ -93,12 +93,12 @@ that desk keeps: the Exchange floor's exchange, the Charter Board's (what it hol
 out as you walk into its hall), The Arrival's Most Wanted, the Proving Ground's board and test
 range; the bay's terminals point at them. The colony is open by default; `BC_COLONY=0 scripts/dev.sh`
 (the server's `--no-colony`) closes it. Esc opens the menu and F1 (or ?) lists the controls.
-`?autoplay=1` skips the title screen. Add `?autopilot=1` to watch the kit-aware Mobile Doll brain fly your suit
-with the ZERO System engaged (it walks to the cockpit and launches first), and, under arcade rules,
-`?frame=leo|wingzero|heavyarms|deathscythe|sandrock|shenlong` to pick it.
+`?autoplay=1` skips the title screen. Add `?autopilot=1` to watch the kit-aware drone brain fly your suit
+with the Orrery engaged (it walks to the cockpit and launches first), and, under arcade rules,
+`?frame=argo|altair|antares|algol|canopus|thuban` to pick it.
 `?quality=low|medium|high|ultra` picks a graphics tier for the visit (F10 or O cycles them; the settings
 keep the choice). Without a server,
-`?showcase=gundams|lineup|duel|colony|field|sky|chase|salvage|mining|hangar|surface|city` plays an
+`?showcase=lodestars|lineup|duel|colony|field|sky|chase|salvage|mining|hangar|surface|city` plays an
 offline scene (`?hz=20` runs its clock slower, to see effects at a low frame rate). `?look=0` turns off the game's
 own look (its grade, vignette, lit smoke and the bay's haze) and `?tonemap=agx|aces` swaps the
 tonemapper, for comparing.
@@ -112,17 +112,17 @@ self-signed certificate depends on `serverCertificateHashes` pinning, and that m
 | W/S · A/D · Space/C · Q/E | thrust forward/back · left/right · up/down · roll |
 | Shift · X · R | boost · brake · RCS fast turns |
 | L | grip: armed, coming in slow and close lands you on a rock or a landmark; again, let go |
-| LMB · RMB · F | primary · secondary · melee (saber, scythe, shotels, glaive, knife) |
+| LMB · RMB · F | primary · secondary · melee (saber, scythe, blades, glaive, knife) |
 | Y · middle click | lock on to the hostile nearest the crosshair (again: the next one; held: let go) |
-| H | the frame's special: Neo-Bird or the Hyper Jammer on/off; Full Open Attack or the Cross Crusher |
-| V · Z | flight assist · ZERO System |
+| H | the frame's special: Aquila or the Eclipse on/off; Full Salvo or the Pincer Strike |
+| V · Z | flight assist · the Orrery |
 | Tab · mouse wheel | the cockpit or the chase camera |
-| M · N | the chart, out to the Earth Sphere (set a course on it) · the auto-nav on the course (on/off) |
+| M · N | the chart, out to Earth-Moon space (set a course on it) · the auto-nav on the course (on/off) |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
 | U | eject: doomed, a tap ejects and a hold blows the suit up; otherwise held a second |
 | Enter | survival: dock where the HUD's marker says ENTER (into your bay: at rest inside the dock's ring of lights, or standing on the hub's deck hatch; inside the colony, at rest in the inner gate's ring; in a trainer, at rest on the Blast Hall's gantry); anywhere else, the radio |
 | 1–4 | survival: the rack's patch kit · coolant flush · chaff · stim |
-| 1–6 | arcade rules: respawn as Leo, Wing Zero, Heavyarms, Deathscythe, Sandrock or Shenlong |
+| 1–6 | arcade rules: respawn as Argo, Altair, Antares, Algol, Canopus or Thuban |
 | / (or Enter) | talk on the colony's radio (Enter opens it on foot, and in a suit wherever there's nothing to dock): Enter says it, Esc closes |
 | Esc · F1 or ? · F10 or O | menu · controls · graphics quality |
 
@@ -139,10 +139,10 @@ that proves the address is yours; it authorizes nothing and moves no funds. Gues
 only a signed-in pilot's hangar (and suit) is theirs to come back to. A dropped link, or a reload, reconnects
 without asking the wallet again; signing in from a second window takes the pilot over.
 
-**Logging off.** Signed in, SLEEP & DISCONNECT (or just closing the tab) leaves your Gundam in the
+**Logging off.** Signed in, SLEEP & DISCONNECT (or just closing the tab) leaves your Lodestar in the
 sector with you asleep in the cockpit, drifting on as it was; you wake in it when you're back. Rest
 against an asteroid first (the HUD reads PARKED) and it stays put there, hidden from sensors beyond
-400 m. Mobile Dolls leave sleepers alone. Pilots of another side can hunt them, but every human
+400 m. Drones leave sleepers alone. Pilots of another side can hunt them, but every human
 pilot flies for the Colonies (the server decides) and friendly fire is off, so today only an agent
 flying for the Alliance could hunt yours (where PvP lives is an open decision: `docs/ROADMAP.md`).
 Flying inside the colony nothing sleeps: DOCK & DISCONNECT, and its tugs bring the suit home to
@@ -153,25 +153,25 @@ Server flags: `--rules survival|arcade` (default survival), `--no-colony` (close
 lifts down into its city, no suits inside it; open by default under survival rules), `--data-dir DIR` (keep pilot records,
 their hangars, the exchange, the Charter Board and the Proving Ground's board in files there;
 otherwise they last one run), `--craft-speed X`
-(the fabricator works X times faster, for testing), `--mobile-dolls N`, `--max-clients N`,
+(the fabricator works X times faster, for testing), `--drones N`, `--max-clients N`,
 `--oracle local|jev`, `--mode echo`, `--siwe-domain HOST` (the host pages are served from, which
 wallets sign in to; defaults to `--http`), `--require-auth` (no human guests), `--flight anime|real`
 (default anime: the tank is a boost gauge that refills; real: every newton burns propellant),
-`--ace-every SECS` (between Zodiac's aces among the Dolls, default 300; 0: none), `--http ADDR`
+`--ace-every SECS` (between the Almagest's aces among the drones, default 300; 0: none), `--http ADDR`
 (default 127.0.0.1:8080), `--wt-port N` (WebTransport's UDP port, default 4433), `--web-dir DIR`
 (the built client, default `web/dist`), `--seed N` (the simulation's), `--max-connections N` and
 `--per-address N` (connections taken in all and from one address, loopback excepted; default 512
 and 8). Records go through a `PilotStore` trait a Redis or Mongo store can implement.
 
 `scripts/dev.sh` takes its settings from the environment: `BC_RULES`, `BC_FLIGHT` (`anime|real`),
-`BC_COLONY=0`, `BC_DATA=DIR` (the server's `--data-dir`), `BC_DOLLS` (24), `BC_AGENTS` and
+`BC_COLONY=0`, `BC_DATA=DIR` (the server's `--data-dir`), `BC_DRONES` (24), `BC_AGENTS` and
 `BC_MINERS` (1 each), `BC_ORACLE` (`local|jev`).
 
-### The ZERO System with TypeSafe Jev
+### The Orrery with TypeSafe Jev
 
 ```sh
 TYPESAFE_API_KEY=... cargo run -p bc-server --release -- --oracle jev
-TYPESAFE_API_KEY=... cargo run -p bc-zero --example jev_smoke   # one live call, printed
+TYPESAFE_API_KEY=... cargo run -p bc-orrery --example jev_smoke   # one live call, printed
 ```
 
 Without a key the in-sim local oracle runs alone, and the System works fully offline.
@@ -180,34 +180,34 @@ Without a key the in-sim local oracle runs alone, and the System works fully off
 ### Agents
 
 ```sh
-cargo run -p bc-bot --release --example mobile_doll -- --name Agent-01 --faction colonies   # or alliance
+cargo run -p bc-bot --release --example drone -- --name Agent-01 --faction colonies   # or alliance
 cargo run -p bc-bot --release --example miner -- --name Miner-01   # mines, docks, and sells its ore on the exchange
 cargo run -p bc-bot --release --bin bc-swarm -- --bots 64 --secs 60   # load test
 ```
 
 Agents speak the same protocol through the same client core as the browser. They are shown in-game
-as **MD** pilots. Two brains come with it: `DollBrain` (the Mobile Doll AI) and `MinerBrain`. Or
+as **DR** pilots. Two brains come with it: `DroneBrain` (the drone AI) and `MinerBrain`. Or
 write your own brain as a closure: see `crates/bc-bot/src/lib.rs`. The side an agent flies for is
-the server's to say, and its Welcome says it: `--faction` takes `colonies` or `alliance` (Oz is the
-Mobile Dolls' own, and a claim to it flies for the Colonies, as every human pilot does).
+the server's to say, and its Welcome says it: `--faction` takes `colonies` or `alliance` (the Almagest is the
+drones' own, and a claim to it flies for the Colonies, as every human pilot does).
 
 ## What's been measured
 
 | Claim | Result |
 |---|---|
-| The sector tick never allocates | 0 heap operations over 1,000 ticks of 64 pilots + 256 Mobile Dolls, with the Gundams duelling (jammers, Neo-Birds, Full Opens), and with 500 missiles in the air; and in the live server under a 64-bot swarm (`/status` → `hot_path_allocations`) |
-| Tick cost (64 pilots + 256 dolls in a dense fight) | p50 1.1 ms, p99 2.1–3.0 ms across runs (budget 33 ms) |
-| Tick cost with 64 Gundam pilots duelling in every playable frame (about 200 missiles in the air) + 256 dolls | p50 0.84 ms, p99 2.5 ms |
-| Native and browser simulate identically | the same golden state hashes on x86_64 and wasm32, for the slice and for a duel of every Gundam |
-| Own-suit prediction over a bad link (100 ms RTT, 5% loss) | error p99 0.2 mm, changing into Neo-Bird and back included; a suit with failing systems (coughing thrusters, a leaking tank, a hurt pilot) and equipment fitted, p99 under 0.1 mm |
-| Blows that reach a suit's systems (a Leo's torso, over its life) | machine cannon 2.1, beam rifle 1.7, beam saber 1.2; Mobile Dolls about 0.6× |
+| The sector tick never allocates | 0 heap operations over 1,000 ticks of 64 pilots + 256 drones, with the Lodestars duelling (jammers, Aquilas, Full Salvos), and with 500 missiles in the air; and in the live server under a 64-bot swarm (`/status` → `hot_path_allocations`) |
+| Tick cost (64 pilots + 256 drones in a dense fight) | p50 1.1 ms, p99 2.1–3.0 ms across runs (budget 33 ms) |
+| Tick cost with 64 Lodestar pilots duelling in every playable frame (about 200 missiles in the air) + 256 drones | p50 0.84 ms, p99 2.5 ms |
+| Native and browser simulate identically | the same golden state hashes on x86_64 and wasm32, for the slice and for a duel of every Lodestar |
+| Own-suit prediction over a bad link (100 ms RTT, 5% loss) | error p99 0.2 mm, changing into Aquila and back included; a suit with failing systems (coughing thrusters, a leaking tank, a hurt pilot) and equipment fitted, p99 under 0.1 mm |
+| Blows that reach a suit's systems (an Argo's torso, over its life) | machine cannon 2.1, beam rifle 1.7, beam saber 1.2; drones about 0.6× |
 | Clock sync when inputs come in bursts (sent twice a second, same link) | RTT estimate within 10 ms of true; 1 of 600 ticks without a command |
 | Salvage on the same link | chunks drawn exactly where the server has them (bit-identical at every tick, across bounces); towing a 6 t hulk, prediction error p99 0.1 mm; coasting through a shattered rock, p99 below 0.1 mm |
 | A miner agent on the same link | breaks a rock with its saber, stows the ore, and sells it at the dock 178 s after spawning |
-| ZERO reads Mobile Dolls | top-1 maneuver prediction 87% (chance 14%); calibration error 0.06 |
-| The kit-aware pilot flies each Gundam (simulation, against three Taurus and a Virgo) | Heavyarms: Full Open, 22 missiles in the air at once, 32 missile hits; Deathscythe: jams 9 times, 3 scythe hits; Sandrock: 23 missile hits; Shenlong: 7 fang and glaive hits, 24 flame hits; Wing Zero: out as Neo-Bird and back, hits with both |
-| Swarm: 64 agents (all six frames) vs 256 dolls over real WebTransport | 30 snapshots/s each, ≤ 1,100 B datagrams, tick p99 ≤ 4 ms, 0 hot-path allocations; 0–53 of 115,200 snapshots dropped at the egress ring across three runs, with the server and all 64 bots sharing 4 cores |
-| The browser client, end to end (headless Chromium, software rendering) | connects, sees 20+ contacts and the MD agent, draws ZERO futures; the autopilot lands server-confirmed hits within 30 s; 0 hot-path allocations. Each Gundam, flown by the autopilot against 24 dolls, shows its mechanics to the server and the client: Heavyarms in 22 s, Deathscythe 23 s, Sandrock 12 s, Shenlong 41 s, Wing Zero (out as Neo-Bird and back) 1.6 min |
+| The Orrery reads drones | top-1 maneuver prediction 87% (chance 14%); calibration error 0.06 |
+| The kit-aware pilot flies each Lodestar (simulation, against three Corvus and a Cetus) | Antares: Full Salvo, 22 missiles in the air at once, 32 missile hits; Algol: jams 9 times, 3 scythe hits; Canopus: 23 missile hits; Thuban: 7 fang and glaive hits, 24 flame hits; Altair: out as Aquila and back, hits with both |
+| Swarm: 64 agents (all six frames) vs 256 drones over real WebTransport | 30 snapshots/s each, ≤ 1,100 B datagrams, tick p99 ≤ 4 ms, 0 hot-path allocations; 0–53 of 115,200 snapshots dropped at the egress ring across three runs, with the server and all 64 bots sharing 4 cores |
+| The browser client, end to end (headless Chromium, software rendering) | connects, sees 20+ contacts and the DR agent, draws the Orrery futures; the autopilot lands server-confirmed hits within 30 s; 0 hot-path allocations. Each Lodestar, flown by the autopilot against 24 drones, shows its mechanics to the server and the client: Antares in 22 s, Algol 23 s, Canopus 12 s, Thuban 41 s, Altair (out as Aquila and back) 1.6 min |
 
 ## Known limitations
 
@@ -216,7 +216,7 @@ Mobile Dolls' own, and a claim to it flies for the Colonies, as every human pilo
   software WebGPU loses its device at startup, even on a bare WebGPU page with no Bevy.
 - The browser build is large: 49 MiB of wasm, 7 MiB over the wire with brotli. Trimming Bevy
   features and running `wasm-opt` (`BC_WEB_OPT=1`) are the next steps.
-- Wing Zero's change into Neo-Bird isn't animated yet (the model swaps, with a flash).
+- Altair's change into Aquila isn't animated yet (the model swaps, with a flash).
 - One sector, and one colony (one exchange). Without `--data-dir`, pilot records and hangars are
   kept in memory, so a server restart forgets them; a Redis or Mongo `PilotStore` is the next step.
   Suits left asleep in the sector don't survive a restart, except, under survival rules with
@@ -228,13 +228,13 @@ Mobile Dolls' own, and a claim to it flies for the Colonies, as every human pilo
 
 ```
 crates/bc-proto        wire protocol (no_std, no alloc)
-crates/bc-sim          simulation core (no_std): flight, combat, lag comp, Mobile Dolls, ZERO
+crates/bc-sim          simulation core (no_std): flight, combat, lag comp, drones, the Orrery
 crates/bc-sector       the hot loop: sector thread, lock-free queues, replication
-crates/bc-zero         tactical oracles: TypeSafe Jev, worker
+crates/bc-orrery         tactical oracles: TypeSafe Jev, worker
 crates/bc-client-core  client state machine shared by the browser and bots (and the bay's walker)
 crates/bc-econ         the economy: items, recipes, stores, suit builds, faults and overhauls, jobs, the Colony Exchange
 crates/bc-server       WebTransport server, dev HTTP (/cert-hash, /status)
-crates/bc-bot          Bot SDK, mobile_doll and miner agents, bc-swarm
+crates/bc-bot          Bot SDK, drone and miner agents, bc-swarm
 crates/bc-client       Bevy browser client (wasm32)
 crates/bc-model        the suits' procedural designs and their sockets
 crates/bc-sound        the generated sound bank, mixer, cockpit sounds and music
@@ -257,6 +257,5 @@ tests nightly, each suite on its own runner (`.github/workflows/e2e.yml`; also b
 
 ## Legal
 
-Fan project. *Mobile Suit Gundam Wing* and all related names are © Sotsu · Sunrise. Canon names
-live only behind the `canon-names` feature of `bc-sim`; without it the game builds with generic
-names. All art is procedural. Code is MIT-licensed (see `LICENSE`).
+Before Colony is an original game: its world, its suits and its names are its own
+(`docs/STORY.md`, "Voice and naming"). All art is procedural. Code is MIT-licensed (see `LICENSE`).

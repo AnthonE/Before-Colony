@@ -584,10 +584,10 @@ pub fn publish_view(ui: Res<Ui>, mut last: Local<Option<View>>, mut ready: Local
 fn special_name(kind: SpecialKind) -> Option<&'static str> {
     match kind {
         SpecialKind::None => None,
-        SpecialKind::Transform { .. } => Some("Neo-Bird: changes into a fast cruiser form"),
-        SpecialKind::HyperJammer { .. } => Some("Hyper Jammer: hides it from sensors"),
-        SpecialKind::FullOpen { .. } => Some("Full Open Attack: every gun at once"),
-        SpecialKind::MeleeMove { .. } => Some("Cross Crusher: the shield's claws"),
+        SpecialKind::Transform { .. } => Some("Aquila: changes into a fast cruiser form"),
+        SpecialKind::Eclipse { .. } => Some("Eclipse: hides it from sensors"),
+        SpecialKind::FullSalvo { .. } => Some("Full Salvo: every gun at once"),
+        SpecialKind::MeleeMove { .. } => Some("Pincer Strike: the shield's claws"),
     }
 }
 
@@ -621,7 +621,7 @@ pub fn init_page(
         if let Some(s) = special_name(spec.special) {
             set(&o, "special", s);
         }
-        set(&o, "zero", spec.zero);
+        set(&o, "orrery", spec.orrery);
         frames.push(&o);
     }
     let controls = Array::new();

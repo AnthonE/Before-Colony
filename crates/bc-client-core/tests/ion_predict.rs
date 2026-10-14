@@ -1,6 +1,6 @@
 //! Under the real rules an ion drive carries the first of the thrust on the reactor's power alone,
 //! and a dry tank still crawls on it; a scrammed reactor stops it. The owner's prediction burns,
-//! crawls and stops as the server does: a Leo with the drive, an extended tank, refined propellant
+//! crawls and stops as the server does: an Argo with the drive, an extended tank, refined propellant
 //! and a damaged reactor (half the drive), burnt dry, crawling, braking and turning, scrammed while
 //! it crawls.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
@@ -50,11 +50,11 @@ fn act(t: u32) -> InputCmd {
 #[test]
 fn the_ion_drive_keeps_time_with_the_servers() {
     const TICKS: u32 = 560;
-    let cfg = SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() };
+    let cfg = SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() };
     let mut sim = Sim::new(cfg);
     let start = Vec3::new(0.0, 9_000.0, 0.0);
     let id = sim
-        .spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, start, look_rotation(Vec3::Z, Vec3::Y))
+        .spawn_at(FrameId::Argo, Faction::Colonies, PilotKind::Human, start, look_rotation(Vec3::Z, Vec3::Y))
         .unwrap();
     let i = id.idx();
     let mut m = Modules::NONE;

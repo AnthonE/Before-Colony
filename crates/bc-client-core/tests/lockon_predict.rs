@@ -1,5 +1,5 @@
 //! Lock-on, flown against the real simulation the way the browser flies it: the pilot locks a
-//! Mobile Doll's frame coasting away faster than flight assist's cruise, holds W, and is carried in
+//! drone's frame coasting away faster than flight assist's cruise, holds W, and is carried in
 //! to just outside a blade's reach, settled onto its level, holding station on it; then holds A and
 //! circles it at that range. All the while the owner's prediction, seeded from every snapshot, flies
 //! exactly what the server flies: the lock-on travels in the command.
@@ -31,19 +31,24 @@ fn over_the_wire(own: &OwnState) -> OwnState {
 #[test]
 fn locked_on_a_pilot_closes_settles_and_circles_and_predicts_it_exactly() {
     let cfg =
-        SimConfig { target_dolls: 0, field_rocks: 0, flight: FlightRules::Anime, ..SimConfig::default() };
+        SimConfig { target_drones: 0, field_rocks: 0, flight: FlightRules::Anime, ..SimConfig::default() };
     let mut sim = Sim::new(cfg);
     let face = look_rotation(Vec3::Z, Vec3::Y);
     let me =
-        sim.spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, Vec3::new(0.0, 2_000.0, 0.0), face);
-    let foe =
-        sim.spawn_at(FrameId::Taurus, Faction::Oz, PilotKind::Human, Vec3::new(0.0, 2_250.0, 1_500.0), face);
+        sim.spawn_at(FrameId::Argo, Faction::Colonies, PilotKind::Human, Vec3::new(0.0, 2_000.0, 0.0), face);
+    let foe = sim.spawn_at(
+        FrameId::Corvus,
+        Faction::Almagest,
+        PilotKind::Human,
+        Vec3::new(0.0, 2_250.0, 1_500.0),
+        face,
+    );
     let (me, foe) = (me.unwrap(), foe.unwrap());
     let (i, j) = (me.idx(), foe.idx());
-    // It coasts away and a little across, faster than a Leo's flight assist cruises (220 m/s).
+    // It coasts away and a little across, faster than an Argo's flight assist cruises (220 m/s).
     let pace = Vec3::new(60.0, 0.0, 260.0);
     sim.suits.flight[j].vel = pace;
-    let stop = lockon::stop_range(FrameId::Leo);
+    let stop = lockon::stop_range(FrameId::Argo);
 
     let (mut world, mut predict, mut history) =
         (World::new(Faction::Colonies), Predictor::default(), InputHistory::default());

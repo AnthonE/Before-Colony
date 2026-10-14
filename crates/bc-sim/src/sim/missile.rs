@@ -13,9 +13,9 @@
 //! - **Ends.** A proximity fuse against enemy suits, or meeting a rock, a landmark or the colony
 //!   (whichever comes first along its path), or its life running out: each is a `MissileBurst`
 //!   event. There's no lag compensation: missiles fly in the present.
-//! - **Point defence.** The rounds of a gun that `shoots_down` (vulcans, gatlings, machine guns)
-//!   burst a hostile missile they meet in flight ([`BurstCause::ShotDown`]): Heavyarms' gatlings
-//!   and the head vulcans do it in the show, and Mecha Royale's assault rifle taught us how much a
+//! - **Point defence.** The rounds of a gun that `shoots_down` (head guns, gatlings, machine guns)
+//!   burst a hostile missile they meet in flight ([`BurstCause::ShotDown`]): gatlings and
+//!   head guns do it in the anime, and Mecha Royale's assault rifle taught us how much a
 //!   counter in the pilot's own hands is worth (`docs/PEERS.md`). A round passing within
 //!   [`INTERCEPT_REACH`] does it; the round and the missile are both swept over the tick, so a
 //!   crossing at speed isn't missed. Only in the present: a remote
@@ -365,9 +365,9 @@ impl Sim {
         }
     }
 
-    /// Whether suit `i`'s Full Open Attack is under way.
-    pub fn full_open(&self, i: usize) -> bool {
-        matches!(frame(self.suits.frame[i]).special, SpecialKind::FullOpen { .. })
+    /// Whether suit `i`'s Full Salvo is under way.
+    pub fn full_salvo(&self, i: usize) -> bool {
+        matches!(frame(self.suits.frame[i]).special, SpecialKind::FullSalvo { .. })
             && self.suits.special[i].active
     }
 }

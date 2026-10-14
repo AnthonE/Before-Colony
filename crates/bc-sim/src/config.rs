@@ -23,24 +23,24 @@ pub const fn secs(s: f32) -> u32 {
 /// Per-sector knobs, fixed at construction.
 #[derive(Clone, Copy, Debug)]
 pub struct SimConfig {
-    /// Suit slots (players, agents and Mobile Dolls). ≤ 1023 (wire slot limit).
+    /// Suit slots (players, agents and drones). ≤ 1023 (wire slot limit).
     pub max_suits: usize,
     pub max_projectiles: usize,
     /// Event ring capacity (events are kept ~1 s for redundant delivery).
     pub max_events: usize,
-    /// Mobile Dolls the spawner keeps in the sector.
-    pub target_dolls: u32,
+    /// Drones the spawner keeps in the sector.
+    pub target_drones: u32,
     /// Deterministic seed.
     pub seed: u64,
     /// Seconds a destroyed human/agent suit waits before respawning.
     pub respawn_secs: f32,
-    /// Dolls re-plan every N ticks (staggered by slot).
-    pub doll_think_interval: u32,
-    /// ZERO rollouts run every N ticks per pilot (staggered).
-    pub zero_interval: u32,
+    /// Drones re-plan every N ticks (staggered by slot).
+    pub drone_think_interval: u32,
+    /// The Orrery rollouts run every N ticks per pilot (staggered).
+    pub orrery_interval: u32,
     pub friendly_fire: bool,
-    /// Test hook: the ZERO System is available on every frame.
-    pub zero_on_all_frames: bool,
+    /// Test hook: the Orrery is available on every frame.
+    pub orrery_on_all_frames: bool,
     /// The debris field: its seed and how many rocks (≤ `Field::MAX_ROCKS`; 0 for none). Clients
     /// are told both in their Welcome and build the identical field.
     pub field_seed: u32,
@@ -52,18 +52,18 @@ pub struct SimConfig {
     pub max_sleepers: usize,
     /// Survival rules: pilots fly the suits they built (`Sim::launch`), bring them home
     /// (`Sim::dock`) and don't respawn; the dock neither buys nor refuels (the hangar does); the
-    /// colony pays bounties for Mobile Dolls. Off: arcade rules (any frame, free respawns, sell
+    /// colony pays bounties for drones. Off: arcade rules (any frame, free respawns, sell
     /// and refuel at the dock).
     pub survival: bool,
     /// How pilots fly: the simulator's rocket equation, or anime rules (a boost gauge that fills
-    /// back up). Clients are told in their Welcome, and predict by the same rules. Mobile Dolls
+    /// back up). Clients are told in their Welcome, and predict by the same rules. Drones
     /// fly by the real rules either way.
     pub flight: crate::tuning::FlightRules,
     /// Space round the colony, or the colony's inside (`colony::interior`): its own frame, the
     /// spin's pull and the air, weapons safe by the colony's law. Clients are told in their
-    /// Welcome. An interior has no Mobile Dolls, no field and no landmarks.
+    /// Welcome. An interior has no drones, no field and no landmarks.
     pub world: crate::colony::interior::WorldKind,
-    /// Ticks between Zodiac's aces (`content::aces`), one out at a time among the Dolls; 0: none.
+    /// Ticks between the Almagest's aces (`content::aces`), one out at a time among the drones; 0: none.
     pub ace_every: u32,
 }
 
@@ -82,13 +82,13 @@ impl Default for SimConfig {
             max_suits: 512,
             max_projectiles: 8192,
             max_events: 8192,
-            target_dolls: 24,
+            target_drones: 24,
             seed: 0xBC_0195,
             respawn_secs: 5.0,
-            doll_think_interval: 3,
-            zero_interval: 3,
+            drone_think_interval: 3,
+            orrery_interval: 3,
             friendly_fire: false,
-            zero_on_all_frames: false,
+            orrery_on_all_frames: false,
             field_seed: crate::field::Field::DEFAULT_SEED,
             field_rocks: crate::field::Field::DEFAULT_ROCKS,
             landmarks: crate::content::landmarks::LANDMARKS.len() as u8,

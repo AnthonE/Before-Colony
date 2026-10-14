@@ -1,16 +1,16 @@
-//! The kit-aware pilot: the Mobile Doll's judgement (targets, footwork) flying a Gundam's whole
-//! kit. Agents and the browser autopilot use it; the server's own Mobile Dolls and a ZERO seizure
-//! keep the plain doll's reflexes.
+//! The kit-aware pilot: the drone's judgement (targets, footwork) flying a Lodestar's whole
+//! kit. Agents and the browser autopilot use it; the server's own drones and an Orrery seizure
+//! keep the plain drone's reflexes.
 //!
 //! - **Weapons by range band.** Guns fire inside their reach (leading with the gun that fits the
-//!   range); launchers once the lock is acquired; the flamethrower close in; the Dragon Fang
+//!   range); launchers once the lock is acquired; the flamethrower close in; the Talon
 //!   between a third of its reach and all of it; blades when the target will be within reach by
 //!   the end of the windup.
 //! - **Footwork.** A melee-first frame pursues: it closes to a blade's length, boosting from afar.
-//!   The others keep the doll's range and strafing, at the frame's preferred distance. A target on
+//!   The others keep the drone's range and strafing, at the frame's preferred distance. A target on
 //!   the ground is come at from above.
-//! - **Specials.** Neo-Bird for long hauls, the jammer while closing, Full Open with a lock inside
-//!   1.2 km, the Cross Crusher at arm's length.
+//! - **Specials.** Aquila for long hauls, the jammer while closing, Full Salvo with a lock inside
+//!   1.2 km, the Pincer Strike at arm's length.
 //! - **Care.** It breaks sideways from a missile tracking it, and eases off before G-strain blacks
 //!   its pilot out. A tank run dry boosting is let alone until it's half full again: under anime
 //!   rules it's a boost gauge that fills only once boost is let go.
@@ -21,15 +21,15 @@ use bc_proto::buttons::{
 use bc_proto::{InputCmd, NO_SLOT};
 use glam::Vec3;
 
-use super::mobile_doll::{Action, AiState, DollProfile, standoff};
+use super::drone::{Action, AiState, DroneProfile, standoff};
 use crate::config::{DT, G0};
 use crate::content::{FrameSpec, SpecialKind, WeaponClass, weapon};
 use crate::flight::{FA_BOOST_CRUISE, FA_RESPONSE, GEnvelope};
 use crate::math::{angle_between, floor, length, normalize_or, sin, sqrt};
+use crate::orrery::fire_control;
 use crate::perception::{Contact, SelfView};
-use crate::zero::fire_control;
 
-/// Neo-Bird: taken for targets (or a way home) further than this, m...
+/// Aquila: taken for targets (or a way home) further than this, m...
 const BIRD_OUT: f32 = 4_500.0;
 /// ...and left once they're closer than this.
 const BIRD_IN: f32 = 3_000.0;
@@ -38,16 +38,16 @@ const BIRD_IN: f32 = 3_000.0;
 const JAM_RANGE: f32 = 0.0;
 const JAM_ENERGY_ON: f32 = 0.5;
 const JAM_ENERGY_OFF: f32 = 0.15;
-/// Full Open: with a lock, inside this range, with this much hull.
-const FULL_OPEN_RANGE: f32 = 1_200.0;
-const FULL_OPEN_HULL: f32 = 0.35;
-/// The Cross Crusher's pincer at this range, m.
+/// Full Salvo: with a lock, inside this range, with this much hull.
+const FULL_SALVO_RANGE: f32 = 1_200.0;
+const FULL_SALVO_HULL: f32 = 0.35;
+/// The Pincer Strike's pincer at this range, m.
 const CRUSH_RANGE: f32 = 11.0;
 /// Blades swing at targets within this angle of the nose.
 const SWING_CONE: f32 = 0.52; // 30°
 /// Pursuit boosts beyond this range, m, closes no faster than it can brake from at this
 /// deceleration (m/s²: 3 g, within what a pilot bears), and weaves on the way in beyond the second
-/// range (the dolls lead linearly).
+/// range (the drones lead linearly).
 const BOOST_RANGE: f32 = 600.0;
 const PURSUIT_BRAKING: f32 = 30.0;
 const WEAVE_RANGE: f32 = 250.0;
@@ -71,7 +71,7 @@ pub fn drive_kit(
     target: Option<&Contact>,
     ai: &mut AiState,
     tick: u32,
-    profile: &DollProfile,
+    profile: &DroneProfile,
     spec: &FrameSpec,
 ) -> InputCmd {
     let mut buttons = FLIGHT_ASSIST | RCS_SHARP;
@@ -134,12 +134,12 @@ pub fn drive_kit(
     // Toggled specials, held on MODE.
     let hostile = target.filter(|t| t.hostile);
     let mode = match spec.special {
-        // Neo-Bird for the long haul (the bird is the form MODE holds).
+        // Aquila for the long haul (the bird is the form MODE holds).
         SpecialKind::Transform { .. } => {
             let bird = !spec.playable;
             far > if bird { BIRD_IN } else { BIRD_OUT }
         }
-        SpecialKind::HyperJammer { .. } => {
+        SpecialKind::Eclipse { .. } => {
             let keep = if me.kit.special_active { JAM_ENERGY_OFF } else { JAM_ENERGY_ON };
             hostile.is_some_and(|t| t.dist > JAM_RANGE) && me.energy > keep
         }
@@ -157,7 +157,7 @@ pub fn drive_kit(
             buttons |= BOOST;
         }
     }
-    // Flight assist spares a pilot's body unless they boost, and boosting a Gundam is more than a
+    // Flight assist spares a pilot's body unless they boost, and boosting a Lodestar is more than a
     // pilot bears for long. Strained, it flies unassisted instead, accelerating toward the same
     // velocity at what a pilot bears for good, and doesn't boost.
     let ease = if hostile.is_some_and(|t| t.dist < CLOSE_RANGE) { STRAIN_EASE_CLOSE } else { STRAIN_EASE };
@@ -198,13 +198,13 @@ fn weapons(
     los: Vec3,
     aim: Vec3,
     spec: &FrameSpec,
-    p: &DollProfile,
+    p: &DroneProfile,
     edge: bool,
 ) -> u16 {
     let fwd = me.forward();
     let mut buttons = 0;
     // A jamming suit holds its fire: a shot would show it for the jammer's break.
-    let unseen = me.kit.special_active && matches!(spec.special, SpecialKind::HyperJammer { .. });
+    let unseen = me.kit.special_active && matches!(spec.special, SpecialKind::Eclipse { .. });
     for (slot, button) in [(0, FIRE_PRIMARY), (1, FIRE_SECONDARY)] {
         if unseen {
             break;
@@ -227,7 +227,7 @@ fn weapons(
                     && angle_between(los, fwd)
                         < crate::tuning::cone(m.arm, &me.tuning).min(c.half_angle * 3.0)
             }),
-            // A blade in a gun slot (the Dragon Fang) thrusts along the aim.
+            // A blade in a gun slot (the Talon) thrusts along the aim.
             WeaponClass::Melee => {
                 t.dist > w.range * 0.35
                     && t.dist < w.range + 3.0
@@ -261,14 +261,14 @@ fn weapons(
     buttons
 }
 
-/// A pressed special (Full Open, the Cross Crusher), if now's the time.
+/// A pressed special (Full Salvo, the Pincer Strike), if now's the time.
 fn special_press(me: &SelfView, t: &Contact, los: Vec3, spec: &FrameSpec, edge: bool) -> u16 {
     if !edge || !me.kit.special_ready {
         return 0;
     }
     let now = match spec.special {
-        SpecialKind::FullOpen { .. } => {
-            me.kit.lock_acquired && t.dist < FULL_OPEN_RANGE && me.hull() > FULL_OPEN_HULL
+        SpecialKind::FullSalvo { .. } => {
+            me.kit.lock_acquired && t.dist < FULL_SALVO_RANGE && me.hull() > FULL_SALVO_HULL
         }
         SpecialKind::MeleeMove { .. } => {
             t.dist < CRUSH_RANGE && angle_between(los, me.forward()) < SWING_CONE
@@ -286,7 +286,7 @@ fn footwork(
     los: Vec3,
     ai: &AiState,
     tick: u32,
-    profile: &DollProfile,
+    profile: &DroneProfile,
     spec: &FrameSpec,
     buttons: &mut u16,
 ) -> Vec3 {
@@ -312,13 +312,13 @@ fn footwork(
         }
         return v / cruise;
     }
-    // Full Open ready, the lock on and the hull fit for it: in to where it reaches.
-    let opening = matches!(spec.special, SpecialKind::FullOpen { .. })
+    // Full Salvo ready, the lock on and the hull fit for it: in to where it reaches.
+    let opening = matches!(spec.special, SpecialKind::FullSalvo { .. })
         && me.kit.special_ready
         && me.kit.lock_acquired
-        && me.hull() > FULL_OPEN_HULL;
+        && me.hull() > FULL_SALVO_HULL;
     let preferred =
-        if opening { profile.preferred_range.min(FULL_OPEN_RANGE * 0.8) } else { profile.preferred_range };
+        if opening { profile.preferred_range.min(FULL_SALVO_RANGE * 0.8) } else { profile.preferred_range };
     let range_err = t.dist - preferred;
     let radial = los * (range_err / 800.0).clamp(-1.0, 1.0);
     let lateral = normalize_or(los.cross(me.rot * Vec3::Y), Vec3::X) * ai.strafe_sign;

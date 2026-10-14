@@ -21,7 +21,7 @@ use glam::Vec3;
 struct Args {
     #[arg(long, default_value = "http://127.0.0.1:8080")]
     server: String,
-    #[arg(long, default_value = "Wufei")]
+    #[arg(long, default_value = "Lin")]
     name: String,
     /// The place to fly over, by its slug.
     #[arg(long, default_value = "hub_gate_1")]
@@ -64,8 +64,12 @@ async fn main() -> anyhow::Result<()> {
     let (_, p) = place(&a.over).ok_or_else(|| anyhow::anyhow!("no place {}", a.over))?;
     let ((s, x), (ds, dx)) = place_door(p);
     let spot = |h: f32| CityPos::new(p.strip, x - dx * a.ahead, s - ds * a.ahead, h).to_colony();
-    let cfg =
-        BotConfig { server: a.server, name: a.name.clone(), frame: FrameId::Leo, faction: Faction::Colonies };
+    let cfg = BotConfig {
+        server: a.server,
+        name: a.name.clone(),
+        frame: FrameId::Argo,
+        faction: Faction::Colonies,
+    };
     let mut bot = loop {
         match BotClient::connect(&cfg).await {
             Ok(b) => break b,

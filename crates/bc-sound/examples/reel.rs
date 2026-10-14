@@ -5,7 +5,7 @@
 //! ```
 //!
 //! The title music, then a fight: engines, beams and guns, missiles, hits, a kill, the cockpit's
-//! alarms and the ZERO System, then the salvage run home.
+//! alarms and the Orrery, then the salvage run home.
 
 mod wav;
 
@@ -91,11 +91,11 @@ fn main() {
     r.add(Cue::Saber, 27.2, 1.0, 0.0);
     r.add(Cue::Clash, 27.5, 1.0, 0.0);
     r.add(Cue::ChargeLoop, 28.5, 1.0, 1.5);
-    r.add(Cue::BusterFire, 30.0, 1.0, 0.0);
+    r.add(Cue::HeavyBeamFire, 30.0, 1.0, 0.0);
     r.add(Cue::Explosion, 31.0, 1.0, 0.0);
     r.add(Cue::GStrain, 32.0, 1.0, 2.0);
-    r.add(Cue::ZeroOn, 33.5, 1.0, 0.0);
-    r.add(Cue::ZeroDrone, 34.0, 0.8, 3.0);
+    r.add(Cue::OrreryOn, 33.5, 1.0, 0.0);
+    r.add(Cue::OrreryDrone, 34.0, 0.8, 3.0);
     r.add(Cue::Seizure, 36.0, 1.0, 0.0);
     // Salvage and the dock.
     r.add(Cue::RockBreak, 38.5, 1.0, 0.0);

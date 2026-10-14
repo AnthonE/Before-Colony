@@ -29,7 +29,7 @@ use crate::camera::MainCamera;
 use crate::gfx::Gfx;
 use crate::view::VisTime;
 
-/// Where the Sun, Earth and the Moon are, and the Milky Way's plane: the Earth Sphere as the chart
+/// Where the Sun, Earth and the Moon are, and the Milky Way's plane: Earth-Moon space as the chart
 /// has it (`bc_client_core::sphere`), so the Earth in the window is the chart's. The colony's axis
 /// points roughly at the Sun (its mirrors are at the sunward +X cap), far enough off-axis that the
 /// hull catches the light; Earth is vast and low, and the Moon, opposite it (L1 lies between

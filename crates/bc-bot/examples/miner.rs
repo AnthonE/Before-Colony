@@ -16,8 +16,8 @@ struct Args {
     server: String,
     #[arg(long, default_value = "Miner-01")]
     name: String,
-    /// A Leo's hold takes 3 t, a Wing Zero's 1.5 t.
-    #[arg(long, default_value = "leo")]
+    /// An Argo's hold takes 3 t, an Altair's 1.5 t.
+    #[arg(long, default_value = "argo")]
     frame: String,
     #[arg(long, default_value = "colonies")]
     faction: String,

@@ -13,7 +13,7 @@ use bc_sim::tuning::own_tuning;
 use bc_sim::{Sim, SimConfig, SuitId};
 
 fn sim() -> Sim {
-    Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, survival: true, ..SimConfig::default() })
+    Sim::new(SimConfig { target_drones: 0, field_rocks: 0, survival: true, ..SimConfig::default() })
 }
 
 fn rack(n: u8) -> Kits {
@@ -25,10 +25,10 @@ fn rack(n: u8) -> Kits {
 }
 
 fn launch(sim: &mut Sim, systems: Systems, kits: Kits) -> SuitId {
-    let mut l = Loadout::full(FrameId::Leo);
+    let mut l = Loadout::full(FrameId::Argo);
     l.systems = systems;
     l.kits = kits;
-    let id = sim.launch(FrameId::Leo, Faction::Colonies, PilotKind::Human, &l).unwrap();
+    let id = sim.launch(FrameId::Argo, Faction::Colonies, PilotKind::Human, &l).unwrap();
     sim.step();
     id
 }

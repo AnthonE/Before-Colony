@@ -48,11 +48,11 @@ fn act(t: u32) -> InputCmd {
 fn the_boost_gauge_keeps_time_with_the_servers() {
     const TICKS: u32 = 700;
     let cfg =
-        SimConfig { target_dolls: 0, field_rocks: 0, flight: FlightRules::Anime, ..SimConfig::default() };
+        SimConfig { target_drones: 0, field_rocks: 0, flight: FlightRules::Anime, ..SimConfig::default() };
     let mut sim = Sim::new(cfg);
     let start = Vec3::new(0.0, 9_000.0, 0.0);
     let id = sim
-        .spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, start, look_rotation(Vec3::Z, Vec3::Y))
+        .spawn_at(FrameId::Argo, Faction::Colonies, PilotKind::Human, start, look_rotation(Vec3::Z, Vec3::Y))
         .unwrap();
     let i = id.idx();
     sim.suits.flight[i].propellant = 150.0;
@@ -68,7 +68,7 @@ fn the_boost_gauge_keeps_time_with_the_servers() {
         states.push(sim.suits.flight[i]);
     }
     // The run did what it says: dry while boost was leaned on, full again after, never above.
-    let tank = bc_sim::content::frame(FrameId::Leo).propellant_cap;
+    let tank = bc_sim::content::frame(FrameId::Argo).propellant_cap;
     let dry = states[..200].iter().filter(|s| s.propellant == 0.0).count();
     assert!(dry > 100, "dry for {dry} ticks of leaning on boost");
     assert!(states[260].propellant > 200.0, "it filled: {}", states[260].propellant);

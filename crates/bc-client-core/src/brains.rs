@@ -6,7 +6,7 @@ use crate::world::World;
 use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, GRAB, GRIP, MELEE, STOW};
 use bc_proto::{ChunkKind, FrameId, InputCmd, Part};
 use bc_sim::TICK_HZ;
-use bc_sim::ai::{self, AiState, DollProfile, PILOT};
+use bc_sim::ai::{self, AiState, DroneProfile, PILOT};
 use bc_sim::bodies::{Body, BodyPose, Shape};
 use bc_sim::content::salvage::{DOCK_CENTER, stowable};
 use bc_sim::content::{ArmSlot, frame, weapon};
@@ -15,18 +15,18 @@ use bc_sim::ground::{Footing, STANCE, WALK_SPEED, place};
 use bc_sim::math::quat_axis_angle;
 use glam::Vec3;
 
-/// Where the fighting is (the Mobile Doll patrol ring around the colony).
+/// Where the fighting is (the drone patrol ring around the colony).
 pub const COMBAT_ZONE: Vec3 = Vec3::new(0.0, 900.0, 0.0);
 
-/// The Mobile Doll brain from `bc-sim`, running on the agent's own sensor view, flying the frame's
+/// The drone brain from `bc-sim`, running on the agent's own sensor view, flying the frame's
 /// whole kit (`bc_sim::ai::kit`): it picks targets and maneuvers by utility, leads them linearly,
 /// and uses every weapon and the frame's special. With nothing on sensors it heads for the combat
 /// zone.
-pub struct DollBrain {
+pub struct DroneBrain {
     ai: AiState,
 }
 
-impl DollBrain {
+impl DroneBrain {
     pub fn new(seed: u32) -> Self {
         Self { ai: AiState { rng: seed | 1, anchor: COMBAT_ZONE, ..AiState::default() } }
     }
@@ -40,7 +40,7 @@ impl DollBrain {
         let range = spec.loadout[0].map_or(3_000.0, |m| weapon(m.weapon).range);
         // Fights at the frame's preferred distance.
         let profile = match spec.ai.engage_range {
-            r if r > 0.0 => DollProfile { preferred_range: r, ..PILOT },
+            r if r > 0.0 => DroneProfile { preferred_range: r, ..PILOT },
             _ => PILOT,
         };
         if ctx.tick >= self.ai.think_at {
@@ -57,7 +57,7 @@ impl DollBrain {
     }
 }
 
-/// How fast a miner cruises (m/s), and the braking it plans on (m/s²: a laden Leo's retro-thrust
+/// How fast a miner cruises (m/s), and the braking it plans on (m/s²: a laden Argo's retro-thrust
 /// manages more).
 const CRUISE: f32 = 150.0;
 const BRAKING: f32 = 6.0;
@@ -429,10 +429,10 @@ mod tests {
         SnapshotReader::new(&buf[..n]).unwrap().own().unwrap().unwrap()
     }
 
-    /// A Leo `height` m over where `plan` lands, flown by a lander seeing what its client would,
+    /// An Argo `height` m over where `plan` lands, flown by a lander seeing what its client would,
     /// for `ticks`; `each` sees the server after every tick.
     fn land(plan: Plan, height: f32, ticks: u32, each: impl FnMut(&Sim, usize)) {
-        let sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
+        let sim = Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() });
         let bodies = Bodies::at(&sim.field, sim.landmarks(), 0);
         let pose = bodies.pose(LanderBrain::new(plan).body()).unwrap();
         let (at, n) = match plan {
@@ -446,13 +446,13 @@ mod tests {
         fly_from(plan, pose.to_world(at + n * height), ticks, each);
     }
 
-    /// A Leo starting at `start`, flown by a lander with `plan` (as [`land`]).
+    /// An Argo starting at `start`, flown by a lander with `plan` (as [`land`]).
     fn fly_from(plan: Plan, start: Vec3, ticks: u32, mut each: impl FnMut(&Sim, usize)) {
-        let mut sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
+        let mut sim = Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() });
         let mut brain = LanderBrain::new(plan);
         let id = sim
             .spawn_at(
-                FrameId::Leo,
+                FrameId::Argo,
                 Faction::Colonies,
                 PilotKind::Human,
                 start,
@@ -499,7 +499,7 @@ mod tests {
             panic!("grounded {grounded:?}, hidden {hidden:?}")
         };
         assert!(dark > down, "down at {down}, hidden at {dark}");
-        // On MO-II as it rolls: down, then about on it, hopping, never letting go.
+        // On Fornax as it rolls: down, then about on it, hopping, never letting go.
         let (mut down, mut hops, mut free_after, mut on_ground) = (None, 0, 0, 0);
         let mut was = Footing::Free;
         let (mut first, mut furthest) = (None, 0.0f32);
@@ -531,9 +531,9 @@ mod tests {
 
     #[test]
     fn a_lander_goes_round_the_body_to_a_spot_on_its_far_side() {
-        // From 1.5 km off MO-II's fore end, into the Aft Well at its other end: the straight way
+        // From 1.5 km off Fornax's fore end, into the Aft Well at its other end: the straight way
         // goes through the station.
-        let sim = Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() });
+        let sim = Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() });
         let pose = Bodies::at(&sim.field, sim.landmarks(), 0).pose(Body::Landmark(0)).unwrap();
         let start = pose.to_world(Vec3::new(1_500.0, 120.0, 80.0));
         let (mut closest, mut grounded, mut hidden) = (f32::INFINITY, None, None);

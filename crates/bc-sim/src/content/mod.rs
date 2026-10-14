@@ -1,4 +1,4 @@
-//! Content tables: mobile-suit frames and weapons, the sector's landmarks, the colony's city, and
+//! Content tables: mech frames and weapons, the sector's landmarks, the colony's city, and
 //! what being fed does to a pilot.
 //!
 //! All numbers are SI units (kg, N, m, s, rad). They are tuned for play but kept physically
@@ -27,7 +27,7 @@ pub use frames::{
 pub use kits::{Kit, Kits};
 pub use melee::{ConeSpec, MeleeSpec, MissileSpec, Stroke};
 pub use modules::{ModuleKind, Modules};
-pub use names::{doll_name, frame_designation, frame_name, prototype_word, weapon_name};
+pub use names::{drone_name, frame_designation, frame_name, prototype_word, weapon_name};
 pub use propellant::Grade;
 pub use systems::{System, Systems};
 pub use weapons::{ChargedShot, Replication, WeaponClass, WeaponSpec, weapon};

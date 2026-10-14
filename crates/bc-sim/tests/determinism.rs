@@ -31,16 +31,16 @@ fn golden_hash_wasm() {
     assert_eq!(scenario_hash(), GOLDEN);
 }
 
-/// Hash after 450 ticks of the Gundams duelling in pairs among Mobile Dolls: every blade, the
-/// Cross Crusher, the Dragon Fang, the flamethrower, the Hyper Jammer, guided missiles, Full Open,
-/// Neo-Bird and the Gundams' guns (changes deliberately as their mechanics arrive).
-const GUNDAMS_GOLDEN: u64 = 0xdabf_caea_d2b7_5323;
+/// Hash after 450 ticks of the Lodestars duelling in pairs among drones: every blade, the
+/// Pincer Strike, the Talon, the flamethrower, the Eclipse, guided missiles, Full Salvo,
+/// Aquila and the Lodestars' guns (changes deliberately as their mechanics arrive).
+const LODESTARS_GOLDEN: u64 = 0xdabf_caea_d2b7_5323;
 
-fn gundams_hash() -> u64 {
+fn lodestars_hash() -> u64 {
     use bc_proto::events::Event;
     use bc_proto::{FrameId, WeaponKind};
 
-    let (mut sim, pilots) = common::gundam_arena(12, 7);
+    let (mut sim, pilots) = common::lodestar_arena(12, 7);
     let mut landed = [false; WeaponKind::COUNT];
     let mut clashes = 0;
     for _ in 0..450 {
@@ -61,34 +61,30 @@ fn gundams_hash() -> u64 {
             }
         }
     }
-    assert!(clashes > 0, "no blades met in the Gundams' scenario");
+    assert!(clashes > 0, "no blades met in the Lodestars' scenario");
     for k in [
         WeaponKind::BeamSaber,
-        WeaponKind::ArmyKnife,
+        WeaponKind::CombatKnife,
         WeaponKind::BeamScythe,
-        WeaponKind::HeatShotel,
-        WeaponKind::CrossCrusher,
-        WeaponKind::DragonFang,
+        WeaponKind::HeatBlade,
+        WeaponKind::PincerStrike,
+        WeaponKind::Talon,
         WeaponKind::BeamGlaive,
         WeaponKind::Flamethrower,
         WeaponKind::BeamGatling,
-        WeaponKind::BusterShield,
+        WeaponKind::ClawShield,
         WeaponKind::BeamMachineGun,
         WeaponKind::HomingMissile,
         WeaponKind::MicroMissile,
         WeaponKind::ChestGatling,
     ] {
-        assert!(landed[k as usize], "no {k:?} hit in the Gundams' scenario");
+        assert!(landed[k as usize], "no {k:?} hit in the Lodestars' scenario");
     }
     for id in &pilots {
         let f = sim.suits.frame[id.idx()];
         if matches!(
             f,
-            FrameId::WingZero
-                | FrameId::WingZeroBird
-                | FrameId::Heavyarms
-                | FrameId::Sandrock
-                | FrameId::Deathscythe
+            FrameId::Altair | FrameId::Aquila | FrameId::Antares | FrameId::Canopus | FrameId::Algol
         ) {
             assert!(sim.stats(id.idx()).specials > 0, "{f:?} never used its special");
         }
@@ -98,25 +94,25 @@ fn gundams_hash() -> u64 {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn gundams_golden_native() {
-    let h = gundams_hash();
-    assert_eq!(h, gundams_hash(), "must be reproducible within a process");
-    assert_eq!(h, GUNDAMS_GOLDEN, "Gundams' scenario hash changed: {h:#018x}");
+fn lodestars_golden_native() {
+    let h = lodestars_hash();
+    assert_eq!(h, lodestars_hash(), "must be reproducible within a process");
+    assert_eq!(h, LODESTARS_GOLDEN, "Lodestars' scenario hash changed: {h:#018x}");
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test::wasm_bindgen_test]
-fn gundams_golden_wasm() {
-    assert_eq!(gundams_hash(), GUNDAMS_GOLDEN);
+fn lodestars_golden_wasm() {
+    assert_eq!(lodestars_hash(), LODESTARS_GOLDEN);
 }
 
 /// Hash after 450 ticks of pilots locked on to their foes (`bc_proto::LockOn`): flight assist
 /// holding each foe's velocity in the fight's axes, levelled to the colony's up, closing in and
-/// circling, burst-stepping now and then, among Mobile Dolls.
+/// circling, burst-stepping now and then, among drones.
 const LOCKON_GOLDEN: u64 = 0x43b0_44d0_8ba4_760a;
 
 fn lockon_hash() -> u64 {
-    let (mut sim, duels) = common::gundam_crowd(8, 12, 21);
+    let (mut sim, duels) = common::lodestar_crowd(8, 12, 21);
     let mut steps = 0;
     for _ in 0..450 {
         let t = sim.next_tick();
@@ -174,7 +170,7 @@ fn field_hash() -> u64 {
     h
 }
 
-/// Hash after suits have flown into rocks and fired into them, wearing them down, while a Leo cuts
+/// Hash after suits have flown into rocks and fired into them, wearing them down, while an Argo cuts
 /// a small one apart with its saber.
 const ROCKS_GOLDEN: u64 = 0x6378_6be2_b299_4043;
 
@@ -184,7 +180,7 @@ fn rocks_hash() -> u64 {
     use bc_sim::math::{cos, look_rotation, sin};
     use glam::Vec3;
 
-    let mut sim = bc_sim::Sim::new(bc_sim::SimConfig { target_dolls: 0, ..bc_sim::SimConfig::default() });
+    let mut sim = bc_sim::Sim::new(bc_sim::SimConfig { target_drones: 0, ..bc_sim::SimConfig::default() });
     let rocks: Vec<_> = sim.field.rocks().iter().filter(|r| r.radius > 25.0).take(6).copied().collect();
     let mut ids = Vec::new();
     for (k, r) in rocks.iter().enumerate() {
@@ -193,7 +189,7 @@ fn rocks_hash() -> u64 {
         // libm's trig, as in the sim: std's differs between native and wasm32.
         let dir = Vec3::new(cos(a), 0.3 * sin(a), sin(a)).normalize();
         let pos = r.pos - dir * (r.radius + 120.0 + 40.0 * k as f32);
-        let frame = if k % 2 == 0 { FrameId::WingZero } else { FrameId::Leo };
+        let frame = if k % 2 == 0 { FrameId::Altair } else { FrameId::Argo };
         let id = sim
             .spawn_at(frame, Faction::Colonies, PilotKind::Human, pos, look_rotation(dir, Vec3::Y))
             .unwrap();
@@ -206,7 +202,7 @@ fn rocks_hash() -> u64 {
     let face = small.surface(small.pos - dir * (small.radius + 50.0), 0.0);
     let miner = sim
         .spawn_at(
-            FrameId::Leo,
+            FrameId::Argo,
             Faction::Colonies,
             PilotKind::Human,
             face - dir * bc_sim::field::SUIT_CLEARANCE,
@@ -273,13 +269,19 @@ fn salvage_hash() -> u64 {
     use bc_sim::math::look_rotation;
     use glam::{Quat, Vec3};
 
-    let mut sim = bc_sim::Sim::new(bc_sim::SimConfig { target_dolls: 0, ..bc_sim::SimConfig::default() });
+    let mut sim = bc_sim::Sim::new(bc_sim::SimConfig { target_drones: 0, ..bc_sim::SimConfig::default() });
     let mut ids = Vec::new();
     for k in 0..4 {
         let pos =
             if k == 3 { DOCK_CENTER + Vec3::X * 40.0 } else { Vec3::new(k as f32 * 150.0, 1_000.0, 0.0) };
         let id = sim
-            .spawn_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, pos, look_rotation(Vec3::Z, Vec3::Y))
+            .spawn_at(
+                FrameId::Argo,
+                Faction::Colonies,
+                PilotKind::Human,
+                pos,
+                look_rotation(Vec3::Z, Vec3::Y),
+            )
             .unwrap();
         ids.push(id);
     }
@@ -302,10 +304,10 @@ fn salvage_hash() -> u64 {
             chunk(&mut sim, desc.kind, desc.mass_kg, at, n + 10 * k as u8);
         }
     }
-    let hulk = ChunkKind::Hulk { frame: FrameId::Taurus, faction: Faction::Oz, parts: 0b10_1111 };
+    let hulk = ChunkKind::Hulk { frame: FrameId::Corvus, faction: Faction::Almagest, parts: 0b10_1111 };
     let tow = sim.suits.flight[ids[1].idx()].pos + Vec3::new(-12.0, 0.0, 70.0);
     chunk(&mut sim, hulk, 5_600, tow, 99);
-    let arm = ChunkKind::Limb { frame: FrameId::WingZero, faction: Faction::Colonies, part: Part::ArmL };
+    let arm = ChunkKind::Limb { frame: FrameId::Altair, faction: Faction::Colonies, part: Part::ArmL };
     let f3 = sim.suits.flight[ids[3].idx()];
     chunk(&mut sim, arm, 640, f3.pos + f3.rot * ArmSlot::Left.muzzle() + Vec3::new(-4.0, 0.0, 0.0), 77);
 
@@ -323,7 +325,7 @@ fn salvage_hash() -> u64 {
             if k == 2 && t == 320 {
                 buttons |= JETTISON;
             }
-            // Creeping forward (5/127 of a Leo's 220 m/s cruise), slow enough to catch what's ahead.
+            // Creeping forward (5/127 of an Argo's 220 m/s cruise), slow enough to catch what's ahead.
             let cmd = InputCmd {
                 tick: t,
                 view_tick_q4: t << 4,
@@ -359,7 +361,7 @@ fn salvage_golden_wasm() {
 
 /// Hash after sleepers' lives: a pilot at rest against a rock parks there until the rock is
 /// shattered under it; others tumble off on what they had; one is shot down asleep; the longest
-/// asleep are cleared past the cap; one wakes and flies; Mobile Dolls look on. (The hash covers
+/// asleep are cleared past the cap; one wakes and flies; drones look on. (The hash covers
 /// what a sleeper is parked on more fully since suits stand on bodies: how it's turned there, when
 /// it last fought, and its hide spot; and, with wear and tear, every suit's systems, equipment and
 /// statuses. The scenario itself runs bit for bit as it did.)
@@ -374,7 +376,7 @@ fn sleepers_hash() -> u64 {
     use glam::Vec3;
 
     let mut sim = bc_sim::Sim::new(bc_sim::SimConfig {
-        target_dolls: 6,
+        target_drones: 6,
         max_sleepers: 4,
         ..bc_sim::SimConfig::default()
     });
@@ -387,21 +389,22 @@ fn sleepers_hash() -> u64 {
     let out = Vec3::new(-1.0, 0.1, -0.3).normalize();
     let surface = rock.surface(rock.pos + out * (rock.radius + 50.0), 0.0);
     let parked =
-        spawn(&mut sim, FrameId::Leo, Faction::Colonies, surface + out * (SUIT_CLEARANCE + 0.5), out);
+        spawn(&mut sim, FrameId::Argo, Faction::Colonies, surface + out * (SUIT_CLEARANCE + 0.5), out);
     // Drifting and tumbling, out in the open.
     let open = Vec3::new(0.0, 4_000.0, 8_000.0);
     let drifters: Vec<_> = (0..3)
         .map(|k| {
-            let id = spawn(&mut sim, FrameId::Leo, Faction::Oz, open + Vec3::X * 60.0 * k as f32, Vec3::Z);
+            let id =
+                spawn(&mut sim, FrameId::Argo, Faction::Almagest, open + Vec3::X * 60.0 * k as f32, Vec3::Z);
             let f = &mut sim.suits.flight[id.idx()];
             f.vel = Vec3::new(3.0 * k as f32, -2.0, 7.5);
             f.ang_vel = Vec3::new(0.1, 0.3 * k as f32, -0.2);
             id
         })
         .collect();
-    // A Wing Zero with the last of them in its sights.
+    // An Altair with the last of them in its sights.
     let target = sim.suits.flight[drifters[2].idx()].pos;
-    let zero = spawn(&mut sim, FrameId::WingZero, Faction::Colonies, target - Vec3::Z * 1_200.0, Vec3::Z);
+    let altair = spawn(&mut sim, FrameId::Altair, Faction::Colonies, target - Vec3::Z * 1_200.0, Vec3::Z);
 
     for _ in 0..450 {
         let t = sim.next_tick();
@@ -414,7 +417,7 @@ fn sleepers_hash() -> u64 {
             10 => assert!(sim.sleep(parked) && sim.is_parked(parked.idx())),
             // A fifth sleeper: the longest asleep goes.
             40 => {
-                assert!(sim.sleep(zero) && sim.wake(zero));
+                assert!(sim.sleep(altair) && sim.wake(altair));
                 assert!(!sim.suits.valid(drifters[0]), "the longest asleep is cleared");
             }
             120 => sim.field.set_dead(r, true),
@@ -422,7 +425,7 @@ fn sleepers_hash() -> u64 {
             200 => assert!(sim.wake(drifters[1])),
             _ => {}
         }
-        let aim = (sim.suits.flight[drifters[2].idx()].pos - sim.suits.flight[zero.idx()].pos)
+        let aim = (sim.suits.flight[drifters[2].idx()].pos - sim.suits.flight[altair.idx()].pos)
             .normalize_or(Vec3::Z);
         let fire = if (60..160).contains(&t) { FIRE_PRIMARY } else { 0 };
         let cmd = InputCmd {
@@ -432,8 +435,8 @@ fn sleepers_hash() -> u64 {
             buttons: FLIGHT_ASSIST | fire,
             ..InputCmd::default()
         };
-        if !sim.is_sleeping(zero.idx()) {
-            sim.set_input(zero, cmd.quantized());
+        if !sim.is_sleeping(altair.idx()) {
+            sim.set_input(altair, cmd.quantized());
         }
         if t > 200 && sim.suits.valid(drifters[1]) && !sim.is_sleeping(drifters[1].idx()) {
             let fly = InputCmd { thrust: [0, 40, 90], aim: Vec3::Z, buttons: FLIGHT_ASSIST, ..cmd };
@@ -444,7 +447,10 @@ fn sleepers_hash() -> u64 {
     let mut fates = Vec::new();
     sim.drain_fates(|f| fates.push((f.suit as usize, f.gone)));
     assert!(fates.contains(&(drifters[0].idx(), Gone::Evicted)), "{fates:?}");
-    assert!(fates.contains(&(drifters[2].idx(), Gone::Destroyed { killer: zero.idx() as u16 })), "{fates:?}");
+    assert!(
+        fates.contains(&(drifters[2].idx(), Gone::Destroyed { killer: altair.idx() as u16 })),
+        "{fates:?}"
+    );
     sim.state_hash()
 }
 
@@ -474,12 +480,12 @@ fn bays_hash() -> u64 {
     use glam::Vec3;
 
     let mut sim = bc_sim::Sim::new(bc_sim::SimConfig {
-        target_dolls: 0,
+        target_drones: 0,
         field_rocks: 0,
         survival: true,
         ..bc_sim::SimConfig::default()
     });
-    let frames = [FrameId::Leo, FrameId::WingZero, FrameId::Heavyarms, FrameId::Sandrock];
+    let frames = [FrameId::Argo, FrameId::Altair, FrameId::Antares, FrameId::Canopus];
     let ids: Vec<_> = (0..8u8)
         .map(|k| {
             let f = frames[usize::from(k) % frames.len()];
@@ -518,13 +524,13 @@ fn bays_golden_wasm() {
     assert_eq!(bays_hash(), BAYS_GOLDEN);
 }
 
-/// Hash after 900 ticks on the surfaces, among Mobile Dolls. An OZ Leo is caught over a rock, lands,
-/// walks a square, hops, crouches, stands, and digs the rock out from under itself, crouched. On MO-II, a Heavyarms
+/// Hash after 900 ticks on the surfaces, among drones. An Almagest Argo is caught over a rock, lands,
+/// walks a square, hops, crouches, stands, and digs the rock out from under itself, crouched. On Fornax, an Antares
 /// runs over a pylon's edge and down its side with rewound shots coming at it, and another walks
 /// to the Aft Well's rim, hops over it, crouches on the floor and hides there, sleeps and wakes. A
-/// Wing Zero is caught over Hermit's Deep, lands in it, and changes into the Neo-Bird and flies
-/// off. A guided missile goes at the Leo on its rock. (The hash covers the suits' cover since they
-/// hide, and the dolls hunting the riders come at them from above; with wear and tear, every suit's
+/// Altair is caught over Hermit's Deep, lands in it, and changes into the Aquila and flies
+/// off. A guided missile goes at the Argo on its rock. (The hash covers the suits' cover since they
+/// hide, and the drones hunting the riders come at them from above; with wear and tear, every suit's
 /// systems, equipment and statuses.)
 const SURFACE_GOLDEN: u64 = 0xab8c_ca44_bd94_3d6c;
 
@@ -538,41 +544,41 @@ fn surface_hash() -> u64 {
     use bc_sim::math::look_rotation;
     use glam::Vec3;
 
-    let mut sim = bc_sim::Sim::new(bc_sim::SimConfig { target_dolls: 4, ..bc_sim::SimConfig::default() });
-    let (mo_ii, hermit) = (Body::Landmark(0), Body::Landmark(1));
+    let mut sim = bc_sim::Sim::new(bc_sim::SimConfig { target_drones: 4, ..bc_sim::SimConfig::default() });
+    let (fornax, hermit) = (Body::Landmark(0), Body::Landmark(1));
     let spawn = |sim: &mut bc_sim::Sim, frame: FrameId, faction: Faction, pos: Vec3, facing: Vec3| {
         sim.spawn_at(frame, faction, PilotKind::Human, pos, look_rotation(facing, Vec3::Y)).unwrap()
     };
-    // The Leo, 20 m over the smallest rock it can grip.
+    // The Argo, 20 m over the smallest rock it can grip.
     let (r, rock) = common::grippable_rock(&sim, 300.0);
     let (top, up, over, h) = {
         let bodies = Bodies::at(&sim.field, &LANDMARKS, 0);
         let (top, up) = bodies.surface_along(Body::Rock(r as u16), Vec3::Y).unwrap();
-        let over = bodies.pose(mo_ii).unwrap().to_world(Vec3::new(0.0, 600.0, 0.0));
+        let over = bodies.pose(fornax).unwrap().to_world(Vec3::new(0.0, 600.0, 0.0));
         (rock.pos + rock.rot * top, rock.rot * up, over, bodies.pose(hermit).unwrap())
     };
     let ahead = (Vec3::Z - up * up.z).normalize();
-    let leo = spawn(&mut sim, FrameId::Leo, Faction::Oz, top + up * (STANCE + 20.0), ahead);
-    // A Heavyarms 900 m off, with its missiles.
-    let gunner = spawn(&mut sim, FrameId::Heavyarms, Faction::Colonies, top + up * 900.0, -up);
-    // On MO-II: one on a pylon's top, one on the aft module's face beside the Aft Well.
-    let runner = common::standing_on(&mut sim, FrameId::Heavyarms, Faction::Alliance, mo_ii, Vec3::Y);
+    let argo = spawn(&mut sim, FrameId::Argo, Faction::Almagest, top + up * (STANCE + 20.0), ahead);
+    // An Antares 900 m off, with its missiles.
+    let gunner = spawn(&mut sim, FrameId::Antares, Faction::Colonies, top + up * 900.0, -up);
+    // On Fornax: one on a pylon's top, one on the aft module's face beside the Aft Well.
+    let runner = common::standing_on(&mut sim, FrameId::Antares, Faction::Alliance, fornax, Vec3::Y);
     let hider = common::standing_on(
         &mut sim,
-        FrameId::Heavyarms,
+        FrameId::Antares,
         Faction::Alliance,
-        mo_ii,
+        fornax,
         Vec3::new(-260.0, 65.0, 0.0),
     );
-    // Two Leos 500 m over the pylon, shooting at the runner as they saw it 6 ticks back.
+    // Two Argos 500 m over the pylon, shooting at the runner as they saw it 6 ticks back.
     let shooters = [Vec3::new(-60.0, 0.0, 0.0), Vec3::new(60.0, 0.0, 40.0)]
-        .map(|d| spawn(&mut sim, FrameId::Leo, Faction::Colonies, over + d, -Vec3::Y));
-    // The Wing Zero, 15 m over the floor of Hermit's Deep.
+        .map(|d| spawn(&mut sim, FrameId::Argo, Faction::Colonies, over + d, -Vec3::Y));
+    // The Altair, 15 m over the floor of Hermit's Deep.
     let deep = LANDMARKS[1].hides[0].center;
-    let zero = sim
+    let altair = sim
         .spawn_at(
-            FrameId::WingZero,
-            Faction::Oz,
+            FrameId::Altair,
+            Faction::Almagest,
             PilotKind::Human,
             h.to_world(deep + Vec3::Y * (STANCE + 15.0)),
             look_rotation(h.rot * Vec3::Z, h.rot * Vec3::Y),
@@ -587,8 +593,8 @@ fn surface_hash() -> u64 {
         let b = Bodies::at(&sim.field, &LANDMARKS, sim.tick());
         b.pose(a.body).unwrap().rot * place(&b.shape(a.body).unwrap(), a.local, a.stance).1
     };
-    let (mut leo_seen, mut hopped, mut crouched, mut dug_free) = ([false; 3], false, false, false);
-    let (mut round_the_edge, mut in_the_well, mut zero_landed) = (false, false, false);
+    let (mut argo_seen, mut hopped, mut crouched, mut dug_free) = ([false; 3], false, false, false);
+    let (mut round_the_edge, mut in_the_well, mut altair_landed) = (false, false, false);
     let mut hidden_at = None;
     let (mut hits_on_runner, mut bursts, mut salvo) = (0, 0, false);
     for _ in 0..900 {
@@ -597,13 +603,13 @@ fn surface_hash() -> u64 {
             InputCmd { tick: t, view_tick_q4: t << 4, aim, thrust, buttons, ..InputCmd::default() }
                 .quantized()
         };
-        // The Leo.
-        let footing = sim.footing(leo.idx());
+        // The Argo.
+        let footing = sim.footing(argo.idx());
         let c = if t >= 600 && footing == Footing::Free {
             cmd(ahead, [0; 3], FLIGHT_ASSIST)
         } else if t >= 600 {
             let dig = if t % 45 < 3 { MELEE } else { 0 };
-            cmd(-normal(&sim, leo), [0, -127, 0], common::pull(&sim, leo, GRIP | FIRE_PRIMARY | dig))
+            cmd(-normal(&sim, argo), [0, -127, 0], common::pull(&sim, argo, GRIP | FIRE_PRIMARY | dig))
         } else {
             let square = [[0, 0, 127], [127, 0, 0], [0, 0, -127], [-127, 0, 0]];
             let thrust = match t {
@@ -615,9 +621,9 @@ fn surface_hash() -> u64 {
             };
             cmd(ahead, thrust, GRIP | FLIGHT_ASSIST)
         };
-        sim.set_input(leo, c);
-        // Its hunter locks on, and lets one salvo go (once it's steady: the Dolls stagger it).
-        let to_leo = (sim.suits.flight[leo.idx()].pos - sim.suits.flight[gunner.idx()].pos).normalize();
+        sim.set_input(argo, c);
+        // Its hunter locks on, and lets one salvo go (once it's steady: the drones stagger it).
+        let to_argo = (sim.suits.flight[argo.idx()].pos - sim.suits.flight[gunner.idx()].pos).normalize();
         let fire = if t >= 400 && !salvo && !sim.staggered(gunner.idx()) {
             salvo = true;
             FIRE_SECONDARY
@@ -626,10 +632,10 @@ fn surface_hash() -> u64 {
         };
         sim.set_input(
             gunner,
-            InputCmd { lock_target: leo.idx() as u16, ..cmd(to_leo, [0; 3], FLIGHT_ASSIST | fire) },
+            InputCmd { lock_target: argo.idx() as u16, ..cmd(to_argo, [0; 3], FLIGHT_ASSIST | fire) },
         );
         // The runner: off the pylon's top toward -x, then straight on, over the edge and down.
-        let deck = pose(&sim, mo_ii);
+        let deck = pose(&sim, fornax);
         let aim = if local(&sim, runner).x > -30.0 {
             deck.rot * -Vec3::X
         } else {
@@ -669,14 +675,14 @@ fn surface_hash() -> u64 {
             let c = InputCmd { view_tick_q4: (t - 6) << 4, ..cmd(aim, [0; 3], fire) };
             sim.set_input(s, c);
         }
-        // The Wing Zero: down into the Deep, then off as a bird at 500.
+        // The Altair: down into the Deep, then off as a bird at 500.
         let hz = pose(&sim, hermit).rot;
         let c = if t < 500 {
             cmd(hz * Vec3::Z, [0; 3], GRIP)
         } else {
-            cmd(sim.suits.flight[zero.idx()].rot * Vec3::Z, [0, 60, 127], MODE | FLIGHT_ASSIST)
+            cmd(sim.suits.flight[altair.idx()].rot * Vec3::Z, [0, 60, 127], MODE | FLIGHT_ASSIST)
         };
-        sim.set_input(zero, c);
+        sim.set_input(altair, c);
 
         let from = sim.events.next_seq();
         sim.step();
@@ -689,27 +695,27 @@ fn surface_hash() -> u64 {
             }
         }
         let t = sim.tick();
-        match sim.footing(leo.idx()) {
-            Footing::Aloft => leo_seen[1] = true,
-            Footing::Grounded => leo_seen[2] = true,
-            Footing::Free if leo_seen[2] => leo_seen[0] = true,
+        match sim.footing(argo.idx()) {
+            Footing::Aloft => argo_seen[1] = true,
+            Footing::Grounded => argo_seen[2] = true,
+            Footing::Free if argo_seen[2] => argo_seen[0] = true,
             Footing::Free => {}
         }
-        hopped |= (200..260).contains(&t) && sim.footing(leo.idx()) == Footing::Aloft;
-        crouched |= t == 400 && sim.suits.anchor[leo.idx()].stance == CROUCH_STANCE;
-        dug_free |= sim.rocks.destroyed.get(r) && sim.footing(leo.idx()) == Footing::Free;
+        hopped |= (200..260).contains(&t) && sim.footing(argo.idx()) == Footing::Aloft;
+        crouched |= t == 400 && sim.suits.anchor[argo.idx()].stance == CROUCH_STANCE;
+        dug_free |= sim.rocks.destroyed.get(r) && sim.footing(argo.idx()) == Footing::Free;
         if sim.footing(runner.idx()) == Footing::Grounded {
-            round_the_edge |= normal(&sim, runner).dot(pose(&sim, mo_ii).rot * -Vec3::X) > 0.95;
+            round_the_edge |= normal(&sim, runner).dot(pose(&sim, fornax).rot * -Vec3::X) > 0.95;
         }
-        let hider_at = Bodies::at(&sim.field, &LANDMARKS, t).hide_spot_of(mo_ii, local(&sim, hider));
+        let hider_at = Bodies::at(&sim.field, &LANDMARKS, t).hide_spot_of(fornax, local(&sim, hider));
         in_the_well |= t == 640
             && sim.footing(hider.idx()) == Footing::Grounded
             && hider_at == Some(0)
             && sim.suits.anchor[hider.idx()].stance == CROUCH_STANCE;
         if t == 499 {
             let b = Bodies::at(&sim.field, &LANDMARKS, t);
-            zero_landed = sim.footing(zero.idx()) == Footing::Grounded
-                && b.hide_spot_of(hermit, local(&sim, zero)) == Some(0);
+            altair_landed = sim.footing(altair.idx()) == Footing::Grounded
+                && b.hide_spot_of(hermit, local(&sim, altair)) == Some(0);
         }
         if hidden_at.is_none() && sim.cover_code(hider.idx()) == bc_sim::sim::cover::HIDDEN {
             hidden_at = Some(t);
@@ -719,19 +725,19 @@ fn surface_hash() -> u64 {
         }
     }
     assert!(
-        leo_seen == [true; 3] && hopped && crouched && dug_free,
-        "the Leo: {leo_seen:?} {hopped} {crouched} {dug_free}"
+        argo_seen == [true; 3] && hopped && crouched && dug_free,
+        "the Argo: {argo_seen:?} {hopped} {crouched} {dug_free}"
     );
-    assert!(sim.stats(gunner.idx()).missiles > 0 && bursts > 0, "no missile went at the Leo");
+    assert!(sim.stats(gunner.idx()).missiles > 0 && bursts > 0, "no missile went at the Argo");
     assert!(round_the_edge, "the runner never went over the pylon's edge");
     assert!(hits_on_runner > 0, "no rewound shot hit the runner");
     assert!(in_the_well, "the hider isn't crouched in the Aft Well");
     assert!(hidden_at.is_some_and(|t| t < 650), "the hider never hid before sleeping: {hidden_at:?}");
-    let (hider, zero_f) = (hider.idx(), zero.idx());
+    let (hider, altair_f) = (hider.idx(), altair.idx());
     assert_eq!(sim.footing(hider), Footing::Grounded);
     assert_eq!(sim.suits.anchor[hider].stance, CROUCH_STANCE, "woke crouched");
-    assert!(zero_landed, "the Wing Zero never landed in the Deep");
-    assert_eq!((sim.footing(zero_f), sim.suits.frame[zero_f]), (Footing::Free, FrameId::WingZeroBird));
+    assert!(altair_landed, "the Altair never landed in the Deep");
+    assert_eq!((sim.footing(altair_f), sim.suits.frame[altair_f]), (Footing::Free, FrameId::Aquila));
     sim.state_hash()
 }
 
@@ -1018,7 +1024,7 @@ fn interior_hash() -> u64 {
     use glam::Vec3;
 
     let mut sim = Sim::new(SimConfig {
-        target_dolls: 0,
+        target_drones: 0,
         field_rocks: 0,
         landmarks: 0,
         survival: true,
@@ -1026,14 +1032,14 @@ fn interior_hash() -> u64 {
         ..SimConfig::default()
     });
     let frames = [
-        FrameId::Leo,
-        FrameId::WingZero,
-        FrameId::Heavyarms,
-        FrameId::Deathscythe,
-        FrameId::Leo,
-        FrameId::Sandrock,
-        FrameId::Leo,
-        FrameId::Heavyarms,
+        FrameId::Argo,
+        FrameId::Altair,
+        FrameId::Antares,
+        FrameId::Algol,
+        FrameId::Argo,
+        FrameId::Canopus,
+        FrameId::Argo,
+        FrameId::Antares,
     ];
     let mut ids = Vec::new();
     for (k, f) in frames.into_iter().enumerate() {
@@ -1118,7 +1124,7 @@ fn hall_hash() -> u64 {
     use bc_sim::{Sim, SimConfig};
 
     let mut sim = Sim::new(SimConfig {
-        target_dolls: 0,
+        target_drones: 0,
         field_rocks: 0,
         landmarks: 0,
         survival: true,
@@ -1126,7 +1132,7 @@ fn hall_hash() -> u64 {
         ..SimConfig::default()
     });
     let r = hall();
-    let frames = [FrameId::Leo, FrameId::Heavyarms, FrameId::WingZero, FrameId::Sandrock];
+    let frames = [FrameId::Argo, FrameId::Antares, FrameId::Altair, FrameId::Canopus];
     let mut ids = Vec::new();
     for (k, f) in frames.into_iter().enumerate() {
         let id = sim.launch(f, Faction::Colonies, PilotKind::Human, &Loadout::full(f)).unwrap();

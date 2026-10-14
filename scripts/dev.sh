@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Build the browser client and run a local sector with Mobile Dolls, an AI agent and a miner.
+# Build the browser client and run a local sector with drones, an AI agent and a miner.
 #   scripts/dev.sh            then open http://127.0.0.1:8080 in Chrome or Edge
-# Env: BC_DOLLS (default 24), BC_AGENTS (default 1), BC_MINERS (default 1),
+# Env: BC_DRONES (default 24), BC_AGENTS (default 1), BC_MINERS (default 1),
 #      BC_ORACLE (local|jev; jev needs TYPESAFE_API_KEY),
 #      BC_RULES (survival|arcade; default survival), BC_FLIGHT (anime|real; default anime: the
 #      tank is a boost gauge that refills), BC_DATA (a directory: keep pilots, hangars and the
@@ -21,11 +21,11 @@ data=()
 colony=0
 [ "${BC_RULES:-survival}" = "survival" ] && [ "${BC_COLONY:-1}" != "0" ] && colony=1
 [ "$colony" = "0" ] && [ "${BC_RULES:-survival}" = "survival" ] && data+=(--no-colony)
-./target/release/bc-server --mobile-dolls "${BC_DOLLS:-24}" --oracle "${BC_ORACLE:-local}" --rules "${BC_RULES:-survival}" --flight "${BC_FLIGHT:-anime}" "${data[@]}" &
+./target/release/bc-server --drones "${BC_DRONES:-24}" --oracle "${BC_ORACLE:-local}" --rules "${BC_RULES:-survival}" --flight "${BC_FLIGHT:-anime}" "${data[@]}" &
 pids+=($!)
 sleep 1
 for i in $(seq 1 "${BC_AGENTS:-1}"); do
-  ./target/release/examples/mobile_doll --name "Agent-$(printf %02d "$i")" &
+  ./target/release/examples/drone --name "Agent-$(printf %02d "$i")" &
   pids+=($!)
 done
 for i in $(seq 1 "${BC_MINERS:-1}"); do
@@ -45,6 +45,6 @@ if [ "$colony" = "1" ]; then
   done
 fi
 echo
-echo "  Before Colony is up: open http://127.0.0.1:8080   (add ?autopilot=1 to watch the Mobile Doll brain fly)"
+echo "  Before Colony is up: open http://127.0.0.1:8080   (add ?autopilot=1 to watch the drone brain fly)"
 echo
 wait "${pids[0]}"

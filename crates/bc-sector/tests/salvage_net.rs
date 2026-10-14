@@ -55,7 +55,7 @@ impl Link {
     }
 }
 
-/// A sector with one client (a Leo) over a 100 ms-RTT, 5 %-loss link, run for `secs`. `each_tick`
+/// A sector with one client (an Argo) over a 100 ms-RTT, 5 %-loss link, run for `secs`. `each_tick`
 /// runs after every server tick, with the client's suit slot once it has one.
 fn run(
     secs: f64,
@@ -65,7 +65,7 @@ fn run(
     run_with(false, secs, brain, each_tick)
 }
 
-/// [`run`], under survival rules if `survival` (the Leo launches, whole, from the docking hub).
+/// [`run`], under survival rules if `survival` (the Argo launches, whole, from the docking hub).
 fn run_with(
     survival: bool,
     secs: f64,
@@ -73,7 +73,7 @@ fn run_with(
     each_tick: &mut dyn FnMut(&mut Sector, &ClientCore, Option<usize>),
 ) -> (Sector, ClientCore) {
     let cfg = SectorConfig {
-        sim: SimConfig { target_dolls: 0, seed: 5, survival, ..SimConfig::default() },
+        sim: SimConfig { target_drones: 0, seed: 5, survival, ..SimConfig::default() },
         max_clients: 4,
         ..SectorConfig::default()
     };
@@ -84,19 +84,19 @@ fn run_with(
         .push(Control::Join {
             slot: lease.slot,
             pilot: PilotKind::Human,
-            frame: FrameId::Leo,
+            frame: FrameId::Argo,
             faction: Faction::Colonies,
             max_datagram: MAX_DATAGRAM as u16,
             comeback: Comeback::default(),
-            launch: survival.then(|| bc_sim::sim::Loadout::full(FrameId::Leo)),
+            launch: survival.then(|| bc_sim::sim::Loadout::full(FrameId::Argo)),
         })
         .unwrap();
     let mut up = Link::new(11, 0.05, 0.02, 0.05);
     let mut down = Link::new(12, 0.05, 0.02, 0.05);
     let mut client = ClientCore::new(ClientConfig {
-        name: "Duo".into(),
+        name: "Nico".into(),
         pilot: PilotKind::Human,
-        frame: FrameId::Leo,
+        frame: FrameId::Argo,
         faction: Faction::Colonies,
     });
     let (mut t, mut next_tick, mut next_input) = (0.0f64, 0.0, 0.0);
@@ -119,7 +119,7 @@ fn run_with(
                     tick: sector.sim.tick(),
                     tick_hz: 30,
                     sector: 1,
-                    zero_allowed: true,
+                    orrery_allowed: true,
                     max_datagram: MAX_DATAGRAM as u16,
                     field_seed: shared.field_seed,
                     field_rocks: shared.field_rocks,
@@ -285,8 +285,8 @@ fn a_kill_hands_the_wreck_to_its_hulk() {
             let pos = f.pos + f.rot * Vec3::new(0.0, 0.0, 400.0);
             let id = sim
                 .spawn_at(
-                    FrameId::Taurus,
-                    Faction::Oz,
+                    FrameId::Corvus,
+                    Faction::Almagest,
                     PilotKind::Human,
                     pos,
                     look_rotation(f.pos - pos, Vec3::Y),
@@ -318,7 +318,10 @@ fn a_kill_hands_the_wreck_to_its_hulk() {
     });
     let k = hulk.expect("the client heard of the kill and its hulk");
     let track = client.world.objects[k as usize].expect("the client has the hulk");
-    assert!(matches!(track.desc.kind, ChunkKind::Hulk { frame: FrameId::Taurus, faction: Faction::Oz, .. }));
+    assert!(matches!(
+        track.desc.kind,
+        ChunkKind::Hulk { frame: FrameId::Corvus, faction: Faction::Almagest, .. }
+    ));
     assert!(sector.sim.chunks.is_alive(k));
     assert!(hidden_while_wreck, "the hulk was drawn on top of the wreck");
     assert!(shown_after, "the hulk never took over from the wreck");
@@ -373,7 +376,7 @@ fn towing_is_predicted() {
             let f = sim.suits.flight[me];
             let hand = f.pos + f.rot * ArmSlot::Left.muzzle();
             let desc = ChunkDesc {
-                kind: ChunkKind::Hulk { frame: FrameId::Leo, faction: Faction::Oz, parts: 0b11_1111 },
+                kind: ChunkKind::Hulk { frame: FrameId::Argo, faction: Faction::Almagest, parts: 0b11_1111 },
                 seed: 1,
                 mass_kg: 6_000,
             };

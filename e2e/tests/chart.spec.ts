@@ -1,14 +1,14 @@
 import { expect, test } from "@playwright/test";
 import { bc, collectConsole, luminanceStdDev } from "./util";
 
-// The chart (M) as a pilot uses it, end to end: open it over the sector, zoom out to the Earth
-// Sphere and back, step through its places to MO-II's Aft Well, set a course there (the way goes
+// The chart (M) as a pilot uses it, end to end: open it over the sector, zoom out to Earth-Moon
+// space and back, step through its places to Fornax's Aft Well, set a course there (the way goes
 // round the station: the well faces away), engage the auto-nav, close the chart and let it fly.
 // The suit comes to rest over the well, and the stick is the pilot's again. All the while the
 // server's tick allocates nothing.
-const MO_II = [-17_500, 1_500, 3_000];
+const FORNAX = [-17_500, 1_500, 3_000];
 
-test("set a course on the chart and let the auto-nav fly it to MO-II's Aft Well", async ({ page, request }, info) => {
+test("set a course on the chart and let the auto-nav fly it to Fornax's Aft Well", async ({ page, request }, info) => {
   test.setTimeout(420_000);
   const logs = collectConsole(page);
   const status = async () => (await (await request.get("/status")).json()).game;
@@ -32,7 +32,7 @@ test("set a course on the chart and let the auto-nav fly it to MO-II's Aft Well"
     expect(luminanceStdDev(png)).toBeGreaterThan(4);
   };
 
-  await page.goto(`/?quality=low&gfx=${info.project.name}&frame=leo`);
+  await page.goto(`/?quality=low&gfx=${info.project.name}&frame=argo`);
   await expect(page.locator("#title")).toBeVisible({ timeout: 60_000 });
   await page.locator("#callsign").fill("E2E-Navigator");
   await page.locator("#launch-button").click();
@@ -45,9 +45,9 @@ test("set a course on the chart and let the auto-nav fly it to MO-II's Aft Well"
   await page.waitForTimeout(2_000);
   await shot("sector");
 
-  // 3: out to the Earth Sphere; 2: back to the sector.
+  // 3: out to Earth-Moon space; 2: back to the sector.
   await page.keyboard.press("3");
-  await waitOn("the Earth Sphere", (b) => b.chart_view_m > 1e9, 20_000);
+  await waitOn("Earth-Moon space", (b) => b.chart_view_m > 1e9, 20_000);
   await page.waitForTimeout(1_500);
   await shot("sphere");
   await page.keyboard.press("2");
@@ -82,7 +82,7 @@ test("set a course on the chart and let the auto-nav fly it to MO-II's Aft Well"
   const there = await waitOn("arrived", (b) => !b.auto_nav, 300_000);
   console.log(`arrived in ${((Date.now() - flown) / 1000).toFixed(0)} s: ${JSON.stringify({ pos: there.pos, speed: there.speed })}`);
   const [x, y, z] = String(there.pos).split(",").map(Number);
-  const off = Math.hypot(x - MO_II[0], y - MO_II[1], z - MO_II[2]);
+  const off = Math.hypot(x - FORNAX[0], y - FORNAX[1], z - FORNAX[2]);
   expect(off).toBeLessThan(700);
   expect(there.speed).toBeLessThan(5);
   expect(there.alive).toBe(true);

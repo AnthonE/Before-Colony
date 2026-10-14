@@ -20,7 +20,7 @@ fn config() -> anyhow::Result<Config> {
         rules: Ruleset::Survival,
         wt_port: 0,
         http_addr: "127.0.0.1:0".parse()?,
-        mobile_dolls: 0,
+        drones: 0,
         max_clients: 8,
         colony: true,
         ..Config::default()
@@ -28,8 +28,12 @@ fn config() -> anyhow::Result<Config> {
 }
 
 async fn down(http: &str, name: &str) -> anyhow::Result<BotClient> {
-    let cfg =
-        BotConfig { server: http.into(), name: name.into(), frame: FrameId::Leo, faction: Faction::Colonies };
+    let cfg = BotConfig {
+        server: http.into(),
+        name: name.into(),
+        frame: FrameId::Argo,
+        faction: Faction::Colonies,
+    };
     let mut b = BotClient::connect(&cfg).await?;
     b.wait_until(5.0, "the hangar", |c| c.hangar.in_hangar()).await?;
     b.enter_city(0).await?;
@@ -59,8 +63,8 @@ async fn both(a: &mut BotClient, b: &mut BotClient, secs: f64) -> anyhow::Result
 async fn two_pilots_see_each_other_at_hub_gate() -> anyhow::Result<()> {
     let server = bc_server::start(config()?).await?;
     let http = format!("http://{}", server.http_addr);
-    let mut a = down(&http, "Heero").await?;
-    let mut b = down(&http, "Duo").await?;
+    let mut a = down(&http, "Kai").await?;
+    let mut b = down(&http, "Nico").await?;
     a.set_pose(standing(8.0, 0.0));
     b.set_pose(standing(12.0, 3.0));
     both(&mut a, &mut b, 1.5).await?;
@@ -68,9 +72,9 @@ async fn two_pilots_see_each_other_at_hub_gate() -> anyhow::Result<()> {
     let seen_by_a = a.people();
     let seen_by_b = b.people();
     assert_eq!(seen_by_a.len(), 1, "{seen_by_a:?}");
-    assert_eq!(seen_by_a[0].1, "Duo");
+    assert_eq!(seen_by_a[0].1, "Nico");
     assert_eq!(seen_by_b.len(), 1, "{seen_by_b:?}");
-    assert_eq!(seen_by_b[0].1, "Heero");
+    assert_eq!(seen_by_b[0].1, "Kai");
     let want = standing(12.0, 3.0);
     let got = seen_by_a[0].2;
     assert!((got.x - want.x).hypot(got.s - want.s) < 0.05, "{got:?} vs {want:?}");
@@ -83,14 +87,14 @@ async fn two_pilots_see_each_other_at_hub_gate() -> anyhow::Result<()> {
     let est = a.core.clock.server_now(a.now());
     assert!((est - sector).abs() < 2.0, "clock {est:.1} vs sector {sector}");
 
-    // A kilometre in a moment isn't passed on: Heero still sees Duo where he was.
+    // A kilometre in a moment isn't passed on: Kai still sees Nico where he was.
     b.set_pose(standing(1_000.0, 3.0));
     both(&mut a, &mut b, 1.0).await?;
     let got = a.people()[0].2;
     assert!((got.x - want.x).abs() < 0.05, "a teleport was relayed: {got:?}");
     assert!(server.status()["game"]["city"]["refused_poses"].as_u64().unwrap() > 0);
 
-    // Duo goes back up: gone from Heero's plaza.
+    // Nico goes back up: gone from Kai's plaza.
     b.leave_city().await?;
     both(&mut a, &mut b, 1.5).await?;
     assert!(a.people().is_empty(), "{:?}", a.people());

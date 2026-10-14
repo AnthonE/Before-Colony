@@ -1,4 +1,4 @@
-//! Zodiac's aces among the Dolls (`content::aces`): one out at a time, fielded every
+//! The Almagest's aces among the drones (`content::aces`): one out at a time, fielded every
 //! `SimConfig::ace_every` while none is, round the list.
 
 use bc_proto::{Faction, NO_SLOT, PilotKind};
@@ -10,7 +10,7 @@ use crate::math::look_rotation;
 
 impl Sim {
     /// The ace out in the sector, if one is: its suit, and which it is. It's out from its fielding
-    /// until its slot is let go, flying or (for the few seconds a downed Doll stays) not: there's
+    /// until its slot is let go, flying or (for the few seconds a downed drone stays) not: there's
     /// never more than one.
     pub fn ace_out(&self) -> Option<(usize, u8)> {
         let i = usize::from(self.ace_suit);
@@ -25,10 +25,10 @@ impl Sim {
     }
 
     /// Fields the next ace on the list when one's due and none is out: a squad of its own, high
-    /// over one of the Dolls' anchors.
+    /// over one of the drones' anchors.
     pub(super) fn spawn_ace(&mut self, t: u32) {
         let every = self.cfg.ace_every;
-        if every == 0 || self.cfg.target_dolls == 0 || t < self.next_ace_at || self.ace_out().is_some() {
+        if every == 0 || self.cfg.target_drones == 0 || t < self.next_ace_at || self.ace_out().is_some() {
             return;
         }
         self.next_ace_at = t + every;
@@ -37,7 +37,7 @@ impl Sim {
         let anchor = ANCHORS[squad % ANCHORS.len()] + Vec3::new(0.0, 700.0, 0.0);
         self.squads[squad] = Squad { anchor, focus: NO_SLOT };
         let rot = look_rotation(-anchor, Vec3::Y);
-        let Some(id) = self.spawn_at(ACE_FRAME, Faction::Oz, PilotKind::MobileDoll, anchor, rot) else {
+        let Some(id) = self.spawn_at(ACE_FRAME, Faction::Almagest, PilotKind::Drone, anchor, rot) else {
             return;
         };
         let i = id.idx();

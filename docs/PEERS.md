@@ -1,7 +1,7 @@
 # Peers: what the nearest games teach us
 
 A survey (October 2026) of the games that each have a piece of Before Colony's fantasy: live in a
-working colony city, walk to the hangar, and launch a mobile suit into space. It says what each has
+working colony city, walk to the hangar, and launch a suit into space. It says what each has
 and lacks, what we take from it and where that lands in our code, and ends with a list, most
 important first. `docs/CONTROLS.md` covers what players of these and other games expect of the
 controls; this covers the rest.
@@ -36,21 +36,21 @@ from every series, and still adding them (Gundam 00's Double O Riser and Susanoo
 
 - **Cost brackets.** Every suit has a cost and a room sets the range it allows, so a low-cost fight
   has no flagships in it; a costlier suit waits longer to sortie again [P1]. We gate by price
-  instead: a new Leo is about 41,000 credits of parts, a Gundam 175,000–223,000 (`DESIGN.md`,
-  "Survival"). A price keeps Gundams rare, but doesn't keep a fight fair once one turns up. A suit's
+  instead: a new Argo is about 41,000 credits of parts, a Lodestar 175,000–223,000 (`DESIGN.md`,
+  "Survival"). A price keeps Lodestars rare, but doesn't keep a fight fair once one turns up. A suit's
   cost can be worked out from what it is (its stat sheet, `bc_sim::tuning`, or what its parts fetch
-  on the Exchange) and used wherever we choose who fights whom: contract tiers, and the Dolls sent
+  on the Exchange) and used wherever we choose who fights whom: contract tiers, and the drones sent
   after a pilot.
 - **Close quarters teach free aim.** Derelict Colony (2020) is a wrecked colony: collapsed
   buildings, the old roads on the ceiling. Its developers built it for closer, more ground-like
   fighting with less room to climb, and said why: it suits players still learning to hit with
   bazookas and beam rifles in space [P1]. That is our "unhittable" risk (`CONTROLS.md`, "No lead
-  pip without ZERO"). We have close quarters already, MO-II's Aft Well and Hermit's craters, where
+  pip without the Orrery"). We have close quarters already, Fornax's Aft Well and Hermit's craters, where
   suits fight on their feet (`DESIGN.md`, "Surfaces"). The colony's inside stays weapons safe by
   law (`SUITS_INSIDE.md`) but for the Blast Hall's training rounds (`TRAINING.md`), so a hot
   interior would have to be somewhere else: the axis port's scaffolds, or the building site's
   frames.
-- **Infantry beside the suits.** Pilots fight on foot among the mobile suits, planting charges in
+- **Infantry beside the suits.** Pilots fight on foot among the suits, planting charges in
   bases (*unverified*). Ours walk only in the bay and the city; on foot in the sector is on the
   roadmap (`DESIGN.md`, "Surfaces, next").
 - **New suits are the cadence.** A match game lives on its roster. Our frames are code, not art
@@ -73,7 +73,7 @@ mechs and nothing to do.
 - **Hanging out needs a way to talk.** A VRChat world is a room full of voices. Ours was silent,
   with no chat, emote, wave or seat anywhere. Since P0 there's the colony's radio (in the city,
   what's said shows over the speaker's head) and seats out in front of The Arrival, our bar;
-  still no emote or wave, and inside, its counter has Zodiac's Most Wanted pinned up behind the
+  still no emote or wave, and inside, its counter has the Almagest's Most Wanted pinned up behind the
   bar but no menu yet (`LIFE.md`, L1). Pilots pass each other in flight suits of their own colours;
   together they can talk and sit, and nothing more.
 - **Physics as a toy.** Its players run the circle because they can. Our gravity falls with height
@@ -94,7 +94,7 @@ flies ships, not suits.
 - **Time to fun.** Its players have waited minutes for a ship to be "delivered", and its instanced
   hangars and elevators have lost ships and dropped people through floors [P3]. Our boarding,
   venting and catapult take about 10 s, and Space skips them (`onfoot.rs`). But a survival pilot
-  then flies about 15 km from the launch gate to the Dolls, the fifth of their objectives in
+  then flies about 15 km from the launch gate to the drones, the fifth of their objectives in
   space. Measure the time from the title screen to the first thing that happens, and keep it
   short.
 - **Weapons-free zones are griefed without weapons.** Its armistice zones have been abused by
@@ -124,7 +124,7 @@ for real Gunpla, and your own Gunpla scanned with a phone to see in 3D [P4].
   in turn. Still a shop front: the building site is `Stage(0)` everywhere it's asked
   (`bc_sim::colony::city::Stage`), so nothing a pilot does can build it out.
 - **People want their own build.** Gunpla is a kit *you* built and painted, and scanning it in was
-  the Metaverse's pitch. Every Colonies Leo in our sector is the same blue, white and red
+  the Metaverse's pitch. Every Colonies Argo in our sector is the same blue, white and red
   (`livery`, `bc-client/src/suits_vis.rs`), and nothing a pilot owns says it's theirs but the
   callsign over it.
 
@@ -133,8 +133,8 @@ for real Gunpla, and your own Gunpla scanned with a phone to see in 3D [P4].
 Bandai Namco's next Gundam game, out March 5, 2027: a Gundam customised with weapons, frames,
 thrusters and a colour scheme of your own, against hordes of enemy units and towering bosses [P5].
 
-- **PvE that escalates.** Ours is a patrol: 24 Mobile Dolls in squads of four, a squad topped up
-  every 4 s however many pilots are out (`target_dolls`, `bc_sim::config`). There are no
+- **PvE that escalates.** Ours is a patrol: 24 drones in squads of four, a squad topped up
+  every 4 s however many pilots are out (`target_drones`, `bc_sim::config`). There are no
   offensives, no convoys and nothing big. A fight that builds is what brings in the player who
   doesn't want to fight people.
 - **A colour scheme is expected.** Rogue Orbit paints the suit your way; so will every Gundam game
@@ -264,8 +264,8 @@ games", says how each is built.
   stalkers and reapers. They score points: a grunt 1, a reaper 3, a pilot 5 [P13]. Respawn's
   community manager: the AI "gave players who are newer something to shoot at and gave them a
   way to help their team", and "really helps make the battlefield feel alive" [P14].
-  - **Ours:** the Mobile Dolls already are that. Wherever PvP comes to live (P1 10), keep the
-    Dolls in the fight and pay for both.
+  - **Ours:** the drones already are that. Wherever PvP comes to live (P1 10), keep the
+    drones in the fight and pay for both.
 - **Power is earned in the fight.**
   - Titanfall 1 built a Titan on a countdown that kills shortened: 4 minutes from the start of a
     match, 2 after losing one [P15].
@@ -273,7 +273,7 @@ games", says how each is built.
     "a small passive amount of Titan meter every few seconds" back [P15].
   - Its Core ability builds on its own, faster from damage dealt and kills, and a battery adds a
     fifth [P13].
-  - **Ours:** Full Open Attack charges the same way, slowly by itself and faster from the fight.
+  - **Ours:** Full Salvo charges the same way, slowly by itself and faster from the fight.
     It charges from blows taken too: that part is ours, not Titanfall's.
 - **Being on foot is a choice, not just being prey.** A pilot can rodeo an enemy Titan. In
   Titanfall 1 they tear off its plating and shoot into the hull; in Titanfall 2 they pull out its
@@ -288,7 +288,7 @@ games", says how each is built.
     [they] need to know" [P16].
   - Respawn's Carlos Pineda: Titanfall 1's Titan fights were "too repetitive", two Titans firing
     until one went down [P16].
-  - **Ours:** the Gundams already read at a glance. A survival Leo carries what its pilot fits,
+  - **Ours:** the Lodestars already read at a glance. A survival Argo carries what its pilot fits,
     and its weapons must show on the model.
 - **A great game can still die.**
   - Titanfall 2 reviewed 86–89 on Metacritic but sold below EA's forecast of 9–10 million. It
@@ -319,7 +319,7 @@ games", says how each is built.
   - **Ours:** the Blast Hall's trainers fly any build a pilot could make, with nothing bought.
 - **The Arena.** Simulated one-on-ones against 29 named AI pilots, ranked from F to S. Each first
   win pays chips, credits, an emblem and the opponent's own build [P18].
-  - **Ours:** Zodiac's aces, the Consortium's named Doll pilots, on the Charter Board's Most
+  - **Ours:** the Almagest's aces, the Consortium's named drone pilots, on the Charter Board's Most
     Wanted, pinned up at The Arrival (`DESIGN.md`, "Aces: the Most Wanted").
 
 ### MechWarrior and BattleTech
@@ -392,8 +392,8 @@ text [P24].
   shoots missiles down on the battery's power), and its assault rifle, whose rounds shoot
   missiles down.
   - **Ours:** the lock, chaff, the jammer and fire control were built already (`LOCK.md`;
-    `content::kits`; the Hyper Jammer; `ModuleKind::FireControlComputer`). What was missing was
-    the counter in the pilot's own hands: now the rounds of the vulcans, gatlings and machine
+    `content::kits`; the Eclipse; `ModuleKind::FireControlComputer`). What was missing was
+    the counter in the pilot's own hands: now the rounds of the head guns, gatlings and machine
     guns shoot missiles down (`sim::missile`, "Point defence"). Only one launcher builds locks,
     so the launchers' trade-off waits for a second one.
 - **The HUD says why.** Its notes quote players: "i was just standing still but my HP was going
@@ -422,7 +422,7 @@ text [P24].
     stay the server's (a part shot off is its salvage chunk).
 - **Crews.** A mech holds a crew: the captain takes the helm, crewmates take the shoulder pods,
   and the captain chooses "designate & lock" (the crew fire on one target) or free fire.
-  - **Ours, later:** a Gundam has one pilot, as in the show. A carrier or a transport with gunner
+  - **Ours, later:** a Lodestar has one pilot, as a Gundam does in Gundam Wing. A carrier or a transport with gunner
     seats could take the idea (`ROADMAP.md`, "Mecha Royale").
 - **What we leave.** Its storm ring, lobbies and drop points fit a match, not a sector that
   stays. Its supply crates and rarity tiers would undercut an economy where a part's worth is its
@@ -457,7 +457,7 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
    with no record (`Hangar::starter`, `bc-econ/src/hangar.rs`; `enter`,
    `bc-server/src/net/session.rs`), and there was no insurance, loan or reissue. (A guest gets a
    fresh one every visit.) EVE insures every ship at 40% for nothing, as new players' safety net
-   [P6]. Ours, built: the Charter Board reissues a worn Leo to a pilot with an empty bay who can't
+   [P6]. Ours, built: the Charter Board reissues a worn Argo to a pilot with an empty bay who can't
    build one, at most once every half hour (`Hangar::reissue`). `STORY.md`'s "debt of 2,000
    credits" wasn't in the code; it's "an advance" now.
 2. **Text chat.** The first thing anyone does in a shared place is say something. The plan was
@@ -472,13 +472,13 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
    down, reports to the Proving Ground and earns a flight certificate, walks the avenue to the
    Exchange floor and the Charter Board's desk, earns standing, goes home to arm the suit with the
    Board's rifle, and only then flies out; later, the Most Wanted at The Arrival, an ace, a new
-   Gundam on the test range and gundanium. Flying, the HUD keeps to what's done in space; on foot,
+   Lodestar on the test range and siderium. Flying, the HUD keeps to what's done in space; on foot,
    to the chain's order (and back to the Charter Board's desk while it holds something for the
    pilot), and each how-line starts with the way there. Still open: a marker on the door in the
    city view itself (the map has one).
 4. **The Arrival does something.** Seats out front (`COLONY.md`, 2.6), sat on and seen sat on,
    and it's where chat is easiest to find: what's said on the radio shows over the heads of those
-   near you. Built; and at its counter, Zodiac's Most Wanted pinned up behind the bar, where a
+   near you. Built; and at its counter, the Almagest's Most Wanted pinned up behind the bar, where a
    pilot's terms for an ace are settled. Its own menu joins it there next (`LIFE.md`, L1).
 
 **P1: what makes the chain worth walking.**
@@ -497,8 +497,8 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
 7. **Liveries.** Body, trim and accent colours chosen at the suit's maintenance console, carried on
    the suit (`bc_econ::suit::Suit`) and drawn for everyone (`livery` takes only the frame and the
    faction today). Paint costs credits: a sink that sells itself.
-8. **Doll offensives.** Squads that scale with the pilots out, an offensive now and then against
-   the dock or MO-II, and something big: a carrier that launches Dolls. The bounties already pay
+8. **Drone offensives.** Squads that scale with the pilots out, an offensive now and then against
+   the dock or Fornax, and something big: a carrier that launches drones. The bounties already pay
    for it (`content::salvage::bounty`).
 9. **Agents as population.** Flaneurs that ride the trams and go into the places (today's walks 60
    m back and forth, `bc-bot/examples/flaneur.rs`), and the server's own tugs, haulers and miners
@@ -507,13 +507,13 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
    pilot flies for the Colonies, whatever their client asks (the server decides: `bc-server`'s
    `net::game::side`, and the Welcome says so), and friendly fire is off (`bc_sim::config`), so
    people can't harm each other, and `DESIGN.md`'s hunted sleepers can only be hunted by agents of
-   another faction (an agent may fly for the Alliance; nobody but the Mobile Dolls flies for Oz).
+   another faction (an agent may fly for the Alliance; nobody but the drones flies for the Almagest).
    Star Citizen has armistice zones and lawless space; EVE grades its space by security.
    `STORY.md`'s "law and heat" is ours, and it needs a map of where the law holds.
 
 **P2: depth, once the above is in.**
 
-11. **Cost brackets** (Battle Operation 2), for contract tiers and the Dolls sent after a pilot.
+11. **Cost brackets** (Battle Operation 2), for contract tiers and the drones sent after a pilot.
 12. **Close quarters outside the law:** the axis port's scaffolds, the building site's frames.
     Where free aim is learnt.
 13. **Suits inside the colony,** once the building site gives them work (`SUITS_INSIDE.md`, "Why
@@ -522,20 +522,20 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
 
 **From the mech games** (October 2026; how each is built is `ROADMAP.md`, "The mech games").
 
-15. **Doom and ejecting** (Titanfall, Steel Battalion, Heero): a doomed suit fights on for 3 s;
+15. **Doom and ejecting** (Titanfall, Steel Battalion, Gundam Wing's Heero): a doomed suit fights on for 3 s;
     U ejects, and the tugs bring the wreck home; held, U blows it up. *Built.*
 16. **Stagger** (Armored Core VI): impact overloads a suit's attitude control, and a staggered
     suit tumbles for a second, its thrust and weapons down, and takes direct hits. *Built.*
-17. **Specials charged by the fight** (Titanfall's Core): Full Open Attack charges slowly by
-    itself and faster from damage dealt and taken. *Built*, for the Cross Crusher too.
+17. **Specials charged by the fight** (Titanfall's Core): Full Salvo charges slowly by
+    itself and faster from damage dealt and taken. *Built*, for the Pincer Strike too.
 18. **A debrief** (Armored Core VI's payout; X-Wing's debrief): what a sortie earned and cost,
     on the way home. *Built.*
 19. **The enemy's gun** (Daemon X Machina): a weapon on a limb in hand fires from that hand.
     *Built.*
 20. **A test range** (Armored Core VI): the Blast Hall's trainers fly any buildable suit, picked
     at its desk. *Built.*
-21. **Aces, pay or salvage** (Armored Core VI's Arena, MechWarrior 5's contracts): named Doll
-    aces with bounties, taken as pay or as rights to the wreck. *Built*: Zodiac's nine, one out
+21. **Aces, pay or salvage** (Armored Core VI's Arena, MechWarrior 5's contracts): named drone
+    aces with bounties, taken as pay or as rights to the wreck. *Built*: the Almagest's nine, one out
     at a time, on the Charter Board's Most Wanted (at The Arrival) with a ladder; salvage
     terms need standing, and a bounty waits at the Board's desk.
 22. **Staying up** (Titanfall's DDoS years): a review of the server's limits under abuse, and
@@ -544,7 +544,7 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
 
 **From Mecha Royale** (October 2026; how each is built is `ROADMAP.md`, "Mecha Royale").
 
-23. **Guns that shoot missiles down:** the rounds of the vulcans, gatlings and machine guns burst
+23. **Guns that shoot missiles down:** the rounds of the head guns, gatlings and machine guns burst
     a hostile missile they meet. *Built.*
 24. **The HUD says why:** a weapon that won't fire says why, and a silent drain gets an alarm with
     its cure. *Built.*

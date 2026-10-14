@@ -1,4 +1,4 @@
-//! Cone weapons: Shenlong's flamethrower.
+//! Cone weapons: Thuban's flamethrower.
 //!
 //! While fire is held the flame is lit (the slot's firing flag shows it), and every `interval`
 //! ticks it burns what's in its cone: each suit there takes the weapon's damage on the part

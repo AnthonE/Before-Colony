@@ -4,7 +4,7 @@
 //!
 //! - **Patch kit**: a field repair. It seals a leaking tank, or brings the worst-off system it can
 //!   reach back a level (failed to damaged, damaged to working); a part shot off is beyond it.
-//! - **Coolant flush**: dumps the suit's heat at once (Full Open's lockout still holds).
+//! - **Coolant flush**: dumps the suit's heat at once (Full Salvo's lockout still holds).
 //! - **Chaff**: a cloud of foil and flares. Missiles tracking the suit lose it, every lock on it
 //!   is broken, and for [`CHAFF_TICKS`] no new one can be built.
 //! - **Stim**: the pilot bears [`STIM_G`] more for [`STIM_TICKS`], then crashes, bearing

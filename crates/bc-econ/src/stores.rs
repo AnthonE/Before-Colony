@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::faults::Faults;
 use crate::item::{Item, line_serde, part_serde};
 
-/// A mobile-suit part on the shelf.
+/// A mech part on the shelf.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PartUnit {
     #[serde(with = "line_serde")]
@@ -203,20 +203,20 @@ mod tests {
     #[test]
     fn parts_keep_their_condition_and_only_new_ones_count_as_stock() {
         let mut s = Stores::default();
-        let arm = Item::Part(FrameId::Leo, Part::ArmL);
-        s.add_part(PartUnit { line: FrameId::Leo, part: Part::ArmL, condition: 40, faults: Faults::NONE });
+        let arm = Item::Part(FrameId::Argo, Part::ArmL);
+        s.add_part(PartUnit { line: FrameId::Argo, part: Part::ArmL, condition: 40, faults: Faults::NONE });
         s.add(arm, 1);
-        s.add_part(PartUnit { line: FrameId::Leo, part: Part::ArmL, condition: 70, faults: Faults::NONE });
-        s.add_part(PartUnit { line: FrameId::Leo, part: Part::Head, condition: 0, faults: Faults::NONE });
+        s.add_part(PartUnit { line: FrameId::Argo, part: Part::ArmL, condition: 70, faults: Faults::NONE });
+        s.add_part(PartUnit { line: FrameId::Argo, part: Part::Head, condition: 0, faults: Faults::NONE });
         assert_eq!(s.get(arm), 1);
         let conditions: Vec<u8> =
             s.parts().iter().filter(|u| u.part == Part::ArmL).map(|u| u.condition).collect();
         assert_eq!(conditions, [100, 70, 40]);
         assert_eq!(s.parts().iter().find(|u| u.part == Part::Head).unwrap().condition, 1, "clamped");
-        assert_eq!(s.take_worst_part(FrameId::Leo, Part::ArmL).unwrap().condition, 40);
+        assert_eq!(s.take_worst_part(FrameId::Argo, Part::ArmL).unwrap().condition, 40);
         assert!(s.take(arm, 1));
         assert!(!s.take(arm, 1), "the 70% arm isn't new");
-        assert_eq!(s.take_best_part(FrameId::Leo, Part::ArmL).unwrap().condition, 70);
+        assert_eq!(s.take_best_part(FrameId::Argo, Part::ArmL).unwrap().condition, 70);
         let json = serde_json::to_string(&s).unwrap();
         assert_eq!(serde_json::from_str::<Stores>(&json).unwrap(), s);
     }

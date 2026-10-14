@@ -19,7 +19,7 @@ bc-client-core.workspace = true
 bc-econ.workspace = true
 bc-model.workspace = true
 bc-proto.workspace = true
-bc-sim = { workspace = true, features = ["canon-names"] }
+bc-sim.workspace = true
 bc-sound.workspace = true
 bevy = { workspace = true, features = ["3d", "ui"] }
 # The hangar's terminals get their data as JSON (terminal.rs).

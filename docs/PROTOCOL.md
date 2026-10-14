@@ -1,11 +1,16 @@
-# Before Colony wire protocol (v29)
+# Before Colony wire protocol (v30)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
 
+v30 (from v29): the suits, their weapons, the drones' side and siderium take the game's own names
+(`STORY.md`, "Voice and naming"). No bits change; the hangar's JSON (`bc_econ::wire`) carries the
+new slugs (`argo`, `altair`, `mat.siderium`, `weapon.heat_blades`, the side `almagest`), and the
+server still reads the old ones where a saved pilot or store has them (`FrameId::OLD_SLUGS`).
+
 v29 (from v28): the Welcome's last byte is the side the pilot flies for, which is the server's to
-say (below, "Control stream": a claim to Oz flies for the Colonies, as every human pilot does), and
+say (below, "Control stream": a claim to the Almagest flies for the Colonies, as every human pilot does), and
 the client takes its friends and foes from it. In the own state, PARKABLE is never set inside the
 colony (its meaning only: no bits change).
 
@@ -46,7 +51,7 @@ v22 (from v21): a suit's weathering on the roster: how worn its paint is, 0 to 7
 has had (`bc_econ::weathering`), in the Roster flags' bits 2-4, for every client to draw.
 
 v21 (from v20): the Blast Hall, the Proving Ground off Hub Gate's square: a key place with a room
-at a mobile suit's scale behind 40 m blast doors (new solids for everyone)
+at a suit's scale behind 40 m blast doors (new solids for everyone)
 (`content::city::CITY_VERSION` 4); its live fire, the colony's law's one exception; and the event
 for a training round scoring on one of its targets (the extension's sub-kind 3, `TargetHit`).
 
@@ -109,8 +114,8 @@ the target: the simulation caps `ref_vel` at the frame's boosted cruise, and tha
 can ask for. A free suit only; on a body the grip's rules fly it.
 
 Buttons, by bit: 0 FIRE_PRIMARY, 1 FIRE_SECONDARY, 2 MELEE, 3 BOOST, 4 BRAKE, 5 FLIGHT_ASSIST*,
-6 ZERO*, 7 RCS_SHARP, 8 GRAB*, 9 STOW, 10 THROW, 11 JETTISON, 12 MODE* (the frame's mode: Neo-Bird,
-Hyper Jammer), 13 SPECIAL (the frame's special attack: Full Open Attack, Cross Crusher), 14 GRIP*
+6 the Orrery*, 7 RCS_SHARP, 8 GRAB*, 9 STOW, 10 THROW, 11 JETTISON, 12 MODE* (the frame's mode: Aquila,
+Eclipse), 13 SPECIAL (the frame's special attack: Full Salvo, Pincer Strike), 14 GRIP*
 (land on a body near enough and slow enough, and keep hold of it; clear: let go), 15 BURST (a
 burst step along the stick: it starts on the press, so a repeated command never steps again).
 Starred bits are states.
@@ -122,7 +127,7 @@ has, so a silent client stays crouched.
 
 Four commands fit in 65 bytes (86 + 4 × 107 bits), or 96 locked on (86 + 4 × 169). A client sending several ticks at once sends
 overlapping windows two ticks apart, so each command is in two packets. States persist while a
-client is silent (the server repeats its last command, keeping only FLIGHT_ASSIST, ZERO, GRAB,
+client is silent (the server repeats its last command, keeping only FLIGHT_ASSIST, the Orrery, GRAB,
 MODE and GRIP, and the lock-on for 30 ticks more); presses (STOW, THROW, JETTISON, MELEE, SPECIAL, BURST) act on the tick they first appear, and a
 repeated command never fires.
 
@@ -134,8 +139,8 @@ exactly `tick − 8`, so the 8-bit field's saturation at 15.9 ticks loses nothin
 | Section | Content |
 |---|---|
 | header (116 bits) | kind=2, tick, ack_input_tick, input_health (i8), time_echo_ms, echo_hold_ms, tidi_pct, flags |
-| own (1 + 811..831 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, zero_strain, zero_mode, flags, systems (24), modules (20), the propellant's grade (2), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, the rack (8: 2 bits a consumable), a stim's clock (12, ticks), extra mass (kg, i18), cargo ×4 (kg, 13 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special charge (8, 255ths: 255 charged, or nothing to charge; ticks ÷ 4 of its cooldown before v25), arms (46, below), burst step (17, below), footing (2), cover (2), doom (5, steps of 3 ticks until a doomed suit's reactor goes, rounded up; 0: not doomed, v23; in steps since v24), impact (3, sixths of what the suit stands, v24), stagger (5, ticks left; 0: steady, v24), the designated target's impact (3, sixths; 7: staggered, v24), and on a body its body (6 or 12) and stance (8) (below) |
-| ZERO (1 + ≤200 bits) | source_jev, advice_age, threat_count, per threat {slot, 7 × p}, rec_target + p, rec_maneuver + p, threat_level + confidence, flanked, has_solution, solution (oct 2×12), hit_p |
+| own (1 + 811..831 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, orrery_strain, orrery_mode, flags, systems (24), modules (20), the propellant's grade (2), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, the rack (8: 2 bits a consumable), a stim's clock (12, ticks), extra mass (kg, i18), cargo ×4 (kg, 13 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special charge (8, 255ths: 255 charged, or nothing to charge; ticks ÷ 4 of its cooldown before v25), arms (46, below), burst step (17, below), footing (2), cover (2), doom (5, steps of 3 ticks until a doomed suit's reactor goes, rounded up; 0: not doomed, v23; in steps since v24), impact (3, sixths of what the suit stands, v24), stagger (5, ticks left; 0: steady, v24), the designated target's impact (3, sixths; 7: staggered, v24), and on a body its body (6 or 12) and stance (8) (below) |
+| The Orrery (1 + ≤200 bits) | source_jev, advice_age, threat_count, per threat {slot, 7 × p}, rec_target + p, rec_maneuver + p, threat_level + confidence, flanked, has_solution, solution (oct 2×12), hit_p |
 | events | repeated `[1][event]`, closed by `[0]` |
 | rocks | repeated `[1][rock]` (18 bits each), closed by `[0]` |
 | missiles | repeated `[1][missile]` (119 bits each), closed by `[0]` |
@@ -147,12 +152,12 @@ snapshot is never cut off mid-list.
 
 Header flags, by bit: 0 SPECTATOR (v18): a spectator's snapshot, sent to a pilot on foot in the
 colony's city by its inside sector (below, in "Survival: the hangar's messages": a pilot on foot
-watching the inside's suits). It has no own state and no ZERO, no events but Leave notices, no
+watching the inside's suits). It has no own state and no Orrery, no events but Leave notices, no
 rocks, missiles or objects; its `ack_input_tick`, `input_health` and echo say nothing (the pilot
 sends no input).
 
 What fits, in the 8 800 bits of a 1 100-byte datagram: the fixed part is the header, the own state,
-ZERO's presence bit and the five lists' terminators.
+the Orrery's presence bit and the five lists' terminators.
 
 | | Own flying free | Own on a rock (the largest) |
 |---|---|---|
@@ -160,7 +165,7 @@ ZERO's presence bit and the five lists' terminators.
 | Free suits (1 + 211 bits each), nothing else | 37 | 37 |
 | Suits on bodies (1 + 194 bits each), nothing else | 40 | 40 |
 | Room kept for six of the largest objects (6 × 233 bits) | 30 free / 33 riders | 30 / 33 |
-| With ZERO on (+200 bits) | 36 / 39 | 36 / 39 |
+| With the Orrery on (+200 bits) | 36 / 39 | 36 / 39 |
 | A 256-byte connection (2 048 bits) | 5 / 5 | 5 / 5 |
 
 A suit on the colony's city takes 202 bits (its place needs 21 bits an axis): 38 of them fit, the
@@ -174,7 +179,7 @@ body's frame. A body is named by a `BodyRef`: a 2-bit kind, then an id.
 | Kind | Body | Id |
 |---|---|---|
 | 0 | a rock of the debris field | 10 bits (the rock's index) |
-| 1 | a landmark (MO-II, Hermit: `bc_sim::content::landmarks`) | 4 bits (its index) |
+| 1 | a landmark (Fornax, Hermit: `bc_sim::content::landmarks`) | 4 bits (its index) |
 | 2 | the colony's city, in an interior sector (v19): its floor, its buildings and its end caps | none |
 | 3 | a pilot's bay on the colony's bay ring (v27, `bc_sim::colony::hub`): a suit launching rides its cradle | 7 bits (its number, 1–99) |
 
@@ -209,7 +214,7 @@ Own-state notes:
   `bc_sim::content::propellant`). The server builds the same one for the next tick from
   the same state, so prediction matches it, coughing main thrusters (their windows come from the
   tick and the slot) and a leaking tank included; and exactly `extra_mass_kg` (cargo, what's in
-  hand, modules, less the parts shot off). AMBAC's authority is the one with the arms idle; busy
+  hand, modules, less the parts shot off). Limb trim's authority is the one with the arms idle; busy
   arms take 0.6 of it, which the client works out tick by tick from the arms.
 - `scram` and `concussed` count the ticks a scrammed reactor gives nothing and a concussed
   pilot's shots wander (the shooter's client draws its own shots wandering the same way).
@@ -220,7 +225,7 @@ Own-state notes:
   mount (the loadout's three, then the special's) the ticks until it could fire or strike but
   for heat (6 bits each; 63 = not until something the client can't foresee changes: an arm shot
   off, energy or rounds run out), and each gun slot's missile salvo under way (rounds left, 3;
-  ticks to the next, 2). Heat is the OVERHEAT flag, and the lockout after Full Open follows it.
+  ticks to the next, 2). Heat is the OVERHEAT flag, and the lockout after Full Salvo follows it.
 - The burst step (`bc_sim::flight::Burst`), which the client rolls on from the snapshot as the
   server does: ticks of the step still to drive (4), ticks until another can start (6), the
   stick's direction at its press (3 × 2 bits: 0 back, 1 none, 2 forward on each axis; 3 is
@@ -236,7 +241,7 @@ Own-state notes:
   with the body's pose at the snapshot's tick for the sector's frame.
 - Cover (2 bits): 0 exposed, 1 settling (crouched still for under 3 s, or shown by firing or a
   hit), 2 cold (settled out of a hide spot: half the signature), 3 hidden (off enemies' sensors).
-- Flags: BOOSTING, BLACKOUT, OVERHEAT, CHARGING, SABER_ACTIVE, ZERO_CAPABLE, FLIGHT_ASSIST,
+- Flags: BOOSTING, BLACKOUT, OVERHEAT, CHARGING, SABER_ACTIVE, ORRERY_CAPABLE, FLIGHT_ASSIST,
   LOCKED_ON, DOCKED (in the colony's dock), LUNGE (saber windup and swing: the flight model's
   lunge), SPECIAL_ACTIVE (the jammer is on, a melee move is out), TRANSFORMING (the special
   timer counts the change of form down),
@@ -244,15 +249,15 @@ Own-state notes:
   MISSILE_INCOMING (a guided missile is tracking you), PARKABLE (you're on your feet on a body, or
   resting against a rock or a landmark, slowly enough to park: a signed-in pilot who leaves now
   stays parked there; never inside the colony, which keeps no sleepers).
-- Charge is the primary's, as a fraction: the Twin Buster's charge, or on a weapon with a charged
+- Charge is the primary's, as a fraction: the heavy beam rifle's charge, or on a weapon with a charged
   shot (the beam rifle) how long its trigger has been held, from the press to a full charge (1:
   let go and the charged shot, weapon kind 19, leaves). CHARGING, here and on the entity, is the
-  Twin Buster charging or a charged shot held past its tap.
+  the heavy beam rifle charging or a charged shot held past its tap.
 - The lock target is the designation the server accepted: alive, hostile and on your sensors.
   Lock progress counts 0–15 toward a missile lock on it; LOCK_ACQUIRED says it's there.
   LOCKED_ON ignores locks by suits you can't see (a jamming suit's lock goes unnoticed).
-- The special timer counts ticks: of a change of form, of Full Open, or of the break until the
-  Hyper Jammer hides the suit again.
+- The special timer counts ticks: of a change of form, of Full Salvo, or of the break until the
+  Eclipse hides the suit again.
 
 Entity record, by kind:
 
@@ -279,7 +284,7 @@ stream weapon's tracers from them (its shots send no BeamSpawn), and a flamethro
 while it's lit. SABER says a melee strike is out. The last two flags are SPECIAL (the frame's
 special is engaged; a jamming suit shows it only to its allies, and its enemies' sensors lose it
 past 150 m) and MELEE_ALT (the melee strike
-under way comes from a ranged slot, the Dragon Fang). ASLEEP says its pilot is offline, asleep in
+under way comes from a ranged slot, the Talon). ASLEEP says its pilot is offline, asleep in
 the cockpit. SPARKING, SMOKING and VENTING say a system inside it is damaged, one has failed, and
 its tank is holed.
 
@@ -366,7 +371,7 @@ prefix, except the hangar's (tag 11), which may carry up to 64 KiB.
 | Tag | Message | Direction |
 |---|---|---|
 | 1 | Hello {version, pilot kind, frame, faction, name ≤ 16 B, flags (1 SIGN_IN, 2 RESUME), resume token (32 B, only with RESUME)} | client → server (first frame) |
-| 2 | Welcome {version, client slot, tick, tick_hz, sector, zero_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY, 32 INTERIOR), landmarks (u8), faction (u8: the side flown for)} | server → client (again on moving between sectors) |
+| 2 | Welcome {version, client slot, tick, tick_hz, sector, orrery_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY, 32 INTERIOR), landmarks (u8), faction (u8: the side flown for)} | server → client (again on moving between sectors) |
 | 3 | Reject {reason: 1 version, 2 full, 3 bad hello, 4 frame not allowed, 5 sign-in failed, 6 sign-in required, 7 resume token expired, 8 no signature in time} | server → client |
 | 4 | Roster {entity slot, pilot kind, name (empty = left), flags (1 VERIFIED, 2 ASLEEP, bits 2-4 the suit's weathering 0-7)} | server → client |
 | 5 | Respawn {frame} | client → server |
@@ -377,8 +382,8 @@ prefix, except the hangar's (tag 11), which may carry up to 64 KiB.
 | 10 | Notice {code: 1 your sleeping suit was destroyed, 2 your sleeping suit is gone; name ≤ 16 B (who, for 1)} | server → client |
 | 11 | Hangar {JSON, `bc_econ::wire`: a Request up, an Update down} | either (survival rules; the radio's `say` and `said` under any) |
 
-Pilots claiming to be a server-side Mobile Doll are downgraded to `Agent`. The side is the server's
-to say: Oz is the Mobile Dolls' own, so a claim to it flies for the Colonies, as every human pilot
+Pilots claiming to be a server-side drone are downgraded to `Agent`. The side is the server's
+to say: the Almagest is the drones' own, so a claim to it flies for the Colonies, as every human pilot
 does; an agent asking for the Alliance flies for it. The Welcome's `faction` is the side flown for,
 and a client takes its friends and foes from it, not from what its Hello asked.
 
@@ -458,7 +463,7 @@ Client → server (`Request`):
 | `dock` | | take the suit home (at rest inside the dock, or inside the colony the inner gate's ring; a trainer, on the Blast Hall's gantry) |
 | `launch_inside` | | board and launch the suit into the colony through the inner gate (the colony open) |
 | `board_trainer` | | on foot at the Blast Hall's gantry's hatch in the city: board one of the Charter Board's trainers there (the pilot's hangar untouched) |
-| `trainer` | `build`: `{"kind": "board"}`, `{"kind": "bay"}` or `{"kind": "line", "line": …}` (a frame's slug) | the test range: what the gantry readies for `board_trainer` (the Board's Leo; the bay's build, new and full; a new suit of a line the colony builds). The `proving` board says which (`trainer`) (desk: the Proving Ground, the Blast Hall's room) |
+| `trainer` | `build`: `{"kind": "board"}`, `{"kind": "bay"}` or `{"kind": "line", "line": …}` (a frame's slug) | the test range: what the gantry readies for `board_trainer` (the Board's Argo; the bay's build, new and full; a new suit of a line the colony builds). The `proving` board says which (`trainer`) (desk: the Proving Ground, the Blast Hall's room) |
 | `enter_city` | `strip` (0–2) | ride the cap lift down from the bay to that strip's Hub Gate (the colony open, and the pilot in their bay) |
 | `leave_city` | | ride the lift back up from Hub Gate to the bay |
 | `watch_board` | `on` | send the Charter Board (`charter`) as it changes, or stop |
@@ -494,7 +499,7 @@ an order with `rest: false`, and all the hangar's work) is taken anywhere. With 
 nothing is a desk's, and the bay does it all.
 
 Items are slugs: `ore.nickel_iron`, `mat.steel`, `mat.components`, `mat.propellant` (and the
-purer grades `mat.propellant_refined`, `mat.propellant_ultra`), `part.leo.torso`,
+purer grades `mat.propellant_refined`, `mat.propellant_ultra`), `part.argo.torso`,
 `weapon.beam_rifle`, `module.g_seat`. Parts are
 `head`, `torso`, `arm_l`, `arm_r`, `legs`, `backpack`. Prices are credits a tonne for ores and
 materials (quantities in kg), credits a piece for everything else.
@@ -518,7 +523,7 @@ datagrams use); `charter` (the Charter Board, while watched: the era, the contra
 `task` (`{"kind": "supply", "item", "qty", "delivered"}` or `{"kind": "patrol", "bounty",
 "earned"}`), reward, paid and seconds left, the great works with what each needs and has, their
 top contributors, the pilot's standing and the charter's signatures; and the Most Wanted:
-`wanted` [{`ace`, `name`, `bounty`, `out` (flying among the Dolls now), `last` {`by`, `at`, unix
+`wanted` [{`ace`, `name`, `bounty`, `out` (flying among the drones now), `last` {`by`, `at`, unix
 seconds} (who downed it last; absent: nobody)}], `ladder` [[name, aces downed]] most first, the
 pilot's own `mine_aces` and their terms, `salvage_terms`; and `waiting` {`credits`, `goods`:
 [[item, qty]]}, what the Board holds for the pilot at its desk (a certificate's beam rifle,
@@ -538,10 +543,10 @@ Proving Ground's board, in the colony: `course` and `drill`, the day's best as [
 `standard`); a part on the shelf carries its own `faults`.
 The server sends the hangar and the market whenever they change, the market and the board at most
 every 2 s. The board's notices (a great work finished, the vote open, an era begun, one of
-Zodiac's aces out or downed) come to every pilot as `news`, wherever they are.
+the Almagest's aces out or downed) come to every pilot as `news`, wherever they are.
 
-Zodiac's aces (`DESIGN.md`, "Aces: the Most Wanted"): the ace out among the Dolls is on the
-roster (`Roster`, pilot kind 2, a Mobile Doll) by its callsign while its suit is in the sector,
+The Almagest's aces (`DESIGN.md`, "Aces: the Most Wanted"): the ace out among the drones is on the
+roster (`Roster`, pilot kind 2, a drone) by its callsign while its suit is in the sector,
 downed too until its slot is let go; then the roster forgets it. The pilot who downs one hears
 `news` at once: the Charter Board's pay or, the colony open, that it waits at the Board's desk
 (`ARIES DOWNED · ITS 1,500 CR BOUNTY WAITS FOR YOU AT THE CHARTER BOARD'S DESK`), with a `hangar`

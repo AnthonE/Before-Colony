@@ -10,8 +10,8 @@ use bc_sim::colony::hall::DrillEvent;
 use bc_sim::colony::hub::bay_of_slot;
 use bc_sim::ground::Footing;
 use bc_sim::handle::Handle;
+use bc_sim::orrery::TacticalPicture;
 use bc_sim::sim::{Ejected, LaunchAt};
-use bc_sim::zero::TacticalPicture;
 use bc_sim::{Sim, SimConfig, SuitId};
 
 use crate::clients::ClientState;
@@ -21,7 +21,7 @@ use crate::queues::{
 };
 use crate::replicate::{Work, build_snapshot, build_watch};
 
-/// Ticks between tactical pictures per ZERO pilot when an external oracle is attached (≈3.75 Hz).
+/// Ticks between tactical pictures per the Orrery pilot when an external oracle is attached (≈3.75 Hz).
 const PICTURE_INTERVAL: u32 = 8;
 
 /// How long after a pilot ejects the colony's tugs reach their wreck and take it home, ticks
@@ -432,7 +432,7 @@ impl Sector {
         }
     }
 
-    /// Zodiac's aces (`bc_sim::content::aces`): which is out, for the server; and one downed by a
+    /// The Almagest's aces (`bc_sim::content::aces`): which is out, for the server; and one downed by a
     /// pilot here, to their session (its bounty theirs to take as pay or salvage).
     fn watch_aces(&mut self) {
         let word = self
@@ -533,7 +533,7 @@ impl Sector {
         let m = &self.shared.metrics;
         for client in self.clients.iter_mut().filter(|c| c.active) {
             let i = client.suit.idx();
-            if t < client.next_picture || !self.sim.suits.zero[i].active() {
+            if t < client.next_picture || !self.sim.suits.orrery[i].active() {
                 continue;
             }
             client.next_picture = t + PICTURE_INTERVAL;

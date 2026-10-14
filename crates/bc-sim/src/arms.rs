@@ -1,5 +1,5 @@
 //! A suit's arms tick by tick: whether a blade is striking (and lunging), and how lately a weapon
-//! fired. Busy arms take AMBAC's limbs and a blade's lunge drives the suit, so the flight model
+//! fired. Busy arms take limb trim's limbs and a blade's lunge drives the suit, so the flight model
 //! needs both every tick.
 //!
 //! The server's melee step starts and advances strikes with [`strike_slot`] and [`next_phase`].
@@ -17,8 +17,8 @@ use crate::suits::MeleePhase;
 
 /// After a weapon fires (or a strike begins), the arms are busy for this many ticks.
 pub const BUSY_FIRE_TICKS: u32 = 6;
-/// AMBAC's authority while the arms are busy, of what it has with them idle.
-pub const BUSY_AMBAC: f32 = 0.6;
+/// Limb trim's authority while the arms are busy, of what it has with them idle.
+pub const BUSY_LIMB_TRIM: f32 = 0.6;
 
 /// What a trigger does this tick on a weapon whose shot charges ([`ChargedShot`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,7 +46,7 @@ pub fn charged_pull(hold: &mut u16, wants: bool, ready: bool, c: &ChargedShot) -
 }
 
 /// Whether a weapon with this hold on it is charging for everyone to see: a charged shot past its
-/// tap, or the Twin Buster's own charge.
+/// tap, or the heavy beam rifle's own charge.
 pub fn charging(hold: u16, spec: &crate::content::WeaponSpec) -> bool {
     match spec.charged {
         Some(c) => hold > u16::from(c.tap),
@@ -54,14 +54,14 @@ pub fn charging(hold: u16, spec: &crate::content::WeaponSpec) -> bool {
     }
 }
 
-/// AMBAC's authority with busy arms, from its authority with them idle (as sent to the owner).
-pub fn busy_ambac(idle: f32) -> f32 {
-    idle * BUSY_AMBAC
+/// Limb trim's authority with busy arms, from its authority with them idle (as sent to the owner).
+pub fn busy_limb_trim(idle: f32) -> f32 {
+    idle * BUSY_LIMB_TRIM
 }
 
 /// The mount a command strikes with, if one it asks for is ready: in priority order, the special's
-/// press (a melee move), the melee press, then fire held on a blade in a gun slot (the Dragon
-/// Fang). `ready(slot)`: whether that mount could start a strike now.
+/// press (a melee move), the melee press, then fire held on a blade in a gun slot (the
+/// Talon). `ready(slot)`: whether that mount could start a strike now.
 pub fn strike_slot(cmd: &InputCmd, prev_buttons: u16, ready: impl Fn(u8) -> bool) -> Option<u8> {
     let edge = |b: u16| cmd.pressed(b) && prev_buttons & b == 0;
     [
@@ -130,12 +130,12 @@ pub struct ArmsClock {
     /// Each gun slot's missile salvo under way: rounds still to launch, and ticks until the next.
     pub salvo: [u8; 2],
     pub salvo_gap: [u8; 2],
-    /// Ticks the primary has charged (the Twin Buster Rifle fires when it's full), or its trigger
+    /// Ticks the primary has charged (the Heavy Beam Rifle fires when it's full), or its trigger
     /// has been held (a [`ChargedShot`]).
     pub charge: u16,
-    /// Ticks of Full Open left.
-    pub full_open: u8,
-    /// Overheated: guns and blades wait (Full Open fires through it).
+    /// Ticks of Full Salvo left.
+    pub full_salvo: u8,
+    /// Overheated: guns and blades wait (Full Salvo fires through it).
     pub overheated: bool,
     /// The buttons of the command flown last (a press is a button that wasn't down then).
     pub prev_buttons: u16,
@@ -155,7 +155,7 @@ impl Default for ArmsClock {
             salvo: [0; 2],
             salvo_gap: [0; 2],
             charge: 0,
-            full_open: 0,
+            full_salvo: 0,
             overheated: false,
             prev_buttons: 0,
             in_hand: None,
@@ -170,7 +170,7 @@ impl ArmsClock {
         let a = &own.arms;
         // Sent as a fraction of the charge, which comes back to the tick (see the content tests).
         let charge_ticks = spec.loadout[0].map_or(0, |m| weapon(m.weapon).charge_span());
-        let full_open = matches!(spec.special, SpecialKind::FullOpen { .. })
+        let full_salvo = matches!(spec.special, SpecialKind::FullSalvo { .. })
             && own.flags & own_flags::SPECIAL_ACTIVE != 0;
         Self {
             phase: phase_from_wire(a.phase),
@@ -181,7 +181,7 @@ impl ArmsClock {
             salvo: a.salvo,
             salvo_gap: a.salvo_gap,
             charge: (own.charge * f32::from(charge_ticks) + 0.5) as u16,
-            full_open: if full_open { own.special_timer } else { 0 },
+            full_salvo: if full_salvo { own.special_timer } else { 0 },
             overheated: own.flags & own_flags::OVERHEAT != 0,
             prev_buttons: buttons,
             in_hand: None,
@@ -207,7 +207,7 @@ impl ArmsClock {
             .is_some_and(|m| m.lunge)
     }
 
-    /// Whether the strike under way takes `arm` with it (the Dragon Fang), so its guns wait.
+    /// Whether the strike under way takes `arm` with it (the Talon), so its guns wait.
     fn blocks(&self, spec: &FrameSpec, arm: ArmSlot) -> bool {
         self.phase != MeleePhase::Idle
             && spec
@@ -231,20 +231,20 @@ impl ArmsClock {
     fn roll(&mut self, spec: &FrameSpec, cmd: &InputCmd, changing: bool, t: u32) {
         let prev_buttons = self.prev_buttons;
         let edge = |b: u16| cmd.pressed(b) && prev_buttons & b == 0;
-        // The special: its cooldown runs down; Full Open runs its course, or opens on a press.
+        // The special: its cooldown runs down; Full Salvo runs its course, or opens on a press.
         run_down(&mut self.wait[3]);
         let mut opened_out = false;
-        if let SpecialKind::FullOpen { ticks, cooldown, .. } = spec.special {
-            if self.full_open > 0 {
-                self.full_open -= 1;
-                opened_out = self.full_open == 0;
+        if let SpecialKind::FullSalvo { ticks, cooldown, .. } = spec.special {
+            if self.full_salvo > 0 {
+                self.full_salvo -= 1;
+                opened_out = self.full_salvo == 0;
             } else if edge(SPECIAL) && self.wait[3] == 0 && !self.overheated && !changing {
-                self.full_open = ticks.min(255) as u8;
+                self.full_salvo = ticks.min(255) as u8;
                 self.wait[3] = OwnArms::wait(cooldown);
             }
         }
-        // Guns, which are down while the suit changes form. Full Open fires them all, heat or not.
-        let heedless = self.full_open > 0;
+        // Guns, which are down while the suit changes form. Full Salvo fires them all, heat or not.
+        let heedless = self.full_salvo > 0;
         if !changing {
             for (slot, button) in [(0usize, FIRE_PRIMARY), (1, FIRE_SECONDARY)] {
                 // A gun in hand on the secondary's trigger: its plain shot, on its own cooldown.
@@ -322,12 +322,12 @@ impl ArmsClock {
                     self.wait[slot] = OwnArms::wait(cooldown);
                 }
             }
-            // The special mounts fire all through Full Open.
+            // The special mounts fire all through Full Salvo.
             if heedless {
                 self.fired_at = t;
             }
         }
-        // Once Full Open is over, the suit is locked out as if overheated.
+        // Once Full Salvo is over, the suit is locked out as if overheated.
         if opened_out {
             self.overheated = true;
         }

@@ -13,7 +13,7 @@ use bc_proto::Part;
 pub enum System {
     /// The head's main camera and sensors: how far the suit sees.
     Sensors = 0,
-    /// The head's fire control: missile locks, and the ZERO System's firing solution.
+    /// The head's fire control: missile locks, and the Orrery's firing solution.
     FireControl = 1,
     /// The torso's reactor: how fast energy comes back.
     Reactor = 2,
@@ -21,7 +21,7 @@ pub enum System {
     Tank = 3,
     /// The torso's radiators: how fast heat goes.
     Radiators = 4,
-    /// The torso's gyros: AMBAC's turning.
+    /// The torso's gyros: limb trim's turning.
     Gyros = 5,
     /// The cockpit, and the pilot in it.
     Cockpit = 6,
@@ -217,14 +217,14 @@ pub const CRIT_CAP: f32 = 0.75;
 pub const CRIT_BLOW: f32 = 0.25;
 /// A blow this big knocks a system down two levels.
 pub const CRIT_DOUBLE: f32 = 0.35;
-/// Mobile Dolls are built simply: their systems are reached this much less often.
-pub const DOLL_CRIT: f32 = 0.6;
+/// Drones are built simply: their systems are reached this much less often.
+pub const DRONE_CRIT: f32 = 0.6;
 
 /// How likely a blow of `blow` (of the part's full armour) that leaves `armour_left` (0..1) is to
 /// reach one of the part's systems. Thin armour lets more through, and so does a bigger blow.
-pub fn crit_chance(blow: f32, armour_left: f32, doll: bool) -> f32 {
+pub fn crit_chance(blow: f32, armour_left: f32, drone: bool) -> f32 {
     let p = ((1.0 - armour_left.clamp(0.0, 1.0)) * (blow / CRIT_BLOW).min(1.0)).min(CRIT_CAP);
-    if doll { p * DOLL_CRIT } else { p }
+    if drone { p * DRONE_CRIT } else { p }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -246,7 +246,7 @@ pub const LEAK_KG_S: [f32; 3] = [0.0, 3.0, 15.0];
 pub const TANK_REFILL: [f32; 3] = [1.0, 0.5, 0.0];
 /// Heat dissipation.
 pub const RADIATORS: [f32; 3] = [1.0, 0.6, 0.25];
-/// AMBAC authority.
+/// Limb trim authority.
 pub const GYROS: [f32; 3] = [1.0, 0.75, 0.5];
 /// Sustained G the pilot bears.
 pub const COCKPIT_G: [f32; 3] = [6.0, 5.0, 4.0];

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use bc_bot::{BotClient, BotConfig, DollBrain};
+use bc_bot::{BotClient, BotConfig, DroneBrain};
 use bc_proto::{Faction, FrameId, MAX_DATAGRAM, PilotKind};
 use bc_server::{Config, Mode, Ruleset};
 
@@ -24,9 +24,9 @@ async fn fly(
     done: Arc<AtomicBool>,
 ) -> anyhow::Result<(Outcome, BotClient)> {
     let mut bot =
-        BotClient::connect(&BotConfig { server: http, name: name.into(), frame: FrameId::Leo, faction })
+        BotClient::connect(&BotConfig { server: http, name: name.into(), frame: FrameId::Argo, faction })
             .await?;
-    let mut brain = DollBrain::new(name.len() as u32 * 31 + 7);
+    let mut brain = DroneBrain::new(name.len() as u32 * 31 + 7);
     let mut out =
         Outcome { saw_agent: false, hits: 0, snapshots: 0, max_snapshot: 0, prediction_error_max: 0.0 };
     let end = Instant::now() + Duration::from_secs(90);
@@ -58,7 +58,7 @@ async fn two_agents_find_each_other_and_fight() -> anyhow::Result<()> {
         rules: Ruleset::Arcade,
         wt_port: 0,
         http_addr: "127.0.0.1:0".parse()?,
-        mobile_dolls: 0,
+        drones: 0,
         max_clients: 8,
         ..Config::default()
     };

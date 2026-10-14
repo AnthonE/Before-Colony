@@ -1,6 +1,6 @@
 //! A pilot's view of the battlefield: itself plus up to [`MAX_CONTACTS`] sensor contacts.
 //!
-//! The same structure feeds Mobile Doll AI on the server, the ZERO System, bots (built from
+//! The same structure feeds drone AI on the server, the Orrery, bots (built from
 //! snapshots in `bc-client-core`) and the browser autopilot. Every brain sees the world the same way.
 
 use bc_proto::{Faction, FrameId, NO_SLOT, Part, PilotKind};
@@ -38,9 +38,9 @@ impl Default for Contact {
     fn default() -> Self {
         Self {
             slot: NO_SLOT,
-            frame: FrameId::Leo,
-            faction: Faction::Oz,
-            pilot: PilotKind::MobileDoll,
+            frame: FrameId::Argo,
+            faction: Faction::Almagest,
+            pilot: PilotKind::Drone,
             pos: Vec3::ZERO,
             vel: Vec3::ZERO,
             rot: Quat::IDENTITY,
@@ -64,7 +64,7 @@ pub struct KitView {
     pub lock_acquired: bool,
     /// A guided missile is tracking it.
     pub missile_incoming: bool,
-    /// Its special can be used now, and whether it's engaged (the jammer on, Full Open).
+    /// Its special can be used now, and whether it's engaged (the jammer on, Full Salvo).
     pub special_ready: bool,
     pub special_active: bool,
     /// It's changing form.
@@ -103,8 +103,8 @@ impl Default for SelfView {
     fn default() -> Self {
         Self {
             slot: NO_SLOT,
-            frame: FrameId::Leo,
-            faction: Faction::Oz,
+            frame: FrameId::Argo,
+            faction: Faction::Almagest,
             pos: Vec3::ZERO,
             vel: Vec3::ZERO,
             rot: Quat::IDENTITY,

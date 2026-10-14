@@ -1,18 +1,18 @@
 //! Client → server input.
 //!
 //! [`InputCmd`] is the one control interface in the game. Humans, external agents and server-side
-//! Mobile Dolls all drive their suits by producing it, so nobody gets a privileged API.
+//! drones all drive their suits by producing it, so nobody gets a privileged API.
 
 use glam::Vec3;
 
 use crate::quant::{self, quantize_dir};
 use crate::{BitReader, BitWriter, DecodeError, NO_SLOT, PACKET_KIND_BITS, PacketKind, SLOT_BITS};
 
-/// Button and state bits. Toggles (flight assist, ZERO, the frame's mode, a grab, the grip) are
+/// Button and state bits. Toggles (flight assist, the Orrery, the frame's mode, a grab, the grip) are
 /// sent as **states**, never as presses, so a lost or duplicated packet can't flip them twice. Bit
 /// 15 is free.
 pub mod buttons {
-    /// Left mouse: primary weapon (beam rifle / Twin Buster Rifle).
+    /// Left mouse: primary weapon (beam rifle / Heavy Beam Rifle).
     pub const FIRE_PRIMARY: u16 = 1 << 0;
     /// Right mouse: secondary weapon (machine cannon).
     pub const FIRE_SECONDARY: u16 = 1 << 1;
@@ -24,9 +24,9 @@ pub mod buttons {
     pub const BRAKE: u16 = 1 << 4;
     /// State: flight assist (velocity hold) engaged.
     pub const FLIGHT_ASSIST: u16 = 1 << 5;
-    /// State: ZERO System engaged.
-    pub const ZERO: u16 = 1 << 6;
-    /// Hold: turn with RCS thrusters (fast, burns propellant) instead of AMBAC alone.
+    /// State: the Orrery engaged.
+    pub const ORRERY: u16 = 1 << 6;
+    /// Hold: turn with RCS thrusters (fast, burns propellant) instead of limb trim alone.
     pub const RCS_SHARP: u16 = 1 << 7;
     /// State: the free hand closes on the nearest chunk in reach and holds it while set.
     pub const GRAB: u16 = 1 << 8;
@@ -36,9 +36,9 @@ pub mod buttons {
     pub const THROW: u16 = 1 << 10;
     /// Press: dump the hold's contents.
     pub const JETTISON: u16 = 1 << 11;
-    /// State: the frame's mode is engaged (Wing Zero's Neo-Bird form, Deathscythe's Hyper Jammer).
+    /// State: the frame's mode is engaged (Altair's Aquila form, Algol's Eclipse).
     pub const MODE: u16 = 1 << 12;
-    /// Press: the frame's special attack (Heavyarms' Full Open Attack, Sandrock's Cross Crusher).
+    /// Press: the frame's special attack (Antares' Full Salvo, Canopus's Pincer Strike).
     pub const SPECIAL: u16 = 1 << 13;
     /// State (L): the grip is armed. Coming in slow and close to a surface lands the suit on it, and
     /// it holds on while this is set: clearing it lets go. Being a state, a client that stalls
@@ -51,7 +51,7 @@ pub mod buttons {
     /// Actions a silent client's repeated command must not keep performing.
     pub const FIRE_MASK: u16 = FIRE_PRIMARY | FIRE_SECONDARY | MELEE | SPECIAL;
     /// States that persist while a client is silent (see [`InputCmd::neutral`](super::InputCmd::neutral)).
-    pub const STATES: u16 = FLIGHT_ASSIST | ZERO | GRAB | MODE | GRIP;
+    pub const STATES: u16 = FLIGHT_ASSIST | ORRERY | GRAB | MODE | GRIP;
     pub const BITS: u32 = 16;
 }
 
@@ -159,7 +159,7 @@ impl Default for InputCmd {
 }
 
 impl InputCmd {
-    /// A "hands off" command for `tick` that keeps the given aim and states (flight assist, ZERO,
+    /// A "hands off" command for `tick` that keeps the given aim and states (flight assist, the Orrery,
     /// the frame's mode, a grip on whatever is in hand, and the grip on a surface).
     pub fn neutral(tick: u32, aim: Vec3, keep_buttons: u16) -> Self {
         Self {
@@ -333,7 +333,7 @@ mod tests {
                 aim: Vec3::new(0.2, -0.3, 0.93).normalize(),
                 thrust: [-127, 5, 127],
                 roll: -3,
-                buttons: buttons::FIRE_PRIMARY | buttons::ZERO | buttons::JETTISON,
+                buttons: buttons::FIRE_PRIMARY | buttons::ORRERY | buttons::JETTISON,
                 lock_target: 17,
                 shot_seq: 250,
                 // One of them locked on, its target at rest.
@@ -457,7 +457,7 @@ mod tests {
         let n = InputCmd::neutral(9, Vec3::X, u16::MAX);
         assert_eq!(
             n.buttons,
-            buttons::FLIGHT_ASSIST | buttons::ZERO | buttons::GRAB | buttons::MODE | buttons::GRIP
+            buttons::FLIGHT_ASSIST | buttons::ORRERY | buttons::GRAB | buttons::MODE | buttons::GRIP
         );
         // A client that stalls never lets go of the surface it stands on.
         let last =

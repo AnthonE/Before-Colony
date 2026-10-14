@@ -4,7 +4,7 @@
 //! few pieces near a footprint from the block or the stretch of street they stand by. Nothing is
 //! stored or sent.
 //!
-//! People and their cars bump into it ([`super::city::solid`]); a mobile suit steps over it, so
+//! People and their cars bump into it ([`super::city::solid`]); a suit steps over it, so
 //! what a suit meets ([`super::city::each_solid`], [`super::city::solid_built`], `interior`) leaves
 //! it out.
 //!

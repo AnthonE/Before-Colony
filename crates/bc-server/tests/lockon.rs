@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use bc_bot::{BotClient, BotConfig, DollBrain};
+use bc_bot::{BotClient, BotConfig, DroneBrain};
 use bc_client_core::lockon::{self, Lock};
 use bc_proto::buttons::{BOOST, FLIGHT_ASSIST};
 use bc_proto::{Faction, FrameId, InputCmd};
@@ -29,13 +29,13 @@ async fn hunt(http: String, done: Arc<AtomicBool>) -> anyhow::Result<(Outcome, B
     let mut bot = BotClient::connect(&BotConfig {
         server: http,
         name: "Hunter".into(),
-        frame: FrameId::Leo,
+        frame: FrameId::Argo,
         faction: Faction::Colonies,
     })
     .await?;
-    let mut brain = DollBrain::new(7);
+    let mut brain = DroneBrain::new(7);
     let mut lock = Lock::default();
-    let stop = lockon::stop_range(FrameId::Leo);
+    let stop = lockon::stop_range(FrameId::Argo);
     let mut out =
         Outcome { locked: false, first: 0.0, lockon_cmds: 0, closest: f32::MAX, prediction_error_max: 0.0 };
     let (mut in_close, mut range) = (0u32, f32::MAX);
@@ -78,16 +78,16 @@ async fn hunt(http: String, done: Arc<AtomicBool>) -> anyhow::Result<(Outcome, B
     Ok((out, bot))
 }
 
-/// The quarry: an agent with the Mobile Doll's judgement, fighting back.
+/// The quarry: an agent with the drone's judgement, fighting back.
 async fn quarry(http: String, done: Arc<AtomicBool>) -> anyhow::Result<BotClient> {
     let mut bot = BotClient::connect(&BotConfig {
         server: http,
         name: "Quarry".into(),
-        frame: FrameId::Leo,
+        frame: FrameId::Argo,
         faction: Faction::Alliance,
     })
     .await?;
-    let mut brain = DollBrain::new(11);
+    let mut brain = DroneBrain::new(11);
     let end = Instant::now() + Duration::from_secs(90);
     while Instant::now() < end && !done.load(Ordering::Acquire) {
         bot.step(&mut |ctx| brain.decide(ctx)).await?;
@@ -102,7 +102,7 @@ async fn a_locked_on_agent_closes_in_and_predicts_it() -> anyhow::Result<()> {
         rules: Ruleset::Arcade,
         wt_port: 0,
         http_addr: "127.0.0.1:0".parse()?,
-        mobile_dolls: 0,
+        drones: 0,
         max_clients: 8,
         ..Config::default()
     };

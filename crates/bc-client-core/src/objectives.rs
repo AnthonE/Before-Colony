@@ -4,12 +4,12 @@
 //! ride the cap lift down, report to the Proving Ground and earn a flight certificate there, then a
 //! straight walk down the avenue to the Exchange floor and the Charter Board's desk, standing with
 //! the colony, and home to arm the suit with the Board's beam rifle. Then out: land on the resource
-//! satellite and hide in its well, mine ore and bring it home, sell it, down a Mobile Doll, reach
-//! Hermit, down five, read Zodiac's Most Wanted at The Arrival and down one of its aces, try a new
-//! Gundam on the test range, and make gundanium.
+//! satellite and hide in its well, mine ore and bring it home, sell it, down a drone, reach
+//! Hermit, down five, read the Almagest's Most Wanted at The Arrival and down one of its aces, try a new
+//! Lodestar on the test range, and make siderium.
 //!
 //! They can be done in any order: each is checked every frame, and what's done is kept with the
-//! settings (a bit per [`Objective`], and how many Dolls the pilot has downed), so it carries over
+//! settings (a bit per [`Objective`], and how many drones the pilot has downed), so it carries over
 //! from one visit to the next in the same browser. Which one the HUD shows depends on where the
 //! pilot is ([`Here`]): flying, the first not done that's done in space (so a pilot who launches
 //! first is never pulled home while one is open); on foot, the first not done in the rules' order,
@@ -36,8 +36,8 @@ use crate::bay::Lift;
 
 /// Ore in the hold that counts as having mined, kg.
 pub const MINE_KG: u32 = 200;
-/// Dolls downed that make a name (and Zodiac's aces are next).
-pub const FIVE_DOLLS: u32 = 5;
+/// Drones downed that make a name (and the Almagest's aces are next).
+pub const FIVE_DRONES: u32 = 5;
 /// A rock this big (its smallest half-axis, m) is the miner's waypoint: it can be landed on, and
 /// holds tonnes.
 const BIG_ROCK: f32 = 10.0;
@@ -53,12 +53,12 @@ pub enum Objective {
     Mine,
     /// Bring it to the dock (survival: home; arcade: sell it).
     Deliver,
-    /// Down a Mobile Doll.
+    /// Down a drone.
     Bounty,
     /// Land on Hermit (the second landmark).
     Hermit,
-    /// Down [`FIVE_DOLLS`] Mobile Dolls.
-    FiveDolls,
+    /// Down [`FIVE_DRONES`] drones.
+    FiveDrones,
     /// Ride a cap lift down from the bays into the colony (the colony open).
     RideDown,
     /// Find the Colony Exchange's floor in the city.
@@ -74,17 +74,17 @@ pub enum Objective {
     CharterDesk,
     /// Earn standing with the colony: deliver to its contracts or its great works.
     Standing,
-    /// Arm the bay's suit: every weapon its frame carries fitted (the worn Leo an Arrival is handed
+    /// Arm the bay's suit: every weapon its frame carries fitted (the worn Argo an Arrival is handed
     /// came without its beam rifle).
     Arm,
-    /// Read Zodiac's Most Wanted, pinned up behind the bar at The Arrival.
+    /// Read the Almagest's Most Wanted, pinned up behind the bar at The Arrival.
     MostWanted,
-    /// Down one of Zodiac's aces (the Charter Board's count).
-    ZodiacAce,
-    /// Fly a new Gundam off the test range, from the Blast Hall's gantry.
+    /// Down one of the Almagest's aces (the Charter Board's count).
+    AlmagestAce,
+    /// Fly a new Lodestar off the test range, from the Blast Hall's gantry.
     TryPrototype,
-    /// Make gundanium (or have it in the making) at the colony's zero-G foundry.
-    Gundanium,
+    /// Make siderium (or have it in the making) at the colony's zero-G foundry.
+    Siderium,
 }
 
 /// Where an objective is done.
@@ -119,9 +119,9 @@ pub enum Waypoint {
     /// The nearest big rock.
     Rock,
     Dock,
-    /// The nearest Mobile Doll in sight, else their patrols over the field.
-    Dolls,
-    /// The nearest of Zodiac's aces in sight (by its name on the roster), else as [`Waypoint::Dolls`].
+    /// The nearest drone in sight, else their patrols over the field.
+    Drones,
+    /// The nearest of the Almagest's aces in sight (by its name on the roster), else as [`Waypoint::Drones`].
     Ace,
     /// A place in the colony's city (an index into `content::city::PLACES`): flying, the way
     /// home to the dock comes first; on foot, its door.
@@ -136,7 +136,7 @@ impl Objective {
         Objective::Deliver,
         Objective::Bounty,
         Objective::Hermit,
-        Objective::FiveDolls,
+        Objective::FiveDrones,
         Objective::RideDown,
         Objective::ExchangeFloor,
         Objective::Sell,
@@ -146,15 +146,15 @@ impl Objective {
         Objective::Standing,
         Objective::Arm,
         Objective::MostWanted,
-        Objective::ZodiacAce,
+        Objective::AlmagestAce,
         Objective::TryPrototype,
-        Objective::Gundanium,
+        Objective::Siderium,
     ];
 
     /// Survival's order: `docs/TRAINING.md`'s first ten minutes, a new Arrival on foot in their bay
-    /// with a worn Leo: down the cap lift, and a straight walk along the avenue from Hub Gate past
+    /// with a worn Argo: down the cap lift, and a straight walk along the avenue from Hub Gate past
     /// the Blast Hall to the Exchange floor and the Charter Board's hall; then home to arm the suit,
-    /// and out. The ore brought home is sold; then the Dolls, and their aces.
+    /// and out. The ore brought home is sold; then the drones, and their aces.
     const SURVIVAL: [Objective; 19] = [
         Objective::RideDown,
         Objective::ProvingGround,
@@ -170,13 +170,13 @@ impl Objective {
         Objective::Sell,
         Objective::Bounty,
         Objective::Hermit,
-        Objective::FiveDolls,
+        Objective::FiveDrones,
         Objective::MostWanted,
-        Objective::ZodiacAce,
+        Objective::AlmagestAce,
         Objective::TryPrototype,
-        Objective::Gundanium,
+        Objective::Siderium,
     ];
-    /// Arcade's: a pilot launches by the field, in whatever suit they like, among the Dolls (and
+    /// Arcade's: a pilot launches by the field, in whatever suit they like, among the drones (and
     /// the colony is closed: what's the colony's or the bay's doesn't show).
     const ARCADE: [Objective; 19] = [
         Objective::Bounty,
@@ -185,7 +185,7 @@ impl Objective {
         Objective::LandStation,
         Objective::Hide,
         Objective::Hermit,
-        Objective::FiveDolls,
+        Objective::FiveDrones,
         Objective::RideDown,
         Objective::ProvingGround,
         Objective::ExchangeFloor,
@@ -195,9 +195,9 @@ impl Objective {
         Objective::Standing,
         Objective::Arm,
         Objective::MostWanted,
-        Objective::ZodiacAce,
+        Objective::AlmagestAce,
         Objective::TryPrototype,
-        Objective::Gundanium,
+        Objective::Siderium,
     ];
 
     pub fn bit(self) -> u32 {
@@ -223,8 +223,8 @@ impl Objective {
             | Objective::CharterDesk
             | Objective::MostWanted
             | Objective::TryPrototype => i.colony,
-            Objective::Standing | Objective::Arm | Objective::ZodiacAce | Objective::Gundanium => i.survival,
-            Objective::Deliver | Objective::Bounty | Objective::FiveDolls => true,
+            Objective::Standing | Objective::Arm | Objective::AlmagestAce | Objective::Siderium => i.survival,
+            Objective::Deliver | Objective::Bounty | Objective::FiveDrones => true,
         }
     }
 
@@ -237,9 +237,9 @@ impl Objective {
             | Objective::Deliver
             | Objective::Bounty
             | Objective::Hermit
-            | Objective::FiveDolls
-            | Objective::ZodiacAce => Realm::Space,
-            Objective::RideDown | Objective::Arm | Objective::Gundanium => Realm::Bay,
+            | Objective::FiveDrones
+            | Objective::AlmagestAce => Realm::Space,
+            Objective::RideDown | Objective::Arm | Objective::Siderium => Realm::Bay,
             Objective::ProvingGround
             | Objective::Certify
             | Objective::ExchangeFloor
@@ -259,9 +259,9 @@ impl Objective {
             Objective::Mine => format!("MINE {MINE_KG} KG OF ORE"),
             Objective::Deliver if survival => "BRING THE ORE HOME".into(),
             Objective::Deliver => "SELL ORE AT THE DOCK".into(),
-            Objective::Bounty => format!("DOWN A {}", doll().to_uppercase()),
+            Objective::Bounty => format!("DOWN A {}", drone().to_uppercase()),
             Objective::Hermit => format!("LAND ON {}", LANDMARKS[1].name),
-            Objective::FiveDolls => format!("DOWN {FIVE_DOLLS} {}S", doll().to_uppercase()),
+            Objective::FiveDrones => format!("DOWN {FIVE_DRONES} {}S", drone().to_uppercase()),
             Objective::RideDown => "RIDE THE CAP LIFT DOWN".into(),
             Objective::ExchangeFloor => "FIND THE EXCHANGE FLOOR".into(),
             Objective::Sell => "SELL ON THE EXCHANGE".into(),
@@ -271,9 +271,9 @@ impl Objective {
             Objective::Standing => "EARN STANDING WITH THE COLONY".into(),
             Objective::Arm => "ARM YOUR SUIT".into(),
             Objective::MostWanted => "READ THE MOST WANTED".into(),
-            Objective::ZodiacAce => "DOWN ONE OF ZODIAC'S ACES".into(),
+            Objective::AlmagestAce => "DOWN ONE OF THE ALMAGEST'S ACES".into(),
             Objective::TryPrototype => format!("TRY A NEW {} ON THE TEST RANGE", proto().to_uppercase()),
-            Objective::Gundanium => "MAKE GUNDANIUM".into(),
+            Objective::Siderium => "MAKE SIDERIUM".into(),
         }
     }
 
@@ -299,14 +299,14 @@ impl Objective {
             }
             Objective::Bounty => format!(
                 "The Consortium's {}s patrol over the field. The Charter Board pays a bounty for each.",
-                doll()
+                drone()
             ),
             Objective::Hermit => format!(
                 "The big asteroid, 15 km out past the field. Its craters hide a suit: {}.",
                 LANDMARKS[1].hides.iter().map(|h| h.name).collect::<Vec<_>>().join(", ")
             ),
-            Objective::FiveDolls => {
-                "Every one is a bounty paid, and counts toward a patrol you hold. Five, and Zodiac's aces are next."
+            Objective::FiveDrones => {
+                "Every one is a bounty paid, and counts toward a patrol you hold. Five, and the Almagest's aces are next."
                     .into()
             }
             Objective::RideDown => {
@@ -327,7 +327,7 @@ impl Objective {
             }
             Objective::Certify => format!(
                 "In the Blast Hall, E at the gantry's hatch boards one of the Board's {}s: clear the drill, or fly the course from the inner gate. Any time the Board takes is a certificate, and it trusts a certified pilot with a beam rifle.",
-                leo()
+                argo()
             ),
             Objective::CharterDesk => {
                 "Its hall is on Charter Square, past the Exchange floor: M shows the city, ◆ marks its door. What the Board holds for you is paid out at its desk (E), and contracts are posted, patrols taken and the charter signed there."
@@ -341,25 +341,25 @@ impl Objective {
             }
             Objective::Arm if colony => format!(
                 "Your {} came without its beam rifle. At the suit's console in your bay (E at its feet), fit one from your stores: the Charter Board's for a flight certificate (paid out at its desk, on Charter Square), or one bought on the Exchange or built at the fabricator.",
-                leo()
+                argo()
             ),
             Objective::Arm => format!(
                 "Your {} came without its beam rifle. At the suit's console in your bay (E at its feet), fit one from your stores: one bought on the Exchange or built at the fabricator.",
-                leo()
+                argo()
             ),
             Objective::MostWanted => {
-                "Zodiac's aces are pinned up behind the bar at The Arrival, off Charter Square (E at its counter): who's out, the bounty on each, and your terms for it."
+                "The Almagest's aces are pinned up behind the bar at The Arrival, off Charter Square (E at its counter): who's out, the bounty on each, and your terms for it."
                     .into()
             }
-            Objective::ZodiacAce => format!(
+            Objective::AlmagestAce => format!(
                 "One flies among the {}s at a time, its callsign on your lock (Y), its ◆ on your HUD. The Charter Board pays its bounty; or, on your terms, the tugs bring its wreck home.",
-                doll()
+                drone()
             ),
             Objective::TryPrototype => format!(
                 "At the Proving Ground's desk, THE TEST RANGE readies a new {} on the gantry: board it at the hatch (E) and fly it. Nothing of yours is at stake, and it's what you're building towards.",
                 proto()
             ),
-            Objective::Gundanium => {
+            Objective::Siderium => {
                 "Only the colony's zero-G foundry makes it, from titanium alloy and exotics, for a fee: queue it at your bay's fabricator. Exotics are in the field's rarest rocks."
                     .into()
             }
@@ -417,9 +417,9 @@ impl Objective {
             Objective::LandStation => Waypoint::Landmark(0),
             Objective::Hide => Waypoint::HideSpot(0, 0),
             Objective::Mine => Waypoint::Rock,
-            Objective::Deliver | Objective::Arm | Objective::Gundanium => Waypoint::Dock,
-            Objective::Bounty | Objective::FiveDolls => Waypoint::Dolls,
-            Objective::ZodiacAce => Waypoint::Ace,
+            Objective::Deliver | Objective::Arm | Objective::Siderium => Waypoint::Dock,
+            Objective::Bounty | Objective::FiveDrones => Waypoint::Drones,
+            Objective::AlmagestAce => Waypoint::Ace,
             Objective::Hermit => Waypoint::Landmark(1),
             Objective::RideDown => Waypoint::Place(hub_gate()),
             Objective::ExchangeFloor | Objective::Sell => Waypoint::Place(exchange()),
@@ -435,7 +435,7 @@ impl Objective {
     pub fn progress(self, i: &ObjectiveInput, downed: u32) -> Option<(u32, u32)> {
         match self {
             Objective::Mine => Some((i.cargo_kg.min(MINE_KG), MINE_KG)),
-            Objective::FiveDolls => Some((downed.min(FIVE_DOLLS), FIVE_DOLLS)),
+            Objective::FiveDrones => Some((downed.min(FIVE_DRONES), FIVE_DRONES)),
             _ => None,
         }
     }
@@ -484,13 +484,13 @@ fn word(name: &str) -> String {
 }
 
 /// What the pilotless suits are called.
-fn doll() -> &'static str {
-    bc_sim::content::doll_name()
+fn drone() -> &'static str {
+    bc_sim::content::drone_name()
 }
 
 /// What the Charter Board's suits (an Arrival's worn one, its trainers) are called.
-fn leo() -> &'static str {
-    bc_sim::content::frame_name(FrameId::Leo)
+fn argo() -> &'static str {
+    bc_sim::content::frame_name(FrameId::Argo)
 }
 
 /// What a new line of the colony's own is called.
@@ -518,8 +518,8 @@ pub struct ObjectiveInput {
     pub cargo_kg: u32,
     /// Inside the dock's ring (the own state's flag).
     pub docked: bool,
-    /// Mobile Dolls the pilot has downed this session (the world's count).
-    pub doll_kills: u32,
+    /// Drones the pilot has downed this session (the world's count).
+    pub drone_kills: u32,
     /// The colony is open (the Welcome's COLONY flag), the pilot is down in its city, and stands
     /// at the Exchange floor's door.
     pub colony: bool,
@@ -538,11 +538,11 @@ pub struct ObjectiveInput {
     pub standing: bool,
     /// The bay's suit has every weapon it carries fitted (`HangarState::armed`).
     pub armed: bool,
-    /// One of Zodiac's aces downed (`HangarState::aces_downed`).
+    /// One of the Almagest's aces downed (`HangarState::aces_downed`).
     pub aces: bool,
-    /// Flying a new Gundam off the test range (a trainer, alive).
+    /// Flying a new Lodestar off the test range (a trainer, alive).
     pub tried_prototype: bool,
-    /// Gundanium in the stores or in the making (`HangarState::smelting`).
+    /// Siderium in the stores or in the making (`HangarState::smelting`).
     pub smelting: bool,
     /// The Charter Board holds something for the pilot at its desk (`HangarState::board_holds`).
     pub waiting: bool,
@@ -551,7 +551,7 @@ pub struct ObjectiveInput {
 /// What the objectives remember between frames.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Objectives {
-    /// The session's Doll kills already counted.
+    /// The session's drone kills already counted.
     kills_seen: u32,
     /// What was aboard last frame (a sale empties the hold the moment the dock's flag comes on).
     last_cargo: u32,
@@ -559,16 +559,16 @@ pub struct Objectives {
 
 impl Objectives {
     /// Steps once a frame: marks what's done in `done` (bits of [`Objective`]) and counts the
-    /// Dolls downed in `downed`. Returns the objective to show ([`Objectives::current`]), or none
+    /// drones downed in `downed`. Returns the objective to show ([`Objectives::current`]), or none
     /// once they all are done.
     pub fn step(&mut self, done: &mut u32, downed: &mut u32, i: &ObjectiveInput) -> Option<Objective> {
         // A new session counts from nothing. A kill counts whenever it lands (a missile can bring
-        // a Doll down after its shooter is).
-        if i.doll_kills < self.kills_seen {
+        // a drone down after its shooter is).
+        if i.drone_kills < self.kills_seen {
             self.kills_seen = 0;
         }
-        *downed = downed.saturating_add(i.doll_kills - self.kills_seen);
-        self.kills_seen = i.doll_kills;
+        *downed = downed.saturating_add(i.drone_kills - self.kills_seen);
+        self.kills_seen = i.drone_kills;
         let mut mark = |o: Objective, now: bool| {
             if now {
                 *done |= o.bit();
@@ -595,14 +595,14 @@ impl Objectives {
         mark(Objective::Standing, i.standing);
         mark(Objective::Arm, i.armed);
         mark(Objective::MostWanted, i.at_arrival);
-        mark(Objective::ZodiacAce, i.aces);
+        mark(Objective::AlmagestAce, i.aces);
         mark(Objective::TryPrototype, i.tried_prototype);
-        mark(Objective::Gundanium, i.smelting);
+        mark(Objective::Siderium, i.smelting);
         if *downed >= 1 {
             *done |= Objective::Bounty.bit();
         }
-        if *downed >= FIVE_DOLLS {
-            *done |= Objective::FiveDolls.bit();
+        if *downed >= FIVE_DRONES {
+            *done |= Objective::FiveDrones.bit();
         }
         Self::current(*done, i)
     }
@@ -663,7 +663,7 @@ pub fn waypoint_at(core: &ClientCore, w: Waypoint, from: Vec3, t: f64) -> Option
         }
         // Flying: home first (on foot the page's map marks the door).
         Waypoint::Dock | Waypoint::Place(_) => Some((DOCK_CENTER, "DOCK".to_string())),
-        Waypoint::Dolls => {
+        Waypoint::Drones => {
             let world = &core.world;
             let near = world
                 .entities
@@ -671,19 +671,19 @@ pub fn waypoint_at(core: &ClientCore, w: Waypoint, from: Vec3, t: f64) -> Option
                 .flatten()
                 .filter(|tr| {
                     let e = &tr.latest;
-                    e.pilot == bc_proto::PilotKind::MobileDoll
+                    e.pilot == bc_proto::PilotKind::Drone
                         && e.faction != core.cfg.faction
                         && e.flags & bc_proto::snapshot::ent_flags::WRECK == 0
                 })
                 .map(|tr| tr.sample(t, &world.bodies).pos)
                 .min_by(|a, b| a.distance_squared(from).total_cmp(&b.distance_squared(from)));
             Some(match near {
-                Some(p) => (p, doll().to_uppercase()),
+                Some(p) => (p, drone().to_uppercase()),
                 None => (FIELD_CENTER, "PATROLS".to_string()),
             })
         }
-        // An ace is a Doll the roster names as one of Zodiac's (as `bc-server/tests/aces.rs` tells
-        // them); with none in sight, the Dolls.
+        // An ace is a drone the roster names as one of the Almagest's (as `bc-server/tests/aces.rs` tells
+        // them); with none in sight, the drones.
         Waypoint::Ace => {
             let world = &core.world;
             let ace = world
@@ -692,7 +692,7 @@ pub fn waypoint_at(core: &ClientCore, w: Waypoint, from: Vec3, t: f64) -> Option
                 .flatten()
                 .filter_map(|tr| {
                     let e = &tr.latest;
-                    if e.pilot != bc_proto::PilotKind::MobileDoll
+                    if e.pilot != bc_proto::PilotKind::Drone
                         || e.flags & bc_proto::snapshot::ent_flags::WRECK != 0
                     {
                         return None;
@@ -704,7 +704,7 @@ pub fn waypoint_at(core: &ClientCore, w: Waypoint, from: Vec3, t: f64) -> Option
                 .min_by(|a, b| a.0.distance_squared(from).total_cmp(&b.0.distance_squared(from)));
             match ace {
                 Some((p, name)) => Some((p, name.to_string())),
-                None => waypoint_at(core, Waypoint::Dolls, from, t),
+                None => waypoint_at(core, Waypoint::Drones, from, t),
             }
         }
     }
@@ -721,9 +721,9 @@ mod tests {
         Objective::Standing,
         Objective::Arm,
         Objective::MostWanted,
-        Objective::ZodiacAce,
+        Objective::AlmagestAce,
         Objective::TryPrototype,
-        Objective::Gundanium,
+        Objective::Siderium,
     ];
 
     fn flying(survival: bool) -> ObjectiveInput {
@@ -754,12 +754,12 @@ mod tests {
             assert_eq!(o.bit(), 1 << k, "ALL is in bit order: {o:?}");
         }
         // The bits never move: old settings keep their meanings.
-        assert_eq!(Objective::FiveDolls.bit(), 1 << 6);
+        assert_eq!(Objective::FiveDrones.bit(), 1 << 6);
         assert_eq!(Objective::ProvingGround.bit(), 1 << 10);
         for (k, o) in NEW.iter().enumerate() {
             assert_eq!(o.bit(), 1 << (11 + k), "{o:?}");
         }
-        assert_eq!(Objective::Gundanium.bit(), 1 << 18);
+        assert_eq!(Objective::Siderium.bit(), 1 << 18);
         for survival in [true, false] {
             let order = Objective::order(survival);
             assert_eq!(bits(order), all);
@@ -779,17 +779,17 @@ mod tests {
                 "EARN STANDING WITH THE COLONY".into(),
                 "ARM YOUR SUIT".into(),
                 "READ THE MOST WANTED".into(),
-                "DOWN ONE OF ZODIAC'S ACES".into(),
+                "DOWN ONE OF THE ALMAGEST'S ACES".into(),
                 format!("TRY A NEW {proto} ON THE TEST RANGE"),
-                "MAKE GUNDANIUM".into(),
+                "MAKE SIDERIUM".into(),
             ]
         );
-        if bc_sim::content::prototype_word() == "Gundam" {
-            assert_eq!(Objective::TryPrototype.title(true), "TRY A NEW GUNDAM ON THE TEST RANGE");
+        if bc_sim::content::prototype_word() == "Lodestar" {
+            assert_eq!(Objective::TryPrototype.title(true), "TRY A NEW LODESTAR ON THE TEST RANGE");
         }
         assert_eq!(
-            Objective::FiveDolls.title(true),
-            format!("DOWN 5 {}S", bc_sim::content::doll_name().to_uppercase())
+            Objective::FiveDrones.title(true),
+            format!("DOWN 5 {}S", bc_sim::content::drone_name().to_uppercase())
         );
     }
 
@@ -936,9 +936,9 @@ mod tests {
                 (Objective::Standing, ObjectiveInput { standing: true, ..base }),
                 (Objective::Arm, ObjectiveInput { armed: true, ..base }),
                 (Objective::MostWanted, ObjectiveInput { at_arrival: true, ..base }),
-                (Objective::ZodiacAce, ObjectiveInput { aces: true, ..base }),
+                (Objective::AlmagestAce, ObjectiveInput { aces: true, ..base }),
                 (Objective::TryPrototype, ObjectiveInput { tried_prototype: true, ..base }),
-                (Objective::Gundanium, ObjectiveInput { smelting: true, ..base }),
+                (Objective::Siderium, ObjectiveInput { smelting: true, ..base }),
             ] {
                 let (mut o, mut done, mut downed) = (Objectives::default(), 0u32, 0u32);
                 o.step(&mut done, &mut downed, &i);
@@ -950,7 +950,7 @@ mod tests {
         }
     }
 
-    /// Arcade: the colony's closed and there's no hangar, so none of the new ones shows; the Dolls
+    /// Arcade: the colony's closed and there's no hangar, so none of the new ones shows; the drones
     /// come first.
     #[test]
     fn arcade_has_none_of_the_colonys_or_the_bays() {
@@ -971,11 +971,11 @@ mod tests {
         {
             assert!(!o.available(&closed), "{o:?}");
         }
-        for o in [Objective::Standing, Objective::Arm, Objective::ZodiacAce, Objective::Gundanium] {
+        for o in [Objective::Standing, Objective::Arm, Objective::AlmagestAce, Objective::Siderium] {
             assert!(o.available(&closed), "{o:?}");
         }
         assert_eq!(Objectives::current(0, &in_bay(closed)), Some(Objective::Standing));
-        // Flying, home done: the Dolls.
+        // Flying, home done: the drones.
         let home = bits(&[Objective::LandStation, Objective::Hide, Objective::Mine, Objective::Deliver]);
         assert_eq!(Objectives::current(home, &closed), Some(Objective::Bounty));
         // No certificate to earn, so no Board's rifle to fit: the Exchange's or the fabricator's.
@@ -1126,25 +1126,25 @@ mod tests {
     }
 
     #[test]
-    fn dolls_downed_add_up_across_sessions() {
+    fn drones_downed_add_up_across_sessions() {
         let (mut o, mut done, mut downed) = (Objectives::default(), 0u32, 0u32);
         let i = flying(false);
         assert_eq!(o.step(&mut done, &mut downed, &i), Some(Objective::Bounty));
         assert_eq!(
-            o.step(&mut done, &mut downed, &ObjectiveInput { doll_kills: 3, ..i }),
+            o.step(&mut done, &mut downed, &ObjectiveInput { drone_kills: 3, ..i }),
             Some(Objective::Mine)
         );
         assert_eq!(downed, 3);
-        assert_eq!(done & Objective::FiveDolls.bit(), 0);
-        assert_eq!(Objective::FiveDolls.progress(&i, downed), Some((3, FIVE_DOLLS)));
+        assert_eq!(done & Objective::FiveDrones.bit(), 0);
+        assert_eq!(Objective::FiveDrones.progress(&i, downed), Some((3, FIVE_DRONES)));
         // A new session's world counts from nothing again.
-        o.step(&mut done, &mut downed, &ObjectiveInput { doll_kills: 0, ..i });
-        o.step(&mut done, &mut downed, &ObjectiveInput { doll_kills: 2, ..i });
+        o.step(&mut done, &mut downed, &ObjectiveInput { drone_kills: 0, ..i });
+        o.step(&mut done, &mut downed, &ObjectiveInput { drone_kills: 2, ..i });
         assert_eq!(downed, 5);
-        assert!(done & Objective::FiveDolls.bit() != 0);
+        assert!(done & Objective::FiveDrones.bit() != 0);
         // A kill that lands after the pilot is down (a missile still in flight) counts, once.
-        o.step(&mut done, &mut downed, &ObjectiveInput { doll_kills: 3, flying: false, ..i });
-        o.step(&mut done, &mut downed, &ObjectiveInput { doll_kills: 3, ..i });
+        o.step(&mut done, &mut downed, &ObjectiveInput { drone_kills: 3, flying: false, ..i });
+        o.step(&mut done, &mut downed, &ObjectiveInput { drone_kills: 3, ..i });
         assert_eq!(downed, 6);
     }
 
@@ -1157,48 +1157,48 @@ mod tests {
         assert_eq!(Objectives::current(all, &in_city(open())), None);
     }
 
-    /// Zodiac's ace is the Doll the roster names as one, nearer Dolls or not; with none out, the
-    /// Dolls'.
+    /// The Almagest's ace is the drone the roster names as one, nearer drones or not; with none out, the
+    /// drones'.
     #[test]
-    fn the_aces_waypoint_is_the_ace_by_its_name_else_the_dolls() {
+    fn the_aces_waypoint_is_the_ace_by_its_name_else_the_drones() {
         use crate::interp::EntityTrack;
         use bc_proto::snapshot::EntityState;
         use bc_proto::{Faction, PilotKind};
         let mut core = crate::ClientCore::new(crate::ClientConfig {
             name: "test".into(),
             pilot: PilotKind::Human,
-            frame: FrameId::Leo,
+            frame: FrameId::Argo,
             faction: Faction::Colonies,
         });
-        let doll = |slot: u16, pos: Vec3| EntityState {
+        let drone = |slot: u16, pos: Vec3| EntityState {
             slot,
-            faction: Faction::Oz,
-            pilot: PilotKind::MobileDoll,
+            faction: Faction::Almagest,
+            pilot: PilotKind::Drone,
             pos,
             ..EntityState::default()
         };
         let world = &mut core.world;
-        world.entities[3] = Some(EntityTrack::new(10, doll(3, Vec3::new(100.0, 0.0, 0.0))));
-        world.roster.insert(3, ("Doll 3".into(), PilotKind::MobileDoll));
+        world.entities[3] = Some(EntityTrack::new(10, drone(3, Vec3::new(100.0, 0.0, 0.0))));
+        world.roster.insert(3, ("Drone 3".into(), PilotKind::Drone));
         let from = Vec3::ZERO;
-        let dolls = waypoint_at(&core, Waypoint::Dolls, from, 10.0);
-        assert_eq!(waypoint_at(&core, Waypoint::Ace, from, 10.0), dolls, "no ace out: the Dolls");
-        assert_eq!(dolls, Some((Vec3::new(100.0, 0.0, 0.0), bc_sim::content::doll_name().to_uppercase())));
+        let drones = waypoint_at(&core, Waypoint::Drones, from, 10.0);
+        assert_eq!(waypoint_at(&core, Waypoint::Ace, from, 10.0), drones, "no ace out: the drones");
+        assert_eq!(drones, Some((Vec3::new(100.0, 0.0, 0.0), bc_sim::content::drone_name().to_uppercase())));
         let world = &mut core.world;
-        world.entities[5] = Some(EntityTrack::new(10, doll(5, Vec3::new(0.0, 0.0, 900.0))));
-        world.roster.insert(5, ("ARIES".into(), PilotKind::MobileDoll));
+        world.entities[5] = Some(EntityTrack::new(10, drone(5, Vec3::new(0.0, 0.0, 900.0))));
+        world.roster.insert(5, ("LYRA".into(), PilotKind::Drone));
         assert_eq!(
             waypoint_at(&core, Waypoint::Ace, from, 10.0),
-            Some((Vec3::new(0.0, 0.0, 900.0), "ARIES".to_string())),
-            "the ace, past a nearer Doll"
+            Some((Vec3::new(0.0, 0.0, 900.0), "LYRA".to_string())),
+            "the ace, past a nearer drone"
         );
         // Its wreck is no waypoint.
         let world = &mut core.world;
         let wreck = EntityState {
             flags: bc_proto::snapshot::ent_flags::WRECK,
-            ..doll(5, Vec3::new(0.0, 0.0, 900.0))
+            ..drone(5, Vec3::new(0.0, 0.0, 900.0))
         };
         world.entities[5] = Some(EntityTrack::new(10, wreck));
-        assert_eq!(waypoint_at(&core, Waypoint::Ace, from, 10.0), dolls);
+        assert_eq!(waypoint_at(&core, Waypoint::Ace, from, 10.0), drones);
     }
 }

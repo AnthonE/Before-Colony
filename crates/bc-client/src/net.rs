@@ -10,8 +10,8 @@ use std::rc::Rc;
 
 use bc_client_core::lockon::{self, Lock};
 use bc_client_core::nav::AutoNav;
-use bc_client_core::{ClientConfig, ClientCore, DollBrain, Identity, LanderBrain};
-use bc_proto::buttons::{BOOST, BRAKE, BURST, FLIGHT_ASSIST, GRIP, ZERO};
+use bc_client_core::{ClientConfig, ClientCore, DroneBrain, Identity, LanderBrain};
+use bc_proto::buttons::{BOOST, BRAKE, BURST, FLIGHT_ASSIST, GRIP, ORRERY};
 use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
 use bc_sim::content::frame;
 use bevy::prelude::*;
@@ -42,7 +42,7 @@ pub struct LaunchConfigRes(pub LaunchConfig);
 
 /// The brain flying for the pilot, under `?autopilot=`.
 pub enum Brain {
-    Doll(DollBrain),
+    Drone(DroneBrain),
     Lander(LanderBrain),
 }
 
@@ -50,14 +50,14 @@ impl Brain {
     fn new(pilot: Option<Autopilot>) -> Self {
         match pilot {
             Some(Autopilot::Lander(plan)) => Brain::Lander(LanderBrain::new(plan)),
-            _ => Brain::Doll(DollBrain::new(0x5EED)),
+            _ => Brain::Drone(DroneBrain::new(0x5EED)),
         }
     }
 
     /// What the HUD calls it.
     pub fn name(&self) -> &'static str {
         match self {
-            Brain::Doll(_) => "Mobile Doll brain",
+            Brain::Drone(_) => "Drone brain",
             Brain::Lander(_) => "lander",
         }
     }
@@ -67,7 +67,7 @@ impl Brain {
 pub struct Game {
     pub core: ClientCore,
     pub hello_sent: bool,
-    /// `?autopilot=`: a brain flies (the Mobile Doll's, with ZERO engaged, or a lander).
+    /// `?autopilot=`: a brain flies (the drone's, with the Orrery engaged, or a lander).
     pub autopilot: bool,
     pub pilot: Option<Autopilot>,
     pub brain: Brain,
@@ -229,7 +229,7 @@ fn report(net: NonSend<NetState>, mut dev: ResMut<DevStatus>) {
 }
 
 pub fn game_client(cfg: &LaunchConfig) -> GameClient {
-    let frame = crate::config::parse_frame(&cfg.frame).unwrap_or(FrameId::WingZero);
+    let frame = crate::config::parse_frame(&cfg.frame).unwrap_or(FrameId::Altair);
     GameClient(Rc::new(RefCell::new(Game::new(&cfg.name, frame, cfg.autopilot, Identity::Guest))))
 }
 
@@ -269,11 +269,11 @@ fn pump(g: &mut Game, t: &Transport, now: f64) {
                 return cmd;
             }
             match brain {
-                // ZERO stays engaged; flight assist is the brain's call (it flies unassisted to
+                // The Orrery stays engaged; flight assist is the brain's call (it flies unassisted to
                 // spare its pilot G-strain).
-                Brain::Doll(b) => {
+                Brain::Drone(b) => {
                     let mut cmd = b.decide(ctx);
-                    cmd.buttons |= ZERO;
+                    cmd.buttons |= ORRERY;
                     cmd
                 }
                 Brain::Lander(b) => b.decide(ctx),

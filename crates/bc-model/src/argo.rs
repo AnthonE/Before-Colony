@@ -1,6 +1,6 @@
-//! OZ-06MS Leo (space type), drawn after its line art and Bandai's HG 1/144 and Robot Spirits
-//! figures: the round head sunk in its chest, under a domed cap whose peak shades the amber visor
-//! and the mono-eye behind it, red ribs wrapped round its sides and back; the two big lamps either
+//! AL-04S Argo (space type), drawn after the Leo's line art (Gundam Wing) and Bandai's HG 1/144
+//! and Robot Spirits figures: the round head sunk in its chest, under a domed cap whose peak shades
+//! the amber visor and the mono-eye behind it, red ribs wrapped round its sides and back; the two big lamps either
 //! side of it; brown shoulder balls under green armour; boxy forearms with their elbow guards and
 //! brown fists; the grey ring in the crotch and the two thrusters under the rear skirts; egg thighs,
 //! knee blocks with four rivets, long shins swelling to the calf and pinched in over the ankle,
@@ -94,7 +94,7 @@ fn bell(o: &mut On<'_>, pos: Vec3, dir: Vec3, r: f32, xf: Affine3A) {
     );
 }
 
-pub(crate) fn leo(d: &mut Designer) {
+pub(crate) fn argo(d: &mut Designer) {
     head(d);
     chest(d);
     waist(d);

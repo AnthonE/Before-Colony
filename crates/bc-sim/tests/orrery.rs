@@ -1,23 +1,23 @@
-//! The ZERO System: strain and seizure, fire-time magnetism, and the quality of its predictions.
+//! The Orrery: strain and seizure, fire-time magnetism, and the quality of its predictions.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
-use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, ZERO};
+use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, ORRERY};
 use bc_proto::events::Event;
-use bc_proto::snapshot::zero_mode;
+use bc_proto::snapshot::orrery_mode;
 use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, PilotKind};
 use bc_sim::content::frame;
 use bc_sim::math::{Rng, look_rotation};
-use bc_sim::zero::hypotheses::{self, Maneuver};
-use bc_sim::zero::{N_HYP, ThreatTrack};
+use bc_sim::orrery::hypotheses::{self, Maneuver};
+use bc_sim::orrery::{N_HYP, ThreatTrack};
 use bc_sim::{Sim, SimConfig, SuitId};
 use glam::{Quat, Vec3};
 
 fn sim() -> Sim {
-    Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() })
+    Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() })
 }
 
-fn zero_pilot(sim: &mut Sim, pos: Vec3, facing: Vec3) -> SuitId {
-    sim.spawn_at(FrameId::WingZero, Faction::Colonies, PilotKind::Human, pos, look_rotation(facing, Vec3::Y))
+fn orrery_pilot(sim: &mut Sim, pos: Vec3, facing: Vec3) -> SuitId {
+    sim.spawn_at(FrameId::Altair, Faction::Colonies, PilotKind::Human, pos, look_rotation(facing, Vec3::Y))
         .unwrap()
 }
 
@@ -29,18 +29,18 @@ fn hold(sim: &mut Sim, id: SuitId, buttons: u16, aim: Vec3) {
 #[test]
 fn strain_builds_seizes_then_locks_out() {
     let mut sim = sim();
-    let pilot = zero_pilot(&mut sim, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
+    let pilot = orrery_pilot(&mut sim, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
     let from = sim.events.next_seq();
     let mut seized_at = None;
     let mut released_at = None;
     for k in 0..(50 * 30) {
-        hold(&mut sim, pilot, ZERO, Vec3::Z);
+        hold(&mut sim, pilot, ORRERY, Vec3::Z);
         sim.step();
-        let z = sim.suits.zero[pilot.idx()];
-        if seized_at.is_none() && z.mode == zero_mode::SEIZED {
+        let z = sim.suits.orrery[pilot.idx()];
+        if seized_at.is_none() && z.mode == orrery_mode::SEIZED {
             seized_at = Some(k);
         }
-        if seized_at.is_some() && released_at.is_none() && z.mode == zero_mode::LOCKOUT {
+        if seized_at.is_some() && released_at.is_none() && z.mode == orrery_mode::LOCKOUT {
             released_at = Some(k);
         }
     }
@@ -53,29 +53,29 @@ fn strain_builds_seizes_then_locks_out() {
     assert!(events.iter().any(|e| matches!(e, Event::Seizure { active: false, .. })));
     // Locked out for 10 s after release, then it can be engaged again.
     for _ in 0..(10 * 30 + 5) {
-        hold(&mut sim, pilot, ZERO, Vec3::Z);
+        hold(&mut sim, pilot, ORRERY, Vec3::Z);
         sim.step();
     }
-    assert_eq!(sim.suits.zero[pilot.idx()].mode, zero_mode::ACTIVE);
+    assert_eq!(sim.suits.orrery[pilot.idx()].mode, orrery_mode::ACTIVE);
 }
 
 #[test]
 fn magnetism_snaps_near_misses_onto_the_solution() {
     let mut sim = sim();
-    let pilot = zero_pilot(&mut sim, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
+    let pilot = orrery_pilot(&mut sim, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
     let target = sim
         .spawn_at(
-            FrameId::Leo,
-            Faction::Oz,
+            FrameId::Argo,
+            Faction::Almagest,
             PilotKind::Human,
             Vec3::new(200.0, 1_050.0, 1_400.0),
             look_rotation(-Vec3::Z, Vec3::Y),
         )
         .unwrap();
     sim.suits.flight[target.idx()].vel = Vec3::new(-60.0, 0.0, 0.0);
-    // Engage ZERO and let it compute a solution.
+    // Engage the Orrery and let it compute a solution.
     for _ in 0..20 {
-        hold(&mut sim, pilot, ZERO | FLIGHT_ASSIST, Vec3::Z);
+        hold(&mut sim, pilot, ORRERY | FLIGHT_ASSIST, Vec3::Z);
         let t = sim.next_tick();
         sim.set_input(
             target,
@@ -83,17 +83,17 @@ fn magnetism_snaps_near_misses_onto_the_solution() {
         );
         sim.step();
     }
-    let out = sim.suits.zero[pilot.idx()].out;
+    let out = sim.suits.orrery[pilot.idx()].out;
     assert!(out.has_solution && out.solution_target == target.idx() as u16, "{out:?}");
-    // Hold the aim 1° off the (moving) solution while the Twin Buster Rifle charges; the shot
+    // Hold the aim 1° off the (moving) solution while the Heavy Beam Rifle charges; the shot
     // snaps onto the solution in force at the firing tick.
     let from = sim.events.next_seq();
     let mut used = Vec::new();
     for _ in 0..25 {
-        let sol = sim.suits.zero[pilot.idx()].out.solution;
+        let sol = sim.suits.orrery[pilot.idx()].out.solution;
         used.push((sim.next_tick(), sol, sim.suits.flight[pilot.idx()].vel));
         let off = Quat::from_axis_angle(Vec3::Y, 1f32.to_radians()) * sol;
-        hold(&mut sim, pilot, ZERO | FIRE_PRIMARY, off);
+        hold(&mut sim, pilot, ORRERY | FIRE_PRIMARY, off);
         let t = sim.next_tick();
         sim.set_input(
             target,
@@ -136,16 +136,16 @@ fn argmax(p: &[f32; N_HYP]) -> usize {
 }
 
 #[test]
-fn predicts_mobile_dolls_better_than_chance() {
-    // A Wing Zero with ZERO engaged against four Taurus dolls that are hunting it.
+fn predicts_drones_better_than_chance() {
+    // An Altair with the Orrery engaged against four Corvus drones that are hunting it.
     let mut sim = sim();
-    let pilot = zero_pilot(&mut sim, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
+    let pilot = orrery_pilot(&mut sim, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
     for k in 0..4 {
         let pos = Vec3::new(-600.0 + k as f32 * 400.0, 1_100.0, 1_800.0);
         sim.spawn_at(
-            FrameId::Taurus,
-            Faction::Oz,
-            PilotKind::MobileDoll,
+            FrameId::Corvus,
+            Faction::Almagest,
+            PilotKind::Drone,
             pos,
             look_rotation(-Vec3::Z, Vec3::Y),
         )
@@ -163,17 +163,17 @@ fn predicts_mobile_dolls_better_than_chance() {
     let mut positions: Vec<Vec<Vec3>> = Vec::new();
     let mut last = 0;
     for _ in 0..(60 * 30) {
-        hold(&mut sim, pilot, ZERO | FLIGHT_ASSIST, Vec3::Z);
+        hold(&mut sim, pilot, ORRERY | FLIGHT_ASSIST, Vec3::Z);
         // Keep the observer alive so the sample stays long (armour top-up is test-only).
-        sim.suits.part_hp[pilot.idx()] = frame(FrameId::WingZero).part_hp;
-        sim.suits.zero[pilot.idx()].strain = 0.0;
+        sim.suits.part_hp[pilot.idx()] = frame(FrameId::Altair).part_hp;
+        sim.suits.orrery[pilot.idx()].strain = 0.0;
         sim.step();
         let t = sim.tick();
         positions.push((0..sim.suits.cap).map(|i| sim.suits.flight[i].pos).collect());
         if !sim.is_alive(pilot.idx()) {
             break;
         }
-        let out = sim.suits.zero[pilot.idx()].out;
+        let out = sim.suits.orrery[pilot.idx()].out;
         if out.computed_at == t && t > 60 && t != last {
             last = t;
             for tr in &out.threats[..out.n_threats as usize] {
@@ -204,7 +204,7 @@ fn predicts_mobile_dolls_better_than_chance() {
         if !sim.is_used(s.slot) {
             continue;
         }
-        let label = realized_label(FrameId::Taurus, s.rot, s.p0, s.v0, frame_pos[s.slot]);
+        let label = realized_label(FrameId::Corvus, s.rot, s.p0, s.v0, frame_pos[s.slot]);
         n += 1;
         if argmax(&s.probs) == label {
             hit += 1;
@@ -222,26 +222,26 @@ fn predicts_mobile_dolls_better_than_chance() {
     let acc = hit as f32 / n as f32;
     let coast = coast_hits as f32 / n as f32;
     println!(
-        "ZERO vs dolls: top-1 {:.1}% over {n} predictions (always-coast {:.1}%, chance 14.3%), Brier {:.3} vs uniform {:.3}",
+        "The Orrery vs drones: top-1 {:.1}% over {n} predictions (always-coast {:.1}%, chance 14.3%), Brier {:.3} vs uniform {:.3}",
         acc * 100.0,
         coast * 100.0,
         brier / n as f32,
         brier_uniform / n as f32
     );
-    // Dolls run the same deterministic brain the System models, so ZERO should read them well.
+    // Drones run the same deterministic brain the System models, so the Orrery should read them well.
     assert!(acc >= 0.80, "top-1 {acc:.3} (coast baseline {coast:.3})");
     assert!(brier < brier_uniform * 0.8, "no better than uniform");
 }
 
 #[test]
 fn probabilities_are_calibrated_against_scripted_maneuvers() {
-    // A human-flown Leo that re-picks a random maneuver every 0.5 s (75 % chance of keeping it).
+    // A human-flown Argo that re-picks a random maneuver every 0.5 s (75 % chance of keeping it).
     let mut sim = sim();
-    let pilot = zero_pilot(&mut sim, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
+    let pilot = orrery_pilot(&mut sim, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
     let target = sim
         .spawn_at(
-            FrameId::Leo,
-            Faction::Oz,
+            FrameId::Argo,
+            Faction::Almagest,
             PilotKind::Human,
             Vec3::new(0.0, 1_000.0, 1_200.0),
             look_rotation(-Vec3::Z, Vec3::Y),
@@ -277,9 +277,9 @@ fn probabilities_are_calibrated_against_scripted_maneuvers() {
             },
         );
         let look = (tp - sim.suits.flight[pilot.idx()].pos).normalize();
-        hold(&mut sim, pilot, ZERO, look);
+        hold(&mut sim, pilot, ORRERY, look);
         sim.step();
-        let out = sim.suits.zero[pilot.idx()].out;
+        let out = sim.suits.orrery[pilot.idx()].out;
         if out.computed_at == sim.tick()
             && let Some(tr) =
                 out.threats[..out.n_threats as usize].iter().find(|tr| tr.slot == target.idx() as u16)

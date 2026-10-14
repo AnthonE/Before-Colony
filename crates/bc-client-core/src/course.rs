@@ -57,15 +57,15 @@ mod tests {
     }
 
     #[test]
-    fn a_leo_flies_the_course_from_the_inner_gate_and_lands_on_the_pad() {
+    fn a_argo_flies_the_course_from_the_inner_gate_and_lands_on_the_pad() {
         // In the server's interior, its pull, its air and its city, by the anime rules (the
-        // server's own): a Leo launched in at the inner gate flies through each ring's middle at a
+        // server's own): an Argo launched in at the inner gate flies through each ring's middle at a
         // steady 80 m/s, comes to rest over the pad and sets down there with the grip armed. The
         // run sees every ring and stops on the pad. Flown so, by rote and with a careful landing,
-        // it's a second-class certificate: the first asks for more. (By the real rules a Leo's tank
+        // it's a second-class certificate: the first asks for more. (By the real rules an Argo's tank
         // runs dry holding it up in the air before the turn over the top.)
         let mut sim = Sim::new(SimConfig {
-            target_dolls: 0,
+            target_drones: 0,
             field_rocks: 0,
             landmarks: 0,
             survival: true,
@@ -73,7 +73,7 @@ mod tests {
             world: WorldKind::Interior,
             ..SimConfig::default()
         });
-        let frame = FrameId::Leo;
+        let frame = FrameId::Argo;
         let id = sim.launch(frame, Faction::Colonies, PilotKind::Human, &Loadout::full(frame)).unwrap();
         let i = id.idx();
         let mut run = Run::default();

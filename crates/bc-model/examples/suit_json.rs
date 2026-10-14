@@ -2,7 +2,7 @@
 //! renders it in Blender): every bone's mesh at its level of detail (empty where it has none), in
 //! the bone's own space, with its joint and parent, and the sockets.
 //!
-//! `cargo run -p bc-model --example suit_json -- leo [far] [head=wingzero arms=taurus ...] > leo.json`
+//! `cargo run -p bc-model --example suit_json -- argo [far] [head=altair arms=corvus ...] > argo.json`
 //!
 //! Each `section=frame` swaps that section ([`bc_model::Section`]: head, body, arms, legs, backpack,
 //! weapon) for another frame's.
@@ -35,7 +35,7 @@ fn floats(out: &mut String, xs: impl IntoIterator<Item = f32>) {
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let frame = frame_named(&args.next().unwrap_or_else(|| "leo".into()));
+    let frame = frame_named(&args.next().unwrap_or_else(|| "argo".into()));
     let (mut lod, mut parts) = (Lod::Near, Parts::whole(frame));
     for arg in args {
         if arg == "far" {

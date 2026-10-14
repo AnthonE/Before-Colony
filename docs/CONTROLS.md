@@ -9,7 +9,7 @@ Keys marked *unverified* come from secondary sources only. The sources are liste
 
 ## Is anything like it?
 
-Nothing we found combines Newtonian 6DOF flight, mouse free aim, mobile suits and an MMO [A]. The
+Nothing we found combines Newtonian 6DOF flight, mouse free aim, suits and an MMO [A]. The
 nearest games each share only part of it:
 
 - **Mobile Suit Gundam Battle Operation 2** (GBO2) has Gundam suits and manual aim. Funnels lock
@@ -49,7 +49,7 @@ the cockpit. The choice is a setting, so the next sortie starts in the same view
   games whose third-person camera zooms on the wheel (Skyrim and Starfield, *unverified*) [C4].
 - **Where the eye sits.** The camera is the head's main camera, whose picture is what a mobile
   suit's cockpit monitors show. Gundam canon has it both ways: the cockpit is in the torso and the
-  head carries the sensors [A3]. Neo-Bird looks out from over its canopy, along its nose.
+  head carries the sensors [A3]. Aquila looks out from over its canopy, along its nose.
 - **Where it looks.** Along the aim, as the chase camera does, and the suit turns after it. This is
   War Thunder's mouse-aim model and Star Citizen's gimballed-guns-follow-the-cursor model. It is not
   MechWarrior Online's, where the view is locked to the torso and a second reticle floats over it
@@ -57,12 +57,12 @@ the cockpit. The choice is a setting, so the next sortie starts in the same view
   wandering across the screen while the body caught up.
 - **Two reticles, the other way round.** MWO draws a fixed torso reticle and a floating arm
   reticle; Star Citizen added boresight symbols [B2]. Ours: the crosshair is the aim. While a weapon
-  can't bear, because hands reach only 50° off the body's axis and Neo-Bird's nose 2°, the crosshair
+  can't bear, because hands reach only 50° off the body's axis and Aquila's nose 2°, the crosshair
   dims and `( )` marks where the primary weapon would fire.
 - **The velocity vector.** `-o-` shows where the suit is drifting (`-x-` when moving backwards).
   Elite's flight-assist-off pilots keep asking for exactly this [B1].
 - **Your own suit.** Everything but the head the eye is inside stays drawn, so blade strokes, the
-  Dragon Fang and a shoulder coming round are all visible. MWO's cockpit shows arms and legs [A2].
+  Talon and a shoulder coming round are all visible. MWO's cockpit shows arms and legs [A2].
   A test checks that no frame's own armour sits inside the camera's near plane or across the
   crosshair's central 15°.
 - **Damage.** With the head shot off, the picture comes from the sub-camera: greyer, fringed, and
@@ -120,7 +120,7 @@ tap ejects at once and a hold blows the suit up instead.
    - **Done:** the camera is on Tab and the wheel, a first-flight hint teaches it early, and
      toggling flight assist announces itself mid-screen.
    - **Still open:** consider making flight assist hold-to-toggle (half a second on V).
-2. **Z is the ZERO System.** Z toggles flight assist in Elite, dampeners in Space Engineers and
+2. **Z is the Orrery.** Z toggles flight assist in Elite, dampeners in Space Engineers and
    look-around in Star Citizen. Our mnemonic is worth keeping, but it will surprise sim players.
 3. **T is throw and Enter is dock.** T is "target ahead" in Elite and Star Wars: Squadrons [B5], and
    T and Enter are the usual chat keys.
@@ -148,8 +148,8 @@ tap ejects at once and a hold blows the suit up instead.
 5. **A lead pip.** Elite, Star Citizen and Everspace 2 all give one [B1][B2][B3]. With 4 km/s beams
    at kilometre ranges, expect "unhittable" complaints. **Done:** locked on, a ◆ marks where the
    primary's shot meets the target if it flies on as it is, with the time the shot takes (a
-   setting). ZERO's solution is better than a linear pip, since it weighs the target's likely
-   maneuvers, and replaces it when ZERO has one.
+   setting). The Orrery's solution is better than a linear pip, since it weighs the target's likely
+   maneuvers, and replaces it when the Orrery has one.
 6. **F1 and F10 are function keys.** On Mac laptops they need Fn, and 60% keyboards have none [C1].
    - **Done:** `?` is a second F1 and O a second F10, and the function keys still work. The
      controls sheet lists both, and so do the prompts that name F1.
@@ -183,8 +183,8 @@ tap ejects at once and a hold blows the suit up instead.
      about 78% of users [C1].
    - Chrome reports `movementX` in device pixels and Firefox in CSS pixels, so the same sensitivity
      feels different between them.
-2. **Flashing.** A ZERO seizure dims the whole screen by 30% at random on a 17 Hz clock
-   (`zero_vision.wgsl`). Over a bright scene that can exceed the three flashes a second that
+2. **Flashing.** An Orrery seizure dims the whole screen by 30% at random on a 17 Hz clock
+   (`orrery_vision.wgsl`). Over a bright scene that can exceed the three flashes a second that
    photosensitivity guidelines allow [C5]. **Done:** a "Flashing effects" setting turns it off,
    and starts off when the browser asks for reduced motion.
 3. **Off-screen markers** for hostiles, whoever is locking you, and missiles. Examples are Everspace
@@ -218,7 +218,7 @@ tap ejects at once and a hold blows the suit up instead.
      mouse button in Elite [B5].
    - Alt is risky in a browser (on its own it can reach the browser's menu), so this said to use
      the middle button. That has gone to the lock-on since (`LOCK.md`: a click locks on, a hold
-     lets go), and Z is the ZERO System. Still open: Alt, as Everspace 2 and Space Engineers
+     lets go), and Z is the Orrery. Still open: Alt, as Everspace 2 and Space Engineers
      have it, if it can be kept from the browser's menu, or a key of the player's own once
      rebinding (item 4) is in.
 8. **A basic lead pip** as an optional training aid. **Done** (item 5 above).
@@ -244,7 +244,7 @@ tap ejects at once and a hold blows the suit up instead.
     - Boost's field-of-view widening on its own slider rather than tied to shake.
     - Separate sensitivity for the cockpit, the chase camera and on foot (Hawken Reborn, Battlefield)
       [A2][C3].
-12. **Cut to third person for blade kills and the Neo-Bird change** when flying from the cockpit.
+12. **Cut to third person for blade kills and the Aquila change** when flying from the cockpit.
     Titanfall 2 does this for Titan executions [A2].
 13. **Fullscreen with keyboard lock**, so the game owns Ctrl and Esc. Chromium passes browser
     shortcuts to a fullscreen page, and Firefox 151 added `keyboardLock: "browser"` [C1].

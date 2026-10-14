@@ -220,11 +220,11 @@ mod tests {
 
     #[test]
     fn everyone_has_a_colour_of_their_own() {
-        let a = suit_colour("Heero");
-        let b = suit_colour("Duo");
+        let a = suit_colour("Kai");
+        let b = suit_colour("Nico");
         assert_ne!(a, b);
-        assert_eq!(a, suit_colour("Heero"));
-        for name in ["Heero", "Duo", "Trowa", "Quatre", "Wufei", "Relena", ""] {
+        assert_eq!(a, suit_colour("Kai"));
+        for name in ["Kai", "Nico", "Tomas", "Rafi", "Lin", "Maren", ""] {
             let c = suit_colour(name);
             let (hi, lo) = (c.iter().copied().fold(0.0, f32::max), c.iter().copied().fold(1.0, f32::min));
             assert!(hi - lo > 0.2 && hi <= 1.0 && lo >= 0.0, "{name}: {c:?}");

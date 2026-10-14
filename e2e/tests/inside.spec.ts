@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { bc, collectConsole } from "./util";
 
 // Suits inside the colony (`scripts/e2e.sh inside`: a survival server with the colony open, no
-// dolls, and an agent strolling outside Hub Gate). A pilot walks to the cockpit in their bay and
+// drones, and an agent strolling outside Hub Gate). A pilot walks to the cockpit in their bay and
 // presses Q: the suit launches into the colony by the inner gate, its own sector (the client is
 // welcomed to it). There it flies with its weapons safe, a little way down the colony (through the
 // Proving Ground's start ring, which starts the course's clock) and back into the gate's ring, and
@@ -55,7 +55,7 @@ async function launchInside(page: Page, name: string) {
 test("a pilot launches into the colony by the inner gate, flies down it a way, and docks back", async ({ page }) => {
   test.setTimeout(900_000);
   const logs = collectConsole(page);
-  await launchInside(page, "Trowa");
+  await launchInside(page, "Tomas");
   // Look: the city around the suit.
   await page.waitForTimeout(4_000);
   let s = await bc(page);
@@ -102,7 +102,7 @@ test("a suit inside the colony lands on the avenue by Hub Gate, sees the people 
 }) => {
   test.setTimeout(1_200_000);
   const logs = collectConsole(page);
-  await launchInside(page, "Quatre");
+  await launchInside(page, "Rafi");
 
   // Down to 22 m over the avenue, 60 m up it from Hub Gate's door; there, the grip armed: the
   // city catches the suit, and it comes down onto its feet.
@@ -149,10 +149,10 @@ test("a suit inside the colony lands on the avenue by Hub Gate, sees the people 
 test("a suit flies into the Blast Hall, and its training rounds score on the hall's targets", async ({ page }) => {
   // The Proving Ground (`docs/TRAINING.md`): inside the colony nothing fires but in the Blast Hall,
   // off Hub Gate's square. Down to its blast doors and in through them; there, weapons are free,
-  // and the starter Leo's machine cannon (RMB) puts training rounds into the hall's targets.
+  // and the starter Argo's machine cannon (RMB) puts training rounds into the hall's targets.
   test.setTimeout(1_200_000);
   const logs = collectConsole(page);
-  await launchInside(page, "Wufei");
+  await launchInside(page, "Lin");
 
   // Down over the square to 40 m before the blast doors, then in through them to 40 m inside.
   await push(page, { cmd: "fly_to", spot: "proving_ground", up: 20, ahead: 40 });
@@ -175,14 +175,14 @@ test("a suit flies into the Blast Hall, and its training rounds score on the hal
 
 test("a pilot boards a trainer at the Blast Hall's gantry, starts the drill, and climbs out there", async ({ page }) => {
   // The Proving Ground's trainers (`docs/TRAINING.md`): down the cap lift, across Hub Gate's square
-  // and in through the blast doors to the gantry's hatch, then E: one of the Charter Board's Leos,
+  // and in through the blast doors to the gantry's hatch, then E: one of the Charter Board's Argos,
   // standing on the gantry, weapons free, while the pilot's own suit stays in their bay. The aim on
   // the drill's lit target and the machine cannon's trigger held (RMB): the drill's clock starts on
   // the first, and each one struck lights the next. Then Enter, at rest on the gantry: the pilot
   // climbs out at its hatch, on foot in the hall.
   test.setTimeout(1_500_000);
   const logs = collectConsole(page);
-  await page.goto("/?autoplay=1&name=Zechs&quality=low");
+  await page.goto("/?autoplay=1&name=Viktor&quality=low");
   await until(page, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 180_000);
   await push(page, { cmd: "walk_to", spot: "airlock" });
   await until(page, "at the airlock", (s) => s.focus === "airlock" && !s.walking_to, 120_000);
@@ -195,8 +195,8 @@ test("a pilot boards a trainer at the Blast Hall's gantry, starts the drill, and
   await push(page, { cmd: "walk_to", spot: "gantry" });
   await until(page, "the walk", (s) => s.city_walking_to, 30_000);
   await until(page, "at the gantry's hatch", (s) => s.focus === "gantry" && !s.city_walking_to, 420_000);
-  // What the test range picked: the Charter Board's Leo, till the pilot picks another at the desk.
-  await expect(page.locator("#use")).toContainText("BOARD A TRAINER · THE CHARTER BOARD'S LEO", { timeout: 30_000 });
+  // What the test range picked: the Charter Board's Argo, till the pilot picks another at the desk.
+  await expect(page.locator("#use")).toContainText("BOARD A TRAINER · THE CHARTER BOARD'S ARGO", { timeout: 30_000 });
   await page.screenshot({ path: "artifacts/inside-gantry.png" });
 
   // E: aboard a trainer, on its feet on the gantry.
@@ -207,7 +207,7 @@ test("a pilot boards a trainer at the Blast Hall's gantry, starts the drill, and
     (s) => s.place === "space" && s.interior === true && s.trainer === true && s.alive,
     120_000,
   );
-  await expect(page.locator("#news")).toContainText("TRAINER · THE CHARTER BOARD'S LEO", { timeout: 30_000 });
+  await expect(page.locator("#news")).toContainText("TRAINER · THE CHARTER BOARD'S ARGO", { timeout: 30_000 });
   s = await until(page, "on the gantry", (s) => s.in_gantry && s.in_hall, 60_000);
   expect(s.bay).toBe("docked");
 

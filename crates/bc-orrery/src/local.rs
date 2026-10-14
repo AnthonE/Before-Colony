@@ -2,8 +2,8 @@
 //! (the in-sim local oracle has more information and is what normally runs).
 
 use bc_sim::math::softmax;
-use bc_sim::zero::N_HYP;
-use bc_sim::zero::advice::{PICTURE_THREATS, THREAT_LEVELS};
+use bc_sim::orrery::N_HYP;
+use bc_sim::orrery::advice::{PICTURE_THREATS, THREAT_LEVELS};
 
 use crate::{OracleError, TacticalAdvice, TacticalOracle, TacticalPicture};
 

@@ -12,7 +12,7 @@ use bc_sim::{DT, Sim, SimConfig, SuitId};
 use glam::{Quat, Vec3};
 
 fn empty() -> Sim {
-    Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, ..SimConfig::default() })
+    Sim::new(SimConfig { target_drones: 0, field_rocks: 0, ..SimConfig::default() })
 }
 
 fn human(sim: &mut Sim, frame: FrameId, faction: Faction, pos: Vec3, facing: Vec3) -> SuitId {
@@ -59,11 +59,11 @@ fn fast_shots_never_tunnel() {
 #[test]
 fn a_tap_fires_and_a_held_trigger_charges_a_sniper_shot() {
     let mut sim = empty();
-    let leo = human(&mut sim, FrameId::Leo, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
+    let argo = human(&mut sim, FrameId::Argo, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
     let from = sim.events.next_seq();
     let fly = |sim: &mut Sim, ticks: u32, buttons: u16| {
         for _ in 0..ticks {
-            hold(sim, leo, buttons, Vec3::Z);
+            hold(sim, argo, buttons, Vec3::Z);
             sim.step();
         }
     };
@@ -72,7 +72,7 @@ fn a_tap_fires_and_a_held_trigger_charges_a_sniper_shot() {
     fly(&mut sim, 30, 0);
     // Held for a full charge, then let go.
     fly(&mut sim, 40, FIRE_PRIMARY);
-    assert!(sim.own_state(leo.idx()).charge > 0.99, "{}", sim.own_state(leo.idx()).charge);
+    assert!(sim.own_state(argo.idx()).charge > 0.99, "{}", sim.own_state(argo.idx()).charge);
     fly(&mut sim, 1, 0);
     fly(&mut sim, 40, 0);
     // Held, but not for long enough.
@@ -91,16 +91,17 @@ fn a_tap_fires_and_a_held_trigger_charges_a_sniper_shot() {
 #[test]
 fn beam_rifle_hits_and_breaks_parts() {
     let mut sim = empty();
-    let leo = human(&mut sim, FrameId::Leo, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
-    let target = human(&mut sim, FrameId::Taurus, Faction::Oz, Vec3::new(0.0, 1_002.0, 800.0), -Vec3::Z);
+    let argo = human(&mut sim, FrameId::Argo, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
+    let target =
+        human(&mut sim, FrameId::Corvus, Faction::Almagest, Vec3::new(0.0, 1_002.0, 800.0), -Vec3::Z);
     let from = sim.events.next_seq();
     for _ in 0..90 {
         let muzzle =
-            sim.suits.flight[leo.idx()].pos + sim.suits.flight[leo.idx()].rot * Vec3::new(3.4, 0.6, 3.0);
+            sim.suits.flight[argo.idx()].pos + sim.suits.flight[argo.idx()].rot * Vec3::new(3.4, 0.6, 3.0);
         let aim = (sim.suits.flight[target.idx()].pos + Vec3::new(0.0, 2.5, 0.0) - muzzle).normalize();
         // Tap fires: a pull each time it's ready (held, it would charge).
-        let pull = if sim.would_fire(leo.idx(), 0) { FIRE_PRIMARY } else { 0 };
-        hold(&mut sim, leo, pull, aim);
+        let pull = if sim.would_fire(argo.idx(), 0) { FIRE_PRIMARY } else { 0 };
+        hold(&mut sim, argo, pull, aim);
         sim.step();
     }
     let ev = events_since(&sim, from);
@@ -117,27 +118,27 @@ fn beam_rifle_hits_and_breaks_parts() {
 #[test]
 fn losing_an_arm_loses_its_weapon() {
     let mut sim = empty();
-    let leo = human(&mut sim, FrameId::Leo, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
-    sim.suits.part_hp[leo.idx()][Part::ArmR as usize] = 0.0; // rifle arm gone
+    let argo = human(&mut sim, FrameId::Argo, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
+    sim.suits.part_hp[argo.idx()][Part::ArmR as usize] = 0.0; // rifle arm gone
     let from = sim.events.next_seq();
     for _ in 0..60 {
-        hold(&mut sim, leo, FIRE_PRIMARY | FIRE_SECONDARY, Vec3::Z);
+        hold(&mut sim, argo, FIRE_PRIMARY | FIRE_SECONDARY, Vec3::Z);
         sim.step();
     }
     let beams = events_since(&sim, from).iter().filter(|e| matches!(e, Event::BeamSpawn { .. })).count();
     assert_eq!(beams, 0, "beam rifle fired without its arm");
-    assert!(sim.stats(leo.idx()).shots > 10, "the machine cannon (left arm) should still fire");
+    assert!(sim.stats(argo.idx()).shots > 10, "the machine cannon (left arm) should still fire");
 }
 
 #[test]
-fn twin_buster_rifle_charges_then_one_shots_a_leo() {
+fn heavy_beam_rifle_charges_then_one_shots_a_argo() {
     let mut sim = empty();
-    let zero = human(&mut sim, FrameId::WingZero, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
-    let leo = human(&mut sim, FrameId::Leo, Faction::Oz, Vec3::new(3.4, 1_000.6, 1_500.0), -Vec3::Z);
+    let altair = human(&mut sim, FrameId::Altair, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
+    let argo = human(&mut sim, FrameId::Argo, Faction::Almagest, Vec3::new(3.4, 1_000.6, 1_500.0), -Vec3::Z);
     let from = sim.events.next_seq();
     let mut fired_at = None;
     for k in 0..60 {
-        hold(&mut sim, zero, FIRE_PRIMARY, Vec3::Z);
+        hold(&mut sim, altair, FIRE_PRIMARY, Vec3::Z);
         sim.step();
         if fired_at.is_none() && events_since(&sim, from).iter().any(|e| matches!(e, Event::BeamSpawn { .. }))
         {
@@ -145,20 +146,20 @@ fn twin_buster_rifle_charges_then_one_shots_a_leo() {
         }
     }
     assert!(fired_at.unwrap() >= 17, "fired before charging: tick {fired_at:?}");
-    // A pilot's Leo: breached outright, so doomed (`sim::doom`).
+    // A pilot's Argo: breached outright, so doomed (`sim::doom`).
     assert!(
         events_since(&sim, from)
             .iter()
-            .any(|e| matches!(e, Event::Doomed { suit, .. } if *suit as usize == leo.idx())),
-        "the Twin Buster Rifle should breach a Leo outright"
+            .any(|e| matches!(e, Event::Doomed { suit, .. } if *suit as usize == argo.idx())),
+        "the Heavy Beam Rifle should breach an Argo outright"
     );
 }
 
 #[test]
 fn saber_cuts_and_clashes() {
     let mut sim = empty();
-    let a = human(&mut sim, FrameId::Leo, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
-    let b = human(&mut sim, FrameId::Leo, Faction::Oz, Vec3::new(-2.0, 1_000.0, 9.0), -Vec3::Z);
+    let a = human(&mut sim, FrameId::Argo, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
+    let b = human(&mut sim, FrameId::Argo, Faction::Almagest, Vec3::new(-2.0, 1_000.0, 9.0), -Vec3::Z);
     let from = sim.events.next_seq();
     hold(&mut sim, a, MELEE, Vec3::Z);
     for _ in 0..20 {
@@ -175,8 +176,8 @@ fn saber_cuts_and_clashes() {
 
     // Both swing at once, face to face: parried.
     let mut sim = empty();
-    let a = human(&mut sim, FrameId::Leo, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
-    let b = human(&mut sim, FrameId::Leo, Faction::Oz, Vec3::new(0.0, 1_000.0, 10.0), -Vec3::Z);
+    let a = human(&mut sim, FrameId::Argo, Faction::Colonies, Vec3::new(0.0, 1_000.0, 0.0), Vec3::Z);
+    let b = human(&mut sim, FrameId::Argo, Faction::Almagest, Vec3::new(0.0, 1_000.0, 10.0), -Vec3::Z);
     let from = sim.events.next_seq();
     hold(&mut sim, a, MELEE, Vec3::Z);
     hold(&mut sim, b, MELEE, -Vec3::Z);
@@ -194,18 +195,18 @@ fn a_suit_skimming_the_colony_is_hit_by_a_shot_aimed_at_it() {
     // skimming the hull is hit before the hull behind it stops the shot.
     let mut sim = empty();
     let top = COLONY_CENTER + Vec3::Y * (COLONY_RADIUS + 12.5);
-    let target = human(&mut sim, FrameId::Taurus, Faction::Oz, top, Vec3::Z);
+    let target = human(&mut sim, FrameId::Corvus, Faction::Almagest, top, Vec3::Z);
     let above = top + Vec3::new(0.0, 700.0, -250.0);
-    let leo = human(&mut sim, FrameId::Leo, Faction::Colonies, above, top - above);
+    let argo = human(&mut sim, FrameId::Argo, Faction::Colonies, above, top - above);
     let from = sim.events.next_seq();
     let (mut last, mut fired) = (None, false);
     for _ in 0..30 {
-        let f = &sim.suits.flight[leo.idx()];
+        let f = &sim.suits.flight[argo.idx()];
         let muzzle = f.pos + f.rot * Vec3::new(3.4, 0.6, 3.0);
         let aim = (sim.suits.flight[target.idx()].pos - muzzle).normalize();
-        hold(&mut sim, leo, if fired { 0 } else { FIRE_PRIMARY }, aim);
+        hold(&mut sim, argo, if fired { 0 } else { FIRE_PRIMARY }, aim);
         sim.step();
-        let shot = sim.projectiles.alive.iter().find(|&k| sim.projectiles.owner[k] as usize == leo.idx());
+        let shot = sim.projectiles.alive.iter().find(|&k| sim.projectiles.owner[k] as usize == argo.idx());
         fired |= shot.is_some();
         match shot {
             Some(k) => {
@@ -219,7 +220,7 @@ fn a_suit_skimming_the_colony_is_hit_by_a_shot_aimed_at_it() {
     let b = a + vel * DT;
     // Its last tick's path ran through the suit and on into the hull...
     let t = &sim.suits.flight[target.idx()];
-    let caps = &frame(FrameId::Taurus).capsules;
+    let caps = &frame(FrameId::Corvus).capsules;
     assert!(sweep_capsules(a, b, r, caps, t.pos, t.rot, 0).is_some(), "the shot's path missed the suit");
     assert!(inside_colony(b));
     // ...and it hit the suit.

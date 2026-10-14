@@ -151,17 +151,17 @@ pub struct Ribbons {
     /// The beam rifle's charged shot: the rifle's colour, thicker, longer and brighter.
     pub sniper: Look,
     pub cannon: Look,
-    pub buster: Look,
+    pub heavy_beam: Look,
     pub tracer: Look,
-    /// Short beam bolts from rapid-fire beam guns (Heavyarms' gatling, Sandrock's machine gun).
+    /// Short beam bolts from rapid-fire beam guns (Antares' gatling, Canopus's machine gun).
     pub bolt: Look,
-    /// Deathscythe's buster shield's slow beam.
+    /// Algol's claw shield's slow beam.
     pub shield: Look,
     pub saber: Look,
-    /// Deathscythe's beam scythe, and Shenlong's beam glaive.
+    /// Algol's beam scythe, and Thuban's beam glaive.
     pub scythe: Look,
     pub glaive: Look,
-    /// A heat shotel's edge, glowing as it cuts.
+    /// A heat blade's edge, glowing as it cuts.
     pub heat: Look,
     /// A missile motor's exhaust, streaming back from the nozzle.
     pub exhaust: Look,
@@ -174,12 +174,12 @@ pub struct Ribbons {
 impl Ribbons {
     pub fn look(&self, weapon: WeaponKind) -> &Look {
         match weapon {
-            WeaponKind::TwinBusterRifle => &self.buster,
+            WeaponKind::HeavyBeamRifle => &self.heavy_beam,
             WeaponKind::BeamCannon => &self.cannon,
             WeaponKind::BeamRifleCharged => &self.sniper,
-            WeaponKind::MachineCannon | WeaponKind::HeadVulcan | WeaponKind::ChestGatling => &self.tracer,
+            WeaponKind::MachineCannon | WeaponKind::HeadGun | WeaponKind::ChestGatling => &self.tracer,
             WeaponKind::BeamGatling | WeaponKind::BeamMachineGun => &self.bolt,
-            WeaponKind::BusterShield => &self.shield,
+            WeaponKind::ClawShield => &self.shield,
             WeaponKind::BeamScythe => &self.scythe,
             WeaponKind::BeamGlaive => &self.glaive,
             WeaponKind::BeamSaber => &self.saber,
@@ -192,7 +192,7 @@ impl Ribbons {
             &self.rifle,
             &self.sniper,
             &self.cannon,
-            &self.buster,
+            &self.heavy_beam,
             &self.tracer,
             &self.bolt,
             &self.shield,
@@ -204,13 +204,13 @@ impl Ribbons {
         ]
     }
 
-    /// The glow along a blade as it strikes (none for the army knife, or the Dragon Fang).
+    /// The glow along a blade as it strikes (none for the combat knife, or the Talon).
     pub fn blade(&self, weapon: WeaponKind) -> Option<&Look> {
         match weapon {
             WeaponKind::BeamSaber => Some(&self.saber),
             WeaponKind::BeamScythe => Some(&self.scythe),
             WeaponKind::BeamGlaive => Some(&self.glaive),
-            WeaponKind::HeatShotel | WeaponKind::CrossCrusher => Some(&self.heat),
+            WeaponKind::HeatBlade | WeaponKind::PincerStrike => Some(&self.heat),
             _ => None,
         }
     }
@@ -259,7 +259,7 @@ pub fn setup_ribbons(
         rifle: look(Vec3::new(6.0, 4.2, 1.0), 18.0, 0.22, 0.1, 0.0, 1.2, 110.0),
         sniper: look(Vec3::new(8.0, 5.6, 1.6), 26.0, 0.26, 0.12, 0.2, 2.4, 260.0),
         cannon: look(Vec3::new(1.2, 7.0, 2.4), 16.0, 0.22, 0.1, 0.0, 2.0, 140.0),
-        buster: look(Vec3::new(9.0, 4.0, 12.0), 30.0, 0.3, 0.15, 0.35, 12.0, 480.0),
+        heavy_beam: look(Vec3::new(9.0, 4.0, 12.0), 30.0, 0.3, 0.15, 0.35, 12.0, 480.0),
         tracer: look(Vec3::new(8.0, 3.5, 0.8), 8.0, 0.3, 0.0, 0.0, 0.35, 22.0),
         bolt: look(Vec3::new(9.0, 5.5, 1.2), 14.0, 0.25, 0.1, 0.0, 0.7, 30.0),
         shield: look(Vec3::new(3.0, 9.0, 4.0), 18.0, 0.25, 0.15, 0.2, 1.8, 50.0),

@@ -1,4 +1,4 @@
-//! Mobile suits: each a tree of bone entities carrying its frame's meshes (`bc_model`, baked in
+//! Suits: each a tree of bone entities carrying its frame's meshes (`bc_model`, baked in
 //! `model`), posed from its [`SuitDrive`]: the network's interpolated or predicted state, or a
 //! showcase script.
 
@@ -43,10 +43,10 @@ pub struct SuitVisual {
     plumes: Vec<Entity>,
     /// Blade glows: in the left hand, and on the right hand's weapon.
     blades: [Entity; 2],
-    /// The Dragon Fang's cable, from the wrist to the head (on the right forearm).
+    /// The Talon's cable, from the wrist to the head (on the right forearm).
     pub cable: Option<Entity>,
     aura: Entity,
-    /// The Hyper Jammer's shimmer.
+    /// The Eclipse's shimmer.
     shimmer: Entity,
     /// The contact shadow under it on a body.
     shadow: Entity,
@@ -63,7 +63,7 @@ impl SuitVisual {
 #[derive(Component)]
 pub struct SuitBone;
 
-/// Marks the toggled children (thruster plumes, blades, ZERO aura, jammer shimmer).
+/// Marks the toggled children (thruster plumes, blades, the Orrery aura, jammer shimmer).
 #[derive(Component)]
 pub struct SuitPartMarker;
 
@@ -87,16 +87,16 @@ const EYE_PINK: u8 = 1;
 pub fn livery(frame: FrameId, faction: Faction) -> (u8, u8, u8, u8) {
     use paint::*;
     match (frame, faction) {
-        (FrameId::WingZero | FrameId::WingZeroBird, _) => (WHITE, BLUE, RED, EYE_GREEN),
-        (FrameId::Heavyarms, _) => (WHITE, RED, DARK, EYE_GREEN),
-        (FrameId::Deathscythe, _) => (DARK, BLUE, RED, EYE_GREEN),
-        (FrameId::Sandrock, _) => (ALLIANCE_TAN, WHITE, RED, EYE_GREEN),
-        (FrameId::Shenlong, _) => (WHITE, OZ_GREEN, YELLOW, EYE_GREEN),
-        (FrameId::Taurus, _) => (TAURUS_WHITE, TAURUS_BLUE, RED, EYE_PINK),
-        (FrameId::Virgo, _) => (VIRGO_OLIVE, OZ_GREY, DARK, EYE_PINK),
-        (FrameId::Leo, Faction::Oz) => (OZ_GREEN, OZ_GREY, DARK, EYE_PINK),
-        (FrameId::Leo, Faction::Colonies) => (TAURUS_BLUE, WHITE, RED, EYE_GREEN),
-        (FrameId::Leo, Faction::Alliance) => (ALLIANCE_TAN, DARK, RED, EYE_PINK),
+        (FrameId::Altair | FrameId::Aquila, _) => (WHITE, BLUE, RED, EYE_GREEN),
+        (FrameId::Antares, _) => (WHITE, RED, DARK, EYE_GREEN),
+        (FrameId::Algol, _) => (DARK, BLUE, RED, EYE_GREEN),
+        (FrameId::Canopus, _) => (ALLIANCE_TAN, WHITE, RED, EYE_GREEN),
+        (FrameId::Thuban, _) => (WHITE, ALMAGEST_GREEN, YELLOW, EYE_GREEN),
+        (FrameId::Corvus, _) => (CORVUS_WHITE, CORVUS_BLUE, RED, EYE_PINK),
+        (FrameId::Cetus, _) => (CETUS_OLIVE, ALMAGEST_GREY, DARK, EYE_PINK),
+        (FrameId::Argo, Faction::Almagest) => (ALMAGEST_GREEN, ALMAGEST_GREY, DARK, EYE_PINK),
+        (FrameId::Argo, Faction::Colonies) => (CORVUS_BLUE, WHITE, RED, EYE_GREEN),
+        (FrameId::Argo, Faction::Alliance) => (ALLIANCE_TAN, DARK, RED, EYE_PINK),
     }
 }
 
@@ -220,8 +220,8 @@ fn build_suit(
             ))
             .id()
     });
-    // The Dragon Fang's cable, drawn out as the head flies (`anim`).
-    let cable = sockets.fang.map(|_| {
+    // The Talon's cable, drawn out as the head flies (`anim`).
+    let cable = sockets.talon.map(|_| {
         commands
             .spawn((
                 Mesh3d(shapes.cylinder.clone()),
@@ -232,11 +232,11 @@ fn build_suit(
             ))
             .id()
     });
-    // The ZERO aura: a shell glowing at its rim (its MeshTag sets how bright).
+    // The Orrery aura: a shell glowing at its rim (its MeshTag sets how bright).
     let aura = commands
         .spawn((
             Mesh3d(shapes.sphere.clone()),
-            MeshMaterial3d(pal.zero_aura.clone()),
+            MeshMaterial3d(pal.orrery_aura.clone()),
             MeshTag(170),
             Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(11.0)),
             SuitPartMarker,
@@ -309,7 +309,7 @@ pub fn build_suits(
     }
 }
 
-/// Poses every suit from its drive and switches its thrusters, saber and ZERO aura.
+/// Poses every suit from its drive and switches its thrusters, saber and the Orrery aura.
 #[allow(clippy::too_many_arguments)]
 pub fn pose_suits(
     time: Res<VisTime>,
@@ -384,7 +384,7 @@ pub fn pose_suits(
                 }
             }
         }
-        let aura = !d.own && has(ent_flags::ZERO | ent_flags::SEIZED) && !wreck;
+        let aura = !d.own && has(ent_flags::ORRERY | ent_flags::SEIZED) && !wreck;
         if let Ok((mut atf, mut av)) = parts.get_mut(v.aura) {
             set_visible(&mut av, aura);
             if aura {
@@ -409,7 +409,7 @@ pub fn pose_suits(
         // Jamming: a restless shimmer, brightening and fading as it crawls.
         let jamming = has(ent_flags::SPECIAL)
             && !wreck
-            && matches!(frame(d.frame).special, SpecialKind::HyperJammer { .. });
+            && matches!(frame(d.frame).special, SpecialKind::Eclipse { .. });
         if let Ok((mut stf, mut sv)) = parts.get_mut(v.shimmer) {
             set_visible(&mut sv, jamming);
             if jamming {
@@ -465,10 +465,10 @@ fn set_visible(v: &mut Visibility, on: bool) {
     }
 }
 
-/// Pilot kind label for HUD brackets ("MD" for machine pilots, as in the lore).
+/// Pilot kind label for HUD brackets ("DR" for machine pilots, as in the lore).
 pub fn pilot_tag(p: PilotKind) -> &'static str {
     match p {
         PilotKind::Human => "",
-        PilotKind::Agent | PilotKind::MobileDoll => " MD",
+        PilotKind::Agent | PilotKind::Drone => " DR",
     }
 }

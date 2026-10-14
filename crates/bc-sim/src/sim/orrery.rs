@@ -1,4 +1,4 @@
-//! The ZERO System's per-pilot update (staggered every `zero_interval` ticks) and the tactical
+//! The Orrery's per-pilot update (staggered every `orrery_interval` ticks) and the tactical
 //! picture handed to external oracles.
 
 use bc_proto::NO_SLOT;
@@ -7,16 +7,16 @@ use glam::Vec3;
 use super::Sim;
 use crate::content::{frame, weapon};
 use crate::math::{confidence, length};
-use crate::perception::Perception;
-use crate::zero::advice::{EXTERNAL_WEIGHT, PICTURE_THREATS, TacticalPicture, ThreatBrief, blend};
-use crate::zero::fire_control::{intercept, miss_distance};
-use crate::zero::local_oracle::{
+use crate::orrery::advice::{EXTERNAL_WEIGHT, PICTURE_THREATS, TacticalPicture, ThreatBrief, blend};
+use crate::orrery::fire_control::{intercept, miss_distance};
+use crate::orrery::local_oracle::{
     flanked, hypothesis_accels, maneuver_likelihood, own_maneuver_distribution, posterior,
     target_distribution, threat_levels, threat_score,
 };
-use crate::zero::{N_HYP, ThreatTrack, ZERO_THREATS, ZeroOut, predictive};
+use crate::orrery::{N_HYP, ORRERY_THREATS, OrreryOut, ThreatTrack, predictive};
+use crate::perception::Perception;
 
-/// Effective hit radius of a suit for the ZERO hit estimate (torso plus limbs), m.
+/// Effective hit radius of a suit for the Orrery hit estimate (torso plus limbs), m.
 const SUIT_HIT_RADIUS: f32 = 4.0;
 
 fn argmax(v: &[f32]) -> usize {
@@ -30,36 +30,36 @@ fn argmax(v: &[f32]) -> usize {
 }
 
 impl Sim {
-    pub(super) fn zero_step(&mut self, t: u32) {
-        let interval = self.cfg.zero_interval.max(1);
+    pub(super) fn orrery_step(&mut self, t: u32) {
+        let interval = self.cfg.orrery_interval.max(1);
         let mut alive = core::mem::take(&mut self.iter_bits);
         alive.copy_from(&self.suits.alive);
         let mut scratch = core::mem::take(&mut self.scratch);
         for i in alive.iter() {
-            let z = &mut self.suits.zero[i];
+            let z = &mut self.suits.orrery[i];
             if !z.active() || t < z.next_update {
                 continue;
             }
             // Stagger pilots across the interval.
             z.next_update = t + interval;
             self.perceive_into(i, &mut scratch);
-            let out = self.compute_zero(i, &scratch, t);
-            self.suits.zero[i].out = out;
+            let out = self.compute_orrery(i, &scratch, t);
+            self.suits.orrery[i].out = out;
         }
         self.scratch = scratch;
         self.iter_bits = alive;
     }
 
-    fn compute_zero(&self, i: usize, p: &Perception, t: u32) -> ZeroOut {
+    fn compute_orrery(&self, i: usize, p: &Perception, t: u32) -> OrreryOut {
         let me = &p.me;
         let spec = frame(me.frame);
-        let prev = self.suits.zero[i].out;
+        let prev = self.suits.orrery[i].out;
         let adv = &self.advice[i];
         let fresh = adv.fresh(t) && adv.pilot == i as u16;
-        let mut out = ZeroOut { computed_at: t, ..ZeroOut::default() };
+        let mut out = OrreryOut { computed_at: t, ..OrreryOut::default() };
 
         // --- The two most dangerous threats and their next maneuver. ---
-        let mut top: [(f32, usize); ZERO_THREATS] = [(0.0, usize::MAX); ZERO_THREATS];
+        let mut top: [(f32, usize); ORRERY_THREATS] = [(0.0, usize::MAX); ORRERY_THREATS];
         for (ci, c) in p.contacts().iter().enumerate() {
             let s = threat_score(c);
             if s > top[1].0 {
@@ -180,15 +180,15 @@ impl Sim {
     }
 
     /// Fills the tactical picture an external oracle (Jev) sees for pilot `i`. Returns `false` when
-    /// the pilot isn't flying with ZERO engaged.
+    /// the pilot isn't flying with the Orrery engaged.
     pub fn picture_for(&mut self, i: usize, out: &mut TacticalPicture) -> bool {
-        if !self.suits.is_alive(i) || !self.suits.zero[i].active() {
+        if !self.suits.is_alive(i) || !self.suits.orrery[i].active() {
             return false;
         }
         let mut scratch = core::mem::take(&mut self.scratch);
         self.perceive_into(i, &mut scratch);
         let me = scratch.me;
-        let z = self.suits.zero[i];
+        let z = self.suits.orrery[i];
         *out = TacticalPicture {
             pilot: i as u16,
             tick: self.tick(),
@@ -198,7 +198,7 @@ impl Sim {
             energy: me.energy,
             propellant: me.propellant,
             g_strain: me.g_strain,
-            zero_strain: z.strain,
+            orrery_strain: z.strain,
             speed: length(me.vel),
             ..TacticalPicture::default()
         };

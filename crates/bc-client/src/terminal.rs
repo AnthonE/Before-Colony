@@ -2,7 +2,7 @@
 //! maintenance console and the Colony Exchange are HTML panels (`web/ui.js`), opened by walking up
 //! to them in the bay (`onfoot.rs`). This sends them what they show, as JSON:
 //! - the catalogue, once: every item by slug (its name, whether it's counted in kilograms, what
-//!   the colony values it at, whether it's Gundam technology), every recipe, and each frame
+//!   the colony values it at, whether it's Lodestar technology), every recipe, and each frame
 //!   line's tank and weapon mounts;
 //! - the pilot's hangar, with what the suit's console works out from it (what could be fitted,
 //!   what repairs and overhauls would take, the suit's stat sheet, whether it would launch), the
@@ -16,7 +16,7 @@ use std::collections::VecDeque;
 
 use bc_client_core::hangar::HangarState;
 use bc_econ::catalogue::{
-    desk, gundam_tech, munitions_per_load, propellant_item, recipes, rounds_per_load, tank_kg, value,
+    desk, lodestar_tech, munitions_per_load, propellant_item, recipes, rounds_per_load, tank_kg, value,
 };
 use bc_econ::exchange::FEE_BP;
 use bc_econ::faults::overhaul_cost;
@@ -81,7 +81,7 @@ fn catalogue() -> Value {
                 "kind": kind,
                 "bulk": i.bulk(),
                 "value": value(i),
-                "gundam": gundam_tech(i),
+                "lodestar": lodestar_tech(i),
                 "line": line,
                 "part": part,
                 "colony_buys": d.is_some_and(|d| d.buys),
@@ -130,7 +130,7 @@ fn catalogue() -> Value {
             json!({
                 "slug": l.slug(),
                 "name": frame_name(l),
-                "gundam": gundam_tech(Item::Part(l, Part::Torso)),
+                "lodestar": lodestar_tech(Item::Part(l, Part::Torso)),
                 "tank": tank_kg(l),
                 "mounts": mounts,
             })

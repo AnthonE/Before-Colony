@@ -21,7 +21,7 @@ use glam::Vec3;
 
 fn interior() -> Sim {
     Sim::new(SimConfig {
-        target_dolls: 0,
+        target_drones: 0,
         field_rocks: 0,
         landmarks: 0,
         survival: true,
@@ -36,8 +36,8 @@ fn launch(sim: &mut Sim, frame: FrameId) -> SuitId {
 
 /// One of the Charter Board's trainers, boarded at the Blast Hall's gantry.
 fn trainer(sim: &mut Sim) -> SuitId {
-    let leo = FrameId::Leo;
-    sim.launch_at(leo, Faction::Colonies, PilotKind::Human, &Loadout::full(leo), LaunchAt::Gantry).unwrap()
+    let argo = FrameId::Argo;
+    sim.launch_at(argo, Faction::Colonies, PilotKind::Human, &Loadout::full(argo), LaunchAt::Gantry).unwrap()
 }
 
 /// `id` holds `buttons`, aiming where it faces (or at `aim`).
@@ -54,7 +54,7 @@ fn hold(sim: &mut Sim, id: SuitId, buttons: u16, thrust: [i8; 3], aim: Option<Ve
 #[test]
 fn a_suit_comes_in_at_the_inner_gate_and_holds_there_on_flight_assist() {
     let mut sim = interior();
-    let id = launch(&mut sim, FrameId::Leo);
+    let id = launch(&mut sim, FrameId::Argo);
     let i = id.idx();
     assert!(sim.suits.flight[i].pos.distance(INNER_GATE) < 60.0);
     // Flight assist brings it to rest, and holds it against the pull.
@@ -85,7 +85,7 @@ fn a_suit_holds_at_the_inner_gate_till_its_pilot_is_heard_from() {
     // assist, as the launch leaves it, brings it to rest by the gate rather than the pull taking
     // it down to the floor.
     let mut sim = interior();
-    let id = launch(&mut sim, FrameId::Leo);
+    let id = launch(&mut sim, FrameId::Argo);
     for _ in 0..30 * 10 {
         sim.step();
     }
@@ -101,7 +101,7 @@ fn a_suit_holds_at_the_inner_gate_till_its_pilot_is_heard_from() {
 #[test]
 fn weapons_are_safe_inside() {
     let mut sim = interior();
-    let id = launch(&mut sim, FrameId::Leo);
+    let id = launch(&mut sim, FrameId::Argo);
     for _ in 0..90 {
         hold(&mut sim, id, FLIGHT_ASSIST | FIRE_PRIMARY | FIRE_SECONDARY | MELEE | SPECIAL, [0; 3], None);
         sim.step();
@@ -115,7 +115,7 @@ fn weapons_are_safe_inside() {
 fn a_suit_without_assist_falls_and_comes_to_rest_on_the_floor_or_a_roof() {
     let mut sim = interior();
     for (k, strip) in [0u8, 1, 2].into_iter().enumerate() {
-        let id = launch(&mut sim, FrameId::Leo);
+        let id = launch(&mut sim, FrameId::Argo);
         let i = id.idx();
         let start = CityPos::new(strip, -2_000.0 + k as f32 * 3_000.0, 1_700.0, 150.0);
         let f = &mut sim.suits.flight[i];
@@ -146,7 +146,7 @@ fn a_suit_without_assist_falls_and_comes_to_rest_on_the_floor_or_a_roof() {
 #[test]
 fn buildings_stop_a_suit_flying_into_them() {
     let mut sim = interior();
-    let id = launch(&mut sim, FrameId::Leo);
+    let id = launch(&mut sim, FrameId::Argo);
     let i = id.idx();
     // A building's wall across the strip from a point low over a street: the first solid at 30 m.
     let h = 30.0;
@@ -218,7 +218,7 @@ fn a_suit_flies_in_through_the_blast_halls_doors_and_lands_on_its_floor() {
     let room = room(i).expect("its room");
     let ((s, x), (ds, dx)) = place_door(p);
     let mut sim = interior();
-    let id = launch(&mut sim, FrameId::Leo);
+    let id = launch(&mut sim, FrameId::Argo);
     let k = id.idx();
     sim.suits.flight[k].pos = CityPos::new(p.strip, x - dx * 60.0, s - ds * 60.0, 20.0).to_colony();
     sim.suits.flight[k].vel = Vec3::ZERO;
@@ -273,7 +273,7 @@ fn from_the_muzzle(sim: &Sim, id: SuitId, at: Vec3) -> Vec3 {
 /// The way from the muzzle of `id`'s weapon in loadout slot `slot` to `at`.
 fn from_the_muzzle_of(sim: &Sim, id: SuitId, slot: usize, at: Vec3) -> Vec3 {
     let f = &sim.suits.flight[id.idx()];
-    let muzzle = bc_sim::content::frame(FrameId::Leo).loadout[slot].map_or(Vec3::ZERO, |m| m.arm.muzzle());
+    let muzzle = bc_sim::content::frame(FrameId::Argo).loadout[slot].map_or(Vec3::ZERO, |m| m.arm.muzzle());
     (at - (f.pos + f.rot * muzzle)).normalize()
 }
 
@@ -307,11 +307,11 @@ fn hold_at(
 
 #[test]
 fn in_the_blast_hall_weapons_are_free_and_its_rounds_score_on_its_targets() {
-    // The colony's law's one exception (`docs/TRAINING.md`): a Leo in the hall turns to a target
+    // The colony's law's one exception (`docs/TRAINING.md`): an Argo in the hall turns to a target
     // on a stand by the back wall and fires its rifle. Its rounds score on the target, every client
     // near is told, and the shooter counts them.
     let mut sim = interior();
-    let id = launch(&mut sim, FrameId::Leo);
+    let id = launch(&mut sim, FrameId::Argo);
     let (k, t0) = (0, sim.tick());
     let aim = hall::target(k, t0, 0.0);
     // Turned to it first, then the trigger held.
@@ -332,12 +332,12 @@ fn in_the_blast_hall_weapons_are_free_and_its_rounds_score_on_its_targets() {
 
 #[test]
 fn training_rounds_touch_no_suit_and_never_leave_the_hall() {
-    // A Leo fires at a target through another suit standing in the way, then out at the blast
+    // An Argo fires at a target through another suit standing in the way, then out at the blast
     // doors: the suit in the way takes nothing, the rounds score beyond it, and nothing fired in
     // the hall is ever outside it.
     let mut sim = interior();
-    let a = launch(&mut sim, FrameId::Leo);
-    let b = launch(&mut sim, FrameId::Leo);
+    let a = launch(&mut sim, FrameId::Argo);
+    let b = launch(&mut sim, FrameId::Argo);
     let t0 = sim.tick();
     let aim = hall::target(1, t0, 0.0);
     let from_a = in_the_hall(20.0);
@@ -389,7 +389,7 @@ fn training_rounds_touch_no_suit_and_never_leave_the_hall() {
 fn out_through_the_blast_doors_weapons_are_safe_again() {
     // On the square before the doors, and over the city: the trigger does nothing.
     let mut sim = interior();
-    let id = launch(&mut sim, FrameId::Leo);
+    let id = launch(&mut sim, FrameId::Argo);
     let p = &PLACES[PROVING_GROUND];
     let ((s, x), _) = place_door(p);
     let square = CityPos::new(p.strip, x, s - 30.0 * hall().inward.0, 20.0).to_colony();
@@ -409,10 +409,12 @@ fn out_through_the_blast_doors_weapons_are_safe_again() {
 fn a_trainer_stands_on_the_gantry_till_its_pilot_is_heard_from_and_docks_only_there() {
     // There's no gantry in space.
     let mut space =
-        Sim::new(SimConfig { target_dolls: 0, field_rocks: 0, survival: true, ..SimConfig::default() });
-    let leo = Loadout::full(FrameId::Leo);
+        Sim::new(SimConfig { target_drones: 0, field_rocks: 0, survival: true, ..SimConfig::default() });
+    let argo = Loadout::full(FrameId::Argo);
     assert!(
-        space.launch_at(FrameId::Leo, Faction::Colonies, PilotKind::Human, &leo, LaunchAt::Gantry).is_none()
+        space
+            .launch_at(FrameId::Argo, Faction::Colonies, PilotKind::Human, &argo, LaunchAt::Gantry)
+            .is_none()
     );
     // In the colony, a trainer comes in on its feet on the gantry's pad, a stance over the floor,
     // facing in toward the targets.
@@ -434,7 +436,7 @@ fn a_trainer_stands_on_the_gantry_till_its_pilot_is_heard_from_and_docks_only_th
     assert!(sim.docked(i));
     // A suit from the bays at rest on the gantry isn't docked there (it docks at the inner gate),
     // and a trainer at the inner gate isn't either.
-    let other = launch(&mut sim, FrameId::Leo);
+    let other = launch(&mut sim, FrameId::Argo);
     let f = &mut sim.suits.flight[other.idx()];
     f.pos = at;
     f.vel = Vec3::ZERO;

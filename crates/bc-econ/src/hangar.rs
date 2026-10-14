@@ -4,7 +4,7 @@
 //! requests as they come and the tests can play whole careers.
 
 use bc_proto::{ChunkDesc, ChunkKind, FrameId, Part};
-use bc_sim::content::salvage::{is_gundam, part_mass_kg};
+use bc_sim::content::salvage::{is_lodestar, part_mass_kg};
 use bc_sim::content::{Grade, frame_name};
 use bc_sim::sim::{Homecoming, Loadout};
 use serde::{Deserialize, Serialize};
@@ -38,10 +38,10 @@ pub const SALVAGED_HULK: u8 = 40;
 /// The most batches one job may ask for.
 pub const MAX_BATCHES: u32 = 500;
 
-/// What the Charter Board hands an Arrival: a worn, second-hand Leo with no beam rifle (that's the
+/// What the Charter Board hands an Arrival: a worn, second-hand Argo with no beam rifle (that's the
 /// first thing to earn at the Proving Ground, buy or build) and half a tank.
-fn worn_leo() -> Suit {
-    let mut suit = Suit::complete(FrameId::Leo);
+fn worn_argo() -> Suit {
+    let mut suit = Suit::complete(FrameId::Argo);
     suit.parts = [Some(70), Some(60), Some(55), Some(65), Some(60), Some(70)];
     suit.mounts[0] = false;
     suit.ammo[0] = 0;
@@ -119,7 +119,7 @@ impl Rules {
 }
 
 impl Hangar {
-    /// What a new pilot starts with: a worn, second-hand Leo (no beam rifle: that's the first
+    /// What a new pilot starts with: a worn, second-hand Argo (no beam rifle: that's the first
     /// thing to earn at the Proving Ground, buy or build), a little propellant and munitions, and
     /// enough credits to get going.
     pub fn starter() -> Self {
@@ -127,17 +127,17 @@ impl Hangar {
         stores.add(PROPELLANT_ITEM, 600);
         stores.add(MUNITIONS_ITEM, 100);
         stores.add(Item::Material(Material::Steel), 200);
-        Self { credits: 2_000, stores, bay: Bay::Docked { suit: worn_leo() }, ..Self::default() }
+        Self { credits: 2_000, stores, bay: Bay::Docked { suit: worn_argo() }, ..Self::default() }
     }
 
     /// A floor under loss: a pilot with no suit in the bay, no torso in the stores to build one on,
     /// and less than a torso's worth in credits, stores and parts (at the colony's values) is
-    /// advanced a worn Leo by the Charter Board, as on the day they arrived: at most once every
+    /// advanced a worn Argo by the Charter Board, as on the day they arrived: at most once every
     /// [`REISSUE_EVERY_SECS`] (`now` is unix seconds). The notice to give them, if it did. Cheap
     /// to ask again and again (a session asks once a second while the bay stands empty): the
     /// stores are valued only once the bay is empty and the half hour is up.
     pub fn reissue(&mut self, now: u64) -> Option<String> {
-        let line = FrameId::Leo;
+        let line = FrameId::Argo;
         if !matches!(self.bay, Bay::Empty) || self.stores.parts().iter().any(|p| p.part == Part::Torso) {
             return None;
         }
@@ -149,7 +149,7 @@ impl Hangar {
         if self.credits + goods + parts >= value(Item::Part(line, Part::Torso)) {
             return None;
         }
-        self.bay = Bay::Docked { suit: worn_leo() };
+        self.bay = Bay::Docked { suit: worn_argo() };
         self.reissued_at = Some(now);
         Some(format!("THE CHARTER BOARD ADVANCES YOU A WORN {}", frame_name(line).to_uppercase()))
     }
@@ -728,7 +728,7 @@ impl Hangar {
         notes
     }
 
-    /// The tugs went out for the wreck of one of Zodiac's aces, `name`, which the pilot downed and
+    /// The tugs went out for the wreck of one of the Almagest's aces, `name`, which the pilot downed and
     /// took the bounty on as the rights to (`docs/DESIGN.md`, "Aces"): what they brought home goes
     /// to the stores, as salvage does. `None`: someone else got to it first, or it's gone. Its
     /// notes.
@@ -799,7 +799,7 @@ impl Hangar {
                             Item::Part(line, part).name().to_uppercase()
                         ));
                     } else {
-                        // A torso that died is only good for scrap, as is a Mobile Doll.
+                        // A torso that died is only good for scrap, as is a drone.
                         notes.push(self.scrap_metal(line, part_mass_kg(frame, part)));
                     }
                 }
@@ -808,10 +808,10 @@ impl Hangar {
         notes
     }
 
-    /// Scrap from a suit of `line`, as the simulation's cargo counts it: a Gundam's gundanium goes
+    /// Scrap from a suit of `line`, as the simulation's cargo counts it: a Lodestar's siderium goes
     /// with the exotics, everyone else's metal with the titanium.
     fn scrap_metal(&mut self, line: FrameId, kg: u32) -> String {
-        let ore = if is_gundam(line) { Ore::Exotics } else { Ore::Titanium };
+        let ore = if is_lodestar(line) { Ore::Exotics } else { Ore::Titanium };
         self.stores.add(Item::Ore(ore), u64::from(kg));
         format!("{} {} (SCRAP)", Item::Ore(ore).amount(u64::from(kg)), ore.name())
     }
@@ -924,7 +924,7 @@ mod tests {
         assert!(h.launch().is_err());
     }
 
-    /// The bay's tank is the simulation's: a Leo's holds 3 t, 4.2 t with an auxiliary tank on the
+    /// The bay's tank is the simulation's: an Argo's holds 3 t, 4.2 t with an auxiliary tank on the
     /// backpack, 3.75 t with an extended tank in the torso, 5.25 t with both.
     #[test]
     fn the_tanks_hold_what_the_suit_flies_with() {
@@ -935,7 +935,7 @@ mod tests {
             (vec![(1, ExtendedTank)], 3_750),
             (vec![(1, ExtendedTank), (4, AuxiliaryTank)], 5_250),
         ] {
-            let mut s = Suit::complete(FrameId::Leo);
+            let mut s = Suit::complete(FrameId::Argo);
             for (m, k) in fitted {
                 s.modules[m] = Some(k);
             }
@@ -994,10 +994,10 @@ mod tests {
         assert!(h.launch().unwrap_err().contains("refined"));
     }
 
-    /// Lost and broke, a pilot is advanced a worn Leo, but not twice in half an hour, not while a
+    /// Lost and broke, a pilot is advanced a worn Argo, but not twice in half an hour, not while a
     /// suit stands in the bay or a torso waits in the stores, and not while they're worth a torso.
     #[test]
-    fn the_charter_board_advances_a_worn_leo_to_a_pilot_who_lost_everything() {
+    fn the_charter_board_advances_a_worn_argo_to_a_pilot_who_lost_everything() {
         let t0 = 1_800_000_000;
         let mut h = Hangar::starter();
         assert_eq!(h.reissue(t0), None, "a suit stands in the bay");
@@ -1006,7 +1006,7 @@ mod tests {
         h.lost(0);
         // An Arrival's 2,000 cr and stores are less than a torso: lose the first suit, and that's
         // everything. Worth a torso, there's no advance.
-        let torso = value(Item::Part(FrameId::Leo, Part::Torso));
+        let torso = value(Item::Part(FrameId::Argo, Part::Torso));
         assert!(h.credits < torso, "a torso is {torso} cr");
         h.credits = torso;
         assert_eq!(h.reissue(t0), None, "worth a torso");
@@ -1023,7 +1023,7 @@ mod tests {
         // A torso in the stores is a suit to build: no advance.
         h.lost(0);
         h.reissued_at = None;
-        h.stores.add_part(PartUnit { condition: 5, ..PartUnit::new(FrameId::Leo, Part::Torso) });
+        h.stores.add_part(PartUnit { condition: 5, ..PartUnit::new(FrameId::Argo, Part::Torso) });
         assert_eq!(h.reissue(t0), None, "a torso to build on");
         // It's kept with the hangar, and an old record without it reads as never.
         let saved = serde_json::to_string(&Hangar { reissued_at: Some(t0), ..Hangar::default() }).unwrap();
@@ -1078,9 +1078,9 @@ mod tests {
         home.propellant = 900.0;
         home.parts[Part::ArmR as usize] = 0.0;
         home.bounty = 250;
-        // Towing in a Leo hulk that still has its head, torso, right arm and legs.
+        // Towing in an Argo hulk that still has its head, torso, right arm and legs.
         home.held = Some(ChunkDesc {
-            kind: ChunkKind::Hulk { frame: FrameId::Leo, faction: Faction::Oz, parts: 0b01_1011 },
+            kind: ChunkKind::Hulk { frame: FrameId::Argo, faction: Faction::Almagest, parts: 0b01_1011 },
             seed: 0,
             mass_kg: 5_000,
         });
@@ -1095,13 +1095,13 @@ mod tests {
         assert_eq!(salvaged, [(Part::Head, 40), (Part::ArmR, 40), (Part::Legs, 40)]);
         assert_eq!(
             h.stores.get(Item::Ore(Ore::Titanium)),
-            300 + u64::from(part_mass_kg(FrameId::Leo, Part::Torso))
+            300 + u64::from(part_mass_kg(FrameId::Argo, Part::Torso))
         );
         assert_eq!(h.credits, 2_250);
         // Our right arm was shot off: the hulk's goes on in its place.
-        h.fit(Item::Part(FrameId::Leo, Part::ArmR)).unwrap();
+        h.fit(Item::Part(FrameId::Argo, Part::ArmR)).unwrap();
         assert_eq!(h.suit().unwrap().parts[Part::ArmR as usize], Some(40));
-        assert!(h.fit(Item::Part(FrameId::Leo, Part::Head)).is_err(), "it has a head");
+        assert!(h.fit(Item::Part(FrameId::Argo, Part::Head)).is_err(), "it has a head");
     }
 
     /// A sortie's payout sheet (`debrief`): the ore and salvage at the colony's values, the bounty,
@@ -1117,7 +1117,7 @@ mod tests {
         home.parts[Part::ArmR as usize] = 0.0;
         home.bounty = 250;
         home.held = Some(ChunkDesc {
-            kind: ChunkKind::Limb { frame: FrameId::Leo, faction: Faction::Oz, part: Part::Head },
+            kind: ChunkKind::Limb { frame: FrameId::Argo, faction: Faction::Almagest, part: Part::Head },
             seed: 0,
             mass_kg: 600,
         });
@@ -1126,7 +1126,7 @@ mod tests {
         let ore = Item::Ore(Ore::NickelIron);
         assert_eq!(line("BOUNTIES"), 250);
         assert_eq!(line("ORE"), worth(ore, value(ore), 1_200) as i64);
-        let head = value(Item::Part(FrameId::Leo, Part::Head)) * u64::from(SALVAGED_LIMB) / 100;
+        let head = value(Item::Part(FrameId::Argo, Part::Head)) * u64::from(SALVAGED_LIMB) / 100;
         assert_eq!(line("SALVAGE"), head as i64);
         assert_eq!(line("PROPELLANT"), -(worth(PROPELLANT_ITEM, value(PROPELLANT_ITEM), 400) as i64));
         assert!(line("SHOT OFF") < 0, "its right arm: {d:?}");
@@ -1144,7 +1144,7 @@ mod tests {
     #[test]
     fn the_tugs_bring_an_ejected_pilots_wreck_home() {
         let wreck = ChunkDesc {
-            kind: ChunkKind::Hulk { frame: FrameId::Leo, faction: Faction::Colonies, parts: 0b11_0011 },
+            kind: ChunkKind::Hulk { frame: FrameId::Argo, faction: Faction::Colonies, parts: 0b11_0011 },
             seed: 0,
             mass_kg: 5_000,
         };
@@ -1158,7 +1158,7 @@ mod tests {
         assert_eq!(parts(&h), [(Part::Head, 40), (Part::Legs, 40), (Part::Backpack, 40)]);
         assert_eq!(
             h.stores.get(Item::Ore(Ore::Titanium)),
-            u64::from(part_mass_kg(FrameId::Leo, Part::Torso))
+            u64::from(part_mass_kg(FrameId::Argo, Part::Torso))
         );
         // Left whole: its torso comes home too, a suit to build on.
         let mut h = Hangar::default();
@@ -1177,36 +1177,36 @@ mod tests {
     #[test]
     fn the_tugs_bring_an_aces_wreck_home() {
         let wreck = ChunkDesc {
-            kind: ChunkKind::Hulk { frame: FrameId::Leo, faction: Faction::Oz, parts: 0b11_0011 },
+            kind: ChunkKind::Hulk { frame: FrameId::Argo, faction: Faction::Almagest, parts: 0b11_0011 },
             seed: 0,
             mass_kg: 5_000,
         };
         let mut h = Hangar::default();
-        let notes = h.towed_ace(Some(&wreck), "ARIES");
-        assert_eq!(notes[0], "THE TUGS BROUGHT ARIES'S WRECK HOME");
+        let notes = h.towed_ace(Some(&wreck), "LYRA");
+        assert_eq!(notes[0], "THE TUGS BROUGHT LYRA'S WRECK HOME");
         let parts: Vec<Part> = h.stores.parts().iter().map(|u| u.part).collect();
         assert_eq!(parts, [Part::Head, Part::Legs, Part::Backpack]);
         assert_eq!(
             h.stores.get(Item::Ore(Ore::Titanium)),
-            u64::from(part_mass_kg(FrameId::Leo, Part::Torso))
+            u64::from(part_mass_kg(FrameId::Argo, Part::Torso))
         );
         let mut h = Hangar::default();
-        let notes = h.towed_ace(None, "ARIES");
-        assert_eq!(notes, ["THE TUGS FOUND NOTHING OF ARIES'S WRECK TO BRING HOME"]);
+        let notes = h.towed_ace(None, "LYRA");
+        assert_eq!(notes, ["THE TUGS FOUND NOTHING OF LYRA'S WRECK TO BRING HOME"]);
         assert!(h.stores.parts().is_empty());
     }
 
     #[test]
     fn building_a_suit_from_nothing() {
         let mut h = Hangar { credits: 10_000, ..Hangar::default() };
-        assert!(h.fit(Item::Part(FrameId::Leo, Part::Head)).is_err(), "no torso yet");
-        h.stores.add(Item::Part(FrameId::Leo, Part::Torso), 1);
-        h.stores.add(Item::Part(FrameId::Leo, Part::ArmL), 1);
+        assert!(h.fit(Item::Part(FrameId::Argo, Part::Head)).is_err(), "no torso yet");
+        h.stores.add(Item::Part(FrameId::Argo, Part::Torso), 1);
+        h.stores.add(Item::Part(FrameId::Argo, Part::ArmL), 1);
         h.stores.add(Item::Weapon(WeaponKind::BeamSaber), 1);
         h.stores.add(Item::Weapon(WeaponKind::MachineCannon), 1);
         assert!(h.fit(Item::Weapon(WeaponKind::BeamSaber)).is_err(), "no bay suit yet");
-        h.fit(Item::Part(FrameId::Leo, Part::Torso)).unwrap();
-        h.fit(Item::Part(FrameId::Leo, Part::ArmL)).unwrap();
+        h.fit(Item::Part(FrameId::Argo, Part::Torso)).unwrap();
+        h.fit(Item::Part(FrameId::Argo, Part::ArmL)).unwrap();
         h.fit(Item::Weapon(WeaponKind::BeamSaber)).unwrap();
         h.fit(Item::Weapon(WeaponKind::MachineCannon)).unwrap();
         assert!(h.launch().is_err(), "a dry tank");
@@ -1233,7 +1233,7 @@ mod tests {
         h.dismantle().unwrap();
         assert_eq!(h.bay, Bay::Empty);
         assert_eq!(h.stores.parts().len(), 6);
-        h.fit(Item::Part(FrameId::Leo, Part::Torso)).unwrap();
+        h.fit(Item::Part(FrameId::Argo, Part::Torso)).unwrap();
         assert_eq!(h.suit().unwrap().parts[Part::Torso as usize], Some(60));
     }
 
@@ -1267,7 +1267,7 @@ mod tests {
         assert_eq!(h.settle(20), [(steel, 80)]);
         assert_eq!(h.stores.get(steel), 160);
         // The foundry charges.
-        let g = Item::Material(Material::Gundanium);
+        let g = Item::Material(Material::Siderium);
         h.stores.add(Item::Material(Material::TitaniumAlloy), 400);
         h.stores.add(Item::Ore(Ore::Exotics), 80);
         assert!(h.craft(g, 2, 30, &Rules::default()).unwrap_err().contains("800 cr"));
@@ -1315,7 +1315,7 @@ mod tests {
         // kept before them reads as uncertified, with nothing.
         assert!(!json.contains("certified") && !json.contains("sortie_pay"), "{json}");
         h.certified = true;
-        h.board_paid("ACE ARIES".into(), 1_500);
+        h.board_paid("ACE LYRA".into(), 1_500);
         let json = serde_json::to_string(&h).unwrap();
         assert!(json.contains(r#""certified":true"#) && json.contains("sortie_pay"), "{json}");
         assert_eq!(serde_json::from_str::<Hangar>(&json).unwrap(), h);
@@ -1332,11 +1332,11 @@ mod tests {
     #[test]
     fn the_boards_pay_goes_on_the_sorties_sheet() {
         let mut h = Hangar::starter();
-        h.board_paid("ACE ARIES".into(), 1_500);
+        h.board_paid("ACE LYRA".into(), 1_500);
         let _ = h.launch().unwrap();
         assert!(h.sortie_pay.is_empty(), "a new sortie, a new sheet");
         h.board_paid("PATROL #3".into(), 1_500);
-        h.board_paid("ACE GEMINI · AT THE BOARD".into(), 1_800);
+        h.board_paid("ACE SAGITTA · AT THE BOARD".into(), 1_800);
         h.board_paid("NOTHING".into(), 0);
         assert_eq!(h.sortie_pay.len(), 2);
         let credits = h.credits;
@@ -1348,16 +1348,16 @@ mod tests {
         let lines: Vec<(&str, i64)> = d.lines.iter().map(|l| (l.what.as_str(), l.cr)).collect();
         assert_eq!(
             lines[..3],
-            [("BOUNTIES", 250), ("PATROL #3", 1_500), ("ACE GEMINI · AT THE BOARD", 1_800)]
+            [("BOUNTIES", 250), ("PATROL #3", 1_500), ("ACE SAGITTA · AT THE BOARD", 1_800)]
         );
         assert!(lines.len() > 3 && lines[3..].iter().all(|l| l.1 < 0), "{lines:?}");
         assert_eq!(h.credits, credits + 250, "the sheet pays nothing itself: the Board did");
         assert!(h.sortie_pay.is_empty());
         // Lost: on that sheet too.
         let _ = h.launch().unwrap();
-        h.board_paid("ACE CANCER".into(), 2_000);
+        h.board_paid("ACE DELPHINUS".into(), 2_000);
         let (_, d) = h.lost_debriefed(0);
-        assert_eq!(d.lines[0], Line { what: "ACE CANCER".into(), cr: 2_000 });
+        assert_eq!(d.lines[0], Line { what: "ACE DELPHINUS".into(), cr: 2_000 });
         assert_eq!(d.lines[1].what, "THE SUIT");
         assert!(h.sortie_pay.is_empty());
     }
