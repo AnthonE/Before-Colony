@@ -326,7 +326,7 @@ impl Objective {
                     .into()
             }
             Objective::Certify => format!(
-                "In the Blast Hall, E at the gantry's hatch boards one of the Board's {}s: clear the drill, or fly the course from the inner gate. Any time the Board takes is a certificate, and it trusts a certified pilot with a beam rifle.",
+                "In the Blast Hall, the gantry is the amber ring left of the blast doors: E at its hatch boards one of the Board's {}s. Clear the drill (strike the target pulsing cyan) or fly the course from the inner gate. Any time the Board takes is a certificate, and it trusts a certified pilot with a beam rifle.",
                 argo()
             ),
             Objective::CharterDesk => {
@@ -356,7 +356,7 @@ impl Objective {
                 drone()
             ),
             Objective::TryPrototype => format!(
-                "At the Proving Ground's desk, THE TEST RANGE readies a new {} on the gantry: board it at the hatch (E) and fly it. Nothing of yours is at stake, and it's what you're building towards.",
+                "At the Proving Ground's desk, pick a new {} on THE TEST RANGE and the gantry readies it: board it at the hatch (E) and fly it. Nothing of yours is at stake, and it's what you're building towards.",
                 proto()
             ),
             Objective::Siderium => {

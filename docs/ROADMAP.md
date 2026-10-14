@@ -384,7 +384,7 @@ fight").
 - `bc_econ::proving::Trainer` (the Board's Argo, the bay's build new and full, a new suit of any
   line) and `Request::Trainer`; the session keeps the pick, the board's view carries it, and
   boarding sends its frame and loadout in `Control::Board`.
-- The page: `THE TEST RANGE` at the Blast Hall's desk, and only there (`Request::desk`: the server
+- The page: `PICK A SUIT · THE TEST RANGE` at the Blast Hall's desk, and only there (`Request::desk`: the server
   refuses a pick from anywhere but the hall's room). `bc-bot`: `board_trainer_as`.
 - Tests: `proving`'s units, `training_net.rs`, and `bc-server/tests/proving.rs` (an Antares).
 

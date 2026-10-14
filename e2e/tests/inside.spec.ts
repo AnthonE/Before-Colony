@@ -10,7 +10,8 @@ import { bc, collectConsole } from "./util";
 // lands there with its grip armed (L), sees the agent strolling outside Hub Gate, walks up the
 // avenue (W) and lets go. A third flies in through the Blast Hall's doors, where weapons are free,
 // and puts training rounds into its targets. A fourth rides down to the city and walks into the
-// Blast Hall to its gantry, boards one of the Charter Board's trainers there, starts the drill on
+// Blast Hall to its desk, is walked from it to the gantry (its WALK ME TO THE GANTRY), boards one
+// of the Charter Board's trainers there, starts the drill on
 // its lit targets, and docks back on the gantry to climb out on foot. The flying is the dev hook's
 // (`fly_to`); the grip and the walk are keys.
 // (Nobody flies back up from the avenue here: at a frame every few seconds the page sends only its
@@ -191,9 +192,18 @@ test("a pilot boards a trainer at the Blast Hall's gantry, starts the drill, and
   await push(page, { cmd: "skip" });
   await until(page, "Hub Gate", (s) => s.seq === "walking", 30_000);
 
-  // In through the blast doors to the gantry's hatch.
-  await push(page, { cmd: "walk_to", spot: "gantry" });
+  // In through the blast doors to the hall's desk, and from it to the gantry's hatch: its WALK ME
+  // TO THE GANTRY closes the desk and walks the pilot there.
+  await push(page, { cmd: "walk_to", spot: "proving_ground" });
   await until(page, "the walk", (s) => s.city_walking_to, 30_000);
+  await until(page, "at the hall's desk", (s) => s.focus === "proving_ground" && !s.city_walking_to, 420_000);
+  await push(page, { cmd: "use" });
+  await until(page, "the desk", (s) => s.terminal === "proving", 180_000);
+  const walk = page.locator('[data-act="to-gantry"]');
+  await expect(walk).toBeVisible({ timeout: 60_000 });
+  // (Clicked in the page itself: the desk is drawn afresh whenever its board changes.)
+  await page.evaluate(() => (document.querySelector('[data-act="to-gantry"]') as HTMLElement).click());
+  await until(page, "the desk closed", (s) => s.panel === "none", 180_000);
   await until(page, "at the gantry's hatch", (s) => s.focus === "gantry" && !s.city_walking_to, 420_000);
   // What the test range picked: the Charter Board's Argo, till the pilot picks another at the desk.
   await expect(page.locator("#use")).toContainText("BOARD A TRAINER · THE CHARTER BOARD'S ARGO", { timeout: 30_000 });
