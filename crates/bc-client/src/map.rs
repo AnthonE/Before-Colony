@@ -91,7 +91,9 @@ pub fn setup_objectives(
                 position_type: PositionType::Absolute,
                 left: Val::Px(14.0),
                 top: Val::Px(84.0),
-                max_width: Val::Px(380.0),
+                // A set width, not a max_width: the plate is measured round its text at the width
+                // the text wraps to (under a max_width alone it came out a line or more short).
+                width: Val::Px(380.0),
                 flex_direction: FlexDirection::Column,
                 padding: UiRect::axes(Val::Px(12.0), Val::Px(8.0)),
                 row_gap: Val::Px(3.0),
