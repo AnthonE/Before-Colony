@@ -272,6 +272,14 @@ const READY_FORE: f32 = -0.73;
 const READY_RATE: f32 = 3.0;
 const READY_HOLD: f32 = 4.0;
 
+/// How many pieces each arc between a Corona's ward discs is drawn in (kinked where they meet).
+pub const ARC_KINKS: usize = 3;
+
+/// A cheap hash of `x` into 0..1 (the arcs' flicker and kinks).
+fn noise(x: f64) -> f32 {
+    ((x.sin() * 43_758.545).fract().abs()) as f32
+}
+
 /// How fast a Corona's field turns its wards round it (rad/s).
 const WARD_SPIN: f32 = 0.35;
 
@@ -723,18 +731,33 @@ pub fn animate_suits(
                 show(&mut s, a.ward <= 0.0);
             }
             // Arcs jump between each disc and the next round its ring while they hold the field,
-            // each flickering on and off on its own beat.
+            // each flickering on and off on its own beat, kinked where it jumps anew each time.
             let n = racks.len().min(at.len());
-            for (k, &arc) in v.arcs.iter().enumerate().take(n) {
+            for (k, pieces) in v.arcs.chunks(ARC_KINKS).enumerate().take(n) {
                 let (p, q) = (at[k], at[(k + 2) % n]);
-                let beat = ((time.now * 23.0 + k as f64 * 7.3).sin() * 43_758.5).fract().abs();
-                let lit = a.ward >= 1.0 && on && beat > 0.45;
-                if lit && let Ok(mut tf) = bones.get_mut(arc) {
-                    let len = (q - p).length().max(0.01);
-                    crate::beams::place_ribbon(&mut tf, q, (q - p) / len, len, 0.3);
-                }
-                if let Ok(mut s) = shown.get_mut(arc) {
-                    show(&mut s, lit);
+                let beat = time.now * 23.0 + k as f64 * 7.3;
+                let lit = a.ward >= 1.0 && on && noise(beat) > 0.45;
+                // Its kinks: off the straight line, square to it, by up to a tenth of its length.
+                let along = (q - p).normalize_or(Vec3::X);
+                let (u, w) = (along.any_orthonormal_vector(), along.cross(along.any_orthonormal_vector()));
+                let jump = (q - p).length() * 0.1;
+                let jag = |i: usize| {
+                    if i == 0 || i == ARC_KINKS {
+                        return if i == 0 { p } else { q };
+                    }
+                    let (s, t) =
+                        (noise(beat.floor() + i as f64 * 1.7), noise(beat.floor() * 1.3 + i as f64 * 3.1));
+                    p.lerp(q, i as f32 / ARC_KINKS as f32) + (u * (s - 0.5) + w * (t - 0.5)) * 2.0 * jump
+                };
+                for (i, &piece) in pieces.iter().enumerate() {
+                    if lit && let Ok(mut tf) = bones.get_mut(piece) {
+                        let (from, to) = (jag(i), jag(i + 1));
+                        let len = (to - from).length().max(0.01);
+                        crate::beams::place_ribbon(&mut tf, to, (to - from) / len, len, 0.18);
+                    }
+                    if let Ok(mut s) = shown.get_mut(piece) {
+                        show(&mut s, lit);
+                    }
                 }
             }
             if let Some(f) = v.field {

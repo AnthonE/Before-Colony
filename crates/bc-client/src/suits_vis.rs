@@ -51,7 +51,8 @@ pub struct SuitVisual {
     /// A Corona's wards as they fly (on the root, hidden while racked), and its field's shell.
     pub wards: Vec<Entity>,
     pub field: Option<Entity>,
-    /// The arcs jumping between neighbouring ward discs while they hold the field.
+    /// The arcs jumping between neighbouring ward discs while they hold the field, each in
+    /// `anim::ARC_KINKS` pieces.
     pub arcs: Vec<Entity>,
     aura: Entity,
     /// The Eclipse's shimmer.
@@ -291,7 +292,7 @@ fn build_suit(
             ))
             .id()
     });
-    let arcs = (0..sockets.wards.len())
+    let arcs = (0..sockets.wards.len() * crate::anim::ARC_KINKS)
         .map(|k| {
             commands
                 .spawn((
