@@ -146,8 +146,23 @@ impl Proxy {
 
 /// Where a turned shape's profile bends by less than this (radians), the segments either side
 /// share their normal, so the curve shades smooth; a sharper corner (a cylinder's rim, a band's
-/// edge) stays crisp.
+/// edge) stays crisp. A loft's hoops ([`Builder::loft`]) are joined the same way.
 const SMOOTH_BEND: f32 = 0.6;
+
+/// One section of a [`Builder::loft`]: at height `y` up its axis, a rounded rectangle centred at
+/// `centre` (its x and z), `half.x` half wide and `half.y` half deep. A hoop of no size closes the
+/// loft to a point.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Hoop {
+    pub y: f32,
+    pub centre: Vec2,
+    pub half: Vec2,
+}
+
+/// A [`Hoop`] at height `y`, centred at (`x`, `z`), `w` half wide and `d` half deep.
+pub const fn hoop(y: f32, x: f32, z: f32, w: f32, d: f32) -> Hoop {
+    Hoop { y, centre: Vec2::new(x, z), half: Vec2::new(w, d) }
+}
 
 /// A mesh being built.
 #[derive(Default)]
@@ -483,6 +498,125 @@ impl Builder {
         self.lathe(&profile, rings * 2, paint, xf);
     }
 
+    /// A loft up local +y through `hoops`, bottom to top: each a superellipse round its centre,
+    /// `|x/w|^n + |z/d|^n = 1` (`n` 2 an ellipse, 4 a rounded square), joined straight to the
+    /// next, `segments` points round each. It shades smooth round every hoop and over the gentle
+    /// bends between them, crisp at a sharper one (as a turned shape's profile does). An end hoop
+    /// with some size is capped flat; one with none closes the loft to a point, which looks along
+    /// the axis where it comes to it gently (a dome).
+    ///
+    /// Its stand-in for the occlusion bake is a box as long as the loft and as big round as its
+    /// hoops on average, so a loft that tapers neither shades its neighbours where it's slim nor
+    /// spares them where it swells.
+    pub fn loft(&mut self, hoops: &[Hoop], n: f32, segments: u32, paint: Paint, xf: Affine3A) {
+        if hoops.len() < 2 {
+            return;
+        }
+        let (first, last) = (&hoops[0], &hoops[hoops.len() - 1]);
+        let seg = segments.max(3);
+        let count = hoops.len() as f32;
+        let (centre, half) = hoops
+            .iter()
+            .fold((Vec2::ZERO, Vec2::ZERO), |(c, h), o| (c + o.centre / count, h + o.half / count));
+        let (y0, y1) = (first.y.min(last.y), first.y.max(last.y));
+        let corners: [Vec3; 8] = std::array::from_fn(|i| {
+            let side = |bit: usize| if i & bit != 0 { 1.0 } else { -1.0 };
+            let y = if i & 2 != 0 { y1 } else { y0 };
+            xf.transform_point3(Vec3::new(centre.x + side(1) * half.x, y, centre.y + side(4) * half.y))
+        });
+        if let Some(proxy) = Proxy::from_corners(&corners) {
+            self.prims.push((self.pos.len(), proxy));
+        }
+
+        let normal_m = Mat3::from(xf.matrix3).inverse().transpose();
+        let e = 2.0 / n.max(1.0);
+        // x to the power p, keeping its sign.
+        let pow = |x: f32, p: f32| x.signum() * x.abs().powf(p);
+        let angle = |k: u32| (std::f32::consts::TAU * k as f32 / seg as f32).sin_cos();
+        let point = |h: &Hoop, k: u32| {
+            let (s, c) = angle(k);
+            Vec3::new(h.centre.x + h.half.x * pow(c, e), h.y, h.centre.y + h.half.y * pow(s, e))
+        };
+        // The way round a hoop at `k` (its tangent), from its outward normal there: the
+        // superellipse's gradient (scaled by w d, so a hoop of no size has one too).
+        let round = |h: &Hoop, k: u32| {
+            let (s, c) = angle(k);
+            let g = Vec2::new(pow(c, 2.0 - e) * h.half.y, pow(s, 2.0 - e) * h.half.x)
+                .try_normalize()
+                .unwrap_or(Vec2::new(c, s));
+            (Vec3::new(-g.y, 0.0, g.x), g)
+        };
+        // The way from hoop `i` to the next at `k`.
+        let run = |i: usize, k: u32| point(&hoops[i + 1], k) - point(&hoops[i], k);
+        // The bands either side of a hoop share their normals there if it bends gently all round.
+        let smooth: Vec<bool> = (0..hoops.len())
+            .map(|i| {
+                i > 0
+                    && i + 1 < hoops.len()
+                    && (0..seg).all(|k| match (run(i - 1, k).try_normalize(), run(i, k).try_normalize()) {
+                        (Some(a), Some(b)) => a.angle_between(b) < SMOOTH_BEND,
+                        _ => false,
+                    })
+            })
+            .collect();
+        // The surface faces out of the loft whichever way along its axis it runs.
+        let up = if last.y < first.y { -1.0 } else { 1.0 };
+        let col = [paint.code(), 0.0, self.seed, 1.0];
+        for i in 0..hoops.len() - 1 {
+            if (0..seg).all(|k| run(i, k).length_squared() < 1e-12) {
+                continue;
+            }
+            let base = self.pos.len() as u32;
+            for k in 0..=seg {
+                for j in [i, i + 1] {
+                    let h = &hoops[j];
+                    let mut along = run(i, k).normalize_or_zero();
+                    if smooth[j] {
+                        let other = if j == i { run(i - 1, k) } else { run(i + 1, k) };
+                        along = (along + other.normalize_or_zero()).normalize_or_zero();
+                    }
+                    let (tangent, out) = round(h, k);
+                    let mut nrm =
+                        (along.cross(tangent) * up).try_normalize().unwrap_or(Vec3::new(out.x, 0.0, out.y));
+                    // Where it closes to a point gently, it looks along the axis there.
+                    let axis = Vec3::Y * nrm.y.signum();
+                    if h.half.max_element() < 1e-6 && nrm.angle_between(axis) < SMOOTH_BEND {
+                        nrm = axis;
+                    }
+                    self.pos.push(xf.transform_point3(point(h, k)).to_array());
+                    self.nrm.push((normal_m * nrm).normalize_or(Vec3::Y).to_array());
+                    self.col.push(col);
+                }
+            }
+            // Each quad's two triangles, each wound to face the way its corners' normals do (so a
+            // mirror needs nothing more), the one a point leaves without area dropped.
+            for k in 0..seg {
+                let a = base + k * 2;
+                for tri in [[a, a + 2, a + 3], [a, a + 3, a + 1]] {
+                    let p = tri.map(|v| Vec3::from(self.pos[v as usize]));
+                    let face = (p[1] - p[0]).cross(p[2] - p[0]);
+                    if face.length_squared() < 1e-14 {
+                        continue;
+                    }
+                    let want: Vec3 = tri.iter().map(|&v| Vec3::from(self.nrm[v as usize])).sum();
+                    if face.dot(want) < 0.0 {
+                        self.idx.extend_from_slice(&[tri[0], tri[2], tri[1]]);
+                    } else {
+                        self.idx.extend_from_slice(&tri);
+                    }
+                }
+            }
+        }
+        for (h, out) in [(first, -up), (last, up)] {
+            if h.half.min_element() < 1e-6 {
+                continue;
+            }
+            let ring: Vec<Vec3> = (0..seg).map(|k| xf.transform_point3(point(h, k))).collect();
+            let inside = xf.transform_point3(Vec3::new(h.centre.x, h.y - out, h.centre.y));
+            self.poly(&ring, inside, paint, 0.0);
+        }
+    }
+
     /// A flat plate: `outline` (a simple polygon in local x-y, either winding) extruded `depth`
     /// along z, centred. Its rim counts as bevel.
     pub fn extrude(&mut self, outline: &[Vec2], depth: f32, paint: Paint, xf: Affine3A) {
@@ -703,6 +837,81 @@ mod tests {
                 assert!(volume(&b) > 0.0, "{p:?} faces in");
             }
         }
+    }
+
+    /// The signed volume of everything built (the divergence theorem over its triangles): the
+    /// solid's own if it's closed and faces out.
+    fn volume(b: &Builder) -> f32 {
+        b.idx
+            .chunks(3)
+            .map(|t| {
+                let [a, bb, c] = [t[0], t[1], t[2]].map(|i| Vec3::from(b.pos[i as usize]));
+                a.dot(bb.cross(c)) / 6.0
+            })
+            .sum()
+    }
+
+    /// A loft is a closed solid faced outward, round or square, capped or closed to a point, run up
+    /// its axis or down, mirrored or not: its volume is its shape's.
+    #[test]
+    fn a_loft_is_closed_and_faces_outward() {
+        let pi = std::f32::consts::PI;
+        // A superellipse's area over its half extents' product (4 Γ(1 + 1/n)² / Γ(1 + 2/n)).
+        let (ellipse, squircle) = (pi, 3.708_15);
+        let cases: [(Vec<Hoop>, f32, f32); 4] = [
+            (vec![hoop(0.0, 0.0, 0.0, 1.0, 0.5), hoop(2.0, 0.0, 0.0, 1.0, 0.5)], 2.0, ellipse * 0.5 * 2.0),
+            (vec![hoop(0.0, 0.2, 0.1, 1.0, 0.5), hoop(2.0, 0.2, 0.1, 1.0, 0.5)], 4.0, squircle * 0.5 * 2.0),
+            // A cone, its point off to one side (a slanted cone has the upright one's volume).
+            (vec![hoop(0.0, 0.0, 0.0, 1.0, 1.0), hoop(2.0, 0.3, 0.2, 0.0, 0.0)], 2.0, ellipse * 2.0 / 3.0),
+            // Run down its axis.
+            (vec![hoop(2.0, 0.0, 0.0, 1.0, 1.0), hoop(0.0, 0.0, 0.0, 1.0, 1.0)], 2.0, ellipse * 2.0),
+        ];
+        for (hoops, n, want) in cases {
+            for xf in [Affine3A::IDENTITY, mirrored(at(1.0, 2.0, 0.0))] {
+                let mut b = Builder::default();
+                b.loft(&hoops, n, 64, Paint::Body, xf);
+                let got = volume(&b);
+                assert!((got / want - 1.0).abs() < 0.02, "{hoops:?} n {n}: volume {got}, want {want}");
+                // Every triangle faces the way its corners' normals do.
+                for t in b.idx.chunks(3) {
+                    let [p, q, r] = [t[0], t[1], t[2]].map(|i| Vec3::from(b.pos[i as usize]));
+                    let want: Vec3 = t.iter().map(|&i| Vec3::from(b.nrm[i as usize])).sum();
+                    assert!((q - p).cross(r - p).dot(want) > 0.0, "a triangle faces in");
+                }
+            }
+        }
+    }
+
+    /// A loft shades smooth over a gentle bend (where two bands meet, their normals agree) and
+    /// stays crisp at a sharp one (a step out).
+    #[test]
+    fn a_loft_is_smooth_over_gentle_bends_only() {
+        let normals_at = |b: &Builder, y: f32| -> Vec<(Vec3, Vec3)> {
+            b.vertices().filter(|(p, _)| (p.y - y).abs() < 1e-5).collect()
+        };
+        let mut gentle = Builder::default();
+        let swell =
+            [hoop(0.0, 0.0, 0.0, 1.0, 0.8), hoop(1.0, 0.1, 0.0, 1.15, 0.9), hoop(2.0, 0.0, 0.1, 1.0, 0.8)];
+        gentle.loft(&swell, 3.0, 24, Paint::Body, Affine3A::IDENTITY);
+        let middle = normals_at(&gentle, 1.0);
+        assert!(!middle.is_empty());
+        for (p, n) in &middle {
+            for (q, m) in &middle {
+                if p.distance(*q) < 1e-5 {
+                    assert!(n.angle_between(*m) < 1e-3, "{p}: {n} against {m}");
+                }
+            }
+        }
+        let mut step = Builder::default();
+        let ledge =
+            [hoop(0.0, 0.0, 0.0, 1.0, 1.0), hoop(1.0, 0.0, 0.0, 1.0, 1.0), hoop(1.0, 0.0, 0.0, 1.5, 1.5)];
+        step.loft(&ledge, 2.0, 24, Paint::Body, Affine3A::IDENTITY);
+        let rim: Vec<(Vec3, Vec3)> =
+            normals_at(&step, 1.0).into_iter().filter(|(p, _)| (p.x.hypot(p.z) - 1.0).abs() < 1e-4).collect();
+        assert!(
+            rim.iter()
+                .any(|(p, n)| rim.iter().any(|(q, m)| p.distance(*q) < 1e-5 && n.angle_between(*m) > 1.0))
+        );
     }
 
     #[test]

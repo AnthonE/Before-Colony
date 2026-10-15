@@ -20,7 +20,7 @@ pub mod rig;
 use bc_proto::FrameId;
 use glam::{Affine3A, Vec2, Vec3};
 
-use kit::{Builder, MeshData, Paint};
+use kit::{Builder, Hoop, MeshData, Paint};
 use rig::{BONES, Bone};
 
 /// How much detail a suit is built with.
@@ -376,6 +376,14 @@ impl On<'_> {
     pub fn sphere(&mut self, radius: f32, rings: u32, paint: Paint, xf: Affine3A) -> &mut Self {
         let r = self.segs(rings).max(4);
         self.b.sphere(radius, r, paint, self.to_bone * xf);
+        self
+    }
+
+    /// A loft through rounded-rectangle hoops up local +y (see
+    /// [`Builder::loft`](kit::Builder::loft)); `segments` round each hoop, halved far off.
+    pub fn loft(&mut self, hoops: &[Hoop], n: f32, segments: u32, paint: Paint, xf: Affine3A) -> &mut Self {
+        let s = self.segs(segments);
+        self.b.loft(hoops, n, s, paint, self.to_bone * xf);
         self
     }
 
