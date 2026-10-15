@@ -217,10 +217,14 @@ be the point. See the open questions.
 **The gantry** (`bc_sim::colony::hall`): a pad on the hall's floor in its firing line, to one side
 of the way in from the blast doors (`GANTRY`: 26 m from the doors' middle, 22 m in), drawn as two
 rings of light (`bc-client/src/course.rs`), bright for a trainer's pilot. Its hatch, where a pilot
-on foot boards, is 14 m from the pad's middle toward the hall's (`hatch`).
+on foot boards, is 14 m from the pad's middle toward the hall's (`hatch`). On foot in the city the
+trainer the gantry has ready stands on the pad facing the targets (`course.rs`'s `park_trainer`: the
+Board's Argo, the bay's build or the line picked), and signs hang over the hatch (`BOARD A TRAINER ·
+E`) and the trainer, readable from the blast doors (`signs.rs`).
 
 **Boarding.**
-- On foot at the hatch, facing the pad, the prompt says `E  BOARD A TRAINER` and names what the
+- On foot within 8 m of the hatch or anywhere round the pad, facing it, the prompt says `E  BOARD
+  A TRAINER` and names what the
   test range picked (below): `THE CHARTER BOARD'S ARGO` till the pilot picks another, `YOUR ARGO, AS
   BUILT`, `A NEW ANTARES` (`HangarState::trainer_name`). E asks
   `Request::BoardTrainer` (`board_trainer`). The screen goes dark as it does boarding in the bay.
@@ -251,7 +255,12 @@ on foot boards, is 14 m from the pad's middle toward the hall's (`hatch`).
   the radio (`bc_client_core::dock`);
 - `ON THE GANTRY  ENTER: climb out` while it's docked there;
 - the news `ABOARD A TRAINER · THE CHARTER BOARD'S ARGO · WEAPONS FREE IN THE HALL · DOCK AT REST
-  ON ITS GANTRY`, naming the trainer as the hatch's prompt did.
+  ON ITS GANTRY`, naming the trainer as the hatch's prompt did, and a toast saying what to do: the
+  crosshair on the target pulsing cyan (its ◆), LMB the rifle, RMB the cannon;
+- the `Gantry` hint (not the inner gate's) says how to finish;
+- the chase camera stays inside the hall's walls (and out of the city's buildings) rather than
+  ending up behind the wall the gantry stands by (`camera.rs`'s `inside_clamp`); the cockpit, the
+  default view, never had to.
 
 **Tests:**
 - `bc-sim/tests/interior.rs`: a trainer stands on the gantry till its pilot is heard from and docks
@@ -413,8 +422,15 @@ forms, which the server's interior sector and each pilot's prediction share.
   event, `TargetHit` (extension sub-kind 3: target, shooter), sent to the shooter and to anyone
   within 5 km of the hall, and counts it (`SuitStats::targets`).
 - **On the screen:**
-  - the targets glow amber on the city's layer for anyone in the city, and flash white when
-    struck;
+  - the targets glow amber on the city's layer for anyone in the city, and flash white and swell
+    for 0.45 s from when a strike is seen (`view::Strikes`: a round of the pilot's own the moment
+    it's drawn reaching it, anyone's as the server's `TargetHit` arrives); the lit one pulses cyan
+    and breathes, its ring with it, and the HUD's waypoint ◆ marks it (`TARGET n/20`); a hit marker
+    flashes round the reticle;
+  - every shot's line flashes from the gun to what stopped it (`FxEvent::BeamTrace`): a rifle's
+    round crosses the hall within a frame, too fast to see in flight;
+  - the hall is lit by floodlights under its roof as well as its walls' own light, so the suits and
+    the targets in it read from the square through its doors as from inside;
   - inside the hall the panel reads `WEAPONS FREE   TARGETS n`, and the arms panel
     `WEAPONS FREE · THE BLAST HALL · TRAINING ROUNDS`;
   - beams and tracers end at the hall's walls, its doors and its targets;
@@ -437,8 +453,11 @@ forms, which the server's interior sector and each pilot's prediction share.
     on the nearest target (the `aim_hostile` hook aims at the hall's nearest target when there's
     no hostile), and sees its rounds score.
 
-**Not yet:** the fire seen from on foot. (The drill with its clock, and its times on the board,
-are built: above.)
+**From on foot:** a pilot watching from the city near the hall is told of the strikes on its
+targets (`replicate::build_watch`, each for `WATCH_EVENT_TICKS`: a watcher acks nothing), so the
+targets flash for them as for the shooter (`bc-sector/tests/watch_net.rs`). **Not yet:** the rounds
+themselves seen from on foot. (The drill with its clock, and its times on the board, are built:
+above.)
 
 ## Phase 6: more courses
 

@@ -34,7 +34,11 @@ pub fn eye(core: &ClientCore) -> Option<(Vec3, Quat)> {
 pub fn range(core: &ClientCore, eye: Vec3, aim: Vec3, t: f64) -> f32 {
     let (k, frac) = (t.max(0.0).floor() as u32, (t.max(0.0) - t.max(0.0).floor()) as f32);
     if core.inside() {
-        // Only the Blast Hall's rounds fly in here: its targets, its walls.
+        // Only the Blast Hall's rounds fly in here: its targets, its walls (out of it, nothing
+        // fires).
+        if !hall::in_hall(eye) {
+            return OPEN_RANGE;
+        }
         return hall::shot_end(eye, eye + aim * HALL_REACH, 0.0, k, frac)
             .map_or(OPEN_RANGE, |(f, _)| f * HALL_REACH);
     }

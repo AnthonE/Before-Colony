@@ -34,8 +34,80 @@ impl Plugin for CoursePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CourseState>().add_systems(Startup, setup_course).add_systems(
             Update,
-            (run_course, draw_targets).after(crate::view::Vis::Suits).before(crate::view::Vis::Camera),
+            (
+                (run_course, draw_targets).after(crate::view::Vis::Suits).before(crate::view::Vis::Camera),
+                park_trainer.before(crate::view::Vis::Suits),
+            ),
         );
+    }
+}
+
+/// The trainer standing on the gantry's pad (a suit drawn, not flown): its slot among the suits
+/// drawn, which no entity's is.
+pub const TRAINER_SLOT: u16 = 1_021;
+
+/// The frame the gantry has ready (the desk's test range): the Board's Argo, the bay's build, or a
+/// new one of a line.
+fn trainer_frame(h: &bc_client_core::hangar::HangarState) -> bc_proto::FrameId {
+    use bc_econ::proving::Trainer;
+    match h.proving.as_ref().map_or(Trainer::Board, |p| p.trainer) {
+        Trainer::Board => bc_proto::FrameId::Argo,
+        Trainer::Bay => match h.view.as_ref().map(|v| &v.bay) {
+            Some(bc_econ::Bay::Docked { suit }) => suit.line,
+            _ => bc_proto::FrameId::Argo,
+        },
+        Trainer::Line { line } => line,
+    }
+}
+
+/// The trainer the gantry has ready, standing on its pad facing the targets, for a pilot on foot in
+/// the city to see (and walk up to): boarded, the pilot's own takes its place.
+fn park_trainer(
+    mut commands: Commands,
+    game: Option<NonSend<GameClient>>,
+    mut parked: Local<Option<(Entity, bc_proto::FrameId)>>,
+) {
+    let want = game.and_then(|g| {
+        let g = g.borrow();
+        let c = &g.core;
+        (c.hangar.in_city() && !c.inside()).then(|| trainer_frame(&c.hangar))
+    });
+    match (want, *parked) {
+        (Some(f), Some((_, was))) if f == was => {}
+        (Some(f), was) => {
+            if let Some((e, _)) = was {
+                commands.entity(e).despawn();
+            }
+            let up = up_at(hall::gantry());
+            let facing = hall::gantry_facing();
+            let drive = crate::view::SuitDrive {
+                slot: TRAINER_SLOT,
+                frame: f,
+                faction: bc_proto::Faction::Colonies,
+                generation: 0,
+                own: false,
+                pos: hall::gantry() + up * (KERB + bc_sim::bodies::STANCE),
+                rot: bc_sim::math::look_rotation(facing, up),
+                vel: Vec3::ZERO,
+                aim: facing,
+                flags: 0,
+                thrust: Vec3::ZERO,
+                parts: [7; bc_proto::Part::COUNT],
+                holding: None,
+                held_gun: None,
+                ground: None,
+                weathering: 0,
+                doomed: false,
+                staggered: false,
+            };
+            let tf = Transform::from_translation(drive.pos).with_rotation(drive.rot);
+            *parked = Some((commands.spawn((drive, tf, Visibility::default())).id(), f));
+        }
+        (None, Some((e, _))) => {
+            commands.entity(e).despawn();
+            *parked = None;
+        }
+        (None, None) => {}
     }
 }
 
@@ -202,7 +274,33 @@ fn setup_course(
         ));
     }
     commands.insert_resource(GantryLooks { dim, bright });
+    // Floodlights under the hall's roof over its floor: the suits and targets in it are lit as its
+    // own walls are, whether they're watched from in it or from the square through its doors.
+    let r = hall::hall();
+    for (u, v) in [(-22.0, 28.0), (22.0, 28.0), (-22.0, 62.0), (22.0, 62.0)] {
+        let (s, x) = r.front.point(u, v);
+        let at = bc_sim::colony::frame::CityPos::new(r.strip, x, s, r.ceiling - 6.0).to_colony();
+        commands.spawn((
+            HallFlood,
+            PointLight {
+                intensity: FLOOD_LM,
+                range: 90.0,
+                color: Color::srgb(1.0, 0.95, 0.86),
+                shadow_maps_enabled: false,
+                ..default()
+            },
+            Transform::default(),
+            Placed(at.as_dvec3()),
+            RenderLayers::layer(CITY_LAYER),
+            Visibility::Hidden,
+        ));
+    }
 }
+
+/// One of the Blast Hall's floodlights, and how bright each is (lm).
+#[derive(Component)]
+struct HallFlood;
+const FLOOD_LM: f32 = 1.2e8;
 
 /// The Blast Hall's targets where the tick has them (the render clock flying inside, the plaza's
 /// on foot), flashing white and swelling as a strike on one is seen, for anyone in the city; the
@@ -231,6 +329,10 @@ fn draw_targets(
         (&mut Visibility, &mut MeshMaterial3d<StandardMaterial>),
         (With<GantryPad>, Without<HallTarget>, Without<TargetRing>),
     >,
+    mut floods: Query<
+        &mut Visibility,
+        (With<HallFlood>, Without<GantryPad>, Without<HallTarget>, Without<TargetRing>),
+    >,
 ) {
     let (Some(game), Some(looks), Some(gantry_looks)) = (game, looks, gantry_looks) else {
         for (_, _, _, _, mut v, _) in &mut targets {
@@ -244,6 +346,9 @@ fn draw_targets(
     let g = game.borrow();
     let core = &g.core;
     let shown = core.inside() || core.hangar.in_city();
+    for mut v in &mut floods {
+        v.set_if_neq(if shown { Visibility::Inherited } else { Visibility::Hidden });
+    }
     let now = now_s();
     let t = if core.inside() {
         core.render_tick(now)

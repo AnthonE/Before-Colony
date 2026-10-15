@@ -1246,8 +1246,11 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   (E). The trading floor's boards run along its back wall, the Charter Board's notices are pinned
   on its, and the bar's shelves are behind its counter. The Blast Hall's room is a suit's: 86 m
   deep, 84 m wide and 60 m high, behind blast doors 40 m wide and 45 m high that a suit flies in
-  through. Its back wall shows the course in light, and its desk the pilot's best time round it. Rooms are lit by their own lamps; the eye
-  adapts to them going in (and the street through the door blazes), and back to the day going out.
+  through. Its back wall shows the course in light, and its desk the pilot's best time round it. Rooms are lit by their own lamps, brighter by
+  day: the eye adapts a couple of stops going in and back out, so a room reads lit through its door
+  from the street and the street through the door reads from inside, rather than black or white.
+  The desks' counters are terminals: lit screens across their tops and a light strip along their
+  edge, a sign over each naming the desk and what E does there, from across the room.
 - **The Arrival's seats:** two benches either side of its door, facing the avenue
   (`colony::city::arrival_seats`). E by one sits you on it (the view drops to a seated eye), and E
   again or a step stands you up; everyone else sees you sitting (the presence's ride 15), and the

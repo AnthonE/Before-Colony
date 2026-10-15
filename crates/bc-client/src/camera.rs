@@ -155,8 +155,10 @@ pub fn follow(
     mut cam: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
     mut fill: Query<&mut Transform, (With<FillLight>, Without<MainCamera>)>,
     shot: Res<crate::launch_shot::LaunchShot>,
+    inside: Option<Res<crate::inside::FlyingInside>>,
 ) {
     let Ok((mut tf, mut projection)) = cam.single_mut() else { return };
+    let inside = inside.is_some_and(|f| f.0);
     let c = &mut *chase;
     let dt = time.dt.min(0.1);
     let own = suits.iter().find(|(d, ..)| d.own);
@@ -204,7 +206,12 @@ pub fn follow(
     // Behind and above the suit, on a spring in the frame moving with the suit as drawn, kept out
     // of the bodies as they're drawn. It keeps pace in the cockpit too, ready for the switch back.
     let follow = Follow { pos: t.pos, vel: t.vel, aim: t.aim, up: t.up, cut: t.cut, ground: t.ground };
-    let clamp = |from: Vec3, to: Vec3| camera_clamp(&bodies.set, bodies.t, from, to);
+    // (Inside the colony, kept in the Blast Hall from a suit in it, and out of the city's
+    // buildings: the colony's frame is the camera's there.)
+    let clamp = |from: Vec3, to: Vec3| {
+        let to = camera_clamp(&bodies.set, bodies.t, from, to);
+        if inside { inside_clamp(from, to) } else { to }
+    };
     if c.rig.step_clamped(&follow, dt, &clamp) {
         // Spawning, respawning or a teleport: the eased effects cut too.
         c.cut = true;
@@ -274,6 +281,37 @@ pub fn follow(
     if let Projection::Perspective(p) = &mut *projection {
         p.fov = c.fov.to_radians();
     }
+}
+
+/// Inside the colony, the chase camera's place on the way from the suit `from` to `to`, stopped
+/// short of the Blast Hall's walls (from a suit in the hall) and of the city's buildings, the floor
+/// and the hull (sphere traced through `colony::interior::probe`).
+fn inside_clamp(from: Vec3, to: Vec3) -> Vec3 {
+    use bc_sim::colony::{hall, interior};
+    const CLEAR: f32 = 2.5;
+    let mut to = to;
+    if hall::in_hall(from)
+        && let Some(s) = hall::wall_end(from, to, CLEAR)
+    {
+        to = from + (to - from) * s;
+    }
+    let len = from.distance(to);
+    if len < 1e-3 {
+        return to;
+    }
+    let dir = (to - from) / len;
+    let mut t = 0.0;
+    for _ in 0..48 {
+        let d = interior::probe(from + dir * t).dist;
+        if d < CLEAR {
+            return from + dir * (t - CLEAR).max(0.0);
+        }
+        t += d - CLEAR * 0.5;
+        if t >= len {
+            return to;
+        }
+    }
+    to
 }
 
 fn smoothstep(lo: f32, hi: f32, x: f32) -> f32 {

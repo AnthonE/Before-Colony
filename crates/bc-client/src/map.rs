@@ -329,7 +329,16 @@ pub fn update_objectives(
         };
         for (which, mut text) in &mut texts {
             let s = match which {
-                ObjectiveText::Heading => format!("OBJECTIVE {}/{count}   M - MAP", n + 1),
+                // The keys that work where the pilot is: the city's map (and G walks there), the
+                // chart flying; nothing in the bay.
+                ObjectiveText::Heading => {
+                    let keys = match (afoot, onfoot.city.is_some()) {
+                        (true, true) => "   M - MAP   G - WALK THERE",
+                        (true, false) => "",
+                        (false, _) => "   M - CHART",
+                    };
+                    format!("OBJECTIVE {}/{count}{keys}", n + 1)
+                }
                 ObjectiveText::Title => format!("{}{progress}{dist}", o.title(survival)),
                 // From where the pilot is: the way there first (down in the city on another strip
                 // than its place's, up and down the lifts).

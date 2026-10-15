@@ -58,13 +58,25 @@ const REBASE: f64 = 1_000.0;
 const SPLIT: [f32; 3] = [350.0, 900.0, 2_200.0];
 /// Chunks kept built, at most.
 const CACHE: usize = 1_400;
-/// In a key place's room (`colony::city::Room`): the exposure, its lamps' light on what isn't the
-/// room's own (people, a bench; lux, from overhead) and the ambient's (nits), and how fast the eye
-/// adapts going in or out (1/s).
-const EV_INDOOR: f32 = 8.0;
+/// In a key place's room (`colony::city::Room`), at EV 8: its own surfaces' light (nits on white),
+/// its lamps' light on what isn't the room's own (people, a bench; lux, from overhead) and the
+/// ambient's (nits); and how fast the eye adapts going in or out (1/s). The rooms are lit by the
+/// hour ([`room_ev`]): these scale by 2^(EV − 8).
+const ROOM_NITS: f32 = 300.0;
 const INDOOR_LUX: f32 = 900.0;
 const INDOOR_SKY: f32 = 40.0;
 const ADAPT: f32 = 3.0;
+/// The rooms are lit this far under the street (EV): a lit room seen through its door from the
+/// sunlit street, and the street seen from in it, both read rather than going black or white;
+/// between these bounds.
+const ROOM_UNDER: f32 = 2.0;
+const ROOM_EV: (f32, f32) = (9.5, 12.5);
+
+/// The exposure a key place's room is lit for, by the street's `outside`: its lamps are brighter by
+/// day, so going in or out the eye adapts a couple of stops, not six.
+fn room_ev(outside: f32) -> f32 {
+    (outside - ROOM_UNDER).clamp(ROOM_EV.0, ROOM_EV.1)
+}
 /// The glass runs this far (rad) past each strip's edge and lies this far (m) outside the floor, so
 /// it tucks under the ground there instead of meeting it edge to edge: two meshes whose shared edge
 /// rounds differently leave hairline cracks. Half a metre is enough for the depth buffer even
@@ -685,7 +697,9 @@ fn light_city(
     };
     let to_sun = key_light(strip, &d);
     // The eye adapts to where it is: the hour outside, or a room's lamps.
-    let target = if room.is_some() { EV_INDOOR } else { look.ev };
+    let indoor = room_ev(look.ev);
+    let lamps = 2f32.powf(indoor - 8.0);
+    let target = if room.is_some() { indoor } else { look.ev };
     let ev = match *adapted {
         Some(e) => e + (target - e) * (1.0 - (-ADAPT * time.dt.min(0.25)).exp()),
         None => target,
@@ -705,7 +719,7 @@ fn light_city(
         }
         if room.is_some() {
             // In a room, the scene's one light is its lamps, from overhead.
-            light.illuminance = INDOOR_LUX;
+            light.illuminance = INDOOR_LUX * lamps;
             light.color = Color::linear_rgb(1.0, 0.93, 0.82);
             light.shadow_maps_enabled = false;
             *tf = Transform::default().looking_to(-up, Vec3::X);
@@ -718,7 +732,7 @@ fn light_city(
     }
     if room.is_some() {
         ambient.color = Color::srgb(0.78, 0.85, 1.0);
-        ambient.brightness = INDOOR_SKY;
+        ambient.brightness = INDOOR_SKY * lamps;
     } else {
         ambient.color = Color::linear_rgb(look.sky.x, look.sky.y, look.sky.z);
         ambient.brightness = look.sky_nits;
@@ -763,7 +777,12 @@ fn light_city(
         m.extension.city = CityParams {
             origin: o.extend(strip as f32),
             day: Vec4::new(d.daylight, d.lamps, seconds, d.sun_elev),
-            light: Vec4::new(look.lux, look.sky_nits, if room.is_some() { 1.0 } else { 0.0 }, 0.0),
+            light: Vec4::new(
+                look.lux,
+                look.sky_nits,
+                if room.is_some() { 1.0 } else { 0.0 },
+                ROOM_NITS * lamps,
+            ),
             sky,
         };
     }

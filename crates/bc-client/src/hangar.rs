@@ -453,15 +453,28 @@ pub fn setup_bay(
         }
         let (feet, facing) = spot.stand();
         let at = spot.at() + Vec3::Y * 0.12;
+        // A terminal: its screen, tilted to whoever stands at it, a lit bezel round it, and a beacon
+        // on a mast over it (cyan), seen across the bay.
+        let face = Transform::from_translation(at - facing * 0.1).looking_to(feet.with_y(at.y) - at, Vec3::Y);
         commands.spawn((
             Mesh3d(cube.clone()),
             MeshMaterial3d(screen.clone()),
-            Transform::from_translation(at - facing * 0.1)
-                .looking_to(feet.with_y(at.y) - at, Vec3::Y)
-                .with_scale(Vec3::new(0.7, 0.45, 0.04)),
+            face.with_scale(Vec3::new(0.95, 0.6, 0.04)),
             NotShadowCaster,
             ChildOf(root),
         ));
+        commands.spawn((
+            Mesh3d(cube.clone()),
+            MeshMaterial3d(guide.clone()),
+            Transform::from_translation(face.translation - face.forward() * 0.012)
+                .with_rotation(face.rotation)
+                .with_scale(Vec3::new(1.05, 0.7, 0.02)),
+            NotShadowCaster,
+            ChildOf(root),
+        ));
+        let mast = spot.at().with_y(0.0) + facing * 0.5;
+        glow(&mut commands, mast + Vec3::Y * 2.0, Vec3::new(0.05, 1.6, 0.05), &guide);
+        glow(&mut commands, mast + Vec3::Y * 2.85, Vec3::splat(0.16), &screen);
     }
     let mut shade = 0u8;
     for level in 0..3 {

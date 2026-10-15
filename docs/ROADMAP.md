@@ -78,7 +78,6 @@ Built since, each a PR of its own:
 
 Next, each a PR of its own:
 
-- **The ◆ on the door in the city view itself**, not only on the map (P0's objectives, above).
 - **The Arrival's menu** (`LIFE.md`, L1: eating). Its door now opens the Most Wanted, pinned up
   behind the bar (`Panel::Arrival`, the terminals' `wanted` tab); the menu joins it there as a
   second tab, `menu`, at the same door.
@@ -144,8 +143,8 @@ the pilot is, and the city's map marks the door with a `◆` (Hub Gate's, for th
 space's). Tests: `objectives`' units (the
 bits, the new Arrival's chain, flying first, a skipped hide, arcade, the colony closed, every
 how-line's prefix, the ace's waypoint, a rifle waiting at the Board's desk), and the colony e2e
-walking the desks in turn. Still open:
-a marker on the door in the city view itself.
+walking the desks in turn. The ◆ is on the door in the city view itself too, with its distance, and
+G walks the pilot there (`bc-client/src/signs.rs`, `onfoot.rs`).
 
 **The Arrival does something.** *Built.* Seats by its door (`bc_sim::colony::city::arrival_seats`, a
 closed form of the door; benches drawn there), E to sit, others see you sit (the presence's

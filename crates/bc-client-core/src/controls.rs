@@ -90,6 +90,7 @@ pub const BINDINGS: &[Binding] = &[
     b(Group::Colony, "E (by a seat)", "Sit outside The Arrival; E again, or a step, stands you up"),
     b(Group::Colony, "Space", "On the cap lift: skip the ride down"),
     b(Group::Colony, "M / Esc", "The map, open or closed: your strip end to end, and the streets round you"),
+    b(Group::Colony, "G", "Walk me there: to the objective's place (its ◆ over the door), on your strip"),
     b(
         Group::Colony,
         "Walk in",
