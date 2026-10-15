@@ -51,6 +51,8 @@ pub struct SuitVisual {
     /// A Corona's wards as they fly (on the root, hidden while racked), and its field's shell.
     pub wards: Vec<Entity>,
     pub field: Option<Entity>,
+    /// The arcs jumping between neighbouring ward discs while they hold the field.
+    pub arcs: Vec<Entity>,
     aura: Entity,
     /// The Eclipse's shimmer.
     shimmer: Entity,
@@ -279,7 +281,7 @@ fn build_suit(
     let field = matches!(frame(d.frame).special, SpecialKind::Ward { .. }).then(|| {
         commands
             .spawn((
-                Mesh3d(shapes.sphere.clone()),
+                Mesh3d(shapes.fine_sphere.clone()),
                 MeshMaterial3d(pal.field.clone()),
                 MeshTag(0),
                 Transform::from_scale(Vec3::splat(bc_sim::content::WARD_RADIUS)),
@@ -289,6 +291,21 @@ fn build_suit(
             ))
             .id()
     });
+    let arcs = (0..sockets.wards.len())
+        .map(|k| {
+            commands
+                .spawn((
+                    Mesh3d(ribbons.mesh.clone()),
+                    MeshMaterial3d(ribbons.arc.material.clone()),
+                    beam_tag((d.slot as u8).wrapping_add(k as u8 * 29), true),
+                    Transform::default(),
+                    NotShadowCaster,
+                    Visibility::Hidden,
+                    ChildOf(root),
+                ))
+                .id()
+        })
+        .collect();
     // The Orrery aura: a shell glowing at its rim (its MeshTag sets how bright).
     let aura = commands
         .spawn((
@@ -336,6 +353,7 @@ fn build_suit(
             power,
             wards,
             field,
+            arcs,
             aura,
             shimmer,
             shadow,

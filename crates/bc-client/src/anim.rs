@@ -697,8 +697,12 @@ pub fn animate_suits(
             a.ward_spin = (a.ward_spin + dt * WARD_SPIN) % std::f32::consts::TAU;
             let ease = a.ward * a.ward * (3.0 - 2.0 * a.ward);
             let racks = &lib.sockets(d.frame).wards;
+            let mut at = [Vec3::ZERO; bc_sim::content::WARDS];
             for (k, (&e, &(home, face))) in v.wards.iter().zip(racks).enumerate() {
                 let spot = ward_spot(k, racks.len(), a.ward_spin);
+                if let Some(p) = at.get_mut(k) {
+                    *p = (home + a.lift).lerp(spot, ease);
+                }
                 if let Ok(mut tf) = bones.get_mut(e) {
                     tf.translation = (home + a.lift).lerp(spot, ease);
                     let (racked, held) = (
@@ -718,6 +722,21 @@ pub fn animate_suits(
             {
                 show(&mut s, a.ward <= 0.0);
             }
+            // Arcs jump between each disc and the next round its ring while they hold the field,
+            // each flickering on and off on its own beat.
+            let n = racks.len().min(at.len());
+            for (k, &arc) in v.arcs.iter().enumerate().take(n) {
+                let (p, q) = (at[k], at[(k + 2) % n]);
+                let beat = ((time.now * 23.0 + k as f64 * 7.3).sin() * 43_758.5).fract().abs();
+                let lit = a.ward >= 1.0 && on && beat > 0.45;
+                if lit && let Ok(mut tf) = bones.get_mut(arc) {
+                    let len = (q - p).length().max(0.01);
+                    crate::beams::place_ribbon(&mut tf, q, (q - p) / len, len, 0.3);
+                }
+                if let Ok(mut s) = shown.get_mut(arc) {
+                    show(&mut s, lit);
+                }
+            }
             if let Some(f) = v.field {
                 let held = a.ward >= 1.0 && on;
                 if let Ok(mut s) = shown.get_mut(f) {
@@ -725,7 +744,7 @@ pub fn animate_suits(
                 }
                 if held && let Ok(mut t) = tags.get_mut(f) {
                     let shimmer = 0.75 + 0.25 * ((time.now * 5.0 + f64::from(d.slot)).sin() as f32);
-                    *t = MeshTag((150.0 * shimmer) as u32);
+                    *t = MeshTag((120.0 * shimmer) as u32);
                 }
             }
         }

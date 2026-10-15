@@ -162,39 +162,53 @@ fn head(d: &mut Designer, t: Twin) {
         BODY,
         axis,
     );
-    // The peak: a wedge out of the dome's front, its edge in a shallow V over the camera.
-    let (back, tip) = (0.45, 1.06);
-    let peak = [
-        (-0.62, 6.86, back),
-        (0.62, 6.86, back),
-        (-0.6, 7.32, back - 0.1),
-        (0.6, 7.32, back - 0.1),
-        (-0.42, 6.96, tip),
-        (0.42, 6.96, tip),
-        (-0.36, 7.1, tip - 0.02),
-        (0.36, 7.1, tip - 0.02),
-    ]
-    .map(|(x, y, z)| v(x, y, z));
-    h.hexa(peak, 0.05, BODY, Affine3A::IDENTITY);
-    h.cube(v(0.86, 0.06, 0.08), 0.0, pale, place(v(0.0, 6.92, tip - 0.05), rx(0.0)));
+    // The brow: two plates out of the dome's front meeting in a ridge and coming down to a point
+    // over the camera, the pale band's front edge along their foot.
+    for side in Side::BOTH {
+        let brow = [
+            (0.0, 6.88, 0.84),
+            (0.66, 7.04, 0.56),
+            (0.0, 7.22, 0.8),
+            (0.66, 7.32, 0.52),
+            (0.0, 6.88, 1.1),
+            (0.66, 7.04, 0.84),
+            (0.0, 7.22, 1.02),
+            (0.66, 7.32, 0.78),
+        ]
+        .map(|(x, y, z)| v(x, y, z));
+        let brow = if side == Side::R { brow } else { swap_x(brow.map(|p| v(-p.x, p.y, p.z))) };
+        h.hexa(brow, 0.05, BODY, Affine3A::IDENTITY);
+        let edge = (v(0.0, 6.87, 1.08) + v(0.64 * side.sign(), 7.03, 0.82)) * 0.5;
+        let run = v(0.64 * side.sign(), 0.16, -0.26);
+        h.cube(v(0.05, run.length() + 0.04, 0.06), 0.0, pale, place(edge, toward(run)));
+    }
     match t {
         Twin::Sagittarius => {
-            // The horn: one tall blade out of the crown, swept back.
+            // The horn: one tall blade rising out of the brow's ridge, swept back over the hood.
             let horn = [
-                v2(0.0, 0.0),
-                v2(0.34, 0.02),
-                v2(0.12, 1.05),
-                v2(-0.42, 1.95),
-                v2(-0.36, 1.62),
-                v2(-0.22, 0.4),
+                v2(0.3, 0.0),
+                v2(0.56, 0.06),
+                v2(0.28, 1.0),
+                v2(-0.36, 2.3),
+                v2(-0.52, 2.62),
+                v2(-0.44, 2.1),
+                v2(-0.12, 0.9),
+                v2(0.02, 0.22),
             ];
-            let xf = place(v(0.0, CROWN - 0.22, 0.38), ry(-FRAC_PI_2) * rz(-0.1));
-            h.extrude(&horn, 0.16, BODY, xf);
-            h.block(v(0.26, 0.3, 0.6), v2(0.6, 0.8), Vec2::ZERO, 0.04, BODY, at(0.0, CROWN - 0.12, 0.2));
+            let xf = place(v(0.0, 7.08, 0.72), ry(-FRAC_PI_2) * rz(-0.06));
+            h.extrude(&horn, 0.2, BODY, xf);
         }
         Twin::Corona => {
-            // The crescent: a wide gull wing on a short stalk, its tips turned up.
-            h.block(v(0.22, 0.42, 0.28), v2(0.8, 0.8), Vec2::ZERO, 0.04, BODY, at(0.0, CROWN - 0.02, 0.42));
+            // The crescent: a wide gull wing on a short stalk out of the brow's ridge, its tips
+            // turned up.
+            h.block(
+                v(0.22, 0.42, 0.28),
+                v2(0.8, 0.8),
+                Vec2::ZERO,
+                0.04,
+                BODY,
+                place(v(0.0, 7.38, 0.86), rx(-0.3)),
+            );
             for s in Side::BOTH {
                 let wing = [
                     v2(0.0, -0.08),
@@ -206,7 +220,7 @@ fn head(d: &mut Designer, t: Twin) {
                     v2(0.4, 0.2),
                     v2(0.0, 0.16),
                 ];
-                h.extrude(&wing, 0.14, BODY, sided(s, place(v(0.0, CROWN + 0.14, 0.52), rx(-0.2))));
+                h.extrude(&wing, 0.14, BODY, sided(s, place(v(0.0, 7.6, 0.8), rx(-0.35))));
             }
         }
     }

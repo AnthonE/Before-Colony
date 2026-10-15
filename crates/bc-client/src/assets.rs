@@ -23,6 +23,9 @@ pub struct Palette {
 #[derive(Resource)]
 pub struct MeshLib {
     pub sphere: Handle<Mesh>,
+    /// A finer sphere, for shells big enough on screen to show the plain one's facets (a Corona's
+    /// field).
+    pub fine_sphere: Handle<Mesh>,
     /// Radius 1, 1 long along y, centred.
     pub cylinder: Handle<Mesh>,
     /// Radius 1 in the xz plane, facing +y: dark in the middle, fading out to its edge.
@@ -65,7 +68,7 @@ pub fn setup_assets(
     commands.insert_resource(Palette {
         orrery_aura: shells.add(ShockMaterial::new(Vec3::new(2.4, 0.25, 0.45), 2.5)),
         jammer: shells.add(ShockMaterial::new(Vec3::new(0.12, 0.34, 0.75), 7.0)),
-        field: shells.add(ShockMaterial::new(Vec3::new(1.5, 0.55, 1.1), 3.5)),
+        field: shells.add(ShockMaterial::new(Vec3::new(1.3, 0.48, 1.0), 4.5)),
         contact: standard.add(StandardMaterial {
             base_color: Color::WHITE,
             unlit: true,
@@ -75,6 +78,7 @@ pub fn setup_assets(
     });
     commands.insert_resource(MeshLib {
         sphere: meshes.add(Sphere::new(1.0).mesh().ico(3).expect("icosphere")),
+        fine_sphere: meshes.add(Sphere::new(1.0).mesh().ico(5).expect("icosphere")),
         cylinder: meshes.add(Cylinder::new(1.0, 1.0).mesh().resolution(8)),
         disc: meshes.add(shadow_disc(0.6, 24)),
     });
