@@ -17,7 +17,9 @@
 //! - Wrecks go limp.
 //! - On a body, the suit walks (`bc_client_core::gait`): each foot planted on the surface where
 //!   the body's shape has it, held there in the body's frame, the legs reaching it by two-bone IK
-//!   (`bc_model::ik`), the soles turned flat to the ground. The hips drop as far as a stride needs,
+//!   (`bc_model::ik`), the soles turned flat to the ground. Each foot rolls onto its toes as it
+//!   pushes off, its heel rising about their hinge while they stay flat (the gait's `push`), and
+//!   kneeling, the back foot's toes are tucked under it. The hips drop as far as a stride needs,
 //!   the knees fold with a crouch and the chest leans into it; a landing squashes the legs and they
 //!   spring back. A pilot asleep in the cockpit, or a suit with its legs shot off, kneels. Limb trim and
 //!   the thrust posture are the air's, not the ground's.
@@ -59,6 +61,13 @@ const REACH: f32 = 0.985;
 const CROUCH_LEAN: f32 = 0.2;
 /// The legs' joints ride stiffer springs on the ground, so a planted foot stays put (rad/s).
 const LEG_STIFF: f32 = 40.0;
+/// How far a foot rolls onto its toes as it leaves the ground (rad): its heel up about their
+/// hinge.
+const TOE_ROLL: f32 = 0.55;
+/// Kneeling, the back foot stands on its tucked toes, its heel up this far (rad), its ankle this
+/// high over the ground (m): the toes' hinge on the ground under it.
+const KNEEL_ROLL: f32 = 1.4;
+const KNEEL_ANKLE: f32 = 1.73;
 
 /// Which hands carry a strike.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -323,33 +332,37 @@ fn spring1(x: &mut f32, v: &mut f32, target: f32, w: f32, dt: f32) {
     (*x, *v) = (xv.x, vv.x);
 }
 
-/// The legs of a suit on a body, posed this frame: each leg's thigh, shin and foot rotations
+/// The legs of a suit on a body, posed this frame: each leg's thigh, shin, foot and toe rotations
 /// (scaled axes, parents' frames), and how far the hips must drop for the feet to be reached (m).
 struct Legs {
-    rot: [[Vec3; 3]; 2],
+    rot: [[Vec3; 4]; 2],
     drop: f32,
 }
 
 /// The bones of the left and the right leg.
-const LEG_BONES: [[Bone; 3]; 2] =
-    [[Bone::ThighL, Bone::ShinL, Bone::FootL], [Bone::ThighR, Bone::ShinR, Bone::FootR]];
+const LEG_BONES: [[Bone; 4]; 2] = [
+    [Bone::ThighL, Bone::ShinL, Bone::FootL, Bone::ToeL],
+    [Bone::ThighR, Bone::ShinR, Bone::FootR, Bone::ToeR],
+];
 
 /// The legs reaching for `ankles`, their knees bending toward `poles` (both in the suit's frame,
-/// from the torso), the soles turned flat to `up` (suit frame).
-fn reach_legs(ankles: [Vec3; 2], poles: [Vec3; 2], up: Vec3) -> [[Vec3; 3]; 2] {
+/// from the torso), the soles turned flat to `up` (suit frame) but for each foot's heel rolled up
+/// `rolls` (rad) about its toes, which stay flat.
+fn reach_legs(ankles: [Vec3; 2], poles: [Vec3; 2], up: Vec3, rolls: [f32; 2]) -> [[Vec3; 4]; 2] {
     // The rig's legs aren't quite straight at rest: each bone's rotation is taken from its own
     // rest line, not the IK's straight-down one.
     let rest_line = |b: Bone| Quat::from_rotation_arc(b.rest().normalize(), Vec3::NEG_Y);
     let flat = Quat::from_rotation_arc(Vec3::Y, up);
     [0, 1].map(|side| {
-        let [thigh, shin, foot] = LEG_BONES[side];
+        let [thigh, shin, foot, _] = LEG_BONES[side];
         let hip = thigh.def().joint;
         let (tq, sq) = two_bone(hip, poles[side], ankles[side], THIGH, SHIN);
         let (a, b) = (rest_line(shin), rest_line(foot));
         let thigh_rot = tq * a;
         let shin_rot = a.inverse() * sq * b;
-        let foot_rot = (thigh_rot * shin_rot).inverse() * flat;
-        [thigh_rot, shin_rot, foot_rot].map(Quat::to_scaled_axis)
+        let foot_rot = (thigh_rot * shin_rot).inverse() * flat * Quat::from_rotation_x(rolls[side]);
+        let toe_rot = Quat::from_rotation_x(-rolls[side]);
+        [thigh_rot, shin_rot, foot_rot, toe_rot].map(Quat::to_scaled_axis)
     })
 }
 
@@ -366,17 +379,28 @@ fn ground_legs(d: &SuitDrive, g: &SuitGround, gait: &Gait, lift: Vec3, kneel: bo
         let h = hip(side);
         h - up * (h.dot(up) - ground.dot(up))
     };
-    let (ankles, poles) = if kneel {
+    let (mut ankles, poles, rolls) = if kneel {
         // The right foot planted ahead, its knee up by the chest (the shin is long), the left knee
-        // down with its shin along the ground behind.
+        // down with its shin along the ground behind and its toes tucked under it.
         (
-            [on_ground(0) - fwd * 4.8 + up * 1.3, on_ground(1) + fwd * 3.2 + up * ANKLE_TO_SOLE],
+            [on_ground(0) - fwd * 4.8 + up * KNEEL_ANKLE, on_ground(1) + fwd * 3.2 + up * ANKLE_TO_SOLE],
             [hip(0) + fwd * 5.0 - up * 4.0, hip(1) + fwd * 10.0],
+            [KNEEL_ROLL, 0.0],
         )
     } else {
         let ankle = |side: usize| inv * (g.pose.to_world(gait.feet[side].at) - d.pos) + up * ANKLE_TO_SOLE;
-        ([ankle(0), ankle(1)], [hip(0) + fwd * 10.0, hip(1) + fwd * 10.0])
+        let roll = |side: usize| gait.feet[side].push * TOE_ROLL;
+        ([ankle(0), ankle(1)], [hip(0) + fwd * 10.0, hip(1) + fwd * 10.0], [roll(0), roll(1)])
     };
+    // A planted foot rolling onto its toes lifts its ankle about their hinge.
+    let flat = Quat::from_rotation_arc(Vec3::Y, up);
+    for side in 0..2 {
+        if !kneel && gait.feet[side].planted && rolls[side] > 0.0 {
+            let hinge = ankles[side] + flat * LEG_BONES[side][3].rest();
+            let heel_up = Quat::from_axis_angle(flat * Vec3::X, rolls[side]);
+            ankles[side] = hinge + heel_up * (ankles[side] - hinge);
+        }
+    }
     // How far the hips must drop for the further foot to be in reach.
     let reach = (THIGH + SHIN) * REACH;
     let drop = [0, 1]
@@ -389,7 +413,7 @@ fn ground_legs(d: &SuitDrive, g: &SuitGround, gait: &Gait, lift: Vec3, kneel: bo
         .into_iter()
         .fold(0.0f32, f32::max)
         .clamp(0.0, MAX_BOB);
-    Legs { rot: reach_legs(ankles.map(|a| a - lift), poles.map(|p| p - lift), up), drop }
+    Legs { rot: reach_legs(ankles.map(|a| a - lift), poles.map(|p| p - lift), up, rolls), drop }
 }
 
 fn smooth(lo: f32, hi: f32, x: f32) -> f32 {

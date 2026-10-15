@@ -5,8 +5,8 @@
 //! brown fists; the grey ring in the crotch and the two thrusters under the rear skirts; egg thighs,
 //! knee blocks with four rivets, long shins swelling to the calf and pinched in over the ankle,
 //! tall two-tier ankle guards with a tab up the front and a wheel either side, and brown feet in
-//! three blocks (the heel, the instep and a toe falling away to its tip) under the green instep
-//! armour. The space type's propellant drum rides across its back; it carries the long beam rifle,
+//! three blocks (the heel, the instep and a toe falling away to its tip on its own hinge) under the
+//! green instep armour, a vernier in the sole under the heel and under the toe. The space type's propellant drum rides across its back; it carries the long beam rifle,
 //! and the 105 mm rifle with its drum magazine rides the left forearm.
 //!
 //! Its inner frame, shoulders, hands and feet are brown; the wheels, the crotch ring, the hatch's
@@ -17,7 +17,8 @@ use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 use glam::{Affine3A, Quat, Vec2, Vec3};
 
 use crate::frames::{
-    BODY, EYE, FRAME, GUN, STEEL, TRIM, at, j, nozzle, place, rx, ry, rz, saber_hilt, sided, sp, v, v2,
+    BODY, EYE, FRAME, GUN, SOLE, STEEL, Sole, TRIM, at, j, nozzle, place, rx, ry, rz, saber_hilt, sided,
+    sole, sp, v, v2,
 };
 use crate::kit::{Light, Paint};
 use crate::rig::{Bone, Side};
@@ -440,8 +441,10 @@ fn hands(d: &mut Designer) {
 fn legs(d: &mut Designer) {
     let (hip, knee, ankle) = (j(Bone::ThighR), j(Bone::ShinR), j(Bone::FootR));
     for s in Side::BOTH {
-        let (thigh, shin, foot) =
-            s.pick((Bone::ThighL, Bone::ShinL, Bone::FootL), (Bone::ThighR, Bone::ShinR, Bone::FootR));
+        let (thigh, shin, foot, toe) = s.pick(
+            (Bone::ThighL, Bone::ShinL, Bone::FootL, Bone::ToeL),
+            (Bone::ThighR, Bone::ShinR, Bone::FootR, Bone::ToeR),
+        );
         let k = s.pick(0.0, 0.2);
 
         // The thigh: an egg, fullest high up and swelling outboard, from the knee block up under
@@ -565,21 +568,31 @@ fn legs(d: &mut Designer) {
         }
 
         // The foot, in three brown blocks seamed together, their sides leaning in: the heel under
-        // the guard, its back slanting in, the instep, and the long toe falling away and narrowing
-        // to its tip; the dark sole under them, and the green instep armour lying down the foot
-        // out of the guard.
+        // the guard, its back slanting in, the instep, and the long toe (on its own hinge) falling
+        // away and narrowing to its tip; the dark sole under them, split at the hinge, a vernier
+        // in each half; and the green instep armour lying down the foot out of the guard.
         let mut f = d.on(foot);
         f.seed(0.43 + k);
         f.sphere(0.5, 5, BROWN, sided(s, Affine3A::from_translation(ankle)));
-        let (sole, flat) = (-9.07, sided(s, Affine3A::IDENTITY));
-        let base = sole + 0.12;
+        let flat = sided(s, Affine3A::IDENTITY);
+        let base = SOLE + 0.2;
         f.hexa(boot(x, base, (-8.1, -8.1), (0.9, 0.96), [-1.5, -1.3, -0.36, -0.36]), 0.12, BROWN, flat);
-        f.hexa(boot(x, base, (-8.04, -8.2), (0.98, 0.96), [-0.33, -0.33, 1.2, 1.2]), 0.12, BROWN, flat);
-        f.hexa(boot(x, base, (-8.22, -8.52), (0.96, 0.78), [1.23, 1.23, 2.82, 2.42]), 0.12, BROWN, flat);
-        f.cube(v(1.7, 0.14, 4.2), 0.03, FRAME, sided(s, at(x, sole + 0.07, 0.64)));
+        f.hexa(boot(x, base, (-8.04, -8.2), (0.98, 0.96), [-0.33, -0.33, 1.26, 1.26]), 0.12, BROWN, flat);
+        let mut t = d.on(toe);
+        t.seed(0.47 + k);
+        t.hexa(boot(x, base, (-8.22, -8.52), (0.96, 0.78), [1.32, 1.32, 2.82, 2.42]), 0.12, BROWN, flat);
+        t.greeble(|t| {
+            // A seam across the toe.
+            t.cube(v(1.3, 0.03, 0.06), 0.0, FRAME, sided(s, place(v(x, -8.36, 2.0), rx(0.19))));
+        });
+        let heel = Sole { z: (-1.5, 1.27), half: (0.94, 1.0), top: 0.22, pads: BROWN, vernier: -0.5, r: 0.3 };
+        sole(d, foot, s, x, heel);
+        let toes =
+            Sole { z: (1.33, 2.86), half: (1.0, 0.82), top: 0.22, pads: BROWN, vernier: 2.08, r: 0.24 };
+        sole(d, toe, s, x, toes);
+        let mut f = d.on(foot);
         f.greeble(|f| {
-            // A seam across the toe, and the panel lines down the instep's and heel's sides.
-            f.cube(v(1.3, 0.03, 0.06), 0.0, FRAME, sided(s, place(v(x, -8.36, 2.0), rx(0.19))));
+            // The panel lines down the instep's and heel's sides.
             for (z, lean) in [(0.45, 0.5), (-0.9, -0.4)] {
                 for side in [-1.0, 1.0] {
                     let tilt = rz(side * BOOT_LEAN.atan()) * ry(side * FRAC_PI_2) * rz(lean);
@@ -588,33 +601,18 @@ fn legs(d: &mut Designer) {
                 }
             }
         });
-        f.hexa(shoe(x, (-8.24, -7.45), (0.6, 0.48), (0.3, 1.72), (0.3, 0.92)), 0.08, BODY, flat);
-        u_mark(&mut f, 0.36, 0.32, sided(s, place(v(x, -8.02, 1.53), rx(-0.79))));
+        // (Its foot stops short of the toes' hinge, so they bend clear of it.)
+        f.hexa(shoe(x, (-8.24, -7.45), (0.6, 0.48), (0.3, 1.3), (0.3, 0.92)), 0.08, BODY, flat);
+        u_mark(&mut f, 0.36, 0.32, sided(s, place(v(x, -7.86, 1.13), rx(-0.49))));
     }
 }
 
 /// How far a foot block's sides lean in, per metre up.
 const BOOT_LEAN: f32 = 0.22;
 
-/// A block of a foot, centred on `x`, in the suit's frame: its sole level at `base`, narrowing
-/// along z from `half.0` at the back to `half.1` at the front, its sides leaning in as they rise
-/// ([`BOOT_LEAN`]); its top falling from `top.0` at the back to `top.1` at the front; `z` its back
-/// at the sole and at the top, then its front at the sole and at the top (a face slants where they
-/// differ). Each side lies in one plane (its half-width is linear in z and in height), so every
-/// face stays flat.
+/// A block of a foot ([`frames::boot`](crate::frames::boot)), its sides leaning in [`BOOT_LEAN`].
 fn boot(x: f32, base: f32, top: (f32, f32), half: (f32, f32), z: [f32; 4]) -> [Vec3; 8] {
-    let [back, back_top, front, front_top] = z;
-    let h =
-        |at: f32, y: f32| half.0 + (half.1 - half.0) * (at - back) / (front - back) - BOOT_LEAN * (y - base);
-    std::array::from_fn(|i| {
-        let (zz, y) = match (i & 4 != 0, i & 2 != 0) {
-            (false, false) => (back, base),
-            (false, true) => (back_top, top.0),
-            (true, false) => (front, base),
-            (true, true) => (front_top, top.1),
-        };
-        v(x + if i & 1 != 0 { h(zz, y) } else { -h(zz, y) }, y, zz)
-    })
+    crate::frames::boot(x, base, top, half, z, BOOT_LEAN)
 }
 
 /// A block of a boot, centred on `x`, in the suit's frame: its bottom and top level (heights `y`),

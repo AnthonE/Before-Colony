@@ -25,7 +25,7 @@ use crate::gfx::Gfx;
 use crate::materials::{HullTag, paint};
 use crate::model::SuitMeshLib;
 use crate::particles::{At, Particles};
-use crate::suits_vis::{SuitVisual, bone_point, drawn_blades, flame_nozzle, plume_power};
+use crate::suits_vis::{SuitVisual, bone_point, drawn_blades, flame_nozzle, plume_power, sole_power};
 use crate::view::{BeamFeed, FxEvent, FxEvents, MissileFeed, SuitDrive, VisTime};
 
 const BEAMS: usize = 96;
@@ -256,13 +256,21 @@ pub fn update_fx(
         }
     }
 
-    // --- The main thrusters' fire, seen end-on (the plume ribbons vanish from straight behind). ---
+    // --- The thrusters' fire, seen end-on (the plume ribbons vanish from straight behind): the
+    // main ones, and the verniers in the soles. ---
     for (d, anim, _) in &suits {
         let power = plume_power(d);
         if power > 0.03 && d.parts[bc_proto::Part::Backpack as usize] > 0 {
             for &(pos, dir) in &lib.sockets(d.frame).nozzles {
                 let at = At { pos: bone_point(d, anim, Bone::Backpack, pos + dir * 0.4), vel: d.vel };
                 particles.glow(cap, at, 0.6 + 1.2 * power, Vec3::new(2.0, 2.8, 5.0) * power);
+            }
+        }
+        let power = sole_power(d);
+        if power > 0.03 && d.parts[bc_proto::Part::Legs as usize] > 0 {
+            for &(bone, pos, dir) in &lib.sockets(d.frame).soles {
+                let at = At { pos: bone_point(d, anim, bone, pos + dir * 0.2), vel: d.vel };
+                particles.glow(cap, at, 0.35 + 0.7 * power, Vec3::new(2.0, 2.8, 5.0) * power);
             }
         }
     }

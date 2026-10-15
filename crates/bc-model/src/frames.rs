@@ -6,6 +6,8 @@
 //! Paint slots: `Body`, `Trim` and `Accent` take the livery's colours, `Eye` its sensor glow; the
 //! inner frame, weapons and details use fixed paints.
 
+use std::f32::consts::FRAC_PI_2;
+
 use bc_proto::FrameId;
 use glam::{Affine3A, Quat, Vec2, Vec3};
 
@@ -206,6 +208,225 @@ pub(crate) fn nozzle(d: &mut Designer, bone: Bone, pos: Vec3, dir: Vec3, r: f32)
     d.sockets.nozzles.push((local, rot * Vec3::Y));
 }
 
+// --- Feet. ---
+
+/// The sole: how high the ground is under the origin at rest.
+pub(crate) const SOLE: f32 = -9.07;
+
+/// A block of a foot, centred on `x`, in the suit's frame: its foot level at `base`, narrowing
+/// along z from `half.0` at the back to `half.1` at the front, its sides leaning in `lean` per
+/// metre as they rise; its top falling from `top.0` at the back to `top.1` at the front; `z` its
+/// back at the foot and at the top, then its front at the foot and at the top (a face slants
+/// where they differ). Each side lies in one plane (its half-width is linear in z and in height),
+/// so every face stays flat.
+pub(crate) fn boot(
+    x: f32,
+    base: f32,
+    top: (f32, f32),
+    half: (f32, f32),
+    z: [f32; 4],
+    lean: f32,
+) -> [Vec3; 8] {
+    let [back, back_top, front, front_top] = z;
+    let h = |at: f32, y: f32| half.0 + (half.1 - half.0) * (at - back) / (front - back) - lean * (y - base);
+    std::array::from_fn(|i| {
+        let (zz, y) = match (i & 4 != 0, i & 2 != 0) {
+            (false, false) => (back, base),
+            (false, true) => (back_top, top.0),
+            (true, false) => (front, base),
+            (true, true) => (front_top, top.1),
+        };
+        v(x + if i & 1 != 0 { h(zz, y) } else { -h(zz, y) }, y, zz)
+    })
+}
+
+/// A vernier in a sole on side `s`'s `bone`, `r` round, its mouth at `mouth` (described for the
+/// right foot, in the suit's frame): a grey ring standing just out of the sole's plate round a dark
+/// throat glowing at its heart, all of it clear of the ground; a socket that fires it down.
+pub(crate) fn vernier(d: &mut Designer, bone: Bone, s: Side, mouth: Vec3, r: f32) {
+    let face = sided(s, Affine3A::from_translation(mouth));
+    let mut o = d.on(bone);
+    o.lathe(&[(r * 0.62, 0.0), (r, 0.0), (r, 0.07), (r * 0.62, 0.07), (r * 0.62, 0.0)], 16, TRIM, face);
+    o.cylinder(r * 0.64, 0.06, 14, FRAME, face * at(0.0, 0.04, 0.0));
+    o.cylinder(r * 0.3, 0.02, 10, THROAT, face * at(0.0, 0.012, 0.0));
+    d.sockets.soles.push((bone, Designer::local(bone, sp(s, mouth)), Vec3::NEG_Y));
+}
+
+/// A sole under a foot's heel and instep, or under its toes ([`sole`]), described for the right
+/// foot in the suit's frame: from `z.0` back to `z.1` forward, as wide as `half` at each end, the
+/// plate's top `top` over the ground, its pads in `pads`, and its vernier `r` round at `vernier`
+/// along z.
+#[derive(Clone, Copy)]
+pub(crate) struct Sole {
+    pub z: (f32, f32),
+    pub half: (f32, f32),
+    pub top: f32,
+    pub pads: Paint,
+    pub vernier: f32,
+    pub r: f32,
+}
+
+/// A sole on side `s`'s `bone`, centred on `x`: a dark plate with its foot a little off the ground,
+/// and pads under it, inset from its edge, either side of the vernier, that touch the ground.
+pub(crate) fn sole(d: &mut Designer, bone: Bone, s: Side, x: f32, sole: Sole) {
+    let Sole { z, half, top, pads, vernier: at, r } = sole;
+    let flat = sided(s, Affine3A::IDENTITY);
+    let width = |w: f32| half.0 + (half.1 - half.0) * (w - z.0) / (z.1 - z.0);
+    let mut o = d.on(bone);
+    o.hexa(
+        boot(x, SOLE + 0.05, (SOLE + top, SOLE + top), half, [z.0, z.0, z.1, z.1], 0.0),
+        0.05,
+        FRAME,
+        flat,
+    );
+    let inset = 0.12;
+    for (a, b) in [(z.0 + inset, at - r - 0.08), (at + r + 0.08, z.1 - inset)] {
+        if b - a < 0.15 {
+            continue;
+        }
+        let pad = boot(
+            x,
+            SOLE,
+            (SOLE + 0.07, SOLE + 0.07),
+            (width(a) - inset, width(b) - inset),
+            [a, a, b, b],
+            0.0,
+        );
+        o.hexa(pad, 0.03, pads, flat);
+    }
+    vernier(d, bone, s, v(x, SOLE + 0.015, at), r);
+}
+
+/// A Gundam's feet ([`foot`]): their paints, how wide they are, and whether their heels have spurs.
+#[derive(Clone, Copy)]
+pub(crate) struct FootStyle {
+    /// The heel's and the instep's armour, the toe cap's, and the pads under the sole.
+    pub armour: Paint,
+    pub toe: Paint,
+    pub pads: Paint,
+    /// Half the foot's width across its ball, m.
+    pub half: f32,
+    /// A spur up the back of the heel.
+    pub spur: bool,
+}
+
+/// How far a foot's sides lean in, per metre up.
+const FOOT_LEAN: f32 = 0.16;
+
+/// The Gundams' foot, as their kits have it, on each foot bone and its toes: a tall heel with the
+/// instep falling from it to the toes' hinge, a cover over the instep rising to the ankle, and a
+/// guard either side of the ankle's ball with a round boss on it; the toe cap on the toe bone,
+/// falling to a blunt tip with a ridge down its middle; a spur up the heel's back if `spur`; and
+/// under both the sole: a dark plate split at the hinge, with pads that touch the ground and a
+/// vernier between them under the heel and under the toes ([`sole`]).
+pub(crate) fn foot(d: &mut Designer, style: FootStyle) {
+    let (ankle, hinge) = (j(Bone::FootR), j(Bone::ToeR));
+    let (x, h) = (ankle.x, style.half);
+    let base = SOLE + 0.26;
+    // The instep's top at the hinge, where the toe cap's takes over.
+    let instep = -8.18;
+    for s in Side::BOTH {
+        let (foot, toe) = s.pick((Bone::FootL, Bone::ToeL), (Bone::FootR, Bone::ToeR));
+        let flat = sided(s, Affine3A::IDENTITY);
+        let k = s.pick(0.0, 0.2);
+        let mut f = d.on(foot);
+        f.seed(0.43 + k);
+        f.sphere(0.52, 6, FRAME, sided(s, Affine3A::from_translation(ankle)));
+        // The heel: a tall block behind the ankle, its back leaning in.
+        f.hexa(
+            boot(x, base, (-7.72, -7.72), (h - 0.04, h), [-1.8, -1.55, -0.25, -0.25], FOOT_LEAN),
+            0.26,
+            style.armour,
+            flat,
+        );
+        // The instep, falling from the ankle to the hinge.
+        f.hexa(
+            boot(x, base, (-7.78, instep), (h, h), [-0.3, -0.3, hinge.z - 0.02, hinge.z - 0.08], FOOT_LEAN),
+            0.2,
+            style.armour,
+            flat,
+        );
+        // The tongue over the instep, rising from it to cover the ankle's front.
+        f.hexa(
+            boot(x, -8.3, (-7.3, -8.02), (h * 0.62, h * 0.66), [-0.05, 0.2, hinge.z - 0.08, 1.12], 0.04),
+            0.12,
+            style.armour,
+            flat,
+        );
+        // The ankle's guards, either side of its ball, a round boss on each.
+        for side in [-1.0f32, 1.0] {
+            let guard = sided(s, place(v(x + side * (h - 0.1), -7.85, -0.12), rz(side * 0.08)));
+            f.block(v(0.26, 1.15, 1.45), v2(1.0, 0.82), v2(0.0, -0.05), 0.1, style.armour, guard);
+            let boss = sided(s, place(v(x + side * (h + 0.06), -7.95, -0.2), rz(side * -FRAC_PI_2)));
+            f.lathe(&[(0.0, 0.0), (0.3, 0.0), (0.3, 0.08), (0.2, 0.14), (0.0, 0.14)], 12, TRIM, boss);
+        }
+        if style.spur {
+            // The spur, back and up off the heel's top.
+            let spur = [v2(0.0, 0.0), v2(0.6, 0.0), v2(0.35, 0.3), v2(-0.3, 0.62), v2(-0.15, 0.2)];
+            f.extrude(&spur, 0.2, style.armour, sided(s, place(v(x, -7.86, -1.45), ry(FRAC_PI_2))));
+        }
+        f.greeble(|f| {
+            // The seam between the heel and the instep, and panel lines down the heel's sides.
+            f.cube(v(h * 1.6, 0.05, 0.05), 0.0, FRAME, sided(s, at(x, -7.75, -0.28)));
+            for side in [-1.0, 1.0] {
+                let face = sided(s, place(v(x + side * (h - 0.02), -8.3, -1.0), rz(side * FOOT_LEAN.atan())));
+                f.cube(v(0.04, 0.5, 0.05), 0.0, FRAME, face);
+            }
+        });
+        let under = Sole {
+            z: (-1.86, hinge.z - 0.04),
+            half: (h + 0.06, h + 0.1),
+            top: 0.27,
+            pads: style.pads,
+            vernier: -0.66,
+            r: 0.34,
+        };
+        sole(d, foot, s, x, under);
+
+        // The toe cap, falling and narrowing to its blunt nose, a ridge down its middle.
+        let mut t = d.on(toe);
+        t.seed(0.47 + k);
+        t.hexa(
+            boot(
+                x,
+                base,
+                (instep - 0.02, -8.6),
+                (h, h * 0.64),
+                [hinge.z + 0.02, hinge.z + 0.02, 3.0, 2.66],
+                FOOT_LEAN,
+            ),
+            0.24,
+            style.toe,
+            flat,
+        );
+        t.hexa(
+            boot(
+                x,
+                -8.45,
+                (-8.1, -8.38),
+                (h * 0.3, h * 0.24),
+                [hinge.z + 0.1, hinge.z + 0.14, 2.45, 2.3],
+                0.0,
+            ),
+            0.06,
+            style.toe,
+            flat,
+        );
+        t.greeble(|t| {
+            t.cube(v(h * 1.1, 0.05, 0.05), 0.0, FRAME, sided(s, place(v(x, -8.42, 2.3), rx(0.29))));
+        });
+        let under = Sole {
+            z: (hinge.z + 0.04, 3.06),
+            half: (h + 0.1, h * 0.7),
+            top: 0.27,
+            pads: style.pads,
+            vernier: 2.12,
+            r: 0.28,
+        };
+        sole(d, toe, s, x, under);
+    }
+}
+
 /// The beam saber's hilt, in the left hand, blade forward and up.
 pub(crate) fn saber_hilt(d: &mut Designer) {
     let w = j(Bone::HandL);
@@ -355,8 +576,7 @@ fn altair(d: &mut Designer) {
     // Legs: white thighs, big shins with blue knees and yellow vents, red-toed feet.
     let (thigh_len, shin_len) = leg_lengths();
     for s in Side::BOTH {
-        let (thigh, shin, foot) =
-            s.pick((Bone::ThighL, Bone::ShinL, Bone::FootL), (Bone::ThighR, Bone::ShinR, Bone::FootR));
+        let (thigh, shin) = s.pick((Bone::ThighL, Bone::ShinL), (Bone::ThighR, Bone::ShinR));
         let (hip, knee, ankle) = (j(Bone::ThighR), j(Bone::ShinR), j(Bone::FootR));
         let mid = (knee + ankle) * 0.5;
         d.on(thigh).seed(0.3 + s.pick(0.0, 0.2)).block(
@@ -396,19 +616,8 @@ fn altair(d: &mut Designer) {
                 sided(s, at(mid.x, mid.y - 0.7, -1.25)),
             );
         });
-        let mut f = d.on(foot);
-        f.seed(0.42 + s.pick(0.0, 0.2));
-        f.block(
-            v(1.45, 1.15, 3.1),
-            v2(0.8, 0.65),
-            v2(0.0, -0.2),
-            0.12,
-            BODY,
-            sided(s, at(ankle.x, -8.3, 0.45)),
-        );
-        f.cube(v(1.3, 0.35, 0.8), 0.06, ACCENT, sided(s, at(ankle.x, -8.6, 1.75)));
-        f.cube(v(1.55, 0.25, 3.3), 0.04, FRAME, sided(s, at(ankle.x, -8.95, 0.45)));
     }
+    foot(d, FootStyle { armour: BODY, toe: ACCENT, pads: ACCENT, half: 0.9, spur: true });
 
     // Backpack, main thrusters, and the wing binders.
     let mut b = d.on(Bone::Backpack);
@@ -571,8 +780,7 @@ fn corvus(d: &mut Designer) {
     arm_segments(d, v(1.1, 1.8, 1.1), v(1.3, 1.9, 1.4), BODY, TRIM);
     let (thigh_len, shin_len) = leg_lengths();
     for s in Side::BOTH {
-        let (thigh, shin, foot) =
-            s.pick((Bone::ThighL, Bone::ShinL, Bone::FootL), (Bone::ThighR, Bone::ShinR, Bone::FootR));
+        let (thigh, shin) = s.pick((Bone::ThighL, Bone::ShinL), (Bone::ThighR, Bone::ShinR));
         let (hip, knee, ankle) = (j(Bone::ThighR), j(Bone::ShinR), j(Bone::FootR));
         d.on(thigh).seed(0.32 + s.pick(0.0, 0.2)).block(
             v(1.4, thigh_len, 1.6),
@@ -596,11 +804,8 @@ fn corvus(d: &mut Designer) {
         let fin = [Vec2::new(0.0, 0.0), Vec2::new(0.4, 3.0), Vec2::new(-0.3, 3.2), Vec2::new(-1.2, 0.6)];
         let calf = ankle + v(0.0, 0.6, -1.05);
         sh.extrude(&fin, 0.18, TRIM, sided(s, place(calf, ry(std::f32::consts::FRAC_PI_2))));
-        let mut f = d.on(foot);
-        f.seed(0.44 + s.pick(0.0, 0.2));
-        f.block(v(1.2, 1.1, 3.2), v2(0.6, 0.5), v2(0.0, -0.3), 0.1, BODY, sided(s, at(ankle.x, -8.3, 0.55)));
-        f.cube(v(1.3, 0.2, 3.3), 0.03, FRAME, sided(s, at(ankle.x, -8.92, 0.55)));
     }
+    foot(d, FootStyle { armour: BODY, toe: TRIM, pads: ACCENT, half: 0.8, spur: true });
 
     // The nose-cone backpack, pointing back and up (its fighter mode's nose), with fins.
     let mut b = d.on(Bone::Backpack);
@@ -668,8 +873,7 @@ fn cetus(d: &mut Designer) {
     arm_segments(d, v(1.6, 1.9, 1.6), v(1.9, 2.1, 1.95), BODY, TRIM);
     let (thigh_len, shin_len) = leg_lengths();
     for s in Side::BOTH {
-        let (thigh, shin, foot) =
-            s.pick((Bone::ThighL, Bone::ShinL, Bone::FootL), (Bone::ThighR, Bone::ShinR, Bone::FootR));
+        let (thigh, shin) = s.pick((Bone::ThighL, Bone::ShinL), (Bone::ThighR, Bone::ShinR));
         let (hip, knee, ankle) = (j(Bone::ThighR), j(Bone::ShinR), j(Bone::FootR));
         d.on(thigh).seed(0.33 + s.pick(0.0, 0.2)).block(
             v(1.95, thigh_len, 2.1),
@@ -697,18 +901,8 @@ fn cetus(d: &mut Designer) {
             TRIM,
             sided(s, place(knee + v(0.0, 0.0, 1.05), rx(-0.25))),
         );
-        let mut f = d.on(foot);
-        f.seed(0.45 + s.pick(0.0, 0.2));
-        f.block(
-            v(1.8, 1.2, 3.4),
-            v2(0.85, 0.75),
-            v2(0.0, -0.1),
-            0.15,
-            BODY,
-            sided(s, at(ankle.x, -8.3, 0.4)),
-        );
-        f.cube(v(1.9, 0.25, 3.6), 0.04, FRAME, sided(s, at(ankle.x, -8.95, 0.4)));
     }
+    foot(d, FootStyle { armour: BODY, toe: TRIM, pads: TRIM, half: 1.0, spur: false });
     let mut b = d.on(Bone::Backpack);
     b.seed(0.53);
     b.block(v(3.2, 2.8, 1.8), v2(0.9, 0.9), Vec2::ZERO, 0.25, BODY, at(0.0, 4.0, -2.7));

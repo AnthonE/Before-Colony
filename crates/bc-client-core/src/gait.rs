@@ -15,6 +15,8 @@
 //! - A swinging foot heads for where it will be under its hip halfway through its next stance,
 //!   lifted 0.9 m at the top of its arc walking, 2.2 m running.
 //! - Stopped, a foot left more than 1.2 m from where it would rest takes one settling step.
+//! - A foot rolls onto its toes as it pushes off ([`Foot::push`]): through the last third of its
+//!   stance, its heel rising, and back off them through the first third of its swing.
 
 use bc_sim::bodies::{Body, Shape};
 use glam::{Quat, Vec3};
@@ -37,6 +39,10 @@ pub const STANDING: f32 = 0.4;
 pub const SETTLE_OFF: f32 = 1.2;
 /// How long a settling step takes, s.
 const SETTLE_TIME: f32 = 0.35;
+/// A foot rolls onto its toes through this last share of its stance, and back off them through
+/// this first share of its swing.
+const PUSH_OFF: f32 = 0.34;
+const TOE_OFF: f32 = 0.34;
 /// The hips are this far either side of the suit's middle, m (the rig's).
 pub const HIP_SPREAD: f32 = 1.4;
 /// Lifted this little, a settling step barely clears the ground, m.
@@ -100,6 +106,8 @@ pub struct Foot {
     /// Where the sole is, in the body's frame: on the surface while planted.
     pub at: Vec3,
     pub planted: bool,
+    /// How far it's rolled onto its toes (0 flat .. 1 as it leaves the ground).
+    pub push: f32,
     /// A swing: from where, to where, how far through it (0..1), and how fast it goes (1/s).
     from: Vec3,
     to: Vec3,
@@ -160,6 +168,7 @@ impl Gait {
                     foot.planted = true;
                     self.footfalls += 1;
                 }
+                foot.push = ease((p / d - (1.0 - PUSH_OFF)) / PUSH_OFF);
             } else {
                 if foot.planted || foot.rate != 0.0 {
                     // Lifted (or a settling step taken over by the walk): off to where its hip
@@ -174,14 +183,17 @@ impl Gait {
                 }
                 foot.swing = (p - d) / (1.0 - d);
                 foot.at = swung(foot, s.up);
+                foot.push = 1.0 - ease(foot.swing / TOE_OFF);
             }
         }
     }
 
-    /// Standing: a swing under way finishes, then a foot left far from its rest steps to it.
+    /// Standing: a swing under way finishes, then a foot left far from its rest steps to it; the
+    /// feet stand flat.
     fn stand(&mut self, s: &Stand, dt: f32) {
         for side in 0..2 {
             let foot = &mut self.feet[side];
+            foot.push = 0.0;
             if foot.planted {
                 continue;
             }
@@ -225,8 +237,13 @@ impl Gait {
 /// Where a swinging foot is: along the way, lifted in an arc.
 fn swung(foot: &Foot, up: Vec3) -> Vec3 {
     let u = foot.swing.clamp(0.0, 1.0);
-    let ease = u * u * (3.0 - 2.0 * u);
-    foot.from.lerp(foot.to, ease) + up * (foot.apex * (core::f32::consts::PI * u).sin())
+    foot.from.lerp(foot.to, ease(u)) + up * (foot.apex * (core::f32::consts::PI * u).sin())
+}
+
+/// 0 to 1 eased in and out over `u` 0..1 (clamped).
+fn ease(u: f32) -> f32 {
+    let u = u.clamp(0.0, 1.0);
+    u * u * (3.0 - 2.0 * u)
 }
 
 #[cfg(test)]
@@ -371,5 +388,41 @@ mod tests {
             g.step(&s, DT);
         }
         assert_eq!(g.footfalls, steps);
+        // Standing, the feet stand flat.
+        assert!(g.feet.iter().all(|f| f.push == 0.0));
+    }
+
+    /// A foot rolls onto its toes at the end of its stance, all the way as it leaves the ground,
+    /// and back off them early in its swing: flat when it comes down, and through most of its
+    /// stance and swing.
+    #[test]
+    fn feet_roll_onto_their_toes_as_they_push_off() {
+        let shape = floor();
+        let mut g = Gait::default();
+        let mut x = 0.0;
+        let (mut was_planted, mut was_push) = (true, 0.0f32);
+        let (mut lifts, mut flat_frames, mut frames) = (0, 0, 0);
+        for k in 0..(20.0 / DT) as usize {
+            let (local, vel) = on_the_floor(x, 8.0);
+            g.step(&stand(&shape, local, vel), DT);
+            x += 8.0 * DT;
+            let f = g.feet[0];
+            assert!((0.0..=1.0).contains(&f.push), "{}", f.push);
+            if k > 60 {
+                if was_planted && !f.planted {
+                    // Leaving the ground: rolled right onto the toes.
+                    assert!(was_push > 0.9 && f.push > 0.9, "lifted at {was_push}, {}", f.push);
+                    lifts += 1;
+                }
+                if !was_planted && f.planted {
+                    assert!(f.push < 0.05, "came down rolled {}", f.push);
+                }
+                flat_frames += usize::from(f.push < 0.01);
+                frames += 1;
+            }
+            (was_planted, was_push) = (f.planted, f.push);
+        }
+        assert!(lifts > 10, "{lifts} steps");
+        assert!(flat_frames * 2 > frames, "flat {flat_frames} of {frames} frames");
     }
 }

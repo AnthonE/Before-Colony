@@ -5,7 +5,8 @@
 //! Its proportions are the anime's, measured off Bandai's line art of Gundam Wing's Leo and Tallgeese:
 //! the head about a tenth of the height, the hips a little above the suit's middle, the knee well
 //! above the shin's middle (three-fifths of the way down), long shins and tall feet. The sole is
-//! 9.07 m under the origin.
+//! 9.07 m under the origin. Each foot's toes hinge across its ball, low over the sole, as a kit's
+//! do, so a foot can roll onto them as it pushes off and curl them under kneeling.
 
 use bc_proto::Part;
 use glam::Vec3;
@@ -43,9 +44,13 @@ pub enum Bone {
     Shield,
     /// Things that float free round the suit (the Cetus's shield pods).
     Props,
+    /// The toes, hinged across the ball of each foot (last, so the bones before them keep their
+    /// places).
+    ToeL,
+    ToeR,
 }
 
-pub const BONES: usize = 24;
+pub const BONES: usize = 26;
 
 /// A bone's place in the skeleton.
 #[derive(Clone, Copy, Debug)]
@@ -65,7 +70,7 @@ use Bone::*;
 /// Every bone, in [`Bone`] order.
 pub const ALL: [Bone; BONES] = [
     Torso, Chest, Head, Waist, ThighL, ShinL, FootL, ThighR, ShinR, FootR, ShoulderL, UpperArmL, ForearmL,
-    HandL, ShoulderR, UpperArmR, ForearmR, HandR, Backpack, WingL, WingR, Weapon, Shield, Props,
+    HandL, ShoulderR, UpperArmR, ForearmR, HandR, Backpack, WingL, WingR, Weapon, Shield, Props, ToeL, ToeR,
 ];
 
 const DEFS: [BoneDef; BONES] = [
@@ -95,6 +100,9 @@ const DEFS: [BoneDef; BONES] = [
     def(Some(HandR), [3.5, 0.3, 1.3], Part::ArmR),
     def(Some(ForearmL), [-4.3, 1.5, 0.8], Part::ArmL),
     def(Some(Torso), [0.0, 0.0, 0.0], Part::Torso),
+    // The toes' hinge: across the ball of the foot, 0.3 m over the sole.
+    def(Some(FootL), [-1.75, -8.77, 1.3], Part::Legs),
+    def(Some(FootR), [1.75, -8.77, 1.3], Part::Legs),
 ];
 
 impl Bone {
@@ -155,9 +163,14 @@ mod tests {
 
     #[test]
     fn sides_mirror() {
-        for (l, r) in
-            [(ThighL, ThighR), (ShinL, ShinR), (FootL, FootR), (HandL, HandR), (UpperArmL, UpperArmR)]
-        {
+        for (l, r) in [
+            (ThighL, ThighR),
+            (ShinL, ShinR),
+            (FootL, FootR),
+            (ToeL, ToeR),
+            (HandL, HandR),
+            (UpperArmL, UpperArmR),
+        ] {
             let (a, b) = (l.def().joint, r.def().joint);
             assert_eq!(a, Vec3::new(-b.x, b.y, b.z));
         }

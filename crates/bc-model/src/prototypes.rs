@@ -1,27 +1,36 @@
 //! The Almagest's prototype pair, drawn after Gundam Wing's Vayeate and Mercurius (Sunrise's colour
 //! and line art, and Bandai's HG 1/144 kit, which builds both on one frame): the AL-13X1
 //! Sagittarius, the spear, and the AL-13X2 Corona, the shield. They share everything but the head's
-//! hood and its antenna, what rides the back, the weapons and the colours:
+//! hood and its antenna, what rides the back, the weapons and the colours. Their bulk is in round
+//! masses, as the kit's is, lofted through rounded sections ([`crate::kit::Builder::loft`]):
 //!
-//! - a small hooded head sunk between very high, broad shoulders, its square camera in a grey bezel
-//!   under the hood's peak, a pale band round the hood's brow; two round sensors on the chest's top
-//!   either side of it, over a grey tube handle; a ribbed collar behind;
-//! - a blocky chest with a raised inverted-trapezoid panel down its middle, grey louvres in the
-//!   side blocks, a round hatch in the back, and a pale band round the waist under it;
-//! - shoulders that are pale spheres, each under an angular bracket over its top and outer side
-//!   with a round grey port in it;
-//! - short upper arms, big boxy gauntlets with stepped cuffs, grey fists;
-//! - a round boss in the crotch, long front skirts over the thighs with notched hems, side skirts
-//!   ending in hooked spurs behind;
-//! - rectangular knee pads, wide flared calves, and tall, heavy boots: a boxy shaft over the ankle
-//!   with a thick plate rising up its front, a grey band behind and a big grey disc either side,
-//!   on a thick platform with a high heel and a long toe, a narrower block raised along it.
+//! - a small round hooded head sunk between the chest's side blocks, which stand as high as its
+//!   camera: the square camera in a grey bezel under the hood's peak, a pale band round the hood's
+//!   brim; two round sensors on the chest's top either side of its chin, over a grey tube handle;
+//!   a ribbed collar behind;
+//! - a broad chest: the hatch standing forward down its middle with a raised inverted-trapezoid
+//!   panel, and the side blocks stacked either side, the lower with grey louvres in its front, the
+//!   upper a step back and standing up beside the head; a round hatch in the back, and a pale band
+//!   round the waist under it all;
+//! - shoulders that are big pale spheres, each under a heavy rounded block down its outside with a
+//!   round grey port in its front, and a cap over its top stepping down toward the head;
+//! - short round upper arms with a raised ring, big round gauntlets flaring to their cuffs, grey
+//!   fists;
+//! - a round lens in the crotch, short shield-shaped front skirts, and a plate over each hip;
+//! - thighs that are big round shells from under the belt to the knee, swelling out and forward,
+//!   each with a plate where its front turns to its side coming down past it to a notched point
+//!   beside the knee; a tall knee guard standing out of the shin under the shell; calves swelling
+//!   back and out to their widest just under the knee and tapering to the ankle, a ridge down the
+//!   front; and heavy boots: a rounded shaft over the ankle with a thick plate rising up its front,
+//!   a grey band behind and a big grey disc either side, on a thick platform with a high heel and a
+//!   long toe on its own hinge, a narrower block raised along it, and a vernier in the sole under
+//!   the heel and under the toe.
 //!
-//! The Sagittarius wears a single swept horn and carries the beam cannon cabled to the generator on
-//! its right shoulder blade, a ring as tall as its torso with an iris over its core; the Corona wears
-//! a wide crescent on a short stalk, ten ward discs (the Mercurius's Planet Defensors) racked on two
-//! pylons behind its shoulders (on [`Bone::Props`], so the client can send them out:
-//! [`crate::ward_disc`]), the crash shield and a beam gun.
+//! The Sagittarius wears a single swept horn and carries the beam cannon cabled to the generator
+//! high on its back behind its head, a ring as tall as its torso with an iris over its core; the
+//! Corona wears a wide crescent on a short stalk, ten ward discs (the Mercurius's Planet Defensors)
+//! racked on two pylons in a crown behind its head and shoulders (on [`Bone::Props`], so the client
+//! can send them out: [`crate::ward_disc`]), the crash shield and a beam gun.
 //!
 //! The pale band and spheres are mint on the Sagittarius and lilac on the Corona; the inner frame,
 //! the hands and the ankles are grey, the weapons, the generator, the wards and the shield a
@@ -32,9 +41,10 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 use glam::{Affine3A, Quat, Vec2, Vec3};
 
 use crate::frames::{
-    BODY, EYE, FRAME, GUN, STEEL, TRIM, YELLOW, at, j, nozzle, place, rx, ry, rz, sided, sp, v, v2,
+    BODY, EYE, FRAME, GUN, SOLE, STEEL, Sole, TRIM, YELLOW, at, j, nozzle, place, rx, ry, rz, sided, sole,
+    sp, v, v2,
 };
-use crate::kit::{Light, Paint};
+use crate::kit::{Hoop, Light, Paint, hoop};
 use crate::rig::{Bone, Side};
 use crate::{Designer, On, paint};
 
@@ -115,35 +125,36 @@ pub(crate) fn corona(d: &mut Designer) {
 
 // --- Head. ---
 
-/// Heights on the head: the foot of the face block under the chest's collar, the hood's brow band
-/// and its crown.
-const FACE_FOOT: f32 = 6.05;
-const BROW: (f32, f32) = (6.9, 7.05);
-const CROWN: f32 = 7.72;
-/// The hood's radius at its brow, and how far forward its axis stands.
-const HOOD_R: f32 = 0.86;
+/// Heights on the head: the foot of the face under its brim, the hood's brim band and its crown.
+/// The head is small, as the kit's is: the chest's side blocks stand as high as its camera.
+const FACE_FOOT: f32 = 6.22;
+const BROW: (f32, f32) = (6.86, 6.98);
+const CROWN: f32 = 7.52;
+/// The hood's radius at its brim, and how far forward its axis stands.
+const HOOD_R: f32 = 0.72;
 const HOOD_Z: f32 = 0.0;
 /// The square camera's centre, under the hood's peak.
-const CAMERA: Vec3 = Vec3::new(0.0, 6.62, 0.97);
+const CAMERA: Vec3 = Vec3::new(0.0, 6.62, 0.86);
 
 fn head(d: &mut Designer, t: Twin) {
     let pale = t.pale();
     let mut h = d.on(Bone::Head);
     h.seed(0.06 + if t == Twin::Corona { 0.5 } else { 0.0 });
     // The neck, grey, turning inside the collar.
-    h.cylinder(0.45, 0.7, 12, GREY, at(0.0, 5.75, 0.05));
-    // The face block: coloured, narrowing toward its chin, its cheeks swept back.
-    h.block(v(1.2, 0.95, 1.35), v2(1.0, 1.0), v2(0.0, 0.05), 0.1, BODY, at(0.0, FACE_FOOT + 0.47, 0.25));
-    h.block(v(0.7, 0.3, 0.55), v2(1.25, 1.0), Vec2::ZERO, 0.06, BODY, at(0.0, FACE_FOOT + 0.05, 0.62));
+    h.cylinder(0.42, 0.8, 12, GREY, at(0.0, 5.95, 0.05));
+    // The face under the brim: a coloured snout, widest under the brim and narrowing to its chin,
+    // its cheeks swept back.
+    h.block(v(0.7, 0.72, 1.1), v2(1.4, 1.0), v2(0.0, -0.04), 0.1, BODY, at(0.0, FACE_FOOT + 0.36, 0.3));
+    h.block(v(0.46, 0.24, 0.45), v2(1.2, 1.0), Vec2::ZERO, 0.05, BODY, at(0.0, FACE_FOOT + 0.04, 0.6));
     for s in Side::BOTH {
-        let cheek = sided(s, place(v(0.62, 6.5, 0.32), ry(0.2)));
-        h.block(v(0.22, 0.8, 1.15), v2(1.0, 0.8), v2(0.0, -0.08), 0.06, BODY, cheek);
-        slot(&mut h, 0.4, cheek * at(0.12, -0.05, 0.0) * Affine3A::from_rotation_y(FRAC_PI_2));
+        let cheek = sided(s, place(v(0.5, 6.54, 0.26), ry(0.2)));
+        h.block(v(0.18, 0.66, 1.0), v2(1.0, 0.8), v2(0.0, -0.08), 0.05, BODY, cheek);
+        slot(&mut h, 0.34, cheek * at(0.1, -0.05, 0.0) * Affine3A::from_rotation_y(FRAC_PI_2));
     }
     // The square camera in its grey bezel: its glass lit in the livery's eye colour.
-    h.cube(v(0.68, 0.62, 0.16), 0.04, GREY, at(CAMERA.x, CAMERA.y, CAMERA.z - 0.06));
-    h.cube(v(0.5, 0.44, 0.1), 0.02, EYE, at(CAMERA.x, CAMERA.y, CAMERA.z + 0.01));
-    // The hood: a dome whose brow is the pale band, its peak coming down over the camera.
+    h.cube(v(0.5, 0.44, 0.16), 0.04, GREY, at(CAMERA.x, CAMERA.y, CAMERA.z - 0.06));
+    h.cube(v(0.34, 0.28, 0.1), 0.02, EYE, at(CAMERA.x, CAMERA.y, CAMERA.z + 0.01));
+    // The hood: a round dome whose brim is the pale band, its peak coming down over the camera.
     let axis = at(0.0, 0.0, HOOD_Z) * Affine3A::from_scale(v(1.0, 1.0, 1.12));
     h.lathe(&band(HOOD_R - 0.05, HOOD_R + 0.04, BROW.0, BROW.1), 28, pale, axis);
     h.lathe(
@@ -152,10 +163,10 @@ fn head(d: &mut Designer, t: Twin) {
             (HOOD_R, BROW.0 - 0.02),
             (HOOD_R, BROW.0),
             (HOOD_R + 0.01, BROW.1),
-            (HOOD_R, BROW.1 + 0.12),
-            (0.72, BROW.1 + 0.3),
-            (0.6, BROW.1 + 0.45),
-            (0.4, CROWN - 0.04),
+            (HOOD_R, BROW.1 + 0.1),
+            (0.62, BROW.1 + 0.26),
+            (0.5, BROW.1 + 0.39),
+            (0.32, CROWN - 0.04),
             (0.0, CROWN),
         ],
         28,
@@ -166,48 +177,48 @@ fn head(d: &mut Designer, t: Twin) {
     // over the camera, the pale band's front edge along their foot.
     for side in Side::BOTH {
         let brow = [
-            (0.0, 6.88, 0.84),
-            (0.66, 7.04, 0.56),
-            (0.0, 7.22, 0.8),
-            (0.66, 7.32, 0.52),
-            (0.0, 6.88, 1.1),
-            (0.66, 7.04, 0.84),
-            (0.0, 7.22, 1.02),
-            (0.66, 7.32, 0.78),
+            (0.0, 6.84, 0.77),
+            (0.55, 6.98, 0.53),
+            (0.0, 7.13, 0.73),
+            (0.55, 7.21, 0.5),
+            (0.0, 6.84, 0.98),
+            (0.55, 6.98, 0.77),
+            (0.0, 7.13, 0.92),
+            (0.55, 7.21, 0.72),
         ]
         .map(|(x, y, z)| v(x, y, z));
         let brow = if side == Side::R { brow } else { swap_x(brow.map(|p| v(-p.x, p.y, p.z))) };
         h.hexa(brow, 0.05, BODY, Affine3A::IDENTITY);
-        let edge = (v(0.0, 6.87, 1.08) + v(0.64 * side.sign(), 7.03, 0.82)) * 0.5;
-        let run = v(0.64 * side.sign(), 0.16, -0.26);
+        let edge = (v(0.0, 6.83, 0.97) + v(0.54 * side.sign(), 6.97, 0.75)) * 0.5;
+        let run = v(0.54 * side.sign(), 0.14, -0.22);
         h.cube(v(0.05, run.length() + 0.04, 0.06), 0.0, pale, place(edge, toward(run)));
     }
     match t {
         Twin::Sagittarius => {
             // The horn: one tall blade rising out of the brow's ridge, swept back over the hood.
             let horn = [
-                v2(0.3, 0.0),
-                v2(0.56, 0.06),
-                v2(0.28, 1.0),
-                v2(-0.36, 2.3),
-                v2(-0.52, 2.62),
-                v2(-0.44, 2.1),
-                v2(-0.12, 0.9),
-                v2(0.02, 0.22),
+                v2(0.28, 0.0),
+                v2(0.53, 0.06),
+                v2(0.27, 0.95),
+                v2(-0.34, 2.18),
+                v2(-0.5, 2.5),
+                v2(-0.42, 2.0),
+                v2(-0.11, 0.86),
+                v2(0.02, 0.21),
             ];
-            let xf = place(v(0.0, 7.08, 0.72), ry(-FRAC_PI_2) * rz(-0.06));
+            let xf = place(v(0.0, 6.98, 0.62), ry(-FRAC_PI_2) * rz(-0.06));
             h.extrude(&horn, 0.2, BODY, xf);
         }
         Twin::Corona => {
             // The crescent: a wide gull wing on a short stalk out of the brow's ridge, its tips
             // turned up.
             h.block(
-                v(0.22, 0.42, 0.28),
+                v(0.2, 0.4, 0.26),
                 v2(0.8, 0.8),
                 Vec2::ZERO,
                 0.04,
                 BODY,
-                place(v(0.0, 7.38, 0.86), rx(-0.3)),
+                place(v(0.0, 7.26, 0.75), rx(-0.3)),
             );
             for s in Side::BOTH {
                 let wing = [
@@ -220,7 +231,7 @@ fn head(d: &mut Designer, t: Twin) {
                     v2(0.4, 0.2),
                     v2(0.0, 0.16),
                 ];
-                h.extrude(&wing, 0.14, BODY, sided(s, place(v(0.0, 7.6, 0.8), rx(-0.35))));
+                h.extrude(&wing, 0.14, BODY, sided(s, place(v(0.0, 7.47, 0.69), rx(-0.35))));
             }
         }
     }
@@ -231,50 +242,64 @@ fn head(d: &mut Designer, t: Twin) {
 
 // --- Chest, abdomen and back. ---
 
-/// The chest's right half in two tiers, each a hexahedron with flat faces: the lower swells
-/// forward to its widest under the louvres, the upper leans back to the collar. Each tier is given
-/// by its bottom and top sections: (y, outer x, back z, front z at the middle); the front falls
-/// away outboard at `CHEST_FALL` per metre.
-const CHEST_TIERS: [[(f32, f32, f32, f32); 2]; 2] = [
-    [(3.35, 1.6, -1.25, 1.15), (4.5, 2.2, -1.55, 1.58)],
-    [(4.5, 2.2, -1.55, 1.58), (5.95, 2.0, -1.45, 1.12)],
-];
+/// The chest's core (right half), the mass behind its blocks: (y, outer x, back z, front z) at
+/// its foot and at its top.
+const CORE: [(f32, f32, f32, f32); 2] = [(3.35, 1.75, -1.3, 0.9), (6.0, 2.05, -1.45, 0.9)];
+
+/// The hatch down the chest's middle (right half), in two tiers, each given by its foot and its
+/// top as (y, half width, front z at the middle): it stands forward of the side blocks, furthest
+/// forward and widest a little under halfway up, its top leaning back under the sensors. Its
+/// front falls away outboard at `CHEST_FALL` per metre.
+const HATCH: [[(f32, f32, f32); 2]; 2] =
+    [[(3.45, 0.84, 1.38), (4.75, 1.1, 1.62)], [(4.75, 1.1, 1.62), (5.9, 1.14, 1.3)]];
 const CHEST_FALL: f32 = 0.24;
 
-/// A chest tier's corners.
-fn chest_tier([(y0, x0, b0, f0), (y1, x1, b1, f1)]: [(f32, f32, f32, f32); 2]) -> [Vec3; 8] {
+/// A block's section across at one height: (y, inner x, outer x, back z, front z).
+type Cut = (f32, f32, f32, f32, f32);
+
+/// The side blocks beside the hatch (right side), stacked: the lower, with the louvres in its
+/// front, and the upper a step back and in, standing up beside the head as high as its camera.
+/// Each given by its foot and its top.
+const SIDE_BLOCKS: [[Cut; 2]; 2] = [
+    [(3.42, 1.02, 2.32, -1.32, 1.1), (5.0, 1.06, 2.6, -1.5, 1.3)],
+    [(5.0, 1.12, 2.54, -1.46, 1.1), (6.72, 1.16, 2.38, -1.28, 0.74)],
+];
+
+/// A block's corners from its foot and its top.
+fn stacked([(y0, i0, o0, b0, f0), (y1, i1, o1, b1, f1)]: [Cut; 2]) -> [Vec3; 8] {
     [
-        v(0.0, y0, b0),
-        v(x0, y0, b0),
-        v(0.0, y1, b1),
-        v(x1, y1, b1),
-        v(0.0, y0, f0),
-        v(x0, y0, f0 - CHEST_FALL * x0),
-        v(0.0, y1, f1),
-        v(x1, y1, f1 - CHEST_FALL * x1),
+        v(i0, y0, b0),
+        v(o0, y0, b0),
+        v(i1, y1, b1),
+        v(o1, y1, b1),
+        v(i0, y0, f0),
+        v(o0, y0, f0),
+        v(i1, y1, f1),
+        v(o1, y1, f1),
     ]
 }
 
-/// The chest's front at height `y` and `x` out (on the right), and its outward normal there.
-fn chest_front(x: f32, y: f32) -> (Vec3, Vec3) {
-    let tier = CHEST_TIERS.iter().find(|t| y <= t[1].0).unwrap_or(&CHEST_TIERS[1]);
-    let [(y0, _, _, f0), (y1, _, _, f1)] = *tier;
+/// A frame on a block's front (`block` as for [`stacked`]) at (`x`, `y`): z out of the face, y up
+/// it.
+fn on_front(block: [Cut; 2], x: f32, y: f32, lift: f32) -> Affine3A {
+    let [(y0, .., f0), (y1, .., f1)] = block;
+    let z = f0 + (f1 - f0) * (y - y0) / (y1 - y0);
+    let tilt = ((f1 - f0) / (y1 - y0)).atan();
+    place(v(x, y, z + lift), rx(-tilt))
+}
+
+/// The hatch's front at height `y` and `x` out (on the right), and its outward normal there.
+fn hatch_front(x: f32, y: f32) -> (Vec3, Vec3) {
+    let tier = HATCH.iter().find(|t| y <= t[1].0).unwrap_or(&HATCH[1]);
+    let [(y0, _, f0), (y1, _, f1)] = *tier;
     let rise = (f1 - f0) / (y1 - y0);
     let z = f0 + rise * (y - y0) - CHEST_FALL * x;
     (v(x, y, z), v(CHEST_FALL, -rise, 1.0).normalize())
 }
 
-/// A frame on the chest's front at (`x`, `y`) (right side), z along its normal, y up the face.
-fn on_chest(x: f32, y: f32, lift: f32) -> Affine3A {
-    let (p, n) = chest_front(x, y);
-    let right = v(1.0, 0.0, -CHEST_FALL).normalize();
-    let right = (right - n * right.dot(n)).normalize();
-    Affine3A::from_mat3_translation(glam::Mat3::from_cols(right, n.cross(right), n), p + n * lift)
-}
-
-/// Half the centre panel's width at height `y`: an inverted trapezoid.
+/// Half the hatch's raised panel's width at height `y`: an inverted trapezoid.
 fn panel_half(y: f32) -> f32 {
-    0.42 + (y - 3.5) / 1.85 * 0.4
+    0.42 + (y - 3.6) / 1.75 * 0.34
 }
 
 fn chest(d: &mut Designer, t: Twin) {
@@ -282,14 +307,37 @@ fn chest(d: &mut Designer, t: Twin) {
     let mut c = d.on(Bone::Chest);
     c.seed(0.13);
     for s in Side::BOTH {
-        for tier in CHEST_TIERS {
-            c.hexa(chest_tier(tier), 0.14, BODY, sided(s, Affine3A::IDENTITY));
+        let flat = sided(s, Affine3A::IDENTITY);
+        // The core, and the hatch's half in front of it.
+        let [(y0, x0, b0, f0), (y1, x1, b1, f1)] = CORE;
+        let core = [
+            v(0.0, y0, b0),
+            v(x0, y0, b0),
+            v(0.0, y1, b1),
+            v(x1, y1, b1),
+            v(0.0, y0, f0),
+            v(x0, y0, f0),
+            v(0.0, y1, f1),
+            v(x1, y1, f1),
+        ];
+        c.hexa(core, 0.2, BODY, flat);
+        for [(y0, w0, f0), (y1, w1, f1)] in HATCH {
+            let tier = [
+                v(0.0, y0, 0.4),
+                v(w0, y0, 0.4),
+                v(0.0, y1, 0.4),
+                v(w1, y1, 0.4),
+                v(0.0, y0, f0),
+                v(w0, y0, f0 - CHEST_FALL * w0),
+                v(0.0, y1, f1),
+                v(w1, y1, f1 - CHEST_FALL * w1),
+            ];
+            c.hexa(tier, 0.16, BODY, flat);
         }
-        // The raised centre panel's half on this side, following both tiers' faces.
-        for (y0, y1) in [(3.5, 4.5), (4.5, 5.35)] {
-            let lift = 0.2;
+        // The hatch's raised panel, following both tiers' faces.
+        for (y0, y1) in [(3.6, 4.75), (4.75, 5.35)] {
             let corner = |x: f32, y: f32, out: f32| {
-                let (p, n) = chest_front(x, y);
+                let (p, n) = hatch_front(x, y);
                 p + n * out
             };
             let (w0, w1) = (panel_half(y0), panel_half(y1));
@@ -298,56 +346,65 @@ fn chest(d: &mut Designer, t: Twin) {
                 corner(w0, y0, -0.08),
                 corner(0.0, y1, -0.08),
                 corner(w1, y1, -0.08),
-                corner(0.0, y0, lift),
-                corner(w0, y0, lift),
-                corner(0.0, y1, lift),
-                corner(w1, y1, lift),
+                corner(0.0, y0, 0.14),
+                corner(w0, y0, 0.14),
+                corner(0.0, y1, 0.14),
+                corner(w1, y1, 0.14),
             ];
-            c.hexa(panel, 0.06, BODY, sided(s, Affine3A::IDENTITY));
+            c.hexa(panel, 0.05, BODY, flat);
         }
-        // The louvres in the side block's front: a dark recess and five grey slats.
-        let vent = sided(s, on_chest(1.55, 4.2, 0.0));
-        c.cube(v(0.86, 1.0, 0.12), 0.02, FRAME, vent);
+        // The side blocks, and the louvres in the lower one's front: a dark recess and five grey
+        // slats; seams across the upper.
+        for block in SIDE_BLOCKS {
+            c.hexa(stacked(block), 0.2, BODY, flat);
+        }
+        let vent = sided(s, on_front(SIDE_BLOCKS[0], 1.74, 4.22, 0.0));
+        c.cube(v(0.9, 1.05, 0.12), 0.02, FRAME, vent);
         for k in 0..5 {
-            let y = -0.38 + k as f32 * 0.19;
-            c.cube(
-                v(0.78, 0.09, 0.16),
-                0.01,
-                TRIM,
-                vent * at(0.0, y, 0.02) * Affine3A::from_rotation_x(0.35),
-            );
+            let y = -0.4 + k as f32 * 0.2;
+            c.cube(v(0.82, 0.1, 0.16), 0.01, TRIM, vent * at(0.0, y, 0.02) * Affine3A::from_rotation_x(0.35));
         }
-        c.block(v(1.0, 0.18, 0.2), v2(1.0, 1.0), Vec2::ZERO, 0.03, BODY, vent * at(0.0, 0.58, 0.04));
-        // The round sensors on the chest's top either side of the head, in their housings.
-        let sensor = sided(s, place(v(0.8, 5.82, 1.02), ry(0.18)));
-        c.block(v(0.62, 0.62, 0.5), v2(0.9, 0.85), Vec2::ZERO, 0.06, BODY, sensor);
-        port(&mut c, 0.27, sensor * at(0.0, 0.0, 0.26));
         c.greeble(|c| {
-            let lens = sensor * at(0.0, 0.0, 0.39);
-            c.cube(v(0.3, 0.05, 0.03), 0.0, FRAME, lens);
-            c.cube(v(0.05, 0.3, 0.03), 0.0, FRAME, lens);
+            for y in [5.75, 6.25] {
+                c.cube(v(1.0, 0.06, 0.05), 0.0, FRAME, sided(s, on_front(SIDE_BLOCKS[1], 1.8, y, 0.0)));
+            }
+            c.cube(v(0.06, 0.9, 0.05), 0.0, FRAME, sided(s, on_front(SIDE_BLOCKS[0], 1.22, 4.4, 0.0)));
+        });
+        // The round sensors on the hatch's top either side of the chin, in their housings.
+        let sensor = sided(s, place(v(0.76, 6.1, 1.0), ry(0.18)));
+        c.block(v(0.56, 0.56, 0.52), v2(0.9, 0.85), Vec2::ZERO, 0.08, BODY, sensor);
+        port(&mut c, 0.24, sensor * at(0.0, 0.0, 0.27));
+        c.greeble(|c| {
+            let lens = sensor * at(0.0, 0.0, 0.4);
+            c.cube(v(0.26, 0.05, 0.03), 0.0, FRAME, lens);
+            c.cube(v(0.05, 0.26, 0.03), 0.0, FRAME, lens);
         });
         // The shoulder's socket in the chest's side.
-        c.cylinder(0.62, 0.45, 14, GREY, sided(s, place(v(2.05, 5.12, 0.0), rz(FRAC_PI_2))));
+        c.cylinder(0.62, 0.5, 14, GREY, sided(s, place(v(2.4, SPHERE.y, 0.0), rz(FRAC_PI_2))));
         // The back's side plates either side of the hatch.
-        let plate = sided(s, place(v(1.35, 4.5, -1.55), ry(-0.15)));
-        c.block(v(0.85, 1.9, 0.36), v2(0.8, 0.85), Vec2::ZERO, 0.1, BODY, plate);
+        let plate = sided(s, place(v(1.35, 4.5, -1.58), ry(-0.15)));
+        c.block(v(0.85, 1.9, 0.36), v2(0.8, 0.85), Vec2::ZERO, 0.14, BODY, plate);
         slot(&mut c, 0.45, plate * at(0.1, 0.2, -0.19) * Affine3A::from_rotation_y(PI));
     }
+    // The hatch's seam across, under the panel's top.
+    c.greeble(|c| {
+        let (p, n) = hatch_front(0.0, 5.55);
+        c.cube(v(1.8, 0.06, 0.05), 0.0, FRAME, place(p + n * 0.01, Quat::from_rotation_arc(Vec3::Z, n)));
+    });
     // The grey tube handle across the chest's top, under the face, on its brackets.
-    c.cylinder(0.09, 0.9, 10, GREY, place(v(0.0, 5.95, 1.32), rz(FRAC_PI_2)));
+    c.cylinder(0.09, 0.9, 10, GREY, place(v(0.0, 5.98, 1.3), rz(FRAC_PI_2)));
     for s in Side::BOTH {
-        c.cube(v(0.12, 0.16, 0.36), 0.02, GREY, sided(s, at(0.4, 5.95, 1.18)));
+        c.cube(v(0.12, 0.16, 0.4), 0.02, GREY, sided(s, at(0.4, 5.98, 1.14)));
     }
     // The ribbed collar behind the neck.
     let collar = at(0.0, 0.0, 0.0);
     let (from, to) = (FRAC_PI_2 + 0.7, FRAC_PI_2 - 0.7 + TAU);
     for k in 0..3 {
-        let y = 5.84 + k as f32 * 0.16;
-        c.lathe_arc(&band(0.62, 0.96 - k as f32 * 0.05, y, y + 0.11), 18, from, to, GREY, collar);
+        let y = 5.9 + k as f32 * 0.16;
+        c.lathe_arc(&band(0.6, 0.94 - k as f32 * 0.05, y, y + 0.11), 18, from, to, GREY, collar);
     }
     // The round hatch in the middle of the back.
-    let hatch = place(v(0.0, 4.65, -1.56), rx(-FRAC_PI_2));
+    let hatch = place(v(0.0, 4.65, -1.5), rx(-FRAC_PI_2));
     c.lathe(&band(0.62, 0.92, -0.02, 0.2), 24, BODY, hatch);
     c.lathe(&[(0.0, 0.12), (0.64, 0.12), (0.58, 0.18), (0.0, 0.2)], 20, BODY, hatch);
     c.greeble(|c| {
@@ -363,7 +420,7 @@ fn chest(d: &mut Designer, t: Twin) {
     let squash = Affine3A::from_scale(v(1.0, 1.0, 0.84));
     a.lathe(&[(0.0, 2.45), (1.3, 2.45), (1.36, 2.6), (1.25, 3.4), (0.0, 3.4)], 12, GREY, squash);
     a.lathe(
-        &[(1.2, 2.72), (1.46, 2.72), (1.5, 2.8), (1.5, 3.2), (1.46, 3.28), (1.2, 3.28), (1.2, 2.72)],
+        &[(1.2, 2.72), (1.48, 2.72), (1.53, 2.8), (1.53, 3.2), (1.48, 3.28), (1.2, 3.28), (1.2, 2.72)],
         20,
         pale,
         squash,
@@ -375,45 +432,81 @@ fn chest(d: &mut Designer, t: Twin) {
 fn waist(d: &mut Designer, t: Twin) {
     let mut w = d.on(Bone::Waist);
     w.seed(0.2 + if t == Twin::Corona { 0.3 } else { 0.0 });
-    // The belt, riding over the hips, and the crotch block under it.
-    w.block(v(3.4, 0.55, 2.6), v2(0.98, 0.97), Vec2::ZERO, 0.1, BODY, at(0.0, 2.33, 0.0));
-    w.block(v(1.15, 1.35, 1.6), v2(1.25, 1.0), Vec2::ZERO, 0.1, BODY, at(0.0, 1.42, 0.3));
-    // The round boss in its front: a coloured rim round a grey ball.
-    let boss = place(v(0.0, 1.3, 1.1), rx(FRAC_PI_2));
-    w.lathe(&band(0.3, 0.5, -0.05, 0.22), 18, BODY, boss);
-    w.lathe(&[(0.0, -0.05), (0.32, -0.05), (0.31, 0.12), (0.2, 0.22), (0.0, 0.25)], 14, GREY, boss);
+    // The belt round the hips, rounded at its corners, and the crotch block under its front with a
+    // box standing out of it over the lens.
+    w.loft(
+        &[
+            hoop(2.02, 0.0, 0.0, 1.62, 1.22),
+            hoop(2.12, 0.0, 0.0, 1.72, 1.32),
+            hoop(2.6, 0.0, 0.0, 1.72, 1.32),
+        ],
+        3.2,
+        28,
+        BODY,
+        Affine3A::IDENTITY,
+    );
+    w.block(v(1.2, 1.3, 1.5), v2(1.2, 1.0), v2(0.0, -0.05), 0.14, BODY, at(0.0, 1.45, 0.42));
+    w.block(v(0.62, 0.62, 0.3), v2(0.9, 1.0), Vec2::ZERO, 0.06, BODY, at(0.0, 1.78, 1.2));
+    // The round lens in its foot: a coloured rim round a grey ring and the dark glass.
+    let boss = place(v(0.0, 1.0, 1.08), rx(FRAC_PI_2));
+    w.lathe(&band(0.32, 0.52, -0.05, 0.26), 20, BODY, boss);
+    w.lathe(&band(0.22, 0.34, -0.05, 0.2), 18, GREY, boss);
+    w.lathe(&[(0.0, -0.05), (0.24, -0.05), (0.22, 0.08), (0.12, 0.14), (0.0, 0.15)], 16, LENS, boss);
     for s in Side::BOTH {
-        // The long front skirts curving over the thighs: an upper plate and a lower one turned
-        // further out, a notch in the hem.
-        let upper = sided(s, place(v(1.18, 1.62, 1.38), ry(0.24) * rx(-0.1) * rz(0.06)));
-        w.block(v(1.6, 1.4, 0.46), v2(0.96, 0.92), Vec2::ZERO, 0.12, BODY, upper);
-        let lower = sided(s, place(v(1.36, 0.3, 1.66), ry(0.34) * rx(-0.3) * rz(0.1)));
-        w.block(v(1.55, 1.45, 0.42), v2(1.02, 1.0), v2(0.0, 0.04), 0.12, BODY, lower);
-        // The hem's notch, a dark step cut into the lower plate's outer corner.
-        w.block(v(0.5, 0.42, 0.46), v2(1.0, 1.0), Vec2::ZERO, 0.02, FRAME, lower * at(0.55, -0.55, -0.01));
+        // The front skirt over the top of the thigh: a shield of a plate hung from the belt and
+        // turned out round the thigh's shell, its hem rising toward the outside, a raised panel
+        // down its inner half.
+        let skirt = sided(s, place(v(1.2, 1.5, 1.42), ry(0.36) * rx(-0.16)));
+        let plate = |x0: f32, x1: f32, top: f32, hem: (f32, f32), back: f32, front: f32| {
+            [
+                v(x0, hem.0, back),
+                v(x1, hem.1, back),
+                v(x0, top, back),
+                v(x1, top, back),
+                v(x0, hem.0, front),
+                v(x1, hem.1, front),
+                v(x0, top, front),
+                v(x1, top, front),
+            ]
+        };
+        w.hexa(plate(-0.74, 0.74, 0.8, (-0.98, -0.5), -0.2, 0.2), 0.14, BODY, skirt);
+        w.hexa(plate(-0.66, 0.0, 0.62, (-0.72, -0.5), 0.1, 0.32), 0.06, BODY, skirt);
         w.greeble(|w| {
-            w.cube(v(0.08, 0.7, 0.05), 0.0, FRAME, upper * at(-0.48, 0.0, 0.24));
-            w.cube(v(1.0, 0.06, 0.05), 0.0, FRAME, lower * at(-0.1, 0.42, 0.22));
+            w.cube(v(0.06, 1.2, 0.05), 0.0, FRAME, skirt * at(0.3, 0.0, 0.21));
         });
-        // The side skirts, standing out from the hips, and the hooked spur behind each.
-        let side = sided(s, place(v(2.38, 1.62, -0.12), rz(0.16)));
-        w.block(v(0.55, 1.8, 2.0), v2(0.85, 0.85), Vec2::ZERO, 0.1, BODY, side);
-        slot(&mut w, 0.5, side * Affine3A::from_rotation_y(FRAC_PI_2) * at(0.0, -0.1, 0.29));
-        // (Its outline runs back along x and up along y; it stands edge-on beside the skirt.)
-        let spur = [v2(0.0, 1.1), v2(1.05, 1.0), v2(1.35, 0.1), v2(1.25, -1.0), v2(0.95, -0.2), v2(0.3, 0.3)];
-        w.extrude(&spur, 0.3, BODY, sided(s, place(v(2.48, 1.0, -0.6), ry(FRAC_PI_2))));
-        // The rear skirt's half, its own spur at the outer corner.
-        let rear = sided(s, place(v(0.88, 1.75, -1.5), rx(0.25)));
-        w.block(v(1.45, 1.35, 0.6), v2(0.92, 0.85), v2(0.0, 0.05), 0.12, BODY, rear);
-        slot(&mut w, 0.35, rear * at(0.2, 0.0, -0.31) * Affine3A::from_rotation_y(PI));
+        // The hip's side plate under the belt, over the thigh's ball joint.
+        let side = sided(s, place(v(2.12, 1.72, -0.12), rz(0.12)));
+        w.block(v(0.55, 1.05, 1.95), v2(0.85, 0.9), Vec2::ZERO, 0.16, BODY, side);
+        slot(&mut w, 0.42, side * Affine3A::from_rotation_y(FRAC_PI_2) * at(0.0, -0.05, 0.29));
+        // The rear skirt's half, swept back over the seat.
+        let rear = sided(s, place(v(0.9, 1.62, -1.38), rx(0.3)));
+        w.block(v(1.5, 1.5, 0.55), v2(0.92, 0.85), v2(0.0, 0.05), 0.18, BODY, rear);
+        slot(&mut w, 0.35, rear * at(0.2, 0.0, -0.29) * Affine3A::from_rotation_y(PI));
     }
 }
 
 // --- Arms. ---
 
 /// The shoulder sphere's centre (right side), high beside the head.
-const SPHERE: Vec3 = Vec3::new(3.3, 5.2, 0.0);
-const SPHERE_R: f32 = 1.08;
+const SPHERE: Vec3 = Vec3::new(3.3, 5.4, 0.0);
+const SPHERE_R: f32 = 1.14;
+
+/// The bracket's block down the outside of the sphere, as hoops out along x from inside the
+/// sphere, each as high as twice its half width round its middle (5.98 m up) and as deep as
+/// twice its half depth: a rounded block, its outer face set in a little round its edge.
+const BRACKET: [Hoop; 3] =
+    [hoop(3.6, 0.0, 0.0, 1.04, 1.2), hoop(4.48, 0.0, 0.0, 1.04, 1.2), hoop(4.62, 0.0, 0.0, 0.92, 1.08)];
+
+/// The gauntlet, up the forearm from the wrist (x out, z forward): the cuff's flare, a step in,
+/// then the box up to the elbow, rounding in over its barrel.
+const GAUNTLET: [Hoop; 6] = [
+    hoop(0.0, 0.0, 0.05, 0.9, 0.95),
+    hoop(0.4, 0.0, 0.05, 0.94, 0.99),
+    hoop(0.4, 0.0, 0.05, 0.8, 0.86),
+    hoop(1.15, 0.02, 0.04, 0.84, 0.9),
+    hoop(1.65, 0.02, 0.02, 0.78, 0.82),
+    hoop(1.95, 0.0, 0.0, 0.58, 0.6),
+];
 
 fn arms(d: &mut Designer, t: Twin) {
     let pale = t.pale();
@@ -425,80 +518,72 @@ fn arms(d: &mut Designer, t: Twin) {
         );
         let k = s.pick(0.0, 0.4);
 
-        // The pale sphere, and the bracket over its top and outer side: a top plate rising
-        // outboard to eye level and an outer plate down the side, the port in it.
+        // The pale sphere, and the heavy bracket over its top and outer side: a thick block down
+        // the outside, its corners cut, with the round port in its front, and a cap over the top
+        // stepping down toward the head; the sphere shows inside and under them.
         let mut o = d.on(shoulder);
         o.seed(0.24 + k);
-        o.sphere(SPHERE_R, 14, pale, sided(s, Affine3A::from_translation(SPHERE)));
-        let top = [
-            (2.55, 5.92, -1.18),
-            (4.3, 6.02, -1.18),
-            (2.62, 6.72, -1.05),
-            (4.72, 6.98, -1.05),
-            (2.55, 5.92, 1.15),
-            (4.3, 6.02, 1.15),
-            (2.62, 6.72, 0.98),
-            (4.72, 6.98, 0.98),
+        o.sphere(SPHERE_R, 16, pale, sided(s, Affine3A::from_translation(SPHERE)));
+        let bracket = sided(s, place(v(0.0, 5.98, 0.0), rz(-FRAC_PI_2)));
+        o.loft(&BRACKET, 3.4, 28, BODY, bracket);
+        let cap = [
+            (2.68, 6.22, -1.0),
+            (3.9, 6.3, -1.0),
+            (2.72, 6.7, -1.0),
+            (3.9, 6.94, -1.0),
+            (2.68, 6.22, 1.0),
+            (3.9, 6.3, 1.0),
+            (2.72, 6.7, 1.0),
+            (3.9, 6.94, 1.0),
         ]
         .map(|(x, y, z)| v(x, y, z));
-        o.hexa(top, 0.12, BODY, sided(s, Affine3A::IDENTITY));
-        let outer = [
-            (4.1, 4.3, -1.12),
-            (4.8, 4.3, -1.12),
-            (4.1, 6.3, -1.15),
-            (4.8, 6.95, -1.1),
-            (4.1, 4.3, 1.12),
-            (4.8, 4.3, 1.12),
-            (4.1, 6.3, 1.1),
-            (4.8, 6.95, 1.02),
-        ]
-        .map(|(x, y, z)| v(x, y, z));
-        o.hexa(outer, 0.12, BODY, sided(s, Affine3A::IDENTITY));
-        // A lip along the bracket's front edge.
-        o.block(
-            v(0.4, 2.2, 0.2),
-            v2(1.0, 1.0),
-            Vec2::ZERO,
-            0.04,
-            BODY,
-            sided(s, place(v(4.45, 5.5, 1.16), rz(0.0))),
-        );
-        port(&mut o, 0.4, sided(s, place(v(4.82, 5.4, 0.05), ry(FRAC_PI_2))));
-        slot(&mut o, 0.4, sided(s, place(v(4.82, 4.7, -0.6), ry(FRAC_PI_2))));
-        // A running light at the top plate's outer front corner: red on the suit's own left (+x),
-        // green on its right.
-        let nav = sided(s, at(4.25, 6.92, 0.96));
-        o.cube(v(0.36, 0.16, 0.2), 0.03, GUN, nav);
+        o.hexa(cap, 0.26, BODY, sided(s, Affine3A::IDENTITY));
+        port(&mut o, 0.36, sided(s, at(4.1, 5.5, 1.14)));
+        slot(&mut o, 0.5, sided(s, place(v(4.62, 6.1, -0.4), ry(FRAC_PI_2))));
+        // A running light at the bracket's outer front corner, high: red on the suit's own left
+        // (+x), green on its right.
+        let nav = sided(s, at(4.25, 6.8, 0.98));
+        o.cube(v(0.34, 0.16, 0.2), 0.03, GUN, nav);
         let lamp = Paint::Light(s.pick(Light::Starboard, Light::Port));
         o.sphere(0.12, 6, lamp, nav * at(0.0, 0.06, 0.08) * Affine3A::from_scale(v(1.0, 0.6, 1.0)));
         o.cylinder(0.42, 0.7, 10, GREY, sided(s, place(v(2.35, SPHERE.y, 0.0), rz(FRAC_PI_2))));
 
-        // The short upper arm: a coloured drum on the grey frame, out from under the sphere.
+        // The short upper arm: a coloured drum with a raised ring round it, on the grey frame, out
+        // from under the sphere.
         let up_xf = sided(s, place(el, toward(sh - el)));
         let mut u = d.on(up);
         u.seed(0.28 + k);
-        u.cylinder(0.42, 1.6, 10, GREY, up_xf * at(0.0, 0.9, 0.0));
+        u.cylinder(0.44, 1.7, 12, GREY, up_xf * at(0.0, 0.95, 0.0));
         u.lathe(
-            &[(0.0, 0.55), (0.6, 0.55), (0.68, 0.66), (0.68, 1.15), (0.6, 1.25), (0.0, 1.25)],
-            16,
+            &[
+                (0.0, 0.5),
+                (0.66, 0.5),
+                (0.75, 0.6),
+                (0.75, 0.86),
+                (0.82, 0.92),
+                (0.82, 1.08),
+                (0.75, 1.14),
+                (0.75, 1.4),
+                (0.66, 1.5),
+                (0.0, 1.5),
+            ],
+            18,
             BODY,
             up_xf,
         );
 
-        // The gauntlet: the elbow's barrel, then a big box stepping out at its cuffs, a dark
-        // panel on its outer face.
-        let dir = el - wr;
-        let fo_xf = sided(s, place(wr, toward(dir)));
+        // The gauntlet: the elbow's barrel, then a big rounded box flaring to its cuff, a grey
+        // panel high on its outer face and a dark slot down its front.
+        let fo_xf = sided(s, place(wr, toward(el - wr)));
         let mut f = d.on(fore);
         f.seed(0.33 + k);
-        f.cylinder(0.52, 1.1, 12, GREY, sided(s, place(el, rz(FRAC_PI_2))));
-        f.block(v(1.55, 1.25, 1.62), v2(1.0, 1.0), Vec2::ZERO, 0.16, BODY, fo_xf * at(0.0, 0.92, 0.04));
-        f.block(v(1.68, 0.38, 1.76), v2(0.96, 0.96), Vec2::ZERO, 0.08, BODY, fo_xf * at(0.0, 1.7, 0.02));
-        f.block(v(1.66, 0.34, 1.72), v2(1.0, 1.0), Vec2::ZERO, 0.08, BODY, fo_xf * at(0.0, 0.2, 0.06));
-        f.cube(v(0.06, 0.7, 0.85), 0.02, GREY, fo_xf * at(0.79, 1.05, -0.1));
+        f.cylinder(0.56, 1.15, 14, GREY, sided(s, place(el, rz(FRAC_PI_2))));
+        f.loft(&GAUNTLET, 3.4, 24, BODY, fo_xf);
+        f.cube(v(0.08, 0.72, 0.8), 0.02, GREY, fo_xf * at(0.83, 1.18, -0.06));
+        f.cube(v(0.36, 0.7, 0.08), 0.02, FRAME, fo_xf * at(0.0, 1.0, 0.89));
         f.greeble(|f| {
-            f.cube(v(0.05, 0.08, 1.2), 0.0, FRAME, fo_xf * at(0.8, 0.5, 0.05));
-            f.cube(v(1.2, 0.08, 0.05), 0.0, FRAME, fo_xf * at(0.0, 0.5, 0.83));
+            f.cube(v(0.05, 0.08, 1.3), 0.0, FRAME, fo_xf * at(0.87, 0.62, 0.05));
+            f.cube(v(1.3, 0.08, 0.05), 0.0, FRAME, fo_xf * at(0.0, 0.62, 0.93));
         });
         f.cylinder(0.46, 0.3, 12, GREY, fo_xf);
     }
@@ -507,181 +592,181 @@ fn arms(d: &mut Designer, t: Twin) {
 
 // --- Legs. ---
 
+/// The thigh's shell, up its axis from the knee to the hip (x out, z forward): from just over
+/// the knee guard to under the belt, swelling out and forward to its widest a little over halfway
+/// up, and closing in under the hip.
+const THIGH_SHELL: [Hoop; 7] = [
+    hoop(0.45, 0.24, 0.12, 0.96, 0.98),
+    hoop(0.95, 0.4, 0.2, 1.4, 1.28),
+    hoop(1.7, 0.56, 0.22, 1.74, 1.45),
+    hoop(2.45, 0.62, 0.17, 1.76, 1.43),
+    hoop(3.15, 0.6, 0.08, 1.54, 1.28),
+    hoop(3.6, 0.52, 0.0, 1.2, 1.04),
+    hoop(3.88, 0.44, 0.0, 0.74, 0.64),
+];
+
+/// The lower leg, up its axis from the ankle to the knee (x out, z forward): slim over the boot,
+/// swelling back and out to the calf's widest just under the knee, and closing in behind the knee
+/// guard.
+const SHIN_SHELL: [Hoop; 9] = [
+    hoop(0.75, 0.02, 0.0, 0.78, 0.82),
+    hoop(1.5, 0.04, -0.05, 0.85, 0.91),
+    hoop(2.5, 0.07, -0.15, 1.01, 1.07),
+    hoop(3.4, 0.1, -0.26, 1.22, 1.24),
+    hoop(4.15, 0.12, -0.32, 1.35, 1.33),
+    hoop(4.75, 0.12, -0.32, 1.35, 1.31),
+    hoop(5.25, 0.1, -0.28, 1.19, 1.14),
+    hoop(5.6, 0.08, -0.24, 0.86, 0.82),
+    hoop(5.75, 0.06, -0.22, 0.5, 0.5),
+];
+
+/// The plate on the thigh's shell where its front turns to its outside (its outline running
+/// back and out along x, up along y, from where it hangs): its top in the shell, coming down past
+/// the shell's foot to a point in front, a notch behind it and a shorter point at the back.
+const FIN: [Vec2; 8] = [
+    Vec2::new(-0.7, 0.5),
+    Vec2::new(-0.82, -0.6),
+    Vec2::new(-0.55, -1.5),
+    Vec2::new(0.05, -2.1),
+    Vec2::new(0.35, -1.4),
+    Vec2::new(0.85, -1.75),
+    Vec2::new(1.08, -0.5),
+    Vec2::new(1.0, 0.55),
+];
+
 fn legs(d: &mut Designer) {
     let (hip, knee, ankle) = (j(Bone::ThighR), j(Bone::ShinR), j(Bone::FootR));
     for s in Side::BOTH {
-        let (thigh, shin, foot) =
-            s.pick((Bone::ThighL, Bone::ShinL, Bone::FootL), (Bone::ThighR, Bone::ShinR, Bone::FootR));
+        let (thigh, shin, foot, toe) = s.pick(
+            (Bone::ThighL, Bone::ShinL, Bone::FootL, Bone::ToeL),
+            (Bone::ThighR, Bone::ShinR, Bone::FootR, Bone::ToeR),
+        );
         let k = s.pick(0.0, 0.2);
 
-        // The thigh: grey at the hip, a full drum from under the skirts to the knee, armoured
-        // down its front by two plates meeting in a ridge and down its outside by a third.
+        // The thigh: a big round shell on a grey ball at the hip, and the plate down its outside
+        // flaring out to its point beside the knee.
         let mut th = d.on(thigh);
         th.seed(0.31 + k);
         th.sphere(0.8, 6, GREY, sided(s, Affine3A::from_translation(hip)));
-        let along_thigh = sided(s, place(knee + v(0.05, 0.0, -0.05), toward(hip - knee)));
-        th.lathe(
-            &[(0.0, 0.45), (0.95, 0.5), (1.2, 0.9), (1.34, 1.8), (1.38, 2.7), (1.26, 3.4), (0.0, 3.75)],
-            14,
-            BODY,
-            along_thigh * Affine3A::from_scale(v(1.0, 1.0, 1.08)),
-        );
-        for half in [-1.0f32, 1.0] {
-            let (bottom, top) = ((0.85, 1.48, 0.98, 1.05), (3.05, 1.6, 1.08, 1.16));
-            th.hexa(ridged(half, bottom, top, 0.42), 0.08, BODY, along_thigh);
-        }
-        let outside = [
-            (1.18, 0.95, -0.95),
-            (1.5, 0.95, -0.85),
-            (1.22, 3.15, -1.05),
-            (1.58, 3.15, -0.95),
-            (1.18, 0.95, 0.95),
-            (1.5, 0.95, 0.85),
-            (1.22, 3.15, 1.05),
-            (1.58, 3.15, 0.95),
-        ]
-        .map(|(x, y, z)| v(x, y, z));
-        th.hexa(outside, 0.1, BODY, along_thigh);
-        slot(&mut th, 0.55, along_thigh * place(v(0.5, 2.0, 1.36), rx(-0.05)));
+        let along_thigh = sided(s, place(knee, toward(hip - knee)));
+        th.loft(&THIGH_SHELL, 3.0, 28, BODY, along_thigh);
+        let fin = along_thigh * place(v(1.82, 1.55, 1.18), ry(0.87) * rx(-0.28));
+        th.extrude(&FIN, 0.32, BODY, fin);
+        th.greeble(|th| {
+            // The seam between the shell's front and its side, and the notch's dark step.
+            th.cube(v(0.07, 1.7, 0.05), 0.0, FRAME, along_thigh * place(v(1.3, 1.9, 1.46), ry(0.55)));
+            th.cube(v(0.07, 0.6, 0.05), 0.0, FRAME, fin * place(v(-0.2, -1.0, 0.17), rz(0.5)));
+        });
 
-        // The shin: a slim core inside heavy greaves. A big knee guard comes to a point below the
-        // knee, and the greave's front, two plates meeting in a ridge, flares as it falls toward the
-        // boot. Side plates flare out over the boot's shaft, and the calf's block bulges behind,
-        // widest a third of the way up.
+        // The shin: the knee's grey barrel, the round shell of the calf, and the knee guard, a
+        // tall block standing out of its front with its top tucked up under the thigh's shell and a
+        // dark slot down its face.
         let tube = sided(s, place(ankle, toward(knee - ankle)));
         let mut m = d.on(shin);
         m.seed(0.37 + k);
         m.cylinder(0.62, 1.3, 12, GREY, sided(s, place(knee, rz(FRAC_PI_2))));
-        let profile = [(0.2, 0.7), (1.2, 0.82), (2.4, 0.92), (3.4, 0.86), (4.4, 0.76), (5.3, 0.7)];
-        let outline: Vec<(f32, f32)> = [(0.0, 0.2)]
-            .into_iter()
-            .chain(profile.iter().map(|&(y, r)| (r, y)))
-            .chain([(0.0, 5.32)])
-            .collect();
-        m.lathe(&outline, 14, BODY, tube);
-        // (Each in two runs: swelling from the boot to its widest low on the calf, then narrowing
-        // to the knee.)
-        let greave = [(1.15, 1.3, 1.0, 0.86), (2.3, 1.4, 1.16, 0.8), (4.55, 0.98, 0.7, 0.5)];
-        let flare = [(1.1, 1.02, 1.18, 0.62), (2.25, 1.12, 1.36, 0.66), (3.9, 0.82, 0.98, 0.5)];
-        for half in [-1.0f32, 1.0] {
-            for run in 0..2 {
-                m.hexa(ridged(half, greave[run], greave[run + 1], 0.42), 0.08, BODY, tube);
-                // The side plate, standing out over the calf's widest.
-                let ((y0, i0, o0, f0), (y1, i1, o1, f1)) = (flare[run], flare[run + 1]);
-                let side = [
-                    (i0, y0, -0.82),
-                    (o0, y0, -0.72),
-                    (i1, y1, -0.86),
-                    (o1, y1, -0.76),
-                    (i0, y0, f0 + 0.1),
-                    (o0, y0, f0),
-                    (i1, y1, f1 + 0.1),
-                    (o1, y1, f1),
-                ]
-                .map(|(x, y, z)| v(x * half, y, z));
-                m.hexa(if half > 0.0 { side } else { swap_x(side) }, 0.08, BODY, tube);
-            }
-        }
-        for (y0, y1, h0, h1, b0, b1) in
-            [(1.2, 2.3, 0.86, 1.14, -0.86, -1.45), (2.3, 4.8, 1.14, 0.68, -1.45, -0.68)]
-        {
-            let calf = [
-                (-h0, y0, b0),
-                (h0, y0, b0),
-                (-h1, y1, b1),
-                (h1, y1, b1),
-                (-h0, y0, 0.15),
-                (h0, y0, 0.15),
-                (-h1, y1, 0.15),
-                (h1, y1, 0.15),
-            ]
-            .map(|(x, y, z)| v(x, y, z));
-            m.hexa(calf, 0.16, BODY, tube);
-        }
-        m.greeble(|m| {
-            m.cube(v(0.06, 1.6, 0.05), 0.0, FRAME, tube * place(v(0.62, 2.6, 1.03), rx(0.12)));
-            m.cube(v(0.6, 0.06, 0.05), 0.0, FRAME, tube * place(v(-0.45, 1.6, 1.13), rx(0.12)));
-        });
-        // The knee guard: two plates meeting in a ridge, broad over the knee and coming forward
-        // to a point below it; a grey inset at its top.
-        let pad = sided(s, at(knee.x + 0.02, knee.y, knee.z));
-        for half in [-1.0f32, 1.0] {
-            m.hexa(ridged(half, (-1.1, 1.62, 0.98, 1.0), (0.9, 1.22, 0.86, 0.82), 0.5), 0.08, BODY, pad);
-        }
+        m.loft(&SHIN_SHELL, 2.6, 28, BODY, tube);
+        // The ridge down the shin's front, from over the boot up to the knee guard.
+        let ridge = |y: f32, z: f32, out: f32| {
+            [v(-0.16, y, z - 0.12), v(0.16, y, z - 0.12), v(-0.1, y, z + out), v(0.1, y, z + out)]
+        };
+        let (lo, hi) = (ridge(1.45, 0.88, 0.08), ridge(4.3, 1.05, 0.1));
+        m.hexa([lo[0], lo[1], hi[0], hi[1], lo[2], lo[3], hi[2], hi[3]], 0.04, BODY, tube);
+        let guard = sided(s, at(knee.x + 0.02, knee.y, knee.z));
         m.hexa(
             [
-                (-0.3, -1.6, 1.0),
-                (0.3, -1.6, 1.0),
-                (-0.5, -1.05, 1.0),
-                (0.5, -1.05, 1.0),
-                (-0.1, -1.6, 1.5),
-                (0.1, -1.6, 1.5),
-                (-0.4, -1.05, 1.6),
-                (0.4, -1.05, 1.6),
+                (-0.62, -1.05, 0.4),
+                (0.62, -1.05, 0.4),
+                (-0.55, 1.15, 0.2),
+                (0.55, 1.15, 0.2),
+                (-0.55, -1.15, 1.42),
+                (0.55, -1.15, 1.42),
+                (-0.5, 1.15, 1.02),
+                (0.5, 1.15, 1.02),
             ]
             .map(|(x, y, z)| v(x, y, z)),
-            0.05,
+            0.16,
             BODY,
-            pad,
+            guard,
+        );
+        // Its foot, a wedge narrowing forward to a blunt point under it.
+        m.hexa(
+            [
+                (-0.5, -1.62, 0.6),
+                (0.5, -1.62, 0.6),
+                (-0.6, -1.0, 0.45),
+                (0.6, -1.0, 0.45),
+                (-0.16, -1.62, 1.3),
+                (0.16, -1.62, 1.3),
+                (-0.26, -1.0, 1.15),
+                (0.26, -1.0, 1.15),
+            ]
+            .map(|(x, y, z)| v(x, y, z)),
+            0.08,
+            BODY,
+            guard,
         );
         m.block(
-            v(0.62, 0.5, 0.12),
-            v2(0.8, 1.0),
+            v(0.36, 0.85, 0.12),
+            v2(0.85, 1.0),
             Vec2::ZERO,
             0.03,
-            TRIM,
-            pad * place(v(0.0, 0.42, 1.22), rx(-0.2)),
+            FRAME,
+            guard * place(v(0.0, 0.15, 1.22), rx(-0.18)),
         );
-        slot(&mut m, 0.42, pad * place(v(0.0, -0.45, 1.5), rx(-0.2)));
-        // The boot's shaft round the ankle: a box over the foot of the shin, a grey band round
-        // its back at the joint, and the big grey disc either side where the shaft meets the foot.
+        m.greeble(|m| {
+            m.cube(v(0.06, 1.4, 0.05), 0.0, FRAME, tube * place(v(0.92, 3.4, 0.82), ry(0.75) * rx(0.12)));
+        });
+
+        // The boot's shaft round the ankle: a rounded box over the foot of the shin, a grey band
+        // round its back at the joint, and the big grey disc either side where it meets the foot.
         let x = ankle.x;
         let flat = sided(s, Affine3A::IDENTITY);
-        let (y0, y1) = (ankle.y - 0.55, ankle.y + 1.05);
-        let shaft = [
-            (-1.08, y0, -1.0),
-            (1.08, y0, -1.0),
-            (-0.96, y1, -0.9),
-            (0.96, y1, -0.9),
-            (-1.08, y0, 0.85),
-            (1.08, y0, 0.85),
-            (-0.96, y1, 0.75),
-            (0.96, y1, 0.75),
-        ]
-        .map(|(dx, y, z)| v(x + dx, y, z));
-        m.hexa(shaft, 0.12, BODY, flat);
+        let (y0, y1) = (ankle.y - 0.55, ankle.y + 1.1);
+        m.loft(
+            &[
+                hoop(y0, x, -0.08, 1.12, 0.98),
+                hoop(y0 + 0.9, x, -0.1, 1.1, 0.96),
+                hoop(y1, x, -0.12, 0.98, 0.86),
+                hoop(y1 + 0.08, x, -0.12, 0.86, 0.74),
+            ],
+            3.6,
+            24,
+            BODY,
+            flat,
+        );
         // Its front: a thick plate rising from over the instep to high on the shin, like a boot's
         // tongue, wider at its foot; a notch near its top.
         let tongue = [
-            (-1.02, y0 + 0.15, 0.6),
-            (1.02, y0 + 0.15, 0.6),
-            (-0.84, y1 + 0.2, 0.68),
-            (0.84, y1 + 0.2, 0.68),
-            (-1.02, y0 + 0.15, 1.72),
-            (1.02, y0 + 0.15, 1.72),
-            (-0.84, y1 + 0.2, 1.2),
-            (0.84, y1 + 0.2, 1.2),
+            (-1.02, y0 + 0.15, 0.55),
+            (1.02, y0 + 0.15, 0.55),
+            (-0.84, y1 + 0.25, 0.62),
+            (0.84, y1 + 0.25, 0.62),
+            (-1.02, y0 + 0.15, 1.78),
+            (1.02, y0 + 0.15, 1.78),
+            (-0.84, y1 + 0.25, 1.2),
+            (0.84, y1 + 0.25, 1.2),
         ]
         .map(|(dx, y, z)| v(x + dx, y, z));
-        m.hexa(tongue, 0.14, BODY, flat);
-        let slope = v(0.0, y1 + 0.2 - (y0 + 0.15), 1.2 - 1.72).normalize();
-        let face = sided(s, place(v(x, y1 - 0.05, 1.29), Quat::from_rotation_arc(Vec3::Y, slope)));
+        m.hexa(tongue, 0.2, BODY, flat);
+        let slope = v(0.0, y1 + 0.25 - (y0 + 0.15), 1.2 - 1.78).normalize();
+        let face = sided(s, place(v(x, y1 - 0.02, 1.3), Quat::from_rotation_arc(Vec3::Y, slope)));
         m.greeble(|m| {
             m.cube(v(0.42, 0.07, 0.05), 0.0, FRAME, face * at(-0.06, 0.0, 0.0));
             m.cube(v(0.07, 0.36, 0.05), 0.0, FRAME, face * at(-0.24, -0.15, 0.0));
             m.cube(v(1.2, 0.06, 0.05), 0.0, FRAME, face * at(0.0, -0.95, 0.04));
         });
-        let back = sided(s, at(x, 0.0, ankle.z - 0.08));
+        let back = sided(s, at(x, 0.0, ankle.z - 0.1));
         m.lathe_arc(
-            &band(1.0, 1.13, ankle.y - 0.3, ankle.y + 0.08),
+            &band(1.0, 1.14, ankle.y - 0.3, ankle.y + 0.08),
             18,
             0.2,
             PI - 0.2,
             GREY,
             back * Affine3A::from_rotation_y(PI),
         );
-        for (side, r) in [(1.0, 0.6), (-1.0, 0.46)] {
-            let hub = sided(s, place(v(x + side * 1.12, ankle.y - 0.2, ankle.z - 0.12), rz(FRAC_PI_2)));
+        for (side, r) in [(1.0, 0.62), (-1.0, 0.48)] {
+            let hub = sided(s, place(v(x + side * 1.14, ankle.y - 0.2, ankle.z - 0.12), rz(FRAC_PI_2)));
             m.lathe(
                 &[(0.0, -0.17), (r * 0.92, -0.17), (r, -0.1), (r, 0.1), (r * 0.92, 0.17), (0.0, 0.17)],
                 16,
@@ -692,79 +777,50 @@ fn legs(d: &mut Designer) {
         }
 
         // The foot: a thick platform, the heel high at its back, the middle under the shaft's
-        // tongue, and the long toe falling away to its tip with a narrower block raised along it;
-        // a dark sole under it all.
+        // tongue, and the long toe (on its own hinge) falling away to its tip with a narrower block
+        // raised along it; a dark sole under it all, split at the hinge, a vernier in each half,
+        // and a grey band round the heel over it.
         let mut f = d.on(foot);
         f.seed(0.43 + k);
         f.sphere(0.5, 5, GREY, sided(s, Affine3A::from_translation(ankle)));
-        let sole = -9.07;
-        let base = sole + 0.32;
+        let base = SOLE + 0.32;
         // The heel and the middle, one tall block, highest at the back.
-        f.hexa(boot(x, base, (-7.5, -7.72), (1.24, 1.2), [-2.05, -1.82, 1.4, 1.4]), 0.18, BODY, flat);
-        // The toe box: as wide, narrowing and falling away to a blunt, bevelled tip.
-        f.hexa(boot(x, base, (-7.8, -8.04), (1.2, 1.04), [1.35, 1.35, 3.35, 2.92]), 0.28, BODY, flat);
-        // The narrower block raised along the toe, stepping down at its front.
-        f.hexa(boot(x, -8.1, (-7.6, -7.9), (0.56, 0.48), [1.3, 1.3, 2.8, 2.52]), 0.08, BODY, flat);
-        // The thick sole, a little proud of the upper all round, its heel deeper.
+        f.hexa(boot(x, base, (-7.5, -7.72), (1.26, 1.22), [-2.05, -1.82, 1.28, 1.28]), 0.24, BODY, flat);
         f.hexa(
-            boot(x, sole, (base + 0.02, base + 0.02), (1.32, 1.12), [-2.15, -2.12, 3.45, 3.42]),
-            0.06,
-            FRAME,
-            flat,
-        );
-        f.hexa(
-            boot(x, sole, (base + 0.06, base + 0.06), (1.3, 1.3), [-2.15, -2.12, -0.6, -0.6]),
-            0.04,
+            boot(x, SOLE + 0.05, (base + 0.08, base + 0.08), (1.36, 1.36), [-2.17, -2.14, -0.6, -0.6]),
+            0.05,
             GREY,
             flat,
         );
         f.greeble(|f| {
-            // The upper's seam along each side, the step between the heel and the toe box, and a
-            // slot up the heel's back.
+            // The upper's seam along each side, the step to the toe box, and a slot up the heel's
+            // back.
             for side in [-1.0, 1.0] {
-                f.cube(v(0.04, 0.05, 3.2), 0.0, FRAME, sided(s, at(x + side * 1.12, -8.3, -0.3)));
-                f.cube(v(0.04, 0.5, 0.05), 0.0, FRAME, sided(s, at(x + side * 1.1, -8.25, 1.38)));
+                f.cube(v(0.04, 0.05, 3.2), 0.0, FRAME, sided(s, at(x + side * 1.14, -8.3, -0.3)));
+                f.cube(v(0.04, 0.5, 0.05), 0.0, FRAME, sided(s, at(x + side * 1.12, -8.25, 1.26)));
             }
-            f.cube(v(0.5, 0.07, 0.05), 0.0, FRAME, sided(s, place(v(x, -8.05, -1.98), rx(-0.25))));
+            f.cube(v(0.5, 0.07, 0.05), 0.0, FRAME, sided(s, place(v(x, -8.05, -2.0), rx(-0.25))));
         });
+        let heel =
+            Sole { z: (-2.15, 1.26), half: (1.34, 1.27), top: 0.34, pads: GREY, vernier: 0.15, r: 0.42 };
+        sole(d, foot, s, x, heel);
+        let mut t = d.on(toe);
+        t.seed(0.47 + k);
+        // The toe box: as wide, narrowing and falling away to a blunt, rounded tip.
+        t.hexa(boot(x, base, (-7.8, -8.04), (1.22, 1.06), [1.32, 1.32, 3.35, 2.92]), 0.34, BODY, flat);
+        // The narrower block raised along the toe, stepping down at its front.
+        t.hexa(boot(x, -8.1, (-7.6, -7.9), (0.58, 0.5), [1.36, 1.36, 2.8, 2.52]), 0.12, BODY, flat);
+        let toes = Sole { z: (1.34, 3.45), half: (1.27, 1.14), top: 0.34, pads: GREY, vernier: 2.3, r: 0.34 };
+        sole(d, toe, s, x, toes);
     }
 }
 
 /// How far a foot block's sides lean in, per metre up.
 const BOOT_LEAN: f32 = 0.18;
 
-/// A block of a foot, centred on `x`: its sole level at `base`, narrowing along z from `half.0` at
-/// the back to `half.1` at the front, its sides leaning in as they rise; its top falling from
-/// `top.0` at the back to `top.1` at the front; `z` its back at the sole and at the top, then its
-/// front at the sole and at the top. Each face stays flat (as the Argo's boots: `argo::boot`).
+/// A block of a foot ([`frames::boot`](crate::frames::boot)), its sides leaning in [`BOOT_LEAN`].
 fn boot(x: f32, base: f32, top: (f32, f32), half: (f32, f32), z: [f32; 4]) -> [Vec3; 8] {
-    let [back, back_top, front, front_top] = z;
-    let h =
-        |at: f32, y: f32| half.0 + (half.1 - half.0) * (at - back) / (front - back) - BOOT_LEAN * (y - base);
-    std::array::from_fn(|i| {
-        let (zz, y) = match (i & 4 != 0, i & 2 != 0) {
-            (false, false) => (back, base),
-            (false, true) => (back_top, top.0),
-            (true, false) => (front, base),
-            (true, true) => (front_top, top.1),
-        };
-        v(x + if i & 1 != 0 { h(zz, y) } else { -h(zz, y) }, y, zz)
-    })
-}
-
-/// Half (`half` -1 the inner, 1 the outer) of an armour plate whose two halves meet in a ridge
-/// down its middle (x = 0), in a limb's frame (y along it, z forward): at its `bottom` and `top`
-/// heights, given as (y, the ridge's z, the edge's x, the edge's z), the plate `depth` thick.
-fn ridged(half: f32, bottom: (f32, f32, f32, f32), top: (f32, f32, f32, f32), depth: f32) -> [Vec3; 8] {
-    let face = |(y, ridge, edge_x, edge_z): (f32, f32, f32, f32)| {
-        let (a, b) = (v(0.0, y, ridge), v(edge_x * half, y, edge_z));
-        if half > 0.0 { [a, b] } else { [b, a] }
-    };
-    let (lo, hi) = (face(bottom), face(top));
-    std::array::from_fn(|i| {
-        let p = if i & 2 == 0 { lo[i & 1] } else { hi[i & 1] };
-        if i & 4 == 0 { p - v(0.0, 0.0, depth) } else { p }
-    })
+    crate::frames::boot(x, base, top, half, z, BOOT_LEAN)
 }
 
 /// A hexahedron's corners mirrored across x, reordered so its low-x corners stay the low ones.
@@ -774,8 +830,9 @@ fn swap_x(c: [Vec3; 8]) -> [Vec3; 8] {
 
 // --- The Sagittarius's back: the generator, and its cannon. ---
 
-/// The generator's ring: its centre on the right shoulder blade, facing back, and its radii.
-const GEN: Vec3 = Vec3::new(1.2, 5.25, -3.1);
+/// The generator's ring: its centre high on the back behind the head, a little to the right,
+/// facing back, and its radii.
+const GEN: Vec3 = Vec3::new(0.7, 5.8, -3.05);
 const GEN_R: f32 = 2.35;
 const GEN_HOLE: f32 = 1.2;
 const GEN_DEPTH: f32 = 1.5;
@@ -784,8 +841,8 @@ fn generator(d: &mut Designer) {
     let mut b = d.on(Bone::Backpack);
     b.seed(0.51);
     // The mount off the back's hatch, and the struts out to the ring.
-    b.block(v(1.6, 1.6, 0.8), v2(0.85, 0.9), Vec2::ZERO, 0.12, GUN, at(0.3, 4.65, -1.98));
-    b.block(v(0.7, 2.6, 0.6), v2(1.0, 1.0), Vec2::ZERO, 0.08, GUN, place(v(0.75, 4.9, -2.3), rz(-0.25)));
+    b.block(v(1.6, 1.6, 0.8), v2(0.85, 0.9), Vec2::ZERO, 0.12, GUN, at(0.3, 4.9, -2.0));
+    b.block(v(0.7, 2.4, 0.6), v2(1.0, 1.0), Vec2::ZERO, 0.08, GUN, place(v(0.6, 5.3, -2.3), rz(-0.2)));
     // The ring: a deep housing round the core, rounded at its rims.
     let ring = place(GEN, rx(-FRAC_PI_2));
     let h = GEN_DEPTH * 0.5;
@@ -846,9 +903,9 @@ fn generator(d: &mut Designer) {
     // The carry handle over the ring.
     let top = GEN + v(0.0, GEN_R, 0.0);
     for x in [-0.75, 0.75] {
-        b.cube(v(0.2, 0.75, 0.24), 0.03, GUN, at(top.x + x, top.y + 0.3, top.z));
+        b.cube(v(0.2, 0.7, 0.24), 0.03, GUN, at(top.x + x, top.y + 0.25, top.z));
     }
-    b.cube(v(1.7, 0.2, 0.24), 0.03, GUN, at(top.x, top.y + 0.72, top.z));
+    b.cube(v(1.7, 0.2, 0.24), 0.03, GUN, at(top.x, top.y + 0.62, top.z));
     // The box under the ring, where the cannon's cable comes out.
     let outlet = GEN_OUTLET;
     b.block(v(1.5, 1.1, 1.1), v2(0.9, 0.85), Vec2::ZERO, 0.1, GUN, at(outlet.x, outlet.y + 0.6, outlet.z));
@@ -864,7 +921,7 @@ fn generator(d: &mut Designer) {
 }
 
 /// Where the cannon's cable leaves the box under the generator.
-const GEN_OUTLET: Vec3 = Vec3::new(GEN.x + 0.6, GEN.y - GEN_R - 0.95, GEN.z + 0.35);
+const GEN_OUTLET: Vec3 = Vec3::new(GEN.x + 1.15, GEN.y - GEN_R - 0.55, GEN.z + 0.3);
 
 /// The beam cannon, held under the right arm: a long box-section barrel with its amber slot near
 /// the octagonal muzzle, a slimmer round rear section with its rows of vents, and the rear block
@@ -922,20 +979,20 @@ fn cannon(d: &mut Designer) {
 // --- The Corona's back: its wards on their racks. ---
 
 /// The wards on the right rack (the left's mirror it): each disc's centre, and how far it
-/// tilts out. Three high in an arc over and out past the shoulder, two lower and further back,
-/// overlapping them.
+/// tilts out. Three in an arc from over the head out past the shoulder, two lower and further
+/// back, overlapping them: the two racks crown the head.
 const RACK: [(Vec3, f32); 5] = [
-    (Vec3::new(1.95, 7.7, -2.85), 0.1),
-    (Vec3::new(3.5, 7.15, -2.7), 0.25),
-    (Vec3::new(4.6, 5.85, -2.55), 0.4),
-    (Vec3::new(2.35, 6.1, -3.35), 0.15),
-    (Vec3::new(3.75, 4.8, -3.2), 0.35),
+    (Vec3::new(1.75, 8.5, -2.85), 0.1),
+    (Vec3::new(3.75, 7.85, -2.7), 0.25),
+    (Vec3::new(5.0, 6.25, -2.55), 0.4),
+    (Vec3::new(2.3, 6.45, -3.45), 0.15),
+    (Vec3::new(4.05, 5.25, -3.4), 0.35),
 ];
 /// A ward disc's radius and depth.
-pub(crate) const DISC_R: f32 = 0.9;
-const DISC_DEPTH: f32 = 0.62;
+pub(crate) const DISC_R: f32 = 1.0;
+const DISC_DEPTH: f32 = 0.66;
 /// Where the right rack's pylon rises from the back.
-const PYLON: (Vec3, Vec3) = (Vec3::new(1.15, 4.4, -1.75), Vec3::new(1.65, 6.2, -2.35));
+const PYLON: (Vec3, Vec3) = (Vec3::new(1.15, 4.4, -1.75), Vec3::new(1.9, 6.8, -2.45));
 
 /// One ward disc, its face looking along `xf`'s +z: a drum with a raised rim, three grooves 120°
 /// apart across its face round the yellow lens, and a tab with a forked lug off its rim along
