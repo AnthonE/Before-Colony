@@ -116,7 +116,7 @@ pub fn hold_kg(frame_id: FrameId) -> u32 {
         // Antares' magazines and Canopus's desert kit leave a little less room.
         FrameId::Antares => 1_000,
         FrameId::Canopus => 2_000,
-        FrameId::Corvus | FrameId::Cetus => 0,
+        FrameId::Corvus | FrameId::Cetus | FrameId::Sagittarius | FrameId::Corona => 0,
     }
 }
 
@@ -124,6 +124,8 @@ pub fn hold_kg(frame_id: FrameId) -> u32 {
 pub fn bounty(frame_id: FrameId) -> u32 {
     match frame_id {
         FrameId::Cetus => 600,
+        // The prototypes fly only for the aces (`content::aces`), whose own bounty is on top.
+        FrameId::Sagittarius | FrameId::Corona => 800,
         _ => 250,
     }
 }

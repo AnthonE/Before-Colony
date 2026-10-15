@@ -1,6 +1,10 @@
 //! Procedural animation: each suit's bones posed every frame from its [`SuitDrive`].
 //! - The arm holding the main weapon aims where the pilot aims (inside the simulation's 50° cone);
-//!   the head looks there, the chest turns a little toward it.
+//!   the head looks there, the chest turns a little toward it. A gun in the right hand comes up to
+//!   the ready in flight or as it fires: the upper arm forward, the forearm near level and the fist
+//!   in line with it, the gun turned back in the fist so it keeps the aim (as a pistol's grip
+//!   stands in a hand held out level). Parked, asleep, kneeling, in the bay or walking quietly on
+//!   a body, it hangs at the side.
 //! - Limb trim, as physics: the limbs swing against the suit's rotation (less with busy arms).
 //! - Thrust posture: legs trail in forward burns and swing forward when braking, and swing away
 //!   from sideways thrust; wing binders flare on boost.
@@ -8,7 +12,8 @@
 //!   weapon's `MeleeSpec`, carried by the arm that holds it: twin blades mirror each other, and
 //!   the Talon's head flies out along the aim on its cable and back.
 //! - Aquila holds its shape: it's an aircraft, not a figure.
-//! - Weapons kick when they fire; the Cetus's shield pods circle.
+//! - Weapons kick when they fire; the Cetus's shield pods circle (a Corona's wards stay racked:
+//!   `suits_vis` flies them out).
 //! - Wrecks go limp.
 //! - On a body, the suit walks (`bc_client_core::gait`): each foot planted on the surface where
 //!   the body's shape has it, held there in the body's frame, the legs reaching it by two-bone IK
@@ -27,8 +32,9 @@ use bc_model::rig::{self, BONES, Bone};
 use bc_proto::snapshot::ent_flags;
 use bc_proto::{FrameId, Part, WeaponKind};
 use bc_sim::config::DT;
-use bc_sim::content::{ArmSlot, MeleeSpec, Stroke, frame, weapon};
+use bc_sim::content::{ArmSlot, MeleeSpec, SpecialKind, Stroke, WeaponClass, frame, weapon};
 use bc_sim::ground::{CROUCH_STANCE, STANCE};
+use bevy::mesh::MeshTag;
 use bevy::prelude::*;
 
 use crate::damage::Damage;
@@ -187,6 +193,14 @@ pub struct Anim {
     /// Where the torso sits from the suit's origin (suit frame): dropped along the surface's
     /// normal.
     pub lift: Vec3,
+    /// How far the gun arm is up at the ready (0 at the side, 1 up), and how long it stays up
+    /// after the gun last fired or charged (s).
+    ready: f32,
+    ready_hold: f32,
+    /// How far a Corona's wards are out of their racks (0 racked, 1 holding the field), and
+    /// how far round the field has turned (rad).
+    ward: f32,
+    ward_spin: f32,
 }
 
 impl Default for Anim {
@@ -208,6 +222,10 @@ impl Default for Anim {
             squash_v: 0.0,
             falling: None,
             lift: Vec3::ZERO,
+            ready: 0.0,
+            ready_hold: 0.0,
+            ward: 0.0,
+            ward_spin: 0.0,
         }
     }
 }
@@ -243,6 +261,35 @@ impl Anim {
             b = k.def().parent;
         }
         q
+    }
+}
+
+/// The gun arm at the ready: how far the upper arm swings forward and the forearm bends up from
+/// it (rad, about the suit's x), how fast it comes up or goes down (fractions a second), and how
+/// long it stays up after the gun last fired (s).
+const READY_UPPER: f32 = -0.35;
+const READY_FORE: f32 = -0.73;
+const READY_RATE: f32 = 3.0;
+const READY_HOLD: f32 = 4.0;
+
+/// How fast a Corona's field turns its wards round it (rad/s).
+const WARD_SPIN: f32 = 0.35;
+
+/// Where ward `k` of `n` holds the field, in the suit's frame: two rings of them on the
+/// field's sphere, above and below the suit's middle, each a half step round from the other.
+fn ward_spot(k: usize, n: usize, spin: f32) -> Vec3 {
+    let per = n.div_ceil(2).max(1);
+    let (ring, at) = (k % 2, k / 2);
+    let lat = if ring == 0 { 0.34f32 } else { -0.34 };
+    let lon = spin + std::f32::consts::TAU * (at as f32 + 0.5 * ring as f32) / per as f32;
+    let r = bc_sim::content::WARD_RADIUS * 0.94;
+    Vec3::new(lat.cos() * lon.sin(), lat.sin(), lat.cos() * lon.cos()) * r
+}
+
+fn show(v: &mut Visibility, on: bool) {
+    let want = if on { Visibility::Inherited } else { Visibility::Hidden };
+    if *v != want {
+        *v = want;
     }
 }
 
@@ -349,6 +396,8 @@ pub fn animate_suits(
     mut events: ResMut<FxEvents>,
     mut suits: Query<(&SuitDrive, &SuitVisual, &mut Anim, Option<&Damage>)>,
     mut bones: Query<&mut Transform>,
+    mut shown: Query<&mut Visibility>,
+    mut tags: Query<&mut MeshTag>,
 ) {
     let dt = time.dt.min(0.1);
     let mut touchdowns = Vec::new();
@@ -538,6 +587,43 @@ pub fn animate_suits(
             }
         }
 
+        // A gun in the right hand at the ready: in flight, or for a while after it fires or as it
+        // charges; never parked, asleep, kneeling or in the bay. Not while the right arm strikes
+        // or holds something.
+        let gun = frame(d.frame).loadout[0].is_some_and(|m| {
+            m.arm == ArmSlot::Right
+                && matches!(weapon(m.weapon).class, WeaponClass::Beam | WeaponClass::Ballistic)
+        });
+        if has(ent_flags::FIRING_PRIMARY | ent_flags::FIRING_SECONDARY | ent_flags::CHARGING) {
+            a.ready_hold = READY_HOLD;
+        } else {
+            a.ready_hold = (a.ready_hold - dt).max(0.0);
+        }
+        let right_busy = d.holding == Some(true)
+            || a.swing.is_some_and(|sw| matches!(sw.hands, Hands::Right | Hands::Both | Hands::Talon));
+        let resting = has(ent_flags::ASLEEP) || kneel || wreck || bird || d.slot == crate::hangar::BAY_SLOT;
+        let want = if !gun || resting || right_busy {
+            0.0
+        } else if a.ready_hold > 0.0 || ground.is_none() {
+            1.0
+        } else {
+            0.0
+        };
+        a.ready += (want - a.ready).clamp(-READY_RATE * dt, READY_RATE * dt);
+        if a.ready > 0.0 && !right_busy {
+            let (up, fore) = (Bone::UpperArmR.index(), Bone::ForearmR.index());
+            let lift = Quat::from_rotation_x(READY_UPPER * a.ready);
+            let bend = Quat::from_rotation_x(READY_FORE * a.ready);
+            let (aim_up, aim_fore) =
+                (Quat::from_scaled_axis(target[up]), Quat::from_scaled_axis(target[fore]));
+            target[up] = (aim_up * lift).to_scaled_axis();
+            target[fore] = (aim_fore * bend).to_scaled_axis();
+            // The gun turns back in the fist by what the arm's bend added, so it keeps the aim.
+            target[Bone::Weapon.index()] =
+                (bend.inverse() * aim_fore.inverse() * lift.inverse() * aim_fore).to_scaled_axis();
+            stiff[Bone::Weapon.index()] = stiff[fore];
+        }
+
         // Weapons kick up when they fire.
         for ev in &events.0 {
             if let FxEvent::Muzzle { shooter: Some(slot), weapon, .. } = *ev
@@ -569,9 +655,11 @@ pub fn animate_suits(
             }
             _ => Vec3::ZERO,
         };
-        // The shield pods circle the suit.
-        a.orbit = (a.orbit + dt * 0.6) % std::f32::consts::TAU;
-        a.rot[Bone::Props.index()] = Vec3::new(0.0, a.orbit, 0.0);
+        // The shield pods circle the suit (a Corona's wards stay in their racks).
+        if !matches!(frame(d.frame).special, SpecialKind::Ward { .. }) {
+            a.orbit = (a.orbit + dt * 0.6) % std::f32::consts::TAU;
+            a.rot[Bone::Props.index()] = Vec3::new(0.0, a.orbit, 0.0);
+        }
 
         // The fang's cable, from the wrist out to the head.
         if let Some(cable) = v.cable
@@ -581,6 +669,65 @@ pub fn animate_suits(
             tf.translation = Bone::HandR.rest() + a.reach * 0.5;
             tf.rotation = Quat::from_rotation_arc(Vec3::Y, a.reach.normalize_or(Vec3::Y));
             tf.scale = Vec3::new(0.25, len.max(0.001), 0.25);
+        }
+        // The Sagittarius's power cable, from its generator to its cannon as they're posed (in the
+        // suit's frame), while the arm that holds the cannon is on.
+        if let (Some(cable), Some((from, to))) = (v.power, lib.sockets(d.frame).cable) {
+            let inv = d.rot.inverse();
+            let p = inv * (a.point(d, Bone::Backpack, from) - d.pos);
+            let q = inv * (a.point(d, Bone::Weapon, to) - d.pos);
+            if let Ok(mut tf) = bones.get_mut(cable) {
+                tf.translation = (p + q) * 0.5;
+                tf.rotation = Quat::from_rotation_arc(Vec3::Y, (q - p).normalize_or(Vec3::Y));
+                tf.scale = Vec3::new(0.16, (q - p).length().max(0.001), 0.16);
+            }
+            let on = !wreck && d.parts[Part::ArmR as usize] > 0 && d.parts[Part::Backpack as usize] > 0;
+            if let Ok(mut s) = shown.get_mut(cable) {
+                show(&mut s, on);
+            }
+        }
+        // A Corona's wards: out of their racks while its special is up (taking its deploy
+        // time to fly out, as the simulation does, and as long to come home), turning round it in
+        // two rings on its field's sphere; its racks empty meanwhile, and the field's sheet glows
+        // once they hold it.
+        if let SpecialKind::Ward { deploy, .. } = frame(d.frame).special {
+            let on = has(ent_flags::SPECIAL) && !wreck;
+            let rate = 1.0 / (f32::from(deploy.max(1)) * DT);
+            a.ward = (a.ward + if on { rate * dt } else { -rate * dt }).clamp(0.0, 1.0);
+            a.ward_spin = (a.ward_spin + dt * WARD_SPIN) % std::f32::consts::TAU;
+            let ease = a.ward * a.ward * (3.0 - 2.0 * a.ward);
+            let racks = &lib.sockets(d.frame).wards;
+            for (k, (&e, &(home, face))) in v.wards.iter().zip(racks).enumerate() {
+                let spot = ward_spot(k, racks.len(), a.ward_spin);
+                if let Ok(mut tf) = bones.get_mut(e) {
+                    tf.translation = (home + a.lift).lerp(spot, ease);
+                    let (racked, held) = (
+                        Quat::from_rotation_arc(Vec3::Z, face),
+                        Quat::from_rotation_arc(Vec3::Z, spot.normalize()),
+                    );
+                    tf.rotation = racked.slerp(held, ease);
+                }
+                if let Ok(mut s) = shown.get_mut(e) {
+                    show(&mut s, a.ward > 0.0);
+                }
+            }
+            // (A rack broken off with the suit's torso stays gone.)
+            let props = Bone::Props.index();
+            if !damage.is_some_and(|dmg| dmg.lost[props])
+                && let Ok(mut s) = shown.get_mut(v.bones[props])
+            {
+                show(&mut s, a.ward <= 0.0);
+            }
+            if let Some(f) = v.field {
+                let held = a.ward >= 1.0 && on;
+                if let Ok(mut s) = shown.get_mut(f) {
+                    show(&mut s, held);
+                }
+                if held && let Ok(mut t) = tags.get_mut(f) {
+                    let shimmer = 0.75 + 0.25 * ((time.now * 5.0 + f64::from(d.slot)).sin() as f32);
+                    *t = MeshTag((150.0 * shimmer) as u32);
+                }
+            }
         }
         for (i, e) in v.bones.iter().enumerate() {
             if damage.is_some_and(|dmg| dmg.lost[i]) {

@@ -1,8 +1,15 @@
-# Before Colony wire protocol (v30)
+# Before Colony wire protocol (v31)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v31 (from v30): the Almagest's prototype pair (`DESIGN.md`, "The prototype pair"). `FrameId` 9 is the
+Sagittarius and 10 the Corona (still 4 bits), `WeaponKind` 21 the reactor cannon and 22 the beam
+gun (still 5 bits). A Corona's ward discs out (flying to their places or holding its field) set its
+entity's SPECIAL flag for every viewer, and its own state's SPECIAL_ACTIVE; the special's timer is
+how far they've come out (ticks, up to its deploy time). No field's state travels otherwise: a
+client stops a hostile beam at a Corona's field where SPECIAL shows it, as the server does.
 
 v30 (from v29): the suits, their weapons, the drones' side and siderium take the game's own names
 (`STORY.md`, "Voice and naming"). No bits change; the hangar's JSON (`bc_econ::wire`) carries the

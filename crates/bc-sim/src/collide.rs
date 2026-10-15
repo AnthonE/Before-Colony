@@ -107,9 +107,44 @@ pub fn segment_near_point(a: Vec3, b: Vec3, p: Vec3, radius: f32) -> bool {
     d2 <= radius * radius
 }
 
+/// Where a point moving from `a` to `b` first crosses into the sphere of radius `r` round `c`, as
+/// a fraction of the way (0..1), if it starts outside it (a point that starts inside, or on it,
+/// never crosses in). The Corona's ward (`sim::ward`), and the beams the client
+/// draws stopping at it.
+pub fn sphere_entry(a: Vec3, b: Vec3, c: Vec3, r: f32) -> Option<f32> {
+    let (d, m) = (b - a, a - c);
+    let outside = m.dot(m) - r * r;
+    let along = m.dot(d);
+    let len2 = d.dot(d);
+    // Inside already, moving away, or not moving.
+    if outside <= 0.0 || along >= 0.0 || len2 <= 0.0 {
+        return None;
+    }
+    let disc = along * along - len2 * outside;
+    if disc < 0.0 {
+        return None;
+    }
+    let s = (-along - crate::math::sqrt(disc)) / len2;
+    (s <= 1.0).then_some(s.max(0.0))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn crossing_into_a_sphere() {
+        let c = Vec3::new(0.0, 0.0, 10.0);
+        // Straight at it from outside: in at its near surface, 5 m short of its middle.
+        let s = sphere_entry(Vec3::ZERO, Vec3::new(0.0, 0.0, 20.0), c, 5.0).unwrap();
+        assert!((s - 0.25).abs() < 1e-6, "{s}");
+        // Short of it this tick, past it to the side, or going away: no.
+        assert_eq!(sphere_entry(Vec3::ZERO, Vec3::new(0.0, 0.0, 4.0), c, 5.0), None);
+        assert_eq!(sphere_entry(Vec3::new(6.0, 0.0, 0.0), Vec3::new(6.0, 0.0, 20.0), c, 5.0), None);
+        assert_eq!(sphere_entry(Vec3::new(0.0, 0.0, 20.0), Vec3::new(0.0, 0.0, 40.0), c, 5.0), None);
+        // From inside it never crosses in, out or through.
+        assert_eq!(sphere_entry(c, Vec3::new(0.0, 0.0, -40.0), c, 5.0), None);
+    }
 
     #[test]
     fn impact_on_a_capsule() {

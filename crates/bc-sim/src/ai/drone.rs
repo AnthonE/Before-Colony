@@ -1,8 +1,8 @@
-use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FLIGHT_ASSIST, RCS_SHARP};
+use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FLIGHT_ASSIST, MODE, RCS_SHARP};
 use bc_proto::{InputCmd, NO_SLOT, Part};
 use glam::Vec3;
 
-use crate::content::{FrameSpec, weapon};
+use crate::content::{FrameSpec, SpecialKind, weapon};
 use crate::math::{Rng, angle_between, clamp_len, length, normalize_or};
 use crate::orrery::fire_control;
 use crate::perception::{Contact, Perception, SelfView};
@@ -113,6 +113,20 @@ pub const PILOT: DroneProfile = DroneProfile {
 
 /// A brain hunting a suit on the ground keeps this far over the ground's plane there, m.
 pub const STANDOFF: f32 = 120.0;
+
+/// A Corona's wards go out once a hostile is inside this range, m, with more than this share
+/// of its energy, and stay out down to the second.
+const WARD_RANGE: f32 = 4_000.0;
+const WARD_ENERGY_ON: f32 = 0.4;
+const WARD_ENERGY_OFF: f32 = 0.1;
+
+/// Whether a brain flying a frame with wards holds MODE for them: with a hostile in range and
+/// the energy to keep them out (drones and the kit-aware pilot alike).
+pub(crate) fn wants_ward(me: &SelfView, target: Option<&Contact>, spec: &FrameSpec) -> bool {
+    let SpecialKind::Ward { .. } = spec.special else { return false };
+    let keep = if me.kit.special_active { WARD_ENERGY_OFF } else { WARD_ENERGY_ON };
+    target.is_some_and(|t| t.hostile && t.dist < WARD_RANGE) && me.energy > keep
+}
 
 /// `desired`, for a brain hunting `t`: if `t` stands on a body, pushed up off the ground's plane
 /// there while it's within [`STANDOFF`] of it, so the brain comes at it from above rather than
@@ -280,6 +294,10 @@ pub fn drive(
         (normalize_or(desired, fwd), desired)
     };
 
+    // A Corona keeps its wards out while it fights (`sim::ward`).
+    if wants_ward(me, target, spec) {
+        buttons |= MODE;
+    }
     if buttons & FIRE_PRIMARY != 0 {
         ai.shot_seq = ai.shot_seq.wrapping_add(1);
     }

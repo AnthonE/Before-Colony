@@ -174,7 +174,7 @@ pub struct Ribbons {
 impl Ribbons {
     pub fn look(&self, weapon: WeaponKind) -> &Look {
         match weapon {
-            WeaponKind::HeavyBeamRifle => &self.heavy_beam,
+            WeaponKind::HeavyBeamRifle | WeaponKind::ReactorCannon => &self.heavy_beam,
             WeaponKind::BeamCannon => &self.cannon,
             WeaponKind::BeamRifleCharged => &self.sniper,
             WeaponKind::MachineCannon | WeaponKind::HeadGun | WeaponKind::ChestGatling => &self.tracer,

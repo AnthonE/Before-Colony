@@ -33,9 +33,13 @@ pub const RIB_RED: u8 = 17;
 pub const VISOR_AMBER: u8 = 18;
 /// Sensor lenses and the glass of a suit's lights, a pale blue-grey.
 pub const LENS: u8 = 19;
+/// The Sagittarius's pale mint: its shoulder spheres, its waist band and the band round its hood.
+pub const MINT: u8 = 20;
+/// The Corona's pale lilac, where its twin has the mint.
+pub const LILAC: u8 = 21;
 
 /// How many there are (the palette's size).
-pub const COUNT: usize = 20;
+pub const COUNT: usize = 22;
 /// The most the hull shader's palette holds.
 pub const CAPACITY: usize = 32;
 const _: () = assert!(COUNT <= CAPACITY);

@@ -14,6 +14,8 @@ pub fn frame_name(id: FrameId) -> &'static str {
         FrameId::Canopus => "Canopus",
         FrameId::Thuban => "Thuban",
         FrameId::Aquila => "Altair (Aquila)",
+        FrameId::Sagittarius => "Sagittarius",
+        FrameId::Corona => "Corona",
     }
 }
 
@@ -28,6 +30,8 @@ pub fn frame_designation(id: FrameId) -> &'static str {
         FrameId::Canopus => "PX-03",
         FrameId::Thuban => "PX-04",
         FrameId::Aquila => "PX-00",
+        FrameId::Sagittarius => "AL-13X1",
+        FrameId::Corona => "AL-13X2",
     }
 }
 
@@ -54,6 +58,8 @@ pub fn weapon_name(kind: WeaponKind) -> &'static str {
         WeaponKind::BeamGlaive => "Beam Glaive",
         WeaponKind::BeamRifleCharged => "Charged Beam",
         WeaponKind::Reactor => "Self-Destruct",
+        WeaponKind::ReactorCannon => "Reactor Cannon",
+        WeaponKind::BeamGun => "Beam Gun",
     }
 }
 

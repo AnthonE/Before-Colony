@@ -9,11 +9,12 @@ use crate::suits::{MeleePhase, MeleeState, SPECIAL_MOUNT};
 use crate::transform::transform_step;
 
 impl Sim {
-    /// Runs down the specials' cooldowns, and runs the ones that last (the jammer).
+    /// Runs down the specials' cooldowns, and runs the ones that last (the jammer, the wards).
     pub(super) fn specials_step(&mut self, t: u32) {
         for sp in self.suits.special.iter_mut() {
             sp.cooldown = sp.cooldown.saturating_sub(1);
         }
+        self.wards.n = 0;
         let mut alive = core::mem::take(&mut self.iter_bits);
         alive.copy_from(&self.suits.alive);
         for i in alive.iter() {
@@ -27,6 +28,9 @@ impl Sim {
                     self.full_salvo_step(i, ticks, lockout, cooldown, t)
                 }
                 SpecialKind::Transform { .. } => self.transform(i),
+                SpecialKind::Ward { deploy, drain, min_energy, .. } => {
+                    self.ward_step(i, deploy, drain, min_energy)
+                }
                 SpecialKind::None | SpecialKind::MeleeMove { .. } => {}
             }
         }
@@ -106,7 +110,7 @@ impl Sim {
                 self.suits.melee[i].phase == MeleePhase::Idle && self.melee_ready(i, SPECIAL_MOUNT)
             }
             // On, or enough energy to engage.
-            SpecialKind::Eclipse { min_energy, .. } => {
+            SpecialKind::Eclipse { min_energy, .. } | SpecialKind::Ward { min_energy, .. } => {
                 self.suits.special[i].active
                     || self.suits.energy[i] >= min_energy * frame(self.suits.frame[i]).energy_cap
             }

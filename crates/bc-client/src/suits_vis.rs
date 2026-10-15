@@ -45,6 +45,12 @@ pub struct SuitVisual {
     blades: [Entity; 2],
     /// The Talon's cable, from the wrist to the head (on the right forearm).
     pub cable: Option<Entity>,
+    /// The Sagittarius's power cable, from its generator to its cannon (on the root, stretched
+    /// between them as they're posed: `anim`).
+    pub power: Option<Entity>,
+    /// A Corona's wards as they fly (on the root, hidden while racked), and its field's shell.
+    pub wards: Vec<Entity>,
+    pub field: Option<Entity>,
     aura: Entity,
     /// The Eclipse's shimmer.
     shimmer: Entity,
@@ -94,6 +100,9 @@ pub fn livery(frame: FrameId, faction: Faction) -> (u8, u8, u8, u8) {
         (FrameId::Thuban, _) => (WHITE, ALMAGEST_GREEN, YELLOW, EYE_GREEN),
         (FrameId::Corvus, _) => (CORVUS_WHITE, CORVUS_BLUE, RED, EYE_PINK),
         (FrameId::Cetus, _) => (CETUS_OLIVE, ALMAGEST_GREY, DARK, EYE_PINK),
+        // The prototype pair, in the colours they were rolled out in: blue and red, grey vents.
+        (FrameId::Sagittarius, _) => (BLUE, HULL, DARK, EYE_PINK),
+        (FrameId::Corona, _) => (RED, HULL, DARK, EYE_PINK),
         (FrameId::Argo, Faction::Almagest) => (ALMAGEST_GREEN, ALMAGEST_GREY, DARK, EYE_PINK),
         (FrameId::Argo, Faction::Colonies) => (CORVUS_BLUE, WHITE, RED, EYE_GREEN),
         (FrameId::Argo, Faction::Alliance) => (ALLIANCE_TAN, DARK, RED, EYE_PINK),
@@ -232,6 +241,54 @@ fn build_suit(
             ))
             .id()
     });
+    // The Sagittarius's power cable, stretched between generator and cannon as they're posed.
+    let power = sockets.cable.map(|_| {
+        commands
+            .spawn((
+                Mesh3d(shapes.cylinder.clone()),
+                MeshMaterial3d(hull.clone()),
+                HullTag::paint(bc_model::paint::DARK, d.slot as u8).tag(),
+                Transform::from_scale(Vec3::new(0.16, 0.001, 0.16)),
+                ChildOf(root),
+            ))
+            .id()
+    });
+    // A Corona's wards, flown out of their racks and home again (`anim`), and the field they
+    // hold.
+    let wards = sockets
+        .wards
+        .iter()
+        .enumerate()
+        .map(|(k, &(pos, face))| {
+            commands
+                .spawn((
+                    Mesh3d(lib.ward_disc.clone()),
+                    MeshMaterial3d(hull.clone()),
+                    HullTag {
+                        weathering: d.weathering,
+                        ..HullTag::livery(body, trim, accent, eye, k as u8 * 23)
+                    }
+                    .tag(),
+                    Transform::from_translation(pos).with_rotation(Quat::from_rotation_arc(Vec3::Z, face)),
+                    Visibility::Hidden,
+                    ChildOf(root),
+                ))
+                .id()
+        })
+        .collect();
+    let field = matches!(frame(d.frame).special, SpecialKind::Ward { .. }).then(|| {
+        commands
+            .spawn((
+                Mesh3d(shapes.sphere.clone()),
+                MeshMaterial3d(pal.field.clone()),
+                MeshTag(0),
+                Transform::from_scale(Vec3::splat(bc_sim::content::WARD_RADIUS)),
+                NotShadowCaster,
+                Visibility::Hidden,
+                ChildOf(root),
+            ))
+            .id()
+    });
     // The Orrery aura: a shell glowing at its rim (its MeshTag sets how bright).
     let aura = commands
         .spawn((
@@ -276,6 +333,9 @@ fn build_suit(
             plumes,
             blades,
             cable,
+            power,
+            wards,
+            field,
             aura,
             shimmer,
             shadow,

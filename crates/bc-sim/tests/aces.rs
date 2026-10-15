@@ -3,7 +3,7 @@
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
 use bc_proto::{Faction, Part, PilotKind, WeaponKind};
-use bc_sim::content::aces::{ACE_ARMOUR, ACE_FRAME, ACES, ace};
+use bc_sim::content::aces::{ACE_ARMOUR, ACES, ace};
 use bc_sim::content::frame;
 use bc_sim::{Sim, SimConfig};
 
@@ -29,9 +29,9 @@ fn an_ace_is_fielded_one_at_a_time_round_the_list() {
     assert_eq!(sim.ace_of(i), Some(0));
     assert_eq!(
         (sim.suits.frame[i], sim.suits.faction[i], sim.suits.pilot[i]),
-        (ACE_FRAME, Faction::Almagest, PilotKind::Drone)
+        (ace(0).frame, Faction::Almagest, PilotKind::Drone)
     );
-    let torso = frame(ACE_FRAME).part_hp[Part::Torso as usize] * ACE_ARMOUR;
+    let torso = frame(ace(0).frame).part_hp[Part::Torso as usize] * ACE_ARMOUR;
     assert_eq!(sim.suits.part_hp[i][Part::Torso as usize], torso, "it stands more than a drone");
     // While it's out, no other.
     run(&mut sim, 90);

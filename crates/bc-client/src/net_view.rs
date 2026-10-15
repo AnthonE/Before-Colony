@@ -312,6 +312,19 @@ pub fn sync_view(
     // the Blast Hall's training rounds fly: they end at its walls, its doors, or a target.
     let inside = core.inside();
     beams.0.clear();
+    // The wards standing, where they're drawn, and whose: a hostile beam stops where it
+    // crosses into one, as the server's do (`bc_sim::sim::ward`).
+    let fields: Vec<(Vec3, bc_proto::Faction)> = world
+        .entities
+        .iter()
+        .flatten()
+        .filter(|t| matches!(frame(t.latest.frame).special, SpecialKind::Ward { .. }))
+        .filter(|t| {
+            let f = t.state_at(t_render).flags;
+            f & ent_flags::SPECIAL != 0 && f & ent_flags::WRECK == 0
+        })
+        .map(|t| (t.sample(t_render, &world.bodies).pos, t.latest.faction))
+        .collect();
     for b in &world.beams {
         let t = if Some(b.shooter) == own_slot { t_own } else { t_render };
         if !b.alive_at(t) {
@@ -349,8 +362,32 @@ pub fn sync_view(
             sweep_landmarks(bodies.set.landmarks(), b.origin, head, radius, k as u32, (bodies.t - k) as f32)
                 .map(|(s, id)| (s * travelled, id))
                 .filter(|_| !inside);
+        let faction = if Some(b.shooter) == own_slot {
+            Some(world.faction)
+        } else {
+            world.entity(b.shooter).map(|t| t.latest.faction)
+        };
+        let ward = fields
+            .iter()
+            .filter(|(_, f)| Some(*f) != faction && !inside)
+            .filter_map(|&(c, _)| {
+                bc_sim::collide::sphere_entry(b.origin, head, c, bc_sim::content::WARD_RADIUS)
+                    .map(|s| (s * travelled, c))
+            })
+            .reduce(|x, y| if y.0 < x.0 { y } else { x });
         let solid =
             [rock.map(|(d, _)| d), hull, landmark.map(|(d, _)| d)].into_iter().flatten().reduce(f32::min);
+        // Short of anything solid, the field takes it, flashing where it struck.
+        if let Some((d, c)) = ward
+            && solid.is_none_or(|s| d < s)
+        {
+            if seen.splashes.insert((b.shooter, b.shot_seq)) {
+                let at = b.origin + dir * d;
+                let normal = (at - c).normalize_or(-dir);
+                events.0.push(FxEvent::Hit { pos: at, weapon: b.weapon, normal: Some(normal), target: None });
+            }
+            continue;
+        }
         let stop = solid.map(|d| {
             let at = b.origin + dir * d;
             let normal = match (rock, landmark) {

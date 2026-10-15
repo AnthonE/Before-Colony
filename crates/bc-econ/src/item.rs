@@ -183,6 +183,8 @@ pub fn weapon_slug(kind: WeaponKind) -> &'static str {
         WeaponKind::BeamGlaive => "beam_glaive",
         WeaponKind::BeamRifleCharged => "beam_rifle_charged",
         WeaponKind::Reactor => "reactor",
+        WeaponKind::ReactorCannon => "reactor_cannon",
+        WeaponKind::BeamGun => "beam_gun",
     }
 }
 

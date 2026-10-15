@@ -14,6 +14,7 @@ pub mod ik;
 pub mod kit;
 mod lodestars;
 pub mod paint;
+mod prototypes;
 pub mod rig;
 
 use bc_proto::FrameId;
@@ -68,6 +69,13 @@ pub struct Sockets {
     pub eye: Vec3,
     /// The eye is inside the head, so the cockpit view doesn't draw the head.
     pub eye_in_head: bool,
+    /// A power cable from the backpack to the main weapon (the Sagittarius's, from its generator
+    /// to its cannon): where it leaves [`Bone::Backpack`] and where it plugs into [`Bone::Weapon`].
+    /// The client draws it between them as they're posed.
+    pub cable: Option<(Vec3, Vec3)>,
+    /// Wards racked on [`Bone::Props`] (the Corona's), each one's centre and the way its face
+    /// looks: where the client's flying ones ([`ward_disc`]) leave from and come home to.
+    pub wards: Vec<(Vec3, Vec3)>,
 }
 
 /// Where a humanoid head's main camera sits, in the suit's frame at rest: between the eyes, at
@@ -222,11 +230,24 @@ pub fn build_parts(parts: Parts, lod: Lod) -> Model {
             .collect(),
         eye: head.eye + lift,
         eye_in_head: head.eye_in_head,
+        // A cable runs only between its own frame's backpack and weapon.
+        cable: weapon.cable.filter(|_| parts.backpack == parts.weapon),
+        wards: sockets_of(Section::Backpack).wards.clone(),
     };
     let joints: Vec<Vec3> = rig::ALL.iter().map(|b| b.def().joint).collect();
     ao::bake(&mut bones, &joints);
     let bones = bones.into_iter().map(|b| (!b.is_empty()).then(|| b.finish())).collect();
     Model { bones, sockets }
+}
+
+/// One ward disc as the client flies it out of its rack (`Sockets::wards`): centred on its own
+/// origin, its face looking along +z, its tab down (-y). Its occlusion is its own.
+pub fn ward_disc(lod: Lod) -> MeshData {
+    let mut d = Designer::new(lod);
+    prototypes::ward_disc_shape(&mut d.on(Bone::Torso), Affine3A::IDENTITY);
+    let mut b = std::mem::take(&mut d.bones[Bone::Torso.index()]);
+    ao::bake(std::slice::from_mut(&mut b), &[Vec3::ZERO]);
+    b.finish()
 }
 
 /// Builds one frame: shapes are given in the suit's frame at rest (x right, y up, z forward) and
@@ -384,7 +405,9 @@ mod tests {
             let near = build(frame, Lod::Near);
             let far = build(frame, Lod::Far);
             let (n, f) = (near.triangles(), far.triangles());
-            assert!(n > 2_000 && n < 20_000, "{frame:?} near: {n} triangles");
+            // Up close a suit is the picture: the near level of detail is drawn only within a few
+            // hundred metres (`bc-client`'s `suit_lod`), so it can spend what the look needs.
+            assert!(n > 2_000 && n < 40_000, "{frame:?} near: {n} triangles");
             assert!(f * 2 < n, "{frame:?} far ({f}) should be well under near ({n})");
             for (i, m) in near.bones.iter().enumerate() {
                 let Some(m) = m else { continue };
@@ -580,6 +603,35 @@ mod tests {
                 assert!(want.iter().all(|w| got.missiles.contains(w)));
             }
         }
+    }
+
+    /// The prototype pair's own sockets: the Sagittarius's cable from its generator to its
+    /// cannon, and a racked ward disc on the Corona for every one the simulation counts, each with
+    /// a mesh to fly out.
+    #[test]
+    fn the_prototypes_have_their_cable_and_wards() {
+        let sag = build(FrameId::Sagittarius, Lod::Near);
+        let (from, to) = sag.sockets.cable.expect("the Sagittarius's cable");
+        let at = |bone: Bone, p: Vec3| p + bone.def().joint;
+        let length = at(Bone::Backpack, from).distance(at(Bone::Weapon, to));
+        assert!(length > 0.5 && length < 6.0, "a cable {length:.1} m long at rest");
+        assert!(sag.sockets.wards.is_empty());
+        let cor = build(FrameId::Corona, Lod::Near);
+        assert_eq!(cor.sockets.wards.len(), bc_sim::content::WARDS);
+        assert!(cor.sockets.cable.is_none());
+        for (p, d) in &cor.sockets.wards {
+            assert!((d.length() - 1.0).abs() < 1e-3);
+            // Racked behind the shoulders, faces looking back.
+            assert!(p.z < -2.0 && p.y > 4.0 && d.z < -0.5, "a ward disc at {p} facing {d}");
+        }
+        for lod in LODS {
+            let m = ward_disc(lod);
+            assert!(m.indices.len() / 3 > 50 && m.indices.len() / 3 < 600);
+        }
+        // Swapping the weapon off the Sagittarius leaves no cable dangling.
+        let mixed =
+            build_parts(Parts::whole(FrameId::Sagittarius).with(Section::Weapon, FrameId::Argo), Lod::Near);
+        assert!(mixed.sockets.cable.is_none());
     }
 
     /// Every frame is drawn as itself: no two build the same mesh.

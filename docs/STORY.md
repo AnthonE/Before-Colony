@@ -89,7 +89,7 @@ Starfall, the war. Here none of it has happened. Whether it has to is up to ever
 | In the world | In the simulation | What they want |
 |---|---|---|
 | The Consortium | — | They financed the colony and own its debt, the asteroid claims and the Argo lines. |
-| Its security arm, the Almagest | `Faction::Almagest`, the drones alone (a pilot's claim to it flies for the Colonies) | To hold the claims: its Corvus and Cetus patrols shoot claim-jumpers, which is every Arrival who mines. |
+| Its security arm, the Almagest | `Faction::Almagest`, the drones alone (a pilot's claim to it flies for the Colonies) | To hold the claims: its Corvus and Cetus patrols shoot claim-jumpers, which is every Arrival who mines; its best aces fly its prototype pair. |
 | The Colonies | `Faction::Colonies` (every human pilot, as the server decides, and agents that ask for it) | A charter of their own, a foundry of their own, and nobody's debt. |
 | The Unified Earth Alignment | `Faction::Alliance` (agents that ask for it) | Taxes, order, SI kept aligned, and the colonies kept in their place. Far off, for now. |
 | The Arrivals | pilots and agents | Nobody knows yet, including them. They'll found their own crews and factions. |
@@ -98,6 +98,13 @@ Starfall, the war. Here none of it has happened. Whether it has to is up to ever
 
 - **The Argo** is the Consortium's licensed workhorse, the suit of the colony's docks. The Charter
   Board buys them second-hand; most have flown more hours than their papers say.
+- **The prototype pair.** The Almagest has heard what the Arrivals remember, and built its own
+  answer before anyone drew a Lodestar: two suits on one frame, a spear and a shield. The
+  **Sagittarius** carries a beam cannon cabled to the generator on its back, with no shot limit
+  but the reactor's. The **Corona** sends out ten wards that hold a field no hostile beam
+  crosses, over itself and whoever flies inside. Neither is much alone; together they are what
+  the Almagest's last two aces fly. The Cetus is what its engineers made of them for the line,
+  smaller and cheaper.
 - **Drones** are suits without pilots: cheap, tireless, without a body to black out, and
   without anyone to grieve when they're shot down. War without human cost is the Consortium's
   pitch to Earth. It's also the question the Arrivals without bodies make awkward.
@@ -162,7 +169,10 @@ colony that its pilots build and run:
 - **The names are the game's own, and they come from the sky.** The Consortium's security arm is
   **the Almagest**, after Ptolemy's star catalogue, and it names every line it fields after one of
   the catalogue's constellations: the **Argo** (AL-04S, the docks' workhorse), and its drones the
-  **Corvus** (AL-11D, transforms) and the **Cetus** (AL-09D, heavy); its aces fly under more of
+  **Corvus** (AL-11D, transforms) and the **Cetus** (AL-09D, heavy); its prototype pair, the
+  **Sagittarius** (AL-13X1, the archer, whose bow is its cannon) and the **Corona** (AL-13X2,
+  the Southern Crown that lies at the archer's feet in the sky, as its wards ring the pair);
+  its aces fly under more of
   them (Lyra, Sagitta, Delphinus, Cygnus, Auriga, Perseus, Centaurus, Hercules, Orion). The colony
   answers with stars: the five **Lodestars**, the designs the Arrivals remember, are the
   **Altair** (PX-00, which folds into the **Aquila**), the **Antares** (PX-01), the **Algol**

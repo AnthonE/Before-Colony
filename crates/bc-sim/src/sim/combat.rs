@@ -281,7 +281,9 @@ impl Sim {
         let mut p = muzzle;
         let mut hit = None;
         let mut blocked = None;
+        let mut warded = None;
         let interior = self.interior();
+        let beam = w.class == WeaponClass::Beam;
         for k in 0..rewind {
             let b = p + vel * DT;
             let when = spawn_tick + k;
@@ -289,6 +291,16 @@ impl Sim {
             // (Inside the colony, rounds pass suits by.)
             let suit =
                 if interior { None } else { self.sweep_history(p, b, w.radius, i, faction, when, frac) };
+            // A hostile ward stops a beam where it crosses in, before what's inside it.
+            let ward =
+                if beam && !interior { self.ward_sweep(p, b, faction, Some((when, frac))) } else { None };
+            if let Some((s, owner)) = ward
+                && suit.is_none_or(|(at, ..)| s < at)
+                && blocker.is_none_or(|(at, _)| s < at)
+            {
+                warded = Some(owner);
+                break;
+            }
             match suit {
                 Some((s, j, part)) if blocker.is_none_or(|(t, _)| s <= t) => {
                     hit = Some((j, part));
@@ -312,6 +324,10 @@ impl Sim {
                 origin: muzzle,
                 velocity: vel,
             });
+        }
+        if let Some(owner) = warded {
+            self.ward_takes(owner, w.damage);
+            return;
         }
         match (hit, blocked) {
             (Some((target, part)), _) => self.queue_damage(target, part, w.damage, i, w.kind, dir),
@@ -469,18 +485,35 @@ impl Sim {
             // Rocks, landmarks and the colony stop shots (rocks are worked by them): whichever is
             // met first along this tick's path, a suit included. A suit skimming the hull is hit.
             let blocker = self.first_blocker(a, b, r, t, 0.0);
+            let spec = weapon(self.projectiles.kind[k]);
+            // A hostile ward stops a beam where it crosses in (`ward`).
+            let ward = if !interior && spec.class == WeaponClass::Beam {
+                self.ward_sweep(a, b, of, None)
+            } else {
+                None
+            };
             // A round that shoots missiles down meets one before anything else on its path: it
             // bursts there (point defence, `sim::missile`).
-            if !interior && weapon(self.projectiles.kind[k]).shoots_down {
+            if !interior && spec.shoots_down {
                 let suit_at = best.map(|(s, ..)| s);
                 if let Some((s, m)) = self.round_meets_missile(a, b, r, owner, of)
                     && suit_at.is_none_or(|f| s < f)
                     && blocker.is_none_or(|(f, _)| s <= f)
+                    && ward.is_none_or(|(f, _)| s < f)
                 {
                     self.shot_down(m, a + (b - a) * s, t);
                     self.projectiles.kill(k);
                     continue;
                 }
+            }
+            if let Some((s, j)) = ward
+                && best.is_none_or(|(f, ..)| s < f)
+                && blocker.is_none_or(|(f, _)| s < f)
+            {
+                let damage = self.projectiles.damage[k];
+                self.ward_takes(j, damage);
+                self.projectiles.kill(k);
+                continue;
             }
             let shot = |p: &crate::projectiles::Projectiles| {
                 (p.kind[k], p.damage[k], normalize_or(p.vel[k], Vec3::Z))
