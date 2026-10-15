@@ -266,11 +266,10 @@ fn weapon_recipe(w: WeaponKind) -> Recipe {
         Talon => (&[(SIDERIUM, 150), (STEEL, 200), (ELECTRONICS, 40)], 150),
         Flamethrower => (&[(STEEL, 150), (ELECTRONICS, 20)], 90),
         BeamGlaive => (&[(SIDERIUM, 60), (ELECTRONICS, 50), (EXOTICS, 70)], 150),
-        // Not items (drones' guns, a special's own mounts, a charged shot, a reactor's blast):
-        // never asked for.
-        BeamCannon | ChestGatling | MicroMissile | PincerStrike | BeamRifleCharged | Reactor => {
-            (&[(STEEL, 100)], 60)
-        }
+        // Not items (drones' and the prototypes' guns, a special's own mounts, a charged shot, a
+        // reactor's blast): never asked for.
+        BeamCannon | ChestGatling | MicroMissile | PincerStrike | BeamRifleCharged | Reactor
+        | ReactorCannon | BeamGun => (&[(STEEL, 100)], 60),
     };
     Recipe {
         output: Item::Weapon(w),

@@ -530,3 +530,62 @@ fn staggered_suits_never_allocate() {
     assert!(staggered > 0, "nobody staggered");
     assert_eq!(total, 0, "heap operations inside the tick: {total}");
 }
+
+#[test]
+fn the_ward_never_allocates() {
+    // Pairs of Coronas and Sagittarii (drones: the Coronas hold their fields up while they fight)
+    // under the beam rifles of pilots closing on them, among other drones.
+    use bc_proto::{Faction, FrameId, InputCmd, NO_SLOT, PilotKind};
+    use glam::{Quat, Vec3};
+    let mut sim = bc_sim::Sim::new(bc_sim::SimConfig {
+        target_drones: 32,
+        field_rocks: 0,
+        ..bc_sim::SimConfig::default()
+    });
+    let mut pilots = Vec::new();
+    for k in 0..4 {
+        let at = Vec3::new(k as f32 * 300.0, 1_500.0, 0.0);
+        for (frame, dx) in [(FrameId::Corona, 0.0), (FrameId::Sagittarius, 18.0)] {
+            sim.spawn_at(frame, Faction::Almagest, PilotKind::Drone, at + Vec3::X * dx, Quat::IDENTITY)
+                .unwrap();
+        }
+        let from = at + Vec3::new(0.0, 0.0, 900.0);
+        pilots.push(
+            sim.spawn_at(
+                FrameId::Argo,
+                Faction::Colonies,
+                PilotKind::Human,
+                from,
+                Quat::from_rotation_y(std::f32::consts::PI),
+            )
+            .unwrap(),
+        );
+    }
+    let mut total = 0;
+    for _ in 0..600 {
+        let t = sim.next_tick();
+        let ((), n) = bc_alloc::count(|| {
+            for &id in &pilots {
+                let p = sim.suits.flight[id.idx()].pos;
+                let aim = (Vec3::new(p.x, 1_500.0, 0.0) - p).normalize_or(Vec3::NEG_Z);
+                let buttons = if t % 20 < 10 { bc_proto::buttons::FIRE_PRIMARY } else { 0 };
+                sim.set_input(
+                    id,
+                    InputCmd {
+                        tick: t,
+                        view_tick_q4: t << 4,
+                        aim,
+                        buttons,
+                        lock_target: NO_SLOT,
+                        ..InputCmd::default()
+                    },
+                );
+            }
+            sim.step();
+        });
+        total += n;
+    }
+    let warded: u32 = sim.suits.used.iter().map(|i| sim.stats(i).warded).sum();
+    assert!(warded > 0, "the fields should stop beams");
+    assert_eq!(total, 0, "heap operations inside the tick: {total}");
+}

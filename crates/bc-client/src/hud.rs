@@ -838,6 +838,16 @@ fn special_line(spec: &FrameSpec, o: &OwnState, asked: bool) -> Option<String> {
             };
             ("PINCER STRIKE", state)
         }
+        SpecialKind::Ward { deploy, .. } => {
+            let state = match (active, asked) {
+                (true, _) if o.special_timer < deploy => "DEPLOYING",
+                (true, _) => "FIELD UP",
+                // Held, but short of the energy to send them out.
+                (false, true) => "NO POWER",
+                (false, false) => "RACKED",
+            };
+            ("WARDS", state.into())
+        }
     };
     Some(format!("H   {name:<18} {state}\n"))
 }

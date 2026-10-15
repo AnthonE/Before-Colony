@@ -165,6 +165,8 @@ pub struct Ribbons {
     pub heat: Look,
     /// A missile motor's exhaust, streaming back from the nozzle.
     pub exhaust: Look,
+    /// The blue-white arcs that jump between a Corona's ward discs while they hold its field.
+    pub arc: Look,
     pub plume: Handle<PlumeMaterial>,
     // Imported by the effect shaders; held so they stay loaded.
     _ribbon: Handle<Shader>,
@@ -174,7 +176,7 @@ pub struct Ribbons {
 impl Ribbons {
     pub fn look(&self, weapon: WeaponKind) -> &Look {
         match weapon {
-            WeaponKind::HeavyBeamRifle => &self.heavy_beam,
+            WeaponKind::HeavyBeamRifle | WeaponKind::ReactorCannon => &self.heavy_beam,
             WeaponKind::BeamCannon => &self.cannon,
             WeaponKind::BeamRifleCharged => &self.sniper,
             WeaponKind::MachineCannon | WeaponKind::HeadGun | WeaponKind::ChestGatling => &self.tracer,
@@ -187,7 +189,7 @@ impl Ribbons {
         }
     }
 
-    fn looks(&self) -> [&Look; 12] {
+    fn looks(&self) -> [&Look; 13] {
         [
             &self.rifle,
             &self.sniper,
@@ -201,6 +203,7 @@ impl Ribbons {
             &self.glaive,
             &self.heat,
             &self.exhaust,
+            &self.arc,
         ]
     }
 
@@ -268,6 +271,7 @@ pub fn setup_ribbons(
         glaive: look(Vec3::new(12.0, 5.0, 2.0), 22.0, 0.3, 0.12, 0.0, 1.0, 13.0),
         heat: look(Vec3::new(10.0, 2.6, 0.5), 6.0, 0.35, 0.2, 0.0, 0.3, 3.4),
         exhaust: look(Vec3::new(9.0, 4.2, 1.1), 9.0, 0.3, 0.25, 0.0, 0.45, 35.0),
+        arc: look(Vec3::new(4.0, 7.0, 14.0), 20.0, 0.2, 0.7, 0.4, 0.3, 27.0),
         plume: plumes.add(PlumeMaterial {
             style: PlumeStyle { core: Vec4::new(6.0, 8.0, 14.0, 0.0), glow: Vec4::new(0.6, 1.4, 5.0, 0.0) },
         }),

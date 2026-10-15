@@ -12,7 +12,7 @@ use bc_sector::{
     ace_word,
 };
 use bc_sim::SimConfig;
-use bc_sim::content::aces::ACE_FRAME;
+use bc_sim::content::aces::ace as ace_of;
 use bc_sim::sim::Loadout;
 
 fn sector() -> (Sector, Arc<SectorShared>, SlotLease) {
@@ -85,7 +85,7 @@ fn an_ace_downed_by_a_pilot_is_theirs_and_its_wreck_theirs_to_claim() {
     assert_eq!((ace, flying), (0, true));
     let i = usize::from(suit);
     assert_eq!(sector.sim.ace_out(), Some((i, 0)));
-    assert_eq!(sector.sim.suits.frame[i], ACE_FRAME);
+    assert_eq!(sector.sim.suits.frame[i], ace_of(0).frame);
     // The pilot downs it: their session hears, with its wreck.
     sector.sim.strike(i, Part::Torso, 1.0e9, me, WeaponKind::BeamRifle);
     sector.tick();
@@ -109,7 +109,7 @@ fn an_ace_downed_by_a_pilot_is_theirs_and_its_wreck_theirs_to_claim() {
     .expect("the tugs came back with the ace's");
     assert!(!torso, "an ace's wreck is salvage, not a pilot's own torso");
     let desc = wreck.expect("nobody else got to it");
-    assert!(matches!(desc.kind, ChunkKind::Hulk { frame, .. } if frame == ACE_FRAME));
+    assert!(matches!(desc.kind, ChunkKind::Hulk { frame, .. } if frame == ace_of(0).frame));
     // Its slot long let go: none out (until the next is due).
     assert_ne!(word(&shared).map(|(_, a, _)| a), Some(0));
 }

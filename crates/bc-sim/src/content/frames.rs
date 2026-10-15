@@ -117,12 +117,24 @@ pub enum SpecialKind {
     MeleeMove {
         cooldown: u16,
     },
+    /// Toggle (MODE): the Ward (`sim::ward`). The suit's ward discs fly out to a sphere
+    /// `radius` m round it over `deploy` ticks, and while they hold it, every hostile beam that
+    /// would cross into it from outside stops at it, costing the suit `absorb` energy per armour
+    /// point the beam carried. Solid rounds, missiles, blades and flame go through. Up, it drains
+    /// `drain` energy/s; it needs `min_energy` (0..1) to deploy, and falls when the energy's gone.
+    Ward {
+        radius: f32,
+        deploy: u8,
+        drain: f32,
+        absorb: f32,
+        min_energy: f32,
+    },
 }
 
 impl SpecialKind {
     /// Held as the MODE state (a toggle), rather than pressed as SPECIAL.
     pub fn is_toggle(self) -> bool {
-        matches!(self, SpecialKind::Transform { .. } | SpecialKind::Eclipse { .. })
+        matches!(self, SpecialKind::Transform { .. } | SpecialKind::Eclipse { .. } | SpecialKind::Ward { .. })
     }
 
     /// The form a transformation changes into.
@@ -138,7 +150,10 @@ impl SpecialKind {
     pub fn cooldown(self) -> u16 {
         match self {
             SpecialKind::FullSalvo { cooldown, .. } | SpecialKind::MeleeMove { cooldown } => cooldown,
-            SpecialKind::None | SpecialKind::Transform { .. } | SpecialKind::Eclipse { .. } => 0,
+            SpecialKind::None
+            | SpecialKind::Transform { .. }
+            | SpecialKind::Eclipse { .. }
+            | SpecialKind::Ward { .. } => 0,
         }
     }
 }
@@ -686,7 +701,94 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
         special_mounts: [None, None],
         ai: hints(0.0, false, 1.8),
     },
+    // AL-13X1 Sagittarius: the Almagest's prototype gun, the archer, and its pair's spear (after
+    // Gundam Wing's Vayeate, `docs/STORY.md`). Its one weapon is the beam cannon cabled to the
+    // generator on its back: no shot limit, a wide beam as heavy as the Altair's, but a charge it
+    // can do nothing else through and a draw on the reactor that paces it. No secondary, no blade:
+    // close in it has nothing, which is what its Corona is for. Long-range eyes, 4 g.
+    FrameSpec {
+        id: FrameId::Sagittarius,
+        dry_mass: 8_600.0,
+        propellant_cap: 3_000.0,
+        isp: 1_000.0,
+        main_thrust: thrust_for(4.0, 11_600.0),
+        side_thrust: thrust_for(2.0, 11_600.0),
+        retro_thrust: thrust_for(2.4, 11_600.0),
+        boost_mult: 1.5,
+        limb_trim_accel: 1.4,
+        limb_trim_rate: 1.0,
+        rcs_accel: 4.5,
+        rcs_rate: 2.6,
+        rcs_propellant: 1.3,
+        roll_rate: 1.4,
+        fa_speed: 230.0,
+        radius: 10.5,
+        capsules: HUMANOID,
+        part_hp: [80.0, 300.0, 130.0, 150.0, 160.0, 140.0],
+        armor: 0.8,
+        sensor_range: 11_000.0,
+        signature: 1.3,
+        energy_cap: 240.0,
+        energy_regen: 30.0,
+        heat_cap: 160.0,
+        heat_dissipation: 28.0,
+        loadout: [mount(WeaponKind::ReactorCannon, RIGHT), None, None],
+        orrery: false,
+        playable: false,
+        special: SpecialKind::None,
+        special_mounts: [None, None],
+        ai: hints(3_000.0, false, 2.0),
+    },
+    // AL-13X2 Corona: the Sagittarius's twin, its shield, the crown at the archer's feet (after
+    // the Mercurius). A quick beam gun, the beam saber out of its crash shield, and ten wards
+    // racked on its back that fly out into a field no hostile beam crosses, for itself and
+    // whoever flies inside it, while its own shots and its friends' go out; 4.6 g.
+    FrameSpec {
+        id: FrameId::Corona,
+        dry_mass: 8_200.0,
+        propellant_cap: 3_000.0,
+        isp: 1_000.0,
+        main_thrust: thrust_for(4.6, 11_200.0),
+        side_thrust: thrust_for(2.4, 11_200.0),
+        retro_thrust: thrust_for(2.8, 11_200.0),
+        boost_mult: 1.5,
+        limb_trim_accel: 1.6,
+        limb_trim_rate: 1.1,
+        rcs_accel: 5.0,
+        rcs_rate: 2.8,
+        rcs_propellant: 1.3,
+        roll_rate: 1.6,
+        fa_speed: 240.0,
+        radius: 10.5,
+        capsules: HUMANOID,
+        part_hp: [80.0, 300.0, 160.0, 130.0, 160.0, 150.0],
+        armor: 0.8,
+        sensor_range: 8_000.0,
+        signature: 1.2,
+        energy_cap: 220.0,
+        energy_regen: 28.0,
+        heat_cap: 140.0,
+        heat_dissipation: 24.0,
+        loadout: [mount(WeaponKind::BeamGun, RIGHT), None, mount(WeaponKind::BeamSaber, LEFT)],
+        orrery: false,
+        playable: false,
+        special: SpecialKind::Ward {
+            radius: WARD_RADIUS,
+            deploy: 15,
+            drain: 6.0,
+            absorb: 0.6,
+            min_energy: 0.3,
+        },
+        special_mounts: [None, None],
+        ai: hints(1_200.0, false, 1.8),
+    },
 ];
+
+/// How far the Corona's wards hold their field from it, m: round itself and a wingman flying
+/// close (`sim::ward`).
+pub const WARD_RADIUS: f32 = 26.0;
+/// How many wards a Corona carries, five on each of its racks (the field's discs, as drawn).
+pub const WARDS: usize = 10;
 
 // Every row sits at its frame's index.
 const _: () = {

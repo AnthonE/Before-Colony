@@ -37,6 +37,8 @@ pub fn stability(frame: FrameId) -> f32 {
         FrameId::Canopus => 460.0,
         FrameId::Algol => 320.0,
         FrameId::Thuban => 340.0,
+        FrameId::Sagittarius => 360.0,
+        FrameId::Corona => 360.0,
     }
 }
 
@@ -45,7 +47,7 @@ pub fn stability(frame: FrameId) -> f32 {
 /// blast hit hardest of all.
 pub fn impact(kind: WeaponKind) -> f32 {
     match kind {
-        WeaponKind::HeavyBeamRifle => 1.6,
+        WeaponKind::HeavyBeamRifle | WeaponKind::ReactorCannon => 1.6,
         WeaponKind::Reactor => 2.0,
         _ => match weapon(kind).class {
             WeaponClass::Beam => 1.0,

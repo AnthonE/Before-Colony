@@ -502,6 +502,33 @@ static WEAPONS: [WeaponSpec; WeaponKind::COUNT] = [
         range: 60.0,
         ..BASE
     },
+    // The Sagittarius's beam cannon, cabled to its reactor: it charges from the reactor (0.8 s,
+    // glowing for everyone to see) and its beam is as heavy as the Heavy Beam Rifle's, but its
+    // energy is a third of the suit's pool, so it fires as often as the reactor keeps up.
+    WeaponSpec {
+        kind: WeaponKind::ReactorCannon,
+        damage: 180.0,
+        speed: 7_000.0,
+        radius: 3.0,
+        range: 10_000.0,
+        cooldown: 75,
+        heat: 40.0,
+        energy: 80.0,
+        charge_ticks: 24,
+        ..BASE
+    },
+    // The Corona's beam gun: short, quick, light.
+    WeaponSpec {
+        kind: WeaponKind::BeamGun,
+        damage: 28.0,
+        speed: 3_800.0,
+        radius: 0.5,
+        range: 3_500.0,
+        cooldown: 12,
+        heat: 8.0,
+        energy: 10.0,
+        ..BASE
+    },
 ];
 
 // Every row sits at its kind's index, and each class has the parameters it needs.

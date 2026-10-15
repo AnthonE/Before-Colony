@@ -5,7 +5,7 @@ use bc_proto::{Faction, NO_SLOT, PilotKind};
 use glam::Vec3;
 
 use super::{ANCHORS, MAX_SQUADS, Sim, Squad};
-use crate::content::aces::{ACE_ARMOUR, ACE_FRAME, ACES, NO_ACE};
+use crate::content::aces::{ACE_ARMOUR, ACES, NO_ACE, WING_OFFSET, ace};
 use crate::math::look_rotation;
 
 impl Sim {
@@ -25,7 +25,7 @@ impl Sim {
     }
 
     /// Fields the next ace on the list when one's due and none is out: a squad of its own, high
-    /// over one of the drones' anchors.
+    /// over one of the drones' anchors, with its wingman beside it if it has one.
     pub(super) fn spawn_ace(&mut self, t: u32) {
         let every = self.cfg.ace_every;
         if every == 0 || self.cfg.target_drones == 0 || t < self.next_ace_at || self.ace_out().is_some() {
@@ -37,7 +37,8 @@ impl Sim {
         let anchor = ANCHORS[squad % ANCHORS.len()] + Vec3::new(0.0, 700.0, 0.0);
         self.squads[squad] = Squad { anchor, focus: NO_SLOT };
         let rot = look_rotation(-anchor, Vec3::Y);
-        let Some(id) = self.spawn_at(ACE_FRAME, Faction::Almagest, PilotKind::Drone, anchor, rot) else {
+        let a = ace(self.next_ace);
+        let Some(id) = self.spawn_at(a.frame, Faction::Almagest, PilotKind::Drone, anchor, rot) else {
             return;
         };
         let i = id.idx();
@@ -48,5 +49,12 @@ impl Sim {
         }
         self.ace_suit = i as u16;
         self.next_ace = ((usize::from(self.next_ace) + 1) % ACES.len()) as u8;
+        // Its wingman, off its right shoulder.
+        if let Some(wing) = a.wing {
+            let at = anchor + rot * Vec3::new(WING_OFFSET, 0.0, 0.0);
+            if let Some(w) = self.spawn_at(wing, Faction::Almagest, PilotKind::Drone, at, rot) {
+                self.suits.ai[w.idx()].squad = squad as u8;
+            }
+        }
     }
 }

@@ -187,6 +187,8 @@ pub struct SuitStats {
     pub missiles: u32,
     /// Training rounds scored on the Blast Hall's targets (`colony::hall`).
     pub targets: u32,
+    /// Hostile beams its ward stopped (`sim::ward`).
+    pub warded: u32,
 }
 
 pub struct Suits {

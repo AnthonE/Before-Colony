@@ -22,6 +22,8 @@ pub struct FrameModel {
 pub struct SuitMeshLib {
     models: HashMap<(FrameId, Lod), FrameModel>,
     sockets: HashMap<FrameId, Sockets>,
+    /// One of a Corona's wards as it flies out of its rack (`bc_model::ward_disc`).
+    pub ward_disc: Handle<Mesh>,
 }
 
 impl SuitMeshLib {
@@ -59,5 +61,6 @@ pub fn build_suit_meshes(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>
             }
         }
     }
-    commands.insert_resource(SuitMeshLib { models, sockets });
+    let ward_disc = meshes.add(mesh(bc_model::ward_disc(Lod::Near)));
+    commands.insert_resource(SuitMeshLib { models, sockets, ward_disc });
 }

@@ -225,7 +225,7 @@ impl Plugin for AudioPlugin {
 /// What each weapon sounds like leaving the muzzle.
 fn muzzle_cue(w: WeaponKind) -> Cue {
     match w {
-        WeaponKind::HeavyBeamRifle => Cue::HeavyBeamFire,
+        WeaponKind::HeavyBeamRifle | WeaponKind::ReactorCannon => Cue::HeavyBeamFire,
         WeaponKind::BeamCannon | WeaponKind::BeamRifleCharged => Cue::BeamHeavy,
         WeaponKind::BeamGatling | WeaponKind::BeamMachineGun => Cue::BeamGun,
         WeaponKind::Flamethrower => Cue::Flame,

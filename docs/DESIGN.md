@@ -179,6 +179,8 @@ drones on them.)
 | Thuban (PX-04) | duellist | 7.5 t | 7.4 g (11.8 g) | ≈4.0 km/s | siderium (×0.55) | Talon · flamethrower · beam glaive |
 | Corvus (AL-11D) | Drone | 6.5 t | 5 g | ≈2.9 km/s | titanium | beam rifle |
 | Cetus (AL-09D) | Drone | 9.5 t | 3 g | ≈2.5 km/s | heavy (×0.8) | beam cannon, shield pods (visual) |
+| Sagittarius (AL-13X1) | the aces' prototype gun | 8.6 t | 4 g (6 g) | ≈2.9 km/s | heavy (×0.8) | **reactor cannon**, and nothing else |
+| Corona (AL-13X2) | the aces' prototype shield | 8.2 t | 4.6 g (6.9 g) | ≈3.0 km/s | heavy (×0.8) | beam gun · beam saber · **the Ward** |
 
 ## Surfaces (`bc-sim/src/ground.rs`)
 
@@ -262,6 +264,8 @@ station that turns carries its riders round with it.
 | Beam saber | – | 90 | swing | 9 m arc sweep with a lunge; blades clash (both parried) |
 | Heavy Beam Rifle | 8 km/s | 220 | 1 per 5 s | 0.6 s charge, visible to everyone; 5 m beam engulfs the whole suit |
 | Beam cannon (Cetus) | 3.5 km/s | 70 | 0.8/s | |
+| Reactor cannon (Sagittarius) | 7 km/s | 180 | 1 per 2.5 s | 0.8 s charge, visible to everyone; a 3 m beam; 80 energy a shot, a third of the suit's pool, so it fires as often as the reactor keeps up |
+| Beam gun (Corona) | 3.8 km/s | 28 | 2.5/s | a beam pistol |
 | Beam gatling (Antares) | 3 km/s | 7 | 10/s | a stream of beam rounds |
 | Claw shield (Algol) | 450 m/s | 80 | 1 per 5 s | the shield's beam claw, fired: slow, so lead it |
 | Head guns (Algol) | 1 km/s | 3 | 15/s | 300 rounds |
@@ -453,6 +457,39 @@ exactly.
   about 24 missiles. Then the suit is locked in an overheat for 5 s. It charges back over 45 s,
   sooner in a fight (below).
 
+### The prototype pair: the Sagittarius and the Corona
+
+The Almagest's answer to the Lodestars it hears the Arrivals talk about (after Gundam Wing's
+Vayeate and Mercurius, `STORY.md`): two prototypes on one frame, the spear and the shield, that
+fly together. Pilots can't build them; the last two aces on the Most Wanted fly them ("Aces").
+
+- **The Sagittarius** carries one weapon, the **reactor cannon**, cabled to the generator ring on
+  its back. It has no shot limit: each shot draws 80 energy, a third of its pool, so it fires as
+  often as its reactor keeps up. Each shot charges for 0.8 s, glowing for everyone to see, and the
+  suit can do nothing else meanwhile. The beam is 3 m wide and as heavy as the Altair's. It has no
+  secondary and no blade, so close in it has nothing.
+- **The Corona's Ward** (MODE): its ten ward discs fly out of the racks on its back over half
+  a second and hold a field 26 m round it.
+  - **What it stops.** Every hostile beam that would cross into the field from outside stops at
+    it, whoever it was aimed at inside: the Corona, or a wingman flying close.
+  - **What it costs.** Each beam stopped costs the Corona 0.6 energy per armour point it carried
+    (a beam rifle shot 27, a Heavy Beam Rifle's 132). Standing up, the field drains 6 energy/s.
+    It needs 30% of the pool to go out, and falls when the energy's gone; held, it goes out
+    again once there's enough.
+  - **What goes through.** Shots fired from inside go out, the Corona's own and its friends'.
+    Solid rounds, missiles, blades and flame are not beams, so they go through: the machine
+    cannon, a missile salvo or a blade gets in.
+  - **How it's seen.** Everyone sees the wards fly out and the field's pale sheet, and a beam
+    flash where it stops.
+  - Its drones and the kit-aware pilot keep the field up with a hostile within 4 km and 40% of
+    their energy, down to 10% (`sim::ward`, `ai::drone::wants_ward`).
+- The Corona's beam gun is quick and light, and its beam saber comes out of its crash shield.
+- **A gun in the right hand comes up at the ready** (every frame, `bc-client`'s `anim`). In
+  flight, and for 4 s after it fires or as it charges, the upper arm swings forward and the
+  forearm comes up near level, the fist in line with it, and the gun turns back in the fist to
+  keep the aim. Parked, asleep, kneeling, in the bay or walking quietly on a body, the arm hangs
+  at the side.
+
 ### Specials charged by the fight
 
 Titanfall's Core (`PEERS.md`, "The mech games"): power is earned in the fight
@@ -537,9 +574,10 @@ suit's balance, then punishing it (`bc_sim::content::stagger`, `bc_sim::sim::sta
 - **Impact.** Every blow that lands pushes on the suit's attitude control: its armour points
   (before the target's armour: siderium stops damage, not a push) times its weapon's impact. A
   beam's is 1, a solid round's 1.3, a blade's stroke 1.8, a missile's warhead and a reactor's
-  blast 2, the Heavy Beam Rifle's 1.6, a flame's 0.5.
+  blast 2, the Heavy Beam Rifle's and the reactor cannon's 1.6, a flame's 0.5.
 - **Stability.** What a frame stands before it's staggered: a Corvus 240, an Argo 300,
-  Algol 320, Altair and Thuban 340, a Cetus and Antares 380, Canopus 460. A suit
+  Algol 320, Altair and Thuban 340, the Sagittarius and the Corona 360, a Cetus and Antares 380,
+  Canopus 460. A suit
   left alone for 0.8 s steadies, shedding half its stability's worth a second.
 - **Staggered, for a second.** Its attitude control does nothing: it tumbles with the spin the
   blow knocked into it (1.2 rad/s about an axis square to the blow, free in space) and can't turn.
@@ -1087,9 +1125,14 @@ drones of the Consortium's security arm known by their callsigns, LYRA to ORION,
 a bounty on it (1,500 to 4,000 CR).
 
 - **One out at a time.** Every 5 minutes (`--ace-every`), while none is out, the next on the list
-  is fielded among the drones: a squad of its own, high over one of the drones' anchors, in an Argo
+  is fielded among the drones: a squad of its own, high over one of the drones' anchors, in a suit
   whose drone system was tuned by hand, its armour standing half as much again as a drone's. Round
   the list, and round again.
+- **What they fly.** LYRA to CENTAURUS fly the Argo. HERCULES flies the Corona with a
+  Sagittarius at its side, and ORION, the last, the Sagittarius with a Corona at its side: the
+  prototype pair ("The prototype pair"). Each starts 18 m apart, inside the field's reach. The
+  wingman is a plain drone of the ace's squad (its bounty the drone's: 800 CR for either
+  prototype), and a prototype's wreck is scrap to the tugs, since no pilot builds those lines.
 - **Known by its name.** It goes on every pilot's roster by its callsign: the lock (`LOCK ARIES`),
   the kill feed and the chart name it, from the moment it's out until a few seconds after it's
   downed. The news says when one comes out (`THE ALMAGEST'S LYRA IS OUT AMONG THE DRONES · 1,500 CR ON

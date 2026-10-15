@@ -308,7 +308,10 @@ impl Sim {
                 })
                 .map_or(OwnArms::NEVER, |_| cooldown),
             SpecialKind::FullSalvo { .. } => cooldown,
-            SpecialKind::Eclipse { .. } | SpecialKind::Transform { .. } | SpecialKind::None => OwnArms::NEVER,
+            SpecialKind::Eclipse { .. }
+            | SpecialKind::Transform { .. }
+            | SpecialKind::Ward { .. }
+            | SpecialKind::None => OwnArms::NEVER,
         };
         arms
     }
@@ -392,6 +395,7 @@ impl Sim {
         if (self.jamming(j).is_some() && viewer.is_some_and(|v| s.faction[j] == s.faction[v]))
             || self.full_salvo(j)
             || self.transforming(j)
+            || self.wards_out(j)
         {
             flags |= ent_flags::SPECIAL;
         }

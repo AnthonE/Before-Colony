@@ -61,6 +61,11 @@ pub enum Scene {
     /// Algol jamming and reaping, Canopus's blades and Pincer Strike, Thuban's
     /// Talon and flamethrower, and Aquila on full burn.
     Lodestars,
+    /// The Almagest's prototype pair on a 6 s loop: the Corona's ward discs fly out of their racks
+    /// and its field holds (0.6-5.4 s), the Sagittarius inside it charges and fires its cannon at
+    /// an Argo across the way (at 2.2 s and 4.4 s), and the Argo's beam rifle shots stop at the
+    /// field, flashing (1-5 s).
+    Pair,
     /// A hangar bay in the docking hub, on foot: the suit in its gantry (`?frame=`), the catwalk
     /// across its chest, the stations. Every 14 s the bay cycles: the alarm turns and the doors
     /// part (4-7.5 s), stand open, and close again (10.5-14 s).
@@ -87,6 +92,7 @@ impl Scene {
             "sky" => Some(Self::Sky),
             "chase" | "pilot" => Some(Self::Chase),
             "lodestars" => Some(Self::Lodestars),
+            "pair" | "prototypes" => Some(Self::Pair),
             "hangar" | "bay" => Some(Self::Hangar),
             "surface" | "landmarks" => Some(Self::Surface),
             "city" | "inside" => Some(Self::City),
@@ -105,6 +111,7 @@ impl Scene {
             Self::Salvage => "salvage",
             Self::Mining => "mining",
             Self::Lodestars => "lodestars",
+            Self::Pair => "pair",
             Self::Hangar => "hangar",
             Self::Surface => "surface",
             Self::City => "city",
@@ -181,6 +188,14 @@ impl Scene {
                 ]
             }
             Self::Lineup => LINEUP_CAMS.to_vec(),
+            Self::Pair => vec![
+                // The pair and the field from off the Argo's shoulder, the field side on, the
+                // Sagittarius close (its cannon and generator), the Corona's racks from behind.
+                orbit(PAIR + Vec3::new(9.0, 0.0, 60.0), 2.75, 0.12, 190.0),
+                orbit(PAIR + Vec3::new(9.0, 0.0, 0.0), 1.4, 0.15, 95.0),
+                orbit(pair_pos(1) + Vec3::new(0.0, 2.0, 0.0), 0.65, 0.08, 34.0),
+                orbit(pair_pos(0) + Vec3::new(0.0, 3.0, 0.0), -2.6, 0.2, 36.0),
+            ],
             Self::Duel => DUEL_CAMS.to_vec(),
             Self::Colony => {
                 let mut cams = COLONY_CAMS.to_vec();
@@ -314,6 +329,9 @@ const FIELD_CAMS: [Orbit; 3] = [
 
 const LINEUP: Vec3 = Vec3::new(0.0, 1_200.0, 0.0);
 const LODESTARS: Vec3 = Vec3::new(0.0, 1_300.0, 600.0);
+const PAIR: Vec3 = Vec3::new(0.0, 1_300.0, -700.0);
+/// The pair scene's loop (s).
+const PAIR_CYCLE: f64 = 6.0;
 /// The lodestars scene's loop (s).
 const LODESTARS_CYCLE: f64 = 6.0;
 const DUEL: Vec3 = Vec3::new(0.0, 1_500.0, 0.0);
@@ -468,6 +486,9 @@ fn cast(scene: Scene) -> Vec<(FrameId, Faction)> {
         }
         Scene::Salvage => vec![(Argo, Faction::Colonies)],
         Scene::Mining => vec![(Argo, Faction::Colonies)],
+        Scene::Pair => {
+            vec![(Corona, Faction::Almagest), (Sagittarius, Faction::Almagest), (Argo, Faction::Colonies)]
+        }
         Scene::Lodestars => vec![
             (Argo, Faction::Colonies),
             (Altair, Faction::Colonies),
@@ -486,6 +507,16 @@ fn cast(scene: Scene) -> Vec<(FrameId, Faction)> {
 }
 
 /// Where each of the lodestars scene's suits stands.
+/// The pair scene's suits: the Corona, the Sagittarius off its right shoulder inside its field,
+/// and the Argo 260 m off, facing them.
+fn pair_pos(i: usize) -> Vec3 {
+    match i {
+        0 => PAIR,
+        1 => PAIR + Vec3::new(18.0, 1.0, 0.0),
+        _ => PAIR + Vec3::new(4.0, 12.0, 260.0),
+    }
+}
+
 fn lodestar_pos(i: usize) -> Vec3 {
     LODESTARS + Vec3::new(-90.0 + 30.0 * i as f32, 0.0, 0.0)
 }
@@ -1694,6 +1725,76 @@ fn script(
                         kind: WeaponKind::HomingMissile,
                         struck: false,
                     });
+                }
+            }
+        }
+        Scene::Pair => {
+            let u = t.rem_euclid(PAIR_CYCLE);
+            let start = t - u;
+            let argo = pair_pos(2);
+            let field_up = (0.6..5.4).contains(&u);
+            let charging = (1.4..2.2).contains(&u) || (3.6..4.4).contains(&u);
+            let rifle_shots = (0..9).map(|k| 1.0 + k as f64 * 0.5);
+            for i in 0..3 {
+                let at = pair_pos(i);
+                let bob = (t * 0.6 + i as f64).sin() as f32;
+                set(i, &mut |d| {
+                    d.pos = at + Vec3::new(0.0, bob * 0.6, 0.0);
+                    let foe = if i == 2 { pair_pos(0) } else { argo };
+                    d.rot = facing(foe - d.pos);
+                    d.aim = (foe - d.pos).normalize_or(Vec3::Z);
+                    d.flags = match i {
+                        0 if field_up => ent_flags::SPECIAL,
+                        1 if charging => ent_flags::CHARGING,
+                        2 if rifle_shots.clone().any(|s| (s..s + 0.15).contains(&u)) => {
+                            ent_flags::FIRING_PRIMARY
+                        }
+                        _ => 0,
+                    };
+                    d.thrust = Vec3::ZERO;
+                });
+            }
+            // The Argo's rifle at the Corona, stopping where it crosses into the field; the
+            // Sagittarius's cannon at the Argo, going out through it.
+            let shots = rifle_shots
+                .map(|s| (s, 2usize, WeaponKind::BeamRifle))
+                .chain([2.2, 4.4].map(|s| (s, 1usize, WeaponKind::ReactorCannon)));
+            for (when, shooter, w) in shots {
+                let from = pair_pos(shooter);
+                let to = if shooter == 2 { pair_pos(0) } else { argo };
+                let spec = frame(if shooter == 2 { FrameId::Argo } else { FrameId::Sagittarius });
+                let muzzle =
+                    from + facing(to - from) * spec.loadout[0].map_or(Vec3::ZERO, |m| m.arm.muzzle());
+                let dir = (to - muzzle).normalize_or(Vec3::Z);
+                let speed = bc_sim::content::weapon(w).speed;
+                let stop = if shooter == 2 {
+                    bc_sim::collide::sphere_entry(muzzle, to, pair_pos(0), bc_sim::content::WARD_RADIUS)
+                        .map_or(muzzle.distance(to), |f| f * muzzle.distance(to))
+                } else {
+                    muzzle.distance(to)
+                };
+                let age = (t - (start + when)) as f32;
+                if (0.0..=stop / speed).contains(&age) {
+                    let head = muzzle + dir * speed * age;
+                    beams.0.push(BeamView { head, dir, travelled: head.distance(muzzle), weapon: w });
+                }
+                if crossed(start + when) {
+                    events.0.push(FxEvent::Muzzle {
+                        pos: muzzle,
+                        dir,
+                        vel: Vec3::ZERO,
+                        weapon: w,
+                        shooter: Some(shooter as u16),
+                    });
+                }
+                if crossed(start + when + f64::from(stop / speed)) {
+                    let pos = muzzle + dir * stop;
+                    let (normal, target) = if shooter == 2 {
+                        (Some((pos - pair_pos(0)).normalize_or(-dir)), None)
+                    } else {
+                        (None, Some((2u16, Part::Torso)))
+                    };
+                    events.0.push(FxEvent::Hit { pos, weapon: w, normal, target });
                 }
             }
         }

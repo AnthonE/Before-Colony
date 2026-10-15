@@ -37,6 +37,9 @@ travels in the command as `bc_proto::LockOn`, so prediction stays exact).
   `content::city::CITY_VERSION` with the protocol. The rules' numbers the shaders keep (`city_lib.wgsl`,
   `city_facade.wgsl`) are checked by `city_atlas.rs`'s tests. In `city.wgsl` every derivative is taken at the top
   of `fragment()`, before the surface branch (WebGPU rejects them under it; naga doesn't catch it).
+- The Corona's Ward (`sim::ward`) stops hostile beams where they cross into its field: the tick keeps the fields
+  standing in a fixed list (`MAX_WARDS`), and the client stops a beam at a field its SPECIAL flag shows, alike
+  (`bc_sim::collide::sphere_entry`).
 - Never log signatures or resume tokens (addresses shortened: `pilots::short`). `bc_proto::auth::Signature`'s
   `Debug` hides its bytes on purpose.
 
@@ -51,7 +54,8 @@ travels in the command as `bc_proto::LockOn`, so prediction stays exact).
 - `scripts/build-web.sh [webgl2] [webgpu]` — browser build into `web/dist/` (needs wasm-bindgen-cli 0.2.128).
 - `cargo run -p bc-server --release` then open http://127.0.0.1:8080
 - Looking at a suit's design outside the game: `cargo run -q -p bc-model --example suit_json -- argo > argo.json`
-  (add `head=altair`, `arms=corvus`… to swap sections, `far` for the far level of detail), then
+  (add `head=altair`, `arms=corvus`… to swap sections, `far` for the far level of detail; `sagittarius` and
+  `corona`, the Almagest's prototype pair, render in their own liveries), then
   `python3 scripts/suit-render.py argo.json out/argo [sheet art figure head …] [--turn Head:0,40,0]` renders it in
   Blender (`pip install bpy==4.2.0`, Python 3.11). Compare against the reference art before and after a design change.
   `--look cel|kit|real|worn` tries other surfaces on it (anime cel shading and ink, a model kit, realistic painted armour with decals, battle-worn: `scripts/suit_looks.py`).

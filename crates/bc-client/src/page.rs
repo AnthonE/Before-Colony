@@ -588,6 +588,7 @@ fn special_name(kind: SpecialKind) -> Option<&'static str> {
         SpecialKind::Eclipse { .. } => Some("Eclipse: hides it from sensors"),
         SpecialKind::FullSalvo { .. } => Some("Full Salvo: every gun at once"),
         SpecialKind::MeleeMove { .. } => Some("Pincer Strike: the shield's claws"),
+        SpecialKind::Ward { .. } => Some("Ward: a field no beam crosses"),
     }
 }
 

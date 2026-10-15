@@ -69,6 +69,14 @@ const scenes: Array<[string, number, number, number]> = [
   ["lodestars", 5, 6.63, 12],
   ["lodestars", 5, 7.9, 12],
   ["lodestars", 6, 6, 12],
+  // The Almagest's prototype pair: the Corona's field holding as the Argo's rifle shots flash on
+  // it; side on, the Sagittarius charging inside it; the Sagittarius close as it fires; the
+  // Corona's racks from behind, its ward discs on their way out. (The discs fly and the arms come
+  // up over the frames run, so each run starts early enough for them.)
+  ["pair", 1, 7.0, 45],
+  ["pair", 2, 7.3, 42],
+  ["pair", 3, 7.5, 43],
+  ["pair", 4, 6.3, 33],
   // The hangar bay: just in from the airlock; from its back corner with the doors opening; from
   // the cockpit, down the launch tunnel with the doors open.
   ["hangar", 1, 2, 12],

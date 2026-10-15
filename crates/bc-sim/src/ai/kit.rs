@@ -143,6 +143,7 @@ pub fn drive_kit(
             let keep = if me.kit.special_active { JAM_ENERGY_OFF } else { JAM_ENERGY_ON };
             hostile.is_some_and(|t| t.dist > JAM_RANGE) && me.energy > keep
         }
+        SpecialKind::Ward { .. } => super::drone::wants_ward(me, hostile, spec),
         _ => false,
     };
     if mode {

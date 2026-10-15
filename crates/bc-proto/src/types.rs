@@ -55,11 +55,15 @@ pub enum FrameId {
     Thuban = 7,
     /// Altair in Aquila form. Not chosen directly: an Altair transforms into it.
     Aquila = 8,
+    /// AL-13X1 Sagittarius: the Almagest's prototype gun, a beam cannon fed from its reactor.
+    Sagittarius = 9,
+    /// AL-13X2 Corona: the Sagittarius's twin, the prototype shield; the ward.
+    Corona = 10,
 }
 
 impl FrameId {
     pub const BITS: u32 = 4;
-    pub const COUNT: usize = 9;
+    pub const COUNT: usize = 11;
     pub const ALL: [FrameId; Self::COUNT] = [
         FrameId::Argo,
         FrameId::Altair,
@@ -70,6 +74,8 @@ impl FrameId {
         FrameId::Canopus,
         FrameId::Thuban,
         FrameId::Aquila,
+        FrameId::Sagittarius,
+        FrameId::Corona,
     ];
 
     pub fn from_bits(v: u32) -> Option<Self> {
@@ -92,6 +98,8 @@ impl FrameId {
             FrameId::Canopus => "canopus",
             FrameId::Thuban => "thuban",
             FrameId::Aquila => "aquila",
+            FrameId::Sagittarius => "sagittarius",
+            FrameId::Corona => "corona",
         }
     }
 
@@ -235,12 +243,17 @@ pub enum WeaponKind {
     /// A suit's own reactor, blown by its pilot in its last seconds (its self-destruct): the blast,
     /// which no suit carries as a weapon (v23).
     Reactor = 20,
+    /// The Sagittarius's beam cannon, cabled to its reactor: charged from the reactor, as heavy
+    /// as a Heavy Beam Rifle's beam (v31).
+    ReactorCannon = 21,
+    /// The Corona's beam gun: a short, quick beam pistol (v31).
+    BeamGun = 22,
 }
 
 impl WeaponKind {
     /// Room for 32 kinds on the wire.
     pub const BITS: u32 = 5;
-    pub const COUNT: usize = 21;
+    pub const COUNT: usize = 23;
     pub const ALL: [WeaponKind; Self::COUNT] = [
         WeaponKind::BeamRifle,
         WeaponKind::MachineCannon,
@@ -263,6 +276,8 @@ impl WeaponKind {
         WeaponKind::BeamGlaive,
         WeaponKind::BeamRifleCharged,
         WeaponKind::Reactor,
+        WeaponKind::ReactorCannon,
+        WeaponKind::BeamGun,
     ];
 
     pub fn from_bits(v: u32) -> Option<Self> {

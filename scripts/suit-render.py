@@ -6,7 +6,8 @@ at a design from the views its reference art is drawn in.
     python3 scripts/suit-render.py argo.json out/argo [front back side three rear34 head ...]
 
 Each view is written to `<out>-<view>.png`; `sheet` (the default) lays front, side, back and the
-three-quarter views out on one image. `--livery almagest|colonies|alliance|white` picks the paint,
+three-quarter views out on one image. `--livery almagest|colonies|alliance|white|sagittarius|corona`
+picks the paint (the prototypes' own by default for them, the Almagest's for the rest),
 `--size N` the height in pixels, `--blend` also saves the scene (`<out>.blend`) to open in Blender,
 and `--glb` exports the suit as glTF (`<out>.glb`). `--turn Head:0,40,0` turns a bone (and what
 hangs off it) about its joint by x, y and z angles in degrees, in the suit's frame, to see a pose:
@@ -57,7 +58,12 @@ LIVERIES = {
     "colonies": (8, 0, 2, (0.2, 6.0, 1.2)),
     "alliance": (10, 4, 2, (6.0, 0.4, 2.2)),
     "white": (0, 1, 2, (0.2, 6.0, 1.2)),
+    # The Almagest's prototype pair, in their own colours (suits_vis.rs's `livery`).
+    "sagittarius": (1, 11, 4, (6.0, 0.4, 2.2)),
+    "corona": (2, 11, 4, (0.2, 6.0, 1.2)),
 }
+# The livery a frame is drawn in when none is asked for.
+LIVERY_OF = {"Sagittarius": "sagittarius", "Corona": "corona"}
 
 
 def load_palette(repo):
@@ -346,7 +352,7 @@ def main():
     ap.add_argument("model")
     ap.add_argument("out")
     ap.add_argument("views", nargs="*")
-    ap.add_argument("--livery", default="almagest", choices=sorted(LIVERIES))
+    ap.add_argument("--livery", choices=sorted(LIVERIES))
     ap.add_argument("--size", type=int, default=900)
     ap.add_argument("--samples", type=int, default=48)
     ap.add_argument("--blend", action="store_true")
@@ -360,6 +366,7 @@ def main():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     model = json.load(open(args.model))
+    args.livery = args.livery or LIVERY_OF.get(model["frame"], "almagest")
     palette = load_palette(repo)
     objects = build(model, materials_for(args.livery, palette))
     if args.look != "flat":

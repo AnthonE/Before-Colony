@@ -22,7 +22,8 @@ pub mod systems;
 mod weapons;
 
 pub use frames::{
-    AiHints, ArmSlot, Capsule, FrameSpec, Mount, PLAYABLE_ORDER, SPECIAL_MOUNT, SpecialKind, frame,
+    AiHints, ArmSlot, Capsule, FrameSpec, Mount, PLAYABLE_ORDER, SPECIAL_MOUNT, SpecialKind, WARD_RADIUS,
+    WARDS, frame,
 };
 pub use kits::{Kit, Kits};
 pub use melee::{ConeSpec, MeleeSpec, MissileSpec, Stroke};

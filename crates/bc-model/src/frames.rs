@@ -12,7 +12,7 @@ use glam::{Affine3A, Quat, Vec2, Vec3};
 use crate::kit::{Paint, mirrored};
 use crate::paint;
 use crate::rig::{Bone, Side};
-use crate::{Designer, argo, lodestars};
+use crate::{Designer, argo, lodestars, prototypes};
 
 pub(crate) const BODY: Paint = Paint::Body;
 pub(crate) const TRIM: Paint = Paint::Trim;
@@ -38,6 +38,8 @@ pub fn design(frame: FrameId, d: &mut Designer) {
         FrameId::Canopus => lodestars::canopus(d),
         FrameId::Thuban => lodestars::thuban(d),
         FrameId::Aquila => lodestars::aquila(d),
+        FrameId::Sagittarius => prototypes::sagittarius(d),
+        FrameId::Corona => prototypes::corona(d),
     }
 }
 

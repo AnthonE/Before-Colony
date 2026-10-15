@@ -37,6 +37,7 @@ mod salvage;
 mod sleep;
 mod specials;
 mod stagger;
+mod ward;
 mod wire;
 
 use bc_proto::buttons::{GRAB, GRIP, MODE, ORRERY};
@@ -160,6 +161,8 @@ pub struct Sim {
     next_ace_at: u32,
     next_ace: u8,
     ace_suit: u16,
+    /// The Corona's fields standing this tick (`ward`).
+    wards: ward::WardList,
     spawn_counter: u32,
     rng: Rng,
     /// Live-projectile and live-missile high-water marks (diagnostics).
@@ -227,6 +230,7 @@ impl Sim {
             next_ace_at: cfg.ace_every,
             next_ace: 0,
             ace_suit: NO_SLOT,
+            wards: ward::WardList::NONE,
             spawn_counter: 0,
             rng: Rng::new(cfg.seed),
             peak_projectiles: 0,
