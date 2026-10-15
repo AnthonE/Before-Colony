@@ -31,6 +31,9 @@ pub enum Holdup {
     LowEnergy,
     /// Cycling between shots: this many ticks to go.
     Cycling(u8),
+    /// Nothing's fitted on that mount (a survival suit built without it: the starter Argo's
+    /// beam rifle comes with a flight certificate).
+    NotFitted,
 }
 
 impl Holdup {
@@ -46,6 +49,7 @@ impl Holdup {
             Holdup::HandFull => "HAND FULL · B stows, T throws".into(),
             Holdup::LowEnergy => "LOW ENERGY · let it charge".into(),
             Holdup::Cycling(t) => format!("{:.1}s", f32::from(t) / bc_sim::TICK_HZ as f32),
+            Holdup::NotFitted => "NOT FITTED".into(),
         }
     }
 }
@@ -106,6 +110,10 @@ pub fn holdup(
         return Some(Holdup::LowEnergy);
     }
     let wait = o.arms.wait[slot];
+    // Never ready with nothing else in the way: there's no gun on the mount.
+    if wait >= bc_proto::snapshot::OwnArms::NEVER {
+        return Some(Holdup::NotFitted);
+    }
     (CYCLE_SHOWN..bc_proto::snapshot::OwnArms::NEVER).contains(&wait).then_some(Holdup::Cycling(wait))
 }
 
@@ -185,6 +193,9 @@ mod tests {
         // A round or two between shots isn't worth a word.
         o.arms.wait[1] = 2;
         assert_eq!(why(&o, None), None);
+        // Never ready, with nothing else in the way: nothing's on the mount.
+        o.arms.wait[1] = bc_proto::snapshot::OwnArms::NEVER;
+        assert_eq!(why(&o, None), Some(Holdup::NotFitted));
     }
 
     #[test]

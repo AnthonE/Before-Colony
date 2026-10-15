@@ -890,6 +890,7 @@ fn spawn_showcase(mut commands: Commands, mut show: ResMut<Show>, font: Res<crat
                 thrust: Vec3::ZERO,
                 parts: [7; Part::COUNT],
                 holding: None,
+                held_gun: None,
                 ground: None,
                 weathering: weathering(show.scene, i),
                 doomed: false,
@@ -1539,6 +1540,7 @@ fn script(
             }
             target.0 = Some(ChaseTarget {
                 pos: own,
+                look: Vec2::ZERO,
                 vel,
                 up: rot * Vec3::Y,
                 aim: heading,

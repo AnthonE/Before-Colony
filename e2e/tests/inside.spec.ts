@@ -227,9 +227,26 @@ test("a pilot boards a trainer at the Blast Hall's gantry, starts the drill, and
   await page.mouse.down({ button: "right" });
   s = await until(page, "the drill under way", (s) => s.drill_struck >= 2, 300_000);
   await page.mouse.up({ button: "right" });
-  await push(page, { cmd: "aim_hostile", on: false });
   console.log(`the drill: ${s.drill_struck} struck, ${Number(s.drill_left).toFixed(1)} s on the clock`);
   await page.screenshot({ path: "artifacts/inside-drill.png" });
+  // The beam rifle, tapped (LMB) with the crosshair on the lit target: every shot is seen leaving
+  // the gun and its line flashes where it ended, and the targets it strikes flash.
+  const before = s;
+  for (let k = 0; k < 6; k++) {
+    await page.mouse.down({ button: "left" });
+    await page.waitForTimeout(80);
+    await page.mouse.up({ button: "left" });
+    await page.waitForTimeout(700);
+  }
+  s = await until(
+    page,
+    "the rifle's shots seen",
+    (s) => s.own_muzzles > before.own_muzzles && s.own_traces > before.own_traces && s.target_flashes > before.target_flashes,
+    120_000,
+  );
+  console.log(`the rifle: ${s.own_muzzles} flashes at the gun, ${s.own_traces} lines, ${s.target_flashes} target flashes`);
+  await push(page, { cmd: "aim_hostile", on: false });
+  await page.screenshot({ path: "artifacts/inside-rifle.png" });
 
   // At rest on the gantry, Enter: out at its hatch, on foot in the hall, out of the colony's
   // sector (the page publishes its fields from several systems, so a frame can show one moved

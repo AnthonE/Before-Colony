@@ -39,8 +39,11 @@ and what we take from it.
 
 ## The cockpit view
 
-Tab, or the mouse wheel (in for the cockpit, out to chase), switches between the chase camera and
-the cockpit. The choice is a setting, so the next sortie starts in the same view.
+The cockpit is the default view: the pilot sits in the suit. Tab, or the mouse wheel (in for the
+cockpit, out to chase), switches between the chase camera and the cockpit. K switches the cockpit
+between its framed monitors (the default) and the holo cockpit, which turns the frame see-through
+for a view all round, and holding Alt looks round from the seat without moving the aim. The choices
+are settings, so the next sortie starts in the same view.
 
 - **Why Tab.** V is the usual camera key, but V is our flight assist. MechWarrior Online and Star
   Citizen use F3 and F4 [A2][B2], but function keys need Fn on Mac laptops and 60% keyboards have
@@ -56,21 +59,26 @@ the cockpit. The choice is a setting, so the next sortie starts in the same view
   [A2]. Our suits turn to the aim by themselves, so a torso-locked view would send the crosshair
   wandering across the screen while the body caught up.
 - **Two reticles, the other way round.** MWO draws a fixed torso reticle and a floating arm
-  reticle; Star Citizen added boresight symbols [B2]. Ours: the crosshair is the aim. While a weapon
-  can't bear, because hands reach only 50° off the body's axis and Aquila's nose 2°, the crosshair
-  dims and `( )` marks where the primary weapon would fire.
+  reticle; Star Citizen added boresight symbols [B2]. Ours: the crosshair is the aim, and the guns
+  converge on what's under it (`bc_sim::aim`): the shot goes where the crosshair is, however far
+  the gun is from the eye. While a weapon can't bear, because hands reach only 50° off the body's
+  axis and Aquila's nose 2°, the crosshair dims and `( )` marks where the primary weapon would fire.
 - **The velocity vector.** `-o-` shows where the suit is drifting (`-x-` when moving backwards).
   Elite's flight-assist-off pilots keep asking for exactly this [B1].
-- **Your own suit.** Everything but the head the eye is inside stays drawn, so blade strokes, the
-  Talon and a shoulder coming round are all visible. MWO's cockpit shows arms and legs [A2].
-  A test checks that no frame's own armour sits inside the camera's near plane or across the
-  crosshair's central 15°.
+- **Your own suit.** Everything but what's at the eye (the head it's inside, a high collar:
+  `bc_model::near_eye_bones`) stays drawn, so blade strokes, the Talon and a shoulder coming round
+  are all visible. MWO's cockpit shows arms and legs [A2]. A test checks that no frame's own armour
+  sits inside the camera's near plane or across the crosshair's central 15°, and another that the
+  arms, legs and gun are never left out.
 - **Damage.** With the head shot off, the picture comes from the sub-camera: greyer, fringed, and
   marked `SUB-CAM` on the armour readout. Senjou no Kizuna II's cockpit glitches on hits [A1].
 - **Chase camera for wrecks.** A wreck is always watched from the chase camera.
-- **Third person stays the default.** MWO added third person over fan protest because new players
-  couldn't read how the mechs moved. Hawken Reborn made it the default [A2]. Xbox's accessibility
-  guidelines ask that players be able to choose between first and third person [C5].
+- **First person is the default.** The pilot sits in the suit: that's the fantasy, and the crosshair
+  is exact from the eye. MWO added third person over fan protest because new players couldn't read
+  how the mechs moved, and Hawken Reborn made it the default [A2], so the chase camera stays a key
+  away (Tab), drawing the crosshair on the point the guns converge on. Xbox's accessibility
+  guidelines ask that players be able to choose between first and third person [C5]. A settings
+  file from before the change (version 1) starts in the cockpit once.
 
 ## Where we match convention
 

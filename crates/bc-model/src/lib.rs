@@ -405,6 +405,63 @@ impl On<'_> {
     }
 }
 
+/// The closest point to `p` on triangle `abc` (Ericson, Real-Time Collision Detection 5.1.5).
+pub(crate) fn closest_on_triangle(p: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
+    let (ab, ac, ap) = (b - a, c - a, p - a);
+    let (d1, d2) = (ab.dot(ap), ac.dot(ap));
+    if d1 <= 0.0 && d2 <= 0.0 {
+        return a;
+    }
+    let bp = p - b;
+    let (d3, d4) = (ab.dot(bp), ac.dot(bp));
+    if d3 >= 0.0 && d4 <= d3 {
+        return b;
+    }
+    let vc = d1 * d4 - d3 * d2;
+    if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+        return a + ab * (d1 / (d1 - d3));
+    }
+    let cp = p - c;
+    let (d5, d6) = (ab.dot(cp), ac.dot(cp));
+    if d6 >= 0.0 && d5 <= d6 {
+        return c;
+    }
+    let vb = d5 * d2 - d1 * d6;
+    if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+        return a + ac * (d2 / (d2 - d6));
+    }
+    let va = d3 * d6 - d5 * d4;
+    if va <= 0.0 && d4 - d3 >= 0.0 && d5 - d6 >= 0.0 {
+        return b + (c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
+    }
+    let k = 1.0 / (va + vb + vc);
+    a + ab * (vb * k) + ac * (vc * k)
+}
+
+/// How near the cockpit's eye a bone is left out of the view, m: past the cockpit's nearest.
+pub const NEAR_EYE: f32 = 1.6;
+
+/// The bones of `m` that come within `r` m of its cockpit's eye at rest (bit `Bone::index`): what
+/// the cockpit view doesn't draw, the head it looks out of and a high collar, so nothing of the
+/// suit's own stands in the cockpit hung round the eye. Its arms, legs and gun are further off, and
+/// stay in view below.
+pub fn near_eye_bones(m: &Model, r: f32) -> u32 {
+    let eye = m.sockets.eye + Bone::Head.def().joint;
+    let mut mask = 0;
+    for bone in rig::ALL {
+        let Some(mesh) = &m.bones[bone.index()] else { continue };
+        let at = |k: u32| Vec3::from(mesh.positions[k as usize]) + bone.def().joint;
+        let near = mesh.indices.as_chunks::<3>().0.iter().any(|tri| {
+            let (a, b, c) = (at(tri[0]), at(tri[1]), at(tri[2]));
+            eye.distance(closest_on_triangle(eye, a, b, c)) < r
+        });
+        if near || (bone == Bone::Head && m.sockets.eye_in_head) {
+            mask |= 1 << bone.index();
+        }
+    }
+    mask
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -460,39 +517,6 @@ mod tests {
                 assert!(worst < 2.6, "{frame:?} {bone:?} reaches {worst:.1} m outside its hitbox");
             }
         }
-    }
-
-    /// The closest point to `p` on triangle `abc` (Ericson, Real-Time Collision Detection 5.1.5).
-    fn closest_on_triangle(p: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
-        let (ab, ac, ap) = (b - a, c - a, p - a);
-        let (d1, d2) = (ab.dot(ap), ac.dot(ap));
-        if d1 <= 0.0 && d2 <= 0.0 {
-            return a;
-        }
-        let bp = p - b;
-        let (d3, d4) = (ab.dot(bp), ac.dot(bp));
-        if d3 >= 0.0 && d4 <= d3 {
-            return b;
-        }
-        let vc = d1 * d4 - d3 * d2;
-        if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
-            return a + ab * (d1 / (d1 - d3));
-        }
-        let cp = p - c;
-        let (d5, d6) = (ab.dot(cp), ac.dot(cp));
-        if d6 >= 0.0 && d5 <= d6 {
-            return c;
-        }
-        let vb = d5 * d2 - d1 * d6;
-        if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
-            return a + ac * (d2 / (d2 - d6));
-        }
-        let va = d3 * d6 - d5 * d4;
-        if va <= 0.0 && d4 - d3 >= 0.0 && d5 - d6 >= 0.0 {
-            return b + (c - b) * ((d4 - d3) / ((d4 - d3) + (d5 - d6)));
-        }
-        let k = 1.0 / (va + vb + vc);
-        a + ab * (vb * k) + ac * (vc * k)
     }
 
     /// Whether the ray from `o` along `d` meets triangle `abc` (Möller-Trumbore).
@@ -687,6 +711,47 @@ mod tests {
                 });
                 assert!(!same, "{a:?} and {b:?} build the same mesh");
             }
+        }
+    }
+
+    /// The cockpit view leaves out what's at the pilot's eye (the head it's in, a high collar), and
+    /// never the arms, the legs or the gun, which stay in view below it.
+    #[test]
+    fn the_cockpit_hides_only_what_is_at_the_eye() {
+        for frame in FrameId::ALL {
+            let m = build(frame, Lod::Near);
+            let mask = near_eye_bones(&m, NEAR_EYE);
+            if m.sockets.eye_in_head {
+                assert!(mask & (1 << Bone::Head.index()) != 0, "{frame:?} keeps its head in the view");
+            }
+            for bone in [
+                Bone::UpperArmL,
+                Bone::UpperArmR,
+                Bone::ForearmL,
+                Bone::ForearmR,
+                Bone::HandL,
+                Bone::HandR,
+                Bone::Weapon,
+                Bone::ThighL,
+                Bone::ThighR,
+                Bone::FootL,
+                Bone::FootR,
+            ] {
+                assert!(mask & (1 << bone.index()) == 0, "{frame:?} hides its {bone:?}");
+            }
+        }
+    }
+
+    /// The cockpit's eye at rest is where the simulation's pilot looks from (`FrameSpec::eye`): the
+    /// crosshair is the line from it along the aim, and shots converge on the point the pilot sees
+    /// on that line, so the camera the client puts there must be exactly it.
+    #[test]
+    fn the_cockpit_eye_is_the_simulations() {
+        for frame in FrameId::ALL {
+            let m = build(frame, Lod::Near);
+            let eye = m.sockets.eye + Bone::Head.def().joint;
+            let sim = bc_sim::content::frame(frame).eye();
+            assert!(eye.distance(sim) < 0.02, "{frame:?}: the model's eye is {eye}, the simulation's {sim}");
         }
     }
 

@@ -1,5 +1,7 @@
-//! The cockpit, from the pilot's seat (the first-person view): `bc_model::cockpit`'s frame of
-//! monitors hung on the camera, round the panoramic view of space.
+//! The cockpit, from the pilot's seat (the first-person view, the default): `bc_model::cockpit`'s
+//! frame of monitors hung on the camera, round the panoramic view of space, and the pilot's hands'
+//! grips, which move with the stick. The holo cockpit (K) turns it see-through all round: the frame
+//! goes, and the monitors hang in the air as holograms.
 //!
 //! - It's on its own render layer ([`LAYER`]) with its own light, the monitors' glow: the Sun and
 //!   the battle's lights are outside, and don't reach in.
@@ -57,11 +59,17 @@ pub struct MonitorMaterial {
     /// x: seconds; y: static; z: flicker; w: brightness.
     #[uniform(2)]
     params: Vec4,
+    /// The holo cockpit's: added over the world (its dark glass is see-through).
+    holo: bool,
 }
 
 impl Material for MonitorMaterial {
     fn fragment_shader() -> ShaderRef {
         "embedded://bc_client/shaders/monitor.wgsl".into()
+    }
+
+    fn alpha_mode(&self) -> AlphaMode {
+        if self.holo { AlphaMode::Add } else { AlphaMode::Opaque }
     }
 
     fn enable_prepass() -> bool {
@@ -81,6 +89,13 @@ pub struct Cockpit {
     /// The camera that draws the instruments into [`Cockpit::screen`].
     pub screen_camera: Entity,
     material: Handle<MonitorMaterial>,
+    /// The monitors as holograms (the holo cockpit), and the faces that show one or the other.
+    holo: Handle<MonitorMaterial>,
+    faces: Vec<Entity>,
+    /// The grips (left, right), where they rest, and how far each is pushed now (radians: x
+    /// forward, z to the side).
+    grips: [(Entity, Transform); 2],
+    push: [Vec2; 2],
     radar: Entity,
     blips: Vec<Entity>,
     blip_looks: [Handle<StandardMaterial>; 4],
@@ -93,7 +108,7 @@ pub struct Cockpit {
 impl Cockpit {
     /// The cockpit is on screen (so the instruments are on its monitors).
     pub fn shown(chase: &Chase) -> bool {
-        chase.cockpit()
+        chase.in_cockpit()
     }
 }
 
@@ -166,8 +181,17 @@ pub fn setup_cockpit(
         ))
         .id();
     // The monitors' faces, each mapped onto its region of the texture.
-    let material =
-        monitors.add(MonitorMaterial { screen: screen.clone(), params: Vec4::new(0.0, 0.0, 0.0, 1.0) });
+    let material = monitors.add(MonitorMaterial {
+        screen: screen.clone(),
+        params: Vec4::new(0.0, 0.0, 0.0, 1.0),
+        holo: false,
+    });
+    let holo = monitors.add(MonitorMaterial {
+        screen: screen.clone(),
+        params: Vec4::new(0.0, 0.0, 0.0, 0.8),
+        holo: true,
+    });
+    let mut faces = Vec::new();
     for s in &design.screens {
         let mut quad = Mesh::from(Rectangle::new(s.size.x, s.size.y));
         // The face's own coordinates too (its rim).
@@ -180,16 +204,38 @@ pub fn setup_cockpit(
                 uv[1] = s.region[1] + uv[1] * (s.region[3] - s.region[1]);
             }
         }
-        commands.spawn((
-            Mesh3d(meshes.add(quad)),
-            MeshMaterial3d(material.clone()),
-            Transform::from_translation(s.centre).with_rotation(s.rotation),
-            layer(),
-            NotShadowCaster,
-            NotShadowReceiver,
-            ChildOf(root),
-        ));
+        faces.push(
+            commands
+                .spawn((
+                    Mesh3d(meshes.add(quad)),
+                    MeshMaterial3d(material.clone()),
+                    Transform::from_translation(s.centre).with_rotation(s.rotation),
+                    layer(),
+                    NotShadowCaster,
+                    NotShadowReceiver,
+                    ChildOf(root),
+                ))
+                .id(),
+        );
     }
+    // The grips, in the pilot's hands.
+    let handle = meshes.add(crate::model::mesh(design.grip));
+    let grips = design.grips.map(|at| {
+        let rest = Transform::from_matrix(Mat4::from(at));
+        let e = commands
+            .spawn((
+                Mesh3d(handle.clone()),
+                MeshMaterial3d(surfaces.armour.clone()),
+                HullTag::livery(paint::WHITE, paint::BLUE, paint::RED, 0, 92).tag(),
+                rest,
+                layer(),
+                NotShadowCaster,
+                NotShadowReceiver,
+                ChildOf(root),
+            ))
+            .id();
+        (e, rest)
+    });
     // The monitors' glow, all the light there is in here. Strong enough to read against the
     // exposure set for sunlight outside.
     commands.spawn((
@@ -283,6 +329,10 @@ pub fn setup_cockpit(
         shell,
         screen_camera,
         material,
+        holo,
+        faces,
+        grips,
+        push: [Vec2::ZERO; 2],
         radar,
         blips,
         blip_looks,
@@ -320,6 +370,7 @@ pub fn drive_cockpit(
     mut cameras: Query<&mut Camera>,
     mut monitors: ResMut<Assets<MonitorMaterial>>,
     mut blip_looks: Query<&mut MeshMaterial3d<StandardMaterial>, With<Blip>>,
+    mut faces: Query<&mut MeshMaterial3d<MonitorMaterial>>,
 ) {
     let Some(c) = cockpit.as_deref_mut() else { return };
     let on = Cockpit::shown(&chase);
@@ -336,7 +387,37 @@ pub fn drive_cockpit(
         return;
     }
     let dt = time.dt.min(0.1);
+    // The holo cockpit: no frame round the view, the monitors hung in the air as holograms.
+    if let Ok(mut v) = vis.get_mut(c.shell) {
+        v.set_if_neq(if prefs.holo { Visibility::Hidden } else { Visibility::Inherited });
+    }
+    let face = if prefs.holo { &c.holo } else { &c.material };
+    for &e in &c.faces {
+        if let Ok(mut m) = faces.get_mut(e)
+            && m.0 != *face
+        {
+            m.0 = face.clone();
+        }
+    }
     let Some((own, visual)) = suits.iter().find(|(d, _)| d.own) else { return };
+    // The grips follow the pilot's hands: the left the throttle (forward, back and to the side,
+    // as the thrusters push), the right the stick (toward where the suit is turning to, the aim).
+    let local_aim = own.rot.inverse() * own.aim;
+    let want = [
+        Vec2::new(own.thrust.z * 0.35, -own.thrust.x * 0.3),
+        Vec2::new(-local_aim.y.clamp(-0.6, 0.6) * 0.6, -local_aim.x.clamp(-0.6, 0.6) * 0.6),
+    ];
+    for (k, (e, rest)) in c.grips.iter().enumerate() {
+        c.push[k] += (want[k] - c.push[k]) * (1.0 - (-12.0 * dt).exp());
+        if let Ok(mut tf) = transforms.get_mut(*e) {
+            *tf = rest.mul_transform(Transform::from_rotation(Quat::from_euler(
+                EulerRot::XYZ,
+                -c.push[k].x,
+                0.0,
+                c.push[k].y,
+            )));
+        }
+    }
     // The livery of the suit the pilot sits in.
     let (body, trim, accent, _) = livery(own.frame, own.faction);
     let want = visual
@@ -360,14 +441,25 @@ pub fn drive_cockpit(
     let spring = (target - c.lag) * w * w - c.lag_vel * 2.0 * w;
     c.lag_vel += spring * dt;
     c.lag += c.lag_vel * dt;
+    // A hit, a blast near: the cockpit rattles round the pilot, who's strapped in.
+    let shake = chase.shake() * prefs.shake.clamp(0.0, 1.0);
+    let n = |f: f64, p: f64| {
+        ((time.now * f + p).sin() * 0.6 + (time.now * f * 2.17 + p * 1.3).sin() * 0.4) as f32
+    };
+    let rattle = Vec3::new(n(23.0, 0.0), n(19.0, 1.0), n(17.0, 2.0)) * 0.03 * shake;
     if let Ok(mut tf) = transforms.get_mut(c.root) {
-        tf.translation = c.lag;
+        tf.translation = c.lag + rattle;
+        tf.rotation =
+            Quat::from_euler(EulerRot::YXZ, n(29.0, 3.0) * 0.02 * shake, n(31.0, 4.0) * 0.02 * shake, 0.0);
     }
     // The monitors: static without the head's main camera, a flicker when hit.
+    let flicker = if prefs.flashing { chase.hit_flash() } else { 0.0 };
+    let static_ = if chase.sub_camera() { 0.85 } else { 0.0 };
     if let Some(mut m) = monitors.get_mut(&c.material) {
-        let flicker = if prefs.flashing { chase.hit_flash() } else { 0.0 };
-        m.params =
-            Vec4::new((time.now % 1_000.0) as f32, if chase.sub_camera() { 0.85 } else { 0.0 }, flicker, 1.0);
+        m.params = Vec4::new((time.now % 1_000.0) as f32, static_, flicker, 1.0);
+    }
+    if let Some(mut m) = monitors.get_mut(&c.holo) {
+        m.params = Vec4::new((time.now % 1_000.0) as f32, static_, flicker, 0.8);
     }
     // The radar holds its bearings in space: undo the view's turn.
     if let Ok(mut tf) = transforms.get_mut(c.radar) {

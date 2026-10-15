@@ -163,6 +163,8 @@ pub fn run() {
                     show_hud,
                     update_hud,
                     update_spread_ring,
+                    crate::hud::update_hit_marker,
+                    crate::hud::update_horizon,
                     update_marks,
                     update_panels,
                     place_instruments,
@@ -202,6 +204,7 @@ impl Plugin for VisualsPlugin {
             .init_resource::<MissileFeed>()
             .init_resource::<PodFeed>()
             .init_resource::<FxEvents>()
+            .init_resource::<crate::view::Strikes>()
             .init_resource::<CameraTarget>()
             .init_resource::<FxState>()
             .init_resource::<Chase>()

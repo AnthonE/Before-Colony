@@ -701,6 +701,7 @@ fn drive_bay(
             thrust: Vec3::ZERO,
             parts,
             holding: None,
+            held_gun: None,
             // Held in its gantry, not standing on a body: it doesn't kneel asleep.
             ground: None,
             weathering: suit.weathering.level(),

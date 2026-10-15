@@ -1,7 +1,10 @@
-//! The cockpit, as the pilot sees it from the seat: a ring of monitors round the panoramic view of
-//! space, a round radar sphere at the bottom, the console and the two control grips. It's built in
-//! the camera's own space (the eye at the origin, looking along −z, up +y, right +x), so the client
-//! hangs it on the camera and it turns with the view.
+//! The cockpit, as the pilot sees it from the seat: the main screen ahead in its frame (the
+//! panoramic view of space, the world drawn behind it), a ring of monitors round it, panels closing
+//! in each side, the canopy's ribs overhead, the console with its round radar sphere below, the
+//! armrests with their switches, and the two control grips. It's built in the camera's own space
+//! (the eye at the origin, looking along −z, up +y, right +x), so the client hangs it on the camera
+//! and it turns with the view. The grips are their own meshes ([`Cockpit::grip`]), so the client
+//! moves them with the pilot's hands.
 //!
 //! Everything sits outside a clear box round the crosshair ([`CLEAR_YAW`] × [`CLEAR_PITCH`]): the
 //! middle of the view is the panoramic monitor, which is simply the world drawn behind the frame.
@@ -63,6 +66,10 @@ pub struct Cockpit {
     pub radar: Radar,
     /// Where the monitors' glow lights the cockpit from.
     pub light: Vec3,
+    /// A control grip's handle, built about its pivot (its foot, the handle rising along +y, the
+    /// thumb button toward +z), and where each sits: left, then right.
+    pub grip: MeshData,
+    pub grips: [Affine3A; 2],
 }
 
 /// A direction from the eye, `yaw` right and `pitch` up of straight ahead (radians).
@@ -235,25 +242,51 @@ pub fn build() -> Cockpit {
             metal,
             facing(side * deg(34.0), deg(31.0), 1.3, 0.0) * Affine3A::from_rotation_z(side * 0.35),
         );
-        // A grip: the handle rising from its console arm, a trigger guard and a thumb button.
-        let grip = facing(side * deg(33.0), deg(-40.0), 1.1, deg(20.0));
+        // A grip's console arm (the handle is its own mesh, `Cockpit::grip`).
+        let grip = grip_at(side);
         b.cube(
             Vec3::new(0.38, 0.12, 0.3),
             0.02,
             metal,
             grip * Affine3A::from_translation(Vec3::new(0.0, -0.08, -0.05)),
         );
-        b.lathe(
-            &[(0.0, 0.0), (0.045, 0.0), (0.05, 0.1), (0.042, 0.22), (0.048, 0.28), (0.0, 0.3)],
-            12,
-            frame,
-            grip * Affine3A::from_translation(Vec3::new(0.0, -0.02, 0.0)),
-        );
+        // The main screen's frame (Wing's cockpits: a window ahead, closed in round it): a pillar
+        // each side of the clear view, and the canopy's ribs sweeping up and out from its corners.
+        b.cube(Vec3::new(0.07, 1.16, 0.08), 0.015, frame, facing(side * MAIN_YAW, 0.0, 1.5, 0.0));
         b.cube(
-            Vec3::new(0.03, 0.03, 0.02),
+            Vec3::new(0.06, 0.95, 0.07),
+            0.015,
+            metal,
+            facing(side * deg(38.0), deg(36.0), 1.45, 0.0) * Affine3A::from_rotation_z(side * 0.75),
+        );
+        // A panel closing in each side behind the monitors, and an armrest below it with its
+        // switches lit.
+        b.extrude(&chamfered(1.05, 1.5, 0.18), 0.06, frame, facing(side * deg(50.0), deg(-2.0), 1.48, 0.0));
+        let arm = facing(side * deg(56.0), deg(-46.0), 1.3, deg(30.0));
+        b.cube(Vec3::new(0.32, 0.1, 0.45), 0.025, metal, arm);
+        for (k, colour) in [paint::YELLOW, paint::RED, paint::BLUE, paint::YELLOW].into_iter().enumerate() {
+            let x = -0.09 + 0.06 * k as f32;
+            b.cube(
+                Vec3::new(0.035, 0.02, 0.035),
+                0.0,
+                Paint::Glow(colour),
+                arm * Affine3A::from_translation(Vec3::new(x, 0.06, -0.12)),
+            );
+        }
+    }
+    // The main screen's top and foot across the clear view.
+    let span = 2.0 * 1.5 * MAIN_YAW.sin() + 0.1;
+    b.cube(Vec3::new(span, 0.07, 0.08), 0.015, frame, facing(0.0, MAIN_PITCH, 1.5, 0.0));
+    b.cube(Vec3::new(span, 0.07, 0.08), 0.015, frame, facing(0.0, -MAIN_PITCH, 1.5, 0.0));
+    // A strip of switches along the console's top, lit.
+    for k in 0..9 {
+        let yaw = deg(-14.0 + 3.5 * k as f32);
+        let colour = [paint::YELLOW, paint::BLUE, paint::RED][k % 3];
+        b.cube(
+            Vec3::new(0.03, 0.018, 0.03),
             0.0,
-            Paint::Glow(paint::RED),
-            grip * Affine3A::from_translation(Vec3::new(0.0, 0.29, 0.03)),
+            Paint::Glow(colour),
+            facing(yaw, deg(-34.5), 1.22, deg(35.0)),
         );
     }
     b.cube(Vec3::new(1.5, 0.08, 0.1), 0.02, metal, facing(0.0, deg(38.5), 1.3, 0.0));
@@ -269,7 +302,39 @@ pub fn build() -> Cockpit {
         bezel * Affine3A::from_rotation_x(std::f32::consts::FRAC_PI_2),
     );
     crate::ao::bake(std::slice::from_mut(&mut b), &[Vec3::ZERO]);
-    Cockpit { shell: b.finish(), screens, radar, light: Vec3::new(0.0, -0.2, -0.6) }
+    // A grip's handle, about its foot: a trigger guard, the handle, and the thumb button.
+    let mut g = Builder::default();
+    g.lathe(
+        &[(0.0, 0.0), (0.045, 0.0), (0.05, 0.1), (0.042, 0.22), (0.048, 0.28), (0.0, 0.3)],
+        12,
+        frame,
+        Affine3A::IDENTITY,
+    );
+    g.cube(
+        Vec3::new(0.03, 0.03, 0.02),
+        0.0,
+        Paint::Glow(paint::RED),
+        Affine3A::from_translation(Vec3::new(0.0, 0.29, 0.03)),
+    );
+    g.cube(
+        Vec3::new(0.012, 0.07, 0.03),
+        0.004,
+        metal,
+        Affine3A::from_translation(Vec3::new(0.0, 0.17, -0.05)),
+    );
+    let grips =
+        [-1.0f32, 1.0].map(|side| grip_at(side) * Affine3A::from_translation(Vec3::new(0.0, -0.02, 0.0)));
+    Cockpit { shell: b.finish(), screens, radar, light: Vec3::new(0.0, -0.2, -0.6), grip: g.finish(), grips }
+}
+
+/// Where the main screen's frame stands off the crosshair: its pillars' yaw and its top and foot's
+/// pitch (radians), just outside the clear box.
+const MAIN_YAW: f32 = 0.47;
+const MAIN_PITCH: f32 = 0.37;
+
+/// Where a control grip sits, `side` −1 the left and 1 the right: low and to the side, tilted back.
+fn grip_at(side: f32) -> Affine3A {
+    facing(side * 33f32.to_radians(), (-40f32).to_radians(), 1.1, 20f32.to_radians())
 }
 
 #[cfg(test)]
@@ -297,6 +362,14 @@ mod tests {
         }
         let r = c.radar.centre.normalize();
         assert!(r.y.asin().abs() - (c.radar.radius / c.radar.centre.length()) >= CLEAR_PITCH);
+        // The grips, where they move, too.
+        for at in c.grips {
+            for p in c.grip.positions.iter().map(|p| at.transform_point3(Vec3::from(*p))) {
+                let d = p.normalize();
+                assert!(p.length() >= NEAREST);
+                assert!(d.y.asin().abs() >= CLEAR_PITCH, "a grip reaches into the view at {p}");
+            }
+        }
     }
 
     #[test]

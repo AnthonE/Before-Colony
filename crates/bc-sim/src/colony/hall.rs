@@ -28,9 +28,8 @@ use crate::math::{normalize_or, sin, sqrt};
 
 /// The hall's targets.
 pub const TARGETS: usize = 12;
-/// A target's radius, m: a suit's shoulders across. Shots leave a suit's arm a few metres off the
-/// line its pilot's crosshair is on (they fly parallel to it), so a crosshair on a target's middle
-/// scores from the rifle's arm.
+/// A target's radius, m: a suit's shoulders across. A pilot's guns aim at the point their
+/// crosshair is on (`crate::aim`), so a crosshair on a target scores.
 pub const TARGET_RADIUS: f32 = 4.0;
 
 /// The hall's room (`content::city::PLACES`' Proving Ground has one, as its tests hold).

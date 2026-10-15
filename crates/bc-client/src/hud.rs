@@ -238,6 +238,21 @@ fn tonnes(kg: u32) -> String {
 
 #[derive(Component)]
 pub struct Reticle;
+
+/// The hit marker round the reticle: four ticks that flash as a shot of the pilot's lands.
+#[derive(Component)]
+pub struct HitMarker;
+
+/// How long the hit marker shows, s.
+const HIT_MARKER_S: f64 = 0.22;
+
+/// A rung of the pitch ladder (its pitch, degrees; 0 the horizon), drawn in the cockpit where
+/// there's a down: inside the colony, and on a body.
+#[derive(Component)]
+pub struct Rung(i8);
+
+/// The ladder's rungs, degrees.
+const RUNGS: [i8; 9] = [-40, -30, -20, -10, 0, 10, 20, 30, 40];
 /// A gun's spread: a ring round the crosshair that its shots land within.
 #[derive(Component)]
 pub struct SpreadRing;
@@ -589,6 +604,56 @@ pub fn setup_hud(mut commands: Commands, font: Res<UiFont>, mut panels: ResMut<A
                 ),
                 centred(),
             ));
+            for pitch in RUNGS {
+                let horizon = pitch == 0;
+                p.spawn((
+                    Rung(pitch),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        width: Val::Px(if horizon { 420.0 } else { 90.0 }),
+                        height: Val::Px(if horizon { 2.0 } else { 1.0 }),
+                        ..default()
+                    },
+                    centred(),
+                    BackgroundColor(if horizon {
+                        Color::srgba(0.55, 0.92, 1.0, 0.55)
+                    } else {
+                        Color::srgba(0.55, 0.92, 1.0, 0.3)
+                    }),
+                    Visibility::Hidden,
+                ));
+            }
+            p.spawn((
+                HitMarker,
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Percent(50.0),
+                    top: Val::Percent(50.0),
+                    width: Val::Px(0.0),
+                    height: Val::Px(0.0),
+                    ..default()
+                },
+                Visibility::Hidden,
+            ))
+            .with_children(|m| {
+                for (x, y) in [(-1.0f32, -1.0f32), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
+                    m.spawn((
+                        Node {
+                            position_type: PositionType::Absolute,
+                            left: Val::Px(x * 11.0 - 6.0),
+                            top: Val::Px(y * 11.0 - 1.5),
+                            width: Val::Px(12.0),
+                            height: Val::Px(3.0),
+                            ..default()
+                        },
+                        UiTransform {
+                            rotation: Rot2::radians(if x * y > 0.0 { 0.785 } else { -0.785 }),
+                            ..default()
+                        },
+                        BackgroundColor(Color::srgb(1.0, 0.95, 0.85)),
+                    ));
+                }
+            });
             p.spawn((
                 SpreadRing,
                 Node {
@@ -695,7 +760,7 @@ pub fn place_instruments(
     mut silhouettes: Query<&mut Node, (With<Silhouette>, Without<Panel>, Without<Instruments>)>,
     mut last: Local<Option<bool>>,
 ) {
-    let inside = chase.cockpit() && cockpit.is_some();
+    let inside = chase.in_cockpit() && cockpit.is_some();
     let Ok(root) = roots.single() else { return };
     if *last == Some(inside) {
         return;
@@ -860,7 +925,7 @@ pub fn update_hud(
     chase: Res<Chase>,
     mut texts: Query<(&HudText, &mut Text, &mut TextColor)>,
     mut reticle: Query<
-        (&mut Text, &mut TextColor),
+        (&mut Node, &mut Text, &mut TextColor),
         (With<Reticle>, Without<HudText>, Without<LeadMarker>, Without<Bracket>),
     >,
     mut lead: Query<
@@ -994,6 +1059,30 @@ pub fn update_hud(
             Footing::Aloft => {
                 let alt = view.and_then(|v| v.ground).map_or(0.0, |g| g.height - STANCE);
                 format!("  ALOFT  ALT {:.0} m", alt.max(0.0))
+            }
+            // Inside the colony, flying free: hovering (flight assist holds the suit up) or falling
+            // to land (the grip armed), how high over what's under it, and how fast it climbs or
+            // sinks.
+            Footing::Free if core.inside() => {
+                let p = s.pos;
+                let up = bc_sim::colony::frame::up_at(p);
+                let alt = bc_sim::colony::interior::ground_under(p).map_or(0.0, |g| (g - STANCE).max(0.0));
+                let vs = s.vel.dot(up);
+                let (word, arrow) = if grip {
+                    (if alt < 30.0 { "LANDING" } else { "FALLING" }, if vs < -0.5 { "v" } else { " " })
+                } else {
+                    (
+                        "HOVER",
+                        if vs > 0.5 {
+                            "^"
+                        } else if vs < -0.5 {
+                            "v"
+                        } else {
+                            "="
+                        },
+                    )
+                };
+                format!("  {word}  ALT {alt:.0} m  {arrow}{:.0}", vs.abs())
             }
             Footing::Free if grip => "  GRIP ARMED".to_string(),
             Footing::Free if locked.is_some() => "  LOCKED ON".to_string(),
@@ -1346,9 +1435,11 @@ pub fn update_hud(
     lurk.cover = cover_now;
     lurk.hits_taken = world.hits_taken;
     // The grip let go, still armed: on purpose, climbing out of it on the thrusters or changing
-    // form, or of its own accord (too fast, the rock gone, blown off).
+    // form, or of its own accord (too fast, the rock gone, blown off). (Inside the colony an armed
+    // grip off the ground is a fall, which lands by itself.)
     if feet.footing == Footing::Free
         && grip
+        && !core.inside()
         && let Some((was, body)) = lurk.footing.filter(|f| f.0 != Footing::Free)
     {
         let form = &core.predict.form;
@@ -1501,13 +1592,28 @@ pub fn update_hud(
         _ => None,
     }
     .filter(|b| b.angle_between(aim.dir) > 1f32.to_radians());
-    if let Ok((mut r, mut color)) = reticle.single_mut() {
-        r.0 = "+".into();
+    // The crosshair's point: what the pilot's eye sees along the aim, where the guns converge
+    // (`bc_client_core::aimpoint`). In the cockpit it's the middle of the view; the chase camera
+    // sees it from behind and above, so the crosshair is drawn on it there.
+    let sight = bc_client_core::aimpoint::eye(core)
+        .map(|(eye, _)| (eye, bc_client_core::aimpoint::range(core, eye, aim.dir, t)));
+    let Ok((cam, cam_tf)) = camera.single() else { return };
+    if let Ok((mut node, mut r, mut color)) = reticle.single_mut() {
         color.0 = if bore.is_some() { Color::srgba(0.55, 0.92, 1.0, 0.35) } else { CYAN };
+        // On the point, wherever the camera is (looking round from the seat, it may be out of
+        // view: then it isn't drawn).
+        let at = sight.map(|(eye, range)| cam.world_to_viewport(cam_tf, eye + aim.dir * range).ok());
+        r.0 = if matches!(at, Some(None)) { String::new() } else { "+".into() };
+        let at = at.flatten();
+        let (left, top) =
+            at.map_or((Val::Percent(50.0), Val::Percent(50.0)), |p| (Val::Px(p.x), Val::Px(p.y)));
+        if node.left != left || node.top != top {
+            node.left = left;
+            node.top = top;
+        }
     }
 
     // --- Screen-space markers. ---
-    let Ok((cam, cam_tf)) = camera.single() else { return };
     if let Ok((mut node, mut text, mut vis)) = lead.single_mut() {
         // The Orrery's firing solution, which weighs the target's maneuvers; else, locked on, where a
         // shot from the primary meets the target if it flies on as it is (the ◆, and how long
@@ -1524,10 +1630,12 @@ pub fn update_hud(
             (Some(z), Some(o), _, _) if z.has_solution && o.alive => {
                 Some((own_pos + z.solution * 1_500.0, format!("[ ]{:.0}%", z.hit_p * 100.0), 16.0))
             }
-            (_, Some(o), Some(p), Some(v)) if o.alive && settings.0.lead => primary
+            // Where the target will be when the shot gets there: the crosshair on it, the guns
+            // converge on it (they make up the suit's own drift themselves).
+            (_, Some(o), Some(p), Some(_)) if o.alive && settings.0.lead => primary
                 .filter(|w| matches!(w.class, WeaponClass::Beam | WeaponClass::Ballistic))
-                .and_then(|w| intercept(own_pos, v.flight_vel, w.speed, p.pos, p.vel, Vec3::ZERO))
-                .map(|sol| (own_pos + sol.dir * 1_500.0, format!("◆ {:.2}s", sol.t), 6.0)),
+                .and_then(|w| intercept(own_pos, Vec3::ZERO, w.speed, p.pos, p.vel, Vec3::ZERO))
+                .map(|sol| (p.pos + p.vel * sol.t, format!("◆ {:.2}s", sol.t), 6.0)),
             _ => None,
         };
         match mark.map(|(point, s, dx)| (cam.world_to_viewport(cam_tf, point), s, dx)) {
@@ -1654,7 +1762,8 @@ pub fn update_hud(
     {
         let centred = is_bore || is_velocity || is_ring;
         let what = if is_bore {
-            bore.map(|b| (own_pos + b * 1_500.0, "( )".to_string(), CYAN))
+            let (from, range) = sight.unwrap_or((own_pos, 1_500.0));
+            bore.map(|b| (from + b * range, "( )".to_string(), CYAN))
         } else if is_velocity {
             velocity.map(|(d, s)| (cam_tf.translation() + d * 1_500.0, s.to_string(), PALE_GREEN))
         } else if is_ring {
@@ -1704,6 +1813,75 @@ pub fn update_hud(
 /// Sizes the [`SpreadRing`] to the widest cone of the suit's guns (`bc_sim::tuning::scatter`), as
 /// the camera draws it round the aim; hidden without a gun that spreads, or one so tight the
 /// crosshair covers it.
+/// The pitch ladder in the cockpit wherever there's a down (inside the colony: the spin's; on a
+/// body: its ground's): the horizon across the view and a rung every 10°, rolled as the view is,
+/// so a pilot flying from the seat always knows which way is down.
+pub fn update_horizon(
+    game: NonSend<GameClient>,
+    chase: Res<Chase>,
+    camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    mut rungs: Query<(&Rung, &mut Node, &mut UiTransform, &mut Visibility)>,
+) {
+    let game = game.borrow();
+    let core = &game.core;
+    let view = core.own_view().filter(|v| v.alive && chase.cockpit());
+    let up = view.and_then(|v| {
+        if core.inside() { Some(bc_sim::colony::frame::up_at(v.pos)) } else { v.ground.map(|g| g.up) }
+    });
+    let shown = camera.single().ok().zip(up).zip(view);
+    for (rung, mut node, mut tf, mut vis) in &mut rungs {
+        let Some((((cam, cam_tf), up), _)) = shown else {
+            vis.set_if_neq(Visibility::Hidden);
+            continue;
+        };
+        let eye = cam_tf.translation();
+        let fwd = cam_tf.forward().as_vec3();
+        // The view's heading laid flat, then tilted up by the rung's pitch.
+        let flat = (fwd - up * fwd.dot(up)).normalize_or(Vec3::ZERO);
+        if flat == Vec3::ZERO {
+            vis.set_if_neq(Visibility::Hidden);
+            continue;
+        }
+        let a = f32::from(rung.0).to_radians();
+        let dir = flat * a.cos() + up * a.sin();
+        let at = cam.world_to_viewport(cam_tf, eye + dir * 1_000.0).ok();
+        // The roll: the horizon's run across the screen.
+        let right = flat.cross(up);
+        let ends = cam
+            .world_to_viewport(cam_tf, eye + (dir + right * 0.05) * 1_000.0)
+            .ok()
+            .zip(cam.world_to_viewport(cam_tf, eye + (dir - right * 0.05) * 1_000.0).ok());
+        match (at, ends) {
+            (Some(p), Some((a, b))) => {
+                node.left = Val::Px(p.x);
+                node.top = Val::Px(p.y);
+                let d = a - b;
+                tf.rotation = Rot2::radians(d.y.atan2(d.x));
+                vis.set_if_neq(Visibility::Inherited);
+            }
+            _ => {
+                vis.set_if_neq(Visibility::Hidden);
+            }
+        }
+    }
+}
+
+/// Flashes the hit marker round the reticle as a shot of the pilot's lands (on a suit, or one of
+/// the Blast Hall's targets), growing a little as it fades.
+pub fn update_hit_marker(
+    time: Res<crate::view::VisTime>,
+    strikes: Res<crate::view::Strikes>,
+    mut marker: Query<(&mut Visibility, &mut UiTransform), With<HitMarker>>,
+) {
+    let Ok((mut vis, mut tf)) = marker.single_mut() else { return };
+    let since = time.now - strikes.marker_at;
+    let on = (0.0..HIT_MARKER_S).contains(&since);
+    vis.set_if_neq(if on { Visibility::Inherited } else { Visibility::Hidden });
+    if on {
+        tf.scale = Vec2::splat(1.0 + 0.6 * (since / HIT_MARKER_S) as f32);
+    }
+}
+
 pub fn update_spread_ring(
     game: NonSend<GameClient>,
     aim: Res<Aim>,

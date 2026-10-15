@@ -98,14 +98,17 @@ pub struct Game {
 
 impl Game {
     fn new(name: &str, frame: FrameId, pilot: Option<Autopilot>, identity: Identity) -> Self {
+        let mut core = ClientCore::new(ClientConfig {
+            name: name.to_string(),
+            pilot: PilotKind::Human,
+            frame,
+            faction: Faction::Colonies,
+        })
+        .with_identity(identity);
+        // A pilot's shots go where their crosshair is.
+        core.true_aim = true;
         Self {
-            core: ClientCore::new(ClientConfig {
-                name: name.to_string(),
-                pilot: PilotKind::Human,
-                frame,
-                faction: Faction::Colonies,
-            })
-            .with_identity(identity),
+            core,
             hello_sent: false,
             autopilot: pilot.is_some(),
             pilot,

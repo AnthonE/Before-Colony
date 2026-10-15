@@ -91,6 +91,10 @@ const NEXT_GLOW: [f32; 3] = [1.6, 7.0, 8.0];
 #[derive(Component)]
 struct HallTarget(usize);
 
+/// The ring round one of the hall's targets: it takes its target's look.
+#[derive(Component)]
+struct TargetRing;
+
 /// The targets' looks: waiting, struck, and lit for the pilot's drill (pulsing).
 #[derive(Resource)]
 struct TargetLooks {
@@ -112,8 +116,9 @@ struct GantryLooks {
     bright: Handle<StandardMaterial>,
 }
 
-/// How long a target flashes once struck, ticks.
-const FLASH_TICKS: f64 = 12.0;
+/// How long a target flashes once a strike on it is seen, s, and how much bigger it flares.
+const FLASH_S: f64 = 0.45;
+const FLASH_SWELL: f32 = 0.6;
 
 fn lit(materials: &mut Assets<StandardMaterial>, base: Color, glow: [f32; 3]) -> Handle<StandardMaterial> {
     materials.add(StandardMaterial {
@@ -169,6 +174,7 @@ fn setup_course(
             ))
             .with_children(|c| {
                 c.spawn((
+                    TargetRing,
                     Mesh3d(ring.clone()),
                     MeshMaterial3d(idle.clone()),
                     Transform::from_rotation(Quat::from_rotation_x(core::f32::consts::FRAC_PI_2)),
@@ -199,22 +205,35 @@ fn setup_course(
 }
 
 /// The Blast Hall's targets where the tick has them (the render clock flying inside, the plaza's
-/// on foot), flashing when struck, for anyone in the city; the target the pilot's drill has lit,
-/// pulsing, for them; and the gantry's pad, bright for a trainer's pilot.
-#[allow(clippy::type_complexity)]
+/// on foot), flashing white and swelling as a strike on one is seen, for anyone in the city; the
+/// target the pilot's drill has lit, pulsing cyan and breathing, for them; and the gantry's pad,
+/// bright for a trainer's pilot.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn draw_targets(
     game: Option<NonSend<GameClient>>,
     looks: Option<Res<TargetLooks>>,
     gantry_looks: Option<Res<GantryLooks>>,
+    strikes: Option<Res<crate::view::Strikes>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut targets: Query<
-        (&HallTarget, &mut Placed, &mut Visibility, &mut MeshMaterial3d<StandardMaterial>),
-        Without<GantryPad>,
+        (
+            &HallTarget,
+            &Children,
+            &mut Placed,
+            &mut Transform,
+            &mut Visibility,
+            &mut MeshMaterial3d<StandardMaterial>,
+        ),
+        (Without<GantryPad>, Without<TargetRing>),
     >,
-    mut pads: Query<(&mut Visibility, &mut MeshMaterial3d<StandardMaterial>), With<GantryPad>>,
+    mut rings: Query<&mut MeshMaterial3d<StandardMaterial>, (With<TargetRing>, Without<HallTarget>)>,
+    mut pads: Query<
+        (&mut Visibility, &mut MeshMaterial3d<StandardMaterial>),
+        (With<GantryPad>, Without<HallTarget>, Without<TargetRing>),
+    >,
 ) {
     let (Some(game), Some(looks), Some(gantry_looks)) = (game, looks, gantry_looks) else {
-        for (_, _, mut v, _) in &mut targets {
+        for (_, _, _, _, mut v, _) in &mut targets {
             v.set_if_neq(Visibility::Hidden);
         }
         for (mut v, _) in &mut pads {
@@ -245,26 +264,42 @@ fn draw_targets(
         m.emissive = LinearRgba::rgb(LIT_GLOW[0] * k, LIT_GLOW[1] * k, LIT_GLOW[2] * k);
     }
     let (k, frac) = (t.max(0.0).floor(), (t - t.max(0.0).floor()) as f32);
-    for (target, mut placed, mut vis, mut mat) in &mut targets {
+    for (target, children, mut placed, mut tf, mut vis, mut mat) in &mut targets {
         vis.set_if_neq(if shown { Visibility::Inherited } else { Visibility::Hidden });
         if !shown {
             continue;
         }
         placed.0 = hall::target(target.0, k as u32, frac).as_dvec3();
-        let struck = core.world.target_hits.iter().any(|h| {
-            usize::from(h.target) == target.0
-                && (t - f64::from(h.tick)) < FLASH_TICKS
-                && t >= f64::from(h.tick)
-        });
+        // Struck: white, swelling and settling back, from the moment the strike is seen (a
+        // predicted round's at once, anyone's as the server's news of it arrives).
+        let since =
+            strikes.as_ref().and_then(|s| s.target_at.get(target.0)).map_or(f64::INFINITY, |at| now - at);
+        let struck = (0.0..FLASH_S).contains(&since);
+        let lit = lit_now == Some(target.0);
+        let scale = if struck {
+            1.0 + FLASH_SWELL * (1.0 - (since / FLASH_S) as f32)
+        } else if lit {
+            1.0 + 0.15 * (0.5 + 0.5 * (now * 6.0).sin() as f32)
+        } else {
+            1.0
+        };
+        tf.scale = Vec3::splat(scale);
         let look = if struck {
             &looks.hit
-        } else if lit_now == Some(target.0) {
+        } else if lit {
             &looks.lit
         } else {
             &looks.idle
         };
         if mat.0 != *look {
             mat.0 = look.clone();
+        }
+        for child in children.iter() {
+            if let Ok(mut ring) = rings.get_mut(child)
+                && ring.0 != *look
+            {
+                ring.0 = look.clone();
+            }
         }
     }
     let look = if core.inside() && core.hangar.trainer { &gantry_looks.bright } else { &gantry_looks.dim };
@@ -397,8 +432,12 @@ fn run_course(
     let drill = core.world.drill;
     let in_hall = from.is_some_and(hall::in_hall);
     let (lines, waypoint) = if (in_hall || drill.running()) && !state.run.running() {
-        // In the Blast Hall: its live fire, and the drill.
-        (hall_lines(&state, &drill, core.world.my_target_hits, drill_best, t, now), None)
+        // In the Blast Hall: its live fire, and the drill, its lit target marked where it's drawn.
+        let tr = core.render_tick(now).max(0.0);
+        let lit = usize::from(drill.lit());
+        let at = hall::target(lit, tr.floor() as u32, (tr - tr.floor()) as f32);
+        let name = format!("TARGET {}/{}", drill.struck() + 1, DRILL.len());
+        (hall_lines(&state, &drill, core.world.my_target_hits, drill_best, t, now), Some((at, name)))
     } else {
         hud(&state, best, from, t, now)
     };
@@ -436,7 +475,9 @@ fn run_course(
         }
     }
     if shown && let Some(mut m) = materials.get_mut(&looks.next) {
+        // (Unlit, what's drawn is the base colour: it pulses.)
         let k = 0.55 + 0.45 * (0.5 + 0.5 * (now * 5.0).sin() as f32);
+        m.base_color = Color::linear_rgb(0.12 + 0.5 * k, 0.4 + 1.6 * k, 0.5 + 1.8 * k);
         m.emissive = LinearRgba::rgb(NEXT_GLOW[0] * k, NEXT_GLOW[1] * k, NEXT_GLOW[2] * k);
     }
 }

@@ -116,7 +116,8 @@ self-signed certificate depends on `serverCertificateHashes` pinning, and that m
 | Y · middle click | lock on to the hostile nearest the crosshair (again: the next one; held: let go) |
 | H | the frame's special: Aquila or the Eclipse on/off; Full Salvo or the Pincer Strike |
 | V · Z | flight assist · the Orrery |
-| Tab · mouse wheel | the cockpit or the chase camera |
+| Tab · mouse wheel | the cockpit (the default) or the chase camera |
+| K · Alt (held) | in the cockpit: the framed monitors or the holo cockpit (see-through all round) · look round from the seat |
 | M · N | the chart, out to Earth-Moon space (set a course on it) · the auto-nav on the course (on/off) |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
 | U | eject: doomed, a tap ejects and a hold blows the suit up; otherwise held a second |

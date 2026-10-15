@@ -43,16 +43,21 @@ pub enum Hint {
     /// Flying near the docking hub (survival): home by its dock, or landing on its face and
     /// walking in at the deck hatch.
     HubLanding,
+    /// Flying inside the colony: its pull, hovering and falling to land (double-tapped Space).
+    Hover,
+    /// Flying one of the Charter Board's trainers: home is its gantry in the Blast Hall.
+    Gantry,
 }
 
 impl Hint {
     /// In the order they're shown.
-    pub const ALL: [Hint; 21] = [
+    pub const ALL: [Hint; 23] = [
         Hint::Walk,
         Hint::Use,
-        Hint::Launch,
+        // Down into the city first (the Proving Ground is there), then out.
         Hint::Airlock,
         Hint::City,
+        Hint::Launch,
         Hint::Thrust,
         Hint::Map,
         Hint::Boost,
@@ -63,7 +68,9 @@ impl Hint {
         Hint::FlightAssist,
         Hint::Salvage,
         Hint::Dock,
+        Hint::Hover,
         Hint::InnerGate,
+        Hint::Gantry,
         Hint::Grip,
         Hint::HubLanding,
         Hint::Surface,
@@ -86,7 +93,9 @@ impl Hint {
         match self {
             Hint::Use | Hint::Launch | Hint::Airlock => !i.in_city,
             Hint::City => i.in_city,
-            Hint::InnerGate => i.inside,
+            Hint::InnerGate => i.inside && !i.trainer,
+            Hint::Hover => i.inside,
+            Hint::Gantry => i.inside && i.trainer,
             Hint::Dock | Hint::HubLanding => !i.inside,
             _ => true,
         }
@@ -100,7 +109,9 @@ impl Hint {
             Hint::Airlock => !i.in_city && i.colony,
             Hint::City => i.in_city,
             Hint::Dock => i.survival && !i.inside,
-            Hint::InnerGate => i.inside,
+            Hint::InnerGate => i.inside && !i.trainer,
+            Hint::Hover => i.inside,
+            Hint::Gantry => i.inside && i.trainer,
             Hint::HubLanding => i.survival && i.near_hub,
             Hint::Grip => i.near_surface && !i.gripping,
             Hint::Surface => i.grounded,
@@ -145,6 +156,12 @@ impl Hint {
             Hint::InnerGate => {
                 "To go home from in here, come to rest inside the inner gate's ring of lights and press Enter."
             }
+            Hint::Hover => {
+                "The colony pulls you down. Double-tap Space: hover (Space climbs, C sinks); again: drop, and you land on your feet."
+            }
+            Hint::Gantry => {
+                "To finish, come to rest on the gantry's ring in the Blast Hall and press Enter: you climb out at its hatch."
+            }
             Hint::HubLanding => {
                 "Home is the docking hub: rest in its dock's ring of lights and press Enter, or arm the grip (L), land on its face near the middle and walk onto the deck hatch."
             }
@@ -170,7 +187,8 @@ impl Hint {
         match self {
             Hint::Thrust | Hint::Fire | Hint::Walk => 20.0,
             Hint::Use | Hint::Launch | Hint::Airlock | Hint::City | Hint::HubLanding => 30.0,
-            Hint::InnerGate => 15.0,
+            Hint::InnerGate | Hint::Gantry => 15.0,
+            Hint::Hover => 18.0,
             Hint::Dock | Hint::Camera | Hint::Grip | Hint::Hide | Hint::Map | Hint::Lock | Hint::Step => 15.0,
             Hint::Surface => 20.0,
             _ => 9.0,
@@ -227,6 +245,8 @@ pub struct HintInput {
     pub went_down: bool,
     /// Flying within a couple of kilometres of the docking hub's mouth, outside the colony.
     pub near_hub: bool,
+    /// Flying one of the Charter Board's trainers (it docks on its gantry, not at the inner gate).
+    pub trainer: bool,
 }
 
 /// Seconds between one hint and the next.
@@ -279,7 +299,8 @@ impl Hints {
                 Hint::Step => i.stepped,
                 Hint::Airlock => i.went_down,
                 Hint::City => i.opened_map,
-                Hint::InnerGate => i.docking,
+                Hint::InnerGate | Hint::Gantry => i.docking,
+                Hint::Hover => false,
                 Hint::HubLanding => i.docking || i.gripping,
             };
             self.doing = if acting { self.doing + dt } else { self.doing };
@@ -300,6 +321,7 @@ impl Hints {
                     | Hint::Airlock
                     | Hint::City
                     | Hint::InnerGate
+                    | Hint::Gantry
                     | Hint::HubLanding
             );
             // The surface's: a second of walking, and a hop.
@@ -406,14 +428,26 @@ mod tests {
             (Hints::default(), Hint::Walk.bit() | Hint::Use.bit() | Hint::Launch.bit(), 0.0);
         assert_eq!(run(&mut h2, &mut seen2, &mut t2, 0.1, HintInput { colony: false, ..bay }), None);
         // Flying near the hub, the way home by landing; inside the colony, the inner gate.
-        let mut flying_seen =
-            (0..21).fold(0u32, |a, k| a | 1 << k) & !(Hint::HubLanding.bit() | Hint::InnerGate.bit());
+        let mut flying_seen = (0..Hint::ALL.len()).fold(0u32, |a, k| a | 1 << k)
+            & !(Hint::HubLanding.bit() | Hint::InnerGate.bit() | Hint::Hover.bit() | Hint::Gantry.bit());
         let (mut h3, mut t3) = (Hints::default(), 0.0);
         let near = HintInput { flying: true, survival: true, near_hub: true, ..Default::default() };
         assert_eq!(run(&mut h3, &mut flying_seen, &mut t3, 0.1, near), Some(Hint::HubLanding));
         run(&mut h3, &mut flying_seen, &mut t3, 0.05, HintInput { gripping: true, ..near });
         let inside = HintInput { flying: true, survival: true, inside: true, ..Default::default() };
+        // Inside, its pull and the hover first, then the way home: the inner gate's, or a
+        // trainer's gantry.
+        let mut trainer_seen = flying_seen;
+        let mut t4 = t3;
+        assert_eq!(run(&mut h3, &mut flying_seen, &mut t3, GAP + 0.2, inside), Some(Hint::Hover));
+        flying_seen |= Hint::Hover.bit();
+        let (mut h3, mut t3) = (Hints::default(), t3 + 30.0);
         assert_eq!(run(&mut h3, &mut flying_seen, &mut t3, GAP + 0.2, inside), Some(Hint::InnerGate));
+        trainer_seen |= Hint::Hover.bit();
+        t4 += 30.0;
+        let mut h4 = Hints::default();
+        let trainer = HintInput { trainer: true, ..inside };
+        assert_eq!(run(&mut h4, &mut trainer_seen, &mut t4, GAP + 0.2, trainer), Some(Hint::Gantry));
     }
 
     #[test]

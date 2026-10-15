@@ -73,24 +73,34 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   await expect(page.locator("#help")).toBeHidden();
   await expect(page.locator("#chat-input")).toBeHidden();
 
-  // Tab: into the cockpit and back out to the chase camera. The view is a setting, kept for the
-  // next sortie. (A suit shot down meanwhile is watched from behind whatever the setting.)
+  // The cockpit is the default view; Tab goes out to the chase camera and back in. The view is a
+  // setting, kept for the next sortie. (A suit shot down meanwhile is watched from behind whatever
+  // the setting.)
   const saved = () => page.evaluate(() => localStorage.getItem("bc.settings") ?? "");
   const camera = async () => {
     const s = await bc(page);
     return `${s.camera_view}/${s.alive ? s.camera : s.camera_view}`;
   };
   await page.focus("#bc");
-  await page.keyboard.press("Tab");
-  // The first switch builds the cockpit's pipelines, which takes a software renderer seconds.
+  // The cockpit's pipelines take a software renderer seconds to build.
   await expect.poll(camera, { timeout: 15_000 }).toBe("cockpit/cockpit");
-  await expect.poll(saved, { timeout: 10_000 }).toContain("camera = cockpit");
   // From the seat: the monitors round the view carry the instruments.
   await page.waitForTimeout(1_500);
   await page.screenshot({ path: `artifacts/ui-${info.project.name}-cockpit.png` });
+  // K: the holo cockpit, see-through all round.
+  await page.keyboard.press("k");
+  await expect.poll(saved, { timeout: 10_000 }).toContain("cockpit_holo = true");
+  await page.waitForTimeout(1_500);
+  await page.screenshot({ path: `artifacts/ui-${info.project.name}-holo.png` });
+  await page.keyboard.press("k");
+  await expect.poll(saved, { timeout: 10_000 }).toContain("cockpit_holo = false");
   await page.keyboard.press("Tab");
   await expect.poll(camera).toBe("chase/chase");
   await expect.poll(saved, { timeout: 10_000 }).toContain("camera = chase");
+  await page.screenshot({ path: `artifacts/ui-${info.project.name}-chase.png` });
+  await page.keyboard.press("Tab");
+  await expect.poll(camera).toBe("cockpit/cockpit");
+  await expect.poll(saved, { timeout: 10_000 }).toContain("camera = cockpit");
 
   // Anime flight rules (the server's default): the tank is a boost gauge. And an objective with a
   // waypoint: under arcade rules the first is a drone, and the patrols (or a drone in sight) mark it.

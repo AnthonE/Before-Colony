@@ -189,6 +189,7 @@ pub fn drive_kit(
         shot_seq: ai.shot_seq,
         // Agents fly by the kit; locking on is the pilot's (`bc_client_core::lockon`).
         lockon: None,
+        converge: 0,
     }
 }
 

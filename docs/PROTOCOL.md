@@ -97,7 +97,7 @@ datagrams for pilots flying inside; and the key places' rooms in the city
 | client_time_ms (echoed for RTT) | 16 |
 | count − 1 | 2 |
 | newest command's tick | 32 |
-| `count` × `InputCmd` body, newest first (ticks descend by 1) | 107 each, 169 locked on |
+| `count` × `InputCmd` body, newest first (ticks descend by 1) | 108 each, 170 locked on, 16 more firing |
 
 `InputCmd` body:
 
@@ -113,6 +113,15 @@ datagrams for pilots flying inside; and the key places' rooms in the city
 | locked on (a `LockOn` follows) | 1 |
 | `LockOn`, when locked on: ref_vel (3 × 14, centred grid over ±2 048 m/s: 0.25 m/s steps, zero exact) | 42 |
 | `LockOn`: up (octahedral, 2 × 10) | 20 |
+| converging (a range follows) | 1 |
+| converge: how far along the aim from the pilot's eye the crosshair's point is, in quarter metres | 16 |
+
+**Converging** (`bc_sim::aim`): a pilot's client says how far along the aim the first thing under
+its crosshair is (the crosshair being the line from the frame's eye, `FrameSpec::eye`, along the
+aim), on the commands that fire. The guns aim at that point, the shot's path crossing it whatever
+the suit's own drift, within the arm's reach of the nose; without a range (agents), shots fly along
+the aim. The server trusts the range as it trusts the aim: it decides nothing but where the pilot
+was looking.
 
 **Locked on** (`docs/LOCK.md`): flight assist holds the suit's velocity relative to `ref_vel` (the
 target's, as the pilot sees it), reading the stick in axes levelled to `up` (the stick's up; its

@@ -314,5 +314,6 @@ pub fn drive(
         shot_seq: ai.shot_seq,
         // Drones never lock on: perfect leads and perfect pace together would be unbeatable.
         lockon: None,
+        converge: 0,
     }
 }

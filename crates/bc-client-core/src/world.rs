@@ -83,6 +83,21 @@ pub struct Beam {
     /// Drawn by the shooter's own client before the server confirmed it.
     pub predicted: bool,
     pub shot_seq: u8,
+    /// This client's own name for it, unique however the shots' sequence numbers repeat (a gun in
+    /// hand, a charged shot and Full Salvo don't advance them): what its flash and splash are
+    /// remembered by.
+    pub key: u32,
+    /// How far along its path it struck a suit (`Event::Hit`), m: it's drawn up to there, not
+    /// dropped unseen.
+    pub end: Option<f32>,
+    /// Ticks from the clock it's drawn on back to the one the server flew it on (the targets it
+    /// can meet are judged there): an own predicted shot is drawn on the input clock but flew
+    /// through the world as its pilot saw it, `cmd.tick` less the view's lag.
+    pub judge: f64,
+    /// The pilot's own shot, heard of from the server without having been predicted (a gun in
+    /// hand, a charged shot, Full Salvo): stamped with the tick the server rewound it to, so the
+    /// view redraws it leaving the gun when it's first seen instead of far downrange.
+    pub rebase: bool,
 }
 
 impl Beam {
@@ -92,6 +107,14 @@ impl Beam {
     pub fn alive_at(&self, t: f64) -> bool {
         t >= self.spawn_tick - 1.0 && t <= self.spawn_tick + self.ttl_ticks
     }
+}
+
+/// How far beam `b`'s line passes from `p`, m (behind its muzzle, its distance from the muzzle).
+fn miss(b: &Beam, p: Vec3) -> f32 {
+    let dir = b.velocity.normalize_or(Vec3::NEG_Z);
+    let rel = p - b.origin;
+    let along = rel.dot(dir);
+    if along < 0.0 { rel.length() } else { (rel - dir * along).length() }
 }
 
 /// A training round scoring on one of the Blast Hall's targets (`bc_sim::colony::hall`).
@@ -311,6 +334,8 @@ pub struct World {
     own_sent: Option<OwnState>,
     pub orrery: Option<OrreryInfo>,
     pub beams: Vec<Beam>,
+    /// The next [`Beam::key`].
+    next_beam: u32,
     pub hits: Vec<HitMark>,
     pub feed: VecDeque<FeedLine>,
     pub roster: HashMap<u16, (String, PilotKind)>,
@@ -378,6 +403,7 @@ impl World {
             own_sent: None,
             orrery: None,
             beams: Vec::new(),
+            next_beam: 0,
             hits: Vec::new(),
             feed: VecDeque::new(),
             roster: HashMap::new(),
@@ -693,6 +719,7 @@ impl World {
                     b.id = id;
                     return;
                 }
+                let key = self.beam_key();
                 self.beams.push(Beam {
                     id,
                     shooter,
@@ -703,6 +730,10 @@ impl World {
                     ttl_ticks: ttl,
                     predicted: false,
                     shot_seq,
+                    key,
+                    end: None,
+                    judge: 0.0,
+                    rebase: Some(shooter) == me,
                 });
             }
             Event::Hit { id, tick, target, part, shooter, weapon: w, .. } => {
@@ -723,17 +754,24 @@ impl World {
                 if on_me {
                     self.hits_taken += 1;
                 }
-                // The beam that hit stops being drawn (its direction places the sparks).
+                // The beam that hit ends where it struck (its direction places the sparks): the
+                // shooter's shot of that weapon whose line passes nearest the suit, drawn up to it
+                // rather than dropped before anyone saw it leave the gun.
                 let beam = if weapon(w).replication == bc_sim::content::Replication::PerShot {
-                    self.beams.iter().position(|b| b.shooter == shooter && b.alive_at(f64::from(tick)))
+                    self.beams
+                        .iter_mut()
+                        .filter(|b| b.shooter == shooter && b.end.is_none() && b.alive_at(f64::from(tick)))
+                        .filter(|b| b.weapon == w || weapon(b.weapon).charged.is_some_and(|c| c.shot == w))
+                        .min_by(|a, b| miss(a, pos).total_cmp(&miss(b, pos)))
                 } else {
                     None
                 };
-                let dir = beam.map(|k| self.beams[k].velocity.normalize_or(Vec3::NEG_Z));
+                let dir = beam.map(|b| {
+                    let dir = b.velocity.normalize_or(Vec3::NEG_Z);
+                    b.end = Some((pos - b.origin).dot(dir).max(0.0));
+                    dir
+                });
                 self.hits.push(HitMark { pos, tick, target, part, weapon: w, by_me, on_me, shooter, dir });
-                if let Some(k) = beam {
-                    self.beams.remove(k);
-                }
             }
             Event::Kill { id, tick, victim, killer, weapon, hulk } => {
                 if !self.first_time(id) {
@@ -857,7 +895,9 @@ impl World {
         }
     }
 
-    /// Adds the local pilot's own shot immediately (confirmed later by the server's event).
+    /// Adds the local pilot's own shot immediately (confirmed later by the server's event):
+    /// fired at `tick` on the input clock, through the world as it was `judge` ticks earlier.
+    #[allow(clippy::too_many_arguments)]
     pub fn predict_beam(
         &mut self,
         shooter: u16,
@@ -866,7 +906,9 @@ impl World {
         origin: Vec3,
         velocity: Vec3,
         tick: f64,
+        judge: f64,
     ) {
+        let key = self.beam_key();
         self.beams.push(Beam {
             id: 0,
             shooter,
@@ -877,7 +919,26 @@ impl World {
             ttl_ticks: f64::from(weapon(w).ttl_ticks()),
             predicted: true,
             shot_seq,
+            key,
+            end: None,
+            judge,
+            rebase: false,
         });
+    }
+
+    fn beam_key(&mut self) -> u32 {
+        self.next_beam = self.next_beam.wrapping_add(1);
+        self.next_beam
+    }
+
+    /// The gun suit `slot` holds in its hand, if any, and which hand (true: the right).
+    pub fn gun_held_by(&self, slot: u16) -> Option<(WeaponKind, bool)> {
+        self.objects.iter().flatten().find_map(|o| match o.motion {
+            ObjectMotion::Held { holder, right, .. } if holder == slot => {
+                bc_sim::content::salvage::held_gun(&o.desc).map(|g| (g, right))
+            }
+            _ => None,
+        })
     }
 
     /// Drops finished beams and old hit marks.

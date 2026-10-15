@@ -81,8 +81,9 @@ fn hide_boot_overlay() {
 }
 
 /// Dev hook (`aim_hostile`): while on, the aim follows the nearest hostile suit, as a pilot's mouse
-/// would (in the Blast Hall with none in sight, the target the pilot's drill has lit); and, on or
-/// off, how far off that suit is (`hostile_range`, m; -1: none in sight).
+/// would, the crosshair (the eye's line along the aim, `bc_client_core::aimpoint`) on its middle
+/// (in the Blast Hall with none in sight, the target the pilot's drill has lit); and, on or off,
+/// how far off that suit is (`hostile_range`, m; -1: none in sight).
 pub fn aim_hook(
     cmds: Res<crate::page::UiCmds>,
     mut aim: ResMut<crate::input::Aim>,
@@ -114,12 +115,13 @@ pub fn aim_hook(
         .min_by(|a, b| a.length_squared().total_cmp(&b.length_squared()));
     dev.set("hostile_range", nearest.map_or(-1.0, |r| f64::from(r.length())));
     let in_hall = core.inside() && bc_sim::colony::hall::in_hall(me.pos);
+    let eye = bc_client_core::aimpoint::eye(core).map_or(me.pos, |(e, _)| e);
     let target = || {
         let k = t.max(0.0).floor();
         let lit = usize::from(w.drill.lit());
-        Some(bc_sim::colony::hall::target(lit, k as u32, (t - k) as f32) - me.pos)
+        Some(bc_sim::colony::hall::target(lit, k as u32, (t - k) as f32) - eye)
     };
-    if *on && let Some(r) = nearest.or_else(|| in_hall.then(target).flatten()) {
+    if *on && let Some(r) = nearest.map(|r| r + me.pos - eye).or_else(|| in_hall.then(target).flatten()) {
         aim.dir = r.normalize_or(aim.dir);
     }
 }
@@ -135,9 +137,13 @@ pub fn publish_game(
     map: Res<crate::map::MapOpen>,
     objectives: Res<crate::map::ObjectiveState>,
     (chart, target): (Res<crate::chart::Chart>, Res<crate::chart::NavTarget>),
+    strikes: Res<crate::view::Strikes>,
     mut dev: ResMut<DevStatus>,
 ) {
     use bc_proto::PilotKind;
+    dev.set("own_muzzles", strikes.own_muzzles);
+    dev.set("own_traces", strikes.own_traces);
+    dev.set("target_flashes", strikes.target_flashes);
     use bc_sim::content::WeaponClass;
     dev.set("link", link.0.name());
     dev.set("reconnects", link.0.reconnects);

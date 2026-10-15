@@ -240,6 +240,19 @@ impl FrameSpec {
         self.dry_mass + propellant.max(0.0)
     }
 
+    /// Where its pilot looks from, in the suit's frame at rest: the head's main camera, which the
+    /// cockpit's view is (`bc_model`'s eye socket; its tests hold the two together), and Aquila's
+    /// over its nose from the canopy. The crosshair is the line from here along the aim, and guns
+    /// aim at the point on it the pilot sees (`crate::aim`).
+    pub fn eye(&self) -> Vec3 {
+        match self.id {
+            FrameId::Aquila => Vec3::new(0.0, 2.4, 4.6),
+            FrameId::Argo => ARGO_EYE,
+            FrameId::Sagittarius | FrameId::Corona => PROTOTYPE_EYE,
+            _ => HUMANOID_EYE,
+        }
+    }
+
     /// Whether the frame has legs to stand on: every frame but the Aquila. Without them a suit
     /// can't grip a surface.
     #[inline]
@@ -296,6 +309,12 @@ impl FrameSpec {
         }
     }
 }
+
+/// A humanoid head's main camera, between its eyes at its face; the Argo's mono-eye behind its
+/// visor; the prototype pair's camera (`bc_model`'s, at rest).
+const HUMANOID_EYE: Vec3 = Vec3::new(0.0, 6.75, 1.1);
+const ARGO_EYE: Vec3 = Vec3::new(0.0, 6.74, 1.12);
+const PROTOTYPE_EYE: Vec3 = Vec3::new(0.0, 6.62, 0.94);
 
 /// Human-shaped hitboxes, about 17 m tall, in the anime's proportions (bc-model's rig): a short
 /// torso as wide as its skirts over the hips at 1.55 m, and one capsule round both long legs from

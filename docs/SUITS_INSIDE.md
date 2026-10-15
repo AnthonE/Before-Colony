@@ -67,9 +67,22 @@ form of `bc_sim::colony` works there unchanged.
   walked round. A suit's origin keeps its stance from the floor and the roofs when free as on its
   feet (`colony::interior::FLOOR_CLEAR`), so letting go of the ground doesn't jump; lanes narrower
   than a suit (stance from each wall) can't be stood in.
+- **Gravity: falling, and hovering.** Flying free inside, a suit with its grip armed (L, or
+  Space double-tapped) feels the colony's pull: flight assist holds it against Coriolis and the
+  air across, but lets it fall, braked so it comes in slow and close and lands on its feet
+  (`ground::fall_limit`: at most 40 m/s, down to 6 m/s by the time its feet are 12 m up, and within
+  catching range it flares to 6 m/s across, `ground::FLARE_SPEED`). Space climbs and C dives at 25 m/s
+  (`ground::INTERIOR_CLIMB`); let go, a climb is checked and the suit falls again. With the grip off
+  it hovers: flight assist holds it where it is against the pull, Space and C climbing and sinking.
+  Either way it rolls level with the spin's down by itself (Q and E roll it off). An arrival at the
+  inner gate hovers; a trainer on its gantry, or a suit that has landed, has its grip armed. The HUD
+  says which (`HOVER`, `FALLING`, `LANDING`), how high the suit's feet are over what's under them,
+  and how fast it climbs or sinks; in the cockpit, the horizon and a pitch ladder show the down
+  (`tests/interior.rs`: falls from 60, 300 and 1,200 m land; a hover holds; a climb let go falls;
+  the roll levels within 3 s).
 - **Air.** The interior has air: drag on a suit (`½ ρ C A v²`, with `ρ` 1.2 kg/m³) goes into
   `integrate` for `Interior`, which caps speeds near the ground at about 120 m/s and makes hovering
-  cost propellant (`tuning`'s thrust against its weight). Its pilot feels the drag as they feel
+  cost propellant under the real flight rules (`tuning`'s thrust against its weight). Its pilot feels the drag as they feel
   thrust: nearly 4 g in an Argo coasting at 200 m/s. Whether propellant burns faster in air
   is an open question (below).
 

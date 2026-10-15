@@ -40,6 +40,8 @@ pub struct SuitDrive {
     pub parts: [u8; Part::COUNT],
     /// Holding a chunk: in the right hand (true) or the left.
     pub holding: Option<bool>,
+    /// The gun in its hand, if what it holds is one: it fires on the secondary's trigger.
+    pub held_gun: Option<WeaponKind>,
     /// On a body: standing on it, or in the air in its grip.
     pub ground: Option<SuitGround>,
     /// How weathered its paint is, 0 (factory fresh) to 7 (a veteran's): earned by use, and on
@@ -160,6 +162,9 @@ pub enum FxEvent {
     /// A beam leaving the muzzle (`shooter`: the suit's slot, if it's known, so the flash can be
     /// drawn at its weapon).
     Muzzle { pos: Vec3, dir: Vec3, vel: Vec3, weapon: WeaponKind, shooter: Option<u16> },
+    /// A beam's whole line, from the gun to what stopped it, flashing as it ends: a shot too fast
+    /// to see in flight across a room (the Blast Hall's are gone within a frame) is still seen.
+    BeamTrace { from: Vec3, to: Vec3, weapon: WeaponKind },
     /// Beam sabers meeting, and how fast the pair of them are going.
     Clash { pos: Vec3, vel: Vec3 },
     /// A rock shattering: where, how big it was, and the colour of its ore.
@@ -188,6 +193,51 @@ pub enum FxEvent {
 #[derive(Resource, Default)]
 pub struct FxEvents(pub Vec<FxEvent>);
 
+/// Shots landing, by when they were seen (the page's clock, s): each of the Blast Hall's targets
+/// struck (by anyone; it flashes), and the pilot's own landing on a suit or a target (the
+/// reticle's hit marker).
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct Strikes {
+    pub target_at: [f64; bc_sim::colony::hall::TARGETS],
+    pub marker_at: f64,
+    /// The pilot's hits counted so far (`World::my_hits`): a new one marks the reticle.
+    pub hits_seen: u32,
+    /// Counts for the browser tests (`window.__bc`): the pilot's own shots seen leaving the gun,
+    /// their lines flashed as they ended, and strikes on the hall's targets shown.
+    pub own_muzzles: u32,
+    pub own_traces: u32,
+    pub target_flashes: u32,
+}
+
+impl Default for Strikes {
+    fn default() -> Self {
+        Self {
+            target_at: [f64::NEG_INFINITY; bc_sim::colony::hall::TARGETS],
+            marker_at: f64::NEG_INFINITY,
+            hits_seen: 0,
+            own_muzzles: 0,
+            own_traces: 0,
+            target_flashes: 0,
+        }
+    }
+}
+
+impl Strikes {
+    /// Target `k` struck at `now`; `mine`: by the pilot's own round.
+    pub fn strike(&mut self, k: u8, now: f64, mine: bool) {
+        if let Some(at) = self.target_at.get_mut(usize::from(k)) {
+            // (A round predicted to strike and the server's news of it are one strike.)
+            if now - *at > 0.3 {
+                self.target_flashes += 1;
+            }
+            *at = now;
+        }
+        if mine {
+            self.marker_at = now;
+        }
+    }
+}
+
 /// How the pilot likes the view (their settings in game mode; the defaults, or `?calm=1`, in the
 /// showcase).
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
@@ -198,13 +248,15 @@ pub struct ViewPrefs {
     pub shake: f32,
     /// Flying from the cockpit (first person) rather than the chase camera.
     pub cockpit: bool,
+    /// The cockpit see-through all round (the holo cockpit) rather than its framed monitors.
+    pub holo: bool,
     /// Full-screen flicker and flashes are allowed (off for photosensitive pilots).
     pub flashing: bool,
 }
 
 impl Default for ViewPrefs {
     fn default() -> Self {
-        Self { fov: 70.0, shake: 1.0, cockpit: false, flashing: true }
+        Self { fov: 70.0, shake: 1.0, cockpit: true, holo: false, flashing: true }
     }
 }
 
@@ -215,6 +267,8 @@ pub struct CameraTarget(pub Option<ChaseTarget>);
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ChaseTarget {
     pub pos: Vec3,
+    /// Looking round from the cockpit: the view's yaw (right) and pitch (up) off the aim, radians.
+    pub look: Vec2,
     /// How fast the suit moves as drawn (what the camera keeps pace with).
     pub vel: Vec3,
     pub up: Vec3,

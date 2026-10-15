@@ -405,9 +405,10 @@ forms, which the server's interior sector and each pilot's prediction share.
   - Four stand still by the back wall, two low and two at a suit's head.
   - Four bob over the middle of the floor; four sweep across it high up, each on its own beat.
   - None comes within three radii of another.
-  - Shots leave a suit's arm a few metres off its pilot's crosshair line (they fly parallel to
-    it), so a target is a suit's shoulders across: a crosshair on its middle scores from the
-    rifle's arm.
+  - A target is a suit's shoulders across. A pilot's guns aim at the point under their crosshair
+    (`bc_sim::aim`: the client says how far along the aim from the eye it is), so a crosshair on a
+    target scores (`interior.rs`: `a_crosshair_on_a_target_scores_from_the_pilots_eye`); fired
+    parallel to the crosshair, from a hand metres off it, a round would pass it by.
 - **Scoring:** a round that meets a target stops there and scores. The server says so with a new
   event, `TargetHit` (extension sub-kind 3: target, shooter), sent to the shooter and to anyone
   within 5 km of the hall, and counts it (`SuitStats::targets`).

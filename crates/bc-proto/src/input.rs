@@ -9,8 +9,8 @@ use crate::quant::{self, quantize_dir};
 use crate::{BitReader, BitWriter, DecodeError, NO_SLOT, PACKET_KIND_BITS, PacketKind, SLOT_BITS};
 
 /// Button and state bits. Toggles (flight assist, the Orrery, the frame's mode, a grab, the grip) are
-/// sent as **states**, never as presses, so a lost or duplicated packet can't flip them twice. Bit
-/// 15 is free.
+/// sent as **states**, never as presses, so a lost or duplicated packet can't flip them twice. All
+/// sixteen are taken.
 pub mod buttons {
     /// Left mouse: primary weapon (beam rifle / Heavy Beam Rifle).
     pub const FIRE_PRIMARY: u16 = 1 << 0;
@@ -57,6 +57,8 @@ pub mod buttons {
 
 /// Bits per axis for the aim direction (octahedral): ~0.005° precision.
 pub const AIM_BITS: u32 = 16;
+/// [`InputCmd::converge`]'s unit, m: a quarter metre, out to 16 km.
+pub const CONVERGE_UNIT: f32 = 0.25;
 /// A lock-on's reference velocity ([`LockOn::ref_vel`]): 3 × this many bits on the centred grid over
 /// ±[`LOCKON_VEL_MAX`] m/s (0.25 m/s steps, and a target at rest is exactly at rest).
 pub const LOCKON_VEL_BITS: u32 = 14;
@@ -140,6 +142,11 @@ pub struct InputCmd {
     pub shot_seq: u8,
     /// Flying locked on to a target ([`LockOn`]), or not.
     pub lockon: Option<LockOn>,
+    /// How far along the aim the crosshair's point is from the pilot's eye, in [`CONVERGE_UNIT`]s:
+    /// what the pilot's client sees under the crosshair. Guns aim at that point
+    /// (`bc_sim::aim`), so a shot goes where the crosshair is rather than parallel to it, a hand's
+    /// breadth off. 0: none said (agents), and shots fly along the aim.
+    pub converge: u16,
 }
 
 impl Default for InputCmd {
@@ -154,6 +161,7 @@ impl Default for InputCmd {
             lock_target: NO_SLOT,
             shot_seq: 0,
             lockon: None,
+            converge: 0,
         }
     }
 }
@@ -235,6 +243,10 @@ impl InputCmd {
         if let Some(l) = &self.lockon {
             l.write(w);
         }
+        w.write_bool(self.converge != 0);
+        if self.converge != 0 {
+            w.write_u16(self.converge);
+        }
     }
 
     fn read_body(r: &mut BitReader<'_>, tick: u32) -> Self {
@@ -246,6 +258,7 @@ impl InputCmd {
         let lock_target = r.read_bits(SLOT_BITS) as u16;
         let shot_seq = r.read_u8();
         let lockon = r.read_bool().then(|| LockOn::read(r));
+        let converge = if r.read_bool() { r.read_u16() } else { 0 };
         Self {
             tick,
             view_tick_q4: (tick << 4).saturating_sub(delta),
@@ -256,6 +269,7 @@ impl InputCmd {
             lock_target,
             shot_seq,
             lockon,
+            converge,
         }
     }
 }
@@ -279,10 +293,12 @@ impl Default for InputPacket {
 }
 
 impl InputPacket {
-    /// Encodes into `buf`, returning the byte length: at most 65 for four commands (86 + 4 × 107
-    /// bits), and 96 if all four fly locked on (86 + 4 × 169). Each command is 8 + 32 + 24 + 8 + 16 +
-    /// 10 + 8 + 1 bits: view delta, aim, thrust, roll, buttons, lock target, shot sequence, and
-    /// whether a lock-on ([`LockOn`]: 42 + 20 bits) follows.
+    /// Encodes into `buf`, returning the byte length: at most 65 for four commands (86 + 4 × 108
+    /// bits), 96 if all four fly locked on (86 + 4 × 170), and 104 if they fire converging too
+    /// (86 + 4 × 186). Each command is 8 + 32 + 24 + 8 + 16 + 10 + 8 + 1 + 1 bits: view delta,
+    /// aim, thrust, roll, buttons, lock target, shot sequence, whether a lock-on ([`LockOn`]:
+    /// 42 + 20 bits) follows, and whether a crosshair's range ([`InputCmd::converge`]: 16 bits)
+    /// does.
     pub fn encode(&self, buf: &mut [u8]) -> Option<usize> {
         let count = self.count.clamp(1, MAX_CMDS as u8);
         let mut w = BitWriter::new(buf);
@@ -338,6 +354,7 @@ mod tests {
                 shot_seq: 250,
                 // One of them locked on, its target at rest.
                 lockon: (i == 1).then_some(LockOn { ref_vel: Vec3::new(-412.3, 0.0, 77.7), up: Vec3::Y }),
+                converge: 0,
             }
             .quantized();
         }
@@ -354,7 +371,7 @@ mod tests {
     }
 
     #[test]
-    fn four_commands_fit_in_65_bytes_or_96_locked_on() {
+    fn four_commands_fit_in_65_bytes_96_locked_on_and_104_converging() {
         let mut p =
             InputPacket { ack_snapshot: u32::MAX, client_time_ms: u16::MAX, count: 4, ..Default::default() };
         for i in 0..4 {
@@ -373,6 +390,12 @@ mod tests {
             c.lockon = Some(LockOn { ref_vel: Vec3::splat(-5_000.0), up: Vec3::NEG_Z });
         }
         assert_eq!(p.encode(&mut buf), Some(96));
+        for c in &mut p.cmds {
+            c.converge = u16::MAX;
+        }
+        assert_eq!(p.encode(&mut buf), Some(104));
+        let back = InputPacket::decode(&buf[..104]).unwrap();
+        assert!(back.cmds.iter().all(|c| c.converge == u16::MAX));
     }
 
     #[test]
@@ -481,6 +504,7 @@ mod tests {
             lock_target: 7,
             shot_seq: 3,
             lockon: None,
+            converge: 0,
         };
         // Repeated without firing, on the same view delay.
         let r = InputCmd::stand_in(&last, 103, 3);

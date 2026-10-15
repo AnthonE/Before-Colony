@@ -236,7 +236,18 @@ impl Sim {
             self.as_seen_on_its_body(i, spawn_tick, frac, &mut f);
         }
         let fwd = f.rot * Vec3::Z;
-        let mut dir = clamp_to_cone(normalize_or(cmd.aim, fwd), fwd, self.cone(i, mount.arm));
+        let muzzle = f.pos + f.rot * mount.arm.muzzle();
+        // At the point under the pilot's crosshair, its path crossing it (`crate::aim`); else, a
+        // command that doesn't say where that is, along the aim.
+        let aim = normalize_or(cmd.aim, fwd);
+        let want = match crate::aim::range(cmd.converge, w.range) {
+            Some(r) => {
+                let at = crate::aim::point(f.pos, f.rot, frame(self.suits.frame[i]).eye(), aim, r);
+                crate::aim::through(at, muzzle, f.vel, w.speed, aim)
+            }
+            None => aim,
+        };
+        let mut dir = clamp_to_cone(want, fwd, self.cone(i, mount.arm));
         let z = &self.suits.orrery[i];
         // The Orrery's pull needs the fire control that aims by it.
         if self.suits.tuning[i].magnetism
@@ -252,7 +263,6 @@ impl Sim {
         if self.suits.status[i].concussed > 0 {
             dir = tuning::wobble(dir, t, i as u16, slot);
         }
-        let muzzle = f.pos + f.rot * mount.arm.muzzle();
         let vel = f.vel + dir * w.speed;
 
         let s = &mut self.suits;
