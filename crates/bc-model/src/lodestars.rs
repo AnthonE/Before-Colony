@@ -11,8 +11,9 @@ use glam::{Quat, Vec2, Vec3};
 
 use crate::Designer;
 use crate::frames::{
-    ACCENT, BODY, EYE, FRAME, GLASS, GUN, STEEL, THROAT, TRIM, WAIST_UP, YELLOW, along, arm_segments, at,
-    hands, inner_frame, j, leg_lengths, nozzle, place, plate, rifle, rx, ry, rz, shield, sided, sp, v, v2,
+    ACCENT, BODY, EYE, FRAME, FootStyle, GLASS, GUN, STEEL, THROAT, TRIM, WAIST_UP, YELLOW, along,
+    arm_segments, at, foot, hands, inner_frame, j, leg_lengths, nozzle, place, plate, rifle, rx, ry, rz,
+    shield, sided, sp, v, v2,
 };
 use crate::kit::Paint;
 use crate::paint;
@@ -61,14 +62,14 @@ fn waist(d: &mut Designer, front: Paint, side: Paint) {
     plate(d, Bone::Waist, Side::R, v(2.4, 1.4, 0.3), v(0.0, -0.4 + WAIST_UP, -1.35), rx(-0.12), 0.08, BODY);
 }
 
-/// Thighs, shins and feet: `thigh` and `shin` sizes, knee guards and toes in `trim`.
+/// Thighs, shins and feet: `thigh` and `shin` sizes, knee guards in `trim`, the feet the
+/// Gundams' ([`foot`]) with their toe caps in `toe`.
 fn legs(d: &mut Designer, thigh: Vec3, shin: Vec3, trim: Paint, toe: Paint) {
     // The blocks' widths and depths are the frame's; their lengths are the rig's.
     let (thigh_len, shin_len) = leg_lengths();
     let (thigh, shin) = (v(thigh.x, thigh_len, thigh.z), v(shin.x, shin_len, shin.z));
     for s in Side::BOTH {
-        let (th, sh, ft) =
-            s.pick((Bone::ThighL, Bone::ShinL, Bone::FootL), (Bone::ThighR, Bone::ShinR, Bone::FootR));
+        let (th, sh) = s.pick((Bone::ThighL, Bone::ShinL), (Bone::ThighR, Bone::ShinR));
         let (hip, knee, ankle) = (j(Bone::ThighR), j(Bone::ShinR), j(Bone::FootR));
         d.on(th).seed(0.3 + s.pick(0.0, 0.2)).block(
             thigh,
@@ -96,19 +97,8 @@ fn legs(d: &mut Designer, thigh: Vec3, shin: Vec3, trim: Paint, toe: Paint) {
             trim,
             sided(s, place(knee + v(0.0, 0.1, 0.95), rx(-0.2))),
         );
-        let mut f = d.on(ft);
-        f.seed(0.42 + s.pick(0.0, 0.2));
-        f.block(
-            v(1.5, 1.2, 3.2),
-            v2(0.8, 0.65),
-            v2(0.0, -0.2),
-            0.12,
-            BODY,
-            sided(s, at(ankle.x, -8.3, 0.45)),
-        );
-        f.cube(v(1.35, 0.35, 0.8), 0.06, toe, sided(s, at(ankle.x, -8.6, 1.8)));
-        f.cube(v(1.6, 0.25, 3.4), 0.04, FRAME, sided(s, at(ankle.x, -8.95, 0.45)));
     }
+    foot(d, FootStyle { armour: BODY, toe, pads: ACCENT, half: 0.92, spur: true });
 }
 
 /// A flat backpack with a pair of main thrusters.

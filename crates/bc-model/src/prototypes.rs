@@ -23,7 +23,8 @@
 //!   back and out to their widest just under the knee and tapering to the ankle, a ridge down the
 //!   front; and heavy boots: a rounded shaft over the ankle with a thick plate rising up its front,
 //!   a grey band behind and a big grey disc either side, on a thick platform with a high heel and a
-//!   long toe, a narrower block raised along it.
+//!   long toe on its own hinge, a narrower block raised along it, and a vernier in the sole under
+//!   the heel and under the toe.
 //!
 //! The Sagittarius wears a single swept horn and carries the beam cannon cabled to the generator
 //! high on its back behind its head, a ring as tall as its torso with an iris over its core; the
@@ -40,7 +41,8 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 use glam::{Affine3A, Quat, Vec2, Vec3};
 
 use crate::frames::{
-    BODY, EYE, FRAME, GUN, STEEL, TRIM, YELLOW, at, j, nozzle, place, rx, ry, rz, sided, sp, v, v2,
+    BODY, EYE, FRAME, GUN, SOLE, STEEL, Sole, TRIM, YELLOW, at, j, nozzle, place, rx, ry, rz, sided, sole,
+    sp, v, v2,
 };
 use crate::kit::{Hoop, Light, Paint, hoop};
 use crate::rig::{Bone, Side};
@@ -635,8 +637,10 @@ const FIN: [Vec2; 8] = [
 fn legs(d: &mut Designer) {
     let (hip, knee, ankle) = (j(Bone::ThighR), j(Bone::ShinR), j(Bone::FootR));
     for s in Side::BOTH {
-        let (thigh, shin, foot) =
-            s.pick((Bone::ThighL, Bone::ShinL, Bone::FootL), (Bone::ThighR, Bone::ShinR, Bone::FootR));
+        let (thigh, shin, foot, toe) = s.pick(
+            (Bone::ThighL, Bone::ShinL, Bone::FootL, Bone::ToeL),
+            (Bone::ThighR, Bone::ShinR, Bone::FootR, Bone::ToeR),
+        );
         let k = s.pick(0.0, 0.2);
 
         // The thigh: a big round shell on a grey ball at the hip, and the plate down its outside
@@ -773,64 +777,50 @@ fn legs(d: &mut Designer) {
         }
 
         // The foot: a thick platform, the heel high at its back, the middle under the shaft's
-        // tongue, and the long toe falling away to its tip with a narrower block raised along it;
-        // a dark sole under it all.
+        // tongue, and the long toe (on its own hinge) falling away to its tip with a narrower block
+        // raised along it; a dark sole under it all, split at the hinge, a vernier in each half,
+        // and a grey band round the heel over it.
         let mut f = d.on(foot);
         f.seed(0.43 + k);
         f.sphere(0.5, 5, GREY, sided(s, Affine3A::from_translation(ankle)));
-        let sole = -9.07;
-        let base = sole + 0.32;
+        let base = SOLE + 0.32;
         // The heel and the middle, one tall block, highest at the back.
-        f.hexa(boot(x, base, (-7.5, -7.72), (1.26, 1.22), [-2.05, -1.82, 1.4, 1.4]), 0.24, BODY, flat);
-        // The toe box: as wide, narrowing and falling away to a blunt, rounded tip.
-        f.hexa(boot(x, base, (-7.8, -8.04), (1.22, 1.06), [1.35, 1.35, 3.35, 2.92]), 0.34, BODY, flat);
-        // The narrower block raised along the toe, stepping down at its front.
-        f.hexa(boot(x, -8.1, (-7.6, -7.9), (0.58, 0.5), [1.3, 1.3, 2.8, 2.52]), 0.12, BODY, flat);
-        // The thick sole, a little proud of the upper all round, its heel deeper.
+        f.hexa(boot(x, base, (-7.5, -7.72), (1.26, 1.22), [-2.05, -1.82, 1.28, 1.28]), 0.24, BODY, flat);
         f.hexa(
-            boot(x, sole, (base + 0.02, base + 0.02), (1.34, 1.14), [-2.15, -2.12, 3.45, 3.42]),
-            0.08,
-            FRAME,
-            flat,
-        );
-        f.hexa(
-            boot(x, sole, (base + 0.06, base + 0.06), (1.32, 1.32), [-2.15, -2.12, -0.6, -0.6]),
+            boot(x, SOLE + 0.05, (base + 0.08, base + 0.08), (1.36, 1.36), [-2.17, -2.14, -0.6, -0.6]),
             0.05,
             GREY,
             flat,
         );
         f.greeble(|f| {
-            // The upper's seam along each side, the step between the heel and the toe box, and a
-            // slot up the heel's back.
+            // The upper's seam along each side, the step to the toe box, and a slot up the heel's
+            // back.
             for side in [-1.0, 1.0] {
                 f.cube(v(0.04, 0.05, 3.2), 0.0, FRAME, sided(s, at(x + side * 1.14, -8.3, -0.3)));
-                f.cube(v(0.04, 0.5, 0.05), 0.0, FRAME, sided(s, at(x + side * 1.12, -8.25, 1.38)));
+                f.cube(v(0.04, 0.5, 0.05), 0.0, FRAME, sided(s, at(x + side * 1.12, -8.25, 1.26)));
             }
             f.cube(v(0.5, 0.07, 0.05), 0.0, FRAME, sided(s, place(v(x, -8.05, -2.0), rx(-0.25))));
         });
+        let heel =
+            Sole { z: (-2.15, 1.26), half: (1.34, 1.27), top: 0.34, pads: GREY, vernier: 0.15, r: 0.42 };
+        sole(d, foot, s, x, heel);
+        let mut t = d.on(toe);
+        t.seed(0.47 + k);
+        // The toe box: as wide, narrowing and falling away to a blunt, rounded tip.
+        t.hexa(boot(x, base, (-7.8, -8.04), (1.22, 1.06), [1.32, 1.32, 3.35, 2.92]), 0.34, BODY, flat);
+        // The narrower block raised along the toe, stepping down at its front.
+        t.hexa(boot(x, -8.1, (-7.6, -7.9), (0.58, 0.5), [1.36, 1.36, 2.8, 2.52]), 0.12, BODY, flat);
+        let toes = Sole { z: (1.34, 3.45), half: (1.27, 1.14), top: 0.34, pads: GREY, vernier: 2.3, r: 0.34 };
+        sole(d, toe, s, x, toes);
     }
 }
 
 /// How far a foot block's sides lean in, per metre up.
 const BOOT_LEAN: f32 = 0.18;
 
-/// A block of a foot, centred on `x`: its sole level at `base`, narrowing along z from `half.0` at
-/// the back to `half.1` at the front, its sides leaning in as they rise; its top falling from
-/// `top.0` at the back to `top.1` at the front; `z` its back at the sole and at the top, then its
-/// front at the sole and at the top. Each face stays flat (as the Argo's boots: `argo::boot`).
+/// A block of a foot ([`frames::boot`](crate::frames::boot)), its sides leaning in [`BOOT_LEAN`].
 fn boot(x: f32, base: f32, top: (f32, f32), half: (f32, f32), z: [f32; 4]) -> [Vec3; 8] {
-    let [back, back_top, front, front_top] = z;
-    let h =
-        |at: f32, y: f32| half.0 + (half.1 - half.0) * (at - back) / (front - back) - BOOT_LEAN * (y - base);
-    std::array::from_fn(|i| {
-        let (zz, y) = match (i & 4 != 0, i & 2 != 0) {
-            (false, false) => (back, base),
-            (false, true) => (back_top, top.0),
-            (true, false) => (front, base),
-            (true, true) => (front_top, top.1),
-        };
-        v(x + if i & 1 != 0 { h(zz, y) } else { -h(zz, y) }, y, zz)
-    })
+    crate::frames::boot(x, base, top, half, z, BOOT_LEAN)
 }
 
 /// A hexahedron's corners mirrored across x, reordered so its low-x corners stay the low ones.

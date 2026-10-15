@@ -76,6 +76,9 @@ pub struct Sockets {
     /// Wards racked on [`Bone::Props`] (the Corona's), each one's centre and the way its face
     /// looks: where the client's flying ones ([`ward_disc`]) leave from and come home to.
     pub wards: Vec<(Vec3, Vec3)>,
+    /// The verniers in the soles: each one's bone (a foot, or its toes), its throat there and the
+    /// way it fires (down out of the sole), lit as the suit thrusts up.
+    pub soles: Vec<(Bone, Vec3, Vec3)>,
 }
 
 /// Where a humanoid head's main camera sits, in the suit's frame at rest: between the eyes, at
@@ -134,7 +137,7 @@ impl Section {
             ShoulderL | UpperArmL | ForearmL | HandL | ShoulderR | UpperArmR | ForearmR | HandR | Shield => {
                 Section::Arms
             }
-            ThighL | ShinL | FootL | ThighR | ShinR | FootR => Section::Legs,
+            ThighL | ShinL | FootL | ToeL | ThighR | ShinR | FootR | ToeR => Section::Legs,
             Backpack | WingL | WingR | Props => Section::Backpack,
             Weapon => Section::Weapon,
         }
@@ -233,6 +236,7 @@ pub fn build_parts(parts: Parts, lod: Lod) -> Model {
         // A cable runs only between its own frame's backpack and weapon.
         cable: weapon.cable.filter(|_| parts.backpack == parts.weapon),
         wards: sockets_of(Section::Backpack).wards.clone(),
+        soles: sockets_of(Section::Legs).soles.clone(),
     };
     let joints: Vec<Vec3> = rig::ALL.iter().map(|b| b.def().joint).collect();
     ao::bake(&mut bones, &joints);
@@ -601,6 +605,7 @@ mod tests {
                     (arms.saber, arms.blade_left, arms.talon, arms.flame)
                 );
                 assert_eq!(got.nozzles, from(Section::Backpack).nozzles);
+                assert_eq!(got.soles, from(Section::Legs).soles);
                 let want: Vec<_> = [&ma.sockets, &mb.sockets]
                     .into_iter()
                     .zip([a, b])
@@ -640,6 +645,31 @@ mod tests {
         let mixed =
             build_parts(Parts::whole(FrameId::Sagittarius).with(Section::Weapon, FrameId::Argo), Lod::Near);
         assert!(mixed.sockets.cable.is_none());
+    }
+
+    /// Every humanoid frame stands on its soles at the rig's 9.07 m with nothing of it lower, its
+    /// toes drawn on their own hinged bones, and verniers in its soles that fire down: at least
+    /// one under each heel and each toe, clear of the ground.
+    #[test]
+    fn the_feet_hinge_at_the_toes_and_their_soles_fire() {
+        for frame in FrameId::ALL.into_iter().filter(|f| *f != FrameId::Aquila) {
+            let m = build(frame, Lod::Near);
+            let lowest = rig::ALL
+                .iter()
+                .filter_map(|b| m.bones[b.index()].as_ref().map(|mesh| (b.def().joint.y, mesh)))
+                .flat_map(|(y, mesh)| mesh.positions.iter().map(move |p| p[1] + y))
+                .fold(f32::MAX, f32::min);
+            assert!((lowest - frames::SOLE).abs() < 1e-3, "{frame:?}: its lowest point is at {lowest} m");
+            for toe in [Bone::ToeL, Bone::ToeR] {
+                assert!(m.bones[toe.index()].is_some(), "{frame:?} draws nothing on {toe:?}");
+            }
+            for bone in [Bone::FootL, Bone::FootR, Bone::ToeL, Bone::ToeR] {
+                let under = m.sockets.soles.iter().filter(|(b, p, dir)| {
+                    *b == bone && dir.y < -0.99 && p.y + bone.def().joint.y > frames::SOLE
+                });
+                assert!(under.count() > 0, "{frame:?}: no vernier under {bone:?}");
+            }
+        }
     }
 
     /// Every frame is drawn as itself: no two build the same mesh.
@@ -711,6 +741,9 @@ mod tests {
             }
             for &(bone, p) in &s.missiles {
                 assert!(on(bone, p), "{frame:?} missile hatch at {p} is off {bone:?}");
+            }
+            for &(bone, p, dir) in &s.soles {
+                assert!(on(bone, p) && unit(dir), "{frame:?} vernier at {p} is off {bone:?}");
             }
             for (bone, socket) in [
                 (Bone::HandL, s.blade_left),

@@ -41,6 +41,8 @@ pub struct SuitVisual {
     tag: HullTag,
     lod: Lod,
     plumes: Vec<Entity>,
+    /// The sole verniers' fire, one at each (on its foot or toes).
+    soles: Vec<Entity>,
     /// Blade glows: in the left hand, and on the right hand's weapon.
     blades: [Entity; 2],
     /// The Talon's cable, from the wrist to the head (on the right forearm).
@@ -163,6 +165,17 @@ pub fn plume_power(d: &SuitDrive) -> f32 {
     (d.thrust.z.max(0.0) * 0.75 + boost).min(1.0)
 }
 
+/// How hard the verniers in the soles burn, 0..1: as the suit thrusts up (off a body, braking a
+/// fall onto one, or climbing in flight), harder on boost.
+pub fn sole_power(d: &SuitDrive) -> f32 {
+    if d.flags & ent_flags::WRECK != 0 {
+        return 0.0;
+    }
+    let up = d.thrust.y.max(0.0);
+    let boost = if d.flags & ent_flags::BOOST != 0 && up > 0.1 { 0.25 } else { 0.0 };
+    (up * 0.8 + boost).min(1.0)
+}
+
 /// Builds a suit's bones, meshes and toggled children under `root`.
 #[allow(clippy::too_many_arguments)]
 fn build_suit(
@@ -212,6 +225,26 @@ fn build_suit(
                     SuitPartMarker,
                     Visibility::Hidden,
                     ChildOf(bones[Bone::Backpack.index()]),
+                ))
+                .id()
+        })
+        .collect();
+    // And one from every vernier in the soles, down out of its foot or toes.
+    let soles = sockets
+        .soles
+        .iter()
+        .map(|&(bone, pos, dir)| {
+            commands
+                .spawn((
+                    Mesh3d(ribbons.mesh.clone()),
+                    MeshMaterial3d(ribbons.plume.clone()),
+                    plume_tag(0.0, d.slot as u8),
+                    Transform::from_translation(pos)
+                        .with_rotation(Quat::from_rotation_arc(Vec3::Y, dir))
+                        .with_scale(Vec3::new(0.5, 2.0, 1.0)),
+                    SuitPartMarker,
+                    Visibility::Hidden,
+                    ChildOf(bones[bone.index()]),
                 ))
                 .id()
         })
@@ -349,6 +382,7 @@ fn build_suit(
             tag,
             lod: Lod::Near,
             plumes,
+            soles,
             blades,
             cable,
             power,
@@ -388,7 +422,8 @@ pub fn build_suits(
     }
 }
 
-/// Poses every suit from its drive and switches its thrusters, saber and the Orrery aura.
+/// Poses every suit from its drive and switches its thrusters (the main ones and the soles'),
+/// saber and the Orrery aura.
 #[allow(clippy::too_many_arguments)]
 pub fn pose_suits(
     time: Res<VisTime>,
@@ -417,6 +452,20 @@ pub fn pose_suits(
                 set_visible(&mut pv, lit);
                 if lit {
                     ptf.scale = Vec3::new(0.6 + 0.5 * power, 3.0 + 12.0 * power * flicker, 1.0);
+                }
+            }
+            if lit && let Ok(mut t) = tags.get_mut(p) {
+                *t = plume_tag(power, d.slot as u8);
+            }
+        }
+        // The verniers in the soles: short tongues of fire as the suit thrusts up.
+        let power = sole_power(d);
+        let lit = power > 0.03 && intact(Part::Legs);
+        for &p in &v.soles {
+            if let Ok((mut ptf, mut pv)) = parts.get_mut(p) {
+                set_visible(&mut pv, lit);
+                if lit {
+                    ptf.scale = Vec3::new(0.35 + 0.3 * power, 1.2 + 5.0 * power * flicker, 1.0);
                 }
             }
             if lit && let Ok(mut t) = tags.get_mut(p) {
