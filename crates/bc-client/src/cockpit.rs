@@ -18,7 +18,7 @@ use bc_model::cockpit::{self, TEXTURE};
 use bc_proto::snapshot::ent_flags;
 use bevy::asset::embedded_asset;
 use bevy::camera::visibility::RenderLayers;
-use bevy::camera::{RenderTarget, ScalingMode};
+use bevy::camera::{Exposure, RenderTarget, ScalingMode};
 use bevy::light::{NotShadowCaster, NotShadowReceiver};
 use bevy::mesh::{MeshTag, VertexAttributeValues};
 use bevy::pbr::{Material, MaterialPlugin};
@@ -40,6 +40,9 @@ pub const SCREEN_LAYER: usize = 2;
 /// How far out the radar reaches (m), and how many blips it has.
 const RADAR_RANGE: f32 = 3_000.0;
 const BLIPS: usize = 32;
+/// The monitors' glow at space's exposure (`sky::EV100`), lm: brighter or dimmer as the camera's
+/// exposure is (the colony's runs from its night's to its noon's), so the frame reads alike.
+const GLOW_LM: f32 = 3.0e5;
 
 pub struct CockpitPlugin;
 
@@ -86,6 +89,8 @@ impl Material for MonitorMaterial {
 pub struct Cockpit {
     root: Entity,
     shell: Entity,
+    /// The monitors' glow ([`GLOW_LM`] at space's exposure).
+    light: Entity,
     /// The camera that draws the instruments into [`Cockpit::screen`].
     pub screen_camera: Entity,
     material: Handle<MonitorMaterial>,
@@ -237,19 +242,21 @@ pub fn setup_cockpit(
         (e, rest)
     });
     // The monitors' glow, all the light there is in here. Strong enough to read against the
-    // exposure set for sunlight outside.
-    commands.spawn((
-        PointLight {
-            intensity: 3.0e5,
-            range: 5.0,
-            color: Color::srgb(0.7, 0.88, 1.0),
-            shadow_maps_enabled: false,
-            ..default()
-        },
-        Transform::from_translation(design.light),
-        layer(),
-        ChildOf(root),
-    ));
+    // exposure set for sunlight outside (and kept so as the exposure changes: `drive_cockpit`).
+    let light = commands
+        .spawn((
+            PointLight {
+                intensity: GLOW_LM,
+                range: 5.0,
+                color: Color::srgb(0.7, 0.88, 1.0),
+                shadow_maps_enabled: false,
+                ..default()
+            },
+            Transform::from_translation(design.light),
+            layer(),
+            ChildOf(root),
+        ))
+        .id();
     // The radar: a glass sphere of light, its rings, and blips.
     let r = design.radar.radius;
     let radar = commands
@@ -327,6 +334,7 @@ pub fn setup_cockpit(
     commands.insert_resource(Cockpit {
         root,
         shell,
+        light,
         screen_camera,
         material,
         holo,
@@ -363,7 +371,8 @@ pub fn drive_cockpit(
     feed: Res<MissileFeed>,
     mut cockpit: Option<ResMut<Cockpit>>,
     suits: Query<(&SuitDrive, Option<&SuitVisual>)>,
-    cams: Query<&GlobalTransform, With<MainCamera>>,
+    cams: Query<(&GlobalTransform, Option<&Exposure>), With<MainCamera>>,
+    mut lights: Query<&mut PointLight>,
     mut transforms: Query<&mut Transform>,
     mut vis: Query<&mut Visibility>,
     mut tags: Query<&mut MeshTag>,
@@ -427,7 +436,14 @@ pub fn drive_cockpit(
     {
         *t = want.tag();
     }
-    let Ok(cam) = cams.single() else { return };
+    let Ok((cam, exposure)) = cams.single() else { return };
+    let ev = exposure.map_or(crate::sky::EV100, |e| e.ev100);
+    if let Ok(mut l) = lights.get_mut(c.light) {
+        let want = GLOW_LM * 2f32.powf(ev - crate::sky::EV100);
+        if (l.intensity - want).abs() > want * 0.01 {
+            l.intensity = want;
+        }
+    }
     let cam_rot = cam.compute_transform().rotation;
     // The frame sways against the suit's acceleration (a critically damped spring), a few
     // centimetres at most.

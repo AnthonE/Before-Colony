@@ -383,9 +383,10 @@ pub fn setup_city(
     streamer.inside = inside;
 }
 
-/// What the camera sees: the city (on its layer) inside, space and the bay outside. The Sun lights
-/// both layers; only one is seen at a time. Inside, `light_city` grades the picture, sets its bloom
-/// and colours and turns the Sun by the hour; on the way out, space's come back.
+/// What the camera sees: the city (on its layer) inside, space and the bay outside, and the cockpit
+/// (on its own) in both. The Sun lights both layers; only one is seen at a time. Inside,
+/// `light_city` grades the picture, sets its bloom and colours and turns the Sun by the hour; on the
+/// way out, space's come back.
 #[allow(clippy::type_complexity)]
 fn switch_view(
     view: Res<CityView>,
@@ -406,8 +407,9 @@ fn switch_view(
             *tf = Transform::default().looking_to(-crate::sky::SUN_DIR, Vec3::Y);
         }
     }
+    // (The cockpit's on its own layer in either: the pilot sits in it inside the colony too.)
     let layers = if view.active {
-        RenderLayers::layer(CITY_LAYER)
+        RenderLayers::from_layers(&[CITY_LAYER, crate::cockpit::LAYER])
     } else {
         RenderLayers::from_layers(&[0, crate::cockpit::LAYER])
     };
