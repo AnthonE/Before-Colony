@@ -53,6 +53,16 @@ pub struct SuitDrive {
     pub staggered: bool,
 }
 
+impl SuitDrive {
+    /// The pilot's suit standing in its bay's gantry (`hangar::BAY_SLOT`), drawn there while the
+    /// pilot's in the bay: it keeps its drive (`own`, 20 km off up at the bay) once the bay's out
+    /// of sight, so the suit the pilot flies is an own one that isn't this, where there is one
+    /// (`own(…).min_by_key(|d| d.in_bay())`).
+    pub fn in_bay(&self) -> bool {
+        self.slot == crate::hangar::BAY_SLOT
+    }
+}
+
 /// How a suit on a body is drawn on it: what its walk, its stance and its shadow need.
 #[derive(Clone, Copy, Debug)]
 pub struct SuitGround {
