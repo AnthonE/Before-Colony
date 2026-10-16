@@ -34,8 +34,80 @@ impl Plugin for CoursePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CourseState>().add_systems(Startup, setup_course).add_systems(
             Update,
-            (run_course, draw_targets).after(crate::view::Vis::Suits).before(crate::view::Vis::Camera),
+            (
+                (run_course, draw_targets).after(crate::view::Vis::Suits).before(crate::view::Vis::Camera),
+                park_trainer.before(crate::view::Vis::Suits),
+            ),
         );
+    }
+}
+
+/// The trainer standing on the gantry's pad (a suit drawn, not flown): its slot among the suits
+/// drawn, which no entity's is.
+pub const TRAINER_SLOT: u16 = 1_021;
+
+/// The frame the gantry has ready (the desk's test range): the Board's Argo, the bay's build, or a
+/// new one of a line.
+fn trainer_frame(h: &bc_client_core::hangar::HangarState) -> bc_proto::FrameId {
+    use bc_econ::proving::Trainer;
+    match h.proving.as_ref().map_or(Trainer::Board, |p| p.trainer) {
+        Trainer::Board => bc_proto::FrameId::Argo,
+        Trainer::Bay => match h.view.as_ref().map(|v| &v.bay) {
+            Some(bc_econ::Bay::Docked { suit }) => suit.line,
+            _ => bc_proto::FrameId::Argo,
+        },
+        Trainer::Line { line } => line,
+    }
+}
+
+/// The trainer the gantry has ready, standing on its pad facing the targets, for a pilot on foot in
+/// the city to see (and walk up to): boarded, the pilot's own takes its place.
+fn park_trainer(
+    mut commands: Commands,
+    game: Option<NonSend<GameClient>>,
+    mut parked: Local<Option<(Entity, bc_proto::FrameId)>>,
+) {
+    let want = game.and_then(|g| {
+        let g = g.borrow();
+        let c = &g.core;
+        (c.hangar.in_city() && !c.inside()).then(|| trainer_frame(&c.hangar))
+    });
+    match (want, *parked) {
+        (Some(f), Some((_, was))) if f == was => {}
+        (Some(f), was) => {
+            if let Some((e, _)) = was {
+                commands.entity(e).despawn();
+            }
+            let up = up_at(hall::gantry());
+            let facing = hall::gantry_facing();
+            let drive = crate::view::SuitDrive {
+                slot: TRAINER_SLOT,
+                frame: f,
+                faction: bc_proto::Faction::Colonies,
+                generation: 0,
+                own: false,
+                pos: hall::gantry() + up * (KERB + bc_sim::bodies::STANCE),
+                rot: bc_sim::math::look_rotation(facing, up),
+                vel: Vec3::ZERO,
+                aim: facing,
+                flags: 0,
+                thrust: Vec3::ZERO,
+                parts: [7; bc_proto::Part::COUNT],
+                holding: None,
+                held_gun: None,
+                ground: None,
+                weathering: 0,
+                doomed: false,
+                staggered: false,
+            };
+            let tf = Transform::from_translation(drive.pos).with_rotation(drive.rot);
+            *parked = Some((commands.spawn((drive, tf, Visibility::default())).id(), f));
+        }
+        (None, Some((e, _))) => {
+            commands.entity(e).despawn();
+            *parked = None;
+        }
+        (None, None) => {}
     }
 }
 
@@ -91,6 +163,10 @@ const NEXT_GLOW: [f32; 3] = [1.6, 7.0, 8.0];
 #[derive(Component)]
 struct HallTarget(usize);
 
+/// The ring round one of the hall's targets: it takes its target's look.
+#[derive(Component)]
+struct TargetRing;
+
 /// The targets' looks: waiting, struck, and lit for the pilot's drill (pulsing).
 #[derive(Resource)]
 struct TargetLooks {
@@ -112,8 +188,9 @@ struct GantryLooks {
     bright: Handle<StandardMaterial>,
 }
 
-/// How long a target flashes once struck, ticks.
-const FLASH_TICKS: f64 = 12.0;
+/// How long a target flashes once a strike on it is seen, s, and how much bigger it flares.
+const FLASH_S: f64 = 0.45;
+const FLASH_SWELL: f32 = 0.6;
 
 fn lit(materials: &mut Assets<StandardMaterial>, base: Color, glow: [f32; 3]) -> Handle<StandardMaterial> {
     materials.add(StandardMaterial {
@@ -169,6 +246,7 @@ fn setup_course(
             ))
             .with_children(|c| {
                 c.spawn((
+                    TargetRing,
                     Mesh3d(ring.clone()),
                     MeshMaterial3d(idle.clone()),
                     Transform::from_rotation(Quat::from_rotation_x(core::f32::consts::FRAC_PI_2)),
@@ -196,25 +274,68 @@ fn setup_course(
         ));
     }
     commands.insert_resource(GantryLooks { dim, bright });
+    // Floodlights under the hall's roof over its floor: the suits and targets in it are lit as its
+    // own walls are, whether they're watched from in it or from the square through its doors.
+    let r = hall::hall();
+    for (u, v) in [(-22.0, 28.0), (22.0, 28.0), (-22.0, 62.0), (22.0, 62.0)] {
+        let (s, x) = r.front.point(u, v);
+        let at = bc_sim::colony::frame::CityPos::new(r.strip, x, s, r.ceiling - 6.0).to_colony();
+        commands.spawn((
+            HallFlood,
+            PointLight {
+                intensity: FLOOD_LM,
+                range: 90.0,
+                color: Color::srgb(1.0, 0.95, 0.86),
+                shadow_maps_enabled: false,
+                ..default()
+            },
+            Transform::default(),
+            Placed(at.as_dvec3()),
+            RenderLayers::layer(CITY_LAYER),
+            Visibility::Hidden,
+        ));
+    }
 }
 
+/// One of the Blast Hall's floodlights, and how bright each is (lm).
+#[derive(Component)]
+struct HallFlood;
+const FLOOD_LM: f32 = 1.2e8;
+
 /// The Blast Hall's targets where the tick has them (the render clock flying inside, the plaza's
-/// on foot), flashing when struck, for anyone in the city; the target the pilot's drill has lit,
-/// pulsing, for them; and the gantry's pad, bright for a trainer's pilot.
-#[allow(clippy::type_complexity)]
+/// on foot), flashing white and swelling as a strike on one is seen, for anyone in the city; the
+/// target the pilot's drill has lit, pulsing cyan and breathing, for them; and the gantry's pad,
+/// bright for a trainer's pilot.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn draw_targets(
     game: Option<NonSend<GameClient>>,
     looks: Option<Res<TargetLooks>>,
     gantry_looks: Option<Res<GantryLooks>>,
+    strikes: Option<Res<crate::view::Strikes>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut targets: Query<
-        (&HallTarget, &mut Placed, &mut Visibility, &mut MeshMaterial3d<StandardMaterial>),
-        Without<GantryPad>,
+        (
+            &HallTarget,
+            &Children,
+            &mut Placed,
+            &mut Transform,
+            &mut Visibility,
+            &mut MeshMaterial3d<StandardMaterial>,
+        ),
+        (Without<GantryPad>, Without<TargetRing>),
     >,
-    mut pads: Query<(&mut Visibility, &mut MeshMaterial3d<StandardMaterial>), With<GantryPad>>,
+    mut rings: Query<&mut MeshMaterial3d<StandardMaterial>, (With<TargetRing>, Without<HallTarget>)>,
+    mut pads: Query<
+        (&mut Visibility, &mut MeshMaterial3d<StandardMaterial>),
+        (With<GantryPad>, Without<HallTarget>, Without<TargetRing>),
+    >,
+    mut floods: Query<
+        &mut Visibility,
+        (With<HallFlood>, Without<GantryPad>, Without<HallTarget>, Without<TargetRing>),
+    >,
 ) {
     let (Some(game), Some(looks), Some(gantry_looks)) = (game, looks, gantry_looks) else {
-        for (_, _, mut v, _) in &mut targets {
+        for (_, _, _, _, mut v, _) in &mut targets {
             v.set_if_neq(Visibility::Hidden);
         }
         for (mut v, _) in &mut pads {
@@ -225,6 +346,9 @@ fn draw_targets(
     let g = game.borrow();
     let core = &g.core;
     let shown = core.inside() || core.hangar.in_city();
+    for mut v in &mut floods {
+        v.set_if_neq(if shown { Visibility::Inherited } else { Visibility::Hidden });
+    }
     let now = now_s();
     let t = if core.inside() {
         core.render_tick(now)
@@ -245,26 +369,42 @@ fn draw_targets(
         m.emissive = LinearRgba::rgb(LIT_GLOW[0] * k, LIT_GLOW[1] * k, LIT_GLOW[2] * k);
     }
     let (k, frac) = (t.max(0.0).floor(), (t - t.max(0.0).floor()) as f32);
-    for (target, mut placed, mut vis, mut mat) in &mut targets {
+    for (target, children, mut placed, mut tf, mut vis, mut mat) in &mut targets {
         vis.set_if_neq(if shown { Visibility::Inherited } else { Visibility::Hidden });
         if !shown {
             continue;
         }
         placed.0 = hall::target(target.0, k as u32, frac).as_dvec3();
-        let struck = core.world.target_hits.iter().any(|h| {
-            usize::from(h.target) == target.0
-                && (t - f64::from(h.tick)) < FLASH_TICKS
-                && t >= f64::from(h.tick)
-        });
+        // Struck: white, swelling and settling back, from the moment the strike is seen (a
+        // predicted round's at once, anyone's as the server's news of it arrives).
+        let since =
+            strikes.as_ref().and_then(|s| s.target_at.get(target.0)).map_or(f64::INFINITY, |at| now - at);
+        let struck = (0.0..FLASH_S).contains(&since);
+        let lit = lit_now == Some(target.0);
+        let scale = if struck {
+            1.0 + FLASH_SWELL * (1.0 - (since / FLASH_S) as f32)
+        } else if lit {
+            1.0 + 0.15 * (0.5 + 0.5 * (now * 6.0).sin() as f32)
+        } else {
+            1.0
+        };
+        tf.scale = Vec3::splat(scale);
         let look = if struck {
             &looks.hit
-        } else if lit_now == Some(target.0) {
+        } else if lit {
             &looks.lit
         } else {
             &looks.idle
         };
         if mat.0 != *look {
             mat.0 = look.clone();
+        }
+        for child in children.iter() {
+            if let Ok(mut ring) = rings.get_mut(child)
+                && ring.0 != *look
+            {
+                ring.0 = look.clone();
+            }
         }
     }
     let look = if core.inside() && core.hangar.trainer { &gantry_looks.bright } else { &gantry_looks.dim };
@@ -397,8 +537,12 @@ fn run_course(
     let drill = core.world.drill;
     let in_hall = from.is_some_and(hall::in_hall);
     let (lines, waypoint) = if (in_hall || drill.running()) && !state.run.running() {
-        // In the Blast Hall: its live fire, and the drill.
-        (hall_lines(&state, &drill, core.world.my_target_hits, drill_best, t, now), None)
+        // In the Blast Hall: its live fire, and the drill, its lit target marked where it's drawn.
+        let tr = core.render_tick(now).max(0.0);
+        let lit = usize::from(drill.lit());
+        let at = hall::target(lit, tr.floor() as u32, (tr - tr.floor()) as f32);
+        let name = format!("TARGET {}/{}", drill.struck() + 1, DRILL.len());
+        (hall_lines(&state, &drill, core.world.my_target_hits, drill_best, t, now), Some((at, name)))
     } else {
         hud(&state, best, from, t, now)
     };
@@ -436,7 +580,9 @@ fn run_course(
         }
     }
     if shown && let Some(mut m) = materials.get_mut(&looks.next) {
+        // (Unlit, what's drawn is the base colour: it pulses.)
         let k = 0.55 + 0.45 * (0.5 + 0.5 * (now * 5.0).sin() as f32);
+        m.base_color = Color::linear_rgb(0.12 + 0.5 * k, 0.4 + 1.6 * k, 0.5 + 1.8 * k);
         m.emissive = LinearRgba::rgb(NEXT_GLOW[0] * k, NEXT_GLOW[1] * k, NEXT_GLOW[2] * k);
     }
 }

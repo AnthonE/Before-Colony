@@ -90,6 +90,7 @@ pub const BINDINGS: &[Binding] = &[
     b(Group::Colony, "E (by a seat)", "Sit outside The Arrival; E again, or a step, stands you up"),
     b(Group::Colony, "Space", "On the cap lift: skip the ride down"),
     b(Group::Colony, "M / Esc", "The map, open or closed: your strip end to end, and the streets round you"),
+    b(Group::Colony, "G", "Walk me there: to the objective's place (its ◆ over the door), on your strip"),
     b(
         Group::Colony,
         "Walk in",
@@ -110,6 +111,8 @@ pub const BINDINGS: &[Binding] = &[
     b(Group::Flight, "R", "RCS: fast turns (burns propellant)"),
     b(Group::Flight, "V", "Flight assist on/off (off: fully Newtonian)"),
     b(Group::Flight, "Tab / mouse wheel", "Camera: the cockpit (first person) or the chase camera"),
+    b(Group::Flight, "K", "In the cockpit: the framed monitors, or the holo cockpit (see-through all round)"),
+    b(Group::Flight, "Alt (held)", "In the cockpit: look round from the seat (the aim stays)"),
     b(Group::Flight, "Double-tap W/A/S/D/Space/C", "Burst step that way (locked on: in the fight's axes)"),
     b(Group::Flight, "L", "Land: arm the grip (come in slow and close to a rock or a landmark)"),
     b(Group::Flight, "N", "Auto-nav on/off: flies the course set on the chart (M)"),

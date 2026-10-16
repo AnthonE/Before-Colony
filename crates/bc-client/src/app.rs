@@ -163,10 +163,13 @@ pub fn run() {
                     show_hud,
                     update_hud,
                     update_spread_ring,
+                    crate::hud::update_hit_marker,
+                    crate::hud::update_horizon,
                     update_marks,
                     update_panels,
                     place_instruments,
                     crate::map::update_objectives,
+                    crate::map::place_objective,
                     crate::chart::chart_input,
                     crate::chart::nav_key,
                     crate::chart::track_course,
@@ -202,6 +205,7 @@ impl Plugin for VisualsPlugin {
             .init_resource::<MissileFeed>()
             .init_resource::<PodFeed>()
             .init_resource::<FxEvents>()
+            .init_resource::<crate::view::Strikes>()
             .init_resource::<CameraTarget>()
             .init_resource::<FxState>()
             .init_resource::<Chase>()
@@ -229,6 +233,7 @@ impl Plugin for VisualsPlugin {
                 crate::inside::InsidePlugin,
                 crate::course::CoursePlugin,
                 crate::board::WallBoardPlugin,
+                crate::signs::SignsPlugin,
             ))
             .configure_sets(
                 Update,

@@ -8,7 +8,9 @@
 //! [`ClientCore::on_control`] and datagrams to [`ClientCore::on_datagram`], and sends whatever
 //! [`ClientCore::poll_inputs`] returns.
 
+pub mod aimpoint;
 pub mod bay;
+pub mod beam_view;
 pub mod body_mesh;
 pub mod brains;
 pub mod chart;
@@ -204,6 +206,9 @@ pub struct ClientCore {
     last_shot_wait: u16,
     pub stats: ClientStats,
     pub last_cmd: InputCmd,
+    /// The pilot's crosshair is their eye's line along the aim, and their shots go where it's on
+    /// (`aimpoint`): the browser's. Agents fire along the aim, as they always have.
+    pub true_aim: bool,
     /// The own suit as drawn, between frames.
     drawn: own::Drawn,
     /// Felt acceleration between the last two snapshots, g: the reading while the Orrery flies the suit
@@ -240,6 +245,7 @@ impl ClientCore {
             last_shot_wait: 0,
             stats: ClientStats::default(),
             last_cmd: InputCmd::default(),
+            true_aim: false,
             drawn: own::Drawn::default(),
             heard_g: 0.0,
             plaza: plaza::PlazaView::default(),
@@ -673,6 +679,15 @@ impl ClientCore {
             let mut cmd = brain(&ctx);
             cmd.tick = tick;
             cmd.view_tick_q4 = ((view.max(0.0) * 16.0) as u32).min(tick << 4);
+            // Firing, the guns aim at what's under the crosshair, as the pilot sees it.
+            cmd.converge = 0;
+            if self.true_aim
+                && cmd.buttons & (FIRE_PRIMARY | bc_proto::buttons::FIRE_SECONDARY) != 0
+                && let Some((eye, _)) = aimpoint::eye(self)
+            {
+                let aim = cmd.aim.normalize_or(Vec3::Z);
+                cmd.converge = bc_sim::aim::encode(aimpoint::range(self, eye, aim, view));
+            }
             let shot = self.shot_due(&cmd, tick);
             cmd.shot_seq = self.shot_seq;
             let q = cmd.quantized();
@@ -764,14 +779,25 @@ impl ClientCore {
         // Within what its actuators leave of the arm's reach, wandering if the pilot's concussed
         // (the server counts the concussion down after each tick's shots).
         let tuned = bc_sim::tuning::own_tuning(&own);
-        let mut dir = clamp_to_cone(normalize_or(cmd.aim, fwd), fwd, bc_sim::tuning::cone(mount.arm, &tuned));
+        // At the point under the crosshair, as the server aims it (`bc_sim::aim`).
+        let muzzle = s.pos + s.rot * mount.arm.muzzle();
+        let aim = normalize_or(cmd.aim, fwd);
+        let want = match bc_sim::aim::range(cmd.converge, w.range) {
+            Some(r) => {
+                let at = bc_sim::aim::point(s.pos, s.rot, frame(own.frame).eye(), aim, r);
+                bc_sim::aim::through(at, muzzle, s.vel, w.speed, aim)
+            }
+            None => aim,
+        };
+        let mut dir = clamp_to_cone(want, fwd, bc_sim::tuning::cone(mount.arm, &tuned));
         // Within the weapon's cone, as the server scatters it (the primary is mount 0).
         dir = bc_sim::tuning::scatter(dir, w.spread, cmd.tick, own.slot, 0);
         let since = cmd.tick.saturating_sub(self.world.tick).saturating_sub(1);
         if u32::from(own.concussed) > since {
             dir = bc_sim::tuning::wobble(dir, cmd.tick, own.slot, 0);
         }
-        let muzzle = s.pos + s.rot * mount.arm.muzzle();
+        // It flies through the world as the pilot saw it, the view's lag behind its tick.
+        let judge = f64::from(cmd.tick) - f64::from(cmd.view_tick_q4) / 16.0;
         self.world.predict_beam(
             own.slot,
             w.kind,
@@ -779,6 +805,7 @@ impl ClientCore {
             muzzle,
             s.vel + dir * w.speed,
             f64::from(cmd.tick),
+            judge.max(0.0),
         );
     }
 

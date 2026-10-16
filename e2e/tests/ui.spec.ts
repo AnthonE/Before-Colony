@@ -60,37 +60,50 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   await wait("a sound", "window.__bc?.audio_started > 0");
 
   // F1, or ? for keyboards without a function row: the controls sheet, over the world. ? goes to
-  // the page only: the game never reads the / under it, so the radio stays shut.
+  // the page only: the game never reads the / under it, so the radio stays shut. (The game says
+  // what's shown on its next frame, and it starts in the cockpit, whose pipelines take a software
+  // renderer seconds to build: waited for.)
+  const shown = { timeout: 30_000 };
   await page.keyboard.press("F1");
-  await expect(page.locator("#help")).toBeVisible();
+  await expect(page.locator("#help")).toBeVisible(shown);
   await page.keyboard.press("F1");
-  await expect(page.locator("#help")).toBeHidden();
+  await expect(page.locator("#help")).toBeHidden(shown);
   await page.focus("#bc");
   await page.keyboard.press("?");
-  await expect(page.locator("#help")).toBeVisible();
+  await expect(page.locator("#help")).toBeVisible(shown);
   await expect(page.locator("#chat-input")).toBeHidden();
   await page.keyboard.press("?");
-  await expect(page.locator("#help")).toBeHidden();
+  await expect(page.locator("#help")).toBeHidden(shown);
   await expect(page.locator("#chat-input")).toBeHidden();
 
-  // Tab: into the cockpit and back out to the chase camera. The view is a setting, kept for the
-  // next sortie. (A suit shot down meanwhile is watched from behind whatever the setting.)
+  // The cockpit is the default view; Tab goes out to the chase camera and back in. The view is a
+  // setting, kept for the next sortie. (A suit shot down meanwhile is watched from behind whatever
+  // the setting.)
   const saved = () => page.evaluate(() => localStorage.getItem("bc.settings") ?? "");
   const camera = async () => {
     const s = await bc(page);
     return `${s.camera_view}/${s.alive ? s.camera : s.camera_view}`;
   };
   await page.focus("#bc");
-  await page.keyboard.press("Tab");
-  // The first switch builds the cockpit's pipelines, which takes a software renderer seconds.
+  // The cockpit's pipelines take a software renderer seconds to build.
   await expect.poll(camera, { timeout: 15_000 }).toBe("cockpit/cockpit");
-  await expect.poll(saved, { timeout: 10_000 }).toContain("camera = cockpit");
   // From the seat: the monitors round the view carry the instruments.
   await page.waitForTimeout(1_500);
   await page.screenshot({ path: `artifacts/ui-${info.project.name}-cockpit.png` });
+  // K: the holo cockpit, see-through all round.
+  await page.keyboard.press("k");
+  await expect.poll(saved, { timeout: 10_000 }).toContain("cockpit_holo = true");
+  await page.waitForTimeout(1_500);
+  await page.screenshot({ path: `artifacts/ui-${info.project.name}-holo.png` });
+  await page.keyboard.press("k");
+  await expect.poll(saved, { timeout: 10_000 }).toContain("cockpit_holo = false");
   await page.keyboard.press("Tab");
   await expect.poll(camera).toBe("chase/chase");
   await expect.poll(saved, { timeout: 10_000 }).toContain("camera = chase");
+  await page.screenshot({ path: `artifacts/ui-${info.project.name}-chase.png` });
+  await page.keyboard.press("Tab");
+  await expect.poll(camera).toBe("cockpit/cockpit");
+  await expect.poll(saved, { timeout: 10_000 }).toContain("camera = cockpit");
 
   // Anime flight rules (the server's default): the tank is a boost gauge. And an objective with a
   // waypoint: under arcade rules the first is a drone, and the patrols (or a drone in sight) mark it.
@@ -98,13 +111,14 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   await expect.poll(async () => (await bc(page)).objective).toBe("DOWN A DRONE");
   await expect.poll(async () => (await bc(page)).waypoint).toMatch(/DRONE|PATROLS/);
   await page.screenshot({ path: `artifacts/ui-${info.project.name}-objective.png` });
-  // M: the map of the sector, over the world; M again closes it.
+  // M: the map of the sector, over the world; M again closes it. (Its first opening builds its
+  // pipelines: waited for, as the help sheet was.)
   await page.keyboard.press("m");
-  await expect.poll(async () => (await bc(page)).map_open).toBe(true);
+  await expect.poll(async () => (await bc(page)).map_open, shown).toBe(true);
   await page.waitForTimeout(1_000);
   await page.screenshot({ path: `artifacts/ui-${info.project.name}-map.png` });
   await page.keyboard.press("m");
-  await expect.poll(async () => (await bc(page)).map_open).toBe(false);
+  await expect.poll(async () => (await bc(page)).map_open, shown).toBe(false);
 
   // /: the colony's radio. Its line opens, focused; what's typed there doesn't fly the suit; Enter
   // says it, and everyone connected hears it (the speaker too); the server counts it.

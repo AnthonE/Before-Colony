@@ -1246,8 +1246,11 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   (E). The trading floor's boards run along its back wall, the Charter Board's notices are pinned
   on its, and the bar's shelves are behind its counter. The Blast Hall's room is a suit's: 86 m
   deep, 84 m wide and 60 m high, behind blast doors 40 m wide and 45 m high that a suit flies in
-  through. Its back wall shows the course in light, and its desk the pilot's best time round it. Rooms are lit by their own lamps; the eye
-  adapts to them going in (and the street through the door blazes), and back to the day going out.
+  through. Its back wall shows the course in light, and its desk the pilot's best time round it. Rooms are lit by their own lamps, brighter by
+  day: the eye adapts a couple of stops going in and back out, so a room reads lit through its door
+  from the street and the street through the door reads from inside, rather than black or white.
+  The desks' counters are terminals: lit screens across their tops and a light strip along their
+  edge, a sign over each naming the desk and what E does there, from across the room.
 - **The Arrival's seats:** two benches either side of its door, facing the avenue
   (`colony::city::arrival_seats`). E by one sits you on it (the view drops to a seated eye), and E
   again or a step stands you up; everyone else sees you sitting (the presence's ride 15), and the
@@ -1371,14 +1374,14 @@ Turning flight assist on or off says so in the middle of the screen, because V i
 in other games. `docs/CONTROLS.md` compares this scheme with what players of other games expect,
 and lists what they'll ask for.
 
-**The cockpit.** Tab (or the mouse wheel) switches between the chase camera and the cockpit: the
-view from the head's main camera, which is what a suit's cockpit monitors show. It looks
-along the aim, as the chase camera does, so the crosshair is the aim either way and the suit turns
-after it. The head isn't drawn from inside it; the rest of the suit is, so a blade stroke, the
-Talon or a shoulder coming round shows. Aquila's view is from over its canopy, along its
-nose. With the head shot off the picture comes from the sub-camera, greyer and fringed. A wreck is
-watched from the chase camera. The view is a setting, so the next sortie starts in it; the chase
-camera is the default.
+**The cockpit.** The pilot flies from the cockpit: the view from the head's main camera (exactly the
+simulation's eye, `FrameSpec::eye`), which is what a suit's cockpit monitors show. Tab (or the mouse
+wheel) switches to the chase camera and back. It looks along the aim, as the chase camera does, so
+the crosshair is the aim either way and the suit turns after it. What's at the eye (the head, a
+high collar) isn't drawn from inside it; the rest of the suit is, so a blade stroke, the Talon or a
+shoulder coming round shows. Aquila's view is from over its canopy, along its nose. With the head
+shot off the picture comes from the sub-camera, greyer and fringed. A wreck is watched from the
+chase camera. The view is a setting, so the next sortie starts in it; the cockpit is the default.
 
 From the cockpit the pilot sits inside the suit, as in the anime: the middle of the view is the
 panoramic monitor (the world, with nothing of the cockpit across the crosshair), and round it a
@@ -1399,9 +1402,15 @@ for friends, pink for the Orrery's pick); what's off the view gets a chevron at 
 damage silhouette colours each part by its armour: white, amber, red, and an outline once it's
 gone. Chasing, the panels sit in the screen's corners.
 
-**Where the guns point.** A hand weapon fires only within 50° of the body's axis (Aquila's rifles
-within 2° of the nose), so until the suit has turned onto the aim the crosshair dims and `( )` marks
-where the primary weapon would fire. `-o-` is the velocity vector, the way the suit is drifting
+**Where the guns point.** The crosshair is the line from the pilot's eye (the cockpit's camera, in
+the head) along the aim, and the guns aim at the first thing on it: the client says how far off
+that is in each command that fires (`InputCmd::converge`), and the shot leaves the gun for that
+point, its path crossing it however the suit drifts (`bc_sim::aim`). A gun at a hand is metres off
+the eye's line, so a shot fired parallel to the aim (as an agent's are) lands that far off whatever
+the crosshair is on. From the chase camera, behind and above the eye, the crosshair is drawn on the
+point; in the cockpit it's the middle of the view. A hand weapon fires only within 50° of the
+body's axis (Aquila's rifles within 2° of the nose), so until the suit has turned onto the aim the
+crosshair dims and `( )` marks where the primary weapon would fire. `-o-` is the velocity vector, the way the suit is drifting
 (`-x-`: the way it's drifting from, moving backwards).
 
 **The page around the game.** The title screen takes a callsign (and, under arcade rules, a

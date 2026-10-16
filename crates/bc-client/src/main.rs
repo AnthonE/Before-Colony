@@ -107,6 +107,8 @@ mod shade;
 #[cfg(target_arch = "wasm32")]
 mod showcase;
 #[cfg(target_arch = "wasm32")]
+mod signs;
+#[cfg(target_arch = "wasm32")]
 mod sky;
 #[cfg(target_arch = "wasm32")]
 mod suits_vis;

@@ -214,13 +214,18 @@ struct Session<'a> {
 /// How near the gantry's hatch a pilot on foot boards a trainer, m (the plaza's last pose of them).
 const HATCH_REACH: f32 = 12.0;
 
-/// Whether `at` (the colony's own frame) is at the Blast Hall's gantry's hatch.
+/// Whether `at` (the colony's own frame) is at the Blast Hall's gantry: by its hatch, or round its
+/// pad (where the trainer stands).
 fn at_the_hatch(at: glam::Vec3) -> bool {
     use bc_sim::colony::frame::{Under, from_colony};
-    let ((s, x), _) = bc_sim::colony::hall::hatch();
+    use bc_sim::colony::hall::{GANTRY, GANTRY_RADIUS, hall, hatch};
+    let ((s, x), _) = hatch();
+    let (ps, px) = hall().front.point(GANTRY.0, GANTRY.1);
     match from_colony(at) {
         Under::Land(c) => {
-            c.strip == bc_sim::colony::hall::hall().strip && (c.s - s).hypot(c.x - x) < HATCH_REACH
+            c.strip == hall().strip
+                && ((c.s - s).hypot(c.x - x) < HATCH_REACH
+                    || (c.s - ps).hypot(c.x - px) < GANTRY_RADIUS + 8.0)
         }
         Under::Window { .. } => false,
     }

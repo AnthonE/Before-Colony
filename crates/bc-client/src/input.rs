@@ -17,7 +17,9 @@
 //! | Y / middle click | lock on (`bc_client_core::lockon`): again, the next; held, let go |
 //! | V | flight assist on/off · Z the Orrery on/off |
 //! | G / B / T / J | grab on/off, stow what's in hand, throw it, jettison the hold |
-//! | Tab, mouse wheel | the chase camera or the cockpit (wheel in: the cockpit, out: chasing) |
+//! | Tab, mouse wheel | the cockpit (the default) or the chase camera (wheel in: the cockpit, out: chasing) |
+//! | K | in the cockpit: the framed monitors or the holo cockpit, see-through all round |
+//! | Alt (held) | in the cockpit: look round from the seat; the aim stays (`Aim::look`) |
 //! | M | the chart: the sector and Earth-Moon space in 3D, the objectives, courses (`chart.rs`) |
 //! | N | the auto-nav on/off: flies the chart's course (`chart.rs`) |
 //! | Enter | survival: dock, where the suit is docked or coming in to (`bc_client_core::dock`, `onfoot.rs`); elsewhere the radio (`chat.rs`); on the chart, a course |
@@ -65,6 +67,8 @@ const SENSITIVITY: f32 = 0.0022;
 const STAND_UP: i8 = 64;
 const _: () = assert!(STAND_UP >= STAND_LEVEL && STAND_UP < bc_sim::ground::JUMP_LEVEL);
 
+/// In the cockpit, switches between its framed monitors and the holo cockpit (see-through all round).
+pub const HOLO_KEY: KeyCode = KeyCode::KeyK;
 /// Switches the flight camera between the chase camera and the cockpit.
 pub const CAMERA_KEY: KeyCode = KeyCode::Tab;
 /// Locks on (`bc_client_core::lockon`); so does a click of the middle button.
@@ -83,13 +87,22 @@ pub const DESTRUCT_HOLD: f64 = 0.6;
 pub struct Aim {
     pub dir: Vec3,
     pub initialized_for: Option<(u16, u8)>,
+    /// Looking round from the cockpit ([`LOOK_KEY`] held): how far the view is turned off the aim,
+    /// yaw right and pitch up, radians. The aim stays where it was; let go, the view swings back.
+    pub look: Vec2,
 }
 
 impl Default for Aim {
     fn default() -> Self {
-        Self { dir: Vec3::Z, initialized_for: None }
+        Self { dir: Vec3::Z, initialized_for: None, look: Vec2::ZERO }
     }
 }
+
+/// Held, the mouse looks round from the cockpit instead of aiming.
+pub const LOOK_KEY: KeyCode = KeyCode::AltLeft;
+/// How far the view turns looking round: nearly all the way behind, and up and down.
+const LOOK_YAW: f32 = 2.9;
+const LOOK_PITCH: f32 = 1.35;
 
 /// The pilot's current controls.
 #[derive(Resource)]
@@ -307,6 +320,14 @@ pub fn toggle_camera(
         settings.0.camera = view;
         ui.toast(format!("CAMERA: {}", view.name().to_uppercase()));
     }
+    if keys.just_pressed(HOLO_KEY) && view == CameraView::Cockpit {
+        settings.0.cockpit_holo = !settings.0.cockpit_holo;
+        ui.toast(if settings.0.cockpit_holo {
+            "HOLO COCKPIT: the frame see-through all round (hold Alt to look round)"
+        } else {
+            "COCKPIT: the framed monitors"
+        });
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -326,7 +347,7 @@ pub fn read_input(
     mut deck: Local<Option<(Body, Quat)>>,
     mut lock_key: Local<Option<f64>>,
     mut eject_at: Local<Option<f64>>,
-    mut tap: Local<DoubleTap>,
+    (mut tap, mut space_at): (Local<DoubleTap>, Local<Option<f64>>),
 ) {
     let mut game = game.borrow_mut();
     // Keep the aim sane across (re)spawns: start looking where the suit looks.
@@ -403,9 +424,27 @@ pub fn read_input(
     {
         n.look = false;
     }
+    // Looking round from the cockpit: the mouse turns the view, not the aim; let go, it swings
+    // back onto the aim.
+    let looking = controls.locked && keys.pressed(LOOK_KEY) && settings.0.camera == CameraView::Cockpit;
+    if looking {
+        let mut d = motion.delta * SENSITIVITY * settings.0.sensitivity;
+        if settings.0.invert_y {
+            d.y = -d.y;
+        }
+        aim.look = Vec2::new(
+            (aim.look.x + d.x).clamp(-LOOK_YAW, LOOK_YAW),
+            (aim.look.y - d.y).clamp(-LOOK_PITCH, LOOK_PITCH),
+        );
+    } else if aim.look != Vec2::ZERO {
+        aim.look *= 0.8;
+        if aim.look.length() < 1e-3 {
+            aim.look = Vec2::ZERO;
+        }
+    }
     // Turn the aim about the suit's up as drawn (as the camera shows it).
     let up = game.core.own_view().map_or(game.core.predict.state.rot, |v| v.rot) * Vec3::Y;
-    if controls.locked && motion.delta != Vec2::ZERO {
+    if controls.locked && motion.delta != Vec2::ZERO && !looking {
         let mut d = motion.delta * SENSITIVITY * settings.0.sensitivity;
         if settings.0.invert_y {
             d.y = -d.y;
@@ -448,10 +487,28 @@ pub fn read_input(
     // while it's pressed.
     const STEP_KEYS: [KeyCode; DIRECTIONS] =
         [KeyCode::KeyD, KeyCode::KeyA, KeyCode::Space, KeyCode::KeyC, KeyCode::KeyW, KeyCode::KeyS];
+    // Inside the colony Space double-tapped is the hover's (it toggles the grip: armed, the suit
+    // falls and lands; off, flight assist holds it up), not a step up.
+    let inside = game.core.inside();
+    if inside && keys.just_pressed(KeyCode::Space) {
+        let now = crate::net::now_s();
+        match *space_at {
+            Some(at) if now - at <= bc_client_core::doubletap::WINDOW => {
+                controls.grip = !controls.grip;
+                *space_at = None;
+                ui.toast(if controls.grip {
+                    "FALLING: the colony's pull takes you down, and you land on your feet (double-tap Space: hover)"
+                } else {
+                    "HOVER: flight assist holds you up; Space climbs, C sinks (double-tap Space: drop)"
+                });
+            }
+            _ => *space_at = Some(now),
+        }
+    }
     if settings.0.double_tap && mover.footing != Footing::Grounded {
         let now = crate::net::now_s();
         for (k, key) in STEP_KEYS.iter().enumerate() {
-            if keys.just_pressed(*key) {
+            if keys.just_pressed(*key) && !(inside && *key == KeyCode::Space) {
                 tap.press(k, now);
             }
         }

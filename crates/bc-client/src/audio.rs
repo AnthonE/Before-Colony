@@ -429,8 +429,9 @@ pub fn play_sound(
                 });
                 heat += if own { 0.1 } else { 0.0 };
             }
-            // The pilot's own landing thuds in the cockpit (`bc_sound::cockpit`).
-            FxEvent::Transform { .. } | FxEvent::Touchdown { .. } => {}
+            // The pilot's own landing thuds in the cockpit (`bc_sound::cockpit`); a beam's line
+            // flashing as it ends was heard as it fired.
+            FxEvent::Transform { .. } | FxEvent::Touchdown { .. } | FxEvent::BeamTrace { .. } => {}
         }
     }
     // Other suits' blades lighting up.

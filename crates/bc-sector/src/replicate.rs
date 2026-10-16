@@ -368,10 +368,15 @@ pub(crate) fn build_snapshot(
 /// haze).
 pub(crate) const WATCH_RANGE: f32 = 2_500.0;
 
+/// How long a watcher is told of a strike on one of the Blast Hall's targets, ticks: a watcher never
+/// acks, so each goes in every snapshot for this long (the client keeps the first it hears).
+pub(crate) const WATCH_EVENT_TICKS: u32 = 15;
+
 /// Writes one snapshot for a spectator watching from `at`: no own suit and no Orrery, the suits
 /// within [`WATCH_RANGE`] of them by the same priority accumulation as everyone's (weighted by
-/// distance), and notices of those that left their view or the sector. Nothing else: no events
-/// (inside the colony nothing fires), rocks, missiles or salvage.
+/// distance), notices of those that left their view or the sector, and the strikes on the Blast
+/// Hall's targets near them lately (inside the colony nothing else fires; its rounds aren't drawn on
+/// foot, its targets flashing are). Nothing else: rocks, missiles or salvage.
 pub(crate) fn build_watch(
     sim: &Sim,
     client: &mut ClientState,
@@ -410,6 +415,20 @@ pub(crate) fn build_watch(
         let (slot, tick) = client.leaves[k];
         if !w.event(&Event::Leave { tick, slot }, ENTITY_RESERVE_BITS) {
             break;
+        }
+    }
+    // The hall's targets struck lately, if the watcher's near enough the hall to see them.
+    if bc_sim::colony::hall::gantry().distance(at) < WATCH_RANGE {
+        let next = sim.events.next_seq();
+        let mut seq = next.saturating_sub(64).max(sim.events.oldest_seq());
+        while seq < next {
+            if let Some(e @ Event::TargetHit { tick, .. }) = sim.events.get(seq)
+                && t.saturating_sub(*tick) <= WATCH_EVENT_TICKS
+                && !w.event(e, ENTITY_RESERVE_BITS)
+            {
+                break;
+            }
+            seq += 1;
         }
     }
     w.end_events();

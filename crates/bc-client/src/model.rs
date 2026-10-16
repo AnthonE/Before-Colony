@@ -22,6 +22,8 @@ pub struct FrameModel {
 pub struct SuitMeshLib {
     models: HashMap<(FrameId, Lod), FrameModel>,
     sockets: HashMap<FrameId, Sockets>,
+    /// The bones the cockpit view leaves out (`bc_model::near_eye_bones`), by frame.
+    near_eye: HashMap<FrameId, u32>,
     /// One of a Corona's wards as it flies out of its rack (`bc_model::ward_disc`).
     pub ward_disc: Handle<Mesh>,
 }
@@ -33,6 +35,11 @@ impl SuitMeshLib {
 
     pub fn sockets(&self, frame: FrameId) -> &Sockets {
         &self.sockets[&frame]
+    }
+
+    /// The bones of `frame` the cockpit view leaves out (bit `Bone::index`).
+    pub fn near_eye(&self, frame: FrameId) -> u32 {
+        self.near_eye.get(&frame).copied().unwrap_or(0)
     }
 }
 
@@ -48,9 +55,13 @@ pub fn mesh(m: MeshData) -> Mesh {
 pub fn build_suit_meshes(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>) {
     let mut models = HashMap::new();
     let mut sockets = HashMap::new();
+    let mut near_eye = HashMap::new();
     for frame in FrameId::ALL {
         for lod in LODS {
             let model = bc_model::build(frame, lod);
+            if lod == Lod::Near {
+                near_eye.insert(frame, bc_model::near_eye_bones(&model, bc_model::NEAR_EYE));
+            }
             let mut bones: [Option<Handle<Mesh>>; BONES] = std::array::from_fn(|_| None);
             for (slot, m) in bones.iter_mut().zip(model.bones) {
                 *slot = m.map(|m| meshes.add(mesh(m)));
@@ -62,5 +73,5 @@ pub fn build_suit_meshes(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>
         }
     }
     let ward_disc = meshes.add(mesh(bc_model::ward_disc(Lod::Near)));
-    commands.insert_resource(SuitMeshLib { models, sockets, ward_disc });
+    commands.insert_resource(SuitMeshLib { models, sockets, near_eye, ward_disc });
 }

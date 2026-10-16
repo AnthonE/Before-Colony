@@ -12,7 +12,7 @@ use bc_proto::events::BurstCause;
 use bc_proto::snapshot::{ent_flags, orrery_mode, own_flags};
 use bc_sim::TICK_HZ;
 use bc_sim::bodies::sweep_landmarks;
-use bc_sim::content::{SPECIAL_MOUNT, SpecialKind, frame};
+use bc_sim::content::{SPECIAL_MOUNT, SpecialKind, frame, weapon};
 use bc_sim::ground::{GRIP_ACCEL, LAND_SPEED_MAX};
 use bc_sim::world::COLONY_CENTER;
 use bevy::prelude::*;
@@ -32,10 +32,15 @@ const POD_SECS: f32 = 12.0;
 pub struct Seen {
     hits: HashSet<(u32, u16, u8)>,
     kills: HashSet<(u32, u16)>,
-    /// Beams that have splashed on the colony's hull or a rock, by (shooter, shot).
-    splashes: HashSet<(u16, u8)>,
-    /// Beams whose muzzle flash has been shown, by (shooter, shot).
-    fired: HashSet<(u16, u8)>,
+    /// Beams that have splashed on the colony's hull, a rock or a hall target, by their key.
+    splashes: HashSet<u32>,
+    /// Beams whose muzzle flash has been shown, by their key.
+    fired: HashSet<u32>,
+    /// The pilot's own shots heard of without being predicted, by key: when (the own clock) and
+    /// where they were first drawn leaving the gun.
+    rebased: HashMap<u32, (f64, Vec3)>,
+    /// Training rounds' strikes on the hall's targets already shown, by (tick, target).
+    strikes: HashSet<(u32, u8)>,
     clashes: HashSet<(u32, u16, u16)>,
     rock_breaks: HashSet<(u32, u16)>,
     /// Missile bursts shown, by (tick, missile).
@@ -118,6 +123,7 @@ pub fn sync_view(
     mut events: ResMut<FxEvents>,
     mut target: ResMut<CameraTarget>,
     shot: Res<crate::launch_shot::LaunchShot>,
+    mut strikes: ResMut<crate::view::Strikes>,
     mut seen: Local<Seen>,
 ) {
     let game = game.borrow();
@@ -137,12 +143,15 @@ pub fn sync_view(
 
     // --- Suits. ---
     // Who is holding a chunk, and in which hand (true: the right), as drawn.
-    let holders: HashMap<u16, bool> = world
+    // (And the gun, if it's one: it fires on the secondary's trigger.)
+    let holders: HashMap<u16, (bool, Option<bc_proto::WeaponKind>)> = world
         .objects
         .iter()
         .flatten()
         .filter_map(|o| match o.motion_at(t_render) {
-            ObjectMotion::Held { holder, right, .. } => Some((holder, right)),
+            ObjectMotion::Held { holder, right, .. } => {
+                Some((holder, (right, bc_sim::content::salvage::held_gun(&o.desc))))
+            }
             ObjectMotion::Free(_) => None,
         })
         .collect();
@@ -230,6 +239,7 @@ pub fn sync_view(
                 ObjectMotion::Held { holder, right, .. } if holder == own.slot => Some(right),
                 _ => None,
             }),
+            held_gun: world.gun_in_hand(),
             ground: view.ground.and_then(|g| SuitGround::of(&g, &bodies)),
             weathering: bc_client_core::weathering(world, own.slot),
             doomed: own.alive && own.doom > 0,
@@ -261,7 +271,8 @@ pub fn sync_view(
             flags: state.flags,
             parts: state.parts,
             thrust,
-            holding: holders.get(&(slot as u16)).copied(),
+            holding: holders.get(&(slot as u16)).map(|h| h.0),
+            held_gun: holders.get(&(slot as u16)).and_then(|h| h.1),
             ground: p.ground.and_then(|g| SuitGround::of(&g, &bodies)),
             weathering: bc_client_core::weathering(world, slot as u16),
             doomed: state.flags & ent_flags::WRECK == 0 && world.doomed.contains_key(&(slot as u16)),
@@ -325,26 +336,68 @@ pub fn sync_view(
         })
         .map(|t| (t.sample(t_render, &world.bodies).pos, t.latest.faction))
         .collect();
+    // Where the own suit's gun is as drawn, for its own shots heard of without being predicted.
+    let own_muzzle = |w: bc_proto::WeaponKind| -> Option<Vec3> {
+        let v = drawn?;
+        let spec = frame(v.frame);
+        let arm = spec
+            .loadout
+            .iter()
+            .chain(spec.special_mounts.iter())
+            .flatten()
+            .find(|m| m.weapon == w || weapon(m.weapon).charged.is_some_and(|c| c.shot == w))
+            .map(|m| m.arm)
+            .or_else(|| {
+                world.own.and_then(|o| world.gun_held_by(o.slot)).map(|(_, right)| {
+                    if right { bc_sim::content::ArmSlot::Right } else { bc_sim::content::ArmSlot::Left }
+                })
+            })?;
+        Some(v.pos + v.rot * arm.muzzle())
+    };
     for b in &world.beams {
-        let t = if Some(b.shooter) == own_slot { t_own } else { t_render };
-        if !b.alive_at(t) {
+        let own = Some(b.shooter) == own_slot;
+        let t = if own { t_own } else { t_render };
+        // The pilot's own shot heard of late is drawn leaving the gun when it's first seen, judged
+        // against the hall where the server flew it.
+        let (origin, spawn, judge) = if own && b.rebase {
+            let &mut (at, from) =
+                seen.rebased.entry(b.key).or_insert_with(|| (t, own_muzzle(b.weapon).unwrap_or(b.origin)));
+            (from, at, at - b.spawn_tick)
+        } else {
+            (b.origin, b.spawn_tick, b.judge)
+        };
+        let Some(sample) = bc_client_core::beam_view::sample(b, origin, spawn, judge, t, inside) else {
             continue;
+        };
+        let dir = sample.dir;
+        // Every shot flashes at its gun once, the moment it's first drawn, however soon it stops:
+        // the sound and the recoil go with the flash.
+        if seen.fired.insert(b.key) {
+            let vel = if own {
+                drawn.map_or(Vec3::ZERO, |v| v.flight_vel)
+            } else {
+                world.pose(b.shooter, t_render).map_or(Vec3::ZERO, |p| p.vel)
+            };
+            events.0.push(FxEvent::Muzzle {
+                pos: origin,
+                dir,
+                vel,
+                weapon: b.weapon,
+                shooter: Some(b.shooter),
+            });
+            if own {
+                strikes.own_muzzles += 1;
+            }
         }
-        let head = b.pos_at(t);
-        let dir = b.velocity.normalize_or(Vec3::Z);
-        let travelled = head.distance(b.origin);
-        let field = &core.predict.field;
-        let radius = bc_sim::content::weapon(b.weapon).radius;
-        if inside {
-            use bc_sim::colony::hall::{Stop, shot_end, target};
-            let (k, frac) = (t.max(0.0).floor(), (t - t.max(0.0).floor()) as f32);
-            if let Some((f, what)) = shot_end(b.origin, head, radius, k as u32, frac) {
-                let at = b.origin + (head - b.origin) * f;
-                let normal = match what {
-                    Stop::Target(i) => (at - target(usize::from(i), k as u32, frac)).normalize_or(-dir),
-                    Stop::Wall => -dir,
-                };
-                if seen.splashes.insert((b.shooter, b.shot_seq)) {
+        if let Some((at, what, normal)) = sample.stop {
+            use bc_client_core::beam_view::Ended;
+            if seen.splashes.insert(b.key) {
+                // Its whole line flashes where it flew, from the gun to what stopped it.
+                events.0.push(FxEvent::BeamTrace { from: origin, to: at, weapon: b.weapon });
+                if own {
+                    strikes.own_traces += 1;
+                }
+                if what != Ended::Suit {
                     events.0.push(FxEvent::Hit {
                         pos: at,
                         weapon: b.weapon,
@@ -352,26 +405,33 @@ pub fn sync_view(
                         target: None,
                     });
                 }
-                continue;
+                if let Ended::Target(k) = what {
+                    strikes.strike(k, now, own);
+                }
+                if own && what == Ended::Suit {
+                    strikes.marker_at = now;
+                }
             }
+            continue;
         }
-        let rock = field.sweep(b.origin, head, radius).map(|(t, i)| (t * travelled, i)).filter(|_| !inside);
-        let hull = crate::colony::ray_hit(b.origin, dir).filter(|d| !inside && travelled >= *d);
+        let head = sample.head;
+        let travelled = sample.travelled;
+        let field = &core.predict.field;
+        let radius = bc_sim::content::weapon(b.weapon).radius;
+        let rock = field.sweep(origin, head, radius).map(|(t, i)| (t * travelled, i)).filter(|_| !inside);
+        let hull = crate::colony::ray_hit(origin, dir).filter(|d| !inside && travelled >= *d);
         let k = bodies.t.max(0.0).floor();
         let landmark =
-            sweep_landmarks(bodies.set.landmarks(), b.origin, head, radius, k as u32, (bodies.t - k) as f32)
+            sweep_landmarks(bodies.set.landmarks(), origin, head, radius, k as u32, (bodies.t - k) as f32)
                 .map(|(s, id)| (s * travelled, id))
                 .filter(|_| !inside);
-        let faction = if Some(b.shooter) == own_slot {
-            Some(world.faction)
-        } else {
-            world.entity(b.shooter).map(|t| t.latest.faction)
-        };
+        let faction =
+            if own { Some(world.faction) } else { world.entity(b.shooter).map(|t| t.latest.faction) };
         let ward = fields
             .iter()
             .filter(|(_, f)| Some(*f) != faction && !inside)
             .filter_map(|&(c, _)| {
-                bc_sim::collide::sphere_entry(b.origin, head, c, bc_sim::content::WARD_RADIUS)
+                bc_sim::collide::sphere_entry(origin, head, c, bc_sim::content::WARD_RADIUS)
                     .map(|s| (s * travelled, c))
             })
             .reduce(|x, y| if y.0 < x.0 { y } else { x });
@@ -381,15 +441,16 @@ pub fn sync_view(
         if let Some((d, c)) = ward
             && solid.is_none_or(|s| d < s)
         {
-            if seen.splashes.insert((b.shooter, b.shot_seq)) {
-                let at = b.origin + dir * d;
+            if seen.splashes.insert(b.key) {
+                let at = origin + dir * d;
                 let normal = (at - c).normalize_or(-dir);
+                events.0.push(FxEvent::BeamTrace { from: origin, to: at, weapon: b.weapon });
                 events.0.push(FxEvent::Hit { pos: at, weapon: b.weapon, normal: Some(normal), target: None });
             }
             continue;
         }
         let stop = solid.map(|d| {
-            let at = b.origin + dir * d;
+            let at = origin + dir * d;
             let normal = match (rock, landmark) {
                 (Some((r, i)), _) if r == d => field.rocks()[i].normal(at, radius),
                 (_, Some((l, id))) if l == d => bodies
@@ -404,31 +465,33 @@ pub fn sync_view(
             (at, normal)
         });
         if let Some((at, normal)) = stop {
-            if seen.splashes.insert((b.shooter, b.shot_seq)) {
+            if seen.splashes.insert(b.key) {
+                events.0.push(FxEvent::BeamTrace { from: origin, to: at, weapon: b.weapon });
                 events.0.push(FxEvent::Hit { pos: at, weapon: b.weapon, normal: Some(normal), target: None });
             }
             continue;
         }
-        if seen.fired.insert((b.shooter, b.shot_seq)) {
-            let vel = if Some(b.shooter) == own_slot {
-                drawn.map_or(Vec3::ZERO, |v| v.flight_vel)
-            } else {
-                world.pose(b.shooter, t_render).map_or(Vec3::ZERO, |p| p.vel)
-            };
-            events.0.push(FxEvent::Muzzle {
-                pos: b.origin,
-                dir,
-                vel,
-                weapon: b.weapon,
-                shooter: Some(b.shooter),
-            });
-        }
         beams.0.push(BeamView { head, dir, travelled, weapon: b.weapon });
     }
-    seen.fired
-        .retain(|&(shooter, shot)| world.beams.iter().any(|b| b.shooter == shooter && b.shot_seq == shot));
-    seen.splashes
-        .retain(|&(shooter, shot)| world.beams.iter().any(|b| b.shooter == shooter && b.shot_seq == shot));
+    seen.fired.retain(|k| world.beams.iter().any(|b| b.key == *k));
+    seen.splashes.retain(|k| world.beams.iter().any(|b| b.key == *k));
+    seen.rebased.retain(|k, _| world.beams.iter().any(|b| b.key == *k));
+    // Strikes on the hall's targets the server tells of (stream weapons' rounds aren't beams, and
+    // anyone's are shown): a target flashes as the news arrives.
+    for h in &world.target_hits {
+        if seen.strikes.insert((h.tick, h.target)) {
+            strikes.strike(h.target, now, h.by_me);
+        }
+    }
+    seen.strikes
+        .retain(|&(tick, target)| world.target_hits.iter().any(|h| h.tick == tick && h.target == target));
+    // A hit of the pilot's own on a suit marks the reticle.
+    if world.my_hits != strikes.hits_seen {
+        if world.my_hits > strikes.hits_seen {
+            strikes.marker_at = now;
+        }
+        strikes.hits_seen = world.my_hits;
+    }
 
     // --- Missiles, on the render clock, and their bursts. ---
     missiles.0.clear();
@@ -598,6 +661,7 @@ pub fn sync_view(
         vel: pod.map_or(view.vel, |p| p.vel),
         up: view.rot * Vec3::Y,
         aim: pod.map_or(aim.dir, |p| (view.pos - p.pos).normalize_or(aim.dir)),
+        look: if pod.is_some() { Vec2::ZERO } else { aim.look },
         cut: view.cut,
         ground: view.alive && view.ground.is_some(),
         boost: view.alive && view.boosting,

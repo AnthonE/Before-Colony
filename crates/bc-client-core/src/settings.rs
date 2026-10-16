@@ -6,8 +6,9 @@
 //! lines a person can read; a key this build doesn't know is kept as it is (a newer build wrote
 //! it), and a known key with a bad value falls back to its default.
 
-/// The version this build writes.
-pub const SETTINGS_VERSION: u32 = 1;
+/// The version this build writes. 2: the cockpit became the default view, and a file from before
+/// starts in it once.
+pub const SETTINGS_VERSION: u32 = 2;
 
 /// The graphics tier to use: `Auto` lets the page pick from the GPU it finds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,8 +39,8 @@ impl GfxChoice {
 /// head's cameras).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CameraView {
-    #[default]
     Chase,
+    #[default]
     Cockpit,
 }
 
@@ -103,6 +104,7 @@ pub const KNOBS: &[Knob] = &[
     toggle("invert_y", "Invert mouse Y", "CONTROLS"),
     toggle("double_tap", "Double-tap a direction to step", "CONTROLS"),
     Knob { key: "camera", label: "Flight camera", group: "VIEW", kind: Kind::Choice(&CameraView::NAMES) },
+    toggle("cockpit_holo", "Holo cockpit: see through the frame all round (K)", "VIEW"),
     range("fov", "Field of view", "VIEW", 60.0, 100.0, 1.0),
     range("shake", "Camera shake and screen effects", "VIEW", 0.0, 1.0, 0.05),
     toggle("flashing", "Flashing effects", "VIEW"),
@@ -128,6 +130,9 @@ pub struct Settings {
     pub invert_y: bool,
     /// Where the camera sits in flight.
     pub camera: CameraView,
+    /// In the cockpit: its frame and monitors see-through, a holographic view all round, rather
+    /// than the framed monitors.
+    pub cockpit_holo: bool,
     /// Field of view, degrees.
     pub fov: f32,
     /// How much of the camera shake, kicks and warps to keep, 0..1.
@@ -169,7 +174,8 @@ impl Default for Settings {
             frame: String::new(),
             sensitivity: 1.0,
             invert_y: false,
-            camera: CameraView::Chase,
+            camera: CameraView::Cockpit,
+            cockpit_holo: false,
             fov: 70.0,
             shake: 1.0,
             flashing: true,
@@ -235,6 +241,7 @@ impl Settings {
             "sensitivity" => self.sensitivity.to_string(),
             "invert_y" => self.invert_y.to_string(),
             "camera" => self.camera.name().to_string(),
+            "cockpit_holo" => self.cockpit_holo.to_string(),
             "fov" => self.fov.to_string(),
             "shake" => self.shake.to_string(),
             "flashing" => self.flashing.to_string(),
@@ -276,10 +283,11 @@ impl Settings {
                     _ => self.vol_music = v,
                 }
             }
-            "invert_y" | "hints" | "flashing" | "objectives" | "lead" | "double_tap" => {
+            "invert_y" | "hints" | "flashing" | "objectives" | "lead" | "double_tap" | "cockpit_holo" => {
                 let Some(b) = parse_bool(value) else { return false };
                 match key {
                     "invert_y" => self.invert_y = b,
+                    "cockpit_holo" => self.cockpit_holo = b,
                     "hints" => self.hints = b,
                     "objectives" => self.objectives = b,
                     "lead" => self.lead = b,
@@ -314,12 +322,13 @@ impl Settings {
     }
 
     /// Every key, in the order the file lists them.
-    const KEYS: [&'static str; 23] = [
+    const KEYS: [&'static str; 24] = [
         "name",
         "frame",
         "sensitivity",
         "invert_y",
         "camera",
+        "cockpit_holo",
         "fov",
         "shake",
         "flashing",
@@ -381,6 +390,10 @@ pub fn parse(text: &str, defaults: Settings) -> Loaded {
             unknown.push((key.to_string(), format!("{key} = {value}")));
         }
     }
+    // A file from before the cockpit was the default starts in it, once (its next save is v2).
+    if version < 2 {
+        settings.camera = CameraView::Cockpit;
+    }
     Loaded { settings, version, unknown: unknown.into_iter().map(|(_, l)| l).collect() }
 }
 
@@ -411,7 +424,8 @@ mod tests {
             frame: "altair".into(),
             sensitivity: 1.35,
             invert_y: true,
-            camera: CameraView::Cockpit,
+            camera: CameraView::Chase,
+            cockpit_holo: true,
             fov: 85.0,
             shake: 0.25,
             flashing: false,
@@ -474,9 +488,9 @@ mod tests {
         assert!(s.set("gfx", "ULTRA"));
         assert_eq!(s.gfx, GfxChoice::Ultra);
         assert!(!s.set("camera", "helicopter"));
+        assert_eq!(s.camera, CameraView::Cockpit, "the default: the cockpit");
+        assert!(s.set("camera", " Chase "));
         assert_eq!(s.camera, CameraView::Chase);
-        assert!(s.set("camera", " Cockpit "));
-        assert_eq!(s.camera, CameraView::Cockpit);
         assert!(!s.set("nope", "1"));
     }
 
@@ -487,9 +501,15 @@ mod tests {
             assert_eq!(c.toggled().toggled(), c);
             assert_eq!(CameraView::parse(c.name()), Some(c));
         }
-        // An older build's file has no camera line: the chase camera, as before.
-        let loaded = parse("version = 1\nfov = 80\n", Settings::default());
-        assert_eq!(loaded.settings.camera, CameraView::Chase);
+        // An older build's file starts in the cockpit, the default now, whatever it said...
+        let loaded = parse("version = 1\nfov = 80\ncamera = chase\n", Settings::default());
+        assert_eq!(loaded.settings.camera, CameraView::Cockpit);
+        // ...once: saved again, it's a version 2 file, and keeps what the pilot picks.
+        let mut s = loaded.settings;
+        s.camera = CameraView::Chase;
+        let again = parse(&serialize(&s, loaded.version, &loaded.unknown), Settings::default());
+        assert_eq!(again.version, SETTINGS_VERSION);
+        assert_eq!(again.settings.camera, CameraView::Chase);
         // Nor a flashing line: whatever the defaults say (off for a pilot who asked for calm).
         let calm = Settings { flashing: false, ..Settings::default() };
         assert!(!parse("version = 1\n", calm).settings.flashing);

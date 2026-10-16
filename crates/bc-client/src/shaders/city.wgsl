@@ -32,7 +32,8 @@ struct City {
     // x: daylight 0..1; y: lamps lit 0..1; z: seconds; w: the sun's elevation (rad).
     day: vec4<f32>,
     // x: the key light (lux) on the other strips; y: the sky's light (nits); z: 1 while the camera
-    // is in a key place's room (the scene's light is then the room's); w: unused.
+    // is in a key place's room (the scene's light is then the room's); w: the rooms' own light
+    // (nits on a white wall), by the hour (`city.rs`'s `room_ev`).
     light: vec4<f32>,
     // The hour's air and light (`city.rs`'s colour script).
     sky: Sky,
@@ -44,9 +45,8 @@ struct City {
 const TAU: f32 = 6.2831853;
 const PI: f32 = 3.14159265;
 const RADIUS: f32 = 3200.0;
-// A key place's room is lit by its own lamps (nits on a white wall): exposed at EV 8 inside, it's
-// dim seen from the sunlit street through its door, as rooms are.
-const INDOOR: f32 = 300.0;
+// A key place's room is lit by its own lamps (`city.light.w`, nits on a white wall): brighter by day,
+// so it reads lit through its door from the street, and the street from in it isn't white.
 // The ground's lamps by night: nits at a pool's peak a unit of albedo (`bc::city`'s `Paint::lamps`
 // is relative to it), for night's EV 8.5 (`city_hour::EV_NIGHT`; scale by 2^(EV - 8.5) if that
 // moves): pools under the lamps, streets that read as lines from the lift without outshining the
@@ -297,10 +297,27 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
             albedo = vec3(0.82, 0.8, 0.77);
             glow = select(vec3(1.0, 0.96, 0.9), warm, bar) * panel * 2600.0;
         } else if (surface == 17u) {
-            // The counter: a steel desk; the bar's polished wood.
+            // The counter: a steel desk; the bar's polished wood. It's a terminal: a row of lit
+            // screens across its top (the place's colour: the Board's amber, the hall's cyan, the
+            // Exchange's green, the bar's warm), and a light strip along its front edge, so it
+            // reads as the thing E uses from across the room.
             albedo = select(vec3(0.2, 0.22, 0.24), vec3(0.34, 0.18, 0.08), bar);
             rough = 0.3;
             metal = select(0.6, 0.0, bar);
+            let tint = select(select(select(vec3(1.0, 0.72, 0.3), vec3(0.35, 1.0, 0.5), kind == 2u), vec3(1.0, 0.7, 0.2), kind == 3u), vec3(0.35, 0.95, 1.0), blast);
+            let top = dot(normalize(in.world_normal), strip_up(kk)) > 0.7;
+            if (top) {
+                // Screens a metre and a half apart, each 1.1 m wide, scan lines rolling down them.
+                let along = fract(uv.x / 1.5);
+                let screen = step(0.12, along) * step(along, 0.85);
+                let lines = 0.75 + 0.25 * step(0.5, fract(uv.y * 6.0 - city.day.z * 0.8));
+                albedo = mix(albedo, vec3(0.02, 0.03, 0.04), screen);
+                glow = tint * screen * lines * 220.0;
+            } else {
+                // The light strip under the top's edge (sides' UVs: metres along, and up).
+                let strip = step(abs(uv.y - 1.18), 0.03);
+                glow = tint * strip * 600.0;
+            }
         } else {
             // The back wall: what the place is.
             if (blast) {
@@ -375,7 +392,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     let own = vec4((own_light(albedo, n, kk, city.sky) * ao + glow + glint) * view.exposure, 1.0);
     out.color = select(own, lit, scene);
     if (indoor) {
-        out.color = vec4((albedo * INDOOR * ao + glow) * view.exposure, 1.0);
+        out.color = vec4((albedo * city.light.w * ao + glow) * view.exposure, 1.0);
     } else {
         // The air between the eye and here (`bc::colony_sky`): blue and soft along the street,
         // clear across the core.

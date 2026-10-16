@@ -1163,7 +1163,7 @@
     // The test range is the desk's alone (the server refuses it anywhere else).
     const atDesk = desk === "proving";
     const drill = boardColumn("THE DRILL · HERE IN THE HALL",
-      "On the gantry your suit faces the targets. Strike the one pulsing cyan (fire: LMB) and the clock starts with 12 s on it; each lit target struck puts 3 s back. Twenty to clear.",
+      "On the gantry your suit faces the targets. Put the crosshair on the one pulsing cyan (its ◆ on your HUD) and fire: LMB the beam rifle, RMB the machine cannon. The clock starts with 12 s on it; each lit target struck puts 3 s back. Twenty to clear.",
       p.drill, p.drill_record, p.drill_par_ms, p.mine?.drill_ms, "not yet cleared.");
     const course = boardColumn("THE COURSE · OUT IN THE COLONY",
       "Fly out through the blast doors and up to the start ring by the inner gate (◆ on your HUD). Thirteen rings in order, then land on the pad on Hub Gate's square with the grip (L).",
@@ -1182,12 +1182,14 @@
     const step = (n, title, body) =>
       `<section class="step"><div class="step-n">${n}</div><div><h3>${title}</h3>${body}</div></section>`;
     const head = `<div class="status">READY ON THE GANTRY: <b>${esc(ready)}</b><br>` +
-      `Clear the drill or fly the course in it: any time the Board takes is your flight certificate, and the Board trusts a certified pilot with a beam rifle.</div>`;
+      `Clear the drill or fly the course in it: any time the Board takes is your flight certificate, and the Board trusts a certified pilot with a beam rifle.` +
+      (chosen.kind === "bay" ? `<br><span class="warn">Your bay's build may have no beam rifle yet: its LMB will say NOT FITTED, and RMB fires its machine cannon.</span>` : "") +
+      `</div>`;
     const steps = [
       step(1, "PICK A SUIT · THE TEST RANGE", atDesk
         ? `<div class="say">Keep the Board's Argo, or try another. The gantry readies it new, full and loaded: nothing of yours is taken, and nothing comes home.</div><div class="filters">${trainers}</div>`
         : `<div class="say">The test range is picked at the desk in the Blast Hall, off Hub Gate's square.</div>`),
-      step(2, "BOARD IT", `<div class="say">The gantry is the amber ring on the floor just inside the blast doors, on your left as you come in. Stand at its hatch, facing the ring, and press E.</div>` +
+      step(2, "BOARD IT", `<div class="say">The gantry is the amber ring on the floor just inside the blast doors, on your left as you come in, the trainer standing on it. Walk up to its hatch (the lit sign) and press E.</div>` +
         (atDesk ? `<div class="row">${button("WALK ME TO THE GANTRY", { act: "to-gantry" }, "primary")}<span class="note">Closes the desk. Any move key takes your feet back.</span></div>` : "")),
       step(3, "FLY A TEST", `<div class="split even"><div>${drill}</div><div>${course}</div></div>`),
       step(4, "BRING IT BACK", `<div class="say">Settle on the gantry's ring at rest and press Enter: you climb out at its hatch, and the Board keeps its suit. Or fly your own in: from your bay, Q at the cockpit brings it in by the inner gate, by the course's start ring.</div>`),

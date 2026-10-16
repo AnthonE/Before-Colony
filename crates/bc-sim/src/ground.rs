@@ -68,6 +68,19 @@ pub const LAND_SPEED_MAX: f32 = 8.0;
 pub const JUMP_SPEED: f32 = 10.0;
 /// Aloft, flight assist climbs (or dives) this fast along the normal at full stick, m/s.
 pub const HOP_CLIMB: f32 = 20.0;
+/// Inside the colony, falling with the grip armed: Space and C climb and dive this fast, m/s; a
+/// fall is braked to [`FALL_LAND`] by the time its feet are [`FALL_FLARE`] m up, at [`FALL_BRAKE`]
+/// m/s² as it comes down to that, and never runs faster than [`FALL_MAX`]. So whatever height it
+/// falls from it comes in slow and close enough to be caught ([`CATCH_SPEED`], [`CATCH_RANGE`]) and
+/// lands on its feet.
+pub const INTERIOR_CLIMB: f32 = 25.0;
+pub const FALL_LAND: f32 = 6.0;
+pub const FALL_FLARE: f32 = 12.0;
+pub const FALL_BRAKE: f32 = 3.0;
+pub const FALL_MAX: f32 = 40.0;
+/// Inside the colony, falling with the grip armed, within [`CATCH_RANGE`] of the ground: the
+/// fastest flight assist lets it go across, m/s, so it's caught and lands.
+pub const FLARE_SPEED: f32 = 6.0;
 /// Letting go of the ground pushes off at this speed, m/s.
 pub const TAKEOFF_SPEED: f32 = 6.0;
 /// A suit whose body shatters under it floats off at this speed, m/s.
@@ -211,6 +224,18 @@ fn step_toward(x: f32, target: f32, step: f32) -> f32 {
     if x < target { (x + step).min(target) } else { (x - step).max(target) }
 }
 
+/// Inside the colony, the fastest a suit at `p` falling with its grip armed is let fall, m/s: by
+/// how high its feet are over what's under it.
+pub fn fall_limit(p: Vec3) -> f32 {
+    fall(p).0
+}
+
+/// [`fall_limit`] at `p`, and how high its feet are over what's under it, m.
+fn fall(p: Vec3) -> (f32, f32) {
+    let h = crate::colony::interior::ground_under(p).map_or(0.0, |g| (g - STANCE).max(0.0));
+    (sqrt(FALL_LAND * FALL_LAND + 2.0 * FALL_BRAKE * (h - FALL_FLARE).max(0.0)).min(FALL_MAX), h)
+}
+
 /// Whether `shape` is the colony's city, which has a down.
 fn is_city(shape: &Shape) -> bool {
     matches!(shape.base, Base::City)
@@ -305,7 +330,26 @@ pub fn move_step(b: &Bodies, m: &mut Mover, cmd: &InputCmd, cx: &MoveCtx, dt: f3
                     .map(|n| n.n_world);
             }
             if b.interior {
-                // Inside the colony: its pull, its air, its hull and its city.
+                // Inside the colony: its pull, its air, its hull and its city. There's a down, and
+                // the suit rolls level with it (Q/E roll it off). With the grip armed it feels the
+                // pull: flight assist lets it fall, braked to land ([`fall_limit`]); with it off, it
+                // hovers, flight assist holding it against the pull.
+                if cmd.roll == 0 {
+                    mods.roll_level = Some(up_at(m.flight.pos));
+                }
+                if cmd.pressed(GRIP) && cx.can_grip {
+                    let up = up_at(m.flight.pos);
+                    let (sink, h) = fall(m.flight.pos);
+                    // Coming down to land, it slows to be caught (a flare), whatever the stick.
+                    let cruise = flight::fa_cruise(cx.spec, &mods, cmd, m.flight.propellant);
+                    let cruise = if h < CATCH_RANGE { cruise.min(FLARE_SPEED) } else { cruise };
+                    mods.hop = Some(HopAssist {
+                        up: m.flight.rot.conjugate() * up,
+                        cruise,
+                        climb: INTERIOR_CLIMB,
+                        sink: Some(sink),
+                    });
+                }
                 out.flight = crate::colony::interior::step(&mut m.flight, cmd, cx.spec, &mods, dt);
             } else {
                 // Locked on: flight assist flies by the fight's axes, and the suit rolls level
@@ -699,7 +743,7 @@ fn aloft(
     let cruise = if cmd.pressed(BOOST) { RUN_SPEED } else { WALK_SPEED };
     let mods = FlightMods {
         roll_level: (cmd.roll == 0).then_some(n),
-        hop: Some(HopAssist { up: l.rot.conjugate() * n, cruise, climb: HOP_CLIMB }),
+        hop: Some(HopAssist { up: l.rot.conjugate() * n, cruise, climb: HOP_CLIMB, sink: None }),
         // The pull is the one above (the grip's, or the colony's own over its city), not again.
         interior: false,
         ..cx.mods

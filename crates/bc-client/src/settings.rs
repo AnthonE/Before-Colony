@@ -80,7 +80,13 @@ pub fn apply_saved_tier(gfx: &mut Gfx, cfg: &LaunchConfig, s: &Settings) {
 
 /// The view's preferences from the settings.
 pub fn view_prefs(s: &Settings) -> ViewPrefs {
-    ViewPrefs { fov: s.fov, shake: s.shake, cockpit: s.camera == CameraView::Cockpit, flashing: s.flashing }
+    ViewPrefs {
+        fov: s.fov,
+        shake: s.shake,
+        cockpit: s.camera == CameraView::Cockpit,
+        holo: s.cockpit_holo,
+        flashing: s.flashing,
+    }
 }
 
 /// Applies the page's changes, saves when due, and hands the view its preferences.
@@ -196,7 +202,7 @@ pub fn update_hints(
     game: NonSend<GameClient>,
     time: Res<Time<Real>>,
 ) {
-    let (alive, survival, feet, hidden, hostile_near, locked, colony, inside, near_hub) = {
+    let (alive, survival, feet, hidden, hostile_near, locked, colony, inside, near_hub, trainer) = {
         let g = game.borrow();
         let own = g.core.world.own.filter(|o| o.alive);
         // A hostile within a couple of kilometres: something to lock on to.
@@ -224,6 +230,7 @@ pub fn update_hints(
                 let mouth = Vec3::new(bc_sim::colony::hub::SPIRE_MOUTH_X, c.y, c.z);
                 !g.core.inside() && from.distance(mouth) < 2_000.0
             },
+            g.core.hangar.trainer,
         )
     };
     let grounded = feet.footing == bc_sim::ground::Footing::Grounded;
@@ -268,6 +275,7 @@ pub fn update_hints(
         inside,
         went_down: used && onfoot.focus == Some(bc_client_core::bay::Spot::Airlock),
         near_hub,
+        trainer: inside && trainer,
     };
     let mut seen = settings.0.hints_seen;
     let hint = state.hints.step(&mut seen, now_s(), f64::from(time.delta_secs()), &input);

@@ -30,6 +30,8 @@ use crate::view::{BeamFeed, FxEvent, FxEvents, MissileFeed, SuitDrive, VisTime};
 
 const BEAMS: usize = 96;
 const TRACERS: usize = 96;
+/// Beams' lines flashing as they end (`FxEvent::BeamTrace`).
+const TRACES: usize = 48;
 /// Point lights for effects (the most any tier uses).
 const LIGHTS: usize = 24;
 
@@ -38,11 +40,22 @@ pub struct BeamVis(usize);
 #[derive(Component)]
 pub struct TracerVis(usize);
 #[derive(Component)]
+pub struct TraceVis(usize);
+#[derive(Component)]
 pub struct FxLight(usize);
 
 struct Tracer {
     origin: Vec3,
     vel: Vec3,
+    born: f64,
+    life: f64,
+    weapon: WeaponKind,
+}
+
+/// A beam's line from the gun to where it ended, fading.
+struct Trace {
+    from: Vec3,
+    to: Vec3,
     born: f64,
     life: f64,
     weapon: WeaponKind,
@@ -60,6 +73,7 @@ struct Flash {
 #[derive(Resource, Default)]
 pub struct FxState {
     tracers: Vec<Tracer>,
+    traces: Vec<Trace>,
     flashes: Vec<Flash>,
     /// When each suit's mount last put out a tracer, by (slot, mount).
     last_tracer: HashMap<(u16, u8), f64>,
@@ -73,14 +87,37 @@ pub fn firing_mounts(d: &SuitDrive) -> impl Iterator<Item = (u8, Mount)> + '_ {
     let wreck = d.flags & ent_flags::WRECK != 0;
     let full_salvo =
         d.flags & ent_flags::SPECIAL != 0 && matches!(spec.special, SpecialKind::FullSalvo { .. });
-    let loadout =
-        [(0u8, ent_flags::FIRING_PRIMARY), (1, ent_flags::FIRING_SECONDARY)].into_iter().filter_map(
-            move |(k, bit)| spec.loadout[usize::from(k)].filter(|_| d.flags & bit != 0).map(|m| (k, m)),
-        );
+    // A gun in hand fires on the secondary's trigger, and shows as itself.
+    let hand = if d.holding == Some(true) { ArmSlot::Right } else { ArmSlot::Left };
+    let loadout = [(0u8, ent_flags::FIRING_PRIMARY), (1, ent_flags::FIRING_SECONDARY)]
+        .into_iter()
+        .filter_map(move |(k, bit)| {
+            let mount = match d.held_gun {
+                Some(weapon) if k == 1 => Some(Mount { weapon, arm: hand }),
+                _ => spec.loadout[usize::from(k)],
+            };
+            mount.filter(|_| d.flags & bit != 0).map(|m| (k, m))
+        });
     let special = (0..2u8).filter_map(move |k| spec.special_mounts[usize::from(k)].map(|m| (k + 3, m)));
     loadout
         .chain(special.filter(move |_| full_salvo))
         .filter(move |(_, m)| !wreck && weapon(m.weapon).class != WeaponClass::Melee)
+}
+
+/// How big a shot's muzzle flash and impact are, against a beam rifle's.
+pub fn weight(w: WeaponKind) -> f32 {
+    match w {
+        WeaponKind::HeavyBeamRifle | WeaponKind::ReactorCannon => 4.0,
+        WeaponKind::BeamCannon => 2.6,
+        WeaponKind::BeamRifleCharged => 2.0,
+        _ => 1.0,
+    }
+}
+
+/// The big beams: a ring at the muzzle, an ionised trail, a light where their head is, and the
+/// camera shakes when one fires near it.
+pub fn heavy(w: WeaponKind) -> bool {
+    weight(w) >= 2.5
 }
 
 pub fn setup_fx(mut commands: Commands, ribbons: Res<Ribbons>) {
@@ -102,6 +139,17 @@ pub fn setup_fx(mut commands: Commands, ribbons: Res<Ribbons>) {
             Mesh3d(ribbons.mesh.clone()),
             MeshMaterial3d(ribbons.tracer.material.clone()),
             MeshTag(i as u32 * 53 % 256),
+            Transform::default(),
+            Visibility::Hidden,
+        ));
+    }
+    for i in 0..TRACES {
+        commands.spawn((
+            crate::inside::WeaponFx,
+            TraceVis(i),
+            Mesh3d(ribbons.mesh.clone()),
+            MeshMaterial3d(ribbons.rifle.material.clone()),
+            crate::beams::beam_tag((i * 41 % 256) as u8, true),
             Transform::default(),
             Visibility::Hidden,
         ));
@@ -145,11 +193,15 @@ pub fn update_fx(
     mut blasts: ResMut<Blasts>,
     mut beams: Query<
         (&BeamVis, &mut Transform, &mut Visibility, &mut MeshMaterial3d<BeamMaterial>),
-        Without<TracerVis>,
+        (Without<TracerVis>, Without<TraceVis>),
     >,
     mut tracers: Query<
         (&TracerVis, &mut Transform, &mut Visibility, &mut MeshMaterial3d<BeamMaterial>),
-        Without<BeamVis>,
+        (Without<BeamVis>, Without<TraceVis>),
+    >,
+    mut traces: Query<
+        (&TraceVis, &mut Transform, &mut Visibility, &mut MeshMaterial3d<BeamMaterial>),
+        (Without<BeamVis>, Without<TracerVis>),
     >,
     field: Option<Res<crate::rocks::VisField>>,
     inside: Option<Res<crate::inside::FlyingInside>>,
@@ -170,7 +222,7 @@ pub fn update_fx(
                     mat.0 = look.material.clone();
                 }
                 show(&mut v, true);
-                if b.weapon == WeaponKind::HeavyBeamRifle {
+                if heavy(b.weapon) {
                     particles.trail(cap, b.head, b.dir, length, look.color, time.dt);
                 }
                 // A bright bolt-head, so a shot reads end-on and far away (the heavy beam rifle's own
@@ -247,6 +299,29 @@ pub fn update_fx(
                 let travelled = head.distance(tr.origin);
                 let dir = tr.vel.normalize_or(Vec3::Z);
                 place_ribbon(&mut tf, head, dir, look.length.min(travelled.max(1.0)), look.half_width);
+                if mat.0 != look.material {
+                    mat.0 = look.material.clone();
+                }
+                show(&mut v, true);
+            }
+            None => show(&mut v, false),
+        }
+    }
+
+    // --- Beams' lines as they end: the whole shot, from the gun to what stopped it, thinning out. ---
+    state.traces.retain(|tr| now - tr.born < tr.life);
+    let n = state.traces.len();
+    if n > TRACES {
+        state.traces.drain(..n - TRACES);
+    }
+    for (vis, mut tf, mut v, mut mat) in &mut traces {
+        match state.traces.get(vis.0) {
+            Some(tr) => {
+                let look = ribbons.look(tr.weapon);
+                let fade = 1.0 - ((now - tr.born) / tr.life) as f32;
+                let length = tr.from.distance(tr.to).max(1.0);
+                let dir = (tr.to - tr.from).normalize_or(Vec3::Z);
+                place_ribbon(&mut tf, tr.to, dir, length, look.half_width * (0.25 + 0.75 * fade));
                 if mat.0 != look.material {
                     mat.0 = look.material.clone();
                 }
@@ -350,17 +425,11 @@ pub fn update_fx(
         match ev {
             FxEvent::Hit { pos, weapon, normal, target } => {
                 let look = ribbons.look(weapon);
-                let big = weapon == WeaponKind::HeavyBeamRifle;
+                let big = heavy(weapon);
                 // Sparks fly off the struck surface (or back toward the camera's side of it), and
                 // on with the suit they came off.
                 let normal = normal.unwrap_or_else(|| (eye - pos).normalize_or(Vec3::Y));
-                let scale = if big {
-                    3.0
-                } else if weapon == WeaponKind::BeamRifleCharged {
-                    1.8
-                } else {
-                    1.0
-                };
+                let scale = (weight(weapon) * 0.75).max(1.0);
                 let vel = target.and_then(|(slot, _)| suit_vel(slot)).unwrap_or(Vec3::ZERO);
                 particles.impact(cap, At { pos, vel }, normal, look.color, scale);
                 state.flashes.push(Flash {
@@ -402,17 +471,10 @@ pub fn update_fx(
                         bone_point(d, anim, Bone::Weapon, lib.sockets(d.frame).muzzle)
                     });
                 let look = ribbons.look(weapon);
-                let heavy_beam = weapon == WeaponKind::HeavyBeamRifle;
-                let scale = if heavy_beam {
-                    4.0
-                } else if weapon == WeaponKind::BeamRifleCharged {
-                    2.0
-                } else {
-                    1.0
-                };
+                let scale = weight(weapon);
                 particles.muzzle(cap, At { pos, vel }, dir, look.color, scale);
-                if heavy_beam {
-                    blasts.ring(pos + dir * 6.0, vel, dir, 28.0);
+                if heavy(weapon) {
+                    blasts.ring(pos + dir * 6.0, vel, dir, 7.0 * scale);
                 }
                 state.flashes.push(Flash {
                     pos,
@@ -421,6 +483,10 @@ pub fn update_fx(
                     lumens: 8.0e7 * scale,
                     color: color(look.color),
                 });
+            }
+            FxEvent::BeamTrace { from, to, weapon } => {
+                let life = if heavy(weapon) { 0.35 } else { 0.15 };
+                state.traces.push(Trace { from, to, born: now, life, weapon });
             }
             // The camera shakes and flashes for this one (see `camera`).
             FxEvent::Struck { .. } => {}
@@ -600,7 +666,7 @@ pub fn update_fx_lights(
             wishes.push(LightWish { pos: m.pos, color: Color::srgb(1.0, 0.7, 0.4), lumens: 1.5e7 });
         }
         for b in &feed.0 {
-            if b.weapon == WeaponKind::HeavyBeamRifle {
+            if heavy(b.weapon) {
                 wishes.push(LightWish { pos: b.head, color: Color::srgb(0.95, 0.75, 1.0), lumens: 8.0e8 });
             }
         }

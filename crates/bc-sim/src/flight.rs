@@ -298,6 +298,12 @@ pub struct HopAssist {
     pub cruise: f32,
     /// Speed along the normal at full up or down stick, m/s.
     pub climb: f32,
+    /// Falling free inside the colony with the grip armed (`crate::ground`): flight assist
+    /// doesn't hold the suit up against the colony's pull, but brakes a fall to this, m/s, and
+    /// holds against the pull only to keep a climb or a descent the pilot asks for (or to brake).
+    /// Across, it still holds against Coriolis and the air. None: in a body's grip (whose pull it
+    /// leaves alone).
+    pub sink: Option<f32>,
 }
 
 /// Flight assist locked on to a target (`bc_proto::LockOn`, built by `crate::ground::lockon_assist`):
@@ -487,13 +493,24 @@ pub fn integrate(
     let mut f_local = if assisted {
         let cruise = fa_cruise(spec, mods, cmd, s.propellant);
         let v_local = s.rot.conjugate() * s.vel;
+        // Inside the colony, falling with the grip armed: whether it holds against the pull down
+        // (only to keep what the pilot asks for, or to brake a fall at its limit).
+        let mut fall_free = false;
         let gap = match (mods.hop, mods.lockon) {
             (Some(h), _) => {
                 // Along the surface, the stick's speed; along the normal, the climb asked for, or
-                // else the speed it has (so no force at all that way).
+                // else the speed it has (so no force at all that way), a fall braked at its limit.
                 let (s_n, v_n) = (stick.dot(h.up), v_local.dot(h.up));
                 let s_t = stick - h.up * s_n;
-                let t_n = if cmd.thrust[1] == 0 { v_n } else { s_n * h.climb };
+                let mut t_n = if cmd.thrust[1] == 0 { v_n } else { s_n * h.climb };
+                if let Some(cap) = h.sink {
+                    // Let go of the stick, a climb is checked and then it falls.
+                    if cmd.thrust[1] == 0 {
+                        t_n = v_n.min(0.0);
+                    }
+                    fall_free = cmd.thrust[1] == 0 && v_n > -cap;
+                    t_n = t_n.max(-cap);
+                }
                 s_t * h.cruise + h.up * t_n - v_local
             }
             // Locked on: the stick's velocity in the fight's axes, on top of the target's.
@@ -505,9 +522,15 @@ pub fn integrate(
         };
         let response = if mods.g_immune || length(gap) < FA_SETTLE { dt } else { FA_RESPONSE.max(dt) };
         let mut f_req = gap * (mass / response);
-        // Holding a velocity inside the colony means holding against its pull too.
+        // Holding a velocity inside the colony means holding against its pull too (falling free,
+        // all but its pull down).
         if let Some((e, _)) = ext {
-            f_req -= (s.rot.conjugate() * e) * mass;
+            let e_local = s.rot.conjugate() * e;
+            let hold = match mods.hop {
+                Some(h) if fall_free => e_local - h.up * e_local.dot(h.up),
+                _ => e_local,
+            };
+            f_req -= hold * mass;
         }
         Vec3::new(
             clamp_axis(f_req.x, side, side),
@@ -1202,7 +1225,7 @@ mod tests {
             let up = random_vec(&mut rng, 1.0).normalize_or(Vec3::Y);
             let (mut c, mut d) = (s0, s0);
             step(&mut c, &cmd, spec, &FlightMods { roll_level: Some(up), ..mods }, DT);
-            let hop = HopAssist { up, cruise: 8.0, climb: 20.0 };
+            let hop = HopAssist { up, cruise: 8.0, climb: 20.0, sink: None };
             step(&mut d, &cmd, spec, &FlightMods { hop: Some(hop), ..mods }, DT);
             let fwd = (s0.rot * Vec3::Z - up * (s0.rot * Vec3::Z).dot(up))
                 .normalize_or(up.any_orthonormal_vector());
@@ -1282,7 +1305,7 @@ mod tests {
     #[test]
     fn hop_assist_never_holds_altitude_and_climbs_when_asked() {
         let spec = frame(FrameId::Argo);
-        let hop = HopAssist { up: Vec3::Y, cruise: 8.0, climb: 20.0 };
+        let hop = HopAssist { up: Vec3::Y, cruise: 8.0, climb: 20.0, sink: None };
         let fly = |thrust: [i8; 3], hop: Option<HopAssist>| {
             let mut s = FlightState { vel: Vec3::new(0.0, -5.0, 0.0), ..state() };
             let cmd = InputCmd { aim: Vec3::Z, thrust, buttons: FLIGHT_ASSIST, ..InputCmd::default() };

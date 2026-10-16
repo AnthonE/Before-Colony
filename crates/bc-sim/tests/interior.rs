@@ -143,6 +143,109 @@ fn a_suit_without_assist_falls_and_comes_to_rest_on_the_floor_or_a_roof() {
     }
 }
 
+/// Inside the colony with the grip armed a suit feels the colony's pull (`docs/SUITS_INSIDE.md`):
+/// let go of the stick, and flight assist lets it fall, braked so it comes in slow and close and
+/// lands on its feet, whatever height it falls from; Space climbs, and let go it falls again.
+#[test]
+fn with_the_grip_armed_a_suit_falls_and_lands_on_its_feet() {
+    use bc_sim::ground::{FALL_MAX, fall_limit};
+    let mut sim = interior();
+    for (k, (strip, h)) in [(0u8, 300.0f32), (1, 1_200.0), (2, 60.0)].into_iter().enumerate() {
+        let id = launch(&mut sim, FrameId::Argo);
+        let i = id.idx();
+        let start = CityPos::new(strip, -2_000.0 + k as f32 * 3_000.0, 1_700.0, h);
+        let f = &mut sim.suits.flight[i];
+        f.pos = start.to_colony();
+        f.vel = Vec3::ZERO;
+        let mut fastest = 0.0f32;
+        let mut landed = None;
+        for n in 0..30 * 120 {
+            let fwd = {
+                let up = bc_sim::colony::frame::up_at(sim.suits.flight[i].pos);
+                (Vec3::X - up * Vec3::X.dot(up)).normalize()
+            };
+            hold(&mut sim, id, FLIGHT_ASSIST | GRIP, [0; 3], Some(fwd));
+            sim.step();
+            let f = sim.suits.flight[i];
+            let down = -f.vel.dot(bc_sim::colony::frame::up_at(f.pos));
+            fastest = fastest.max(down);
+            assert!(down <= FALL_MAX + 1.0, "it fell at {down} m/s");
+            assert!(down <= fall_limit(f.pos) + 6.0, "braked by {h}: {down} m/s at {:?}", from_colony(f.pos));
+            assert!(!f.blackout, "the pilot blacked out");
+            if sim.suits.footing[i] == Footing::Grounded {
+                landed = Some(n);
+                break;
+            }
+        }
+        let n = landed.unwrap_or_else(|| {
+            panic!("from {h} m it never landed: {:?}", from_colony(sim.suits.flight[i].pos))
+        });
+        println!("from {h} m: landed in {:.1} s, falling at most {fastest:.1} m/s", n as f32 / 30.0);
+        assert!(fastest > 5.0, "it fell");
+    }
+}
+
+/// With the grip off inside the colony, flight assist holds a suit where it is (it hovers); Space
+/// climbs. Armed again, it comes down.
+#[test]
+fn with_the_grip_off_a_suit_hovers_and_armed_it_comes_down() {
+    let mut sim = interior();
+    let id = launch(&mut sim, FrameId::Argo);
+    let i = id.idx();
+    let start = CityPos::new(0, 0.0, 1_700.0, 120.0);
+    let f = &mut sim.suits.flight[i];
+    f.pos = start.to_colony();
+    f.vel = Vec3::ZERO;
+    let height = |sim: &Sim| match from_colony(sim.suits.flight[i].pos) {
+        Under::Land(c) => c.h,
+        Under::Window { h, .. } => h,
+    };
+    for _ in 0..30 * 10 {
+        hold(&mut sim, id, FLIGHT_ASSIST, [0; 3], Some(Vec3::X));
+        sim.step();
+    }
+    assert!((height(&sim) - 120.0).abs() < 2.0, "it hovered: {}", height(&sim));
+    // Armed, Space held: it climbs.
+    for _ in 0..30 * 3 {
+        hold(&mut sim, id, FLIGHT_ASSIST | GRIP, [0, 127, 0], Some(Vec3::X));
+        sim.step();
+    }
+    let top = height(&sim);
+    assert!(top > 140.0, "it climbed: {top}");
+    // Let go of Space: the climb is checked, and it falls.
+    let mut peak = top;
+    for _ in 0..30 * 5 {
+        hold(&mut sim, id, FLIGHT_ASSIST | GRIP, [0; 3], Some(Vec3::X));
+        sim.step();
+        peak = peak.max(height(&sim));
+    }
+    assert!(peak < top + 20.0, "the climb carried it on to {peak} from {top}");
+    assert!(height(&sim) < top - 10.0, "it fell: {} from {top}", height(&sim));
+}
+
+/// Inside the colony a suit rolls level with the spin's down by itself; Q and E roll it off.
+#[test]
+fn inside_a_suit_rolls_level_with_the_colonys_down() {
+    let mut sim = interior();
+    let id = launch(&mut sim, FrameId::Argo);
+    let i = id.idx();
+    let at = CityPos::new(0, 0.0, 1_700.0, 120.0).to_colony();
+    let up = bc_sim::colony::frame::up_at(at);
+    let fwd = (Vec3::X - up * Vec3::X.dot(up)).normalize();
+    let f = &mut sim.suits.flight[i];
+    f.pos = at;
+    f.vel = Vec3::ZERO;
+    // Rolled 60° over.
+    f.rot = bc_sim::math::look_rotation(fwd, (glam::Quat::from_axis_angle(fwd, 1.05) * up).normalize());
+    for _ in 0..30 * 3 {
+        hold(&mut sim, id, FLIGHT_ASSIST, [0; 3], Some(fwd));
+        sim.step();
+    }
+    let f = sim.suits.flight[i];
+    let tilt = (f.rot * Vec3::Y).angle_between(bc_sim::colony::frame::up_at(f.pos));
+    assert!(tilt < 0.1, "level within 3 s: {tilt} rad off");
+}
+
 #[test]
 fn buildings_stop_a_suit_flying_into_them() {
     let mut sim = interior();
@@ -328,6 +431,64 @@ fn in_the_blast_hall_weapons_are_free_and_its_rounds_score_on_its_targets() {
     assert!(fired >= 3, "it fired: {fired}");
     assert!(scored * 2 >= fired, "most of {fired} scored: {scored}");
     assert_eq!(sim.stats(id.idx()).targets as usize, scored);
+}
+
+/// A trainer on the gantry with its pilot's crosshair on each target by the back wall in turn: the
+/// eye's line along the aim through the target's middle (as the pilot sees it from the cockpit),
+/// the trigger tapped. Saying how far off the crosshair's point is (`converge`, as the pilot's
+/// client does), every one scores; without it the rounds fly parallel to the crosshair, from a
+/// hand metres off it, and the target it's on is never struck.
+fn crosshair_on_the_targets(converge: bool) -> (usize, usize) {
+    let mut sim = interior();
+    let id = trainer(&mut sim);
+    let k = id.idx();
+    let eye = bc_sim::content::frame(FrameId::Argo).eye();
+    let (mut fired, mut scored) = (0, 0);
+    for target in 0..4 {
+        for n in 0..90 {
+            let t = sim.next_tick();
+            let f = sim.suits.flight[k];
+            let from = f.pos + f.rot * eye;
+            let at = hall::target(target, t, 0.0);
+            let aim = (at - from).normalize();
+            let range = from.distance(at) - hall::TARGET_RADIUS;
+            // Turned to it first, then the trigger tapped.
+            let pull = if n >= 45 && n % 3 == 0 { FIRE_PRIMARY } else { 0 };
+            let cmd = InputCmd {
+                tick: t,
+                view_tick_q4: t << 4,
+                aim,
+                buttons: FLIGHT_ASSIST | GRIP | pull,
+                converge: if converge { bc_sim::aim::encode(range) } else { 0 },
+                ..InputCmd::default()
+            };
+            let seq = sim.events.next_seq();
+            sim.set_input(id, cmd);
+            sim.step();
+            for e in events_since(&sim, seq) {
+                match e {
+                    Event::BeamSpawn { shooter, .. } if shooter == k as u16 => fired += 1,
+                    Event::TargetHit { target: hit, shooter, .. }
+                        if shooter == k as u16 && usize::from(hit) == target =>
+                    {
+                        scored += 1
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    (fired, scored)
+}
+
+#[test]
+fn a_crosshair_on_a_target_scores_from_the_pilots_eye() {
+    let (fired, scored) = crosshair_on_the_targets(true);
+    assert!(fired >= 12, "it fired: {fired}");
+    assert_eq!(scored, fired, "every round on the target the crosshair is on");
+    let (fired, scored) = crosshair_on_the_targets(false);
+    assert!(fired >= 12, "it fired: {fired}");
+    assert_eq!(scored, 0, "fired parallel to the crosshair, from the hand");
 }
 
 #[test]

@@ -1009,9 +1009,10 @@ fn walkers_golden_wasm() {
 /// Hash after 600 ticks of suits flying the colony's inside: launched from the inner gate, some on
 /// flight assist weaving among the towers, some falling to the floor and the roofs, firing all the
 /// while (which the colony's law ignores), and two with their grips armed, landing on the avenue
-/// and walking it, running, crouching and hopping. The spin's pull, Coriolis, the air, the city's
-/// boxes and its ground, to the bit native and wasm.
-const INTERIOR_GOLDEN: u64 = 0xe677_0f40_4287_8031;
+/// and walking it, running, crouching and hopping (and, hopped off it, falling back to it braked and
+/// flared, the grip armed: the colony's gravity). The spin's pull, Coriolis, the air, the city's
+/// boxes and its ground, and every suit rolling level with its down, to the bit native and wasm.
+const INTERIOR_GOLDEN: u64 = 0x3f83_3b35_e52e_3643;
 
 fn interior_hash() -> u64 {
     use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FLIGHT_ASSIST, GRIP};
@@ -1111,7 +1112,7 @@ fn interior_golden_wasm() {
 /// in the hall turning on its targets in turn and firing their beams, guns and missiles at them for
 /// ten seconds, one of them wandering out through the blast doors and back; the targets' tracks; and
 /// every training round that scored. The server's interior and each pilot's prediction run it alike.
-const HALL_GOLDEN: u64 = 0x9bde_f2bb_4b4e_ecd4;
+const HALL_GOLDEN: u64 = 0x5375_9024_b571_7307;
 
 fn hall_hash() -> u64 {
     use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST};

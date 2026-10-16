@@ -123,3 +123,87 @@ fn a_pilot_on_foot_watches_the_suits_near_them_inside() {
     assert!(read_packet(ring, &mut buf).is_none(), "nothing after leaving");
     assert_eq!(shared.slots[pilot.slot as usize].state(), SlotState::Active, "the pilot flies on");
 }
+
+/// A pilot on foot by the Blast Hall hears of the training rounds striking its targets (a trainer
+/// firing from the gantry), so the targets flash for them too; one far off doesn't. Still nothing
+/// on the heap.
+#[test]
+fn a_pilot_on_foot_by_the_hall_hears_of_its_targets_struck() {
+    use bc_proto::InputCmd;
+    use bc_proto::buttons::{FIRE_SECONDARY, FLIGHT_ASSIST, GRIP};
+    use bc_sim::colony::hall;
+    let cfg = SectorConfig {
+        sim: SimConfig {
+            target_drones: 0,
+            field_rocks: 0,
+            landmarks: 0,
+            max_sleepers: 0,
+            survival: true,
+            world: WorldKind::Interior,
+            ..SimConfig::default()
+        },
+        max_clients: 2,
+        ..SectorConfig::default()
+    };
+    let (mut sector, shared, mut egress, _oracle) = bc_sector::build(cfg);
+    let (mut pilot, watcher) = (shared.leases.pop().unwrap(), shared.leases.pop().unwrap());
+    shared
+        .control
+        .push(Control::Board {
+            slot: pilot.slot,
+            pilot: PilotKind::Human,
+            frame: FrameId::Argo,
+            faction: Faction::Colonies,
+            max_datagram: MAX_DATAGRAM as u16,
+            loadout: Loadout::full(FrameId::Argo),
+        })
+        .unwrap();
+    let by_the_hall = hall::gantry() + Vec3::new(0.0, 0.0, 0.0);
+    shared
+        .control
+        .push(Control::Watch { slot: watcher.slot, at: by_the_hall, max_datagram: MAX_DATAGRAM as u16 })
+        .unwrap();
+    sector.tick();
+    let (idx, _) = shared.slots[pilot.slot as usize].suit_id().expect("a trainer");
+    let i = usize::from(idx);
+    let muzzle = bc_sim::content::frame(FrameId::Argo).loadout[1].map_or(Vec3::ZERO, |m| m.arm.muzzle());
+    let mut buf = [0u8; MAX_DATAGRAM];
+    let ring = &mut egress.rings[watcher.slot as usize];
+    let mut heard = std::collections::HashSet::new();
+    let mut heap = 0;
+    for _ in 0..30 * 6 {
+        let t = sector.sim.next_tick();
+        let f = sector.sim.suits.flight[i];
+        let aim = (hall::target(1, t, 0.0) - (f.pos + f.rot * muzzle)).normalize();
+        let mut p = bc_proto::InputPacket {
+            ack_snapshot: t.saturating_sub(2),
+            client_time_ms: t as u16,
+            count: 1,
+            ..bc_proto::InputPacket::default()
+        };
+        p.cmds[0] = InputCmd {
+            tick: t,
+            view_tick_q4: t << 4,
+            aim,
+            buttons: FLIGHT_ASSIST | GRIP | FIRE_SECONDARY,
+            ..InputCmd::default()
+        }
+        .quantized();
+        let _ = pilot.input.push(bc_sector::InputMsg { packet: p, recv_us: u64::from(t) * 33_333 });
+        let ((), n) = bc_alloc::count(|| sector.tick());
+        heap += n;
+        while let Some(n) = read_packet(ring, &mut buf) {
+            let mut r = SnapshotReader::new(&buf[..n]).expect("a snapshot");
+            let _ = r.own();
+            let _ = r.orrery();
+            while let Ok(Some(e)) = r.next_event() {
+                if let Event::TargetHit { id, target, .. } = e {
+                    heard.insert((id, target));
+                }
+            }
+        }
+    }
+    assert!(!heard.is_empty(), "the watcher heard of the strikes");
+    assert!(heard.iter().all(|&(_, k)| k == 1), "{heard:?}");
+    assert_eq!(heap, 0, "heap operations");
+}

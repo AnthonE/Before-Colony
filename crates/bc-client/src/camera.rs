@@ -24,7 +24,6 @@
 
 use bc_client_core::chase::{self, ChaseRig, Follow};
 use bc_client_core::surface::camera_clamp;
-use bc_model::rig::Bone;
 use bc_proto::snapshot::ent_flags;
 use bc_proto::{Part, WeaponKind};
 use bevy::post_process::effect_stack::{ChromaticAberration, LensDistortion, Vignette};
@@ -48,8 +47,6 @@ pub struct FillLight;
 /// Field of view (degrees) at the default setting; boost widens it by [`BOOST_WIDEN`].
 const FOV: f32 = 70.0;
 const BOOST_WIDEN: f32 = 7.0;
-/// How much of a stride's bob the cockpit's eye is spared.
-const EYE_STEADY: f32 = 0.7;
 
 /// The chase camera and the pilot effects, between frames.
 #[derive(Resource, Clone, Copy, Default)]
@@ -69,6 +66,9 @@ pub struct Chase {
     /// Looking out of the cockpit this frame, and whether the head (its main camera) is gone.
     cockpit: bool,
     head_lost: bool,
+    /// The launch shot is on (`launch_shot`): the suit is seen from outside, whole, whatever the
+    /// view after it.
+    launching: bool,
     /// The sub-camera's duller picture, eased 0..1.
     sub: f32,
 }
@@ -87,6 +87,16 @@ impl Chase {
     /// A hit's flash, 0..1 (fading).
     pub fn hit_flash(&self) -> f32 {
         self.flash
+    }
+
+    /// The cockpit is drawn round the view: looking out of it, and not in the launch shot.
+    pub fn in_cockpit(&self) -> bool {
+        self.cockpit && !self.launching
+    }
+
+    /// How hard the view is shaking, 0..1.
+    pub fn shake(&self) -> f32 {
+        self.trauma * self.trauma
     }
 }
 
@@ -144,8 +154,11 @@ pub fn follow(
     mut bones: Query<&mut Visibility, With<SuitBone>>,
     mut cam: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
     mut fill: Query<&mut Transform, (With<FillLight>, Without<MainCamera>)>,
+    shot: Res<crate::launch_shot::LaunchShot>,
+    inside: Option<Res<crate::inside::FlyingInside>>,
 ) {
     let Ok((mut tf, mut projection)) = cam.single_mut() else { return };
+    let inside = inside.is_some_and(|f| f.0);
     let c = &mut *chase;
     let dt = time.dt.min(0.1);
     let own = suits.iter().find(|(d, ..)| d.own);
@@ -153,20 +166,25 @@ pub fn follow(
     // stride's bob.
     let cockpit = own
         .filter(|(d, ..)| prefs.cockpit && target.0.is_some() && d.flags & ent_flags::WRECK == 0)
-        .map(|(d, anim, ..)| {
-            let steady = -anim.lift.normalize_or_zero() * anim.bob * EYE_STEADY;
-            anim.point(d, Bone::Head, lib.sockets(d.frame).eye) + d.rot * steady
-        });
+        // Exactly where the simulation's pilot looks from (`FrameSpec::eye`): the crosshair in the
+        // middle of the view is the line the guns converge on. (The stride sways the cockpit
+        // round the pilot instead, `cockpit::drive_cockpit`.)
+        .map(|(d, ..)| d.pos + d.rot * bc_sim::content::frame(d.frame).eye());
     c.cockpit = cockpit.is_some();
+    c.launching = shot.active(time.now);
     c.head_lost = own.is_some_and(|(d, ..)| d.parts[Part::Head as usize] == 0);
-    // The eye is inside a humanoid's head, which isn't drawn meanwhile (unless it's been shot off,
-    // which is the damage's to show).
-    if let Some((d, _, v, damage)) = own
-        && !damage.is_some_and(|dmg| dmg.lost[Bone::Head.index()])
-        && let Ok(mut vis) = bones.get_mut(v.bones[Bone::Head.index()])
-    {
-        let hide = c.cockpit && lib.sockets(d.frame).eye_in_head;
-        vis.set_if_neq(if hide { Visibility::Hidden } else { Visibility::Inherited });
+    // The eye is inside a humanoid's head, which isn't drawn meanwhile, nor anything else of the
+    // suit's at the eye (a high collar), unless it's been shot off, which is the damage's to show.
+    if let Some((d, _, v, damage)) = own {
+        let near = lib.near_eye(d.frame);
+        for k in 0..bc_model::rig::BONES {
+            if near & (1 << k) == 0 || damage.is_some_and(|dmg| dmg.lost[k]) {
+                continue;
+            }
+            if let Ok(mut vis) = bones.get_mut(v.bones[k]) {
+                vis.set_if_neq(if c.in_cockpit() { Visibility::Hidden } else { Visibility::Inherited });
+            }
+        }
     }
     // The fill light stays where the chase camera would be, lighting what's near without glaring
     // off the suit's own shoulders.
@@ -188,7 +206,12 @@ pub fn follow(
     // Behind and above the suit, on a spring in the frame moving with the suit as drawn, kept out
     // of the bodies as they're drawn. It keeps pace in the cockpit too, ready for the switch back.
     let follow = Follow { pos: t.pos, vel: t.vel, aim: t.aim, up: t.up, cut: t.cut, ground: t.ground };
-    let clamp = |from: Vec3, to: Vec3| camera_clamp(&bodies.set, bodies.t, from, to);
+    // (Inside the colony, kept in the Blast Hall from a suit in it, and out of the city's
+    // buildings: the colony's frame is the camera's there.)
+    let clamp = |from: Vec3, to: Vec3| {
+        let to = camera_clamp(&bodies.set, bodies.t, from, to);
+        if inside { inside_clamp(from, to) } else { to }
+    };
     if c.rig.step_clamped(&follow, dt, &clamp) {
         // Spawning, respawning or a teleport: the eased effects cut too.
         c.cut = true;
@@ -210,7 +233,9 @@ pub fn follow(
                     _ => 0.35,
                 }
             }
-            FxEvent::Muzzle { pos, weapon: WeaponKind::HeavyBeamRifle, .. } => 0.6 * near(pos, 60.0, 900.0),
+            FxEvent::Muzzle { pos, weapon, .. } if crate::fx::heavy(weapon) => {
+                0.15 * crate::fx::weight(weapon) * near(pos, 60.0, 900.0)
+            }
             FxEvent::Clash { pos, .. } => 0.4 * near(pos, 40.0, 400.0),
             FxEvent::RockBreak { pos, radius, .. } => 0.7 * near(pos, radius * 2.0, radius * 40.0),
             FxEvent::MissileBurst { pos, struck, .. } => {
@@ -227,10 +252,13 @@ pub fn follow(
     c.flash = (c.flash - 2.5 * dt).max(0.0);
 
     match cockpit {
-        // Looking along the aim, rolled with the suit.
+        // Looking along the aim, rolled with the suit (or round from the seat, off it).
         Some(at) => {
             tf.translation = at;
             tf.look_to(t.aim, t.up);
+            if t.look != Vec2::ZERO {
+                tf.rotate_local(Quat::from_euler(EulerRot::YXZ, -t.look.x, t.look.y, 0.0));
+            }
         }
         None => {
             tf.translation = c.rig.pos;
@@ -253,6 +281,37 @@ pub fn follow(
     if let Projection::Perspective(p) = &mut *projection {
         p.fov = c.fov.to_radians();
     }
+}
+
+/// Inside the colony, the chase camera's place on the way from the suit `from` to `to`, stopped
+/// short of the Blast Hall's walls (from a suit in the hall) and of the city's buildings, the floor
+/// and the hull (sphere traced through `colony::interior::probe`).
+fn inside_clamp(from: Vec3, to: Vec3) -> Vec3 {
+    use bc_sim::colony::{hall, interior};
+    const CLEAR: f32 = 2.5;
+    let mut to = to;
+    if hall::in_hall(from)
+        && let Some(s) = hall::wall_end(from, to, CLEAR)
+    {
+        to = from + (to - from) * s;
+    }
+    let len = from.distance(to);
+    if len < 1e-3 {
+        return to;
+    }
+    let dir = (to - from) / len;
+    let mut t = 0.0;
+    for _ in 0..48 {
+        let d = interior::probe(from + dir * t).dist;
+        if d < CLEAR {
+            return from + dir * (t - CLEAR).max(0.0);
+        }
+        t += d - CLEAR * 0.5;
+        if t >= len {
+            return to;
+        }
+    }
+    to
 }
 
 fn smoothstep(lo: f32, hi: f32, x: f32) -> f32 {

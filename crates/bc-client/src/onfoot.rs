@@ -95,6 +95,10 @@ const LIFT_SECS: f32 = 12.0;
 const LIFT_UP_SECS: f32 = 6.0;
 /// How near a place's door the pilot must stand to use it, m.
 const DOOR_REACH: f32 = 3.5;
+/// On foot in the city: walks the pilot to where the objective is.
+pub const WALK_THERE_KEY: KeyCode = KeyCode::KeyG;
+/// How near the gantry's hatch a pilot boards from, m (or anywhere round the pad).
+const HATCH_REACH: f32 = 8.0;
 /// How much walking a slow frame catches up, s. The pilot's own legs: a second's worth (no further,
 /// blind, after a hitch). A guide's (the dev hooks' errands, the autopilot's): more, so its walk
 /// across the city keeps to the clock on a page drawing it in software at a few seconds a frame
@@ -230,7 +234,8 @@ impl CityFoot {
         }
     }
 
-    /// Whether the pilot stands at the Blast Hall's gantry's hatch, facing the pad.
+    /// Whether the pilot stands at the Blast Hall's gantry, by its hatch or round its pad, facing
+    /// the pad (the trainer standing on it): E boards.
     fn hatch_in_view(&self) -> bool {
         if self.ride.is_some()
             || self.drive.is_some()
@@ -239,12 +244,16 @@ impl CityFoot {
         {
             return false;
         }
-        let ((s, x), (ds, dx)) = hall::hatch();
+        let ((s, x), _) = hall::hatch();
+        let (ps, px) = hall::hall().front.point(hall::GANTRY.0, hall::GANTRY.1);
         let at = self.feet();
         let h = self.walker.heading();
         // Facing, in city terms: x along is the walker's x, s across its −z.
         let (hs, hx) = (-h.z, h.x);
-        (at.s - s).hypot(at.x - x) < DOOR_REACH && hs * ds + hx * dx > 0.3
+        let (to_s, to_x) = (ps - at.s, px - at.x);
+        let to_pad = to_s.hypot(to_x).max(1e-3);
+        let near = (at.s - s).hypot(at.x - x) < HATCH_REACH || to_pad < hall::GANTRY_RADIUS + 4.0;
+        near && (hs * to_s + hx * to_x) / to_pad > 0.2
     }
 
     /// Walks the pilot to the Blast Hall's gantry's hatch (in through its blast doors), facing the
@@ -894,6 +903,9 @@ pub fn drive_onfoot(
                     ),
                     false,
                 );
+                ui.toast(
+                    "TRAINING · THE BLAST HALL: put the crosshair on the target pulsing cyan (its ◆) and fire, LMB the rifle, RMB the cannon. The first strike starts the clock.",
+                );
             }
             // Its trainer docked on the gantry: out at the hatch, on foot in the hall.
             (Some(Place::Space), Some(Place::City)) if g.core.hangar.off_a_trainer() => {
@@ -1015,6 +1027,17 @@ pub fn drive_onfoot(
                     "seat" => c.walk_to_seat(),
                     _ => c.walk_to(slug),
                 };
+            }
+        }
+        // G: walked to where the objective is (its place's counter), on this strip.
+        if live
+            && keys.just_pressed(WALK_THERE_KEY)
+            && let Some(goal) = ui.map_goal
+        {
+            if c.walk_to(goal) {
+                ui.toast("WALKING YOU THERE · any move key takes your feet back");
+            } else {
+                ui.toast("THAT'S ON ANOTHER STRIP: ride Hub Gate's cap lift up and take that strip's (Q at the airlock)");
             }
         }
         if look != Vec2::ZERO {
