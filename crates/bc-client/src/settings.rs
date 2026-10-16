@@ -7,7 +7,7 @@
 
 use bc_client_core::hints::{HintInput, Hints};
 use bc_client_core::settings::{
-    self, CameraView, GfxChoice, KNOBS, Kind, Loaded, SETTINGS_VERSION, Settings,
+    self, CameraView, FlightControls, GfxChoice, KNOBS, Kind, Loaded, SETTINGS_VERSION, Settings,
 };
 use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FIRE_SECONDARY, MELEE};
 use bevy::prelude::*;
@@ -282,7 +282,8 @@ pub fn update_hints(
     if seen != settings.0.hints_seen {
         settings.0.hints_seen = seen;
     }
-    let text = hint.filter(|_| flying || walking).map(|h| h.text(colony)).unwrap_or_default();
+    let shooter = settings.0.flight_controls == FlightControls::Shooter;
+    let text = hint.filter(|_| flying || walking).map(|h| h.text(colony, shooter)).unwrap_or_default();
     if ui.hint != text {
         ui.hint = text.to_string();
     }

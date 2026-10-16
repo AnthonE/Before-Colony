@@ -31,6 +31,9 @@ test("lock on to a drone, close in on it, and let go", async ({ page, request },
   await page.evaluate(() => (window as any).bcInbox.push({ cmd: "aim_hostile", on: true }));
   await page.keyboard.down("w");
   await wait("a drone within reach", "window.__bc?.hostile_range > 0 && window.__bc?.hostile_range < 3000", 120_000);
+  // Shooter controls (the default): W flew the suit where it looked, upright, not yet locked on.
+  const flown = await bc(page);
+  expect([flown.upright, flown.lockon]).toEqual([true, false]);
   await page.keyboard.up("w");
 
   // Y: the drone under the crosshair.

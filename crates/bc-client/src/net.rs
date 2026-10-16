@@ -10,6 +10,7 @@ use std::rc::Rc;
 
 use bc_client_core::lockon::{self, Lock};
 use bc_client_core::nav::AutoNav;
+use bc_client_core::upright;
 use bc_client_core::{ClientConfig, ClientCore, DroneBrain, Identity, LanderBrain};
 use bc_proto::buttons::{BOOST, BRAKE, BURST, FLIGHT_ASSIST, GRIP, ORRERY};
 use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
@@ -81,6 +82,13 @@ pub struct Game {
     pub hard: Lock,
     /// The pilot's controls as of the last rendered frame; the timer repeats them until the next.
     pub controls: InputCmd,
+    /// Under shooter controls, the view's up as of the last rendered frame (`input::Aim::up`): the
+    /// keys move the suit where the pilot looks, upright to it (`bc_client_core::upright`). None:
+    /// simulator controls.
+    pub upright: Option<Vec3>,
+    /// The newest command the pilot flew was shaped by the lock-on (`lockon::shape`), rather than
+    /// sent as the keys were or as the shooter controls shape them (the dev hooks' `lockon`).
+    pub locked_on: bool,
     /// The suit (slot, generation) those controls were set up for (`input::read_input` seeds them
     /// from its first own state: the grip, a crouch).
     pub controls_for: Option<(u16, u8)>,
@@ -118,6 +126,8 @@ impl Game {
             lock: None,
             hard: Lock::default(),
             controls: InputCmd::default(),
+            upright: None,
+            locked_on: false,
             controls_for: None,
             nav: None,
             fly_to: None,
@@ -283,8 +293,8 @@ fn pump(g: &mut Game, t: &Transport, now: f64) {
             }
         })
     } else {
-        let (cmd, seeded, fly_to) = (g.controls, g.controls_for, g.fly_to);
-        let Game { core, nav, hard, .. } = &mut *g;
+        let (cmd, seeded, fly_to, up) = (g.controls, g.controls_for, g.fly_to, g.upright);
+        let Game { core, nav, hard, locked_on, .. } = &mut *g;
         core.poll_inputs(now, &mut |ctx| {
             if let Some(cmd) = held(ctx) {
                 return cmd;
@@ -304,7 +314,8 @@ fn pump(g: &mut Game, t: &Transport, now: f64) {
                 }
                 // The auto-nav holds the stick: a velocity for flight assist to fly, worked out from
                 // the prediction tick by tick, in the suit's own axes (so no lock-on rides with it, and
-                // no burst step). Else, locked on, the keys move the suit about its target.
+                // no burst step). Else, locked on, the keys move the suit about its target; under
+                // shooter controls, otherwise where the pilot looks.
                 _ => match nav.as_mut().and_then(|n| Some((n.decide(ctx)?, n.look))) {
                     Some((n, look)) => InputCmd {
                         thrust: n.thrust,
@@ -313,7 +324,14 @@ fn pump(g: &mut Game, t: &Transport, now: f64) {
                         lockon: None,
                         ..cmd
                     },
-                    None => lockon::shape(cmd, hard, ctx),
+                    None => {
+                        let cmd = lockon::shape(cmd, hard, ctx);
+                        *locked_on = cmd.lockon.is_some();
+                        match up {
+                            Some(up) => upright::shape(cmd, up, ctx),
+                            None => cmd,
+                        }
+                    }
                 },
             }
         })
@@ -396,6 +414,7 @@ pub fn drive(
         None
     };
     g.controls = controls.command(aim.dir, g.lock);
+    g.upright = aim.upright.then_some(aim.up);
     g.controls_for = aim.initialized_for;
     pump(&mut g, &t, now);
     // The view follows what the autopilot (or the auto-nav, while it turns the suit) aims at.

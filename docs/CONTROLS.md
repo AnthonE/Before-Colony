@@ -37,6 +37,30 @@ Newtonian flight. The cost is paid in reading aids and onboarding.
 `PEERS.md` looks at the nearest games beyond their controls: what each has of the whole fantasy,
 and what we take from it.
 
+## Shooter controls: the default
+
+The owner's call (October 2026): flying a suit from the cockpit should feel close to playing
+Overwatch in first person, and the 6DOF handling was too much of a simulator to start with. So the
+default is a shooter's (`DESIGN.md`, "Shooter controls"; `bc_client_core::upright`), and the
+simulator's is a setting away (Settings, CONTROLS: flight controls). The simulation under them is
+the same: only what the keys and the mouse ask of it changes, and it travels in the command, so it's
+the same for the server, the prediction and agents.
+
+| Shooter controls | Simulator controls | Why |
+|---|---|---|
+| The view stays upright, levelling out onto the ground's up (the colony's, the lock-on's ground) | The view rolls with the suit | Every first-person shooter; Overload's auto-level is the 6DOF game's most praised comfort option, and roll adds most to motion sickness [B3][C6] |
+| The mouse turns about that up, never past 89° of the horizon | About the suit's up, which pitches with it: it loops | A shooter's yaw and pitch, stopping where Overwatch does (89°, *unverified*) |
+| W along the crosshair, A/D square to it along the ground, Space/C along the up | Along the suit's own axes, which lag the aim | Spectator and noclip cameras, and Descent's and Overload's 6DOF, fly where you look [B3] |
+| A diagonal no faster than straight | A diagonal is the axes' sum | A shooter's movement |
+| The RCS fires whenever the aim is off the nose | R, held | Drones and agents always fly with it; without it a pilot turned at two fifths of their rate |
+| V held half a second for flight assist | V pressed | V is Overwatch's melee key (*unverified*; ours is F): a tap mustn't throw a shooter's player into Newtonian flight |
+| Q/E roll while held, and it levels out again | Q/E roll, and it stays | An upright view; a rolled one is a held key away |
+
+What it costs: no loops or inverted flight on the mouse alone (Q/E, or the simulator's controls),
+and the thrusters still reach a velocity axis by axis, sideways at half forward's pull, so a strafe
+from a standstill builds over seconds, as a suit's would. The arms reach 50° off the nose, so after
+a flick past that the crosshair dims for the half second the suit takes to come round.
+
 ## The cockpit view
 
 The cockpit is the default view: the pilot sits in the suit. Tab, or the mouse wheel (in for the
@@ -53,7 +77,8 @@ are settings, so the next sortie starts in the same view.
 - **Where the eye sits.** The camera is the head's main camera, whose picture is what a mobile
   suit's cockpit monitors show. Gundam canon has it both ways: the cockpit is in the torso and the
   head carries the sensors [A3]. Aquila looks out from over its canopy, along its nose.
-- **Where it looks.** Along the aim, as the chase camera does, and the suit turns after it. This is
+- **Where it looks.** Along the aim, as the chase camera does, and the suit turns after it (under
+  shooter controls, upright to the ground's up, the mouse turning it as on foot). This is
   War Thunder's mouse-aim model and Star Citizen's gimballed-guns-follow-the-cursor model. It is not
   MechWarrior Online's, where the view is locked to the torso and a second reticle floats over it
   [A2]. Our suits turn to the aim by themselves, so a torso-locked view would send the crosshair
@@ -126,8 +151,9 @@ tap ejects at once and a hold blows the suit up instead.
    [B1][B3][B4][C4]. A player who presses V to change view turns flight assist off, which in
    Newtonian flight is serious.
    - **Done:** the camera is on Tab and the wheel, a first-flight hint teaches it early, and
-     toggling flight assist announces itself mid-screen.
-   - **Still open:** consider making flight assist hold-to-toggle (half a second on V).
+     toggling flight assist announces itself mid-screen. Under shooter controls (the default) V is
+     held half a second to toggle it, and a tap only says so: V is a shooter's melee key.
+   - **Still open:** the same hold for the simulator's controls.
 2. **Z is the Orrery.** Z toggles flight assist in Elite, dampeners in Space Engineers and
    look-around in Star Citizen. Our mnemonic is worth keeping, but it will surprise sim players.
 3. **T is throw and Enter is dock.** T is "target ahead" in Elite and Star Wars: Squadrons [B5], and
@@ -245,9 +271,10 @@ tap ejects at once and a hold blows the suit up instead.
     - Optional horizon lines, and optional auto-level while flight assist is on. Overload's
       auto-level is praised; roll adds most to motion sickness (pitch alone 1.95 on a sickness scale,
       pitch and roll 4.33) [B3][C6].
-      - **Partly done:** with the grip armed and a surface within 150 m, the suit rolls its feet
+      - **Done:** with the grip armed and a surface within 150 m, the suit rolls its feet
         toward it (Q/E override, and the nose stays on the aim). That is auto-level referenced to the
-        surface, on the axis that matters most. Auto-level in open flight is still open.
+        surface, on the axis that matters most. In open flight, shooter controls (the default)
+        level the view and the suit onto the colony's up whenever Q/E are let go.
     - A separate cockpit field of view (Starfield added one). A lower minimum of about 50° vertical.
     - Boost's field-of-view widening on its own slider rather than tied to shake.
     - Separate sensitivity for the cockpit, the chase camera and on foot (Hawken Reborn, Battlefield)

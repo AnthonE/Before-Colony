@@ -659,7 +659,8 @@ pub fn sync_view(
     target.0 = world.own.zip(drawn).map(|(own, view)| ChaseTarget {
         pos: pod.map_or(view.pos, |p| p.pos),
         vel: pod.map_or(view.vel, |p| p.vel),
-        up: view.rot * Vec3::Y,
+        // Under shooter controls the view is upright: rolled to the pilot's up, not the suit's.
+        up: if aim.upright && pod.is_none() { aim.up } else { view.rot * Vec3::Y },
         aim: pod.map_or(aim.dir, |p| (view.pos - p.pos).normalize_or(aim.dir)),
         look: if pod.is_some() { Vec2::ZERO } else { aim.look },
         cut: view.cut,

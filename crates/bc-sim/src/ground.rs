@@ -349,6 +349,11 @@ pub fn move_step(b: &Bodies, m: &mut Mover, cmd: &InputCmd, cx: &MoveCtx, dt: f3
                         climb: INTERIOR_CLIMB,
                         sink: Some(sink),
                     });
+                } else {
+                    // Hovering, a command's lock-on axes read the stick as they do out in space
+                    // (the shooter controls', `bc_client_core::upright`), relative to the colony's
+                    // frame; the suit still rolls level with the colony's up.
+                    mods.lockon = lockon_assist(cmd, &m.flight, cx.spec);
                 }
                 out.flight = crate::colony::interior::step(&mut m.flight, cmd, cx.spec, &mods, dt);
             } else {
@@ -1342,6 +1347,41 @@ mod tests {
             // Out in space there's no city.
             assert!(Bodies::at(&field, &[], 1).nearest_grippable(&m.flight, 100.0, 100.0, 100.0).is_none());
             assert!(!Bodies::at(&field, &[], 1).alive(Body::City));
+        }
+
+        /// Hovering (the grip off), a command's lock-on axes read the stick as they do out in
+        /// space: W up an aim that climbs 30° flies up the aim, where the suit's own axes (the
+        /// stick's up square to a nose that has pitched up too) would climb twice as steeply. The
+        /// suit stays level with the colony's up either way.
+        #[test]
+        fn hovering_a_lockon_reads_the_stick_in_its_axes() {
+            let field = Field::empty();
+            let b = inside(&field);
+            let start = at(avenue(200.0));
+            let up = up_at(start.flight.pos);
+            let aim = (Vec3::X * 0.866 + up * 0.5).normalize();
+            let lockon = Some(bc_proto::LockOn { ref_vel: Vec3::ZERO, up });
+            // The aim in the lock-on's axes: forward (the aim laid flat, up the axis) and up.
+            let fly =
+                InputCmd { aim, thrust: [0, 13, 22], buttons: FLIGHT_ASSIST, lockon, ..InputCmd::default() };
+            let (mut a, mut own_axes) = (start, start);
+            run(&b, &mut a, fly, 150, |_| false);
+            run(&b, &mut own_axes, InputCmd { lockon: None, ..fly }, 150, |_| false);
+            let climb = |m: &Mover| m.flight.vel.normalize().dot(up).asin().to_degrees();
+            assert!(
+                a.flight.vel.angle_between(aim) < 0.03,
+                "{} off the aim",
+                a.flight.vel.angle_between(aim)
+            );
+            let want = 0.2 * ctx().spec.fa_speed;
+            assert!((a.flight.vel.length() - want).abs() < 2.0, "{} m/s, want {want}", a.flight.vel.length());
+            assert!(climb(&own_axes) > 50.0, "its own axes climb at {}°", climb(&own_axes));
+            for m in [&a, &own_axes] {
+                assert!(
+                    (m.flight.rot * Vec3::Y).dot(up_at(m.flight.pos)) > 0.85,
+                    "rolled off the colony's up"
+                );
+            }
         }
     }
 }

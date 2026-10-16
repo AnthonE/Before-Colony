@@ -10,7 +10,8 @@ compare with theirs), and `docs/ROADMAP.md` how each is built;
 suits inside it, `docs/TRAINING.md` the Proving Ground (training inside it, after X-Wing and TIE Fighter), `docs/COLONY_LOOK.md` its look (Rust's realism, Phantasy Star Online's clean colony, anime behind)
 and the passes towards it; `docs/LIFE.md` is living in it (jobs as seats worked by Arrivals or the colony's staff, the
 body and its meals on the wall clock, the great works as the server's raid); `docs/LOCK.md` is the lock-on (it moves the suit about its target, never the aim: what it decides
-travels in the command as `bc_proto::LockOn`, so prediction stays exact).
+travels in the command as `bc_proto::LockOn`, so prediction stays exact); the shooter controls, the default
+(`bc_client_core::upright`: the view upright, W where the pilot looks), ride the same `LockOn` with nothing to hold to.
 
 ## Hot-path rules (non-negotiable)
 - The sector tick (`bc-sim` step + `bc-sector` input drain/encode) must not allocate or lock.
