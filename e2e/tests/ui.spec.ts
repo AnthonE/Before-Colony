@@ -60,17 +60,20 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   await wait("a sound", "window.__bc?.audio_started > 0");
 
   // F1, or ? for keyboards without a function row: the controls sheet, over the world. ? goes to
-  // the page only: the game never reads the / under it, so the radio stays shut.
+  // the page only: the game never reads the / under it, so the radio stays shut. (The game says
+  // what's shown on its next frame, and it starts in the cockpit, whose pipelines take a software
+  // renderer seconds to build: waited for.)
+  const shown = { timeout: 30_000 };
   await page.keyboard.press("F1");
-  await expect(page.locator("#help")).toBeVisible();
+  await expect(page.locator("#help")).toBeVisible(shown);
   await page.keyboard.press("F1");
-  await expect(page.locator("#help")).toBeHidden();
+  await expect(page.locator("#help")).toBeHidden(shown);
   await page.focus("#bc");
   await page.keyboard.press("?");
-  await expect(page.locator("#help")).toBeVisible();
+  await expect(page.locator("#help")).toBeVisible(shown);
   await expect(page.locator("#chat-input")).toBeHidden();
   await page.keyboard.press("?");
-  await expect(page.locator("#help")).toBeHidden();
+  await expect(page.locator("#help")).toBeHidden(shown);
   await expect(page.locator("#chat-input")).toBeHidden();
 
   // The cockpit is the default view; Tab goes out to the chase camera and back in. The view is a

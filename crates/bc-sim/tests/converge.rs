@@ -1,9 +1,11 @@
 //! Shots go where the pilot's crosshair is (`bc_sim::aim`): a command that says how far along the
 //! aim the crosshair's point is (`InputCmd::converge`) fires its gun at that point, the shot's path
 //! crossing it however the suit drifts; one that doesn't fires along the aim, as every shot once did.
+//! (The machine cannon's rounds, from the Blast Hall's gantry: `interior.rs`,
+//! `a_crosshair_on_a_target_scores_from_the_pilots_eye`.)
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
-use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST};
+use bc_proto::buttons::FIRE_PRIMARY;
 use bc_proto::events::Event;
 use bc_proto::{Faction, FrameId, InputCmd, PilotKind};
 use bc_sim::content::frame;
@@ -47,7 +49,6 @@ fn fire(
                 out.push((origin, velocity, f.pos, f.rot));
             }
         }
-        let _ = FLIGHT_ASSIST;
     }
     out
 }
@@ -104,19 +105,4 @@ fn a_command_without_a_range_fires_along_the_aim() {
     for (_, vel, ..) in fire(&mut sim, id, aim, None, Vec3::ZERO, FIRE_PRIMARY) {
         assert!(vel.normalize().angle_between(aim) <= spread * 1.01 + 1e-4);
     }
-}
-
-#[test]
-fn the_machine_cannon_converges_too() {
-    // The secondary's rounds (a stream: its rounds fly as projectiles, no spawn events), so from
-    // the hall: a crosshair on a target from the eye, at its range, scores; parallel, it can't.
-    // Covered in `interior.rs` (`a_crosshair_on_a_target_scores_from_the_pilots_eye`); here, that
-    // the secondary takes a range at all without upsetting anything.
-    let mut sim = space();
-    let id = sim
-        .launch(FrameId::Argo, Faction::Colonies, PilotKind::Human, &Loadout::full(FrameId::Argo))
-        .unwrap();
-    let rot = sim.suits.flight[id.idx()].rot;
-    let aim = rot * Vec3::Z;
-    let _ = fire(&mut sim, id, aim, Some(250.0), Vec3::ZERO, FIRE_SECONDARY);
 }
