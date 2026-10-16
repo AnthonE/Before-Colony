@@ -111,13 +111,14 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   await expect.poll(async () => (await bc(page)).objective).toBe("DOWN A DRONE");
   await expect.poll(async () => (await bc(page)).waypoint).toMatch(/DRONE|PATROLS/);
   await page.screenshot({ path: `artifacts/ui-${info.project.name}-objective.png` });
-  // M: the map of the sector, over the world; M again closes it.
+  // M: the map of the sector, over the world; M again closes it. (Its first opening builds its
+  // pipelines: waited for, as the help sheet was.)
   await page.keyboard.press("m");
-  await expect.poll(async () => (await bc(page)).map_open).toBe(true);
+  await expect.poll(async () => (await bc(page)).map_open, shown).toBe(true);
   await page.waitForTimeout(1_000);
   await page.screenshot({ path: `artifacts/ui-${info.project.name}-map.png` });
   await page.keyboard.press("m");
-  await expect.poll(async () => (await bc(page)).map_open).toBe(false);
+  await expect.poll(async () => (await bc(page)).map_open, shown).toBe(false);
 
   // /: the colony's radio. Its line opens, focused; what's typed there doesn't fly the suit; Enter
   // says it, and everyone connected hears it (the speaker too); the server counts it.

@@ -164,6 +164,37 @@ pub fn toggle_map(
     }
 }
 
+/// Where the objective's panel goes: the screen's top left (chasing, on foot), or, from the seat,
+/// where the cockpit's monitors hang there, in the windscreen's lower left corner (the clear
+/// box's, `bc_model::cockpit::CLEAR_YAW`/`CLEAR_PITCH`), narrower.
+pub fn place_objective(
+    chase: Res<crate::camera::Chase>,
+    camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    mut panel: Query<(&mut Node, &mut UiTransform), With<ObjectivePanel>>,
+) {
+    use bc_model::cockpit::{CLEAR_PITCH, CLEAR_YAW};
+    let corner = camera.single().ok().filter(|_| chase.in_cockpit()).and_then(|(cam, tf)| {
+        let ahead = Vec3::new(-CLEAR_YAW.tan(), -CLEAR_PITCH.tan(), -1.0) * 10.0;
+        cam.world_to_viewport(tf, tf.transform_point(ahead)).ok()
+    });
+    // (Up from the corner: its foot on it.)
+    let (left, top, width, lift) = match corner {
+        Some(c) => (Val::Px(c.x.round()), Val::Px(c.y.round()), Val::Px(300.0), -100.0),
+        None => (Val::Px(14.0), Val::Px(84.0), Val::Px(380.0), 0.0),
+    };
+    let lift = Val2::percent(0.0, lift);
+    for (mut node, mut ui) in &mut panel {
+        if node.left != left || node.top != top || node.width != width {
+            node.left = left;
+            node.top = top;
+            node.width = width;
+        }
+        if ui.translation != lift {
+            ui.translation = lift;
+        }
+    }
+}
+
 /// Checks the objectives against what the pilot is doing, keeps what's done, and draws the
 /// current one and its waypoint.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]

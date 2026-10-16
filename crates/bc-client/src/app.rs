@@ -169,6 +169,7 @@ pub fn run() {
                     update_panels,
                     place_instruments,
                     crate::map::update_objectives,
+                    crate::map::place_objective,
                     crate::chart::chart_input,
                     crate::chart::nav_key,
                     crate::chart::track_course,
