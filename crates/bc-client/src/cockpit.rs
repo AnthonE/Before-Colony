@@ -408,7 +408,9 @@ pub fn drive_cockpit(
             m.0 = face.clone();
         }
     }
-    let Some((own, visual)) = suits.iter().find(|(d, _)| d.own) else { return };
+    let Some((own, visual)) = suits.iter().filter(|(d, _)| d.own).min_by_key(|(d, _)| d.in_bay()) else {
+        return;
+    };
     // The grips follow the pilot's hands: the left the throttle (forward, back and to the side,
     // as the thrusters push), the right the stick (toward where the suit is turning to, the aim).
     let local_aim = own.rot.inverse() * own.aim;

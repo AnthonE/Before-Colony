@@ -161,7 +161,8 @@ pub fn follow(
     let inside = inside.is_some_and(|f| f.0);
     let c = &mut *chase;
     let dt = time.dt.min(0.1);
-    let own = suits.iter().find(|(d, ..)| d.own);
+    // (The suit flown, not the bay's own standing in its gantry while that's out of sight.)
+    let own = suits.iter().filter(|(d, ..)| d.own).min_by_key(|(d, ..)| d.in_bay());
     // The cockpit's eye: the own suit's head camera as posed (none for a wreck), spared most of a
     // stride's bob.
     let cockpit = own

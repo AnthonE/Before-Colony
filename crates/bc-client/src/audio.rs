@@ -445,7 +445,7 @@ pub fn play_sound(
     sound.sabers.retain(|slot, _| drives.iter().any(|(d, _)| d.slot == *slot));
     // Feet on a body: the pilot's own in the cockpit, and others' heard through the body itself
     // when the pilot stands on the same one, near enough.
-    let own_drive = drives.iter().find(|(d, _)| d.own);
+    let own_drive = drives.iter().filter(|(d, _)| d.own).min_by_key(|(d, _)| d.in_bay());
     let underfoot = own_drive.and_then(|(d, _)| d.ground).map(|g| g.body.code());
     let me = own_drive.map_or(ears, |(d, _)| d.pos);
     let mut own_steps = 0;
