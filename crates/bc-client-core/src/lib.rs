@@ -49,6 +49,7 @@ pub mod sights;
 pub mod sphere;
 pub mod surface;
 pub mod tram;
+pub mod upright;
 pub mod vehicle;
 pub mod walker;
 pub mod world;

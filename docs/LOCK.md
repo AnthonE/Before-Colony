@@ -45,8 +45,9 @@ where players learn to hit). This is the design, and what's built of it.
 - **When it lets go.** The target downed, out of sight (off sensors, jamming, hidden) for a second,
   past 5 km, or your own suit gone.
 - **When it stands aside** (the target stays locked and marked, the keys fly as they always do):
-  flight assist off, on a body or coming down onto one with the grip armed, the Orrery flying the suit, and
-  Aquila (it can't circle).
+  flight assist off, on a body or coming down onto one with the grip armed, the Orrery flying the suit,
+  Aquila (it can't circle), and inside the colony (its ground isn't the fight's: there the shooter
+  controls fly the suit, or the simulator's).
 
 ## How it works
 
@@ -56,6 +57,12 @@ grid, so a target at rest is exactly at rest) and the fight's up (10-bit octahed
 1-bit flag: 62 bits more a command, and four commands still fit 96 bytes. A silent client's suit
 stays locked on for 30 ticks after it goes hands-off, so a stall keeps station rather than braking
 hard to the sector's rest.
+
+**Shooter controls ride it too** (`bc_client_core::upright`, the default controls, `DESIGN.md`):
+not locked on, they send a `LockOn` with nothing to hold to (`ref_vel` zero, `up` the view's), and
+put the keys in its axes so that W flies along the crosshair. Inside the colony a hovering suit's
+flight assist reads a command's `LockOn` as out in space, relative to the colony's frame (it still
+rolls level with the colony's own up); a falling one, with the grip armed, flies the hover's keys.
 
 **In the simulation** (`bc_sim::ground::lockon_assist`, `bc_sim::flight::LockOnAssist`). A free
 suit's flight assist holds `ref_vel + (right·x + up·y + fwd·z)·cruise` instead of `stick·cruise`,
@@ -112,6 +119,12 @@ and SPD and the velocity marker relative to the target.
 - `bc-sim`: plain flight assist when the lock-on is the suit's own axes with nothing to hold to;
   keeping pace with a target faster than cruise; braking to it; roll-level; ignored on a body;
   `colony_up`'s geometry; `LOCKON_GOLDEN` native and wasm; `locked_on_pilots_never_allocate`.
+- `bc-sim`: hovering inside the colony, a `LockOn`'s axes read the stick (W up a climbing aim flies
+  up it, where the suit's own axes would climb twice as steeply).
+- `bc-client-core/tests/upright_predict.rs`: shooter controls against the real simulation: a suit
+  left rolled and facing away comes round onto an aim a quarter turn off and 30° up on its RCS in
+  about a second and a half, levels out, flies up the crosshair at its cruise, strafes square to it
+  along the ground and rises straight up, the prediction within a millimetre of the server.
 - `bc-client-core/tests/lockon_predict.rs`: against the real simulation, a pilot locks a target
   coasting away at 260 m/s (faster than an Argo's cruise) 250 m above it, closes to the stop on its
   level keeping pace with it, rolled level, circles it within 5% of the range, and the prediction

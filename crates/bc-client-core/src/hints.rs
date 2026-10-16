@@ -123,13 +123,21 @@ impl Hint {
     }
 
     /// What it says; `colony`: the colony is open (the launch's way into it, Q, is offered only
-    /// then).
-    pub fn text(self, colony: bool) -> &'static str {
+    /// then); `shooter`: the pilot flies with shooter controls (`crate::upright`), not the
+    /// simulator's.
+    pub fn text(self, colony: bool, shooter: bool) -> &'static str {
         match self {
+            Hint::Thrust if shooter => {
+                "W A S D fly where you look, Space / C rise and sink. The mouse aims; the view stays upright."
+            }
             Hint::Thrust => "W A S D and Space / C thrust. The mouse aims; Q / E roll.",
+            Hint::Boost if shooter => "Shift boosts (it spends propellant: watch the gauge), X brakes.",
             Hint::Boost => "Shift boosts (it spends propellant: watch the gauge), X brakes, R turns fast.",
             Hint::Fire => {
                 "Left and right mouse fire (hold a beam rifle's to charge it), F strikes in melee, H is the suit's special."
+            }
+            Hint::FlightAssist if shooter => {
+                "Hold V to turn flight assist off: then nothing slows you down, like a real spacecraft."
             }
             Hint::FlightAssist => {
                 "V turns flight assist off: then nothing slows you down, like a real spacecraft."
@@ -486,9 +494,22 @@ mod tests {
 
     #[test]
     fn the_launch_offers_the_colony_only_when_it_is_open() {
-        assert!(Hint::Launch.text(true).contains("(Q, into the colony)"));
-        assert!(!Hint::Launch.text(false).contains('Q'));
-        assert!(!Hint::Launch.text(false).contains("colony"));
+        assert!(Hint::Launch.text(true, true).contains("(Q, into the colony)"));
+        assert!(!Hint::Launch.text(false, true).contains('Q'));
+        assert!(!Hint::Launch.text(false, false).contains("colony"));
+    }
+
+    #[test]
+    fn the_flight_hints_teach_the_controls_flown() {
+        assert!(Hint::Thrust.text(false, true).contains("where you look"));
+        assert!(Hint::Thrust.text(false, false).contains("Q / E roll"));
+        // The shooter's RCS turns by itself, and its V is held.
+        assert!(!Hint::Boost.text(false, true).contains('R'));
+        assert!(Hint::Boost.text(false, false).contains("R turns fast"));
+        assert!(Hint::FlightAssist.text(false, true).starts_with("Hold V"));
+        for h in Hint::ALL {
+            assert!(!h.text(true, true).is_empty() && !h.text(false, false).is_empty());
+        }
     }
 
     #[test]

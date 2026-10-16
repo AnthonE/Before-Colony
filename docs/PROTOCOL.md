@@ -1,8 +1,16 @@
-# Before Colony wire protocol (v31)
+# Before Colony wire protocol (v33)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v33 (from v32): no bits change. Inside the colony a hovering suit (GRIP clear) reads a command's
+`LockOn` as one out in space does, relative to the colony's frame, which the shooter controls send
+with every command they shape (below, "Locked on"); before, the interior ignored it, so a client
+and server a version apart would fly it differently.
+
+v32 (from v31): a command that fires says how far along the crosshair the first thing the pilot sees
+is (`InputCmd::converge`, below), and the guns aim at that point.
 
 v31 (from v30): the Almagest's prototype pair (`DESIGN.md`, "The prototype pair"). `FrameId` 9 is the
 Sagittarius and 10 the Corona (still 4 bits), `WeaponKind` 21 the reactor cannon and 22 the beam
@@ -127,7 +135,11 @@ was looking.
 target's, as the pilot sees it), reading the stick in axes levelled to `up` (the stick's up; its
 forward the aim laid flat), and the suit rolls level with `up`. The server checks neither against
 the target: the simulation caps `ref_vel` at the frame's boosted cruise, and that's all a lock-on
-can ask for. A free suit only; on a body the grip's rules fly it.
+can ask for. A free suit only; on a body the grip's rules fly it. Shooter controls
+(`bc_client_core::upright`, the default) send one with `ref_vel` zero and `up` the view's, so the
+stick is read in the view's axes. Inside the colony a hovering suit reads it the same way, relative
+to the colony's frame (rolled level with the colony's up whatever `up` says); a falling one, with
+GRIP set, doesn't.
 
 Buttons, by bit: 0 FIRE_PRIMARY, 1 FIRE_SECONDARY, 2 MELEE, 3 BOOST, 4 BRAKE, 5 FLIGHT_ASSIST*,
 6 the Orrery*, 7 RCS_SHARP, 8 GRAB*, 9 STOW, 10 THROW, 11 JETTISON, 12 MODE* (the frame's mode: Aquila,

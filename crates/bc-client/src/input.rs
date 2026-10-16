@@ -43,7 +43,8 @@
 
 use bc_client_core::doubletap::{DIRECTIONS, DoubleTap};
 use bc_client_core::lockon::{Broke, HOLD_TO_RELEASE};
-use bc_client_core::settings::CameraView;
+use bc_client_core::settings::{CameraView, FlightControls};
+use bc_client_core::upright;
 use bc_proto::buttons::{
     BOOST, BRAKE, BURST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRAB, GRIP, JETTISON, MELEE, MODE,
     ORRERY, RCS_SHARP, SPECIAL, STOW, THROW,
@@ -86,6 +87,13 @@ pub const DESTRUCT_HOLD: f64 = 0.6;
 #[derive(Resource)]
 pub struct Aim {
     pub dir: Vec3,
+    /// The view's up: under simulator controls the suit's own as drawn; under shooter controls
+    /// (`upright`) the ground's, which the view levels out onto while the suit flies upright, and
+    /// otherwise close behind the suit's own (`bc_client_core::upright`). The mouse turns the aim
+    /// about it, and the camera is rolled to it.
+    pub up: Vec3,
+    /// Shooter controls: the keys fly where the pilot looks, the view upright (`up`).
+    pub upright: bool,
     pub initialized_for: Option<(u16, u8)>,
     /// Looking round from the cockpit ([`LOOK_KEY`] held): how far the view is turned off the aim,
     /// yaw right and pitch up, radians. The aim stays where it was; let go, the view swings back.
@@ -94,7 +102,7 @@ pub struct Aim {
 
 impl Default for Aim {
     fn default() -> Self {
-        Self { dir: Vec3::Z, initialized_for: None, look: Vec2::ZERO }
+        Self { dir: Vec3::Z, up: Vec3::Y, upright: false, initialized_for: None, look: Vec2::ZERO }
     }
 }
 
@@ -103,6 +111,9 @@ pub const LOOK_KEY: KeyCode = KeyCode::AltLeft;
 /// How far the view turns looking round: nearly all the way behind, and up and down.
 const LOOK_YAW: f32 = 2.9;
 const LOOK_PITCH: f32 = 1.35;
+/// Under shooter controls V is held this long to turn flight assist on or off, s: a shooter's
+/// player presses V to melee, and flying unassisted by mistake is no small thing.
+pub const ASSIST_HOLD: f64 = 0.5;
 
 /// The pilot's current controls.
 #[derive(Resource)]
@@ -343,11 +354,11 @@ pub fn read_input(
     indoors: Res<crate::hangar::Indoors>,
     map: Res<crate::map::MapOpen>,
     mut pilot: ResMut<Pilot>,
-    game: NonSend<GameClient>,
+    (game, time): (NonSend<GameClient>, Res<Time<Real>>),
     mut deck: Local<Option<(Body, Quat)>>,
     mut lock_key: Local<Option<f64>>,
     mut eject_at: Local<Option<f64>>,
-    (mut tap, mut space_at): (Local<DoubleTap>, Local<Option<f64>>),
+    (mut tap, mut space_at, mut assist_at): (Local<DoubleTap>, Local<Option<f64>>, Local<Option<f64>>),
 ) {
     let mut game = game.borrow_mut();
     // Keep the aim sane across (re)spawns: start looking where the suit looks.
@@ -356,6 +367,7 @@ pub fn read_input(
         && aim.initialized_for != Some((own.slot, own.generation))
     {
         aim.dir = own.rot * Vec3::Z;
+        aim.up = own.rot * Vec3::Y;
         aim.initialized_for = Some((own.slot, own.generation));
         // A fresh suit comes out in its first form, jammer off. One woken on a body holds on to
         // it, standing or crouched as it was left. (One in its bay's cradle is held there by the
@@ -379,8 +391,37 @@ pub fn read_input(
         && b == was
     {
         aim.dir = (rot * before.conjugate() * aim.dir).normalize_or(aim.dir);
+        aim.up = (rot * before.conjugate() * aim.up).normalize_or(aim.up);
     }
     *deck = now;
+    // Not on the chart either: its middle drag pans, which mustn't lock on or let go.
+    let flying = ui.playing() && !ui.panel_open() && !indoors.0 && !map.0;
+    // The view's up. Under shooter controls, flying upright, it levels out onto the ground's (Q / E
+    // roll it off while held, and the suit rolls with it); otherwise it follows the suit's own up.
+    let drawn = game.core.own_view().map_or(game.core.predict.state.rot, |v| v.rot) * Vec3::Y;
+    aim.upright = settings.0.flight_controls == FlightControls::Shooter && !game.autopilot;
+    let fa = if controls.flight_assist { FLIGHT_ASSIST } else { 0 };
+    let level = aim.upright && upright::flies(&game.core.predict, &game.core.world, fa);
+    if level {
+        let p = &game.core.predict;
+        let dt = time.delta_secs().min(0.1);
+        let rate = frame(p.frame()).roll_rate;
+        let rolling = if flying && pointer.0.flying() {
+            keys.pressed(KeyCode::KeyE) as i32 - keys.pressed(KeyCode::KeyQ) as i32
+        } else {
+            0
+        };
+        aim.up = if rolling != 0 {
+            upright::roll(aim.up, aim.dir, rolling as f32 * rate * dt)
+        } else {
+            upright::level(aim.up, upright::ground(p, p.tick, controls.grip), rate, dt)
+        };
+        aim.dir = upright::keep(aim.dir, aim.up);
+    } else if aim.upright {
+        aim.up = upright::follow(aim.up, drawn, time.delta_secs().min(0.1));
+    } else {
+        aim.up = drawn;
+    }
     if game.autopilot {
         return;
     }
@@ -392,8 +433,6 @@ pub fn read_input(
         controls.swallow_click = false;
     }
     controls.locked = pointer.0.flying();
-    // Not on the chart either: its middle drag pans, which mustn't lock on or let go.
-    let flying = ui.playing() && !ui.panel_open() && !indoors.0 && !map.0;
     lock_on(&mut game, &keys, &mouse, aim.dir, &mut ui, &mut lock_key, flying);
     if flying {
         eject_key(&mut game, &keys, &mut ui, &mut eject_at);
@@ -442,20 +481,25 @@ pub fn read_input(
             aim.look = Vec2::ZERO;
         }
     }
-    // Turn the aim about the suit's up as drawn (as the camera shows it).
-    let up = game.core.own_view().map_or(game.core.predict.state.rot, |v| v.rot) * Vec3::Y;
+    // Turn the aim about the view's up (as the camera shows it): flying upright, as on foot, never
+    // past the shooter's pitch limit; else about the suit's up as drawn.
+    let up = aim.up;
     if controls.locked && motion.delta != Vec2::ZERO && !looking {
         let mut d = motion.delta * SENSITIVITY * settings.0.sensitivity;
         if settings.0.invert_y {
             d.y = -d.y;
         }
-        let right = aim.dir.cross(up).normalize_or(Vec3::X);
-        let dir = Quat::from_axis_angle(up, -d.x) * (Quat::from_axis_angle(right, -d.y) * aim.dir);
-        // Don't let the aim flip over the suit's head.
-        if dir.dot(up).abs() < 0.97 {
-            aim.dir = dir.normalize();
+        if level {
+            aim.dir = upright::turn(aim.dir, up, d.x, -d.y);
         } else {
-            aim.dir = (Quat::from_axis_angle(up, -d.x) * aim.dir).normalize();
+            let right = aim.dir.cross(up).normalize_or(Vec3::X);
+            let dir = Quat::from_axis_angle(up, -d.x) * (Quat::from_axis_angle(right, -d.y) * aim.dir);
+            // Don't let the aim flip over the suit's head.
+            if dir.dot(up).abs() < 0.97 {
+                aim.dir = dir.normalize();
+            } else {
+                aim.dir = (Quat::from_axis_angle(up, -d.x) * aim.dir).normalize();
+            }
         }
     }
     let axis = |pos: KeyCode, neg: KeyCode| (keys.pressed(pos) as i32 - keys.pressed(neg) as i32) as f32;
@@ -565,14 +609,45 @@ pub fn read_input(
         controls.grab = !controls.grab;
     }
     controls.buttons = b;
-    if keys.just_pressed(KeyCode::KeyV) {
+    // Under shooter controls V is held (a shooter's melee key, tapped); under the simulator's, a
+    // press.
+    let toggle_assist = if aim.upright {
+        let now = crate::net::now_s();
+        if assist_at.is_none() && keys.just_pressed(KeyCode::KeyV) {
+            *assist_at = Some(now);
+        }
+        match (*assist_at, keys.pressed(KeyCode::KeyV)) {
+            (Some(at), true) if at.is_finite() && now - at >= ASSIST_HOLD => {
+                *assist_at = Some(f64::INFINITY);
+                true
+            }
+            (Some(at), false) => {
+                if at.is_finite() {
+                    ui.toast(if controls.flight_assist {
+                        "HOLD V to turn flight assist off (F is melee)"
+                    } else {
+                        "HOLD V to turn flight assist back on"
+                    });
+                }
+                *assist_at = None;
+                false
+            }
+            _ => false,
+        }
+    } else {
+        *assist_at = None;
+        keys.just_pressed(KeyCode::KeyV)
+    };
+    if toggle_assist {
         controls.flight_assist = !controls.flight_assist;
         // Loud: V is the camera key in other games, and flying unassisted by mistake is no small
         // thing.
-        ui.toast(if controls.flight_assist {
-            "FLIGHT ASSIST ON"
-        } else {
-            "FLIGHT ASSIST OFF: fully Newtonian (V)"
+        ui.toast(match (controls.flight_assist, aim.upright) {
+            (true, _) => "FLIGHT ASSIST ON",
+            (false, true) => {
+                "FLIGHT ASSIST OFF: fully Newtonian, and the keys thrust along the suit (hold V)"
+            }
+            (false, false) => "FLIGHT ASSIST OFF: fully Newtonian (V)",
         });
     }
     if keys.just_pressed(KeyCode::KeyZ) {

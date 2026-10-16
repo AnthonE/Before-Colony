@@ -230,7 +230,10 @@ pub fn publish_game(
     };
     dev.set("lock_range", range);
     dev.set("lock_level", level);
-    dev.set("lockon", core.last_cmd.lockon.is_some());
+    // Flying locked on (the lock-on shaped the command), or upright under shooter controls (they
+    // send a lock-on with nothing to hold to).
+    dev.set("lockon", game.locked_on && core.last_cmd.lockon.is_some());
+    dev.set("upright", !game.locked_on && core.last_cmd.lockon.is_some());
     dev.set("beams", w.beams.len() as u32);
     let chunks = || w.objects.iter().flatten();
     dev.set("chunks", chunks().count() as u32);

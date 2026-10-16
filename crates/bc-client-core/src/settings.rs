@@ -66,6 +66,30 @@ impl CameraView {
     }
 }
 
+/// How the keys and the mouse fly the suit (`crate::upright`): as a shooter's player moves, upright
+/// and where they look (the default), or as a spacecraft, along the suit's own axes in six degrees
+/// of freedom.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FlightControls {
+    #[default]
+    Shooter,
+    Simulator,
+}
+
+impl FlightControls {
+    pub const ALL: [FlightControls; 2] = [FlightControls::Shooter, FlightControls::Simulator];
+    pub const NAMES: [&'static str; 2] = ["shooter", "simulator"];
+
+    pub fn name(self) -> &'static str {
+        Self::NAMES[self as usize]
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        let s = s.trim().to_ascii_lowercase();
+        Self::NAMES.iter().position(|n| *n == s).map(|i| Self::ALL[i])
+    }
+}
+
 /// How a knob is edited.
 #[derive(Clone, Copy, Debug)]
 pub enum Kind {
@@ -100,6 +124,12 @@ const fn toggle(key: &'static str, label: &'static str, group: &'static str) -> 
 
 /// Everything the settings panel shows, in order.
 pub const KNOBS: &[Knob] = &[
+    Knob {
+        key: "flight_controls",
+        label: "Flight controls (shooter: upright, fly where you look; simulator: 6DOF)",
+        group: "CONTROLS",
+        kind: Kind::Choice(&FlightControls::NAMES),
+    },
     range("sensitivity", "Mouse sensitivity", "CONTROLS", 0.25, 3.0, 0.05),
     toggle("invert_y", "Invert mouse Y", "CONTROLS"),
     toggle("double_tap", "Double-tap a direction to step", "CONTROLS"),
@@ -125,6 +155,8 @@ pub struct Settings {
     pub name: String,
     /// The last frame launched in (a slug).
     pub frame: String,
+    /// How the keys and the mouse fly the suit.
+    pub flight_controls: FlightControls,
     /// A multiplier on the base mouse sensitivity.
     pub sensitivity: f32,
     pub invert_y: bool,
@@ -172,6 +204,7 @@ impl Default for Settings {
         Self {
             name: String::new(),
             frame: String::new(),
+            flight_controls: FlightControls::Shooter,
             sensitivity: 1.0,
             invert_y: false,
             camera: CameraView::Cockpit,
@@ -238,6 +271,7 @@ impl Settings {
         Some(match key {
             "name" => self.name.clone(),
             "frame" => self.frame.clone(),
+            "flight_controls" => self.flight_controls.name().to_string(),
             "sensitivity" => self.sensitivity.to_string(),
             "invert_y" => self.invert_y.to_string(),
             "camera" => self.camera.name().to_string(),
@@ -303,6 +337,10 @@ impl Settings {
                 let Some(c) = CameraView::parse(value) else { return false };
                 self.camera = c;
             }
+            "flight_controls" => {
+                let Some(c) = FlightControls::parse(value) else { return false };
+                self.flight_controls = c;
+            }
             // `dolls_downed` is what settings saved before 2026-10-14 call `drones_downed`.
             "hints_seen" | "objectives_done" | "drones_downed" | "dolls_downed" | "sights_found"
             | "course_best_ms" | "drill_best_ms" => {
@@ -322,9 +360,10 @@ impl Settings {
     }
 
     /// Every key, in the order the file lists them.
-    const KEYS: [&'static str; 24] = [
+    const KEYS: [&'static str; 25] = [
         "name",
         "frame",
+        "flight_controls",
         "sensitivity",
         "invert_y",
         "camera",
@@ -422,6 +461,7 @@ mod tests {
         let s = Settings {
             name: "Kai".into(),
             frame: "altair".into(),
+            flight_controls: FlightControls::Simulator,
             sensitivity: 1.35,
             invert_y: true,
             camera: CameraView::Chase,
@@ -514,6 +554,26 @@ mod tests {
         let calm = Settings { flashing: false, ..Settings::default() };
         assert!(!parse("version = 1\n", calm).settings.flashing);
         assert!(parse("version = 1\n", Settings::default()).settings.flashing);
+    }
+
+    #[test]
+    fn shooter_controls_are_the_default_and_simulator_stays_a_choice() {
+        assert_eq!(Settings::default().flight_controls, FlightControls::Shooter);
+        // A file from before there was a choice has no line for it: the shooter's.
+        assert_eq!(
+            parse("version = 2\nfov = 80\n", Settings::default()).settings.flight_controls,
+            FlightControls::Shooter
+        );
+        let mut s = Settings::default();
+        assert!(s.set("flight_controls", " Simulator "));
+        assert_eq!(s.flight_controls, FlightControls::Simulator);
+        assert!(!s.set("flight_controls", "arcade"));
+        assert_eq!(s.flight_controls, FlightControls::Simulator);
+        let back = parse(&serialize(&s, SETTINGS_VERSION, &[]), Settings::default());
+        assert_eq!(back.settings.flight_controls, FlightControls::Simulator);
+        for c in FlightControls::ALL {
+            assert_eq!(FlightControls::parse(c.name()), Some(c));
+        }
     }
 
     #[test]

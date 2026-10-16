@@ -191,8 +191,8 @@ pub fn stop_range(frame_id: FrameId) -> f32 {
 /// lock were held (its thrust the keys: x right, y up, z forward), and `lock` the pilot's lock.
 /// Flying free with flight assist on, the stick is reshaped to move about the target and the
 /// [`LockOn`] it holds relative to goes with it. Otherwise (on a body or coming down onto one,
-/// flight assist off, the Orrery flying the suit, folded into Aquila) the keys go as they are; the
-/// target is still designated either way.
+/// flight assist off, the Orrery flying the suit, folded into Aquila, inside the colony, whose
+/// ground isn't the fight's) the keys go as they are; the target is still designated either way.
 pub fn shape(cmd: InputCmd, lock: &mut Lock, ctx: &InputContext) -> InputCmd {
     let Some(slot) = lock.slot() else { return cmd };
     let mut out = InputCmd { lock_target: slot, ..cmd };
@@ -205,7 +205,7 @@ pub fn shape(cmd: InputCmd, lock: &mut Lock, ctx: &InputContext) -> InputCmd {
     let seized = own.orrery_mode == orrery_mode::SEIZED;
     let bird = p.form.frame == FrameId::Aquila;
     let landing = cmd.pressed(bc_proto::buttons::GRIP) && surface_hint(&p.bodies(ctx.tick), &s).is_some();
-    if !free || !cmd.pressed(FLIGHT_ASSIST) || seized || bird || landing {
+    if !free || !cmd.pressed(FLIGHT_ASSIST) || seized || bird || landing || p.interior() {
         return out;
     }
     let spec = frame(p.form.frame);

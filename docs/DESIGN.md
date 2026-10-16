@@ -1338,13 +1338,13 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
 |---|---|
 | Mouse (click to lock) | aim |
 | Y · middle click | lock on (again: the next target; held: let go) |
-| W/S · A/D · Space/C | thrust forward/back · left/right · up/down; double-tapped, a burst step that way |
-| Q/E | roll |
+| W/S · A/D · Space/C | shooter controls (the default): fly where you look, forward/back · strafe left/right · rise/sink; simulator controls: thrust along the suit's own axes; double-tapped, a burst step that way |
+| Q/E | roll (shooter controls: let go, and the view and the suit level out) |
 | L | grip: armed, coming in slow and close lands you on a rock or a landmark; again, let go |
-| Shift · X · R | boost · brake · RCS (fast turns) |
+| Shift · X · R | boost · brake · RCS (fast turns; shooter controls fire it by themselves) |
 | LMB · RMB · F | primary · secondary · melee (a beam rifle: tap fires, hold to charge, let go full for the charged shot) |
 | H | the frame's special: a toggle for Aquila and the Eclipse, a press for Full Salvo and the Pincer Strike |
-| V · Z | flight assist · the Orrery |
+| V · Z | flight assist (shooter controls: held half a second) · the Orrery |
 | Tab · mouse wheel | the camera: the cockpit (first person) or the chase camera (wheel in: the cockpit; out: chasing) |
 | M · N | the chart: the sector in 3D out to Earth-Moon space, the objectives and courses · the auto-nav on the course set (on or off) |
 | G · B · T · J | grab (toggle) · stow · throw · jettison |
@@ -1365,6 +1365,25 @@ in view (E again, or Esc, steps away from a terminal). With the colony open, Q a
 launches into it, and Q at the airlock chooses the next strip's cap lift. In the city, M opens the
 map, and M or Esc closes it.
 
+**Shooter controls** (`bc_client_core::upright`; the default, a setting away from the simulator's).
+Flying free, the suit handles as a first-person shooter's player moves, and the simulation under it
+is the same for both. The view stays upright: its up levels out onto the ground's (away from the
+colony out in space, the lock-on's ground; toward the axis inside it; onto the surface an armed grip
+is bringing the suit down to), the mouse turns the aim about that up as on foot, never past 89° of
+the horizon, and Q/E roll off it only while held. W flies along the crosshair, A/D strafe square to
+it along the ground and Space/C rise and sink, at the frame's cruise (a diagonal no faster): the
+keys go out as a lock-on with nothing to hold to (`bc_proto::LockOn`, its velocity zero, its up the
+view's), so flight assist reads them in the view's axes and rolls the suit level with it, and the
+owner's prediction stays exact. The suit fires its RCS whenever the aim is off its nose, as drones
+and agents always have (free under the anime rules; under the real ones a few kilograms a hard
+turn), so it comes round a quarter turn in about a second and a half; the view itself turns with the
+mouse at once. V is held half a second to turn flight assist on or off, since a shooter's player
+presses V to melee. It stands aside where the keys mean something else: on a body, flight assist
+off, the Orrery's seizure, Aquila, falling inside the colony with the grip armed, and the auto-nav;
+the view's up then follows the suit's own, close behind. Locked on, the lock-on moves the suit.
+The thrusters still decide how fast a velocity is reached, axis by axis (sideways at half forward's
+pull), so a strafe from a standstill builds over seconds, as a suit's would.
+
 The list players see (the title screen's controls sheet and F1) is
 `bc_client_core::controls::BINDINGS`; keep it in step with this table. Down is C alone: Left Ctrl
 held with W is Ctrl+W, which closes the browser's tab. F1 and F10 have second keys, `?` and O,
@@ -1377,7 +1396,8 @@ and lists what they'll ask for.
 **The cockpit.** The pilot flies from the cockpit: the view from the head's main camera (exactly the
 simulation's eye, `FrameSpec::eye`), which is what a suit's cockpit monitors show. Tab (or the mouse
 wheel) switches to the chase camera and back. It looks along the aim, as the chase camera does, so
-the crosshair is the aim either way and the suit turns after it. What's at the eye (the head, a
+the crosshair is the aim either way and the suit turns after it. It's rolled to the view's up: the
+suit's own under simulator controls, the ground's under shooter controls. What's at the eye (the head, a
 high collar) isn't drawn from inside it; the rest of the suit is, so a blade stroke, the Talon or a
 shoulder coming round shows. Aquila's view is from over its canopy, along its nose. With the head
 shot off the picture comes from the sub-camera, greyer and fringed. A wreck is watched from the
@@ -1467,7 +1487,8 @@ wake in their bay. A guest flying sees DISCONNECT.
   `WOKE IN AFT WELL - hidden. Move or fire and you're seen.`
 - A suit that's already a wreck when its pilot leaves is gone, as a guest's suit always is.
 
-**Settings** (from the title or the menu) are kept in the browser: mouse sensitivity, invert Y,
+**Settings** (from the title or the menu) are kept in the browser: the flight controls (shooter or
+simulator), mouse sensitivity, invert Y,
 the flight camera, field of view (vertical; the panel gives the horizontal too), camera shake,
 flashing effects (an Orrery seizure's flicker; off to start with when the browser asks for reduced
 motion), first-flight hints, the objectives and graphics quality, along with the last callsign and frame launched. `bc_client_core::settings` defines them, their ranges and the stored text (a
