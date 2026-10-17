@@ -556,7 +556,7 @@ orders, the fee); `book` {`depth`, `history`}; `note` {`text`, `ok`} answering a
 news: a job done, an order filled); `sortie` {`outcome`: `docked`, `lost`, `recovered`, `text`, and docked or lost its `debrief` {`lines`:
 [{`what`, `cr`}]}: the sortie's payout sheet, credits earned positive and spent negative; the
 Charter Board's pay for the sortie is among the earnings, before the costs: `PATROL #3` for a
-patrol flown, `ACE ARIES` for an ace's bounty, each with ` · AT THE BOARD` appended when it waits
+patrol flown, `ACE LYRA` for an ace's bounty, each with ` · AT THE BOARD` appended when it waits
 at its desk};
 `news` {`text`} (a pilot's arrival, the Charter Board's advance, its flight certificate's rifle
 (`THE CHARTER BOARD HAS YOUR FLIGHT CERTIFICATE · ...`, once, on a pilot's first time on the
@@ -593,7 +593,7 @@ The Almagest's aces (`DESIGN.md`, "Aces: the Most Wanted"): the ace out among th
 roster (`Roster`, pilot kind 2, a drone) by its callsign while its suit is in the sector,
 downed too until its slot is let go; then the roster forgets it. The pilot who downs one hears
 `news` at once: the Charter Board's pay or, the colony open, that it waits at the Board's desk
-(`ARIES DOWNED · ITS 1,500 CR BOUNTY WAITS FOR YOU AT THE CHARTER BOARD'S DESK`), with a `hangar`
+(`LYRA DOWNED · ITS 1,500 CR BOUNTY WAITS FOR YOU AT THE CHARTER BOARD'S DESK`), with a `hangar`
 either way; or under salvage terms that the tugs are going out for its wreck, and 45 s on the `news`
 of what they brought home (as for a pilot's own wreck after ejecting; already out for that, the
 bounty is paid instead). Paid or claimed, a `charter` (`mine_aces`, `waiting`) comes just before

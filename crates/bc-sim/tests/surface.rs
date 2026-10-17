@@ -1388,24 +1388,24 @@ fn sleepers_run_no_specials() {
     let mut sim = grip_sector();
     let (_, rock) = grippable_rock(&sim, 300.0);
     let (altair, _) = common::resting_as(&mut sim, FrameId::Altair, &rock, Vec3::Y);
-    let (scythe, _) = common::resting_as(&mut sim, FrameId::Algol, &rock, -Vec3::Y);
+    let (algol, _) = common::resting_as(&mut sim, FrameId::Algol, &rock, -Vec3::Y);
     for _ in 0..40 {
-        for id in [altair, scythe] {
+        for id in [altair, algol] {
             let aim = sim.suits.flight[id.idx()].rot * Vec3::Z;
             drive(&mut sim, id, [0; 3], MODE, aim);
         }
         step(&mut sim);
     }
     assert_eq!(sim.suits.frame[altair.idx()], FrameId::Aquila);
-    assert!(sim.suits.special[scythe.idx()].active, "the jammer is on");
-    for id in [altair, scythe] {
+    assert!(sim.suits.special[algol.idx()].active, "the jammer is on");
+    for id in [altair, algol] {
         assert!(sim.sleep(id) && sim.is_parked(id.idx()), "suit {} didn't park", id.idx());
     }
     for _ in 0..600 {
         step(&mut sim);
         assert_eq!(sim.suits.frame[altair.idx()], FrameId::Aquila, "a parked bird stays a bird");
-        assert!(!sim.suits.special[scythe.idx()].active, "and a parked jammer stays off");
-        assert!(sim.is_parked(altair.idx()) && sim.is_parked(scythe.idx()));
+        assert!(!sim.suits.special[algol.idx()].active, "and a parked jammer stays off");
+        assert!(sim.is_parked(altair.idx()) && sim.is_parked(algol.idx()));
     }
 }
 

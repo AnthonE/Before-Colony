@@ -2,7 +2,7 @@
 
 The owner's call: a lock-on that puts the fight on a plane, as if on the ground, so that a fight in
 six degrees of freedom reads like one on foot and aiming gets easier, without taking the aim away
-from the pilot (`PEERS.md`, Battle Operation 2's Derelict Colony: close, ground-like fighting is
+from the pilot (`PEERS.md`, the licensed 6v6 shooter's derelict-colony map: close, ground-like fighting is
 where players learn to hit). This is the design, and what's built of it.
 
 ## What it has to be

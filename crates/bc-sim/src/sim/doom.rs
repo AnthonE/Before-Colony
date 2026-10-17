@@ -1,7 +1,7 @@
 //! Losing a suit the way the mech games teach it (`docs/PEERS.md`, "Mech games"): Titanfall's
 //! Titans are doomed before they're destroyed and their pilots eject, Steel Battalion makes
-//! ejecting the pilot's own job, and Gundam Wing's Heero blows up his Gundam rather than leave it
-//! to anyone.
+//! ejecting the pilot's own job, and the oldest scene in mecha anime has a pilot blow up his own
+//! suit, himself aboard, rather than leave it to anyone.
 //!
 //! - **Doom.** A pilot's suit whose torso is breached isn't lost at once: for [`DOOM_TICKS`] it
 //!   flies and fights on while its reactor goes. Every blow that lands meanwhile takes time off it

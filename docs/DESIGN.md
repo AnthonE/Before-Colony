@@ -24,9 +24,10 @@ Every name in the game is its own (`STORY.md`, "Voice and naming"). All art is p
 ## Setting
 
 **The year before the colony calendar begins.** The first colony, an O'Neill cylinder at L1, has
-just opened its docks, and the calendar history will call After Colony starts the day its charter
-is signed. The pilots are **Arrivals**: people, and minds without bodies (the agents), who woke in
-its docking hub remembering another world where After Colony is a story they already know. The
+just opened its docks, and the calendar history will count in, the Charter Years, starts the day
+its charter is signed. The pilots are **Arrivals**: people, and minds without bodies (the agents),
+who woke in its docking hub remembering another world where the colony's history is a story they
+already know. The
 world moves through eras as the community builds it. `docs/STORY.md` is the world bible.
 
 The milestones so far take place in **Sector L1**: the colony (3.2 km radius, 32 km long) lies
@@ -142,8 +143,8 @@ drones on them.)
   out and closes in on the way. At 100% the pilot blacks out and control authority collapses until
   strain falls below 50%, two seconds once the load is off (a real G-LOC lasts nearer half a
   minute). An Altair's boost (12 g ahead) is borne while its tank is full, but lighter (nearly 18 g by
-  the end) or climbing too, it's more than its pilot takes, so you *can* out-thrust your own body,
-  as Zechs did in the Tallgeese (Gundam Wing). Drones have no body, so no G limit. Agents are pilots, so
+  the end) or climbing too, it's more than its pilot takes, so you *can* out-thrust your own body.
+  Drones have no body, so no G limit. Agents are pilots, so
   they do have one.
 - **What's felt** is what pushes the suit: its thrust, the ground holding it up, inside the colony
   the air, and a crash. Not what it falls under: coasting is weightless, inside the colony too
@@ -459,8 +460,7 @@ exactly.
 
 ### The prototype pair: the Sagittarius and the Corona
 
-The Almagest's answer to the Lodestars it hears the Arrivals talk about (after Gundam Wing's
-Vayeate and Mercurius, `STORY.md`): two prototypes on one frame, the spear and the shield, that
+The Almagest's answer to the Lodestars it hears the Arrivals talk about (`STORY.md`): two prototypes on one frame, the spear and the shield, that
 fly together. Pilots can't build them; the last two aces on the Most Wanted fly them ("Aces").
 
 - **The Sagittarius** carries one weapon, the **reactor cannon**, cabled to the generator ring on
@@ -483,7 +483,7 @@ fly together. Pilots can't build them; the last two aces on the Most Wanted fly 
     flash where it stops.
   - Its drones and the kit-aware pilot keep the field up with a hostile within 4 km and 40% of
     their energy, down to 10% (`sim::ward`, `ai::drone::wants_ward`).
-- The Corona's beam gun is quick and light, and its beam saber comes out of its crash shield.
+- The Corona's beam gun is quick and light, and its beam saber comes out of its disc shield.
 - **A gun in the right hand comes up at the ready** (every frame, `bc-client`'s `anim`). In
   flight, and for 4 s after it fires or as it charges, the upper arm swings forward and the
   forearm comes up near level, the fist in line with it, and the gun turns back in the fist to
@@ -533,8 +533,8 @@ timings, arc and reach in its row of the weapon table.
 ### Doom and ejecting
 
 How a suit is lost, as the mech games handle it (`PEERS.md`, "The mech games"): Titanfall's doomed
-Titans and their pilots ejecting, Steel Battalion's eject button, and Heero blowing up his Gundam
-in Siberia (Gundam Wing; `bc_sim::sim::doom`).
+Titans and their pilots ejecting, Steel Battalion's eject button, and the mecha anime pilot who
+blows up his own suit with himself aboard (`bc_sim::sim::doom`).
 
 - **Doomed.** A pilot's suit whose torso armour is gone isn't lost at once. For 3 s it flies and
   fights on while its reactor goes: it burns, sparks and pops, and the HUD counts it down
@@ -1106,7 +1106,7 @@ every terminal in the bay, and the Charter Board's own desk in its hall on Chart
   - *The militia's hangar* (15 t of steel, 4 t of alloy, 2 t of components, 3 t of munitions,
     4 t of propellant): the militia posts patrols.
   - *The charter vote*, open once both are finished: three pilots of standing sign it, and the
-    calendar begins (`AC 1 · THE CHARTER`, `STORY.md`).
+    calendar begins (`CY 1 · THE CHARTER`, `STORY.md`).
 
   Every pilot hears when one is finished, wherever they are; the board lists each work's most
   generous contributors.
@@ -1133,7 +1133,7 @@ a bounty on it (1,500 to 4,000 CR).
   prototype pair ("The prototype pair"). Each starts 18 m apart, inside the field's reach. The
   wingman is a plain drone of the ace's squad (its bounty the drone's: 800 CR for either
   prototype), and a prototype's wreck is scrap to the tugs, since no pilot builds those lines.
-- **Known by its name.** It goes on every pilot's roster by its callsign: the lock (`LOCK ARIES`),
+- **Known by its name.** It goes on every pilot's roster by its callsign: the lock (`LOCK LYRA`),
   the kill feed and the chart name it, from the moment it's out until a few seconds after it's
   downed. The news says when one comes out (`THE ALMAGEST'S LYRA IS OUT AMONG THE DRONES · 1,500 CR ON
   IT`) and who downed it.
@@ -1209,7 +1209,7 @@ a bounty on it (1,500 to 4,000 CR).
 
 The plan, its numbers and what's still to come are `COLONY.md`. What's in so far:
 
-- **The colony, from outside**, as the Gundam Wing pictures have it: its mirrors hinged at the −X
+- **The colony, from outside**, as the owner's reference pictures have it: its mirrors hinged at the −X
   end, opening with the colony's day (about 1° at night, 45° at noon), the bay ring with its six
   spokes, the docking hub as a spire of stacked modules, scaffolds and cranes at the +X axis
   port, and rows of lights along the windows, the ring and the spire. Its windows show the city
@@ -1351,7 +1351,7 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   leaves a sector flying free.
 - **Time dilation** instead of crashes. When a sector's tick exceeds budget in a huge battle,
   simulation time slows and the snapshot header's `tidi_pct` tells clients to slow their clocks.
-- **Factions and territory:** the Almagest, the Alliance, the Colonies (Operation Starfall), the
+- **Factions and territory:** the Almagest, the Alliance, the Colonies (the Breakaway), the
   Consortium, and the crews the Arrivals found. Drone production lines are a faction investment. Siderium is refined
   in zero-G.
 

@@ -55,6 +55,10 @@ pub struct Sleeper {
     pub since_unix: u64,
 }
 
+/// The drones' side as a parked suit's record from before 2026-10-14 names it: it reads
+/// pre-rename saves, and is never written.
+const OLD_ALMAGEST_SIDE: &str = "oz";
+
 /// A suit its pilot left asleep in a landmark's hide spot (survival): where it is and what it
 /// carries, so that the next server run can put it back there
 /// ([`GameShared::restore_parked`](crate::net::game::GameShared::restore_parked)).
@@ -135,8 +139,9 @@ impl ParkedSuit {
         let frame = FrameId::from_slug(&self.frame)?;
         let faction = match self.faction.as_str() {
             // Nobody flies for the drones' side (`net::game`'s `side`): one kept from before that
-            // was so comes back for the Colonies ("oz" is what records from before 2026-10-14 say).
-            "almagest" | "oz" | "colonies" => Faction::Colonies,
+            // was so comes back for the Colonies (as does a record from before 2026-10-14).
+            s if s == OLD_ALMAGEST_SIDE => Faction::Colonies,
+            "almagest" | "colonies" => Faction::Colonies,
             "alliance" => Faction::Alliance,
             _ => return None,
         };
@@ -793,7 +798,7 @@ mod tests {
         // Nobody flies for the drones' side: one kept from before that comes back for the Colonies.
         let almagest = ParkedSuit { faction: "almagest".into(), ..ParkedSuit::new(&rec, 77) };
         assert_eq!(almagest.record().map(|r| r.faction), Some(Faction::Colonies));
-        let old_side = ParkedSuit { faction: "oz".into(), ..ParkedSuit::new(&rec, 77) };
+        let old_side = ParkedSuit { faction: OLD_ALMAGEST_SIDE.into(), ..ParkedSuit::new(&rec, 77) };
         assert_eq!(old_side.record().map(|r| r.faction), Some(Faction::Colonies));
     }
 

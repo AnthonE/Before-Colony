@@ -45,23 +45,23 @@ fn the_lodestars_fly_as_designed() {
 
 #[test]
 fn aquila_is_altair_in_another_shape() {
-    let (wz, bird) = (frame(FrameId::Altair), frame(FrameId::Aquila));
-    assert_eq!(wz.part_hp, bird.part_hp);
-    assert_eq!((wz.dry_mass, wz.propellant_cap, wz.isp), (bird.dry_mass, bird.propellant_cap, bird.isp));
-    assert_eq!((wz.energy_cap, wz.energy_regen), (bird.energy_cap, bird.energy_regen));
-    assert_eq!((wz.heat_cap, wz.heat_dissipation), (bird.heat_cap, bird.heat_dissipation));
-    assert_eq!((wz.armor, wz.orrery), (bird.armor, bird.orrery));
+    let (alt, bird) = (frame(FrameId::Altair), frame(FrameId::Aquila));
+    assert_eq!(alt.part_hp, bird.part_hp);
+    assert_eq!((alt.dry_mass, alt.propellant_cap, alt.isp), (bird.dry_mass, bird.propellant_cap, bird.isp));
+    assert_eq!((alt.energy_cap, alt.energy_regen), (bird.energy_cap, bird.energy_regen));
+    assert_eq!((alt.heat_cap, alt.heat_dissipation), (bird.heat_cap, bird.heat_dissipation));
+    assert_eq!((alt.armor, alt.orrery), (bird.armor, bird.orrery));
     // Each transforms into the other, taking the same time.
     let (SpecialKind::Transform { to: a, ticks: ta, .. }, SpecialKind::Transform { to: b, ticks: tb, .. }) =
-        (wz.special, bird.special)
+        (alt.special, bird.special)
     else {
         panic!("both forms transform");
     };
     assert_eq!((a, b), (FrameId::Aquila, FrameId::Altair));
     assert_eq!(ta, tb);
     // Faster in a straight line, worse in turns, and no melee.
-    assert!(bird.fa_speed > wz.fa_speed && bird.main_thrust > wz.main_thrust);
-    assert!(bird.limb_trim_rate < wz.limb_trim_rate && bird.side_thrust < wz.side_thrust);
+    assert!(bird.fa_speed > alt.fa_speed && bird.main_thrust > alt.main_thrust);
+    assert!(bird.limb_trim_rate < alt.limb_trim_rate && bird.side_thrust < alt.side_thrust);
     assert!(bird.loadout[2].is_none());
     assert_eq!(bird.loadout[0].map(|m| m.weapon), Some(WeaponKind::HeavyBeamRifle));
     // Its wings are wider than a humanoid's arms.

@@ -276,7 +276,7 @@ The Arrival (`Request::Eat`, the body on the pilot's record).
 
 ## P2: depth, once the above is in
 
-- **Cost brackets** (Battle Operation 2): a suit's cost from its stat sheet or its parts' prices,
+- **Cost brackets** (the licensed 6v6 shooter, `PEERS.md`): a suit's cost from its stat sheet or its parts' prices,
   used to tier contracts and to size the drones sent after a pilot.
 - **Close quarters outside the law:** solid structures at the axis port and the building site's
   frames (`COLONY.md` 1.3's colliders first), where free aim is learnt.
@@ -355,7 +355,7 @@ fight").
   as it came home; the session sends the sheet with the sortie (`Update::Sortie`'s `debrief`, an
   optional field: no new version).
 - The Charter Board's pay for the sortie (`Hangar::board_paid`, kept in the record's `sortie_pay`
-  till the sheet is made, cleared by the next launch): `PATROL #3` and `ACE ARIES`, with ` · AT THE
+  till the sheet is made, cleared by the next launch): `PATROL #3` and `ACE LYRA`, with ` · AT THE
   BOARD` when it waits at its desk, put among the earnings before the costs (`Debrief::paid`).
 - The client: under the news for 12 s (`#debrief`), and line by line in the terminals' log;
   `HangarState::last_debrief` for agents.

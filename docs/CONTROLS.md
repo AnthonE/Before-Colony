@@ -1,6 +1,6 @@
 # Controls: what players will expect
 
-A survey (September 2026) of the games Before Colony's players will measure it against: Gundam and
+A survey (September 2026) of the games Before Colony's players will measure it against: anime-mech and
 mech games, 6DOF space sims, and PC shooters in the browser. It sets our scheme against theirs, says
 where we break convention on purpose and what that costs, and lists what players will ask for, most
 important first. `DESIGN.md` has the controls as they are.
@@ -12,19 +12,18 @@ Keys marked *unverified* come from secondary sources only. The sources are liste
 Nothing we found combines Newtonian 6DOF flight, mouse free aim, suits and an MMO [A]. The
 nearest games each share only part of it:
 
-- **Mobile Suit Gundam Battle Operation 2** (GBO2) has Gundam suits and manual aim. Funnels lock
-  after you hold the reticle on a target, which is our missile lock. But you stay upright, and space
+- **The licensed 6v6 anime-mech shooter** (2018–) has anime suits and manual aim. Its remote
+  weapons lock after you hold the reticle on a target, which is our missile lock. But you stay upright, and space
   only adds "ascend and descend" to the ground controls [A1].
 - **Star Citizen** is a Newtonian MMO, with coupled/decoupled flight, G protection and lead pips. It
   flies ships, not limbed suits [A2][B2].
 - **Elite Dangerous** and **Space Engineers** have flight-assist and dampener toggles and
   zero-G movement.
-- No Gundam game has flown Newtonian 6DOF, the two Gundam MMOs (UC Gundam Online, Gundam Online)
-  included [A1].
+- No licensed anime-mech game has flown Newtonian 6DOF, the franchise's two MMOs included [A1].
 
 So players arrive with three sets of habits that disagree with each other:
 
-- **Gundam action players** expect lock-on and target switching, a dodge step, homing melee, and a
+- **Anime-mech action players** expect lock-on and target switching, a dodge step, homing melee, and a
   controller.
 - **Space-sim players** expect a flight-assist toggle, lead pips, a velocity vector, radar, and
   HOTAS.
@@ -74,8 +73,8 @@ are settings, so the next sortie starts in the same view.
   none [C1]. Tab is free, reachable from WASD and in the same place on every layout, and there's no
   tab-targeting in this game for it to be mistaken for. Scrolling in to go first person follows
   games whose third-person camera zooms on the wheel (Skyrim and Starfield, *unverified*) [C4].
-- **Where the eye sits.** The camera is the head's main camera, whose picture is what a mobile
-  suit's cockpit monitors show. Gundam canon has it both ways: the cockpit is in the torso and the
+- **Where the eye sits.** The camera is the head's main camera, whose picture is what an anime
+  mech's cockpit monitors show. The anime have it both ways: the cockpit is in the torso and the
   head carries the sensors [A3]. Aquila looks out from over its canopy, along its nose.
 - **Where it looks.** Along the aim, as the chase camera does, and the suit turns after it (under
   shooter controls, upright to the ground's up, the mouse turning it as on foot). This is
@@ -96,7 +95,7 @@ are settings, so the next sortie starts in the same view.
   sits inside the camera's near plane or across the crosshair's central 15°, and another that the
   arms, legs and gun are never left out.
 - **Damage.** With the head shot off, the picture comes from the sub-camera: greyer, fringed, and
-  marked `SUB-CAM` on the armour readout. Senjou no Kizuna II's cockpit glitches on hits [A1].
+  marked `SUB-CAM` on the armour readout. The licensed cockpit-pod arcade game's cockpit glitches on hits [A1].
 - **Chase camera for wrecks.** A wreck is always watched from the chase camera.
 - **First person is the default.** The pilot sits in the suit: that's the fantasy, and the crosshair
   is exact from the eye. MWO added third person over fan protest because new players couldn't read
@@ -118,7 +117,7 @@ are settings, so the next sortie starts in the same view.
 | R RCS | Kerbal Space Program (R toggles RCS) [B4] |
 | LMB/RMB weapons | Mecha BREAK [A2] |
 | Esc menu | The browser's own exit from pointer lock [C1] |
-| Hold the reticle on a target to lock missiles | GBO2's funnels [A1] |
+| Hold the reticle on a target to lock missiles | The 6v6 shooter's remote weapons [A1] |
 | M the chart (a 3D map) · N its auto-nav | Elite's galaxy and system maps and nearly every PC game with one; dragging to turn a 3D map and the wheel to zoom it, as in Elite's galaxy map; `◆` waypoints as in Everspace 2; flying a picked destination for the pilot, as Elite's supercruise assist does (*unverified*) |
 
 **On a surface.** Landing, walking and hiding (`DESIGN.md`, "Surfaces") reuse keys players already
@@ -184,11 +183,11 @@ tap ejects at once and a hold blows the suit up instead.
      (`bc_client_core::dock`), so the dock's refusals come only where they teach something. One
      press goes one place, decided once a frame. On the chart Enter still sets a course.
    - **Still open:** T, the other usual chat key, stays throw.
-4. **The lock moves you; it doesn't aim for you.** Most Gundam games lock on: Extreme Vs., Gundam
-   Breaker, SD Gundam Battle Alliance, even the cockpit arcade game Senjou no Kizuna [A1]. Lock-on is
+4. **The lock moves you; it doesn't aim for you.** Most licensed anime-mech games lock on: the 2v2
+   arena brawlers, the kit-building brawlers, even the cockpit-pod arcade game [A1]. Lock-on is
    also the most common complaint in mech games: too strong, unreliable, or grabbing the wrong target
-   (AC6, Mecha BREAK, Daemon X Machina, Gundam Breaker 4, SD Gundam Battle Alliance) [A2]. GBO2 has no
-   lock-on button, which shows Gundam players will accept free aim [A1].
+   (AC6, Mecha BREAK, Daemon X Machina, the kit-building brawlers) [A2]. The 6v6 shooter has no
+   lock-on button, which shows anime-mech players will accept free aim [A1].
    - **Done** (`LOCK.md`): Y, or a click of the middle button, locks on, and what it locks is the
      fight's footing, not the guns. Flight assist keeps pace with the target, W closes in and stops
      short, A/D circle it, and the suit settles onto its level as if on the ground; the mouse still
@@ -257,12 +256,12 @@ tap ejects at once and a hold blows the suit up instead.
 5. **Reading aids instead of a gun lock.** **Done** with the lock-on (`LOCK.md`): its bracket, range
    and closing speed, and the ◆. Designate a target (the one ahead, the nearest hostile,
    whoever is shooting you) for information only: a box, range and closing speed.
-   - Colour the reticle when a blade can reach, like Senjou's orange [A1].
+   - Colour the reticle when a blade can reach, like the cockpit-pod game's orange [A1].
    - Keep the lock warnings, which we already have.
 6. **Gamepad.** Bevy's gilrs backend is already in the build (the `3d` feature brings it) and reads
    standard-mapped pads in the browser [C2].
    - It needs a default layout, deadzones, per-stick sensitivity and a "press any button" prompt.
-   - Decide the aim-assist policy up front. Gundam Evolution gave aim assist to console pads only,
+   - Decide the aim-assist policy up front. The licensed hero shooter (2022–2023) gave aim assist to console pads only,
      so a pad on PC got none [A1].
    - HOTAS needs a direct `getGamepads()` path with press-to-bind, because non-standard devices
      arrive raw.
@@ -278,12 +277,12 @@ tap ejects at once and a hold blows the suit up instead.
 
 **P2: depth, once the above is in.**
 
-9. **A burst step.** A double-tapped direction that spends propellant and G, like EXVS's step,
-   GBO2's double-tap evade, AC6's Quick Boost and Mecha BREAK's Shift evade [A1][A2]. Every
+9. **A burst step.** A double-tapped direction that spends propellant and G, like the 2v2 brawlers' step,
+   the 6v6 shooter's double-tap evade, AC6's Quick Boost and Mecha BREAK's Shift evade [A1][A2]. Every
    reference game has one. **Done:** double-tap W/A/S/D/Space/C (a setting turns it off) for 36
    m/s that way in 0.3 s, once every 1.2 s; locked on, along the fight's axes (`DESIGN.md`, "The
    burst step"). A key of its own (for pads, and pilots who hate double taps) is still open.
-10. **Mild homing on blade lunges, within a cone** (EXVS, Zone of the Enders). Landing a lunge on a
+10. **Mild homing on blade lunges, within a cone** (the 2v2 brawlers, Zone of the Enders). Landing a lunge on a
     target that moves in 6DOF is hard. **Done:** a lunge drives along the aim within 15° of the
     nose (`DESIGN.md`, "Blades lunge").
 11. **Comfort.**
@@ -327,13 +326,13 @@ tap ejects at once and a hold blows the suit up instead.
 
 The three surveys behind this document were run in September 2026. The main sources for each claim:
 
-- **[A1] Gundam games.**
-  - GBO2: the official manual (bo2.ggame.jp/en/images/manual/ps5/03.jpg, 05.jpg) and Siliconera on
-    its space battles.
-  - EXVS MBON: Dustloop's controls page.
-  - Gundam Evolution: Shacknews on its closure; Game*Spark on its aim assist.
-  - Senjou no Kizuna: Game Watch (game.watch.impress.co.jp/docs/20061201/pod.htm); HUDS+GUIS on
-    Senjou II.
+- **[A1] Licensed anime-mech games.**
+  - The 6v6 shooter: the official manual (bo2.ggame.jp/en/images/manual/ps5/03.jpg, 05.jpg) and
+    Siliconera on its space battles.
+  - The 2v2 arena brawler: Dustloop's controls page.
+  - The hero shooter: Shacknews on its closure; Game*Spark on its aim assist.
+  - The cockpit-pod arcade game: Game Watch (game.watch.impress.co.jp/docs/20061201/pod.htm);
+    HUDS+GUIS on its sequel.
 - **[A2] Mech games.**
   - MechWarrior Online: Gaming Nexus, GDC 2012; its Steam discussions (F3 third person, formerly
     F4); Engadget (2013) on adding third person.
@@ -341,7 +340,7 @@ The three surveys behind this document were run in September 2026. The main sour
   - Mecha BREAK: Prima's controls guide; its Steam discussions.
   - Hawken Reborn: 505 Games' patch notes.
   - Titanfall 2: titanfall.wiki.gg on terminations.
-- **[A3]** Wikipedia, "Mobile suit".
+- **[A3]** Wikipedia, on the licensed franchise's suits.
 - **[B1] Elite Dangerous.**
   - Default keyboard binds: the shipped `KeyboardMouseOnly.binds`, mirrored at
     github.com/brammmers/edrefcard2.

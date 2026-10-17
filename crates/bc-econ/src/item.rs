@@ -188,7 +188,11 @@ pub fn weapon_slug(kind: WeaponKind) -> &'static str {
     }
 }
 
-/// The weapon slugs before 2026-10-14, read (in saved stores and the book) and never written.
+/// Siderium's slug before 2026-10-14: it reads pre-rename saves (stores and the book), never written.
+const OLD_SIDERIUM_SLUG: &str = "gundanium";
+
+/// The weapon slugs before 2026-10-14, read (in saved stores and the book) and never written:
+/// they read pre-rename saves, and nothing shows them.
 const OLD_WEAPON_SLUGS: [(&str, WeaponKind); 7] = [
     ("twin_buster_rifle", WeaponKind::HeavyBeamRifle),
     ("army_knife", WeaponKind::CombatKnife),
@@ -334,7 +338,7 @@ impl FromStr for Item {
                 Item::Ore(Ore::ALL.into_iter().find(|x| x.slug() == o).ok_or_else(bad)?)
             }
             (Some("mat"), Some(m), None, None) => {
-                let m = if m == "gundanium" { Material::Siderium.slug() } else { m };
+                let m = if m == OLD_SIDERIUM_SLUG { Material::Siderium.slug() } else { m };
                 Item::Material(Material::ALL.into_iter().find(|x| x.slug() == m).ok_or_else(bad)?)
             }
             (Some("part"), Some(line), Some(part), None) => {
@@ -432,11 +436,24 @@ mod tests {
         assert_eq!("part.altair.torso".parse(), Ok(Item::Part(FrameId::Altair, Part::Torso)));
         assert!("part.corvus.head".parse::<Item>().is_err(), "a drone's line isn't built");
         // What saved stores and the book said before the names were the game's own.
-        assert_eq!("part.leo.torso".parse::<Item>(), Ok(Item::Part(FrameId::Argo, Part::Torso)));
-        assert_eq!("part.wingzero.head".parse::<Item>(), Ok(Item::Part(FrameId::Altair, Part::Head)));
-        assert_eq!("mat.gundanium".parse::<Item>(), Ok(Item::Material(Material::Siderium)));
-        assert_eq!("weapon.heat_shotels".parse::<Item>(), Ok(Item::Weapon(WeaponKind::HeatBlade)));
-        assert!("part.taurus.head".parse::<Item>().is_err(), "nor under its old name");
+        for (old, line) in FrameId::OLD_SLUGS {
+            let parsed = format!("part.{old}.head").parse::<Item>();
+            if is_line(line) {
+                assert_eq!(parsed, Ok(Item::Part(line, Part::Head)), "{old}");
+            } else {
+                assert!(parsed.is_err(), "a drone's line isn't built under its old name either: {old}");
+            }
+        }
+        assert_eq!(
+            format!("mat.{OLD_SIDERIUM_SLUG}").parse::<Item>(),
+            Ok(Item::Material(Material::Siderium))
+        );
+        for (old, kind) in OLD_WEAPON_SLUGS {
+            let parsed = format!("weapon.{old}").parse::<Item>();
+            if weapons().any(|w| w == kind) {
+                assert_eq!(parsed, Ok(Item::Weapon(kind)), "{old}");
+            }
+        }
         assert!("weapon.chest_gatlings".parse::<Item>().is_err(), "comes with the suit");
         assert!("ore.titanium.x".parse::<Item>().is_err());
         assert_eq!("module.g_seat".parse(), Ok(Item::Module(ModuleKind::GSeat)));

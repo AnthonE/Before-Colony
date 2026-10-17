@@ -72,11 +72,19 @@
   };
   // Errors anywhere while the loading screen is up (resource errors don't bubble: the capture
   // phase hears them). Winit's control-flow exception is how Bevy hands the browser its loop.
+  // Only the game's own files count: a script someone else puts on the page (a CDN's analytics
+  // beacon, which the store's CSP blocks) failing, or throwing, is no reason to stop.
+  function own(url) {
+    if (!url) return true;
+    try { return new URL(url, location.href).origin === location.origin; } catch (_) { return false; }
+  }
   window.addEventListener("error", function (e) {
     var t = e.target;
-    // A script that didn't load (the loader's, or the client's): any other element's is no
+    // A script of ours that didn't load (the loader's, or the client's): any other element's is no
     // reason to stop.
-    var msg = t && t.tagName ? (t.tagName === "SCRIPT" ? "could not load " + t.src : "") : e.message;
+    var msg = t && t.tagName
+      ? (t.tagName === "SCRIPT" && own(t.src) ? "could not load " + t.src : "")
+      : (own(e.filename) ? e.message : "");
     if (!msg || /exceptions for control flow/.test(msg)) return;
     fail(msg);
   }, true);

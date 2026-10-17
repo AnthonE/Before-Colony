@@ -1,8 +1,7 @@
-//! The Almagest's prototype pair, drawn after Gundam Wing's Vayeate and Mercurius (Sunrise's colour
-//! and line art, and Bandai's HG 1/144 kit, which builds both on one frame): the AL-13X1
-//! Sagittarius, the spear, and the AL-13X2 Corona, the shield. They share everything but the head's
-//! hood and its antenna, what rides the back, the weapons and the colours. Their bulk is in round
-//! masses, as the kit's is, lofted through rounded sections ([`crate::kit::Builder::loft`]):
+//! The Almagest's prototype pair, two suits built on one frame: the AL-13X1 Sagittarius, the
+//! spear, and the AL-13X2 Corona, the shield. They share everything but the head's hood and its
+//! antenna, what rides the back, the weapons and the colours. Their bulk is in round masses,
+//! lofted through rounded sections ([`crate::kit::Builder::loft`]):
 //!
 //! - a small round hooded head sunk between the chest's side blocks, which stand as high as its
 //!   camera: the square camera in a grey bezel under the hood's peak, a pale band round the hood's
@@ -28,9 +27,9 @@
 //!
 //! The Sagittarius wears a single swept horn and carries the beam cannon cabled to the generator
 //! high on its back behind its head, a ring as tall as its torso with an iris over its core; the
-//! Corona wears a wide crescent on a short stalk, ten ward discs (the Mercurius's Planet Defensors)
-//! racked on two pylons in a crown behind its head and shoulders (on [`Bone::Props`], so the client
-//! can send them out: [`crate::ward_disc`]), the crash shield and a beam gun.
+//! Corona wears a wide crescent on a short stalk, ten ward discs racked on two pylons in a crown
+//! behind its head and shoulders (on [`Bone::Props`], so the client can send them out:
+//! [`crate::ward_disc`]), the disc shield and a beam gun.
 //!
 //! The pale band and spheres are mint on the Sagittarius and lilac on the Corona; the inner frame,
 //! the hands and the ankles are grey, the weapons, the generator, the wards and the shield a
@@ -1089,7 +1088,7 @@ fn racks(d: &mut Designer) {
         .collect();
 }
 
-// --- The Corona's arms: the beam gun and the crash shield. ---
+// --- The Corona's arms: the beam gun and the disc shield. ---
 
 /// The beam gun: a chunky box pistol, a grip under it, a short barrel and the round green lens
 /// over its rear.
@@ -1115,7 +1114,7 @@ fn beam_gun(d: &mut Designer) {
     d.sockets.muzzle = Designer::local(Bone::Weapon, v(g.x, g.y + 0.9, g.z + 3.4));
 }
 
-/// The crash shield on the left forearm, facing out: a dark disc with a raised ring, three bosses
+/// The disc shield on the left forearm, facing out: a dark disc with a raised ring, three bosses
 /// 120° apart (its field generators) and the stepped hub whose emitter is the saber's.
 fn crash_shield(d: &mut Designer) {
     let c = j(Bone::Shield) + v(-0.45, -0.05, 0.15);

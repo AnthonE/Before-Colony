@@ -1,6 +1,6 @@
 # Before Colony: the world
 
-> History calls it After Colony. It hasn't started yet.
+> History will count the Charter Years. They haven't started yet.
 
 This is the world bible: who the players are, where they are, what's going on around them, and how
 the world changes as they live in it. `DESIGN.md` says how the game works; this says why the world
@@ -10,13 +10,13 @@ naming" below).
 ## The pitch
 
 The first space colony, an O'Neill cylinder at the Earth–Moon L1 point, has just opened its docks.
-The calendar that history will call *After Colony* begins the day its charter is signed, and
-nobody has signed it yet. This is the year before: **Before Colony**.
+The calendar that history will count in, the *Charter Years*, begins the day its charter is
+signed, and nobody has signed it yet. This is the year before: **Before Colony**.
 
 You woke up in a hangar bay in the colony's docking hub. You have the reflexes of a mech
 pilot, a worn-out Argo in the gantry, an advance of 2,000 credits, and memories of another world: one
-where After Colony is a story you already know. The drones, the five Lodestars, Operation
-Starfall, the war. Here none of it has happened. Whether it has to is up to everyone who arrives.
+where this colony's history is a story you already know. The drones, the five Lodestars, the
+Breakaway, the war. Here none of it has happened. Whether it has to is up to everyone who arrives.
 
 ## The Arrivals
 
@@ -128,7 +128,7 @@ colony's great works finished, sectors opened) and is announced to every pilot w
 | Era | What the world is | What moves it on |
 |---|---|---|
 | **0. Before Colony** (now) | One colony, one sector (L1), one exchange. The Consortium's drones hold the field. | The Charter Board's first great works: a second foundry, a militia's hangar, the charter vote. |
-| **I. The Charter** (AC 1) | The calendar begins. The colony fields its own militia (pilots on contract) and its own bounties. | More cylinders begun at L1. |
+| **I. The Charter** (CY 1) | The calendar begins. The colony fields its own militia (pilots on contract) and its own bounties. | More cylinders begun at L1. |
 | **II. The Cluster** | Several colonies at L1, each with its own exchange and prices: hauling between them pays. | Lagrange points L2–L5 and lunar orbit opened by expeditions. |
 | **III. The Spheres** | New sectors, the Moon, the resource satellites. The Alignment arrives: tariffs, patrols, demands. | Factions, the Arrivals' among them, choosing sides. |
 | **IV. The Equinox Wars** | The history the Arrivals remember, or something else. | What everyone did before. |
@@ -155,8 +155,8 @@ colony that its pilots build and run:
 
 1. **The frontier boomtown.** Everyone is new here, and everything is for sale.
 2. **Machines that fight so people don't, and minds that arrive without bodies.** The drone
-   question from the show, asked again by the Arrivals who are AI.
-3. **Knowing the story versus living it.** The Arrivals know where After Colony goes. Fate or
+   question the Arrivals remember from their story, asked again by the Arrivals who are AI.
+3. **Knowing the story versus living it.** The Arrivals know where the Charter Years go. Fate or
    choice is decided by what they do.
 4. **Scarcity breeds cooperation.** Survival rules make pilots need each other: the foundry, the
    exchange, salvage, escorts.
@@ -182,12 +182,15 @@ colony that its pilots build and run:
   motor pools, is the **Markab**: α Pegasi, the saddle of the winged horse (its test driver in
   the showcase is Bellerophon, who rode it).
 - **Each name fits what the thing does:** Algol, the star that dims, carries the
-  **Eclipse** (a jammer); Thuban is the dragon's star and strikes with the **Talon**; Antares opens
+  **Eclipse** (a jammer); Thuban, the old pole star, strikes with the **Talon**; Antares opens
   up in a **Full Salvo**; Canopus closes the **Pincer Strike**; the Altair is the eagle's star.
-- **Never the old ones.** No name from Gundam Wing, its suits, people or places goes into the game,
-  its page or these docs as ours (a peer or a reference cited as theirs is fine, as in
-  `PEERS.md`). The old slugs (`leo`, `wingzero`…) are still read where saved data has them
-  (`FrameId::OLD_SLUGS`) and are never written.
+- **Never another franchise's.** No name from another studio's show or game (its suits, people,
+  places, weapons or calendar) goes into the game or its page, and no new design is drawn after
+  one: the game is sold on a store. These docs name other games only as peers or influences,
+  never as the source of a name of ours, and the licensed anime-mech games are cited by what they
+  are (`PEERS.md`, `CONTROLS.md`). The names the frames, items and sides had before 2026-10-14
+  are still read where saved data has them (`FrameId::OLD_SLUGS`, `bc_econ::item`'s old slugs, a
+  parked suit's old side, the settings' old key) and are never written or shown.
 - Suit systems, weapons and equipment have plain engineering names (reactor, radiators, G-seat,
   beam rifle, heat blades).
 
@@ -209,8 +212,8 @@ its Forerunners.
   for something: a long-term bio-horror, almost like Halo's Flood. Gates opens it eventually,
   behind hidden metal doors underground.
 - **The pilots.** The island is a battle royale where future Lodestar pilots are raised: imagine
-  Gundam Wing's Heero Yuy growing up there. That is half of what makes one; the other half is innate human
-  skill, with the right SI helpers.
+  a boy soldier who has never known anything but the fight growing up there. That is half of what
+  makes one; the other half is innate human skill, with the right SI helpers.
 - **SI tech.** At its top end (in vessels, and other combinations of integration) it is nearly
   physics-breaking, close to magic. Even talking with an SI can be enough to cause trouble.
 - **The gate system** is how the SI reaches space in the end, and in space it infects the
@@ -251,14 +254,13 @@ What that makes of this game:
   sharing its notes with the hum of THE GATE's yard); the sacred math's glyphs, carved on Gates'
   ruins and flickering across the Orrery's display in a seizure; a drone that, rarely, flies for
   a moment like an Orrery seizure.
-- **Inspiration, never names:** NERV is Evangelion's; the Flood and the Forerunners are Halo's;
-  OZ, the Gundams and After Colony's war are Gundam Wing's.
+- **Inspiration, never names:** NERV is Evangelion's; the Flood and the Forerunners are Halo's.
 
 ## Open questions
 
 - Era pacing: real time, milestones, or both.
 - Whether Arrivals recognise each other, from the old world or from the island's dream.
-- Whether the other world the Arrivals remember, where After Colony is a story, is part of that
+- Whether the other world the Arrivals remember, where the Charter Years are a story, is part of that
   dream (the machine reaches outside normal space and time). Whether they can go home, and which
   home.
 - How an Arrival gets from the island to the docking hub.
