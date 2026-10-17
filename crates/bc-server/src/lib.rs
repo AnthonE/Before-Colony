@@ -32,7 +32,8 @@ pub struct ServerHandle {
     pub wt_port: u16,
     /// Address of the dev HTTP server (static client, `/cert-hash`, `/status`).
     pub http_addr: SocketAddr,
-    /// SHA-256 of the self-signed certificate, for `serverCertificateHashes`.
+    /// SHA-256 of the certificate (the self-signed one browsers pin with
+    /// `serverCertificateHashes`, or a CA-issued one's leaf, which nobody pins).
     pub cert_hash: [u8; 32],
     /// Live counters shared with `/status`.
     pub stats: Arc<net::NetStats>,
@@ -70,7 +71,11 @@ pub fn install_crypto_provider() {
 /// Boots the server: WebTransport endpoint, sector runtime (game mode) and dev HTTP.
 pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
     install_crypto_provider();
-    let (identity, cert_hash) = net::endpoint::self_signed_identity()?;
+    let pinned = cfg.tls.is_none();
+    let (identity, cert_hash) = match &cfg.tls {
+        Some((cert, key)) => net::endpoint::pem_identity(cert, key).await?,
+        None => net::endpoint::self_signed_identity()?,
+    };
     let endpoint = net::endpoint::make_endpoint(cfg.wt_port, identity)?;
     let wt_port = endpoint.local_addr()?.port();
     let stats = Arc::new(net::NetStats::default());
@@ -79,10 +84,13 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
     let listener = tokio::net::TcpListener::bind(cfg.http_addr).await?;
     let http_addr = listener.local_addr()?;
     // What wallets sign in to: where the pages come from.
-    let domain = cfg.siwe_domain.clone().unwrap_or_else(|| http_addr.to_string());
+    let mut domains = cfg.siwe_domains.clone();
+    if domains.is_empty() {
+        domains.push(http_addr.to_string());
+    }
     let game = match cfg.mode {
         Mode::Echo => None,
-        Mode::Game => Some(net::game::GameRuntime::start(&cfg, stats.clone(), domain)?),
+        Mode::Game => Some(net::game::GameRuntime::start(&cfg, stats.clone(), domains)?),
     };
     let shared = game.as_ref().map(|g| g.shared());
     // Survival: suits left in hide spots before a restart are back before anyone connects.
@@ -92,11 +100,19 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
     let status_stats = stats.clone();
     let status_view = game.as_ref().map(|g| g.status_view());
     let status_game = status_view.clone();
+    let launcher_stats = stats.clone();
+    let launcher_game = status_view.clone();
+    let max_players = cfg.max_clients;
     let http_state = http::HttpState {
-        cert_hash_hex: hex::encode(cert_hash),
+        // A CA-issued certificate is validated by the browser: nothing to pin.
+        cert_hash_hex: pinned.then(|| hex::encode(cert_hash)),
         wt_port,
         web_dir: cfg.web_dir.clone(),
         status: Arc::new(move || net::status_json(&status_stats, status_game.as_ref())),
+        launcher_status: Arc::new(move || {
+            net::launcher_status_json(&launcher_stats, launcher_game.as_ref(), max_players)
+        }),
+        cors_origins: cfg.cors_origins.clone().into(),
     };
     let router = http::router(http_state);
     let mut http_shutdown = shutdown_rx.clone();
@@ -124,6 +140,7 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
         wt_port,
         http = %http_addr,
         cert_hash = %hex::encode(cert_hash),
+        pinned,
         "server up"
     );
     Ok(ServerHandle { wt_port, http_addr, cert_hash, stats, shutdown: shutdown_tx, game, status_view })

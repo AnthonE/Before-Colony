@@ -4,7 +4,7 @@
 //! sector only through `bc-sector`'s lock-free queues.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
@@ -65,8 +65,8 @@ pub struct RosterUpdate {
 /// Wallet sign-in settings.
 #[derive(Clone)]
 pub struct SignIn {
-    /// What wallets sign in to (the pages' host).
-    pub domain: Arc<str>,
+    /// What wallets may sign in to (the pages' hosts; `Config::siwe_domains`, never empty).
+    pub domains: Arc<[String]>,
     pub required: bool,
     pub wait: Duration,
     /// At most this many sign-ins wait on wallets at once.
@@ -300,7 +300,7 @@ pub struct GameRuntime {
 }
 
 impl GameRuntime {
-    pub fn start(cfg: &Config, stats: Arc<NetStats>, domain: String) -> anyhow::Result<Self> {
+    pub fn start(cfg: &Config, stats: Arc<NetStats>, domains: Vec<String>) -> anyhow::Result<Self> {
         let jev_key = cfg.jev_key.clone();
         let use_jev = cfg.oracle == OracleKind::Jev && jev_key.is_some();
         if cfg.oracle == OracleKind::Jev && !use_jev {
@@ -405,7 +405,7 @@ impl GameRuntime {
             roster_tx,
             pilots: Arc::new(Pilots::new(store, cfg.resume_ttl)),
             sign_in: SignIn {
-                domain: domain.into(),
+                domains: domains.into(),
                 required: cfg.require_auth,
                 wait: cfg.sign_wait,
                 waiting: Arc::new(tokio::sync::Semaphore::new(128)),
@@ -565,6 +565,11 @@ fn spawn_egress(
 }
 
 impl StatusView {
+    /// The sector's simulation tick.
+    pub fn tick(&self) -> u64 {
+        self.sector.tick.load(Ordering::Acquire)
+    }
+
     pub fn json(&self) -> serde_json::Value {
         let s = &self.sector;
         let m = &s.metrics;
@@ -804,8 +809,9 @@ impl RateLimit {
     }
 }
 
-pub async fn run_session(conn: Connection, game: GameShared, stats: Arc<NetStats>) {
-    if let Err(e) = session(&conn, game, stats).await {
+/// `origin`: the WebTransport request's `Origin` (where the page came from; agents send none).
+pub async fn run_session(conn: Connection, game: GameShared, stats: Arc<NetStats>, origin: Option<String>) {
+    if let Err(e) = session(&conn, game, stats, origin.as_deref()).await {
         tracing::debug!("session ended: {e}");
     }
     // The session's last word (a Bye, a Reject) is written but may not have left yet, and dropping
@@ -821,6 +827,7 @@ pub(super) async fn reject(tx: &mut SendStream, reason: RejectReason) -> anyhow:
 }
 
 /// Who a Hello says the pilot is: a wallet proved by a signature (or a resume token), or a guest.
+#[allow(clippy::too_many_arguments)]
 async fn identify(
     game: &GameShared,
     tx: &mut SendStream,
@@ -829,6 +836,7 @@ async fn identify(
     flags: u8,
     resume: &[u8; bc_proto::auth::TOKEN_BYTES],
     pilot: PilotKind,
+    origin: Option<&str>,
 ) -> anyhow::Result<Option<Address>> {
     let sign_in = &game.sign_in;
     if flags & hello_flags::RESUME != 0 {
@@ -850,7 +858,8 @@ async fn identify(
     let mut nonce = [0u8; NONCE_BYTES];
     getrandom::fill(&mut nonce).map_err(|e| anyhow::anyhow!("no randomness: {e}"))?;
     let issued_at = pilots::unix_now();
-    let domain = Domain::new(&sign_in.domain);
+    // The domain the page came from, so the wallet's own check (the page's origin) agrees.
+    let domain = Domain::new(crate::config::pick_domain(&sign_in.domains, origin));
     send_control(tx, ControlMsg::Challenge { nonce, issued_at, domain }).await?;
     let answer = match tokio::time::timeout(sign_in.wait, read_control(rx, pending)).await {
         Ok(answer) => answer?,
@@ -883,7 +892,12 @@ fn side(pilot: PilotKind, asked: Faction) -> Faction {
     side
 }
 
-async fn session(conn: &Connection, game: GameShared, stats: Arc<NetStats>) -> anyhow::Result<()> {
+async fn session(
+    conn: &Connection,
+    game: GameShared,
+    stats: Arc<NetStats>,
+    origin: Option<&str>,
+) -> anyhow::Result<()> {
     let (mut tx, mut rx) = tokio::time::timeout(Duration::from_secs(5), conn.accept_bi()).await??;
     let mut pending = Vec::new();
     let hello = tokio::time::timeout(Duration::from_secs(5), read_control(&mut rx, &mut pending)).await??;
@@ -901,7 +915,9 @@ async fn session(conn: &Connection, game: GameShared, stats: Arc<NetStats>) -> a
     // for the drones' side (`side`).
     let pilot = if pilot == PilotKind::Drone { PilotKind::Agent } else { pilot };
     let faction = side(pilot, faction);
-    let address = identify(&game, &mut tx, &mut rx, &mut pending, flags, &resume, pilot).await?;
+    let address = identify(&game, &mut tx, &mut rx, &mut pending, flags, &resume, pilot, origin).await?;
+    // Counted for `/status.json` (the store's player count) while the session lasts.
+    let _present = Present::new(&stats, pilot);
     // A pilot flies in one place at a time: a newer session takes over.
     let (held, kicked) = match address {
         Some(a) => {
@@ -920,6 +936,23 @@ async fn session(conn: &Connection, game: GameShared, stats: Arc<NetStats>) -> a
         }
     }
     result
+}
+
+/// A session's place in `NetStats::humans_active` / `agents_active`, given back when it ends.
+struct Present<'a>(&'a AtomicU64);
+
+impl<'a> Present<'a> {
+    fn new(stats: &'a NetStats, pilot: PilotKind) -> Self {
+        let counter = if pilot == PilotKind::Human { &stats.humans_active } else { &stats.agents_active };
+        counter.fetch_add(1, Ordering::Relaxed);
+        Present(counter)
+    }
+}
+
+impl Drop for Present<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
+    }
 }
 
 /// Sets a pilot's roster entry's flags (and tells everyone).

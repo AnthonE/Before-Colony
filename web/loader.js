@@ -1,15 +1,21 @@
 // Boots the Bevy client: picks the WebGPU or WebGL2 build and a graphics tier, and hands the
-// launch config to Rust via window.BC_CONFIG. The game asks window.bcDiscover() for the server's
-// WebTransport port and certificate hash on every dial (a restarted dev server has a new
-// certificate). `?showcase=<scene>` runs an offline scene and needs no game server.
+// launch config to Rust via window.BC_CONFIG. The game asks window.bcDiscover() where to connect on
+// every dial (a restarted dev server has a new certificate). `?showcase=<scene>` runs an offline
+// scene and needs no game server.
 const params = new URLSearchParams(location.search);
 
-// Where to connect, fresh from the server that served this page.
+// Where to connect (window.bcServer: config.js and the page's query, boot.js). A named server
+// (`wt`) has a CA-issued certificate the browser checks itself: dialled as it is, nothing pinned.
+// Otherwise the server's `cert-hash` says its port and the hash to pin (null when its certificate
+// is CA-issued), fresh on every dial. Relative, so it works under a path prefix too.
 window.bcDiscover = async () => {
-  const res = await fetch("/cert-hash", { cache: "no-store" });
+  const srv = window.bcServer || { wt: "", pin: false, url: (p) => p };
+  if (srv.wt && !srv.pin) return { wtUrl: `https://${srv.wt}/bc`, certHash: null };
+  const res = await fetch(srv.url("cert-hash"), { cache: "no-store" });
   if (!res.ok) throw new Error(`the server answered ${res.status}`);
   const info = await res.json();
-  return { wtUrl: `https://${location.hostname}:${info.port}${info.path}`, certHash: info.hash };
+  const host = srv.wt || `${new URL(srv.url(""), location.href).hostname}:${info.port}`;
+  return { wtUrl: `https://${host}${info.path}`, certHash: info.hash };
 };
 const status = (msg) => {
   const el = document.getElementById("boot-status");

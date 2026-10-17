@@ -19,12 +19,19 @@ struct Args {
     /// UDP port for WebTransport.
     #[arg(long, default_value_t = 4433)]
     wt_port: u16,
-    /// Dev HTTP address (static client, /cert-hash, /status).
+    /// HTTP address (static client, /cert-hash, /status, /status.json).
     #[arg(long, default_value = "127.0.0.1:8080")]
     http: SocketAddr,
     /// Built web client directory to serve at `/`.
     #[arg(long, default_value = "web/dist")]
     web_dir: PathBuf,
+    /// PEM certificate chain for WebTransport (e.g. Let's Encrypt's fullchain.pem). Without it the
+    /// server self-signs and browsers pin the certificate's hash.
+    #[arg(long, requires = "key")]
+    cert: Option<PathBuf>,
+    /// PEM private key for `--cert`.
+    #[arg(long, requires = "cert")]
+    key: Option<PathBuf>,
     /// Drone NPCs to keep in the sector (`--mobile-dolls`, its name before 2026-10-14, still works).
     #[arg(long, alias = "mobile-dolls", default_value_t = 24)]
     drones: u32,
@@ -40,9 +47,15 @@ struct Args {
     /// Simulation seed.
     #[arg(long, default_value_t = 0xBC_0195)]
     seed: u64,
-    /// The host (and port) wallets sign in to: where pages are served from. Default: --http.
+    /// The hosts (and ports) wallets sign in to: where pages are served from. Repeat it or
+    /// separate with commas (`game.elopros.com,elopros.com`); each session is asked to sign for the
+    /// one its page came from. Default: --http.
     #[arg(long)]
-    siwe_domain: Option<String>,
+    siwe_domain: Vec<String>,
+    /// Origins whose pages may read /status, /status.json and /cert-hash from another site (CORS).
+    /// Repeat it or separate with commas.
+    #[arg(long, default_value = bc_server::config::STORE_ORIGIN)]
+    cors_origin: Vec<String>,
     /// Admit signed-in pilots only (agents excepted).
     #[arg(long)]
     require_auth: bool,
@@ -99,7 +112,9 @@ fn main() -> anyhow::Result<()> {
         seed: args.seed,
         jev_key: std::env::var("TYPESAFE_API_KEY").ok().filter(|k| !k.is_empty()),
         jev_url: std::env::var("TYPESAFE_BASE_URL").ok().filter(|u| !u.is_empty()),
-        siwe_domain: args.siwe_domain,
+        siwe_domains: bc_server::config::split_list(&args.siwe_domain),
+        tls: args.cert.zip(args.key),
+        cors_origins: bc_server::config::split_list(&args.cors_origin),
         require_auth: args.require_auth,
         rules: args.rules,
         flight: args.flight,
@@ -133,4 +148,28 @@ fn main() -> anyhow::Result<()> {
         handle.shutdown();
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn siwe_domains_take_commas_or_repeats() {
+        let a = Args::parse_from(["bc-server", "--siwe-domain", "game.elopros.com,elopros.com"]);
+        assert_eq!(bc_server::config::split_list(&a.siwe_domain), ["game.elopros.com", "elopros.com"]);
+        let a = Args::parse_from(["bc-server", "--siwe-domain", "game.elopros.com", "--siwe-domain", "elopros.com"]);
+        assert_eq!(bc_server::config::split_list(&a.siwe_domain), ["game.elopros.com", "elopros.com"]);
+        let a = Args::parse_from(["bc-server"]);
+        assert!(a.siwe_domain.is_empty());
+        assert_eq!(a.cors_origin, [bc_server::config::STORE_ORIGIN]);
+    }
+
+    #[test]
+    fn a_certificate_comes_with_its_key() {
+        assert!(Args::try_parse_from(["bc-server", "--cert", "c.pem"]).is_err());
+        assert!(Args::try_parse_from(["bc-server", "--key", "k.pem"]).is_err());
+        let a = Args::parse_from(["bc-server", "--cert", "c.pem", "--key", "k.pem"]);
+        assert_eq!(a.cert.zip(a.key), Some((PathBuf::from("c.pem"), PathBuf::from("k.pem"))));
+    }
 }

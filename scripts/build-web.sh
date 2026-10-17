@@ -24,7 +24,7 @@ if [ "$crate_ver" != "$cli_ver" ]; then
 fi
 
 mkdir -p web/dist
-cp web/index.html web/loader.js web/ui.js web/style.css web/dist/
+cp web/index.html web/config.js web/boot.js web/loader.js web/ui.js web/style.css web/dist/
 mkdir -p web/dist/fonts && cp web/fonts/* web/dist/fonts/
 
 for v in "${variants[@]}"; do

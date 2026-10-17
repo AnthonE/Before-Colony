@@ -54,6 +54,7 @@ travels in the command as `bc_proto::LockOn`, so prediction stays exact); the sh
   `cargo clippy -p bc-client --target wasm32-unknown-unknown --features webgpu -- -D warnings`
 - `scripts/build-web.sh [webgl2] [webgpu]` — browser build into `web/dist/` (needs wasm-bindgen-cli 0.2.128).
 - `cargo run -p bc-server --release` then open http://127.0.0.1:8080
+- `scripts/publish-web.sh` — the browser build onto the Elo Pros origin (`/data/apps/scry-data/before-colony-web/<build>/`, `current` flipped last; served at elopros.com/games/before-colony/play/). Its `config.js` names the game server (`web/config.js`: empty, the page's own server; `?server=host:port`, `?http=url` override it), since that page dials game.elopros.com from another site. The page has no inline script (the store's CSP); the server's `--siwe-domain` lists both hosts, `--cors-origin` (default https://elopros.com) may read `/status`, `/status.json` (the launcher's `{players, max_players, tick}`) and `/cert-hash`.
 - Looking at a suit's design outside the game: `cargo run -q -p bc-model --example suit_json -- argo > argo.json`
   (add `head=altair`, `arms=corvus`… to swap sections, `far` for the far level of detail; `sagittarius` and
   `corona`, the Almagest's prototype pair, render in their own liveries), then
