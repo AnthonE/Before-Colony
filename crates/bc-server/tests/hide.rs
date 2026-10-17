@@ -224,7 +224,7 @@ async fn a_restored_sleeper_destroyed_is_not_restored_again() -> anyhow::Result<
     let w = wallet(23);
     store(&dir).save(left_hidden(&w, "Tomas", &hidden_argo(), LANDMARKS_VERSION)).await?;
     let cfg = config(&dir)?;
-    let boot = || GameRuntime::start(&cfg, Arc::new(NetStats::default()), "127.0.0.1".into());
+    let boot = || GameRuntime::start(&cfg, Arc::new(NetStats::default()), vec!["127.0.0.1".into()]);
 
     let game = boot()?;
     let shared = game.shared();
@@ -293,7 +293,7 @@ async fn a_hidden_suit_comes_back_as_it_was_left_by_its_hunters() -> anyhow::Res
     let rec = hidden_argo();
     store(&dir).save(left_hidden(&w, "Kai", &rec, LANDMARKS_VERSION)).await?;
     let cfg = config(&dir)?;
-    let boot = || GameRuntime::start(&cfg, Arc::new(NetStats::default()), "127.0.0.1".into());
+    let boot = || GameRuntime::start(&cfg, Arc::new(NetStats::default()), vec!["127.0.0.1".into()]);
 
     let game = boot()?;
     let shared = game.shared();
@@ -334,7 +334,7 @@ async fn a_suit_put_back_after_boot_stopped_waiting_goes_again() -> anyhow::Resu
     // its record go, so its pilot's suit is towed home): that suit doesn't stay out there too.
     let dir = data_dir("late");
     let cfg = config(&dir)?;
-    let game = GameRuntime::start(&cfg, Arc::new(NetStats::default()), "127.0.0.1".into())?;
+    let game = GameRuntime::start(&cfg, Arc::new(NetStats::default()), vec!["127.0.0.1".into()])?;
     let shared = game.shared();
     assert_eq!(shared.restore_parked(cfg.max_sleepers).await, 0);
     shared.sector.control.push(Control::Restore { key: 0, rec: hidden_argo() }).expect("room");

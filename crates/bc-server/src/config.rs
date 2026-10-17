@@ -50,6 +50,38 @@ pub enum OracleKind {
     Jev,
 }
 
+/// The Elo Pros store: it lists the game, serves its page and polls its `/status.json`.
+pub const STORE_ORIGIN: &str = "https://elopros.com";
+
+/// A command line's list: repeated flags and comma-separated values alike, trimmed, empties
+/// dropped (`--siwe-domain game.elopros.com,elopros.com`).
+pub fn split_list(values: &[String]) -> Vec<String> {
+    values
+        .iter()
+        .flat_map(|v| v.split(','))
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// The host (and port, unless it's the scheme's default) of an `Origin`, as SIWE names a domain:
+/// `https://elopros.com` is `elopros.com`, `http://127.0.0.1:8080` stays `127.0.0.1:8080`.
+pub fn origin_host(origin: &str) -> &str {
+    let rest = origin.split_once("://").map_or(origin, |(_, r)| r);
+    let rest = rest.split('/').next().unwrap_or(rest);
+    rest.strip_suffix(":443").filter(|_| origin.starts_with("https://")).unwrap_or(rest)
+}
+
+/// Which of `domains` a session's challenge names: the one its page came from (`origin`), or the
+/// first (agents, and pages from anywhere else, whose wallets will warn).
+pub fn pick_domain<'a>(domains: &'a [String], origin: Option<&str>) -> &'a str {
+    let host = origin.map(origin_host);
+    host.and_then(|h| domains.iter().find(|d| d.eq_ignore_ascii_case(h)))
+        .or_else(|| domains.first())
+        .map_or("", String::as_str)
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub mode: Mode,
@@ -73,9 +105,18 @@ pub struct Config {
     pub jev_key: Option<String>,
     /// Override for the Jev endpoint (`TYPESAFE_BASE_URL`), e.g. a proxy or a test mock.
     pub jev_url: Option<String>,
-    /// The name wallets sign in to: the host (and port) pages are served from. Defaults to the
-    /// HTTP address; a deployment behind a domain must set it, or wallets warn about a mismatch.
-    pub siwe_domain: Option<String>,
+    /// The names wallets may sign in to: the hosts (and ports) pages are served from. A session's
+    /// challenge names the one its page's origin matches (the WebTransport request's `Origin`), or
+    /// the first. Empty: the HTTP address. A deployment behind a domain must set it, or wallets
+    /// warn about a mismatch; one whose page is also served from another site (the store at
+    /// elopros.com) lists both.
+    pub siwe_domains: Vec<String>,
+    /// A CA-issued certificate chain and its key (PEM files) for WebTransport. None: the server
+    /// self-signs for 14 days and browsers pin the certificate's hash (`/cert-hash`).
+    pub tls: Option<(PathBuf, PathBuf)>,
+    /// Origins whose pages may read `/status`, `/status.json` and `/cert-hash` from another site
+    /// (CORS): the store that lists the game, and serves its page.
+    pub cors_origins: Vec<String>,
     /// Admit signed-in pilots only (agents excepted).
     pub require_auth: bool,
     /// How long a wallet may take to sign (people read the message first).
@@ -114,7 +155,9 @@ impl Default for Config {
             seed: 0xBC_0195,
             jev_key: None,
             jev_url: None,
-            siwe_domain: None,
+            siwe_domains: Vec::new(),
+            tls: None,
+            cors_origins: vec![STORE_ORIGIN.to_string()],
             require_auth: false,
             sign_wait: Duration::from_secs(60),
             resume_ttl: Duration::from_secs(15 * 60),
@@ -127,5 +170,45 @@ impl Default for Config {
             colony: false,
             limits: crate::net::admit::Limits::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn list(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn lists_take_commas_and_repeats() {
+        assert_eq!(
+            split_list(&list(&["game.elopros.com,elopros.com"])),
+            list(&["game.elopros.com", "elopros.com"])
+        );
+        assert_eq!(split_list(&list(&["a", " b , ,c"])), list(&["a", "b", "c"]));
+        assert!(split_list(&[]).is_empty());
+    }
+
+    #[test]
+    fn an_origin_names_its_host() {
+        assert_eq!(origin_host("https://elopros.com"), "elopros.com");
+        assert_eq!(origin_host("https://elopros.com:443"), "elopros.com");
+        assert_eq!(origin_host("https://game.elopros.com:8443"), "game.elopros.com:8443");
+        assert_eq!(origin_host("http://127.0.0.1:8080"), "127.0.0.1:8080");
+        assert_eq!(origin_host("http://localhost:443"), "localhost:443");
+    }
+
+    #[test]
+    fn the_challenge_names_the_pages_own_domain() {
+        let domains = list(&["game.elopros.com", "elopros.com"]);
+        assert_eq!(pick_domain(&domains, Some("https://elopros.com")), "elopros.com");
+        assert_eq!(pick_domain(&domains, Some("https://game.elopros.com")), "game.elopros.com");
+        assert_eq!(pick_domain(&domains, Some("https://ELOPROS.com")), "elopros.com");
+        // Agents send no Origin; a page from elsewhere gets the first (and its wallet warns).
+        assert_eq!(pick_domain(&domains, None), "game.elopros.com");
+        assert_eq!(pick_domain(&domains, Some("https://evil.example")), "game.elopros.com");
+        assert_eq!(pick_domain(&[], Some("https://elopros.com")), "");
     }
 }

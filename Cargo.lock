@@ -688,6 +688,7 @@ dependencies = [
  "getrandom 0.3.4",
  "glam",
  "hex",
+ "reqwest",
  "rustls",
  "serde",
  "serde_json",

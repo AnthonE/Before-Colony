@@ -1460,7 +1460,8 @@
     // Survival rules: nothing to choose on the title but a callsign. With the colony closed
     // (`--no-colony`), its Proving Ground isn't there to show, and the bay does what its desks would
     // (until the hangar's own word on it comes).
-    fetch("/status", { cache: "no-store" })
+    // The game server's (boot.js: the page's own, or the one config.js names).
+    fetch(window.bcServer ? window.bcServer.url("status") : "status", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((st) => {
         survival = !!st && (st.game?.rules ?? st.rules) === "survival";

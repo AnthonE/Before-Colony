@@ -14,6 +14,24 @@ use crate::Mode;
 /// Path clients must request; anything else gets a 404.
 pub const WT_PATH: &str = "/bc";
 
+/// A CA-issued identity (e.g. Let's Encrypt's `fullchain.pem` and `privkey.pem`): browsers
+/// validate it themselves, so nothing is pinned. Returns the identity and its leaf's SHA-256.
+pub async fn pem_identity(
+    cert: &std::path::Path,
+    key: &std::path::Path,
+) -> anyhow::Result<(Identity, [u8; 32])> {
+    let identity = Identity::load_pemfiles(cert, key)
+        .await
+        .map_err(|e| anyhow::anyhow!("loading {} / {}: {e}", cert.display(), key.display()))?;
+    let leaf = identity
+        .certificate_chain()
+        .as_slice()
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("{}: no certificate", cert.display()))?;
+    let hash = *leaf.hash().as_ref();
+    Ok((identity, hash))
+}
+
 /// Self-signed ECDSA P-256 identity valid for 14 days: the constraints browsers impose on
 /// `serverCertificateHashes`. Returns the identity and the certificate's SHA-256.
 pub fn self_signed_identity() -> anyhow::Result<(Identity, [u8; 32])> {
@@ -95,6 +113,9 @@ pub async fn accept_loop(
                 request.not_found().await;
                 return;
             }
+            // Where the page came from (a browser always says; agents don't): the sign-in
+            // challenge names that domain when it's one of ours.
+            let origin = request.origin().map(str::to_string);
             let conn = match tokio::time::timeout(HANDSHAKE, request.accept()).await {
                 Ok(Ok(conn)) => conn,
                 Ok(Err(e)) => {
@@ -111,7 +132,7 @@ pub async fn accept_loop(
             NetStats::add(&stats.sessions_active, 1);
             match (mode, game) {
                 (Mode::Echo, _) => super::echo::run(conn, stats.clone()).await,
-                (Mode::Game, Some(game)) => super::game::run_session(conn, game, stats.clone()).await,
+                (Mode::Game, Some(game)) => super::game::run_session(conn, game, stats.clone(), origin).await,
                 (Mode::Game, None) => tracing::error!("game mode without a sector"),
             }
             stats.sessions_active.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
