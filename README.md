@@ -26,7 +26,8 @@ A space mech MMO prototype.
   ring, and come home through the docking hub (at rest in the dock's ring of lights, or landed on
   the hub's end face and walked in at its deck hatch); a suit destroyed out there is gone. Your
   bay's airlock leads down the cap lifts (one to each of its three strips) into the colony's
-  city, where you walk, ride its trams and drive its cars, and the Proving Ground trains you. Its
+  city, where you walk, ride its trams and drive its cars (or the Markab, its rocket car, which
+  drives up walls and along ceilings on its fan and flies on its jets), and the Proving Ground trains you. Its
   desks each do one thing only they do: an order that waits on the book at the Exchange floor,
   contracts, patrols, the charter and the Charter Board's pay at its desk (a flight certificate
   earns your worn Argo its missing beam rifle there), the Almagest's Most Wanted at The Arrival, and the
@@ -87,7 +88,9 @@ mouth and press Enter, or arm the grip (L), land on the hub's end face near its 
 the deck hatch and press Enter. Enter docks only where the HUD's marker says ENTER; anywhere else
 it opens the radio. On foot, E at the airlock rides the cap lift down to the Charter strip's Hub
 Gate (Q there first chooses the Canal or the Gardens strip's lift instead): M opens the city's map
-(M or Esc closes it), the trams stop at the platforms, E at a motor pool takes a car, and E at
+(M or Esc closes it), the trams stop at the platforms, E at a motor pool takes a car (R a Markab:
+F its fan, Space its lift jets, Shift its tail's, Q/E a roll in the air; `?showcase=markab` is its
+stunt in the Blast Hall), and E at
 Hub Gate's lift brings you back up. E at a desk's counter opens its terminal, with the one tab
 that desk keeps: the Exchange floor's exchange, the Charter Board's (what it holds for you is paid
 out as you walk into its hall), The Arrival's Most Wanted, the Proving Ground's board and test
