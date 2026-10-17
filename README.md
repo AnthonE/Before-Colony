@@ -137,9 +137,11 @@ cap lift.
 Frames with missiles lock on by themselves: hold the reticle on a hostile until its bracket reads
 LOCKED, then fire.
 
-**Signing in.** CONNECT WALLET on the title screen signs you in with an Ethereum wallet (MetaMask
-or any `window.ethereum` extension). The wallet shows a Sign-In with Ethereum message (EIP-4361)
-that proves the address is yours; it authorizes nothing and moves no funds. Guests can fly too, but
+**Signing in.** CONNECT WALLET on the title screen signs you in with an Ethereum wallet: any
+browser extension (several make a picker), or a phone wallet where the Elo Pros store serves the
+page. The wallet shows a Sign-In with Ethereum message (EIP-4361), the same one the Elo Pros
+launcher signs, that proves the address is yours; it authorises nothing and moves no funds. On
+elopros.com, signed in at the store is signed in here, and PLAY AS GUEST signs out of both. Guests can fly too, but
 only a signed-in pilot's hangar (and suit) is theirs to come back to. A dropped link, or a reload, reconnects
 without asking the wallet again; signing in from a second window takes the pilot over.
 
@@ -194,6 +196,12 @@ as **DR** pilots. Two brains come with it: `DroneBrain` (the drone AI) and `Mine
 write your own brain as a closure: see `crates/bc-bot/src/lib.rs`. The side an agent flies for is
 the server's to say, and its Welcome says it: `--faction` takes `colonies` or `alliance` (the Almagest is the
 drones' own, and a claim to it flies for the Colonies, as every human pilot does).
+
+An agent flies as a guest unless it's given a wallet: `--key agent.key` (drone, miner, flaneur,
+suit_inside) signs it in with the key in that file, made there on first use and readable by its
+owner only (`bc_bot::key`; never on the command line). It then has its own address, and its
+hangar is kept like any signed-in pilot's. `scripts/dev.sh` does it for
+every resident agent with `BC_AGENT_KEYS=dir`.
 
 ## What's been measured
 

@@ -38,6 +38,10 @@ struct Args {
     /// Seconds to stay (0 = until interrupted).
     #[arg(long, default_value_t = 0)]
     secs: u64,
+    /// The agent's wallet: a key file, made on first use and readable by its owner only
+    /// (`bc_bot::key`). Without one the agent flies as a guest.
+    #[arg(long)]
+    key: Option<std::path::PathBuf>,
 }
 
 /// A command flying the suit toward `to` on flight assist, no faster than `top` m/s.
@@ -70,8 +74,9 @@ async fn main() -> anyhow::Result<()> {
         frame: FrameId::Argo,
         faction: Faction::Colonies,
     };
+    let wallet = a.key.as_deref().map(bc_bot::key::load_or_create).transpose()?;
     let mut bot = loop {
-        match BotClient::connect(&cfg).await {
+        match BotClient::connect_as(&cfg, wallet.as_ref()).await {
             Ok(b) => break b,
             Err(e) => {
                 tracing::warn!("connect failed: {e:#}; retrying");

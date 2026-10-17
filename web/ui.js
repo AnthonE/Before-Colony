@@ -82,58 +82,265 @@
     }
   }
 
-  // --- The wallet: the same three calls as Gates' page (has, connect, sign). The page never writes
-  // the sign-in text: the game does (bc-auth), because the server rebuilds the same bytes to
-  // verify them. This only hands a finished string to the wallet, which shows it to the person
-  // approving it. ---
+  // --- The wallet: the same calls as Gates' page and the platform's own (has, accounts, connect,
+  // sign). The page never writes the sign-in text: the game does (bc-auth), because the server
+  // rebuilds the same bytes to verify them. This only hands a finished string to the wallet, which
+  // shows it to the person approving it.
+  //
+  // Every wallet in the browser, not only `window.ethereum` (Gates' `app.js`, "the wallet"): with
+  // two extensions installed only one wins that slot, so EIP-6963 has each wallet announce itself.
+  // One wallet is used as is, several are a picker, and the pick is kept by the wallet's `rdns`. A
+  // phone wallet (WalletConnect) comes from the platform's `js/wallet-config.js` once it carries a
+  // project ID. The pick and the sign-out are the platform's own keys (`elo.wallet`,
+  // `elo.signedout`): served from elopros.com, signed in at the store is signed in here, and flying
+  // as a guest signs out of both. ---
   const short = (a) => String(a).slice(0, 6) + "…" + String(a).slice(-4);
-  const WALLET_KEY = "bc.wallet";
+  const SITE = location.hostname === "elopros.com" ? "" : "https://elopros.com";
+  const WALLET_PICK = "elo.wallet";
+  const SIGNED_OUT = "elo.signedout";
+  const PHONE = "walletconnect"; // the remembered pick for a phone wallet
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const stored = (key) => {
+    try {
+      return localStorage.getItem(key) || "";
+    } catch {
+      return "";
+    }
+  };
+  const store = (key, value) => {
+    try {
+      if (value) localStorage.setItem(key, value);
+      else localStorage.removeItem(key);
+    } catch {}
+  };
+  const signedOut = () => stored(SIGNED_OUT) === "1";
+
+  let started = false; // an announcement before start only queues
+  const announced = [];
+  window.addEventListener("eip6963:announceProvider", (e) => {
+    const d = e.detail;
+    if (!d || !d.provider || typeof d.provider.request !== "function") return;
+    if (announced.some((a) => a.provider === d.provider || (a.info.uuid && d.info && a.info.uuid === d.info.uuid))) return;
+    announced.push({ info: d.info || {}, provider: d.provider });
+    if (started) walletAppeared();
+  });
+  window.addEventListener("ethereum#initialized", () => {
+    if (started) walletAppeared();
+  });
+  // Wallets already in the page answer at once; later ones announce themselves when they load.
+  window.dispatchEvent(new Event("eip6963:requestProvider"));
+
+  // The phone wallet's config and bundle, from the platform.
+  let walletCfg = null;
+  function loadWalletConfig() {
+    return new Promise((done) => {
+      const s = document.createElement("script");
+      // /js/ sits behind a four-hour edge cache; ten minutes is soon enough.
+      s.src = SITE + "/js/wallet-config.js?v=" + Math.floor(Date.now() / 600000);
+      s.addEventListener("load", () => {
+        walletCfg = window.ELO_WALLET_CONFIG || null;
+        done();
+      });
+      s.addEventListener("error", () => done());
+      document.head.append(s);
+    });
+  }
+  const phoneOn = () => !!walletCfg
+    && /^[0-9a-f]{32}$/i.test(String(walletCfg.walletconnectProjectId || ""))
+    && /^\/js\/vendor\/[\w.-]+\.js$/.test(String(walletCfg.walletconnectScript || ""));
+  let phoneKit = null;
+  function phone() {
+    if (!phoneKit) {
+      phoneKit = new Promise((ok, no) => {
+        if (window.EloWalletConnect) return ok(window.EloWalletConnect);
+        const s = document.createElement("script");
+        s.src = SITE + walletCfg.walletconnectScript;
+        s.addEventListener("load", () => (window.EloWalletConnect
+          ? ok(window.EloWalletConnect) : no(new Error("the phone-wallet module did not load"))));
+        s.addEventListener("error", () => no(new Error("the phone-wallet module did not load")));
+        document.head.append(s);
+      }).catch((err) => {
+        phoneKit = null;
+        throw err;
+      });
+    }
+    return phoneKit;
+  }
+  const phoneOpts = () => ({ projectId: walletCfg.walletconnectProjectId, url: location.origin });
+
+  // A wallet in `window.ethereum` that announces nothing, named by its flags. Rabby and others also
+  // set isMetaMask, so MetaMask is asked last.
+  function legacyName(p) {
+    return p.isRabby ? "Rabby Wallet" : p.isPhantom ? "Phantom" : p.isCoinbaseWallet ? "Coinbase Wallet"
+      : p.isBraveWallet ? "Brave Wallet" : p.isTrust || p.isTrustWallet ? "Trust Wallet"
+      : p.isOkxWallet || p.isOKExWallet ? "OKX Wallet" : p.isMetaMask ? "MetaMask" : "Browser wallet";
+  }
+  // Every row to offer: { name, icon, rdns, provider, phone? }.
+  function wallets() {
+    const out = announced.length
+      ? announced.map((a) => ({
+        name: String(a.info.name || "Wallet"),
+        icon: String(a.info.icon || ""),
+        rdns: String(a.info.rdns || ""),
+        provider: a.provider,
+      }))
+      : window.ethereum ? [{ name: legacyName(window.ethereum), icon: "", rdns: "", provider: window.ethereum }] : [];
+    if (phoneOn()) out.push({ name: "Phone wallet", icon: "", rdns: PHONE, provider: null, phone: true });
+    return out;
+  }
+
+  let provider = null; // the EIP-1193 provider this page signs with
+  let providerIsPhone = false;
+  const watched = new WeakSet();
+  // `rdns` undefined leaves the remembered pick alone (a silent resume).
+  function useWallet(p, rdns, isPhone = false) {
+    provider = p;
+    providerIsPhone = isPhone;
+    if (rdns !== undefined) store(WALLET_PICK, rdns);
+    if (typeof p.on !== "function" || watched.has(p)) return;
+    watched.add(p);
+    // Somebody switches account in the extension while the page is open. A provider event may not
+    // sign a guest back in: some wallets fire it on unlock and on tab focus.
+    p.on("accountsChanged", (a) => {
+      if (p === provider) setAddress(signedOut() ? null : (a && a[0]) || null);
+    });
+    // The phone ended the session.
+    if (isPhone) {
+      p.on("disconnect", () => {
+        if (p !== provider) return;
+        provider = null;
+        providerIsPhone = false;
+        store(WALLET_PICK, "");
+        setAddress(null);
+      });
+    }
+  }
+
+  // The remembered wallet if it is here, the only one if there is one, otherwise the picker. Null
+  // when the player closes it.
+  async function pickWallet() {
+    const all = wallets();
+    const kept = stored(WALLET_PICK);
+    const known = kept && all.find((w) => w.rdns === kept);
+    if (known) return known;
+    if (all.length === 1 && all[0].provider) return all[0];
+    if (!all.length) return null;
+    return askWhich(all);
+  }
+
+  function askWhich(all) {
+    const dlg = $("wallet-pick");
+    return new Promise((done) => {
+      let chosen = null;
+      $("wallet-list").replaceChildren(...all.map((w) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        // EIP-6963 icons are data URIs, which the store's img-src allows.
+        if (/^data:image\//.test(w.icon)) {
+          const img = document.createElement("img");
+          img.alt = "";
+          img.src = w.icon;
+          b.append(img);
+        } else {
+          const ph = document.createElement("span");
+          ph.className = "ph";
+          b.append(ph);
+        }
+        const t = document.createElement("span");
+        t.textContent = w.name;
+        if (w.phone) {
+          const sm = document.createElement("small");
+          sm.textContent = "Scan a code with your wallet app";
+          t.append(sm);
+        }
+        b.append(t);
+        b.addEventListener("click", () => {
+          chosen = w;
+          dlg.close();
+        });
+        return b;
+      }));
+      dlg.addEventListener("close", () => done(chosen), { once: true });
+      dlg.showModal();
+    });
+  }
+
+  // -32002 is a request already open (usually a window behind the browser); otherwise the wallet's
+  // own words are the useful thing to show.
+  const walletSaid = (err) => err && err.code === -32002
+    ? "your wallet already has a request open: check its window, then try again."
+    : (err && err.message) || String(err);
+  const lower = (list) => (list || []).map((a) => String(a).toLowerCase());
   const wallet = {
-    has: () => !!window.ethereum,
-    async accounts() {
-      if (!wallet.has()) return [];
+    has: () => wallets().length > 0,
+    async accounts(p = provider) {
+      if (!p) return [];
       try {
-        return (await window.ethereum.request({ method: "eth_accounts" })) || [];
+        return (await p.request({ method: "eth_accounts" })) || [];
       } catch {
         return [];
       }
     },
     async connect() {
-      if (!wallet.has()) throw new Error("this browser has no wallet extension");
-      const a = await window.ethereum.request({ method: "eth_requestAccounts" });
+      const w = await pickWallet();
+      if (!w && wallet.has()) throw Object.assign(new Error("no wallet picked"), { cancelled: true });
+      if (!w) throw new Error("this browser has no wallet extension");
+      const p = w.phone ? await (await phone()).connect(phoneOpts()) : w.provider;
+      const a = await p.request({ method: "eth_requestAccounts" });
       if (!a || !a[0]) throw new Error("the wallet gave no account");
+      useWallet(p, w.rdns, !!w.phone);
       return a[0];
     },
     // A wallet switched to another account since Connect would otherwise fail with an error
     // naming nothing anyone can act on.
     async sign(message, address) {
+      if (!provider) throw new Error("no wallet is connected. Connect one, then try again.");
       const want = String(address || "").toLowerCase();
-      const have = (await wallet.accounts()).map((a) => String(a).toLowerCase());
-      if (want && have.length && !have.includes(want)) {
+      let have = lower(await wallet.accounts());
+      // A locked wallet answers [] to the silent read; asking for accounts opens its unlock screen.
+      if (want && !have.length) {
+        try {
+          have = lower(await provider.request({ method: "eth_requestAccounts" }));
+        } catch (err) {
+          throw new Error(walletSaid(err));
+        }
+      }
+      if (want && !have.length) throw new Error("the wallet is locked or not connected to this page. Open it and try again.");
+      if (want && !have.includes(want)) {
         throw new Error(`your wallet is on ${short(have[0])}, and this asks ${short(want)} to sign. ` +
           "Switch the wallet to that account and try again.");
       }
-      if (want && !have.length) throw new Error("the wallet is locked or not connected to this page. Open it and try again.");
       const hex = "0x" + Array.from(new TextEncoder().encode(message))
         .map((b) => b.toString(16).padStart(2, "0")).join("");
-      return window.ethereum.request({ method: "personal_sign", params: [hex, address] });
+      let sig;
+      try {
+        sig = await provider.request({ method: "personal_sign", params: [hex, address] });
+      } catch (err) {
+        throw new Error(walletSaid(err));
+      }
+      // A smart-contract wallet (Safe, Argent, a passkey account) answers with a longer proof the
+      // server can't check against the address: say so, rather than "isn't a signature".
+      if (typeof sig === "string" && sig.replace(/^0x/, "").length > 130) {
+        throw new Error("this wallet signs as a smart contract, and signing in needs an account's own " +
+          "signature: use an account wallet (MetaMask, Rabby…), or fly as a guest.");
+      }
+      return sig;
     },
   };
   window.bcWallet = wallet;
 
   let address = null; // the connected wallet, or null: a guest
-  const remember = (on) => {
-    try {
-      if (on) localStorage.setItem(WALLET_KEY, "on");
-      else localStorage.removeItem(WALLET_KEY);
-    } catch {}
-  };
+  function setAddress(a) {
+    address = a ? String(a) : null;
+    showWallet();
+  }
 
   function showWallet(note) {
     const account = $("wallet-account");
     const button = $("wallet-button");
+    if (!account || !button) return;
+    button.disabled = !wallet.has();
     if (!wallet.has()) {
-      button.disabled = true;
       account.textContent = note || "No wallet extension here: you can fly as a guest (your suit is lost when you leave).";
     } else if (address) {
       account.textContent = note || `${short(address)} · signed in, your suit stays in the sector when you leave`;
@@ -146,18 +353,75 @@
     show($("guest-button"), !!address);
   }
 
+  // Already signed in, silently (never a prompt): the remembered wallet first, then the one in
+  // `window.ethereum`, then any other that already lets this page see an account. MetaMask answers
+  // [] for the first moments of a page and the real account after, so a miss is asked again. Two
+  // may run at once (a late wallet starts its own), so each re-checks `address` after every await.
+  async function resume() {
+    if (signedOut()) return;
+    if (stored(WALLET_PICK) === PHONE && phoneOn()) {
+      try {
+        const p = await (await phone()).restore(phoneOpts());
+        const a = p && p.accounts && p.accounts[0];
+        if (a && !address && !signedOut()) {
+          useWallet(p, undefined, true);
+          return setAddress(a);
+        }
+      } catch {} // no session, or the relay is away: the extensions below
+    }
+    for (const wait of [0, 400, 1500]) {
+      if (wait) await sleep(wait);
+      if (address || signedOut()) return;
+      const all = wallets().filter((w) => w.provider);
+      const kept = stored(WALLET_PICK);
+      const order = all.filter((w) => kept && w.rdns === kept)
+        .concat(all.filter((w) => w.provider === window.ethereum), all);
+      for (const w of order) {
+        const a = (await wallet.accounts(w.provider))[0];
+        if (address || signedOut()) return;
+        if (a) {
+          useWallet(w.provider);
+          return setAddress(a);
+        }
+      }
+    }
+  }
+
+  // A wallet that injected after the page started.
+  function walletAppeared() {
+    showWallet();
+    if (!address) resume();
+  }
+
   async function connectWallet() {
     const button = $("wallet-button");
     button.disabled = true;
+    // CHANGE WALLET asks which again.
+    if (address) store(WALLET_PICK, "");
     try {
-      address = await wallet.connect();
-      remember(true);
-      showWallet();
+      const a = await wallet.connect();
+      store(SIGNED_OUT, "");
+      setAddress(a);
     } catch (e) {
-      // The extension talking about its own prompt: its words are the useful thing to show.
-      showWallet(e && e.message ? e.message : String(e));
+      showWallet(e && e.cancelled ? undefined : walletSaid(e));
     }
     button.disabled = !wallet.has();
+  }
+
+  // PLAY AS GUEST: the platform's sign-out. Most wallets can't revoke a site's access, so the flag
+  // is what keeps a silent resume from undoing it; a phone session is ended rather than left paired.
+  async function flyAsGuest() {
+    store(SIGNED_OUT, "1");
+    store(WALLET_PICK, "");
+    const wasPhone = providerIsPhone;
+    provider = null;
+    providerIsPhone = false;
+    setAddress(null);
+    if (wasPhone && window.EloWalletConnect) {
+      try {
+        await window.EloWalletConnect.disconnect();
+      } catch {}
+    }
   }
 
   function launch(e) {
@@ -1412,33 +1676,16 @@
   document.addEventListener("DOMContentLoaded", () => {
     $("launch").addEventListener("submit", launch);
     $("wallet-button").addEventListener("click", connectWallet);
-    $("guest-button").addEventListener("click", () => {
-      address = null;
-      remember(false);
-      showWallet();
-    });
+    $("guest-button").addEventListener("click", flyAsGuest);
+    $("wallet-cancel").addEventListener("click", () => $("wallet-pick").close());
+    store("bc.wallet", ""); // the pick this page kept before the platform's key
+    started = true;
     showWallet();
-    // A wallet connected on an earlier visit is picked up without a prompt (eth_accounts asks
-    // nothing); signing still waits for Launch.
-    let wanted = false;
-    try {
-      wanted = localStorage.getItem(WALLET_KEY) === "on";
-    } catch {}
-    if (wanted) {
-      wallet.accounts().then((a) => {
-        if (a && a[0] && !address) {
-          address = a[0];
-          showWallet();
-        }
-      });
-    }
-    // Somebody switches account in the extension while the page is open.
-    if (wallet.has() && typeof window.ethereum.on === "function") {
-      window.ethereum.on("accountsChanged", (a) => {
-        address = (a && a[0]) || null;
-        showWallet();
-      });
-    }
+    resume();
+    // The phone row appears once the platform's config says it may.
+    loadWalletConfig().then(() => {
+      if (phoneOn()) walletAppeared();
+    });
     // The terminals: one listener for all their buttons and fields.
     // The radio's line: Enter says it, Esc closes it; what's typed here isn't the game's.
     $("chat-input").addEventListener("keydown", (e) => {

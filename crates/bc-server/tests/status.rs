@@ -111,3 +111,57 @@ async fn a_certificate_from_files_is_not_pinned() -> anyhow::Result<()> {
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
+
+/// `/online.json`: the signed-in wallets, for the store's playtime. A guest isn't in it; an agent
+/// with a wallet is, marked as one; a second session for the same wallet takes the entry over, and
+/// leaving takes it away.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_store_reads_who_is_on() -> anyhow::Result<()> {
+    let cfg = Config {
+        mode: Mode::Game,
+        rules: Ruleset::Arcade,
+        wt_port: 0,
+        http_addr: "127.0.0.1:0".parse()?,
+        drones: 0,
+        ..Config::default()
+    };
+    let server = bc_server::start(cfg).await?;
+    let base = format!("http://{}", server.http_addr);
+    let bot = |name: &str| BotConfig {
+        server: base.clone(),
+        name: name.into(),
+        frame: FrameId::Argo,
+        faction: Faction::Colonies,
+    };
+    let mut secret = [0u8; 32];
+    secret[31] = 1;
+    let wallet = bc_auth::LocalWallet::from_secret(&secret).expect("key one");
+
+    let guest = BotClient::connect(&bot("Guest-1")).await?;
+    let mut keyed = BotClient::connect_as(&bot("Keyed-1"), Some(&wallet)).await?;
+    keyed.run_for(Duration::from_millis(300), &mut |_| bc_proto::InputCmd::default()).await?;
+    let (_, doc) = get(&format!("{base}/online.json"), None).await?;
+    let on = doc["online"].as_array().expect("a list");
+    assert_eq!(on.len(), 1, "only the wallet: {doc}");
+    assert_eq!(on[0]["wallet"], "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf");
+    assert_eq!(on[0]["name"], "Keyed-1");
+    assert_eq!(on[0]["agent"], true);
+    assert!(on[0]["since"].as_u64().is_some_and(|t| t > 0) && doc["at"].as_u64().is_some());
+
+    // The same wallet again: the newer session holds the entry, the older one leaving doesn't drop it.
+    let mut again = BotClient::connect_as(&bot("Keyed-2"), Some(&wallet)).await?;
+    again.run_for(Duration::from_millis(300), &mut |_| bc_proto::InputCmd::default()).await?;
+    keyed.close().await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let (_, doc) = get(&format!("{base}/online.json"), None).await?;
+    assert_eq!(doc["online"].as_array().map(Vec::len), Some(1), "{doc}");
+    assert_eq!(doc["online"][0]["name"], "Keyed-2");
+
+    again.close().await;
+    guest.close().await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let (_, doc) = get(&format!("{base}/online.json"), None).await?;
+    assert_eq!(doc["online"], serde_json::json!([]), "{doc}");
+    server.shutdown();
+    Ok(())
+}

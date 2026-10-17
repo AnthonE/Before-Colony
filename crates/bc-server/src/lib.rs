@@ -15,6 +15,7 @@ pub mod config;
 pub mod http;
 pub mod market;
 pub mod net;
+pub mod online;
 pub mod pilots;
 pub mod plaza;
 pub mod proving;
@@ -103,6 +104,7 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
     let launcher_stats = stats.clone();
     let launcher_game = status_view.clone();
     let max_players = cfg.max_clients;
+    let online = shared.as_ref().map(|g| g.online.clone());
     let http_state = http::HttpState {
         // A CA-issued certificate is validated by the browser: nothing to pin.
         cert_hash_hex: pinned.then(|| hex::encode(cert_hash)),
@@ -111,6 +113,9 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
         status: Arc::new(move || net::status_json(&status_stats, status_game.as_ref())),
         launcher_status: Arc::new(move || {
             net::launcher_status_json(&launcher_stats, launcher_game.as_ref(), max_players)
+        }),
+        online: Arc::new(move || {
+            online.as_ref().map_or_else(|| crate::online::Online::default().json(), |o| o.json())
         }),
         cors_origins: cfg.cors_origins.clone().into(),
     };

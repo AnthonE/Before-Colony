@@ -138,6 +138,8 @@ pub struct GameShared {
     pub(super) hangars: Arc<RwLock<HashMap<u16, HangarEntry>>>,
     /// The colony's radio: what pilots say (`radio`).
     pub radio: Arc<crate::radio::Radio>,
+    /// The wallets on now, for the store (`/online.json`).
+    pub online: Arc<crate::online::Online>,
     /// The suits left in hide spots have been put back (or let go): a suit the sector puts back
     /// from now on came too late, and goes again ([`process_notes`]).
     restore_over: Arc<AtomicBool>,
@@ -422,6 +424,7 @@ impl GameRuntime {
             econ: bc_econ::Rules { craft_speed: cfg.craft_speed, ..bc_econ::Rules::default() },
             hangars: Arc::new(RwLock::new(HashMap::new())),
             radio: Arc::new(crate::radio::Radio::default()),
+            online: Arc::new(crate::online::Online::default()),
             restore_over: Arc::new(AtomicBool::new(false)),
         };
         // The exchange's, the Charter Board's and the Proving Ground's clocks, and their files.
@@ -926,6 +929,8 @@ async fn session(
         }
         None => (None, None),
     };
+    // On the store's roster (`/online.json`) while this session holds the pilot.
+    let _here = held.map(|(a, s)| game.online.enter(a, s, name.as_str(), pilot != PilotKind::Human));
     let who = super::session::Who { pilot, frame, faction, name, address };
     let result = super::session::run(conn, &game, &stats, &mut tx, &mut rx, pending, who, kicked).await;
     if let Some((address, session)) = held {

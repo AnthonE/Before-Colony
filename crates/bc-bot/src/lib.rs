@@ -23,6 +23,7 @@
 //! ```
 
 pub mod client;
+pub mod key;
 pub mod stroll;
 pub mod transport;
 

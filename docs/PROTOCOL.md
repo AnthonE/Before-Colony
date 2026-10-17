@@ -438,10 +438,14 @@ wallet sets SIGN_IN:
 1. The server answers with a Challenge: a fresh random nonce, the time, and its domain (the host
    the page was served from, `--siwe-domain`).
 2. Both sides build the same EIP-4361 ("Sign-In with Ethereum") text from it with
-   `bc_auth::siwe_message`. It says it authorizes nothing and moves no funds. The wallet signs it
-   with `personal_sign`, and the client sends the address and signature in an Auth.
-3. The server recovers the signer from the signature. If it isn't the address, or the Auth takes
-   longer than a minute, the session is rejected (5 or 8).
+   `bc_auth::siwe_message`: the Elo Pros launcher's `prove` text for `before-colony` on chain 4663,
+   byte for byte (Gates signs the same, with its own name). It says it authorises nothing and moves
+   no funds. The wallet signs it with `personal_sign`, and the client sends the address and
+   signature in an Auth.
+3. The server recovers the signer from the signature, over that text or the one pilots signed
+   before it (`bc_auth::legacy_message`, chain 1), so a page and a server deployed apart still
+   sign in. If it isn't the address, or the Auth takes longer than a minute, the session is
+   rejected (5 or 8).
 4. Welcome (with SIGNED_IN), then a Token.
 
 A Token lets the pilot reconnect without signing again: a later Hello sets RESUME and carries it
