@@ -297,7 +297,7 @@ pub(crate) fn sole(d: &mut Designer, bone: Bone, s: Side, x: f32, sole: Sole) {
     vernier(d, bone, s, v(x, SOLE + 0.015, at), r);
 }
 
-/// A Gundam's feet ([`foot`]): their paints, how wide they are, and whether their heels have spurs.
+/// A Lodestar's feet ([`foot`]): their paints, how wide they are, and whether their heels have spurs.
 #[derive(Clone, Copy)]
 pub(crate) struct FootStyle {
     /// The heel's and the instep's armour, the toe cap's, and the pads under the sole.
@@ -313,7 +313,7 @@ pub(crate) struct FootStyle {
 /// How far a foot's sides lean in, per metre up.
 const FOOT_LEAN: f32 = 0.16;
 
-/// The Gundams' foot, as their kits have it, on each foot bone and its toes: a tall heel with the
+/// The Lodestars' foot, as a model kit's is, on each foot bone and its toes: a tall heel with the
 /// instep falling from it to the toes' hinge, a cover over the instep rising to the ankle, and a
 /// guard either side of the ankle's ball with a round boss on it; the toe cap on the toe bone,
 /// falling to a blunt tip with a ridge down its middle; a spur up the heel's back if `spur`; and

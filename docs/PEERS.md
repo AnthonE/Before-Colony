@@ -14,11 +14,11 @@ No. Nobody ships the whole fantasy. The nearest games each have one piece of it:
 
 | Game | What it has | What it lacks | What we take |
 |---|---|---|---|
-| Mobile Suit Gundam Battle Operation 2 (2018–) | Gundam suits with manual aim, in space and on Earth; a map inside a derelict colony [P1] | A world: it's 6v6 matches | Cost brackets; close quarters as the way into free aim; new suits as the cadence |
+| A licensed 6v6 anime-mech shooter (2018–) | Anime suits with manual aim, in space and on Earth; a map inside a derelict colony [P1] | A world: it's 6v6 matches | Cost brackets; close quarters as the way into free aim; new suits as the cadence |
 | VRChat's Space Colony "Island-4" (2021) | An O'Neill cylinder 8 km across and 32 km long, curve gravity, crowds [P2] | Mechs, combat, anything to do | The scale is the draw; hanging out needs a way to talk |
 | Star Citizen (alpha) | Walk a city, ride a lift to your hangar, fly to orbit [P3] | Mechs; a 1.0, after $1 billion | Stage the transitions; shared spaces are griefed without weapons; jobs from the city |
-| The Gundam Metaverse (2022–) | Promised: virtual space colonies for the fandom [P4] | Delivered: a shop and Gunpla scanning | Every place needs a verb; people want their own build |
-| Gundam Rogue Orbit (March 2027) | Customised Gundams, colour schemes, hordes and bosses [P5] | A world; colonies | PvE that escalates; a colour scheme is expected |
+| A licensed fandom metaverse (2022–) | Promised: virtual space colonies for the fandom [P4] | Delivered: a shop and model-kit scanning | Every place needs a verb; people want their own build |
+| A licensed customisation game (March 2027) | Customised suits, colour schemes, hordes and bosses [P5] | A world; colonies | PvE that escalates; a colour scheme is expected |
 | X-Wing (1993) and TIE Fighter (1994) | A hub of doors to walk between, training before the war, a cockpit to read, music that follows the fight [P7][P8] | A world: the hub is a picture | Training as a place (`TRAINING.md`); briefings, a debrief, a film room |
 | The mech games: Titanfall (2014, 2016), Armored Core VI (2023), MechWarrior and BattleTech, Steel Battalion (2002), Mecha BREAK (2025), Daemon X Machina (2019) | How losing a mech is handled, how a fight builds to its climax, how a build is tried and paid for [P13]–[P22] | A world: matches and missions | Doom and ejecting, stagger, power earned in the fight, a debrief, a test range, aces, salvage as pay, the enemy's gun |
 | Mecha Royale (2026, indie.fun) | A browser mech battle royale: parts fitted in the field, crews in one mech, missile locks with counters [P24] | A world: it's matches | Guns that shoot missiles down; a HUD that says why; a death report; a boot that says when it's stuck; wrecks that die their own way |
@@ -28,11 +28,11 @@ Before Colony already has the chain in outline: the city, the cap lift up to the
 ships that. What we lack is what makes a chain worth walking: **reasons to cross it again and
 again, and people to cross it with**. Most of what follows is one of those two.
 
-## Battle Operation 2
+## The licensed 6v6 shooter
 
-The nearest Gundam game: manual aim with no lock-on button (`CONTROLS.md`, "Where we break convention" 4), suits
-from every series, and still adding them (Gundam 00's Double O Riser and Susanoo in the summer of
-2026, *unverified*).
+The nearest licensed anime-mech game: manual aim with no lock-on button (`CONTROLS.md`, "Where we
+break convention" 4), suits from every series of its franchise, and still adding them (two more in
+the summer of 2026, *unverified*).
 
 - **Cost brackets.** Every suit has a cost and a room sets the range it allows, so a low-cost fight
   has no flagships in it; a costlier suit waits longer to sortie again [P1]. We gate by price
@@ -41,7 +41,7 @@ from every series, and still adding them (Gundam 00's Double O Riser and Susanoo
   cost can be worked out from what it is (its stat sheet, `bc_sim::tuning`, or what its parts fetch
   on the Exchange) and used wherever we choose who fights whom: contract tiers, and the drones sent
   after a pilot.
-- **Close quarters teach free aim.** Derelict Colony (2020) is a wrecked colony: collapsed
+- **Close quarters teach free aim.** Its derelict-colony map (2020) is a wrecked colony: collapsed
   buildings, the old roads on the ceiling. Its developers built it for closer, more ground-like
   fighting with less room to climb, and said why: it suits players still learning to hit with
   bazookas and beam rifles in space [P1]. That is our "unhittable" risk (`CONTROLS.md`, "No lead
@@ -55,7 +55,7 @@ from every series, and still adding them (Gundam 00's Double O Riser and Susanoo
   roadmap (`DESIGN.md`, "Surfaces, next").
 - **New suits are the cadence.** A match game lives on its roster. Our frames are code, not art
   (`bc-model`, all procedural), so a frame costs its row in `bc-sim/src/content/frames.rs`, its
-  model and its kit; Tallgeese and Epyon are next on the roadmap.
+  model and its kit; two more frames are next on the roadmap.
 
 What it can't teach us is a world: its suits live nowhere between matches.
 
@@ -108,11 +108,12 @@ flies ships, not suits.
   taken at its desk in the city and flown in space, and what it pays for them waits at that desk
   (with the colony closed, a bay terminal's tab does both).
 
-## The Gundam Metaverse
+## The licensed fandom metaverse
 
-Bandai Namco announced it in 2022: Gundam's fandom in virtual space colonies, one each for games,
-anime, music and Gunpla, joined by a hub. It opened in 2023 as the "Gunpla Colony" test: a shop
-for real Gunpla, and your own Gunpla scanned with a phone to see in 3D [P4].
+Announced in 2022 by the publisher of the licensed games above: the franchise's fandom in virtual
+space colonies, one each for games, anime, music and model kits, joined by a hub. It opened in 2023
+as a test colony: a shop for real model kits, and your own kit scanned with a phone to see in 3D
+[P4].
 
 - **Every place needs a verb.** A colony that's a shop isn't a place to be. Each of ours now has
   one thing only it does, and its door's prompt names it (`COLONY.md`, 2.6): Hub Gate the lift
@@ -123,21 +124,21 @@ for real Gunpla, and your own Gunpla scanned with a phone to see in 3D [P4].
   routine work and point at the desks for the rest, and the objectives walk a new Arrival to each
   in turn. Still a shop front: the building site is `Stage(0)` everywhere it's asked
   (`bc_sim::colony::city::Stage`), so nothing a pilot does can build it out.
-- **People want their own build.** Gunpla is a kit *you* built and painted, and scanning it in was
-  the Metaverse's pitch. Every Colonies Argo in our sector is the same blue, white and red
+- **People want their own build.** A model kit is one *you* built and painted, and scanning it in
+  was the metaverse's pitch. Every Colonies Argo in our sector is the same blue, white and red
   (`livery`, `bc-client/src/suits_vis.rs`), and nothing a pilot owns says it's theirs but the
   callsign over it.
 
-## Gundam Rogue Orbit
+## The licensed customisation game
 
-Bandai Namco's next Gundam game, out March 5, 2027: a Gundam customised with weapons, frames,
+The same publisher's next licensed game, out March 5, 2027: a suit customised with weapons, frames,
 thrusters and a colour scheme of your own, against hordes of enemy units and towering bosses [P5].
 
 - **PvE that escalates.** Ours is a patrol: 24 drones in squads of four, a squad topped up
   every 4 s however many pilots are out (`target_drones`, `bc_sim::config`). There are no
   offensives, no convoys and nothing big. A fight that builds is what brings in the player who
   doesn't want to fight people.
-- **A colour scheme is expected.** Rogue Orbit paints the suit your way; so will every Gundam game
+- **A colour scheme is expected.** It paints the suit your way; so will every anime-mech game
   players hold us up against.
 
 ## X-Wing and TIE Fighter
@@ -259,7 +260,7 @@ games", says how each is built.
     don't get clear.
   - **Ours** (`DESIGN.md`, "Doom and ejecting"): a pilot's breached suit is doomed for 3 s, and
     blows landing on it cut the time short (Titanfall 1's way). U ejects, and the colony's tugs
-    bring the wreck home. Held, U blows the reactor with the pilot aboard, Heero's way (below).
+    bring the wreck home. Held, U blows the reactor with the pilot aboard, the anime's way (below).
 - **AI troops make a match a battlefield.** Attrition fills both sides with AI grunts, spectres,
   stalkers and reapers. They score points: a grunt 1, a reaper 3, a pilot 5 [P13]. Respawn's
   community manager: the AI "gave players who are newer something to shoot at and gave them a
@@ -368,14 +369,13 @@ games", says how each is built.
   - **Ours:** a limb grabbed from a wreck fires its weapon from the hand that holds it.
 - **PvP alone wasn't enough.** Hawken, a free-to-play mech arena, shut its PC servers in January
   2018. Hawken Reborn (2023) came back as PvE in Early Access, and has had no update in nearly two
-  years [P22]. It's Rogue Orbit's lesson again: PvE that escalates.
+  years [P22]. It's the customisation game's lesson again: PvE that escalates.
 
-### And Gundam Wing
+### And the anime
 
-Heero tries to destroy his Gundam in episode 2, and Duo stops him. In episode 10, caught in Lady
-Une's trap in Siberia, he blows up Wing Gundam with himself aboard. Trowa takes care of him
-afterwards [P23]. That's our self-destruct: the pilot stays aboard, and nothing is left for the
-enemy.
+Mecha anime have a scene they come back to: a pilot, trapped, blows up his own suit with himself
+aboard rather than let the enemy have it, and lives. That's our self-destruct: the pilot stays
+aboard, and nothing is left for the enemy.
 
 ### Mecha Royale (2026)
 
@@ -422,7 +422,7 @@ text [P24].
     stay the server's (a part shot off is its salvage chunk).
 - **Crews.** A mech holds a crew: the captain takes the helm, crewmates take the shoulder pods,
   and the captain chooses "designate & lock" (the crew fire on one target) or free fire.
-  - **Ours, later:** a Lodestar has one pilot, as a Gundam does in Gundam Wing. A carrier or a transport with gunner
+  - **Ours, later:** a Lodestar has one pilot, as in the story the Arrivals remember. A carrier or a transport with gunner
     seats could take the idea (`ROADMAP.md`, "Mecha Royale").
 - **What we leave.** Its storm ring, lobbies and drop points fit a match, not a sector that
   stays. Its supply crates and rarity tiers would undercut an economy where a part's worth is its
@@ -544,7 +544,7 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
 
 **P2: depth, once the above is in.**
 
-11. **Cost brackets** (Battle Operation 2), for contract tiers and the drones sent after a pilot.
+11. **Cost brackets** (the licensed 6v6 shooter), for contract tiers and the drones sent after a pilot.
 12. **Close quarters outside the law:** the axis port's scaffolds, the building site's frames.
     Where free aim is learnt.
 13. **Suits inside the colony,** once the building site gives them work (`SUITS_INSIDE.md`, "Why
@@ -553,7 +553,7 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
 
 **From the mech games** (October 2026; how each is built is `ROADMAP.md`, "The mech games").
 
-15. **Doom and ejecting** (Titanfall, Steel Battalion, Gundam Wing's Heero): a doomed suit fights on for 3 s;
+15. **Doom and ejecting** (Titanfall, Steel Battalion, the anime's self-destruct): a doomed suit fights on for 3 s;
     U ejects, and the tugs bring the wreck home; held, U blows it up. *Built.*
 16. **Stagger** (Armored Core VI): impact overloads a suit's attitude control, and a staggered
     suit tumbles for a second, its thrust and weapons down, and takes direct hits. *Built.*
@@ -590,7 +590,7 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
 The starting point was a survey the project's owner brought in October 2026. Its claims were
 checked against:
 
-- **[P1] Battle Operation 2.** Bandai Namco's developer newsletter on the late-May 2020 map update
+- **[P1] The licensed 6v6 shooter.** Its developer newsletter on the late-May 2020 map update
   (bo2.ggame.jp/en/info/?p=37296); Steam discussions on cost ranges and re-sortie times
   (steamcommunity.com/app/1367080/discussions). The infantry and the 2026 suits come from the
   survey's own source (Techprincess), *unverified*.
@@ -603,9 +603,9 @@ checked against:
     on Alpha 3.13.1 (med guns disabled in armistice zones).
   - Hangars and delivery: RSI Spectrum, "Alpha 4.0.1 current issues & updates"; a player's 2024
     early impressions (talisman.org/~erlkonig/writings/on-games/star-citizen/early-impression-2024).
-- **[P4] The Gundam Metaverse.** Automaton (March 2022, the plan; March 2023, the Gunpla Colony
-  test).
-- **[P5] Gundam Rogue Orbit.** Gematsu and AniTrendz (September 2026, the date and gameplay);
+- **[P4] The licensed fandom metaverse.** Automaton (March 2022, the plan; March 2023, the test
+  colony).
+- **[P5] The licensed customisation game.** Gematsu and AniTrendz (September 2026, the date and gameplay);
   Sortir à Paris on customisation and colour schemes.
 - **[P6] EVE Online.** EVE University's wiki, "Insurance".
 - **[P7] X-Wing.** The Collector's CD-ROM pilot manual
@@ -651,8 +651,6 @@ checked against:
   SteamCharts (app 2452280).
 - **[P22] Daemon X Machina and Hawken.** Nintendo's store page and Wikipedia, "Daemon X Machina";
   Wikipedia, "Hawken (video game)"; Hawken Reborn's Steam page.
-- **[P23] Gundam Wing.** Wikipedia, "List of Mobile Suit Gundam Wing episodes" (episodes 2, 10
-  and 12).
 - **[P24] Mecha Royale.** Its page (indie.fun/play/mecha-royale), its build's page and its
   comments, its game bundle and its English text catalogue, as served to a browser (12 October
   2026). Numbers are from the bundle's weapon tables.

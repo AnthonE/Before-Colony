@@ -126,7 +126,8 @@ impl FrameId {
             .or_else(|| Self::OLD_SLUGS.iter().find(|(a, _)| same(s, a)).map(|(_, f)| *f))
     }
 
-    /// The slugs before 2026-10-14, read and never written.
+    /// The slugs before 2026-10-14, read and never written: they read pre-rename saves, links and
+    /// settings, and nothing shows them.
     pub const OLD_SLUGS: [(&'static str, FrameId); 11] = [
         ("leo", FrameId::Argo),
         ("wingzero", FrameId::Altair),
@@ -149,7 +150,7 @@ pub enum Faction {
     /// the Almagest (and its drones).
     #[default]
     Almagest = 0,
-    /// Colony resistance: the Lodestar pilots' side (Operation Starfall).
+    /// Colony resistance: the Lodestar pilots' side (the Breakaway).
     Colonies = 1,
     /// United Earth-Moon space Alliance remnants.
     Alliance = 2,
@@ -434,11 +435,17 @@ mod tests {
         }
         assert_eq!(FrameId::from_slug("ALTAIR"), Some(FrameId::Altair));
         assert_eq!(FrameId::from_slug("Can-o-pus"), Some(FrameId::Canopus));
-        // What a saved pilot or an old link still says.
-        assert_eq!(FrameId::from_slug("leo"), Some(FrameId::Argo));
-        assert_eq!(FrameId::from_slug("Wing Zero"), Some(FrameId::Altair));
-        assert_eq!(FrameId::from_slug("DEATH_SCYTHE"), Some(FrameId::Algol));
-        assert_eq!(FrameId::from_slug("neobird"), Some(FrameId::Aquila));
+        // What a saved pilot or an old link still says, however it's spelt.
+        for (old, f) in FrameId::OLD_SLUGS {
+            assert_eq!(FrameId::from_slug(old), Some(f));
+            let mut buf = [0u8; 32];
+            for (i, c) in old.bytes().enumerate() {
+                buf[2 * i] = c.to_ascii_uppercase();
+                buf[2 * i + 1] = b'-';
+            }
+            let shouted = core::str::from_utf8(&buf[..2 * old.len()]).unwrap();
+            assert_eq!(FrameId::from_slug(shouted), Some(f), "{shouted}");
+        }
         assert_eq!(FrameId::from_slug("argonaut"), None);
         assert_eq!(FrameId::from_slug(""), None);
     }

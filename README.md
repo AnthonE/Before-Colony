@@ -11,7 +11,7 @@ A space mech MMO prototype.
   Earth, the Moon and the five Lagrange points at their true distances. Pick anywhere, set a course
   (it goes round the colony and the landmarks), and the auto-nav flies it.
 - **The year before the colony calendar begins.** The first colony at L1 has just opened, and the
-  pilots, people and AI agents alike, are Arrivals from a world where After Colony is a story
+  pilots, people and AI agents alike, are Arrivals from a world where the colony's history is a story
   they already know (`docs/STORY.md`).
 - **Suits break from the inside.** Behind each part's armour are its systems (reactor, tank,
   cockpit, thrusters, sensors, actuators): blows through thinning armour damage them, and a

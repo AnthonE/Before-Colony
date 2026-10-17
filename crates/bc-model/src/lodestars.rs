@@ -1,4 +1,4 @@
-//! The Operation Starfall Lodestars and Aquila, on the same skeleton and helpers as `frames`. Each
+//! The five Lodestars and the Aquila, on the same skeleton and helpers as `frames`. Each
 //! carries its own kit, and the sockets the client draws that kit from: blades, the Talon
 //! and its flamethrower, missile hatches.
 //!
@@ -63,7 +63,7 @@ fn waist(d: &mut Designer, front: Paint, side: Paint) {
 }
 
 /// Thighs, shins and feet: `thigh` and `shin` sizes, knee guards in `trim`, the feet the
-/// Gundams' ([`foot`]) with their toe caps in `toe`.
+/// Lodestars' ([`foot`]) with their toe caps in `toe`.
 fn legs(d: &mut Designer, thigh: Vec3, shin: Vec3, trim: Paint, toe: Paint) {
     // The blocks' widths and depths are the frame's; their lengths are the rig's.
     let (thigh_len, shin_len) = leg_lengths();
@@ -232,7 +232,7 @@ pub(crate) fn antares(d: &mut Designer) {
     d.sockets.saber = (Designer::local(Bone::HandL, base), dir);
 }
 
-// --- PX-02 Algol: bat-wing binders, a beam scythe, the claw shield. ---
+// --- PX-02 Algol: ribbed sail binders, a beam scythe, the claw shield. ---
 
 pub(crate) fn algol(d: &mut Designer) {
     inner_frame(d, 1.2);
@@ -291,7 +291,7 @@ pub(crate) fn algol(d: &mut Designer) {
 
     backpack(d, v(2.4, 2.4, 1.5), 0.55);
 
-    // Bat-wing binders: ribs fanned from the shoulders, with the membrane between.
+    // Sail binders: ribs fanned from the shoulders, with the sail between.
     for s in Side::BOTH {
         let bone = s.pick(Bone::WingL, Bone::WingR);
         let root = j(Bone::WingR);
@@ -464,7 +464,7 @@ fn blade(d: &mut Designer, bone: Bone, hilt: Vec3, dir: Vec3, curl: f32) {
     s.extrude(&e, 0.16, HOT, place(hilt, rot));
 }
 
-// --- PX-04 Thuban: the dragon arm, a beam glaive. ---
+// --- PX-04 Thuban: the Talon arm, a beam glaive. ---
 
 pub(crate) fn thuban(d: &mut Designer) {
     inner_frame(d, 1.25);
