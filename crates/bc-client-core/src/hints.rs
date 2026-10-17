@@ -159,7 +159,7 @@ impl Hint {
                 "The airlock you came in by: E rides the cap lift down into the colony's city, on foot. Q chooses another strip's lift."
             }
             Hint::City => {
-                "M is the city's map. Walk onto a platform to ride a tram, E at a motor pool takes a car; E at Hub Gate's lift goes back up to your bay."
+                "M is the city's map. Walk onto a platform to ride a tram, E at a motor pool takes a car (R a Markab: it drives up walls); E at Hub Gate's lift goes back up to your bay."
             }
             Hint::InnerGate => {
                 "To go home from in here, come to rest inside the inner gate's ring of lights and press Enter."

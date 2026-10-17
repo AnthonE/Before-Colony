@@ -11,7 +11,9 @@ import { bc, built, collectConsole } from "./util";
 // then walks back and rides up to the bay. Each desk shows only what it does, and the objectives
 // lead from one to the next. The walking is the dev hook's (a guide walks the pilot's own legs);
 // the terminals' panels are clicked.
-// Then a tram, a car, the Canal strip's cap lift (Q at the airlock), and two browsers: two pilots
+// Then a tram, a car, a Markab (backed up Hub Gate's terminal on its fan, held there, dropped off
+// it with the fan cut, and a leap on its lift jets), the Canal strip's cap lift (Q at the airlock),
+// and two browsers: two pilots
 // meet at Hub Gate, each seeing the other; one rides home, gone from the other's street, and a
 // suit an agent flies in by the inner gate comes down onto the avenue by the other, each seeing
 // the other.
@@ -357,6 +359,62 @@ test("a pilot takes a car from Hub Gate's motor pool and drives up the avenue", 
   expect(end - start).toBeGreaterThan(20);
 
   // Out beside it, on foot again.
+  await push(page, { cmd: "use" });
+  s = await until(page, "on foot", (s) => s.driving === "", 30_000);
+  const status = await (await page.request.get("/status")).json();
+  console.log(`refused: ${JSON.stringify(status.game.city.refused_by)}`);
+  expect(status.game.city.refused_poses).toBe(0);
+  const bad = logs.filter((l) => /\[error\]|\[pageerror\]|%cERROR|panicked/i.test(l));
+  if (bad.length) console.log(bad.join("\n"));
+  expect(bad).toEqual([]);
+});
+
+test("a pilot takes a Markab from Hub Gate's motor pool, backs it up the terminal on its fan, and drops off", async ({
+  page,
+}) => {
+  test.setTimeout(600_000);
+  const logs = collectConsole(page);
+  await page.goto("/?autoplay=1&name=Lars&quality=low");
+  await until(page, "the bay", (s) => s.place === "hangar" && s.seq === "walking", 180_000);
+  await push(page, { cmd: "walk_to", spot: "airlock" });
+  await until(page, "at the airlock", (s) => s.focus === "airlock" && !s.walking_to, 120_000);
+  await push(page, { cmd: "use" });
+  await until(page, "the city", (s) => s.place === "city", 30_000);
+  await push(page, { cmd: "skip" });
+  await until(page, "Hub Gate", (s) => s.seq === "walking", 30_000);
+
+  // To the motor pool beside Hub Gate's door, and a Markab from it (R).
+  await push(page, { cmd: "walk_to", spot: "pool" });
+  await until(page, "at the pool", (s) => !s.city_walking_to, 120_000);
+  await expect(page.locator("#use")).toContainText("R  A MARKAB", { timeout: 30_000 });
+  await page.focus("#bc");
+  await page.keyboard.press("r");
+  let s = await until(page, "at the wheel", (s) => s.driving === "markab" && s.markab === "floor", 30_000);
+  expect(s.markab_fan).toBe(true);
+  await expect(page.locator("#use")).toContainText("FAN ON", { timeout: 30_000 });
+
+  // Hub Gate's terminal stands behind it: backed into it, the fan takes it up its face, tail first.
+  await page.keyboard.down("s");
+  await until(page, "on the terminal's face", (s) => s.markab === "wall", 60_000);
+  s = await until(page, "up it", (s) => s.markab === "wall" && s.markab_h > 8, 90_000);
+  await page.keyboard.up("s");
+  // Let go, it holds there.
+  s = await until(page, "held on the wall", (s) => s.markab === "wall" && s.drive_speed < 0.5, 30_000);
+  await expect(page.locator("#use")).toContainText("ON THE WALL", { timeout: 30_000 });
+
+  // The fan off: nothing holds it, it falls, and comes down on its wheels.
+  await page.keyboard.press("f");
+  await until(page, "falling", (s) => s.markab === "air" && !s.markab_fan, 30_000);
+  s = await until(page, "down", (s) => s.markab === "floor" && s.drive_speed < 1, 60_000);
+
+  // The fan on again, and a leap on the lift jets.
+  await page.keyboard.press("f");
+  await page.keyboard.down("Space");
+  await until(page, "in the air", (s) => s.markab === "air", 30_000);
+  await page.keyboard.up("Space");
+  s = await until(page, "down again", (s) => s.markab === "floor" && s.drive_speed < 1, 60_000);
+
+  // Out beside it, on foot again; the server took every pose, up the wall and in the air too.
   await push(page, { cmd: "use" });
   s = await until(page, "on foot", (s) => s.driving === "", 30_000);
   const status = await (await page.request.get("/status")).json();

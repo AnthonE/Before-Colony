@@ -6,8 +6,10 @@
 //! wall (`bc_sim::colony::city::solid`, the walls every client walks into), no further from the
 //! last one taken than a running pilot (or a car) could go, and, the first, near where they came
 //! in: the strip's Hub Gate, where the lift comes down (or the Blast Hall's gantry, climbing out of
-//! a trainer); on a tram only from beside its open doors, and in a car only from a motor pool.
-//! Anything else isn't passed on.
+//! a trainer); on a tram only from beside its open doors, and in a car (or a Markab) only from a
+//! motor pool. Anything else isn't passed on. A Markab, the rocket car, goes where no car does (up
+//! walls, along ceilings, through the air), so all that's asked of where it is is that its middle
+//! is out of the walls.
 //!
 //! Pilots flying suits inside the colony see the people too: those on the strip under the suit,
 //! near it in the air ([`Plaza::fill_around`]).
@@ -28,6 +30,8 @@ use glam::Vec3;
 const MAX_SPEED: f32 = 9.0 * 1.5;
 /// Faster than anything drives (a car's top speed is 30 m/s), likewise.
 const MAX_DRIVE: f32 = 35.0 * 1.3;
+/// Faster than a Markab goes (`bc_client_core::markab::TOP_SPEED`, 62 m/s), likewise.
+const MAX_MARKAB: f32 = 62.0 * 1.3;
 const SLACK: f32 = 2.0;
 /// Reach a pilot carries from one pose to the next, s of the fastest they could go, at most. The
 /// time since their last pose earns reach (all of it: someone not heard from a minute may be far
@@ -195,20 +199,33 @@ fn aboard(p: &PersonPose) -> bool {
 }
 
 /// Whether a pose could be anyone's: inside the colony, its body out of the walls (a thin core of
-/// it: a step's worth of the walker's box may brush one).
+/// it: a step's worth of the walker's box may brush one; a Markab's middle, which keeps 0.6 m off
+/// any face it's on, whichever way up).
 fn possible(p: &PersonPose) -> bool {
     if p.riding().is_some() {
         return aboard(p);
     }
     let inside =
         within_caps(p.x) && (0.0..=STRIP_WIDTH).contains(&p.s) && (-4.0..=MAX_HEIGHT + 4.0).contains(&p.h);
+    let (lo, hi) = if p.markab() { (-0.1, 0.1) } else { (0.4, 1.4) };
+    let e = if p.markab() { 0.1 } else { 0.05 };
     inside
         && !solid(
             p.strip,
-            Vec3::new(p.x - 0.05, p.h + 0.4, -p.s - 0.05),
-            Vec3::new(p.x + 0.05, p.h + 1.4, -p.s + 0.05),
+            Vec3::new(p.x - e, p.h + lo, -p.s - e),
+            Vec3::new(p.x + e, p.h + hi, -p.s + e),
             Stage(0),
         )
+}
+
+/// The fastest anyone can go getting about as a pose does, m/s: on foot (seated, on a train), in a
+/// car or on a scooter, or in a Markab.
+fn top(p: &PersonPose) -> f32 {
+    match mode(p) {
+        Mode::Drive(_) if p.markab() => MAX_MARKAB,
+        Mode::Drive(_) => MAX_DRIVE,
+        _ => MAX_SPEED,
+    }
 }
 
 impl Plaza {
@@ -274,12 +291,13 @@ impl Plaza {
                     (Mode::Train(k), Mode::Foot) => {
                         check(at_open_doors(pose.strip, k, pose.s, pose.x, tick), Why::Alight)
                     }
-                    // Driving: no faster than a car goes; taken from a motor pool; left anywhere.
-                    (Mode::Drive(a), Mode::Drive(b)) => check(a == b && moved(MAX_DRIVE), Why::Reach),
+                    // Driving: no faster than a car (or a Markab) goes; taken from a motor pool; left
+                    // anywhere.
+                    (Mode::Drive(a), Mode::Drive(b)) => check(a == b && moved(top(&last)), Why::Reach),
                     (Mode::Foot, Mode::Drive(_)) => {
                         check(pool_near(pose.strip, last.s, last.x).is_some() && moved(MAX_SPEED), Why::Pool)
                     }
-                    (Mode::Drive(_), Mode::Foot) => check(moved(MAX_DRIVE), Why::Reach),
+                    (Mode::Drive(_), Mode::Foot) => check(moved(top(&last)), Why::Reach),
                     // Sitting down on a seat from beside it, staying put on it, and getting up.
                     (Mode::Foot, Mode::Seated) => check(on_seat(&pose) && moved(MAX_SPEED), Why::Seat),
                     (Mode::Seated, Mode::Seated) => check(
@@ -322,10 +340,7 @@ impl Plaza {
         // one train's car; boarding and alighting are checked at the doors instead).
         me.bank = match me.pose {
             Some(last) => {
-                let speed = match (mode(&last), mode(&pose)) {
-                    (Mode::Drive(_), _) | (_, Mode::Drive(_)) => MAX_DRIVE,
-                    _ => MAX_SPEED,
-                };
+                let speed = top(&last).max(top(&pose));
                 let same = last.riding() == pose.riding();
                 let d = if same { (pose.x - last.x).hypot(pose.s - last.s) } else { 0.0 };
                 (banked(me, now) - d / speed).clamp(0.0, BANK)
@@ -723,6 +738,44 @@ mod tests {
             plaza.accept(1, 7, at(0, ps + 1.6, px + 30.5), t2 + Duration::from_secs(2), 0),
             Verdict::Taken
         );
+    }
+
+    #[test]
+    fn a_markab_comes_from_a_motor_pool_and_goes_up_walls_and_through_the_air_fast() {
+        use bc_proto::presence::RIDE_MARKAB;
+        use bc_sim::colony::city::terminal_rect;
+        use bc_sim::colony::hall::hall;
+        use bc_sim::colony::pools::pool;
+        let plaza = Plaza::default();
+        let t0 = Instant::now();
+        let (s, x) = hub_gate(0);
+        let (ps, px) = pool(0, 0);
+        plaza.enter(1, "Lars", 0);
+        assert_eq!(plaza.accept(1, 1, at(0, s, x + 2.0), t0, 0), Verdict::Taken);
+        let markab = |s: f32, x: f32, h: f32| PersonPose { ride: RIDE_MARKAB, h, ..at(0, s, x) };
+        // Not from the middle of the street.
+        let t1 = t0 + Duration::from_millis(100);
+        assert_eq!(plaza.accept(1, 2, markab(s, x + 3.0, 0.6), t1, 0), Verdict::Implausible);
+        // From the pool.
+        let t2 = t1 + Duration::from_secs(10);
+        assert_eq!(plaza.accept(1, 3, at(0, ps, px), t2, 0), Verdict::Taken);
+        let t3 = t2 + Duration::from_millis(100);
+        assert_eq!(plaza.accept(1, 4, markab(ps, px + 0.5, 0.6), t3, 0), Verdict::Taken);
+        // 60 m/s for a second (faster than any car), 20 m up; 300 m in one, not.
+        let t4 = t3 + Duration::from_millis(1_000);
+        assert_eq!(plaza.accept(1, 5, markab(ps, px + 60.5, 20.0), t4, 0), Verdict::Taken);
+        assert_eq!(
+            plaza.accept(1, 6, markab(ps, px + 360.0, 20.0), t4 + Duration::from_secs(1), 0),
+            Verdict::Implausible
+        );
+        // Hanging from the Blast Hall's ceiling, its middle 0.6 m under it: a Markab's, never a
+        // walker's; and never inside a wall.
+        let r = hall();
+        let (hs, hx) = r.front.point(12.0, 40.0);
+        assert!(possible(&markab(hs, hx, r.ceiling - 0.6)));
+        assert!(!possible(&PersonPose { h: r.ceiling - 0.6, ..at(0, hs, hx) }));
+        let (ts, tx) = terminal_rect().middle();
+        assert!(!possible(&markab(ts, tx, 5.0)));
     }
 
     /// What a suit at `at` (the colony's frame) is shown.

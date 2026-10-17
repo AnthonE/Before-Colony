@@ -87,6 +87,11 @@ pub const BINDINGS: &[Binding] = &[
         "Use a place at its counter, in through its door: the Exchange floor, the Charter Board, The Arrival; at Hub Gate's door, the cap lift up to your bay; at a motor pool, take a car",
     ),
     b(Group::Colony, "Q", "At a motor pool (Hub Gate's, or by a tram station): take a scooter"),
+    b(
+        Group::Colony,
+        "R",
+        "At a motor pool: take a Markab, the rocket car (its fan holds it to walls and ceilings; its jets fly it)",
+    ),
     b(Group::Colony, "E (by a seat)", "Sit outside The Arrival; E again, or a step, stands you up"),
     b(Group::Colony, "Space", "On the cap lift: skip the ride down"),
     b(Group::Colony, "M / Esc", "The map, open or closed: your strip end to end, and the streets round you"),
@@ -100,7 +105,19 @@ pub const BINDINGS: &[Binding] = &[
     b(Group::Driving, "A / D", "Steer"),
     b(Group::Driving, "Space", "Handbrake"),
     b(Group::Driving, "Tab", "Camera: behind the car, or from the driver's seat"),
-    b(Group::Driving, "E", "Get out (slow to a walk first)"),
+    b(Group::Driving, "E", "Get out (slow to a walk first; a Markab: on a floor)"),
+    b(
+        Group::Driving,
+        "F (a Markab)",
+        "The fan on/off: on, it holds the car to whatever its wheels are on, so it drives up walls and along ceilings",
+    ),
+    b(Group::Driving, "Space (a Markab)", "Lift jets: a leap off whatever it's on; held, a climb"),
+    b(Group::Driving, "Shift (a Markab)", "Tail jets: boost, 0 to 100 km/h in a second"),
+    b(
+        Group::Driving,
+        "In the air (a Markab)",
+        "W / S pitch, A / D yaw, Q / E roll (a barrel roll is a second and a bit); X is its handbrake on the ground",
+    ),
     b(
         Group::Flight,
         "Mouse",

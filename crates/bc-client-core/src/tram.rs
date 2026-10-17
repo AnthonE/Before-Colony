@@ -189,10 +189,12 @@ pub fn pose_riding(r: &Rider, w: &Walker, strip: u8) -> PersonPose {
         h: w.feet.y,
         yaw: w.yaw,
         pitch: w.pitch,
+        roll: 0.0,
         speed: flat,
         grounded: w.grounded,
         running: flat > 5.0,
         ride: r.k + 1,
+        jets: 0,
     }
 }
 

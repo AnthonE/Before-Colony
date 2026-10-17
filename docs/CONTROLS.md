@@ -138,6 +138,25 @@ so on a body they become a hop (held: lift off on the thrusters) and a crouch at
   long as it takes, and holding C for minutes would be a chore. The simulation keeps the stance
   until told otherwise, so a stalled tab stays crouched and hidden. In flight C is still held down.
 
+**The Markab** (`DESIGN.md`, "The Markab"), the rocket car, drives up walls and flies, and the
+game players will hold it against is Rocket League, whose cars drive its walls and ceiling, boost,
+leap and roll in the air (`PEERS.md`, "Cars that drive on walls"). Its keys are Rocket League's
+where ours already agree, and our own flight's where they don't:
+- **W/S and A/D drive, and in the air pitch and yaw.** Rocket League's air steering, key for key
+  [D1]: the nose goes down on W, as a stick pushed forward.
+- **Space the lift jets, Shift the tail's, Q/E the roll.** Rocket League jumps on the right mouse
+  button and boosts on the left, and rolls on Shift held with A/D (*unverified*) [D1]. Ours keep
+  the flight's: Space rises and Shift boosts in a suit, and Q/E roll it, so a pilot's hands know
+  them already; Q/E are Rocket League's own "air roll left/right" too. The car's handbrake moved
+  to X, the flight's brake.
+- **F the fan.** A mnemonic, free while driving, pressed once (a toggle, as the grip is), never in
+  a hurry. On from the pool: a player's first wall should climb.
+- **R at a pool.** Q and E were taken (the scooter, the car); R is beside them.
+- **The camera turns with the face.** Up a wall the chase camera's up is the wall's, as Rocket
+  League's car camera turns with its walls; in the air it stays upright to the colony, and the
+  view never rolls with a barrel roll (rolling views are what make people sick: the shooter
+  controls' reason, above).
+
 **Ejecting: U** (`DESIGN.md`, "Doom and ejecting"). Titanfall ejects on its use key, which is our
 roll (E). Of the keys still free (I, K, O, U), U is the one the left hand reaches from W without
 leaving the keyboard's left half. Steel Battalion hid its eject button under a plastic flap so that
@@ -336,6 +355,9 @@ The three surveys behind this document were run in September 2026. The main sour
   V camera, Z dampeners, Space/C, Q/E); the KSP wiki (SAS, RCS).
 - **[B5] Target and look keys.** EA's Star Wars: Squadrons manual (T, F, G, H); the Elite binds
   above.
+- **[D1] Rocket League.** Mejoress's keyboard guide (April 2024: right mouse jump, left mouse boost,
+  Left Shift powerslide and air roll, W/A/S/D throttle, steering and air pitch and yaw), *unverified*
+  against the game's own Controls menu.
 - **[C1] Browsers.**
   - MDN on `requestPointerLock` and the Pointer Lock API; web.dev "Disable mouse acceleration";
     caniuse on `unadjustedMovement`.

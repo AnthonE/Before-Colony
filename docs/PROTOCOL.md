@@ -1,8 +1,15 @@
-# Before Colony wire protocol (v33)
+# Before Colony wire protocol (v34)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v34 (from v33): the colony's rocket car, the Markab (`bc_client_core::markab`). A person's pose
+grows from 86 bits to 97: a roll (8 bits over [0, 360°)) after the pitch, what they ride takes a fifth bit
+(16: driving a Markab, its pitch and roll its body's, GROUNDED its wheels down, RUNNING its fan
+on), and two bits after it for a Markab's jets firing (lift, boost). A pose datagram is 15 bytes, a
+person in a plaza datagram 14.125. The server takes a Markab's pose where its middle is out of the
+walls, whichever way up it is, at up to 80.6 m/s.
 
 v33 (from v32): no bits change. Inside the colony a hovering suit (GRIP clear) reads a command's
 `LockOn` as one out in space does, relative to the colony's frame, which the shooter controls send
@@ -362,17 +369,21 @@ Pilots on foot in the colony's city (survival, unless `--no-colony`) are relayed
 off the sector's tick (`bc_proto::presence`; the server's `plaza`). Positions are a strip's city
 coordinates, where the city stands still: `x` along (22 bits over ±16,384 m), `s` across from the
 strip's edge (19 bits over 0–4,096 m), `h` up (15 bits over −8–248 m), all in 7.8 mm steps; the
-walker's yaw (10 bits), pitch (8 bits over ±90°), speed over the ground (6 bits, 0.2 m/s steps to
-12.6), GROUNDED and RUNNING, and what they ride (4 bits: 0 on foot, `k` + 1 on train `k` of the
-strip's line, 13 driving a car, 14 on a scooter, 15 sitting on a seat: v16 gave 15 that meaning,
-with no new bits), 86 bits in all. A rider's `x`, `s` and `h` are from their train's middle, from its
+walker's yaw (10 bits), pitch (8 bits over ±90°), roll (8 bits over [0, 360°): a Markab's, 0 for
+anyone else), speed over the ground (6 bits, 0.2 m/s steps to 12.6), GROUNDED and RUNNING, what they
+ride (5 bits: 0 on foot, `k` + 1 on train `k` of the strip's line, 13 driving a car, 14 on a
+scooter, 15 sitting on a seat, 16 driving a Markab), and a Markab's jets firing (2 bits: the lift's,
+the tail's), 97 bits in all. A Markab's `x`, `s` and `h` are its middle, and its heading, pitch and
+roll its body's whole attitude (turned about up, its nose raised, rolled about its length), which
+every screen blends the short way round between two poses; GROUNDED is its wheels down and RUNNING
+its fan on. A rider's `x`, `s` and `h` are from their train's middle, from its
 track's middle plus 2,048 m, and from its floor: everyone draws them inside the train wherever
 their own screen has it (`transit::train` is a closed form of the tick).
 
 | Datagram | Content | Size |
 |---|---|---|
-| kind 3, Pose (client → server, 15 Hz in the city) | kind (4), seq (u16), strip (2), the pose (86) | 14 B |
-| kind 4, Plaza (server → client: 10 Hz in the city and flying inside the colony, 2 Hz in the bay) | kind (4), the sector's tick (u32), in the city (1), strip (2), then until the bits run out: per person their client slot (10), how long before the tick their pose was heard (6 bits, 10 ms steps) and the pose (86) | 5 B + 12.75 B a person, at most 48 (617 B) |
+| kind 3, Pose (client → server, 15 Hz in the city) | kind (4), seq (u16), strip (2), the pose (97) | 15 B |
+| kind 4, Plaza (server → client: 10 Hz in the city and flying inside the colony, 2 Hz in the bay) | kind (4), the sector's tick (u32), in the city (1), strip (2), then until the bits run out: per person their client slot (10), how long before the tick their pose was heard (6 bits, 10 ms steps) and the pose (97) | 5 B + 14.125 B a person, at most 48 (683 B) |
 
 A pose is taken only if it could be: on the pilot's strip, inside the colony, out of the walls
 (`bc_sim::colony::city::solid`), no further from the last one taken than 13.5 m/s over the reach
@@ -381,7 +392,8 @@ it is carried to the next: a slow page's walk, sent late and then at once, passe
 doesn't), the first within 150 m of the strip's Hub Gate, and newer (`seq`) than the last. A rider must be inside
 their train's cars; getting on or off, within 8 m of the train while it stood with its doors open
 (within 3 s of the sector's tick). A driver's first pose must be at a motor pool
-(`bc_sim::colony::pools`), and no driver goes faster than 45.5 m/s. A seated pose must be on a
+(`bc_sim::colony::pools`), and no driver goes faster than 45.5 m/s (in a Markab, 80.6 m/s; up a
+wall, under a ceiling or in the air, so long as its middle is out of the walls). A seated pose must be on a
 seat (`bc_sim::colony::city::arrival_seats`, within 0.3 m), and stays put on it until its pilot
 stands. Anything else isn't
 passed on (`/status`'s `city.refused_poses`). Each pilot is sent the people on their strip within

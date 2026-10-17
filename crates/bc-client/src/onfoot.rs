@@ -27,6 +27,7 @@ use bc_client_core::bay::{CATWALK_Y, HATCH, Layout, Lift, SPAWN, SUIT_AT, Spot};
 use bc_client_core::city::CityGround;
 use bc_client_core::city_nav;
 use bc_client_core::dock;
+use bc_client_core::markab::{self, Chase, Markab};
 use bc_client_core::sights;
 use bc_client_core::tram::{self, CarInside, CityAndTrains, Rider};
 use bc_client_core::vehicle::{Drive, Kind, Vehicle};
@@ -171,8 +172,10 @@ pub struct CityFoot {
     trains: [TrainState; TRAINS as usize],
     stood: Option<usize>,
     /// Driving (from a motor pool), and seen from behind (else from the driver's seat).
-    pub drive: Option<Vehicle>,
+    pub drive: Option<Wheels>,
     chase: bool,
+    /// Behind a Markab, the chase camera.
+    cam: Option<Chase>,
     /// The colony's tick the trains are at.
     tick: (u32, f32),
     /// Sitting on one of The Arrival's seats (`bc_sim::colony::city::arrival_seats`).
@@ -183,6 +186,99 @@ pub struct CityFoot {
 
 /// Seated, the eye is this much lower than standing, m.
 const SEATED_DROP: f32 = 0.55;
+/// Taking a Markab from a motor pool.
+const MARKAB_NEWS: &str = "A MARKAB FROM THE MOTOR POOL · ITS FAN HOLDS IT TO WALLS AND CEILINGS (F) · SPACE LIFT · SHIFT BOOST · Q/E ROLL IN THE AIR";
+
+/// What a pilot drives in the city: a car or a scooter, or a Markab, the rocket car
+/// (`bc_client_core::markab`).
+#[derive(Clone, Copy, Debug)]
+pub enum Wheels {
+    Road(Vehicle),
+    Markab(Markab),
+}
+
+impl Wheels {
+    /// For the page and the dev hooks: "car", "scooter" or "markab".
+    pub fn name(&self) -> &'static str {
+        match self {
+            Wheels::Road(v) if v.kind == Kind::Car => "car",
+            Wheels::Road(_) => "scooter",
+            Wheels::Markab(_) => "markab",
+        }
+    }
+
+    /// How fast it goes, m/s.
+    pub fn speed(&self) -> f32 {
+        match self {
+            Wheels::Road(v) => v.speed.abs(),
+            Wheels::Markab(m) => m.speed(),
+        }
+    }
+
+    /// Whether its driver can get out: slow (a Markab: and on a floor, not a wall or a ceiling).
+    fn can_leave(&self) -> bool {
+        match self {
+            Wheels::Road(v) => v.speed.abs() < 3.0,
+            Wheels::Markab(m) => m.can_leave(),
+        }
+    }
+
+    /// The driver, as the plaza has them.
+    pub fn pose(&self, pitch: f32) -> PersonPose {
+        match self {
+            Wheels::Road(v) => v.pose(pitch),
+            Wheels::Markab(m) => m.pose(),
+        }
+    }
+
+    /// Where its driver gets out, and the way they face.
+    fn door(&self) -> (CityPos, Vec3) {
+        match self {
+            Wheels::Road(v) => (v.door(), Vec3::new(v.yaw.sin(), 0.0, v.yaw.cos())),
+            Wheels::Markab(m) => {
+                let f = m.forward();
+                (m.door(), Vec3::new(f.x, 0.0, f.z).normalize_or(Vec3::Z))
+            }
+        }
+    }
+
+    /// Where it stands on strip `strip` (a Markab: the face under its middle).
+    fn at(&self, strip: u8) -> CityPos {
+        match self {
+            Wheels::Road(v) => CityPos::new(strip, v.x, v.s, v.ground()),
+            Wheels::Markab(m) => CityPos::from_walker(strip, m.pos - m.up() * markab::RIDE),
+        }
+    }
+}
+
+/// The line under the view while driving a Markab: its fan, its bottles, its speed, which way up.
+fn markab_line(m: &Markab) -> String {
+    let way = if !m.wheels_down() {
+        " · IN THE AIR"
+    } else if m.up().y < -0.5 {
+        " · UPSIDE DOWN"
+    } else if m.up().y < 0.5 {
+        " · ON THE WALL"
+    } else {
+        ""
+    };
+    let out = if m.can_leave() { "E  GET OUT · " } else { "" };
+    let fan = if m.fan { "ON" } else { "OFF" };
+    // In fives, so the line doesn't change every frame.
+    let five = |v: f32| (v / 5.0).round() * 5.0;
+    format!("{out}FAN {fan} · GAS {:.0}% · {:.0} KM/H{way}", five(m.gas * 100.0), five(m.speed() * 3.6))
+}
+
+/// For the dev hooks: what a Markab's wheels are on.
+fn markab_on(m: &Markab) -> &'static str {
+    match m.on {
+        markab::On::Air => "air",
+        markab::On::Corner(_) => "corner",
+        markab::On::Face(n, _) if n.y > 0.5 => "floor",
+        markab::On::Face(n, _) if n.y < -0.5 => "ceiling",
+        markab::On::Face(..) => "wall",
+    }
+}
 
 /// Station `i` of strip `strip`'s line, by name: Hub Gate's, then the district it's in.
 fn station_name(strip: u8, i: usize) -> String {
@@ -228,6 +324,7 @@ impl CityFoot {
             stood: None,
             drive: None,
             chase: true,
+            cam: None,
             tick: (0, 0.0),
             seat: None,
             gantry: false,
@@ -312,16 +409,22 @@ impl CityFoot {
         true
     }
 
-    /// Takes a vehicle from the motor pool in reach, if there is one.
-    fn take(&mut self, kind: Kind) -> bool {
+    /// Takes a car or a scooter (`kind`), or a Markab (`None`), from the motor pool in reach, if
+    /// there is one.
+    fn take(&mut self, kind: Option<Kind>) -> bool {
         let at = self.feet();
         let Some(i) = pool_near(self.strip, at.s, at.x) else { return false };
         let (s, x) = pool(self.strip, i);
         // Parked facing up the avenue.
-        self.drive = Some(Vehicle::new(kind, self.strip, s, x, std::f32::consts::FRAC_PI_2));
+        let yaw = std::f32::consts::FRAC_PI_2;
+        self.drive = Some(match kind {
+            Some(kind) => Wheels::Road(Vehicle::new(kind, self.strip, s, x, yaw)),
+            None => Wheels::Markab(Markab::new(self.strip, s, x, yaw)),
+        });
         self.guide = None;
+        self.cam = None;
         // From the scooter's deck there's nothing to see but the helmet: from behind.
-        self.chase = self.chase || kind == Kind::Scooter;
+        self.chase = self.chase || kind == Some(Kind::Scooter);
         true
     }
 
@@ -348,10 +451,21 @@ impl CityFoot {
     /// Gets out of the vehicle, beside it.
     fn get_out(&mut self) {
         if let Some(v) = self.drive.take() {
-            let mut w = Walker::at(v.door().walker(), Vec3::new(v.yaw.sin(), 0.0, v.yaw.cos()));
+            let (door, facing) = v.door();
+            let mut w = Walker::at(door.walker(), facing);
             w.pitch = self.walker.pitch;
             self.walker = w;
+            self.cam = None;
         }
+    }
+
+    /// Eases the chase camera behind a Markab `dt` seconds on (`markab::Chase`).
+    fn follow_cam(&mut self, dt: f32) {
+        let Some(Wheels::Markab(m)) = self.drive else {
+            self.cam = None;
+            return;
+        };
+        self.cam.get_or_insert_with(|| Chase::new(&m)).follow(&m, dt);
     }
 
     /// The line's trains at the colony's tick.
@@ -514,7 +628,7 @@ impl CityFoot {
     /// where the vehicle is).
     pub fn feet(&self) -> CityPos {
         if let Some(v) = self.drive {
-            return CityPos::new(self.strip, v.x, v.s, v.ground());
+            return v.at(self.strip);
         }
         match (self.ride, self.train()) {
             (Some(r), Some(t)) => tram::in_city(&r, self.walker.feet, t),
@@ -522,9 +636,13 @@ impl CityFoot {
         }
     }
 
-    /// The eye, in the colony's frame, and the way it looks.
-    fn view(&self) -> (DVec3, Vec3) {
-        if let Some(v) = self.drive {
+    /// The eye, in the colony's frame, the way it looks, and its up.
+    fn view(&self) -> (DVec3, Vec3, Vec3) {
+        let upright = |eye: DVec3| up_at(eye.as_vec3());
+        if let Some(Wheels::Markab(m)) = self.drive {
+            return self.markab_view(&m);
+        }
+        if let Some(Wheels::Road(v)) = self.drive {
             let (fx, fs) = v.forward();
             let g = v.ground();
             let at = |back: f32, up: f32| {
@@ -533,12 +651,14 @@ impl CityFoot {
             if self.chase {
                 // Behind and above it, looking a little ahead of it.
                 let (eye, ahead) = (at(7.5, 2.8), at(-4.0, 1.0));
-                return (eye, (ahead - eye).as_vec3().normalize_or(Vec3::X));
+                return (eye, (ahead - eye).as_vec3().normalize_or(Vec3::X), upright(eye));
             }
             let eye = CityPos::new(self.strip, v.x - fx * 0.3, v.s - fs * 0.3, g + v.spec().eye);
             let look =
                 Vec3::new(v.yaw.sin(), self.walker.pitch.clamp(-0.4, 0.3).sin(), v.yaw.cos()).normalize();
-            return (colony_point(eye), local_frame(self.strip, eye.s) * look);
+            let frame = local_frame(self.strip, eye.s);
+            let eye = colony_point(eye);
+            return (eye, frame * look, upright(eye));
         }
         let mut eye = match (self.ride, self.train()) {
             (Some(r), Some(t)) => tram::in_city(&r, self.walker.eye(), t),
@@ -547,7 +667,25 @@ impl CityFoot {
         if self.seat.is_some() {
             eye.h -= SEATED_DROP;
         }
-        (colony_point(eye), local_frame(self.strip, eye.s) * self.walker.look())
+        let at = colony_point(eye);
+        (at, local_frame(self.strip, eye.s) * self.walker.look(), upright(at))
+    }
+
+    /// A Markab's view: from behind it (`follow_cam`), upright to the face it's on; or from its
+    /// seat, turning with it, upside down on a ceiling and round in a roll.
+    fn markab_view(&self, m: &Markab) -> (DVec3, Vec3, Vec3) {
+        let point = |p: Vec3| colony_point(CityPos::from_walker(self.strip, p));
+        let frame = local_frame(self.strip, -m.pos.z);
+        if self.chase {
+            let (eye, at, up) = self.cam.unwrap_or_else(|| Chase::new(m)).view(m);
+            let (eye, at) = (point(eye), point(at));
+            return (eye, (at - eye).as_vec3().normalize_or(Vec3::X), frame * up);
+        }
+        let (above, back) = markab::EYE;
+        let eye = point(m.pos + m.up() * above - m.forward() * back);
+        let pitch = self.walker.pitch.clamp(-0.4, 0.3);
+        let look = Quat::from_axis_angle(m.left(), -pitch) * m.forward();
+        (eye, frame * look, frame * m.up())
     }
 
     /// The place the pilot can use where they stand, facing it: at its counter, in the room behind
@@ -1046,24 +1184,54 @@ pub fn drive_onfoot(
         if own != Stride::default() {
             c.guide = None;
         }
-        // Driving: W/S the throttle and the brake, A/D the wheel, Space the handbrake.
+        // Driving: W/S the throttle and the brake, A/D the wheel, Space the handbrake. A Markab:
+        // Space its lift jets, Shift its tail's, Q/E a roll in the air, X the handbrake, F its fan.
         let mut got_out = false;
-        if let Some(v) = c.drive.as_mut() {
-            let drive = Drive { throttle: own.forward, steer: -own.right, handbrake: own.jump };
+        if let Some(w) = c.drive.as_mut() {
             let mut left = walk_dt(false);
-            while left > 1e-4 {
-                let h = left.min(0.05);
-                left -= h;
-                v.step(&drive, h);
+            match w {
+                Wheels::Road(v) => {
+                    let drive = Drive { throttle: own.forward, steer: -own.right, handbrake: own.jump };
+                    while left > 1e-4 {
+                        let h = left.min(0.05);
+                        left -= h;
+                        v.step(&drive, h);
+                    }
+                }
+                Wheels::Markab(m) => {
+                    let held = |k: KeyCode| live && keys.pressed(k);
+                    let ctl = markab::Controls {
+                        throttle: own.forward,
+                        steer: -own.right,
+                        roll: (held(KeyCode::KeyQ) as i32 - held(KeyCode::KeyE) as i32) as f32,
+                        lift: own.jump,
+                        boost: own.run,
+                        handbrake: held(KeyCode::KeyX),
+                    };
+                    if live && keys.just_pressed(KeyCode::KeyF) {
+                        m.toggle_fan();
+                        ui.toast(if m.fan {
+                            "THE FAN ON · IT HOLDS TO WHATEVER ITS WHEELS ARE ON: WALLS, CEILINGS"
+                        } else {
+                            "THE FAN OFF · A CAR AGAIN: WALLS ARE WALLS, AND NOTHING HOLDS IT TO ONE"
+                        });
+                    }
+                    while left > 1e-4 {
+                        let h = left.min(0.05);
+                        left -= h;
+                        m.step(&ctl, h);
+                    }
+                }
             }
-            if live && keys.just_pressed(KeyCode::Tab) && v.kind == Kind::Car {
+            if live && keys.just_pressed(KeyCode::Tab) && w.name() != "scooter" {
                 c.chase = !c.chase;
             }
-            if used_key && v.speed.abs() < 3.0 {
+            if used_key && w.can_leave() {
                 c.get_out();
                 got_out = true;
             }
         }
+        c.follow_cam(dt);
         // Seated: put, till a step or E gets them up, a step out in front of the seat.
         let mut stood_up = false;
         if c.seat.is_some() && (own != Stride::default() || used_key) {
@@ -1148,15 +1316,25 @@ pub fn drive_onfoot(
         if live && keys.just_pressed(KeyCode::KeyM) {
             ui.map = !ui.map;
         }
-        // A motor pool in reach: E a car, Q a scooter (a place's door comes first).
+        // A motor pool in reach: E a car, Q a scooter, R a Markab (a place's door comes first).
         let pool_here = c.drive.is_none() && c.ride.is_none() && {
             let at = c.feet();
             pool_near(c.strip, at.s, at.x).is_some()
         };
         if pool_here && c.focus.is_none() && !c.gantry && !ui.panel_open() && !got_out {
             let scooter = live && keys.just_pressed(KeyCode::KeyQ);
-            if (used_key || scooter) && c.take(if scooter { Kind::Scooter } else { Kind::Car }) {
-                ui.toast(if scooter { "A SCOOTER FROM THE MOTOR POOL" } else { "A CAR FROM THE MOTOR POOL" });
+            let rocket = live && keys.just_pressed(KeyCode::KeyR);
+            let kind = match (rocket, scooter) {
+                (true, _) => None,
+                (_, true) => Some(Kind::Scooter),
+                _ => Some(Kind::Car),
+            };
+            if (used_key || scooter || rocket) && c.take(kind) {
+                ui.toast(match kind {
+                    None => MARKAB_NEWS,
+                    Some(Kind::Scooter) => "A SCOOTER FROM THE MOTOR POOL",
+                    Some(Kind::Car) => "A CAR FROM THE MOTOR POOL",
+                });
             }
         }
         if used_key
@@ -1375,11 +1553,7 @@ pub fn drive_onfoot(
         None => "",
     };
     ui.on_foot = on_foot || in_city;
-    ui.driving = match me.city.as_ref().and_then(|c| c.drive).filter(|_| in_city) {
-        Some(v) if v.kind == Kind::Car => "car",
-        Some(_) => "scooter",
-        None => "",
-    };
+    ui.driving = me.city.as_ref().and_then(|c| c.drive).filter(|_| in_city).map_or("", |w| w.name());
     // The map (M), and where the pilot stands on it.
     ui.map &= me.city.is_some();
     let map_at = me.city.as_ref().filter(|_| ui.map).map(|c| {
@@ -1406,7 +1580,8 @@ pub fn drive_onfoot(
             .focus
             .map_or_else(String::new, |s| format!("E  {}", verb(s, hangar_bay.as_ref(), colony, me.lift))),
         Seq::Walking if in_city => match me.city.as_ref() {
-            Some(c) if c.drive.is_some_and(|v| v.speed.abs() < 3.0) => "E  GET OUT".into(),
+            Some(CityFoot { drive: Some(Wheels::Markab(m)), .. }) => markab_line(m),
+            Some(c) if c.drive.is_some_and(|w| w.can_leave()) => "E  GET OUT".into(),
             Some(c) if c.drive.is_some() => String::new(),
             Some(c) if c.seat.is_some() => "SEATED · E OR A STEP TO STAND".into(),
             Some(c) if c.focus.is_some() => format!("E  {}", city_verb(&PLACES[c.focus.unwrap_or(0)])),
@@ -1425,7 +1600,7 @@ pub fn drive_onfoot(
                     pool_near(c.strip, at.s, at.x).is_some()
                 } =>
             {
-                "E  TAKE A CAR · Q  A SCOOTER".into()
+                "E  TAKE A CAR · Q  A SCOOTER · R  A MARKAB".into()
             }
             _ => String::new(),
         },
@@ -1473,13 +1648,18 @@ pub fn onfoot_camera(
     let now = now_s();
     // In the colony: drawn in its frame, relative to the render origin, upright to its floor.
     if let Some(c) = &me.city {
-        let (eye, look) = if me.seq == Seq::LiftDown { lift_view(c.strip, me.t(now)) } else { c.view() };
+        let (eye, look, up) = if me.seq == Seq::LiftDown {
+            let (eye, look) = lift_view(c.strip, me.t(now));
+            (eye, look, up_at(eye.as_vec3()))
+        } else {
+            c.view()
+        };
         let mut moved = *origin;
         moved.follow(eye);
         if moved != *origin {
             *origin = moved;
         }
-        *tf = Transform::from_translation(origin.place(eye)).looking_to(look, up_at(eye.as_vec3()));
+        *tf = Transform::from_translation(origin.place(eye)).looking_to(look, up);
         return;
     }
     let (eye, at) = me.view(now);
@@ -1523,8 +1703,18 @@ pub fn publish_onfoot(
             dev.set("city_walking_to", c.guide.is_some());
             dev.set("seated", c.seat.map_or(-1.0, |k| k as f64));
             dev.set("riding", c.ride.map_or(-1.0, |r| f64::from(r.k)));
-            dev.set("driving", c.drive.map_or("", |v| if v.kind == Kind::Car { "car" } else { "scooter" }));
-            dev.set("drive_speed", c.drive.map_or(0.0, |v| f64::from(v.speed)));
+            dev.set("driving", c.drive.map_or("", |w| w.name()));
+            dev.set("drive_speed", c.drive.map_or(0.0, |w| f64::from(w.speed())));
+            // A Markab: what its wheels are on (floor, wall, ceiling, corner, air), how high its middle
+            // is, its bottles and its fan.
+            let rocket = match c.drive {
+                Some(Wheels::Markab(m)) => Some(m),
+                _ => None,
+            };
+            dev.set("markab", rocket.as_ref().map_or("", markab_on));
+            dev.set("markab_h", rocket.map_or(-1.0, |m| f64::from(m.pos.y)));
+            dev.set("markab_gas", rocket.map_or(-1.0, |m| f64::from(m.gas)));
+            dev.set("markab_fan", rocket.is_some_and(|m| m.fan));
             dev.set("station", c.train().and_then(|t| t.at).map_or(-1.0, |i| i as f64));
             dev.set("district", c.district.map_or("", |d| DISTRICT_NAMES[c.strip as usize % 3][d as usize]));
             // Where the nearest of the people in view is from the pilot (m).
@@ -1559,6 +1749,10 @@ pub fn publish_onfoot(
             dev.set("riding", -1.0);
             dev.set("driving", "");
             dev.set("drive_speed", 0.0);
+            dev.set("markab", "");
+            dev.set("markab_h", -1.0);
+            dev.set("markab_gas", -1.0);
+            dev.set("markab_fan", false);
             dev.set("station", -1.0);
             dev.set("district", "");
             dev.set("people_nearest", -1.0);

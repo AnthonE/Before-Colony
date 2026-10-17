@@ -102,6 +102,8 @@ async function main() {
     life: params.get("life") !== "0",
     // `?hz=N`: the showcase's fixed clock rate (default 60), to see effects at a low frame rate.
     hz: Number(params.get("hz") || 60),
+    // `?clean=1`: the showcase without its line of text in the corner, for clips.
+    clean: params.get("clean") === "1",
   };
   if (!showcase) {
     if (!("WebTransport" in window)) {

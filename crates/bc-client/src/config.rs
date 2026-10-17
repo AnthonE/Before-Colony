@@ -58,6 +58,8 @@ pub struct LaunchConfig {
     pub life: bool,
     /// `?hz=N`: the showcase's fixed clock rate (default 60), to see effects at a low frame rate.
     pub showcase_hz: f64,
+    /// `?clean=1`: the showcase without its line of text in the corner, for clips.
+    pub showcase_clean: bool,
 }
 
 fn get(obj: &JsValue, key: &str) -> JsValue {
@@ -108,6 +110,7 @@ impl LaunchConfig {
             look: get(&cfg, "look").as_bool().unwrap_or(true),
             life: get(&cfg, "life").as_bool().unwrap_or(true),
             showcase_hz: number("hz").filter(|h| *h >= 1.0).unwrap_or(60.0).min(240.0),
+            showcase_clean: flag("clean"),
         }
     }
 }

@@ -78,6 +78,13 @@ pub enum Scene {
     /// end cap (2), at street level downtown (3), at a window bank (4), by the canal (5), and from
     /// near the axis down the whole length (6). `?t=1900` is night.
     City,
+    /// A Markab, the rocket car, in the Blast Hall on a 42 s loop (`showcase_markab`): in through
+    /// the blast doors, up the back wall (5.3-7.5 s) and on along the ceiling, braking upside down
+    /// and hanging there (8.6-14.4 s), back along it and down the wall tail first (22.5-25.5 s),
+    /// round, and out of the doors in a leap and a barrel roll (33-34.6 s), down on Hub Gate's
+    /// square 100 m out. Cameras: the chase camera (1), in from the doors (2), under the ceiling
+    /// (3), out on the square (4), beside the climb (5).
+    Markab,
 }
 
 impl Scene {
@@ -96,6 +103,7 @@ impl Scene {
             "hangar" | "bay" => Some(Self::Hangar),
             "surface" | "landmarks" => Some(Self::Surface),
             "city" | "inside" => Some(Self::City),
+            "markab" | "stunt" | "rocket" => Some(Self::Markab),
             _ => None,
         }
     }
@@ -115,6 +123,7 @@ impl Scene {
             Self::Hangar => "hangar",
             Self::Surface => "surface",
             Self::City => "city",
+            Self::Markab => "markab",
         }
     }
 
@@ -122,6 +131,7 @@ impl Scene {
     fn presets(self) -> Vec<Orbit> {
         match self {
             Self::City => city_cams(),
+            Self::Markab => markab_cams(),
             Self::Hangar => {
                 use bc_client_core::bay::{HATCH, SPAWN, SUIT_AT, Spot};
                 let o = crate::hangar::BAY_ORIGIN;
@@ -376,6 +386,7 @@ struct Show {
     preset: u32,
     suits: Vec<Entity>,
     frame: FrameId,
+    clean: bool,
 }
 
 #[derive(Component)]
@@ -391,6 +402,8 @@ pub struct ShowcasePlugin {
     pub hold: u64,
     /// The frame a scene features (the hangar's suit).
     pub frame: FrameId,
+    /// No line of text in the corner (`?clean=1`).
+    pub clean: bool,
 }
 
 impl Plugin for ShowcasePlugin {
@@ -410,6 +423,7 @@ impl Plugin for ShowcasePlugin {
             preset: preset as u32,
             suits: Vec::new(),
             frame: self.frame,
+            clean: self.clean,
         })
         .add_systems(
             Startup,
@@ -428,6 +442,12 @@ impl Plugin for ShowcasePlugin {
             app.add_systems(Startup, city_script)
                 .add_systems(Update, city_crowd.after(script).in_set(crate::view::Vis::Drive));
         }
+        if self.scene == Scene::Markab {
+            app.init_resource::<StuntRun>()
+                .add_systems(Startup, city_script)
+                .add_systems(Update, markab_crowd.after(script).in_set(crate::view::Vis::Drive))
+                .add_systems(Update, place_markab_camera.in_set(crate::view::Vis::Camera));
+        }
         if self.scene == Scene::Chase {
             app.add_systems(
                 Update,
@@ -440,7 +460,7 @@ impl Plugin for ShowcasePlugin {
             );
         } else if self.scene == Scene::City {
             app.add_systems(Update, place_city_camera.in_set(crate::view::Vis::Camera));
-        } else {
+        } else if self.scene != Scene::Markab {
             app.add_systems(Update, place_camera.in_set(crate::view::Vis::Camera));
         }
     }
@@ -502,7 +522,7 @@ fn cast(scene: Scene) -> Vec<(FrameId, Faction)> {
         Scene::Surface => {
             vec![(Argo, Faction::Colonies), (Argo, Faction::Colonies), (Argo, Faction::Alliance)]
         }
-        Scene::City => vec![],
+        Scene::City | Scene::Markab => vec![],
     }
 }
 
@@ -1163,6 +1183,86 @@ fn city_crowd(
     borrowed.0 = script.borrowed;
 }
 
+/// The Markab scene's stunt, run on to the scene's clock.
+#[derive(Resource, Default)]
+struct StuntRun(bc_client_core::showcase_markab::Stunt);
+
+/// A place in the Blast Hall, drawn relative to [`city_origin`]: `u` along its front from the
+/// doors' middle, `v` in from its face, `h` up (`showcase_markab::in_hall`).
+fn hall_at(u: f32, v: f32, h: f32) -> Vec3 {
+    let w = bc_client_core::showcase_markab::in_hall(u, v, h);
+    walker_at(w)
+}
+
+/// A point of the Blast Hall's strip in the walker's frame, drawn relative to [`city_origin`].
+fn walker_at(w: Vec3) -> Vec3 {
+    use bc_sim::colony::frame::CityPos;
+    let strip = bc_sim::colony::hall::hall().strip;
+    (crate::city::colony_point(CityPos::from_walker(strip, w)) - city_origin()).as_vec3()
+}
+
+fn markab_cams() -> Vec<Orbit> {
+    use bc_client_core::showcase_markab::Stunt;
+    let toward = |from: Vec3, to: Vec3| look(from, (to - from).normalize());
+    // Where it rolls, half way through the roll.
+    let mut st = Stunt::new();
+    st.run_to(33.95);
+    let roll = walker_at(st.car.pos);
+    vec![
+        // The chase camera (`place_markab_camera`); this is only where it starts.
+        toward(hall_at(12.0, -32.0, 3.0), hall_at(12.0, 0.0, 1.0)),
+        // In from the blast doors: the floor, the back wall and the ceiling.
+        toward(hall_at(-24.0, 6.0, 3.0), hall_at(12.0, 72.0, 38.0)),
+        // Under the ceiling, up at it hanging there.
+        toward(hall_at(-4.0, 12.0, 1.8), hall_at(12.0, 26.6, 59.5)),
+        // Out on the square: the doors, the leap and the roll.
+        toward(hall_at(-38.0, -62.0, 3.5), roll),
+        // Beside the climb, by the back wall.
+        toward(hall_at(-28.0, 62.0, 22.0), hall_at(12.0, 84.0, 28.0)),
+    ]
+}
+
+/// The Markab scene: its stunt on the scene's clock, its driver in the crowd, and the city's life
+/// on the clock.
+fn markab_crowd(
+    vis: Res<VisTime>,
+    mut stunt: ResMut<StuntRun>,
+    mut crowd: ResMut<crate::people::Crowd>,
+    mut trams: ResMut<crate::trams::TramClock>,
+    mut dev: ResMut<DevStatus>,
+) {
+    use bc_client_core::showcase_markab::DRIVER;
+    stunt.0.run_to(vis.now as f32);
+    let (tick, frac) = bc_client_core::showcase_city::clock(vis.now);
+    *trams = crate::trams::TramClock(tick, frac);
+    let pose = stunt.0.pose();
+    if crowd.0.len() != 1 || crowd.0[0].2 != pose {
+        crowd.0 = vec![(201, DRIVER.to_string(), pose)];
+    }
+    dev.set("markab_act", format!("{:?}", stunt.0.act).to_lowercase());
+    dev.set("markab_h", f64::from(stunt.0.car.pos.y));
+}
+
+/// The Markab scene's camera: behind the car (preset 1), or a preset's, upright to the colony.
+fn place_markab_camera(
+    show: Res<Show>,
+    stunt: Res<StuntRun>,
+    origin: Res<crate::city::RenderOrigin>,
+    mut cam: Query<&mut Transform, With<MainCamera>>,
+) {
+    let Ok(mut tf) = cam.single_mut() else { return };
+    if show.preset == 1 {
+        let m = &stunt.0.car;
+        let (eye, at, up) = stunt.0.chase.view(m);
+        let up = bc_sim::colony::frame::local_frame(m.strip, -m.pos.z) * up;
+        *tf = Transform::from_translation(walker_at(eye)).looking_at(walker_at(at), up);
+        return;
+    }
+    let eye = show.cam.eye();
+    let up = bc_sim::colony::frame::up_at((origin.0 + eye.as_dvec3()).as_vec3());
+    *tf = Transform::from_translation(eye).looking_at(show.cam.target, up);
+}
+
 /// The camera inside: its up is the colony's where it stands (towards the axis), not +Y.
 fn place_city_camera(
     show: Res<Show>,
@@ -1190,6 +1290,12 @@ fn overlay(
     mut text: Query<&mut Text, With<ShowcaseText>>,
 ) {
     if let Ok(mut t) = text.single_mut() {
+        if show.clean {
+            if !t.is_empty() {
+                t.clear();
+            }
+            return;
+        }
         **t = format!(
             "SHOWCASE {}  t {:.1}s  cam {}  {}{}\ndrag orbit | wheel zoom | WASD Space C move | 1-9 cameras | P pause | F10 / O tier",
             show.scene.name(),
@@ -1586,8 +1692,9 @@ fn script(
                 events.0.push(FxEvent::RockBreak { pos: rock.pos, radius: rock.radius, ore });
             }
         }
-        // The bay is driven by `hangar_script`; the city by `city_script`.
-        Scene::Hangar | Scene::City => {}
+        // The bay is driven by `hangar_script`; the city by `city_script`; the Markab by
+        // `markab_crowd`.
+        Scene::Hangar | Scene::City | Scene::Markab => {}
         Scene::Surface => {
             let pose = fornax_at(t);
             let fornax = Body::Landmark(0);
