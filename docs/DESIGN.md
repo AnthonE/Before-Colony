@@ -1274,6 +1274,29 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
   canal; a car tops out at 30 m/s, a scooter at 22. Others see the car (or the scooter, and its
   rider) in its driver's colour.
 
+- **The Markab** is the colony's rocket car (R at any motor pool; `bc_client_core::markab`), a low
+  two-seater with a fan under its floor and ten cold-gas jets. The fan (F, on from the pool) pulls
+  it onto whatever its wheels are on with 2 g at any speed, so a Markab driven at a wall rolls up
+  onto it as into a quarter-pipe and drives on up it, and one that drives into a ceiling (the Blast
+  Hall's, 60 m up) drives on along it upside down, and can stop and hang there: the fan's 2 g up
+  against the colony's 1 down. Over a wall's top or a roof's edge it rolls on round onto the next
+  face if it's going slowly enough for the fan to hold it round (about 5 m/s), and flies off it if
+  not. Fan off, it's a car again: walls stop it, and it falls off any it's on. The jets: Space the
+  four under its floor (a leap off whatever it's on, held a climb at 1.6 g, fading out above the
+  tallest roofs), Shift the four in its tail (2.75 g: 0 to 100 km/h in a second, past what the
+  tyres could do), and in the air the two in its nose turn it (W/S pitch, A/D yaw, Q/E roll; a
+  barrel roll takes 1.3 s). They run on bottles that a compressor tops up while the wheels are
+  down. Coming down on its roof or its side, the jets put it back on its wheels, the worse for it.
+  On the wheels it's 34 m/s flat out, 56 on the tail's jets, 62 at most; its tyres hold what the
+  load lets them (with the fan, 3.6 g of cornering on a floor), and slide past it (X, the handbrake,
+  slides its tail out). Behind it the camera stands upright to the face it's on, so up a wall the
+  wall is the floor; in the air it stays upright to the colony, and a roll doesn't swing it. E gets
+  out on a floor, at a walk. Others see it every way up (its pose carries its roll), its skirt lit
+  while its fan runs and its jets' plumes as they fire; the server asks only that its middle stays
+  out of the walls and that it goes no faster than 81 m/s. `?showcase=markab` is its stunt in the
+  Blast Hall: up the back wall, hanging from the ceiling, back down tail first, and out of the
+  blast doors in a barrel roll (`?clean=1` leaves out the showcase's line of text, for a clip).
+
 - **Suits inside** (`SUITS_INSIDE.md`): at the cockpit, Q launches the suit into the colony by
   the inner gate near the axis instead of out to space. In there it flies the colony's own frame:
   the spin pulls it to the floor (1 g there, less towards the axis) and Coriolis turns it aside,

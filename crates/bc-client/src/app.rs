@@ -78,6 +78,7 @@ pub fn run() {
                 realtime: cfg.showcase_realtime,
                 hz: cfg.showcase_hz,
                 hold: cfg.showcase_hold,
+                clean: cfg.showcase_clean,
                 frame: crate::config::parse_frame(&cfg.frame).unwrap_or(bc_proto::FrameId::Altair),
             },
         ));

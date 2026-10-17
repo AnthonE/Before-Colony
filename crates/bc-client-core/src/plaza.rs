@@ -8,6 +8,8 @@ use std::collections::{HashMap, VecDeque};
 use bc_proto::presence::{PersonPose, PlazaReader};
 use bc_sim::TICK_HZ;
 
+use crate::markab::{attitude, euler};
+
 /// People are drawn this far behind the server's clock, ticks (200 ms): poses come at 15 Hz and
 /// are relayed at 10, so two of them nearly always straddle it.
 pub const DELAY_TICKS: f64 = 6.0;
@@ -43,20 +45,29 @@ fn lerp_angle(a: f32, b: f32, u: f32) -> f32 {
     (a + d * u).rem_euclid(tau)
 }
 
-/// Between two poses, `u` of the way.
+/// Between two poses, `u` of the way (a Markab's attitude the shortest way round between its two,
+/// whatever its heading, pitch and roll make of it).
 pub fn blend(a: &PersonPose, b: &PersonPose, u: f32) -> PersonPose {
     let l = |x: f32, y: f32| x + (y - x) * u;
+    let (yaw, pitch, roll) = if a.markab() && b.markab() {
+        let (qa, qb) = (attitude(a.yaw, a.pitch, a.roll), attitude(b.yaw, b.pitch, b.roll));
+        euler(qa.slerp(qb, u))
+    } else {
+        (lerp_angle(a.yaw, b.yaw, u), l(a.pitch, b.pitch), lerp_angle(a.roll, b.roll, u))
+    };
     PersonPose {
         strip: b.strip,
         x: l(a.x, b.x),
         s: l(a.s, b.s),
         h: l(a.h, b.h),
-        yaw: lerp_angle(a.yaw, b.yaw, u),
-        pitch: l(a.pitch, b.pitch),
+        yaw,
+        pitch,
+        roll,
         speed: l(a.speed, b.speed),
         grounded: if u < 0.5 { a.grounded } else { b.grounded },
         running: if u < 0.5 { a.running } else { b.running },
         ride: b.ride,
+        jets: if u < 0.5 { a.jets } else { b.jets },
     }
 }
 
@@ -216,6 +227,30 @@ mod tests {
             );
         }
         assert_eq!(v.people_at(80.0).iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![1]);
+    }
+
+    #[test]
+    fn a_markab_turns_between_its_poses_the_short_way_round() {
+        use bc_proto::presence::RIDE_MARKAB;
+        let m = |yaw: f32, pitch: f32, roll: f32| PersonPose {
+            yaw,
+            pitch,
+            roll,
+            ride: RIDE_MARKAB,
+            ..at(0.0, 0.0)
+        };
+        // Rolled a little either side of upright: half way it's upright, not upside down.
+        let p = blend(&m(1.0, 0.0, 6.1), &m(1.0, 0.0, 0.3), 0.5);
+        assert!((attitude(p.yaw, p.pitch, p.roll) * glam::Vec3::Y).y > 0.99, "{p:?}");
+        // Nose up a wall, and on over onto the ceiling (heading back, upside down): half way, along
+        // the wall's corner with it, nose straight up still.
+        let wall = attitude(1.0, std::f32::consts::FRAC_PI_2 - 0.2, 0.0);
+        let ceiling = attitude(1.0, std::f32::consts::FRAC_PI_2 + 0.2, 0.0);
+        let (ya, pa, ra) = euler(wall);
+        let (yb, pb, rb) = euler(ceiling);
+        let p = blend(&m(ya, pa, ra), &m(yb, pb, rb), 0.5);
+        let nose = attitude(p.yaw, p.pitch, p.roll) * glam::Vec3::Z;
+        assert!(nose.y > 0.99, "{p:?} {nose:?}");
     }
 
     #[test]

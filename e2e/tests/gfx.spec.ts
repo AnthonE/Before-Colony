@@ -104,13 +104,32 @@ const scenes: Array<[string, number, number, number]> = [
   ["city", 6, 6, 4],
   ["city", 7, 6, 4],
   ["city", 8, 6, 4],
+  // A Markab, the rocket car, in the Blast Hall: rolling up the back wall, behind it and from the
+  // doors; hanging from the ceiling upside down, from under it; coming back down the wall tail
+  // first; out of the blast doors in a barrel roll over Hub Gate's square, from out there and
+  // behind it.
+  ["markab", 1, 5.6, 4],
+  ["markab", 2, 6.5, 4],
+  ["markab", 3, 12, 4],
+  ["markab", 5, 24, 4],
+  ["markab", 4, 33.9, 4],
+  ["markab", 1, 34.1, 4],
 ];
+// What the Markab's driver is doing at each of those moments (`showcase_markab::Act`).
+const markabActs: Record<string, string> = {
+  "5.6": "up",
+  "6.5": "up",
+  "12": "hang",
+  "24": "back",
+  "33.9": "roll",
+  "34.1": "roll",
+};
 
 for (const [scene, cam, t, frames] of scenes) {
   test(`showcase ${scene} cam ${cam} t ${t} (${quality})`, async ({ page }, info) => {
     // The colony's inside is the heaviest scene: its full city shader takes several seconds a frame
     // on SwiftShader, and the screenshot waits for one more.
-    const heavy = scene === "city";
+    const heavy = scene === "city" || scene === "markab";
     test.setTimeout(heavy ? 480_000 : 240_000);
     const logs = collectConsole(page);
     await page.goto(
@@ -142,6 +161,9 @@ for (const [scene, cam, t, frames] of scenes) {
     // unless `life=0` hides them.
     if (scene === "city") {
       console.log(`life: ${status.ambient_people} people, ${status.ambient_cars} cars, ${status.life_ms} ms`);
+    }
+    if (scene === "markab") {
+      expect(status.markab_act).toBe(markabActs[String(t)]);
     }
     if (scene === "city" && cam === 3 && !/(^|&)life=0/.test(extra)) {
       expect(status.ambient_people).toBeGreaterThan(0);

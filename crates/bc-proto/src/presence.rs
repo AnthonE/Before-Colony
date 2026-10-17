@@ -24,12 +24,17 @@ const H_SPAN: f32 = 256.0;
 const H_BITS: u32 = 15;
 const YAW_BITS: u32 = 10;
 const PITCH_BITS: u32 = 8;
+/// A Markab's roll about its length ([`PersonPose::roll`]), [0, τ).
+const ROLL_BITS: u32 = 8;
 /// Speed over the ground: [0, `SPEED_MAX`] m/s.
 const SPEED_MAX: f32 = 12.6;
 const SPEED_BITS: u32 = 6;
 /// What a pilot rides ([`PersonPose::ride`]).
-const RIDE_BITS: u32 = 4;
-const POSE_BITS: u32 = X_BITS + S_BITS + H_BITS + YAW_BITS + PITCH_BITS + SPEED_BITS + 2 + RIDE_BITS;
+const RIDE_BITS: u32 = 5;
+/// A Markab's jets firing ([`PersonPose::jets`]).
+const JET_BITS: u32 = 2;
+const POSE_BITS: u32 =
+    X_BITS + S_BITS + H_BITS + YAW_BITS + PITCH_BITS + ROLL_BITS + SPEED_BITS + 2 + RIDE_BITS + JET_BITS;
 /// Trains on a strip's line (`bc_sim::colony::transit::TRAINS`).
 pub const MAX_TRAINS: u8 = 12;
 /// [`PersonPose::ride`] for a pilot driving a car, and riding a scooter.
@@ -38,6 +43,12 @@ pub const RIDE_SCOOTER: u8 = 14;
 /// [`PersonPose::ride`] for a pilot sitting on a seat (`bc_sim::colony::city::SEATS`): where it
 /// is, and the way it faces.
 pub const RIDE_SEATED: u8 = 15;
+/// [`PersonPose::ride`] for a pilot driving a Markab, the colony's rocket car: where its middle is,
+/// and its heading, pitch and roll its whole attitude.
+pub const RIDE_MARKAB: u8 = 16;
+/// [`PersonPose::jets`]: a Markab's lift jets (under its floor) and its tail's, firing.
+pub const JET_LIFT: u8 = 1;
+pub const JET_BOOST: u8 = 2;
 /// A rider's `s` is from their train's track, offset by this so it stays positive, m.
 pub const RIDER_S: f32 = 2_048.0;
 /// How long before the plaza's tick the server heard a person's pose, in 10 ms steps.
@@ -60,8 +71,10 @@ pub struct PersonPose {
     pub h: f32,
     /// Heading, rad: the walker's yaw (0 faces −s, across the strip; τ/4 faces +x, along it).
     pub yaw: f32,
-    /// Looking up (+) or down, rad.
+    /// Looking up (+) or down, rad (a Markab: its nose).
     pub pitch: f32,
+    /// A Markab's roll about its length, rad (+: its left side up); 0 for anyone else.
+    pub roll: f32,
     /// Over the ground, m/s.
     pub speed: f32,
     pub grounded: bool,
@@ -69,14 +82,22 @@ pub struct PersonPose {
     /// What they ride: 0 nothing (on foot); `k` + 1 train `k` of the strip's line, when a rider's
     /// `x`, `s` and `h` are from the train's middle, from its track's middle (plus [`RIDER_S`])
     /// and from its floor, so they're drawn inside it wherever each screen has it; [`RIDE_CAR`] or
-    /// [`RIDE_SCOOTER`] driving one (where it is, its heading, its speed); [`RIDE_SEATED`] sitting.
+    /// [`RIDE_SCOOTER`] driving one (where it is, its heading, its speed); [`RIDE_SEATED`] sitting;
+    /// [`RIDE_MARKAB`] driving a Markab, GROUNDED its wheels down and RUNNING its fan on.
     pub ride: u8,
+    /// A Markab's jets firing: [`JET_LIFT`], [`JET_BOOST`].
+    pub jets: u8,
 }
 
 impl PersonPose {
-    /// Driving a car or riding a scooter.
+    /// Driving a car or a Markab, or riding a scooter.
     pub fn driving(&self) -> bool {
-        matches!(self.ride, RIDE_CAR | RIDE_SCOOTER)
+        matches!(self.ride, RIDE_CAR | RIDE_SCOOTER | RIDE_MARKAB)
+    }
+
+    /// Driving a Markab.
+    pub fn markab(&self) -> bool {
+        self.ride == RIDE_MARKAB
     }
 
     /// Sitting on a seat.
@@ -126,10 +147,13 @@ impl PersonPose {
         let yaw = (wrap(self.yaw) / TAU * (1u32 << YAW_BITS) as f32 + 0.5) as u32;
         w.write_bits(yaw & ((1 << YAW_BITS) - 1), YAW_BITS);
         w.write_bits(unit(self.pitch, -HALF_PI, 2.0 * HALF_PI, PITCH_BITS), PITCH_BITS);
+        let roll = (wrap(self.roll) / TAU * (1u32 << ROLL_BITS) as f32 + 0.5) as u32;
+        w.write_bits(roll & ((1 << ROLL_BITS) - 1), ROLL_BITS);
         w.write_bits(unit(self.speed, 0.0, SPEED_MAX, SPEED_BITS), SPEED_BITS);
         w.write_bool(self.grounded);
         w.write_bool(self.running);
         w.write_bits(u32::from(self.ride.min((1 << RIDE_BITS) - 1)), RIDE_BITS);
+        w.write_bits(u32::from(self.jets & ((1 << JET_BITS) - 1)), JET_BITS);
     }
 
     fn read_body(r: &mut BitReader<'_>, strip: u8) -> Self {
@@ -140,10 +164,12 @@ impl PersonPose {
             h: ununit(r.read_bits(H_BITS), H_MIN, H_SPAN, H_BITS),
             yaw: ununit(r.read_bits(YAW_BITS), 0.0, TAU, YAW_BITS),
             pitch: ununit(r.read_bits(PITCH_BITS), -HALF_PI, 2.0 * HALF_PI, PITCH_BITS),
+            roll: ununit(r.read_bits(ROLL_BITS), 0.0, TAU, ROLL_BITS),
             speed: ununit(r.read_bits(SPEED_BITS), 0.0, SPEED_MAX, SPEED_BITS),
             grounded: r.read_bool(),
             running: r.read_bool(),
             ride: r.read_bits(RIDE_BITS) as u8,
+            jets: r.read_bits(JET_BITS) as u8,
         }
     }
 }
@@ -282,10 +308,12 @@ mod tests {
             h: -2.0 + (f * 4.7) % 200.0,
             yaw: (f * 0.73) % TAU,
             pitch: -1.2 + (f * 0.05) % 2.4,
+            roll: (f * 1.37) % TAU,
             speed: (f * 0.37) % 12.0,
             grounded: i.is_multiple_of(2),
             running: i.is_multiple_of(3),
-            ride: (i % 16) as u8,
+            ride: (i % 17) as u8,
+            jets: (i % 4) as u8,
         }
     }
 
@@ -297,8 +325,10 @@ mod tests {
         let dy = wrap(a.yaw - b.yaw);
         assert!(dy.min(TAU - dy) <= dyaw * 0.5 + 1e-4, "yaw {} {}", a.yaw, b.yaw);
         assert!((a.pitch - b.pitch).abs() < 0.007);
+        let dr = wrap(a.roll - b.roll);
+        assert!(dr.min(TAU - dr) <= TAU / 512.0 + 1e-4, "roll {} {}", a.roll, b.roll);
         assert!((a.speed - b.speed).abs() < 0.11);
-        assert_eq!((a.grounded, a.running, a.ride), (b.grounded, b.running, b.ride));
+        assert_eq!((a.grounded, a.running, a.ride, a.jets), (b.grounded, b.running, b.ride, b.jets));
     }
 
     #[test]
@@ -307,7 +337,7 @@ mod tests {
         for i in 0..50 {
             let p = PosePacket { seq: i as u16 * 977, pose: pose(i) };
             let n = p.encode(&mut buf).unwrap();
-            assert_eq!(n, 14, "a pose is 14 bytes");
+            assert_eq!(n, 15, "a pose is 15 bytes");
             let q = PosePacket::decode(&buf[..n]).unwrap();
             assert_eq!((q.seq, q.pose.strip), (p.seq, p.pose.strip));
             close(&q.pose, &p.pose);

@@ -191,10 +191,12 @@ impl Vehicle {
             h: self.ground(),
             yaw: self.yaw,
             pitch,
+            roll: 0.0,
             speed: self.speed.abs(),
             grounded: true,
             running: false,
             ride: if self.kind == Kind::Car { RIDE_CAR } else { RIDE_SCOOTER },
+            jets: 0,
         }
     }
 

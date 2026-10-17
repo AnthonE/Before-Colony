@@ -282,7 +282,7 @@
     if (s === "playing" && v.map && v.panel === "none") drawMap(v.map, v.mapGoal, v.mapFound || 0);
     show($("prompt"), s === "playing" && v.clickToFly && !v.help && !v.sequence);
     // On foot in the bay or the city a click walks (at the wheel, drives); else it flies.
-    const verb = v.driving === "car" ? "DRIVE" : v.driving ? "RIDE" : afoot ? "WALK" : "FLY";
+    const verb = v.driving === "car" || v.driving === "markab" ? "DRIVE" : v.driving ? "RIDE" : afoot ? "WALK" : "FLY";
     $("prompt-main").textContent = v.refused ? `CLICK AGAIN TO ${verb}` : `CLICK TO ${verb}`;
 
     // Survival rules, indoors (the bay, the city): the bay's line. On foot, a dot to aim by (E uses

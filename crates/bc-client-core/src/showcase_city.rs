@@ -86,10 +86,12 @@ pub fn crowd(t: f64) -> Script {
             h: w.h,
             yaw: w.yaw,
             pitch: 0.0,
+            roll: 0.0,
             speed: w.speed,
             grounded: true,
             running: false,
             ride: 0,
+            jets: 0,
         };
         script.people.push((k as u16, NAMES[k].to_string(), pose));
         script.borrowed.push(w.id);
@@ -111,10 +113,12 @@ pub fn crowd(t: f64) -> Script {
             h: 0.0,
             yaw: if dir > 0.0 { std::f32::consts::FRAC_PI_2 } else { -std::f32::consts::FRAC_PI_2 },
             pitch: 0.0,
+            roll: 0.0,
             speed,
             grounded: true,
             running: false,
             ride,
+            jets: 0,
         };
         script.people.push((100 + k as u16, name.to_string(), pose));
     }

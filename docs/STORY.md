@@ -178,7 +178,9 @@ colony that its pilots build and run:
   **Altair** (PX-00, which folds into the **Aquila**), the **Antares** (PX-01), the **Algol**
   (PX-02), the **Canopus** (PX-03) and the **Thuban** (PX-04). Their armour is **siderium**, which
   only the colony's zero-G foundry makes; the combat AI in one Lodestar's torso is **the
-  Orrery**; the resource satellite at the dock is **Fornax**.
+  Orrery**; the resource satellite at the dock is **Fornax**. The colony's rocket car, from its
+  motor pools, is the **Markab**: α Pegasi, the saddle of the winged horse (its test driver in
+  the showcase is Bellerophon, who rode it).
 - **Each name fits what the thing does:** Algol, the star that dims, carries the
   **Eclipse** (a jammer); Thuban is the dragon's star and strikes with the **Talon**; Antares opens
   up in a **Full Salvo**; Canopus closes the **Pincer Strike**; the Altair is the eagle's star.

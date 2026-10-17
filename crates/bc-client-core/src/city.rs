@@ -44,10 +44,12 @@ pub fn pose_of(strip: u8, w: &Walker) -> PersonPose {
         h: at.h,
         yaw: w.yaw,
         pitch: w.pitch,
+        roll: 0.0,
         speed: flat,
         grounded: w.grounded,
         running: flat > 5.0,
         ride: 0,
+        jets: 0,
     }
 }
 

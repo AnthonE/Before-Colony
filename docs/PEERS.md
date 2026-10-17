@@ -429,6 +429,37 @@ text [P24].
   condition and its salvage. Its token and its pay for posting on X are monetisation of the kind
   that sank Mecha BREAK's reviews; ours is credits earned in the game (P1 7).
 
+## Cars that drive on walls
+
+Not a peer of the whole game but of one thing in it, the Markab (`DESIGN.md`, "The Markab"): the
+colony's rocket car, which the owner asked for the day after a car maker's stunt (October 2026).
+
+- **The rocket car's demonstration (15 October 2026).** At a rocket test site in Texas a driverless
+  prototype drove up a curved ramp onto a sideways half-pipe and on round it upside down, held
+  there by a fan under its floor (up to 2 g of suction, by its maker's vice-president of vehicle
+  engineering); it backed down, ran back up, and left the ramp into a mid-air barrel roll, its
+  cold-gas thrusters (developed with a rocket maker) righting it to land on its wheels, and it leapt
+  clear over a row of its maker's vehicles. Ten thrusters in its top trim, by one report: at least
+  four under it, two in the nose that righted it, and the rest in its tail for 0 to 60 mph in under
+  a second; production is said to be 2028 [P25].
+  - **Ours:** all of it is the Markab's: the fan's 2 g, ten jets in those three places, a leap,
+    the nose jets turning it in the air, the tail's to 100 km/h in a second. Its first run is
+    `?showcase=markab`, in the Blast Hall: up the back wall, hanging from the ceiling, back down,
+    and out of the blast doors in a barrel roll.
+- **The McMurtry Spéirling (2025).** A fan car that drove upside down: driven onto a rig that turned
+  it over, it drove a short way inverted on its fans' downforce, which it makes at any speed
+  (some 2,000 kg, more than it weighs), after the Chaparral 2J's fan of the 1970s [P26].
+  - **Ours:** the load is the fan's at any speed, not the air's by the square of it, so a Markab
+    can stop on a ceiling and hang there.
+- **Rocket League.** Its cars drive the arena's curved walls and ceiling, boost, jump and fly, and
+  turn and roll in the air [D1 in `CONTROLS.md`].
+  - **Ours:** its keys where ours agree (`CONTROLS.md`, "The Markab"), its car camera turning
+    with the wall. Its walls are curved; the city's are square, so the car rolls itself round
+    every corner as round a quarter-pipe 3 m across (`markab::FILLET`), and over an edge only as
+    slowly as the fan could hold it round, which is what makes a roof's edge a ramp.
+- **What we leave.** The ball and the match. And collisions: like every car in the city it meets
+  no other car and no person (`COLONY.md`, phase 5).
+
 ## The lesson under all of them
 
 Nobody has built the whole thing because it is a city sim, a flight sim and a mech combat game at
@@ -625,3 +656,8 @@ checked against:
 - **[P24] Mecha Royale.** Its page (indie.fun/play/mecha-royale), its build's page and its
   comments, its game bundle and its English text catalogue, as served to a browser (12 October
   2026). Numbers are from the bundle's weapon tables.
+- **[P25] The rocket car's demonstration.** Ynetnews, Benzinga and Yahoo Finance (16 October 2026,
+  the stunt and its numbers); Autoblog via Yahoo Autos, "The New Tesla Roadster Just Did A Mid-Air
+  Barrel Roll" (the half-pipe, backing down, the thrusters by place and the trims).
+- **[P26] The McMurtry Spéirling.** Top Gear, The Engineer and Motoring Research on its run upside
+  down.

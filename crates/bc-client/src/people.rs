@@ -1,13 +1,17 @@
 //! The other pilots in the colony's city, drawn: a figure in a flight suit of each pilot's own
 //! colour (`bc_client_core::figure`, `plaza::suit_colour`), striding as fast as they move, and
-//! their name over them when they're near. Who's where is the [`Crowd`]: the plaza's people in game
-//! mode (`fill_crowd`), or a showcase's.
+//! their name over them when they're near; driving, their car, scooter or Markab in their colour
+//! (a Markab turned whichever way its pose has it, its fan's skirt lit while the fan runs, and its
+//! jets' plumes as they fire). Who's where is the [`Crowd`]: the plaza's people in game mode
+//! (`fill_crowd`), or a showcase's.
 
 use std::collections::HashMap;
 
 use bc_client_core::figure::{self, Paint, Piece};
+use bc_client_core::markab::attitude;
+use bc_client_core::markab_mesh::{self, Paint as Coat};
 use bc_client_core::plaza::suit_colour;
-use bc_proto::presence::{PersonPose, RIDE_CAR, RIDE_SCOOTER};
+use bc_proto::presence::{JET_BOOST, JET_LIFT, PersonPose, RIDE_CAR, RIDE_SCOOTER};
 use bc_sim::colony::frame::{CityPos, local_frame};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
@@ -49,6 +53,43 @@ struct PeopleScene {
     scooter: [Handle<Mesh>; 3],
     glass: Handle<StandardMaterial>,
     tyre: Handle<StandardMaterial>,
+    /// A Markab's parts (its body takes its driver's paint), and its jets' plume.
+    markab: Vec<(Coat, Handle<Mesh>, Option<Handle<StandardMaterial>>)>,
+    plume: (Handle<Mesh>, Handle<StandardMaterial>),
+}
+
+/// A Markab's parts but its body, which is its driver's colour: the materials, by part.
+fn markab_coat(
+    coat: Coat,
+    materials: &mut Assets<StandardMaterial>,
+    glass: &Handle<StandardMaterial>,
+    tyre: &Handle<StandardMaterial>,
+) -> Option<Handle<StandardMaterial>> {
+    let lit = |materials: &mut Assets<StandardMaterial>, base: Color| {
+        materials.add(StandardMaterial { base_color: base, unlit: true, ..default() })
+    };
+    match coat {
+        Coat::Body => None,
+        Coat::Glass => Some(glass.clone()),
+        Coat::Tyre => Some(tyre.clone()),
+        Coat::Trim => Some(materials.add(StandardMaterial {
+            base_color: Color::srgb(0.05, 0.055, 0.06),
+            perceptual_roughness: 0.35,
+            metallic: 0.5,
+            ..default()
+        })),
+        Coat::Skirt => Some(lit(materials, Color::srgb(0.45, 0.95, 1.0))),
+        Coat::Lamp => Some(lit(materials, Color::srgb(1.0, 0.97, 0.9))),
+        Coat::Tail => Some(lit(materials, Color::srgb(1.0, 0.12, 0.08))),
+    }
+}
+
+/// A shape of `bc_client_core::markab_mesh` as a mesh.
+fn shape_mesh(s: &markab_mesh::Shape) -> Mesh {
+    Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, s.positions.clone())
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, s.normals.clone())
+        .with_inserted_indices(Indices::U32(s.indices.clone()))
 }
 
 /// The Arrival's benches by its door (`bc_sim::colony::city::arrival_seats`), two seats each: a
@@ -147,6 +188,10 @@ struct Figure {
     tag: Entity,
     car: Entity,
     scooter: Entity,
+    /// A Markab, its fan's skirt light, and its jets' plumes (the lift's four, then the tail's).
+    markab: Entity,
+    skirt: Vec<Entity>,
+    plumes: [Entity; 8],
 }
 
 fn setup_people(
@@ -210,7 +255,35 @@ fn setup_people(
     });
     let car = car_meshes().map(|m| meshes.add(m));
     let scooter = scooter_meshes().map(|m| meshes.add(m));
-    commands.insert_resource(PeopleScene { meshes: out, trim, visor, car, scooter, glass, tyre });
+    let markab = markab_mesh::shapes()
+        .iter()
+        .map(|(coat, shape)| {
+            (*coat, meshes.add(shape_mesh(shape)), markab_coat(*coat, &mut materials, &glass, &tyre))
+        })
+        .collect();
+    // Cold gas: a cone of frost, seen through.
+    let plume = (
+        meshes.add(shape_mesh(&markab_mesh::plume(1.6))),
+        materials.add(StandardMaterial {
+            base_color: Color::srgba(0.8, 0.9, 1.0, 0.35),
+            unlit: true,
+            alpha_mode: AlphaMode::Add,
+            cull_mode: None,
+            double_sided: true,
+            ..default()
+        }),
+    );
+    commands.insert_resource(PeopleScene {
+        meshes: out,
+        trim,
+        visor,
+        car,
+        scooter,
+        glass,
+        tyre,
+        markab,
+        plume,
+    });
 }
 
 /// Builds a figure for `id`, named `name`.
@@ -283,6 +356,38 @@ fn spawn_figure(
     };
     let car = vehicle(&scene.car);
     let scooter = vehicle(&scene.scooter);
+    let markab =
+        commands.spawn((Transform::default(), Visibility::Hidden, layer.clone(), ChildOf(root))).id();
+    let mut skirt = Vec::new();
+    for (coat, mesh, material) in &scene.markab {
+        let e = commands
+            .spawn((
+                Mesh3d(mesh.clone()),
+                MeshMaterial3d(material.clone().unwrap_or_else(|| paint.clone())),
+                Transform::default(),
+                Visibility::Inherited,
+                layer.clone(),
+                ChildOf(markab),
+            ))
+            .id();
+        if *coat == Coat::Skirt {
+            skirt.push(e);
+        }
+    }
+    let jets = markab_mesh::jets();
+    let plumes = std::array::from_fn(|k| {
+        let (at, dir) = jets[k];
+        commands
+            .spawn((
+                Mesh3d(scene.plume.0.clone()),
+                MeshMaterial3d(scene.plume.1.clone()),
+                Transform::from_translation(at).with_rotation(Quat::from_rotation_arc(Vec3::Z, dir)),
+                Visibility::Hidden,
+                layer.clone(),
+                ChildOf(markab),
+            ))
+            .id()
+    });
     let tag = commands
         .spawn((
             Text::new(name.to_string()),
@@ -302,6 +407,9 @@ fn spawn_figure(
         tag,
         car,
         scooter,
+        markab,
+        skirt,
+        plumes,
     });
     root
 }
@@ -310,6 +418,7 @@ fn spawn_figure(
 #[allow(clippy::too_many_arguments)]
 fn draw_people(
     mut commands: Commands,
+    vis: Res<crate::view::VisTime>,
     crowd: Res<Crowd>,
     view: Res<CityView>,
     scene: Option<Res<PeopleScene>>,
@@ -334,16 +443,23 @@ fn draw_people(
         have.push(f.id);
         let at = CityPos::new(pose.strip, pose.x, pose.s, pose.h);
         placed.0 = colony_point(at);
-        tf.rotation = local_frame(pose.strip, pose.s) * Quat::from_rotation_y(pose.yaw);
+        // A Markab turns every way: its pose is its middle, and its whole attitude.
+        let turned = if pose.markab() {
+            attitude(pose.yaw, pose.pitch, pose.roll)
+        } else {
+            Quat::from_rotation_y(pose.yaw)
+        };
+        tf.rotation = local_frame(pose.strip, pose.s) * turned;
         // Stride by how far they went.
         if let Some((x, s, _)) = f.last {
             let d = (pose.x - x).hypot(pose.s - s).min(2.0);
             f.phase = (f.phase + figure::stride_phase(d, pose.running)) % std::f32::consts::TAU;
         }
         f.last = Some((pose.x, pose.s, pose.h));
-        // Driving: in a car, out of sight in it; on a scooter, standing on its deck, still. Seated,
-        // sitting.
-        let (in_car, on_scooter, seated) = (pose.ride == RIDE_CAR, pose.ride == RIDE_SCOOTER, pose.seated());
+        // Driving: in a car or a Markab, out of sight in it; on a scooter, standing on its deck,
+        // still. Seated, sitting.
+        let (in_markab, on_scooter, seated) = (pose.markab(), pose.ride == RIDE_SCOOTER, pose.seated());
+        let in_car = pose.ride == RIDE_CAR || in_markab;
         let still = in_car || on_scooter;
         let turns = if seated {
             figure::seated(pose.pitch)
@@ -369,18 +485,38 @@ fn draw_people(
                 *vis = want;
             }
         }
-        for (e, on) in [(f.car, in_car), (f.scooter, on_scooter)] {
-            if let Ok((_, mut vis)) = joints.get_mut(e) {
-                let want = if on { Visibility::Inherited } else { Visibility::Hidden };
-                if *vis != want {
-                    *vis = want;
-                }
+        show(&mut joints, f.car, pose.ride == RIDE_CAR);
+        show(&mut joints, f.scooter, on_scooter);
+        show(&mut joints, f.markab, in_markab);
+        for e in &f.skirt {
+            show(&mut joints, *e, in_markab && pose.running);
+        }
+        // The jets' plumes, flickering as the gas comes.
+        let t = vis.now as f32;
+        for (k, e) in f.plumes.iter().enumerate() {
+            let jet = if k < 4 { JET_LIFT } else { JET_BOOST };
+            let on = in_markab && pose.jets & jet != 0;
+            show(&mut joints, *e, on);
+            if on && let Ok((mut tf, _)) = joints.get_mut(*e) {
+                let flicker =
+                    0.85 + 0.15 * (t * 37.0 + k as f32 * 1.7).sin() + 0.1 * (t * 23.0 + k as f32).sin();
+                tf.scale = Vec3::new(1.0, 1.0, flicker);
             }
         }
     }
     for (id, (name, _)) in &want {
         if !have.contains(id) {
             spawn_figure(&mut commands, &scene, &mut materials, &font, *id, name);
+        }
+    }
+}
+
+/// Shows or hides a part of a figure (or of what they drive).
+fn show(parts: &mut Query<(&mut Transform, &mut Visibility), Without<Figure>>, e: Entity, on: bool) {
+    if let Ok((_, mut vis)) = parts.get_mut(e) {
+        let want = if on { Visibility::Inherited } else { Visibility::Hidden };
+        if *vis != want {
+            *vis = want;
         }
     }
 }
