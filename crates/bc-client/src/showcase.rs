@@ -1213,12 +1213,12 @@ fn markab_cams() -> Vec<Orbit> {
         toward(hall_at(12.0, -32.0, 3.0), hall_at(12.0, 0.0, 1.0)),
         // In from the blast doors: the floor, the back wall and the ceiling.
         toward(hall_at(-24.0, 6.0, 3.0), hall_at(12.0, 72.0, 38.0)),
-        // Under the ceiling, up at it hanging there.
-        toward(hall_at(-4.0, 12.0, 1.8), hall_at(12.0, 26.6, 59.5)),
+        // Up under the ceiling, at it hanging there.
+        toward(hall_at(1.0, 14.0, 48.0), hall_at(12.0, 26.6, 59.5)),
         // Out on the square: the doors, the leap and the roll.
         toward(hall_at(-38.0, -62.0, 3.5), roll),
         // Beside the climb, by the back wall.
-        toward(hall_at(-28.0, 62.0, 22.0), hall_at(12.0, 84.0, 28.0)),
+        toward(hall_at(-8.0, 66.0, 16.0), hall_at(12.0, 85.0, 30.0)),
     ]
 }
 

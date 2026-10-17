@@ -402,10 +402,15 @@ test("a pilot takes a Markab from Hub Gate's motor pool, backs it up the termina
   s = await until(page, "held on the wall", (s) => s.markab === "wall" && s.drive_speed < 0.5, 30_000);
   await expect(page.locator("#use")).toContainText("ON THE WALL", { timeout: 30_000 });
 
-  // The fan off: nothing holds it, it falls, and comes down on its wheels.
+  // The fan off: nothing holds it, it falls, and comes down on its wheels (a fall of a second or
+  // so, which a slow page may draw in one frame: what's watched for is where it ends).
   await page.keyboard.press("f");
-  await until(page, "falling", (s) => s.markab === "air" && !s.markab_fan, 30_000);
-  s = await until(page, "down", (s) => s.markab === "floor" && s.drive_speed < 1, 60_000);
+  s = await until(
+    page,
+    "fallen",
+    (s) => !s.markab_fan && s.markab === "floor" && s.markab_h < 1 && s.drive_speed < 1,
+    60_000,
+  );
 
   // The fan on again, and a leap on the lift jets.
   await page.keyboard.press("f");
