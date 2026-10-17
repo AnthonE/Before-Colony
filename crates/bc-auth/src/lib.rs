@@ -17,8 +17,13 @@ use tiny_keccak::{Hasher, Keccak};
 
 /// The longest message [`siwe_message`] writes.
 pub const SIWE_MAX: usize = 512;
-/// The chain named in the message (Ethereum mainnet: signing moves nothing on it).
-pub const CHAIN_ID: u64 = 1;
+/// The chain named in the message: Robinhood Chain, where Elo Pros (the store that lists the game)
+/// lives. Signing moves nothing on it.
+pub const CHAIN_ID: u64 = 4663;
+/// The game's name on Elo Pros, as the message names it.
+pub const GAME: &str = "before-colony";
+/// The chain the first sign-in text named (Ethereum mainnet), still verified ([`legacy_message`]).
+const LEGACY_CHAIN_ID: u64 = 1;
 
 /// keccak-256.
 pub fn keccak256(data: &[u8]) -> [u8; 32] {
@@ -191,9 +196,44 @@ fn loopback(domain: &str) -> bool {
 /// `domain` is the host (and port) the page was served from: wallets compare it with the page's
 /// and warn about a mismatch, and it's what stops a signature collected by one server being used
 /// at another.
+///
+/// It is the Elo Pros launcher's `prove` text byte for byte (`elo-broker`'s `prove_message`, and
+/// Gates' `siwe_message`), for [`GAME`] on [`CHAIN_ID`]: one sign-in, whichever door signs it.
 pub fn siwe_message(
     domain: &str,
     address: &Address,
+    nonce: &[u8; NONCE_BYTES],
+    issued_at: u64,
+    out: &mut [u8; SIWE_MAX],
+) -> usize {
+    write_message(domain, address, STATEMENT.as_bytes(), CHAIN_ID, nonce, issued_at, out)
+}
+
+/// The launcher's one human sentence (`elo-broker`'s `statement`), for [`GAME`].
+const STATEMENT: &str =
+    "Prove your identity to play before-colony. This signature authorises nothing and moves no funds.";
+
+/// The text pilots signed before [`siwe_message`] took the launcher's, on Ethereum mainnet. The
+/// server still verifies it, so a page and a server deployed apart both sign in; it goes once
+/// both are live.
+pub fn legacy_message(
+    domain: &str,
+    address: &Address,
+    nonce: &[u8; NONCE_BYTES],
+    issued_at: u64,
+    out: &mut [u8; SIWE_MAX],
+) -> usize {
+    let statement =
+        b"Sign in to Before Colony. This proves you own this address; it authorizes nothing and moves no funds.";
+    write_message(domain, address, statement, LEGACY_CHAIN_ID, nonce, issued_at, out)
+}
+
+/// EIP-4361's shape around one `statement` line.
+fn write_message(
+    domain: &str,
+    address: &Address,
+    statement: &[u8],
+    chain: u64,
     nonce: &[u8; NONCE_BYTES],
     issued_at: u64,
     out: &mut [u8; SIWE_MAX],
@@ -203,11 +243,13 @@ pub fn siwe_message(
     w.s(domain);
     w.s(" wants you to sign in with your Ethereum account:\n");
     w.bytes(&checksummed);
-    w.s("\n\nSign in to Before Colony. This proves you own this address; it authorizes nothing and moves no funds.\n\nURI: ");
+    w.s("\n\n");
+    w.bytes(statement);
+    w.s("\n\nURI: ");
     w.s(if loopback(domain) { "http://" } else { "https://" });
     w.s(domain);
     w.s("\nVersion: 1\nChain ID: ");
-    w.num(CHAIN_ID);
+    w.num(chain);
     w.s("\nNonce: ");
     w.hex(nonce);
     w.s("\nIssued At: ");
@@ -227,7 +269,8 @@ pub enum AuthError {
 }
 
 /// Checks that `signature` is `address` signing in to `domain` with this nonce and time. The
-/// message is rebuilt here, never taken from the client.
+/// message is rebuilt here, never taken from the client: [`siwe_message`]'s, or else
+/// [`legacy_message`]'s.
 #[cfg(feature = "verify")]
 pub fn verify(
     domain: &str,
@@ -236,11 +279,22 @@ pub fn verify(
     address: &Address,
     signature: &Signature,
 ) -> Result<(), AuthError> {
-    use k256::ecdsa::{RecoveryId, Signature as EcdsaSig, VerifyingKey};
-
     let mut text = [0u8; SIWE_MAX];
     let len = siwe_message(domain, address, nonce, issued_at, &mut text);
-    let digest = personal_sign_digest(&text[..len]);
+    let now = verify_text(&text[..len], address, signature);
+    if now != Err(AuthError::WrongSigner) {
+        return now;
+    }
+    let len = legacy_message(domain, address, nonce, issued_at, &mut text);
+    verify_text(&text[..len], address, signature)
+}
+
+/// Whether `signature` is `address`'s `personal_sign` over `text`.
+#[cfg(feature = "verify")]
+fn verify_text(text: &[u8], address: &Address, signature: &Signature) -> Result<(), AuthError> {
+    use k256::ecdsa::{RecoveryId, Signature as EcdsaSig, VerifyingKey};
+
+    let digest = personal_sign_digest(text);
     let raw = &signature.0;
     let rec = match raw[64] {
         27 | 0 => 0u8,
@@ -344,10 +398,10 @@ mod tests {
         let text = core::str::from_utf8(&out[..n]).unwrap();
         let expected = "127.0.0.1:8080 wants you to sign in with your Ethereum account:\n\
 0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf\n\n\
-Sign in to Before Colony. This proves you own this address; it authorizes nothing and moves no funds.\n\n\
+Prove your identity to play before-colony. This signature authorises nothing and moves no funds.\n\n\
 URI: http://127.0.0.1:8080\n\
 Version: 1\n\
-Chain ID: 1\n\
+Chain ID: 4663\n\
 Nonce: 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f\n\
 Issued At: 2026-09-21T14:13:20Z";
         assert_eq!(text, expected);
@@ -355,6 +409,31 @@ Issued At: 2026-09-21T14:13:20Z";
         let text = core::str::from_utf8(&out[..n]).unwrap();
         assert!(text.contains("URI: https://play.example.com\n"));
         assert!(text.ends_with("Issued At: 1970-01-01T00:00:00Z"));
+    }
+
+    /// Gates' golden for its own sign-in (`crates/protocol/src/auth.rs` there), which is the
+    /// launcher's `prove` text, with the game's name swapped: the store signs both the same way.
+    #[test]
+    fn the_message_is_the_launchers_prove_text() {
+        assert_eq!(
+            STATEMENT
+                .strip_prefix("Prove your identity to play ")
+                .and_then(|r| r.strip_suffix(". This signature authorises nothing and moves no funds.")),
+            Some(GAME)
+        );
+        let a = parse_address(KEY1_ADDRESS).unwrap();
+        let nonce = core::array::from_fn(|i| i as u8);
+        let mut out = [0u8; SIWE_MAX];
+        let n = siwe_message("gates.example", &a, &nonce, 1_770_000_000, &mut out);
+        let expected = "gates.example wants you to sign in with your Ethereum account:\n\
+0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf\n\n\
+Prove your identity to play before-colony. This signature authorises nothing and moves no funds.\n\n\
+URI: https://gates.example\n\
+Version: 1\n\
+Chain ID: 4663\n\
+Nonce: 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f\n\
+Issued At: 2026-02-02T02:40:00Z";
+        assert_eq!(core::str::from_utf8(&out[..n]).unwrap(), expected);
     }
 
     #[test]
@@ -414,6 +493,21 @@ Issued At: 2026-09-21T14:13:20Z";
             assert_eq!(
                 verify("127.0.0.1:8080", &nonce, 1_790_000_000, &w.address(), &bad),
                 Err(AuthError::BadRecoveryId)
+            );
+        }
+
+        #[test]
+        fn the_first_text_still_signs_in() {
+            let w = wallet(1);
+            let nonce = [7u8; NONCE_BYTES];
+            let mut text = [0u8; SIWE_MAX];
+            let n = legacy_message("game.elopros.com", &w.address(), &nonce, 1_790_000_000, &mut text);
+            assert!(core::str::from_utf8(&text[..n]).unwrap().contains("\nChain ID: 1\n"));
+            let sig = w.sign(&text[..n]);
+            assert_eq!(verify("game.elopros.com", &nonce, 1_790_000_000, &w.address(), &sig), Ok(()));
+            assert_eq!(
+                verify("game.elopros.com", &nonce, 1_790_000_000, &wallet(2).address(), &sig),
+                Err(AuthError::WrongSigner)
             );
         }
 

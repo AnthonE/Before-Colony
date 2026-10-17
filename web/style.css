@@ -154,6 +154,13 @@ button:disabled { opacity: 0.4; cursor: default; }
 .note.error { color: var(--red); opacity: 0.95; }
 .wallet-row { margin-top: 0; }
 .wallet-row .note { flex: 1 1 220px; line-height: 1.4; }
+#wallet-pick { max-width: 340px; padding: 18px 20px; }
+#wallet-pick::backdrop { background: rgba(0, 0, 0, 0.55); }
+#wallet-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+#wallet-list button { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; }
+#wallet-list img, #wallet-list .ph { width: 24px; height: 24px; flex: none; }
+#wallet-list .ph { background: var(--edge); }
+#wallet-list small { display: block; font-size: 11px; letter-spacing: 0.05em; opacity: 0.6; }
 .frames { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
 .frame {
   text-align: left;
