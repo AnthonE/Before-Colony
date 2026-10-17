@@ -594,7 +594,7 @@ impl Hangar {
         Ok(loadout)
     }
 
-    /// The Charter Board paid `cr` for the sortie, as `what` (`PATROL #3`, `ACE ARIES`): a line on
+    /// The Charter Board paid `cr` for the sortie, as `what` (`PATROL #3`, `ACE LYRA`): a line on
     /// its payout sheet.
     pub fn board_paid(&mut self, what: String, cr: u64) {
         if cr > 0 {

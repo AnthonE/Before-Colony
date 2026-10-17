@@ -87,7 +87,7 @@ fn every_blade_strikes_within_its_reach() {
     }
     assert_eq!(
         n, 9,
-        "the saber three times (the Corona's out of its crash shield), the knife, scythe, blades, Pincer Strike, fang and glaive"
+        "the saber three times (the Corona's out of its disc shield), the knife, scythe, blades, Pincer Strike, fang and glaive"
     );
     // Reach is the table's: Algol's scythe takes an Argo that an Argo's saber can't.
     assert_eq!(strike_hits(FrameId::Argo, MELEE, WeaponKind::BeamSaber, 20.0), 0);

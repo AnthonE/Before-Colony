@@ -10,6 +10,10 @@
 /// starts in it once.
 pub const SETTINGS_VERSION: u32 = 2;
 
+/// `drones_downed`'s key in settings saved before 2026-10-14: it reads pre-rename saves, and is
+/// never written.
+const OLD_DRONES_DOWNED: &str = "dolls_downed";
+
 /// The graphics tier to use: `Auto` lets the page pick from the GPU it finds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GfxChoice {
@@ -341,9 +345,10 @@ impl Settings {
                 let Some(c) = FlightControls::parse(value) else { return false };
                 self.flight_controls = c;
             }
-            // `dolls_downed` is what settings saved before 2026-10-14 call `drones_downed`.
-            "hints_seen" | "objectives_done" | "drones_downed" | "dolls_downed" | "sights_found"
-            | "course_best_ms" | "drill_best_ms" => {
+            // `OLD_DRONES_DOWNED` is what settings saved before 2026-10-14 call `drones_downed`.
+            k if k == OLD_DRONES_DOWNED => return self.set("drones_downed", value),
+            "hints_seen" | "objectives_done" | "drones_downed" | "sights_found" | "course_best_ms"
+            | "drill_best_ms" => {
                 let Ok(n) = value.trim().parse() else { return false };
                 match key {
                     "hints_seen" => self.hints_seen = n,
@@ -421,7 +426,7 @@ pub fn parse(text: &str, defaults: Settings) -> Loaded {
             if let Ok(v) = value.parse() {
                 version = v;
             }
-        } else if Settings::KEYS.contains(&key) || key == "dolls_downed" {
+        } else if Settings::KEYS.contains(&key) || key == OLD_DRONES_DOWNED {
             settings.set(key, value);
         } else if key_shaped(key) {
             // A newer build's knob: keep its last value.
@@ -578,9 +583,9 @@ mod tests {
 
     #[test]
     fn a_count_saved_under_its_old_name_still_reads() {
-        let loaded = parse("version = 1\ndolls_downed = 7\n", Settings::default());
+        let loaded = parse(&format!("version = 1\n{OLD_DRONES_DOWNED} = 7\n"), Settings::default());
         assert_eq!(loaded.settings.drones_downed, 7);
-        assert!(!serialize(&loaded.settings, 1, &loaded.unknown).contains("dolls_downed"));
+        assert!(!serialize(&loaded.settings, 1, &loaded.unknown).contains(OLD_DRONES_DOWNED));
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 ## Context
 
-Rebuild the L1 colony to look like the Gundam Wing references, and let a pilot walk from the hangar bay into its
+Rebuild the L1 colony to look like the owner's reference pictures, and let a pilot walk from the hangar bay into its
 interior: a city at full scale. The two references:
 - **Image 1, the interior:** a dense city on a land strip, a long central avenue, parks, window strips with a
   structural grid curving up both sides, and heavy blue haze.

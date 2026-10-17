@@ -40,43 +40,43 @@ fn change_ticks() -> u32 {
 fn mode_changes_altair_into_aquila_and_back() {
     let ticks = change_ticks();
     let mut sim = empty();
-    let wz = suit(&mut sim, FrameId::Altair, Faction::Colonies, AT, Vec3::Z);
+    let alt = suit(&mut sim, FrameId::Altair, Faction::Colonies, AT, Vec3::Z);
     let watcher = suit(&mut sim, FrameId::Argo, Faction::Almagest, AT + Vec3::Z * 900.0, -Vec3::Z);
     // Charging the Heavy Beam Rifle, then MODE: the charge is lost, and nothing fires meanwhile.
     for _ in 0..10 {
-        hold(&mut sim, wz, FIRE_PRIMARY, [0; 3]);
+        hold(&mut sim, alt, FIRE_PRIMARY, [0; 3]);
         sim.step();
     }
-    assert!(sim.suits.weapons[wz.idx()][0].charge > 0);
+    assert!(sim.suits.weapons[alt.idx()][0].charge > 0);
     let from = sim.events.next_seq();
     for k in 0..ticks {
-        hold(&mut sim, wz, MODE | FIRE_PRIMARY, [0; 3]);
+        hold(&mut sim, alt, MODE | FIRE_PRIMARY, [0; 3]);
         sim.step();
-        let own = sim.own_state(wz.idx());
+        let own = sim.own_state(alt.idx());
         assert_ne!(own.flags & own_flags::TRANSFORMING, 0, "tick {k}");
         assert_eq!(u32::from(own.special_timer), ticks - k);
         assert_eq!(own.frame, FrameId::Altair);
-        assert_eq!(sim.suits.weapons[wz.idx()][0].charge, 0);
-        assert_ne!(sim.entity_state(wz.idx(), watcher.idx()).flags & ent_flags::SPECIAL, 0);
+        assert_eq!(sim.suits.weapons[alt.idx()][0].charge, 0);
+        assert_ne!(sim.entity_state(alt.idx(), watcher.idx()).flags & ent_flags::SPECIAL, 0);
     }
-    hold(&mut sim, wz, MODE, [0; 3]);
+    hold(&mut sim, alt, MODE, [0; 3]);
     sim.step();
-    let own = sim.own_state(wz.idx());
+    let own = sim.own_state(alt.idx());
     assert_eq!(own.frame, FrameId::Aquila);
     assert_eq!(own.flags & own_flags::TRANSFORMING, 0);
     assert!(events_since(&sim, from).iter().all(|e| !matches!(e, Event::BeamSpawn { .. })));
     // Held, it stays a bird; let go, it changes back.
     for _ in 0..30 {
-        hold(&mut sim, wz, MODE, [0; 3]);
+        hold(&mut sim, alt, MODE, [0; 3]);
         sim.step();
     }
-    assert_eq!(sim.suits.frame[wz.idx()], FrameId::Aquila);
+    assert_eq!(sim.suits.frame[alt.idx()], FrameId::Aquila);
     for _ in 0..=ticks {
-        hold(&mut sim, wz, 0, [0; 3]);
+        hold(&mut sim, alt, 0, [0; 3]);
         sim.step();
     }
-    assert_eq!(sim.suits.frame[wz.idx()], FrameId::Altair);
-    assert_eq!(sim.stats(wz.idx()).specials, 2);
+    assert_eq!(sim.suits.frame[alt.idx()], FrameId::Altair);
+    assert_eq!(sim.stats(alt.idx()).specials, 2);
 }
 
 fn events_since(sim: &Sim, from: u32) -> Vec<Event> {
@@ -114,50 +114,50 @@ fn a_change_cuts_thrust_and_the_bird_is_faster() {
         assert_eq!(sim.suits.frame[id.idx()], f);
         sim.suits.flight[id.idx()].vel.length()
     };
-    let (wz, bird) = (cruise(FrameId::Altair), cruise(FrameId::Aquila));
-    assert!(bird > wz * 1.5, "Aquila cruises at {bird:.0} m/s, Altair at {wz:.0} m/s");
+    let (alt, bird) = (cruise(FrameId::Altair), cruise(FrameId::Aquila));
+    assert!(bird > alt * 1.5, "Aquila cruises at {bird:.0} m/s, Altair at {alt:.0} m/s");
 }
 
 #[test]
 fn orrery_stays_engaged_and_a_dead_bird_comes_back_as_altair() {
     let ticks = change_ticks();
     let mut sim = empty();
-    let wz = suit(&mut sim, FrameId::Altair, Faction::Colonies, AT, Vec3::Z);
+    let alt = suit(&mut sim, FrameId::Altair, Faction::Colonies, AT, Vec3::Z);
     for _ in 0..ticks + 10 {
-        hold(&mut sim, wz, MODE | ORRERY, [0; 3]);
+        hold(&mut sim, alt, MODE | ORRERY, [0; 3]);
         sim.step();
     }
-    assert_eq!(sim.suits.frame[wz.idx()], FrameId::Aquila);
-    assert_eq!(sim.suits.orrery[wz.idx()].mode, orrery_mode::ACTIVE);
+    assert_eq!(sim.suits.frame[alt.idx()], FrameId::Aquila);
+    assert_eq!(sim.suits.orrery[alt.idx()].mode, orrery_mode::ACTIVE);
     // Shot down as a bird.
     let argo = suit(&mut sim, FrameId::Argo, Faction::Almagest, AT + Vec3::new(-3.4, -0.6, 150.0), -Vec3::Z);
     // (Its nose, which takes a shot from ahead, and its fuselage are all but gone.)
-    sim.suits.part_hp[wz.idx()][Part::Head as usize] = 1.0;
-    sim.suits.part_hp[wz.idx()][Part::Torso as usize] = 1.0;
+    sim.suits.part_hp[alt.idx()][Part::Head as usize] = 1.0;
+    sim.suits.part_hp[alt.idx()][Part::Torso as usize] = 1.0;
     let mut dead = false;
     // (Its pilot's suit is doomed first: `sim::doom`.)
     for _ in 0..60 + u32::from(bc_sim::sim::DOOM_TICKS) {
-        hold(&mut sim, wz, MODE | ORRERY, [0; 3]);
+        hold(&mut sim, alt, MODE | ORRERY, [0; 3]);
         let t = sim.next_tick();
         let lf = sim.suits.flight[argo.idx()];
         let muzzle = lf.pos + lf.rot * frame(FrameId::Argo).loadout[0].unwrap().arm.muzzle();
-        let aim = (sim.suits.flight[wz.idx()].pos - muzzle).normalize();
+        let aim = (sim.suits.flight[alt.idx()].pos - muzzle).normalize();
         sim.set_input(
             argo,
             InputCmd { tick: t, view_tick_q4: t << 4, aim, buttons: FIRE_PRIMARY, ..InputCmd::default() },
         );
         sim.step();
-        if !sim.suits.alive.get(wz.idx()) {
+        if !sim.suits.alive.get(alt.idx()) {
             dead = true;
             break;
         }
     }
     assert!(dead, "the bird survived");
     for _ in 0..(sim.cfg.respawn_secs * 30.0) as u32 + 5 {
-        hold(&mut sim, wz, 0, [0; 3]);
+        hold(&mut sim, alt, 0, [0; 3]);
         sim.step();
     }
-    assert!(sim.suits.alive.get(wz.idx()));
-    assert_eq!(sim.suits.frame[wz.idx()], FrameId::Altair);
-    assert!(!sim.transforming(wz.idx()));
+    assert!(sim.suits.alive.get(alt.idx()));
+    assert_eq!(sim.suits.frame[alt.idx()], FrameId::Altair);
+    assert!(!sim.transforming(alt.idx()));
 }

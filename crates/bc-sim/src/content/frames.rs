@@ -720,8 +720,8 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
         special_mounts: [None, None],
         ai: hints(0.0, false, 1.8),
     },
-    // AL-13X1 Sagittarius: the Almagest's prototype gun, the archer, and its pair's spear (after
-    // Gundam Wing's Vayeate, `docs/STORY.md`). Its one weapon is the beam cannon cabled to the
+    // AL-13X1 Sagittarius: the Almagest's prototype gun, the archer, and its pair's spear
+    // (`docs/STORY.md`). Its one weapon is the beam cannon cabled to the
     // generator on its back: no shot limit, a wide beam as heavy as the Altair's, but a charge it
     // can do nothing else through and a draw on the reactor that paces it. No secondary, no blade:
     // close in it has nothing, which is what its Corona is for. Long-range eyes, 4 g.
@@ -758,8 +758,8 @@ static FRAMES: [FrameSpec; FrameId::COUNT] = [
         special_mounts: [None, None],
         ai: hints(3_000.0, false, 2.0),
     },
-    // AL-13X2 Corona: the Sagittarius's twin, its shield, the crown at the archer's feet (after
-    // the Mercurius). A quick beam gun, the beam saber out of its crash shield, and ten wards
+    // AL-13X2 Corona: the Sagittarius's twin, its shield, the crown at the archer's feet. A
+    // quick beam gun, the beam saber out of its disc shield, and ten wards
     // racked on its back that fly out into a field no hostile beam crosses, for itself and
     // whoever flies inside it, while its own shots and its friends' go out; 4.6 g.
     FrameSpec {

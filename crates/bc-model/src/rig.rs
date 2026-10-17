@@ -2,8 +2,7 @@
 //! to. Every frame shares it. The rest pose follows the simulation's humanoid capsules
 //! (`bc_sim::content::frames`), so what's drawn is where the server's shots land.
 //!
-//! Its proportions are the anime's, measured off Bandai's line art of Gundam Wing's Leo and Tallgeese:
-//! the head about a tenth of the height, the hips a little above the suit's middle, the knee well
+//! Its proportions are anime mecha's: the head about a tenth of the height, the hips a little above the suit's middle, the knee well
 //! above the shin's middle (three-fifths of the way down), long shins and tall feet. The sole is
 //! 9.07 m under the origin. Each foot's toes hinge across its ball, low over the sole, as a kit's
 //! do, so a foot can roll onto them as it pushes off and curl them under kneeling.

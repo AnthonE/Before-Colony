@@ -104,7 +104,7 @@ impl Work {
                 "A hangar for the colony's own militia. Pilots on contract patrol the field against the drones."
             }
             Work::CharterVote => {
-                "The colony governs itself. Pilots of standing sign, and the calendar begins: AC 1."
+                "The colony governs itself. Pilots of standing sign, and the calendar begins: CY 1."
             }
         }
     }
@@ -141,7 +141,7 @@ impl Work {
                 "THE MILITIA'S HANGAR IS OPEN · PATROLS ON THE CHARTER BOARD · THE COLONY PAYS FOR EVERY DRONE DOWNED ON CONTRACT"
             }
             Work::CharterVote => {
-                "THE CHARTER IS SIGNED · THE COLONY GOVERNS ITSELF · THE CALENDAR BEGINS: AC 1"
+                "THE CHARTER IS SIGNED · THE COLONY GOVERNS ITSELF · THE CALENDAR BEGINS: CY 1"
             }
         }
     }
@@ -151,7 +151,7 @@ impl Work {
 pub fn era_name(era: u8) -> String {
     match era {
         0 => "BEFORE COLONY".into(),
-        n => format!("AC {n} · THE CHARTER"),
+        n => format!("CY {n} · THE CHARTER"),
     }
 }
 
@@ -1240,9 +1240,9 @@ mod tests {
         assert_eq!(b.era(), 0);
         b.sign("c", "C", 23).unwrap();
         assert_eq!(b.era(), 1);
-        assert!(b.news_since(0).last().unwrap().text.contains("AC 1"));
+        assert!(b.news_since(0).last().unwrap().text.contains("CY 1"));
         assert!(b.sign("d", "D", 24).is_err());
-        assert_eq!(b.view("a", 30).era_name, "AC 1 · THE CHARTER");
+        assert_eq!(b.view("a", 30).era_name, "CY 1 · THE CHARTER");
     }
 
     #[test]

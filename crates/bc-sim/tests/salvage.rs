@@ -347,25 +347,25 @@ fn a_fast_chunk_cant_be_caught() {
 #[test]
 fn the_hold_takes_what_fits() {
     let mut sim = sim(false);
-    let wz = pilot(&mut sim, FrameId::Altair, Vec3::new(0.0, 1_000.0, 0.0));
+    let alt = pilot(&mut sim, FrameId::Altair, Vec3::new(0.0, 1_000.0, 0.0));
     assert_eq!(hold_kg(FrameId::Altair), 1_500);
-    let hand = left_hand(&sim, wz);
+    let hand = left_hand(&sim, alt);
     let big = chunk_near(&mut sim, ORE_TI, 1_200, hand, 0.5, Vec3::ZERO);
-    hold_buttons(&mut sim, wz, GRAB, 2);
-    assert_eq!(sim.held_chunk(wz.idx()), Some(big));
-    hold_buttons(&mut sim, wz, GRAB | STOW, 1);
-    assert_eq!(sim.suits.cargo_kg[wz.idx()], [0, 1_200, 0, 0]);
+    hold_buttons(&mut sim, alt, GRAB, 2);
+    assert_eq!(sim.held_chunk(alt.idx()), Some(big));
+    hold_buttons(&mut sim, alt, GRAB | STOW, 1);
+    assert_eq!(sim.suits.cargo_kg[alt.idx()], [0, 1_200, 0, 0]);
     assert!(!sim.chunks.alive.get(big));
     // The next one is too much for what's left of the hold: it stays in hand.
-    let hand = left_hand(&sim, wz);
+    let hand = left_hand(&sim, alt);
     let more = chunk_near(&mut sim, ChunkKind::Ore { ore: 3 }, 500, hand, 0.5, Vec3::ZERO);
-    hold_buttons(&mut sim, wz, GRAB, 2);
-    assert_eq!(sim.held_chunk(wz.idx()), Some(more));
-    hold_buttons(&mut sim, wz, GRAB | STOW, 1);
-    assert_eq!(sim.held_chunk(wz.idx()), Some(more), "stowed past the hold's size");
-    assert_eq!(sim.suits.cargo_kg[wz.idx()], [0, 1_200, 0, 0]);
+    hold_buttons(&mut sim, alt, GRAB, 2);
+    assert_eq!(sim.held_chunk(alt.idx()), Some(more));
+    hold_buttons(&mut sim, alt, GRAB | STOW, 1);
+    assert_eq!(sim.held_chunk(alt.idx()), Some(more), "stowed past the hold's size");
+    assert_eq!(sim.suits.cargo_kg[alt.idx()], [0, 1_200, 0, 0]);
     // And hulks are towed, never stowed.
-    let own = sim.own_state(wz.idx());
+    let own = sim.own_state(alt.idx());
     assert_eq!(own.cargo_kg, [0, 1_200, 0, 0]);
     assert_eq!(own.extra_mass_kg, 1_700);
 }
@@ -556,15 +556,15 @@ fn a_seized_pilot_keeps_its_grip() {
         orrery_on_all_frames: true,
         ..SimConfig::default()
     });
-    let wz = pilot(&mut sim, FrameId::Altair, Vec3::new(0.0, 1_000.0, 0.0));
-    let hand = left_hand(&sim, wz);
+    let alt = pilot(&mut sim, FrameId::Altair, Vec3::new(0.0, 1_000.0, 0.0));
+    let hand = left_hand(&sim, alt);
     let k = chunk_near(&mut sim, ORE_TI, 400, hand, 0.5, Vec3::ZERO);
-    hold_buttons(&mut sim, wz, GRAB, 2);
-    assert_eq!(sim.held_chunk(wz.idx()), Some(k));
+    hold_buttons(&mut sim, alt, GRAB, 2);
+    assert_eq!(sim.held_chunk(alt.idx()), Some(k));
     // The Orrery takes the controls for three seconds; the pilot's hand stays shut.
-    sim.suits.orrery[wz.idx()].mode = bc_proto::snapshot::orrery_mode::SEIZED;
-    sim.suits.orrery[wz.idx()].timer = 90;
-    hold_buttons(&mut sim, wz, GRAB | ORRERY, 20);
-    assert_eq!(sim.suits.orrery[wz.idx()].mode, bc_proto::snapshot::orrery_mode::SEIZED);
-    assert_eq!(sim.held_chunk(wz.idx()), Some(k));
+    sim.suits.orrery[alt.idx()].mode = bc_proto::snapshot::orrery_mode::SEIZED;
+    sim.suits.orrery[alt.idx()].timer = 90;
+    hold_buttons(&mut sim, alt, GRAB | ORRERY, 20);
+    assert_eq!(sim.suits.orrery[alt.idx()].mode, bc_proto::snapshot::orrery_mode::SEIZED);
+    assert_eq!(sim.held_chunk(alt.idx()), Some(k));
 }

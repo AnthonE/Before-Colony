@@ -50,7 +50,7 @@ fn jammer() -> (f32, f32, u16, f32, f32) {
 #[test]
 fn enemies_lose_a_jamming_algol_and_allies_see_it_shimmer() {
     let mut sim = empty();
-    let ds = suit(&mut sim, FrameId::Algol, Faction::Colonies, AT, Vec3::Z);
+    let algol = suit(&mut sim, FrameId::Algol, Faction::Colonies, AT, Vec3::Z);
     let far = suit(&mut sim, FrameId::Argo, Faction::Almagest, AT + Vec3::Z * 2_000.0, -Vec3::Z);
     let (_, _, _, _, visual) = jammer();
     let close = suit(&mut sim, FrameId::Argo, Faction::Almagest, AT + Vec3::X * (visual - 30.0), -Vec3::X);
@@ -58,46 +58,46 @@ fn enemies_lose_a_jamming_algol_and_allies_see_it_shimmer() {
     let ally = suit(&mut sim, FrameId::Argo, Faction::Colonies, AT - Vec3::Z * 2_000.0, Vec3::Z);
     // (Past the first second, when every suit still counts as having just fired.)
     for _ in 0..40 {
-        hold(&mut sim, ds, 0);
+        hold(&mut sim, algol, 0);
         sim.step();
     }
     for viewer in [far, close, past_eyes, ally] {
-        assert!(sim.visible_to(viewer.idx(), ds.idx()));
+        assert!(sim.visible_to(viewer.idx(), algol.idx()));
     }
-    hold(&mut sim, ds, MODE);
+    hold(&mut sim, algol, MODE);
     sim.step();
-    assert!(!sim.visible_to(far.idx(), ds.idx()), "2 km off, a jammer is gone");
-    assert!(!sim.visible_to(past_eyes.idx(), ds.idx()), "past the jammer's range, eyes lose it");
-    assert!(sim.visible_to(close.idx(), ds.idx()), "inside it, eyes still see it");
-    assert!(sim.visible_to(ally.idx(), ds.idx()), "allies' sensors aren't jammed");
+    assert!(!sim.visible_to(far.idx(), algol.idx()), "2 km off, a jammer is gone");
+    assert!(!sim.visible_to(past_eyes.idx(), algol.idx()), "past the jammer's range, eyes lose it");
+    assert!(sim.visible_to(close.idx(), algol.idx()), "inside it, eyes still see it");
+    assert!(sim.visible_to(ally.idx(), algol.idx()), "allies' sensors aren't jammed");
     assert_ne!(
-        sim.entity_state(ds.idx(), ally.idx()).flags & ent_flags::SPECIAL,
+        sim.entity_state(algol.idx(), ally.idx()).flags & ent_flags::SPECIAL,
         0,
         "allies see the shimmer"
     );
     assert_eq!(
-        sim.entity_state(ds.idx(), close.idx()).flags & ent_flags::SPECIAL,
+        sim.entity_state(algol.idx(), close.idx()).flags & ent_flags::SPECIAL,
         0,
         "enemies just see a suit"
     );
-    assert_ne!(sim.own_state(ds.idx()).flags & own_flags::SPECIAL_ACTIVE, 0);
-    assert_eq!(sim.stats(ds.idx()).specials, 1);
+    assert_ne!(sim.own_state(algol.idx()).flags & own_flags::SPECIAL_ACTIVE, 0);
+    assert_eq!(sim.stats(algol.idx()).specials, 1);
     // Held, it stays on; let go, it's off.
     for _ in 0..30 {
-        hold(&mut sim, ds, MODE);
+        hold(&mut sim, algol, MODE);
         sim.step();
     }
-    assert!(!sim.visible_to(far.idx(), ds.idx()));
-    assert_eq!(sim.stats(ds.idx()).specials, 1);
-    hold(&mut sim, ds, 0);
+    assert!(!sim.visible_to(far.idx(), algol.idx()));
+    assert_eq!(sim.stats(algol.idx()).specials, 1);
+    hold(&mut sim, algol, 0);
     sim.step();
-    assert!(sim.visible_to(far.idx(), ds.idx()));
+    assert!(sim.visible_to(far.idx(), algol.idx()));
 }
 
 #[test]
 fn drones_and_orrery_go_blind() {
     let mut sim = empty();
-    let ds = suit(&mut sim, FrameId::Algol, Faction::Colonies, AT, Vec3::Z);
+    let algol = suit(&mut sim, FrameId::Algol, Faction::Colonies, AT, Vec3::Z);
     let drone = sim
         .spawn_at(
             FrameId::Corvus,
@@ -112,24 +112,25 @@ fn drones_and_orrery_go_blind() {
         suit(&mut sim, FrameId::Altair, Faction::Almagest, AT + Vec3::new(900.0, 0.0, 600.0), -Vec3::X);
     let mut p = Perception::default();
     for _ in 0..30 {
-        hold(&mut sim, ds, 0);
+        hold(&mut sim, algol, 0);
         hold(&mut sim, altair, ORRERY);
         sim.step();
     }
-    assert_eq!(sim.suits.ai[drone.idx()].target, ds.idx() as u16, "the drone hunts the Algol");
+    assert_eq!(sim.suits.ai[drone.idx()].target, algol.idx() as u16, "the drone hunts the Algol");
     let threat = |sim: &Sim| {
-        sim.orrery_info(altair.idx())
-            .is_some_and(|z| z.threats[..z.threat_count as usize].iter().any(|t| t.slot == ds.idx() as u16))
+        sim.orrery_info(altair.idx()).is_some_and(|z| {
+            z.threats[..z.threat_count as usize].iter().any(|t| t.slot == algol.idx() as u16)
+        })
     };
     assert!(threat(&sim), "The Orrery rates the Algol");
     for _ in 0..10 {
-        hold(&mut sim, ds, MODE);
+        hold(&mut sim, algol, MODE);
         hold(&mut sim, altair, ORRERY);
         sim.step();
     }
     sim.perceive_into(drone.idx(), &mut p);
-    assert!(p.contacts().iter().all(|c| c.slot != ds.idx() as u16), "the drone still perceives it");
-    assert_ne!(sim.suits.ai[drone.idx()].target, ds.idx() as u16, "the drone still hunts it");
+    assert!(p.contacts().iter().all(|c| c.slot != algol.idx() as u16), "the drone still perceives it");
+    assert_ne!(sim.suits.ai[drone.idx()].target, algol.idx() as u16, "the drone still hunts it");
     assert!(!threat(&sim), "The Orrery still sees it");
 }
 
@@ -137,21 +138,21 @@ fn drones_and_orrery_go_blind() {
 fn firing_or_striking_shows_through_for_a_while() {
     let (_, _, break_ticks, _, _) = jammer();
     let mut sim = empty();
-    let ds = suit(&mut sim, FrameId::Algol, Faction::Colonies, AT, Vec3::Z);
+    let algol = suit(&mut sim, FrameId::Algol, Faction::Colonies, AT, Vec3::Z);
     let enemy = suit(&mut sim, FrameId::Argo, Faction::Almagest, AT + Vec3::Z * 2_000.0, -Vec3::Z);
     for press in [FIRE_SECONDARY, MELEE] {
         for _ in 0..90 {
-            hold(&mut sim, ds, MODE);
+            hold(&mut sim, algol, MODE);
             sim.step();
         }
-        assert!(!sim.visible_to(enemy.idx(), ds.idx()));
-        hold(&mut sim, ds, MODE | press);
+        assert!(!sim.visible_to(enemy.idx(), algol.idx()));
+        hold(&mut sim, algol, MODE | press);
         sim.step();
         let mut seen = 0;
-        while sim.visible_to(enemy.idx(), ds.idx()) {
+        while sim.visible_to(enemy.idx(), algol.idx()) {
             seen += 1;
             assert!(seen < 200, "the jammer never came back");
-            hold(&mut sim, ds, MODE);
+            hold(&mut sim, algol, MODE);
             sim.step();
         }
         assert_eq!(seen, u32::from(break_ticks), "{press:#x} broke it for {seen} ticks");
@@ -163,63 +164,67 @@ fn the_jammer_drains_energy_and_needs_a_fifth_of_it() {
     let (drain, min_energy, _, _, _) = jammer();
     let spec = frame(FrameId::Algol);
     let mut sim = empty();
-    let ds = suit(&mut sim, FrameId::Algol, Faction::Colonies, AT, Vec3::Z);
+    let algol = suit(&mut sim, FrameId::Algol, Faction::Colonies, AT, Vec3::Z);
     let enemy = suit(&mut sim, FrameId::Argo, Faction::Almagest, AT + Vec3::Z * 2_000.0, -Vec3::Z);
     for _ in 0..150 {
-        hold(&mut sim, ds, MODE);
+        hold(&mut sim, algol, MODE);
         sim.step();
     }
     let expected = spec.energy_cap - (drain - spec.energy_regen) * 5.0;
-    assert!((sim.suits.energy[ds.idx()] - expected).abs() < 1.0, "{} after 5 s", sim.suits.energy[ds.idx()]);
+    assert!(
+        (sim.suits.energy[algol.idx()] - expected).abs() < 1.0,
+        "{} after 5 s",
+        sim.suits.energy[algol.idx()]
+    );
     // Held until it's flat: it drops, and the Algol shows.
     let mut ticks = 150;
-    while sim.suits.special[ds.idx()].active {
-        hold(&mut sim, ds, MODE);
+    while sim.suits.special[algol.idx()].active {
+        hold(&mut sim, algol, MODE);
         sim.step();
         ticks += 1;
         assert!(ticks < 30 * 30, "it never ran out");
     }
     let secs = ticks as f32 / 30.0;
     assert!((secs - spec.energy_cap / (drain - spec.energy_regen)).abs() < 0.5, "ran out after {secs:.1} s");
-    assert!(sim.visible_to(enemy.idx(), ds.idx()));
+    assert!(sim.visible_to(enemy.idx(), algol.idx()));
     // Still held, it comes back once there's a fifth of the energy again.
     let mut off = 0;
-    while !sim.suits.special[ds.idx()].active {
-        hold(&mut sim, ds, MODE);
+    while !sim.suits.special[algol.idx()].active {
+        hold(&mut sim, algol, MODE);
         sim.step();
         off += 1;
         assert!(off < 30 * 10, "it never re-engaged");
     }
     let refill = min_energy * spec.energy_cap / spec.energy_regen;
     assert!((off as f32 / 30.0 - refill).abs() < 0.2, "re-engaged after {off} ticks");
-    assert_eq!(sim.stats(ds.idx()).specials, 2);
+    assert_eq!(sim.stats(algol.idx()).specials, 2);
 }
 
 #[test]
 fn locks_need_sensors_that_see() {
     let mut sim = empty();
-    let ds = suit(&mut sim, FrameId::Algol, Faction::Colonies, AT, Vec3::Z);
+    let algol = suit(&mut sim, FrameId::Algol, Faction::Colonies, AT, Vec3::Z);
     let argo = suit(&mut sim, FrameId::Argo, Faction::Almagest, AT + Vec3::Z * 2_000.0, -Vec3::Z);
     let friend = suit(&mut sim, FrameId::Argo, Faction::Colonies, AT + Vec3::X * 500.0, Vec3::Z);
     // Each designates the other; the friend designates its own side, which doesn't count.
     let step = |sim: &mut Sim, ds_buttons: u16| {
-        hold_locked(sim, ds, ds_buttons, argo.idx() as u16);
-        hold_locked(sim, argo, 0, ds.idx() as u16);
-        hold_locked(sim, friend, 0, ds.idx() as u16);
+        hold_locked(sim, algol, ds_buttons, argo.idx() as u16);
+        hold_locked(sim, argo, 0, algol.idx() as u16);
+        hold_locked(sim, friend, 0, algol.idx() as u16);
         sim.step();
     };
     step(&mut sim, 0);
-    assert_eq!(sim.designation(argo.idx()), Some(ds.idx()));
+    assert_eq!(sim.designation(argo.idx()), Some(algol.idx()));
     assert_eq!(sim.designation(friend.idx()), None);
-    assert_eq!(sim.own_state(argo.idx()).lock_target, ds.idx() as u16);
+    assert_eq!(sim.own_state(argo.idx()).lock_target, algol.idx() as u16);
     assert_ne!(sim.own_state(argo.idx()).flags & own_flags::LOCKED_ON, 0);
-    assert_ne!(sim.own_state(ds.idx()).flags & own_flags::LOCKED_ON, 0);
+    assert_ne!(sim.own_state(algol.idx()).flags & own_flags::LOCKED_ON, 0);
     step(&mut sim, MODE);
     // The Argo's lock is gone, and it doesn't know the Algol has it locked.
     assert_eq!(sim.designation(argo.idx()), None);
     assert_eq!(sim.own_state(argo.idx()).lock_target, NO_SLOT);
     assert_eq!(sim.own_state(argo.idx()).flags & own_flags::LOCKED_ON, 0);
-    assert_eq!(sim.designation(ds.idx()), Some(argo.idx()));
+    assert_eq!(sim.designation(algol.idx()), Some(argo.idx()));
 }
 
 #[test]
@@ -229,9 +234,9 @@ fn hidden_in_a_hide_spot_and_jamming_it_is_seen_no_further_off_than_either_allow
     assert!(jam_visual < hidden_visual);
     let mut sim = empty();
     // An Algol on the floor of Hermit's Deep; enemy eyes between the two ranges, and far off.
-    let ds = suit(&mut sim, FrameId::Algol, Faction::Colonies, AT, Vec3::Z);
-    assert!(sim.place_on(ds, Body::Landmark(1), Vec3::Y));
-    let i = ds.idx();
+    let algol = suit(&mut sim, FrameId::Algol, Faction::Colonies, AT, Vec3::Z);
+    assert!(sim.place_on(algol, Body::Landmark(1), Vec3::Y));
+    let i = algol.idx();
     let n =
         Bodies::at(&sim.field, sim.landmarks(), sim.tick()).pose(Body::Landmark(1)).unwrap().rot * Vec3::Y;
     let at = sim.suits.flight[i].pos;
@@ -250,7 +255,7 @@ fn hidden_in_a_hide_spot_and_jamming_it_is_seen_no_further_off_than_either_allow
             buttons: GRIP | buttons,
             ..InputCmd::default()
         };
-        sim.set_input(ds, cmd);
+        sim.set_input(algol, cmd);
         sim.step();
     };
     // Crouched, and still for 3 s: hidden, off sensors, and in sight within the hide spot's range.

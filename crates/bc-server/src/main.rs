@@ -32,7 +32,8 @@ struct Args {
     /// PEM private key for `--cert`.
     #[arg(long, requires = "cert")]
     key: Option<PathBuf>,
-    /// Drone NPCs to keep in the sector (`--mobile-dolls`, its name before 2026-10-14, still works).
+    /// Drone NPCs to keep in the sector. The alias is the flag's name before 2026-10-14, kept so
+    /// pre-rename launch scripts still start; nothing shows it.
     #[arg(long, alias = "mobile-dolls", default_value_t = 24)]
     drones: u32,
     /// Seconds between the Almagest's aces among the drones, one out at a time (0: none).
