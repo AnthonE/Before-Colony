@@ -158,7 +158,13 @@ mod tests {
     fn siwe_domains_take_commas_or_repeats() {
         let a = Args::parse_from(["bc-server", "--siwe-domain", "game.elopros.com,elopros.com"]);
         assert_eq!(bc_server::config::split_list(&a.siwe_domain), ["game.elopros.com", "elopros.com"]);
-        let a = Args::parse_from(["bc-server", "--siwe-domain", "game.elopros.com", "--siwe-domain", "elopros.com"]);
+        let a = Args::parse_from([
+            "bc-server",
+            "--siwe-domain",
+            "game.elopros.com",
+            "--siwe-domain",
+            "elopros.com",
+        ]);
         assert_eq!(bc_server::config::split_list(&a.siwe_domain), ["game.elopros.com", "elopros.com"]);
         let a = Args::parse_from(["bc-server"]);
         assert!(a.siwe_domain.is_empty());

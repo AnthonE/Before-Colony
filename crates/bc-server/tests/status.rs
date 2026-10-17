@@ -8,7 +8,10 @@ use bc_bot::{BotClient, BotConfig};
 use bc_proto::{Faction, FrameId};
 use bc_server::{Config, Mode, Ruleset};
 
-async fn get(url: &str, origin: Option<&str>) -> anyhow::Result<(reqwest::header::HeaderMap, serde_json::Value)> {
+async fn get(
+    url: &str,
+    origin: Option<&str>,
+) -> anyhow::Result<(reqwest::header::HeaderMap, serde_json::Value)> {
     let mut req = reqwest::Client::new().get(url);
     if let Some(o) = origin {
         req = req.header("Origin", o);
@@ -33,7 +36,12 @@ async fn the_store_reads_players_slots_and_tick() -> anyhow::Result<()> {
     let base = format!("http://{}", server.http_addr);
 
     // An agent flying: it isn't a player (drones neither).
-    let bot = BotConfig { server: base.clone(), name: "Agent-1".into(), frame: FrameId::Argo, faction: Faction::Colonies };
+    let bot = BotConfig {
+        server: base.clone(),
+        name: "Agent-1".into(),
+        frame: FrameId::Argo,
+        faction: Faction::Colonies,
+    };
     let mut agent = BotClient::connect(&bot).await?;
     agent.run_for(Duration::from_millis(400), &mut |_| bc_proto::InputCmd::default()).await?;
 
@@ -69,6 +77,34 @@ async fn the_store_reads_players_slots_and_tick() -> anyhow::Result<()> {
     let (_, doc) = get(&format!("{base}/status.json"), None).await?;
     assert_eq!(doc["agents"], 0, "{doc}");
     server.shutdown();
+    Ok(())
+}
+
+/// With a certificate from files (`--cert`/`--key`, a CA's in production), nothing is pinned: the
+/// page dials it as it is, and `/cert-hash` says so with a null hash.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_certificate_from_files_is_not_pinned() -> anyhow::Result<()> {
+    bc_server::install_crypto_provider();
+    let dir = std::env::temp_dir().join(format!("bc-status-tls-{}", std::process::id()));
+    std::fs::create_dir_all(&dir)?;
+    let identity = wtransport::Identity::self_signed(["localhost"])?;
+    let (cert, key) = (dir.join("fullchain.pem"), dir.join("privkey.pem"));
+    identity.certificate_chain().store_pemfile(&cert).await?;
+    identity.private_key().store_secret_pemfile(&key).await?;
+    let cfg = Config {
+        mode: Mode::Echo,
+        wt_port: 0,
+        http_addr: "127.0.0.1:0".parse()?,
+        tls: Some((cert, key)),
+        ..Config::default()
+    };
+    let server = bc_server::start(cfg).await?;
+    assert_eq!(server.cert_hash, *identity.certificate_chain().as_slice()[0].hash().as_ref());
+    let (_, doc) = get(&format!("http://{}/cert-hash", server.http_addr), None).await?;
+    assert!(doc["hash"].is_null(), "{doc}");
+    assert_eq!(doc["port"], server.wt_port);
+    server.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
     Ok(())
 }
 

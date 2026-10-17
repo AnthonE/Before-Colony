@@ -567,7 +567,7 @@ fn spawn_egress(
 impl StatusView {
     /// The sector's simulation tick.
     pub fn tick(&self) -> u64 {
-        self.sector.tick.load(Ordering::Acquire)
+        self.sector.tick.load(Ordering::Acquire).into()
     }
 
     pub fn json(&self) -> serde_json::Value {

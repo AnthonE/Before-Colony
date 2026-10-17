@@ -16,11 +16,18 @@ pub const WT_PATH: &str = "/bc";
 
 /// A CA-issued identity (e.g. Let's Encrypt's `fullchain.pem` and `privkey.pem`): browsers
 /// validate it themselves, so nothing is pinned. Returns the identity and its leaf's SHA-256.
-pub async fn pem_identity(cert: &std::path::Path, key: &std::path::Path) -> anyhow::Result<(Identity, [u8; 32])> {
+pub async fn pem_identity(
+    cert: &std::path::Path,
+    key: &std::path::Path,
+) -> anyhow::Result<(Identity, [u8; 32])> {
     let identity = Identity::load_pemfiles(cert, key)
         .await
         .map_err(|e| anyhow::anyhow!("loading {} / {}: {e}", cert.display(), key.display()))?;
-    let leaf = identity.certificate_chain().as_slice().first().ok_or_else(|| anyhow::anyhow!("{}: no certificate", cert.display()))?;
+    let leaf = identity
+        .certificate_chain()
+        .as_slice()
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("{}: no certificate", cert.display()))?;
     let hash = *leaf.hash().as_ref();
     Ok((identity, hash))
 }

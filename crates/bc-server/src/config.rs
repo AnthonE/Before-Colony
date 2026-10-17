@@ -56,7 +56,13 @@ pub const STORE_ORIGIN: &str = "https://elopros.com";
 /// A command line's list: repeated flags and comma-separated values alike, trimmed, empties
 /// dropped (`--siwe-domain game.elopros.com,elopros.com`).
 pub fn split_list(values: &[String]) -> Vec<String> {
-    values.iter().flat_map(|v| v.split(',')).map(str::trim).filter(|v| !v.is_empty()).map(str::to_string).collect()
+    values
+        .iter()
+        .flat_map(|v| v.split(','))
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 /// The host (and port, unless it's the scheme's default) of an `Origin`, as SIWE names a domain:
@@ -177,7 +183,10 @@ mod tests {
 
     #[test]
     fn lists_take_commas_and_repeats() {
-        assert_eq!(split_list(&list(&["game.elopros.com,elopros.com"])), list(&["game.elopros.com", "elopros.com"]));
+        assert_eq!(
+            split_list(&list(&["game.elopros.com,elopros.com"])),
+            list(&["game.elopros.com", "elopros.com"])
+        );
         assert_eq!(split_list(&list(&["a", " b , ,c"])), list(&["a", "b", "c"]));
         assert!(split_list(&[]).is_empty());
     }
