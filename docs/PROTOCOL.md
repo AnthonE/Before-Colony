@@ -1,8 +1,16 @@
-# Before Colony wire protocol (v34)
+# Before Colony wire protocol (v35)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v35 (from v34): no bits change, but suits fly differently, so a client and server a version apart
+would predict them apart. BRAKE brakes as hard as the suit can: at once, at full thrust with
+boost's overdrive (burning as boost does) and past flight assist's G guard. Under the anime rules
+(the Welcome's ANIME) suits handle as the show's do (`bc_sim::tuning::ANIME_AGILITY`,
+`ANIME_THRUST`): they turn three times as fast, and their thrusters push every way as hard as the
+main ones ahead, half as hard again as the frame's own, with boost overdriving them all
+(`bc_sim::flight::thrusters`).
 
 v34 (from v33): the colony's rocket car, the Markab (`bc_client_core::markab`). A person's pose
 grows from 86 bits to 97: a roll (8 bits over [0, 360°)) after the pitch, what they ride takes a fifth bit

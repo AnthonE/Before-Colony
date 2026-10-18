@@ -24,7 +24,7 @@ use glam::Vec3;
 use super::drone::{Action, AiState, DroneProfile, standoff};
 use crate::config::{DT, G0};
 use crate::content::{FrameSpec, SpecialKind, WeaponClass, weapon};
-use crate::flight::{FA_BOOST_CRUISE, FA_RESPONSE, GEnvelope};
+use crate::flight::{FA_BOOST_CRUISE, FA_RESPONSE, GEnvelope, Thrusters, thrusters};
 use crate::math::{angle_between, floor, length, normalize_or, sin, sqrt};
 use crate::orrery::fire_control;
 use crate::perception::{Contact, SelfView};
@@ -168,8 +168,9 @@ pub fn drive_kit(
         let felt = length(GEnvelope::HUMAN.scale(want));
         let accel = if felt > SUSTAINED_G * G0 { want * (SUSTAINED_G * G0 / felt) } else { want };
         let mass = spec.mass(me.propellant * spec.propellant_cap);
-        let forward = if accel.z >= 0.0 { spec.main_thrust } else { spec.retro_thrust };
-        Vec3::new(accel.x / spec.side_thrust, accel.y / spec.side_thrust, accel.z / forward) * mass
+        let push = whole(me, spec);
+        let forward = if accel.z >= 0.0 { push.main } else { push.retro };
+        Vec3::new(accel.x / push.side, accel.y / push.side, accel.z / forward) * mass
     } else {
         me.rot.conjugate() * desired
     };
@@ -191,6 +192,11 @@ pub fn drive_kit(
         lockon: None,
         converge: 0,
     }
+}
+
+/// What a whole suit of frame `spec` pushes with, unboosted, by the rules `me` flies by.
+fn whole(me: &SelfView, spec: &FrameSpec) -> Thrusters {
+    thrusters(spec, &crate::tuning::flight_mods(&crate::tuning::Tuning::default(), me.rules, false, 0), false)
 }
 
 /// Which weapons to fire at `t`.
@@ -250,7 +256,7 @@ fn weapons(
         let closing = (me.vel - t.vel).dot(los).max(0.0);
         let secs = f32::from(ms.windup + ms.active / 2) * DT;
         let lunge = if ms.lunge {
-            let accel = 1.5 * spec.main_thrust / spec.mass(me.propellant * spec.propellant_cap);
+            let accel = 1.5 * whole(me, spec).main / spec.mass(me.propellant * spec.propellant_cap);
             0.5 * accel * secs * secs
         } else {
             0.0

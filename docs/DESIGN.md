@@ -82,10 +82,20 @@ drones on them.)
     holds the plain cruise, not boost's.
   - A holed tank refills at half the rate, and a failed one not at all: it leaks dry, and the suit
     flies on without boost.
+  - Suits handle as the show's do (the owner's call, October 2026: the simulator's handling was
+    too slow to turn, and floated). They turn three times as fast (`tuning::ANIME_AGILITY`): an
+    Argo comes round a quarter turn in under half a second, so it keeps up with a flick of the
+    mouse. Their thrusters swivel to push every way as hard as the main ones push ahead, and half
+    as hard again as the frame's own (`tuning::ANIME_THRUST`, `flight::thrusters`): an Argo's
+    3.5 g ahead is 5.25 g ahead, astern, across, up and down, so W goes where the crosshair is
+    soon after a turn, and a strafe is as quick as a dash. Boost overdrives them all, so Shift
+    speeds the suit whichever way it's going. Aquila, its limbs folded, keeps a fighter's
+    thrusters (half as strong again too).
   - Pilots bear twice the G every way (12 g for good headward, 24 g pressed into the seat), as the
-    show's do: a Lodestar's boost doesn't black its pilot out, even an Altair's on a nearly empty
-    gauge (lighter, it pulls nearly 18 g ahead). Diving hard on boost as well still can (their blood
-    driven to their head), and so can a pilot hurt by a struck cockpit, and so can a crash.
+    show's do: a Lodestar's boost ahead doesn't black its pilot out, even an Altair's on the last
+    of its gauge. Boosting hard across or up for long can, and diving on boost as well (their blood
+    driven to their head) still does, and so can a pilot hurt by a struck cockpit, and so can a
+    crash.
   - What the tank makes out there stays out there: under survival, a suit comes home with no more
     propellant than it launched with.
 - **Real.** Every newton burns propellant at `|F| / (Isp·g0)` (the rest of this section), and a
@@ -93,22 +103,29 @@ drones on them.)
   sortie's delta-v: brake before you're dry, or carry an ion drive home.
 
 - **Thrust** is limited per axis: main (forward), side (lateral and vertical) and retro. Boost
-  multiplies main thrust. Every newton burns propellant at `|F| / (Isp·g0)`, so mass falls as you
-  burn and delta-v follows the rocket equation (tested to within 1%).
+  multiplies main thrust (under the anime rules, every way's, all of them as strong as main).
+  Every newton burns propellant at `|F| / (Isp·g0)`, so mass falls as you burn and delta-v follows
+  the rocket equation (tested to within 1%).
 - **Attitude.** The suit turns toward your aim, never faster than it can stop from, so it settles
   on the aim instead of swinging past it (even while firing or a blade takes limb trim's limbs).
   - **Limb trim** swings the limbs to rotate the suit. It costs no
     propellant but has modest authority. Losing arms or legs reduces it, and so does firing or
     striking with a blade, because the limbs are busy.
   - **RCS** (hold R) adds strong attitude thrusters that burn propellant.
+  - Under the anime rules the same turn comes three times sooner (its rates and pull onto the aim
+    tripled, its authority nine times): not the roll.
 - **Flight assist** (V) turns the stick into a velocity command: it brakes to a stop when you let
-  go. With it off you are fully Newtonian. **Brake** (X) always retro-burns.
+  go. With it off you are fully Newtonian. **Brake** (X) always brakes, as hard as the suit can:
+  to rest (locked on, to the target's velocity) at once, every thruster at full with boost's
+  overdrive, which burns as boost does while there's gauge or propellant for it (the gauge
+  waits meanwhile), and past flight assist's G guard. With flight assist on, letting go of the
+  keys stops the suit too, gently and for nothing.
   - It eases onto the velocity asked for over about a fifth of a second, so G fades in and out
     instead of switching on and off, and a stop settles rather than slamming.
   - It spares the pilot's body: short of boost, it never pulls more than just under what they bear
     for good that way (12 g ahead, 9 g braking, 6 g up or across, 3 g diving: **Pilot G**),
-    whatever the thrusters could do, so flying with it never blacks you out. Boost, or flight
-    assist off, gives you everything the thrusters have. (A drone's flight assist snaps at
+    whatever the thrusters could do, so flying with it never blacks you out. Boost, the brake, or
+    flight assist off, gives you everything the thrusters have. (A drone's flight assist snaps at
     full thrust.)
   - Held through a blackout, boost keeps flight assist aiming at the boosted cruise, so it doesn't
     brake while you're out.
@@ -1361,10 +1378,10 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
 |---|---|
 | Mouse (click to lock) | aim |
 | Y · middle click | lock on (again: the next target; held: let go) |
-| W/S · A/D · Space/C | shooter controls (the default): fly where you look, forward/back · strafe left/right · rise/sink; simulator controls: thrust along the suit's own axes; double-tapped, a burst step that way |
+| W/S · A/D · Space/C (or Ctrl) | shooter controls (the default): fly where you look, forward/back · strafe left/right · rise/sink, Space always up; simulator controls: thrust along the suit's own axes; double-tapped, a burst step that way |
 | Q/E | roll (shooter controls: let go, and the view and the suit level out) |
 | L | grip: armed, coming in slow and close lands you on a rock or a landmark; again, let go |
-| Shift · X · R | boost · brake · RCS (fast turns; shooter controls fire it by themselves) |
+| Shift · X · R | boost (whichever way you're going) · brake, as hard as the suit can · RCS (fast turns; shooter controls fire it by themselves) |
 | LMB · RMB · F | primary · secondary · melee (a beam rifle: tap fires, hold to charge, let go full for the charged shot) |
 | H | the frame's special: a toggle for Aquila and the Eclipse, a press for Full Salvo and the Pincer Strike |
 | V · Z | flight assist (shooter controls: held half a second) · the Orrery |
@@ -1379,8 +1396,8 @@ The plan, its numbers and what's still to come are `COLONY.md`. What's in so far
 | Esc · F1 or ? · F10 or O | menu · the controls sheet · graphics quality |
 
 On a body (see "Surfaces"): W/A/S/D walk, Shift runs, Space hops (held, it lifts off on the
-thrusters), C crouches (a toggle), X stops, a blade's lunge dashes along the ground, and Q/E do
-nothing; L lets go. Aloft in a body's grip the keys fly as ever, but flight assist holds a walk's
+thrusters), C or Ctrl crouches (a toggle), X stops, a blade's lunge dashes along the ground, and
+Q/E do nothing; L lets go. Aloft in a body's grip the keys fly as ever, but flight assist holds a walk's
 speed over the body, or a run's with Shift, and never holds altitude.
 
 On foot in the hangar bay: the mouse looks, W/A/S/D walk, Shift runs, Space jumps, E uses what's
@@ -1399,18 +1416,22 @@ keys go out as a lock-on with nothing to hold to (`bc_proto::LockOn`, its veloci
 view's), so flight assist reads them in the view's axes and rolls the suit level with it, and the
 owner's prediction stays exact. The suit fires its RCS whenever the aim is off its nose, as drones
 and agents always have (free under the anime rules; under the real ones a few kilograms a hard
-turn), so it comes round a quarter turn in about a second and a half; the view itself turns with the
-mouse at once. V is held half a second to turn flight assist on or off, since a shooter's player
-presses V to melee. It stands aside where the keys mean something else: on a body, flight assist
+turn), so it comes round a quarter turn in about a second and a half, and under the anime rules
+(the default) in under half a second; the view itself turns with the mouse at once. V is held half
+a second to turn flight assist on or off, since a shooter's player presses V to melee. It stands aside where the keys mean something else: on a body, flight assist
 off, the Orrery's seizure, Aquila, falling inside the colony with the grip armed, and the auto-nav;
 the view's up then follows the suit's own, close behind. Locked on, the lock-on moves the suit.
-The thrusters still decide how fast a velocity is reached, axis by axis (sideways at half forward's
-pull), so a strafe from a standstill builds over seconds, as a suit's would.
+The thrusters still decide how fast a velocity is reached, axis by axis: under the real rules
+sideways at half forward's pull, so a strafe from a standstill builds over seconds, as a suit's
+would; under the anime rules every way at forward's, half as hard again, so after a quarter turn
+at 100 m/s an Argo is flying where the crosshair is within two seconds (an Altair within one).
 
 The list players see (the title screen's controls sheet and F1) is
-`bc_client_core::controls::BINDINGS`; keep it in step with this table. Down is C alone: Left Ctrl
-held with W is Ctrl+W, which closes the browser's tab. F1 and F10 have second keys, `?` and O,
-because a Mac laptop needs Fn for the function row and a 60% keyboard has none; `?` goes by the
+`bc_client_core::controls::BINDINGS`; keep it in step with this table. Down is C or Ctrl (the
+owner's call, October 2026: a shooter's crouch key). Ctrl held with W is Ctrl+W, which closes the
+browser's tab outside fullscreen before the page sees it, so in a sortie the page asks the browser
+to confirm leaving (`web/ui.js`): a slip costs a click, not the flight. F1 and F10 have second
+keys, `?` and O, because a Mac laptop needs Fn for the function row and a 60% keyboard has none; `?` goes by the
 character, wherever the layout puts it, and typed into the radio's line it's only a question mark.
 Turning flight assist on or off says so in the middle of the screen, because V is the camera key
 in other games. `docs/CONTROLS.md` compares this scheme with what players of other games expect,

@@ -67,13 +67,14 @@ form of `bc_sim::colony` works there unchanged.
   walked round. A suit's origin keeps its stance from the floor and the roofs when free as on its
   feet (`colony::interior::FLOOR_CLEAR`), so letting go of the ground doesn't jump; lanes narrower
   than a suit (stance from each wall) can't be stood in.
-- **Gravity: falling, and hovering.** Flying free inside, a suit with its grip armed (L, or
-  Space double-tapped) feels the colony's pull: flight assist holds it against Coriolis and the
+- **Gravity: falling, and hovering.** Flying free inside, a suit with its grip armed (L; Space
+  double-tapped is a burst step up, as out in space: Space always rises) feels the colony's pull: flight assist holds it against Coriolis and the
   air across, but lets it fall, braked so it comes in slow and close and lands on its feet
   (`ground::fall_limit`: at most 40 m/s, down to 6 m/s by the time its feet are 12 m up, and within
   catching range it flares to 6 m/s across, `ground::FLARE_SPEED`). Space climbs and C dives at 25 m/s
   (`ground::INTERIOR_CLIMB`); let go, a climb is checked and the suit falls again. With the grip off
-  it hovers: flight assist holds it where it is against the pull, Space and C climbing and sinking.
+  it hovers: flight assist holds it where it is against the pull, Space and C (or Ctrl) climbing
+  and sinking.
   Either way it rolls level with the spin's down by itself (Q and E roll it off). An arrival at the
   inner gate hovers; a trainer on its gantry, or a suit that has landed, has its grip armed. The HUD
   says which (`HOVER`, `FALLING`, `LANDING`), how high the suit's feet are over what's under them,

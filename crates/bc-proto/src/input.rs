@@ -18,9 +18,11 @@ pub mod buttons {
     pub const FIRE_SECONDARY: u16 = 1 << 1;
     /// F: beam saber.
     pub const MELEE: u16 = 1 << 2;
-    /// Shift: main-thruster overdrive (more thrust, more propellant, more G).
+    /// Shift: thruster overdrive (more thrust, more propellant, more G): the main thrusters', and
+    /// under the anime rules every way's.
     pub const BOOST: u16 = 1 << 3;
-    /// X: retro-burn toward zero velocity even with flight assist off.
+    /// X: brake toward zero velocity (locked on, the target's) as hard as the suit can, even with
+    /// flight assist off: at once, with boost's overdrive, past flight assist's G guard.
     pub const BRAKE: u16 = 1 << 4;
     /// State: flight assist (velocity hold) engaged.
     pub const FLIGHT_ASSIST: u16 = 1 << 5;

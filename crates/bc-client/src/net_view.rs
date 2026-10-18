@@ -13,7 +13,9 @@ use bc_proto::snapshot::{ent_flags, orrery_mode, own_flags};
 use bc_sim::TICK_HZ;
 use bc_sim::bodies::sweep_landmarks;
 use bc_sim::content::{SPECIAL_MOUNT, SpecialKind, frame, weapon};
+use bc_sim::flight::{Thrusters, thrusters};
 use bc_sim::ground::{GRIP_ACCEL, LAND_SPEED_MAX};
+use bc_sim::tuning::{Tuning, flight_mods};
 use bc_sim::world::COLONY_CENTER;
 use bevy::prelude::*;
 
@@ -62,8 +64,14 @@ pub struct Seen {
 /// between two interpolated samples a tick apart. On a body, what its thrusters do is told apart
 /// from what the body does: standing on it, they're idle (the legs carry it); in the air in its
 /// grip, the acceleration is taken relative to the body, less the grip's pull and its free brake
-/// on a fall.
-fn thrust_estimate(frame_id: bc_proto::FrameId, rot: Quat, now: &Pose, before: &Pose) -> Vec3 {
+/// on a fall. `push` is what its thrusters give, unboosted, under the sector's rules.
+fn thrust_estimate(
+    frame_id: bc_proto::FrameId,
+    push: Thrusters,
+    rot: Quat,
+    now: &Pose,
+    before: &Pose,
+) -> Vec3 {
     let accel = match (now.ground, before.ground) {
         (Some(g), _) if !g.aloft => return Vec3::ZERO,
         (Some(g), Some(b)) if b.body == g.body => {
@@ -84,8 +92,8 @@ fn thrust_estimate(frame_id: bc_proto::FrameId, rot: Quat, now: &Pose, before: &
     let spec = frame(frame_id);
     let mass = spec.dry_mass + spec.propellant_cap * 0.5;
     let local = rot.inverse() * accel;
-    let forward = if local.z >= 0.0 { spec.main_thrust } else { spec.retro_thrust };
-    Vec3::new(local.x * mass / spec.side_thrust, local.y * mass / spec.side_thrust, local.z * mass / forward)
+    let forward = if local.z >= 0.0 { push.main } else { push.retro };
+    Vec3::new(local.x * mass / push.side, local.y * mass / push.side, local.z * mass / forward)
         .clamp(Vec3::splat(-1.0), Vec3::splat(1.0))
 }
 
@@ -247,13 +255,19 @@ pub fn sync_view(
             staggered: own.alive && core.predict.stagger > 0,
         });
     }
+    // A whole suit's thrusters under the sector's rules, a pilot's or a drone's (always the real
+    // ones'), for reading its acceleration as throttle.
+    let whole = Tuning::default();
+    let rules = core.predict.rules();
+    let (piloted, droned) = (flight_mods(&whole, rules, false, 0), flight_mods(&whole, rules, true, 0));
     for (slot, track) in world.entities.iter().enumerate() {
         let Some(track) = track else { continue };
         let e = &track.latest;
         let state = track.state_at(t_render);
         let p = track.sample(t_render, &world.bodies);
         let before = track.sample(t_render - 1.0, &world.bodies);
-        let raw = thrust_estimate(e.frame, p.rot, &p, &before);
+        let mods = if e.pilot == bc_proto::PilotKind::Drone { &droned } else { &piloted };
+        let raw = thrust_estimate(e.frame, thrusters(frame(e.frame), mods, false), p.rot, &p, &before);
         let smooth = seen.thrust.entry(slot as u16).or_insert(raw);
         *smooth += (raw - *smooth) * (1.0 - (-vis.dt * 8.0).exp());
         let thrust = if e.flags & ent_flags::WRECK != 0 { Vec3::ZERO } else { *smooth };

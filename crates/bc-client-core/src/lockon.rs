@@ -19,7 +19,7 @@ use bc_proto::snapshot::{ent_flags, orrery_mode};
 use bc_proto::{FrameId, InputCmd, LockOn};
 use bc_sim::config::DT;
 use bc_sim::content::{frame, weapon};
-use bc_sim::flight::{FA_RESPONSE, fa_cruise};
+use bc_sim::flight::{FA_RESPONSE, fa_cruise, thrusters};
 use bc_sim::ground::{Footing, GRIP_ACCEL, lockon_assist};
 use bc_sim::world::{colony_altitude, colony_up};
 use glam::Vec3;
@@ -240,8 +240,9 @@ pub fn shape(cmd: InputCmd, lock: &mut Lock, ctx: &InputContext) -> InputCmd {
     // What the keys ask for, and what the suit can do.
     let keys = cmd.thrust_vec();
     let mass = spec.mass(s.propellant) + mods.extra_mass_kg as f32;
-    let brake = (PLAN * spec.retro_thrust * mods.retro / mass).min(BRAKE_MAX);
-    let side = PLAN * spec.side_thrust * mods.side / mass;
+    let push = thrusters(spec, mods, false);
+    let brake = (PLAN * push.retro / mass).min(BRAKE_MAX);
+    let side = PLAN * push.side / mass;
     let stop = stop_range(p.form.frame);
     // The wire's own numbers, so the reshaped stick is read back exactly as it's meant.
     let probe = InputCmd { lockon: Some(LockOn { ref_vel: vt, up }), ..out }.quantized();
@@ -266,7 +267,7 @@ pub fn shape(cmd: InputCmd, lock: &mut Lock, ctx: &InputContext) -> InputCmd {
     };
     // Around it: as fast as the side thrusters can turn the circle and the suit can turn to keep
     // facing it, leaning in for flight assist's lag so the circle doesn't widen.
-    let orbit = cruise.min((side * d).sqrt()).min(ORBIT_TURN * spec.limb_trim_rate * d);
+    let orbit = cruise.min((side * d).sqrt()).min(ORBIT_TURN * spec.limb_trim_rate * mods.agility * d);
     let across = orbit * keys.x;
     closing += across * across * FA_RESPONSE / d.max(stop);
     // Off the floor, or back down onto it.

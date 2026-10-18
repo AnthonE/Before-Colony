@@ -30,7 +30,10 @@ pub enum FlightRules {
     Real,
     /// Anime rules, for fun over realism: a pilot's tank is a boost gauge. Only boost burns it,
     /// flying is free, and it fills back up from dry in [`ANIME_REFILL_SECS`] once boost is let go
-    /// (on the ground too). Pilots bear [`ANIME_G`] times the G, as the anime's do.
+    /// (on the ground too). Pilots bear [`ANIME_G`] times the G, as the anime's do. And suits
+    /// handle as the anime's: they turn [`ANIME_AGILITY`] times as fast, and their thrusters swivel
+    /// to push every way as hard as the main ones push ahead, [`ANIME_THRUST`] times the frame's
+    /// own, boost overdriving them all (`crate::flight::thrusters`).
     Anime,
 }
 
@@ -38,6 +41,14 @@ pub enum FlightRules {
 pub const ANIME_REFILL_SECS: f32 = 20.0;
 /// Under anime rules, how much more G a pilot bears for good.
 pub const ANIME_G: f32 = 2.0;
+/// Under anime rules, how many times faster a suit turns onto its aim (`FlightMods::agility`):
+/// an Argo comes round a quarter turn in under half a second, and back the way it came in under
+/// one, so the suit keeps up with a shooter's mouse.
+pub const ANIME_AGILITY: f32 = 3.0;
+/// Under anime rules, what the thrusters push with, of the frame's own (`FlightMods::push`): an
+/// Argo's 3.5 g ahead becomes 5.25 g every way (8.4 g on boost). Boost still never blacks a
+/// Lodestar's pilot out ahead, even an Altair's on a nearly dry gauge.
+pub const ANIME_THRUST: f32 = 1.5;
 
 impl FlightRules {
     pub fn anime(self) -> bool {
@@ -255,6 +266,9 @@ pub fn flight_mods(t: &Tuning, rules: FlightRules, g_immune: bool, extra_mass_kg
         interior: false,
         ion: t.ion,
         staggered: false,
+        agility: if anime { ANIME_AGILITY } else { 1.0 },
+        push: if anime { ANIME_THRUST } else { 1.0 },
+        vectored: anime,
     }
 }
 

@@ -561,6 +561,7 @@ impl Sim {
             },
             surface_n: self.surface_n(i),
             tuning: s.tuning[i],
+            rules: if s.pilot[i] == PilotKind::Drone { tuning::FlightRules::Real } else { self.cfg.flight },
         }
     }
 
