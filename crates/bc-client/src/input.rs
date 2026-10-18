@@ -7,11 +7,11 @@
 //! | Key | Action |
 //! |---|---|
 //! | mouse | aim (click to lock the pointer, Esc for the menu) |
-//! | W/S, A/D, Space/C | thrust forward/back, left/right, up/down; double-tapped, a burst step |
+//! | W/S, A/D, Space/C or Ctrl | thrust forward/back, left/right, up/down; double-tapped, a burst step |
 //! | Q/E | roll |
 //! | L | grip: armed, a suit coming in slow and close is caught and landed; off, it lets go |
-//! | on a body: W/A/S/D, Shift, Space, C | walk, run, hop (held: lift off), crouch (a toggle) |
-//! | Shift | boost · X brake · R RCS (fast turns, burns propellant) |
+//! | on a body: W/A/S/D, Shift, Space, C or Ctrl | walk, run, hop (held: lift off), crouch (a toggle) |
+//! | Shift | boost, whichever way · X brake, as hard as the suit can · R RCS (fast turns) |
 //! | LMB / RMB / F | primary / secondary / melee |
 //! | H | the frame's special: Aquila or the Eclipse on/off, or held: Full Salvo, Pincer Strike |
 //! | Y / middle click | lock on (`bc_client_core::lockon`): again, the next; held, let go |
@@ -28,7 +28,9 @@
 //! | U | eject: doomed, a tap ejects and a hold blows the suit up; otherwise held for a second |
 //! | 1–6 | respawn as Argo, Altair, Antares, Algol, Canopus, Thuban (when destroyed) |
 //!
-//! Down is C alone: Left Ctrl held with W would be Ctrl+W, which closes the browser's tab.
+//! Down is C or Ctrl. Ctrl held with W is Ctrl+W, which closes the browser's tab outside
+//! fullscreen; while a suit flies, the page asks before it's closed (`web/ui.js`), so a slip costs
+//! a click rather than the sortie.
 //!
 //! While the chart is open the keys and the mouse are the chart's, and the stick is let go (flight
 //! assist holds the suit still, unless the auto-nav flies it). The auto-nav hands the stick back
@@ -108,6 +110,8 @@ impl Default for Aim {
 
 /// Held, the mouse looks round from the cockpit instead of aiming.
 pub const LOOK_KEY: KeyCode = KeyCode::AltLeft;
+/// Down: C, or either Ctrl (a shooter's crouch key, and Space Engineers' down).
+pub const DOWN_KEYS: [KeyCode; 3] = [KeyCode::KeyC, KeyCode::ControlLeft, KeyCode::ControlRight];
 /// How far the view turns looking round: nearly all the way behind, and up and down.
 const LOOK_YAW: f32 = 2.9;
 const LOOK_PITCH: f32 = 1.35;
@@ -358,7 +362,7 @@ pub fn read_input(
     mut deck: Local<Option<(Body, Quat)>>,
     mut lock_key: Local<Option<f64>>,
     mut eject_at: Local<Option<f64>>,
-    (mut tap, mut space_at, mut assist_at): (Local<DoubleTap>, Local<Option<f64>>, Local<Option<f64>>),
+    (mut tap, mut assist_at): (Local<DoubleTap>, Local<Option<f64>>),
 ) {
     let mut game = game.borrow_mut();
     // Keep the aim sane across (re)spawns: start looking where the suit looks.
@@ -450,8 +454,9 @@ pub fn read_input(
     }
 
     // Flying by hand takes the stick back from the auto-nav; the mouse takes only the aim.
-    let flown = [KeyCode::KeyW, KeyCode::KeyA, KeyCode::KeyS, KeyCode::KeyD, KeyCode::Space, KeyCode::KeyC]
+    let flown = [KeyCode::KeyW, KeyCode::KeyA, KeyCode::KeyS, KeyCode::KeyD, KeyCode::Space]
         .into_iter()
+        .chain(DOWN_KEYS)
         .chain([KeyCode::KeyX, KeyCode::ShiftLeft, KeyCode::ShiftRight])
         .any(|k| keys.just_pressed(k));
     if flown && game.nav.take().is_some() {
@@ -503,11 +508,13 @@ pub fn read_input(
         }
     }
     let axis = |pos: KeyCode, neg: KeyCode| (keys.pressed(pos) as i32 - keys.pressed(neg) as i32) as f32;
-    // On the ground C toggles a crouch, and Space hops (out of a crouch, it stands first); in the
-    // air they're the thrusters. Leaving the ground stands the crouch down.
+    let down = keys.any_pressed(DOWN_KEYS);
+    // On the ground C (or Ctrl) toggles a crouch, and Space hops (out of a crouch, it stands
+    // first); in the air they're the thrusters, Space always up. Leaving the ground stands the
+    // crouch down.
     let mover = game.core.predict.mover();
     let lift = if mover.footing == Footing::Grounded {
-        if keys.just_pressed(KeyCode::KeyC) {
+        if keys.any_just_pressed(DOWN_KEYS) {
             controls.crouch = !controls.crouch;
         }
         if keys.pressed(KeyCode::Space) {
@@ -520,7 +527,7 @@ pub fn read_input(
         }
     } else {
         controls.crouch = false;
-        axis(KeyCode::Space, KeyCode::KeyC)
+        (keys.pressed(KeyCode::Space) as i32 - down as i32) as f32
     };
     controls.standing_up =
         mover.footing == Footing::Grounded && !controls.crouch && mover.anchor.stance < STANCE;
@@ -528,35 +535,22 @@ pub fn read_input(
     controls.roll = axis(KeyCode::KeyE, KeyCode::KeyQ);
     let mut b = 0;
     // A direction double-tapped, off the ground: a burst step that way, the stick held that way
-    // while it's pressed.
+    // while it's pressed (Space up, inside the colony too: its fall and hover are the grip's, L).
     const STEP_KEYS: [KeyCode; DIRECTIONS] =
         [KeyCode::KeyD, KeyCode::KeyA, KeyCode::Space, KeyCode::KeyC, KeyCode::KeyW, KeyCode::KeyS];
-    // Inside the colony Space double-tapped is the hover's (it toggles the grip: armed, the suit
-    // falls and lands; off, flight assist holds it up), not a step up.
-    let inside = game.core.inside();
-    if inside && keys.just_pressed(KeyCode::Space) {
-        let now = crate::net::now_s();
-        match *space_at {
-            Some(at) if now - at <= bc_client_core::doubletap::WINDOW => {
-                controls.grip = !controls.grip;
-                *space_at = None;
-                ui.toast(if controls.grip {
-                    "FALLING: the colony's pull takes you down, and you land on your feet (double-tap Space: hover)"
-                } else {
-                    "HOVER: flight assist holds you up; Space climbs, C sinks (double-tap Space: drop)"
-                });
-            }
-            _ => *space_at = Some(now),
-        }
-    }
+    // Down is any of its keys.
+    let step_pressed = |key: KeyCode| {
+        if key == KeyCode::KeyC { keys.any_just_pressed(DOWN_KEYS) } else { keys.just_pressed(key) }
+    };
+    let step_held = STEP_KEYS.map(|k| if k == KeyCode::KeyC { down } else { keys.pressed(k) });
     if settings.0.double_tap && mover.footing != Footing::Grounded {
         let now = crate::net::now_s();
         for (k, key) in STEP_KEYS.iter().enumerate() {
-            if keys.just_pressed(*key) && !(inside && *key == KeyCode::Space) {
+            if step_pressed(*key) {
                 tap.press(k, now);
             }
         }
-        if let Some((axis, sign)) = tap.stepping(STEP_KEYS.map(|k| keys.pressed(k)), now) {
+        if let Some((axis, sign)) = tap.stepping(step_held, now) {
             controls.thrust[axis] = sign;
             b |= BURST;
         }
@@ -656,10 +650,17 @@ pub fn read_input(
     if keys.just_pressed(KeyCode::KeyL) {
         controls.grip = !controls.grip;
         let on_body = mover.footing != Footing::Free;
-        ui.toast(match (controls.grip, on_body) {
-            (true, _) => "GRIP ON: come in slow and close, and it lands you",
-            (false, true) => "GRIP OFF: letting go",
-            (false, false) => "GRIP OFF",
+        // Flying inside the colony the grip is the fall's: armed, the suit falls and lands; off,
+        // flight assist holds it up.
+        let falling = !on_body && game.core.inside();
+        ui.toast(match (controls.grip, on_body, falling) {
+            (true, _, true) => {
+                "FALLING: the colony's pull takes you down, and you land on your feet (L: hover)"
+            }
+            (false, _, true) => "HOVER: flight assist holds you up; Space climbs, C or Ctrl sinks (L: drop)",
+            (true, _, false) => "GRIP ON: come in slow and close, and it lands you",
+            (false, true, false) => "GRIP OFF: letting go",
+            (false, false, false) => "GRIP OFF",
         });
     }
     let dead = game.core.world.own.is_some_and(|o| !o.alive);

@@ -43,7 +43,7 @@ pub enum Hint {
     /// Flying near the docking hub (survival): home by its dock, or landing on its face and
     /// walking in at the deck hatch.
     HubLanding,
-    /// Flying inside the colony: its pull, hovering and falling to land (double-tapped Space).
+    /// Flying inside the colony: its pull, hovering and falling to land (the grip, L).
     Hover,
     /// Flying one of the Charter Board's trainers: home is its gantry in the Blast Hall.
     Gantry,
@@ -128,10 +128,12 @@ impl Hint {
     pub fn text(self, colony: bool, shooter: bool) -> &'static str {
         match self {
             Hint::Thrust if shooter => {
-                "W A S D fly where you look, Space / C rise and sink. The mouse aims; the view stays upright."
+                "W A S D fly where you look, Space / C (or Ctrl) rise and sink. The mouse aims; the view stays upright."
             }
             Hint::Thrust => "W A S D and Space / C thrust. The mouse aims; Q / E roll.",
-            Hint::Boost if shooter => "Shift boosts (it spends propellant: watch the gauge), X brakes.",
+            Hint::Boost if shooter => {
+                "Shift boosts whichever way you go (it spends propellant: watch the gauge), X brakes hard."
+            }
             Hint::Boost => "Shift boosts (it spends propellant: watch the gauge), X brakes, R turns fast.",
             Hint::Fire => {
                 "Left and right mouse fire (hold a beam rifle's to charge it), F strikes in melee, H is the suit's special."
@@ -165,7 +167,7 @@ impl Hint {
                 "To go home from in here, come to rest inside the inner gate's ring of lights and press Enter."
             }
             Hint::Hover => {
-                "The colony pulls you down. Double-tap Space: hover (Space climbs, C sinks); again: drop, and you land on your feet."
+                "The colony pulls you down. L: hover (Space climbs, C sinks); again: drop, and you land on your feet."
             }
             Hint::Gantry => {
                 "To finish, come to rest on the gantry's ring in the Blast Hall and press Enter: you climb out at its hatch."

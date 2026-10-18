@@ -27,7 +27,7 @@ where players learn to hit). This is the design, and what's built of it.
 | A / D | circle it, at the range you're at |
 | neither W nor S | hold the range |
 | Space / C | rise off the fight's floor, or drop below it; let go and you settle back onto it |
-| X | brake to the target's velocity (not the sector's rest) |
+| X | brake to the target's velocity (not the sector's rest), as hard as the suit can |
 | Mouse | aim, as ever; the ◆ marks where to lead |
 
 - **The floor.** With Space and C let go, the suit settles onto the target's level: the vertical
@@ -130,5 +130,5 @@ and SPD and the velocity marker relative to the target.
   level keeping pace with it, rolled level, circles it within 5% of the range, and the prediction
   stays within a centimetre of the server throughout.
 - A target crossing the nose takes longer to pace than one ahead: matching its speed across falls
-  to the side thrusters (an Argo's take about half a minute to match 260 m/s). That's the flight
-  model, not the lock.
+  to the side thrusters (by the real rules an Argo's take about half a minute to match 260 m/s;
+  the anime rules' push across as hard as ahead). That's the flight model, not the lock.

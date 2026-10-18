@@ -1,15 +1,15 @@
 //! Flight model: Newtonian motion, flight assist, finite delta-v, and pilot G limits.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
-use bc_proto::buttons::{BOOST, FLIGHT_ASSIST, RCS_SHARP};
+use bc_proto::buttons::{BOOST, BRAKE, FLIGHT_ASSIST, RCS_SHARP};
 use bc_proto::{FrameId, InputCmd};
 use bc_sim::DT;
 use bc_sim::config::G0;
 use bc_sim::content::frame;
 use bc_sim::field::{Field, Rock};
 use bc_sim::flight::{
-    FA_G_CAP, FA_G_MARGIN, FA_RESPONSE, FlightMods, FlightState, GEnvelope, HUMAN_G_TOLERANCE, O2_BUFFER,
-    step, step_in,
+    FA_G_CAP, FA_G_MARGIN, FA_RESPONSE, FlightMods, FlightState, GEnvelope, HUMAN_G_TOLERANCE, LockOnAssist,
+    O2_BUFFER, step, step_in, thrusters,
 };
 use glam::{Quat, Vec3};
 
@@ -293,10 +293,12 @@ fn a_lunge_is_never_boosted() {
 
 /// Turning onto the aim, a suit settles on it rather than swinging past, whatever its turning
 /// authority: every frame, with its arms free, busy (firing or striking) or shot away, with RCS or
-/// without, blacked out or not, from a small turn or from nearly behind.
+/// without, blacked out or not, from a small turn or from nearly behind, by either rules' agility.
 #[test]
 fn turns_settle_without_swinging_past_the_aim() {
-    for id in FrameId::ALL {
+    for (id, agility) in
+        FrameId::ALL.into_iter().flat_map(|id| [(id, 1.0), (id, bc_sim::tuning::ANIME_AGILITY)])
+    {
         let spec = frame(id);
         for limb_trim in [1.0, 0.6, 0.18] {
             for buttons in [0, RCS_SHARP] {
@@ -309,7 +311,7 @@ fn turns_settle_without_swinging_past_the_aim() {
                             ..fresh(id)
                         };
                         let cmd = InputCmd { aim: Vec3::Z, buttons, ..InputCmd::default() };
-                        let mods = FlightMods { limb_trim, ..FlightMods::default() };
+                        let mods = FlightMods { limb_trim, agility, ..FlightMods::default() };
                         let mut past = 0.0f32;
                         for _ in 0..(20 * 30) {
                             step(&mut s, &cmd, spec, &mods, DT);
@@ -319,7 +321,7 @@ fn turns_settle_without_swinging_past_the_aim() {
                         let nose = s.rot * Vec3::Z;
                         let off = nose.angle_between(Vec3::Z).to_degrees();
                         let case = format!(
-                            "{id:?} limb trim {limb_trim} rcs {} blackout {out} from {start}°",
+                            "{id:?} agility {agility} limb trim {limb_trim} rcs {} blackout {out} from {start}°",
                             buttons != 0
                         );
                         assert!(past <= 0.5, "{case}: swung {past:.2}° past the aim");
@@ -453,7 +455,8 @@ fn under_anime_rules_flying_is_free_and_only_boost_spends_the_gauge() {
     }
     assert_eq!(s.propellant, tank, "flying burnt the gauge");
     assert!(s.vel.length() > 10.0, "it flew: {:?}", s.vel);
-    // Boost spends it, as it always has (all the thrust it gives).
+    // Boost spends it, as it always has (all the thrust it gives: half as much again as the real
+    // rules' ahead, as the anime's thrusters push).
     let boost = InputCmd { aim: Vec3::Z, thrust: [0, 0, 127], buttons: BOOST, ..InputCmd::default() };
     let mut real = fresh(FrameId::Argo);
     let mut s = fresh(FrameId::Argo);
@@ -462,7 +465,8 @@ fn under_anime_rules_flying_is_free_and_only_boost_spends_the_gauge() {
         step(&mut real, &boost, spec, &FlightMods::default(), DT);
     }
     assert!(s.propellant < tank - 200.0, "5 s of boost burnt only {} kg", tank - s.propellant);
-    assert!((s.propellant - real.propellant).abs() < 1.0, "{} vs {}", s.propellant, real.propellant);
+    let (anime_kg, real_kg) = (tank - s.propellant, tank - real.propellant);
+    assert!((anime_kg - bc_sim::tuning::ANIME_THRUST * real_kg).abs() < 1.0, "{anime_kg} vs {real_kg}");
     // Let go, it fills back up: the whole tank in ANIME_REFILL_SECS.
     let coast = InputCmd { aim: Vec3::Z, buttons: FLIGHT_ASSIST, ..InputCmd::default() };
     let low = s.propellant;
@@ -565,4 +569,178 @@ fn drones_fly_by_the_real_rules_whatever_the_sectors() {
     assert!(drone.gauge.is_none(), "a drone burns every newton and runs dry");
     assert_eq!(drone.g_tolerance, HUMAN_G_TOLERANCE);
     assert!(anime().gauge.is_some());
+    // And handle as their frames do.
+    assert!(drone.agility == 1.0 && drone.push == 1.0 && !drone.vectored, "{drone:?}");
+}
+
+/// How long frame `id`, on its RCS (as shooter controls turn it), takes to come round `deg` onto the
+/// aim, to within 3°, s.
+fn turn_secs(id: FrameId, mods: &FlightMods, deg: f32) -> f32 {
+    let mut s = FlightState { rot: Quat::from_rotation_y(deg.to_radians()), ..fresh(id) };
+    let cmd = InputCmd { aim: Vec3::Z, buttons: FLIGHT_ASSIST | RCS_SHARP, ..InputCmd::default() };
+    for n in 1..=20 * 30 {
+        step(&mut s, &cmd, frame(id), mods, DT);
+        if (s.rot * Vec3::Z).angle_between(Vec3::Z) < 3f32.to_radians() {
+            return n as f32 * DT;
+        }
+    }
+    f32::INFINITY
+}
+
+/// Under anime rules a suit turns three times as fast, as the show's do, and keeps up with a
+/// shooter's mouse: an Argo comes round a quarter turn in under half a second and back the way it
+/// came in under one (by the real rules, nearly a second and a half and two).
+#[test]
+fn under_anime_rules_a_suit_turns_three_times_as_fast() {
+    let (real, anime) = (FlightMods::default(), anime());
+    assert_eq!(anime.agility, bc_sim::tuning::ANIME_AGILITY);
+    for id in FrameId::ALL {
+        for deg in [45.0, 90.0, 170.0] {
+            let (r, a) = (turn_secs(id, &real, deg), turn_secs(id, &anime, deg));
+            // (Whole ticks: a quarter-second turn is eight of them.)
+            let ratio = r / a;
+            assert!(
+                ratio > 2.8 && ratio < 4.0,
+                "{id:?} {deg}°: {r:.2} s by the real rules, {a:.2} s by the anime's"
+            );
+        }
+    }
+    assert!(turn_secs(FrameId::Argo, &anime, 90.0) < 0.5);
+    assert!(turn_secs(FrameId::Argo, &anime, 170.0) < 1.0);
+    assert!(turn_secs(FrameId::Argo, &real, 90.0) > 1.2);
+}
+
+/// Under anime rules the thrusters swivel: every way pushes as hard as ahead, half as hard again as
+/// the frame's own main thrusters, and boost overdrives them all. Aquila, its limbs folded, keeps
+/// a fighter's thrusters, only stronger. By the real rules nothing changes.
+#[test]
+fn under_anime_rules_the_thrusters_push_every_way_as_hard_as_ahead() {
+    let ways: [[i8; 3]; 6] =
+        [[127, 0, 0], [-127, 0, 0], [0, 127, 0], [0, -127, 0], [0, 0, 127], [0, 0, -127]];
+    let accel = |id: FrameId, mods: &FlightMods, thrust: [i8; 3], buttons: u16| {
+        let mut s = fresh(id);
+        let cmd = InputCmd { aim: Vec3::Z, thrust, buttons, ..InputCmd::default() };
+        step(&mut s, &cmd, frame(id), mods, DT).accel.length()
+    };
+    let k = bc_sim::tuning::ANIME_THRUST;
+    for id in
+        [FrameId::Argo, FrameId::Altair, FrameId::Antares, FrameId::Algol, FrameId::Canopus, FrameId::Thuban]
+    {
+        let spec = frame(id);
+        let ahead = k * spec.main_thrust / spec.mass(spec.propellant_cap);
+        for way in ways {
+            let a = accel(id, &anime(), way, 0);
+            assert!((a / ahead - 1.0).abs() < 1e-4, "{id:?} {way:?}: {a} m/s², ahead {ahead}");
+            let boosted = accel(id, &anime(), way, BOOST);
+            assert!(
+                (boosted / a - spec.boost_mult).abs() < 1e-4,
+                "{id:?} {way:?}: boost gives {}",
+                boosted / a
+            );
+        }
+        // By the real rules, side and retro as built, and boost the main thrusters' alone.
+        let side = accel(id, &FlightMods::default(), [127, 0, 0], 0);
+        assert!((side - spec.side_thrust / spec.mass(spec.propellant_cap)).abs() < 1e-3);
+        assert_eq!(accel(id, &FlightMods::default(), [127, 0, 0], BOOST), side);
+        // The planners' numbers are the step's.
+        let t = thrusters(spec, &anime(), false);
+        assert!(t.main == t.side && t.side == t.retro && t.main == spec.main_thrust * k, "{t:?}");
+    }
+    let bird = frame(FrameId::Aquila);
+    let t = thrusters(bird, &anime(), false);
+    assert!(t.side < t.main && (t.side - bird.side_thrust * k).abs() < 1.0, "{t:?}");
+}
+
+/// Under anime rules W goes where the pilot looks soon after a turn: flying at 100 m/s, the
+/// crosshair a quarter turn off (as shooter controls send it: W along the aim), an Argo's
+/// velocity swings onto it in under two seconds, where by the real rules it slid on for nearly
+/// five.
+#[test]
+fn under_anime_rules_w_goes_where_the_pilot_looks_soon_after_a_turn() {
+    let swung = |mods: &FlightMods| {
+        let aim = Vec3::X;
+        let lock = LockOnAssist { ref_vel: Vec3::ZERO, right: Vec3::Y.cross(aim), up: Vec3::Y, fwd: aim };
+        let mods = FlightMods { lockon: Some(lock), ..*mods };
+        let mut s = FlightState { vel: Vec3::Z * 100.0, ..fresh(FrameId::Argo) };
+        let cmd =
+            InputCmd { aim, thrust: [0, 0, 127], buttons: FLIGHT_ASSIST | RCS_SHARP, ..InputCmd::default() };
+        for n in 1..=30 * 30 {
+            step(&mut s, &cmd, frame(FrameId::Argo), &mods, DT);
+            if s.vel.angle_between(aim) < 10f32.to_radians() && s.vel.length() > 50.0 {
+                return n as f32 * DT;
+            }
+        }
+        f32::INFINITY
+    };
+    let (real, anime) = (swung(&FlightMods::default()), swung(&anime()));
+    assert!(anime < 2.0 && real > 4.0, "{anime:.2} s by the anime rules, {real:.2} s by the real ones");
+}
+
+/// X brakes as hard as the suit can: at once, every thruster at full with boost's overdrive and
+/// nothing held back for the pilot, burning as boost does (the gauge waits meanwhile, and fills
+/// again once the suit's at rest). Under anime rules an Argo stops from its cruise in under three
+/// seconds, well before letting go of the keys stops it; with the gauge dry it still brakes, at the
+/// thrusters' plain push, and the gauge refills.
+#[test]
+fn the_brake_stops_as_hard_as_the_suit_can() {
+    let spec = frame(FrameId::Argo);
+    let stop = |mods: &FlightMods, buttons: u16, tank: f32| {
+        let mut s = FlightState {
+            vel: Vec3::Z * spec.fa_speed,
+            propellant: spec.propellant_cap * tank,
+            ..fresh(FrameId::Argo)
+        };
+        let cmd = InputCmd { aim: Vec3::Z, buttons, ..InputCmd::default() };
+        for n in 1..=40 * 30 {
+            let before = s.propellant;
+            let out = step(&mut s, &cmd, spec, mods, DT);
+            if s.vel.length() == 0.0 {
+                return (n as f32 * DT, s);
+            }
+            assert!(!out.g_limited, "the brake held back at tick {n}");
+            if buttons & BRAKE != 0 && tank > 0.0 {
+                assert!(out.boosting && s.propellant < before, "braking hard, it boosts and burns");
+            }
+        }
+        panic!("never stopped");
+    };
+    let anime = anime();
+    let (hard, s) = stop(&anime, FLIGHT_ASSIST | BRAKE, 1.0);
+    let (gentle, g) = stop(&anime, FLIGHT_ASSIST, 1.0);
+    assert!(hard < 3.0 && gentle > hard + 1.5, "X stops in {hard:.2} s, letting go in {gentle:.2} s");
+    assert!(
+        s.propellant < spec.propellant_cap - 100.0,
+        "X spent only {} kg",
+        spec.propellant_cap - s.propellant
+    );
+    assert_eq!(g.propellant, spec.propellant_cap, "letting go is free");
+    // At rest, the overdrive's done: the gauge fills again under X.
+    let mut s = s;
+    let held = InputCmd { aim: Vec3::Z, buttons: FLIGHT_ASSIST | BRAKE, ..InputCmd::default() };
+    let low = s.propellant;
+    for _ in 0..30 {
+        assert!(!step(&mut s, &held, spec, &anime, DT).boosting);
+    }
+    assert!(s.propellant > low + 100.0, "{} kg back", s.propellant - low);
+    // Its first tick: everything astern, boost's overdrive and all; dry, the thrusters' plain push
+    // (and it still stops, the gauge filling meanwhile).
+    let first = |tank: f32| {
+        let mut s = FlightState {
+            vel: Vec3::Z * spec.fa_speed,
+            propellant: spec.propellant_cap * tank,
+            ..fresh(FrameId::Argo)
+        };
+        let cmd = InputCmd { aim: Vec3::Z, buttons: BRAKE, ..InputCmd::default() };
+        let mass = spec.mass(s.propellant);
+        step(&mut s, &cmd, spec, &anime, DT).accel.length() * mass
+    };
+    let (full, empty) = (first(1.0), first(0.0));
+    assert!((full / thrusters(spec, &anime, true).retro - 1.0).abs() < 1e-4, "{full} N");
+    assert!((empty / thrusters(spec, &anime, false).retro - 1.0).abs() < 1e-4, "{empty} N");
+    let (_, d) = stop(&anime, BRAKE, 0.0);
+    assert!(d.propellant > 0.0);
+    // By the real rules too, with flight assist off: no easing at the end.
+    let (real, _) = stop(&FlightMods::default(), BRAKE, 1.0);
+    let retro = spec.retro_thrust / spec.mass(spec.propellant_cap);
+    assert!(real < spec.fa_speed / retro + 0.5, "{real:.2} s at {retro} m/s²");
 }

@@ -1749,6 +1749,15 @@
     if (!a) return;
     (document.hidden ? a.suspend() : a.resume()).catch(() => {});
   });
+  // Ctrl is a down key, and outside fullscreen Ctrl+W (with Shift, the window) closes the tab
+  // before the page ever sees the W. In a sortie the browser asks first ("Leave site?"), so a slip
+  // costs a click, not the flight.
+  window.addEventListener("beforeunload", (e) => {
+    if (view.screen === "playing" || view.screen === "reconnecting") {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+  });
   // Every menu button clicks (Launch confirms, above).
   document.addEventListener(
     "click",

@@ -97,6 +97,9 @@ pub struct SelfView {
     /// The suit's stat sheet (damaged actuators narrow where its guns point, a hurt pilot bears
     /// less G).
     pub tuning: crate::tuning::Tuning,
+    /// The flight rules it flies by (a drone's are always the real ones): how hard its thrusters
+    /// push (`crate::flight::thrusters`).
+    pub rules: crate::tuning::FlightRules,
 }
 
 impl Default for SelfView {
@@ -119,6 +122,7 @@ impl Default for SelfView {
             kit: KitView::default(),
             surface_n: Vec3::ZERO,
             tuning: crate::tuning::Tuning::default(),
+            rules: crate::tuning::FlightRules::Real,
         }
     }
 }

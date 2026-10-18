@@ -7,13 +7,16 @@
 //!   the aim about that up, as on foot, and never past [`PITCH_LIMIT`] of the horizon ([`turn`]).
 //!   Q / E roll the view off it while they're held; let go, and it levels out ([`level`]).
 //! - **Moving where you look** ([`shape`]). W flies along the crosshair, A / D strafe square to it
-//!   along the ground, Space / C rise and sink along the up, at the frame's cruise (a diagonal no
-//!   faster). It travels as a lock-on with nothing to hold to (`bc_proto::LockOn`, its velocity
+//!   along the ground, Space / C (or Ctrl) rise and sink along the up, at the frame's cruise (a
+//!   diagonal no faster). It travels as a lock-on with nothing to hold to (`bc_proto::LockOn`, its velocity
 //!   zero and its up the view's): flight assist reads the stick in those axes and rolls the suit
 //!   level with them, so the server and the owner's prediction fly exactly the same command.
 //! - **Turning at once.** The suit fires its RCS whenever the aim is off its nose, as drones and
 //!   agents always do: free under the anime rules, a few kilograms a hard turn under the real ones.
-//!   The view turns with the mouse at once; the suit's arms reach 50° off its nose meanwhile.
+//!   The view turns with the mouse at once; the suit's arms reach 50° off its nose meanwhile. Under
+//!   the anime rules (the default) the suit turns three times as fast and its thrusters push every
+//!   way as hard as ahead (`bc_sim::flight::thrusters`), so it keeps up with a flick of the mouse
+//!   and goes where the crosshair is soon after.
 //!
 //! It stands aside where the keys mean something else ([`flies`]): on a body, flight assist off,
 //! the Orrery flying the suit, and Aquila (a fighter's controls), and falling inside the colony with

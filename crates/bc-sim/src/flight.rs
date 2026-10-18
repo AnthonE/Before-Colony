@@ -5,7 +5,8 @@
 //! - **Limb trim** turns the suit by swinging its limbs: free but modest. Damaged limbs and busy arms
 //!   reduce it. **RCS** (held) adds much more authority at a propellant cost.
 //! - **Flight assist** turns the thrust stick into a velocity command (it brakes to a stop when
-//!   released); off, the stick is raw thrust and velocity persists. **Brake** always retro-burns.
+//!   released); off, the stick is raw thrust and velocity persists. **Brake** always brakes, as
+//!   hard as the suit can: at once, at full thrust with boost's overdrive, and nothing held back.
 //!   A pilot's flight assist eases onto the velocity asked for (a fifth of a second) and spares
 //!   their body: short of boost, it never pulls more G than they bear for good. A drone's
 //!   snaps onto it at full thrust.
@@ -17,7 +18,10 @@
 //!   authority collapses until it recovers below 0.5. Drones have no body to protect.
 //! - **Anime rules** ([`BoostGauge`], `crate::tuning::FlightRules`): the tank is a boost gauge. Only
 //!   boost burns it; flying, turning on RCS and a blade's lunge are free, and work on an empty
-//!   tank; and it fills back up whenever boost is let go.
+//!   tank; and it fills back up whenever boost is let go. The suit handles as the show's do
+//!   ([`FlightMods::agility`], [`FlightMods::push`], [`FlightMods::vectored`]): it turns three
+//!   times as fast, and its thrusters swivel to push every way as hard as ahead, harder than the
+//!   frame's own, boost overdriving them all.
 //! - **An ion drive** ([`ion_thrust`], `FlightMods::ion`): under the real rules the first of each
 //!   tick's thrust is the drive's, on the reactor's power, and burns nothing; a dry tank still
 //!   gives that much. Under anime rules it fills the gauge faster.
@@ -246,6 +250,17 @@ pub struct FlightMods {
     /// Staggered (`sim::stagger`): its attitude control does nothing, so it tumbles as the blow
     /// left it, and it can neither boost nor step (its thrust is cut in [`FlightMods::thrust`]).
     pub staggered: bool,
+    /// How many times faster than its frame's numbers the suit turns (anime rules:
+    /// `crate::tuning::ANIME_AGILITY`): the same turn onto the aim, that much sooner (its rates and
+    /// its pull onto the aim times this, its turning authority times its square). Not its roll.
+    pub agility: f32,
+    /// What the thrusters push with, of the frame's own (anime rules: `crate::tuning::ANIME_THRUST`),
+    /// before damage and boost ([`thrusters`]).
+    pub push: f32,
+    /// The thrusters swivel (anime rules): every way pushes as hard as the main thrusters do ahead,
+    /// and boost overdrives them all, not the main ones alone ([`thrusters`]). A suit with its limbs
+    /// folded (Aquila) can't.
+    pub vectored: bool,
 }
 
 impl Default for FlightMods {
@@ -272,6 +287,9 @@ impl Default for FlightMods {
             interior: false,
             ion: 0.0,
             staggered: false,
+            agility: 1.0,
+            push: 1.0,
+            vectored: false,
         }
     }
 }
@@ -324,6 +342,42 @@ pub struct LockOnAssist {
 pub fn fa_cruise(spec: &FrameSpec, mods: &FlightMods, cmd: &InputCmd, propellant: f32) -> f32 {
     let boost_cruise = cmd.pressed(BOOST) && mods.boost > 0.0 && (propellant > 0.0 || mods.gauge.is_none());
     spec.fa_speed * if boost_cruise { FA_BOOST_CRUISE } else { 1.0 }
+}
+
+/// What a suit's thrusters push with each way, N: ahead (main), across and up or down (side), and
+/// astern (retro).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Thrusters {
+    pub main: f32,
+    pub side: f32,
+    pub retro: f32,
+}
+
+/// What frame `spec`'s thrusters give under `mods`, boosting or not: the frame's own numbers times
+/// what's left of each axis and [`FlightMods::push`]. Boosting overdrives the main thrusters (by
+/// what's left of the boosters' share); vectored ([`FlightMods::vectored`]), every way pushes as
+/// the main thrusters do, and boost overdrives them all. The step flies by it, and planners that
+/// ask what the suit can do (the lock-on's) ask it here.
+pub fn thrusters(spec: &FrameSpec, mods: &FlightMods, boosting: bool) -> Thrusters {
+    // Exactly the frame's multiplier when the boosters are whole (a lerp needn't round back to it).
+    let boost_mult = if !boosting {
+        1.0
+    } else if mods.boost >= 1.0 {
+        spec.boost_mult
+    } else {
+        1.0 + (spec.boost_mult - 1.0) * mods.boost
+    };
+    let vectored = mods.vectored && spec.has_legs();
+    let (side, retro, others) = if vectored {
+        (spec.main_thrust, spec.main_thrust, boost_mult)
+    } else {
+        (spec.side_thrust, spec.retro_thrust, 1.0)
+    };
+    Thrusters {
+        main: spec.main_thrust * mods.push * mods.main * boost_mult,
+        side: side * mods.push * mods.side * others,
+        retro: retro * mods.push * mods.retro * others,
+    }
 }
 
 /// What the step did (for visuals and signatures).
@@ -424,14 +478,17 @@ pub fn integrate(
     let cos_a = fwd.dot(aim);
     let angle = atan2(sin_a, cos_a);
     let rcs = cmd.pressed(RCS_SHARP) && powered;
-    let max_rate = if rcs { spec.rcs_rate } else { spec.limb_trim_rate } * attitude;
-    let limb_trim = spec.limb_trim_accel * mods.limb_trim * attitude * turn;
-    let rcs_accel = if rcs { spec.rcs_accel * attitude * turn } else { 0.0 };
+    // Agile (anime rules), the same turn sooner: rates and the pull onto the aim times `k`, the
+    // authority to reach them times its square.
+    let k = mods.agility;
+    let max_rate = if rcs { spec.rcs_rate } else { spec.limb_trim_rate } * attitude * k;
+    let limb_trim = spec.limb_trim_accel * mods.limb_trim * attitude * turn * (k * k);
+    let rcs_accel = if rcs { spec.rcs_accel * attitude * turn * (k * k) } else { 0.0 };
     let accel_cap = limb_trim + rcs_accel;
     // Toward the aim, but never faster than it can stop from in time: arms busy firing or with a
     // blade take limb trim's limbs, not its top rate, and it mustn't swing past the aim for it.
     let rate =
-        |angle: f32| (angle * AIM_GAIN).min(max_rate).min(sqrt(2.0 * ATTITUDE_BRAKE * accel_cap * angle));
+        |angle: f32| (angle * AIM_GAIN * k).min(max_rate).min(sqrt(2.0 * ATTITUDE_BRAKE * accel_cap * angle));
     let mut w_des = if sin_a > 1e-6 {
         axis * (rate(angle) / sin_a)
     } else if cos_a < 0.0 {
@@ -468,26 +525,22 @@ pub fn integrate(
     // --- Translation. ---
     // Boosters that can't boost don't: no boosted cruise, and flight assist keeps its G guard.
     let can_boost = mods.boost > 0.0;
-    let boosting = cmd.pressed(BOOST) && has_prop && !s.blackout && can_boost && !mods.staggered;
-    // Exactly the frame's multiplier when the boosters are whole (a lerp needn't round back to it).
-    let boost_mult =
-        if mods.boost >= 1.0 { spec.boost_mult } else { 1.0 + (spec.boost_mult - 1.0) * mods.boost };
-    let main = spec.main_thrust * mods.main * if boosting { boost_mult } else { 1.0 };
-    let side = spec.side_thrust * mods.side;
-    let retro = spec.retro_thrust * mods.retro;
+    // What boost (and a step) needs: propellant, an awake pilot, boosters that work, and not
+    // reeling from a blow.
+    let boostable = has_prop && !s.blackout && can_boost && !mods.staggered;
+    let mut boosting = cmd.pressed(BOOST) && boostable;
     let brake = cmd.pressed(BRAKE);
+    // Braking as hard as the suit can (X), short of the last of it: at once, boost's overdrive and
+    // all, and nothing held back for the pilot.
+    let mut hard = false;
     // A burst step, along the stick at its press (in the fight's axes when locked on).
-    let burst =
-        burst_tick(&mut s.burst, cmd, has_prop && !s.blackout && can_boost && !mods.staggered).then(|| {
-            let d =
-                Vec3::new(f32::from(s.burst.dir[0]), f32::from(s.burst.dir[1]), f32::from(s.burst.dir[2]));
-            match mods.lockon {
-                Some(l) => {
-                    normalize_or(s.rot.conjugate() * (l.right * d.x + l.up * d.y + l.fwd * d.z), Vec3::Z)
-                }
-                None => normalize_or(d, Vec3::Z),
-            }
-        });
+    let burst = burst_tick(&mut s.burst, cmd, boostable).then(|| {
+        let d = Vec3::new(f32::from(s.burst.dir[0]), f32::from(s.burst.dir[1]), f32::from(s.burst.dir[2]));
+        match mods.lockon {
+            Some(l) => normalize_or(s.rot.conjugate() * (l.right * d.x + l.up * d.y + l.fwd * d.z), Vec3::Z),
+            None => normalize_or(d, Vec3::Z),
+        }
+    });
     let assisted = (brake || cmd.pressed(FLIGHT_ASSIST)) && burst.is_none();
     let stick = if brake { Vec3::ZERO } else { cmd.thrust_vec() };
     let mut f_local = if assisted {
@@ -520,7 +573,10 @@ pub fn integrate(
             }
             (None, None) => stick * cruise - v_local,
         };
-        let response = if mods.g_immune || length(gap) < FA_SETTLE { dt } else { FA_RESPONSE.max(dt) };
+        let settled = length(gap) < FA_SETTLE;
+        hard = brake && !settled;
+        boosting |= hard && boostable;
+        let response = if mods.g_immune || hard || settled { dt } else { FA_RESPONSE.max(dt) };
         let mut f_req = gap * (mass / response);
         // Holding a velocity inside the colony means holding against its pull too (falling free,
         // all but its pull down).
@@ -532,20 +588,22 @@ pub fn integrate(
             };
             f_req -= hold * mass;
         }
+        let t = thrusters(spec, mods, boosting);
         Vec3::new(
-            clamp_axis(f_req.x, side, side),
-            clamp_axis(f_req.y, side, side),
-            clamp_axis(f_req.z, main, retro),
+            clamp_axis(f_req.x, t.side, t.side),
+            clamp_axis(f_req.y, t.side, t.side),
+            clamp_axis(f_req.z, t.main, t.retro),
         )
     } else {
+        let t = thrusters(spec, mods, boosting);
         Vec3::new(
-            stick.x * side,
-            stick.y * side,
-            if stick.z >= 0.0 { stick.z * main } else { stick.z * retro },
+            stick.x * t.side,
+            stick.y * t.side,
+            if stick.z >= 0.0 { stick.z * t.main } else { stick.z * t.retro },
         )
     };
     if mods.lunge {
-        let drive = spec.main_thrust * mods.main * LUNGE_THRUST;
+        let drive = spec.main_thrust * mods.push * mods.main * LUNGE_THRUST;
         if mods.lunge_cone > 0.0 {
             // It homes: along the aim, within its cone of the nose, on top of the stick's sideways.
             let along = s.rot.conjugate() * clamp_to_cone(aim, s.rot * Vec3::Z, mods.lunge_cone);
@@ -569,9 +627,10 @@ pub fn integrate(
             f_local
         };
     }
-    // Flight assist spares its pilot's body: short of boost (or a blade's lunge), it holds them
-    // under what they bear for good each way, whatever their tank and the thrusters could do.
-    let guard = assisted && !boosting && !mods.lunge && !mods.g_immune;
+    // Flight assist spares its pilot's body: short of boost (or a blade's lunge, or a hard brake),
+    // it holds them under what they bear for good each way, whatever their tank and the thrusters
+    // could do.
+    let guard = assisted && !boosting && !hard && !mods.lunge && !mods.g_immune;
     let most = (mods.g_tolerance - FA_G_MARGIN) * G0 * mass;
     let pull = length(mods.g_envelope.scale(f_local));
     let g_limited = guard && pull > most;
@@ -590,18 +649,20 @@ pub fn integrate(
     if mods.leak_kg_s > 0.0 {
         s.propellant = (s.propellant - mods.leak_kg_s * dt).max(0.0);
     }
-    // It fills only once boost is let go (and a step is done), so a pilot leaning on an empty gauge
-    // gets nothing.
-    if !(cmd.pressed(BOOST) && can_boost) && burst.is_none() {
+    // It fills only once boost is let go (and a step and a hard brake's overdrive are done), so a
+    // pilot leaning on an empty gauge gets nothing.
+    if !(cmd.pressed(BOOST) && can_boost) && !boosting && burst.is_none() {
         let before = s.propellant;
         refill(s, spec, mods, dt);
         if mods.ion > 0.0 && s.propellant > before {
             ion = 1.0;
         }
     }
-    let axial = if f_local.z >= 0.0 { spec.main_thrust } else { spec.retro_thrust };
-    // Against the healthy caps: damaged thrusters read as a lower throttle (the sound, the plumes).
-    let throttle = f_local / Vec3::new(spec.side_thrust, spec.side_thrust, axial).max(Vec3::ONE);
+    // Against the healthy caps, unboosted: damaged thrusters read as a lower throttle (the sound,
+    // the plumes).
+    let healthy = thrusters(spec, &FlightMods { main: 1.0, side: 1.0, retro: 1.0, ..*mods }, false);
+    let axial = if f_local.z >= 0.0 { healthy.main } else { healthy.retro };
+    let throttle = f_local / Vec3::new(healthy.side, healthy.side, axial).max(Vec3::ONE);
     let accel = (s.rot * f_local) / mass;
     s.vel += accel * dt;
     if let Some((e, _)) = ext {
@@ -1216,6 +1277,9 @@ mod tests {
         for n in 0..10_000 {
             let (s0, cmd, spec, mods) = random_case(&mut rng);
             assert!(mods.roll_level.is_none() && mods.hop.is_none() && mods.lockon.is_none());
+            // v8's brake eased off as flight assist does, short of boost; it brakes as hard as the
+            // suit can now (its own tests hold it).
+            let cmd = InputCmd { buttons: cmd.buttons & !BRAKE, ..cmd };
             let (mut a, mut b) = (s0, s0);
             let out_a = step(&mut a, &cmd, spec, &mods, DT);
             let out_b = v8::step(&mut b, &cmd, spec, &mods, DT);

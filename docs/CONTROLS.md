@@ -49,16 +49,33 @@ the same for the server, the prediction and agents.
 |---|---|---|
 | The view stays upright, levelling out onto the ground's up (the colony's, the lock-on's ground) | The view rolls with the suit | Every first-person shooter; Overload's auto-level is the 6DOF game's most praised comfort option, and roll adds most to motion sickness [B3][C6] |
 | The mouse turns about that up, never past 89° of the horizon | About the suit's up, which pitches with it: it loops | A shooter's yaw and pitch, stopping where Overwatch does (89°, *unverified*) |
-| W along the crosshair, A/D square to it along the ground, Space/C along the up | Along the suit's own axes, which lag the aim | Spectator and noclip cameras, and Descent's and Overload's 6DOF, fly where you look [B3] |
+| W along the crosshair, A/D square to it along the ground, Space/C (or Ctrl) along the up | Along the suit's own axes, which lag the aim | Spectator and noclip cameras, and Descent's and Overload's 6DOF, fly where you look [B3] |
 | A diagonal no faster than straight | A diagonal is the axes' sum | A shooter's movement |
 | The RCS fires whenever the aim is off the nose | R, held | Drones and agents always fly with it; without it a pilot turned at two fifths of their rate |
 | V held half a second for flight assist | V pressed | V is Overwatch's melee key (*unverified*; ours is F): a tap mustn't throw a shooter's player into Newtonian flight |
 | Q/E roll while held, and it levels out again | Q/E roll, and it stays | An upright view; a rolled one is a held key away |
 
 What it costs: no loops or inverted flight on the mouse alone (Q/E, or the simulator's controls),
-and the thrusters still reach a velocity axis by axis, sideways at half forward's pull, so a strafe
-from a standstill builds over seconds, as a suit's would. The arms reach 50° off the nose, so after
-a flick past that the crosshair dims for the half second the suit takes to come round.
+and the thrusters still reach a velocity axis by axis. The arms reach 50° off the nose, so after a
+flick past that the crosshair dims while the suit comes round.
+
+**The anime rules' handling** (the owner's second call, October 2026: "too slow to turn", and the
+suit "floats" when the mouse moves fast; W must go where the camera points). The shooter controls
+asked for the right thing, but the suit took a second and a half to come round a quarter turn and
+pushed sideways at half its forward thrust, so after a flick it slid on the way it had been going
+for seconds. Under the anime rules (the default) suits now turn three times as fast and push every
+way as hard as ahead, half as hard again as their frame's own (`DESIGN.md`, "Flight rules"), and
+the simulation stays one for both control schemes and for agents. The real rules keep the
+simulator's handling.
+
+| Key | Now | Before |
+|---|---|---|
+| Mouse, flicked | an Argo comes round a quarter turn in under half a second | about a second and a half |
+| W after a quarter turn at 100 m/s | an Argo flies where the crosshair is within two seconds (an Altair, one) | nearly five: it pushed sideways at 1.75 g |
+| Space | always up: double-tapped inside the colony too, a burst step (the colony's fall and hover are L's) | double-tapped inside, it dropped the suit |
+| Shift | overdrives every way's thrusters, so it speeds whichever way is held | the main thrusters only |
+| Ctrl | down, as C is (crouches on the ground) | unbound: Ctrl+W closes the tab |
+| X | brakes as hard as the suit can: at once, with boost's overdrive, no G guard (an Argo stops from its cruise in 2.6 s) | eased off as flight assist does, retro thrust only (10.5 s) |
 
 ## The cockpit view
 
@@ -109,11 +126,11 @@ are settings, so the next sortie starts in the same view.
 | Ours | The same elsewhere |
 |---|---|
 | W/S forward/back, A/D strafe | Star Citizen, Everspace 2, Warframe Archwing [B2][B3] |
-| Space / C up/down | Space Engineers, key for key [B4] |
+| Space / C up/down (and Ctrl down) | Space Engineers, key for key [B4]; Ctrl is a shooter's crouch |
 | On a body: Space hops (held, lifts off), C crouches | Space Engineers' jump and crouch on foot, the same keys [B4] |
 | L arms the grip to land, and clears it to let go | Elite's landing gear (*unverified*) [B1] |
 | Q/E roll | Star Citizen, Everspace 2, Space Engineers [B2][B3][B4] |
-| Shift boost · X brake | Star Citizen (X is its space brake) [B2] |
+| Shift boost (whichever way) · X brake (as hard as the suit can) | Star Citizen (X is its space brake) [B2] |
 | R RCS | Kerbal Space Program (R toggles RCS) [B4] |
 | LMB/RMB weapons | Mecha BREAK [A2] |
 | Esc menu | The browser's own exit from pointer lock [C1] |
@@ -215,9 +232,20 @@ tap ejects at once and a hold blows the suit up instead.
      habit to follow. Of the letters still free (I, K and O), O is for options, and it is out of
      reach of the left hand on W A S D, so a fight never presses it by mistake. While the radio's
      line is open it is a letter, not a key.
-7. **Left Ctrl was a hidden "down"**, and holding it with W is Ctrl+W, which closes the browser tab.
-   Browsers reserve that shortcut outside fullscreen, and itch.io players report tabs closing on
-   them exactly this way [C1]. **Done:** down is C alone.
+7. **Ctrl is down, and Ctrl+W closes the tab.** Holding Ctrl with W is Ctrl+W, which closes the
+   browser tab. Browsers reserve that shortcut outside fullscreen, and itch.io players report tabs
+   closing on them exactly this way [C1]. Down was C alone for that; the owner put Ctrl back
+   (October 2026), since a shooter's players reach for it.
+   - **Done:** in a sortie the page asks the browser to confirm leaving (`beforeunload`), so Ctrl+W
+     (and Ctrl+Shift+W, the window) asks "Leave site?" instead of closing; the cost is a click and
+     the pointer's lock. Most of Ctrl's combinations with the game's keys (Ctrl+A, D, S, F, R, H)
+     are the page's to keep, and the game keeps them (Bevy's `prevent_default_event_handling`).
+   - **Still open:** the browser keeps the rest outside fullscreen: Ctrl+Tab (the camera key)
+     and Ctrl+1 to 9 (the rack's keys) switch tabs, and Ctrl+T (throw) and Ctrl+N (the auto-nav)
+     open one; sinking while pressing them leaves the game's tab. Fullscreen with keyboard lock
+     (P2 #13) would give the game all of them. On Windows, Ctrl+Shift switches keyboard layouts
+     where more than one is installed: sinking on boost can do that, and nothing in a page can
+     stop it.
 8. **C means two things.** Held in flight it is down; on a body it toggles a crouch. The flight
    panel always says which (`GROUNDED` or `CROUCHED`), and a first-landing hint names the keys.
 

@@ -983,6 +983,7 @@ impl World {
             },
             surface_n: predict.surface_n(),
             tuning,
+            rules: predict.rules(),
         };
         let mut p = Perception::default();
         p.reset(me);
