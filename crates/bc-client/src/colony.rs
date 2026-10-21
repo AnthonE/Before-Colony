@@ -237,6 +237,23 @@ fn wall(a0: f32, a1: f32) -> Mesh {
     mesh(p, n, grid_indices(cols, rows))
 }
 
+/// A mirror's plate, a unit cube (stretched by [`mirror_transform`]): its front (−Y) bare metal,
+/// the mirror; its back and edges the painted frame it hangs on, which takes what light reaches
+/// it (as bare metal, the back mirrored black sky).
+fn mirror_mesh() -> Mesh {
+    let mut mesh = Cuboid::new(1.0, 1.0, 1.0).mesh().build();
+    let Some(normals) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL).and_then(|n| n.as_float3()) else {
+        return mesh;
+    };
+    // `hull.wgsl`'s slots: 32 + a paint is that paint as bare metal, 16 + a paint that paint.
+    let face = f32::from(32 + paint::MIRROR) / 255.0;
+    let frame = f32::from(16 + paint::HULL) / 255.0;
+    let colours: Vec<[f32; 4]> =
+        normals.iter().map(|n| [if n[1] < -0.5 { face } else { frame }, 0.0, 0.0, 1.0]).collect();
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colours);
+    mesh
+}
+
 /// A structural ring: a band standing `height` off the hull, `width` wide, all the way round.
 fn ring(height: f32, width: f32) -> Mesh {
     let segs = 144u32;
@@ -396,9 +413,9 @@ pub fn setup_colony(
                 ));
                 // The window's mirror, hinged at the docking hub's end, opening with the day.
                 c.spawn((
-                    Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+                    Mesh3d(meshes.add(mirror_mesh())),
                     MeshMaterial3d(surfaces.mirror.clone()),
-                    HullTag { metal: true, ..HullTag::paint(paint::MIRROR, 60 + k as u8) }.tag(),
+                    HullTag::paint(paint::MIRROR, 60 + k as u8).tag(),
                     mirror_transform(k, noon),
                     MirrorPlate(k),
                     NotShadowCaster,
