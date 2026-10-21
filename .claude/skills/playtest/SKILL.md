@@ -103,7 +103,9 @@ two is a finding.
 ## Writing it up
 
 `note` as you go (it records where you were and your last screenshot). When you're done, write
-`e2e/artifacts/playtest/<session>/report.md`, most important first, one entry per finding:
+the report, most important first, one entry per finding: to
+`e2e/artifacts/playtest/<session>/report.md`, or, as a subagent (which can't write files), as
+your final message, for whoever sent you to save there:
 
 ```markdown
 ### <what's wrong, in a line>
@@ -114,7 +116,8 @@ two is a finding.
 - **Fix**: where in the code, if you looked (`crates/bc-client/src/onfoot.rs:1181`), and how
 ```
 
-Say what you couldn't reach or check, and what's slow because the browser draws in software
+Say what you couldn't reach or check (the new pilot's hints, for one: they show only with the
+pointer locked, `crates/bc-client/src/settings.rs`), and what's slow because the browser draws in software
 rather than because the game is. Leave a finding out rather than guess at one: a claim someone has
 to re-check costs more than it saves. Fix nothing while playtesting unless you were asked to;
 your report is the deliverable.
