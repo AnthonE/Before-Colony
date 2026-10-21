@@ -288,7 +288,7 @@ pub fn update_objectives(
     }
     // Say so when one is done.
     if let Some(o) = Objective::ALL.iter().find(|o| before & o.bit() == 0 && done & o.bit() != 0) {
-        ui.toast(format!("OBJECTIVE DONE - {}", o.title(survival)));
+        ui.toast(format!("OBJECTIVE DONE · {}", o.title(survival)));
     }
     let from = view.map_or(Vec3::ZERO, |v| v.pos);
     state.current = current;
@@ -304,12 +304,10 @@ pub fn update_objectives(
         })
         .and_then(|k| PLACES.get(usize::from(k)).map(|p| (usize::from(k), p)));
     ui.map_goal = goal.filter(|_| afoot).map(|(_, p)| p.slug);
-    let to_door =
-        goal.zip(onfoot.city.as_ref()).filter(|((_, p), c)| p.strip == c.strip).map(|((i, _), c)| {
-            let ((s, x), _) = bc_client_core::city_nav::use_spot(i);
-            let at = c.feet();
-            Vec2::new(at.s - s, at.x - x).length()
-        });
+    let to_door = goal
+        .zip(onfoot.city.as_ref())
+        .filter(|((_, p), c)| p.strip == c.strip)
+        .map(|((i, _), c)| to_door(c, i));
     state.waypoint =
         if afoot { None } else { current.and_then(|o| waypoint_at(core, o.waypoint(), from, t)) };
     // Flying inside the colony: no objectives in there. The panel is the Proving Ground's
@@ -409,7 +407,15 @@ pub fn update_objectives(
     vis.set_if_neq(Visibility::Inherited);
 }
 
-fn km(d: f32) -> String {
+/// How far the pilot on foot is from place `i`'s door, along the floor: what the objective's panel
+/// and its sign over the door both say.
+pub fn to_door(c: &crate::onfoot::CityFoot, i: usize) -> f32 {
+    let ((s, x), _) = bc_client_core::city_nav::use_spot(i);
+    let at = c.feet();
+    Vec2::new(at.s - s, at.x - x).length()
+}
+
+pub fn km(d: f32) -> String {
     if d < 1_000.0 { format!("{d:.0} m") } else { format!("{:.1} km", d / 1_000.0) }
 }
 
