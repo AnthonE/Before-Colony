@@ -45,6 +45,7 @@ Looking
   ui                       the page's visible text and controls (prompts, toasts, panels, buttons)
   status [key...]          window.__bc (the client's own status), all or some keys
   logs [all]               the browser console since the last call (errors first)
+  profile [secs]           where the page's time goes (Chrome's profiler, by function; default 10 s)
 
 Doing
   key <Key[+Key]> [ms]     tap, or hold for ms (KeyW, Space, ShiftLeft+KeyW, Escape, KeyE, KeyM, F1, Tab)
@@ -67,7 +68,8 @@ Notes
   note <text>              add a finding to notes.md, with the last screenshot's path
   notes                    print notes.md
 
-Env: PT_SESSION (default pt), BC_HTTP_PORT (8080), PT_HEADED=1 (a headed browser under xvfb-run),
+Env: PT_SESSION (default pt), BC_HTTP_PORT (8080), PT_HEADED (1: a headed browser under xvfb-run, the
+     default where it's installed, with the pointer lock a player has; 0: headless, the lock refused),
      PT_VIEWPORT (960x540), PT_IDLE (seconds idle before the browser closes; 2700), PT_TIMEOUT
      (seconds a command may take; 600)`;
 
@@ -98,6 +100,9 @@ async function startDaemon() {
   fs.rmSync(DAEMON, { force: true });
   const log = fs.openSync(path.join(OUT, "daemon.log"), "a");
   const self = fileURLToPath(import.meta.url);
+  // Headed where xvfb-run is (a real pointer lock: the new pilot's hints, the primary weapon).
+  const xvfb = (process.env.PATH ?? "").split(":").some((d) => fs.existsSync(path.join(d, "xvfb-run")));
+  process.env.PT_HEADED ??= xvfb ? "1" : "0";
   const [cmd, args] =
     process.env.PT_HEADED === "1"
       ? ["xvfb-run", ["-a", "-s", `-screen 0 ${VW + 40}x${VH + 120}x24`, process.execPath, self, "serve"]]
@@ -160,14 +165,25 @@ const KEEP_MEMORY = () => {
   }
 };
 
-// The pointer stays free (PT_LOCK=1 lets the page lock it). Headless Chromium grants the lock, and
-// with it held on foot the game's frames slow tenfold and its memory climbs by gigabytes until the
-// wasm aborts (2026-10-21: `scripts/pt open`, then `cmd '{"cmd":"resume"}'`, and watch wasm_mb).
-// Refused, the game asks for a click, as a page that won't lock does.
+// Headless Chromium, the pointer locked, fires thousands of empty raw moves a second and hands
+// each `pointermove` hundreds of thousands of them coalesced; winit turns every one into an
+// event, and the game's frames slow tenfold and its memory climbs by gigabytes until the wasm
+// aborts. A move here is just itself (a real mouse's movement rides on it whole).
+// (`e2e/tests/util.ts`'s `calmPointer` is the same, for the suites.)
+const ONE_MOVE = () => {
+  if (window.PointerEvent?.prototype.getCoalescedEvents) {
+    PointerEvent.prototype.getCoalescedEvents = function () {
+      return [this];
+    };
+  }
+};
+// Headless (PT_HEADED=0) the lock is refused too: the stub above keeps the game whole, but the storm
+// itself still takes the page's main thread (PT_LOCK=1 allows it anyway; PT_LOCK=0 refuses it
+// headed too). Refused, the game asks for a click, as a page that won't lock does.
 const NO_LOCK = () => {
   Element.prototype.requestPointerLock = function () {
     setTimeout(() => document.dispatchEvent(new Event("pointerlockerror")), 0);
-    const refused = Promise.reject(new DOMException("pointer lock is off in playtests", "NotSupportedError"));
+    const refused = Promise.reject(new DOMException("pointer lock is off in this playtest", "NotSupportedError"));
     refused.catch(() => {});
     return refused;
   };
@@ -198,7 +214,9 @@ async function serve() {
   const page = await context.newPage();
   await page.addInitScript(KEEP_TOASTS);
   await page.addInitScript(KEEP_MEMORY);
-  if (process.env.PT_LOCK !== "1") await page.addInitScript(NO_LOCK);
+  await page.addInitScript(ONE_MOVE);
+  const headed = process.env.PT_HEADED === "1";
+  if (process.env.PT_LOCK === "0" || (!headed && process.env.PT_LOCK !== "1")) await page.addInitScript(NO_LOCK);
   const consoleLog = fs.createWriteStream(path.join(OUT, "console.log"), { flags: "a" });
   const lines = [];
   let read = 0;
@@ -211,7 +229,11 @@ async function serve() {
     lines.push(line);
     consoleLog.write(`${new Date().toISOString()} ${line}\n`);
   };
-  page.on("console", (m) => keep(`[${m.type()}] ${m.text()}`));
+  // (A failed load says which: the message alone doesn't.)
+  page.on("console", (m) => {
+    const from = /^Failed to load resource/.test(m.text()) && m.location()?.url;
+    keep(`[${m.type()}] ${m.text()}${from ? ` (${from})` : ""}`);
+  });
   page.on("pageerror", (e) => keep(`[pageerror] ${e.message}`));
   page.on("crash", () => keep("[crash] the page crashed"));
 
@@ -453,6 +475,32 @@ async function serve() {
     sleep: async (secs = "1") => {
       await sleep(Number(secs) * 1000);
       return summary();
+    },
+    profile: async (secs = "10") => {
+      // Chrome's sampling profiler over the page: where its time goes, by function (the game's wasm
+      // shows by name only in a build that keeps them: `PT_PROFILE_BUILD=1 scripts/pt up`).
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send("Profiler.enable");
+      await cdp.send("Profiler.setSamplingInterval", { interval: 1000 });
+      await cdp.send("Profiler.start");
+      await sleep(Number(secs) * 1000);
+      const { profile } = await cdp.send("Profiler.stop");
+      await cdp.detach();
+      const self = new Map();
+      const byId = new Map(profile.nodes.map((n) => [n.id, n]));
+      profile.samples.forEach((id, i) => {
+        const f = byId.get(id).callFrame;
+        const key = `${f.functionName || "(anonymous)"}  ${f.url ? path.basename(f.url) : ""}`.trim();
+        self.set(key, (self.get(key) ?? 0) + (profile.timeDeltas[i] ?? 0));
+      });
+      const total = [...self.values()].reduce((a, b) => a + b, 0) || 1;
+      const top = [...self.entries()].sort((a, b) => b[1] - a[1]).slice(0, 30);
+      const file = path.join(OUT, `profile-${Date.now()}.cpuprofile`);
+      fs.writeFileSync(file, JSON.stringify(profile));
+      return [
+        `${secs} s profiled (${file}: open in Chrome's DevTools, Performance); self time:`,
+        ...top.map(([k, us]) => `${((100 * us) / total).toFixed(1).padStart(5)}%  ${(us / 1000).toFixed(0).padStart(6)} ms  ${k}`),
+      ].join("\n");
     },
     eval: async (...js) => {
       const r = await page.evaluate(js.join(" "));

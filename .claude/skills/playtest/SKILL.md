@@ -36,14 +36,17 @@ with their own session; they see each other in it.
 - **The low tier has no HDR, bloom or post effects.** Judge the *look* (light, materials, colour)
   only on `high`: the showcase (`scripts/pt showcase city 3 480`, High by default) or
   `scripts/pt open 'quality=high'` (slower still). Judge layout, words, flow and feel on `low`.
-- **The pointer is never locked**, so the mouse can't steer: `turn <yaw> [pitch]` turns the eyes
-  (flying or on foot), `mouse right <ms>` fires the secondary weapon (the primary needs the lock).
-  The page's "CLICK TO WALK" / "CLICK TO FLY" stays up for that reason: it isn't a finding.
-  (The driver refuses the lock on purpose: headless Chromium grants it, and with it held on foot
-  the game slows tenfold and its memory climbs by gigabytes until it aborts. `PT_LOCK=1` lets the
-  page lock it, to look into that.) Keys work: `key KeyW 1500`, `key ShiftLeft+KeyW 2000`,
-  `key Escape`. A hold moves the pilot only as far as the frames drawn in it, so travel with
-  `walk` and `fly_to` (they keep up with slow frames) and keep keys for feel.
+- **The pointer locks as a player's does** once you click into the world (`click 480 270`, or the
+  menu's Resume): the browser is a headed Chromium on a virtual screen (`xvfb-run`), so the new
+  pilot's hints show and the primary fires (`mouse left <ms>`). Until you click, the page's
+  "CLICK TO WALK" / "CLICK TO FLY" is up, as it is for a player: not a finding. The mouse itself
+  can't steer even locked: `turn <yaw> [pitch]` turns the eyes (flying or on foot). Keys work:
+  `key KeyW 1500`, `key ShiftLeft+KeyW 2000`, `key Escape`. A hold moves the pilot only as far as
+  the frames drawn in it, so travel with `walk` and `fly_to` (they keep up with slow frames) and
+  keep keys for feel. (Without xvfb-run, or with `PT_HEADED=0`, the browser is headless and
+  refuses the lock: headless Chromium, locked, fires a storm of empty mouse moves that takes the
+  page's main thread. The driver also hands the game each move whole, uncoalesced, so the storm
+  can't swamp it either: it once took the game to 3 GB and a crash.)
 - **If the game dies** (a wasm trap or a panic) every status line says so in capitals from then
   on, and what you see is frozen: read `logs` (the first error is the one that matters; the rest
   are its fallout), note it with the steps that led there, and `open` again. `wasm_mb` in the
@@ -116,8 +119,8 @@ your final message, for whoever sent you to save there:
 - **Fix**: where in the code, if you looked (`crates/bc-client/src/onfoot.rs:1181`), and how
 ```
 
-Say what you couldn't reach or check (the new pilot's hints, for one: they show only with the
-pointer locked, `crates/bc-client/src/settings.rs`), and what's slow because the browser draws in software
+Say what you couldn't reach or check (the new pilot's hints show only with the pointer locked,
+`crates/bc-client/src/settings.rs`: click in first), and what's slow because the browser draws in software
 rather than because the game is. Leave a finding out rather than guess at one: a claim someone has
 to re-check costs more than it saves. Fix nothing while playtesting unless you were asked to;
 your report is the deliverable.
