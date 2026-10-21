@@ -77,14 +77,16 @@ impl Material for WindowMaterial {
 #[derive(Resource)]
 pub struct CityLib(#[allow(dead_code)] Handle<Shader>);
 
-/// The city's block atlas as an image: one RGBA8 texel a block.
+/// The city's atlas as an image: one RGBA8 texel a block, and under them the roofs' height map
+/// (`bc_client_core::city_atlas::atlas`), worked out once for the city and the windows both.
 pub fn atlas_image() -> Image {
-    use bc_client_core::city_atlas::{ATLAS_H, ATLAS_W, block_atlas};
+    use bc_client_core::city_atlas::{IMAGE_H, IMAGE_W, atlas};
     use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+    static ATLAS: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
     Image::new(
-        Extent3d { width: ATLAS_W, height: ATLAS_H, depth_or_array_layers: 1 },
+        Extent3d { width: IMAGE_W, height: IMAGE_H, depth_or_array_layers: 1 },
         TextureDimension::D2,
-        block_atlas(bc_sim::colony::city::Stage(0)),
+        ATLAS.get_or_init(|| atlas(bc_sim::colony::city::Stage(0))).clone(),
         TextureFormat::Rgba8Unorm,
         RenderAssetUsages::RENDER_WORLD,
     )

@@ -8,10 +8,14 @@
 use bc_client_core::life;
 use bevy::anti_alias::smaa::Smaa;
 use bevy::camera::Hdr;
+use bevy::core_pipeline::prepass::{DepthPrepass, NormalPrepass};
 use bevy::core_pipeline::tonemapping::Tonemapping;
+use bevy::pbr::{ScreenSpaceAmbientOcclusion, ScreenSpaceAmbientOcclusionQualityLevel};
 use bevy::post_process::bloom::Bloom;
 use bevy::post_process::effect_stack::{ChromaticAberration, LensDistortion, Vignette};
 use bevy::prelude::*;
+use bevy::render::renderer::RenderDevice;
+use bevy::render::settings::WgpuFeatures;
 use bevy::render::view::{ColorGrading, ColorGradingGlobal, ColorGradingSection};
 use bevy::window::PrimaryWindow;
 
@@ -60,11 +64,13 @@ impl GfxTier {
 
     pub fn settings(self) -> TierSettings {
         // WebGL2 allows one shadow cascade; the WebGPU build gets more reach.
-        let (cascades, reach) = if cfg!(feature = "webgpu") { (3, 3_000.0) } else { (1, 500.0) };
+        let webgpu = cfg!(feature = "webgpu");
+        let (cascades, reach) = if webgpu { (3, 3_000.0) } else { (1, 500.0) };
         let base = TierSettings {
             hdr: true,
             msaa: 4,
             smaa: false,
+            ssao: None,
             post: true,
             max_dpr: 1.5,
             ibl: true,
@@ -110,8 +116,14 @@ impl GfxTier {
                 life: life::TIERS[1],
                 ..base
             },
-            Self::High => base,
+            // Screen-space ambient occlusion where the GPU can run it (WebGPU's compute; WebGL2 has
+            // none): shade where things meet, in their creases and under them.
+            Self::High => TierSettings {
+                ssao: webgpu.then_some(ScreenSpaceAmbientOcclusionQualityLevel::Medium),
+                ..base
+            },
             Self::Ultra => TierSettings {
+                ssao: webgpu.then_some(ScreenSpaceAmbientOcclusionQualityLevel::High),
                 max_dpr: 4.0,
                 shadow_map: 4096,
                 fx_lights: 24,
@@ -133,6 +145,9 @@ pub struct TierSettings {
     pub msaa: u32,
     /// Post-process anti-aliasing (SMAA) when multisampling is off.
     pub smaa: bool,
+    /// Screen-space ambient occlusion, at this quality, on GPUs that can run it ([`ssao_runs`]).
+    /// It needs multisampling off, so where it runs SMAA stands in for it.
+    pub ssao: Option<ScreenSpaceAmbientOcclusionQualityLevel>,
     /// The pilot's post effects: G-strain grey-out and tunnel vision, hit flashes, the Orrery's vision
     /// and its seizure's warp and fringes (see `camera::pilot_effects`).
     pub post: bool,
@@ -171,6 +186,8 @@ pub struct Gfx {
     pub look: bool,
     /// The city's traffic and people drawn; `?life=0` hides them, to compare and to measure.
     pub life: bool,
+    /// Ambient occlusion where the tier and the GPU have it; `?ssao=0` turns it off, to compare.
+    pub ssao: bool,
     /// The page's pick for this GPU (what the "auto" setting means).
     pub auto: GfxTier,
 }
@@ -180,18 +197,50 @@ impl Gfx {
         let fallback = if cfg.low_quality { GfxTier::Low } else { GfxTier::High };
         let tier = GfxTier::parse(&cfg.quality).unwrap_or(fallback);
         let backend = if cfg!(feature = "webgpu") { "webgpu" } else { "webgl2" };
+        // ACES's filmic curve, with a firm toe and shoulder: shade on a suit's far side, light
+        // pooling under a lamp, paint and beams that stay saturated. Under TonyMcMapface, Bevy's
+        // default, every value sat nearer the middle and the picture read flat.
         let tonemapping = match cfg.tonemap.to_ascii_lowercase().as_str() {
             "agx" => Tonemapping::AgX,
-            "aces" => Tonemapping::AcesFitted,
-            _ => Tonemapping::TonyMcMapface,
+            "tony" => Tonemapping::TonyMcMapface,
+            _ => Tonemapping::AcesFitted,
         };
         let auto = GfxTier::parse(&cfg.quality_auto).unwrap_or(tier);
-        Self { tier, settings: tier.settings(), backend, tonemapping, look: cfg.look, life: cfg.life, auto }
+        Self {
+            tier,
+            settings: tier.settings(),
+            backend,
+            tonemapping,
+            look: cfg.look,
+            life: cfg.life,
+            ssao: cfg.ssao,
+            auto,
+        }
     }
 
     pub fn set_tier(&mut self, tier: GfxTier) {
         self.tier = tier;
         self.settings = tier.settings();
+    }
+
+    /// Stops the picture is opened up by before the tonemapper, so the exposures (`sky::EV100`,
+    /// the bay's, the colony's colour script) mean the same under each: ACES maps a value about a
+    /// stop darker than TonyMcMapface does through the darks and lower midtones, and opened a stop
+    /// it meets Tony there, keeping its own deeper shade below and brighter highlights above.
+    pub fn exposure_bias(&self) -> f32 {
+        if self.tonemapping == Tonemapping::AcesFitted { 1.0 } else { 0.0 }
+    }
+
+    /// How much brighter the stars are drawn (they're artistic, `sky.wgsl`), so the faint ones come
+    /// through ACES's toe as they do through Tony's.
+    pub fn starlight(&self) -> f32 {
+        if self.tonemapping == Tonemapping::AcesFitted { 1.8 } else { 1.0 }
+    }
+
+    /// The Milky Way's lift (`sky.wgsl`): the exponent on its haze, so its faint reaches come through
+    /// ACES's toe about as bright as through Tony's and its core no brighter.
+    pub fn milky_way_lift(&self) -> f32 {
+        if self.tonemapping == Tonemapping::AcesFitted { 0.55 } else { 1.0 }
     }
 }
 
@@ -235,13 +284,15 @@ fn cycle_tier(
 /// The picture's grade before anything happens to the pilot: a touch warmer, a little more contrast
 /// in the midtones, and shadows and highlights a shade less saturated, as film would take it.
 /// Applied on every tier (LDR tiers grade in their shaders). `camera::pilot_effects` works on top.
-pub fn base_grading(look: bool) -> ColorGrading {
-    if !look {
-        return ColorGrading::default();
+/// The tonemapper's exposure bias ([`Gfx::exposure_bias`]) is in it with or without the look.
+pub fn base_grading(gfx: &Gfx) -> ColorGrading {
+    let exposure = gfx.exposure_bias();
+    if !gfx.look {
+        return ColorGrading { global: ColorGradingGlobal { exposure, ..default() }, ..default() };
     }
     let section = |saturation: f32, contrast: f32| ColorGradingSection { saturation, contrast, ..default() };
     ColorGrading {
-        global: ColorGradingGlobal { temperature: 0.03, ..default() },
+        global: ColorGradingGlobal { temperature: 0.03, exposure, ..default() },
         shadows: section(0.9, 1.0),
         midtones: section(1.0, 1.06),
         highlights: section(0.95, 1.0),
@@ -253,10 +304,19 @@ pub fn base_vignette(look: bool) -> f32 {
     if look { 0.22 } else { 0.0 }
 }
 
+/// Whether this GPU can run Bevy's ambient occlusion: its compute passes write five storage
+/// textures, and its depth is an R32Float texture sampled with filtering. Without those, binding
+/// it would be a validation error, and Bevy stops the app on one.
+pub fn ssao_runs(device: &RenderDevice) -> bool {
+    device.limits().max_storage_textures_per_shader_stage >= 5
+        && device.features().contains(WgpuFeatures::FLOAT32_FILTERABLE)
+}
+
 /// Puts the tier's post-processing on the main camera (at spawn and whenever the tier changes).
 fn apply_camera_tier(
     mut commands: Commands,
     gfx: Res<Gfx>,
+    device: Option<Res<RenderDevice>>,
     cams: Query<Entity, With<MainCamera>>,
     added: Query<(), Added<MainCamera>>,
     mut dev: ResMut<DevStatus>,
@@ -267,24 +327,38 @@ fn apply_camera_tier(
     dev.set("gfx_tier", gfx.tier.name());
     dev.set("backend", gfx.backend);
     let s = gfx.settings;
+    let ssao = s.ssao.filter(|_| gfx.ssao && device.as_deref().is_some_and(ssao_runs));
+    dev.set("ssao", ssao.is_some());
+    let msaa = if ssao.is_some() { 1 } else { s.msaa };
     for cam in &cams {
         let mut e = commands.entity(cam);
-        e.insert(match s.msaa {
+        e.insert(match msaa {
             1 => Msaa::Off,
             2 => Msaa::Sample2,
             _ => Msaa::Sample4,
         });
-        if s.smaa {
+        if s.smaa || msaa != s.msaa {
             e.insert(Smaa::default());
         } else {
             e.remove::<Smaa>();
         }
+        // (Taking the occlusion off leaves the prepasses it brought, unless they go too.)
+        match ssao {
+            Some(quality_level) => {
+                e.insert(ScreenSpaceAmbientOcclusion { quality_level, ..default() });
+            }
+            None => {
+                e.remove::<(ScreenSpaceAmbientOcclusion, DepthPrepass, NormalPrepass)>();
+            }
+        }
+        // The tonemapper on every tier: LDR ones tonemap in their shaders, with the same curve.
+        e.insert(gfx.tonemapping);
         if s.hdr {
-            e.insert((Hdr, gfx.tonemapping, Bloom::NATURAL));
+            e.insert((Hdr, Bloom::NATURAL));
         } else {
             e.remove::<(Hdr, Bloom)>();
         }
-        e.insert(base_grading(gfx.look));
+        e.insert(base_grading(&gfx));
         if s.post {
             e.insert((
                 Vignette { intensity: base_vignette(gfx.look), ..default() },

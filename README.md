@@ -103,8 +103,8 @@ with the Orrery engaged (it walks to the cockpit and launches first), and, under
 keep the choice). Without a server,
 `?showcase=lodestars|lineup|duel|colony|field|sky|chase|salvage|mining|hangar|surface|city` plays an
 offline scene (`?hz=20` runs its clock slower, to see effects at a low frame rate). `?look=0` turns off the game's
-own look (its grade, vignette, lit smoke and the bay's haze) and `?tonemap=agx|aces` swaps the
-tonemapper, for comparing.
+own look (its grade, vignette, lit smoke and the bay's haze), `?tonemap=tony|agx` swaps the
+tonemapper (ACES by default) and `?ssao=0` turns off the WebGPU build's ambient occlusion, for comparing.
 
 Only Chromium has been tested. Firefox and Safari 26.4+ also ship WebTransport, but the dev server's
 self-signed certificate depends on `serverCertificateHashes` pinning, and that may not work there.

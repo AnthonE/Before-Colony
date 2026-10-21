@@ -41,6 +41,13 @@ const CANAL_WIDTH: f32 = 40.0;
 const TRACK_OFFSET: f32 = 4.5;
 const STRIP_WIDTH: f32 = 3351.0322;
 const ATLAS_ROWS: i32 = 27;
+// The long shadows' height map, under the blocks in the atlas (`city_atlas::heights`): 16 m cells,
+// the tallest roof over each in metres, four cells along to a texel (r, g, b, a).
+const HEIGHT_CELL: f32 = 16.0;
+const HEIGHT_S0: f32 = -12.48392;
+const HEIGHT_COLS: i32 = 2048;
+const HEIGHT_ROWS: i32 = 211;
+const HEIGHT_Y0: i32 = 81;
 
 // Where the stretches along the axis begin, by block (`colony::city`'s `HUB_GATE.0`, `CITY.0` and
 // `FAR_FOOT.0`): Hub Gate's square is the cells with no block between the cap and `CITY_START`
@@ -152,6 +159,34 @@ fn city_cell(s: f32, x: f32) -> Cell {
 // The block atlas's texel for a cell of strip `strip`.
 fn atlas_texel(strip: i32, cell: Cell) -> vec2<i32> {
     return vec2(clamp(cell.bx, 0, 255), strip * ATLAS_ROWS + cell.row + BANK_ROW);
+}
+
+// How far across the strip row `row`'s cell runs (s0, s1): its block, the lanes either side
+// halved, the avenue for row 0, out to the glass past the banks.
+fn row_span(row: i32) -> vec2<f32> {
+    let mid = STRIP_WIDTH * 0.5;
+    let k = abs(row);
+    if (k == 0) {
+        return vec2(mid - AVENUE * 0.5, mid + AVENUE * 0.5);
+    }
+    let inner = row_edge(k - 1);
+    let outer = select(row_edge(k), mid + 1.0, k >= BANK_ROW);
+    if (row < 0) {
+        return vec2(mid - outer, mid - inner);
+    }
+    return vec2(mid + inner, mid + outer);
+}
+
+// The height map's cell of strip `strip` (column, row: along, across) a point (s, x) is in.
+fn height_cell(s: f32, x: f32) -> vec2<i32> {
+    return vec2(i32(floor((x - GRID_X0) / HEIGHT_CELL)), i32(floor((s - HEIGHT_S0) / HEIGHT_CELL)));
+}
+
+// The atlas texel holding height cell `c` of strip `strip`, and which of its channels (0..3); the
+// cell clamped to the map.
+fn height_texel(strip: i32, c: vec2<i32>) -> vec3<i32> {
+    let k = clamp(c, vec2(0), vec2(HEIGHT_COLS - 1, HEIGHT_ROWS - 1));
+    return vec3(k.x >> 2u, HEIGHT_Y0 + strip * HEIGHT_ROWS + k.y, k.x & 3);
 }
 
 struct Paint {

@@ -13,18 +13,21 @@
 
 #import bevy_pbr::{
     pbr_fragment::pbr_input_from_standard_material,
-    pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing},
+    pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing, calculate_diffuse_color, calculate_F0_dielectric},
+    pbr_types::PbrInput,
     forward_io::{VertexOutput, FragmentOutput},
-    mesh_view_bindings::view,
+    mesh_view_bindings::{view, lights},
+    mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT,
+    lighting,
 }
 #import bc::noise::{hash13, noise3}
 #ifdef CITY_DETAIL
-#import bc::city::{city_cell, atlas_texel, city_paint, lantern_burn, streets_at, PLAZA_GAIN, CANAL_WIDTH}
+#import bc::city::{city_cell, atlas_texel, city_paint, lantern_burn, streets_at, PLAZA_GAIN, CANAL_WIDTH, row_span, height_texel, HEIGHT_CELL, HEIGHT_S0, BLOCK, GRID_X0}
 #else
 #import bc::city::{city_cell, atlas_texel, city_sketch, LAMP_MEAN, PLAZA_GAIN, CANAL_WIDTH}
 #endif
-#import bc::facade::{facade, FacadeIn, city_place}
-#import bc::colony_sky::{Sky, haze, strip_at, strip_up, key_dir, own_light, bounce_light, fresnel, sky_reflection, sun_glint}
+#import bc::facade::{facade, FacadeIn, city_place, F_MAX_HEIGHT}
+#import bc::colony_sky::{Sky, haze, strip_at, strip_up, up_at, height_at, key_dir, own_light, bounce_light, fresnel, sky_reflection, sun_glint}
 
 struct City {
     // xyz: where the render origin is in the colony's frame; w: the camera's strip.
@@ -53,6 +56,104 @@ const RADIUS: f32 = 3200.0;
 // windows. The colony's light strips inlaid in its ground (`Paint::glow`), nits.
 const GROUND_LAMPS: f32 = 420.0;
 const GROUND_STRIPS: f32 = 1800.0;
+
+#ifdef CITY_DETAIL
+// The long shadows (`COLONY_LOOK.md` pass 1.3), past what the shadow cascades reach: the height map
+// under the block atlas (`city_atlas::heights`), the tallest roof over each 16 m cell. Steps of the
+// march at most, and how far a step moves along the ground where a block's roofs are near the ray.
+const LONG_STEPS: i32 = 32;
+const LONG_STEP: f32 = 8.0;
+
+// The tallest roof over height cell `c` of strip `strip`, m.
+fn roof_cell(strip: i32, c: vec2<i32>) -> f32 {
+    let t = height_texel(strip, c);
+    return textureLoad(atlas, t.xy, 0)[t.z] * 255.0;
+}
+
+// The roofs' height at (s, x) of strip `strip`, between the cells' middles, so a shadow's edge is
+// a soft line rather than the cells' steps.
+fn roof(strip: i32, s: f32, x: f32) -> f32 {
+    let g = vec2((x - GRID_X0) / HEIGHT_CELL - 0.5, (s - HEIGHT_S0) / HEIGHT_CELL - 0.5);
+    let c = vec2<i32>(floor(g));
+    let f = g - floor(g);
+    let a = mix(roof_cell(strip, c), roof_cell(strip, c + vec2(1, 0)), f.x);
+    let b = mix(roof_cell(strip, c + vec2(0, 1)), roof_cell(strip, c + vec2(1, 1)), f.x);
+    return mix(a, b, f.y);
+}
+
+// How much of strip `strip`'s key light (towards `l`) reaches `p` (the colony's frame; unit normal
+// `n`), 0..1: marched towards the light through the roofs. A block whose tallest roof (the block
+// atlas's) the ray clears is crossed in one step; in the others it steps a few metres at a time.
+// It stops above the tallest roof the rules allow, or off the strip.
+fn long_shade(p: vec3<f32>, n: vec3<f32>, l: vec3<f32>, strip: i32) -> f32 {
+    // Off the surface: off a wall far enough to leave its own cell behind (walls stand anywhere in
+    // a cell, whose roof is the building's), and from a roof a cell on, past its own.
+    let level = abs(dot(n, up_at(p)));
+    let start = p + n * mix(HEIGHT_CELL * 0.75, 0.5, level);
+    var t = mix(1.0, HEIGHT_CELL, smoothstep(0.6, 0.9, level) * step(4.0, height_at(p)));
+    var shade = 1.0;
+    for (var i = 0; i < LONG_STEPS; i++) {
+        let q = start + l * t;
+        let h = height_at(q);
+        let place = city_place(q);
+        if (h > F_MAX_HEIGHT || place.x < 0.0 || i32(place.x + 0.5) != strip) {
+            break;
+        }
+        let s = place.y;
+        let x = place.z;
+        // How fast the ray crosses the strip (s) and runs along it (x), m a metre of ray.
+        let r2 = max(dot(q.yz, q.yz), 1.0);
+        let ds = RADIUS * (q.y * l.z - q.z * l.y) / r2;
+        let dx = l.x;
+        let cell = city_cell(s, x);
+        let top = textureLoad(atlas, atlas_texel(strip, cell), 0).b * 510.0;
+        if (h > top + 1.0) {
+            // Clear of the whole block: on to its cell's edge.
+            let x0 = GRID_X0 + BLOCK * f32(cell.bx);
+            let span = row_span(cell.row);
+            let tx = select((x0 + BLOCK - x) / dx, (x0 - x) / dx, dx < 0.0);
+            let ts = select((span.y - s) / ds, (span.x - s) / ds, ds < 0.0);
+            let along = select(1e6, tx, abs(dx) > 1e-4);
+            let across = select(1e6, ts, abs(ds) > 1e-4);
+            t += max(min(along, across), 0.0) + 1.0;
+        } else {
+            // A penumbra that widens with the distance to what casts it, about the sun's own. (The
+            // map's heights are rounded up: a metre's grace.)
+            let soft = 1.5 + 0.01 * t;
+            shade = min(shade, smoothstep(-soft, soft, h + 1.0 - roof(strip, s, x)));
+            if (shade < 0.01) {
+                break;
+            }
+            // Longer steps further out, where the penumbra's wider anyway.
+            t += (LONG_STEP + 0.04 * t) / max(length(vec2(ds, dx)), 0.25);
+        }
+    }
+    return shade;
+}
+
+// The scene's sun (Bevy's one directional light) on a surface, as `apply_pbr_lighting` adds it
+// before exposure, without its shadow: what a long shadow takes away.
+fn scene_sun(pbr: PbrInput) -> vec3<f32> {
+    let N = pbr.N;
+    let V = pbr.V;
+    let NdotV = max(dot(N, V), 0.0001);
+    let rough = pbr.material.perceptual_roughness;
+    var li: lighting::LightingInput;
+    li.layers[lighting::LAYER_BASE].NdotV = NdotV;
+    li.layers[lighting::LAYER_BASE].N = N;
+    li.layers[lighting::LAYER_BASE].R = reflect(-V, N);
+    li.layers[lighting::LAYER_BASE].perceptual_roughness = rough;
+    li.layers[lighting::LAYER_BASE].roughness = lighting::perceptualRoughnessToRoughness(rough);
+    li.P = pbr.world_position.xyz;
+    li.V = V;
+    li.diffuse_color = calculate_diffuse_color(pbr.material.base_color.rgb, pbr.material.metallic, 0.0, 0.0);
+    li.metallic = pbr.material.metallic;
+    li.F0_dielectric = calculate_F0_dielectric(pbr.material.reflectance);
+    li.F0_metallic = pbr.material.base_color.rgb;
+    li.F_ab = lighting::F_AB(rough, NdotV);
+    return lighting::directional_light(0u, &li, true);
+}
+#endif
 
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
@@ -377,8 +478,9 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     pbr.material.perceptual_roughness = rough;
     pbr.material.metallic = metal;
     // Bevy's ambient is even all round, so on the scene's strip the ground's bounce on walls and
-    // undersides comes in here (the other strips have it in `own_light`).
-    let bounce = albedo * bounce_light(n, kk, city.sky) * ao * (1.0 - metal);
+    // undersides comes in here (the other strips have it in `own_light`), occluded as the ambient is
+    // (`diffuse_occlusion`: the screen-space ambient occlusion where it runs, else 1).
+    let bounce = albedo * bounce_light(n, kk, city.sky) * ao * pbr.diffuse_occlusion * (1.0 - metal);
     pbr.material.emissive = vec4(glow + select(vec3(0.0), bounce, scene), 1.0);
     pbr.diffuse_occlusion *= ao;
     pbr.specular_occlusion *= ao;
@@ -387,8 +489,32 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // bounce, in the hour's colours. From inside a room the scene's light is the room's, so the
     // street through its door is lit by its own as the other strips are (and blazes, at the room's
     // exposure). A room's own surfaces are lit by its lamps.
+    // The long shadows: on the scene's strip, past where the cascades reach (Bevy's shadow there is
+    // exactly none), or all of it when there are no cascades. (Not the other strips, kilometres off
+    // in the haze overhead: there it would cost the most, over most of the picture, and show least.)
+    var shade = 1.0;
+#ifdef CITY_DETAIL
+    let key = key_dir(kk, city.sky);
+    if (scene && k >= 0.0 && !indoor && city.sky.ambient.w > 0.0 && dot(n, key) > 0.0) {
+        var reach = 0.0;
+        if (lights.n_directional_lights > 0u
+                && (lights.directional_lights[0u].flags & DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u) {
+            reach = lights.directional_lights[0u].cascades[lights.directional_lights[0u].num_cascades - 1u].far_bound;
+        }
+        let vz = view.view_from_world;
+        let depth = -dot(vec4(vz[0].z, vz[1].z, vz[2].z, vz[3].z), in.world_position);
+        if (depth >= reach) {
+            shade = long_shade(p, n, key, i32(kk + 0.5));
+        }
+    }
+#endif
     var out: FragmentOutput;
-    let lit = apply_pbr_lighting(pbr);
+    var lit = apply_pbr_lighting(pbr);
+#ifdef CITY_DETAIL
+    if (scene && shade < 1.0) {
+        lit = vec4(max(lit.rgb - scene_sun(pbr) * ((1.0 - shade) * view.exposure), vec3(0.0)), lit.a);
+    }
+#endif
     let own = vec4((own_light(albedo, n, kk, city.sky) * ao + glow + glint) * view.exposure, 1.0);
     out.color = select(own, lit, scene);
     if (indoor) {

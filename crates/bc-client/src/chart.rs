@@ -494,8 +494,17 @@ fn apply_chart_tier(mut commands: Commands, gfx: Res<Gfx>, cams: Query<Entity, W
     for cam in &cams {
         let mut e = commands.entity(cam);
         e.insert(if gfx.settings.msaa > 1 { Msaa::Sample4 } else { Msaa::Off });
+        // The main camera's tonemapper and its exposure bias, on every tier.
+        let exposure = gfx.exposure_bias();
+        e.insert((
+            gfx.tonemapping,
+            bevy::render::view::ColorGrading {
+                global: bevy::render::view::ColorGradingGlobal { exposure, ..default() },
+                ..default()
+            },
+        ));
         if gfx.settings.hdr {
-            e.insert((bevy::camera::Hdr, gfx.tonemapping, Bloom { intensity: 0.22, ..Bloom::NATURAL }));
+            e.insert((bevy::camera::Hdr, Bloom { intensity: 0.22, ..Bloom::NATURAL }));
         } else {
             e.remove::<(bevy::camera::Hdr, Bloom)>();
         }

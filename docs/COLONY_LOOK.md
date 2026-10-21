@@ -55,7 +55,7 @@ sees the same and nobody can touch.
 | Pass | State |
 |---|---|
 | 0: what's broken | done: the canal's water at every level, the glass tucked under the strips' edges, the city's own shadow cascades, the showcase running again |
-| 1: air and light | 1.0 (golden hours), 1.1 (`bc::colony_sky`: haze by height, the windows' beams, the colour script in `city_hour.rs`), 1.2 (glass and water reflect the sky function) and 1.4 (grade and bloom by the hour) done; 1.3 has the cascades, not yet the long shadows from a height atlas; 1.5 (WebGPU extras) to do |
+| 1: air and light | 1.0 (golden hours), 1.1 (`bc::colony_sky`: haze by height, the windows' beams, the colour script in `city_hour.rs`), 1.2 (glass and water reflect the sky function), 1.3 (the cascades near, the long shadows past them, Medium and up) and 1.4 (grade and bloom by the hour, through ACES a stop open: `gfx.rs`) done; 1.5 in part (ambient occlusion on WebGPU's High and Ultra where the GPU can run it; volumetric fog and contact shadows to do) |
 | 2: facades | 2.0 to 2.4 done as paint (`bc::facade`: filtered, rooms behind the windows, materials by district and strip, wear, shopfronts, the colony's halls, roofs); 2.5 done (crowns, setbacks, spires and masts, roof plant, courts, sheds, terraces; `CITY_VERSION` 3) |
 | 3: the street | 3.1 done (`bc::city`'s paint: markings, crossings, paving and beds on the avenue, wear, lamp pools that read as lines from afar); 3.3 in part (`bc_sim::colony::furniture`: lamp posts under every pool of the city's lamps, their lanterns burning as their pools do, benches on the avenue; the colony's own lamps, the tram's masts and wires, signals and kiosks to do); 3.4 in part (the avenue's and the quays' trees, crowns of lumpy blobs by species, the parks' and plazas' trees on their lawns; the sway and impostors past L1 to do); 3.5 in part (the water's reflections, see-through railings); the rest to do (3.2 has its `wet` mask ready) |
 | 4: life | 4.1 and 4.2 drawn on every screen (`life.rs`; seen in a browser on Low, SwiftShader, at about 7% of the frame, and the gfx suite asserts people and cars at the third city camera): the traffic (`colony::traffic`: rings of cars round the block rows, signals at the wide cross streets on an 80 s cycle with a green wave both ways, platoons that park at night, cars in the bays) and the people (`colony::walkers`: lines of slots on the pavements, the avenue's walks, the quays, parks, plazas, the banks, Hub Gate's square, the benches and the platforms) are closed forms of the tick in bc-sim, the same on every screen (`TRAFFIC_GOLDEN`, `WALKERS_GOLDEN`); people cross only the narrow cross streets, which no car drives (`tests/life.rs`). The client draws them from pools at two levels of detail, within each tier's budget (see pass 4); 4.3 to do |
@@ -200,11 +200,28 @@ The largest gain for the least work: none of it adds geometry.
   (16 m texels, `city_atlas`) and march a few steps toward the key light in `city.wgsl`. At dawn and
   dusk the towers of the business district then lay shadows kilometres long across the strip.
   That's the most dramatic thing the colony's low sun can do, and a cheap texture march.
+  *As built:* `city_atlas::heights` bakes the tallest roof over each 16 m cell from the rules' solids
+  (`each_solid`; a solid counts where it covers half a cell, so masts, cranes and frames cast none),
+  on cells whose edges are the rows', into the atlas image under the blocks, four cells a texel (no
+  new texture binding: WebGL2 has few). `city.wgsl`'s `long_shade` marches towards the key light from
+  each point of the camera's strip past the cascades' reach (`depth >= far_bound`, where Bevy's shadow
+  is exactly none; all of the strip on Medium, which has no cascades): a block whose tallest roof (the
+  block atlas's b) the ray clears is crossed in one step, the others a few metres at a time through
+  the roofs interpolated between cells, with a penumbra that widens with distance; at most 32 steps,
+  stopping above 240 m. What it takes away is exactly Bevy's sun term (`scene_sun`). The other strips
+  overhead don't march: they're most of the picture and kilometres into the haze. On SwiftShader at
+  the golden hour it costs the street camera about 3% of a frame.
 - **1.4 The grade and the bloom by the hour.** `ColorGrading` and `Bloom` follow the colour script
   (`light_city` already sets exposure by daylight). Night gets more bloom and a cooler grade with
   warm lights; golden hour gets lifted shadows tinted violet.
 - **1.5 WebGPU extras.** `VolumetricFog` with the key light for shafts between towers at
-  dawn and dusk, and contact shadows for feet, kerbs and benches.
+  dawn and dusk, and contact shadows for feet, kerbs and benches. *In part:* Bevy's screen-space
+  ambient occlusion on the WebGPU build's High and Ultra (`gfx.rs`), where the GPU has five storage
+  textures a stage and filterable 32-bit floats (Bevy stops on the validation error otherwise;
+  SwiftShader has four, so CI never runs it); SMAA stands in for multisampling there. It darkens the
+  ambient, and the city's and the people's bounce with it. The city and the people draw their own
+  prepass (`city_prepass.wgsl`, `life_prepass.wgsl`), holding back what their main pass cuts out (the
+  canal's channel, the quays' railings, a fading figure), which would otherwise be holes.
 
 ### Pass 2: facades
 
@@ -381,7 +398,8 @@ tick (4.1, 4.2, in bc-sim) and drawn (`life.rs`). The next passes, in order:
    at the narrow junctions, where no car stops (only the wide junctions' should stay).
 2. **Clouds in the core** (5.1): the biggest single anime gain left, and it hides the far cap's disc at the
    vanishing point that the clean core now shows.
-3. **Long shadows from a height atlas** (1.3), the rooms (3.6), wet streets (3.2), signs (3.7).
+3. The rooms (3.6), wet streets (3.2), signs (3.7); the long shadows on the strips overhead (1.3, for
+   a cost that measures).
 4. **What 3.3 and 3.4 left**: the tram's masts down the median with their wires (on a mesh that casts no shadow:
    strands the shader cuts out would cast solid bands), Hub Gate's square furniture (its lattice of the colony's
    lamps, the forecourt's rings, kiosks; the busiest walking ground in the game, so it needs the strollers', the
