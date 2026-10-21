@@ -42,6 +42,7 @@ use bc_sim::colony::city::{
 };
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, local_frame, up_at};
 use bc_sim::colony::hall;
+use bc_sim::colony::homes;
 use bc_sim::colony::hub::BAY_RADIUS;
 use bc_sim::colony::pools::{pool, pool_near};
 use bc_sim::colony::transit::{
@@ -182,7 +183,22 @@ pub struct CityFoot {
     pub seat: Option<usize>,
     /// At the Blast Hall's gantry's hatch, facing the pad: a trainer can be boarded.
     pub gantry: bool,
+    /// Riding a home building's lift (`bc_sim::colony::homes`): a cut, not a moving room.
+    pub lift: Option<LiftRide>,
 }
+
+/// A ride in a home building's lift: to which storey, and since when (s, the page's clock).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LiftRide {
+    pub to: u32,
+    at: f64,
+    there: bool,
+}
+
+/// A lift's ride: the screen goes dark, the pilot is put on the other floor halfway, and it comes
+/// up again, s.
+const LIFT_RIDE: f32 = 1.2;
+const LIFT_PUT: f32 = 0.55;
 
 /// Seated, the eye is this much lower than standing, m.
 const SEATED_DROP: f32 = 0.55;
@@ -328,6 +344,7 @@ impl CityFoot {
             tick: (0, 0.0),
             seat: None,
             gantry: false,
+            lift: None,
         }
     }
 
@@ -351,6 +368,52 @@ impl CityFoot {
         let to_pad = to_s.hypot(to_x).max(1e-3);
         let near = (at.s - s).hypot(at.x - x) < HATCH_REACH || to_pad < hall::GANTRY_RADIUS + 4.0;
         near && (hs * to_s + hx * to_x) / to_pad > 0.2
+    }
+
+    /// The home building whose lift the pilot stands at, and the storey they're on.
+    fn lift_here(&self) -> Option<(homes::Plan, u32)> {
+        if self.ride.is_some() || self.drive.is_some() || self.seat.is_some() || self.lift.is_some() {
+            return None;
+        }
+        let at = self.feet();
+        let plan = homes::plan_at(self.strip, at.s, at.x)?;
+        Some((plan, plan.at_lift(at.s, at.x, at.h)?))
+    }
+
+    /// Rides the lift where the pilot stands to storey `to`, if there's one and it's another.
+    fn ride_lift(&mut self, to: u32, now: f64) -> bool {
+        match self.lift_here() {
+            Some((plan, k)) if to != k && to < plan.storeys => {
+                self.lift = Some(LiftRide { to, at: now, there: false });
+                self.guide = None;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// A lift's ride `now`: halfway, the pilot is on its floor `to`, out of its doors; then it's done.
+    fn lifting(&mut self, now: f64) {
+        let Some(mut r) = self.lift else { return };
+        let t = (now - r.at) as f32;
+        if !r.there && t >= LIFT_PUT {
+            let at = self.feet();
+            if let Some(((s, x), h)) = homes::plan_at(self.strip, at.s, at.x).and_then(|p| p.lift_spot(r.to))
+            {
+                self.walker.feet = CityPos::new(self.strip, x, s, h).walker();
+                self.walker.vel = Vec3::ZERO;
+            }
+            r.there = true;
+        }
+        self.lift = (t < LIFT_RIDE).then_some(r);
+    }
+
+    /// How dark the lift's ride has the screen, 0..1.
+    fn lift_dark(&self, now: f64) -> f32 {
+        self.lift.map_or(0.0, |r| {
+            let t = (now - r.at) as f32;
+            smoothstep(0.0, LIFT_PUT - 0.1, t).min(1.0 - smoothstep(LIFT_PUT + 0.1, LIFT_RIDE, t))
+        })
     }
 
     /// Walks the pilot to the Blast Hall's gantry's hatch (in through its blast doors), facing the
@@ -1238,7 +1301,10 @@ pub fn drive_onfoot(
             c.stand();
             stood_up = true;
         }
-        let mut left = if c.drive.is_some() || c.seat.is_some() { 0.0 } else { walk_dt(c.guide.is_some()) };
+        // A lift's ride: put on the other floor halfway through it, and still till it's over.
+        c.lifting(now);
+        let still = c.drive.is_some() || c.seat.is_some() || c.lift.is_some();
+        let mut left = if still { 0.0 } else { walk_dt(c.guide.is_some()) };
         while left > 1e-4 {
             let h = left.min(0.1);
             left -= h;
@@ -1263,6 +1329,43 @@ pub fn drive_onfoot(
             ui.toast(name);
         }
         c.focus = c.door_in_view();
+        // At a home building's lift: E a floor up, Q one down, a digit that floor (0 the ground).
+        let mut rode = false;
+        if c.focus.is_none()
+            && !got_out
+            && !stood_up
+            && let Some((plan, k)) = c.lift_here()
+        {
+            let digits = [
+                KeyCode::Digit0,
+                KeyCode::Digit1,
+                KeyCode::Digit2,
+                KeyCode::Digit3,
+                KeyCode::Digit4,
+                KeyCode::Digit5,
+                KeyCode::Digit6,
+                KeyCode::Digit7,
+                KeyCode::Digit8,
+                KeyCode::Digit9,
+            ];
+            let mut to = digits.iter().position(|d| live && keys.just_pressed(*d)).map(|i| i as u32);
+            for cmd in &cmds.0 {
+                if let UiCmd::Lift(n) = cmd {
+                    to = Some(*n);
+                }
+            }
+            if used_key {
+                to = Some(if k + 1 < plan.storeys { k + 1 } else { 0 });
+            } else if live && keys.just_pressed(KeyCode::KeyQ) && k > 0 {
+                to = Some(k - 1);
+            }
+            if let Some(to) = to {
+                rode = c.ride_lift(to, now);
+                if !rode && to >= plan.storeys {
+                    ui.toast(format!("THIS LIFT GOES NO HIGHER THAN FLOOR {}", plan.storeys - 1));
+                }
+            }
+        }
         // At the Blast Hall's gantry's hatch: E boards the trainer the test range picked.
         c.gantry = c.focus.is_none() && c.hatch_in_view();
         board_trainer =
@@ -1271,6 +1374,7 @@ pub fn drive_onfoot(
         if used_key
             && !stood_up
             && !got_out
+            && !rode
             && c.focus.is_none()
             && !c.gantry
             && c.seat.is_none()
@@ -1538,7 +1642,7 @@ pub fn drive_onfoot(
     let open = (me.seq == Seq::Entering && t < ENTER_SECS * 0.8) || now < me.airlock_until;
     bay.airlock = if open { (bay.airlock + dt * 2.5).min(1.0) } else { (bay.airlock - dt * 1.5).max(0.0) };
     if let Ok(mut c) = curtain.single_mut() {
-        let a = me.curtain(now);
+        let a = me.curtain(now).max(me.city.as_ref().map_or(0.0, |c| c.lift_dark(now)));
         let want = Color::srgba(0.0, 0.0, 0.0, a);
         if c.0 != want {
             c.0 = want;
@@ -1586,6 +1690,10 @@ pub fn drive_onfoot(
             Some(c) if c.seat.is_some() => "SEATED · E OR A STEP TO STAND".into(),
             Some(c) if c.focus.is_some() => format!("E  {}", city_verb(&PLACES[c.focus.unwrap_or(0)])),
             Some(c) if c.gantry => format!("E  BOARD A TRAINER · {}", g.core.hangar.trainer_name()),
+            Some(c) if let Some((plan, k)) = c.lift_here() => {
+                let floor = if k == 0 { "THE GROUND FLOOR".to_string() } else { format!("FLOOR {k}") };
+                format!("THE LIFT · {floor} · E  UP · Q  DOWN · 0–{}  A FLOOR", plan.storeys - 1)
+            }
             Some(c)
                 if c.ride.is_none() && {
                     let at = c.feet();

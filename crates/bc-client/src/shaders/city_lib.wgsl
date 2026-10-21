@@ -35,6 +35,11 @@ const BANK_ROW: i32 = 13;
 const STREET: f32 = 24.0;
 const WIDE_STREET: f32 = 40.0;
 const SIDEWALK: f32 = 5.0;
+// A building's storeys: the street's kerb, the ground floor's height and an upper storey's
+// (`bc_sim::colony::city::{KERB, GROUND_FLOOR, FLOOR}`).
+const KERB: f32 = 0.15;
+const GROUND_FLOOR: f32 = 5.0;
+const FLOOR: f32 = 3.6;
 const CANAL_ROW: i32 = 4;
 const CANAL_WIDTH: f32 = 40.0;
 // The tram's tracks: each one's middle from the avenue's.

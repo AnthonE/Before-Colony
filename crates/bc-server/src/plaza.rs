@@ -9,7 +9,9 @@
 //! a trainer); on a tram only from beside its open doors, and in a car (or a Markab) only from a
 //! motor pool. Anything else isn't passed on. A Markab, the rocket car, goes where no car does (up
 //! walls, along ceilings, through the air), so all that's asked of where it is is that its middle
-//! is out of the walls.
+//! is out of the walls. The homes' buildings are walked like the street (their walls, floors and
+//! stairs are `solid`'s), and a lift is a ride from one of a building's lift doors to another
+//! (`bc_sim::colony::homes`).
 //!
 //! Pilots flying suits inside the colony see the people too: those on the strip under the suit,
 //! near it in the air ([`Plaza::fill_around`]).
@@ -21,6 +23,7 @@ use std::time::Instant;
 use bc_proto::presence::{MAX_PEOPLE, PersonPose, PlazaWriter, RIDER_S};
 use bc_sim::colony::city::{MAX_HEIGHT, Stage, arrival_seats, place_door, solid};
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, STRIPS, Under, from_colony, within_caps};
+use bc_sim::colony::homes;
 use bc_sim::colony::pools::pool_near;
 use bc_sim::colony::transit::{self, CAR_WIDTH, TRAIN_LENGTH, TRAINS};
 use bc_sim::content::city::{PLACES, PlaceKind};
@@ -218,6 +221,16 @@ fn possible(p: &PersonPose) -> bool {
         )
 }
 
+/// Whether a pilot on foot rode a lift from `last` to `now`: both at the lift doors of the same
+/// building, on different storeys.
+fn lifted(last: &PersonPose, now: &PersonPose) -> bool {
+    let at = |p: &PersonPose| {
+        let plan = homes::plan_at(p.strip, p.s, p.x)?;
+        Some(((plan.bx, plan.row, plan.lot), plan.at_lift(p.s, p.x, p.h)?))
+    };
+    matches!((at(last), at(now)), (Some((a, ka)), Some((b, kb))) if a == b && ka != kb)
+}
+
 /// The fastest anyone can go getting about as a pose does, m/s: on foot (seated, on a train), in a
 /// car or on a scooter, or in a Markab.
 fn top(p: &PersonPose) -> f32 {
@@ -280,8 +293,8 @@ impl Plaza {
                 };
                 let check = |ok: bool, why: Why| (!ok).then_some(why);
                 match (mode(&last), mode(&pose)) {
-                    // Walking, on the ground or in a car of a train.
-                    (Mode::Foot, Mode::Foot) => check(moved(MAX_SPEED), Why::Reach),
+                    // Walking, on the ground or in a car of a train; or a lift ridden.
+                    (Mode::Foot, Mode::Foot) => check(moved(MAX_SPEED) || lifted(&last, &pose), Why::Reach),
                     (Mode::Train(a), Mode::Train(b)) => check(a == b && moved(MAX_SPEED), Why::Reach),
                     // Getting on: from beside its open doors.
                     (Mode::Foot, Mode::Train(k)) => {
@@ -488,6 +501,65 @@ mod tests {
         }
         assert_eq!(out.iter().map(|(id, _)| *id).collect::<Vec<_>>(), shown);
         out
+    }
+
+    #[test]
+    fn a_pilot_walks_into_a_block_of_flats_climbs_its_stairs_and_rides_its_lift() {
+        use bc_client_core::city::{CityGround, pose_of};
+        use bc_client_core::walker::{Guide, Walker};
+        use bc_sim::colony::city::{CITY, KERB, ROWS, block, lots};
+        let plan = (CITY.0..CITY.1)
+            .flat_map(|bx| (1..=ROWS).filter_map(move |row| block(0, bx, row, Stage(0))))
+            .find_map(|b| {
+                lots(&b).as_slice().iter().find_map(|bd| {
+                    homes::plan(&b, bd)
+                        .filter(|p| p.kind == homes::Kind::Flats && p.storeys >= 4 && p.sides != 0)
+                })
+            })
+            .expect("a block of flats");
+        let plaza = Plaza::default();
+        let door = plan.point(0.0, -homes::SHELL - 1.2);
+        plaza.enter_at(1, "Kai", 0, door);
+        // In off the street, onto the landing, and up two storeys.
+        let mut way = vec![(plan.point(0.0, 0.8), KERB), (plan.point(0.0, homes::NEAR * 0.5), KERB)];
+        way.extend(plan.stairs_up(0, 0));
+        way.extend(plan.stairs_up(1, 0));
+        let ground = CityGround { strip: 0, stage: Stage(0) };
+        let mut w = Walker::at(CityPos::new(0, door.1, door.0, KERB + 0.05).walker(), Vec3::X);
+        let route = way.iter().map(|&((s, x), h)| CityPos::new(0, x, s, h).walker()).collect();
+        let mut g = Guide::new(route, None);
+        let t0 = Instant::now();
+        let (dt, mut seq, mut frames) = (1.0 / 15.0, 0u16, 0u32);
+        while !g.arrived() {
+            for _ in 0..4 {
+                let stride = g.steer(&mut w, dt / 4.0);
+                w.step(&ground, &stride, dt / 4.0);
+            }
+            seq += 1;
+            frames += 1;
+            let now = t0 + Duration::from_secs_f32(frames as f32 * dt);
+            let pose = pose_of(0, &w);
+            assert_eq!(plaza.accept(1, seq, pose, now, 0), Verdict::Taken, "{pose:?}");
+            assert!(frames < 15 * 120, "stuck at {pose:?}");
+        }
+        let up = CityPos::from_walker(0, w.feet);
+        assert!((up.h - homes::level(2)).abs() < 0.05, "{up:?}");
+        // To the lift's doors, and down in it to the ground floor: a moment, and taken.
+        let lift = |k: u32| {
+            let ((s, x), h) = plan.lift_spot(k).unwrap();
+            PersonPose { strip: 0, s, x, h, grounded: true, ..PersonPose::default() }
+        };
+        let mut now = t0 + Duration::from_secs_f32(frames as f32 * dt + 2.0);
+        for k in [2, 0] {
+            seq += 1;
+            assert_eq!(plaza.accept(1, seq, lift(k), now, 0), Verdict::Taken, "at the lift on {k}");
+            now += Duration::from_millis(500);
+        }
+        // But never into the lift's own walls.
+        seq += 1;
+        let (s, x) = plan.point(-homes::SPINE * 0.5 - 1.5, 2.0);
+        let in_wall = PersonPose { s, x, ..lift(0) };
+        assert_eq!(plaza.accept(1, seq, in_wall, now, 0), Verdict::Implausible, "in the lift's block");
     }
 
     #[test]

@@ -295,9 +295,10 @@ fn bay_launches_never_allocate() {
 
 #[test]
 fn the_colony_answers_without_allocating() {
-    // The city, its furniture, its day, its frames, its trams and its traffic are closed forms: asking
-    // them anything allocates nothing, so a future sector inside the colony can ask them in its tick.
-    use bc_sim::colony::{city, frame, furniture, time, traffic, transit};
+    // The city, its homes, its furniture, its day, its frames, its trams and its traffic are closed
+    // forms: asking them anything allocates nothing, so a sector inside the colony can ask them in its
+    // tick.
+    use bc_sim::colony::{city, frame, furniture, homes, time, traffic, transit};
     let mut rng = bc_sim::math::Rng::new(5);
     let ((hits, pieces, cars), n) = bc_alloc::count(|| {
         let (mut hits, mut pieces, mut cars) = (0u32, 0u32, 0u32);
@@ -310,6 +311,11 @@ fn the_colony_answers_without_allocating() {
             );
             let e = glam::Vec3::new(0.3, 0.9, 0.3);
             hits += u32::from(city::solid(k, p - e, p + e, city::Stage(0)));
+            // The homes in the buildings: which one a point's in, and the way up its stairs.
+            if let Some((plan, space)) = homes::inside(k, -p.z, p.x, p.y) {
+                hits += u32::from(space.is_some());
+                hits += plan.stairs_up(0, 0).len() as u32;
+            }
             let d = time::day(i * 7, 0.0);
             hits += u32::from(time::key_light(k as usize, &d).x > 2.0);
             let c = frame::CityPos::new(k, p.x, -p.z, p.y).to_colony();

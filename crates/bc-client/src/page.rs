@@ -68,6 +68,8 @@ pub enum UiCmd {
     /// place's door (by its slug), `ahead` metres out from it (or to the inner gate,
     /// `inner_gate`), or stop (`None`).
     FlyTo(Option<(String, f32, f32)>),
+    /// Dev hook, on foot at a home building's lift: ride it to storey `k` (0 the ground).
+    Lift(u32),
     Use,
     Skip,
 }
@@ -319,6 +321,7 @@ fn parse(v: &JsValue) -> Option<UiCmd> {
             (spot, num("up"), num("ahead"))
         })),
         "use" => UiCmd::Use,
+        "lift" => UiCmd::Lift(get(v, "storey").as_f64().unwrap_or(0.0) as u32),
         "skip" => UiCmd::Skip,
         _ => return None,
     })

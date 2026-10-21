@@ -134,6 +134,9 @@ mod tests {
         assert_eq!(constant("STREET"), city::STREET);
         assert_eq!(constant("WIDE_STREET"), city::WIDE_STREET);
         assert_eq!(constant("SIDEWALK"), city::SIDEWALK);
+        assert_eq!(constant("KERB"), city::KERB);
+        assert_eq!(constant("GROUND_FLOOR"), city::GROUND_FLOOR);
+        assert_eq!(constant("FLOOR"), city::FLOOR);
         assert_eq!(constant("CANAL_ROW") as i32, CANAL_ROW);
         assert_eq!(constant("CANAL_WIDTH"), city::CANAL_WIDTH);
         assert!((constant("STRIP_WIDTH") - STRIP_WIDTH).abs() < 1e-3);

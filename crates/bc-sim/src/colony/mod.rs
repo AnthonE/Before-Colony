@@ -4,8 +4,9 @@
 //! structures (`hub`), its city (`city`: streets, blocks and buildings, worked out where they're
 //! asked for), its street furniture (`furniture`: lamps, trees, benches; solid to people, not to
 //! suits), its trams (`transit`), its traffic (`traffic`: the cars on its streets and their signals)
-//! and the people on its streets (`walkers`), on the tick's clock; and the Proving Ground's course
-//! through its air (`course`) and its Blast Hall's live fire (`hall`).
+//! and the people on its streets (`walkers`), on the tick's clock; the Proving Ground's course
+//! through its air (`course`) and its Blast Hall's live fire (`hall`); and the homes inside its
+//! buildings (`homes`: lobbies, stairs, corridors, flats and houses, each at its own address).
 //!
 //! To suits and shots the colony is still `world`'s solid cylinder; this is the rest of it. Like
 //! the bodies, nothing here allocates or reads a clock of its own, and every function is the same
@@ -16,6 +17,7 @@ pub mod course;
 pub mod frame;
 pub mod furniture;
 pub mod hall;
+pub mod homes;
 pub mod hub;
 pub mod interior;
 pub mod mirrors;

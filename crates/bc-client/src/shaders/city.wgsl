@@ -473,6 +473,46 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         }
     }
 
+    if (surface >= 27u && surface <= 31u) {
+        // Inside a home's building (`city_mesh::Surface::HomeWall` to `HomeDoor`), lit as a room is.
+        // Walls' and doors' UVs are metres along and up from the street; floors' and ceilings',
+        // where they are.
+        indoor = true;
+        if (surface == 27u) {
+            // Painted plaster over a skirting board, along the foot of each storey's walls.
+            let up = uv.y - GROUND_FLOOR;
+            let above = select(uv.y - KERB, up - floor(up / FLOOR) * FLOOR, up >= 0.0);
+            let skirting = step(above, 0.12);
+            albedo = vec3(0.8, 0.78, 0.73) * (0.95 + 0.06 * noise3(vec3(uv * 0.9, 21.0)));
+            albedo = mix(albedo, vec3(0.32, 0.27, 0.22), skirting);
+            rough = 0.85;
+        } else if (surface == 28u) {
+            // Oak boards, a plank's width across the strip.
+            let plank = floor(uv.x / 0.18);
+            let joint = step(fract(uv.x / 0.18), 0.05) + step(fract(uv.y / 2.4 + hash13(vec3(plank, 0.0, 22.0))), 0.01);
+            albedo = vec3(0.46, 0.33, 0.21) * (0.82 + 0.3 * hash13(vec3(plank, floor(uv.y / 2.4), 23.0)));
+            albedo *= mix(1.0, 0.7, min(joint, 1.0));
+            rough = 0.5;
+        } else if (surface == 29u) {
+            // The ceiling: a round lamp every 3 m.
+            let g = fract(uv / 3.0) - vec2(0.5);
+            let lamp = step(length(g), 0.06);
+            albedo = vec3(0.86, 0.85, 0.82);
+            glow = vec3(1.0, 0.93, 0.82) * lamp * 1800.0;
+        } else if (surface == 30u) {
+            // The stairs: terrazzo, a nosing at each tread's edge.
+            let chip = step(0.82, hash13(vec3(floor(uv * 40.0), 24.0)));
+            albedo = mix(vec3(0.55, 0.54, 0.51), vec3(0.3, 0.3, 0.32), chip);
+            rough = 0.45;
+        } else {
+            // A lift's doors: brushed steel, split down the middle, a lit button beside them.
+            let mid = step(abs(fract(uv.x / 1.2) - 0.5), 0.01);
+            albedo = vec3(0.55, 0.57, 0.6) * (1.0 - 0.6 * mid);
+            metal = 0.8;
+            rough = 0.35;
+        }
+    }
+
     let n = normalize(pbr.N);
     pbr.material.base_color = vec4(albedo, 1.0);
     pbr.material.perceptual_roughness = rough;

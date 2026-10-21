@@ -760,7 +760,7 @@ fn surface_golden_wasm() {
 /// what's solid at scattered points, the colony's day and its frames, its trams (their timetable,
 /// the stations' platforms), and the key places' rooms and the halls round them. Every client
 /// draws and walks this, and the server checks poses against it.
-const CITY_GOLDEN: u64 = 0x36d1_4844_56ee_4f4b;
+const CITY_GOLDEN: u64 = 0x2020_573b_4b4d_edda;
 
 fn city_hash() -> u64 {
     use bc_sim::colony::{city, frame, time};
@@ -883,6 +883,75 @@ fn city_hash() -> u64 {
         }
     }
     h
+}
+
+/// Hash of the homes inside the city's buildings (`colony::homes`): every third block's home
+/// buildings on every strip, their plans, every home's floor, door and address, and every box of
+/// their first three storeys. Every client walks this, and the server checks poses against it.
+const HOMES_GOLDEN: u64 = 0x065b_153f_e710_bf51;
+
+fn homes_hash() -> u64 {
+    use bc_sim::colony::{city, homes};
+    let mut h = 0xcbf2_9ce4_8422_2325;
+    let rect = |h: &mut u64, r: city::Rect| {
+        for v in [r.s0, r.s1, r.x0, r.x1] {
+            fnv(h, v.to_bits());
+        }
+    };
+    for k in 0..3u8 {
+        for bx in (city::CITY.0..=city::CITY.1).step_by(3) {
+            for row in -city::ROWS..=city::ROWS {
+                let Some(b) = city::block(k, bx, row, city::Stage(0)) else { continue };
+                for bd in city::lots(&b).as_slice() {
+                    let Some(p) = homes::plan(&b, bd) else { continue };
+                    fnv(&mut h, p.kind as u32 | p.storeys << 4 | p.along << 12 | u32::from(p.sides) << 20);
+                    for v in [p.width, p.depth, p.homes_depth, p.front.face, p.front.middle, p.front.sign] {
+                        fnv(&mut h, v.to_bits());
+                    }
+                    let storeys = if p.kind == homes::Kind::Houses { 1 } else { p.storeys };
+                    for st in 0..storeys {
+                        for unit in 0..p.homes_per_storey() {
+                            let home = p.home(st, unit).expect("its home");
+                            fnv(&mut h, home.id.0);
+                            rect(&mut h, home.rect);
+                            rect(&mut h, home.door);
+                            for v in [home.floor, home.ceiling, home.area, home.inside.0, home.inside.1] {
+                                fnv(&mut h, v.to_bits());
+                            }
+                            fnv(&mut h, home.view as u32);
+                        }
+                    }
+                    p.each_shell(&mut |c| {
+                        rect(&mut h, c.rect);
+                        false
+                    });
+                    for st in 0..p.storeys.min(3) {
+                        p.each_on_storey(st, &mut |c| {
+                            rect(&mut h, c.rect);
+                            fnv(&mut h, c.h0.to_bits());
+                            fnv(&mut h, c.h1.to_bits());
+                            false
+                        });
+                    }
+                }
+            }
+        }
+    }
+    h
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn homes_golden_native() {
+    let h = homes_hash();
+    assert_eq!(h, homes_hash(), "must be reproducible within a process");
+    assert_eq!(h, HOMES_GOLDEN, "the homes' hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn homes_golden_wasm() {
+    assert_eq!(homes_hash(), HOMES_GOLDEN);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

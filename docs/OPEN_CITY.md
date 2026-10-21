@@ -20,7 +20,7 @@ each tested.
 | Phase | State |
 |---|---|
 | D: this design | written |
-| H0: buildings you can walk into: lobbies, stairs, lifts, corridors, flats and houses as closed forms of the city | planned |
+| H0: buildings you can walk into: lobbies, stairs, lifts, corridors, flats and houses as closed forms of the city | built |
 | H1: a door of your own: leases and deeds, the code lock, the panel, rent as upkeep | planned |
 | H2: furnishing: furniture bought and placed, seen by everyone who comes in; storage | planned |
 | H3: your bed: asleep at home when logged out, waking there | planned |
@@ -125,9 +125,9 @@ buildings a strip and some 100,000 homes in all, none of them stored.
   ground floor, plant above).
 - **The stairs:** two flights to a storey with a landing between, 0.2 m risers (under the walker's
   0.45 m step) on 0.28 m treads.
-- **The lift:** E at its doors on any storey, a floor picked, the curtain, and out on that floor (a
-  staged ride, as the cap lift's: `RIDE_LIFT` on the pose, and the plaza lets a pose go from one of
-  a core's lift doors to another).
+- **The lift:** at its doors on any storey, E rides a floor up, Q one down and a digit to that floor
+  (0 the ground); the curtain falls and lifts, and you're out on that floor (a staged ride, as the
+  cap lift's: the plaza lets a pose go from one of a building's lift doors to another's).
 - **The corridor** from the core to the back wall, 2.4 m wide, and **the flats** either side of it,
   each from the corridor to the outer wall, about 8 m along it: from four flats a storey on a narrow
   building to eight on a wide one. Each flat's door is in the corridor's wall.
@@ -151,17 +151,19 @@ home (worked out from the storey and the cell they're in), while suits and the s
 (`Grain::Coarse`) keep the building's envelope as before. A suit can't get into a flat.
 
 **Drawn as it is.** Up close the client builds the inside of the building you're in or at the door
-of, the storeys either side of yours, from the same boxes. A building's outer faces point outwards
-and aren't drawn from inside, so its windows show the real street. Indoors the sun stays the sun, so
-the street through the window is lit right; the inside is lit by its lamps, and the eye adapts as it
-does in a key place's room (`room_ev`). Name tags of people on another storey or in another flat
-aren't shown.
+of, the storeys either side of yours, from the same boxes (`city_mesh::home_inside`); the city's
+chunks cut its doors through its front close up. A building's outer faces point outwards and aren't
+drawn from inside, so its windows show the real street. Inside, it's lit as a key place's room is:
+by its lamps, the eye adapting a couple of stops under the street's (`room_ev`), and the street
+through the windows lit by its own light. Name tags of people on another storey or in another home
+aren't shown (`homes::same_space`).
 
 ### A door of your own (H1)
 
-*`bc_econ::homes` (the colony's register of homes, saved as `homes.json` beside `charter.json`),
-`bc-server/src/homes.rs` (the shared register, as `proving.rs` holds the board), and the lock and
-its lists in `bc_sim::colony::homes`, ported from Gates.*
+*`bc_econ::homes` (the colony's register of homes, with Gates' lock ported into it, saved as
+`homes.json` beside `charter.json`) and `bc-server/src/homes.rs` (the shared register, as
+`proving.rs` holds the board). When people move into the tick (S1), the tick takes a fixed-size copy
+of what it needs: the shut doors.*
 
 **Renting and buying,** at the home's door. A free flat's door says what it is and what it costs
 (E: rent it, a week or more paid ahead). Houses, and flats on the top storey of their building, are
@@ -193,7 +195,8 @@ hearth). It holds:
 - The right main code puts you on the crew; the guest code lets you open and close the door, nothing
   more. Setting the main code clears both lists, keeping only whoever set it.
 - Wrong codes shock you (5 hp a miss, more for each one in a row; never lethal, reset after 10 s),
-  and eight in a row lock the keypad for 15 minutes.
+  and eight in a row lock the keypad for 15 minutes. (People on foot have no health till X1: until
+  then the shock is a jolt and a word.)
 - A refused press knocks, and everyone near the door hears it.
 
 **Doors** are open or closed. Within 3 m of a door, the same check opens and closes it, so nobody can
@@ -387,7 +390,7 @@ module crediting Gates:
 
 | Gates | Ours | Phase |
 |---|---|---|
-| `lock.rs`, `roster.rs` | `bc_sim::colony::homes::{Lock, Roster}` | H1 |
+| `lock.rs`, `roster.rs` | `bc_econ::homes::Lock` and its capped lists | H1 |
 | `deploy.rs`'s `use_door`, `crew_op`; `client-core`'s `predict_door`, `rollback_door` | the home's door and panel | H1 |
 | `footprint::Pose`, `body_site`'s checks | furniture placement | H2 |
 | `inventory.rs`'s `plan_move`, `resolve` | storage | H2 |
@@ -419,8 +422,8 @@ says where each is allowed, and the server checks it against the pilot's last po
 on its door, and its furniture. It's sent again only when the register moves (its version), as the
 Proving Ground's board is.
 
-The pose gains `RIDE_LIFT` and `RIDE_ASLEEP`; `CITY_VERSION` and `PROTOCOL_VERSION` move with H0, and
-the city's hash (`CITY_GOLDEN`) with them; the homes get their own (`HOMES_GOLDEN`).
+H0 moved `CITY_VERSION` to 5 and `PROTOCOL_VERSION` to 36, and the city's hash (`CITY_GOLDEN`)
+with them; the homes have their own (`HOMES_GOLDEN`). H3's pose gains `RIDE_ASLEEP`.
 
 ## Tests
 
