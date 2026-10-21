@@ -180,7 +180,9 @@ impl Key {
     }
 }
 
-/// Noon: pale, hazy blue-white; the light straight down, the windows burning white.
+/// Noon: pale, hazy blue-white; the light straight down, the windows burning white. (The day's
+/// keys lift their shadows a touch, as the golden hours' do: through ACES's toe, faces turned from
+/// the light overhead, people's among them, went murky.)
 const NOON: Key = Key {
     elev: 90.0,
     sun: Vec3::new(1.0, 0.96, 0.9),
@@ -195,7 +197,7 @@ const NOON: Key = Key {
     grade: Grade {
         temperature: 0.0,
         tint: 0.0,
-        shadows: Tone::new(1.02, 1.04, 0.0),
+        shadows: Tone::new(1.02, 1.04, 0.008),
         midtones: Tone::new(1.1, 1.1, 0.0),
         highlights: Tone::new(0.95, 1.0, 0.0),
         bloom: 0.1,
@@ -217,7 +219,7 @@ const MORNING: Key = Key {
     grade: Grade {
         temperature: 0.008,
         tint: 0.004,
-        shadows: Tone::new(1.03, 1.04, 0.0),
+        shadows: Tone::new(1.03, 1.04, 0.008),
         midtones: Tone::new(1.1, 1.09, 0.0),
         highlights: Tone::new(0.95, 1.0, 0.0),
         bloom: 0.12,
@@ -283,7 +285,7 @@ const AFTERNOON: Key = Key {
     grade: Grade {
         temperature: 0.015,
         tint: 0.0,
-        shadows: Tone::new(1.04, 1.04, 0.0),
+        shadows: Tone::new(1.04, 1.04, 0.008),
         midtones: Tone::new(1.1, 1.09, 0.0),
         highlights: Tone::new(0.95, 1.0, 0.0),
         bloom: 0.12,

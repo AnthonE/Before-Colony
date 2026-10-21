@@ -90,6 +90,7 @@ pub struct CityPlugin;
 impl Plugin for CityPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "shaders/city.wgsl");
+        embedded_asset!(app, "shaders/city_prepass.wgsl");
         embedded_asset!(app, "shaders/city_inside.wgsl");
         embedded_asset!(app, "shaders/colony_sky.wgsl");
         embedded_asset!(app, "shaders/city_facade.wgsl");
@@ -203,6 +204,16 @@ pub struct CityParams {
 impl MaterialExtension for CityExt {
     fn fragment_shader() -> ShaderRef {
         "embedded://bc_client/shaders/city.wgsl".into()
+    }
+
+    /// The prepass (WebGPU's ambient occlusion) holds back what the main pass cuts out; WebGL2 has
+    /// no prepass, and its shadow passes keep Bevy's own.
+    fn prepass_fragment_shader() -> ShaderRef {
+        if cfg!(feature = "webgpu") {
+            "embedded://bc_client/shaders/city_prepass.wgsl".into()
+        } else {
+            ShaderRef::Default
+        }
     }
 
     fn specialize(
@@ -420,7 +431,7 @@ fn switch_view(
         }
         // Space's grade (`camera::pilot_effects` keeps its exposure and saturation) and bloom.
         if let Some(mut g) = grading {
-            let base = crate::gfx::base_grading(gfx.look);
+            let base = crate::gfx::base_grading(&gfx);
             g.global.temperature = base.global.temperature;
             g.global.tint = base.global.tint;
             g.shadows = base.shadows;

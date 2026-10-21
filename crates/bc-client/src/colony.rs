@@ -77,14 +77,16 @@ impl Material for WindowMaterial {
 #[derive(Resource)]
 pub struct CityLib(#[allow(dead_code)] Handle<Shader>);
 
-/// The city's block atlas as an image: one RGBA8 texel a block.
+/// The city's atlas as an image: one RGBA8 texel a block, and under them the roofs' height map
+/// (`bc_client_core::city_atlas::atlas`), worked out once for the city and the windows both.
 pub fn atlas_image() -> Image {
-    use bc_client_core::city_atlas::{ATLAS_H, ATLAS_W, block_atlas};
+    use bc_client_core::city_atlas::{IMAGE_H, IMAGE_W, atlas};
     use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+    static ATLAS: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
     Image::new(
-        Extent3d { width: ATLAS_W, height: ATLAS_H, depth_or_array_layers: 1 },
+        Extent3d { width: IMAGE_W, height: IMAGE_H, depth_or_array_layers: 1 },
         TextureDimension::D2,
-        block_atlas(bc_sim::colony::city::Stage(0)),
+        ATLAS.get_or_init(|| atlas(bc_sim::colony::city::Stage(0))).clone(),
         TextureFormat::Rgba8Unorm,
         RenderAssetUsages::RENDER_WORLD,
     )
@@ -235,6 +237,23 @@ fn wall(a0: f32, a1: f32) -> Mesh {
         }
     }
     mesh(p, n, grid_indices(cols, rows))
+}
+
+/// A mirror's plate, a unit cube (stretched by [`mirror_transform`]): its front (−Y) bare metal,
+/// the mirror; its back and edges the painted frame it hangs on, which takes what light reaches
+/// it (as bare metal, the back mirrored black sky).
+fn mirror_mesh() -> Mesh {
+    let mut mesh = Cuboid::new(1.0, 1.0, 1.0).mesh().build();
+    let Some(normals) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL).and_then(|n| n.as_float3()) else {
+        return mesh;
+    };
+    // `hull.wgsl`'s slots: 32 + a paint is that paint as bare metal, 16 + a paint that paint.
+    let face = f32::from(32 + paint::MIRROR) / 255.0;
+    let frame = f32::from(16 + paint::HULL) / 255.0;
+    let colours: Vec<[f32; 4]> =
+        normals.iter().map(|n| [if n[1] < -0.5 { face } else { frame }, 0.0, 0.0, 1.0]).collect();
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colours);
+    mesh
 }
 
 /// A structural ring: a band standing `height` off the hull, `width` wide, all the way round.
@@ -396,9 +415,9 @@ pub fn setup_colony(
                 ));
                 // The window's mirror, hinged at the docking hub's end, opening with the day.
                 c.spawn((
-                    Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+                    Mesh3d(meshes.add(mirror_mesh())),
                     MeshMaterial3d(surfaces.mirror.clone()),
-                    HullTag { metal: true, ..HullTag::paint(paint::MIRROR, 60 + k as u8) }.tag(),
+                    HullTag::paint(paint::MIRROR, 60 + k as u8).tag(),
                     mirror_transform(k, noon),
                     MirrorPlate(k),
                     NotShadowCaster,

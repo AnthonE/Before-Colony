@@ -50,12 +50,14 @@ pub struct LaunchConfig {
     pub perf: bool,
     /// `?calm=1`, or the browser's reduced-motion setting: camera shake, kicks and warps turned down.
     pub calm: bool,
-    /// `?tonemap=tony|agx|aces`: the tonemapper, for comparing them (default TonyMcMapface).
+    /// `?tonemap=aces|tony|agx`: the tonemapper, for comparing them (default ACES).
     pub tonemap: String,
     /// `?look=0`: the plain look (no grade, vignette or lit smoke), for comparing against.
     pub look: bool,
     /// `?life=0`: no traffic or people in the city (`life.rs`), for comparing against and measuring.
     pub life: bool,
+    /// `?ssao=0`: no screen-space ambient occlusion (`gfx.rs`), for comparing against.
+    pub ssao: bool,
     /// `?hz=N`: the showcase's fixed clock rate (default 60), to see effects at a low frame rate.
     pub showcase_hz: f64,
     /// `?clean=1`: the showcase without its line of text in the corner, for clips.
@@ -109,6 +111,7 @@ impl LaunchConfig {
             tonemap: string("tonemap"),
             look: get(&cfg, "look").as_bool().unwrap_or(true),
             life: get(&cfg, "life").as_bool().unwrap_or(true),
+            ssao: get(&cfg, "ssao").as_bool().unwrap_or(true),
             showcase_hz: number("hz").filter(|h| *h >= 1.0).unwrap_or(60.0).min(240.0),
             showcase_clean: flag("clean"),
         }

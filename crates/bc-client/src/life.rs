@@ -56,6 +56,16 @@ impl MaterialExtension for LifeExt {
     fn fragment_shader() -> ShaderRef {
         "embedded://bc_client/shaders/life.wgsl".into()
     }
+
+    /// The prepass (WebGPU's ambient occlusion) holds back what the main pass cuts out; WebGL2 has
+    /// no prepass, and its shadow passes keep Bevy's own.
+    fn prepass_fragment_shader() -> ShaderRef {
+        if cfg!(feature = "webgpu") {
+            "embedded://bc_client/shaders/life_prepass.wgsl".into()
+        } else {
+            ShaderRef::Default
+        }
+    }
 }
 
 /// The city's people the showcase has named (`walkers::Walker::id`): drawn as its pilots, so life
@@ -69,6 +79,7 @@ impl Plugin for LifePlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "shaders/life_lib.wgsl");
         embedded_asset!(app, "shaders/life.wgsl");
+        embedded_asset!(app, "shaders/life_prepass.wgsl");
         app.add_plugins(MaterialPlugin::<LifeMaterial>::default())
             .init_resource::<LifeBorrowed>()
             .init_resource::<LifeFrame>()

@@ -373,7 +373,7 @@ pub fn pilot_effects(
     }
     if let Some(mut g) = grading {
         // The picture's own grade, greyed out and darkened by G.
-        let base = crate::gfx::base_grading(gfx.look).global;
+        let base = crate::gfx::base_grading(&gfx).global;
         g.global.post_saturation = base.post_saturation * (1.0 - 0.85 * grey);
         g.global.exposure = base.exposure - 1.2 * grey - 8.0 * c.black * c.black;
     }

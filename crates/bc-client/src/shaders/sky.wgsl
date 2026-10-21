@@ -17,7 +17,8 @@ struct Sky {
     moon: vec4<f32>,
     // xyz: normal of the Milky Way's plane; w: seconds (cloud drift).
     galaxy: vec4<f32>,
-    // x: star brightness; y: detail, 0 (cheapest) to 1; z: sunlight scale (colony eclipse); w: spare.
+    // x: star brightness; y: detail, 0 (cheapest) to 1; z: sunlight scale (colony eclipse); w: the
+    // Milky Way's lift (1: as it is; under 1, its faint haze raised towards its bright core).
     params: vec4<f32>,
 };
 
@@ -176,7 +177,10 @@ fn galaxy(d: vec3<f32>) -> vec3<f32> {
     let dust = smoothstep(0.42, 0.72, fbm(d * 6.3 + 17.0, o)) * exp(-h * h * 120.0);
     let lum = band * bulge * (0.25 + 0.75 * clumps * clumps) * (1.0 - 0.8 * dust);
     let tint = mix(vec3(0.78, 0.82, 1.0), vec3(1.0, 0.86, 0.72), bulge * 0.8);
-    return tint * lum * 0.05 * sky.params.x * SCREEN;
+    // On screen about lum × 0.05; a tonemapper with a firm toe (ACES) would take its faint haze to
+    // black, so the lift raises the faint end, a power curve held at the bright core's 0.05.
+    let lifted = 0.05 * pow(lum, sky.params.w);
+    return tint * lifted * SCREEN;
 }
 
 // --- Bodies. -------------------------------------------------------------------------------------
