@@ -1,5 +1,8 @@
 import { expect, test } from "@playwright/test";
-import { bc, collectConsole } from "./util";
+import { bc, calmPointer, collectConsole } from "./util";
+
+// Each move whole: the pointer locks here (`util.ts`, `calmPointer`).
+test.beforeEach(({ page }) => page.addInitScript(calmPointer));
 
 // The page around the game, as a player meets it: the title screen, launching, the controls sheet,
 // the menu, disconnecting, a link that drops and comes back, and a server that can't be reached.

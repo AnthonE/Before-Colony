@@ -64,7 +64,7 @@ fn signs(strip: u8, trainer: &str, goal: Option<&str>) -> Vec<Sign> {
         out.push(Sign {
             at,
             title: format!("◆ {}", p.name),
-            line: "THE OBJECTIVE · G: WALK ME THERE",
+            line: "THE OBJECTIVE · G: WALK THERE",
             near: f64::INFINITY,
         });
     }
@@ -161,27 +161,35 @@ fn draw_signs(
     ui: Option<Res<crate::page::Ui>>,
     onfoot: Option<Res<crate::onfoot::OnFoot>>,
     camera: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    mut labels: Query<(&SignLabel, &mut Node, &mut Visibility, &mut BackgroundColor), Without<SignText>>,
+    mut labels: Query<
+        (&SignLabel, &mut Node, &mut Visibility, &mut BackgroundColor, &ComputedNode),
+        Without<SignText>,
+    >,
     mut texts: Query<(&SignText, &mut Text, &mut TextColor)>,
 ) {
     let mut shown: Vec<(f64, Vec2, String, &'static str)> = Vec::new();
+    let mut view = None;
     if let (Some(game), Ok((cam, cam_tf))) = (game, camera.single()) {
+        view = cam.logical_viewport_size();
         let g = game.borrow();
         let core = &g.core;
         let playing = ui.as_ref().is_some_and(|u| u.playing() && !u.panel_open());
-        let strip = onfoot.as_ref().and_then(|o| o.city.as_ref()).map(|c| c.strip);
-        if let Some(strip) = strip.filter(|_| playing && core.hangar.in_city() && !core.inside()) {
+        let city = onfoot.as_ref().and_then(|o| o.city.as_ref());
+        if let Some(c) = city.filter(|_| playing && core.hangar.in_city() && !core.inside()) {
             let eye = origin.0 + cam_tf.translation().as_dvec3();
             let goal = ui.as_ref().and_then(|u| u.map_goal);
-            for sign in signs(strip, &core.hangar.trainer_name(), goal) {
+            for sign in signs(c.strip, &core.hangar.trainer_name(), goal) {
                 let d = (sign.at - eye).length();
                 if d > sign.near {
                     continue;
                 }
                 if let Ok(p) = cam.world_to_viewport(cam_tf, origin.place(sign.at)) {
-                    // The objective's says how far.
+                    // The objective's says how far, as its panel does: along the floor to the door.
                     let title = if sign.near.is_infinite() {
-                        format!("{}  {:.0} m", sign.title, d)
+                        let walk = goal
+                            .and_then(bc_sim::colony::city::place)
+                            .map(|(i, _)| crate::map::to_door(c, i));
+                        format!("{}  {}", sign.title, crate::map::km(walk.unwrap_or(d as f32)))
                     } else {
                         sign.title
                     };
@@ -193,9 +201,14 @@ fn draw_signs(
         }
     }
     shown.sort_by(|a, b| a.0.total_cmp(&b.0));
-    for (label, mut node, mut vis, mut bg) in &mut labels {
+    for (label, mut node, mut vis, mut bg, computed) in &mut labels {
         match shown.get(label.0) {
-            Some(&(d, p, _, _)) => {
+            Some(&(d, mut p, _, _)) => {
+                // The objective's stays whole on the screen, at its edge when its door is off it.
+                if let Some(view) = view.filter(|_| d < 0.0) {
+                    let half = computed.size().x * computed.inverse_scale_factor() / 2.0 + 8.0;
+                    p.x = p.x.clamp(half.min(view.x / 2.0), (view.x - half).max(view.x / 2.0));
+                }
                 node.left = Val::Px(p.x);
                 node.top = Val::Px(p.y);
                 // Nearer, more solid (the objective's always).

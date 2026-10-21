@@ -41,6 +41,12 @@ pub struct AiState {
     /// The kit-aware pilot ran its tank dry boosting: it lets go of boost until it's half full
     /// again (under anime rules a boost gauge fills only once boost is let go).
     pub boost_spent: bool,
+    /// How far from its anchor a hostile may be for it to go after it, m: a patrol's drone
+    /// ([`LEASH`]) lets a pilot who flees beyond go, and turns back with propellant left (it flies
+    /// by the real rules, whose tank never refills: one that chased a pilot home ran dry and
+    /// coasted on to the sector's edge, and stayed there). Unleashed, any (a drone put somewhere on
+    /// purpose, an Orrery seizure, the kit-aware pilot).
+    pub leash: f32,
 }
 
 impl Default for AiState {
@@ -60,6 +66,7 @@ impl Default for AiState {
             aim_noise: Vec3::ZERO,
             shot_seq: 0,
             boost_spent: false,
+            leash: f32::INFINITY,
         }
     }
 }
@@ -111,6 +118,10 @@ pub const PILOT: DroneProfile = DroneProfile {
     kit: true,
 };
 
+/// A patrol's leash ([`AiState::leash`]): its squad's reach, which focuses the hostile nearest its
+/// anchor within as far (`Sim::squad_logic`).
+pub const LEASH: f32 = 8_000.0;
+
 /// A brain hunting a suit on the ground keeps this far over the ground's plane there, m.
 pub const STANDOFF: f32 = 120.0;
 
@@ -149,7 +160,7 @@ pub fn think(p: &Perception, ai: &mut AiState, tick: u32, profile: &DroneProfile
     // --- Target selection (with hysteresis). ---
     let mut best: Option<(&Contact, f32)> = None;
     for c in p.hostiles() {
-        if c.hull <= 0.0 {
+        if c.hull <= 0.0 || length(c.pos - ai.anchor) > ai.leash {
             continue;
         }
         let mut score = 1.0 / (1.0 + c.dist / 1_500.0);

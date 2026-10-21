@@ -36,3 +36,16 @@ export function collectConsole(page: Page): string[] {
   page.on("pageerror", (e) => lines.push(`[pageerror] ${e.message}`));
   return lines;
 }
+
+/** An init script for a page that locks the pointer: hands the game each mouse move whole.
+ *  Headless Chromium, the pointer locked, fires thousands of empty raw moves a second and hands
+ *  each `pointermove` hundreds of thousands of them coalesced; winit makes an event of every one,
+ *  and the game's frames slow tenfold and its memory climbs by gigabytes until the wasm aborts.
+ *  (`scripts/pt`'s browser does the same.) `page.addInitScript(calmPointer)` before `goto`. */
+export const calmPointer = () => {
+  if (window.PointerEvent?.prototype.getCoalescedEvents) {
+    PointerEvent.prototype.getCoalescedEvents = function () {
+      return [this];
+    };
+  }
+};

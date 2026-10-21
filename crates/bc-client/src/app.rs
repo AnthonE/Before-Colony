@@ -61,7 +61,7 @@ pub fn run() {
     .add_plugins((DevHooksPlugin, GfxPlugin(gfx)));
     // The page's font, for everything Bevy writes on the screen.
     let font = crate::hud::UiFont::load(&mut app.world_mut().resource_mut::<Assets<Font>>());
-    app.insert_resource(font);
+    app.insert_resource(font).add_systems(Update, crate::hud::glyph_fallback);
     if cfg.perf {
         app.add_plugins(crate::perf::PerfPlugin);
     }
@@ -184,6 +184,15 @@ pub fn run() {
                 )
                     .chain()
                     .in_set(Vis::Hud),
+            )
+            // After everything above that places a label over the world.
+            .add_systems(
+                Update,
+                crate::hud::keep_clear_of_panels
+                    .in_set(Vis::Hud)
+                    .after(update_hud)
+                    .after(crate::map::place_objective)
+                    .after(crate::chart::show_course),
             )
             .add_systems(
                 Last,

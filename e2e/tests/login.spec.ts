@@ -1,6 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { expect, test, type Page } from "@playwright/test";
-import { bc, built, collectConsole } from "./util";
+import { bc, built, calmPointer, collectConsole } from "./util";
+
+// Each move whole: the pointer locks here (`util.ts`, `calmPointer`).
+test.beforeEach(({ page }) => page.addInitScript(calmPointer));
 
 // Wallet sign-in in the browser. A stub wallet (window.ethereum) signs with a throwaway test key,
 // through the same path a real one takes: personal_sign over the text the game writes, checked

@@ -358,7 +358,7 @@ pub fn read_input(
     indoors: Res<crate::hangar::Indoors>,
     map: Res<crate::map::MapOpen>,
     mut pilot: ResMut<Pilot>,
-    (game, time): (NonSend<GameClient>, Res<Time<Real>>),
+    (game, time, cmds): (NonSend<GameClient>, Res<Time<Real>>, Res<crate::page::UiCmds>),
     mut deck: Local<Option<(Body, Quat)>>,
     mut lock_key: Local<Option<f64>>,
     mut eject_at: Local<Option<f64>>,
@@ -462,8 +462,9 @@ pub fn read_input(
     if flown && game.nav.take().is_some() {
         ui.toast("AUTO-NAV OFF: you have the stick");
     }
-    if controls.locked
-        && motion.delta.length() > 2.0
+    // The dev hook's turn (`look`) is the mouse's, with no pointer to lock.
+    let nudge = cmds.look();
+    if ((controls.locked && motion.delta.length() > 2.0) || nudge != Vec2::ZERO)
         && let Some(n) = game.nav.as_mut().filter(|n| n.look)
     {
         n.look = false;
@@ -489,11 +490,15 @@ pub fn read_input(
     // Turn the aim about the view's up (as the camera shows it): flying upright, as on foot, never
     // past the shooter's pitch limit; else about the suit's up as drawn.
     let up = aim.up;
+    let mut d = nudge;
     if controls.locked && motion.delta != Vec2::ZERO && !looking {
-        let mut d = motion.delta * SENSITIVITY * settings.0.sensitivity;
+        let mut m = motion.delta * SENSITIVITY * settings.0.sensitivity;
         if settings.0.invert_y {
-            d.y = -d.y;
+            m.y = -m.y;
         }
+        d += m;
+    }
+    if d != Vec2::ZERO {
         if level {
             aim.dir = upright::turn(aim.dir, up, d.x, -d.y);
         } else {

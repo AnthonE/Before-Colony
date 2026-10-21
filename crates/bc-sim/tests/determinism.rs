@@ -7,7 +7,7 @@
 mod common;
 
 /// Hash after 600 ticks of the reference scenario (update deliberately when the sim changes).
-const GOLDEN: u64 = 0x50e0_4a8d_3999_6f4a;
+const GOLDEN: u64 = 0xc0b8_924e_5dfa_1705;
 
 fn scenario_hash() -> u64 {
     let (mut sim, players) = common::arena(8, 24, 42);
@@ -365,7 +365,7 @@ fn salvage_golden_wasm() {
 /// what a sleeper is parked on more fully since suits stand on bodies: how it's turned there, when
 /// it last fought, and its hide spot; and, with wear and tear, every suit's systems, equipment and
 /// statuses. The scenario itself runs bit for bit as it did.)
-const SLEEPERS_GOLDEN: u64 = 0x37ad_696f_595c_443f;
+const SLEEPERS_GOLDEN: u64 = 0x807c_7d9b_c6b8_91f9;
 
 fn sleepers_hash() -> u64 {
     use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST};
@@ -532,7 +532,7 @@ fn bays_golden_wasm() {
 /// off. A guided missile goes at the Argo on its rock. (The hash covers the suits' cover since they
 /// hide, and the drones hunting the riders come at them from above; with wear and tear, every suit's
 /// systems, equipment and statuses.)
-const SURFACE_GOLDEN: u64 = 0xab8c_ca44_bd94_3d6c;
+const SURFACE_GOLDEN: u64 = 0xe3e9_b412_e256_e802;
 
 fn surface_hash() -> u64 {
     use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRIP, MELEE, MODE};

@@ -8,4 +8,4 @@
 pub mod drone;
 pub mod kit;
 
-pub use drone::{Action, AiState, DRONE, DroneProfile, PILOT, SEIZED, drive, think};
+pub use drone::{Action, AiState, DRONE, DroneProfile, LEASH, PILOT, SEIZED, drive, think};

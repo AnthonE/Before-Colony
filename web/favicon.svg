@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- The page's ink, chamfered as its cards are, and the objective's amber diamond. -->
+  <path d="M0 0H25L32 7V32H7L0 25Z" fill="#040a12"/>
+  <path d="M16 5L27 16L16 27L5 16Z" fill="#ffb547"/>
+</svg>

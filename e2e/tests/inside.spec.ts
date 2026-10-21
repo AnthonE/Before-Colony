@@ -1,5 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
-import { bc, collectConsole } from "./util";
+import { bc, calmPointer, collectConsole } from "./util";
+
+// Each move whole: the pointer locks here (`util.ts`, `calmPointer`).
+test.beforeEach(({ page }) => page.addInitScript(calmPointer));
 
 // Suits inside the colony (`scripts/e2e.sh inside`: a survival server with the colony open, no
 // drones, and an agent strolling outside Hub Gate). A pilot walks to the cockpit in their bay and
