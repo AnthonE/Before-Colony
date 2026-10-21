@@ -82,7 +82,10 @@ canvas#bc {
   position: fixed;
   inset: 0;
   display: flex;
+  /* Centred while it fits; taller than the view, from its top (plain `center` overflows above the
+     scroll, where the controls sheet's first half was out of reach). */
   align-items: center;
+  align-items: safe center;
   justify-content: center;
   color: var(--white);
   padding: 16px;
@@ -178,10 +181,11 @@ button:disabled { opacity: 0.4; cursor: default; }
 .link-state { margin-top: 16px; }
 .message { font-size: 13px; line-height: 1.5; white-space: pre-line; }
 .message.error { color: var(--red); }
-.controls { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px 24px; }
+.controls { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); gap: 16px 24px; }
 .controls table { border-collapse: collapse; font-size: 12px; width: 100%; }
 .controls td { padding: 3px 0; vertical-align: top; opacity: 0.9; }
-.controls td.keys { color: var(--amber); white-space: nowrap; padding-right: 14px; width: 1%; }
+/* The keys wrap at their spaces, so a long chord ("Double-tap W/A/S/D/Space/C") leaves its words room. */
+.controls td.keys { color: var(--amber); padding-right: 14px; width: 36%; }
 #help { pointer-events: none; }
 #help .card { pointer-events: auto; background: color-mix(in srgb, var(--ink) 95%, transparent); }
 .banner {
@@ -253,7 +257,9 @@ button:disabled { opacity: 0.4; cursor: default; }
   top: 96px;
   left: 50%;
   transform: translateX(-50%);
-  max-width: calc(100vw - 32px);
+  /* Clear of the objective's panel, top left (14 px in, 380 wide): centred no wider than the room
+     it leaves either side; on a narrower view, just right of it (below, @media). */
+  max-width: calc(100vw - 2 * 410px);
   box-sizing: border-box;
   background: color-mix(in srgb, var(--ink) 70%, transparent);
   border-left: 3px solid var(--amber);
@@ -261,6 +267,13 @@ button:disabled { opacity: 0.4; cursor: default; }
   padding: 8px 14px;
   font-size: 13px;
   pointer-events: none;
+}
+
+@media (max-width: 1240px) {
+  .hint { left: 410px; transform: none; max-width: calc(100vw - 426px); }
+}
+@media (max-width: 760px) {
+  .hint { left: 16px; top: 200px; max-width: calc(100vw - 32px); }
 }
 
 /* --- The colony's radio: its latest lines for a while, and the line to type on (/). --- */
