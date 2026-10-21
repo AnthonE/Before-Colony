@@ -379,7 +379,8 @@ through each suit's stat sheet, `bc_sim::tuning`.)
   arm's weapons for 3 s.
 - **What others see.** A suit with a damaged system sparks, one with a failed system smokes, a
   holed tank vents a jet of propellant; the HUD lists what's broken in each part (`RCT DMG`,
-  `TNK OUT`), the statuses (`SCRAM 3.1s · CONCUSSED · REPAIRING GYR 12s`) and the tank's leak, and
+  `TNK OUT`, a line each under the part), the statuses (`SCRAM 3.1s`, `CONCUSSED`, `REPAIRING GYR
+  12s`, a line each: the SUIT panel keeps to the width of its bars) and the tank's leak, and
   says what a blow just reached (`REACTOR SCRAM`). The cockpit chirps for damage, sounds the
   master caution for a failure, and hisses while the tank vents.
 - Systems are only mended in the bay (an overhaul), or by damage-control gear.

@@ -185,6 +185,15 @@ pub fn run() {
                     .chain()
                     .in_set(Vis::Hud),
             )
+            // After everything above that places a label over the world.
+            .add_systems(
+                Update,
+                crate::hud::keep_clear_of_panels
+                    .in_set(Vis::Hud)
+                    .after(update_hud)
+                    .after(crate::map::place_objective)
+                    .after(crate::chart::show_course),
+            )
             .add_systems(
                 Last,
                 (init_page, publish_view, publish_settings, crate::terminal::publish_terminal),

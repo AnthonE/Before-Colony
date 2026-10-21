@@ -117,6 +117,7 @@ pub fn setup_objectives(
     commands
         .spawn((
             Waypoint,
+            crate::hud::ClearOfPanels,
             Node {
                 position_type: PositionType::Absolute,
                 flex_direction: FlexDirection::Column,

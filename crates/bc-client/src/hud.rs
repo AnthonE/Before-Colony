@@ -370,6 +370,11 @@ pub struct Instruments;
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 pub struct Panel(pub Show);
 
+/// A label over a point in the world (a marker's, the objective's, the course's) that keeps out of
+/// the panels over the view ([`keep_clear_of_panels`]).
+#[derive(Component)]
+pub struct ClearOfPanels;
+
 /// A text's size on screen (px); on the cockpit's monitors it's drawn larger, to be read there.
 #[derive(Component, Clone, Copy)]
 pub struct BaseSize(f32);
@@ -553,11 +558,13 @@ pub fn setup_hud(mut commands: Commands, font: Res<UiFont>, mut panels: ResMut<A
             p.spawn((HudText::Feed, label(f, 12.0, AMBER, abs(None, Some(14.0), Some(10.0), None))));
             p.spawn((
                 GrabMarker,
+                ClearOfPanels,
                 label(f, 13.0, GREEN, abs(Some(0.0), None, Some(0.0), None)),
                 Visibility::Hidden,
             ));
             p.spawn((
                 DockMarker,
+                ClearOfPanels,
                 label(f, 13.0, AMBER, abs(Some(0.0), None, Some(0.0), None)),
                 Visibility::Hidden,
             ));
@@ -581,12 +588,14 @@ pub fn setup_hud(mut commands: Commands, font: Res<UiFont>, mut panels: ResMut<A
             for (k, def) in LANDMARKS.iter().enumerate() {
                 p.spawn((
                     LandmarkMarker(k as u8),
+                    ClearOfPanels,
                     label(f, 13.0, CYAN, abs(Some(0.0), None, Some(0.0), None)),
                     Visibility::Hidden,
                 ));
                 for i in 0..def.hides.len() {
                     p.spawn((
                         HideMarker(k as u8, i as u8),
+                        ClearOfPanels,
                         label(f, 12.0, AMBER, abs(Some(0.0), None, Some(0.0), None)),
                         Visibility::Hidden,
                     ));
@@ -1043,12 +1052,13 @@ pub fn update_hud(
     // The ping is a default until the first snapshot measures it.
     let ping =
         if core.clock.synced() { format!("{:.0} ms", core.clock.rtt * 1_000.0) } else { "--".to_string() };
+    // Terse and in capitals, as the HUD is (`docs/STORY.md`, "Voice and naming"); the server's tick
+    // is the devtools' (`window.__bc`), not the pilot's.
     set(
         HudText::Status,
         format!(
-            "BEFORE COLONY  L1 COLONY CLUSTER\nLINK OK  ping {}  tick {}\n{}  {}\ncontacts {}  hits {}  kills {}  deaths {}",
+            "BEFORE COLONY  L1 COLONY CLUSTER\nLINK OK  PING {}\n{}  {}\nCONTACTS {}  HITS {}  KILLS {}  DEATHS {}",
             ping,
-            world.tick,
             mode,
             fa,
             world.entities.iter().flatten().count(),
@@ -1160,6 +1170,8 @@ pub fn update_hud(
         let names = ["HEAD", "TORSO", "L-ARM", "R-ARM", "LEGS", "BPACK"];
         let systems = Systems(o.systems);
         let gone = bc_sim::tuning::own_gone(&o);
+        // Every line as wide as a part's bar at most: the panel is as wide as its longest line, and
+        // FLIGHT's stands at a set place beside it (a fault on the part's own line ran under it).
         let mut armor = String::new();
         for (i, n) in names.iter().enumerate() {
             let f = o.parts[i];
@@ -1167,19 +1179,19 @@ pub fn update_hud(
             let state = match f <= 0.0 {
                 true if i == Part::Head as usize && chase.sub_camera() => "SUB-CAM".to_string(),
                 true => "LOST".to_string(),
-                // The armour, and what's broken inside it.
-                false => {
-                    let broken: Vec<String> = System::of_part(Part::ALL[i])
-                        .filter_map(|x| match systems.level(x, gone) {
-                            DAMAGED => Some(format!("{} DMG", x.tag())),
-                            FAILED => Some(format!("{} OUT", x.tag())),
-                            _ => None,
-                        })
-                        .collect();
-                    if broken.is_empty() { bar(f, 8) } else { format!("{} {}", bar(f, 8), broken.join(" ")) }
-                }
+                false => bar(f, 8),
             };
             armor.push_str(&format!("{n:<6}{state}\n"));
+            // What's broken inside it, a line each under it.
+            if f > 0.0 {
+                for x in System::of_part(Part::ALL[i]) {
+                    match systems.level(x, gone) {
+                        DAMAGED => armor.push_str(&format!("{:<6}{} DMG\n", "", x.tag())),
+                        FAILED => armor.push_str(&format!("{:<6}{} OUT\n", "", x.tag())),
+                        _ => {}
+                    }
+                }
+            }
         }
         // What the suit is under: a scram, a concussion, a repair under way.
         let mut status = Vec::new();
@@ -1198,7 +1210,7 @@ pub fn update_hud(
         } else if o.stim > 0 {
             status.push(format!("CRASHING {:.0}s", f32::from(o.stim) / 30.0));
         }
-        armor.push_str(&status.join(" · "));
+        armor.push_str(&status.join("\n"));
         let worst = systems.worst(gone);
         let hull_color = if o.parts[Part::Torso as usize] < 0.3 || worst == FAILED {
             RED
@@ -1842,6 +1854,84 @@ pub fn update_hud(
                 *vis = Visibility::Inherited;
             }
             _ => *vis = Visibility::Hidden,
+        }
+    }
+}
+
+/// After everything that places the labels over the world: one that would cover what's written
+/// over the view (the instruments in the chase view's corners, the objective's panel, the
+/// Orrery's, the status lines and the kill feed) moves the shortest way clear of it, staying on
+/// the screen. Labels passing behind them were text over text. (From the seat the instruments are
+/// the cockpit's monitors, and aren't over the view.)
+#[allow(clippy::type_complexity)]
+pub fn keep_clear_of_panels(
+    chase: Res<Chase>,
+    panels: Query<
+        (&ComputedNode, &UiGlobalTransform, &InheritedVisibility, Has<Panel>, Option<&HudText>),
+        Or<(With<Panel>, With<crate::map::ObjectivePanel>, With<HudText>)>,
+    >,
+    mut labels: Query<
+        (&mut Node, &ComputedNode, Option<&UiTransform>),
+        (With<ClearOfPanels>, Without<Panel>),
+    >,
+    camera: Query<&Camera, With<MainCamera>>,
+) {
+    let Some(view) = camera.single().ok().and_then(Camera::logical_viewport_size) else { return };
+    let seat = chase.in_cockpit();
+    let boxes: Vec<Rect> = panels
+        .iter()
+        .filter(|(n, _, shown, instrument, text)| {
+            let what = match text {
+                // The status lines and the feed, of the HUD's own texts (the panels' are inside them).
+                Some(t) => matches!(t, HudText::Status | HudText::Feed),
+                None => !(seat && *instrument),
+            };
+            what && shown.get() && n.size() != Vec2::ZERO
+        })
+        .map(|(n, at, ..)| {
+            let s = n.inverse_scale_factor();
+            Rect::from_center_size(at.translation * s, n.size() * s)
+        })
+        .collect();
+    const GAP: f32 = 4.0;
+    for (mut node, computed, shift) in &mut labels {
+        let (Val::Px(left), Val::Px(top)) = (node.left, node.top) else { continue };
+        let size = computed.size() * computed.inverse_scale_factor();
+        // Where it's drawn: its corner, moved by its own transform (a share of its size, or px).
+        let moved = |v: Val, s: f32| match v {
+            Val::Percent(p) => s * p / 100.0,
+            Val::Px(px) => px,
+            _ => 0.0,
+        };
+        let off = shift.map_or(Vec2::ZERO, |t| {
+            Vec2::new(moved(t.translation.x, size.x), moved(t.translation.y, size.y))
+        });
+        let start = Vec2::new(left, top) + off;
+        let mut at = start;
+        // Out of one can be into another: a few goes.
+        for _ in 0..4 {
+            let r = Rect::from_corners(at, at + size);
+            let Some(b) = boxes.iter().find(|b| !r.intersect(**b).is_empty()) else { break };
+            let ways = [
+                Vec2::new(at.x, b.min.y - GAP - size.y),
+                Vec2::new(at.x, b.max.y + GAP),
+                Vec2::new(b.min.x - GAP - size.x, at.y),
+                Vec2::new(b.max.x + GAP, at.y),
+            ];
+            let on_screen =
+                |p: &Vec2| p.x >= 0.0 && p.y >= 0.0 && p.x + size.x <= view.x && p.y + size.y <= view.y;
+            let Some(to) = ways
+                .into_iter()
+                .filter(on_screen)
+                .min_by(|a, c| (*a - at).length_squared().total_cmp(&(*c - at).length_squared()))
+            else {
+                break;
+            };
+            at = to;
+        }
+        if at != start {
+            node.left = Val::Px(left + at.x - start.x);
+            node.top = Val::Px(top + at.y - start.y);
         }
     }
 }
