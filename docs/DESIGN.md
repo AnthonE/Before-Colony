@@ -684,6 +684,11 @@ can take.
   - They lead perfectly but *linearly*, strafe on a timer, feel no G and never flinch, so a pilot
     who keeps changing acceleration will out-juke them.
   - They drive their suits with the same `InputCmd` a player sends.
+  - Squads patrol a ring round the debris field (`sim::ANCHORS`). A drone lets a pilot who flees
+    more than 8 km from its squad's anchor go (`ai::LEASH`, the squad's own reach), and is topped
+    up between fights (a full tank in a minute): drones fly by the real rules, whose tank never
+    refills, and ones that chased pilots home ran dry and coasted to the sector's edge for good,
+    leaving the field empty and never replaced.
 - **The Almagest's aces**: now and then one of nine named aces flies among them, a drone in an Argo tuned
   by hand, with a bounty on it ("Aces: the Most Wanted").
 - **Agents** are external AI players on the Bot SDK (`bc-bot`). They run the same client state

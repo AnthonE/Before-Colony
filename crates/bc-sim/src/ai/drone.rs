@@ -78,6 +78,11 @@ pub struct DroneProfile {
     pub strafe_span_s: f32,
     /// Flies the frame's whole kit (see `kit`); otherwise only the primary, like a drone.
     pub kit: bool,
+    /// How far from its patrol anchor a hostile may be for it to go after it, m: a drone lets a
+    /// pilot who flees beyond go, and turns back with propellant left (it flies by the real rules,
+    /// whose tank never refills: one that chased a pilot home ran dry and coasted on to the
+    /// sector's edge, and stayed there).
+    pub leash: f32,
 }
 
 /// Almagest drone defaults.
@@ -88,6 +93,7 @@ pub const DRONE: DroneProfile = DroneProfile {
     strafe_min_s: 2.0,
     strafe_span_s: 3.0,
     kit: false,
+    leash: LEASH,
 };
 
 /// An Orrery seizure: closer, sharper, relentless.
@@ -98,6 +104,7 @@ pub const SEIZED: DroneProfile = DroneProfile {
     strafe_min_s: 1.0,
     strafe_span_s: 1.0,
     kit: false,
+    leash: f32::INFINITY,
 };
 
 /// Agents and the browser autopilot: the drone's judgement flying the whole kit (its preferred range
@@ -109,7 +116,12 @@ pub const PILOT: DroneProfile = DroneProfile {
     strafe_min_s: 1.5,
     strafe_span_s: 2.0,
     kit: true,
+    leash: f32::INFINITY,
 };
+
+/// A drone's leash ([`DroneProfile::leash`]): its squad's reach, which focuses the hostile nearest
+/// its anchor within as far (`Sim::squad_logic`).
+pub const LEASH: f32 = 8_000.0;
 
 /// A brain hunting a suit on the ground keeps this far over the ground's plane there, m.
 pub const STANDOFF: f32 = 120.0;
@@ -149,7 +161,7 @@ pub fn think(p: &Perception, ai: &mut AiState, tick: u32, profile: &DroneProfile
     // --- Target selection (with hysteresis). ---
     let mut best: Option<(&Contact, f32)> = None;
     for c in p.hostiles() {
-        if c.hull <= 0.0 {
+        if c.hull <= 0.0 || length(c.pos - ai.anchor) > profile.leash {
             continue;
         }
         let mut score = 1.0 / (1.0 + c.dist / 1_500.0);

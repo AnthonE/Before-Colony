@@ -110,7 +110,11 @@ struct Squad {
     focus: u16,
 }
 
-/// Patrol anchors for drone squads: a ring above the colony.
+/// How long a drone between fights takes to fill its tank from dry, s (`Sim::squad_logic`, once a
+/// second).
+const DRONE_REFUEL_SECS: f32 = 60.0;
+
+/// Patrol anchors for drone squads: a ring round the debris field.
 const ANCHORS: [Vec3; 8] = [
     Vec3::new(2_800.0, 900.0, 0.0),
     Vec3::new(1_980.0, 1_300.0, 1_980.0),
@@ -467,7 +471,8 @@ impl Sim {
         }
     }
 
-    /// Every second: each squad focuses the hostile nearest its anchor (sleepers are left alone).
+    /// Every second: each squad focuses the hostile nearest its anchor (sleepers are left alone),
+    /// and a drone between fights is topped up.
     fn squad_logic(&mut self) {
         for (s, squad) in self.squads.iter_mut().enumerate() {
             let mut best = (f32::MAX, NO_SLOT);
@@ -476,7 +481,7 @@ impl Sim {
                     continue;
                 }
                 let d = length(self.suits.flight[j].pos - squad.anchor);
-                if d < 8_000.0 && d < best.0 {
+                if d < ai::LEASH && d < best.0 {
                     best = (d, j as u16);
                 }
             }
@@ -488,6 +493,16 @@ impl Sim {
                 let sq = self.suits.ai[i].squad as usize % MAX_SQUADS;
                 self.suits.ai[i].order_target = self.squads[sq].focus;
                 self.suits.ai[i].anchor = self.squads[sq].anchor;
+                // Between fights its tank fills (from dry in DRONE_REFUEL_SECS): drones fly by the
+                // real rules, which refill nothing, and one run dry where nobody comes was out of
+                // the fight for good, and never replaced (it still counted as one of the drones).
+                if self.suits.ai[i].target == NO_SLOT {
+                    let cap = tuning::tank_cap(frame(self.suits.frame[i]), &self.tuning(i));
+                    let f = &mut self.suits.flight[i];
+                    if f.propellant < cap {
+                        f.propellant = (f.propellant + cap / DRONE_REFUEL_SECS).min(cap);
+                    }
+                }
             }
         }
     }
