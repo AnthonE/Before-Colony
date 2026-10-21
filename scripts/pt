@@ -27,9 +27,12 @@ up() { curl -sf "$url/status" >/dev/null 2>&1; }
 build() {
   [ "${PT_BUILD:-1}" = "0" ] && return
   cargo build --release -q -p bc-server -p bc-bot --bins --examples
-  # The web client, when anything it's built from is newer than the build (or there's none).
-  local wasm=web/dist/webgl2/bc_bg.wasm
-  if [ ! -f "$wasm" ] || [ -n "$(find crates web -maxdepth 4 -newer "$wasm" \( -name '*.rs' -o -name '*.wgsl' -o -name '*.js' -o -name '*.html' -o -name '*.css' -o -name Cargo.toml \) -not -path 'web/dist/*' -print -quit)" ]; then
+  # The web client: cargo says whether its wasm is current (a source's time alone can't: one edited
+  # while a build ran is older than what that build made); the page's own files are copied too.
+  local profile="${BC_WEB_PROFILE:-wasm-release}" wasm=web/dist/webgl2/bc_bg.wasm
+  cargo build -q -p bc-client --target wasm32-unknown-unknown --profile "$profile"
+  local built="${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/$profile/bc-client.wasm"
+  if [ ! -f "$wasm" ] || [ "$built" -nt "$wasm" ] || [ -n "$(find web -maxdepth 2 -type f -newer "$wasm" -not -path 'web/dist/*' -print -quit)" ]; then
     ./scripts/build-web.sh webgl2
   fi
 }
