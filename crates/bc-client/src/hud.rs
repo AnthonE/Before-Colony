@@ -291,6 +291,35 @@ impl UiFont {
     }
 }
 
+/// Glyphs Share Tech Mono hasn't (the objectives' ◆, which the signs over the doors draw in Chakra
+/// Petch) come from Chakra Petch rather than as empty boxes. Parley falls back by script, so Chakra
+/// Petch is the fallback for Latin and for the signs and digits between (Common). Once, when Bevy
+/// has registered the fonts; the text laid out before then is laid out again.
+pub fn glyph_fallback(
+    font: Res<UiFont>,
+    fonts: Res<Assets<Font>>,
+    mut cx: ResMut<bevy::text::FontCx>,
+    mut texts: Query<&mut TextFont>,
+    mut done: Local<bool>,
+) {
+    use parley::fontique::{FallbackKey, Script};
+    if *done {
+        return;
+    }
+    let Some(alias) = fonts.get(&font.label).map(|f| f.alias.as_str()).filter(|a| !a.is_empty()) else {
+        return;
+    };
+    let Some(chakra) = cx.collection.family_id(alias) else { return };
+    for script in [*b"Latn", *b"Zyyy"] {
+        cx.collection
+            .append_fallbacks(FallbackKey::new(Script::from_bytes(script), None), std::iter::once(chakra));
+    }
+    for mut text in &mut texts {
+        text.set_changed();
+    }
+    *done = true;
+}
+
 /// A soft shadow under HUD text, so it reads over anything bright.
 pub const SHADOW: TextShadow =
     TextShadow { offset: Vec2::new(1.0, 1.0), color: Color::srgba(0.0, 0.0, 0.0, 0.75) };
