@@ -467,6 +467,7 @@ impl Sim {
             let rot = look_rotation(-anchor, Vec3::Y);
             if let Some(id) = self.spawn_at(frame_id, Faction::Almagest, PilotKind::Drone, pos, rot) {
                 self.suits.ai[id.idx()].squad = squad as u8;
+                self.suits.ai[id.idx()].leash = ai::LEASH;
             }
         }
     }

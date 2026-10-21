@@ -43,6 +43,7 @@ impl Sim {
         };
         let i = id.idx();
         self.suits.ai[i].squad = squad as u8;
+        self.suits.ai[i].leash = crate::ai::LEASH;
         self.suits.ace[i] = self.next_ace;
         for hp in self.suits.part_hp[i].iter_mut() {
             *hp *= ACE_ARMOUR;

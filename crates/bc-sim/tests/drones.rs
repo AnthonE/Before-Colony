@@ -46,7 +46,8 @@ fn spawner_keeps_the_patrols_topped_up() {
 
 /// The drones near the squad's anchor, and how far the farthest is from it, m.
 fn spread(sim: &Sim, anchor: Vec3) -> (usize, f32) {
-    let drones: Vec<usize> = sim.suits.alive.iter().filter(|&i| sim.suits.pilot[i] == PilotKind::Drone).collect();
+    let drones: Vec<usize> =
+        sim.suits.alive.iter().filter(|&i| sim.suits.pilot[i] == PilotKind::Drone).collect();
     let far = drones.iter().map(|&i| (sim.suits.flight[i].pos - anchor).length()).fold(0.0, f32::max);
     (drones.len(), far)
 }
@@ -64,7 +65,13 @@ fn drones_let_a_pilot_who_flees_home_go_and_stay_on_patrol() {
     let anchor = Vec3::new(2_800.0, 900.0, 0.0);
     let start = anchor + Vec3::new(-900.0, 0.0, 0.0);
     let pilot = sim
-        .spawn_at(FrameId::Argo, Faction::Colonies, PilotKind::Human, start, look_rotation(anchor - start, Vec3::Y))
+        .spawn_at(
+            FrameId::Argo,
+            Faction::Colonies,
+            PilotKind::Human,
+            start,
+            look_rotation(anchor - start, Vec3::Y),
+        )
         .unwrap()
         .idx();
     for _ in 0..(10 * 30) {
@@ -74,7 +81,8 @@ fn drones_let_a_pilot_who_flees_home_go_and_stay_on_patrol() {
     for _ in 0..(4 * 60 * 30) {
         if sim.suits.alive.get(pilot) {
             let f = &mut sim.suits.flight[pilot];
-            f.vel = if (home - f.pos).length() > 200.0 { (home - f.pos).normalize() * 150.0 } else { Vec3::ZERO };
+            f.vel =
+                if (home - f.pos).length() > 200.0 { (home - f.pos).normalize() * 150.0 } else { Vec3::ZERO };
         }
         sim.step();
     }
