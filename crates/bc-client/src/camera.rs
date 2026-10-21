@@ -154,7 +154,8 @@ pub fn follow(
     mut bones: Query<&mut Visibility, With<SuitBone>>,
     mut cam: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
     mut fill: Query<&mut Transform, (With<FillLight>, Without<MainCamera>)>,
-    shot: Res<crate::launch_shot::LaunchShot>,
+    // (Game mode's: the showcase's chase scene has no launch.)
+    shot: Option<Res<crate::launch_shot::LaunchShot>>,
     inside: Option<Res<crate::inside::FlyingInside>>,
 ) {
     let Ok((mut tf, mut projection)) = cam.single_mut() else { return };
@@ -172,7 +173,7 @@ pub fn follow(
         // round the pilot instead, `cockpit::drive_cockpit`.)
         .map(|(d, ..)| d.pos + d.rot * bc_sim::content::frame(d.frame).eye());
     c.cockpit = cockpit.is_some();
-    c.launching = shot.active(time.now);
+    c.launching = shot.is_some_and(|s| s.active(time.now));
     c.head_lost = own.is_some_and(|(d, ..)| d.parts[Part::Head as usize] == 0);
     // The eye is inside a humanoid's head, which isn't drawn meanwhile, nor anything else of the
     // suit's at the eye (a high collar), unless it's been shot off, which is the damage's to show.
