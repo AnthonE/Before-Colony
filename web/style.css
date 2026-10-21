@@ -182,6 +182,8 @@ button:disabled { opacity: 0.4; cursor: default; }
 .message { font-size: 13px; line-height: 1.5; white-space: pre-line; }
 .message.error { color: var(--red); }
 .controls { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); gap: 16px 24px; }
+/* (Scrolled to where the pilot is, its heading whole.) */
+.controls section { scroll-margin-top: 16px; }
 .controls table { border-collapse: collapse; font-size: 12px; width: 100%; }
 .controls td { padding: 3px 0; vertical-align: top; opacity: 0.9; }
 /* The keys wrap at their spaces, so a long chord ("Double-tap W/A/S/D/Space/C") leaves its words room. */

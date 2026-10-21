@@ -877,6 +877,13 @@ fn km(d: f32) -> String {
     if d < 1_000.0 { format!("{d:.0} m") } else { format!("{:.1} km", d / 1_000.0) }
 }
 
+/// A closing speed with its sign, whole: at rest it's 0, not the "-0" that `{:+.0}` makes of
+/// -0.004.
+fn signed(v: f32) -> String {
+    let v = v.round();
+    if v == 0.0 { "0".into() } else { format!("{v:+.0}") }
+}
+
 /// Seconds, from ticks.
 fn secs(ticks: f32) -> f32 {
     ticks / bc_sim::TICK_HZ as f32
@@ -1806,7 +1813,7 @@ pub fn update_hud(
                 .map(|(l, v)| {
                     let rate = range_rate(v.flight_vel - l.1.point_vel(v.pos), l.3);
                     let name = LANDMARKS[usize::from(k)].name;
-                    (l.1.pos, format!("{name}  {}  {rate:+.0} m/s", km(l.2.max(0.0))), CYAN)
+                    (l.1.pos, format!("{name}  {}  {} m/s", km(l.2.max(0.0)), signed(rate)), CYAN)
                 })
         } else if let Some(&HideMarker(k, i)) = hide {
             // Not the one it stands in.
@@ -2074,7 +2081,7 @@ pub fn update_marks(
         // Locked on: how fast it closes (+) or opens.
         let closing = locked_on.then(|| {
             let to = (pos - own_pos).normalize_or_zero();
-            format!("\nLOCK-ON {:+.0} m/s", -(track.sample(t, &world.bodies).vel - own_vel).dot(to))
+            format!("\nLOCK-ON {} m/s", signed(-(track.sample(t, &world.bodies).vel - own_vel).dot(to)))
         });
         let named = k < TAGGED
             || locked_on_you

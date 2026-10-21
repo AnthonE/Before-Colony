@@ -16,6 +16,7 @@
   let chosen = "altair";
   let autoplay = false;
   let toastSeq = 0;
+  let helpWas = false;
   let toastTimer = null;
   let newsSeq = 0;
   let newsTimer = null;
@@ -542,6 +543,17 @@
     hint.textContent = v.hint || "";
     show(hint, s === "playing" && !!v.hint && v.panel === "none");
     show($("help"), v.help);
+    // Opened in the world, the sheet starts at the section for where the pilot is (flying, the
+    // hangar's came first and FLIGHT and COMBAT were below the fold).
+    if (v.help && !helpWas && s === "playing") {
+      const title = v.driving === "car" || v.driving === "markab" ? "DRIVING"
+        : v.place === "hangar" ? "IN THE HANGAR"
+        : v.place === "city" ? "IN THE COLONY"
+        : "FLIGHT";
+      const h = [...document.querySelectorAll("#controls-list h3")].find((e) => e.textContent === title);
+      h?.closest("section")?.scrollIntoView({ block: "start" });
+    }
+    helpWas = v.help;
     show($("map"), s === "playing" && !!v.map && v.panel === "none");
     if (s === "playing" && v.map && v.panel === "none") drawMap(v.map, v.mapGoal, v.mapFound || 0);
     show($("prompt"), s === "playing" && v.clickToFly && !v.help && !v.sequence);
