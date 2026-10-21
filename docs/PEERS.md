@@ -99,10 +99,12 @@ flies ships, not suits.
   short.
 - **Weapons-free zones are griefed without weapons.** Its armistice zones have been abused by
   holding cargo elevators, ramming landing pads and, until it was patched, "healing" players into a
-  stupor and stripping them [P3]. Our shared spaces already refuse that: other pilots are ghosts to
+  stupor and stripping them [P3]. Our shared spaces refused that: other pilots are ghosts to
   you, vehicles collide with neither each other nor people, and a vehicle is its driver's alone
-  (`COLONY.md`, phase 5). Suits inside must keep to it (`SUITS_INSIDE.md`: "nothing touches a
-  suit"), and its open question about thrusters near people should be answered the same way.
+  (`COLONY.md`, phase 5). The owner has since chosen the other way for the city (`OPEN_CITY.md`):
+  cars that collide and can be stolen, crime anywhere, and the Watch's suits and drones to answer
+  it. The lesson stands as a list of what we still promise: nobody shut in their own home, nobody
+  raided asleep outside the raid hours, and nobody's bay or suit lost to the street.
 - **Jobs from the city.** Its missions are taken in a city and flown in space, which is what brings
   players back to the city. Ours come from the Charter Board (P1 6), begun: its patrols are
   taken at its desk in the city and flown in space, and what it pays for them waits at that desk
@@ -534,7 +536,8 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
 9. **Agents as population.** Flaneurs that ride the trams and go into the places (today's walks 60
    m back and forth, `bc-bot/examples/flaneur.rs`), and the server's own tugs, haulers and miners
    in the lanes (`DESIGN.md`, roadmap, "Traffic").
-10. **Decide where PvP lives.** This is a decision that's open, not a recommendation. Every human
+10. **Decide where PvP lives.** *Decided for the city (October 2026): crime anywhere inside, answered
+   by the Watch, homes raidable in the raid hours (`OPEN_CITY.md`). Space is still open.* Every human
    pilot flies for the Colonies, whatever their client asks (the server decides: `bc-server`'s
    `net::game::side`, and the Welcome says so), and friendly fire is off (`bc_sim::config`), so
    people can't harm each other, and `DESIGN.md`'s hunted sleepers can only be hunted by agents of

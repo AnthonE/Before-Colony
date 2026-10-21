@@ -169,7 +169,9 @@ the chain together:
 
 ## 5. Contraband: guns inside
 
-*A decision for the owner: `ROADMAP.md`'s "Where PvP lives". Nothing here is built until it's made.*
+*Decided (October 2026): crime anywhere in the city, answered by the Watch, with homes that can be
+broken into in the raid hours. `OPEN_CITY.md` is the design (X1, X2, R1); what follows was the
+question as it was put.*
 
 The colony's law stands (no weapons fired inside; the Blast Hall the one exception: `TRAINING.md`).
 The owner's ask is that weapons inside be extremely hard to get, but that it can get crazy:
@@ -266,14 +268,16 @@ Each is PR-sized and tested end to end, as `ROADMAP.md`'s items are.
   never starves anyone.
 - **A seat worked by an Arrival must be clearly better than the staff**, or nobody takes it; but a
   colony worked only by its staff must never feel broken.
-- **Griefing in safe spaces** (`PEERS.md`, Star Citizen). Every new verb is asked: can it be used on
-  somebody who didn't opt in?
+- **Griefing** (`PEERS.md`, Star Citizen). Every new verb is asked: can it be used on somebody who
+  didn't opt in? Living in the city is opting in to its dangers now (`OPEN_CITY.md`), so the question
+  is what we still promise: nobody shut in their own home, nobody raided asleep outside the raid
+  hours, and nobody's bay or suit lost to the street.
 - **The hot path stays untouched.** All of this is `bc-econ` and the session, off the tick. Only the
   fed condition reaches the simulation, as 3 bits of the own snapshot and a term in `tuning`.
 
 ## Open questions
 
-- The clock (3) and contraband (5): the owner's.
+- The clock (3): the owner's. Contraband (5) is decided (`OPEN_CITY.md`).
 - Whether a guest (no wallet) has a body at all, or only for the visit, as their hangar is.
 - Who sets the staff's prices: fixed (L1), or floating with what the colony holds, as its desks do.
 - Whether the staff's seats should be worked by visible agents (people at the counter), or be only

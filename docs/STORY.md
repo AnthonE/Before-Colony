@@ -144,6 +144,7 @@ colony that its pilots build and run:
 - **Contracts** (the GTA half): jobs from the colony's people, posted with their rewards held in
   escrow: haul this, clear that claim, escort a hauler home, recover a wreck. Some of them shady.
 - **Law and heat.** Shooting colonists draws the militia; enough of it makes a pilot a bounty.
+  Inside the colony that's the Watch, its Sirius hounds and its suits (`OPEN_CITY.md`).
 - **Traffic.** Tugs, haulers and miners flown by the server (agents, all of them), so the lanes
   are busy whether players are or not.
 - **The concourse.** Beyond the airlock: other pilots' bays, a bar to meet in, the Exchange floor;
@@ -180,7 +181,11 @@ colony that its pilots build and run:
   only the colony's zero-G foundry makes; the combat AI in one Lodestar's torso is **the
   Orrery**; the resource satellite at the dock is **Fornax**. The colony's rocket car, from its
   motor pools, is the **Markab**: α Pegasi, the saddle of the winged horse (its test driver in
-  the showcase is Bellerophon, who rode it).
+  the showcase is Bellerophon, who rode it). The colony's Watch flies drones it calls the
+  **Sirius** hounds, after the Dog Star, and suits named for the royal stars the Persians called the
+  Watchers: the **Aldebaran**, the **Regulus** and the **Fomalhaut** (the fourth Watcher, Antares,
+  is a Lodestar's). The interface every Arrival woke with, behind the ear, is their **Astrolabe**:
+  the reading instrument to the Orrery's model of the heavens (`OPEN_CITY.md`, "Intrusion").
 - **Each name fits what the thing does:** Algol, the star that dims, carries the
   **Eclipse** (a jammer); Thuban, the old pole star, strikes with the **Talon**; Antares opens
   up in a **Full Salvo**; Canopus closes the **Pincer Strike**; the Altair is the eagle's star.
