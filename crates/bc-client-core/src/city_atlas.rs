@@ -6,15 +6,31 @@
 //!
 //! Laid out `ATLAS_W` blocks along by `ATLAS_ROWS` rows a strip: texel `(bx, strip·27 + row + 13)`
 //! is block `bx`, row `row` (−13..=13: the banks, the rows of blocks, the avenue) of strip `strip`.
+//!
+//! Under the blocks, in the same image (one texture binding, which WebGL2 has few of), the heights
+//! the long shadows are marched through (`COLONY_LOOK.md` pass 1.3, [`heights`]): the tallest roof
+//! over each 16 m cell, four cells a texel.
 
-use bc_sim::colony::city::{BANK_ROW, Stage, texel};
-use bc_sim::colony::frame::STRIPS;
+use bc_sim::colony::city::{BANK_ROW, BLOCK, GRID_X0, MAX_HEIGHT, Rect, Stage, each_solid, texel};
+use bc_sim::colony::frame::{STRIP_WIDTH, STRIPS};
 
 /// Blocks along a strip (the grid's cells 0..256 span x from −16,384 to +16,384).
 pub const ATLAS_W: u32 = 256;
 /// Rows a strip: the banks and the avenue too.
 pub const ATLAS_ROWS: u32 = 2 * BANK_ROW as u32 + 1;
 pub const ATLAS_H: u32 = ATLAS_ROWS * STRIPS as u32;
+
+/// The height map's cell, m: eight to a block, on the grid's lines.
+pub const HEIGHT_CELL: f32 = 16.0;
+/// Where the height map's first row starts across a strip (s, m): a little before the strip, so
+/// that the avenue's edges, and every row of blocks', fall on its cells' edges.
+pub const HEIGHT_S0: f32 = -12.483_92;
+/// The height map's cells along a strip (the block grid's 32 km) and across it.
+pub const HEIGHT_COLS: u32 = 2048;
+pub const HEIGHT_ROWS: u32 = 211;
+/// The atlas image: the blocks at its top left, the heights under them, four cells a texel.
+pub const IMAGE_W: u32 = HEIGHT_COLS / 4;
+pub const IMAGE_H: u32 = ATLAS_H + HEIGHT_ROWS * STRIPS as u32;
 
 /// The map at the site's `stage`, row by row: `ATLAS_W × ATLAS_H` texels of four bytes.
 pub fn block_atlas(stage: Stage) -> Vec<u8> {
@@ -30,10 +46,69 @@ pub fn block_atlas(stage: Stage) -> Vec<u8> {
     out
 }
 
+/// The tallest roof over each [`HEIGHT_CELL`] cell of every strip (m above the floor, one byte),
+/// `HEIGHT_COLS` along by `HEIGHT_ROWS` a strip: cell `(c, strip·211 + j)` spans x from
+/// `GRID_X0 + 16c` and s from `HEIGHT_S0 + 16j`. A solid counts where it covers at least half a
+/// cell, so a mast, a crane's lattice or a frame's columns cast no shadow kilometres long, 16 m wide.
+pub fn heights(stage: Stage) -> Vec<u8> {
+    let (cols, rows) = (HEIGHT_COLS as usize, HEIGHT_ROWS as usize);
+    let mut out = vec![0u8; cols * rows * STRIPS];
+    let half = HEIGHT_CELL * HEIGHT_CELL * 0.5;
+    let cell = |v: f32, from: f32| (v - from) / HEIGHT_CELL;
+    for (strip, grid) in out.chunks_exact_mut(cols * rows).enumerate() {
+        for bx in 0..ATLAS_W {
+            let x0 = GRID_X0 + BLOCK * bx as f32;
+            let area = Rect::new(0.0, STRIP_WIDTH, x0, x0 + BLOCK);
+            each_solid(strip as u8, &area, stage, |b| {
+                // Not the end caps' walls, nor what's underfoot.
+                if b.h1 > MAX_HEIGHT || b.h1 < 1.0 {
+                    return false;
+                }
+                let r = &b.rect;
+                let (c0, c1) =
+                    (cell(r.x0, GRID_X0).floor().max(0.0), cell(r.x1, GRID_X0).ceil().min(cols as f32));
+                let (j0, j1) =
+                    (cell(r.s0, HEIGHT_S0).floor().max(0.0), cell(r.s1, HEIGHT_S0).ceil().min(rows as f32));
+                let top = b.h1.ceil() as u8;
+                for j in j0 as usize..j1.max(j0) as usize {
+                    let s = HEIGHT_S0 + HEIGHT_CELL * j as f32;
+                    let across = (r.s1.min(s + HEIGHT_CELL) - r.s0.max(s)).max(0.0);
+                    for c in c0 as usize..c1.max(c0) as usize {
+                        let x = GRID_X0 + HEIGHT_CELL * c as f32;
+                        let along = (r.x1.min(x + HEIGHT_CELL) - r.x0.max(x)).max(0.0);
+                        if across * along >= half {
+                            let h = &mut grid[j * cols + c];
+                            *h = (*h).max(top);
+                        }
+                    }
+                }
+                false
+            });
+        }
+    }
+    out
+}
+
+/// The atlas image at the site's `stage`, `IMAGE_W × IMAGE_H` texels of four bytes: the block
+/// map ([`block_atlas`]) at the top left, and the height map ([`heights`]) under it, its cells
+/// `4t..4t + 3` along in texel `t`'s r, g, b and a.
+pub fn atlas(stage: Stage) -> Vec<u8> {
+    let w = IMAGE_W as usize;
+    let mut out = vec![0u8; w * IMAGE_H as usize * 4];
+    let blocks = block_atlas(stage);
+    let row = ATLAS_W as usize * 4;
+    for (y, src) in blocks.chunks_exact(row).enumerate() {
+        out[y * w * 4..y * w * 4 + row].copy_from_slice(src);
+    }
+    let top = ATLAS_H as usize * w * 4;
+    out[top..].copy_from_slice(&heights(stage));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bc_sim::colony::city::{self, CANAL_ROW};
+    use bc_sim::colony::city::{self, AVENUE, CANAL_ROW};
     use bc_sim::colony::frame::STRIP_WIDTH;
 
     const LIB: &str = include_str!("../../bc-client/src/shaders/city_lib.wgsl");
@@ -192,5 +267,63 @@ mod tests {
         assert_eq!(at(0, 30, -2)[0], 7);
         assert_eq!(at(1, 50, CANAL_ROW)[0], 4);
         assert_eq!(at(0, 5, 0), [0; 4], "Hub Gate's plaza");
+    }
+
+    /// The height map's cells sit on the grid: eight to a block along the strip, and across it
+    /// every row's edges (the avenue's ± 40 m, then each block's 128 m) on a cell's edge.
+    #[test]
+    fn the_height_map_is_on_the_grid() {
+        assert_eq!(BLOCK / HEIGHT_CELL, 8.0);
+        assert_eq!(HEIGHT_COLS as f32 * HEIGHT_CELL, ATLAS_W as f32 * BLOCK);
+        let edge = STRIP_WIDTH * 0.5 + AVENUE * 0.5 - HEIGHT_S0;
+        assert!((edge / HEIGHT_CELL - (edge / HEIGHT_CELL).round()).abs() < 1e-4, "{edge}");
+        const {
+            assert!(HEIGHT_S0 <= 0.0 && HEIGHT_S0 > -HEIGHT_CELL);
+            assert!(HEIGHT_S0 + HEIGHT_CELL * HEIGHT_ROWS as f32 >= STRIP_WIDTH);
+            assert!(HEIGHT_S0 + HEIGHT_CELL * ((HEIGHT_ROWS - 1) as f32) < STRIP_WIDTH);
+        }
+        // The shader's copy of the numbers.
+        assert_eq!(constant("HEIGHT_CELL"), HEIGHT_CELL);
+        assert!((constant("HEIGHT_S0") - HEIGHT_S0).abs() < 1e-3);
+        assert_eq!(constant("HEIGHT_COLS") as u32, HEIGHT_COLS);
+        assert_eq!(constant("HEIGHT_ROWS") as u32, HEIGHT_ROWS);
+        assert_eq!(constant("HEIGHT_Y0") as u32, ATLAS_H);
+    }
+
+    /// The heights are the city's: the Axis View's tower stands tall where it is, a park and the
+    /// avenue are open, nothing's taller than the rules allow, and the image keeps the blocks.
+    #[test]
+    fn the_height_map_holds_the_roofs() {
+        let image = atlas(Stage(0));
+        assert_eq!(image.len(), (IMAGE_W * IMAGE_H * 4) as usize);
+        let blocks = block_atlas(Stage(0));
+        for y in 0..ATLAS_H as usize {
+            let row = ATLAS_W as usize * 4;
+            let at = y * IMAGE_W as usize * 4;
+            assert_eq!(&image[at..at + row], &blocks[y * row..(y + 1) * row]);
+        }
+        let h = heights(Stage(0));
+        assert!(h.iter().all(|&v| f32::from(v) <= MAX_HEIGHT));
+        let (cols, rows) = (HEIGHT_COLS as usize, HEIGHT_ROWS as usize);
+        let at = |strip: usize, s: f32, x: f32| {
+            let j = ((s - HEIGHT_S0) / HEIGHT_CELL).floor() as usize;
+            let c = ((x - GRID_X0) / HEIGHT_CELL).floor() as usize;
+            h[strip * cols * rows + j * cols + c]
+        };
+        // The Axis View: block (30, −2) of strip 0, a tower (`texel`'s kind 7) with its height there.
+        let r = city::block_rect(30, -2);
+        let tallest = (0..8)
+            .flat_map(|i| (0..8).map(move |k| (i, k)))
+            .map(|(i, k)| at(0, r.s0 + 8.0 + 12.0 * i as f32, r.x0 + 8.0 + 12.0 * k as f32))
+            .max()
+            .unwrap();
+        assert!(f32::from(tallest) >= 80.0, "the Axis View: {tallest}");
+        // The avenue down the middle of every strip, away from Hub Gate.
+        for strip in 0..3 {
+            assert_eq!(at(strip, STRIP_WIDTH * 0.5, 0.0), 0);
+        }
+        // And a good share of the city under roofs.
+        let roofed = h.iter().filter(|&&v| v > 4).count() as f32 / h.len() as f32;
+        assert!(roofed > 0.15 && roofed < 0.7, "{roofed}");
     }
 }

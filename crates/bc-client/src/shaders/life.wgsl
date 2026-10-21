@@ -68,7 +68,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         key = lights.directional_lights[0].color.rgb;
         to_key = lights.directional_lights[0].direction_to_light;
     }
-    glow += base * bounce(normalize(pbr.N), up, to_key, key, lights.ambient_color.rgb) * ao;
+    // (Occluded as the ambient is: `diffuse_occlusion` is the screen-space occlusion where it runs.)
+    glow += base * bounce(normalize(pbr.N), up, to_key, key, lights.ambient_color.rgb) * ao * pbr.diffuse_occlusion;
     pbr.material.base_color = vec4(base, 1.0);
     pbr.material.perceptual_roughness = clamp(rough, 0.05, 1.0);
     pbr.material.metallic = 0.0;

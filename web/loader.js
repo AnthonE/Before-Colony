@@ -106,6 +106,8 @@ async function main() {
     look: params.get("look") !== "0",
     // `?life=0`: no traffic or people in the colony's city, to compare and to measure.
     life: params.get("life") !== "0",
+    // `?ssao=0`: no screen-space ambient occlusion (WebGPU), to compare against.
+    ssao: params.get("ssao") !== "0",
     // `?hz=N`: the showcase's fixed clock rate (default 60), to see effects at a low frame rate.
     hz: Number(params.get("hz") || 60),
     // `?clean=1`: the showcase without its line of text in the corner, for clips.

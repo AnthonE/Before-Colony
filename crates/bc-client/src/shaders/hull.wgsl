@@ -28,6 +28,8 @@ struct Hull {
     panel: vec4<f32>,
     // x: seconds (embers flicker).
     time: vec4<f32>,
+    // x: patchwork, how much plates differ from their neighbours in tone and sheen (0: alike).
+    look: vec4<f32>,
 };
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> hull: Hull;
@@ -173,6 +175,14 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
 
     var albedo = paint.rgb * (0.9 + 0.16 * pl.y);
     var rough = paint.a * (0.92 + 0.16 * mix(0.5, noise3(ps * 1.7 + seed), detail));
+    // Patchwork: on a big hull every plate was rolled, fitted or replaced on its own, so each
+    // takes the light a little differently, in tone and in sheen. It's what gives a surface
+    // kilometres across its scale; it fades out as plates shrink to a few pixels, so it never
+    // shimmers.
+    let patchwork = hull.look.x * clamp(size / (fp * 4.0), 0.0, 1.0);
+    let sheen = hash13(vec3(pl.y * 61.7, seed, 9.1));
+    albedo *= 1.0 + patchwork * (pl.y - 0.5);
+    rough = clamp(rough * (1.0 + patchwork * 1.2 * (sheen - 0.5)), 0.05, 1.0);
     var metallic = select(0.0, 0.85, bare_metal);
     // Bevels catch the light: worn a shade brighter and smoother.
     albedo = mix(albedo, min(albedo * 1.35 + vec3(0.04), vec3(1.0)), bevel * 0.55);

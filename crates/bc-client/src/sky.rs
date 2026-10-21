@@ -49,6 +49,10 @@ pub const EV100: f32 = 14.5;
 const WHITE: f32 = SUN_LUX / std::f32::consts::PI;
 /// Radiance that lands near 1.0 on screen at [`EV100`].
 const SCREEN: f32 = 27_800.0;
+/// The image-based light's strength. Earth fills a third of the sky, so what the Sun leaves in
+/// shade it lights from one side, blue: shade with a shape, where an even ambient fill flattens.
+/// At its physical strength the tonemapper's toe left night sides black.
+const EARTHSHINE: f32 = 3.0;
 
 const SKY_SHADER: &str = "embedded://bc_client/shaders/sky.wgsl";
 
@@ -77,7 +81,7 @@ struct SkyUniform {
     moon: Vec4,
     /// xyz: the galaxy's plane normal; w: seconds.
     galaxy: Vec4,
-    /// x: star brightness; y: detail 0..1; z: sun disc scale.
+    /// x: star brightness; y: detail 0..1; z: sun disc scale; w: the Milky Way's lift (1: none).
     params: Vec4,
 }
 
@@ -142,7 +146,7 @@ fn setup_sky(
             earth: EARTH_DIR.extend(EARTH_RADIUS),
             moon: MOON_DIR.extend(MOON_RADIUS),
             galaxy: GALAXY_NORMAL.extend(0.0),
-            params: Vec4::new(1.0, gfx.settings.sky_detail, 1.0, 0.0),
+            params: Vec4::new(gfx.starlight(), gfx.settings.sky_detail, 1.0, gfx.milky_way_lift()),
         },
     });
     commands.spawn((
@@ -217,7 +221,7 @@ fn apply_light_tier(
             e.insert(EnvironmentMapLight {
                 diffuse_map: maps.diffuse.clone(),
                 specular_map: maps.specular.clone(),
-                intensity: 1.0,
+                intensity: EARTHSHINE,
                 ..default()
             });
         } else {
@@ -225,9 +229,9 @@ fn apply_light_tier(
         }
     }
     // Space has no ambient light; a faint fill keeps night sides readable. Without image-based
-    // lighting, a stronger, Earth-blue fill stands in for it.
+    // lighting, a stronger, Earth-blue fill stands in for Earthshine.
     ambient.color = Color::srgb(0.55, 0.65, 0.9);
-    ambient.brightness = if s.ibl { 250.0 } else { 1_500.0 };
+    ambient.brightness = if s.ibl { 250.0 } else { 2_500.0 };
     if inside {
         ambient.color = Color::srgb(0.8, 0.85, 0.95);
         ambient.brightness = crate::hangar::INDOOR_AMBIENT;
