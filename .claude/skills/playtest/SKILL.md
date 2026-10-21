@@ -36,11 +36,21 @@ with their own session; they see each other in it.
 - **The low tier has no HDR, bloom or post effects.** Judge the *look* (light, materials, colour)
   only on `high`: the showcase (`scripts/pt showcase city 3 480`, High by default) or
   `scripts/pt open 'quality=high'` (slower still). Judge layout, words, flow and feel on `low`.
-- **No pointer lock headless**, so the mouse can't steer: `turn <yaw> [pitch]` turns the eyes
+- **The pointer is never locked**, so the mouse can't steer: `turn <yaw> [pitch]` turns the eyes
   (flying or on foot), `mouse right <ms>` fires the secondary weapon (the primary needs the lock).
-  Keys work: `key KeyW 1500`, `key ShiftLeft+KeyW 2000`, `key Escape`. A hold moves the pilot only
-  as far as the frames drawn in it, so travel with `walk` and `fly_to` (they keep up with slow
-  frames) and keep keys for feel.
+  The page's "CLICK TO WALK" / "CLICK TO FLY" stays up for that reason: it isn't a finding.
+  (The driver refuses the lock on purpose: headless Chromium grants it, and with it held on foot
+  the game slows tenfold and its memory climbs by gigabytes until it aborts. `PT_LOCK=1` lets the
+  page lock it, to look into that.) Keys work: `key KeyW 1500`, `key ShiftLeft+KeyW 2000`,
+  `key Escape`. A hold moves the pilot only as far as the frames drawn in it, so travel with
+  `walk` and `fly_to` (they keep up with slow frames) and keep keys for feel.
+- **If the game dies** (a wasm trap or a panic) every status line says so in capitals from then
+  on, and what you see is frozen: read `logs` (the first error is the one that matters; the rest
+  are its fallout), note it with the steps that led there, and `open` again. `wasm_mb` in the
+  status is the game's memory: it should hold steady, and a climb is a finding.
+- **The view is 960×540** (the e2e suites' size); panels or cockpit monitors cut off at its edges
+  may be fine at a player's size: check with `PT_VIEWPORT=1600x900` (a new session, as the size
+  is set when the browser starts) before you report one.
 - **Holds and waits are wall-clock**: the world doesn't pause between your commands. A drone can
   find you while you're writing a note.
 
