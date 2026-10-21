@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
 import { chromium, expect, test, type Page } from "@playwright/test";
-import { bc, built, collectConsole } from "./util";
+import { bc, built, calmPointer, collectConsole } from "./util";
+
+// Each move whole: the pointer locks here (`util.ts`, `calmPointer`).
+test.beforeEach(({ page }) => page.addInitScript(calmPointer));
 
 // The colony inside (`scripts/e2e.sh colony`: a survival server with the colony open, no drones,
 // and an agent strolling outside Hub Gate). The pilot goes out through their bay's airlock and
