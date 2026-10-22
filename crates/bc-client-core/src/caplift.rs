@@ -120,7 +120,7 @@ mod tests {
         let mut t = 0.0;
         while t < total {
             let v = (travelled(t + dt) - travelled(t)) / dt;
-            assert!(v >= 0.0 && v <= TOP_SPEED + 0.1, "{v} m/s at {t}");
+            assert!((0.0..=TOP_SPEED + 0.1).contains(&v), "{v} m/s at {t}");
             assert!(((v - v0) / dt).abs() <= ACCEL + 0.1, "{} m/s² at {t}", (v - v0) / dt);
             v0 = v;
             t += dt;
