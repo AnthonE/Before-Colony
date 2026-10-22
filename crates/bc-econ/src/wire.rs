@@ -155,6 +155,103 @@ pub enum Request {
     Say {
         text: String,
     },
+    /// A home (`bc_sim::colony::homes::HomeId`, `docs/OPEN_CITY.md`), at its door: rent it for
+    /// `weeks` (paid ahead into its panel), buy it, give it up (a lease ended, its rent back; a
+    /// house sold back to the colony).
+    Rent {
+        home: u32,
+        weeks: u64,
+    },
+    Buy {
+        home: u32,
+    },
+    GiveUp {
+        home: u32,
+    },
+    /// At a home's door: a code on its keypad, open or shut it, knock.
+    EnterCode {
+        home: u32,
+        code: u16,
+    },
+    Door {
+        home: u32,
+        open: bool,
+    },
+    Knock {
+        home: u32,
+    },
+    /// At a home's panel, inside it, on its crew: set its main code (or its guest code: `guest`;
+    /// none clears it), lock or unlock its door, leave its crew, clear its crew; and anyone there,
+    /// pay rent into it; its crew, take some back.
+    SetCode {
+        home: u32,
+        guest: bool,
+        code: Option<u16>,
+    },
+    Lock {
+        home: u32,
+        locked: bool,
+    },
+    LeaveCrew {
+        home: u32,
+    },
+    ClearCrew {
+        home: u32,
+    },
+    Feed {
+        home: u32,
+        credits: u64,
+    },
+    TakeRent {
+        home: u32,
+        credits: u64,
+    },
+    /// In a home, on its crew: buy a piece of furniture (`furniture`: its slug) and put it down,
+    /// its middle `(s, x)` dm from the home's floor's −s −x corner, `turn` quarter turns, on
+    /// `storey` (a house's); move one; sell one back; put things from the bay into a chest or a
+    /// safe, or take them back out.
+    Furnish {
+        home: u32,
+        furniture: String,
+        s: u16,
+        x: u16,
+        turn: u8,
+        #[serde(default)]
+        storey: u8,
+    },
+    MovePiece {
+        home: u32,
+        piece: u16,
+        s: u16,
+        x: u16,
+        turn: u8,
+        #[serde(default)]
+        storey: u8,
+    },
+    SellPiece {
+        home: u32,
+        piece: u16,
+    },
+    Stash {
+        home: u32,
+        piece: u16,
+        item: Item,
+        qty: u64,
+    },
+    Unstash {
+        home: u32,
+        piece: u16,
+        item: Item,
+        qty: u64,
+    },
+}
+
+/// Where a request about a home is made: at its door (outside it, or just in), or inside it, at its
+/// panel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AtHome {
+    Door,
+    Inside,
 }
 
 impl Request {
@@ -196,7 +293,51 @@ impl Request {
             | Request::UseKit { .. }
             | Request::Eject { .. }
             | Request::Say { .. } => None,
+            // Its own door or panel (`Request::home`), not a desk.
+            Request::Rent { .. }
+            | Request::Buy { .. }
+            | Request::GiveUp { .. }
+            | Request::EnterCode { .. }
+            | Request::Door { .. }
+            | Request::Knock { .. }
+            | Request::SetCode { .. }
+            | Request::Lock { .. }
+            | Request::LeaveCrew { .. }
+            | Request::ClearCrew { .. }
+            | Request::Feed { .. }
+            | Request::TakeRent { .. }
+            | Request::Furnish { .. }
+            | Request::MovePiece { .. }
+            | Request::SellPiece { .. }
+            | Request::Stash { .. }
+            | Request::Unstash { .. } => None,
         }
+    }
+
+    /// The home this asks about, and where the pilot must be to ask it: at its door, or in it.
+    pub fn home(&self) -> Option<(bc_sim::colony::homes::HomeId, AtHome)> {
+        use bc_sim::colony::homes::HomeId;
+        let (home, at) = match *self {
+            Request::Rent { home, .. }
+            | Request::Buy { home }
+            | Request::EnterCode { home, .. }
+            | Request::Door { home, .. }
+            | Request::Knock { home } => (home, AtHome::Door),
+            Request::GiveUp { home }
+            | Request::SetCode { home, .. }
+            | Request::Lock { home, .. }
+            | Request::LeaveCrew { home }
+            | Request::ClearCrew { home }
+            | Request::Feed { home, .. }
+            | Request::TakeRent { home, .. }
+            | Request::Furnish { home, .. }
+            | Request::MovePiece { home, .. }
+            | Request::SellPiece { home, .. }
+            | Request::Stash { home, .. }
+            | Request::Unstash { home, .. } => (home, AtHome::Inside),
+            _ => return None,
+        };
+        Some((HomeId(home), at))
     }
 }
 
@@ -257,6 +398,17 @@ pub enum Place {
     City,
 }
 
+/// Where a pilot waking at home gets up: the home, and the spot beside its bed (dm from the home's
+/// floor's −s −x corner, `content::homes::wake_spot`) on its storey (a house's).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Wake {
+    pub home: u32,
+    pub s: u16,
+    pub x: u16,
+    #[serde(default)]
+    pub storey: u8,
+}
+
 /// How a sortie ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -281,6 +433,9 @@ pub enum Update {
         /// Flying one of the Charter Board's trainers (from the Blast Hall's gantry, back to it).
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         trainer: bool,
+        /// Into the city by waking at home (logged out asleep in a bed there, H3): where they get up.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        wake: Option<Wake>,
     },
     Hangar(HangarView),
     Market(MarketView),
@@ -320,6 +475,93 @@ pub enum Update {
     /// The Proving Ground's board (in the colony, whenever it changes): the day's best times, the
     /// records, and the pilot's own.
     Proving(BoardView),
+    /// The held homes of the buildings near the pilot in the city (whenever the register or the
+    /// buildings change): the rest are free, at the prices the city's own numbers give.
+    Homes(HomesView),
+}
+
+/// The held homes near a pilot, as they see them.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HomesView {
+    pub homes: Vec<HomeLine>,
+}
+
+/// A held home, as a pilot near it sees it: whose (the name on its door), whether its door's open
+/// and locked, and what the pilot may do there. Its panel's rent and lists are its crew's to see.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HomeLine {
+    pub id: u32,
+    pub name: String,
+    pub open: bool,
+    pub locked: bool,
+    /// The pilot's own: they hold it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub mine: bool,
+    /// On its crew (full rights), or a guest (its door).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub crew: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub guest: bool,
+    /// Its crew's to see: the rent on its panel (none for a home bought), how many are on its crew,
+    /// and whether it has a main code and a guest code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub panel: Option<PanelView>,
+    /// Its furniture, as everyone who comes in sees it (what a chest or a safe holds, its crew's
+    /// alone).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pieces: Vec<crate::homes::Piece>,
+    /// Who's asleep in its beds (logged out at home): each bed (its piece), and the name on them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub asleep: Vec<(u16, String)>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PanelView {
+    pub bank: Option<u64>,
+    pub crew: u8,
+    pub coded: bool,
+    pub guest_coded: bool,
+}
+
+impl HomesView {
+    /// The held homes among `ids`, as `trader` sees them.
+    pub fn of(reg: &crate::homes::Homes, ids: impl Iterator<Item = u32>, trader: &str) -> Self {
+        use crate::homes::Tenure;
+        let homes = ids
+            .filter_map(|id| {
+                let h = reg.get(bc_sim::colony::homes::HomeId(id))?;
+                let crew = h.lock.is_crew(trader);
+                Some(HomeLine {
+                    id,
+                    name: h.name.clone(),
+                    open: h.open,
+                    locked: h.lock.locked,
+                    mine: h.holder == trader,
+                    crew,
+                    guest: !crew && h.lock.guests.iter().any(|g| g == trader),
+                    pieces: h
+                        .pieces
+                        .iter()
+                        .map(|p| crate::homes::Piece {
+                            holds: if crew { p.holds.clone() } else { Vec::new() },
+                            ..p.clone()
+                        })
+                        .collect(),
+                    asleep: h.asleep.iter().map(|a| (a.piece, a.name.clone())).collect(),
+                    panel: crew.then(|| PanelView {
+                        bank: match h.tenure {
+                            Tenure::Lease { bank, .. } => Some(bank),
+                            Tenure::Deed { .. } => None,
+                        },
+                        crew: h.lock.crew.len() as u8,
+                        coded: h.lock.code.is_some(),
+                        guest_coded: h.lock.guest_code.is_some(),
+                    }),
+                })
+            })
+            .collect();
+        Self { homes }
+    }
 }
 
 /// Someone in the city, by the slot the plaza's datagrams know them by.
@@ -468,6 +710,82 @@ pub fn apply(
         | Request::UseKit { .. }
         | Request::Eject { .. }
         | Request::Say { .. } => return None,
+        // The register's (`apply_homes`).
+        Request::Rent { .. }
+        | Request::Buy { .. }
+        | Request::GiveUp { .. }
+        | Request::EnterCode { .. }
+        | Request::Door { .. }
+        | Request::Knock { .. }
+        | Request::SetCode { .. }
+        | Request::Lock { .. }
+        | Request::LeaveCrew { .. }
+        | Request::ClearCrew { .. }
+        | Request::Feed { .. }
+        | Request::TakeRent { .. }
+        | Request::Furnish { .. }
+        | Request::MovePiece { .. }
+        | Request::SellPiece { .. }
+        | Request::Stash { .. }
+        | Request::Unstash { .. } => return None,
+    })
+}
+
+/// Does what `req` asks of the register of homes, if it's the register's: `None` otherwise. The
+/// caller has checked where the pilot is (`Request::home`). `name` is what they go by.
+pub fn apply_homes(
+    req: &Request,
+    hangar: &mut Hangar,
+    homes: &mut crate::homes::Homes,
+    trader: &str,
+    name: &str,
+    now: u64,
+) -> Option<Done> {
+    use crate::homes::Entered;
+    use bc_sim::colony::homes::{HomeId, home};
+    let (id, _) = req.home()?;
+    let Some(h) = home(id) else { return Some(Err("there's no home there".into())) };
+    let addr = crate::homes::address(&h);
+    Some(match *req {
+        Request::Rent { weeks, .. } => homes.rent(&h, trader, name, weeks, hangar, now),
+        Request::Buy { .. } => homes.buy(&h, trader, name, hangar, now),
+        Request::GiveUp { .. } => homes.give_up(id, trader, hangar),
+        Request::EnterCode { code, .. } => match homes.enter_code(id, trader, code, now) {
+            Ok(Entered::Crew) => Ok(format!("{addr} · THE CODE IS RIGHT · ON ITS CREW")),
+            Ok(Entered::Guest) => Ok(format!("{addr} · THE GUEST CODE · ITS DOOR WORKS FOR YOU")),
+            Ok(Entered::Wrong { shock, shut: false }) => {
+                Err(format!("wrong code: the keypad shocks you ({shock})"))
+            }
+            Ok(Entered::Wrong { shut: true, .. }) => {
+                Err("wrong code: the keypad shuts for 15 minutes".into())
+            }
+            Ok(Entered::Shut) => Err("the keypad is shut".into()),
+            Err(e) => Err(e),
+        },
+        Request::Door { open, .. } => homes.door(id, trader, open).map(|s| format!("{addr} · {s}")),
+        Request::Knock { .. } => homes.knock(id, name),
+        Request::SetCode { guest, code, .. } => homes.set_code(id, trader, guest, code),
+        Request::Lock { locked, .. } => homes.set_locked(id, trader, locked),
+        Request::LeaveCrew { .. } => homes.leave_crew(id, trader),
+        Request::ClearCrew { .. } => homes.clear_crew(id, trader),
+        Request::Feed { credits, .. } => homes.feed(id, credits, hangar),
+        Request::TakeRent { credits, .. } => homes.withdraw(id, trader, credits, hangar),
+        Request::Furnish { ref furniture, s, x, turn, storey, .. } => {
+            match bc_sim::content::homes::Furniture::from_slug(furniture) {
+                Some(kind) => homes.furnish(id, trader, kind, (s, x), turn, storey, hangar),
+                None => Err("there's no such furniture".into()),
+            }
+        }
+        Request::MovePiece { piece, s, x, turn, storey, .. } => {
+            homes.move_piece(id, trader, piece, (s, x), turn, storey)
+        }
+        Request::SellPiece { piece, .. } => homes.sell_piece(id, trader, piece, hangar),
+        Request::Stash { piece, item, qty, .. } => homes.stash(id, trader, piece, item, qty, hangar),
+        Request::Unstash { piece, item, qty, .. } => homes.unstash(id, trader, piece, item, qty, hangar),
+        _ => {
+            let _: HomeId = id;
+            return None;
+        }
     })
 }
 
@@ -688,11 +1006,14 @@ mod tests {
     #[test]
     fn a_place_says_when_its_a_trainer_and_the_proving_grounds_board_goes_round() {
         // An old page's place, and one that isn't a trainer's, say nothing of trainers.
-        let city = Update::Place { place: Place::City, bay: 3, strip: Some(0), trainer: false };
+        let city = Update::Place { place: Place::City, bay: 3, strip: Some(0), trainer: false, wake: None };
         assert!(!String::from_utf8(encode(&city)).unwrap().contains("trainer"));
         let back: Update = decode(br#"{"t":"place","place":"space","bay":3}"#).unwrap();
-        assert_eq!(back, Update::Place { place: Place::Space, bay: 3, strip: None, trainer: false });
-        let flying = Update::Place { place: Place::Space, bay: 3, strip: None, trainer: true };
+        assert_eq!(
+            back,
+            Update::Place { place: Place::Space, bay: 3, strip: None, trainer: false, wake: None }
+        );
+        let flying = Update::Place { place: Place::Space, bay: 3, strip: None, trainer: true, wake: None };
         assert_eq!(decode::<Update>(&encode(&flying)), Some(flying));
         let mut b = crate::proving::Board::default();
         b.record(crate::proving::Feat::Course, "me", "Kai", 118_000, 1_000_000);

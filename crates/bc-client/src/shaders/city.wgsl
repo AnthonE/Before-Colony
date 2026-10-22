@@ -22,9 +22,9 @@
 }
 #import bc::noise::{hash13, noise3}
 #ifdef CITY_DETAIL
-#import bc::city::{city_cell, atlas_texel, city_paint, lantern_burn, streets_at, PLAZA_GAIN, CANAL_WIDTH, row_span, height_texel, HEIGHT_CELL, HEIGHT_S0, BLOCK, GRID_X0}
+#import bc::city::{city_cell, atlas_texel, city_paint, lantern_burn, streets_at, PLAZA_GAIN, CANAL_WIDTH, row_span, height_texel, HEIGHT_CELL, HEIGHT_S0, BLOCK, GRID_X0, KERB, GROUND_FLOOR, FLOOR}
 #else
-#import bc::city::{city_cell, atlas_texel, city_sketch, LAMP_MEAN, PLAZA_GAIN, CANAL_WIDTH}
+#import bc::city::{city_cell, atlas_texel, city_sketch, LAMP_MEAN, PLAZA_GAIN, CANAL_WIDTH, KERB, GROUND_FLOOR, FLOOR}
 #endif
 #import bc::facade::{facade, FacadeIn, city_place, F_MAX_HEIGHT}
 #import bc::colony_sky::{Sky, haze, strip_at, strip_up, up_at, height_at, key_dir, own_light, bounce_light, fresnel, sky_reflection, sun_glint}
@@ -470,6 +470,89 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
                 glow = warm * bottle * 140.0;
                 rough = mix(0.6, 0.15, bottle);
             }
+        }
+    }
+
+    if (surface >= 27u && surface <= 31u) {
+        // Inside a home's building (`city_mesh::Surface::HomeWall` to `HomeDoor`), lit as a room is.
+        // Walls' and doors' UVs are metres along and up from the street; floors' and ceilings',
+        // where they are.
+        indoor = true;
+        if (surface == 27u) {
+            // Painted plaster over a skirting board, along the foot of each storey's walls.
+            let up = uv.y - GROUND_FLOOR;
+            let above = select(uv.y - KERB, up - floor(up / FLOOR) * FLOOR, up >= 0.0);
+            let skirting = step(above, 0.12);
+            albedo = vec3(0.8, 0.78, 0.73) * (0.95 + 0.06 * noise3(vec3(uv * 0.9, 21.0)));
+            albedo = mix(albedo, vec3(0.32, 0.27, 0.22), skirting);
+            rough = 0.85;
+        } else if (surface == 28u) {
+            // Oak boards, a plank's width across the strip.
+            let plank = floor(uv.x / 0.18);
+            let joint = step(fract(uv.x / 0.18), 0.05) + step(fract(uv.y / 2.4 + hash13(vec3(plank, 0.0, 22.0))), 0.01);
+            albedo = vec3(0.46, 0.33, 0.21) * (0.82 + 0.3 * hash13(vec3(plank, floor(uv.y / 2.4), 23.0)));
+            albedo *= mix(1.0, 0.7, min(joint, 1.0));
+            rough = 0.5;
+        } else if (surface == 29u) {
+            // The ceiling: a round lamp every 3 m.
+            let g = fract(uv / 3.0) - vec2(0.5);
+            let lamp = step(length(g), 0.06);
+            albedo = vec3(0.86, 0.85, 0.82);
+            glow = vec3(1.0, 0.93, 0.82) * lamp * 1800.0;
+        } else if (surface == 30u) {
+            // The stairs: terrazzo, a nosing at each tread's edge.
+            let chip = step(0.82, hash13(vec3(floor(uv * 40.0), 24.0)));
+            albedo = mix(vec3(0.55, 0.54, 0.51), vec3(0.3, 0.3, 0.32), chip);
+            rough = 0.45;
+        } else {
+            // A lift's doors: brushed steel, split down the middle, a lit button beside them.
+            let mid = step(abs(fract(uv.x / 1.2) - 0.5), 0.01);
+            albedo = vec3(0.55, 0.57, 0.6) * (1.0 - 0.6 * mid);
+            metal = 0.8;
+            rough = 0.35;
+        }
+    }
+
+    if (surface == 32u) {
+        // A home's furniture (`city_mesh::Surface::Furniture`), lit as the room it stands in: its
+        // seed its finish (`city_mesh::FINISHES`).
+        indoor = true;
+        let finish = u32(seed + 0.5);
+        let grain = 0.9 + 0.12 * noise3(vec3(uv * vec2(0.6, 6.0), 31.0));
+        if (finish == 0u) {
+            albedo = vec3(0.42, 0.28, 0.16) * grain;
+            rough = 0.55;
+        } else if (finish == 1u) {
+            albedo = vec3(0.32, 0.38, 0.46) * (0.92 + 0.1 * noise3(vec3(uv * 9.0, 32.0)));
+            rough = 0.95;
+        } else if (finish == 2u) {
+            albedo = vec3(0.5, 0.52, 0.55);
+            metal = 0.8;
+            rough = 0.35;
+        } else if (finish == 3u) {
+            albedo = vec3(0.86, 0.85, 0.82);
+            rough = 0.5;
+        } else if (finish == 4u) {
+            albedo = vec3(0.08, 0.08, 0.09);
+            rough = 0.4;
+        } else if (finish == 5u) {
+            albedo = vec3(0.16, 0.36, 0.14) * (0.7 + 0.5 * noise3(vec3(uv * 4.0, 33.0)));
+            rough = 0.9;
+        } else if (finish == 6u) {
+            albedo = vec3(0.9, 0.88, 0.84);
+            rough = 0.9;
+        } else {
+            // A screen: the colony's news, scrolling.
+            albedo = vec3(0.02, 0.03, 0.04);
+            let line = step(0.5, fract(uv.y * 8.0 - city.day.z * 0.3));
+            glow = vec3(0.35, 0.75, 1.0) * (0.4 + 0.6 * line) * 120.0;
+        }
+        // Being put down (build mode, `city_mesh::furniture_ghost`): its `tall` says whether it fits
+        // there (1, green) or not (2, red).
+        if (tall > 0.5) {
+            let tint = select(vec3(0.95, 0.2, 0.15), vec3(0.3, 0.95, 0.4), tall < 1.5);
+            albedo = mix(albedo, tint, 0.6);
+            glow = glow + tint * 25.0;
         }
     }
 

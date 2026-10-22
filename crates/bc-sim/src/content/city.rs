@@ -7,8 +7,9 @@
 
 /// The city's version: bumped, with `bc_proto::PROTOCOL_VERSION`, on any change to the layout (2:
 /// the key places' rooms; 3: the buildings' massing, and the street's furniture and trees; 4: the
-/// Blast Hall, the Proving Ground off Hub Gate's square).
-pub const CITY_VERSION: u8 = 4;
+/// Blast Hall, the Proving Ground off Hub Gate's square; 5: the homes inside the Residential and
+/// Old Town buildings, `colony::homes`).
+pub const CITY_VERSION: u8 = 5;
 
 /// A strip's name, in the colony's own words.
 pub const STRIP_NAMES: [&str; 3] = ["CHARTER", "CANAL", "GARDENS"];

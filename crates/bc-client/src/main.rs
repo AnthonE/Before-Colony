@@ -51,6 +51,8 @@ mod hangar;
 #[cfg(target_arch = "wasm32")]
 mod holo;
 #[cfg(target_arch = "wasm32")]
+mod homes;
+#[cfg(target_arch = "wasm32")]
 mod hud;
 #[cfg(target_arch = "wasm32")]
 mod input;

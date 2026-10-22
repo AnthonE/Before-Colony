@@ -32,6 +32,7 @@ use bc_sim::colony::city::{
 };
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, strip_edge};
 use bc_sim::colony::furniture::{self, Furniture, Kind as Furn, TRUNK, each_furniture, tree_size};
+use bc_sim::colony::homes::{self, Plan};
 use bc_sim::content::city::{PLACES, PlaceKind};
 use bc_sim::world::{COLONY_HALF_LENGTH, COLONY_RADIUS};
 use glam::{Vec2, Vec3};
@@ -90,7 +91,21 @@ pub enum Surface {
     /// What stands on a roof (`Part::Plant`): plant rooms, lift overruns, tanks, chimneys, a
     /// works' rooflights.
     Plant = 26,
+    /// Inside a home building (`bc_sim::colony::homes`), lit indoors as a key place's room is: its
+    /// walls and partitions, its floors, its ceilings, its stairs and landings, and its doors (the
+    /// lift's).
+    HomeWall = 27,
+    HomeFloor = 28,
+    HomeCeiling = 29,
+    Stair = 30,
+    HomeDoor = 31,
+    /// A home's furniture (`bc_sim::content::homes::Furniture`): `g` its finish (wood, fabric,
+    /// metal, white, black, leaves, linen, a lit screen: [`FINISHES`]).
+    Furniture = 32,
 }
+
+/// What a piece of furniture's part is made of (`g` of a [`Surface::Furniture`] vertex).
+pub const FINISHES: [&str; 8] = ["wood", "fabric", "metal", "white", "black", "leaves", "linen", "screen"];
 
 /// What a post is or holds up (`a` of a [`Surface::Post`] vertex, in 255ths): a street lamp's post,
 /// an avenue lamp's, a path's or a plaza's, a street lamp's head, its arm.
@@ -726,6 +741,375 @@ fn hall_with_room(m: &mut Builder, b: &Building, room: &Room, seed: f32, tall: f
     m.city_box(&counter, Surface::Counter, Surface::Counter, kind, tall, true);
 }
 
+/// A face of a home building in its own frame (`Plan`): square to the way in at `v` from its front's
+/// face (`v` from the front's outside), `ua..ub` along it, facing in (`inward`) or out toward the
+/// front; UVs from `ua`'s end... from the front's `origin` along it.
+#[allow(clippy::too_many_arguments)]
+fn plan_vface(
+    m: &mut Builder,
+    p: &Plan,
+    v: f32,
+    (ua, ub): (f32, f32),
+    (h0, h1): (f32, f32),
+    inward: bool,
+    origin: f32,
+    colour: &dyn Fn(f32) -> [f32; 4],
+) {
+    let f = &p.front;
+    if ub - ua < 1e-3 || h1 - h0 < 1e-3 {
+        return;
+    }
+    let at = f.face + f.sign * v;
+    let n = if inward { f.sign } else { -f.sign };
+    if f.along_s {
+        m.wall_x(at, f.middle + ua, f.middle + ub, h0, h1, n, f.middle + origin, colour);
+    } else {
+        m.wall_s(at, f.middle + ua, f.middle + ub, h0, h1, n, f.middle + origin, colour);
+    }
+}
+
+/// A face of a home building along the way in: at `u` along its front, `va..vb` in (from the
+/// front's outside), facing +along (`plus`) or −.
+#[allow(clippy::too_many_arguments)]
+fn plan_uface(
+    m: &mut Builder,
+    p: &Plan,
+    u: f32,
+    (va, vb): (f32, f32),
+    (h0, h1): (f32, f32),
+    plus: bool,
+    colour: &dyn Fn(f32) -> [f32; 4],
+) {
+    let f = &p.front;
+    if (vb - va).abs() < 1e-3 || h1 - h0 < 1e-3 {
+        return;
+    }
+    let at = f.middle + u;
+    let (a, b) = (f.face + f.sign * va, f.face + f.sign * vb);
+    let n = if plus { 1.0 } else { -1.0 };
+    if f.along_s {
+        m.wall_s(at, a.min(b), a.max(b), h0, h1, n, a.min(b), colour);
+    } else {
+        m.wall_x(at, a.min(b), a.max(b), h0, h1, n, a.min(b), colour);
+    }
+}
+
+/// A home building's body close up (`bc_sim::colony::homes`): its outside as any building's, but its
+/// front cut for its doors (a lobby's, or each house's), with the doors' reveals through the wall.
+fn home_outside(m: &mut Builder, p: &Plan, seed: f32, tall: f32) {
+    let colour = |surface: Surface| {
+        move |h: f32| [surface as u8 as f32 / 255.0, seed, if h - KERB < 3.0 { 0.62 } else { 1.0 }, tall]
+    };
+    let wall = colour(Surface::Wall);
+    let reveal = colour(Surface::HomeWall);
+    let (w, deep, top) = (p.width * 0.5 + homes::SHELL, p.depth + 2.0 * homes::SHELL, p.height);
+    m.level(&p.foot, top, false, [Surface::Roof as u8 as f32 / 255.0, seed, 1.0, tall]);
+    plan_vface(m, p, deep, (-w, w), (KERB, top), true, -w, &wall);
+    plan_uface(m, p, -w, (0.0, deep), (KERB, top), false, &wall);
+    plan_uface(m, p, w, (0.0, deep), (KERB, top), true, &wall);
+    let mut doors = [(0.0f32, 0.0f32, 0.0f32); 16];
+    let n = p.front_doors(&mut doors);
+    let mut from = -w;
+    for &(a, b, high) in &doors[..n] {
+        let lintel = KERB + high;
+        plan_vface(m, p, 0.0, (from, a), (KERB, top), false, -w, &wall);
+        plan_vface(m, p, 0.0, (a, b), (lintel, top), false, -w, &wall);
+        // Its reveal: the door's sides through the wall, and the lintel's underside.
+        plan_uface(m, p, a, (0.0, homes::SHELL), (KERB, lintel), true, &reveal);
+        plan_uface(m, p, b, (0.0, homes::SHELL), (KERB, lintel), false, &reveal);
+        m.level(&p.front.rect(a, b, 0.0, homes::SHELL), lintel, true, reveal(lintel));
+        from = b;
+    }
+    plan_vface(m, p, 0.0, (from, w), (KERB, top), false, -w, &wall);
+}
+
+/// The inside of home building `p`, storeys `from` to `to` (and the slab over the top one): its
+/// floors and ceilings, its stairs, its partitions and service rooms, the lift's doors, and the
+/// inside of its outer walls with their windows open onto the street (the outside's faces face out,
+/// so from inside, what's through a window is the city). Its anchor (its foot's middle, on the
+/// floor) and the mesh, in the anchor's frame.
+pub fn home_inside(p: &Plan, from: u32, to: u32) -> (CityPos, CityMesh) {
+    let (ms, mx) = p.foot.middle();
+    let anchor = CityPos::new(p.strip, mx, ms, 0.0);
+    let mut m = Builder::new(p.strip, anchor);
+    let to = to.min(p.storeys - 1);
+    let colour = |surface: Surface, seed: f32| [surface as u8 as f32 / 255.0, seed, 1.0, 0.0];
+    let wall = |_: f32| colour(Surface::HomeWall, 0.0);
+    let (w, d) = (p.width * 0.5, p.depth);
+    let s = homes::SHELL;
+    let inner = p.front.rect(-w, w, s, s + d);
+    if from == 0 {
+        // The ground floor, a whisker over the pavement's top under it.
+        m.level(&inner, KERB + 0.005, false, colour(Surface::HomeFloor, 0.0));
+    }
+    let mut doors = [(0.0f32, 0.0f32, 0.0f32); 16];
+    let n_doors = p.front_doors(&mut doors);
+    let mut along = [0.0f32; 32];
+    for k in from..=to {
+        let (floor, ceiling) = (homes::level(k), homes::level(k + 1) - homes::SLAB);
+        let head = floor + if k == 0 { homes::GROUND_HEAD } else { homes::HEAD };
+        let sill = floor + homes::SILL;
+        // The outer walls' inside faces, cut round their windows (and on the ground floor, the
+        // front's doors), each opening's reveal through the wall. Square to the way in: the front
+        // wall's inside at `s` from its outside face, the back's at `s + d`.
+        let overlaps_door =
+            |a: f32, b: f32| doors[..n_doors].iter().any(|&(da, db, _)| a < db + 0.3 && da - 0.3 < b);
+        for (v, inward) in [(s, true), (s + d, false)] {
+            let mut ops = [(0.0f32, 0.0f32, 0.0f32, 0.0f32); 48];
+            let mut n = 0;
+            let doorway = inward && k == 0;
+            let nw = Plan::windows(-w, w, &mut along);
+            for &c in &along[..nw] {
+                let (a, b) = (c - homes::WINDOW * 0.5, c + homes::WINDOW * 0.5);
+                if !(doorway && overlaps_door(a, b)) && n < ops.len() {
+                    ops[n] = (a, b, sill, head);
+                    n += 1;
+                }
+            }
+            if doorway {
+                for &(a, b, high) in &doors[..n_doors] {
+                    if n < ops.len() {
+                        ops[n] = (a, b, KERB, KERB + high);
+                        n += 1;
+                    }
+                }
+            }
+            ops[..n].sort_by(|x, y| x.0.total_cmp(&y.0));
+            let (v0, v1) = if inward { (v - s, v) } else { (v, v + s) };
+            let mut last = -w;
+            for &(a, b, lo, hi) in &ops[..n] {
+                plan_vface(&mut m, p, v, (last, a), (floor, ceiling), inward, -w, &wall);
+                plan_vface(&mut m, p, v, (a, b), (floor, lo), inward, -w, &wall);
+                plan_vface(&mut m, p, v, (a, b), (hi, ceiling), inward, -w, &wall);
+                // A window's reveal (a door's is the outside's, `home_outside`).
+                if lo > floor + 1e-3 {
+                    plan_uface(&mut m, p, a, (v0, v1), (lo, hi), true, &wall);
+                    plan_uface(&mut m, p, b, (v0, v1), (lo, hi), false, &wall);
+                    m.level(&p.front.rect(a, b, v0, v1), lo, false, wall(lo));
+                    m.level(&p.front.rect(a, b, v0, v1), hi, true, wall(hi));
+                }
+                last = b;
+            }
+            plan_vface(&mut m, p, v, (last, w), (floor, ceiling), inward, -w, &wall);
+        }
+        // Along the way in: the side walls' insides, at `±w`, round their windows.
+        for (u, plus) in [(-w, true), (w, false)] {
+            let out = if plus { u - s } else { u + s };
+            let (ua, ub) = (u.min(out), u.max(out));
+            let mut last = 0.0;
+            let nw = Plan::windows(0.0, d, &mut along);
+            for &c in &along[..nw] {
+                let (a, b) = (c - homes::WINDOW * 0.5, c + homes::WINDOW * 0.5);
+                plan_uface(&mut m, p, u, (s + last, s + a), (floor, ceiling), plus, &wall);
+                plan_uface(&mut m, p, u, (s + a, s + b), (floor, sill), plus, &wall);
+                plan_uface(&mut m, p, u, (s + a, s + b), (head, ceiling), plus, &wall);
+                plan_vface(&mut m, p, s + a, (ua, ub), (sill, head), true, ua, &wall);
+                plan_vface(&mut m, p, s + b, (ua, ub), (sill, head), false, ua, &wall);
+                m.level(&p.front.rect(ua, ub, s + a, s + b), sill, false, wall(sill));
+                m.level(&p.front.rect(ua, ub, s + a, s + b), head, true, wall(head));
+                last = b;
+            }
+            plan_uface(&mut m, p, u, (s + last, s + d), (floor, ceiling), plus, &wall);
+        }
+        // Everything on the storey, as boxes: slabs show their floors and their ceilings under
+        // them; stairs and landings their treads; the rest are walls.
+        p.each_on_storey(k, &mut |b: &CityBox| {
+            let tall = b.h1 - b.h0;
+            let (side, top, under) = if (tall - homes::SLAB).abs() < 1e-3 {
+                (Surface::HomeWall, Surface::HomeFloor, Some(Surface::HomeCeiling))
+            } else if (tall - homes::STEP_SLAB).abs() < 1e-3 {
+                (Surface::Stair, Surface::Stair, Some(Surface::Stair))
+            } else {
+                (Surface::HomeWall, Surface::HomeWall, None)
+            };
+            m.city_box(b, side, top, 0.0, 0.0, b.rect.width().max(b.rect.length()) < 24.0);
+            if let Some(under) = under {
+                m.level(&b.rect, b.h0, true, colour(under, 0.0));
+            }
+            false
+        });
+        // The lift's doors on its block's face to the landing.
+        if p.lift_spot(k).is_some() {
+            let face = -homes::SPINE * 0.5 + 0.01;
+            let door = |_: f32| colour(Surface::HomeDoor, 0.0);
+            plan_uface(&mut m, p, face, (s + 0.6, s + 1.8), (floor, floor + homes::DOOR_HEIGHT), true, &door);
+        }
+    }
+    // The ceiling over the top storey: the roof's slab's underside.
+    if to + 1 == p.storeys {
+        m.level(&inner, p.height - homes::SLAB, true, colour(Surface::HomeCeiling, 0.0));
+    }
+    (anchor, m.mesh)
+}
+
+/// A piece of furniture `kind`'s parts in its own frame: `(a0, a1, b0, b1, h0, h1, finish)`, `a`
+/// across its width, `b` from its front to its back, `h` up from the floor (m).
+fn furniture_parts(kind: bc_sim::content::homes::Furniture) -> &'static [(f32, f32, f32, f32, f32, f32, u8)] {
+    use bc_sim::content::homes::Furniture::*;
+    const WOOD: u8 = 0;
+    const FABRIC: u8 = 1;
+    const METAL: u8 = 2;
+    const WHITE: u8 = 3;
+    const BLACK: u8 = 4;
+    const LEAVES: u8 = 5;
+    const LINEN: u8 = 6;
+    const SCREEN: u8 = 7;
+    match kind {
+        Bed => &[
+            (0.0, 1.6, 0.0, 2.1, 0.0, 0.35, WOOD),
+            (0.05, 1.55, 0.0, 2.0, 0.35, 0.55, LINEN),
+            (0.0, 1.6, 2.0, 2.1, 0.0, 1.0, WOOD),
+            (0.15, 1.45, 1.55, 1.95, 0.55, 0.62, WHITE),
+        ],
+        Sofa => &[
+            (0.0, 2.2, 0.0, 0.7, 0.0, 0.45, FABRIC),
+            (0.0, 2.2, 0.7, 0.95, 0.0, 0.85, FABRIC),
+            (0.0, 0.2, 0.0, 0.7, 0.45, 0.65, FABRIC),
+            (2.0, 2.2, 0.0, 0.7, 0.45, 0.65, FABRIC),
+        ],
+        Armchair => &[
+            (0.0, 0.9, 0.0, 0.7, 0.0, 0.45, FABRIC),
+            (0.0, 0.9, 0.7, 0.9, 0.0, 0.95, FABRIC),
+            (0.0, 0.15, 0.0, 0.7, 0.45, 0.65, FABRIC),
+            (0.75, 0.9, 0.0, 0.7, 0.45, 0.65, FABRIC),
+        ],
+        Table => &[
+            (0.0, 1.6, 0.0, 0.9, 0.7, 0.75, WOOD),
+            (0.05, 0.12, 0.05, 0.12, 0.0, 0.7, WOOD),
+            (1.48, 1.55, 0.05, 0.12, 0.0, 0.7, WOOD),
+            (0.05, 0.12, 0.78, 0.85, 0.0, 0.7, WOOD),
+            (1.48, 1.55, 0.78, 0.85, 0.0, 0.7, WOOD),
+        ],
+        Chair => &[
+            (0.0, 0.5, 0.0, 0.5, 0.4, 0.45, WOOD),
+            (0.0, 0.5, 0.44, 0.5, 0.45, 0.9, WOOD),
+            (0.03, 0.08, 0.03, 0.08, 0.0, 0.4, WOOD),
+            (0.42, 0.47, 0.03, 0.08, 0.0, 0.4, WOOD),
+            (0.03, 0.08, 0.42, 0.47, 0.0, 0.4, WOOD),
+            (0.42, 0.47, 0.42, 0.47, 0.0, 0.4, WOOD),
+        ],
+        Kitchen => &[(0.0, 2.4, 0.05, 0.65, 0.0, 0.9, WHITE), (0.0, 2.4, 0.0, 0.65, 0.9, 0.95, BLACK)],
+        Wardrobe => &[(0.0, 1.2, 0.0, 0.6, 0.0, 2.0, WOOD)],
+        Chest => &[(0.0, 1.0, 0.0, 0.6, 0.0, 0.5, WOOD), (0.0, 1.0, 0.0, 0.6, 0.5, 0.6, METAL)],
+        Safe => &[(0.0, 0.7, 0.0, 0.7, 0.0, 1.0, METAL)],
+        Lamp => &[
+            (0.1, 0.3, 0.1, 0.3, 0.0, 0.05, METAL),
+            (0.18, 0.22, 0.18, 0.22, 0.05, 1.3, METAL),
+            (0.0, 0.4, 0.0, 0.4, 1.3, 1.6, LINEN),
+        ],
+        Screen => &[(0.6, 1.0, 0.1, 0.2, 0.0, 0.4, BLACK), (0.0, 1.6, 0.12, 0.18, 0.4, 1.0, SCREEN)],
+        Plant => &[(0.1, 0.4, 0.1, 0.4, 0.0, 0.4, BLACK), (0.0, 0.5, 0.0, 0.5, 0.4, 1.2, LEAVES)],
+        Rug => &[(0.0, 2.4, 0.0, 1.7, 0.0, 0.01, FABRIC)],
+        SuitModel => &[
+            (0.0, 0.8, 0.0, 0.8, 0.0, 0.6, BLACK),
+            (0.25, 0.55, 0.3, 0.5, 0.6, 1.2, WHITE),
+            (0.32, 0.48, 0.33, 0.47, 1.2, 1.4, METAL),
+        ],
+    }
+}
+
+/// A home's furniture as drawn: the home, its pieces, and the beds someone's asleep in (H3).
+pub type Furnished = (bc_sim::colony::homes::Home, Vec<bc_econ::homes::Piece>, Vec<u16>);
+
+/// The furniture of the homes `placed` (each home, its pieces, `bc_econ::homes::Piece`, and the
+/// beds with someone asleep in them), on strip `strip`: every piece its parts, turned with it, and a
+/// sleeper under the covers in each bed that has one. Its anchor (the first home's middle), and the
+/// mesh.
+pub fn home_furniture(strip: u8, placed: &[Furnished]) -> (CityPos, CityMesh) {
+    let (s, x) = placed.first().map_or((0.0, 0.0), |(h, _, _)| h.rect.middle());
+    let anchor = CityPos::new(strip, x, s, 0.0);
+    let mut m = Builder::new(strip, anchor);
+    for (home, pieces, asleep) in placed {
+        for p in pieces {
+            furniture_piece(&mut m, home, p.kind, p.at(), p.turn, u32::from(p.storey), 0.0);
+            if asleep.contains(&p.id) {
+                parts(&mut m, home, p.kind, p.at(), p.turn, u32::from(p.storey), SLEEPER, 0.0);
+            }
+        }
+    }
+    (anchor, m.mesh)
+}
+
+/// Someone asleep in a bed (`Furniture::Bed`'s frame): under the covers, their head on the pillow.
+const SLEEPER: &[(f32, f32, f32, f32, f32, f32, u8)] =
+    &[(0.35, 1.25, 0.25, 1.55, 0.55, 0.78, 6), (0.62, 0.98, 1.6, 1.9, 0.62, 0.86, 4)];
+
+/// A piece being put down in build mode (`home_furniture`'s, where it would go): green where it
+/// fits, red where it doesn't (its `tall`, 1 or 2). Its anchor, and the mesh.
+pub fn furniture_ghost(
+    home: &bc_sim::colony::homes::Home,
+    kind: bc_sim::content::homes::Furniture,
+    at: (f32, f32),
+    turn: u8,
+    storey: u32,
+    fits: bool,
+) -> (CityPos, CityMesh) {
+    let (s, x) = home.rect.middle();
+    let anchor = CityPos::new(home.strip, x, s, 0.0);
+    let mut m = Builder::new(home.strip, anchor);
+    furniture_piece(&mut m, home, kind, at, turn, storey, if fits { 1.0 } else { 2.0 });
+    (anchor, m.mesh)
+}
+
+/// A piece of furniture's parts (`furniture_parts`), in its box in `home` (`content::homes::piece_box`).
+fn furniture_piece(
+    m: &mut Builder,
+    home: &bc_sim::colony::homes::Home,
+    kind: bc_sim::content::homes::Furniture,
+    at: (f32, f32),
+    turn: u8,
+    storey: u32,
+    tall: f32,
+) {
+    parts(m, home, kind, at, turn, storey, furniture_parts(kind), tall);
+}
+
+/// Parts `list` (each its extent across and along the piece's box and up from its floor, and its
+/// finish) in the box of a piece `kind` in `home` (`content::homes::piece_box`), turned with it.
+#[allow(clippy::too_many_arguments)]
+fn parts(
+    m: &mut Builder,
+    home: &bc_sim::colony::homes::Home,
+    kind: bc_sim::content::homes::Furniture,
+    at: (f32, f32),
+    turn: u8,
+    storey: u32,
+    list: &[(f32, f32, f32, f32, f32, f32, u8)],
+    tall: f32,
+) {
+    let b = bc_sim::content::homes::piece_box(home, kind, at, turn, storey);
+    let r = b.rect;
+    for &(a0, a1, b0, b1, h0, h1, finish) in list {
+        // Its frame onto the city's, by its quarter turns.
+        let rect = match turn % 4 {
+            0 => Rect::new(r.s0 + a0, r.s0 + a1, r.x0 + b0, r.x0 + b1),
+            1 => Rect::new(r.s1 - b1, r.s1 - b0, r.x0 + a0, r.x0 + a1),
+            2 => Rect::new(r.s1 - a1, r.s1 - a0, r.x1 - b1, r.x1 - b0),
+            _ => Rect::new(r.s0 + b0, r.s0 + b1, r.x1 - a1, r.x1 - a0),
+        };
+        let part = CityBox { rect, h0: b.h0 + h0, h1: b.h0 + h1 };
+        let g = f32::from(finish) / 255.0;
+        m.city_box(&part, Surface::Furniture, Surface::Furniture, g, tall, true);
+        if h0 > 0.05 {
+            m.level(&rect, part.h0, true, [Surface::Furniture as u8 as f32 / 255.0, g, 1.0, tall]);
+        }
+    }
+}
+
+/// The leaves of the homes' shut doors `leaves` on strip `strip` (`bc_client_core::homes::leaf`):
+/// each a slab in its doorway, steel faced. Its anchor (the first's foot), and the mesh.
+pub fn door_leaves(strip: u8, leaves: &[CityBox]) -> (CityPos, CityMesh) {
+    let (s, x) = leaves.first().map_or((0.0, 0.0), |b| b.rect.middle());
+    let anchor = CityPos::new(strip, x, s, 0.0);
+    let mut m = Builder::new(strip, anchor);
+    let door = [Surface::HomeDoor as u8 as f32 / 255.0, 1.0 / 255.0, 1.0, 0.0];
+    for b in leaves {
+        m.city_box(b, Surface::HomeDoor, Surface::HomeDoor, 1.0 / 255.0, 0.0, true);
+        m.level(&b.rect, b.h0 + 0.002, true, door);
+    }
+    (anchor, m.mesh)
+}
+
 /// A site's frame: corner columns and a floor's beams every second floor.
 fn frame(m: &mut Builder, b: &Building, seed: f32) {
     let f = b.foot;
@@ -822,6 +1206,17 @@ pub fn chunk(key: ChunkKey, stage: Stage) -> CityMesh {
                             (_, Some(_)) => {
                                 let cb = CityBox { rect: bd.foot, h0: KERB, h1: bd.height };
                                 m.city_box(&cb, Surface::Hall, Surface::Roof, s, tall, false);
+                            }
+                            // A home building, close up: its doors open into it (its inside is
+                            // drawn by itself, `home_inside`); what stands on its body as ever.
+                            _ if key.lod == 0
+                                && let Some(plan) = homes::plan(&b, bd) =>
+                            {
+                                home_outside(&mut m, &plan, s, tall);
+                                let n = bd.pieces(&mut pieces);
+                                for q in &pieces[1..n] {
+                                    piece(&mut m, bd, &q.b, q.part, s, false);
+                                }
                             }
                             _ => {
                                 let n = bd.pieces(&mut pieces);
@@ -1846,6 +2241,35 @@ mod tests {
             // Further off, the hall is its bulk.
             let far = chunk(ChunkKey::of(p.strip, 1, p.bx, p.row), Stage(0));
             assert!(!has(&far, Surface::Interior) && has(&far, Surface::Hall), "{} at L1", p.name);
+        }
+    }
+
+    #[test]
+    fn the_homes_buildings_are_drawn_inside_and_out() {
+        // A block of flats close up: its lobby door's reveal is drawn; its inside, built by itself,
+        // has floors, ceilings, walls and stairs, all within its foot and its storeys.
+        let has = |m: &CityMesh, s: Surface| m.colors.iter().any(|c| (c[0] * 255.0).round() as u8 == s as u8);
+        let (key, plan) = (CITY.0..CITY.1)
+            .flat_map(|bx| (1..=ROWS).map(move |row| (bx, row)))
+            .find_map(|(bx, row)| {
+                let b = block(0, bx, row, Stage(0))?;
+                let p = lots(&b).as_slice().iter().find_map(|bd| homes::plan(&b, bd))?;
+                (p.kind == homes::Kind::Flats && p.storeys >= 3).then(|| (ChunkKey::of(0, 0, bx, row), p))
+            })
+            .unwrap();
+        assert!(has(&chunk(key, Stage(0)), Surface::HomeWall), "the lobby door's reveal");
+        let (anchor, m) = home_inside(&plan, 0, 2);
+        for s in
+            [Surface::HomeFloor, Surface::HomeCeiling, Surface::HomeWall, Surface::Stair, Surface::HomeDoor]
+        {
+            assert!(has(&m, s), "no {s:?} inside");
+        }
+        let foot = plan.foot.inset(-0.01);
+        for p in &m.positions {
+            let world = anchor.to_colony() + Vec3::from_array(*p);
+            let Under::Land(c) = from_colony(world) else { panic!("{world:?}") };
+            assert!(foot.contains(c.s, c.x), "{c:?} outside {foot:?}");
+            assert!(c.h > -0.01 && c.h < homes::level(4) + 0.01, "{c:?}");
         }
     }
 

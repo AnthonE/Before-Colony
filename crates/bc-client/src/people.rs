@@ -535,6 +535,13 @@ fn name_tags(
 ) {
     let Ok((cam, cam_tf)) = cams.single() else { return };
     let now = crate::net::now_s();
+    // Where the eye is in the city: someone on another floor of a home's building, or behind a
+    // home's walls, has no name over them from here (`homes::same_space`).
+    let land = |p: Vec3| match bc_sim::colony::frame::from_colony(p) {
+        bc_sim::colony::frame::Under::Land(c) => Some(c),
+        _ => None,
+    };
+    let eye = land((origin.0 + cam_tf.translation().as_dvec3()).as_vec3());
     for (f, placed, tf) in &figures {
         let Ok((mut node, mut vis, mut text)) = tags.get_mut(f.tag) else { continue };
         let said = spoken.as_ref().and_then(|s| s.0.get(&f.name)).filter(|(_, at)| now - at < SAID_SECS);
@@ -546,7 +553,13 @@ fn name_tags(
             text.0 = want;
         }
         let head = origin.place(placed.0) + tf.rotation * Vec3::Y * 2.05;
-        let near = f.id != OWN && cam_tf.translation().distance(head) < NAME_REACH;
+        let seen = match (eye, land(placed.0.as_vec3())) {
+            (Some(e), Some(c)) if e.strip == c.strip => {
+                bc_sim::colony::homes::same_space(c.strip, (e.s, e.x, e.h), (c.s, c.x, c.h))
+            }
+            _ => true,
+        };
+        let near = f.id != OWN && seen && cam_tf.translation().distance(head) < NAME_REACH;
         let shown = near.then(|| cam.world_to_viewport(cam_tf, head).ok()).flatten();
         match shown {
             Some(p) => {

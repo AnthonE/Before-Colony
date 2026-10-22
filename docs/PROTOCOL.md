@@ -1,8 +1,15 @@
-# Before Colony wire protocol (v35)
+# Before Colony wire protocol (v36)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v36 (from v35): no bits change, but the city does (`CITY_VERSION` 5): the Residential districts'
+buildings of one box are blocks of flats and Old Town's are rows of houses, walked in at their doors
+(`bc_sim::colony::homes`, `docs/OPEN_CITY.md`), so a pose a client a version apart would send from
+inside one is in a wall to the other. People on foot meet a home building's walls, floors and stairs
+(`city::solid`'s fine grain); suits still meet its envelope. A lift is a pose on one of a building's
+lift doors followed by one on another storey's: the plaza takes it.
 
 v35 (from v34): no bits change, but suits fly differently, so a client and server a version apart
 would predict them apart. BRAKE brakes as hard as the suit can: at once, at full thrust with

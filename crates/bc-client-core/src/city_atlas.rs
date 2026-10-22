@@ -134,6 +134,9 @@ mod tests {
         assert_eq!(constant("STREET"), city::STREET);
         assert_eq!(constant("WIDE_STREET"), city::WIDE_STREET);
         assert_eq!(constant("SIDEWALK"), city::SIDEWALK);
+        assert_eq!(constant("KERB"), city::KERB);
+        assert_eq!(constant("GROUND_FLOOR"), city::GROUND_FLOOR);
+        assert_eq!(constant("FLOOR"), city::FLOOR);
         assert_eq!(constant("CANAL_ROW") as i32, CANAL_ROW);
         assert_eq!(constant("CANAL_WIDTH"), city::CANAL_WIDTH);
         assert!((constant("STRIP_WIDTH") - STRIP_WIDTH).abs() < 1e-3);
@@ -227,6 +230,64 @@ mod tests {
                 "city.wgsl line {}: a derivative under the branch",
                 k + 1
             );
+        }
+    }
+
+    /// What `city.wgsl` uses of the city's own module's constants (`city_lib.wgsl`, `bc::city`), it
+    /// imports: in the detailed city's import, the sketched one's, or both, as where it's used is
+    /// compiled (naga_oil finds a missing one only in the browser, as a shader that won't build).
+    #[test]
+    fn the_city_shader_imports_the_constants_it_uses() {
+        const CITY: &str = include_str!("../../bc-client/src/shaders/city.wgsl");
+        let ident = |l: &'static str| l.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'));
+        let consts = |src: &'static str| -> Vec<&'static str> {
+            src.lines()
+                .filter_map(|l| l.trim_start().strip_prefix("const "))
+                .filter_map(|l| ident(l).next())
+                .collect()
+        };
+        let (lib, own) = (consts(LIB), consts(CITY));
+        // Each line's code, and whether CITY_DETAIL is on (Some(true)), off (Some(false)) or either.
+        let mut stack: Vec<(bool, bool)> = Vec::new();
+        let mut lines = Vec::new();
+        let (mut detail, mut sketch) = ("", "");
+        for l in CITY.lines() {
+            let t = l.trim_start();
+            if let Some(name) = t.strip_prefix("#ifdef ") {
+                stack.push((name.trim() == "CITY_DETAIL", true));
+            } else if t.starts_with("#else") {
+                if let Some(top) = stack.last_mut() {
+                    top.1 = !top.1;
+                }
+            } else if t.starts_with("#endif") {
+                stack.pop();
+            } else {
+                let on = stack.iter().rev().find(|(city, _)| *city).map(|(_, on)| *on);
+                if t.starts_with("#import bc::city::") {
+                    match on {
+                        Some(true) => detail = t,
+                        Some(false) => sketch = t,
+                        None => (detail, sketch) = (t, t),
+                    }
+                } else if !t.starts_with('#') {
+                    lines.push((l.split("//").next().unwrap_or(""), on));
+                }
+            }
+        }
+        for c in lib.iter().filter(|c| !own.contains(c)) {
+            for (l, on) in &lines {
+                if !ident(l).any(|w| w == *c) {
+                    continue;
+                }
+                let need: &[&str] = match on {
+                    Some(true) => &[detail],
+                    Some(false) => &[sketch],
+                    None => &[detail, sketch],
+                };
+                for import in need {
+                    assert!(ident(import).any(|w| w == *c), "city.wgsl uses {c} without importing it: {l}");
+                }
+            }
         }
     }
 

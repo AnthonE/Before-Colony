@@ -13,6 +13,8 @@
 //! - [`charter`]: the Charter Board: contracts with their rewards in escrow, and the colony's
 //!   great works.
 //! - [`hangar`]: a pilot's hangar, and every change they can ask of it.
+//! - [`homes`]: the colony's register of homes: who holds which flat or house, its lock, its door
+//!   and its rent (`docs/OPEN_CITY.md`).
 //! - [`debrief`]: a sortie's payout sheet, what it earned and what it cost.
 //! - [`proving`]: the Proving Ground's board, the day's best times round its course and through
 //!   the Blast Hall's drill.
@@ -35,6 +37,7 @@ pub mod fab;
 pub mod faults;
 pub mod food;
 pub mod hangar;
+pub mod homes;
 pub mod item;
 pub mod proving;
 pub mod seats;

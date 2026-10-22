@@ -33,6 +33,7 @@ the bay, space, home).
 | Mecha Royale, 27: wrecks that die their own way | built |
 | Mecha Royale, 28: crews | open |
 | Contracts on the Charter Board: supply contracts, patrols, the great works and the charter vote (P1, below) | begun |
+| The open city (`OPEN_CITY.md`): homes not instanced (H0 to H3), the street in the tick, cars you own, heat and the Watch, intrusion, raids, businesses | homes built; the rest designed |
 | P1's rest, P2 below, the loose ends left | planned |
 
 ## The loop's loose ends
@@ -258,7 +259,9 @@ and sit at The Arrival; the server's own tugs, haulers and miners flying the lan
 same protocol, started with the server). Tests: the plaza test with a walking flaneur; a sector
 test with traffic.
 
-**Where PvP lives: a decision for the owner.** Today every human pilot flies for the Colonies (the
+**Where PvP lives: a decision for the owner.** *Inside the colony, decided (October 2026): crime
+anywhere, answered by the Watch, homes raidable in the raid hours (`OPEN_CITY.md`). In space it's
+still open.* Today every human pilot flies for the Colonies (the
 server decides, whatever the client asks, and the Welcome says so: protocol v29) and friendly fire
 is off, so people can't harm each other, and `DESIGN.md`'s hunted sleepers can be hunted only by
 agents of another faction (the Alliance: nobody but the drones flies for the Almagest). The options:

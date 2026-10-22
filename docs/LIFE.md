@@ -108,7 +108,8 @@ The pilot's body is fed or it isn't, on the wall clock, whatever the colony's sk
 - **A meal lasts about 5 hours awake** (`food::Dish`: a ration bar 1½ h, a noodle bowl 5 h, a fish
   supper 6 h). Three meals cover a waking day, as the owner asked.
 - **Awake is logged in.** Food burns second for second while the pilot is in the world.
-- **Asleep is logged out:** the pilot is in their bunk. Food burns at a quarter of the rate
+- **Asleep is logged out:** the pilot is in their bunk (with a home, in its bed, seen there and
+  waking there: `OPEN_CITY.md`, H3). Food burns at a quarter of the rate
   (`SLEEP_DIV`), and sleep never takes a pilot past hungry. An Arrival wakes wanting breakfast,
   never starving, so the natural rhythm is eat, then launch.
 - **A stomach holds 8 hours** (`FULL_S`). A dish more than half of which wouldn't fit is refused
@@ -169,7 +170,9 @@ the chain together:
 
 ## 5. Contraband: guns inside
 
-*A decision for the owner: `ROADMAP.md`'s "Where PvP lives". Nothing here is built until it's made.*
+*Decided (October 2026): crime anywhere in the city, answered by the Watch, with homes that can be
+broken into in the raid hours. `OPEN_CITY.md` is the design (X1, X2, R1); what follows was the
+question as it was put.*
 
 The colony's law stands (no weapons fired inside; the Blast Hall the one exception: `TRAINING.md`).
 The owner's ask is that weapons inside be extremely hard to get, but that it can get crazy:
@@ -266,14 +269,16 @@ Each is PR-sized and tested end to end, as `ROADMAP.md`'s items are.
   never starves anyone.
 - **A seat worked by an Arrival must be clearly better than the staff**, or nobody takes it; but a
   colony worked only by its staff must never feel broken.
-- **Griefing in safe spaces** (`PEERS.md`, Star Citizen). Every new verb is asked: can it be used on
-  somebody who didn't opt in?
+- **Griefing** (`PEERS.md`, Star Citizen). Every new verb is asked: can it be used on somebody who
+  didn't opt in? Living in the city is opting in to its dangers now (`OPEN_CITY.md`), so the question
+  is what we still promise: nobody shut in their own home, nobody raided asleep outside the raid
+  hours, and nobody's bay or suit lost to the street.
 - **The hot path stays untouched.** All of this is `bc-econ` and the session, off the tick. Only the
   fed condition reaches the simulation, as 3 bits of the own snapshot and a term in `tuning`.
 
 ## Open questions
 
-- The clock (3) and contraband (5): the owner's.
+- The clock (3): the owner's. Contraband (5) is decided (`OPEN_CITY.md`).
 - Whether a guest (no wallet) has a body at all, or only for the visit, as their hangar is.
 - Who sets the staff's prices: fixed (L1), or floating with what the colony holds, as its desks do.
 - Whether the staff's seats should be worked by visible agents (people at the counter), or be only

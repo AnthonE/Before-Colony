@@ -101,9 +101,10 @@ impl Plugin for CityPlugin {
         .init_resource::<CityView>()
         .init_resource::<RenderOrigin>()
         .init_resource::<Streamer>()
+        .init_resource::<crate::homes::HomeInsides>()
         .add_systems(
             Update,
-            (switch_view, stream_city, place_all, light_city, publish_stats)
+            (switch_view, stream_city, crate::homes::stream_homes, place_all, light_city, publish_stats)
                 .chain()
                 .in_set(crate::view::Vis::Fx),
         );
@@ -277,6 +278,16 @@ pub struct Streamer {
 }
 
 impl Streamer {
+    /// What the city's entities hang under, once it's set up.
+    pub(crate) fn root(&self) -> Option<Entity> {
+        self.root
+    }
+
+    /// The city's material (`homes` draws the homes' insides with it).
+    pub(crate) fn material(&self) -> &Handle<CityMaterial> {
+        &self.material
+    }
+
     /// For `window.__bc`: the chunks shown, their triangles, and the most a frame spent building
     /// chunks over the last second or so (ms).
     pub fn stats(&self) -> (u32, u32, f32) {
@@ -285,7 +296,7 @@ impl Streamer {
     }
 }
 
-fn to_mesh(m: CityMesh) -> Mesh {
+pub(crate) fn to_mesh(m: CityMesh) -> Mesh {
     Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, m.positions)
         .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, m.normals)
@@ -448,7 +459,7 @@ fn switch_view(
 }
 
 /// The camera's place in the colony's frame.
-fn camera_point(origin: &RenderOrigin, cam: &Transform) -> DVec3 {
+pub(crate) fn camera_point(origin: &RenderOrigin, cam: &Transform) -> DVec3 {
     origin.0 + cam.translation.as_dvec3()
 }
 
@@ -704,15 +715,21 @@ fn light_city(
     let d = hour.0;
     let look = city_hour::look(&d);
     let eye = camera_point(&origin, cam_tf).as_vec3();
-    let (strip, room) = match from_colony(eye) {
-        Under::Land(c) => (c.strip as usize, bc_sim::colony::city::room_at(c.strip, c.s, c.x, c.h)),
-        Under::Window { k, .. } => (k as usize, None),
+    let (strip, room, home) = match from_colony(eye) {
+        Under::Land(c) => (
+            c.strip as usize,
+            bc_sim::colony::city::room_at(c.strip, c.s, c.x, c.h),
+            bc_sim::colony::homes::inside(c.strip, c.s, c.x, c.h),
+        ),
+        Under::Window { k, .. } => (k as usize, None, None),
     };
+    // In a home's building (its lobby, its stairs, a home), lit as a key place's room is.
+    let indoors = room.is_some() || home.is_some();
     let to_sun = key_light(strip, &d);
     // The eye adapts to where it is: the hour outside, or a room's lamps.
     let indoor = room_ev(look.ev);
     let lamps = 2f32.powf(indoor - 8.0);
-    let target = if room.is_some() { indoor } else { look.ev };
+    let target = if indoors { indoor } else { look.ev };
     let ev = match *adapted {
         Some(e) => e + (target - e) * (1.0 - (-ADAPT * time.dt.min(0.25)).exp()),
         None => target,
@@ -730,7 +747,7 @@ fn light_city(
         if new_reach {
             commands.entity(sun).insert(city_cascades(want as f32));
         }
-        if room.is_some() {
+        if indoors {
             // In a room, the scene's one light is its lamps, from overhead.
             light.illuminance = INDOOR_LUX * lamps;
             light.color = Color::linear_rgb(1.0, 0.93, 0.82);
@@ -743,7 +760,7 @@ fn light_city(
             *tf = Transform::default().looking_to(-to_sun, up);
         }
     }
-    if room.is_some() {
+    if indoors {
         ambient.color = Color::srgb(0.78, 0.85, 1.0);
         ambient.brightness = INDOOR_SKY * lamps;
     } else {
@@ -754,6 +771,13 @@ fn light_city(
         // `window.__bc`: the room the camera is in (its place's slug), and the exposure.
         status
             .set("city_room", room.map_or("", |r| bc_sim::content::city::PLACES[usize::from(r.place)].slug));
+        // In a home's building: the home's id (0 in its lobby, landings and stairs), else -1.
+        let in_home = match home {
+            Some((_, Some(bc_sim::colony::homes::Space::Home(id)))) => f64::from(id.0),
+            Some(_) => 0.0,
+            None => -1.0,
+        };
+        status.set("city_home", in_home);
         status.set("city_ev", ev);
     }
     // Bevy's fog, for what keeps it, matched to the haze near the floor (the city's shader draws the
@@ -790,12 +814,7 @@ fn light_city(
         m.extension.city = CityParams {
             origin: o.extend(strip as f32),
             day: Vec4::new(d.daylight, d.lamps, seconds, d.sun_elev),
-            light: Vec4::new(
-                look.lux,
-                look.sky_nits,
-                if room.is_some() { 1.0 } else { 0.0 },
-                ROOM_NITS * lamps,
-            ),
+            light: Vec4::new(look.lux, look.sky_nits, if indoors { 1.0 } else { 0.0 }, ROOM_NITS * lamps),
             sky,
         };
     }

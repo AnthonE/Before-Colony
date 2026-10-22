@@ -29,6 +29,7 @@ pub mod gait;
 pub mod hangar;
 pub mod hints;
 pub mod holdup;
+pub mod homes;
 pub mod inputs;
 pub mod interp;
 pub mod life;

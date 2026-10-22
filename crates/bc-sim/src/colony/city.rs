@@ -149,6 +149,9 @@ pub struct Building {
     pub seed: u32,
     /// A key place's hall: the room behind its door.
     pub room: Option<Room>,
+    /// Which of its block's lots it stands on (`3 i + j`, `i` along the block and `j` across), or
+    /// its place among the block's other buildings: with its block, its address (`homes`).
+    pub lot: u8,
 }
 
 /// What a piece of a building is, for how it's drawn (`city_mesh`): to the rules, and to whatever
@@ -932,6 +935,7 @@ impl Lots {
             style: Style::Plain,
             seed: 0,
             room: None,
+            lot: 0,
         }; MAX_LOTS],
     };
 
@@ -1253,7 +1257,7 @@ fn builds(d: DistrictKind) -> Builds {
     }
 }
 
-fn floors_height(n: u32) -> f32 {
+pub(crate) fn floors_height(n: u32) -> f32 {
     GROUND_FLOOR + FLOOR * n.saturating_sub(1) as f32
 }
 
@@ -1263,7 +1267,7 @@ pub fn lots(b: &BlockInfo) -> Lots {
 }
 
 /// Block `b`'s buildings that stand on `near` (on a block of lots, the rest aren't worked out).
-fn lots_near(b: &BlockInfo, near: &Rect) -> Lots {
+pub(crate) fn lots_near(b: &BlockInfo, near: &Rect) -> Lots {
     let mut out = Lots::EMPTY;
     let area = b.rect.inset(SIDEWALK);
     let seed = b.seed;
@@ -1326,7 +1330,16 @@ fn lots_near(b: &BlockInfo, near: &Rect) -> Lots {
                         Style::Plain
                     };
                     let (height, form, roof) = mass(d, b.strip, foot, sides, n, tower, style, ls);
-                    out.push(Building { foot, height, form, roof, style, seed: ls, room: None });
+                    out.push(Building {
+                        foot,
+                        height,
+                        form,
+                        roof,
+                        style,
+                        seed: ls,
+                        room: None,
+                        lot: (3 * i + j) as u8,
+                    });
                 }
             }
         }
@@ -1349,6 +1362,7 @@ fn lots_near(b: &BlockInfo, near: &Rect) -> Lots {
                     style: Style::Pavilion,
                     seed: ls,
                     room: None,
+                    lot: i as u8,
                 });
             }
         }
@@ -1364,6 +1378,7 @@ fn lots_near(b: &BlockInfo, near: &Rect) -> Lots {
                 style: Style::Monument,
                 seed,
                 room: None,
+                lot: 0,
             });
         }
         BlockKind::Tower(h) => {
@@ -1397,6 +1412,7 @@ fn lots_near(b: &BlockInfo, near: &Rect) -> Lots {
                 style: Style::Tower,
                 seed,
                 room: None,
+                lot: 0,
             });
         }
         BlockKind::Place(i) => {
@@ -1416,6 +1432,7 @@ fn lots_near(b: &BlockInfo, near: &Rect) -> Lots {
                 style: Style::Hall,
                 seed,
                 room: room(usize::from(i)),
+                lot: 0,
             });
         }
         BlockKind::Site => {
@@ -1437,6 +1454,7 @@ fn lots_near(b: &BlockInfo, near: &Rect) -> Lots {
                     style: Style::Frame,
                     seed: ls,
                     room: None,
+                    lot: i as u8,
                 });
             }
             if unit(seed, 3) < 0.45 {
@@ -1450,6 +1468,7 @@ fn lots_near(b: &BlockInfo, near: &Rect) -> Lots {
                     style: Style::Crane,
                     seed: mix(seed, 13, 0),
                     room: None,
+                    lot: 2,
                 });
             }
         }
@@ -1672,8 +1691,32 @@ pub fn ground(strip: u8, s: f32, x: f32, stage: Stage) -> f32 {
 /// The solid boxes near a footprint, for anything that wants them one at a time: buildings, kerbs,
 /// railings, Hub Gate's terminal, the end caps' walls, the glass's edge, the tram stations'
 /// platforms. Calls `f` with each; stops early when it returns true, and says whether it did.
-/// Not the street furniture (`furniture::each_furniture`): a suit steps over it.
-pub fn each_solid(strip: u8, area: &Rect, stage: Stage, mut f: impl FnMut(&CityBox) -> bool) -> bool {
+/// Not the street furniture (`furniture::each_furniture`): a suit steps over it. A building with
+/// homes in it is its envelope here, as a suit meets it ([`each_solid_fine`] has its insides).
+pub fn each_solid(strip: u8, area: &Rect, stage: Stage, f: impl FnMut(&CityBox) -> bool) -> bool {
+    each_solid_at(strip, area, None, stage, f)
+}
+
+/// [`each_solid`] as a person or a car meets it, `h0..h1` up: a building with homes in it is its
+/// walls, floors and stairs near there (`homes`), so they walk in at its doors.
+pub fn each_solid_fine(
+    strip: u8,
+    area: &Rect,
+    h0: f32,
+    h1: f32,
+    stage: Stage,
+    f: impl FnMut(&CityBox) -> bool,
+) -> bool {
+    each_solid_at(strip, area, Some((h0, h1)), stage, f)
+}
+
+fn each_solid_at(
+    strip: u8,
+    area: &Rect,
+    fine: Option<(f32, f32)>,
+    stage: Stage,
+    mut f: impl FnMut(&CityBox) -> bool,
+) -> bool {
     const DEEP: f32 = -50.0;
     const SKY: f32 = 4_000.0;
     // The end caps, and past the glass's edge.
@@ -1741,6 +1784,14 @@ pub fn each_solid(strip: u8, area: &Rect, stage: Stage, mut f: impl FnMut(&CityB
                 if !building.foot.overlaps(area) {
                     continue;
                 }
+                if let Some((h0, h1)) = fine
+                    && let Some(hit) = super::homes::each_fine(&b, building, area, h0, h1, &mut f)
+                {
+                    if hit {
+                        return true;
+                    }
+                    continue;
+                }
                 let n = building.solids(&mut boxes);
                 for piece in &boxes[..n] {
                     if piece.rect.overlaps(area) && f(piece) {
@@ -1757,7 +1808,7 @@ pub fn each_solid(strip: u8, area: &Rect, stage: Stage, mut f: impl FnMut(&CityB
 /// touches anything solid to a person or a car: the built city ([`solid_built`]) and its street
 /// furniture (`furniture`: lamp posts, trees' trunks, benches).
 pub fn solid(strip: u8, min: Vec3, max: Vec3, stage: Stage) -> bool {
-    if solid_built(strip, min, max, stage) {
+    if built(strip, min, max, stage, true) {
         return true;
     }
     let area = Rect::new(-max.z, -min.z, min.x, max.x);
@@ -1768,6 +1819,12 @@ pub fn solid(strip: u8, min: Vec3, max: Vec3, stage: Stage) -> bool {
 /// the end caps. That's [`solid`] without the street furniture, which a suit steps over:
 /// what a suit's hull meets (`interior`, through [`each_solid`]).
 pub fn solid_built(strip: u8, min: Vec3, max: Vec3, stage: Stage) -> bool {
+    built(strip, min, max, stage, false)
+}
+
+/// Whether the box touches the built city, as a person meets it (`fine`: the insides of the homes'
+/// buildings) or a suit.
+fn built(strip: u8, min: Vec3, max: Vec3, stage: Stage, fine: bool) -> bool {
     let area = Rect::new(-max.z, -min.z, min.x, max.x);
     let (h0, h1) = (min.y, max.y);
     // The floor everywhere, but for the canal's channel.
@@ -1777,7 +1834,12 @@ pub fn solid_built(strip: u8, min: Vec3, max: Vec3, stage: Stage) -> bool {
     if h0 < 0.0 && !in_channel(strip, &area, stage) {
         return true;
     }
-    each_solid(strip, &area, stage, |b| b.rect.overlaps(&area) && h0 < b.h1 && b.h0 < h1)
+    let hit = |b: &CityBox| b.rect.overlaps(&area) && h0 < b.h1 && b.h0 < h1;
+    if fine {
+        each_solid_fine(strip, &area, h0, h1, stage, hit)
+    } else {
+        each_solid(strip, &area, stage, hit)
+    }
 }
 
 /// Whether a footprint lies wholly in the canal's channel (or under one of its bridges' spans).
@@ -2041,7 +2103,8 @@ mod tests {
             let area = Rect::new(-max.z, -min.z, min.x, max.x);
             let mut want = min.y < -CANAL_DEPTH || (min.y < 0.0 && !in_channel(k, &area, STAGE));
             let wide = Rect::new(area.s0 - BLOCK, area.s1 + BLOCK, area.x0 - BLOCK, area.x1 + BLOCK);
-            each_solid(k, &wide, STAGE, |b| {
+            // People's grain: a home building's walls, floors and stairs, not its envelope.
+            each_solid_fine(k, &wide, min.y, max.y, STAGE, |b| {
                 want |= b.rect.overlaps(&area) && min.y < b.h1 && b.h0 < max.y;
                 false
             });

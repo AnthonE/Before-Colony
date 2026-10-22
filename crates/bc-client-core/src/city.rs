@@ -62,6 +62,7 @@ mod tests {
     };
     use bc_sim::colony::frame::STRIP_WIDTH;
     use bc_sim::colony::furniture::{AVENUE_TREE, BENCH_HEIGHT, Furniture, Kind, each_furniture};
+    use bc_sim::colony::homes;
 
     const DT: f32 = 1.0 / 60.0;
     const CITY: CityGround = CityGround { strip: 0, stage: Stage(0) };
@@ -266,5 +267,95 @@ mod tests {
         walk(&mut w, 5.0, Stride { forward: 1.0, run: true, ..Stride::default() });
         let p = CITY.place(w.feet);
         assert!(p.s < ch.s0 && (p.h - KERB).abs() < 1e-3, "railed off: {p:?}");
+    }
+
+    /// Guides a pilot through `points` (`(s, x)` and the floor there) on strip `strip`, from
+    /// standing at the first: where they end up, or where the guide let go of them.
+    fn through(strip: u8, points: &[((f32, f32), f32)]) -> Result<CityPos, CityPos> {
+        let ground = CityGround { strip, stage: Stage(0) };
+        let ((s, x), h) = points[0];
+        let mut w = Walker::at(CityPos::new(strip, x, s, h + 0.05).walker(), Vec3::X);
+        let route = points[1..].iter().map(|&((s, x), h)| CityPos::new(strip, x, s, h).walker()).collect();
+        let mut g = Guide::new(route, None);
+        let mut t = 0.0;
+        while !g.arrived() && t < 30.0 * points.len() as f32 {
+            let st = g.steer(&mut w, DT);
+            w.step(&ground, &st, DT);
+            t += DT;
+        }
+        let p = ground.place(w.feet);
+        let ((s, x), h) = points[points.len() - 1];
+        let there = (p.s - s).hypot(p.x - x) < 0.6 && (p.h - h).abs() < 0.1;
+        if g.arrived() && there { Ok(p) } else { Err(p) }
+    }
+
+    /// The first home building of `kind` on strip `strip` with at least `storeys` storeys.
+    fn home_building(strip: u8, kind: homes::Kind, storeys: u32) -> homes::Plan {
+        for bx in bc_sim::colony::city::CITY.0..bc_sim::colony::city::CITY.1 {
+            for row in 1..=bc_sim::colony::city::ROWS {
+                let Some(b) = block(strip, bx, row, Stage(0)) else { continue };
+                for bd in lots(&b).as_slice() {
+                    if let Some(p) = homes::plan(&b, bd)
+                        && p.kind == kind
+                        && p.storeys >= storeys
+                        && p.sides != 0
+                    {
+                        return p;
+                    }
+                }
+            }
+        }
+        panic!("no {kind:?} of {storeys} storeys on strip {strip}");
+    }
+
+    #[test]
+    fn a_pilot_walks_in_off_the_street_and_up_every_storey_of_a_block_of_flats() {
+        let p = home_building(0, homes::Kind::Flats, 6);
+        // From the pavement in at the lobby door, onto the landing.
+        let mut way = vec![
+            (p.point(0.0, -homes::SHELL - 1.2), KERB),
+            (p.point(0.0, 0.8), KERB),
+            (p.point(0.0, homes::NEAR * 0.5), KERB),
+        ];
+        for k in 0..p.storeys - 1 {
+            way.extend(p.stairs_up(k, 0));
+            let reached =
+                through(0, &way).unwrap_or_else(|at| panic!("to storey {}: let go at {at:?}", k + 1));
+            assert!((reached.h - homes::level(k + 1)).abs() < 0.05, "{reached:?}");
+        }
+        // Along the top storey's corridor to a flat's door, and in.
+        let top = p.storeys - 1;
+        let flat = p.home(top, 1).unwrap();
+        way.push((p.point(0.0, homes::NEAR * 0.5), homes::level(top)));
+        way.push((flat.outside, flat.floor));
+        way.push((flat.inside, flat.floor));
+        way.push((flat.rect.middle(), flat.floor));
+        let at = through(0, &way).unwrap_or_else(|at| panic!("into {flat:?}: let go at {at:?}"));
+        assert_eq!(homes::home_at(0, at.s, at.x, at.h + 1.0), Some(flat.id));
+    }
+
+    #[test]
+    fn a_pilot_walks_in_at_a_house_s_front_door_and_up_its_stairs() {
+        let p = home_building(0, homes::Kind::Houses, 3);
+        let house = p.home(0, 0).unwrap();
+        let mut way = vec![(house.outside, KERB), (house.inside, KERB)];
+        for k in 0..p.storeys - 1 {
+            way.extend(p.stairs_up(k, 0));
+            let reached =
+                through(0, &way).unwrap_or_else(|at| panic!("to storey {}: let go at {at:?}", k + 1));
+            assert!((reached.h - homes::level(k + 1)).abs() < 0.05, "{reached:?}");
+        }
+        let (s, x) = house.rect.middle();
+        assert_eq!(homes::home_at(0, s, x, homes::level(p.storeys - 1) + 1.0), Some(house.id));
+    }
+
+    #[test]
+    fn a_home_s_walls_keep_a_pilot_out_of_the_next_one() {
+        // Walking from a flat straight at its neighbour, they stop at the wall between.
+        let p = home_building(0, homes::Kind::Flats, 3);
+        let (a, b) = (p.home(1, 0).unwrap(), p.home(1, 1).unwrap());
+        let way = [(a.rect.middle(), a.floor), (b.rect.middle(), b.floor)];
+        let at = through(0, &way).expect_err("walked through a wall");
+        assert_eq!(homes::home_at(0, at.s, at.x, at.h + 1.0), Some(a.id), "{at:?}");
     }
 }

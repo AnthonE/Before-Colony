@@ -12,6 +12,7 @@
 
 pub mod charter;
 pub mod config;
+pub mod homes;
 pub mod http;
 pub mod market;
 pub mod net;
