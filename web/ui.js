@@ -1579,7 +1579,9 @@
     // Keep the field being typed in.
     const active = document.activeElement;
     const key = active && active.dataset ? active.dataset.key : null;
-    const caret = key && typeof active.selectionStart === "number" ? active.selectionStart : null;
+    // Its selection too, not only the caret: a field selected to type over, redrawn as the book
+    // moved, would take the typing in front of what was there ("50" into "1000": "501000").
+    const caret = key && typeof active.selectionStart === "number" ? [active.selectionStart, active.selectionEnd] : null;
     const body = $("term-body");
     const scroll = body.scrollTop;
     const render = { fabricator: renderFabricator, stores: renderStores, suit: renderSuit, exchange: renderExchange, charter: renderCharter, proving: renderProving, wanted: renderArrival, home: renderHome }[tab];
@@ -1589,7 +1591,7 @@
       const el = body.querySelector(`[data-key="${CSS.escape(key)}"]`);
       if (el) {
         el.focus();
-        if (caret != null && el.setSelectionRange) el.setSelectionRange(caret, caret);
+        if (caret != null && el.setSelectionRange) el.setSelectionRange(caret[0], caret[1]);
       }
     }
     const log = $("term-log");
