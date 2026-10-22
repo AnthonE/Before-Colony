@@ -119,7 +119,7 @@ not meshes**. The client already rebuilds the field from the server's seed.
 
 ## The plan
 
-Each step pays on its own, in this order. The bench is the yardstick: rerun it before and after.
+`NETCODE.md` is the netcode of record this plan builds towards. Each step pays on its own, in this order. The bench is the yardstick: rerun it before and after.
 
 ### A. Make one sector cheap (days)
 
