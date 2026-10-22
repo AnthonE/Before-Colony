@@ -3,8 +3,8 @@
 
 use bc_proto::events::Event;
 use bc_proto::objects::ROCK_RECORD_BITS;
-use bc_proto::snapshot::{ENTITY_MAX_BITS, ent_flags};
-use bc_proto::{ObjectState, SnapshotHeader, SnapshotWriter};
+use bc_proto::snapshot::ENTITY_MAX_BITS;
+use bc_proto::{EntityState, ObjectState, SnapshotHeader, SnapshotWriter};
 use bc_sim::Sim;
 use bc_sim::chunks::{MAX_CHUNKS, Motion};
 use bc_sim::missiles::MAX_MISSILES;
@@ -104,6 +104,12 @@ pub(crate) struct Work {
     missiles: Box<[(f32, u16)]>,
     /// Where each live chunk is this tick (found once per tick, for every client).
     chunk_pos: Box<[Vec3]>,
+    /// Every suit as a spectator would see it this tick (built once, for every client; a client
+    /// adds what depends on it, `Sim::viewer_flags`).
+    states: Box<[EntityState]>,
+    /// Suit records written this tick, and their bits.
+    pub records: u64,
+    pub record_bits: u64,
 }
 
 impl Work {
@@ -114,14 +120,35 @@ impl Work {
             rocks: boxed(rocks, (0.0, 0)),
             missiles: boxed(MAX_MISSILES, (0.0, 0)),
             chunk_pos: boxed(MAX_CHUNKS, Vec3::ZERO),
+            states: boxed(max_suits, EntityState::default()),
+            records: 0,
+            record_bits: 0,
         }
     }
 
-    /// Notes where every live chunk is at the simulation's current tick.
-    pub fn locate_chunks(&mut self, sim: &Sim) {
+    /// What every client's snapshot shares, found once a tick: where every live chunk is, and
+    /// every suit's record but for its viewer's flags.
+    pub fn prepare(&mut self, sim: &Sim) {
         for k in sim.chunks.alive.iter() {
             self.chunk_pos[k] = sim.chunk_pose(k).0;
         }
+        for j in sim.suits.used.iter() {
+            self.states[j] = sim.entity_state_watched(j);
+        }
+        self.records = 0;
+        self.record_bits = 0;
+    }
+
+    /// Suit `j`'s record as `viewer` is sent it.
+    fn state_for(&self, sim: &Sim, j: usize, viewer: usize) -> EntityState {
+        let mut e = self.states[j];
+        e.flags |= sim.viewer_flags(j, viewer);
+        e
+    }
+
+    fn count(&mut self, e: &EntityState) {
+        self.records += 1;
+        self.record_bits += e.encoded_bits() as u64;
     }
 }
 
@@ -332,15 +359,13 @@ pub(crate) fn build_snapshot(
     }
     let top = cand.len().min(TOP);
     cand[..top].sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
-    for &(_, j) in cand[..top].iter() {
-        let j = j as usize;
-        let mut e = sim.entity_state(j, me);
-        if !sim.suits.alive.get(j) {
-            e.flags |= ent_flags::WRECK;
-        }
+    for k in 0..top {
+        let j = work.entities[k].1 as usize;
+        let e = work.state_for(sim, j, me);
         if !w.entity(&e, object_reserve) {
             break;
         }
+        work.count(&e);
         client.prio[j] = 0.0;
         client.known.set(j, true);
     }
@@ -440,15 +465,13 @@ pub(crate) fn build_watch(
     }
     let top = cand.len().min(TOP);
     cand[..top].sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
-    for &(_, j) in cand[..top].iter() {
-        let j = j as usize;
-        let mut e = sim.entity_state_watched(j);
-        if !sim.suits.alive.get(j) {
-            e.flags |= ent_flags::WRECK;
-        }
+    for k in 0..top {
+        let j = work.entities[k].1 as usize;
+        let e = work.states[j];
         if !w.entity(&e, 0) {
             break;
         }
+        work.count(&e);
         client.prio[j] = 0.0;
         client.known.set(j, true);
     }

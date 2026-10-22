@@ -61,6 +61,15 @@ impl Default for SectorConfig {
     }
 }
 
+/// How long a tick's halves took, µs.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Timing {
+    /// Control, inputs, the simulation's step and what watches it.
+    pub sim_us: u64,
+    /// Every client's snapshot built and queued.
+    pub replicate_us: u64,
+}
+
 pub struct Sector {
     pub sim: Sim,
     cfg: SectorConfig,
@@ -76,6 +85,7 @@ pub struct Sector {
     aces_seen: u32,
     /// Per slot: the wreck its pilot ejected from, which the tugs are going out for (survival).
     claims: Box<[Option<Claim>]>,
+    timing: Timing,
 }
 
 impl Sector {
@@ -93,6 +103,7 @@ impl Sector {
             training_seen: sim.events.next_seq(),
             aces_seen: sim.events.next_seq(),
             claims: (0..cfg.max_clients).map(|_| None).collect(),
+            timing: Timing::default(),
             sim,
             cfg,
             shared,
@@ -116,6 +127,7 @@ impl Sector {
 
     /// [`tick`](Self::tick) with an explicit clock (µs), for simulated-time tests.
     pub fn tick_at(&mut self, now_us: u64) {
+        let started = self.shared.now_us();
         self.drain_control();
         self.drain_inputs();
         self.drain_advice();
@@ -133,8 +145,20 @@ impl Sector {
         if self.cfg.oracle {
             self.send_pictures();
         }
+        let simulated = self.shared.now_us();
         self.replicate(now_us);
+        let replicated = self.shared.now_us();
+        self.timing = Timing { sim_us: simulated - started, replicate_us: replicated - simulated };
+        let m = &self.shared.metrics;
+        m.sim_hist.record(self.timing.sim_us);
+        m.replicate_hist.record(self.timing.replicate_us);
         self.publish_metrics();
+    }
+
+    /// How long the last tick's halves took: the simulation (control, inputs, the step and what
+    /// watches it) and replication.
+    pub fn last_timing(&self) -> Timing {
+        self.timing
     }
 
     fn drain_control(&mut self) {
@@ -549,7 +573,7 @@ impl Sector {
     fn replicate(&mut self, now_us: u64) {
         let t = self.sim.tick();
         let m = &self.shared.metrics;
-        self.work.locate_chunks(&self.sim);
+        self.work.prepare(&self.sim);
         for (s, client) in self.clients.iter_mut().enumerate() {
             // A spectator: the suits near where they watch from, and nothing of their own.
             if let Some(at) = client.watch {
@@ -625,6 +649,8 @@ impl Sector {
 
     fn publish_metrics(&mut self) {
         let m = &self.shared.metrics;
+        Metrics::add(&m.entity_records, self.work.records);
+        Metrics::add(&m.entity_bits, self.work.record_bits);
         Metrics::set(&m.clients, self.clients.iter().filter(|c| c.active).count() as u64);
         Metrics::set(&m.watchers, self.clients.iter().filter(|c| c.watch.is_some()).count() as u64);
         Metrics::set(&m.suits_alive, self.sim.alive_count() as u64);
