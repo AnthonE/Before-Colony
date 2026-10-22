@@ -513,6 +513,49 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         }
     }
 
+    if (surface == 32u) {
+        // A home's furniture (`city_mesh::Surface::Furniture`), lit as the room it stands in: its
+        // seed its finish (`city_mesh::FINISHES`).
+        indoor = true;
+        let finish = u32(seed + 0.5);
+        let grain = 0.9 + 0.12 * noise3(vec3(uv * vec2(0.6, 6.0), 31.0));
+        if (finish == 0u) {
+            albedo = vec3(0.42, 0.28, 0.16) * grain;
+            rough = 0.55;
+        } else if (finish == 1u) {
+            albedo = vec3(0.32, 0.38, 0.46) * (0.92 + 0.1 * noise3(vec3(uv * 9.0, 32.0)));
+            rough = 0.95;
+        } else if (finish == 2u) {
+            albedo = vec3(0.5, 0.52, 0.55);
+            metal = 0.8;
+            rough = 0.35;
+        } else if (finish == 3u) {
+            albedo = vec3(0.86, 0.85, 0.82);
+            rough = 0.5;
+        } else if (finish == 4u) {
+            albedo = vec3(0.08, 0.08, 0.09);
+            rough = 0.4;
+        } else if (finish == 5u) {
+            albedo = vec3(0.16, 0.36, 0.14) * (0.7 + 0.5 * noise3(vec3(uv * 4.0, 33.0)));
+            rough = 0.9;
+        } else if (finish == 6u) {
+            albedo = vec3(0.9, 0.88, 0.84);
+            rough = 0.9;
+        } else {
+            // A screen: the colony's news, scrolling.
+            albedo = vec3(0.02, 0.03, 0.04);
+            let line = step(0.5, fract(uv.y * 8.0 - city.day.z * 0.3));
+            glow = vec3(0.35, 0.75, 1.0) * (0.4 + 0.6 * line) * 120.0;
+        }
+        // Being put down (build mode, `city_mesh::furniture_ghost`): its `tall` says whether it fits
+        // there (1, green) or not (2, red).
+        if (tall > 0.5) {
+            let tint = select(vec3(0.95, 0.2, 0.15), vec3(0.3, 0.95, 0.4), tall < 1.5);
+            albedo = mix(albedo, tint, 0.6);
+            glow = glow + tint * 25.0;
+        }
+    }
+
     let n = normalize(pbr.N);
     pbr.material.base_color = vec4(albedo, 1.0);
     pbr.material.perceptual_roughness = rough;

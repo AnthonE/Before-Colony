@@ -63,6 +63,12 @@ pub(super) struct Who {
 const TICK: Duration = Duration::from_millis(100);
 /// The market is resent at most this often while it moves.
 const MARKET_EVERY: Duration = Duration::from_secs(2);
+/// How often the homes near a pilot are looked at, and how far round them (m): doors open and
+/// shut, so it's soon.
+const HOMES_EVERY: Duration = Duration::from_millis(250);
+const HOMES_NEAR: f32 = 30.0;
+/// How near a home's door a pilot stands to use it, m.
+const AT_DOOR: f32 = 3.5;
 /// In the bay, every this many session ticks a plaza datagram with no one in it: the sector's
 /// tick, for the colony's clock (2 Hz). In the city it goes every tick (10 Hz).
 const HEARTBEAT_TICKS: u32 = 5;
@@ -125,6 +131,11 @@ pub(super) async fn run(
         board_sent: Instant::now() - MARKET_EVERY,
         proving_seen: 0,
         proving_sent: Instant::now() - MARKET_EVERY,
+        homes_seen: 0,
+        homes_sent: Instant::now() - MARKET_EVERY,
+        homes_near: Vec::new(),
+        knocks_heard: game.homes.with(|h| h.knocks_for("", u64::MAX).1),
+        waking: None,
         bests: Bests::default(),
         trainer: false,
         trainer_build: Trainer::Board,
@@ -186,6 +197,14 @@ struct Session<'a> {
     /// times there (a signed-in pilot's, from their record).
     proving_seen: u64,
     proving_sent: Instant,
+    /// The register of homes as last sent: its version, when, which buildings near the pilot it
+    /// covered; and the last knock heard at one of their doors.
+    homes_seen: u64,
+    homes_sent: Instant,
+    homes_near: Vec<(i32, i32, u8)>,
+    knocks_heard: u64,
+    /// Back from asleep in a bed at home: where they get up, for the next `Update::Place`.
+    waking: Option<wire::Wake>,
     bests: Bests,
     /// Flying one of the Charter Board's trainers, boarded at the Blast Hall's gantry.
     trainer: bool,
@@ -367,8 +386,14 @@ impl Session<'_> {
         self.game.egress_thread.unpark();
         if self.survival() {
             self.place = if self.suit.is_some() { Place::Space } else { Place::Hangar };
+            // Asleep in a bed at home when they left: they wake there.
+            self.waking = self.wake_at_home().await;
             self.settle(true);
             self.send_place().await?;
+            if self.place == Place::City {
+                self.send_proving().await?;
+                self.certify().await?;
+            }
             if let Some((outcome, text, debrief)) = sortie {
                 self.send(&Update::Sortie { outcome, text, debrief }).await?;
             }
@@ -667,7 +692,8 @@ impl Session<'_> {
     async fn send_place(&mut self) -> anyhow::Result<()> {
         let bay = bc_sim::colony::hub::bay_of_slot(self.slot);
         let strip = (self.place == Place::City).then_some(self.strip);
-        self.send(&Update::Place { place: self.place, bay, strip, trainer: self.trainer }).await
+        let wake = self.waking.take();
+        self.send(&Update::Place { place: self.place, bay, strip, trainer: self.trainer, wake }).await
     }
 
     /// In the colony (on foot in its city, or flying inside it): the Proving Ground's board, as
@@ -989,6 +1015,9 @@ impl Session<'_> {
                 _ => return self.note(wire::desk_refusal(kind), false).await,
             }
         }
+        if req.home().is_some() {
+            return self.home_request(req).await;
+        }
         match req {
             Request::Launch => self.launch().await,
             Request::LaunchInside => self.launch_inside().await,
@@ -1120,6 +1149,8 @@ impl Session<'_> {
         self.place = Place::City;
         self.strip = strip % bc_sim::colony::frame::STRIPS as u8;
         self.game.plaza.enter(self.slot, &self.callsign, self.strip);
+        self.game.plaza.key(self.slot, &self.trader);
+        self.homes_near.clear();
         self.named.clear();
         tracing::info!(slot = self.slot, name = %self.callsign, strip = self.strip, "went down into the colony");
         self.watch();
@@ -1174,6 +1205,69 @@ impl Session<'_> {
         }
         while lease.reports.pop().is_ok() {}
         let _ = inside.sector.leases.push(lease);
+    }
+
+    /// Logging out in a home of theirs (on its crew) with a bed in it: they lie down in the bed
+    /// nearest, asleep there until they're back (`Homes::sleep`, H3).
+    async fn lie_down(&mut self) {
+        if !self.survival() || self.place != Place::City || !self.entered {
+            return;
+        }
+        let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        let pose = self.game.plaza.where_is(self.slot, tick).map(bc_sim::colony::frame::from_colony);
+        let Some(bc_sim::colony::frame::Under::Land(c)) = pose else { return };
+        let Some(id) = bc_sim::colony::homes::home_at(c.strip, c.s, c.x, c.h + 1.0) else { return };
+        let Some(home) = bc_sim::colony::homes::home(id) else { return };
+        let storey = match bc_sim::colony::homes::plan_at(c.strip, c.s, c.x) {
+            Some(p) if home.kind == bc_sim::colony::homes::Kind::Houses => p.storey_at(c.h + 0.5) as u8,
+            _ => 0,
+        };
+        let near = (c.s - home.rect.s0, c.x - home.rect.x0);
+        let (trader, name) = (self.trader.as_str(), self.callsign.as_str());
+        if self.game.homes.with(|h| h.sleep(id, trader, name, near, storey)).is_some() {
+            self.game.homes.changed();
+            self.game.homes.save().await;
+            tracing::info!(slot = self.slot, name = %self.callsign, "asleep at home");
+        }
+    }
+
+    /// Back from asleep in a bed at home (`lie_down`): they wake in the city beside it, instead of
+    /// in the bay, if the bed's still there, they're still on its crew and their suit's in the bay.
+    /// Where they get up, if they do (asleep or not, they're no longer).
+    async fn wake_at_home(&mut self) -> Option<wire::Wake> {
+        use bc_sim::content::homes::{piece_box, wake_spot};
+        let (id, bed) = self.game.homes.with(|h| h.wake(&self.trader))?;
+        self.game.homes.changed();
+        self.game.homes.save().await;
+        if !self.game.colony || self.place != Place::Hangar {
+            return None;
+        }
+        let home = bc_sim::colony::homes::home(id)?;
+        let (ms, mx) = home.rect.middle();
+        let plan = bc_sim::colony::homes::plan_at(home.strip, ms, mx)?;
+        let others: Vec<_> = self.game.homes.with(|h| {
+            h.get(id).map_or_else(Vec::new, |held| {
+                held.pieces
+                    .iter()
+                    .map(|p| piece_box(&home, p.kind, p.at(), p.turn, u32::from(p.storey)))
+                    .collect()
+            })
+        });
+        let bed_box = piece_box(&home, bed.kind, bed.at(), bed.turn, u32::from(bed.storey));
+        let (s, x) = wake_spot(&home, &plan, &bed_box, &others);
+        let dm = |v: f32| (v * 10.0).round().clamp(0.0, f32::from(u16::MAX)) as u16;
+        let wake =
+            wire::Wake { home: id.0, s: dm(s - home.rect.s0), x: dm(x - home.rect.x0), storey: bed.storey };
+        let up = (home.rect.s0 + f32::from(wake.s) / 10.0, home.rect.x0 + f32::from(wake.x) / 10.0);
+        self.place = Place::City;
+        self.strip = home.strip;
+        self.game.plaza.enter_at(self.slot, &self.callsign, self.strip, up);
+        self.game.plaza.key(self.slot, &self.trader);
+        self.homes_near.clear();
+        self.named.clear();
+        self.watch();
+        tracing::info!(slot = self.slot, name = %self.callsign, strip = self.strip, "woke at home");
+        Some(wake)
     }
 
     /// Back up the cap lift to the bay.
@@ -1356,6 +1450,8 @@ impl Session<'_> {
         self.strip = hall.strip;
         let (hatch, _) = bc_sim::colony::hall::hatch();
         self.game.plaza.enter_at(self.slot, &self.callsign, self.strip, hatch);
+        self.game.plaza.key(self.slot, &self.trader);
+        self.homes_near.clear();
         self.named.clear();
         self.watch();
         tracing::info!(slot = self.slot, name = %self.callsign, "out of a trainer at the blast hall's gantry");
@@ -1648,12 +1744,137 @@ impl Session<'_> {
         {
             self.send_proving().await?;
         }
+        self.homes_tick(settle).await
+    }
+
+    /// The register of homes, on the session's tick: in the city, the held homes of the buildings
+    /// near the pilot whenever they or the buildings change (doors open and shut, so it's soon);
+    /// anywhere, knocks at their doors; and what a lapsed or sold home handed back, into their bay.
+    async fn homes_tick(&mut self, settle: bool) -> anyhow::Result<()> {
+        let game = self.game;
+        let homes = &game.homes;
+        if self.place == Place::City && self.homes_sent.elapsed() >= HOMES_EVERY {
+            let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+            if let Some(at) = self.game.plaza.where_is(self.slot, tick)
+                && let bc_sim::colony::frame::Under::Land(c) = bc_sim::colony::frame::from_colony(at)
+            {
+                let mut near = Vec::new();
+                bc_sim::colony::homes::each_plan_near(c.strip, c.s, c.x, HOMES_NEAR, |p| {
+                    near.push((p.bx, p.row, p.lot));
+                });
+                if near != self.homes_near || homes.version() != self.homes_seen {
+                    self.homes_near = near;
+                    self.send_homes().await?;
+                }
+                // A bought home's owner is in it: it isn't abandoned.
+                if let Some(id) = bc_sim::colony::homes::home_at(c.strip, c.s, c.x, c.h + 1.0) {
+                    let trader = self.trader.clone();
+                    homes.with(|h| h.visited(id, &trader, pilots::unix_now()));
+                }
+            }
+        }
+        let (knocks, seq) = homes.with(|h| h.knocks_for(&self.trader, self.knocks_heard));
+        self.knocks_heard = seq;
+        for k in knocks {
+            self.send(&Update::News { text: k }).await?;
+        }
+        if settle && homes.with(|h| h.owed(&self.trader)) {
+            let trader = self.trader.clone();
+            let notes = homes.with(|h| h.collect(&mut self.hangar, &trader));
+            homes.changed();
+            for n in notes {
+                self.note(n, true).await?;
+            }
+            self.send_hangar().await?;
+            // The record holds what was handed back before the register forgets it owed it.
+            self.save().await;
+            self.game.homes.save().await;
+        }
         Ok(())
+    }
+
+    /// The held homes of the buildings near the pilot, as they see them.
+    async fn send_homes(&mut self) -> anyhow::Result<()> {
+        self.homes_seen = self.game.homes.version();
+        self.homes_sent = Instant::now();
+        let near = &self.homes_near;
+        let in_near = |id: u32| {
+            let id = bc_sim::colony::homes::HomeId(id);
+            near.contains(&(id.bx(), id.row(), id.lot())) && id.strip() == self.strip
+        };
+        let view = self.game.homes.with(|h| {
+            let ids: Vec<u32> = h.all().map(|(id, _)| id.0).filter(|id| in_near(*id)).collect();
+            wire::HomesView::of(h, ids.into_iter(), &self.trader)
+        });
+        self.send(&Update::Homes(view)).await
+    }
+
+    /// Something asked of a home: done at its door or in it (where the plaza last had the pilot),
+    /// on the register; its credits written where they went in the right order.
+    async fn home_request(&mut self, req: Request) -> anyhow::Result<()> {
+        let Some((id, at)) = req.home() else { return Ok(()) };
+        if !self.game.colony || self.place != Place::City {
+            return self.note("that's done at the home's door, in the city", false).await;
+        }
+        let Some(home) = bc_sim::colony::homes::home(id) else {
+            return self.note("there's no home there", false).await;
+        };
+        let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
+        let pose = self.game.plaza.where_is(self.slot, tick).map(bc_sim::colony::frame::from_colony);
+        let Some(bc_sim::colony::frame::Under::Land(c)) = pose else {
+            return self.note("that's done at the home's door", false).await;
+        };
+        let inside = bc_sim::colony::homes::home_at(c.strip, c.s, c.x, c.h + 1.0) == Some(id);
+        let near = |(s, x): (f32, f32)| (c.s - s).hypot(c.x - x) <= AT_DOOR && (c.h - home.floor).abs() < 1.5;
+        let at_door = c.strip == home.strip && (near(home.outside) || near(home.inside));
+        let here = match at {
+            wire::AtHome::Door => at_door || inside,
+            wire::AtHome::Inside => inside || at_door,
+        };
+        if !here {
+            let why = match at {
+                wire::AtHome::Door => "that's done at the home's door",
+                wire::AtHome::Inside => "that's done at the home's panel, inside it",
+            };
+            return self.note(why, false).await;
+        }
+        let now = pilots::unix_now();
+        let (hangar, trader, name) = (&mut self.hangar, self.trader.as_str(), self.callsign.as_str());
+        let done = self.game.homes.with(|h| wire::apply_homes(&req, hangar, h, trader, name, now));
+        self.game.homes.changed();
+        match done {
+            Some(Ok(text)) => self.note(text, true).await?,
+            Some(Err(why)) => self.note(why, false).await?,
+            None => {}
+        }
+        // Credits or goods that went into the register: it's written first (it promises the home,
+        // the piece, what's put away); out of it, the record first.
+        match req {
+            Request::Rent { .. }
+            | Request::Buy { .. }
+            | Request::Feed { .. }
+            | Request::Furnish { .. }
+            | Request::Stash { .. } => {
+                self.game.homes.save().await;
+                self.save().await;
+            }
+            Request::GiveUp { .. }
+            | Request::TakeRent { .. }
+            | Request::SellPiece { .. }
+            | Request::Unstash { .. } => {
+                self.save().await;
+                self.game.homes.save().await;
+            }
+            _ => {}
+        }
+        self.send_hangar().await?;
+        self.send_homes().await
     }
 
     /// The pilot is gone: their suit sleeps (signed in) or goes, their record is kept, and the
     /// slot is handed back.
     async fn leave(&mut self) {
+        self.lie_down().await;
         self.game.plaza.leave(self.slot);
         self.unwatch().await;
         // Inside the colony, the suit doesn't sleep there: the colony's tugs bring it back to the

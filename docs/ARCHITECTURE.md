@@ -529,6 +529,17 @@ traffic and crowds.
   layout. The street's furniture (`colony::furniture`: lamp posts under the paint's pools, trees,
   benches) is a closed form too, solid to people and their cars (`city::solid`) and not to suits,
   which step over it (`city::each_solid`, `solid_built`).
+- **The homes** (`colony::homes`, `docs/OPEN_CITY.md`): a Residential district's buildings of one
+  box are blocks of flats and Old Town's are rows of houses, laid out from the building (a lobby,
+  stairs and a lift, corridors, homes, each at its own `HomeId`). To people and their cars such a
+  building is its walls, floors and stairs near where they ask (`city::each_solid_fine`, behind
+  `city::solid`); to suits and the shaders' map, the envelope it was (`each_solid`). `HOMES_GOLDEN`
+  and the `no_alloc` tests hold it. Who holds a home, its lock, its furniture and who's asleep in
+  its beds are the register's (`bc_econ::homes`, held by `bc-server`'s `homes.rs`, off the tick,
+  saved as `homes.json`). The plaza asks it before passing on a pose that crosses into a home; the
+  sessions send each pilot the held homes near them (`Update::Homes`), and the client makes their
+  shut doors and solid furniture walls to its walker (`bc_client_core::homes`) with the rule the
+  server places furniture by (`content::homes::fits`).
 - **Drawing it** (`bc-client/src/city.rs`): its own render layer, switched to when the pilot is
   inside; the ground, windows and end caps built once; buildings in chunks from 2 km (one box a
   block) down to 256 m (every building, trees, railings), chosen by a quadtree round the camera

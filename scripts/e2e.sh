@@ -12,9 +12,10 @@
 #   scripts/e2e.sh colony [project]  # survival, the colony open: the cap lift, another pilot at Hub Gate, the streets, the Exchange floor, a sight; two browsers meet at Hub Gate, one rides home, and an agent's suit lands by the other
 #   scripts/e2e.sh inside [project]  # survival, the colony open: Q at the cockpit launches the suit into the colony, it flies a way down it (through the course's start ring) and docks back at the inner gate; another lands on the avenue, sees the stroller there and walks it; a third flies into the Blast Hall and scores on its targets; a fourth boards a trainer at the hall's gantry, starts the drill and docks back on foot
 #   scripts/e2e.sh chart [project]   # the chart: Earth-Moon space and back, a course to Fornax's Aft Well, the auto-nav flying it
+#   scripts/e2e.sh home [project]    # survival, the colony open: two signed-in pilots wake in neighbouring flats (a seeded register); one sets her code and puts a sofa down, the other knocks, is shocked, enters the code and comes in; she logs out asleep in her bed and wakes there
 # Anything after the project goes to Playwright, e.g. `scripts/e2e.sh gfx webgl2 --grep "duel|hangar"`.
 # The suits' suites run the arcade rules (any frame, free respawns) unless BC_RULES says otherwise
-# (hangar, colony and inside always run survival), and every game-mode suite the anime flight rules
+# (hangar, colony, inside and home always run survival), and every game-mode suite the anime flight rules
 # unless BC_FLIGHT (anime|real) does.
 # The server listens on BC_HTTP_PORT (8080) and BC_WT_PORT (UDP, 4433). The binaries are built into
 # CARGO_TARGET_DIR (target/); BC_PREBUILT=1 runs the ones already there (the nightly CI job builds once).
@@ -37,7 +38,11 @@ BC_BIN_DIR="$(cd "$bin" && pwd)"
 export BC_BIN_DIR
 server=("$bin/bc-server" --http "127.0.0.1:${port}" --wt-port "${BC_WT_PORT:-4433}" --web-dir web/dist)
 pids=()
-cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; }
+data=""
+cleanup() {
+  for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done
+  [ -z "$data" ] || rm -rf "$data"
+}
 trap cleanup EXIT
 
 case "$suite" in
@@ -92,6 +97,15 @@ case "$suite" in
     pids+=($!)
     sleep 1
     "$bin/examples/flaneur" --server "$BC_URL" --name "Flaneur-01" &
+    pids+=($!)
+    ;;
+  home)
+    # Survival rules (the colony open), no drones; the register of homes seeded with test keys 1 and
+    # 2 asleep in neighbouring flats' beds (`examples/seed_homes`), so their browsers wake there.
+    data="$(mktemp -d)"
+    BC_HOME_SEED="$("$bin/examples/seed_homes" "$data")"
+    export BC_HOME_SEED
+    "${server[@]}" --mode game --rules survival --flight "${BC_FLIGHT:-anime}" --drones 0 --data-dir "$data" &
     pids+=($!)
     ;;
   *) echo "unknown suite $suite" >&2; exit 1 ;;

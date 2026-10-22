@@ -11,7 +11,8 @@
 //! walls, along ceilings, through the air), so all that's asked of where it is is that its middle
 //! is out of the walls. The homes' buildings are walked like the street (their walls, floors and
 //! stairs are `solid`'s), and a lift is a ride from one of a building's lift doors to another
-//! (`bc_sim::colony::homes`).
+//! (`bc_sim::colony::homes`). Nobody crosses into a home its register (`crate::homes`) says they
+//! may not go into: past its shut, locked door, however thin it is.
 //!
 //! Pilots flying suits inside the colony see the people too: those on the strip under the suit,
 //! near it in the air ([`Plaza::fill_around`]).
@@ -72,6 +73,8 @@ pub enum Verdict {
 
 struct Person {
     name: String,
+    /// Who they are on the register of homes (their trader's key; empty till the session says).
+    key: String,
     strip: u8,
     /// Where they came into the city: `(s, x)`.
     arrival: (f32, f32),
@@ -85,11 +88,13 @@ struct Person {
     said: Option<Instant>,
 }
 
-/// Everyone in the city, by client slot, and how many poses were refused, by why.
+/// Everyone in the city, by client slot, how many poses were refused, by why; and the register of
+/// homes it asks who may go into one.
 #[derive(Default)]
 pub struct Plaza {
     people: Mutex<HashMap<u16, Person>>,
     refused_by: Mutex<[u32; WHYS.len()]>,
+    homes: Option<std::sync::Arc<crate::homes::HomeRegister>>,
 }
 
 /// Why a pose wasn't passed on.
@@ -113,9 +118,12 @@ enum Why {
     Mode,
     /// Sitting where there's no seat, or moving while seated.
     Seat,
+    /// Into a home they may not go into (`crate::homes`).
+    Locked,
 }
 
-const WHYS: [&str; 9] = ["strip", "wall", "reach", "arrival", "board", "alight", "pool", "mode", "seat"];
+const WHYS: [&str; 10] =
+    ["strip", "wall", "reach", "arrival", "board", "alight", "pool", "mode", "seat", "locked"];
 
 /// Where strip `strip`'s Hub Gate lets people out: `(s, x)`.
 fn hub_gate(strip: u8) -> (f32, f32) {
@@ -242,6 +250,35 @@ fn top(p: &PersonPose) -> f32 {
 }
 
 impl Plaza {
+    /// A plaza that asks `homes` who may go into a home.
+    pub fn with_homes(homes: std::sync::Arc<crate::homes::HomeRegister>) -> Self {
+        Self { homes: Some(homes), ..Self::default() }
+    }
+
+    /// `id` is `key` on the register of homes (their trader's key).
+    pub fn key(&self, id: u16, key: &str) {
+        if let Ok(mut all) = self.people.lock()
+            && let Some(p) = all.get_mut(&id)
+        {
+            p.key = key.to_string();
+        }
+    }
+
+    /// Whether `me` may cross from `last` into where `now` is: into a home only if it's the one
+    /// they were in or the register lets them in (its plaza's lock is held: the register's taken
+    /// after it, never the other way round).
+    fn may_cross(&self, me: &Person, last: &PersonPose, now: &PersonPose) -> bool {
+        let Some(reg) = &self.homes else { return true };
+        if mode(last) != Mode::Foot || mode(now) != Mode::Foot {
+            return true;
+        }
+        let home = |p: &PersonPose| homes::home_at(p.strip, p.s, p.x, p.h + 1.0);
+        match home(now) {
+            Some(to) => home(last) == Some(to) || reg.may_enter(to, &me.key),
+            None => true,
+        }
+    }
+
     /// `id` came down to strip `strip`'s Hub Gate.
     pub fn enter(&self, id: u16, name: &str, strip: u8) {
         let strip = strip % STRIPS as u8;
@@ -257,6 +294,7 @@ impl Plaza {
                 id,
                 Person {
                     name: name.into(),
+                    key: String::new(),
                     strip,
                     arrival,
                     pose: None,
@@ -328,6 +366,10 @@ impl Plaza {
                 (!ok).then_some(Why::Arrival)
             }
         };
+        let why = why.or_else(|| {
+            let crossed = me.pose.is_some_and(|last| !self.may_cross(me, &last, &pose));
+            crossed.then_some(Why::Locked)
+        });
         if let Some(why) = why {
             // Said now and then (never where: only why, how far and how long since the last).
             if me.said.is_none_or(|t| now.saturating_duration_since(t).as_secs_f32() > 5.0) {
@@ -560,6 +602,57 @@ mod tests {
         let (s, x) = plan.point(-homes::SPINE * 0.5 - 1.5, 2.0);
         let in_wall = PersonPose { s, x, ..lift(0) };
         assert_eq!(plaza.accept(1, seq, in_wall, now, 0), Verdict::Implausible, "in the lift's block");
+    }
+
+    #[test]
+    fn nobody_crosses_into_a_home_its_register_keeps_them_out_of() {
+        use bc_econ::Hangar;
+        use bc_sim::colony::city::{CITY, ROWS, block, lots};
+        let plan = (CITY.0..CITY.1)
+            .flat_map(|bx| (1..=ROWS).filter_map(move |row| block(0, bx, row, Stage(0))))
+            .find_map(|b| {
+                lots(&b)
+                    .as_slice()
+                    .iter()
+                    .find_map(|bd| homes::plan(&b, bd).filter(|p| p.kind == homes::Kind::Flats))
+            })
+            .expect("a block of flats");
+        let flat = plan.home(0, 0).unwrap();
+        let register = std::sync::Arc::new(crate::homes::HomeRegister::open(None));
+        let mut ada = Hangar { credits: 100_000, ..Hangar::starter() };
+        register.with(|h| h.rent(&flat, "0xada", "Ada", 1, &mut ada, 0)).unwrap();
+        let plaza = Plaza::with_homes(register.clone());
+        let pose = |(s, x): (f32, f32)| PersonPose {
+            strip: 0,
+            s,
+            x,
+            h: flat.floor,
+            grounded: true,
+            ..PersonPose::default()
+        };
+        let t0 = Instant::now();
+        // Each pilot at the door outside, then a step in: Ada's is taken, Bo's isn't, however close.
+        for (id, key, name) in [(1, "0xada", "Ada"), (2, "0xb0", "Bo")] {
+            plaza.enter_at(id, name, 0, flat.outside);
+            plaza.key(id, key);
+            assert_eq!(plaza.accept(id, 1, pose(flat.outside), t0, 0), Verdict::Taken);
+        }
+        let step_in = t0 + Duration::from_millis(400);
+        assert_eq!(plaza.accept(1, 2, pose(flat.inside), step_in, 0), Verdict::Taken, "its holder");
+        assert_eq!(plaza.accept(2, 2, pose(flat.inside), step_in, 0), Verdict::Implausible, "a stranger");
+        // The door opened, anyone may.
+        register.with(|h| h.door(flat.id, "0xada", true)).unwrap();
+        assert_eq!(
+            plaza.accept(2, 3, pose(flat.inside), step_in + Duration::from_millis(200), 0),
+            Verdict::Taken
+        );
+        // Shut behind them, they can still leave.
+        register.with(|h| h.door(flat.id, "0xada", false)).unwrap();
+        assert_eq!(
+            plaza.accept(2, 4, pose(flat.outside), step_in + Duration::from_millis(600), 0),
+            Verdict::Taken
+        );
+        assert_eq!(plaza.refused_by().into_iter().find(|(why, _)| *why == "locked").map(|(_, n)| n), Some(1));
     }
 
     #[test]

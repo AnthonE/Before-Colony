@@ -21,9 +21,9 @@ each tested.
 |---|---|
 | D: this design | written |
 | H0: buildings you can walk into: lobbies, stairs, lifts, corridors, flats and houses as closed forms of the city | built |
-| H1: a door of your own: leases and deeds, the code lock, the panel, rent as upkeep | planned |
-| H2: furnishing: furniture bought and placed, seen by everyone who comes in; storage | planned |
-| H3: your bed: asleep at home when logged out, waking there | planned |
+| H1: a door of your own: leases and deeds, the code lock, the panel, rent as upkeep | built |
+| H2: furnishing: furniture bought and placed, seen by everyone who comes in; storage | built |
+| H3: your bed: asleep at home when logged out, waking there | built |
 | S1: the street in the tick: people on foot and their vehicles in the interior sector | planned |
 | S2: collisions: cars meet cars and people | planned |
 | C1: cars you own | planned |
@@ -197,7 +197,7 @@ hearth). It holds:
 - Wrong codes shock you (5 hp a miss, more for each one in a row; never lethal, reset after 10 s),
   and eight in a row lock the keypad for 15 minutes. (People on foot have no health till X1: until
   then the shock is a jolt and a word.)
-- A refused press knocks, and everyone near the door hears it.
+- A knock (its own button on the keypad) is heard by the home's crew, wherever they are in the city.
 
 **Doors** are open or closed. Within 3 m of a door, the same check opens and closes it, so nobody can
 shut you in (Gates' `use_door`). The server is the lock: a pose that crosses into a home past a closed
@@ -212,7 +212,8 @@ left unvisited for 30 days is sold back to the colony at its price.
 
 Furniture is bought from the panel's catalogue (delivered by the colony's staff for now: a courier's
 seat later, `LIFE.md` 1) and placed in build mode: a ghost of the piece, R to turn it, E to put it
-down. The ghost runs the same rule the server checks (Gates' way), so what fits on your screen fits:
+down. The ghost (green where it fits, red where it doesn't) runs the same rule the server checks
+(`content::homes::fits`, Gates' way), so what fits on your screen fits:
 
 - inside the home, on its floor, clear of its walls, stairs and the other pieces;
 - never in front of a door (a metre clear), so nobody is walled in or out;
@@ -225,18 +226,25 @@ showing the colony's news, plants, rugs, and a model of your own suit in its liv
 credits, a sink; sold back for half.
 
 **Storage.** A chest holds 12 kinds of things from the bay's stores, a safe 6 and is harder to break
-(R1). Moving things in and out is all or nothing (Gates' `inventory::plan_move` then `resolve`). Only
-the crew may open them, and what's inside is sent only to whoever has the chest open.
+(R1). Each move in or out is all or nothing. Only the crew may open them, and what's inside is sent
+only to the crew: everyone else sees the chest, not what's in it. A piece that holds something can't
+be sold; a home given up or lapsed sends its furniture's half back and what its chests held to its
+holder's bay.
 
 Everyone who comes in sees the same pieces in the same places: they're part of the register, sent to
 anyone in the building.
 
 ### Your bed (H3)
 
-`LIFE.md` 2 says an Arrival asleep is logged out, "in their bunk". With a home, they are: log out at
-home and you lie asleep in your bed (a sleeper, Rust's and Gates' word, `RIDE_ASLEEP` on the pose),
-seen by anyone who comes in; log in and you wake there, not at Hub Gate. A bed is also where you wake
-after dying (X1).
+`LIFE.md` 2 says an Arrival asleep is logged out, "in their bunk". With a home, they are: log out in a
+home whose crew you're on, with a bed in it, and you lie asleep in its free bed nearest you (a
+sleeper, Rust's and Gates' word). The sleeper is the register's (`Homes::sleep`), not the plaza's: it
+goes with the home's line to everyone near (`HomeLine::asleep`) and is drawn under the covers, and a
+bed with someone asleep in it can't be sold. Log in and you wake beside it (`content::homes::wake_spot`,
+the first side of the bed with room to stand), on foot in the city and not in the bay: the server
+puts you there (`Plaza::enter_at`) and tells your client where (`Update::Place`'s `wake`). Taken off
+the crew while you slept, or the bed gone, you wake in the bay. A bed is also where you'll wake after
+dying (X1).
 
 ## The street in the tick (S1, S2)
 
@@ -410,20 +418,23 @@ says where each is allowed, and the server checks it against the pilot's last po
 
 | Request | Where |
 |---|---|
-| `homes_near` | anywhere in the city: a building's homes, free and taken |
-| `rent { id, weeks }`, `buy { id }`, `sell { id }`, `end_lease { id }` | at the home's door |
-| `enter_code { id, code }`, `door { id, open }`, `knock { id }` | at the home's door |
-| `set_code`, `crew { join, leave, clear }`, `feed`, `withdraw` | at the home's panel |
+| `rent { home, weeks }`, `buy { home }` | at the home's door |
+| `enter_code { home, code }`, `door { home, open }`, `knock { home }` | at the home's door |
+| `give_up`, `set_code { home, guest, code }`, `lock`, `leave_crew`, `clear_crew`, `feed`, `take_rent` | at the home's panel, inside |
 | `furnish`, `move_piece`, `sell_piece` | inside, on the crew |
-| `stash`, `unstash` | at a chest or safe, on the crew |
-| `sleep` | in the home's bed |
+| `stash`, `unstash` (between a chest or safe and the bay's stores) | inside, on the crew |
 
-`Update::Homes` carries the building you're in or near: each home's door, whether it's taken, the name
-on its door, and its furniture. It's sent again only when the register moves (its version), as the
-Proving Ground's board is.
+There is no request to sleep: logging out at home is sleeping there.
+
+`Update::Homes` carries the held homes of the buildings within 30 m of you: each home's door (open,
+locked), the name on it, what you may do there, its furniture, and who's asleep in its beds; its
+panel (the rent on it, its crew's size, whether its codes are set) and what its chests hold go to its
+crew alone. A home not in it is free. It's sent again when the register moves (its version) or you
+come near other buildings.
 
 H0 moved `CITY_VERSION` to 5 and `PROTOCOL_VERSION` to 36, and the city's hash (`CITY_GOLDEN`)
-with them; the homes have their own (`HOMES_GOLDEN`). H3's pose gains `RIDE_ASLEEP`.
+with them; the homes have their own (`HOMES_GOLDEN`). H1 to H3 add only JSON (`Update::Place`'s
+`wake`, the homes' requests and lines), which an older page ignores.
 
 ## Tests
 
@@ -431,10 +442,14 @@ with them; the homes have their own (`HOMES_GOLDEN`). H3's pose gains `RIDE_ASLE
   flats never overlapping or leaving their building; `unit_at` finding each one; the goldens; no
   allocation in the fine queries; the plaza passing stairs and lifts and refusing walls.
 - **H1:** the register's rules (rent, the group tax, lapsing, every credit accounted for, Gates' lock
-  cases); `bc-server/tests/homes.rs`: a flat rented and locked, a stranger knocked back and refused at
-  the door, the code shared and the stranger in, a pose that tunnels through the door refused, the rent
-  run out, a restart that keeps it all.
-- **H2:** placement's rules; two pilots seeing the same sofa; only the crew opening the chest.
+  cases: `bc_econ::homes`); the plaza refusing a stranger's pose into a locked home and letting the
+  code's holder in (`plaza.rs`); `bc-server/tests/homes.rs`: every home request refused away from the
+  home's door.
+- **H2:** placement's rules (`content::homes`); everyone near seeing the same pieces and only the crew
+  what a chest holds (`bc_econ::homes`); a shut door and furniture stopping the walker
+  (`bc_client_core::homes`).
+- **H3:** `bc-server/tests/homes.rs`: a pilot asleep in their bed wakes beside it in the city, logs
+  out there and is asleep in it again, through a restart.
 - **H3 and the browser:** the `home` e2e suite (`scripts/e2e.sh home`): a flat rented, the lift
   ridden, a code set; a second browser knocks, is refused, enters the code and comes in; a sofa
   placed and seen by both; logged out in bed and woken there.

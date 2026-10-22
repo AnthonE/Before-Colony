@@ -5,7 +5,7 @@
 use bc_econ::charter::CharterView;
 use bc_econ::exchange::Depth;
 use bc_econ::proving::{BoardView, Trainer};
-use bc_econ::wire::{self, HangarView, MarketView, Outcome, Place, Request, Update};
+use bc_econ::wire::{self, HangarView, HomesView, MarketView, Outcome, Place, Request, Update};
 use bc_econ::{Bay, Debrief, Item, Material};
 use bc_proto::control::encode_hangar;
 
@@ -27,6 +27,11 @@ pub struct HangarState {
     /// The Proving Ground's board (in the colony, where the server keeps it up to date: forgotten
     /// back in the bay).
     pub proving: Option<BoardView>,
+    /// The held homes of the buildings near the pilot in the city (`docs/OPEN_CITY.md`): the rest
+    /// are free.
+    pub homes: HomesView,
+    /// Into the city by waking at home (H3): where they get up, until the city's started there.
+    pub wake: Option<bc_econ::wire::Wake>,
     /// The book (and price history) of the item the pilot is watching.
     pub book: Option<(Depth, Vec<u64>)>,
     /// What to tell the pilot (the text, and whether it was done or refused), oldest first. The
@@ -56,13 +61,14 @@ impl HangarState {
     pub fn apply(&mut self, update: Update) -> bool {
         self.version += 1;
         match update {
-            Update::Place { place, bay, strip, trainer } => {
+            Update::Place { place, bay, strip, trainer, wake } => {
                 let back = (self.place == Some(Place::Space) && place == Place::Hangar)
                     || (self.place == Some(Place::City) && place != Place::City);
                 // Out of a trainer onto the hall's floor, it's still where they came from.
                 let from_trainer = self.trainer && place == Place::City;
                 (self.place, self.bay, self.strip) = (Some(place), bay, strip);
                 self.trainer = trainer || from_trainer;
+                self.wake = wake;
                 if place == Place::Hangar {
                     self.proving = None;
                 }
@@ -94,6 +100,7 @@ impl HangarState {
             }
             Update::Said { from, text } => self.said.push((from, text)),
             Update::Proving(view) => self.proving = Some(view),
+            Update::Homes(view) => self.homes = view,
         }
         false
     }
@@ -200,7 +207,7 @@ mod tests {
         assert_eq!(wire::decode::<Request>(p), Some(Request::Launch));
 
         let mut h = HangarState::default();
-        let place = |place, strip, trainer| Update::Place { place, bay: 7, strip, trainer };
+        let place = |place, strip, trainer| Update::Place { place, bay: 7, strip, trainer, wake: None };
         assert!(!h.apply(place(Place::Hangar, None, false)));
         assert!(h.in_hangar());
         assert!(!h.apply(place(Place::Space, None, false)));

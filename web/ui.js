@@ -889,12 +889,13 @@
   // In the bay with the colony open, what only a desk does is pointed at, not offered.
   const pointers = () => !desk && colonyOpen();
   // What each desk shows (L1's menu joins The Arrival's).
-  const DESK_TABS = { exchange: ["exchange"], charter: ["charter"], proving: ["proving"], wanted: ["wanted"] };
+  // A home's door and panel (`home`) is the city's too: docs/OPEN_CITY.md.
+  const DESK_TABS = { exchange: ["exchange"], charter: ["charter"], proving: ["proving"], wanted: ["wanted"], home: ["home"] };
   function showTabs() {
     const only = desk ? DESK_TABS[desk] || [desk] : null;
     for (const b of document.querySelectorAll("[data-tab]")) {
       const t = b.dataset.tab;
-      show(b, only ? only.includes(t) : t !== "wanted" && (t !== "proving" || colonyOpen()));
+      show(b, only ? only.includes(t) : t !== "wanted" && t !== "home" && (t !== "proving" || colonyOpen()));
     }
   }
   let fabFilter = "materials";
@@ -1461,6 +1462,76 @@
     return `${head}<div class="steps">${steps.join("")}</div>`;
   }
 
+  // A home (docs/OPEN_CITY.md), at its door or inside it: free, to let or for sale; held, its door,
+  // and without the code, its keypad and a knock; on its crew, inside, its panel: its codes, its
+  // crew, its lock and the rent on it (Rust's tool cupboard, after Gates' hearth).
+  function renderHome() {
+    const h = hangar?.home;
+    if (!h) return `<div class="note">Nobody's home.</div>`;
+    const line = h.line;
+    let out = `<h3>${esc(h.address)}</h3><div class="note">${esc(h.about)}</div>`;
+    if (!line) {
+      if (h.bought) {
+        return out + `<div class="say">FOR SALE · <b>${fmt(h.price)} CR</b> · sold back to the colony for ${fmt(h.sell_back)} CR</div>` +
+          `<div class="row">${button(`BUY IT · ${fmt(h.price)} CR`, { act: "home-buy" }, "primary")}</div>`;
+      }
+      return out + `<div class="say">TO LET · <b>${fmt(h.rent)} CR A WEEK</b>, paid ahead into its panel and spent by the hour. Unpaid a day, the lease lapses.</div>` +
+        `<div class="row">${input("home-weeks", draft("home-weeks", "1"), 'size="2" inputmode="numeric"')} WEEKS ${button("RENT IT", { act: "home-rent" }, "primary")}</div>`;
+    }
+    const whose = line.mine ? "YOURS" : `${esc(String(line.name).toUpperCase())}'S`;
+    out += `<div class="status">${whose} · THE DOOR IS <b>${line.open ? "OPEN" : "SHUT"}</b>${line.locked ? " · LOCKED" : " · UNLOCKED"}</div>`;
+    const passes = line.crew || line.guest || !line.locked;
+    if (passes) {
+      out += `<div class="row">${button(line.open ? "SHUT THE DOOR" : "OPEN THE DOOR", { act: "home-door", open: line.open ? "" : "1" }, "primary")}</div>`;
+    } else {
+      out += `<div class="say">Its keypad: the code puts you on its crew; a guest code works its door.</div>` +
+        `<div class="row">${input("home-code", draft("home-code", ""), 'size="4" maxlength="4" inputmode="numeric" placeholder="0000"')} ${button("ENTER", { act: "home-code" }, "primary")} ${button("KNOCK", { act: "home-knock" })}</div>`;
+    }
+    if (!line.crew) return out;
+    const p = line.panel || {};
+    if (h.at !== "inside") return out + `<div class="note">Its panel is inside, by the door.</div>`;
+    out += `<h3>ITS PANEL</h3>`;
+    out += `<div class="say">CREW ${p.crew} OF 10 · ${p.coded ? "A CODE IS SET" : "THE COLONY'S KEY LOCK: ITS HOLDER ALONE"}${p.guest_coded ? " · A GUEST CODE IS SET" : ""}</div>`;
+    out += `<div class="row">${input("home-new-code", draft("home-new-code", ""), 'size="4" maxlength="4" inputmode="numeric" placeholder="0000"')} ${button("SET THE CODE", { act: "home-set-code" })}<span class="note">clears its crew and guests, but you and its holder</span></div>`;
+    out += `<div class="row">${input("home-guest-code", draft("home-guest-code", ""), 'size="4" maxlength="4" inputmode="numeric" placeholder="0000"')} ${button("SET THE GUEST CODE", { act: "home-set-guest" })} ${button("NO GUEST CODE", { act: "home-clear-guest" })}</div>`;
+    out += `<div class="row">${button(line.locked ? "UNLOCK IT" : "LOCK IT", { act: "home-lock", locked: line.locked ? "" : "1" })} ${button("CLEAR ITS CREW", { act: "home-clear" })}${line.mine ? "" : ` ${button("LEAVE ITS CREW", { act: "home-leave" })}`}</div>`;
+    if (p.bank != null) {
+      out += `<div class="say">THE RENT ON IT: <b>${fmt(p.bank)} CR</b> · ${fmt(h.rent)} CR A WEEK${p.crew > 4 ? " (MORE, WITH A CREW OF MORE THAN FOUR)" : ""}</div>` +
+        `<div class="row">${input("home-credits", draft("home-credits", String(h.rent)), 'size="6" inputmode="numeric"')} CR ${button("PAY IT IN", { act: "home-feed" })} ${button("TAKE IT OUT", { act: "home-take" })}</div>`;
+    }
+    if (line.mine) {
+      out += `<div class="row">${button(h.bought ? `SELL IT BACK · ${fmt(h.sell_back)} CR` : "GIVE IT UP · ITS RENT BACK", { act: "home-give-up" })}</div>`;
+    }
+    // Its furniture: each piece (sold back for half, once it holds nothing; a chest's or a safe's
+    // goods, to and from the bay's stores), and the colony's catalogue, put down where you stand.
+    const kinds = new Map((h.furniture || []).map((f) => [f.slug, f]));
+    const pieces = line.pieces || [];
+    out += `<h3>ITS FURNITURE · ${pieces.length} OF ${h.max_pieces}</h3>`;
+    if (!pieces.length) out += `<div class="note">Nothing in it yet.</div>`;
+    const stock = (hangar?.view?.stock || []).filter(([, q]) => q > 0);
+    for (const pc of pieces) {
+      const f = kinds.get(pc.kind) || { name: pc.kind, price: 0, holds: 0 };
+      const holds = pc.holds || [];
+      out += `<div class="row">${esc(f.name.toUpperCase())}${holds.length ? "" : ` ${button(`SELL IT · ${fmt(Math.floor((f.price * h.furniture_back_pct) / 100))} CR`, { act: "home-sell-piece", piece: pc.id })}`}</div>`;
+      if (!f.holds) continue;
+      for (const [slug, qty] of holds) {
+        out += `<div class="row note">${amount(slug, qty)} ${esc(nameOf(slug))} ${button("TAKE IT", { act: "home-unstash", piece: pc.id, item: slug, qty })}</div>`;
+      }
+      if (stock.length) {
+        const key = `home-stash:${pc.id}`;
+        const pick = draft(key, stock[0][0]);
+        out += `<div class="row"><select data-key="${esc(key)}">` +
+          stock.map(([slug, q]) => `<option value="${esc(slug)}"${slug === pick ? " selected" : ""}>${esc(nameOf(slug))} (${amount(slug, q)})</option>`).join("") +
+          `</select> ${input(`${key}:qty`, draft(`${key}:qty`, "1"), 'size="6" inputmode="numeric"')} ${button("PUT IT IN", { act: "home-stash", piece: pc.id })}<span class="note">holds ${f.holds} kinds of thing</span></div>`;
+      }
+    }
+    out += `<h3>THE COLONY'S CATALOGUE</h3><div class="note">Put down a little ahead of you: R turns it, E puts it down where it fits (green), Q stops.</div>`;
+    for (const f of h.furniture || []) {
+      out += `<div class="row">${esc(f.name.toUpperCase())} · ${fmt(f.price)} CR${f.holds ? ` · HOLDS ${f.holds} KINDS` : ""} ${button("PUT IT DOWN", { act: "home-place", furniture: f.slug })}</div>`;
+    }
+    return out;
+  }
+
   // Replacing a focused field blurs it, and a blur can fire events that would render again from
   // inside this render: once at a time.
   let rendering = false;
@@ -1483,7 +1554,7 @@
     const caret = key && typeof active.selectionStart === "number" ? active.selectionStart : null;
     const body = $("term-body");
     const scroll = body.scrollTop;
-    const render = { fabricator: renderFabricator, stores: renderStores, suit: renderSuit, exchange: renderExchange, charter: renderCharter, proving: renderProving, wanted: renderArrival }[tab];
+    const render = { fabricator: renderFabricator, stores: renderStores, suit: renderSuit, exchange: renderExchange, charter: renderCharter, proving: renderProving, wanted: renderArrival, home: renderHome }[tab];
     body.innerHTML = render ? render() : "";
     body.scrollTop = scroll;
     if (key) {
@@ -1537,6 +1608,63 @@
       case "fab-filter":
         fabFilter = d.f;
         break;
+      case "home-rent":
+      case "home-buy":
+      case "home-door":
+      case "home-code":
+      case "home-knock":
+      case "home-set-code":
+      case "home-set-guest":
+      case "home-clear-guest":
+      case "home-lock":
+      case "home-clear":
+      case "home-leave":
+      case "home-feed":
+      case "home-take":
+      case "home-place":
+        // Off the panel, and into build mode where the pilot stands (onfoot.rs's `Build`).
+        send("resume");
+        send("place", { furniture: d.furniture });
+        return;
+      case "home-sell-piece":
+      case "home-stash":
+      case "home-unstash":
+      case "home-give-up": {
+        const home = hangar?.home?.id;
+        if (home == null) return;
+        const num = (key, dflt) => Math.max(0, Math.floor(Number(draft(key, dflt)) || 0));
+        const code = (key) => {
+          const t = String(draft(key, "")).trim();
+          return /^[0-9]{4}$/.test(t) ? Number(t) : null;
+        };
+        const req = {
+          "home-rent": () => ({ t: "rent", home, weeks: Math.max(1, num("home-weeks", "1")) }),
+          "home-buy": () => ({ t: "buy", home }),
+          "home-door": () => ({ t: "door", home, open: !!d.open }),
+          "home-code": () => (code("home-code") == null ? null : { t: "enter_code", home, code: code("home-code") }),
+          "home-knock": () => ({ t: "knock", home }),
+          "home-set-code": () => (code("home-new-code") == null ? null : { t: "set_code", home, guest: false, code: code("home-new-code") }),
+          "home-set-guest": () => (code("home-guest-code") == null ? null : { t: "set_code", home, guest: true, code: code("home-guest-code") }),
+          "home-clear-guest": () => ({ t: "set_code", home, guest: true, code: null }),
+          "home-lock": () => ({ t: "lock", home, locked: !!d.locked }),
+          "home-clear": () => ({ t: "clear_crew", home }),
+          "home-leave": () => ({ t: "leave_crew", home }),
+          "home-feed": () => ({ t: "feed", home, credits: num("home-credits", "0") }),
+          "home-take": () => ({ t: "take_rent", home, credits: num("home-credits", "0") }),
+          "home-give-up": () => ({ t: "give_up", home }),
+          "home-sell-piece": () => ({ t: "sell_piece", home, piece: Number(d.piece) }),
+          "home-stash": () => {
+            const key = `home-stash:${d.piece}`;
+            const item = draft(key, (hangar?.view?.stock || []).find(([, q]) => q > 0)?.[0] || "");
+            const qty = num(`${key}:qty`, "1");
+            return item && qty ? { t: "stash", home, piece: Number(d.piece), item, qty } : null;
+          },
+          "home-unstash": () => ({ t: "unstash", home, piece: Number(d.piece), item: d.item, qty: Number(d.qty) }),
+        }[d.act]();
+        if (req) ask(req);
+        if (d.act === "home-code") drafts["home-code"] = "";
+        return;
+      }
       case "ex-filter":
         exFilter = d.f;
         break;

@@ -1,5 +1,5 @@
-//! Content tables: mech frames and weapons, the sector's landmarks, the colony's city, and
-//! what being fed does to a pilot.
+//! Content tables: mech frames and weapons, the sector's landmarks, the colony's city and what its
+//! homes cost, and what being fed does to a pilot.
 //!
 //! All numbers are SI units (kg, N, m, s, rad). They are tuned for play but kept physically
 //! consistent: acceleration comes from thrust and current mass, propellant burns at
@@ -9,6 +9,7 @@ pub mod aces;
 pub mod body;
 pub mod city;
 mod frames;
+pub mod homes;
 pub mod kits;
 pub mod landmarks;
 pub mod melee;

@@ -252,10 +252,52 @@ fn console(v: &HangarView) -> Value {
     })
 }
 
-/// The hangar as the page takes it; `colony`: the colony's open (the Welcome's COLONY flag), so the
-/// bay's terminals point at the desks in the city for what only they do.
-fn hangar_json(h: &HangarState, log: &TerminalLog, colony: bool) -> Value {
+/// The home whose door or panel is open, as the page shows it (`docs/OPEN_CITY.md`): its address,
+/// what it is and what it costs (the city's own numbers), the register's word on it if it's held,
+/// and whether the pilot's at its door or in it.
+fn home_json(h: &HangarState, id: u32, inside: bool) -> Value {
+    use bc_sim::colony::homes::{HomeId, Kind, View, home};
+    use bc_sim::content::homes::{FURNITURE, FURNITURE_BACK_PCT, MAX_PIECES, bought, price, rent, sell_back};
+    let Some(home) = home(HomeId(id)) else { return Value::Null };
+    let view = match home.view {
+        View::Yard => "a yard",
+        View::Street => "the street",
+        View::Plaza => "a plaza",
+        View::Park => "a park",
+        View::Canal => "the canal",
+        View::Avenue => "the avenue",
+        View::Window => "the window bank",
+    };
+    let what = match home.kind {
+        Kind::Houses => format!("A HOUSE OF {} STOREYS", home.storeys),
+        Kind::Flats if home.top => "A FLAT ON ITS BUILDING'S TOP STOREY".to_string(),
+        Kind::Flats => "A FLAT".to_string(),
+    };
     json!({
+        "id": id,
+        "address": bc_econ::homes::address(&home),
+        "about": format!("{what} · {:.0} M² · LOOKING ONTO {}", home.area, view.to_uppercase()),
+        "bought": bought(&home),
+        "rent": rent(&home),
+        "price": price(&home),
+        "sell_back": sell_back(&home),
+        "line": bc_client_core::homes::line(&h.homes, home.id),
+        "at": if inside { "inside" } else { "door" },
+        "furniture": FURNITURE
+            .iter()
+            .map(|f| json!({ "slug": f.slug, "name": f.name, "price": f.price, "holds": f.holds }))
+            .collect::<Vec<_>>(),
+        "max_pieces": MAX_PIECES,
+        "furniture_back_pct": FURNITURE_BACK_PCT,
+    })
+}
+
+/// The hangar as the page takes it; `colony`: the colony's open (the Welcome's COLONY flag), so the
+/// bay's terminals point at the desks in the city for what only they do; `home`: the home whose
+/// door or panel is open, and whether the pilot's in it.
+fn hangar_json(h: &HangarState, log: &TerminalLog, colony: bool, home: Option<(u32, bool)>) -> Value {
+    json!({
+        "home": home.map(|(id, inside)| home_json(h, id, inside)),
         "bay": h.bay,
         "colony": colony,
         "view": h.view,
@@ -268,13 +310,19 @@ fn hangar_json(h: &HangarState, log: &TerminalLog, colony: bool) -> Value {
     })
 }
 
+/// What the page was last sent: the hangar's version, the log's, and the home whose door or panel
+/// is open (and whether the pilot's in it).
+type Sent = (u64, u64, Option<(u32, bool)>);
+
 /// Last thing each frame (survival rules): the catalogue once the page can take it, then the
 /// hangar whenever the server's word on it, or the log, moved.
 pub fn publish_terminal(
     game: NonSend<GameClient>,
     log: Res<TerminalLog>,
+    ui: Res<crate::page::Ui>,
+    me: Res<crate::onfoot::OnFoot>,
     mut catalogued: Local<bool>,
-    mut sent: Local<Option<(u64, u64)>>,
+    mut sent: Local<Option<Sent>>,
 ) {
     let g = game.borrow();
     let h = &g.core.hangar;
@@ -289,11 +337,23 @@ pub fn publish_terminal(
         *catalogued = true;
         call_ui("catalogue", &JsValue::from_str(&catalogue().to_string()));
     }
-    let now = (h.version, log.seq);
+    // A home's door or panel: which, and whether the pilot's in the home.
+    let home = match ui.panel {
+        crate::page::Panel::Home(id) => {
+            let inside = me.city.as_ref().is_some_and(|c| {
+                let at = c.feet();
+                bc_sim::colony::homes::home_at(at.strip, at.s, at.x, at.h + 1.0)
+                    == Some(bc_sim::colony::homes::HomeId(id))
+            });
+            Some((id, inside))
+        }
+        _ => None,
+    };
+    let now = (h.version, log.seq, home);
     if *sent == Some(now) {
         return;
     }
     *sent = Some(now);
     let colony = g.core.welcome.is_some_and(|w| w.colony);
-    call_ui("hangar", &JsValue::from_str(&hangar_json(h, &log, colony).to_string()));
+    call_ui("hangar", &JsValue::from_str(&hangar_json(h, &log, colony, home).to_string()));
 }

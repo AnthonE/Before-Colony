@@ -25,5 +25,6 @@ if [ "${BC_E2E:-0}" = "1" ]; then
   step "e2e: the colony";     ./scripts/e2e.sh colony webgl2
   step "e2e: the chart";      ./scripts/e2e.sh chart webgl2
   step "e2e: suits inside";   ./scripts/e2e.sh inside webgl2
+  step "e2e: homes";          ./scripts/e2e.sh home webgl2
 fi
 echo; echo "all green"

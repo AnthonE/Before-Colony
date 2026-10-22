@@ -27,22 +27,23 @@ use bc_client_core::bay::{CATWALK_Y, HATCH, Layout, Lift, SPAWN, SUIT_AT, Spot};
 use bc_client_core::city::CityGround;
 use bc_client_core::city_nav;
 use bc_client_core::dock;
+use bc_client_core::homes as homes_on_foot;
 use bc_client_core::markab::{self, Chase, Markab};
 use bc_client_core::sights;
 use bc_client_core::tram::{self, CarInside, CityAndTrains, Rider};
 use bc_client_core::vehicle::{Drive, Kind, Vehicle};
 use bc_client_core::walker::{Guide, Stride, Walker};
 use bc_econ::item::thousands;
-use bc_econ::wire::{Outcome, Place, Request};
+use bc_econ::wire::{HomesView, Outcome, Place, Request};
 use bc_econ::{Bay, Suit};
 use bc_proto::presence::{PersonPose, RIDE_SEATED};
 use bc_sim::colony::city::{
-    AVENUE as AVENUE_WIDTH, KERB, Stage, TERMINAL_HEIGHT, arrival_seats, district_at, place_door, seat_near,
-    terminal_rect,
+    AVENUE as AVENUE_WIDTH, CityBox, KERB, Stage, TERMINAL_HEIGHT, arrival_seats, district_at, place_door,
+    seat_near, terminal_rect,
 };
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, local_frame, up_at};
 use bc_sim::colony::hall;
-use bc_sim::colony::homes;
+use bc_sim::colony::homes::{self, Home, HomeId};
 use bc_sim::colony::hub::BAY_RADIUS;
 use bc_sim::colony::pools::{pool, pool_near};
 use bc_sim::colony::transit::{
@@ -50,6 +51,7 @@ use bc_sim::colony::transit::{
     TrainState, station_x, train,
 };
 use bc_sim::content::city::{DISTRICT_NAMES, PLACES, PlaceDef, PlaceKind, STRIP_NAMES};
+use bc_sim::content::homes::Furniture;
 use bc_sim::content::{Kit, Kits};
 use bc_sim::world::COLONY_RADIUS;
 use bevy::input::mouse::AccumulatedMouseMotion;
@@ -185,7 +187,30 @@ pub struct CityFoot {
     pub gantry: bool,
     /// Riding a home building's lift (`bc_sim::colony::homes`): a cut, not a moving room.
     pub lift: Option<LiftRide>,
+    /// The homes' shut doors near the pilot (the register's word, `bc_client_core::homes`): their
+    /// leaves, solid in their doorways. And a door of theirs they've just worked, ahead of the
+    /// register's word: which, open or shut, and when (Gates' `predict_door`).
+    pub doors: Vec<CityBox>,
+    door_ahead: Option<(u32, bool, f64)>,
+    /// What the walker meets of the homes: the shut doors' leaves and the solid furniture.
+    blocks: Vec<CityBox>,
+    /// Build mode in a home of theirs (H2): the piece being put down, and where it would go.
+    pub build: Option<Build>,
 }
+
+/// A piece of furniture being put down: which, how many quarter turns, and where it would go (the
+/// home, its middle in dm from the home's floor's −s −x corner, the storey) and whether it fits
+/// there (why not, if it doesn't).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Build {
+    pub kind: Furniture,
+    pub turn: u8,
+    pub at: Option<(HomeId, (u16, u16), u8)>,
+    pub why: Option<&'static str>,
+}
+
+/// How far in front of the pilot's feet a piece being put down goes, m.
+const BUILD_AHEAD: f32 = 1.8;
 
 /// A ride in a home building's lift: to which storey, and since when (s, the page's clock).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -324,13 +349,28 @@ impl CityFoot {
         Self::at(hall::hall().strip, at, facing)
     }
 
+    /// Up from asleep in a bed at home (`Update::Place`'s wake): beside it, on its floor, facing
+    /// into the home.
+    fn at_bed(w: bc_econ::wire::Wake) -> Option<Self> {
+        let home = bc_sim::colony::homes::home(HomeId(w.home))?;
+        let (s, x) = (home.rect.s0 + f32::from(w.s) / 10.0, home.rect.x0 + f32::from(w.x) / 10.0);
+        let (ms, mx) = home.rect.middle();
+        let floor = bc_sim::content::homes::floor_of(&home, u32::from(w.storey));
+        Some(Self::at_height(home.strip, (s, x), floor, (ms - s, mx - x)))
+    }
+
     /// Standing at `(s, x)` on strip `strip`, facing `(ds, dx)`.
-    fn at(strip: u8, (s, x): (f32, f32), (ds, dx): (f32, f32)) -> Self {
-        let feet = CityPos::new(strip, x, s, 0.0).walker();
-        let away = CityPos::new(strip, x + dx, s + ds, 0.0).walker() - feet;
+    fn at(strip: u8, at: (f32, f32), facing: (f32, f32)) -> Self {
+        Self::at_height(strip, at, 0.0, facing)
+    }
+
+    /// Standing at `(s, x)` on strip `strip`, `h` up (on a home's floor), facing `(ds, dx)`.
+    fn at_height(strip: u8, (s, x): (f32, f32), h: f32, (ds, dx): (f32, f32)) -> Self {
+        let feet = CityPos::new(strip, x, s, h).walker();
+        let away = CityPos::new(strip, x + dx, s + ds, h).walker() - feet;
         Self {
             strip,
-            walker: Walker::at(feet, away.normalize()),
+            walker: Walker::at(feet, away.try_normalize().unwrap_or(Vec3::X)),
             guide: None,
             focus: None,
             district: None,
@@ -345,6 +385,10 @@ impl CityFoot {
             seat: None,
             gantry: false,
             lift: None,
+            doors: Vec::new(),
+            blocks: Vec::new(),
+            door_ahead: None,
+            build: None,
         }
     }
 
@@ -368,6 +412,92 @@ impl CityFoot {
         let to_pad = to_s.hypot(to_x).max(1e-3);
         let near = (at.s - s).hypot(at.x - x) < HATCH_REACH || to_pad < hall::GANTRY_RADIUS + 4.0;
         near && (hs * to_s + hx * to_x) / to_pad > 0.2
+    }
+
+    /// The homes' doors as the register last said, near the pilot: the shut ones' leaves, and the
+    /// pilot's own door worked a moment ago as they worked it, until the register agrees (or two
+    /// seconds pass: it didn't).
+    fn shut_doors(&mut self, view: &HomesView, now: f64) {
+        if let Some((id, open, at)) = self.door_ahead {
+            let agreed = homes_on_foot::line(view, HomeId(id)).is_some_and(|l| l.open == open);
+            if agreed || now - at > 2.0 {
+                self.door_ahead = None;
+            }
+        }
+        self.doors = homes_on_foot::shut_doors(view, self.strip);
+        if let Some((id, open, _)) = self.door_ahead
+            && let Some(h) = bc_sim::colony::homes::home(HomeId(id))
+        {
+            let leaf = homes_on_foot::leaf(&h);
+            self.doors.retain(|b| *b != leaf);
+            if !open {
+                self.doors.push(leaf);
+            }
+        }
+        self.blocks.clear();
+        self.blocks.extend_from_slice(&self.doors);
+        self.blocks.extend(homes_on_foot::solid_pieces(view, self.strip));
+    }
+
+    /// The home whose door the pilot stands at (and whether they're in it): on foot, nothing else
+    /// in hand.
+    fn home_door(&self) -> Option<(Home, bool)> {
+        if self.ride.is_some() || self.drive.is_some() || self.seat.is_some() || self.lift.is_some() {
+            return None;
+        }
+        homes_on_foot::door_here(self.feet())
+    }
+
+    /// Build mode: where the piece would go, a little ahead of the pilot on the floor they stand
+    /// on in a home of theirs, on the decimetre, and whether it fits there (`content::homes::fits`,
+    /// the server's own rule). Out of the home, build mode ends.
+    fn place_ahead(&mut self, view: &HomesView) {
+        let Some(mut b) = self.build.clone() else { return };
+        let Some(id) = self.home_in() else {
+            self.build = None;
+            return;
+        };
+        let (Some(home), Some(line)) = (bc_sim::colony::homes::home(id), homes_on_foot::line(view, id))
+        else {
+            self.build = None;
+            return;
+        };
+        let at = self.feet();
+        let h = self.walker.heading();
+        // Ahead, in city terms: x along is the walker's x, s across its −z.
+        let (s, x) = (at.s - h.z * BUILD_AHEAD, at.x + h.x * BUILD_AHEAD);
+        let dm = |v: f32| (v * 10.0).round().clamp(0.0, f32::from(u16::MAX)) as u16;
+        let (ds, dx) = (dm(s - home.rect.s0), dm(x - home.rect.x0));
+        let storey = if home.kind == bc_sim::colony::homes::Kind::Houses {
+            bc_sim::colony::homes::plan_at(at.strip, at.s, at.x).map_or(0, |p| p.storey_at(at.h + 0.5)) as u8
+        } else {
+            0
+        };
+        b.at = Some((id, (ds, dx), storey));
+        let at_m = (f32::from(ds) / 10.0, f32::from(dx) / 10.0);
+        let bx = bc_sim::content::homes::piece_box(&home, b.kind, at_m, b.turn, u32::from(storey));
+        let (ms, mx) = home.rect.middle();
+        b.why = match bc_sim::colony::homes::plan_at(home.strip, ms, mx) {
+            Some(plan) => {
+                let others = line.pieces.iter().map(|p| {
+                    let o =
+                        bc_sim::content::homes::piece_box(&home, p.kind, p.at(), p.turn, u32::from(p.storey));
+                    (o, p.kind.spec().solid)
+                });
+                bc_sim::content::homes::fits(&home, &plan, b.kind, &bx, u32::from(storey), others).err()
+            }
+            None => Some("there's no home there"),
+        };
+        self.build = Some(b);
+    }
+
+    /// The home the pilot stands in, if they do.
+    fn home_in(&self) -> Option<HomeId> {
+        if self.ride.is_some() || self.drive.is_some() {
+            return None;
+        }
+        let at = self.feet();
+        bc_sim::colony::homes::home_at(at.strip, at.s, at.x, at.h + 1.0)
     }
 
     /// The home building whose lift the pilot stands at, and the storey they're on.
@@ -456,6 +586,33 @@ impl CityFoot {
             self.walker.feet =
                 CityPos::new(self.strip, t.x + fx * 0.9, t.s + fs * 0.9, self.feet().h).walker();
         }
+    }
+
+    /// Walks the pilot to a home's door on the floor they're on (a dev hook's errand: `home:<id>`),
+    /// out of the home they're in through its own door first, and on in through it to its middle
+    /// (`home:<id>:in`): a neighbour's door along the corridor, not across the city.
+    fn walk_to_home(&mut self, spot: &str) -> bool {
+        let mut parts = spot.split(':').skip(1);
+        let Some(to) = parts.next().and_then(|id| id.parse().ok()).and_then(|id| homes::home(HomeId(id)))
+        else {
+            return false;
+        };
+        let inside = parts.next() == Some("in");
+        if to.strip != self.strip {
+            return false;
+        }
+        let floor = |h: &Home| if h.kind == homes::Kind::Houses { KERB } else { h.floor };
+        let at = |h: &Home, (s, x): (f32, f32)| CityPos::new(h.strip, x, s, floor(h)).walker();
+        let mut route = Vec::new();
+        if let Some(from) = self.home_in().and_then(homes::home) {
+            route.extend([at(&from, from.inside), at(&from, from.outside)]);
+        }
+        route.push(at(&to, to.outside));
+        if inside {
+            route.extend([at(&to, to.inside), at(&to, to.rect.middle())]);
+        }
+        self.guide = Some(Guide::new(route, None));
+        true
     }
 
     /// Walks the pilot to one of The Arrival's seats (a dev hook's errand), to sit on it.
@@ -555,7 +712,8 @@ impl CityFoot {
                 None
             }
             _ => {
-                let world = CityAndTrains { ground: self.ground(), trains: &self.trains };
+                let world =
+                    CityAndTrains { ground: self.ground(), trains: &self.trains, doors: &self.blocks };
                 self.walker.step(&world, stride, h);
                 if let Some(back) = tram::rescue(self.feet()) {
                     self.walker.feet = back.walker();
@@ -1130,9 +1288,16 @@ pub fn drive_onfoot(
                 me.city = None;
                 me.enter(now);
             }
-            // Down in the colony (the lift's already on its way, unless it was sent some other way).
+            // Down in the colony (the lift's already on its way, unless it was sent some other way);
+            // or back, waking at home beside the bed they were asleep in.
             (_, Some(Place::City)) => {
-                if me.city.is_none() {
+                if let Some(w) = g.core.hangar.wake.take()
+                    && let Some(c) = CityFoot::at_bed(w)
+                {
+                    me.city = Some(c);
+                    me.done(now);
+                    ui.news("AWAKE AT HOME", false);
+                } else if me.city.is_none() {
                     let strip = g.core.hangar.strip.unwrap_or(0);
                     me.city = Some(CityFoot::at_hub_gate(strip));
                 }
@@ -1226,6 +1391,7 @@ pub fn drive_onfoot(
                     "tram" => c.walk_to_tram(),
                     "pool" => c.walk_to_pool(),
                     "seat" => c.walk_to_seat(),
+                    _ if slug.starts_with("home:") => c.walk_to_home(slug),
                     _ => c.walk_to(slug),
                 };
             }
@@ -1330,6 +1496,7 @@ pub fn drive_onfoot(
         }
         c.focus = c.door_in_view();
         // At a home building's lift: E a floor up, Q one down, a digit that floor (0 the ground).
+        // (`rode`: E went to the lift or, below, to a home's door or panel.)
         let mut rode = false;
         if c.focus.is_none()
             && !got_out
@@ -1364,6 +1531,62 @@ pub fn drive_onfoot(
                 if !rode && to >= plan.storeys {
                     ui.toast(format!("THIS LIFT GOES NO HIGHER THAN FLOOR {}", plan.storeys - 1));
                 }
+            }
+        }
+        // The homes: the doors the register says are shut, and E at a home's door (works it, if its
+        // lock lets the pilot by; else its panel: the keypad and a knock, or what it'd cost) or in a
+        // home of theirs (its panel).
+        c.shut_doors(&g.core.hangar.homes, now);
+        // Build mode (from a home's panel): R turns the piece, E puts it down where it fits, Q stops.
+        for cmd in &cmds.0 {
+            if let UiCmd::Place(slug) = cmd
+                && let Some(kind) = Furniture::from_slug(slug)
+            {
+                c.build = Some(Build { kind, turn: 0, at: None, why: None });
+            }
+        }
+        c.place_ahead(&g.core.hangar.homes);
+        if let Some(b) = c.build.as_mut() {
+            if live && keys.just_pressed(KeyCode::KeyR) {
+                b.turn = (b.turn + 1) % 4;
+            }
+            if live && keys.just_pressed(KeyCode::KeyQ) {
+                c.build = None;
+            } else if used_key {
+                match (b.at, b.why) {
+                    (Some((id, (s, x), storey)), None) => {
+                        let furniture = b.kind.spec().slug.to_string();
+                        ask(
+                            &net,
+                            &g,
+                            &Request::Furnish { home: id.0, furniture, s, x, turn: b.turn, storey },
+                        );
+                        c.build = None;
+                    }
+                    (_, Some(why)) => ui.toast(format!("CAN'T: {}", why.to_uppercase())),
+                    _ => {}
+                }
+            }
+            rode = true;
+        }
+        if used_key && c.focus.is_none() && !got_out && !stood_up && !rode && !ui.panel_open() {
+            let view = &g.core.hangar.homes;
+            if let Some((h, _)) = c.home_door() {
+                match homes_on_foot::line(view, h.id) {
+                    Some(l) if l.crew || l.guest || !l.locked => {
+                        let open = !l.open;
+                        c.door_ahead = Some((h.id.0, open, now));
+                        c.shut_doors(view, now);
+                        ask(&net, &g, &Request::Door { home: h.id.0, open });
+                    }
+                    _ => ui.panel = Panel::Home(h.id.0),
+                }
+                rode = true;
+            } else if let Some(id) = c.home_in()
+                && homes_on_foot::line(view, id).is_some_and(|l| l.crew)
+            {
+                ui.panel = Panel::Home(id.0);
+                rode = true;
             }
         }
         // At the Blast Hall's gantry's hatch: E boards the trainer the test range picked.
@@ -1690,6 +1913,27 @@ pub fn drive_onfoot(
             Some(c) if c.seat.is_some() => "SEATED · E OR A STEP TO STAND".into(),
             Some(c) if c.focus.is_some() => format!("E  {}", city_verb(&PLACES[c.focus.unwrap_or(0)])),
             Some(c) if c.gantry => format!("E  BOARD A TRAINER · {}", g.core.hangar.trainer_name()),
+            Some(CityFoot { build: Some(b), .. }) => {
+                let what = b.kind.spec().name.to_uppercase();
+                match b.why {
+                    None => format!("PUTTING DOWN {what} · E  PUT IT HERE · R  TURN IT · Q  STOP"),
+                    Some(why) => {
+                        format!("PUTTING DOWN {what} · {} · R  TURN IT · Q  STOP", why.to_uppercase())
+                    }
+                }
+            }
+            Some(c) if let Some((h, _)) = c.home_door() => {
+                format!(
+                    "E  {}",
+                    homes_on_foot::door_verb(&h, homes_on_foot::line(&g.core.hangar.homes, h.id))
+                )
+            }
+            Some(c)
+                if let Some(id) = c.home_in()
+                    && homes_on_foot::line(&g.core.hangar.homes, id).is_some_and(|l| l.crew) =>
+            {
+                "E  ITS PANEL · CODES, CREW AND RENT".into()
+            }
             Some(c) if let Some((plan, k)) = c.lift_here() => {
                 let floor = if k == 0 { "THE GROUND FLOOR".to_string() } else { format!("FLOOR {k}") };
                 format!("THE LIFT · {floor} · E  UP · Q  DOWN · 0–{}  A FLOOR", plan.storeys - 1)
@@ -1848,8 +2092,29 @@ pub fn publish_onfoot(
                 let focus = if c.gantry { "gantry" } else { c.focus.map_or("", |i| PLACES[i].slug) };
                 dev.set("focus", focus);
             }
+            // The homes: the one they stand in (its id; 0, none), the one whose door they're at,
+            // the held homes in view, their pieces, who's asleep in their beds, and a piece being
+            // put down ("sofa:fits", "sofa:no").
+            let held = &h.homes.homes;
+            dev.set("home", c.home_in().map_or(0.0, |id| f64::from(id.0)));
+            dev.set("home_door", c.home_door().map_or(0.0, |(d, _)| f64::from(d.id.0)));
+            dev.set("homes_held", held.len() as u32);
+            dev.set("home_pieces", held.iter().map(|l| l.pieces.len() as u32).sum::<u32>());
+            let asleep = held.iter().flat_map(|l| l.asleep.iter().map(|(_, name)| name.as_str()));
+            dev.set("home_asleep", asleep.collect::<Vec<_>>().join(","));
+            let build = c
+                .build
+                .as_ref()
+                .map(|b| format!("{}:{}", b.kind.spec().slug, if b.why.is_none() { "fits" } else { "no" }));
+            dev.set("build", build.unwrap_or_default());
         }
         None => {
+            dev.set("home", 0.0);
+            dev.set("home_door", 0.0);
+            dev.set("homes_held", 0u32);
+            dev.set("home_pieces", 0u32);
+            dev.set("home_asleep", "");
+            dev.set("build", "");
             dev.set("strip", -1.0);
             dev.set("city_feet", "");
             dev.set("city_walking_to", false);

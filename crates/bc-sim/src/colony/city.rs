@@ -2103,7 +2103,8 @@ mod tests {
             let area = Rect::new(-max.z, -min.z, min.x, max.x);
             let mut want = min.y < -CANAL_DEPTH || (min.y < 0.0 && !in_channel(k, &area, STAGE));
             let wide = Rect::new(area.s0 - BLOCK, area.s1 + BLOCK, area.x0 - BLOCK, area.x1 + BLOCK);
-            each_solid(k, &wide, STAGE, |b| {
+            // People's grain: a home building's walls, floors and stairs, not its envelope.
+            each_solid_fine(k, &wide, min.y, max.y, STAGE, |b| {
                 want |= b.rect.overlaps(&area) && min.y < b.h1 && b.h0 < max.y;
                 false
             });

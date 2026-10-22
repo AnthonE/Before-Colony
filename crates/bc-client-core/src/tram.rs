@@ -51,10 +51,13 @@ impl Solid for CarInside {
 }
 
 /// The city with the trains that stand at its stations in it: their cars' walls, doors and all,
-/// so a pilot on a platform walks in through a door and not through a wall.
+/// so a pilot on a platform walks in through a door and not through a wall; and the homes' shut
+/// doors (`crate::homes::shut_doors`), each its leaf in its doorway, and their solid furniture
+/// (`crate::homes::solid_pieces`).
 pub struct CityAndTrains<'a> {
     pub ground: CityGround,
     pub trains: &'a [TrainState],
+    pub doors: &'a [CityBox],
 }
 
 impl Solid for CityAndTrains<'_> {
@@ -63,7 +66,11 @@ impl Solid for CityAndTrains<'_> {
             return true;
         }
         let (s0, s1, x0, x1) = (-max.z, -min.z, min.x, max.x);
-        if self.screens(&Rect::new(s0, s1, x0, x1), min.y, max.y) {
+        let area = Rect::new(s0, s1, x0, x1);
+        if self.doors.iter().any(|b| hit(b, &area, min.y, max.y)) {
+            return true;
+        }
+        if self.screens(&area, min.y, max.y) {
             return true;
         }
         self.trains.iter().filter(|t| t.at.is_some()).any(|t| {
@@ -228,7 +235,8 @@ mod tests {
         let start = CityPos::new(0, door, island, FLOOR);
         let across = CityPos::new(0, door, island + tr.dir, FLOOR).walker() - start.walker();
         let mut w = Walker::at(start.walker(), across.normalize());
-        let world = CityAndTrains { ground: CityGround { strip: 0, stage: Stage(0) }, trains: &[tr] };
+        let world =
+            CityAndTrains { ground: CityGround { strip: 0, stage: Stage(0) }, trains: &[tr], doors: &[] };
         let mut on = None;
         for _ in 0..120 {
             w.step(&world, &Stride { forward: 1.0, ..Stride::default() }, DT);
@@ -275,7 +283,8 @@ mod tests {
         let at = |x: f32, s: f32| CityPos::new(0, x, s, FLOOR).walker();
         // Coming along the island from its middle, then across to the door.
         let mut w = Walker::at(at(tr.x, mid), -Vec3::X);
-        let world = CityAndTrains { ground: CityGround { strip: 0, stage: Stage(0) }, trains: &[tr] };
+        let world =
+            CityAndTrains { ground: CityGround { strip: 0, stage: Stage(0) }, trains: &[tr], doors: &[] };
         for _ in 0..30 {
             w.step(&world, &Stride::default(), DT);
         }
@@ -296,7 +305,8 @@ mod tests {
     fn the_platforms_screens_keep_you_off_the_track_but_for_a_trains_open_doors() {
         let x = bc_sim::colony::transit::station_x(3);
         let mid = STRIP_WIDTH * 0.5;
-        let empty = CityAndTrains { ground: CityGround { strip: 0, stage: Stage(0) }, trains: &[] };
+        let empty =
+            CityAndTrains { ground: CityGround { strip: 0, stage: Stage(0) }, trains: &[], doors: &[] };
         // Walking straight off the island's +s edge, no train there: stopped at the glass.
         for along in [x - 20.0, x + car_offset(1) + DOOR_AT] {
             let start = CityPos::new(0, along, mid, FLOOR);
@@ -327,7 +337,8 @@ mod tests {
     fn the_walls_of_a_standing_train_keep_you_out_but_for_its_doors() {
         let tick = standing();
         let tr = train(0, 2, tick, 0.0);
-        let world = CityAndTrains { ground: CityGround { strip: 0, stage: Stage(0) }, trains: &[tr] };
+        let world =
+            CityAndTrains { ground: CityGround { strip: 0, stage: Stage(0) }, trains: &[tr], doors: &[] };
         let island = STRIP_WIDTH * 0.5 + tr.dir * (PLATFORM_HALF - 0.6);
         // Facing a wall between doors: stopped at it.
         let at = CityPos::new(0, tr.car_x(1), island, FLOOR);

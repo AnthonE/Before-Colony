@@ -33,7 +33,7 @@ the bay, space, home).
 | Mecha Royale, 27: wrecks that die their own way | built |
 | Mecha Royale, 28: crews | open |
 | Contracts on the Charter Board: supply contracts, patrols, the great works and the charter vote (P1, below) | begun |
-| The open city (`OPEN_CITY.md`): homes not instanced (H0 to H3), the street in the tick, cars you own, heat and the Watch, intrusion, raids, businesses | designed |
+| The open city (`OPEN_CITY.md`): homes not instanced (H0 to H3), the street in the tick, cars you own, heat and the Watch, intrusion, raids, businesses | homes built; the rest designed |
 | P1's rest, P2 below, the loose ends left | planned |
 
 ## The loop's loose ends

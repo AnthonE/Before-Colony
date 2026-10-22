@@ -70,6 +70,8 @@ pub enum UiCmd {
     FlyTo(Option<(String, f32, f32)>),
     /// Dev hook, on foot at a home building's lift: ride it to storey `k` (0 the ground).
     Lift(u32),
+    /// From a home's panel: put down a piece of furniture (its slug), in build mode.
+    Place(String),
     Use,
     Skip,
 }
@@ -130,6 +132,9 @@ pub enum Panel {
     Proving,
     /// The Most Wanted, pinned up behind the bar at The Arrival: the terminals' panel, on its tab.
     Arrival,
+    /// A home's door or its panel, in the city (`bc_sim::colony::homes::HomeId`): the terminals'
+    /// panel, on its tab.
+    Home(u32),
 }
 
 /// The page's state, as Rust decides it.
@@ -279,6 +284,7 @@ impl Ui {
             Panel::Board => "charter",
             Panel::Proving => "proving",
             Panel::Arrival => "wanted",
+            Panel::Home(_) => "home",
             _ => self.terminal().map_or("", Spot::slug),
         }
     }
@@ -322,6 +328,7 @@ fn parse(v: &JsValue) -> Option<UiCmd> {
         })),
         "use" => UiCmd::Use,
         "lift" => UiCmd::Lift(get(v, "storey").as_f64().unwrap_or(0.0) as u32),
+        "place" => UiCmd::Place(s("furniture")),
         "skip" => UiCmd::Skip,
         _ => return None,
     })
@@ -355,9 +362,11 @@ pub fn apply_ui_cmds(cmds: Res<UiCmds>, mut ui: ResMut<Ui>, mut map: ResMut<crat
                 } else {
                     match ui.panel {
                         Panel::Settings { from_pause } => ui.close_settings(from_pause),
-                        Panel::Terminal(_) | Panel::Board | Panel::Proving | Panel::Arrival => {
-                            ui.panel = Panel::None
-                        }
+                        Panel::Terminal(_)
+                        | Panel::Board
+                        | Panel::Proving
+                        | Panel::Arrival
+                        | Panel::Home(_) => ui.panel = Panel::None,
                         Panel::None if ui.playing() => ui.open_pause(),
                         // Esc that belonged to the browser dropping the lock (which opened the
                         // menu) must not close it again.
@@ -388,7 +397,12 @@ pub fn apply_ui_cmds(cmds: Res<UiCmds>, mut ui: ResMut<Ui>, mut map: ResMut<crat
     if !ui.playing()
         && matches!(
             ui.panel,
-            Panel::Pause | Panel::Terminal(_) | Panel::Board | Panel::Proving | Panel::Arrival
+            Panel::Pause
+                | Panel::Terminal(_)
+                | Panel::Board
+                | Panel::Proving
+                | Panel::Arrival
+                | Panel::Home(_)
         )
     {
         ui.panel = Panel::None;
@@ -451,7 +465,9 @@ impl View {
                 Panel::None => "none",
                 Panel::Pause => "pause",
                 Panel::Settings { .. } => "settings",
-                Panel::Terminal(_) | Panel::Board | Panel::Proving | Panel::Arrival => "terminal",
+                Panel::Terminal(_) | Panel::Board | Panel::Proving | Panel::Arrival | Panel::Home(_) => {
+                    "terminal"
+                }
             },
             help: ui.help,
             click_to_fly: ui.click_to_fly,

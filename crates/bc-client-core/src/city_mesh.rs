@@ -99,7 +99,13 @@ pub enum Surface {
     HomeCeiling = 29,
     Stair = 30,
     HomeDoor = 31,
+    /// A home's furniture (`bc_sim::content::homes::Furniture`): `g` its finish (wood, fabric,
+    /// metal, white, black, leaves, linen, a lit screen: [`FINISHES`]).
+    Furniture = 32,
 }
+
+/// What a piece of furniture's part is made of (`g` of a [`Surface::Furniture`] vertex).
+pub const FINISHES: [&str; 8] = ["wood", "fabric", "metal", "white", "black", "leaves", "linen", "screen"];
 
 /// What a post is or holds up (`a` of a [`Surface::Post`] vertex, in 255ths): a street lamp's post,
 /// an avenue lamp's, a path's or a plaza's, a street lamp's head, its arm.
@@ -932,6 +938,174 @@ pub fn home_inside(p: &Plan, from: u32, to: u32) -> (CityPos, CityMesh) {
     // The ceiling over the top storey: the roof's slab's underside.
     if to + 1 == p.storeys {
         m.level(&inner, p.height - homes::SLAB, true, colour(Surface::HomeCeiling, 0.0));
+    }
+    (anchor, m.mesh)
+}
+
+/// A piece of furniture `kind`'s parts in its own frame: `(a0, a1, b0, b1, h0, h1, finish)`, `a`
+/// across its width, `b` from its front to its back, `h` up from the floor (m).
+fn furniture_parts(kind: bc_sim::content::homes::Furniture) -> &'static [(f32, f32, f32, f32, f32, f32, u8)] {
+    use bc_sim::content::homes::Furniture::*;
+    const WOOD: u8 = 0;
+    const FABRIC: u8 = 1;
+    const METAL: u8 = 2;
+    const WHITE: u8 = 3;
+    const BLACK: u8 = 4;
+    const LEAVES: u8 = 5;
+    const LINEN: u8 = 6;
+    const SCREEN: u8 = 7;
+    match kind {
+        Bed => &[
+            (0.0, 1.6, 0.0, 2.1, 0.0, 0.35, WOOD),
+            (0.05, 1.55, 0.0, 2.0, 0.35, 0.55, LINEN),
+            (0.0, 1.6, 2.0, 2.1, 0.0, 1.0, WOOD),
+            (0.15, 1.45, 1.55, 1.95, 0.55, 0.62, WHITE),
+        ],
+        Sofa => &[
+            (0.0, 2.2, 0.0, 0.7, 0.0, 0.45, FABRIC),
+            (0.0, 2.2, 0.7, 0.95, 0.0, 0.85, FABRIC),
+            (0.0, 0.2, 0.0, 0.7, 0.45, 0.65, FABRIC),
+            (2.0, 2.2, 0.0, 0.7, 0.45, 0.65, FABRIC),
+        ],
+        Armchair => &[
+            (0.0, 0.9, 0.0, 0.7, 0.0, 0.45, FABRIC),
+            (0.0, 0.9, 0.7, 0.9, 0.0, 0.95, FABRIC),
+            (0.0, 0.15, 0.0, 0.7, 0.45, 0.65, FABRIC),
+            (0.75, 0.9, 0.0, 0.7, 0.45, 0.65, FABRIC),
+        ],
+        Table => &[
+            (0.0, 1.6, 0.0, 0.9, 0.7, 0.75, WOOD),
+            (0.05, 0.12, 0.05, 0.12, 0.0, 0.7, WOOD),
+            (1.48, 1.55, 0.05, 0.12, 0.0, 0.7, WOOD),
+            (0.05, 0.12, 0.78, 0.85, 0.0, 0.7, WOOD),
+            (1.48, 1.55, 0.78, 0.85, 0.0, 0.7, WOOD),
+        ],
+        Chair => &[
+            (0.0, 0.5, 0.0, 0.5, 0.4, 0.45, WOOD),
+            (0.0, 0.5, 0.44, 0.5, 0.45, 0.9, WOOD),
+            (0.03, 0.08, 0.03, 0.08, 0.0, 0.4, WOOD),
+            (0.42, 0.47, 0.03, 0.08, 0.0, 0.4, WOOD),
+            (0.03, 0.08, 0.42, 0.47, 0.0, 0.4, WOOD),
+            (0.42, 0.47, 0.42, 0.47, 0.0, 0.4, WOOD),
+        ],
+        Kitchen => &[(0.0, 2.4, 0.05, 0.65, 0.0, 0.9, WHITE), (0.0, 2.4, 0.0, 0.65, 0.9, 0.95, BLACK)],
+        Wardrobe => &[(0.0, 1.2, 0.0, 0.6, 0.0, 2.0, WOOD)],
+        Chest => &[(0.0, 1.0, 0.0, 0.6, 0.0, 0.5, WOOD), (0.0, 1.0, 0.0, 0.6, 0.5, 0.6, METAL)],
+        Safe => &[(0.0, 0.7, 0.0, 0.7, 0.0, 1.0, METAL)],
+        Lamp => &[
+            (0.1, 0.3, 0.1, 0.3, 0.0, 0.05, METAL),
+            (0.18, 0.22, 0.18, 0.22, 0.05, 1.3, METAL),
+            (0.0, 0.4, 0.0, 0.4, 1.3, 1.6, LINEN),
+        ],
+        Screen => &[(0.6, 1.0, 0.1, 0.2, 0.0, 0.4, BLACK), (0.0, 1.6, 0.12, 0.18, 0.4, 1.0, SCREEN)],
+        Plant => &[(0.1, 0.4, 0.1, 0.4, 0.0, 0.4, BLACK), (0.0, 0.5, 0.0, 0.5, 0.4, 1.2, LEAVES)],
+        Rug => &[(0.0, 2.4, 0.0, 1.7, 0.0, 0.01, FABRIC)],
+        SuitModel => &[
+            (0.0, 0.8, 0.0, 0.8, 0.0, 0.6, BLACK),
+            (0.25, 0.55, 0.3, 0.5, 0.6, 1.2, WHITE),
+            (0.32, 0.48, 0.33, 0.47, 1.2, 1.4, METAL),
+        ],
+    }
+}
+
+/// A home's furniture as drawn: the home, its pieces, and the beds someone's asleep in (H3).
+pub type Furnished = (bc_sim::colony::homes::Home, Vec<bc_econ::homes::Piece>, Vec<u16>);
+
+/// The furniture of the homes `placed` (each home, its pieces, `bc_econ::homes::Piece`, and the
+/// beds with someone asleep in them), on strip `strip`: every piece its parts, turned with it, and a
+/// sleeper under the covers in each bed that has one. Its anchor (the first home's middle), and the
+/// mesh.
+pub fn home_furniture(strip: u8, placed: &[Furnished]) -> (CityPos, CityMesh) {
+    let (s, x) = placed.first().map_or((0.0, 0.0), |(h, _, _)| h.rect.middle());
+    let anchor = CityPos::new(strip, x, s, 0.0);
+    let mut m = Builder::new(strip, anchor);
+    for (home, pieces, asleep) in placed {
+        for p in pieces {
+            furniture_piece(&mut m, home, p.kind, p.at(), p.turn, u32::from(p.storey), 0.0);
+            if asleep.contains(&p.id) {
+                parts(&mut m, home, p.kind, p.at(), p.turn, u32::from(p.storey), SLEEPER, 0.0);
+            }
+        }
+    }
+    (anchor, m.mesh)
+}
+
+/// Someone asleep in a bed (`Furniture::Bed`'s frame): under the covers, their head on the pillow.
+const SLEEPER: &[(f32, f32, f32, f32, f32, f32, u8)] =
+    &[(0.35, 1.25, 0.25, 1.55, 0.55, 0.78, 6), (0.62, 0.98, 1.6, 1.9, 0.62, 0.86, 4)];
+
+/// A piece being put down in build mode (`home_furniture`'s, where it would go): green where it
+/// fits, red where it doesn't (its `tall`, 1 or 2). Its anchor, and the mesh.
+pub fn furniture_ghost(
+    home: &bc_sim::colony::homes::Home,
+    kind: bc_sim::content::homes::Furniture,
+    at: (f32, f32),
+    turn: u8,
+    storey: u32,
+    fits: bool,
+) -> (CityPos, CityMesh) {
+    let (s, x) = home.rect.middle();
+    let anchor = CityPos::new(home.strip, x, s, 0.0);
+    let mut m = Builder::new(home.strip, anchor);
+    furniture_piece(&mut m, home, kind, at, turn, storey, if fits { 1.0 } else { 2.0 });
+    (anchor, m.mesh)
+}
+
+/// A piece of furniture's parts (`furniture_parts`), in its box in `home` (`content::homes::piece_box`).
+fn furniture_piece(
+    m: &mut Builder,
+    home: &bc_sim::colony::homes::Home,
+    kind: bc_sim::content::homes::Furniture,
+    at: (f32, f32),
+    turn: u8,
+    storey: u32,
+    tall: f32,
+) {
+    parts(m, home, kind, at, turn, storey, furniture_parts(kind), tall);
+}
+
+/// Parts `list` (each its extent across and along the piece's box and up from its floor, and its
+/// finish) in the box of a piece `kind` in `home` (`content::homes::piece_box`), turned with it.
+#[allow(clippy::too_many_arguments)]
+fn parts(
+    m: &mut Builder,
+    home: &bc_sim::colony::homes::Home,
+    kind: bc_sim::content::homes::Furniture,
+    at: (f32, f32),
+    turn: u8,
+    storey: u32,
+    list: &[(f32, f32, f32, f32, f32, f32, u8)],
+    tall: f32,
+) {
+    let b = bc_sim::content::homes::piece_box(home, kind, at, turn, storey);
+    let r = b.rect;
+    for &(a0, a1, b0, b1, h0, h1, finish) in list {
+        // Its frame onto the city's, by its quarter turns.
+        let rect = match turn % 4 {
+            0 => Rect::new(r.s0 + a0, r.s0 + a1, r.x0 + b0, r.x0 + b1),
+            1 => Rect::new(r.s1 - b1, r.s1 - b0, r.x0 + a0, r.x0 + a1),
+            2 => Rect::new(r.s1 - a1, r.s1 - a0, r.x1 - b1, r.x1 - b0),
+            _ => Rect::new(r.s0 + b0, r.s0 + b1, r.x1 - a1, r.x1 - a0),
+        };
+        let part = CityBox { rect, h0: b.h0 + h0, h1: b.h0 + h1 };
+        let g = f32::from(finish) / 255.0;
+        m.city_box(&part, Surface::Furniture, Surface::Furniture, g, tall, true);
+        if h0 > 0.05 {
+            m.level(&rect, part.h0, true, [Surface::Furniture as u8 as f32 / 255.0, g, 1.0, tall]);
+        }
+    }
+}
+
+/// The leaves of the homes' shut doors `leaves` on strip `strip` (`bc_client_core::homes::leaf`):
+/// each a slab in its doorway, steel faced. Its anchor (the first's foot), and the mesh.
+pub fn door_leaves(strip: u8, leaves: &[CityBox]) -> (CityPos, CityMesh) {
+    let (s, x) = leaves.first().map_or((0.0, 0.0), |b| b.rect.middle());
+    let anchor = CityPos::new(strip, x, s, 0.0);
+    let mut m = Builder::new(strip, anchor);
+    let door = [Surface::HomeDoor as u8 as f32 / 255.0, 1.0 / 255.0, 1.0, 0.0];
+    for b in leaves {
+        m.city_box(b, Surface::HomeDoor, Surface::HomeDoor, 1.0 / 255.0, 0.0, true);
+        m.level(&b.rect, b.h0 + 0.002, true, door);
     }
     (anchor, m.mesh)
 }

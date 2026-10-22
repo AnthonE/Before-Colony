@@ -108,7 +108,8 @@ The pilot's body is fed or it isn't, on the wall clock, whatever the colony's sk
 - **A meal lasts about 5 hours awake** (`food::Dish`: a ration bar 1½ h, a noodle bowl 5 h, a fish
   supper 6 h). Three meals cover a waking day, as the owner asked.
 - **Awake is logged in.** Food burns second for second while the pilot is in the world.
-- **Asleep is logged out:** the pilot is in their bunk. Food burns at a quarter of the rate
+- **Asleep is logged out:** the pilot is in their bunk (with a home, in its bed, seen there and
+  waking there: `OPEN_CITY.md`, H3). Food burns at a quarter of the rate
   (`SLEEP_DIV`), and sleep never takes a pilot past hungry. An Arrival wakes wanting breakfast,
   never starving, so the natural rhythm is eat, then launch.
 - **A stomach holds 8 hours** (`FULL_S`). A dish more than half of which wouldn't fit is refused

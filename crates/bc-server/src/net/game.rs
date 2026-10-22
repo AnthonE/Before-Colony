@@ -133,6 +133,8 @@ pub struct GameShared {
     pub charter: Arc<Charter>,
     /// The Proving Ground's board: the day's best times round its course and through its drill.
     pub proving: Arc<Proving>,
+    /// The colony's register of homes: who holds which flat or house (`docs/OPEN_CITY.md`).
+    pub homes: Arc<crate::homes::HomeRegister>,
     pub econ: bc_econ::Rules,
     /// Pilots' hangars, by client slot, for `/status`.
     pub(super) hangars: Arc<RwLock<HashMap<u16, HangarEntry>>>,
@@ -284,6 +286,7 @@ pub struct StatusView {
     market: Arc<Market>,
     charter: Arc<Charter>,
     proving: Arc<Proving>,
+    homes: Arc<crate::homes::HomeRegister>,
     hangars: Arc<RwLock<HashMap<u16, HangarEntry>>>,
     inside: Option<Arc<SectorShared>>,
     radio: Arc<crate::radio::Radio>,
@@ -399,6 +402,8 @@ impl GameRuntime {
         let market = Arc::new(Market::open(cfg.data_dir.as_ref().map(|d| d.join("exchange.json"))));
         let charter = Arc::new(Charter::open(cfg.data_dir.as_ref().map(|d| d.join("charter.json"))));
         let proving = Arc::new(Proving::open(cfg.data_dir.as_ref().map(|d| d.join("proving.json"))));
+        let homes =
+            Arc::new(crate::homes::HomeRegister::open(cfg.data_dir.as_ref().map(|d| d.join("homes.json"))));
         let game = GameShared {
             sector: shared,
             egress: queue,
@@ -416,22 +421,25 @@ impl GameRuntime {
             survival,
             colony: survival && cfg.colony,
             inside,
-            plaza: Arc::new(crate::plaza::Plaza::default()),
+            plaza: Arc::new(crate::plaza::Plaza::with_homes(homes.clone())),
             anime: cfg.flight == Flight::Anime,
             market,
             charter,
             proving,
+            homes,
             econ: bc_econ::Rules { craft_speed: cfg.craft_speed, ..bc_econ::Rules::default() },
             hangars: Arc::new(RwLock::new(HashMap::new())),
             radio: Arc::new(crate::radio::Radio::default()),
             online: Arc::new(crate::online::Online::default()),
             restore_over: Arc::new(AtomicBool::new(false)),
         };
-        // The exchange's, the Charter Board's and the Proving Ground's clocks, and their files.
+        // The exchange's, the Charter Board's, the Proving Ground's and the register of homes'
+        // clocks, and their files.
         if survival {
             let market = game.market.clone();
             let charter = game.charter.clone();
             let proving = game.proving.clone();
+            let homes = game.homes.clone();
             let sector = game.sector.clone();
             tokio::spawn(async move {
                 let mut every = tokio::time::interval(Duration::from_secs(1));
@@ -441,16 +449,19 @@ impl GameRuntime {
                     market.tick(1.0);
                     charter.tick(crate::pilots::unix_now(), &market);
                     proving.tick(crate::pilots::unix_now());
+                    homes.tick(crate::pilots::unix_now());
                     n += 1;
                     if n.is_multiple_of(60) {
                         market.save().await;
                         charter.save().await;
                         proving.save().await;
+                        homes.save().await;
                     }
                 }
                 market.save().await;
                 charter.save().await;
                 proving.save().await;
+                homes.save().await;
             });
         }
         // What became of sleepers: news for their pilots; and the Almagest's ace: a few times a second.
@@ -491,6 +502,7 @@ impl GameRuntime {
             market: self.shared.market.clone(),
             charter: self.shared.charter.clone(),
             proving: self.shared.proving.clone(),
+            homes: self.shared.homes.clone(),
             hangars: self.shared.hangars.clone(),
             inside: self.shared.inside.as_ref().map(|i| i.sector.clone()),
             radio: self.shared.radio.clone(),
@@ -509,11 +521,13 @@ impl GameRuntime {
         let market = self.shared.market.clone();
         let charter = self.shared.charter.clone();
         let proving = self.shared.proving.clone();
+        let homes = self.shared.homes.clone();
         if let Ok(rt) = tokio::runtime::Handle::try_current() {
             rt.spawn(async move {
                 market.save().await;
                 charter.save().await;
                 proving.save().await;
+                homes.save().await;
             });
         }
         self.egress_stop.store(true, Ordering::Release);
@@ -698,6 +712,15 @@ impl StatusView {
             "exchange": exchange,
             "charter": charter,
             "proving": proving,
+            // The register of homes: how many are held, how many are asleep in them, and its ledger
+            // (never whose).
+            "homes": self.homes.with(|h| serde_json::json!({
+                "held": h.all().count(),
+                "asleep": h.all().map(|(_, held)| held.asleep.len()).sum::<usize>(),
+                "rent_taken": h.rent_taken,
+                "sold_for": h.sold_for,
+                "paid_back": h.paid_back,
+            })),
             // The colony's inside (unless `--no-colony`): its sector's suits, and its tick.
             "inside": self.inside.as_ref().map(|i| serde_json::json!({
                 "suits": l(&i.metrics.suits_alive),
