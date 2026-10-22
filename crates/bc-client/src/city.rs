@@ -102,9 +102,18 @@ impl Plugin for CityPlugin {
         .init_resource::<RenderOrigin>()
         .init_resource::<Streamer>()
         .init_resource::<crate::homes::HomeInsides>()
+        .init_resource::<crate::caplift::LiftCars>()
         .add_systems(
             Update,
-            (switch_view, stream_city, crate::homes::stream_homes, place_all, light_city, publish_stats)
+            (
+                switch_view,
+                stream_city,
+                crate::homes::stream_homes,
+                crate::caplift::draw_lift_cars,
+                place_all,
+                light_city,
+                publish_stats,
+            )
                 .chain()
                 .in_set(crate::view::Vis::Fx),
         );

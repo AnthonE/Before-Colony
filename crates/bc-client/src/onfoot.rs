@@ -12,10 +12,11 @@
 //!   tunnel, the doors shut behind it and the pilot climbs out onto the catwalk. After a suit is
 //!   lost the pilot comes back in through the airlock, to an empty gantry.
 //! - Into the colony, when it's open: the airlock leads to the cap lifts, one to each land strip
-//!   (`bay::Lift`: E rides the Charter strip's, Q chooses the next), which ride down the end cap's
-//!   face (the whole city in view) to that strip's Hub Gate. There the pilot walks the city's
-//!   streets (`bc_client_core::city`), uses its places at their doors, and rides back up from Hub
-//!   Gate.
+//!   (`bay::Lift`: E rides the Charter strip's, Q chooses the next). Its glass car rides down the end
+//!   cap's face in real time (`bc_client_core::caplift`, about 40 s, the whole city out of its
+//!   windows and the mouse free to look round), to its landing on the street beside that strip's
+//!   Hub Gate, and the pilot walks out of its doors. There they walk the city's streets
+//!   (`bc_client_core::city`), use its places at their doors, and ride back up: E in the car.
 //! - In the Blast Hall (the Proving Ground, `docs/TRAINING.md`): E at its desk opens its board,
 //!   and E at its gantry's hatch boards one of the Charter Board's trainers there. Docked back on
 //!   the gantry, the pilot climbs out at the hatch.
@@ -24,6 +25,7 @@
 //! for. Space skips a sequence.
 
 use bc_client_core::bay::{CATWALK_Y, HATCH, Layout, Lift, SPAWN, SUIT_AT, Spot};
+use bc_client_core::caplift;
 use bc_client_core::city::CityGround;
 use bc_client_core::city_nav;
 use bc_client_core::dock;
@@ -93,9 +95,10 @@ const ARRIVE_SECS: f32 = 7.0;
 const ENTER_SECS: f32 = 1.6;
 /// The screen fades back in over this long, s.
 const REVEAL_SECS: f32 = 0.5;
-/// The cap lift's ride down from the bay ring to Hub Gate, s (skippable), and how long the pilot
-/// waits at Hub Gate for the lift back up before giving up, s.
-const LIFT_SECS: f32 = 12.0;
+/// The cap lift (`caplift`, ridden in real time): how long before the top of a ride up the car is in
+/// the bay ring's dark and the bay is asked for, and how long the pilot waits there for its answer
+/// before the car takes them back down, s.
+const INTO_THE_RING: f32 = 0.6;
 const LIFT_UP_SECS: f32 = 6.0;
 /// How near a place's door the pilot must stand to use it, m.
 const DOOR_REACH: f32 = 3.5;
@@ -128,9 +131,9 @@ pub enum Seq {
     Arriving,
     /// Coming in through the airlock.
     Entering,
-    /// Riding the cap lift down the end cap into the colony.
+    /// Riding the cap lift's car down the end cap into the colony, looking out.
     LiftDown,
-    /// Riding the cap lift back up to the bay.
+    /// Riding it back up to the bay (and, at the top, waiting on the bay).
     LiftUp,
 }
 
@@ -154,7 +157,7 @@ impl Seq {
     }
 
     fn skippable(self) -> bool {
-        matches!(self, Seq::Venting | Seq::Catapult | Seq::Arriving | Seq::LiftDown)
+        matches!(self, Seq::Venting | Seq::Catapult | Seq::Arriving | Seq::LiftDown | Seq::LiftUp)
     }
 }
 
@@ -341,6 +344,11 @@ impl CityFoot {
     fn at_hub_gate(strip: u8) -> Self {
         let ((s, x), (ds, dx)) = place_door(hub_gate(strip));
         Self::at(strip, (s, x), (-ds, -dx))
+    }
+
+    /// In the cap lift's car (`caplift`), facing out of its doors, down the colony.
+    fn in_lift(strip: u8) -> Self {
+        Self::at(strip, caplift::stand(), (0.0, 1.0))
     }
 
     /// Out of a trainer docked on the Blast Hall's gantry: at its hatch, facing the pad.
@@ -910,7 +918,7 @@ impl CityFoot {
     }
 
     /// The place the pilot can use where they stand, facing it: at its counter, in the room behind
-    /// its door (`bc_sim::colony::city::Room`), or at Hub Gate's door.
+    /// its door (`bc_sim::colony::city::Room`), or Hub Gate's, in the cap lift's car.
     fn door_in_view(&self) -> Option<usize> {
         if self.ride.is_some() || self.drive.is_some() || self.seat.is_some() {
             return None;
@@ -919,7 +927,11 @@ impl CityFoot {
         let h = self.walker.heading();
         // Facing, in city terms: x along is the walker's x, s across its −z.
         let (hs, hx) = (-h.z, h.x);
-        PLACES.iter().enumerate().filter(|(_, p)| p.strip == self.strip).find_map(|(i, _)| {
+        PLACES.iter().enumerate().filter(|(_, p)| p.strip == self.strip).find_map(|(i, p)| {
+            // In the cap lift's car, whichever way they face.
+            if p.kind == PlaceKind::HubGate {
+                return caplift::holds(at.s, at.x).then_some(i);
+            }
             let ((s, x), (ds, dx)) = city_nav::use_spot(i);
             let near = (at.s - s).hypot(at.x - x) < DOOR_REACH;
             (near && hs * ds + hx * dx > 0.3).then_some(i)
@@ -953,19 +965,6 @@ impl CityFoot {
     }
 }
 
-/// The cap lift's car `t` seconds into its ride down strip `strip`'s end cap: the eye in the
-/// colony's frame, and the way it looks (down the colony, tipping up as it nears the floor).
-fn lift_view(strip: u8, t: f32) -> (DVec3, Vec3) {
-    let u = smoothstep(0.0, LIFT_SECS, t);
-    let (top, bottom) = (COLONY_RADIUS - BAY_RADIUS, TERMINAL_HEIGHT + 6.0);
-    let h = top + (bottom - top) * u;
-    let x = terminal_rect().x0 + 7.0;
-    let s = STRIP_WIDTH * 0.5;
-    let pitch = (-0.5 + 0.38 * u).clamp(-0.6, 0.0);
-    let look = Vec3::new(pitch.cos(), pitch.sin(), 0.0);
-    (colony_point(CityPos::new(strip, x, s, h)), local_frame(strip, s) * look)
-}
-
 /// The pilot on foot.
 #[derive(Resource)]
 pub struct OnFoot {
@@ -994,6 +993,12 @@ pub struct OnFoot {
     lift: Lift,
     /// On foot in the colony (or riding down to it).
     pub city: Option<CityFoot>,
+    /// The cap lift's car this frame, while the pilot rides it: its strip, and how high its floor
+    /// is over the street, m (the eye rides in it, `onfoot_camera`; the car is drawn there,
+    /// `caplift`).
+    pub car: Option<(u8, f32)>,
+    /// Up at the top of a ride up, the bay has been asked for.
+    asked: bool,
 }
 
 impl Default for OnFoot {
@@ -1014,6 +1019,8 @@ impl Default for OnFoot {
             airlock_until: 0.0,
             lift: Lift::default(),
             city: None,
+            car: None,
+            asked: false,
         }
     }
 }
@@ -1034,6 +1041,13 @@ impl OnFoot {
     fn done(&mut self, now: f64) {
         self.seq = Seq::Walking;
         self.reveal = Some(now);
+        self.launching = None;
+    }
+
+    /// Out of the sequence where it left the pilot, already in view: the cap lift's car at its
+    /// landing, its doors open on the street.
+    fn arrive(&mut self) {
+        self.seq = Seq::Walking;
         self.launching = None;
     }
 
@@ -1116,9 +1130,13 @@ impl OnFoot {
             Seq::Catapult => smoothstep(CATAPULT_SECS - 0.35, CATAPULT_SECS, t),
             Seq::Arriving => smoothstep(ARRIVE_SECS - 0.7, ARRIVE_SECS, t),
             Seq::Entering => 1.0 - smoothstep(0.0, ENTER_SECS * 0.6, t),
-            // Out of the airlock into the car (a cut), and out of the car at Hub Gate.
-            Seq::LiftDown => (1.0 - smoothstep(0.3, 1.1, t)).max(smoothstep(LIFT_SECS - 0.5, LIFT_SECS, t)),
-            Seq::LiftUp => smoothstep(0.0, 0.6, t),
+            // Out of the airlock into the car as it leaves the bay ring (a cut); at the landing its
+            // doors open on the street, in view. Up, into the ring's dark at the top.
+            Seq::LiftDown => 1.0 - smoothstep(0.2, 1.2, t),
+            Seq::LiftUp => {
+                let top = caplift::ride_secs() - INTO_THE_RING;
+                smoothstep(top - 1.0, top, t)
+            }
         };
         let reveal = self.reveal.map_or(0.0, |at| 1.0 - smoothstep(0.0, REVEAL_SECS, (now - at) as f32));
         dark.max(reveal)
@@ -1322,7 +1340,11 @@ pub fn drive_onfoot(
             me.seq = Seq::Walking;
             ui.toast("FLIGHT CONTROL DIDN'T ANSWER");
         }
-        s if s.skippable() && skip => {
+        // Up: straight to the top of the shaft, where the bay is asked for.
+        Seq::LiftUp if skip && !me.asked => {
+            me.since = now - f64::from(caplift::ride_secs() - INTO_THE_RING);
+        }
+        s if s.skippable() && s != Seq::LiftUp && skip => {
             if s == Seq::Arriving {
                 me.climb_out();
             }
@@ -1332,15 +1354,20 @@ pub fn drive_onfoot(
         Seq::Catapult if t > CATAPULT_SECS => me.done(now),
         Seq::Arriving if t > ARRIVE_SECS => me.done(now),
         Seq::Entering if t > ENTER_SECS => me.seq = Seq::Walking,
-        Seq::LiftDown if t > LIFT_SECS => me.done(now),
         Seq::LiftDown if refused => {
             me.city = None;
             me.done(now);
         }
-        Seq::LiftUp if t > LIFT_UP_SECS || refused => {
-            if !refused {
-                ui.toast("THE LIFT DIDN'T COME");
-            }
+        Seq::LiftDown if t > caplift::ride_secs() => me.arrive(),
+        // Up in the bay ring's dark at the top: the bay is asked for, and it takes the pilot in
+        // (`Place::Hangar` above); or, unanswered, the car takes them back down to the street.
+        Seq::LiftUp if refused => me.done(now),
+        Seq::LiftUp if !me.asked && t > caplift::ride_secs() - INTO_THE_RING => {
+            me.asked = true;
+            ask(&net, &g, &Request::LeaveCity);
+        }
+        Seq::LiftUp if t > caplift::ride_secs() + LIFT_UP_SECS => {
+            ui.toast("THE BAY DIDN'T ANSWER: THE LIFT CAME BACK DOWN");
             me.done(now);
         }
         _ => {}
@@ -1358,7 +1385,15 @@ pub fn drive_onfoot(
     // On foot: legs, eyes and hands.
     let on_foot = me.seq == Seq::Walking && place == Some(Place::Hangar) && me.city.is_none();
     let in_city = me.seq == Seq::Walking && place == Some(Place::City) && me.city.is_some();
-    let live = (on_foot || in_city) && ui.playing() && !ui.panel_open();
+    // Riding the cap lift's car: free to look round out of its windows, not to walk.
+    let in_car = matches!(me.seq, Seq::LiftDown | Seq::LiftUp) && me.city.is_some();
+    let t = me.t(now);
+    me.car = match (me.seq, &me.city) {
+        (Seq::LiftDown, Some(c)) => Some((c.strip, caplift::floor(t, true))),
+        (Seq::LiftUp, Some(c)) => Some((c.strip, caplift::floor(t, false))),
+        _ => None,
+    };
+    let live = (on_foot || in_city || in_car) && ui.playing() && !ui.panel_open();
     let colony = g.core.welcome.as_ref().is_some_and(|w| w.colony);
     // The pilot's own legs and eyes this frame: keys and the mouse.
     let mut own = Stride::default();
@@ -1673,9 +1708,13 @@ pub fn drive_onfoot(
             && let Some(i) = c.focus
         {
             match PLACES[i].kind {
+                // In the cap lift's car: up to the bay, from the middle of it (the bay's asked for
+                // at the top of the ride).
                 PlaceKind::HubGate => {
+                    let (s, x) = caplift::stand();
+                    c.walker.feet = CityPos::new(c.strip, x, s, 0.0).walker();
                     me.start(Seq::LiftUp, now);
-                    ask(&net, &g, &Request::LeaveCity);
+                    me.asked = false;
                 }
                 PlaceKind::Exchange => ui.panel = Panel::Terminal(Spot::Exchange),
                 PlaceKind::Charter => ui.panel = Panel::Board,
@@ -1689,6 +1728,9 @@ pub fn drive_onfoot(
         c.focus = None;
         c.guide = None;
         c.gantry = false;
+        if in_car && look != Vec2::ZERO {
+            c.walker.turn(-look.x, -look.y);
+        }
     }
     if board_trainer {
         me.start(Seq::Boarding, now);
@@ -1778,7 +1820,7 @@ pub fn drive_onfoot(
                 (Spot::Airlock, _) if colony => {
                     let strip = me.lift.strip();
                     me.airlock_until = now + 1.5;
-                    me.city = Some(CityFoot::at_hub_gate(strip));
+                    me.city = Some(CityFoot::in_lift(strip));
                     me.start(Seq::LiftDown, now);
                     ask(&net, &g, &Request::EnterCity { strip });
                 }
@@ -2002,12 +2044,11 @@ pub fn onfoot_camera(
     let now = now_s();
     // In the colony: drawn in its frame, relative to the render origin, upright to its floor.
     if let Some(c) = &me.city {
-        let (eye, look, up) = if me.seq == Seq::LiftDown {
-            let (eye, look) = lift_view(c.strip, me.t(now));
-            (eye, look, up_at(eye.as_vec3()))
-        } else {
-            c.view()
-        };
+        let (mut eye, look, up) = c.view();
+        // Riding the cap lift's car up or down its shaft.
+        if let Some((_, floor)) = me.car {
+            eye += up.as_dvec3() * f64::from(floor);
+        }
         let mut moved = *origin;
         moved.follow(eye);
         if moved != *origin {
@@ -2036,6 +2077,8 @@ pub fn publish_onfoot(
     // The objectives done (a bit per `bc_client_core::objectives::Objective`).
     dev.set("objectives_done", settings.0.objectives_done);
     dev.set("seq", me.seq.name());
+    // The cap lift's car ridden: how high its floor is (m; -1, not riding).
+    dev.set("lift_h", me.car.map_or(-1.0, |(_, h)| f64::from(h)));
     dev.set("focus", me.focus.map_or("", Spot::slug));
     dev.set("terminal", ui.terminal_tab());
     dev.set("walking_to", me.guide.is_some());

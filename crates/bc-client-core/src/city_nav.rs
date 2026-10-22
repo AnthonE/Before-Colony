@@ -5,8 +5,10 @@
 
 use bc_sim::colony::city::{BANK_ROW, KERB, ROWS, block_index, grid_x, place_door, room, room_at, row_at};
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH};
-use bc_sim::content::city::PLACES;
+use bc_sim::content::city::{PLACES, PlaceKind};
 use glam::Vec3;
+
+use crate::caplift;
 
 /// The middle line of the street along the axis nearest `s` across: the avenue's (on its pavement,
 /// out of the tram's way), or a lane between rows of blocks.
@@ -41,21 +43,32 @@ pub fn cross_line(x: f32) -> f32 {
 }
 
 /// Where key place `i` is used, and which way the pilot faces to: at the counter of the room behind
-/// its door (`bc_sim::colony::city::Room`), or, Hub Gate, at its door. `(s, x)`, a unit `(ds, dx)`.
+/// its door (`bc_sim::colony::city::Room`), or, Hub Gate, in the cap lift's car beside it, facing
+/// out of its doors (`caplift`). `(s, x)`, a unit `(ds, dx)`.
 pub fn use_spot(i: usize) -> ((f32, f32), (f32, f32)) {
     match room(i) {
         Some(r) => r.counter_spot(),
+        None if PLACES[i].kind == PlaceKind::HubGate => (caplift::stand(), (0.0, 1.0)),
         None => place_door(&PLACES[i]),
     }
 }
 
 /// A route on strip `strip` from `at` to where key place `i` is used ([`use_spot`]): along the
 /// streets to its door, and in through it to its counter (from inside the room already, straight
-/// to it).
+/// to it); Hub Gate's, round the terminal's front into the cap lift's car.
 pub fn route_to_place(strip: u8, at: CityPos, i: usize) -> Vec<Vec3> {
     let (spot, _) = use_spot(i);
-    let Some(r) = room(i) else { return route_from(strip, at, spot) };
     let walk = |(s, x): (f32, f32)| CityPos::new(strip, x, s, KERB).walker();
+    if PLACES[i].kind == PlaceKind::HubGate {
+        if caplift::holds(at.s, at.x) {
+            return vec![walk(spot)];
+        }
+        let [front, inside] = caplift::approach();
+        let mut out = route_from(strip, at, place_door(&PLACES[i]).0);
+        out.extend([walk(front), walk(inside)]);
+        return out;
+    }
+    let Some(r) = room(i) else { return route_from(strip, at, spot) };
     let mut out = Vec::new();
     if !r.holds(at.s, at.x, at.h) {
         let (outside, inside) = r.threshold();

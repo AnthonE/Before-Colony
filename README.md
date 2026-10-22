@@ -87,11 +87,13 @@ the docking hub on the colony's axis: come to rest inside the dock's ring of lig
 mouth and press Enter, or arm the grip (L), land on the hub's end face near its middle, walk onto
 the deck hatch and press Enter. Enter docks only where the HUD's marker says ENTER; anywhere else
 it opens the radio. On foot, E at the airlock rides the cap lift down to the Charter strip's Hub
-Gate (Q there first chooses the Canal or the Gardens strip's lift instead): M opens the city's map
+Gate (Q there first chooses the Canal or the Gardens strip's lift instead): its glass car rides
+down the end cap in real time, about 40 s with the city out of its windows (the mouse looks round,
+Space skips), and you walk out of its doors onto the street beside the terminal. M opens the city's map
 (M or Esc closes it), the trams stop at the platforms, E at a motor pool takes a car (R a Markab:
 F its fan, Space its lift jets, Shift its tail's, Q/E a roll in the air; `?showcase=markab` is its
-stunt in the Blast Hall), and E at
-Hub Gate's lift brings you back up. E at a desk's counter opens its terminal, with the one tab
+stunt in the Blast Hall), and E in
+Hub Gate's lift car brings you back up. E at a desk's counter opens its terminal, with the one tab
 that desk keeps: the Exchange floor's exchange, the Charter Board's (what it holds for you is paid
 out as you walk into its hall), The Arrival's Most Wanted, the Proving Ground's board and test
 range; the bay's terminals point at them. The colony is open by default; `BC_COLONY=0 scripts/dev.sh`

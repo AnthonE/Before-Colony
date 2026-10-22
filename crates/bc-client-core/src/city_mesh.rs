@@ -2101,11 +2101,12 @@ pub fn station(strip: u8, i: usize) -> (CityPos, CityMesh) {
     (anchor, m.mesh)
 }
 
-/// Hub Gate on strip `strip`: the terminal at the foot of the docking hub's end cap, and the cap
-/// lift's glass shaft up the cap from it to the bay ring, 948 m up.
+/// Hub Gate on strip `strip`: the terminal at the foot of the docking hub's end cap, and beside it
+/// the cap lift's glass shaft (`caplift`) up the cap to the bay ring, 948 m up: open at its foot,
+/// where the car stands at its landing on the street, on its corner posts and between its rails.
 pub fn hub_gate(strip: u8) -> (CityPos, CityMesh) {
+    use crate::caplift;
     use bc_sim::colony::city::{TERMINAL_HEIGHT, terminal_rect};
-    use bc_sim::colony::hub::BAY_RADIUS;
     let t = terminal_rect();
     let (ms, _) = t.middle();
     let anchor = CityPos::new(strip, t.x0, ms, 0.0);
@@ -2119,28 +2120,71 @@ pub fn hub_gate(strip: u8) -> (CityPos, CityMesh) {
         TERMINAL_HEIGHT / MAX_HEIGHT,
         false,
     );
-    let shaft = Rect::new(ms - 7.0, ms + 7.0, t.x0, t.x0 + 14.0);
-    let top = COLONY_RADIUS - BAY_RADIUS;
+    let shaft = caplift::shaft_rect();
+    let top = caplift::DROP;
+    let foot = caplift::HEIGHT + 1.0;
+    m.city_box(&CityBox { rect: shaft, h0: foot, h1: top }, Surface::Glass, Surface::Steel, 0.7, 1.0, true);
+    // The landing's lintel over the car's doors, the shaft's corner posts and the car's rails.
+    let c = 0.35;
+    let lintel = Rect::new(shaft.s0, shaft.s1, shaft.x1 - c, shaft.x1 + 0.05);
     m.city_box(
-        &CityBox { rect: shaft, h0: TERMINAL_HEIGHT, h1: top },
-        Surface::Glass,
+        &CityBox { rect: lintel, h0: foot - 0.6, h1: foot },
         Surface::Steel,
-        0.7,
-        1.0,
+        Surface::Steel,
+        0.5,
+        0.0,
         true,
     );
-    for side in [-1.0f32, 1.0] {
-        let rail = Rect::new(ms + side * 9.0 - 1.0, ms + side * 9.0 + 1.0, t.x0, t.x0 + 3.0);
-        m.city_box(
-            &CityBox { rect: rail, h0: TERMINAL_HEIGHT, h1: top },
-            Surface::Steel,
-            Surface::Steel,
-            0.5,
-            0.0,
-            true,
-        );
+    for (s, x) in [(shaft.s0, shaft.x1 - c), (shaft.s1 - c, shaft.x1 - c)] {
+        let post = Rect::new(s, s + c, x, x + c + 0.05);
+        m.city_box(&CityBox { rect: post, h0: 0.0, h1: top }, Surface::Steel, Surface::Steel, 0.5, 0.0, true);
+    }
+    for rail in caplift::rails() {
+        m.city_box(&CityBox { rect: rail, h0: 0.0, h1: top }, Surface::Steel, Surface::Steel, 0.5, 0.0, true);
     }
     (anchor, m.mesh)
+}
+
+/// The cap lift's car at its landing on strip `strip` (`caplift::car_rect`), its floor on the
+/// street: its frame (floor, ceiling, corner posts, mullions, the handrail along its windows and
+/// the panel to the cap behind it), its side windows' glass, and its doors' (the front, facing down
+/// the colony), drawn apart so the doors can stand open. Ridden, it moves up its shaft whole.
+pub fn lift_car(strip: u8) -> (CityPos, CityMesh, CityMesh, CityMesh) {
+    use crate::caplift::{HEIGHT, car_rect};
+    let r = car_rect();
+    let (ms, mx) = r.middle();
+    let anchor = CityPos::new(strip, mx, ms, 0.0);
+    let mut m = Builder::new(strip, anchor);
+    let steel = |m: &mut Builder, rect: Rect, h0: f32, h1: f32| {
+        m.city_box(&CityBox { rect, h0, h1 }, Surface::Steel, Surface::Steel, 0.45, 0.0, true);
+    };
+    // The floor and its underside (seen from the street as it comes down), the ceiling and roof.
+    m.city_box(&CityBox { rect: r, h0: -0.3, h1: 0.03 }, Surface::Steel, Surface::Floor, 0.45, 0.0, true);
+    m.level(&r, -0.3, true, [Surface::Steel as u8 as f32 / 255.0, 0.45, 1.0, 0.0]);
+    steel(&mut m, r, HEIGHT, HEIGHT + 0.3);
+    m.level(&r, HEIGHT, true, [Surface::Ceiling as u8 as f32 / 255.0, 0.45, 1.0, 0.0]);
+    // The panel behind, to the cap.
+    steel(&mut m, Rect::new(r.s0, r.s1, r.x0, r.x0 + 0.12), 0.0, HEIGHT);
+    // Corner posts, the doors' frame and a mullion in each side.
+    let p = 0.14;
+    for (s, x) in [(r.s0, r.x1 - p), (r.s1 - p, r.x1 - p), (r.s0, mx - p * 0.5), (r.s1 - p, mx - p * 0.5)] {
+        steel(&mut m, Rect::new(s, s + p, x, x + p), 0.0, HEIGHT);
+    }
+    // Along the side windows: a kick plate, and a handrail at the waist.
+    for s in [r.s0, r.s1 - 0.08] {
+        steel(&mut m, Rect::new(s, s + 0.08, r.x0, r.x1), 0.0, 0.3);
+        let rail = if s < ms { s + 0.12 } else { s - 0.1 };
+        steel(&mut m, Rect::new(rail, rail + 0.06, r.x0 + 0.3, r.x1 - 0.3), 0.98, 1.04);
+    }
+    let frame = m.mesh;
+    let glass = [Surface::Glass as u8 as f32 / 255.0, 0.7, 1.0, 1.0];
+    let mut sides = Builder::new(strip, anchor);
+    for (s, ns) in [(r.s0 + 0.04, -1.0), (r.s1 - 0.04, 1.0)] {
+        sides.wall_s(s, r.x0 + 0.12, r.x1, 0.03, HEIGHT, ns, r.x0, |_| glass);
+    }
+    let mut doors = Builder::new(strip, anchor);
+    doors.wall_x(r.x1 - 0.04, r.s0, r.s1, 0.03, HEIGHT, 1.0, r.s0, |_| glass);
+    (anchor, frame, sides.mesh, doors.mesh)
 }
 
 #[cfg(test)]

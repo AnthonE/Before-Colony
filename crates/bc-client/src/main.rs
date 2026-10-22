@@ -19,6 +19,8 @@ mod board;
 #[cfg(target_arch = "wasm32")]
 mod camera;
 #[cfg(target_arch = "wasm32")]
+mod caplift;
+#[cfg(target_arch = "wasm32")]
 mod chart;
 #[cfg(target_arch = "wasm32")]
 mod chat;
