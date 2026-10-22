@@ -467,6 +467,19 @@
     }
   }
 
+  // A line that starts with its key ("E  FABRICATOR", "SPACE  SKIP"): the key drawn as a cap, then
+  // what it does. Anything else as it is. Its text is the same either way.
+  function keyed(el, line) {
+    const m = /^([A-Z0-9]{1,5})  (.+)$/.exec(line);
+    if (!m) {
+      el.textContent = line;
+      return;
+    }
+    const key = document.createElement("kbd");
+    key.textContent = m[1];
+    el.replaceChildren(key, "  " + m[2]);
+  }
+
   // --- The game's view. ---
   function update(v) {
     view = v;
@@ -570,7 +583,7 @@
     show(bayLine, playing && !!v.bayLine && v.panel === "none");
     show($("dot"), playing && v.onFoot && !v.driving && !v.map && !v.help && v.panel === "none");
     const use = $("use");
-    use.textContent = v.prompt || "";
+    keyed(use, v.prompt || "");
     show(use, playing && !!v.prompt && v.panel === "none" && !v.help);
     // A terminal: opened on the tab of the one used; the book stops coming when it closes. Down in
     // the city it's a desk's, and shows only what that desk does.
