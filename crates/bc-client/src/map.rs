@@ -24,7 +24,7 @@ use crate::hud::{SHADOW, UiFont};
 use crate::net::{GameClient, now_s};
 use crate::page::Ui;
 use crate::settings::SettingsRes;
-use crate::ui_panel::PanelMaterial;
+use crate::ui_panel::{GLASS_DEEP, PanelMaterial, TICK};
 
 /// Opens and closes the chart.
 pub const MAP_KEY: KeyCode = KeyCode::KeyM;
@@ -38,8 +38,6 @@ const fn colour(hex: palette::Hex) -> Color {
 pub const OBJECTIVE: Color = Color::srgb(1.0, 0.89, 0.36);
 const WHITE: Color = colour(palette::WHITE);
 const LABEL: Color = colour(palette::LABEL);
-const PLATE: Color = Color::srgba(0.03, 0.07, 0.12, 0.78);
-const PLATE_EDGE: Color = Color::srgba(0.62, 0.78, 0.9, 0.45);
 
 /// Whether the chart is open.
 #[derive(Resource, Default)]
@@ -82,7 +80,7 @@ pub fn setup_objectives(
     mut panels: ResMut<Assets<PanelMaterial>>,
 ) {
     let f = &*font;
-    let plate = panels.add(PanelMaterial::plate(PLATE, PLATE_EDGE, 10.0, 1.0));
+    let plate = panels.add(PanelMaterial::glass(GLASS_DEEP, TICK));
     // The objective, top left under the status lines.
     commands
         .spawn((

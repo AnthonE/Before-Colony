@@ -63,7 +63,9 @@ canvas#bc {
 /* The look: a suit's glass, not a web page's boxes. Panels are dark glass with fine scanlines and
    four corner ticks where a box would have its border; a label is small and widely spaced, a value
    is plain; colour means something (cyan: what is, amber: what to do, red: what's wrong), and one
-   thing on a screen is amber. Check every screen in the gallery (`?gallery`) after a change.
+   thing on a screen is amber; the choice the pointer is on is inverted, light with dark text. The
+   rules, and the games they're learned from, are docs/UI.md. Check every screen in the gallery
+   (`?gallery`) after a change.
 
    The palette, shared with the cockpit HUD: bc_client_core::palette holds the same values (a test
    checks they agree). Tints are mixed from these. The rest are the page's own: sizes, type, glass. */
@@ -103,8 +105,6 @@ canvas#bc {
   /* The corner ticks: their colour and length. */
   --tick: color-mix(in srgb, var(--label) 70%, transparent);
   --tick-len: 12px;
-  /* The mech monitor's panel: two corners cut (the cockpit's plates; the page keeps it for the map). */
-  --chamfer: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
 }
 .hidden { display: none !important; }
 
@@ -172,7 +172,8 @@ h2 {
   align-items: center;
   gap: var(--s3);
 }
-/* A heading runs out into a hairline. */
+/* A heading starts with a short bar and runs out into a hairline (docs/UI.md). */
+h2::before { content: ""; width: 3px; height: 12px; background: var(--cyan); flex: none; margin-right: calc(-1 * var(--s1)); }
 h2::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--edge), transparent); }
 h3 { margin: 0 0 var(--s2); font-size: var(--t-label); letter-spacing: var(--track); color: var(--label); font-weight: 600; }
 .tagline { font-size: var(--t-small); letter-spacing: 0.2em; color: var(--label); margin: var(--s3) 0 var(--s6); opacity: 0.8; }
@@ -259,6 +260,7 @@ kbd {
 #wallet-pick::backdrop { background: rgba(0, 0, 0, 0.6); }
 #wallet-list { display: flex; flex-direction: column; gap: var(--s1); margin-bottom: var(--s3); }
 #wallet-list button { display: flex; align-items: center; gap: var(--s3); width: 100%; text-align: left; }
+#wallet-list button:hover, #wallet-list button:focus-visible { color: var(--ink); background: var(--white); }
 #wallet-list img, #wallet-list .ph { width: 24px; height: 24px; flex: none; }
 #wallet-list .ph { background: var(--edge); }
 #wallet-list small { display: block; font-size: var(--t-small); letter-spacing: 0.04em; opacity: 0.6; }
@@ -275,7 +277,8 @@ kbd {
   flex-direction: column;
   gap: 3px;
   border: none;
-  background: var(--scan), color-mix(in srgb, var(--label) 6%, transparent);
+  /* Glass under the tint: a bright hull passing behind mustn't show through. */
+  background: var(--scan), color-mix(in srgb, var(--label) 6%, var(--glass));
   box-shadow: inset 2px 0 0 var(--hair);
 }
 .frame::after {
@@ -287,13 +290,13 @@ kbd {
   font-size: var(--t-label);
   opacity: 0.35;
 }
-.frame:hover { background: var(--scan), color-mix(in srgb, var(--label) 12%, transparent); box-shadow: inset 2px 0 0 var(--edge); }
+.frame:hover { background: var(--scan), color-mix(in srgb, var(--label) 12%, var(--glass)); box-shadow: inset 2px 0 0 var(--edge); }
 .frame .name { font-size: var(--t-value); letter-spacing: 0.1em; }
 .frame .designation { font-size: var(--t-label); opacity: 0.55; letter-spacing: 0.18em; }
 .frame .kit, .frame .special { font-family: var(--mono); font-weight: normal; font-size: var(--t-small); opacity: 0.75; line-height: 1.4; letter-spacing: 0; }
 .frame .special { color: var(--amber); opacity: 0.9; }
 .frame.chosen {
-  background: var(--ticks), var(--scan), color-mix(in srgb, var(--cyan) 13%, transparent);
+  background: var(--ticks), var(--scan), color-mix(in srgb, var(--cyan) 13%, var(--glass));
   --tick: var(--cyan);
   box-shadow: inset 2px 0 0 var(--cyan), 0 0 22px -8px var(--cyan);
 }
@@ -334,11 +337,14 @@ kbd {
   opacity: 0.45;
   margin-right: var(--s4);
 }
+/* The choice the pointer is on: inverted, light with dark text. */
 .card.menu button:hover, .card.menu button:focus-visible {
-  background: linear-gradient(90deg, color-mix(in srgb, var(--label) 22%, transparent), transparent);
-  box-shadow: inset 2px 0 0 var(--label);
+  color: var(--ink);
+  background: linear-gradient(90deg, var(--white) 55%, color-mix(in srgb, var(--white) 0%, transparent));
+  box-shadow: none;
   padding-left: calc(var(--s4) + 4px);
 }
+.card.menu button:hover::before, .card.menu button:focus-visible::before { opacity: 0.6; }
 .card.menu button.primary {
   color: var(--ink);
   clip-path: none;
@@ -347,6 +353,8 @@ kbd {
 }
 .card.menu button.primary::before { opacity: 0.6; }
 .card.menu button.danger { color: var(--red); background: linear-gradient(90deg, color-mix(in srgb, var(--red) 8%, transparent), transparent); box-shadow: inset 2px 0 0 color-mix(in srgb, var(--red) 40%, transparent); }
+.card.menu button.danger:hover, .card.menu button.danger:focus-visible { color: var(--ink); background: linear-gradient(90deg, var(--red) 55%, color-mix(in srgb, var(--red) 0%, transparent)); box-shadow: none; }
+.card.menu button.primary:hover, .card.menu button.primary:focus-visible { color: var(--ink); background: linear-gradient(90deg, color-mix(in srgb, var(--amber) 70%, white) 60%, color-mix(in srgb, var(--amber) 0%, transparent)); }
 .card.menu .note { margin-top: var(--s3); padding-left: var(--s4); }
 
 /* --- The controls sheet. --- */
@@ -608,7 +616,7 @@ kbd {
 .debrief-lines div { padding: 3px 0; opacity: 0.9; }
 .debrief .earned { color: var(--green); }
 .debrief .spent { color: var(--amber); }
-.debrief-net { border-top: 1px solid var(--hair); margin-top: var(--s2); padding-top: var(--s2); font-size: var(--t-value); }
+.debrief-net { border-top: 1px solid var(--hair); margin-top: var(--s2); padding-top: var(--s2); font-size: 18px; }
 .debrief-net span:first-child { font-family: var(--label-font); font-weight: 600; letter-spacing: 0.3em; font-size: var(--t-label); color: var(--label); align-self: center; }
 .debrief-net.bad { color: var(--red); }
 
@@ -635,7 +643,7 @@ kbd {
 }
 .tabs button:hover { color: var(--white); background: none; box-shadow: inset 0 -2px 0 var(--edge); }
 .tabs button.active { color: var(--cyan); background: none; box-shadow: inset 0 -2px 0 var(--cyan); }
-.term-credits { margin-left: auto; color: var(--amber); letter-spacing: 0.2em; font-size: var(--t-body); }
+.term-credits { margin-left: auto; color: var(--amber); letter-spacing: 0.12em; font-size: var(--t-value); }
 .term-head .close { border: none; background: none; font-size: var(--t-small); color: var(--label); }
 .term-head .close:hover { color: var(--white); background: none; }
 .term-body { flex: 1 1 auto; overflow-y: auto; min-height: 0; padding-right: var(--s1); scrollbar-width: thin; scrollbar-color: var(--edge) transparent; }
@@ -684,7 +692,7 @@ kbd {
 .term-body .filters { display: flex; gap: var(--s1); flex-wrap: wrap; margin-bottom: var(--s3); }
 .term-body .filters button { border: none; background: none; color: color-mix(in srgb, var(--white) 55%, transparent); box-shadow: inset 0 -1px 0 transparent; padding: 5px var(--s2); }
 .term-body .filters button:hover { color: var(--white); background: none; box-shadow: inset 0 -1px 0 var(--edge); }
-.term-body .filters button.active { color: var(--cyan); background: none; box-shadow: inset 0 -1px 0 var(--cyan); }
+.term-body .filters button.active { color: var(--ink); background: var(--cyan); box-shadow: none; }
 .term-body .split { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--s5); }
 .term-body .split.even { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 @media (max-width: 760px) { .term-body .split { grid-template-columns: 1fr; } }

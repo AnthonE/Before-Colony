@@ -43,6 +43,24 @@ pub const LABEL: Hex = Hex("#9fc6e6");
 /// The dark the panels are made of (and the text on a bright button).
 pub const INK: Hex = Hex("#040a12");
 
+/// The glass the panels are made of, on the page and on the HUD alike (`docs/UI.md`): the ink at
+/// this opacity...
+pub const GLASS_ALPHA: f32 = 0.74;
+/// ...or, for what's read at length (the terminals, the chart, the map), this.
+pub const GLASS_DEEP_ALPHA: f32 = 0.92;
+/// ...with four corner ticks in the label colour at this opacity, this long (px), where a box would
+/// have its border.
+pub const TICK_ALPHA: f32 = 0.70;
+pub const TICK_LEN: f32 = 12.0;
+
+/// How `web/style.css` declares the glass and its ticks (a test holds them to the numbers above).
+pub const CSS_GLASS: [&str; 4] = [
+    "--glass: color-mix(in srgb, var(--ink) 74%, transparent);",
+    "--glass-deep: color-mix(in srgb, var(--ink) 92%, transparent);",
+    "--tick: color-mix(in srgb, var(--label) 70%, transparent);",
+    "--tick-len: 12px;",
+];
+
 /// The CSS variable each colour is declared as, in `web/style.css`.
 pub const CSS: [(&str, Hex); 8] = [
     ("--cyan", CYAN),
@@ -70,6 +88,19 @@ mod tests {
         for (var, hex) in CSS {
             let decl = format!("{var}: {};", hex.0);
             assert!(css.contains(&decl), "web/style.css should declare `{decl}` (bc_client_core::palette)");
+        }
+    }
+
+    #[test]
+    fn the_page_declares_the_same_glass() {
+        let css = include_str!("../../../web/style.css");
+        let pct = |a: f32| (a * 100.0).round() as u32;
+        assert!(CSS_GLASS[0].contains(&format!(" {}%", pct(GLASS_ALPHA))));
+        assert!(CSS_GLASS[1].contains(&format!(" {}%", pct(GLASS_DEEP_ALPHA))));
+        assert!(CSS_GLASS[2].contains(&format!(" {}%", pct(TICK_ALPHA))));
+        assert!(CSS_GLASS[3].contains(&format!(" {}px", TICK_LEN as u32)));
+        for decl in CSS_GLASS {
+            assert!(css.contains(decl), "web/style.css should declare `{decl}` (bc_client_core::palette)");
         }
     }
 }

@@ -2,7 +2,7 @@
 //! silhouette, weapons and the frame's special, missile lock, amber target corners and markers on
 //! missiles tracking you, chevrons at the view's edge on what's off it, kill feed, the Orrery
 //! System's recommendations, and cautions in a hazard-striped banner. In the page's fonts
-//! (`UiFont`) and palette (`bc_client_core::palette`), on chamfered plates (`ui_panel`).
+//! (`UiFont`) and palette (`bc_client_core::palette`), on the page's glass (`ui_panel`, `docs/UI.md`).
 //!
 //! The instruments (the panels) are one tree: chasing, it's drawn in the screen's corners; from the
 //! cockpit, into the texture the cockpit's monitors show (`place_instruments`, `cockpit`).
@@ -52,7 +52,7 @@ use crate::camera::{Chase, MainCamera};
 use crate::input::{Aim, Controls};
 use crate::net::{GameClient, now_s};
 use crate::suits_vis::pilot_tag;
-use crate::ui_panel::PanelMaterial;
+use crate::ui_panel::{GLASS, PanelMaterial, TICK};
 use crate::view::DrawnBodies;
 
 const fn colour(hex: palette::Hex) -> Color {
@@ -411,15 +411,12 @@ pub struct HudLooks {
 impl HudLooks {
     pub fn new(panels: &mut Assets<PanelMaterial>) -> Self {
         Self {
-            plate: panels.add(PanelMaterial::plate(PLATE, PLATE_EDGE, 12.0, 1.0)),
-            orrery: panels.add(PanelMaterial::plate(
-                Color::srgba(0.09, 0.02, 0.08, 0.72),
-                Color::srgba(1.0, 0.45, 0.8, 0.5),
-                12.0,
-                1.0,
-            )),
+            plate: panels.add(PanelMaterial::glass(GLASS, TICK)),
+            // The Orrery's: the glass tinted its pink, and its ticks pink.
+            orrery: panels
+                .add(PanelMaterial::glass(Color::srgba(0.09, 0.02, 0.08, 0.72), ORRERY_PINK.with_alpha(0.7))),
             caution: panels.add(PanelMaterial::stripes(AMBER, INK, 6.0)),
-            notice: panels.add(PanelMaterial::plate(PLATE, PLATE_EDGE, 8.0, 1.0)),
+            notice: panels.add(PanelMaterial::glass(GLASS, TICK)),
         }
     }
 }
@@ -429,9 +426,7 @@ impl HudLooks {
 pub struct Silhouette;
 const SILHOUETTE: Vec2 = Vec2::new(46.0, 80.0);
 
-/// B's colours for the panels: the plate, its edge, its labels.
-const PLATE: Color = Color::srgba(0.03, 0.07, 0.12, 0.78);
-const PLATE_EDGE: Color = Color::srgba(0.62, 0.78, 0.9, 0.45);
+/// The panels' labels.
 const LABEL: Color = colour(palette::LABEL);
 const INK: Color = colour(palette::INK);
 
@@ -485,13 +480,27 @@ fn panel(
         MaterialNode(look),
     ))
     .with_children(|p| {
-        p.spawn((
-            Text::new(title),
-            f.heading(10.0),
-            BaseSize(10.0),
-            TextColor(if show == Show::Top { ORRERY_PINK } else { LABEL }),
-            LetterSpacing::Px(2.0),
-        ));
+        // Its title, after a short bar (`docs/UI.md`).
+        let accent = if show == Show::Top { ORRERY_PINK } else { CYAN };
+        p.spawn(Node {
+            flex_direction: FlexDirection::Row,
+            align_items: AlignItems::Center,
+            column_gap: Val::Px(6.0),
+            ..default()
+        })
+        .with_children(|head| {
+            head.spawn((
+                Node { width: Val::Px(2.0), height: Val::Px(9.0), ..default() },
+                BackgroundColor(accent),
+            ));
+            head.spawn((
+                Text::new(title),
+                f.heading(10.0),
+                BaseSize(10.0),
+                TextColor(if show == Show::Top { ORRERY_PINK } else { LABEL }),
+                LetterSpacing::Px(2.0),
+            ));
+        });
         p.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(12.0), ..default() })
             .with_children(|row| {
                 extra(row);

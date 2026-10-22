@@ -69,7 +69,7 @@ use crate::map::{MapOpen, ObjectiveState};
 use crate::net::{GameClient, now_s};
 use crate::page::Ui;
 use crate::settings::SettingsRes;
-use crate::ui_panel::PanelMaterial;
+use crate::ui_panel::{GLASS_DEEP, PanelMaterial, TICK};
 use crate::view::VisTime;
 
 /// Engages the auto-nav (on the chart, or in flight on the course set).
@@ -112,8 +112,6 @@ const GREY: Color = Color::srgb(0.58, 0.63, 0.7);
 const OBJECTIVE: Color = crate::map::OBJECTIVE;
 /// The course's teal.
 pub const COURSE: Color = Color::srgb(0.36, 1.0, 0.86);
-const PLATE: Color = Color::srgba(0.02, 0.05, 0.1, 0.82);
-const PLATE_EDGE: Color = Color::srgba(0.45, 0.85, 1.0, 0.5);
 const CHIP: Color = Color::srgba(0.25, 0.6, 0.85, 0.16);
 const CHIP_ON: Color = Color::srgba(0.36, 1.0, 0.86, 0.32);
 const CHIP_HOVER: Color = Color::srgba(0.45, 0.85, 1.0, 0.3);
@@ -551,7 +549,7 @@ fn setup_chart_ui(
     mut panels: ResMut<Assets<PanelMaterial>>,
 ) {
     let f = &*font;
-    let plate = panels.add(PanelMaterial::plate(PLATE, PLATE_EDGE, 10.0, 1.0));
+    let plate = panels.add(PanelMaterial::glass(GLASS_DEEP, TICK));
     let text = |p: &mut ChildSpawnerCommands, which: ChartText, size: f32, color: Color, mono: bool| {
         p.spawn((
             which,

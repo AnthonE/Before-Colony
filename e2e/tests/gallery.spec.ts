@@ -22,6 +22,10 @@ for (const size of [
       await expect(page.locator(s.expect), `${s.name}: ${s.expect}`).toBeVisible();
       await page.screenshot({ path: `artifacts/gallery/${info.project.name}-${size.width}/${s.name}.png` });
     }
+    // The choice the pointer is on, inverted (docs/UI.md): the menu with the pointer on CONTROLS.
+    await page.evaluate(() => (window as any).bcGallery.show("pause-parked"));
+    await page.locator('#pause [data-cmd="controls"]').hover();
+    await page.screenshot({ path: `artifacts/gallery/${info.project.name}-${size.width}/pause-hover.png` });
     const errors = logs.filter((l) => l.startsWith("[error]") || l.startsWith("[pageerror]"));
     expect(errors, errors.join("\n")).toEqual([]);
   });
