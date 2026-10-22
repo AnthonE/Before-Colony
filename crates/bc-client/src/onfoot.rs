@@ -40,13 +40,11 @@ use bc_econ::wire::{HomesView, Outcome, Place, Request};
 use bc_econ::{Bay, Suit};
 use bc_proto::presence::{PersonPose, RIDE_SEATED};
 use bc_sim::colony::city::{
-    AVENUE as AVENUE_WIDTH, CityBox, KERB, Stage, TERMINAL_HEIGHT, arrival_seats, district_at, place_door,
-    seat_near, terminal_rect,
+    AVENUE as AVENUE_WIDTH, CityBox, KERB, Stage, arrival_seats, district_at, place_door, seat_near,
 };
 use bc_sim::colony::frame::{CityPos, STRIP_WIDTH, local_frame, up_at};
 use bc_sim::colony::hall;
 use bc_sim::colony::homes::{self, Home, HomeId};
-use bc_sim::colony::hub::BAY_RADIUS;
 use bc_sim::colony::pools::{pool, pool_near};
 use bc_sim::colony::transit::{
     CAR_WIDTH, CARS, DOOR_AT, FLOOR, PLATFORM_HALF, PLATFORM_LENGTH, STATION_GAP, STATIONS, TRAINS,
@@ -55,7 +53,6 @@ use bc_sim::colony::transit::{
 use bc_sim::content::city::{DISTRICT_NAMES, PLACES, PlaceDef, PlaceKind, STRIP_NAMES};
 use bc_sim::content::homes::Furniture;
 use bc_sim::content::{Kit, Kits};
-use bc_sim::world::COLONY_RADIUS;
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::math::DVec3;
 use bevy::prelude::*;
