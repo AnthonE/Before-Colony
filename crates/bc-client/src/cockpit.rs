@@ -455,10 +455,16 @@ pub fn drive_cockpit(
     };
     c.last_vel = Some(own.vel);
     let target = (cam_rot.inverse() * acc * -0.0012).clamp_length_max(0.05) * prefs.shake.clamp(0.0, 1.0);
+    // In steps of a sixtieth at most: stepped whole, it ran away under 11 fps (w·dt over 2√2 − 2),
+    // and the frame and its monitors swung off the screen.
     let w = 9.0;
-    let spring = (target - c.lag) * w * w - c.lag_vel * 2.0 * w;
-    c.lag_vel += spring * dt;
-    c.lag += c.lag_vel * dt;
+    let steps = (dt * 60.0).ceil().max(1.0);
+    let h = dt / steps;
+    for _ in 0..steps as u32 {
+        let spring = (target - c.lag) * w * w - c.lag_vel * 2.0 * w;
+        c.lag_vel += spring * h;
+        c.lag += c.lag_vel * h;
+    }
     // A hit, a blast near: the cockpit rattles round the pilot, who's strapped in.
     let shake = chase.shake() * prefs.shake.clamp(0.0, 1.0);
     let n = |f: f64, p: f64| {

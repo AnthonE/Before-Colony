@@ -32,6 +32,8 @@ bevy_ecs = { version = "0.19.1", default-features = false }
 bevy_image = { version = "0.19.1", default-features = false }
 bevy_reflect = { version = "0.19.1", default-features = false }
 bevy_render = { version = "0.19.1", default-features = false }
+# The HUD's glyph fallback (`hud::glyph_fallback`): Parley's font collection, as Bevy's text has it.
+parley = { version = "0.9.0", default-features = false, features = ["std"] }
 # The `ShaderType` derive falls back to naming `encase` (the version Bevy uses).
 encase = { version = "0.12.1", default-features = false }
 # Half floats for the generated HDR environment maps.

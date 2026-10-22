@@ -279,16 +279,26 @@ impl Hints {
     /// Steps once a frame; `seen` is the settings' seen set, and is updated. Returns the hint to
     /// show.
     pub fn step(&mut self, seen: &mut u32, now: f64, dt: f64, i: &HintInput) -> Option<Hint> {
+        // Done, whether or not its hint was up: the cockpit boarded, the cap lift taken.
+        if i.boarding {
+            *seen |= Hint::Launch.bit();
+        }
+        if i.went_down {
+            *seen |= Hint::Airlock.bit();
+        }
         if !i.flying && !i.walking {
             // Nothing new while dead or in a menu; the one up stays for later.
             return None;
         }
+        if let Some((h, _)) = self.current
+            && (h.on_foot() != i.walking || !h.in_place(i))
+        {
+            // Its place is elsewhere (flying, or on foot; the bay, the city, inside the colony):
+            // it steps aside, unseen, to come again there, and one due here may come meanwhile
+            // (kept up, it held off every flying hint through a sortie launched under it).
+            self.current = None;
+        }
         if let Some((h, since)) = self.current {
-            if h.on_foot() != i.walking || !h.in_place(i) {
-                // Its place is elsewhere (flying, or on foot; the bay, the city, inside the
-                // colony): it waits there.
-                return None;
-            }
             let acting = match h {
                 Hint::Thrust => i.thrusting,
                 Hint::Boost => i.boosting,
@@ -467,9 +477,10 @@ mod tests {
         assert_eq!(run(&mut h, &mut seen, &mut t, 0.1, walking), Some(Hint::Walk));
         run(&mut h, &mut seen, &mut t, 1.2, HintInput { strolling: true, ..walking });
         assert_eq!(run(&mut h, &mut seen, &mut t, GAP + 0.2, walking), Some(Hint::Use));
-        // Out flying (the bay's hint waits), then back on foot.
+        // Out flying, the bay's hint isn't shown (a flying one may be); back on foot, it's back.
         let flying = HintInput { flying: true, survival: true, ..Default::default() };
-        assert_eq!(run(&mut h, &mut seen, &mut t, 0.5, flying), None);
+        assert_ne!(run(&mut h, &mut seen, &mut t, 0.5, flying), Some(Hint::Use));
+        assert_eq!(run(&mut h, &mut seen, &mut t, 0.1, walking), Some(Hint::Use));
         run(&mut h, &mut seen, &mut t, 0.2, HintInput { using: true, ..walking });
         assert!(seen & Hint::Use.bit() != 0);
         assert_eq!(run(&mut h, &mut seen, &mut t, GAP + 0.2, walking), Some(Hint::Launch));
@@ -492,6 +503,25 @@ mod tests {
         for _ in 0..4_000 {
             assert_ne!(run(&mut h, &mut seen, &mut t, 0.05, arcade), Some(Hint::Dock));
         }
+    }
+
+    #[test]
+    fn a_sortie_launched_under_a_bay_hint_still_gets_the_flying_ones() {
+        // The colony open: the airlock's hint is up when the pilot boards at the hatch instead.
+        let (mut h, mut seen, mut t) = (Hints::default(), 0u32, 0.0);
+        let walking = HintInput { walking: true, survival: true, colony: true, ..Default::default() };
+        run(&mut h, &mut seen, &mut t, 1.2, HintInput { strolling: true, ..walking });
+        run(&mut h, &mut seen, &mut t, GAP + 0.2, walking);
+        run(&mut h, &mut seen, &mut t, 0.2, HintInput { using: true, ..walking });
+        assert_eq!(run(&mut h, &mut seen, &mut t, GAP + 0.2, walking), Some(Hint::Airlock));
+        run(&mut h, &mut seen, &mut t, 0.1, HintInput { boarding: true, ..walking });
+        // Flying, the first flight's hints come.
+        let flying = HintInput { flying: true, survival: true, colony: true, ..Default::default() };
+        assert_eq!(run(&mut h, &mut seen, &mut t, 0.5, flying), Some(Hint::Thrust));
+        // Home again: the airlock's hint, not the launch's (that's done).
+        assert!(seen & Hint::Launch.bit() != 0);
+        assert!(seen & Hint::Airlock.bit() == 0);
+        assert_eq!(run(&mut h, &mut seen, &mut t, GAP + 0.2, walking), Some(Hint::Airlock));
     }
 
     #[test]

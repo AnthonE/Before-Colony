@@ -379,7 +379,8 @@ through each suit's stat sheet, `bc_sim::tuning`.)
   arm's weapons for 3 s.
 - **What others see.** A suit with a damaged system sparks, one with a failed system smokes, a
   holed tank vents a jet of propellant; the HUD lists what's broken in each part (`RCT DMG`,
-  `TNK OUT`), the statuses (`SCRAM 3.1s · CONCUSSED · REPAIRING GYR 12s`) and the tank's leak, and
+  `TNK OUT`, a line each under the part), the statuses (`SCRAM 3.1s`, `CONCUSSED`, `REPAIRING GYR
+  12s`, a line each: the SUIT panel keeps to the width of its bars) and the tank's leak, and
   says what a blow just reached (`REACTOR SCRAM`). The cockpit chirps for damage, sounds the
   master caution for a failure, and hisses while the tank vents.
 - Systems are only mended in the bay (an overhaul), or by damage-control gear.
@@ -684,6 +685,11 @@ can take.
   - They lead perfectly but *linearly*, strafe on a timer, feel no G and never flinch, so a pilot
     who keeps changing acceleration will out-juke them.
   - They drive their suits with the same `InputCmd` a player sends.
+  - Squads patrol a ring round the debris field (`sim::ANCHORS`). A drone lets a pilot who flees
+    more than 8 km from its squad's anchor go (`ai::LEASH`, the squad's own reach), and is topped
+    up between fights (a full tank in a minute): drones fly by the real rules, whose tank never
+    refills, and ones that chased pilots home ran dry and coasted to the sector's edge for good,
+    leaving the field empty and never replaced.
 - **The Almagest's aces**: now and then one of nine named aces flies among them, a drone in an Argo tuned
   by hand, with a bounty on it ("Aces: the Most Wanted").
 - **Agents** are external AI players on the Bot SDK (`bc-bot`). They run the same client state

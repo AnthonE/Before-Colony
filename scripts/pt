@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# Play the game from a shell: for agents (and people) playtesting it, looking for what needs polish.
+#   scripts/pt up                  # a world: a survival server (the colony open), drones, an agent, a
+#                                  # miner, and strollers in the city; built first if need be
+#   scripts/pt open                # a browser on it, a pilot in their bay; then shot, walk, key, turn…
+#   scripts/pt help                # every command
+#   scripts/pt down                # the world and every browser on it gone
+# The browser side is e2e/playtest/pt.mjs; how to playtest with it is .claude/skills/playtest/SKILL.md.
+# Env (the world): BC_RULES (survival|arcade; survival), BC_FLIGHT (anime|real), BC_DRONES (12),
+#   BC_HTTP_PORT (8080), BC_WT_PORT (UDP, 4433), PT_BUILD=0 (never build: run what's there),
+#   PT_SERVER_ARGS (more of the server's flags, e.g. "--craft-speed 60").
+set -euo pipefail
+cd "$(dirname "$0")/.."
+root="$(pwd)"
+out="${PT_OUT:-$root/e2e/artifacts/playtest}"
+port="${BC_HTTP_PORT:-8080}"
+url="http://127.0.0.1:${port}"
+bin="${CARGO_TARGET_DIR:-target}/release"
+pids="$out/world-${port}.pids"
+if [ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" ] && [ -d /opt/pw-browsers ]; then
+  export PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
+fi
+export BC_URL="$url" BC_HTTP_PORT="$port"
+
+up() { curl -sf "$url/status" >/dev/null 2>&1; }
+
+build() {
+  [ "${PT_BUILD:-1}" = "0" ] && return
+  cargo build --release -q -p bc-server -p bc-bot --bins --examples
+  # The web client: cargo says whether its wasm is current (a source's time alone can't: one edited
+  # while a build ran is older than what that build made); the page's own files are copied too.
+  local profile="${BC_WEB_PROFILE:-wasm-release}" wasm=web/dist/webgl2/bc_bg.wasm
+  cargo build -q -p bc-client --target wasm32-unknown-unknown --profile "$profile"
+  local built="${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/$profile/bc-client.wasm"
+  if [ ! -f "$wasm" ] || [ "$built" -nt "$wasm" ] || [ -n "$(find web -maxdepth 2 -type f -newer "$wasm" -not -path 'web/dist/*' -print -quit)" ]; then
+    ./scripts/build-web.sh webgl2
+  fi
+}
+
+world_up() {
+  mkdir -p "$out"
+  # One world per port, however many agents ask for it at once.
+  exec 9>"$out/world-${port}.lock"
+  flock 9
+  if up; then
+    echo "the world is already up at $url"
+    exec 9>&-
+    return
+  fi
+  build
+  local rules="${BC_RULES:-survival}"
+  local log="$out/world-${port}.log"
+  : >"$pids"
+  # Detached (setsid), so the world outlives the shell that started it.
+  start() {
+    setsid nohup "$@" >>"$log" 2>&1 </dev/null 9>&- &
+    echo $! >>"$pids"
+  }
+  # shellcheck disable=SC2086
+  start "$bin/bc-server" --http "127.0.0.1:${port}" --wt-port "${BC_WT_PORT:-4433}" --web-dir web/dist \
+    --mode game --rules "$rules" --flight "${BC_FLIGHT:-anime}" --drones "${BC_DRONES:-12}" ${PT_SERVER_ARGS:-}
+  for _ in $(seq 1 100); do up && break; sleep 0.2; done
+  up || { echo "the server didn't come up: see $log" >&2; tail -20 "$log" >&2; exit 1; }
+  start "$bin/examples/drone" --server "$url" --name Agent-01
+  start "$bin/examples/miner" --server "$url" --name Miner-01
+  if [ "$rules" = "survival" ]; then
+    # Someone strolling outside each strip's Hub Gate, and two sitting outside The Arrival.
+    for strip in 0 1 2; do
+      start "$bin/examples/flaneur" --server "$url" --name "Flaneur-0$((strip + 1))" --strip "$strip"
+    done
+    for k in 4 5; do
+      start "$bin/examples/flaneur" --server "$url" --name "Flaneur-0$k" --sit --seat "$k"
+    done
+  fi
+  exec 9>&-
+  echo "the world is up at $url ($rules rules; log $log)"
+}
+
+world_down() {
+  # Every session's browser first, then the world.
+  for d in "$out"/*/daemon.json; do
+    [ -f "$d" ] || continue
+    PT_SESSION="$(basename "$(dirname "$d")")" node e2e/playtest/pt.mjs close || true
+  done
+  if [ -f "$pids" ]; then
+    while read -r p; do kill "$p" 2>/dev/null || true; done <"$pids"
+    rm -f "$pids"
+  fi
+  echo "the world at $url is down"
+}
+
+world_status() {
+  if ! up; then
+    echo "no world at $url: scripts/pt up"
+    exit 1
+  fi
+  curl -sf "$url/status" | node -e '
+    let s = ""; process.stdin.on("data", (c) => (s += c)).on("end", () => {
+      const g = JSON.parse(s).game ?? {};
+      const who = (g.pilots ?? []).map((p) => `${p.name}${p.kind ? ` (${p.kind})` : ""}`);
+      console.log(`up at '"$url"': tick ${g.tick ?? "?"}, ${who.length} pilots: ${who.join(", ")}`);
+      if (g.city) console.log(`in the city: ${g.city.people} people`);
+      if (g.hot_path_allocations) console.log(`! hot-path allocations: ${g.hot_path_allocations}`);
+    });'
+}
+
+e2e_deps() {
+  [ -d e2e/node_modules/@playwright/test ] || (cd e2e && pnpm install --frozen-lockfile=false >/dev/null)
+}
+
+case "${1:-help}" in
+  up) world_up ;;
+  down) world_down ;;
+  world) world_status ;;
+  *)
+    e2e_deps
+    if [ "${1:-}" = "open" ] && ! up; then
+      echo "no world at $url yet: starting one (scripts/pt up)"
+      world_up
+    fi
+    exec node e2e/playtest/pt.mjs "$@"
+    ;;
+esac

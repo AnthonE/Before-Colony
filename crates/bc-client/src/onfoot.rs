@@ -1370,6 +1370,8 @@ pub fn drive_onfoot(
                 look.y = -look.y;
             }
         }
+        // The dev hook's turn, as the mouse's.
+        look += cmds.look();
         let axis = |pos: KeyCode, neg: KeyCode| (keys.pressed(pos) as i32 - keys.pressed(neg) as i32) as f32;
         own = Stride {
             forward: axis(KeyCode::KeyW, KeyCode::KeyS),

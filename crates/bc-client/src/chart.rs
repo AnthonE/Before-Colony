@@ -2109,6 +2109,7 @@ fn setup_nav_marker(mut commands: Commands, font: Res<UiFont>) {
     commands
         .spawn((
             NavMarker,
+            crate::hud::ClearOfPanels,
             Node {
                 position_type: PositionType::Absolute,
                 flex_direction: FlexDirection::Column,

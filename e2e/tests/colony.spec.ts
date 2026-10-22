@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
 import { chromium, expect, test, type Page } from "@playwright/test";
-import { bc, built, collectConsole } from "./util";
+import { bc, built, calmPointer, collectConsole } from "./util";
+
+// Each move whole: the pointer locks here (`util.ts`, `calmPointer`).
+test.beforeEach(({ page }) => page.addInitScript(calmPointer));
 
 // The colony inside (`scripts/e2e.sh colony`: a survival server with the colony open, no drones,
 // and an agent strolling outside Hub Gate). The pilot goes out through their bay's airlock and
@@ -160,14 +163,19 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await expect(page.locator("#pause")).toBeHidden();
 
   // Down the avenue, round the corner and in through the Exchange floor's door to its counter: a
-  // room, lit by its lamps (the eye adapts to the room's EV, two under the street's and between
-  // 9.5 and 12.5: `city.rs`'s `room_ev`). The panel is the bay's exchange, and here an order can
-  // rest on the book (the bay's can't).
+  // room, lit by its lamps (the eye adapts to them: a couple of stops under the street, by the
+  // hour, between EV 9.5 and 12.5, `city.rs`'s `ROOM_EV`). The panel is the bay's exchange, and
+  // here an order can rest on the book (the bay's can't).
   await push(page, { cmd: "walk_to", spot: "exchange_floor" });
   await until(page, "the walk", (s) => s.city_walking_to, FRAMES);
   await until(page, "at the Exchange floor", (s) => s.focus === "exchange_floor" && !s.city_walking_to, 420_000);
   await expect(page.locator("#use")).toContainText("EXCHANGE", { timeout: FRAMES });
-  s = await until(page, "indoors", (s) => s.city_room === "exchange_floor" && s.city_ev <= 12.5, FRAMES);
+  s = await until(
+    page,
+    "indoors",
+    (s) => s.city_room === "exchange_floor" && s.city_ev > 9.45 && s.city_ev < 12.55,
+    FRAMES,
+  );
   await page.screenshot({ path: "artifacts/colony-exchange-floor.png" });
   // Its door in focus is the floor found: next, the Charter Board.
   await until(page, "the next objective", (s) => s.objective === "REPORT TO THE CHARTER BOARD", FRAMES);

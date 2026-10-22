@@ -16,6 +16,7 @@
   let chosen = "altair";
   let autoplay = false;
   let toastSeq = 0;
+  let helpWas = false;
   let toastTimer = null;
   let newsSeq = 0;
   let newsTimer = null;
@@ -542,6 +543,17 @@
     hint.textContent = v.hint || "";
     show(hint, s === "playing" && !!v.hint && v.panel === "none");
     show($("help"), v.help);
+    // Opened in the world, the sheet starts at the section for where the pilot is (flying, the
+    // hangar's came first and FLIGHT and COMBAT were below the fold).
+    if (v.help && !helpWas && s === "playing") {
+      const title = v.driving === "car" || v.driving === "markab" ? "DRIVING"
+        : v.place === "hangar" ? "IN THE HANGAR"
+        : v.place === "city" ? "IN THE COLONY"
+        : "FLIGHT";
+      const h = [...document.querySelectorAll("#controls-list h3")].find((e) => e.textContent === title);
+      h?.closest("section")?.scrollIntoView({ block: "start" });
+    }
+    helpWas = v.help;
     show($("map"), s === "playing" && !!v.map && v.panel === "none");
     if (s === "playing" && v.map && v.panel === "none") drawMap(v.map, v.mapGoal, v.mapFound || 0);
     show($("prompt"), s === "playing" && v.clickToFly && !v.help && !v.sequence);
@@ -822,9 +834,12 @@
         if (r.kind === "range") {
           input = document.createElement("input");
           input.type = "range";
-          input.min = r.min;
-          input.max = r.max;
-          input.step = r.step;
+          // The game's numbers are f32s, which come as 0.05000000074505806: a step that long
+          // stopped the sliders at 95%.
+          const round = (x) => String(Number(Number(x).toPrecision(6)));
+          input.min = round(r.min);
+          input.max = round(r.max);
+          input.step = round(r.step);
           input.addEventListener("input", () => send("set", { key: r.key, value: input.value }));
         } else if (r.kind === "toggle") {
           input = document.createElement("input");
@@ -1311,7 +1326,7 @@
       // (With the colony shut the Board pays out anywhere, within the second: nothing to walk to.)
       head = `<div class="status warn">THE BOARD HOLDS ${esc(boardHolds(b.waiting))} FOR YOU · PAID OUT AT ITS DESK, ON CHARTER SQUARE</div>`;
     }
-    let left = `<h3>CONTRACTS</h3><div class="note">The colony's pay ${b.supply_pct}% of its desks' value; a pilot's reward is held in escrow until it's delivered. Deliveries come from your stores, paid on the spot.</div>`;
+    let left = `<h3>CONTRACTS</h3><div class="note">The colony's contracts pay ${b.supply_pct}% of its desks' value; a pilot's reward is held in escrow until it's delivered. Deliveries come from your stores, paid on the spot.</div>`;
     if (!b.contracts.length) left += `<div class="note">Nothing posted.</div>`;
     else {
       left += `<table><tr><th></th><th>FROM</th><th>JOB</th><th class="num">PAYS</th><th class="num">LEFT</th><th></th></tr>` +

@@ -72,6 +72,10 @@ pub enum UiCmd {
     Lift(u32),
     /// From a home's panel: put down a piece of furniture (its slug), in build mode.
     Place(String),
+    /// Dev hook (the agents' playtests, `scripts/pt turn`): turn the eyes, flying or on foot, as the
+    /// mouse would with the pointer locked (headless browsers can't lock it): radians, x to the
+    /// right, y down (`look` takes degrees, yaw to the right and pitch up).
+    Look(Vec2),
     Use,
     Skip,
 }
@@ -83,6 +87,11 @@ pub struct UiCmds(pub Vec<UiCmd>);
 impl UiCmds {
     pub fn has(&self, cmd: &UiCmd) -> bool {
         self.0.contains(cmd)
+    }
+
+    /// This frame's [`UiCmd::Look`]s, added up.
+    pub fn look(&self) -> Vec2 {
+        self.0.iter().map(|c| if let UiCmd::Look(d) = c { *d } else { Vec2::ZERO }).sum()
     }
 }
 
@@ -326,6 +335,10 @@ fn parse(v: &JsValue) -> Option<UiCmd> {
             let num = |k: &str| get(v, k).as_f64().unwrap_or(0.0) as f32;
             (spot, num("up"), num("ahead"))
         })),
+        "look" => {
+            let deg = |k: &str| get(v, k).as_f64().unwrap_or(0.0).to_radians() as f32;
+            UiCmd::Look(Vec2::new(deg("yaw"), -deg("pitch")))
+        }
         "use" => UiCmd::Use,
         "lift" => UiCmd::Lift(get(v, "storey").as_f64().unwrap_or(0.0) as u32),
         "place" => UiCmd::Place(s("furniture")),
