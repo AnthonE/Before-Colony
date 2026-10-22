@@ -1608,6 +1608,11 @@
       case "fab-filter":
         fabFilter = d.f;
         break;
+      case "home-place":
+        // Off the panel, and into build mode where the pilot stands (onfoot.rs's `Build`).
+        send("resume");
+        send("place", { furniture: d.furniture });
+        return;
       case "home-rent":
       case "home-buy":
       case "home-door":
@@ -1621,11 +1626,6 @@
       case "home-leave":
       case "home-feed":
       case "home-take":
-      case "home-place":
-        // Off the panel, and into build mode where the pilot stands (onfoot.rs's `Build`).
-        send("resume");
-        send("place", { furniture: d.furniture });
-        return;
       case "home-sell-piece":
       case "home-stash":
       case "home-unstash":

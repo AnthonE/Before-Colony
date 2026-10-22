@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { expect, test, type Browser, type Page, type TestInfo } from "@playwright/test";
+import { chromium, expect, test, type Browser, type Page, type TestInfo } from "@playwright/test";
 import { bc, built, collectConsole } from "./util";
 
 // Homes (`docs/OPEN_CITY.md`; `scripts/e2e.sh home`: a survival server with the colony open and no
@@ -51,10 +51,24 @@ async function type(page: Page, key: string, text: string) {
   await field.fill(text);
 }
 
-// A browser of its own, signed in with test key `key`'s stub wallet (`login.spec.ts`), as `name`.
-async function signIn(browser: Browser, key: number, name: string, info: TestInfo) {
+// Every line of news the page has shown since it loaded (`colony.spec.ts` keeps its toasts so): a
+// later one can replace one before a page drawing in software is looked at again.
+const KEEP_NEWS = () =>
+  addEventListener("DOMContentLoaded", () => {
+    const n = document.getElementById("news");
+    const seen: string[] = ((window as any).bcNews = []);
+    const keep = new MutationObserver(() => seen.push(n?.textContent ?? ""));
+    if (n) keep.observe(n, { childList: true, characterData: true, subtree: true });
+  });
+const news = (page: Page) => page.evaluate(() => ((window as any).bcNews ?? []).join("\n"));
+
+// Signed in with test key `key`'s stub wallet (`login.spec.ts`), as `name`, in a small window
+// (`colony.spec.ts`: two software renderers share the machine), and awake at home in `home`. A page
+// rendering in software beside another can take longer than its dial's 10 s to see its connection
+// open: a link that fails is dialled again, as a player would.
+async function signIn(browser: Browser, key: number, name: string, home: number, info: TestInfo) {
   const address = execFileSync(SIGNER, [String(key), "address"]).toString().trim();
-  const context = await browser.newContext();
+  const context = await browser.newContext({ viewport: { width: 640, height: 360 } });
   await context.exposeFunction("__signHex", (hex: string) => {
     const message = Buffer.from(hex.slice(2), "hex");
     return { signature: execFileSync(SIGNER, [String(key)], { input: message }).toString().trim() };
@@ -71,6 +85,7 @@ async function signIn(browser: Browser, key: number, name: string, info: TestInf
   }, address);
   // The flight certificate is taken as earned (`colony.spec.ts`): the objectives stay quiet.
   await context.addInitScript(() => localStorage.setItem("bc.settings", "version = 1\nobjectives_done = 2048\n"));
+  await context.addInitScript(KEEP_NEWS);
   const page = await context.newPage();
   const logs = collectConsole(page);
   await page.goto(`/?quality=low&gfx=${info.project.name}`);
@@ -78,7 +93,18 @@ async function signIn(browser: Browser, key: number, name: string, info: TestInf
   await page.locator("#wallet-button").click();
   await expect(page.locator("#wallet-account")).toContainText(address.slice(0, 6));
   await page.locator("#callsign").fill(name);
-  await page.locator("#launch-button").click();
+  for (let k = 0; ; k++) {
+    await page.locator("#launch-button").click();
+    const s = await until(
+      page,
+      `${name} awake at home`,
+      (s) => (s.place === "city" && s.home === home) || s.link === "failed",
+      300_000,
+    );
+    if (s.link !== "failed") break;
+    if (k === 2) throw new Error(`${name} never got in: ${s.last_error}`);
+    console.log(`${name}: the link failed (${s.last_error}); dialling again`);
+  }
   return { page, logs, context };
 }
 
@@ -86,14 +112,14 @@ test("two pilots wake at home; one locks and furnishes hers, the other knocks, g
   browser,
 }, info) => {
   // (Long: two pages drawing the city in software.)
-  test.setTimeout(1_800_000);
+  test.setTimeout(2_700_000);
   expect(SEED.a.id, "the seeded register (scripts/e2e.sh home)").toBeGreaterThan(0);
-  const ada = await signIn(browser, 1, "E2E-Ada", info);
-  const bo = await signIn(browser, 2, "E2E-Bo", info);
+  // Both wake at home, on foot in the city: no bay, no cap lift. One after the other, and Bo in a
+  // browser of his own (two pages of one share its GPU process: `colony.spec.ts`).
+  const ada = await signIn(browser, 1, "E2E-Ada", SEED.a.id, info);
+  const second = await chromium.launch(info.project.use.launchOptions ?? {});
+  const bo = await signIn(second, 2, "E2E-Bo", SEED.b.id, info);
   try {
-    // Both wake at home, on foot in the city: no bay, no cap lift.
-    await until(ada.page, "Ada awake at home", (s) => s.place === "city" && s.home === SEED.a.id, 180_000);
-    await until(bo.page, "Bo awake at home", (s) => s.place === "city" && s.home === SEED.b.id, 180_000);
     await ada.page.screenshot({ path: "artifacts/home-awake.png" });
 
     // Ada's panel: a code of her own (the colony's key lock was hers alone).
@@ -119,22 +145,26 @@ test("two pilots wake at home; one locks and furnishes hers, the other knocks, g
     await until(ada.page, "the sofa put down", (s) => s.home_pieces === before + 1 && s.build === "", FRAMES);
     await ada.page.screenshot({ path: "artifacts/home-sofa.png" });
 
-    // Bo walks out of his flat and along the corridor to her door: shut, and locked.
+    // Bo walks out of his flat (his own door shut: E opens it) and along the corridor to her door:
+    // shut, and locked.
     await push(bo.page, { cmd: "walk_to", spot: `home:${SEED.a.id}` });
-    await until(bo.page, "Bo at Ada's door", (s) => !s.city_walking_to && s.home_door === SEED.a.id, 240_000);
+    await until(bo.page, "Bo at his own door", (s) => s.home === SEED.b.id && s.home_door === SEED.b.id, 420_000);
+    await push(bo.page, { cmd: "use" });
+    await until(bo.page, "Bo out of his flat", (s) => s.home !== SEED.b.id, 420_000);
+    await until(bo.page, "Bo at Ada's door", (s) => !s.city_walking_to && s.home_door === SEED.a.id, 420_000);
     // On in: the shut door stops him (his own walker, and the server's plaza behind it).
     await push(bo.page, { cmd: "walk_to", spot: `home:${SEED.a.id}:in` });
-    await bo.page.waitForTimeout(10_000);
+    await bo.page.waitForTimeout(60_000);
     expect((await bc(bo.page)).home, "kept out by the shut door").not.toBe(SEED.a.id);
     await push(bo.page, { cmd: "walk_to", spot: `home:${SEED.a.id}` });
-    await until(bo.page, "Bo back at her door", (s) => !s.city_walking_to && s.home_door === SEED.a.id, FRAMES);
+    await until(bo.page, "Bo back at her door", (s) => !s.city_walking_to && s.home_door === SEED.a.id, 420_000);
 
     // Its keypad: a knock Ada hears, a wrong code that shocks, and the right one.
     await push(bo.page, { cmd: "use" });
     await until(bo.page, "Ada's keypad", (s) => s.terminal === "home", FRAMES);
     await expect(bo.page.locator("#term-body")).toContainText("E2E-ADA'S", { timeout: FRAMES });
     await press(bo.page, '[data-act="home-knock"]');
-    await until(ada.page, "Ada hearing the knock", (s) => String(s.news).includes("E2E-BO KNOCKS"), FRAMES);
+    await expect.poll(() => news(ada.page), { message: "Ada hearing the knock", timeout: 420_000 }).toContain("E2E-BO KNOCKS");
     await type(bo.page, "home-code", "1111");
     await press(bo.page, '[data-act="home-code"]');
     await expect(bo.page.locator("#term-log")).toContainText("WRONG CODE", { timeout: FRAMES });
@@ -142,27 +172,28 @@ test("two pilots wake at home; one locks and furnishes hers, the other knocks, g
     await press(bo.page, '[data-act="home-code"]');
     await expect(bo.page.locator("#term-log")).toContainText("ON ITS CREW", { timeout: FRAMES });
     await bo.page.screenshot({ path: "artifacts/home-keypad.png" });
+
+    // On its crew, the door's his to open (its button there once the register's word comes), and
+    // he comes in: her bed and her sofa are there.
+    await press(bo.page, '[data-act="home-door"][data-open="1"]');
+    await expect(bo.page.locator("#term-body")).toContainText("THE DOOR IS OPEN", { timeout: 420_000 });
     await push(bo.page, { cmd: "back" });
     await until(bo.page, "the keypad closed", (s) => s.panel === "none", FRAMES);
-
-    // On its crew, E at the door opens it, and he comes in: her bed and her sofa are there.
-    await push(bo.page, { cmd: "use" });
     await push(bo.page, { cmd: "walk_to", spot: `home:${SEED.a.id}:in` });
-    await until(bo.page, "Bo in Ada's flat", (s) => s.home === SEED.a.id, 240_000);
+    await until(bo.page, "Bo in Ada's flat", (s) => s.home === SEED.a.id, 420_000);
     const bo_sees = await until(bo.page, "the sofa and both beds", (s) => s.home_pieces >= 3, FRAMES);
     expect(bo_sees.homes_held).toBe(2);
     await bo.page.screenshot({ path: "artifacts/home-visitor.png" });
 
     // Ada logs out at home: asleep in her bed, where Bo sees her.
     await ada.context.close();
-    await until(bo.page, "Ada asleep in her bed", (s) => String(s.home_asleep).includes("E2E-Ada"), FRAMES);
+    await until(bo.page, "Ada asleep in her bed", (s) => String(s.home_asleep).includes("E2E-Ada"), 420_000);
     await bo.page.screenshot({ path: "artifacts/home-asleep.png" });
 
     // She signs in again, and wakes beside it.
-    const back = await signIn(browser, 1, "E2E-Ada", info);
+    const back = await signIn(browser, 1, "E2E-Ada", SEED.a.id, info);
     try {
-      await until(back.page, "Ada awake at home again", (s) => s.place === "city" && s.home === SEED.a.id, 180_000);
-      await until(bo.page, "Ada up", (s) => !String(s.home_asleep).includes("E2E-Ada"), FRAMES);
+      await until(bo.page, "Ada up", (s) => !String(s.home_asleep).includes("E2E-Ada"), 420_000);
     } finally {
       await back.context.close();
     }
@@ -172,6 +203,7 @@ test("two pilots wake at home; one locks and furnishes hers, the other knocks, g
     throw e;
   } finally {
     await bo.context.close();
+    await second.close();
     await ada.context.close().catch(() => {});
   }
 });

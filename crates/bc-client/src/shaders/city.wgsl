@@ -22,9 +22,9 @@
 }
 #import bc::noise::{hash13, noise3}
 #ifdef CITY_DETAIL
-#import bc::city::{city_cell, atlas_texel, city_paint, lantern_burn, streets_at, PLAZA_GAIN, CANAL_WIDTH, row_span, height_texel, HEIGHT_CELL, HEIGHT_S0, BLOCK, GRID_X0}
+#import bc::city::{city_cell, atlas_texel, city_paint, lantern_burn, streets_at, PLAZA_GAIN, CANAL_WIDTH, row_span, height_texel, HEIGHT_CELL, HEIGHT_S0, BLOCK, GRID_X0, KERB, GROUND_FLOOR, FLOOR}
 #else
-#import bc::city::{city_cell, atlas_texel, city_sketch, LAMP_MEAN, PLAZA_GAIN, CANAL_WIDTH}
+#import bc::city::{city_cell, atlas_texel, city_sketch, LAMP_MEAN, PLAZA_GAIN, CANAL_WIDTH, KERB, GROUND_FLOOR, FLOOR}
 #endif
 #import bc::facade::{facade, FacadeIn, city_place, F_MAX_HEIGHT}
 #import bc::colony_sky::{Sky, haze, strip_at, strip_up, up_at, height_at, key_dir, own_light, bounce_light, fresnel, sky_reflection, sun_glint}
