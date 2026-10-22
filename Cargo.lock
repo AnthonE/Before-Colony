@@ -590,6 +590,7 @@ dependencies = [
  "half",
  "js-sys",
  "parley",
+ "serde",
  "serde_json",
  "url",
  "wasm-bindgen",
@@ -607,6 +608,8 @@ dependencies = [
  "bc-proto",
  "bc-sim",
  "glam",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

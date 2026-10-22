@@ -92,7 +92,7 @@ pub fn aim_hook(
     mut dev: ResMut<DevStatus>,
 ) {
     for cmd in &cmds.0 {
-        if let crate::page::UiCmd::AimHostile(want) = cmd {
+        if let crate::page::UiCmd::AimHostile { on: want } = cmd {
             *on = *want;
         }
     }

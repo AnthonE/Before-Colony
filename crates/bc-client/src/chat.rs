@@ -56,8 +56,8 @@ pub fn radio(
     }
     for cmd in &cmds.0 {
         match cmd {
-            UiCmd::Chat(open) => ui.chat = *open,
-            UiCmd::Say(text) => {
+            UiCmd::Chat { open } => ui.chat = *open,
+            UiCmd::Say { text } => {
                 if let (Some(line), Some(t)) = (bc_econ::wire::clean_line(text), net.get()) {
                     t.send_control(g.core.request(&bc_econ::Request::Say { text: line }));
                 }

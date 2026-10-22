@@ -347,8 +347,8 @@ pub fn play_sound(
     // The page's clicks.
     for cmd in &cmds.0 {
         match cmd {
-            UiCmd::Sfx(name) if name == "confirm" => sound.mixer.request(Request::own(Cue::UiConfirm)),
-            UiCmd::Sfx(_) => sound.mixer.request(Request::own(Cue::UiClick)),
+            UiCmd::Sfx { cue } if cue == "confirm" => sound.mixer.request(Request::own(Cue::UiConfirm)),
+            UiCmd::Sfx { .. } => sound.mixer.request(Request::own(Cue::UiClick)),
             _ => {}
         }
     }

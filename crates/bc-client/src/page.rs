@@ -1,84 +1,26 @@
 //! The page around the game. The title screen, the pause menu, the controls sheet, the reconnect
 //! banner, the "click to fly" prompt, toasts, and (survival rules) the hangar's terminals and the
 //! prompt on foot are HTML (`web/ui.js`), drawn over the live scene; the cockpit HUD stays in
-//! Bevy. This module is the bridge, and Rust owns every decision:
-//! - the page pushes commands onto `window.bcInbox` (an array), drained once a frame into
-//!   [`UiCmds`];
-//! - Rust sends what the page should show through `window.bcUi.update(view)`, whenever it changes,
-//!   and the static lists (the frames, the controls) once through `window.bcUi.init(...)`. The
-//!   hangar's terminals get their data through `terminal.rs`.
+//! Bevy. This module is the bridge, and Rust owns every decision. What crosses it is
+//! `bc_client_core::page`'s, as JSON (its tests hold `web/ui.js` to the same names):
+//! - the page pushes commands ([`UiCmd`]) onto `window.bcInbox` (an array), drained once a frame
+//!   into [`UiCmds`];
+//! - Rust sends what the page should show ([`View`]) through `window.bcUi.update(view)`, whenever
+//!   it changes, and the static lists ([`Init`]: the frames, the controls, the city's map) once
+//!   through `window.bcUi.init(...)`. The hangar's terminals get their data through `terminal.rs`.
 
 use bc_client_core::bay::Spot;
-use bc_client_core::controls::{BINDINGS, Group};
-use bc_sim::content::{PLAYABLE_ORDER, SpecialKind, frame, frame_designation, frame_name, weapon_name};
+use bc_client_core::page::{Init, MapAt, PanelKind, View};
 use bevy::prelude::*;
-use js_sys::{Array, Function, Object, Reflect};
+use js_sys::{Array, Function, JSON, Reflect};
 use wasm_bindgen::{JsCast, JsValue};
 
 use crate::net::{LaunchConfigRes, now_s};
 
-/// A command from the page (or from keys the page forwards).
-#[derive(Clone, Debug, PartialEq)]
-pub enum UiCmd {
-    /// Launch with this callsign and frame slug, signed in with the wallet at `address` (`0x…`)
-    /// or as a guest (empty).
-    Play {
-        name: String,
-        frame: String,
-        address: String,
-    },
-    /// Dial again (after a failure, or before the next scheduled redial).
-    Retry,
-    /// Stop connecting and go back to the title.
-    Cancel,
-    /// Close the pause menu and fly.
-    Resume,
-    /// Open the pause menu.
-    Pause,
-    /// Leave the world for the title screen.
-    Disconnect,
-    /// Esc: close whatever is on top, or open the pause menu.
-    Back,
-    /// F1 or `?`: show or hide the controls sheet (`None`: toggle).
-    Help(Option<bool>),
-    /// Open (`true`) or close the settings panel.
-    Settings(bool),
-    /// A setting changed on the panel: its key and new value, as text.
-    Set {
-        key: String,
-        value: String,
-    },
-    /// A menu sound: `click` or `confirm`.
-    Sfx(String),
-    /// Dev hook: drop the link as if the network had failed (tests the reconnect path).
-    DropLink,
-    /// Something asked of the hangar from one of its terminals (survival rules).
-    Hangar(bc_econ::Request),
-    /// A line for the colony's radio, typed on the page.
-    Say(String),
-    /// Open (`true`) or close the radio's line.
-    Chat(bool),
-    /// Dev hooks, on foot: walk to a place in the bay (by its slug), use what's in view, skip a
-    /// launch or homecoming sequence.
-    WalkTo(String),
-    /// Dev hook, flying: keep the aim on the nearest hostile (headless browsers can't lock the
-    /// pointer to aim with), or stop.
-    AimHostile(bool),
-    /// Dev hook, flying inside the colony: fly the suit (flight assist) to `up` metres over a
-    /// place's door (by its slug), `ahead` metres out from it (or to the inner gate,
-    /// `inner_gate`), or stop (`None`).
-    FlyTo(Option<(String, f32, f32)>),
-    /// Dev hook, on foot at a home building's lift: ride it to storey `k` (0 the ground).
-    Lift(u32),
-    /// From a home's panel: put down a piece of furniture (its slug), in build mode.
-    Place(String),
-    /// Dev hook (the agents' playtests, `scripts/pt turn`): turn the eyes, flying or on foot, as the
-    /// mouse would with the pointer locked (headless browsers can't lock it): radians, x to the
-    /// right, y down (`look` takes degrees, yaw to the right and pitch up).
-    Look(Vec2),
-    Use,
-    Skip,
-}
+/// A command from the page (or from keys the page forwards), as `bc_client_core::page` defines it.
+pub use bc_client_core::page::Cmd as UiCmd;
+/// Which screen the page shows.
+pub use bc_client_core::page::Screen;
 
 /// This frame's commands.
 #[derive(Resource, Default)]
@@ -91,35 +33,14 @@ impl UiCmds {
 
     /// This frame's [`UiCmd::Look`]s, added up.
     pub fn look(&self) -> Vec2 {
-        self.0.iter().map(|c| if let UiCmd::Look(d) = c { *d } else { Vec2::ZERO }).sum()
-    }
-}
-
-/// Which screen the page shows.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum Screen {
-    /// Callsign, frame, Launch.
-    #[default]
-    Title,
-    /// The first dial and handshake.
-    Connecting,
-    /// In the world.
-    Playing,
-    /// The link dropped and is being redialed (the banner).
-    Reconnecting,
-    /// Down, waiting for the player (the title, with the reason).
-    Failed,
-}
-
-impl Screen {
-    fn name(self) -> &'static str {
-        match self {
-            Screen::Title => "title",
-            Screen::Connecting => "connecting",
-            Screen::Playing => "playing",
-            Screen::Reconnecting => "reconnecting",
-            Screen::Failed => "failed",
-        }
+        self.0
+            .iter()
+            .map(|c| match *c {
+                // Degrees, yaw to the right and pitch up; the mouse's radians, y down.
+                UiCmd::Look { yaw, pitch } => Vec2::new(yaw.to_radians(), -pitch.to_radians()),
+                _ => Vec2::ZERO,
+            })
+            .sum()
     }
 }
 
@@ -303,48 +224,14 @@ pub fn get(obj: &JsValue, key: &str) -> JsValue {
     Reflect::get(obj, &JsValue::from_str(key)).unwrap_or(JsValue::UNDEFINED)
 }
 
-fn set(obj: &Object, key: &str, value: impl Into<JsValue>) {
-    let _ = Reflect::set(obj, &JsValue::from_str(key), &value.into());
+/// A command as the page wrote it (an object on `bcInbox`).
+fn parse(v: &JsValue) -> Option<UiCmd> {
+    UiCmd::parse(&JSON::stringify(v).ok()?.as_string()?)
 }
 
-fn parse(v: &JsValue) -> Option<UiCmd> {
-    let s = |k: &str| get(v, k).as_string().unwrap_or_default();
-    Some(match s("cmd").as_str() {
-        "play" => UiCmd::Play { name: s("name"), frame: s("frame"), address: s("address") },
-        "retry" => UiCmd::Retry,
-        "cancel" => UiCmd::Cancel,
-        "resume" => UiCmd::Resume,
-        "pause" => UiCmd::Pause,
-        "disconnect" => UiCmd::Disconnect,
-        "back" => UiCmd::Back,
-        "help" => UiCmd::Help(get(v, "show").as_bool()),
-        "settings" => UiCmd::Settings(get(v, "show").as_bool().unwrap_or(true)),
-        "set" => UiCmd::Set { key: s("key"), value: s("value") },
-        "drop_link" => UiCmd::DropLink,
-        "sfx" => UiCmd::Sfx(s("cue")),
-        "hangar" => {
-            // The request as the page wrote it, read back as the wire's JSON.
-            let json = js_sys::JSON::stringify(&get(v, "req")).ok()?.as_string()?;
-            UiCmd::Hangar(bc_econ::wire::decode(json.as_bytes())?)
-        }
-        "say" => UiCmd::Say(s("text")),
-        "chat" => UiCmd::Chat(get(v, "open").as_bool().unwrap_or(false)),
-        "walk_to" => UiCmd::WalkTo(s("spot")),
-        "aim_hostile" => UiCmd::AimHostile(get(v, "on").as_bool().unwrap_or(false)),
-        "fly_to" => UiCmd::FlyTo(Some(s("spot")).filter(|spot| !spot.is_empty()).map(|spot| {
-            let num = |k: &str| get(v, k).as_f64().unwrap_or(0.0) as f32;
-            (spot, num("up"), num("ahead"))
-        })),
-        "look" => {
-            let deg = |k: &str| get(v, k).as_f64().unwrap_or(0.0).to_radians() as f32;
-            UiCmd::Look(Vec2::new(deg("yaw"), -deg("pitch")))
-        }
-        "use" => UiCmd::Use,
-        "lift" => UiCmd::Lift(get(v, "storey").as_f64().unwrap_or(0.0) as u32),
-        "place" => UiCmd::Place(s("furniture")),
-        "skip" => UiCmd::Skip,
-        _ => return None,
-    })
+/// `value` as the page takes it: a plain object.
+pub fn to_js(value: &impl serde::Serialize) -> JsValue {
+    serde_json::to_string(value).ok().and_then(|json| JSON::parse(&json).ok()).unwrap_or(JsValue::UNDEFINED)
 }
 
 /// First thing each frame: takes the page's commands.
@@ -393,12 +280,12 @@ pub fn apply_ui_cmds(cmds: Res<UiCmds>, mut ui: ResMut<Ui>, mut map: ResMut<crat
                 ui.panel = Panel::None;
                 ui.help = false;
             }
-            UiCmd::Help(show) => ui.help = show.unwrap_or(!ui.help),
-            UiCmd::Settings(true) => {
+            UiCmd::Help { show } => ui.help = show.unwrap_or(!ui.help),
+            UiCmd::Settings { show: true } => {
                 let from_pause = ui.panel == Panel::Pause;
                 ui.panel = Panel::Settings { from_pause };
             }
-            UiCmd::Settings(false) => {
+            UiCmd::Settings { show: false } => {
                 if let Panel::Settings { from_pause } = ui.panel {
                     ui.close_settings(from_pause);
                 }
@@ -425,164 +312,56 @@ pub fn apply_ui_cmds(cmds: Res<UiCmds>, mut ui: ResMut<Ui>, mut map: ResMut<crat
     }
 }
 
-/// What the page draws: sent when it changes.
-#[derive(Clone, PartialEq, Default)]
-pub struct View {
-    screen: &'static str,
-    panel: &'static str,
-    help: bool,
-    click_to_fly: bool,
-    refused: bool,
-    message: String,
-    retryable: bool,
-    reload: bool,
-    attempt: u32,
-    retry_in: u32,
-    toast_seq: u32,
-    toast: String,
-    hint: String,
-    signing: bool,
-    signed_in: bool,
-    parkable: bool,
-    aloft: bool,
-    hide_spot: &'static str,
-    survival: bool,
-    terminal: &'static str,
-    place: &'static str,
-    on_foot: bool,
-    driving: &'static str,
-    inside: bool,
-    trainer: bool,
-    sequence: bool,
-    prompt: String,
-    bay_line: String,
-    map_at: Option<[f32; 4]>,
-    map_goal: Option<&'static str>,
-    map_found: u32,
-    news_seq: u32,
-    news: String,
-    news_bad: bool,
-    debrief_seq: u32,
-    debrief: Vec<(String, i64)>,
-    debrief_net: i64,
-    chat: bool,
-    radio_seq: u32,
-    radio: Vec<(String, String)>,
-}
-
-impl View {
-    fn of(ui: &Ui) -> Self {
-        View {
-            screen: ui.screen.name(),
-            panel: match ui.panel {
-                Panel::None => "none",
-                Panel::Pause => "pause",
-                Panel::Settings { .. } => "settings",
-                Panel::Terminal(_) | Panel::Board | Panel::Proving | Panel::Arrival | Panel::Home(_) => {
-                    "terminal"
-                }
-            },
-            help: ui.help,
-            click_to_fly: ui.click_to_fly,
-            refused: ui.refused,
-            message: ui.message.clone(),
-            retryable: ui.retryable,
-            reload: ui.reload,
-            attempt: ui.attempt,
-            retry_in: ui.retry_in,
-            toast_seq: ui.toast_seq,
-            toast: ui.toast.clone(),
-            hint: ui.hint.clone(),
-            signing: ui.signing,
-            signed_in: ui.signed_in,
-            parkable: ui.parkable,
-            aloft: ui.aloft,
-            hide_spot: ui.hide_spot,
-            survival: ui.survival,
-            terminal: ui.terminal_tab(),
-            place: ui.place,
-            on_foot: ui.on_foot,
-            driving: ui.driving,
-            inside: ui.inside,
-            trainer: ui.trainer,
-            sequence: ui.sequence,
-            prompt: ui.prompt.clone(),
-            bay_line: ui.bay_line.clone(),
-            map_at: ui.map_at.filter(|_| ui.map),
-            map_goal: ui.map_goal.filter(|_| ui.map),
-            map_found: ui.map_found,
-            news_seq: ui.news_seq,
-            news: ui.news.clone(),
-            news_bad: ui.news_bad,
-            debrief_seq: ui.debrief_seq,
-            debrief: ui.debrief.clone(),
-            debrief_net: ui.debrief_net,
-            chat: ui.chat,
-            radio_seq: ui.radio_seq,
-            radio: ui.radio.clone(),
-        }
-    }
-
-    fn to_js(&self) -> Object {
-        let o = Object::new();
-        set(&o, "screen", self.screen);
-        set(&o, "panel", self.panel);
-        set(&o, "help", self.help);
-        set(&o, "clickToFly", self.click_to_fly);
-        set(&o, "refused", self.refused);
-        set(&o, "message", self.message.as_str());
-        set(&o, "retryable", self.retryable);
-        set(&o, "reload", self.reload);
-        set(&o, "attempt", self.attempt);
-        set(&o, "retryIn", self.retry_in);
-        set(&o, "toastSeq", self.toast_seq);
-        set(&o, "toast", self.toast.as_str());
-        set(&o, "hint", self.hint.as_str());
-        set(&o, "signing", self.signing);
-        set(&o, "signedIn", self.signed_in);
-        set(&o, "parkable", self.parkable);
-        set(&o, "aloft", self.aloft);
-        set(&o, "hideSpot", self.hide_spot);
-        set(&o, "survival", self.survival);
-        set(&o, "terminal", self.terminal);
-        set(&o, "place", self.place);
-        set(&o, "onFoot", self.on_foot);
-        set(&o, "driving", self.driving);
-        set(&o, "inside", self.inside);
-        set(&o, "trainer", self.trainer);
-        set(&o, "sequence", self.sequence);
-        set(&o, "prompt", self.prompt.as_str());
-        set(&o, "bayLine", self.bay_line.as_str());
-        if let Some([strip, x, s, heading]) = self.map_at {
-            let at = Object::new();
-            set(&at, "strip", strip);
-            set(&at, "x", x);
-            set(&at, "s", s);
-            set(&at, "heading", heading);
-            set(&o, "map", at);
-        }
-        if let Some(goal) = self.map_goal {
-            set(&o, "mapGoal", goal);
-        }
-        set(&o, "mapFound", self.map_found);
-        set(&o, "newsSeq", self.news_seq);
-        set(&o, "news", self.news.as_str());
-        set(&o, "newsBad", self.news_bad);
-        set(&o, "debriefSeq", self.debrief_seq);
-        let debrief = Array::new();
-        for (what, cr) in &self.debrief {
-            debrief.push(&Array::of2(&JsValue::from_str(what), &JsValue::from_f64(*cr as f64)));
-        }
-        set(&o, "debrief", debrief);
-        set(&o, "debriefNet", self.debrief_net as f64);
-        set(&o, "chat", self.chat);
-        set(&o, "radioSeq", self.radio_seq);
-        let radio = Array::new();
-        for (from, text) in &self.radio {
-            radio.push(&Array::of2(&JsValue::from_str(from), &JsValue::from_str(text)));
-        }
-        set(&o, "radio", radio);
-        o
+/// What the page draws, from the page's state as Rust decides it.
+fn view_of(ui: &Ui) -> View {
+    View {
+        screen: ui.screen,
+        panel: match ui.panel {
+            Panel::None => PanelKind::None,
+            Panel::Pause => PanelKind::Pause,
+            Panel::Settings { .. } => PanelKind::Settings,
+            Panel::Terminal(_) | Panel::Board | Panel::Proving | Panel::Arrival | Panel::Home(_) => {
+                PanelKind::Terminal
+            }
+        },
+        help: ui.help,
+        click_to_fly: ui.click_to_fly,
+        refused: ui.refused,
+        message: ui.message.clone(),
+        retryable: ui.retryable,
+        reload: ui.reload,
+        attempt: ui.attempt,
+        retry_in: ui.retry_in,
+        toast_seq: ui.toast_seq,
+        toast: ui.toast.clone(),
+        hint: ui.hint.clone(),
+        signing: ui.signing,
+        signed_in: ui.signed_in,
+        parkable: ui.parkable,
+        aloft: ui.aloft,
+        hide_spot: ui.hide_spot,
+        survival: ui.survival,
+        terminal: ui.terminal_tab(),
+        place: ui.place,
+        on_foot: ui.on_foot,
+        driving: ui.driving,
+        inside: ui.inside,
+        trainer: ui.trainer,
+        sequence: ui.sequence,
+        prompt: ui.prompt.clone(),
+        bay_line: ui.bay_line.clone(),
+        map: ui.map_at.filter(|_| ui.map).map(|[strip, x, s, heading]| MapAt { strip, x, s, heading }),
+        map_goal: ui.map_goal.filter(|_| ui.map),
+        map_found: ui.map_found,
+        news_seq: ui.news_seq,
+        news: ui.news.clone(),
+        news_bad: ui.news_bad,
+        debrief_seq: ui.debrief_seq,
+        debrief: ui.debrief.clone(),
+        debrief_net: ui.debrief_net,
+        chat: ui.chat,
+        radio_seq: ui.radio_seq,
+        radio: ui.radio.clone(),
     }
 }
 
@@ -605,22 +384,10 @@ pub fn publish_view(ui: Res<Ui>, mut last: Local<Option<View>>, mut ready: Local
         *ready = true;
         *last = None;
     }
-    let view = View::of(&ui);
+    let view = view_of(&ui);
     if last.as_ref() != Some(&view) {
-        call_ui("update", &view.to_js());
+        call_ui("update", &to_js(&view));
         *last = Some(view);
-    }
-}
-
-/// The special on the H key, by name.
-fn special_name(kind: SpecialKind) -> Option<&'static str> {
-    match kind {
-        SpecialKind::None => None,
-        SpecialKind::Transform { .. } => Some("Aquila: changes into a fast cruiser form"),
-        SpecialKind::Eclipse { .. } => Some("Eclipse: hides it from sensors"),
-        SpecialKind::FullSalvo { .. } => Some("Full Salvo: every gun at once"),
-        SpecialKind::MeleeMove { .. } => Some("Pincer Strike: the shield's claws"),
-        SpecialKind::Ward { .. } => Some("Ward: a field no beam crosses"),
     }
 }
 
@@ -639,122 +406,14 @@ pub fn init_page(
         return; // the page script isn't in yet: next frame
     }
     *done = true;
-    let frames = Array::new();
-    for f in PLAYABLE_ORDER {
-        let spec = frame(f);
-        let o = Object::new();
-        set(&o, "slug", f.slug());
-        set(&o, "name", frame_name(f));
-        set(&o, "designation", frame_designation(f));
-        let weapons = Array::new();
-        for m in spec.loadout.iter().flatten() {
-            weapons.push(&JsValue::from_str(weapon_name(m.weapon)));
-        }
-        set(&o, "weapons", weapons);
-        if let Some(s) = special_name(spec.special) {
-            set(&o, "special", s);
-        }
-        set(&o, "orrery", spec.orrery);
-        frames.push(&o);
-    }
-    let controls = Array::new();
-    for g in Group::ALL {
-        let group = Object::new();
-        set(&group, "title", g.title());
-        let rows = Array::new();
-        for b in BINDINGS.iter().filter(|b| b.group == g) {
-            let row = Array::new();
-            row.push(&JsValue::from_str(b.keys));
-            row.push(&JsValue::from_str(b.action));
-            rows.push(&row);
-        }
-        set(&group, "rows", rows);
-        controls.push(&group);
-    }
-    let init = Object::new();
-    set(&init, "frames", frames);
-    set(&init, "controls", controls);
-    set(&init, "city", city_map());
     let saved = settings.as_ref().map(|s| &s.0);
     let pick = |url: &str, saved: Option<&str>| {
         if url.is_empty() { saved.unwrap_or_default().to_string() } else { url.to_string() }
     };
-    set(&init, "name", pick(&cfg.0.name, saved.map(|s| s.name.as_str())));
-    set(&init, "frame", pick(&cfg.0.frame, saved.map(|s| s.frame.as_str())));
-    set(&init, "autoplay", cfg.0.autoplay);
-    call_ui("init", &init);
-}
-
-/// The colony's city for the page's map (M): each strip's districts along it, its key places'
-/// doors and its sights, and the grid's lines the map draws them on (`bc_sim::colony::city`).
-fn city_map() -> Object {
-    use bc_sim::colony::city::{
-        AVENUE, BLOCK, CANAL_ROW, CITY, DISTRICT_BLOCKS, HUB_GATE, ROWS, SITE, SQUARE_ROWS, block_rect,
-        channel, grid_x, place_door, row_span,
-    };
-    use bc_sim::colony::frame::{STRIP_WIDTH, STRIPS};
-    use bc_sim::content::city::{DISTRICT_NAMES, PLACES, SIGHTS, STRIP_NAMES};
-    let point = |name: &str, s: f32, x: f32| {
-        let o = Object::new();
-        set(&o, "name", name);
-        set(&o, "s", s);
-        set(&o, "x", x);
-        o
-    };
-    let strips = Array::new();
-    for k in 0..STRIPS {
-        let strip = Object::new();
-        set(&strip, "name", STRIP_NAMES[k]);
-        let districts = Array::new();
-        for (d, name) in DISTRICT_NAMES[k].iter().enumerate() {
-            let d = d as i32;
-            let b0 = if d == 0 { HUB_GATE.0 } else { CITY.0 + DISTRICT_BLOCKS * d };
-            let b1 = (CITY.0 + DISTRICT_BLOCKS * (d + 1)).min(CITY.1 + 1);
-            let o = point(name, 0.0, grid_x(b0));
-            set(&o, "x1", grid_x(b1));
-            districts.push(&o);
-        }
-        let site = point("THE BUILDING SITE", 0.0, grid_x(SITE.0));
-        set(&site, "x1", grid_x(SITE.1 + 1));
-        districts.push(&site);
-        set(&strip, "districts", districts);
-        let places = Array::new();
-        for p in PLACES.iter().filter(|p| p.strip as usize == k) {
-            let ((s, x), _) = place_door(p);
-            let o = point(p.name, s, x);
-            set(&o, "slug", p.slug);
-            places.push(&o);
-        }
-        set(&strip, "places", places);
-        let sights = Array::new();
-        for i in (0..SIGHTS.len()).filter(|i| SIGHTS[*i].0 as usize == k) {
-            let (_, s, x) = bc_client_core::sights::sight_at(i);
-            let o = point(SIGHTS[i].3, s, x);
-            // Its bit on the found-list.
-            set(&o, "i", i as u32);
-            sights.push(&o);
-        }
-        set(&strip, "sights", sights);
-        strips.push(&strip);
-    }
-    let canal = channel(&block_rect(CITY.0, CANAL_ROW));
-    let o = Object::new();
-    set(&o, "strips", strips);
-    set(&o, "width", STRIP_WIDTH);
-    set(&o, "x0", grid_x(HUB_GATE.0));
-    set(&o, "x1", grid_x(SITE.1 + 1));
-    set(&o, "block", BLOCK);
-    set(&o, "gridX0", grid_x(0));
-    set(&o, "avenue", AVENUE);
-    set(&o, "rows", ROWS);
-    set(&o, "canal", Array::of2(&JsValue::from(canal.s0), &JsValue::from(canal.s1)));
-    // Hub Gate's square: (s0, s1, x0, x1).
-    let (sq0, _) = row_span(-SQUARE_ROWS);
-    let (_, sq1) = row_span(SQUARE_ROWS);
-    let square = Array::new();
-    for v in [sq0, sq1, grid_x(HUB_GATE.0), grid_x(HUB_GATE.1 + 1)] {
-        square.push(&JsValue::from(v));
-    }
-    set(&o, "square", square);
-    o
+    let init = Init::new(
+        pick(&cfg.0.name, saved.map(|s| s.name.as_str())),
+        pick(&cfg.0.frame, saved.map(|s| s.frame.as_str())),
+        cfg.0.autoplay,
+    );
+    call_ui("init", &to_js(&init));
 }

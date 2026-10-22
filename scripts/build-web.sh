@@ -2,6 +2,7 @@
 # Builds the browser client into web/dist/<variant>/ (variants: webgl2, webgpu).
 #   scripts/build-web.sh            # webgl2 only (fast path)
 #   scripts/build-web.sh webgl2 webgpu
+#   scripts/build-web.sh page       # only the page and its gallery (no wasm): then open /?gallery
 # Env: BC_WEB_PROFILE (default wasm-release), BC_WEB_OPT=1 to run wasm-opt when available;
 # CARGO_TARGET_DIR is followed.
 set -euo pipefail
@@ -11,23 +12,28 @@ variants=("$@")
 [ ${#variants[@]} -eq 0 ] && variants=(webgl2)
 profile="${BC_WEB_PROFILE:-wasm-release}"
 
-# wasm-bindgen's CLI must match the crate version exactly.
-crate_ver=$(awk '/^name = "wasm-bindgen"$/{getline; print $3}' Cargo.lock | tr -d '"' | head -1)
-cli_ver=$(wasm-bindgen --version 2>/dev/null | awk '{print $2}')
-if [ -z "$cli_ver" ]; then
-  echo "wasm-bindgen CLI not found: cargo install wasm-bindgen-cli --version ${crate_ver} --locked" >&2
-  exit 1
-fi
-if [ "$crate_ver" != "$cli_ver" ]; then
-  echo "wasm-bindgen CLI ${cli_ver} != crate ${crate_ver}" >&2
-  exit 1
+# wasm-bindgen's CLI must match the crate version exactly (only the page: no wasm to bind).
+if [ "${variants[*]}" != page ]; then
+  crate_ver=$(awk '/^name = "wasm-bindgen"$/{getline; print $3}' Cargo.lock | tr -d '"' | head -1)
+  cli_ver=$(wasm-bindgen --version 2>/dev/null | awk '{print $2}')
+  if [ -z "$cli_ver" ]; then
+    echo "wasm-bindgen CLI not found: cargo install wasm-bindgen-cli --version ${crate_ver} --locked" >&2
+    exit 1
+  fi
+  if [ "$crate_ver" != "$cli_ver" ]; then
+    echo "wasm-bindgen CLI ${cli_ver} != crate ${crate_ver}" >&2
+    exit 1
+  fi
 fi
 
 mkdir -p web/dist
-cp web/index.html web/config.js web/boot.js web/loader.js web/ui.js web/style.css web/favicon.svg web/dist/
+cp web/index.html web/config.js web/boot.js web/loader.js web/ui.js web/gallery.js web/style.css web/favicon.svg web/dist/
 mkdir -p web/dist/fonts && cp web/fonts/* web/dist/fonts/
+# The page's gallery (`?gallery`): every screen with made-up data (bc_client_core::gallery).
+cargo run -q -p bc-client-core --example page_gallery > web/dist/gallery.json
 
 for v in "${variants[@]}"; do
+  [ "$v" = page ] && continue
   feats=()
   case "$v" in
     webgl2) ;;

@@ -590,7 +590,7 @@ fn run_course(
 /// A ring flown, or a lit target struck: the cockpit's confirming chime.
 fn chime(cmds: Option<&mut UiCmds>) {
     if let Some(c) = cmds {
-        c.0.push(UiCmd::Sfx("confirm".into()));
+        c.0.push(UiCmd::Sfx { cue: "confirm".into() });
     }
 }
 

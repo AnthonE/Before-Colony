@@ -3,6 +3,7 @@
 #   scripts/e2e.sh spike [project]   # transport smoke test (server in echo mode)
 #   scripts/e2e.sh slice [project]   # the vertical slice (game mode, drones + an agent bot)
 #   scripts/e2e.sh gfx [project]     # every showcase scene renders cleanly (BC_GFX_QUALITY=high)
+#   scripts/e2e.sh gallery [project] # every screen of the page, with the gallery's made-up data (no game)
 #   scripts/e2e.sh frames [project]  # the autopilot flies each Lodestar's kit against the drones
 #   scripts/e2e.sh lockon [project]  # Y locks on to a drone, W carries the suit in, holding Y lets go
 #   scripts/e2e.sh ui [project]      # the title screen, the menu, reconnecting, disconnecting
@@ -46,8 +47,8 @@ cleanup() {
 trap cleanup EXIT
 
 case "$suite" in
-  spike|gfx)
-    # The showcase runs offline; the echo server just serves the page.
+  spike|gfx|gallery)
+    # The showcase and the gallery run offline; the echo server just serves the page.
     "${server[@]}" --mode echo &
     pids+=($!)
     ;;
