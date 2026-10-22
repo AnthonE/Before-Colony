@@ -25,6 +25,7 @@ fn car_at(strip: u8, floor: f32) -> DVec3 {
 }
 
 /// Builds the cars once the city is set up, and puts each where it is this frame.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_lift_cars(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
