@@ -793,6 +793,9 @@ pilots out, and its limits are counted on `/status`.
 
 ## Scaling path
 
+`SCALE.md` has the measurements (`cargo bench -p bc-sector --bench sector`), the bottlenecks in order
+and the plan in full; this is the short form.
+
 1. **One sector per server** (now), and a second for the colony's inside. The server builds one
    sector and runs it on the thread `sector-0`, with its own rings and egress thread; the Welcome's
    sector is 1. With the colony open (survival, unless `--no-colony`) it builds the inside too (`sector-1`, `egress-1`, the Welcome's 2),
