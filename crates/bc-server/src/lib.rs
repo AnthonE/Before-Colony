@@ -104,7 +104,11 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
     let status_game = status_view.clone();
     let launcher_stats = stats.clone();
     let launcher_game = status_view.clone();
-    let max_players = cfg.max_clients;
+    // Everyone connected has a session; under arcade rules each flies, on a flight slot of its own.
+    let max_players = match cfg.rules {
+        Ruleset::Survival => cfg.max_sessions,
+        Ruleset::Arcade => cfg.max_sessions.min(cfg.max_clients),
+    };
     let online = shared.as_ref().map(|g| g.online.clone());
     let http_state = http::HttpState {
         // A CA-issued certificate is validated by the browser: nothing to pin.

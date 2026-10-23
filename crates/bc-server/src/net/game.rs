@@ -620,6 +620,7 @@ impl StatusView {
             }
             pilots.push(serde_json::json!({
                 "client_slot": slot,
+                "session": entry.map(|e| e.session),
                 "suit": suit,
                 "name": entry.map(|e| e.name.clone()).unwrap_or_default(),
                 "verified": entry.is_some_and(|e| e.flags & roster_flags::VERIFIED != 0),
@@ -701,8 +702,12 @@ impl StatusView {
             })
         });
         // Sessions live (in the bay, on foot or flying), and room for them; suits flying in space
-        // are `clients`, of the sector's `max_clients` slots.
-        let sessions = serde_json::json!({ "live": self.sessions.live(), "max": self.sessions.max() });
+        // are `clients`, and the flight slots no session holds are free.
+        let sessions = serde_json::json!({
+            "live": self.sessions.live(),
+            "max": self.sessions.max(),
+            "flight_slots_free": s.leases.len(),
+        });
         let tick_us = serde_json::json!({
             "p50": m.tick_quantile_us(0.5),
             "p99": m.tick_quantile_us(0.99),
@@ -848,6 +853,25 @@ pub(super) async fn wait_slot(
         tokio::time::sleep(Duration::from_millis(2)).await;
     }
     None
+}
+
+/// Tells the sector a slot is empty (whatever was seated there leaves), and waits until it has
+/// heard: every tick drains the control queue first, so two ticks on, nothing this session sent
+/// it before (a `Watch`, a `Join`) can seat anyone under whoever has the slot next.
+pub(super) async fn vacate(sector: &SectorShared, slot: u16) {
+    let tick = || sector.tick.load(Ordering::Acquire);
+    let mut bye = Control::Leave { slot };
+    while let Err(back) = sector.control.push(bye) {
+        bye = back;
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    let pushed = tick();
+    for _ in 0..1_500 {
+        if tick() > pushed + 1 && sector.slots[slot as usize].state() == SlotState::Free {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
 }
 
 /// Simple token bucket: inputs are ~30/s; allow bursts, drop floods.

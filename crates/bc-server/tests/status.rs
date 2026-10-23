@@ -63,6 +63,13 @@ async fn the_store_reads_players_slots_and_tick() -> anyhow::Result<()> {
     let (headers, status) = get(&format!("{base}/status"), Some("https://elopros.com")).await?;
     assert_eq!(status["mode"], "game");
     assert_eq!(status["net"]["agents_active"], 1);
+    // One session, flying (arcade): it holds one of the twelve flight slots.
+    let sessions = &status["game"]["sessions"];
+    assert_eq!((sessions["live"].as_u64(), sessions["max"].as_u64()), (Some(1), Some(512)), "{sessions}");
+    assert_eq!(sessions["flight_slots_free"], 11, "{sessions}");
+    let pilot = &status["game"]["pilots"][0];
+    assert_eq!(pilot["name"], "Agent-1");
+    assert!(pilot["session"].as_u64().is_some_and(|id| id > 0), "{pilot}");
     assert_eq!(headers["access-control-allow-origin"], "https://elopros.com");
 
     // Self-signed: the page pins this hash.

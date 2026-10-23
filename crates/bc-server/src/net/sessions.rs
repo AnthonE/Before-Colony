@@ -120,14 +120,14 @@ mod tests {
     #[test]
     fn bays_go_to_the_least_used_and_come_back() {
         let s = Sessions::new(500);
-        let first: Vec<Admitted> = (0..BAYS).map(|_| s.admit().unwrap()).collect();
+        let mut first: Vec<Admitted> = (0..BAYS).map(|_| s.admit().unwrap()).collect();
         let bays: Vec<u8> = first.iter().map(|a| a.bay).collect();
         assert_eq!(bays, (1..=BAYS as u8).collect::<Vec<_>>(), "one each, in order");
         // The hundredth shares the first bay.
         let extra = s.admit().unwrap();
         assert_eq!(extra.bay, 1);
         // Bay 7 empties: the next goes there.
-        drop(first.into_iter().nth(6));
+        drop(first.remove(6));
         assert_eq!(s.admit().unwrap().bay, 7);
     }
 }

@@ -1,4 +1,5 @@
-//! One pilot's session, from the moment they have a slot to the moment they give it back.
+//! One pilot's session, from its Hello to its goodbye. It has an id and a bay from the start
+//! (`super::sessions`), and a flight slot in the sector only while its suit is out in space.
 //!
 //! - **Arcade rules:** the pilot is seated in a suit at once (the one they left asleep, or a new
 //!   one of the frame they chose) and flies until they leave.
@@ -17,8 +18,10 @@
 //!   (`desk::place_at`), and what the Charter Board pays out (the certificate's rifle, patrols'
 //!   rewards, aces' bounties) is collected in its hall. With the colony shut, the bay does it all.
 //!
-//! Whatever happens, the slot is handed back in the order that keeps it race-free: stop sending,
-//! settle the roster, let the sector put the suit to sleep (or release it), then return the lease.
+//! Whatever happens, a flight slot is handed back in the order that keeps it race-free: stop
+//! sending, settle the roster, let the sector put the suit to sleep (or release it), then return
+//! the lease. It goes back as the flight ends (docked, or the wreck cleared and towed home: `land`),
+//! for another pilot to fly; under arcade rules, at the goodbye.
 
 use std::time::{Duration, Instant};
 
@@ -43,7 +46,7 @@ use super::admit::{Asked, Requests};
 use super::desk;
 use super::game::{
     EgressCmd, GameShared, HangarEntry, RateLimit, RosterEntry, RosterUpdate, forget, process_notes, reject,
-    send_control, set_roster_flags, wait_slot,
+    send_control, set_roster_flags, vacate, wait_slot,
 };
 use crate::pilots::{self, Fate, ParkedSuit, PilotRecord, Sleeper};
 use crate::radio::Mouth;
@@ -92,12 +95,7 @@ pub(super) async fn run(
         NetStats::add(&stats.sessions_rejected, 1);
         return reject(tx, RejectReason::ServerFull).await;
     };
-    let Some(lease) = game.sector.leases.pop() else {
-        NetStats::add(&stats.sessions_rejected, 1);
-        return reject(tx, RejectReason::ServerFull).await;
-    };
     let (id, bay) = (admitted.id, admitted.bay);
-    let slot = lease.slot;
     let callsign = if who.name.is_empty() { format!("Pilot-{id}") } else { who.name.as_str().to_string() };
     let record = match who.address {
         Some(a) => Some(game.pilots.load_or_new(&a).await),
@@ -112,8 +110,7 @@ pub(super) async fn run(
         game,
         stats,
         tx,
-        lease: Some(lease),
-        slot,
+        lease: None,
         id,
         bay,
         admitted,
@@ -176,9 +173,10 @@ struct Session<'a> {
     bay: u8,
     #[allow(dead_code)]
     admitted: super::sessions::Admitted,
-    /// The slot's lease: its input ring and report ring (handed back last).
+    /// The flight slot in space, while the pilot's suit is out there (or the colony's tugs are out
+    /// for its wreck): its input ring and report ring. Taken at a launch, given back when the
+    /// flight is over (`land`); under arcade rules, held from the Hello to the goodbye.
     lease: Option<SlotLease>,
-    slot: u16,
     pilot: PilotKind,
     /// The frame chosen (arcade), and the side flown for.
     frame: FrameId,
@@ -276,8 +274,69 @@ impl Session<'_> {
         self.game.survival
     }
 
-    fn lease(&mut self) -> &mut SlotLease {
-        self.lease.as_mut().expect("the lease is held until the session leaves")
+    /// The flight slot in space, if one is held.
+    fn slot(&self) -> Option<u16> {
+        self.lease.as_ref().map(|l| l.slot)
+    }
+
+    /// The flight slot in space: the one held, or one taken now (`None`: space is full).
+    fn take_flight(&mut self) -> Option<u16> {
+        if let Some(slot) = self.slot() {
+            return Some(slot);
+        }
+        let lease = self.game.sector.leases.pop()?;
+        let slot = lease.slot;
+        self.lease = Some(lease);
+        Some(slot)
+    }
+
+    /// [`take_flight`](Self::take_flight), waiting up to a second for one (a pilot signing in
+    /// again, whose last session is handing theirs back).
+    async fn take_flight_waiting(&mut self) -> Option<u16> {
+        for _ in 0..50 {
+            if let Some(slot) = self.take_flight() {
+                return Some(slot);
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        None
+    }
+
+    /// [`take_flight`](Self::take_flight), with its snapshots on the pilot's connection from now on.
+    fn lease_flight(&mut self) -> Option<u16> {
+        let slot = self.take_flight()?;
+        let _ = self.game.egress.push(EgressCmd::Attach(slot, self.conn.clone()));
+        self.game.egress_thread.unpark();
+        Some(slot)
+    }
+
+    /// Gives the flight slot back: its snapshots stop, the sector lets go of whatever was seated
+    /// there, and what it had left to say about it is returned (nothing of it is for whoever has
+    /// the slot next).
+    async fn give_back(&mut self) -> Vec<Report> {
+        let Some(mut lease) = self.lease.take() else { return Vec::new() };
+        let _ = self.game.egress.push(EgressCmd::Detach(lease.slot));
+        self.game.egress_thread.unpark();
+        vacate(&self.game.sector, lease.slot).await;
+        let mut reports = Vec::new();
+        while let Ok(report) = lease.reports.pop() {
+            reports.push(report);
+        }
+        let _ = self.game.sector.leases.push(lease);
+        reports
+    }
+
+    /// Under survival, a flight over (nothing of the pilot's out in space, and no wreck on its
+    /// way home): the slot goes back, for another pilot to fly.
+    async fn land(&mut self) -> anyhow::Result<()> {
+        let out_in_space = self.suit.is_some() && self.inside.is_none();
+        if !self.survival() || self.lease.is_none() || out_in_space || self.lost || self.towing {
+            return Ok(());
+        }
+        for report in self.give_back().await {
+            self.on_report(report).await?;
+        }
+        Ok(())
     }
 
     /// Seats the pilot, welcomes them, and tells them how things stand. `false`: refused (and
@@ -294,15 +353,32 @@ impl Session<'_> {
                 arrived = true;
                 Hangar::starter()
             });
-            // Out in the sector, asleep: wake in it, if it's still there.
+            // Out in the sector, asleep: wake in it, if it's still there (on a flight slot: space
+            // full, the pilot is turned away, and their suit sleeps on).
             if matches!(self.hangar.bay, Bay::Out { .. }) {
                 let line = self.hangar_line();
                 if let Some(sleeper) = left {
+                    if self.take_flight_waiting().await.is_none() {
+                        NetStats::add(&self.stats.sessions_rejected, 1);
+                        let _ =
+                            send_control(self.tx, ControlMsg::Reject { reason: RejectReason::ServerFull })
+                                .await;
+                        return Ok(false);
+                    }
                     let comeback = Comeback { sleeper: Some((sleeper.suit, sleeper.generation)), credits: 0 };
                     woke = self.seat(line, None, comeback).await == Some(Outcome::Woke);
+                    if !woke {
+                        let _ = self.give_back().await;
+                    }
                 }
             }
         } else {
+            // Under arcade rules every pilot flies, from the Hello.
+            if self.take_flight().is_none() {
+                NetStats::add(&self.stats.sessions_rejected, 1);
+                let _ = send_control(self.tx, ControlMsg::Reject { reason: RejectReason::ServerFull }).await;
+                return Ok(false);
+            }
             let comeback = Comeback {
                 sleeper: left.map(|s| (s.suit, s.generation)),
                 credits: self.record.as_ref().map_or(0, |r| r.credits),
@@ -381,7 +457,7 @@ impl Session<'_> {
             }
             None => {}
         }
-        tracing::info!(session = self.id, slot = self.slot, suit = ?self.suit, pilot = ?self.pilot, name = %self.callsign, woke, "pilot joined");
+        tracing::info!(session = self.id, slot = ?self.slot(), suit = ?self.suit, pilot = ?self.pilot, name = %self.callsign, woke, "pilot joined");
         // Everyone flying, for the pilot's roster.
         let everyone: Vec<(u16, RosterEntry)> = self
             .game
@@ -396,8 +472,11 @@ impl Session<'_> {
             )
             .await?;
         }
-        let _ = self.game.egress.push(EgressCmd::Attach(self.slot, self.conn.clone()));
-        self.game.egress_thread.unpark();
+        // Snapshots after the Welcome and the roster, if they fly.
+        if let Some(slot) = self.slot() {
+            let _ = self.game.egress.push(EgressCmd::Attach(slot, self.conn.clone()));
+            self.game.egress_thread.unpark();
+        }
         if self.survival() {
             self.place = if self.suit.is_some() { Place::Space } else { Place::Hangar };
             // Asleep in a bed at home when they left: they wake there.
@@ -490,11 +569,12 @@ impl Session<'_> {
     /// Asks the sector for a suit: the sleeper in `comeback`, the `launch`ed build, or (arcade) a
     /// new `frame`. How it went, if the pilot is seated.
     async fn seat(&mut self, frame: FrameId, launch: Option<Launch>, comeback: Comeback) -> Option<Outcome> {
+        let slot = self.slot()?;
         let sector = &self.game.sector;
-        let status = &sector.slots[self.slot as usize];
+        let status = &sector.slots[slot as usize];
         let epoch = status.epoch();
         let mut join = Control::Join {
-            slot: self.slot,
+            slot,
             pilot: self.pilot,
             frame,
             faction: self.faction,
@@ -506,7 +586,7 @@ impl Session<'_> {
             join = back;
             tokio::time::sleep(Duration::from_millis(2)).await;
         }
-        let state = wait_slot(sector, self.slot, |s, e| e != epoch && s != SlotState::Free).await;
+        let state = wait_slot(sector, slot, |s, e| e != epoch && s != SlotState::Free).await;
         let (Some(SlotState::Active), Some((suit, generation))) = (state, status.suit_id()) else {
             return None;
         };
@@ -598,12 +678,11 @@ impl Session<'_> {
                         Ok(packet) if rate.allow() => {
                             heard = tokio::time::Instant::now();
                             let recv_us = self.game.sector.now_us();
-                            // Inside the colony, to its sector.
-                            let input = match self.inside.as_mut() {
-                                Some(lease) => &mut lease.input,
-                                None => &mut self.lease().input,
-                            };
-                            let _ = input.push(InputMsg { packet, recv_us });
+                            // Inside the colony, to its sector; out in space, to its flight slot;
+                            // with neither, there's nothing to fly.
+                            if let Some(lease) = self.inside.as_mut().or(self.lease.as_mut()) {
+                                let _ = lease.input.push(InputMsg { packet, recv_us });
+                            }
                         }
                         Ok(_) => {}
                         Err(_) => NetStats::add(&self.stats.malformed, 1),
@@ -621,8 +700,8 @@ impl Session<'_> {
                         let bytes = match (asked, frame) {
                             (_, Frame::Msg(ControlMsg::Bye { .. })) => return Ok(()),
                             (Asked::Take, Frame::Msg(ControlMsg::Respawn { frame })) => {
-                                if !self.survival() {
-                                    let _ = self.game.sector.control.push(Control::Respawn { slot: self.slot, frame });
+                                if !self.survival() && let Some(slot) = self.slot() {
+                                    let _ = self.game.sector.control.push(Control::Respawn { slot, frame });
                                 }
                                 None
                             }
@@ -636,7 +715,7 @@ impl Session<'_> {
                             Asked::End => {
                                 NetStats::add(&self.stats.requests_refused, 1);
                                 NetStats::add(&self.stats.flooders_ended, 1);
-                                tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, "flooding the control stream: ending the session");
+                                tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, "flooding the control stream: ending the session");
                                 let _ = send_control(self.tx, ControlMsg::Bye { reason: bye::LEAVE }).await;
                                 return Ok(());
                             }
@@ -679,7 +758,7 @@ impl Session<'_> {
                 }
                 _ = tokio::time::sleep_until(heard + self.game.idle) => {
                     // Nobody at the controls (the tab is frozen, or the client hung): as if they'd left.
-                    tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, "idle: ending the session");
+                    tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, "idle: ending the session");
                     let _ = send_control(self.tx, ControlMsg::Bye { reason: bye::IDLE }).await;
                     return Ok(());
                 }
@@ -741,7 +820,7 @@ impl Session<'_> {
         let placed = self.game.proving.with(|b| b.record(feat, &self.trader, &self.callsign, ms, now));
         self.game.proving.changed();
         let best = self.bests.better(feat, ms);
-        tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, ?feat, ms, rank = ?placed.rank, best, "the proving ground");
+        tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, ?feat, ms, rank = ?placed.rank, best, "the proving ground");
         if best && let Some(r) = self.record.as_mut() {
             r.proving = self.bests;
             self.save().await;
@@ -777,7 +856,7 @@ impl Session<'_> {
         };
         charter.changed();
         market.changed();
-        tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, "certified by the charter board");
+        tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, "certified by the charter board");
         charter.save().await;
         market.save().await;
         self.save().await;
@@ -1003,8 +1082,13 @@ impl Session<'_> {
             // In the sector (under arcade rules a pilot is always there). Inside the colony nothing
             // strikes a suit, and nobody ejects.
             let flying = self.place == Place::Space || !self.survival();
-            if flying && self.suit.is_some() && !self.lost && self.inside.is_none() {
-                let _ = self.game.sector.control.push(Control::Eject { slot: self.slot, destruct });
+            if flying
+                && self.suit.is_some()
+                && !self.lost
+                && self.inside.is_none()
+                && let Some(slot) = self.slot()
+            {
+                let _ = self.game.sector.control.push(Control::Eject { slot, destruct });
             }
             return Ok(());
         }
@@ -1062,7 +1146,9 @@ impl Session<'_> {
                             let _ = inside.sector.control.push(Control::UseKit { slot: lease.slot, kit });
                         }
                         _ => {
-                            let _ = self.game.sector.control.push(Control::UseKit { slot: self.slot, kit });
+                            if let Some(slot) = self.slot() {
+                                let _ = self.game.sector.control.push(Control::UseKit { slot, kit });
+                            }
                         }
                     }
                 }
@@ -1167,7 +1253,7 @@ impl Session<'_> {
         self.game.plaza.key(self.id, &self.trader);
         self.homes_near.clear();
         self.named.clear();
-        tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, strip = self.strip, "went down into the colony");
+        tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, strip = self.strip, "went down into the colony");
         self.watch();
         self.send_place().await?;
         self.send_proving().await?;
@@ -1204,20 +1290,7 @@ impl Session<'_> {
         };
         let _ = inside.egress.push(EgressCmd::Detach(lease.slot));
         inside.egress_thread.unpark();
-        let tick = || inside.sector.tick.load(std::sync::atomic::Ordering::Acquire);
-        let mut bye = Control::Leave { slot: lease.slot };
-        while let Err(back) = inside.sector.control.push(bye) {
-            bye = back;
-            tokio::time::sleep(Duration::from_millis(2)).await;
-        }
-        // Every tick drains the control queue first: two ticks on, the Leave has been heard.
-        let pushed = tick();
-        for _ in 0..1_500 {
-            if tick() > pushed + 1 && inside.sector.slots[lease.slot as usize].state() == SlotState::Free {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(2)).await;
-        }
+        vacate(&inside.sector, lease.slot).await;
         while lease.reports.pop().is_ok() {}
         let _ = inside.sector.leases.push(lease);
     }
@@ -1242,7 +1315,7 @@ impl Session<'_> {
         if self.game.homes.with(|h| h.sleep(id, trader, name, near, storey)).is_some() {
             self.game.homes.changed();
             self.game.homes.save().await;
-            tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, "asleep at home");
+            tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, "asleep at home");
         }
     }
 
@@ -1281,7 +1354,7 @@ impl Session<'_> {
         self.homes_near.clear();
         self.named.clear();
         self.watch();
-        tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, strip = self.strip, "woke at home");
+        tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, strip = self.strip, "woke at home");
         Some(wake)
     }
 
@@ -1314,18 +1387,30 @@ impl Session<'_> {
             Ok(l) => l,
             Err(why) => return self.note(why, false).await,
         };
+        let Some(slot) = self.lease_flight() else {
+            self.hangar.recover();
+            self.note("space is full: every flight slot is taken, try again in a moment", false).await?;
+            self.send_hangar().await?;
+            self.save().await;
+            return Ok(());
+        };
         let launch = Launch { loadout, bay: self.bay };
         match self.seat(line, Some(launch), Comeback::default()).await {
             Some(_) => {
                 self.place = Place::Space;
-                tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, line = line.slug(), "launched");
+                tracing::info!(session = self.id, slot, name = %self.callsign, line = line.slug(), "launched");
                 self.send_place().await?;
                 self.send_hangar().await?;
             }
             None => {
+                let why = if self.game.sector.slots[slot as usize].outcome() == Outcome::BayBusy {
+                    "the launch rail is busy: another suit is in your bay's cradle, try again in a moment"
+                } else {
+                    "the launch rail is busy: the sector is full, try again in a moment"
+                };
                 self.hangar.recover();
-                self.note("the launch rail is busy: the sector is full, try again in a moment", false)
-                    .await?;
+                self.land().await?;
+                self.note(why, false).await?;
                 self.send_hangar().await?;
             }
         }
@@ -1382,11 +1467,13 @@ impl Session<'_> {
         self.inside = Some(lease);
         self.place = Place::Space;
         // Its snapshots come from the inside's egress now.
-        let _ = self.game.egress.push(EgressCmd::Detach(self.slot));
-        self.game.egress_thread.unpark();
+        if let Some(outer) = self.slot() {
+            let _ = self.game.egress.push(EgressCmd::Detach(outer));
+            self.game.egress_thread.unpark();
+        }
         let _ = inside.egress.push(EgressCmd::Attach(slot, self.conn.clone()));
         inside.egress_thread.unpark();
-        tracing::info!(session = self.id, slot = self.slot, inside = slot, name = %self.callsign, line = line.slug(), "launched into the colony");
+        tracing::info!(session = self.id, slot = ?self.slot(), inside = slot, name = %self.callsign, line = line.slug(), "launched into the colony");
         self.welcome(false).await?;
         self.send_place().await?;
         self.send_hangar().await?;
@@ -1444,11 +1531,13 @@ impl Session<'_> {
         self.inside = Some(lease);
         self.trainer = true;
         self.place = Place::Space;
-        let _ = self.game.egress.push(EgressCmd::Detach(self.slot));
-        self.game.egress_thread.unpark();
+        if let Some(outer) = self.slot() {
+            let _ = self.game.egress.push(EgressCmd::Detach(outer));
+            self.game.egress_thread.unpark();
+        }
         let _ = inside.egress.push(EgressCmd::Attach(slot, self.conn.clone()));
         inside.egress_thread.unpark();
-        tracing::info!(session = self.id, slot = self.slot, inside = slot, name = %self.callsign, "boarded a trainer at the blast hall's gantry");
+        tracing::info!(session = self.id, slot = ?self.slot(), inside = slot, name = %self.callsign, "boarded a trainer at the blast hall's gantry");
         self.welcome(false).await?;
         self.send_place().await?;
         self.send_proving().await?;
@@ -1471,7 +1560,7 @@ impl Session<'_> {
         self.homes_near.clear();
         self.named.clear();
         self.watch();
-        tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, "out of a trainer at the blast hall's gantry");
+        tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, "out of a trainer at the blast hall's gantry");
         self.note("THE TRAINER'S BACK ON ITS GANTRY", true).await?;
         self.send_place().await?;
         self.send_proving().await?;
@@ -1488,8 +1577,10 @@ impl Session<'_> {
         let _ = inside.egress.push(EgressCmd::Detach(lease.slot));
         inside.egress_thread.unpark();
         let _ = inside.sector.leases.push(lease);
-        let _ = self.game.egress.push(EgressCmd::Attach(self.slot, self.conn.clone()));
-        self.game.egress_thread.unpark();
+        if let Some(outer) = self.slot() {
+            let _ = self.game.egress.push(EgressCmd::Attach(outer, self.conn.clone()));
+            self.game.egress_thread.unpark();
+        }
         self.welcome(false).await
     }
 
@@ -1521,24 +1612,24 @@ impl Session<'_> {
             (Some(lease), Some(inside)) => {
                 let _ = inside.sector.control.push(Control::Dock { slot: lease.slot });
             }
-            _ => {
-                let _ = self.game.sector.control.push(Control::Dock { slot: self.slot });
-            }
+            _ => match self.slot() {
+                Some(slot) => {
+                    let _ = self.game.sector.control.push(Control::Dock { slot });
+                }
+                None => return self.note("there's nothing to dock", false).await,
+            },
         }
         // The sector answers within a tick or two.
         for _ in 0..200 {
-            let report = match self.inside.as_mut() {
-                Some(lease) => lease.reports.pop(),
-                None => self.lease().reports.pop(),
-            };
-            let Ok(report) = report else {
+            let Some(Ok(report)) = self.inside.as_mut().or(self.lease.as_mut()).map(|l| l.reports.pop())
+            else {
                 tokio::time::sleep(Duration::from_millis(5)).await;
                 continue;
             };
             let answered = matches!(report, Report::Home(_) | Report::DockRefused);
             self.on_report(report).await?;
             if answered {
-                return Ok(());
+                return self.land().await;
             }
         }
         self.note("the dock didn't answer", false).await
@@ -1555,7 +1646,7 @@ impl Session<'_> {
                 let patrol = self.patrol_bounties(home.bounty);
                 let (text, debrief) = self.hangar.came_home_debriefed(&home);
                 self.place = Place::Hangar;
-                tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, "docked: {text}");
+                tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, "docked: {text}");
                 self.keep_patrol(&patrol).await;
                 self.save().await;
                 self.tell_patrol(patrol).await?;
@@ -1579,7 +1670,7 @@ impl Session<'_> {
                 self.towing = false;
                 if self.survival() {
                     let mut notes = self.towed(wreck.as_ref(), torso, ace);
-                    tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, found = wreck.is_some(), ?ace, "wreck towed");
+                    tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, found = wreck.is_some(), ?ace, "wreck towed");
                     // Back in the bay with nothing to build on, even so: the Charter Board's advance.
                     if !self.lost
                         && self.suit.is_none()
@@ -1613,7 +1704,7 @@ impl Session<'_> {
                     }
                     Loss::Blown => text.push_str(" · SELF-DESTRUCTED"),
                 }
-                tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, "suit lost");
+                tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, "suit lost");
                 self.keep_patrol(&patrol).await;
                 self.save().await;
                 self.tell_patrol(patrol).await?;
@@ -1644,17 +1735,14 @@ impl Session<'_> {
         let now = pilots::unix_now();
         let (trader, name) = (self.trader.as_str(), self.callsign.as_str());
         let salvage = self.game.charter.with(|b| b.ace_downed(ace, trader, name, now));
-        tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, ace = a.name, salvage, "an ace downed");
+        tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, ace = a.name, salvage, "an ace downed");
         // The rights to its wreck, if the tugs aren't out for another already (else, pay).
         let claimed = salvage
             && hulk != bc_proto::NO_CHUNK
             && !self.towing
-            && self
-                .game
-                .sector
-                .control
-                .push(Control::Claim { slot: self.slot, hulk, generation, ace })
-                .is_ok();
+            && self.slot().is_some_and(|slot| {
+                self.game.sector.control.push(Control::Claim { slot, hulk, generation, ace }).is_ok()
+            });
         let text = if claimed {
             self.towing = true;
             format!("{} DOWNED · YOUR TERMS: ITS WRECK · THE TUGS ARE GOING OUT FOR IT", a.name)
@@ -1681,7 +1769,7 @@ impl Session<'_> {
     /// Whether it came.
     async fn advance(&mut self) -> anyhow::Result<bool> {
         let Some(text) = self.hangar.reissue(pilots::unix_now()) else { return Ok(false) };
-        tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, "advanced a worn suit");
+        tracing::info!(session = self.id, slot = ?self.slot(), name = %self.callsign, "advanced a worn suit");
         self.save().await;
         self.send(&Update::News { text }).await?;
         Ok(true)
@@ -1690,13 +1778,14 @@ impl Session<'_> {
     /// A tenth of a second on: the suit's reports, its wreck clearing, the stations (`settle`: once
     /// a second), the Charter Board's advance, and the market.
     async fn on_tick(&mut self, settle: bool) -> anyhow::Result<()> {
-        while let Ok(report) = self.lease().reports.pop() {
+        while let Some(report) = self.lease.as_mut().and_then(|l| l.reports.pop().ok()) {
             self.on_report(report).await?;
         }
         while let Some(report) = self.inside.as_mut().and_then(|l| l.reports.pop().ok()) {
             self.on_report(report).await?;
         }
-        if self.lost && self.game.sector.slots[self.slot as usize].state() == SlotState::Free {
+        let cleared = |slot: u16| self.game.sector.slots[slot as usize].state() == SlotState::Free;
+        if self.lost && self.slot().is_none_or(cleared) {
             // The wreck is gone: the pilot is back in the hangar (and, lost everything, advanced
             // another suit, unless the tugs are still bringing their own wreck home).
             self.lost = false;
@@ -1710,6 +1799,8 @@ impl Session<'_> {
             self.send_market().await?;
             self.publish_hangar();
         }
+        // The flight over (docked, the wreck cleared and towed home): the slot goes back.
+        self.land().await?;
         // On foot with nothing in the bay, and no wreck on its way home: the Charter Board's advance
         // as soon as one is due (`Hangar::reissue` says no, cheaply, until the half hour is up), not
         // only when they next come in.
@@ -1908,22 +1999,23 @@ impl Session<'_> {
             }
             self.trainer = false;
         }
-        let _ = self.game.egress.push(EgressCmd::Detach(self.slot));
-        self.game.egress_thread.unpark();
+        if let Some(slot) = self.slot() {
+            let _ = self.game.egress.push(EgressCmd::Detach(slot));
+            self.game.egress_thread.unpark();
+        }
         if !self.entered {
-            if let Some(lease) = self.lease.take() {
-                let _ = self.game.sector.leases.push(lease);
-            }
+            let _ = self.give_back().await;
             return;
         }
         let game = self.game;
-        let slot = self.slot;
-        let credits =
-            u32::try_from(Metrics::load(&game.sector.metrics.pilots[slot as usize].credits)).unwrap_or(0);
-        let status = &game.sector.slots[slot as usize];
+        let credits = self.slot().map_or(0, |slot| {
+            u32::try_from(Metrics::load(&game.sector.metrics.pilots[slot as usize].credits)).unwrap_or(0)
+        });
         // An ace's bounty paid at the Board's desk on the way out: the Board is kept with the record.
         let mut paid_at_desk = false;
-        if let Some((suit, generation)) = self.suit {
+        // (A suit out in space has a flight slot.)
+        if let (Some((suit, generation)), Some(slot)) = (self.suit, self.slot()) {
+            let status = &game.sector.slots[slot as usize];
             if self.address.is_some() {
                 // The suit stays, its pilot asleep in the cockpit: marked so in the roster before
                 // it sleeps, so news of its end finds it marked.
@@ -2016,7 +2108,10 @@ impl Session<'_> {
             }
         }
         // The wreck the tugs were going out for comes in now, before the record is saved.
-        if self.towing && self.survival() {
+        if self.towing
+            && self.survival()
+            && let Some(slot) = self.slot()
+        {
             let mut ask = Control::Tow { slot };
             while let Err(back) = game.sector.control.push(ask) {
                 ask = back;
@@ -2068,8 +2163,7 @@ impl Session<'_> {
             }
             game.pilots.save(r).await;
         }
-        if let Some(lease) = self.lease.take() {
-            let _ = game.sector.leases.push(lease);
-        }
+        // Nothing the sector says of it now is for whoever has the slot next.
+        let _ = self.give_back().await;
     }
 }
