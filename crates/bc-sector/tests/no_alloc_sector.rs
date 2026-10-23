@@ -294,7 +294,10 @@ fn survival_launches_docks_and_losses_never_allocate() {
         faction: Faction::Colonies,
         max_datagram: MAX_DATAGRAM as u16,
         comeback: Comeback::default(),
-        launch: Some(loadout(slot)),
+        launch: Some(bc_sector::Launch {
+            loadout: loadout(slot),
+            bay: bc_sim::colony::hub::bay_of_slot(slot),
+        }),
     };
     let mut leases = Vec::new();
     while let Some(l) = shared.leases.pop() {

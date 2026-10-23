@@ -147,7 +147,7 @@ pub async fn start(cfg: Config) -> anyhow::Result<ServerHandle> {
 
     // The store's traders, standing on the Exchange floor.
     if let (Some(url), Some(g)) = (cfg.floor_visitors.clone(), shared.as_ref().filter(|g| g.colony)) {
-        tokio::spawn(visitors::run(url, g.plaza.clone(), cfg.max_clients, shutdown_rx.clone()));
+        tokio::spawn(visitors::run(url, g.plaza.clone(), shutdown_rx.clone()));
     }
     let admission = net::admit::Admission::new(cfg.limits);
     tokio::spawn(net::endpoint::accept_loop(

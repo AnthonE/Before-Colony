@@ -55,7 +55,7 @@ fn gantry_pose() -> (Vec3, Quat) {
 /// Where a suit launched into the sector comes in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LaunchAt {
-    /// From its pilot's bay, by number (`colony::hub::bay_of_slot`): in space, riding the bay's
+    /// From its pilot's bay, by number (the session's, `bc_sector::Launch`): in space, riding the bay's
     /// catapult cradle in its door until its pilot lets go; inside the colony, by the inner gate.
     Bay(u8),
     /// Inside the colony, at the Blast Hall's gantry (`colony::hall`): one of the Charter Board's

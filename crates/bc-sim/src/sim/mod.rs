@@ -363,6 +363,12 @@ impl Sim {
             && matches!(self.suits.anchor[i].body, Body::Bay(_))
     }
 
+    /// Bay `n`'s catapult cradle holds a suit (a launch from it waits: the bays are shared out
+    /// among the pilots, `colony::hub`).
+    pub fn bay_busy(&self, n: u8) -> bool {
+        self.suits.used.iter().any(|i| self.in_bay(i) && self.suits.anchor[i].body == Body::Bay(n))
+    }
+
     /// This sector is the colony's inside (`colony::interior`).
     #[inline]
     pub fn interior(&self) -> bool {

@@ -40,11 +40,10 @@ use bc_proto::{
     Faction, FrameId, InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, PacketKind, PilotKind, packet_kind,
 };
 use bc_sector::{
-    Comeback, Control, InputMsg, Loss, Metrics, Outcome, Report, SectorShared, SlotLease, SlotState,
+    Comeback, Control, InputMsg, Launch, Loss, Metrics, Outcome, Report, SectorShared, SlotLease, SlotState,
 };
 use bc_sim::content::body::Fed;
 use bc_sim::content::city::PlaceKind;
-use bc_sim::sim::Loadout;
 use tokio::sync::{broadcast, oneshot};
 use wtransport::{Connection, RecvStream, SendStream};
 
@@ -102,19 +101,25 @@ pub(super) async fn run(
     who: Who,
     kicked: Option<oneshot::Receiver<()>>,
 ) -> anyhow::Result<()> {
+    // A place among the sessions first: an id and a bay, given back when this one ends.
+    let Some(admitted) = game.sessions.admit() else {
+        NetStats::add(&stats.sessions_rejected, 1);
+        return reject(tx, RejectReason::ServerFull).await;
+    };
     let Some(lease) = game.sector.leases.pop() else {
         NetStats::add(&stats.sessions_rejected, 1);
         return reject(tx, RejectReason::ServerFull).await;
     };
+    let (id, bay) = (admitted.id, admitted.bay);
     let slot = lease.slot;
-    let callsign = if who.name.is_empty() { format!("Pilot-{slot}") } else { who.name.as_str().to_string() };
+    let callsign = if who.name.is_empty() { format!("Pilot-{id}") } else { who.name.as_str().to_string() };
     let record = match who.address {
         Some(a) => Some(game.pilots.load_or_new(&a).await),
         None => None,
     };
     let trader = match who.address {
         Some(a) => pilots::key(&a),
-        None => format!("guest-{slot}-{:x}", game.sector.now_us()),
+        None => format!("guest-{id}-{:x}", game.sector.now_us()),
     };
     let mut s = Session {
         conn,
@@ -123,6 +128,9 @@ pub(super) async fn run(
         tx,
         lease: Some(lease),
         slot,
+        id,
+        bay,
+        admitted,
         pilot: who.pilot,
         frame: who.frame,
         faction: who.faction,
@@ -181,6 +189,12 @@ struct Session<'a> {
     game: &'a GameShared,
     stats: &'a NetStats,
     tx: &'a mut SendStream,
+    /// The session's id (the plaza's, the Welcome's, `/status`'s) and bay, held while it lasts
+    /// (`net::sessions`).
+    id: u16,
+    bay: u8,
+    #[allow(dead_code)]
+    admitted: super::sessions::Admitted,
     /// The slot's lease: its input ring and report ring (handed back last).
     lease: Option<SlotLease>,
     slot: u16,
@@ -427,7 +441,7 @@ impl Session<'_> {
             }
             None => {}
         }
-        tracing::info!(slot = self.slot, suit = ?self.suit, pilot = ?self.pilot, name = %self.callsign, woke, "pilot joined");
+        tracing::info!(session = self.id, slot = self.slot, suit = ?self.suit, pilot = ?self.pilot, name = %self.callsign, woke, "pilot joined");
         // Everyone flying, for the pilot's roster.
         let everyone: Vec<(u16, RosterEntry)> = self
             .game
@@ -454,7 +468,7 @@ impl Session<'_> {
                 && self.place == Place::Hangar;
             if in_town {
                 self.place = Place::Town;
-                self.game.plaza.enter_town(self.slot, &self.callsign);
+                self.game.plaza.enter_town(self.id, &self.callsign);
                 self.named.clear();
             }
             // Asleep in a bed at home when they left: they wake there.
@@ -509,18 +523,19 @@ impl Session<'_> {
         if self.game.colony {
             flags |= welcome_flags::COLONY;
         }
-        let (sector, slot, number) = match (&self.inside, &self.game.inside) {
-            (Some(lease), Some(inside)) => {
+        let (sector, number) = match (&self.inside, &self.game.inside) {
+            (Some(_), Some(inside)) => {
                 flags |= welcome_flags::INTERIOR;
-                (&inside.sector, lease.slot, 2)
+                (&inside.sector, 2)
             }
-            _ => (&self.game.sector, self.slot, 1),
+            _ => (&self.game.sector, 1),
         };
         send_control(
             self.tx,
             ControlMsg::Welcome {
                 version: PROTOCOL_VERSION,
-                client_slot: slot,
+                // The session's id, the same in either sector.
+                client_slot: self.id,
                 tick: sector.tick.load(std::sync::atomic::Ordering::Acquire),
                 tick_hz: bc_sim::TICK_HZ as u8,
                 sector: number,
@@ -547,7 +562,7 @@ impl Session<'_> {
 
     /// Asks the sector for a suit: the sleeper in `comeback`, the `launch`ed build, or (arcade) a
     /// new `frame`. How it went, if the pilot is seated.
-    async fn seat(&mut self, frame: FrameId, launch: Option<Loadout>, comeback: Comeback) -> Option<Outcome> {
+    async fn seat(&mut self, frame: FrameId, launch: Option<Launch>, comeback: Comeback) -> Option<Outcome> {
         let sector = &self.game.sector;
         let status = &sector.slots[self.slot as usize];
         let epoch = status.epoch();
@@ -584,7 +599,7 @@ impl Session<'_> {
                 RosterEntry {
                     name: self.callsign.clone(),
                     pilot: self.pilot,
-                    client_slot: self.slot,
+                    session: self.id,
                     flags,
                     address: self.address.as_ref().map(pilots::short),
                 },
@@ -662,7 +677,7 @@ impl Session<'_> {
                                         && matches!(self.place, Place::City | Place::Base | Place::Town) =>
                                 {
                                     let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
-                                    self.game.plaza.accept(self.slot, p.seq, p.pose, Instant::now(), tick);
+                                    self.game.plaza.accept(self.id, p.seq, p.pose, Instant::now(), tick);
                                 }
                                 Ok(_) => {}
                                 Err(_) => NetStats::add(&self.stats.malformed, 1),
@@ -716,7 +731,7 @@ impl Session<'_> {
                             Asked::End => {
                                 NetStats::add(&self.stats.requests_refused, 1);
                                 NetStats::add(&self.stats.flooders_ended, 1);
-                                tracing::info!(slot = self.slot, name = %self.callsign, "flooding the control stream: ending the session");
+                                tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, "flooding the control stream: ending the session");
                                 let _ = send_control(self.tx, ControlMsg::Bye { reason: bye::LEAVE }).await;
                                 return Ok(());
                             }
@@ -759,7 +774,7 @@ impl Session<'_> {
                 }
                 _ = tokio::time::sleep_until(heard + self.game.idle) => {
                     // Nobody at the controls (the tab is frozen, or the client hung): as if they'd left.
-                    tracing::info!(slot = self.slot, name = %self.callsign, "idle: ending the session");
+                    tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, "idle: ending the session");
                     let _ = send_control(self.tx, ControlMsg::Bye { reason: bye::IDLE }).await;
                     return Ok(());
                 }
@@ -785,7 +800,7 @@ impl Session<'_> {
     }
 
     async fn send_place(&mut self) -> anyhow::Result<()> {
-        let bay = bc_sim::colony::hub::bay_of_slot(self.slot);
+        let bay = self.bay;
         let strip = (self.place == Place::City).then_some(self.strip);
         let wake = self.waking.take();
         self.send(&Update::Place { place: self.place, bay, strip, trainer: self.trainer, wake }).await
@@ -802,7 +817,7 @@ impl Session<'_> {
     fn at_desk(&self, kind: PlaceKind) -> bool {
         let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
         self.place == Place::City
-            && self.game.plaza.where_is(self.slot, tick).is_some_and(|at| desk::place_at(at) == Some(kind))
+            && self.game.plaza.where_is(self.id, tick).is_some_and(|at| desk::place_at(at) == Some(kind))
     }
 
     async fn send_proving(&mut self) -> anyhow::Result<()> {
@@ -821,7 +836,7 @@ impl Session<'_> {
         let placed = self.game.proving.with(|b| b.record(feat, &self.trader, &self.callsign, ms, now));
         self.game.proving.changed();
         let best = self.bests.better(feat, ms);
-        tracing::info!(slot = self.slot, name = %self.callsign, ?feat, ms, rank = ?placed.rank, best, "the proving ground");
+        tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, ?feat, ms, rank = ?placed.rank, best, "the proving ground");
         if best && let Some(r) = self.record.as_mut() {
             r.proving = self.bests;
             self.save().await;
@@ -857,7 +872,7 @@ impl Session<'_> {
         };
         charter.changed();
         market.changed();
-        tracing::info!(slot = self.slot, name = %self.callsign, "certified by the charter board");
+        tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, "certified by the charter board");
         charter.save().await;
         market.save().await;
         self.save().await;
@@ -905,7 +920,7 @@ impl Session<'_> {
         let mut w = PlazaWriter::new(&mut buf, tick, strip);
         match suit {
             _ if city || base || town => {
-                self.game.plaza.fill(self.slot, Instant::now(), tick, &mut w, &mut shown)
+                self.game.plaza.fill(self.id, Instant::now(), tick, &mut w, &mut shown)
             }
             Some(at) => self.game.plaza.fill_around(at, Instant::now(), tick, &mut w, &mut shown),
             None => {}
@@ -1078,7 +1093,7 @@ impl Session<'_> {
                 + h.stores.parts().len() as u64,
         };
         if let Ok(mut all) = self.game.hangars.write() {
-            all.insert(self.slot, entry);
+            all.insert(self.id, entry);
         }
     }
 
@@ -1161,10 +1176,10 @@ impl Session<'_> {
                 // Their car hit one of the town's people: taken if that person was there.
                 if self.place == Place::Town {
                     let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
-                    if let Some(pose) = self.game.plaza.pose_of(self.slot)
+                    if let Some(pose) = self.game.plaza.pose_of(self.id)
                         && self.game.street.hit(person, &pose, tick)
                     {
-                        tracing::info!(slot = self.slot, name = %self.callsign, "knocked somebody down in the town");
+                        tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, "knocked somebody down in the town");
                     }
                 }
                 Ok(())
@@ -1178,7 +1193,7 @@ impl Session<'_> {
                 let from = self
                     .game
                     .plaza
-                    .pose_of(self.slot)
+                    .pose_of(self.id)
                     .and_then(|pose| self.game.street.pick_up(person, &pose, tick));
                 let Some(from) = from else {
                     return self.note("nobody there wants a ride", false).await;
@@ -1192,7 +1207,7 @@ impl Session<'_> {
                 let Some((person, to, pay)) = self.fare else { return Ok(()) };
                 // At the wheel, in the square they asked for.
                 let (lx, lt) = bc_sim::colony::town::out_of_the_lift(to);
-                let there = self.game.plaza.pose_of(self.slot).is_some_and(|p| {
+                let there = self.game.plaza.pose_of(self.id).is_some_and(|p| {
                     p.driving()
                         && crate::street::apart((p.x, p.s), (lx, bc_sim::colony::town::deck_s(lt)))
                             <= crate::street::SET_DOWN
@@ -1206,7 +1221,7 @@ impl Session<'_> {
                 self.fare = None;
                 self.game.street.set_down(person);
                 self.hangar.credits += pay;
-                tracing::info!(slot = self.slot, name = %self.callsign, pay, "a fare set down");
+                tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, pay, "a fare set down");
                 self.send(&Update::Fare { to: None, pay: 0 }).await?;
                 self.note(format!("FARE SET DOWN · {pay} CR"), true).await?;
                 self.send_hangar().await?;
@@ -1223,10 +1238,10 @@ impl Session<'_> {
                 self.hangar.credits -= fine;
                 // (Their car goes with it, and whoever was riding in it.)
                 self.lose_fare().await?;
-                tracing::info!(slot = self.slot, name = %self.callsign, heat, fine, "fined by the Watch");
+                tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, heat, fine, "fined by the Watch");
                 if fine < owed {
                     // Nothing left to fine: the Watch walks them to a lift and sends them home.
-                    self.game.plaza.leave(self.slot);
+                    self.game.plaza.leave(self.id);
                     self.place = Place::Hangar;
                     self.send_place().await?;
                     let had = if fine == 0 {
@@ -1370,11 +1385,11 @@ impl Session<'_> {
         }
         self.place = Place::City;
         self.strip = strip % bc_sim::colony::frame::STRIPS as u8;
-        self.game.plaza.enter(self.slot, &self.callsign, self.strip);
-        self.game.plaza.key(self.slot, &self.trader);
+        self.game.plaza.enter(self.id, &self.callsign, self.strip);
+        self.game.plaza.key(self.id, &self.trader);
         self.homes_near.clear();
         self.named.clear();
-        tracing::info!(slot = self.slot, name = %self.callsign, strip = self.strip, "went down into the colony");
+        tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, strip = self.strip, "went down into the colony");
         self.watch();
         self.send_place().await?;
         self.send_proving().await?;
@@ -1390,7 +1405,7 @@ impl Session<'_> {
     fn watch(&mut self) {
         let Some(inside) = self.game.inside.clone() else { return };
         let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
-        let Some(at) = self.game.plaza.where_is(self.slot, tick) else { return };
+        let Some(at) = self.game.plaza.where_is(self.id, tick) else { return };
         if self.spectating.is_none() {
             let Some(lease) = inside.sector.leases.pop() else { return };
             let _ = inside.egress.push(EgressCmd::Attach(lease.slot, self.conn.clone()));
@@ -1436,7 +1451,7 @@ impl Session<'_> {
             return;
         }
         let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
-        let pose = self.game.plaza.where_is(self.slot, tick).map(bc_sim::colony::frame::from_colony);
+        let pose = self.game.plaza.where_is(self.id, tick).map(bc_sim::colony::frame::from_colony);
         let Some(bc_sim::colony::frame::Under::Land(c)) = pose else { return };
         let Some(id) = bc_sim::colony::homes::home_at(c.strip, c.s, c.x, c.h + 1.0) else { return };
         let Some(home) = bc_sim::colony::homes::home(id) else { return };
@@ -1449,7 +1464,7 @@ impl Session<'_> {
         if self.game.homes.with(|h| h.sleep(id, trader, name, near, storey)).is_some() {
             self.game.homes.changed();
             self.game.homes.save().await;
-            tracing::info!(slot = self.slot, name = %self.callsign, "asleep at home");
+            tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, "asleep at home");
         }
     }
 
@@ -1483,12 +1498,12 @@ impl Session<'_> {
         let up = (home.rect.s0 + f32::from(wake.s) / 10.0, home.rect.x0 + f32::from(wake.x) / 10.0);
         self.place = Place::City;
         self.strip = home.strip;
-        self.game.plaza.enter_at(self.slot, &self.callsign, self.strip, up);
-        self.game.plaza.key(self.slot, &self.trader);
+        self.game.plaza.enter_at(self.id, &self.callsign, self.strip, up);
+        self.game.plaza.key(self.id, &self.trader);
         self.homes_near.clear();
         self.named.clear();
         self.watch();
-        tracing::info!(slot = self.slot, name = %self.callsign, strip = self.strip, "woke at home");
+        tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, strip = self.strip, "woke at home");
         Some(wake)
     }
 
@@ -1497,7 +1512,7 @@ impl Session<'_> {
         if self.place != Place::City {
             return self.note("you're not in the colony", false).await;
         }
-        self.game.plaza.leave(self.slot);
+        self.game.plaza.leave(self.id);
         self.unwatch().await;
         self.place = Place::Hangar;
         self.send_place().await?;
@@ -1514,11 +1529,11 @@ impl Session<'_> {
         if self.place != Place::Hangar || self.suit.is_some() {
             return self.note("the airlock opens from your bay", false).await;
         }
-        let bay = bc_sim::colony::hub::bay_of_slot(self.slot);
+        let bay = self.bay;
         self.place = Place::Base;
-        self.game.plaza.enter_base(self.slot, &self.callsign, bay);
+        self.game.plaza.enter_base(self.id, &self.callsign, bay);
         self.named.clear();
-        tracing::info!(slot = self.slot, name = %self.callsign, bay, "out onto Bay Row");
+        tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, bay, "out onto Bay Row");
         self.send_place().await?;
         self.publish_hangar();
         Ok(())
@@ -1531,12 +1546,12 @@ impl Session<'_> {
             return self.note("you're not out on Bay Row", false).await;
         }
         let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
-        let door = bc_sim::colony::deck::out_of_the_airlock(bc_sim::colony::hub::bay_of_slot(self.slot));
-        let at = self.game.plaza.where_is(self.slot, tick);
+        let door = bc_sim::colony::deck::out_of_the_airlock(self.bay);
+        let at = self.game.plaza.where_is(self.id, tick);
         if at.is_some_and(|at| at.distance(door.to_colony()) > AIRLOCK_REACH) {
             return self.note("your bay's airlock is along Bay Row: go back in by its door", false).await;
         }
-        self.game.plaza.leave(self.slot);
+        self.game.plaza.leave(self.id);
         self.place = Place::Hangar;
         self.send_place().await?;
         self.send_hangar().await?;
@@ -1554,9 +1569,9 @@ impl Session<'_> {
             return self.note("the spoke lifts run from the bays", false).await;
         }
         self.place = Place::Town;
-        self.game.plaza.enter_town(self.slot, &self.callsign);
+        self.game.plaza.enter_town(self.id, &self.callsign);
         self.named.clear();
-        tracing::info!(slot = self.slot, name = %self.callsign, "down the spoke to the town");
+        tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, "down the spoke to the town");
         self.send_place().await?;
         self.publish_hangar();
         Ok(())
@@ -1568,13 +1583,13 @@ impl Session<'_> {
         if self.place != Place::Town {
             return self.note("you're not down in the town", false).await;
         }
-        if !self.game.plaza.at_a_lift(self.slot, LIFT_REACH) {
+        if !self.game.plaza.at_a_lift(self.id, LIFT_REACH) {
             return self
                 .note("the lifts up to the bays are under the spokes: on foot, at a lift's door", false)
                 .await;
         }
         self.lose_fare().await?;
-        self.game.plaza.leave(self.slot);
+        self.game.plaza.leave(self.id);
         self.place = Place::Hangar;
         self.send_place().await?;
         self.send_hangar().await?;
@@ -1615,10 +1630,11 @@ impl Session<'_> {
             Ok(l) => l,
             Err(why) => return self.note(why, false).await,
         };
-        match self.seat(line, Some(loadout), Comeback::default()).await {
+        let launch = Launch { loadout, bay: self.bay };
+        match self.seat(line, Some(launch), Comeback::default()).await {
             Some(_) => {
                 self.place = Place::Space;
-                tracing::info!(slot = self.slot, name = %self.callsign, line = line.slug(), "launched");
+                tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, line = line.slug(), "launched");
                 self.send_place().await?;
                 self.send_hangar().await?;
             }
@@ -1663,7 +1679,8 @@ impl Session<'_> {
             faction: self.faction,
             max_datagram: self.max_datagram,
             comeback: Comeback::default(),
-            launch: Some(loadout),
+            // (Inside the colony, the inner gate: the bay goes unused.)
+            launch: Some(Launch { loadout, bay: self.bay }),
         };
         while let Err(back) = inside.sector.control.push(join) {
             join = back;
@@ -1686,7 +1703,7 @@ impl Session<'_> {
         self.game.egress_thread.unpark();
         let _ = inside.egress.push(EgressCmd::Attach(slot, self.conn.clone()));
         inside.egress_thread.unpark();
-        tracing::info!(slot = self.slot, inside = slot, name = %self.callsign, line = line.slug(), "launched into the colony");
+        tracing::info!(session = self.id, slot = self.slot, inside = slot, name = %self.callsign, line = line.slug(), "launched into the colony");
         self.welcome(false).await?;
         self.send_place().await?;
         self.send_hangar().await?;
@@ -1704,7 +1721,7 @@ impl Session<'_> {
             return self.note("the proving ground is closed", false).await;
         };
         let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
-        let at_hatch = self.game.plaza.where_is(self.slot, tick).is_some_and(at_the_hatch);
+        let at_hatch = self.game.plaza.where_is(self.id, tick).is_some_and(at_the_hatch);
         if self.place != Place::City || self.suit.is_some() || !at_hatch {
             return self.note("the trainers are boarded at the blast hall's gantry, on foot", false).await;
         }
@@ -1739,7 +1756,7 @@ impl Session<'_> {
             return self.note("the gantry is busy: try again in a moment", false).await;
         };
         // Off the street, and no longer watching the inside from it: flying in it.
-        self.game.plaza.leave(self.slot);
+        self.game.plaza.leave(self.id);
         self.unwatch().await;
         self.suit = Some(suit);
         self.lost = false;
@@ -1750,7 +1767,7 @@ impl Session<'_> {
         self.game.egress_thread.unpark();
         let _ = inside.egress.push(EgressCmd::Attach(slot, self.conn.clone()));
         inside.egress_thread.unpark();
-        tracing::info!(slot = self.slot, inside = slot, name = %self.callsign, "boarded a trainer at the blast hall's gantry");
+        tracing::info!(session = self.id, slot = self.slot, inside = slot, name = %self.callsign, "boarded a trainer at the blast hall's gantry");
         self.welcome(false).await?;
         self.send_place().await?;
         self.send_proving().await?;
@@ -1768,12 +1785,12 @@ impl Session<'_> {
         let hall = bc_sim::colony::hall::hall();
         self.strip = hall.strip;
         let (hatch, _) = bc_sim::colony::hall::hatch();
-        self.game.plaza.enter_at(self.slot, &self.callsign, self.strip, hatch);
-        self.game.plaza.key(self.slot, &self.trader);
+        self.game.plaza.enter_at(self.id, &self.callsign, self.strip, hatch);
+        self.game.plaza.key(self.id, &self.trader);
         self.homes_near.clear();
         self.named.clear();
         self.watch();
-        tracing::info!(slot = self.slot, name = %self.callsign, "out of a trainer at the blast hall's gantry");
+        tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, "out of a trainer at the blast hall's gantry");
         self.note("THE TRAINER'S BACK ON ITS GANTRY", true).await?;
         self.send_place().await?;
         self.send_proving().await?;
@@ -1857,7 +1874,7 @@ impl Session<'_> {
                 let patrol = self.patrol_bounties(home.bounty);
                 let (text, debrief) = self.hangar.came_home_debriefed(&home);
                 self.place = Place::Hangar;
-                tracing::info!(slot = self.slot, name = %self.callsign, "docked: {text}");
+                tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, "docked: {text}");
                 self.keep_patrol(&patrol).await;
                 self.save().await;
                 self.tell_patrol(patrol).await?;
@@ -1881,7 +1898,7 @@ impl Session<'_> {
                 self.towing = false;
                 if self.survival() {
                     let mut notes = self.towed(wreck.as_ref(), torso, ace);
-                    tracing::info!(slot = self.slot, name = %self.callsign, found = wreck.is_some(), ?ace, "wreck towed");
+                    tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, found = wreck.is_some(), ?ace, "wreck towed");
                     // Back in the bay with nothing to build on, even so: the Charter Board's advance.
                     if !self.lost
                         && self.suit.is_none()
@@ -1915,7 +1932,7 @@ impl Session<'_> {
                     }
                     Loss::Blown => text.push_str(" · SELF-DESTRUCTED"),
                 }
-                tracing::info!(slot = self.slot, name = %self.callsign, "suit lost");
+                tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, "suit lost");
                 self.keep_patrol(&patrol).await;
                 self.save().await;
                 self.tell_patrol(patrol).await?;
@@ -1946,7 +1963,7 @@ impl Session<'_> {
         let now = pilots::unix_now();
         let (trader, name) = (self.trader.as_str(), self.callsign.as_str());
         let salvage = self.game.charter.with(|b| b.ace_downed(ace, trader, name, now));
-        tracing::info!(slot = self.slot, name = %self.callsign, ace = a.name, salvage, "an ace downed");
+        tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, ace = a.name, salvage, "an ace downed");
         // The rights to its wreck, if the tugs aren't out for another already (else, pay).
         let claimed = salvage
             && hulk != bc_proto::NO_CHUNK
@@ -1983,7 +2000,7 @@ impl Session<'_> {
     /// Whether it came.
     async fn advance(&mut self) -> anyhow::Result<bool> {
         let Some(text) = self.hangar.reissue(pilots::unix_now()) else { return Ok(false) };
-        tracing::info!(slot = self.slot, name = %self.callsign, "advanced a worn suit");
+        tracing::info!(session = self.id, slot = self.slot, name = %self.callsign, "advanced a worn suit");
         self.save().await;
         self.send(&Update::News { text }).await?;
         Ok(true)
@@ -2097,7 +2114,7 @@ impl Session<'_> {
         let homes = &game.homes;
         if self.place == Place::City && self.homes_sent.elapsed() >= HOMES_EVERY {
             let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
-            if let Some(at) = self.game.plaza.where_is(self.slot, tick)
+            if let Some(at) = self.game.plaza.where_is(self.id, tick)
                 && let bc_sim::colony::frame::Under::Land(c) = bc_sim::colony::frame::from_colony(at)
             {
                 let mut near = Vec::new();
@@ -2162,7 +2179,7 @@ impl Session<'_> {
             return self.note("there's no home there", false).await;
         };
         let tick = self.game.sector.tick.load(std::sync::atomic::Ordering::Acquire);
-        let pose = self.game.plaza.where_is(self.slot, tick).map(bc_sim::colony::frame::from_colony);
+        let pose = self.game.plaza.where_is(self.id, tick).map(bc_sim::colony::frame::from_colony);
         let Some(bc_sim::colony::frame::Under::Land(c)) = pose else {
             return self.note("that's done at the home's door", false).await;
         };
@@ -2217,7 +2234,7 @@ impl Session<'_> {
     /// slot is handed back.
     async fn leave(&mut self) {
         self.lie_down().await;
-        self.game.plaza.leave(self.slot);
+        self.game.plaza.leave(self.id);
         self.unwatch().await;
         // Inside the colony, the suit doesn't sleep there: the colony's tugs bring it back to the
         // bay, and the pilot hears so when they're back (a trainer goes back to its gantry: the
@@ -2378,7 +2395,7 @@ impl Session<'_> {
                 }
             }
             if let Ok(mut all) = game.hangars.write() {
-                all.remove(&slot);
+                all.remove(&self.id);
             }
         }
         // Asleep in their bunk from now (or in their bed, or the cockpit).

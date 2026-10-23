@@ -65,7 +65,10 @@ fn a_pilot_on_foot_watches_the_suits_near_them_inside() {
             faction: Faction::Colonies,
             max_datagram: MAX_DATAGRAM as u16,
             comeback: Comeback::default(),
-            launch: Some(Loadout::full(FrameId::Argo)),
+            launch: Some(bc_sector::Launch {
+                loadout: Loadout::full(FrameId::Argo),
+                bay: bc_sim::colony::hub::bay_of_slot(pilot.slot),
+            }),
         })
         .unwrap();
     // Watching from under the inner gate, 600 m off.
