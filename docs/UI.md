@@ -41,13 +41,20 @@ Sources: [Steam store pages](https://store.steampowered.com) of each; [The Gemsb
 5. **A heading starts with a short bar** (MechWarrior's objective) and runs out into a hairline.
 6. **Quiet until it matters.** Out of a fight the HUD shows the flight and little else; a caution, a lock,
    a missile come up when they happen and go when they're over (Titanfall 2). The page shows nothing over the
-   world it doesn't need to.
+   world it doesn't need to. Of the suits in view one is the **focus**, named in full with a bright bracket
+   (your lock-on, else your missile lock, the Orrery's pick, the nearest hostile locking on to you, the nearest
+   hostile); anyone within 600 m is named too, a few others and whoever is locking on to you carry their range
+   (`LOCK 2.1 km`), the rest are dimmed brackets, and no tag lands on another (`bc_client_core::tags`).
+   The **vitals** sit either side of the crosshair, as Armored Core VI and Mecha BREAK keep them: the torso's
+   armour on the left (the suit is lost with it), the propellant on the right, quarter rings of ten segments
+   named under their ends, dimmed while full, amber under half, red under a quarter (`hud::update_vitals`).
 7. **Fast.** Nothing animates for longer than a quarter of a second or stands between a key and what it does
    (Mecha BREAK's and Armored Core VI's slow menus); motion stops when the browser asks for less.
 8. **Keys as caps.** What to press is drawn as a key (`E`), then what it does.
 
 ## Next
 
-- The HUD's vitals round the reticle (Armored Core VI, Mecha BREAK): armour and propellant as short labelled
-  arcs either side of it, the corners kept for the detail.
+- The cockpit: an overhaul of the seat's monitors and frame, so the instruments read as glass set into the
+  suit (Zone of the Enders' holographic panels, MechWarrior's monitors) rather than flat screens in a box.
 - HUD options: its scale and opacity as settings (`settings::KNOBS`), as Titanic Scion has them.
+- The objective's marker in the view (`DRONE 1.5 km`) can sit under a focus tag: let `tags` keep clear of it.

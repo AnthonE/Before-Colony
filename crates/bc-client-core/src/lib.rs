@@ -54,6 +54,7 @@ pub mod showcase_markab;
 pub mod sights;
 pub mod sphere;
 pub mod surface;
+pub mod tags;
 pub mod terminal;
 pub mod tram;
 pub mod upright;

@@ -22,6 +22,7 @@
 use bc_client_core::holdup::{Holdup, drain, holdup};
 use bc_client_core::palette;
 use bc_client_core::surface::{LetGo, SurfaceHint, let_go, range_rate, surface_hint};
+use bc_client_core::tags::{self, Seen, Shown, Tag};
 use bc_client_core::world::ObjectMotion;
 use bc_client_core::{ClientCore, FeedLine};
 use bc_proto::buttons::{FIRE_PRIMARY, FIRE_SECONDARY, FLIGHT_ASSIST, GRIP, MELEE, MODE};
@@ -69,8 +70,6 @@ const WHITE: Color = colour(palette::WHITE);
 /// Target brackets on suits, then markers on missiles tracking the pilot.
 const BRACKETS: usize = 24;
 const MISSILE_MARKERS: usize = 8;
-/// How many of the nearest suits' brackets carry a name and range.
-const TAGGED: usize = 6;
 
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
 pub enum HudText {
@@ -238,6 +237,16 @@ fn tonnes(kg: u32) -> String {
 
 #[derive(Component)]
 pub struct Reticle;
+
+/// A vital's gauge beside the crosshair (`true`: the right one, the propellant), and its label.
+#[derive(Component)]
+pub struct Vital(bool);
+#[derive(Component)]
+pub struct VitalLabel(bool);
+
+/// The vitals' node (px square, centred on the crosshair) and their ring's thickness.
+const VITAL: f32 = 150.0;
+const VITAL_THICK: f32 = 3.0;
 
 /// The hit marker round the reticle: four ticks that flash as a shot of the pilot's lands.
 #[derive(Component)]
@@ -651,6 +660,47 @@ pub fn setup_hud(mut commands: Commands, font: Res<UiFont>, mut panels: ResMut<A
                 ),
                 centred(),
             ));
+            // The vitals either side of it (`update_vitals`): the torso on the left, the propellant
+            // on the right, each named under the bottom end of its arc.
+            let end = (VITAL * 0.5 - VITAL_THICK) * std::f32::consts::FRAC_1_SQRT_2;
+            for right in [false, true] {
+                let side = if right { 1.0 } else { -1.0 };
+                p.spawn((
+                    Vital(right),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Percent(50.0),
+                        top: Val::Percent(50.0),
+                        width: Val::Px(VITAL),
+                        height: Val::Px(VITAL),
+                        ..default()
+                    },
+                    centred(),
+                    MaterialNode(panels.add(PanelMaterial::arc(CYAN, LABEL, 1.0, side, VITAL_THICK))),
+                    Visibility::Hidden,
+                ));
+                p.spawn((
+                    VitalLabel(right),
+                    Text::new(""),
+                    f.heading(10.0),
+                    TextColor(CYAN),
+                    SHADOW,
+                    LetterSpacing::Px(1.5),
+                    TextLayout::new(if right { Justify::Left } else { Justify::Right }, LineBreak::NoWrap),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Percent(50.0),
+                        top: Val::Percent(50.0),
+                        width: Val::Px(96.0),
+                        ..default()
+                    },
+                    UiTransform {
+                        translation: Val2::px(if right { end - 4.0 } else { 4.0 - end - 96.0 }, end + 2.0),
+                        ..default()
+                    },
+                    Visibility::Hidden,
+                ));
+            }
             for pitch in RUNGS {
                 let horizon = pitch == 0;
                 p.spawn((
@@ -2017,6 +2067,85 @@ pub fn update_hit_marker(
     }
 }
 
+/// The vitals beside the crosshair (`docs/UI.md`, after Armored Core VI and Mecha BREAK): the
+/// torso's armour on the left (the suit is lost with it) and the propellant on the right (under
+/// anime rules, the boost gauge), each a quarter ring of ten segments that follows the crosshair,
+/// named with its value under its end. Full, they're dimmed (quiet until it matters); under half
+/// amber, under a quarter red.
+#[allow(clippy::type_complexity)]
+pub fn update_vitals(
+    game: NonSend<GameClient>,
+    reticle: Query<(&Node, &Text), (With<Reticle>, Without<Vital>, Without<VitalLabel>)>,
+    mut gauges: Query<
+        (&Vital, &MaterialNode<PanelMaterial>, &mut Node, &mut Visibility),
+        Without<VitalLabel>,
+    >,
+    mut labels: Query<
+        (&VitalLabel, &mut Node, &mut Text, &mut TextColor, &mut Visibility),
+        (Without<Vital>, Without<Reticle>),
+    >,
+    mut panels: ResMut<Assets<PanelMaterial>>,
+    mut drawn: Local<[Option<(u32, Color)>; 2]>,
+) {
+    let game = game.borrow();
+    let core = &game.core;
+    let Ok((at, mark)) = reticle.single() else { return };
+    let own = core.world.own.filter(|o| o.alive && !mark.0.is_empty());
+    // How full each is, 0..1, and its name.
+    let reading = own.map(|o| {
+        let form = core.own_view().map_or(o.frame, |v| v.frame);
+        let tank = bc_sim::tuning::tank_cap(frame(form), &bc_sim::tuning::own_tuning(&o));
+        let anime = core.welcome.is_some_and(|w| w.anime);
+        [
+            ("TORSO", o.parts[Part::Torso as usize]),
+            (if anime { "BOOST" } else { "PROP" }, core.predict.state.propellant / tank.max(1.0)),
+        ]
+    });
+    let look = |full: f32| {
+        let c = if full < 0.25 {
+            RED
+        } else if full < 0.5 {
+            AMBER
+        } else {
+            CYAN
+        };
+        if full >= 0.98 { c.with_alpha(0.35) } else { c }
+    };
+    let want = if reading.is_some() { Visibility::Inherited } else { Visibility::Hidden };
+    for (v, mat, mut node, mut vis) in &mut gauges {
+        vis.set_if_neq(want);
+        if node.left != at.left || node.top != at.top {
+            node.left = at.left;
+            node.top = at.top;
+        }
+        let Some(r) = reading else { continue };
+        let full = r[usize::from(v.0)].1.clamp(0.0, 1.0);
+        let color = look(full);
+        let now = ((full * 100.0).round() as u32, color);
+        if drawn[usize::from(v.0)] != Some(now) {
+            drawn[usize::from(v.0)] = Some(now);
+            if let Some(mut m) = panels.get_mut(&mat.0) {
+                m.set_arc(color, LABEL.with_alpha(if full >= 0.98 { 0.08 } else { 0.18 }), full);
+            }
+        }
+    }
+    for (l, mut node, mut text, mut tc, mut vis) in &mut labels {
+        vis.set_if_neq(want);
+        if node.left != at.left || node.top != at.top {
+            node.left = at.left;
+            node.top = at.top;
+        }
+        let Some(r) = reading else { continue };
+        let (name, full) = r[usize::from(l.0)];
+        let full = full.clamp(0.0, 1.0);
+        let s = format!("{name} {:.0}%", full * 100.0);
+        if text.0 != s {
+            text.0 = s;
+        }
+        tc.0 = look(full);
+    }
+}
+
 pub fn update_spread_ring(
     game: NonSend<GameClient>,
     aim: Res<Aim>,
@@ -2136,6 +2265,10 @@ pub fn update_marks(
     let lock = own.filter(|o| o.alive && o.lock_target != NO_SLOT);
     let hard = game.hard.slot();
     let own_vel = core.own_view().map_or(Vec3::ZERO, |v| v.flight_vel);
+    // The brackets on screen, each with its full tag, its range tag and its colour, for
+    // `bc_client_core::tags` to choose what each says.
+    let mut seen: Vec<Seen> = Vec::with_capacity(BRACKETS);
+    let mut said: Vec<(usize, Vec2, String, String, Color)> = Vec::with_capacity(BRACKETS);
     for (k, &(dist, slot)) in shown.iter().enumerate() {
         let Some(track) = world.entity(slot) else { continue };
         let e = &track.latest;
@@ -2176,34 +2309,24 @@ pub fn update_marks(
                 n => Some(format!("\nATT {}", bar(f32::from(n) / f32::from(IMPACT_MAX), 6))),
             })
             .or_else(|| (!wreck && world.is_staggered(slot, t)).then(|| "\nSTAGGERED".to_string()));
-        // Named: the nearest few, and any that matter (a lock either way, the Orrery's pick).
         // Locked on: how fast it closes (+) or opens.
         let closing = locked_on.then(|| {
             let to = (pos - own_pos).normalize_or_zero();
             format!("\nLOCK-ON {} m/s", signed(-(track.sample(t, &world.bodies).vel - own_vel).dot(to)))
         });
-        let named = k < TAGGED
-            || locked_on_you
-            || locking.is_some()
-            || orrery_target
-            || locked_on
-            || impact.is_some();
-        let tag = if !named {
-            String::new()
-        } else {
-            format!(
-                "{}{}{}\n{}{}{}{}{}{}",
-                world.name_of(slot),
-                pilot_tag(e.pilot),
-                warn,
-                km(dist),
-                if e.pilot == PilotKind::Agent { " agent" } else { "" },
-                if asleep { " ASLEEP" } else { "" },
-                locking.as_deref().unwrap_or(""),
-                closing.as_deref().unwrap_or(""),
-                impact.as_deref().unwrap_or("")
-            )
-        };
+        let full = format!(
+            "{}{}{}\n{}{}{}{}{}{}",
+            world.name_of(slot),
+            pilot_tag(e.pilot),
+            warn,
+            km(dist),
+            if e.pilot == PilotKind::Agent { " agent" } else { "" },
+            if asleep { " ASLEEP" } else { "" },
+            locking.as_deref().unwrap_or(""),
+            closing.as_deref().unwrap_or(""),
+            impact.as_deref().unwrap_or("")
+        );
+        let range = if locked_on_you { format!("LOCK {}", km(dist)) } else { km(dist) };
         let color = if wreck {
             Color::srgb(0.5, 0.5, 0.5)
         } else if locked_on {
@@ -2219,6 +2342,29 @@ pub fn update_marks(
         } else {
             GREEN
         };
+        seen.push(Seen {
+            at: at.to_array(),
+            dist,
+            hostile,
+            wreck,
+            locked_on,
+            locking: locking.is_some() || impact.is_some(),
+            orrery: orrery_target,
+            locked_on_you,
+        });
+        said.push((k, at, full, range, color));
+    }
+    // One focus named in full and bright, anyone close named, a few ranges, no tag on another;
+    // the other brackets dimmed (`docs/UI.md`: quiet until it matters).
+    let mut chosen = [Shown::default(); BRACKETS];
+    tags::choose(&seen, &mut chosen);
+    for ((k, at, full, range, color), shown) in said.into_iter().zip(chosen) {
+        let tag = match shown.tag {
+            Tag::Full => full,
+            Tag::Range => range,
+            Tag::Bare => String::new(),
+        };
+        let color = if shown.focus { color } else { color.with_alpha(0.6) };
         marks[k] = Some(Mark { at, tag, color });
     }
     for (b, mut node, mut vis) in &mut brackets {

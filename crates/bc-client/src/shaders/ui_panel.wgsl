@@ -1,6 +1,7 @@
 // The HUD's panels (`ui_panel.rs`), in the page's look (`docs/UI.md`): dark glass with fine
 // scanlines and four corner ticks where a box would have its border (mode 0); or hazard stripes,
-// for a caution (mode 1). The corners can still be cut (the chamfer), for a plate that wants it.
+// for a caution (mode 1); or a vital's arc beside the crosshair (mode 2). The corners can still be
+// cut (the chamfer), for a plate that wants it.
 
 #import bevy_ui::ui_vertex_output::UiVertexOutput
 
@@ -8,7 +9,8 @@ struct Panel {
     // Linear colours, alpha straight: the glass, and its ticks (the stripes' two colours).
     fill: vec4<f32>,
     edge: vec4<f32>,
-    // x: chamfer (px); y: mode (0 glass, 1 stripes); z: the ticks' width (px); w: their length (px).
+    // x: chamfer (px); y: mode (0 glass, 1 stripes, 2 an arc); z: the ticks' width (px); w: their
+    // length (px). (An arc's are its own: below.)
     params: vec4<f32>,
 };
 
@@ -28,6 +30,22 @@ fn fragment(in: UiVertexOutput) -> @location(0) vec4<f32> {
         inside = min(sides, min(top_right, bottom_left));
     }
     let cover = clamp(inside + 0.5, 0.0, 1.0);
+    if (panel.params.y > 1.5) {
+        // A vital's gauge beside the crosshair (mode 2, `hud::update_vitals`): a quarter of a ring on
+        // one side of the node's middle (z: -1 left, +1 right), ten segments lit from the bottom up to
+        // x of it, w px thick; lit in `fill`, the rest a track in `edge`.
+        let d = p - s * 0.5;
+        let th = panel.params.w;
+        let radius = min(s.x, s.y) * 0.5 - th;
+        let out = d.x * panel.params.z;
+        let half = 0.7854;
+        let u = (half - atan2(d.y, out)) / (2.0 * half);
+        let on_ring = clamp(0.5 - (abs(length(d) - radius) - th * 0.5), 0.0, 1.0);
+        let in_span = step(0.0, out) * step(0.0, u) * step(u, 1.0);
+        let gap = step(fract(u * 10.0), 0.82);
+        let arc = select(panel.edge, panel.fill, u <= panel.params.x);
+        return vec4(arc.rgb, arc.a * on_ring * in_span * gap);
+    }
     if (panel.params.y > 0.5) {
         let k = fract((p.x + p.y) / 22.0);
         let col = select(panel.fill, panel.edge, k < 0.5);

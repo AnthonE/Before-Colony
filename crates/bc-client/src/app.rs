@@ -162,7 +162,7 @@ pub fn run() {
                 Update,
                 (
                     show_hud,
-                    update_hud,
+                    (update_hud, crate::hud::update_vitals).chain(),
                     update_spread_ring,
                     crate::hud::update_hit_marker,
                     crate::hud::update_horizon,

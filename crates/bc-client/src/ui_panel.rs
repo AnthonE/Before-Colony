@@ -65,6 +65,26 @@ impl PanelMaterial {
         }
     }
 
+    /// A vital's gauge beside the crosshair: a quarter of a ring on `side` (-1 left, +1 right) of
+    /// the node's middle, `thick` px, lit in `fill` from the bottom up to `full` (0..1) of it, the
+    /// rest a track in `track`.
+    pub fn arc(fill: Color, track: Color, full: f32, side: f32, thick: f32) -> Self {
+        Self {
+            panel: PanelParams {
+                fill: linear(fill),
+                edge: linear(track),
+                params: Vec4::new(full, 2.0, side, thick),
+            },
+        }
+    }
+
+    /// An arc's reading: how full, and its colours.
+    pub fn set_arc(&mut self, fill: Color, track: Color, full: f32) {
+        self.panel.fill = linear(fill);
+        self.panel.edge = linear(track);
+        self.panel.params.x = full;
+    }
+
     /// Hazard stripes of two colours.
     pub fn stripes(a: Color, b: Color, chamfer: f32) -> Self {
         Self {
