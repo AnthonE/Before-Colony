@@ -70,7 +70,6 @@ pub(crate) struct Baseline {
     pub q: QEntity,
 }
 
-
 pub(crate) struct ClientState {
     pub active: bool,
     pub suit: SuitId,
@@ -111,6 +110,10 @@ pub(crate) struct ClientState {
     pub lost: bool,
     /// ...and how it was lost.
     pub loss: crate::queues::Loss,
+    /// The bytes this client may still be sent (a bucket filled by `SectorConfig::rate` a tick, to
+    /// twice that), and how many datagrams a tick at most.
+    pub bucket: i32,
+    pub max_parts: u8,
     /// Per suit slot: how many records of it went to this client, and the newest the client
     /// acked (its baseline). And the records the datagrams in flight carried, for their acks.
     pub sends: Box<[u32]>,
@@ -155,6 +158,8 @@ impl ClientState {
             rock_acked: boxed(rocks, 0u8),
             lost: false,
             loss: crate::queues::Loss::Destroyed,
+            bucket: 0,
+            max_parts: 1,
             sends: boxed(max_suits, 0u32),
             base: boxed(max_suits, Baseline::default()),
             sent_ents: boxed(SENT_ENTS, SentEnt { generation: 0, nth: 0, tick: 0, q: QEntity::default() }),
@@ -194,6 +199,8 @@ impl ClientState {
         self.rock_acked.fill(0);
         self.lost = false;
         self.loss = crate::queues::Loss::Destroyed;
+        self.bucket = 0;
+        self.max_parts = 1;
         self.sends.fill(0);
         self.base.fill(Baseline::default());
         self.ents_head = 0;

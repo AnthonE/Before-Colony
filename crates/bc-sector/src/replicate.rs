@@ -3,7 +3,7 @@
 
 use bc_proto::events::Event;
 use bc_proto::objects::ROCK_RECORD_BITS;
-use bc_proto::snapshot::ENTITY_MAX_BITS;
+use bc_proto::snapshot::{ENTITY_MAX_BITS, header_flags};
 use bc_proto::{Delta, ObjectState, QEntity, SnapshotHeader, SnapshotWriter};
 use bc_sim::Sim;
 use bc_sim::chunks::{MAX_CHUNKS, Motion};
@@ -243,7 +243,15 @@ fn object_candidates(
     n
 }
 
-/// Writes one snapshot for `client` into `buf`; returns its length.
+/// What [`build_snapshot`] wrote: the datagram's length, and how far down the client's sorted
+/// suits it got (`next` of `top`), for a tick's further parts ([`build_more`]).
+pub(crate) struct Built {
+    pub len: usize,
+    pub next: usize,
+    pub top: usize,
+}
+
+/// Writes one snapshot for `client` into `buf`: its tick's first datagram.
 pub(crate) fn build_snapshot(
     sim: &Sim,
     client: &mut ClientState,
@@ -251,7 +259,7 @@ pub(crate) fn build_snapshot(
     buf: &mut [u8],
     work: &mut Work,
     deltas: bool,
-) -> Option<usize> {
+) -> Option<Built> {
     let me = client.suit.idx();
     let t = header.tick;
     let (dgram, stream) = client.next_seq();
@@ -359,31 +367,16 @@ pub(crate) fn build_snapshot(
 
     // --- Entities, highest priority first. ---
     let cand = &mut work.entities[..n_cand];
-    // As many as deltas could fit: a still suit's record is 30 bits.
-    const TOP: usize = 96;
-    if cand.len() > TOP {
-        cand.select_nth_unstable_by(TOP, |a, b| b.0.total_cmp(&a.0));
+    // As many as a tick's parts could hold, deltas of still suits being 30 bits.
+    let top_n = 96 * usize::from(client.max_parts.max(1));
+    if cand.len() > top_n {
+        cand.select_nth_unstable_by(top_n, |a, b| b.0.total_cmp(&a.0));
     }
-    let top = cand.len().min(TOP);
+    let top = cand.len().min(top_n);
     cand[..top].sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
     // Each as a delta against the newest record of it the client acked, if it still holds that.
     rec.ents_from = client.ents_head;
-    for k in 0..top {
-        let j = work.entities[k].1 as usize;
-        let q = work.record_for(sim, j, me);
-        let generation = sim.suits.generation[j];
-        let delta = deltas
-            .then(|| {
-                client.baseline(j, generation, &q, t).and_then(|(base, back)| Delta::plan(&q, base, back))
-            })
-            .flatten();
-        let Some(bits) = w.entity_q(&q, delta.as_ref(), object_reserve) else { break };
-        work.count(bits, delta.is_some());
-        client.note_sent(j, generation, t, &q);
-        rec.n_ents += 1;
-        client.prio[j] = 0.0;
-        client.known.set(j, true);
-    }
+    let next = write_suits(sim, client, work, &mut w, &mut rec, (0, top), object_reserve, deltas);
 
     // --- Objects: what the client should forget first, then the nearest. ---
     for &(key, k) in lowest(&mut work.objects[..n_objs], OBJS_PER_SNAPSHOT) {
@@ -401,7 +394,71 @@ pub(crate) fn build_snapshot(
     }
     let n = w.finish()?;
     client.sent[dgram as usize % SENT_RING] = rec;
-    Some(n)
+    Some(Built { len: n, next, top })
+}
+
+/// Writes the client's sorted suits from `from` up to `to` (`work.entities`) while they fit, leaving
+/// `keep` bits; returns where it stopped. Each goes as a delta against the newest record of it the
+/// client acked, if it still holds that.
+#[allow(clippy::too_many_arguments)]
+fn write_suits(
+    sim: &Sim,
+    client: &mut ClientState,
+    work: &mut Work,
+    w: &mut SnapshotWriter<'_>,
+    rec: &mut SentRecord,
+    (from, to): (usize, usize),
+    keep: usize,
+    deltas: bool,
+) -> usize {
+    let me = client.suit.idx();
+    let t = sim.tick();
+    for k in from..to {
+        let j = work.entities[k].1 as usize;
+        let q = work.record_for(sim, j, me);
+        let generation = sim.suits.generation[j];
+        let delta = deltas
+            .then(|| {
+                client.baseline(j, generation, &q, t).and_then(|(base, back)| Delta::plan(&q, base, back))
+            })
+            .flatten();
+        let Some(bits) = w.entity_q(&q, delta.as_ref(), keep) else { return k };
+        work.count(bits, delta.is_some());
+        client.note_sent(j, generation, t, &q);
+        rec.n_ents += 1;
+        client.prio[j] = 0.0;
+        client.known.set(j, true);
+    }
+    to
+}
+
+/// Writes a tick's next datagram for `client` after its first ([`build_snapshot`]): more of the
+/// suits it sees, from `from` down its sorted list, and nothing else (`header_flags::MORE`).
+/// Returns its length and where it stopped.
+pub(crate) fn build_more(
+    sim: &Sim,
+    client: &mut ClientState,
+    header: &SnapshotHeader,
+    buf: &mut [u8],
+    work: &mut Work,
+    (from, top): (usize, usize),
+    deltas: bool,
+) -> Option<(usize, usize)> {
+    let (seq, stream) = client.next_seq();
+    let mut w = SnapshotWriter::new(buf, client.max_datagram);
+    w.header(&SnapshotHeader {
+        seq: seq as u16,
+        stream,
+        flags: header.flags | header_flags::MORE,
+        ..*header
+    });
+    w.own(None);
+    w.orrery(None);
+    let mut rec = SentRecord { seq, ents_from: client.ents_head, ..SentRecord::default() };
+    let next = write_suits(sim, client, work, &mut w, &mut rec, (from, top), 0, deltas);
+    let n = w.finish()?;
+    client.sent[seq as usize % SENT_RING] = rec;
+    Some((n, next))
 }
 
 /// How far a spectator sees suits from, m (a suit 2.5 km off is a few pixels through the colony's

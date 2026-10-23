@@ -167,6 +167,8 @@ pub struct ClientStats {
     pub decode_errors: u64,
     /// Snapshot datagrams dropped as older than one already taken (reordered, or repeated).
     pub stale: u64,
+    /// A tick's datagrams after its first taken (more of the suits in sight).
+    pub parts: u64,
     pub packets_sent: u64,
     pub last_snapshot_at: f64,
     /// When the last of the pilot's own snapshots came (not a spectator's), local s.
@@ -642,6 +644,13 @@ impl ClientCore {
             }
         }
         let ents: Vec<EntityState> = records.iter().map(QEntity::state).collect();
+        // A tick's further datagram: more suits, and nothing else to hear.
+        if h.flags & header_flags::MORE != 0 {
+            self.world.apply_more(h.tick, &ents);
+            self.stats.parts += 1;
+            self.stats.bytes += bytes.len() as u64;
+            return;
+        }
         // The own suit where it was last drawn, from what it was drawn from, before this news.
         let drawn_at = self.drawn.recent(now);
         let before = drawn_at.and_then(|(o, v)| self.own_source(o, v)).map(|(p, _)| p);

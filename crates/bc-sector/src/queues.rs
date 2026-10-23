@@ -354,8 +354,8 @@ pub(crate) struct SectorEnds {
     pub advice: rtrb::Consumer<TacticalAdvice>,
 }
 
-/// Bytes of outbound queue per client (≈ 14 full snapshots).
-pub const OUT_RING_BYTES: usize = 16 * 1024;
+/// Bytes of outbound queue per client (≈ 29 full datagrams: ten ticks of three parts).
+pub const OUT_RING_BYTES: usize = 32 * 1024;
 /// Input messages buffered per client.
 pub const IN_RING: usize = 64;
 /// Sleepers' fates waiting for the server.

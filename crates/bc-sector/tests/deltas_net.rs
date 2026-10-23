@@ -64,15 +64,19 @@ struct Run {
     /// The clients' datagrams dropped as stale (reordered), and decode errors (a baseline missing).
     stale: u64,
     decode_errors: u64,
-    /// What the sector sent: suit records, and how many were deltas.
+    /// What the sector sent: suit records, how many were deltas, and datagrams after a tick's first.
     records: u64,
     deltas: u64,
+    extra_parts: u64,
+    /// A tick's further datagrams the clients took.
+    parts: u64,
 }
 
-/// Four pilots and 48 drones for 30 s, over links losing `loss` each way and reordering.
-fn run(deltas: bool, loss: f32) -> Run {
+/// Four pilots and `drones` drones for 30 s, over links losing `loss` each way and reordering, the
+/// pilots' datagrams at most `max_datagram` bytes.
+fn run(deltas: bool, loss: f32, drones: u32, max_datagram: u16) -> Run {
     let cfg = SectorConfig {
-        sim: SimConfig { target_drones: 48, seed: 5, ..SimConfig::default() },
+        sim: SimConfig { target_drones: drones, seed: 5, ..SimConfig::default() },
         max_clients: 4,
         deltas,
         ..SectorConfig::default()
@@ -95,7 +99,7 @@ fn run(deltas: bool, loss: f32) -> Run {
                     pilot: PilotKind::Human,
                     frame: FrameId::Argo,
                     faction: Faction::Colonies,
-                    max_datagram: bc_proto::MAX_DATAGRAM as u16,
+                    max_datagram,
                     comeback: Comeback::default(),
                     launch: None,
                 })
@@ -116,7 +120,16 @@ fn run(deltas: bool, loss: f32) -> Run {
         .collect();
     // What each pilot's client should have of each suit at each tick: the server's record, whole.
     let mut truth: HashMap<(u32, usize, u16), EntityState> = HashMap::new();
-    let mut out = Run { checked: 0, wrong: 0, stale: 0, decode_errors: 0, records: 0, deltas: 0 };
+    let mut out = Run {
+        checked: 0,
+        wrong: 0,
+        stale: 0,
+        decode_errors: 0,
+        records: 0,
+        deltas: 0,
+        extra_parts: 0,
+        parts: 0,
+    };
     let (mut t, mut next_tick, mut next_poll) = (0.0f64, 0.0f64, 0.0f64);
     let mut buf = [0u8; 2048];
     while t < 30.0 {
@@ -143,7 +156,7 @@ fn run(deltas: bool, loss: f32) -> Run {
                         tick_hz: 30,
                         sector: 1,
                         orrery_allowed: true,
-                        max_datagram: bc_proto::MAX_DATAGRAM as u16,
+                        max_datagram,
                         field_seed: shared.field_seed,
                         field_rocks: shared.field_rocks,
                         flags: 0,
@@ -192,16 +205,18 @@ fn run(deltas: bool, loss: f32) -> Run {
     for s in &seats {
         out.stale += s.client.stats.stale;
         out.decode_errors += s.client.stats.decode_errors;
+        out.parts += s.client.stats.parts;
     }
     let m = &shared.metrics;
     out.records = Metrics::load(&m.entity_records);
     out.deltas = Metrics::load(&m.entity_deltas);
+    out.extra_parts = Metrics::load(&m.extra_parts);
     out
 }
 
 #[test]
 fn deltas_rebuild_every_suit_exactly_over_a_lossy_reordering_link() {
-    let r = run(true, 0.1);
+    let r = run(true, 0.1, 48, bc_proto::MAX_DATAGRAM as u16);
     println!(
         "checked {} records ({} wrong), {} stale datagrams, {} decode errors; sent {} records, {} deltas",
         r.checked, r.wrong, r.stale, r.decode_errors, r.records, r.deltas
@@ -215,7 +230,27 @@ fn deltas_rebuild_every_suit_exactly_over_a_lossy_reordering_link() {
 
 #[test]
 fn with_deltas_off_every_record_is_whole_and_just_as_exact() {
-    let r = run(false, 0.1);
+    let r = run(false, 0.1, 48, bc_proto::MAX_DATAGRAM as u16);
     assert!(r.checked > 20_000, "records checked: {}", r.checked);
     assert_eq!((r.wrong, r.decode_errors, r.deltas), (0, 0, 0));
+}
+
+/// 120 drones and 400-byte datagrams: more than one holds, so a tick sends a pilot more, as its
+/// budget allows. The further ones are deltas too, and every record is as exact.
+#[test]
+fn a_crowd_goes_in_more_datagrams_a_tick_and_stays_exact() {
+    let r = run(true, 0.1, 120, 400);
+    println!(
+        "checked {} records ({} wrong), {} decode errors; sent {} records, {} deltas, {} further datagrams ({} taken)",
+        r.checked, r.wrong, r.decode_errors, r.records, r.deltas, r.extra_parts, r.parts
+    );
+    assert!(r.checked > 20_000, "records checked: {}", r.checked);
+    assert_eq!((r.wrong, r.decode_errors), (0, 0));
+    assert!(
+        r.extra_parts > 1_000 && r.parts > 500,
+        "further datagrams {} sent, {} taken",
+        r.extra_parts,
+        r.parts
+    );
+    assert!(r.deltas * 2 > r.records, "deltas {} of {} records", r.deltas, r.records);
 }

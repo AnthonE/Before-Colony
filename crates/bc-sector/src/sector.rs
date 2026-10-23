@@ -19,7 +19,7 @@ use crate::metrics::Metrics;
 use crate::queues::{
     Control, Loss, Outcome, Reparked, Report, Restored, SectorEnds, SectorShared, SlotState,
 };
-use crate::replicate::{Work, build_snapshot, build_watch};
+use crate::replicate::{Work, build_more, build_snapshot, build_watch};
 
 /// Ticks between tactical pictures per the Orrery pilot when an external oracle is attached (≈3.75 Hz).
 const PICTURE_INTERVAL: u32 = 8;
@@ -44,6 +44,9 @@ fn ms(secs: f64) -> u32 {
     (secs * 1_000.0).round().clamp(0.0, f64::from(u32::MAX)) as u32
 }
 
+/// A pilot's default budget, bytes a tick: 64 KB/s at 30 Hz, about two datagrams a tick.
+pub const RATE: u32 = 64_000 / 30;
+
 #[derive(Clone, Copy, Debug)]
 pub struct SectorConfig {
     pub sim: SimConfig,
@@ -51,6 +54,11 @@ pub struct SectorConfig {
     /// Send suits' records as deltas against the newest each client acked (`docs/NETCODE.md`);
     /// off, every record goes whole.
     pub deltas: bool,
+    /// What a pilot may be sent: bytes a tick on average (a bucket that holds two ticks' worth),
+    /// in at most this many datagrams a tick. The first always goes; more go while there are
+    /// suits left to send and the bucket holds a full datagram.
+    pub rate: u32,
+    pub max_parts: u8,
     /// Which of the server's sectors this is (0 to 3: space is 0, the colony's inside 1), named in
     /// the streams its datagrams count on (`bc_proto::ack::stream`), so a client on a connection
     /// both send on never takes one's count for the other's.
@@ -68,6 +76,8 @@ impl Default for SectorConfig {
             sim: SimConfig::default(),
             max_clients: 64,
             deltas: true,
+            rate: RATE,
+            max_parts: 3,
             id: 0,
             oracle: false,
             hot_guard: None,
@@ -100,6 +110,20 @@ pub struct Sector {
     /// Per slot: the wreck its pilot ejected from, which the tugs are going out for (survival).
     claims: Box<[Option<Claim>]>,
     timing: Timing,
+}
+
+/// Puts a datagram on a client's outbound ring, if there's room (counted either way).
+fn queue(out: &mut rtrb::Producer<u8>, m: &Metrics, bytes: &[u8]) -> bool {
+    if out.slots() < bytes.len() + 2 {
+        Metrics::add(&m.out_drops, 1);
+        return false;
+    }
+    let _ = out.push_entire_slice(&(bytes.len() as u16).to_le_bytes());
+    let _ = out.push_entire_slice(bytes);
+    Metrics::add(&m.snapshots, 1);
+    Metrics::add(&m.snapshot_bytes, bytes.len() as u64);
+    Metrics::max(&m.snapshot_max_bytes, bytes.len() as u64);
+    true
 }
 
 impl Sector {
@@ -372,6 +396,7 @@ impl Sector {
     fn seat(&mut self, s: usize, id: SuitId, pilot: PilotKind, max_datagram: u16, outcome: Outcome) {
         let seq = self.sim.events.next_seq();
         self.clients[s].seat(self.cfg.id, id, pilot, max_datagram as usize, seq);
+        self.clients[s].max_parts = self.cfg.max_parts.max(1);
         Metrics::set(&self.shared.metrics.pilots[s].suit, id.idx() as u64 + 1);
         self.shared.slots[s].publish(SlotState::Active, Some(id), outcome);
     }
@@ -601,20 +626,11 @@ impl Sector {
                     flags: header_flags::SPECTATOR,
                     ..SnapshotHeader::default()
                 };
-                let Some(n) = build_watch(&self.sim, client, at, &header, &mut self.scratch, &mut self.work)
-                else {
-                    continue;
-                };
-                let out = &mut self.ends.outputs[s];
-                if out.slots() < n + 2 {
-                    Metrics::add(&m.out_drops, 1);
-                    continue;
+                if let Some(n) =
+                    build_watch(&self.sim, client, at, &header, &mut self.scratch, &mut self.work)
+                {
+                    queue(&mut self.ends.outputs[s], m, &self.scratch[..n]);
                 }
-                let _ = out.push_entire_slice(&(n as u16).to_le_bytes());
-                let _ = out.push_entire_slice(&self.scratch[..n]);
-                Metrics::add(&m.snapshots, 1);
-                Metrics::add(&m.snapshot_bytes, n as u64);
-                Metrics::max(&m.snapshot_max_bytes, n as u64);
                 continue;
             }
             if !client.active {
@@ -630,26 +646,40 @@ impl Sector {
                 tidi_pct: 100,
                 ..SnapshotHeader::default()
             };
-            let Some(n) = build_snapshot(
-                &self.sim,
-                client,
-                &header,
-                &mut self.scratch,
-                &mut self.work,
-                self.cfg.deltas,
-            ) else {
+            let deltas = self.cfg.deltas;
+            let Some(built) =
+                build_snapshot(&self.sim, client, &header, &mut self.scratch, &mut self.work, deltas)
+            else {
                 continue;
             };
-            let out = &mut self.ends.outputs[s];
-            if out.slots() < n + 2 {
-                Metrics::add(&m.out_drops, 1);
+            let rate = self.cfg.rate as i32;
+            client.bucket = (client.bucket + rate).min(2 * rate);
+            if !queue(&mut self.ends.outputs[s], m, &self.scratch[..built.len]) {
                 continue;
             }
-            let _ = out.push_entire_slice(&(n as u16).to_le_bytes());
-            let _ = out.push_entire_slice(&self.scratch[..n]);
-            Metrics::add(&m.snapshots, 1);
-            Metrics::add(&m.snapshot_bytes, n as u64);
-            Metrics::max(&m.snapshot_max_bytes, n as u64);
+            client.bucket -= built.len as i32;
+            // More of what it sees, while there's more and its budget holds a datagram.
+            let (mut next, mut parts) = (built.next, 1);
+            while parts < client.max_parts
+                && next < built.top
+                && client.bucket >= client.max_datagram as i32
+                && let Some((n, k)) = build_more(
+                    &self.sim,
+                    client,
+                    &header,
+                    &mut self.scratch,
+                    &mut self.work,
+                    (next, built.top),
+                    deltas,
+                )
+                && k > next
+                && queue(&mut self.ends.outputs[s], m, &self.scratch[..n])
+            {
+                client.bucket -= n as i32;
+                next = k;
+                parts += 1;
+                Metrics::add(&m.extra_parts, 1);
+            }
             // Per-pilot combat stats for /status.
             let st = self.sim.stats(client.suit.idx());
             let ps = &m.pilots[s];

@@ -326,6 +326,8 @@ impl GameRuntime {
             },
             max_clients: cfg.max_clients,
             deltas: true,
+            rate: bc_sector::RATE,
+            max_parts: 3,
             id: 0,
             oracle: use_jev,
             hot_guard: Some(bc_alloc::set_hot),
@@ -354,6 +356,8 @@ impl GameRuntime {
                 // Its pilots, and as many on foot in the city watching its suits.
                 max_clients: cfg.max_clients * 2,
                 deltas: true,
+                rate: bc_sector::RATE,
+                max_parts: 3,
                 id: 1,
                 oracle: false,
                 hot_guard: Some(bc_alloc::set_hot),

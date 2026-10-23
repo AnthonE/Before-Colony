@@ -21,10 +21,14 @@ use glam::Vec3;
 const WARMUP: u32 = 150;
 const TICKS: u32 = 450;
 
-fn run(pilots: usize, drones: usize) {
+/// One crowd for 450 ticks: `v37`, the suits' records as deltas in up to three datagrams a tick;
+/// otherwise whole, in one (the wire before v37).
+fn run(pilots: usize, drones: usize, v37: bool) {
     let cfg = SectorConfig {
         sim: SimConfig { target_drones: drones as u32, max_suits: 1_000, seed: 7, ..SimConfig::default() },
         max_clients: pilots,
+        deltas: v37,
+        max_parts: if v37 { 3 } else { 1 },
         ..SectorConfig::default()
     };
     let (mut sector, shared, mut egress, _oracle) = bc_sector::build(cfg);
@@ -47,11 +51,12 @@ fn run(pilots: usize, drones: usize) {
     let (mut tick, mut sim, mut rep) = (Vec::new(), Vec::new(), Vec::new());
     let (mut bytes, mut packets) = (0u64, 0u64);
     let m = &shared.metrics;
-    let (mut records, mut bits) = (0, 0);
+    let (mut records, mut bits, mut deltas) = (0, 0, 0);
     for step in 0..WARMUP + TICKS {
         if step == WARMUP {
             records = Metrics::load(&m.entity_records);
             bits = Metrics::load(&m.entity_bits);
+            deltas = Metrics::load(&m.entity_deltas);
         }
         let next = sector.sim.next_tick();
         for l in &mut leases {
@@ -91,11 +96,13 @@ fn run(pilots: usize, drones: usize) {
     }
     let records = Metrics::load(&m.entity_records) - records;
     let bits = Metrics::load(&m.entity_bits) - bits;
+    let deltas = Metrics::load(&m.entity_deltas) - deltas;
     let pilot_ticks = f64::from(TICKS) * pilots as f64;
     let secs = f64::from(TICKS) / 30.0;
     println!(
-        "{pilots:>4} pilots {drones:>3} drones | tick {} | sim {} | replicate {} | {:>4} B/datagram {:>4.2}/pilot-tick | \
-         {:>5.1} suits/pilot-tick {:>5.1} bits/suit | {:>5.1} KB/s a pilot {:>6.2} MB/s out",
+        "{pilots:>4} pilots {drones:>3} drones {} | tick {} | sim {} | replicate {} | {:>4} B/datagram {:>4.2}/pilot-tick | \
+         {:>5.1} suits/pilot-tick {:>5.1} bits/suit {:>3.0}% deltas | {:>5.1} KB/s a pilot {:>6.2} MB/s out",
+        if v37 { "v37  " } else { "whole" },
         pcts(&mut tick),
         pcts(&mut sim),
         pcts(&mut rep),
@@ -103,6 +110,7 @@ fn run(pilots: usize, drones: usize) {
         packets as f64 / pilot_ticks,
         records as f64 / pilot_ticks,
         bits as f64 / records.max(1) as f64,
+        100.0 * deltas as f64 / records.max(1) as f64,
         bytes as f64 / secs / pilots as f64 / 1000.0,
         bytes as f64 / secs / 1e6,
     );
@@ -118,6 +126,7 @@ fn pcts(us: &mut [u64]) -> String {
 fn main() {
     // `cargo bench` passes `--bench`; anything else (a filter) is ignored.
     for (pilots, drones) in [(64, 256), (128, 256), (256, 256), (448, 64)] {
-        run(pilots, drones);
+        run(pilots, drones, false);
+        run(pilots, drones, true);
     }
 }

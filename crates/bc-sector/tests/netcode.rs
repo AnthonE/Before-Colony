@@ -999,11 +999,15 @@ impl Party {
 /// Several real clients of one real sector, each over its own link, for 40 s. `before_tick` sees
 /// the sector before each tick.
 fn party(guests: Vec<Guest>, before_tick: &mut dyn FnMut(&mut Sector)) -> Party {
-    party_with(true, guests, before_tick)
+    party_with(|_| {}, guests, before_tick)
 }
 
-/// [`party`], with the sector sending suits' records as deltas or (`deltas` false) only whole.
-fn party_with(deltas: bool, mut guests: Vec<Guest>, before_tick: &mut dyn FnMut(&mut Sector)) -> Party {
+/// [`party`], with the sector's replication set by `tune` (deltas, the budget).
+fn party_with(
+    tune: fn(&mut SectorConfig),
+    mut guests: Vec<Guest>,
+    before_tick: &mut dyn FnMut(&mut Sector),
+) -> Party {
     struct Seat {
         lease: bc_sector::SlotLease,
         client: ClientCore,
@@ -1017,12 +1021,12 @@ fn party_with(deltas: bool, mut guests: Vec<Guest>, before_tick: &mut dyn FnMut(
         shots: HashMap<u8, Vec3>,
     }
     const HZ: f64 = 60.0;
-    let cfg = SectorConfig {
+    let mut cfg = SectorConfig {
         sim: SimConfig { target_drones: 0, seed: 1, ..SimConfig::default() },
         max_clients: 4,
-        deltas,
         ..SectorConfig::default()
     };
+    tune(&mut cfg);
     let (mut sector, shared, mut egress, _oracle) = bc_sector::build(cfg);
     let mut seats: Vec<Seat> = guests
         .iter()
@@ -1426,14 +1430,22 @@ fn crowd(walking: usize) -> impl FnMut(&mut Sector) {
 /// A client on a 256-byte budget watches 24 suits on Hermit, more than its snapshots hold whole.
 /// Half stand still: each record of one would say just what the last did (it is sent in Hermit's
 /// frame), so it is sent a tenth as often, its track kept alive longer, and the half that walk
-/// are refreshed more often for it. Sent as deltas, a still one costs 30 bits, and everyone is
-/// refreshed more often still.
+/// are refreshed more often for it (records whole, one datagram a tick). Sent as deltas, in up to
+/// three datagrams a tick, a still one costs 30 bits, and everyone is refreshed more often still.
 #[test]
 fn still_riders_yield_bandwidth() {
     let watch = |deltas: bool, walking: usize| {
         let mut watcher = Guest::new(Faction::Colonies, CLEAN, over_hermit, watching);
         watcher.max_datagram = 256;
-        let party = party_with(deltas, vec![watcher], &mut crowd(walking));
+        let tune: fn(&mut SectorConfig) = if deltas {
+            |_| {}
+        } else {
+            |c| {
+                c.deltas = false;
+                c.max_parts = 1;
+            }
+        };
+        let party = party_with(tune, vec![watcher], &mut crowd(walking));
         let visit = &party.visits[0];
         let crowd: Vec<u16> = (0..party.sector.sim.suits.cap as u16)
             .filter(|&j| usize::from(j) != visit.suit && party.sector.sim.suits.alive.get(usize::from(j)))
