@@ -439,6 +439,22 @@ fn through_the_wire(cur: &QEntity, base: &QEntity, back: u32) -> (QEntity, bool)
     (q, delta.is_some())
 }
 
+/// A rotation two of whose components all but tie for the largest (one proptest found): decoded,
+/// the other comes out the larger, so it's coded the other way round, and turns the same within a
+/// step of the code.
+#[test]
+fn a_rotation_whose_largest_two_tie_codes_the_same_turn() {
+    let e = EntityState {
+        rot: Quat::from_xyzw(0.705_198_65, 0.705_854_8, -0.0, 0.066_811_9),
+        ..EntityState::default()
+    };
+    let q = QEntity::quantize(&e);
+    let again = QEntity::quantize(&q.state());
+    assert_ne!(again.rot_largest, q.rot_largest);
+    assert!(again.state().rot.dot(q.state().rot).abs() > 1.0 - 1e-5);
+    assert!(q.state().rot.dot(e.rot).abs() > 1.0 - 1e-5);
+}
+
 /// `e` as the same suit, life and body as `base` (but whether it's aloft).
 fn same_suit(e: EntityState, base: &EntityState) -> EntityState {
     let on = base.on.map(|b| RiderOn { body: b.body, aloft: e.on.is_some_and(|o| o.aloft) });
@@ -473,7 +489,11 @@ proptest! {
         let n = w.finish().unwrap();
         let mut r = SnapshotReader::new(&buf[..n]).unwrap();
         prop_assert_eq!(r.next_entity().unwrap().unwrap(), q.state());
-        prop_assert_eq!(QEntity::quantize(&q.state()), q);
+        // Its codes again, but where two of the rotation's components all but tie for the largest:
+        // decoded, either may come out the larger, and is coded so, the same turn within a step.
+        let again = QEntity::quantize(&q.state());
+        prop_assert_eq!(QEntity { rot_largest: q.rot_largest, rot: q.rot, ..again }, q);
+        prop_assert!(again.state().rot.dot(q.state().rot).abs() > 1.0 - 1e-5);
     }
 
     /// Anything against anything of the same suit: whatever the modes, the client rebuilds it exactly.
