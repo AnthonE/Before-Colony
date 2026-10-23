@@ -70,7 +70,7 @@ the suite shows the current way.
 | Space, launched | `walk cockpit`, `use` (the launch sequence; `cmd '{"cmd":"skip"}'` skips it) |
 | Home from space | `cmd '{"cmd":"fly_to","spot":"dock"}'`, `wait '!s.flying_to' 400`, `key Enter` |
 | A fight | `open 'autopilot=1&frame=altair'` (the drone brain flies and fights), or flying yourself: `cmd '{"cmd":"aim_hostile","on":true}'` and `mouse right 3000` |
-| The colony's streets | `walk airlock`, `use`, `wait 's.place=="city"'`, `cmd '{"cmd":"skip"}'` (the lift ride) |
+| The colony's streets | `walk airlock`, `use`, `wait 's.place=="city"'`, `cmd '{"cmd":"skip"}'` (the lift ride, ~40 s in real time; `wait 's.lift_h<500'` to look out of the car on the way) |
 | A place in the city | `walk proving_ground` (`exchange_floor`, `charter_board`, `bar`, `hub_gate_1`, `tram`, `seat`, `pool`, `gantry`, `sight_0`…`sight_9`: on the strip you're on); `use` at its desk |
 | A suit inside the colony | `walk cockpit`, `key KeyQ` (Q at the cockpit launches inside), then `cmd '{"cmd":"fly_to","spot":"hub_gate_1","up":22,"ahead":60}'`; `key KeyL` lands |
 | The chart | flying: `key KeyM`; `ui` reads it |

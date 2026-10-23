@@ -95,7 +95,9 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   await push(page, { cmd: "use" });
   await until(page, "the ride down", (s) => s.seq === "lift_down", FRAMES);
   let s = await until(page, "the city", (s) => s.place === "city", FRAMES);
-  // The ride can be skipped.
+  // The car rides down the cap in real time, out of the bay ring 948 m up (its floor's height:
+  // `lift_h`), to its landing beside Hub Gate's terminal. The ride can be skipped.
+  s = await until(page, "riding down", (s) => s.lift_h > 0 && s.lift_h < 948, FRAMES);
   await push(page, { cmd: "skip" });
   s = await until(page, "Hub Gate", (s) => s.seq === "walking", FRAMES);
   expect(s.strip).toBe(0);
@@ -278,6 +280,9 @@ test("a pilot rides down into the colony, trades on its Exchange floor, and ride
   console.log(`life at Hub Gate: ${s.ambient_people} people, ${s.ambient_cars} cars, ${s.life_ms} ms`);
   await expect(page.locator("#use")).toContainText("UP TO YOUR BAY", { timeout: FRAMES });
   await push(page, { cmd: "use" });
+  // The car rides up in real time; skipped, it's at the top of its shaft and the bay takes them in.
+  await until(page, "the ride up", (s) => s.seq === "lift_up" && s.lift_h >= 0, FRAMES);
+  await push(page, { cmd: "skip" });
   s = await until(page, "home", (s) => s.place === "hangar", FRAMES);
   s = await until(page, "on foot in the bay", (s) => s.seq === "walking" && s.strip === -1, FRAMES);
   expect(s.bay).toBe("docked");
@@ -468,6 +473,8 @@ test("a pilot chooses the Canal strip's cap lift at the airlock, and rides up ag
   await until(page, "at Hub Gate", (s) => s.focus === "hub_gate_2" && !s.city_walking_to, 120_000);
   await expect(page.locator("#use")).toContainText("UP TO YOUR BAY", { timeout: 30_000 });
   await push(page, { cmd: "use" });
+  await until(page, "the ride up", (s) => s.seq === "lift_up", 30_000);
+  await push(page, { cmd: "skip" });
   await until(page, "home", (s) => s.place === "hangar", 30_000);
   s = await until(page, "on foot in the bay", (s) => s.seq === "walking" && s.strip === -1, 30_000);
   // Back at the airlock, E is the Charter strip's lift again.
@@ -565,8 +572,10 @@ test("two pilots meet at Hub Gate; one rides home, and a suit comes down by the 
 
   // Nico rides back up to the bay, and is gone from Kai's street.
   await push(b, { cmd: "walk_to", spot: "hub_gate_1" });
-  await until(b, "at Hub Gate's door", (s) => s.focus === "hub_gate_1" && !s.city_walking_to, 240_000);
+  await until(b, "in Hub Gate's lift", (s) => s.focus === "hub_gate_1" && !s.city_walking_to, 240_000);
   await push(b, { cmd: "use" });
+  await until(b, "the ride up", (s) => s.seq === "lift_up", 60_000);
+  await push(b, { cmd: "skip" });
   await until(b, "the bay", (s) => s.place === "hangar" && s.seq === "walking" && s.strip === -1, 120_000);
   await until(a, "Nico gone", (s) => seenAt(s, "Nico") === undefined, 60_000);
   status = await (await a.request.get("/status")).json();

@@ -221,7 +221,7 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
   - `walker.rs`: `Solid` and `Env`; `Layout` implements `Solid`, and the bay tests are unchanged.
   - `bc-client-core/src/city.rs`: `CityCollider` and `CityFoot`.
   - `onfoot.rs`: `Seq::LiftDown{strip}` and `LiftUp`, a 948 m ride you can skip after 2 s; walking the city; the
-    Hub Gate lift sends `LeaveCity`.
+    Hub Gate lift sends `LeaveCity`. (Since ridden in real time in a car you see out of, `caplift`, "Lift" below.)
   - `__bc` gets `venue`, `strip`, `district`, `city_feet`, `chunks`, `city_tris`, `city_ms`. Dev hooks: `walk_to`
     takes city slugs; new `lift`.
   - New `e2e/tests/colony.spec.ts`:
@@ -414,7 +414,12 @@ The colony keeps the simulation's size: 3.2 km radius, 32 km long, 20 km around,
   street goes blue within a few kilometres while the opposite strip, across the clean core, shows at about 60%.
 
 **Lift**
-- 948 m at 40 m/s and 2.5 m/s², about 40 s.
+- 948 m at 40 m/s and 2.5 m/s², about 40 s, ridden in real time (`bc_client_core::caplift`): a glass car
+  5 × 4.4 m, its shaft beside Hub Gate's terminal (not over it), open at its foot, where the car stands at
+  its landing on the street with its doors open. Down, the screen comes in from black as the car leaves the
+  bay ring (the airlock's cut) and the pilot looks round out of its glass; at the landing they walk out, with
+  no cut. Up, E in the car; the bay is asked for in the ring's dark at the top. Space skips either way. Only
+  the rider sees their car move (`onfoot::OnFoot::car`); everyone else's stands at its landing.
 
 **Trams**
 - One maglev line per strip on the median.

@@ -1184,8 +1184,14 @@ fn city_cams() -> Vec<Orbit> {
     vec![
         // Over Hub Gate's offices, down the avenue to the far end: the city curving up either side.
         look(city_at(0, mid - 90.0, -15_700.0, 170.0), (Vec3::X * 0.97 - up * 0.2).normalize()),
-        // From the cap lift, 700 m up the end cap.
-        look(city_at(0, mid, -15_990.0, 700.0), (Vec3::X * 0.94 - up * 0.34).normalize()),
+        // From the cap lift's shaft, 700 m up the end cap beside Hub Gate's terminal.
+        look(
+            {
+                let (s, x) = bc_client_core::caplift::stand();
+                city_at(0, s, x, 700.0)
+            },
+            (Vec3::X * 0.94 - up * 0.34).normalize(),
+        ),
         // On the avenue's pavement downtown, at eye height.
         look(eye(0), (Vec3::X + up * 0.05).normalize()),
         // At the window bank, the glass and the strip beyond rising up past the railing.

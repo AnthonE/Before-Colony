@@ -14,6 +14,7 @@ pub mod bay;
 pub mod beam_view;
 pub mod body_mesh;
 pub mod brains;
+pub mod caplift;
 pub mod chart;
 pub mod chase;
 pub mod city;
