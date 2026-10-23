@@ -2,8 +2,39 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Tick durations in log2(µs) buckets.
+/// Durations in log2(µs) buckets.
 const BUCKETS: usize = 32;
+
+/// A histogram of durations in log2(µs) buckets, written by the sector thread.
+#[derive(Default)]
+pub struct Hist {
+    buckets: [AtomicU64; BUCKETS],
+}
+
+impl Hist {
+    pub fn record(&self, us: u64) {
+        let b = (64 - us.max(1).leading_zeros() as usize - 1).min(BUCKETS - 1);
+        self.buckets[b].fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Upper bound of the bucket holding quantile `q`, µs (0 before anything is recorded).
+    pub fn quantile_us(&self, q: f64) -> u64 {
+        let counts = self.buckets.each_ref().map(|c| c.load(Ordering::Relaxed));
+        let total: u64 = counts.iter().sum();
+        if total == 0 {
+            return 0;
+        }
+        let target = (total as f64 * q).ceil() as u64;
+        let mut acc = 0;
+        for (b, c) in counts.iter().enumerate() {
+            acc += c;
+            if acc >= target {
+                return 1u64 << (b + 1);
+            }
+        }
+        1u64 << BUCKETS
+    }
+}
 
 #[derive(Default)]
 pub struct PilotStats {
@@ -42,12 +73,25 @@ impl PilotStats {
 pub struct Metrics {
     pub ticks: AtomicU64,
     pub overruns: AtomicU64,
-    tick_hist: [AtomicU64; BUCKETS],
+    tick_hist: Hist,
+    /// The tick in its halves: the simulation (inputs applied, the step and what watches it) and
+    /// replication (every client's snapshot built and queued).
+    pub sim_hist: Hist,
+    pub replicate_hist: Hist,
     pub tick_last_us: AtomicU64,
     pub tick_max_us: AtomicU64,
     pub snapshots: AtomicU64,
     pub snapshot_bytes: AtomicU64,
     pub snapshot_max_bytes: AtomicU64,
+    /// Suit records sent, the bits they took, and how many of them were deltas against what the
+    /// client acked.
+    pub entity_records: AtomicU64,
+    pub entity_bits: AtomicU64,
+    pub entity_deltas: AtomicU64,
+    /// Datagrams after the first in a tick (a client with more to see than one holds).
+    pub extra_parts: AtomicU64,
+    /// How much of what it could send a client is sent, percent: under 100 while ticks run hot.
+    pub pace_pct: AtomicU64,
     pub out_drops: AtomicU64,
     pub inputs: AtomicU64,
     pub inputs_stale: AtomicU64,
@@ -83,12 +127,19 @@ impl Metrics {
         Self {
             ticks: AtomicU64::new(0),
             overruns: AtomicU64::new(0),
-            tick_hist: Default::default(),
+            tick_hist: Hist::default(),
+            sim_hist: Hist::default(),
+            replicate_hist: Hist::default(),
             tick_last_us: AtomicU64::new(0),
             tick_max_us: AtomicU64::new(0),
             snapshots: AtomicU64::new(0),
             snapshot_bytes: AtomicU64::new(0),
             snapshot_max_bytes: AtomicU64::new(0),
+            entity_records: AtomicU64::new(0),
+            entity_bits: AtomicU64::new(0),
+            entity_deltas: AtomicU64::new(0),
+            extra_parts: AtomicU64::new(0),
+            pace_pct: AtomicU64::new(100),
             out_drops: AtomicU64::new(0),
             inputs: AtomicU64::new(0),
             inputs_stale: AtomicU64::new(0),
@@ -128,8 +179,7 @@ impl Metrics {
     }
 
     pub fn record_tick(&self, us: u64) {
-        let b = (64 - us.max(1).leading_zeros() as usize - 1).min(BUCKETS - 1);
-        self.tick_hist[b].fetch_add(1, Ordering::Relaxed);
+        self.tick_hist.record(us);
         Self::add(&self.ticks, 1);
         Self::set(&self.tick_last_us, us);
         Self::max(&self.tick_max_us, us);
@@ -137,20 +187,7 @@ impl Metrics {
 
     /// Upper bound of the bucket holding quantile `q` of tick durations, µs.
     pub fn tick_quantile_us(&self, q: f64) -> u64 {
-        let counts: Vec<u64> = self.tick_hist.iter().map(|c| c.load(Ordering::Relaxed)).collect();
-        let total: u64 = counts.iter().sum();
-        if total == 0 {
-            return 0;
-        }
-        let target = (total as f64 * q).ceil() as u64;
-        let mut acc = 0;
-        for (b, c) in counts.iter().enumerate() {
-            acc += c;
-            if acc >= target {
-                return 1u64 << (b + 1);
-            }
-        }
-        1u64 << BUCKETS
+        self.tick_hist.quantile_us(q)
     }
 
     pub fn load(c: &AtomicU64) -> u64 {

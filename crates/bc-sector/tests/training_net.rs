@@ -48,12 +48,7 @@ fn inside() -> (Sector, std::sync::Arc<bc_sector::SectorShared>, SlotLease) {
 /// Sends `cmd` for the tick the sector simulates next, and ticks it (counting heap operations).
 fn fly(sector: &mut Sector, lease: &mut SlotLease, cmd: InputCmd) -> u64 {
     let next = sector.sim.next_tick();
-    let mut p = InputPacket {
-        ack_snapshot: next.saturating_sub(2),
-        client_time_ms: next as u16,
-        count: 1,
-        ..InputPacket::default()
-    };
+    let mut p = InputPacket { client_time_ms: next as u16, count: 1, ..InputPacket::default() };
     p.cmds[0] = InputCmd { tick: next, view_tick_q4: next << 4, ..cmd }.quantized();
     let _ = lease.input.push(InputMsg { packet: p, recv_us: u64::from(next) * 33_333 });
     let ((), n) = bc_alloc::count(|| sector.tick());

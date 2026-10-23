@@ -32,6 +32,18 @@ impl Sim {
 
     /// Whether `viewer`'s sensors pick up suit `j` (alive or a fresh wreck).
     pub fn visible_to(&self, viewer: usize, j: usize) -> bool {
+        self.showing(viewer, j) && self.detects(viewer, j)
+    }
+
+    /// [`Sim::visible_to`], from `viewer`'s sensors' reach and `j`'s sight found already (a tick's
+    /// replication finds them once a suit: `Sim::sensor_reach`, `Sim::sight`).
+    pub fn visible_by(&self, viewer: usize, reach: f32, j: usize, sight: &super::Sight) -> bool {
+        self.showing(viewer, j) && self.detects_by(viewer, reach, j, sight)
+    }
+
+    /// Whether suit `j` is there to be seen by `viewer` at all: in use, not the viewer itself, and
+    /// not a wreck gone.
+    fn showing(&self, viewer: usize, j: usize) -> bool {
         let s = &self.suits;
         if !s.used.get(j) || j == viewer {
             return false;
@@ -51,7 +63,7 @@ impl Sim {
                 return false;
             }
         }
-        self.detects(viewer, j)
+        true
     }
 
     /// Full-precision state of suit `i` for its own pilot. On a body it is the state the suit moves
@@ -319,17 +331,32 @@ impl Sim {
     /// Suit `j` as replicated to `viewer`. On a body (standing on it, in its grip, or parked on it)
     /// it goes in the body's frame, a parked suit at rest there; otherwise in the sector's.
     pub fn entity_state(&self, j: usize, viewer: usize) -> EntityState {
-        self.entity_state_for(j, Some(viewer))
+        let mut e = self.entity_state_watched(j);
+        e.flags |= self.viewer_flags(j, viewer);
+        e
+    }
+
+    /// The flags of suit `j` that depend on who's looking: locked on to `viewer`, and a jamming
+    /// suit's shimmer, which only its allies see. Everything else in [`Sim::entity_state`] is the
+    /// same for every viewer, so replication builds it once a tick ([`Sim::entity_state_watched`])
+    /// and adds these.
+    pub fn viewer_flags(&self, j: usize, viewer: usize) -> u16 {
+        let s = &self.suits;
+        let mut flags = 0;
+        if s.input[j].lock_target == viewer as u16 && self.designation(j) == Some(viewer) {
+            flags |= ent_flags::LOCKED_ON_YOU;
+        }
+        // Allies see a jamming suit's shimmer; its enemies (close enough to see it at all) don't.
+        if self.jamming(j).is_some() && s.faction[j] == s.faction[viewer] {
+            flags |= ent_flags::SPECIAL;
+        }
+        flags
     }
 
     /// Suit `j` as a spectator sees it, who has no suit (a pilot on foot watching the colony's
     /// inside): as [`Sim::entity_state`], but nothing is locked on to them, and they're nobody's
     /// ally.
     pub fn entity_state_watched(&self, j: usize) -> EntityState {
-        self.entity_state_for(j, None)
-    }
-
-    fn entity_state_for(&self, j: usize, viewer: Option<usize>) -> EntityState {
         let s = &self.suits;
         let f = &s.flight[j];
         let t = self.tick();
@@ -384,19 +411,9 @@ impl Sim {
                 flags |= ent_flags::VENTING;
             }
         }
-        if let Some(viewer) = viewer
-            && s.input[j].lock_target == viewer as u16
-            && self.designation(j) == Some(viewer)
-        {
-            flags |= ent_flags::LOCKED_ON_YOU;
-        }
-        // Allies see a jamming suit's shimmer; its enemies (close enough to see it at all) don't.
-        // Full Salvo shows to everyone.
-        if (self.jamming(j).is_some() && viewer.is_some_and(|v| s.faction[j] == s.faction[v]))
-            || self.full_salvo(j)
-            || self.transforming(j)
-            || self.wards_out(j)
-        {
+        // Full Salvo, a change of form and the Ward show to everyone (a jammer's shimmer only to
+        // its allies: `viewer_flags`).
+        if self.full_salvo(j) || self.transforming(j) || self.wards_out(j) {
             flags |= ent_flags::SPECIAL;
         }
         let a = &s.anchor[j];

@@ -31,4 +31,4 @@ pub use queues::{
     Report, Restored, SectorShared, SlotLease, SlotState, ace_of_word, ace_word, build, read_packet,
 };
 pub use runtime::{SectorThread, spawn, spawn_follower, spawn_named, spawn_waking};
-pub use sector::{Sector, SectorConfig, TOW_TICKS};
+pub use sector::{RATE, Sector, SectorConfig, TOW_TICKS, Timing};

@@ -175,12 +175,8 @@ fn a_pilot_on_foot_by_the_hall_hears_of_its_targets_struck() {
         let t = sector.sim.next_tick();
         let f = sector.sim.suits.flight[i];
         let aim = (hall::target(1, t, 0.0) - (f.pos + f.rot * muzzle)).normalize();
-        let mut p = bc_proto::InputPacket {
-            ack_snapshot: t.saturating_sub(2),
-            client_time_ms: t as u16,
-            count: 1,
-            ..bc_proto::InputPacket::default()
-        };
+        let mut p =
+            bc_proto::InputPacket { client_time_ms: t as u16, count: 1, ..bc_proto::InputPacket::default() };
         p.cmds[0] = InputCmd {
             tick: t,
             view_tick_q4: t << 4,

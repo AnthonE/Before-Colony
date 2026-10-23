@@ -3,6 +3,7 @@
 A space mech MMO (free aim, Newtonian 6DOF). Rust server, Bevy 0.19 client compiled to wasm,
 WebTransport (QUIC) between them. See `docs/ARCHITECTURE.md` and `docs/DESIGN.md`; `docs/CONTROLS.md`
 surveys what players of similar games expect of the controls (read it before changing a binding);
+`docs/NETCODE.md` is the netcode of record (what we keep, what we took from whom, what we turned down, and the road to one world of many sectors: read it before changing the wire, replication or how sectors meet), `docs/SCALE.md` what stops the world growing, with numbers;
 `docs/PEERS.md` is what the nearest games teach us, with priorities (read it before adding a system players will
 compare with theirs), and `docs/ROADMAP.md` how each is built;
 `docs/STORY.md` is the world bible (setting, factions, eras, voice, and the secret it shares with Gates: read it before writing in-game text; every name is the game's own, never another franchise's: its "Voice and naming");

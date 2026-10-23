@@ -177,7 +177,7 @@ pub fn oct_unproject(e: Vec2) -> Vec3 {
 /// prediction (which flies the quantized command, then sends it) would part from the server (which
 /// flies what it decodes). So such a direction always takes the one code with that coordinate
 /// positive.
-fn dir_code(n: Vec3, bits: u32) -> [u32; 2] {
+pub fn dir_code(n: Vec3, bits: u32) -> [u32; 2] {
     let e = oct_project(n);
     let m = max_q(bits);
     let [mut x, mut y] = [quantize_signed(e.x, 1.0, bits), quantize_signed(e.y, 1.0, bits)];
@@ -190,7 +190,8 @@ fn dir_code(n: Vec3, bits: u32) -> [u32; 2] {
     [x, y]
 }
 
-fn dir_from_code([x, y]: [u32; 2], bits: u32) -> Vec3 {
+/// The direction of a [`dir_code`].
+pub fn dir_from_code([x, y]: [u32; 2], bits: u32) -> Vec3 {
     oct_unproject(Vec2::new(dequantize_signed(x, 1.0, bits), dequantize_signed(y, 1.0, bits)))
 }
 
@@ -217,9 +218,9 @@ pub fn quantize_dir(n: Vec3, bits_per_axis: u32) -> Vec3 {
 
 const SQRT_HALF: f32 = core::f32::consts::FRAC_1_SQRT_2;
 
-/// Writes a unit quaternion as the index of its largest component (2 bits) plus the other three in
-/// `[-1/√2, 1/√2]` at `bits` each.
-pub fn write_quat(w: &mut BitWriter<'_>, q: Quat, bits: u32) {
+/// A unit quaternion's smallest-three code: the index of its largest component, and the other
+/// three in `[-1/√2, 1/√2]` at `bits` each.
+pub fn quat_code(q: Quat, bits: u32) -> (u8, [u32; 3]) {
     let a = q.to_array();
     let mut largest = 0usize;
     for i in 1..4 {
@@ -228,28 +229,50 @@ pub fn write_quat(w: &mut BitWriter<'_>, q: Quat, bits: u32) {
         }
     }
     let sign = if a[largest] < 0.0 { -1.0 } else { 1.0 };
-    w.write_bits(largest as u32, 2);
+    let mut out = [0u32; 3];
+    let mut k = 0;
     for (i, c) in a.iter().enumerate() {
         if i != largest {
-            w.write_bits(quantize_signed(c * sign, SQRT_HALF, bits), bits);
+            out[k] = quantize_signed(c * sign, SQRT_HALF, bits);
+            k += 1;
         }
     }
+    (largest as u8, out)
 }
 
-pub fn read_quat(r: &mut BitReader<'_>, bits: u32) -> Quat {
-    let largest = r.read_bits(2) as usize;
+/// The rotation of a [`quat_code`].
+pub fn quat_from_code(largest: u8, codes: [u32; 3], bits: u32) -> Quat {
+    let largest = usize::from(largest & 3);
     let mut a = [0.0f32; 4];
     let mut sum = 0.0f32;
+    let mut k = 0;
     for (i, c) in a.iter_mut().enumerate() {
         if i != largest {
-            *c = dequantize_signed(r.read_bits(bits), SQRT_HALF, bits);
+            *c = dequantize_signed(codes[k], SQRT_HALF, bits);
             sum += *c * *c;
+            k += 1;
         }
     }
     a[largest] = libm::sqrtf((1.0 - sum).max(0.0));
     let q = Quat::from_array(a);
     let len = libm::sqrtf(q.length_squared());
     if len <= f32::EPSILON { Quat::IDENTITY } else { q / len }
+}
+
+/// Writes a unit quaternion as its [`quat_code`]: the largest component's index (2 bits), then
+/// the other three at `bits` each.
+pub fn write_quat(w: &mut BitWriter<'_>, q: Quat, bits: u32) {
+    let (largest, codes) = quat_code(q, bits);
+    w.write_bits(u32::from(largest), 2);
+    for c in codes {
+        w.write_bits(c, bits);
+    }
+}
+
+pub fn read_quat(r: &mut BitReader<'_>, bits: u32) -> Quat {
+    let largest = r.read_bits(2) as u8;
+    let codes = [r.read_bits(bits), r.read_bits(bits), r.read_bits(bits)];
+    quat_from_code(largest, codes, bits)
 }
 
 #[cfg(test)]

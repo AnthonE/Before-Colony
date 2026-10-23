@@ -558,24 +558,7 @@ impl World {
         if let Some(now) = own {
             self.count_own(now, prev_own);
         }
-        let mut seen = (false, false, false);
-        for e in ents {
-            if Some(e.slot) == me {
-                continue;
-            }
-            if e.on.is_some_and(|on| !self.bodies.knows(on.body)) {
-                self.stats.unresolved_bodies += 1;
-                continue;
-            }
-            let e = *e;
-            let (jamming, flame, talon) = kit_seen(&e);
-            seen = (seen.0 | jamming, seen.1 | flame, seen.2 | talon);
-            let slot = e.slot as usize;
-            match &mut self.entities[slot] {
-                Some(track) if track.latest.generation == e.generation => track.push(tick, e),
-                other => *other = Some(EntityTrack::new(tick, e)),
-            }
-        }
+        let seen = self.take_suits(tick, ents, me);
         let own_jamming = own.is_some_and(|o| {
             o.alive
                 && o.flags & own_flags::SPECIAL_ACTIVE != 0
@@ -599,6 +582,40 @@ impl World {
                 *slot = None;
             }
         }
+    }
+
+    /// A tick's further datagram: more of the suits in sight, at `tick` (the own suit, the events
+    /// and the rest came in its first).
+    pub fn apply_more(&mut self, tick: u32, ents: &[EntityState]) {
+        if tick < self.tick {
+            return;
+        }
+        let me = self.own.map(|o| o.slot);
+        self.take_suits(tick, ents, me);
+    }
+
+    /// Each suit's record at `tick` onto its track (not the own suit's, `me`, nor one on a body this
+    /// client doesn't know). Returns whether a jammer, a flamethrower or a Talon was among them.
+    fn take_suits(&mut self, tick: u32, ents: &[EntityState], me: Option<u16>) -> (bool, bool, bool) {
+        let mut seen = (false, false, false);
+        for e in ents {
+            if Some(e.slot) == me {
+                continue;
+            }
+            if e.on.is_some_and(|on| !self.bodies.knows(on.body)) {
+                self.stats.unresolved_bodies += 1;
+                continue;
+            }
+            let e = *e;
+            let (jamming, flame, talon) = kit_seen(&e);
+            seen = (seen.0 | jamming, seen.1 | flame, seen.2 | talon);
+            let slot = e.slot as usize;
+            match &mut self.entities[slot] {
+                Some(track) if track.latest.generation == e.generation => track.push(tick, e),
+                other => *other = Some(EntityTrack::new(tick, e)),
+            }
+        }
+        seen
     }
 
     /// Counts the own suit's special engaging, changes of form, and locks acquired.

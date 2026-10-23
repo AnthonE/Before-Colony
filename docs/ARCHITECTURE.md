@@ -52,6 +52,9 @@ quinn, rustls and tokio allocate and lock internally. That is fine, because they
 network threads.
 
 **Measured:**
+- `cargo bench -p bc-sector --bench sector` (everyone in one fight, the tick's halves timed apart;
+  `SCALE.md` has the table): 448 pilots on the v37 wire, paced, 12.8 / 20.1 ms p50 / p99;
+  replication is 85–90% of a crowded tick.
 - Tick with 64 pilots (32 running the Orrery) and 256 drones in a dense fight: p50 1.1 ms, p99
   2.1–3.0 ms across runs, against a 33 ms budget at 30 Hz.
 - Tick with 64 Lodestar pilots duelling in every playable frame (jammers, Aquilas, Full Salvos,
@@ -73,7 +76,9 @@ network threads.
    Discard (take away one put back after the server stopped waiting for it), Respawn frame; inside
    the colony, Board (seat a pilot in one of the Charter Board's trainers on the Blast Hall's
    gantry, `Sim::launch_at`).
-2. **Inputs:** drain each slot's ring into a 64-slot jitter buffer, and process acks.
+2. **Inputs:** drain each slot's ring into a 64-slot jitter buffer, and process acks (every
+   datagram the client took, as bits: what each carried is retired, its suits' records made
+   baselines).
 3. **Oracle advice** in, with a 15-tick time-to-live.
 4. **Apply inputs** for tick `T`: the client's command if it arrived; otherwise the last one with fire
    cleared (the same view delay). After 8 silent ticks the suit goes hands-off, keeping its states
@@ -141,7 +146,9 @@ network threads.
    their pilots; under survival, the records of those in hide spots hit this tick onto
    `SectorShared::reparked`, for their pilots' records.
 8. **Tactical pictures** for the Orrery pilots (≈4 Hz), only when an external oracle is attached.
-9. **Snapshots** for each client, straight into its ring. The egress thread is unparked.
+9. **Snapshots** for each client, straight into its ring: every suit's record quantized once for
+   all of them, then per client its first datagram and, while its budget allows and suits are left
+   to send, up to two more. The egress thread is unparked.
 
 ## Netcode
 
@@ -226,14 +233,33 @@ network threads.
     be at the tick the server resolves the shot against (`InputContext::resolve_tick`), which is
     later than the view when the view is more than 8 ticks old.
 - **Snapshots.**
-  - Every datagram fits in `min(1100 B, the connection's max datagram)`, never fragmented.
+  - Every datagram fits in `min(1100 B, the connection's max datagram)`, never fragmented. Each is
+    numbered on a stream (the sector and the seat) and acked by the client's input packets, the
+    newest and the 32 before it as bits (`bc_proto::ack`; `PROTOCOL.md`, "Acks, deltas and parts").
+    A client takes a stream's datagrams in order, whole or not at all.
   - Contents: header, full-precision own state, the Orrery info, events repeated until acked (beam spawns,
     hits, kills, clashes, seizures, parts coming off, rocks shattering, "left your sensors"),
     changed rocks, missiles in flight (at most 12: those tracking the client, then the nearest
     within 5 km), then as many entities as fit, chosen by a per-client priority accumulator over
     what that client's sensors can see (a rider standing still counts a tenth), then salvage
   chunks.
-  - About 31 KB/s per client at 30 Hz (measured under the swarm).
+  - **Suits' records are deltas** against the newest record of the same suit the client acked
+    (`bc_proto::entity`: velocity, position carried on from the baseline, rotation and aim in
+    small or medium integer differences, flags and parts same-or-new): 30 bits for a suit at rest,
+    about 90 for one manoeuvring, against 212 whole. The sector sends one only against a record
+    sent fewer than 16 of the suit's records ago, and the client keeps the last 16 of each suit
+    (`bc_client_core::baselines`), so it always has it; both ends hold codes, so what the client
+    rebuilds is the whole record to the bit (`tests/deltas_net.rs`, over a link losing 10% and
+    reordering). A new seat or sector starts the records whole again.
+  - **More than one datagram a tick.** While suits are left to send and the client's budget
+    (`SectorConfig::rate`, 64 KB/s, a bucket of two ticks) holds a full datagram, up to two more go
+    (`header_flags::MORE`), carrying only suits, down the same priority order.
+  - **The pace.** A tick that took more than half its period sends less the next (every client's
+    budget and the suits listed shrink by a fifth, to a fifth at least), and one under a third
+    sends more again (`replicate::pace_after`, `/status`'s `pace_pct`): what's sent shrinks before
+    the tick overruns (Gates' degradation ladder; TiDi is for what's left).
+  - About 31 KB/s per client at 30 Hz with one datagram a tick (measured under the swarm before
+    v37).
 - **Chunks and rocks: dirty until acked.** Each snapshot's record lists the chunks (id, generation,
   version) and rocks (id, version) it carried; an ack promotes them to what the client holds. A
   chunk is sent whenever what the client holds differs from the server's (a new segment, a grab),
@@ -792,6 +818,9 @@ pilots out, and its limits are counted on `/status`.
   proxy or a CDN with timeouts and its own limits.
 
 ## Scaling path
+
+`SCALE.md` has the measurements (`cargo bench -p bc-sector --bench sector`), the bottlenecks in order
+and the plan in full; this is the short form.
 
 1. **One sector per server** (now), and a second for the colony's inside. The server builds one
    sector and runs it on the thread `sector-0`, with its own rings and egress thread; the Welcome's

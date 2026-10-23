@@ -12,9 +12,9 @@ use bc_proto::snapshot::{
 };
 use bc_proto::types::{RIDER_VEL_BITS, RIDER_VEL_MAX};
 use bc_proto::{
-    BodyRef, ChunkDesc, ChunkKind, EntityState, Faction, FrameId, InputCmd, InputPacket, LockOn,
+    BodyRef, ChunkDesc, ChunkKind, Delta, EntityState, Faction, FrameId, InputCmd, InputPacket, LockOn,
     MAX_DATAGRAM, MissileState, NO_CHUNK, ObjectState, OrreryInfo, OwnState, OwnSurface, Part, PilotKind,
-    RiderOn, RockState, Segment, SnapshotHeader, SnapshotReader, SnapshotWriter, WeaponKind,
+    QEntity, RiderOn, RockState, Segment, SnapshotHeader, SnapshotReader, SnapshotWriter, WeaponKind,
 };
 use glam::{Quat, Vec3};
 use proptest::prelude::*;
@@ -214,7 +214,7 @@ proptest! {
                                lock in 0u16..1024, shot in any::<u8>(), count in 1u8..=4,
                                locked in prop::array::uniform4(any::<bool>()), ref_vel in vec3(2_500.0), up in unit(),
                                converge in prop::array::uniform4(any::<u16>())) {
-        let mut p = InputPacket { ack_snapshot: tick - 3, client_time_ms: 777, count, ..Default::default() };
+        let mut p = InputPacket { ack_stream: 65, ack_seq: tick as u16, ack_bits: tick, client_time_ms: 777, count, ..Default::default() };
         for (i, &on) in locked.iter().enumerate().take(count as usize) {
             let t = tick - i as u32;
             let lockon = on.then_some(LockOn { ref_vel, up });
@@ -222,9 +222,9 @@ proptest! {
         }
         let mut buf = [0u8; 128];
         let n = p.encode(&mut buf).unwrap();
-        prop_assert!(n <= 104, "{} bytes", n);
+        prop_assert!(n <= 107, "{} bytes", n);
         if !locked[..count as usize].contains(&true) && converge[..count as usize].iter().all(|&c| c == 0) {
-            prop_assert!(n <= 65, "{} bytes", n);
+            prop_assert!(n <= 68, "{} bytes", n);
         }
         let back = InputPacket::decode(&buf[..n]).unwrap();
         for i in 0..count as usize {
@@ -264,7 +264,7 @@ proptest! {
             Event::MissileBurst { id: 11, tick: 10_000, missile: 12, pos: Vec3::ZERO, cause: BurstCause::Hit },
         ];
         let rocks = [RockState::new(0, false, 0.5, 0.9), RockState::new(1_022, true, 0.0, 0.0)];
-        let header = SnapshotHeader { tick: 10_000, ack_input_tick: 999, input_health: 2, time_echo_ms: 42, echo_hold_ms: 7, tidi_pct: 100, flags: 0 };
+        let header = SnapshotHeader { tick: 10_000, seq: 0xBEEF, stream: 70, ack_input_tick: 999, input_health: 2, time_echo_ms: 42, echo_hold_ms: 7, tidi_pct: 100, flags: 0 };
         let mut buf = [0u8; 1500];
         let mut w = SnapshotWriter::new(&mut buf, MAX_DATAGRAM);
         w.header(&header);
@@ -411,11 +411,170 @@ proptest! {
     }
 }
 
+/// Writes `cur` (as a delta against `base`, `back` ticks older, if one can be taken) in a snapshot of
+/// tick 1 000, reads it back with `base` as the only baseline held, and checks the bits it took.
+fn through_the_wire(cur: &QEntity, base: &QEntity, back: u32) -> (QEntity, bool) {
+    let delta = Delta::plan(cur, base, back);
+    let mut buf = [0u8; 1500];
+    let mut w = SnapshotWriter::new(&mut buf, MAX_DATAGRAM);
+    w.header(&SnapshotHeader { tick: 1_000, ..SnapshotHeader::default() });
+    w.own(None);
+    w.orrery(None);
+    // Another suit first, whole, so the list is open when the bits are counted.
+    let other = QEntity { slot: cur.slot ^ 1, ..*cur };
+    w.entity_q(&other, None, 0).expect("it fits");
+    let before = w.bits_remaining();
+    let bits = w.entity_q(cur, delta.as_ref(), 0).expect("it fits");
+    assert_eq!(before - w.bits_remaining(), bits + 1, "the record took the bits it said");
+    assert_eq!(bits, delta.map_or(cur.absolute_bits(), |d| d.bits()));
+    let n = w.finish().unwrap();
+    let mut r = SnapshotReader::new(&buf[..n]).unwrap();
+    let held = (base.slot, 1_000 - back);
+    assert_eq!(r.next_entity_q(|_, _| None), Ok(Some(other)));
+    let q = r
+        .next_entity_q(|slot, tick| ((slot, tick) == held).then_some(*base))
+        .expect("it reads")
+        .expect("a record");
+    assert_eq!(r.next_entity_q(|_, _| None), Ok(None));
+    (q, delta.is_some())
+}
+
+/// `e` as the same suit, life and body as `base` (but whether it's aloft).
+fn same_suit(e: EntityState, base: &EntityState) -> EntityState {
+    let on = base.on.map(|b| RiderOn { body: b.body, aloft: e.on.is_some_and(|o| o.aloft) });
+    let (reach, speed) = on.map_or((32_000.0, 2_000.0), |on| (on.body.local_max(), RIDER_VEL_MAX));
+    let (pos, vel) = match (e.on.is_some(), on.is_some()) {
+        (a, b) if a == b => (e.pos, e.vel),
+        _ => (e.pos.normalize_or_zero() * reach * 0.5, e.vel.normalize_or_zero() * speed * 0.5),
+    };
+    EntityState {
+        slot: base.slot,
+        generation: base.generation,
+        frame: base.frame,
+        faction: base.faction,
+        pilot: base.pilot,
+        on,
+        pos,
+        vel,
+        ..e
+    }
+}
+
+proptest! {
+    #[test]
+    fn a_whole_record_is_its_codes(e in entity()) {
+        let q = QEntity::quantize(&e);
+        let mut buf = [0u8; 1500];
+        let mut w = SnapshotWriter::new(&mut buf, MAX_DATAGRAM);
+        w.header(&SnapshotHeader::default());
+        w.own(None);
+        w.orrery(None);
+        prop_assert!(w.entity(&e, 0));
+        let n = w.finish().unwrap();
+        let mut r = SnapshotReader::new(&buf[..n]).unwrap();
+        prop_assert_eq!(r.next_entity().unwrap().unwrap(), q.state());
+        prop_assert_eq!(QEntity::quantize(&q.state()), q);
+    }
+
+    /// Anything against anything of the same suit: whatever the modes, the client rebuilds it exactly.
+    #[test]
+    fn a_delta_rebuilds_its_record_exactly(base in entity(), other in entity(), back in 1u32..=255) {
+        let cur = same_suit(other, &base);
+        let (b, c) = (QEntity::quantize(&base), QEntity::quantize(&cur));
+        let (got, delta) = through_the_wire(&c, &b, back);
+        prop_assert!(delta);
+        prop_assert_eq!(got, c);
+    }
+
+    /// A suit a few ticks on from its baseline, as suits are: carried on by its velocity, turned a
+    /// little, its aim moved. Exact, and smaller than whole.
+    #[test]
+    fn a_suit_moving_on_is_small(base in entity(), dv in vec3(30.0), turn in vec3(0.2), aim in vec3(0.1),
+                                 back in 1u32..=8, flags in any::<bool>(), parts in any::<bool>()) {
+        let dt = back as f32 / 30.0;
+        let speed = if base.on.is_some() { 1.0 / 16.0 } else { 1.0 };
+        let vel = base.vel + dv * speed;
+        let cur = EntityState {
+            pos: base.pos + (base.vel + vel) * 0.5 * dt,
+            vel,
+            rot: (Quat::from_scaled_axis(turn) * base.rot).normalize(),
+            aim: (base.aim + aim).normalize(),
+            flags: if flags { base.flags ^ 1 } else { base.flags },
+            parts: if parts { [3; 6] } else { base.parts },
+            ..base
+        };
+        let (b, c) = (QEntity::quantize(&base), QEntity::quantize(&cur));
+        let (got, _) = through_the_wire(&c, &b, back);
+        prop_assert_eq!(got, c);
+        let d = Delta::plan(&c, &b, back).unwrap();
+        prop_assert!(d.bits() < c.absolute_bits(), "{} bits of {}", d.bits(), c.absolute_bits());
+    }
+}
+
+#[test]
+fn a_suit_at_rest_on_its_body_is_30_bits() {
+    let rider = EntityState {
+        on: Some(RiderOn { body: BodyRef::Landmark(2), aloft: false }),
+        pos: Vec3::new(100.0, -40.0, 3.0),
+        ..EntityState::default()
+    };
+    let q = QEntity::quantize(&rider);
+    assert_eq!(Delta::plan(&q, &q, 5).unwrap().bits(), 30);
+    assert_eq!(through_the_wire(&q, &q, 5), (q, true));
+    // Drifting in space at 120 m/s: carried on, it's where it was said it'd be.
+    let free = EntityState {
+        pos: Vec3::new(9_000.0, 50.0, -1_200.0),
+        vel: Vec3::new(120.0, 0.0, -35.5),
+        ..EntityState::default()
+    };
+    let later = EntityState { pos: free.pos + free.vel * (4.0 / 30.0), ..free };
+    let (b, c) = (QEntity::quantize(&free), QEntity::quantize(&later));
+    let d = Delta::plan(&c, &b, 4).unwrap();
+    // Within a code or two of where it was carried to (each end of it is rounded to the grid):
+    // the head and three small differences.
+    assert_eq!(d.bits(), 29 + 3 * 6, "{d:?}");
+    assert_eq!(through_the_wire(&c, &b, 4), (c, true));
+}
+
+#[test]
+fn no_delta_across_suits_lives_or_bodies_or_too_far_back() {
+    let a = QEntity::quantize(&EntityState::default());
+    assert!(Delta::plan(&a, &a, 0).is_none());
+    assert!(Delta::plan(&a, &a, 256).is_none());
+    assert!(Delta::plan(&QEntity { slot: 3, ..a }, &a, 1).is_none());
+    assert!(Delta::plan(&QEntity { generation: 1, ..a }, &a, 1).is_none());
+    let on = |body| QEntity { on: Some(RiderOn { body, aloft: false }), ..a };
+    assert!(Delta::plan(&on(BodyRef::Rock(1)), &on(BodyRef::Rock(2)), 1).is_none());
+    assert!(Delta::plan(&on(BodyRef::Rock(1)), &a, 1).is_none());
+    assert!(Delta::plan(&on(BodyRef::City), &on(BodyRef::City), 1).is_some());
+}
+
+#[test]
+fn a_delta_without_its_baseline_is_refused() {
+    let a = QEntity::quantize(&EntityState::default());
+    let d = Delta::plan(&a, &a, 3).unwrap();
+    let mut buf = [0u8; 256];
+    let mut w = SnapshotWriter::new(&mut buf, MAX_DATAGRAM);
+    w.header(&SnapshotHeader { tick: 50, ..SnapshotHeader::default() });
+    w.own(None);
+    w.orrery(None);
+    w.entity_q(&a, Some(&d), 0).unwrap();
+    let n = w.finish().unwrap();
+    let read = |held: u32| {
+        let mut r = SnapshotReader::new(&buf[..n]).unwrap();
+        r.next_entity_q(|slot, tick| (slot == a.slot && tick == held).then_some(a))
+    };
+    assert_eq!(read(46), Err(bc_proto::DecodeError::NoBaseline));
+    assert_eq!(read(47), Ok(Some(a)));
+    let mut r = SnapshotReader::new(&buf[..n]).unwrap();
+    assert_eq!(r.next_entity(), Err(bc_proto::DecodeError::NoBaseline));
+}
+
 #[test]
 fn record_budgets_match_plan() {
     // ~26 bytes per entity (24 for a suit on a body); ~30 fit in a datagram next to header, own
     // state, the Orrery and events.
-    const { assert!(ENTITY_MAX_BITS == 211) };
+    const { assert!(ENTITY_MAX_BITS == 212) };
     const { assert!(ORRERY_HYPOTHESES == 7) };
     const { assert!(OWN_BITS_FREE == 811) };
     const { assert!(OWN_MAX_BITS == 831) };
@@ -423,8 +582,8 @@ fn record_budgets_match_plan() {
     const { assert!(MISSILE_RECORD_BITS == 119) };
     const { assert!(ObjectState::MAX_BITS <= 232) };
     let rider = |body| EntityState { on: Some(RiderOn { body, aloft: false }), ..EntityState::default() };
-    assert_eq!(rider(BodyRef::Rock(0)).encoded_bits(), 194);
-    assert_eq!(rider(BodyRef::Landmark(0)).encoded_bits(), 194);
+    assert_eq!(rider(BodyRef::Rock(0)).encoded_bits(), 195);
+    assert_eq!(rider(BodyRef::Landmark(0)).encoded_bits(), 195);
     assert_eq!(EntityState::default().encoded_bits(), ENTITY_MAX_BITS);
 }
 
@@ -453,24 +612,24 @@ fn entities_that_fit(own: &OwnState, e: &EntityState) -> usize {
 }
 
 #[test]
-fn a_full_datagram_holds_37_free_or_40_riders() {
+fn a_full_datagram_holds_36_whole_records_free_or_39_riders() {
     let free = EntityState { pos: Vec3::new(9_000.0, 5_000.0, -12_000.0), ..EntityState::default() };
     let rider = EntityState {
         on: Some(RiderOn { body: BodyRef::Landmark(1), aloft: false }),
         pos: Vec3::new(0.0, 599.0, 0.0),
         ..EntityState::default()
     };
-    // The worst own state: standing on a rock. Free traffic loses nothing to wear and tear's 37.
+    // The worst own state: standing on a rock. Free traffic loses nothing to wear and tear's 36.
     let on_a_rock = OwnState {
         alive: true,
         surface: Some(OwnSurface { footing: footing::GROUNDED, body: BodyRef::Rock(1_000), stance_q: 146 }),
         ..OwnState::default()
     };
     assert_eq!(on_a_rock.encoded_bits(), OWN_MAX_BITS);
-    assert_eq!(entities_that_fit(&on_a_rock, &free), 37);
-    assert_eq!(entities_that_fit(&on_a_rock, &rider), 40);
+    assert_eq!(entities_that_fit(&on_a_rock, &free), 36);
+    assert_eq!(entities_that_fit(&on_a_rock, &rider), 39);
     let flying = OwnState { alive: true, ..OwnState::default() };
-    assert_eq!(entities_that_fit(&flying, &free), 37);
+    assert_eq!(entities_that_fit(&flying, &free), 36);
     assert_eq!(entities_that_fit(&flying, &rider), 40);
 }
 

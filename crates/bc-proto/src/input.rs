@@ -279,8 +279,12 @@ impl InputCmd {
 /// Client → server datagram: the newest commands, newest first, with consecutive ticks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct InputPacket {
-    /// Newest snapshot tick the client has received (drives event redundancy and RTT).
-    pub ack_snapshot: u32,
+    /// The snapshot datagrams the client has (`ack::AckWindow::ack`): their stream, the newest
+    /// taken, and bit `i` set if `ack_seq - 1 - i` was taken too. What they carried (events,
+    /// rocks, salvage, the suits' records) is retired by them.
+    pub ack_stream: u8,
+    pub ack_seq: u16,
+    pub ack_bits: u32,
     /// Client clock in milliseconds (mod 2¹⁶), echoed back in snapshots for RTT measurement.
     pub client_time_ms: u16,
     pub count: u8,
@@ -290,14 +294,21 @@ pub struct InputPacket {
 
 impl Default for InputPacket {
     fn default() -> Self {
-        Self { ack_snapshot: 0, client_time_ms: 0, count: 0, cmds: [InputCmd::default(); MAX_CMDS] }
+        Self {
+            ack_stream: 0,
+            ack_seq: 0,
+            ack_bits: 0,
+            client_time_ms: 0,
+            count: 0,
+            cmds: [InputCmd::default(); MAX_CMDS],
+        }
     }
 }
 
 impl InputPacket {
-    /// Encodes into `buf`, returning the byte length: at most 65 for four commands (86 + 4 × 108
-    /// bits), 96 if all four fly locked on (86 + 4 × 170), and 104 if they fire converging too
-    /// (86 + 4 × 186). Each command is 8 + 32 + 24 + 8 + 16 + 10 + 8 + 1 + 1 bits: view delta,
+    /// Encodes into `buf`, returning the byte length: at most 68 for four commands (110 + 4 × 108
+    /// bits), 99 if all four fly locked on (110 + 4 × 170), and 107 if they fire converging too
+    /// (110 + 4 × 186). Each command is 8 + 32 + 24 + 8 + 16 + 10 + 8 + 1 + 1 bits: view delta,
     /// aim, thrust, roll, buttons, lock target, shot sequence, whether a lock-on ([`LockOn`]:
     /// 42 + 20 bits) follows, and whether a crosshair's range ([`InputCmd::converge`]: 16 bits)
     /// does.
@@ -305,7 +316,9 @@ impl InputPacket {
         let count = self.count.clamp(1, MAX_CMDS as u8);
         let mut w = BitWriter::new(buf);
         w.write_bits(PacketKind::Input as u32, PACKET_KIND_BITS);
-        w.write_u32(self.ack_snapshot);
+        w.write_u8(self.ack_stream);
+        w.write_u16(self.ack_seq);
+        w.write_u32(self.ack_bits);
         w.write_u16(self.client_time_ms);
         w.write_bits(u32::from(count - 1), 2);
         w.write_u32(self.cmds[0].tick);
@@ -321,7 +334,9 @@ impl InputPacket {
             return Err(DecodeError::WrongKind);
         }
         let mut p = InputPacket {
-            ack_snapshot: r.read_u32(),
+            ack_stream: r.read_u8(),
+            ack_seq: r.read_u16(),
+            ack_bits: r.read_u32(),
             client_time_ms: r.read_u16(),
             count: r.read_bits(2) as u8 + 1,
             ..Default::default()
@@ -343,7 +358,14 @@ mod tests {
 
     #[test]
     fn packet_round_trip() {
-        let mut p = InputPacket { ack_snapshot: 991, client_time_ms: 4242, count: 3, ..Default::default() };
+        let mut p = InputPacket {
+            ack_stream: 69,
+            ack_seq: 991,
+            ack_bits: 0xF0F0_0001,
+            client_time_ms: 4242,
+            count: 3,
+            ..Default::default()
+        };
         for i in 0..3 {
             p.cmds[i] = InputCmd {
                 tick: 1000 - i as u32,
@@ -362,20 +384,26 @@ mod tests {
         }
         let mut buf = [0u8; 128];
         let n = p.encode(&mut buf).unwrap();
-        assert!(n <= 72, "{n}");
+        assert!(n <= 75, "{n}");
         let back = InputPacket::decode(&buf[..n]).unwrap();
         assert_eq!(back.count, 3);
         for i in 0..3 {
             assert_eq!(back.cmds[i], p.cmds[i]);
         }
-        assert_eq!(back.ack_snapshot, 991);
+        assert_eq!((back.ack_stream, back.ack_seq, back.ack_bits), (69, 991, 0xF0F0_0001));
         assert_eq!(back.client_time_ms, 4242);
     }
 
     #[test]
-    fn four_commands_fit_in_65_bytes_96_locked_on_and_104_converging() {
-        let mut p =
-            InputPacket { ack_snapshot: u32::MAX, client_time_ms: u16::MAX, count: 4, ..Default::default() };
+    fn four_commands_fit_in_68_bytes_99_locked_on_and_107_converging() {
+        let mut p = InputPacket {
+            ack_stream: u8::MAX,
+            ack_seq: u16::MAX,
+            ack_bits: u32::MAX,
+            client_time_ms: u16::MAX,
+            count: 4,
+            ..Default::default()
+        };
         for i in 0..4 {
             p.cmds[i] = InputCmd {
                 tick: u32::MAX - 8 - i as u32,
@@ -387,16 +415,16 @@ mod tests {
             };
         }
         let mut buf = [0u8; 128];
-        assert_eq!(p.encode(&mut buf), Some(65));
+        assert_eq!(p.encode(&mut buf), Some(68));
         for c in &mut p.cmds {
             c.lockon = Some(LockOn { ref_vel: Vec3::splat(-5_000.0), up: Vec3::NEG_Z });
         }
-        assert_eq!(p.encode(&mut buf), Some(96));
+        assert_eq!(p.encode(&mut buf), Some(99));
         for c in &mut p.cmds {
             c.converge = u16::MAX;
         }
-        assert_eq!(p.encode(&mut buf), Some(104));
-        let back = InputPacket::decode(&buf[..104]).unwrap();
+        assert_eq!(p.encode(&mut buf), Some(107));
+        let back = InputPacket::decode(&buf[..107]).unwrap();
         assert!(back.cmds.iter().all(|c| c.converge == u16::MAX));
     }
 

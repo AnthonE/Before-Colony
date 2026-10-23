@@ -1,6 +1,141 @@
-use criterion::{Criterion, criterion_group, criterion_main};
+//! How the sector tick grows with its pilots: `cargo bench -p bc-sector --bench sector`.
+//!
+//! Every pilot joins at its faction's spawn and flies, firing, so the whole crowd is in one fight
+//! and on everyone's sensors: the worst case for snapshot building, which is per client over every
+//! suit. Prints, for each crowd, the tick and its halves (the simulation and replication) as
+//! p50/p99, datagrams and their bytes, and the suit records a pilot is sent a tick and their bits
+//! (`docs/SCALE.md`, `docs/NETCODE.md`).
+#![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
-fn bench(_c: &mut Criterion) {}
+use std::time::Instant;
 
-criterion_group!(benches, bench);
-criterion_main!(benches);
+#[path = "../tests/common/mod.rs"]
+mod common;
+
+use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST};
+use bc_proto::{Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, PilotKind};
+use bc_sector::{Comeback, Control, InputMsg, Metrics, SectorConfig, read_packet};
+use bc_sim::SimConfig;
+use glam::Vec3;
+
+const WARMUP: u32 = 150;
+const TICKS: u32 = 450;
+
+/// One crowd for 450 ticks: `v37`, the suits' records as deltas in up to three datagrams a tick;
+/// otherwise whole, in one (the wire before v37).
+fn run(pilots: usize, drones: usize, v37: bool) {
+    let cfg = SectorConfig {
+        sim: SimConfig { target_drones: drones as u32, max_suits: 1_000, seed: 7, ..SimConfig::default() },
+        max_clients: pilots,
+        deltas: v37,
+        max_parts: if v37 { 3 } else { 1 },
+        ..SectorConfig::default()
+    };
+    let (mut sector, shared, mut egress, _oracle) = bc_sector::build(cfg);
+    let mut leases = Vec::new();
+    while let Some(l) = shared.leases.pop() {
+        let join = Control::Join {
+            slot: l.slot,
+            pilot: PilotKind::Human,
+            frame: FrameId::Argo,
+            faction: Faction::Colonies,
+            max_datagram: MAX_DATAGRAM as u16,
+            comeback: Comeback::default(),
+            launch: None,
+        };
+        shared.control.push(join).unwrap();
+        leases.push(l);
+    }
+    let mut buf = [0u8; 2048];
+    let mut acks = common::Acks::new(pilots);
+    let (mut tick, mut sim, mut rep) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut bytes, mut packets) = (0u64, 0u64);
+    let m = &shared.metrics;
+    let (mut records, mut bits, mut deltas) = (0, 0, 0);
+    for step in 0..WARMUP + TICKS {
+        if step == WARMUP {
+            records = Metrics::load(&m.entity_records);
+            bits = Metrics::load(&m.entity_bits);
+            deltas = Metrics::load(&m.entity_deltas);
+        }
+        let next = sector.sim.next_tick();
+        for l in &mut leases {
+            let mut p = InputPacket { client_time_ms: step as u16, count: 1, ..InputPacket::default() };
+            acks.stamp(usize::from(l.slot), &mut p);
+            let a = (step as f32 * 0.02 + f32::from(l.slot)).sin();
+            p.cmds[0] = InputCmd {
+                tick: next + 2,
+                view_tick_q4: (next << 4) - 30,
+                aim: Vec3::new(a, 0.1, 1.0).normalize(),
+                thrust: [40, 0, 90],
+                buttons: FLIGHT_ASSIST | FIRE_PRIMARY,
+                ..InputCmd::default()
+            }
+            .quantized();
+            let _ = l.input.push(InputMsg { packet: p, recv_us: u64::from(step) * 33_333 });
+        }
+        let t = Instant::now();
+        sector.tick();
+        let us = t.elapsed().as_micros() as u64;
+        for (slot, ring) in egress.rings.iter_mut().enumerate() {
+            while let Some(len) = read_packet(ring, &mut buf) {
+                acks.take(slot, &buf[..len]);
+                if step >= WARMUP {
+                    bytes += len as u64;
+                    packets += 1;
+                }
+            }
+        }
+        while shared.notes.pop().is_some() {}
+        if step >= WARMUP {
+            let split = sector.last_timing();
+            tick.push(us);
+            sim.push(split.sim_us);
+            rep.push(split.replicate_us);
+        }
+    }
+    let records = Metrics::load(&m.entity_records) - records;
+    let bits = Metrics::load(&m.entity_bits) - bits;
+    let deltas = Metrics::load(&m.entity_deltas) - deltas;
+    let pilot_ticks = f64::from(TICKS) * pilots as f64;
+    let secs = f64::from(TICKS) / 30.0;
+    println!(
+        "{pilots:>4} pilots {drones:>3} drones {} | tick {} | sim {} | replicate {} | {:>4} B/datagram {:>4.2}/pilot-tick | \
+         {:>5.1} suits/pilot-tick {:>5.1} bits/suit {:>3.0}% deltas | {:>5.1} KB/s a pilot {:>6.2} MB/s out | pace {:>3}%",
+        if v37 { "v37  " } else { "whole" },
+        pcts(&mut tick),
+        pcts(&mut sim),
+        pcts(&mut rep),
+        bytes / packets.max(1),
+        packets as f64 / pilot_ticks,
+        records as f64 / pilot_ticks,
+        bits as f64 / records.max(1) as f64,
+        100.0 * deltas as f64 / records.max(1) as f64,
+        bytes as f64 / secs / pilots as f64 / 1000.0,
+        bytes as f64 / secs / 1e6,
+        Metrics::load(&m.pace_pct),
+    );
+}
+
+/// "p50/p99" of durations in µs, as ms.
+fn pcts(us: &mut [u64]) -> String {
+    us.sort_unstable();
+    let at = |p: f64| us[((us.len() - 1) as f64 * p) as usize] as f64 / 1000.0;
+    format!("{:>5.2}/{:>5.2} ms", at(0.5), at(0.99))
+}
+
+fn main() {
+    // `cargo bench` passes `--bench`. Numbers after it pick the crowds by their pilots (`-- 448`),
+    // and `whole` or `v37` one wire.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let crowds: Vec<usize> = args.iter().filter_map(|a| a.parse().ok()).collect();
+    let wire = |v37: bool| !args.iter().any(|a| a == if v37 { "whole" } else { "v37" });
+    for (pilots, drones) in [(64, 256), (128, 256), (256, 256), (448, 64)] {
+        if !crowds.is_empty() && !crowds.contains(&pilots) {
+            continue;
+        }
+        for v37 in [false, true].into_iter().filter(|&v| wire(v)) {
+            run(pilots, drones, v37);
+        }
+    }
+}

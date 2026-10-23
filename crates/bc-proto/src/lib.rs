@@ -19,9 +19,11 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
+pub mod ack;
 pub mod auth;
 pub mod bits;
 pub mod control;
+pub mod entity;
 pub mod events;
 pub mod input;
 pub mod missiles;
@@ -32,6 +34,7 @@ pub mod snapshot;
 pub mod types;
 
 pub use bits::{BitReader, BitWriter};
+pub use entity::{Delta, QEntity};
 pub use events::{BurstCause, Event};
 pub use input::{InputCmd, InputPacket, LockOn, buttons};
 pub use missiles::MissileState;
@@ -43,7 +46,7 @@ pub use snapshot::{
 pub use types::{BodyRef, Faction, FrameId, Part, PilotKind, WeaponKind};
 
 /// Bumped on any incompatible wire change; the handshake rejects mismatches.
-pub const PROTOCOL_VERSION: u16 = 36;
+pub const PROTOCOL_VERSION: u16 = 37;
 
 /// Upper bound for every datagram we send. 1200 bytes is the smallest UDP payload QUIC guarantees;
 /// the QUIC short header, AEAD tag and HTTP/3 datagram prefix need ~30–40 of those.
@@ -104,6 +107,8 @@ pub enum DecodeError {
     WrongKind,
     /// A field held a value outside its domain.
     Invalid,
+    /// A delta record whose baseline the reader doesn't hold.
+    NoBaseline,
 }
 
 impl core::fmt::Display for DecodeError {
@@ -112,6 +117,7 @@ impl core::fmt::Display for DecodeError {
             DecodeError::Truncated => "truncated packet",
             DecodeError::WrongKind => "wrong packet kind",
             DecodeError::Invalid => "invalid field",
+            DecodeError::NoBaseline => "a delta without its baseline",
         };
         f.write_str(s)
     }

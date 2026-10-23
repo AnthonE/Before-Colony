@@ -325,6 +325,10 @@ impl GameRuntime {
                 ..SimConfig::default()
             },
             max_clients: cfg.max_clients,
+            deltas: true,
+            rate: bc_sector::RATE,
+            max_parts: 3,
+            id: 0,
             oracle: use_jev,
             hot_guard: Some(bc_alloc::set_hot),
         };
@@ -351,6 +355,10 @@ impl GameRuntime {
                 },
                 // Its pilots, and as many on foot in the city watching its suits.
                 max_clients: cfg.max_clients * 2,
+                deltas: true,
+                rate: bc_sector::RATE,
+                max_parts: 3,
+                id: 1,
                 oracle: false,
                 hot_guard: Some(bc_alloc::set_hot),
             };
@@ -686,6 +694,27 @@ impl StatusView {
                 "drill_record_ms": v.drill_record.map(|r| r.ms),
             })
         });
+        let tick_us = serde_json::json!({
+            "p50": m.tick_quantile_us(0.5),
+            "p99": m.tick_quantile_us(0.99),
+            "max": l(&m.tick_max_us),
+            "last": l(&m.tick_last_us),
+            // The tick's halves: the simulation, and every client's snapshot.
+            "sim_p50": m.sim_hist.quantile_us(0.5),
+            "sim_p99": m.sim_hist.quantile_us(0.99),
+            "replicate_p50": m.replicate_hist.quantile_us(0.5),
+            "replicate_p99": m.replicate_hist.quantile_us(0.99),
+        });
+        // Suit records sent, their bits, how many were deltas against what the client acked, and
+        // datagrams past a tick's first.
+        let replication = serde_json::json!({
+            "entity_records": l(&m.entity_records),
+            "entity_bits": l(&m.entity_bits),
+            "entity_deltas": l(&m.entity_deltas),
+            "extra_parts": l(&m.extra_parts),
+            // Under 100 while ticks run hot: the share of what it could send a pilot is sent.
+            "pace_pct": l(&m.pace_pct),
+        });
         serde_json::json!({
             "tick": s.tick.load(Ordering::Acquire),
             "tick_hz": bc_sim::TICK_HZ,
@@ -742,16 +771,12 @@ impl StatusView {
             "notes_dropped": l(&m.notes_dropped),
             "projectiles": l(&m.projectiles),
             "events": l(&m.events),
-            "tick_us": {
-                "p50": m.tick_quantile_us(0.5),
-                "p99": m.tick_quantile_us(0.99),
-                "max": l(&m.tick_max_us),
-                "last": l(&m.tick_last_us),
-            },
+            "tick_us": tick_us,
             "overruns": l(&m.overruns),
             "snapshots": l(&m.snapshots),
             "snapshot_bytes": l(&m.snapshot_bytes),
             "snapshot_max_bytes": l(&m.snapshot_max_bytes),
+            "replication": replication,
             "out_drops": l(&m.out_drops),
             "inputs": l(&m.inputs),
             "inputs_stale": l(&m.inputs_stale),

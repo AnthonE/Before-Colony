@@ -3,11 +3,12 @@
 
 use bc_proto::events::Event;
 use bc_proto::objects::ROCK_RECORD_BITS;
-use bc_proto::snapshot::{ENTITY_MAX_BITS, ent_flags};
-use bc_proto::{ObjectState, SnapshotHeader, SnapshotWriter};
+use bc_proto::snapshot::{ENTITY_MAX_BITS, header_flags};
+use bc_proto::{Delta, NO_SLOT, ObjectState, QEntity, SnapshotHeader, SnapshotWriter};
 use bc_sim::Sim;
 use bc_sim::chunks::{MAX_CHUNKS, Motion};
 use bc_sim::missiles::MAX_MISSILES;
+use bc_sim::sim::Sight;
 use bc_sim::storage::boxed;
 use glam::Vec3;
 
@@ -77,10 +78,17 @@ fn relevant(sim: &Sim, me: usize, e: &Event) -> bool {
 }
 
 /// Priority weight of entity `j` for client suit `me` (per tick).
+#[cfg(test)]
 fn weight(sim: &Sim, me: usize, j: usize) -> f32 {
+    let des = |i: usize| sim.designation(i).map_or(NO_SLOT, |t| t as u16);
+    weight_with(sim, me, j, des(me), des(j))
+}
+
+/// [`weight`], with what `me` and `j` designate found already (`NO_SLOT`: nothing).
+fn weight_with(sim: &Sim, me: usize, j: usize, me_designates: u16, j_designates: u16) -> f32 {
     let d = (sim.suits.flight[j].pos - sim.suits.flight[me].pos).length();
     let mut w = 1.0 / (1.0 + d / 800.0);
-    if sim.designation(j) == Some(me) || sim.designation(me) == Some(j) {
+    if usize::from(j_designates) == me || usize::from(me_designates) == j {
         w *= 3.0;
     }
     if !sim.suits.alive.get(j) {
@@ -104,6 +112,21 @@ pub(crate) struct Work {
     missiles: Box<[(f32, u16)]>,
     /// Where each live chunk is this tick (found once per tick, for every client).
     chunk_pos: Box<[Vec3]>,
+    /// Every suit's record as a spectator would be sent it this tick, in codes (built once, for
+    /// every client; a client's adds what depends on it, `Sim::viewer_flags`).
+    qs: Box<[QEntity]>,
+    /// What each suit shows sensors, how far its own reach, and what it designates (`NO_SLOT`:
+    /// nothing), this tick: the sensor model's answers, found once a suit rather than once a pair.
+    sights: Box<[Sight]>,
+    reach: Box<[f32]>,
+    designates: Box<[u16]>,
+    /// How much of what it could send a client is sent this tick, 0.2 to 1: the budget and the
+    /// suits listed scale with it ([`pace_after`]).
+    pub pace: f32,
+    /// Suit records written this tick, their bits, and how many were deltas.
+    pub records: u64,
+    pub record_bits: u64,
+    pub deltas: u64,
 }
 
 impl Work {
@@ -114,14 +137,45 @@ impl Work {
             rocks: boxed(rocks, (0.0, 0)),
             missiles: boxed(MAX_MISSILES, (0.0, 0)),
             chunk_pos: boxed(MAX_CHUNKS, Vec3::ZERO),
+            qs: boxed(max_suits, QEntity::default()),
+            sights: boxed(max_suits, Sight::default()),
+            reach: boxed(max_suits, 0.0),
+            designates: boxed(max_suits, NO_SLOT),
+            pace: 1.0,
+            records: 0,
+            record_bits: 0,
+            deltas: 0,
         }
     }
 
-    /// Notes where every live chunk is at the simulation's current tick.
-    pub fn locate_chunks(&mut self, sim: &Sim) {
+    /// What every client's snapshot shares, found once a tick: where every live chunk is, and
+    /// every suit's record but for its viewer's flags.
+    pub fn prepare(&mut self, sim: &Sim) {
         for k in sim.chunks.alive.iter() {
             self.chunk_pos[k] = sim.chunk_pose(k).0;
         }
+        for j in sim.suits.used.iter() {
+            self.qs[j] = QEntity::quantize(&sim.entity_state_watched(j));
+            self.sights[j] = sim.sight(j);
+            self.reach[j] = sim.sensor_reach(j);
+            self.designates[j] = sim.designation(j).map_or(NO_SLOT, |t| t as u16);
+        }
+        self.records = 0;
+        self.record_bits = 0;
+        self.deltas = 0;
+    }
+
+    /// Suit `j`'s record as `viewer` is sent it.
+    fn record_for(&self, sim: &Sim, j: usize, viewer: usize) -> QEntity {
+        let mut q = self.qs[j];
+        q.flags |= sim.viewer_flags(j, viewer);
+        q
+    }
+
+    fn count(&mut self, bits: usize, delta: bool) {
+        self.records += 1;
+        self.record_bits += bits as u64;
+        self.deltas += u64::from(delta);
     }
 }
 
@@ -212,18 +266,49 @@ fn object_candidates(
     n
 }
 
-/// Writes one snapshot for `client` into `buf`; returns its length.
+/// A tick may take this share of its period before replication sends less (Gates' degradation
+/// ladder: what's sent shrinks before the tick overruns), and under this one it sends more again.
+const PACE_HIGH: f32 = 0.5;
+const PACE_LOW: f32 = 0.3;
+/// The least of what it could send a client is sent: a fifth (still more suits than whole records
+/// fit in a datagram).
+const PACE_MIN: f32 = 0.2;
+
+/// The pace after a tick that took `spent_us`: down a fifth when the tick took more than
+/// [`PACE_HIGH`] of its period, up a twentieth when under [`PACE_LOW`].
+pub(crate) fn pace_after(pace: f32, spent_us: u64) -> f32 {
+    let load = spent_us as f32 * bc_sim::TICK_HZ as f32 / 1e6;
+    if load > PACE_HIGH {
+        (pace * 0.8).max(PACE_MIN)
+    } else if load < PACE_LOW {
+        (pace * 1.05).min(1.0)
+    } else {
+        pace
+    }
+}
+
+/// What [`build_snapshot`] wrote: the datagram's length, and how far down the client's sorted
+/// suits it got (`next` of `top`), for a tick's further parts ([`build_more`]).
+pub(crate) struct Built {
+    pub len: usize,
+    pub next: usize,
+    pub top: usize,
+}
+
+/// Writes one snapshot for `client` into `buf`: its tick's first datagram.
 pub(crate) fn build_snapshot(
     sim: &Sim,
     client: &mut ClientState,
     header: &SnapshotHeader,
     buf: &mut [u8],
     work: &mut Work,
-) -> Option<usize> {
+    deltas: bool,
+) -> Option<Built> {
     let me = client.suit.idx();
     let t = header.tick;
+    let (dgram, stream) = client.next_seq();
     let mut w = SnapshotWriter::new(buf, client.max_datagram);
-    w.header(header);
+    w.header(&SnapshotHeader { seq: dgram as u16, stream, ..*header });
     let own = sim.own_state(me);
     w.own(Some(&own));
     let orrery = sim.orrery_info(me);
@@ -231,14 +316,16 @@ pub(crate) fn build_snapshot(
 
     // --- Interest: update the known set first so fresh Leave notices go out in this snapshot. ---
     let candidates = &mut work.entities;
+    let (reach, me_designates) = (work.reach[me], work.designates[me]);
     let mut n_cand = 0;
     for j in sim.suits.used.iter() {
         if j == me {
             continue;
         }
-        if sim.visible_to(me, j) {
+        if sim.visible_by(me, reach, j, &work.sights[j]) {
             let fresh = !client.known.get(j);
-            client.prio[j] += weight(sim, me, j) + if fresh { 10.0 } else { 0.0 };
+            let w = weight_with(sim, me, j, me_designates, work.designates[j]);
+            client.prio[j] += w + if fresh { 10.0 } else { 0.0 };
             if n_cand < candidates.len() {
                 candidates[n_cand] = (client.prio[j], j as u16);
                 n_cand += 1;
@@ -307,7 +394,7 @@ pub(crate) fn build_snapshot(
     w.end_events();
 
     // --- Changed rocks, nearest first. ---
-    let mut rec = SentRecord { tick: t, events_done: done, leaves: leaves_sent, ..SentRecord::default() };
+    let mut rec = SentRecord { seq: dgram, events_done: done, leaves: leaves_sent, ..SentRecord::default() };
     for &(_, i) in lowest(&mut work.rocks[..n_rocks], ROCKS_PER_SNAPSHOT) {
         if !w.rock(&sim.rock_state(i as usize), ENTITY_RESERVE_BITS + object_reserve) {
             break;
@@ -326,24 +413,16 @@ pub(crate) fn build_snapshot(
 
     // --- Entities, highest priority first. ---
     let cand = &mut work.entities[..n_cand];
-    const TOP: usize = 48;
-    if cand.len() > TOP {
-        cand.select_nth_unstable_by(TOP, |a, b| b.0.total_cmp(&a.0));
+    // As many as a tick's parts could hold, deltas of still suits being 30 bits.
+    let top_n = ((96 * usize::from(client.max_parts.max(1))) as f32 * work.pace) as usize;
+    if cand.len() > top_n {
+        cand.select_nth_unstable_by(top_n, |a, b| b.0.total_cmp(&a.0));
     }
-    let top = cand.len().min(TOP);
+    let top = cand.len().min(top_n);
     cand[..top].sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
-    for &(_, j) in cand[..top].iter() {
-        let j = j as usize;
-        let mut e = sim.entity_state(j, me);
-        if !sim.suits.alive.get(j) {
-            e.flags |= ent_flags::WRECK;
-        }
-        if !w.entity(&e, object_reserve) {
-            break;
-        }
-        client.prio[j] = 0.0;
-        client.known.set(j, true);
-    }
+    // Each as a delta against the newest record of it the client acked, if it still holds that.
+    rec.ents_from = client.ents_head;
+    let next = write_suits(sim, client, work, &mut w, &mut rec, (0, top), object_reserve, deltas);
 
     // --- Objects: what the client should forget first, then the nearest. ---
     for &(key, k) in lowest(&mut work.objects[..n_objs], OBJS_PER_SNAPSHOT) {
@@ -360,8 +439,72 @@ pub(crate) fn build_snapshot(
         rec.n_objs += 1;
     }
     let n = w.finish()?;
-    client.sent[t as usize % SENT_RING] = rec;
-    Some(n)
+    client.sent[dgram as usize % SENT_RING] = rec;
+    Some(Built { len: n, next, top })
+}
+
+/// Writes the client's sorted suits from `from` up to `to` (`work.entities`) while they fit, leaving
+/// `keep` bits; returns where it stopped. Each goes as a delta against the newest record of it the
+/// client acked, if it still holds that.
+#[allow(clippy::too_many_arguments)]
+fn write_suits(
+    sim: &Sim,
+    client: &mut ClientState,
+    work: &mut Work,
+    w: &mut SnapshotWriter<'_>,
+    rec: &mut SentRecord,
+    (from, to): (usize, usize),
+    keep: usize,
+    deltas: bool,
+) -> usize {
+    let me = client.suit.idx();
+    let t = sim.tick();
+    for k in from..to {
+        let j = work.entities[k].1 as usize;
+        let q = work.record_for(sim, j, me);
+        let generation = sim.suits.generation[j];
+        let delta = deltas
+            .then(|| {
+                client.baseline(j, generation, &q, t).and_then(|(base, back)| Delta::plan(&q, base, back))
+            })
+            .flatten();
+        let Some(bits) = w.entity_q(&q, delta.as_ref(), keep) else { return k };
+        work.count(bits, delta.is_some());
+        client.note_sent(j, generation, t, &q);
+        rec.n_ents += 1;
+        client.prio[j] = 0.0;
+        client.known.set(j, true);
+    }
+    to
+}
+
+/// Writes a tick's next datagram for `client` after its first ([`build_snapshot`]): more of the
+/// suits it sees, from `from` down its sorted list, and nothing else (`header_flags::MORE`).
+/// Returns its length and where it stopped.
+pub(crate) fn build_more(
+    sim: &Sim,
+    client: &mut ClientState,
+    header: &SnapshotHeader,
+    buf: &mut [u8],
+    work: &mut Work,
+    (from, top): (usize, usize),
+    deltas: bool,
+) -> Option<(usize, usize)> {
+    let (seq, stream) = client.next_seq();
+    let mut w = SnapshotWriter::new(buf, client.max_datagram);
+    w.header(&SnapshotHeader {
+        seq: seq as u16,
+        stream,
+        flags: header.flags | header_flags::MORE,
+        ..*header
+    });
+    w.own(None);
+    w.orrery(None);
+    let mut rec = SentRecord { seq, ents_from: client.ents_head, ..SentRecord::default() };
+    let next = write_suits(sim, client, work, &mut w, &mut rec, (from, top), 0, deltas);
+    let n = w.finish()?;
+    client.sent[seq as usize % SENT_RING] = rec;
+    Some((n, next))
 }
 
 /// How far a spectator sees suits from, m (a suit 2.5 km off is a few pixels through the colony's
@@ -386,8 +529,9 @@ pub(crate) fn build_watch(
     work: &mut Work,
 ) -> Option<usize> {
     let t = header.tick;
+    let (seq, stream) = client.next_seq();
     let mut w = SnapshotWriter::new(buf, client.max_datagram);
-    w.header(header);
+    w.header(&SnapshotHeader { seq: seq as u16, stream, ..*header });
     w.own(None);
     w.orrery(None);
     let candidates = &mut work.entities;
@@ -440,15 +584,10 @@ pub(crate) fn build_watch(
     }
     let top = cand.len().min(TOP);
     cand[..top].sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
-    for &(_, j) in cand[..top].iter() {
-        let j = j as usize;
-        let mut e = sim.entity_state_watched(j);
-        if !sim.suits.alive.get(j) {
-            e.flags |= ent_flags::WRECK;
-        }
-        if !w.entity(&e, 0) {
-            break;
-        }
+    for k in 0..top {
+        let j = work.entities[k].1 as usize;
+        let Some(bits) = w.entity_q(&work.qs[j], None, 0) else { break };
+        work.count(bits, false);
         client.prio[j] = 0.0;
         client.known.set(j, true);
     }
@@ -514,6 +653,6 @@ mod tests {
         let on = Some(RiderOn { body: BodyRef::Landmark(0), aloft: false });
         assert_eq!((es.on, ew.on), (on, on));
         assert!(es.vel.length() < 0.05 && ew.vel.length() > 3.0, "{} {}", es.vel, ew.vel);
-        assert_eq!(es.encoded_bits(), 194);
+        assert_eq!(es.encoded_bits(), 195);
     }
 }

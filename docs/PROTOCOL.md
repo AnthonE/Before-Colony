@@ -1,8 +1,20 @@
-# Before Colony wire protocol (v36)
+# Before Colony wire protocol (v37)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v37 (from v36): acks for every datagram, suits' records as deltas, and more than one datagram a
+tick (`docs/NETCODE.md`, "The wire's road"). A snapshot's header carries its datagram's number
+(`seq`, 16 bits, counted per client) and the stream it counts on (8 bits: the sector in the top two,
+the seat in the rest; 0 is a datagram with no number), so it grows from 116 bits to 140; its flags
+gain MORE (bit 1). An input packet's `ack_snapshot` (the newest tick) becomes `ack_stream` (8),
+`ack_seq` (16) and `ack_bits` (32): the newest datagram the client took on that stream and, bit `i`,
+whether it took `ack_seq − 1 − i` (below, "Acks, deltas and parts"), so four commands take 68 bytes, 99
+locked on, 107 converging. Every entity record has a delta bit after its slot: 0, the record whole
+as before (212 bits free, 195 on a rock or a landmark, 203 on the city); 1, a delta against a
+record of the same suit the client took (below). A tick may send a pilot up to three
+datagrams: the first is its snapshot, the rest (MORE) carry only more suits.
 
 v36 (from v35): no bits change, but the city does (`CITY_VERSION` 5): the Residential districts'
 buildings of one box are blocks of flats and Old Town's are rows of houses, walked in at their doors
@@ -123,7 +135,9 @@ datagrams for pilots flying inside; and the key places' rooms in the city
 | Field | Bits |
 |---|---|
 | kind (=1) | 4 |
-| ack_snapshot (newest snapshot tick received) | 32 |
+| ack_stream (the stream of the datagrams acked; 0: none yet) | 8 |
+| ack_seq (the newest datagram taken on it, mod 2¹⁶) | 16 |
+| ack_bits (bit `i`: `ack_seq − 1 − i` taken too) | 32 |
 | client_time_ms (echoed for RTT) | 16 |
 | count − 1 | 2 |
 | newest command's tick | 32 |
@@ -175,7 +189,7 @@ legs: x and z walk (Shift runs), and `thrust[1]` sets the stance and stays set: 
 crouches, 32 or more stands, 100 or more (standing) hops, and anything between keeps the stance it
 has, so a silent client stays crouched.
 
-Four commands fit in 65 bytes (86 + 4 × 107 bits), or 96 locked on (86 + 4 × 169). A client sending several ticks at once sends
+Four commands fit in 68 bytes (110 + 4 × 108 bits), or 99 locked on (110 + 4 × 170). A client sending several ticks at once sends
 overlapping windows two ticks apart, so each command is in two packets. States persist while a
 client is silent (the server repeats its last command, keeping only FLIGHT_ASSIST, the Orrery, GRAB,
 MODE and GRIP, and the lock-on for 30 ticks more); presses (STOW, THROW, JETTISON, MELEE, SPECIAL, BURST) act on the tick they first appear, and a
@@ -188,13 +202,13 @@ exactly `tick − 8`, so the 8-bit field's saturation at 15.9 ticks loses nothin
 
 | Section | Content |
 |---|---|
-| header (116 bits) | kind=2, tick, ack_input_tick, input_health (i8), time_echo_ms, echo_hold_ms, tidi_pct, flags |
+| header (140 bits) | kind=2, tick, seq (16), stream (8), ack_input_tick, input_health (i8), time_echo_ms, echo_hold_ms, tidi_pct, flags |
 | own (1 + 811..831 bits) | slot, generation, frame, alive, pos, vel (f32), rot (16-bit), ang_vel, propellant (f32), g_strain (f32), heat, energy, ammo ×2, weapon_ready (4), charge, parts ×6, orrery_strain, orrery_mode, flags, systems (24), modules (20), the propellant's grade (2), scram (7, ticks), concussed (7, ticks), repairing (4: a system, 15 = none), repair left (7, ticks ÷ 8), respawn_in, the rack (8: 2 bits a consumable), a stim's clock (12, ticks), extra mass (kg, i18), cargo ×4 (kg, 13 bits each), credits (24), held chunk (10), lock target (10), lock progress (4), special timer (8, ticks), special charge (8, 255ths: 255 charged, or nothing to charge; ticks ÷ 4 of its cooldown before v25), arms (46, below), burst step (17, below), footing (2), cover (2), doom (5, steps of 3 ticks until a doomed suit's reactor goes, rounded up; 0: not doomed, v23; in steps since v24), impact (3, sixths of what the suit stands, v24), stagger (5, ticks left; 0: steady, v24), the designated target's impact (3, sixths; 7: staggered, v24), and on a body its body (6 or 12) and stance (8) (below) |
 | The Orrery (1 + ≤200 bits) | source_jev, advice_age, threat_count, per threat {slot, 7 × p}, rec_target + p, rec_maneuver + p, threat_level + confidence, flanked, has_solution, solution (oct 2×12), hit_p |
 | events | repeated `[1][event]`, closed by `[0]` |
 | rocks | repeated `[1][rock]` (18 bits each), closed by `[0]` |
 | missiles | repeated `[1][missile]` (119 bits each), closed by `[0]` |
-| entities | repeated `[1][entity]` (194 or 211 bits each), closed by `[0]` |
+| entities | repeated `[1][entity]` (whole: 195 or 212 bits; a delta: 30 to about 140), closed by `[0]` |
 | objects | repeated `[1][object]` (12–232 bits each), closed by `[0]` |
 
 The writer reserves room for every list terminator still owed before it writes a record, so a
@@ -204,22 +218,67 @@ Header flags, by bit: 0 SPECTATOR (v18): a spectator's snapshot, sent to a pilot
 colony's city by its inside sector (below, in "Survival: the hangar's messages": a pilot on foot
 watching the inside's suits). It has no own state and no Orrery, no events but Leave notices, no
 rocks, missiles or objects; its `ack_input_tick`, `input_health` and echo say nothing (the pilot
-sends no input).
+sends no input). 1 MORE (v37): a tick's datagram after its first, carrying more of the suits the
+pilot sees and nothing else (no own state, no Orrery, and its event, rock, missile and object lists
+empty).
 
 What fits, in the 8 800 bits of a 1 100-byte datagram: the fixed part is the header, the own state,
 the Orrery's presence bit and the five lists' terminators.
 
 | | Own flying free | Own on a rock (the largest) |
 |---|---|---|
-| Fixed | 920 bits | 940 bits |
-| Free suits (1 + 211 bits each), nothing else | 37 | 37 |
-| Suits on bodies (1 + 194 bits each), nothing else | 40 | 40 |
-| Room kept for six of the largest objects (6 × 233 bits) | 30 free / 33 riders | 30 / 33 |
-| With the Orrery on (+200 bits) | 36 / 39 | 36 / 39 |
+| Fixed | 944 bits | 964 bits |
+| Free suits whole (1 + 212 bits each), nothing else | 36 | 36 |
+| Suits on bodies whole (1 + 195 bits each), nothing else | 40 | 39 |
+| Room kept for six of the largest objects (6 × 233 bits) | 30 free / 32 riders | 30 / 32 |
+| With the Orrery on (+200 bits) | 35 / 39 | 35 / 38 |
 | A 256-byte connection (2 048 bits) | 5 / 5 | 5 / 5 |
+| Suits as deltas: at rest (1 + 30), moving (1 + about 90) | 96 (the most a snapshot lists) / about 86 | 96 / about 86 |
 
-A suit on the colony's city takes 202 bits (its place needs 21 bits an axis): 38 of them fit, the
-own suit flying free, and nothing else.
+A suit on the colony's city takes 203 bits whole (its place needs 21 bits an axis): 38 of them
+fit, the own suit flying free, and nothing else.
+
+### Acks, deltas and parts
+
+**Acks** (`bc_proto::ack`). Each snapshot datagram is numbered per client (`seq`, the low 16 bits of
+the sector's count) on a stream: the sector in the top two bits (0 space, 1 the colony's inside), a
+count of the client's seats there in the other six, never 0, so a pilot seated again, or flying
+into the other sector, starts a stream the client can't take for the last. A client takes a
+datagram if it is newer than every one it took on that stream, or on another stream and of a newer
+tick (then what it held of the last stream is forgotten); a datagram is taken whole, or not at
+all, and one that is not taken is not acked. Each input packet acks the newest taken and, as bits,
+the 32 before it. The server retires what each acked datagram carried (events, Leave notices,
+rocks, salvage and the suits' records), oldest first, ignoring any datagram older than one it
+already retired: the client takes a stream's in order, so none can come after.
+
+**Deltas** (`bc_proto::entity`). An entity record's bit after its slot says whether the rest is
+whole (as in the table below) or a delta against an earlier record of the same suit the client
+took: `back` (8 bits) says how many ticks before the snapshot's that record is. The client keeps
+the last 16 records of each suit it took (by slot and tick); the server sends a delta only against
+a record the client acked, of the suit's same life and body, fewer than 16 of the suit's records
+ago, so the client still holds it, and the record whole otherwise. A delta carries, in integer
+codes of the whole record's grids:
+
+| Field | Bits |
+|---|---|
+| slot, delta (= 1), back | 10 + 1 + 8 |
+| aloft (a rider only) | 1 |
+| velocity: mode, then nothing (same), 3 × 5 or 3 × 9 differences, or the whole codes | 2 + 0 / 15 / 27 / 42 (30 a rider) |
+| position: mode, then nothing, 3 × 6 or 3 × 12 differences from where the baseline is carried to by the mean of its velocity and this one (integers, alike on both ends), or the whole codes | 2 + 0 / 18 / 36 / 63 (45–63 a rider) |
+| rotation: mode, then nothing, 3 × 5 or 3 × 8 differences (the same largest component), or whole | 2 + 0 / 15 / 24 / 32 |
+| aim: mode, then nothing, 2 × 5 or 2 × 7 differences, or whole | 2 + 0 / 10 / 14 / 18 |
+| flags: the same (1), or 0 and the 16 | 1 / 17 |
+| parts: the same (1), or 0 and the 18 | 1 / 19 |
+
+A suit at rest is 29 bits (30 a rider); one manoeuvring about 90. What the client rebuilds is to
+the bit what the whole record would have said.
+
+**Parts.** A pilot's tick is sent in up to three datagrams under a budget (`SectorConfig::rate`, by
+default 64 KB/s, in a bucket that holds two ticks' worth). The first is the snapshot above; while
+suits are left to send and the bucket holds a full datagram, the next carries MORE of them, down
+the same priority order, as deltas too (each datagram is acked by itself). Spectators get one.
+While the sector's ticks run hot it sends less: the budget and the suits listed shrink with its
+pace (`docs/ARCHITECTURE.md`, "The pace"); nothing on the wire says so.
 
 ### Bodies and riders
 
@@ -313,7 +372,7 @@ Entity record, by kind:
 
 | Field | Flying free | On a rock | On a landmark |
 |---|---|---|---|
-| slot 10, generation 2, frame 4, faction 3, pilot kind 2 | 21 | 21 | 21 |
+| slot 10, delta 1 (= 0), generation 2, frame 4, faction 3, pilot kind 2 | 22 | 22 | 22 |
 | attached | 1 (= 0) | 1 | 1 |
 | `BodyRef` | | 2 + 10 | 2 + 4 |
 | aloft (in the body's grip, not on its feet) | | 1 | 1 |
@@ -323,7 +382,7 @@ Entity record, by kind:
 | aim (sector) | 18 | 18 | 18 |
 | flags | 16 | 16 | 16 |
 | 6 part-armour buckets (3 bits each, 0–7) | 18 | 18 | 18 |
-| **total** | **211** | **194** | **194** |
+| **total** | **212** | **195** | **195** |
 
 How high a rider stands isn't sent: the surface under it says (`Shape::probe`). A parked suit is
 sent at rest on its body (velocity 0), ASLEEP. A rider standing still (stick idle, not turning,
