@@ -45,23 +45,25 @@ traffic, the walkers) is in no class at all: it costs nothing.
 
 In order. Each step is measured with `cargo bench -p bc-sector --bench sector` before and after.
 
-1. **Acks for every datagram.** Each snapshot datagram carries a sequence number and a stream (the
+1. **Acks for every datagram.** *Built (v37, `bc_proto::ack`).* Each snapshot datagram carries a sequence number and a stream (the
    sector and the seat); each input packet acks the newest and the 32 before it as bits (Gaffer's
    reliable-ordered header, Gates' `ack_bits`). A datagram is applied and acked whole or not at
    all.
-2. **Per-entity deltas against acked baselines** (Gaffer's snapshot compression and his networked
+2. **Per-entity deltas against acked baselines.** *Built (v37, `bc_proto::entity`,
+   `bc_client_core::baselines`).* (Gaffer's snapshot compression and his networked
    VR physics; Gates' `is_delta`). The accumulator sends subsets, so a baseline is per entity:
    the last state of that entity the client acked. A record is coded against it in quanta (the
    position against where the baseline's velocity carried it), and falls back to an absolute
    record from the same encoder when there is no safe baseline: no keyframes, no second path.
    Titanfall 2 more than halved its servers' bandwidth and CPU by rewriting this.
-3. **Parts under a budget.** More than one datagram a tick for a client with more to see (Gates'
+3. **Parts under a budget.** *Built (v37, `SectorConfig::rate`, `max_parts`).* More than one datagram a tick for a client with more to see (Gates'
    `SNAPSHOT_PARTS`), under a per-client byte bucket. Part one is today's snapshot; the rest carry
    entities. Egress is free on GameLift since June 2026, so a fleet fight can buy bytes instead of
    dropping suits.
 4. **Interest from the grid, shared work once a tick** (Unreal's Replication Graph and Iris, EVE's
-   finding that a big fight's cost is per observer, not the simulation). Quantize each entity once
-   a tick for everyone; a client's candidates come from the cells its sensors reach. Perception
+   finding that a big fight's cost is per observer, not the simulation, which ours confirms: it is
+   95% of the tick). Each suit's record is quantized once a tick for everyone (*built*); a client's
+   candidates are to come from the cells its sensors reach. Perception
    (the drones', the Orrery's) uses the same grid (`SCALE.md`, A1–A2).
 5. **Network LOD tiers** inside the accumulator: by distance and sensor range (Unreal's
    per-distance frequency, Dual Universe's 100 m and 700 m, Star Citizen's 5 px rule) and by threat
@@ -130,12 +132,27 @@ In order. Each step is measured with `cargo bench -p bc-sector --bench sector` b
 - **Absolute records forever.** Fine for 64 pilots; the reason 200 suits in view refresh four times
   a second.
 
+## Where it stands (v37)
+
+`cargo bench -p bc-sector --bench sector`, everyone in one fight (`SCALE.md` has the table):
+
+- A suit's record is 78–104 bits against 212 whole, so a pilot is sent 2–5× the suits for the
+  same bandwidth or less: 193 a tick at 256 pilots, against 36.
+- What it costs is CPU a record (about 0.2 µs). A tick running past half its period sends less
+  (the **pace**: each client's budget and suit list shrink by a fifth, to a fifth at least, and
+  grow back under a third), so 448 pilots in one fight settle at 12.8 / 20.1 ms p50 / p99, still
+  sending 57 suits a pilot-tick.
+- Over a link losing 10% and reordering, every record the client rebuilds is the server's to the
+  bit (`bc-sector/tests/deltas_net.rs`), and the tick still never allocates (`no_alloc`).
+
 ## What we watch
 
 - `cargo bench -p bc-sector --bench sector`: the tick (the simulation and replication apart), bytes
   a datagram, records and bits a record, the share sent as deltas, for 64 to 448 pilots in one
   fight.
-- `/status`: `hot_path_allocations` at 0, the tick's histogram under budget, and the split.
+- `/status`: `hot_path_allocations` at 0, the tick's histogram under budget, and the split
+  (`tick_us`: `sim_p99`, `replicate_p99`); `replication`: records, their bits, the deltas, the
+  datagrams past a tick's first, and the pace (`pace_pct`, under 100 while ticks run hot).
 - The swarm (`bc-bot`) at 256 and 512 pilots.
 
 ## Sources

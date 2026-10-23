@@ -15,6 +15,8 @@ it is fast. Nothing else is shared between sectors, so building more is mostly a
 at the same spawn and flies firing, so the whole crowd is in one fight and on everyone's
 sensors. This is the worst case for replication.
 
+First, on the v36 wire (one datagram a tick, every record whole), before any of the plan:
+
 | Pilots | Drones | Tick p50 | Tick p99 | Max | Out, total |
 |---:|---:|---:|---:|---:|---:|
 | 64 | 256 | 1.2 ms | 2.5 ms | 4.5 ms | 2.1 MB/s |
@@ -22,10 +24,35 @@ sensors. This is the worst case for replication.
 | 256 | 256 | 6.4 ms | 12.3 ms | 13.7 ms | 8.4 MB/s |
 | 448 | 64 | 13.2 ms | 25.2 ms | 29.2 ms | 14.7 MB/s |
 
-The budget is 33 ms at 30 Hz. The tick grows faster than linearly: doubling the pilots costs
-about 2.3× the time. Every snapshot is full: 1,093 B, 32.8 KB/s a pilot, whatever the crowd.
+The budget is 33 ms at 30 Hz. Every snapshot was full: 1,093 B, 32.8 KB/s a pilot, about 36 suits
+a pilot-tick whatever the crowd. Timing the tick's halves showed **replication was 95% of it**
+(EVE's finding: a big fight's cost is per observer, not the simulation).
 
-**So one sector holds about 300 pilots in one fight with room to spare, and 450 at the edge.**
+Now, after A.4 and the v37 wire (`NETCODE.md`, "The wire's road"), each crowd both ways: records
+whole in one datagram, and v37 (deltas, up to three datagrams under a 64 KB/s budget, paced to
+the tick). Times are p50 / p99.
+
+| Pilots | Wire | Tick | Of it, replication | Suits a pilot-tick | Bits a suit | A pilot | Pace |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| 64 | whole | 0.7 / 1.2 ms | 0.6 / 1.1 ms | 36 | 212 | 32.5 KB/s | 100% |
+| 64 | v37 | 1.0 / 1.5 ms | 0.9 / 1.3 ms | 74 | 78 | 25.5 KB/s | 100% |
+| 128 | whole | 1.6 / 2.9 ms | 1.3 / 2.3 ms | 36 | 212 | 32.5 KB/s | 100% |
+| 128 | v37 | 3.7 / 6.3 ms | 3.1 / 5.4 ms | 138 | 78 | 45.2 KB/s | 100% |
+| 256 | whole | 4.3 / 6.4 ms | 3.5 / 5.4 ms | 36 | 212 | 32.5 KB/s | 100% |
+| 256 | v37 | 10.2 / 15.8 ms | 9.0 / 13.9 ms | 193 | 80 | 63 KB/s | 100% |
+| 448 | whole | 9.1 / 13.5 ms | 7.6 / 12.1 ms | 36 | 212 | 32.5 KB/s | 100% |
+| 448 | v37 | 12.8 / 20.1 ms | 11.2 / 17.7 ms | 57 | 104 | 26.3 KB/s | 20% |
+
+- **Whole records got cheaper** (448 pilots: 13.2 / 25.2 ms before, 9.1 / 13.5 after): each suit's
+  record is built once a tick for every viewer, the sensor model is asked once a suit, and the bit
+  writer stores a word at a time.
+- **v37 sends each pilot 2–5× the suits** for the same bandwidth or less: a suit's record is 78–104
+  bits against 212. With 200 suits in sight, each is refreshed every tick or two, not every six.
+- **What v37 costs is CPU a record**, about 0.2 µs, and it sends more records. So the pace: when a
+  tick takes more than half its period, what's sent shrinks (to a fifth at least, which is still
+  more suits than whole records fit). 448 pilots in one fight settle at a fifth, under budget.
+
+**So one sector holds about 300 pilots in one fight at full pace, and 450 with room to spare.**
 That is already EVE-class for one grid. The ceilings below come before that one.
 
 ## The bottlenecks, worst first
@@ -58,17 +85,16 @@ Until this changes, the world is one server's worth. Nothing else on this list m
   - Every drone's and every Orrery pilot's look at the world is a full scan, so they cost O(n²).
   - Only weapons, melee and missiles, whose queries are short, get the hash's benefit.
 
-### 3. The wire: one datagram a tick, absolute states
+### 3. The wire: one datagram a tick, absolute states (*fixed in v37*)
 
-- A snapshot is one datagram of at most 1,100 B (`MAX_DATAGRAM`), sent every tick.
-- A free suit's record is 211 bits, so about 30 entities fit beside the header and own state.
-  The priority accumulator shares those 30 places among everyone in view. With 200 suits in
-  sight, each one is refreshed about four times a second.
-- Every record is absolute: there is no delta against what the client acked. Rocks and chunks
-  are the exception, since they are sent dirty-until-acked.
-- IDs are 10 bits (`SLOT_BITS`, `CHUNK_BITS`, `ROCK_BITS`, `MISSILE_BITS`), so a sector holds at
-  most 1,023 of each.
-- Positions are 21 bits over ±32,768 m (3.1 cm), so a sector is a 65 km cube.
+- Was: a snapshot was one datagram of at most 1,100 B, sent every tick, and every record absolute
+  (211 bits for a free suit), so about 30 entities fit beside the header and own state. With 200
+  suits in sight, each one was refreshed about four times a second.
+- Now: every datagram is acked, records are deltas against what the client acked (30 bits at
+  rest, about 80 moving), and a tick may send up to three datagrams under a budget (above).
+- Still: IDs are 10 bits (`SLOT_BITS`, `CHUNK_BITS`, `ROCK_BITS`, `MISSILE_BITS`), so a sector
+  holds at most 1,023 of each.
+- Still: positions are 21 bits over ±32,768 m (3.1 cm), so a sector is a 65 km cube.
 
 These limits are right for a sector. They are why the world must be **many sectors**, never one
 big one, and why a crowd needs another kind of record than a duelling suit.
@@ -125,21 +151,41 @@ not meshes**. The client already rebuilds the field from the server's seed.
 
 1. **Hash perception properly.** Give `SpatialHash` a coarse level, such as 2 km cells, for
    sensor-range queries, or bucket by sector region. Then perception and the drones' looks cost
-   what is near, not what exists. Keep the `no_alloc` tests at 0.
+   what is near, not what exists. Keep the `no_alloc` tests at 0. *The split says this can wait:*
+   the simulation is a tenth of the tick, perception included.
 2. **Replicate from the hash, not the slot list.** Candidates for a client come from the cells
-   within its sensor range. Rocks and chunks come from per-cell dirty lists, not full scans.
+   within its sensor range. Rocks and chunks come from per-cell dirty lists, not full scans. In
+   one fight everyone is in range, so this pays when the crowd is spread (a world, not a
+   brawl); the bench should grow a spread crowd to measure it.
 3. **Encode off the sim thread** (scaling path item 4). Snapshot building reads a
    double-buffered world from N workers, each fed by preallocated rings. It is embarrassingly
-   parallel per client.
-4. **Measure the split.** Time the sim step and replication apart in the bench and on
-   `/status`, so we know which half to cut.
+   parallel per client, and now the biggest lever left: replication is 85–90% of a crowded tick,
+   and the server has four cores. It needs the clients' state owned by the workers (acks routed
+   to them) and the world they read handed over once a tick, with no lock and no `unsafe`.
+4. **Measure the split.** *Done*: the bench and `/status` (`tick_us`) time the simulation and
+   replication apart. Replication was 95%. Building each suit's record once a tick, asking the
+   sensor model once a suit and a faster bit writer took 448 pilots from 25.2 to 13.5 ms p99.
 
 The target is 512 pilots in one fight at p99 ≤ 16 ms.
 
-### B. Sessions that don't hold a flight slot (days)
+### B. Sessions that don't hold a flight slot (a week, not days)
 
 A pilot in the bay, on foot or in a menu holds a session, not a sector lease. They lease one at
 launch, as `launch_inside` already does for `sector-1`.
+
+The sector-0 slot is more than a lease today: it is the session's identity everywhere, so taking it
+away is a session-wide change, and partly a wire one:
+
+- `net::session::run` takes it before anything else and names the session by it (`Session::slot`):
+  the default callsign, the guest's trader key, the roster's entries (`ControlMsg::Roster { slot }`),
+  the Welcome's `client_slot`, `/status`'s per-pilot metrics (`Metrics::pilots[slot]`).
+- The plaza keys everyone on foot by it (`plaza.rs`), and a person's id on the wire is 10 bits
+  (`bc_proto::presence::PERSON_BITS`), as is a suit's slot.
+- So: a session id of its own (wider than 10 bits on the roster and the plaza), and the sector slot
+  a flight's lease alone. That is a wire version, and the place to give the roster and the plaza
+  their own id spaces.
+
+What it buys:
 
 - Connections per process go from 64 to a few thousand. `net::admit` already caps them at 512.
 - Raise `--max-connections` once the plaza (C) is fixed.
