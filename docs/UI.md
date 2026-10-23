@@ -51,10 +51,17 @@ Sources: [Steam store pages](https://store.steampowered.com) of each; [The Gemsb
 7. **Fast.** Nothing animates for longer than a quarter of a second or stands between a key and what it does
    (Mecha BREAK's and Armored Core VI's slow menus); motion stops when the browser asks for less.
 8. **Keys as caps.** What to press is drawn as a key (`E`), then what it does.
+9. **The cockpit is the same glass** (`bc_model::cockpit`, `shaders/monitor.wgsl`): dark gunmetal, the
+   monitors slim slabs of glass on their mounts with a soft sheen and a lit rim, and the suit's own light
+   (its eye colour) in thin lines: one under each monitor, the panoramic window's four corners lit as the
+   HUD's panels have their ticks, the radar's quarter marks, a band round each grip. Switching into the
+   cockpit powers the monitors on, a line sweeping down each. A warm light overhead picks out the frame.
 
 ## Next
 
-- The cockpit: an overhaul of the seat's monitors and frame, so the instruments read as glass set into the
-  suit (Zone of the Enders' holographic panels, MechWarrior's monitors) rather than flat screens in a box.
+- The holo cockpit (K) draws its monitors opaque, not added over the world as `MonitorMaterial`'s holo
+  look means them to be (it was so before the cockpit's overhaul too): find why `AlphaMode::Add` doesn't take.
+- The cockpit's instruments fill only the top of some monitors (the hold's, the flight's): lay each panel
+  out to its monitor's face.
 - HUD options: its scale and opacity as settings (`settings::KNOBS`), as Titanic Scion has them.
 - The objective's marker in the view (`DRONE 1.5 km`) can sit under a focus tag: let `tags` keep clear of it.
