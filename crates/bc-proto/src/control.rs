@@ -174,6 +174,8 @@ pub enum ControlMsg {
     /// Server → client: you're in.
     Welcome {
         version: u16,
+        /// The session's id: the same in every sector it flies, never a sector's slot, never 0 or
+        /// 65,535 (the plaza knows the pilot by it).
         client_slot: u16,
         tick: u32,
         tick_hz: u8,

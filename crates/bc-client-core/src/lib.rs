@@ -117,6 +117,7 @@ pub enum Identity {
 /// What the server told us at the handshake.
 #[derive(Clone, Copy, Debug)]
 pub struct Welcome {
+    /// The session's id (the plaza's for this pilot), the same in every sector.
     pub client_slot: u16,
     pub tick_hz: u8,
     pub orrery_allowed: bool,

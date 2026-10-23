@@ -7,7 +7,7 @@
 //! from the strip's edge, `h` up), where the city stands still: about 8 mm steps over the whole
 //! colony. Nothing here allocates.
 
-use crate::{BitReader, BitWriter, DecodeError, MAX_DATAGRAM, PACKET_KIND_BITS, PacketKind, SLOT_BITS};
+use crate::{BitReader, BitWriter, DecodeError, MAX_DATAGRAM, PACKET_KIND_BITS, PacketKind};
 
 /// The colony's land strips.
 pub const STRIPS: u8 = 3;
@@ -53,8 +53,10 @@ pub const JET_BOOST: u8 = 2;
 pub const RIDER_S: f32 = 2_048.0;
 /// How long before the plaza's tick the server heard a person's pose, in 10 ms steps.
 const AGE_BITS: u32 = 6;
+/// Bits of a person's id: their session's (`ControlMsg::Welcome::client_slot`), never 0 or 65,535.
+pub const PERSON_ID_BITS: u32 = 16;
 /// What one person takes in a plaza datagram, bits.
-pub const PERSON_BITS: u32 = SLOT_BITS + AGE_BITS + POSE_BITS;
+pub const PERSON_BITS: u32 = PERSON_ID_BITS + AGE_BITS + POSE_BITS;
 /// The most people a plaza datagram carries.
 pub const MAX_PEOPLE: usize = 48;
 const PLAZA_HEADER_BITS: u32 = PACKET_KIND_BITS + 32 + 1 + STRIP_BITS;
@@ -228,12 +230,12 @@ impl<'a> PlazaWriter<'a> {
         Self { w, count: 0 }
     }
 
-    /// Adds a person (their client slot, how long ago their pose was heard, s): false once full.
+    /// Adds a person (their session's id, how long ago their pose was heard, s): false once full.
     pub fn push(&mut self, id: u16, age: f32, pose: &PersonPose) -> bool {
         if self.count >= MAX_PEOPLE || self.w.bits_remaining() < PERSON_BITS as usize {
             return false;
         }
-        self.w.write_bits(u32::from(id), SLOT_BITS);
+        self.w.write_bits(u32::from(id), PERSON_ID_BITS);
         self.w.write_bits(unit(age, 0.0, 0.64, AGE_BITS), AGE_BITS);
         pose.write_body(&mut self.w);
         self.count += 1;
@@ -279,14 +281,14 @@ impl<'a> PlazaReader<'a> {
         Ok(Self { r, tick, strip: city.then_some(strip) })
     }
 
-    /// The next person: their client slot, how long before the tick their pose was heard (s),
+    /// The next person: their session's id, how long before the tick their pose was heard (s),
     /// and the pose.
     pub fn next_person(&mut self) -> Option<(u16, f32, PersonPose)> {
         let strip = self.strip?;
         if self.r.bits_remaining() < PERSON_BITS as usize {
             return None;
         }
-        let id = self.r.read_bits(SLOT_BITS) as u16;
+        let id = self.r.read_bits(PERSON_ID_BITS) as u16;
         let age = ununit(self.r.read_bits(AGE_BITS), 0.0, 0.64, AGE_BITS);
         let pose = PersonPose::read_body(&mut self.r, strip);
         (!self.r.overflowed()).then_some((id, age, pose))
@@ -348,22 +350,38 @@ mod tests {
     fn forty_eight_people_fit_one_datagram() {
         let mut buf = [0u8; MAX_DATAGRAM];
         let mut w = PlazaWriter::new(&mut buf, 123_456, Some(2));
+        // Session ids span the whole of 16 bits (but 0 and 65,535).
+        let id = |i: u32| (1 + i * 1_381) as u16;
         for i in 0..MAX_PEOPLE as u32 {
-            assert!(w.push(i as u16 * 7, i as f32 * 0.01, &PersonPose { strip: 2, ..pose(i) }));
+            assert!(w.push(id(i), i as f32 * 0.01, &PersonPose { strip: 2, ..pose(i) }));
         }
         assert!(!w.push(1, 0.0, &pose(0)), "no more than {MAX_PEOPLE}");
         let n = w.finish();
-        assert!(n <= MAX_DATAGRAM, "{n} B");
+        assert!(n <= 719, "{n} B");
         let mut r = PlazaReader::new(&buf[..n]).unwrap();
         assert_eq!((r.tick, r.strip), (123_456, Some(2)));
         let mut k = 0u32;
-        while let Some((id, age, p)) = r.next_person() {
-            assert_eq!(id, k as u16 * 7);
+        while let Some((got, age, p)) = r.next_person() {
+            assert_eq!(got, id(k));
             assert!((age - k as f32 * 0.01).abs() <= 0.006, "{age}");
             close(&p, &PersonPose { strip: 2, ..pose(k) });
             k += 1;
         }
         assert_eq!(k, MAX_PEOPLE as u32);
+    }
+
+    #[test]
+    fn a_person_id_is_a_session_id_to_65_534() {
+        let mut buf = [0u8; MAX_DATAGRAM];
+        let mut w = PlazaWriter::new(&mut buf, 9, Some(1));
+        for id in [1u16, 1_023, 1_024, 40_000, 65_534] {
+            assert!(w.push(id, 0.0, &PersonPose { strip: 1, ..pose(3) }));
+        }
+        let n = w.finish();
+        let mut r = PlazaReader::new(&buf[..n]).unwrap();
+        let ids: [u16; 5] = core::array::from_fn(|_| r.next_person().unwrap().0);
+        assert_eq!(ids, [1, 1_023, 1_024, 40_000, 65_534]);
+        assert!(r.next_person().is_none());
     }
 
     #[test]

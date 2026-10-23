@@ -564,7 +564,7 @@ impl HomesView {
     }
 }
 
-/// Someone in the city, by the slot the plaza's datagrams know them by.
+/// Someone in the city, by the session id the plaza's datagrams know them by.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Person {
     pub id: u16,

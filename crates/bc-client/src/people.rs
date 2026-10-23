@@ -24,7 +24,7 @@ use crate::hud::UiFont;
 
 /// Names show within this distance, m.
 const NAME_REACH: f32 = 40.0;
-/// The pilot's own place in the crowd (driving: their vehicle).
+/// The pilot's own place in the crowd (driving: their vehicle). Never a session's id.
 pub const OWN: u16 = u16::MAX;
 
 /// The people to draw: slot, name and pose.
