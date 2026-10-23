@@ -51,17 +51,18 @@ Sources: [Steam store pages](https://store.steampowered.com) of each; [The Gemsb
 7. **Fast.** Nothing animates for longer than a quarter of a second or stands between a key and what it does
    (Mecha BREAK's and Armored Core VI's slow menus); motion stops when the browser asks for less.
 8. **Keys as caps.** What to press is drawn as a key (`E`), then what it does.
-9. **The cockpit is the same glass** (`bc_model::cockpit`, `shaders/monitor.wgsl`): dark gunmetal, the
-   monitors slim slabs of glass on their mounts with a soft sheen and a lit rim, and the suit's own light
-   (its eye colour) in thin lines: one under each monitor, the panoramic window's four corners lit as the
-   HUD's panels have their ticks, the radar's quarter marks, a band round each grip. Switching into the
-   cockpit powers the monitors on, a line sweeping down each. A warm light overhead picks out the frame.
+9. **The cockpit is the same glass** (`bc_model::cockpit`, `shaders/monitor.wgsl`): dark gunmetal, and the
+   monitors digital panes of see-through glass, nothing solid behind them, held at their rails and corner
+   brackets on arms, the world and the frame showing through (the framed cockpit's panes hide 60% of it,
+   the holo cockpit's 10%), what they show lit over it, a soft sheen and a lit rim. Each readout is as
+   large as its lines fit its monitor (`hud::fit_instruments`). The suit's own light (its eye colour) runs
+   in thin lines: one under each monitor, the panoramic window's four corners lit as the HUD's panels have
+   their ticks, the radar's quarter marks, a band round each grip. Switching into the cockpit powers the
+   monitors on, a line sweeping down each. A warm light overhead picks out the frame.
 
 ## Next
 
-- The holo cockpit (K) draws its monitors opaque, not added over the world as `MonitorMaterial`'s holo
-  look means them to be (it was so before the cockpit's overhaul too): find why `AlphaMode::Add` doesn't take.
-- The cockpit's instruments fill only the top of some monitors (the hold's, the flight's): lay each panel
-  out to its monitor's face.
+- The cockpit's readouts as instruments, not only text: the flight's speed and G as dials, the arms' rounds
+  as bars, drawn into the monitors' texture (MechWarrior's weapon table, Titanic Scion's large numbers).
 - HUD options: its scale and opacity as settings (`settings::KNOBS`), as Titanic Scion has them.
 - The objective's marker in the view (`DRONE 1.5 km`) can sit under a focus tag: let `tags` keep clear of it.

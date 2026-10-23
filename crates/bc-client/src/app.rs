@@ -168,7 +168,7 @@ pub fn run() {
                     crate::hud::update_horizon,
                     update_marks,
                     update_panels,
-                    place_instruments,
+                    (place_instruments, crate::hud::fit_instruments).chain(),
                     crate::map::update_objectives,
                     crate::map::place_objective,
                     crate::chart::chart_input,

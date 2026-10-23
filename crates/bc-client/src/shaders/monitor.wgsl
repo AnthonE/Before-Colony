@@ -1,8 +1,13 @@
 // A cockpit monitor's face: its region of the instruments' texture (rendered by the UI each
-// frame), glowing, as glass (`docs/UI.md`): faint scan lines, a soft sheen across it, its colours
-// fringing a little towards the edges, a lit rim and a darker band inside it. Coming into view it
-// powers on, a bright line sweeping down it. A hit makes it flicker; with the head's main camera
-// gone, it goes grey and static bands roll through it.
+// frame), glowing, as a pane of glass (`docs/UI.md`): see-through, more or less (`pane.x`: the
+// framed cockpit's glass is mostly dark, the holo cockpit's barely there), what it shows lit over
+// whatever is behind it; faint scan lines, a soft sheen across it, its colours fringing a little
+// towards the edges, a lit rim and a darker band inside it. Coming into view it powers on, a bright
+// line sweeping down it. A hit makes it flicker; with the head's main camera gone, it goes grey and
+// static bands roll through it.
+//
+// Drawn with premultiplied alpha (`AlphaMode::Premultiplied`): what's returned is the light added
+// over the world, and how much of the world behind it the glass hides.
 
 #import bevy_pbr::forward_io::VertexOutput
 #import bc::glow::glow_out
@@ -17,10 +22,16 @@ struct Look {
     look: vec4<f32>,
 };
 
+struct Pane {
+    // x: how much of what's behind the glass it hides (0 clear, 1 opaque).
+    pane: vec4<f32>,
+};
+
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var screen: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(1) var screen_sampler: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(2) var<uniform> monitor: Monitor;
 @group(#{MATERIAL_BIND_GROUP}) @binding(3) var<uniform> glass: Look;
+@group(#{MATERIAL_BIND_GROUP}) @binding(4) var<uniform> pane: Pane;
 
 fn hash(x: f32) -> f32 {
     return fract(sin(x * 12.9898) * 43758.547);
@@ -48,7 +59,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         textureSample(screen, screen_sampler, uv - out).b,
     );
     // The panel's own dark glass under what it shows.
-    c = max(c, vec3(0.012, 0.02, 0.03));
+    let dark = vec3(0.012, 0.02, 0.03);
+    c = max(c, dark);
     // Scan lines, a darker band inside the rim, and the rim itself lit.
     let lines = 0.9 + 0.1 * sin(in.position.y * 1.8);
     let edge = min(min(face.x, 1.0 - face.x), min(face.y, 1.0 - face.y));
@@ -76,5 +88,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let settle = 0.75 + 0.25 * step(0.4, hash(floor(on * 40.0)));
         c = c * shown * settle + tint * 1.5 * front;
     }
-    return vec4(glow_out(c * monitor.params.w), 1.0);
+    // As much of the dark glass as hides the world, and what it shows over its dark as light.
+    let a = pane.pane.x;
+    let lit = c * a + max(c - dark, vec3(0.0)) * (1.0 - a);
+    return vec4(glow_out(lit * monitor.params.w), a);
 }

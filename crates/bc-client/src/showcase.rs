@@ -456,7 +456,9 @@ impl Plugin for ShowcasePlugin {
             .add_systems(Startup, spawn_instruments)
             .add_systems(
                 Update,
-                (demo_instruments, crate::hud::place_instruments).chain().in_set(crate::view::Vis::Hud),
+                (demo_instruments, crate::hud::place_instruments, crate::hud::fit_instruments)
+                    .chain()
+                    .in_set(crate::view::Vis::Hud),
             );
         } else if self.scene == Scene::City {
             app.add_systems(Update, place_city_camera.in_set(crate::view::Vis::Camera));

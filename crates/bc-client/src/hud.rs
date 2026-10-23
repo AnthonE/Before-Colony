@@ -936,6 +936,50 @@ pub fn place_instruments(
     }
 }
 
+/// On the cockpit's monitors, each panel's readout as large as its lines fit its monitor (in 2 px
+/// steps, so a line coming and going doesn't make it jitter): a hold's three lines fill their
+/// screen as the flight's eight do theirs. Off the monitors, `place_instruments` sets them back.
+pub fn fit_instruments(
+    chase: Res<Chase>,
+    cockpit: Option<Res<crate::cockpit::Cockpit>>,
+    mut texts: Query<(&HudText, &Text, &mut TextFont)>,
+    mut screens: Local<Vec<bc_model::cockpit::Screen>>,
+) {
+    // A readout's glyph: Share Tech Mono's advance and the line's height, per pixel of its size.
+    const ADVANCE: f32 = 0.54;
+    const LINE: f32 = 1.25;
+    if !(chase.in_cockpit() && cockpit.is_some()) {
+        return;
+    }
+    if screens.is_empty() {
+        *screens = bc_model::cockpit::build_screens();
+    }
+    let [tw, th] = bc_model::cockpit::TEXTURE.map(|v| v as f32);
+    for (h, text, mut font) in &mut texts {
+        let show = match h {
+            HudText::Orrery => Show::Top,
+            HudText::Armor => Show::Suit,
+            HudText::Flight => Show::Flight,
+            HudText::Weapons => Show::Arms,
+            HudText::Salvage => Show::Log,
+            _ => continue,
+        };
+        let Some(s) = screens.iter().find(|s| s.show == show) else { continue };
+        // The panel's room (its region less its inset and padding), less its title's line and, for
+        // the suit's, the silhouette beside the text.
+        let beside = if show == Show::Suit { SILHOUETTE.x * 2.6 + 12.0 } else { 0.0 };
+        let w = (s.region[2] - s.region[0]) * tw - 20.0 - 24.0 - beside;
+        let h = (s.region[3] - s.region[1]) * th - 20.0 - 16.0 - 30.0;
+        let lines = text.0.lines().count().max(1) as f32;
+        let chars = text.0.lines().map(|l| l.chars().count()).max().unwrap_or(1).max(1) as f32;
+        let size = ((w / (chars * ADVANCE)).min(h / (lines * LINE)) / 2.0).floor() * 2.0;
+        let size = FontSize::Px(size.clamp(14.0, 44.0));
+        if font.font_size != size {
+            font.font_size = size;
+        }
+    }
+}
+
 pub(crate) fn bar(f: f32, n: usize) -> String {
     let k = ((f.clamp(0.0, 1.0) * n as f32).round() as usize).min(n);
     format!("{}{}", "|".repeat(k), "·".repeat(n - k))

@@ -77,17 +77,27 @@ pub struct MonitorMaterial {
     /// x: seconds since the monitors came on; yzw: the glass's tint (linear).
     #[uniform(3)]
     look: Vec4,
-    /// The holo cockpit's: added over the world (its dark glass is see-through).
-    holo: bool,
+    /// x: how much of the world behind the glass it hides ([`PANE`], [`HOLO_PANE`]).
+    #[uniform(4)]
+    pane: Vec4,
 }
+
+/// How much of the world behind a monitor's glass it hides: the framed cockpit's panes are dark
+/// enough to read over a sunlit hull, the holo cockpit's barely there. What they show is lit over it
+/// either way.
+const PANE: f32 = 0.6;
+const HOLO_PANE: f32 = 0.1;
 
 impl Material for MonitorMaterial {
     fn fragment_shader() -> ShaderRef {
         "embedded://bc_client/shaders/monitor.wgsl".into()
     }
 
+    // Premultiplied: the shader returns the light it adds and how much the glass hides (Bevy's
+    // `Add` is this blend too, and wants alpha 0 from the shader, which a monitor never gave: the
+    // holo cockpit's were drawn opaque).
     fn alpha_mode(&self) -> AlphaMode {
-        if self.holo { AlphaMode::Add } else { AlphaMode::Opaque }
+        AlphaMode::Premultiplied
     }
 
     fn enable_prepass() -> bool {
@@ -213,13 +223,13 @@ pub fn setup_cockpit(
         screen: screen.clone(),
         params: Vec4::new(0.0, 0.0, 0.0, 1.0),
         look,
-        holo: false,
+        pane: Vec4::new(PANE, 0.0, 0.0, 0.0),
     });
     let holo = monitors.add(MonitorMaterial {
         screen: screen.clone(),
         params: Vec4::new(0.0, 0.0, 0.0, 0.8),
         look,
-        holo: true,
+        pane: Vec4::new(HOLO_PANE, 0.0, 0.0, 0.0),
     });
     let mut faces = Vec::new();
     for s in &design.screens {

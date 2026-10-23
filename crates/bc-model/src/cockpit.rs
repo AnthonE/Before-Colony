@@ -1,6 +1,6 @@
 //! The cockpit, as the pilot sees it from the seat: the main screen ahead in its frame (the
-//! panoramic view of space, the world drawn behind it), a ring of monitors round it, panels closing
-//! in each side, the canopy's ribs overhead, the console with its round radar sphere below, the
+//! panoramic view of space, the world drawn behind it), a ring of monitors round it, bulkheads
+//! well out each side, the canopy's ribs overhead, the console with its round radar sphere below, the
 //! armrests with their switches, and the two control grips. It's built in the camera's own space
 //! (the eye at the origin, looking along −z, up +y, right +x), so the client hangs it on the camera
 //! and it turns with the view. The grips are their own meshes ([`Cockpit::grip`]), so the client
@@ -11,8 +11,8 @@
 //! The monitors' faces are [`Screen`]s: quads the client paints with its instruments, each a
 //! region of one shared texture.
 //!
-//! Its look is the HUD's (`docs/UI.md`): dark gunmetal, the monitors slim slabs of glass on their
-//! mounts, and the suit's own light in thin lines (its eye colour, `Paint::Eye`): a line under each
+//! Its look is the HUD's (`docs/UI.md`): dark gunmetal, the monitors panes of see-through glass
+//! held at their rails and corners on arms, and the suit's own light in thin lines (its eye colour, `Paint::Eye`): a line under each
 //! monitor, the panoramic window's four corners lit as the HUD's panels have their ticks, the radar's
 //! quarter marks; dimmer seams of cold light along the canopy's ribs.
 
@@ -93,8 +93,7 @@ fn facing(yaw: f32, pitch: f32, dist: f32, tilt: f32) -> Affine3A {
     Affine3A::from_mat3_translation(rot, d * dist)
 }
 
-/// A monitor: a housing of `w` × `h` m with chamfered corners, its screen inset on the face toward
-/// the eye.
+/// A monitor: a pane of `w` × `h` m facing the eye, held at its rails and corners.
 struct Monitor {
     show: Show,
     yaw: f32,
@@ -212,27 +211,44 @@ pub fn build() -> Cockpit {
     for (k, m) in monitors.iter().enumerate() {
         b.seed = 0.13 * k as f32;
         let xf = facing(m.yaw, m.pitch, m.dist, m.tilt);
-        // A slim housing, a gunmetal lip round the glass, and the screen's face just proud of it.
-        b.extrude(&chamfered(m.w + 0.05, m.h + 0.05, 0.035), 0.07, frame, xf * at(0.0, 0.0, -0.035));
-        b.extrude(&chamfered(m.w + 0.014, m.h + 0.014, 0.018), 0.012, metal, xf * at(0.0, 0.0, 0.008));
-        // A line of light under the glass, the status lamp at its corner, and the mount behind.
-        b.cube(Vec3::new(m.w * 0.3, 0.003, 0.004), 0.0, light, xf * at(0.0, -m.h * 0.5 - 0.016, 0.004));
+        // A pane of glass on its own (the client draws it, see-through): held by a slim rail along its
+        // top and its foot and a bracket at each corner (the HUD's ticks, in metal), the top rail on
+        // an arm back to the frame. Nothing solid behind the glass, so the world shows through it.
+        let (hw, hh) = (m.w * 0.5, m.h * 0.5);
+        for up in [-1.0f32, 1.0] {
+            b.cube(
+                Vec3::new(m.w + 0.03, 0.016, 0.026),
+                0.004,
+                metal,
+                xf * at(0.0, up * (hh + 0.011), -0.004),
+            );
+            for out in [-1.0f32, 1.0] {
+                b.cube(
+                    Vec3::new(0.012, 0.07, 0.02),
+                    0.003,
+                    frame,
+                    xf * at(out * (hw + 0.009), up * (hh - 0.03), -0.002),
+                );
+            }
+        }
+        b.cube(Vec3::new(0.05, 0.03, 0.2), 0.008, metal, xf * at(0.0, hh + 0.024, -0.11));
+        // A line of light under the glass, and the status lamp on the top rail.
+        b.cube(Vec3::new(m.w * 0.3, 0.003, 0.004), 0.0, light, xf * at(0.0, -hh - 0.024, 0.01));
         b.cube(
-            Vec3::new(0.022, 0.012, 0.012),
+            Vec3::new(0.022, 0.01, 0.01),
             0.0,
             Paint::Glow(paint::YELLOW),
-            xf * at(-m.w * 0.5 + 0.02, m.h * 0.5 + 0.016, 0.004),
+            xf * at(-hw + 0.03, hh + 0.011, 0.012),
         );
-        b.cube(Vec3::new(0.08, 0.08, 0.12), 0.01, metal, xf * at(0.0, 0.0, -0.12));
         screens.push(m.screen());
     }
     // The frame the monitors hang on: struts running out from the view's edge to the corners, an
     // arch overhead, and bulkheads down each side.
     b.seed = 0.7;
     for side in [-1.0f32, 1.0] {
-        // Bulkheads, well out to the side (seen at a wide field of view): a plate, and an inset panel
-        // on it with its vents.
-        let bulkhead = facing(side * deg(62.0), 0.0, 1.3, 0.0);
+        // Bulkheads, well out to the side behind the monitors' panes (seen at a wide field of view): a
+        // plate, and an inset panel on it with its vents.
+        let bulkhead = facing(side * deg(74.0), 0.0, 1.3, 0.0);
         b.extrude(&chamfered(0.9, 1.9, 0.2), 0.12, frame, bulkhead);
         b.extrude(&chamfered(0.6, 1.2, 0.12), 0.03, metal, bulkhead * at(side * 0.05, 0.05, 0.07));
         for k in 0..5 {
@@ -270,9 +286,7 @@ pub fn build() -> Cockpit {
             b.cube(Vec3::new(arm, 0.006, 0.006), 0.0, light, corner * at(-side * arm * 0.5, 0.0, 0.0));
             b.cube(Vec3::new(0.006, arm, 0.006), 0.0, light, corner * at(0.0, -up * arm * 0.5, 0.0));
         }
-        // A panel closing in each side behind the monitors, and an armrest below it with its
-        // switches lit.
-        b.extrude(&chamfered(1.05, 1.5, 0.18), 0.06, frame, facing(side * deg(50.0), deg(-2.0), 1.48, 0.0));
+        // An armrest below the monitors, with its switches lit.
         let arm = facing(side * deg(56.0), deg(-46.0), 1.3, deg(30.0));
         b.cube(Vec3::new(0.32, 0.1, 0.45), 0.025, metal, arm);
         for (k, colour) in [paint::YELLOW, paint::RED, paint::BLUE, paint::YELLOW].into_iter().enumerate() {
