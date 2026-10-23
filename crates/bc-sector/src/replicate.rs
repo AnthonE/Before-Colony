@@ -4,7 +4,7 @@
 use bc_proto::events::Event;
 use bc_proto::objects::ROCK_RECORD_BITS;
 use bc_proto::snapshot::ENTITY_MAX_BITS;
-use bc_proto::{EntityState, ObjectState, SnapshotHeader, SnapshotWriter};
+use bc_proto::{Delta, ObjectState, QEntity, SnapshotHeader, SnapshotWriter};
 use bc_sim::Sim;
 use bc_sim::chunks::{MAX_CHUNKS, Motion};
 use bc_sim::missiles::MAX_MISSILES;
@@ -104,12 +104,13 @@ pub(crate) struct Work {
     missiles: Box<[(f32, u16)]>,
     /// Where each live chunk is this tick (found once per tick, for every client).
     chunk_pos: Box<[Vec3]>,
-    /// Every suit as a spectator would see it this tick (built once, for every client; a client
-    /// adds what depends on it, `Sim::viewer_flags`).
-    states: Box<[EntityState]>,
-    /// Suit records written this tick, and their bits.
+    /// Every suit's record as a spectator would be sent it this tick, in codes (built once, for
+    /// every client; a client's adds what depends on it, `Sim::viewer_flags`).
+    qs: Box<[QEntity]>,
+    /// Suit records written this tick, their bits, and how many were deltas.
     pub records: u64,
     pub record_bits: u64,
+    pub deltas: u64,
 }
 
 impl Work {
@@ -120,9 +121,10 @@ impl Work {
             rocks: boxed(rocks, (0.0, 0)),
             missiles: boxed(MAX_MISSILES, (0.0, 0)),
             chunk_pos: boxed(MAX_CHUNKS, Vec3::ZERO),
-            states: boxed(max_suits, EntityState::default()),
+            qs: boxed(max_suits, QEntity::default()),
             records: 0,
             record_bits: 0,
+            deltas: 0,
         }
     }
 
@@ -133,22 +135,24 @@ impl Work {
             self.chunk_pos[k] = sim.chunk_pose(k).0;
         }
         for j in sim.suits.used.iter() {
-            self.states[j] = sim.entity_state_watched(j);
+            self.qs[j] = QEntity::quantize(&sim.entity_state_watched(j));
         }
         self.records = 0;
         self.record_bits = 0;
+        self.deltas = 0;
     }
 
     /// Suit `j`'s record as `viewer` is sent it.
-    fn state_for(&self, sim: &Sim, j: usize, viewer: usize) -> EntityState {
-        let mut e = self.states[j];
-        e.flags |= sim.viewer_flags(j, viewer);
-        e
+    fn record_for(&self, sim: &Sim, j: usize, viewer: usize) -> QEntity {
+        let mut q = self.qs[j];
+        q.flags |= sim.viewer_flags(j, viewer);
+        q
     }
 
-    fn count(&mut self, e: &EntityState) {
+    fn count(&mut self, bits: usize, delta: bool) {
         self.records += 1;
-        self.record_bits += e.encoded_bits() as u64;
+        self.record_bits += bits as u64;
+        self.deltas += u64::from(delta);
     }
 }
 
@@ -246,6 +250,7 @@ pub(crate) fn build_snapshot(
     header: &SnapshotHeader,
     buf: &mut [u8],
     work: &mut Work,
+    deltas: bool,
 ) -> Option<usize> {
     let me = client.suit.idx();
     let t = header.tick;
@@ -354,19 +359,28 @@ pub(crate) fn build_snapshot(
 
     // --- Entities, highest priority first. ---
     let cand = &mut work.entities[..n_cand];
-    const TOP: usize = 48;
+    // As many as deltas could fit: a still suit's record is 30 bits.
+    const TOP: usize = 96;
     if cand.len() > TOP {
         cand.select_nth_unstable_by(TOP, |a, b| b.0.total_cmp(&a.0));
     }
     let top = cand.len().min(TOP);
     cand[..top].sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
+    // Each as a delta against the newest record of it the client acked, if it still holds that.
+    rec.ents_from = client.ents_head;
     for k in 0..top {
         let j = work.entities[k].1 as usize;
-        let e = work.state_for(sim, j, me);
-        if !w.entity(&e, object_reserve) {
-            break;
-        }
-        work.count(&e);
+        let q = work.record_for(sim, j, me);
+        let generation = sim.suits.generation[j];
+        let delta = deltas
+            .then(|| {
+                client.baseline(j, generation, &q, t).and_then(|(base, back)| Delta::plan(&q, base, back))
+            })
+            .flatten();
+        let Some(bits) = w.entity_q(&q, delta.as_ref(), object_reserve) else { break };
+        work.count(bits, delta.is_some());
+        client.note_sent(j, generation, t, &q);
+        rec.n_ents += 1;
         client.prio[j] = 0.0;
         client.known.set(j, true);
     }
@@ -469,11 +483,8 @@ pub(crate) fn build_watch(
     cand[..top].sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
     for k in 0..top {
         let j = work.entities[k].1 as usize;
-        let e = work.states[j];
-        if !w.entity(&e, 0) {
-            break;
-        }
-        work.count(&e);
+        let Some(bits) = w.entity_q(&work.qs[j], None, 0) else { break };
+        work.count(bits, false);
         client.prio[j] = 0.0;
         client.known.set(j, true);
     }

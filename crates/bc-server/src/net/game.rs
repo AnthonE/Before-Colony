@@ -325,6 +325,7 @@ impl GameRuntime {
                 ..SimConfig::default()
             },
             max_clients: cfg.max_clients,
+            deltas: true,
             id: 0,
             oracle: use_jev,
             hot_guard: Some(bc_alloc::set_hot),
@@ -352,6 +353,7 @@ impl GameRuntime {
                 },
                 // Its pilots, and as many on foot in the city watching its suits.
                 max_clients: cfg.max_clients * 2,
+                deltas: true,
                 id: 1,
                 oracle: false,
                 hot_guard: Some(bc_alloc::set_hot),

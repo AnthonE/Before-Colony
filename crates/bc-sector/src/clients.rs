@@ -1,6 +1,7 @@
 //! Per-client replication state. All arrays are sized at construction.
 
-use bc_proto::{InputCmd, PilotKind};
+use bc_proto::entity::KEPT;
+use bc_proto::{InputCmd, PilotKind, QEntity};
 use bc_sim::SuitId;
 use bc_sim::chunks::MAX_CHUNKS;
 use bc_sim::colony::course::Run;
@@ -17,6 +18,8 @@ pub(crate) const LEAVE_QUEUE: usize = 64;
 /// Most objects and rocks one snapshot carries (its record remembers them for the ack).
 pub(crate) const OBJS_PER_SNAPSHOT: usize = 24;
 pub(crate) const ROCKS_PER_SNAPSHOT: usize = 16;
+/// Suit records the datagrams in flight carried, remembered for their acks (a ring).
+pub(crate) const SENT_ENTS: usize = 4_096;
 /// A client holds nothing of a chunk.
 pub(crate) const NONE: u16 = u16::MAX;
 /// How long a spectator is told a suit left their view, ticks (it acks nothing; its client also
@@ -42,7 +45,31 @@ pub(crate) struct SentRecord {
     /// Rocks it carried: (rock, version).
     pub rocks: [(u16, u8); ROCKS_PER_SNAPSHOT],
     pub n_rocks: u8,
+    /// The suit records it carried: `n_ents` from `ents_from` in [`ClientState::sent_ents`].
+    pub ents_from: u32,
+    pub n_ents: u16,
 }
+
+/// A suit's record that went to the client: of which life (the suit's full generation), which of
+/// the suit's records it was ([`ClientState::sends`] when it went), at which tick, and its codes.
+#[derive(Clone, Copy)]
+pub(crate) struct SentEnt {
+    pub generation: u16,
+    pub nth: u32,
+    pub tick: u32,
+    pub q: QEntity,
+}
+
+/// The newest record of a suit the client acked, which its next records are deltas against.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Baseline {
+    pub has: bool,
+    pub generation: u16,
+    pub nth: u32,
+    pub tick: u32,
+    pub q: QEntity,
+}
+
 
 pub(crate) struct ClientState {
     pub active: bool,
@@ -84,6 +111,12 @@ pub(crate) struct ClientState {
     pub lost: bool,
     /// ...and how it was lost.
     pub loss: crate::queues::Loss,
+    /// Per suit slot: how many records of it went to this client, and the newest the client
+    /// acked (its baseline). And the records the datagrams in flight carried, for their acks.
+    pub sends: Box<[u32]>,
+    pub base: Box<[Baseline]>,
+    pub sent_ents: Box<[SentEnt]>,
+    pub ents_head: u32,
     /// A spectator (`Control::Watch`): where they watch from, with no suit of their own (`active`
     /// stays false).
     pub watch: Option<Vec3>,
@@ -122,6 +155,10 @@ impl ClientState {
             rock_acked: boxed(rocks, 0u8),
             lost: false,
             loss: crate::queues::Loss::Destroyed,
+            sends: boxed(max_suits, 0u32),
+            base: boxed(max_suits, Baseline::default()),
+            sent_ents: boxed(SENT_ENTS, SentEnt { generation: 0, nth: 0, tick: 0, q: QEntity::default() }),
+            ents_head: 0,
             watch: None,
             course: Run::default(),
             drill: Drill::default(),
@@ -157,6 +194,9 @@ impl ClientState {
         self.rock_acked.fill(0);
         self.lost = false;
         self.loss = crate::queues::Loss::Destroyed;
+        self.sends.fill(0);
+        self.base.fill(Baseline::default());
+        self.ents_head = 0;
         self.course.clear();
         self.drill.reset();
     }
@@ -186,6 +226,27 @@ impl ClientState {
             self.leaves[self.n_leaves] = (slot, tick);
             self.n_leaves += 1;
         }
+    }
+
+    /// The baseline record `q` of suit `j` (of life `generation`) can be sent as a delta against at
+    /// `tick`, and how many ticks back it is: one the client acked, of this life, fewer than
+    /// [`KEPT`] of the suit's records ago (so the client still holds it).
+    pub fn baseline(&self, j: usize, generation: u16, q: &QEntity, tick: u32) -> Option<(&QEntity, u32)> {
+        let b = &self.base[j];
+        (b.has
+            && b.generation == generation
+            && self.sends[j] - b.nth < KEPT as u32
+            && b.q.same_suit(q)
+            && tick > b.tick)
+            .then_some((&b.q, tick - b.tick))
+    }
+
+    /// A record of suit `j` went in this tick's datagram: remembered for its ack.
+    pub fn note_sent(&mut self, j: usize, generation: u16, tick: u32, q: &QEntity) {
+        let nth = self.sends[j];
+        self.sends[j] += 1;
+        self.sent_ents[self.ents_head as usize % SENT_ENTS] = SentEnt { generation, nth, tick, q: *q };
+        self.ents_head = self.ents_head.wrapping_add(1);
     }
 
     /// The next datagram's number, and its stream.
@@ -238,6 +299,16 @@ impl ClientState {
         }
         for &(id, version) in &rec.rocks[..rec.n_rocks as usize] {
             self.rock_acked[id as usize] = version;
+        }
+        // The suits' records it carried are the client's now: each its suit's baseline, if newer.
+        if self.ents_head.wrapping_sub(rec.ents_from) <= SENT_ENTS as u32 {
+            for k in 0..u32::from(rec.n_ents) {
+                let e = self.sent_ents[(rec.ents_from + k) as usize % SENT_ENTS];
+                let b = &mut self.base[usize::from(e.q.slot)];
+                if !b.has || e.nth > b.nth {
+                    *b = Baseline { has: true, generation: e.generation, nth: e.nth, tick: e.tick, q: e.q };
+                }
+            }
         }
         let k = (rec.leaves as usize).min(self.n_leaves);
         if k > 0 {

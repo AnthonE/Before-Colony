@@ -48,6 +48,9 @@ fn ms(secs: f64) -> u32 {
 pub struct SectorConfig {
     pub sim: SimConfig,
     pub max_clients: usize,
+    /// Send suits' records as deltas against the newest each client acked (`docs/NETCODE.md`);
+    /// off, every record goes whole.
+    pub deltas: bool,
     /// Which of the server's sectors this is (0 to 3: space is 0, the colony's inside 1), named in
     /// the streams its datagrams count on (`bc_proto::ack::stream`), so a client on a connection
     /// both send on never takes one's count for the other's.
@@ -61,7 +64,14 @@ pub struct SectorConfig {
 
 impl Default for SectorConfig {
     fn default() -> Self {
-        Self { sim: SimConfig::default(), max_clients: 64, id: 0, oracle: false, hot_guard: None }
+        Self {
+            sim: SimConfig::default(),
+            max_clients: 64,
+            deltas: true,
+            id: 0,
+            oracle: false,
+            hot_guard: None,
+        }
     }
 }
 
@@ -620,8 +630,14 @@ impl Sector {
                 tidi_pct: 100,
                 ..SnapshotHeader::default()
             };
-            let Some(n) = build_snapshot(&self.sim, client, &header, &mut self.scratch, &mut self.work)
-            else {
+            let Some(n) = build_snapshot(
+                &self.sim,
+                client,
+                &header,
+                &mut self.scratch,
+                &mut self.work,
+                self.cfg.deltas,
+            ) else {
                 continue;
             };
             let out = &mut self.ends.outputs[s];
@@ -656,6 +672,7 @@ impl Sector {
         let m = &self.shared.metrics;
         Metrics::add(&m.entity_records, self.work.records);
         Metrics::add(&m.entity_bits, self.work.record_bits);
+        Metrics::add(&m.entity_deltas, self.work.deltas);
         Metrics::set(&m.clients, self.clients.iter().filter(|c| c.active).count() as u64);
         Metrics::set(&m.watchers, self.clients.iter().filter(|c| c.watch.is_some()).count() as u64);
         Metrics::set(&m.suits_alive, self.sim.alive_count() as u64);
