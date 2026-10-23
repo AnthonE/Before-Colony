@@ -48,6 +48,10 @@ fn ms(secs: f64) -> u32 {
 pub struct SectorConfig {
     pub sim: SimConfig,
     pub max_clients: usize,
+    /// Which of the server's sectors this is (0 to 3: space is 0, the colony's inside 1), named in
+    /// the streams its datagrams count on (`bc_proto::ack::stream`), so a client on a connection
+    /// both send on never takes one's count for the other's.
+    pub id: u8,
     /// Send tactical pictures to an external oracle (TypeSafe Jev).
     pub oracle: bool,
     /// Called with `true`/`false` around every tick, e.g. `bc_alloc::set_hot` to count allocations
@@ -57,7 +61,7 @@ pub struct SectorConfig {
 
 impl Default for SectorConfig {
     fn default() -> Self {
-        Self { sim: SimConfig::default(), max_clients: 64, oracle: false, hot_guard: None }
+        Self { sim: SimConfig::default(), max_clients: 64, id: 0, oracle: false, hot_guard: None }
     }
 }
 
@@ -228,7 +232,7 @@ impl Sector {
                     if c.watch.is_some() {
                         c.watch = Some(at);
                     } else {
-                        c.spectate(at, max_datagram as usize, self.sim.events.next_seq());
+                        c.spectate(self.cfg.id, at, max_datagram as usize, self.sim.events.next_seq());
                         self.shared.slots[s].publish(SlotState::Active, None, Outcome::Fresh);
                     }
                 }
@@ -357,7 +361,7 @@ impl Sector {
     /// Seats slot `s`'s pilot in suit `id`, and says so.
     fn seat(&mut self, s: usize, id: SuitId, pilot: PilotKind, max_datagram: u16, outcome: Outcome) {
         let seq = self.sim.events.next_seq();
-        self.clients[s].seat(id, pilot, max_datagram as usize, seq);
+        self.clients[s].seat(self.cfg.id, id, pilot, max_datagram as usize, seq);
         Metrics::set(&self.shared.metrics.pilots[s].suit, id.idx() as u64 + 1);
         self.shared.slots[s].publish(SlotState::Active, Some(id), outcome);
     }
@@ -427,7 +431,7 @@ impl Sector {
                         Metrics::add(&m.inputs_stale, 1);
                     }
                 }
-                client.on_ack(p.ack_snapshot);
+                client.on_ack(p.ack_stream, p.ack_seq, p.ack_bits);
                 client.time_echo_ms = p.client_time_ms;
                 client.time_echo_recv_us = msg.recv_us;
             }
@@ -585,6 +589,7 @@ impl Sector {
                     echo_hold_ms: 0,
                     tidi_pct: 100,
                     flags: header_flags::SPECTATOR,
+                    ..SnapshotHeader::default()
                 };
                 let Some(n) = build_watch(&self.sim, client, at, &header, &mut self.scratch, &mut self.work)
                 else {
@@ -613,7 +618,7 @@ impl Sector {
                 time_echo_ms: client.time_echo_ms,
                 echo_hold_ms: if client.time_echo_recv_us == 0 { 0 } else { hold_ms },
                 tidi_pct: 100,
-                flags: 0,
+                ..SnapshotHeader::default()
             };
             let Some(n) = build_snapshot(&self.sim, client, &header, &mut self.scratch, &mut self.work)
             else {

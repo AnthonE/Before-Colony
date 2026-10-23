@@ -59,6 +59,7 @@ pub mod walker;
 pub mod world;
 pub mod wreck;
 
+use bc_proto::ack::{AckWindow, Verdict};
 use bc_proto::auth::{Address, Domain, NONCE_BYTES, Signature, TOKEN_BYTES};
 use bc_proto::buttons::FIRE_PRIMARY;
 use bc_proto::control::{ControlMsg, Frame, RejectReason, hello_flags, roster_flags, welcome_flags};
@@ -163,6 +164,8 @@ pub struct ClientStats {
     pub bytes: u64,
     pub max_snapshot: usize,
     pub decode_errors: u64,
+    /// Snapshot datagrams dropped as older than one already taken (reordered, or repeated).
+    pub stale: u64,
     pub packets_sent: u64,
     pub last_snapshot_at: f64,
     /// When the last of the pilot's own snapshots came (not a spectator's), local s.
@@ -204,6 +207,8 @@ pub struct ClientCore {
     pub inputs: InputHistory,
     pub predict: Predictor,
     pub world: World,
+    /// The snapshot datagrams taken, which every input packet acks.
+    pub acks: AckWindow,
     next_cmd_tick: u32,
     pub shot_seq: u8,
     last_shot_tick: u32,
@@ -244,6 +249,7 @@ impl ClientCore {
             inputs: InputHistory::default(),
             predict: Predictor::default(),
             world: World::new(faction),
+            acks: AckWindow::default(),
             next_cmd_tick: 0,
             shot_seq: 0,
             last_shot_tick: 0,
@@ -392,6 +398,7 @@ impl ClientCore {
         self.predict.set_rules(rules);
         self.predict.set_interior(interior);
         self.clock = Clock::default();
+        self.acks = AckWindow::default();
         self.inputs = InputHistory::default();
         self.next_cmd_tick = 0;
         self.last_cmd = InputCmd::default();
@@ -534,30 +541,50 @@ impl ClientCore {
             return;
         };
         let h = *r.header();
-        if h.tick <= self.world.tick && self.stats.snapshots > 0 {
-            return; // duplicate or reordered: everything in it is repeated in newer snapshots
-        }
         // A spectator's (on foot in the city, the suits inside the colony near the pilot): taken
         // only there. With no input of the pilot's to answer for, it leaves the clock to the plaza.
         let spectator = h.flags & header_flags::SPECTATOR != 0;
         if spectator && !self.hangar.in_city() {
             return;
         }
+        // Older than one taken (reordered, or repeated): everything in it is in newer ones.
+        let verdict = self.acks.check(h.stream, h.seq, h.tick);
+        if verdict == Verdict::Stale {
+            self.stats.stale += 1;
+            return;
+        }
         // What's watched is the colony's inside, where the suits standing on its city ride it.
         if spectator && !self.world.bodies.interior() {
             self.world.bodies = std::mem::take(&mut self.world.bodies).inside(true);
         }
+        // A datagram is taken whole or not at all: one that doesn't read to its end isn't acked, so
+        // what it carried comes again.
         let (Ok(own), Ok(orrery)) = (r.own(), r.orrery()) else {
             self.stats.decode_errors += 1;
             return;
         };
+        let mut bad = false;
         let mut events = Vec::new();
-        while let Ok(Some(e)) = r.next_event() {
-            events.push(e);
+        loop {
+            match r.next_event() {
+                Ok(Some(e)) => events.push(e),
+                Ok(None) => break,
+                Err(_) => {
+                    bad = true;
+                    break;
+                }
+            }
         }
         let mut rocks = Vec::new();
-        while let Ok(Some(rock)) = r.next_rock() {
-            rocks.push(rock);
+        loop {
+            match r.next_rock() {
+                Ok(Some(rock)) => rocks.push(rock),
+                Ok(None) => break,
+                Err(_) => {
+                    bad = true;
+                    break;
+                }
+            }
         }
         let mut missiles = Vec::new();
         loop {
@@ -565,7 +592,7 @@ impl ClientCore {
                 Ok(Some(m)) => missiles.push(m),
                 Ok(None) => break,
                 Err(_) => {
-                    self.stats.decode_errors += 1;
+                    bad = true;
                     break;
                 }
             }
@@ -576,7 +603,7 @@ impl ClientCore {
                 Ok(Some(e)) => ents.push(e),
                 Ok(None) => break,
                 Err(_) => {
-                    self.stats.decode_errors += 1;
+                    bad = true;
                     break;
                 }
             }
@@ -587,11 +614,16 @@ impl ClientCore {
                 Ok(Some(o)) => objects.push(o),
                 Ok(None) => break,
                 Err(_) => {
-                    self.stats.decode_errors += 1;
+                    bad = true;
                     break;
                 }
             }
         }
+        if bad {
+            self.stats.decode_errors += 1;
+            return;
+        }
+        self.acks.commit(h.stream, verdict, h.tick);
         // The own suit where it was last drawn, from what it was drawn from, before this news.
         let drawn_at = self.drawn.recent(now);
         let before = drawn_at.and_then(|(o, v)| self.own_source(o, v)).map(|(p, _)| p);
@@ -712,8 +744,11 @@ impl ClientCore {
         let mut packets = Vec::new();
         let mut newest = last;
         loop {
+            let (ack_stream, ack_seq, ack_bits) = self.acks.ack();
             let mut p = InputPacket {
-                ack_snapshot: self.world.tick,
+                ack_stream,
+                ack_seq,
+                ack_bits,
                 client_time_ms: (now * 1_000.0) as u64 as u16,
                 ..InputPacket::default()
             };

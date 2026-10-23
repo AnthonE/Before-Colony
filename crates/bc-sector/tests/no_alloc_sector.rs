@@ -1,6 +1,8 @@
 //! The sector tick (input drain, simulation, snapshot encoding for 64 clients) never allocates.
 #![allow(clippy::disallowed_types, clippy::disallowed_methods, clippy::disallowed_macros)]
 
+mod common;
+
 use bc_alloc::CountingAlloc;
 use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST, ORRERY};
 use bc_proto::{Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, PilotKind};
@@ -38,6 +40,7 @@ fn sector_tick_never_allocates() {
         leases.push(l);
     }
     let mut buf = [0u8; 2048];
+    let mut acks = common::Acks::new(egress.rings.len());
     let mut total = 0u64;
     let mut snapshots = 0u64;
     // Pilots come and go signed in: every 20 ticks one leaves (its suit sleeps where it is) and
@@ -66,12 +69,8 @@ fn sector_tick_never_allocates() {
         // Network side (outside the counted region): inputs in, packets out, oracle ring drained.
         let next = sector.sim.next_tick();
         for l in &mut leases {
-            let mut p = InputPacket {
-                ack_snapshot: next.saturating_sub(3),
-                client_time_ms: step as u16,
-                count: 1,
-                ..InputPacket::default()
-            };
+            let mut p = InputPacket { client_time_ms: step as u16, count: 1, ..InputPacket::default() };
+            acks.stamp(usize::from(l.slot), &mut p);
             let a = (step as f32 * 0.02 + f32::from(l.slot)).sin();
             p.cmds[0] = InputCmd {
                 tick: next + 2,
@@ -100,8 +99,9 @@ fn sector_tick_never_allocates() {
         {
             woke += 1;
         }
-        for ring in &mut egress.rings {
+        for (slot, ring) in egress.rings.iter_mut().enumerate() {
             while let Some(len) = read_packet(ring, &mut buf) {
+                acks.take(slot, &buf[..len]);
                 assert!(len <= MAX_DATAGRAM);
                 snapshots += 1;
             }
@@ -153,6 +153,7 @@ fn a_missile_barrage_never_allocates() {
         leases.push(l);
     }
     let mut buf = [0u8; 2048];
+    let mut acks = common::Acks::new(egress.rings.len());
     let (mut total, mut missiles_seen) = (0u64, 0u64);
     for step in 0..1_200u32 {
         let next = sector.sim.next_tick();
@@ -184,12 +185,8 @@ fn a_missile_barrage_never_allocates() {
             if (step + n as u32).is_multiple_of(450) {
                 buttons |= SPECIAL;
             }
-            let mut p = InputPacket {
-                ack_snapshot: next.saturating_sub(3),
-                client_time_ms: step as u16,
-                count: 1,
-                ..InputPacket::default()
-            };
+            let mut p = InputPacket { client_time_ms: step as u16, count: 1, ..InputPacket::default() };
+            acks.stamp(usize::from(l.slot), &mut p);
             p.cmds[0] = InputCmd {
                 tick: next + 2,
                 view_tick_q4: (next << 4) - 30,
@@ -206,8 +203,9 @@ fn a_missile_barrage_never_allocates() {
         if step >= 300 {
             total += n;
         }
-        for ring in &mut egress.rings {
+        for (slot, ring) in egress.rings.iter_mut().enumerate() {
             while let Some(len) = read_packet(ring, &mut buf) {
+                acks.take(slot, &buf[..len]);
                 assert!(len <= MAX_DATAGRAM);
                 let mut r = SnapshotReader::new(&buf[..len]).expect("a snapshot");
                 let (_, _) = (r.own().expect("own"), r.orrery().expect("orrery"));
@@ -304,6 +302,7 @@ fn survival_launches_docks_and_losses_never_allocate() {
         leases.push(l);
     }
     let mut buf = [0u8; 2048];
+    let mut acks = common::Acks::new(egress.rings.len());
     let (mut total, mut docked, mut relaunched, mut lost) = (0u64, 0u32, 0u32, 0u32);
     let (mut parked, mut restored, mut reparked, mut record) = (0u32, 0u32, 0u32, None);
     let mut aces = 0u32;
@@ -386,8 +385,8 @@ fn survival_launches_docks_and_losses_never_allocate() {
             }
         }
         for l in &mut leases {
-            let mut p =
-                InputPacket { ack_snapshot: next.saturating_sub(3), count: 1, ..InputPacket::default() };
+            let mut p = InputPacket { count: 1, ..InputPacket::default() };
+            acks.stamp(usize::from(l.slot), &mut p);
             // Gripping: put down on a body, a suit stays there (and walks). Half of those launched
             // let go of their bay's cradle and are thrown out; the rest ride their bays.
             let in_bay = shared.slots[l.slot as usize]
@@ -440,8 +439,10 @@ fn survival_launches_docks_and_losses_never_allocate() {
         while shared.reparked.pop().is_some() {
             reparked += 1;
         }
-        for ring in &mut egress.rings {
-            while read_packet(ring, &mut buf).is_some() {}
+        for (slot, ring) in egress.rings.iter_mut().enumerate() {
+            while let Some(len) = read_packet(ring, &mut buf) {
+                acks.take(slot, &buf[..len]);
+            }
         }
     }
     println!(
@@ -516,6 +517,7 @@ fn riders_and_hides_never_allocate() {
     }
     let hider = |slot: u16| slot < RIDERS && slot.is_multiple_of(4);
     let mut buf = [0u8; 2048];
+    let mut acks = common::Acks::new(egress.rings.len());
     let mut total = 0u64;
     let (mut grounded, mut aloft, mut parked, mut hidden) = (0u64, 0u64, 0u64, 0u64);
     let mut asleep: Option<(u16, (u16, u16))> = None;
@@ -550,12 +552,8 @@ fn riders_and_hides_never_allocate() {
         }
         let next = sector.sim.next_tick();
         for l in &mut leases {
-            let mut p = InputPacket {
-                ack_snapshot: next.saturating_sub(3),
-                client_time_ms: step as u16,
-                count: 1,
-                ..InputPacket::default()
-            };
+            let mut p = InputPacket { client_time_ms: step as u16, count: 1, ..InputPacket::default() };
+            acks.stamp(usize::from(l.slot), &mut p);
             let a = (step as f32 * 0.02 + f32::from(l.slot)).sin();
             let aim = Vec3::new(a, 0.1, 1.0).normalize();
             // (Flight assist is a state a client keeps on: in the air in a body's grip, it holds
@@ -608,8 +606,9 @@ fn riders_and_hides_never_allocate() {
         {
             woke += 1;
         }
-        for ring in &mut egress.rings {
+        for (slot, ring) in egress.rings.iter_mut().enumerate() {
             while let Some(len) = read_packet(ring, &mut buf) {
+                acks.take(slot, &buf[..len]);
                 assert!(len <= MAX_DATAGRAM);
             }
         }

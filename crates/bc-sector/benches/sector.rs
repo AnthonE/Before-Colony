@@ -9,6 +9,9 @@
 
 use std::time::Instant;
 
+#[path = "../tests/common/mod.rs"]
+mod common;
+
 use bc_proto::buttons::{FIRE_PRIMARY, FLIGHT_ASSIST};
 use bc_proto::{Faction, FrameId, InputCmd, InputPacket, MAX_DATAGRAM, PilotKind};
 use bc_sector::{Comeback, Control, InputMsg, Metrics, SectorConfig, read_packet};
@@ -40,6 +43,7 @@ fn run(pilots: usize, drones: usize) {
         leases.push(l);
     }
     let mut buf = [0u8; 2048];
+    let mut acks = common::Acks::new(pilots);
     let (mut tick, mut sim, mut rep) = (Vec::new(), Vec::new(), Vec::new());
     let (mut bytes, mut packets) = (0u64, 0u64);
     let m = &shared.metrics;
@@ -51,12 +55,8 @@ fn run(pilots: usize, drones: usize) {
         }
         let next = sector.sim.next_tick();
         for l in &mut leases {
-            let mut p = InputPacket {
-                ack_snapshot: next.saturating_sub(3),
-                client_time_ms: step as u16,
-                count: 1,
-                ..InputPacket::default()
-            };
+            let mut p = InputPacket { client_time_ms: step as u16, count: 1, ..InputPacket::default() };
+            acks.stamp(usize::from(l.slot), &mut p);
             let a = (step as f32 * 0.02 + f32::from(l.slot)).sin();
             p.cmds[0] = InputCmd {
                 tick: next + 2,
@@ -72,8 +72,9 @@ fn run(pilots: usize, drones: usize) {
         let t = Instant::now();
         sector.tick();
         let us = t.elapsed().as_micros() as u64;
-        for ring in &mut egress.rings {
+        for (slot, ring) in egress.rings.iter_mut().enumerate() {
             while let Some(len) = read_packet(ring, &mut buf) {
+                acks.take(slot, &buf[..len]);
                 if step >= WARMUP {
                     bytes += len as u64;
                     packets += 1;

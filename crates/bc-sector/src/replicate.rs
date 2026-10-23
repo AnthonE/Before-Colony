@@ -249,8 +249,9 @@ pub(crate) fn build_snapshot(
 ) -> Option<usize> {
     let me = client.suit.idx();
     let t = header.tick;
+    let (dgram, stream) = client.next_seq();
     let mut w = SnapshotWriter::new(buf, client.max_datagram);
-    w.header(header);
+    w.header(&SnapshotHeader { seq: dgram as u16, stream, ..*header });
     let own = sim.own_state(me);
     w.own(Some(&own));
     let orrery = sim.orrery_info(me);
@@ -334,7 +335,7 @@ pub(crate) fn build_snapshot(
     w.end_events();
 
     // --- Changed rocks, nearest first. ---
-    let mut rec = SentRecord { tick: t, events_done: done, leaves: leaves_sent, ..SentRecord::default() };
+    let mut rec = SentRecord { seq: dgram, events_done: done, leaves: leaves_sent, ..SentRecord::default() };
     for &(_, i) in lowest(&mut work.rocks[..n_rocks], ROCKS_PER_SNAPSHOT) {
         if !w.rock(&sim.rock_state(i as usize), ENTITY_RESERVE_BITS + object_reserve) {
             break;
@@ -385,7 +386,7 @@ pub(crate) fn build_snapshot(
         rec.n_objs += 1;
     }
     let n = w.finish()?;
-    client.sent[t as usize % SENT_RING] = rec;
+    client.sent[dgram as usize % SENT_RING] = rec;
     Some(n)
 }
 
@@ -411,8 +412,9 @@ pub(crate) fn build_watch(
     work: &mut Work,
 ) -> Option<usize> {
     let t = header.tick;
+    let (seq, stream) = client.next_seq();
     let mut w = SnapshotWriter::new(buf, client.max_datagram);
-    w.header(header);
+    w.header(&SnapshotHeader { seq: seq as u16, stream, ..*header });
     w.own(None);
     w.orrery(None);
     let candidates = &mut work.entities;
@@ -537,6 +539,6 @@ mod tests {
         let on = Some(RiderOn { body: BodyRef::Landmark(0), aloft: false });
         assert_eq!((es.on, ew.on), (on, on));
         assert!(es.vel.length() < 0.05 && ew.vel.length() > 3.0, "{} {}", es.vel, ew.vel);
-        assert_eq!(es.encoded_bits(), 194);
+        assert_eq!(es.encoded_bits(), 195);
     }
 }

@@ -30,7 +30,8 @@ pub(crate) fn packed(generation: u8, version: u8) -> u16 {
 
 #[derive(Clone, Copy, Default)]
 pub(crate) struct SentRecord {
-    pub tick: u32,
+    /// The datagram's number (`ClientState::seq` when it went).
+    pub seq: u32,
     /// Every event with a lower sequence was delivered in (or irrelevant to) this snapshot.
     pub events_done: u32,
     /// How many queued Leave notices it carried (from the front of the queue).
@@ -54,8 +55,13 @@ pub(crate) struct ClientState {
     pub missing: u32,
     /// Tick of the last command that really came from the client (`u32::MAX` = none yet).
     pub last_real: u32,
-    /// Newest snapshot tick the client says it received.
-    pub ack_snapshot: u32,
+    /// The stream this client's datagrams count on (`bc_proto::ack::stream`: the sector and the
+    /// seat), the seat it names, and the number the next datagram takes.
+    pub stream: u8,
+    pub epoch: u8,
+    pub seq: u32,
+    /// Datagrams under this number have been acked or given up on (their records retired or not).
+    pub ack_floor: u32,
     pub time_echo_ms: u16,
     pub time_echo_recv_us: u64,
     /// Events with a lower sequence number are delivered.
@@ -98,7 +104,10 @@ impl ClientState {
             last_cmd: InputCmd::default(),
             missing: 0,
             last_real: u32::MAX,
-            ack_snapshot: 0,
+            stream: 0,
+            epoch: 0,
+            seq: 0,
+            ack_floor: 0,
             time_echo_ms: 0,
             time_echo_recv_us: 0,
             event_acked: 0,
@@ -120,7 +129,7 @@ impl ClientState {
     }
 
     /// Seats a new session in this slot (no allocation: everything is reset in place).
-    pub fn seat(&mut self, suit: SuitId, pilot: PilotKind, max_datagram: usize, event_seq: u32) {
+    pub fn seat(&mut self, sector: u8, suit: SuitId, pilot: PilotKind, max_datagram: usize, event_seq: u32) {
         self.active = true;
         self.watch = None;
         self.suit = suit;
@@ -130,7 +139,11 @@ impl ClientState {
         self.last_cmd = InputCmd::default();
         self.missing = 0;
         self.last_real = u32::MAX;
-        self.ack_snapshot = 0;
+        // A new seat counts on a new stream: the client forgets what it held of the last.
+        self.epoch = bc_proto::ack::next_epoch(self.epoch);
+        self.stream = bc_proto::ack::stream(sector, self.epoch);
+        self.seq = 0;
+        self.ack_floor = 0;
         self.time_echo_ms = 0;
         self.time_echo_recv_us = 0;
         self.event_acked = event_seq;
@@ -149,8 +162,8 @@ impl ClientState {
     }
 
     /// Seats a spectator in this slot, watching from `at` (no allocation, as [`Self::seat`]).
-    pub fn spectate(&mut self, at: Vec3, max_datagram: usize, event_seq: u32) {
-        self.seat(SuitId::NONE, PilotKind::Human, max_datagram, event_seq);
+    pub fn spectate(&mut self, sector: u8, at: Vec3, max_datagram: usize, event_seq: u32) {
+        self.seat(sector, SuitId::NONE, PilotKind::Human, max_datagram, event_seq);
         self.active = false;
         self.watch = Some(at);
     }
@@ -175,16 +188,44 @@ impl ClientState {
         }
     }
 
-    /// The client received snapshot `tick`: retire what it carried.
-    pub fn on_ack(&mut self, tick: u32) {
-        if tick <= self.ack_snapshot && self.ack_snapshot != 0 {
+    /// The next datagram's number, and its stream.
+    pub fn next_seq(&mut self) -> (u32, u8) {
+        let s = self.seq;
+        self.seq += 1;
+        (s, self.stream)
+    }
+
+    /// An input packet's ack (`bc_proto::ack::AckWindow::ack`): retire what the datagrams it names
+    /// carried, oldest first. The client takes a stream's datagrams in order, so none it acks is
+    /// older than one it acked before: anything under the floor is done with.
+    pub fn on_ack(&mut self, stream: u8, seq: u16, bits: u32) {
+        if stream == 0 || stream != self.stream || self.seq == 0 {
             return;
         }
-        self.ack_snapshot = tick;
-        let rec = self.sent[tick as usize % SENT_RING];
-        if rec.tick != tick {
+        let newest = bc_proto::ack::expand(seq, self.seq - 1);
+        if newest >= self.seq {
             return;
         }
+        for i in (0..32u32).rev() {
+            if bits & (1 << i) != 0
+                && let Some(s) = newest.checked_sub(1 + i)
+            {
+                self.retire(s);
+            }
+        }
+        self.retire(newest);
+    }
+
+    /// Datagram `seq` arrived: what it carried is the client's.
+    fn retire(&mut self, seq: u32) {
+        if seq < self.ack_floor {
+            return;
+        }
+        let rec = self.sent[seq as usize % SENT_RING];
+        if rec.seq != seq {
+            return;
+        }
+        self.ack_floor = seq + 1;
         self.event_acked = self.event_acked.max(rec.events_done);
         for &(id, state) in &rec.objs[..rec.n_objs as usize] {
             let had = &mut self.obj_acked[id as usize];
@@ -204,7 +245,7 @@ impl ClientState {
             self.n_leaves -= k;
             // Later records counted leaves from the old queue front: shift them down.
             for r in self.sent.iter_mut() {
-                if r.tick > tick {
+                if r.seq > seq {
                     r.leaves = r.leaves.saturating_sub(k as u8);
                 }
             }

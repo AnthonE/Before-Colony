@@ -25,11 +25,12 @@
 
 use glam::{Quat, Vec3};
 
+use crate::entity::{Delta, QEntity};
 use crate::events::Event;
 use crate::missiles::{MISSILE_RECORD_BITS, MissileState};
 use crate::objects::{ObjectState, ROCK_RECORD_BITS, RockState};
 use crate::quant::{self, dequantize_signed, dequantize_unit, quantize_signed, quantize_unit};
-use crate::types::{BodyRef, Faction, FrameId, Part, PilotKind, RIDER_VEL_BITS, RIDER_VEL_MAX};
+use crate::types::{BodyRef, Faction, FrameId, Part, PilotKind, RIDER_VEL_BITS};
 use crate::{
     BitReader, BitWriter, CARGO_KINDS, CHUNK_BITS, DecodeError, NO_CHUNK, PACKET_KIND_BITS, PacketKind,
     SLOT_BITS,
@@ -45,6 +46,11 @@ const P_BITS: u32 = 7;
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SnapshotHeader {
     pub tick: u32,
+    /// This datagram's number, counted per client by the sector sending it (mod 2¹⁶), and the
+    /// stream it counts on: the sector and the seat (`ack::stream`; 0 is a datagram with no
+    /// sequence). Input packets ack datagrams by them (`ack::AckWindow`).
+    pub seq: u16,
+    pub stream: u8,
     /// Newest input tick applied to this client's suit (`u32::MAX` = none yet).
     pub ack_input_tick: u32,
     /// Newest input tick received minus `tick`: how far ahead the client's inputs arrive. Clients
@@ -65,7 +71,14 @@ pub mod header_flags {
     /// sector has near them. No own suit, and no input to answer for: its round trip and input
     /// health say nothing.
     pub const SPECTATOR: u8 = 1 << 0;
+    /// A tick's datagram after its first: more of the suits the client sees, and nothing else (no
+    /// own suit, Orrery, events, rocks, missiles or salvage).
+    pub const MORE: u8 = 1 << 1;
 }
+
+/// Bits of a snapshot's header: the packet kind, tick, seq, stream, the input tick acked, input
+/// health, the time echo and its hold, time dilation and flags.
+pub const HEADER_BITS: usize = 4 + 32 + 16 + 8 + 32 + 8 + 16 + 8 + 8 + 8;
 
 /// Own-suit flags.
 pub mod own_flags {
@@ -536,9 +549,10 @@ pub struct RiderOn {
     pub aloft: bool,
 }
 
-/// What every entity record has: slot, generation, frame, faction, pilot kind, the `attached` bit,
-/// rotation (smallest-three), aim, flags and the parts.
+/// What every whole entity record has: slot, the delta bit (0), generation, frame, faction, pilot
+/// kind, the `attached` bit, rotation (smallest-three), aim, flags and the parts.
 const ENTITY_COMMON_BITS: usize = SLOT_BITS as usize
+    + 1
     + 2
     + (FrameId::BITS + Faction::BITS + PilotKind::BITS) as usize
     + 1
@@ -551,21 +565,26 @@ const ENTITY_COMMON_BITS: usize = SLOT_BITS as usize
 /// bits. A rider's is smaller ([`EntityState::encoded_bits`]).
 pub const ENTITY_MAX_BITS: usize =
     ENTITY_COMMON_BITS + 3 * quant::POS_BITS as usize + 3 * quant::VEL_BITS as usize;
-const ENTITY_AIM_BITS: u32 = 9;
-const ENTITY_ROT_BITS: u32 = 10;
+pub(crate) const ENTITY_AIM_BITS: u32 = 9;
+pub(crate) const ENTITY_ROT_BITS: u32 = 10;
 
 impl EntityState {
-    /// Encoded size of this record, in bits.
+    /// Encoded size of this record whole, in bits.
     pub fn encoded_bits(&self) -> usize {
-        match self.on {
-            None => ENTITY_MAX_BITS,
-            Some(on) => {
-                ENTITY_COMMON_BITS
-                    + on.body.bits()
-                    + 1
-                    + 3 * on.body.local_bits() as usize
-                    + 3 * RIDER_VEL_BITS as usize
-            }
+        whole_record_bits(self.on)
+    }
+}
+
+/// Bits of a whole entity record of a suit on `on` (`None`: flying free).
+pub(crate) fn whole_record_bits(on: Option<RiderOn>) -> usize {
+    match on {
+        None => ENTITY_MAX_BITS,
+        Some(on) => {
+            ENTITY_COMMON_BITS
+                + on.body.bits()
+                + 1
+                + 3 * on.body.local_bits() as usize
+                + 3 * RIDER_VEL_BITS as usize
         }
     }
 }
@@ -659,6 +678,8 @@ impl<'a> SnapshotWriter<'a> {
         self.tick = h.tick;
         w.write_bits(PacketKind::Snapshot as u32, PACKET_KIND_BITS);
         w.write_u32(h.tick);
+        w.write_u16(h.seq);
+        w.write_u8(h.stream);
         w.write_u32(h.ack_input_tick);
         w.write_i32(i32::from(h.input_health), 8);
         w.write_u16(h.time_echo_ms);
@@ -844,42 +865,27 @@ impl<'a> SnapshotWriter<'a> {
         true
     }
 
-    /// Appends an entity if it fits while leaving `keep_free_bits` (for objects). Returns whether
-    /// it was written.
+    /// Appends an entity whole if it fits while leaving `keep_free_bits` (for objects). Returns
+    /// whether it was written.
     pub fn entity(&mut self, e: &EntityState, keep_free_bits: usize) -> bool {
-        if !self.start(List::Entities, e.encoded_bits(), keep_free_bits) {
-            return false;
+        self.entity_q(&QEntity::quantize(e), None, keep_free_bits).is_some()
+    }
+
+    /// Appends a suit's record, whole or as `delta` (planned against a baseline the client holds:
+    /// [`Delta::plan`]), if it fits while leaving `keep_free_bits`. Returns the bits it took.
+    pub fn entity_q(&mut self, q: &QEntity, delta: Option<&Delta>, keep_free_bits: usize) -> Option<usize> {
+        let bits = delta.map_or_else(|| q.absolute_bits(), Delta::bits);
+        if !self.start(List::Entities, bits, keep_free_bits) {
+            return None;
         }
         let w = &mut self.w;
-        w.write_bits(u32::from(e.slot), SLOT_BITS);
-        w.write_bits(u32::from(e.generation & 3), 2);
-        w.write_bits(e.frame as u32, FrameId::BITS);
-        w.write_bits(e.faction as u32, Faction::BITS);
-        w.write_bits(e.pilot as u32, PilotKind::BITS);
-        w.write_bool(e.on.is_some());
-        match e.on {
-            None => {
-                quant::write_pos(w, e.pos);
-                quant::write_quat(w, e.rot, ENTITY_ROT_BITS);
-                quant::write_vec(w, e.vel, quant::VEL_MAX, quant::VEL_BITS);
-            }
-            Some(on) => {
-                // Riders stay well inside both ranges; the quantizers clamp if one doesn't.
-                debug_assert!(e.pos.abs().max_element() <= on.body.local_max(), "{e:?}");
-                debug_assert!(e.vel.abs().max_element() <= RIDER_VEL_MAX, "{e:?}");
-                on.body.write(w);
-                w.write_bool(on.aloft);
-                quant::write_vec(w, e.pos, on.body.local_max(), on.body.local_bits());
-                quant::write_quat(w, e.rot, ENTITY_ROT_BITS);
-                quant::write_vec_centered(w, e.vel, RIDER_VEL_MAX, RIDER_VEL_BITS);
-            }
+        w.write_bits(u32::from(q.slot), SLOT_BITS);
+        w.write_bool(delta.is_some());
+        match delta {
+            Some(d) => d.write(w),
+            None => q.write_absolute(w),
         }
-        quant::write_dir(w, e.aim, ENTITY_AIM_BITS);
-        w.write_bits(u32::from(e.flags), ent_flags::BITS);
-        for p in e.parts {
-            w.write_bits(u32::from(p.min(7)), 3);
-        }
-        true
+        Some(bits)
     }
 
     /// Appends a salvage object if it fits. Returns whether it was written.
@@ -935,6 +941,8 @@ impl<'a> SnapshotReader<'a> {
         }
         let header = SnapshotHeader {
             tick: r.read_u32(),
+            seq: r.read_u16(),
+            stream: r.read_u8(),
             ack_input_tick: r.read_u32(),
             input_health: r.read_i32(8) as i8,
             time_echo_ms: r.read_u16(),
@@ -1159,38 +1167,40 @@ impl<'a> SnapshotReader<'a> {
     }
 
     /// Next entity, or `None` at the end of the entity list.
+    /// Next entity, whole (a delta record is [`DecodeError::NoBaseline`]: read those with
+    /// [`next_entity_q`](Self::next_entity_q)), or `None` at the end of its list.
     pub fn next_entity(&mut self) -> Result<Option<EntityState>, DecodeError> {
+        Ok(self.next_entity_q(|_, _| None)?.map(|q| q.state()))
+    }
+
+    /// Next entity's codes, or `None` at the end of its list. A delta record is undone against
+    /// `baseline(slot, tick)`: the record of that suit the reader took at that tick.
+    pub fn next_entity_q(
+        &mut self,
+        baseline: impl FnOnce(u16, u32) -> Option<QEntity>,
+    ) -> Result<Option<QEntity>, DecodeError> {
         self.skip_to(Stage::Entities)?;
         if self.stage != Stage::Entities || !self.more(Stage::Objects)? {
             return Ok(None);
         }
+        let tick = self.header.tick;
         let r = &mut self.r;
-        let mut e = EntityState {
-            slot: r.read_bits(SLOT_BITS) as u16,
-            generation: r.read_bits(2) as u8,
-            frame: FrameId::from_bits(r.read_bits(FrameId::BITS)).ok_or(DecodeError::Invalid)?,
-            faction: Faction::from_bits(r.read_bits(Faction::BITS)),
-            pilot: PilotKind::from_bits(r.read_bits(PilotKind::BITS)),
-            ..EntityState::default()
-        };
-        if r.read_bool() {
-            let on = RiderOn { body: BodyRef::read(r)?, aloft: r.read_bool() };
-            e.on = Some(on);
-            e.pos = quant::read_vec(r, on.body.local_max(), on.body.local_bits());
-            e.rot = quant::read_quat(r, ENTITY_ROT_BITS);
-            e.vel = quant::read_vec_centered(r, RIDER_VEL_MAX, RIDER_VEL_BITS);
+        let slot = r.read_bits(SLOT_BITS) as u16;
+        let q = if r.read_bool() {
+            let back = Delta::read_back(r);
+            self.check()?;
+            let base = (1..=255)
+                .contains(&back)
+                .then(|| baseline(slot, tick.wrapping_sub(back)))
+                .flatten()
+                .filter(|b| b.slot == slot)
+                .ok_or(DecodeError::NoBaseline)?;
+            Delta::read(&mut self.r, &base, back)?
         } else {
-            e.pos = quant::read_pos(r);
-            e.rot = quant::read_quat(r, ENTITY_ROT_BITS);
-            e.vel = quant::read_vec(r, quant::VEL_MAX, quant::VEL_BITS);
-        }
-        e.aim = quant::read_dir(r, ENTITY_AIM_BITS);
-        e.flags = r.read_bits(ent_flags::BITS) as u16;
-        for p in &mut e.parts {
-            *p = r.read_bits(3) as u8;
-        }
+            QEntity::read_absolute(r, slot)?
+        };
         self.check()?;
-        Ok(Some(e))
+        Ok(Some(q))
     }
 
     /// Next salvage object, or `None` at the end of the packet.
@@ -1281,10 +1291,10 @@ mod tests {
             ..free
         };
         let cases = [
-            (free, 211),
-            (rider(BodyRef::Rock(1_000)), 194),
-            (rider(BodyRef::Landmark(15)), 194),
-            (rider(BodyRef::City), 202),
+            (free, 212),
+            (rider(BodyRef::Rock(1_000)), 195),
+            (rider(BodyRef::Landmark(15)), 195),
+            (rider(BodyRef::City), 203),
         ];
         for (e, bits) in cases {
             assert_eq!(e.encoded_bits(), bits, "{e:?}");
@@ -1305,7 +1315,7 @@ mod tests {
             assert_eq!(r.next_entity().unwrap().map(|b| b.on), Some(e.on));
             assert_eq!(r.next_entity().unwrap(), None);
         }
-        assert_eq!(ENTITY_MAX_BITS, 211);
+        assert_eq!(ENTITY_MAX_BITS, 212);
     }
 
     #[test]
