@@ -13,6 +13,9 @@
 //! - The frame lags a touch behind the view as the suit accelerates, so G is felt as well as read;
 //!   a hit flickers the monitors (with flashing effects on), and with the head's main camera gone
 //!   they go grey with static.
+//! - The monitors are glass in the HUD's look (`docs/UI.md`, `shaders/monitor.wgsl`), and power on
+//!   as the cockpit comes into view, a line sweeping down each. A warm light from overhead picks out
+//!   the frame's edges against the monitors' cold glow.
 
 use bc_model::cockpit::{self, TEXTURE};
 use bc_proto::snapshot::ent_flags;
@@ -43,6 +46,15 @@ const BLIPS: usize = 32;
 /// The monitors' glow at space's exposure (`sky::EV100`), lm: brighter or dimmer as the camera's
 /// exposure is (the colony's runs from its night's to its noon's), so the frame reads alike.
 const GLOW_LM: f32 = 3.0e5;
+/// The warm light overhead, as a share of the glow.
+const RIM_SHARE: f32 = 0.35;
+
+/// The glass's tint: the HUD's cyan, linear.
+fn glass_tint() -> Vec3 {
+    let [r, g, b] = bc_client_core::palette::CYAN.srgb();
+    let c = Color::srgb(r, g, b).to_linear();
+    Vec3::new(c.red, c.green, c.blue)
+}
 
 pub struct CockpitPlugin;
 
@@ -62,17 +74,30 @@ pub struct MonitorMaterial {
     /// x: seconds; y: static; z: flicker; w: brightness.
     #[uniform(2)]
     params: Vec4,
-    /// The holo cockpit's: added over the world (its dark glass is see-through).
-    holo: bool,
+    /// x: seconds since the monitors came on; yzw: the glass's tint (linear).
+    #[uniform(3)]
+    look: Vec4,
+    /// x: how much of the world behind the glass it hides ([`PANE`], [`HOLO_PANE`]).
+    #[uniform(4)]
+    pane: Vec4,
 }
+
+/// How much of the world behind a monitor's glass it hides: the framed cockpit's panes are dark
+/// enough to read over a sunlit hull, the holo cockpit's barely there. What they show is lit over it
+/// either way.
+const PANE: f32 = 0.6;
+const HOLO_PANE: f32 = 0.1;
 
 impl Material for MonitorMaterial {
     fn fragment_shader() -> ShaderRef {
         "embedded://bc_client/shaders/monitor.wgsl".into()
     }
 
+    // Premultiplied: the shader returns the light it adds and how much the glass hides (Bevy's
+    // `Add` is this blend too, and wants alpha 0 from the shader, which a monitor never gave: the
+    // holo cockpit's were drawn opaque).
     fn alpha_mode(&self) -> AlphaMode {
-        if self.holo { AlphaMode::Add } else { AlphaMode::Opaque }
+        AlphaMode::Premultiplied
     }
 
     fn enable_prepass() -> bool {
@@ -89,8 +114,14 @@ impl Material for MonitorMaterial {
 pub struct Cockpit {
     root: Entity,
     shell: Entity,
-    /// The monitors' glow ([`GLOW_LM`] at space's exposure).
+    /// The monitors' glow ([`GLOW_LM`] at space's exposure), and the warm light overhead.
     light: Entity,
+    rim: Entity,
+    /// When the pilot last switched into the cockpit (the monitors power on from then; seen from
+    /// the first frame, they're on already), and whether it was in view last frame.
+    on_at: f64,
+    was_on: bool,
+    ever_on: bool,
     /// The camera that draws the instruments into [`Cockpit::screen`].
     pub screen_camera: Entity,
     material: Handle<MonitorMaterial>,
@@ -186,15 +217,19 @@ pub fn setup_cockpit(
         ))
         .id();
     // The monitors' faces, each mapped onto its region of the texture.
+    let tint = glass_tint();
+    let look = Vec4::new(10.0, tint.x, tint.y, tint.z);
     let material = monitors.add(MonitorMaterial {
         screen: screen.clone(),
         params: Vec4::new(0.0, 0.0, 0.0, 1.0),
-        holo: false,
+        look,
+        pane: Vec4::new(PANE, 0.0, 0.0, 0.0),
     });
     let holo = monitors.add(MonitorMaterial {
         screen: screen.clone(),
         params: Vec4::new(0.0, 0.0, 0.0, 0.8),
-        holo: true,
+        look,
+        pane: Vec4::new(HOLO_PANE, 0.0, 0.0, 0.0),
     });
     let mut faces = Vec::new();
     for s in &design.screens {
@@ -253,6 +288,20 @@ pub fn setup_cockpit(
                 ..default()
             },
             Transform::from_translation(design.light),
+            layer(),
+            ChildOf(root),
+        ))
+        .id();
+    let rim = commands
+        .spawn((
+            PointLight {
+                intensity: GLOW_LM * RIM_SHARE,
+                range: 4.0,
+                color: Color::srgb(1.0, 0.74, 0.45),
+                shadow_maps_enabled: false,
+                ..default()
+            },
+            Transform::from_translation(Vec3::new(0.0, 0.6, 0.2)),
             layer(),
             ChildOf(root),
         ))
@@ -335,6 +384,10 @@ pub fn setup_cockpit(
         root,
         shell,
         light,
+        rim,
+        on_at: f64::NEG_INFINITY,
+        was_on: false,
+        ever_on: false,
         screen_camera,
         material,
         holo,
@@ -393,8 +446,17 @@ pub fn drive_cockpit(
     }
     if !on {
         c.last_vel = None;
+        c.was_on = false;
         return;
     }
+    if !c.was_on {
+        c.was_on = true;
+        if c.ever_on {
+            c.on_at = time.now;
+        }
+        c.ever_on = true;
+    }
+    let since = (time.now - c.on_at) as f32;
     let dt = time.dt.min(0.1);
     // The holo cockpit: no frame round the view, the monitors hung in the air as holograms.
     if let Ok(mut v) = vis.get_mut(c.shell) {
@@ -440,10 +502,12 @@ pub fn drive_cockpit(
     }
     let Ok((cam, exposure)) = cams.single() else { return };
     let ev = exposure.map_or(crate::sky::EV100, |e| e.ev100);
-    if let Ok(mut l) = lights.get_mut(c.light) {
-        let want = GLOW_LM * 2f32.powf(ev - crate::sky::EV100);
-        if (l.intensity - want).abs() > want * 0.01 {
-            l.intensity = want;
+    for (e, share) in [(c.light, 1.0), (c.rim, RIM_SHARE)] {
+        if let Ok(mut l) = lights.get_mut(e) {
+            let want = GLOW_LM * share * 2f32.powf(ev - crate::sky::EV100);
+            if (l.intensity - want).abs() > want * 0.01 {
+                l.intensity = want;
+            }
         }
     }
     let cam_rot = cam.compute_transform().rotation;
@@ -479,11 +543,11 @@ pub fn drive_cockpit(
     // The monitors: static without the head's main camera, a flicker when hit.
     let flicker = if prefs.flashing { chase.hit_flash() } else { 0.0 };
     let static_ = if chase.sub_camera() { 0.85 } else { 0.0 };
-    if let Some(mut m) = monitors.get_mut(&c.material) {
-        m.params = Vec4::new((time.now % 1_000.0) as f32, static_, flicker, 1.0);
-    }
-    if let Some(mut m) = monitors.get_mut(&c.holo) {
-        m.params = Vec4::new((time.now % 1_000.0) as f32, static_, flicker, 0.8);
+    for (handle, brightness) in [(&c.material, 1.0), (&c.holo, 0.8)] {
+        if let Some(mut m) = monitors.get_mut(handle) {
+            m.params = Vec4::new((time.now % 1_000.0) as f32, static_, flicker, brightness);
+            m.look.x = since.min(10.0);
+        }
     }
     // The radar holds its bearings in space: undo the view's turn.
     if let Ok(mut tf) = transforms.get_mut(c.radar) {

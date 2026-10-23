@@ -12,7 +12,7 @@ tick, cars you own, heat and the Watch, intrusion, raids, businesses: read it be
 `docs/COLONY.md` is the plan for the First Colony's inside (Milestone 5), `docs/SUITS_INSIDE.md` the design for
 suits inside it, `docs/TRAINING.md` the Proving Ground (training inside it, after X-Wing and TIE Fighter), `docs/COLONY_LOOK.md` its look (Rust's realism, Phantasy Star Online's clean colony, anime behind)
 and the passes towards it; `docs/LIFE.md` is living in it (jobs as seats worked by Arrivals or the colony's staff, the
-body and its meals on the wall clock, the great works as the server's raid); `docs/LOCK.md` is the lock-on (it moves the suit about its target, never the aim: what it decides
+body and its meals on the wall clock, the great works as the server's raid); `docs/UI.md` is the UI's look (what the nearest mech games teach, and the rules every panel and readout keeps to: read it before adding one); `docs/LOCK.md` is the lock-on (it moves the suit about its target, never the aim: what it decides
 travels in the command as `bc_proto::LockOn`, so prediction stays exact); the shooter controls, the default
 (`bc_client_core::upright`: the view upright, W where the pilot looks), ride the same `LockOn` with nothing to hold to.
 
@@ -56,6 +56,12 @@ travels in the command as `bc_proto::LockOn`, so prediction stays exact); the sh
   `cargo clippy -p bc-client --target wasm32-unknown-unknown -- -D warnings` and
   `cargo clippy -p bc-client --target wasm32-unknown-unknown --features webgpu -- -D warnings`
 - `scripts/build-web.sh [webgl2] [webgpu]` — browser build into `web/dist/` (needs wasm-bindgen-cli 0.2.128).
+- The page around the game (`web/ui.js`: menus, terminals, desks) is drawn from `bc_client_core::page`'s types
+  (`View`, `Init`, `SettingsView`, `Cmd`) and `terminal`'s JSON; `tests/page_contract.rs` reads `ui.js` and fails on a
+  field or command one side has and the other doesn't. A new screen or tab gets a scene in `bc_client_core::gallery`:
+  `scripts/build-web.sh page` (no wasm needed) then `/?gallery` shows every screen with made-up data, `[`/`]` to step;
+  `scripts/e2e.sh gallery` photographs them all into `e2e/artifacts/gallery/`. Look at it before and after a change to
+  the page's look.
 - `cargo run -p bc-server --release` then open http://127.0.0.1:8080
 - `scripts/publish-web.sh` — the browser build onto the Elo Pros origin (`/data/apps/scry-data/before-colony-web/<build>/`, `current` flipped last; served at elopros.com/games/before-colony/play/). Its `config.js` names the game server (`web/config.js`: empty, the page's own server; `?server=host:port`, `?http=url` override it), since that page dials game.elopros.com from another site. The page has no inline script (the store's CSP); the server's `--siwe-domain` lists both hosts, `--cors-origin` (default https://elopros.com) may read `/status`, `/status.json` (the launcher's `{players, max_players, tick}`), `/online.json` (the signed-in wallets, for the store's playtime: `bc_server::online`) and `/cert-hash`.
 - `scripts/pt` — play the game from a shell, to playtest it and look for what needs polish (`.claude/skills/playtest/SKILL.md`; the `playtester` agent, `.claude/agents/`, takes an area each): `scripts/pt up` starts a world (survival, the colony open, drones, an agent, a miner, strollers), `scripts/pt open` a browser kept open on it (`PT_SESSION` names each), then `shot` (a PNG to read), `around`, `ui` (the page's words), `walk <spot>`, `use`, `key`, `turn <yaw> [pitch]` (the `look` dev hook: the mouse can't steer), `profile <secs>`, `cmd '<bcInbox json>'`, `wait '<js over s = __bc>'`, `note`; out in `e2e/artifacts/playtest/<session>/`.

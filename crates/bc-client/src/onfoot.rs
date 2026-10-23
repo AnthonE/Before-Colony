@@ -1388,7 +1388,7 @@ pub fn drive_onfoot(
         let (tick, frac) = g.core.colony_tick(now);
         c.time(tick, frac);
         for cmd in &cmds.0 {
-            if let UiCmd::WalkTo(slug) = cmd {
+            if let UiCmd::WalkTo { spot: slug } = cmd {
                 match slug.as_str() {
                     "tram" => c.walk_to_tram(),
                     "pool" => c.walk_to_pool(),
@@ -1519,7 +1519,7 @@ pub fn drive_onfoot(
             ];
             let mut to = digits.iter().position(|d| live && keys.just_pressed(*d)).map(|i| i as u32);
             for cmd in &cmds.0 {
-                if let UiCmd::Lift(n) = cmd {
+                if let UiCmd::Lift { storey: n } = cmd {
                     to = Some(*n);
                 }
             }
@@ -1541,7 +1541,7 @@ pub fn drive_onfoot(
         c.shut_doors(&g.core.hangar.homes, now);
         // Build mode (from a home's panel): R turns the piece, E puts it down where it fits, Q stops.
         for cmd in &cmds.0 {
-            if let UiCmd::Place(slug) = cmd
+            if let UiCmd::Place { furniture: slug } = cmd
                 && let Some(kind) = Furniture::from_slug(slug)
             {
                 c.build = Some(Build { kind, turn: 0, at: None, why: None });
@@ -1700,7 +1700,7 @@ pub fn drive_onfoot(
     let hangar_bay = g.core.hangar.view.as_ref().map(|v| v.bay.clone());
     if on_foot {
         for cmd in &cmds.0 {
-            if let UiCmd::WalkTo(slug) = cmd
+            if let UiCmd::WalkTo { spot: slug } = cmd
                 && let Some(spot) = Spot::from_slug(slug)
             {
                 let (_, facing) = spot.stand();
@@ -1819,7 +1819,7 @@ pub fn drive_onfoot(
     }
     // Requests from the terminals (launching and docking are the bay's own business).
     for cmd in &cmds.0 {
-        if let UiCmd::Hangar(req) = cmd
+        if let UiCmd::Hangar { req } = cmd
             && !matches!(req, Request::Launch | Request::Dock)
         {
             ask(&net, &g, req);

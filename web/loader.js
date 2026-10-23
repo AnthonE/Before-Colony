@@ -1,7 +1,8 @@
 // Boots the Bevy client: picks the WebGPU or WebGL2 build and a graphics tier, and hands the
 // launch config to Rust via window.BC_CONFIG. The game asks window.bcDiscover() where to connect on
 // every dial (a restarted dev server has a new certificate). `?showcase=<scene>` runs an offline
-// scene and needs no game server.
+// scene and needs no game server; `?gallery` loads no game at all, only the page's screens with
+// made-up data (gallery.js).
 const params = new URLSearchParams(location.search);
 
 // Where to connect (window.bcServer: config.js and the page's query, boot.js). A named server
@@ -78,6 +79,10 @@ window.bcHideBoot = () => {
 };
 
 async function main() {
+  if (params.has("gallery")) {
+    await import("./gallery.js");
+    return;
+  }
   const showcase = params.get("showcase") || "";
   const renderer = rendererName();
   const qualityParam = (params.get("quality") || "").toLowerCase();

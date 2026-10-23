@@ -389,9 +389,10 @@ pub fn drive(
     let now = now_s();
     let mut g = game.borrow_mut();
     for cmd in &cmds.0 {
-        if let crate::page::UiCmd::FlyTo(to) = cmd {
-            g.fly_to = to.as_ref().and_then(|(slug, up, ahead)| fly_target(slug, *up, *ahead));
-            g.fly_out = to.as_ref().is_some_and(|(slug, ..)| slug == "dock");
+        if let crate::page::UiCmd::FlyTo { spot, up, ahead } = cmd {
+            // An empty spot stops.
+            g.fly_to = Some(spot).filter(|s| !s.is_empty()).and_then(|s| fly_target(s, *up, *ahead));
+            g.fly_out = spot == "dock";
         }
     }
     // The errand's done once the suit is there (or gone, or out of the colony, or into it).

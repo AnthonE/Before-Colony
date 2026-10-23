@@ -60,11 +60,14 @@ pub fn stream_homes(
     mut meshes: ResMut<Assets<Mesh>>,
     mut insides: ResMut<HomeInsides>,
     cams: Query<&Transform, With<MainCamera>>,
-    (me, game): (Res<crate::onfoot::OnFoot>, NonSend<GameClient>),
+    (me, game): (Option<Res<crate::onfoot::OnFoot>>, Option<NonSend<GameClient>>),
 ) {
-    let g = game.borrow();
-    draw_doors(&mut commands, &view, &streamer, &mut meshes, &mut insides, &me);
-    draw_furniture(&mut commands, &view, &streamer, &mut meshes, &mut insides, &me, &g.core.hangar.homes);
+    // The showcase has no pilot on foot and no hangar: no doors or furniture of theirs to draw.
+    if let (Some(me), Some(game)) = (me, game) {
+        let g = game.borrow();
+        draw_doors(&mut commands, &view, &streamer, &mut meshes, &mut insides, &me);
+        draw_furniture(&mut commands, &view, &streamer, &mut meshes, &mut insides, &me, &g.core.hangar.homes);
+    }
     let mut want: Vec<(Key, homes::Plan)> = Vec::new();
     if view.active
         && let Ok(cam) = cams.single()

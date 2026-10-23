@@ -453,10 +453,18 @@ impl Plugin for ShowcasePlugin {
                 Update,
                 (chase_view, follow, pilot_effects).chain().in_set(crate::view::Vis::Camera),
             )
+            .init_resource::<crate::instruments::Readings>()
             .add_systems(Startup, spawn_instruments)
             .add_systems(
                 Update,
-                (demo_instruments, crate::hud::place_instruments).chain().in_set(crate::view::Vis::Hud),
+                (
+                    demo_instruments,
+                    crate::instruments::update_instruments,
+                    crate::instruments::place_instruments,
+                    crate::instruments::fit_instruments,
+                )
+                    .chain()
+                    .in_set(crate::view::Vis::Hud),
             );
         } else if self.scene == Scene::City {
             app.add_systems(Update, place_city_camera.in_set(crate::view::Vis::Camera));
@@ -1019,7 +1027,7 @@ fn spawn_instruments(
     mut panels: ResMut<Assets<crate::ui_panel::PanelMaterial>>,
 ) {
     let looks = crate::hud::HudLooks::new(&mut panels);
-    crate::hud::spawn_instruments(&mut commands, &font, &looks);
+    crate::instruments::spawn_instruments(&mut commands, &font, &looks, &mut panels);
     commands.insert_resource(looks);
 }
 
@@ -1028,10 +1036,12 @@ fn spawn_instruments(
 fn demo_instruments(
     vis: Res<VisTime>,
     prefs: Res<ViewPrefs>,
-    mut root: Query<&mut Visibility, With<crate::hud::Instruments>>,
+    mut root: Query<&mut Visibility, With<crate::instruments::Instruments>>,
     mut texts: Query<(&crate::hud::HudText, &mut Text)>,
+    mut readings: ResMut<crate::instruments::Readings>,
 ) {
-    use crate::hud::{HudText, bar};
+    use crate::hud::HudText;
+    use bc_client_core::instruments::{Dial, Gauge, Readings, Row, Tone};
     for mut v in &mut root {
         v.set_if_neq(if prefs.cockpit { Visibility::Inherited } else { Visibility::Hidden });
     }
@@ -1055,35 +1065,81 @@ fn demo_instruments(
         1.0
     };
     let orrery = u >= 13.0;
+    let pct = |f: f32| format!("{:.0}%", f * 100.0);
+    let mut r = Readings { parts: [1.0, torso, 1.0, 1.0, 1.0, 1.0], ..Readings::default() };
+    // An Altair's: cruise 60 m/s, a pilot bearing 12 g under anime rules.
+    r.flight.title = "PX-00 ALTAIR".into();
+    r.flight.dials = vec![
+        Dial {
+            gauge: Gauge::speed(speed, 60.0, 108.0),
+            number: format!("{speed:.0}"),
+            unit: "M/S".into(),
+            unit_tone: Tone::Label,
+        },
+        Dial {
+            gauge: Gauge::g(g, 12.0, false),
+            number: format!("{g:.1}"),
+            unit: "G".into(),
+            unit_tone: Tone::Label,
+        },
+    ];
+    r.flight.notes = "LOCKED ON".into();
+    r.flight.rows = vec![
+        Row::meter("BOOST", Gauge::store(prop, 20), pct(prop)).with_state("STEP", Tone::Label),
+        Row::meter("HEAT", Gauge::load(0.18, 20), pct(0.18)),
+        Row::meter("ENGY", Gauge::store(0.93, 20), pct(0.93)),
+        Row::meter("ATT", Gauge::load(0.0, 20), pct(0.0)),
+        Row::meter("STRAIN", Gauge::load(0.0, 20), pct(0.0)),
+    ];
+    for (n, f) in ["HEAD", "TORSO", "L-ARM", "R-ARM", "LEGS", "BPACK"].into_iter().zip(r.parts) {
+        r.suit.rows.push(Row::meter(n, Gauge::store(f, 10), pct(f)));
+    }
+    let arm = |key, name: &str, gauge, value: &str, state: &str| Row {
+        key,
+        label: name.into(),
+        label_tone: Tone::Plain,
+        gauge,
+        value: value.into(),
+        state: state.into(),
+        state_tone: Tone::Cyan,
+        ..Row::default()
+    };
+    r.arms.rows = vec![
+        arm("LMB", "HEAVY BEAM RIFLE", None, "", "RDY"),
+        arm("RMB", "MACHINE CANNON", Some(Gauge::store(380.0 / 400.0, 12)), "380", "RDY"),
+        arm("F", "BEAM SABER", None, "", "RDY"),
+        arm("H", "AQUILA", None, "", "READY"),
+        Row { key: "Z", ..Row::meter("ORRERY", Gauge::load(if orrery { 0.3 } else { 0.0 }, 12), "") }
+            .with_state(
+                if orrery { "ACTIVE" } else { "STANDBY" },
+                if orrery { Tone::Cyan } else { Tone::Dim },
+            ),
+    ];
+    r.hold.rows = vec![
+        Row::meter("HOLD", Gauge::new(0.0, 12, Tone::Cyan), "0 kg/1.5 t"),
+        Row {
+            label: "CR".into(),
+            label_tone: Tone::Label,
+            value: "1 250".into(),
+            value_tone: Tone::Amber,
+            ..Row::default()
+        },
+    ];
+    r.hold.notes = "G grab   J jettison".into();
+    r.hold.notes_tone = Tone::Amber;
+    if readings.0 != r {
+        readings.0 = r;
+    }
     for (h, mut text) in &mut texts {
         let s = match h {
-            HudText::Flight => format!(
-                "PX-00 ALTAIR\nSPD {speed:>6.0} m/s\nPROP {} {:>3.0}%\nHEAT {} {:>3.0}%\nENGY {} {:>3.0}%\nG   {g:>4.1} g",
-                bar(prop, 10),
-                prop * 100.0,
-                bar(0.18, 10),
-                18.0,
-                bar(0.93, 10),
-                93.0
-            ),
-            HudText::Armor => {
-                let mut a = String::new();
-                for (n, f) in [("HEAD", 1.0), ("TORSO", torso), ("L-ARM", 1.0), ("R-ARM", 1.0), ("LEGS", 1.0), ("BPACK", 1.0)] {
-                    a.push_str(&format!("{n:<6}{}\n", bar(f, 8)));
-                }
-                a
+            HudText::Orrery if orrery => {
+                "TARGET   AL-04S ARGO  78%\nMANEUVER BREAK-HIGH  64%\nTHREAT   HIGH  (conf 0.81)\nFLANKED  12%"
             }
-            HudText::Weapons => format!(
-                "LMB HEAVY BEAM RIFLE  RDY\nRMB MACHINE CANNON     RDY 380\nF   BEAM SABER         RDY\nH   AQUILA             READY\nORRERY {}",
-                if orrery { "ACTIVE" } else { "STANDBY (Z)" }
-            ),
-            HudText::Salvage => "HOLD ·········· 0 kg/1.5 t\nCR 1 250\nG grab   J jettison".into(),
-            HudText::Orrery if orrery => "TARGET   AL-04S ARGO  78%\nMANEUVER BREAK-HIGH  64%\nTHREAT   HIGH  (conf 0.81)\nFLANKED  12%".into(),
-            HudText::Orrery => "STANDBY".into(),
+            HudText::Orrery => "STANDBY",
             _ => continue,
         };
         if text.0 != s {
-            text.0 = s;
+            text.0 = s.into();
         }
     }
 }

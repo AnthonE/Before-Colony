@@ -1,17 +1,18 @@
 //! The pilot's settings in the browser: read from localStorage when the game starts, changed from
 //! the page's settings panel (and F10 or O, and launching), saved half a second after the last
 //! change. What they are, their ranges and the text they're kept as are `bc_client_core::settings`'s;
-//! the page's panel is drawn from its `KNOBS`.
+//! the page's panel is drawn from its `KNOBS` (`bc_client_core::page::SettingsView`).
 //!
 //! First-flight hints live here too: which ones the pilot has seen is a setting.
 
 use bc_client_core::hints::{HintInput, Hints};
+use bc_client_core::page::SettingsView;
 use bc_client_core::settings::{
-    self, CameraView, FlightControls, GfxChoice, KNOBS, Kind, Loaded, SETTINGS_VERSION, Settings,
+    self, CameraView, FlightControls, GfxChoice, Loaded, SETTINGS_VERSION, Settings,
 };
 use bc_proto::buttons::{BOOST, FIRE_PRIMARY, FIRE_SECONDARY, MELEE};
 use bevy::prelude::*;
-use js_sys::{Array, Function, Object, Reflect};
+use js_sys::{Function, Reflect};
 use wasm_bindgen::{JsCast, JsValue};
 
 use crate::config::LaunchConfig;
@@ -132,10 +133,6 @@ pub fn update_settings(
     }
 }
 
-fn set(obj: &Object, key: &str, value: impl Into<JsValue>) {
-    let _ = Reflect::set(obj, &JsValue::from_str(key), &value.into());
-}
-
 /// Tells the page the settings (the panel's rows and their values) whenever they change.
 pub fn publish_settings(settings: Res<SettingsRes>, mut sent: Local<bool>) {
     if *sent && !settings.is_changed() {
@@ -147,35 +144,7 @@ pub fn publish_settings(settings: Res<SettingsRes>, mut sent: Local<bool>) {
     else {
         return; // the page script isn't in yet: next frame
     };
-    let rows = Array::new();
-    for k in KNOBS {
-        let o = Object::new();
-        set(&o, "key", k.key);
-        set(&o, "label", k.label);
-        set(&o, "group", k.group);
-        match k.kind {
-            Kind::Range { min, max, step } => {
-                set(&o, "kind", "range");
-                set(&o, "min", min);
-                set(&o, "max", max);
-                set(&o, "step", step);
-            }
-            Kind::Toggle => set(&o, "kind", "toggle"),
-            Kind::Choice(names) => {
-                set(&o, "kind", "choice");
-                let c = Array::new();
-                for n in names {
-                    c.push(&JsValue::from_str(n));
-                }
-                set(&o, "choices", c);
-            }
-        }
-        set(&o, "value", settings.0.get(k.key).unwrap_or_default());
-        rows.push(&o);
-    }
-    let all = Object::new();
-    set(&all, "rows", rows);
-    let _ = f.call1(&ui, &all);
+    let _ = f.call1(&ui, &crate::page::to_js(&SettingsView::of(&settings.0)));
     *sent = true;
 }
 
