@@ -1,9 +1,10 @@
 # The UI's look
 
 What the page around the game (`web/ui.js`, `web/style.css`) and the cockpit HUD (`bc-client`'s `hud.rs`,
-`ui_panel.rs`) look like, why, and the rules a new screen keeps to. Read it before adding a panel or a
-readout; check the result in the gallery (`scripts/build-web.sh page`, then `/?gallery`) and, for the HUD,
-the showcase's `chase` and `duel` scenes (`scripts/e2e.sh gfx webgl2 --grep "chase|duel"`).
+`instruments.rs`, `ui_panel.rs`) look like, why, and the rules a new screen keeps to. Read it before
+adding a panel or a readout; check the result in the gallery (`scripts/build-web.sh page`, then
+`/?gallery`) and, for the HUD, the showcase's `chase` and `duel` scenes
+(`scripts/e2e.sh gfx webgl2 --grep "chase|duel"`).
 
 ## What the nearest games teach
 
@@ -54,15 +55,26 @@ Sources: [Steam store pages](https://store.steampowered.com) of each; [The Gemsb
 9. **The cockpit is the same glass** (`bc_model::cockpit`, `shaders/monitor.wgsl`): dark gunmetal, and the
    monitors digital panes of see-through glass, nothing solid behind them, held at their rails and corner
    brackets on arms, the world and the frame showing through (the framed cockpit's panes hide 60% of it,
-   the holo cockpit's 10%), what they show lit over it, a soft sheen and a lit rim. Each readout is as
-   large as its lines fit its monitor (`hud::fit_instruments`). The suit's own light (its eye colour) runs
-   in thin lines: one under each monitor, the panoramic window's four corners lit as the HUD's panels have
-   their ticks, the radar's quarter marks, a band round each grip. Switching into the cockpit powers the
-   monitors on, a line sweeping down each. A warm light overhead picks out the frame.
+   the holo cockpit's 10%), what they show lit over it, a soft sheen and a lit rim. The side monitors sit
+   inside a 16:9 view. Each panel is drawn as large as it fits its monitor, measured
+   (`instruments::fit_instruments`, in steps so a line coming and going doesn't make it jitter). The
+   suit's own light (its eye colour) runs in thin lines: one under each monitor, the panoramic window's
+   four corners lit as the HUD's panels have their ticks, the radar's quarter marks, a band round each
+   grip. Switching into the cockpit powers the monitors on, a line sweeping down each. A warm light
+   overhead picks out the frame.
+10. **Instruments, not lines of text.** What has a measure is drawn as one, in lit segments
+    (`bc_client_core::instruments::Gauge`, `ui_panel.wgsl`): the flight's speed and G as dials, the
+    speed round to boost's cruise and marked at the cruise, G round to half again what the pilot
+    bears, marked there and red past it; every store (armour, propellant, energy, rounds) and load
+    (heat, the blows, strain) as a bar, a store amber under half and red under a quarter, a load amber
+    over 60% and red over 85%. A panel is a table under its heading (MechWarrior's weapon table): a
+    key, a label, a bar, its number, its state; what's broken and what to do about it in notes under
+    it. What a panel shows is its readings (`instruments::Readings`), apart from how they're drawn
+    (`instruments::update_instruments`): the game reads them off the suit, the showcase makes them
+    up, and a new readout is a row, not a new layout.
 
 ## Next
 
-- The cockpit's readouts as instruments, not only text: the flight's speed and G as dials, the arms' rounds
-  as bars, drawn into the monitors' texture (MechWarrior's weapon table, Titanic Scion's large numbers).
+- The Orrery's panel as instruments too: its picks' confidence and the threat as bars.
 - HUD options: its scale and opacity as settings (`settings::KNOBS`), as Titanic Scion has them.
 - The objective's marker in the view (`DRONE 1.5 km`) can sit under a focus tag: let `tags` keep clear of it.

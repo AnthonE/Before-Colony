@@ -32,6 +32,7 @@ pub mod hints;
 pub mod holdup;
 pub mod homes;
 pub mod inputs;
+pub mod instruments;
 pub mod interp;
 pub mod life;
 pub mod life_mesh;

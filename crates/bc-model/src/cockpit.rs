@@ -120,6 +120,10 @@ fn chamfered(w: f32, h: f32, c: f32) -> Vec<Vec2> {
     ]
 }
 
+/// How far round the four side monitors sit (degrees): their outer edges inside a 16:9 view at
+/// the camera's 70° (51° each side), their inner ones clear of the panoramic window's corners.
+const SIDE_YAW: f32 = 39.0;
+
 /// The monitors: a strip across the top of the screen texture, then two columns of two.
 fn monitors() -> [Monitor; 5] {
     let deg = |d: f32| d.to_radians();
@@ -136,7 +140,7 @@ fn monitors() -> [Monitor; 5] {
         },
         Monitor {
             show: Show::Suit,
-            yaw: deg(-42.0),
+            yaw: deg(-SIDE_YAW),
             pitch: deg(12.0),
             dist: 1.3,
             tilt: 0.0,
@@ -146,7 +150,7 @@ fn monitors() -> [Monitor; 5] {
         },
         Monitor {
             show: Show::Arms,
-            yaw: deg(42.0),
+            yaw: deg(SIDE_YAW),
             pitch: deg(12.0),
             dist: 1.3,
             tilt: 0.0,
@@ -156,7 +160,7 @@ fn monitors() -> [Monitor; 5] {
         },
         Monitor {
             show: Show::Flight,
-            yaw: deg(-42.0),
+            yaw: deg(-SIDE_YAW),
             pitch: deg(-14.0),
             dist: 1.25,
             tilt: deg(12.0),
@@ -166,7 +170,7 @@ fn monitors() -> [Monitor; 5] {
         },
         Monitor {
             show: Show::Log,
-            yaw: deg(42.0),
+            yaw: deg(SIDE_YAW),
             pitch: deg(-14.0),
             dist: 1.25,
             tilt: deg(12.0),

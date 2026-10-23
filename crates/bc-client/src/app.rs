@@ -7,10 +7,9 @@ use crate::dev_hooks::{DevHooksPlugin, publish_game};
 use crate::echo::EchoPlugin;
 use crate::fx::{FxState, setup_fx, update_fx, update_fx_lights};
 use crate::gfx::{Gfx, GfxPlugin};
-use crate::hud::{
-    place_instruments, setup_hud, show_hud, update_hud, update_marks, update_panels, update_spread_ring,
-};
+use crate::hud::{setup_hud, show_hud, update_hud, update_marks, update_panels, update_spread_ring};
 use crate::input::{Aim, Controls, read_input};
+use crate::instruments::place_instruments;
 use crate::net::{LaunchConfigRes, NetPlugin, drive, game_client, start_net_loop};
 use crate::net_view::{sync_view, tick_vis_time, track_bodies};
 use crate::page::{Ui, UiCmds, apply_ui_cmds, drain_inbox, init_page, publish_view};
@@ -95,6 +94,7 @@ pub fn run() {
             .insert_resource(Pilot::new(cfg.name.clone(), frame))
             .init_resource::<Controls>()
             .init_resource::<Aim>()
+            .init_resource::<crate::instruments::Readings>()
             .init_resource::<Ui>()
             .init_resource::<UiCmds>()
             .init_resource::<PointerRes>()
@@ -162,13 +162,13 @@ pub fn run() {
                 Update,
                 (
                     show_hud,
-                    (update_hud, crate::hud::update_vitals).chain(),
+                    (update_hud, crate::hud::update_vitals, crate::instruments::update_instruments).chain(),
                     update_spread_ring,
                     crate::hud::update_hit_marker,
                     crate::hud::update_horizon,
                     update_marks,
                     update_panels,
-                    (place_instruments, crate::hud::fit_instruments).chain(),
+                    (place_instruments, crate::instruments::fit_instruments).chain(),
                     crate::map::update_objectives,
                     crate::map::place_objective,
                     crate::chart::chart_input,

@@ -5,7 +5,8 @@
 //! (`UiFont`) and palette (`bc_client_core::palette`), on the page's glass (`ui_panel`, `docs/UI.md`).
 //!
 //! The instruments (the panels) are one tree: chasing, it's drawn in the screen's corners; from the
-//! cockpit, into the texture the cockpit's monitors show (`place_instruments`, `cockpit`).
+//! cockpit, into the texture the cockpit's monitors show (`instruments`, `cockpit`). The HUD reads
+//! what they show off the suit ([`update_hud`] fills the `instruments::Readings`).
 //!
 //! The crosshair is the aim. A weapon bears only within its mount's reach of the body's axis (a
 //! hand's 50°, Aquila's nose 2°), so while the suit is still turning onto the aim the crosshair
@@ -20,6 +21,7 @@
 //! how the suit stands, and its speed is over the body; the alerts say how well hidden it is.
 
 use bc_client_core::holdup::{Holdup, drain, holdup};
+use bc_client_core::instruments::{self, Dial, Gauge, Row, Tone};
 use bc_client_core::palette;
 use bc_client_core::surface::{LetGo, SurfaceHint, let_go, range_rate, surface_hint};
 use bc_client_core::tags::{self, Seen, Shown, Tag};
@@ -51,6 +53,7 @@ use bevy::ui_render::prelude::MaterialNode;
 
 use crate::camera::{Chase, MainCamera};
 use crate::input::{Aim, Controls};
+use crate::instruments::{Instruments, Panel, Readings, spawn_instruments};
 use crate::net::{GameClient, now_s};
 use crate::suits_vis::pilot_tag;
 use crate::ui_panel::{GLASS, PanelMaterial, TICK};
@@ -61,12 +64,12 @@ const fn colour(hex: palette::Hex) -> Color {
     Color::srgb(r, g, b)
 }
 
-const CYAN: Color = colour(palette::CYAN);
-const AMBER: Color = colour(palette::AMBER);
-const RED: Color = colour(palette::RED);
-const GREEN: Color = colour(palette::GREEN);
-const ORRERY_PINK: Color = colour(palette::PINK);
-const WHITE: Color = colour(palette::WHITE);
+pub(crate) const CYAN: Color = colour(palette::CYAN);
+pub(crate) const AMBER: Color = colour(palette::AMBER);
+pub(crate) const RED: Color = colour(palette::RED);
+pub(crate) const GREEN: Color = colour(palette::GREEN);
+pub(crate) const ORRERY_PINK: Color = colour(palette::PINK);
+pub(crate) const WHITE: Color = colour(palette::WHITE);
 /// Target brackets on suits, then markers on missiles tracking the pilot.
 const BRACKETS: usize = 24;
 const MISSILE_MARKERS: usize = 8;
@@ -370,27 +373,10 @@ fn abs(left: Option<f32>, right: Option<f32>, top: Option<f32>, bottom: Option<f
     }
 }
 
-/// The instruments: the readouts that live on the cockpit's monitors in the first-person view, and
-/// in the corners of the screen when chasing. One tree, drawn to whichever it is (`place_instruments`).
-#[derive(Component)]
-pub struct Instruments;
-
-/// One of the instruments' panels, by the monitor it goes on.
-#[derive(Component, Clone, Copy, PartialEq, Eq)]
-pub struct Panel(pub Show);
-
 /// A label over a point in the world (a marker's, the objective's, the course's) that keeps out of
 /// the panels over the view ([`keep_clear_of_panels`]).
 #[derive(Component)]
 pub struct ClearOfPanels;
-
-/// A text's size on screen (px); on the cockpit's monitors it's drawn larger, to be read there.
-#[derive(Component, Clone, Copy)]
-pub struct BaseSize(f32);
-
-/// A block of the suit's damage silhouette, coloured by its part's armour.
-#[derive(Component, Clone, Copy)]
-pub struct PartBlock(Part);
 
 /// The caution banner the alerts come up in.
 #[derive(Component)]
@@ -411,8 +397,8 @@ const EDGE_MARKERS: usize = 12;
 /// The looks the HUD's panels and cautions are drawn with.
 #[derive(Resource, Clone)]
 pub struct HudLooks {
-    plate: Handle<PanelMaterial>,
-    orrery: Handle<PanelMaterial>,
+    pub(crate) plate: Handle<PanelMaterial>,
+    pub(crate) orrery: Handle<PanelMaterial>,
     caution: Handle<PanelMaterial>,
     notice: Handle<PanelMaterial>,
 }
@@ -430,14 +416,9 @@ impl HudLooks {
     }
 }
 
-/// The damage silhouette's frame (sized up on the cockpit's monitors).
-#[derive(Component)]
-pub struct Silhouette;
-const SILHOUETTE: Vec2 = Vec2::new(46.0, 80.0);
-
 /// The panels' labels.
-const LABEL: Color = colour(palette::LABEL);
-const INK: Color = colour(palette::INK);
+pub(crate) const LABEL: Color = colour(palette::LABEL);
+pub(crate) const INK: Color = colour(palette::INK);
 
 fn corner(i: usize, left: bool, top: bool) -> impl Bundle {
     let b = Val::Px(2.0);
@@ -461,98 +442,6 @@ fn corner(i: usize, left: bool, top: bool) -> impl Bundle {
         },
         BorderColor::all(AMBER),
     )
-}
-
-/// A panel of the instruments: a plate with a label along its top and the text below.
-#[allow(clippy::too_many_arguments)]
-fn panel(
-    p: &mut ChildSpawnerCommands,
-    f: &UiFont,
-    looks: &HudLooks,
-    show: Show,
-    title: &str,
-    text: HudText,
-    color: Color,
-    extra: impl FnOnce(&mut ChildSpawnerCommands),
-) {
-    let look = if show == Show::Top { looks.orrery.clone() } else { looks.plate.clone() };
-    p.spawn((
-        Panel(show),
-        Node {
-            position_type: PositionType::Absolute,
-            flex_direction: FlexDirection::Column,
-            padding: UiRect::axes(Val::Px(12.0), Val::Px(8.0)),
-            row_gap: Val::Px(4.0),
-            overflow: Overflow::clip(),
-            ..default()
-        },
-        MaterialNode(look),
-    ))
-    .with_children(|p| {
-        // Its title, after a short bar (`docs/UI.md`).
-        let accent = if show == Show::Top { ORRERY_PINK } else { CYAN };
-        p.spawn(Node {
-            flex_direction: FlexDirection::Row,
-            align_items: AlignItems::Center,
-            column_gap: Val::Px(6.0),
-            ..default()
-        })
-        .with_children(|head| {
-            head.spawn((
-                Node { width: Val::Px(2.0), height: Val::Px(9.0), ..default() },
-                BackgroundColor(accent),
-            ));
-            head.spawn((
-                Text::new(title),
-                f.heading(10.0),
-                BaseSize(10.0),
-                TextColor(if show == Show::Top { ORRERY_PINK } else { LABEL }),
-                LetterSpacing::Px(2.0),
-            ));
-        });
-        p.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(12.0), ..default() })
-            .with_children(|row| {
-                extra(row);
-                row.spawn((
-                    text,
-                    Text::new(""),
-                    f.text(13.0),
-                    BaseSize(13.0),
-                    TextColor(color),
-                    TextLayout::default().with_no_wrap(),
-                ));
-            });
-    });
-}
-
-/// The suit's damage silhouette: head, torso and backpack, arms and legs.
-fn silhouette(p: &mut ChildSpawnerCommands) {
-    let block = |part: Part, x: f32, y: f32, w: f32, h: f32| {
-        (
-            PartBlock(part),
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Percent(x),
-                top: Val::Percent(y),
-                width: Val::Percent(w),
-                height: Val::Percent(h),
-                border: UiRect::all(Val::Px(1.0)),
-                ..default()
-            },
-            BackgroundColor(Color::WHITE),
-            BorderColor::all(Color::NONE),
-        )
-    };
-    p.spawn((Silhouette, Node { width: Val::Px(SILHOUETTE.x), height: Val::Px(SILHOUETTE.y), ..default() }))
-        .with_children(|s| {
-            // The anime's proportions: a small head, a short torso, legs three-fifths of the height.
-            s.spawn(block(Part::Backpack, 30.0, 12.0, 40.0, 10.0));
-            s.spawn(block(Part::Head, 38.0, 0.0, 24.0, 10.0));
-            s.spawn(block(Part::Torso, 28.0, 12.0, 44.0, 28.0));
-            s.spawn(block(Part::ArmL, 2.0, 13.0, 22.0, 32.0));
-            s.spawn(block(Part::ArmR, 76.0, 13.0, 22.0, 32.0));
-            s.spawn(block(Part::Legs, 28.0, 42.0, 44.0, 58.0));
-        });
 }
 
 pub fn setup_hud(mut commands: Commands, font: Res<UiFont>, mut panels: ResMut<Assets<PanelMaterial>>) {
@@ -818,166 +707,7 @@ pub fn setup_hud(mut commands: Commands, font: Res<UiFont>, mut panels: ResMut<A
                 ));
             }
         });
-    spawn_instruments(&mut commands, f, &looks);
-}
-
-/// The instruments (placed and targeted by `place_instruments`).
-pub fn spawn_instruments(commands: &mut Commands, f: &UiFont, looks: &HudLooks) {
-    commands
-        .spawn((
-            Instruments,
-            Node {
-                position_type: PositionType::Absolute,
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                ..default()
-            },
-            Visibility::Hidden,
-        ))
-        .with_children(|p| {
-            panel(p, f, looks, Show::Top, "ORRERY", HudText::Orrery, ORRERY_PINK, |_| {});
-            panel(p, f, looks, Show::Suit, "SUIT", HudText::Armor, WHITE, silhouette);
-            panel(p, f, looks, Show::Flight, "FLIGHT", HudText::Flight, WHITE, |_| {});
-            panel(p, f, looks, Show::Arms, "ARMS", HudText::Weapons, WHITE, |_| {});
-            panel(p, f, looks, Show::Log, "HOLD", HudText::Salvage, AMBER, |_| {});
-        });
-}
-
-/// Where each panel goes: the corners of the screen (chasing), or its monitor's region of the
-/// cockpit's screen texture (from the seat), where its text is drawn larger to be read there.
-#[allow(clippy::type_complexity, clippy::too_many_arguments)]
-pub fn place_instruments(
-    mut commands: Commands,
-    chase: Res<Chase>,
-    cockpit: Option<Res<crate::cockpit::Cockpit>>,
-    roots: Query<Entity, With<Instruments>>,
-    mut panels: Query<(&Panel, &mut Node, &mut UiTransform), Without<Instruments>>,
-    mut root_nodes: Query<&mut Node, (With<Instruments>, Without<Panel>)>,
-    mut texts: Query<(&BaseSize, &mut TextFont)>,
-    mut silhouettes: Query<&mut Node, (With<Silhouette>, Without<Panel>, Without<Instruments>)>,
-    mut last: Local<Option<bool>>,
-) {
-    let inside = chase.in_cockpit() && cockpit.is_some();
-    let Ok(root) = roots.single() else { return };
-    if *last == Some(inside) {
-        return;
-    }
-    *last = Some(inside);
-    let [tw, th] = bc_model::cockpit::TEXTURE.map(|v| v as f32);
-    match cockpit.filter(|_| inside) {
-        Some(c) => {
-            commands.entity(root).insert(UiTargetCamera(c.screen_camera));
-            if let Ok(mut n) = root_nodes.get_mut(root) {
-                n.width = Val::Px(tw);
-                n.height = Val::Px(th);
-            }
-        }
-        None => {
-            commands.entity(root).remove::<UiTargetCamera>();
-            if let Ok(mut n) = root_nodes.get_mut(root) {
-                n.width = Val::Percent(100.0);
-                n.height = Val::Percent(100.0);
-            }
-        }
-    }
-    let scale = if inside { 2.0 } else { 1.0 };
-    for (base, mut font) in &mut texts {
-        font.font_size = FontSize::Px(base.0 * scale);
-    }
-    for mut n in &mut silhouettes {
-        n.width = Val::Px(SILHOUETTE.x * scale * 1.3);
-        n.height = Val::Px(SILHOUETTE.y * scale * 1.3);
-    }
-    let design = bc_model::cockpit::build_screens();
-    for (p, mut node, mut ui) in &mut panels {
-        let reset = |node: &mut Node| {
-            node.left = Val::Auto;
-            node.right = Val::Auto;
-            node.top = Val::Auto;
-            node.bottom = Val::Auto;
-            node.width = Val::Auto;
-            node.height = Val::Auto;
-        };
-        reset(&mut node);
-        *ui = UiTransform::default();
-        if inside {
-            if let Some(s) = design.iter().find(|s| s.show == p.0) {
-                // Its region, inset a little from the monitor's rim.
-                node.left = Val::Px(s.region[0] * tw + 10.0);
-                node.top = Val::Px(s.region[1] * th + 10.0);
-                node.width = Val::Px((s.region[2] - s.region[0]) * tw - 20.0);
-                node.height = Val::Px((s.region[3] - s.region[1]) * th - 20.0);
-            }
-            continue;
-        }
-        match p.0 {
-            // Below the kill feed, clear of the cautions.
-            Show::Top => {
-                node.top = Val::Px(112.0);
-                node.right = Val::Px(14.0);
-            }
-            Show::Suit => {
-                node.left = Val::Px(14.0);
-                node.bottom = Val::Px(12.0);
-            }
-            Show::Flight => {
-                node.left = Val::Px(238.0);
-                node.bottom = Val::Px(12.0);
-            }
-            Show::Arms => {
-                node.right = Val::Px(14.0);
-                node.bottom = Val::Px(12.0);
-            }
-            Show::Log => {
-                node.right = Val::Px(14.0);
-                node.bottom = Val::Px(150.0);
-            }
-        }
-    }
-}
-
-/// On the cockpit's monitors, each panel's readout as large as its lines fit its monitor (in 2 px
-/// steps, so a line coming and going doesn't make it jitter): a hold's three lines fill their
-/// screen as the flight's eight do theirs. Off the monitors, `place_instruments` sets them back.
-pub fn fit_instruments(
-    chase: Res<Chase>,
-    cockpit: Option<Res<crate::cockpit::Cockpit>>,
-    mut texts: Query<(&HudText, &Text, &mut TextFont)>,
-    mut screens: Local<Vec<bc_model::cockpit::Screen>>,
-) {
-    // A readout's glyph: Share Tech Mono's advance and the line's height, per pixel of its size.
-    const ADVANCE: f32 = 0.54;
-    const LINE: f32 = 1.25;
-    if !(chase.in_cockpit() && cockpit.is_some()) {
-        return;
-    }
-    if screens.is_empty() {
-        *screens = bc_model::cockpit::build_screens();
-    }
-    let [tw, th] = bc_model::cockpit::TEXTURE.map(|v| v as f32);
-    for (h, text, mut font) in &mut texts {
-        let show = match h {
-            HudText::Orrery => Show::Top,
-            HudText::Armor => Show::Suit,
-            HudText::Flight => Show::Flight,
-            HudText::Weapons => Show::Arms,
-            HudText::Salvage => Show::Log,
-            _ => continue,
-        };
-        let Some(s) = screens.iter().find(|s| s.show == show) else { continue };
-        // The panel's room (its region less its inset and padding), less its title's line and, for
-        // the suit's, the silhouette beside the text.
-        let beside = if show == Show::Suit { SILHOUETTE.x * 2.6 + 12.0 } else { 0.0 };
-        let w = (s.region[2] - s.region[0]) * tw - 20.0 - 24.0 - beside;
-        let h = (s.region[3] - s.region[1]) * th - 20.0 - 16.0 - 30.0;
-        let lines = text.0.lines().count().max(1) as f32;
-        let chars = text.0.lines().map(|l| l.chars().count()).max().unwrap_or(1).max(1) as f32;
-        let size = ((w / (chars * ADVANCE)).min(h / (lines * LINE)) / 2.0).floor() * 2.0;
-        let size = FontSize::Px(size.clamp(14.0, 44.0));
-        if font.font_size != size {
-            font.font_size = size;
-        }
-    }
+    spawn_instruments(&mut commands, f, &looks, &mut panels);
 }
 
 pub(crate) fn bar(f: f32, n: usize) -> String {
@@ -1001,68 +731,74 @@ fn secs(ticks: f32) -> f32 {
     ticks / bc_sim::TICK_HZ as f32
 }
 
-/// The frame's special on the H key, and its state: `asked` is whether MODE is held.
-fn special_line(spec: &FrameSpec, o: &OwnState, asked: bool) -> Option<String> {
+/// The frame's special on the H key, and its state, as a row of the arms' table: `asked` is
+/// whether MODE is held.
+fn special_row(spec: &FrameSpec, o: &OwnState, asked: bool) -> Option<Row> {
     let active = o.flags & own_flags::SPECIAL_ACTIVE != 0;
     let ready = o.weapon_ready & 8 != 0;
-    // Charging back, by itself and faster from the fight (`bc_sim::content::specials`).
-    let cooling = || {
-        let share = f32::from(o.special_charge) / 255.0;
-        format!("CHARGING {} {:>3.0}%", bar(share, 8), (share * 100.0).floor())
-    };
     let timer = secs(f32::from(o.special_timer));
-    let (name, state) = match spec.special {
+    // Charging back, by itself and faster from the fight (`bc_sim::content::specials`).
+    let share = f32::from(o.special_charge) / 255.0;
+    let cooling = ("CHARGING".to_string(), Tone::Dim);
+    let mut gauge = None;
+    let (name, (state, tone)) = match spec.special {
         SpecialKind::None => return None,
         SpecialKind::Transform { to, .. } => {
             let name = if to == bc_proto::FrameId::Aquila { "AQUILA" } else { "SUIT MODE" };
             let state = if o.flags & own_flags::TRANSFORMING != 0 {
-                format!("CHANGING {timer:.1} s")
+                (format!("CHANGING {timer:.1} s"), Tone::Amber)
             } else {
-                "READY".into()
+                ("READY".into(), Tone::Cyan)
             };
             (name, state)
         }
         SpecialKind::Eclipse { .. } => {
             let state = match (active, asked) {
-                (true, _) => "JAMMING",
+                (true, _) => ("JAMMING", Tone::Cyan),
                 // Held, but broken by firing, or short of energy.
-                (false, true) => "SUPPRESSED",
-                (false, false) => "OFF",
+                (false, true) => ("SUPPRESSED", Tone::Amber),
+                (false, false) => ("OFF", Tone::Dim),
             };
-            ("ECLIPSE", state.into())
+            ("ECLIPSE", (state.0.into(), state.1))
         }
         SpecialKind::FullSalvo { .. } => {
             let state = if active {
-                format!("FIRING {timer:.1} s")
+                (format!("FIRING {timer:.1} s"), Tone::Cyan)
             } else if ready {
-                "READY".into()
+                ("READY".into(), Tone::Cyan)
             } else {
-                cooling()
+                gauge = Some(Gauge::new(share, 12, Tone::Dim));
+                cooling
             };
             ("FULL SALVO", state)
         }
         SpecialKind::MeleeMove { .. } => {
             let state = if active {
-                "STRIKING".into()
+                ("STRIKING".into(), Tone::Cyan)
             } else if ready {
-                "READY".into()
+                ("READY".into(), Tone::Cyan)
             } else {
-                cooling()
+                gauge = Some(Gauge::new(share, 12, Tone::Dim));
+                cooling
             };
             ("PINCER STRIKE", state)
         }
         SpecialKind::Ward { deploy, .. } => {
             let state = match (active, asked) {
-                (true, _) if o.special_timer < deploy => "DEPLOYING",
-                (true, _) => "FIELD UP",
+                (true, _) if o.special_timer < deploy => ("DEPLOYING", Tone::Cyan),
+                (true, _) => ("FIELD UP", Tone::Cyan),
                 // Held, but short of the energy to send them out.
-                (false, true) => "NO POWER",
-                (false, false) => "RACKED",
+                (false, true) => ("NO POWER", Tone::Amber),
+                (false, false) => ("RACKED", Tone::Dim),
             };
-            ("WARDS", state.into())
+            ("WARDS", (state.0.into(), state.1))
         }
     };
-    Some(format!("H   {name:<18} {state}\n"))
+    let value = if gauge.is_some() { format!("{:.0}%", (share * 100.0).floor()) } else { String::new() };
+    Some(
+        Row { key: "H", label: name.into(), label_tone: Tone::Plain, gauge, value, ..default() }
+            .with_state(state, tone),
+    )
 }
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -1115,6 +851,7 @@ pub fn update_hud(
     bodies: Res<DrawnBodies>,
     mut ui: ResMut<crate::page::Ui>,
     settings: Res<crate::settings::SettingsRes>,
+    mut readings: ResMut<Readings>,
 ) {
     let game = game.borrow();
     let core = &game.core;
@@ -1193,21 +930,14 @@ pub fn update_hud(
             };
             (speed, v.g, v.g_strain, v.g_limited)
         });
-        // The blows' impact on its attitude control (`bc_sim::sim::stagger`), and the stagger once
-        // it's past what the suit stands, as flown.
-        let attitude = if core.predict.stagger > 0 {
-            format!("{} STAGGERED", bar(1.0, 10))
-        } else {
-            let share = f32::from(o.impact) / f32::from(IMPACT_MAX);
-            format!("{} {:>3.0}%", bar(share, 10), share * 100.0)
-        };
         let feet = footed(core);
+        // How the suit stands, for the notes beside the dials.
         let stands = match feet.footing {
-            Footing::Grounded if feet.stance < STANCE => "  CROUCHED".to_string(),
-            Footing::Grounded => "  GROUNDED".to_string(),
+            Footing::Grounded if feet.stance < STANCE => "CROUCHED".to_string(),
+            Footing::Grounded => "GROUNDED".to_string(),
             Footing::Aloft => {
                 let alt = view.and_then(|v| v.ground).map_or(0.0, |g| g.height - STANCE);
-                format!("  ALOFT  ALT {:.0} m", alt.max(0.0))
+                format!("ALOFT\nALT {:.0} m", alt.max(0.0))
             }
             // Inside the colony, flying free: hovering (flight assist holds the suit up) or falling
             // to land (the grip armed), how high over what's under it, and how fast it climbs or
@@ -1231,178 +961,233 @@ pub fn update_hud(
                         },
                     )
                 };
-                format!("  {word}  ALT {alt:.0} m  {arrow}{:.0}", vs.abs())
+                format!("{word}\nALT {alt:.0} m\n{arrow}{:.0} m/s", vs.abs())
             }
-            Footing::Free if grip => "  GRIP ARMED".to_string(),
-            Footing::Free if locked.is_some() => "  LOCKED ON".to_string(),
+            Footing::Free if grip => "GRIP ARMED".to_string(),
+            Footing::Free if locked.is_some() => "LOCKED ON".to_string(),
             Footing::Free => String::new(),
         };
-        set(
-            HudText::Flight,
-            format!(
-                "{} {}\nSPD   {:>6.0} m/s{}\n{} {} {:>3.0}%{}{}\nHEAT  {} {:>3.0}%\nENGY  {} {:>3.0}%\nATT   {}\nG     {:>4.1} g {:<3} STRAIN {}",
-                bc_sim::content::frame_designation(form),
-                frame_name(form).to_uppercase(),
-                speed,
-                stands,
-                if anime { "BOOST" } else { "PROP " },
-                bar(s.propellant / tank, 10),
-                100.0 * s.propellant / tank,
-                // The ion drive at work: thrust that burns nothing, or the gauge filling faster.
-                if view.is_some_and(|v| v.ion) { " ION" } else { "" },
-                if tuned.leak_kg_s > 0.0 {
-                    format!(" LEAK -{:.0} kg/s", tuned.leak_kg_s)
-                } else if s.burst.cooldown > 0 {
-                    // The burst step cooling down (double-tap a direction).
-                    format!(" STEP {:.1}s", f32::from(s.burst.cooldown) * bc_sim::DT)
-                } else {
-                    " STEP".to_string()
-                },
-                bar(o.heat, 10),
-                o.heat * 100.0,
-                bar(o.energy, 10),
-                o.energy * 100.0,
-                attitude,
-                g,
+        let pct = |f: f32| format!("{:.0}%", f.clamp(0.0, 1.0) * 100.0);
+        let mut r = instruments::Readings { parts: o.parts, ..default() };
+
+        // --- Flight: speed and G as dials, the tank, heat, energy, the blows and the strain. ---
+        let tolerance = bc_sim::tuning::flight_mods(
+            &tuned,
+            if anime { bc_sim::tuning::FlightRules::Anime } else { bc_sim::tuning::FlightRules::Real },
+            false,
+            0,
+        )
+        .g_tolerance;
+        r.flight.title =
+            format!("{} {}", bc_sim::content::frame_designation(form), frame_name(form).to_uppercase());
+        r.flight.dials = vec![
+            Dial {
+                gauge: Gauge::speed(speed, spec.fa_speed, spec.fa_speed * bc_sim::flight::FA_BOOST_CRUISE),
+                number: format!("{speed:.0}"),
+                unit: "M/S".into(),
+                unit_tone: Tone::Label,
+            },
+            Dial {
+                gauge: Gauge::g(g, tolerance, limited),
+                number: format!("{g:.1}"),
                 // Flight assist holding the pilot under their G tolerance.
-                if limited { "LIM" } else { "" },
-                bar(strain, 8),
-            ),
-            None,
-        );
+                unit: if limited { "G LIM".into() } else { "G".into() },
+                unit_tone: if limited { Tone::Amber } else { Tone::Label },
+            },
+        ];
+        let full = s.propellant / tank.max(1.0);
+        // The ion drive at work: thrust that burns nothing, or the gauge filling faster; a leak;
+        // the burst step cooling down (double-tap a direction) or ready.
+        let (step, step_tone) = if tuned.leak_kg_s > 0.0 {
+            (format!("LEAK -{:.0} kg/s", tuned.leak_kg_s), Tone::Red)
+        } else if view.is_some_and(|v| v.ion) {
+            ("ION".into(), Tone::Cyan)
+        } else if s.burst.cooldown > 0 {
+            (format!("STEP {:.1}s", f32::from(s.burst.cooldown) * bc_sim::DT), Tone::Dim)
+        } else {
+            ("STEP".into(), Tone::Label)
+        };
+        // The blows' impact on its attitude control (`bc_sim::sim::stagger`), and the stagger once
+        // it's past what the suit stands, as flown.
+        let impact = f32::from(o.impact) / f32::from(IMPACT_MAX);
+        let attitude = if core.predict.stagger > 0 {
+            Row::meter("ATT", Gauge::new(1.0, 20, Tone::Red), "").with_state("STAGGERED", Tone::Red)
+        } else {
+            Row::meter("ATT", Gauge::load(impact, 20), pct(impact))
+        };
+        r.flight.rows = vec![
+            Row::meter(if anime { "BOOST" } else { "PROP" }, Gauge::store(full, 20), pct(full))
+                .with_state(step, step_tone),
+            Row::meter("HEAT", Gauge::load(o.heat, 20), pct(o.heat)),
+            Row::meter("ENGY", Gauge::store(o.energy, 20), pct(o.energy)),
+            attitude,
+            Row::meter("STRAIN", Gauge::load(strain, 20), pct(strain)),
+        ];
+        r.flight.notes = stands;
+
+        // --- The suit: each part's armour, what's broken inside it, what it's under. ---
         let names = ["HEAD", "TORSO", "L-ARM", "R-ARM", "LEGS", "BPACK"];
         let systems = Systems(o.systems);
         let gone = bc_sim::tuning::own_gone(&o);
-        // Every line as wide as a part's bar at most: the panel is as wide as its longest line, and
-        // FLIGHT's stands at a set place beside it (a fault on the part's own line ran under it).
-        let mut armor = String::new();
+        let mut faults = Vec::new();
         for (i, n) in names.iter().enumerate() {
             let f = o.parts[i];
-            // Without the head's main camera the cockpit sees through the sub-camera.
-            let state = match f <= 0.0 {
-                true if i == Part::Head as usize && chase.sub_camera() => "SUB-CAM".to_string(),
-                true => "LOST".to_string(),
-                false => bar(f, 8),
-            };
-            armor.push_str(&format!("{n:<6}{state}\n"));
-            // What's broken inside it, a line each under it.
+            r.suit.rows.push(if f <= 0.0 {
+                // Without the head's main camera the cockpit sees through the sub-camera.
+                let sub = i == Part::Head as usize && chase.sub_camera();
+                Row {
+                    value: if sub { "SUB-CAM" } else { "LOST" }.into(),
+                    value_tone: if sub { Tone::Amber } else { Tone::Red },
+                    ..Row::meter(*n, Gauge::new(0.0, 10, Tone::Red), "")
+                }
+            } else {
+                Row::meter(*n, Gauge::store(f, 10), pct(f))
+            });
+            // What's broken inside it.
             if f > 0.0 {
                 for x in System::of_part(Part::ALL[i]) {
                     match systems.level(x, gone) {
-                        DAMAGED => armor.push_str(&format!("{:<6}{} DMG\n", "", x.tag())),
-                        FAILED => armor.push_str(&format!("{:<6}{} OUT\n", "", x.tag())),
+                        DAMAGED => faults.push(format!("{n} {} DMG", x.tag())),
+                        FAILED => faults.push(format!("{n} {} OUT", x.tag())),
                         _ => {}
                     }
                 }
             }
         }
         // What the suit is under: a scram, a concussion, a repair under way.
-        let mut status = Vec::new();
         if o.scram > 0 {
-            status.push(format!("SCRAM {:.1}s", f32::from(o.scram) / 30.0));
+            faults.push(format!("SCRAM {:.1}s", f32::from(o.scram) / 30.0));
         }
         if o.concussed > 0 {
-            status.push(format!("CONCUSSED {:.1}s", f32::from(o.concussed) / 30.0));
+            faults.push(format!("CONCUSSED {:.1}s", f32::from(o.concussed) / 30.0));
         }
         if let Some(x) = System::from_index(usize::from(o.repairing)) {
-            status.push(format!("REPAIRING {} {:.0}s", x.tag(), f32::from(o.repair_left) * 8.0 / 30.0));
+            faults.push(format!("REPAIRING {} {:.0}s", x.tag(), f32::from(o.repair_left) * 8.0 / 30.0));
         }
         // A stim: the lift, then the crash.
         if o.stim > CRASH_TICKS {
-            status.push(format!("STIM +1G {:.0}s", f32::from(o.stim - CRASH_TICKS) / 30.0));
+            faults.push(format!("STIM +1G {:.0}s", f32::from(o.stim - CRASH_TICKS) / 30.0));
         } else if o.stim > 0 {
-            status.push(format!("CRASHING {:.0}s", f32::from(o.stim) / 30.0));
+            faults.push(format!("CRASHING {:.0}s", f32::from(o.stim) / 30.0));
         }
-        armor.push_str(&status.join("\n"));
+        r.suit.notes = faults.join("\n");
         let worst = systems.worst(gone);
-        let hull_color = if o.parts[Part::Torso as usize] < 0.3 || worst == FAILED {
-            RED
+        r.suit.notes_tone = if o.parts[Part::Torso as usize] < 0.3 || worst == FAILED {
+            Tone::Red
         } else if worst == DAMAGED {
-            AMBER
+            Tone::Amber
         } else {
-            CYAN
+            Tone::Label
         };
-        set(HudText::Armor, armor, Some(hull_color));
-        let mut w = String::new();
+
+        // --- Arms: the weapons as a table, the special, the lock, the Orrery, the rack. ---
+        let mut cures = Vec::new();
         // Inside the colony nothing fires, by its law and the sector's, but in the Blast Hall.
         let safe = core.welcome.is_some_and(|wl| wl.interior)
             && !core.own_view().is_some_and(|v| bc_sim::colony::hall::weapons_free(v.pos));
         if core.welcome.is_some_and(|wl| wl.interior) {
-            if !safe {
-                let hits = core.world.my_target_hits;
-                w.push_str(&format!("WEAPONS FREE · THE BLAST HALL · TRAINING ROUNDS · TARGETS {hits}\n"));
+            (r.arms.title, r.arms.title_tone) = if safe {
+                ("WEAPONS SAFE".into(), Tone::Dim)
             } else {
-                w.push_str("WEAPONS SAFE · INSIDE THE COLONY\n");
-            }
+                let hits = core.world.my_target_hits;
+                (format!("WEAPONS FREE · TRAINING ROUNDS · TARGETS {hits}"), Tone::Amber)
+            };
         }
         // A gun in hand takes the secondary's trigger (`bc_sim::content::salvage::held_gun`).
         let in_hand = world.gun_in_hand();
         for (slot, key) in [(0usize, "LMB"), (1, "RMB"), (2, "F")] {
             if let (1, Some(gun)) = (slot, in_hand) {
                 let ready = o.weapon_ready & 0b10 != 0;
-                let ammo = if weapon(gun).ammo > 0 { format!(" {:>3}", o.ammo[1]) } else { String::new() };
-                let name = format!("{} IN HAND", weapon_name(gun).to_uppercase());
-                w.push_str(&format!("{key:<3} {name:<18}{}{ammo}\n", if ready { " RDY" } else { " ---" }));
+                let rounds = weapon(gun).ammo;
+                r.arms.rows.push(Row {
+                    key,
+                    label: format!("{} IN HAND", weapon_name(gun).to_uppercase()),
+                    label_tone: Tone::Plain,
+                    gauge: (rounds > 0).then(|| Gauge::store(f32::from(o.ammo[1]) / f32::from(rounds), 12)),
+                    value: if rounds > 0 { o.ammo[1].to_string() } else { String::new() },
+                    state: if ready { "RDY" } else { "---" }.into(),
+                    state_tone: if ready { Tone::Cyan } else { Tone::Dim },
+                    ..default()
+                });
                 continue;
             }
-            if let Some(m) = spec.loadout[slot] {
-                let ready = o.weapon_ready & (1 << slot) != 0;
-                let ammo = if weapon(m.weapon).ammo > 0 {
-                    format!(" {:>3}", o.ammo[slot.min(1)])
-                } else {
-                    String::new()
-                };
-                // The heavy beam rifle's charge, or a charged shot's once the tap is past (full: let go).
-                let gun = weapon(m.weapon);
-                let shown = match gun.charged {
+            let Some(m) = spec.loadout[slot] else { continue };
+            let ready = o.weapon_ready & (1 << slot) != 0;
+            let gun = weapon(m.weapon);
+            let ammo = o.ammo[slot.min(1)];
+            // The heavy beam rifle's charge, or a charged shot's once the tap is past (full: let go).
+            let charging = slot == 0
+                && match gun.charged {
                     Some(c) => o.charge * f32::from(c.full()) > f32::from(c.tap) + 0.5,
                     None => gun.charge_ticks > 0 && o.charge > 0.0,
                 };
-                let extra = if slot == 0 && shown {
-                    let full = gun.charged.is_some() && o.charge > 0.99;
-                    format!(" CHARGE {}{}", bar(o.charge, 6), if full { " FULL" } else { "" })
-                } else {
-                    String::new()
-                };
-                // Not ready: why, and what to do about it (`bc_client_core::holdup`). (Inside the
-                // colony the line above says it once for all.)
-                let why = holdup(spec, &o, slot, safe, core.predict.stagger > 0, world.hand_holding())
-                    .filter(|h| *h != Holdup::Safe)
-                    .map_or(String::new(), |h| format!("  {}", h.words()));
-                w.push_str(&format!(
-                    "{key:<3} {:<18}{}{}{}{}\n",
-                    weapon_name(m.weapon).to_uppercase(),
-                    if ready { " RDY" } else { " ---" },
-                    ammo,
-                    extra,
-                    why
-                ));
-            }
+            let gauge = if charging {
+                let full = gun.charged.is_some() && o.charge > 0.99;
+                Some(Gauge::new(o.charge, 12, if full { Tone::Amber } else { Tone::Cyan }))
+            } else if gun.ammo > 0 {
+                Some(Gauge::store(f32::from(ammo) / f32::from(gun.ammo), 12))
+            } else {
+                None
+            };
+            // Not ready: why (the cause on its row, what to do about it in the notes:
+            // `bc_client_core::holdup`). Inside the colony the heading says it once for all.
+            let why = holdup(spec, &o, slot, safe, core.predict.stagger > 0, world.hand_holding())
+                .filter(|h| *h != Holdup::Safe);
+            let (state, state_tone) = match why {
+                Some(h) => {
+                    let words = h.words();
+                    let (cause, cure) = instruments::cause_and_cure(&words);
+                    if let Some(cure) = cure {
+                        cures.push(format!("{key} {cure}"));
+                    }
+                    let t = match h {
+                        Holdup::Lost | Holdup::NotFitted => Tone::Red,
+                        Holdup::Cycling(_) | Holdup::Transforming => Tone::Dim,
+                        _ => Tone::Amber,
+                    };
+                    (cause.to_string(), t)
+                }
+                None if ready => ("RDY".into(), Tone::Cyan),
+                None => ("---".into(), Tone::Dim),
+            };
+            let full = charging && gun.charged.is_some() && o.charge > 0.99;
+            r.arms.rows.push(Row {
+                key,
+                label: weapon_name(m.weapon).to_uppercase(),
+                label_tone: Tone::Plain,
+                gauge,
+                value: if gun.ammo > 0 { ammo.to_string() } else { String::new() },
+                state: if full { "FULL".into() } else { state },
+                state_tone: if full { Tone::Amber } else { state_tone },
+                ..default()
+            });
         }
-        if let Some(line) = special_line(spec, &o, core.last_cmd.buttons & MODE != 0) {
-            w.push_str(&line);
+        if let Some(row) = special_row(spec, &o, core.last_cmd.buttons & MODE != 0) {
+            r.arms.rows.push(row);
         }
         if let Some(lock) = spec.lock_spec() {
-            let line = if o.lock_target == NO_SLOT {
-                "LOCK --  aim at a hostile".to_string()
+            r.arms.rows.push(if o.lock_target == NO_SLOT {
+                Row::meter("LOCK", Gauge::new(0.0, 12, Tone::Cyan), "--")
+                    .with_state("aim at a hostile", Tone::Dim)
             } else if o.flags & own_flags::LOCK_ACQUIRED != 0 {
-                format!("LOCK {}  ACQUIRED", world.name_of(o.lock_target))
+                Row::meter("LOCK", Gauge::new(1.0, 12, Tone::Amber), world.name_of(o.lock_target))
+                    .with_state("ACQUIRED", Tone::Amber)
             } else {
                 let progress = f32::from(o.lock_progress) / f32::from(lock.lock_ticks);
-                format!("LOCK {}  {}", world.name_of(o.lock_target), bar(progress, 8))
-            };
-            w.push_str(&line);
-            w.push('\n');
+                Row::meter("LOCK", Gauge::new(progress, 12, Tone::Cyan), world.name_of(o.lock_target))
+            });
         }
         if o.flags & own_flags::ORRERY_CAPABLE != 0 {
-            let z = match o.orrery_mode {
-                orrery_mode::ACTIVE => "ACTIVE",
-                orrery_mode::SEIZED => "SEIZED",
-                orrery_mode::LOCKOUT => "LOCKOUT",
-                _ => "STANDBY (Z)",
+            let (z, t) = match o.orrery_mode {
+                orrery_mode::ACTIVE => ("ACTIVE", Tone::Cyan),
+                orrery_mode::SEIZED => ("SEIZED", Tone::Red),
+                orrery_mode::LOCKOUT => ("LOCKOUT", Tone::Red),
+                _ => ("STANDBY", Tone::Dim),
             };
-            w.push_str(&format!("ORRERY {z}  STRAIN {}", bar(o.orrery_strain, 8)));
-            w.push('\n');
+            r.arms.rows.push(
+                Row { key: "Z", ..Row::meter("ORRERY", Gauge::load(o.orrery_strain, 12), "") }
+                    .with_state(z, t),
+            );
         }
         // The rack (survival): keys 1-4.
         if core.hangar.place.is_some() {
@@ -1412,33 +1197,40 @@ pub fn update_hud(
                 .enumerate()
                 .map(|(k, kit)| format!("{} {} {}", k + 1, kit.tag(), rack.get(*kit)))
                 .collect();
-            w.push_str(&format!("RACK {}", line.join("  ")));
+            cures.insert(0, format!("RACK {}", line.join("  ")));
         }
-        set(HudText::Weapons, w, None);
+        r.arms.notes = cures.join("\n");
+        r.arms.notes_tone = Tone::Label;
 
-        // --- Salvage (bottom middle). ---
+        // --- The hold: what's in it, the credits, what's in hand. ---
         let hold = hold_kg(o.frame) + tuned.hold_kg;
         let cargo: u32 = o.cargo_kg.iter().map(|kg| u32::from(*kg)).sum();
-        let mut sv = String::new();
-        if hold > 0 {
-            sv.push_str(&format!(
-                "HOLD {} {}/{}",
-                bar(cargo as f32 / hold as f32, 10),
-                tonnes(cargo),
-                tonnes(hold)
-            ));
+        r.hold.rows.push(if hold > 0 {
+            let full = cargo as f32 / hold as f32;
+            Row::meter(
+                "HOLD",
+                Gauge::new(full, 12, if full > 0.95 { Tone::Amber } else { Tone::Cyan }),
+                format!("{}/{}", tonnes(cargo), tonnes(hold)),
+            )
         } else {
-            sv.push_str("NO HOLD");
-        }
+            Row {
+                label: "HOLD".into(),
+                label_tone: Tone::Label,
+                value: "NONE".into(),
+                value_tone: Tone::Dim,
+                ..default()
+            }
+        });
+        let mut credits =
+            Row { label: "CR".into(), label_tone: Tone::Label, value_tone: Tone::Amber, ..default() };
         if survival {
             // The hangar's credits; what this sortie has earned in bounties is paid on docking.
-            sv.push_str(&format!("   CR {}", core.hangar.credits()));
+            credits.value = core.hangar.credits().to_string();
             if o.credits > 0 {
-                sv.push_str(&format!("  +{} bounty", o.credits));
+                credits = credits.with_state(format!("+{} bounty", o.credits), Tone::Green);
             }
-            sv.push('\n');
         } else {
-            sv.push_str(&format!("   CR {}\n", o.credits));
+            credits.value = o.credits.to_string();
             if let Some(before) = sales.credits
                 && o.credits > before
             {
@@ -1446,6 +1238,13 @@ pub fn update_hud(
             }
             sales.credits = Some(o.credits);
         }
+        if let Some((amount, at)) = sales.last
+            && now - at < 5.0
+        {
+            credits = credits.with_state(format!("SOLD +{amount}"), Tone::Green);
+        }
+        r.hold.rows.push(credits);
+        let mut sv = String::new();
         let base = spec.mass(core.predict.state.propellant);
         let accel = base / (base + o.extra_mass_kg as f32);
         match world.objects.get(usize::from(o.held)).and_then(Option::as_ref).filter(|_| o.held != NO_CHUNK) {
@@ -1454,7 +1253,7 @@ pub fn update_hud(
                     && c.desc.mass_kg <= 2_500
                     && cargo + c.desc.mass_kg <= hold;
                 sv.push_str(&format!(
-                    "{} {} {}  {}T throw{}\n",
+                    "{} {} {}\n{}T throw{}",
                     if fits { "IN HAND" } else { "TOWING" },
                     chunk_name(c.desc.kind),
                     tonnes(c.desc.mass_kg),
@@ -1463,33 +1262,31 @@ pub fn update_hud(
                 ));
             }
             None => sv.push_str(if controls.grab {
-                "GRAB ON (G)  free hand reaching\n"
+                "GRAB ON (G)  free hand reaching"
             } else {
-                "G grab   J jettison\n"
+                "G grab   J jettison"
             }),
-        }
-        if let Some((amount, at)) = sales.last
-            && now - at < 5.0
-        {
-            sv.push_str(&format!("SOLD +{amount} cr\n"));
         }
         if o.flags & own_flags::DOCKED != 0 {
             let on_hub = o.surface.is_some_and(|s| {
                 s.body == bc_proto::BodyRef::Landmark(bc_sim::content::landmarks::DOCKING_HUB)
             });
+            sv.push('\n');
             sv.push_str(if core.hangar.trainer {
-                "ON THE GANTRY  ENTER: climb out\n"
+                "ON THE GANTRY  ENTER: climb out"
             } else if survival && on_hub {
-                "ON THE DECK HATCH  ENTER: into your bay\n"
+                "ON THE DECK HATCH  ENTER: into your bay"
             } else if survival {
-                "IN THE DOCK  ENTER: into your bay\n"
+                "IN THE DOCK  ENTER: into your bay"
             } else {
-                "DOCKED  colony salvage yard\n"
+                "DOCKED  colony salvage yard"
             });
         }
-        set(HudText::Salvage, sv, None);
+        r.hold.notes = sv;
+        r.hold.notes_tone = Tone::Amber;
+        readings.0 = r;
     } else {
-        set(HudText::Salvage, String::new(), None);
+        readings.0 = default();
     }
 
     // --- The Orrery panel. ---
@@ -2466,7 +2263,6 @@ pub fn update_panels(
     looks: Res<HudLooks>,
     alert: Query<(&HudText, &Text, &TextColor)>,
     mut caution: Query<(&mut MaterialNode<PanelMaterial>, &mut Visibility), With<Caution>>,
-    mut blocks: Query<(&PartBlock, &mut BackgroundColor, &mut BorderColor)>,
     mut panels: Query<(&Panel, &mut Visibility), Without<Caution>>,
     chase: Res<Chase>,
 ) {
@@ -2482,26 +2278,10 @@ pub fn update_panels(
         }
     }
     let game = game.borrow();
-    let own = game.core.world.own;
     let orrery = game.core.world.orrery.is_some();
     for (p, mut vis) in &mut panels {
         let shown = p.0 != Show::Top || orrery || chase.cockpit();
         vis.set_if_neq(if shown { Visibility::Inherited } else { Visibility::Hidden });
-    }
-    for (b, mut fill, mut edge) in &mut blocks {
-        let f = own.map_or(1.0, |o| o.parts[b.0 as usize]);
-        // Whole, damaged, failing; lost is an outline.
-        let (c, e) = if f <= 0.0 {
-            (Color::NONE, RED)
-        } else if f > 0.66 {
-            (WHITE, Color::NONE)
-        } else if f > 0.33 {
-            (AMBER, Color::NONE)
-        } else {
-            (RED, Color::NONE)
-        };
-        fill.0 = c;
-        *edge = BorderColor::all(e);
     }
 }
 

@@ -59,6 +59,8 @@ mod input;
 #[cfg(target_arch = "wasm32")]
 mod inside;
 #[cfg(target_arch = "wasm32")]
+mod instruments;
+#[cfg(target_arch = "wasm32")]
 mod landmarks;
 #[cfg(target_arch = "wasm32")]
 mod launch_shot;
