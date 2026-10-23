@@ -42,9 +42,12 @@ struct Args {
     /// Tactical oracle behind the Orrery (`jev` needs TYPESAFE_API_KEY).
     #[arg(long, value_enum, default_value_t = OracleKind::Local)]
     oracle: OracleKind,
-    /// Player/agent slots.
+    /// Suits flying in space at once (pilots and agents): the sector's slots.
     #[arg(long, default_value_t = 64)]
     max_clients: usize,
+    /// Sessions at once, in the bay, on foot or flying.
+    #[arg(long, default_value_t = 512)]
+    max_sessions: usize,
     /// Simulation seed.
     #[arg(long, default_value_t = 0xBC_0195)]
     seed: u64,
@@ -110,6 +113,7 @@ fn main() -> anyhow::Result<()> {
         ace_every: std::time::Duration::from_secs(args.ace_every),
         oracle: args.oracle,
         max_clients: args.max_clients,
+        max_sessions: args.max_sessions.clamp(1, bc_server::net::sessions::MAX_SESSIONS),
         seed: args.seed,
         jev_key: std::env::var("TYPESAFE_API_KEY").ok().filter(|k| !k.is_empty()),
         jev_url: std::env::var("TYPESAFE_BASE_URL").ok().filter(|u| !u.is_empty()),

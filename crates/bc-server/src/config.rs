@@ -97,8 +97,12 @@ pub struct Config {
     /// (`bc_sim::content::aces`); zero: none.
     pub ace_every: Duration,
     pub oracle: OracleKind,
-    /// Player/agent slots in the sector.
+    /// Suits flying in space at once, pilots' and agents' (the sector's slots; the colony's inside
+    /// has twice as many, for its pilots and those on foot watching them). A session leases one
+    /// only while its suit is out.
     pub max_clients: usize,
+    /// Sessions at once, in the bay, on foot or flying (`net::sessions`).
+    pub max_sessions: usize,
     /// Seed for the deterministic simulation.
     pub seed: u64,
     /// TypeSafe API key (from `TYPESAFE_API_KEY`); never sent to clients.
@@ -152,6 +156,7 @@ impl Default for Config {
             ace_every: Duration::from_secs(300),
             oracle: OracleKind::Local,
             max_clients: 64,
+            max_sessions: 512,
             seed: 0xBC_0195,
             jev_key: None,
             jev_url: None,

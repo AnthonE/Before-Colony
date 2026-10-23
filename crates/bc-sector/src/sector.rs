@@ -7,7 +7,6 @@ use bc_proto::{Event, InputCmd, MAX_DATAGRAM, PilotKind, SnapshotHeader};
 use bc_sim::bodies::Body;
 use bc_sim::colony::course::{self, Event as CourseEvent};
 use bc_sim::colony::hall::DrillEvent;
-use bc_sim::colony::hub::bay_of_slot;
 use bc_sim::ground::Footing;
 use bc_sim::handle::Handle;
 use bc_sim::orrery::TacticalPicture;
@@ -217,15 +216,20 @@ impl Sector {
                         .sleeper
                         .map(|(idx, generation)| SuitId(Handle { idx, generation }))
                         .filter(|&id| self.sim.wake(id));
+                    // A launch waits while its bay's cradle holds a suit (refused before any sleeper
+                    // makes room).
+                    let busy = woke.is_none()
+                        && launch.is_some_and(|l| !self.sim.interior() && self.sim.bay_busy(l.bay));
                     let seated = match (woke, launch) {
                         (Some(id), _) => Some((id, Outcome::Woke)),
+                        (None, Some(_)) if busy => None,
                         // Survival: the suit its pilot built, in their bay's catapult cradle (inside
                         // the colony, by the inner gate).
-                        (None, Some(loadout)) => {
+                        (None, Some(launch)) => {
                             self.sim.ensure_free_suits(1);
-                            let bay = LaunchAt::Bay(bay_of_slot(slot));
+                            let bay = LaunchAt::Bay(launch.bay);
                             self.sim
-                                .launch_at(frame, faction, pilot, &loadout, bay)
+                                .launch_at(frame, faction, pilot, &launch.loadout, bay)
                                 .map(|id| (id, Outcome::Fresh))
                         }
                         // Survival: nothing to wake and nothing launched, no suit.
@@ -242,7 +246,10 @@ impl Sector {
                     };
                     match seated {
                         Some((id, outcome)) => self.seat(s, id, pilot, max_datagram, outcome),
-                        None => self.shared.slots[s].publish(SlotState::Refused, None, Outcome::Fresh),
+                        None => {
+                            let why = if busy { Outcome::BayBusy } else { Outcome::Fresh };
+                            self.shared.slots[s].publish(SlotState::Refused, None, why);
+                        }
                     }
                 }
                 Control::Board { slot, pilot, frame, faction, max_datagram, loadout } => {
@@ -363,8 +370,9 @@ impl Sector {
                         Some(Ejected::Out { hulk, generation, torso }) => {
                             c.loss = Loss::Ejected;
                             // Survival: the tugs go out for it (a claim not yet settled is
-                            // settled first).
-                            if self.cfg.sim.survival && hulk != bc_proto::NO_CHUNK {
+                            // settled first). A suit that left no hulk is claimed all the same:
+                            // its pilot hears the tugs found nothing.
+                            if self.cfg.sim.survival {
                                 self.tow(s);
                                 let due = self.sim.tick() + TOW_TICKS;
                                 self.claims[s] = Some(Claim { hulk, generation, torso, due, ace: None });

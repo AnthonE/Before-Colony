@@ -43,7 +43,10 @@ fn launch(sector: &mut Sector, shared: &SectorShared, slot: u16) -> usize {
             faction: Faction::Colonies,
             max_datagram: MAX_DATAGRAM as u16,
             comeback: Comeback::default(),
-            launch: Some(Loadout::full(FrameId::Argo)),
+            launch: Some(bc_sector::Launch {
+                loadout: Loadout::full(FrameId::Argo),
+                bay: bc_sim::colony::hub::bay_of_slot(slot),
+            }),
         })
         .unwrap();
     sector.tick();

@@ -30,6 +30,14 @@ pub struct Comeback {
     pub credits: u32,
 }
 
+/// Survival: the suit a pilot launches, and the bay it goes out from (the session's: the bays are
+/// shared out among the pilots; inside the colony it goes out by the inner gate instead).
+#[derive(Clone, Copy, Debug)]
+pub struct Launch {
+    pub loadout: Loadout,
+    pub bay: u8,
+}
+
 /// Network → sector commands.
 #[derive(Clone, Copy, Debug)]
 pub enum Control {
@@ -43,7 +51,7 @@ pub enum Control {
         faction: Faction,
         max_datagram: u16,
         comeback: Comeback,
-        launch: Option<Loadout>,
+        launch: Option<Launch>,
     },
     /// Inside the colony: seats a pilot in one of the Charter Board's trainers, a `frame` carrying
     /// `loadout` (the test range: any build, `bc_econ::proving::Trainer`), standing on the Blast
@@ -166,6 +174,8 @@ pub enum Outcome {
     Docked = 4,
     /// The suit was destroyed and its wreck is gone: the pilot is back in the hangar.
     Lost = 5,
+    /// Not seated: the launch's bay has a suit in its cradle (another pilot's, sharing it).
+    BayBusy = 6,
 }
 
 /// How a suit was lost (survival rules).
@@ -261,6 +271,7 @@ impl SlotStatus {
             3 => Outcome::Released,
             4 => Outcome::Docked,
             5 => Outcome::Lost,
+            6 => Outcome::BayBusy,
             _ => Outcome::Fresh,
         }
     }

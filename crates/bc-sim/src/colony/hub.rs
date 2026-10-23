@@ -32,7 +32,8 @@ pub const BAY_RING_OUTER: f32 = 2_650.0;
 pub const BAY_RING_X: (f32, f32) = (-COLONY_HALF_LENGTH - 450.0, -COLONY_HALF_LENGTH - 50.0);
 /// The radius the bays hang at: 0.7 g.
 pub const BAY_RADIUS: f32 = 2_252.0;
-/// The bays round the ring (a pilot's is `slot % 99 + 1`).
+/// The bays round the ring. The server shares them out among its sessions, the least-used first
+/// (`bc_server::net::sessions`); past 99 pilots they share, and a launch waits for its bay's cradle.
 pub const BAYS: u32 = 99;
 /// Spokes from the spire to the bay ring.
 pub const SPOKES: u32 = 6;
@@ -66,7 +67,8 @@ const BAY_DECK: [Prim; 1] = [Prim::RoundBox {
     round: 0.5,
 }];
 
-/// The bay of the pilot in sector slot `slot`, 1..=[`BAYS`] (what the hangar calls "BAY nn").
+/// A bay for sector slot `slot`, 1..=[`BAYS`]: the tests' (a session has its own, which the launch
+/// names: `bc_sector::Launch`).
 pub const fn bay_of_slot(slot: u16) -> u8 {
     (slot as u32 % BAYS + 1) as u8
 }

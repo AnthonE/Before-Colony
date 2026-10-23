@@ -88,7 +88,10 @@ fn run_with(
             faction: Faction::Colonies,
             max_datagram: MAX_DATAGRAM as u16,
             comeback: Comeback::default(),
-            launch: survival.then(|| bc_sim::sim::Loadout::full(FrameId::Argo)),
+            launch: survival.then(|| bc_sector::Launch {
+                loadout: bc_sim::sim::Loadout::full(FrameId::Argo),
+                bay: bc_sim::colony::hub::bay_of_slot(lease.slot),
+            }),
         })
         .unwrap();
     let mut up = Link::new(11, 0.05, 0.02, 0.05);

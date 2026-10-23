@@ -37,7 +37,7 @@ fn join(slot: u16, launch: Option<Loadout>) -> Control {
         faction: Faction::Colonies,
         max_datagram: MAX_DATAGRAM as u16,
         comeback: Comeback::default(),
-        launch,
+        launch: launch.map(|loadout| bc_sector::Launch { loadout, bay: bay_of_slot(slot) }),
     }
 }
 
@@ -202,4 +202,40 @@ fn a_wreck_is_towed_at_once_when_its_pilot_goes_and_not_at_all_when_blown_up() {
         sector.tick();
     }
     assert!(lease.reports.pop().is_err(), "no tugs for a suit blown apart");
+}
+
+/// The bays are shared out among the pilots: a launch from a bay whose cradle holds a suit is
+/// refused (BayBusy) until that suit is thrown out of the door.
+#[test]
+fn a_shared_bay_waits_for_its_cradle() {
+    let (mut sector, shared, a) = sector();
+    let b = shared.leases.pop().unwrap();
+    let join_bay = |slot: u16, bay: u8| Control::Join {
+        slot,
+        pilot: PilotKind::Human,
+        frame: FrameId::Argo,
+        faction: Faction::Colonies,
+        max_datagram: MAX_DATAGRAM as u16,
+        comeback: Comeback::default(),
+        launch: Some(bc_sector::Launch { loadout: Loadout::full(FrameId::Argo), bay }),
+    };
+    // Both from bay 7, in the same tick: the first is in its cradle, the second waits.
+    shared.control.push(join_bay(a.slot, 7)).unwrap();
+    shared.control.push(join_bay(b.slot, 7)).unwrap();
+    sector.tick();
+    let (sa, sb) = (&shared.slots[a.slot as usize], &shared.slots[b.slot as usize]);
+    assert_eq!((sa.state(), sa.outcome()), (SlotState::Active, Outcome::Fresh));
+    assert_eq!((sb.state(), sb.outcome()), (SlotState::Refused, Outcome::BayBusy));
+    let (idx, _) = sa.suit_id().unwrap();
+    let i = usize::from(idx);
+    assert_eq!(sector.sim.suits.anchor[i].body, Body::Bay(7));
+    assert!(sector.sim.bay_busy(7) && !sector.sim.bay_busy(8));
+    // Another bay is free meanwhile.
+    assert_eq!(send(&mut sector, &shared, b.slot, join_bay(b.slot, 8)).0, SlotState::Active);
+    assert_eq!(send(&mut sector, &shared, b.slot, Control::Leave { slot: b.slot }).0, SlotState::Free);
+    // The first lets go and is thrown out: bay 7 is free again.
+    sector.sim.suits.input[i].buttons = FLIGHT_ASSIST;
+    sector.tick();
+    assert!(!sector.sim.bay_busy(7));
+    assert_eq!(send(&mut sector, &shared, b.slot, join_bay(b.slot, 7)), (SlotState::Active, Outcome::Fresh));
 }

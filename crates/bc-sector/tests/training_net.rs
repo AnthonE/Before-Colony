@@ -205,7 +205,10 @@ fn the_course_flown_through_the_sector_is_timed_as_its_pilot_times_it() {
         faction: Faction::Colonies,
         max_datagram: MAX_DATAGRAM as u16,
         comeback: Comeback::default(),
-        launch: Some(Loadout::full(FrameId::Argo)),
+        launch: Some(bc_sector::Launch {
+            loadout: Loadout::full(FrameId::Argo),
+            bay: bc_sim::colony::hub::bay_of_slot(s),
+        }),
     };
     shared.control.push(join).unwrap();
     sector.tick();
