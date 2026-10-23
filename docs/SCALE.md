@@ -152,11 +152,14 @@ not meshes**. The client already rebuilds the field from the server's seed.
 1. **Hash perception properly.** Give `SpatialHash` a coarse level, such as 2 km cells, for
    sensor-range queries, or bucket by sector region. Then perception and the drones' looks cost
    what is near, not what exists. Keep the `no_alloc` tests at 0. *The split says this can wait:*
-   the simulation is a tenth of the tick, perception included.
+   the simulation is a tenth of the tick, perception included. And a sector holds at most 1,023
+   suits: a scan of them all is a few microseconds, and a grid of cells small enough to cut it
+   would have thousands of cells inside a 10 km sensor sphere.
 2. **Replicate from the hash, not the slot list.** Candidates for a client come from the cells
-   within its sensor range. Rocks and chunks come from per-cell dirty lists, not full scans. In
-   one fight everyone is in range, so this pays when the crowd is spread (a world, not a
-   brawl); the bench should grow a spread crowd to measure it.
+   within its sensor range. Rocks and chunks come from per-cell dirty lists, not full scans. *Not
+   worth it yet:* with the sensor model asked once a suit, a client's scan of every slot is about
+   a tenth of a crowded tick (the profile: the candidate loop, its bit sets and the sensor test
+   together), for the same reason as A.1. What a record costs once chosen is the rest.
 3. **Encode off the sim thread** (scaling path item 4). Snapshot building reads a
    double-buffered world from N workers, each fed by preallocated rings. It is embarrassingly
    parallel per client, and now the biggest lever left: replication is 85–90% of a crowded tick,
