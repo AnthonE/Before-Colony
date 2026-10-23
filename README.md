@@ -159,7 +159,9 @@ Server flags: `--rules survival|arcade` (default survival), `--no-colony` (close
 lifts down into its city, no suits inside it; open by default under survival rules), `--data-dir DIR` (keep pilot records,
 their hangars, the exchange, the Charter Board and the Proving Ground's board in files there;
 otherwise they last one run), `--craft-speed X`
-(the fabricator works X times faster, for testing), `--drones N`, `--max-clients N`,
+(the fabricator works X times faster, for testing), `--drones N`, `--max-clients N` (suits flying
+in space at once, default 64; the colony's inside takes twice that), `--max-sessions N` (pilots
+connected, in the bay, on foot or flying, default 512),
 `--oracle local|jev`, `--mode echo`, `--siwe-domain HOST` (the host pages are served from, which
 wallets sign in to; defaults to `--http`), `--require-auth` (no human guests), `--flight anime|real`
 (default anime: the tank is a boost gauge that refills; real: every newton burns propellant),

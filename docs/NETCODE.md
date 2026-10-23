@@ -86,6 +86,10 @@ In order. Each step is measured with `cargo bench -p bc-sector --bench sector` b
   ownership sequences): the receiving sector takes the suit on a tick both agree on, with its state
   in body-local terms. In deep space a transfer orbit hides it; where a seam must not show,
   neighbours replicate a band either side to each other, read-only.
+- **Sessions, not slots.** A session has an id of its own from its Hello, and holds a sector's
+  slot only while its suit flies there (v38, `net::sessions`; `SCALE.md`, B). Ids are a process's
+  today; the gateway will hand them out for the world, so a handoff keeps the name a pilot is
+  known by on the plaza and in the Welcome.
 - **The colony** is split along its 32 km into districts that keep one clock (`spawn_follower`
   already does it for the inside). The city is one closed form, so neighbours can't disagree.
 - **TiDi per sector** (EVE). Under overload the tick stretches and the header's `tidi_pct` slows the
@@ -132,7 +136,7 @@ In order. Each step is measured with `cargo bench -p bc-sector --bench sector` b
 - **Absolute records forever.** Fine for 64 pilots; the reason 200 suits in view refresh four times
   a second.
 
-## Where it stands (v37)
+## Where it stands (v38)
 
 `cargo bench -p bc-sector --bench sector`, everyone in one fight (`SCALE.md` has the table):
 
@@ -144,6 +148,8 @@ In order. Each step is measured with `cargo bench -p bc-sector --bench sector` b
   sending 57 suits a pilot-tick.
 - Over a link losing 10% and reordering, every record the client rebuilds is the server's to the
   bit (`bc-sector/tests/deltas_net.rs`), and the tick still never allocates (`no_alloc`).
+- A process takes 512 sessions (`--max-sessions`), not 64: a pilot in the bay or on foot holds no
+  flight slot (v38), so `--max-clients` caps suits flying in space, not people connected.
 
 ## What we watch
 

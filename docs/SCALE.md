@@ -61,9 +61,9 @@ That is already EVE-class for one grid. The ceilings below come before that one.
 
 - There is no gateway, no sector per process and no handoff (`ARCHITECTURE.md`, "Scaling path"
   items 2–3, unbuilt).
-- Every session holds a `sector-0` lease for its whole life, in the bay and on foot too
-  (`bc-server/src/net/session.rs`). So `--max-clients` (64) caps **connections per process**,
-  not pilots flying.
+- Until v38 every session held a `sector-0` lease for its whole life, in the bay and on foot too,
+  so `--max-clients` (64) capped connections per process. Now a session leases one only to fly in
+  space (B, built): `--max-clients` caps suits flying, and `--max-sessions` (512) everyone.
 - What survival keeps is process-local: the pilot registry (`pilots.rs`), the exchange
   (`market.rs`), the Charter Board, the Proving Ground and the homes are each a `Mutex` in this
   process. Each is saved whole to its own JSON file, and the last writer wins. Two processes
@@ -171,27 +171,29 @@ not meshes**. The client already rebuilds the field from the server's seed.
 
 The target is 512 pilots in one fight at p99 ≤ 16 ms.
 
-### B. Sessions that don't hold a flight slot (a week, not days)
+### B. Sessions that don't hold a flight slot (*built, v38*)
 
 A pilot in the bay, on foot or in a menu holds a session, not a sector lease. They lease one at
-launch, as `launch_inside` already does for `sector-1`.
+launch, as `launch_inside` already did for `sector-1`, and give it back when the flight is over
+(`ARCHITECTURE.md`, "Sessions and flight slots").
 
-The sector-0 slot is more than a lease today: it is the session's identity everywhere, so taking it
-away is a session-wide change, and partly a wire one:
+- A session has an id of its own from its Hello (`net::sessions`, 1 to 65,534), which names it
+  where the slot did: the default callsign, the guest's trader key, the plaza (a person's id on
+  the wire is 16 bits, v38), the Welcome's `client_slot`, `/status`'s hangars. The roster stays
+  keyed by the suit's entity slot, which is what a snapshot names.
+- The bay is the session's too (the least used of the 99). Past 99 sessions bays are shared, and a
+  launch into a cradle another suit still rides is refused (`Outcome::BayBusy`) until it's thrown.
+- A slot is held while the tugs are out for a pilot's wreck, so what they bring home is that
+  pilot's and nobody else's.
 
-- `net::session::run` takes it before anything else and names the session by it (`Session::slot`):
-  the default callsign, the guest's trader key, the roster's entries (`ControlMsg::Roster { slot }`),
-  the Welcome's `client_slot`, `/status`'s per-pilot metrics (`Metrics::pilots[slot]`).
-- The plaza keys everyone on foot by it (`plaza.rs`), and a person's id on the wire is 10 bits
-  (`bc_proto::presence::PERSON_BITS`), as is a suit's slot.
-- So: a session id of its own (wider than 10 bits on the roster and the plaza), and the sector slot
-  a flight's lease alone. That is a wire version, and the place to give the roster and the plaza
-  their own id spaces.
+What it bought: 512 sessions a process (`--max-sessions`) where there were 64, each flying when a
+slot is free (`bc-server/tests/sessions.rs`: six pilots in the city on two flight slots).
 
-What it buys:
+Still open:
 
-- Connections per process go from 64 to a few thousand. `net::admit` already caps them at 512.
-- Raise `--max-connections` once the plaza (C) is fixed.
+- Raise `--max-connections` and `--max-sessions` once the plaza (C) is fixed.
+- The colony's inside has twice `--max-clients` slots, and each pilot on foot watching its suits
+  holds one: past that, a pilot in the city doesn't see the suits flying in it. C's tiers fix it.
 - More tokio workers, or one per core.
 
 ### C. The crowd as a sector, with interest tiers (weeks)

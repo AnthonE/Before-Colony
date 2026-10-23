@@ -29,7 +29,7 @@
 | `bc-econ` | std | The economy, off the hot path: items (ores, materials, each line's parts, weapons, equipment), what's broken inside a suit's parts and what overhauling it takes (`faults`), recipes and the colony's valuations (`catalogue`), stores, the suit in the bay and what it launches as (`suit`), what its life has done to its paint (`weathering`), the fabricator's and foundry's job queues on the wall clock (`fab`), the Colony Exchange's order books with the colony as a market maker (`exchange`), a pilot's hangar and every request it takes (`hangar`), the Proving Ground's board of the day's best times (`proving`), and the JSON messages (`wire`). |
 | `bc-auth` | `no_std` | Wallet sign-in: the EIP-4361 message both sides build, EIP-55 addresses, and (features) the server's signature check and a local wallet for agents and tests. The browser builds only the message. |
 | `bc-sound` | lib | The sound bank, generated in code (no audio files): cues, the mixer (culling, cooldowns, voices, panning), the cockpit's loops and alarms, the score (the title theme on the Super Famicom's sound chip, in software). Pure Rust; the browser plays it through Web Audio. |
-| `bc-server` | bin + lib | WebTransport sessions (`net/session.rs`: a pilot's session from slot to goodbye, and survival's hangar, sorties and requests, and the Proving Ground's trainers), sign-in and the pilot registry (`pilots`: records behind a `PilotStore`, in memory or files, one session per wallet, resume tokens, suits left hidden that are put back at boot), the colony's exchange (`market`), the Proving Ground's board (`proving`), egress thread, roster, dev HTTP, `/status`. |
+| `bc-server` | bin + lib | WebTransport sessions (`net/session.rs`: a pilot's session from Hello to goodbye; `net/sessions.rs`: their ids and bays; and survival's hangar, sorties and requests, and the Proving Ground's trainers), sign-in and the pilot registry (`pilots`: records behind a `PilotStore`, in memory or files, one session per wallet, resume tokens, suits left hidden that are put back at boot), the colony's exchange (`market`), the Proving Ground's board (`proving`), egress thread, roster, dev HTTP, `/status`. |
 | `bc-bot` | lib + bins | Bot SDK (`BotClient`), `drone`, `miner`, `flaneur` (on foot in the colony) and `suit_inside` (a suit inside it) example agents, `bc-swarm` load tester. |
 | `bc-client` | wasm32 bin | Bevy app: procedural jointed suits (every frame's kit, animated from its `MeleeSpec`s, walking and kneeling on a body, rolling onto their toes as they push off and tucking them under kneeling, the verniers in their soles firing as they thrust up), sky, colony, field and landmarks (custom shaders), particles and effects (missiles, stream tracers, flame, jammer shimmer; sunlit smoke, burning wrecks, beams that keep a minimum width on screen), the camera's look (a grade on every tier, a lens vignette, a flare that rocks and suits hide), camera (chasing, or from the cockpit: a wraparound cockpit hung on the camera, its monitors showing the instruments rendered into one texture by a second UI camera, and a world-aligned radar sphere; `cockpit`), input with lock assist, HUD in the mech monitor style (chamfered plates and hazard-striped cautions from a small UI material, `ui_panel`; amber target corners, off-screen chevrons, a damage silhouette; one set of instruments drawn in the screen's corners or onto the cockpit's monitors; the page's fonts and palette: `bc_client_core::palette`), the Orrery overlay, offline showcase scenes; the hangar bay drawn (`hangar`), with its haze, a flood light's shadow and contact shadows on the deck (`shade`), on foot in it with the launch and homecoming sequences (`onfoot`), and its terminals' data for the page (`terminal`). The colony from outside (`colony`: its mirrors, its ends and its lights, `dots`) and inside (`city`: the city on a render layer of its own, streamed by level of detail round a floating origin, lit strip by strip, its haze and its windows), and the cap lift and the city on foot (`onfoot`). |
 | `bc-model` | lib | The suits' procedural designs on a shared 26-bone rig in anime mecha's proportions (a small head, a short torso over hips 1.55 m above the origin, the knee three-fifths of the way down, long shins and tall feet, the toes hinged across each foot's ball; the sim's humanoid capsules follow it), from a kit of chamfered blocks, turned shapes and lofts through rounded sections (`kit`), the Lodestars' feet one shared design (`frames::foot`: heel, instep and ankle guards, a toe cap on its own bone, a sole split at the hinge with pads and a vernier in each half), and the sockets their kits are drawn from (muzzles, blades, the Talon, missile hatches, the cockpit's eye, the soles' verniers), checked against each frame's hit capsules; a suit put together from several frames' sections (`Parts`, `build_parts`: one frame's head, another's body, arms, legs, backpack or weapon, each with its sockets, a swapped head set where the body's own sat); running lights (`Paint::Light`: port red, starboard green, white strobes, a red beacon, lamps, which the hull shader blinks) and stencils (a unit number in seven-segment digits whose segments the shader lights by each suit's seed, so one mesh carries every suit's number); the legs' two-bone IK (`ik`); ambient occlusion baked into every vertex from the whole suit at rest (`ao`); the cockpit seen from the seat (`cockpit`: the shell, its monitors' faces and their regions of the shared screen texture, the radar's place). |
@@ -294,6 +294,16 @@ network threads.
   the Hello asked: every human pilot flies for the Colonies, and so does a claim to the Almagest, the
   drones' own; an agent may fly for the Alliance. The Welcome carries it, and the client takes its
   friends and foes from it.
+- **Sessions and flight slots.** A session is admitted at its Hello (`net::sessions`, at most
+  `--max-sessions`, 512): an id of its own (1 to 65,534, round a counter that skips the live ones),
+  which names it on the plaza, in the Welcome and on `/status`, and a bay (the least used of the
+  99). A sector's slot (`SlotLease`: its input and report rings, its egress) is a flight's, not a
+  session's: under survival it is taken at a launch (or a wake in a suit left out there) and given
+  back when the flight is over, docked or the wreck cleared and its tow home settled
+  (`Session::land`: the sector told to `Leave`, two ticks waited, what it had left to say drained,
+  so nothing of it reaches whoever has the slot next). A pilot in the bay or on foot holds none, so
+  `--max-clients` caps suits flying, not people connected. Under arcade rules every pilot flies, and
+  holds one from the Hello.
 - **Sleepers.** A signed-in pilot's session ends with `Control::Sleep` instead of `Leave`, and the
   record keeps which suit (slot and generation, for this server run). The next session's Join
   carries it back (`Comeback`), and the sector wakes it if it's still there. The sector reports
@@ -324,7 +334,8 @@ network threads.
   ride the control stream as JSON frames of their own (`bc_econ::wire`, frame tag 11): requests
   up, and the hangar, the exchange and the watched book down whenever they change (the market at
   most every 2 s). A launch hands the sector a `Loadout` on the Join (`Control::Join { launch }`):
-  the suit enters the sector as it was built, in its pilot's bay (`bc_sim::colony::hub::bay_of_slot`):
+  the suit enters the sector as it was built, in its pilot's bay (the session's, `Launch::bay`; a
+  launch into a cradle another suit still rides is refused, `Outcome::BayBusy`):
   it rides the bay's catapult cradle in the door on the spinning bay ring (`Body::Bay(n)`, a closed
   form of the tick like a landmark, so the owner's prediction rides it exactly) until the pilot's
   client lets go of the grip as the catapult's cut ends, and is thrown out of the door at 40 m/s
@@ -802,6 +813,7 @@ pilots out, and its limits are counted on `/status`.
     address (mapped into IPv6 or not), or an IPv6 address's /64, which is what one subscriber is
     given. Loopback is excepted: the server's own agents connect from it.
   - At most 512 connections in all (`--max-connections`). Past either cap the attempt is refused.
+  - At most 512 sessions (`--max-sessions`); past that a Hello is refused as full.
   - QUIC's handshake and then WebTransport's must each finish within 5 s.
 - **A session** (`net::game`, `net::session`):
   - Its control stream must open, and its Hello arrive, within 5 s each.
@@ -812,8 +824,8 @@ pilots out, and its limits are counted on `/status`.
     session refused 200 times in a row is ended.
   - The radio: 5 lines in 10 s, 160 characters each.
   - A session in the sector that sends no input for a minute is ended (`Config::idle_timeout`).
-- **The sector** is out of reach: its slots are leased (a session without one is refused at its
-  Hello), and its queues are bounded, so a session can't make the tick allocate or wait.
+- **The sector** is out of reach: its slots are leased, only to fly (a launch with none free is
+  refused), and its queues are bounded, so a session can't make the tick allocate or wait.
 - **Not covered here:** the HTTP server is the development one. Deployed, it goes behind a reverse
   proxy or a CDN with timeouts and its own limits.
 

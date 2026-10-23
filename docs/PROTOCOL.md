@@ -1,8 +1,16 @@
-# Before Colony wire protocol (v37)
+# Before Colony wire protocol (v38)
 
 Everything is little-endian and bit-packed LSB-first (`bc_proto::bits`). Datagrams are one QUIC
 datagram each, at most `min(1100, connection max)` bytes, and never fragmented. The first 4 bits
 of every datagram give the packet kind: `1` = input, `2` = snapshot.
+
+v38 (from v37): a session has an id of its own from its Hello, and holds a flight slot in the
+sector only while its suit flies in space (`docs/SCALE.md`, B). A person in a plaza datagram is
+known by that id, 16 bits where it was the 10-bit client slot, so 48 people take 719 B. The
+Welcome's client slot is the session's id (1 to 65,534, the same in both sectors; never 0, nor
+65,535, which a client keeps for itself in the crowd), and `people` names people by it. A launch's
+bay is the session's (`place`'s `bay`), shared out among the 99 to the least used; a launch into a
+cradle another suit still rides is refused with a `note`, as one with every flight slot taken is.
 
 v37 (from v36): acks for every datagram, suits' records as deltas, and more than one datagram a
 tick (`docs/NETCODE.md`, "The wire's road"). A snapshot's header carries its datagram's number
@@ -457,7 +465,7 @@ their own screen has it (`transit::train` is a closed form of the tick).
 | Datagram | Content | Size |
 |---|---|---|
 | kind 3, Pose (client → server, 15 Hz in the city) | kind (4), seq (u16), strip (2), the pose (97) | 15 B |
-| kind 4, Plaza (server → client: 10 Hz in the city and flying inside the colony, 2 Hz in the bay) | kind (4), the sector's tick (u32), in the city (1), strip (2), then until the bits run out: per person their client slot (10), how long before the tick their pose was heard (6 bits, 10 ms steps) and the pose (97) | 5 B + 14.125 B a person, at most 48 (683 B) |
+| kind 4, Plaza (server → client: 10 Hz in the city and flying inside the colony, 2 Hz in the bay) | kind (4), the sector's tick (u32), in the city (1), strip (2), then until the bits run out: per person their session's id (16), how long before the tick their pose was heard (6 bits, 10 ms steps) and the pose (97) | 5 B + 14.875 B a person, at most 48 (719 B) |
 
 A pose is taken only if it could be: on the pilot's strip, inside the colony, out of the walls
 (`bc_sim::colony::city::solid`), no further from the last one taken than 13.5 m/s over the reach
@@ -485,7 +493,7 @@ prefix, except the hangar's (tag 11), which may carry up to 64 KiB.
 | Tag | Message | Direction |
 |---|---|---|
 | 1 | Hello {version, pilot kind, frame, faction, name ≤ 16 B, flags (1 SIGN_IN, 2 RESUME), resume token (32 B, only with RESUME)} | client → server (first frame) |
-| 2 | Welcome {version, client slot, tick, tick_hz, sector, orrery_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY, 32 INTERIOR), landmarks (u8), faction (u8: the side flown for)} | server → client (again on moving between sectors) |
+| 2 | Welcome {version, client slot (the session's id), tick, tick_hz, sector, orrery_allowed, max_datagram, field_seed, field_rocks, flags (1 SIGNED_IN, 2 WOKE, 4 SURVIVAL, 8 ANIME, 16 COLONY, 32 INTERIOR), landmarks (u8), faction (u8: the side flown for)} | server → client (again on moving between sectors) |
 | 3 | Reject {reason: 1 version, 2 full, 3 bad hello, 4 frame not allowed, 5 sign-in failed, 6 sign-in required, 7 resume token expired, 8 no signature in time} | server → client |
 | 4 | Roster {entity slot, pilot kind, name (empty = left), flags (1 VERIFIED, 2 ASLEEP, bits 2-4 the suit's weathering 0-7)} | server → client |
 | 5 | Respawn {frame} | client → server |
@@ -636,7 +644,7 @@ at its desk};
 (`THE CHARTER BOARD HAS YOUR FLIGHT CERTIFICATE · ...`, once, on a pilot's first time on the
 Proving Ground's board or their first visit to the city with one), word kept for a pilot while
 they were away; the colony's announcements); `people` {`people`: [{`id`,
-`name`}]} (in the city: the names of people seen there for the first time, by the slot the plaza's
+`name`}]} (in the city: the names of people seen there for the first time, by the id the plaza's
 datagrams use); `charter` (the Charter Board, while watched: the era, the contracts with their
 `task` (`{"kind": "supply", "item", "qty", "delivered"}` or `{"kind": "patrol", "bounty",
 "earned"}`), reward, paid and seconds left, the great works with what each needs and has, their
@@ -673,21 +681,22 @@ of what they brought home (as for a pilot's own wreck after ejecting; already ou
 bounty is paid instead). Paid or claimed, a `charter` (`mine_aces`, `waiting`) comes just before
 that first `news`.
 
-A launch puts the suit in the sector in its pilot's bay (the pilot's slot and the Welcome stay the
-same; snapshots start), riding the bay's catapult cradle in its door (footing 1 on body kind 3, the
-bay's number `slot % 99 + 1`, as `place`'s `bay` says) until the client lets go of the grip, which
-throws it out of the door; and `place` says `space`. Docking answers with a `sortie` and
+A launch puts the suit in the sector in its pilot's bay (the Welcome stays the same; snapshots
+start), riding the bay's catapult cradle in its door (footing 1 on body kind 3, the session's bay,
+as `place`'s `bay` says) until the client lets go of the grip, which throws it out of the door; and
+`place` says `space`. With every flight slot taken (`--max-clients`), or another suit still in the
+bay's cradle (two sessions share a bay past 99), it is refused with a `note` and the suit stays in
+the bay. Docking answers with a `sortie` and
 `place: hangar`, or a refusing `note`. A suit destroyed out there sends `sortie: lost` at once and
 `place: hangar` once the wreck clears.
 
 Suits inside the colony (the Welcome sets COLONY): `launch_inside` seats the suit in the
 server's second sector, the colony's inside (`sector-1`, in the colony's own frame:
 `bc_sim::colony::interior`), and the server sends a new Welcome: sector 2, INTERIOR set, no field
-and no landmarks, and the client slot the inside sector knows the pilot by. Inputs go to that
+and no landmarks, and the same client slot (the session's id). Inputs go to that
 sector, its snapshots come instead, and nothing fires there but in the Blast Hall (training
 rounds, which touch no suit). `dock` at rest in the inner gate's
-ring brings the suit home, with a `sortie` and a Welcome back to sector 1 (the client slot it
-had). A client welcomed mid-session forgets what it flew in the last sector. Leaving while
+ring brings the suit home, with a `sortie` and a Welcome back to sector 1. A client welcomed mid-session forgets what it flew in the last sector. Leaving while
 inside, the colony's tugs bring the suit back to the bay, and the pilot's next session tells them
 so once, as `news`.
 
