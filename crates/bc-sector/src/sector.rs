@@ -19,7 +19,7 @@ use crate::metrics::Metrics;
 use crate::queues::{
     Control, Loss, Outcome, Reparked, Report, Restored, SectorEnds, SectorShared, SlotState,
 };
-use crate::replicate::{Work, build_more, build_snapshot, build_watch};
+use crate::replicate::{Work, build_more, build_snapshot, build_watch, pace_after};
 
 /// Ticks between tactical pictures per the Orrery pilot when an external oracle is attached (≈3.75 Hz).
 const PICTURE_INTERVAL: u32 = 8;
@@ -187,6 +187,8 @@ impl Sector {
         self.replicate(now_us);
         let replicated = self.shared.now_us();
         self.timing = Timing { sim_us: simulated - started, replicate_us: replicated - simulated };
+        // A tick running hot sends less next time, before it overruns.
+        self.work.pace = pace_after(self.work.pace, replicated - started);
         let m = &self.shared.metrics;
         m.sim_hist.record(self.timing.sim_us);
         m.replicate_hist.record(self.timing.replicate_us);
@@ -652,7 +654,7 @@ impl Sector {
             else {
                 continue;
             };
-            let rate = self.cfg.rate as i32;
+            let rate = (self.cfg.rate as f32 * self.work.pace) as i32;
             client.bucket = (client.bucket + rate).min(2 * rate);
             if !queue(&mut self.ends.outputs[s], m, &self.scratch[..built.len]) {
                 continue;
@@ -703,6 +705,7 @@ impl Sector {
         Metrics::add(&m.entity_records, self.work.records);
         Metrics::add(&m.entity_bits, self.work.record_bits);
         Metrics::add(&m.entity_deltas, self.work.deltas);
+        Metrics::set(&m.pace_pct, (self.work.pace * 100.0) as u64);
         Metrics::set(&m.clients, self.clients.iter().filter(|c| c.active).count() as u64);
         Metrics::set(&m.watchers, self.clients.iter().filter(|c| c.watch.is_some()).count() as u64);
         Metrics::set(&m.suits_alive, self.sim.alive_count() as u64);

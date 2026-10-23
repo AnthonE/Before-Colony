@@ -5,6 +5,7 @@
 //! Both ends hold codes, never floats, so a delta taken on the server is undone on the client to
 //! the bit: what the client rebuilds is exactly what a whole record would have said.
 
+use crate::bits::{BitSink, Packer};
 use crate::quant::{self, dequantize_centered, dequantize_signed, quantize_centered, quantize_signed};
 use crate::snapshot::{ENTITY_AIM_BITS, ENTITY_ROT_BITS, EntityState, RiderOn, ent_flags};
 use crate::types::{BodyRef, Faction, FrameId, Part, PilotKind, RIDER_VEL_BITS, RIDER_VEL_MAX};
@@ -149,12 +150,13 @@ impl QEntity {
             on.body.write(w);
             w.write_bool(on.aloft);
         }
+        let mut w = Packer::new(w);
         let bits = pos_bits(self.on);
         for c in self.pos {
             w.write_bits(c.min(max_code(bits)), bits);
         }
-        write_rot(w, self.rot_largest, self.rot);
-        write_vel(w, self.on, self.vel);
+        write_rot(&mut w, self.rot_largest, self.rot);
+        write_vel(&mut w, self.on, self.vel);
         for c in self.aim {
             w.write_bits(c, ENTITY_AIM_BITS);
         }
@@ -162,6 +164,7 @@ impl QEntity {
         for p in self.parts {
             w.write_bits(u32::from(p.min(7)), 3);
         }
+        w.finish();
     }
 
     /// Reads a whole record of `slot`, after its delta bit.
@@ -203,7 +206,7 @@ impl QEntity {
     }
 }
 
-fn write_rot(w: &mut BitWriter<'_>, largest: u8, codes: [u32; 3]) {
+fn write_rot(w: &mut impl BitSink, largest: u8, codes: [u32; 3]) {
     w.write_bits(u32::from(largest & 3), 2);
     for c in codes {
         w.write_bits(c, ENTITY_ROT_BITS);
@@ -215,7 +218,7 @@ fn read_rot(r: &mut BitReader<'_>) -> (u8, [u32; 3]) {
     (largest, [r.read_bits(ENTITY_ROT_BITS), r.read_bits(ENTITY_ROT_BITS), r.read_bits(ENTITY_ROT_BITS)])
 }
 
-fn write_vel(w: &mut BitWriter<'_>, on: Option<RiderOn>, vel: [i32; 3]) {
+fn write_vel(w: &mut impl BitSink, on: Option<RiderOn>, vel: [i32; 3]) {
     for c in vel {
         match on {
             None => w.write_bits(c as u32, quant::VEL_BITS),
@@ -410,6 +413,8 @@ impl Delta {
     /// Writes the record after its slot and delta bit (`1`).
     pub(crate) fn write(&self, w: &mut BitWriter<'_>) {
         let c = &self.cur;
+        let mut packer = Packer::new(w);
+        let w = &mut packer;
         w.write_bits(u32::from(self.back), BACK_BITS);
         if self.rider {
             w.write_bool(self.aloft);
@@ -455,6 +460,7 @@ impl Delta {
                 w.write_bits(u32::from(p.min(7)), 3);
             }
         }
+        packer.finish();
     }
 
     /// Reads a delta record's age, after its slot and delta bit.

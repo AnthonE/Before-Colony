@@ -90,6 +90,8 @@ pub struct Metrics {
     pub entity_deltas: AtomicU64,
     /// Datagrams after the first in a tick (a client with more to see than one holds).
     pub extra_parts: AtomicU64,
+    /// How much of what it could send a client is sent, percent: under 100 while ticks run hot.
+    pub pace_pct: AtomicU64,
     pub out_drops: AtomicU64,
     pub inputs: AtomicU64,
     pub inputs_stale: AtomicU64,
@@ -137,6 +139,7 @@ impl Metrics {
             entity_bits: AtomicU64::new(0),
             entity_deltas: AtomicU64::new(0),
             extra_parts: AtomicU64::new(0),
+            pace_pct: AtomicU64::new(100),
             out_drops: AtomicU64::new(0),
             inputs: AtomicU64::new(0),
             inputs_stale: AtomicU64::new(0),

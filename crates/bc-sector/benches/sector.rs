@@ -101,7 +101,7 @@ fn run(pilots: usize, drones: usize, v37: bool) {
     let secs = f64::from(TICKS) / 30.0;
     println!(
         "{pilots:>4} pilots {drones:>3} drones {} | tick {} | sim {} | replicate {} | {:>4} B/datagram {:>4.2}/pilot-tick | \
-         {:>5.1} suits/pilot-tick {:>5.1} bits/suit {:>3.0}% deltas | {:>5.1} KB/s a pilot {:>6.2} MB/s out",
+         {:>5.1} suits/pilot-tick {:>5.1} bits/suit {:>3.0}% deltas | {:>5.1} KB/s a pilot {:>6.2} MB/s out | pace {:>3}%",
         if v37 { "v37  " } else { "whole" },
         pcts(&mut tick),
         pcts(&mut sim),
@@ -113,6 +113,7 @@ fn run(pilots: usize, drones: usize, v37: bool) {
         100.0 * deltas as f64 / records.max(1) as f64,
         bytes as f64 / secs / pilots as f64 / 1000.0,
         bytes as f64 / secs / 1e6,
+        Metrics::load(&m.pace_pct),
     );
 }
 
@@ -124,9 +125,17 @@ fn pcts(us: &mut [u64]) -> String {
 }
 
 fn main() {
-    // `cargo bench` passes `--bench`; anything else (a filter) is ignored.
+    // `cargo bench` passes `--bench`. Numbers after it pick the crowds by their pilots (`-- 448`),
+    // and `whole` or `v37` one wire.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let crowds: Vec<usize> = args.iter().filter_map(|a| a.parse().ok()).collect();
+    let wire = |v37: bool| !args.iter().any(|a| a == if v37 { "whole" } else { "v37" });
     for (pilots, drones) in [(64, 256), (128, 256), (256, 256), (448, 64)] {
-        run(pilots, drones, false);
-        run(pilots, drones, true);
+        if !crowds.is_empty() && !crowds.contains(&pilots) {
+            continue;
+        }
+        for v37 in [false, true].into_iter().filter(|&v| wire(v)) {
+            run(pilots, drones, v37);
+        }
     }
 }

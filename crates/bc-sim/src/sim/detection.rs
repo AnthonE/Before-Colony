@@ -13,31 +13,59 @@ use crate::config::{DT, VISUAL_RANGE};
 use crate::content::{SpecialKind, frame};
 use crate::sensors;
 
+/// What a suit shows sensors this tick: its signature to its allies, and to its enemies with the
+/// range their eyes find it within ([`Sim::sight`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Sight {
+    pub ally: f32,
+    pub enemy: f32,
+    pub enemy_visual: f32,
+}
+
 impl Sim {
     /// Whether `viewer`'s sensors pick up suit `j` (alive or a wreck): within eyesight, or within
     /// its sensor range scaled by `j`'s signature (see `sensors`).
     pub fn detects(&self, viewer: usize, j: usize) -> bool {
+        self.detects_by(viewer, self.sensor_reach(viewer), j, &self.sight(j))
+    }
+
+    /// How far suit `i`'s sensors reach, before a signature scales it.
+    pub fn sensor_reach(&self, i: usize) -> f32 {
+        frame(self.suits.frame[i]).sensor_range * self.suits.tuning[i].sensor
+    }
+
+    /// What suit `j` shows sensors this tick. What a suit hides, it hides from its enemies: a
+    /// jammer, and a suit parked, hidden or cold (eyes find those close in, sensors less or not at
+    /// all). The same for every viewer of a side, so a tick's replication finds it once a suit.
+    pub fn sight(&self, j: usize) -> Sight {
         let s = &self.suits;
-        let range = frame(s.frame[viewer]).sensor_range * s.tuning[viewer].sensor;
-        let mut sig = sensors::signature(
+        let sig = sensors::signature(
             frame(s.frame[j]).signature * s.tuning[j].signature,
             s.boosting[j],
             self.tick().saturating_sub(s.last_fired[j]) < 30,
             !s.alive.get(j),
         );
-        let mut visual = VISUAL_RANGE;
-        // What a suit hides, it hides from its enemies: a jammer, and a suit parked, hidden or
-        // cold (eyes find those close in, sensors less or not at all).
-        if s.faction[j] != s.faction[viewer] {
-            if let Some((jam_sig, jam_visual)) = self.jamming(j) {
-                sig *= jam_sig;
-                visual = jam_visual;
-            }
-            let c = self.concealment(j);
-            sig *= c.sig;
-            visual = visual.min(c.visual);
+        let (mut enemy, mut enemy_visual) = (sig, VISUAL_RANGE);
+        if let Some((jam_sig, jam_visual)) = self.jamming(j) {
+            enemy *= jam_sig;
+            enemy_visual = jam_visual;
         }
-        sensors::detects_within(s.flight[viewer].pos, range, s.flight[j].pos, sig, visual)
+        let c = self.concealment(j);
+        enemy *= c.sig;
+        enemy_visual = enemy_visual.min(c.visual);
+        Sight { ally: sig, enemy, enemy_visual }
+    }
+
+    /// [`Sim::detects`], from `viewer`'s sensors' `reach` ([`Sim::sensor_reach`]) and `j`'s
+    /// [`Sim::sight`] found already.
+    pub fn detects_by(&self, viewer: usize, reach: f32, j: usize, sight: &Sight) -> bool {
+        let s = &self.suits;
+        let (sig, visual) = if s.faction[j] != s.faction[viewer] {
+            (sight.enemy, sight.enemy_visual)
+        } else {
+            (sight.ally, VISUAL_RANGE)
+        };
+        sensors::detects_within(s.flight[viewer].pos, reach, s.flight[j].pos, sig, visual)
     }
 
     /// While suit `j`'s Eclipse is on (and not broken): its signature multiplier and the range

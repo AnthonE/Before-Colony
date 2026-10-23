@@ -79,6 +79,7 @@ pub use conceal::{
     COLD_SIG, Conceal, EXPOSE_TICKS, FOUGHT_DARK_TICKS, HIDE_AWAKE_VISUAL_MUL, LURK_SETTLE_TICKS, LURK_STILL,
     POWER_DOWN_TICKS, cover,
 };
+pub use detection::Sight;
 pub use doom::{DOOM_PER_TORSO, DOOM_TICKS, Doom, EJECT_SPEED, Ejected};
 pub use launch::{Homecoming, LaunchAt, Loadout, ParkRecord};
 pub use sleep::{Gone, PARK_SPEED, PARKED_VISUAL, SleeperFate};

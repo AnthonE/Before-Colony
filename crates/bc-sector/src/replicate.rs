@@ -4,10 +4,11 @@
 use bc_proto::events::Event;
 use bc_proto::objects::ROCK_RECORD_BITS;
 use bc_proto::snapshot::{ENTITY_MAX_BITS, header_flags};
-use bc_proto::{Delta, ObjectState, QEntity, SnapshotHeader, SnapshotWriter};
+use bc_proto::{Delta, NO_SLOT, ObjectState, QEntity, SnapshotHeader, SnapshotWriter};
 use bc_sim::Sim;
 use bc_sim::chunks::{MAX_CHUNKS, Motion};
 use bc_sim::missiles::MAX_MISSILES;
+use bc_sim::sim::Sight;
 use bc_sim::storage::boxed;
 use glam::Vec3;
 
@@ -77,10 +78,17 @@ fn relevant(sim: &Sim, me: usize, e: &Event) -> bool {
 }
 
 /// Priority weight of entity `j` for client suit `me` (per tick).
+#[cfg(test)]
 fn weight(sim: &Sim, me: usize, j: usize) -> f32 {
+    let des = |i: usize| sim.designation(i).map_or(NO_SLOT, |t| t as u16);
+    weight_with(sim, me, j, des(me), des(j))
+}
+
+/// [`weight`], with what `me` and `j` designate found already (`NO_SLOT`: nothing).
+fn weight_with(sim: &Sim, me: usize, j: usize, me_designates: u16, j_designates: u16) -> f32 {
     let d = (sim.suits.flight[j].pos - sim.suits.flight[me].pos).length();
     let mut w = 1.0 / (1.0 + d / 800.0);
-    if sim.designation(j) == Some(me) || sim.designation(me) == Some(j) {
+    if usize::from(j_designates) == me || usize::from(me_designates) == j {
         w *= 3.0;
     }
     if !sim.suits.alive.get(j) {
@@ -107,6 +115,14 @@ pub(crate) struct Work {
     /// Every suit's record as a spectator would be sent it this tick, in codes (built once, for
     /// every client; a client's adds what depends on it, `Sim::viewer_flags`).
     qs: Box<[QEntity]>,
+    /// What each suit shows sensors, how far its own reach, and what it designates (`NO_SLOT`:
+    /// nothing), this tick: the sensor model's answers, found once a suit rather than once a pair.
+    sights: Box<[Sight]>,
+    reach: Box<[f32]>,
+    designates: Box<[u16]>,
+    /// How much of what it could send a client is sent this tick, 0.2 to 1: the budget and the
+    /// suits listed scale with it ([`pace_after`]).
+    pub pace: f32,
     /// Suit records written this tick, their bits, and how many were deltas.
     pub records: u64,
     pub record_bits: u64,
@@ -122,6 +138,10 @@ impl Work {
             missiles: boxed(MAX_MISSILES, (0.0, 0)),
             chunk_pos: boxed(MAX_CHUNKS, Vec3::ZERO),
             qs: boxed(max_suits, QEntity::default()),
+            sights: boxed(max_suits, Sight::default()),
+            reach: boxed(max_suits, 0.0),
+            designates: boxed(max_suits, NO_SLOT),
+            pace: 1.0,
             records: 0,
             record_bits: 0,
             deltas: 0,
@@ -136,6 +156,9 @@ impl Work {
         }
         for j in sim.suits.used.iter() {
             self.qs[j] = QEntity::quantize(&sim.entity_state_watched(j));
+            self.sights[j] = sim.sight(j);
+            self.reach[j] = sim.sensor_reach(j);
+            self.designates[j] = sim.designation(j).map_or(NO_SLOT, |t| t as u16);
         }
         self.records = 0;
         self.record_bits = 0;
@@ -243,6 +266,27 @@ fn object_candidates(
     n
 }
 
+/// A tick may take this share of its period before replication sends less (Gates' degradation
+/// ladder: what's sent shrinks before the tick overruns), and under this one it sends more again.
+const PACE_HIGH: f32 = 0.5;
+const PACE_LOW: f32 = 0.3;
+/// The least of what it could send a client is sent: a fifth (still more suits than whole records
+/// fit in a datagram).
+const PACE_MIN: f32 = 0.2;
+
+/// The pace after a tick that took `spent_us`: down a fifth when the tick took more than
+/// [`PACE_HIGH`] of its period, up a twentieth when under [`PACE_LOW`].
+pub(crate) fn pace_after(pace: f32, spent_us: u64) -> f32 {
+    let load = spent_us as f32 * bc_sim::TICK_HZ as f32 / 1e6;
+    if load > PACE_HIGH {
+        (pace * 0.8).max(PACE_MIN)
+    } else if load < PACE_LOW {
+        (pace * 1.05).min(1.0)
+    } else {
+        pace
+    }
+}
+
 /// What [`build_snapshot`] wrote: the datagram's length, and how far down the client's sorted
 /// suits it got (`next` of `top`), for a tick's further parts ([`build_more`]).
 pub(crate) struct Built {
@@ -272,14 +316,16 @@ pub(crate) fn build_snapshot(
 
     // --- Interest: update the known set first so fresh Leave notices go out in this snapshot. ---
     let candidates = &mut work.entities;
+    let (reach, me_designates) = (work.reach[me], work.designates[me]);
     let mut n_cand = 0;
     for j in sim.suits.used.iter() {
         if j == me {
             continue;
         }
-        if sim.visible_to(me, j) {
+        if sim.visible_by(me, reach, j, &work.sights[j]) {
             let fresh = !client.known.get(j);
-            client.prio[j] += weight(sim, me, j) + if fresh { 10.0 } else { 0.0 };
+            let w = weight_with(sim, me, j, me_designates, work.designates[j]);
+            client.prio[j] += w + if fresh { 10.0 } else { 0.0 };
             if n_cand < candidates.len() {
                 candidates[n_cand] = (client.prio[j], j as u16);
                 n_cand += 1;
@@ -368,7 +414,7 @@ pub(crate) fn build_snapshot(
     // --- Entities, highest priority first. ---
     let cand = &mut work.entities[..n_cand];
     // As many as a tick's parts could hold, deltas of still suits being 30 bits.
-    let top_n = 96 * usize::from(client.max_parts.max(1));
+    let top_n = ((96 * usize::from(client.max_parts.max(1))) as f32 * work.pace) as usize;
     if cand.len() > top_n {
         cand.select_nth_unstable_by(top_n, |a, b| b.0.total_cmp(&a.0));
     }

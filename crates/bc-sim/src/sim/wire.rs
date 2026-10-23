@@ -32,6 +32,18 @@ impl Sim {
 
     /// Whether `viewer`'s sensors pick up suit `j` (alive or a fresh wreck).
     pub fn visible_to(&self, viewer: usize, j: usize) -> bool {
+        self.showing(viewer, j) && self.detects(viewer, j)
+    }
+
+    /// [`Sim::visible_to`], from `viewer`'s sensors' reach and `j`'s sight found already (a tick's
+    /// replication finds them once a suit: `Sim::sensor_reach`, `Sim::sight`).
+    pub fn visible_by(&self, viewer: usize, reach: f32, j: usize, sight: &super::Sight) -> bool {
+        self.showing(viewer, j) && self.detects_by(viewer, reach, j, sight)
+    }
+
+    /// Whether suit `j` is there to be seen by `viewer` at all: in use, not the viewer itself, and
+    /// not a wreck gone.
+    fn showing(&self, viewer: usize, j: usize) -> bool {
         let s = &self.suits;
         if !s.used.get(j) || j == viewer {
             return false;
@@ -51,7 +63,7 @@ impl Sim {
                 return false;
             }
         }
-        self.detects(viewer, j)
+        true
     }
 
     /// Full-precision state of suit `i` for its own pilot. On a body it is the state the suit moves

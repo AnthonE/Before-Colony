@@ -712,6 +712,8 @@ impl StatusView {
             "entity_bits": l(&m.entity_bits),
             "entity_deltas": l(&m.entity_deltas),
             "extra_parts": l(&m.extra_parts),
+            // Under 100 while ticks run hot: the share of what it could send a pilot is sent.
+            "pace_pct": l(&m.pace_pct),
         });
         serde_json::json!({
             "tick": s.tick.load(Ordering::Acquire),
