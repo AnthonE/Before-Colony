@@ -10,9 +10,10 @@
 //!   plates of its back on top; the abdomen and the waist behind; a machine cannon turned forward
 //!   at each of the chest's front corners as the nose guns.
 //! - The wings: each binder's arm reaches forward along the back to its hinge over the arm, and its
-//!   plated wing lies flat, its pointed foot out and swept back, its blue tip and the smaller plate
-//!   inboard; under each wing's leading edge the arm reaches out from the shoulder at the root, its
-//!   swept top forward, the forearm folded back at the elbow, the fist tucked in behind.
+//!   wing lies flat, swept back: the lower section's plates fanned out along the span to their yellow
+//!   points, the upper section's blue and red plates laid over them and swept back; under each
+//!   wing's leading edge the arm reaches out from the shoulder at the root, its wedge forward, the
+//!   forearm folded back at the elbow, the fist tucked in behind.
 //! - The tail: the legs drawn back and raised a little from the hips, the shins slid up over the
 //!   thighs, the red feet turned to trail behind, soles down, their verniers quiet.
 //! - The pack rides the back behind the chest, its two main thrusters turned to fire astern.
@@ -24,9 +25,13 @@ use std::f32::consts::{FRAC_PI_2, PI};
 use glam::{Affine3A, Mat3, Quat, Vec2, Vec3};
 
 use crate::altair::{
-    HEEL_SOLE, HINGE, TOE_SOLE, abdomen, backpack, binder, buster, chest, fist, forearm, head, heel,
+    Fold, HEEL_SOLE, HINGE, TOE_SOLE, abdomen, backpack, binder, buster, chest, fist, forearm, head, heel,
     quiet_sole, shield, shin, shoulder_armour, thigh, toe_cap, upper_arm, waist, wing_plane,
 };
+
+/// In flight each wing's sections both reach out along the span, the upper laid over the lower
+/// and swept back from it.
+const SPREAD: Fold = Fold { upper: 2.65, lower: 0.0 };
 use crate::detail::band;
 use crate::frames::{BODY, FRAME, GUN, TRIM, at, j, nozzle, place, rx, ry, sided, sp, v, v2};
 use crate::rig::{Bone, Side};
@@ -175,7 +180,8 @@ pub(crate) fn aquila(d: &mut Designer) {
 
         // The binders' arms forward along the back, their wings spread flat over the arms.
         let (arm, wing) = spread();
-        binder(&mut d.on(s.pick(Bone::WingL, Bone::WingR)), s, on_side(s, arm), on_side(s, wing));
+        let bone = s.pick(Bone::WingL, Bone::WingR);
+        binder(&mut d.on(bone), s, on_side(s, arm), on_side(s, wing), SPREAD);
     }
 
     // The pack on the back, its main thrusters turned to fire astern.

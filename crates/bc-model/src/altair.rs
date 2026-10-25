@@ -1,5 +1,5 @@
-//! PX-00 Altair, the colonies' hero suit, after its first design: plated wing binders rising
-//! behind the shoulders, huge sweeping shoulders, a broad blue chest with its great green sensor,
+//! PX-00 Altair, the colonies' hero suit, after its first design: layered wing binders rising
+//! behind the shoulders, huge wedged shoulders, a broad blue chest with its green sensor,
 //! a narrow waist, long angular legs flaring to red feet, and the Twin Buster Rifle, two rifles
 //! clamped together, as long as the leg. Built as a model kit of its design is. Part by part:
 //!
@@ -8,35 +8,40 @@
 //!   each of its own swept back out of a red crest with its green camera, a white mask with two
 //!   vents over the red chin, cheek guards either side and a round ear on each side;
 //! - a broad blue chest in two tiers, the lower swelling forward and coming down to a point over
-//!   the abdomen, the upper leaning back to the collar: the great round sensor in its middle, its
-//!   green glass domed in a yellow ring; a yellow louvred vent either side high up, red plates down
+//!   the abdomen, the upper leaning back to the collar: the round sensor in its middle, a blue
+//!   housing round a yellow ring with the green glass deep in it; a yellow louvred vent either side
+//!   high up, red plates down
 //!   its lower flanks, a white gorget under the chin and the collar round the back of the neck;
 //!   blue plates down the back beside the pack;
-//! - the shoulders: wide white blocks, their tops sweeping up and out under a blue cap that runs
-//!   out to a red point, a red plate across the front holding the big round yellow hatch with the
-//!   machine cannon's muzzle in its middle, a plate with a blue inset on the outer face, and the
-//!   running lights at the outer front corners;
+//! - the shoulders: white wedges sweeping up and out to a point at the outer top, the blue cap
+//!   along the rising top; the front faces forward and out, the red panel across it holding the big
+//!   round yellow hatch with the machine cannon's muzzle in its middle; a raised plate with a blue
+//!   inset down the slanting outer face, and the running lights at the outer front corners;
 //! - white upper arms with a raised ring; heavy gauntlets with blue cuffs, a blue panel outside
 //!   and a guard over the elbow; grey fists;
 //! - the abdomen's white plates on the grey frame, red down its sides; a white belt with its red
 //!   buckle, the blue crotch with its red V, and the white skirts: front, side and rear;
 //! - long, angular legs, armour plated over lofted cores: slim thighs with two plates down the
 //!   front, broken above the knee, a dark vent high on them, and a plate down the outside; a sharp
-//!   knee guard rising to a point with a grey panel in its face; the lower legs slim under the knee
-//!   and flaring broad to the ankle, plated down the front in two, down the outside (a grey vent in
-//!   it) and down the calf, a dark slot over the foot; and the red feet: a tall heel with a spur up
+//!   knee guard rising to a point with a grey panel in its face and an angular cheek down each side;
+//!   the lower legs slim under the knee and flaring broad to the ankle, plated down the front in two,
+//!   down the outside (a grey vent in it) and down the calf, an angular plate stepping out of either
+//!   side of the flare, a chevron and a dark slot over the foot; and the red feet: a tall heel with a
+//!   spur up
 //!   its back, the instep falling to the toes' hinge, the toe cap on its own bone with a white plate
 //!   along it, and under both the soles with a vernier under the heel and under the toes;
 //! - the pack on the back, its two thrusters under a grey skirt and a grille in its top, and on its
 //!   top corners the wing binders ([`Bone::WingL`], [`Bone::WingR`], which the client flares on
 //!   boost): each a white arm up and out to a grey hinge behind the shoulder's top, a pair of
-//!   thruster bells at its root, and the wing hanging from the hinge in solid plates stepping like a
-//!   folded wing: the main wing, its top sweeping up and out to a blue tip over a red band, high
-//!   beside the head, a raised plate down its middle with a vent in it and a red stripe down its
-//!   leading edge, falling to a point by the knee; and the smaller plate stepping out behind it,
-//!   edged in blue;
+//!   thruster bells at its root, and the wing bent at the hinge into two sections, each a thick spar
+//!   along its leading edge and angular plates stepped behind it, each tapering to its own point and
+//!   fanned back from the one before, as a folded wing's are: the upper section sweeping up and out
+//!   past the shoulder in a V, its spar and its leading plate blue toward their points over a red
+//!   band; the lower hanging back toward the knee in three plates, the leading one with a red panel,
+//!   a vent and a yellow point, the next edged blue, the last panelled grey;
 //! - the Twin Buster Rifle, held as [`crate::hold`] has it: two complete rifles side by side, each
-//!   a long grey receiver banded yellow with a light deck along its top, its energy cartridge riding
+//!   a bulky grey body with a yellow strip along its side, a yellow band at its front and a light
+//!   deck along its top, its energy cartridge riding
 //!   high over its rear (over the forearm at the ready, ahead of the wrist carried), a shroud, a long
 //!   round barrel and a stepped muzzle; light brackets clamp them together between the receivers,
 //!   between the cartridges and round the barrels, the grip and its guard under the join. It is as
@@ -56,7 +61,7 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 use glam::{Affine3A, Mat3, Quat, Vec2, Vec3};
 
-use crate::detail::{GREY, band, slot, toward};
+use crate::detail::{GREY, band, slot, swap_x, toward};
 use crate::frames::{
     ACCENT, BODY, EYE, FRAME, GUN, SOLE, STEEL, Sole, THROAT, TRIM, YELLOW, along, at, boot, j, nozzle,
     place, rx, ry, rz, sided, sole, sp, v, v2,
@@ -95,7 +100,7 @@ pub(crate) fn altair(d: &mut Designer) {
         let x = j(Bone::FootR).x;
         sole(d, foot, s, x, HEEL_SOLE);
         sole(d, toe, s, x, TOE_SOLE);
-        binder(&mut d.on(s.pick(Bone::WingL, Bone::WingR)), s, rest, rest);
+        binder(&mut d.on(s.pick(Bone::WingL, Bone::WingR)), s, rest, rest, FOLDED);
     }
     backpack(&mut d.on(Bone::Backpack), rest);
     for s in Side::BOTH {
@@ -346,13 +351,15 @@ pub(crate) fn chest(c: &mut On<'_>, xf: Affine3A) {
         c.block(v(0.9, 2.0, 0.34), v2(0.85, 0.85), Vec2::ZERO, 0.14, TRIM, plate);
         slot(c, 0.5, plate * at(0.15, 0.2, -0.18) * Affine3A::from_rotation_y(PI));
     }
-    // The sensor: a blue housing, a yellow ring and the green glass domed in it.
+    // The sensor: a blue housing standing out of the plate, the yellow ring set in it standing
+    // proud of the green glass, which lies deep in a dark recess.
     let face = xf * place(SENSOR, rx(FRAC_PI_2));
-    c.lathe(&[(0.0, -0.1), (0.98, -0.1), (1.0, 0.08), (0.9, 0.14), (0.0, 0.14)], 28, TRIM, face);
-    c.lathe(&band(0.6, 0.82, 0.08, 0.24), 28, YELLOW, face);
-    c.cylinder(0.62, 0.1, 24, FRAME, face * at(0.0, 0.16, 0.0));
-    let dome = [(0.0, 0.16), (0.58, 0.16), (0.55, 0.28), (0.44, 0.4), (0.24, 0.48), (0.0, 0.5)];
-    c.lathe(&dome, 24, EYE, face);
+    let housing = [(0.0, -0.12), (0.64, -0.12), (0.68, 0.1), (0.62, 0.22), (0.5, 0.24), (0.0, 0.24)];
+    c.lathe(&housing, 24, TRIM, face);
+    c.lathe(&band(0.36, 0.49, 0.16, 0.32), 24, YELLOW, face);
+    c.cylinder(0.37, 0.08, 20, FRAME, face * at(0.0, 0.2, 0.0));
+    let dome = [(0.0, 0.2), (0.34, 0.2), (0.31, 0.25), (0.21, 0.29), (0.0, 0.3)];
+    c.lathe(&dome, 20, EYE, face);
     // The gorget across the chest's top under the chin, and the collar round the back of the neck.
     c.block(v(1.7, 0.36, 0.7), v2(0.9, 0.8), Vec2::ZERO, 0.08, BODY, xf * at(0.0, 5.92, 0.68));
     let (from, to) = (FRAC_PI_2 + 0.8, FRAC_PI_2 - 0.8 + TAU);
@@ -425,71 +432,59 @@ pub(crate) fn waist(w: &mut On<'_>, xf: Affine3A) {
 
 // --- Shoulders and arms. ---
 
-/// The shoulder armour's block (right side): its corners, inside and out, foot and top, back and
-/// front. Wide, its top sweeping up toward its outer end.
-const SHOULDER: [(f32, f32, f32); 8] = [
-    (2.45, 3.85, -1.3),
-    (5.1, 3.95, -1.3),
-    (2.45, 5.95, -1.3),
-    (5.1, 6.85, -1.3),
-    (2.45, 3.85, 1.2),
-    (5.1, 3.95, 1.2),
-    (2.45, 5.95, 1.2),
-    (5.1, 6.85, 1.2),
-];
+/// The shoulder armour's wedge (right side), in front view: the body's foot inside and out, its
+/// outer face slanting out as it rises, and the top rising outward to the point at its outer top.
+const SHOULDER_BODY: [Vec2; 4] = [p2(2.45, 3.85), p2(4.75, 3.85), p2(5.3, 5.45), p2(2.45, 5.45)];
+const SHOULDER_TOP: [Vec2; 4] = [p2(2.45, 5.45), p2(5.3, 5.45), p2(5.48, 7.12), p2(2.45, 6.0)];
+/// Its back, and its front at its inner side and how far back the front falls per metre out: the
+/// front faces forward and out.
+const SHOULDER_BACK: f32 = -1.3;
+const SHOULDER_FRONT: (f32, f32) = (1.3, 0.28);
+/// Where the round hatch over the machine cannon sits on the shoulder's front (right side), in
+/// front view.
+const HATCH: Vec2 = p2(3.55, 5.4);
 
-/// The height of the shoulder's top at `x` out (right side), sweeping up outward.
-fn shoulder_top(x: f32) -> f32 {
-    5.95 + (x - 2.45) * 0.9 / 2.65
+/// The shoulder's front at `x` out (right side).
+fn shoulder_front(x: f32) -> f32 {
+    SHOULDER_FRONT.0 - SHOULDER_FRONT.1 * (x - 2.45)
 }
 
-/// Where the round hatch over the machine cannon sits on the shoulder's front (right side).
-const HATCH: Vec3 = Vec3::new(3.55, 5.55, 1.34);
+/// A block between the shoulder's back and its front plus `lift`, through `quad` in front view
+/// (in order round it: foot inside, foot outside, top outside, top inside).
+fn shoulder_block(quad: [Vec2; 4], back: f32, lift: f32) -> [Vec3; 8] {
+    let [a, b, d, c] = quad;
+    let front = |p: Vec2| shoulder_front(p.x) + lift;
+    [
+        a.extend(back),
+        b.extend(back),
+        c.extend(back),
+        d.extend(back),
+        a.extend(front(a)),
+        b.extend(front(b)),
+        c.extend(front(c)),
+        d.extend(front(d)),
+    ]
+}
 
-/// The shoulder armour on side `s` at `xf`: the wide white block, its top sweeping up and out under
-/// a blue cap that runs out to a red point; a red plate across its front holding the big round
-/// yellow hatch, the machine cannon's muzzle in its middle; a plate on its outer face with a blue
-/// inset; a running light at its outer front corner; and the grey socket into the chest.
+/// The shoulder armour on side `s` at `xf`: a white wedge sweeping up and out to a point at its
+/// outer top, the blue cap along its rising top; across its front, which faces forward and out, the
+/// red panel holding the big round yellow hatch with the machine cannon's muzzle in its middle; a
+/// raised plate down its slanting outer face; a running light at its outer front corner; and the
+/// grey socket into the chest.
 pub(crate) fn shoulder_armour(o: &mut On<'_>, s: Side, xf: Affine3A) {
     o.seed(0.24 + s.pick(0.0, 0.4));
     let flat = xf * sided(s, Affine3A::IDENTITY);
-    o.hexa(hexa_of(SHOULDER), 0.32, BODY, flat);
-    // The blue cap over the swept top, overhanging it, and the red point at its outer end.
-    let (a, b) = (2.55, 5.3);
-    let cap = [
-        v(a, shoulder_top(a) - 0.1, -1.42),
-        v(b, shoulder_top(b) - 0.1, -1.42),
-        v(a, shoulder_top(a) + 0.24, -1.42),
-        v(b, shoulder_top(b) + 0.24, -1.42),
-        v(a, shoulder_top(a) - 0.1, 1.34),
-        v(b, shoulder_top(b) - 0.1, 1.34),
-        v(a, shoulder_top(a) + 0.24, 1.34),
-        v(b, shoulder_top(b) + 0.24, 1.34),
-    ];
-    o.hexa(cap, 0.1, TRIM, flat);
-    let point = [
-        v2(4.8, shoulder_top(4.8) - 0.12),
-        v2(5.38, 6.45),
-        v2(5.45, 7.22),
-        v2(5.1, shoulder_top(5.1) + 0.3),
-        v2(4.8, shoulder_top(4.8) + 0.26),
-    ];
-    o.extrude(&point, 0.5, ACCENT, flat * at(0.0, 0.0, 1.0));
-    o.extrude(&point, 0.36, TRIM, flat * at(0.0, 0.0, -1.1));
-    // The red plate across the front, along the swept top, and the hatch on it.
-    let (a, b) = (2.7, 5.0);
-    let front = [
-        v(a, shoulder_top(a) - 1.5, 1.16),
-        v(b, shoulder_top(b) - 1.5, 1.16),
-        v(a, shoulder_top(a) - 0.14, 1.16),
-        v(b, shoulder_top(b) - 0.14, 1.16),
-        v(a, shoulder_top(a) - 1.5, 1.36),
-        v(b, shoulder_top(b) - 1.5, 1.36),
-        v(a, shoulder_top(a) - 0.14, 1.36),
-        v(b, shoulder_top(b) - 0.14, 1.36),
-    ];
-    o.hexa(front, 0.05, ACCENT, flat);
-    let hatch = flat * place(HATCH, rx(FRAC_PI_2));
+    o.hexa(shoulder_block(SHOULDER_BODY, SHOULDER_BACK, 0.0), 0.3, BODY, flat);
+    o.hexa(shoulder_block(SHOULDER_TOP, SHOULDER_BACK, 0.0), 0.18, BODY, flat);
+    // The blue cap along the rising top, from the inner edge out to the point, overhanging it.
+    let cap = [p2(2.4, 5.92), p2(5.36, 7.0), p2(5.45, 7.22), p2(2.4, 6.24)];
+    o.hexa(shoulder_block(cap, SHOULDER_BACK - 0.08, 0.06), 0.08, TRIM, flat);
+    // The red panel across the front, under the cap, and the hatch on it.
+    let panel = [p2(2.6, 4.5), p2(4.95, 4.5), p2(5.22, 6.86), p2(2.6, 5.86)];
+    let (lo, hi) = (shoulder_block(panel, 0.0, -0.04), shoulder_block(panel, 0.0, 0.12));
+    o.hexa([lo[4], lo[5], lo[6], lo[7], hi[4], hi[5], hi[6], hi[7]], 0.04, ACCENT, flat);
+    let n = v(SHOULDER_FRONT.1, 0.0, 1.0).normalize();
+    let hatch = flat * place(v(HATCH.x, HATCH.y, shoulder_front(HATCH.x) + 0.1), toward(n));
     o.lathe(&[(0.0, 0.0), (0.62, 0.0), (0.64, 0.06), (0.6, 0.14), (0.0, 0.14)], 24, YELLOW, hatch);
     o.lathe(&band(0.4, 0.5, 0.12, 0.17), 20, FRAME, hatch);
     o.lathe(&[(0.0, 0.12), (0.38, 0.12), (0.36, 0.2), (0.0, 0.22)], 20, YELLOW, hatch);
@@ -497,13 +492,15 @@ pub(crate) fn shoulder_armour(o: &mut On<'_>, s: Side, xf: Affine3A) {
     // The machine cannon's muzzle, out of the hatch's middle.
     o.cylinder(0.12, 0.36, 10, GUN, hatch * at(0.0, 0.36, 0.0));
     o.cylinder(0.08, 0.04, 8, FRAME, hatch * at(0.0, 0.55, 0.0));
-    // The outer face's raised plate and its blue inset.
-    o.cube(v(0.2, 2.0, 2.0), 0.08, BODY, flat * at(5.16, 5.05, -0.05));
-    o.cube(v(0.1, 1.0, 0.8), 0.03, TRIM, flat * at(5.28, 4.9, -0.35));
-    slot(o, 0.8, flat * place(v(5.27, 5.0, 0.5), ry(FRAC_PI_2)));
-    slot(o, 1.2, flat * place(v(3.9, 4.3, 1.21), rz(FRAC_PI_2)));
+    // The raised plate down the slanting outer face, a blue inset in it.
+    let slant = (5.3f32 - 4.75).atan2(5.45 - 3.85);
+    let outer = flat * place(v(5.08, 4.62, -0.25), rz(slant));
+    o.cube(v(0.18, 1.5, 1.7), 0.06, BODY, outer);
+    o.cube(v(0.08, 0.8, 0.7), 0.03, TRIM, outer * at(0.1, -0.1, -0.3));
+    slot(o, 0.7, outer * at(0.1, 0.0, 0.45) * Affine3A::from_rotation_y(FRAC_PI_2));
+    slot(o, 1.2, flat * place(v(3.6, 4.2, shoulder_front(3.6) + 0.01), rz(FRAC_PI_2)));
     // A running light: red on the suit's own left (+x), green on its right.
-    let nav = flat * at(4.85, 6.4, 1.25);
+    let nav = flat * place(v(5.0, 5.6, shoulder_front(5.0) + 0.06), ry(0.27));
     o.cube(v(0.34, 0.16, 0.2), 0.03, GUN, nav);
     let lamp = Paint::Light(s.pick(Light::Starboard, Light::Port));
     o.sphere(0.12, 6, lamp, nav * at(0.0, 0.06, 0.08) * Affine3A::from_scale(v(1.0, 0.6, 1.0)));
@@ -717,6 +714,43 @@ pub(crate) fn shin(m: &mut On<'_>, s: Side, xf: Affine3A) {
     let tilt = (0.22f32 / 2.1).atan();
     let panel = guard * place(v(0.0, -0.2, 1.36), rx(-tilt));
     m.block(v(0.56, 1.1, 0.12), v2(0.7, 1.0), Vec2::ZERO, 0.03, GREY, panel);
+    // The guard's cheeks: an angular plate down each side of it, sweeping back from its face.
+    for side in [-1.0f32, 1.0] {
+        let cheek = hexa_of([
+            (0.62, -0.95, 0.45),
+            (0.82, -0.95, 0.45),
+            (0.52, 0.85, 0.36),
+            (0.68, 0.85, 0.36),
+            (0.62, -0.95, 1.3),
+            (0.82, -0.95, 1.12),
+            (0.52, 0.85, 1.08),
+            (0.68, 0.85, 0.92),
+        ]);
+        let cheek = if side > 0.0 { cheek } else { swap_x(cheek.map(|p| v(-p.x, p.y, p.z))) };
+        m.hexa(cheek, 0.06, BODY, guard);
+    }
+    // The flare's armour: an angular plate stepping out of the outside and of the inside over the
+    // ankle, and a chevron across the front over the foot.
+    for (x, w) in [(1.46f32, 0.2), (-1.3, 0.16)] {
+        let sx = x.signum();
+        let flare = hexa_of([
+            (x - sx * 0.02, 0.15, -0.9),
+            (x + sx * w, 0.15, -0.9),
+            (x - sx * 0.22, 1.9, -0.7),
+            (x + sx * (w - 0.22), 1.9, -0.7),
+            (x - sx * 0.02, 0.15, 0.95),
+            (x + sx * w, 0.15, 0.95),
+            (x - sx * 0.22, 1.9, 0.5),
+            (x + sx * (w - 0.22), 1.9, 0.5),
+        ]);
+        let flare = if sx > 0.0 { flare } else { swap_x(flare) };
+        m.hexa(flare, 0.08, BODY, tube);
+    }
+    for side in [-1.0f32, 1.0] {
+        let arm = [p2(0.04, 1.05), p2(0.86, 0.45), p2(0.86, 0.7), p2(0.04, 1.3)];
+        let arm: Vec<Vec2> = arm.iter().map(|p| p2(p.x * side, p.y)).collect();
+        m.extrude(&arm, 0.1, BODY, tube * place(v(0.0, 0.0, 1.74), rx(0.04)));
+    }
 }
 
 /// How far a foot's sides lean in, per metre up.
@@ -840,68 +874,118 @@ pub(crate) fn wing_plane() -> Affine3A {
     Affine3A::from_mat3_translation(Mat3::from_cols(chord, Vec3::Y, chord.cross(Vec3::Y)), HINGE)
 }
 
-/// The wing's outline, in its frame (x out along the chord from the leading edge, y up from the
-/// hinge): its top sweeping up and out to a tip high beside the head, the trailing edge stepping
-/// down from it, the leading edge straight down to a pointed foot by the knee.
-const WING: [Vec2; 10] = [
-    Vec2::new(0.0, 1.2),
-    Vec2::new(0.0, -6.6),
-    Vec2::new(0.5, -8.4),
-    Vec2::new(1.75, -6.0),
-    Vec2::new(2.55, -2.6),
-    Vec2::new(2.7, 0.5),
-    Vec2::new(3.1, 1.6),
-    Vec2::new(2.85, 4.1),
-    Vec2::new(2.3, 3.8),
-    Vec2::new(0.9, 2.2),
+/// How a binder's wing is folded: how far its upper and its lower section each turn in the wing's
+/// plane, from straight up (and down) toward its chord, rad.
+#[derive(Clone, Copy)]
+pub(crate) struct Fold {
+    pub upper: f32,
+    pub lower: f32,
+}
+
+/// At rest: the upper section sweeping up and out past the shoulder in a V, the lower hanging
+/// back toward the knee.
+const FOLDED: Fold = Fold { upper: 0.75, lower: -0.17 };
+
+/// A wing's section in `plane` (the wing's frame placed): turned `tilt` in the plane from its up
+/// toward its chord, then fanned `fan` about its own axis, its chord swinging back behind the
+/// plates before it.
+fn section(plane: Affine3A, tilt: f32, fan: f32) -> Affine3A {
+    plane * Affine3A::from_rotation_z(-tilt) * Affine3A::from_rotation_y(fan)
+}
+
+/// A plate in `xf`'s x-y plane through the corners of `quad` (convex, in order round it), as deep
+/// as `thick.0 + thick.1 · p` at each point `p` of it (centred on the plane, so its faces stay
+/// flat), its edges cut: the wings' plates, thinning as they run out.
+fn slab(o: &mut On<'_>, quad: [Vec2; 4], thick: (f32, Vec2), chamfer: f32, paint: Paint, xf: Affine3A) {
+    let [a, b, d, c] = quad;
+    let at_ = |p: Vec2, side: f32| p.extend(side * 0.5 * (thick.0 + thick.1.dot(p)));
+    let corners = [
+        at_(a, -1.0),
+        at_(b, -1.0),
+        at_(c, -1.0),
+        at_(d, -1.0),
+        at_(a, 1.0),
+        at_(b, 1.0),
+        at_(c, 1.0),
+        at_(d, 1.0),
+    ];
+    o.hexa(corners, chamfer, paint, xf);
+}
+
+/// A panel of `paint` laid on a plate's outer face (`thick` as for [`slab`]), or on its inner face
+/// if `inner`.
+fn skin(o: &mut On<'_>, outline: &[Vec2], thick: (f32, Vec2), inner: bool, paint: Paint, xf: Affine3A) {
+    let mid = outline.iter().copied().sum::<Vec2>() / outline.len() as f32;
+    let face = 0.5 * (thick.0 + thick.1.dot(mid)) + 0.025;
+    o.extrude(outline, 0.08, paint, xf * at(0.0, 0.0, if inner { -face } else { face }));
+}
+
+/// A wing plate: its corners (in its section's plane: x out along the chord from the leading
+/// edge, y along the section), how deep it is, and where it lies behind the plate before it and
+/// how far it fans back from it.
+struct Plate {
+    quad: [Vec2; 4],
+    thick: (f32, Vec2),
+    offset: Vec3,
+    fan: f32,
+}
+
+const fn p2(x: f32, y: f32) -> Vec2 {
+    Vec2::new(x, y)
+}
+
+/// The spar along each section's leading edge, thick, thinning toward its end.
+const SPAR_UP: [Vec2; 4] = [p2(-0.12, -0.6), p2(0.52, -0.6), p2(0.44, 4.9), p2(0.0, 5.4)];
+const SPAR_LOW: [Vec2; 4] = [p2(-0.12, 0.6), p2(0.52, 0.6), p2(0.46, -7.4), p2(0.02, -7.9)];
+/// The upper section's plates: the leading one tapering to a point beside the spar's tip, a
+/// shorter one stepped out behind it.
+const UPPER: [Plate; 2] = [
+    Plate {
+        quad: [p2(0.3, -0.3), p2(2.7, 0.1), p2(1.05, 4.7), p2(0.36, 5.15)],
+        thick: (0.42, p2(0.0, -0.02)),
+        offset: Vec3::ZERO,
+        fan: 0.0,
+    },
+    Plate {
+        quad: [p2(0.2, -0.2), p2(2.9, 0.2), p2(1.7, 3.5), p2(0.55, 3.9)],
+        thick: (0.32, p2(0.0, -0.02)),
+        offset: Vec3::new(0.5, -0.7, -0.32),
+        fan: 0.3,
+    },
 ];
-/// The blue tip over the hinge, the red band under it, a raised plate down the wing's middle, the
-/// red stripe down the leading edge, and the smaller plate that steps out behind the wing, inside
-/// it.
-const WING_TIP: [Vec2; 7] = [
-    Vec2::new(0.08, 1.15),
-    Vec2::new(0.08, 0.75),
-    Vec2::new(3.04, 1.62),
-    Vec2::new(2.82, 3.98),
-    Vec2::new(2.32, 3.68),
-    Vec2::new(0.92, 2.1),
-    Vec2::new(0.4, 1.55),
+/// The lower section's plates: the long leading one down to a point by the knee, and two shorter
+/// ones stepped out behind it, each fanned back further.
+const LOWER: [Plate; 3] = [
+    Plate {
+        quad: [p2(0.3, 0.5), p2(2.6, 0.2), p2(1.35, -6.4), p2(0.4, -8.6)],
+        thick: (0.44, p2(0.0, 0.012)),
+        offset: Vec3::ZERO,
+        fan: 0.0,
+    },
+    Plate {
+        quad: [p2(0.2, 0.3), p2(2.95, 0.0), p2(1.9, -5.3), p2(0.7, -6.6)],
+        thick: (0.32, p2(0.0, 0.01)),
+        offset: Vec3::new(0.55, -0.9, -0.34),
+        fan: 0.32,
+    },
+    Plate {
+        quad: [p2(0.1, 0.2), p2(2.6, -0.3), p2(1.7, -4.1), p2(0.6, -4.9)],
+        thick: (0.26, p2(0.0, 0.01)),
+        offset: Vec3::new(1.0, -1.5, -0.62),
+        fan: 0.6,
+    },
 ];
-const WING_BAND: [Vec2; 4] =
-    [Vec2::new(0.08, 0.58), Vec2::new(2.95, 1.42), Vec2::new(2.88, 1.02), Vec2::new(0.08, 0.18)];
-const WING_PLATE: [Vec2; 5] = [
-    Vec2::new(0.95, -0.2),
-    Vec2::new(2.45, 0.2),
-    Vec2::new(2.35, -2.6),
-    Vec2::new(1.6, -5.4),
-    Vec2::new(0.95, -4.8),
-];
-const WING_STRIPE: [Vec2; 5] = [
-    Vec2::new(0.06, -1.0),
-    Vec2::new(0.75, -1.1),
-    Vec2::new(0.75, -5.0),
-    Vec2::new(0.48, -6.8),
-    Vec2::new(0.06, -6.4),
-];
-const SUB_WING: [Vec2; 6] = [
-    Vec2::new(0.0, 0.0),
-    Vec2::new(1.9, -0.2),
-    Vec2::new(2.2, -1.6),
-    Vec2::new(1.6, -5.0),
-    Vec2::new(0.6, -6.3),
-    Vec2::new(0.0, -5.0),
-];
-/// The main wing's and the smaller plate's thickness.
-const WING_DEPTH: f32 = 0.44;
-const SUB_DEPTH: f32 = 0.32;
 
 /// A wing binder on side `s`, its arm at `arm_xf` and its wing at `wing_xf` (each its rest place in
-/// the suit's frame): the arm up and out from the pivot on the pack to the hinge behind the
-/// shoulder's top, two thruster bells at its root; the grey hinge; and the wing hanging from it,
-/// solid plates stepping like a folded wing: the main wing, white, its blue tip rising over the
-/// shoulder, a red stripe down its leading edge and a vent high in its face, the smaller plate
-/// stepping out behind it with a blue edge.
-pub(crate) fn binder(o: &mut On<'_>, s: Side, arm_xf: Affine3A, wing_xf: Affine3A) {
+/// the suit's frame), folded as `fold` says: the arm up and out from the pivot on the pack to the
+/// hinge behind the shoulder's top, a pair of thruster bells at its root; the grey hinge; and the
+/// wing hanging from it, bent at the hinge into its two sections, each a thick spar along its
+/// leading edge and angular plates stepped behind it, each tapering to its own point and fanned back
+/// from the one before, as a folded wing's are. The upper section sweeps up and out past the
+/// shoulder, its leading plate blue toward its point over a red band; the lower hangs back toward
+/// the knee, a red panel and a vent in its leading plate, its point yellow, the plates behind it
+/// edged blue and panelled grey.
+pub(crate) fn binder(o: &mut On<'_>, s: Side, arm_xf: Affine3A, wing_xf: Affine3A, fold: Fold) {
     o.seed(0.55 + s.pick(0.0, 0.2));
     let root = j(Bone::WingR);
     let flat = arm_xf * sided(s, Affine3A::IDENTITY);
@@ -915,32 +999,75 @@ pub(crate) fn binder(o: &mut On<'_>, s: Side, arm_xf: Affine3A, wing_xf: Affine3
         bell(o, 0.3, arm * place(v(out - 0.2, up, -0.42), toward(v(0.1, -0.5, -0.86))));
     }
     let plane = wing_xf * sided(s, wing_plane());
-    o.cylinder(0.55, 1.0, 16, GREY, plane * place(v(0.3, 0.0, 0.0), rx(FRAC_PI_2)));
-    o.cylinder(0.3, 1.1, 12, BODY, plane * place(v(0.3, 0.0, 0.0), rx(FRAC_PI_2)));
-    let half = WING_DEPTH * 0.5;
-    o.extrude(&WING, WING_DEPTH, BODY, plane);
-    o.extrude(&WING_TIP, 0.1, TRIM, plane * at(0.0, 0.0, half + 0.02));
-    o.extrude(&WING_BAND, 0.1, ACCENT, plane * at(0.0, 0.0, half + 0.02));
-    o.extrude(&WING_STRIPE, 0.1, ACCENT, plane * at(0.0, 0.0, half + 0.02));
-    o.extrude(&WING_PLATE, 0.12, BODY, plane * at(0.0, 0.0, half + 0.03));
-    vent(o, 0.8, 0.7, 3, GREY, GREY, plane * at(1.7, -1.5, half + 0.1));
+    o.cylinder(0.6, 1.2, 16, GREY, plane * place(v(0.2, 0.0, -0.1), rx(FRAC_PI_2)));
+    o.cylinder(0.34, 1.3, 12, BODY, plane * place(v(0.2, 0.0, -0.1), rx(FRAC_PI_2)));
+    let (up, low) = (section(plane, fold.upper, 0.0), section(plane, fold.lower, 0.0));
+    let spar = (0.82, p2(0.0, -0.035));
+    slab(o, SPAR_UP, spar, 0.12, BODY, up);
+    skin(o, &[p2(-0.06, 1.6), p2(0.46, 1.6), p2(0.42, 4.9), p2(0.0, 5.3)], spar, false, TRIM, up);
+    slab(o, SPAR_LOW, (0.82, p2(0.0, 0.025)), 0.12, BODY, low);
+    // Each section's plates, stepped behind its spar and fanned back one after another.
+    let mut place_of = |base: Affine3A, plates: &[Plate]| -> Vec<Affine3A> {
+        let mut xf = base;
+        plates
+            .iter()
+            .map(|p| {
+                xf = xf * Affine3A::from_translation(p.offset) * Affine3A::from_rotation_y(p.fan);
+                slab(o, p.quad, p.thick, 0.1, BODY, xf);
+                xf
+            })
+            .collect()
+    };
+    let ups = place_of(up, &UPPER);
+    let lows = place_of(low, &LOWER);
+    // The upper leading plate: blue toward its point, a red band under the blue.
+    let t = UPPER[0].thick;
+    skin(o, &[p2(0.4, 2.5), p2(1.9, 2.3), p2(1.1, 4.55), p2(0.42, 4.95)], t, false, TRIM, ups[0]);
+    skin(o, &[p2(0.38, 1.75), p2(2.2, 1.4), p2(1.95, 2.2), p2(0.4, 2.42)], t, false, ACCENT, ups[0]);
+    skin(
+        o,
+        &[p2(0.7, 0.2), p2(2.2, 0.45), p2(1.5, 2.4), p2(0.75, 2.5)],
+        UPPER[1].thick,
+        false,
+        ACCENT,
+        ups[1],
+    );
+    // The lower leading plate: a red panel, a vent, its yellow point.
+    let t = LOWER[0].thick;
+    skin(o, &[p2(0.7, -0.5), p2(2.15, -0.7), p2(1.8, -3.4), p2(0.75, -3.3)], t, false, ACCENT, lows[0]);
+    skin(o, &[p2(0.42, -6.3), p2(1.3, -6.2), p2(0.93, -7.35), p2(0.45, -8.3)], t, false, YELLOW, lows[0]);
+    let face = 0.5 * (t.0 + t.1.y * -4.6) + 0.02;
+    vent(o, 0.55, 0.8, 3, GREY, GREY, lows[0] * at(1.05, -4.6, face));
+    // The plates behind: a blue edge down the next one's trailing side, grey inside the last.
+    let edge = [p2(2.6, -0.15), p2(2.9, -0.1), p2(1.95, -5.0), p2(1.68, -4.7)];
+    skin(o, &edge, LOWER[1].thick, false, TRIM, lows[1]);
+    let inner = [p2(0.5, -0.4), p2(2.0, -0.6), p2(1.5, -2.6), p2(0.6, -2.8)];
+    skin(o, &inner, LOWER[2].thick, false, GREY, lows[2]);
     o.greeble(|o| {
-        for (x, y, len, turn) in [(1.45, -3.4, 1.4, 0.0), (1.75, -2.6, 0.8, FRAC_PI_2), (1.0, -6.0, 1.0, 0.3)]
-        {
-            o.cube(v(0.07, len, 0.05), 0.0, FRAME, plane * place(v(x, y, half + 0.1), rz(turn)));
-        }
+        // Seams across the plates' outer faces, and down their inner faces.
+        let t = LOWER[0].thick;
+        let line = |o: &mut On<'_>, xf: Affine3A, p: Vec2, len: f32, turn: f32, inner: bool| {
+            let z = 0.5 * (t.0 + t.1.dot(p)) + 0.01;
+            o.cube(
+                v(0.07, len, 0.05),
+                0.0,
+                FRAME,
+                xf * place(p.extend(if inner { -z } else { z }), rz(turn)),
+            );
+        };
+        line(o, lows[0], p2(1.3, -5.3), 1.2, 0.2, false);
+        line(o, lows[0], p2(1.6, -2.0), 0.9, FRAC_PI_2 + 0.1, false);
+        line(o, ups[0], p2(1.0, 1.0), 1.0, 0.35, false);
+        line(o, lows[0], p2(1.2, -2.5), 3.0, 0.1, true);
+        line(o, ups[0], p2(1.0, 1.4), 1.8, 0.3, true);
     });
-    let sub = plane * at(0.8, -1.4, -(half + SUB_DEPTH * 0.5 + 0.12));
-    o.extrude(&SUB_WING, SUB_DEPTH, BODY, sub);
-    let edge = [v2(0.06, -0.3), v2(0.42, -0.36), v2(0.42, -4.6), v2(0.06, -4.9)];
-    o.extrude(&edge, 0.08, TRIM, sub * at(0.0, 0.0, -(SUB_DEPTH * 0.5 + 0.02)));
 }
 
 // --- The Twin Buster Rifle. ---
 
 /// The Twin Buster Rifle's two halves either side of the grip (x), and how high their barrels ride
 /// over it.
-const HALF_X: f32 = 0.56;
+const HALF_X: f32 = 0.62;
 const BORE_Y: f32 = 0.66;
 /// How high each half's energy cartridge rides over its barrel: over the forearm behind the fist
 /// at the ready ([`crate::hold`]), and ahead of it carried; and how far behind the grip it reaches.
@@ -957,13 +1084,11 @@ const MUZZLE: f32 = 9.0;
 /// the shroud, the long round barrel with a light collar and the stepped muzzle.
 pub(crate) fn buster(o: &mut On<'_>, out: f32, xf: Affine3A) {
     let along_z = |z: f32| xf * place(v(0.0, 0.0, z), rx(FRAC_PI_2));
-    o.block(v(0.8, 0.94, 4.3), v2(0.9, 0.88), Vec2::ZERO, 0.12, GUN, xf * at(0.0, 0.0, 2.3));
-    for z in [0.75, 3.95] {
-        o.cube(v(0.86, 0.98, 0.22), 0.03, YELLOW, xf * at(0.0, -0.02, z));
-    }
-    o.cube(v(0.54, 0.1, 2.6), 0.02, LIGHT, xf * at(0.0, 0.47, 2.35));
-    o.cube(v(0.08, 0.56, 2.4), 0.02, GREY, xf * at(out * 0.42, 0.0, 2.35));
-    o.cube(v(0.06, 0.14, 2.0), 0.0, YELLOW, xf * at(out * 0.46, -0.22, 2.35));
+    o.block(v(0.94, 1.2, 4.6), v2(0.92, 0.9), Vec2::ZERO, 0.14, GUN, xf * at(0.0, 0.0, 2.45));
+    o.cube(v(0.98, 1.24, 0.22), 0.03, YELLOW, xf * at(0.0, -0.01, 4.3));
+    o.cube(v(0.62, 0.1, 3.0), 0.02, LIGHT, xf * at(0.0, 0.6, 2.4));
+    o.cube(v(0.08, 0.66, 2.8), 0.02, GREY, xf * at(out * 0.49, 0.08, 2.35));
+    o.cube(v(0.1, 0.22, 3.8), 0.02, YELLOW, xf * at(out * 0.5, -0.38, 2.45));
     let cart = xf * place(v(0.0, CART_UP, REAR + 1.3), rx(FRAC_PI_2));
     o.cylinder(0.4, 2.6, 14, GREY, cart);
     o.lathe(&band(0.34, 0.44, 0.8, 1.0), 14, YELLOW, cart);
@@ -980,10 +1105,10 @@ pub(crate) fn buster(o: &mut On<'_>, out: f32, xf: Affine3A) {
     o.cylinder(0.2, 0.04, 12, FRAME, along_z(MUZZLE - 0.02));
     o.greeble(|o| {
         for k in 0..5 {
-            o.cube(v(0.4, 0.06, 0.16), 0.0, FRAME, xf * at(0.0, 0.53, 1.4 + k as f32 * 0.4));
+            o.cube(v(0.46, 0.06, 0.16), 0.0, FRAME, xf * at(0.0, 0.66, 1.4 + k as f32 * 0.4));
         }
         o.cylinder(0.14, 0.06, 10, FRAME, along_z(MUZZLE));
-        o.cube(v(0.05, 0.3, 1.6), 0.0, FRAME, xf * at(out * 0.41, 0.2, 3.1));
+        o.cube(v(0.05, 0.3, 1.6), 0.0, FRAME, xf * at(out * 0.54, 0.2, 3.1));
     });
 }
 
