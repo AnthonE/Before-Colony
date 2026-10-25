@@ -218,13 +218,13 @@ proptest! {
         for (i, &on) in locked.iter().enumerate().take(count as usize) {
             let t = tick - i as u32;
             let lockon = on.then_some(LockOn { ref_vel, up });
-            p.cmds[i] = InputCmd { tick: t, view_tick_q4: (t << 4).saturating_sub(view_back), aim, thrust, roll, buttons, lock_target: lock, shot_seq: shot, lockon, converge: converge[i] }.quantized();
+            p.cmds[i] = InputCmd { tick: t, view_tick_q4: (t << 4).saturating_sub(view_back), aim, thrust, roll, buttons, lock_target: lock, shot_seq: shot, lockon, converge: converge[i], act: None }.quantized();
         }
         let mut buf = [0u8; 128];
         let n = p.encode(&mut buf).unwrap();
-        prop_assert!(n <= 107, "{} bytes", n);
+        prop_assert!(n <= 108, "{} bytes", n);
         if !locked[..count as usize].contains(&true) && converge[..count as usize].iter().all(|&c| c == 0) {
-            prop_assert!(n <= 68, "{} bytes", n);
+            prop_assert!(n <= 69, "{} bytes", n);
         }
         let back = InputPacket::decode(&buf[..n]).unwrap();
         for i in 0..count as usize {
@@ -398,11 +398,22 @@ proptest! {
             for _ in 0..64 { if !matches!(r.next_missile(), Ok(Some(_))) { break } }
             for _ in 0..64 { if !matches!(r.next_entity(), Ok(Some(_))) { break } }
             for _ in 0..64 { if !matches!(r.next_object(), Ok(Some(_))) { break } }
+            let _ = r.foot_own();
+            for _ in 0..64 { if !matches!(r.next_person(|_, _| None), Ok(Some(_))) { break } }
         }
         // Straight to a later list, skipping the earlier ones.
         if let Ok(mut r) = SnapshotReader::new(&bytes) {
             for _ in 0..64 { if !matches!(r.next_object(), Ok(Some(_))) { break } }
         }
+        // A walker's sections, straight to them, with and without baselines held.
+        if let Ok(mut r) = SnapshotReader::new(&bytes) {
+            let _ = r.foot_own();
+            for _ in 0..64 { if !matches!(r.next_person(|id, _| Some(bc_proto::QPerson { id, ..Default::default() })), Ok(Some(_))) { break } }
+        }
+        if let Ok(mut r) = SnapshotReader::new(&bytes) {
+            for _ in 0..64 { if !matches!(r.next_person(|_, _| None), Ok(Some(_))) { break } }
+        }
+        // (A walker's acts are `InputPacket::decode`'s above; the Hello's and Welcome's flags, `ControlMsg::decode`'s below.)
         if let Ok(mut r) = SnapshotReader::new(&bytes) {
             for _ in 0..64 { if !matches!(r.next_missile(), Ok(Some(_))) { break } }
         }

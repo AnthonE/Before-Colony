@@ -24,7 +24,7 @@ each tested.
 | H1: a door of your own: leases and deeds, the code lock, the panel, rent as upkeep | built |
 | H2: furnishing: furniture bought and placed, seen by everyone who comes in; storage | built |
 | H3: your bed: asleep at home when logged out, waking there | built |
-| S1: the street in the tick: people on foot and their vehicles in the interior sector | planned |
+| S1: the street in the tick: people on foot and their vehicles in the interior sector | in progress: the shared models (`bc_sim::foot`, `car`, `markab`), the homes overlay and the v39 codecs built; the tick next |
 | S2: collisions: cars meet cars and people | planned |
 | C1: cars you own | planned |
 | X1: heat and the Watch | planned |
@@ -254,15 +254,42 @@ collide and police that shoot all need the same thing suits already have: **peop
 vehicles as entities of the interior sector** (`sector-1`), simulated by its tick, predicted by their
 owner and lag-compensated for everyone else.
 
-- **The walker moves into the simulation** (`bc_sim::foot`), shared by the server and the owner's
-  predictor as `ground::move_step` is, against `city::solid` and the homes' doors and furniture
-  (`homes::Overlay`, fixed-size, the tick's to read). The cars' bicycle model and the Markab follow
-  (`bc_sim::car`).
+- **The walker moves into the simulation** (`bc_sim::foot`, built), shared by the server and the
+  owner's predictor as `ground::move_step` is, against `city::solid` and the homes' doors and
+  furniture. Its trig is libm's, so it steps to the same bits on both (`FOOT_GOLDEN`, native and
+  wasm); `Walker::step` keeps the browser's frame-rate walk and `Walker::tick` is the tick's,
+  exactly four substeps of 1/120 s. The browser walks it today exactly as it walked before (the
+  bay, the city, a flat's stairs), and walkers stepped by the tick to every key place and up a
+  block's stairs are poses the plaza takes (`bc-server/tests/foot_plausible.rs`).
+- **The homes' overlay** (`colony::homes::Overlay`, built): the held homes' shut doors and solid
+  furniture in one fixed-size table, sized once (a home's `OverlayHome` holds its door, shut or not,
+  and up to `content::homes::MAX_PIECES` solid pieces' boxes; it's `Copy`, to ride a preallocated
+  queue). A home with no room in it is counted (`Overlay::overflowed`) and its door is open to the
+  overlay, so the tick sizes it from the register with headroom. Every box in it is public: what one
+  pilot meets, everyone meets. A shut door is shut for everyone, its crew too (they open it, with the
+  `door` request, before they walk through), as every client already drew it. The server builds a
+  home's from the register (`HomeRegister::overlay_home`) and each client the same from what it was
+  told (`bc_client_core::homes::overlay_from`), with its own door just worked on top until the
+  register agrees; its index is kept sorted along the strip as homes are set, so a walker's query
+  looks only at the homes that could reach it.
+- **The cars and the Markab move into the simulation too** (built): `bc_sim::car` (the bicycle
+  model, its whole state its seven fields, `Vehicle::tick` two fixed substeps; `CARS_GOLDEN`) and
+  `bc_sim::markab` (the rocket car, its fan, its jets and the faces it drives; the city round it
+  gathered each step into a fixed `Near` of `MAX_NEAR` solids, twice the densest a step at its top
+  speed meets; its whole state, the private parts too, a `MarkabState` it's made again from to the
+  bit; `Markab::tick` four substeps; `MARKAB_GOLDEN`). The browser drives both as before.
 - **No allocation, no locks:** the interior sector's storage is sized at start-up (pilots on foot,
   their vehicles, the Watch), under the `no_alloc` proofs, like every other tick.
-- **Gates' netcode where ours has none on foot:** positions rounded and simulated as rounded, the last
-  inputs repeated in every input packet, and the server alone deciding how far back a shot looks
-  (`rewind.rs`, `stats::favour_for`), beside our `lagcomp.rs` for suits.
+- **Gates' netcode where ours has none on foot:** the last inputs repeated in every input packet,
+  and the server alone deciding how far back a shot looks (`rewind.rs`, `stats::favour_for`),
+  beside our `lagcomp.rs` for suits. But **the own walker goes exact**, not rounded and simulated as
+  rounded (Gates' way): the walker rests a hair above a floor (its settling and falling stop at the
+  last clear point), so its feet rounded down to the wire's 7.8 mm grid put its box in the floor,
+  every stride then fails and steps it up a stair's height, and it hops; rounded into a wall, it
+  sticks. A suit's own state already travels at full precision for the same reason, so the own
+  walker does too (`FootOwn`, raw `f32` bits: about 150 bits a tick more than a rounded record, to
+  one pilot) and the simulation keeps its state. Everyone else goes on the plaza's grid,
+  delta-coded.
 - **The plaza stays** for the people further off than the sector replicates (the far crowd at Hub
   Gate), and for the colony's clock on foot.
 - **Collisions (S2):** cars meet cars and people. A person hit is knocked down and hurt by how fast
@@ -432,6 +459,18 @@ panel (the rent on it, its crew's size, whether its codes are set) and what its 
 crew alone. A home not in it is free. It's sent again when the register moves (its version) or you
 come near other buildings.
 
+S1, on the datagrams (v39, `bc_proto::foot`; `docs/PROTOCOL.md`). Built and tested; nothing sends
+them until a server walks people in the tick (behind a later `--street`):
+
+| What | Where | Bits |
+|---|---|---|
+| `hello_flags::STREET` | the Hello: this client walks in the tick | 1 << 2 |
+| `welcome_flags::STREET` | the handshake's Welcome: this server will walk you there | 1 << 6 |
+| `InputCmd::act` (`FootAct`: sit, stand, ride a lift, take a vehicle, get out) | every command; cleared by `neutral` and by `stand_in`, kept by `quantized` | 1, + 24 with one |
+| `header_flags::ON_FOOT` | a walker's snapshot, answering for their input (not SPECTATOR) | bit 2 |
+| `foot_own` (`FootOwn`) | an ON_FOOT snapshot, after the objects: the own walker exact, and its mode (on foot, a train, a seat, a lift) | 1 + 262 on foot |
+| `people` (`PersonRecord` as `QPerson` codes) | after it: the people near, whole or as deltas against acked records, as suits' are | 1 + 112 whole, about 47 at a walk |
+
 H0 moved `CITY_VERSION` to 5 and `PROTOCOL_VERSION` to 36, and the city's hash (`CITY_GOLDEN`)
 with them; the homes have their own (`HOMES_GOLDEN`). H1 to H3 add only JSON (`Update::Place`'s
 `wake`, the homes' requests and lines), which an older page ignores.
@@ -450,6 +489,15 @@ with them; the homes have their own (`HOMES_GOLDEN`). H1 to H3 add only JSON (`U
   (`bc_client_core::homes`).
 - **H3:** `bc-server/tests/homes.rs`: a pilot asleep in their bed wakes beside it in the city, logs
   out there and is asleep in it again, through a restart.
+- **S1 so far:** `bc-sim/tests/foot.rs` (the walker stands without drifting, stops at a wall, steps
+  a kerb, a bench and stairs, jumps as the colony's gravity says, lands from a fall; a tick is four
+  substeps to the bit), `FOOT_GOLDEN`, `CARS_GOLDEN` and `MARKAB_GOLDEN` native and wasm, the
+  `no_alloc` tests for all three and the overlay; `bc-server/tests/foot_plausible.rs`; the overlay
+  against a look at every box (10,000 random queries), full, and set then removed, and
+  `bc-server/tests/homes.rs`'s `the_registers_overlay_is_what_the_crew_and_strangers_see`; the car's
+  copy and a Markab made again from its state driving on to the bit; and `bc_proto::foot`'s codecs
+  (the own walker to the bit in every mode, a person within half a step, deltas rebuilt to the bit
+  and refused without their baseline, the decoders never panicking).
 - **H3 and the browser:** the `home` e2e suite (`scripts/e2e.sh home`): a flat rented, the lift
   ridden, a code set; a second browser knocks, is refused, enters the code and comes in; a sofa
   placed and seen by both; logged out in bed and woken there.

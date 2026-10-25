@@ -12,6 +12,8 @@
 //! | missiles | `1+119` bits each, `0` ends | missiles in flight nearby, those tracking you first |
 //! | entities | `1+194..211` bits each, `0` ends | as many prioritised contacts as fit |
 //! | objects | `1+12..232` bits each, `0` ends | salvage chunks (ore, limbs, hulks) in range |
+//! | foot own | `1+262..364` bits | [`ON_FOOT`](header_flags::ON_FOOT) only: the pilot's own walker, exact ([`FootOwn`]) |
+//! | people | `1+28..125` bits each, `0` ends | [`ON_FOOT`](header_flags::ON_FOOT) only: the people near ([`QPerson`], whole or delta) |
 //!
 //! Everything must fit in [`MAX_DATAGRAM`](crate::MAX_DATAGRAM) bytes. The writer checks the budget
 //! before every record, counting the terminators still owed, and never produces a partial item.
@@ -27,6 +29,7 @@ use glam::{Quat, Vec3};
 
 use crate::entity::{Delta, QEntity};
 use crate::events::Event;
+use crate::foot::{FootOwn, PersonDelta, QPerson};
 use crate::missiles::{MISSILE_RECORD_BITS, MissileState};
 use crate::objects::{ObjectState, ROCK_RECORD_BITS, RockState};
 use crate::quant::{self, dequantize_signed, dequantize_unit, quantize_signed, quantize_unit};
@@ -74,6 +77,11 @@ pub mod header_flags {
     /// A tick's datagram after its first: more of the suits the client sees, and nothing else (no
     /// own suit, Orrery, events, rocks, missiles or salvage).
     pub const MORE: u8 = 1 << 1;
+    /// A walker's snapshot: the pilot is on foot in the tick (the colony's inside sector). After
+    /// the salvage come two more sections, their own walker ([`FootOwn`](crate::foot::FootOwn))
+    /// and the people near them ([`QPerson`](crate::foot::QPerson)). It answers for their input,
+    /// as an own suit's does (not [`SPECTATOR`]).
+    pub const ON_FOOT: u8 = 1 << 2;
 }
 
 /// Bits of a snapshot's header: the packet kind, tick, seq, stream, the input tick acked, input
@@ -635,7 +643,9 @@ fn read_p(r: &mut BitReader<'_>) -> f32 {
 // Writer
 // ---------------------------------------------------------------------------------------------
 
-/// The lists after the fixed part, in order. Each is closed by a `0` bit.
+/// The lists after the fixed part, in order. Each is closed by a `0` bit (the walker's own
+/// record, by its absence bit), and the last two come only in an [`ON_FOOT`](header_flags::ON_FOOT)
+/// snapshot.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum List {
     Events,
@@ -643,39 +653,47 @@ enum List {
     Missiles,
     Entities,
     Objects,
+    FootOwn,
+    People,
     Done,
 }
 
 impl List {
-    fn next(self) -> Self {
+    fn next(self, on_foot: bool) -> Self {
         match self {
             List::Events => List::Rocks,
             List::Rocks => List::Missiles,
             List::Missiles => List::Entities,
             List::Entities => List::Objects,
-            List::Objects | List::Done => List::Done,
+            List::Objects if on_foot => List::FootOwn,
+            List::FootOwn => List::People,
+            List::Objects | List::People | List::Done => List::Done,
         }
     }
 }
 
 /// Budget-aware snapshot encoder. Call `header`, `own`, `orrery`, then `event`s, `rock`s,
 /// `missile`s, `entity`s and `object`s in that order (starting a list closes the ones before it),
-/// then `finish`.
+/// in an [`ON_FOOT`](header_flags::ON_FOOT) snapshot `foot_own` and `person`s after them, then
+/// `finish`.
 pub struct SnapshotWriter<'a> {
     w: BitWriter<'a>,
     tick: u32,
     /// The list being written; earlier ones are closed.
     list: List,
+    /// The header said [`ON_FOOT`](header_flags::ON_FOOT): the walker's sections follow the salvage.
+    on_foot: bool,
 }
 
 impl<'a> SnapshotWriter<'a> {
     pub fn new(buf: &'a mut [u8], max_bytes: usize) -> Self {
-        Self { w: BitWriter::with_limit(buf, max_bytes), tick: 0, list: List::Events }
+        Self { w: BitWriter::with_limit(buf, max_bytes), tick: 0, list: List::Events, on_foot: false }
     }
 
     pub fn header(&mut self, h: &SnapshotHeader) {
         let w = &mut self.w;
         self.tick = h.tick;
+        self.on_foot = h.flags & header_flags::ON_FOOT != 0;
         w.write_bits(PacketKind::Snapshot as u32, PACKET_KIND_BITS);
         w.write_u32(h.tick);
         w.write_u16(h.seq);
@@ -807,19 +825,25 @@ impl<'a> SnapshotWriter<'a> {
 
     /// Terminators still owed: the open list's and every later one's.
     fn owed(&self) -> usize {
-        List::Done as usize - self.list as usize
+        let (mut l, mut n) = (self.list, 0);
+        while l != List::Done {
+            n += 1;
+            l = l.next(self.on_foot);
+        }
+        n
     }
 
-    /// Moves on to `list`, closing the lists before it. False if it's already closed.
+    /// Moves on to `list`, closing the lists before it. False if it's already closed (or, in a
+    /// snapshot not on foot, isn't there).
     fn open(&mut self, list: List) -> bool {
         if self.list > list {
             return false;
         }
         while self.list < list {
             self.w.write_bool(false);
-            self.list = self.list.next();
+            self.list = self.list.next(self.on_foot);
         }
-        true
+        self.list == list
     }
 
     /// Opens `list` and starts a record of `bits` if it fits, with `keep_free_bits` to spare
@@ -897,6 +921,42 @@ impl<'a> SnapshotWriter<'a> {
         true
     }
 
+    /// In an [`ON_FOOT`](header_flags::ON_FOOT) snapshot, the pilot's own walker (closing the
+    /// lists before it), if it fits with the people's end still owed. Returns whether it was
+    /// written (it can be, once).
+    pub fn foot_own(&mut self, f: &FootOwn) -> bool {
+        if !self.on_foot || !self.open(List::FootOwn) || self.w.bits_remaining() < 1 + f.bits() + 1 {
+            return false;
+        }
+        self.w.write_bool(true);
+        f.write(&mut self.w);
+        self.list = List::People;
+        true
+    }
+
+    /// In an [`ON_FOOT`](header_flags::ON_FOOT) snapshot, a person's record, whole or as `delta`
+    /// (planned against a baseline the client holds: [`PersonDelta::plan`]), if it fits while
+    /// leaving `keep_free_bits`. Returns the bits it took.
+    pub fn person(
+        &mut self,
+        q: &QPerson,
+        delta: Option<&PersonDelta>,
+        keep_free_bits: usize,
+    ) -> Option<usize> {
+        let bits = delta.map_or_else(|| q.absolute_bits(), PersonDelta::bits);
+        if !self.on_foot || !self.start(List::People, bits, keep_free_bits) {
+            return None;
+        }
+        let w = &mut self.w;
+        w.write_bits(u32::from(q.id), SLOT_BITS);
+        w.write_bool(delta.is_some());
+        match delta {
+            Some(d) => d.write(w),
+            None => q.write_absolute(w),
+        }
+        Some(bits)
+    }
+
     /// Bits still free (useful for budgeting).
     pub fn bits_remaining(&self) -> usize {
         self.w.bits_remaining()
@@ -922,11 +982,14 @@ enum Stage {
     Missiles,
     Entities,
     Objects,
+    FootOwn,
+    People,
     Done,
 }
 
 /// Streaming snapshot decoder. Sections are read in order; calling a later section's reader skips
-/// the earlier ones.
+/// the earlier ones. The walker's sections are there only in an
+/// [`ON_FOOT`](header_flags::ON_FOOT) snapshot: elsewhere their readers say none.
 pub struct SnapshotReader<'a> {
     r: BitReader<'a>,
     header: SnapshotHeader,
@@ -983,8 +1046,14 @@ impl<'a> SnapshotReader<'a> {
                 Stage::Entities => {
                     self.next_entity()?;
                 }
-                Stage::Objects | Stage::Done => {
+                Stage::Objects => {
                     self.next_object()?;
+                }
+                Stage::FootOwn => {
+                    self.foot_own()?;
+                }
+                Stage::People | Stage::Done => {
+                    self.next_person(|_, _| None)?;
                 }
             }
         }
@@ -1203,15 +1272,67 @@ impl<'a> SnapshotReader<'a> {
         Ok(Some(q))
     }
 
-    /// Next salvage object, or `None` at the end of the packet.
+    /// Next salvage object, or `None` at the end of its list.
     pub fn next_object(&mut self) -> Result<Option<ObjectState>, DecodeError> {
         self.skip_to(Stage::Objects)?;
-        if self.stage != Stage::Objects || !self.more(Stage::Done)? {
+        let after = if self.on_foot() { Stage::FootOwn } else { Stage::Done };
+        if self.stage != Stage::Objects || !self.more(after)? {
             return Ok(None);
         }
         let o = ObjectState::read(&mut self.r, self.header.tick)?;
         self.check()?;
         Ok(Some(o))
+    }
+
+    fn on_foot(&self) -> bool {
+        self.header.flags & header_flags::ON_FOOT != 0
+    }
+
+    /// The pilot's own walker, in an [`ON_FOOT`](header_flags::ON_FOOT) snapshot that carries it.
+    pub fn foot_own(&mut self) -> Result<Option<FootOwn>, DecodeError> {
+        self.skip_to(Stage::FootOwn)?;
+        if self.stage != Stage::FootOwn {
+            return Ok(None);
+        }
+        self.stage = Stage::People;
+        if !self.r.read_bool() {
+            self.check()?;
+            return Ok(None);
+        }
+        let f = FootOwn::read(&mut self.r)?;
+        self.check()?;
+        Ok(Some(f))
+    }
+
+    /// Next person's codes, or `None` at the end of the packet. A delta record is undone against
+    /// `baseline(id, tick)`: the record of that person the reader took at that tick
+    /// ([`DecodeError::NoBaseline`] if it hasn't one).
+    pub fn next_person(
+        &mut self,
+        baseline: impl FnOnce(u16, u32) -> Option<QPerson>,
+    ) -> Result<Option<QPerson>, DecodeError> {
+        self.skip_to(Stage::People)?;
+        if self.stage != Stage::People || !self.more(Stage::Done)? {
+            return Ok(None);
+        }
+        let tick = self.header.tick;
+        let r = &mut self.r;
+        let id = r.read_bits(SLOT_BITS) as u16;
+        let q = if r.read_bool() {
+            let back = PersonDelta::read_back(r);
+            self.check()?;
+            let base = (1..=255)
+                .contains(&back)
+                .then(|| baseline(id, tick.wrapping_sub(back)))
+                .flatten()
+                .filter(|b| b.id == id)
+                .ok_or(DecodeError::NoBaseline)?;
+            PersonDelta::read(&mut self.r, &base, back)?
+        } else {
+            QPerson::read_absolute(r, id)?
+        };
+        self.check()?;
+        Ok(Some(q))
     }
 }
 

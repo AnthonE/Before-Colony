@@ -191,6 +191,7 @@ pub fn drive_kit(
         // Agents fly by the kit; locking on is the pilot's (`bc_client_core::lockon`).
         lockon: None,
         converge: 0,
+        act: None,
     }
 }
 

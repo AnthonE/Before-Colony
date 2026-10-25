@@ -326,5 +326,6 @@ pub fn drive(
         // Drones never lock on: perfect leads and perfect pace together would be unbeatable.
         lockon: None,
         converge: 0,
+        act: None,
     }
 }
