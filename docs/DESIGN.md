@@ -1072,7 +1072,11 @@ comes home with the suit (nothing, if it's lost). Used up in fights, they're alw
 A kit with nothing to do (a cold suit's coolant, a patch kit with nothing broken) stays in the
 rack. The use goes to the server on the control stream, the sector applies it at the next tick, and
 the owner's snapshot carries the rack and the stim's clock (the stim is part of the stat sheet the
-client predicts with, as the server flies with it).
+client predicts with, as the server flies with it). Beside the stim's clock it carries how fed the
+pilot is (`bc_sim::content::body::Fed`, 3 bits since v38; `LIFE.md`, 2), which the session sets
+from their body (`Control::Fed`) and the stat sheet takes in the same way: well fed, the pilot bears
+half a g more; hungry, half a g less; starving, a whole g less (doubled under anime rules). The
+suit panel's notes say so (`WELL FED +0.5G`, `HUNGRY -0.5G`, `STARVING -1G`), amber when it costs.
 
 ### The Charter Board: contracts and the great works
 

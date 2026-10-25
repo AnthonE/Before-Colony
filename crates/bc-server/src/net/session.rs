@@ -13,12 +13,13 @@
 //!   the drill, go on the Proving Ground's board, and a signed-in pilot's bests on their record. Any
 //!   time there is a flight certificate, and the Charter Board issues a beam rifle for it, once.
 //! - **The city's desks** (the colony open): what only a desk does (`Request::desk`: a resting
-//!   order, posting, patrols, the charter, an ace's terms, the test range) is done in its room
-//!   (`desk::place_at`), and what the Charter Board pays out (the certificate's rifle, patrols'
+//!   order, posting, patrols, the charter, an ace's terms and a meal, the test range) is done in its
+//!   room (`desk::place_at`), and what the Charter Board pays out (the certificate's rifle, patrols'
 //!   rewards, aces' bounties) is collected in its hall. With the colony shut, the bay does it all.
 //! - **The pilot's body** (survival): kept on their record (a guest's lasts the visit), it runs on
 //!   the wall clock while they're in the world, and The Arrival's counter feeds them
-//!   (`bc_econ::body`).
+//!   (`bc_econ::body`). How fed they are goes to the sector their suit is in (`Control::Fed`), right
+//!   after it seats them and whenever it changes: it moves the G they bear.
 //!
 //! Whatever happens, the slot is handed back in the order that keeps it race-free: stop sending,
 //! settle the roster, let the sector put the suit to sleep (or release it), then return the lease.
@@ -37,7 +38,9 @@ use bc_proto::presence::{PlazaWriter, PosePacket};
 use bc_proto::{
     Faction, FrameId, InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, PacketKind, PilotKind, packet_kind,
 };
-use bc_sector::{Comeback, Control, InputMsg, Loss, Metrics, Outcome, Report, SlotLease, SlotState};
+use bc_sector::{
+    Comeback, Control, InputMsg, Loss, Metrics, Outcome, Report, SectorShared, SlotLease, SlotState,
+};
 use bc_sim::content::body::Fed;
 use bc_sim::content::city::PlaceKind;
 use bc_sim::sim::Loadout;
@@ -261,6 +264,18 @@ fn at_the_hatch(at: glam::Vec3) -> bool {
                     || (c.s - ps).hypot(c.x - px) < GANTRY_RADIUS + 8.0)
         }
         Under::Window { .. } => false,
+    }
+}
+
+/// Survival: tells `sector` how `fed` the pilot in `slot` is (their body's condition; none: nothing
+/// to tell), waiting for room in its queue as the other words do. Sent right after the word that
+/// seats them, so the drain that seats them feeds them too.
+async fn push_fed(sector: &SectorShared, slot: u16, fed: Option<Fed>) {
+    let Some(fed) = fed else { return };
+    let mut word = Control::Fed { slot, fed };
+    while let Err(back) = sector.control.push(word) {
+        word = back;
+        tokio::time::sleep(Duration::from_millis(2)).await;
     }
 }
 
@@ -510,6 +525,8 @@ impl Session<'_> {
             join = back;
             tokio::time::sleep(Duration::from_millis(2)).await;
         }
+        // The queue is the sector's in order: it's fed (or not) from the drain that seats it.
+        push_fed(sector, self.slot, self.fed()).await;
         let state = wait_slot(sector, self.slot, |s, e| e != epoch && s != SlotState::Free).await;
         let (Some(SlotState::Active), Some((suit, generation))) = (state, status.suit_id()) else {
             return None;
@@ -541,6 +558,23 @@ impl Session<'_> {
             flags,
         });
         Some(status.outcome())
+    }
+
+    /// What the sector is told of the pilot's body: how fed they are (survival; none under arcade
+    /// rules, where nobody has a body).
+    fn fed(&self) -> Option<Fed> {
+        self.survival().then(|| self.body.condition())
+    }
+
+    /// The pilot's condition, to the sector their suit flies in (the colony's inside, or space).
+    async fn push_fed_flying(&mut self) {
+        let fed = self.fed();
+        let inside_slot = self.inside.as_ref().map(|l| l.slot);
+        let game = self.game;
+        match (inside_slot, &game.inside) {
+            (Some(slot), Some(inside)) => push_fed(&inside.sector, slot, fed).await,
+            _ => push_fed(&game.sector, self.slot, fed).await,
+        }
     }
 
     /// The suit is out of the sector (docked, or its wreck cleared): off the roster.
@@ -1392,6 +1426,7 @@ impl Session<'_> {
             join = back;
             tokio::time::sleep(Duration::from_millis(2)).await;
         }
+        push_fed(&inside.sector, slot, self.fed()).await;
         let state = wait_slot(&inside.sector, slot, |s, e| e != epoch && s != SlotState::Free).await;
         let (Some(SlotState::Active), Some(suit)) = (state, status.suit_id()) else {
             let _ = inside.sector.leases.push(lease);
@@ -1453,6 +1488,8 @@ impl Session<'_> {
             board = back;
             tokio::time::sleep(Duration::from_millis(2)).await;
         }
+        // The trainer's pilot is still themselves: it flies with their condition.
+        push_fed(&inside.sector, slot, self.fed()).await;
         let state = wait_slot(&inside.sector, slot, |s, e| e != epoch && s != SlotState::Free).await;
         let (Some(SlotState::Active), Some(suit)) = (state, status.suit_id()) else {
             let _ = inside.sector.leases.push(lease);
@@ -1760,12 +1797,15 @@ impl Session<'_> {
                 self.game.charter.save().await;
                 self.send_board().await?;
             }
-            // The body's clock: the page hears when the condition changes, and on foot each minute.
+            // The body's clock: the page hears when the condition changes, and on foot each minute;
+            // the suit flown, as it changes.
             self.body.settle(pilots::unix_now());
+            let changed = self.body_sent.0 != Some(self.body.condition());
+            if changed && self.suit.is_some() && !self.lost {
+                self.push_fed_flying().await;
+            }
             let on_foot = matches!(self.place, Place::Hangar | Place::City);
-            if self.body_sent.0 != Some(self.body.condition())
-                || (on_foot && self.body_sent.1.elapsed() >= BODY_EVERY)
-            {
+            if changed || (on_foot && self.body_sent.1.elapsed() >= BODY_EVERY) {
                 self.send_body().await?;
             }
         }

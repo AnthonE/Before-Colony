@@ -1070,11 +1070,15 @@ pub fn update_hud(
         } else if o.stim > 0 {
             faults.push(format!("CRASHING {:.0}s", f32::from(o.stim) / 30.0));
         }
+        // How fed the pilot is (`LIFE.md`): what it does to the G they bear.
+        if let Some(note) = bc_client_core::instruments::fed_note(o.fed) {
+            faults.push(note);
+        }
         r.suit.notes = faults.join("\n");
         let worst = systems.worst(gone);
         r.suit.notes_tone = if o.parts[Part::Torso as usize] < 0.3 || worst == FAILED {
             Tone::Red
-        } else if worst == DAMAGED {
+        } else if worst == DAMAGED || bc_client_core::instruments::fed_warns(o.fed) {
             Tone::Amber
         } else {
             Tone::Label

@@ -20,7 +20,8 @@ colony; its phases (below) are built the way `ROADMAP.md` builds its items.
 |---|---|
 | L0: the framework: seats, the body, meals (`bc_econ::{seats, body, food}`, `bc_sim::content::body`) | built |
 | L1: eating at The Arrival (`Request::Eat`, `Update::Body`, the `menu` tab) | built |
-| L2 onwards | planned |
+| L2: being fed in flight (the own snapshot's fed condition, v38) | built |
+| L3 onwards | planned |
 
 ## What it has to be
 
@@ -134,11 +135,15 @@ For scale: a pilot bears 6 g headward (twice that pressed into the seat, half di
 cockpit 5, and a stim gives 1 g more for a minute. Starving costs what a damaged cockpit does;
 nothing about hunger kills.
 
-**How it reaches flight (L2).** As the stim does: anything that changes flight goes through
-`bc_sim::tuning`, from state the own snapshot carries (`CLAUDE.md`). The condition is 3 bits
-(`Fed::BITS`) in the own snapshot, `Fed::Fed` being 0 so a zeroed field changes nothing; the server
-sets it at launch and as it changes; `own_tuning` adds `fed_g` where it adds `stim_g`. A protocol
-bump.
+**How it reaches flight (L2, built).** As the stim does: anything that changes flight goes through
+`bc_sim::tuning`, from state the own snapshot carries (`CLAUDE.md`). The condition became 3 bits
+(`Fed::BITS`, `bc_proto::snapshot::FED_BITS`) in the own snapshot, after the stim's clock, `Fed::Fed`
+being 0 so a zeroed field changes nothing (protocol v38). The session sends it to the sector
+(`Control::Fed`, `Sim::set_fed`) right after each word that seats the pilot (a launch, a sleeper
+woken, a launch into the colony, a trainer boarded) and whenever it changes while they fly;
+`tuning::flown` adds `fed_g` where it adds `stim_g`, for the server and the owner's prediction
+alike. The cockpit's suit panel says what it does (`HUNGRY -0.5G`), and on foot a hungry pilot is
+pointed at The Arrival (`Hint::Hungry`).
 
 ## 3. The clock: a real day, or the colony's 48 minutes
 
@@ -253,8 +258,12 @@ Each is PR-sized and tested end to end, as `ROADMAP.md`'s items are.
   the pilot can't pay for. Every survival pilot has a body, guests (for the visit) and agents
   alike. Tests: `bc-server/tests/life.rs` (a pilot eats, logs out, wakes peckish; sleep never
   starves anyone), and a step in the `colony` e2e.
-- **L2: being fed in flight.** The condition in the own snapshot, `fed_g` in `own_tuning` and the
-  sector's tuning, the HUD's line in the cockpit. A protocol bump; the predictor's tests.
+- **L2: being fed in flight** (built). The condition went into the own snapshot (v38), `fed_g` into
+  `own_tuning` and the sector's tuning, and the HUD's line into the cockpit; the trainers fly with
+  the pilot's condition too. Tests: `bc-sim/tests/body.rs`, the predictor over the real wire
+  (`bc-sector/tests/netcode.rs`, a starving pilot's hard pulls), `survival_net.rs`, and
+  `bc-server/tests/life.rs` (a starving pilot flies short of G inside the colony, eats at The
+  Arrival, and launches into space fed).
 - **L3: the cook's seat.** `Seats` kept by the server (one per colony, in its data directory, as the
   Proving Ground's board is); `Request::{TakeSeat, LeaveSeat}`; the kitchen line as the cook's
   minigame, its score into `Skills::quality`; meals cooked by an Arrival sold at their quality, paid

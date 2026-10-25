@@ -1,7 +1,8 @@
 //! Living in the colony over real WebTransport (survival, the colony open; `docs/LIFE.md`): the
 //! pilot's body is on their record and runs on the wall clock, a quarter as fast while they're
 //! away. The Arrival's counter feeds them from the bay's credits (the bay's terminal points there),
-//! never more than they can eat; and sleep never starves anyone.
+//! never more than they can eat; and sleep never starves anyone. How fed they are reaches the suit
+//! they fly, in either sector: a starving pilot bears a G less, and a meal puts it right.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -11,10 +12,14 @@ use bc_bot::{BotClient, BotConfig};
 use bc_econ::body::{ARRIVAL_FOOD_S, FULL_S};
 use bc_econ::food::{Dish, HOUR};
 use bc_econ::wire::Request;
-use bc_proto::{Faction, FrameId};
+use bc_proto::buttons::FLIGHT_ASSIST;
+use bc_proto::{Faction, FrameId, InputCmd};
 use bc_server::{Config, Mode, Ruleset};
-use bc_sim::content::body::Fed;
+use bc_sim::colony::interior::{INNER_GATE, INNER_GATE_RADIUS};
+use bc_sim::content::body::{Fed, STARVING_G};
 use bc_sim::content::city::{PLACES, PlaceKind};
+use bc_sim::tuning::own_tuning;
+use glam::Vec3;
 
 fn config(data_dir: Option<PathBuf>) -> anyhow::Result<Config> {
     Ok(Config {
@@ -180,6 +185,76 @@ async fn sleep_never_starves_anyone() -> anyhow::Result<()> {
     let (server, b) = come_in(&dir, &w).await?;
     let body = b.core.hangar.body.expect("the body");
     assert_eq!((body.fed, body.food_s), (Fed::Hungry, 0), "hungry, never starving: {body:?}");
+    go(server, b).await;
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(())
+}
+
+/// Inside the colony: back to the inner gate on flight assist, to rest in its ring, and docked.
+async fn dock_at_the_inner_gate(b: &mut BotClient) -> anyhow::Result<()> {
+    for _ in 0..30 * 30 {
+        let own = b.world().own.expect("own suit");
+        let to = INNER_GATE - own.pos;
+        if to.length() < INNER_GATE_RADIUS * 0.5 && own.vel.length() < 3.0 {
+            break;
+        }
+        let speed = (to.length() * 0.3).min(40.0);
+        let want = to.normalize_or_zero() * speed;
+        let local = own.rot.conjugate() * (want - own.vel);
+        let q = |v: f32| (v * 6.0).clamp(-127.0, 127.0) as i8;
+        b.step(&mut |_| InputCmd {
+            buttons: FLIGHT_ASSIST,
+            thrust: [q(local.x), q(local.y), q(local.z)],
+            aim: Vec3::X,
+            ..InputCmd::default()
+        })
+        .await?;
+    }
+    for _ in 0..60 {
+        b.step(&mut |_| InputCmd { buttons: FLIGHT_ASSIST, aim: Vec3::X, ..InputCmd::default() }).await?;
+    }
+    b.dock().await?;
+    b.wait_until(5.0, "the bay", |c| c.hangar.in_hangar() && c.welcome.is_some_and(|w| !w.interior)).await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_hungry_pilot_flies_short_of_g_and_a_meal_puts_it_right() -> anyhow::Result<()> {
+    let dir = data_dir("flies");
+    let w = wallet(94);
+    let (server, b) = come_in(&dir, &w).await?;
+    go(server, b).await;
+    // Nothing in them, and three hours awake on an empty stomach.
+    edit_body(&dir, |body| {
+        body["food_s"] = serde_json::json!(0);
+        body["empty_s"] = serde_json::json!(3 * HOUR);
+    })?;
+    let (server, mut b) = come_in(&dir, &w).await?;
+    assert_eq!(b.core.hangar.fed(), Some(Fed::Starving));
+
+    // Into the colony through the inner gate: the inside's sector has the pilot starving.
+    b.launch_inside().await?;
+    b.wait_until(5.0, "starving in the cockpit", |c| {
+        c.world.own.is_some_and(|o| o.fed == Fed::Starving as u8)
+    })
+    .await?;
+    let starving = own_tuning(&b.world().own.expect("own suit")).g_tolerance;
+    dock_at_the_inner_gate(&mut b).await?;
+
+    // Down to The Arrival for a fish supper, and back up.
+    b.enter_city(0).await?;
+    b.walk_to_place(place(PlaceKind::Bar), 360.0).await?;
+    let text = done(&mut b, Request::Eat { dish: Dish::FishSupper }).await?;
+    assert_eq!(text, "CANAL FISH SUPPER · 40 CR · FED");
+    b.wait_until(5.0, "fed", |c| c.hangar.fed() == Some(Fed::Fed)).await?;
+    b.leave_city().await?;
+
+    // Out into space: fed, and the G back.
+    b.launch().await?;
+    b.wait_until(5.0, "fed in the cockpit", |c| c.world.own.is_some_and(|o| o.fed == Fed::Fed as u8)).await?;
+    let fed = own_tuning(&b.world().own.expect("own suit")).g_tolerance;
+    assert!((fed + STARVING_G - starving).abs() < 1e-5, "starving {starving} g, fed {fed} g");
+    assert_eq!(server.status()["game"]["hot_path_allocations"], 0);
     go(server, b).await;
     let _ = std::fs::remove_dir_all(&dir);
     Ok(())

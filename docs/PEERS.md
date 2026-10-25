@@ -512,7 +512,8 @@ How each is built (where it lands, the wire, the tests) is `ROADMAP.md`.
 4. **The Arrival does something.** Seats out front (`COLONY.md`, 2.6), sat on and seen sat on,
    and it's where chat is easiest to find: what's said on the radio shows over the heads of those
    near you. Built; and at its counter, the Almagest's Most Wanted pinned up behind the bar, where a
-   pilot's terms for an ace are settled, and its menu: the colony's staff's meals (`LIFE.md`, L1).
+   pilot's terms for an ace are settled, and its menu: the colony's staff's meals, felt in flight
+   (`LIFE.md`, L1 and L2).
 
 **P1: what makes the chain worth walking.**
 
