@@ -5,6 +5,9 @@
 //!
 //! Since every frame stands on the same skeleton, a suit can also be put together from several:
 //! one frame's head on another's body, a third's arms or legs ([`Parts`], [`build_parts`]).
+//!
+//! How a suit holds its gun is [`hold`]'s: the client poses it so, and every frame's gun is built to
+//! clear the suit that holds it.
 
 mod algol;
 mod altair;
@@ -18,6 +21,7 @@ pub mod cockpit;
 mod corvus;
 mod detail;
 pub mod frames;
+pub mod hold;
 pub mod ik;
 pub mod kit;
 pub mod paint;
@@ -702,6 +706,145 @@ mod tests {
                 assert!(under.count() > 0, "{frame:?}: no vernier under {bone:?}");
             }
         }
+    }
+
+    /// Each bone's place in a pose (its turns about its joint, each relative to its parent's), as
+    /// a map from the suit's frame at rest.
+    fn posed(pose: &dyn Fn(Bone) -> glam::Quat) -> Vec<Affine3A> {
+        let mut world = vec![Affine3A::IDENTITY; BONES];
+        // Parents come before their children in `rig::ALL`.
+        for bone in rig::ALL {
+            let def = bone.def();
+            let turn = Affine3A::from_translation(def.joint)
+                * Affine3A::from_quat(pose(bone))
+                * Affine3A::from_translation(-def.joint);
+            world[bone.index()] = def.parent.map_or(Affine3A::IDENTITY, |p| world[p.index()]) * turn;
+        }
+        world
+    }
+
+    /// A bone's triangles in the suit's frame, posed.
+    fn triangles(m: &Model, bone: Bone, world: &[Affine3A]) -> Vec<[Vec3; 3]> {
+        let Some(mesh) = &m.bones[bone.index()] else { return Vec::new() };
+        let place = world[bone.index()];
+        let at = |k: u32| place.transform_point3(Vec3::from(mesh.positions[k as usize]) + bone.def().joint);
+        mesh.indices.as_chunks::<3>().0.iter().map(|t| [at(t[0]), at(t[1]), at(t[2])]).collect()
+    }
+
+    /// Whether the segment `p`..`q` passes through triangle `abc` (touching doesn't count).
+    fn segment_crosses(p: Vec3, q: Vec3, [a, b, c]: [Vec3; 3]) -> bool {
+        let (d, e1, e2) = (q - p, b - a, c - a);
+        let h = d.cross(e2);
+        let det = e1.dot(h);
+        if det.abs() < 1e-9 {
+            return false;
+        }
+        let s = p - a;
+        let u = s.dot(h) / det;
+        let r = s.cross(e1);
+        let v = d.dot(r) / det;
+        let t = e2.dot(r) / det;
+        const IN: f32 = 1e-3;
+        u > IN && v > IN && u + v < 1.0 - IN && t > IN && t < 1.0 - IN
+    }
+
+    /// How many triangles of `a` pass through triangles of `b` (an edge of either through the
+    /// other), found through a grid of cells over `b`.
+    fn crossings(a: &[[Vec3; 3]], b: &[[Vec3; 3]]) -> usize {
+        const CELL: f32 = 0.5;
+        let bounds = |t: &[Vec3; 3]| (t[0].min(t[1]).min(t[2]), t[0].max(t[1]).max(t[2]));
+        let cell = |p: Vec3| (p / CELL).floor().as_ivec3();
+        let mut grid: std::collections::HashMap<glam::IVec3, Vec<usize>> = std::collections::HashMap::new();
+        for (k, t) in b.iter().enumerate() {
+            let (lo, hi) = bounds(t);
+            let (c0, c1) = (cell(lo), cell(hi));
+            for x in c0.x..=c1.x {
+                for y in c0.y..=c1.y {
+                    for z in c0.z..=c1.z {
+                        grid.entry(glam::IVec3::new(x, y, z)).or_default().push(k);
+                    }
+                }
+            }
+        }
+        let mut seen = vec![usize::MAX; b.len()];
+        let mut count = 0;
+        for (i, ta) in a.iter().enumerate() {
+            let (lo, hi) = bounds(ta);
+            let (c0, c1) = (cell(lo), cell(hi));
+            let mut hit = false;
+            'cells: for x in c0.x..=c1.x {
+                for y in c0.y..=c1.y {
+                    for z in c0.z..=c1.z {
+                        for &k in grid.get(&glam::IVec3::new(x, y, z)).into_iter().flatten() {
+                            if seen[k] == i {
+                                continue;
+                            }
+                            seen[k] = i;
+                            let tb = &b[k];
+                            let (blo, bhi) = bounds(tb);
+                            if blo.cmpgt(hi).any() || bhi.cmplt(lo).any() {
+                                continue;
+                            }
+                            let edges = |t: &[Vec3; 3]| [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])];
+                            if edges(ta).iter().any(|&(p, q)| segment_crosses(p, q, *tb))
+                                || edges(tb).iter().any(|&(p, q)| segment_crosses(p, q, *ta))
+                            {
+                                hit = true;
+                                break 'cells;
+                            }
+                        }
+                    }
+                }
+            }
+            count += usize::from(hit);
+        }
+        count
+    }
+
+    /// What `held` passes through in a pose: each other bone (but those it's held by, and the
+    /// shield pods, which fly round the suit) and how many of its triangles cross that bone's.
+    fn passes_through(m: &Model, held: Bone, by: &[Bone], world: &[Affine3A]) -> Vec<(Bone, usize)> {
+        let mine = triangles(m, held, world);
+        rig::ALL
+            .into_iter()
+            .filter(|&b| b != held && b != Bone::Props && !by.contains(&b))
+            .filter_map(|b| {
+                let n = crossings(&mine, &triangles(m, b, world));
+                (n > 0).then_some((b, n))
+            })
+            .collect()
+    }
+
+    /// Every frame holds what it holds clear of itself as the client poses it: a gun in the right
+    /// hand at the ready and carried ([`hold`]), anything else in the right hand, and a shield,
+    /// with the arms at rest. None of it passes through the suit.
+    #[test]
+    fn what_a_suit_holds_clears_it() {
+        let rest = posed(&|_| glam::Quat::IDENTITY);
+        let mut faults = Vec::new();
+        for frame in FrameId::ALL.into_iter().filter(|f| *f != FrameId::Aquila) {
+            let m = build(frame, Lod::Near);
+            let gun = bc_sim::content::frame(frame).loadout[0].is_some_and(|mount| {
+                mount.arm == ArmSlot::Right
+                    && matches!(weapon(mount.weapon).class, WeaponClass::Beam | WeaponClass::Ballistic)
+            });
+            let poses: Vec<(String, Vec<Affine3A>)> = if gun {
+                hold::Hold::BOTH.iter().map(|&h| (format!("{h:?}"), posed(&|b| h.turn(b)))).collect()
+            } else {
+                vec![("at rest".into(), rest.clone())]
+            };
+            for (name, world) in &poses {
+                let hits = passes_through(&m, Bone::Weapon, &[Bone::HandR], world);
+                if !hits.is_empty() {
+                    faults.push(format!("{frame:?}'s weapon {name} passes through {hits:?}"));
+                }
+            }
+            let hits = passes_through(&m, Bone::Shield, &[Bone::ForearmL, Bone::HandL], &rest);
+            if !hits.is_empty() {
+                faults.push(format!("{frame:?}'s shield passes through {hits:?}"));
+            }
+        }
+        assert!(faults.is_empty(), "{}", faults.join("\n"));
     }
 
     /// Every frame is drawn as itself: no two build the same mesh.

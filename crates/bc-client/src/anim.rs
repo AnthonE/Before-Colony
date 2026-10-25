@@ -4,7 +4,8 @@
 //!   the ready in flight or as it fires: the upper arm forward, the forearm near level and the fist
 //!   in line with it, the gun turned back in the fist so it keeps the aim (as a pistol's grip
 //!   stands in a hand held out level). Parked, asleep, kneeling, in the bay or walking quietly on
-//!   a body, it hangs at the side.
+//!   a body, the arm hangs at the side and the gun hangs muzzle down from the fist (`bc_model::hold`,
+//!   which every frame's gun is built to clear).
 //! - Limb trim, as physics: the limbs swing against the suit's rotation (less with busy arms).
 //! - Thrust posture: legs trail in forward burns and swing forward when braking, and swing away
 //!   from sideways thrust; wing binders flare on boost.
@@ -28,7 +29,7 @@
 //! whatever the network does. Rotations are kept as scaled axes (radians) in the parent's frame.
 
 use bc_client_core::gait::{Gait, Stand};
-use bc_model::Sockets;
+use bc_model::{Sockets, hold};
 use bc_model::ik::{ANKLE_TO_SOLE, SHIN, THIGH, two_bone};
 use bc_model::rig::{self, BONES, Bone};
 use bc_proto::snapshot::ent_flags;
@@ -273,11 +274,8 @@ impl Anim {
     }
 }
 
-/// The gun arm at the ready: how far the upper arm swings forward and the forearm bends up from
-/// it (rad, about the suit's x), how fast it comes up or goes down (fractions a second), and how
-/// long it stays up after the gun last fired (s).
-const READY_UPPER: f32 = -0.35;
-const READY_FORE: f32 = -0.73;
+/// The gun arm at the ready (`bc_model::hold`'s pose): how fast it comes up or goes down
+/// (fractions a second), and how long it stays up after the gun last fired (s).
 const READY_RATE: f32 = 3.0;
 const READY_HOLD: f32 = 4.0;
 
@@ -620,8 +618,8 @@ pub fn animate_suits(
         }
 
         // A gun in the right hand at the ready: in flight, or for a while after it fires or as it
-        // charges; never parked, asleep, kneeling or in the bay. Not while the right arm strikes
-        // or holds something.
+        // charges; never parked, asleep, kneeling or in the bay, where it hangs muzzle down. Not
+        // while the right arm strikes or holds something.
         let gun = frame(d.frame).loadout[0].is_some_and(|m| {
             m.arm == ArmSlot::Right
                 && matches!(weapon(m.weapon).class, WeaponClass::Beam | WeaponClass::Ballistic)
@@ -642,17 +640,19 @@ pub fn animate_suits(
             0.0
         };
         a.ready += (want - a.ready).clamp(-READY_RATE * dt, READY_RATE * dt);
-        if a.ready > 0.0 && !right_busy {
+        if gun && !right_busy && !bird {
             let (up, fore) = (Bone::UpperArmR.index(), Bone::ForearmR.index());
-            let lift = Quat::from_rotation_x(READY_UPPER * a.ready);
-            let bend = Quat::from_rotation_x(READY_FORE * a.ready);
+            let lift = Quat::from_rotation_x(hold::READY_UPPER * a.ready);
+            let bend = Quat::from_rotation_x(hold::READY_FORE * a.ready);
             let (aim_up, aim_fore) =
                 (Quat::from_scaled_axis(target[up]), Quat::from_scaled_axis(target[fore]));
             target[up] = (aim_up * lift).to_scaled_axis();
             target[fore] = (aim_fore * bend).to_scaled_axis();
-            // The gun turns back in the fist by what the arm's bend added, so it keeps the aim.
+            // At the ready the gun turns back in the fist by what the arm's bend added, so it keeps
+            // the aim; lowered, it hangs muzzle down.
+            let level = bend.inverse() * aim_fore.inverse() * lift.inverse() * aim_fore;
             target[Bone::Weapon.index()] =
-                (bend.inverse() * aim_fore.inverse() * lift.inverse() * aim_fore).to_scaled_axis();
+                Quat::from_rotation_x(hold::CARRY).slerp(level, a.ready).to_scaled_axis();
             stiff[Bone::Weapon.index()] = stiff[fore];
         }
 
