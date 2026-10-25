@@ -33,9 +33,12 @@
 //!   vents and a round hatch down its back, a small vernier on each of its shoulders and the two
 //!   main thrusters under it.
 //!
-//! It carries the beam gatling in its right hand: a gunmetal receiver with a white cover, a sight
-//! and a power pack, the red-banded drum turning six barrels through two clamps; and the combat
-//! knife in its left, a heavy clipped blade with its honed edge bright.
+//! It carries the beam gatling in its right hand, held as a pistol is: a gunmetal receiver high on
+//! its grip, all of it ahead of the fist but the carry handle running back over the forearm, a
+//! white cover, a sight and a power pack, the red-banded drum turning six barrels through two
+//! clamps. At the ready the forearm lies under the handle; carried, muzzle down, it hangs clear in
+//! front of the leg. The combat knife is in its left hand, a heavy clipped blade with its honed
+//! edge bright.
 //!
 //! The armour is white, the trim red; the inner frame, the hands and the ankles are grey, the
 //! weapons gunmetal.
@@ -849,55 +852,72 @@ fn backpack(d: &mut Designer) {
 // --- The beam gatling. ---
 
 /// The gatling's axis over its grip, and the heights along it (z from the grip): the receiver's
-/// back and front, the drum's front, the barrels' ends.
-const GAT_UP: f32 = 0.78;
-const RECEIVER: (f32, f32) = (-0.5, 1.6);
-const ROTOR: f32 = 3.0;
-const BARRELS: f32 = 6.7;
+/// back and front, the drum's front, the barrels' ends. It's held as a pistol is (`crate::hold`):
+/// its body all ahead of the grip and high over it, so at the ready the forearm lies under the
+/// handle behind it, and carried, muzzle down, it hangs clear of the leg in front of it.
+const GAT_UP: f32 = 1.15;
+const RECEIVER: (f32, f32) = (-0.05, 1.85);
+const ROTOR: f32 = 3.3;
+const BARRELS: f32 = 7.2;
 
-/// The beam gatling on the right arm: a gunmetal receiver held by its grip, its top a white
-/// cover, a sight and a power pack on its side; the red-banded drum turning six barrels in two
-/// clamps, each with its collar and bore.
+/// The beam gatling in the right hand: a gunmetal receiver on its pistol grip, its top a white
+/// cover with a carry handle running back over the forearm and a sight beside it, a power pack on
+/// its outer side; the red-banded drum turning six barrels in two clamps, each with its collar and
+/// bore.
 fn gatling(d: &mut Designer) {
     let g = j(Bone::Weapon);
     let axis = |z: f32| v(g.x, g.y + GAT_UP, g.z + z);
     let along = |z: f32| place(axis(z), rx(FRAC_PI_2));
     let mut w = d.on(Bone::Weapon);
     w.seed(0.61);
-    // The grip and its guard.
-    w.cube(v(0.34, 1.0, 0.46), 0.05, GUN, place(v(g.x, g.y - 0.15, g.z), rx(-0.25)));
-    w.cube(v(0.12, 0.12, 0.7), 0.02, GUN, at(g.x, g.y - 0.45, g.z + 0.45));
+    // The grip in the fist, raked back, and the trigger's guard ahead of it.
+    w.block(
+        v(0.32, 0.62, 0.42),
+        v2(1.0, 1.1),
+        Vec2::ZERO,
+        0.05,
+        GUN,
+        place(v(g.x, g.y + 0.16, g.z + 0.2), rx(-0.15)),
+    );
+    w.cube(v(0.1, 0.08, 0.4), 0.02, GUN, at(g.x, g.y + 0.3, g.z + 0.6));
+    w.cube(v(0.1, 0.22, 0.08), 0.02, GUN, at(g.x, g.y + 0.38, g.z + 0.78));
     // The receiver, and its white cover.
     let (r0, r1) = RECEIVER;
     let mid = (r0 + r1) * 0.5;
     w.block(
-        v(1.1, 1.0, r1 - r0),
-        v2(0.86, 0.94),
+        v(1.04, 1.2, r1 - r0),
+        v2(0.88, 0.94),
         Vec2::ZERO,
         0.14,
         GUN,
-        at(g.x, g.y + GAT_UP - 0.12, g.z + mid),
+        at(g.x, g.y + GAT_UP - 0.1, g.z + mid),
     );
+    let top = g.y + GAT_UP + 0.5;
     w.block(
         v(0.84, 0.2, r1 - r0 - 0.3),
         v2(0.8, 0.92),
         Vec2::ZERO,
         0.06,
         BODY,
-        at(g.x, g.y + GAT_UP + 0.46, g.z + mid),
+        at(g.x, top + 0.08, g.z + mid),
     );
     w.greeble(|w| {
         for k in 0..5 {
-            let z = g.z + r0 + 0.5 + k as f32 * 0.24;
-            w.cube(v(0.05, 0.42, 0.1), 0.0, FRAME, at(g.x + 0.47, g.y + GAT_UP - 0.15, z));
+            let z = g.z + r0 + 0.45 + k as f32 * 0.24;
+            w.cube(v(0.05, 0.5, 0.1), 0.0, FRAME, at(g.x - 0.5, g.y + GAT_UP - 0.15, z));
         }
-        w.cube(v(0.84, 0.04, 0.04), 0.0, FRAME, at(g.x, g.y + GAT_UP + 0.57, g.z + r1 - 0.4));
+        w.cube(v(0.84, 0.04, 0.04), 0.0, FRAME, at(g.x, top + 0.19, g.z + r1 - 0.45));
     });
-    // The sight on the cover, its round lens looking forward.
-    w.cube(v(0.26, 0.3, 0.7), 0.03, GUN, at(g.x - 0.2, g.y + GAT_UP + 0.7, g.z + 0.8));
-    w.cylinder(0.11, 0.08, 10, LENS, place(v(g.x - 0.2, g.y + GAT_UP + 0.72, g.z + 1.16), rx(FRAC_PI_2)));
-    // The power pack on its outer side, its cable's plug.
-    let pack = at(g.x + 0.7, g.y + GAT_UP - 0.15, g.z + 0.3);
+    // The carry handle over the cover, running back high over the forearm: two posts and the bar.
+    for z in [0.25, 1.45] {
+        w.cube(v(0.16, 0.36, 0.2), 0.03, GUN, at(g.x + 0.12, top + 0.32, g.z + z));
+    }
+    w.cube(v(0.18, 0.16, 2.2), 0.04, GUN, at(g.x + 0.12, top + 0.54, g.z + 0.5));
+    // The sight beside it on the cover, its round lens looking forward.
+    w.cube(v(0.24, 0.3, 0.7), 0.03, GUN, at(g.x - 0.24, top + 0.32, g.z + 1.1));
+    w.cylinder(0.1, 0.08, 10, LENS, place(v(g.x - 0.24, top + 0.34, g.z + 1.46), rx(FRAC_PI_2)));
+    // The power pack on its outer side, a red strip down it, its cable's plug at its back.
+    let pack = at(g.x + 0.7, g.y + GAT_UP - 0.15, g.z + 0.95);
     w.block(v(0.36, 0.8, 1.5), v2(0.8, 0.92), Vec2::ZERO, 0.08, GUN, pack);
     w.cube(v(0.08, 0.5, 1.1), 0.02, TRIM, pack * at(0.18, 0.0, 0.0));
     w.cylinder(0.14, 0.2, 10, GREY, pack * place(v(0.0, 0.0, -0.8), rx(FRAC_PI_2)));
