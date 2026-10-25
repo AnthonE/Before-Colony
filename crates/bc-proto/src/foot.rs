@@ -30,7 +30,7 @@ const MODE_LIFT: u32 = 3;
 /// A rider's train on their strip's line, and its car.
 const TRAIN_BITS: u32 = 4;
 const CAR_BITS: u32 = 2;
-/// A seat (`colony::city::SEATS`), a lift's storey, and the ticks left of its ride.
+/// A seat (`colony::city::arrival_seats`), a lift's storey, and the ticks left of its ride.
 const SEAT_BITS: u32 = 6;
 const STOREY_BITS: u32 = 5;
 const LIFT_TICKS_BITS: u32 = 8;

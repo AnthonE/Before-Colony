@@ -469,7 +469,7 @@ them until a server walks people in the tick (behind a later `--street`):
 | `InputCmd::act` (`FootAct`: sit, stand, ride a lift, take a vehicle, get out) | every command; cleared by `neutral` and by `stand_in`, kept by `quantized` | 1, + 24 with one |
 | `header_flags::ON_FOOT` | a walker's snapshot, answering for their input (not SPECTATOR) | bit 2 |
 | `foot_own` (`FootOwn`) | an ON_FOOT snapshot, after the objects: the own walker exact, and its mode (on foot, a train, a seat, a lift) | 1 + 262 on foot |
-| `people` (`PersonRecord` as `QPerson` codes) | after it: the people near, whole or as deltas against acked records, as suits' are | 1 + 112 whole, about 47 at a walk |
+| `people` (`PersonRecord` as `QPerson` codes) | after it: the people near, whole or as deltas against acked records, as suits' are | 1 + 112 whole, 1 + about 46 at a walk |
 
 H0 moved `CITY_VERSION` to 5 and `PROTOCOL_VERSION` to 36, and the city's hash (`CITY_GOLDEN`)
 with them; the homes have their own (`HOMES_GOLDEN`). H1 to H3 add only JSON (`Update::Place`'s

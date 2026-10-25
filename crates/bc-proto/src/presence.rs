@@ -41,7 +41,7 @@ pub const MAX_TRAINS: u8 = 12;
 /// [`PersonPose::ride`] for a pilot driving a car, and riding a scooter.
 pub const RIDE_CAR: u8 = 13;
 pub const RIDE_SCOOTER: u8 = 14;
-/// [`PersonPose::ride`] for a pilot sitting on a seat (`bc_sim::colony::city::SEATS`): where it
+/// [`PersonPose::ride`] for a pilot sitting on a seat (`bc_sim::colony::city::arrival_seats`): where it
 /// is, and the way it faces.
 pub const RIDE_SEATED: u8 = 15;
 /// [`PersonPose::ride`] for a pilot driving a Markab, the colony's rocket car: where its middle is,

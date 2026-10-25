@@ -9,7 +9,7 @@ walks anyone in the tick yet (that comes behind a later `--street`), so nothing 
 default. A snapshot's header flags gain ON_FOOT (bit 2): a walker's snapshot, which answers for
 their input as an own suit's does. An ON_FOOT snapshot carries two more sections after the objects:
 `foot_own`, a presence bit and then the pilot's own walker exactly (`FootOwn`: raw `f32` bits, 262
-bits on their feet), and `people`, `[1][person]` each (1 + 29 to 112 bits) closed by `[0]`: the
+bits on their feet), and `people`, `[1][person]` each (1 + 28 to 125 bits; 112 whole) closed by `[0]`: the
 people near, each a `PersonRecord` whole or delta-coded against a record the client acked, as
 suits' are (below, "The colony's people"). Every `InputCmd` gains `act` (1 bit, and with it a
 `FootAct`: kind 8, arg 16): what a walker does once on that command's tick. `InputCmd::neutral`
@@ -206,8 +206,8 @@ crouches, 32 or more stands, 100 or more (standing) hops, and anything between k
 has, so a silent client stays crouched.
 
 Four commands fit in 69 bytes (110 + 4 × 109 bits), or 100 locked on (110 + 4 × 171), or 81 a walker's
-each with an act (110 + 4 × 133). A client sending several ticks at once sends
-overlapping windows two ticks apart, so each command is in two packets. States persist while a
+each with an act (110 + 4 × 133), and 120 at the most (110 + 4 × 211). A client sending several
+ticks at once sends overlapping windows two ticks apart, so each command is in two packets. States persist while a
 client is silent (the server repeats its last command, keeping only FLIGHT_ASSIST, the Orrery, GRAB,
 MODE and GRIP, and the lock-on for 30 ticks more); presses (STOW, THROW, JETTISON, MELEE, SPECIAL, BURST) act on the tick they first appear, and a
 repeated command never fires.

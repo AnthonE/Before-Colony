@@ -98,7 +98,7 @@ pub struct FootAct {
 
 /// [`FootAct::kind`]s.
 pub mod act {
-    /// Sit on seat `arg` (`bc_sim::colony::city::SEATS`), within reach of it.
+    /// Sit on seat `arg` (`bc_sim::colony::city::arrival_seats`), within reach of it.
     pub const SIT: u8 = 1;
     /// Stand up (off a seat).
     pub const STAND: u8 = 2;
@@ -357,7 +357,8 @@ impl Default for InputPacket {
 impl InputPacket {
     /// Encodes into `buf`, returning the byte length: at most 69 for four commands (110 + 4 × 109
     /// bits), 100 if all four fly locked on (110 + 4 × 171), 108 if they fire converging too
-    /// (110 + 4 × 187), and 81 for four walker's commands each with an act (110 + 4 × 133). Each
+    /// (110 + 4 × 187), 81 for four walker's commands each with an act (110 + 4 × 133), and 120
+    /// with all of it (110 + 4 × 211). Each
     /// command is 8 + 32 + 24 + 8 + 16 + 10 + 8 + 1 + 1 + 1 bits: view delta, aim, thrust, roll,
     /// buttons, lock target, shot sequence, whether a lock-on ([`LockOn`]: 42 + 20 bits) follows,
     /// whether a crosshair's range ([`InputCmd::converge`]: 16 bits) does, and whether a walker's
@@ -484,6 +485,11 @@ mod tests {
         assert_eq!(p.encode(&mut buf), Some(108));
         let back = InputPacket::decode(&buf[..108]).unwrap();
         assert!(back.cmds.iter().all(|c| c.converge == u16::MAX));
+        // The most a packet takes: locked on, converging and acting, four times (110 + 4 × 211).
+        for c in &mut p.cmds {
+            c.act = Some(FootAct { kind: u8::MAX, arg: u16::MAX });
+        }
+        assert_eq!(p.encode(&mut buf), Some(120));
     }
 
     #[test]
