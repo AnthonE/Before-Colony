@@ -1,5 +1,5 @@
 //! What the five Lodestars share, on the same skeleton and helpers as `frames`: the helmet, the
-//! V-fin, the waist, the legs, the backpack and the missile pods. Each Lodestar is its own module
+//! V-fin, the waist, the legs and the backpack. Each Lodestar is its own module
 //! (`antares`, `algol`, `canopus`, `thuban`, and the Aquila, Altair's flight form), carrying its
 //! own kit and the sockets the client draws that kit from: blades, the Talon and its flamethrower,
 //! missile hatches.
@@ -7,7 +7,7 @@
 //! Blades held in a hand stay short (the hand's armour must stay near its hit capsule); long
 //! weapons ride the `Weapon` bone.
 
-use glam::{Quat, Vec2, Vec3};
+use glam::{Vec2, Vec3};
 
 use crate::Designer;
 use crate::frames::{
@@ -100,37 +100,4 @@ pub(crate) fn backpack(d: &mut Designer, size: Vec3, bell: f32) {
     for s in Side::BOTH {
         nozzle(d, Bone::Backpack, sp(s, v(0.7, 3.2, -3.5)), v(0.0, -0.3, -1.0), bell);
     }
-}
-
-/// A box of missile tubes at `pos` on `bone`, hatches facing `face`; one launch socket at its
-/// front.
-pub(crate) fn missile_pod(
-    d: &mut Designer,
-    bone: Bone,
-    pos: Vec3,
-    size: Vec3,
-    face: Vec3,
-    rows: u32,
-    cols: u32,
-) {
-    let rot = Quat::from_rotation_arc(Vec3::Z, face.normalize());
-    let mut p = d.on(bone);
-    p.cube(size, 0.08, BODY, place(pos, rot));
-    let front = pos + rot * v(0.0, 0.0, size.z * 0.5);
-    p.greeble(|p| {
-        for r in 0..rows {
-            for c in 0..cols {
-                let x = (c as f32 + 0.5) / cols as f32 - 0.5;
-                let y = (r as f32 + 0.5) / rows as f32 - 0.5;
-                let at = front + rot * v(x * size.x * 0.8, y * size.y * 0.8, 0.02);
-                p.cube(
-                    v(size.x * 0.6 / cols as f32, size.y * 0.6 / rows as f32, 0.08),
-                    0.0,
-                    FRAME,
-                    place(at, rot),
-                );
-            }
-        }
-    });
-    d.sockets.missiles.push((bone, Designer::local(bone, front)));
 }
