@@ -32,9 +32,11 @@
 //! The backpack is a rounded box with a handle and louvred vents on its back, a grille and the
 //! red beacon on its top, a banded propellant tank standing either side with a vernier on it, and
 //! the main thrusters in their housing under it. The beam cannon is carried under the right arm:
-//! a ribbed condenser drum behind the fist, the olive receiver over the grip with its carry handle
-//! and sight, a vented box shroud, the barrel with its cooling rings, and the flared emitter round
-//! the bore. Four shield pods circle the suit (on [`Bone::Props`], which the client turns about
+//! the olive receiver over the fist with its grip and sight, the ribbed condenser drum riding on
+//! its back and out over the wrist, cabled to a vented box shroud, the barrel with its cooling
+//! rings, and the flared emitter round the bore. Held as [`crate::hold`] has it, the forearm lies
+//! under the condenser at the ready, and carried muzzle down it hangs clear in front of the leg.
+//! Four shield pods circle the suit (on [`Bone::Props`], which the client turns about
 //! the upright axis): flat grey hexagonal plates, each with an olive panel raised round its field
 //! generator, the lens ringed in pink, and an emitter at either point.
 //!
@@ -1058,26 +1060,34 @@ fn bell(o: &mut On<'_>, pos: Vec3, dir: Vec3, r: f32, xf: Affine3A) {
 
 // --- The beam cannon. ---
 
-/// The beam cannon's bore, how far over the grip; and where its sections run along it, from the
-/// grip: the condenser's back, the receiver, the shroud, the barrel and the muzzle.
-const BORE: f32 = 0.78;
-const CONDENSER: (f32, f32) = (-3.5, -0.55);
-const RECEIVER: (f32, f32) = (-0.6, 2.35);
-const SHROUD: (f32, f32) = (2.3, 4.3);
-const MUZZLE: (f32, f32) = (5.75, 6.6);
+/// The beam cannon, along its bore from the grip (as [`crate::hold`] has it held): how high the
+/// bore runs over the grip, and where its sections run along it: the receiver over the fist, the
+/// vented shroud, the barrel and the muzzle. The condenser rides on the receiver's back, high over
+/// the wrist: its axis's height, and where it runs. Nothing else lies behind the grip, and nothing
+/// ahead of it hangs below the receiver's foot, so at the ready the forearm lies under the
+/// condenser, and carried muzzle down the cannon hangs clear in front of the leg.
+const BORE: f32 = 0.95;
+const RECEIVER: (f32, f32) = (0.05, 2.8);
+const SHROUD: (f32, f32) = (2.75, 4.75);
+const MUZZLE: (f32, f32) = (6.2, 7.05);
+const CONDENSER_Y: f32 = 1.95;
+const CONDENSER: (f32, f32) = (-1.4, 1.75);
 
-/// The beam cannon, carried under the right arm: the big condenser drum behind the fist, the
-/// olive receiver over it with a carry handle and a sight, a vented box shroud, the round barrel
-/// with its cooling rings, and the flared emitter round its bore.
+/// The beam cannon, carried under the right arm: the olive receiver over the fist with its grip
+/// and sight, the ribbed condenser drum riding along its back and out over the wrist, cabled to
+/// the vented box shroud ahead, the barrel with its cooling rings, and the flared emitter round the
+/// bore.
 fn cannon(d: &mut Designer) {
     let g = j(Bone::Weapon);
-    let along_z = |z: f32| place(v(g.x, g.y + BORE, g.z + z), rx(FRAC_PI_2));
+    let along_z = |y: f32, z: f32| place(v(g.x, g.y + y, g.z + z), rx(FRAC_PI_2));
     let mut w = d.on(Bone::Weapon);
     w.seed(0.61);
-    // The grip and its guard.
-    w.cube(v(0.34, 1.0, 0.46), 0.05, GUN, place(v(g.x, g.y - 0.15, g.z), rx(-0.25)));
-    w.cube(v(0.12, 0.1, 0.8), 0.02, GUN, at(g.x, g.y - 0.12, g.z + 0.45));
-    // The receiver, a grey stripe down each side.
+    // The grip, upright in the fist ahead of the wrist, and its guard running forward to the
+    // receiver.
+    w.cube(v(0.34, 1.0, 0.46), 0.05, GUN, at(g.x, g.y - 0.15, g.z + 0.27));
+    w.cube(v(0.12, 0.1, 0.5), 0.02, GUN, at(g.x, g.y - 0.12, g.z + 0.72));
+    w.cube(v(0.12, 0.5, 0.1), 0.02, GUN, at(g.x, g.y + 0.1, g.z + 0.95));
+    // The receiver, a grey stripe down each side and its panel lines.
     let (r0, r1) = RECEIVER;
     let receiver = at(g.x, g.y + BORE, g.z + (r0 + r1) * 0.5);
     w.block(v(1.05, 1.2, r1 - r0), v2(0.86, 0.94), Vec2::ZERO, 0.16, BODY, receiver);
@@ -1085,37 +1095,43 @@ fn cannon(d: &mut Designer) {
         w.cube(v(0.06, 0.24, r1 - r0 - 0.5), 0.02, TRIM, receiver * at(side * 0.53, -0.18, 0.0));
     }
     w.greeble(|w| {
-        for z in [-0.8, 0.5] {
+        for z in [-0.75, 0.55] {
             for side in [-1.0, 1.0] {
                 w.cube(v(0.05, 0.75, 0.06), 0.0, FRAME, receiver * at(side * 0.535, 0.12, z));
             }
         }
     });
-    // The carry handle over it.
-    for z in [-0.5, 0.9] {
-        w.cube(v(0.18, 0.4, 0.22), 0.03, GUN, receiver * at(0.0, 0.72, z));
-    }
-    w.cube(v(0.18, 0.16, 1.62), 0.03, GUN, receiver * at(0.0, 0.94, 0.2));
     // The sight on its inboard side, and its lens.
-    let sight = receiver * at(-0.66, 0.3, 0.6);
+    let sight = receiver * at(-0.66, 0.2, 0.75);
     w.cube(v(0.28, 0.38, 0.8), 0.03, GUN, sight);
     w.cylinder(0.11, 0.08, 10, LENS, sight * place(v(0.0, 0.04, 0.41), rx(FRAC_PI_2)));
-    // The condenser: a drum behind the fist, ribbed, its end capped round a socket.
+    // The condenser: a drum along the receiver's back, out over the wrist, ribbed, its end capped
+    // round a socket; two clamps hold it down.
     let (c0, c1) = CONDENSER;
     w.lathe(
-        &[(0.0, c0), (0.42, c0), (0.62, c0 + 0.12), (0.7, c0 + 0.35), (0.7, c1 - 0.3), (0.56, c1), (0.0, c1)],
+        &[(0.0, c0), (0.32, c0), (0.46, c0 + 0.1), (0.5, c0 + 0.3), (0.5, c1 - 0.25), (0.4, c1), (0.0, c1)],
         16,
         GUN,
-        along_z(0.0),
+        along_z(CONDENSER_Y, 0.0),
     );
     for k in 0..3 {
-        let z = c0 + 0.9 + k as f32 * 0.65;
-        w.lathe(&band(0.66, 0.76, z - 0.1, z + 0.1), 16, BODY, along_z(0.0));
+        let z = c0 + 0.6 + k as f32 * 0.42;
+        w.lathe(&band(0.47, 0.56, z - 0.08, z + 0.08), 16, BODY, along_z(CONDENSER_Y, 0.0));
     }
-    w.cylinder(0.24, 0.12, 12, FRAME, along_z(c0 - 0.02));
-    // The cable from the condenser into the receiver's outboard side.
+    w.cylinder(0.18, 0.1, 12, FRAME, along_z(CONDENSER_Y, c0 - 0.02));
+    for z in [0.75, 1.4] {
+        w.block(
+            v(0.7, 0.42, 0.24),
+            v2(0.75, 1.0),
+            Vec2::ZERO,
+            0.04,
+            GUN,
+            at(g.x, g.y + BORE + 0.68, g.z + z),
+        );
+    }
+    // The cable from the condenser's front down into the shroud's outboard side.
     let (from, to) =
-        (v(g.x + 0.62, g.y + BORE + 0.25, g.z + c1 - 0.6), v(g.x + 0.5, g.y + BORE + 0.25, g.z + r0 + 0.4));
+        (v(g.x + 0.3, g.y + CONDENSER_Y - 0.28, g.z + c1 - 0.1), v(g.x + 0.36, g.y + BORE + 0.3, g.z + 3.2));
     w.cylinder(0.1, (to - from).length() + 0.2, 8, BROWN, place((from + to) * 0.5, toward(to - from)));
     // The shroud: a box section with vent slots down its sides.
     let (s0, s1) = SHROUD;
@@ -1131,19 +1147,19 @@ fn cannon(d: &mut Designer) {
     });
     // The barrel, its cooling rings, and the flared emitter round the bore.
     let (m0, m1) = MUZZLE;
-    w.cylinder(0.36, m0 - s1 + 0.1, 16, GUN, along_z((s1 + m0) * 0.5));
+    w.cylinder(0.36, m0 - s1 + 0.1, 16, GUN, along_z(BORE, (s1 + m0) * 0.5));
     for k in 0..4 {
         let z = s1 + 0.25 + k as f32 * 0.3;
-        w.lathe(&band(0.34, 0.46, z - 0.06, z + 0.06), 12, GUN, along_z(0.0));
+        w.lathe(&band(0.34, 0.46, z - 0.06, z + 0.06), 12, GUN, along_z(BORE, 0.0));
     }
     w.lathe(
         &[(0.3, m0), (0.5, m0), (0.56, m0 + 0.2), (0.68, m1 - 0.12), (0.66, m1), (0.4, m1)],
         18,
         GUN,
-        along_z(0.0),
+        along_z(BORE, 0.0),
     );
-    w.cylinder(0.4, 0.2, 14, FRAME, along_z(m1 - 0.08));
-    w.cylinder(0.16, 0.24, 10, STEEL, along_z(m1 - 0.12));
+    w.cylinder(0.4, 0.2, 14, FRAME, along_z(BORE, m1 - 0.08));
+    w.cylinder(0.16, 0.24, 10, STEEL, along_z(BORE, m1 - 0.12));
     w.greeble(|w| {
         for k in 0..3 {
             let a = k as f32 * TAU / 3.0 + FRAC_PI_2;
