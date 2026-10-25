@@ -20,7 +20,6 @@ mod detail;
 pub mod frames;
 pub mod ik;
 pub mod kit;
-mod lodestars;
 pub mod paint;
 mod prototypes;
 pub mod rig;
