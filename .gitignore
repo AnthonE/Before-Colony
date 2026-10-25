@@ -7,3 +7,5 @@
 *.log
 .DS_Store
 __pycache__/
+/scripts/trailer/build/
+/scripts/trailer/out/

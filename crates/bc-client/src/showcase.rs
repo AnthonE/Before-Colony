@@ -387,6 +387,10 @@ struct Show {
     suits: Vec<Entity>,
     frame: FrameId,
     clean: bool,
+    /// Steps the clock has taken since `t0`.
+    steps: u64,
+    /// The step the film hook wants the clock at; it stands there till told another (see [`film`]).
+    film: Option<u64>,
 }
 
 #[derive(Component)]
@@ -424,6 +428,8 @@ impl Plugin for ShowcasePlugin {
             suits: Vec::new(),
             frame: self.frame,
             clean: self.clean,
+            steps: 0,
+            film: None,
         })
         .add_systems(
             Startup,
@@ -432,7 +438,9 @@ impl Plugin for ShowcasePlugin {
         .add_systems(Update, (drift_wreckage, drift_chips).in_set(crate::view::Vis::Drive))
         .add_systems(
             Update,
-            (advance_clock, controls, script, work_rock).chain().in_set(crate::view::Vis::Drive),
+            (film, advance_clock, controls, script, film_follow, work_rock)
+                .chain()
+                .in_set(crate::view::Vis::Drive),
         )
         .add_systems(Update, overlay.in_set(crate::view::Vis::Camera));
         if self.scene == Scene::Hangar {
@@ -938,6 +946,79 @@ fn spawn_showcase(mut commands: Commands, mut show: ResMut<Show>, font: Res<crat
     ));
 }
 
+/// Frames the film hook draws before the clock stands still, for the pipelines to compile, unless
+/// `__bcFilm.warm` says otherwise.
+const FILM_WARM: u64 = 10;
+
+/// `window.__bcFilm` (`scripts/trailer/film.mjs`): `step` runs the clock on to that many steps from
+/// `?t=` and stands it there, so a shot is filmed a frame at a time however long each takes to draw
+/// (`showcase_steps` says where it stands); `yaw` and `pitch` (rad) turn the camera off its preset
+/// about its target (`pan`: about its eye), `zoom` scales its distance and `fwd` (m) carries it
+/// along its view; `warm` is how many frames it draws first, for the pipelines to compile
+/// ([`FILM_WARM`] unless it says); `follow` (a suit's index in the scene) keeps the camera on that
+/// suit, at the preset's distance times `zoom`. Read every frame; unset, nothing. While it is set
+/// the app sleeps once the clock stands where it was asked (the page wakes it with a pointer event
+/// on the canvas), so a GPU drawing in software spends itself on the frames filmed, not on drawing
+/// a held one again.
+fn film(
+    mut show: ResMut<Show>,
+    mut base: Local<Option<(u32, Orbit)>>,
+    mut winit: ResMut<bevy::winit::WinitSettings>,
+    mut redraw: MessageWriter<bevy::window::RequestRedraw>,
+) {
+    let Some(f) = film_params() else { return };
+    let num = |k: &str| film_param(&f, k);
+    let step = num("step").unwrap_or(0.0).max(0.0) as u64;
+    show.film = Some(step);
+    if !matches!(winit.focused_mode, bevy::winit::UpdateMode::Reactive { .. }) {
+        let sleep = bevy::winit::UpdateMode::reactive(std::time::Duration::from_secs(3600));
+        *winit = bevy::winit::WinitSettings { focused_mode: sleep, unfocused_mode: sleep };
+    }
+    // On to the step asked for (this update takes the clock one step), and through the first frames
+    // so the pipelines compile, on the browser's own frames (a wake per frame would queue the GPU
+    // frames it can't keep up with).
+    let warm = num("warm").map_or(FILM_WARM, |w| w.max(1.0) as u64);
+    if step > show.steps + 1 || show.frames + 1 < warm {
+        redraw.write(bevy::window::RequestRedraw);
+    }
+    if base.is_none_or(|(p, _)| p != show.preset) {
+        *base = Some((show.preset, show.cam));
+    }
+    let Some((_, b)) = *base else { return };
+    let (yaw, pitch) = (num("yaw").unwrap_or(0.0) as f32, num("pitch").unwrap_or(0.0) as f32);
+    let mut cam = Orbit { yaw: b.yaw + yaw, pitch: (b.pitch + pitch).clamp(-1.5, 1.5), ..b };
+    cam.dist = b.dist * num("zoom").unwrap_or(1.0) as f32;
+    if num("pan").unwrap_or(0.0) != 0.0 {
+        // The eye stays; the target swings round it.
+        cam.target = b.eye() - Orbit { target: Vec3::ZERO, ..cam }.eye();
+    }
+    let dir = (cam.target - cam.eye()).normalize_or_zero();
+    cam.target += dir * num("fwd").unwrap_or(0.0) as f32;
+    show.cam = cam;
+}
+
+/// The page's `window.__bcFilm`, when it has one.
+fn film_params() -> Option<wasm_bindgen::JsValue> {
+    web_sys::window()
+        .and_then(|w| js_sys::Reflect::get(&w, &wasm_bindgen::JsValue::from_str("__bcFilm")).ok())
+        .filter(|f| f.is_object())
+}
+
+/// One of its numbers (a flag reads as 0 or 1).
+fn film_param(f: &wasm_bindgen::JsValue, k: &str) -> Option<f64> {
+    let v = js_sys::Reflect::get(f, &wasm_bindgen::JsValue::from_str(k)).ok()?;
+    v.as_f64().or_else(|| v.as_bool().map(f64::from))
+}
+
+/// The film hook's `follow`: the camera's target on that suit, where the scene's script has just
+/// put it.
+fn film_follow(mut show: ResMut<Show>, suits: Query<&SuitDrive>) {
+    let Some(i) = film_params().and_then(|f| film_param(&f, "follow")) else { return };
+    if let Some(d) = show.suits.get(i as usize).and_then(|e| suits.get(*e).ok()) {
+        show.cam.target = d.pos;
+    }
+}
+
 fn advance_clock(
     mut show: ResMut<Show>,
     mut vis: ResMut<VisTime>,
@@ -945,7 +1026,7 @@ fn advance_clock(
     real: Res<Time<Real>>,
     mut dev: ResMut<DevStatus>,
 ) {
-    let held = show.hold > 0 && show.frames >= show.hold;
+    let held = (show.hold > 0 && show.frames >= show.hold) || show.film.is_some_and(|k| show.steps >= k);
     let dt = if show.paused || held {
         0.0
     } else if show.realtime {
@@ -960,6 +1041,7 @@ fn advance_clock(
     } else {
         show.prev = vis.now;
         vis.now += dt;
+        show.steps += u64::from(dt > 0.0);
     }
     vis.dt = dt as f32;
     // The bodies (every landmark; the colony's spin) on the scene's clock, in ticks.
@@ -969,6 +1051,7 @@ fn advance_clock(
     dev.set("scene", show.scene.name());
     dev.set("showcase_t", vis.now);
     dev.set("showcase_frames", show.frames as f64);
+    dev.set("showcase_steps", show.steps as f64);
 }
 
 fn controls(
