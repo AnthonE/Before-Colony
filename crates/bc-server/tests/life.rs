@@ -259,3 +259,35 @@ async fn a_hungry_pilot_flies_short_of_g_and_a_meal_puts_it_right() -> anyhow::R
     let _ = std::fs::remove_dir_all(&dir);
     Ok(())
 }
+
+/// Out in space, from the bay: the condition reaches the sector with the launch, and when it moves
+/// in flight, the suit and the page both hear of it (an Arrival's default would be fed).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_pilot_going_hungry_in_flight_bears_less_g_at_once() -> anyhow::Result<()> {
+    use bc_sim::content::body::HUNGRY_G;
+    let dir = data_dir("hungry-in-flight");
+    let w = wallet(95);
+    let (server, b) = come_in(&dir, &w).await?;
+    go(server, b).await;
+    // A few seconds of food left in them: peckish at the launch, hungry soon after.
+    edit_body(&dir, |body| {
+        body["food_s"] = serde_json::json!(12);
+        body["well_fed_s"] = serde_json::json!(0);
+    })?;
+    let (server, mut b) = come_in(&dir, &w).await?;
+    assert_eq!(b.core.hangar.fed(), Some(Fed::Peckish));
+    b.launch().await?;
+    b.wait_until(5.0, "peckish in the cockpit", |c| c.world.own.is_some_and(|o| o.fed == Fed::Peckish as u8))
+        .await?;
+    let peckish = own_tuning(&b.world().own.expect("own suit")).g_tolerance;
+    b.wait_until(30.0, "hungry in the cockpit", |c| {
+        c.world.own.is_some_and(|o| o.fed == Fed::Hungry as u8) && c.hangar.fed() == Some(Fed::Hungry)
+    })
+    .await?;
+    let hungry = own_tuning(&b.world().own.expect("own suit")).g_tolerance;
+    assert!((peckish + HUNGRY_G - hungry).abs() < 1e-5, "peckish {peckish} g, hungry {hungry} g");
+    assert_eq!(server.status()["game"]["hot_path_allocations"], 0);
+    go(server, b).await;
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(())
+}
