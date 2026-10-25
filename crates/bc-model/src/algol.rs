@@ -33,11 +33,13 @@
 //! make the scalloped edge of a bat's wing: blue on their inner faces, the Eclipse's emitters in the
 //! three nearest the body, dark behind.
 //!
-//! The beam scythe's shaft runs from a spike under the fist to its head high over the shoulder:
-//! grey grips, blue collars, and a housing with a spike up and a hook back, its red beak reaching
-//! forward and down to the emitter the blade leaves. The claw shield is a long plate pointed at the
-//! elbow, its blue face in two facets either side of a dark spine, three red talons round the
-//! emitter at its tip.
+//! The beam scythe stands upright in front of the hanging arm, held as a scythe is, by its nib: a
+//! short grey handle standing back from the shaft into the fist. The shaft runs from a spike by the
+//! knee to its head high over the shoulder, with a grey grip for the other hand and blue collars;
+//! the head is a housing with a spike up and a hook swept back over the pauldron, its red beak
+//! reaching forward and down to the emitter the blade leaves. The claw shield is a long plate
+//! pointed at the elbow, set down the forearm clear of the pauldron, its blue face in two facets
+//! either side of a dark spine, three red talons round the emitter at its tip.
 //!
 //! The body is the livery's dark, its trim blue and its accents red; the inner frame, the joints and
 //! the hands are grey, the mask a paler grey, the weapons gunmetal, the V-fin yellow.
@@ -800,27 +802,43 @@ fn binders(d: &mut Designer) {
 
 // --- The beam scythe. ---
 
+/// The scythe's shaft at rest, from its butt to its head: upright in front of the hanging arm,
+/// leaning a little forward, clear of the gauntlet's cuff, the pauldron and the leg.
+const BUTT: Vec3 = Vec3::new(3.55, -3.55, 2.15);
+const HEAD: Vec3 = Vec3::new(3.5, 6.95, 2.4);
+
 fn scythe(d: &mut Designer) {
-    let g = j(Bone::Weapon);
-    let butt = g + v(0.0, -4.1, -0.26);
-    let top = g + v(0.0, 6.5, 0.38);
-    let len = butt.distance(top);
-    let shaft = place(butt, toward(top - butt));
-    let hold = butt.distance(g);
+    // The nib's line through the fist, where the fingers close, a little under the wrist's grey
+    // ring; and how far up the shaft the nib leaves it.
+    let g = j(Bone::Weapon) + v(0.0, -0.25, 0.0);
+    let len = BUTT.distance(HEAD);
+    let shaft = place(BUTT, toward(HEAD - BUTT));
+    let nib = (g.y - BUTT.y) / (HEAD.y - BUTT.y) * len;
     let mut w = d.on(Bone::Weapon);
     w.seed(0.62);
-    // The shaft, the grey grips where the hands hold it, and collars along it.
+    // The shaft; the nib, a short grey handle standing back from it into the fist (the grip runs
+    // along it, as a scythe's is held), clamped to the shaft; a grey grip higher up for the other
+    // hand, and blue collars along it.
     w.cylinder(0.15, len, 12, GUN, shaft * at(0.0, len * 0.5, 0.0));
-    for (y0, y1) in [(hold - 0.6, hold + 0.6), (hold + 2.6, hold + 3.5)] {
-        w.cylinder(0.21, y1 - y0, 12, GREY, shaft * at(0.0, (y0 + y1) * 0.5, 0.0));
-        w.greeble(|w| {
-            for k in 1..4 {
-                let y = y0 + (y1 - y0) * k as f32 / 4.0;
-                w.cylinder(0.24, 0.09, 10, GREY, shaft * at(0.0, y, 0.0));
-            }
-        });
-    }
-    for y in [0.4, 1.8, len - 1.6] {
+    let socket = shaft.transform_point3(v(0.0, nib, 0.0));
+    let (heel, toe) = (v(g.x, g.y, g.z - 0.05), v(g.x, g.y, socket.z));
+    w.cylinder(0.17, heel.distance(toe), 12, GREY, along(heel, toe));
+    w.block(v(0.4, 0.62, 0.42), v2(1.0, 1.0), Vec2::ZERO, 0.05, GUN, shaft * at(0.0, nib, -0.12));
+    w.greeble(|w| {
+        for k in 1..4 {
+            let z = g.z + 0.12 + k as f32 * 0.2;
+            w.cylinder(0.2, 0.07, 10, GREY, place(v(g.x, g.y, z), rx(FRAC_PI_2)));
+        }
+    });
+    let (y0, y1) = (nib + 2.0, nib + 3.1);
+    w.cylinder(0.21, y1 - y0, 12, GREY, shaft * at(0.0, (y0 + y1) * 0.5, 0.0));
+    w.greeble(|w| {
+        for k in 1..4 {
+            let y = y0 + (y1 - y0) * k as f32 / 4.0;
+            w.cylinder(0.24, 0.09, 10, GREY, shaft * at(0.0, y, 0.0));
+        }
+    });
+    for y in [0.4, nib - 0.9, nib + 0.5, len - 1.6] {
         w.lathe(&band(0.12, 0.26, y, y + 0.22), 12, TRIM, shaft);
     }
     // The butt, a spike.
@@ -831,15 +849,15 @@ fn scythe(d: &mut Designer) {
         shaft,
     );
     // The head: a collar round the shaft's top and a housing over it, a spike up out of it and a
-    // hook back and down; its red beak reaching forward and down, the emitter in its tip looking
-    // where the blade leaves it.
+    // hook swept back over the pauldron; its red beak reaching forward and down, the emitter in its
+    // tip looking where the blade leaves it.
     let hd = shaft * at(0.0, len, 0.0);
     let side_on = hd * Affine3A::from_rotation_y(-FRAC_PI_2);
     w.lathe(&[(0.0, -0.7), (0.24, -0.7), (0.32, -0.6), (0.32, -0.1), (0.26, 0.0), (0.0, 0.0)], 12, GUN, hd);
     w.hexa(slab(0.3, [(-0.55, -0.25), (-0.4, 1.15), (0.55, -0.35), (0.3, 1.15)]), 0.08, GUN, hd);
     w.extrude(&[v2(-0.32, 1.1), v2(0.22, 1.1), v2(0.1, 1.6), v2(-0.05, 2.3)], 0.32, GUN, side_on);
     w.extrude(
-        &[v2(-0.45, 0.95), v2(-0.5, 0.05), v2(-1.15, -0.45), v2(-1.7, -1.15), v2(-0.95, 0.2)],
+        &[v2(-0.45, 0.95), v2(-0.5, 0.2), v2(-1.05, 0.0), v2(-1.55, -0.28), v2(-0.95, 0.45)],
         0.24,
         GUN,
         side_on,
@@ -875,7 +893,7 @@ fn claw_shield(d: &mut Designer) {
     let y = (wr - el).normalize();
     let z = (Vec3::NEG_X - y * y.dot(Vec3::NEG_X)).normalize();
     let rot = Quat::from_mat3(&Mat3::from_cols(y.cross(z), y, z));
-    let mid = (el + wr) * 0.5 + z * 0.95 + y * 0.2;
+    let mid = (el + wr) * 0.5 + z * 0.95 + y * 0.55;
     let xf = place(mid, rot);
     let mut s = d.on(Bone::Shield);
     s.seed(0.71);
@@ -884,24 +902,24 @@ fn claw_shield(d: &mut Designer) {
     // The body: a long dark plate pointed at the elbow, its blue face in two facets meeting in a
     // ridge down its middle, a dark spine along the ridge.
     let body = [
-        v2(0.0, -2.9),
-        v2(0.62, -2.35),
+        v2(0.0, -2.45),
+        v2(0.62, -2.0),
         v2(0.95, -1.2),
         v2(0.98, 0.9),
         v2(0.72, 1.95),
         v2(-0.72, 1.95),
         v2(-0.98, 0.9),
         v2(-0.95, -1.2),
-        v2(-0.62, -2.35),
+        v2(-0.62, -2.0),
     ];
     s.extrude(&body, 0.3, BODY, xf);
     for (lo, hi, fall) in [(0.0, 0.8, 0.36), (-0.8, 0.0, -0.36)] {
         let face = Front::new(0.52, 0.0, 0.0, fall, 0.0);
         s.hexa(face.plate([(lo, -1.75), (hi, -1.75), (lo, 1.55), (hi, 1.55)], 0.1), 0.06, TRIM, xf);
-        let tail = [(lo * 0.1, -2.5), (hi * 0.1, -2.5), (lo, -1.78), (hi, -1.78)];
+        let tail = [(lo * 0.1, -2.15), (hi * 0.1, -2.15), (lo, -1.78), (hi, -1.78)];
         s.hexa(face.plate(tail, 0.1), 0.05, TRIM, xf);
     }
-    s.hexa(stacked([(-2.4, -0.1, 0.1, 0.4, 0.62), (1.65, -0.16, 0.16, 0.4, 0.66)]), 0.04, BODY, xf);
+    s.hexa(stacked([(-2.05, -0.1, 0.1, 0.4, 0.62), (1.65, -0.16, 0.16, 0.4, 0.66)]), 0.04, BODY, xf);
     lens(&mut s, 0.2, xf * at(0.0, -1.0, 0.68));
     s.greeble(|s| {
         for k in 0..3 {
