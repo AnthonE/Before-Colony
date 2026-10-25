@@ -17,12 +17,20 @@ const STEPS: [(f32, f32); 5] = [(0.08, 1.0), (0.25, 0.75), (0.5, 0.55), (0.8, 0.
 const STRENGTH: f32 = 1.1;
 const FLOOR: f32 = 0.35;
 
+/// A shape in the suit's frame: its bone, its index there, its volume, and the centre and radius of
+/// a sphere round it.
+type Shape = (usize, usize, Proxy, Vec3, f32);
+
+/// Whether `shape`'s sphere comes within `d` of `p`.
+fn within(shape: &Shape, p: Vec3, d: f32) -> bool {
+    shape.3.distance(p) - shape.4 < d
+}
+
 /// Bakes every bone's occlusion. `joints`: each bone's joint in the suit's frame at rest (its
 /// vertices are relative to it).
 pub fn bake(bones: &mut [Builder], joints: &[Vec3]) {
     let reach = STEPS[STEPS.len() - 1].0;
-    // Every shape in the suit's frame: (bone, shape, volume, bounding centre and radius).
-    let mut all: Vec<(usize, usize, Proxy, Vec3, f32)> = Vec::new();
+    let mut all: Vec<Shape> = Vec::new();
     for (b, builder) in bones.iter().enumerate() {
         for (k, proxy) in builder.proxies().enumerate() {
             let proxy = proxy.shifted(joints[b]);
@@ -40,32 +48,46 @@ pub fn bake(bones: &mut [Builder], joints: &[Vec3]) {
         let (lo, hi) =
             verts.iter().fold((verts[0].0, verts[0].0), |(lo, hi), (p, _)| (lo.min(*p), hi.max(*p)));
         let (centre, radius) = ((lo + hi) * 0.5, (hi - lo).length() * 0.5 + reach);
-        let near: Vec<&(usize, usize, Proxy, Vec3, f32)> =
-            all.iter().filter(|s| s.3.distance(centre) - s.4 < radius).collect();
-        let mut close: Vec<&Proxy> = Vec::new();
-        let ao: Vec<f32> = verts
-            .iter()
-            .zip(&shapes)
-            .map(|(&(p, n), &own)| {
+        let near: Vec<&Shape> = all.iter().filter(|s| within(s, centre, radius)).collect();
+        let total: f32 = STEPS.iter().map(|s| s.1).sum();
+        let mut ao = vec![1.0; verts.len()];
+        let (mut candidates, mut close): (Vec<&Shape>, Vec<&Shape>) = (Vec::new(), Vec::new());
+        // A shape's vertices come together: the shapes that could reach any of them are found once
+        // for them all, within reach of the sphere round them, and each vertex looks only at those.
+        let mut start = 0;
+        while start < verts.len() {
+            let own = shapes[start];
+            let end = shapes[start..].iter().position(|&s| s != own).map_or(verts.len(), |n| start + n);
+            let run = &verts[start..end];
+            let (lo, hi) = run.iter().fold((run[0].0, run[0].0), |(lo, hi), (p, _)| (lo.min(*p), hi.max(*p)));
+            let (c, r) = ((lo + hi) * 0.5, (hi - lo).length() * 0.5);
+            candidates.clear();
+            candidates.extend(
+                near.iter().copied().filter(|s| !(s.0 == b && s.1 == own) && within(s, c, reach + r)),
+            );
+            for (k, &(p, n)) in run.iter().enumerate() {
                 close.clear();
-                close.extend(
-                    near.iter()
-                        .filter(|s| !(s.0 == b && s.1 == own) && s.3.distance(p) - s.4 < reach)
-                        .map(|s| &s.2),
-                );
+                close.extend(candidates.iter().filter(|s| within(s, p, reach)));
                 if close.is_empty() {
-                    return 1.0;
+                    continue;
                 }
                 let mut occ = 0.0;
                 for (h, weight) in STEPS {
                     let q = p + n * h;
-                    let d = close.iter().map(|s| s.distance(q)).fold(f32::MAX, f32::min);
+                    // Only a shape nearer than `h` counts, and none is nearer than its bounding
+                    // sphere: the sphere rules most out before its surface is measured.
+                    let mut d = h;
+                    for s in &close {
+                        if within(s, q, d) {
+                            d = d.min(s.2.distance(q));
+                        }
+                    }
                     occ += (h - d).clamp(0.0, h) / h * weight;
                 }
-                let total: f32 = STEPS.iter().map(|s| s.1).sum();
-                (1.0 - STRENGTH * occ / total).clamp(FLOOR, 1.0)
-            })
-            .collect();
+                ao[start + k] = (1.0 - STRENGTH * occ / total).clamp(FLOOR, 1.0);
+            }
+            start = end;
+        }
         builder.set_occlusion(&ao);
     }
 }
