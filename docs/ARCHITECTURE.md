@@ -22,7 +22,7 @@
 | Crate | Kind | Role |
 |---|---|---|
 | `bc-proto` | `no_std`, **no `alloc`** | Wire format: bit packing, quantization, input/snapshot/event/control codecs. It *cannot* allocate. |
-| `bc-sim` | `no_std` + `alloc` at construction only | The simulation: flight, weapons, damage (and the systems inside the parts), lag comp, sensors, drone AI, the Orrery, the debris field, salvage and mining; the bodies suits stand on (`bodies`, `content::landmarks`), surface contact (`ground::move_step`), a body on foot (`foot`) and concealment. Each suit's stat sheet (`tuning`): its frame times what's broken and what's fitted, built the same way by the server and the owner's prediction. The First Colony as closed forms (`colony`): its frames (the sector's, the colony's turning one, a strip's city coordinates), its day on the tick's clock, its mirrors and its −X end, and the city's streets, blocks and buildings worked out from where you ask (`colony::city`, its tables in `content::city`). Shared by the server and the browser. |
+| `bc-sim` | `no_std` + `alloc` at construction only | The simulation: flight, weapons, damage (and the systems inside the parts), lag comp, sensors, drone AI, the Orrery, the debris field, salvage and mining; the bodies suits stand on (`bodies`, `content::landmarks`), surface contact (`ground::move_step`), a body on foot (`foot`), the city's cars (`car`) and its rocket car (`markab`), and concealment. Each suit's stat sheet (`tuning`): its frame times what's broken and what's fitted, built the same way by the server and the owner's prediction. The First Colony as closed forms (`colony`): its frames (the sector's, the colony's turning one, a strip's city coordinates), its day on the tick's clock, its mirrors and its −X end, and the city's streets, blocks and buildings worked out from where you ask (`colony::city`, its tables in `content::city`). Shared by the server and the browser. |
 | `bc-sector` | std, no tokio | The hot loop: a paced thread, lock-free queues, jitter buffers, interest, snapshot encoding, metrics. |
 | `bc-orrery` | std + tokio | Tactical oracles off the hot path: the `TacticalOracle` trait, `JevOracle`, the worker. |
 | `bc-client-core` | std, no transport | Client state machine for the browser *and* bots: clock, inputs, prediction, interpolation, world model, the salvage view, `DroneBrain`, `MinerBrain` and `LanderBrain`; the sector's bodies as the client knows them (`surface`), the camera's clamp to them, a walking suit's gait (`gait`) and the landmarks' meshes (`body_mesh`); the link state machine (dial, sign in, redial), the pointer, settings, first-flight hints, the objectives and their waypoints (`objectives`), the HUD's and page's palette; survival: the hangar as the server tells it (`hangar`), the bay's layout (`bay`) and the first-person walker's guide (`walker`; the body is `bc_sim::foot`'s). The colony's city on foot: what the walker stands on (`city`), its routes along the streets (`city_nav`), the meshes of its blocks by level of detail (`city_mesh`) and the block atlas its shaders paint from (`city_atlas`). |
@@ -523,8 +523,14 @@ where it stands (`bc_sim::foot::Walker`): it slides along walls, steps up kerbs,
 `foot::CityGround`, the inside of a tram's car). Like `move_step` it is one stepper, shared: the
 browser's own walk steps it at frame rate (`Walker::step`, substeps of 1/120 s), and the tick will
 step it in exactly four of them (`Walker::tick`, never `step(DT)`'s subtracting loop). Its trig goes
-through libm, so the two agree to the bit (`FOOT_GOLDEN`, native and wasm; `no_alloc`). It is not
-in the tick yet (`docs/OPEN_CITY.md`, "The street in the tick").
+through libm, so the two agree to the bit (`FOOT_GOLDEN`, native and wasm; `no_alloc`). The car
+and the Markab a pilot drives in the city are shared the same way: `bc_sim::car` (the bicycle model,
+its whole state its seven fields; `CARS_GOLDEN`) and `bc_sim::markab` (the rocket car, the city round
+it gathered into a fixed `Near`, its whole state a `MarkabState` it is made again from to the bit;
+`MARKAB_GOLDEN`), each with a `tick` of fixed substeps. What they all walk and drive among of the
+homes is one fixed-size `colony::homes::Overlay` of shut doors and solid furniture, built alike by
+the server from its register and by each client from what it was told. None of it is in the tick
+yet (`docs/OPEN_CITY.md`, "The street in the tick").
 
 **Planets and moons, later.** A moon is too big for one `f32` frame (0.125 m steps at its 1 737 km
 radius), so a lunar sector *is* the moon-fixed frame: a tangent patch ±30 km across, where the

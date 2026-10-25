@@ -454,6 +454,45 @@ fn the_cars_drive_without_allocating() {
 }
 
 #[test]
+fn markabs_drive_without_allocating() {
+    // 16 Markabs (`bc_sim::markab`) on the avenues and at the Blast Hall: boosted, leaping, rolled,
+    // up walls and along ceilings, for 300 ticks, and the city gathered round each every tick.
+    use bc_sim::colony::frame::STRIP_WIDTH;
+    use bc_sim::colony::hall::hall;
+    use bc_sim::markab::{Controls, Markab};
+    let r = hall();
+    let mut cars: Vec<Markab> = (0..16u32)
+        .map(|k| {
+            if k % 4 == 0 {
+                let (s, x) = r.front.point(k as f32 - 8.0, -25.0);
+                let (ds, dx) = r.inward;
+                Markab::new(r.strip, s, x, bc_sim::math::atan2(dx, -ds))
+            } else {
+                Markab::new((k % 3) as u8, STRIP_WIDTH * 0.5 - 15.0, -12_000.0 + k as f32 * 40.0, 1.57)
+            }
+        })
+        .collect();
+    let ((), n) = bc_alloc::count(|| {
+        for t in 0..300u32 {
+            for (k, m) in cars.iter_mut().enumerate() {
+                let k = k as u32;
+                let c = Controls {
+                    throttle: [1.0, 1.0, -1.0, 0.3][((t / 50 + k) % 4) as usize],
+                    steer: [0.0, 0.7, -1.0][((t / 70 + k) % 3) as usize],
+                    roll: if (t + k) % 90 < 20 { 1.0 } else { 0.0 },
+                    lift: (t + k) % 120 < 15,
+                    boost: (t + k) % 100 < 30,
+                    handbrake: (t + k) % 200 > 185,
+                };
+                m.tick(&c);
+            }
+        }
+    });
+    assert!(cars.iter().all(|m| m.pos.is_finite()));
+    assert_eq!(n, 0, "heap operations driving Markabs: {n}");
+}
+
+#[test]
 fn the_overlay_answers_without_allocating() {
     // The homes' overlay (`colony::homes::Overlay`), sized once: homes put in, shut, opened and
     // taken out, and walkers' boxes asked of it all along the street, as the tick will.

@@ -20,6 +20,10 @@ pub fn cos(x: f32) -> f32 {
     libm::cosf(x)
 }
 #[inline]
+pub fn hypot(x: f32, y: f32) -> f32 {
+    libm::hypotf(x, y)
+}
+#[inline]
 pub fn tan(x: f32) -> f32 {
     libm::tanf(x)
 }

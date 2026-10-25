@@ -26,6 +26,7 @@ pub mod ground;
 pub mod handle;
 pub mod hash;
 pub mod lagcomp;
+pub mod markab;
 pub mod math;
 pub mod missiles;
 pub mod orrery;

@@ -1277,6 +1277,122 @@ fn cars_golden_wasm() {
     assert_eq!(cars_hash(), CARS_GOLDEN);
 }
 
+/// Hash of six Markabs (`bc_sim::markab`, the tick's and the driver's) for 900 ticks: up the Blast
+/// Hall's back wall onto its ceiling and down again, backed up Hub Gate's terminal and dropped off
+/// it with the fan cut, boosted down the avenue into a leap and a barrel roll, slid on the
+/// handbrake, and over a wall's top: every face, corner and flight, to the bit native and wasm.
+const MARKAB_GOLDEN: u64 = 0xf7bf_243a_2e1d_c0c9;
+
+fn markab_hash() -> u64 {
+    use bc_sim::colony::frame::STRIP_WIDTH;
+    use bc_sim::colony::hall::hall;
+    use bc_sim::colony::pools::pool;
+    use bc_sim::markab::{Controls, Markab, On};
+    use bc_sim::math::atan2;
+    use core::f32::consts::FRAC_PI_2;
+
+    let r = hall();
+    let (ds, dx) = r.inward;
+    let at_the_doors = |u: f32| {
+        let (s, x) = r.front.point(u, -25.0);
+        Markab::new(r.strip, s, x, atan2(dx, -ds))
+    };
+    let (ps, px) = pool(0, 0);
+    let mut cars = [
+        at_the_doors(12.0),
+        Markab::new(0, ps, px, FRAC_PI_2),
+        Markab::new(1, STRIP_WIDTH * 0.5 - 15.0, -12_000.0, FRAC_PI_2),
+        Markab::new(2, STRIP_WIDTH * 0.5 - 15.0, -9_000.0, FRAC_PI_2),
+        at_the_doors(-35.0),
+        Markab::new(0, STRIP_WIDTH * 0.5 + 15.0, -11_000.0, 3.0 * FRAC_PI_2),
+    ];
+    let idle = Controls::default();
+    let go = Controls { throttle: 1.0, ..idle };
+    let mut h = 0xcbf2_9ce4_8422_2325;
+    let (mut faces, mut corners, mut flights) = (0, 0, 0);
+    for n in 0..900u32 {
+        for (k, m) in cars.iter_mut().enumerate() {
+            let c = match (k, n) {
+                // Up the hall's wall, along its ceiling, and back down tail first.
+                (0, 0..500) => go,
+                (0, _) => Controls { throttle: -1.0, ..idle },
+                // Backed up the terminal, held there, the fan cut, and a leap.
+                (1, 0..400) => Controls { throttle: -1.0, ..idle },
+                (1, 400..460) => idle,
+                (1, 460..700) => idle,
+                (1, _) => Controls { lift: n % 120 < 20, ..idle },
+                // Boosted down the avenue, off it, rolled and steered in the air.
+                (2, 0..90) => Controls { boost: true, ..go },
+                (2, 90..115) => Controls { lift: true, ..idle },
+                (2, 115..160) => Controls { roll: 1.0, lift: true, ..idle },
+                (2, 160..190) => Controls { throttle: 0.5, steer: -1.0, ..idle },
+                (2, _) => Controls { steer: if n % 200 < 100 { 0.6 } else { -0.6 }, ..go },
+                // Fast, then the handbrake on a turn, again and again.
+                (3, _) if n % 150 < 100 => Controls { boost: n % 150 < 40, ..go },
+                (3, _) => Controls { steer: 1.0, handbrake: true, ..idle },
+                // Up the hall's front and fast over its top.
+                (4, _) => go,
+                // Slow about the avenue's walk, into its posts and trees.
+                (_, _) => Controls { throttle: 0.4, steer: if n % 90 < 45 { 1.0 } else { -0.4 }, ..idle },
+            };
+            if k == 1 && (n == 460 || n == 640) {
+                m.toggle_fan();
+            }
+            m.tick(&c);
+            let st = m.state();
+            match st.on {
+                On::Face(nrm, s) => {
+                    faces += 1;
+                    fnv(&mut h, 1);
+                    for v in [nrm.x, nrm.y, nrm.z, s.min.x, s.min.y, s.min.z, s.max.x, s.max.y, s.max.z] {
+                        fnv(&mut h, v.to_bits());
+                    }
+                }
+                On::Corner(c) => {
+                    corners += 1;
+                    fnv(&mut h, 2);
+                    for v in [
+                        c.pivot.x, c.pivot.y, c.pivot.z, c.axis.x, c.axis.y, c.axis.z, c.angle, c.round,
+                        c.along,
+                    ] {
+                        fnv(&mut h, v.to_bits());
+                    }
+                }
+                On::Air => {
+                    flights += 1;
+                    fnv(&mut h, 3);
+                }
+            }
+            for v in [st.pos.x, st.pos.y, st.pos.z, st.rot.x, st.rot.y, st.rot.z, st.rot.w] {
+                fnv(&mut h, v.to_bits());
+            }
+            for v in
+                [st.vel.x, st.vel.y, st.vel.z, st.spin.x, st.spin.y, st.spin.z, st.wheel, st.gas, st.stopped]
+            {
+                fnv(&mut h, v.to_bits());
+            }
+            let flags = [st.fan, st.lifting, st.jets.lift, st.jets.boost, st.jets.turn];
+            fnv(&mut h, flags.iter().enumerate().map(|(i, f)| u32::from(*f) << i).sum());
+        }
+    }
+    assert!(faces > 0 && corners > 0 && flights > 0, "{faces} {corners} {flights}");
+    h
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn markab_golden_native() {
+    let h = markab_hash();
+    assert_eq!(h, markab_hash(), "must be reproducible within a process");
+    assert_eq!(h, MARKAB_GOLDEN, "the Markabs' hash changed: {h:#018x}");
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen_test::wasm_bindgen_test]
+fn markab_golden_wasm() {
+    assert_eq!(markab_hash(), MARKAB_GOLDEN);
+}
+
 /// Hash after 600 ticks of suits flying the colony's inside: launched from the inner gate, some on
 /// flight assist weaving among the towers, some falling to the floor and the roofs, firing all the
 /// while (which the colony's law ignores), and two with their grips armed, landing on the avenue
