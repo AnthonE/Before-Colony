@@ -219,8 +219,25 @@ pub fn quantize_dir(n: Vec3, bits_per_axis: u32) -> Vec3 {
 const SQRT_HALF: f32 = core::f32::consts::FRAC_1_SQRT_2;
 
 /// A unit quaternion's smallest-three code: the index of its largest component, and the other
-/// three in `[-1/√2, 1/√2]` at `bits` each.
+/// three in `[-1/√2, 1/√2]` at `bits` each. Coding what a code decodes to gives the same code back.
+/// Where two components all but tie, rounding can leave the one rebuilt from the other three
+/// smaller than one of them, and coding that would name the other as the largest: the code is
+/// then the one its decoded rotation takes, which holds still.
 pub fn quat_code(q: Quat, bits: u32) -> (u8, [u32; 3]) {
+    let mut code = largest_code(q, bits);
+    // Each step moves only between components that tie, so it settles in a step or two.
+    for _ in 0..3 {
+        let again = largest_code(quat_from_code(code.0, code.1, bits), bits);
+        if again == code {
+            break;
+        }
+        code = again;
+    }
+    code
+}
+
+/// [`quat_code`] without the settling: the largest component as it stands.
+fn largest_code(q: Quat, bits: u32) -> (u8, [u32; 3]) {
     let a = q.to_array();
     let mut largest = 0usize;
     for i in 1..4 {
@@ -389,5 +406,21 @@ mod tests {
         let mut r = BitReader::new(&buf);
         let back = read_quat(&mut r, 16);
         assert!(back.dot(q).abs() > 0.99999);
+    }
+
+    /// Two components all but tied (rotations the round-trip property test found): coding the
+    /// decoded rotation names the same largest component and the same codes.
+    #[test]
+    fn quat_code_holds_still_at_a_tie() {
+        for q in [
+            Quat::from_xyzw(0.325_160_6, 0.586_217, 0.587_010_74, 0.453_914_9),
+            Quat::from_xyzw(-0.068_829_566, -0.627_742_4, -0.454_544_28, 0.628_165_2),
+        ] {
+            for bits in [9, 10, 12, 16] {
+                let (largest, codes) = quat_code(q, bits);
+                assert_eq!(quat_code(quat_from_code(largest, codes, bits), bits), (largest, codes));
+                assert!(quat_from_code(largest, codes, bits).dot(q).abs() > 0.999);
+            }
+        }
     }
 }

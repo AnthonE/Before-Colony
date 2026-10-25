@@ -1,0 +1,375 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Before Colony: Alpha Preview</title>
+<style>
+@font-face { font-family: "Chakra"; src: url(fonts/ChakraPetch-SemiBold.ttf); font-weight: 600; }
+@font-face { font-family: "Chakra"; src: url(fonts/ChakraPetch-Regular.ttf); font-weight: 400; }
+@font-face { font-family: "Mono"; src: url(fonts/ShareTechMono-Regular.ttf); font-weight: 400; }
+html, body { margin: 0; background: #000; overflow: hidden; }
+#stage { position: relative; width: 1920px; height: 1080px; background: #000; }
+#stage canvas { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; }
+</style></head>
+<body>
+<div id="stage">
+  <canvas id="bg" width="1920" height="1080"></canvas>
+  <canvas id="fg" width="1920" height="1080"></canvas>
+</div>
+<script type="module">
+// The Before Colony alpha trailer. Every frame is a pure function of t: window.seek(t) draws it,
+// render.mjs screenshots it, mix.py lays the audio on the cue list this file exports. The
+// footage is the game's own showcase, filmed by film.mjs (shots/trailer.json); the score is the
+// game's title theme and every sound is the game's bank (bc-sound), cut to the theme's bars:
+// intro 1-4, hook 5-8, verse 9-16, pre-chorus 17-20 (the band stops dead in bar 20), the chorus
+// from bar 21 (the title drops there) and the last chorus 29-36. The look is the game page's:
+// its palette (web/style.css) and its faces, Chakra Petch and Share Tech Mono.
+const W = 1920, H = 1080, FPS = 30;
+const BEAT = 60 / 143, BAR = 4 * BEAT;   // title.rs: 143 BPM, 36 bars that loop
+const DROP = 20 * BAR;                    // bar 21: the chorus, and the title
+const Q = new URLSearchParams(location.search);
+
+const C = {
+  ink: '#040a12', white: '#eef4fb', label: '#9fc6e6', cyan: '#9fe8ff', amber: '#ffb547', red: '#ff4b4b',
+  edge: 'rgba(159,198,230,.33)', hair: 'rgba(159,198,230,.14)',
+};
+const bg = document.getElementById('bg').getContext('2d');
+const fg = document.getElementById('fg').getContext('2d');
+
+// ── math ──────────────────────────────────────────────────────────────────
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const ramp = (t, a, b) => clamp((t - a) / (b - a));
+const lerp = (a, b, u) => a + (b - a) * u;
+const E = {
+  out: u => 1 - Math.pow(1 - u, 3),
+  in: u => u * u * u,
+  io: u => (u < .5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2),
+  back: u => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(u - 1, 3) + c1 * Math.pow(u - 1, 2); },
+  expo: u => (u >= 1 ? 1 : 1 - Math.pow(2, -10 * u)),
+};
+function rng(seed) {
+  let s = seed >>> 0;
+  return () => { s = (s + 0x6D2B79F5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+
+// ── assets ────────────────────────────────────────────────────────────────
+const CLIPS = {};
+const loadImg = src => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error(src)); i.src = src; });
+
+// ── drawing ───────────────────────────────────────────────────────────────
+const BOX = { y: 138, h: 804 };          // the 2.39:1 picture inside the letterbox
+// Footage: the shot's frame at `lt` screen seconds into the scene (`from` s into the clip,
+// `speed` retiming it), with a slow push of `z0`→`z1` over the scene (the city's shots are one
+// frame each, and the push is their motion). A shot not filmed yet is a dark plate with its name,
+// so a cut can be checked before the footage is.
+function foot(ctx, name, lt, d, o = {}) {
+  const { speed = 1, from = 0, z0 = 1, z1 = 1, grade = 'contrast(1.05) saturate(1.05)', full = false } = o;
+  const fr = CLIPS[name];
+  const y = full ? 0 : BOX.y, h = full ? H : BOX.h;
+  ctx.save(); ctx.beginPath(); ctx.rect(0, y, W, h); ctx.clip();
+  if (fr && fr.length) {
+    const i = clamp(Math.floor((from + lt * speed) * FPS), 0, fr.length - 1);
+    const z = lerp(z0, z1, E.io(clamp(lt / d)));
+    const img = fr[i], s = Math.max(W / img.width, h / img.height) * z;
+    ctx.filter = grade;
+    ctx.drawImage(img, (W - img.width * s) / 2, y + (h - img.height * s) / 2, img.width * s, img.height * s);
+  } else {
+    ctx.fillStyle = '#08121c'; ctx.fillRect(0, y, W, h);
+    text(ctx, `[${name}]`, W / 2, y + h / 2, { kind: 'mono', size: 40, color: C.edge });
+  }
+  ctx.restore();
+}
+const FONT = { head: (s, w) => `${w || 600} ${s}px Chakra`, mono: s => `400 ${s}px Mono` };
+function text(ctx, s, x, y, o = {}) {
+  const { kind = 'head', size = 96, weight, color = C.white, align = 'center', track = 0, alpha = 1, shadow = 0, glow = null, glowR = 40, scale = 1 } = o;
+  if (alpha <= 0.002) return;
+  ctx.save(); ctx.globalAlpha = clamp(alpha); ctx.font = FONT[kind](size, weight); ctx.textAlign = align; ctx.textBaseline = 'alphabetic';
+  ctx.letterSpacing = track + 'px'; ctx.fillStyle = color;
+  if (shadow) { ctx.shadowColor = 'rgba(0,0,0,.8)'; ctx.shadowBlur = shadow; ctx.shadowOffsetY = shadow / 6; }
+  if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = glowR; }
+  // letterSpacing trails the last glyph: shift a centred line back by half of it
+  const dx = track ? (align === 'center' ? track / 2 : align === 'right' ? track : 0) : 0;
+  if (scale !== 1) { ctx.translate(x, y); ctx.scale(scale, scale); ctx.fillText(s, dx, 0); } else ctx.fillText(s, x + dx, y);
+  ctx.restore();
+}
+function measure(s, kind, size, weight, track = 0) {
+  fg.save(); fg.font = FONT[kind](size, weight); fg.letterSpacing = track + 'px';
+  const w = fg.measureText(s).width - track; fg.restore(); return w;
+}
+// in at `at`, out over the scene's last `out` seconds
+function rv(L, at, len = .4, out = .18) {
+  const a = E.out(ramp(L.t, at, at + len)), o = 1 - ramp(L.t, L.d - out, L.d);
+  return { a: a * o, dy: (1 - a) * 24 };
+}
+// The caption: wide-tracked caps in the lower third, the way the HUD speaks (terse, all caps).
+function caption(L, lines, o = {}) {
+  const { y = 830, size = 70, at = .2, step = .35, track = 9, lh = 1.12, x = W / 2, align = 'center' } = o;
+  lines.forEach((ln, i) => {
+    const s = typeof ln === 'string' ? { s: ln } : ln, r = rv(L, s.at ?? at + i * step);
+    text(fg, s.s, x, y + i * size * lh + r.dy, { size: s.size || size, color: s.color || C.white, align, track, alpha: r.a, shadow: 30, glow: s.glow });
+  });
+}
+// a readout in the letterbox bar, the cockpit's mono
+function readout(L, s, o = {}) {
+  const { y = 1018, at = .45, size = 30, color = C.label, x = W / 2, align = 'center', track = 4 } = o;
+  const r = rv(L, at); text(fg, s, x, y + r.dy * .3, { kind: 'mono', size, color, align, track, alpha: r.a * .9 });
+}
+// The page's mark under a wordmark: a short amber stroke on a long hairline.
+function stroke(ctx, x, y, w, alpha) {
+  if (alpha <= 0) return;
+  ctx.save(); ctx.globalAlpha = clamp(alpha);
+  const g = ctx.createLinearGradient(x, 0, x + w, 0);
+  g.addColorStop(0, C.edge); g.addColorStop(.9, 'rgba(159,198,230,0)');
+  ctx.fillStyle = g; ctx.fillRect(x, y, w, 2);
+  ctx.fillStyle = C.amber; ctx.fillRect(x, y, Math.min(140, w * .12), 2);
+  ctx.restore();
+}
+// A chip: the HUD's framed tag, corner ticks in the cyan.
+function chip(L, s, o = {}) {
+  const { x = W / 2, y = 892, at = .12, size = 34, color = C.cyan } = o;
+  const p = E.out(ramp(L.t, at, at + .25)), a = p * (1 - ramp(L.t, L.d - .12, L.d));
+  if (a <= 0) return;
+  const tw = measure(s, 'head', size, 600, 8), w = tw + size * 1.6, h = size * 1.9, x0 = x - w / 2, y0 = y - h / 2;
+  fg.save(); fg.globalAlpha = a;
+  fg.fillStyle = 'rgba(4,10,18,.62)'; fg.fillRect(x0, y0, w, h);
+  fg.strokeStyle = color; fg.lineWidth = 2; const k = 14;
+  for (const [cx, cy, sx, sy] of [[x0, y0, 1, 1], [x0 + w, y0, -1, 1], [x0, y0 + h, 1, -1], [x0 + w, y0 + h, -1, -1]]) {
+    fg.beginPath(); fg.moveTo(cx + sx * k, cy); fg.lineTo(cx, cy); fg.lineTo(cx, cy + sy * k); fg.stroke();
+  }
+  fg.restore();
+  text(fg, s, x, y + size * .36, { size, color: C.white, track: 8, alpha: a });
+}
+// The cockpit's frame on the picture: corner brackets and a hairline, faint.
+function brackets(alpha = .5) {
+  fg.save(); fg.globalAlpha = alpha; fg.strokeStyle = C.edge; fg.lineWidth = 2;
+  const m = 46, k = 40, y0 = BOX.y + m * .6, y1 = BOX.y + BOX.h - m * .6;
+  for (const [cx, cy, sx, sy] of [[m, y0, 1, 1], [W - m, y0, -1, 1], [m, y1, 1, -1], [W - m, y1, -1, -1]]) {
+    fg.beginPath(); fg.moveTo(cx + sx * k, cy); fg.lineTo(cx, cy); fg.lineTo(cx, cy + sy * k); fg.stroke();
+  }
+  fg.restore();
+}
+// Under a caption on a bright frame (the city by day, the bay's yellow rail): the lower half darkened.
+function lower() { shade(fg, BOX.y + BOX.h * .45, BOX.y + BOX.h, 0, .62); }
+function shade(ctx, y0, y1, a0, a1) {
+  const g = ctx.createLinearGradient(0, y0, 0, y1); g.addColorStop(0, `rgba(4,10,18,${a0})`); g.addColorStop(1, `rgba(4,10,18,${a1})`);
+  ctx.fillStyle = g; ctx.fillRect(0, y0, W, y1 - y0);
+}
+
+// ── post: grain, scan, vignette, flashes ──────────────────────────────────
+const GRAIN = [];
+function makeGrain() {
+  for (let k = 0; k < 6; k++) {
+    const c = document.createElement('canvas'); c.width = 960; c.height = 540; const x = c.getContext('2d');
+    const d = x.createImageData(960, 540), r = rng(77 + k);
+    for (let i = 0; i < d.data.length; i += 4) { const v = 128 + (r() - .5) * 110; d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 255; }
+    x.putImageData(d, 0, 0); GRAIN.push(c);
+  }
+}
+let SCAN = null;
+function makeScan() {
+  SCAN = document.createElement('canvas'); SCAN.width = 4; SCAN.height = 3; const x = SCAN.getContext('2d');
+  x.fillStyle = 'rgba(159,198,230,.05)'; x.fillRect(0, 0, 4, 1);
+}
+function post(g) {
+  const v = fg.createRadialGradient(W / 2, H / 2, H * .38, W / 2, H / 2, H * 1.05);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.5)'); fg.fillStyle = v; fg.fillRect(0, 0, W, H);
+  fg.save(); fg.fillStyle = fg.createPattern(SCAN, 'repeat'); fg.fillRect(0, BOX.y, W, BOX.h); fg.restore();
+  fg.save(); fg.globalCompositeOperation = 'soft-light'; fg.globalAlpha = .14; fg.drawImage(GRAIN[Math.floor(g * FPS) % GRAIN.length], 0, 0, W, H); fg.restore();
+  for (const [at, len, col, peak] of FLASHES) {
+    const u = (g - at) / len; if (u < 0 || u > 1) continue;
+    fg.save(); fg.globalAlpha = peak * (1 - E.out(u)); fg.fillStyle = col; fg.fillRect(0, 0, W, H); fg.restore();
+  }
+  const fin = 1 - ramp(g, 0, .5), fout = ramp(g, TOTAL - 1.4, TOTAL - .05);
+  const k = Math.max(fin, fout); if (k > 0) { fg.fillStyle = `rgba(0,0,0,${k})`; fg.fillRect(0, 0, W, H); }
+}
+
+// ── the cut ───────────────────────────────────────────────────────────────
+// Each scene is `b` [from, to] in bars of the title theme. A shot's `from` is seconds into its clip
+// (shots/trailer.json says where each clip starts in its scene's clock).
+const SCENES = [
+  // intro (bars 1-4): the orchestra hits, the colony
+  { id: 'c1-colony', b: [0, 2], box: true, draw(L) {
+    foot(bg, 'colony-far', L.t, L.d, { z0: 1.0, z1: 1.08 });
+    readout(L, 'EARTH–MOON L1 · THE YEAR BEFORE THE CALENDAR', { at: .5, y: 1010 });
+    caption(L, ['THE FIRST COLONY'], { at: .7, size: 64, track: 14 });
+  } },
+  { id: 'c2-hub', b: [2, 4], box: true, draw(L) {
+    foot(bg, 'hub', L.t, L.d, { z0: 1.02, z1: 1.1 });
+    caption(L, ['ITS DOCKS HAVE JUST OPENED'], { at: .25, size: 64, track: 12 });
+  } },
+  // hook (5-8): you
+  { id: 'h1-bay', b: [4, 6], box: true, draw(L) {
+    foot(bg, 'bay', L.t, L.d);
+    caption(L, ['YOU WAKE IN A HANGAR BAY'], { at: .2 });
+  } },
+  { id: 'h2-gantry', b: [6, 8], box: true, draw(L) {
+    foot(bg, 'gantry', L.t, L.d);
+    caption(L, ['A WORN-OUT ARGO IN THE GANTRY', { s: '2,000 CREDITS ADVANCED', size: 40, color: C.amber }], { at: .15, step: .5 });
+  } },
+  // verse (9-16): what you do with it
+  { id: 'v1-mine', b: [8, 10], box: true, draw(L) {
+    foot(bg, 'mining', L.t, L.d, { z0: 1, z1: 1.04 });
+    caption(L, ['CUT ROCK FOR ORE'], { at: .2 });
+  } },
+  { id: 'v2-salvage', b: [10, 12], box: true, draw(L) {
+    foot(bg, 'salvage', L.t, L.d);
+    caption(L, ['STRIP THE WRECKS'], { at: .2 });
+  } },
+  { id: 'v3-city', b: [12, 14], box: true, draw(L) {
+    foot(bg, 'avenue', L.t, L.d, { z0: 1.0, z1: 1.14 });
+    lower();
+    caption(L, ['TRADE ON THE COLONY EXCHANGE'], { at: .2 });
+  } },
+  { id: 'v4-lineup', b: [14, 16], box: true, draw(L) {
+    foot(bg, 'lineup', L.t, L.d);
+    caption(L, ['BUILD YOUR OWN SUIT'], { at: .2 });
+  } },
+  // pre-chorus (17-20): out
+  { id: 'p1-tunnel', b: [16, 18], box: true, draw(L) {
+    foot(bg, 'tunnel', L.t, L.d, { z0: 1, z1: 1.06 });
+    lower();
+    caption(L, ['THEN LAUNCH'], { at: .3, size: 84, track: 18 });
+  } },
+  { id: 'p2-out', b: [18, 19.25], box: true, draw(L) {
+    foot(bg, 'out', L.t, L.d, { z0: 1.0, z1: 1.05 });
+  } },
+  // the band stops dead: black, and the rule
+  { id: 'p3-rule', b: [19.25, 20], draw(L) {
+    bg.fillStyle = C.ink; bg.fillRect(0, 0, W, H);
+    const r0 = rv(L, .0, .12, .02), r1 = rv(L, BEAT * .9, .12, .02);
+    text(fg, 'LOSE YOUR SUIT OUT THERE', W / 2, 510 + r0.dy * .3, { size: 60, track: 12, alpha: r0.a, color: C.label });
+    text(fg, 'AND IT IS GONE', W / 2, 610 + r1.dy * .3, { size: 76, track: 16, alpha: r1.a, color: C.red, glow: 'rgba(255,75,75,.35)' });
+  } },
+  // chorus (21-28): the drop
+  { id: 'd1-title', b: [20, 22], box: true, draw(L) {
+    foot(bg, 'title', L.t, L.d, { grade: 'brightness(.62) contrast(1.08) saturate(1.1)', z0: 1.06, z1: 1.0 });
+    shade(fg, BOX.y + BOX.h * .35, BOX.y + BOX.h, 0, .7);
+    const s = lerp(1.12, 1, E.expo(ramp(L.t, 0, .45))), a = ramp(L.t, 0, .08) * (1 - ramp(L.t, L.d - .15, L.d));
+    text(fg, 'BEFORE COLONY', W / 2, 600, { size: 138, track: 26, alpha: a, scale: s, shadow: 24, glow: 'rgba(159,232,255,.45)', glowR: 60 });
+    const r1 = rv(L, .55, .4, .15), tw = 980;
+    stroke(fg, W / 2 - tw / 2, 664, tw, r1.a);
+    text(fg, 'ALPHA PREVIEW', W / 2, 742 + r1.dy * .5, { kind: 'mono', size: 48, color: C.amber, track: 22, alpha: r1.a });
+  } },
+  { id: 'd2-beam', b: [22, 23], box: true, draw(L) { foot(bg, 'duel-beam', L.t, L.d); chip(L, 'FREE AIM'); } },
+  { id: 'd3-clash', b: [23, 24], box: true, draw(L) { foot(bg, 'clash', L.t, L.d); chip(L, 'BEAM SABERS'); } },
+  { id: 'd4-archer', b: [24, 25], box: true, draw(L) { foot(bg, 'archer', L.t, L.d); chip(L, 'THE ALMAGEST’S PROTOTYPES'); } },
+  { id: 'd5-kill', b: [25, 26], box: true, draw(L) { foot(bg, 'kill', L.t, L.d, { from: .25 }); chip(L, 'AND ITS DRONES'); } },
+  { id: 'd6-salvo', b: [26, 27], box: true, draw(L) { foot(bg, 'salvo', L.t, L.d); chip(L, 'THE FIVE LODESTARS'); } },
+  { id: 'd7-talon', b: [27, 28], box: true, draw(L) { foot(bg, 'talon', L.t, L.d); chip(L, 'THUBAN’S TALON'); } },
+  // last chorus (29-36): what makes it this game
+  { id: 'l1-cockpit', b: [28, 30], box: true, draw(L) {
+    foot(bg, 'cockpit', L.t, L.d);
+    caption(L, ['SUITS BREAK FROM THE INSIDE'], { at: .2, y: 1018, size: 48, track: 10 });
+  } },
+  { id: 'l2-orrery', b: [30, 32], box: true, draw(L) {
+    foot(bg, 'orrery', L.t, L.d);
+    caption(L, ['THE ORRERY', { s: 'A COMBAT AI THAT SEES THE FIGHT AHEAD', size: 38, color: C.cyan }], { at: .2, step: .4 });
+  } },
+  { id: 'l3-landing', b: [32, 33], box: true, draw(L) { foot(bg, 'landing', L.t, L.d); chip(L, 'LAND ON THE ROCKS'); } },
+  { id: 'l4-markab', b: [33, 34], box: true, draw(L) { foot(bg, 'markab', L.t, L.d, { z0: 1.12, z1: 1.0 }); lower(); chip(L, 'A CITY INSIDE'); } },
+  { id: 'l5-night', b: [34, 36], box: true, draw(L) {
+    foot(bg, 'city-night', L.t, L.d, { z0: 1.0, z1: 1.15 });
+    caption(L, ['PEOPLE AND AI AGENTS', { s: 'BY THE SAME RULES', color: C.cyan }], { at: .2, step: .45 });
+  } },
+  // the theme comes round to its orchestra hits: the card
+  { id: 'e1-end', b: [36, 39.5], draw(L) {
+    foot(bg, 'colony-far', 3.4 - L.t * .15, L.d, { full: true, grade: 'brightness(.34) contrast(1.05) saturate(.8) blur(5px)' });
+    const r0 = rv(L, .05, .45, .01);
+    text(fg, 'BEFORE COLONY', W / 2, 470 + r0.dy, { size: 120, track: 22, alpha: r0.a, shadow: 24, glow: 'rgba(159,232,255,.35)', glowR: 50 });
+    const r1 = rv(L, BEAT * 1.5, .4, .01);
+    stroke(fg, W / 2 - 520, 530, 1040, r1.a);
+    text(fg, 'ALPHA PREVIEW', W / 2, 604 + r1.dy * .5, { kind: 'mono', size: 44, color: C.amber, track: 20, alpha: r1.a });
+    const r2 = rv(L, BAR, .45, .01);
+    text(fg, 'PLAY THE ALPHA IN YOUR BROWSER', W / 2, 760 + r2.dy, { size: 56, track: 10, alpha: r2.a, shadow: 20 });
+    text(fg, 'elopros.com/games/before-colony', W / 2, 834 + r2.dy, { kind: 'mono', size: 42, color: C.cyan, alpha: r2.a });
+  } },
+];
+for (const s of SCENES) { const [a, b] = s.b.map(x => x * BAR); s.t0 = a; s.d = b - a; }
+const TOTAL = SCENES[SCENES.length - 1].t0 + SCENES[SCENES.length - 1].d;
+const at = id => SCENES.find(s => s.id === id).t0;
+// Where in each scene its clip's moment lands, in trailer seconds: the shot's scene time
+// (shots/trailer.json `t`), the moment in the scene's script (showcase.rs), and the scene's `from`.
+const moment = (id, shotT, eventT, from = 0) => at(id) + (eventT - shotT) - from;
+const FLASHES = [
+  [DROP, .45, '#fff', .85],
+  [moment('d5-kill', 6.4, 7.0, .25), .25, '#ffe2b0', .4],
+  [at('e1-end'), .5, '#fff', .45],
+];
+
+// the audio cue list mix.py lays down, in trailer seconds
+const snd = n => `snd/${n}.wav`;
+const CUES = {
+  total: TOTAL,
+  music: [
+    { src: snd('music_title'), at: 0, in: 0, len: TOTAL + .1, gain: .9, fade_in: .05, fade_out: 2.4 },
+    { src: snd('cockpit_hum'), at: at('h1-bay'), in: 0, len: 4 * BAR, gain: .25, fade_in: .6, fade_out: .8 },
+    { src: snd('boost_loop'), at: at('p2-out'), in: 0, len: 1.25 * BAR, gain: .5, fade_in: .05, fade_out: .3 },
+    { src: snd('orrery_drone'), at: at('l2-orrery') + .3, in: 0, len: 2 * BAR - .3, gain: .4, fade_in: .3, fade_out: .5 },
+  ],
+  sfx: [
+    { src: snd('airlock_hiss'), at: at('h1-bay') + .1, gain: .5 },
+    { src: snd('mag_lock'), at: at('h2-gantry') + .3, gain: .5 },
+    { src: snd('saber'), at: moment('v1-mine', 7.2, 7.5), gain: .5 },
+    { src: snd('saber'), at: moment('v1-mine', 7.2, 9.0), gain: .5 },
+    { src: snd('rock_break'), at: moment('v1-mine', 7.2, 9.75), gain: .7 },
+    { src: snd('grab'), at: at('v2-salvage') + 1.4, gain: .5 },
+    { src: snd('sale'), at: at('v3-city') + 1.2, gain: .45 },
+    { src: snd('ui_confirm'), at: at('v4-lineup') + .9, gain: .45 },
+    { src: 'sfx/trailer_riser.wav', at: DROP - 6.0, gain: .4 },
+    { src: snd('launch'), at: at('p2-out') + .02, gain: .9 },
+    { src: snd('lock_beep'), at: at('p3-rule') + .02, gain: .5 },
+    { src: snd('lock_beep'), at: at('p3-rule') + BEAT * .9, gain: .5 },
+    { src: 'sfx/trailer_boom.wav', at: DROP, gain: .9 },
+    { src: 'sfx/trailer_braam.wav', at: DROP + .02, gain: .45 },
+    { src: snd('heavy_beam_fire'), at: moment('d2-beam', 1.45, 1.85), gain: .8 },
+    { src: snd('beam_rifle'), at: at('d2-beam') + 1.0, gain: .5 },
+    { src: snd('saber'), at: at('d3-clash') + .2, gain: .6 },
+    { src: snd('clash'), at: moment('d3-clash', 3.9, 4.5), gain: .85 },
+    { src: snd('heavy_beam_fire'), at: moment('d4-archer', 7.5, 8.2), gain: .7 },
+    { src: snd('explosion'), at: moment('d5-kill', 6.4, 7.0, .25), gain: .95 },
+    { src: snd('missile_launch'), at: at('d6-salvo') + .3, gain: .7 },
+    { src: snd('missile_launch'), at: at('d6-salvo') + .45, gain: .6 },
+    { src: snd('missile_burst'), at: at('d6-salvo') + 1.3, gain: .6 },
+    { src: snd('flame'), at: at('d7-talon') + .4, gain: .6 },
+    { src: snd('hull_hit'), at: moment('l1-cockpit', 4.9, 6.0), gain: .9 },
+    { src: snd('system_crit'), at: moment('l1-cockpit', 4.9, 6.0) + .45, gain: .6 },
+    { src: snd('orrery_on'), at: at('l2-orrery') + .1, gain: .8 },
+    { src: snd('touchdown'), at: moment('l3-landing', 5.5, 6.1), gain: .8 },
+    { src: snd('push_off'), at: at('l4-markab') + .1, gain: .5 },
+    { src: 'sfx/trailer_boom.wav', at: at('e1-end') + .02, gain: .6 },
+  ],
+};
+
+function sceneAt(t) { for (const s of SCENES) if (t < s.t0 + s.d) return s; return SCENES[SCENES.length - 1]; }
+function frame(g) {
+  const sc = sceneAt(g);
+  bg.reset(); fg.reset();
+  bg.clearRect(0, 0, W, H); fg.clearRect(0, 0, W, H); bg.fillStyle = '#000'; bg.fillRect(0, 0, W, H);
+  sc.draw({ t: g - sc.t0, d: sc.d, g });
+  if (sc.box) {
+    brackets(.55);
+    bg.fillStyle = '#000'; bg.fillRect(0, 0, W, BOX.y); bg.fillRect(0, BOX.y + BOX.h, W, H - BOX.y - BOX.h);
+  }
+  post(g);
+  return sc.id;
+}
+
+window.TRAILER = { FPS, TOTAL, CUES, POSTER: (DROP + .9).toFixed(2), SCENES: SCENES.map(s => ({ id: s.id, t0: s.t0, d: s.d })) };
+window.seek = t => new Promise(res => { const id = frame(t); requestAnimationFrame(() => res(id)); });
+
+(async () => {
+  const jobs = [];
+  const index = await fetch('clips/index.json').then(r => r.json(), () => ({}));
+  for (const [name, n] of Object.entries(index)) {
+    CLIPS[name] = new Array(n);
+    for (let i = 0; i < n; i++) jobs.push(loadImg(`clips/${name}/${String(i + 1).padStart(3, '0')}.jpg`).then(im => CLIPS[name][i] = im));
+  }
+  await Promise.all(jobs);
+  for (const f of ['600 100px Chakra', '400 100px Chakra', '400 100px Mono']) await document.fonts.load(f);
+  makeGrain(); makeScan();
+  window.READY = true;
+  if (Q.has('play')) {
+    const t0 = performance.now();
+    const tick = () => { const g = ((performance.now() - t0) / 1000) % TOTAL; frame(g); requestAnimationFrame(tick); };
+    tick();
+  } else if (Q.has('t')) frame(+Q.get('t'));
+})().catch(e => { console.log('ERR', e.stack || e.message); window.FAILED = String(e); });
+</script>
+</body></html>
