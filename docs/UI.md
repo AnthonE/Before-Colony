@@ -73,6 +73,19 @@ Sources: [Steam store pages](https://store.steampowered.com) of each; [The Gemsb
     (`instruments::update_instruments`): the game reads them off the suit, the showcase makes them
     up, and a new readout is a row, not a new layout.
 
+## The front screen
+
+The title is laid out like Gates' menu (itself after Rust's, the launcher players of both know): the
+wordmark and who you fly as along the top, a column of choices down the left (PLAY, THE COLONY,
+CONTROLS, SETTINGS; BACK TO ELO PROS on the store's copy), the pane picked beside it in glass, the
+world to the right. It's up from the page's first moment: the game downloads behind it, LAUNCH
+fills as it comes (boot.js's steps, `bc-boot`) and opens once the game has sent `init`; a boot that
+fails says so under LAUNCH, with RELOAD, TRY WEBGL 2 and COPY DETAILS. The server is a row, as
+Gates' list is: up or not, its rules, the pilots and agents on it (`/status`), and THE COLONY reads
+the same document for the sector now and the Proving Ground's best (callsigns and times only, as on
+the hall's wall). Until the world draws, a still of space at L1 stands behind it. With `?autoplay`
+it's only the link's state. Its states are the gallery's `title*` scenes.
+
 ## Next
 
 - The Orrery's panel as instruments too: its picks' confidence and the threat as bars.

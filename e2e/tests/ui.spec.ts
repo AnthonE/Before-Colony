@@ -20,11 +20,18 @@ test("title, launch, menu, reconnect, disconnect", async ({ page, request }, inf
   };
   await page.goto(`/?quality=low&gfx=${info.project.name}`);
 
-  // The title: a callsign, the six Lodestars (and the Argo), the controls.
-  await expect(page.locator("#title")).toBeVisible({ timeout: 60_000 });
+  // The front screen is up before the game is: LAUNCH fills as it downloads, and opens with it.
+  await expect(page.locator("#title")).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator("#launch-button")).toBeEnabled({ timeout: 60_000 });
+  await expect(page.locator("#launch-button")).toHaveText("LAUNCH");
+  // The title: a callsign, the six Lodestars (and the Argo), the controls, here and on its pane.
   await expect(page.locator("#frames .frame")).toHaveCount(6);
   await expect(page.locator("#controls-list tr").first()).toBeAttached();
-  expect(await bc(page)).toMatchObject({ link: "idle" });
+  await page.locator('#front-nav [data-pane="controls"]').click();
+  await expect(page.locator("#front-controls tr").first()).toBeVisible();
+  await page.locator('#front-nav [data-pane="play"]').click();
+  await expect(page.locator("#server-row")).not.toHaveClass(/down/);
+  await expect.poll(async () => (await bc(page)).link).toBe("idle");
 
   // A server that can't be reached says so, and Retry is offered.
   await page.evaluate(() => {

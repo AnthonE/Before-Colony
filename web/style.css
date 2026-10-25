@@ -116,7 +116,7 @@ canvas#bc {
   inherits: true;
   initial-value: 12px;
 }
-.card, .frame, .prompt, .debrief, .map, .term-body .slot, .term-body .step-n {
+.card, .front-pane, .frame, .prompt, .debrief, .map, .term-body .slot, .term-body .step-n {
   --ticks:
     linear-gradient(var(--tick), var(--tick)) left top / var(--tick-len) 1px no-repeat,
     linear-gradient(var(--tick), var(--tick)) left top / 1px var(--tick-len) no-repeat,
@@ -241,41 +241,142 @@ kbd {
   margin-right: 0.7em;
 }
 
-/* --- The title. Left of the screen, the world behind it to the right. --- */
-#title { justify-content: flex-start; padding-left: max(var(--s4), 6vw); }
-#title.overlay { background: linear-gradient(90deg, rgba(2, 6, 12, 0.92) 0%, rgba(2, 6, 12, 0.7) 45%, transparent 85%); }
-.card.title-card { background: none; backdrop-filter: none; padding: var(--s5) 0; max-width: 720px; }
-.title-card h1 { text-shadow: 0 0 24px color-mix(in srgb, var(--cyan) 35%, transparent); }
+/* --- The front screen (#title), laid out like Gates' menu: the wordmark and who you fly as along
+   the top, a column of choices down the left, the pane picked beside it, the world to the right,
+   the download along the foot. --- */
+#title.front {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  align-items: stretch;
+  justify-content: stretch;
+  padding: var(--s5) max(var(--s4), 4vw) var(--s3);
+  overflow: hidden;
+  background: linear-gradient(90deg, rgba(2, 6, 12, 0.9) 0%, rgba(2, 6, 12, 0.66) 40%, rgba(2, 6, 12, 0.12) 72%, transparent 88%);
+}
+/* Until the world is drawn behind it: space at L1, the Earth's light from the right. */
+.front-scene {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(1px 1px at 12% 22%, rgba(238, 244, 251, 0.7), transparent),
+    radial-gradient(1px 1px at 31% 71%, rgba(238, 244, 251, 0.5), transparent),
+    radial-gradient(1px 1px at 47% 13%, rgba(238, 244, 251, 0.6), transparent),
+    radial-gradient(1px 1px at 58% 84%, rgba(238, 244, 251, 0.45), transparent),
+    radial-gradient(1.5px 1.5px at 66% 36%, rgba(238, 244, 251, 0.8), transparent),
+    radial-gradient(1px 1px at 74% 61%, rgba(238, 244, 251, 0.5), transparent),
+    radial-gradient(1px 1px at 83% 18%, rgba(238, 244, 251, 0.6), transparent),
+    radial-gradient(1px 1px at 91% 77%, rgba(238, 244, 251, 0.45), transparent),
+    radial-gradient(ellipse 60% 80% at 100% 45%, color-mix(in srgb, var(--label) 26%, transparent), transparent 70%),
+    radial-gradient(ellipse at 70% 40%, #0b1a2c 0%, var(--ink) 60%, #000 100%);
+  transition: opacity 1.2s;
+}
+#title.live .front-scene { opacity: 0; }
+
+.front-top { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--s4); }
+.wordmark h1 { font-size: clamp(26px, 3.4vw, var(--t-hero)); text-shadow: 0 0 24px color-mix(in srgb, var(--cyan) 35%, transparent); }
 /* The wordmark underlined, a short amber stroke on a long hairline. */
-.title-card .tagline::before {
+.wordmark .tagline { margin: var(--s3) 0 0; }
+.wordmark .tagline::before {
   content: "";
   display: block;
   height: 1px;
   margin-bottom: var(--s3);
   background: linear-gradient(90deg, var(--amber) 0 48px, var(--edge) 48px, transparent 90%);
 }
-.wallet-row { margin-top: 0; }
-.wallet-row .note { flex: 1 1 220px; }
-#wallet-pick { max-width: 340px; padding: var(--s5); border: none; }
-#wallet-pick::backdrop { background: rgba(0, 0, 0, 0.6); }
-#wallet-list { display: flex; flex-direction: column; gap: var(--s1); margin-bottom: var(--s3); }
-#wallet-list button { display: flex; align-items: center; gap: var(--s3); width: 100%; text-align: left; }
-#wallet-list button:hover, #wallet-list button:focus-visible { color: var(--ink); background: var(--white); }
-#wallet-list img, #wallet-list .ph { width: 24px; height: 24px; flex: none; }
-#wallet-list .ph { background: var(--edge); }
-#wallet-list small { display: block; font-size: var(--t-small); letter-spacing: 0.04em; opacity: 0.6; }
+/* Who you fly as, at the top right: a guest, or the wallet's address lit. */
+.acct {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  background: none;
+  border: none;
+  padding: var(--s1) 0;
+  font-family: var(--mono);
+  font-weight: normal;
+  font-size: var(--t-body);
+  letter-spacing: 0.08em;
+  color: var(--label);
+}
+.acct .acct-label { font-family: var(--label-font); font-weight: 600; font-size: var(--t-label); letter-spacing: var(--track); opacity: 0.7; }
+.acct.in { color: var(--cyan); }
+.acct.in #acct-who::before { content: "● "; font-size: 0.8em; }
+.acct:hover, .acct:focus-visible { background: none; color: var(--white); }
 
-/* The suits: numbered plates; the chosen one lit. */
-.frames { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--s2); counter-reset: frame; }
+.front-body { display: flex; gap: var(--s6); align-items: flex-start; min-height: 0; margin-top: var(--s6); }
+/* The choices: large words; the one open marked with a bar, as Gates' menu does. */
+.front-nav { display: flex; flex-direction: column; gap: 2px; width: 210px; flex: none; }
+.front-nav button, .front-nav a {
+  position: relative;
+  text-align: left;
+  font-family: var(--label-font);
+  font-weight: 600;
+  font-size: 22px;
+  letter-spacing: 0.14em;
+  color: color-mix(in srgb, var(--label) 80%, transparent);
+  background: none;
+  border: none;
+  padding: var(--s1) 0 var(--s1) var(--s4);
+  text-decoration: none;
+  transition: color 0.12s, padding-left 0.12s;
+}
+.front-nav button:hover, .front-nav button:focus-visible, .front-nav a:hover, .front-nav a:focus-visible { color: var(--white); background: none; padding-left: calc(var(--s4) + 4px); outline: none; }
+.front-nav [aria-current="true"] { color: var(--white); }
+.front-nav [aria-current="true"]::before { content: ""; position: absolute; left: 0; top: 22%; bottom: 22%; width: 3px; background: var(--cyan); }
+.front-nav button:disabled { opacity: 0.35; }
+.front-nav .gap { height: var(--s4); }
+.front-nav .small { font-size: var(--t-body); letter-spacing: var(--track); margin-top: var(--s2); }
+
+/* The pane: glass, as tall as the screen lets it be, LAUNCH kept at its foot. */
+.front-pane {
+  background: var(--ticks), var(--scan), var(--glass);
+  backdrop-filter: blur(6px);
+  padding: var(--s5);
+  width: min(460px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+.front-pane.wide { width: min(880px, 100%); }
+.front-pane .blurb { margin: 0 0 var(--s5); font-size: var(--t-body); line-height: 1.6; color: color-mix(in srgb, var(--white) 82%, transparent); }
+.front-pane h3 { margin-top: var(--s5); }
+.front-pane .field { margin-bottom: var(--s4); }
+.front-pane input { width: 100%; box-sizing: border-box; }
+.wallet-row { margin-top: 0; }
+#wallet-account { margin-top: var(--s2); }
+#launch.busy .field { opacity: 0.45; pointer-events: none; }
+
+/* The server, as a row (Gates' list, of one): up or not, its name, where and what rules, who's on. */
+.server {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas: "dot name count" "dot line count";
+  align-items: center;
+  column-gap: var(--s3);
+  row-gap: 2px;
+  padding: var(--s3) var(--s3);
+  background: var(--scan), color-mix(in srgb, var(--cyan) 9%, var(--glass));
+  box-shadow: inset 2px 0 0 var(--cyan);
+}
+.server-dot { grid-area: dot; width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); }
+.server-name { grid-area: name; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--label-font); font-weight: 600; font-size: var(--t-body); letter-spacing: 0.14em; }
+.server-line { grid-area: line; font-size: var(--t-small); color: var(--label); letter-spacing: 0.04em; overflow-wrap: anywhere; }
+.server-count { grid-area: count; white-space: pre; text-align: right; line-height: 1.5; font-size: var(--t-small); color: var(--cyan); letter-spacing: 0.08em; }
+.server.down { box-shadow: inset 2px 0 0 var(--red); background: var(--scan), color-mix(in srgb, var(--red) 7%, var(--glass)); }
+.server.down .server-dot { background: var(--red); box-shadow: 0 0 8px var(--red); }
+
+/* The suits: numbered plates in a grid; the chosen one lit, and what it carries under them. */
+.frames { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: var(--s1); counter-reset: frame; }
 .frame {
   counter-increment: frame;
   position: relative;
   text-align: left;
   letter-spacing: 0.02em;
-  padding: var(--s3) var(--s3) var(--s3) var(--s4);
+  padding: var(--s2) var(--s3);
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   border: none;
   /* Glass under the tint: a bright hull passing behind mustn't show through. */
   background: var(--scan), color-mix(in srgb, var(--label) 6%, var(--glass));
@@ -284,27 +385,123 @@ kbd {
 .frame::after {
   content: counter(frame, decimal-leading-zero);
   position: absolute;
-  top: var(--s3);
-  right: var(--s3);
+  top: var(--s2);
+  right: var(--s2);
   font-family: var(--mono);
   font-size: var(--t-label);
   opacity: 0.35;
 }
 .frame:hover { background: var(--scan), color-mix(in srgb, var(--label) 12%, var(--glass)); box-shadow: inset 2px 0 0 var(--edge); }
-.frame .name { font-size: var(--t-value); letter-spacing: 0.1em; }
-.frame .designation { font-size: var(--t-label); opacity: 0.55; letter-spacing: 0.18em; }
-.frame .kit, .frame .special { font-family: var(--mono); font-weight: normal; font-size: var(--t-small); opacity: 0.75; line-height: 1.4; letter-spacing: 0; }
-.frame .special { color: var(--amber); opacity: 0.9; }
+.frame .name { font-size: var(--t-body); letter-spacing: 0.1em; }
+.frame .designation { font-size: var(--t-label); opacity: 0.55; letter-spacing: 0.14em; }
 .frame.chosen {
   background: var(--ticks), var(--scan), color-mix(in srgb, var(--cyan) 13%, var(--glass));
   --tick: var(--cyan);
+  --tick-len: 8px;
   box-shadow: inset 2px 0 0 var(--cyan), 0 0 22px -8px var(--cyan);
 }
 .frame.chosen::after { opacity: 0.9; color: var(--cyan); }
-.link-state { margin-top: var(--s4); }
+.frame-kit { margin-top: var(--s2); font-size: var(--t-small); line-height: 1.5; min-height: 3em; }
+.frame-kit .kit { opacity: 0.75; }
+.frame-kit .special { color: var(--amber); }
+.frame-kit kbd { margin-right: 0.5em; }
+.suit-line { font-size: var(--t-body); color: color-mix(in srgb, var(--white) 82%, transparent); }
+.suit-line b { font-family: var(--label-font); letter-spacing: 0.12em; margin-right: var(--s2); }
+
+/* LAUNCH: the one thing to press, the width of the pane, kept at its foot; it fills as the game
+   downloads. */
+.front-pane.play { display: flex; flex-direction: column; overflow: hidden; }
+.front-pane.play .pane-scroll { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+.launch-bar { flex: none; padding-top: var(--s3); }
+button.launch {
+  width: 100%;
+  padding: var(--s4);
+  font-size: 18px;
+  letter-spacing: 0.4em;
+  clip-path: polygon(12px 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
+}
+button.launch.filling, button.launch.filling:disabled {
+  opacity: 1;
+  color: var(--white);
+  border-color: color-mix(in srgb, var(--amber) 40%, transparent);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--amber) 55%, transparent) calc(var(--fill, 0) * 100%), color-mix(in srgb, var(--amber) 10%, transparent) 0);
+  transition: none;
+}
+.link-state { margin-top: var(--s3); }
+.link-state .row { margin-top: var(--s3); }
 .message { font-size: var(--t-body); line-height: 1.6; white-space: pre-line; letter-spacing: 0.04em; }
 .message.error { color: var(--red); }
-.survival-note { line-height: 1.6; font-size: 12px; opacity: 0.8; max-width: 600px; }
+/* The boot's failure, when it fails in front of the front screen. */
+.front-boot .boot-error { margin-top: var(--s3); color: var(--red); }
+.front-boot .boot-error pre { color: var(--white); opacity: 0.75; font-size: var(--t-small); white-space: pre-wrap; max-height: 30vh; overflow: auto; }
+
+/* THE COLONY: the sector now, a table; the Proving Ground's board, two columns. */
+.colony-now > div, .colony-board > div > div:not(.head) {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s1) 0;
+  font-size: var(--t-small);
+  border-bottom: 1px solid var(--hair);
+}
+.colony-now > div > span:first-child { color: var(--label); letter-spacing: 0.12em; }
+.colony-board { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s5); }
+.colony-board .head { font-family: var(--label-font); font-weight: 600; font-size: var(--t-label); letter-spacing: var(--track); color: var(--label); margin-bottom: var(--s1); }
+.colony-board span:nth-child(1) { opacity: 0.5; width: 1.4em; flex: none; }
+.colony-board span:nth-child(2) { flex: 1; }
+.colony-board span:nth-child(3) { color: var(--cyan); }
+.colony-board .none { font-size: var(--t-small); opacity: 0.55; }
+#front-controls:empty::before { content: "The controls come with the game: a moment."; font-size: var(--t-small); opacity: 0.6; }
+
+/* The foot: the build, and the download while it comes. */
+.front-foot { display: flex; justify-content: space-between; align-items: center; gap: var(--s4); margin-top: var(--s3); font-size: var(--t-label); letter-spacing: 0.16em; color: color-mix(in srgb, var(--label) 70%, transparent); }
+.front-load { display: flex; align-items: center; gap: var(--s3); min-width: 0; }
+#front-load-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#front-load-line.error { color: var(--red); }
+.front-load .meter { width: 180px; height: 2px; flex: none; background: color-mix(in srgb, var(--cyan) 15%, transparent); overflow: hidden; }
+#front-fill { display: block; height: 100%; width: 0; background: var(--cyan); transition: width 0.2s; }
+#front-fill.unknown { width: 30%; animation: boot-sweep 1.4s ease-in-out infinite; }
+
+/* With ?autoplay: only the link's state. */
+#title.autoplay .front-nav, #title.autoplay .acct, #title.autoplay .front-pane h2, #title.autoplay .blurb { display: none; }
+/* The boot's own screen: out of sight while the front screen loads the game, unless it fails
+   before the page takes over (boot.js), and gone once it has. */
+html.front-early #boot:not(.failed) { visibility: hidden; }
+html.front-up #boot { display: none; }
+
+/* A short or narrow screen: the wordmark smaller, the choices along the top. Short and wide
+   enough, PLAY in two columns (who and where, then the suit) so LAUNCH stays in view. */
+@media (max-height: 640px) {
+  #title.front { padding-top: var(--s4); }
+  .front-body { margin-top: var(--s4); }
+  .wordmark .tagline { display: none; }
+  .front-nav button { font-size: 18px; }
+}
+@media (max-height: 760px) and (min-width: 821px) {
+  .front-pane[data-pane="play"] { width: min(720px, 100%); }
+  .front-pane[data-pane="play"] .blurb { display: none; }
+  .front-pane h2 { margin-bottom: var(--s3); }
+  .front-pane .field { margin-bottom: var(--s3); }
+  #launch { display: grid; grid-template-columns: 1fr 1fr; column-gap: var(--s5); }
+  #launch > .field { grid-column: 1; }
+  #launch > #frames-field, #launch > #survival-field { grid-column: 2; grid-row: 1 / span 3; }
+}
+@media (max-width: 820px) {
+  .front-body { flex-direction: column; gap: var(--s3); }
+  .front-nav { flex-direction: row; flex-wrap: wrap; width: auto; }
+  .front-nav button, .front-nav a { font-size: 15px; padding: var(--s1) var(--s3); }
+  .front-nav [aria-current="true"]::before { top: auto; left: var(--s3); right: var(--s3); bottom: 0; width: auto; height: 2px; }
+  .front-nav .gap { display: none; }
+  .front-pane, .front-pane.wide { width: 100%; }
+}
+#wallet-pick { max-width: 340px; padding: var(--s5); border: none; }
+#wallet-pick::backdrop { background: rgba(0, 0, 0, 0.6); }
+#wallet-list { display: flex; flex-direction: column; gap: var(--s1); margin-bottom: var(--s3); }
+#wallet-list button { display: flex; align-items: center; gap: var(--s3); width: 100%; text-align: left; }
+#wallet-list button:hover, #wallet-list button:focus-visible { color: var(--ink); background: var(--white); }
+#wallet-list img, #wallet-list .ph { width: 24px; height: 24px; flex: none; }
+#wallet-list .ph { background: var(--edge); }
+#wallet-list small { display: block; font-size: var(--t-small); letter-spacing: 0.04em; opacity: 0.6; }
 
 /* --- The menu (Esc): a column of numbered choices, no box. --- */
 .card.menu {
