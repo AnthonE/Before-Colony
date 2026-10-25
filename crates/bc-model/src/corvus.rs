@@ -33,9 +33,10 @@
 //!   swept wings (on [`Bone::WingL`] and [`Bone::WingR`], so they flare on boost), canted down at
 //!   the back so they show behind the shoulders from the front, a blue panel along each, red tips
 //!   carrying the running lights, and a hardpoint under each;
-//! - the long beam rifle: a gunmetal receiver with a blue band round it, the energy pack before the
-//!   grip, a ribbed shroud, the barrel and an octagonal muzzle with its bore, and the sight with its
-//!   lens; the saber's hilt in the left hand.
+//! - the long beam rifle, all of its body forward of the grip: a gunmetal receiver with a blue band
+//!   round it, the energy pack before the grip, a ribbed shroud, the barrel and an octagonal muzzle
+//!   with its bore, the sight with its lens, and a slim stock riding high over the forearm; the
+//!   saber's hilt in the left hand.
 //!
 //! The white, the blue and the red marks are the livery's; the inner frame, the shoulder balls and
 //! the hands are the Argo's brown, the weapons gunmetal.
@@ -545,7 +546,6 @@ fn arms(d: &mut Designer) {
             f.cube(v(0.32, 0.06, 0.05), 0.0, FRAME, fo_xf * at(0.0, 1.0, 0.9));
             f.cube(v(0.06, 0.5, 0.05), 0.0, FRAME, fo_xf * at(0.0, 1.35, 0.9));
         });
-        f.cylinder(0.46, 0.3, 12, BROWN, fo_xf);
     }
     hands(d, BROWN);
 }
@@ -885,45 +885,54 @@ fn wings(d: &mut Designer) {
 
 // --- The beam rifle. ---
 
-/// The beam rifle, long and slim: a receiver with a blue band round it over the grip, the energy
-/// pack before the grip, the stock; a ribbed shroud, the barrel and the octagonal muzzle with its
-/// bore; the sight on top with its lens, and a foregrip.
+/// The beam rifle, long and slim, all of its body forward of the grip ([`crate::hold`]): the
+/// receiver over the fist with a blue band round it, the energy pack under it before the grip, a
+/// ribbed shroud, the barrel and the octagonal muzzle with its bore; the sight on top with its lens,
+/// and a slim stock riding high from the receiver's top back over the forearm, clear of it at the
+/// ready and ahead of it carried.
 fn beam_rifle(d: &mut Designer) {
     let g = j(Bone::Weapon);
+    // A place in the rifle's own frame: from the grip, z forward, y up.
+    let p = |x: f32, y: f32, z: f32| at(g.x + x, g.y + y, g.z + z);
     let y = 0.62;
-    let along_z = |z: f32| place(v(g.x, g.y + y, g.z + z), rx(FRAC_PI_2));
+    let along_z = |z: f32| p(0.0, y, z) * Affine3A::from_rotation_x(FRAC_PI_2);
     let mut w = d.on(Bone::Weapon);
     w.seed(0.61);
-    w.cube(v(0.32, 0.95, 0.42), 0.05, GUN, place(v(g.x, g.y - 0.2, g.z), rx(-0.25)));
-    w.block(v(0.62, 0.92, 3.0), v2(0.92, 0.95), Vec2::ZERO, 0.1, GUN, at(g.x, g.y + y, g.z + 0.5));
-    w.cube(v(0.68, 0.6, 1.3), 0.04, TRIM, at(g.x, g.y + y - 0.05, g.z + 0.25));
-    w.block(v(0.5, 0.95, 0.8), v2(1.0, 0.9), Vec2::ZERO, 0.06, GUN, at(g.x, g.y - 0.1, g.z + 1.4));
-    w.cube(v(0.42, 0.12, 0.66), 0.02, STEEL, at(g.x, g.y - 0.6, g.z + 1.4));
-    // The stock and its butt.
-    w.block(v(0.5, 0.75, 1.7), v2(0.85, 0.7), v2(0.0, -0.1), 0.08, GUN, at(g.x, g.y + y - 0.12, g.z - 1.8));
-    w.cube(v(0.56, 1.05, 0.3), 0.05, GUN, at(g.x, g.y + y - 0.25, g.z - 2.7));
+    // The grip in the fist, and the receiver over it, from just behind the grip forward.
+    w.cube(v(0.32, 0.95, 0.42), 0.05, GUN, p(0.0, -0.2, 0.0) * Affine3A::from_rotation_x(-0.25));
+    w.block(v(0.62, 0.86, 2.7), v2(0.92, 0.95), Vec2::ZERO, 0.1, GUN, p(0.0, y, 1.25));
+    w.cube(v(0.68, 0.56, 1.0), 0.04, TRIM, p(0.0, y - 0.04, 0.62));
+    // The energy pack under it before the grip, its steel cap.
+    w.block(v(0.5, 0.95, 0.8), v2(1.0, 0.9), Vec2::ZERO, 0.06, GUN, p(0.0, -0.1, 1.4));
+    w.cube(v(0.42, 0.12, 0.66), 0.02, STEEL, p(0.0, -0.6, 1.4));
+    // The stock: a slim bar from the receiver's top back over the forearm, and its butt.
+    let (front, back) = (v2(0.1, 1.14), v2(-1.2, 1.4));
+    let (mid, run) = ((front + back) * 0.5, front - back);
+    let tilt = Affine3A::from_rotation_x((-run.y).atan2(run.x));
+    w.cube(v(0.28, 0.3, run.length()), 0.04, GUN, p(0.0, mid.y, mid.x) * tilt);
+    w.cube(v(0.42, 0.5, 0.22), 0.04, GUN, p(0.0, 1.46, -1.3));
     // The shroud, the barrel, and the muzzle with its bore.
-    w.cylinder(0.34, 2.2, 14, GUN, along_z(3.05));
-    w.cube(v(0.24, 0.7, 0.32), 0.03, GUN, place(v(g.x, g.y + y - 0.6, g.z + 2.6), rx(0.2)));
-    w.cylinder(0.2, 2.2, 12, STEEL, along_z(5.2));
-    w.cylinder(0.32, 0.55, 8, GUN, along_z(6.5) * Affine3A::from_rotation_y(PI / 8.0));
-    w.cylinder(0.17, 0.12, 12, FRAME, along_z(6.78));
+    w.cylinder(0.34, 2.2, 14, GUN, along_z(3.65));
+    w.cube(v(0.24, 0.7, 0.32), 0.03, GUN, p(0.0, y - 0.6, 3.1) * Affine3A::from_rotation_x(0.2));
+    w.cylinder(0.2, 2.2, 12, STEEL, along_z(5.8));
+    w.cylinder(0.32, 0.55, 8, GUN, along_z(7.1) * Affine3A::from_rotation_y(PI / 8.0));
+    w.cylinder(0.17, 0.12, 12, FRAME, along_z(7.38));
     // The sight on top, its lens.
-    w.cube(v(0.26, 0.32, 0.9), 0.03, GUN, at(g.x, g.y + y + 0.6, g.z + 0.4));
-    w.cylinder(0.12, 0.08, 10, LENS, place(v(g.x, g.y + y + 0.62, g.z + 0.86), rx(FRAC_PI_2)));
+    w.cube(v(0.26, 0.32, 0.9), 0.03, GUN, p(0.0, y + 0.58, 0.75));
+    w.cylinder(0.12, 0.08, 10, LENS, p(0.0, y + 0.6, 1.21) * Affine3A::from_rotation_x(FRAC_PI_2));
     w.greeble(|w| {
         // Vents along the receiver, rings round the shroud, slots in the muzzle.
         for k in 0..5 {
-            w.cube(v(0.66, 0.36, 0.08), 0.0, FRAME, at(g.x, g.y + y + 0.05, g.z + 1.15 + k as f32 * 0.16));
+            w.cube(v(0.66, 0.36, 0.08), 0.0, FRAME, p(0.0, y + 0.05, 1.45 + k as f32 * 0.16));
         }
         for k in 0..4 {
-            w.cylinder(0.37, 0.1, 14, GUN, along_z(2.25 + k as f32 * 0.5));
+            w.cylinder(0.37, 0.1, 14, GUN, along_z(2.85 + k as f32 * 0.5));
         }
         for side in [-1.0, 1.0] {
-            w.cube(v(0.08, 0.14, 0.3), 0.0, FRAME, at(g.x + side * 0.28, g.y + y, g.z + 6.45));
+            w.cube(v(0.08, 0.14, 0.3), 0.0, FRAME, p(side * 0.28, y, 7.05));
         }
     });
-    d.sockets.muzzle = Designer::local(Bone::Weapon, v(g.x, g.y + y, g.z + 6.85));
+    d.sockets.muzzle = Designer::local(Bone::Weapon, v(g.x, g.y + y, g.z + 7.45));
 }
 
 // --- Stencils: thin plates just proud of the paint, up close only. ---
