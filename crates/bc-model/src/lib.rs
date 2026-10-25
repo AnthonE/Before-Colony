@@ -816,11 +816,11 @@ mod tests {
     }
 
     /// Every frame holds what it holds clear of itself as the client poses it: a gun in the right
-    /// hand at the ready and carried ([`hold`]), anything else in the right hand, and a shield,
-    /// with the arms at rest. None of it passes through the suit.
+    /// hand at the ready and carried ([`hold`]), and anything else in the right hand, a shield and
+    /// the hands themselves with the arms at its sides. None of it passes through the suit.
     #[test]
     fn what_a_suit_holds_clears_it() {
-        let rest = posed(&|_| glam::Quat::IDENTITY);
+        let rest = posed(&|b| hold::Hold::Rest.turn(b));
         let mut faults = Vec::new();
         for frame in FrameId::ALL.into_iter().filter(|f| *f != FrameId::Aquila) {
             let m = build(frame, Lod::Near);
@@ -829,7 +829,10 @@ mod tests {
                     && matches!(weapon(mount.weapon).class, WeaponClass::Beam | WeaponClass::Ballistic)
             });
             let poses: Vec<(String, Vec<Affine3A>)> = if gun {
-                hold::Hold::BOTH.iter().map(|&h| (format!("{h:?}"), posed(&|b| h.turn(b)))).collect()
+                [hold::Hold::Ready, hold::Hold::Carried]
+                    .iter()
+                    .map(|&h| (format!("{h:?}"), posed(&|b| h.turn(b))))
+                    .collect()
             } else {
                 vec![("at rest".into(), rest.clone())]
             };
@@ -842,6 +845,15 @@ mod tests {
             let hits = passes_through(&m, Bone::Shield, &[Bone::ForearmL, Bone::HandL], &rest);
             if !hits.is_empty() {
                 faults.push(format!("{frame:?}'s shield passes through {hits:?}"));
+            }
+            // The hands hang clear of the body, holding what they hold.
+            for (hand, by) in
+                [(Bone::HandR, [Bone::ForearmR, Bone::Weapon]), (Bone::HandL, [Bone::ForearmL, Bone::Shield])]
+            {
+                let hits = passes_through(&m, hand, &by, &rest);
+                if !hits.is_empty() {
+                    faults.push(format!("{frame:?}'s {hand:?} passes through {hits:?}"));
+                }
             }
         }
         assert!(faults.is_empty(), "{}", faults.join("\n"));

@@ -813,21 +813,23 @@ fn backpack(d: &mut Designer) {
 
 // --- Weapons. ---
 
-/// The long type beam rifle: a boxy receiver with a carry handle, the flat energy pack before the
-/// grip, and a ribbed barrel shroud.
+/// The long type beam rifle: a boxy receiver standing forward of the grip with a carry handle and
+/// the rear sight on it, the flat energy pack before the grip, and a ribbed barrel shroud. Nothing
+/// of it lies behind the grip but the sight, high over the forearm ([`crate::hold`]).
 fn beam_rifle(d: &mut Designer) {
     let g = j(Bone::Weapon);
     let along_z = |y: f32, z: f32| place(v(g.x, g.y + y, g.z + z), rx(FRAC_PI_2));
     let mut w = d.on(Bone::Weapon);
     w.seed(0.61);
-    w.cube(v(0.32, 0.95, 0.42), 0.05, GUN, place(v(g.x, g.y - 0.2, g.z), rx(-0.25)));
-    w.block(v(0.64, 0.9, 3.0), v2(0.95, 0.95), Vec2::ZERO, 0.08, GUN, at(g.x, g.y + 0.6, g.z + 0.55));
-    w.block(v(0.6, 0.7, 0.6), v2(0.9, 0.9), Vec2::ZERO, 0.06, GUN, at(g.x, g.y + 0.55, g.z - 1.15));
-    w.block(v(0.4, 1.35, 1.05), v2(1.0, 1.0), Vec2::ZERO, 0.05, GUN, at(g.x, g.y - 0.05, g.z + 1.3));
-    for z in [0.0, 1.2] {
+    w.cube(v(0.32, 0.95, 0.34), 0.05, GUN, place(v(g.x, g.y - 0.2, g.z + 0.12), rx(-0.25)));
+    w.block(v(0.64, 0.9, 2.1), v2(0.95, 0.95), Vec2::ZERO, 0.08, GUN, at(g.x, g.y + 0.6, g.z + 1.15));
+    w.block(v(0.4, 1.35, 1.05), v2(1.0, 1.0), Vec2::ZERO, 0.05, GUN, at(g.x, g.y - 0.05, g.z + 1.55));
+    for z in [0.3, 1.5] {
         w.cube(v(0.16, 0.45, 0.18), 0.02, GUN, at(g.x, g.y + 1.25, g.z + z));
     }
-    w.cube(v(0.16, 0.14, 1.36), 0.02, GUN, at(g.x, g.y + 1.45, g.z + 0.6));
+    w.cube(v(0.16, 0.14, 1.9), 0.02, GUN, at(g.x, g.y + 1.45, g.z + 0.6));
+    // The rear sight at the handle's back, over the fist.
+    w.block(v(0.3, 0.32, 0.4), v2(0.8, 0.9), Vec2::ZERO, 0.04, GUN, at(g.x, g.y + 1.68, g.z - 0.15));
     w.cylinder(0.34, 2.6, 14, GUN, along_z(0.62, 3.35));
     w.greeble(|w| {
         for k in 0..7 {

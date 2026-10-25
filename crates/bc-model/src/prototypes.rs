@@ -549,25 +549,25 @@ fn arms(d: &mut Designer, t: Twin) {
 /// just over the knee guard to under the belt, widening out to its broadest a little over halfway
 /// up, and closing in under the hip. Its armour stands on it ([`THIGH_FRONT`], [`THIGH_SIDE`]).
 const THIGH_SHELL: [Hoop; 7] = [
-    hoop(0.45, 0.22, 0.08, 1.0, 0.92),
-    hoop(0.95, 0.36, 0.12, 1.36, 1.14),
-    hoop(1.7, 0.5, 0.14, 1.58, 1.28),
-    hoop(2.45, 0.55, 0.1, 1.62, 1.28),
-    hoop(3.15, 0.52, 0.04, 1.48, 1.16),
-    hoop(3.6, 0.46, 0.0, 1.2, 1.0),
-    hoop(3.88, 0.4, 0.0, 0.76, 0.64),
+    hoop(0.45, 0.2, 0.08, 1.0, 0.92),
+    hoop(0.95, 0.3, 0.12, 1.32, 1.14),
+    hoop(1.7, 0.38, 0.14, 1.5, 1.28),
+    hoop(2.45, 0.4, 0.1, 1.5, 1.28),
+    hoop(3.15, 0.36, 0.04, 1.36, 1.16),
+    hoop(3.6, 0.32, 0.0, 1.1, 1.0),
+    hoop(3.88, 0.3, 0.0, 0.7, 0.64),
 ];
 
 /// The plate down the thigh's front in two tiers, in the core's frame, each by its foot and its
 /// top: the lower narrowing to the knee, the upper standing a step proud of it, broadest where
 /// they meet and leaning back under the skirt.
 const THIGH_FRONT: [[Cut; 2]; 2] = [
-    [(0.75, -0.72, 1.05, 0.55, 1.36), (2.05, -0.98, 1.42, 0.65, 1.6)],
-    [(2.05, -1.04, 1.5, 0.65, 1.7), (3.3, -0.9, 1.36, 0.55, 1.4)],
+    [(0.75, -0.72, 1.0, 0.55, 1.36), (2.05, -0.98, 1.3, 0.65, 1.6)],
+    [(2.05, -1.04, 1.38, 0.65, 1.7), (3.3, -0.9, 1.2, 0.55, 1.4)],
 ];
 
 /// The plate down the thigh's outside, under the fin, by its foot and its top.
-const THIGH_SIDE: [Cut; 2] = [(0.95, 1.6, 2.02, -0.9, 0.78), (3.15, 1.72, 2.22, -1.0, 0.84)];
+const THIGH_SIDE: [Cut; 2] = [(0.95, 1.5, 1.86, -0.9, 0.78), (3.15, 1.52, 1.9, -1.0, 0.84)];
 
 /// The lower leg, up its axis from the ankle to the knee (x out, z forward): slim over the boot,
 /// swelling back and out to the calf's widest just under the knee, and closing in behind the knee
@@ -631,12 +631,12 @@ fn legs(d: &mut Designer) {
         let [(y0, .., f0), (y1, .., f1)] = THIGH_FRONT[0];
         let lower = along_thigh * place(v(0.15, 1.35, (f0 + f1) * 0.5), rx(-((f1 - f0) / (y1 - y0)).atan()));
         slot(&mut th, 0.6, lower * at(-0.3, 0.0, 0.0));
-        slot(&mut th, 0.7, along_thigh * place(v(2.13, 2.0, -0.45), ry(FRAC_PI_2)));
-        let fin = along_thigh * place(v(2.0, 1.55, 1.24), ry(0.87) * rx(-0.28));
+        slot(&mut th, 0.7, along_thigh * place(v(1.89, 2.0, -0.45), ry(FRAC_PI_2)));
+        let fin = along_thigh * place(v(1.55, 1.55, 1.24), ry(0.95) * rx(-0.28));
         th.extrude(&FIN, 0.32, BODY, fin);
         th.greeble(|th| {
             // The seam where the tiers meet, and the notch's dark step.
-            th.cube(v(2.4, 0.06, 0.05), 0.0, FRAME, along_thigh * at(0.26, 2.05, 1.66));
+            th.cube(v(2.3, 0.06, 0.05), 0.0, FRAME, along_thigh * at(0.2, 2.05, 1.66));
             th.cube(v(0.07, 0.6, 0.05), 0.0, FRAME, fin * place(v(-0.2, -1.0, 0.17), rz(0.5)));
         });
 
@@ -903,40 +903,44 @@ fn generator(d: &mut Designer) {
 /// Where the cannon's cable leaves the box under the generator.
 const GEN_OUTLET: Vec3 = Vec3::new(GEN.x + 1.15, GEN.y - GEN_R - 0.55, GEN.z + 0.3);
 
-/// The beam cannon, held under the right arm: a long box-section barrel with its amber slot near
-/// the octagonal muzzle, a slimmer round rear section with its rows of vents, and the rear block
-/// the cable plugs into.
+/// The beam cannon, held at its breech: a long box-section barrel standing forward of the grip,
+/// with its amber slot near the octagonal muzzle, and over the fist the round breech, vented, riding
+/// high enough to pass over the forearm at the ready and stand ahead of the wrist carried
+/// ([`crate::hold`]), with the rear block the cable plugs into.
 fn cannon(d: &mut Designer) {
     let g = j(Bone::Weapon);
     let along_z = |y: f32, z: f32| place(v(g.x, g.y + y, g.z + z), rx(FRAC_PI_2));
     let mut w = d.on(Bone::Weapon);
     w.seed(0.61);
     let y = 0.78;
-    // The grip, and the barrel above it.
-    w.cube(v(0.34, 1.0, 0.46), 0.05, GUN, place(v(g.x, g.y - 0.15, g.z), rx(-0.25)));
-    w.block(v(0.96, 1.15, 7.6), v2(1.0, 1.0), Vec2::ZERO, 0.2, GUN, at(g.x, g.y + y, g.z + 2.7));
+    // The grip, and the barrel standing forward of it.
+    w.cube(v(0.34, 1.0, 0.34), 0.05, GUN, place(v(g.x, g.y - 0.2, g.z + 0.16), rx(-0.25)));
+    w.block(v(0.96, 1.15, 6.85), v2(1.0, 1.0), Vec2::ZERO, 0.2, GUN, at(g.x, g.y + y, g.z + 3.58));
     // The amber slot down its top near the muzzle, and the side's vent grille.
-    w.cube(v(0.3, 0.06, 2.8), 0.02, FRAME, at(g.x, g.y + y + 0.58, g.z + 4.6));
-    w.cube(v(0.2, 0.06, 2.6), 0.0, YELLOW, at(g.x, g.y + y + 0.6, g.z + 4.6));
+    w.cube(v(0.3, 0.06, 2.8), 0.02, FRAME, at(g.x, g.y + y + 0.58, g.z + 5.2));
+    w.cube(v(0.2, 0.06, 2.6), 0.0, YELLOW, at(g.x, g.y + y + 0.6, g.z + 5.2));
     w.greeble(|w| {
         for k in 0..6 {
-            w.cube(v(0.06, 0.5, 0.12), 0.0, FRAME, at(g.x + 0.49, g.y + y, g.z + 1.2 + k as f32 * 0.25));
+            w.cube(v(0.06, 0.5, 0.12), 0.0, FRAME, at(g.x + 0.49, g.y + y, g.z + 1.6 + k as f32 * 0.25));
         }
-        w.cube(v(1.0, 0.06, 0.06), 0.0, FRAME, at(g.x, g.y + y + 0.2, g.z + 6.2));
+        w.cube(v(1.0, 0.06, 0.06), 0.0, FRAME, at(g.x, g.y + y + 0.2, g.z + 6.75));
     });
-    // The sight on top, its round lens.
-    w.cube(v(0.26, 0.3, 0.7), 0.03, GUN, at(g.x, g.y + y + 0.72, g.z + 0.6));
-    w.cylinder(0.12, 0.08, 10, LENS, place(v(g.x, g.y + y + 0.75, g.z + 0.97), rx(FRAC_PI_2)));
+    // The sight on the barrel ahead of the breech, its round lens.
+    w.cube(v(0.26, 0.3, 0.7), 0.03, GUN, at(g.x, g.y + y + 0.72, g.z + 1.6));
+    w.cylinder(0.12, 0.08, 10, LENS, place(v(g.x, g.y + y + 0.75, g.z + 1.97), rx(FRAC_PI_2)));
     // The octagonal muzzle and its bore.
-    w.cylinder(0.64, 0.7, 8, GUN, along_z(y, 6.75) * Affine3A::from_rotation_y(PI / 8.0));
-    w.cylinder(0.4, 0.2, 12, FRAME, along_z(y, 7.05));
-    // The rear section: slimmer, round, vented; and the rear block.
-    w.cylinder(0.44, 2.6, 14, GUN, along_z(y - 0.1, -2.1));
+    w.cylinder(0.64, 0.7, 8, GUN, along_z(y, 7.3) * Affine3A::from_rotation_y(PI / 8.0));
+    w.cylinder(0.4, 0.2, 12, FRAME, along_z(y, 7.6));
+    // The breech: round, vented, riding on the barrel's back and out over the fist; and the
+    // rear block on its end.
+    let b = y + 1.0;
+    w.cylinder(0.44, 2.3, 14, GUN, along_z(b, -0.25));
+    w.block(v(0.6, 0.5, 1.0), v2(0.9, 1.0), Vec2::ZERO, 0.06, GUN, at(g.x, g.y + b - 0.3, g.z + 0.55));
     w.greeble(|w| {
         for k in 0..4 {
             for a in [-0.6, 0.6] {
-                let z = -1.3 - k as f32 * 0.5;
-                let p = v(g.x + 0.44 * f32::sin(a), g.y + y - 0.1 + 0.44 * f32::cos(a), g.z + z);
+                let z = 0.3 - k as f32 * 0.45;
+                let p = v(g.x + 0.44 * f32::sin(a), g.y + b + 0.44 * f32::cos(a), g.z + z);
                 w.cylinder(
                     0.08,
                     0.06,
@@ -947,11 +951,11 @@ fn cannon(d: &mut Designer) {
             }
         }
     });
-    w.block(v(0.8, 0.95, 0.8), v2(0.9, 0.9), Vec2::ZERO, 0.08, GUN, at(g.x, g.y + y - 0.05, g.z - 3.6));
-    w.cylinder(0.17, 0.25, 10, GREY, along_z(y - 0.05, -4.05));
-    d.sockets.muzzle = Designer::local(Bone::Weapon, v(g.x, g.y + y, g.z + 7.15));
+    w.block(v(0.8, 0.95, 0.6), v2(0.9, 0.9), Vec2::ZERO, 0.08, GUN, at(g.x, g.y + b, g.z - 1.55));
+    w.cylinder(0.17, 0.25, 10, GREY, along_z(b, -1.95));
+    d.sockets.muzzle = Designer::local(Bone::Weapon, v(g.x, g.y + y, g.z + 7.7));
     // The cable from the generator plugs into the back of the rear block.
-    let inlet = v(g.x, g.y + y - 0.05, g.z - 4.15);
+    let inlet = v(g.x, g.y + b, g.z - 2.05);
     d.sockets.cable =
         Some((Designer::local(Bone::Backpack, GEN_OUTLET), Designer::local(Bone::Weapon, inlet)));
 }
@@ -1071,28 +1075,28 @@ fn racks(d: &mut Designer) {
 
 // --- The Corona's arms: the beam gun and the disc shield. ---
 
-/// The beam gun: a chunky box pistol, a grip under it, a short barrel and the round green lens
-/// over its rear.
+/// The beam gun: a chunky box pistol standing forward of its grip ([`crate::hold`]), a short
+/// barrel and the round lens over its rear.
 fn beam_gun(d: &mut Designer) {
     let g = j(Bone::Weapon);
     let mut w = d.on(Bone::Weapon);
     w.seed(0.62);
-    w.cube(v(0.34, 1.0, 0.46), 0.05, GUN, place(v(g.x, g.y - 0.15, g.z), rx(-0.25)));
-    w.block(v(0.66, 0.9, 2.5), v2(0.94, 0.94), Vec2::ZERO, 0.1, GUN, at(g.x, g.y + 0.62, g.z + 0.75));
-    w.block(v(0.5, 0.42, 1.1), v2(0.9, 0.9), Vec2::ZERO, 0.06, GUN, at(g.x, g.y + 0.9, g.z + 2.4));
-    w.cylinder(0.2, 0.5, 10, STEEL, place(v(g.x, g.y + 0.9, g.z + 3.1), rx(FRAC_PI_2)));
-    w.cube(v(0.6, 0.3, 0.6), 0.04, GUN, at(g.x, g.y + 0.25, g.z + 1.35));
-    w.cube(v(0.28, 0.16, 1.4), 0.02, GUN, at(g.x, g.y + 1.12, g.z + 0.5));
+    w.cube(v(0.34, 1.0, 0.34), 0.05, GUN, place(v(g.x, g.y - 0.2, g.z + 0.16), rx(-0.25)));
+    w.block(v(0.66, 0.9, 2.5), v2(0.94, 0.94), Vec2::ZERO, 0.1, GUN, at(g.x, g.y + 0.62, g.z + 1.4));
+    w.block(v(0.5, 0.42, 1.1), v2(0.9, 0.9), Vec2::ZERO, 0.06, GUN, at(g.x, g.y + 0.9, g.z + 3.05));
+    w.cylinder(0.2, 0.5, 10, STEEL, place(v(g.x, g.y + 0.9, g.z + 3.75), rx(FRAC_PI_2)));
+    w.cube(v(0.6, 0.3, 0.6), 0.04, GUN, at(g.x, g.y + 0.25, g.z + 2.0));
+    w.cube(v(0.28, 0.16, 1.4), 0.02, GUN, at(g.x, g.y + 1.12, g.z + 1.15));
     // The round lens over its rear, lit in the livery's eye colour.
-    let lens = place(v(g.x, g.y + 1.12, g.z - 0.35), Quat::IDENTITY);
+    let lens = place(v(g.x, g.y + 1.12, g.z + 0.35), Quat::IDENTITY);
     w.cylinder(0.2, 0.24, 12, GUN, lens);
     w.cylinder(0.14, 0.06, 12, EYE, lens * at(0.0, 0.14, 0.0));
     w.greeble(|w| {
         for k in 0..3 {
-            w.cube(v(0.7, 0.06, 0.12), 0.0, FRAME, at(g.x, g.y + 0.62, g.z + 0.2 + k as f32 * 0.3));
+            w.cube(v(0.7, 0.06, 0.12), 0.0, FRAME, at(g.x, g.y + 0.62, g.z + 0.85 + k as f32 * 0.3));
         }
     });
-    d.sockets.muzzle = Designer::local(Bone::Weapon, v(g.x, g.y + 0.9, g.z + 3.4));
+    d.sockets.muzzle = Designer::local(Bone::Weapon, v(g.x, g.y + 0.9, g.z + 4.05));
 }
 
 /// The disc shield on the left forearm, facing out: a dark disc with a raised ring, three bosses

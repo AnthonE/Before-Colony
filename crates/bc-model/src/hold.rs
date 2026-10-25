@@ -29,25 +29,32 @@ pub const READY_FORE: f32 = -0.73;
 /// How far the gun turns muzzle down in the fist when it's carried (rad, about the hand's x).
 pub const CARRY: f32 = std::f32::consts::FRAC_PI_2;
 
+/// How far each arm stands out from the body at the shoulder (rad, about the suit's z: the right
+/// arm's turn; the left's is the mirror), so the hands and what they hold hang clear of the thighs.
+pub const SPREAD: f32 = 0.17;
+
 /// A pose of the gun arm, each bone's turn about its joint relative to its parent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hold {
-    /// At the ready, aimed straight ahead.
+    /// The gun at the ready, aimed straight ahead.
     Ready,
-    /// Carried at the side.
+    /// The gun carried at the side.
     Carried,
+    /// Standing with the arms at the sides, holding no gun (a blade, a shield, nothing).
+    Rest,
 }
 
 impl Hold {
-    pub const BOTH: [Hold; 2] = [Hold::Ready, Hold::Carried];
-
     /// The turn of `bone` in this pose (the identity for the bones it leaves at rest).
     pub fn turn(self, bone: Bone) -> Quat {
+        let spread = |s: f32| Quat::from_rotation_z(SPREAD * s);
         match (self, bone) {
-            (Hold::Ready, Bone::UpperArmR) => Quat::from_rotation_x(READY_UPPER),
+            (Hold::Ready, Bone::UpperArmR) => spread(1.0) * Quat::from_rotation_x(READY_UPPER),
             (Hold::Ready, Bone::ForearmR) => Quat::from_rotation_x(READY_FORE),
             (Hold::Ready, Bone::Weapon) => Quat::from_rotation_x(-(READY_UPPER + READY_FORE)),
             (Hold::Carried, Bone::Weapon) => Quat::from_rotation_x(CARRY),
+            (_, Bone::UpperArmR) => spread(1.0),
+            (_, Bone::UpperArmL) => spread(-1.0),
             _ => Quat::IDENTITY,
         }
     }
