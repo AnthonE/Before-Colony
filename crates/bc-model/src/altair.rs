@@ -32,9 +32,12 @@
 //!   boost), each with a vernier in its arm and two feathered wings off its knuckle: the upper
 //!   rising over the shoulder as an angel's, its long feathers fanning out and down from the wrist
 //!   and hanging from the spar, coverts over their roots; the lower out and down beside the legs;
-//! - the Heavy Beam Rifle, two rifles joined side by side: each a blue energy pack behind, a
-//!   receiver with a white panel, a vented shroud between yellow bands, the barrel and a flared
-//!   muzzle; the grip under the join, the scope over it with its lens, clamps round the barrels;
+//! - the Heavy Beam Rifle, two rifles joined side by side, held as [`crate::hold`] has it: each a
+//!   receiver with a white panel from just ahead of the grip, a vented shroud between yellow bands,
+//!   the barrel and a flared muzzle, and a blue energy pack riding on the receiver's rear, over the
+//!   fist and back over the forearm at the ready, standing ahead of it carried; the grip and its
+//!   guard under the join, the scope over the packs, clamps round the barrels. It is no longer
+//!   than it can hang muzzle down from the fist and clear the toes;
 //! - the shield on the left forearm, pointed: white, its red face raised in it, a blue cap across
 //!   its top and a ridge down its middle; and the beam saber's hilt in the left hand.
 //!
@@ -992,59 +995,67 @@ pub(crate) fn binder(o: &mut On<'_>, s: Side, xf: Affine3A, upper: &Fan, lower: 
 
 // --- The Heavy Beam Rifle. ---
 
-/// The Heavy Beam Rifle's two halves either side of its middle (x), how high over the grip, and
-/// how far ahead of it the muzzles are.
+/// The Heavy Beam Rifle's two halves either side of its middle (x), and how high their barrels ride
+/// over the grip.
 const BARRELS: (f32, f32) = (0.42, 0.62);
-const MUZZLE: f32 = 10.3;
+/// How high the energy packs ride over the barrels: over the forearm behind the fist at the ready
+/// ([`crate::hold`]), and ahead of it carried.
+const PACK_UP: f32 = 0.94;
+/// How far behind the grip the packs reach, and how far ahead of it the muzzles are: no further
+/// than the rifle can hang muzzle down from the fist and still clear the toes.
+const REAR: f32 = -1.2;
+const MUZZLE: f32 = 8.1;
 
-/// One half of the Heavy Beam Rifle, at `xf` (its barrel along +z from the receiver at the origin,
-/// up +y), `out` (±1) the side away from its twin: the blue energy pack behind, the receiver with a
-/// white panel down its outside, the vented shroud, the barrel and the flared muzzle.
+/// One half of the Heavy Beam Rifle, at `xf` (its barrel along +z from over the grip at the origin,
+/// up +y), `out` (±1) the side away from its twin: the receiver from just ahead of the grip, a white
+/// panel down its outside; the blue energy pack riding on its rear, over the fist; the vented
+/// shroud, the barrel and the flared muzzle.
 fn rifle_half(o: &mut On<'_>, out: f32, xf: Affine3A) {
     let along_z = |z: f32| xf * place(v(0.0, 0.0, z), rx(FRAC_PI_2));
-    o.block(v(0.62, 0.82, 2.3), v2(0.88, 0.9), Vec2::ZERO, 0.12, TRIM, xf * at(0.0, 0.0, -1.75));
-    o.cube(v(0.5, 0.6, 0.16), 0.03, GUN, xf * at(0.0, 0.0, -2.95));
-    o.cube(v(0.68, 0.88, 0.2), 0.03, YELLOW, xf * at(0.0, 0.0, -0.9));
-    o.block(v(0.6, 0.74, 3.3), v2(0.92, 0.9), Vec2::ZERO, 0.1, GUN, xf * at(0.0, 0.0, 1.05));
-    o.cube(v(0.08, 0.46, 2.2), 0.02, BODY, xf * at(out * 0.32, 0.04, 1.0));
-    o.cylinder(0.3, 2.9, 14, GUN, along_z(4.15));
-    for z in [2.85, 5.45] {
+    o.block(v(0.6, 0.74, 3.0), v2(0.92, 0.9), Vec2::ZERO, 0.1, GUN, xf * at(0.0, 0.0, 1.7));
+    o.cube(v(0.08, 0.46, 2.2), 0.02, BODY, xf * at(out * 0.32, 0.04, 1.7));
+    let pack = xf * at(0.0, PACK_UP, REAR + 1.15);
+    o.block(v(0.62, 0.82, 2.3), v2(0.88, 0.9), Vec2::ZERO, 0.12, TRIM, pack);
+    o.cube(v(0.5, 0.6, 0.14), 0.03, GUN, pack * at(0.0, 0.0, -1.19));
+    o.cube(v(0.68, 0.88, 0.2), 0.03, YELLOW, pack * at(0.0, 0.0, 0.55));
+    o.cube(v(0.4, 0.34, 1.0), 0.03, GUN, xf * at(0.0, 0.52, 0.6));
+    o.cylinder(0.3, 2.2, 14, GUN, along_z(4.25));
+    for z in [3.3, 5.2] {
         o.lathe(&band(0.26, 0.35, -0.08, 0.08), 14, YELLOW, along_z(z));
     }
-    o.cylinder(0.2, 3.6, 12, GUN, along_z(7.4));
-    o.lathe(
-        &[(0.0, 0.0), (0.22, 0.0), (0.3, 0.5), (0.38, 0.9), (0.38, 1.05), (0.0, 1.05)],
-        14,
-        GUN,
-        along_z(9.2),
-    );
-    o.cylinder(0.2, 0.04, 12, FRAME, along_z(MUZZLE - 0.04));
+    o.cylinder(0.2, 2.0, 12, GUN, along_z(6.3));
+    let bell = [(0.0, 0.0), (0.22, 0.0), (0.3, 0.42), (0.38, 0.74), (0.38, 0.86), (0.0, 0.86)];
+    o.lathe(&bell, 14, GUN, along_z(MUZZLE - 0.86));
+    o.cylinder(0.2, 0.04, 12, FRAME, along_z(MUZZLE - 0.02));
     o.greeble(|o| {
-        for k in 0..5 {
-            o.cube(v(0.34, 0.06, 0.16), 0.0, FRAME, xf * at(0.0, 0.3, 3.1 + k as f32 * 0.5));
+        for k in 0..4 {
+            o.cube(v(0.34, 0.06, 0.16), 0.0, FRAME, xf * at(0.0, 0.3, 3.55 + k as f32 * 0.45));
         }
-        o.cylinder(0.12, 0.06, 10, FRAME, along_z(MUZZLE - 0.01));
+        o.cylinder(0.12, 0.06, 10, FRAME, along_z(MUZZLE));
     });
 }
 
 /// The Heavy Beam Rifle at `xf` (the grip at the origin, barrels along +z): its two halves joined
-/// along their middle, the grip under them, the scope over them and the clamps round the barrels.
-/// Returns where its beam leaves, between the muzzles, in the suit's frame.
+/// along their middle, the packs joined over them, the grip and its guard under them, the scope
+/// over the packs and the clamps round the barrels. Returns where its beam leaves, between the
+/// muzzles, in the suit's frame.
 pub(crate) fn twin_rifle(o: &mut On<'_>, xf: Affine3A) -> Vec3 {
     o.seed(0.61);
     let (bx, by) = BARRELS;
     for side in [-1.0f32, 1.0] {
         rifle_half(o, side, xf * at(side * bx, by, 0.0));
     }
-    o.cube(v(0.34, 1.0, 0.46), 0.05, GUN, xf * place(v(0.0, -0.15, 0.0), rx(-0.25)));
-    o.cube(v(0.3, 0.12, 0.7), 0.02, GUN, xf * at(0.0, -0.1, 0.55));
-    o.block(v(0.3, 0.56, 2.4), v2(1.0, 1.0), Vec2::ZERO, 0.04, TRIM, xf * at(0.0, by, 0.9));
-    // The scope on its mount, its lens forward.
-    o.cube(v(0.22, 0.3, 0.5), 0.03, GUN, xf * at(0.0, by + 0.45, 0.9));
-    o.block(v(0.32, 0.34, 1.2), v2(0.9, 0.9), Vec2::ZERO, 0.04, GUN, xf * at(0.0, by + 0.7, 0.9));
-    o.cylinder(0.12, 0.06, 12, LENS, xf * place(v(0.0, by + 0.7, 1.52), rx(FRAC_PI_2)));
-    o.cube(v(1.36, 0.5, 0.36), 0.06, GUN, xf * at(0.0, by, 5.7));
-    o.cube(v(1.1, 0.16, 0.3), 0.03, GUN, xf * at(0.0, by, 8.9));
+    o.cube(v(0.34, 0.86, 0.46), 0.05, GUN, xf * place(v(0.0, -0.2, 0.32), rx(-0.08)));
+    o.cube(v(0.3, 0.12, 0.6), 0.02, GUN, xf * at(0.0, -0.1, 0.62));
+    o.block(v(0.3, 0.56, 2.9), v2(1.0, 1.0), Vec2::ZERO, 0.04, TRIM, xf * at(0.0, by, 1.7));
+    o.block(v(0.3, 0.5, 2.0), v2(1.0, 1.0), Vec2::ZERO, 0.04, TRIM, xf * at(0.0, by + PACK_UP, 0.0));
+    // The scope on its mount over the packs, its lens forward.
+    let top = by + PACK_UP;
+    o.cube(v(0.22, 0.3, 0.5), 0.03, GUN, xf * at(0.0, top + 0.4, 0.5));
+    o.block(v(0.32, 0.34, 1.2), v2(0.9, 0.9), Vec2::ZERO, 0.04, GUN, xf * at(0.0, top + 0.65, 0.6));
+    o.cylinder(0.12, 0.06, 12, LENS, xf * place(v(0.0, top + 0.65, 1.22), rx(FRAC_PI_2)));
+    o.cube(v(1.36, 0.5, 0.36), 0.06, GUN, xf * at(0.0, by, 4.25));
+    o.cube(v(1.1, 0.16, 0.3), 0.03, GUN, xf * at(0.0, by, 6.8));
     xf.transform_point3(v(0.0, by, MUZZLE + 0.05))
 }
 
@@ -1067,7 +1078,7 @@ const SHIELD: [Vec2; 10] = [
 /// Where the shield hangs on the left forearm: its face outward (-x), its long axis down the
 /// forearm and forward.
 fn shield_place() -> Affine3A {
-    place(j(Bone::Shield), Quat::from_rotation_arc(Vec3::Z, Vec3::NEG_X) * rz(0.35))
+    place(j(Bone::Shield) + v(-0.15, -0.6, 0.0), Quat::from_rotation_arc(Vec3::Z, Vec3::NEG_X) * rz(0.35))
 }
 
 /// The shield at `xf` (its face looking along +z, its point down -y): a white plate, the red face
