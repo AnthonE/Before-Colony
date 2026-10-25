@@ -16,12 +16,16 @@
 //!   order, posting, patrols, the charter, an ace's terms, the test range) is done in its room
 //!   (`desk::place_at`), and what the Charter Board pays out (the certificate's rifle, patrols'
 //!   rewards, aces' bounties) is collected in its hall. With the colony shut, the bay does it all.
+//! - **The pilot's body** (survival): kept on their record (a guest's lasts the visit), it runs on
+//!   the wall clock while they're in the world, and The Arrival's counter feeds them
+//!   (`bc_econ::body`).
 //!
 //! Whatever happens, the slot is handed back in the order that keeps it race-free: stop sending,
 //! settle the roster, let the sector put the suit to sleep (or release it), then return the lease.
 
 use std::time::{Duration, Instant};
 
+use bc_econ::body::{self, Body, BodyView};
 use bc_econ::proving::{self as board, Bests, Feat};
 use bc_econ::wire::{self, HangarView, MarketView, Outcome as SortieOutcome, Place, Request, Update};
 use bc_econ::{Bay, Hangar, Item};
@@ -34,6 +38,7 @@ use bc_proto::{
     Faction, FrameId, InputPacket, MAX_DATAGRAM, PROTOCOL_VERSION, PacketKind, PilotKind, packet_kind,
 };
 use bc_sector::{Comeback, Control, InputMsg, Loss, Metrics, Outcome, Report, SlotLease, SlotState};
+use bc_sim::content::body::Fed;
 use bc_sim::content::city::PlaceKind;
 use bc_sim::sim::Loadout;
 use tokio::sync::{broadcast, oneshot};
@@ -75,6 +80,9 @@ const HEARTBEAT_TICKS: u32 = 5;
 /// On foot in the city, where the pilot watches the colony's inside from moves this often (session
 /// ticks: 2 Hz).
 const WATCH_TICKS: u32 = 5;
+/// On foot, the body is resent this often even while its condition holds, so the menu's food left
+/// stays true.
+const BODY_EVERY: Duration = Duration::from_secs(60);
 
 /// Takes a slot, plays, and gives the slot back.
 #[allow(clippy::too_many_arguments)]
@@ -118,6 +126,8 @@ pub(super) async fn run(
         max_datagram: conn.max_datagram_size().unwrap_or(MAX_DATAGRAM).min(MAX_DATAGRAM) as u16,
         suit: None,
         hangar: Hangar::default(),
+        body: Body::default(),
+        body_sent: (None, Instant::now()),
         trader,
         place: Place::Hangar,
         strip: 0,
@@ -177,6 +187,10 @@ struct Session<'a> {
     suit: Option<(u16, u16)>,
     /// Survival: the pilot's hangar, their name on the exchange, and where they are.
     hangar: Hangar,
+    /// Survival: the pilot's body, awake while they're in the world; the condition last sent, and
+    /// when.
+    body: Body,
+    body_sent: (Option<Fed>, Instant),
     trader: String,
     place: Place,
     /// In the city: the land strip the pilot came down to, and the people whose names they've
@@ -276,6 +290,10 @@ impl Session<'_> {
         // A pilot with no hangar yet has only just arrived.
         let mut arrived = false;
         if self.survival() {
+            // Awake from now: before anything seats them, so a sleeper woken in their suit flies
+            // with their own condition.
+            self.body = self.record.as_ref().map_or_else(Body::default, |r| r.body.clone());
+            self.body.wake(pilots::unix_now());
             self.hangar = self.record.as_mut().and_then(|r| r.hangar.take()).unwrap_or_else(|| {
                 arrived = true;
                 Hangar::starter()
@@ -407,6 +425,7 @@ impl Session<'_> {
                 self.send(&Update::News { text: ARRIVAL.to_string() }).await?;
             }
             self.send_hangar().await?;
+            self.send_body().await?;
             self.send_market().await?;
             // What the Board still holds for them at its desk, from a visit before.
             if self.game.colony && self.game.charter.with(|b| b.waiting(&self.trader)) {
@@ -828,6 +847,11 @@ impl Session<'_> {
         self.send(&Update::Hangar(view)).await
     }
 
+    async fn send_body(&mut self) -> anyhow::Result<()> {
+        self.body_sent = (Some(self.body.condition()), Instant::now());
+        self.send(&Update::Body(BodyView::of(&self.body))).await
+    }
+
     async fn send_market(&mut self) -> anyhow::Result<()> {
         self.market_seen = self.game.market.version();
         self.market_sent = Instant::now();
@@ -971,6 +995,7 @@ impl Session<'_> {
         if let Some(r) = self.record.as_mut() {
             if self.game.survival {
                 r.hangar = Some(self.hangar.clone());
+                r.body = self.body.kept(pilots::unix_now());
             }
             let r = r.clone();
             self.game.pilots.save(r).await;
@@ -1086,6 +1111,20 @@ impl Session<'_> {
                 self.send_hangar().await?;
                 self.send_board().await?;
                 self.send_notices().await?;
+                self.save().await;
+                Ok(())
+            }
+            Request::Eat { dish } => {
+                // (With the colony shut, the bay's terminal serves meals: never the cockpit.)
+                if self.place == Place::Space {
+                    return self.note("you can't eat in the cockpit", false).await;
+                }
+                match body::eat_at_counter(&mut self.body, &mut self.hangar, dish, pilots::unix_now()) {
+                    Ok(text) => self.note(text, true).await?,
+                    Err(why) => self.note(why, false).await?,
+                }
+                self.send_hangar().await?;
+                self.send_body().await?;
                 self.save().await;
                 Ok(())
             }
@@ -1721,6 +1760,14 @@ impl Session<'_> {
                 self.game.charter.save().await;
                 self.send_board().await?;
             }
+            // The body's clock: the page hears when the condition changes, and on foot each minute.
+            self.body.settle(pilots::unix_now());
+            let on_foot = matches!(self.place, Place::Hangar | Place::City);
+            if self.body_sent.0 != Some(self.body.condition())
+                || (on_foot && self.body_sent.1.elapsed() >= BODY_EVERY)
+            {
+                self.send_body().await?;
+            }
         }
         if matches!(self.place, Place::Hangar | Place::City)
             && self.game.market.version() != self.market_seen
@@ -2038,9 +2085,14 @@ impl Session<'_> {
                 all.remove(&slot);
             }
         }
+        // Asleep in their bunk from now (or in their bed, or the cockpit).
+        if self.survival() {
+            self.body.sleep(pilots::unix_now());
+        }
         if let Some(r) = self.record.as_mut() {
             if game.survival {
                 r.hangar = Some(self.hangar.clone());
+                r.body = self.body.clone();
             } else {
                 r.credits = credits;
             }

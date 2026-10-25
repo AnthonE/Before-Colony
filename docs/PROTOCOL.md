@@ -598,6 +598,7 @@ Client → server (`Request`):
 | `contribute` | `work` (`second_foundry`, `militia_hangar`), `item`, `qty` | deliver to one of the colony's great works |
 | `sign` | | sign the charter (the vote open, and the pilot of standing; desk: the Charter Board's) |
 | `ace_terms` | `salvage` | the Most Wanted: take an ace's bounty as the rights to its wreck (`true`: the tugs bring it home; only with standing, unless already on those terms) or as pay (`false`, the default) (desk: The Arrival) |
+| `eat` | `dish` (`ration_bar`, `orchard_plate`, `breakfast`, `noodles`, `fish_supper`) | a dish from the colony's staff, paid for from the bay's credits (`bc_econ::food::Dish::price`; the money leaves the economy) and answered with a `note` (`NOODLE BOWL · 25 CR · FED`) and a `body`. Refused short of the price (`a noodle bowl is 25 cr`), in flight (`you can't eat in the cockpit`), or when more than half of it wouldn't fit (`you couldn't eat another bite`) (desk: The Arrival) |
 | `use_kit` | `kit` (`patch_kit`, `coolant`, `chaff`, `stim`) | in flight: use one from the suit's rack (the hotbar; nothing answers, the own state shows it) |
 | `eject` | `destruct` (default false) | in flight, under any rules: eject from the suit, or (`destruct`, doomed) blow it up aboard. Nothing answers but the loss (`sortie`, and under survival the tugs' `news` on the wreck 45 s on) |
 | `say` | `text` | a line on the colony's radio, to everyone connected, under any rules: control characters stripped, whitespace made single spaces, cut to 160 characters; at most 5 lines in 10 s (more get a refusing `note`). Never logged; `/status` counts them (`radio_lines`) |
@@ -605,14 +606,14 @@ Client → server (`Request`):
 **Desks** (`Request::desk`, the colony open: the Welcome's COLONY flag). A request marked with a
 desk above is that place's alone, and the server takes it only from a pilot on foot in the city
 standing in that place's room (the plaza's last pose; the whole room counts). Anywhere else
-(the bay, another desk, the street) `post`, `take_patrol`, `sign`, `ace_terms` and `trainer` are
+(the bay, another desk, the street) `post`, `take_patrol`, `sign`, `ace_terms`, `eat` and `trainer` are
 refused with a `note` saying where to go (the page shows it as `CAN'T: ` and the text in capitals):
 
 | Desk | Refusal |
 |---|---|
 | the Exchange floor | `a price that waits on the book is placed at the exchange floor's counter, on charter square` (never sent: see below) |
 | the Charter Board's | `that's done in person at the charter board's desk, in its hall on charter square` |
-| The Arrival | `your terms for an ace's bounty are settled at the arrival's counter, off charter square` |
+| The Arrival | `meals and terms for an ace's bounty are at the arrival's counter, off charter square` |
 | the Proving Ground | `the test range is picked at the proving ground's desk, in the blast hall` |
 
 An `order` with `rest: true` away from the floor isn't refused: it's taken as `rest: false` (it
@@ -661,7 +662,10 @@ on the colony's radio, the speaker's own included,
 from the moment the pilot was welcomed, in the order the server heard them); `proving` (the
 Proving Ground's board, in the colony: `course` and `drill`, the day's best as [{`name`, `ms`,
 `you`}] fastest first, `course_record` and `drill_record` the best ever, `course_par_ms` and
-`drill_par_ms`, and `mine` {`course_ms`, `drill_ms`}, the pilot's own bests; no keys of anyone's). A suit (in the bay, or out) carries
+`drill_par_ms`, and `mine` {`course_ms`, `drill_ms`}, the pilot's own bests; no keys of anyone's); `body`
+{`fed` (`well_fed`, `fed`, `peckish`, `hungry` or `starving`), `food_s`, `well_fed_s`} (the pilot's
+body, `docs/LIFE.md`: how fed they are, and the seconds awake the food in them, and its glow, last;
+sent on entering, after a meal, when the condition changes, and each minute on foot). A suit (in the bay, or out) carries
 `faults`, a map from system slug to `damaged` or `failed` (absent when everything works), and
 `modules`, its five equipment mounts' slugs (or `null`), and `grade`, its propellant's (absent:
 `standard`); a part on the shelf carries its own `faults`.

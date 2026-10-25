@@ -10,8 +10,8 @@
 use bc_sim::content::body::Fed;
 use serde::{Deserialize, Serialize};
 
-use crate::food::{HOUR, Meal};
-use crate::hangar::Done;
+use crate::food::{Dish, HOUR, Meal};
+use crate::hangar::{Done, Hangar};
 
 /// The most food a pilot holds, s awake.
 pub const FULL_S: u32 = 8 * HOUR;
@@ -111,6 +111,62 @@ impl Body {
         self.empty_s = 0;
         self.well_fed_s = self.well_fed_s.max(meal.glow_s()).min(self.food_s);
         Ok(format!("{} · {}", meal.dish.name().to_uppercase(), self.condition().tag()))
+    }
+
+    /// A copy put to sleep at `now`: what the record keeps while the pilot is in the world, so a
+    /// server that stops with them in it burns their downtime at the sleeping rate.
+    pub fn kept(&self, now: u64) -> Body {
+        let mut b = self.clone();
+        b.sleep(now);
+        b
+    }
+}
+
+/// The staff's counter at The Arrival: `dish`, paid for from `hangar`'s credits, at `now`. Refused
+/// when short of the price, or when the pilot couldn't eat another bite; paid only when eaten. The
+/// price leaves the economy (the staff's seat's wage is nothing).
+pub fn eat_at_counter(body: &mut Body, hangar: &mut Hangar, dish: Dish, now: u64) -> Done {
+    let price = dish.price();
+    if hangar.credits < price {
+        return Err(format!("a {} is {price} cr", dish.name().to_lowercase()));
+    }
+    body.eat(Meal::staff(dish), now)?;
+    hangar.credits -= price;
+    Ok(format!("{} · {price} CR · {}", dish.name().to_uppercase(), body.condition().tag()))
+}
+
+/// What the pilot's page shows of their body: how fed they are, and for how long (`Update::Body`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BodyView {
+    #[serde(with = "fed_serde")]
+    pub fed: Fed,
+    /// Food in them, s awake it lasts.
+    pub food_s: u32,
+    /// Of that, how long they're well fed for, s awake.
+    pub well_fed_s: u32,
+}
+
+impl BodyView {
+    pub fn of(b: &Body) -> Self {
+        Self { fed: b.condition(), food_s: b.food_s, well_fed_s: b.well_fed_s }
+    }
+}
+
+/// A [`Fed`] by its slug, as the page knows it.
+mod fed_serde {
+    use bc_sim::content::body::Fed;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(f: &Fed, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(f.slug())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Fed, D::Error> {
+        let slug = String::deserialize(d)?;
+        Fed::ALL
+            .into_iter()
+            .find(|f| f.slug() == slug)
+            .ok_or_else(|| serde::de::Error::custom(format!("no such condition: {slug}")))
     }
 }
 
@@ -234,6 +290,75 @@ mod tests {
         b.settle(T0 + 4 * u64::from(HOUR));
         assert_eq!(b.condition(), Fed::WellFed);
         assert!(b.well_fed_s <= b.food_s);
+    }
+
+    fn rich(credits: u64) -> Hangar {
+        Hangar { credits, ..Hangar::default() }
+    }
+
+    #[test]
+    fn the_counter_takes_the_price_and_feeds_the_pilot() {
+        let mut b = Body { food_s: 0, ..awake() };
+        let mut h = rich(100);
+        let note = eat_at_counter(&mut b, &mut h, Dish::Noodles, T0).unwrap();
+        assert_eq!(note, "NOODLE BOWL · 25 CR · FED");
+        assert_eq!((h.credits, b.food_s, b.condition()), (75, Dish::Noodles.food_s(), Fed::Fed));
+    }
+
+    #[test]
+    fn short_of_the_price_nothing_changes() {
+        let mut b = Body { food_s: 0, ..awake() };
+        let mut h = rich(39);
+        let (body, credits) = (b.clone(), h.credits);
+        let why = eat_at_counter(&mut b, &mut h, Dish::FishSupper, T0).unwrap_err();
+        assert_eq!(why, "a canal fish supper is 40 cr");
+        assert_eq!((b, h.credits), (body, credits));
+    }
+
+    #[test]
+    fn a_full_pilot_is_refused_and_not_charged() {
+        let mut b = awake();
+        let mut h = rich(100);
+        eat_at_counter(&mut b, &mut h, Dish::Noodles, T0).unwrap();
+        assert_eq!(b.food_s, FULL_S);
+        let why = eat_at_counter(&mut b, &mut h, Dish::FishSupper, T0).unwrap_err();
+        assert!(why.contains("another bite"), "{why}");
+        assert_eq!(h.credits, 75);
+    }
+
+    #[test]
+    fn the_counter_charges_the_price_only_when_eaten() {
+        for dish in Dish::ALL {
+            for food_s in [0, HOUR, 4 * HOUR, 6 * HOUR, FULL_S] {
+                let mut b = Body { food_s, ..awake() };
+                let mut h = rich(1_000);
+                let ate = eat_at_counter(&mut b, &mut h, dish, T0).is_ok();
+                assert_eq!(1_000 - h.credits, if ate { dish.price() } else { 0 }, "{dish:?} at {food_s}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_kept_body_is_asleep_and_the_pilot_still_awake() {
+        let b = awake();
+        let kept = b.kept(T0 + 60);
+        assert!(b.awake && !kept.awake);
+        assert_eq!(kept.food_s, ARRIVAL_FOOD_S - 60);
+        assert_eq!(b.at, T0, "the body itself is untouched");
+    }
+
+    #[test]
+    fn the_view_goes_by_the_conditions_slug() {
+        let b = Body { food_s: 2_400, ..awake() };
+        let v = BodyView::of(&b);
+        let json = serde_json::to_string(&v).unwrap();
+        assert_eq!(json, r#"{"fed":"peckish","food_s":2400,"well_fed_s":0}"#);
+        assert_eq!(serde_json::from_str::<BodyView>(&json).unwrap(), v);
+        for f in Fed::ALL {
+            let v = BodyView { fed: f, ..v };
+            assert_eq!(serde_json::from_str::<BodyView>(&serde_json::to_string(&v).unwrap()).unwrap(), v);
+        }
+        assert!(serde_json::from_str::<BodyView>(r#"{"fed":"stuffed","food_s":0,"well_fed_s":0}"#).is_err());
     }
 
     #[test]

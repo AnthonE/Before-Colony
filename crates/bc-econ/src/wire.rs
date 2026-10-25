@@ -104,6 +104,11 @@ pub enum Request {
     AceTerms {
         salvage: bool,
     },
+    /// At The Arrival's counter: a dish from the colony's staff (`food::Dish`, by its slug), paid
+    /// for from the bay's credits (`body::eat_at_counter`). Never in the cockpit.
+    Eat {
+        dish: crate::food::Dish,
+    },
     /// The Charter Board: post a supply contract (its reward goes into escrow), take one down,
     /// deliver to one from the stores, take or give up a patrol.
     Post {
@@ -258,14 +263,14 @@ impl Request {
     /// The desk in the colony's city that alone does what this asks, while the colony is open
     /// (`docs/COLONY.md`, 2.6 "Key places"): an order at the pilot's own price that waits on the book is
     /// placed on the Exchange floor; contracts are posted, patrols taken and the charter signed at
-    /// the Charter Board's desk; terms for an ace's bounty are settled at The Arrival; the test
+    /// the Charter Board's desk; terms for an ace's bounty are settled, and meals eaten, at The Arrival; the test
     /// range is picked at the Proving Ground's desk. `None`: any terminal does it (the bay's
     /// included). Every request is listed, so a new one has to choose.
     pub fn desk(&self) -> Option<PlaceKind> {
         match self {
             Request::Order { rest: true, .. } => Some(PlaceKind::Exchange),
             Request::Post { .. } | Request::TakePatrol { .. } | Request::Sign => Some(PlaceKind::Charter),
-            Request::AceTerms { .. } => Some(PlaceKind::Bar),
+            Request::AceTerms { .. } | Request::Eat { .. } => Some(PlaceKind::Bar),
             Request::Trainer { .. } => Some(PlaceKind::Proving),
             Request::Order { rest: false, .. }
             | Request::Craft { .. }
@@ -352,7 +357,7 @@ pub fn desk_refusal(k: PlaceKind) -> &'static str {
             "that's done in person at the charter board's desk, in its hall on charter square"
         }
         PlaceKind::Bar => {
-            "your terms for an ace's bounty are settled at the arrival's counter, off charter square"
+            "meals and terms for an ace's bounty are at the arrival's counter, off charter square"
         }
         PlaceKind::Proving => "the test range is picked at the proving ground's desk, in the blast hall",
         // `Request::desk` never names it.
@@ -478,6 +483,9 @@ pub enum Update {
     /// The held homes of the buildings near the pilot in the city (whenever the register or the
     /// buildings change): the rest are free, at the prices the city's own numbers give.
     Homes(HomesView),
+    /// The pilot's body (survival): how fed they are, and for how long. On entering, after a meal,
+    /// when the condition changes, and each minute on foot.
+    Body(crate::body::BodyView),
 }
 
 /// The held homes near a pilot, as they see them.
@@ -678,6 +686,8 @@ pub fn apply(
         | Request::Contribute { .. }
         | Request::AceTerms { .. }
         | Request::Sign => return None,
+        // The session's: the body is on the pilot's record (`body::eat_at_counter`).
+        Request::Eat { .. } => return None,
         Request::Craft { item, batches } => hangar.craft(*item, *batches, now, rules),
         Request::CancelJob { station, index } => hangar.cancel_job(*station, *index, now),
         Request::Fit { item } => hangar.fit(*item),
@@ -926,6 +936,7 @@ mod tests {
                 Request::Trainer { build: crate::proving::Trainer::Bay },
             ),
             (r#"{"t":"ace_terms","salvage":true}"#, Request::AceTerms { salvage: true }),
+            (r#"{"t":"eat","dish":"noodles"}"#, Request::Eat { dish: crate::food::Dish::Noodles }),
             (r#"{"t":"dock"}"#, Request::Dock),
             (r#"{"t":"use_kit","kit":"chaff"}"#, Request::UseKit { kit: Kit::Chaff }),
             (r#"{"t":"eject"}"#, Request::Eject { destruct: false }),
@@ -955,6 +966,7 @@ mod tests {
             (Request::Sign, Some(Charter)),
             (Request::AceTerms { salvage: true }, Some(Bar)),
             (Request::AceTerms { salvage: false }, Some(Bar)),
+            (Request::Eat { dish: crate::food::Dish::Noodles }, Some(Bar)),
             (Request::Trainer { build: crate::proving::Trainer::Board }, Some(Proving)),
             (Request::Craft { item: steel, batches: 1 }, None),
             (Request::CancelJob { station: Station::Foundry, index: 0 }, None),
@@ -989,7 +1001,7 @@ mod tests {
             .iter()
             .map(|(r, _)| serde_json::to_value(r).unwrap()["t"].as_str().unwrap().to_string())
             .collect();
-        assert_eq!(tags.len(), 31, "every request: {tags:?}");
+        assert_eq!(tags.len(), 32, "every request: {tags:?}");
         // Each refusal says where to go, as the server's notes and the e2e read them.
         for (k, place) in [
             (Floor, "the exchange floor's counter"),
@@ -1000,6 +1012,7 @@ mod tests {
         ] {
             assert!(desk_refusal(k).contains(place), "{k:?}: {}", desk_refusal(k));
         }
+        assert!(desk_refusal(Bar).contains("meals"), "The Arrival's counter serves them too");
         assert_eq!(FLOOR_ONLY, FLOOR_ONLY.to_uppercase());
     }
 
@@ -1019,6 +1032,18 @@ mod tests {
         b.record(crate::proving::Feat::Course, "me", "Kai", 118_000, 1_000_000);
         let board = Update::Proving(b.view("me", 1_000_000));
         assert_eq!(decode::<Update>(&encode(&board)), Some(board));
+    }
+
+    #[test]
+    fn the_body_goes_round() {
+        let body = Update::Body(crate::body::BodyView {
+            fed: bc_sim::content::body::Fed::Peckish,
+            food_s: 2_400,
+            well_fed_s: 0,
+        });
+        let json = String::from_utf8(encode(&body)).unwrap();
+        assert_eq!(json, r#"{"t":"body","fed":"peckish","food_s":2400,"well_fed_s":0}"#);
+        assert_eq!(decode::<Update>(json.as_bytes()), Some(body));
     }
 
     #[test]
