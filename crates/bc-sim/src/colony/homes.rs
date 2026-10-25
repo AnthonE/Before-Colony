@@ -27,6 +27,9 @@ use crate::colony::city::{
     lots_near, row_at, storeys_under,
 };
 use crate::content::city::DistrictKind;
+use crate::content::homes::{Furniture, MAX_PIECES, piece_box};
+use alloc::boxed::Box;
+use glam::Vec3;
 
 /// Outer walls, m thick.
 pub const SHELL: f32 = 0.3;
@@ -970,6 +973,255 @@ pub fn each_fine(
     Some(pieces[1..n].iter().any(|q| q.b.rect.overlaps(area) && f(&q.b)))
 }
 
+/// A shut door's leaf, in its doorway: what a walker meets there. A flat's is in the corridor's
+/// wall, a house's in the street front.
+pub fn leaf(h: &Home) -> CityBox {
+    let floor = if h.kind == Kind::Houses { KERB } else { h.floor };
+    CityBox { rect: h.door, h0: floor, h1: floor + DOOR_HEIGHT }
+}
+
+/// The widest a held home's boxes reach along `x`, m: the widest home there is (20 m, door and
+/// all), and room to spare (`overlay_tests::no_home_is_wider_than_the_overlays_span` holds it). [`Overlay::hits`] searches from
+/// this far behind what it's asked.
+pub const MAX_SPAN: f32 = 32.0;
+
+/// A held home as a walker meets it: its door, shut or not, and its solid furniture's boxes (a rug
+/// is walked over: it isn't here). `Copy`, so it can ride a preallocated queue.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct OverlayHome {
+    pub id: HomeId,
+    /// Its door is shut: a wall to everyone, its crew too (they open it first).
+    pub shut: bool,
+    /// How many of `pieces` it has.
+    pub n: u8,
+    pub pieces: [CityBox; MAX_PIECES],
+}
+
+impl OverlayHome {
+    /// Home `id`, its door shut or not, with nothing in it.
+    pub fn new(id: HomeId, shut: bool) -> Self {
+        Self { id, shut, n: 0, pieces: [CityBox::default(); MAX_PIECES] }
+    }
+
+    /// Home `home` as its register has it: its door open or not, and its pieces (`(kind, at, turn,
+    /// storey)`, as `content::homes::piece_box` places them), of which only the solid stay. The
+    /// server builds it from the register and the client from what it was told, alike.
+    pub fn of(
+        home: &Home,
+        open: bool,
+        pieces: impl IntoIterator<Item = (Furniture, (f32, f32), u8, u32)>,
+    ) -> Self {
+        let mut out = Self::new(home.id, !open);
+        for (kind, at, turn, storey) in pieces {
+            if kind.spec().solid {
+                out.add(piece_box(home, kind, at, turn, storey));
+            }
+        }
+        out
+    }
+
+    /// Adds a solid box: false if it's full.
+    pub fn add(&mut self, b: CityBox) -> bool {
+        let Some(slot) = self.pieces.get_mut(self.n as usize) else { return false };
+        *slot = b;
+        self.n += 1;
+        true
+    }
+
+    /// Its solid pieces' boxes.
+    pub fn solids(&self) -> &[CityBox] {
+        &self.pieces[..self.n as usize]
+    }
+}
+
+/// Where a held home is in the overlay: its strip, how far along `x` its boxes reach (`x0` is `+∞`
+/// for a home with nothing solid), and its slot.
+#[derive(Clone, Copy, Debug, Default)]
+struct Entry {
+    strip: u8,
+    x0: f32,
+    x1: f32,
+    slot: u16,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Slot {
+    home: OverlayHome,
+    /// Its door's leaf, if it's shut and there's such a home.
+    leaf: Option<CityBox>,
+}
+
+/// The held homes' shut doors and solid furniture, as everyone's walker meets them: one fixed-size
+/// table, sized once, that the server builds from the register and each client from what it was
+/// told of the homes near it (`OverlayHome::of`, alike). Every box in it is public: a door shut is
+/// shut for everyone, and a piece put down is in everyone's way.
+///
+/// Its index is kept sorted along `x` as homes are set (never in a query), so [`Overlay::hits`]
+/// looks only at the homes that could reach what it's asked.
+#[derive(Clone)]
+pub struct Overlay {
+    slots: Box<[Slot]>,
+    index: Box<[Entry]>,
+    n: usize,
+    version: u32,
+    overflowed: u32,
+}
+
+impl core::fmt::Debug for Overlay {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Overlay")
+            .field("homes", &self.n)
+            .field("capacity", &self.slots.len())
+            .field("version", &self.version)
+            .field("overflowed", &self.overflowed)
+            .finish()
+    }
+}
+
+fn meets(b: &CityBox, area: &Rect, h0: f32, h1: f32) -> bool {
+    b.rect.overlaps(area) && b.h0 < h1 && h0 < b.h1
+}
+
+impl Overlay {
+    /// Room for `max_homes` held homes (allocated here, once).
+    pub fn new(max_homes: usize) -> Self {
+        let none = Slot { home: OverlayHome::new(HomeId(0), false), leaf: None };
+        let max_homes = max_homes.min(u16::MAX as usize);
+        Self {
+            slots: crate::storage::boxed(max_homes, none),
+            index: crate::storage::boxed(max_homes, Entry::default()),
+            n: 0,
+            version: 0,
+            overflowed: 0,
+        }
+    }
+
+    /// How many homes it holds.
+    pub fn len(&self) -> usize {
+        self.n
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.n == 0
+    }
+
+    /// How many it could.
+    pub fn capacity(&self) -> usize {
+        self.slots.len()
+    }
+
+    /// Moves whenever what it holds does.
+    pub fn version(&self) -> u32 {
+        self.version
+    }
+
+    /// How many times a home found no room in it (its door is open and its room empty to it).
+    pub fn overflowed(&self) -> u32 {
+        self.overflowed
+    }
+
+    /// Home `id`, as it has it.
+    pub fn get(&self, id: HomeId) -> Option<&OverlayHome> {
+        self.slots[..self.n].iter().map(|s| &s.home).find(|h| h.id == id)
+    }
+
+    /// Puts home `h` in, or in place of what it had of it: false if it's full (counted in
+    /// [`Overlay::overflowed`]), or the home's boxes are wider than [`MAX_SPAN`] (which no home's
+    /// are).
+    pub fn set(&mut self, h: &OverlayHome) -> bool {
+        let leaf = if h.shut { home(h.id).map(|home| leaf(&home)) } else { None };
+        let (mut x0, mut x1) = (f32::INFINITY, f32::NEG_INFINITY);
+        for b in leaf.iter().chain(h.solids()) {
+            x0 = x0.min(b.rect.x0);
+            x1 = x1.max(b.rect.x1);
+        }
+        if x1 - x0 > MAX_SPAN {
+            self.overflowed += 1;
+            return false;
+        }
+        let slot = match self.slots[..self.n].iter().position(|s| s.home.id == h.id) {
+            Some(slot) => {
+                self.unindex(slot);
+                slot
+            }
+            None if self.n == self.slots.len() => {
+                self.overflowed += 1;
+                return false;
+            }
+            None => {
+                self.n += 1;
+                self.n - 1
+            }
+        };
+        self.slots[slot] = Slot { home: *h, leaf };
+        // Into the index where its `x0` goes (the first `n − 1` entries are the others).
+        let at = self.index[..self.n - 1].partition_point(|e| e.x0 <= x0);
+        self.index.copy_within(at..self.n - 1, at + 1);
+        self.index[at] = Entry { strip: h.id.strip(), x0, x1, slot: slot as u16 };
+        self.version = self.version.wrapping_add(1);
+        true
+    }
+
+    /// Takes home `id` out (its door open and its room empty to it, as a free home's are).
+    pub fn remove(&mut self, id: HomeId) {
+        let Some(slot) = self.slots[..self.n].iter().position(|s| s.home.id == id) else { return };
+        self.unindex(slot);
+        let last = self.n - 1;
+        if slot != last {
+            self.slots[slot] = self.slots[last];
+            if let Some(e) = self.index[..last].iter_mut().find(|e| e.slot as usize == last) {
+                e.slot = slot as u16;
+            }
+        }
+        self.n -= 1;
+        self.version = self.version.wrapping_add(1);
+    }
+
+    /// Empties it.
+    pub fn clear(&mut self) {
+        if self.n > 0 {
+            self.n = 0;
+            self.version = self.version.wrapping_add(1);
+        }
+    }
+
+    /// Drops slot `slot`'s entry from the index (its first `n` entries become `n − 1`).
+    fn unindex(&mut self, slot: usize) {
+        if let Some(at) = self.index[..self.n].iter().position(|e| e.slot as usize == slot) {
+            self.index.copy_within(at + 1..self.n, at);
+        }
+    }
+
+    /// The homes on strip `strip` whose boxes could meet `x0..x1` along `x`.
+    fn near(&self, strip: u8, x0: f32, x1: f32) -> impl Iterator<Item = &Slot> {
+        let live = &self.index[..self.n];
+        let from = live.partition_point(|e| e.x0 < x0 - MAX_SPAN);
+        live[from..]
+            .iter()
+            .take_while(move |e| e.x0 <= x1)
+            .filter(move |e| e.strip == strip && e.x1 >= x0)
+            .map(|e| &self.slots[e.slot as usize])
+    }
+
+    /// Whether the box `min..max` (in the walker's frame on strip `strip`, `(x, h, −s)`, as
+    /// `city::solid` takes it) meets a shut door or a solid piece of furniture.
+    pub fn hits(&self, strip: u8, min: Vec3, max: Vec3) -> bool {
+        let area = Rect::new(-max.z, -min.z, min.x, max.x);
+        self.near(strip, min.x, max.x).any(|s| {
+            s.leaf.as_ref().is_some_and(|b| meets(b, &area, min.y, max.y))
+                || s.home.solids().iter().any(|b| meets(b, &area, min.y, max.y))
+        })
+    }
+
+    /// The shut doors' leaves on strip `strip`, along `x`.
+    pub fn leaves(&self, strip: u8) -> impl Iterator<Item = CityBox> + '_ {
+        self.index[..self.n]
+            .iter()
+            .filter(move |e| e.strip == strip)
+            .filter_map(|e| self.slots[e.slot as usize].leaf)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1084,5 +1336,166 @@ mod tests {
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::disallowed_types, clippy::disallowed_methods)]
+mod overlay_tests {
+    use super::*;
+    use crate::colony::city::{CITY, ROWS, lots};
+    use crate::math::Rng;
+    use alloc::vec::Vec;
+
+    /// The first `n` homes on the ground floors of strip `strip`'s blocks, from block `bx0` on.
+    fn homes(strip: u8, bx0: i32, n: usize) -> Vec<Home> {
+        let mut out = Vec::new();
+        for bx in bx0..CITY.1 {
+            for row in -ROWS..=ROWS {
+                let Some(b) = block(strip, bx, row, Stage(0)) else { continue };
+                for bd in lots(&b).as_slice() {
+                    let Some(p) = plan(&b, bd) else { continue };
+                    for unit in 0..p.homes_per_storey() {
+                        out.extend(p.home(0, unit));
+                        if out.len() == n {
+                            return out;
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Whether a small box at the middle of `b` meets anything in `o`, on strip `strip`.
+    fn hits_at(o: &Overlay, strip: u8, b: &CityBox) -> bool {
+        let (s, x) = b.rect.middle();
+        o.hits(strip, Vec3::new(x - 0.05, b.h0 + 0.1, -s - 0.05), Vec3::new(x + 0.05, b.h0 + 0.2, -s + 0.05))
+    }
+
+    #[test]
+    fn no_home_is_wider_than_the_overlays_span() {
+        let mut widest = 0.0f32;
+        for strip in 0..3u8 {
+            for bx in CITY.0..=CITY.1 {
+                for row in -ROWS..=ROWS {
+                    let Some(b) = block(strip, bx, row, Stage(0)) else { continue };
+                    for bd in lots(&b).as_slice() {
+                        let Some(p) = plan(&b, bd) else { continue };
+                        let storeys = if p.kind == Kind::Houses { 1 } else { p.storeys };
+                        for k in 0..storeys {
+                            for unit in 0..p.homes_per_storey() {
+                                let h = p.home(k, unit).unwrap();
+                                let span = h.rect.x1.max(h.door.x1) - h.rect.x0.min(h.door.x0);
+                                widest = widest.max(span);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(widest > 5.0 && widest + 1.0 < MAX_SPAN, "the widest home: {widest} m");
+    }
+
+    #[test]
+    fn a_full_overlay_refuses_the_next_home_and_keeps_the_rest() {
+        let all = homes(0, CITY.0, 5);
+        let mut o = Overlay::new(4);
+        for h in &all[..4] {
+            assert!(o.set(&OverlayHome::new(h.id, true)));
+        }
+        assert!(!o.set(&OverlayHome::new(all[4].id, true)), "full");
+        assert_eq!((o.len(), o.overflowed()), (4, 1));
+        for h in &all[..4] {
+            assert!(hits_at(&o, 0, &leaf(h)), "{:?}'s door is shut", h.id);
+        }
+        assert!(!hits_at(&o, 0, &leaf(&all[4])), "the fifth's isn't there");
+        // Another strip's walker meets none of them.
+        assert!(!hits_at(&o, 1, &leaf(&all[0])));
+        // A home it holds still goes in in place of itself.
+        assert!(o.set(&OverlayHome::new(all[0].id, false)));
+        assert!(!hits_at(&o, 0, &leaf(&all[0])), "opened");
+        assert_eq!((o.len(), o.overflowed()), (4, 1));
+    }
+
+    #[test]
+    fn a_home_set_then_removed_leaves_nothing() {
+        let all = homes(1, CITY.0 + 20, 12);
+        let mut o = Overlay::new(16);
+        let v0 = o.version();
+        let mut pieces = Vec::new();
+        for (k, h) in all.iter().enumerate() {
+            let mut oh = OverlayHome::new(h.id, k % 2 == 0);
+            let (s, x) = h.rect.middle();
+            let piece = CityBox {
+                rect: Rect::new(s - 0.4, s + 0.4, x - 0.4, x + 0.4),
+                h0: h.floor,
+                h1: h.floor + 0.8,
+            };
+            oh.add(piece);
+            pieces.push(piece);
+            assert!(o.set(&oh));
+            assert_eq!(o.get(h.id), Some(&oh));
+            assert!(hits_at(&o, 1, &piece));
+        }
+        assert!(o.version() != v0);
+        for k in [3, 0, 11, 5, 1, 2, 4, 6, 10, 9, 8, 7] {
+            o.remove(all[k].id);
+            assert!(o.get(all[k].id).is_none());
+        }
+        assert!(o.is_empty() && o.leaves(1).next().is_none());
+        for (h, piece) in all.iter().zip(&pieces) {
+            assert!(!hits_at(&o, 1, &leaf(h)) && !hits_at(&o, 1, piece));
+        }
+    }
+
+    #[test]
+    fn the_overlay_answers_as_a_look_at_every_box_would() {
+        let all = homes(0, CITY.0 + 40, 48);
+        let mut rng = Rng::new(0x0E12);
+        let mut o = Overlay::new(64);
+        // Every home's door shut or open, a few pieces each; some put in again, some taken out.
+        let mut held: Vec<OverlayHome> = Vec::new();
+        for (k, h) in all.iter().enumerate() {
+            let mut oh = OverlayHome::new(h.id, rng.next_f32() < 0.6);
+            for _ in 0..(rng.next_u32() % 6) {
+                let (w, d) = (0.3 + rng.next_f32() * 2.0, 0.3 + rng.next_f32() * 2.0);
+                let s = h.rect.s0 + w * 0.5 + rng.next_f32() * (h.rect.width() - w).max(0.0);
+                let x = h.rect.x0 + d * 0.5 + rng.next_f32() * (h.rect.x1 - h.rect.x0 - d).max(0.0);
+                let rect = Rect::new(s - w * 0.5, s + w * 0.5, x - d * 0.5, x + d * 0.5);
+                oh.add(CityBox { rect, h0: h.floor, h1: h.floor + 0.4 + rng.next_f32() });
+            }
+            assert!(o.set(&oh));
+            held.push(oh);
+            if k % 7 == 3 {
+                let gone = held.remove(k / 3 % held.len());
+                o.remove(gone.id);
+            }
+            if k % 5 == 1 {
+                let again = (k * 13) % held.len();
+                held[again].shut = !held[again].shut;
+                assert!(o.set(&held[again]));
+            }
+        }
+        assert_eq!(o.len(), held.len());
+        let lo = all.iter().map(|h| h.rect.x0).fold(f32::INFINITY, f32::min) - 5.0;
+        let hi = all.iter().map(|h| h.rect.x1).fold(f32::NEG_INFINITY, f32::max) + 5.0;
+        let s_lo = all.iter().map(|h| h.rect.s0).fold(f32::INFINITY, f32::min) - 5.0;
+        let s_hi = all.iter().map(|h| h.rect.s1).fold(f32::NEG_INFINITY, f32::max) + 5.0;
+        let mut hit = 0;
+        for _ in 0..10_000 {
+            let (x, s) = (lo + rng.next_f32() * (hi - lo), s_lo + rng.next_f32() * (s_hi - s_lo));
+            let (w, d) = (0.1 + rng.next_f32() * 3.0, 0.1 + rng.next_f32() * 3.0);
+            let h0 = all[0].floor - 1.0 + rng.next_f32() * 4.0;
+            let (min, max) = (Vec3::new(x, h0, -s - w), Vec3::new(x + d, h0 + 1.8, -s));
+            let area = Rect::new(-max.z, -min.z, min.x, max.x);
+            let brute = held.iter().any(|oh| {
+                let door = oh.shut.then(|| leaf(&home(oh.id).unwrap()));
+                door.iter().chain(oh.solids()).any(|b| meets(b, &area, min.y, max.y))
+            });
+            assert_eq!(o.hits(0, min, max), brute, "{min} {max}");
+            hit += usize::from(brute);
+        }
+        assert!(hit > 300, "only {hit} of 10,000 met anything");
     }
 }

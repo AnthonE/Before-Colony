@@ -9,7 +9,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use bc_econ::homes::Homes;
-use bc_sim::colony::homes::HomeId;
+use bc_sim::colony::homes::{HomeId, OverlayHome};
 
 use crate::pilots::write_atomically;
 
@@ -57,6 +57,18 @@ impl HomeRegister {
     /// Whether `who` may go into home `id` (`Homes::may_enter`).
     pub fn may_enter(&self, id: HomeId, who: &str) -> bool {
         self.with(|h| h.may_enter(id, who))
+    }
+
+    /// Home `id` as everyone's walker meets it (`bc_sim::colony::homes::Overlay`): its door shut or
+    /// not and its solid furniture, built as each client builds it from what it's told. None for a
+    /// home nobody holds (its door open, its rooms empty).
+    pub fn overlay_home(&self, id: HomeId) -> Option<OverlayHome> {
+        let home = bc_sim::colony::homes::home(id)?;
+        self.with(|h| {
+            let held = h.get(id)?;
+            let pieces = held.pieces.iter().map(|p| (p.kind, p.at(), p.turn, u32::from(p.storey)));
+            Some(OverlayHome::of(&home, held.open, pieces))
+        })
     }
 
     /// The clock at `now` (Unix seconds): rent charged, leases lapsed, homes left a month sold back.

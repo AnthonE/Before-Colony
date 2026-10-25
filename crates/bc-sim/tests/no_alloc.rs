@@ -427,6 +427,56 @@ fn the_street_walks_without_allocating() {
 }
 
 #[test]
+fn the_overlay_answers_without_allocating() {
+    // The homes' overlay (`colony::homes::Overlay`), sized once: homes put in, shut, opened and
+    // taken out, and walkers' boxes asked of it all along the street, as the tick will.
+    use bc_sim::colony::city::{self, CityBox, Rect, Stage};
+    use bc_sim::colony::homes::{self, Overlay, OverlayHome};
+    let mut all = Vec::new();
+    'find: for bx in city::CITY.0..city::CITY.1 {
+        for row in -city::ROWS..=city::ROWS {
+            let Some(b) = city::block(0, bx, row, Stage(0)) else { continue };
+            for bd in city::lots(&b).as_slice() {
+                let Some(p) = homes::plan(&b, bd) else { continue };
+                all.extend((0..p.homes_per_storey()).filter_map(|u| p.home(0, u)));
+                if all.len() >= 96 {
+                    break 'find;
+                }
+            }
+        }
+    }
+    let mut overlay = Overlay::new(64);
+    let (met, n) = bc_alloc::count(|| {
+        let mut met = 0u32;
+        for round in 0..20usize {
+            for (k, h) in all.iter().enumerate() {
+                let mut oh = OverlayHome::new(h.id, (k + round) % 3 != 0);
+                let (s, x) = h.rect.middle();
+                oh.add(CityBox {
+                    rect: Rect::new(s - 0.5, s + 0.5, x - 0.5, x + 0.5),
+                    h0: h.floor,
+                    h1: h.floor + 1.0,
+                });
+                overlay.set(&oh);
+                if (k + round) % 5 == 0 {
+                    overlay.remove(all[(k * 7 + round) % all.len()].id);
+                }
+            }
+            for h in &all {
+                for b in [homes::leaf(h), CityBox { rect: h.rect, h0: h.floor, h1: h.floor }] {
+                    let (s, x) = b.rect.middle();
+                    let min = glam::Vec3::new(x - 0.3, b.h0 + 0.05, -s - 0.3);
+                    met += u32::from(overlay.hits(0, min, min + glam::Vec3::new(0.6, 1.8, 0.6)));
+                }
+            }
+        }
+        met
+    });
+    assert!(met > 100 && overlay.overflowed() > 0, "{met} met, {} overflowed", overlay.overflowed());
+    assert_eq!(n, 0, "heap operations in the overlay: {n}");
+}
+
+#[test]
 fn the_interior_ticks_without_allocating() {
     // 64 suits flying the colony's inside: low among the towers, landing on roofs and the floor,
     // pressing fire (which the colony's law ignores); every fourth with its grip armed, landing on

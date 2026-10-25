@@ -1,47 +1,31 @@
 //! Homes on foot (`bc_sim::colony::homes`, `docs/OPEN_CITY.md`): which home's door a pilot stands
-//! at, and the doors the register says are shut, as the walls a walker meets in their doorways.
+//! at, and the doors the register says are shut and the furniture in the homes, as the walls a
+//! walker meets (the homes' overlay).
 //! The server is the lock (the plaza refuses a pose crossing into a home it mayn't): this only
 //! draws the same line where the pilot walks.
 
 use bc_econ::wire::{HomeLine, HomesView};
-use bc_sim::colony::city::{CityBox, KERB};
 use bc_sim::colony::frame::CityPos;
-use bc_sim::colony::homes::{self, DOOR_HEIGHT, Home, HomeId, Kind};
-use bc_sim::content::homes::{bought, piece_box, price, rent};
+use bc_sim::colony::homes::{self, Home, HomeId, Kind, Overlay, OverlayHome};
+use bc_sim::content::homes::{bought, price, rent};
 
 /// How near a home's door's spot (inside or out) a pilot stands to use it, m.
 pub const DOOR_REACH: f32 = 1.6;
 
-/// A shut door's leaf, in its doorway: what a walker meets there. A flat's is in the corridor's
-/// wall, a house's in the street front.
-pub fn leaf(h: &Home) -> CityBox {
-    let floor = if h.kind == Kind::Houses { KERB } else { h.floor };
-    CityBox { rect: h.door, h0: floor, h1: floor + DOOR_HEIGHT }
-}
+pub use bc_sim::colony::homes::leaf;
 
-/// The leaves of the shut doors among the held homes `view` has, on strip `strip`.
-pub fn shut_doors(view: &HomesView, strip: u8) -> Vec<CityBox> {
-    view.homes
-        .iter()
-        .filter(|l| !l.open && HomeId(l.id).strip() == strip)
-        .filter_map(|l| homes::home(HomeId(l.id)))
-        .map(|h| leaf(&h))
-        .collect()
-}
+/// How many held homes the client's overlay has room for: more than a view ever holds.
+pub const VIEW_HOMES: usize = 256;
 
-/// The solid pieces of furniture in the held homes `view` has, on strip `strip`: what a walker
-/// meets in them (a rug, nothing: it's walked over).
-pub fn solid_pieces(view: &HomesView, strip: u8) -> impl Iterator<Item = CityBox> + '_ {
-    view.homes
-        .iter()
-        .filter(move |l| HomeId(l.id).strip() == strip)
-        .filter_map(|l| homes::home(HomeId(l.id)).map(|h| (h, l)))
-        .flat_map(|(h, l)| {
-            l.pieces
-                .iter()
-                .filter(|p| p.kind.spec().solid)
-                .map(move |p| piece_box(&h, p.kind, p.at(), p.turn, u32::from(p.storey)))
-        })
+/// The held homes `view` has, as everyone's walker meets them (`bc_sim::colony::homes::Overlay`):
+/// their shut doors and solid furniture, built as the server builds its own from the register.
+pub fn overlay_from(view: &HomesView, overlay: &mut Overlay) {
+    overlay.clear();
+    for l in &view.homes {
+        let Some(h) = homes::home(HomeId(l.id)) else { continue };
+        let pieces = l.pieces.iter().map(|p| (p.kind, p.at(), p.turn, u32::from(p.storey)));
+        overlay.set(&OverlayHome::of(&h, l.open, pieces));
+    }
 }
 
 /// The held line for home `id`, if it's held (`None`: free).
@@ -131,7 +115,7 @@ mod tests {
         let p = flats();
         let h = p.home(0, 0).unwrap();
         let ground = CityGround { strip: 0, stage: Stage(0) };
-        let walk = |doors: &[CityBox]| {
+        let walk = |doors: &Overlay| {
             let world = CityAndTrains { ground, trains: &[], doors };
             let mut w =
                 Walker::at(CityPos::new(0, h.outside.1, h.outside.0, h.floor + 0.05).walker(), glam::Vec3::X);
@@ -150,7 +134,20 @@ mod tests {
             let at = CityPos::from_walker(0, w.feet);
             homes::home_at(0, at.s, at.x, at.h + 1.0)
         };
-        assert_eq!(walk(&[]), Some(h.id), "through the open door");
-        assert_eq!(walk(&[leaf(&h)]), None, "stopped at the shut one");
+        let mut overlay = Overlay::new(4);
+        overlay.set(&OverlayHome::new(h.id, false));
+        assert_eq!(walk(&overlay), Some(h.id), "through the open door");
+        overlay.set(&OverlayHome::new(h.id, true));
+        assert_eq!(walk(&overlay), None, "stopped at the shut one");
+        // A sofa across the way in stops them too.
+        let (s, x) = h.inside;
+        let mut sofa = OverlayHome::new(h.id, false);
+        sofa.add(bc_sim::colony::city::CityBox {
+            rect: bc_sim::colony::city::Rect::new(s - 1.5, s + 1.5, x - 1.5, x + 1.5),
+            h0: h.floor,
+            h1: h.floor + 0.9,
+        });
+        overlay.set(&sofa);
+        assert_eq!(walk(&overlay), None, "stopped at the sofa");
     }
 }

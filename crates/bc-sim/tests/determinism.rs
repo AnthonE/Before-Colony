@@ -1176,7 +1176,9 @@ fn foot_hash() -> u64 {
                     (2, 0) => Stride { forward: 1.0, ..Stride::default() },
                     (2, 1) => Stride { forward: 0.3, right: 1.0, ..Stride::default() },
                     (2, 2) => Stride { forward: -1.0, right: -0.2, ..Stride::default() },
-                    (2, _) => Stride { forward: 1.0, run: true, jump: n.is_multiple_of(40), ..Stride::default() },
+                    (2, _) => {
+                        Stride { forward: 1.0, run: true, jump: n.is_multiple_of(40), ..Stride::default() }
+                    }
                     // The avenue: walking, running and turning, jumping now and then.
                     (_, 0) => Stride { forward: 1.0, ..Stride::default() },
                     (_, 1) => Stride { forward: 1.0, run: true, jump: n % 33 == k, ..Stride::default() },

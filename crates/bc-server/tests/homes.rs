@@ -88,6 +88,91 @@ async fn a_home_is_taken_at_its_door_and_nowhere_else() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_registers_overlay_is_what_the_crew_and_strangers_see() -> anyhow::Result<()> {
+    use bc_client_core::homes::{VIEW_HOMES, overlay_from};
+    use bc_econ::wire::HomesView;
+    use bc_sim::colony::homes::Overlay;
+    let dir = std::env::temp_dir().join(format!("bc-homes-overlay-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir)?;
+    // A block of flats on strip 0, and Ada's flat on its ground floor: its door shut, a bed, a rug
+    // and a lamp in it. Bo, next door, asleep in his own bed.
+    let plan = (CITY.0..CITY.1)
+        .flat_map(|bx| (1..=ROWS).filter_map(move |row| block(0, bx, row, Stage(0))))
+        .find_map(|b| {
+            lots(&b).as_slice().iter().find_map(|bd| {
+                homes::plan(&b, bd)
+                    .filter(|p| p.kind == Kind::Flats && p.storeys >= 2 && p.homes_per_storey() >= 2)
+            })
+        })
+        .expect("a block of flats");
+    let (flat, next_door) = (plan.home(0, 0).expect("a flat"), plan.home(0, 1).expect("another"));
+    let ada = bc_server::pilots::key(&wallet().address());
+    let bo_wallet = {
+        let mut secret = [0u8; 32];
+        secret[31] = 78;
+        LocalWallet::from_secret(&secret).expect("a valid key")
+    };
+    let bo = bc_server::pilots::key(&bo_wallet.address());
+    let mut reg = Homes::new();
+    let mut bay = Hangar { credits: 100_000, ..Hangar::starter() };
+    reg.rent(&flat, &ada, "Ada", 2, &mut bay, bc_server::pilots::unix_now()).map_err(anyhow::Error::msg)?;
+    let mid = ((flat.rect.width() * 5.0) as u16, (flat.rect.length() * 5.0) as u16);
+    reg.furnish(flat.id, &ada, Furniture::Bed, mid, 0, 0, &mut bay).map_err(anyhow::Error::msg)?;
+    reg.furnish(flat.id, &ada, Furniture::Rug, mid, 1, 0, &mut bay).map_err(anyhow::Error::msg)?;
+    let corners = [(5, 5), (mid.0 * 2 - 5, 5), (5, mid.1 * 2 - 5), (mid.0 * 2 - 5, mid.1 * 2 - 5)];
+    anyhow::ensure!(
+        corners.iter().any(|&at| reg.furnish(flat.id, &ada, Furniture::Lamp, at, 0, 0, &mut bay).is_ok()),
+        "nowhere for a lamp"
+    );
+    let mut bos_bay = Hangar { credits: 100_000, ..Hangar::starter() };
+    let now = bc_server::pilots::unix_now();
+    reg.rent(&next_door, &bo, "Bo", 2, &mut bos_bay, now).map_err(anyhow::Error::msg)?;
+    let bos_mid = ((next_door.rect.width() * 5.0) as u16, (next_door.rect.length() * 5.0) as u16);
+    reg.furnish(next_door.id, &bo, Furniture::Bed, bos_mid, 0, 0, &mut bos_bay)
+        .map_err(anyhow::Error::msg)?;
+    reg.sleep(next_door.id, &bo, "Bo", (0.0, 0.0), 0).expect("a bed to sleep in");
+    std::fs::write(dir.join("homes.json"), serde_json::to_vec(&reg)?)?;
+
+    // The server's, from the register it keeps.
+    let register = bc_server::homes::HomeRegister::open(Some(dir.join("homes.json")));
+    let server_home = register.overlay_home(flat.id).expect("a held home");
+    assert!(server_home.shut, "its door is shut");
+    assert_eq!(server_home.solids().len(), 2, "the bed and the lamp; the rug is walked over");
+    // The crew's, from what their view of the register says.
+    let mut crew = Overlay::new(VIEW_HOMES);
+    overlay_from(&HomesView::of(&reg, [flat.id.0].into_iter(), &ada), &mut crew);
+    assert_eq!(crew.get(flat.id), Some(&server_home), "the crew's");
+
+    // And a stranger's: Bo's, waking next door, from what the server tells him of the building.
+    let server = bc_server::start(config(Some(dir.clone()))?).await?;
+    let cfg = BotConfig {
+        server: format!("http://{}", server.http_addr),
+        name: "Bo".into(),
+        frame: FrameId::Argo,
+        faction: Faction::Colonies,
+    };
+    let mut b = BotClient::connect_as(&cfg, Some(&bo_wallet)).await?;
+    b.wait_until(5.0, "waking next door", |c| c.hangar.in_city() && c.hangar.wake.is_some()).await?;
+    b.wait_until(5.0, "the homes near", |c| c.hangar.homes.homes.iter().any(|l| l.id == flat.id.0)).await?;
+    let mut stranger = Overlay::new(VIEW_HOMES);
+    overlay_from(&b.core.hangar.homes, &mut stranger);
+    assert_eq!(stranger.get(flat.id), Some(&server_home), "the stranger's");
+    let leaf = homes::leaf(&flat);
+    let (s, x) = leaf.rect.middle();
+    let at_door = (
+        glam::Vec3::new(x - 0.1, leaf.h0 + 0.1, -s - 0.1),
+        glam::Vec3::new(x + 0.1, leaf.h0 + 1.0, -s + 0.1),
+    );
+    assert!(stranger.hits(0, at_door.0, at_door.1), "the shut door is a wall to them");
+    assert!(stranger.leaves(0).any(|b| b == leaf), "and drawn where it is");
+    b.close().await;
+    server.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn asleep_in_their_bed_at_home_they_wake_beside_it_and_sleep_there_again() -> anyhow::Result<()> {
     let dir = std::env::temp_dir().join(format!("bc-homes-bed-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
