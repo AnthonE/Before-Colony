@@ -8,15 +8,16 @@
 //!   brow's plates, cheek guards with a round port in each; a green block on the forehead with its
 //!   lens, the green crest rising out of it, the yellow V-fin swept up and back, and a white horn
 //!   swept back off either side of the helmet, the dragon's crown;
-//! - a broad chest: the green breastplate in two halves meeting in a crease, standing forward at
-//!   its foot and leaning back to the collar, an intake with yellow slats high on each half; white
-//!   blocks a step back either side of the head, and the yellow collar round the neck in two
-//!   steps, its tabs at the throat; the white belly plate under the breastplate with a yellow coin
-//!   on it, its square hole through the middle; white blocks under the arms; and the narrow grey
-//!   waist, ribbed, over the belt;
-//! - a narrow white belt with a yellow buckle, the crotch with a green V on it, front skirts
-//!   turned out over the thighs with a green panel raised on their lower halves and yellow studs,
-//!   side plates over the hips, and the rear skirt;
+//! - a broad, deep chest tapering to the waist: the green breastplate in two halves meeting in a
+//!   crease, standing forward at its foot and leaning back to the collar, an intake with yellow
+//!   slats high on each half; white blocks a step back either side of the head, and the yellow
+//!   collar round the neck in two steps, its tabs at the throat; the white belly plate under the
+//!   breastplate, narrowing down, with a yellow coin on it, its square hole through the middle;
+//!   white blocks under the arms, narrowing to their feet; and the narrow grey waist, ribbed,
+//!   over the belt;
+//! - a narrow white belt with a yellow buckle, the crotch with a green V on it, front skirts that
+//!   are short shields turned out over the thighs' tops, a green panel raised on their lower
+//!   halves and yellow studs, side plates close in over the hips, and the rear skirt;
 //! - shoulders that are big squarish white blocks, each under a green roof whose eave turns up at
 //!   its outer end as a temple's does, a ridge along its top; a raised panel on the front with a
 //!   yellow cloud head on it, as on a ruyi sceptre, a port in the outer end and the running light
@@ -29,14 +30,16 @@
 //!   from the snout; the fangs, the dark throat with the flamethrower's nozzle in it, and the lower
 //!   jaw (on the weapon's bone: the mouth is what fires) hanging open on its hinge, a white beard
 //!   under its chin;
-//! - long, heavy legs, plated: each thigh a squarish core under a front plate in two halves
-//!   meeting in a ridge, and an outer plate with a green panel raised on it; green knee guards
-//!   with a ridge down their faces and a wedge under them; full calves under a two-tier shin guard
-//!   with a chevron engraved on it, a green plate with its vents on the outside of each calf and
-//!   white plates inside and behind; and heavy boots: a squarish shaft over the ankle, its tongue
-//!   up the front with a green strip on it, a grey band behind and a big grey disc either side,
-//!   on a thick platform with a high heel and a long toe on its own hinge, a green block raised
-//!   along it, and a vernier in the sole under the heel and under the toe;
+//! - long, heavy legs, plated: each thigh a squarish core, closing in under the skirts and
+//!   widening below them, under a front plate in two tiers (each in two halves meeting in a ridge,
+//!   the upper a step proud of the lower) and an outer plate with a green panel raised on it;
+//!   green knee guards with a ridge down their faces and a wedge under them; full calves under a
+//!   two-tier shin guard with a chevron engraved on it, a green plate with its vents on the
+//!   outside of each calf and white plates inside and behind; and heavy boots: a squarish shaft
+//!   over the ankle, its tongue up the front with a green strip on it, a grey band behind and a
+//!   big grey disc either side, on a thick platform with a high heel and a long toe on its own
+//!   hinge, a green block raised along it, and a vernier in the sole under the heel and under the
+//!   toe;
 //! - on the back, a white pack with green sides, its louvres and a row of yellow spikes along its
 //!   top, the two main thrusters under it, and the dragon's tail: white segments tapering down and
 //!   back from the pack's foot, each with a flared green rim and a yellow fin, to a green spade;
@@ -277,14 +280,14 @@ fn head(d: &mut Designer) {
 
 /// The chest's core (right half) behind its armour: (y, outer x, back z, front z) at its foot
 /// and its top.
-const CORE: [(f32, f32, f32, f32); 2] = [(3.3, 1.5, -1.25, 0.9), (5.9, 2.0, -1.45, 0.8)];
+const CORE: [(f32, f32, f32, f32); 2] = [(3.4, 1.3, -1.25, 0.9), (5.9, 2.25, -1.55, 0.85)];
 
 /// The armour on the chest's front (right half), each given by its foot and its top as (y, half
 /// width, front z at the middle): the belly plate, and the green breastplate over it standing
 /// forward at its foot and leaning back to the collar. Their fronts fall away outboard at
 /// `CHEST_FALL` per metre, so the two halves meet in a crease down the middle.
-const BELLY: [(f32, f32, f32); 2] = [(3.25, 1.3, 1.18), (4.3, 1.62, 1.4)];
-const BREAST: [(f32, f32, f32); 2] = [(4.24, 1.98, 1.66), (5.9, 2.1, 1.12)];
+const BELLY: [(f32, f32, f32); 2] = [(3.25, 1.18, 1.24), (4.3, 1.66, 1.5)];
+const BREAST: [(f32, f32, f32); 2] = [(4.24, 2.18, 1.82), (5.9, 2.34, 1.16)];
 const CHEST_FALL: f32 = 0.28;
 
 /// A tier of the chest's front armour's corners (right half), its back at `back`.
@@ -332,35 +335,35 @@ fn chest(d: &mut Designer) {
         // The chest's shoulder, white, a step back, standing up beside the head.
         c.hexa(
             corners([
-                (1.05, 5.6, -0.9),
-                (2.2, 5.6, -0.9),
-                (1.1, 6.5, -0.85),
-                (2.15, 6.5, -0.85),
-                (1.05, 5.6, 1.18),
-                (2.2, 5.6, 0.9),
-                (1.1, 6.5, 0.62),
-                (2.15, 6.5, 0.5),
+                (1.08, 5.6, -0.95),
+                (2.42, 5.6, -0.95),
+                (1.12, 6.5, -0.9),
+                (2.36, 6.5, -0.9),
+                (1.08, 5.6, 1.2),
+                (2.42, 5.6, 0.92),
+                (1.12, 6.5, 0.62),
+                (2.36, 6.5, 0.5),
             ]),
             0.14,
             BODY,
             flat,
         );
         // The intake high on the breastplate: a dark recess and yellow slats.
-        louvre(&mut c, 0.82, 0.62, 4, ACCENT, sided(s, on_tier(BREAST, 1.12, 5.0, 0.0)));
+        louvre(&mut c, 0.86, 0.64, 4, ACCENT, sided(s, on_tier(BREAST, 1.22, 5.0, 0.0)));
         c.greeble(|c| {
             // The seam under the intake, and one down the breastplate's outer edge.
-            c.cube(v(0.9, 0.05, 0.05), 0.0, FRAME, sided(s, on_tier(BREAST, 1.12, 4.55, 0.0)));
-            c.cube(v(0.05, 1.1, 0.05), 0.0, FRAME, sided(s, on_tier(BREAST, 1.78, 5.05, 0.0)));
+            c.cube(v(0.94, 0.05, 0.05), 0.0, FRAME, sided(s, on_tier(BREAST, 1.22, 4.55, 0.0)));
+            c.cube(v(0.05, 1.1, 0.05), 0.0, FRAME, sided(s, on_tier(BREAST, 1.94, 5.05, 0.0)));
             c.cube(v(0.05, 0.55, 0.05), 0.0, FRAME, sided(s, on_tier(BELLY, 0.95, 3.75, 0.0)));
         });
-        // The side blocks under the arms.
-        let side = sided(s, place(v(2.05, 4.45, -0.15), rz(-0.06)));
-        c.block(v(0.8, 2.0, 1.85), v2(0.9, 0.9), Vec2::ZERO, 0.16, BODY, side);
-        slot(&mut c, 0.6, side * at(0.41, 0.1, 0.3) * Affine3A::from_rotation_y(FRAC_PI_2));
+        // The side blocks under the arms, narrowing to their foot.
+        let side = sided(s, place(v(2.2, 4.62, -0.15), rz(-0.12)));
+        c.block(v(0.62, 1.8, 1.85), v2(1.2, 0.92), Vec2::ZERO, 0.16, BODY, side);
+        slot(&mut c, 0.6, side * at(0.36, 0.1, 0.3) * Affine3A::from_rotation_y(FRAC_PI_2));
         // The shoulder's socket in the chest's side.
-        c.cylinder(0.62, 0.5, 14, GREY, sided(s, place(v(2.45, SHOULDER.y, 0.0), rz(FRAC_PI_2))));
+        c.cylinder(0.62, 0.5, 14, GREY, sided(s, place(v(2.6, SHOULDER.y, 0.0), rz(FRAC_PI_2))));
         // The back's side plates either side of the pack.
-        let plate = sided(s, place(v(1.35, 4.55, -1.55), ry(-0.15)));
+        let plate = sided(s, place(v(1.45, 4.6, -1.65), ry(-0.15)));
         c.block(v(0.95, 2.1, 0.4), v2(0.8, 0.85), Vec2::ZERO, 0.14, BODY, plate);
         slot(&mut c, 0.5, plate * at(0.12, 0.2, -0.21) * Affine3A::from_rotation_y(PI));
     }
@@ -372,7 +375,7 @@ fn chest(d: &mut Designer) {
     c.cube(v(0.2, 0.12, 0.2), 0.02, FRAME, coin * at(0.0, 0.1, 0.0));
     c.greeble(|c| {
         // The seam across the belly under the coin.
-        c.cube(v(2.2, 0.05, 0.05), 0.0, FRAME, on_tier(BELLY, 0.0, 3.42, 0.0));
+        c.cube(v(2.0, 0.05, 0.05), 0.0, FRAME, on_tier(BELLY, 0.0, 3.42, 0.0));
     });
     // The yellow collar round the back and sides of the neck, two steps, and its tabs either
     // side of the throat.
@@ -412,7 +415,7 @@ fn chest(d: &mut Designer) {
     let mut a = d.on(Bone::Torso);
     a.seed(0.17);
     a.lathe(
-        &[(0.0, 2.4), (1.15, 2.4), (1.22, 2.55), (1.1, 3.4), (0.0, 3.4)],
+        &[(0.0, 2.4), (1.0, 2.4), (1.06, 2.55), (0.96, 3.4), (0.0, 3.4)],
         14,
         GREY,
         Affine3A::from_scale(v(1.0, 1.0, 0.86)),
@@ -420,7 +423,7 @@ fn chest(d: &mut Designer) {
     a.greeble(|a| {
         for k in 0..3 {
             let y = 2.75 + k as f32 * 0.2;
-            a.lathe(&band(1.12, 1.19, y, y + 0.07), 14, FRAME, Affine3A::from_scale(v(1.0, 1.0, 0.86)));
+            a.lathe(&band(0.98, 1.05, y, y + 0.07), 14, FRAME, Affine3A::from_scale(v(1.0, 1.0, 0.86)));
         }
     });
 }
@@ -432,37 +435,41 @@ fn waist(d: &mut Designer) {
     w.seed(0.21);
     // The belt, narrow: a martial artist's waist.
     w.loft(
-        &[hoop(1.98, 0.0, 0.0, 1.48, 1.1), hoop(2.08, 0.0, 0.0, 1.6, 1.2), hoop(2.62, 0.0, 0.0, 1.58, 1.18)],
+        &[
+            hoop(1.98, 0.0, 0.0, 1.28, 0.98),
+            hoop(2.08, 0.0, 0.0, 1.4, 1.08),
+            hoop(2.62, 0.0, 0.0, 1.38, 1.06),
+        ],
         3.4,
         28,
         BODY,
         Affine3A::IDENTITY,
     );
     // The buckle: a yellow block at the belt's front with a boss in it.
-    w.block(v(0.8, 0.56, 0.3), v2(0.86, 0.8), Vec2::ZERO, 0.06, ACCENT, at(0.0, 2.3, 1.24));
-    w.cylinder(0.16, 0.1, 12, GUN, place(v(0.0, 2.3, 1.42), rx(FRAC_PI_2)));
+    w.block(v(0.76, 0.56, 0.3), v2(0.86, 0.8), Vec2::ZERO, 0.06, ACCENT, at(0.0, 2.3, 1.12));
+    w.cylinder(0.16, 0.1, 12, GUN, place(v(0.0, 2.3, 1.3), rx(FRAC_PI_2)));
     // The crotch block, and the green V standing on its front.
-    w.block(v(1.1, 1.3, 1.45), v2(1.25, 1.0), v2(0.0, -0.05), 0.14, BODY, at(0.0, 1.38, 0.38));
+    w.block(v(0.96, 1.3, 1.35), v2(1.2, 1.0), v2(0.0, -0.05), 0.14, BODY, at(0.0, 1.38, 0.36));
     w.hexa(
         corners([
-            (-0.14, 0.82, 1.0),
-            (0.14, 0.82, 1.0),
-            (-0.56, 1.98, 1.0),
-            (0.56, 1.98, 1.0),
-            (-0.14, 0.82, 1.18),
-            (0.14, 0.82, 1.18),
-            (-0.56, 1.98, 1.22),
-            (0.56, 1.98, 1.22),
+            (-0.12, 0.82, 0.94),
+            (0.12, 0.82, 0.94),
+            (-0.48, 1.98, 0.94),
+            (0.48, 1.98, 0.94),
+            (-0.12, 0.82, 1.1),
+            (0.12, 0.82, 1.1),
+            (-0.48, 1.98, 1.14),
+            (0.48, 1.98, 1.14),
         ]),
         0.05,
         TRIM,
         Affine3A::IDENTITY,
     );
     for s in Side::BOTH {
-        // The front skirt: a plate hung from the belt over the thigh, turned out round it, its
-        // hem rising toward the outside; a green panel raised on its lower half, a seam across
-        // above it, and two yellow studs at its top.
-        let skirt = sided(s, place(v(1.04, 1.5, 1.36), ry(0.36) * rx(-0.14)));
+        // The front skirt: a short shield of a plate hung from the belt over the thigh's top,
+        // turned out round it, its hem rising toward the outside; a green panel raised on its
+        // lower half, a seam across above it, and two yellow studs at its top.
+        let skirt = sided(s, place(v(0.9, 1.72, 1.16), ry(0.34) * rx(-0.16)));
         let plate = |x0: f32, x1: f32, top: f32, hem: (f32, f32), back: f32, front: (f32, f32)| {
             corners([
                 (x0, hem.0, back),
@@ -475,23 +482,24 @@ fn waist(d: &mut Designer) {
                 (x1, top, front.1),
             ])
         };
-        w.hexa(plate(-0.6, 0.6, 0.74, (-0.8, -0.52), -0.2, (0.2, 0.17)), 0.12, BODY, skirt);
-        w.hexa(plate(-0.48, 0.44, -0.08, (-0.66, -0.44), 0.0, (0.3, 0.26)), 0.06, TRIM, skirt);
+        w.hexa(plate(-0.52, 0.52, 0.62, (-0.74, -0.38), -0.2, (0.2, 0.17)), 0.12, BODY, skirt);
+        w.hexa(plate(-0.42, 0.36, -0.02, (-0.6, -0.3), 0.0, (0.3, 0.26)), 0.06, TRIM, skirt);
         w.greeble(|w| {
-            w.cube(v(1.04, 0.05, 0.05), 0.0, FRAME, skirt * place(v(0.0, 0.18, 0.2), rx(-0.02)));
-            for x in [-0.4, 0.4] {
-                w.cylinder(0.08, 0.08, 10, ACCENT, skirt * place(v(x, 0.5, 0.2), rx(FRAC_PI_2)));
+            w.cube(v(0.9, 0.05, 0.05), 0.0, FRAME, skirt * place(v(0.0, 0.2, 0.2), rx(-0.02)));
+            for x in [-0.34, 0.34] {
+                w.cylinder(0.07, 0.08, 10, ACCENT, skirt * place(v(x, 0.44, 0.2), rx(FRAC_PI_2)));
             }
         });
-        // The hip's side plate under the belt, over the thigh's ball, a raised panel on it.
-        let side = sided(s, place(v(2.08, 1.7, -0.12), rz(0.14)));
-        w.block(v(0.5, 1.2, 1.9), v2(0.85, 0.9), Vec2::ZERO, 0.14, BODY, side);
-        w.block(v(0.12, 0.9, 1.5), v2(1.0, 0.88), Vec2::ZERO, 0.04, TRIM, side * at(0.28, -0.05, 0.0));
-        slot(&mut w, 0.42, side * Affine3A::from_rotation_y(FRAC_PI_2) * at(-0.72, -0.05, 0.27));
+        // The hip's side plate under the belt, close in over the thigh's ball, a raised panel on
+        // it.
+        let side = sided(s, place(v(1.9, 1.8, -0.1), rz(0.1)));
+        w.block(v(0.42, 1.0, 1.65), v2(0.85, 0.9), Vec2::ZERO, 0.12, BODY, side);
+        w.block(v(0.12, 0.72, 1.25), v2(1.0, 0.88), Vec2::ZERO, 0.04, TRIM, side * at(0.24, -0.04, 0.0));
+        slot(&mut w, 0.36, side * Affine3A::from_rotation_y(FRAC_PI_2) * at(-0.62, -0.04, 0.23));
         // The rear skirt's half, swept back over the seat.
-        let rear = sided(s, place(v(0.86, 1.62, -1.34), rx(0.3)));
-        w.block(v(1.45, 1.45, 0.5), v2(0.92, 0.85), v2(0.0, 0.05), 0.16, BODY, rear);
-        slot(&mut w, 0.35, rear * at(0.2, 0.0, -0.26) * Affine3A::from_rotation_y(PI));
+        let rear = sided(s, place(v(0.76, 1.72, -1.22), rx(0.3)));
+        w.block(v(1.3, 1.25, 0.46), v2(0.92, 0.85), v2(0.0, 0.05), 0.14, BODY, rear);
+        slot(&mut w, 0.35, rear * at(0.18, 0.0, -0.24) * Affine3A::from_rotation_y(PI));
     }
 }
 
@@ -499,6 +507,8 @@ fn waist(d: &mut Designer) {
 
 /// The shoulder block's middle (right side): high and broad, its top above the head's chin.
 const SHOULDER: Vec3 = Vec3::new(3.45, 5.18, 0.0);
+/// How far the shoulder's armour stands out past where its design puts it, beside the chest.
+const SHOULDER_OUT: f32 = 0.12;
 
 /// The shoulder block, as hoops out along x from inside the chest's side, each as high as twice
 /// its half width round the block's middle and as deep as twice its half depth: a squarish
@@ -565,10 +575,11 @@ fn arms(d: &mut Designer) {
         // on its front and back, and the running light on its outer front corner: red on the
         // suit's own left (+x), green on its right.
         let mut o = d.on(shoulder);
+        let out = at(SHOULDER_OUT, 0.0, 0.0);
         o.seed(0.24 + k);
-        let block = sided(s, place(v(0.0, SHOULDER.y, 0.0), rz(-FRAC_PI_2)));
+        let block = sided(s, out * place(v(0.0, SHOULDER.y, 0.0), rz(-FRAC_PI_2)));
         o.loft(&PAULDRON, 3.8, 28, BODY, block);
-        o.extrude(&EAVE, 2.7, TRIM, sided(s, at(SHOULDER.x, SHOULDER.y + 1.0, 0.0)));
+        o.extrude(&EAVE, 2.7, TRIM, sided(s, out * at(SHOULDER.x, SHOULDER.y + 1.0, 0.0)));
         o.hexa(
             corners([
                 (2.62, 6.48, -1.05),
@@ -582,9 +593,9 @@ fn arms(d: &mut Designer) {
             ]),
             0.1,
             TRIM,
-            sided(s, Affine3A::IDENTITY),
+            sided(s, out),
         );
-        port(&mut o, 0.36, sided(s, place(v(4.5, 5.05, 0.15), ry(FRAC_PI_2))));
+        port(&mut o, 0.36, sided(s, out * place(v(4.5, 5.05, 0.15), ry(FRAC_PI_2))));
         // The front's panel, its lower inner corner cut.
         o.hexa(
             corners([
@@ -599,7 +610,7 @@ fn arms(d: &mut Designer) {
             ]),
             0.07,
             BODY,
-            sided(s, Affine3A::IDENTITY),
+            sided(s, out),
         );
         // The same on its back, plainer.
         o.hexa(
@@ -615,27 +626,27 @@ fn arms(d: &mut Designer) {
             ]),
             0.07,
             BODY,
-            sided(s, Affine3A::IDENTITY),
+            sided(s, out),
         );
         o.greeble(|o| {
             // The seam round the block where its outer end steps in; the yellow cloud head on
             // the front panel, as on a sceptre's; slots on the back.
-            o.cube(v(0.05, 1.9, 0.05), 0.0, FRAME, sided(s, at(4.22, 5.18, 1.25)));
+            o.cube(v(0.05, 1.9, 0.05), 0.0, FRAME, sided(s, out * at(4.22, 5.18, 1.25)));
             o.extrude(
                 &RUYI,
                 0.04,
                 ACCENT,
-                sided(s, at(3.5, 5.15, 1.35) * Affine3A::from_scale(Vec3::splat(0.85))),
+                sided(s, out * at(3.5, 5.15, 1.35) * Affine3A::from_scale(Vec3::splat(0.85))),
             );
             for x in [3.2, 3.8] {
-                slot(o, 0.8, sided(s, place(v(x, 5.15, -1.33), ry(PI))));
+                slot(o, 0.8, sided(s, out * place(v(x, 5.15, -1.33), ry(PI))));
             }
         });
-        let nav = sided(s, at(4.3, 5.92, 1.12));
+        let nav = sided(s, out * at(4.3, 5.92, 1.12));
         o.cube(v(0.34, 0.2, 0.24), 0.03, GUN, nav);
         let lamp = Paint::Light(s.pick(Light::Starboard, Light::Port));
         o.sphere(0.12, 6, lamp, nav * at(0.0, 0.0, 0.1) * Affine3A::from_scale(v(1.0, 0.7, 1.0)));
-        o.cylinder(0.44, 0.7, 10, GREY, sided(s, place(v(2.3, SHOULDER.y - 0.3, 0.0), rz(FRAC_PI_2))));
+        o.cylinder(0.44, 0.7, 10, GREY, sided(s, out * place(v(2.3, SHOULDER.y - 0.3, 0.0), rz(FRAC_PI_2))));
 
         // The upper arm: a white drum with a green ring round it, on the grey frame, out from
         // under the shoulder.
@@ -972,12 +983,25 @@ fn talon(d: &mut Designer) {
 
 /// The thigh's core, up its axis from the knee to the hip (x out, z forward): squarish, full,
 /// closing in under the hip; the plates stand on it.
-const THIGH: [Hoop; 5] = [
-    hoop(0.45, 0.1, 0.05, 1.04, 1.02),
-    hoop(1.1, 0.2, 0.08, 1.28, 1.18),
-    hoop(2.2, 0.26, 0.06, 1.38, 1.24),
-    hoop(3.1, 0.22, 0.0, 1.26, 1.14),
-    hoop(3.62, 0.16, 0.0, 0.88, 0.8),
+const THIGH: [Hoop; 6] = [
+    hoop(0.45, 0.1, 0.05, 1.02, 1.0),
+    hoop(1.1, 0.2, 0.08, 1.26, 1.18),
+    hoop(2.0, 0.24, 0.06, 1.34, 1.24),
+    hoop(2.7, 0.18, 0.03, 1.24, 1.14),
+    hoop(3.25, 0.08, 0.0, 1.0, 0.95),
+    hoop(3.62, 0.0, 0.0, 0.74, 0.7),
+];
+
+/// A section across a plate in two halves meeting in a ridge: (y, half width, back z, front z
+/// at the ridge, front z at the edge).
+type Ridged = (f32, f32, f32, f32, f32);
+
+/// The plate down the thigh's front in two tiers (along its axis from the knee), each by its foot
+/// and its top. The upper stands a step proud of the lower where they meet and leans back,
+/// narrowing, under the skirt.
+const THIGH_FRONT: [[Ridged; 2]; 2] = [
+    [(0.7, 1.0, 0.85, 1.44, 1.12), (2.0, 1.08, 0.85, 1.5, 1.16)],
+    [(1.92, 1.1, 0.85, 1.62, 1.26), (3.05, 0.88, 0.7, 1.24, 1.0)],
 ];
 
 /// The lower leg's core, up its axis from the ankle to the knee (x out, z forward): slim over the
@@ -1010,49 +1034,52 @@ fn legs(d: &mut Designer) {
         );
         let k = s.pick(0.0, 0.2);
 
-        // The thigh: the core on a grey ball at the hip, a front plate in two halves meeting in
-        // a ridge, and the outer plate with a raised panel on it, a step between them.
+        // The thigh: the core on a grey ball at the hip, closing in under the skirts; a front
+        // plate in two tiers, each in two halves meeting in a ridge, and the outer plate with a
+        // raised panel on it, a step between them.
         let mut th = d.on(thigh);
         th.seed(0.31 + k);
         th.sphere(0.8, 6, GREY, sided(s, Affine3A::from_translation(hip)));
         let along_thigh = sided(s, place(knee, toward(hip - knee)));
         th.loft(&THIGH, 3.4, 28, BODY, along_thigh);
-        for half in [-1.0f32, 1.0] {
-            let c = |x: f32, y: f32, z: f32| v(0.2 + half * x, y, z);
-            let plate = [
-                c(0.0, 0.7, 0.9),
-                c(1.0, 0.75, 0.82),
-                c(0.0, 3.2, 0.86),
-                c(1.06, 3.15, 0.78),
-                c(0.0, 0.7, 1.46),
-                c(1.0, 0.75, 1.14),
-                c(0.0, 3.2, 1.4),
-                c(1.06, 3.15, 1.12),
-            ];
-            let plate = if half > 0.0 { plate } else { swap_x(plate) };
-            th.hexa(plate, 0.12, BODY, along_thigh);
+        for [(y0, w0, b0, r0, e0), (y1, w1, b1, r1, e1)] in THIGH_FRONT {
+            for half in [-1.0f32, 1.0] {
+                let c = |x: f32, y: f32, z: f32| v(0.2 + half * x, y, z);
+                let plate = [
+                    c(0.0, y0, b0),
+                    c(w0, y0, b0 - 0.05),
+                    c(0.0, y1, b1),
+                    c(w1, y1, b1 - 0.05),
+                    c(0.0, y0, r0),
+                    c(w0, y0, e0),
+                    c(0.0, y1, r1),
+                    c(w1, y1, e1),
+                ];
+                let plate = if half > 0.0 { plate } else { swap_x(plate) };
+                th.hexa(plate, 0.12, BODY, along_thigh);
+            }
         }
         let outer = corners([
-            (1.32, 0.95, -0.86),
-            (1.74, 0.95, -0.86),
-            (1.32, 3.3, -0.82),
-            (1.7, 3.3, -0.82),
-            (1.32, 0.95, 0.56),
-            (1.74, 0.95, 0.5),
-            (1.32, 3.3, 0.9),
-            (1.7, 3.3, 0.84),
+            (1.24, 0.95, -0.84),
+            (1.64, 0.95, -0.84),
+            (1.16, 2.85, -0.8),
+            (1.52, 2.85, -0.8),
+            (1.24, 0.95, 0.56),
+            (1.64, 0.95, 0.5),
+            (1.16, 2.85, 0.84),
+            (1.52, 2.85, 0.78),
         ]);
         th.hexa(outer, 0.12, BODY, along_thigh);
         th.hexa(
             corners([
-                (1.62, 1.4, -0.52),
-                (1.84, 1.4, -0.52),
-                (1.6, 2.85, -0.48),
-                (1.8, 2.85, -0.48),
-                (1.62, 1.4, 0.3),
-                (1.84, 1.4, 0.26),
-                (1.6, 2.85, 0.58),
-                (1.8, 2.85, 0.54),
+                (1.56, 1.35, -0.52),
+                (1.76, 1.35, -0.52),
+                (1.46, 2.5, -0.48),
+                (1.64, 2.5, -0.48),
+                (1.56, 1.35, 0.3),
+                (1.76, 1.35, 0.26),
+                (1.46, 2.5, 0.52),
+                (1.64, 2.5, 0.48),
             ]),
             0.06,
             TRIM,
@@ -1060,9 +1087,9 @@ fn legs(d: &mut Designer) {
         );
         th.greeble(|th| {
             // The seam where the front plate meets the side, and slots on the plates.
-            th.cube(v(0.05, 2.2, 0.05), 0.0, FRAME, along_thigh * place(v(1.3, 2.0, 1.04), ry(0.5)));
-            slot(th, 0.5, along_thigh * place(v(1.75, 2.45, -0.66), ry(FRAC_PI_2)));
-            th.cube(v(0.7, 0.05, 0.05), 0.0, FRAME, along_thigh * place(v(0.66, 1.4, 1.3), ry(-0.25)));
+            th.cube(v(0.05, 1.8, 0.05), 0.0, FRAME, along_thigh * place(v(1.28, 1.7, 1.02), ry(0.5)));
+            slot(th, 0.5, along_thigh * place(v(1.6, 2.15, -0.64), ry(FRAC_PI_2) * rz(0.06)));
+            th.cube(v(0.7, 0.05, 0.05), 0.0, FRAME, along_thigh * place(v(0.66, 1.3, 1.3), ry(-0.25)));
             // A seam round the back, and a slot under it.
             th.cube(v(1.5, 0.05, 0.05), 0.0, FRAME, along_thigh * at(0.24, 1.9, -1.2));
             slot(th, 0.6, along_thigh * place(v(0.6, 1.3, -1.12), ry(PI)));
