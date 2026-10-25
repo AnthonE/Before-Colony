@@ -722,13 +722,17 @@ fn fist(d: &mut Designer) {
 // --- The Talon: the dragon's neck down the right forearm, its head on the right hand. ---
 
 /// The dragon's neck's rings, up the right forearm from the wrist: each one's foot (along the
-/// forearm) and its half width and depth, wider toward the elbow, each one's flared foot lying
-/// over the top of the one below, as a telescope's tubes do.
+/// forearm) and its half width and depth, slimmest at the head and wider toward the elbow, each
+/// one's flared foot lying over the top of the one below, as a telescope's tubes do. The last
+/// stops short of the elbow, under the upper arm's drum.
 const NECK: [(f32, f32, f32); 5] =
-    [(0.05, 0.6, 0.64), (0.41, 0.65, 0.69), (0.77, 0.7, 0.74), (1.13, 0.75, 0.79), (1.49, 0.8, 0.84)];
+    [(0.05, 0.5, 0.54), (0.38, 0.57, 0.61), (0.71, 0.64, 0.68), (1.03, 0.71, 0.75), (1.34, 0.78, 0.82)];
 
-/// How much bigger the dragon's head is drawn than its sections give, about the wrist.
+/// How much bigger the dragon's head is drawn than its sections give, about the wrist, and where
+/// it then sits off the wrist: out, up and forward, so that with the arm hanging it clears the
+/// thigh, the neck's slim end running into the back of its skull.
 const TALON_SCALE: f32 = 1.15;
+const TALON_SHIFT: Vec3 = Vec3::new(0.3, 0.25, 0.1);
 /// How far its jaw hangs open, radians.
 const JAW_OPEN: f32 = 0.12;
 
@@ -744,15 +748,18 @@ const SKULL: [(f32, f32, f32, f32); 8] = [
     (4.02, 1.02, 0.66, 0.3),
 ];
 
-/// The lower jaw, as sections forward along z: (z, top, foot, half width).
+/// The lower jaw, as sections forward along z from its hinge under the eyes: (z, top, foot, half
+/// width).
 const JAW: [(f32, f32, f32, f32); 6] = [
-    (0.9, 0.52, -0.05, 0.5),
-    (1.5, 0.44, -0.3, 0.64),
-    (2.4, 0.34, -0.18, 0.54),
+    (1.45, 0.44, -0.1, 0.54),
+    (1.9, 0.4, -0.3, 0.62),
+    (2.55, 0.34, -0.18, 0.54),
     (3.3, 0.3, -0.06, 0.46),
     (3.75, 0.28, 0.02, 0.38),
     (3.92, 0.24, 0.08, 0.24),
 ];
+/// The jaw's hinge, under the eyes (its x is the head's middle).
+const HINGE: (f32, f32) = (0.3, 1.7);
 
 /// Sections forward along z, as hoops for a loft placed by [`forward`].
 fn sections(t: &[(f32, f32, f32, f32)]) -> Vec<Hoop> {
@@ -836,7 +843,7 @@ fn talon(d: &mut Designer) {
     // behind the cheeks; the fangs, the dark throat and the flamethrower's nozzle in it; and the
     // whiskers trailing back from the snout.
     let x = wr.x;
-    let dragon = Affine3A::from_translation(wr)
+    let dragon = Affine3A::from_translation(wr + TALON_SHIFT)
         * Affine3A::from_scale(Vec3::splat(TALON_SCALE))
         * at(-wr.x, -wr.y, -wr.z);
     let mut h = d.on(Bone::HandR);
@@ -875,8 +882,8 @@ fn talon(d: &mut Designer) {
             flat,
         );
         h.cube(v(0.08, 0.15, 0.4), 0.02, EYE, flat * place(v(0.72, 1.3, 1.9), ry(0.45)));
-        h.extrude(&HORN, 0.14, ACCENT, flat * place(v(0.42, 1.5, 1.05), ry(FRAC_PI_2 - 0.35)));
-        h.extrude(&MANE, 0.1, BODY, flat * place(v(0.62, 0.48, 1.05), ry(FRAC_PI_2 - 0.55)));
+        h.extrude(&HORN, 0.14, ACCENT, flat * place(v(0.42, 1.5, 1.05), ry(FRAC_PI_2 - 0.2)));
+        h.extrude(&MANE, 0.1, BODY, flat * place(v(0.62, 0.48, 1.05), ry(FRAC_PI_2 + 0.1)));
         // The fangs at the front corners of the mouth, and the teeth along it.
         h.block(
             v(0.13, 0.38, 0.14),
@@ -957,11 +964,11 @@ fn talon(d: &mut Designer) {
 
     // The lower jaw, on the weapon's bone (the mouth fires), dropped open about its hinge: the
     // hinge, the jaw, the fangs up out of it, and the white beard under its chin.
-    let hinge = v(x, 0.42, 1.2);
+    let hinge = v(x, HINGE.0, HINGE.1);
     let jaw = dragon
         * Affine3A::from_translation(hinge)
         * Affine3A::from_rotation_x(JAW_OPEN)
-        * at(-x, -0.42, -1.2);
+        * Affine3A::from_translation(-hinge);
     let mut w = d.on(Bone::Weapon);
     w.seed(0.63);
     w.cylinder(0.22, 1.32, 12, GREY, jaw * place(hinge, rz(FRAC_PI_2)));
