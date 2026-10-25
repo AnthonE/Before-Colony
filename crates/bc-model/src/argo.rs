@@ -1,12 +1,14 @@
-//! AL-04S Argo (space type), the docks' workhorse: the round head sunk in its chest, under a domed cap whose peak shades
-//! the amber visor and the mono-eye behind it, red ribs wrapped round its sides and back; the two big lamps either
-//! side of it; brown shoulder balls under green armour; boxy forearms with their elbow guards and
-//! brown fists; the grey ring in the crotch and the two thrusters under the rear skirts; egg thighs,
+//! AL-04S Argo (space type), the docks' workhorse: the round head sunk in its chest, under a domed
+//! cap whose peak shades the amber visor and the mono-eye behind it, red ribs wrapped round its
+//! sides and back; the two big lamps either side of it; brown shoulder balls under green armour;
+//! boxy forearms with their elbow guards and brown fists; the grey ring in the crotch and the two
+//! thrusters under the rear skirts; heavy rounded thighs plated down the front and the outside;
 //! knee blocks with four rivets, long shins swelling to the calf and pinched in over the ankle,
 //! tall two-tier ankle guards with a tab up the front and a wheel either side, and brown feet in
 //! three blocks (the heel, the instep and a toe falling away to its tip on its own hinge) under the
-//! green instep armour, a vernier in the sole under the heel and under the toe. The space type's propellant drum rides across its back; it carries the long beam rifle,
-//! and the 105 mm rifle with its drum magazine rides the left forearm.
+//! green instep armour, a vernier in the sole under the heel and under the toe. The space type's
+//! propellant drum rides across its back; it carries the long beam rifle, and the 105 mm rifle with
+//! its drum magazine rides the left forearm.
 //!
 //! Its inner frame, shoulders, hands and feet are brown; the wheels, the crotch ring, the hatch's
 //! handle and the lamps' rims take the trim.
@@ -15,6 +17,7 @@ use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 
 use glam::{Affine3A, Quat, Vec2, Vec3};
 
+use crate::detail::{Cut, stacked};
 use crate::frames::{
     BODY, EYE, FRAME, GUN, SOLE, STEEL, Sole, TRIM, at, j, nozzle, place, rx, ry, rz, saber_hilt, sided,
     sole, sp, v, v2,
@@ -437,6 +440,13 @@ fn hands(d: &mut Designer) {
 
 // --- Legs. ---
 
+/// The plates on the thigh's core (right leg), in its own frame (y up its axis from the knee, x
+/// out, z forward), each by its foot and its top: down its front, and down its outside.
+const THIGH_PLATES: [[Cut; 2]; 2] = [
+    [(0.95, -0.74, 0.8, 0.85, 1.52), (3.4, -0.88, 0.96, 1.0, 1.66)],
+    [(1.0, 1.02, 1.5, -0.95, 0.9), (3.3, 1.12, 1.62, -1.02, 0.95)],
+];
+
 fn legs(d: &mut Designer) {
     let (hip, knee, ankle) = (j(Bone::ThighR), j(Bone::ShinR), j(Bone::FootR));
     for s in Side::BOTH {
@@ -446,36 +456,42 @@ fn legs(d: &mut Designer) {
         );
         let k = s.pick(0.0, 0.2);
 
-        // The thigh: an egg, fullest high up and swelling outboard, from the knee block up under
-        // the skirts, on a brown ball at the hip.
+        // The thigh: a rounded core, fullest high up, from the knee block up under the skirts, on a
+        // brown ball at the hip; a faceted plate down its front and another down its outside stand
+        // out of it, each wider at the top, with a slot in it.
         let mut t = d.on(thigh);
         t.seed(0.31 + k);
         t.sphere(0.75, 6, BROWN, sided(s, Affine3A::from_translation(hip)));
         let egg = sided(
             s,
-            place(knee + v(0.08, 0.0, 0.0), toward(hip - knee)) * Affine3A::from_scale(v(0.96, 1.0, 1.1)),
+            place(knee + v(0.1, 0.0, 0.02), toward(hip - knee)) * Affine3A::from_scale(v(1.0, 1.0, 1.1)),
         );
         t.lathe(
             &[
                 (0.0, 0.45),
-                (0.92, 0.5),
-                (1.16, 0.85),
-                (1.3, 1.5),
-                (1.38, 2.25),
-                (1.37, 2.85),
-                (1.24, 3.35),
-                (0.92, 3.78),
+                (1.0, 0.5),
+                (1.24, 0.85),
+                (1.36, 1.5),
+                (1.42, 2.25),
+                (1.4, 2.85),
+                (1.28, 3.35),
+                (0.96, 3.78),
                 (0.0, 3.95),
             ],
             20,
             BODY,
             egg,
         );
-        for (p, turn) in
-            [(v(0.45, 2.3, 1.28), rz(-0.5) * ry(0.3)), (v(-0.4, 1.35, 1.2), rz(-0.5) * ry(-0.15))]
-        {
-            slot(&mut t, 0.5, sided(s, place(knee + p, turn)));
+        let along = sided(s, place(knee + v(0.1, 0.0, 0.02), toward(hip - knee)));
+        for plate in THIGH_PLATES {
+            t.hexa(stacked(plate), 0.16, BODY, along);
         }
+        let [(y0, _, _, _, f0), (y1, _, _, _, f1)] = THIGH_PLATES[0];
+        let lean = ((f1 - f0) / (y1 - y0)).atan();
+        slot(&mut t, 0.6, along * place(v(0.38, 2.35, 0.01 + f0 + (f1 - f0) * 0.56), rx(-lean)));
+        let [(_, _, o0, ..), (_, _, o1, ..)] = THIGH_PLATES[1];
+        let side = along * place(v((o0 + o1) * 0.5 + 0.01, 2.1, -0.2), ry(FRAC_PI_2));
+        slot(&mut t, 0.55, side);
 
         // The shin: the knee block with its four rivets, then the long shin, narrow under the
         // knee, swelling to the calf behind two-fifths of the way down and pinched in again over
@@ -488,15 +504,15 @@ fn legs(d: &mut Designer) {
         m.cylinder(0.6, 1.3, 12, BROWN, sided(s, place(knee, rz(FRAC_PI_2))));
         // Its radius up from the ankle, along the shin.
         let profile = [
-            (0.25, 0.62),
-            (0.7, 0.64),
-            (1.3, 0.76),
-            (2.1, 0.87),
-            (2.7, 0.88),
-            (3.6, 0.8),
-            (4.4, 0.7),
-            (5.0, 0.66),
-            (5.25, 0.64),
+            (0.25, 0.74),
+            (0.7, 0.78),
+            (1.3, 0.94),
+            (2.1, 1.07),
+            (2.7, 1.09),
+            (3.6, 0.99),
+            (4.4, 0.86),
+            (5.0, 0.8),
+            (5.25, 0.76),
         ];
         let outline: Vec<(f32, f32)> = [(0.0, 0.25)]
             .into_iter()
@@ -504,7 +520,7 @@ fn legs(d: &mut Designer) {
             .chain([(0.0, 5.3)])
             .collect();
         m.lathe(&outline, 20, BODY, tube);
-        m.sphere(1.0, 10, BODY, tube * at(0.0, 3.0, -0.36) * Affine3A::from_scale(v(0.72, 1.7, 0.84)));
+        m.sphere(1.0, 10, BODY, tube * at(0.0, 3.0, -0.44) * Affine3A::from_scale(v(0.9, 1.8, 1.0)));
         // The ridge, in two runs following the front's curve.
         for pair in [[profile[6], profile[3]], [profile[3], profile[1]]] {
             let [(y0, r0), (y1, r1)] = pair;
@@ -518,7 +534,7 @@ fn legs(d: &mut Designer) {
         // stays behind the hangar's brace); behind, the joint shows.
         let knee_block = knee + v(0.02, 0.05, 0.14);
         m.block(
-            v(2.3, 1.25, 1.6),
+            v(2.6, 1.4, 1.6),
             v2(0.96, 0.84),
             v2(0.0, -0.1),
             0.14,
@@ -527,7 +543,7 @@ fn legs(d: &mut Designer) {
         );
         m.greeble(|m| {
             for (dx, dy) in [(-0.6, 0.22), (0.6, 0.22), (-0.6, -0.24), (0.6, -0.24)] {
-                let p = knee_block + v(dx, dy - 0.08, 0.78);
+                let p = knee_block + v(dx * 1.12, dy - 0.08, 0.78);
                 m.cylinder(0.19, 0.14, 12, BODY, sided(s, place(p, rx(FRAC_PI_2))));
             }
         });
@@ -535,7 +551,7 @@ fn legs(d: &mut Designer) {
         // ridge and narrower above it, its front rising in a tab up the shin; a slot behind and a
         // wheel either side, low and toward the heel.
         let x = ankle.x;
-        let cuff = sided(s, at(x, ankle.y, ankle.z - 0.1) * Affine3A::from_scale(v(1.0, 1.0, 1.1)));
+        let cuff = sided(s, at(x, ankle.y, ankle.z - 0.12) * Affine3A::from_scale(v(1.16, 1.04, 1.26)));
         m.lathe(
             &[
                 (0.0, -0.55),
@@ -555,15 +571,15 @@ fn legs(d: &mut Designer) {
             cuff,
         );
         m.hexa(
-            shoe(x, (-7.5, -6.22), (0.5, 0.34), (0.45, 1.14), (0.4, 0.92)),
+            shoe(x, (-7.5, -6.18), (0.58, 0.4), (0.45, 1.3), (0.4, 1.04)),
             0.1,
             BODY,
             sided(s, Affine3A::IDENTITY),
         );
-        slot(&mut m, 0.45, sided(s, place(v(x, -7.05, ankle.z - 1.12), ry(PI) * rz(FRAC_PI_2))));
+        slot(&mut m, 0.45, sided(s, place(v(x, -7.05, ankle.z - 1.3), ry(PI) * rz(FRAC_PI_2))));
         for side in [-1.0, 1.0] {
-            let hub = sided(s, place(v(x + side * 1.04, -7.92, ankle.z - 0.37), rz(FRAC_PI_2)));
-            wheel(&mut m, 0.44, 0.3, hub);
+            let hub = sided(s, place(v(x + side * 1.2, -7.92, ankle.z - 0.42), rz(FRAC_PI_2)));
+            wheel(&mut m, 0.5, 0.32, hub);
         }
 
         // The foot, in three brown blocks seamed together, their sides leaning in: the heel under
@@ -575,19 +591,20 @@ fn legs(d: &mut Designer) {
         f.sphere(0.5, 5, BROWN, sided(s, Affine3A::from_translation(ankle)));
         let flat = sided(s, Affine3A::IDENTITY);
         let base = SOLE + 0.2;
-        f.hexa(boot(x, base, (-8.1, -8.1), (0.9, 0.96), [-1.5, -1.3, -0.36, -0.36]), 0.12, BROWN, flat);
-        f.hexa(boot(x, base, (-8.04, -8.2), (0.98, 0.96), [-0.33, -0.33, 1.26, 1.26]), 0.12, BROWN, flat);
+        f.hexa(boot(x, base, (-8.0, -8.0), (1.06, 1.12), [-1.74, -1.5, -0.36, -0.36]), 0.14, BROWN, flat);
+        f.hexa(boot(x, base, (-7.96, -8.14), (1.14, 1.12), [-0.33, -0.33, 1.26, 1.26]), 0.14, BROWN, flat);
         let mut t = d.on(toe);
         t.seed(0.47 + k);
-        t.hexa(boot(x, base, (-8.22, -8.52), (0.96, 0.78), [1.32, 1.32, 2.82, 2.42]), 0.12, BROWN, flat);
+        t.hexa(boot(x, base, (-8.16, -8.5), (1.12, 0.92), [1.32, 1.32, 3.15, 2.72]), 0.14, BROWN, flat);
         t.greeble(|t| {
             // A seam across the toe.
-            t.cube(v(1.3, 0.03, 0.06), 0.0, FRAME, sided(s, place(v(x, -8.36, 2.0), rx(0.19))));
+            t.cube(v(1.5, 0.03, 0.06), 0.0, FRAME, sided(s, place(v(x, -8.33, 2.2), rx(0.18))));
         });
-        let heel = Sole { z: (-1.5, 1.27), half: (0.94, 1.0), top: 0.22, pads: BROWN, vernier: -0.5, r: 0.3 };
+        let heel =
+            Sole { z: (-1.74, 1.27), half: (1.1, 1.16), top: 0.22, pads: BROWN, vernier: -0.6, r: 0.34 };
         sole(d, foot, s, x, heel);
         let toes =
-            Sole { z: (1.33, 2.86), half: (1.0, 0.82), top: 0.22, pads: BROWN, vernier: 2.08, r: 0.24 };
+            Sole { z: (1.33, 3.19), half: (1.16, 0.96), top: 0.22, pads: BROWN, vernier: 2.3, r: 0.28 };
         sole(d, toe, s, x, toes);
         let mut f = d.on(foot);
         f.greeble(|f| {
@@ -595,13 +612,13 @@ fn legs(d: &mut Designer) {
             for (z, lean) in [(0.45, 0.5), (-0.9, -0.4)] {
                 for side in [-1.0, 1.0] {
                     let tilt = rz(side * BOOT_LEAN.atan()) * ry(side * FRAC_PI_2) * rz(lean);
-                    let face = sided(s, place(v(x + side * 0.88, -8.55, z), tilt));
+                    let face = sided(s, place(v(x + side * 1.04, -8.55, z), tilt));
                     f.cube(v(0.05, 0.55, 0.04), 0.0, FRAME, face);
                 }
             }
         });
         // (Its foot stops short of the toes' hinge, so they bend clear of it.)
-        f.hexa(shoe(x, (-8.24, -7.45), (0.6, 0.48), (0.3, 1.3), (0.3, 0.92)), 0.08, BODY, flat);
+        f.hexa(shoe(x, (-8.24, -7.42), (0.72, 0.56), (0.3, 1.3), (0.3, 0.94)), 0.08, BODY, flat);
         u_mark(&mut f, 0.36, 0.32, sided(s, place(v(x, -7.86, 1.13), rx(-0.49))));
     }
 }
@@ -796,21 +813,23 @@ fn backpack(d: &mut Designer) {
 
 // --- Weapons. ---
 
-/// The long type beam rifle: a boxy receiver with a carry handle, the flat energy pack before the
-/// grip, and a ribbed barrel shroud.
+/// The long type beam rifle: a boxy receiver standing forward of the grip with a carry handle and
+/// the rear sight on it, the flat energy pack before the grip, and a ribbed barrel shroud. Nothing
+/// of it lies behind the grip but the sight, high over the forearm ([`crate::hold`]).
 fn beam_rifle(d: &mut Designer) {
     let g = j(Bone::Weapon);
     let along_z = |y: f32, z: f32| place(v(g.x, g.y + y, g.z + z), rx(FRAC_PI_2));
     let mut w = d.on(Bone::Weapon);
     w.seed(0.61);
-    w.cube(v(0.32, 0.95, 0.42), 0.05, GUN, place(v(g.x, g.y - 0.2, g.z), rx(-0.25)));
-    w.block(v(0.64, 0.9, 3.0), v2(0.95, 0.95), Vec2::ZERO, 0.08, GUN, at(g.x, g.y + 0.6, g.z + 0.55));
-    w.block(v(0.6, 0.7, 0.6), v2(0.9, 0.9), Vec2::ZERO, 0.06, GUN, at(g.x, g.y + 0.55, g.z - 1.15));
-    w.block(v(0.4, 1.35, 1.05), v2(1.0, 1.0), Vec2::ZERO, 0.05, GUN, at(g.x, g.y - 0.05, g.z + 1.3));
-    for z in [0.0, 1.2] {
+    w.cube(v(0.32, 0.95, 0.34), 0.05, GUN, place(v(g.x, g.y - 0.2, g.z + 0.12), rx(-0.25)));
+    w.block(v(0.64, 0.9, 2.1), v2(0.95, 0.95), Vec2::ZERO, 0.08, GUN, at(g.x, g.y + 0.6, g.z + 1.15));
+    w.block(v(0.4, 1.35, 1.05), v2(1.0, 1.0), Vec2::ZERO, 0.05, GUN, at(g.x, g.y - 0.05, g.z + 1.55));
+    for z in [0.3, 1.5] {
         w.cube(v(0.16, 0.45, 0.18), 0.02, GUN, at(g.x, g.y + 1.25, g.z + z));
     }
-    w.cube(v(0.16, 0.14, 1.36), 0.02, GUN, at(g.x, g.y + 1.45, g.z + 0.6));
+    w.cube(v(0.16, 0.14, 1.9), 0.02, GUN, at(g.x, g.y + 1.45, g.z + 0.6));
+    // The rear sight at the handle's back, over the fist.
+    w.block(v(0.3, 0.32, 0.4), v2(0.8, 0.9), Vec2::ZERO, 0.04, GUN, at(g.x, g.y + 1.68, g.z - 0.15));
     w.cylinder(0.34, 2.6, 14, GUN, along_z(0.62, 3.35));
     w.greeble(|w| {
         for k in 0..7 {

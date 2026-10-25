@@ -385,22 +385,25 @@ pub fn setup_bay(
         piece(&mut commands, Vec3::new(x, CATWALK_Y - 0.2, 0.55), Vec3::new(25.6 / 48.0, 0.4, 0.1), tag);
     }
 
-    // The gantry: braces between its pillars at the knee, the head and the top, the crane rail (the
-    // catwalk crosses at the waist).
-    for y in [7.4, 16.5, GANTRY_TOP] {
-        for z in [4.5, 9.1] {
+    // The gantry: braces between its pillars at the knee, over the head and at the top, the crane
+    // rail (the catwalk crosses at the waist). Every frame stands clear of them as the bay holds it
+    // (`bc_model::hold`): the knee's front brace stands forward on its side rails, ahead of the gun
+    // a suit carries muzzle down at its side, and the head's is over the head, above the racks and
+    // binders some carry on their backs.
+    for (y, front) in [(7.4, 2.0), (19.5, 4.5), (GANTRY_TOP, 4.5)] {
+        for z in [front, 9.1] {
             piece(
                 &mut commands,
                 Vec3::new(0.0, y, z),
-                Vec3::new(13.6, 0.5, 0.5),
+                Vec3::new(14.8, 0.5, 0.5),
                 HullTag::paint(paint::YELLOW, 40).tag(),
             );
         }
-        for x in [-6.5, 6.5] {
+        for x in [-7.1, 7.1] {
             piece(
                 &mut commands,
-                Vec3::new(x, y, 6.8),
-                Vec3::new(0.5, 0.5, 4.6),
+                Vec3::new(x, y, (front + 9.1) / 2.0),
+                Vec3::new(0.5, 0.5, 9.1 - front),
                 HullTag::paint(paint::YELLOW, 41).tag(),
             );
         }
